@@ -78,9 +78,13 @@ extensions:
   obi:
     # OBI extension schema version (parsed after root declarative parse succeeds).
     version: "2.0"
-    # selection decides which processes/workloads are in scope for OBI instrumentation.
-    selection:
-      # Global rule engine behavior.
+
+    # capture defines what OBI instruments and how it captures telemetry.
+    # This is the only block valid in Collector receiver deployments.
+    # When running OBI as a Collector receiver, embed this block directly
+    # in the receiver configuration.
+    capture:
+      # policy controls global rule evaluation behavior.
       policy:
         # Include by default unless matched by an exclude rule.
         default_action: include
@@ -90,7 +94,7 @@ extensions:
         poll_interval: 0s
         # Ignore very new processes until they are old enough to evaluate.
         min_process_age: 5s
-      # Ordered include/exclude rules.
+      # rules is an ordered list of workload inclusion/exclusion rules.
       rules:
         - action: exclude
           name: exclude-obi-and-collectors
@@ -174,258 +178,306 @@ extensions:
         #             not_match: "/health*"
         #         metrics: {}
 
-    instrumentation:
-      # HTTP protocol instrumentation and HTTP-specific enrichment/parsing.
-      http:
-        enabled:
-          traces: true
-          metrics: true
-        # Filter behavior: allow records that match all configured criteria; drop non-matching records.
-        # Use `match` to keep matching values, and `not_match` to keep values that do not match.
-        # Example (commented): keep prod namespaces and drop health endpoints.
-        # filters:
-        #   traces:
-        #     k8s.namespace.name:
-        #       match: "prod-*"
-        #     url.path:
-        #       not_match: "/health*"
-        #   metrics:
-        #     k8s.namespace.name:
-        #       match: "prod-*"
-        filters:
-          traces: {}
-          metrics: {}
-        # Capture configured incoming/outgoing request headers when enabled.
-        track_request_headers: false
-        # HTTP request timeout guard for capture/processing.
-        request_timeout: 0s
-        # Internal parser/capture buffer size (0 uses default behavior).
-        buffer_size: 0
-        # HTTP route normalization and low-cardinality route naming controls.
-        routes:
-          # Fallback policy when no explicit route match is found.
-          unmatched: heuristic
-          # Optional user-supplied route patterns.
-          patterns: []
-          # Optional route patterns to ignore.
-          ignored_patterns: []
-          # Ignore applies to traces, metrics, or all.
-          ignore_mode: all
-          # Route wildcard replacement character.
-          wildcard_char: "*"
-          # Caps per-segment route cardinality in heuristic mode.
-          max_path_segment_cardinality: 10
-          # Route template discovery from runtime/language frameworks.
-          discovery:
-            # Global timeout for route template discovery runs.
-            timeout: 10s
-            # Languages to skip for route template discovery.
-            disabled_languages: []
-            java:
-              # Delay before Java route template discovery to allow runtime readiness.
-              delay: 1m0s
-        # HTTP payload-level extraction features.
-        payload_extraction:
-          graphql:
-            enabled: false
-          elasticsearch:
-            enabled: false
-          aws:
-            enabled: false
-          sqlpp:
-            enabled: false
-            endpoint_patterns:
-              - /query/service
-      # gRPC protocol instrumentation toggle.
-      grpc:
-        enabled:
-          traces: true
-          metrics: true
-        filters:
-          traces: {}
-          metrics: {}
-      # SQL protocol instrumentation and driver-specific tuning.
-      sql:
-        enabled:
-          traces: true
-          metrics: true
-        filters:
-          traces: {}
-          metrics: {}
-        heuristic_detect: false
-        mysql:
+      instrumentation:
+        # HTTP protocol instrumentation and HTTP-specific enrichment/parsing.
+        http:
+          enabled:
+            traces: true
+            metrics: true
+          # Filter behavior: allow records that match all configured criteria; drop non-matching records.
+          # Use `match` to keep matching values, and `not_match` to keep values that do not match.
+          # Example (commented): keep prod namespaces and drop health endpoints.
+          # filters:
+          #   traces:
+          #     k8s.namespace.name:
+          #       match: "prod-*"
+          #     url.path:
+          #       not_match: "/health*"
+          #   metrics:
+          #     k8s.namespace.name:
+          #       match: "prod-*"
+          filters:
+            traces: {}
+            metrics: {}
+          # Capture configured incoming/outgoing request headers when enabled.
+          track_request_headers: false
+          # HTTP request timeout guard for capture/processing.
+          request_timeout: 0s
+          # Internal parser/capture buffer size (0 uses default behavior).
           buffer_size: 0
-          prepared_statements_cache_size: 1024
-        postgres:
+          # HTTP route normalization and low-cardinality route naming controls.
+          routes:
+            # Fallback policy when no explicit route match is found.
+            unmatched: heuristic
+            # Optional user-supplied route patterns.
+            patterns: []
+            # Optional route patterns to ignore.
+            ignored_patterns: []
+            # Ignore applies to traces, metrics, or all.
+            ignore_mode: all
+            # Route wildcard replacement character.
+            wildcard_char: "*"
+            # Caps per-segment route cardinality in heuristic mode.
+            max_path_segment_cardinality: 10
+            # Route template discovery from runtime/language frameworks.
+            discovery:
+              # Global timeout for route template discovery runs.
+              timeout: 10s
+              # Languages to skip for route template discovery.
+              disabled_languages: []
+              java:
+                # Delay before Java route template discovery to allow runtime readiness.
+                delay: 1m0s
+          # HTTP payload-level extraction features.
+          payload_extraction:
+            graphql:
+              enabled: false
+            elasticsearch:
+              enabled: false
+            aws:
+              enabled: false
+            sqlpp:
+              enabled: false
+              endpoint_patterns:
+                - /query/service
+        # gRPC protocol instrumentation toggle.
+        grpc:
+          enabled:
+            traces: true
+            metrics: true
+          filters:
+            traces: {}
+            metrics: {}
+        # SQL protocol instrumentation and driver-specific tuning.
+        sql:
+          enabled:
+            traces: true
+            metrics: true
+          filters:
+            traces: {}
+            metrics: {}
+          heuristic_detect: false
+          mysql:
+            buffer_size: 0
+            prepared_statements_cache_size: 1024
+          postgres:
+            buffer_size: 0
+            prepared_statements_cache_size: 1024
+        # Redis instrumentation and DB cache behavior.
+        redis:
+          enabled:
+            traces: true
+            metrics: true
+          filters:
+            traces: {}
+            metrics: {}
+          db_cache:
+            enabled: false
+            max_size: 1000
+        # Kafka instrumentation tuning.
+        kafka:
+          enabled:
+            traces: true
+            metrics: true
+          filters:
+            traces: {}
+            metrics: {}
           buffer_size: 0
-          prepared_statements_cache_size: 1024
-      # Redis instrumentation and DB cache behavior.
-      redis:
-        enabled:
-          traces: true
-          metrics: true
-        filters:
-          traces: {}
-          metrics: {}
-        db_cache:
-          enabled: false
-          max_size: 1000
-      # Kafka instrumentation tuning.
-      kafka:
-        enabled:
-          traces: true
-          metrics: true
-        filters:
-          traces: {}
-          metrics: {}
-        buffer_size: 0
-        topic_uuid_cache_size: 1024
-      # Mongo instrumentation tuning.
-      mongo:
-        enabled:
-          traces: true
-          metrics: true
-        filters:
-          traces: {}
-          metrics: {}
-        requests_cache_size: 1024
-      # Couchbase instrumentation tuning.
-      couchbase:
-        enabled:
-          traces: true
-          metrics: true
-        filters:
-          traces: {}
-          metrics: {}
-        db_cache_size: 1024
-      # DNS event instrumentation.
-      dns:
-        enabled:
-          traces: false
-          metrics: false
-        filters:
-          traces: {}
-          metrics: {}
-        request_timeout: 5s
-      # GPU instrumentation mode.
-      gpu:
-        enabled:
-          traces: true
-          metrics: true
-        filters:
-          traces: {}
-          metrics: {}
-        enabled_mode: auto
+          topic_uuid_cache_size: 1024
+        # Mongo instrumentation tuning.
+        mongo:
+          enabled:
+            traces: true
+            metrics: true
+          filters:
+            traces: {}
+            metrics: {}
+          requests_cache_size: 1024
+        # Couchbase instrumentation tuning.
+        couchbase:
+          enabled:
+            traces: true
+            metrics: true
+          filters:
+            traces: {}
+            metrics: {}
+          db_cache_size: 1024
+        # DNS event instrumentation.
+        dns:
+          enabled:
+            traces: false
+            metrics: false
+          filters:
+            traces: {}
+            metrics: {}
+          request_timeout: 5s
+        # GPU instrumentation mode.
+        gpu:
+          enabled:
+            traces: true
+            metrics: true
+          filters:
+            traces: {}
+            metrics: {}
+          enabled_mode: auto
 
-    # Runtimes control injection of language-specific runtime instrumentation mechanisms.
-    # These are independent from protocol instrumentation (HTTP, gRPC, etc.) and are used
-    # to inject Go probes, Node.js SIGUSR1 signal handlers, or Java agents into workloads
-    # that match the global selection rules. The `enabled` flag controls whether to attempt
-    # injection; `filter` refines which selected services receive the injection.
-    runtimes:
-      # Go runtime instrumentation allows Go packages to be instrumented with probes.
-      # When enabled, Go services can use Go-specific probes. When disabled, they fall back
-      # to generic network-only instrumentation. Selection controls which services to target;
-      # filter provides per-injector refinement.
-      go:
-        enabled: true
-        # Optional filter to refine which selected services get Go instrumentation.
-        # By default (empty filter), all selected Go services receive instrumentation.
-        filter: {}
-      # Node.js runtime instrumentation allows Node.js services to be instrumented via
-      # SIGUSR1 signal injection. The enabled flag controls whether to attempt injection.
-      nodejs:
-        enabled: true
-        # Optional filter to refine which selected services get Node.js instrumentation.
-        # By default (empty filter), all selected Node.js services receive instrumentation.
-        filter: {}
-      # Java runtime instrumentation allows Java services to be instrumented via agent
-      # attachment. The enabled flag controls whether to attempt agent injection.
-      java:
-        enabled: true
-        # Optional filter to refine which selected services get Java instrumentation.
-        # By default (empty filter), all selected Java services receive instrumentation.
-        filter: {}
-        # Java-specific debug controls.
+      # runtimes controls injection of language-specific runtime instrumentation mechanisms.
+      # These are independent from protocol instrumentation (HTTP, gRPC, etc.) and are used
+      # to inject Go probes, Node.js SIGUSR1 signal handlers, or Java agents into workloads
+      # that match the selection rules. The `enabled` flag controls whether to attempt
+      # injection; `filter` refines which selected services receive the injection.
+      runtimes:
+        # Go runtime instrumentation allows Go packages to be instrumented with probes.
+        # When enabled, Go services can use Go-specific probes. When disabled, they fall back
+        # to generic network-only instrumentation.
+        go:
+          enabled: true
+          # Optional filter to refine which selected services get Go instrumentation.
+          # By default (empty filter), all selected Go services receive instrumentation.
+          filter: {}
+        # Node.js runtime instrumentation allows Node.js services to be instrumented via
+        # SIGUSR1 signal injection. The enabled flag controls whether to attempt injection.
+        nodejs:
+          enabled: true
+          # Optional filter to refine which selected services get Node.js instrumentation.
+          # By default (empty filter), all selected Node.js services receive instrumentation.
+          filter: {}
+        # Java runtime instrumentation allows Java services to be instrumented via agent
+        # attachment. The enabled flag controls whether to attempt agent injection.
+        java:
+          enabled: true
+          # Optional filter to refine which selected services get Java instrumentation.
+          # By default (empty filter), all selected Java services receive instrumentation.
+          filter: {}
+          # Java-specific debug controls.
+          debug:
+            enabled: false
+            bytecode_instrumentation: false
+          # Timeout for Java agent attachment.
+          attach_timeout: 10s
+
+      # network controls how network flow telemetry is captured and interpreted
+      # for in-scope workloads (interfaces/protocols/cidrs, dedupe, enrichment, diagnostics).
+      network:
+        capture:
+          # Master switch for network flow observability.
+          enabled: false
+          # Capture backend: socket_filter (default) or tc.
+          source: socket_filter
+          # Identity of this OBI agent in flow metadata.
+          endpoint_identity:
+            agent_ip: ""
+            agent_ip_interface: external
+            agent_ip_family: any
+          # Scope/filtering for captured network traffic.
+          selection:
+            interfaces:
+              include: []
+              exclude:
+                - lo
+            protocols:
+              include: []
+              exclude: []
+            # Optional CIDR definitions for src/dst network grouping attributes.
+            cidrs: []
+            direction: both
+          # Network-level filtering for flow capture/output by signal.
+          # Filter behavior: allow records that match all configured criteria; drop non-matching records.
+          # Example (commented): keep pod traffic and drop kube-system.
+          # filters:
+          #   metrics:
+          #     dst.k8s.namespace.name:
+          #       match: "*"
+          #     src.k8s.namespace.name:
+          #       not_match: "kube-system"
+          #   traces: {}
+          filters:
+            traces: {}
+            metrics: {}
+          # Flow cache and reduction behavior.
+          flow_lifecycle:
+            max_tracked_flows: 5000
+            active_timeout: 5s
+            deduplication:
+              # Dedup strategy for multi-interface duplicate flows.
+              strategy: first_come
+              first_come_ttl: 0s
+            # Packet sampling rate (0 means disabled/default behavior).
+            sampling: 0
+          # How interface changes are detected.
+          interface_discovery:
+            # watch (event-based) or poll.
+            mode: watch
+            poll_interval: 10s
+          # Optional network-level data enrichment.
+          enrichment:
+            geo_ip:
+              ipinfo:
+                path: ""
+              maxmind:
+                country_path: ""
+                asn_path: ""
+              cache:
+                size: 512
+                ttl: 1h0m0s
+            reverse_dns:
+              mode: none
+              cache:
+                size: 256
+                ttl: 1h0m0s
+          # Debug/diagnostics output controls.
+          diagnostics:
+            print_flows: false
+
+      # limits constrains cardinality and memory growth during capture.
+      limits:
+        network_packets: 5000
+        metric_span_names: 100
+
+      # engine controls eBPF engine internals.
+      engine:
         debug:
-          enabled: false
-          bytecode_instrumentation: false
-        # Timeout for Java agent attachment.
-        attach_timeout: 10s
+          bpf: false
+          protocol_print: false
+        pid_filter:
+          disabled: false
+        batching:
+          wakeup_len: 500
+          batch_length: 100
+          batch_timeout: 1s
+        propagation:
+          context_propagation: disabled
+          override_bpfloop_enabled: false
+          disable_black_box_cp: false
+        traffic:
+          control_backend: auto
+          high_request_volume: false
+        transactions:
+          max_duration: 5m0s
+        bpf_filesystem:
+          path: /sys/fs/bpf/
 
-    # network controls how network flow telemetry is captured and interpreted
-    # for in-scope workloads (interfaces/protocols/cidrs, dedupe, enrichment, diagnostics).
-    network:
-      capture:
-        # Master switch for network flow observability.
-        enabled: false
-        # Capture backend: socket_filter (default) or tc.
-        source: socket_filter
-        # Identity of this OBI agent in flow metadata.
-        endpoint_identity:
-          agent_ip: ""
-          agent_ip_interface: external
-          agent_ip_family: any
-        # Scope/filtering for captured network traffic.
-        selection:
-          interfaces:
-            include: []
-            exclude:
-              - lo
-          protocols:
-            include: []
-            exclude: []
-          # Optional CIDR definitions for src/dst network grouping attributes.
-          cidrs: []
-          direction: both
-        # Network-level filtering for flow capture/output by signal.
-        # Filter behavior: allow records that match all configured criteria; drop non-matching records.
-        # Example (commented): keep pod traffic and drop kube-system.
-        # filters:
-        #   metrics:
-        #     dst.k8s.namespace.name:
-        #       match: "*"
-        #     src.k8s.namespace.name:
-        #       not_match: "kube-system"
-        #   traces: {}
-        filters:
-          traces: {}
-          metrics: {}
-        # Flow cache and reduction behavior.
-        flow_lifecycle:
-          max_tracked_flows: 5000
-          active_timeout: 5s
-          deduplication:
-            # Dedup strategy for multi-interface duplicate flows.
-            strategy: first_come
-            first_come_ttl: 0s
-          # Packet sampling rate (0 means disabled/default behavior).
-          sampling: 0
-        # How interface changes are detected.
-        interface_discovery:
-          # watch (event-based) or poll.
-          mode: watch
-          poll_interval: 10s
-        # Optional network-level data enrichment.
-        enrichment:
-          geo_ip:
-            ipinfo:
-              path: ""
-            maxmind:
-              country_path: ""
-              asn_path: ""
-            cache:
-              size: 512
-              ttl: 1h0m0s
-          reverse_dns:
-            mode: none
-            cache:
-              size: 256
-              ttl: 1h0m0s
-        # Debug/diagnostics output controls.
-        diagnostics:
-          print_flows: false
+      # safety enforces host/runtime capability checks.
+      safety:
+        enforce_system_capabilities: false
 
+      # channels controls internal backpressure behavior.
+      channels:
+        buffer_len: 50
+        send_timeout: 1m0s
+        panic_on_send_timeout: false
+
+      # telemetry tunes reporter caches and metric TTLs for OBI capture internals.
+      telemetry:
+        traces:
+          reporters_cache_len: 256
+        metrics:
+          ttl: 5m0s
+          reporters_cache_len: 256
+
+    # enrich defines metadata enrichment behavior for telemetry.
+    # Standalone-mode only: not valid in Collector receiver deployments.
+    # In receiver mode, use k8sattributesprocessor and similar Collector processors instead.
     enrich:
       # Runtime configuration for metadata enrichers.
       enrichers:
@@ -473,20 +525,6 @@ extensions:
                 - app.kubernetes.io/part-of
               service.version:
                 - app.kubernetes.io/version
-          # Example only (commented out): additional enricher-based rule.
-          # This demonstrates how to add a second identity source while preserving default
-          # precedence semantics (earlier rules have higher precedence).
-          # - id: cloud-default
-          #   from: cloud
-          #   description: Example cloud metadata mapping into canonical service identity.
-          #   map:
-          #     service.name:
-          #       - cloud.service.name
-          #       - cloud.instance.name
-          #     service.namespace:
-          #       - cloud.account.id
-          #     service.version:
-          #       - cloud.service.version
         # Fallback names when peer/host resolution fails.
         unresolved_hosts:
           names:
@@ -525,7 +563,9 @@ extensions:
                 server.address:
                   - dns.resolved_ip
 
-    # Correlation features propagate OBI trace context into external streams.
+    # correlation propagates OBI trace context into external streams.
+    # Standalone-mode only: not valid in Collector receiver deployments.
+    # Log trace annotation as a Collector component is planned as a separate deliverable.
     correlation:
       log_trace_annotation:
         enabled: false
@@ -539,56 +579,11 @@ extensions:
         async_writer:
           workers: 8
           channel_len: 500
-      # Example only (commented): future correlator for passing trace context
-      # into OTel eBPF profile streams.
-      # profile_trace_context:
-      #   enabled: false
-      #   # Optional per-correlator refinement filter.
-      #   filter: {}
-      #   # Trace context fields propagated to the profile stream.
-      #   include_fields:
-      #     - trace_id
-      #     - span_id
 
-    operations:
-      # Runtime limits and guardrails.
-      limits:
-        network_packets: 5000
-        metric_span_names: 100
-      # Signal/exporter tuning.
-      telemetry:
-        traces:
-          reporters_cache_len: 256
-        metrics:
-          ttl: 5m0s
-          reporters_cache_len: 256
-          prometheus:
-            allow_service_graph_self_references: false
-            span_metrics_service_cache_size: 10000
-            extra_resource_attributes: []
-            extra_span_resource_attributes: []
-      # Runtime capture internals, safety/perf/debug toggles.
-      capture:
-        debug:
-          bpf: false
-          protocol_print: false
-        pid_filter:
-          disabled: false
-        batching:
-          wakeup_len: 500
-          batch_length: 100
-          batch_timeout: 1s
-        propagation:
-          context_propagation: disabled
-          override_bpfloop_enabled: false
-          disable_black_box_cp: false
-        traffic:
-          control_backend: auto
-          high_request_volume: false
-        transactions:
-          max_duration: 5m0s
-        bpf_filesystem:
-          path: /sys/fs/bpf/
+    # daemon controls the OBI process itself: logging, profiling, shutdown, and internal metrics.
+    # Standalone-mode only: not valid in Collector receiver deployments.
+    # In receiver mode the Collector manages these concerns.
+    daemon:
       # Logging behavior and startup config dump.
       logging:
         level: INFO
@@ -600,16 +595,7 @@ extensions:
       # Graceful shutdown controls.
       shutdown:
         timeout: 10s
-      # Host/runtime safety checks.
-      safety:
-        enforce_system_capabilities: false
-      # Internal channel/backpressure behavior.
-      runtime:
-        channels:
-          buffer_len: 50
-          send_timeout: 1m0s
-          panic_on_send_timeout: false
-      # OBI internal metrics export configuration.
+      # OBI daemon's own metrics export configuration.
       internal_metrics:
         exporter: disabled
         prometheus:
@@ -617,3 +603,11 @@ extensions:
           path: /internal/metrics
         bpf:
           scrape_interval: 15s
+      # Prometheus-exporter-specific metric shaping for OBI standalone output.
+      telemetry:
+        metrics:
+          prometheus:
+            allow_service_graph_self_references: false
+            span_metrics_service_cache_size: 10000
+            extra_resource_attributes: []
+            extra_span_resource_attributes: []

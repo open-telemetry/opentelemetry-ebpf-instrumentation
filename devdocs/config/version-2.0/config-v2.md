@@ -119,7 +119,12 @@ To ground this redesign in user needs, we start with the top user journeys and e
 ### High-level shape
 
 At a high level, the target configuration shape is a standard [OpenTelemetry declarative configuration](https://github.com/open-telemetry/opentelemetry-configuration) document with a root `file_format` field and top-level sections for `resource`, `propagator`, `tracer_provider`, and `meter_provider`.
-All OBI-specific configuration lives under `extensions.obi`, which includes user-facing controls for selection, instrumentation, runtime injection, network observability, enrichment, correlation, and operations.
+All OBI-specific configuration lives under `extensions.obi`.
+
+The `extensions.obi` block is divided by deployment scope:
+
+- `capture`: valid in all deployment modes. Contains everything OBI needs to select and instrument workloads. When running OBI as a Collector receiver, this is the sub-config embedded directly in the receiver configuration.
+- `enrich`, `correlation`, `daemon`: standalone-mode only. These sections are not valid in Collector receiver deployments, where the Collector pipeline handles enrichment and process lifecycle.
 
 ```yaml
 file_format: '1.0-rc.1'
@@ -132,99 +137,112 @@ meter_provider: {}
 extensions:
   obi:
     version: "2.0"
-    selection:
+
+    # Receiver-embeddable: valid in all deployment modes.
+    capture:
       policy:
         default_action: include
         match_order: first_match_wins
       rules: []
+      instrumentation:
+        http:
+          enabled: { traces: true, metrics: true }
+          filters: { traces: {}, metrics: {} }
+        grpc:
+          enabled: { traces: true, metrics: true }
+          filters: { traces: {}, metrics: {} }
+        sql:
+          enabled: { traces: true, metrics: true }
+          filters: { traces: {}, metrics: {} }
+          mysql: {}
+          postgres: {}
+        redis:
+          enabled: { traces: true, metrics: true }
+          filters: { traces: {}, metrics: {} }
+        kafka:
+          enabled: { traces: true, metrics: true }
+          filters: { traces: {}, metrics: {} }
+        mongo:
+          enabled: { traces: true, metrics: true }
+          filters: { traces: {}, metrics: {} }
+        couchbase:
+          enabled: { traces: true, metrics: true }
+          filters: { traces: {}, metrics: {} }
+        dns:
+          enabled: { traces: false, metrics: false }
+          filters: { traces: {}, metrics: {} }
+        gpu:
+          enabled: { traces: true, metrics: true }
+          filters: { traces: {}, metrics: {} }
+      runtimes:
+        go:
+          enabled: true
+          filter: {}
+        nodejs:
+          enabled: true
+          filter: {}
+        java:
+          enabled: true
+          filter: {}
+          debug: {}
+          attach_timeout: 10s
+      network:
+        capture: {}
+      limits: {}
+      engine: {}
+      safety: {}
+      channels: {}
+      telemetry: {}
 
-    instrumentation:
-      http:
-        enabled: { traces: true, metrics: true }
-        filters: { traces: {}, metrics: {} }
-      grpc:
-        enabled: { traces: true, metrics: true }
-        filters: { traces: {}, metrics: {} }
-      sql:
-        enabled: { traces: true, metrics: true }
-        filters: { traces: {}, metrics: {} }
-        mysql: {}
-        postgres: {}
-      redis:
-        enabled: { traces: true, metrics: true }
-        filters: { traces: {}, metrics: {} }
-      kafka:
-        enabled: { traces: true, metrics: true }
-        filters: { traces: {}, metrics: {} }
-      mongo:
-        enabled: { traces: true, metrics: true }
-        filters: { traces: {}, metrics: {} }
-      couchbase:
-        enabled: { traces: true, metrics: true }
-        filters: { traces: {}, metrics: {} }
-      dns:
-        enabled: { traces: false, metrics: false }
-        filters: { traces: {}, metrics: {} }
-      gpu:
-        enabled: { traces: true, metrics: true }
-        filters: { traces: {}, metrics: {} }
-
-    runtimes:
-      go:
-        enabled: true
-        filter: {}
-      nodejs:
-        enabled: true
-        filter: {}
-      java:
-        enabled: true
-        filter: {}
-        debug: {}
-        attach_timeout: 10s
+    # Standalone-mode only: not valid in Collector receiver deployments.
+    enrich:
+      enrichers:
+        kubernetes: {}
+      service_name: {}
+      attributes: {}
 
     correlation:
       log_trace_annotation:
         enabled: false
         filter: {}
 
-    network:
-      capture: {}
-
-    enrich:
-      kubernetes: {}
-      naming: {}
-      attributes: {}
-
-    operations:
-      limits: {}
-      telemetry: {}
-      capture: {}
+    daemon:
       logging: {}
       profiling: {}
       shutdown: {}
-      safety: {}
       internal_metrics: {}
+      telemetry: {}
 ```
 
 #### `version` property
 
 The `extensions.obi.version` field defines the version of the OBI extension schema being used. This allows the parsing and validation logic to apply the correct schema rules and migration logic based on the declared version.
 
-#### `selection` Section
+#### `capture` Section
 
-This section defines the service selection and target discovery policy for instrumentation.
+The `extensions.obi.capture` section is the receiver-embeddable core of the OBI configuration.
+It defines what OBI instruments and how it captures telemetry.
+This is the only section valid in Collector receiver deployments — when OBI runs as a receiver,
+this block is embedded directly in the Collector receiver configuration.
+
 It includes:
 
-- `policy`: global selection behavior controls, such as default action for unmatched services and rule precedence strategy.
-- `rules`: an ordered list of selection rules that define matching criteria and actions (include/exclude) for services.
-  These rules, currently, are based on:
-  - process identity
-  - network identity
-  - language
-  - Kubernetes metadata
-  - already-instrumented status.
+- `policy`: global rule evaluation behavior (default action, match order, timing).
+- `rules`: ordered workload selection rules (include/exclude by process identity, Kubernetes metadata, etc.).
+- `instrumentation`: protocol-specific capture controls (HTTP, gRPC, SQL, Redis, Kafka, MongoDB, Couchbase, DNS, GPU).
+- `runtimes`: language runtime injection controls (Go probes, Node.js SIGUSR1, Java agent attachment).
+- `network`: network flow capture configuration.
+- `limits`: cardinality and memory guardrails.
+- `engine`: eBPF engine internals (batching, pid filter, BPF filesystem, propagation, traffic backend, transaction limits, debug).
+- `safety`: system capability enforcement checks.
+- `channels`: internal backpressure controls.
+- `telemetry`: reporter cache sizes and metric TTL tuning for OBI capture internals.
 
-This section is the primary user control for defining which services get instrumented by OBI, and it supports complex selection logic through ordered rules.
+##### Workload selection (`policy` and `rules`)
+
+`capture.policy` defines global rule evaluation behavior, and `capture.rules` is an ordered list of workload inclusion/exclusion rules.
+Rules are based on process identity, network identity, language, Kubernetes metadata, and already-instrumented status.
+These are the primary user controls for defining which services get instrumented by OBI.
 
 ##### Per-workload refinement (`refine`)
 
@@ -334,33 +352,26 @@ tracer_provider:
             always_on: {}
 ```
 
-#### `instrumentation` Section
+#### `capture.instrumentation` Section
 
-The `extension.obi.instrumentation` section defines protocol-specific instrumentation controls, including enablement and filtering for traces and metrics.
+The `capture.instrumentation` section defines protocol-specific instrumentation controls, including enablement and filtering for traces and metrics.
 
 All protocols (HTTP, gRPC, SQL, Redis, Kafka, MongoDB, Couchbase, DNS, GPU) have a consistent base structure for defining whether traces and metrics are enabled and what filters apply to each signal.
 Each protocol can also have its own specific configuration subsections.
 For example, SQL has `mysql` and `postgres` for driver-specific controls, HTTP has `routes.discovery` for route harvesting controls, etc.
 
-#### `runtimes` Section
+#### `capture.runtimes` Section
 
-The `extensions.obi.runtimes` section defines how language-specific runtime instrumentation injection mechanisms are controlled.
+The `capture.runtimes` section defines how language-specific runtime instrumentation injection mechanisms are controlled.
 These include Go probes, Node.js SIGUSR1 signal injection, and Java agent attachment.
 
 Unlike protocol instrumentation, runtimes are not about capturing specific telemetry signals—they are about *how* to instrument a service once it's selected.
 Each runtime has a simple structure: `enabled` (boolean) controls whether to attempt injection, and `filter` provides optional per-runtime refinement for which selected services receive the injection.
 Java also includes additional runtime-specific configuration such as debug controls and attachment timeout.
 
-#### `correlation` Section
+#### `capture.network` Section
 
-The `extensions.obi.correlation` section defines trace-context correlation features that propagate OBI-generated trace context into external streams.
-Unlike telemetry instrumentation (protocol signals), correlation features operate *after* traces are captured to enrich related observability data.
-
-For example, `log_trace_annotation` allows trace context to be injected into application logs from selected services, linking logs to traces through context correlation.
-
-#### `network` Section
-
-The `extensions.obi.network` section defines how network observability is configured, including endpoint identity, selection criteria, flow lifecycle controls, interface discovery behavior, enrichment options, and diagnostics. This section is the primary user control for defining how OBI captures and processes network telemetry.
+The `capture.network` section defines how network observability is configured, including endpoint identity, selection criteria, flow lifecycle controls, interface discovery behavior, enrichment options, and diagnostics. This section is the primary user control for defining how OBI captures and processes network telemetry.
 
 #### `enrich` Section
 
@@ -390,9 +401,27 @@ extensions:
 
 The default is `autodetect`, which enables the enricher when a Kubernetes environment is detected.
 
-#### `operations` Section
+#### `correlation` Section
 
-The `extensions.obi.operations` section defines runtime and operational controls for OBI, including limits, telemetry tuning, capture behavior, logging configuration, profiling options, shutdown behavior, safety controls, and internal metrics configuration. This section is the primary user control for defining how OBI operates in production environments.
+The `extensions.obi.correlation` section defines trace-context correlation features that propagate OBI-generated trace context into external streams.
+Unlike telemetry instrumentation (protocol signals), correlation features operate *after* traces are captured to enrich related observability data.
+
+For example, `log_trace_annotation` allows trace context to be injected into application logs from selected services, linking logs to traces through context correlation.
+
+This section is standalone-mode only. Log trace annotation as a Collector component is planned as a separate deliverable.
+
+#### `daemon` Section
+
+The `extensions.obi.daemon` section defines OBI daemon process controls.
+This section is standalone-mode only — in Collector receiver deployments, the Collector manages these concerns.
+
+It includes:
+
+- `logging`: OBI process log level, format, and debug trace output mode.
+- `profiling`: optional pprof endpoint for OBI process profiling.
+- `shutdown`: graceful shutdown timeout.
+- `internal_metrics`: OBI daemon's own metrics export (Prometheus or OTLP).
+- `telemetry.metrics.prometheus`: Prometheus-exporter-specific metric shaping for OBI standalone output.
 
 ### Compatibility and mapping from v1
 
@@ -405,109 +434,108 @@ Important mapping notes:
   - `otel_metrics_export` pipeline structure and transport settings → `meter_provider.*`
   - `prometheus_export.path` → `meter_provider.*`
   - `otel_traces_export` pipeline structure and transport/sampler settings → `tracer_provider.*`
-- OBI runtime telemetry tuning is mapped under `extensions.obi.operations.telemetry`:
-  - Common metric tuning stays under `extensions.obi.operations.telemetry.metrics`.
-  - Prometheus-specific metric tuning is grouped under `extensions.obi.operations.telemetry.metrics.prometheus`.
-  - Trace reporter cache tuning is under `extensions.obi.operations.telemetry.traces`.
+- The old flat `operations` section is split by deployment scope:
+  - Capture-valid fields move into `extensions.obi.capture.*` (valid in all deployment modes).
+  - Daemon-only fields move into `extensions.obi.daemon.*` (standalone mode only).
 - Some mappings are non-1:1:
-  - `filter.application` fans out to protocol+signal filters.
-  - `filter.network` fans out to network signal filters.
-  - `metrics.features` maps to protocol metric enablement and network capture enablement.
-  - `discovery.skip_go_specific_tracers` maps to `runtimes.go.enabled` with inverted semantics.
+  - `filter.application` fans out to `capture.instrumentation.<protocol>.filters.{traces,metrics}`.
+  - `filter.network` fans out to `capture.network.capture.filters.{traces,metrics}`.
+  - `metrics.features` maps to `capture.instrumentation.<protocol>.enabled.metrics` + `capture.network.capture.enabled`.
+  - `discovery.skip_go_specific_tracers` maps to `capture.runtimes.go.enabled` with inverted semantics.
 
 | v1 field | v2 canonical location | Notes |
 |---|---|---|
 | `attributes.kubernetes.informers_sync_timeout` | `extensions.obi.enrich.enrichers.kubernetes.informers.initial_sync_timeout` | Move |
 | `attributes.kubernetes.informers_resync_period` | `extensions.obi.enrich.enrichers.kubernetes.informers.resync_period` | Move |
-| `attributes.metric_span_names_limit` | `extensions.obi.operations.limits.metric_span_names` | Move + rename |
+| `attributes.metric_span_names_limit` | `extensions.obi.capture.limits.metric_span_names` | Move + rename |
 | `attributes.rename_unresolved_hosts` | `extensions.obi.enrich.service_name.unresolved_hosts.names.default` | Move |
-| `channel_buffer_len` | `extensions.obi.operations.runtime.channels.buffer_len` | Move |
-| `channel_send_timeout` | `extensions.obi.operations.runtime.channels.send_timeout` | Move |
-| `channel_send_timeout_panic` | `extensions.obi.operations.runtime.channels.panic_on_send_timeout` | Move + rename |
-| `discovery.bpf_pid_filter_off` | `extensions.obi.operations.capture.pid_filter.disabled` | Move + rename |
-| `discovery.default_otlp_grpc_port` | `extensions.obi.selection.rules[].match.process.exports_otlp.port` | Move + reshape |
-| `discovery.disabled_route_harvesters` | `extensions.obi.instrumentation.http.routes.discovery.disabled_languages` | Move + rename |
-| `discovery.exclude_otel_instrumented_services` | `extensions.obi.selection.rules[].match.process.exports_otlp` (exclude rule) | Move + reshape |
-| `discovery.excluded_linux_system_paths` | `extensions.obi.selection.rules[].match.process.exe_path_glob` (exclude rule) | Move + reshape |
-| `discovery.min_process_age` | `extensions.obi.selection.policy.min_process_age` | Move |
-| `discovery.route_harvester_advanced.java_harvest_delay` | `extensions.obi.instrumentation.http.routes.discovery.java.delay` | Move + rename |
-| `discovery.route_harvester_timeout` | `extensions.obi.instrumentation.http.routes.discovery.timeout` | Move + rename |
-| `discovery.skip_go_specific_tracers` | `extensions.obi.runtimes.go.enabled` | Inverted boolean mapping |
-| `ebpf.batch_length` | `extensions.obi.operations.capture.batching.batch_length` | Move |
-| `ebpf.batch_timeout` | `extensions.obi.operations.capture.batching.batch_timeout` | Move |
-| `ebpf.bpf_fs_path` | `extensions.obi.operations.capture.bpf_filesystem.path` | Move + rename |
-| `ebpf.buffer_sizes.http` | `extensions.obi.instrumentation.http.buffer_size` | Move |
-| `ebpf.buffer_sizes.kafka` | `extensions.obi.instrumentation.kafka.buffer_size` | Move |
-| `ebpf.buffer_sizes.mysql` | `extensions.obi.instrumentation.sql.mysql.buffer_size` | Move |
-| `ebpf.buffer_sizes.postgres` | `extensions.obi.instrumentation.sql.postgres.buffer_size` | Move |
-| `ebpf.dns_request_timeout` | `extensions.obi.instrumentation.dns.request_timeout` | Move |
-| `ebpf.heuristic_sql_detect` | `extensions.obi.instrumentation.sql.heuristic_detect` | Move + rename |
-| `ebpf.kafka_topic_uuid_cache_size` | `extensions.obi.instrumentation.kafka.topic_uuid_cache_size` | Move |
+| `channel_buffer_len` | `extensions.obi.capture.channels.buffer_len` | Move |
+| `channel_send_timeout` | `extensions.obi.capture.channels.send_timeout` | Move |
+| `channel_send_timeout_panic` | `extensions.obi.capture.channels.panic_on_send_timeout` | Move + rename |
+| `discovery.bpf_pid_filter_off` | `extensions.obi.capture.engine.pid_filter.disabled` | Move + rename |
+| `discovery.default_otlp_grpc_port` | `extensions.obi.capture.rules[].match.process.exports_otlp.port` | Move + reshape |
+| `discovery.disabled_route_harvesters` | `extensions.obi.capture.instrumentation.http.routes.discovery.disabled_languages` | Move + rename |
+| `discovery.exclude_otel_instrumented_services` | `extensions.obi.capture.rules[].match.process.exports_otlp` (exclude rule) | Move + reshape |
+| `discovery.excluded_linux_system_paths` | `extensions.obi.capture.rules[].match.process.exe_path_glob` (exclude rule) | Move + reshape |
+| `discovery.min_process_age` | `extensions.obi.capture.policy.min_process_age` | Move |
+| `discovery.route_harvester_advanced.java_harvest_delay` | `extensions.obi.capture.instrumentation.http.routes.discovery.java.delay` | Move + rename |
+| `discovery.route_harvester_timeout` | `extensions.obi.capture.instrumentation.http.routes.discovery.timeout` | Move + rename |
+| `discovery.skip_go_specific_tracers` | `extensions.obi.capture.runtimes.go.enabled` | Inverted boolean mapping |
+| `ebpf.batch_length` | `extensions.obi.capture.engine.batching.batch_length` | Move |
+| `ebpf.batch_timeout` | `extensions.obi.capture.engine.batching.batch_timeout` | Move |
+| `ebpf.bpf_fs_path` | `extensions.obi.capture.engine.bpf_filesystem.path` | Move + rename |
+| `ebpf.buffer_sizes.http` | `extensions.obi.capture.instrumentation.http.buffer_size` | Move |
+| `ebpf.buffer_sizes.kafka` | `extensions.obi.capture.instrumentation.kafka.buffer_size` | Move |
+| `ebpf.buffer_sizes.mysql` | `extensions.obi.capture.instrumentation.sql.mysql.buffer_size` | Move |
+| `ebpf.buffer_sizes.postgres` | `extensions.obi.capture.instrumentation.sql.postgres.buffer_size` | Move |
+| `ebpf.dns_request_timeout` | `extensions.obi.capture.instrumentation.dns.request_timeout` | Move |
+| `ebpf.heuristic_sql_detect` | `extensions.obi.capture.instrumentation.sql.heuristic_detect` | Move + rename |
+| `ebpf.kafka_topic_uuid_cache_size` | `extensions.obi.capture.instrumentation.kafka.topic_uuid_cache_size` | Move |
 | `ebpf.log_enricher.cache_size` | `extensions.obi.correlation.log_trace_annotation.cache.size` | Move + rename |
 | `ebpf.log_enricher.cache_ttl` | `extensions.obi.correlation.log_trace_annotation.cache.ttl` | Move + rename |
 | `ebpf.log_enricher.async_writer_workers` | `extensions.obi.correlation.log_trace_annotation.async_writer.workers` | Move + rename |
 | `ebpf.log_enricher.async_writer_channel_len` | `extensions.obi.correlation.log_trace_annotation.async_writer.channel_len` | Move + rename |
-| `ebpf.max_transaction_time` | `extensions.obi.operations.capture.transactions.max_duration` | Move + rename |
-| `ebpf.mysql_prepared_statements_cache_size` | `extensions.obi.instrumentation.sql.mysql.prepared_statements_cache_size` | Move |
-| `ebpf.payload_extraction.http.graphql.enabled` | `extensions.obi.instrumentation.http.payload_extraction.graphql.enabled` | Move |
-| `ebpf.payload_extraction.http.sqlpp.enabled` | `extensions.obi.instrumentation.http.payload_extraction.sqlpp.enabled` | Move |
-| `ebpf.postgres_prepared_statements_cache_size` | `extensions.obi.instrumentation.sql.postgres.prepared_statements_cache_size` | Move |
-| `ebpf.redis_db_cache.enabled` | `extensions.obi.instrumentation.redis.db_cache.enabled` | Move |
-| `ebpf.traffic_control_backend` | `extensions.obi.operations.capture.traffic.control_backend` | Move + rename |
-| `ebpf.wakeup_len` | `extensions.obi.operations.capture.batching.wakeup_len` | Move |
-| `enforce_sys_caps` | `extensions.obi.operations.safety.enforce_system_capabilities` | Move + rename |
-| `filter.application` | `extensions.obi.instrumentation.<protocol>.filters.{traces,metrics}` | Fan-out to all protocols/signals |
-| `filter.network` | `extensions.obi.network.capture.filters.{traces,metrics}` | Fan-out to both signals |
-| `internal_metrics.bpf_metric_scrape_interval` | `extensions.obi.operations.internal_metrics.bpf.scrape_interval` | Move + rename |
-| `internal_metrics.exporter` | `extensions.obi.operations.internal_metrics.exporter` | Move |
-| `internal_metrics.prometheus.path` | `extensions.obi.operations.internal_metrics.prometheus.path` | Move |
-| `javaagent.attach_timeout` | `extensions.obi.runtimes.java.attach_timeout` | Move |
-| `javaagent.debug` | `extensions.obi.runtimes.java.debug.enabled` | Move + rename |
-| `javaagent.debug_instrumentation` | `extensions.obi.runtimes.java.debug.bytecode_instrumentation` | Move + rename |
-| `javaagent.enabled` | `extensions.obi.runtimes.java.enabled` | Simplified to boolean |
-| `log_config` | `extensions.obi.operations.logging.format` | Move + rename |
-| `log_level` | `extensions.obi.operations.logging.level` | Move |
-| `metrics.features` | `extensions.obi.instrumentation.<protocol>.enabled.metrics` + `extensions.obi.network.capture.enabled` | Split mapping |
+| `ebpf.max_transaction_time` | `extensions.obi.capture.engine.transactions.max_duration` | Move + rename |
+| `ebpf.mysql_prepared_statements_cache_size` | `extensions.obi.capture.instrumentation.sql.mysql.prepared_statements_cache_size` | Move |
+| `ebpf.payload_extraction.http.graphql.enabled` | `extensions.obi.capture.instrumentation.http.payload_extraction.graphql.enabled` | Move |
+| `ebpf.payload_extraction.http.sqlpp.enabled` | `extensions.obi.capture.instrumentation.http.payload_extraction.sqlpp.enabled` | Move |
+| `ebpf.postgres_prepared_statements_cache_size` | `extensions.obi.capture.instrumentation.sql.postgres.prepared_statements_cache_size` | Move |
+| `ebpf.redis_db_cache.enabled` | `extensions.obi.capture.instrumentation.redis.db_cache.enabled` | Move |
+| `ebpf.traffic_control_backend` | `extensions.obi.capture.engine.traffic.control_backend` | Move + rename |
+| `ebpf.wakeup_len` | `extensions.obi.capture.engine.batching.wakeup_len` | Move |
+| `enforce_sys_caps` | `extensions.obi.capture.safety.enforce_system_capabilities` | Move + rename |
+| `filter.application` | `extensions.obi.capture.instrumentation.<protocol>.filters.{traces,metrics}` | Fan-out to all protocols/signals |
+| `filter.network` | `extensions.obi.capture.network.capture.filters.{traces,metrics}` | Fan-out to both signals |
+| `internal_metrics.bpf_metric_scrape_interval` | `extensions.obi.daemon.internal_metrics.bpf.scrape_interval` | Move + rename |
+| `internal_metrics.exporter` | `extensions.obi.daemon.internal_metrics.exporter` | Move |
+| `internal_metrics.prometheus.path` | `extensions.obi.daemon.internal_metrics.prometheus.path` | Move |
+| `javaagent.attach_timeout` | `extensions.obi.capture.runtimes.java.attach_timeout` | Move |
+| `javaagent.debug` | `extensions.obi.capture.runtimes.java.debug.enabled` | Move + rename |
+| `javaagent.debug_instrumentation` | `extensions.obi.capture.runtimes.java.debug.bytecode_instrumentation` | Move + rename |
+| `javaagent.enabled` | `extensions.obi.capture.runtimes.java.enabled` | Simplified to boolean |
+| `log_config` | `extensions.obi.daemon.logging.format` | Move + rename |
+| `log_level` | `extensions.obi.daemon.logging.level` | Move |
+| `metrics.features` | `extensions.obi.capture.instrumentation.<protocol>.enabled.metrics` + `extensions.obi.capture.network.capture.enabled` | Split mapping |
 | `name_resolver.cache_expiry` | `extensions.obi.enrich.service_name.cache.ttl` | Move + rename |
 | `name_resolver.cache_len` | `extensions.obi.enrich.service_name.cache.size` | Move + rename |
-| `network.agent_ip` | `extensions.obi.network.capture.endpoint_identity.agent_ip` | Move |
-| `network.agent_ip_iface` | `extensions.obi.network.capture.endpoint_identity.agent_ip_interface` | Move + rename |
-| `network.agent_ip_type` | `extensions.obi.network.capture.endpoint_identity.agent_ip_family` | Move + rename |
-| `network.cache_active_timeout` | `extensions.obi.network.capture.flow_lifecycle.active_timeout` | Move + rename |
-| `network.cache_max_flows` | `extensions.obi.network.capture.flow_lifecycle.max_tracked_flows` | Move + rename |
-| `network.deduper` | `extensions.obi.network.capture.flow_lifecycle.deduplication.strategy` | Move + rename |
-| `network.deduper_fc_ttl` | `extensions.obi.network.capture.flow_lifecycle.deduplication.first_come_ttl` | Move + rename |
-| `network.direction` | `extensions.obi.network.capture.selection.direction` | Move |
-| `network.enable` | `extensions.obi.network.capture.enabled` | Move + rename |
-| `network.geo_ip.cache_expiry` | `extensions.obi.network.capture.enrichment.geo_ip.cache.ttl` | Move + rename |
-| `network.listen_interfaces` | `extensions.obi.network.capture.interface_discovery.mode` | Move + reshape |
-| `network.listen_poll_period` | `extensions.obi.network.capture.interface_discovery.poll_interval` | Move + rename |
-| `network.print_flows` | `extensions.obi.network.capture.diagnostics.print_flows` | Move |
-| `network.reverse_dns.cache_expiry` | `extensions.obi.network.capture.enrichment.reverse_dns.cache.ttl` | Move + rename |
-| `network.sampling` | `extensions.obi.network.capture.flow_lifecycle.sampling` | Move |
-| `network.source` | `extensions.obi.network.capture.source` | Move |
-| `nodejs.enabled` | `extensions.obi.runtimes.nodejs.enabled` | Simplified to boolean |
+| `network.agent_ip` | `extensions.obi.capture.network.capture.endpoint_identity.agent_ip` | Move |
+| `network.agent_ip_iface` | `extensions.obi.capture.network.capture.endpoint_identity.agent_ip_interface` | Move + rename |
+| `network.agent_ip_type` | `extensions.obi.capture.network.capture.endpoint_identity.agent_ip_family` | Move + rename |
+| `network.cache_active_timeout` | `extensions.obi.capture.network.capture.flow_lifecycle.active_timeout` | Move + rename |
+| `network.cache_max_flows` | `extensions.obi.capture.network.capture.flow_lifecycle.max_tracked_flows` | Move + rename |
+| `network.deduper` | `extensions.obi.capture.network.capture.flow_lifecycle.deduplication.strategy` | Move + rename |
+| `network.deduper_fc_ttl` | `extensions.obi.capture.network.capture.flow_lifecycle.deduplication.first_come_ttl` | Move + rename |
+| `network.direction` | `extensions.obi.capture.network.capture.selection.direction` | Move |
+| `network.enable` | `extensions.obi.capture.network.capture.enabled` | Move + rename |
+| `network.geo_ip.cache_expiry` | `extensions.obi.capture.network.capture.enrichment.geo_ip.cache.ttl` | Move + rename |
+| `network.listen_interfaces` | `extensions.obi.capture.network.capture.interface_discovery.mode` | Move + reshape |
+| `network.listen_poll_period` | `extensions.obi.capture.network.capture.interface_discovery.poll_interval` | Move + rename |
+| `network.print_flows` | `extensions.obi.capture.network.capture.diagnostics.print_flows` | Move |
+| `network.reverse_dns.cache_expiry` | `extensions.obi.capture.network.capture.enrichment.reverse_dns.cache.ttl` | Move + rename |
+| `network.sampling` | `extensions.obi.capture.network.capture.flow_lifecycle.sampling` | Move |
+| `network.source` | `extensions.obi.capture.network.capture.source` | Move |
+| `nodejs.enabled` | `extensions.obi.capture.runtimes.nodejs.enabled` | Simplified to boolean |
 | `otel_metrics_export.histogram_aggregation` | `meter_provider.readers[0].periodic.exporter.otlp_grpc.default_histogram_aggregation` | OTel ownership move + declarative reader/exporter shape |
-| `otel_metrics_export.reporters_cache_len` | `extensions.obi.operations.telemetry.metrics.reporters_cache_len` | Move to OBI-owned telemetry tuning |
-| `otel_metrics_export.ttl` | `extensions.obi.operations.telemetry.metrics.ttl` | Move to OBI-owned telemetry tuning |
-| `otel_metrics_export.extra_span_resource_attributes` | `extensions.obi.operations.telemetry.metrics.prometheus.extra_span_resource_attributes` | Move to OBI-owned telemetry tuning |
+| `otel_metrics_export.reporters_cache_len` | `extensions.obi.capture.telemetry.metrics.reporters_cache_len` | Move to capture telemetry tuning |
+| `otel_metrics_export.ttl` | `extensions.obi.capture.telemetry.metrics.ttl` | Move to capture telemetry tuning |
+| `otel_metrics_export.extra_span_resource_attributes` | `extensions.obi.daemon.telemetry.metrics.prometheus.extra_span_resource_attributes` | Move to daemon telemetry tuning |
 | `otel_traces_export.batch_timeout` | `tracer_provider.processors[0].batch.schedule_delay` | OTel ownership move + rename + duration(ms) representation |
 | `otel_traces_export.max_queue_size` | `tracer_provider.processors[0].batch.max_queue_size` | OTel ownership move + declarative processor list shape |
-| `otel_traces_export.reporters_cache_len` | `extensions.obi.operations.telemetry.traces.reporters_cache_len` | Move to OBI-owned telemetry tuning |
+| `otel_traces_export.reporters_cache_len` | `extensions.obi.capture.telemetry.traces.reporters_cache_len` | Move to capture telemetry tuning |
 | `otel_traces_export.sampler.arg` | `tracer_provider.sampler` | OTel ownership move. Map to built-in sampler arguments when possible; per-workload semantics require a custom sampler plugin. |
 | `otel_traces_export.sampler.name` | `tracer_provider.sampler` | OTel ownership move. Map to built-in sampler names when possible; per-workload semantics require a custom sampler plugin. |
-| `profile_port` | `extensions.obi.operations.profiling.port` | Move |
-| `prometheus_export.allow_service_graph_self_references` | `extensions.obi.operations.telemetry.metrics.prometheus.allow_service_graph_self_references` | Move to OBI-owned telemetry tuning |
-| `prometheus_export.extra_resource_attributes` | `extensions.obi.operations.telemetry.metrics.prometheus.extra_resource_attributes` | Move to OBI-owned telemetry tuning |
-| `prometheus_export.extra_span_resource_attributes` | `extensions.obi.operations.telemetry.metrics.prometheus.extra_span_resource_attributes` | Move to OBI-owned telemetry tuning |
+| `profile_port` | `extensions.obi.daemon.profiling.port` | Move |
+| `prometheus_export.allow_service_graph_self_references` | `extensions.obi.daemon.telemetry.metrics.prometheus.allow_service_graph_self_references` | Move to daemon telemetry tuning |
+| `prometheus_export.extra_resource_attributes` | `extensions.obi.daemon.telemetry.metrics.prometheus.extra_resource_attributes` | Move to daemon telemetry tuning |
+| `prometheus_export.extra_span_resource_attributes` | `extensions.obi.daemon.telemetry.metrics.prometheus.extra_span_resource_attributes` | Move to daemon telemetry tuning |
 | `prometheus_export.port` | `meter_provider.readers[1].pull.exporter.prometheus/development.port` | OTel ownership move + declarative reader/exporter shape |
 | `prometheus_export.path` | _No canonical OTel core path in current declarative schema_ | Distribution-specific/unsupported in current target shape |
-| `prometheus_export.service_cache_size` | `extensions.obi.operations.telemetry.metrics.prometheus.span_metrics_service_cache_size` | Move to OBI-owned telemetry tuning + rename |
-| `routes.max_path_segment_cardinality` | `extensions.obi.instrumentation.http.routes.max_path_segment_cardinality` | Move |
-| `routes.unmatched` | `extensions.obi.instrumentation.http.routes.unmatched` | Move |
-| `routes.wildcard_char` | `extensions.obi.instrumentation.http.routes.wildcard_char` | Move |
-| `shutdown_timeout` | `extensions.obi.operations.shutdown.timeout` | Move |
-| `trace_printer` | `extensions.obi.operations.logging.debug_trace_output` | Move + rename |
+| `prometheus_export.service_cache_size` | `extensions.obi.daemon.telemetry.metrics.prometheus.span_metrics_service_cache_size` | Move to daemon telemetry tuning + rename |
+| `routes.max_path_segment_cardinality` | `extensions.obi.capture.instrumentation.http.routes.max_path_segment_cardinality` | Move |
+| `routes.unmatched` | `extensions.obi.capture.instrumentation.http.routes.unmatched` | Move |
+| `routes.wildcard_char` | `extensions.obi.capture.instrumentation.http.routes.wildcard_char` | Move |
+| `shutdown_timeout` | `extensions.obi.daemon.shutdown.timeout` | Move |
+| `trace_printer` | `extensions.obi.daemon.logging.debug_trace_output` | Move + rename |
 
 ## Related docs
 
