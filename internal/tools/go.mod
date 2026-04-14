@@ -267,4 +267,5 @@ tool (
 	github.com/onsi/ginkgo/v2/ginkgo
 	go.opentelemetry.io/build-tools/multimod
 	gotest.tools/gotestsum
+	sigs.k8s.io/kind
 )

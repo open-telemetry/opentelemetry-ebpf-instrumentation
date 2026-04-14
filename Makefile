@@ -106,11 +106,8 @@ ENVTEST_K8S_VERSION ?= 1.30.0
 ENVTEST ?= $(TOOLS)/setup-envtest
 $(TOOLS)/setup-envtest: PACKAGE=sigs.k8s.io/controller-runtime/tools/setup-envtest
 
-KIND ?= $(TOOLS)/kind
-$(TOOLS)/kind: PACKAGE=sigs.k8s.io/kind
-
 .PHONY: tools
-tools: $(BPF2GO) $(ENVTEST) $(KIND)
+tools: $(BPF2GO) $(ENVTEST)
 
 ### Development Tools (end) #################################################
 
@@ -412,9 +409,9 @@ prepare-integration-test:
 	$(MAKE) cleanup-integration-test
 
 .PHONY: cleanup-integration-test
-cleanup-integration-test: $(KIND)
+cleanup-integration-test:
 	@echo "### Removing integration test clusters"
-	$(KIND) delete cluster -n test-kind-cluster || true
+	go tool $(TOOLS_MODFILE) kind delete cluster -n test-kind-cluster || true
 	@echo "### Removing docker containers and images"
 	$(eval CONTAINERS := $(shell $(OCI_BIN) ps --format '{{.Names}}' | grep 'integration-'))
 	$(if $(strip $(CONTAINERS)),$(OCI_BIN) rm -f $(CONTAINERS),@echo "No integration test containers to remove")
