@@ -206,7 +206,7 @@ When enabled, `db.query.text` for KV operations may include document values, whi
 **Collection ID prefix stripping:**
 
 Modern Couchbase SDKs (3.x+) negotiate collections via HELLO, causing all KV keys to carry a
-LEB128-encoded collection ID prefix. OBI strips this prefix when building The query statement:
+LEB128-encoded collection ID prefix. OBI strips this prefix when building the query statement:
 
 - When a named collection has been resolved via GET_COLLECTION_ID for the connection (scope and
   collection are cached), the full LEB128 prefix is stripped.
