@@ -179,10 +179,11 @@ OBI generates spans with the following OpenTelemetry semantic conventions:
 | `server.address`          | Connection info    | Server hostname                        |
 | `server.port`             | Connection info    | `11210`                                |
 
-### `db.query.text` for KV Operations
+### Query statement for KV Operations
 
-`db.query.text` is an optional attribute (must be included in `attributes.select` to be emitted).
-It renders the KV operation in a Redis-style textual format: `OP key [extras] [value]`.
+We do not have the raw query statement, since it is parsed and transformed into the KV binary format.
+We try to render the KV operation in a Redis-style textual format: `OP key [extras] [value]`.
+it is optionally added to `db.query.text` attribute (must be included in `attributes.select` to be emitted).
 
 **Format by opcode family:**
 
@@ -197,21 +198,22 @@ It renders the KV operation in a Redis-style textual format: `OP key [extras] [v
 **Value inclusion rules:**
 
 - Values are included only when non-empty, valid UTF-8, and not snappy-compressed (DataType flag 0x02).
-- Truncated values (due to the 256-byte eBPF capture buffer) are included as-is.
+- Truncated values are included as-is.
 - SET/ADD/REPLACE extras: flags field is always omitted; TTL is shown only when non-zero.
 - INCREMENT/DECREMENT extras: DELTA is always shown; INITIAL is omitted; TTL is shown only when non-zero.
 
 **Collection ID prefix stripping:**
 
 Modern Couchbase SDKs (3.x+) negotiate collections via HELLO, causing all KV keys to carry a
-LEB128-encoded collection ID prefix. OBI strips this prefix when building `db.query.text`:
+LEB128-encoded collection ID prefix. OBI strips this prefix when building The query statement:
 
-- When a SELECT_BUCKET has been observed for the connection (bucket is cached), the full LEB128
-  prefix is stripped.
+- When a named collection has been resolved via GET_COLLECTION_ID for the connection (scope and
+  collection are cached), the full LEB128 prefix is stripped.
 - As a best-effort fallback, a leading null byte (`0x00`, the default collection ID) is stripped
-  even when no bucket cache entry exists (e.g., on connections established before OBI started).
-- Non-default collection IDs (1+) on uncached connections cannot be reliably stripped because
-  their LEB128 encoding overlaps with printable ASCII.
+  even when no collection info is cached (e.g., default collection usage, or connections
+  established before OBI started).
+- Non-default collection IDs (1+) on connections without a cached collection cannot be reliably
+  stripped because their LEB128 encoding overlaps with printable ASCII.
 
 ## Configuration
 
