@@ -1,18 +1,19 @@
-# OBI Configuration Composition Draft
+# OBI Configuration v2.0 Design
 
 Status: Draft for discussion  
 Audience: OBI maintainers and contributors  
 Scope: configuration model, schema, validation, and migration UX
 
 The current configuration model has evolved organically with a focus on implementation needs and incremental user feedback.
-This has led to some structural inconsistencies, redundant controls, and a mix of user-facing and internal configuration in the same sections.
-To address this, a user-centric redesign of the configuration schema that optimizes for common user journeys, clear ownership of concerns, and a clean separation between user-facing configuration and internal implementation details is being proposed here.
+This has led to structural inconsistencies, redundant controls, and a mix of user-facing and internal configuration in the same sections.
+To address this, a user-centric redesign of the configuration schema is proposed here, optimizing for common user journeys, clear ownership of concerns, and a clean separation between user-facing configuration and internal implementation details.
 
 Goals:
 
 - Define a clear, consistent configuration schema that maps directly to user intent and common use cases.
 - Provide an extension to the OpenTelemetry declarative configuration model that configures OBI-specific behavior.
 - Guarantee a smooth migration path from the current v1 configuration shape to the new v2 shape, with clear validation and tooling support.
+- Ensure the configuration can be used cleanly in both standalone daemon and Collector receiver deployments.
 
 ## Design principles
 
@@ -38,6 +39,12 @@ To ensure that the redesign is guided by consistent values and priorities, we de
     - `instrumentation/development` is not merged into OBI-specific controls.
     - OBI behavior is configured through `extensions.obi` only.
 
+- **Deployment-aware structure**
+  - OBI runs in two modes: standalone daemon and Collector receiver.
+  - Configuration structure should reflect which parts are valid in each mode.
+  - The receiver-valid sub-config should be embeddable directly, without requiring users to manually extract a subset.
+  - Standalone-only concerns (daemon process management, enrichment, log annotation) must not leak into receiver deployments.
+
 - **Protocol-local ownership over global toggles**
   - Protocol behavior should be configured under each protocol section.
   - Enablement and filtering should be signal-scoped at the protocol/network ownership point.
@@ -45,6 +52,7 @@ To ensure that the redesign is guided by consistent values and priorities, we de
 - **Deterministic precedence over hidden heuristics**
   - Ordered rules should define precedence explicitly.
   - Configuration should avoid ambiguous override behavior.
+  - Per-workload overrides use an explicit, closed vocabulary rather than generic deep-merge semantics.
 
 - **Reduce redundancy and surprise**
   - Remove redundant gates that can silently disable already-configured behavior.
@@ -86,6 +94,7 @@ To ground this redesign in user needs, we start with the top user journeys and e
     - Kubernetes/container identity (metadata, labels/annotations, containers-only)
 2. A user wants to combine multiple target rules to scope instrumentation and control telemetry volume/cost.
 3. A user wants to avoid instrumenting services that are already instrumented.
+4. A user wants to apply per-service configuration (for example disable traces for one service, or set custom HTTP routes for another).
 
 ### Export and integrate
 
@@ -113,8 +122,8 @@ To ground this redesign in user needs, we start with the top user journeys and e
 
 ## Target v2.0 Configuration Shape
 
-- [Full target-shape with defaults example](./default-configuration-example.yaml) (mapped from current defaults)
-- [JSONSchema](./obi-extension.schema.json) (draft schema reflecting target shape)
+- [Full default-values example](./examples/default-configuration.yaml) (all fields mapped from current defaults)
+- [JSON Schema](./obi-extension.schema.json) (schema for `extensions.obi`)
 
 ### High-level shape
 
@@ -123,8 +132,8 @@ All OBI-specific configuration lives under `extensions.obi`.
 
 The `extensions.obi` block is divided by deployment scope:
 
-- `capture`: valid in all deployment modes. Contains everything OBI needs to select and instrument workloads. When running OBI as a Collector receiver, this is the sub-config embedded directly in the receiver configuration.
-- `enrich`, `correlation`, `daemon`: standalone-mode only. These sections are not valid in Collector receiver deployments, where the Collector pipeline handles enrichment and process lifecycle.
+- `capture`: valid in **all** deployment modes. Contains everything OBI needs to select workloads and capture telemetry. When running OBI as a Collector receiver, this block is embedded directly in the receiver configuration — no manual extraction required.
+- `enrich`, `correlation`, `daemon`: **standalone-mode only**. These sections are not valid in Collector receiver deployments. The Collector pipeline handles enrichment (via processors) and process lifecycle (logging, profiling, shutdown) in receiver mode.
 
 ```yaml
 file_format: '1.0-rc.1'
@@ -214,18 +223,27 @@ extensions:
       telemetry: {}
 ```
 
-#### `version` property
+### `version` property
 
-The `extensions.obi.version` field defines the version of the OBI extension schema being used. This allows the parsing and validation logic to apply the correct schema rules and migration logic based on the declared version.
+The `extensions.obi.version` field defines the version of the OBI extension schema being used.
+This allows the parsing and validation logic to apply the correct schema rules and migration logic based on the declared version.
 
-#### `capture` Section
+### `capture` Section
 
 The `extensions.obi.capture` section is the receiver-embeddable core of the OBI configuration.
 It defines what OBI instruments and how it captures telemetry.
-This is the only section valid in Collector receiver deployments — when OBI runs as a receiver,
-this block is embedded directly in the Collector receiver configuration.
+This is the **only** section valid in Collector receiver deployments.
 
-It includes:
+#### Why `capture` is a named grouping
+
+Early design iterations kept all top-level OBI sections flat: `selection`, `instrumentation`, `runtimes`, `network`, `operations`, `enrich`, `correlation`.
+The `capture` grouping was introduced for two reasons:
+
+1. **Receiver embedding**: OBI runs in two deployment modes — standalone daemon and Collector receiver. In receiver mode, OBI is a telemetry source only. Side-effect features (k8s enrichment, log annotation) and process management (logging, profiling, shutdown) are not the receiver's responsibility — the Collector pipeline handles those. Having a single named block (`capture`) that represents exactly what the receiver embeds makes the boundary unambiguous and avoids requiring users or tools to manually enumerate which fields are valid.
+
+2. **Correctness over documentation**: An alternative was a flat structure with a `deployment: standalone | receiver` flag, where the parser would reject standalone-only fields in receiver mode. This was rejected because it makes the boundary a runtime enforcement concern rather than a structural schema concern. With `capture` as an explicit block, the schema itself communicates the boundary, and a schema-only view of the Collector receiver config is the `capture` block — no validation flags needed.
+
+`capture` contains:
 
 - `policy`: global rule evaluation behavior (default action, match order, timing).
 - `rules`: ordered workload selection rules (include/exclude by process identity, Kubernetes metadata, etc.).
@@ -238,28 +256,53 @@ It includes:
 - `channels`: internal backpressure controls.
 - `telemetry`: reporter cache sizes and metric TTL tuning for OBI capture internals.
 
-##### Workload selection (`policy` and `rules`)
+#### Workload selection: `capture.policy` and `capture.rules`
 
 `capture.policy` defines global rule evaluation behavior, and `capture.rules` is an ordered list of workload inclusion/exclusion rules.
 Rules are based on process identity, network identity, language, Kubernetes metadata, and already-instrumented status.
 These are the primary user controls for defining which services get instrumented by OBI.
 
-##### Per-workload refinement (`refine`)
+**Why `policy` and `rules` are direct children of `capture`, not nested under `capture.selection`**
+
+An earlier draft had a `selection` sub-section under `capture` (i.e., `capture.selection.policy` and `capture.selection.rules`).
+The extra nesting was removed for the following reasons:
+
+- `capture.rules` is the field the vast majority of users write. Any indirection before reaching it is friction on the most common path.
+- The `selection` grouping added no semantic clarity — within `capture`, everything is selection-and-capture configuration. The word `selection` was a label for a concept that `capture` already names.
+- Removing the indirection saves one nesting level on every rule users write, with no loss of meaning.
+- `capture.policy` and `capture.rules` read naturally as "the capture policy" and "the capture rules", reinforcing the parent section's meaning rather than fighting it.
+
+#### Per-workload refinement: `refine` on include rules
 
 Include rules may carry an optional `refine` block that overrides global defaults for matched workloads.
-The `refine` block uses an explicit, closed vocabulary of overridable fields — it does not provide a generic deep-merge of the full config.
-This keeps override semantics deterministic and avoids ambiguity from partial object merges.
 
-Current overridable fields:
+**Why `refine` exists**
+
+v1 supported per-selection-rule overrides for exports, sampler, routes, and metrics (`ExportModes`, `SamplerConfig`, `Routes`, `SvcMetricsConfig`).
+The initial v2 design had no equivalent, which would have required users to either apply global settings to all workloads uniformly or replace the whole config per environment.
+This was raised as a key gap by reviewers (grcevski, fstab) — a concrete example: globally emit metrics only, but for a specific namespace emit traces as well; or globally use heuristic routes, but for a specific service specify exact path patterns.
+
+**Why `refine` uses an explicit closed vocabulary, not generic deep-merge**
+
+The alternative to an explicit vocabulary is a `refine` block that accepts any subset of the global config shape and deep-merges it.
+This was rejected because:
+
+- Deep-merge semantics are ambiguous for arrays (append vs. replace?), maps (key-level merge vs. whole-map replace?), and absent fields (inherit vs. zero?). Each ambiguity needs a specified rule, and each rule is a source of user confusion.
+- The actual v1 per-rule overrides were a small, well-defined set. Generalizing to an arbitrary deep-merge would have supported hypothetical cases at the cost of making the common cases harder to reason about.
+- An explicit vocabulary makes the schema self-documenting: users see exactly what can be overridden per workload.
+
+Current overridable fields in `refine`:
 
 - `exports`: override which signals (`traces`, `metrics`) are emitted for this workload.
 - `http.routes`: override HTTP route patterns and fallback policy for this workload.
 - `http.filters`: replace HTTP trace/metric filters for this workload.
 
+New fields can be added to the `refine` vocabulary deliberately as use cases emerge.
+
 Example use cases:
 
 ```yaml
-selection:
+capture:
   rules:
     # Disable traces for a low-priority namespace; keep metrics.
     - action: include
@@ -287,15 +330,20 @@ selection:
               - /orders/{id}/items
 ```
 
-Sampling overrides are not part of the `refine` block.
-Per-workload sampling is handled by the `tracer_provider.sampler` using the `obi_rule_based` custom sampler,
-which matches on resource attributes (such as `service.namespace` or `service.name`).
+Sampling overrides are **not** part of the `refine` block.
+Per-workload sampling is handled via `tracer_provider.sampler` using the `obi_rule_based` custom sampler, which matches on resource attributes.
 See the [Sampling model](#sampling-model) section below.
 
-#### Sampling model
+### Sampling model
 
 Sampling remains owned by top-level OTel declarative configuration under `tracer_provider.sampler`.
 OBI does not define a parallel sampling section under `extensions.obi`, and selection rules do not override sampler behavior.
+
+**Why sampling is not in `capture.rules[].refine`**
+
+The `tracer_provider.sampler` is already the standard, extensible place for sampling policy in OTel declarative config.
+Adding a parallel `sampler` field inside `capture.rules[].refine` would violate the "compatible with OTel declarative configuration" principle by introducing a competing pipeline model.
+Instead, the `obi_rule_based` custom sampler plugin (a planned v2 deliverable) allows workload-matching sampling behavior to be expressed inside `tracer_provider.sampler`, keeping the concern in its canonical location while still meeting the per-workload use case.
 
 For v2 scope, OBI will provide and ship an OBI sampler plugin implementation in this project,
 so users can reference it directly from `tracer_provider.sampler`.
@@ -303,10 +351,9 @@ so users can reference it directly from `tracer_provider.sampler`.
 When workload-specific sampling behavior is needed, users should configure it through the sampler itself:
 
 - Use built-in OTel samplers when global behavior is sufficient.
-- Use a custom sampler plugin (SDK extension plugin component) when rule/pattern-based workload sampling is required.
+- Use the `obi_rule_based` custom sampler plugin when rule/pattern-based workload sampling is required.
 
-In OBI v2, this custom plugin is a planned deliverable of this work.
-The implementation will include:
+The plugin implementation will include:
 
 - sampler component implementation in OBI,
 - registration/wiring in OBI runtime initialization,
@@ -314,7 +361,7 @@ The implementation will include:
 
 This keeps concerns separated and explicit:
 
-- `extensions.obi.selection`: workload discovery/targeting.
+- `extensions.obi.capture`: workload discovery and capture configuration.
 - `tracer_provider.sampler`: trace sampling policy.
 
 Example (global built-in sampler):
@@ -352,7 +399,7 @@ tracer_provider:
             always_on: {}
 ```
 
-#### `capture.instrumentation` Section
+### `capture.instrumentation` Section
 
 The `capture.instrumentation` section defines protocol-specific instrumentation controls, including enablement and filtering for traces and metrics.
 
@@ -360,35 +407,48 @@ All protocols (HTTP, gRPC, SQL, Redis, Kafka, MongoDB, Couchbase, DNS, GPU) have
 Each protocol can also have its own specific configuration subsections.
 For example, SQL has `mysql` and `postgres` for driver-specific controls, HTTP has `routes.discovery` for route harvesting controls, etc.
 
-#### `capture.runtimes` Section
+### `capture.runtimes` Section
 
 The `capture.runtimes` section defines how language-specific runtime instrumentation injection mechanisms are controlled.
 These include Go probes, Node.js SIGUSR1 signal injection, and Java agent attachment.
 
-Unlike protocol instrumentation, runtimes are not about capturing specific telemetry signals—they are about *how* to instrument a service once it's selected.
+Unlike protocol instrumentation, runtimes are not about capturing specific telemetry signals — they are about *how* to instrument a service once it's selected.
 Each runtime has a simple structure: `enabled` (boolean) controls whether to attempt injection, and `filter` provides optional per-runtime refinement for which selected services receive the injection.
 Java also includes additional runtime-specific configuration such as debug controls and attachment timeout.
 
-#### `capture.network` Section
+### `capture.network` Section
 
-The `capture.network` section defines how network observability is configured, including endpoint identity, selection criteria, flow lifecycle controls, interface discovery behavior, enrichment options, and diagnostics. This section is the primary user control for defining how OBI captures and processes network telemetry.
+The `capture.network` section defines how network observability is configured, including endpoint identity, selection criteria, flow lifecycle controls, interface discovery behavior, enrichment options, and diagnostics.
+This section is the primary user control for defining how OBI captures and processes network telemetry.
 
-#### `enrich` Section
+### `capture.engine` Section
 
-The `extensions.obi.enrich` section defines enrichment behavior for telemetry, including service naming policy, and general attribute enrichment rules. This section allows users to configure how OBI adds contextual information to telemetry based on various sources.
+The `capture.engine` section controls eBPF engine internals: event batching, PID-based filtering, BPF filesystem path, context propagation mode, traffic control backend, transaction duration limits, and debug toggles.
 
-##### Kubernetes enricher and Collector receiver deployments
+**Why `engine`, not `capture.capture`**
 
-The `enrich.enrichers.kubernetes` enricher adds Kubernetes pod, namespace, and deployment metadata to telemetry.
-It is the right choice when OBI runs as a standalone daemon with no Collector in the pipeline.
+Earlier drafts named this sub-section `capture` (i.e., `operations.capture`), which would have produced the awkward path `capture.capture.*` after the restructure.
+It was renamed `engine` to accurately describe what it contains (eBPF engine internals) while remaining deployment-neutral — advanced users who tune these settings already know they are configuring BPF behavior.
+The alternative `ebpf` was considered but rejected as more implementation-specific than `engine`.
 
-When running OBI as a Collector receiver, the OpenTelemetry Collector's
-[`k8sattributesprocessor`](https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/processor/k8sattributesprocessor)
-covers the same enrichment and service name derivation following OTel semantic conventions.
-Running both in the same pipeline results in duplicate Kubernetes API queries and potentially conflicting attribute values.
+### `enrich` Section
 
-In receiver deployments, set `enrich.enrichers.kubernetes.mode: disabled` to turn off OBI's built-in k8s enrichment
-and rely on the Collector processor instead:
+The `extensions.obi.enrich` section defines enrichment behavior for telemetry, including Kubernetes metadata, service naming policy, and general attribute enrichment rules.
+This section is **standalone-mode only**.
+
+#### Why `enrich` is standalone-only
+
+In Collector receiver deployments, OBI is a telemetry source. Enrichment is the Collector's responsibility:
+
+- The [`k8sattributesprocessor`](https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/processor/k8sattributesprocessor) covers Kubernetes pod/namespace/deployment metadata and service name derivation following OTel semantic conventions.
+- Running OBI's built-in k8s enricher alongside `k8sattributesprocessor` in the same pipeline results in duplicate Kubernetes API queries and potentially conflicting attribute values.
+- Attribute enrichment and service naming rules in `enrich` are conceptually a post-capture processing step, which belongs in the Collector pipeline in receiver mode.
+
+This was raised directly by reviewers (dmitryax) who noted the overlap with existing Collector processors.
+
+In standalone mode, `enrich` remains essential — there is no Collector pipeline to delegate enrichment to.
+
+For Kubernetes environments using OBI as a receiver, use `k8sattributesprocessor` and set `enrich.enrichers.kubernetes.mode: disabled` if the `enrich` section is present (or omit `enrich` entirely):
 
 ```yaml
 extensions:
@@ -399,26 +459,43 @@ extensions:
           mode: disabled   # use k8sattributesprocessor in the Collector pipeline instead
 ```
 
-The default is `autodetect`, which enables the enricher when a Kubernetes environment is detected.
+The `mode` field supports: `autodetect` (default — enable if k8s environment is detected), `enabled`, and `disabled`.
 
-#### `correlation` Section
+### `correlation` Section
 
 The `extensions.obi.correlation` section defines trace-context correlation features that propagate OBI-generated trace context into external streams.
 Unlike telemetry instrumentation (protocol signals), correlation features operate *after* traces are captured to enrich related observability data.
 
 For example, `log_trace_annotation` allows trace context to be injected into application logs from selected services, linking logs to traces through context correlation.
 
-This section is standalone-mode only. Log trace annotation as a Collector component is planned as a separate deliverable.
+This section is **standalone-mode only**.
 
-#### `daemon` Section
+#### Why `correlation` is standalone-only, and the future of log trace annotation
+
+`log_trace_annotation` is a side-effectful operation — it writes back to log streams, which is not a telemetry-source concern.
+When running as a Collector receiver, these side effects are not appropriate for a receiver component.
+Log trace annotation as a standalone Collector component (e.g., a processor or connector) is planned as a separate deliverable, separate from the OBI receiver configuration.
+
+### `daemon` Section
 
 The `extensions.obi.daemon` section defines OBI daemon process controls.
-This section is standalone-mode only — in Collector receiver deployments, the Collector manages these concerns.
+This section is **standalone-mode only** — in Collector receiver deployments, the Collector manages all of these concerns.
 
-It includes:
+**Why `daemon`, not `operations`**
+
+The previous design had a flat `operations` section containing a mix of capture-valid fields (batching, BPF filesystem, limits) and daemon-only fields (logging, profiling, shutdown, internal metrics).
+The restructure into `capture` and `daemon` emerged from analyzing which fields are valid in receiver mode:
+
+- Fields that govern eBPF capture behavior are valid in all modes → moved into `capture.*`
+- Fields that govern the OBI process itself are not valid in receiver mode → grouped in `daemon`
+
+The name `daemon` was chosen over `process` (too generic), `agent` (overloaded in OTel), `operations` (too broad after the split), and `self` (too terse for a configuration section name).
+`daemon` is honest and unambiguous: it configures the OBI daemon process.
+
+`daemon` contains:
 
 - `logging`: OBI process log level, format, and debug trace output mode.
-- `profiling`: optional pprof endpoint for OBI process profiling.
+- `profiling`: optional pprof endpoint for the OBI process.
 - `shutdown`: graceful shutdown timeout.
 - `internal_metrics`: OBI daemon's own metrics export (Prometheus or OTLP).
 - `telemetry.metrics.prometheus`: Prometheus-exporter-specific metric shaping for OBI standalone output.
@@ -522,8 +599,8 @@ Important mapping notes:
 | `otel_traces_export.batch_timeout` | `tracer_provider.processors[0].batch.schedule_delay` | OTel ownership move + rename + duration(ms) representation |
 | `otel_traces_export.max_queue_size` | `tracer_provider.processors[0].batch.max_queue_size` | OTel ownership move + declarative processor list shape |
 | `otel_traces_export.reporters_cache_len` | `extensions.obi.capture.telemetry.traces.reporters_cache_len` | Move to capture telemetry tuning |
-| `otel_traces_export.sampler.arg` | `tracer_provider.sampler` | OTel ownership move. Map to built-in sampler arguments when possible; per-workload semantics require a custom sampler plugin. |
-| `otel_traces_export.sampler.name` | `tracer_provider.sampler` | OTel ownership move. Map to built-in sampler names when possible; per-workload semantics require a custom sampler plugin. |
+| `otel_traces_export.sampler.arg` | `tracer_provider.sampler` | OTel ownership move. Map to built-in sampler arguments when possible; per-workload semantics require the `obi_rule_based` sampler plugin. |
+| `otel_traces_export.sampler.name` | `tracer_provider.sampler` | OTel ownership move. Map to built-in sampler names when possible; per-workload semantics require the `obi_rule_based` sampler plugin. |
 | `profile_port` | `extensions.obi.daemon.profiling.port` | Move |
 | `prometheus_export.allow_service_graph_self_references` | `extensions.obi.daemon.telemetry.metrics.prometheus.allow_service_graph_self_references` | Move to daemon telemetry tuning |
 | `prometheus_export.extra_resource_attributes` | `extensions.obi.daemon.telemetry.metrics.prometheus.extra_resource_attributes` | Move to daemon telemetry tuning |
@@ -540,7 +617,8 @@ Important mapping notes:
 ## Related docs
 
 - Migration, validation, and tooling plan: [migration.md](migration.md)
-- OBI extension schema artifact: [obi-extension.schema.json](obi-extension.schema.json)
+- OBI extension schema: [obi-extension.schema.json](obi-extension.schema.json)
+- Default configuration example: [examples/default-configuration.yaml](examples/default-configuration.yaml)
 
 ## Appendix: upstream alignment status (2026-02-24)
 
