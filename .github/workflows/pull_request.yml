@@ -295,4 +295,4 @@ jobs:
         with:
           files: ./testoutput/cover.txt
           flags: unittests
-          name: go-bpf-verifier-unittests-coverage-shard-${{ matrix.runner }}-${{ matrix-arch }}
+          name: go-bpf-verifier-unittests-coverage-shard-${{ matrix.runner }}-${{ matrix.arch }}
