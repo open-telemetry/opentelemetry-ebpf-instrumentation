@@ -1000,7 +1000,7 @@ func (r *metricsReporter) observe(span *request.Span) {
 			switch {
 			case r.is.DBEnabled() && (span.SubType == request.HTTPSubtypeSQLPP || span.SubType == request.HTTPSubtypeElasticsearch):
 				r.observeHistogram(r.dbClientDuration.WithLabelValues(labelValues(span, r.attrDBClientDuration)...).Metric, duration, span)
-			case r.is.GenAIEnabled() && (span.SubType == request.HTTPSubtypeAnthropic || span.SubType == request.HTTPSubtypeOpenAI):
+			case r.is.GenAIEnabled() && request.IsGenAISubtype(span.SubType):
 				r.observeHistogram(r.genAIClientDuration.WithLabelValues(labelValues(span, r.attrGenAIClientDuration)...).Metric, duration, span)
 				r.observeHistogram(r.genAITokenUsage.WithLabelValues(labelValues(span, r.attrGenAIInputTokenUsage)...).Metric, float64(span.GenAIInputTokens()), span)
 				r.observeHistogram(r.genAITokenUsage.WithLabelValues(labelValues(span, r.attrGenAIOutputTokenUsage)...).Metric, float64(span.GenAIOutputTokens()), span)

@@ -70,10 +70,13 @@ type GenAIConfig struct {
 	OpenAI OpenAIConfig `yaml:"openai"`
 	// Anthropic payload extraction and parsing
 	Anthropic AnthropicConfig `yaml:"anthropic"`
+	// Google AI Studio (Gemini) payload extraction and parsing
+	Gemini GeminiConfig `yaml:"gemini"`
 }
 
 func (g *GenAIConfig) Enabled() bool {
-	return g.Anthropic.Enabled || g.OpenAI.Enabled
+	return g.Anthropic.Enabled || g.OpenAI.Enabled ||
+		g.Gemini.Enabled
 }
 
 type OpenAIConfig struct {
@@ -84,6 +87,11 @@ type OpenAIConfig struct {
 type AnthropicConfig struct {
 	// Enable Anthropic payload extraction and parsing
 	Enabled bool `yaml:"enabled" env:"OTEL_EBPF_HTTP_ANTHROPIC_ENABLED" validate:"boolean"`
+}
+
+type GeminiConfig struct {
+	// Enable Google AI Studio (Gemini) payload extraction and parsing
+	Enabled bool `yaml:"enabled" env:"OTEL_EBPF_HTTP_GEMINI_ENABLED" validate:"boolean"`
 }
 
 // EnrichmentConfig configures HTTP header and payload extraction with policy-based rules.
