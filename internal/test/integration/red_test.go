@@ -328,15 +328,21 @@ func testREDMetricsForJSONRPCHTTP(t *testing.T, url, svcName, svcNs string) {
 	var results []promtest.Result
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		var err error
-		results, err = pq.Query(`rpc_server_duration_seconds_count{` +
-			`rpc_method="` + expectedMethod + `",` +
-			`rpc_system="jsonrpc",` +
+		results, err = pq.Query(`http_server_request_duration_seconds_count{` +
+			`http_request_method="` + expectedMethod + `",` +
+			`http_response_status_code="200",` +
 			`service_namespace="` + svcNs + `",` +
-			`service_name="` + svcName + `"}`)
+			`service_name="` + svcName + `",` +
+			`url_path="` + urlPath + `"}`)
 		require.NoError(ct, err)
 		enoughPromResults(ct, results)
 		val := totalPromCount(ct, results)
 		assert.LessOrEqual(ct, 3, val)
+		if len(results) > 0 {
+			res := results[0]
+			addr := res.Metric["client_address"]
+			assert.NotNil(ct, addr)
+		}
 	}, testTimeout, 100*time.Millisecond)
 }
 
