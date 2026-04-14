@@ -184,7 +184,6 @@ OBI generates spans with the following OpenTelemetry semantic conventions:
 We do not have the raw query statement, since it is parsed and transformed into the KV binary format.
 We try to render the KV operation in a Redis-style textual format: `OP key [extras] [value]`.
 It is optionally added to the `db.query.text` attribute and must be included in `attributes.select` to be emitted.
-When enabled, `db.query.text` for KV operations may include document values, which can be sensitive.
 
 **Format by opcode family:**
 
@@ -198,7 +197,9 @@ When enabled, `db.query.text` for KV operations may include document values, whi
 
 **Value inclusion rules:**
 
-- Values are included only when non-empty, valid UTF-8, and not snappy-compressed (DataType flag 0x02).
+- Values are included only when non-empty, valid UTF-8, not snappy-compressed (DataType flag 0x02),
+  and not carrying extended attributes (DataType flag 0x04). When XATTR is set, the value bytes
+  contain extended attribute metadata rather than the plain document payload.
 - Truncated values are included as-is.
 - SET/ADD/REPLACE extras: flags field is always omitted; TTL is shown only when non-zero.
 - INCREMENT/DECREMENT extras: DELTA is always shown; INITIAL is omitted; TTL is shown only when non-zero.

@@ -136,7 +136,8 @@ func stripLEB128Prefix(key []byte) []byte {
 }
 
 func couchbaseValueForStatement(pkt couchbasekv.Packet) string {
-	if pkt.Header().DataType().HasSnappy() {
+	dataType := pkt.Header().DataType()
+	if dataType.HasSnappy() || dataType.HasXattr() {
 		return ""
 	}
 	val := pkt.Value()
