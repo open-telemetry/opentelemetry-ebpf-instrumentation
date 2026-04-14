@@ -2,7 +2,7 @@ module go.opentelemetry.io/obi/internal/tools
 
 go 1.25.8
 
-require github.com/cilium/ebpf v0.21.0
+require github.com/cilium/ebpf v0.21.0 // indirect
 
 require (
 	4d63.com/gocheckcompilerdirectives v1.3.0 // indirect
@@ -258,6 +258,7 @@ require (
 )
 
 tool (
+	github.com/cilium/ebpf/cmd/bpf2go
 	github.com/golangci/golangci-lint/v2/cmd/golangci-lint
 	github.com/google/go-licenses/v2
 	github.com/grafana/go-offsets-tracker/cmd/go-offsets-tracker

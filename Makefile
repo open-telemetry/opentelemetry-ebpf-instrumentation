@@ -98,14 +98,13 @@ $(TOOLS)/%: $(TOOLS_MOD_DIR)/go.mod | $(TOOLS)
 	cd $(TOOLS_MOD_DIR) && \
 	go build -o $@ $(PACKAGE)
 
-BPF2GO ?= $(TOOLS)/bpf2go
-$(TOOLS)/bpf2go: PACKAGE=github.com/cilium/ebpf/cmd/bpf2go
+BPF2GO ?= go tool $(TOOLS_MODFILE) bpf2go
 
 # Required for k8s-cache unit tests
 ENVTEST_K8S_VERSION ?= 1.30.0
 
 .PHONY: tools
-tools: $(BPF2GO)
+tools:
 
 ### Development Tools (end) #################################################
 
@@ -232,10 +231,10 @@ BPF_GEN_ALL := $(if $(BPF_GEN_GO),$(BPF_GEN_GO) $(BPF_GEN_OBJ))
 generate: export BPF_CLANG := $(CLANG)
 generate: export BPF_CFLAGS := $(CFLAGS)
 generate: export BPF2GO := $(BPF2GO)
-generate: $(BPF2GO) $(if $(BPF_GEN_ALL),$(BPF_GEN_ALL),generate/all)
+generate: $(if $(BPF_GEN_ALL),$(BPF_GEN_ALL),generate/all)
 
 # Pattern rule: regenerate specific eBPF files when dependencies change
-$(BPF_GEN_ALL): $(BPF2GO)
+$(BPF_GEN_ALL):
 	@echo "Generating $(dir $@)..."
 	@go generate ./$(dir $@)
 
@@ -243,7 +242,6 @@ $(BPF_GEN_ALL): $(BPF2GO)
 generate/all: export BPF_CLANG := $(CLANG)
 generate/all: export BPF_CFLAGS := $(CFLAGS)
 generate/all: export BPF2GO := $(BPF2GO)
-generate/all: $(BPF2GO)
 	@echo "### Generating all eBPF files..."
 	@go generate ./...
 
