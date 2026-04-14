@@ -202,6 +202,10 @@ func (m *FlowFetcher) LookupPacketStats() (NetPacketCount, error) {
 	return lookupPacketStats(m.objects.FlowPacketStats)
 }
 
+func (m *FlowFetcher) DebugEventsMap() *ebpf.Map {
+	return m.objects.DebugEvents
+}
+
 func (m *FlowFetcher) ReadRingBuf() (ringbuf.Record, error) {
 	return m.ringbufReader.Read()
 }

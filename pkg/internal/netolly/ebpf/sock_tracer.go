@@ -146,6 +146,10 @@ func (m *SockFlowFetcher) LookupPacketStats() (NetPacketCount, error) {
 	return lookupPacketStats(m.objects.FlowPacketStats)
 }
 
+func (m *SockFlowFetcher) DebugEventsMap() *ebpf.Map {
+	return m.objects.DebugEvents
+}
+
 // Close any resources that are taken up by the socket filter, the filter itself and some maps.
 func (m *SockFlowFetcher) Close() error {
 	m.log.Debug("unregistering eBPF objects")
