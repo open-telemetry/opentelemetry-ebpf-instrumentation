@@ -46,6 +46,7 @@ type Tracer struct {
 	instrumentedLibs ebpfcommon.InstrumentedLibsT
 	libsMux          sync.Mutex
 	iters            []*ebpfcommon.Iter
+	eventCtx         *ebpfcommon.EBPFEventContext
 }
 
 func tlog() *slog.Logger {
@@ -649,6 +650,10 @@ func bpfConnInfoT(src ebpfcommon.BpfConnectionInfoT) (dst BpfConnectionInfoT) {
 	dst.S_port = src.S_port
 	return
 }
+
+func (p *Tracer) SetEventContext(ctx *ebpfcommon.EBPFEventContext) { p.eventCtx = ctx }
+
+func (p *Tracer) Capabilities() ebpfcommon.TracerCapability { return 0 }
 
 func (p *Tracer) Required() bool {
 	return true

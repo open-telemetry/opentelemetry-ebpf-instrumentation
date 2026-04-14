@@ -241,5 +241,7 @@ func (s *stubTracer) UnlinkInstrumentedLib(uint64)                           {}
 func (s *stubTracer) RegisterOffsets(*exec.FileInfo, *goexec.Offsets)        {}
 func (s *stubTracer) ProcessBinary(*exec.FileInfo)                           {}
 func (s *stubTracer) Required() bool                                         { return false }
+func (s *stubTracer) SetEventContext(*ebpfcommon.EBPFEventContext)           {}
+func (s *stubTracer) Capabilities() ebpfcommon.TracerCapability              { return 0 }
 func (s *stubTracer) Run(context.Context, *ebpfcommon.EBPFEventContext, *msg.Queue[[]request.Span]) {
 }
