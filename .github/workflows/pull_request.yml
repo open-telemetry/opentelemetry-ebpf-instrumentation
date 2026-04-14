@@ -47,7 +47,7 @@ jobs:
             go-build-pr-race-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Generate and build tools
-        run: make prereqs docker-generate unit-test-tools
+        run: make prereqs docker-generate
 
       - name: Run checks
         run: make go-mod-tidy license-header-check notices-update check-go-mod check-ebpf-ver-synced check-config-schema check-clean-work-tree
@@ -140,7 +140,7 @@ jobs:
           name: bpf-generated-${{ github.sha }}
 
       - name: Build test tools
-        run: make prereqs unit-test-tools
+        run: make prereqs
 
       - name: Run unit tests
         env:
