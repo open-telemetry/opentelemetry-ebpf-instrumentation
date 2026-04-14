@@ -146,6 +146,13 @@
       "matchPackageNames": ["org.springframework.boot:spring-boot-starter-parent"],
       "matchUpdateTypes": ["major"],
       "enabled": false
+    },
+    {
+      "description": "Block native-maven-plugin major upgrades (v1.0.0 requires GraalVM JDK 21+ which needs coordinated Dockerfile base image updates)",
+      "matchManagers": ["maven"],
+      "matchPackageNames": ["org.graalvm.buildtools:native-maven-plugin"],
+      "matchUpdateTypes": ["major"],
+      "enabled": false
     }
   ],
   "labels": [
