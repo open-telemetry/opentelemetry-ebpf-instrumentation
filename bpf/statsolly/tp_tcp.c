@@ -95,11 +95,7 @@ int obi_tracepoint_inet_sock_set_state(struct trace_event_raw_inet_sock_set_stat
     const int err = BPF_CORE_READ(sk, sk_err);
     const u8 reason = sk_err_to_reason(err);
 
-    bpf_d_printk("tcp failed: oldstate=%d, reason=%d, s_port=%d, d_port=%d",
-                 args->oldstate,
-                 reason,
-                 conn.s_port,
-                 conn.d_port);
+    bpf_d_printk("tcp failed: s_port=%d, d_port=%d, reason=%d", conn.s_port, conn.d_port, reason);
 
     tcp_failed_connection_t *se = bpf_ringbuf_reserve(&stats_events, sizeof(*se), 0);
     if (!se) {
