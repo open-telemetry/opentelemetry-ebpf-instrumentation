@@ -86,16 +86,16 @@ const (
 )
 
 const (
-	HTTPSubtypeNone          = 0 // http
-	HTTPSubtypeGraphQL       = 1 // http + graphql
-	HTTPSubtypeElasticsearch = 2 // http + elasticsearch
-	HTTPSubtypeAWSS3         = 3 // http + aws s3
-	HTTPSubtypeAWSSQS        = 4 // http + aws sqs
-	HTTPSubtypeSQLPP         = 5 // http + sql++ (couchbase, etc.)
-	HTTPSubtypeOpenAI        = 6 // http + OpenAI
-	HTTPSubtypeAnthropic     = 7 // http + Anthropic
-	HTTPSubtypeGemini        = 8 // http + Google AI Studio (Gemini)
-	HTTPSubtypeJSONRPC       = 9 // http + JSON-RPC
+	HTTPSubtypeNone          = 0  // http
+	HTTPSubtypeGraphQL       = 1  // http + graphql
+	HTTPSubtypeElasticsearch = 2  // http + elasticsearch
+	HTTPSubtypeAWSS3         = 3  // http + aws s3
+	HTTPSubtypeAWSSQS        = 4  // http + aws sqs
+	HTTPSubtypeSQLPP         = 5  // http + sql++ (couchbase, etc.)
+	HTTPSubtypeOpenAI        = 6  // http + OpenAI
+	HTTPSubtypeAnthropic     = 7  // http + Anthropic
+	HTTPSubtypeGemini        = 8  // http + Google AI Studio (Gemini)
+	HTTPSubtypeJSONRPC       = 9  // http + JSON-RPC
 	HTTPSubtypeAWSBedrock    = 10 // http + AWS Bedrock
 )
 
@@ -1034,13 +1034,13 @@ func HTTPSpanStatusCode(span *Span) string {
 				if span.GenAI.Anthropic != nil && span.GenAI.Anthropic.Output.Error != nil && span.GenAI.Anthropic.Output.Error.Type != "" {
 					return StatusCodeError
 				}
-			if span.GenAI.Gemini != nil && span.GenAI.Gemini.Output.Error != nil && span.GenAI.Gemini.Output.Error.Status != "" {
-				return StatusCodeError
+				if span.GenAI.Gemini != nil && span.GenAI.Gemini.Output.Error != nil && span.GenAI.Gemini.Output.Error.Status != "" {
+					return StatusCodeError
+				}
+				if span.GenAI.Bedrock != nil && span.GenAI.Bedrock.Output.ErrorType != "" {
+					return StatusCodeError
+				}
 			}
-			if span.GenAI.Bedrock != nil && span.GenAI.Bedrock.Output.ErrorType != "" {
-				return StatusCodeError
-			}
-		}
 
 			return StatusCodeUnset
 		}

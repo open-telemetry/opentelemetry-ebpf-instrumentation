@@ -13,6 +13,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 )
 
@@ -93,8 +94,8 @@ func handleInvoke(w http.ResponseWriter, r *http.Request) {
 		outputTokens = 22
 	}
 
-	h.Set("X-Amzn-Bedrock-Input-Token-Count", fmt.Sprintf("%d", inputTokens))
-	h.Set("X-Amzn-Bedrock-Output-Token-Count", fmt.Sprintf("%d", outputTokens))
+	h.Set("X-Amzn-Bedrock-Input-Token-Count", strconv.Itoa(inputTokens))
+	h.Set("X-Amzn-Bedrock-Output-Token-Count", strconv.Itoa(outputTokens))
 	h.Set("X-Amzn-Bedrock-Invocation-Latency", "450")
 
 	w.WriteHeader(http.StatusOK)
