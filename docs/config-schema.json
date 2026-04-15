@@ -596,6 +596,16 @@
       "type": "array",
       "description": "List of metric features to enable."
     },
+    "BedrockConfig": {
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable AWS Bedrock payload extraction and parsing",
+          "x-env-var": "OTEL_EBPF_HTTP_BEDROCK_ENABLED"
+        }
+      },
+      "type": "object"
+    },
     "GeminiConfig": {
       "properties": {
         "enabled": {
@@ -611,6 +621,10 @@
         "anthropic": {
           "$ref": "#/$defs/AnthropicConfig",
           "description": "Anthropic payload extraction and parsing"
+        },
+        "bedrock": {
+          "$ref": "#/$defs/BedrockConfig",
+          "description": "AWS Bedrock payload extraction and parsing"
         },
         "gemini": {
           "$ref": "#/$defs/GeminiConfig",

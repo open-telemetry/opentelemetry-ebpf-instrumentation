@@ -622,6 +622,51 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 			}
 		}
 
+		if span.SubType == request.HTTPSubtypeAWSBedrock && span.GenAI != nil && span.GenAI.Bedrock != nil {
+			ai := span.GenAI.Bedrock
+			attrs = append(attrs, semconv.GenAIProviderNameAWSBedrock)
+			attrs = append(attrs, semconv.GenAIOperationNameKey.String("invoke_model"))
+			attrs = append(attrs, semconv.GenAIRequestModel(ai.Model))
+			attrs = append(attrs, semconv.GenAIResponseModel(ai.Model))
+			if ai.Input.MaxTokens > 0 {
+				attrs = append(attrs, semconv.GenAIRequestMaxTokens(ai.Input.MaxTokens))
+			}
+			if ai.Input.Temperature > 0.0 {
+				attrs = append(attrs, semconv.GenAIRequestTemperature(ai.Input.Temperature))
+			}
+			if ai.Input.TopP > 0.0 {
+				attrs = append(attrs, semconv.GenAIRequestTopP(ai.Input.TopP))
+			}
+			if ai.Input.TopK > 0 {
+				attrs = append(attrs, semconv.GenAIRequestTopK(float64(ai.Input.TopK)))
+			}
+			attrs = append(attrs, semconv.GenAIUsageInputTokens(ai.Output.InputTokens))
+			attrs = append(attrs, semconv.GenAIUsageOutputTokens(ai.Output.OutputTokens))
+			if stopReason := ai.GetStopReason(); stopReason != "" {
+				attrs = append(attrs, semconv.GenAIResponseFinishReasons(stopReason))
+			}
+			if _, ok := optionalAttrs[attr.GenAIInput]; ok {
+				attrs = append(attrs, semconv.GenAIInputMessagesKey.String(ai.GetInput()))
+			}
+			if _, ok := optionalAttrs[attr.GenAIOutput]; ok {
+				attrs = append(attrs, semconv.GenAIOutputMessagesKey.String(ai.GetOutput()))
+			}
+			if _, ok := optionalAttrs[attr.GenAIInstructions]; ok {
+				if sys := ai.GetSystemInstruction(); sys != "" {
+					attrs = append(attrs, semconv.GenAISystemInstructionsKey.String(sys))
+				}
+			}
+			if _, ok := optionalAttrs[attr.GenAIMetadata]; ok {
+				if len(ai.Input.Tools) > 0 {
+					attrs = append(attrs, semconv.GenAIToolDefinitionsKey.String(string(ai.Input.Tools)))
+				}
+			}
+			if ai.Output.ErrorType != "" {
+				attrs = append(attrs, semconv.ErrorTypeKey.String(ai.Output.ErrorType))
+				attrs = append(attrs, semconv.ErrorMessage(ai.Output.ErrorMessage))
+			}
+		}
+
 		attrs = append(attrs, jsonRPCAttributes(span)...)
 		attrs = append(attrs, httpEnrichmentAttributes(span)...)
 	case request.EventTypeGRPCClient:
