@@ -16,6 +16,7 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/config"
 	"go.opentelemetry.io/obi/pkg/export"
+	"go.opentelemetry.io/obi/pkg/internal/ebpf/logger"
 	"go.opentelemetry.io/obi/pkg/internal/statsolly/ebpf"
 	stats "go.opentelemetry.io/obi/pkg/internal/statsolly/stats"
 	"go.opentelemetry.io/obi/pkg/netip"
@@ -80,6 +81,7 @@ type Stats struct {
 type ebpFetcher interface {
 	io.Closer
 	StatsEventsMap() *ciliumebpf.Map
+	DebugEventsMap() *ciliumebpf.Map
 }
 
 func StatsAgent(ctxInfo *global.ContextInfo, cfg *obi.Config) (*Stats, error) {
@@ -135,6 +137,11 @@ func (s *Stats) Run(ctx context.Context) error {
 
 	s.status = StatusStarting
 	alog.Info("starting Stats agent")
+
+	if s.cfg.EBPF.BpfDebug {
+		logger.RunDebugEventsReader(ctx, s.fetcher.DebugEventsMap(),
+			slog.With("component", "statsolly.BPFDebug"))
+	}
 
 	graph, err := s.buildPipeline(ctx)
 	if err != nil {
