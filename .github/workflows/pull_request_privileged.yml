@@ -45,7 +45,7 @@ jobs:
             go-build-pr-race-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Generate and build tools
-        run: make prereqs docker-generate unit-test-tools
+        run: make prereqs docker-generate
 
       - name: Run privileged unit tests
         run: sudo make test-privileged
