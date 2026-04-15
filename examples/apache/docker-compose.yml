@@ -63,6 +63,6 @@ services:
       - lgtm
 
   lgtm:
-    image: grafana/otel-lgtm:0.24.0@sha256:a7fbde2893d86ae4807701bc482736243e584eb90b5faa273d291ffff2a1374f
+    image: grafana/otel-lgtm:0.24.1@sha256:fb550fc859490b1ee84d782b687ced21634f97c339b120659230683426afeb74
     container_name: lgtm-apache-example
     network_mode: host
