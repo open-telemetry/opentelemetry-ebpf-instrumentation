@@ -51,7 +51,10 @@ func getResponseBody(resp *http.Response) ([]byte, error) {
 }
 
 // decompressBody decompresses b according to the Content-Encoding value.
-// Mirrors what http.Transport does for gzip, extended to cover zstd, deflate and brotli.
+// Mirrors what http.Transport does for gzip, extended to cover zstd, deflate
+// and brotli. Unsupported encodings are returned unchanged. Decompressed
+// output is capped at maxDecompressedResponseBodyBytes, and it returns
+// errResponseBodyTooLarge if that limit is exceeded.
 func decompressBody(encoding string, b []byte) ([]byte, error) {
 	var (
 		reader  io.Reader

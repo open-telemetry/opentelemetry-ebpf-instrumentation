@@ -171,8 +171,8 @@ func (e *EBPFTracer) CudaInstrumentationEnabled() bool {
 const MaxCapturedPayloadBytes = 1 << 16
 
 // Per-protocol maximum bytes to capture per request per direction, sent to userspace via large buffer events.
-// MaxCapturedPayloadBytes must match the k_large_buf_max_*_captured_bytes constants in bpf/common/large_buffers.h.
-// The validate tags below must stay aligned with MaxCapturedPayloadBytes.
+// Values must stay aligned with MaxCapturedPayloadBytes and the
+// k_large_buf_max_*_captured_bytes constants in bpf/common/large_buffers.h.
 //
 // Default: 0 (disabled).
 type EBPFBufferSizes struct {

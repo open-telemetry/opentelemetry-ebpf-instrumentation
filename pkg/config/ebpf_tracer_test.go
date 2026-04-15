@@ -261,8 +261,6 @@ func TestEBPFTracer_CudaInstrumentationEnabled(t *testing.T) {
 }
 
 func TestEBPFBufferSizesValidateTagsMatchMaxCapturedPayloadBytes(t *testing.T) {
-	t.Helper()
-
 	expected := fmt.Sprintf("lte=%d", MaxCapturedPayloadBytes)
 	typ := reflect.TypeOf(EBPFBufferSizes{})
 
