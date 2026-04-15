@@ -13,6 +13,7 @@ import (
 
 	"github.com/andybalholm/brotli"
 	"github.com/klauspost/compress/zstd"
+
 	"go.opentelemetry.io/obi/pkg/config"
 )
 
