@@ -88,7 +88,13 @@ __check_defined = \
 # Tools module where tool versions are defined.
 TOOLS_MODFILE := -modfile=$(CURDIR)/internal/tools/go.mod
 
-BPF2GO ?= go tool $(TOOLS_MODFILE) bpf2go
+BPF2GO_WRAPPER := $(CURDIR)/.tools/bpf2go
+$(BPF2GO_WRAPPER):
+	@mkdir -p $(dir $@)
+	@printf '#!/bin/sh\nexec go tool $(TOOLS_MODFILE) bpf2go "$$@"\n' > $@
+	@chmod +x $@
+
+BPF2GO ?= $(BPF2GO_WRAPPER)
 
 # Required for k8s-cache unit tests
 ENVTEST_K8S_VERSION ?= 1.30.0
@@ -218,7 +224,7 @@ BPF_GEN_ALL := $(if $(BPF_GEN_GO),$(BPF_GEN_GO) $(BPF_GEN_OBJ))
 generate: export BPF_CLANG := $(CLANG)
 generate: export BPF_CFLAGS := $(CFLAGS)
 generate: export BPF2GO := $(BPF2GO)
-generate: $(if $(BPF_GEN_ALL),$(BPF_GEN_ALL),generate/all)
+generate: $(BPF2GO) $(if $(BPF_GEN_ALL),$(BPF_GEN_ALL),generate/all)
 
 # Pattern rule: regenerate specific eBPF files when dependencies change
 $(BPF_GEN_ALL):
