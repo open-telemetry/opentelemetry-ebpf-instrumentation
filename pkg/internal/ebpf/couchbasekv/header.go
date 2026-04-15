@@ -225,6 +225,21 @@ func (p Packet) valueEnd() int {
 
 // validateHeader checks for basic validity of the parsed header.
 func validateHeader(h Header) error {
+	// Key length must not exceed the protocol's 250-byte maximum. This also
+	// helps reject random TCP data whose bytes 2-3 happen to decode as a huge
+	// uint16 (e.g. DNS traffic whose flags field falls in this position).
+	if int(h.KeyLen()) > MaxKeyLen {
+		return fmt.Errorf("invalid key length: %d > max(%d)", h.KeyLen(), MaxKeyLen)
+	}
+
+	// Byte 5 (data type) is a bitfield with only bits 0-2 defined
+	// (JSON/Snappy/Xattr). Any other bit set means this isn't a Couchbase
+	// packet — commonly triggered by DNS/other TCP traffic whose byte at this
+	// offset is arbitrary.
+	if h[5]&^byte(DataTypeJSON|DataTypeSnappy|DataTypeXattr) != 0 {
+		return fmt.Errorf("invalid data type: 0x%02x has reserved bits set", h[5])
+	}
+
 	minBodyLen := int(h.FramingExtrasLen()) + int(h.ExtrasLen()) + int(h.KeyLen())
 	if int(h.BodyLen()) < minBodyLen {
 		return fmt.Errorf("invalid body length: %d < framingExtras(%d) + extras(%d) + key(%d)",

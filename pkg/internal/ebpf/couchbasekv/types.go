@@ -6,6 +6,9 @@ package couchbasekv // import "go.opentelemetry.io/obi/pkg/internal/ebpf/couchba
 // Header sizes
 const (
 	HeaderLen = 24 // All packets have a 24-byte header
+	// MaxKeyLen is the maximum document key length allowed by the Couchbase
+	// memcached binary protocol (250 bytes per Couchbase server limits).
+	MaxKeyLen = 250
 )
 
 // Magic bytes identify packet direction and encoding format
