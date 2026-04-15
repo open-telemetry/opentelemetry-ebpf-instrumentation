@@ -7,7 +7,6 @@ import (
 	"bytes"
 	"compress/flate"
 	"compress/gzip"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
