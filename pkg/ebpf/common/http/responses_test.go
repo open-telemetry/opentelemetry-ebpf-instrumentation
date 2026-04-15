@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"compress/flate"
 	"compress/gzip"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -129,6 +130,14 @@ func TestDecompressBody(t *testing.T) {
 			t.Fatal("expected error for corrupted brotli data, got nil")
 		}
 	})
+
+	t.Run("gzip decompression over limit returns error", func(t *testing.T) {
+		payload := bytes.Repeat([]byte("a"), maxDecompressedResponseBodyBytes+1)
+		_, err := decompressBody("gzip", gzipEncode(t, payload))
+		if !errors.Is(err, errResponseBodyTooLarge) {
+			t.Fatalf("expected errResponseBodyTooLarge, got %v", err)
+		}
+	})
 }
 
 func TestGetResponseBody(t *testing.T) {
@@ -222,6 +231,25 @@ func TestGetResponseBody(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "decompress error") {
 			t.Errorf("error message should mention decompress error, got: %v", err)
+		}
+	})
+
+	t.Run("compressed body over limit returns error and body is restored", func(t *testing.T) {
+		payload := bytes.Repeat([]byte("a"), maxDecompressedResponseBodyBytes+1)
+		compressed := gzipEncode(t, payload)
+		resp := makeResponse(t, compressed, "gzip")
+
+		_, err := getResponseBody(resp)
+		if !errors.Is(err, errResponseBodyTooLarge) {
+			t.Fatalf("expected errResponseBodyTooLarge, got %v", err)
+		}
+
+		body, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			t.Fatalf("re-reading body after limit error: %v", readErr)
+		}
+		if !bytes.Equal(body, compressed) {
+			t.Fatal("response body was not restored after decompression limit error")
 		}
 	})
 }

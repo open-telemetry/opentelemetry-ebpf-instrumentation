@@ -7,12 +7,23 @@ import (
 	"bytes"
 	"compress/flate"
 	"compress/gzip"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 
 	"github.com/andybalholm/brotli"
 	"github.com/klauspost/compress/zstd"
+)
+
+// Keep the decompressed response cap aligned with the maximum captured HTTP body
+// size so body enrichment cannot expand a compressed payload beyond the configured
+// userspace budget.
+const maxDecompressedResponseBodyBytes = 64 * 1024
+
+var errResponseBodyTooLarge = fmt.Errorf(
+	"response body exceeds decompression limit of %d bytes",
+	maxDecompressedResponseBodyBytes,
 )
 
 // getResponseBody tries to read the body as plain text and then
@@ -41,28 +52,52 @@ func getResponseBody(resp *http.Response) ([]byte, error) {
 // decompressBody decompresses b according to the Content-Encoding value.
 // Mirrors what http.Transport does for gzip, extended to cover zstd, deflate and brotli.
 func decompressBody(encoding string, b []byte) ([]byte, error) {
+	var (
+		reader  io.Reader
+		closeFn func()
+		err     error
+	)
+
 	switch encoding {
 	case "gzip":
-		gr, err := gzip.NewReader(bytes.NewReader(b))
-		if err != nil {
-			return nil, err
-		}
-		defer gr.Close()
-		return io.ReadAll(gr)
+		var gr *gzip.Reader
+		gr, err = gzip.NewReader(bytes.NewReader(b))
+		reader = gr
+		closeFn = func() { _ = gr.Close() }
 	case "zstd":
-		zr, err := zstd.NewReader(bytes.NewReader(b))
-		if err != nil {
-			return nil, err
-		}
-		defer zr.Close()
-		return io.ReadAll(zr)
+		var zr *zstd.Decoder
+		zr, err = zstd.NewReader(bytes.NewReader(b))
+		reader = zr
+		closeFn = zr.Close
 	case "deflate":
 		fr := flate.NewReader(bytes.NewReader(b))
-		defer fr.Close()
-		return io.ReadAll(fr)
+		reader = fr
+		closeFn = func() { _ = fr.Close() }
 	case "br":
-		return io.ReadAll(brotli.NewReader(bytes.NewReader(b)))
+		reader = brotli.NewReader(bytes.NewReader(b))
 	default:
 		return b, nil
 	}
+
+	if err != nil {
+		return nil, err
+	}
+	if closeFn != nil {
+		defer closeFn()
+	}
+
+	return readBodyWithLimit(reader, maxDecompressedResponseBodyBytes)
+}
+
+func readBodyWithLimit(reader io.Reader, limit int64) ([]byte, error) {
+	body, err := io.ReadAll(io.LimitReader(reader, limit+1))
+	if err != nil {
+		return nil, err
+	}
+
+	if int64(len(body)) > limit {
+		return nil, errResponseBodyTooLarge
+	}
+
+	return body, nil
 }
