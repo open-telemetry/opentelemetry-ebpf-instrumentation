@@ -13,26 +13,17 @@ import (
 	"github.com/stretchr/testify/require"
 	"k8s.io/client-go/kubernetes/fake"
 
+	"go.opentelemetry.io/obi/pkg/internal/testutil"
 	"go.opentelemetry.io/obi/pkg/kube/kubecache"
 	"go.opentelemetry.io/obi/pkg/kube/kubecache/meta"
 )
-
-func freeTCPPort(t *testing.T) int {
-	t.Helper()
-
-	lis, err := net.Listen("tcp", ":0")
-	require.NoError(t, err)
-	defer lis.Close()
-
-	return lis.Addr().(*net.TCPAddr).Port
-}
 
 // TestRunStopsServerOnContextCancellation is a regression test for
 // https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/issues/1828.
 // It verifies that Run stops the gRPC server and releases the TCP listener
 // before returning when the context is canceled.
 func TestRunStopsServerOnContextCancellation(t *testing.T) {
-	port := freeTCPPort(t)
+	port := testutil.FreeTCPPort(t)
 
 	ic := &InformersCache{
 		Config: &kubecache.Config{
