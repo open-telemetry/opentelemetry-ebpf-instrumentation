@@ -573,35 +573,35 @@ func TestReadTCPRequestIntoSpan_MemcachedRequestOnlyWithoutNoreplyIgnored(t *tes
 // transaction ID, and the subsequent DNS header bytes occasionally satisfied
 // Couchbase's loose header validation.
 func TestReadTCPRequestIntoSpan_DNSNotMisclassifiedAsCouchbase(t *testing.T) {
-	// All packet pairs below were captured from real DNS-over-TCP traffic that
-	// was incorrectly matched as Couchbase prior to tightening validation.
+	// Each case is a DNS-over-TCP query (and optional response) whose header
+	// bytes collide with Couchbase magic and would have been misclassified
+	// prior to tightening validation. Hostnames use RFC 2606 reserved names.
 	tests := []struct {
-		name    string
-		request []byte
-		// response may be empty when the capture was request-only.
+		name     string
+		request  []byte
 		response []byte
 	}{
 		{
-			// Query A "redis.svc.cluster.local" — classic magic 0x80, KeyLen=256 (DNS flags 0x0100).
+			// Query A "example.com" — classic magic 0x80, KeyLen=256 (DNS flags 0x0100).
 			name:     "classic-magic DNS A query",
-			request:  []byte{128, 15, 1, 0, 0, 1, 0, 0, 0, 0, 0, 1, 5, 114, 101, 100, 105, 115, 3, 115, 118, 99, 7, 99, 108, 117, 115, 116, 101, 114, 5, 108, 111, 99, 97, 108, 0, 0, 1, 0, 1, 0, 0, 41, 4, 208, 0, 0, 0, 0, 0, 0},
-			response: []byte{128, 15, 133, 3, 0, 1, 0, 0, 0, 1, 0, 1, 5, 114, 101, 100, 105, 115, 3, 115, 118, 99, 7, 99, 108, 117, 115, 116, 101, 114, 5, 108, 111, 99, 97, 108, 0, 0, 1, 0, 1, 7, 99, 108, 117, 115, 116, 101, 114, 5, 108, 111, 99, 97, 108, 0, 0, 6, 0, 1, 0, 0, 0, 3, 0, 68, 2, 110, 115, 3, 100, 110, 115, 7, 99, 108, 117, 115, 116, 101, 114, 5, 108, 111, 99, 97, 108, 0, 10, 104, 111, 115, 116, 109, 97, 115, 116, 101, 114, 7, 99, 108, 117, 115, 116, 101, 114, 5, 108, 111, 99, 97, 108, 0, 105, 223, 110, 169, 0, 0, 28, 32, 0, 0, 7, 8, 0, 1},
+			request:  []byte{128, 15, 1, 0, 0, 1, 0, 0, 0, 0, 0, 1, 7, 101, 120, 97, 109, 112, 108, 101, 3, 99, 111, 109, 0, 0, 1, 0, 1, 0, 0, 41, 4, 208, 0, 0, 0, 0, 0, 0},
+			response: []byte{128, 15, 133, 3, 0, 1, 0, 0, 0, 1, 0, 0, 7, 101, 120, 97, 109, 112, 108, 101, 3, 99, 111, 109, 0, 0, 1, 0, 1, 7, 101, 120, 97, 109, 112, 108, 101, 3, 99, 111, 109, 0, 0, 6, 0, 1, 0, 0, 0, 3, 0, 55, 2, 110, 115, 7, 101, 120, 97, 109, 112, 108, 101, 3, 99, 111, 109, 0, 5, 97, 100, 109, 105, 110, 7, 101, 120, 97, 109, 112, 108, 101, 3, 99, 111, 109, 0, 0, 0, 0, 1, 0, 0, 28, 32, 0, 0, 7, 8, 0, 0, 14, 16, 0, 0, 1, 44},
 		},
 		{
-			// Query AAAA "redis.default.svc.cluster.local" — alt magic 0x08, header shape passed previous KeyLen+BodyLen check with KeyLen=0.
+			// Query AAAA "host.example.com" — alt magic 0x08, header shape passed previous KeyLen+BodyLen check with KeyLen=0.
 			name:    "alt-magic DNS AAAA query",
-			request: []byte{8, 26, 1, 0, 0, 1, 0, 0, 0, 0, 0, 1, 5, 114, 101, 100, 105, 115, 7, 100, 101, 102, 97, 117, 108, 116, 3, 115, 118, 99, 7, 99, 108, 117, 115, 116, 101, 114, 5, 108, 111, 99, 97, 108, 0, 0, 28, 0, 1, 0, 0, 41, 4, 208, 0, 0, 0, 0, 0, 0},
+			request: []byte{8, 26, 1, 0, 0, 1, 0, 0, 0, 0, 0, 1, 4, 104, 111, 115, 116, 7, 101, 120, 97, 109, 112, 108, 101, 3, 99, 111, 109, 0, 0, 28, 0, 1, 0, 0, 41, 4, 208, 0, 0, 0, 0, 0, 0},
 		},
 		{
-			// Query AAAA "redis.us-east-2.compute.internal" — classic magic 0x80.
-			name:    "classic-magic DNS internal query",
-			request: []byte{128, 4, 1, 0, 0, 1, 0, 0, 0, 0, 0, 1, 5, 114, 101, 100, 105, 115, 9, 117, 115, 45, 101, 97, 115, 116, 45, 50, 7, 99, 111, 109, 112, 117, 116, 101, 8, 105, 110, 116, 101, 114, 110, 97, 108, 0, 0, 28, 0, 1, 0, 0, 41, 4, 208, 0, 0, 0, 0, 0, 0},
+			// Query AAAA "test.example.net" — classic magic 0x80.
+			name:    "classic-magic DNS AAAA query",
+			request: []byte{128, 4, 1, 0, 0, 1, 0, 0, 0, 0, 0, 1, 4, 116, 101, 115, 116, 7, 101, 120, 97, 109, 112, 108, 101, 3, 110, 101, 116, 0, 0, 28, 0, 1, 0, 0, 41, 4, 208, 0, 0, 0, 0, 0, 0},
 		},
 		{
-			// Minimal DNS query "redis" only — alt magic 0x08.
+			// Minimal DNS query for single label "host" — alt magic 0x08.
 			name:     "alt-magic tiny DNS query",
-			request:  []byte{8, 29, 1, 0, 0, 1, 0, 0, 0, 0, 0, 1, 5, 114, 101, 100, 105, 115, 0, 0, 28, 0, 1, 0, 0, 41, 4, 208, 0, 0, 0, 0, 0, 0},
-			response: []byte{8, 29, 133, 133, 0, 1, 0, 0, 0, 0, 0, 1, 5, 114, 101, 100, 105, 115, 0, 0, 28, 0, 1, 0, 0, 41, 4, 208, 0, 0, 0, 0, 0, 0},
+			request:  []byte{8, 29, 1, 0, 0, 1, 0, 0, 0, 0, 0, 1, 4, 104, 111, 115, 116, 0, 0, 28, 0, 1, 0, 0, 41, 4, 208, 0, 0, 0, 0, 0, 0},
+			response: []byte{8, 29, 133, 133, 0, 1, 0, 0, 0, 0, 0, 1, 4, 104, 111, 115, 116, 0, 0, 28, 0, 1, 0, 0, 41, 4, 208, 0, 0, 0, 0, 0, 0},
 		},
 	}
 
