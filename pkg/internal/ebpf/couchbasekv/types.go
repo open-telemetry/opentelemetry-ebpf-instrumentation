@@ -969,3 +969,8 @@ func (d DataType) HasSnappy() bool {
 func (d DataType) HasXattr() bool {
 	return d&DataTypeXattr != 0
 }
+
+// IsValid returns true if no reserved bits are set.
+func (d DataType) IsValid() bool {
+	return d&^(DataTypeJSON|DataTypeSnappy|DataTypeXattr) == 0
+}
