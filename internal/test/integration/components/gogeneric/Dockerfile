@@ -21,4 +21,4 @@ WORKDIR /
 COPY --from=builder /src/testserver .
 USER 0:0
 
-CMD [ "/testserver", "-brokers=kafka:9093" ]
+CMD [ "/testserver", "-brokers=kafka:9093",  "-downstream=nodeserver:3030"]

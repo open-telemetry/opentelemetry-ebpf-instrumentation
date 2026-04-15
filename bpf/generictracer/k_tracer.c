@@ -12,6 +12,7 @@
 #include <common/connection_info.h>
 #include <common/http_types.h>
 #include <common/iov_iter.h>
+#include <common/lw_thread.h>
 #include <common/msg_buffer.h>
 #include <common/protocol_defs.h>
 #include <common/sock_port_ns.h>
@@ -702,7 +703,7 @@ int BPF_KPROBE(obi_kprobe_tcp_close, struct sock *sk, long timeout) {
 
             if (ct && !ct->established && !ct->failed) {
                 dbg_print_http_connection_info(&info.conn);
-                failed_to_connect_event(&info, orig_dport, ct->ts);
+                failed_to_connect_event(&info, k_lw_thread_none, orig_dport, ct->ts);
             }
         }
         bpf_map_delete_elem(&cp_support_connect_info, &info);
@@ -753,7 +754,7 @@ int BPF_KPROBE(obi_kprobe_sock_def_error_report, struct sock *sk) {
         if (args) {
             if (!args->failed) {
                 dbg_print_http_connection_info(&info.conn);
-                failed_to_connect_event(&info, orig_dport, args->ts);
+                failed_to_connect_event(&info, k_lw_thread_none, orig_dport, args->ts);
                 // mark the args and cp_support_info as failed so we don't duplicate the event
                 cp_support_data_t *cp_data = bpf_map_lookup_elem(&cp_support_connect_info, &info);
                 if (cp_data) {
@@ -765,7 +766,7 @@ int BPF_KPROBE(obi_kprobe_sock_def_error_report, struct sock *sk) {
             conn_pid_t *conn_pid = bpf_map_lookup_elem(&sock_pids, &info.conn);
             if (conn_pid && conn_pid->id == id) {
                 dbg_print_http_connection_info(&info.conn);
-                failed_to_connect_event(&info, orig_dport, conn_pid->ts);
+                failed_to_connect_event(&info, k_lw_thread_none, orig_dport, conn_pid->ts);
             }
         }
     }

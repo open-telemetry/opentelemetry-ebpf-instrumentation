@@ -65,6 +65,14 @@ func TestSuiteNestedTraces(t *testing.T) {
 	require.NoError(t, compose.Close())
 }
 
+func TestSuiteGoGeneric(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-go-generic.yml", path.Join(pathOutput, "test-suite-go-generic.log"))
+	require.NoError(t, err)
+	require.NoError(t, compose.Up())
+	t.Run("Generic Go HTTP/TCP traces (all spans nested)", testGoGenericHTTPTraces)
+	require.NoError(t, compose.Close())
+}
+
 func TestSuiteClientPromScrape(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-client.yml", path.Join(pathOutput, "test-suite-client-promscrape.log"))
 	require.NoError(t, err)
@@ -825,6 +833,19 @@ func TestSuite_LogEnricherRuby(t *testing.T) {
 	})
 	t.Run("Log Enricher Ruby syswrite (write)", func(t *testing.T) {
 		testLogEnricherRuby(t, logEnricherRubyWriteConstants)
+	})
+	require.NoError(t, compose.Close())
+}
+
+func TestSuite_LogEnricherDotNet(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-log-enricher.yml", path.Join(pathOutput, "test-suite-log-enricher-dotnet.log"))
+	require.NoError(t, err)
+
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=5266`, `OTEL_EBPF_EXECUTABLE_PATH=`)
+	require.NoError(t, compose.Up())
+
+	t.Run("Log Enricher .NET", func(t *testing.T) {
+		testLogEnricherDotNet(t)
 	})
 	require.NoError(t, compose.Close())
 }

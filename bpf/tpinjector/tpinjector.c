@@ -12,6 +12,7 @@
 #include <common/event_defs.h>
 #include <common/http_buf_size.h>
 #include <common/http_types.h>
+#include <common/lw_thread.h>
 #include <common/msg_buffer.h>
 #include <common/protocol_http.h>
 #include <common/protocol_http2.h>
@@ -250,7 +251,7 @@ static __always_inline void init_tp_ctx_parent_tp(tailcall_ctx *t_ctx) {
     t_ctx->parent_tp.flags = 1;
 
     t_ctx->has_parent_tp = find_parent_trace_for_client_request(
-        &t_ctx->p_conn, t_ctx->p_conn.conn.d_port, &t_ctx->parent_tp);
+        &t_ctx->p_conn, t_ctx->p_conn.conn.d_port, k_lw_thread_none, &t_ctx->parent_tp);
 }
 
 static __always_inline bool create_trace_info(const tailcall_ctx *t_ctx, tp_info_pid_t *tp_p) {

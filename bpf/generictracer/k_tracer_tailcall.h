@@ -23,4 +23,5 @@ enum {
     k_tail_protocol_http2_grpc_handle_start_frame = 6,
     k_tail_protocol_http2_grpc_handle_end_frame = 7,
     k_tail_handle_buf_with_args = 8,
+    k_tail_continue_protocol_http_tp = 9,
 };

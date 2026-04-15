@@ -1,0 +1,151 @@
+services:
+  zookeeper:
+    restart: always
+    container_name: kafka-like-zookeeper
+    image: docker.io/bitnamilegacy/zookeeper:3.9@sha256:46d5bcbdf4434f40b7a453a7f53e6ea436a770981433c173ab782c0b13a5fb87
+    ports:
+      - "2181:2181"
+    volumes:
+      - "zookeeper-volume:/bitnami"
+    environment:
+      - ALLOW_ANONYMOUS_LOGIN=yes
+
+  kafka:
+    restart: always
+    container_name: kafka-like
+    image: docker.io/bitnamilegacy/kafka:3.9@sha256:55df55bfc7ed5980447387620afa3498eab3985a4d8c731013d82b3fa8b43bff
+    ports:
+      - "9093:9093"
+      - "9092:9092"
+    volumes:
+      - "kafka-volume:/bitnami"
+    environment:
+      - KAFKA_BROKER_ID=1
+      - KAFKA_CFG_ZOOKEEPER_CONNECT=zookeeper:2181
+      - ALLOW_PLAINTEXT_LISTENER=yes
+      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CLIENT:PLAINTEXT,EXTERNAL:PLAINTEXT
+      - KAFKA_CFG_LISTENERS=CLIENT://:9092,EXTERNAL://:9093
+      - KAFKA_CFG_ADVERTISED_LISTENERS=CLIENT://kafka:9092,EXTERNAL://kafka:9093
+      - KAFKA_CFG_INTER_BROKER_LISTENER_NAME=CLIENT
+    depends_on:
+      - zookeeper
+
+  nodeserver:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/nodejsserver/Dockerfile
+    image: hatest-testserver-node
+    command:
+      - node
+      - app.js
+    ports:
+      - 3031:3030
+      - 3034:3033
+
+  testserver:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/gogeneric/Dockerfile
+    image: hatest-testserver
+    ports:
+      - "8080:8080"
+      - "8081:8081"
+    environment:
+      LOG_LEVEL: DEBUG
+      OTEL_RESOURCE_ATTRIBUTES: "service.version=1.0.0"
+    depends_on:
+      kafka:
+        condition: service_started
+      nodeserver:
+        condition: service_started
+
+  obi:
+    build:
+      context: ../../..
+      dockerfile: ./internal/test/integration/components/obi/Dockerfile
+    command:
+      - --config=/configs/obi-config.yml
+    volumes:
+      - ./configs/:/configs
+      - ./system/sys/kernel/security_none:/sys/kernel/security
+      - ../../../testoutput:/coverage
+      - ../../../testoutput/run-base:/var/run/obi
+    image: hatest-obi
+    privileged: true # in some environments (not GH Pull Requests) you can set it to false and then cap_add: [ SYS_ADMIN ]
+    network_mode: "service:testserver"
+    pid: "service:testserver"
+    environment:
+      GOCOVERDIR: "/coverage"
+      OTEL_EBPF_TRACE_PRINTER: "text"
+      OTEL_EBPF_OPEN_PORT: 8080
+      OTEL_EBPF_METRICS_FEATURES: "application,application_span_otel,application_service_graph,ebpf,application_host"
+      OTEL_EBPF_PROMETHEUS_FEATURES: "application,application_span_otel,application_service_graph,ebpf,application_host"
+      OTEL_EBPF_DISCOVERY_POLL_INTERVAL: 500ms
+      OTEL_EBPF_SERVICE_NAMESPACE: "integration-test"
+      OTEL_EBPF_METRICS_INTERVAL: "10ms"
+      OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT: "1ms"
+      OTEL_EBPF_BPF_BATCH_TIMEOUT: "10ms"
+      OTEL_EBPF_LOG_LEVEL: "INFO"
+      OTEL_EBPF_LOG_FORMAT: "json"
+      OTEL_EBPF_BPF_DEBUG: "TRUE"
+      OTEL_EBPF_INTERNAL_METRICS_PROMETHEUS_PORT: 8999
+      OTEL_EBPF_PROCESSES_INTERVAL: "100ms"
+      OTEL_EBPF_HOSTNAME: "obi"
+      OTEL_EBPF_RENAME_UNRESOLVED_HOSTS: ""
+      OTEL_EBPF_PROMETHEUS_EXTRA_SPAN_RESOURCE_ATTRIBUTES: "service.version"
+      OTEL_EBPF_EXTRA_SPAN_RESOURCE_ATTRIBUTES: "service.version"
+    depends_on:
+      testserver:
+        condition: service_started
+
+  # OpenTelemetry Collector for Metrics. For Traces, we use directly Jaeger
+  otelcol:
+    image: otel/opentelemetry-collector-contrib:0.149.0@sha256:0fba96233274f6d665ac8831ad99dfe6479a9a20459f6e2719c0d20945773b46
+    container_name: otel-col
+    deploy:
+      resources:
+        limits:
+          memory: 125M
+    restart: unless-stopped
+    command: ["--config=/etc/otelcol-config/otelcol-config.yml"]
+    volumes:
+      - ./configs/:/etc/otelcol-config
+    ports:
+      - "4317" # OTLP over gRPC receiver
+      - "4318" # OTLP over HTTP receiver
+      - "9464" # Prometheus exporter
+      - "8888" # metrics endpoint
+    depends_on:
+      obi:
+        condition: service_started
+      prometheus:
+        condition: service_started
+
+  # Prometheus
+  prometheus:
+    image: quay.io/prometheus/prometheus:v3.11.0@sha256:131bf4c9d8a0337782ea8b753249f4903afac01379f3cced87ceaf8ca82ab9f3
+    container_name: prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus-config.yml
+      - --web.enable-lifecycle
+      - --enable-feature=exemplar-storage
+      - --web.route-prefix=/
+    volumes:
+      - ./configs/:/etc/prometheus
+    ports:
+      - "9090:9090"
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.60@sha256:4fd2d70fa347d6a47e79fcb06b1c177e6079f92cba88b083153d56263082135e
+    ports:
+      - "16686:16686" # Query frontend
+      - "4317" # OTEL GRPC traces collector
+      - "4318" # OTEL HTTP traces collector
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+      - LOG_LEVEL=debug
+volumes:
+  kafka-volume:
+  zookeeper-volume:
+# curl http://localhost:16686/api/services
+# curl http://localhost:16686/api/traces?service=testserver

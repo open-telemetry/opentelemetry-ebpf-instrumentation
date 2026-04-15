@@ -1,7 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-//go:build linux
+//go:build linux && privileged_tests
 
 package helpers
 
@@ -14,8 +14,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sys/unix"
 )
-
-const privilegedEnv = "PRIVILEGED_TESTS"
 
 var (
 	expectedProcCaps *OSCapabilities
@@ -57,10 +55,6 @@ func resetProcCapabilities() {
 }
 
 func TestGetSetCurrentProcCaps(t *testing.T) {
-	if os.Getenv(privilegedEnv) == "" {
-		t.Skipf("Set %s to run this test\n", privilegedEnv)
-	}
-
 	if errResetCaps != nil {
 		assert.Fail(t, errResetCaps.Error())
 	}
@@ -71,9 +65,10 @@ func TestGetSetCurrentProcCaps(t *testing.T) {
 }
 
 func TestMain(m *testing.M) {
-	if os.Getenv(privilegedEnv) != "" {
-		resetProcCapabilities()
+	resetProcCapabilities()
+	if errResetCaps != nil {
+		_, _ = fmt.Fprintln(os.Stderr, errResetCaps.Error())
+		os.Exit(1)
 	}
-
 	os.Exit(m.Run())
 }
