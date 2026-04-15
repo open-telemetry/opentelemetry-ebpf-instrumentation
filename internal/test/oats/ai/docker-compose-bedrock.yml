@@ -1,5 +1,5 @@
 services:
-  bedrock:
+  bedrock-runtime.amazonaws.com:
     build:
       context: ../../integration/components/ai/bedrock/mock-server
       dockerfile: Dockerfile
@@ -14,9 +14,9 @@ services:
     ports:
       - "8080:8080"
     environment:
-      BEDROCK_BASE_URL: "http://bedrock:8086"
+      BEDROCK_BASE_URL: "http://bedrock-runtime.amazonaws.com:8086"
     depends_on:
-      bedrock:
+      bedrock-runtime.amazonaws.com:
         condition: service_started
   # eBPF auto instrumenter
   autoinstrumenter:
