@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -151,7 +152,8 @@ func applyDockerFingerprints(results []TestResult, logFiles map[string]string, l
 		}
 
 		// Fallback: most common fingerprint from all errored logs.
-		if fallback.fingerprint != "" {
+		// Only apply when the existing fingerprint is generic/unknown.
+		if fallback.fingerprint != "" && isGenericFingerprint(r.ErrorFingerprint) {
 			r.ErrorFingerprint = fallback.fingerprint
 			if fallback.snippet != "" {
 				r.ErrorSnippet = fallback.snippet
@@ -160,12 +162,22 @@ func applyDockerFingerprints(results []TestResult, logFiles map[string]string, l
 	}
 }
 
+// isGenericFingerprint returns true for fingerprints that should be
+// overridden by a Docker log fallback (empty, unknown, exit-error).
+func isGenericFingerprint(fp string) bool {
+	return fp == "" || fp == "unknown" || fp == "exit-error" || strings.HasPrefix(fp, "unknown-")
+}
+
 func parseDockerLogForError(r io.Reader) (logError, bool) {
 	var lines []string
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 0, 256*1024), 256*1024)
 	for scanner.Scan() {
 		lines = append(lines, scanner.Text())
+	}
+	if err := scanner.Err(); err != nil {
+		log.Printf("warning: scanning Docker log: %v", err)
+		return logError{}, false
 	}
 
 	start := len(lines) - 200

@@ -3,8 +3,6 @@ name: "Daily Test Analysis Report"
 on:
   schedule:
     - cron: "0 6 * * *" # Daily at 06:00 UTC
-  push:
-    branches: ["main"]
   workflow_dispatch:
     inputs:
       lookback_days:

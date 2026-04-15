@@ -15,23 +15,19 @@ const (
 	maxFlakyTestsShown     = 20
 	maxRecentFailuresShown = 30
 	maxSnippetDisplay      = 600
+	maxTestsInList         = 8
 )
 
-func writeReport(w io.Writer, results []TestResult, repo string) error {
-	if len(results) == 0 {
+func writeReport(w io.Writer, results []TestResult, metaMap map[string]RunMeta, repo string) error {
+	if len(results) == 0 && len(metaMap) == 0 {
 		_, err := fmt.Fprintln(w, "# CI Test Analysis Report\n\nNo test data found for the analysis period.")
 		return err
 	}
 
-	minDate, maxDate := dateRange(results)
+	minDate, maxDate := dateRangeFromMeta(metaMap)
 	tests := computeTestStats(results)
-	workflows := computeWorkflowStats(results)
+	workflows := computeWorkflowStats(results, metaMap)
 	fingerprints := computeFingerprintStats(results)
-
-	runIDs := map[string]bool{}
-	for _, r := range results {
-		runIDs[r.RunID] = true
-	}
 
 	p := func(format string, args ...any) {
 		fmt.Fprintf(w, format+"\n", args...)
@@ -40,7 +36,7 @@ func writeReport(w io.Writer, results []TestResult, repo string) error {
 	p("# CI Test Analysis Report")
 	p("")
 	p("**Period:** %s to %s", minDate, maxDate)
-	p("**Runs analyzed:** %d | **Tests tracked:** %d", len(runIDs), len(tests))
+	p("**Runs analyzed:** %d | **Tests tracked:** %d", len(metaMap), len(tests))
 	p("")
 
 	writeWorkflowTable(p, workflows)
@@ -126,15 +122,7 @@ func writeErrorSummaryTable(p func(string, ...any), fingerprints []fingerprintSt
 	p("| Error | Total occurrences | Affected tests |")
 	p("|-------|------------------|----------------|")
 	for _, fp := range fingerprints {
-		testNames := sortedKeys(fp.affectedTests)
-		backticked := make([]string, len(testNames))
-		for i, t := range testNames {
-			backticked[i] = "`" + t + "`"
-		}
-		testList := strings.Join(backticked, ", ")
-		if len(testList) > 200 {
-			testList = testList[:197] + "..."
-		}
+		testList := formatTestList(sortedKeys(fp.affectedTests))
 		p("| `%s` | %d | %d (%s) |", fp.fingerprint, fp.occurrences, len(fp.affectedTests), testList)
 	}
 	p("")
@@ -152,15 +140,7 @@ func writeFingerprintTable(p func(string, ...any), fingerprints []fingerprintSta
 	p("| Pattern | Occurrences | Affected tests | Example |")
 	p("|---------|------------|---------------|---------|")
 	for _, fp := range fingerprints {
-		testNames := sortedKeys(fp.affectedTests)
-		backticked := make([]string, len(testNames))
-		for i, t := range testNames {
-			backticked[i] = "`" + t + "`"
-		}
-		testList := strings.Join(backticked, ", ")
-		if len(testList) > 150 {
-			testList = testList[:147] + "..."
-		}
+		testList := formatTestList(sortedKeys(fp.affectedTests))
 		example := fp.example
 		if len(example) > maxSnippetDisplay {
 			example = example[:maxSnippetDisplay-3] + "..."
@@ -198,7 +178,7 @@ func writeRecentFailuresTable(p func(string, ...any), results []TestResult, repo
 		return failures[i].test < failures[j].test
 	})
 
-	p("## Recent Failures")
+	p("## Failure Details")
 	p("")
 	p("| Run | Workflow | Test | Fingerprint | Error |")
 	p("|-----|---------|------|-------------|-------|")
@@ -245,6 +225,23 @@ func writeLegend(p func(string, ...any)) {
 	p("")
 }
 
+// formatTestList renders test names as backticked, comma-separated list,
+// truncating by count to avoid breaking markdown with partial names.
+func formatTestList(names []string) string {
+	if len(names) <= maxTestsInList {
+		backticked := make([]string, len(names))
+		for i, t := range names {
+			backticked[i] = "`" + t + "`"
+		}
+		return strings.Join(backticked, ", ")
+	}
+	backticked := make([]string, maxTestsInList)
+	for i := range maxTestsInList {
+		backticked[i] = "`" + names[i] + "`"
+	}
+	return strings.Join(backticked, ", ") + fmt.Sprintf(" +%d more", len(names)-maxTestsInList)
+}
+
 type testStats struct {
 	name             string
 	totalRuns        int
@@ -283,21 +280,22 @@ type fingerprintStats struct {
 	example       string
 }
 
-func dateRange(results []TestResult) (string, string) {
-	minDate, maxDate := results[0].CreatedAt, results[0].CreatedAt
-	for _, r := range results {
-		if r.CreatedAt < minDate {
-			minDate = r.CreatedAt
+func dateRangeFromMeta(metaMap map[string]RunMeta) (string, string) {
+	var minDate, maxDate string
+	for _, rm := range metaMap {
+		d := rm.CreatedAt
+		if len(d) >= 10 {
+			d = d[:10]
 		}
-		if r.CreatedAt > maxDate {
-			maxDate = r.CreatedAt
+		if d == "" {
+			continue
 		}
-	}
-	if len(minDate) >= 10 {
-		minDate = minDate[:10]
-	}
-	if len(maxDate) >= 10 {
-		maxDate = maxDate[:10]
+		if minDate == "" || d < minDate {
+			minDate = d
+		}
+		if maxDate == "" || d > maxDate {
+			maxDate = d
+		}
 	}
 	return minDate, maxDate
 }
@@ -338,7 +336,10 @@ func computeTestStats(results []TestResult) map[string]*testStats {
 	return tests
 }
 
-func computeWorkflowStats(results []TestResult) []workflowStats {
+// computeWorkflowStats builds workflow reliability stats from both test results
+// and run metadata. This ensures job-only workflows (which produce no TestResult
+// entries) still appear in the reliability table.
+func computeWorkflowStats(results []TestResult, metaMap map[string]RunMeta) []workflowStats {
 	type runKey struct {
 		workflow string
 		runID    string
@@ -349,6 +350,20 @@ func computeWorkflowStats(results []TestResult) []workflowStats {
 		hasFlaky bool
 	}
 	runStates := map[runKey]*runState{}
+
+	// Seed from metaMap so every collected run is represented.
+	for _, rm := range metaMap {
+		key := runKey{rm.Workflow, rm.RunID}
+		rs := &runState{}
+		// For runs without test-level data, use the run conclusion.
+		switch rm.Conclusion {
+		case "failure", "timed_out", "cancelled":
+			rs.hasFail = true
+		}
+		runStates[key] = rs
+	}
+
+	// Override with test-level data when available.
 	for _, r := range results {
 		key := runKey{r.Workflow, r.RunID}
 		rs, ok := runStates[key]
@@ -455,7 +470,7 @@ func primaryFingerprint(fps map[string]int) string {
 	var best string
 	bestCount := 0
 	for fp, count := range fps {
-		if count > bestCount {
+		if count > bestCount || (count == bestCount && fp < best) {
 			best = fp
 			bestCount = count
 		}
@@ -470,7 +485,7 @@ func primaryWorkflow(wfs map[string]int) string {
 	var best string
 	bestCount := 0
 	for wf, count := range wfs {
-		if count > bestCount {
+		if count > bestCount || (count == bestCount && wf < best) {
 			best = wf
 			bestCount = count
 		}

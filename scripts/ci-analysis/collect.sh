@@ -7,7 +7,7 @@
 # parses them, and produces a Markdown report on stdout.
 #
 # Environment variables (all have defaults suitable for GitHub Actions):
-#   GITHUB_TOKEN      - Auth token for gh CLI (auto-set by GitHub Actions)
+#   GH_TOKEN          - Auth token for gh CLI (set from github.token in the workflow)
 #   GITHUB_REPOSITORY - owner/repo string (auto-set by GitHub Actions)
 #   LOOKBACK_DAYS     - Number of days to look back (default: 5, max limited by artifact retention)
 #   SCRIPT_DIR        - Override for the directory containing this script
@@ -93,7 +93,7 @@ for WORKFLOW_NAME in "${ALL_WORKFLOWS[@]}"; do
       echo "," >> "$META_FILE"
     fi
     cat >> "$META_FILE" <<METAEOF
-{"run_id":"${RUN_ID}","sha":"${SHA}","created_at":"${CREATED_AT}","workflow":"${WORKFLOW_NAME}"}
+{"run_id":"${RUN_ID}","sha":"${SHA}","created_at":"${CREATED_AT}","workflow":"${WORKFLOW_NAME}","conclusion":"${CONCLUSION}"}
 METAEOF
 
     RUN_REPORTS_DIR="$REPORTS_DIR/$RUN_ID"

@@ -45,10 +45,11 @@ type TestResult struct {
 
 // RunMeta contains metadata for each run being parsed.
 type RunMeta struct {
-	RunID     string `json:"run_id"`
-	SHA       string `json:"sha"`
-	CreatedAt string `json:"created_at"`
-	Workflow  string `json:"workflow"`
+	RunID      string `json:"run_id"`
+	SHA        string `json:"sha"`
+	CreatedAt  string `json:"created_at"`
+	Workflow   string `json:"workflow"`
+	Conclusion string `json:"conclusion"`
 }
 
 func loadRunMeta(path string) (map[string]RunMeta, error) {

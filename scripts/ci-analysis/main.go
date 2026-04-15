@@ -40,7 +40,7 @@ func main() {
 		log.Fatalf("parsing reports: %v", err)
 	}
 
-	if err := writeReport(os.Stdout, results, *repo); err != nil {
+	if err := writeReport(os.Stdout, results, metaMap, *repo); err != nil {
 		log.Fatalf("writing report: %v", err)
 	}
 }

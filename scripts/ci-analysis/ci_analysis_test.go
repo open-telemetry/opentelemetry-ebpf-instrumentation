@@ -90,6 +90,7 @@ func TestApplyDockerFingerprints(t *testing.T) {
 	results := []TestResult{
 		{Test: "TestFailed", Outcome: "failed", ErrorFingerprint: "exit-error"},
 		{Test: "TestFlaky", Outcome: "flaky-passed", ErrorFingerprint: "connection-refused"},
+		{Test: "TestUnknown", Outcome: "failed", ErrorFingerprint: "unknown"},
 		{Test: "TestPassed", Outcome: "passed"},
 	}
 
@@ -104,10 +105,12 @@ func TestApplyDockerFingerprints(t *testing.T) {
 
 	// TestFailed matched heuristically via test-suite-failed.log
 	require.Equal(t, "port-conflict", results[0].ErrorFingerprint)
-	// TestFlaky: no heuristic match, falls back to most common log error
-	require.Equal(t, "port-conflict", results[1].ErrorFingerprint)
+	// TestFlaky: has specific fingerprint (connection-refused), fallback should NOT override
+	require.Equal(t, "connection-refused", results[1].ErrorFingerprint)
+	// TestUnknown: generic fingerprint, fallback SHOULD override
+	require.Equal(t, "port-conflict", results[2].ErrorFingerprint)
 	// TestPassed: not failed, untouched
-	require.Empty(t, results[2].ErrorFingerprint)
+	require.Empty(t, results[3].ErrorFingerprint)
 }
 
 func TestWriteReport(t *testing.T) {
@@ -116,9 +119,12 @@ func TestWriteReport(t *testing.T) {
 		{RunID: "1", CreatedAt: "2026-01-01", Workflow: "Pull request integration tests", Test: "TestFlaky", Outcome: "flaky-passed", ErrorFingerprint: "port-conflict"},
 		{RunID: "1", CreatedAt: "2026-01-01", Workflow: "Pull request integration tests", Test: "TestPassed", Outcome: "passed"},
 	}
+	metaMap := map[string]RunMeta{
+		"1": {RunID: "1", CreatedAt: "2026-01-01", Workflow: "Pull request integration tests", Conclusion: "failure"},
+	}
 
 	var buf bytes.Buffer
-	err := writeReport(&buf, results, "test/repo")
+	err := writeReport(&buf, results, metaMap, "test/repo")
 	require.NoError(t, err)
 
 	report := buf.String()
