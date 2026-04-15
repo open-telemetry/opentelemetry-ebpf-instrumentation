@@ -754,6 +754,10 @@ func (p *Tracer) Run(ctx context.Context, ebpfEventContext *ebpfcommon.EBPFEvent
 	)(ctx, append(p.closers, &p.bpfObjects), eventsChan)
 }
 
+func (p *Tracer) SetEventContext(_ *ebpfcommon.EBPFEventContext) {}
+
+func (p *Tracer) Capabilities() ebpfcommon.TracerCapability { return 0 }
+
 func (p *Tracer) Required() bool {
 	return true
 }

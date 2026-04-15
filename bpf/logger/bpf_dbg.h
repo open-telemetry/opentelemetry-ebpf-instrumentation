@@ -66,6 +66,9 @@ enum bpf_func_id___x {
         bpf_ringbuf_submit(__trace__, 0);                                                          \
     } while (0)
 
+#define bpf_dbg_enter() bpf_dbg_printk("%s entered", __FUNCTION__)
+#define bpf_dbg_return() bpf_dbg_printk("%s returning", __FUNCTION__)
+
 #define bpf_d_printk(fmt, args...)                                                                 \
     do {                                                                                           \
         if (!g_bpf_debug) {                                                                        \

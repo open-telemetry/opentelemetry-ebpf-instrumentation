@@ -62,7 +62,6 @@ static __always_inline tp_info_pid_t *find_puma_parent_trace(u64 id) {
     bpf_dbg_printk("found item:%llx", task_id->item);
 
     connection_info_part_t *conn_part = bpf_map_lookup_elem(&puma_task_connections, task_id);
-    bpf_dbg_printk("puma parent lookup: conn=%llx", conn_part);
     if (conn_part) {
         return bpf_map_lookup_elem(&server_traces_aux, conn_part);
     }

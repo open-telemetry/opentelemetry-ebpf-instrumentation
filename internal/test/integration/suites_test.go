@@ -614,6 +614,17 @@ func TestSuite_PythonGraphQL(t *testing.T) {
 	require.NoError(t, compose.Close())
 }
 
+func TestSuite_PythonJsonRPC(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-python-jsonrpc.yml", path.Join(pathOutput, "test-suite-python-jsonrpc.log"))
+	require.NoError(t, err)
+
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)
+	require.NoError(t, compose.Up())
+	t.Run("Python JSON-RPC server span", testPythonJSONRPCServer)
+	t.Run("Python JSON-RPC RPC metrics", testPythonJSONRPCMetrics)
+	require.NoError(t, compose.Close())
+}
+
 func TestSuite_PythonElasticsearch(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-elasticsearch.yml", path.Join(pathOutput, "test-suite-elasticsearch.log"))
 	require.NoError(t, err)

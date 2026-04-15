@@ -6,13 +6,31 @@ package ebpfcommon
 import (
 	"os"
 	"path/filepath"
+	"runtime/debug"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-const privilegedEnv = "PRIVILEGED_TESTS"
+// GetBuildTags returns a slice of the build tags used to compile the binary.
+func GetBuildTags() []string {
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return nil
+	}
+
+	for _, setting := range info.Settings {
+		if setting.Key == "-tags" {
+			// Tags are comma-separated in the build info
+			return strings.Split(setting.Value, ",")
+		}
+	}
+
+	return nil
+}
 
 func setIntegrity(t *testing.T, path, text string) {
 	err := os.WriteFile(path, []byte(text), 0o644)
@@ -61,9 +79,9 @@ func TestLockdownParsing(t *testing.T) {
 	setIntegrity(t, path, "")
 	assert.Equal(t, KernelLockdownIntegrity, KernelLockdownMode())
 
-	if os.Getenv(privilegedEnv) != "" {
+	if slices.Contains(GetBuildTags(), "privileged_tests") {
 		// This test doesn't pass when run as sudo
-		t.Skipf("Skipping this test because %v is set", privilegedEnv)
+		t.Skip("Skipping this test because privileged_tests tag is set")
 	}
 
 	setIntegrity(t, path, "[none] integrity confidentiality\n")

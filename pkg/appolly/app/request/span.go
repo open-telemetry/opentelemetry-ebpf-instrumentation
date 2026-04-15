@@ -95,6 +95,7 @@ const (
 	HTTPSubtypeOpenAI        = 6 // http + OpenAI
 	HTTPSubtypeAnthropic     = 7 // http + Anthropic
 	HTTPSubtypeGemini        = 8 // http + Google AI Studio (Gemini)
+	HTTPSubtypeJSONRPC       = 9 // http + JSON-RPC
 )
 
 func IsGenAISubtype(subtype int) bool {
@@ -464,6 +465,14 @@ func (g *VendorGemini) GetSystemInstruction() string {
 	return ""
 }
 
+type JSONRPC struct {
+	Method       string `json:"method"`
+	Version      string `json:"version"`
+	RequestID    string `json:"requestId"`
+	ErrorCode    int    `json:"errorCode,omitempty"`
+	ErrorMessage string `json:"errorMessage,omitempty"`
+}
+
 // Span contains the information being submitted by the following nodes in the graph.
 // It enables comfortable handling of data from Go.
 // REMINDER: any attribute here must be also added to the functions SpanOTELGetters
@@ -508,6 +517,7 @@ type Span struct {
 	Elasticsearch     *Elasticsearch `json:"-"`
 	AWS               *AWS           `json:"-"`
 	GenAI             *GenAI         `json:"-"`
+	JSONRPC           *JSONRPC       `json:"-"`
 
 	// RequestHeaders stores extracted HTTP request headers based on enrichment rules.
 	// Keys are canonical header names, values are all header values (possibly obfuscated).
@@ -860,6 +870,13 @@ func SpanStatusMessage(span *Span) string {
 		if span.SubType == HTTPSubtypeSQLPP && span.Status != 0 && span.DBError.Description != "" {
 			return span.DBError.Description
 		}
+		if span.SubType == HTTPSubtypeJSONRPC && span.JSONRPC != nil && span.JSONRPC.ErrorMessage != "" {
+			return span.JSONRPC.ErrorMessage
+		}
+	case EventTypeHTTP:
+		if span.SubType == HTTPSubtypeJSONRPC && span.JSONRPC != nil && span.JSONRPC.ErrorMessage != "" {
+			return span.JSONRPC.ErrorMessage
+		}
 	}
 	return ""
 }
@@ -867,6 +884,11 @@ func SpanStatusMessage(span *Span) string {
 // HTTPSpanStatusCode https://opentelemetry.io/docs/specs/otel/trace/semantic_conventions/http/#status
 func HTTPSpanStatusCode(span *Span) string {
 	if span.Status == 0 {
+		return StatusCodeError
+	}
+
+	// JSON-RPC errors are signaled in the response body, not via HTTP status code.
+	if span.SubType == HTTPSubtypeJSONRPC && span.JSONRPC != nil && span.JSONRPC.ErrorCode != 0 {
 		return StatusCodeError
 	}
 
@@ -1075,6 +1097,13 @@ func (s *Span) TraceName() string {
 				return "generate_content " + model
 			}
 			return "generate_content"
+		}
+
+		if s.SubType == HTTPSubtypeJSONRPC && s.JSONRPC != nil {
+			if s.JSONRPC.Method != "" {
+				return s.JSONRPC.Method
+			}
+			return "jsonrpc"
 		}
 
 		name := s.Method

@@ -1380,6 +1380,106 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		attrs := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
 		ensureTraceStrAttr(t, attrs, semconv.URLFullKey, "https://upstream.example.com/external/api?foo=bar")
 	})
+	t.Run("test JSON-RPC server span with error", func(t *testing.T) {
+		span := request.Span{
+			Type:    request.EventTypeHTTP,
+			Method:  "POST",
+			Path:    "/rpc",
+			Route:   "/rpc",
+			Status:  200,
+			SubType: request.HTTPSubtypeJSONRPC,
+			JSONRPC: &request.JSONRPC{
+				Method:       "subtract",
+				Version:      "2.0",
+				RequestID:    "1",
+				ErrorCode:    -32601,
+				ErrorMessage: "Method not found",
+			},
+		}
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+		topSpan := spans.At(spans.Len() - 1)
+		attrs := topSpan.Attributes()
+		status := topSpan.Status()
+
+		assert.Equal(t, "subtract", topSpan.Name())
+		assert.Equal(t, ptrace.StatusCodeError, status.Code())
+		assert.Equal(t, "Method not found", status.Message())
+
+		ensureTraceStrAttr(t, attrs, "rpc.system", "jsonrpc")
+		ensureTraceStrAttr(t, attrs, "rpc.method", "subtract")
+		ensureTraceStrAttr(t, attrs, "jsonrpc.protocol.version", "2.0")
+		ensureTraceStrAttr(t, attrs, "jsonrpc.request.id", "1")
+		ensureTraceStrAttr(t, attrs, "rpc.response.status_code", "-32601")
+	})
+	t.Run("test JSON-RPC server span without error", func(t *testing.T) {
+		span := request.Span{
+			Type:    request.EventTypeHTTP,
+			Method:  "POST",
+			Path:    "/rpc",
+			Route:   "/rpc",
+			Status:  200,
+			SubType: request.HTTPSubtypeJSONRPC,
+			JSONRPC: &request.JSONRPC{
+				Method:    "subtract",
+				Version:   "2.0",
+				RequestID: "1",
+			},
+		}
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+		topSpan := spans.At(spans.Len() - 1)
+		attrs := topSpan.Attributes()
+		status := topSpan.Status()
+
+		assert.Equal(t, "subtract", topSpan.Name())
+		assert.Equal(t, ptrace.StatusCodeUnset, status.Code())
+		assert.Empty(t, status.Message())
+
+		ensureTraceStrAttr(t, attrs, "rpc.system", "jsonrpc")
+		ensureTraceStrAttr(t, attrs, "rpc.method", "subtract")
+		ensureTraceStrAttr(t, attrs, "jsonrpc.protocol.version", "2.0")
+		ensureTraceStrAttr(t, attrs, "jsonrpc.request.id", "1")
+		ensureTraceAttrNotExists(t, attrs, "rpc.response.status_code")
+	})
+	t.Run("test JSON-RPC client span with error", func(t *testing.T) {
+		span := request.Span{
+			Type:    request.EventTypeHTTPClient,
+			Method:  "POST",
+			Path:    "/rpc",
+			Status:  200,
+			SubType: request.HTTPSubtypeJSONRPC,
+			JSONRPC: &request.JSONRPC{
+				Method:       "getUser",
+				Version:      "2.0",
+				RequestID:    "42",
+				ErrorCode:    -32600,
+				ErrorMessage: "Invalid Request",
+			},
+		}
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+		assert.Equal(t, 1, spans.Len())
+		topSpan := spans.At(0)
+		attrs := topSpan.Attributes()
+		status := topSpan.Status()
+
+		assert.Equal(t, "getUser", topSpan.Name())
+		assert.Equal(t, ptrace.StatusCodeError, status.Code())
+		assert.Equal(t, "Invalid Request", status.Message())
+
+		ensureTraceStrAttr(t, attrs, "rpc.system", "jsonrpc")
+		ensureTraceStrAttr(t, attrs, "rpc.method", "getUser")
+		ensureTraceStrAttr(t, attrs, "jsonrpc.protocol.version", "2.0")
+		ensureTraceStrAttr(t, attrs, "jsonrpc.request.id", "42")
+		ensureTraceStrAttr(t, attrs, "rpc.response.status_code", "-32600")
+	})
 	t.Run("test HTTP span without headers has no header attributes", func(t *testing.T) {
 		span := request.Span{
 			Type:   request.EventTypeHTTP,

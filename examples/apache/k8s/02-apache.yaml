@@ -1,0 +1,252 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: edge-apache
+  namespace: obi-apache-example
+spec:
+  selector:
+    app: edge-apache
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: edge-apache
+  namespace: obi-apache-example
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: edge-apache
+  template:
+    metadata:
+      labels:
+        app: edge-apache
+    spec:
+      containers:
+        - name: httpd
+          image: httpd:2.4.65-alpine@sha256:07b2fabb7029a0b8aeb2e0fd02651c28fe22c21c5b5a59d6ff5b022791fcd89e
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /users/42/home
+              port: 8080
+            initialDelaySeconds: 1
+            periodSeconds: 2
+          volumeMounts:
+            - name: config
+              mountPath: /usr/local/apache2/conf/httpd.conf
+              subPath: httpd.conf
+            - name: shared
+              mountPath: /usr/local/apache2/conf/shared
+            - name: htdocs
+              mountPath: /usr/local/apache2/htdocs
+      volumes:
+        - name: config
+          configMap:
+            name: edge-apache-config
+        - name: shared
+          configMap:
+            name: apache-shared-config
+        - name: htdocs
+          configMap:
+            name: apache-htdocs
+            items:
+              - key: edge-users-42-home.txt
+                path: edge/users/42/home.txt
+              - key: recommendations-v1-rollout-personalized-homepage.txt
+                path: recommendations-v1/api/users/42/recommendations/rollout/personalized-homepage.txt
+              - key: recommendations-v1-v1-homepage-hero.txt
+                path: recommendations-v1/api/users/42/recommendations/v1/homepage-hero.txt
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: recommendations-v1
+  namespace: obi-apache-example
+spec:
+  selector:
+    app: recommendations-v1
+  ports:
+    - name: http
+      port: 8081
+      targetPort: 8081
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: recommendations-v1
+  namespace: obi-apache-example
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: recommendations-v1
+  template:
+    metadata:
+      labels:
+        app: recommendations-v1
+    spec:
+      containers:
+        - name: httpd
+          image: httpd:2.4.65-alpine@sha256:07b2fabb7029a0b8aeb2e0fd02651c28fe22c21c5b5a59d6ff5b022791fcd89e
+          ports:
+            - containerPort: 8081
+          readinessProbe:
+            httpGet:
+              path: /api/users/42/recommendations/v1/homepage-hero
+              port: 8081
+            initialDelaySeconds: 1
+            periodSeconds: 2
+          volumeMounts:
+            - name: config
+              mountPath: /usr/local/apache2/conf/httpd.conf
+              subPath: httpd.conf
+            - name: shared
+              mountPath: /usr/local/apache2/conf/shared
+            - name: htdocs
+              mountPath: /usr/local/apache2/htdocs
+      volumes:
+        - name: config
+          configMap:
+            name: recommendations-v1-config
+        - name: shared
+          configMap:
+            name: apache-shared-config
+        - name: htdocs
+          configMap:
+            name: apache-htdocs
+            items:
+              - key: edge-users-42-home.txt
+                path: edge/users/42/home.txt
+              - key: recommendations-v1-rollout-personalized-homepage.txt
+                path: recommendations-v1/api/users/42/recommendations/rollout/personalized-homepage.txt
+              - key: recommendations-v1-v1-homepage-hero.txt
+                path: recommendations-v1/api/users/42/recommendations/v1/homepage-hero.txt
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: recommendations-v2
+  namespace: obi-apache-example
+spec:
+  selector:
+    app: recommendations-v2
+  ports:
+    - name: http
+      port: 8082
+      targetPort: 8082
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: recommendations-v2
+  namespace: obi-apache-example
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: recommendations-v2
+  template:
+    metadata:
+      labels:
+        app: recommendations-v2
+    spec:
+      containers:
+        - name: httpd
+          image: httpd:2.4.65-alpine@sha256:07b2fabb7029a0b8aeb2e0fd02651c28fe22c21c5b5a59d6ff5b022791fcd89e
+          ports:
+            - containerPort: 8082
+          readinessProbe:
+            httpGet:
+              path: /api/users/271828/recommendations/v2/style-refresh
+              port: 8082
+              httpHeaders:
+                - name: Host
+                  value: recommendations-v2
+            initialDelaySeconds: 1
+            periodSeconds: 2
+          volumeMounts:
+            - name: config
+              mountPath: /usr/local/apache2/conf/httpd.conf
+              subPath: httpd.conf
+            - name: shared
+              mountPath: /usr/local/apache2/conf/shared
+            - name: htdocs
+              mountPath: /usr/local/apache2/htdocs
+      volumes:
+        - name: config
+          configMap:
+            name: recommendations-v2-config
+        - name: shared
+          configMap:
+            name: apache-shared-config
+        - name: htdocs
+          configMap:
+            name: apache-htdocs
+            items:
+              - key: edge-users-42-home.txt
+                path: edge/users/42/home.txt
+              - key: recommendations-v1-rollout-personalized-homepage.txt
+                path: recommendations-v1/api/users/42/recommendations/rollout/personalized-homepage.txt
+              - key: recommendations-v1-v1-homepage-hero.txt
+                path: recommendations-v1/api/users/42/recommendations/v1/homepage-hero.txt
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: traffic-generator
+  namespace: obi-apache-example
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: traffic-generator
+  template:
+    metadata:
+      labels:
+        app: traffic-generator
+    spec:
+      initContainers:
+        - name: wait-for-apache
+          image: curlimages/curl:8.13.0@sha256:d43bdb28bae0be0998f3be83199bfb2b81e0a30b034b6d7586ce7e05de34c3fd
+          command:
+            - sh
+            - -ec
+            - |
+              wait_for() {
+                local expected_code="$1"
+                local url="$2"
+                local attempt=0
+                local observed_code=""
+
+                until [ "$observed_code" = "$expected_code" ]; do
+                  observed_code="$(curl -sS -o /dev/null -w '%{http_code}' "$url" || true)"
+                  attempt=$((attempt + 1))
+                  if [ "$observed_code" = "$expected_code" ]; then
+                    break
+                  fi
+                  if [ "$attempt" -ge 60 ]; then
+                    echo "timed out waiting for $url: expected $expected_code, got ${observed_code:-000}" >&2
+                    exit 1
+                  fi
+                  sleep 2
+                done
+              }
+
+              wait_for 200 http://edge-apache:8080/users/42/home
+              wait_for 200 http://recommendations-v1:8081/api/users/42/recommendations/v1/homepage-hero
+              wait_for 302 http://recommendations-v2:8082/api/users/271828/recommendations/v2/style-refresh
+      containers:
+        - name: traffic-generator
+          image: obi-apache-traffic:local
+          imagePullPolicy: IfNotPresent
+          args:
+            - --base-url
+            - http://edge-apache:8080
+            - --progress-seconds
+            - "15"

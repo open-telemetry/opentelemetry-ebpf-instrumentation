@@ -168,6 +168,11 @@ func TestTraceName(t *testing.T) {
 		{name: "MQTT server", span: &Span{Type: EventTypeMQTTServer, Method: MessagingProcess, Path: "home/lights"}, expected: "process home/lights"},
 		{name: "MQTT no topic", span: &Span{Type: EventTypeMQTTClient, Method: MessagingPublish}, expected: "publish"},
 
+		// JSON-RPC spans
+		{name: "JSON-RPC with method", span: &Span{Type: EventTypeHTTP, SubType: HTTPSubtypeJSONRPC, JSONRPC: &JSONRPC{Method: "subtract", Version: "2.0"}}, expected: "subtract"},
+		{name: "JSON-RPC no method", span: &Span{Type: EventTypeHTTP, SubType: HTTPSubtypeJSONRPC, JSONRPC: &JSONRPC{Version: "2.0"}}, expected: "jsonrpc"},
+		{name: "JSON-RPC client", span: &Span{Type: EventTypeHTTPClient, SubType: HTTPSubtypeJSONRPC, JSONRPC: &JSONRPC{Method: "getUser", Version: "2.0"}}, expected: "getUser"},
+
 		// Other spans
 		{name: "Mongo client", span: &Span{Type: EventTypeMongoClient, Method: "find", Path: "users"}, expected: "find users"},
 		{name: "Failed connect", span: &Span{Type: EventTypeFailedConnect}, expected: "CONNECT"},
@@ -177,6 +182,116 @@ func TestTraceName(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			assert.Equal(t, tt.expected, tt.span.TraceName())
+		})
+	}
+}
+
+func TestSpanStatusCode_JSONRPC(t *testing.T) {
+	tests := []struct {
+		name         string
+		span         *Span
+		expectedCode string
+	}{
+		{
+			name: "server span with JSON-RPC error",
+			span: &Span{
+				Type:    EventTypeHTTP,
+				Status:  200,
+				SubType: HTTPSubtypeJSONRPC,
+				JSONRPC: &JSONRPC{Method: "subtract", Version: "2.0", ErrorCode: -32601, ErrorMessage: "Method not found"},
+			},
+			expectedCode: StatusCodeError,
+		},
+		{
+			name: "server span without JSON-RPC error",
+			span: &Span{
+				Type:    EventTypeHTTP,
+				Status:  200,
+				SubType: HTTPSubtypeJSONRPC,
+				JSONRPC: &JSONRPC{Method: "subtract", Version: "2.0"},
+			},
+			expectedCode: StatusCodeUnset,
+		},
+		{
+			name: "client span with JSON-RPC error",
+			span: &Span{
+				Type:    EventTypeHTTPClient,
+				Status:  200,
+				SubType: HTTPSubtypeJSONRPC,
+				JSONRPC: &JSONRPC{Method: "subtract", Version: "2.0", ErrorCode: -32600, ErrorMessage: "Invalid Request"},
+			},
+			expectedCode: StatusCodeError,
+		},
+		{
+			name: "client span without JSON-RPC error",
+			span: &Span{
+				Type:    EventTypeHTTPClient,
+				Status:  200,
+				SubType: HTTPSubtypeJSONRPC,
+				JSONRPC: &JSONRPC{Method: "subtract", Version: "2.0"},
+			},
+			expectedCode: StatusCodeUnset,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expectedCode, SpanStatusCode(tt.span))
+		})
+	}
+}
+
+func TestSpanStatusMessage_JSONRPC(t *testing.T) {
+	tests := []struct {
+		name            string
+		span            *Span
+		expectedMessage string
+	}{
+		{
+			name: "server span with error message",
+			span: &Span{
+				Type:    EventTypeHTTP,
+				Status:  200,
+				SubType: HTTPSubtypeJSONRPC,
+				JSONRPC: &JSONRPC{Method: "subtract", ErrorCode: -32601, ErrorMessage: "Method not found"},
+			},
+			expectedMessage: "Method not found",
+		},
+		{
+			name: "client span with error message",
+			span: &Span{
+				Type:    EventTypeHTTPClient,
+				Status:  200,
+				SubType: HTTPSubtypeJSONRPC,
+				JSONRPC: &JSONRPC{Method: "subtract", ErrorCode: -32600, ErrorMessage: "Invalid Request"},
+			},
+			expectedMessage: "Invalid Request",
+		},
+		{
+			name: "server span without error",
+			span: &Span{
+				Type:    EventTypeHTTP,
+				Status:  200,
+				SubType: HTTPSubtypeJSONRPC,
+				JSONRPC: &JSONRPC{Method: "subtract", Version: "2.0"},
+			},
+			expectedMessage: "",
+		},
+		{
+			name: "client span without error",
+			span: &Span{
+				Type:    EventTypeHTTPClient,
+				Status:  200,
+				SubType: HTTPSubtypeJSONRPC,
+				JSONRPC: &JSONRPC{Method: "subtract", Version: "2.0"},
+			},
+			expectedMessage: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expectedMessage, SpanStatusMessage(tt.span))
 		})
 	}
 }

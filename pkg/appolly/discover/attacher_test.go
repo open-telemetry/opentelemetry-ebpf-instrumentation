@@ -58,6 +58,8 @@ func (r *recordingTracer) UnlinkInstrumentedLib(uint64)                         
 func (r *recordingTracer) RegisterOffsets(*execpkg.FileInfo, *goexec.Offsets)     {}
 func (r *recordingTracer) ProcessBinary(*execpkg.FileInfo)                        {}
 func (r *recordingTracer) Required() bool                                         { return false }
+func (r *recordingTracer) SetEventContext(*ebpfcommon.EBPFEventContext)           {}
+func (r *recordingTracer) Capabilities() ebpfcommon.TracerCapability              { return 0 }
 func (r *recordingTracer) Run(context.Context, *ebpfcommon.EBPFEventContext, *msg.Queue[[]request.Span]) {
 }
 

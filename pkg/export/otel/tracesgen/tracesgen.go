@@ -305,6 +305,26 @@ var (
 	spanMetricsSkip     = attribute.Bool(string(attr.SkipSpanMetrics), true)
 )
 
+// jsonRPCAttributes returns JSON-RPC span attributes following the OTEL RPC semantic conventions.
+func jsonRPCAttributes(span *request.Span) []attribute.KeyValue {
+	if span.SubType != request.HTTPSubtypeJSONRPC || span.JSONRPC == nil {
+		return nil
+	}
+	rpc := span.JSONRPC
+	attrs := []attribute.KeyValue{
+		semconv.RPCSystemJSONRPC,
+		semconv.RPCMethod(rpc.Method),
+		attribute.String(string(attr.JSONRPCProtocolVersion), rpc.Version),
+	}
+	if rpc.RequestID != "" {
+		attrs = append(attrs, attribute.String(string(attr.JSONRPCRequestID), rpc.RequestID))
+	}
+	if rpc.ErrorCode != 0 {
+		attrs = append(attrs, attribute.String(string(attr.RPCResponseStatusCode), strconv.Itoa(rpc.ErrorCode)))
+	}
+	return attrs
+}
+
 // httpEnrichmentAttributes converts extracted HTTP headers and body content to OTel span attributes.
 func httpEnrichmentAttributes(span *request.Span) []attribute.KeyValue {
 	attrs := make([]attribute.KeyValue, 0, len(span.RequestHeaders)+len(span.ResponseHeaders))
@@ -351,6 +371,7 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 			attrs = append(attrs, semconv.GraphQLOperationName(span.GraphQL.OperationName))
 			attrs = append(attrs, request.GraphqlOperationType(span.GraphQL.OperationType))
 		}
+		attrs = append(attrs, jsonRPCAttributes(span)...)
 		attrs = append(attrs, httpEnrichmentAttributes(span)...)
 	case request.EventTypeGRPC:
 		attrs = []attribute.KeyValue{
@@ -601,6 +622,7 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 			}
 		}
 
+		attrs = append(attrs, jsonRPCAttributes(span)...)
 		attrs = append(attrs, httpEnrichmentAttributes(span)...)
 	case request.EventTypeGRPCClient:
 		attrs = []attribute.KeyValue{

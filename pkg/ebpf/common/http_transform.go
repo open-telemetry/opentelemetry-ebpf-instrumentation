@@ -190,6 +190,13 @@ func httpRequestResponseToSpan(parseCtx *EBPFParseContext, event *BPFHTTPInfo, r
 		}
 	}
 
+	if parseCtx != nil && parseCtx.payloadExtraction.HTTP.JSONRPC.Enabled {
+		span, ok := ebpfhttp.JSONRPCSpan(&httpSpan, req, resp)
+		if ok {
+			return span
+		}
+	}
+
 	if parseCtx != nil && parseCtx.httpEnricher != nil {
 		parseCtx.httpEnricher.Enrich(&httpSpan, req, resp)
 	}

@@ -805,6 +805,10 @@
           "$ref": "#/$defs/GraphQLConfig",
           "description": "GraphQL payload extraction and parsing"
         },
+        "jsonrpc": {
+          "$ref": "#/$defs/JSONRPCConfig",
+          "description": "JSON-RPC payload extraction and parsing"
+        },
         "sqlpp": {
           "$ref": "#/$defs/SQLPPConfig",
           "description": "SQL++ payload extraction and parsing (Couchbase and other SQL++ databases)"
@@ -1048,6 +1052,16 @@
         "$.user.name",
         "$.items[0].id"
       ]
+    },
+    "JSONRPCConfig": {
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable JSON-RPC payload extraction and parsing",
+          "x-env-var": "OTEL_EBPF_HTTP_JSONRPC_ENABLED"
+        }
+      },
+      "type": "object"
     },
     "JavaConfig": {
       "properties": {

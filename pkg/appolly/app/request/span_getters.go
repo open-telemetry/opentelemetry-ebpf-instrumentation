@@ -4,6 +4,8 @@
 package request // import "go.opentelemetry.io/obi/pkg/appolly/app/request"
 
 import (
+	"strconv"
+
 	"go.opentelemetry.io/otel/attribute"
 	semconv "go.opentelemetry.io/otel/semconv/v1.38.0"
 
@@ -72,6 +74,9 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 		getter = func(s *Span) attribute.KeyValue { return ServerPort(s.HostPort) }
 	case attr.RPCMethod:
 		getter = func(s *Span) attribute.KeyValue {
+			if s.SubType == HTTPSubtypeJSONRPC && s.JSONRPC != nil {
+				return semconv.RPCMethod(s.JSONRPC.Method)
+			}
 			if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeAWSS3 && s.AWS != nil {
 				return semconv.RPCMethod(s.AWS.S3.Method)
 			}
@@ -79,6 +84,9 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 		}
 	case attr.RPCSystem:
 		getter = func(s *Span) attribute.KeyValue {
+			if s.SubType == HTTPSubtypeJSONRPC {
+				return semconv.RPCSystemJSONRPC
+			}
 			if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeAWSS3 {
 				return RPCSystem("aws-api")
 			}
@@ -405,6 +413,27 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 	case attr.GenAIResponseModel:
 		getter = func(s *Span) attribute.KeyValue {
 			return semconv.GenAIResponseModelKey.String(s.GenAIResponseModel())
+		}
+	case attr.JSONRPCProtocolVersion:
+		getter = func(s *Span) attribute.KeyValue {
+			if s.SubType == HTTPSubtypeJSONRPC && s.JSONRPC != nil {
+				return attribute.String(string(attr.JSONRPCProtocolVersion), s.JSONRPC.Version)
+			}
+			return attribute.String(string(attr.JSONRPCProtocolVersion), "")
+		}
+	case attr.JSONRPCRequestID:
+		getter = func(s *Span) attribute.KeyValue {
+			if s.SubType == HTTPSubtypeJSONRPC && s.JSONRPC != nil {
+				return attribute.String(string(attr.JSONRPCRequestID), s.JSONRPC.RequestID)
+			}
+			return attribute.String(string(attr.JSONRPCRequestID), "")
+		}
+	case attr.RPCResponseStatusCode:
+		getter = func(s *Span) attribute.KeyValue {
+			if s.SubType == HTTPSubtypeJSONRPC && s.JSONRPC != nil && s.JSONRPC.ErrorCode != 0 {
+				return attribute.String(string(attr.RPCResponseStatusCode), strconv.Itoa(s.JSONRPC.ErrorCode))
+			}
+			return attribute.String(string(attr.RPCResponseStatusCode), "")
 		}
 	}
 	// default: unlike the Prometheus getters, we don't check here for service name nor k8s metadata
