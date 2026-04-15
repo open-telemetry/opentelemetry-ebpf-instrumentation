@@ -26,6 +26,7 @@ const (
 	Other             TCPFailReasonType = "other"
 )
 
+// TCPFailReasonTypeCode mirrors enum tcp_fail_reason in bpf/statsolly/tp_tcp.c.
 type TCPFailReasonTypeCode uint8
 
 const (

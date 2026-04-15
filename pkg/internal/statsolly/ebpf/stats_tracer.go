@@ -80,6 +80,7 @@ func NewStatsFetcher(cfg *config.EBPFTracer) (*StatsFetcher, error) {
 	}
 	kpClosables, err := kprobes(tlog, kps)
 	if err != nil {
+		closeAll(kpClosables)
 		return nil, err
 	}
 
@@ -91,6 +92,8 @@ func NewStatsFetcher(cfg *config.EBPFTracer) (*StatsFetcher, error) {
 	}
 	tpClosables, err := tracepoints(tlog, tps)
 	if err != nil {
+		closeAll(kpClosables)
+		closeAll(tpClosables)
 		return nil, err
 	}
 
@@ -99,6 +102,14 @@ func NewStatsFetcher(cfg *config.EBPFTracer) (*StatsFetcher, error) {
 		statsEvents: objects.StatsEvents,
 		closables:   append(kpClosables, tpClosables...),
 	}, nil
+}
+
+func closeAll(closables []io.Closer) {
+	for _, c := range closables {
+		if c != nil {
+			c.Close()
+		}
+	}
 }
 
 // Close any resources that are taken

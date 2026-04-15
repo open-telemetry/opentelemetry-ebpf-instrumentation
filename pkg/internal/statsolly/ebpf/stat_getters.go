@@ -45,6 +45,9 @@ func StatGetters(name attr.Name) (attributes.Getter[*Stat, attribute.KeyValue], 
 		getter = func(s *Stat) attribute.KeyValue { return attribute.String(string(attr.DstZone), s.CommonAttrs.DstZone) }
 	case attr.TCPFailedConnectionReason:
 		getter = func(s *Stat) attribute.KeyValue {
+			if s.TCPFailedConnection == nil {
+				return attribute.String(string(attr.TCPFailedConnectionReason), string(Unknown))
+			}
 			return attribute.String(string(attr.TCPFailedConnectionReason), tcpFailReasonStr(s.TCPFailedConnection.Reason))
 		}
 	default:

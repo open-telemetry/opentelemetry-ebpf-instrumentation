@@ -117,7 +117,7 @@ func readTCPFailedConnectionsIntoStat(record *ringbuf.Record) (ebpf.Stat, error)
 
 	sourcePort := event.Conn.S_port
 	return ebpf.Stat{
-		Type: ebpf.StatTypeTCPRtt,
+		Type: ebpf.StatTypeTCPFailedConnection,
 		TCPFailedConnection: &ebpf.TCPFailedConnection{
 			Reason: event.Reason,
 		},

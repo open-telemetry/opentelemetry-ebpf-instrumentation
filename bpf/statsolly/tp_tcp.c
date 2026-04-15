@@ -15,27 +15,43 @@
 #include <statsolly/types.h>
 #include <statsolly/maps/stats_events.h>
 
+#ifndef ECONNREFUSED
+#define ECONNREFUSED 111
+#endif
+#ifndef ECONNRESET
+#define ECONNRESET 104
+#endif
+#ifndef ETIMEDOUT
+#define ETIMEDOUT 110
+#endif
+#ifndef EHOSTUNREACH
+#define EHOSTUNREACH 113
+#endif
+#ifndef ENETUNREACH
+#define ENETUNREACH 101
+#endif
+
 enum tcp_fail_reason {
-    reason_unknown = 0,            // sk_err was 0, cause not determined
-    reason_connection_refused = 1, // ECONNREFUSED (111)
-    reason_connection_reset = 2,   // ECONNRESET (104)
-    reason_timed_out = 3,          // ETIMEDOUT (110)
-    reason_host_unreachable = 4,   // EHOSTUNREACH (113)
-    reason_net_unreachable = 5,    // ENETUNREACH (101)
-    reason_other = 255,            // anything else
+    reason_unknown = 0,
+    reason_connection_refused = 1,
+    reason_connection_reset = 2,
+    reason_timed_out = 3,
+    reason_host_unreachable = 4,
+    reason_net_unreachable = 5,
+    reason_other = 255,
 };
 
-static __always_inline u8 sk_err_to_reason(int err) {
+static __always_inline u8 sk_err_to_reason(const int err) {
     switch (err) {
-    case 111:
+    case ECONNREFUSED:
         return reason_connection_refused;
-    case 104:
+    case ECONNRESET:
         return reason_connection_reset;
-    case 110:
+    case ETIMEDOUT:
         return reason_timed_out;
-    case 113:
+    case EHOSTUNREACH:
         return reason_host_unreachable;
-    case 101:
+    case ENETUNREACH:
         return reason_net_unreachable;
     case 0:
         return reason_unknown;
@@ -76,8 +92,8 @@ int obi_tracepoint_inet_sock_set_state(struct trace_event_raw_inet_sock_set_stat
         return 0;
     }
 
-    int err = BPF_CORE_READ(sk, sk_err);
-    u8 reason = sk_err_to_reason(err);
+    const int err = BPF_CORE_READ(sk, sk_err);
+    const u8 reason = sk_err_to_reason(err);
 
     bpf_d_printk("tcp failed: oldstate=%d, reason=%d, s_port=%d, d_port=%d",
                  args->oldstate,
