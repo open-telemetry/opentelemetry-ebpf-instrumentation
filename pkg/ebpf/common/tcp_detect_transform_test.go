@@ -567,15 +567,16 @@ func TestReadTCPRequestIntoSpan_MemcachedRequestOnlyWithoutNoreplyIgnored(t *tes
 }
 
 // TestReadTCPRequestIntoSpan_DNSNotMisclassifiedAsCouchbase guards against a
-// regression where DNS query/response TCP captures were being misclassified as
-// Couchbase memcached binary protocol. The Couchbase magic bytes (0x80, 0x81,
-// 0x82, 0x83, 0x08, 0x18) can collide with the high byte of a random DNS
-// transaction ID, and the subsequent DNS header bytes occasionally satisfied
-// Couchbase's loose header validation.
+// regression where TCP payloads containing raw DNS query/response messages were
+// being misclassified as Couchbase memcached binary protocol. The Couchbase
+// magic bytes (0x80, 0x81, 0x82, 0x83, 0x08, 0x18) can collide with the first
+// byte of a raw DNS message (the transaction ID high byte), and the subsequent
+// DNS header bytes occasionally satisfied Couchbase's loose header validation.
 func TestReadTCPRequestIntoSpan_DNSNotMisclassifiedAsCouchbase(t *testing.T) {
-	// Each case is a DNS-over-TCP query (and optional response) whose header
-	// bytes collide with Couchbase magic and would have been misclassified
-	// prior to tightening validation. Hostnames use RFC 2606 reserved names.
+	// Each case is a raw DNS message payload carried over TCP-port traffic,
+	// without the 2-byte DNS-over-TCP length prefix. These leading bytes can
+	// collide with Couchbase magic and would have been misclassified prior to
+	// tightening validation. Hostnames use RFC 2606 reserved names.
 	tests := []struct {
 		name     string
 		request  []byte
