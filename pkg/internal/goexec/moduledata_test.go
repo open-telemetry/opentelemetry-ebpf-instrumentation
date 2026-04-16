@@ -121,36 +121,36 @@ func buildTestELF(t *testing.T, pclntableData uint64) *elf.File {
 
 	// Segment 0: RX  →  .text
 	ph := elfHeaderSize
-	put32(ph+0, uint32(elf.PT_LOAD))           // p_type
-	put32(ph+4, uint32(elf.PF_R|elf.PF_X))    // p_flags
-	put64(ph+8, textFileOff)                   // p_offset
-	put64(ph+16, testTextVMA)                  // p_vaddr
-	put64(ph+24, testTextVMA)                  // p_paddr
-	put64(ph+32, testTextSize)                 // p_filesz
-	put64(ph+40, testTextSize)                 // p_memsz
-	put64(ph+48, 0x1000)                       // p_align
+	put32(ph+0, uint32(elf.PT_LOAD))       // p_type
+	put32(ph+4, uint32(elf.PF_R|elf.PF_X)) // p_flags
+	put64(ph+8, textFileOff)               // p_offset
+	put64(ph+16, testTextVMA)              // p_vaddr
+	put64(ph+24, testTextVMA)              // p_paddr
+	put64(ph+32, testTextSize)             // p_filesz
+	put64(ph+40, testTextSize)             // p_memsz
+	put64(ph+48, 0x1000)                   // p_align
 
 	// Segment 1: R   →  .gopclntab
 	ph = elfHeaderSize + elfPhdrSize
-	put32(ph+0, uint32(elf.PT_LOAD))           // p_type
-	put32(ph+4, uint32(elf.PF_R))              // p_flags
-	put64(ph+8, gopclntabFileOff)              // p_offset
-	put64(ph+16, testGopclntabVMA)             // p_vaddr
-	put64(ph+24, testGopclntabVMA)             // p_paddr
-	put64(ph+32, testGopclntabSz)              // p_filesz
-	put64(ph+40, testGopclntabSz)              // p_memsz
-	put64(ph+48, 0x1000)                       // p_align
+	put32(ph+0, uint32(elf.PT_LOAD)) // p_type
+	put32(ph+4, uint32(elf.PF_R))    // p_flags
+	put64(ph+8, gopclntabFileOff)    // p_offset
+	put64(ph+16, testGopclntabVMA)   // p_vaddr
+	put64(ph+24, testGopclntabVMA)   // p_paddr
+	put64(ph+32, testGopclntabSz)    // p_filesz
+	put64(ph+40, testGopclntabSz)    // p_memsz
+	put64(ph+48, 0x1000)             // p_align
 
 	// Segment 2: RW  →  .data
 	ph = elfHeaderSize + elfPhdrSize*2
-	put32(ph+0, uint32(elf.PT_LOAD))           // p_type
-	put32(ph+4, uint32(elf.PF_R|elf.PF_W))    // p_flags
-	put64(ph+8, dataFileOff)                   // p_offset
-	put64(ph+16, testDataVMA)                  // p_vaddr
-	put64(ph+24, testDataVMA)                  // p_paddr
-	put64(ph+32, testDataSize)                 // p_filesz
-	put64(ph+40, testDataSize)                 // p_memsz
-	put64(ph+48, 0x1000)                       // p_align
+	put32(ph+0, uint32(elf.PT_LOAD))       // p_type
+	put32(ph+4, uint32(elf.PF_R|elf.PF_W)) // p_flags
+	put64(ph+8, dataFileOff)               // p_offset
+	put64(ph+16, testDataVMA)              // p_vaddr
+	put64(ph+24, testDataVMA)              // p_paddr
+	put64(ph+32, testDataSize)             // p_filesz
+	put64(ph+40, testDataSize)             // p_memsz
+	put64(ph+48, 0x1000)                   // p_align
 
 	// ── moduledata fields in .data ───────────────────────────────────────────────
 	db := dataFileOff
@@ -197,8 +197,8 @@ func buildTestELF(t *testing.T, pclntableData uint64) *elf.File {
 	// Section 4: .shstrtab
 	put32(sh(4)+0, shstrtabOffShstrtab)
 	put32(sh(4)+4, uint32(elf.SHT_STRTAB))
-	put64(sh(4)+8, 0)                      // no flags
-	put64(sh(4)+16, 0)                     // addr = 0 (not loaded)
+	put64(sh(4)+8, 0)  // no flags
+	put64(sh(4)+16, 0) // addr = 0 (not loaded)
 	put64(sh(4)+24, shstrtabFileOff)
 	put64(sh(4)+32, uint64(len(shstrtab)))
 
