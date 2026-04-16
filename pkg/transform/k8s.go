@@ -162,7 +162,7 @@ func (md *metadataDecorator) nodeLoop(ctx context.Context) {
 }
 
 func (md *metadataDecorator) do(span *request.Span) {
-	if podMeta, containerName := md.store.PodContainerByPIDNs(span.Pid.Namespace); podMeta != nil {
+	if podMeta, containerName := md.store.PodContainerByPIDNs(span.Pid.Namespace, span.Pid.HostPID); podMeta != nil {
 		AppendKubeMetadata(md.store, &span.Service, podMeta, md.clusterName, containerName)
 	} else if span.Service.Metadata == nil {
 		// do not leave the service attributes map as nil
@@ -293,7 +293,7 @@ mainLoop:
 			}
 			md.log.Debug("annotating process event", "event", pe)
 
-			if podMeta, containerName := md.store.PodContainerByPIDNs(pe.File.Ns); podMeta != nil {
+			if podMeta, containerName := md.store.PodContainerByPIDNs(pe.File.Ns, pe.File.Pid); podMeta != nil {
 				AppendKubeMetadata(md.store, &pe.File.Service, podMeta, md.clusterName, containerName)
 			} else {
 				// do not leave the service attributes map as nil
@@ -343,7 +343,7 @@ func (md *procEventMetadataDecorator) handlePodUpdateEvent(pod *informer.ObjectM
 		if peMap, ok := md.tracker.info(cnt.Id); ok {
 			md.log.Debug("found missed pid info", "containerId", cnt.Id)
 			for _, pe := range peMap {
-				if podMeta, containerName := md.store.PodContainerByPIDNs(pe.File.Ns); podMeta != nil {
+				if podMeta, containerName := md.store.PodContainerByPIDNs(pe.File.Ns, pe.File.Pid); podMeta != nil {
 					md.log.Debug("resubmitting process event", "event", pe)
 					AppendKubeMetadata(md.store, &pe.File.Service, podMeta, md.clusterName, containerName)
 					md.output.Send(*pe)
