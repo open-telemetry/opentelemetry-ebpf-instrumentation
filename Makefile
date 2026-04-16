@@ -55,6 +55,7 @@ EXCLUDE_COVERAGE_FILES := "(_bpfel.go)|(.pb.go)|$\
 (/obi/configs/)|$\
 (/obi/examples/)|$\
 (/obi/internal/test/)|$\
+(/obi/scripts/)|$\
 (/pkg/export/otel/metric/)"
 
 .DEFAULT_GOAL := all
