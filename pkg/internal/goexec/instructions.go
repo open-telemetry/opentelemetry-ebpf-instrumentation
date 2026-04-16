@@ -557,16 +557,15 @@ func buildRelocationInfo(elfF *elf.File) relocationInfo {
 	}
 
 	for _, sec := range elfF.Sections {
-		data, err := sec.Data()
-		if err != nil {
-			continue
-		}
-
 		switch sec.Type {
 		case elf.SHT_RELA:
-			decodeRelaRelative(relocs.explicit, data, elfF.ByteOrder, relativeType)
+			if data, err := sec.Data(); err == nil {
+				decodeRelaRelative(relocs.explicit, data, elfF.ByteOrder, relativeType)
+			}
 		case shtRELR:
-			decodeRelr(relocs.relr, data, elfF.ByteOrder)
+			if data, err := sec.Data(); err == nil {
+				decodeRelr(relocs.relr, data, elfF.ByteOrder)
+			}
 		}
 	}
 
