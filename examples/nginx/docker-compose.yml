@@ -1,6 +1,6 @@
 services:
   edge-nginx:
-    image: nginx:1.30.0-alpine@sha256:2e665dfdd34c48b5a4dec0cf06496743f922a27ca1339273464a3badf916c0ae
+    image: nginx:1.30.0-alpine@sha256:f60d139a69209d4340f6621fc6a50c9843702214231522a3390432f8db0ed870
     container_name: edge-nginx
     ports:
       - "8080:8080"
@@ -12,14 +12,14 @@ services:
       - recommendations-v2
 
   recommendations-v1:
-    image: nginx:1.30.0-alpine@sha256:2e665dfdd34c48b5a4dec0cf06496743f922a27ca1339273464a3badf916c0ae
+    image: nginx:1.30.0-alpine@sha256:f60d139a69209d4340f6621fc6a50c9843702214231522a3390432f8db0ed870
     container_name: recommendations-v1
     volumes:
       - ./docker/recommendations-v1/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./k8s/shared:/etc/nginx/shared:ro
 
   recommendations-v2:
-    image: nginx:1.30.0-alpine@sha256:2e665dfdd34c48b5a4dec0cf06496743f922a27ca1339273464a3badf916c0ae
+    image: nginx:1.30.0-alpine@sha256:f60d139a69209d4340f6621fc6a50c9843702214231522a3390432f8db0ed870
     container_name: recommendations-v2
     volumes:
       - ./docker/recommendations-v2/nginx.conf:/etc/nginx/nginx.conf:ro
