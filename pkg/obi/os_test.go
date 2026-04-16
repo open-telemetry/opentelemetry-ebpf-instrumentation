@@ -110,6 +110,7 @@ func TestParseOSReleaseIsRHEL(t *testing.T) {
 		{name: "RHEL unquoted", content: "ID=rhel\n", want: true},
 		{name: "RHEL single-quoted", content: "ID='rhel'\n", want: true},
 		{name: "Rocky via ID_LIKE single-quoted", content: "ID='rocky'\nID_LIKE='rhel centos fedora'\n", want: true},
+		{name: "Oracle Linux", content: "ID=\"ol\"\nID_LIKE=\"fedora\"\n", want: true},
 		{name: "Ubuntu", content: "ID=ubuntu\nID_LIKE=debian\n", want: false},
 		{name: "Debian", content: "ID=debian\n", want: false},
 		{name: "empty file", content: "", want: false},

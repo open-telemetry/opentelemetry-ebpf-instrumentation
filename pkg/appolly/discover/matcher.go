@@ -517,6 +517,10 @@ func logDeprecationAndConflicts(cfg *obi.Config) {
 	}
 }
 
+// simulateExePermDenied simulates EACCES on /proc/<pid>/exe for integration testing.
+// Set OTEL_EBPF_SIMULATE_EXE_PERM_DENIED=true to enable.
+var simulateExePermDenied = os.Getenv("OTEL_EBPF_SIMULATE_EXE_PERM_DENIED") == "true"
+
 // replaceable function to allow unit tests with faked processes
 var processInfo = func(pp ProcessAttrs) (*services.ProcessInfo, error) {
 	proc, err := process.NewProcess(int32(pp.pid))
@@ -524,14 +528,22 @@ var processInfo = func(pp ProcessAttrs) (*services.ProcessInfo, error) {
 		return nil, fmt.Errorf("can't read process: %w", err)
 	}
 	ppid, _ := proc.Ppid()
-	exePath, err := proc.Exe()
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			// this might happen if you query from the port a service that does not have executable path.
-			// Since this value is just for attributing, we set a default placeholder
-			exePath = "unknown"
-		} else {
-			return nil, fmt.Errorf("can't read /proc/<pid>/fd information: %w", err)
+	exePath := "unknown"
+	if !simulateExePermDenied {
+		exePath, err = proc.Exe()
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				// this might happen if you query from the port a service that does not have executable path.
+				// Since this value is just for attributing, we set a default placeholder
+				exePath = "unknown"
+			} else if errors.Is(err, os.ErrPermission) {
+				exePath = "unknown"
+				slog.Warn("can't read executable path for process. Some functionality may be degraded,"+
+					" including SSL/TLS detection and language-specific instrumentation. This is usually caused"+
+					" by a restrictive ptrace_scope or LSM policy on the host", "pid", pp.pid, "error", err)
+			} else {
+				return nil, fmt.Errorf("can't read /proc/<pid>/fd information: %w", err)
+			}
 		}
 	}
 	cmdLine, err := proc.Cmdline()

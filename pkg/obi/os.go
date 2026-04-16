@@ -42,7 +42,7 @@ func parseOSReleaseIsRHEL(data []byte) bool {
 		}
 		val = strings.Trim(val, "\"'")
 		if strings.Contains(val, "rhel") || strings.Contains(val, "centos") ||
-			strings.Contains(val, "rocky") || strings.Contains(val, "alma") {
+			strings.Contains(val, "rocky") || strings.Contains(val, "alma") || val == "ol" {
 			return true
 		}
 	}

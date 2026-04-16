@@ -1,0 +1,9 @@
+routes:
+  unmatched: path
+otel_traces_export:
+  endpoint: http://jaeger:4318
+discovery:
+  instrument:
+    - name: nodeserver
+      namespace: integration-test
+      open_ports: 3030

@@ -882,3 +882,32 @@ func TestCriteriaMatcher_Granular(t *testing.T) {
 	assert.True(t, asteroidAttrs.ExportModes.CanExportMetrics())
 	require.Nil(t, asteroidAttrs.Sampler)
 }
+
+func TestCriteriaMatcher_ErrPermission(t *testing.T) {
+	// Processes whose /proc/<pid>/exe is unreadable (ptrace_scope/LSM) must still be
+	// matched by open_ports — they must not be silently dropped.
+	var pipeConfig obi.Config
+	require.NoError(t, yaml.Unmarshal([]byte("open_port: 8080\n"), &pipeConfig))
+
+	processInfo = func(pp ProcessAttrs) (*services.ProcessInfo, error) {
+		return &services.ProcessInfo{Pid: pp.pid, ExePath: "unknown", OpenPorts: pp.openPorts}, nil
+	}
+
+	discoveredProcesses := msg.NewQueue[[]Event[ProcessAttrs]](msg.ChannelBufferLen(10))
+	filteredProcessesQu := msg.NewQueue[[]Event[ProcessMatch]](msg.ChannelBufferLen(10))
+	filteredProcesses := filteredProcessesQu.Subscribe()
+
+	matcherFunc, err := criteriaMatcherProvider(&pipeConfig, discoveredProcesses, filteredProcessesQu, FindingCriteria(&pipeConfig), nil)(t.Context())
+	require.NoError(t, err)
+	go matcherFunc(t.Context())
+	defer filteredProcessesQu.Close()
+
+	discoveredProcesses.SendCtx(t.Context(), []Event[ProcessAttrs]{
+		{Type: EventCreated, Obj: ProcessAttrs{pid: 1, openPorts: []uint32{8080}}},
+	})
+
+	matches := testutil.ReadChannel(t, filteredProcesses, testTimeout)
+	require.Len(t, matches, 1)
+	assert.Equal(t, app.PID(1), matches[0].Obj.Process.Pid)
+	assert.Equal(t, "unknown", matches[0].Obj.Process.ExePath)
+}
