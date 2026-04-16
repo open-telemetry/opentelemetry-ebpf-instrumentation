@@ -16,29 +16,44 @@ import (
 	ti "go.opentelemetry.io/obi/pkg/test/integration"
 )
 
-func TestSuite(t *testing.T) {
-	compose, err := docker.ComposeSuite("docker-compose.yml", path.Join(pathOutput, "test-suite.log"))
-	require.NoError(t, err)
-	compose.Env = append(compose.Env, `OTEL_EBPF_EXECUTABLE_PATH=(pingclient|testserver)`)
-	require.NoError(t, compose.Up())
+func TestSuite_Go(t *testing.T) {
+	type testCase struct {
+		name string
+		env  []string
+	}
 
-	config := ti.DefaultOBIConfig()
+	for _, tc := range []testCase{
+		{name: "go-old-supported"},
+		{name: "go-latest", env: []string{"TESTSERVER_DOCKERFILE_SUFFIX=_latest", "PINGSERVER_DOCKERFILE_SUFFIX=_latest"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			compose, err := docker.ComposeSuite("docker-compose.yml", path.Join(pathOutput, "test-suite-"+tc.name+".log"))
+			require.NoError(t, err)
+			compose.Env = append(compose.Env, `OTEL_EBPF_EXECUTABLE_PATH=(pingclient|testserver)`)
+			compose.Env = append(compose.Env, tc.env...)
+			require.NoError(t, compose.Up())
 
-	t.Run("RED metrics", testREDMetricsHTTP)
-	t.Run("RED JSON RPC metrics", testREDMetricsJSONRPCHTTP)
-	t.Run("HTTP traces", testHTTPTraces)
-	t.Run("HTTP traces (no traceID)", testHTTPTracesNoTraceID)
-	t.Run("HTTP traces (manual spans)", testHTTPTracesNestedManualSpans)
-	t.Run("GRPC traces", testGRPCTraces)
-	t.Run("GRPC RED metrics", testREDMetricsGRPC)
-	t.Run("GRPC TLS RED metrics", testREDMetricsGRPCTLS)
-	t.Run("Internal Prometheus metrics", func(t *testing.T) { ti.InternalPrometheusExport(t, config) })
-	t.Run("Exemplars exist", testExemplarsExist)
-	t.Run("Testing Host Info metric", testHostInfo)
-	t.Run("Client RED metrics", testREDMetricsForClientHTTPLibrary)
-	t.Run("Harvested auto routes", testREDMetricsHTTPAutoRoutes)
+			t.Cleanup(func() {
+				require.NoError(t, compose.Stop())
+			})
 
-	require.NoError(t, compose.Close())
+			config := ti.DefaultOBIConfig()
+
+			t.Run("RED metrics", testREDMetricsHTTP)
+			t.Run("RED JSON RPC metrics", testREDMetricsJSONRPCHTTP)
+			t.Run("HTTP traces", testHTTPTraces)
+			t.Run("HTTP traces (no traceID)", testHTTPTracesNoTraceID)
+			t.Run("HTTP traces (manual spans)", testHTTPTracesNestedManualSpans)
+			t.Run("GRPC traces", testGRPCTraces)
+			t.Run("GRPC RED metrics", testREDMetricsGRPC)
+			t.Run("GRPC TLS RED metrics", testREDMetricsGRPCTLS)
+			t.Run("Internal Prometheus metrics", func(t *testing.T) { ti.InternalPrometheusExport(t, config) })
+			t.Run("Exemplars exist", testExemplarsExist)
+			t.Run("Testing Host Info metric", testHostInfo)
+			t.Run("Client RED metrics", testREDMetricsForClientHTTPLibrary)
+			t.Run("Harvested auto routes", testREDMetricsHTTPAutoRoutes)
+		})
+	}
 }
 
 func TestSuiteNestedTraces(t *testing.T) {
@@ -143,16 +158,6 @@ func TestSuite_OldestGoVersion(t *testing.T) {
 	t.Run("HTTP traces (manual spans)", testHTTPTracesNestedManualSpans)
 	t.Run("Internal Prometheus metrics", func(t *testing.T) { ti.InternalPrometheusExport(t, config) })
 
-	require.NoError(t, compose.Close())
-}
-
-func TestSuite_UnsupportedGoVersion(t *testing.T) {
-	t.Skip("seems flaky, we need to look into this")
-	compose, err := docker.ComposeSuite("docker-compose-1.16.yml", path.Join(pathOutput, "test-suite-unsupported-go.log"))
-	require.NoError(t, err)
-	compose.Env = append(compose.Env, `PROM_CONFIG_SUFFIX=`)
-	require.NoError(t, compose.Up())
-	t.Run("RED metrics", testREDMetricsUnsupportedHTTP)
 	require.NoError(t, compose.Close())
 }
 

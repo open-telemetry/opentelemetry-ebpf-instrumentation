@@ -21,7 +21,7 @@ services:
   pingclient:
     build:
       context: ../../..
-      dockerfile: internal/test/integration/components/pingclient/Dockerfile
+      dockerfile: internal/test/integration/components/pingclient/Dockerfile${PINGSERVER_DOCKERFILE_SUFFIX}
     image: hatest-pingclient
     environment:
       LOG_LEVEL: DEBUG
