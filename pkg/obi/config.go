@@ -172,6 +172,9 @@ var DefaultConfig = Config{
 					Gemini: config.GeminiConfig{
 						Enabled: false,
 					},
+					Bedrock: config.BedrockConfig{
+						Enabled: false,
+					},
 				},
 				Enrichment: config.EnrichmentConfig{
 					Enabled: false,

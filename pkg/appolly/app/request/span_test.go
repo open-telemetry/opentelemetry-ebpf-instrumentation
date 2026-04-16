@@ -1150,6 +1150,20 @@ func TestSpan_GenAIInputTokens(t *testing.T) {
 		result := span.GenAIInputTokens()
 		assert.Equal(t, 300, result)
 	})
+
+	t.Run("Bedrock present", func(t *testing.T) {
+		span := &Span{
+			GenAI: &GenAI{
+				Bedrock: &VendorBedrock{
+					Output: BedrockResponse{
+						InputTokens: 25,
+					},
+				},
+			},
+		}
+		result := span.GenAIInputTokens()
+		assert.Equal(t, 25, result)
+	})
 }
 
 // Test GenAIOutputTokens
@@ -1235,6 +1249,30 @@ func TestSpan_GenAIOutputTokens(t *testing.T) {
 		result := span.GenAIOutputTokens()
 		assert.Equal(t, 0, result)
 	})
+
+	t.Run("Bedrock present", func(t *testing.T) {
+		span := &Span{
+			GenAI: &GenAI{
+				Bedrock: &VendorBedrock{
+					Output: BedrockResponse{
+						OutputTokens: 18,
+					},
+				},
+			},
+		}
+		result := span.GenAIOutputTokens()
+		assert.Equal(t, 18, result)
+	})
+
+	t.Run("Bedrock present no usage", func(t *testing.T) {
+		span := &Span{
+			GenAI: &GenAI{
+				Bedrock: &VendorBedrock{},
+			},
+		}
+		result := span.GenAIOutputTokens()
+		assert.Equal(t, 0, result)
+	})
 }
 
 // Test GenAIOperationName
@@ -1280,6 +1318,16 @@ func TestSpan_GenAIOperationName(t *testing.T) {
 		result := span.GenAIOperationName()
 		assert.Equal(t, "generate_content", result)
 	})
+
+	t.Run("Bedrock present", func(t *testing.T) {
+		span := &Span{
+			GenAI: &GenAI{
+				Bedrock: &VendorBedrock{},
+			},
+		}
+		result := span.GenAIOperationName()
+		assert.Equal(t, "invoke_model", result)
+	})
 }
 
 // Test GenAIProviderName
@@ -1318,6 +1366,16 @@ func TestSpan_GenAIProviderName(t *testing.T) {
 		}
 		result := span.GenAIProviderName()
 		assert.Equal(t, "gcp.gemini", result)
+	})
+
+	t.Run("Bedrock present", func(t *testing.T) {
+		span := &Span{
+			GenAI: &GenAI{
+				Bedrock: &VendorBedrock{},
+			},
+		}
+		result := span.GenAIProviderName()
+		assert.Equal(t, "aws.bedrock", result)
 	})
 }
 
@@ -1367,6 +1425,18 @@ func TestSpan_GenAIRequestModel(t *testing.T) {
 		}
 		result := span.GenAIRequestModel()
 		assert.Equal(t, "gemini-2.0-flash", result)
+	})
+
+	t.Run("Bedrock present", func(t *testing.T) {
+		span := &Span{
+			GenAI: &GenAI{
+				Bedrock: &VendorBedrock{
+					Model: "anthropic.claude-3-5-sonnet-20241022-v1:0",
+				},
+			},
+		}
+		result := span.GenAIRequestModel()
+		assert.Equal(t, "anthropic.claude-3-5-sonnet-20241022-v1:0", result)
 	})
 }
 
@@ -1429,5 +1499,17 @@ func TestSpan_GenAIResponseModel(t *testing.T) {
 		}
 		result := span.GenAIResponseModel()
 		assert.Equal(t, "gemini-2.0-flash", result)
+	})
+
+	t.Run("Bedrock present", func(t *testing.T) {
+		span := &Span{
+			GenAI: &GenAI{
+				Bedrock: &VendorBedrock{
+					Model: "anthropic.claude-3-5-sonnet-20241022-v1:0",
+				},
+			},
+		}
+		result := span.GenAIResponseModel()
+		assert.Equal(t, "anthropic.claude-3-5-sonnet-20241022-v1:0", result)
 	})
 }

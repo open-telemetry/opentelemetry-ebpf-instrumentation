@@ -1,0 +1,37 @@
+oats-schema-version: 2
+docker-compose:
+  files:
+  - ../docker-compose-bedrock.yml
+input:
+- path: /claude
+- path: /titan
+- path: /error
+interval: 500ms
+expected:
+  traces:
+  # Claude (Anthropic Messages API) invocation via Bedrock
+  - traceql: '{ .gen_ai.provider.name = "aws.bedrock" && .gen_ai.request.model = "anthropic.claude-3-5-sonnet-20241022-v1:0" && .gen_ai.usage.output_tokens = 22 }'
+    equals: invoke_model anthropic.claude-3-5-sonnet-20241022-v1:0
+    attributes:
+      gen_ai.operation.name: invoke_model
+      gen_ai.response.model: anthropic.claude-3-5-sonnet-20241022-v1:0
+      gen_ai.usage.input_tokens: 25
+  # Titan invocation via Bedrock
+  - traceql: '{ .gen_ai.provider.name = "aws.bedrock" && .gen_ai.request.model = "amazon.titan-text-premier-v1:0" && .gen_ai.usage.output_tokens = 16 }'
+    equals: invoke_model amazon.titan-text-premier-v1:0
+    attributes:
+      gen_ai.operation.name: invoke_model
+      gen_ai.response.model: amazon.titan-text-premier-v1:0
+      gen_ai.usage.input_tokens: 8
+  # Error case (nonexistent model)
+  - traceql: '{ .error.type = "ValidationException" && .gen_ai.request.model = "anthropic.claude-nonexistent" }'
+    equals: invoke_model anthropic.claude-nonexistent
+    attributes:
+      gen_ai.provider.name: aws.bedrock
+  metrics:
+  - promql: gen_ai_client_token_usage_count{gen_ai_operation_name="invoke_model",gen_ai_provider_name="aws.bedrock",gen_ai_token_type="input",gen_ai_request_model="anthropic.claude-3-5-sonnet-20241022-v1:0",gen_ai_response_model="anthropic.claude-3-5-sonnet-20241022-v1:0"}
+    value: '> 0'
+  - promql: gen_ai_client_token_usage_count{gen_ai_operation_name="invoke_model",gen_ai_provider_name="aws.bedrock",gen_ai_token_type="output",gen_ai_request_model="anthropic.claude-3-5-sonnet-20241022-v1:0",gen_ai_response_model="anthropic.claude-3-5-sonnet-20241022-v1:0"}
+    value: '> 0'
+  - promql: gen_ai_client_operation_duration_seconds_count{gen_ai_operation_name="invoke_model",gen_ai_provider_name="aws.bedrock",gen_ai_request_model="anthropic.claude-3-5-sonnet-20241022-v1:0",gen_ai_response_model="anthropic.claude-3-5-sonnet-20241022-v1:0"}
+    value: '> 0'
