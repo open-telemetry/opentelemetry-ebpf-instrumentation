@@ -6,7 +6,7 @@ FROM gradle:9.3.1-jdk21-noble@sha256:f3784cc59d7fbab1e0ddb09c4cd082f13e16d3fb8c5
 WORKDIR /build
 
 # Use Azure mirror for faster downloads on GitHub Actions runners (actions/runner-images#7048)
-RUN sed -i 's|archive.ubuntu.com|azure.archive.ubuntu.com|g' /etc/apt/sources.list.d/*.list && \
+RUN sed -i 's|archive.ubuntu.com|azure.archive.ubuntu.com|g' /etc/apt/sources.list.d/*.sources && \
     apt update && apt install -y clang llvm
 
 # Copy build files
