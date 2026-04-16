@@ -20,7 +20,6 @@
 #include <gotracer/go_common.h>
 
 #include <gotracer/maps/grpc.h>
-#include <gotracer/maps/handled_by_go.h>
 #include <gotracer/maps/kafka.h>
 #include <gotracer/maps/mongo.h>
 #include <gotracer/maps/nethttp.h>
@@ -88,8 +87,20 @@ int obi_uprobe_runtime_newproc1_return(struct pt_regs *ctx) {
     void *goroutine_addr = (void *)GO_PARAM1(ctx);
     bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
 
-    go_addr_key_t g_key = {.addr = (u64)goroutine_addr, .pid = pid};
     go_addr_key_t p_key = {.addr = (u64)parent_goroutine, .pid = pid};
+
+    goroutine_metadata *g_metadata =
+        (goroutine_metadata *)bpf_map_lookup_elem(&ongoing_goroutines, &p_key);
+
+    if (g_metadata) {
+        // Don't create cycles at one level on immediate goroutine reuse
+        if (g_metadata->parent.addr == (u64)goroutine_addr) {
+            bpf_dbg_printk("avoiding cycle %llx -> %llx", parent_goroutine, goroutine_addr);
+            goto done;
+        }
+    }
+
+    go_addr_key_t g_key = {.addr = (u64)goroutine_addr, .pid = pid};
 
     goroutine_metadata metadata = {
         .timestamp = bpf_ktime_get_ns(),
@@ -102,23 +113,6 @@ int obi_uprobe_runtime_newproc1_return(struct pt_regs *ctx) {
 
 done:
     bpf_map_delete_elem(&newproc1, &c_key);
-
-    return 0;
-}
-
-SEC("uprobe/runtime_goexit1")
-int obi_uprobe_proc_goexit1(struct pt_regs *ctx) {
-    bpf_dbg_printk("=== uprobe/proc goexit1 === ");
-
-    void *goroutine_addr = GOROUTINE_PTR(ctx);
-    bpf_dbg_printk("goroutine_addr %lx", goroutine_addr);
-
-    u64 pid_tid = bpf_get_current_pid_tgid();
-    u32 pid = pid_from_pid_tgid(pid_tid);
-
-    go_addr_key_t g_key = {.addr = (u64)goroutine_addr, .pid = pid};
-
-    remove_go_handled_goroutine(&g_key);
 
     return 0;
 }

@@ -57,156 +57,6 @@ static __always_inline u32 trace_type_from_meta(http_connection_metadata_t *meta
     return TRACE_TYPE_SERVER;
 }
 
-static __always_inline void
-http_get_or_create_trace_info(http_connection_metadata_t *meta,
-                              u32 pid,
-                              connection_info_t *conn,
-                              void *u_buf,
-                              int bytes_len,
-                              u8 ssl,
-                              u16 orig_dport,
-                              unsigned char *(*tp_loop_fn)(unsigned char *, const u16)) {
-    //TODO use make_key
-    egress_key_t e_key = {
-        .d_port = conn->d_port,
-        .s_port = conn->s_port,
-    };
-
-    sort_egress_key(&e_key);
-
-    tp_info_pid_t *tp_p = bpf_map_lookup_elem(&outgoing_trace_map, &e_key);
-
-    if (tp_p && tp_p->req_type == EVENT_HTTP_CLIENT && tp_p->written && tp_p->pid == pid) {
-        bpf_dbg_printk("found tp info previously set by sock msg");
-        // we've already got a tp_info_pid_t setup by the sockmsg program, use
-        // that instead
-
-        set_trace_info_for_connection(conn, TRACE_TYPE_CLIENT, tp_p);
-
-        // clean up so that TC does not pick it up
-        bpf_map_delete_elem(&outgoing_trace_map, &e_key);
-        return;
-    }
-
-    tp_p = (tp_info_pid_t *)tp_info_mem();
-
-    if (!tp_p) {
-        return;
-    }
-
-    tp_p->tp.ts = bpf_ktime_get_ns();
-    tp_p->tp.flags = 1;
-    tp_p->valid = 1;
-    tp_p->written = 0;
-    tp_p->pid = pid; // used for avoiding finding stale server requests with client port reuse
-    tp_p->req_type = (meta) ? meta->type : 0;
-
-    urand_bytes(tp_p->tp.span_id, SPAN_ID_SIZE_BYTES);
-
-    u8 found_tp = 0;
-
-    if (meta) {
-        if (meta->type == EVENT_HTTP_CLIENT) {
-            pid_connection_info_t p_conn = {.pid = pid};
-            __builtin_memcpy(&p_conn.conn, conn, sizeof(connection_info_t));
-            found_tp = find_trace_for_client_request(&p_conn, orig_dport, &tp_p->tp);
-        } else {
-            //bpf_dbg_printk("Looking up existing trace for connection");
-            //dbg_print_http_connection_info(conn);
-
-            // For server requests, we first look for TCP info (setup by TC ingress) and then we fall back to black-box info.
-            found_tp = find_trace_for_server_request(conn, &tp_p->tp, EVENT_HTTP_REQUEST);
-        }
-    }
-
-    if (!found_tp) {
-        bpf_dbg_printk("Generating new traceparent id");
-        new_trace_id(&tp_p->tp);
-        __builtin_memset(tp_p->tp.parent_id, 0, sizeof(tp_p->tp.parent_id));
-    } else {
-        bpf_dbg_printk("Using old traceparent id");
-    }
-
-    if (g_bpf_debug) {
-        unsigned char tp_buf[TP_MAX_VAL_LENGTH];
-        make_tp_string(tp_buf, &tp_p->tp);
-        bpf_dbg_printk("tp: %s", tp_buf);
-    }
-
-    u8 skip_tp_parsing = 0;
-
-    // If we receive SSL request, we know that OBI definitely didn't
-    // inject the traceparent via the header, so if we already have
-    // info about this transaction keep that, don't parse headers. Istio
-    // for example can forward headers as-is, which can give us a stale
-    // value.
-    if (meta) {
-        if (meta->type == EVENT_HTTP_REQUEST && found_tp && ssl) {
-            bpf_dbg_printk("skipping headers parsing because of existing tp info for SSL call");
-            skip_tp_parsing = 1;
-        }
-    }
-
-    if (g_bpf_traceparent_enabled && !skip_tp_parsing) {
-        // The below buffer scan can be expensive on high volume of requests. We make it optional
-        // for customers to enable it. Off by default.
-        if (!capture_header_buffer) {
-            if (meta) {
-                const u32 type = trace_type_from_meta(meta);
-                set_trace_info_for_connection(conn, type, tp_p);
-                server_or_client_trace(meta->type, conn, tp_p, ssl, orig_dport);
-            }
-            return;
-        }
-
-        unsigned char *buf = (unsigned char *)tp_char_buf_mem();
-        if (buf) {
-            const u16 buf_len = bytes_len & (TRACE_BUF_SIZE - 1);
-            _Static_assert(TRACE_BUF_SIZE == 1024,
-                           "Please fix the __bpf_memzero statements below this line");
-            __bpf_memzero(buf, 512);
-            __bpf_memzero(buf + 512, 512);
-
-            bpf_probe_read(buf, buf_len, u_buf);
-
-            unsigned char *res = tp_loop_fn(buf, buf_len);
-            if (res) {
-                bpf_dbg_printk("Found traceparent in headers [%s] overriding what was before", res);
-                unsigned char *t_id = extract_trace_id(res);
-                unsigned char *s_id = extract_span_id(res);
-                unsigned char *f_id = extract_flags(res);
-
-                decode_hex(tp_p->tp.trace_id, t_id, TRACE_ID_CHAR_LEN);
-                decode_hex((unsigned char *)&tp_p->tp.flags, f_id, FLAGS_CHAR_LEN);
-                if (meta && meta->type != EVENT_HTTP_CLIENT) {
-                    decode_hex(tp_p->tp.parent_id, s_id, SPAN_ID_CHAR_LEN);
-                }
-
-                if (g_bpf_debug) {
-                    unsigned char tp_buf[TP_MAX_VAL_LENGTH];
-                    make_tp_string(tp_buf, &tp_p->tp);
-                    bpf_dbg_printk("new tp: %s", tp_buf);
-                }
-            } else {
-                bpf_dbg_printk("No additional traceparent in headers, using what was made before");
-            }
-        } else {
-            return;
-        }
-    }
-
-    if (meta) {
-        const u32 type = trace_type_from_meta(meta);
-        set_trace_info_for_connection(conn, type, tp_p);
-        // TODO: If the user code setup traceparent manually, don't interfere and add
-        // something else with TC L7. The main challenge is that with kprobes, the
-        // sock_msg program has already punched a hole in the HTTP headers and has made
-        // the HTTP header invalid. We need to add more smarts there or pull the
-        // sock msg information here and mark it so that we don't override the span_id.
-        server_or_client_trace(meta->type, conn, tp_p, ssl, orig_dport);
-    }
-}
-
 static __always_inline u8 is_http(const unsigned char *p, u32 len, u8 *packet_type) {
     if (len < MIN_HTTP_SIZE) {
         return 0;
@@ -472,6 +322,11 @@ static __always_inline void handle_http_response(unsigned char *small_buf,
     // Generic Go events cannot be delayed for now since we don't probe on net_close
     if (high_request_volume || (lw_thread != k_lw_thread_none)) {
         finish_http(info, pid_conn);
+        // If we are terminating because of a light weight thread, e.g. Go we must clean
+        // the server information we have encoded in the Go structs.
+        if (lw_thread != k_lw_thread_none) {
+            delete_go_trace_info(lw_thread, pid_conn->pid);
+        }
     } else {
         bpf_dbg_printk("Delaying finish http for large request, orig_len=%d", orig_len);
         info->delayed = 1;
@@ -588,6 +443,108 @@ int obi_continue2_protocol_http(struct pt_regs *ctx) {
 }
 
 static __always_inline int
+__obi_continue_protocol_http_tp(struct pt_regs *ctx,
+                                call_protocol_args_t *args,
+                                http_info_t *info,
+                                http_connection_metadata_t *meta,
+                                unsigned char *(*tp_loop_fn)(unsigned char *, const u16)) {
+    tp_info_pid_t *tp_p = (tp_info_pid_t *)tp_info_mem();
+    if (!tp_p) {
+        goto done;
+    }
+
+    if (g_bpf_traceparent_enabled && !args->skip_tp_parsing) {
+        // The below buffer scan can be expensive on high volume of requests. We make it optional
+        // for customers to enable it. Off by default.
+        if (!capture_header_buffer) {
+            if (meta) {
+                const u32 type = trace_type_from_meta(meta);
+                set_trace_info_for_connection(&args->pid_conn.conn, type, tp_p);
+                server_or_client_trace(meta->type,
+                                       &args->pid_conn.conn,
+                                       args->lw_thread,
+                                       tp_p,
+                                       args->ssl,
+                                       args->orig_dport);
+            }
+            goto done;
+        }
+
+        unsigned char *buf = (unsigned char *)tp_char_buf_mem();
+        if (buf) {
+            const u16 buf_len = args->bytes_len & (TRACE_BUF_SIZE - 1);
+
+            bpf_probe_read(buf, buf_len, (void *)args->u_buf);
+            // null terminate to make proper string
+            buf[buf_len] = '\0';
+
+            unsigned char *res = tp_loop_fn(buf, buf_len);
+            if (res) {
+                bpf_dbg_printk("Found traceparent in headers [%s] overriding what was before", res);
+                unsigned char *t_id = extract_trace_id(res);
+                unsigned char *s_id = extract_span_id(res);
+                unsigned char *f_id = extract_flags(res);
+
+                decode_hex(tp_p->tp.trace_id, t_id, TRACE_ID_CHAR_LEN);
+                decode_hex((unsigned char *)&tp_p->tp.flags, f_id, FLAGS_CHAR_LEN);
+                if (meta && meta->type != EVENT_HTTP_CLIENT) {
+                    decode_hex(tp_p->tp.parent_id, s_id, SPAN_ID_CHAR_LEN);
+                }
+
+                if (g_bpf_debug) {
+                    unsigned char tp_buf[TP_MAX_VAL_LENGTH];
+                    make_tp_string(tp_buf, &tp_p->tp);
+                    bpf_dbg_printk("new tp: %s", tp_buf);
+                }
+            } else {
+                bpf_dbg_printk("No additional traceparent in headers, using what was made before");
+            }
+        } else {
+            goto done;
+        }
+    }
+
+    if (meta) {
+        const u32 type = trace_type_from_meta(meta);
+        set_trace_info_for_connection(&args->pid_conn.conn, type, tp_p);
+        // TODO: If the user code setup traceparent manually, don't interfere and add
+        // something else with TC L7. The main challenge is that with kprobes, the
+        // sock_msg program has already punched a hole in the HTTP headers and has made
+        // the HTTP header invalid. We need to add more smarts there or pull the
+        // sock msg information here and mark it so that we don't override the span_id.
+        server_or_client_trace(
+            meta->type, &args->pid_conn.conn, args->lw_thread, tp_p, args->ssl, args->orig_dport);
+    }
+
+done:
+    if (tp_loop_fn == bpf_strstr_tp_loop) {
+        return __obi_continue2_protocol_http(ctx, args, info, meta);
+    } else {
+        bpf_tail_call(ctx, &jump_table, k_tail_continue2_protocol_http);
+        return 0;
+    }
+}
+
+// k_tail_continue_protocol_http_tp
+SEC("kprobe/http")
+int obi_continue_protocol_http_tp(struct pt_regs *ctx) {
+    call_protocol_args_t *args = protocol_args();
+    if (!args) {
+        return 0;
+    }
+
+    http_info_t *info = bpf_map_lookup_elem(&ongoing_http, &args->pid_conn);
+    if (!info) {
+        return 0;
+    }
+
+    http_connection_metadata_t *meta =
+        connection_meta_by_direction(args->direction, PACKET_TYPE_REQUEST);
+
+    return __obi_continue_protocol_http_tp(ctx, args, info, meta, bpf_strstr_tp_loop__legacy);
+}
+
+static __always_inline int
 __obi_continue_protocol_http(struct pt_regs *ctx,
                              call_protocol_args_t *args,
                              http_info_t *info,
@@ -595,22 +552,102 @@ __obi_continue_protocol_http(struct pt_regs *ctx,
     http_connection_metadata_t *meta =
         connection_meta_by_direction(args->direction, PACKET_TYPE_REQUEST);
 
-    http_get_or_create_trace_info(meta,
-                                  args->pid_conn.pid,
-                                  &args->pid_conn.conn,
-                                  (void *)args->u_buf,
-                                  args->bytes_len,
-                                  args->ssl,
-                                  args->orig_dport,
-                                  tp_loop_fn);
+    egress_key_t e_key = {
+        .d_port = args->pid_conn.conn.d_port,
+        .s_port = args->pid_conn.conn.s_port,
+    };
 
+    sort_egress_key(&e_key);
+
+    tp_info_pid_t *tp_p = bpf_map_lookup_elem(&outgoing_trace_map, &e_key);
+
+    if (tp_p && tp_p->req_type == EVENT_HTTP_CLIENT && tp_p->written &&
+        tp_p->pid == args->pid_conn.pid) {
+        bpf_dbg_printk("found tp info previously set by sock msg");
+        // we've already got a tp_info_pid_t setup by the sockmsg program, use
+        // that instead
+        set_trace_info_for_connection(&args->pid_conn.conn, TRACE_TYPE_CLIENT, tp_p);
+        // clean up so that TC does not pick it up
+        bpf_map_delete_elem(&outgoing_trace_map, &e_key);
+        goto skip_tp;
+    }
+
+    tp_p = (tp_info_pid_t *)tp_info_mem();
+
+    if (!tp_p) {
+        goto skip_tp;
+    }
+
+    tp_p->tp.ts = bpf_ktime_get_ns();
+    tp_p->tp.flags = 1;
+    tp_p->valid = 1;
+    tp_p->written = 0;
+    tp_p->pid = args->pid_conn
+                    .pid; // used for avoiding finding stale server requests with client port reuse
+    tp_p->req_type = (meta) ? meta->type : 0;
+
+    urand_bytes(tp_p->tp.span_id, SPAN_ID_SIZE_BYTES);
+
+    u8 found_tp = 0;
+
+    if (meta) {
+        if (meta->type == EVENT_HTTP_CLIENT) {
+            pid_connection_info_t p_conn = {.pid = args->pid_conn.pid};
+            __builtin_memcpy(&p_conn.conn, &args->pid_conn.conn, sizeof(connection_info_t));
+            found_tp = find_trace_for_client_request(
+                &p_conn, args->orig_dport, args->lw_thread, &tp_p->tp);
+        } else {
+            //bpf_dbg_printk("Looking up existing trace for connection");
+            //dbg_print_http_connection_info(conn);
+
+            // For server requests, we first look for TCP info (setup by TC ingress) and then we fall back to black-box info.
+            found_tp =
+                find_trace_for_server_request(&args->pid_conn.conn, &tp_p->tp, EVENT_HTTP_REQUEST);
+        }
+    }
+
+    if (!found_tp) {
+        bpf_dbg_printk("Generating new traceparent id");
+        new_trace_id(&tp_p->tp);
+        __builtin_memset(tp_p->tp.parent_id, 0, sizeof(tp_p->tp.parent_id));
+    } else {
+        bpf_dbg_printk("Using old traceparent id");
+    }
+
+    if (g_bpf_debug) {
+        unsigned char tp_buf[TP_MAX_VAL_LENGTH];
+        make_tp_string(tp_buf, &tp_p->tp);
+        bpf_dbg_printk("tp: %s", tp_buf);
+    }
+
+    args->skip_tp_parsing = 0;
+
+    // If we receive SSL request, we know that OBI definitely didn't
+    // inject the traceparent via the header, so if we already have
+    // info about this transaction keep that, don't parse headers. Istio
+    // for example can forward headers as-is, which can give us a stale
+    // value.
+    if (meta) {
+        if (meta->type == EVENT_HTTP_REQUEST && found_tp && args->ssl) {
+            bpf_dbg_printk("skipping headers parsing because of existing tp info for SSL call");
+            args->skip_tp_parsing = 1;
+        }
+    }
+
+    if (tp_loop_fn == bpf_strstr_tp_loop) {
+        return __obi_continue_protocol_http_tp(ctx, args, info, meta, tp_loop_fn);
+    } else {
+        bpf_tail_call(ctx, &jump_table, k_tail_continue_protocol_http_tp);
+        return 0;
+    }
+
+skip_tp:
     if (tp_loop_fn == bpf_strstr_tp_loop) {
         return __obi_continue2_protocol_http(ctx, args, info, meta);
     } else {
         bpf_tail_call(ctx, &jump_table, k_tail_continue2_protocol_http);
+        return 0;
     }
-
-    return 0;
 }
 
 // k_tail_continue_protocol_http

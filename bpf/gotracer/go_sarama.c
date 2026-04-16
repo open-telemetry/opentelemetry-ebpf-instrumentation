@@ -21,7 +21,6 @@
 
 #include <gotracer/go_common.h>
 
-#include <gotracer/maps/handled_by_go.h>
 #include <gotracer/maps/kafka.h>
 
 #include <gotracer/types/kafka.h>
@@ -38,8 +37,6 @@ int obi_uprobe_sarama_sendInternal(struct pt_regs *ctx) {
     bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
-
-    store_go_handled_goroutine(&g_key);
 
     u32 correlation_id = 0;
 
@@ -68,8 +65,6 @@ int obi_uprobe_sarama_broker_write(struct pt_regs *ctx) {
     bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
-
-    store_go_handled_goroutine(&g_key);
 
     u32 *invocation = bpf_map_lookup_elem(&ongoing_kafka_requests, &g_key);
     void *b_ptr = GO_PARAM1(ctx);

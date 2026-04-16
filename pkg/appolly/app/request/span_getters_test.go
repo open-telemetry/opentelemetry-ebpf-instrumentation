@@ -407,3 +407,82 @@ func TestSpanOTELGetters_HTTPURLScheme(t *testing.T) {
 		})
 	}
 }
+
+func TestSpanOTELGetters_JSONRPCAttributes(t *testing.T) {
+	jsonrpcSpan := &Span{
+		SubType: HTTPSubtypeJSONRPC,
+		JSONRPC: &JSONRPC{
+			Version:   "2.0",
+			RequestID: "42",
+			ErrorCode: -32601,
+		},
+	}
+
+	nonJSONRPCSpan := &Span{
+		Type: EventTypeHTTP,
+	}
+
+	tests := []struct {
+		name     string
+		attrName attr.Name
+		span     *Span
+		expected string
+	}{
+		{
+			name:     "protocol version - JSON-RPC span",
+			attrName: attr.JSONRPCProtocolVersion,
+			span:     jsonrpcSpan,
+			expected: "2.0",
+		},
+		{
+			name:     "protocol version - non-JSON-RPC span",
+			attrName: attr.JSONRPCProtocolVersion,
+			span:     nonJSONRPCSpan,
+			expected: "",
+		},
+		{
+			name:     "request ID - JSON-RPC span",
+			attrName: attr.JSONRPCRequestID,
+			span:     jsonrpcSpan,
+			expected: "42",
+		},
+		{
+			name:     "request ID - non-JSON-RPC span",
+			attrName: attr.JSONRPCRequestID,
+			span:     nonJSONRPCSpan,
+			expected: "",
+		},
+		{
+			name:     "response status code - JSON-RPC span with error",
+			attrName: attr.RPCResponseStatusCode,
+			span:     jsonrpcSpan,
+			expected: "-32601",
+		},
+		{
+			name:     "response status code - non-JSON-RPC span",
+			attrName: attr.RPCResponseStatusCode,
+			span:     nonJSONRPCSpan,
+			expected: "",
+		},
+		{
+			name:     "response status code - JSON-RPC span without error",
+			attrName: attr.RPCResponseStatusCode,
+			span: &Span{
+				SubType: HTTPSubtypeJSONRPC,
+				JSONRPC: &JSONRPC{Version: "2.0"},
+			},
+			expected: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			getter, ok := spanOTELGetters(tt.attrName)
+			require.True(t, ok, "getter should be found for %s", tt.attrName)
+
+			kv := getter(tt.span)
+			assert.Equal(t, string(tt.attrName), string(kv.Key))
+			assert.Equal(t, tt.expected, kv.Value.AsString())
+		})
+	}
+}

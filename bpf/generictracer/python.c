@@ -54,7 +54,6 @@ static __always_inline int update_current_task(u64 id, u64 task) {
         return 0;
     }
 
-    bpf_dbg_printk("task_step: tid=%d task=%llx", id, task);
     python_thread_state_t *thread_state = get_or_create_python_thread_state(id);
     if (!thread_state) {
         return 0;
@@ -97,7 +96,6 @@ int obi_uprobe_task_step_ret(struct pt_regs *ctx) {
         return 0;
     }
 
-    bpf_dbg_printk("task_step_ret: clearing tid=%d", id);
     python_thread_state_t *thread_state =
         (python_thread_state_t *)bpf_map_lookup_elem(&python_thread_state, &id);
     if (!thread_state) {
@@ -125,7 +123,6 @@ int obi_uprobe_context_run(struct pt_regs *ctx) {
     if (context == k_python_state_none) {
         return 0;
     }
-    bpf_dbg_printk("context_run: tid=%d ctx=%llx", id, context);
 
     python_thread_state_t *thread_state = get_or_create_python_thread_state(id);
     if (!thread_state) {
@@ -163,9 +160,6 @@ int obi_uprobe_copy_context(struct pt_regs *ctx) {
 
     if (thread_state->inflight_task != k_python_state_none) {
         map_context_to_task(context, thread_state->inflight_task);
-        bpf_dbg_printk("copy_context: mapped context=%llx child_task=%llx",
-                       context,
-                       thread_state->inflight_task);
         return 0;
     }
 
@@ -173,8 +167,6 @@ int obi_uprobe_copy_context(struct pt_regs *ctx) {
     // serving the request, so bind the new context directly to that task.
     if (thread_state->current_task != k_python_state_none) {
         map_context_to_task(context, thread_state->current_task);
-        bpf_dbg_printk(
-            "copy_context: mapped context=%llx task=%llx", context, thread_state->current_task);
         return 0;
     }
     return 0;
@@ -211,9 +203,6 @@ int obi_uprobe_task_init(struct pt_regs *ctx) {
         .version = next_version ? next_version : 1,
     };
 
-    bpf_dbg_printk(
-        "task_init: parent_lookup tid=%d child=%llx parent=%llx", id, child_task, parent_task);
-
     const python_task_state_t *parent_state = NULL;
     if (parent_task != k_python_state_none) {
         parent_state =
@@ -226,10 +215,6 @@ int obi_uprobe_task_init(struct pt_regs *ctx) {
     // request by the time the child task is initialized.
     if (parent_state && parent_state->conn.port) {
         task_state.conn = parent_state->conn;
-        bpf_dbg_printk("task_init: stored state (from parent) for task=%llx parent=%llx port=%d",
-                       child_task,
-                       parent_task,
-                       task_state.conn.port);
     } else {
         const ssl_pid_connection_info_t *info = bpf_map_lookup_elem(&pid_tid_to_conn, &id);
         if (info) {
@@ -238,8 +223,6 @@ int obi_uprobe_task_init(struct pt_regs *ctx) {
             populate_ephemeral_info(
                 &conn_part, &info->p_conn.conn, info->orig_dport, host_pid, FD_SERVER);
             task_state.conn = conn_part;
-            bpf_dbg_printk(
-                "task_init: stored state for task=%llx port=%d", child_task, conn_part.port);
         }
     }
     bpf_map_update_elem(&python_task_state, &child_task, &task_state, BPF_ANY);

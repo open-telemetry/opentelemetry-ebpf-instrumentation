@@ -20,6 +20,10 @@ ebpf:
           enabled: true
         anthropic:
           enabled: true
+        gemini:
+          enabled: true
+        bedrock:
+          enabled: true
 trace_printer: text
 discovery:
   exclude_otel_instrumented_services: false

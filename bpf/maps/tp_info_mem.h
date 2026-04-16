@@ -9,3 +9,4 @@
 #include <common/tp_info.h>
 
 SCRATCH_MEM_TYPED(tp_info, tp_info_pid_t);
+SCRATCH_MEM_TYPED(tp_info_backup, tp_info_pid_t);

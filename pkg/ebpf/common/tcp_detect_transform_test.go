@@ -566,6 +566,78 @@ func TestReadTCPRequestIntoSpan_MemcachedRequestOnlyWithoutNoreplyIgnored(t *tes
 	testutil.ChannelEmpty(t, out, 100*time.Millisecond)
 }
 
+// TestReadTCPRequestIntoSpan_DNSNotMisclassifiedAsCouchbase guards against a
+// regression where TCP payloads containing raw DNS query/response messages were
+// being misclassified as Couchbase memcached binary protocol. The Couchbase
+// magic bytes (0x80, 0x81, 0x82, 0x83, 0x08, 0x18) can collide with the first
+// byte of a raw DNS message (the transaction ID high byte), and the subsequent
+// DNS header bytes occasionally satisfied Couchbase's loose header validation.
+func TestReadTCPRequestIntoSpan_DNSNotMisclassifiedAsCouchbase(t *testing.T) {
+	// Each case is a raw DNS message payload carried over TCP-port traffic,
+	// without the 2-byte DNS-over-TCP length prefix. These leading bytes can
+	// collide with Couchbase magic and would have been misclassified prior to
+	// tightening validation. Hostnames use RFC 2606 reserved names.
+	tests := []struct {
+		name     string
+		request  []byte
+		response []byte
+	}{
+		{
+			// Query A "example.com" — classic magic 0x80, KeyLen=256 (DNS flags 0x0100).
+			name:     "classic-magic DNS A query",
+			request:  []byte{128, 15, 1, 0, 0, 1, 0, 0, 0, 0, 0, 1, 7, 101, 120, 97, 109, 112, 108, 101, 3, 99, 111, 109, 0, 0, 1, 0, 1, 0, 0, 41, 4, 208, 0, 0, 0, 0, 0, 0},
+			response: []byte{128, 15, 133, 3, 0, 1, 0, 0, 0, 1, 0, 0, 7, 101, 120, 97, 109, 112, 108, 101, 3, 99, 111, 109, 0, 0, 1, 0, 1, 7, 101, 120, 97, 109, 112, 108, 101, 3, 99, 111, 109, 0, 0, 6, 0, 1, 0, 0, 0, 3, 0, 55, 2, 110, 115, 7, 101, 120, 97, 109, 112, 108, 101, 3, 99, 111, 109, 0, 5, 97, 100, 109, 105, 110, 7, 101, 120, 97, 109, 112, 108, 101, 3, 99, 111, 109, 0, 0, 0, 0, 1, 0, 0, 28, 32, 0, 0, 7, 8, 0, 0, 14, 16, 0, 0, 1, 44},
+		},
+		{
+			// Query AAAA "host.example.com" — alt magic 0x08, header shape passed previous KeyLen+BodyLen check with KeyLen=0.
+			name:    "alt-magic DNS AAAA query",
+			request: []byte{8, 26, 1, 0, 0, 1, 0, 0, 0, 0, 0, 1, 4, 104, 111, 115, 116, 7, 101, 120, 97, 109, 112, 108, 101, 3, 99, 111, 109, 0, 0, 28, 0, 1, 0, 0, 41, 4, 208, 0, 0, 0, 0, 0, 0},
+		},
+		{
+			// Query AAAA "test.example.net" — classic magic 0x80.
+			name:    "classic-magic DNS AAAA query",
+			request: []byte{128, 4, 1, 0, 0, 1, 0, 0, 0, 0, 0, 1, 4, 116, 101, 115, 116, 7, 101, 120, 97, 109, 112, 108, 101, 3, 110, 101, 116, 0, 0, 28, 0, 1, 0, 0, 41, 4, 208, 0, 0, 0, 0, 0, 0},
+		},
+		{
+			// Minimal DNS query for single label "host" — alt magic 0x08.
+			name:     "alt-magic tiny DNS query",
+			request:  []byte{8, 29, 1, 0, 0, 1, 0, 0, 0, 0, 0, 1, 4, 104, 111, 115, 116, 0, 0, 28, 0, 1, 0, 0, 41, 4, 208, 0, 0, 0, 0, 0, 0},
+			response: []byte{8, 29, 133, 133, 0, 1, 0, 0, 0, 0, 0, 1, 4, 104, 111, 115, 116, 0, 0, 28, 0, 1, 0, 0, 41, 4, 208, 0, 0, 0, 0, 0, 0},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tri := TCPRequestInfo{
+				StartMonotimeNs: 1000000000,
+				EndMonotimeNs:   1000500000,
+				Len:             uint32(len(tt.request)),
+				RespLen:         uint32(len(tt.response)),
+				Direction:       directionSend,
+			}
+			copy(tri.Buf[:], tt.request)
+			copy(tri.Rbuf[:], tt.response)
+			tri.ConnInfo.S_addr = [16]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 10, 0, 0, 2}
+			tri.ConnInfo.D_addr = [16]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 10, 0, 0, 10}
+			tri.ConnInfo.S_port = 54321
+			tri.ConnInfo.D_port = 53
+
+			cfg := config.EBPFTracer{HeuristicSQLDetect: false}
+			ctx := NewEBPFParseContext(&cfg, nil, nil)
+
+			binaryRecord := bytes.Buffer{}
+			require.NoError(t, binary.Write(&binaryRecord, binary.LittleEndian, tri))
+
+			fltr := TestPidsFilter{services: map[app.PID]svc.Attrs{}}
+
+			span, ignore, err := ReadTCPRequestIntoSpan(ctx, &cfg, &ringbuf.Record{RawSample: binaryRecord.Bytes()}, &fltr)
+			require.NoError(t, err)
+			assert.True(t, ignore, "DNS packet must not produce a span")
+			assert.NotEqual(t, request.EventTypeCouchbaseClient, span.Type, "DNS packet must not be classified as Couchbase")
+		})
+	}
+}
+
 func makeTCPReq(buf string, peerPort uint32) TCPRequestInfo {
 	i := TCPRequestInfo{
 		StartMonotimeNs: 2000 * 1000000,

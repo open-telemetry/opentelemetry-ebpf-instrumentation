@@ -5,8 +5,11 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"flag"
+	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"strings"
 	"time"
@@ -15,11 +18,13 @@ import (
 	"github.com/gofiber/fiber/v2/middleware/logger"
 	"github.com/gofiber/fiber/v2/middleware/recover"
 	"github.com/twmb/franz-go/pkg/kgo"
+	"github.com/valyala/fasthttp"
 )
 
 var (
-	addr    = flag.String("addr", ":8080", "The address to bind to")
-	brokers = flag.String("brokers", os.Getenv("KAFKA_PEERS"), "The Kafka brokers to connect to, as a comma separated list")
+	addr       = flag.String("addr", ":8080", "The address to bind to")
+	brokers    = flag.String("brokers", os.Getenv("KAFKA_PEERS"), "The Kafka brokers to connect to, as a comma separated list")
+	downstream = flag.String("downstream", os.Getenv("HTTP_PEER"), "Downstream service to test HTTP client")
 )
 
 const kafkaRetryDelay = 3 * time.Second
@@ -46,15 +51,30 @@ func main() {
 
 	client := newKafkaClient(*brokers)
 
+	// Standard net/http server on :8081, used to test go instrumentation wrapping
+	// generic tracer
+	mux := http.NewServeMux()
+	mux.HandleFunc("/produce1", stdProducerHandlerWithTopic(client, "my-topic"))
+	mux.HandleFunc("/ping1", handlePingGoogleFastHTTP())
+	go func() {
+		log.Println("Starting standard HTTP server on :8081")
+		if err := http.ListenAndServe(":8081", mux); err != nil {
+			log.Fatalf("Standard HTTP server failed: %v", err)
+		}
+	}()
+
 	app.Get("/produce", producerHandlerWithTopic(client, "my-topic"))
 	app.Get("/produce/orders", producerHandlerWithTopic(client, "orders"))
 	app.Get("/consume", consumerHandler(client))
 
 	// Routes
 	app.Get("/", handleHome)
+	app.Get("/smoke", handleHome)
 	app.Get("/api/hello", handleHello)
 	app.Get("/api/time", handleTime)
 	app.Post("/api/echo", handleEcho)
+	app.Get("/ping", handlePingGoogle)
+	app.Get("/fastPing", handlePingGoogleFastHTTPFiber)
 
 	// Start server
 	log.Println("Starting server on " + *addr)
@@ -92,6 +112,7 @@ func handleHome(c *fiber.Ctx) error {
 		"message": "Welcome to Fiber Example Server",
 		"endpoints": []string{
 			"GET  /",
+			"GET  /smoke",
 			"GET  /api/hello",
 			"GET  /api/time",
 			"POST /api/echo",
@@ -130,4 +151,55 @@ func handleEcho(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{
 		"echo": req.Message,
 	})
+}
+
+// handlePingGoogle calls google.com and returns OK if successful
+func handlePingGoogle(c *fiber.Ctx) error {
+	client := &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}}
+	resp, err := client.Get("https://www.google.com")
+	if err != nil {
+		return c.Status(fiber.StatusBadGateway).JSON(fiber.Map{
+			"error": err.Error(),
+		})
+	}
+	defer resp.Body.Close()
+
+	return c.SendString("OK")
+}
+
+// handlePingGoogleFastHTTP calls google.com using fasthttp and returns OK if successful
+func handlePingGoogleFastHTTPFiber(c *fiber.Ctx) error {
+	client := &fasthttp.Client{TLSConfig: &tls.Config{InsecureSkipVerify: true}} //nolint:gosec
+	req := fasthttp.AcquireRequest()
+	resp := fasthttp.AcquireResponse()
+	defer fasthttp.ReleaseRequest(req)
+	defer fasthttp.ReleaseResponse(resp)
+
+	req.SetRequestURI("http://" + *downstream + "/smoke")
+	if err := client.Do(req, resp); err != nil {
+		return c.Status(fiber.StatusBadGateway).JSON(fiber.Map{
+			"error": err.Error(),
+		})
+	}
+
+	return c.SendString("OK")
+}
+
+// handlePingGoogleFastHTTP calls google.com using fasthttp and returns OK if successful
+func handlePingGoogleFastHTTP() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		client := &fasthttp.Client{TLSConfig: &tls.Config{InsecureSkipVerify: true}} //nolint:gosec
+		req := fasthttp.AcquireRequest()
+		resp := fasthttp.AcquireResponse()
+		defer fasthttp.ReleaseRequest(req)
+		defer fasthttp.ReleaseResponse(resp)
+
+		req.SetRequestURI("http://" + *downstream + "/smoke")
+		if err := client.Do(req, resp); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"status":"OK"}`)
+	}
 }

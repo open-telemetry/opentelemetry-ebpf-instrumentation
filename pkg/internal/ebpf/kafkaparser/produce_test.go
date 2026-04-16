@@ -214,6 +214,38 @@ func TestParseProduceRequest(t *testing.T) {
 			expectedTopicPartition: 5,
 		},
 		{
+			name: "produce request v13 UUID topic",
+			packet: func() []byte {
+				pkt := make([]byte, 100)
+				offset := 0
+
+				// transactional_id (compact nullable string) - null
+				pkt[offset] = 0x00 // varint 0 for null
+				offset++
+
+				// acks
+				binary.BigEndian.PutUint16(pkt[offset:], 1) // acks
+				offset += 2
+
+				// timeout_ms
+				binary.BigEndian.PutUint32(pkt[offset:], 30000) // timeout_ms
+				offset += 4
+
+				// Topics array (flexible)
+				pkt[offset] = 0x02 // varint for 1 topic (1+1)
+				offset++
+
+				// Topic UUID (16 bytes) instead of name
+				copy(pkt[offset:], []byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16})
+				offset += 16
+
+				return pkt[:offset]
+			}(),
+			header:             newTestHeader(APIKeyProduce, 13),
+			expectErr:          false,
+			expectedTopicCount: 1,
+		},
+		{
 			name: "produce request with no Topics",
 			packet: func() []byte {
 				pkt := make([]byte, 50)

@@ -73,6 +73,13 @@ var (
 		containerImage: "hatest-testserver-logenricher-ruby",
 		message:        "this is a json log from ruby via write",
 	}
+	logEnricherDotNetConstants = testServerConstants{
+		url:            "http://localhost:8386",
+		smokeEndpoint:  "/smoke",
+		logEndpoint:    "/json_logger",
+		containerImage: "hatest-testserver-logenricher-dotnet",
+		message:        "this is a json log from dotnet",
+	}
 )
 
 // logEnricherTestTraceparents are fixed W3C traceparents used by log enricher tests.
@@ -86,17 +93,23 @@ var logEnricherTestTraceparents = [5]struct{ traceID, parentID string }{
 	{"deadbeefcafebabe0123456789abcdef", "cafebabe01234567"},
 }
 
-func containerLogs(t require.TestingT, cl *client.Client, containerID string) []string {
+func containerLogs(t assert.TestingT, cl *client.Client, containerID string) []string {
 	reader, err := cl.ContainerLogs(context.TODO(), containerID, client.ContainerLogsOptions{
 		ShowStdout: true,
 		ShowStderr: true,
 	})
-	require.NoError(t, err)
+	if err != nil {
+		assert.NoError(t, err)
+		return nil
+	}
 	defer reader.Close()
 
 	var stdout, stderr strings.Builder
 	_, err = stdcopy.StdCopy(&stdout, &stderr, reader)
-	require.NoError(t, err)
+	if err != nil {
+		assert.NoError(t, err)
+		return nil
+	}
 
 	combined := stdout.String() + stderr.String()
 
@@ -105,14 +118,19 @@ func containerLogs(t require.TestingT, cl *client.Client, containerID string) []
 	for scanner.Scan() {
 		lines = append(lines, scanner.Text())
 	}
-	require.NoError(t, scanner.Err())
+	if err := scanner.Err(); err != nil {
+		assert.NoError(t, err)
+	}
 
 	return lines
 }
 
-func testContainerID(t require.TestingT, cl *client.Client, image string) string {
+func testContainerID(t assert.TestingT, cl *client.Client, image string) string {
 	result, err := cl.ContainerList(context.TODO(), client.ContainerListOptions{All: true})
-	require.NoError(t, err)
+	if err != nil {
+		assert.NoError(t, err)
+		return ""
+	}
 
 	for _, c := range result.Items {
 		if c.Image == image {
@@ -140,6 +158,7 @@ func testLogEnricherNodeJS(t *testing.T) {
 		// are in-flight simultaneously. Goroutines are staggered by 5 ms so that
 		// requests arrive at the server in array order (server delay is 35 ms,
 		// much larger than the stagger), giving a deterministic log order.
+		errCh := make(chan error, len(logEnricherTestTraceparents))
 		var wg sync.WaitGroup
 		for i, tp := range logEnricherTestTraceparents {
 			wg.Add(1)
@@ -148,11 +167,13 @@ func testLogEnricherNodeJS(t *testing.T) {
 				req, err := http.NewRequest(http.MethodGet,
 					logEnricherNodeJSConstants.url+logEnricherNodeJSConstants.logEndpoint, nil)
 				if err != nil {
+					errCh <- err
 					return
 				}
 				req.Header.Set("traceparent", fmt.Sprintf("00-%s-%s-01", tp.traceID, tp.parentID))
 				resp, err := http.DefaultClient.Do(req)
 				if err != nil {
+					errCh <- err
 					return
 				}
 				resp.Body.Close()
@@ -164,11 +185,19 @@ func testLogEnricherNodeJS(t *testing.T) {
 			}
 		}
 		wg.Wait()
+		close(errCh)
+		for err := range errCh {
+			assert.NoError(ct, err, "HTTP request failed")
+		}
 
 		containerID := testContainerID(ct, cl, logEnricherNodeJSConstants.containerImage)
-		require.NotEmpty(ct, containerID, "could not find test container ID")
+		if !assert.NotEmpty(ct, containerID, "could not find test container ID") {
+			return
+		}
 		logs := containerLogs(ct, cl, containerID)
-		require.NotEmpty(ct, logs)
+		if !assert.NotEmpty(ct, logs) {
+			return
+		}
 
 		// Find the last log-position of each injected trace_id (most recent retry).
 		lastPos := make(map[string]int, len(logEnricherTestTraceparents))
@@ -220,6 +249,7 @@ func testLogEnricherJava(t *testing.T) {
 	defer cl.Close()
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		errCh := make(chan error, len(logEnricherTestTraceparents))
 		var wg sync.WaitGroup
 		for _, tp := range logEnricherTestTraceparents {
 			wg.Add(1)
@@ -228,22 +258,32 @@ func testLogEnricherJava(t *testing.T) {
 				req, err := http.NewRequest(http.MethodGet,
 					logEnricherJavaConstants.url+logEnricherJavaConstants.logEndpoint, nil)
 				if err != nil {
+					errCh <- err
 					return
 				}
 				req.Header.Set("traceparent", fmt.Sprintf("00-%s-%s-01", tp.traceID, tp.parentID))
 				resp, err := http.DefaultClient.Do(req)
 				if err != nil {
+					errCh <- err
 					return
 				}
 				resp.Body.Close()
 			}(tp)
 		}
 		wg.Wait()
+		close(errCh)
+		for err := range errCh {
+			assert.NoError(ct, err, "HTTP request failed")
+		}
 
 		containerID := testContainerID(ct, cl, logEnricherJavaConstants.containerImage)
-		require.NotEmpty(ct, containerID, "could not find test container ID")
+		if !assert.NotEmpty(ct, containerID, "could not find test container ID") {
+			return
+		}
 		logs := containerLogs(ct, cl, containerID)
-		require.NotEmpty(ct, logs)
+		if !assert.NotEmpty(ct, logs) {
+			return
+		}
 
 		// Collect the last occurrence of each injected trace_id.
 		lastSpanID := make(map[string]string, len(logEnricherTestTraceparents))
@@ -285,6 +325,7 @@ func testLogEnricherRuby(t *testing.T, constants testServerConstants) {
 		// Fire one request per traceparent concurrently against 2 Puma threads.
 		// The server sleeps 50ms per request, so at least 3 requests will be
 		// queued in the reactor, exercising the reactor→worker handoff path.
+		errCh := make(chan error, len(logEnricherTestTraceparents))
 		var wg sync.WaitGroup
 		for _, tp := range logEnricherTestTraceparents {
 			wg.Add(1)
@@ -293,22 +334,32 @@ func testLogEnricherRuby(t *testing.T, constants testServerConstants) {
 				req, err := http.NewRequest(http.MethodGet,
 					constants.url+constants.logEndpoint, nil)
 				if err != nil {
+					errCh <- err
 					return
 				}
 				req.Header.Set("traceparent", fmt.Sprintf("00-%s-%s-01", tp.traceID, tp.parentID))
 				resp, err := http.DefaultClient.Do(req)
 				if err != nil {
+					errCh <- err
 					return
 				}
 				resp.Body.Close()
 			}(tp)
 		}
 		wg.Wait()
+		close(errCh)
+		for err := range errCh {
+			assert.NoError(ct, err, "HTTP request failed")
+		}
 
 		containerID := testContainerID(ct, cl, constants.containerImage)
-		require.NotEmpty(ct, containerID, "could not find test container ID")
+		if !assert.NotEmpty(ct, containerID, "could not find test container ID") {
+			return
+		}
 		logs := containerLogs(ct, cl, containerID)
-		require.NotEmpty(ct, logs)
+		if !assert.NotEmpty(ct, logs) {
+			return
+		}
 
 		// Collect the last occurrence of each injected trace_id
 		// from log lines matching this test's expected message.
@@ -319,6 +370,79 @@ func testLogEnricherRuby(t *testing.T, constants testServerConstants) {
 				continue
 			}
 			if fields["message"] != constants.message {
+				continue
+			}
+			if tid, ok := fields["trace_id"]; ok {
+				lastSpanID[tid] = fields["span_id"]
+			}
+		}
+
+		// Every injected trace_id must appear with a non-empty span_id.
+		for _, tp := range logEnricherTestTraceparents {
+			spanID, found := lastSpanID[tp.traceID]
+			assert.True(ct, found, "no enriched log line found for trace_id %s", tp.traceID)
+			if found {
+				assert.NotEmpty(ct, spanID, "span_id missing for trace_id %s", tp.traceID)
+			}
+		}
+	}, testTimeout, 500*time.Millisecond)
+}
+
+// testLogEnricherDotNet sends concurrent requests with distinct traceparent
+// headers and verifies each enriched log line contains the correct trace_id.
+// ASP.NET Core (Kestrel) dispatches requests on a thread pool, so concurrent
+// requests may run on different threads simultaneously — this exercises whether
+// the logenricher correctly correlates the TID at write time with the trace
+// context established when the HTTP request was received.
+func testLogEnricherDotNet(t *testing.T) {
+	waitForTestComponentsNoMetrics(t, logEnricherDotNetConstants.url+logEnricherDotNetConstants.smokeEndpoint)
+
+	cl, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	require.NoError(t, err)
+	defer cl.Close()
+
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		errCh := make(chan error, len(logEnricherTestTraceparents))
+		var wg sync.WaitGroup
+		for _, tp := range logEnricherTestTraceparents {
+			wg.Add(1)
+			go func(tp struct{ traceID, parentID string }) {
+				defer wg.Done()
+				req, err := http.NewRequest(http.MethodGet,
+					logEnricherDotNetConstants.url+logEnricherDotNetConstants.logEndpoint, nil)
+				if err != nil {
+					errCh <- err
+					return
+				}
+				req.Header.Set("traceparent", fmt.Sprintf("00-%s-%s-01", tp.traceID, tp.parentID))
+				resp, err := http.DefaultClient.Do(req)
+				if err != nil {
+					errCh <- err
+					return
+				}
+				resp.Body.Close()
+			}(tp)
+		}
+		wg.Wait()
+		close(errCh)
+		for err := range errCh {
+			assert.NoError(ct, err, "HTTP request failed")
+		}
+
+		containerID := testContainerID(ct, cl, logEnricherDotNetConstants.containerImage)
+		if !assert.NotEmpty(ct, containerID, "could not find test container ID") {
+			return
+		}
+		logs := containerLogs(ct, cl, containerID)
+		if !assert.NotEmpty(ct, logs) {
+			return
+		}
+
+		// Collect the last occurrence of each injected trace_id.
+		lastSpanID := make(map[string]string, len(logEnricherTestTraceparents))
+		for _, line := range logs {
+			var fields map[string]string
+			if json.Unmarshal([]byte(line), &fields) != nil {
 				continue
 			}
 			if tid, ok := fields["trace_id"]; ok {
@@ -348,9 +472,13 @@ func testLogEnricher(t *testing.T, constants testServerConstants) {
 		ti.DoHTTPGet(ct, constants.url+constants.logEndpoint, 200)
 
 		containerID := testContainerID(ct, cl, constants.containerImage)
-		require.NotEmpty(ct, containerID, "could not find test container ID")
+		if !assert.NotEmpty(ct, containerID, "could not find test container ID") {
+			return
+		}
 		logs := containerLogs(ct, cl, containerID)
-		require.NotEmpty(ct, logs)
+		if !assert.NotEmpty(ct, logs) {
+			return
+		}
 
 		logIdx := -1
 		// Loop from the end -- it might be possible that OBI wasn't ready to inject
@@ -362,10 +490,12 @@ func testLogEnricher(t *testing.T, constants testServerConstants) {
 			}
 		}
 
-		require.GreaterOrEqual(ct, logIdx, 0, "no enriched log line found yet")
+		if !assert.GreaterOrEqual(ct, logIdx, 0, "no enriched log line found yet") {
+			return
+		}
 
 		var logFields map[string]string
-		require.NoError(ct, json.Unmarshal([]byte(logs[logIdx]), &logFields))
+		assert.NoError(ct, json.Unmarshal([]byte(logs[logIdx]), &logFields))
 
 		assert.Equal(ct, constants.message, logFields["message"])
 		assert.Equal(ct, "INFO", logFields["level"])
