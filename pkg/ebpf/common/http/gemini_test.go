@@ -155,6 +155,54 @@ func TestGeminiSpan_VertexAIEndpoint(t *testing.T) {
 	assert.Equal(t, "gemini-2.0-flash", span.GenAI.Gemini.Model)
 }
 
+func TestGeminiSpan_GoGenAI_GeminiAPI_NoHeader(t *testing.T) {
+	req := makeRequest(t, http.MethodPost, "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent", geminiRequestBody)
+	resp := makePlainResponse(http.StatusOK, http.Header{
+		"Content-Type": []string{"application/json"},
+	}, geminiResponseBody)
+
+	base := &request.Span{}
+	span, ok := GeminiSpan(base, req, resp)
+
+	require.True(t, ok)
+	require.NotNil(t, span.GenAI)
+	require.NotNil(t, span.GenAI.Gemini)
+	assert.Equal(t, request.HTTPSubtypeGemini, span.SubType)
+	assert.Equal(t, "gemini-2.5-flash", span.GenAI.Gemini.Model)
+	assert.Equal(t, "generate_content", span.GenAI.Gemini.Operation)
+}
+
+func TestGeminiSpan_GoGenAI_VertexAI_NoHeader(t *testing.T) {
+	req := makeRequest(t, http.MethodPost, "https://us-central1-aiplatform.googleapis.com/v1beta1/projects/my-proj/locations/us-central1/publishers/google/models/gemini-2.0-flash:generateContent", geminiRequestBody)
+	resp := makePlainResponse(http.StatusOK, http.Header{
+		"Content-Type": []string{"application/json"},
+	}, geminiResponseBody)
+
+	base := &request.Span{}
+	span, ok := GeminiSpan(base, req, resp)
+
+	require.True(t, ok)
+	require.NotNil(t, span.GenAI)
+	require.NotNil(t, span.GenAI.Gemini)
+	assert.Equal(t, request.HTTPSubtypeGemini, span.SubType)
+	assert.Equal(t, "gemini-2.0-flash", span.GenAI.Gemini.Model)
+	assert.Equal(t, "generate_content", span.GenAI.Gemini.Operation)
+}
+
+func TestGeminiSpan_GoGenAI_EmbedContent(t *testing.T) {
+	req := makeRequest(t, http.MethodPost, "https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent", `{"content":{"parts":[{"text":"hello"}]}}`)
+	resp := makePlainResponse(http.StatusOK, http.Header{
+		"Content-Type": []string{"application/json"},
+	}, `{"embedding":{"values":[0.1,0.2]}}`)
+
+	base := &request.Span{}
+	span, ok := GeminiSpan(base, req, resp)
+
+	require.True(t, ok)
+	assert.Equal(t, "text-embedding-004", span.GenAI.Gemini.Model)
+	assert.Equal(t, "embed_content", span.GenAI.Gemini.Operation)
+}
+
 func TestExtractGeminiModel(t *testing.T) {
 	tests := []struct {
 		name string
@@ -172,6 +220,16 @@ func TestExtractGeminiModel(t *testing.T) {
 			want: "gemini-2.0-flash",
 		},
 		{
+			name: "vertex AI v1beta1 path",
+			url:  "https://us-central1-aiplatform.googleapis.com/v1beta1/projects/p/locations/l/publishers/google/models/gemini-2.5-pro:streamGenerateContent",
+			want: "gemini-2.5-pro",
+		},
+		{
+			name: "embedContent operation",
+			url:  "https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent",
+			want: "text-embedding-004",
+		},
+		{
 			name: "no model in path",
 			url:  "https://example.com/api/chat",
 			want: "",
@@ -182,6 +240,108 @@ func TestExtractGeminiModel(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			req := makeRequest(t, http.MethodPost, tt.url, "{}")
 			assert.Equal(t, tt.want, extractGeminiModel(req))
+		})
+	}
+}
+
+func TestExtractGeminiOperation(t *testing.T) {
+	tests := []struct {
+		name string
+		url  string
+		want string
+	}{
+		{
+			name: "generateContent",
+			url:  "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent",
+			want: "generate_content",
+		},
+		{
+			name: "streamGenerateContent",
+			url:  "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:streamGenerateContent",
+			want: "stream_generate_content",
+		},
+		{
+			name: "embedContent",
+			url:  "https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent",
+			want: "embed_content",
+		},
+		{
+			name: "countTokens",
+			url:  "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:countTokens",
+			want: "count_tokens",
+		},
+		{
+			name: "vertex AI generateContent",
+			url:  "https://us-central1-aiplatform.googleapis.com/v1/projects/p/locations/l/publishers/google/models/gemini-2.0-flash:generateContent",
+			want: "generate_content",
+		},
+		{
+			name: "no model segment",
+			url:  "https://example.com/api/chat",
+			want: "generate_content",
+		},
+		{
+			name: "trailing colon with no operation",
+			url:  "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:",
+			want: "generate_content",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := makeRequest(t, http.MethodPost, tt.url, "{}")
+			assert.Equal(t, tt.want, extractGeminiOperation(req))
+		})
+	}
+}
+
+func TestIsGeminiURL(t *testing.T) {
+	tests := []struct {
+		name string
+		url  string
+		want bool
+	}{
+		{
+			name: "Gemini Developer API",
+			url:  "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent",
+			want: true,
+		},
+		{
+			name: "Vertex AI us-central1",
+			url:  "https://us-central1-aiplatform.googleapis.com/v1/projects/p/locations/l/publishers/google/models/gemini-2.0-flash:generateContent",
+			want: true,
+		},
+		{
+			name: "Vertex AI europe-west4",
+			url:  "https://europe-west4-aiplatform.googleapis.com/v1beta1/projects/p/locations/l/publishers/google/models/gemini-2.5-pro:generateContent",
+			want: true,
+		},
+		{
+			name: "unrelated host",
+			url:  "https://api.openai.com/v1/chat/completions",
+			want: false,
+		},
+		{
+			name: "unrelated googleapis",
+			url:  "https://storage.googleapis.com/bucket/object",
+			want: false,
+		},
+		{
+			name: "Vertex AI non-Gemini prediction endpoint",
+			url:  "https://us-central1-aiplatform.googleapis.com/v1/projects/p/locations/l/endpoints/12345:predict",
+			want: false,
+		},
+		{
+			name: "Vertex AI custom model with /models/ but no /publishers/google/",
+			url:  "https://us-central1-aiplatform.googleapis.com/v1/projects/p/locations/l/models/my-custom-model:predict",
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := makeRequest(t, http.MethodPost, tt.url, "{}")
+			assert.Equal(t, tt.want, isGeminiURL(req))
 		})
 	}
 }
