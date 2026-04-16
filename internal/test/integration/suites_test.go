@@ -34,7 +34,7 @@ func TestSuite_Go(t *testing.T) {
 			require.NoError(t, compose.Up())
 
 			t.Cleanup(func() {
-				require.NoError(t, compose.Stop())
+				require.NoError(t, compose.Close())
 			})
 
 			config := ti.DefaultOBIConfig()
