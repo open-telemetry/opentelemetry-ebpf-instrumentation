@@ -106,42 +106,39 @@ static __always_inline u8 is_mssql(connection_info_t *conn_info,
 }
 
 // Emit a large buffer event for MSSQL protocol.
+// The return value is used to control the flow for this specific protocol.
+// -1: wait additional data; 0: continue, regardless of errors.
 static __always_inline int mssql_send_large_buffer(tcp_req_t *req,
                                                    const void *u_buf,
                                                    u32 bytes_len,
                                                    u8 packet_type,
                                                    u8 direction,
                                                    enum large_buf_action action) {
+    if (mssql_max_captured_bytes > k_large_buf_max_mssql_captured_bytes) {
+        bpf_dbg_printk("BUG: mssql_max_captured_bytes exceeds maximum allowed value.");
+    }
+
     u32 expected_len = 0;
 
     if (packet_type == PACKET_TYPE_RESPONSE) {
-        // Response Phase
         if (req->resp_len > 0) {
-            // The first part of the response (including the header) is already in req->rbuf
             struct mssql_hdr hdr = mssql_parse_hdr(req->rbuf);
             expected_len = hdr.length;
         } else if (bytes_len >= k_mssql_hdr_size) {
             struct mssql_hdr hdr = mssql_parse_hdr(u_buf);
             expected_len = hdr.length;
-            bpf_dbg_printk("mssql response: expected_len=%d", hdr.length);
-
-            // Copy the first response packet, which contains the TDS header and error token for userspace parsing
             bpf_probe_read(req->rbuf, k_tcp_res_len, u_buf);
         }
     }
 
-    // these are the bytes already sent so far
-    u32 *bytes_sent_ptr =
-        (packet_type == PACKET_TYPE_REQUEST) ? &req->lb_req_bytes : &req->lb_res_bytes;
-    const u32 bytes_sent = *bytes_sent_ptr;
+    const u32 bytes_sent =
+        packet_type == PACKET_TYPE_REQUEST ? req->lb_req_bytes : req->lb_res_bytes;
 
     if (mssql_max_captured_bytes > 0 && bytes_sent < mssql_max_captured_bytes && bytes_len > 0) {
         tcp_large_buffer_t *large_buf = (tcp_large_buffer_t *)tcp_large_buffers_mem();
         if (!large_buf) {
-            if (packet_type == PACKET_TYPE_RESPONSE) {
-                bpf_dbg_printk(
-                    "mssql_send_large_buffer: failed to reserve space for MSSQL large buffer");
-            }
+            bpf_dbg_printk(
+                "mssql_send_large_buffer: failed to reserve space for MSSQL large buffer");
         } else {
             large_buf->type = EVENT_TCP_LARGE_BUFFER;
             large_buf->packet_type = packet_type;
@@ -153,14 +150,18 @@ static __always_inline int mssql_send_large_buffer(tcp_req_t *req,
             u32 max_available_bytes = mssql_max_captured_bytes - bytes_sent;
             bpf_clamp_umax(max_available_bytes, k_large_buf_max_mssql_captured_bytes);
 
-            u32 available_bytes = min(bytes_len, max_available_bytes);
+            const u32 available_bytes = min(bytes_len, max_available_bytes);
             const u32 consumed_bytes = large_buf_emit_chunks(large_buf, u_buf, available_bytes);
+
+            if (packet_type == PACKET_TYPE_REQUEST) {
+                req->lb_req_bytes += consumed_bytes;
+            } else {
+                req->lb_res_bytes += consumed_bytes;
+            }
 
             if (consumed_bytes > 0) {
                 req->has_large_buffers = true;
             }
-
-            *bytes_sent_ptr += consumed_bytes;
         }
     }
 
