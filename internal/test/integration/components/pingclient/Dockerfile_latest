@@ -1,9 +1,10 @@
 # Build the testserver binary
 # Docker command must be invoked from the projec root directory
-# Make sure that the Go version here is a minor number less than in the Dockerfile_latest file
-# in this same folder.
-# This way we make sure that we support any internal compiler changes in newer Go versions
-FROM golang:1.25.8@sha256:f55a6ec7f24aedc1ed66e2641fdc52de01f2d24d6e49d1fa38582c07dd5f601d AS builder
+# Although we compile OBI with the oldest supported Go version, we need to
+# ensure that the instrumented services built with a newer Go version are still correctly instrumented.
+# The image version here should always be one version higher than the version
+# specified in the Dockerfile in the same folder.
+FROM golang:1.26.2@sha256:5f3787b7f902c07c7ec4f3aa91a301a3eda8133aa32661a3b3a3a86ab3a68a36 AS builder
 
 ARG TARGETARCH
 
