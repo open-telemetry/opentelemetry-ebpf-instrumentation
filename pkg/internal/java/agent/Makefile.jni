@@ -1,4 +1,4 @@
-CC = clang
+CC ?= gcc
 CFLAGS = -fPIC -O2 -Wall -Wextra -Wno-unused-parameter
 JAVA_HOME ?= $(shell java -XshowSettings:properties -version 2>&1 | grep 'java.home' | awk '{print $$3}')
 JNI_HEADERS_DIR = build/generated/jni-headers

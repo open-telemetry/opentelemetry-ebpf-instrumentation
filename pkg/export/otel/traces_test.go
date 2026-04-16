@@ -1199,6 +1199,27 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		ensureTraceAttrNotExists(t, spanAttrs, semconv.GenAISystemInstructionsKey)
 	})
 
+	t.Run("Gemini span - dynamic operation name", func(t *testing.T) {
+		span := makeGeminiSpan(&request.VendorGemini{
+			Model:     "text-embedding-004",
+			Operation: "embed_content",
+			Output: request.GeminiResponse{
+				ModelVersion: "text-embedding-004",
+				UsageMetadata: request.GeminiUsage{
+					PromptTokenCount:     5,
+					CandidatesTokenCount: 0,
+				},
+			},
+		})
+
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		spanAttrs := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
+		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIOperationNameKey, "embed_content")
+		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIRequestModelKey, "text-embedding-004")
+	})
+
 	t.Run("Gemini span - optional attributes and error", func(t *testing.T) {
 		span := makeGeminiSpan(&request.VendorGemini{
 			Model: "gemini-2.0-flash",
@@ -1261,6 +1282,104 @@ func TestGenerateTracesAttributes(t *testing.T) {
 			Method:  "POST",
 			Status:  200,
 			GenAI:   &request.GenAI{Gemini: nil},
+		}
+
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{
+			attr.GenAIInput:        {},
+			attr.GenAIOutput:       {},
+			attr.GenAIInstructions: {},
+			attr.GenAIMetadata:     {},
+		})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		spanAttrs := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
+		ensureTraceAttrNotExists(t, spanAttrs, semconv.GenAIProviderNameKey)
+		ensureTraceAttrNotExists(t, spanAttrs, semconv.GenAIOperationNameKey)
+		ensureTraceAttrNotExists(t, spanAttrs, semconv.GenAIInputMessagesKey)
+		ensureTraceAttrNotExists(t, spanAttrs, semconv.GenAIOutputMessagesKey)
+	})
+
+	makeBedrockSpan := func(ai *request.VendorBedrock) request.Span {
+		return request.Span{
+			Type:    request.EventTypeHTTPClient,
+			SubType: request.HTTPSubtypeAWSBedrock,
+			Method:  "POST",
+			Path:    "https://bedrock-runtime.us-east-1.amazonaws.com/model/anthropic.claude-3-5-sonnet-20241022-v1:0/invoke",
+			Status:  200,
+			GenAI:   &request.GenAI{Bedrock: ai},
+		}
+	}
+
+	t.Run("Bedrock span", func(t *testing.T) {
+		span := makeBedrockSpan(&request.VendorBedrock{
+			Model: "anthropic.claude-3-5-sonnet-20241022-v1:0",
+			Output: request.BedrockResponse{
+				InputTokens:  25,
+				OutputTokens: 18,
+				StopReason:   "end_turn",
+			},
+		})
+
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		spanAttrs := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
+		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIProviderNameKey, "aws.bedrock")
+		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIOperationNameKey, "invoke_model")
+		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIRequestModelKey, "anthropic.claude-3-5-sonnet-20241022-v1:0")
+		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIResponseModelKey, "anthropic.claude-3-5-sonnet-20241022-v1:0")
+		ensureTraceAttrNotExists(t, spanAttrs, semconv.GenAIInputMessagesKey)
+		ensureTraceAttrNotExists(t, spanAttrs, semconv.GenAIOutputMessagesKey)
+		ensureTraceAttrNotExists(t, spanAttrs, semconv.GenAISystemInstructionsKey)
+	})
+
+	t.Run("Bedrock span - optional attributes and error", func(t *testing.T) {
+		span := makeBedrockSpan(&request.VendorBedrock{
+			Model: "anthropic.claude-3-5-sonnet-20241022-v1:0",
+			Input: request.BedrockRequest{
+				Messages:    []byte(`[{"role":"user","content":[{"type":"text","text":"Explain eBPF"}]}]`),
+				System:      "Be concise.",
+				Tools:       []byte(`[{"name":"get_weather","description":"Get weather"}]`),
+				MaxTokens:   1024,
+				Temperature: 0.7,
+				TopP:        0.9,
+			},
+			Output: request.BedrockResponse{
+				Content:      []byte(`[{"type":"text","text":"eBPF runs sandboxed programs in the kernel."}]`),
+				StopReason:   "end_turn",
+				InputTokens:  25,
+				OutputTokens: 18,
+				ErrorType:    "ValidationException",
+				ErrorMessage: "The provided model identifier is invalid.",
+			},
+		})
+
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{
+			attr.GenAIInput:        {},
+			attr.GenAIOutput:       {},
+			attr.GenAIInstructions: {},
+			attr.GenAIMetadata:     {},
+		})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		spanAttrs := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
+		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIProviderNameKey, "aws.bedrock")
+		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIOperationNameKey, "invoke_model")
+		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIInputMessagesKey, `[{"role":"user","content":[{"type":"text","text":"Explain eBPF"}]}]`)
+		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIOutputMessagesKey, `[{"type":"text","text":"eBPF runs sandboxed programs in the kernel."}]`)
+		ensureTraceStrAttr(t, spanAttrs, semconv.GenAISystemInstructionsKey, "Be concise.")
+		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIToolDefinitionsKey, `[{"name":"get_weather","description":"Get weather"}]`)
+		ensureTraceStrAttr(t, spanAttrs, semconv.ErrorTypeKey, "ValidationException")
+		ensureTraceStrAttr(t, spanAttrs, attribute.Key("error.message"), "The provided model identifier is invalid.")
+	})
+
+	t.Run("Bedrock span - nil Bedrock means no GenAI attrs", func(t *testing.T) {
+		span := request.Span{
+			Type:    request.EventTypeHTTPClient,
+			SubType: request.HTTPSubtypeAWSBedrock,
+			Method:  "POST",
+			Status:  200,
+			GenAI:   &request.GenAI{Bedrock: nil},
 		}
 
 		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{
