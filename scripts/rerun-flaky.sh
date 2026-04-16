@@ -94,8 +94,9 @@ else
 fi
 
 # --- Fetch existing sticky comment (if any) and merge rows ---
-EXISTING_COMMENT=$(gh api "repos/${REPO}/issues/${PR_NUMBER}/comments?per_page=100" \
-  --jq "[.[] | select(.body | startswith(\"${MARKER}\"))] | last | {id, body}" 2>/dev/null || echo '{}')
+EXISTING_COMMENT=$(gh api --paginate "repos/${REPO}/issues/${PR_NUMBER}/comments?per_page=100" 2>/dev/null \
+  | jq -s --arg marker "$MARKER" '[.[][] | select(.body | startswith($marker))] | last | {id, body}' \
+  || echo '{}')
 EXISTING_COMMENT_ID=$(echo "$EXISTING_COMMENT" | jq -r '.id // empty')
 EXISTING_BODY=$(echo "$EXISTING_COMMENT" | jq -r '.body // empty')
 
