@@ -39,6 +39,7 @@ const (
 // FeatureMapper stays public so any extension package can add and remove feature
 // definitions before loading them.
 var FeatureMapper = map[string]Features{
+	"stats":                        FeatureStatsTCPRtt | FeatureStatsTCPFailedConnections,
 	"stats_tcp_rtt":                FeatureStatsTCPRtt,
 	"stats_tcp_failed_connections": FeatureStatsTCPFailedConnections,
 	"network":                      FeatureNetwork,
