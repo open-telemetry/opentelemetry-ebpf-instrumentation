@@ -7,12 +7,14 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"go.opentelemetry.io/obi/internal/test/integration/components/docker"
 	"go.opentelemetry.io/obi/internal/test/integration/components/jaeger"
 	"go.opentelemetry.io/obi/internal/test/integration/components/promtest"
 	ti "go.opentelemetry.io/obi/pkg/test/integration"
@@ -123,6 +125,33 @@ func testREDMetricsRailsHTTPS(t *testing.T) {
 			testREDMetricsForRubyHTTPLibrary(t, testCaseURL, "my-ruby-app")
 		})
 	}
+}
+
+func assertRubyPumaSupportVersion(t *testing.T, compose *docker.Compose, expectedRuby, expectedPuma string) {
+	t.Helper()
+
+	output, err := compose.ExecOutput(
+		"testserver",
+		"bundle",
+		"exec",
+		"ruby",
+		"-e",
+		`require "bundler/setup"; require "puma"; puts RUBY_VERSION; puts Puma::Const::PUMA_VERSION`,
+	)
+	require.NoError(t, err, "bundle exec ruby output:\n%s", output)
+
+	var versionLines []string
+	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "time=") {
+			continue
+		}
+		versionLines = append(versionLines, trimmed)
+	}
+
+	require.Lenf(t, versionLines, 2, "unexpected ruby/puma version output: raw output=%q, collected lines=%v", output, versionLines)
+	assert.Equal(t, expectedRuby, versionLines[0])
+	assert.Equal(t, expectedPuma, versionLines[1])
 }
 
 // Assumes we've run the metrics tests

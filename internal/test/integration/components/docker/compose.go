@@ -80,6 +80,22 @@ func (c *Compose) command(args ...string) error {
 	return cmd.Run()
 }
 
+func (c *Compose) ExecOutput(service string, args ...string) (string, error) {
+	cmdArgs := []string{"compose", "--ansi", "never", "-f", c.Path, "exec", "-T", service}
+	cmdArgs = append(cmdArgs, args...)
+	cmd := exec.Command("docker", cmdArgs...)
+	cmd.Env = c.Env
+
+	output, err := cmd.CombinedOutput()
+
+	if c.Logger != nil && len(output) > 0 {
+		if _, writeErr := c.Logger.Write(output); writeErr != nil {
+			err = errors.Join(err, writeErr)
+		}
+	}
+	return strings.TrimSpace(string(output)), err
+}
+
 func (c *Compose) Close() error {
 	var errs []string
 	if err := c.Logs(); err != nil {

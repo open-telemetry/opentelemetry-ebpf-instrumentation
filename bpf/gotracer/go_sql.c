@@ -23,6 +23,8 @@
 
 #include <common/ringbuf.h>
 
+#include <gotracer/maps/handled_by_go.h>
+
 #include <gotracer/go_common.h>
 #include <gotracer/go_str.h>
 
@@ -289,6 +291,8 @@ set_sql_info(void *goroutine_addr, void *driver_conn, void *sql_param, void *que
     client_trace_parent(goroutine_addr, &invocation.tp);
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
+
+    store_go_handled_goroutine(&g_key);
 
     // Write event
     if (bpf_map_update_elem(&ongoing_sql_queries, &g_key, &invocation, BPF_ANY)) {

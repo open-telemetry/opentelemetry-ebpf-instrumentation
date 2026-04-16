@@ -18,26 +18,35 @@
 #include <bpfcore/utils.h>
 
 #include <common/ringbuf.h>
+#include <common/scratch_mem.h>
 
 #include <gotracer/go_common.h>
 
+#include <gotracer/maps/handled_by_go.h>
 #include <gotracer/maps/redis.h>
 
 #include <logger/bpf_dbg.h>
 
 #include <shared/obi_ctx.h>
 
+SCRATCH_MEM_TYPED(req_client, redis_client_req_t);
+
 static __always_inline void setup_request(void *goroutine_addr) {
-    redis_client_req_t req = {
-        .type = EVENT_GO_REDIS,
-        .start_monotime_ns = bpf_ktime_get_ns(),
-    };
-    go_addr_key_t g_key = {};
-    go_addr_key_from_id(&g_key, goroutine_addr);
+    redis_client_req_t *req = req_client_mem();
 
-    client_trace_parent(goroutine_addr, &req.tp);
+    if (req) {
+        req->type = EVENT_GO_REDIS;
+        req->start_monotime_ns = bpf_ktime_get_ns();
 
-    bpf_map_update_elem(&ongoing_redis_requests, &g_key, &req, BPF_ANY);
+        go_addr_key_t g_key = {};
+        go_addr_key_from_id(&g_key, goroutine_addr);
+
+        store_go_handled_goroutine(&g_key);
+
+        client_trace_parent(goroutine_addr, &req->tp);
+
+        bpf_map_update_elem(&ongoing_redis_requests, &g_key, req, BPF_ANY);
+    }
 }
 
 // github.com/redis/go-redis/v9.(*baseClient)._process
@@ -101,6 +110,8 @@ int obi_uprobe_redis_with_writer(struct pt_regs *ctx) {
     bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
+
+    store_go_handled_goroutine(&g_key);
 
     redis_client_req_t *req = bpf_map_lookup_elem(&ongoing_redis_requests, &g_key);
 
