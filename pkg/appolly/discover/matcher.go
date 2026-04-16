@@ -542,7 +542,7 @@ var processInfo = func(pp ProcessAttrs) (*services.ProcessInfo, error) {
 					" including SSL/TLS detection and language-specific instrumentation. This is usually caused"+
 					" by a restrictive ptrace_scope or LSM policy on the host", "pid", pp.pid, "error", err)
 			} else {
-				return nil, fmt.Errorf("can't read /proc/<pid>/fd information: %w", err)
+				return nil, fmt.Errorf("can't read /proc/<pid>/exe information: %w", err)
 			}
 		}
 	}
