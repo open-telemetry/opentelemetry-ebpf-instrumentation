@@ -193,9 +193,11 @@ int obi_uprobe_netFdReadRet(struct pt_regs *ctx) {
 
     void *buf = (void *)net_ptr->byte_ptr;
 
-    u64 len = (u64)GO_PARAM1(ctx);
-    bpf_dbg_printk("buf=%llx, len=%d === ", buf, len);
+    s64 len = (s64)GO_PARAM1(ctx);
+    bpf_dbg_printk("buf=%llx, len=%lld === ", buf, len);
     if (buf && len > 0) {
+        const int bytes_len = (len > __INT_MAX__) ? __INT_MAX__ : (int)len;
+
         dbg_print_http_connection_info(&net_ptr->p_conn.conn);
 
         u16 orig_dport = net_ptr->p_conn.conn.d_port;
@@ -210,7 +212,7 @@ int obi_uprobe_netFdReadRet(struct pt_regs *ctx) {
                                        (protocol_selector_t){.http = 1, .http2 = 0, .tcp = 1},
                                        &net_ptr->p_conn,
                                        buf,
-                                       len,
+                                       bytes_len,
                                        NO_SSL,
                                        TCP_RECV,
                                        orig_dport);
