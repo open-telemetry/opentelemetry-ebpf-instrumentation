@@ -4,7 +4,8 @@ services:
       context: ./components/nginx-rails-sql/certgen
     image: rails-nginx-sql-certgen:latest
     volumes:
-      - mysql_certs:/out/mysql
+      - mysql_server_certs:/out/mysql-server
+      - mysql_client_certs:/out/mysql-client
       - nginx_certs:/out/nginx
 
   testserver:
@@ -26,7 +27,7 @@ services:
     networks:
       - app_network
     volumes:
-      - mysql_certs:/certs:ro
+      - mysql_client_certs:/certs:ro
 
   nginx:
     image: nginx:latest@sha256:dec7a90bd0973b076832dc56933fe876bc014929e14b4ec49923951405370112
@@ -59,7 +60,7 @@ services:
       MYSQL_PASSWORD: password
     volumes:
       - db_data:/var/lib/mysql
-      - mysql_certs:/etc/mysql/certs:ro
+      - mysql_server_certs:/etc/mysql/certs:ro
     depends_on:
       certgen:
         condition: service_completed_successfully
@@ -145,7 +146,8 @@ services:
 
 volumes:
   db_data:
-  mysql_certs:
+  mysql_server_certs:
+  mysql_client_certs:
   nginx_certs:
 
 networks:

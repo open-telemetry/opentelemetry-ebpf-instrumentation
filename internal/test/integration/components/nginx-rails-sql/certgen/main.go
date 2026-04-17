@@ -18,11 +18,16 @@ import (
 )
 
 const (
-	keyBits             = 2048
-	certificateBackdate = time.Hour
-	certificateLifetime = 10 * 365 * 24 * time.Hour
-	mysqlOutputDir      = "/out/mysql"
-	nginxOutputDir      = "/out/nginx"
+	keyBits              = 2048
+	certificateBackdate  = time.Hour
+	certificateLifetime  = 10 * 365 * 24 * time.Hour
+	mysqlServerOutputDir = "/out/mysql-server"
+	mysqlClientOutputDir = "/out/mysql-client"
+	nginxOutputDir       = "/out/nginx"
+	mysqlUserID          = 999
+	mysqlGroupID         = 999
+	privateKeyFileMode   = 0o600
+	certificateFileMode  = 0o644
 )
 
 type certificateAuthority struct {
@@ -38,8 +43,12 @@ func main() {
 }
 
 func run() error {
-	if err := os.MkdirAll(mysqlOutputDir, 0o755); err != nil {
-		return fmt.Errorf("create mysql output directory: %w", err)
+	if err := os.MkdirAll(mysqlServerOutputDir, 0o755); err != nil {
+		return fmt.Errorf("create mysql server output directory: %w", err)
+	}
+
+	if err := os.MkdirAll(mysqlClientOutputDir, 0o755); err != nil {
+		return fmt.Errorf("create mysql client output directory: %w", err)
 	}
 
 	if err := os.MkdirAll(nginxOutputDir, 0o755); err != nil {
@@ -51,15 +60,19 @@ func run() error {
 		return err
 	}
 
-	if err := writeCertificateAuthority(mysqlOutputDir, "ca", mysqlCA); err != nil {
+	if err := writeCertificateAuthority(mysqlServerOutputDir, "ca", mysqlCA); err != nil {
 		return err
 	}
 
-	if err := writeSignedLeaf(mysqlOutputDir, "server", mysqlCA, []string{"db", "mysql_db", "localhost"}, nil, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}); err != nil {
+	if err := writeCertificateAuthority(mysqlClientOutputDir, "ca", mysqlCA); err != nil {
 		return err
 	}
 
-	if err := writeSignedLeaf(mysqlOutputDir, "client", mysqlCA, []string{"rails_app", "testserver", "localhost"}, nil, []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}); err != nil {
+	if err := writeSignedLeaf(mysqlServerOutputDir, "server", mysqlCA, []string{"db", "mysql_db", "localhost"}, nil, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}, mysqlUserID, mysqlGroupID); err != nil {
+		return err
+	}
+
+	if err := writeSignedLeaf(mysqlClientOutputDir, "client", mysqlCA, []string{"rails_app", "testserver", "localhost"}, nil, []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}, 0, 0); err != nil {
 		return err
 	}
 
@@ -102,7 +115,7 @@ func writeCertificateAuthority(dir, name string, ca *certificateAuthority) error
 	return writeCertificate(filepath.Join(dir, name+".pem"), certificateDER)
 }
 
-func writeSignedLeaf(dir, name string, ca *certificateAuthority, dnsNames []string, ipAddresses []net.IP, usages []x509.ExtKeyUsage) error {
+func writeSignedLeaf(dir, name string, ca *certificateAuthority, dnsNames []string, ipAddresses []net.IP, usages []x509.ExtKeyUsage, ownerUID, ownerGID int) error {
 	privateKey, err := rsa.GenerateKey(rand.Reader, keyBits)
 	if err != nil {
 		return fmt.Errorf("generate %s key: %w", name, err)
@@ -117,7 +130,7 @@ func writeSignedLeaf(dir, name string, ca *certificateAuthority, dnsNames []stri
 		return err
 	}
 
-	return writePrivateKey(filepath.Join(dir, name+"-key.pem"), privateKey)
+	return writePrivateKey(filepath.Join(dir, name+"-key.pem"), privateKey, ownerUID, ownerGID)
 }
 
 func writeSelfSignedLeaf(dir, name string, dnsNames []string, ipAddresses []net.IP, usages []x509.ExtKeyUsage) error {
@@ -136,7 +149,7 @@ func writeSelfSignedLeaf(dir, name string, dnsNames []string, ipAddresses []net.
 		return err
 	}
 
-	return writePrivateKey(filepath.Join(dir, "key.pem"), privateKey)
+	return writePrivateKey(filepath.Join(dir, "key.pem"), privateKey, 0, 0)
 }
 
 func newLeafTemplate(commonName string, dnsNames []string, ipAddresses []net.IP, usages []x509.ExtKeyUsage) *x509.Certificate {
@@ -165,11 +178,11 @@ func writeCertificate(path string, der []byte) error {
 		return fmt.Errorf("write %s: %w", path, err)
 	}
 
-	return nil
+	return file.Chmod(certificateFileMode)
 }
 
-func writePrivateKey(path string, privateKey *rsa.PrivateKey) error {
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
+func writePrivateKey(path string, privateKey *rsa.PrivateKey, ownerUID, ownerGID int) error {
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, privateKeyFileMode)
 	if err != nil {
 		return fmt.Errorf("open %s: %w", path, err)
 	}
@@ -177,6 +190,14 @@ func writePrivateKey(path string, privateKey *rsa.PrivateKey) error {
 
 	if err := pem.Encode(file, &pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(privateKey)}); err != nil {
 		return fmt.Errorf("write %s: %w", path, err)
+	}
+
+	if err := file.Chmod(privateKeyFileMode); err != nil {
+		return fmt.Errorf("chmod %s: %w", path, err)
+	}
+
+	if err := file.Chown(ownerUID, ownerGID); err != nil {
+		return fmt.Errorf("chown %s: %w", path, err)
 	}
 
 	return nil
