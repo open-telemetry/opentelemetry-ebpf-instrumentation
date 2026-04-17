@@ -135,4 +135,3 @@ func isAssertOrRequire(pass *analysis.Pass, sel *ast.SelectorExpr) bool {
 	}
 	return false
 }
-

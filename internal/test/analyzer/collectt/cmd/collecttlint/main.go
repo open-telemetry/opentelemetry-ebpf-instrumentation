@@ -5,8 +5,9 @@
 package main
 
 import (
-	"go.opentelemetry.io/obi/internal/test/analyzer/collectt"
 	"golang.org/x/tools/go/analysis/singlechecker"
+
+	"go.opentelemetry.io/obi/internal/test/analyzer/collectt"
 )
 
 func main() {

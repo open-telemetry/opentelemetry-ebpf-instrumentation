@@ -6,8 +6,9 @@ package collectt_test
 import (
 	"testing"
 
-	"go.opentelemetry.io/obi/internal/test/analyzer/collectt"
 	"golang.org/x/tools/go/analysis/analysistest"
+
+	"go.opentelemetry.io/obi/internal/test/analyzer/collectt"
 )
 
 func TestAnalyzer(t *testing.T) {
