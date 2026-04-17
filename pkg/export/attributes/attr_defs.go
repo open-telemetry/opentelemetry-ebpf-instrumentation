@@ -462,7 +462,7 @@ func getDefinitions(
 		StatTCPFailedConnections.Section: {
 			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes},
 			Attributes: map[attr.Name]Default{
-				attr.TCPFailedConnectionReason: true,
+				attr.TCPFailedConnectionReason: false,
 			},
 		},
 

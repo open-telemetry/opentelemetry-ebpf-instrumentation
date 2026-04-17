@@ -36,10 +36,13 @@ const (
 	FeatureAll = Features(^uint(0)) // all bits to 1
 )
 
+// FeatureStats enables all stat metrics.
+const FeatureStats = FeatureStatsTCPRtt | FeatureStatsTCPFailedConnections
+
 // FeatureMapper stays public so any extension package can add and remove feature
 // definitions before loading them.
 var FeatureMapper = map[string]Features{
-	"stats":                        FeatureStatsTCPRtt | FeatureStatsTCPFailedConnections,
+	"stats":                        FeatureStats,
 	"stats_tcp_rtt":                FeatureStatsTCPRtt,
 	"stats_tcp_failed_connections": FeatureStatsTCPFailedConnections,
 	"network":                      FeatureNetwork,
@@ -178,7 +181,7 @@ func (f Features) NetworkBytes() bool {
 }
 
 func (f Features) StatMetrics() bool {
-	return f.any(FeatureStatsTCPRtt | FeatureStatsTCPFailedConnections)
+	return f.any(FeatureStats)
 }
 
 func (f Features) StatsTCPRtt() bool {

@@ -106,7 +106,7 @@ int obi_tracepoint_inet_sock_set_state(struct trace_event_raw_inet_sock_set_stat
     se->reason = reason;
     se->conn = conn;
 
-    bpf_ringbuf_submit(se, 0);
+    bpf_ringbuf_submit(se, stats_events_flags());
 
     return 0;
 }
