@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -69,6 +70,46 @@ func TestJavaInjector_CopyAgent(t *testing.T) {
 			},
 			envVars: map[string]string{
 				"TMPDIR": "/custom/tmp",
+			},
+			pid:         1000,
+			expectError: false,
+			verifyFile:  true,
+		},
+		{
+			name: "TMPDIR absolute path outside process root is ignored",
+			setupAgent: func(t *testing.T) string {
+				tmpFile := filepath.Join(t.TempDir(), ObiJavaAgentFileName)
+				require.NoError(t, os.WriteFile(tmpFile, []byte("test agent content"), 0o644))
+				return tmpFile
+			},
+			setupTempDir: func(t *testing.T, _ app.PID) string {
+				tmpDir := t.TempDir()
+				procRoot := filepath.Join(tmpDir, "proc", "root")
+				require.NoError(t, os.MkdirAll(filepath.Join(procRoot, "tmp"), 0o755))
+				return tmpDir
+			},
+			envVars: map[string]string{
+				"TMPDIR": "/proc/1/root/etc",
+			},
+			pid:         1000,
+			expectError: false,
+			verifyFile:  true,
+		},
+		{
+			name: "TMPDIR relative path escape is ignored",
+			setupAgent: func(t *testing.T) string {
+				tmpFile := filepath.Join(t.TempDir(), ObiJavaAgentFileName)
+				require.NoError(t, os.WriteFile(tmpFile, []byte("test agent content"), 0o644))
+				return tmpFile
+			},
+			setupTempDir: func(t *testing.T, _ app.PID) string {
+				tmpDir := t.TempDir()
+				procRoot := filepath.Join(tmpDir, "proc", "root")
+				require.NoError(t, os.MkdirAll(filepath.Join(procRoot, "tmp"), 0o755))
+				return tmpDir
+			},
+			envVars: map[string]string{
+				"TMPDIR": "../../../etc",
 			},
 			pid:         1000,
 			expectError: false,
@@ -168,6 +209,29 @@ func TestJavaInjector_CopyAgent(t *testing.T) {
 			expectError: false,
 			verifyFile:  true,
 		},
+		{
+			name: "copy does not follow existing symlink target",
+			setupAgent: func(t *testing.T) string {
+				tmpFile := filepath.Join(t.TempDir(), ObiJavaAgentFileName)
+				require.NoError(t, os.WriteFile(tmpFile, []byte("test agent content"), 0o644))
+				return tmpFile
+			},
+			setupTempDir: func(t *testing.T, _ app.PID) string {
+				tmpDir := t.TempDir()
+				procRoot := filepath.Join(tmpDir, "proc", "root")
+				targetDir := filepath.Join(procRoot, "tmp")
+				require.NoError(t, os.MkdirAll(targetDir, 0o755))
+
+				victim := filepath.Join(tmpDir, "victim")
+				require.NoError(t, os.WriteFile(victim, []byte("do not overwrite"), 0o644))
+				require.NoError(t, os.Symlink(victim, filepath.Join(targetDir, ObiJavaAgentFileName)))
+				return tmpDir
+			},
+			envVars:     map[string]string{},
+			pid:         1000,
+			expectError: false,
+			verifyFile:  true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -212,7 +276,7 @@ func TestJavaInjector_CopyAgent(t *testing.T) {
 				if tt.verifyFile {
 					// Verify the file was created in the host filesystem
 					procRoot := filepath.Join(tmpDir, "proc", "root")
-					expectedHostPath := filepath.Join(procRoot, resultPath)
+					expectedHostPath := filepath.Join(procRoot, strings.TrimPrefix(resultPath, "/"))
 
 					info, err := os.Stat(expectedHostPath)
 					require.NoError(t, err)
@@ -225,6 +289,13 @@ func TestJavaInjector_CopyAgent(t *testing.T) {
 					copiedContent, err := os.ReadFile(expectedHostPath)
 					require.NoError(t, err)
 					assert.Equal(t, originalContent, copiedContent)
+
+					victimPath := filepath.Join(tmpDir, "victim")
+					if _, err := os.Stat(victimPath); err == nil {
+						victimContent, readErr := os.ReadFile(victimPath)
+						require.NoError(t, readErr)
+						assert.Equal(t, []byte("do not overwrite"), victimContent)
+					}
 				}
 			}
 		})
@@ -288,6 +359,28 @@ func TestJavaInjector_FindTempDir(t *testing.T) {
 			expectError: false,
 			expectedDir: "/tmp",
 		},
+		{
+			name: "ignore escaping TMPDIR from env",
+			setupDirs: func(t *testing.T, root string) {
+				require.NoError(t, os.MkdirAll(filepath.Join(root, "tmp"), 0o755))
+			},
+			envVars: map[string]string{
+				"TMPDIR": "/proc/1/root/etc",
+			},
+			expectError: false,
+			expectedDir: "/tmp",
+		},
+		{
+			name: "ignore relative TMPDIR from env",
+			setupDirs: func(t *testing.T, root string) {
+				require.NoError(t, os.MkdirAll(filepath.Join(root, "tmp"), 0o755))
+			},
+			envVars: map[string]string{
+				"TMPDIR": "../../../etc",
+			},
+			expectError: false,
+			expectedDir: "/tmp",
+		},
 	}
 
 	for _, tt := range tests {
@@ -330,8 +423,8 @@ func TestDirOK(t *testing.T) {
 			name: "valid directory exists",
 			setupDirs: func(t *testing.T) (string, string) {
 				root := t.TempDir()
-				dir := "testdir"
-				require.NoError(t, os.MkdirAll(filepath.Join(root, dir), 0o755))
+				dir := "/testdir"
+				require.NoError(t, os.MkdirAll(filepath.Join(root, strings.TrimPrefix(dir, "/")), 0o755))
 				return root, dir
 			},
 			expected: true,
@@ -340,7 +433,7 @@ func TestDirOK(t *testing.T) {
 			name: "directory does not exist",
 			setupDirs: func(t *testing.T) (string, string) {
 				root := t.TempDir()
-				return root, "nonexistent"
+				return root, "/nonexistent"
 			},
 			expected: false,
 		},
@@ -348,8 +441,8 @@ func TestDirOK(t *testing.T) {
 			name: "path is a file not a directory",
 			setupDirs: func(t *testing.T) (string, string) {
 				root := t.TempDir()
-				file := "testfile"
-				require.NoError(t, os.WriteFile(filepath.Join(root, file), []byte("content"), 0o644))
+				file := "/testfile"
+				require.NoError(t, os.WriteFile(filepath.Join(root, strings.TrimPrefix(file, "/")), []byte("content"), 0o644))
 				return root, file
 			},
 			expected: false,
@@ -358,8 +451,8 @@ func TestDirOK(t *testing.T) {
 			name: "nested directory exists",
 			setupDirs: func(t *testing.T) (string, string) {
 				root := t.TempDir()
-				dir := filepath.Join("nested", "path", "dir")
-				require.NoError(t, os.MkdirAll(filepath.Join(root, dir), 0o755))
+				dir := "/nested/path/dir"
+				require.NoError(t, os.MkdirAll(filepath.Join(root, strings.TrimPrefix(dir, "/")), 0o755))
 				return root, dir
 			},
 			expected: true,
@@ -369,7 +462,7 @@ func TestDirOK(t *testing.T) {
 			setupDirs: func(_ *testing.T) (string, string) {
 				return "", "/tmp"
 			},
-			expected: true,
+			expected: false,
 		},
 		{
 			name: "empty dir path",
@@ -377,24 +470,32 @@ func TestDirOK(t *testing.T) {
 				root := t.TempDir()
 				return root, ""
 			},
-			expected: true,
+			expected: false,
 		},
 		{
 			name: "absolute path directory",
 			setupDirs: func(t *testing.T) (string, string) {
 				root := t.TempDir()
-				dir := filepath.Join("abs", "path")
-				require.NoError(t, os.MkdirAll(filepath.Join(root, dir), 0o755))
+				dir := "/abs/path"
+				require.NoError(t, os.MkdirAll(filepath.Join(root, strings.TrimPrefix(dir, "/")), 0o755))
 				return root, dir
 			},
 			expected: true,
 		},
 		{
+			name: "relative traversal escapes root",
+			setupDirs: func(t *testing.T) (string, string) {
+				root := t.TempDir()
+				return root, "../../../etc"
+			},
+			expected: false,
+		},
+		{
 			name: "directory with no permissions",
 			setupDirs: func(t *testing.T) (string, string) {
 				root := t.TempDir()
-				dir := "noperm"
-				dirPath := filepath.Join(root, dir)
+				dir := "/noperm"
+				dirPath := filepath.Join(root, strings.TrimPrefix(dir, "/"))
 				require.NoError(t, os.MkdirAll(dirPath, 0o755))
 				require.NoError(t, os.Chmod(dirPath, 0o000))
 				t.Cleanup(func() {
