@@ -12,9 +12,9 @@ import (
 )
 
 const (
-	MSSQLHdrSize      = 8
-	MSSQLErrToken     = 0xAA
-	MSSQLPktResponse  = 0x04
+	MSSQLHdrSize     = 8
+	MSSQLErrToken    = 0xAA
+	MSSQLPktResponse = 0x04
 )
 
 func parseMSSQLCommandID(buf []uint8) uint8 {

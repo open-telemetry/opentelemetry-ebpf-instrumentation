@@ -119,6 +119,34 @@ func ucs2ToUTF8(b []byte) []byte {
 	return out
 }
 
+// extractTDSPayloads iterates over all TDS packets in b and returns their
+// concatenated payload bytes with every 8-byte packet header stripped out.
+// This is necessary because a single TDS message may span multiple packets,
+// and naively treating the whole buffer as one payload would corrupt decoding
+// wherever an embedded packet header appears.
+func extractTDSPayloads(b *largebuf.LargeBuffer) []byte {
+	total := b.Len()
+	var payload []byte
+
+	for offset := 0; offset+kMSSQLHeaderLen <= total; {
+		pktLen, err := b.U16BEAt(offset + 2)
+		if err != nil || int(pktLen) < kMSSQLHeaderLen || offset+int(pktLen) > total {
+			break
+		}
+		payloadLen := int(pktLen) - kMSSQLHeaderLen
+		if payloadLen > 0 {
+			chunk, err := b.UnsafeViewAt(offset+kMSSQLHeaderLen, payloadLen)
+			if err != nil {
+				break
+			}
+			payload = append(payload, chunk...)
+		}
+		offset += int(pktLen)
+	}
+
+	return payload
+}
+
 func mssqlPreparedStatements(b *largebuf.LargeBuffer) (string, string, string) {
 	if b.Len() <= kMSSQLHeaderLen {
 		return "", "", ""
@@ -126,9 +154,7 @@ func mssqlPreparedStatements(b *largebuf.LargeBuffer) (string, string, string) {
 
 	pktType, _ := b.U8At(0)
 	if pktType == kMSSQLBatch {
-		// SQL Batch
-		payload, _ := b.UnsafeViewAt(kMSSQLHeaderLen, b.Len()-kMSSQLHeaderLen)
-		stmt := ucs2ToUTF8(payload)
+		stmt := ucs2ToUTF8(extractTDSPayloads(b))
 		return detectSQL(stmt)
 	}
 
@@ -203,7 +229,12 @@ func parseMSSQLRPC(b *largebuf.LargeBuffer) (uint16, largebuf.LargeBufferReader,
 		return 0, largebuf.LargeBufferReader{}, errFallback
 	}
 
-	r, err := b.NewLimitedReader(kMSSQLHeaderLen, b.Len())
+	firstPktLen, err := b.U16BEAt(2)
+	if err != nil || int(firstPktLen) < kMSSQLHeaderLen || int(firstPktLen) > b.Len() {
+		return 0, largebuf.LargeBufferReader{}, errFallback
+	}
+
+	r, err := b.NewLimitedReader(kMSSQLHeaderLen, int(firstPktLen))
 	if err != nil {
 		return 0, largebuf.LargeBufferReader{}, err
 	}
@@ -276,7 +307,12 @@ func parseHandleFromPrepareResponse(b *largebuf.LargeBuffer) uint32 {
 		return 0
 	}
 
-	r, err := b.NewLimitedReader(kMSSQLHeaderLen, b.Len())
+	firstPktLen, err := b.U16BEAt(2)
+	if err != nil || int(firstPktLen) < kMSSQLHeaderLen || int(firstPktLen) > b.Len() {
+		return 0
+	}
+
+	r, err := b.NewLimitedReader(kMSSQLHeaderLen, int(firstPktLen))
 	if err != nil {
 		return 0
 	}
