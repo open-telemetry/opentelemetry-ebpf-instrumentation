@@ -185,6 +185,9 @@ func (m *FlowFetcher) Close() error {
 }
 
 func (m *FlowFetcher) FlowPacketStatsMap() *ebpf.Map {
+	if m.objects == nil {
+		return nil
+	}
 	return m.objects.FlowPacketStats
 }
 
