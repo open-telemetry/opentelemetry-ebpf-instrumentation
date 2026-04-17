@@ -89,9 +89,14 @@ func newCertificateAuthority(commonName string) (*certificateAuthority, error) {
 		return nil, fmt.Errorf("generate CA key: %w", err)
 	}
 
+	serialNumber, err := newSerialNumber()
+	if err != nil {
+		return nil, fmt.Errorf("generate CA serial number: %w", err)
+	}
+
 	now := time.Now()
 	template := &x509.Certificate{
-		SerialNumber:          newSerialNumber(),
+		SerialNumber:          serialNumber,
 		Subject:               pkix.Name{CommonName: commonName},
 		NotBefore:             now.Add(-certificateBackdate),
 		NotAfter:              now.Add(certificateLifetime),
@@ -121,7 +126,12 @@ func writeSignedLeaf(dir, name string, ca *certificateAuthority, dnsNames []stri
 		return fmt.Errorf("generate %s key: %w", name, err)
 	}
 
-	certificateDER, err := x509.CreateCertificate(rand.Reader, newLeafTemplate(name, dnsNames, ipAddresses, usages), ca.certificate, &privateKey.PublicKey, ca.privateKey)
+	template, err := newLeafTemplate(name, dnsNames, ipAddresses, usages)
+	if err != nil {
+		return fmt.Errorf("create %s template: %w", name, err)
+	}
+
+	certificateDER, err := x509.CreateCertificate(rand.Reader, template, ca.certificate, &privateKey.PublicKey, ca.privateKey)
 	if err != nil {
 		return fmt.Errorf("create %s certificate: %w", name, err)
 	}
@@ -139,7 +149,11 @@ func writeSelfSignedLeaf(dir, name string, dnsNames []string, ipAddresses []net.
 		return fmt.Errorf("generate %s key: %w", name, err)
 	}
 
-	template := newLeafTemplate(name, dnsNames, ipAddresses, usages)
+	template, err := newLeafTemplate(name, dnsNames, ipAddresses, usages)
+	if err != nil {
+		return fmt.Errorf("create %s template: %w", name, err)
+	}
+
 	certificateDER, err := x509.CreateCertificate(rand.Reader, template, template, &privateKey.PublicKey, privateKey)
 	if err != nil {
 		return fmt.Errorf("create %s certificate: %w", name, err)
@@ -152,11 +166,16 @@ func writeSelfSignedLeaf(dir, name string, dnsNames []string, ipAddresses []net.
 	return writePrivateKey(filepath.Join(dir, "key.pem"), privateKey, 0, 0)
 }
 
-func newLeafTemplate(commonName string, dnsNames []string, ipAddresses []net.IP, usages []x509.ExtKeyUsage) *x509.Certificate {
+func newLeafTemplate(commonName string, dnsNames []string, ipAddresses []net.IP, usages []x509.ExtKeyUsage) (*x509.Certificate, error) {
+	serialNumber, err := newSerialNumber()
+	if err != nil {
+		return nil, fmt.Errorf("generate %s serial number: %w", commonName, err)
+	}
+
 	now := time.Now()
 
 	return &x509.Certificate{
-		SerialNumber: newSerialNumber(),
+		SerialNumber: serialNumber,
 		Subject:      pkix.Name{CommonName: commonName},
 		NotBefore:    now.Add(-certificateBackdate),
 		NotAfter:     now.Add(certificateLifetime),
@@ -164,7 +183,7 @@ func newLeafTemplate(commonName string, dnsNames []string, ipAddresses []net.IP,
 		IPAddresses:  ipAddresses,
 		KeyUsage:     x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
 		ExtKeyUsage:  usages,
-	}
+	}, nil
 }
 
 func writeCertificate(path string, der []byte) error {
@@ -203,12 +222,12 @@ func writePrivateKey(path string, privateKey *rsa.PrivateKey, ownerUID, ownerGID
 	return nil
 }
 
-func newSerialNumber() *big.Int {
+func newSerialNumber() (*big.Int, error) {
 	serialNumberLimit := new(big.Int).Lsh(big.NewInt(1), 128)
 	serialNumber, err := rand.Int(rand.Reader, serialNumberLimit)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 
-	return serialNumber
+	return serialNumber, nil
 }
