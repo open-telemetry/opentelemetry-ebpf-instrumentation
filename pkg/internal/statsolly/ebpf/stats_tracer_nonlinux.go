@@ -11,6 +11,7 @@ import (
 	ciliumebpf "github.com/cilium/ebpf"
 
 	"go.opentelemetry.io/obi/pkg/config"
+	"go.opentelemetry.io/obi/pkg/export"
 )
 
 type StatsFetcher struct{}
@@ -43,7 +44,7 @@ type StatsTCPFailedConnection struct {
 	}
 }
 
-func NewStatsFetcher(_ *config.EBPFTracer) (*StatsFetcher, error) {
+func NewStatsFetcher(_ *config.EBPFTracer, _ *export.Features) (*StatsFetcher, error) {
 	return nil, nil
 }
 

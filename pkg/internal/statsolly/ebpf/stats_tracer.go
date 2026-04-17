@@ -18,6 +18,7 @@ import (
 	"github.com/cilium/ebpf/rlimit"
 
 	"go.opentelemetry.io/obi/pkg/config"
+	"go.opentelemetry.io/obi/pkg/export"
 	ebpfconvenience "go.opentelemetry.io/obi/pkg/internal/ebpf/convenience"
 )
 
@@ -25,6 +26,12 @@ type (
 	StatsTCPRtt              StatsTcpRttT
 	StatsTCPFailedConnection StatsTcpFailedConnectionT
 )
+
+type probe struct {
+	name    string
+	program *ebpf.Program
+	enabled bool
+}
 
 // Hook point names, grouped by attach type.
 const (
@@ -48,7 +55,7 @@ func tlog() *slog.Logger {
 	return slog.With("component", "ebpf.StatFetcher")
 }
 
-func NewStatsFetcher(cfg *config.EBPFTracer) (*StatsFetcher, error) {
+func NewStatsFetcher(cfg *config.EBPFTracer, features *export.Features) (*StatsFetcher, error) {
 	tlog := tlog()
 	if err := rlimit.RemoveMemlock(); err != nil {
 		tlog.Warn("can't remove mem lock. The agent could not be able to start eBPF programs",
@@ -73,31 +80,49 @@ func NewStatsFetcher(cfg *config.EBPFTracer) (*StatsFetcher, error) {
 
 	var closables []io.Closer
 
-	for funcName, program := range map[string]*ebpf.Program{
-		KprobeTCPClose: objects.ObiKprobeTcpCloseSrtt,
+	// kprobes
+	for _, k := range []probe{
+		{
+			name:    KprobeTCPClose,
+			program: objects.ObiKprobeTcpCloseSrtt,
+			enabled: features.StatsTCPRtt(),
+		},
 	} {
-		kp, kerr := link.Kprobe(funcName, program, nil)
-		if kerr != nil {
-			closeAll(closables)
-			return nil, fmt.Errorf("kprobe attachment failed %s: %w", funcName, kerr)
+		if !k.enabled {
+			continue
 		}
-		closables = append(closables, kp)
+
+		l, err := link.Kprobe(k.name, k.program, nil)
+		if err != nil {
+			closeAll(closables)
+			return nil, fmt.Errorf("failed kprobe attachment %s: %w", k.name, err)
+		}
+		closables = append(closables, l)
 	}
 
-	for funcName, program := range map[string]*ebpf.Program{
-		TracepointInetSockSetState: objects.ObiTracepointInetSockSetState,
+	// tracepoints
+	for _, t := range []probe{
+		{
+			name:    TracepointInetSockSetState,
+			program: objects.ObiTracepointInetSockSetState,
+			enabled: features.StatsTCPFailedConnections(),
+		},
 	} {
-		parts := strings.SplitN(funcName, "/", 2)
+		if !t.enabled {
+			continue
+		}
+
+		parts := strings.SplitN(t.name, "/", 2)
 		if len(parts) != 2 {
 			closeAll(closables)
-			return nil, fmt.Errorf("invalid tracepoint %q: must be group/name", funcName)
+			return nil, fmt.Errorf("invalid tracepoint %q: must be group/name", t.name)
 		}
-		tp, terr := link.Tracepoint(parts[0], parts[1], program, nil)
-		if terr != nil {
+		l, err := link.Tracepoint(parts[0], parts[1], t.program, nil)
+		if err != nil {
 			closeAll(closables)
-			return nil, fmt.Errorf("tracepoint attachment failed %s: %w", funcName, terr)
+			return nil, fmt.Errorf("failed tracepoint attachment %s: %w", t.name, err)
 		}
-		closables = append(closables, tp)
+		closables = append(closables, l)
 	}
 
 	return &StatsFetcher{
