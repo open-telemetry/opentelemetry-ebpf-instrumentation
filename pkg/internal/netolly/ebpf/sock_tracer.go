@@ -133,10 +133,11 @@ func printVerifierErrorInfo(err error) {
 }
 
 func (m *SockFlowFetcher) FlowPacketStatsMap() *ebpf.Map {
-	if m.objects == nil {
+	objects := m.objects
+	if objects == nil {
 		return nil
 	}
-	return m.objects.FlowPacketStats
+	return objects.FlowPacketStats
 }
 
 // Close any resources that are taken up by the socket filter, the filter itself and some maps.

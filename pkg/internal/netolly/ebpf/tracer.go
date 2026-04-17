@@ -185,10 +185,11 @@ func (m *FlowFetcher) Close() error {
 }
 
 func (m *FlowFetcher) FlowPacketStatsMap() *ebpf.Map {
-	if m.objects == nil {
+	objects := m.objects
+	if objects == nil {
 		return nil
 	}
-	return m.objects.FlowPacketStats
+	return objects.FlowPacketStats
 }
 
 func (m *FlowFetcher) ReadRingBuf() (ringbuf.Record, error) {
