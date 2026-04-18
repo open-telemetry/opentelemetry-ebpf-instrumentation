@@ -17,11 +17,11 @@ func makeMSSQLErrorPacket(errNumber uint32, state uint8, msg string) []uint8 {
 	msgLen := len(msg)
 
 	b := []uint8{
-		MSSQLPktResponse, 0x01, // type, status
+		mssqlPktResponse, 0x01, // type, status
 		0x00, 0x00, // length (not validated by parser)
 		0x00, 0x00, // spid
 		0x01, 0x00, // packet_id, window
-		MSSQLErrToken, // ERROR token
+		mssqlErrToken, // ERROR token
 		0x00, 0x00,    // token length (not used by parser)
 	}
 
@@ -70,14 +70,14 @@ func TestParseMSSQLError(t *testing.T) {
 			name: "no error token at offset 8",
 			buf: func() []uint8 {
 				b := makeMSSQLErrorPacket(208, 1, "err")
-				b[MSSQLHdrSize] = 0x79 // DONE token, not ERROR
+				b[mssqlHdrSize] = 0x79 // DONE token, not ERROR
 				return b
 			}(),
 			expected: nil,
 		},
 		{
 			name:     "too short buffer",
-			buf:      []uint8{MSSQLPktResponse, 0x01, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00},
+			buf:      []uint8{mssqlPktResponse, 0x01, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00},
 			expected: nil,
 		},
 		{

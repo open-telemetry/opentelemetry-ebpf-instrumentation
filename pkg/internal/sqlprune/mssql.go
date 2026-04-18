@@ -12,9 +12,9 @@ import (
 )
 
 const (
-	MSSQLHdrSize     = 8
-	MSSQLErrToken    = 0xAA
-	MSSQLPktResponse = 0x04
+	mssqlHdrSize     = 8
+	mssqlErrToken    = 0xAA
+	mssqlPktResponse = 0x04
 )
 
 func parseMSSQLCommandID(buf []uint8) uint8 {
@@ -39,23 +39,23 @@ func mssqlCommandIDToString(commandID uint8) string {
 }
 
 func parseMSSQLError(buf []uint8) *request.SQLError {
-	if len(buf) < MSSQLHdrSize+1 {
+	if len(buf) < mssqlHdrSize+1 {
 		return nil
 	}
 
 	// Check if it is a response packet
-	if buf[0] != MSSQLPktResponse {
+	if buf[0] != mssqlPktResponse {
 		return nil
 	}
 
-	offset := MSSQLHdrSize
+	offset := mssqlHdrSize
 	if offset >= len(buf) {
 		return nil
 	}
 
 	// We only check the first token for now to avoid complex parsing
 	token := buf[offset]
-	if token == MSSQLErrToken {
+	if token == mssqlErrToken {
 		offset++ // skip token
 		if offset+2 > len(buf) {
 			return nil

@@ -196,10 +196,18 @@ static __always_inline int mssql_send_large_buffer(tcp_req_t *req,
             // Could not parse a complete TDS packet (partial recv or payload
             // continuation). Fall back to length tracking using the saved header.
             const struct mssql_hdr first_hdr = mssql_parse_hdr(req->rbuf);
-            if (first_hdr.length >= k_mssql_hdr_size && req->resp_len < first_hdr.length) {
-                bpf_dbg_printk(
-                    "mssql response: partial, acc=%d exp=%d", req->resp_len, first_hdr.length);
-                return -1;
+            if (first_hdr.length >= k_mssql_hdr_size) {
+                const u32 prev_resp_len = req->resp_len - bytes_len;
+                // Wait while packet 1 is still completing, or if it just finished
+                // in this recv with no EOM (more packets follow; the next recv
+                // will start at a TDS boundary where the main loop detects EOM).
+                if (prev_resp_len < first_hdr.length &&
+                    (req->resp_len < first_hdr.length ||
+                     !(first_hdr.status & k_mssql_status_eom))) {
+                    bpf_dbg_printk(
+                        "mssql response: partial, acc=%d exp=%d", req->resp_len, first_hdr.length);
+                    return -1;
+                }
             }
         }
     }
