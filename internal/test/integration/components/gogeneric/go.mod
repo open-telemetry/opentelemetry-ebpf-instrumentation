@@ -1,4 +1,4 @@
-module fiber-example
+module go.opentelemetry.io/obi/internal/test/integration/components/gogeneric/fiber-example
 
 go 1.24.0
 

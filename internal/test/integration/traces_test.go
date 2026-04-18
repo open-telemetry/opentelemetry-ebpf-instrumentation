@@ -794,13 +794,13 @@ func testNestedHTTPTracesKProbes(t *testing.T) {
 
 			// Check the information of the python parent span
 			res = trace.FindByOperationName("GET /tracemetoo", "server")
-			require.Len(t, res, 1, traceID)
+			require.Len(ct, res, 1, traceID)
 			parent = res[0]
-			require.NotEmpty(t, parent.TraceID)
-			require.Equal(t, traceID, parent.TraceID)
-			require.NotEmpty(t, parent.SpanID)
+			require.NotEmpty(ct, parent.TraceID)
+			require.Equal(ct, traceID, parent.TraceID)
+			require.NotEmpty(ct, parent.SpanID)
 			// check duration is at least 2us
-			assert.Less(t, (2 * time.Microsecond).Microseconds(), parent.Duration)
+			assert.Less(ct, (2 * time.Microsecond).Microseconds(), parent.Duration)
 			// check span attributes
 			sd = parent.Diff(
 				jaeger.Tag{Key: "http.request.method", Type: "string", Value: "GET"},
@@ -810,17 +810,17 @@ func testNestedHTTPTracesKProbes(t *testing.T) {
 				jaeger.Tag{Key: "http.route", Type: "string", Value: "/tracemetoo"},
 				jaeger.Tag{Key: "span.kind", Type: "string", Value: "server"},
 			)
-			assert.Empty(t, sd, sd.String())
+			assert.Empty(ct, sd, sd.String())
 
 			// Check the information of the rails parent span
 			res = trace.FindByOperationName("GET /users", "server")
-			require.Len(t, res, 1, traceID)
+			require.Len(ct, res, 1, traceID)
 			parent = res[0]
-			require.NotEmpty(t, parent.TraceID)
-			require.Equal(t, traceID, parent.TraceID)
-			require.NotEmpty(t, parent.SpanID)
+			require.NotEmpty(ct, parent.TraceID)
+			require.Equal(ct, traceID, parent.TraceID)
+			require.NotEmpty(ct, parent.SpanID)
 			// check duration is at least 2us
-			assert.Less(t, (2 * time.Microsecond).Microseconds(), parent.Duration)
+			assert.Less(ct, (2 * time.Microsecond).Microseconds(), parent.Duration)
 			// check span attributes
 			sd = parent.Diff(
 				jaeger.Tag{Key: "http.request.method", Type: "string", Value: "GET"},
@@ -830,7 +830,7 @@ func testNestedHTTPTracesKProbes(t *testing.T) {
 				jaeger.Tag{Key: "http.route", Type: "string", Value: "/users"},
 				jaeger.Tag{Key: "span.kind", Type: "string", Value: "server"},
 			)
-			assert.Empty(t, sd, sd.String())
+			assert.Empty(ct, sd, sd.String())
 		}
 	}, 3*testTimeout, 100*time.Millisecond)
 
