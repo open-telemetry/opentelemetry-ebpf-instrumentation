@@ -86,21 +86,24 @@ const (
 )
 
 const (
-	HTTPSubtypeNone          = 0 // http
-	HTTPSubtypeGraphQL       = 1 // http + graphql
-	HTTPSubtypeElasticsearch = 2 // http + elasticsearch
-	HTTPSubtypeAWSS3         = 3 // http + aws s3
-	HTTPSubtypeAWSSQS        = 4 // http + aws sqs
-	HTTPSubtypeSQLPP         = 5 // http + sql++ (couchbase, etc.)
-	HTTPSubtypeOpenAI        = 6 // http + OpenAI
-	HTTPSubtypeAnthropic     = 7 // http + Anthropic
-	HTTPSubtypeGemini        = 8 // http + Google AI Studio (Gemini)
+	HTTPSubtypeNone          = 0  // http
+	HTTPSubtypeGraphQL       = 1  // http + graphql
+	HTTPSubtypeElasticsearch = 2  // http + elasticsearch
+	HTTPSubtypeAWSS3         = 3  // http + aws s3
+	HTTPSubtypeAWSSQS        = 4  // http + aws sqs
+	HTTPSubtypeSQLPP         = 5  // http + sql++ (couchbase, etc.)
+	HTTPSubtypeOpenAI        = 6  // http + OpenAI
+	HTTPSubtypeAnthropic     = 7  // http + Anthropic
+	HTTPSubtypeGemini        = 8  // http + Google AI Studio (Gemini)
+	HTTPSubtypeJSONRPC       = 9  // http + JSON-RPC
+	HTTPSubtypeAWSBedrock    = 10 // http + AWS Bedrock
 )
 
 func IsGenAISubtype(subtype int) bool {
 	return subtype == HTTPSubtypeOpenAI ||
 		subtype == HTTPSubtypeAnthropic ||
-		subtype == HTTPSubtypeGemini
+		subtype == HTTPSubtypeGemini ||
+		subtype == HTTPSubtypeAWSBedrock
 }
 
 //nolint:cyclop
@@ -249,6 +252,7 @@ type GenAI struct {
 	OpenAI    *VendorOpenAI
 	Anthropic *VendorAnthropic
 	Gemini    *VendorGemini
+	Bedrock   *VendorBedrock
 }
 
 type OpenAIUsage struct {
@@ -380,10 +384,15 @@ type AnthropicError struct {
 
 // Google AI Studio (Gemini) types
 
+// DefaultGeminiOperation is the fallback operation name when no operation
+// can be extracted from the URL path.
+const DefaultGeminiOperation = "generate_content"
+
 type VendorGemini struct {
-	Input  GeminiRequest
-	Output GeminiResponse
-	Model  string
+	Input     GeminiRequest
+	Output    GeminiResponse
+	Model     string
+	Operation string
 }
 
 type GeminiRequest struct {
@@ -446,6 +455,15 @@ func (g *VendorGemini) GetFinishReasons() []string {
 	return reasons
 }
 
+// OperationName returns the Gemini API operation name.
+// It falls back to DefaultGeminiOperation when no operation was extracted from the URL.
+func (g *VendorGemini) OperationName() string {
+	if g.Operation != "" {
+		return g.Operation
+	}
+	return DefaultGeminiOperation
+}
+
 func (g *VendorGemini) GetOutput() string {
 	if len(g.Output.Candidates) > 0 && g.Output.Candidates[0].Content != nil {
 		return string(g.Output.Candidates[0].Content.Parts)
@@ -462,6 +480,141 @@ func (g *VendorGemini) GetSystemInstruction() string {
 		return string(g.Input.SystemInstruction.Parts)
 	}
 	return ""
+}
+
+// AWS Bedrock types
+// Bedrock is a multi-model gateway; request/response shape varies by model family.
+// We capture the unified superset using omitempty and RawMessage for variable fields.
+
+type VendorBedrock struct {
+	Input  BedrockRequest
+	Output BedrockResponse
+	Model  string // extracted from URL path: /model/{modelId}/invoke
+}
+
+// BedrockRequest covers the common fields across all model families.
+// The messages/prompt/inputText fields differ per model family,
+// so we capture them as raw JSON where needed.
+type BedrockRequest struct {
+	// Anthropic Claude / Amazon Nova format
+	Messages    json.RawMessage `json:"messages,omitempty"`
+	System      string          `json:"system,omitempty"`
+	MaxTokens   int             `json:"max_tokens,omitempty"`
+	Temperature float64         `json:"temperature,omitempty"`
+	TopP        float64         `json:"top_p,omitempty"`
+	TopK        int             `json:"top_k,omitempty"`
+	// Amazon Titan format
+	InputText            string          `json:"inputText,omitempty"`
+	TextGenerationConfig *TitanGenConfig `json:"textGenerationConfig,omitempty"`
+	// Meta Llama format
+	Prompt    string `json:"prompt,omitempty"`
+	MaxGenLen int    `json:"max_gen_len,omitempty"`
+	// Tool use (Claude / Nova)
+	Tools json.RawMessage `json:"tools,omitempty"`
+}
+
+type TitanGenConfig struct {
+	MaxTokenCount int     `json:"maxTokenCount,omitempty"`
+	Temperature   float64 `json:"temperature,omitempty"`
+	TopP          float64 `json:"topP,omitempty"`
+}
+
+// BedrockResponse covers the common response fields across all model families.
+// Token counts are read from response headers (more reliable than body) and stored here.
+type BedrockResponse struct {
+	// Anthropic Claude format
+	Content    json.RawMessage `json:"content,omitempty"`
+	StopReason string          `json:"stop_reason,omitempty"`
+	Usage      *BedrockUsage   `json:"usage,omitempty"`
+	// Amazon Nova format
+	Output         *NovaOutput `json:"output,omitempty"`
+	StopReasonNova string      `json:"stopReason,omitempty"`
+	// Meta Llama format
+	Generation           string `json:"generation,omitempty"`
+	PromptTokenCount     int    `json:"prompt_token_count,omitempty"`
+	GenerationTokenCount int    `json:"generation_token_count,omitempty"`
+	// Amazon Titan format
+	Results []TitanResult `json:"results,omitempty"`
+	// Error fields appear at the top level of the Bedrock error response body
+	ErrorType    string `json:"__type,omitempty"`
+	ErrorMessage string `json:"message,omitempty"`
+	// Token counts extracted from response headers (not JSON-unmarshalled, set programmatically)
+	InputTokens  int `json:"-"`
+	OutputTokens int `json:"-"`
+}
+
+type BedrockUsage struct {
+	InputTokens  int `json:"input_tokens"`
+	OutputTokens int `json:"output_tokens"`
+}
+
+type NovaOutput struct {
+	Message *NovaMessage `json:"message,omitempty"`
+}
+
+type NovaMessage struct {
+	Role    string          `json:"role"`
+	Content json.RawMessage `json:"content,omitempty"`
+}
+
+type TitanResult struct {
+	OutputText       string `json:"outputText"`
+	CompletionReason string `json:"completionReason,omitempty"`
+}
+
+func (b *VendorBedrock) GetInput() string {
+	if len(b.Input.Messages) > 0 {
+		return string(b.Input.Messages)
+	}
+	if b.Input.Prompt != "" {
+		return b.Input.Prompt
+	}
+	if b.Input.InputText != "" {
+		return b.Input.InputText
+	}
+	return ""
+}
+
+func (b *VendorBedrock) GetOutput() string {
+	// Anthropic Claude: content array
+	if len(b.Output.Content) > 0 {
+		return string(b.Output.Content)
+	}
+	// Amazon Nova: output.message.content
+	if b.Output.Output != nil && b.Output.Output.Message != nil && len(b.Output.Output.Message.Content) > 0 {
+		return string(b.Output.Output.Message.Content)
+	}
+	// Meta Llama: generation
+	if b.Output.Generation != "" {
+		return b.Output.Generation
+	}
+	// Amazon Titan: results[0].outputText
+	if len(b.Output.Results) > 0 {
+		return b.Output.Results[0].OutputText
+	}
+	return ""
+}
+
+func (b *VendorBedrock) GetSystemInstruction() string {
+	return b.Input.System
+}
+
+func (b *VendorBedrock) GetStopReason() string {
+	if b.Output.StopReason != "" {
+		return b.Output.StopReason
+	}
+	if b.Output.StopReasonNova != "" {
+		return b.Output.StopReasonNova
+	}
+	return ""
+}
+
+type JSONRPC struct {
+	Method       string `json:"method"`
+	Version      string `json:"version"`
+	RequestID    string `json:"requestId"`
+	ErrorCode    int    `json:"errorCode,omitempty"`
+	ErrorMessage string `json:"errorMessage,omitempty"`
 }
 
 // Span contains the information being submitted by the following nodes in the graph.
@@ -508,6 +661,7 @@ type Span struct {
 	Elasticsearch     *Elasticsearch `json:"-"`
 	AWS               *AWS           `json:"-"`
 	GenAI             *GenAI         `json:"-"`
+	JSONRPC           *JSONRPC       `json:"-"`
 
 	// RequestHeaders stores extracted HTTP request headers based on enrichment rules.
 	// Keys are canonical header names, values are all header values (possibly obfuscated).
@@ -860,6 +1014,13 @@ func SpanStatusMessage(span *Span) string {
 		if span.SubType == HTTPSubtypeSQLPP && span.Status != 0 && span.DBError.Description != "" {
 			return span.DBError.Description
 		}
+		if span.SubType == HTTPSubtypeJSONRPC && span.JSONRPC != nil && span.JSONRPC.ErrorMessage != "" {
+			return span.JSONRPC.ErrorMessage
+		}
+	case EventTypeHTTP:
+		if span.SubType == HTTPSubtypeJSONRPC && span.JSONRPC != nil && span.JSONRPC.ErrorMessage != "" {
+			return span.JSONRPC.ErrorMessage
+		}
 	}
 	return ""
 }
@@ -867,6 +1028,11 @@ func SpanStatusMessage(span *Span) string {
 // HTTPSpanStatusCode https://opentelemetry.io/docs/specs/otel/trace/semantic_conventions/http/#status
 func HTTPSpanStatusCode(span *Span) string {
 	if span.Status == 0 {
+		return StatusCodeError
+	}
+
+	// JSON-RPC errors are signaled in the response body, not via HTTP status code.
+	if span.SubType == HTTPSubtypeJSONRPC && span.JSONRPC != nil && span.JSONRPC.ErrorCode != 0 {
 		return StatusCodeError
 	}
 
@@ -883,6 +1049,9 @@ func HTTPSpanStatusCode(span *Span) string {
 					return StatusCodeError
 				}
 				if span.GenAI.Gemini != nil && span.GenAI.Gemini.Output.Error != nil && span.GenAI.Gemini.Output.Error.Status != "" {
+					return StatusCodeError
+				}
+				if span.GenAI.Bedrock != nil && span.GenAI.Bedrock.Output.ErrorType != "" {
 					return StatusCodeError
 				}
 			}
@@ -1070,11 +1239,26 @@ func (s *Span) TraceName() string {
 		}
 
 		if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeGemini && s.GenAI != nil && s.GenAI.Gemini != nil {
+			op := s.GenAI.Gemini.OperationName()
 			model := s.GenAI.Gemini.Model
 			if model != "" {
-				return "generate_content " + model
+				return op + " " + model
 			}
-			return "generate_content"
+			return op
+		}
+
+		if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeAWSBedrock && s.GenAI != nil && s.GenAI.Bedrock != nil {
+			if s.GenAI.Bedrock.Model != "" {
+				return "invoke_model " + s.GenAI.Bedrock.Model
+			}
+			return "invoke_model"
+		}
+
+		if s.SubType == HTTPSubtypeJSONRPC && s.JSONRPC != nil {
+			if s.JSONRPC.Method != "" {
+				return s.JSONRPC.Method
+			}
+			return "jsonrpc"
 		}
 
 		name := s.Method
@@ -1306,6 +1490,10 @@ func (s *Span) GenAIInputTokens() int {
 		return s.GenAI.Gemini.Output.UsageMetadata.PromptTokenCount
 	}
 
+	if s.GenAI.Bedrock != nil {
+		return s.GenAI.Bedrock.Output.InputTokens
+	}
+
 	return 0
 }
 
@@ -1326,6 +1514,10 @@ func (s *Span) GenAIOutputTokens() int {
 		return s.GenAI.Gemini.Output.UsageMetadata.CandidatesTokenCount
 	}
 
+	if s.GenAI.Bedrock != nil {
+		return s.GenAI.Bedrock.Output.OutputTokens
+	}
+
 	return 0
 }
 
@@ -1340,7 +1532,10 @@ func (s *Span) GenAIOperationName() string {
 		return s.GenAI.Anthropic.Output.Type
 	}
 	if s.GenAI.Gemini != nil {
-		return "generate_content"
+		return s.GenAI.Gemini.OperationName()
+	}
+	if s.GenAI.Bedrock != nil {
+		return "invoke_model"
 	}
 	return ""
 }
@@ -1358,6 +1553,9 @@ func (s *Span) GenAIProviderName() string {
 	if s.GenAI.Gemini != nil {
 		return semconv.GenAIProviderNameGCPGemini.Value.AsString()
 	}
+	if s.GenAI.Bedrock != nil {
+		return semconv.GenAIProviderNameAWSBedrock.Value.AsString()
+	}
 	return ""
 }
 
@@ -1373,6 +1571,9 @@ func (s *Span) GenAIRequestModel() string {
 	}
 	if s.GenAI.Gemini != nil {
 		return s.GenAI.Gemini.Model
+	}
+	if s.GenAI.Bedrock != nil {
+		return s.GenAI.Bedrock.Model
 	}
 	return ""
 }
@@ -1392,6 +1593,9 @@ func (s *Span) GenAIResponseModel() string {
 			return s.GenAI.Gemini.Output.ModelVersion
 		}
 		return s.GenAI.Gemini.Model
+	}
+	if s.GenAI.Bedrock != nil {
+		return s.GenAI.Bedrock.Model
 	}
 	return ""
 }

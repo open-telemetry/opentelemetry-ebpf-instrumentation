@@ -14,6 +14,7 @@
 set -euo pipefail
 
 MAX_ATTEMPTS=2
+MARKER="<!-- ci-supervisor -->"
 
 # --- Resolve the associated PR ---
 RUN_DATA=$(gh api "repos/${REPO}/actions/runs/${RUN_ID}" \
@@ -56,57 +57,73 @@ if [ "$ATTEMPT" -ge "$MAX_ATTEMPTS" ]; then
   REASON="Maximum re-run attempts reached (attempt ${ATTEMPT} of ${MAX_ATTEMPTS})"
 fi
 
-# --- Build job summary table ---
-JOBS_TABLE=""
+# --- Build new table rows for this workflow's failed jobs ---
+NEW_ROWS=""
 
-while IFS=$'\t' read -r job_name job_conclusion job_started job_completed; do
-  duration="unknown"
-  if [ -n "$job_started" ] && [ -n "$job_completed" ] \
-     && [ "$job_started" != "null" ] && [ "$job_completed" != "null" ]; then
-    start_epoch=$(date -d "$job_started" +%s 2>/dev/null || echo "0")
-    end_epoch=$(date -d "$job_completed" +%s 2>/dev/null || echo "0")
-    if [ "$start_epoch" -gt 0 ] && [ "$end_epoch" -gt 0 ]; then
-      duration_min=$(( (end_epoch - start_epoch) / 60 ))
-      duration="${duration_min}m"
-    fi
-  fi
-
-  job_verdict="flaky"
-
+while IFS=$'\t' read -r job_name job_conclusion; do
   # Unrecoverable: lint/format/tidy failures won't be fixed by re-running
   if [ "$WORKFLOW_NAME" = "Pull request checks" ] \
      && echo "$job_name" | grep -qi "lint"; then
-    job_verdict="unrecoverable (lint failure)"
     if [ "$VERDICT" != "skip" ]; then
       VERDICT="skip"
       REASON="Lint job failed in '${WORKFLOW_NAME}' -- static analysis/style failure, re-run will not help"
     fi
   fi
-  JOBS_TABLE="${JOBS_TABLE}| ${job_name} | ${job_conclusion} | ${duration} | ${job_verdict} |\n"
-done < <(echo "$RUN_JSON" | jq -r '.jobs[] | select(.conclusion == "failure" or .conclusion == "timed_out") | [.name, .conclusion, .startedAt, .completedAt] | @tsv')
 
-if [ -z "$JOBS_TABLE" ]; then
+  if [ "$VERDICT" = "rerun" ]; then
+    rerunning="Yes"
+  else
+    rerunning="No"
+  fi
+
+  NEW_ROWS="${NEW_ROWS}| ${WORKFLOW_NAME} | ${job_name} | ${job_conclusion} | ${rerunning} | ${ATTEMPT}/${MAX_ATTEMPTS} |
+"
+done < <(echo "$RUN_JSON" | jq -r '.jobs[] | select(.conclusion == "failure" or .conclusion == "timed_out") | [.name, .conclusion] | @tsv')
+
+if [ -z "$NEW_ROWS" ]; then
   echo "No failed or timed-out jobs found. Exiting."
   exit 0
 fi
 
 # --- Take action ---
 if [ "$VERDICT" = "rerun" ]; then
-  ACTION_LINE="Re-running failed jobs (attempt $((ATTEMPT + 1)) of ${MAX_ATTEMPTS})"
   echo "Re-running failed jobs for run ${RUN_ID}..."
   gh run rerun "$RUN_ID" --repo "$REPO" --failed
 else
-  ACTION_LINE="NOT re-running. Reason: ${REASON}"
   echo "Skipping re-run: ${REASON}"
 fi
 
-# --- Post PR comment ---
-COMMENT_BODY="### CI Supervisor: ${WORKFLOW_NAME} (attempt ${ATTEMPT})
+# --- Fetch existing sticky comment (if any) and merge rows ---
+EXISTING_COMMENT=$(gh api --paginate "repos/${REPO}/issues/${PR_NUMBER}/comments?per_page=100" 2>/dev/null \
+  | jq -s --arg marker "$MARKER" '[.[][] | select(.body | startswith($marker))] | last | {id, body}' \
+  || echo '{}')
+EXISTING_COMMENT_ID=$(echo "$EXISTING_COMMENT" | jq -r '.id // empty')
+EXISTING_BODY=$(echo "$EXISTING_COMMENT" | jq -r '.body // empty')
 
-| Job | Conclusion | Duration | Verdict |
-|-----|-----------|----------|---------|
-$(printf '%b' "$JOBS_TABLE")
-**Action**: ${ACTION_LINE}"
+# Extract existing table rows, dropping rows that belong to the current workflow
+# (they'll be replaced by NEW_ROWS).
+KEPT_ROWS=""
+if [ -n "$EXISTING_BODY" ]; then
+  KEPT_ROWS=$(echo "$EXISTING_BODY" | grep '^|' | grep -v '^| Workflow' | grep -v '^|---' | grep -v "^| ${WORKFLOW_NAME} |" || true)
+  if [ -n "$KEPT_ROWS" ]; then
+    KEPT_ROWS="${KEPT_ROWS}
+"
+  fi
+fi
 
-gh pr comment "$PR_NUMBER" --repo "$REPO" --body "$COMMENT_BODY"
-echo "Posted audit comment on PR #${PR_NUMBER}"
+# --- Build the full comment ---
+COMMENT_BODY="${MARKER}
+### CI Supervisor
+
+| Workflow | Job | Last state | Re-running? | Attempt |
+|----------|-----|-----------|-------------|---------|
+${KEPT_ROWS}${NEW_ROWS}"
+
+if [ -n "$EXISTING_COMMENT_ID" ]; then
+  gh api "repos/${REPO}/issues/comments/${EXISTING_COMMENT_ID}" \
+    --method PATCH --field body="$COMMENT_BODY" > /dev/null
+  echo "Updated CI Supervisor comment (id: ${EXISTING_COMMENT_ID}) on PR #${PR_NUMBER}"
+else
+  gh pr comment "$PR_NUMBER" --repo "$REPO" --body "$COMMENT_BODY"
+  echo "Posted CI Supervisor comment on PR #${PR_NUMBER}"
+fi

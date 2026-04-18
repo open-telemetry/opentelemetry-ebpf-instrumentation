@@ -32,7 +32,6 @@
 #include <gotracer/go_offsets.h>
 #include <gotracer/go_str.h>
 
-#include <gotracer/maps/handled_by_go.h>
 #include <gotracer/maps/nethttp.h>
 
 #include <gotracer/types/nethttp.h>
@@ -68,8 +67,6 @@ int obi_uprobe_ServeHTTP(struct pt_regs *ctx) {
     void *req = GO_PARAM4(ctx);
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
-
-    store_go_handled_goroutine(&g_key);
 
     off_table_t *ot = get_offsets_table();
 
@@ -263,8 +260,6 @@ int obi_uprobe_readRequestStart(struct pt_regs *ctx) {
     bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
-
-    store_go_handled_goroutine(&g_key);
 
     connection_info_t *existing = bpf_map_lookup_elem(&ongoing_server_connections, &g_key);
 
@@ -616,8 +611,6 @@ static __always_inline void roundTripStartHelper(struct pt_regs *ctx) {
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
 
-    store_go_handled_goroutine(&g_key);
-
     void *req = GO_PARAM2(ctx);
     off_table_t *ot = get_offsets_table();
 
@@ -814,8 +807,6 @@ int obi_uprobe_writeSubset(struct pt_regs *ctx) {
     go_addr_key_t gw_key = {};
     go_addr_key_from_id(&gw_key, goroutine_addr);
 
-    store_go_handled_goroutine(&gw_key);
-
     if (!g_bpf_header_propagation) {
         return 0;
     }
@@ -931,8 +922,6 @@ int obi_uprobe_http2ResponseWriterStateWriteHeader(struct pt_regs *ctx) {
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
 
-    store_go_handled_goroutine(&g_key);
-
     server_http_func_invocation_t *invocation =
         bpf_map_lookup_elem(&ongoing_http_server_requests, &g_key);
 
@@ -975,8 +964,6 @@ int obi_uprobe_http2serverConn_runHandler(struct pt_regs *ctx) {
 
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
-
-    store_go_handled_goroutine(&g_key);
 
     if (sc) {
         void *conn_ptr = 0;
