@@ -195,6 +195,9 @@ static __always_inline int mssql_send_large_buffer(tcp_req_t *req,
         } else {
             // Could not parse a complete TDS packet (partial recv or payload
             // continuation). Fall back to length tracking using the saved header.
+            if (req->resp_len < k_mssql_hdr_size) {
+                return -1;
+            }
             const struct mssql_hdr first_hdr = mssql_parse_hdr(req->rbuf);
             if (first_hdr.length >= k_mssql_hdr_size) {
                 const u32 prev_resp_len = req->resp_len - bytes_len;

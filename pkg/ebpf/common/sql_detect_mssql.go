@@ -33,6 +33,11 @@ const (
 	// https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-tds/7091f6f6-b83d-4ed2-afeb-ba5013dfb18f
 	kMSSQLTokenReturnValue = 0xAC
 
+	// TDS TypeInfo type identifiers
+	// https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-tds/d2ed21d6-527b-46ac-8035-94f6f68eb9a8
+	kMSSQLTypeInt4 = 0x26 // fixed-length 4-byte integer
+	kMSSQLTypeIntN = 0x38 // variable-length integer (length byte precedes value)
+
 	// Fixed lengths for TDS RETURNVALUE (0xAC) token fields that follow the name
 	kMSSQLStatusLen   = 1
 	kMSSQLUserTypeLen = 4
@@ -50,7 +55,6 @@ func isMSSQL(b *largebuf.LargeBuffer) bool {
 		return false
 	}
 
-	// Check for valid packet types
 	pktType, err := b.U8At(0)
 	if err != nil {
 		return false
@@ -80,9 +84,10 @@ func isMSSQL(b *largebuf.LargeBuffer) bool {
 	// 1. MUST be at least 8 bytes (the size of the header itself).
 	// 2. MUST be less than or equal to the maximum allowable negotiated packet
 	//    size (32,767 bytes).
+	// 3. MUST fit within the captured buffer (ensures the first packet is complete).
 	// Note: While the *negotiated* packet size must be between 512 and 32,767,
 	// individual packets can be much smaller (e.g., a simple SELECT batch).
-	if length < uint16(kMSSQLHeaderLen) || length > kMSSQLMaxPacketSize {
+	if length < uint16(kMSSQLHeaderLen) || length > kMSSQLMaxPacketSize || int(length) > b.Len() {
 		return false
 	}
 
@@ -234,6 +239,8 @@ func parseMSSQLRPC(b *largebuf.LargeBuffer) (uint16, largebuf.LargeBufferReader,
 		return 0, largebuf.LargeBufferReader{}, errFallback
 	}
 
+	// Parse ProcID from the first packet's payload. The RPC header fields
+	// (NameLen, ProcID/Name, OptionFlags) are always in the first TDS packet.
 	r, err := b.NewLimitedReader(kMSSQLHeaderLen, int(firstPktLen))
 	if err != nil {
 		return 0, largebuf.LargeBufferReader{}, err
@@ -241,7 +248,7 @@ func parseMSSQLRPC(b *largebuf.LargeBuffer) (uint16, largebuf.LargeBufferReader,
 
 	nameLen, err := r.ReadU16LE()
 	if err != nil {
-		return 0, r, err
+		return 0, largebuf.LargeBufferReader{}, err
 	}
 
 	var procID uint16
@@ -254,45 +261,51 @@ func parseMSSQLRPC(b *largebuf.LargeBuffer) (uint16, largebuf.LargeBufferReader,
 	}
 
 	if err != nil {
-		return 0, r, err
+		return 0, largebuf.LargeBufferReader{}, err
 	}
 
-	if err := r.Skip(2); err != nil {
-		return procID, r, err
+	if err := r.Skip(2); err != nil { // OptionFlags
+		return procID, largebuf.LargeBufferReader{}, err
 	}
 
-	// Return the reader positioned at the payload
-	return procID, r, nil
+	// headerConsumed is the number of bytes at the start of the TDS payload
+	// used by the RPC header (NameLen + ProcID/Name + OptionFlags).
+	headerConsumed := r.ReadOffset() - kMSSQLHeaderLen
+
+	// Extract parameters from all TDS packets so that multi-packet RPC
+	// requests are handled correctly. Strip the RPC header from the front.
+	allPayloads := extractTDSPayloads(b)
+	if headerConsumed > len(allPayloads) {
+		return procID, largebuf.LargeBufferReader{}, errFallback
+	}
+
+	return procID, largebuf.NewLargeBufferFrom(allPayloads[headerConsumed:]).NewReader(), nil
 }
 
 func parseHandleFromExecute(r largebuf.LargeBufferReader) uint32 {
-	// 1. Read NameLen (1 byte)
 	nameLen, err := r.ReadU8()
 	if err != nil {
 		return 0
 	}
 
-	// 2. Skip Name (UCS-2)
-	if err := r.Skip(int(nameLen) * 2); err != nil {
+	if err := r.Skip(int(nameLen) * 2); err != nil { // name (UCS-2)
 		return 0
 	}
 
-	// 3. Skip Status
-	if err := r.Skip(1); err != nil {
+	if err := r.Skip(1); err != nil { // status
 		return 0
 	}
 
-	// 4. Read TypeInfo
 	typ, err := r.ReadU8()
 	if err != nil {
 		return 0
 	}
 
 	switch typ {
-	case 0x26: // TI_INT4
+	case kMSSQLTypeInt4:
 		val, _ := r.ReadU32LE()
 		return val
-	case 0x38: // TI_INTN
+	case kMSSQLTypeIntN:
 		length, err := r.ReadU8()
 		if err == nil && length == 4 {
 			val, _ := r.ReadU32LE()
@@ -303,21 +316,13 @@ func parseHandleFromExecute(r largebuf.LargeBufferReader) uint32 {
 }
 
 func parseHandleFromPrepareResponse(b *largebuf.LargeBuffer) uint32 {
-	if b.Len() < kMSSQLHeaderLen {
+	payload := extractTDSPayloads(b)
+	if len(payload) == 0 {
 		return 0
 	}
 
-	firstPktLen, err := b.U16BEAt(2)
-	if err != nil || int(firstPktLen) < kMSSQLHeaderLen || int(firstPktLen) > b.Len() {
-		return 0
-	}
+	r := largebuf.NewLargeBufferFrom(payload).NewReader()
 
-	r, err := b.NewLimitedReader(kMSSQLHeaderLen, int(firstPktLen))
-	if err != nil {
-		return 0
-	}
-
-	// Scan for RETURNVALUE token (0xAC)
 	for {
 		idx := r.IndexByte(kMSSQLTokenReturnValue)
 		if idx < 0 {
@@ -342,12 +347,12 @@ func parseHandleFromPrepareResponse(b *largebuf.LargeBuffer) uint32 {
 		typ, _ := r.ReadU8()
 
 		switch typ {
-		case 0x26: // TI_INT4
+		case kMSSQLTypeInt4:
 			if r.Remaining() >= 4 {
 				val, _ := r.ReadU32LE()
 				return val
 			}
-		case 0x38: // TI_INTN
+		case kMSSQLTypeIntN:
 			length, _ := r.ReadU8()
 			if length == 4 && r.Remaining() >= 4 {
 				val, _ := r.ReadU32LE()
