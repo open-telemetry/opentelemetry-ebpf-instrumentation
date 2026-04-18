@@ -84,10 +84,9 @@ func isMSSQL(b *largebuf.LargeBuffer) bool {
 	// 1. MUST be at least 8 bytes (the size of the header itself).
 	// 2. MUST be less than or equal to the maximum allowable negotiated packet
 	//    size (32,767 bytes).
-	// 3. MUST fit within the captured buffer (ensures the first packet is complete).
 	// Note: While the *negotiated* packet size must be between 512 and 32,767,
 	// individual packets can be much smaller (e.g., a simple SELECT batch).
-	if length < uint16(kMSSQLHeaderLen) || length > kMSSQLMaxPacketSize || int(length) > b.Len() {
+	if length < uint16(kMSSQLHeaderLen) || length > kMSSQLMaxPacketSize {
 		return false
 	}
 
