@@ -50,6 +50,17 @@ async def prepquery():
     cur.close()
     return row
 
+@app.get("/largeresult")
+async def largeresult():
+    c = get_conn()
+    cur = c.cursor()
+    # Returns 50 rows with 48-char padded names. The total response exceeds the
+    # default 4096-byte TDS packet size, forcing a multi-packet server response.
+    cur.execute("SELECT * FROM bulk_actor")
+    rows = cur.fetchall()
+    cur.close()
+    return {"count": len(rows)}
+
 @app.get("/error")
 async def error():
     c = get_conn()

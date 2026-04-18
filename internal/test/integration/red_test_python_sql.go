@@ -76,7 +76,7 @@ func assertSQLOperation(t *testing.T, comm, op, table, db string) {
 		var tq jaeger.TracesQuery
 		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
 		traces := tq.FindBySpan(jaeger.Tag{Key: "db.operation.name", Type: "string", Value: op})
-		assert.GreaterOrEqual(ct, len(traces), 1)
+		require.NotEmpty(ct, traces)
 		lastTrace := traces[len(traces)-1]
 		span := lastTrace.Spans[0]
 
@@ -347,6 +347,14 @@ func testREDMetricsPythonSQLSSL(t *testing.T) {
 	}
 }
 
+func testPythonSQLMultiPacketResponse(t *testing.T, comm, url, table, db string) {
+	t.Helper()
+
+	ti.DoHTTPGet(t, url+"/largeresult", 200)
+
+	assertSQLOperation(t, comm, "SELECT", table, db)
+}
+
 func testPythonMSSQL(t *testing.T) {
 	testCaseURL := "http://localhost:8381"
 	comm := "python3.14"
@@ -359,4 +367,5 @@ func testPythonMSSQL(t *testing.T) {
 	testPythonSQLQuery(t, comm, testCaseURL, table, db)
 	testPythonSQLPreparedStatements(t, comm, testCaseURL, table, db)
 	testPythonSQLError(t, comm, testCaseURL, db)
+	testPythonSQLMultiPacketResponse(t, comm, testCaseURL, "bulk_actor", db)
 }

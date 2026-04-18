@@ -103,7 +103,65 @@ func TestUCS2ToUTF8(t *testing.T) {
 	}
 }
 
+func makeTDSPacket(pktType, status byte, payload []byte) []byte {
+	totalLen := kMSSQLHeaderLen + len(payload)
+	hdr := []byte{
+		pktType, status,
+		byte(totalLen >> 8), byte(totalLen),
+		0x00, 0x00, // SPID
+		0x01, // PacketID
+		0x00, // Window
+	}
+	return append(hdr, payload...)
+}
+
+func TestExtractTDSPayloads(t *testing.T) {
+	sqlPart1 := []byte{'S', 0, 'E', 0, 'L', 0, 'E', 0, 'C', 0, 'T', 0}
+	sqlPart2 := []byte{' ', 0, '1', 0}
+
+	tests := []struct {
+		name string
+		buf  []byte
+		want []byte
+	}{
+		{
+			name: "single packet",
+			buf:  makeTDSPacket(kMSSQLBatch, 0x01, sqlPart1),
+			want: sqlPart1,
+		},
+		{
+			name: "two packets concatenated",
+			buf: append(
+				makeTDSPacket(kMSSQLBatch, 0x00, sqlPart1),
+				makeTDSPacket(kMSSQLBatch, 0x01, sqlPart2)...,
+			),
+			want: append(sqlPart1, sqlPart2...),
+		},
+		{
+			name: "truncated second packet ignored",
+			buf: append(
+				makeTDSPacket(kMSSQLBatch, 0x00, sqlPart1),
+				[]byte{kMSSQLBatch, 0x01, 0x00, 0x0A}..., // header claims 10 bytes but nothing follows
+			),
+			want: sqlPart1,
+		},
+		{
+			name: "empty payload packet",
+			buf:  makeTDSPacket(kMSSQLBatch, 0x01, nil),
+			want: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := extractTDSPayloads(largebuf.NewLargeBufferFrom(tt.buf))
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
 func TestMSSQLBatchParsing(t *testing.T) {
+	selectSQL := []byte{'S', 0, 'E', 0, 'L', 0, 'E', 0, 'C', 0, 'T', 0, ' ', 0, '*', 0, ' ', 0, 'F', 0, 'R', 0, 'O', 0, 'M', 0, ' ', 0, 't', 0}
 	tests := []struct {
 		name      string
 		buf       []byte
@@ -112,16 +170,21 @@ func TestMSSQLBatchParsing(t *testing.T) {
 		wantStmt  string
 	}{
 		{
-			name: "valid batch",
-			buf: append([]byte{0x01, 0x01, 0x00, 0x14, 0x00, 0x00, 0x00, 0x00},
-				[]byte{'S', 0, 'E', 0, 'L', 0, 'E', 0, 'C', 0, 'T', 0}...),
-			wantOp:    "SELECT",
-			wantTable: "",
-			wantStmt:  "SELECT",
+			name:   "valid single-packet batch",
+			buf:    makeTDSPacket(kMSSQLBatch, 0x01, []byte{'S', 0, 'E', 0, 'L', 0, 'E', 0, 'C', 0, 'T', 0}),
+			wantOp: "SELECT", wantTable: "", wantStmt: "SELECT",
+		},
+		{
+			name: "sql split across two TDS packets",
+			buf: append(
+				makeTDSPacket(kMSSQLBatch, 0x00, selectSQL[:len(selectSQL)/2]),
+				makeTDSPacket(kMSSQLBatch, 0x01, selectSQL[len(selectSQL)/2:])...,
+			),
+			wantOp: "SELECT", wantTable: "t", wantStmt: "SELECT * FROM t",
 		},
 		{
 			name:      "too short",
-			buf:       []byte{0x01, 0x01, 0x00, 0x08, 0x00, 0x00, 0x00, 0x00},
+			buf:       makeTDSPacket(kMSSQLBatch, 0x01, nil),
 			wantOp:    "",
 			wantTable: "",
 			wantStmt:  "",
@@ -143,31 +206,36 @@ func TestParseMSSQLRPC(t *testing.T) {
 		name       string
 		buf        []byte
 		wantProcID uint16
+		wantErr    bool
 	}{
 		{
-			name: "proc id 13",
-			buf: func() []byte {
-				hdr := []byte{0x03, 0x01, 0x00, 0x0C, 0x00, 0x00, 0x00, 0x00}
-				payload := []byte{0xFF, 0xFF, 0x0D, 0x00, 0x00, 0x00}
-				return append(hdr, payload...)
-			}(),
+			name:       "proc id 13",
+			buf:        makeTDSPacket(kMSSQLRPC, 0x01, []byte{0xFF, 0xFF, 0x0D, 0x00, 0x00, 0x00}),
 			wantProcID: 13,
 		},
 		{
-			name: "named proc",
-			buf: func() []byte {
-				hdr := []byte{0x03, 0x01, 0x00, 0x14, 0x00, 0x00, 0x00, 0x00}
-				// nameLen=2, name='sp', options=0
-				payload := []byte{0x02, 0x00, 's', 0, 'p', 0, 0x00, 0x00}
-				return append(hdr, payload...)
-			}(),
+			name:       "named proc",
+			buf:        makeTDSPacket(kMSSQLRPC, 0x01, []byte{0x02, 0x00, 's', 0, 'p', 0, 0x00, 0x00}),
 			wantProcID: 0,
+		},
+		{
+			// A second TDS packet appended after the first must not confuse header parsing.
+			name: "second packet ignored — proc id still parsed from first",
+			buf: append(
+				makeTDSPacket(kMSSQLRPC, 0x00, []byte{0xFF, 0xFF, 0x0D, 0x00, 0x00, 0x00}),
+				makeTDSPacket(kMSSQLRPC, 0x01, []byte{0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00})...,
+			),
+			wantProcID: 13,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			procID, _, err := parseMSSQLRPC(largebuf.NewLargeBufferFrom(tt.buf))
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantProcID, procID)
 		})
@@ -227,26 +295,22 @@ func TestParseHandleFromPrepareResponse(t *testing.T) {
 		{
 			name: "valid prepare response TI_INT4",
 			buf: func() []byte {
-				hdr := []byte{0x04, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
 				// 0xAC (RETURNVALUE), ordinal=1 (2 bytes), nameLen=0 (1 byte), status=0 (1 byte), userType=0 (4 bytes), flags=0 (2 bytes), type=0x26 (1 byte), value=789 (4 bytes)
 				payload := []byte{0xAC, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x26}
 				v := make([]byte, 4)
 				binary.LittleEndian.PutUint32(v, 789)
-				payload = append(payload, v...)
-				return append(hdr, payload...)
+				return makeTDSPacket(kMSSQLResponse, 0x01, append(payload, v...))
 			}(),
 			wantHandle: 789,
 		},
 		{
 			name: "valid prepare response TI_INTN",
 			buf: func() []byte {
-				hdr := []byte{0x04, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
 				// 0xAC (RETURNVALUE), ordinal=1, nameLen=0, status=0, userType=0, flags=0, type=0x38 (TI_INTN), length=4, value=1011
 				payload := []byte{0xAC, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x38, 4}
 				v := make([]byte, 4)
 				binary.LittleEndian.PutUint32(v, 1011)
-				payload = append(payload, v...)
-				return append(hdr, payload...)
+				return makeTDSPacket(kMSSQLResponse, 0x01, append(payload, v...))
 			}(),
 			wantHandle: 1011,
 		},
