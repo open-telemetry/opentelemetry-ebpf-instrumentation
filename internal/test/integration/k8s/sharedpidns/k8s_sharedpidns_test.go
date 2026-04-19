@@ -34,16 +34,37 @@ func TestSharedPIDNamespaceAttribution(t *testing.T) {
 					// Generate traffic to the Deployment's testserver (port 8080)
 					resp, err := http.Get("http://localhost:38080/pingpong")
 					require.NoError(ct, err)
-					require.Equal(ct, http.StatusOK, resp.StatusCode)
+					if resp == nil {
+						return
+					}
+
+					func() {
+						if resp.Body != nil {
+							defer func() {
+								require.NoError(ct, resp.Body.Close())
+							}()
+						}
+
+						require.Equal(ct, http.StatusOK, resp.StatusCode)
+					}()
 
 					resp, err = http.Get(jaegerQueryURL + "?service=testserver")
 					require.NoError(ct, err)
 					if resp == nil {
 						return
 					}
-					require.Equal(ct, http.StatusOK, resp.StatusCode)
+
 					var tq jaeger.TracesQuery
-					require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
+					func() {
+						if resp.Body != nil {
+							defer func() {
+								require.NoError(ct, resp.Body.Close())
+							}()
+						}
+
+						require.Equal(ct, http.StatusOK, resp.StatusCode)
+						require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
+					}()
 					traces := tq.FindBySpan(jaeger.Tag{Key: "url.path", Type: "string", Value: "/pingpong"})
 					require.NotEmpty(ct, traces)
 					trace := traces[0]
