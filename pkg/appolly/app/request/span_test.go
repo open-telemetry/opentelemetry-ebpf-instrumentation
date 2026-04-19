@@ -168,6 +168,11 @@ func TestTraceName(t *testing.T) {
 		{name: "MQTT server", span: &Span{Type: EventTypeMQTTServer, Method: MessagingProcess, Path: "home/lights"}, expected: "process home/lights"},
 		{name: "MQTT no topic", span: &Span{Type: EventTypeMQTTClient, Method: MessagingPublish}, expected: "publish"},
 
+		// JSON-RPC spans
+		{name: "JSON-RPC with method", span: &Span{Type: EventTypeHTTP, SubType: HTTPSubtypeJSONRPC, JSONRPC: &JSONRPC{Method: "subtract", Version: "2.0"}}, expected: "subtract"},
+		{name: "JSON-RPC no method", span: &Span{Type: EventTypeHTTP, SubType: HTTPSubtypeJSONRPC, JSONRPC: &JSONRPC{Version: "2.0"}}, expected: "jsonrpc"},
+		{name: "JSON-RPC client", span: &Span{Type: EventTypeHTTPClient, SubType: HTTPSubtypeJSONRPC, JSONRPC: &JSONRPC{Method: "getUser", Version: "2.0"}}, expected: "getUser"},
+
 		// Other spans
 		{name: "Mongo client", span: &Span{Type: EventTypeMongoClient, Method: "find", Path: "users"}, expected: "find users"},
 		{name: "Failed connect", span: &Span{Type: EventTypeFailedConnect}, expected: "CONNECT"},
@@ -177,6 +182,116 @@ func TestTraceName(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			assert.Equal(t, tt.expected, tt.span.TraceName())
+		})
+	}
+}
+
+func TestSpanStatusCode_JSONRPC(t *testing.T) {
+	tests := []struct {
+		name         string
+		span         *Span
+		expectedCode string
+	}{
+		{
+			name: "server span with JSON-RPC error",
+			span: &Span{
+				Type:    EventTypeHTTP,
+				Status:  200,
+				SubType: HTTPSubtypeJSONRPC,
+				JSONRPC: &JSONRPC{Method: "subtract", Version: "2.0", ErrorCode: -32601, ErrorMessage: "Method not found"},
+			},
+			expectedCode: StatusCodeError,
+		},
+		{
+			name: "server span without JSON-RPC error",
+			span: &Span{
+				Type:    EventTypeHTTP,
+				Status:  200,
+				SubType: HTTPSubtypeJSONRPC,
+				JSONRPC: &JSONRPC{Method: "subtract", Version: "2.0"},
+			},
+			expectedCode: StatusCodeUnset,
+		},
+		{
+			name: "client span with JSON-RPC error",
+			span: &Span{
+				Type:    EventTypeHTTPClient,
+				Status:  200,
+				SubType: HTTPSubtypeJSONRPC,
+				JSONRPC: &JSONRPC{Method: "subtract", Version: "2.0", ErrorCode: -32600, ErrorMessage: "Invalid Request"},
+			},
+			expectedCode: StatusCodeError,
+		},
+		{
+			name: "client span without JSON-RPC error",
+			span: &Span{
+				Type:    EventTypeHTTPClient,
+				Status:  200,
+				SubType: HTTPSubtypeJSONRPC,
+				JSONRPC: &JSONRPC{Method: "subtract", Version: "2.0"},
+			},
+			expectedCode: StatusCodeUnset,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expectedCode, SpanStatusCode(tt.span))
+		})
+	}
+}
+
+func TestSpanStatusMessage_JSONRPC(t *testing.T) {
+	tests := []struct {
+		name            string
+		span            *Span
+		expectedMessage string
+	}{
+		{
+			name: "server span with error message",
+			span: &Span{
+				Type:    EventTypeHTTP,
+				Status:  200,
+				SubType: HTTPSubtypeJSONRPC,
+				JSONRPC: &JSONRPC{Method: "subtract", ErrorCode: -32601, ErrorMessage: "Method not found"},
+			},
+			expectedMessage: "Method not found",
+		},
+		{
+			name: "client span with error message",
+			span: &Span{
+				Type:    EventTypeHTTPClient,
+				Status:  200,
+				SubType: HTTPSubtypeJSONRPC,
+				JSONRPC: &JSONRPC{Method: "subtract", ErrorCode: -32600, ErrorMessage: "Invalid Request"},
+			},
+			expectedMessage: "Invalid Request",
+		},
+		{
+			name: "server span without error",
+			span: &Span{
+				Type:    EventTypeHTTP,
+				Status:  200,
+				SubType: HTTPSubtypeJSONRPC,
+				JSONRPC: &JSONRPC{Method: "subtract", Version: "2.0"},
+			},
+			expectedMessage: "",
+		},
+		{
+			name: "client span without error",
+			span: &Span{
+				Type:    EventTypeHTTPClient,
+				Status:  200,
+				SubType: HTTPSubtypeJSONRPC,
+				JSONRPC: &JSONRPC{Method: "subtract", Version: "2.0"},
+			},
+			expectedMessage: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expectedMessage, SpanStatusMessage(tt.span))
 		})
 	}
 }
@@ -1019,6 +1134,36 @@ func TestSpan_GenAIInputTokens(t *testing.T) {
 		result := span.GenAIInputTokens()
 		assert.Equal(t, 200, result)
 	})
+
+	t.Run("Gemini present", func(t *testing.T) {
+		span := &Span{
+			GenAI: &GenAI{
+				Gemini: &VendorGemini{
+					Output: GeminiResponse{
+						UsageMetadata: GeminiUsage{
+							PromptTokenCount: 300,
+						},
+					},
+				},
+			},
+		}
+		result := span.GenAIInputTokens()
+		assert.Equal(t, 300, result)
+	})
+
+	t.Run("Bedrock present", func(t *testing.T) {
+		span := &Span{
+			GenAI: &GenAI{
+				Bedrock: &VendorBedrock{
+					Output: BedrockResponse{
+						InputTokens: 25,
+					},
+				},
+			},
+		}
+		result := span.GenAIInputTokens()
+		assert.Equal(t, 25, result)
+	})
 }
 
 // Test GenAIOutputTokens
@@ -1078,6 +1223,56 @@ func TestSpan_GenAIOutputTokens(t *testing.T) {
 		result := span.GenAIOutputTokens()
 		assert.Equal(t, 0, result)
 	})
+
+	t.Run("Gemini present", func(t *testing.T) {
+		span := &Span{
+			GenAI: &GenAI{
+				Gemini: &VendorGemini{
+					Output: GeminiResponse{
+						UsageMetadata: GeminiUsage{
+							CandidatesTokenCount: 400,
+						},
+					},
+				},
+			},
+		}
+		result := span.GenAIOutputTokens()
+		assert.Equal(t, 400, result)
+	})
+
+	t.Run("Gemini present no usage", func(t *testing.T) {
+		span := &Span{
+			GenAI: &GenAI{
+				Gemini: &VendorGemini{},
+			},
+		}
+		result := span.GenAIOutputTokens()
+		assert.Equal(t, 0, result)
+	})
+
+	t.Run("Bedrock present", func(t *testing.T) {
+		span := &Span{
+			GenAI: &GenAI{
+				Bedrock: &VendorBedrock{
+					Output: BedrockResponse{
+						OutputTokens: 18,
+					},
+				},
+			},
+		}
+		result := span.GenAIOutputTokens()
+		assert.Equal(t, 18, result)
+	})
+
+	t.Run("Bedrock present no usage", func(t *testing.T) {
+		span := &Span{
+			GenAI: &GenAI{
+				Bedrock: &VendorBedrock{},
+			},
+		}
+		result := span.GenAIOutputTokens()
+		assert.Equal(t, 0, result)
+	})
 }
 
 // Test GenAIOperationName
@@ -1113,6 +1308,26 @@ func TestSpan_GenAIOperationName(t *testing.T) {
 		result := span.GenAIOperationName()
 		assert.Equal(t, "message", result)
 	})
+
+	t.Run("Gemini present", func(t *testing.T) {
+		span := &Span{
+			GenAI: &GenAI{
+				Gemini: &VendorGemini{},
+			},
+		}
+		result := span.GenAIOperationName()
+		assert.Equal(t, "generate_content", result)
+	})
+
+	t.Run("Bedrock present", func(t *testing.T) {
+		span := &Span{
+			GenAI: &GenAI{
+				Bedrock: &VendorBedrock{},
+			},
+		}
+		result := span.GenAIOperationName()
+		assert.Equal(t, "invoke_model", result)
+	})
 }
 
 // Test GenAIProviderName
@@ -1141,6 +1356,26 @@ func TestSpan_GenAIProviderName(t *testing.T) {
 		}
 		result := span.GenAIProviderName()
 		assert.Equal(t, "anthropic", result) // Assuming semconv.GenAIProviderNameAnthropic.Value.AsString() returns "anthropic"
+	})
+
+	t.Run("Gemini present", func(t *testing.T) {
+		span := &Span{
+			GenAI: &GenAI{
+				Gemini: &VendorGemini{},
+			},
+		}
+		result := span.GenAIProviderName()
+		assert.Equal(t, "gcp.gemini", result)
+	})
+
+	t.Run("Bedrock present", func(t *testing.T) {
+		span := &Span{
+			GenAI: &GenAI{
+				Bedrock: &VendorBedrock{},
+			},
+		}
+		result := span.GenAIProviderName()
+		assert.Equal(t, "aws.bedrock", result)
 	})
 }
 
@@ -1179,6 +1414,30 @@ func TestSpan_GenAIRequestModel(t *testing.T) {
 		result := span.GenAIRequestModel()
 		assert.Equal(t, "claude-2", result)
 	})
+
+	t.Run("Gemini present", func(t *testing.T) {
+		span := &Span{
+			GenAI: &GenAI{
+				Gemini: &VendorGemini{
+					Model: "gemini-2.0-flash",
+				},
+			},
+		}
+		result := span.GenAIRequestModel()
+		assert.Equal(t, "gemini-2.0-flash", result)
+	})
+
+	t.Run("Bedrock present", func(t *testing.T) {
+		span := &Span{
+			GenAI: &GenAI{
+				Bedrock: &VendorBedrock{
+					Model: "anthropic.claude-3-5-sonnet-20241022-v1:0",
+				},
+			},
+		}
+		result := span.GenAIRequestModel()
+		assert.Equal(t, "anthropic.claude-3-5-sonnet-20241022-v1:0", result)
+	})
 }
 
 // Test GenAIResponseModel
@@ -1213,5 +1472,44 @@ func TestSpan_GenAIResponseModel(t *testing.T) {
 		}
 		result := span.GenAIResponseModel()
 		assert.Equal(t, "claude-2.1", result)
+	})
+
+	t.Run("Gemini present with model version", func(t *testing.T) {
+		span := &Span{
+			GenAI: &GenAI{
+				Gemini: &VendorGemini{
+					Model: "gemini-2.0-flash",
+					Output: GeminiResponse{
+						ModelVersion: "gemini-2.0-flash-001",
+					},
+				},
+			},
+		}
+		result := span.GenAIResponseModel()
+		assert.Equal(t, "gemini-2.0-flash-001", result)
+	})
+
+	t.Run("Gemini present without model version", func(t *testing.T) {
+		span := &Span{
+			GenAI: &GenAI{
+				Gemini: &VendorGemini{
+					Model: "gemini-2.0-flash",
+				},
+			},
+		}
+		result := span.GenAIResponseModel()
+		assert.Equal(t, "gemini-2.0-flash", result)
+	})
+
+	t.Run("Bedrock present", func(t *testing.T) {
+		span := &Span{
+			GenAI: &GenAI{
+				Bedrock: &VendorBedrock{
+					Model: "anthropic.claude-3-5-sonnet-20241022-v1:0",
+				},
+			},
+		}
+		result := span.GenAIResponseModel()
+		assert.Equal(t, "anthropic.claude-3-5-sonnet-20241022-v1:0", result)
 	})
 }

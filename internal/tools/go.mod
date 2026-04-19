@@ -2,11 +2,7 @@ module go.opentelemetry.io/obi/internal/tools
 
 go 1.25.8
 
-require (
-	github.com/cilium/ebpf v0.21.0
-	sigs.k8s.io/controller-runtime/tools/setup-envtest v0.0.0-20260331052815-773c064a8064
-	sigs.k8s.io/kind v0.31.0
-)
+require github.com/cilium/ebpf v0.21.0 // indirect
 
 require (
 	4d63.com/gocheckcompilerdirectives v1.3.0 // indirect
@@ -256,10 +252,13 @@ require (
 	k8s.io/klog/v2 v2.90.1 // indirect
 	mvdan.cc/gofumpt v0.9.2 // indirect
 	mvdan.cc/unparam v0.0.0-20251027182757-5beb8c8f8f15 // indirect
+	sigs.k8s.io/controller-runtime/tools/setup-envtest v0.0.0-20260331052815-773c064a8064 // indirect
+	sigs.k8s.io/kind v0.31.0 // indirect
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
 
 tool (
+	github.com/cilium/ebpf/cmd/bpf2go
 	github.com/golangci/golangci-lint/v2/cmd/golangci-lint
 	github.com/google/go-licenses/v2
 	github.com/grafana/go-offsets-tracker/cmd/go-offsets-tracker
@@ -267,4 +266,6 @@ tool (
 	github.com/onsi/ginkgo/v2/ginkgo
 	go.opentelemetry.io/build-tools/multimod
 	gotest.tools/gotestsum
+	sigs.k8s.io/controller-runtime/tools/setup-envtest
+	sigs.k8s.io/kind
 )

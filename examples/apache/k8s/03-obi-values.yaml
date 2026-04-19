@@ -1,0 +1,44 @@
+namespaceOverride: obi-apache-example
+
+image:
+  registry: docker.io
+  repository: otel/ebpf-instrument
+  tag: v0.7.1
+  digest: sha256:2a4df79f8af2d33090963b928bff4b38b691cb692fd75f02842d68b1359a4757
+
+preset: application
+privileged: true
+
+config:
+  create: true
+  data:
+    attributes:
+      kubernetes:
+        enable: true
+    routes:
+      patterns:
+        - /users/:user_id/home
+        - /campaigns/:campaign_id/redirect
+        - /support/articles/:article_id
+        - /checkout/sessions/:session_id
+        - /api/users/:user_id/recommendations/v1/:experience
+        - /api/users/:user_id/recommendations/v2/:experience
+        - /api/users/:user_id/recommendations/rollout/:experience
+      unmatched: path
+    otel_metrics_export:
+      endpoint: http://lgtm:4318
+    otel_traces_export:
+      endpoint: http://lgtm:4318
+    discovery:
+      instrument:
+        - namespace: obi-apache-example
+          k8s_deployment_name: edge-apache
+        - namespace: obi-apache-example
+          k8s_deployment_name: recommendations-v1
+        - namespace: obi-apache-example
+          k8s_deployment_name: recommendations-v2
+
+env:
+  OTEL_EBPF_DISCOVERY_POLL_INTERVAL: 5s
+  OTEL_EBPF_METRICS_INTERVAL: 30s
+  OTEL_EBPF_NAME_RESOLVER_SOURCES: k8s,dns

@@ -178,7 +178,7 @@ EBPFTracer configuration for eBPF programs
 
 ### `ebpf.buffer_sizes`
 
-Per-protocol maximum bytes to capture per request per direction, sent to userspace via large buffer events. The lte=65536 ceiling must match the k_large_buf_max_*_captured_bytes constants in bpf/common/large_buffers.h.  Default: 0 (disabled).
+Per-protocol maximum bytes to capture per request per direction, sent to userspace via large buffer events. Values must stay aligned with MaxCapturedPayloadBytes and the k_large_buf_max_*_captured_bytes constants in bpf/common/large_buffers.h.  Default: 0 (disabled).
 
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
@@ -245,6 +245,18 @@ HTTPParsingPolicy defines the default action for http enrichment rules.
 |---|---|---|---|---|---|---|
 | `ebpf.payload_extraction.http.genai.anthropic.enabled` | `boolean` | `OTEL_EBPF_HTTP_ANTHROPIC_ENABLED` | `false` |  |  | Enable Anthropic payload extraction and parsing |
 
+#### `ebpf.payload_extraction.http.genai.bedrock`
+
+| YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
+|---|---|---|---|---|---|---|
+| `ebpf.payload_extraction.http.genai.bedrock.enabled` | `boolean` | `OTEL_EBPF_HTTP_BEDROCK_ENABLED` | `false` |  |  | Enable AWS Bedrock payload extraction and parsing |
+
+#### `ebpf.payload_extraction.http.genai.gemini`
+
+| YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
+|---|---|---|---|---|---|---|
+| `ebpf.payload_extraction.http.genai.gemini.enabled` | `boolean` | `OTEL_EBPF_HTTP_GEMINI_ENABLED` | `false` |  |  | Enable Google AI Studio (Gemini) payload extraction and parsing |
+
 #### `ebpf.payload_extraction.http.genai.openai`
 
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
@@ -256,6 +268,12 @@ HTTPParsingPolicy defines the default action for http enrichment rules.
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
 | `ebpf.payload_extraction.http.graphql.enabled` | `boolean` | `OTEL_EBPF_HTTP_GRAPHQL_ENABLED` | `false` |  |  | Enable GraphQL payload extraction and parsing |
+
+#### `ebpf.payload_extraction.http.jsonrpc`
+
+| YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
+|---|---|---|---|---|---|---|
+| `ebpf.payload_extraction.http.jsonrpc.enabled` | `boolean` | `OTEL_EBPF_HTTP_JSONRPC_ENABLED` | `false` |  |  | Enable JSON-RPC payload extraction and parsing |
 
 #### `ebpf.payload_extraction.http.sqlpp`
 
@@ -434,13 +452,14 @@ ReverseDNS is currently experimental. It is kept disabled by default and will be
 | `otel_traces_export.backoff_initial_interval` | `duration` | `OTEL_EBPF_BACKOFF_INITIAL_INTERVAL` | `0s` | `30s`, `5m`, `1ms`, etc |  | Configuration options for BackOffConfig of the traces exporter. See <https://github.com/open-telemetry/opentelemetry-collector/blob/main/config/configretry/backoff.go> BackOffInitialInterval the time to wait after the first failure before retrying. |
 | `otel_traces_export.backoff_max_elapsed_time` | `duration` | `OTEL_EBPF_BACKOFF_MAX_ELAPSED_TIME` | `0s` | `30s`, `5m`, `1ms`, etc |  | Specifies the maximum amount of time (including retries) spent trying to send a request/batch. |
 | `otel_traces_export.backoff_max_interval` | `duration` | `OTEL_EBPF_BACKOFF_MAX_INTERVAL` | `0s` | `30s`, `5m`, `1ms`, etc |  | Specifies the upper bound on backoff interval. |
-| `otel_traces_export.batch_timeout` | `duration` | `OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT` | `15s` | `30s`, `5m`, `1ms`, etc |  |  |
+| `otel_traces_export.batch_max_size` | `integer` | `OTEL_EBPF_OTLP_TRACES_BATCH_MAX_SIZE` | `4096` |  |  | Is the maximum number of spans that the batcher will accumulate before flushing a batch to the sending queue. |
+| `otel_traces_export.batch_timeout` | `duration` | `OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT` | `15s` | `30s`, `5m`, `1ms`, etc |  | Is the time after which a batch will be sent regardless of its size. |
 | `otel_traces_export.endpoint` | `uri` | `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` |  |  |  |  |
 | `otel_traces_export.insecure_skip_verify` | `boolean` | `OTEL_EBPF_INSECURE_SKIP_VERIFY` | `false` |  |  | Enables skipping TLS certificate verification (not standard, so we don't follow the same naming convention) |
 | `otel_traces_export.instrumentations` | `string`[] | `OTEL_EBPF_TRACES_INSTRUMENTATIONS` | `http`, `grpc`, `sql`, `redis`, `kafka`, `mqtt`, `mongo`, `couchbase`, `memcached` | `*`, `couchbase`, `dns`, `genai`, `gpu`, `grpc`, `http`, `kafka`, `memcached`, `mongo`, `mqtt`, `redis`, `sql` |  | Allows configuration of which instrumentations should be enabled, e.g. http, grpc, sql... |
-| `otel_traces_export.max_queue_size` | `integer` | `OTEL_EBPF_OTLP_TRACES_MAX_QUEUE_SIZE` | `4096` |  |  | Configuration options below this line will remain undocumented at the moment, but can be useful for performance-tuning of some customers. |
 | `otel_traces_export.otel_sdk_log_level` | `string` | `OTEL_EBPF_SDK_LOG_LEVEL` |  |  |  | Works independently from the global LogLevel because it prints GBs of logs in Debug mode and the Info messages leak internal details that are not usually valuable for the final user. Accepted values: debug, info, warn, error (case-insensitive). dpanic/panic/fatal are mapped to error. |
 | `otel_traces_export.protocol` | `string` | `OTEL_EXPORTER_OTLP_PROTOCOL` |  | ``, `debug`, `grpc`, `http/json`, `http/protobuf` |  |  |
+| `otel_traces_export.queue_size` | `integer` | `OTEL_EBPF_OTLP_TRACES_QUEUE_SIZE` | `16384` |  |  | Is the maximum number of spans that the sending queue will hold before applying back-pressure. It must be >= 2 * BatchMaxSize, otherwise the memory queue rejects every batch with "element size too large" and drops spans permanently. If left at 0 it defaults to 4 * BatchMaxSize. |
 | `otel_traces_export.reporters_cache_len` | `integer` | `OTEL_EBPF_TRACES_REPORT_CACHE_LEN` | `256` |  |  |  |
 
 ### `otel_traces_export.sampler`

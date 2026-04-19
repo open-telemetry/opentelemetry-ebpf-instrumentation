@@ -3,7 +3,7 @@
 
 module-sets:
   obi:
-    version: v0.7.1
+    version: v0.8.0
     modules:
       - go.opentelemetry.io/obi
 excluded-modules:
@@ -32,6 +32,7 @@ excluded-modules:
   - go.opentelemetry.io/obi/internal/test/integration/components/go_otel
   - go.opentelemetry.io/obi/internal/test/integration/components/go_otel_grpc
   - go.opentelemetry.io/obi/internal/test/integration/components/go_simple_grpc
+  - go.opentelemetry.io/obi/internal/test/integration/components/gogeneric/fiber-example
   - go.opentelemetry.io/obi/internal/test/integration/components/gokafka
   - go.opentelemetry.io/obi/internal/test/integration/components/gokafka-seg
   - go.opentelemetry.io/obi/internal/test/integration/components/gomongo

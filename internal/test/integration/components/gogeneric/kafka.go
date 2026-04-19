@@ -7,6 +7,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/twmb/franz-go/pkg/kadm"
@@ -55,6 +57,28 @@ func producerHandlerWithTopic(client *kgo.Client, topic string) fiber.Handler {
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
 		}
 		return c.JSON(fiber.Map{"status": "produced", "topic": topic})
+	}
+}
+
+func stdProducerHandlerWithTopic(client *kgo.Client, topic string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		record := &kgo.Record{
+			Key:   []byte(fmt.Sprintf("address-%s", r.RemoteAddr)),
+			Value: body,
+			Topic: topic,
+		}
+		results := client.ProduceSync(r.Context(), record)
+		if err := results.FirstErr(); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"status":"produced","topic":%q}`, topic)
 	}
 }
 

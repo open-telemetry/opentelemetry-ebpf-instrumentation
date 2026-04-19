@@ -1158,6 +1158,245 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		ensureTraceAttrNotExists(t, spanAttrs, semconv.GenAIOutputMessagesKey)
 	})
 
+	makeGeminiSpan := func(ai *request.VendorGemini) request.Span {
+		return request.Span{
+			Type:    request.EventTypeHTTPClient,
+			SubType: request.HTTPSubtypeGemini,
+			Method:  "POST",
+			Path:    "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent",
+			Status:  200,
+			GenAI:   &request.GenAI{Gemini: ai},
+		}
+	}
+
+	t.Run("Gemini span", func(t *testing.T) {
+		span := makeGeminiSpan(&request.VendorGemini{
+			Model: "gemini-2.0-flash",
+			Output: request.GeminiResponse{
+				ResponseID:   "resp_abc123def456",
+				ModelVersion: "gemini-2.0-flash",
+				UsageMetadata: request.GeminiUsage{
+					PromptTokenCount:     12,
+					CandidatesTokenCount: 45,
+				},
+				Candidates: []request.GeminiCandidate{
+					{FinishReason: "STOP"},
+				},
+			},
+		})
+
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		spanAttrs := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
+		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIProviderNameKey, "gcp.gemini")
+		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIOperationNameKey, "generate_content")
+		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIResponseIDKey, "resp_abc123def456")
+		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIRequestModelKey, "gemini-2.0-flash")
+		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIResponseModelKey, "gemini-2.0-flash")
+		ensureTraceAttrNotExists(t, spanAttrs, semconv.GenAIInputMessagesKey)
+		ensureTraceAttrNotExists(t, spanAttrs, semconv.GenAIOutputMessagesKey)
+		ensureTraceAttrNotExists(t, spanAttrs, semconv.GenAISystemInstructionsKey)
+	})
+
+	t.Run("Gemini span - dynamic operation name", func(t *testing.T) {
+		span := makeGeminiSpan(&request.VendorGemini{
+			Model:     "text-embedding-004",
+			Operation: "embed_content",
+			Output: request.GeminiResponse{
+				ModelVersion: "text-embedding-004",
+				UsageMetadata: request.GeminiUsage{
+					PromptTokenCount:     5,
+					CandidatesTokenCount: 0,
+				},
+			},
+		})
+
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		spanAttrs := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
+		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIOperationNameKey, "embed_content")
+		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIRequestModelKey, "text-embedding-004")
+	})
+
+	t.Run("Gemini span - optional attributes and error", func(t *testing.T) {
+		span := makeGeminiSpan(&request.VendorGemini{
+			Model: "gemini-2.0-flash",
+			Input: request.GeminiRequest{
+				Contents:          []byte(`[{"parts":[{"text":"Explain eBPF"}],"role":"user"}]`),
+				SystemInstruction: &request.GeminiContent{Parts: []byte(`[{"text":"Be concise."}]`), Role: "system"},
+				Tools:             []byte(`[{"functionDeclarations":[{"name":"get_weather"}]}]`),
+				GenerationConfig: &request.GeminiGenCfg{
+					Temperature:     0.7,
+					TopP:            0.9,
+					TopK:            40,
+					MaxOutputTokens: 256,
+				},
+			},
+			Output: request.GeminiResponse{
+				ResponseID:   "resp_sys789",
+				ModelVersion: "gemini-2.0-flash",
+				Candidates: []request.GeminiCandidate{
+					{
+						Content:      &request.GeminiContent{Parts: []byte(`[{"text":"eBPF runs sandboxed programs in the kernel."}]`), Role: "model"},
+						FinishReason: "STOP",
+					},
+				},
+				UsageMetadata: request.GeminiUsage{
+					PromptTokenCount:     28,
+					CandidatesTokenCount: 8,
+				},
+				Error: &request.GeminiError{
+					Code:    404,
+					Message: "model not found",
+					Status:  "NOT_FOUND",
+				},
+			},
+		})
+
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{
+			attr.GenAIInput:        {},
+			attr.GenAIOutput:       {},
+			attr.GenAIInstructions: {},
+			attr.GenAIMetadata:     {},
+		})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		spanAttrs := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
+		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIProviderNameKey, "gcp.gemini")
+		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIOperationNameKey, "generate_content")
+		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIResponseIDKey, "resp_sys789")
+		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIInputMessagesKey, `[{"parts":[{"text":"Explain eBPF"}],"role":"user"}]`)
+		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIOutputMessagesKey, `[{"text":"eBPF runs sandboxed programs in the kernel."}]`)
+		ensureTraceStrAttr(t, spanAttrs, semconv.GenAISystemInstructionsKey, `[{"text":"Be concise."}]`)
+		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIToolDefinitionsKey, `[{"functionDeclarations":[{"name":"get_weather"}]}]`)
+		ensureTraceStrAttr(t, spanAttrs, semconv.ErrorTypeKey, "NOT_FOUND")
+		ensureTraceStrAttr(t, spanAttrs, attribute.Key("error.message"), "model not found")
+	})
+
+	t.Run("Gemini span - nil Gemini means no GenAI attrs", func(t *testing.T) {
+		span := request.Span{
+			Type:    request.EventTypeHTTPClient,
+			SubType: request.HTTPSubtypeGemini,
+			Method:  "POST",
+			Status:  200,
+			GenAI:   &request.GenAI{Gemini: nil},
+		}
+
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{
+			attr.GenAIInput:        {},
+			attr.GenAIOutput:       {},
+			attr.GenAIInstructions: {},
+			attr.GenAIMetadata:     {},
+		})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		spanAttrs := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
+		ensureTraceAttrNotExists(t, spanAttrs, semconv.GenAIProviderNameKey)
+		ensureTraceAttrNotExists(t, spanAttrs, semconv.GenAIOperationNameKey)
+		ensureTraceAttrNotExists(t, spanAttrs, semconv.GenAIInputMessagesKey)
+		ensureTraceAttrNotExists(t, spanAttrs, semconv.GenAIOutputMessagesKey)
+	})
+
+	makeBedrockSpan := func(ai *request.VendorBedrock) request.Span {
+		return request.Span{
+			Type:    request.EventTypeHTTPClient,
+			SubType: request.HTTPSubtypeAWSBedrock,
+			Method:  "POST",
+			Path:    "https://bedrock-runtime.us-east-1.amazonaws.com/model/anthropic.claude-3-5-sonnet-20241022-v1:0/invoke",
+			Status:  200,
+			GenAI:   &request.GenAI{Bedrock: ai},
+		}
+	}
+
+	t.Run("Bedrock span", func(t *testing.T) {
+		span := makeBedrockSpan(&request.VendorBedrock{
+			Model: "anthropic.claude-3-5-sonnet-20241022-v1:0",
+			Output: request.BedrockResponse{
+				InputTokens:  25,
+				OutputTokens: 18,
+				StopReason:   "end_turn",
+			},
+		})
+
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		spanAttrs := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
+		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIProviderNameKey, "aws.bedrock")
+		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIOperationNameKey, "invoke_model")
+		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIRequestModelKey, "anthropic.claude-3-5-sonnet-20241022-v1:0")
+		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIResponseModelKey, "anthropic.claude-3-5-sonnet-20241022-v1:0")
+		ensureTraceAttrNotExists(t, spanAttrs, semconv.GenAIInputMessagesKey)
+		ensureTraceAttrNotExists(t, spanAttrs, semconv.GenAIOutputMessagesKey)
+		ensureTraceAttrNotExists(t, spanAttrs, semconv.GenAISystemInstructionsKey)
+	})
+
+	t.Run("Bedrock span - optional attributes and error", func(t *testing.T) {
+		span := makeBedrockSpan(&request.VendorBedrock{
+			Model: "anthropic.claude-3-5-sonnet-20241022-v1:0",
+			Input: request.BedrockRequest{
+				Messages:    []byte(`[{"role":"user","content":[{"type":"text","text":"Explain eBPF"}]}]`),
+				System:      "Be concise.",
+				Tools:       []byte(`[{"name":"get_weather","description":"Get weather"}]`),
+				MaxTokens:   1024,
+				Temperature: 0.7,
+				TopP:        0.9,
+			},
+			Output: request.BedrockResponse{
+				Content:      []byte(`[{"type":"text","text":"eBPF runs sandboxed programs in the kernel."}]`),
+				StopReason:   "end_turn",
+				InputTokens:  25,
+				OutputTokens: 18,
+				ErrorType:    "ValidationException",
+				ErrorMessage: "The provided model identifier is invalid.",
+			},
+		})
+
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{
+			attr.GenAIInput:        {},
+			attr.GenAIOutput:       {},
+			attr.GenAIInstructions: {},
+			attr.GenAIMetadata:     {},
+		})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		spanAttrs := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
+		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIProviderNameKey, "aws.bedrock")
+		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIOperationNameKey, "invoke_model")
+		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIInputMessagesKey, `[{"role":"user","content":[{"type":"text","text":"Explain eBPF"}]}]`)
+		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIOutputMessagesKey, `[{"type":"text","text":"eBPF runs sandboxed programs in the kernel."}]`)
+		ensureTraceStrAttr(t, spanAttrs, semconv.GenAISystemInstructionsKey, "Be concise.")
+		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIToolDefinitionsKey, `[{"name":"get_weather","description":"Get weather"}]`)
+		ensureTraceStrAttr(t, spanAttrs, semconv.ErrorTypeKey, "ValidationException")
+		ensureTraceStrAttr(t, spanAttrs, attribute.Key("error.message"), "The provided model identifier is invalid.")
+	})
+
+	t.Run("Bedrock span - nil Bedrock means no GenAI attrs", func(t *testing.T) {
+		span := request.Span{
+			Type:    request.EventTypeHTTPClient,
+			SubType: request.HTTPSubtypeAWSBedrock,
+			Method:  "POST",
+			Status:  200,
+			GenAI:   &request.GenAI{Bedrock: nil},
+		}
+
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{
+			attr.GenAIInput:        {},
+			attr.GenAIOutput:       {},
+			attr.GenAIInstructions: {},
+			attr.GenAIMetadata:     {},
+		})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		spanAttrs := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
+		ensureTraceAttrNotExists(t, spanAttrs, semconv.GenAIProviderNameKey)
+		ensureTraceAttrNotExists(t, spanAttrs, semconv.GenAIOperationNameKey)
+		ensureTraceAttrNotExists(t, spanAttrs, semconv.GenAIInputMessagesKey)
+		ensureTraceAttrNotExists(t, spanAttrs, semconv.GenAIOutputMessagesKey)
+	})
+
 	t.Run("test HTTP server span with extracted headers", func(t *testing.T) {
 		span := request.Span{
 			Type:   request.EventTypeHTTP,
@@ -1259,6 +1498,106 @@ func TestGenerateTracesAttributes(t *testing.T) {
 
 		attrs := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
 		ensureTraceStrAttr(t, attrs, semconv.URLFullKey, "https://upstream.example.com/external/api?foo=bar")
+	})
+	t.Run("test JSON-RPC server span with error", func(t *testing.T) {
+		span := request.Span{
+			Type:    request.EventTypeHTTP,
+			Method:  "POST",
+			Path:    "/rpc",
+			Route:   "/rpc",
+			Status:  200,
+			SubType: request.HTTPSubtypeJSONRPC,
+			JSONRPC: &request.JSONRPC{
+				Method:       "subtract",
+				Version:      "2.0",
+				RequestID:    "1",
+				ErrorCode:    -32601,
+				ErrorMessage: "Method not found",
+			},
+		}
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+		topSpan := spans.At(spans.Len() - 1)
+		attrs := topSpan.Attributes()
+		status := topSpan.Status()
+
+		assert.Equal(t, "subtract", topSpan.Name())
+		assert.Equal(t, ptrace.StatusCodeError, status.Code())
+		assert.Equal(t, "Method not found", status.Message())
+
+		ensureTraceStrAttr(t, attrs, "rpc.system", "jsonrpc")
+		ensureTraceStrAttr(t, attrs, "rpc.method", "subtract")
+		ensureTraceStrAttr(t, attrs, "jsonrpc.protocol.version", "2.0")
+		ensureTraceStrAttr(t, attrs, "jsonrpc.request.id", "1")
+		ensureTraceStrAttr(t, attrs, "rpc.response.status_code", "-32601")
+	})
+	t.Run("test JSON-RPC server span without error", func(t *testing.T) {
+		span := request.Span{
+			Type:    request.EventTypeHTTP,
+			Method:  "POST",
+			Path:    "/rpc",
+			Route:   "/rpc",
+			Status:  200,
+			SubType: request.HTTPSubtypeJSONRPC,
+			JSONRPC: &request.JSONRPC{
+				Method:    "subtract",
+				Version:   "2.0",
+				RequestID: "1",
+			},
+		}
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+		topSpan := spans.At(spans.Len() - 1)
+		attrs := topSpan.Attributes()
+		status := topSpan.Status()
+
+		assert.Equal(t, "subtract", topSpan.Name())
+		assert.Equal(t, ptrace.StatusCodeUnset, status.Code())
+		assert.Empty(t, status.Message())
+
+		ensureTraceStrAttr(t, attrs, "rpc.system", "jsonrpc")
+		ensureTraceStrAttr(t, attrs, "rpc.method", "subtract")
+		ensureTraceStrAttr(t, attrs, "jsonrpc.protocol.version", "2.0")
+		ensureTraceStrAttr(t, attrs, "jsonrpc.request.id", "1")
+		ensureTraceAttrNotExists(t, attrs, "rpc.response.status_code")
+	})
+	t.Run("test JSON-RPC client span with error", func(t *testing.T) {
+		span := request.Span{
+			Type:    request.EventTypeHTTPClient,
+			Method:  "POST",
+			Path:    "/rpc",
+			Status:  200,
+			SubType: request.HTTPSubtypeJSONRPC,
+			JSONRPC: &request.JSONRPC{
+				Method:       "getUser",
+				Version:      "2.0",
+				RequestID:    "42",
+				ErrorCode:    -32600,
+				ErrorMessage: "Invalid Request",
+			},
+		}
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+		assert.Equal(t, 1, spans.Len())
+		topSpan := spans.At(0)
+		attrs := topSpan.Attributes()
+		status := topSpan.Status()
+
+		assert.Equal(t, "getUser", topSpan.Name())
+		assert.Equal(t, ptrace.StatusCodeError, status.Code())
+		assert.Equal(t, "Invalid Request", status.Message())
+
+		ensureTraceStrAttr(t, attrs, "rpc.system", "jsonrpc")
+		ensureTraceStrAttr(t, attrs, "rpc.method", "getUser")
+		ensureTraceStrAttr(t, attrs, "jsonrpc.protocol.version", "2.0")
+		ensureTraceStrAttr(t, attrs, "jsonrpc.request.id", "42")
+		ensureTraceStrAttr(t, attrs, "rpc.response.status_code", "-32600")
 	})
 	t.Run("test HTTP span without headers has no header attributes", func(t *testing.T) {
 		span := request.Span{

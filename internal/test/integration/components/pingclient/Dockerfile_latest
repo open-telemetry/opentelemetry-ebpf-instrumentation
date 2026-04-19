@@ -1,0 +1,30 @@
+# Build the testserver binary
+# Docker command must be invoked from the projec root directory
+# Although we compile OBI with the oldest supported Go version, we need to
+# ensure that the instrumented services built with a newer Go version are still correctly instrumented.
+# The image version here should always be one version higher than the version
+# specified in the Dockerfile in the same folder.
+FROM golang:1.26.2@sha256:5f3787b7f902c07c7ec4f3aa91a301a3eda8133aa32661a3b3a3a86ab3a68a36 AS builder
+
+ARG TARGETARCH
+
+ENV GOARCH=$TARGETARCH
+
+WORKDIR /src
+
+# Copy the go manifests and source
+COPY internal/test/ internal/test/
+COPY go.mod go.mod
+COPY go.sum go.sum
+
+# Build
+RUN go build -o pingclient ./internal/test/integration/components/pingclient/pingclient.go
+
+# Create final image from minimal + built binary
+FROM debian:bookworm-slim@sha256:74d56e3931e0d5a1dd51f8c8a2466d21de84a271cd3b5a733b803aa91abf4421
+
+WORKDIR /
+COPY --from=builder /src/pingclient .
+USER 0:0
+
+CMD [ "/pingclient" ]

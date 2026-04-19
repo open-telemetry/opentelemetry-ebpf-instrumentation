@@ -12,6 +12,8 @@ OBI can enrich JSON log lines with `trace_id` and `span_id` fields, linking logs
   - [Node.js — `async_hooks` before callback + `uv_fs_access` uprobe](#nodejs--async_hooks-before-callback--uv_fs_access-uprobe)
   - [Java — `k_ioctl_java_threads` in the ioctl kprobe](#java--k_ioctl_java_threads-in-the-ioctl-kprobe)
   - [Ruby (Puma) — `rb_ary_shift` uprobe](#ruby-puma--rb_ary_shift-uprobe)
+- [Per-runtime stdout buffering](#per-runtime-stdout-buffering)
+  - [.NET specifics](#net-specifics)
 - [Requirements](#requirements)
 
 ## Overview
@@ -97,8 +99,45 @@ OBI hooks `rb_ary_shift` (Ruby's `Array#shift`), which fires when a Puma worker 
 
 In the direct path, `server_traces_aux` won't have an entry yet (HTTP hasn't been parsed), so step 2 is a harmless no-op.
 
+## Per-runtime stdout buffering
+
+The logenricher reads `traces_ctx_v1[pid_tgid]` at the moment the `write()` syscall fires. If the runtime buffers stdout and flushes asynchronously — on a different thread or after the request handler returns — the trace context for that TID will already be gone, and the log line will not be enriched.
+
+Each runtime behaves differently:
+
+| Runtime | Default stdout behaviour | Works out of the box? |
+|---------|--------------------------|----------------------|
+| Go | `fmt.Println` calls `write()` synchronously on the goroutine | Yes — Go refreshes `traces_ctx_v1` on every goroutine context switch via `runtime.casgstatus` |
+| Node.js | `process.stdout.write()` is synchronous | Yes |
+| Java | `System.out.println()` flushes immediately (PrintStream `autoFlush=true` by default) | Yes |
+| Ruby | `puts` / `STDOUT.syswrite` — both issue `write()`/`writev()` synchronously on the request thread | Yes |
+| Python | stdout is block-buffered when not a TTY (Docker) | **No** — set `PYTHONUNBUFFERED=1` |
+| .NET | `Console.Out` (StreamWriter) is block-buffered when stdout is a pipe | **No** — see below |
+
+### .NET specifics
+
+.NET's `Console.Out` wraps a `StreamWriter` with `AutoFlush = false` by default. When stdout is a pipe (as in Docker), writes are buffered until the buffer fills (4 KB) or the writer is flushed explicitly. The `write()` syscall may fire on a GC finalizer thread or when a later request fills the buffer — in both cases the TID no longer carries trace context.
+
+**Fix**: configure auto-flush at application startup:
+
+```csharp
+var stdout = new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true };
+Console.SetOut(stdout);
+```
+
+**Microsoft.Extensions.Logging `AddConsole()` does not work**, even with `AutoFlush` set. The built-in console logger uses an internal background `Channel`: log entries are queued and drained by a dedicated writer thread whose TID has no trace context. This applies to ASP.NET Core's default logging pipeline.
+
+**Logging frameworks that do work**:
+
+- `Console.WriteLine` with `AutoFlush = true` (synchronous, same thread)
+- Serilog `WriteTo.Console()` — writes synchronously on the calling thread by default
+- NLog `targets/ColoredConsole` with `queueLimit=0` (synchronous mode)
+
+There is no environment variable equivalent to Python's `PYTHONUNBUFFERED=1` for .NET.
+
 ## Requirements
 
 - `CAP_SYS_ADMIN` capability and permission to use `bpf_probe_write_user` (kernel security lockdown mode should be `[none]`)
 - The target application writes logs in **JSON format**
+- Log writes must occur synchronously on the request-handling thread (see [Per-runtime stdout buffering](#per-runtime-stdout-buffering) above)
 - BPFFS mounted at `/sys/fs/bpf` (or another mountpath configurable via `config.ebpf.bpf_fs_path` / `OTEL_EBPF_BPF_FS_PATH`)
