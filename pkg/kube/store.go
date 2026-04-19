@@ -379,14 +379,15 @@ func (s *Store) PodByContainerID(cid string) *kube.CachedObjMeta {
 }
 
 // PodContainerByPIDNs returns the pod metadata and container name for the
-// container running hostPID inside Linux PID namespace pidns.
+// process identified by Linux PID namespace pidns and host-visible PID
+// hostPID.
 //
 // When multiple containers share a PID namespace (e.g. pods with hostPID=true
-// all collapse onto the host's init_pid_ns inode), the hostPID is used to
-// disambiguate. If the exact PID is not found but all entries in the namespace
-// belong to the same container, the result is unambiguous and returned. When
-// container IDs differ and the PID can't be matched, nil is returned to avoid
-// silently misattributing spans to the wrong pod.
+// all collapse onto the host's init_pid_ns inode), the host-visible PID is
+// used to disambiguate. If the exact PID is not found but all entries in the
+// namespace belong to the same container, the result is unambiguous and
+// returned. When container IDs differ and the PID can't be matched, nil is
+// returned to avoid silently misattributing spans to the wrong pod.
 // Second return value: container Name.
 func (s *Store) PodContainerByPIDNs(pidns uint32, hostPID app.PID) (*kube.CachedObjMeta, string) {
 	s.access.RLock()
