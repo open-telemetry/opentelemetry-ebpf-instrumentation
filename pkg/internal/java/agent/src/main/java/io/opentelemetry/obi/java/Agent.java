@@ -164,11 +164,6 @@ public class Agent {
   // loaded before ByteBuddy's transformer is installed.
   static void retransformLoadedClasses(Instrumentation inst) {
     for (Class<?> clazz : inst.getAllLoadedClasses()) {
-      // Skip lambda classes — on Java 8 retransforming them corrupts their constant pool
-      // linkage due to JDK-8145964, causing NoClassDefFoundError.
-      if (clazz.getName().contains("$$Lambda")) {
-        continue;
-      }
       if (SSLSocketInst.matches(clazz)
           || SSLSocketStreamInst.matchesInputStream(clazz)
           || SSLSocketStreamInst.matchesOutputStream(clazz)
