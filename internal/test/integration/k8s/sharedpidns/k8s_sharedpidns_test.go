@@ -74,18 +74,23 @@ func TestSharedPIDNamespaceAttribution(t *testing.T) {
 			func(ctx context.Context, t *testing.T, _ *envconf.Config) context.Context {
 				require.EventuallyWithT(t, func(ct *assert.CollectT) {
 					// Generate traffic to the hostPID DaemonSet's testserver (port 8082)
-					resp, err := http.Get("http://localhost:38082/pingpong")
+					trafficResp, err := http.Get("http://localhost:38082/pingpong")
 					require.NoError(ct, err)
-					require.Equal(ct, http.StatusOK, resp.StatusCode)
-
-					resp, err = http.Get(jaegerQueryURL + "?service=hostpid-httpserver")
-					require.NoError(ct, err)
-					if resp == nil {
+					if trafficResp == nil {
 						return
 					}
-					require.Equal(ct, http.StatusOK, resp.StatusCode)
+					defer trafficResp.Body.Close()
+					require.Equal(ct, http.StatusOK, trafficResp.StatusCode)
+
+					jaegerResp, err := http.Get(jaegerQueryURL + "?service=hostpid-httpserver")
+					require.NoError(ct, err)
+					if jaegerResp == nil {
+						return
+					}
+					defer jaegerResp.Body.Close()
+					require.Equal(ct, http.StatusOK, jaegerResp.StatusCode)
 					var tq jaeger.TracesQuery
-					require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
+					require.NoError(ct, json.NewDecoder(jaegerResp.Body).Decode(&tq))
 					traces := tq.FindBySpan(jaeger.Tag{Key: "url.path", Type: "string", Value: "/pingpong"})
 					require.NotEmpty(ct, traces)
 					trace := traces[0]
