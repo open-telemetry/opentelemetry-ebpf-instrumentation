@@ -8,6 +8,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/caarlos0/env/v9"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -317,4 +318,47 @@ func TestTracesConfig_Enabled(t *testing.T) {
 
 func TestTracesConfig_Disabled(t *testing.T) {
 	assert.False(t, (&TracesConfig{}).Enabled())
+}
+
+func TestNormalizeQueueConfig(t *testing.T) {
+	t.Run("BatchMaxSize set, QueueSize defaults to 4x", func(t *testing.T) {
+		cfg := &TracesConfig{BatchMaxSize: 50}
+		require.NoError(t, cfg.NormalizeQueueConfig())
+		assert.Equal(t, 50, cfg.BatchMaxSize)
+		assert.Equal(t, 200, cfg.QueueSize)
+	})
+
+	t.Run("explicit QueueSize is respected", func(t *testing.T) {
+		cfg := &TracesConfig{BatchMaxSize: 10, QueueSize: 500}
+		require.NoError(t, cfg.NormalizeQueueConfig())
+		assert.Equal(t, 500, cfg.QueueSize)
+	})
+
+	t.Run("error when QueueSize < 2*BatchMaxSize", func(t *testing.T) {
+		cfg := &TracesConfig{BatchMaxSize: 100, QueueSize: 10}
+		err := cfg.NormalizeQueueConfig()
+		require.Error(t, err)
+	})
+
+	t.Run("zero values produce no error and no defaults", func(t *testing.T) {
+		cfg := &TracesConfig{}
+		require.NoError(t, cfg.NormalizeQueueConfig())
+		assert.Equal(t, 0, cfg.BatchMaxSize)
+		assert.Equal(t, 0, cfg.QueueSize)
+	})
+}
+
+func TestNormalizeQueueConfig_EnvVar(t *testing.T) {
+	defer RestoreEnvAfterExecution()()
+	t.Setenv("OTEL_EBPF_OTLP_TRACES_BATCH_MAX_SIZE", "75")
+	t.Setenv("OTEL_EBPF_OTLP_TRACES_QUEUE_SIZE", "600")
+
+	var cfg TracesConfig
+	require.NoError(t, env.Parse(&cfg))
+	assert.Equal(t, 75, cfg.BatchMaxSize)
+	assert.Equal(t, 600, cfg.QueueSize)
+
+	require.NoError(t, cfg.NormalizeQueueConfig())
+	assert.Equal(t, 75, cfg.BatchMaxSize)
+	assert.Equal(t, 600, cfg.QueueSize)
 }

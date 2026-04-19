@@ -119,7 +119,7 @@ discovery:
 	nc := DefaultNetworkConfig
 	nc.Enable = true
 	nc.AgentIP = "1.2.3.4"
-	nc.CIDRs = cidr.Definitions{"10.244.0.0/16"}
+	nc.CIDRs = cidr.Definitions{{CIDR: "10.244.0.0/16"}}
 
 	sc := DefaultStatsConfig
 
@@ -173,8 +173,10 @@ discovery:
 					},
 					Enrichment: config.EnrichmentConfig{
 						Policy: config.HTTPParsingPolicy{
-							DefaultAction:     config.HTTPParsingActionExclude,
-							MatchOrder:        config.HTTPParsingMatchOrderFirstMatchWins,
+							DefaultAction: config.HTTPParsingDefaultAction{
+								Headers: config.HTTPParsingActionExclude,
+								Body:    config.HTTPParsingActionExclude,
+							},
 							ObfuscationString: "***",
 						},
 						Rules: []config.HTTPParsingRule{},
@@ -219,7 +221,8 @@ discovery:
 			Protocol:          otelcfg.ProtocolUnset,
 			CommonEndpoint:    "localhost:3131",
 			TracesEndpoint:    "localhost:3232",
-			MaxQueueSize:      4096,
+			BatchMaxSize:      4096,
+			QueueSize:         16384,
 			BatchTimeout:      15 * time.Second,
 			ReportersCacheLen: ReporterLRUSize,
 			Instrumentations: []instrumentations.Instrumentation{

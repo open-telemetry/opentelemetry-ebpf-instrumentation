@@ -59,7 +59,7 @@ static __always_inline tp_info_pid_t *trace_info_for_connection(const connection
 }
 
 static __always_inline void
-set_trace_info_for_connection(connection_info_t *conn, u32 type, tp_info_pid_t *info) {
+set_trace_info_for_connection(const connection_info_t *conn, u32 type, const tp_info_pid_t *info) {
     trace_map_key_t key = {};
 
     // bpf_dbg_printk("setting trace info, type=%d", info->req_type);
@@ -90,7 +90,8 @@ static __always_inline u64 current_immediate_epoch(u64 ts) {
     return temp * NANOSECONDS_PER_IMM_EPOCH;
 }
 
-static __always_inline u8 correlated_requests(tp_info_t *tp, tp_info_pid_t *existing_tp) {
+static __always_inline u8 correlated_requests(const tp_info_t *tp,
+                                              const tp_info_pid_t *existing_tp) {
     if (!existing_tp) {
         return 0;
     }

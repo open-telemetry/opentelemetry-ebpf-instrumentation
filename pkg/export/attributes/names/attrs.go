@@ -90,7 +90,23 @@ const (
 
 	ContainerName = Name(semconv.ContainerNameKey)
 	ContainerID   = Name(semconv.ContainerIDKey)
+
+	// HTTP enrichment attribute prefixes and keys
+	HTTPRequestHeaderPrefix  = "http.request.header."
+	HTTPResponseHeaderPrefix = "http.response.header."
+	HTTPRequestBodyContent   = Name("http.request.body.content")
+	HTTPResponseBodyContent  = Name("http.response.body.content")
 )
+
+// HTTPRequestHeaderKey returns the attribute key for a request header (lowercased).
+func HTTPRequestHeaderKey(name string) string {
+	return HTTPRequestHeaderPrefix + strings.ToLower(name)
+}
+
+// HTTPResponseHeaderKey returns the attribute key for a response header (lowercased).
+func HTTPResponseHeaderKey(name string) string {
+	return HTTPResponseHeaderPrefix + strings.ToLower(name)
+}
 
 // OBI-specific network attributes
 // obi.-prefixed attributes are a var instead of a constant to allow overriding the prefix
@@ -235,6 +251,13 @@ const (
 const (
 	// GPU/Cuda related attributes
 	CudaMemcpyKind = Name("cuda.memcpy.kind")
+)
+
+// JSON-RPC attributes (current semconv, replacing deprecated rpc.jsonrpc.* attributes)
+const (
+	JSONRPCProtocolVersion = Name("jsonrpc.protocol.version")
+	JSONRPCRequestID       = Name("jsonrpc.request.id")
+	RPCResponseStatusCode  = Name("rpc.response.status_code")
 )
 
 // DNS events

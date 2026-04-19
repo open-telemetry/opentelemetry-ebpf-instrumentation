@@ -150,12 +150,13 @@ services:
       OTEL_EBPF_BPF_DISABLE_BLACK_BOX_CP: "${OTEL_EBPF_BPF_DISABLE_BLACK_BOX_CP}"
       OTEL_EBPF_BPF_CONTEXT_PROPAGATION: "${OTEL_EBPF_BPF_CONTEXT_PROPAGATION}"
       OTEL_EBPF_BPF_TRACK_REQUEST_HEADERS: "${OTEL_EBPF_BPF_TRACK_REQUEST_HEADERS}"
+      OTEL_EBPF_SHUTDOWN_TIMEOUT: "5s"
     ports:
       - "8999:8999"
 
   # OpenTelemetry Collector
   otelcol:
-    image: otel/opentelemetry-collector-contrib:0.149.0@sha256:0fba96233274f6d665ac8831ad99dfe6479a9a20459f6e2719c0d20945773b46
+    image: otel/opentelemetry-collector-contrib:0.150.1@sha256:a516c26968aa1feb5e5fc0562e3338ea13755cb4f373603226bcc4e276374ad0
     container_name: otel-col
     deploy:
       resources:

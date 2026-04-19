@@ -4,6 +4,8 @@
 package config
 
 import (
+	"fmt"
+	"reflect"
 	"testing"
 )
 
@@ -255,5 +257,27 @@ func TestEBPFTracer_CudaInstrumentationEnabled(t *testing.T) {
 					got, tt.wantEnabled, tt.description)
 			}
 		})
+	}
+}
+
+func TestEBPFBufferSizesValidateTagsMatchMaxCapturedPayloadBytes(t *testing.T) {
+	expected := fmt.Sprintf("lte=%d", MaxCapturedPayloadBytes)
+	typ := reflect.TypeOf(EBPFBufferSizes{})
+
+	for i := 0; i < typ.NumField(); i++ {
+		field := typ.Field(i)
+		if got := field.Tag.Get("validate"); got != expected {
+			t.Fatalf(
+				"EBPFBufferSizes.%s validate tag drifted: got %q, want %q.\n"+
+					"To resolve this, update all of the following together:\n"+
+					"1. %s validate tag in pkg/config/ebpf_tracer.go\n"+
+					"2. MaxCapturedPayloadBytes in pkg/config/ebpf_tracer.go\n"+
+					"3. matching k_large_buf_max_*_captured_bytes constant in bpf/common/large_buffers.h",
+				field.Name,
+				got,
+				expected,
+				field.Name,
+			)
+		}
 	}
 }

@@ -26,7 +26,8 @@
       "net/rpc.Request": ["ServiceMethod"],
       "database/sql.driverConn": ["ci"],
       "net/textproto.Reader": ["R"],
-      "bufio.Reader": ["buf", "w"]
+      "bufio.Reader": ["buf", "w"],
+      "runtime.moduledata": ["pcHeader", "pclntable", "minpc", "maxpc", "text", "etext"]
     }
   },
   "golang.org/x/net": {

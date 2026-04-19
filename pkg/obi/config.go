@@ -171,12 +171,20 @@ var DefaultConfig = Config{
 					Anthropic: config.AnthropicConfig{
 						Enabled: false,
 					},
+					Gemini: config.GeminiConfig{
+						Enabled: false,
+					},
+					Bedrock: config.BedrockConfig{
+						Enabled: false,
+					},
 				},
 				Enrichment: config.EnrichmentConfig{
 					Enabled: false,
 					Policy: config.HTTPParsingPolicy{
-						DefaultAction:     config.HTTPParsingActionExclude,
-						MatchOrder:        config.HTTPParsingMatchOrderFirstMatchWins,
+						DefaultAction: config.HTTPParsingDefaultAction{
+							Headers: config.HTTPParsingActionExclude,
+							Body:    config.HTTPParsingActionExclude,
+						},
 						ObfuscationString: "***",
 					},
 					Rules: []config.HTTPParsingRule{},
@@ -217,7 +225,8 @@ var DefaultConfig = Config{
 	Traces: otelcfg.TracesConfig{
 		Protocol:          otelcfg.ProtocolUnset,
 		TracesProtocol:    otelcfg.ProtocolUnset,
-		MaxQueueSize:      4096,
+		BatchMaxSize:      4096,
+		QueueSize:         16384,
 		BatchTimeout:      15 * time.Second,
 		ReportersCacheLen: ReporterLRUSize,
 		Instrumentations: []instrumentations.Instrumentation{
@@ -612,6 +621,22 @@ func (c *Config) Validate() error {
 	}
 
 	if err := c.Discovery.Validate(); err != nil {
+		return ConfigError(err.Error())
+	}
+
+	if err := c.EBPF.PayloadExtraction.HTTP.Enrichment.Validate(); err != nil {
+		return ConfigError(err.Error())
+	}
+
+	if err := c.NetworkFlows.CIDRs.Validate(); err != nil {
+		return ConfigError("network " + err.Error())
+	}
+
+	if err := c.Stats.CIDRs.Validate(); err != nil {
+		return ConfigError("stats " + err.Error())
+	}
+
+	if err := c.Traces.NormalizeQueueConfig(); err != nil {
 		return ConfigError(err.Error())
 	}
 

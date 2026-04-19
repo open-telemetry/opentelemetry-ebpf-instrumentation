@@ -266,11 +266,11 @@ func testPartialLanguageHTTPProbes(t *testing.T) {
 
 			// Check the information of the python parent span
 			res = trace.FindByOperationName("GET /tracemetoo", "server")
-			require.Empty(t, res)
+			require.Empty(ct, res)
 
 			// Check the information of the rails parent span
 			res = trace.FindByOperationName("GET /users", "server")
-			require.Empty(t, res)
+			require.Empty(ct, res)
 		}
 	}, testTimeout, 100*time.Millisecond)
 

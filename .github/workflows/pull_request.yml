@@ -39,7 +39,7 @@ jobs:
           cache: true
 
       - name: Go build cache
-        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4 # zizmor: ignore[cache-poisoning] go build cache is content-addressable and self-verifying
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5 # zizmor: ignore[cache-poisoning] go build cache is content-addressable and self-verifying
         with:
           path: ~/.cache/go-build
           key: go-build-pr-race-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.go', 'go.sum') }}
@@ -47,7 +47,7 @@ jobs:
             go-build-pr-race-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Generate and build tools
-        run: make prereqs docker-generate unit-test-tools
+        run: make prereqs docker-generate
 
       - name: Run checks
         run: make go-mod-tidy license-header-check notices-update check-go-mod check-ebpf-ver-synced check-config-schema check-clean-work-tree
@@ -61,7 +61,7 @@ jobs:
           make unit-test-matrix-json >> $GITHUB_OUTPUT
 
       - name: Upload generated BPF files
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           # prevent cache poisoning by using the SHA of the commit.
           name: bpf-generated-${{ github.sha }}
@@ -88,7 +88,7 @@ jobs:
           cache: true
 
       - name: Go build cache
-        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4 # zizmor: ignore[cache-poisoning] go build cache is content-addressable and self-verifying
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5 # zizmor: ignore[cache-poisoning] go build cache is content-addressable and self-verifying
         with:
           path: ~/.cache/go-build
           key: go-build-pr-race-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.go', 'go.sum') }}
@@ -127,7 +127,7 @@ jobs:
           cache: true
 
       - name: Go build cache
-        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4 # zizmor: ignore[cache-poisoning] go build cache is content-addressable and self-verifying
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5 # zizmor: ignore[cache-poisoning] go build cache is content-addressable and self-verifying
         with:
           path: ~/.cache/go-build
           key: go-build-pr-race-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.go', 'go.sum') }}
@@ -140,25 +140,20 @@ jobs:
           name: bpf-generated-${{ github.sha }}
 
       - name: Build test tools
-        run: make prereqs unit-test-tools
+        run: make prereqs
 
       - name: Run unit tests
         env:
           MATRIX_ID: ${{ matrix.id }}
           MATRIX_PACKAGES: ${{ matrix.packages }}
-        run: make run-unit-test-shard SHARD_ID="${MATRIX_ID}" UNIT_TEST_PACKAGES="${MATRIX_PACKAGES}"
-
-      - name: Exclude generated files from coverage
-        run: grep -vE "(_bpfel.go)|(/opentelemetry-ebpf-instrumentation/internal/test/)|(/opentelemetry-ebpf-instrumentation/configs/)|(.pb.go)|(/pkg/export/otel/metric/)" testoutput/cover-shard-"${MATRIX_ID}".all.txt > testoutput/cover-shard-"${MATRIX_ID}".txt
-        env:
-          MATRIX_ID: ${{ matrix.id }}
+        run: make run-unit-test-shard cov-exclude-generated SHARD_ID="${MATRIX_ID}" UNIT_TEST_PACKAGES="${MATRIX_PACKAGES}"
 
       - name: Report coverage
         uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2 # v6.0.0
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
         with:
-          files: ./testoutput/cover-shard-${{ matrix.id }}.txt
+          files: ./testoutput/cover.txt
           flags: unittests
           name: go-unittests-coverage-shard-${{ matrix.id }}-${{ github.run_number }}
 
@@ -195,7 +190,7 @@ jobs:
           cache: true
 
       - name: Go build cache
-        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4 # zizmor: ignore[cache-poisoning] go build cache is content-addressable and self-verifying
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5 # zizmor: ignore[cache-poisoning] go build cache is content-addressable and self-verifying
         with:
           path: ~/.cache/go-build
           key: go-build-cross-${{ matrix.goos }}-${{ matrix.goarch }}-${{ hashFiles('**/*.go', 'go.sum') }}
@@ -278,7 +273,7 @@ jobs:
 
       - name: Go build cache
         if: ${{ !matrix.use_vm }}
-        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4 # zizmor: ignore[cache-poisoning] go build cache is content-addressable and self-verifying
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5 # zizmor: ignore[cache-poisoning] go build cache is content-addressable and self-verifying
         with:
           path: ~/.cache/go-build
           key: go-build-pr-race-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.go', 'go.sum') }}
@@ -287,4 +282,4 @@ jobs:
 
       - name: Run BPF verifier tests (host kernel)
         if: ${{ !matrix.use_vm }}
-        run: sudo env PATH=$PATH PRIVILEGED_TESTS=true go test -v -count=1 ./pkg/internal/ebpf/verifier/...
+        run: go test -exec=sudo -v -count=1 -tags=bpf_verifier_tests ./pkg/internal/ebpf/verifier/...

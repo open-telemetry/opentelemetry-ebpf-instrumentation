@@ -10,6 +10,6 @@
 
 #include <maps/active_ssl_connections.h>
 
-static __always_inline u64 *is_ssl_connection(pid_connection_info_t *conn) {
+static __always_inline u64 *is_ssl_connection(const pid_connection_info_t *conn) {
     return (u64 *)bpf_map_lookup_elem(&active_ssl_connections, conn);
 }

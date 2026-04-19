@@ -189,6 +189,7 @@ linters:
       locale: US
       ignore-rules:
         - cancelled
+        - RELA
 
     nolintlint:
       require-specific: true

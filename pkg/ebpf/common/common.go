@@ -28,6 +28,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/config"
 	"go.opentelemetry.io/obi/pkg/ebpf/common/dnsparser"
+	ebpfhttp "go.opentelemetry.io/obi/pkg/ebpf/common/http"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/kafkaparser"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/ringbuf"
 	"go.opentelemetry.io/obi/pkg/internal/largebuf"
@@ -91,6 +92,8 @@ const (
 )
 
 var IntegrityModeOverride = false
+
+type TracerCapability uint64
 
 // ProbeDesc holds the information of the instrumentation points of a given
 // function/symbol
@@ -194,6 +197,7 @@ type EBPFParseContext struct {
 	mssqlPreparedStatements    *simplelru.LRU[mssqlPreparedStatementsKey, string]
 	kafkaTopicUUIDToName       *simplelru.LRU[kafkaparser.UUID, string]
 	payloadExtraction          config.PayloadExtraction
+	httpEnricher               *ebpfhttp.HTTPEnricher
 	dnsEvents                  *expirable.LRU[dnsparser.DNSId, *request.Span]
 	emitSpans                  func([]request.Span)
 }
@@ -213,6 +217,7 @@ type EBPFEventContext struct {
 	RingBufLock      sync.Mutex
 	MapsLock         sync.Mutex
 	LoadLock         sync.Mutex
+	Capabilities     TracerCapability
 }
 
 var MisclassifiedEvents = make(chan MisclassifiedEvent)
@@ -300,6 +305,11 @@ func NewEBPFParseContext(cfg *config.EBPFTracer, spansChan *msg.Queue[[]request.
 		dnsEvents = expirable.NewLRU(1024, dnsEventExpireHandler(emitSpans), cfg.DNSRequestTimeout)
 	}
 
+	var httpEnricher *ebpfhttp.HTTPEnricher
+	if payloadExtraction.HTTP.Enrichment.Enabled {
+		httpEnricher = ebpfhttp.NewHTTPEnricher(payloadExtraction.HTTP.Enrichment)
+	}
+
 	return &EBPFParseContext{
 		protocolDebug:              protocolDebug,
 		h2c:                        h2c,
@@ -313,6 +323,7 @@ func NewEBPFParseContext(cfg *config.EBPFTracer, spansChan *msg.Queue[[]request.
 		mssqlPreparedStatements:    mssqlPreparedStatements,
 		kafkaTopicUUIDToName:       kafkaTopicUUIDToName,
 		payloadExtraction:          payloadExtraction,
+		httpEnricher:               httpEnricher,
 		dnsEvents:                  dnsEvents,
 		emitSpans:                  emitSpans,
 	}
