@@ -15,8 +15,6 @@
 
 //go:build obi_bpf_ignore
 
-#include <limits.h>
-
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_helpers.h>
 #include <bpfcore/utils.h>
@@ -196,10 +194,9 @@ int obi_uprobe_netFdReadRet(struct pt_regs *ctx) {
     void *buf = (void *)net_ptr->byte_ptr;
 
     s64 len = (s64)GO_PARAM1(ctx);
-    bpf_dbg_printk(
-        "buf=%llx, len=%lld === ", (unsigned long long)buf, (long long)len);
+    bpf_dbg_printk("buf=%llx, len=%lld === ", (unsigned long long)buf, (long long)len);
     if (buf && len > 0) {
-        const int bytes_len = (len > INT_MAX) ? INT_MAX : (int)len;
+        const int bytes_len = (len > __INT_MAX__) ? __INT_MAX__ : (int)len;
 
         dbg_print_http_connection_info(&net_ptr->p_conn.conn);
 
