@@ -19,6 +19,7 @@
 #include <bpfcore/bpf_helpers.h>
 #include <bpfcore/utils.h>
 
+#include <common/algorithm.h>
 #include <common/common.h>
 #include <common/connection_info.h>
 #include <common/go_addr_key.h>
@@ -196,7 +197,7 @@ int obi_uprobe_netFdReadRet(struct pt_regs *ctx) {
     s64 len = (s64)GO_PARAM1(ctx);
     bpf_dbg_printk("buf=%llx, len=%lld === ", (unsigned long long)buf, (long long)len);
     if (buf && len > 0) {
-        const int bytes_len = (len > __INT_MAX__) ? __INT_MAX__ : (int)len;
+        const int bytes_len = (int)min((s64)__INT_MAX__, len);
 
         dbg_print_http_connection_info(&net_ptr->p_conn.conn);
 
