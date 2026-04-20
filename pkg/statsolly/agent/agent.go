@@ -139,7 +139,7 @@ func (s *Stats) Run(ctx context.Context) error {
 	alog.Info("starting Stats agent")
 
 	if s.cfg.EBPF.BpfDebug {
-		logger.RunDebugEventsReader(ctx, s.fetcher.DebugEventsMap(),
+		go logger.ReadDebugEventsMap(ctx, s.fetcher.DebugEventsMap(),
 			slog.With("component", "statsolly.BPFDebug"))
 	}
 

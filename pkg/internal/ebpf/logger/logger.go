@@ -100,9 +100,10 @@ func (p *BPFLogger) processLogEvent(record *ringbuf.Record) (request.Span, bool,
 	return request.Span{}, true, nil
 }
 
-// RunDebugEventsReader can be used by any subsystem that loads BPF programs including
+// ReadDebugEventsMap can be used by any subsystem that loads BPF programs including
 // bpf_dbg.h but doesn't go through the main appolly pipeline (e.g. statsolly, netolly).
-func RunDebugEventsReader(ctx context.Context, debugEventsMap *ebpf.Map, log *slog.Logger) {
+// This is a blocking function. Callers should invoke it with `go ReadDebugEventsMap(..)`.
+func ReadDebugEventsMap(ctx context.Context, debugEventsMap *ebpf.Map, log *slog.Logger) {
 	if debugEventsMap == nil {
 		return
 	}
@@ -112,23 +113,18 @@ func RunDebugEventsReader(ctx context.Context, debugEventsMap *ebpf.Map, log *sl
 		log.Error("failed to create debug events reader", "error", err)
 		return
 	}
+	stop := context.AfterFunc(ctx, func() { reader.Close() })
+	defer stop()
 
-	go func() {
-		<-ctx.Done()
-		reader.Close()
-	}()
-
-	go func() {
-		for {
-			record, err := reader.Read()
-			if err != nil {
-				if errors.Is(err, ringbuf.ErrClosed) {
-					return
-				}
-				log.Error("reading debug event", "error", err)
-				continue
+	for {
+		record, err := reader.Read()
+		if err != nil {
+			if errors.Is(err, ringbuf.ErrClosed) {
+				return
 			}
-			logDebugEvent(log, &record)
+			log.Error("reading debug event", "error", err)
+			continue
 		}
-	}()
+		logDebugEvent(log, &record)
+	}
 }

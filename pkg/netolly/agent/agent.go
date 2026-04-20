@@ -244,7 +244,7 @@ func (f *Flows) Run(ctx context.Context) error {
 	alog.Info("starting Flows agent")
 
 	if f.cfg.EBPF.BpfDebug {
-		logger.RunDebugEventsReader(ctx, f.ebpf.DebugEventsMap(),
+		go logger.ReadDebugEventsMap(ctx, f.ebpf.DebugEventsMap(),
 			slog.With("component", "netolly.BPFDebug"))
 	}
 
