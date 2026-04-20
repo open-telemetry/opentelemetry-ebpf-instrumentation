@@ -938,6 +938,22 @@ func TestBuildCouchbaseStatement(t *testing.T) {
 			expected:           "SET user::42 hi",
 		},
 		{
+			name:               "GET with 5-byte LEB128 collection ID prefix stripped",
+			opcode:             couchbasekv.OpcodeGet,
+			key:                "\xff\xff\xff\xff\x0fuser::42", // LEB128 for 0xFFFFFFFF
+			dataType:           couchbasekv.DataTypeRaw,
+			collectionsEnabled: true,
+			expected:           "GET user::42",
+		},
+		{
+			name:               "malformed 5-byte LEB128 prefix leaves key unchanged",
+			opcode:             couchbasekv.OpcodeGet,
+			key:                "\xff\xff\xff\xff\xffuser::42",
+			dataType:           couchbasekv.DataTypeRaw,
+			collectionsEnabled: true,
+			expected:           "",
+		},
+		{
 			// Documents the trade-off: on collection-enabled connections, the
 			// first byte is always consumed as a LEB128 varint. A single-byte
 			// key whose only byte has MSB=0 (any printable ASCII char) is
