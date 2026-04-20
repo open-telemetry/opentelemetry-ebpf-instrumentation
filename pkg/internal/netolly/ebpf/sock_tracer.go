@@ -51,6 +51,7 @@ import (
 // in the map
 type SockFlowFetcher struct {
 	log           *slog.Logger
+	objectsMu     sync.Mutex
 	objects       *NetSkObjects
 	ringbufReader *ringbuf.Reader
 	flowMapReader flowMapReader
@@ -133,11 +134,12 @@ func printVerifierErrorInfo(err error) {
 }
 
 func (m *SockFlowFetcher) FlowPacketStatsMap() *ebpf.Map {
-	objects := m.objects
-	if objects == nil {
+	m.objectsMu.Lock()
+	defer m.objectsMu.Unlock()
+	if m.objects == nil {
 		return nil
 	}
-	return objects.FlowPacketStats
+	return m.objects.FlowPacketStats
 }
 
 // Close any resources that are taken up by the socket filter, the filter itself and some maps.
@@ -153,11 +155,16 @@ func (m *SockFlowFetcher) Close() error {
 			errs = append(errs, err)
 		}
 	}
-	if m.objects != nil {
-		if err := m.objects.Close(); err != nil {
+
+	m.objectsMu.Lock()
+	obj := m.objects
+	m.objects = nil
+	m.objectsMu.Unlock()
+
+	if obj != nil {
+		if err := obj.Close(); err != nil {
 			errs = append(errs, err)
 		}
-		m.objects = nil
 	}
 	return errors.Join(errs...)
 }

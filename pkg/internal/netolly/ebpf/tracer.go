@@ -67,6 +67,7 @@ func tlog() *slog.Logger {
 // in the map
 type FlowFetcher struct {
 	log           *slog.Logger
+	objectsMu     sync.Mutex
 	objects       *NetObjects
 	ringbufReader *ringbuf.Reader
 	tcManager     tcmanager.TCManager
@@ -175,21 +176,26 @@ func (m *FlowFetcher) Close() error {
 		}
 	}
 
-	if m.objects != nil {
-		if err := m.objects.Close(); err != nil {
+	m.objectsMu.Lock()
+	obj := m.objects
+	m.objects = nil
+	m.objectsMu.Unlock()
+
+	if obj != nil {
+		if err := obj.Close(); err != nil {
 			errs = append(errs, err)
 		}
-		m.objects = nil
 	}
 	return errors.Join(errs...)
 }
 
 func (m *FlowFetcher) FlowPacketStatsMap() *ebpf.Map {
-	objects := m.objects
-	if objects == nil {
+	m.objectsMu.Lock()
+	defer m.objectsMu.Unlock()
+	if m.objects == nil {
 		return nil
 	}
-	return objects.FlowPacketStats
+	return m.objects.FlowPacketStats
 }
 
 func (m *FlowFetcher) ReadRingBuf() (ringbuf.Record, error) {
