@@ -333,10 +333,12 @@ func TestSuite_Rails(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-ruby.yml", path.Join(pathOutput, "test-suite-ruby.log"))
 	require.NoError(t, err)
 
-	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=3040,443`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=3041:3040`)
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=3040,443`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=3041:3040`,
+		`SEMCONV_VERSION=`+SemconvVersion())
 	require.NoError(t, compose.Up())
 	t.Run("Rails RED metrics", testREDMetricsRailsHTTP)
 	t.Run("Rails NGINX traces", testHTTPTracesNestedNginx)
+	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
 
@@ -350,11 +352,13 @@ func TestSuite_RailsNginxSupportFloor(t *testing.T) {
 		`OTEL_EBPF_EXECUTABLE_PATH=`,
 		`TEST_SERVICE_PORTS=3041:3040`,
 		`NGINX_IMAGE=`+nginxReverseProxySupportFloorImage,
+		`SEMCONV_VERSION=`+SemconvVersion(),
 	)
 	require.NoError(t, compose.Up())
 
 	t.Run("Rails RED metrics", testREDMetricsRailsHTTP)
 	t.Run("Rails NGINX traces", testHTTPTracesNestedNginx)
+	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
 
@@ -362,13 +366,15 @@ func TestSuite_RailsRuby302Puma5(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-ruby-3.0.2-puma5.yml", path.Join(pathOutput, "test-suite-ruby-3.0.2-puma5.log"))
 	require.NoError(t, err)
 
-	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=3040,443`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=3041:3040`)
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=3040,443`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=3041:3040`,
+		`SEMCONV_VERSION=`+SemconvVersion())
 	require.NoError(t, compose.Up())
 	t.Run("Ruby/Puma support contract", func(t *testing.T) {
 		assertRubyPumaSupportVersion(t, compose, "3.0.2", "5.6.6")
 	})
 	t.Run("Rails RED metrics", testREDMetricsRailsHTTP)
 	t.Run("Rails NGINX traces", testHTTPTracesNestedNginx)
+	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
 
@@ -376,10 +382,12 @@ func TestSuite_RailsNginxSQL(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-ruby-nginx-sql.yml", path.Join(pathOutput, "test-suite-ruby-nginx-sql.log"))
 	require.NoError(t, err)
 
-	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=3040,443`, `OTEL_EBPF_EXECUTABLE_PATH=`)
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=3040,443`, `OTEL_EBPF_EXECUTABLE_PATH=`,
+		`SEMCONV_VERSION=`+SemconvVersion())
 	require.NoError(t, compose.Up())
 	t.Run("Rails RED metrics", testREDMetricsRailsHTTP)
 	t.Run("Rails NGINX SQL traces nested", testHTTPTracesNestedNginxSQL)
+	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
 
@@ -387,9 +395,11 @@ func TestSuite_RailsTLS(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-ruby.yml", path.Join(pathOutput, "test-suite-ruby-tls.log"))
 	require.NoError(t, err)
 
-	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=3043`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TESTSERVER_IMAGE_SUFFIX=-ssl`, `TEST_SERVICE_PORTS=3044:3043`)
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=3043`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TESTSERVER_IMAGE_SUFFIX=-ssl`, `TEST_SERVICE_PORTS=3044:3043`,
+		`SEMCONV_VERSION=`+SemconvVersion())
 	require.NoError(t, compose.Up())
 	t.Run("Rails SSL RED metrics", testREDMetricsRailsHTTPS)
+	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
 
@@ -456,9 +466,11 @@ func TestSuite_PythonPostgres(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-python-postgresql.yml", path.Join(pathOutput, "test-suite-python-postgresql.log"))
 	require.NoError(t, err)
 
-	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`,
+		`SEMCONV_VERSION=`+SemconvVersion())
 	require.NoError(t, compose.Up())
 	t.Run("Python Postgres tests", testPythonPostgres)
+	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
 
@@ -466,18 +478,22 @@ func TestSuite_PythonMySQL(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-python-mysql.yml", path.Join(pathOutput, "test-suite-python-mysql.log"))
 	require.NoError(t, err)
 
-	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`,
+		`SEMCONV_VERSION=`+SemconvVersion())
 	require.NoError(t, compose.Up())
 	t.Run("Python MySQL tests", testPythonMySQL)
+	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
 
 func TestSuite_PythonKafka(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-python-kafka.yml", path.Join(pathOutput, "test-suite-python-kafka.log"))
-	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`,
+		`SEMCONV_VERSION=`+SemconvVersion())
 	require.NoError(t, err)
 	require.NoError(t, compose.Up())
 	t.Run("Python Kafka tests", testREDMetricsPythonKafkaOnly)
+	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
 
@@ -485,10 +501,12 @@ func TestSuite_PythonMQTT(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-python-mqtt.yml", path.Join(pathOutput, "test-suite-python-mqtt.log"))
 	require.NoError(t, err)
 
-	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`,
+		`SEMCONV_VERSION=`+SemconvVersion())
 	require.NoError(t, compose.Up())
 	t.Run("Python MQTT publish tests", testREDMetricsPythonMQTT)
 	t.Run("Python MQTT subscribe tests", testREDMetricsPythonMQTTSubscribe)
+	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
 
@@ -559,9 +577,11 @@ func TestSuite_PythonMongo(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-python-mongo.yml", path.Join(pathOutput, "test-suite-python-mongo.log"))
 	require.NoError(t, err)
 
-	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`,
+		`SEMCONV_VERSION=`+SemconvVersion())
 	require.NoError(t, compose.Up())
 	t.Run("Python Mongo metrics", testREDMetricsPythonMongoOnly)
+	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
 
@@ -569,13 +589,15 @@ func TestSuite_PythonCouchbase(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-python-couchbase.yml", path.Join(pathOutput, "test-suite-python-couchbase.log"))
 	require.NoError(t, err)
 
-	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`,
+		`SEMCONV_VERSION=`+SemconvVersion())
 	require.NoError(t, compose.Up())
 	t.Run("Python Couchbase metrics", testREDMetricsPythonCouchbaseOnly)
 	t.Run("Python Couchbase error", testREDMetricsPythonCouchbaseError)
 	t.Run("Python Couchbase SQL++ metrics", testREDMetricsPythonCouchbaseSQLPP)
 	t.Run("Python Couchbase SQL++ with context", testREDMetricsPythonCouchbaseSQLPPWithContext)
 	t.Run("Python Couchbase SQL++ error", testREDMetricsPythonCouchbaseSQLPPError)
+	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
 
@@ -583,9 +605,11 @@ func TestSuite_PythonSQLSSL(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-python-sql-ssl.yml", path.Join(pathOutput, "test-suite-python-sql-ssl.log"))
 	require.NoError(t, err)
 
-	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`,
+		`SEMCONV_VERSION=`+SemconvVersion())
 	require.NoError(t, compose.Up())
 	t.Run("Python SQL metrics", testREDMetricsPythonSQLSSL)
+	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
 
@@ -610,10 +634,12 @@ func TestSuite_PythonSelfReference(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-python-self.yml", path.Join(pathOutput, "test-suite-python-self.log"))
 	require.NoError(t, err)
 
-	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=7771`, `OTEL_EBPF_EXECUTABLE_PATH=`)
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=7771`, `OTEL_EBPF_EXECUTABLE_PATH=`,
+		`SEMCONV_VERSION=`+SemconvVersion())
 	require.NoError(t, compose.Up())
 	t.Run("Python Traces with self-references", testHTTPTracesNestedSelfCalls)
 	t.Run("Python Traces transaction too long", testHTTPTracesNestedCallsTooLong)
+	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
 
@@ -621,9 +647,11 @@ func TestSuite_PythonGraphQL(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-python-graphql.yml", path.Join(pathOutput, "test-suite-python-graphql.log"))
 	require.NoError(t, err)
 
-	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`,
+		`SEMCONV_VERSION=`+SemconvVersion())
 	require.NoError(t, compose.Up())
 	t.Run("Python GraphQL", testPythonGraphQL)
+	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
 
@@ -631,10 +659,12 @@ func TestSuite_PythonJsonRPC(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-python-jsonrpc.yml", path.Join(pathOutput, "test-suite-python-jsonrpc.log"))
 	require.NoError(t, err)
 
-	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`,
+		`SEMCONV_VERSION=`+SemconvVersion())
 	require.NoError(t, compose.Up())
 	t.Run("Python JSON-RPC server span", testPythonJSONRPCServer)
 	t.Run("Python JSON-RPC RPC metrics", testPythonJSONRPCMetrics)
+	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
 
@@ -657,9 +687,11 @@ func TestSuite_PythonAWSS3(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-python-aws.yml", path.Join(pathOutput, "test-suite-python-aws-s3.log"))
 	require.NoError(t, err)
 
-	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`,
+		`SEMCONV_VERSION=`+SemconvVersion())
 	require.NoError(t, compose.Up())
 	t.Run("Python AWS S3", testPythonAWSS3)
+	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
 
@@ -667,9 +699,11 @@ func TestSuite_PythonAWSSQS(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-python-aws.yml", path.Join(pathOutput, "test-suite-python-aws-sqs.log"))
 	require.NoError(t, err)
 
-	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`,
+		`SEMCONV_VERSION=`+SemconvVersion())
 	require.NoError(t, compose.Up())
 	t.Run("Python AWS SQS", testPythonAWSSQS)
+	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
 

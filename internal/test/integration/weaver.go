@@ -31,11 +31,28 @@ const (
 // weaverIgnoredSignals lists signals whose violations are expected and should
 // not cause the test to fail. target_info is a Prometheus/OpenMetrics convention
 // (with Prometheus-style instance/job attributes) that is not part of the OTel
-// semantic conventions registry.
+// semantic conventions registry. The traces_* metrics (spanmetrics / service
+// graph) are Grafana/Tempo conventions emitted when application_span or
+// application_service_graph metrics features are enabled — not OTel semconv.
 // TODO: replace with custom override / filter once
 // https://github.com/open-telemetry/weaver/pull/1256 is merged.
 var weaverIgnoredSignals = map[string]struct{}{
-	"metric:target_info": {},
+	"metric:target_info":                         {},
+	"metric:traces_target_info":                  {},
+	"metric:traces_spanmetrics_calls_total":      {},
+	"metric:traces_spanmetrics_latency":          {},
+	"metric:traces_service_graph_request_server": {},
+	"metric:traces_service_graph_request_total":  {},
+	// TODO: remove "metric:rpc.server.duration" from this list once we update semconv version >= 1.40.0
+	"metric:rpc.server.duration": {},
+}
+
+// weaverIgnoredAdviceMessages matches advice whose message is an OBI-internal
+// marker not meant for the semconv registry. span.metrics.skip is emitted by
+// OBI as a hint to downstream span-metrics processors (see
+// pkg/export/attributes/names/attrs.go) and is deliberately non-standard.
+var weaverIgnoredAdviceMessages = map[string]struct{}{
+	"Attribute 'span.metrics.skip' does not exist in the registry.": {},
 }
 
 func SemconvVersion() string {
@@ -184,7 +201,8 @@ func validateWeaverReport(t *testing.T, report *weaverReport) {
 				continue
 			}
 			signals := sortedSignals(info.Signals)
-			ignored := allSignalsIgnored(info.Signals)
+			_, msgIgnored := weaverIgnoredAdviceMessages[msg]
+			ignored := msgIgnored || allSignalsIgnored(info.Signals)
 			suffix := ""
 			if ignored {
 				suffix = " [ignored]"

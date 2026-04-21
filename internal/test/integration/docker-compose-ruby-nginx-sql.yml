@@ -92,7 +92,7 @@ services:
         limits:
           memory: 125M
     restart: unless-stopped
-    command: ["--config=/etc/otelcol-config/otelcol-config.yml"]
+    command: ["--config=/etc/otelcol-config/otelcol-config-weaver.yml"]
     volumes:
       - ./configs/:/etc/otelcol-config
     ports:
@@ -103,6 +103,40 @@ services:
     depends_on:
       prometheus:
         condition: service_started
+      jaeger:
+        condition: service_started
+      weaver:
+        condition: service_healthy
+
+  # Weaver semantic convention validator — receives OTLP from the collector
+  # and validates telemetry against the OpenTelemetry semantic conventions.
+  weaver:
+    image: otel/weaver:v0.22.1@sha256:33ae522ae4b71c1c562563c1d81f46aa0f79f088a0873199143a1f11ac30e5c9
+    container_name: weaver
+    command:
+      - registry
+      - live-check
+      # Semconv version is set via SEMCONV_VERSION env var from the test code
+      # (derived from go.opentelemetry.io/otel/semconv).
+      - --registry
+      - https://github.com/open-telemetry/semantic-conventions.git@v${SEMCONV_VERSION}[model]
+      - --inactivity-timeout
+      - "300"
+      - --admin-port
+      - "4320"
+      - --format
+      - json
+      - --diagnostic-format
+      - json
+      - --no-stream
+    ports:
+      - "4320:4320" # admin port (for /stop from test host)
+    healthcheck:
+      test: ["CMD-SHELL", "wget --timeout=1 -q -O /dev/null http://127.0.0.1:4317/ 2>&1 | grep -qv refused"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+      start_period: 5s
 
   # Prometheus
   prometheus:
