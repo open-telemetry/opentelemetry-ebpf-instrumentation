@@ -5,8 +5,6 @@ package ebpf // import "go.opentelemetry.io/obi/pkg/internal/netolly/ebpf"
 
 import (
 	"errors"
-
-	"github.com/cilium/ebpf"
 )
 
 var ErrTracerTerminated = errors.New("flow tracer terminated")
@@ -24,21 +22,3 @@ const (
 
 	InterfaceUnset = 0xFFFFFFFF
 )
-
-// lookupPacketStats is a common function called by LookupPacketStats().
-// Returns ErrTracerTerminated after Close().
-func lookupPacketStats(m *ebpf.Map) (NetPacketCount, error) {
-	if m == nil {
-		return NetPacketCount{}, ErrTracerTerminated
-	}
-	var perCPUCounts []NetPacketCount
-	if err := m.Lookup(uint32(0), &perCPUCounts); err != nil {
-		return NetPacketCount{}, err
-	}
-	var sum NetPacketCount
-	for _, pc := range perCPUCounts {
-		sum.Total += pc.Total
-		sum.Ignored += pc.Ignored
-	}
-	return sum, nil
-}
