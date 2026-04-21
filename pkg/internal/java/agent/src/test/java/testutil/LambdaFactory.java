@@ -12,7 +12,9 @@ import java.util.concurrent.Callable;
  * Agent.builder() ignores classes starting with "io.opentelemetry.obi", which would prevent the
  * test's own lambdas from being retransformed.
  */
-public class LambdaFactory {
+public final class LambdaFactory {
+  private LambdaFactory() {}
+
   public static Runnable newRunnable() {
     return () -> {};
   }

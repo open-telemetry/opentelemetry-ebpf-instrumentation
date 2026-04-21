@@ -19,7 +19,6 @@ import io.opentelemetry.obi.java.instrumentations.util.NettyChannelExtractor;
 import java.io.File;
 import java.io.InputStream;
 import java.lang.instrument.Instrumentation;
-import java.lang.instrument.UnmodifiableClassException;
 import java.lang.reflect.Field;
 import java.nio.file.Files;
 import java.util.*;
@@ -153,8 +152,7 @@ public class Agent {
   }
 
   // Needed for Dynamic Agent Injection
-  public static void agentmain(String args, Instrumentation inst)
-      throws UnmodifiableClassException {
+  public static void agentmain(String args, Instrumentation inst) {
     premain(args, inst);
     retransformLoadedClasses(inst);
   }
@@ -166,7 +164,7 @@ public class Agent {
     for (Class<?> clazz : inst.getAllLoadedClasses()) {
       // Skip lambda classes — on Java 8 retransforming them corrupts their constant pool
       // linkage due to JDK-8145964, causing NoClassDefFoundError.
-      if (clazz.getName().contains("$$Lambda")) {
+      if (clazz.getName().contains("$$Lambda$")) {
         continue;
       }
       if (SSLSocketInst.matches(clazz)

@@ -55,8 +55,7 @@ class LambdaExclusionTest {
       Future<String> f = executor.submit(LambdaFactory.newCallable("baseline"));
       assertEquals("baseline", f.get());
     } finally {
-      executor.shutdown();
-      executor.awaitTermination(5, TimeUnit.SECONDS);
+      shutdownAndAwait(executor);
     }
 
     // Phase 2: Install the agent's ByteBuddy transformer using the actual Agent.builder().
@@ -88,11 +87,18 @@ class LambdaExclusionTest {
 
         executor.submit(LambdaFactory.newRunnable()).get();
       } finally {
-        executor.shutdown();
-        executor.awaitTermination(5, TimeUnit.SECONDS);
+        shutdownAndAwait(executor);
       }
     } finally {
       inst.removeTransformer(transformer);
+    }
+  }
+
+  private static void shutdownAndAwait(ExecutorService executor) throws InterruptedException {
+    executor.shutdown();
+    if (!executor.awaitTermination(5, TimeUnit.SECONDS)) {
+      executor.shutdownNow();
+      fail("executor did not terminate within 5 seconds");
     }
   }
 }
