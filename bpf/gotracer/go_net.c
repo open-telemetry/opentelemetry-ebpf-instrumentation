@@ -238,8 +238,9 @@ int obi_uprobe_netFdWrite(struct pt_regs *ctx) {
 
     void *fd_ptr = GO_PARAM1(ctx);
     u8 *buf = GO_PARAM2(ctx);
-    u64 len = (u64)GO_PARAM3(ctx);
+    s64 len = (s64)GO_PARAM3(ctx);
     if (buf && len > 0) {
+        const int bytes_len = (int)min((s64)__INT_MAX__, len);
         pid_connection_info_t p_conn = {0};
 
         if (!get_conn_info_from_fd(fd_ptr, &p_conn.conn, false)) {
@@ -264,7 +265,7 @@ int obi_uprobe_netFdWrite(struct pt_regs *ctx) {
                                        (protocol_selector_t){.http = 1, .http2 = 0, .tcp = 1},
                                        &p_conn,
                                        buf,
-                                       len,
+                                       bytes_len,
                                        NO_SSL,
                                        TCP_SEND,
                                        orig_dport);
