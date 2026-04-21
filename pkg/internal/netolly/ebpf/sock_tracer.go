@@ -133,13 +133,17 @@ func printVerifierErrorInfo(err error) {
 	}
 }
 
-func (m *SockFlowFetcher) FlowPacketStatsMap() *ebpf.Map {
+// LookupPacketStats returns the internal BPF accounting of how many
+// flow packets are accounted in the namespace and how many are ignored in the
+// BPF space due to internal map collisions.
+// Callers use it to report map-collision drops.
+func (m *SockFlowFetcher) LookupPacketStats() (NetPacketCount, error) {
 	m.objectsMu.Lock()
 	defer m.objectsMu.Unlock()
 	if m.objects == nil {
-		return nil
+		return NetPacketCount{}, ErrTracerTerminated
 	}
-	return m.objects.FlowPacketStats
+	return lookupPacketStats(m.objects.FlowPacketStats)
 }
 
 // Close any resources that are taken up by the socket filter, the filter itself and some maps.
