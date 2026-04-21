@@ -7,7 +7,7 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/caarlos0/env/v9"
+	"github.com/caarlos0/env/v11"
 	gin2 "github.com/gin-gonic/gin"
 
 	"go.opentelemetry.io/obi/internal/test/integration/components/testserver/gin"
