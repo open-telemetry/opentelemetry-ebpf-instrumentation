@@ -43,9 +43,9 @@ type TracesConfig struct {
 	BatchMaxSize int `yaml:"batch_max_size" env:"OTEL_EBPF_OTLP_TRACES_BATCH_MAX_SIZE"`
 
 	// QueueSize is the maximum number of spans that the sending queue will hold
-	// before applying back-pressure. It must be >= 2 * BatchMaxSize, otherwise the
+	// before applying back-pressure. It must be >= `2 * BatchMaxSize`, otherwise the
 	// memory queue rejects every batch with "element size too large" and drops
-	// spans permanently. If left at 0 it defaults to 4 * BatchMaxSize.
+	// spans permanently. If left at 0 it defaults to `4 * BatchMaxSize`.
 	QueueSize int `yaml:"queue_size" env:"OTEL_EBPF_OTLP_TRACES_QUEUE_SIZE"`
 
 	// BatchTimeout is the time after which a batch will be sent regardless of its size.
