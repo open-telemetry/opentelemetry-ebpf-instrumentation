@@ -29,7 +29,7 @@ require (
 	github.com/moby/moby/api v1.54.1
 	github.com/moby/moby/client v0.4.0
 	github.com/ohler55/ojg v1.28.1
-	github.com/ory/dockertest/v3 v3.12.0
+	github.com/ory/dockertest/v4 v4.0.0
 	github.com/oschwald/maxminddb-golang/v2 v2.0.0
 	github.com/prometheus/client_golang v1.23.2
 	github.com/prometheus/client_model v0.6.2
