@@ -1,16 +1,6 @@
 # docker-compose.yml
 version: "3.7"
 services:
-  zookeeper:
-    restart: always
-    container_name: kafka-like-zookeeper
-    image: docker.io/bitnamilegacy/zookeeper:3.9@sha256:46d5bcbdf4434f40b7a453a7f53e6ea436a770981433c173ab782c0b13a5fb87
-    ports:
-      - "2181:2181"
-    volumes:
-      - "zookeeper-volume:/bitnami"
-    environment:
-      - ALLOW_ANONYMOUS_LOGIN=yes
   kafka:
     restart: always
     container_name: kafka-like
@@ -21,14 +11,16 @@ services:
       - "kafka-volume:/bitnami"
     environment:
       - KAFKA_BROKER_ID=1
-      - KAFKA_CFG_ZOOKEEPER_CONNECT=zookeeper:2181
+      - KAFKA_ENABLE_KRAFT=yes
+      - KAFKA_CFG_NODE_ID=1
+      - KAFKA_CFG_PROCESS_ROLES=broker,controller
+      - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=1@kafka:9094
       - ALLOW_PLAINTEXT_LISTENER=yes
-      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CLIENT:PLAINTEXT,EXTERNAL:PLAINTEXT
-      - KAFKA_CFG_LISTENERS=CLIENT://:9092,EXTERNAL://:9093
+      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CLIENT:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
+      - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER
+      - KAFKA_CFG_LISTENERS=CLIENT://:9092,EXTERNAL://:9093,CONTROLLER://:9094
       - KAFKA_CFG_ADVERTISED_LISTENERS=CLIENT://kafka:9092,EXTERNAL://localhost:9093
       - KAFKA_CFG_INTER_BROKER_LISTENER_NAME=CLIENT
-    depends_on:
-      - zookeeper
+      - KAFKA_KRAFT_CLUSTER_ID="13fda84d-f438-4b56-921c-9f156c809a31"
 volumes:
   kafka-volume:
-  zookeeper-volume:
