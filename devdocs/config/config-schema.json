@@ -810,7 +810,9 @@
           "ebpf",
           "network",
           "network_inter_zone",
-          "stats"
+          "stats",
+          "stats_tcp_failed_connections",
+          "stats_tcp_rtt"
         ]
       },
       "type": "array",

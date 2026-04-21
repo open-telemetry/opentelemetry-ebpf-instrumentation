@@ -68,5 +68,3 @@ int BPF_KPROBE(obi_kprobe_tcp_close_srtt, struct sock *sk) {
 
     return 0;
 }
-
-char __license[] SEC("license") = "Dual MIT/GPL";

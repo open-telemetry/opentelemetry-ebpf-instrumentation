@@ -17,6 +17,7 @@ services:
     image: hatest-testclient-go-stat-metrics
     environment:
       - TARGET_ADDRESS=testserver:8080
+      - FAIL_TARGET_ADDRESS=testserver:19999
 
   obi:
     build:
@@ -27,6 +28,7 @@ services:
       - ./system/sys/kernel/security:/sys/kernel/security
       - ../../../testoutput:/coverage
       - ../../../testoutput/run-go-stat-metrics:/var/run/obi
+      - /sys/kernel/tracing:/sys/kernel/tracing:rw
     image: hatest-obi
     privileged: true # in some environments (not GH Pull Requests) you can set it to false and then cap_add: [ SYS_ADMIN ]
     pid: "host"

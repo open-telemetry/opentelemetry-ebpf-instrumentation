@@ -572,6 +572,7 @@ func TestSuite_PythonCouchbase(t *testing.T) {
 	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)
 	require.NoError(t, compose.Up())
 	t.Run("Python Couchbase metrics", testREDMetricsPythonCouchbaseOnly)
+	t.Run("Python Couchbase default collection", testREDMetricsPythonCouchbaseDefaultCollection)
 	t.Run("Python Couchbase error", testREDMetricsPythonCouchbaseError)
 	t.Run("Python Couchbase SQL++ metrics", testREDMetricsPythonCouchbaseSQLPP)
 	t.Run("Python Couchbase SQL++ with context", testREDMetricsPythonCouchbaseSQLPPWithContext)

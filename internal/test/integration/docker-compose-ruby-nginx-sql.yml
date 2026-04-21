@@ -1,4 +1,13 @@
 services:
+  certgen:
+    build:
+      context: ./components/nginx-rails-sql/certgen
+    image: rails-nginx-sql-certgen:latest
+    volumes:
+      - mysql_server_certs:/out/mysql-server
+      - mysql_client_certs:/out/mysql-client
+      - nginx_certs:/out/nginx
+
   testserver:
     image: ghcr.io/open-telemetry/obi-testimg:rails-sql-0.0.1@sha256:6d3777a979af47d99b90d7d3f891332ee6b469964b1abf0af9f8c57df0711583
     command: bash -c "sleep 10 && bundle exec rails db:create db:migrate db:seed && rails server -p 3040 -b 0.0.0.0"
@@ -9,6 +18,8 @@ services:
       OTEL_SERVICE_NAME: "my-ruby-app"
       OTEL_RESOURCE_ATTRIBUTES: "data-center=ca,deployment-zone=to"
     depends_on:
+      certgen:
+        condition: service_completed_successfully
       otelcol:
         condition: service_started
       db:
@@ -16,7 +27,7 @@ services:
     networks:
       - app_network
     volumes:
-      - ./components/nginx-rails-sql/certs/newcerts:/certs
+      - mysql_client_certs:/certs:ro
 
   nginx:
     image: nginx:latest@sha256:dec7a90bd0973b076832dc56933fe876bc014929e14b4ec49923951405370112
@@ -25,10 +36,12 @@ services:
       - "8443:443" # Expose TLS port
     volumes:
       - ./components/nginx-rails-sql/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./components/nginx-rails-sql/nginx/cert.pem:/etc/nginx/cert.pem:ro
-      - ./components/nginx-rails-sql/nginx/key.pem:/etc/nginx/key.pem:ro
+      - nginx_certs:/etc/nginx/tls:ro
     depends_on:
-      - testserver
+      certgen:
+        condition: service_completed_successfully
+      testserver:
+        condition: service_started
     networks:
       - app_network
 
@@ -38,7 +51,7 @@ services:
       - --ssl-ca=/etc/mysql/certs/ca.pem
       - --ssl-cert=/etc/mysql/certs/server-cert.pem
       - --ssl-key=/etc/mysql/certs/server-key.pem
-      - --bind-address=0.0.0.0    
+      - --bind-address=0.0.0.0
     container_name: mysql_db
     environment:
       MYSQL_ROOT_PASSWORD: root_password
@@ -47,7 +60,10 @@ services:
       MYSQL_PASSWORD: password
     volumes:
       - db_data:/var/lib/mysql
-      - ./components/nginx-rails-sql/certs/newcerts:/etc/mysql/certs
+      - mysql_server_certs:/etc/mysql/certs:ro
+    depends_on:
+      certgen:
+        condition: service_completed_successfully
     networks:
       - app_network
 
@@ -130,6 +146,9 @@ services:
 
 volumes:
   db_data:
+  mysql_server_certs:
+  mysql_client_certs:
+  nginx_certs:
 
 networks:
   app_network:

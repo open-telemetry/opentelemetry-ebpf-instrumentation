@@ -8,6 +8,7 @@ OBI offers the ability to obtain statistical metrics, such as TCP RTT of all app
 - [Add a new stat metric](#add-a-new-stat-metric)
 - [Notes on attributes](#notes-on-attributes)
 - [Final notes](#final-notes)
+- [Current metrics](#current-metrics)
 
 ## Example
 
@@ -39,8 +40,17 @@ To add a new metric, follow these guidelines:
 Statistical metrics have a list of attributes for both k8s and non-k8s defined in [pkg/export/attributes/attrs_defs.go](../pkg/export/attributes/attr_defs.go). Some of these attributes default to true, and false can be set to true during configuration.
 Finally, it's possible to add ad hoc attributes specific to a given metric.
 
-# Final notes
+## Final notes
 
 We decided to create a component separate from **Appolly** and **Netolly**, focusing only on **statistical metrics**. Statistical metrics are calculated for all applications running on the node, regardless of the PID that triggered the event. This is because statistical metrics are important if correlated to all applications, and also because some hook points can cause unreliable PID calculations and lead to false positives.
 
 The user can then filter the metrics in userspace using appropriate filters or even the collector.
+
+## Current metrics
+
+Below is a table of the currently supported stat metrics:
+
+| Metric name | Hook Point | Description |
+|:-------------|:--------------|:--------------|
+| obi_stat_tcp_rtt_seconds | kprobe/tcp_close | measures the smoothed TCP RTT as calculated by the kernel in seconds |
+| obi_stat_tcp_failed_connections | tracepoint/sock/inet_sock_set_state | counts the TCP failed connections between 2 endpoints |

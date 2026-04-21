@@ -20,6 +20,22 @@ func main() {
 		fmt.Printf("Env var TARGET_ADDRESS not set, defaulting to %s\n", address)
 	}
 
+	// Generate failed TCP connections by dialing a port where nothing listens
+	failAddress := os.Getenv("FAIL_TARGET_ADDRESS")
+	if failAddress != "" {
+		go func() {
+			for {
+				conn, err := net.DialTimeout("tcp", failAddress, 2*time.Second)
+				if err != nil {
+					fmt.Printf("Expected failed connection to %s: %v\n", failAddress, err)
+				} else {
+					conn.Close()
+				}
+				time.Sleep(1 * time.Second)
+			}
+		}()
+	}
+
 	for {
 		fmt.Printf("[%d] Connecting to %s...\n", counter, address)
 

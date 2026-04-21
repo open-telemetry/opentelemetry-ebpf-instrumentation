@@ -532,6 +532,42 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		assert.Equal(t, ptrace.StatusCodeError, spans.At(0).Status().Code())
 		assert.Equal(t, "KEY_NOT_FOUND", spans.At(0).Status().Message())
 	})
+	t.Run("test Couchbase trace generation with db.query.text", func(t *testing.T) {
+		span := request.Span{
+			Type:        request.EventTypeCouchbaseClient,
+			Method:      "SET",
+			Path:        "mycollection",
+			DBNamespace: "mybucket.myscope",
+			Statement:   `SET user::42 TTL=3600 {"name":"alice"}`,
+			Status:      0,
+		}
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{"db.operation.name": {}, "db.query.text": {}})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+		attrs := spans.At(0).Attributes()
+
+		assert.Equal(t, 8, attrs.Len())
+		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBOperation), "SET")
+		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBQueryText), `SET user::42 TTL=3600 {"name":"alice"}`)
+		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBSystemName), "couchbase")
+	})
+	t.Run("test Couchbase trace generation does not emit db.query.text when not selected", func(t *testing.T) {
+		span := request.Span{
+			Type:        request.EventTypeCouchbaseClient,
+			Method:      "SET",
+			Path:        "mycollection",
+			DBNamespace: "mybucket.myscope",
+			Statement:   `SET user::42 TTL=3600 {"name":"alice"}`,
+			Status:      0,
+		}
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{"db.operation.name": {}})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+		attrs := spans.At(0).Attributes()
+		ensureTraceAttrNotExists(t, attrs, attribute.Key(attr.DBQueryText))
+	})
 	t.Run("test Memcached trace generation", func(t *testing.T) {
 		span := request.Span{Type: request.EventTypeMemcachedClient, Method: "GET", Path: "session-key", Status: 0}
 		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{"db.operation.name": {}})
