@@ -573,7 +573,7 @@ oats-test-ai: oats-prereq
 .PHONY: oats-test-nats
 oats-test-nats: oats-prereq
 	mkdir -p internal/test/oats/nats/$(TEST_OUTPUT)/run
-	cd internal/test/oats/nats && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml $(GINKGO) -v -r
+	cd internal/test/oats/nats && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml go tool $(TOOLS_MODFILE) ginkgo -v -r
 
 .PHONY: oats-test
 oats-test: oats-test-sql oats-test-mongo oats-test-redis oats-test-kafka oats-test-http oats-test-memcached oats-test-ai oats-test-nats

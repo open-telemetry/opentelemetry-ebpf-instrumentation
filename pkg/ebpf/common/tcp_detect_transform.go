@@ -9,6 +9,7 @@ import (
 	"log/slog"
 
 	"github.com/hashicorp/golang-lru/v2/simplelru"
+
 	"go.opentelemetry.io/otel/trace"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
