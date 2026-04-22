@@ -10,12 +10,14 @@ package main
 
 import (
 	"bytes"
+	"encoding"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -36,6 +38,11 @@ type SchemaGenerator struct {
 	envVars map[string]map[string]string
 	// inlineFields maps typeName to a list of inline field type names.
 	inlineFields map[string][]string
+	// noYaml tracks (typeName, propertyName) for fields with no yaml tag.
+	noYaml map[string]map[string]bool
+	// goFieldNames maps (typeName, propertyKey) to the Go field name,
+	// so we can strip it from descriptions.
+	goFieldNames map[string]map[string]string
 }
 
 // NewSchemaGenerator creates a new SchemaGenerator with initialized registries.
@@ -44,6 +51,8 @@ func NewSchemaGenerator() *SchemaGenerator {
 		enums:        make(map[string][]any),
 		envVars:      make(map[string]map[string]string),
 		inlineFields: make(map[string][]string),
+		noYaml:       make(map[string]map[string]bool),
+		goFieldNames: make(map[string]map[string]string),
 	}
 }
 
@@ -180,6 +189,30 @@ func (g *SchemaGenerator) extractStructMetadataFromDecl(genDecl *ast.GenDecl) {
 			if strings.Contains(yamlName, "inline") || yamlName == ",inline" {
 				g.extractInlineField(typeName, field)
 				continue
+			}
+
+			// If no yaml tag, fall back to the Go field name (which is what
+			// the JSON schema reflector uses as the property key).
+			if yamlName == "" && len(field.Names) > 0 {
+				yamlName = field.Names[0].Name
+				// Track that this field has no yaml tag
+				if g.noYaml[typeName] == nil {
+					g.noYaml[typeName] = make(map[string]bool)
+				}
+				g.noYaml[typeName][yamlName] = true
+			}
+
+			// Track Go field name -> property key mapping for description cleanup.
+			// Remove options from yaml name for the property key.
+			propKey := yamlName
+			if idx := strings.Index(propKey, ","); idx != -1 {
+				propKey = propKey[:idx]
+			}
+			if len(field.Names) > 0 && field.Names[0].Name != propKey {
+				if g.goFieldNames[typeName] == nil {
+					g.goFieldNames[typeName] = make(map[string]string)
+				}
+				g.goFieldNames[typeName][propKey] = field.Names[0].Name
 			}
 
 			// Handle env vars
@@ -323,6 +356,12 @@ func main() {
 	// Normalize descriptions: collapse newlines into single spaces
 	normalizeDescriptions(schema)
 
+	// Mark fields with no yaml tag and strip Go field name prefixes from descriptions
+	g.processFieldAnnotations(schema)
+
+	// Add default values from DefaultConfig
+	addDefaults(schema)
+
 	// Sort properties for deterministic output
 	sortSchemaProperties(schema)
 
@@ -368,7 +407,7 @@ func buildInlineTypeSchemas(rootType reflect.Type) map[string]func() *jsonschema
 	var walk func(t reflect.Type)
 	walk = func(t reflect.Type) {
 		// Unwrap pointers
-		for t.Kind() == reflect.Ptr {
+		for t.Kind() == reflect.Pointer {
 			t = t.Elem()
 		}
 
@@ -403,7 +442,7 @@ func buildInlineTypeSchemas(rootType reflect.Type) map[string]func() *jsonschema
 			if strings.Contains(yamlTag, "inline") {
 				fieldType := field.Type
 				// Handle pointer types
-				for fieldType.Kind() == reflect.Ptr {
+				for fieldType.Kind() == reflect.Pointer {
 					fieldType = fieldType.Elem()
 				}
 
@@ -468,7 +507,7 @@ func (g *SchemaGenerator) processInlineFields(schema *jsonschema.Schema) {
 	}
 
 	// Build inline type schemas dynamically using reflection
-	inlineTypeSchemas := buildInlineTypeSchemas(reflect.TypeOf(obi.Config{}))
+	inlineTypeSchemas := buildInlineTypeSchemas(reflect.TypeFor[obi.Config]())
 
 	// Process each definition that has inline fields
 	for typeName, inlineTypes := range g.inlineFields {
@@ -524,6 +563,70 @@ func (g *SchemaGenerator) processEnvVars(schema *jsonschema.Schema) {
 	if envVars, ok := g.envVars["Config"]; ok {
 		addEnvVarsToProperties(schema, envVars)
 	}
+}
+
+// processFieldAnnotations walks all types and their properties to:
+//   - mark fields with no yaml tag (x-no-yaml: true)
+//   - strip Go field name prefixes from descriptions
+func (g *SchemaGenerator) processFieldAnnotations(schema *jsonschema.Schema) {
+	if schema == nil {
+		return
+	}
+
+	process := func(typeName string, target *jsonschema.Schema) {
+		if target == nil || target.Properties == nil {
+			return
+		}
+		noYamlFields := g.noYaml[typeName]
+		goNames := g.goFieldNames[typeName]
+
+		for pair := target.Properties.Oldest(); pair != nil; pair = pair.Next() {
+			propSchema := pair.Value
+
+			// Mark fields with no yaml tag
+			if noYamlFields[pair.Key] {
+				if propSchema.Extras == nil {
+					propSchema.Extras = make(map[string]any)
+				}
+				propSchema.Extras["x-no-yaml"] = true
+			}
+
+			// Strip Go field name prefix from description
+			if propSchema.Description != "" {
+				propSchema.Description = stripNamePrefix(propSchema.Description, pair.Key, goNames[pair.Key])
+			}
+		}
+	}
+
+	// Process root schema (Config type)
+	process("Config", schema)
+
+	// Process all definitions
+	for typeName, defSchema := range schema.Definitions {
+		process(typeName, defSchema)
+	}
+}
+
+// stripNamePrefix removes a Go field or property name prefix from a description.
+// Go doc comments conventionally start with the field name (e.g. "Exec allows selecting...").
+func stripNamePrefix(desc, propKey, goName string) string {
+	// Try the Go field name first (e.g. "Exec" for yaml key "executable_path")
+	if goName != "" {
+		if rest, ok := strings.CutPrefix(desc, goName); ok {
+			rest = strings.TrimSpace(rest)
+			if len(rest) > 0 {
+				return strings.ToUpper(rest[:1]) + rest[1:]
+			}
+		}
+	}
+	// Try the property key (for fields without yaml tag, key = Go name)
+	if rest, ok := strings.CutPrefix(desc, propKey); ok {
+		rest = strings.TrimSpace(rest)
+		if len(rest) > 0 {
+			return strings.ToUpper(rest[:1]) + rest[1:]
+		}
+	}
+	return desc
 }
 
 // addEnvVarsToProperties adds x-env-var extension to properties that have env vars.
@@ -672,7 +775,7 @@ func normalizeDescriptions(schema *jsonschema.Schema) {
 }
 
 // jsonSchemaerType is the reflect.Type for the jsonSchemaer interface.
-var jsonSchemaerType = reflect.TypeOf((*jsonSchemaer)(nil)).Elem()
+var jsonSchemaerType = reflect.TypeFor[jsonSchemaer]()
 
 // customMapper returns a mapper function that handles types the default reflector cannot process
 // and provides enum values for string-typed constants.
@@ -692,7 +795,7 @@ func (g *SchemaGenerator) customMapper() func(reflect.Type) *jsonschema.Schema {
 		}
 
 		// Handle time.Duration as a string (Go duration format)
-		if t == reflect.TypeOf(time.Duration(0)) {
+		if t == reflect.TypeFor[time.Duration]() {
 			return &jsonschema.Schema{
 				Type:        "string",
 				Description: "Duration in Go format (e.g., '30s', '5m', '1ms')",
@@ -712,4 +815,205 @@ func (g *SchemaGenerator) customMapper() func(reflect.Type) *jsonschema.Schema {
 
 		return nil
 	}
+}
+
+// addDefaults extracts default values from obi.DefaultConfig and sets
+// them on matching schema properties via the standard "default" keyword.
+func addDefaults(schema *jsonschema.Schema) {
+	defaults := structToMap(reflect.ValueOf(obi.DefaultConfig), "yaml")
+	applyDefaults(schema, defaults, schema)
+}
+
+// applyDefaults recursively walks schema properties and sets defaults from the map.
+func applyDefaults(schema *jsonschema.Schema, defaults map[string]any, root *jsonschema.Schema) {
+	if schema == nil || schema.Properties == nil || defaults == nil {
+		return
+	}
+	for pair := schema.Properties.Oldest(); pair != nil; pair = pair.Next() {
+		val, ok := defaults[pair.Key]
+		if !ok {
+			continue
+		}
+		propSchema := pair.Value
+
+		// Resolve $ref to get the actual schema
+		resolved := propSchema
+		if propSchema.Ref != "" {
+			refName := propSchema.Ref[strings.LastIndex(propSchema.Ref, "/")+1:]
+			if defSchema, exists := root.Definitions[refName]; exists {
+				resolved = defSchema
+			}
+		}
+
+		// If the value is a nested map, recurse into its properties if the
+		// schema has them; otherwise skip (complex defaults don't display well).
+		if nestedMap, isMap := val.(map[string]any); isMap {
+			if resolved.Properties != nil && resolved.Properties.Len() > 0 {
+				applyDefaults(resolved, nestedMap, root)
+			}
+			continue
+		}
+
+		// Skip zero/empty values
+		if isZeroDefault(val) {
+			continue
+		}
+		propSchema.Default = val
+	}
+}
+
+// structToMap converts a struct value to a map using the specified tag for keys.
+// It handles time.Duration specially, formatting as a human-readable string.
+func structToMap(v reflect.Value, tagName string) map[string]any {
+	for v.Kind() == reflect.Pointer {
+		if v.IsNil() {
+			return nil
+		}
+		v = v.Elem()
+	}
+	if v.Kind() != reflect.Struct {
+		return nil
+	}
+
+	result := make(map[string]any)
+	t := v.Type()
+
+	for i := 0; i < t.NumField(); i++ {
+		field := t.Field(i)
+		if !field.IsExported() {
+			continue
+		}
+
+		tag := field.Tag.Get(tagName)
+		if tag == "-" {
+			continue
+		}
+
+		// Parse tag name
+		name := tag
+		if idx := strings.Index(name, ","); idx != -1 {
+			name = name[:idx]
+		}
+
+		fieldVal := v.Field(i)
+
+		// Handle inline (embedded) structs
+		if strings.Contains(tag, "inline") {
+			if fieldVal.Kind() == reflect.Struct || (fieldVal.Kind() == reflect.Pointer && !fieldVal.IsNil()) {
+				nested := structToMap(fieldVal, tagName)
+				maps.Copy(result, nested)
+			}
+			continue
+		}
+
+		// If no yaml tag, use field name
+		if name == "" {
+			name = field.Name
+		}
+
+		result[name] = formatValue(fieldVal)
+	}
+
+	return result
+}
+
+// textMarshalerType is the reflect.Type for encoding.TextMarshaler.
+var textMarshalerType = reflect.TypeFor[encoding.TextMarshaler]()
+
+// formatValue converts a reflect.Value to a schema-friendly representation.
+func formatValue(v reflect.Value) any {
+	for v.Kind() == reflect.Pointer {
+		if v.IsNil() {
+			return nil
+		}
+		v = v.Elem()
+	}
+
+	// Handle time.Duration -> string
+	if v.Type() == reflect.TypeFor[time.Duration]() {
+		d := time.Duration(v.Int())
+		return formatDuration(d)
+	}
+
+	// Handle types implementing encoding.TextMarshaler (e.g. enum types like
+	// TCBackend, HTTPParsingAction) — use their text representation instead
+	// of the underlying numeric value.
+	if v.Type().Implements(textMarshalerType) {
+		if text, err := v.Interface().(encoding.TextMarshaler).MarshalText(); err == nil && len(text) > 0 {
+			return string(text)
+		}
+	}
+	if reflect.PointerTo(v.Type()).Implements(textMarshalerType) && v.CanAddr() {
+		if text, err := v.Addr().Interface().(encoding.TextMarshaler).MarshalText(); err == nil && len(text) > 0 {
+			return string(text)
+		}
+	}
+
+	switch v.Kind() {
+	case reflect.Struct:
+		return structToMap(v, "yaml")
+	case reflect.Slice:
+		if v.IsNil() || v.Len() == 0 {
+			return nil
+		}
+		result := make([]any, v.Len())
+		for i := 0; i < v.Len(); i++ {
+			result[i] = formatValue(v.Index(i))
+		}
+		return result
+	case reflect.Map:
+		if v.IsNil() || v.Len() == 0 {
+			return nil
+		}
+		result := make(map[string]any)
+		for _, key := range v.MapKeys() {
+			result[fmt.Sprint(key.Interface())] = formatValue(v.MapIndex(key))
+		}
+		return result
+	case reflect.String:
+		return v.String()
+	case reflect.Bool:
+		return v.Bool()
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		return v.Int()
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		return v.Uint()
+	case reflect.Float32, reflect.Float64:
+		return v.Float()
+	case reflect.Func:
+		return nil
+	default:
+		return fmt.Sprint(v.Interface())
+	}
+}
+
+// formatDuration formats a time.Duration as a compact string like "30s", "5m", "1ms".
+func formatDuration(d time.Duration) string {
+	if d == 0 {
+		return "0s"
+	}
+	if d%time.Minute == 0 {
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	}
+	if d%time.Second == 0 {
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	}
+	return fmt.Sprintf("%dms", d.Milliseconds())
+}
+
+// isZeroDefault returns true for values that shouldn't be shown as defaults.
+// We keep false, 0, and other scalar zero values since they can be meaningful
+// (e.g. "disabled by default"). Only nil and empty collections are skipped.
+func isZeroDefault(v any) bool {
+	switch val := v.(type) {
+	case nil:
+		return true
+	case string:
+		return val == ""
+	case []any:
+		return len(val) == 0
+	case map[string]any:
+		return len(val) == 0
+	}
+	return false
 }

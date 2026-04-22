@@ -64,7 +64,7 @@ type EBPFTracer struct {
 	// reach the BatchLength size
 	BatchTimeout time.Duration `yaml:"batch_timeout" env:"OTEL_EBPF_BPF_BATCH_TIMEOUT" validate:"gte=0"`
 
-	// If enabled, the kprobes based HTTP request tracking will start tracking the request
+	// TrackRequestHeaders enables the kprobes based HTTP request tracking to start tracking the request
 	// headers to process any 'Traceparent' fields.
 	TrackRequestHeaders bool `yaml:"track_request_headers" env:"OTEL_EBPF_BPF_TRACK_REQUEST_HEADERS" validate:"boolean"`
 

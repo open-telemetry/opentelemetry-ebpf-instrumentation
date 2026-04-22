@@ -329,7 +329,7 @@ type Config struct {
 	Filters filter.AttributesConfig `yaml:"filter"`
 
 	Attributes Attributes `yaml:"attributes"`
-	// Routes is an optional node. If not set, data will be directly forwarded to exporters.
+	// Routes configures URL path grouping. If not set, data will be directly forwarded to exporters.
 	Routes       *transform.RoutesConfig       `yaml:"routes"`
 	NameResolver *transform.NameResolverConfig `yaml:"name_resolver"`
 	OTELMetrics  otelcfg.MetricsConfig         `yaml:"otel_metrics_export"`
@@ -362,7 +362,7 @@ type Config struct {
 	// OTEL_EBPF_TARGET_PID=1234,5678. Alternative to Exec or AutoTargetExe when PIDs are known.
 	TargetPIDs services.IntEnum `yaml:"target_pids" env:"OTEL_EBPF_TARGET_PID"`
 
-	// ServiceName is taken from either OTEL_EBPF_SERVICE_NAME env var or OTEL_SERVICE_NAME (for OTEL spec compatibility)
+	// ServiceName specifies the name of the instrumented service, taken from either OTEL_EBPF_SERVICE_NAME env var or OTEL_SERVICE_NAME (for OTEL spec compatibility).
 	// Using env and envDefault is a trick to get the value either from one of either variables.
 	//
 	// Deprecated: Service name should be set in the instrumentation target (env vars, kube metadata...)
@@ -373,7 +373,7 @@ type Config struct {
 	// as this is a reminiscence of past times when we only supported one executable per instance.
 	ServiceNamespace string `yaml:"service_namespace" env:"OTEL_EBPF_SERVICE_NAMESPACE"`
 
-	// Metrics is a placeholder for the progressive support of the OTEL declarative configuration.
+	// Metrics configures the progressive support of the OTEL declarative configuration.
 	Metrics perapp.MetricsConfig `yaml:"metrics"`
 
 	// Discovery configuration
