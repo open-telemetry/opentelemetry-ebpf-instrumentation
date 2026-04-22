@@ -2542,6 +2542,7 @@
             "redis",
             "kafka",
             "mqtt",
+            "nats",
             "mongo",
             "couchbase",
             "memcached"
