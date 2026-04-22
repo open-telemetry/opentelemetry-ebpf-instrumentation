@@ -318,7 +318,7 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 			name:  "nats only",
 			instr: []instrumentations.Instrumentation{instrumentations.InstrumentationNATS},
 			expected: []string{
-				"messaging_publish_duration_seconds",
+				"messaging_client_operation_duration_seconds",
 				"messaging_process_duration_seconds",
 			},
 			unexpected: []string{

@@ -228,7 +228,8 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 			case span.Type == EventTypeHTTPClient && span.SubType == HTTPSubtypeAWSSQS && span.AWS != nil:
 				return MessagingOperationName(span.AWS.SQS.OperationName)
 			case span.Type == EventTypeKafkaClient || span.Type == EventTypeKafkaServer ||
-				span.Type == EventTypeMQTTClient || span.Type == EventTypeMQTTServer:
+				span.Type == EventTypeMQTTClient || span.Type == EventTypeMQTTServer ||
+				span.Type == EventTypeNATSClient || span.Type == EventTypeNATSServer:
 				return MessagingOperationName(span.Method)
 			default:
 				return MessagingOperationName("")

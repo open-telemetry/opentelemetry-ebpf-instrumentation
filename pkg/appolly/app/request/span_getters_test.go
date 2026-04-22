@@ -350,6 +350,16 @@ func TestSpanOTELGetters_MessagingOpName(t *testing.T) {
 			expected: "process",
 		},
 		{
+			name:     "nats client publish",
+			span:     &Span{Type: EventTypeNATSClient, Method: MessagingPublish},
+			expected: "publish",
+		},
+		{
+			name:     "nats server process",
+			span:     &Span{Type: EventTypeNATSServer, Method: MessagingProcess},
+			expected: "process",
+		},
+		{
 			name:     "http span returns empty",
 			span:     &Span{Type: EventTypeHTTP, Method: "GET"},
 			expected: "",
