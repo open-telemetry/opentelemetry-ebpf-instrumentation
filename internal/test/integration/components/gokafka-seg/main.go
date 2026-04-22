@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -75,8 +76,34 @@ func getKafkaReader(kafkaURL, topic, groupID string) *kafka.Reader {
 		Brokers:  brokers,
 		GroupID:  groupID,
 		Topic:    topic,
-		MinBytes: 10e3, // 10KB
+		MinBytes: 1,
 		MaxBytes: 10e6, // 10MB
+	})
+}
+
+func ensureTopic(kafkaURL, topic string) error {
+	conn, err := kafka.Dial("tcp", kafkaURL)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	controller, err := conn.Controller()
+	if err != nil {
+		return err
+	}
+
+	controllerAddr := fmt.Sprintf("%s:%d", controller.Host, controller.Port)
+	controllerConn, err := kafka.Dial("tcp", controllerAddr)
+	if err != nil {
+		return err
+	}
+	defer controllerConn.Close()
+
+	return controllerConn.CreateTopics(kafka.TopicConfig{
+		Topic:             topic,
+		NumPartitions:     1,
+		ReplicationFactor: 1,
 	})
 }
 
@@ -90,10 +117,12 @@ func main() {
 			Addr: kafka.TCP(kafkaURL),
 		}
 		_, err := client.Metadata(context.Background(), &kafka.MetadataRequest{})
-		if err == nil {
+		if err == nil && ensureTopic(kafkaURL, topic) == nil {
 			break
 		}
-		fmt.Printf("Waiting on kafka to start ...\n")
+		if err != nil && !errors.Is(err, context.Canceled) {
+			fmt.Printf("Waiting on kafka to start ...\n")
+		}
 		time.Sleep(2 * time.Second)
 	}
 
