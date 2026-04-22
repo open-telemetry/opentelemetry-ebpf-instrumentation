@@ -349,11 +349,19 @@ func TestFilter_PreservesMultiplePIDTypes(t *testing.T) {
 	assert.True(t, pf.ValidPID(1123, 33, PIDTypeGo))
 	assert.True(t, pf.ValidPID(1123, 33, PIDTypeKProbes))
 
-	_, goOK := pf.CurrentPIDs(PIDTypeGo)[33][123]
-	assert.True(t, goOK)
+	goPIDs := pf.CurrentPIDs(PIDTypeGo)
+	goNamespacePIDs, goNamespaceOK := goPIDs[33]
+	if assert.True(t, goNamespaceOK) {
+		_, goOK := goNamespacePIDs[123]
+		assert.True(t, goOK)
+	}
 
-	_, kprobeOK := pf.CurrentPIDs(PIDTypeKProbes)[33][123]
-	assert.True(t, kprobeOK)
+	kprobePIDs := pf.CurrentPIDs(PIDTypeKProbes)
+	kprobeNamespacePIDs, kprobeNamespaceOK := kprobePIDs[33]
+	if assert.True(t, kprobeNamespaceOK) {
+		_, kprobeOK := kprobeNamespacePIDs[123]
+		assert.True(t, kprobeOK)
+	}
 
 	pf.BlockPID(123, 33)
 
