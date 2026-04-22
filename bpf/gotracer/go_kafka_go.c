@@ -30,6 +30,45 @@
 
 #include <shared/obi_ctx.h>
 
+static __always_inline bool
+parse_kafka_go_produce_request_topic(void *msg_ptr, void *goroutine_addr, topic_t *topic) {
+    if (!msg_ptr || !topic) {
+        return false;
+    }
+
+    kafka_go_produce_request_t req = {};
+    if (bpf_probe_read_user(&req, sizeof(req), msg_ptr) != 0) {
+        return false;
+    }
+
+    if (!req.topics.array || req.topics.len < 1) {
+        return false;
+    }
+
+    kafka_go_produce_request_topic_t req_topic = {};
+    if (bpf_probe_read_user(&req_topic, sizeof(req_topic), req.topics.array) != 0) {
+        return false;
+    }
+
+    if (!req_topic.topic.str || req_topic.topic.len < 1) {
+        return false;
+    }
+
+    u64 topic_len = (u64)req_topic.topic.len;
+    bpf_clamp_umax(topic_len, k_max_topic_name_len - 1);
+    if (topic_len == 0) {
+        return false;
+    }
+
+    client_trace_parent(goroutine_addr, &topic->tp);
+    if (bpf_probe_read_user(&topic->name, topic_len, req_topic.topic.str) != 0) {
+        return false;
+    }
+    topic->name[topic_len] = '\0';
+
+    return true;
+}
+
 // Code for the produce messages path
 SEC("uprobe/writer_write_messages")
 int obi_uprobe_writer_write_messages(struct pt_regs *ctx) {
@@ -71,12 +110,13 @@ int obi_uprobe_writer_produce(struct pt_regs *ctx) {
     if (w_ptr) {
 
         if (topic_len == 0) {
-            topic_ptr = 0;
-            topic_len = k_max_topic_name_len - 1;
-            bpf_probe_read_user(&topic_ptr,
-                                sizeof(void *),
+            go_string_t writer_topic = {};
+            bpf_probe_read_user(&writer_topic,
+                                sizeof(writer_topic),
                                 w_ptr +
                                     go_offset_of(ot, (go_offset){.v = _kafka_go_writer_topic_pos}));
+            topic_ptr = writer_topic.str;
+            topic_len = writer_topic.len;
         }
         bpf_clamp_umax(topic_len, k_max_topic_name_len - 1);
 
@@ -148,8 +188,18 @@ int obi_uprobe_protocol_roundtrip(struct pt_regs *ctx) {
         go_addr_key_t m_key = {};
         go_addr_key_from_id(&m_key, msg_ptr);
         topic_t *topic_ptr = bpf_map_lookup_elem(&ongoing_produce_messages, &m_key);
+        bool parsed_topic = false;
+
+        if (!topic_ptr) {
+            topic_t topic = {};
+            parsed_topic = parse_kafka_go_produce_request_topic(msg_ptr, goroutine_addr, &topic);
+            if (parsed_topic) {
+                bpf_map_update_elem(&ongoing_produce_messages, &m_key, &topic, BPF_ANY);
+            }
+        }
+
         bpf_dbg_printk("Found topic, topic_ptr=%llx", topic_ptr);
-        if (topic_ptr) {
+        if (topic_ptr || parsed_topic) {
             produce_req_t p = {
                 .conn_ptr =
                     ((u64)rw_ptr) + go_offset_of(ot, (go_offset){.v = _kafka_go_protocol_conn_pos}),
