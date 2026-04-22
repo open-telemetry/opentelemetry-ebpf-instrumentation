@@ -14,25 +14,6 @@ import (
 	"go.opentelemetry.io/obi/pkg/internal/largebuf"
 )
 
-func TestIsNATS(t *testing.T) {
-	goConnect := []byte("CONNECT {\"verbose\":false,\"pedantic\":false,\"lang\":\"go\",\"version\":\"1.50.0\",\"protocol\":1,\"headers\":true,\"no_responders\":true}\r\n")
-	assert.True(t, isNATS(largebuf.NewLargeBufferFrom(goConnect)))
-
-	httpConnect := []byte("CONNECT proxy.example:443 HTTP/1.1\r\n")
-	assert.False(t, isNATS(largebuf.NewLargeBufferFrom(httpConnect)))
-
-	assert.False(t, isNATS(largebuf.NewLargeBufferFrom([]byte("PING\r\n"))))
-	assert.True(t, isNATS(largebuf.NewLargeBufferFrom([]byte("PING\r\nPUB updates.orders 5\r\nhello\r\n"))))
-
-	header := []byte("NATS/1.0\r\nX-Test: python\r\n\r\n")
-	payload := []byte("python-nats-1")
-	hdrLen := len(header)
-	totalLen := hdrLen + len(payload)
-	assert.True(t, isNATS(largebuf.NewLargeBufferFrom(
-		[]byte(fmt.Sprintf("PONG\r\nHMSG updates.orders subA %d %d\r\n%s%s\r\n", hdrLen, totalLen, header, payload)),
-	)))
-}
-
 func TestParseNATSFrame(t *testing.T) {
 	header := []byte("NATS/1.0\r\nX-Test: one\r\n\r\n")
 	payload := []byte("hello")

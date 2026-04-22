@@ -377,25 +377,6 @@ func validateNATSSID(field []byte) error {
 	return nil
 }
 
-func isNATS(pkt *largebuf.LargeBuffer) bool {
-	if pkt == nil || pkt.Len() == 0 {
-		return false
-	}
-
-	reader := pkt.NewReader()
-	for reader.Remaining() > 0 {
-		frame, err := parseNATSFrame(&reader)
-		if err != nil {
-			return false
-		}
-		if frame.valid {
-			return true
-		}
-	}
-
-	return false
-}
-
 func TCPToNATSToSpan(trace *TCPRequestInfo, data *NATSInfo) request.Span {
 	peer := ""
 	hostname := ""
