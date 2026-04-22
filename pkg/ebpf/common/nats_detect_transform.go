@@ -15,7 +15,21 @@ import (
 	"go.opentelemetry.io/obi/pkg/internal/largebuf"
 )
 
-var natsCRLF = []byte("\r\n")
+var (
+	natsCRLF       = []byte("\r\n")
+	natsCmdOK      = []byte("+OK")
+	natsCmdErr     = []byte("-ERR")
+	natsCmdPing    = []byte("PING")
+	natsCmdPong    = []byte("PONG")
+	natsCmdInfo    = []byte("INFO")
+	natsCmdConnect = []byte("CONNECT")
+	natsCmdSub     = []byte("SUB")
+	natsCmdUnsub   = []byte("UNSUB")
+	natsCmdPub     = []byte("PUB")
+	natsCmdMsg     = []byte("MSG")
+	natsCmdHPub    = []byte("HPUB")
+	natsCmdHMsg    = []byte("HMSG")
+)
 
 type NATSInfo struct {
 	Operation   string
@@ -112,120 +126,158 @@ func parseNATSFrame(reader *largebuf.LargeBufferReader) (natsFrame, error) {
 		return natsFrame{}, errors.New("empty NATS command")
 	}
 
-	command := string(bytes.ToUpper(fields[0]))
+	command := fields[0]
 
-	switch command {
-	case "+OK", "-ERR", "PING", "PONG":
+	switch {
+	case equalFoldASCII(command, natsCmdOK),
+		equalFoldASCII(command, natsCmdErr),
+		equalFoldASCII(command, natsCmdPing),
+		equalFoldASCII(command, natsCmdPong):
 		return natsFrame{}, nil
-	case "INFO", "CONNECT":
-		rest, err := natsJSONPayload(line, fields[0])
-		if err != nil {
-			return natsFrame{}, err
-		}
-
-		if command == "INFO" {
-			return natsFrame{valid: true}, nil
-		}
-
-		var meta struct {
-			Name string `json:"name"`
-		}
-		if err := json.Unmarshal(rest, &meta); err != nil {
-			return natsFrame{}, errors.New("invalid NATS JSON payload")
-		}
-
-		return natsFrame{clientID: meta.Name, valid: true}, nil
-	case "SUB":
-		if len(fields) != 3 && len(fields) != 4 {
-			return natsFrame{}, errors.New("invalid SUB control line")
-		}
-		if err := validateNATSSID(fields[len(fields)-1]); err != nil {
-			return natsFrame{}, err
-		}
-		return natsFrame{valid: true}, nil
-	case "UNSUB":
-		if len(fields) != 2 && len(fields) != 3 {
-			return natsFrame{}, errors.New("invalid UNSUB control line")
-		}
-		if err := validateNATSSID(fields[1]); err != nil {
-			return natsFrame{}, err
-		}
-		if len(fields) == 3 {
-			if _, err := strconv.Atoi(string(fields[2])); err != nil {
-				return natsFrame{}, errors.New("invalid UNSUB max_msgs")
-			}
-		}
-		return natsFrame{valid: true}, nil
-	case "PUB":
-		subject, size, err := parseNATSPayloadFields(fields)
-		if err != nil {
-			return natsFrame{}, err
-		}
-		if err := consumeNATSPayload(reader, size); err != nil {
-			return natsFrame{}, err
-		}
-		return natsFrame{
-			info:  &NATSInfo{Operation: request.MessagingPublish, Subject: subject, PayloadSize: size},
-			valid: true,
-		}, nil
-	case "MSG":
-		if len(fields) != 4 && len(fields) != 5 {
-			return natsFrame{}, errors.New("invalid MSG control line")
-		}
-		if err := validateNATSSID(fields[2]); err != nil {
-			return natsFrame{}, err
-		}
-		size, err := strconv.Atoi(string(fields[len(fields)-1]))
-		if err != nil {
-			return natsFrame{}, errors.New("invalid MSG payload size")
-		}
-		if err := consumeNATSPayload(reader, size); err != nil {
-			return natsFrame{}, err
-		}
-		return natsFrame{
-			info:  &NATSInfo{Operation: request.MessagingProcess, Subject: string(fields[1]), PayloadSize: size},
-			valid: true,
-		}, nil
-	case "HPUB":
-		subject, totalSize, err := parseNATSHeaderPayloadFields(fields)
-		if err != nil {
-			return natsFrame{}, err
-		}
-		if err := consumeNATSPayload(reader, totalSize); err != nil {
-			return natsFrame{}, err
-		}
-		return natsFrame{
-			info:  &NATSInfo{Operation: request.MessagingPublish, Subject: subject, PayloadSize: totalSize}, // totalSize includes headers + body for HPUB
-			valid: true,
-		}, nil
-	case "HMSG":
-		if len(fields) != 5 && len(fields) != 6 {
-			return natsFrame{}, errors.New("invalid HMSG control line")
-		}
-		if err := validateNATSSID(fields[2]); err != nil {
-			return natsFrame{}, err
-		}
-		hdrSize, err := strconv.Atoi(string(fields[len(fields)-2]))
-		if err != nil {
-			return natsFrame{}, errors.New("invalid HMSG header size")
-		}
-		totalSize, err := strconv.Atoi(string(fields[len(fields)-1]))
-		if err != nil {
-			return natsFrame{}, errors.New("invalid HMSG total size")
-		}
-		if hdrSize > totalSize {
-			return natsFrame{}, errors.New("HMSG header size exceeds total size")
-		}
-		if err := consumeNATSPayload(reader, totalSize); err != nil {
-			return natsFrame{}, err
-		}
-		return natsFrame{
-			info:  &NATSInfo{Operation: request.MessagingProcess, Subject: string(fields[1]), PayloadSize: totalSize}, // totalSize includes headers + body for HMSG
-			valid: true,
-		}, nil
+	case equalFoldASCII(command, natsCmdInfo), equalFoldASCII(command, natsCmdConnect):
+		return parseNATSInfoOrConnectFrame(command, line)
+	case equalFoldASCII(command, natsCmdSub):
+		return parseNATSSubFrame(fields)
+	case equalFoldASCII(command, natsCmdUnsub):
+		return parseNATSUnsubFrame(fields)
+	case equalFoldASCII(command, natsCmdPub):
+		return parseNATSPUBFrame(reader, fields)
+	case equalFoldASCII(command, natsCmdMsg):
+		return parseNATSMSGFrame(reader, fields)
+	case equalFoldASCII(command, natsCmdHPub):
+		return parseNATSHPUBFrame(reader, fields)
+	case equalFoldASCII(command, natsCmdHMsg):
+		return parseNATSHMSGFrame(reader, fields)
 	default:
 		return natsFrame{}, errors.New("unsupported NATS command")
 	}
+}
+
+func parseNATSInfoOrConnectFrame(command, line []byte) (natsFrame, error) {
+	rest, err := natsJSONPayload(line, command)
+	if err != nil {
+		return natsFrame{}, err
+	}
+
+	if equalFoldASCII(command, natsCmdInfo) {
+		return natsFrame{valid: true}, nil
+	}
+
+	var meta struct {
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(rest, &meta); err != nil {
+		return natsFrame{}, errors.New("invalid NATS JSON payload")
+	}
+
+	return natsFrame{clientID: meta.Name, valid: true}, nil
+}
+
+func parseNATSSubFrame(fields [][]byte) (natsFrame, error) {
+	if len(fields) != 3 && len(fields) != 4 {
+		return natsFrame{}, errors.New("invalid SUB control line")
+	}
+	if err := validateNATSSID(fields[len(fields)-1]); err != nil {
+		return natsFrame{}, err
+	}
+	return natsFrame{valid: true}, nil
+}
+
+func parseNATSUnsubFrame(fields [][]byte) (natsFrame, error) {
+	if len(fields) != 2 && len(fields) != 3 {
+		return natsFrame{}, errors.New("invalid UNSUB control line")
+	}
+	if err := validateNATSSID(fields[1]); err != nil {
+		return natsFrame{}, err
+	}
+	if len(fields) == 3 {
+		if _, err := parseIntField(fields[2]); err != nil {
+			return natsFrame{}, errors.New("invalid UNSUB max_msgs")
+		}
+	}
+	return natsFrame{valid: true}, nil
+}
+
+func parseNATSPUBFrame(reader *largebuf.LargeBufferReader, fields [][]byte) (natsFrame, error) {
+	subject, size, err := parseNATSPayloadFields(fields)
+	if err != nil {
+		return natsFrame{}, err
+	}
+	if err := consumeNATSPayload(reader, size); err != nil {
+		return natsFrame{}, err
+	}
+	return natsFrame{
+		info:  &NATSInfo{Operation: request.MessagingPublish, Subject: subject, PayloadSize: size},
+		valid: true,
+	}, nil
+}
+
+func parseNATSMSGFrame(reader *largebuf.LargeBufferReader, fields [][]byte) (natsFrame, error) {
+	if len(fields) != 4 && len(fields) != 5 {
+		return natsFrame{}, errors.New("invalid MSG control line")
+	}
+	if err := validateNATSSID(fields[2]); err != nil {
+		return natsFrame{}, err
+	}
+	size, err := parseIntField(fields[len(fields)-1])
+	if err != nil {
+		return natsFrame{}, errors.New("invalid MSG payload size")
+	}
+	if err := consumeNATSPayload(reader, size); err != nil {
+		return natsFrame{}, err
+	}
+	return natsFrame{
+		info:  &NATSInfo{Operation: request.MessagingProcess, Subject: string(fields[1]), PayloadSize: size},
+		valid: true,
+	}, nil
+}
+
+func parseNATSHPUBFrame(reader *largebuf.LargeBufferReader, fields [][]byte) (natsFrame, error) {
+	subject, totalSize, err := parseNATSHeaderPayloadFields(fields)
+	if err != nil {
+		return natsFrame{}, err
+	}
+	if err := consumeNATSPayload(reader, totalSize); err != nil {
+		return natsFrame{}, err
+	}
+	return natsFrame{
+		info:  &NATSInfo{Operation: request.MessagingPublish, Subject: subject, PayloadSize: totalSize}, // totalSize includes headers + body for HPUB
+		valid: true,
+	}, nil
+}
+
+func parseNATSHMSGFrame(reader *largebuf.LargeBufferReader, fields [][]byte) (natsFrame, error) {
+	if len(fields) != 5 && len(fields) != 6 {
+		return natsFrame{}, errors.New("invalid HMSG control line")
+	}
+	if err := validateNATSSID(fields[2]); err != nil {
+		return natsFrame{}, err
+	}
+	hdrSize, err := parseIntField(fields[len(fields)-2])
+	if err != nil {
+		return natsFrame{}, errors.New("invalid HMSG header size")
+	}
+	totalSize, err := parseIntField(fields[len(fields)-1])
+	if err != nil {
+		return natsFrame{}, errors.New("invalid HMSG total size")
+	}
+	if hdrSize > totalSize {
+		return natsFrame{}, errors.New("HMSG header size exceeds total size")
+	}
+	if err := consumeNATSPayload(reader, totalSize); err != nil {
+		return natsFrame{}, err
+	}
+	return natsFrame{
+		info:  &NATSInfo{Operation: request.MessagingProcess, Subject: string(fields[1]), PayloadSize: totalSize}, // totalSize includes headers + body for HMSG
+		valid: true,
+	}, nil
+}
+
+func parseIntField(field []byte) (int, error) {
+	if len(field) == 0 {
+		return 0, errors.New("invalid integer field")
+	}
+	return strconv.Atoi(unsafe.String(unsafe.SliceData(field), len(field)))
 }
 
 func parseNATSPayloadFields(fields [][]byte) (string, int, error) {
@@ -233,7 +285,7 @@ func parseNATSPayloadFields(fields [][]byte) (string, int, error) {
 		return "", 0, errors.New("invalid NATS payload control line")
 	}
 
-	size, err := strconv.Atoi(string(fields[len(fields)-1]))
+	size, err := parseIntField(fields[len(fields)-1])
 	if err != nil {
 		return "", 0, errors.New("invalid NATS payload size")
 	}
@@ -246,11 +298,11 @@ func parseNATSHeaderPayloadFields(fields [][]byte) (string, int, error) {
 		return "", 0, errors.New("invalid NATS header payload control line")
 	}
 
-	hdrSize, err := strconv.Atoi(string(fields[len(fields)-2]))
+	hdrSize, err := parseIntField(fields[len(fields)-2])
 	if err != nil {
 		return "", 0, errors.New("invalid NATS header size")
 	}
-	totalSize, err := strconv.Atoi(string(fields[len(fields)-1]))
+	totalSize, err := parseIntField(fields[len(fields)-1])
 	if err != nil {
 		return "", 0, errors.New("invalid NATS total size")
 	}
@@ -319,10 +371,22 @@ func natsJSONPayload(line, command []byte) ([]byte, error) {
 }
 
 func validateNATSSID(field []byte) error {
-	if !isASCII(string(field)) {
+	if !isASCIIAlnumBytes(field) {
 		return errors.New("invalid NATS sid")
 	}
 	return nil
+}
+
+func isASCIIAlnumBytes(field []byte) bool {
+	if len(field) == 0 {
+		return false
+	}
+	for _, b := range field {
+		if (b < '0' || b > '9') && (b < 'a' || b > 'z') && (b < 'A' || b > 'Z') {
+			return false
+		}
+	}
+	return true
 }
 
 func isNATS(pkt *largebuf.LargeBuffer) bool {
@@ -350,12 +414,12 @@ func TCPToNATSToSpan(trace *TCPRequestInfo, data *NATSInfo) request.Span {
 	hostPort := 0
 
 	if trace.ConnInfo.S_port != 0 || trace.ConnInfo.D_port != 0 {
-		peer, hostname = (*BPFConnInfo)(unsafe.Pointer(&trace.ConnInfo)).reqHostInfo()
+		peer, hostname = (*BPFConnInfo)(&trace.ConnInfo).reqHostInfo()
 		hostPort = int(trace.ConnInfo.D_port)
 	}
 
 	reqType := request.EventTypeNATSClient
-	if trace.Direction == 0 {
+	if trace.Direction == directionRecv {
 		reqType = request.EventTypeNATSServer
 	}
 

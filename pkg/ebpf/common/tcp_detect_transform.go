@@ -339,30 +339,24 @@ func matchHTTP2(event *TCPRequestInfo, requestBuffer, responseBuffer *largebuf.L
 }
 
 func matchNATS(parseCtx *EBPFParseContext, event *TCPRequestInfo, requestBuffer, responseBuffer *largebuf.LargeBuffer) (request.Span, bool, bool, error) { //nolint:unparam
-	if !isNATS(requestBuffer) && !isNATS(responseBuffer) {
-		return request.Span{}, false, false, nil
-	}
-
 	info, extraInfo, ignore, err := ProcessPossibleNATSEvent(event, requestBuffer, responseBuffer)
 
 	if ignore && err == nil {
 		return request.Span{}, true, true, nil
 	}
 
-	if err == nil {
-		if extraInfo != nil {
-			extraSpan := TCPToNATSToSpan(event, extraInfo)
-			extraSpan.Type = request.EventTypeNATSServer
-			extraSpan.SpanID = trace.SpanID{}
-
-			parseCtx.emitExtraSpans(extraSpan)
-		}
-		return TCPToNATSToSpan(event, info), false, true, nil
+	if err != nil {
+		return request.Span{}, false, false, nil
 	}
 
-	// NATS heuristic matched but full parsing failed - ignore the packet.
-	slog.Debug("NATS heuristic detection failed, ignoring", "error", err)
-	return request.Span{}, false, false, nil
+	if extraInfo != nil {
+		extraSpan := TCPToNATSToSpan(event, extraInfo)
+		extraSpan.Type = request.EventTypeNATSServer
+		extraSpan.SpanID = trace.SpanID{}
+
+		parseCtx.emitExtraSpans(extraSpan)
+	}
+	return TCPToNATSToSpan(event, info), false, true, nil
 }
 
 func matchMQTT(event *TCPRequestInfo, requestBuffer, responseBuffer *largebuf.LargeBuffer) (request.Span, bool, bool, error) { //nolint:unparam
