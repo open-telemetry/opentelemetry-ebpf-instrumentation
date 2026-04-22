@@ -36,6 +36,7 @@ OCI_BIN ?= docker
 DOCKER_USER=$(shell id -u):$(shell id -g)
 DEPENDENCIES_DOCKERFILE=./dependencies.Dockerfile
 GRADLE_IMAGE := $(shell awk '$$4=="gradle-java" {print $$2}' $(DEPENDENCIES_DOCKERFILE))
+GOLANG_IMAGE := $(shell awk '$$4=="golang" {print $$2}' $(DEPENDENCIES_DOCKERFILE))
 PYTHON39_IMAGE := $(shell awk '$$4=="python39" {print $$2}' $(DEPENDENCIES_DOCKERFILE))
 PYTHON314_IMAGE := $(shell awk '$$4=="python314" {print $$2}' $(DEPENDENCIES_DOCKERFILE))
 
@@ -710,9 +711,29 @@ java-notices-update:
 		$(NOTICES_DIR)/java/agent/THIRD_PARTY_LICENSES.txt
 	@cp pkg/internal/java/agent/build/reports/dependency-license/THIRD_PARTY_LICENSES.csv $(NOTICES_DIR)/java/agent/
 
+GO_NOTICES_ARCHES := amd64 arm64
+
 .PHONY: go-notices-update
 go-notices-update:
-	@GOOS=$(GOOS) GOARCH=amd64 go tool $(TOOLS_MODFILE) go-licenses save ./... --save_path=$(NOTICES_DIR) --force
+	@echo "### Generating Go notices for linux/{$(GO_NOTICES_ARCHES)} in docker"
+	@# Migrate legacy flat layout: drop any Go-ecosystem dirs at NOTICES root (keep bpf/ + java/ + arch subtrees).
+	@find $(NOTICES_DIR) -mindepth 1 -maxdepth 1 \
+		-not -name bpf -not -name java $(foreach a,$(GO_NOTICES_ARCHES),-not -name $(a)) \
+		-exec rm -rf {} +
+	@# Build go-licenses once at container host arch, then invoke per target GOARCH so the tool binary
+	@# stays executable while it cross-inspects the build graph for each arch.
+	@$(OCI_BIN) run --rm \
+		$(if $(findstring podman,$(OCI_BIN)),,-u "$(DOCKER_USER)") \
+		-v "$(CURDIR):/src:z" \
+		-e HOME=/tmp -e GOTOOLCHAIN=local -e GOMODCACHE=/tmp/gomod \
+		-w /src \
+		$(GOLANG_IMAGE) \
+		sh -c 'set -e; \
+			go build -modfile=internal/tools/go.mod -o /tmp/go-licenses github.com/google/go-licenses/v2; \
+			for arch in $(GO_NOTICES_ARCHES); do \
+				echo "### linux/$$arch"; \
+				GOOS=linux GOARCH=$$arch /tmp/go-licenses save ./... --save_path=$(NOTICES_DIR)/$$arch --force; \
+			done'
 
 PYTHON_REQUIREMENTS_INS ?= $(shell find ./internal/test/integration/components -type f -name 'requirements.in' | sort)
 PYTHON_REQUIREMENTS_DIRS := $(sort $(dir $(PYTHON_REQUIREMENTS_INS)))
