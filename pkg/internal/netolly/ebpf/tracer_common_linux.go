@@ -6,14 +6,18 @@
 package ebpf // import "go.opentelemetry.io/obi/pkg/internal/netolly/ebpf"
 
 import (
+	"errors"
+
 	"github.com/cilium/ebpf"
 )
 
+var errFlowPacketStatsMapNotInitialized = errors.New("flow packet stats map not initialized")
+
 // lookupPacketStats is a common function called by LookupPacketStats().
-// Returns ErrTracerTerminated after Close().
+// Returns errFlowPacketStatsMapNotInitialized after Close().
 func lookupPacketStats(m *ebpf.Map) (NetPacketCount, error) {
 	if m == nil {
-		return NetPacketCount{}, ErrTracerTerminated
+		return NetPacketCount{}, errFlowPacketStatsMapNotInitialized
 	}
 	var perCPUCounts []NetPacketCount
 	if err := m.Lookup(uint32(0), &perCPUCounts); err != nil {

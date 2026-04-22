@@ -26,7 +26,7 @@ func (s *SockFlowFetcher) ReadRingBuf() (ringbuf.Record, error) {
 }
 
 func (s *SockFlowFetcher) LookupPacketStats() (NetPacketCount, error) {
-	panic("this is never going to be executed")
+	return NetPacketCount{}, ErrTracerTerminated
 }
 
 func NewSockFlowFetcher(
