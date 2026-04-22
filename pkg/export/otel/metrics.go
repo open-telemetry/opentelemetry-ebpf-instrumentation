@@ -1288,4 +1288,5 @@ func (r *Metrics) cleanupAllMetricsInstances() {
 	cleanupMetrics(r.ctx, r.dnsLookupDuration)
 	cleanupMetrics(r.ctx, r.genAIClientDuration)
 	cleanupMetrics(r.ctx, r.genAIInputTokenUsage)
+	cleanupMetrics(r.ctx, r.genAIOutputTokenUsage)
 }
