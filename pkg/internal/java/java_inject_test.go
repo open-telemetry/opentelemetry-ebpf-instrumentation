@@ -6,9 +6,6 @@
 package javaagent
 
 import (
-	"crypto/sha256"
-	"errors"
-	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -26,9 +23,14 @@ import (
 )
 
 func TestJavaInjector_CopyAgent(t *testing.T) {
+	oldJavaAgentBytes := embeddedJavaAgentBytes
+	embeddedJavaAgentBytes = []byte("test agent content")
+	t.Cleanup(func() {
+		embeddedJavaAgentBytes = oldJavaAgentBytes
+	})
+
 	tests := []struct {
 		name          string
-		setupAgent    func(t *testing.T) string
 		setupTempDir  func(t *testing.T, pid app.PID) string
 		envVars       map[string]string
 		pid           app.PID
@@ -38,11 +40,6 @@ func TestJavaInjector_CopyAgent(t *testing.T) {
 	}{
 		{
 			name: "successful copy to /tmp",
-			setupAgent: func(t *testing.T) string {
-				tmpFile := filepath.Join(t.TempDir(), ObiJavaAgentFileName)
-				require.NoError(t, os.WriteFile(tmpFile, []byte("test agent content"), 0o644))
-				return tmpFile
-			},
 			setupTempDir: func(t *testing.T, _ app.PID) string {
 				tmpDir := t.TempDir()
 				procRoot := filepath.Join(tmpDir, "proc", "root")
@@ -56,11 +53,6 @@ func TestJavaInjector_CopyAgent(t *testing.T) {
 		},
 		{
 			name: "successful copy to TMPDIR from env",
-			setupAgent: func(t *testing.T) string {
-				tmpFile := filepath.Join(t.TempDir(), ObiJavaAgentFileName)
-				require.NoError(t, os.WriteFile(tmpFile, []byte("test agent content"), 0o644))
-				return tmpFile
-			},
 			setupTempDir: func(t *testing.T, _ app.PID) string {
 				tmpDir := t.TempDir()
 				procRoot := filepath.Join(tmpDir, "proc", "root")
@@ -77,11 +69,6 @@ func TestJavaInjector_CopyAgent(t *testing.T) {
 		},
 		{
 			name: "TMPDIR absolute path outside process root is ignored",
-			setupAgent: func(t *testing.T) string {
-				tmpFile := filepath.Join(t.TempDir(), ObiJavaAgentFileName)
-				require.NoError(t, os.WriteFile(tmpFile, []byte("test agent content"), 0o644))
-				return tmpFile
-			},
 			setupTempDir: func(t *testing.T, _ app.PID) string {
 				tmpDir := t.TempDir()
 				procRoot := filepath.Join(tmpDir, "proc", "root")
@@ -97,11 +84,6 @@ func TestJavaInjector_CopyAgent(t *testing.T) {
 		},
 		{
 			name: "TMPDIR relative path escape is ignored",
-			setupAgent: func(t *testing.T) string {
-				tmpFile := filepath.Join(t.TempDir(), ObiJavaAgentFileName)
-				require.NoError(t, os.WriteFile(tmpFile, []byte("test agent content"), 0o644))
-				return tmpFile
-			},
 			setupTempDir: func(t *testing.T, _ app.PID) string {
 				tmpDir := t.TempDir()
 				procRoot := filepath.Join(tmpDir, "proc", "root")
@@ -117,11 +99,6 @@ func TestJavaInjector_CopyAgent(t *testing.T) {
 		},
 		{
 			name: "fallback to /var/tmp when /tmp not available",
-			setupAgent: func(t *testing.T) string {
-				tmpFile := filepath.Join(t.TempDir(), ObiJavaAgentFileName)
-				require.NoError(t, os.WriteFile(tmpFile, []byte("test agent content"), 0o644))
-				return tmpFile
-			},
 			setupTempDir: func(t *testing.T, _ app.PID) string {
 				tmpDir := t.TempDir()
 				procRoot := filepath.Join(tmpDir, "proc", "root")
@@ -135,11 +112,6 @@ func TestJavaInjector_CopyAgent(t *testing.T) {
 		},
 		{
 			name: "error when no temp directory available",
-			setupAgent: func(t *testing.T) string {
-				tmpFile := filepath.Join(t.TempDir(), ObiJavaAgentFileName)
-				require.NoError(t, os.WriteFile(tmpFile, []byte("test agent content"), 0o644))
-				return tmpFile
-			},
 			setupTempDir: func(t *testing.T, _ app.PID) string {
 				tmpDir := t.TempDir()
 				procRoot := filepath.Join(tmpDir, "proc", "root")
@@ -153,29 +125,7 @@ func TestJavaInjector_CopyAgent(t *testing.T) {
 			verifyFile:    false,
 		},
 		{
-			name: "error when agent file not accessible",
-			setupAgent: func(t *testing.T) string {
-				return filepath.Join(t.TempDir(), "nonexistent", ObiJavaAgentFileName)
-			},
-			setupTempDir: func(t *testing.T, _ app.PID) string {
-				tmpDir := t.TempDir()
-				procRoot := filepath.Join(tmpDir, "proc", "root")
-				require.NoError(t, os.MkdirAll(filepath.Join(procRoot, "tmp"), 0o755))
-				return tmpDir
-			},
-			envVars:       map[string]string{},
-			pid:           1000,
-			expectError:   true,
-			errorContains: "unable to access OBI java agent",
-			verifyFile:    false,
-		},
-		{
 			name: "error when target directory not writable",
-			setupAgent: func(t *testing.T) string {
-				tmpFile := filepath.Join(t.TempDir(), ObiJavaAgentFileName)
-				require.NoError(t, os.WriteFile(tmpFile, []byte("test agent content"), 0o644))
-				return tmpFile
-			},
 			setupTempDir: func(t *testing.T, _ app.PID) string {
 				tmpDir := t.TempDir()
 				procRoot := filepath.Join(tmpDir, "proc", "root")
@@ -192,12 +142,6 @@ func TestJavaInjector_CopyAgent(t *testing.T) {
 		},
 		{
 			name: "agent content correctly copied",
-			setupAgent: func(t *testing.T) string {
-				tmpFile := filepath.Join(t.TempDir(), ObiJavaAgentFileName)
-				content := []byte("unique test agent content 12345")
-				require.NoError(t, os.WriteFile(tmpFile, content, 0o644))
-				return tmpFile
-			},
 			setupTempDir: func(t *testing.T, _ app.PID) string {
 				tmpDir := t.TempDir()
 				procRoot := filepath.Join(tmpDir, "proc", "root")
@@ -211,11 +155,6 @@ func TestJavaInjector_CopyAgent(t *testing.T) {
 		},
 		{
 			name: "copy does not follow existing symlink target",
-			setupAgent: func(t *testing.T) string {
-				tmpFile := filepath.Join(t.TempDir(), ObiJavaAgentFileName)
-				require.NoError(t, os.WriteFile(tmpFile, []byte("test agent content"), 0o644))
-				return tmpFile
-			},
 			setupTempDir: func(t *testing.T, _ app.PID) string {
 				tmpDir := t.TempDir()
 				procRoot := filepath.Join(tmpDir, "proc", "root")
@@ -236,7 +175,6 @@ func TestJavaInjector_CopyAgent(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			agentPath := tt.setupAgent(t)
 			tmpDir := tt.setupTempDir(t, tt.pid)
 
 			// Override the root directory function
@@ -247,9 +185,8 @@ func TestJavaInjector_CopyAgent(t *testing.T) {
 			}
 
 			injector := &JavaInjector{
-				cfg:       &obi.DefaultConfig,
-				log:       slog.With("component", "javaagent.Injector"),
-				agentPath: agentPath,
+				cfg: &obi.DefaultConfig,
+				log: slog.With("component", "javaagent.Injector"),
 			}
 
 			ie := &ebpf.Instrumentable{
@@ -284,8 +221,7 @@ func TestJavaInjector_CopyAgent(t *testing.T) {
 					assert.Equal(t, os.FileMode(0o644), info.Mode().Perm())
 
 					// Verify content matches
-					originalContent, err := os.ReadFile(agentPath)
-					require.NoError(t, err)
+					originalContent := embeddedJavaAgentBytes
 					copiedContent, err := os.ReadFile(expectedHostPath)
 					require.NoError(t, err)
 					assert.Equal(t, originalContent, copiedContent)
@@ -570,123 +506,22 @@ func TestJavaInjector_AttachOpts(t *testing.T) {
 	}
 }
 
-func TestEnsureEmbeddedAgentInCache_WritesAndReuses(t *testing.T) {
-	originalUserCacheDir := userCacheDir
+func TestEnsureEmbeddedAgentInCache_ForgotToEmbed(t *testing.T) {
 	originalEmbeddedBytes := embeddedJavaAgentBytes
 	t.Cleanup(func() {
-		userCacheDir = originalUserCacheDir
 		embeddedJavaAgentBytes = originalEmbeddedBytes
 	})
 
-	cacheRoot := t.TempDir()
-	embeddedJavaAgentBytes = []byte("embedded-java-agent-content")
-	userCacheDir = func() (string, error) {
-		return cacheRoot, nil
-	}
-
-	firstPath, err := ensureEmbeddedAgentInCache()
-	require.NoError(t, err)
-	content, err := os.ReadFile(firstPath)
-	require.NoError(t, err)
-	assert.Equal(t, embeddedJavaAgentBytes, content)
-
-	secondPath, err := ensureEmbeddedAgentInCache()
-	require.NoError(t, err)
-	assert.Equal(t, firstPath, secondPath)
+	embeddedJavaAgentBytes = nil
+	assert.Panics(t, ensureEmbeddedAgent)
 }
 
 func TestEnsureEmbeddedAgentInCache_PlaceholderBytesError(t *testing.T) {
-	originalUserCacheDir := userCacheDir
 	originalEmbeddedBytes := embeddedJavaAgentBytes
 	t.Cleanup(func() {
-		userCacheDir = originalUserCacheDir
 		embeddedJavaAgentBytes = originalEmbeddedBytes
 	})
 
 	embeddedJavaAgentBytes = []byte(javaAgentEmbedPlaceholder + "\n")
-
-	_, err := ensureEmbeddedAgentInCache()
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "embedded OBI java agent artifact is missing")
-}
-
-func TestEnsureEmbeddedAgentInCache_RenameRaceTreatsAsSuccess(t *testing.T) {
-	originalUserCacheDir := userCacheDir
-	originalEmbeddedBytes := embeddedJavaAgentBytes
-	originalRenameFile := renameFile
-	t.Cleanup(func() {
-		userCacheDir = originalUserCacheDir
-		embeddedJavaAgentBytes = originalEmbeddedBytes
-		renameFile = originalRenameFile
-	})
-
-	cacheRoot := t.TempDir()
-	embeddedJavaAgentBytes = []byte("embedded-java-agent-content")
-	userCacheDir = func() (string, error) {
-		return cacheRoot, nil
-	}
-
-	checksum := sha256.Sum256(embeddedJavaAgentBytes)
-	expectedPath := filepath.Join(cacheRoot, "obi", "java", fmt.Sprintf("obi-java-agent-%x.jar", checksum))
-
-	renameFile = func(_, target string) error {
-		require.NoError(t, os.MkdirAll(filepath.Dir(target), 0o755))
-		require.NoError(t, os.WriteFile(target, embeddedJavaAgentBytes, 0o644))
-		return errors.New("simulated concurrent rename conflict")
-	}
-
-	path, err := ensureEmbeddedAgentInCache()
-	require.NoError(t, err)
-	assert.Equal(t, expectedPath, path)
-
-	content, err := os.ReadFile(path)
-	require.NoError(t, err)
-	assert.Equal(t, embeddedJavaAgentBytes, content)
-}
-
-func TestEnsureEmbeddedAgentInCache_RewritesIncorrectSizedCacheFile(t *testing.T) {
-	originalUserCacheDir := userCacheDir
-	originalEmbeddedBytes := embeddedJavaAgentBytes
-	t.Cleanup(func() {
-		userCacheDir = originalUserCacheDir
-		embeddedJavaAgentBytes = originalEmbeddedBytes
-	})
-
-	cacheRoot := t.TempDir()
-	embeddedJavaAgentBytes = []byte("embedded-java-agent-content")
-	userCacheDir = func() (string, error) {
-		return cacheRoot, nil
-	}
-
-	checksum := sha256.Sum256(embeddedJavaAgentBytes)
-	expectedPath := filepath.Join(cacheRoot, "obi", "java", fmt.Sprintf("obi-java-agent-%x.jar", checksum))
-	require.NoError(t, os.MkdirAll(filepath.Dir(expectedPath), 0o755))
-	require.NoError(t, os.WriteFile(expectedPath, []byte("bad"), 0o644))
-
-	path, err := ensureEmbeddedAgentInCache()
-	require.NoError(t, err)
-	assert.Equal(t, expectedPath, path)
-
-	content, err := os.ReadFile(path)
-	require.NoError(t, err)
-	assert.Equal(t, embeddedJavaAgentBytes, content)
-}
-
-func TestEnsureEmbeddedAgentInCache_UserCacheDirError(t *testing.T) {
-	originalUserCacheDir := userCacheDir
-	originalEmbeddedBytes := embeddedJavaAgentBytes
-	t.Cleanup(func() {
-		userCacheDir = originalUserCacheDir
-		embeddedJavaAgentBytes = originalEmbeddedBytes
-	})
-
-	embeddedJavaAgentBytes = []byte("embedded-java-agent-content")
-	userCacheDir = func() (string, error) {
-		return "", errors.New("cache dir lookup failed")
-	}
-
-	_, err := ensureEmbeddedAgentInCache()
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "unable to resolve user cache directory")
-	assert.Contains(t, err.Error(), "cache dir lookup failed")
+	assert.Panics(t, ensureEmbeddedAgent)
 }
