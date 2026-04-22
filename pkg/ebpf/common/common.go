@@ -223,14 +223,31 @@ var MisclassifiedEvents = make(chan MisclassifiedEvent)
 
 func ptlog() *slog.Logger { return slog.With("component", "ebpf.ProcessTracer") }
 
+func isASCIIAlnumByte(c byte) bool {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
+}
+
 func isASCII(s string) bool {
 	for i := 0; i < len(s); i++ {
 		c := s[i]
-		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
-			c == '.' || c == '_' || c == ' ' || c == '-' {
+		if isASCIIAlnumByte(c) || c == '.' || c == '_' || c == ' ' || c == '-' {
 			continue
 		}
 		return false
+	}
+
+	return true
+}
+
+func isASCIIAlnumBytes(field []byte) bool {
+	if len(field) == 0 {
+		return false
+	}
+
+	for _, b := range field {
+		if !isASCIIAlnumByte(b) {
+			return false
+		}
 	}
 
 	return true

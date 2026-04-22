@@ -377,18 +377,6 @@ func validateNATSSID(field []byte) error {
 	return nil
 }
 
-func isASCIIAlnumBytes(field []byte) bool {
-	if len(field) == 0 {
-		return false
-	}
-	for _, b := range field {
-		if (b < '0' || b > '9') && (b < 'a' || b > 'z') && (b < 'A' || b > 'Z') {
-			return false
-		}
-	}
-	return true
-}
-
 func isNATS(pkt *largebuf.LargeBuffer) bool {
 	if pkt == nil || pkt.Len() == 0 {
 		return false
