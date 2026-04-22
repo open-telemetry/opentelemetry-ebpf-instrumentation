@@ -75,9 +75,9 @@ func ReadGoKafkaGoRequestIntoSpan(record *ringbuf.Record) (request.Span, bool, e
 		hostPort = int(event.Conn.D_port)
 	}
 
-	op := Produce
+	op := Fetch
 	if event.Op == 1 {
-		op = Fetch
+		op = Produce
 	}
 
 	return request.Span{
