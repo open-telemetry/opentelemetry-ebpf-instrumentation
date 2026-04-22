@@ -603,7 +603,11 @@ artifact: docker-generate java-docker-build compile
 	cp ./bin/$(CMD) $$STAGING_DIR/; \
 	cp LICENSE $$STAGING_DIR/; \
 	cp NOTICE $$STAGING_DIR/; \
-	cp -r NOTICES $$STAGING_DIR/; \
+	mkdir -p $$STAGING_DIR/NOTICES; \
+	if [ -d NOTICES/bpf ]; then cp -R NOTICES/bpf $$STAGING_DIR/NOTICES/; fi; \
+	if [ -d NOTICES/java ]; then cp -R NOTICES/java $$STAGING_DIR/NOTICES/; fi; \
+	if [ ! -d NOTICES/$(GOARCH) ]; then echo "ERROR: NOTICES/$(GOARCH) missing; run 'make go-notices-update'"; exit 1; fi; \
+	cp -R NOTICES/$(GOARCH)/. $$STAGING_DIR/NOTICES/; \
 	tar -C $$STAGING_DIR -czf bin/obi-$(RELEASE_VERSION)-$(GOOS)-$(GOARCH).tar.gz $(CMD) LICENSE NOTICE NOTICES
 
 .PHONY: release
@@ -618,6 +622,11 @@ release: artifact
 	@if [ ! -f $(RELEASE_DIR)/verify-$(GOARCH)/LICENSE ]; then echo "ERROR: LICENSE missing in $(GOARCH) archive"; exit 1; fi
 	@if [ ! -f $(RELEASE_DIR)/verify-$(GOARCH)/NOTICE ]; then echo "ERROR: NOTICE missing in $(GOARCH) archive"; exit 1; fi
 	@if [ ! -d $(RELEASE_DIR)/verify-$(GOARCH)/NOTICES ]; then echo "ERROR: NOTICES directory missing in $(GOARCH) archive"; exit 1; fi
+	@for other in $(filter-out $(GOARCH),$(GO_NOTICES_ARCHES)); do \
+		if [ -d $(RELEASE_DIR)/verify-$(GOARCH)/NOTICES/$$other ]; then \
+			echo "ERROR: NOTICES/$$other leaked into $(GOARCH) archive"; exit 1; \
+		fi; \
+	done
 	@if [ ! -x $(RELEASE_DIR)/verify-$(GOARCH)/$(CMD) ]; then echo "ERROR: $(CMD) binary not executable in $(GOARCH) archive"; exit 1; fi
 	@echo "✓ Archive $(GOARCH) verified successfully"
 	@rm -rf $(RELEASE_DIR)/verify-$(GOARCH)
