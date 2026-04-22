@@ -115,7 +115,6 @@ type ebpfFlowFetcher interface {
 	ReadRingBuf() (ringbuf.Record, error)
 
 	LookupPacketStats() (ebpf.NetPacketCount, error)
-	FlowPacketStatsMap() *cebpf.Map
 	DebugEventsMap() *cebpf.Map
 }
 
@@ -243,8 +242,11 @@ func (f *Flows) Run(ctx context.Context) error {
 	f.status = StatusStarting
 	alog.Info("starting Flows agent")
 
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	if f.cfg.EBPF.BpfDebug {
-		go logger.ReadDebugEventsMap(ctx, f.ebpf.DebugEventsMap(),
+		go logger.ReadDebugEventsMap(runCtx, f.ebpf.DebugEventsMap(),
 			slog.With("component", "netolly.BPFDebug"))
 	}
 

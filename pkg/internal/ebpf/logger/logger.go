@@ -8,6 +8,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"time"
 
 	"github.com/cilium/ebpf"
 	"golang.org/x/sys/unix"
@@ -88,11 +89,13 @@ func (p *BPFLogger) Run(ctx context.Context) {
 
 func logDebugEvent(log *slog.Logger, record *ringbuf.Record) {
 	event, err := ebpfcommon.ReinterpretCast[BPFLogInfo](record.RawSample)
-	if err == nil {
-		log.Debug(unix.ByteSliceToString(event.Log[:]),
-			"pid", event.Pid,
-			"comm", unix.ByteSliceToString(event.Comm[:]))
+	if err != nil {
+		log.Debug("failed to decode debug event", "error", err)
+		return
 	}
+	log.Debug(unix.ByteSliceToString(event.Log[:]),
+		"pid", event.Pid,
+		"comm", unix.ByteSliceToString(event.Comm[:]))
 }
 
 func (p *BPFLogger) processLogEvent(record *ringbuf.Record) (request.Span, bool, error) {
@@ -116,13 +119,21 @@ func ReadDebugEventsMap(ctx context.Context, debugEventsMap *ebpf.Map, log *slog
 	stop := context.AfterFunc(ctx, func() { reader.Close() })
 	defer stop()
 
+	record := ringbuf.Record{}
+
 	for {
-		record, err := reader.Read()
+		err := reader.ReadInto(&record)
 		if err != nil {
 			if errors.Is(err, ringbuf.ErrClosed) {
 				return
 			}
 			log.Error("reading debug event", "error", err)
+			// Back off so a persistent error (e.g. invalid FD) doesn't spin the CPU.
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(time.Second):
+			}
 			continue
 		}
 		logDebugEvent(log, &record)

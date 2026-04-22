@@ -6,6 +6,8 @@
 package ebpf // import "go.opentelemetry.io/obi/pkg/internal/netolly/ebpf"
 
 import (
+	cebpf "github.com/cilium/ebpf"
+
 	"go.opentelemetry.io/obi/pkg/config"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/ringbuf"
 	"go.opentelemetry.io/obi/pkg/netolly/flowdef"
@@ -29,7 +31,7 @@ func (s *SockFlowFetcher) LookupPacketStats() (NetPacketCount, error) {
 	panic("this is never going to be executed")
 }
 
-func (s *SockFlowFetcher) DebugEventsMap() *ebpf.Map {
+func (s *SockFlowFetcher) DebugEventsMap() *cebpf.Map {
 	return nil
 }
 

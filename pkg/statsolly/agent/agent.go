@@ -138,8 +138,11 @@ func (s *Stats) Run(ctx context.Context) error {
 	s.status = StatusStarting
 	alog.Info("starting Stats agent")
 
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	if s.cfg.EBPF.BpfDebug {
-		go logger.ReadDebugEventsMap(ctx, s.fetcher.DebugEventsMap(),
+		go logger.ReadDebugEventsMap(runCtx, s.fetcher.DebugEventsMap(),
 			slog.With("component", "statsolly.BPFDebug"))
 	}
 
