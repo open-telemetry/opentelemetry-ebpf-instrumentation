@@ -1,0 +1,40 @@
+oats-schema-version: 2
+docker-compose:
+  files:
+  - ../docker-compose-qwen.yml
+input:
+- path: /chat
+- path: /generation
+- path: /error
+interval: 500ms
+expected:
+  traces:
+  # Compatible mode chat completion
+  - traceql: '{ .gen_ai.provider.name = "qwen" && .gen_ai.request.model = "qwen-plus" && .gen_ai.response.id = "chatcmpl-a1ad370d-b4b0-90bb-9a87-a131fd0687d6"}'
+    equals: chat.completion qwen-plus
+    attributes:
+      gen_ai.operation.name: chat.completion
+      gen_ai.response.model: qwen-plus
+      gen_ai.usage.input_tokens: 22
+      gen_ai.usage.output_tokens: 66
+  # DashScope generation endpoint
+  - traceql: '{ .gen_ai.provider.name = "qwen" && .gen_ai.request.model = "qwen-turbo" && .gen_ai.response.id = "req_abcdef0123456789"}'
+    equals: generation qwen-turbo
+    attributes:
+      gen_ai.operation.name: generation
+      gen_ai.response.model: qwen-turbo
+      gen_ai.usage.input_tokens: 12
+      gen_ai.usage.output_tokens: 10
+  # Error case
+  - traceql: '{ .error.type = "insufficient_quota" && .gen_ai.provider.name = "qwen" && .gen_ai.request.model = "qwen-plus"}'
+    equals: chat.completion qwen-plus
+    attributes:
+      gen_ai.operation.name: chat.completion
+      gen_ai.provider.name: qwen
+  metrics:
+  - promql: gen_ai_client_token_usage_count{gen_ai_operation_name="chat.completion",gen_ai_provider_name="qwen",gen_ai_token_type="input",gen_ai_request_model="qwen-plus",gen_ai_response_model="qwen-plus"}
+    value: '> 0'
+  - promql: gen_ai_client_token_usage_count{gen_ai_operation_name="chat.completion",gen_ai_provider_name="qwen",gen_ai_token_type="output",gen_ai_request_model="qwen-plus",gen_ai_response_model="qwen-plus"}
+    value: '> 0'
+  - promql: gen_ai_client_operation_duration_seconds_count{gen_ai_operation_name="chat.completion",gen_ai_provider_name="qwen",gen_ai_request_model="qwen-plus",gen_ai_response_model="qwen-plus"}
+    value: '> 0'

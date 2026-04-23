@@ -352,6 +352,9 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 			if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeGemini && s.GenAI != nil && s.GenAI.Gemini != nil {
 				return semconv.GenAIInputMessagesKey.String(s.GenAI.Gemini.GetInput())
 			}
+			if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeQwen && s.GenAI != nil && s.GenAI.Qwen != nil {
+				return semconv.GenAIInputMessagesKey.String(s.GenAI.Qwen.Request.GetInput())
+			}
 			if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeAWSBedrock && s.GenAI != nil && s.GenAI.Bedrock != nil {
 				return semconv.GenAIInputMessagesKey.String(s.GenAI.Bedrock.GetInput())
 			}
@@ -368,6 +371,9 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 			if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeGemini && s.GenAI != nil && s.GenAI.Gemini != nil {
 				return semconv.GenAIOutputMessagesKey.String(s.GenAI.Gemini.GetOutput())
 			}
+			if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeQwen && s.GenAI != nil && s.GenAI.Qwen != nil {
+				return semconv.GenAIOutputMessagesKey.String(s.GenAI.Qwen.GetOutput())
+			}
 			if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeAWSBedrock && s.GenAI != nil && s.GenAI.Bedrock != nil {
 				return semconv.GenAIOutputMessagesKey.String(s.GenAI.Bedrock.GetOutput())
 			}
@@ -383,6 +389,9 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 			}
 			if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeGemini && s.GenAI != nil && s.GenAI.Gemini != nil {
 				return semconv.GenAISystemInstructionsKey.String(s.GenAI.Gemini.GetSystemInstruction())
+			}
+			if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeQwen && s.GenAI != nil && s.GenAI.Qwen != nil {
+				return semconv.GenAISystemInstructionsKey.String(s.GenAI.Qwen.Request.Instructions)
 			}
 			if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeAWSBedrock && s.GenAI != nil && s.GenAI.Bedrock != nil {
 				return semconv.GenAISystemInstructionsKey.String(s.GenAI.Bedrock.GetSystemInstruction())

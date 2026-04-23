@@ -532,6 +532,42 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		assert.Equal(t, ptrace.StatusCodeError, spans.At(0).Status().Code())
 		assert.Equal(t, "KEY_NOT_FOUND", spans.At(0).Status().Message())
 	})
+	t.Run("test Couchbase trace generation with db.query.text", func(t *testing.T) {
+		span := request.Span{
+			Type:        request.EventTypeCouchbaseClient,
+			Method:      "SET",
+			Path:        "mycollection",
+			DBNamespace: "mybucket.myscope",
+			Statement:   `SET user::42 TTL=3600 {"name":"alice"}`,
+			Status:      0,
+		}
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{"db.operation.name": {}, "db.query.text": {}})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+		attrs := spans.At(0).Attributes()
+
+		assert.Equal(t, 8, attrs.Len())
+		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBOperation), "SET")
+		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBQueryText), `SET user::42 TTL=3600 {"name":"alice"}`)
+		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBSystemName), "couchbase")
+	})
+	t.Run("test Couchbase trace generation does not emit db.query.text when not selected", func(t *testing.T) {
+		span := request.Span{
+			Type:        request.EventTypeCouchbaseClient,
+			Method:      "SET",
+			Path:        "mycollection",
+			DBNamespace: "mybucket.myscope",
+			Statement:   `SET user::42 TTL=3600 {"name":"alice"}`,
+			Status:      0,
+		}
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{"db.operation.name": {}})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+		attrs := spans.At(0).Attributes()
+		ensureTraceAttrNotExists(t, attrs, attribute.Key(attr.DBQueryText))
+	})
 	t.Run("test Memcached trace generation", func(t *testing.T) {
 		span := request.Span{Type: request.EventTypeMemcachedClient, Method: "GET", Path: "session-key", Status: 0}
 		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{"db.operation.name": {}})
@@ -1282,6 +1318,97 @@ func TestGenerateTracesAttributes(t *testing.T) {
 			Method:  "POST",
 			Status:  200,
 			GenAI:   &request.GenAI{Gemini: nil},
+		}
+
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{
+			attr.GenAIInput:        {},
+			attr.GenAIOutput:       {},
+			attr.GenAIInstructions: {},
+			attr.GenAIMetadata:     {},
+		})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		spanAttrs := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
+		ensureTraceAttrNotExists(t, spanAttrs, semconv.GenAIProviderNameKey)
+		ensureTraceAttrNotExists(t, spanAttrs, semconv.GenAIOperationNameKey)
+		ensureTraceAttrNotExists(t, spanAttrs, semconv.GenAIInputMessagesKey)
+		ensureTraceAttrNotExists(t, spanAttrs, semconv.GenAIOutputMessagesKey)
+	})
+
+	makeQwenSpan := func(ai *request.VendorOpenAI) request.Span {
+		return request.Span{
+			Type:    request.EventTypeHTTPClient,
+			SubType: request.HTTPSubtypeQwen,
+			Method:  "POST",
+			Path:    "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+			Status:  200,
+			GenAI:   &request.GenAI{Qwen: ai},
+		}
+	}
+
+	t.Run("Qwen span", func(t *testing.T) {
+		span := makeQwenSpan(&request.VendorOpenAI{
+			OperationName: "chat.completion",
+			ID:            "chatcmpl-qwen123",
+			Request: request.OpenAIInput{
+				Model: "qwen-plus",
+			},
+			ResponseModel: "qwen-plus",
+			Usage: request.OpenAIUsage{
+				PromptTokens:     12,
+				CompletionTokens: 8,
+			},
+		})
+
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		spanAttrs := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
+		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIProviderNameKey, "qwen")
+		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIOperationNameKey, "chat.completion")
+		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIResponseIDKey, "chatcmpl-qwen123")
+		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIRequestModelKey, "qwen-plus")
+		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIResponseModelKey, "qwen-plus")
+	})
+
+	t.Run("Qwen span - optional attributes", func(t *testing.T) {
+		span := makeQwenSpan(&request.VendorOpenAI{
+			OperationName: "generation",
+			ID:            "req-qwen123",
+			Request: request.OpenAIInput{
+				Model:        "qwen-turbo",
+				Prompt:       "Explain eBPF",
+				Instructions: "Be concise",
+			},
+			ResponseModel: "qwen-turbo",
+			Output:        []byte(`{"text":"eBPF runs in the kernel."}`),
+			Usage: request.OpenAIUsage{
+				InputTokens:  7,
+				OutputTokens: 6,
+			},
+		})
+
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{
+			attr.GenAIInput:        {},
+			attr.GenAIOutput:       {},
+			attr.GenAIInstructions: {},
+		})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		spanAttrs := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
+		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIProviderNameKey, "qwen")
+		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIInputMessagesKey, "Explain eBPF")
+		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIOutputMessagesKey, `{"text":"eBPF runs in the kernel."}`)
+		ensureTraceStrAttr(t, spanAttrs, semconv.GenAISystemInstructionsKey, "Be concise")
+	})
+
+	t.Run("Qwen span - nil Qwen means no GenAI attrs", func(t *testing.T) {
+		span := request.Span{
+			Type:    request.EventTypeHTTPClient,
+			SubType: request.HTTPSubtypeQwen,
+			Method:  "POST",
+			Status:  200,
+			GenAI:   &request.GenAI{Qwen: nil},
 		}
 
 		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{

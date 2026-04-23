@@ -335,6 +335,42 @@ func TestFilter_Cleanup(t *testing.T) {
 	assert.False(t, pf.ValidPID(234, 33, PIDTypeGo))
 }
 
+func TestFilter_PreservesMultiplePIDTypes(t *testing.T) {
+	readNamespacePIDs = func(pid app.PID) ([]app.PID, error) {
+		return []app.PID{pid, pid + 1000}, nil
+	}
+	pf := NewPIDsFilter(&services.DiscoveryConfig{}, slog.With("env", "testing"), &imetrics.NoopReporter{})
+
+	pf.AllowPID(123, 33, &svc.Attrs{}, PIDTypeGo)
+	pf.AllowPID(123, 33, &svc.Attrs{}, PIDTypeKProbes)
+
+	assert.True(t, pf.ValidPID(123, 33, PIDTypeGo))
+	assert.True(t, pf.ValidPID(123, 33, PIDTypeKProbes))
+	assert.True(t, pf.ValidPID(1123, 33, PIDTypeGo))
+	assert.True(t, pf.ValidPID(1123, 33, PIDTypeKProbes))
+
+	goPIDs := pf.CurrentPIDs(PIDTypeGo)
+	goNamespacePIDs, goNamespaceOK := goPIDs[33]
+	if assert.True(t, goNamespaceOK) {
+		_, goOK := goNamespacePIDs[123]
+		assert.True(t, goOK)
+	}
+
+	kprobePIDs := pf.CurrentPIDs(PIDTypeKProbes)
+	kprobeNamespacePIDs, kprobeNamespaceOK := kprobePIDs[33]
+	if assert.True(t, kprobeNamespaceOK) {
+		_, kprobeOK := kprobeNamespacePIDs[123]
+		assert.True(t, kprobeOK)
+	}
+
+	pf.BlockPID(123, 33)
+
+	assert.False(t, pf.ValidPID(123, 33, PIDTypeGo))
+	assert.False(t, pf.ValidPID(123, 33, PIDTypeKProbes))
+	assert.False(t, pf.ValidPID(1123, 33, PIDTypeGo))
+	assert.False(t, pf.ValidPID(1123, 33, PIDTypeKProbes))
+}
+
 func resetTraceContext(spans []request.Span) []request.Span {
 	for i := range spans {
 		spans[i].TraceID = trace.TraceID{0}

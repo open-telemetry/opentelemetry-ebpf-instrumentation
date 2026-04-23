@@ -855,3 +855,260 @@ func TestProcessCouchbaseEventPipelinedWithSetupCommands(t *testing.T) {
 	assert.Equal(t, "mybucket", info.Bucket)
 	assert.Equal(t, couchbasekv.StatusSuccess, info.Status)
 }
+
+// makeCouchbaseRequestPacketWithDataType is like makeCouchbaseRequestPacket but
+// lets the caller override the DataType byte at offset 5.
+func makeCouchbaseRequestPacketWithDataType(opcode couchbasekv.Opcode, key string, value []byte, extras []byte, dataType couchbasekv.DataType) []byte {
+	keyLen := uint16(len(key))
+	extrasLen := uint8(len(extras))
+	valueLen := len(value)
+	bodyLen := uint32(int(extrasLen) + int(keyLen) + valueLen)
+
+	pkt := make([]byte, couchbasekv.HeaderLen)
+	pkt[0] = byte(couchbasekv.MagicClientRequest)
+	pkt[1] = byte(opcode)
+	binary.BigEndian.PutUint16(pkt[2:4], keyLen)
+	pkt[4] = extrasLen
+	pkt[5] = byte(dataType)
+	binary.BigEndian.PutUint16(pkt[6:8], 0)
+	binary.BigEndian.PutUint32(pkt[8:12], bodyLen)
+	binary.BigEndian.PutUint32(pkt[12:16], 12345)
+	binary.BigEndian.PutUint64(pkt[16:24], 0)
+
+	pkt = append(pkt, extras...)
+	pkt = append(pkt, []byte(key)...)
+	pkt = append(pkt, value...)
+
+	return pkt
+}
+
+func TestBuildCouchbaseStatement(t *testing.T) {
+	setExtras := func(flags, ttl uint32) []byte {
+		b := make([]byte, 8)
+		binary.BigEndian.PutUint32(b[0:4], flags)
+		binary.BigEndian.PutUint32(b[4:8], ttl)
+		return b
+	}
+	incrExtras := func(delta, initial uint64, ttl uint32) []byte {
+		b := make([]byte, 20)
+		binary.BigEndian.PutUint64(b[0:8], delta)
+		binary.BigEndian.PutUint64(b[8:16], initial)
+		binary.BigEndian.PutUint32(b[16:20], ttl)
+		return b
+	}
+	touchExtras := func(ttl uint32) []byte {
+		b := make([]byte, 4)
+		binary.BigEndian.PutUint32(b[0:4], ttl)
+		return b
+	}
+
+	tests := []struct {
+		name               string
+		opcode             couchbasekv.Opcode
+		key                string
+		value              []byte
+		extras             []byte
+		dataType           couchbasekv.DataType
+		collectionsEnabled bool
+		expected           string
+	}{
+		{
+			name:     "GET key-only",
+			opcode:   couchbasekv.OpcodeGet,
+			key:      "user::42",
+			dataType: couchbasekv.DataTypeRaw,
+			expected: "GET user::42",
+		},
+		{
+			name:               "GET with single-byte collection ID prefix stripped",
+			opcode:             couchbasekv.OpcodeGet,
+			key:                "\x09user::42",
+			dataType:           couchbasekv.DataTypeRaw,
+			collectionsEnabled: true,
+			expected:           "GET user::42",
+		},
+		{
+			name:               "SET with multi-byte LEB128 collection ID prefix stripped",
+			opcode:             couchbasekv.OpcodeSet,
+			key:                "\xe5\x8e\x26user::42", // LEB128 for 624485
+			value:              []byte("hi"),
+			extras:             setExtras(0, 0),
+			dataType:           couchbasekv.DataTypeRaw,
+			collectionsEnabled: true,
+			expected:           "SET user::42 hi",
+		},
+		{
+			name:               "GET with 5-byte LEB128 collection ID prefix stripped",
+			opcode:             couchbasekv.OpcodeGet,
+			key:                "\xff\xff\xff\xff\x0fuser::42", // LEB128 for 0xFFFFFFFF
+			dataType:           couchbasekv.DataTypeRaw,
+			collectionsEnabled: true,
+			expected:           "GET user::42",
+		},
+		{
+			name:               "malformed 5-byte LEB128 prefix leaves key unchanged",
+			opcode:             couchbasekv.OpcodeGet,
+			key:                "\xff\xff\xff\xff\xffuser::42",
+			dataType:           couchbasekv.DataTypeRaw,
+			collectionsEnabled: true,
+			expected:           "",
+		},
+		{
+			// Documents the trade-off: on collection-enabled connections, the
+			// first byte is always consumed as a LEB128 varint. A single-byte
+			// key whose only byte has MSB=0 (any printable ASCII char) is
+			// destroyed. In practice this does not happen — collection-enabled
+			// connections always prefix a real LEB128 collection ID before the
+			// user key, so the remaining bytes are the full user key.
+			name:               "collections enabled but no prefix (single printable byte key)",
+			opcode:             couchbasekv.OpcodeGet,
+			key:                "u",
+			dataType:           couchbasekv.DataTypeRaw,
+			collectionsEnabled: true,
+			expected:           "",
+		},
+		{
+			// Null-byte fallback: even without collectionsEnabled, a leading
+			// 0x00 (default collection ID) is stripped best-effort for
+			// mid-stream connections where we missed HELLO/SELECT_BUCKET.
+			name:     "null-byte default collection prefix stripped without collectionsEnabled",
+			opcode:   couchbasekv.OpcodeGet,
+			key:      "\x00user::42",
+			dataType: couchbasekv.DataTypeRaw,
+			expected: "GET user::42",
+		},
+		{
+			name:     "DELETE key-only",
+			opcode:   couchbasekv.OpcodeDelete,
+			key:      "user::42",
+			dataType: couchbasekv.DataTypeRaw,
+			expected: "DELETE user::42",
+		},
+		{
+			name:     "SET with JSON value and TTL=0 (TTL skipped)",
+			opcode:   couchbasekv.OpcodeSet,
+			key:      "user::42",
+			value:    []byte(`{"name":"alice"}`),
+			extras:   setExtras(0x02000000, 0),
+			dataType: couchbasekv.DataTypeJSON,
+			expected: `SET user::42 {"name":"alice"}`,
+		},
+		{
+			name:     "SET with TTL=3600",
+			opcode:   couchbasekv.OpcodeSet,
+			key:      "user::42",
+			value:    []byte(`{"name":"alice"}`),
+			extras:   setExtras(0, 3600),
+			dataType: couchbasekv.DataTypeJSON,
+			expected: `SET user::42 TTL=3600 {"name":"alice"}`,
+		},
+		{
+			name:     "SET snappy-compressed value omitted",
+			opcode:   couchbasekv.OpcodeSet,
+			key:      "user::42",
+			value:    []byte{0xff, 0x01, 0x02}, // garbage bytes; DataType marks snappy
+			extras:   setExtras(0, 3600),
+			dataType: couchbasekv.DataTypeJSON | couchbasekv.DataTypeSnappy,
+			expected: "SET user::42 TTL=3600",
+		},
+		{
+			name:     "SET non-UTF8 value omitted",
+			opcode:   couchbasekv.OpcodeSet,
+			key:      "user::42",
+			value:    []byte{0xff, 0xfe, 0xfd},
+			extras:   setExtras(0, 0),
+			dataType: couchbasekv.DataTypeRaw,
+			expected: "SET user::42",
+		},
+		{
+			name:     "SETQ (quiet) renders like SET",
+			opcode:   couchbasekv.OpcodeSetQ,
+			key:      "user::42",
+			value:    []byte("hello"),
+			extras:   setExtras(0, 0),
+			dataType: couchbasekv.DataTypeRaw,
+			expected: "SETQ user::42 hello",
+		},
+		{
+			name:     "INCREMENT with DELTA=1 TTL=0",
+			opcode:   couchbasekv.OpcodeIncrement,
+			key:      "counter::x",
+			extras:   incrExtras(1, 0, 0),
+			dataType: couchbasekv.DataTypeRaw,
+			expected: "INCREMENT counter::x DELTA=1",
+		},
+		{
+			name:     "DECREMENT with DELTA=5 TTL=60",
+			opcode:   couchbasekv.OpcodeDecrement,
+			key:      "counter::x",
+			extras:   incrExtras(5, 0, 60),
+			dataType: couchbasekv.DataTypeRaw,
+			expected: "DECREMENT counter::x DELTA=5 TTL=60",
+		},
+		{
+			name:     "TOUCH with TTL=60",
+			opcode:   couchbasekv.OpcodeTouch,
+			key:      "user::42",
+			extras:   touchExtras(60),
+			dataType: couchbasekv.DataTypeRaw,
+			expected: "TOUCH user::42 TTL=60",
+		},
+		{
+			name:     "GAT with TTL=60",
+			opcode:   couchbasekv.OpcodeGAT,
+			key:      "user::42",
+			extras:   touchExtras(60),
+			dataType: couchbasekv.DataTypeRaw,
+			expected: "GAT user::42 TTL=60",
+		},
+		{
+			name:     "APPEND with value",
+			opcode:   couchbasekv.OpcodeAppend,
+			key:      "log::1",
+			value:    []byte("more"),
+			dataType: couchbasekv.DataTypeRaw,
+			expected: "APPEND log::1 more",
+		},
+		{
+			name:     "truncated SET value passes through without marker",
+			opcode:   couchbasekv.OpcodeSet,
+			key:      "k",
+			value:    []byte(`{"name":"ali`), // mid-string but still valid UTF-8
+			extras:   setExtras(0, 0),
+			dataType: couchbasekv.DataTypeJSON,
+			expected: `SET k {"name":"ali`,
+		},
+		{
+			name:     "empty key returns empty statement",
+			opcode:   couchbasekv.OpcodeGet,
+			key:      "",
+			dataType: couchbasekv.DataTypeRaw,
+			expected: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			raw := makeCouchbaseRequestPacketWithDataType(tt.opcode, tt.key, tt.value, tt.extras, tt.dataType)
+			pkt, err := couchbasekv.ParsePacket(raw)
+			require.NoError(t, err)
+			got := buildCouchbaseStatement(pkt, tt.collectionsEnabled)
+			assert.Equal(t, tt.expected, got)
+		})
+	}
+}
+
+func TestProcessCouchbaseEvent_StatementPopulated(t *testing.T) {
+	cache, err := simplelru.NewLRU[BpfConnectionInfoT, CouchbaseBucketInfo](100, nil)
+	require.NoError(t, err)
+	connInfo := newTestConnInfo()
+
+	req := makeCouchbaseRequestPacket(couchbasekv.OpcodeGet, "user::42", "", nil)
+	resp := makeCouchbaseResponsePacket(couchbasekv.OpcodeGet, couchbasekv.StatusSuccess, "value")
+
+	info, ignore, err := processCouchbaseEvent(connInfo, req, resp, cache)
+	require.NoError(t, err)
+	assert.False(t, ignore)
+	require.NotNil(t, info)
+	assert.Equal(t, "GET user::42", info.Statement)
+}

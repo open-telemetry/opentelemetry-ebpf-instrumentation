@@ -1088,6 +1088,23 @@ func TestHTTPSpanStatusCode_OpenAI(t *testing.T) {
 			},
 			expected: StatusCodeError,
 		},
+		{
+			name: "Qwen 2xx, error.type set → error",
+			span: &Span{
+				Type:    EventTypeHTTPClient,
+				SubType: HTTPSubtypeQwen,
+				Status:  200,
+				GenAI: &GenAI{
+					Qwen: &VendorOpenAI{
+						Error: OpenAIError{
+							Type:    "insufficient_quota",
+							Message: "Quota exceeded",
+						},
+					},
+				},
+			},
+			expected: StatusCodeError,
+		},
 	}
 
 	for _, tt := range tests {
@@ -1149,6 +1166,20 @@ func TestSpan_GenAIInputTokens(t *testing.T) {
 		}
 		result := span.GenAIInputTokens()
 		assert.Equal(t, 300, result)
+	})
+
+	t.Run("Qwen present", func(t *testing.T) {
+		span := &Span{
+			GenAI: &GenAI{
+				Qwen: &VendorOpenAI{
+					Usage: OpenAIUsage{
+						InputTokens: 333,
+					},
+				},
+			},
+		}
+		result := span.GenAIInputTokens()
+		assert.Equal(t, 333, result)
 	})
 
 	t.Run("Bedrock present", func(t *testing.T) {
@@ -1250,6 +1281,20 @@ func TestSpan_GenAIOutputTokens(t *testing.T) {
 		assert.Equal(t, 0, result)
 	})
 
+	t.Run("Qwen present", func(t *testing.T) {
+		span := &Span{
+			GenAI: &GenAI{
+				Qwen: &VendorOpenAI{
+					Usage: OpenAIUsage{
+						OutputTokens: 444,
+					},
+				},
+			},
+		}
+		result := span.GenAIOutputTokens()
+		assert.Equal(t, 444, result)
+	})
+
 	t.Run("Bedrock present", func(t *testing.T) {
 		span := &Span{
 			GenAI: &GenAI{
@@ -1319,6 +1364,18 @@ func TestSpan_GenAIOperationName(t *testing.T) {
 		assert.Equal(t, "generate_content", result)
 	})
 
+	t.Run("Qwen present", func(t *testing.T) {
+		span := &Span{
+			GenAI: &GenAI{
+				Qwen: &VendorOpenAI{
+					OperationName: "chat.completion",
+				},
+			},
+		}
+		result := span.GenAIOperationName()
+		assert.Equal(t, "chat.completion", result)
+	})
+
 	t.Run("Bedrock present", func(t *testing.T) {
 		span := &Span{
 			GenAI: &GenAI{
@@ -1366,6 +1423,16 @@ func TestSpan_GenAIProviderName(t *testing.T) {
 		}
 		result := span.GenAIProviderName()
 		assert.Equal(t, "gcp.gemini", result)
+	})
+
+	t.Run("Qwen present", func(t *testing.T) {
+		span := &Span{
+			GenAI: &GenAI{
+				Qwen: &VendorOpenAI{},
+			},
+		}
+		result := span.GenAIProviderName()
+		assert.Equal(t, "qwen", result)
 	})
 
 	t.Run("Bedrock present", func(t *testing.T) {
@@ -1425,6 +1492,20 @@ func TestSpan_GenAIRequestModel(t *testing.T) {
 		}
 		result := span.GenAIRequestModel()
 		assert.Equal(t, "gemini-2.0-flash", result)
+	})
+
+	t.Run("Qwen present", func(t *testing.T) {
+		span := &Span{
+			GenAI: &GenAI{
+				Qwen: &VendorOpenAI{
+					Request: OpenAIInput{
+						Model: "qwen-plus",
+					},
+				},
+			},
+		}
+		result := span.GenAIRequestModel()
+		assert.Equal(t, "qwen-plus", result)
 	})
 
 	t.Run("Bedrock present", func(t *testing.T) {
@@ -1499,6 +1580,35 @@ func TestSpan_GenAIResponseModel(t *testing.T) {
 		}
 		result := span.GenAIResponseModel()
 		assert.Equal(t, "gemini-2.0-flash", result)
+	})
+
+	t.Run("Qwen present with response model", func(t *testing.T) {
+		span := &Span{
+			GenAI: &GenAI{
+				Qwen: &VendorOpenAI{
+					ResponseModel: "qwen-plus-2026-01-01",
+					Request: OpenAIInput{
+						Model: "qwen-plus",
+					},
+				},
+			},
+		}
+		result := span.GenAIResponseModel()
+		assert.Equal(t, "qwen-plus-2026-01-01", result)
+	})
+
+	t.Run("Qwen present without response model", func(t *testing.T) {
+		span := &Span{
+			GenAI: &GenAI{
+				Qwen: &VendorOpenAI{
+					Request: OpenAIInput{
+						Model: "qwen-plus",
+					},
+				},
+			},
+		}
+		result := span.GenAIResponseModel()
+		assert.Equal(t, "qwen-plus", result)
 	})
 
 	t.Run("Bedrock present", func(t *testing.T) {

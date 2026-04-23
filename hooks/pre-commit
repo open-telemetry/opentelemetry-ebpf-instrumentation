@@ -18,5 +18,5 @@ fi
 if ! $(make check-config-schema >/dev/null 2>&1); then
   echo "Found differences in config schema. Generating new config schema..."
   make generate-config-schema
-  git add docs/config-schema.json
+  git add devdocs/config/config-schema.json
 fi

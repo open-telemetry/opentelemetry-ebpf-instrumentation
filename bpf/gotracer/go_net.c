@@ -19,6 +19,7 @@
 #include <bpfcore/bpf_helpers.h>
 #include <bpfcore/utils.h>
 
+#include <common/algorithm.h>
 #include <common/common.h>
 #include <common/connection_info.h>
 #include <common/go_addr_key.h>
@@ -193,9 +194,11 @@ int obi_uprobe_netFdReadRet(struct pt_regs *ctx) {
 
     void *buf = (void *)net_ptr->byte_ptr;
 
-    u64 len = (u64)GO_PARAM1(ctx);
-    bpf_dbg_printk("buf=%llx, len=%d === ", buf, len);
+    s64 len = (s64)GO_PARAM1(ctx);
+    bpf_dbg_printk("buf=%llx, len=%lld === ", (unsigned long long)buf, (long long)len);
     if (buf && len > 0) {
+        const int bytes_len = (int)min((s64)__INT_MAX__, len);
+
         dbg_print_http_connection_info(&net_ptr->p_conn.conn);
 
         u16 orig_dport = net_ptr->p_conn.conn.d_port;
@@ -210,7 +213,7 @@ int obi_uprobe_netFdReadRet(struct pt_regs *ctx) {
                                        (protocol_selector_t){.http = 1, .http2 = 0, .tcp = 1},
                                        &net_ptr->p_conn,
                                        buf,
-                                       len,
+                                       bytes_len,
                                        NO_SSL,
                                        TCP_RECV,
                                        orig_dport);
@@ -235,8 +238,9 @@ int obi_uprobe_netFdWrite(struct pt_regs *ctx) {
 
     void *fd_ptr = GO_PARAM1(ctx);
     u8 *buf = GO_PARAM2(ctx);
-    u64 len = (u64)GO_PARAM3(ctx);
+    s64 len = (s64)GO_PARAM3(ctx);
     if (buf && len > 0) {
+        const int bytes_len = (int)min((s64)__INT_MAX__, len);
         pid_connection_info_t p_conn = {0};
 
         if (!get_conn_info_from_fd(fd_ptr, &p_conn.conn, false)) {
@@ -261,7 +265,7 @@ int obi_uprobe_netFdWrite(struct pt_regs *ctx) {
                                        (protocol_selector_t){.http = 1, .http2 = 0, .tcp = 1},
                                        &p_conn,
                                        buf,
-                                       len,
+                                       bytes_len,
                                        NO_SSL,
                                        TCP_SEND,
                                        orig_dport);

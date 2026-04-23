@@ -1,0 +1,46 @@
+name: "Daily Test Analysis Report"
+
+on:
+  schedule:
+    - cron: "0 6 * * *" # Daily at 06:00 UTC
+  workflow_dispatch:
+    inputs:
+      lookback_days:
+        description: "Number of days to look back (max 5, limited by artifact retention)"
+        required: false
+        default: "5"
+        type: string
+
+# Writing to $GITHUB_STEP_SUMMARY requires no special permissions — it
+# writes to a runner-local file. actions:read is needed for the GitHub
+# API queries that list workflow runs and download artifacts.
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  analyze:
+    name: "Analyze CI test results"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          sparse-checkout: |
+            scripts/ci-analysis/
+            go.mod
+            go.sum
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version-file: "go.mod"
+          cache: false
+
+      - name: Generate test analysis report
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LOOKBACK_DAYS: ${{ inputs.lookback_days || '5' }}
+        run: bash scripts/ci-analysis/collect.sh >> "$GITHUB_STEP_SUMMARY"

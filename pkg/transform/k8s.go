@@ -41,13 +41,13 @@ type KubernetesDecorator struct {
 	// it from the Cloud Provider Metadata (EC2, GCP and Azure), and leave it empty if it fails to.
 	ClusterName string `yaml:"cluster_name" env:"OTEL_EBPF_KUBE_CLUSTER_NAME"`
 
-	// KubeconfigPath is optional. If unset, it will look in the usual location.
+	// KubeconfigPath specifies the path to the kubeconfig file. If unset, it will look in the usual location.
 	KubeconfigPath string `yaml:"kubeconfig_path" env:"KUBECONFIG" validate:"omitempty,filepath"`
 
-	// InformersSyncTimeout is the timeout for waiting for informers to sync on startup.
+	// InformersSyncTimeout specifies the timeout for waiting for informers to sync on startup.
 	InformersSyncTimeout time.Duration `yaml:"informers_sync_timeout" env:"OTEL_EBPF_KUBE_INFORMERS_SYNC_TIMEOUT" validate:"gt=0"`
 
-	// ReconnectInitialInterval is the time to wait before reconnecting to the Kubernetes API after a connection loss.
+	// ReconnectInitialInterval specifies the time to wait before reconnecting to the Kubernetes API after a connection loss.
 	ReconnectInitialInterval time.Duration `yaml:"reconnect_initial_interval" env:"OTEL_EBPF_KUBE_RECONNECT_INITIAL_INTERVAL" validate:"gte=0"`
 
 	// InformersResyncPeriod defaults to 30m. Higher values will reduce the load on the Kube API.
@@ -64,7 +64,7 @@ type KubernetesDecorator struct {
 	// kubernetes metadata decoration.
 	DisableInformers []string `yaml:"disable_informers" env:"OTEL_EBPF_KUBE_DISABLE_INFORMERS"`
 
-	// MetaCacheAddress is the host:port address of the obi-k8s-cache service instance
+	// MetaCacheAddress specifies the host:port address of the obi-k8s-cache service instance
 	MetaCacheAddress string `yaml:"meta_cache_address" env:"OTEL_EBPF_KUBE_META_CACHE_ADDRESS"`
 
 	// MetaRestrictLocalNode will download only the metadata from the Pods that are located in the same

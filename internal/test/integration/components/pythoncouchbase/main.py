@@ -23,6 +23,12 @@ def get_collection():
     return bucket.scope("test-scope").collection("test-collection")
 
 
+def get_default_collection():
+    cluster = get_cluster()
+    bucket = cluster.bucket("test-bucket")
+    return bucket.default_collection()
+
+
 @app.get("/couchbase")
 async def query():
     coll = get_collection()
@@ -39,6 +45,18 @@ async def query():
 
     # DELETE - Remove the document
     coll.remove("user::1")
+
+    return {"status": "ok"}
+
+
+@app.get("/couchbase-default")
+async def query_default_collection():
+    coll = get_default_collection()
+
+    coll.upsert("user::2", {"name": "Bob", "age": 25})
+    result = coll.get("user::2")
+    print(f"GET default result: {result.content_as[dict]}")
+    coll.remove("user::2")
 
     return {"status": "ok"}
 

@@ -18,5 +18,6 @@ func TestStat_GoStatMetrics(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, compose.Up())
 	t.Run("Go Stat Metrics TCP RTT tests", testStatMetricsTCPRttGo)
+	t.Run("Go Stat Metrics TCP Failed Connection tests", testStatMetricsTCPFailedConnectionGo)
 	require.NoError(t, compose.Close())
 }
