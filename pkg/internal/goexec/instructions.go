@@ -227,21 +227,32 @@ func findGoSymbolTable(elfF *elf.File) (*gosym.Table, error) {
 func findRuntimeText(elfF *elf.File, gopclntab *elf.Section, pclndat []byte) (uint64, error) {
 	ilog := slog.With("component", "goexec.instructions")
 
-	rt, modErr := findRuntimeTextFromModuledata(elfF, gopclntab)
+	modRT, modErr := findRuntimeTextFromModuledata(elfF, gopclntab)
+	pclnRT, pclnErr := findRuntimeTextFromPclntab(pclndat)
 
-	if modErr == nil {
-		ilog.Debug("runtimeText resolved from moduledata", "addr", fmt.Sprintf("0x%x", rt))
-		return rt, nil
+	switch {
+	case modErr == nil && pclnErr == nil:
+		if modRT != pclnRT {
+			ilog.Warn("runtimeText mismatch between moduledata and pclntab; using pclntab",
+				"moduledata", fmt.Sprintf("0x%x", modRT),
+				"pclntab", fmt.Sprintf("0x%x", pclnRT))
+			return pclnRT, nil
+		}
+		ilog.Debug("runtimeText resolved", "addr", fmt.Sprintf("0x%x", modRT))
+		return modRT, nil
+
+	case modErr == nil:
+		// pcHeader.textStart was removed in Go 1.26; moduledata is the only source.
+		ilog.Debug("runtimeText resolved from moduledata", "addr", fmt.Sprintf("0x%x", modRT))
+		return modRT, nil
+
+	case pclnErr == nil:
+		ilog.Warn("runtimeText resolved from legacy pclntab path", "addr", fmt.Sprintf("0x%x", pclnRT))
+		return pclnRT, nil
+
+	default:
+		return 0, fmt.Errorf("unable to determine runtime text base: moduledata: %w; pclntab: %w", modErr, pclnErr)
 	}
-
-	rt, pclnErr := findRuntimeTextFromPclntab(pclndat)
-
-	if pclnErr == nil {
-		ilog.Warn("runtimeText resolved from legacy pclntab path", "addr", fmt.Sprintf("0x%x", rt))
-		return rt, nil
-	}
-
-	return 0, fmt.Errorf("unable to determine runtime text base: moduledata: %w; pclntab: %w", modErr, pclnErr)
 }
 
 // findRuntimeTextFromModuledata tries to heuristically locate runtime.moduledata (since there's no symbol
