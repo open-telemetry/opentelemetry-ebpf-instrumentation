@@ -168,6 +168,7 @@ EBPFTracer configuration for eBPF programs
 | `ebpf.kafka_topic_uuid_cache_size` | `integer` | `OTEL_KAFKA_TOPIC_UUID_CACHE_SIZE` | `1024` |  |  | Kafka Topic UUID to Name cache size. |
 | `ebpf.max_transaction_time` | `duration` | `OTEL_EBPF_BPF_MAX_TRANSACTION_TIME` | `5m` | `30s`, `5m`, `1ms`, etc |  | Maximum time allowed for two requests to be correlated as parent -> child Some programs (e.g. load generators) keep on generating requests from the same thread in perpetuity, which can generate very large traces. We want to mark the parent trace as invalid if this happens. |
 | `ebpf.mongo_requests_cache_size` | `integer` | `OTEL_EBPF_BPF_MONGO_REQUESTS_CACHE_SIZE` | `1024` |  |  | MongoDB requests cache size. |
+| `ebpf.mssql_prepared_statements_cache_size` | `integer` | `OTEL_EBPF_BPF_MSSQL_PREPARED_STATEMENTS_CACHE_SIZE` | `1024` |  |  | MSSQL prepared statements cache size. |
 | `ebpf.mysql_prepared_statements_cache_size` | `integer` | `OTEL_EBPF_BPF_MYSQL_PREPARED_STATEMENTS_CACHE_SIZE` | `1024` |  |  | MySQL prepared statements cache size. |
 | `ebpf.override_bpfloop_enabled` | `boolean` | `OTEL_EBPF_OVERRIDE_BPF_LOOP_ENABLED` | `false` |  |  | Skips checking the kernel version for bpf_loop functionality. Some modified kernels have this backported prior to version 5.17. |
 | `ebpf.postgres_prepared_statements_cache_size` | `integer` | `OTEL_EBPF_BPF_POSTGRES_PREPARED_STATEMENTS_CACHE_SIZE` | `1024` |  |  | Postgres prepared statements cache size. |
@@ -184,6 +185,7 @@ Per-protocol maximum bytes to capture per request per direction, sent to userspa
 |---|---|---|---|---|---|---|
 | `ebpf.buffer_sizes.http` | `integer` | `OTEL_EBPF_BPF_BUFFER_SIZE_HTTP` | `0` |  |  |  |
 | `ebpf.buffer_sizes.kafka` | `integer` | `OTEL_EBPF_BPF_BUFFER_SIZE_KAFKA` | `0` |  |  |  |
+| `ebpf.buffer_sizes.mssql` | `integer` | `OTEL_EBPF_BPF_BUFFER_SIZE_MSSQL` | `0` |  |  |  |
 | `ebpf.buffer_sizes.mysql` | `integer` | `OTEL_EBPF_BPF_BUFFER_SIZE_MYSQL` | `0` |  |  |  |
 | `ebpf.buffer_sizes.postgres` | `integer` | `OTEL_EBPF_BPF_BUFFER_SIZE_POSTGRES` | `0` |  |  |  |
 

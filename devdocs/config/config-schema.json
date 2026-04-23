@@ -526,6 +526,7 @@
         },
         "mssql": {
           "type": "integer",
+          "default": 0,
           "x-env-var": "OTEL_EBPF_BPF_BUFFER_SIZE_MSSQL"
         },
         "mysql": {
@@ -683,6 +684,7 @@
         "mssql_prepared_statements_cache_size": {
           "type": "integer",
           "description": "MSSQL prepared statements cache size.",
+          "default": 1024,
           "x-env-var": "OTEL_EBPF_BPF_MSSQL_PREPARED_STATEMENTS_CACHE_SIZE"
         },
         "mysql_prepared_statements_cache_size": {
