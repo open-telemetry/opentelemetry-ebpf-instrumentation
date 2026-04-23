@@ -106,7 +106,7 @@ func detectSQLPayload(useHeuristics bool, b *largebuf.LargeBuffer) (string, stri
 		case request.DBMySQL:
 			op, table, sql = mysqlPreparedStatements(view)
 		case request.DBMSSQL:
-			op, table, sql = mssqlPreparedStatements(b)
+			op, table, sql = mssqlExtractBatchSQL(b)
 		}
 	}
 

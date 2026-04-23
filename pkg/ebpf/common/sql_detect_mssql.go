@@ -50,6 +50,10 @@ const (
 	kMSSQLMaxPacketSize = 32767
 )
 
+// isMSSQL checks whether b looks like a TDS packet carrying SQL traffic.
+// It intentionally excludes login (0x10) and pre-login (0x12) packet types:
+// those are accepted by the BPF classifier to identify the connection early,
+// but they carry no SQL and are never passed to this parser.
 func isMSSQL(b *largebuf.LargeBuffer) bool {
 	if b.Len() < kMSSQLHeaderLen {
 		return false
@@ -151,7 +155,7 @@ func extractTDSPayloads(b *largebuf.LargeBuffer) []byte {
 	return payload
 }
 
-func mssqlPreparedStatements(b *largebuf.LargeBuffer) (string, string, string) {
+func mssqlExtractBatchSQL(b *largebuf.LargeBuffer) (string, string, string) {
 	if b.Len() <= kMSSQLHeaderLen {
 		return "", "", ""
 	}
@@ -184,7 +188,7 @@ func handleMSSQL(parseCtx *EBPFParseContext, event *TCPRequestInfo, requestBuffe
 
 	switch sqlCommand {
 	case "SQL_BATCH":
-		op, table, stmt = mssqlPreparedStatements(requestBuffer)
+		op, table, stmt = mssqlExtractBatchSQL(requestBuffer)
 	case "RPC":
 		procID, r, err := parseMSSQLRPC(requestBuffer)
 		if err == nil {

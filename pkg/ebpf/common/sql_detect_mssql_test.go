@@ -193,7 +193,7 @@ func TestMSSQLBatchParsing(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			op, table, stmt := mssqlPreparedStatements(largebuf.NewLargeBufferFrom(tt.buf))
+			op, table, stmt := mssqlExtractBatchSQL(largebuf.NewLargeBufferFrom(tt.buf))
 			assert.Equal(t, tt.wantOp, op)
 			assert.Equal(t, tt.wantTable, table)
 			assert.Equal(t, tt.wantStmt, stmt)

@@ -163,7 +163,11 @@ static __always_inline int tcp_send_large_buffer(tcp_req_t *req,
     case k_protocol_type_kafka:
         return kafka_send_large_buffer(req, pid_conn, u_buf, bytes_len, direction, action);
     case k_protocol_type_mssql:
-        return mssql_send_large_buffer(req, u_buf, bytes_len, packet_type, direction, action);
+        mssql_send_large_buffer(req, u_buf, bytes_len, packet_type, direction, action);
+        if (packet_type == PACKET_TYPE_RESPONSE) {
+            return mssql_response_eom(req, u_buf, bytes_len);
+        }
+        return 0;
     case k_protocol_type_http:
     case k_protocol_type_mqtt:
     case k_protocol_type_unknown:

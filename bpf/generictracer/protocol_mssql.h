@@ -87,6 +87,9 @@ static __always_inline u8 is_mssql(connection_info_t *conn_info,
         case k_mssql_msg_sql_batch:
         case k_mssql_msg_rpc:
         case k_mssql_msg_response:
+        // Login/prelogin packets are accepted here to classify the connection
+        // early (before any SQL is sent). They carry no SQL and are never
+        // processed by the Go-side parser, which intentionally omits them.
         case k_mssql_msg_login7:
         case k_mssql_msg_prelogin:
             includes_known_command = true;
@@ -108,22 +111,77 @@ static __always_inline u8 is_mssql(connection_info_t *conn_info,
     return 1;
 }
 
-// Emit a large buffer event for MSSQL protocol.
-// The return value is used to control the flow for this specific protocol.
-// -1: wait additional data; 0: continue, regardless of errors.
-static __always_inline int mssql_send_large_buffer(tcp_req_t *req,
-                                                   const void *u_buf,
-                                                   u32 bytes_len,
-                                                   u8 packet_type,
-                                                   u8 direction,
-                                                   enum large_buf_action action) {
-    if (mssql_max_captured_bytes > k_large_buf_max_mssql_captured_bytes) {
-        bpf_dbg_printk("BUG: mssql_max_captured_bytes exceeds maximum allowed value.");
+// Tracks accumulated response length and detects the TDS End-Of-Message bit.
+// Returns -1 to wait for more data, 0 when the response is complete.
+static __always_inline int mssql_response_eom(tcp_req_t *req, const void *u_buf, u32 bytes_len) {
+    if (req->resp_len == 0 && bytes_len >= k_mssql_hdr_size) {
+        bpf_probe_read(req->rbuf, k_mssql_hdr_size, u_buf);
     }
 
-    if (packet_type == PACKET_TYPE_RESPONSE && req->resp_len == 0 &&
-        bytes_len >= k_mssql_hdr_size) {
-        bpf_probe_read(req->rbuf, k_mssql_hdr_size, u_buf);
+    req->resp_len += bytes_len;
+
+    // Scan complete TDS packets in the current recv buffer for the EOM bit.
+    // A response may arrive as: (a) one or more complete packets in a single
+    // recv, or (b) a single packet split across multiple recvs (header first,
+    // then payload). Handle both by falling back to accumulated-length tracking
+    // when the current buffer does not start at a TDS packet boundary.
+    bool eom = false;
+    bool found_complete_packet = false;
+    u32 offset = 0;
+    for (u8 i = 0; i < k_mssql_messages_in_packet_max; i++) {
+        if (offset + k_mssql_hdr_size > bytes_len) {
+            break;
+        }
+        const struct mssql_hdr hdr = mssql_parse_hdr((const unsigned char *)u_buf + offset);
+        if (hdr.length < k_mssql_hdr_size || offset + hdr.length > bytes_len) {
+            break;
+        }
+        found_complete_packet = true;
+        if (hdr.status & k_mssql_status_eom) {
+            eom = true;
+        }
+        offset += hdr.length;
+    }
+
+    if (eom) {
+        return 0;
+    } else if (found_complete_packet) {
+        // Complete packets present but no EOM: more packets expected.
+        bpf_dbg_printk("mssql response: waiting for EOM, acc=%d", req->resp_len);
+        return -1;
+    }
+
+    // Could not parse a complete TDS packet (partial recv or payload
+    // continuation). Fall back to length tracking using the saved header.
+    if (req->resp_len < k_mssql_hdr_size) {
+        return -1;
+    }
+    const struct mssql_hdr first_hdr = mssql_parse_hdr(req->rbuf);
+    if (first_hdr.length >= k_mssql_hdr_size) {
+        const u32 prev_resp_len = req->resp_len - bytes_len;
+        // Wait while packet 1 is still completing, or if it just finished
+        // in this recv with no EOM (more packets follow; the next recv
+        // will start at a TDS boundary where the main loop detects EOM).
+        if (prev_resp_len < first_hdr.length &&
+            (req->resp_len < first_hdr.length || !(first_hdr.status & k_mssql_status_eom))) {
+            bpf_dbg_printk(
+                "mssql response: partial, acc=%d exp=%d", req->resp_len, first_hdr.length);
+            return -1;
+        }
+    }
+
+    return 0;
+}
+
+// Emit a large buffer event for MSSQL protocol.
+static __always_inline void mssql_send_large_buffer(tcp_req_t *req,
+                                                    const void *u_buf,
+                                                    u32 bytes_len,
+                                                    u8 packet_type,
+                                                    u8 direction,
+                                                    enum large_buf_action action) {
+    if (mssql_max_captured_bytes > k_large_buf_max_mssql_captured_bytes) {
+        bpf_dbg_printk("BUG: mssql_max_captured_bytes exceeds maximum allowed value.");
     }
 
     const u32 bytes_sent =
@@ -134,86 +192,30 @@ static __always_inline int mssql_send_large_buffer(tcp_req_t *req,
         if (!large_buf) {
             bpf_dbg_printk(
                 "mssql_send_large_buffer: failed to reserve space for MSSQL large buffer");
+            return;
+        }
+
+        large_buf->type = EVENT_TCP_LARGE_BUFFER;
+        large_buf->packet_type = packet_type;
+        large_buf->action = action;
+        large_buf->direction = direction;
+        large_buf->conn_info = req->conn_info;
+        large_buf->tp = req->tp;
+
+        u32 max_available_bytes = mssql_max_captured_bytes - bytes_sent;
+        bpf_clamp_umax(max_available_bytes, k_large_buf_max_mssql_captured_bytes);
+
+        const u32 available_bytes = min(bytes_len, max_available_bytes);
+        const u32 consumed_bytes = large_buf_emit_chunks(large_buf, u_buf, available_bytes);
+
+        if (packet_type == PACKET_TYPE_REQUEST) {
+            req->lb_req_bytes += consumed_bytes;
         } else {
-            large_buf->type = EVENT_TCP_LARGE_BUFFER;
-            large_buf->packet_type = packet_type;
-            large_buf->action = action;
-            large_buf->direction = direction;
-            large_buf->conn_info = req->conn_info;
-            large_buf->tp = req->tp;
+            req->lb_res_bytes += consumed_bytes;
+        }
 
-            u32 max_available_bytes = mssql_max_captured_bytes - bytes_sent;
-            bpf_clamp_umax(max_available_bytes, k_large_buf_max_mssql_captured_bytes);
-
-            const u32 available_bytes = min(bytes_len, max_available_bytes);
-            const u32 consumed_bytes = large_buf_emit_chunks(large_buf, u_buf, available_bytes);
-
-            if (packet_type == PACKET_TYPE_REQUEST) {
-                req->lb_req_bytes += consumed_bytes;
-            } else {
-                req->lb_res_bytes += consumed_bytes;
-            }
-
-            if (consumed_bytes > 0) {
-                req->has_large_buffers = true;
-            }
+        if (consumed_bytes > 0) {
+            req->has_large_buffers = true;
         }
     }
-
-    if (packet_type == PACKET_TYPE_RESPONSE) {
-        req->resp_len += bytes_len;
-
-        // Scan complete TDS packets in the current recv buffer for the EOM bit.
-        // A response may arrive as: (a) one or more complete packets in a single
-        // recv, or (b) a single packet split across multiple recvs (header first,
-        // then payload). Handle both by falling back to accumulated-length tracking
-        // when the current buffer does not start at a TDS packet boundary.
-        bool eom = false;
-        bool found_complete_packet = false;
-        u32 offset = 0;
-        for (u8 i = 0; i < k_mssql_messages_in_packet_max; i++) {
-            if (offset + k_mssql_hdr_size > bytes_len) {
-                break;
-            }
-            const struct mssql_hdr hdr = mssql_parse_hdr((const unsigned char *)u_buf + offset);
-            if (hdr.length < k_mssql_hdr_size || offset + hdr.length > bytes_len) {
-                break;
-            }
-            found_complete_packet = true;
-            if (hdr.status & k_mssql_status_eom) {
-                eom = true;
-            }
-            offset += hdr.length;
-        }
-
-        if (eom) {
-            // EOM found: all response packets received.
-        } else if (found_complete_packet) {
-            // Complete packets present but no EOM: more packets expected.
-            bpf_dbg_printk("mssql response: waiting for EOM, acc=%d", req->resp_len);
-            return -1;
-        } else {
-            // Could not parse a complete TDS packet (partial recv or payload
-            // continuation). Fall back to length tracking using the saved header.
-            if (req->resp_len < k_mssql_hdr_size) {
-                return -1;
-            }
-            const struct mssql_hdr first_hdr = mssql_parse_hdr(req->rbuf);
-            if (first_hdr.length >= k_mssql_hdr_size) {
-                const u32 prev_resp_len = req->resp_len - bytes_len;
-                // Wait while packet 1 is still completing, or if it just finished
-                // in this recv with no EOM (more packets follow; the next recv
-                // will start at a TDS boundary where the main loop detects EOM).
-                if (prev_resp_len < first_hdr.length &&
-                    (req->resp_len < first_hdr.length ||
-                     !(first_hdr.status & k_mssql_status_eom))) {
-                    bpf_dbg_printk(
-                        "mssql response: partial, acc=%d exp=%d", req->resp_len, first_hdr.length);
-                    return -1;
-                }
-            }
-        }
-    }
-
-    return 0;
 }
