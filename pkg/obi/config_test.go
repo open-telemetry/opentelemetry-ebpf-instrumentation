@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-playground/validator/v10"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -443,10 +444,14 @@ network:
 
 func TestConfigValidate_KubeReconnectInitialIntervalZero(t *testing.T) {
 	userConfig := bytes.NewBufferString(`
+otel_metrics_export:
+  endpoint: http://otelcol:4318
 trace_printer: text
 attributes:
   kubernetes:
     reconnect_initial_interval: 0s
+network:
+  enable: true
 `)
 
 	cfg, err := LoadConfig(userConfig)
@@ -454,7 +459,35 @@ attributes:
 
 	err = cfg.Validate()
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "ReconnectInitialInterval")
+
+	validate := validator.New(validator.WithRequiredStructEnabled())
+	validationErr := validate.Struct(cfg.Attributes.Kubernetes)
+	require.Error(t, validationErr)
+
+	fieldErrs, ok := validationErr.(validator.ValidationErrors)
+	require.True(t, ok)
+	require.Len(t, fieldErrs, 1)
+	assert.Equal(t, "ReconnectInitialInterval", fieldErrs[0].Field())
+	assert.Equal(t, "gt", fieldErrs[0].Tag())
+}
+
+func TestConfigValidate_KubeReconnectInitialIntervalOmitted(t *testing.T) {
+	userConfig := bytes.NewBufferString(`
+otel_metrics_export:
+  endpoint: http://otelcol:4318
+trace_printer: text
+attributes:
+  kubernetes:
+    enable: true
+network:
+  enable: true
+`)
+
+	cfg, err := LoadConfig(userConfig)
+	require.NoError(t, err)
+
+	assert.Equal(t, 5*time.Second, cfg.Attributes.Kubernetes.ReconnectInitialInterval)
+	require.NoError(t, cfg.Validate())
 }
 
 func TestConfigValidate_TracePrinter(t *testing.T) {

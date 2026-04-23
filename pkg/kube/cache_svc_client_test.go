@@ -111,6 +111,18 @@ func TestStartNormalizesReconnectInitialInterval(t *testing.T) {
 	assert.Equal(t, defaultReconnectInitialInterval, svc.reconnectInitialInterval)
 }
 
+func TestStartPreservesPositiveReconnectInitialInterval(t *testing.T) {
+	svc := cacheSvcClient{
+		BaseNotifier:             meta.NewBaseNotifier(klog()),
+		syncTimeout:              timeout,
+		reconnectInitialInterval: 10 * time.Millisecond,
+	}
+
+	svc.Start(t.Context())
+
+	assert.Equal(t, 10*time.Millisecond, svc.reconnectInitialInterval)
+}
+
 // cacheSvcClient requires a subscriber to start processing the events, so we provide a dummy here
 type dummySubscriber struct{}
 
