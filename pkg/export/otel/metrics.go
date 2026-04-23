@@ -979,6 +979,17 @@ func (r *Metrics) record(span *request.Span, mr *MetricsReporter) {
 					msgProcessDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
 				}
 			}
+		case request.EventTypeAMQPClient:
+			if mr.is.AMQPEnabled() {
+				switch span.Method {
+				case request.MessagingPublish:
+					msgPublishDuration, attrs := r.msgPublishDuration.ForRecord(span)
+					msgPublishDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
+				case request.MessagingProcess:
+					msgProcessDuration, attrs := r.msgProcessDuration.ForRecord(span)
+					msgProcessDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
+				}
+			}
 		case request.EventTypeGPUCudaKernelLaunch:
 			if mr.is.GPUEnabled() {
 				gcalls, attrs := r.gpuKernelCallsTotal.ForRecord(span)

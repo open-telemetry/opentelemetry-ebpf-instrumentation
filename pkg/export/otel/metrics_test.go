@@ -161,6 +161,8 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 				"messaging.client.operation.duration", // Kafka client
 				"messaging.client.operation.duration", // MQTT client
 				"messaging.client.operation.duration", // NATS client
+				"messaging.client.operation.duration", // AMQP client publish
+				"messaging.client.operation.duration", // AMQP client process
 				"messaging.process.duration",          // NATS server (ordering within aggregated metrics)
 				"messaging.process.duration",          // MQTT server (ordering within aggregated metrics)
 				"messaging.process.duration",          // Kafka server
@@ -243,6 +245,15 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 			},
 		},
 		{
+			name:      "amqp only",
+			instr:     []instrumentations.Instrumentation{instrumentations.InstrumentationAMQP},
+			extraColl: 0,
+			expected: []string{
+				"messaging.client.operation.duration",
+				"messaging.process.duration",
+			},
+		},
+		{
 			name:      "none",
 			instr:     nil,
 			extraColl: 0,
@@ -314,6 +325,8 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeMQTTServer, Method: "process", RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeNATSClient, Method: "publish", RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeNATSServer, Method: "process", RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeAMQPClient, Method: "publish", RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeAMQPClient, Method: "process", RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeGPUCudaKernelLaunch, ContentLength: 100, SubType: 200},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeGPUCudaMemcpy, ContentLength: 100, SubType: 1},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeGPUCudaMalloc, ContentLength: 100},
@@ -916,6 +929,11 @@ func TestConnectionTypeForSpan(t *testing.T) {
 		{
 			name:     "NATS producer",
 			span:     &request.Span{Type: request.EventTypeNATSClient, Method: request.MessagingPublish, HostName: "nats-server"},
+			expected: "messaging_system",
+		},
+		{
+			name:     "AMQP producer",
+			span:     &request.Span{Type: request.EventTypeAMQPClient, Method: request.MessagingPublish, HostName: "amqp-broker"},
 			expected: "messaging_system",
 		},
 		{

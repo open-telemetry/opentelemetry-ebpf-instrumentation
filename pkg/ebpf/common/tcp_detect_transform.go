@@ -240,7 +240,7 @@ func matchMemcachedNoreply(parseCtx *EBPFParseContext, event *TCPRequestInfo, re
 }
 
 // detectHeuristicProtocol runs heuristic-based protocol detection as a last resort:
-// Redis, Memcached, HTTP/2, NATS, MQTT, and Kafka (for packets the kernel couldn't classify).
+// Redis, Memcached, HTTP/2, NATS, AMQP, MQTT, and Kafka (for packets the kernel couldn't classify).
 func detectHeuristicProtocol(parseCtx *EBPFParseContext, event *TCPRequestInfo, requestBuffer, responseBuffer *largebuf.LargeBuffer) (request.Span, bool, bool, error) {
 	if span, ignore, matched, err := matchRedis(parseCtx, event, requestBuffer, responseBuffer); matched {
 		return span, ignore, matched, err
@@ -260,6 +260,9 @@ func detectHeuristicProtocol(parseCtx *EBPFParseContext, event *TCPRequestInfo, 
 		}
 	}
 	if span, ignore, matched, err := matchNATS(parseCtx, event, requestBuffer, responseBuffer); matched {
+		return span, ignore, matched, err
+	}
+	if span, ignore, matched, err := matchAMQP(parseCtx, event, requestBuffer, responseBuffer); matched {
 		return span, ignore, matched, err
 	}
 	if span, ignore, matched, err := matchMQTT(event, requestBuffer, responseBuffer); matched {
@@ -358,6 +361,42 @@ func matchNATS(parseCtx *EBPFParseContext, event *TCPRequestInfo, requestBuffer,
 		parseCtx.emitExtraSpans(extraSpan)
 	}
 	return TCPToNATSToSpan(event, info), false, true, nil
+}
+
+func matchAMQP(parseCtx *EBPFParseContext, event *TCPRequestInfo, requestBuffer, responseBuffer *largebuf.LargeBuffer) (request.Span, bool, bool, error) { //nolint:unparam
+	reqLooks, reqErr := isAMQP(requestBuffer)
+	respLooks, respErr := isAMQP(responseBuffer)
+	if !reqLooks && !respLooks {
+		return request.Span{}, false, false, nil
+	}
+
+	if reqErr != nil || respErr != nil {
+		slog.Warn("AMQP heuristic matched but parsing failed, dropping event",
+			"reqErr", reqErr, "respErr", respErr)
+		return request.Span{}, true, true, nil
+	}
+
+	infos, ignore, err := ProcessPossibleAMQPEvent(event, requestBuffer, responseBuffer)
+	if ignore && err == nil {
+		return request.Span{}, true, true, nil
+	}
+
+	if err == nil {
+		spans := make([]request.Span, 0, len(infos))
+		for _, info := range infos {
+			spans = append(spans, tcpToAMQPToSpan(event, info))
+		}
+		if len(spans) == 0 {
+			return request.Span{}, true, true, nil
+		}
+		if len(spans) > 1 {
+			parseCtx.emitExtraSpans(spans[1:]...)
+		}
+		return spans[0], false, true, nil
+	}
+
+	slog.Warn("AMQP parsing failed after heuristic match, dropping event", "error", err)
+	return request.Span{}, true, true, nil
 }
 
 func matchMQTT(event *TCPRequestInfo, requestBuffer, responseBuffer *largebuf.LargeBuffer) (request.Span, bool, bool, error) { //nolint:unparam

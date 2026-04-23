@@ -360,6 +360,11 @@ func TestSpanOTELGetters_MessagingOpName(t *testing.T) {
 			expected: "process",
 		},
 		{
+			name:     "amqp client publish",
+			span:     &Span{Type: EventTypeAMQPClient, Method: MessagingPublish},
+			expected: "publish",
+		},
+		{
 			name:     "http span returns empty",
 			span:     &Span{Type: EventTypeHTTP, Method: "GET"},
 			expected: "",

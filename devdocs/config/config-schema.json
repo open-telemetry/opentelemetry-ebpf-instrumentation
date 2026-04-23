@@ -1616,6 +1616,7 @@
             "type": "string",
             "enum": [
               "*",
+              "amqp",
               "couchbase",
               "dns",
               "genai",
@@ -1991,6 +1992,7 @@
             "type": "string",
             "enum": [
               "*",
+              "amqp",
               "couchbase",
               "dns",
               "genai",
@@ -2532,6 +2534,7 @@
             "type": "string",
             "enum": [
               "*",
+              "amqp",
               "couchbase",
               "dns",
               "genai",

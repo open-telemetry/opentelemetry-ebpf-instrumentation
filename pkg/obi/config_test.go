@@ -233,6 +233,7 @@ discovery:
 				instrumentations.InstrumentationKafka,
 				instrumentations.InstrumentationMQTT,
 				instrumentations.InstrumentationNATS,
+				instrumentations.InstrumentationAMQP,
 				instrumentations.InstrumentationMongo,
 				instrumentations.InstrumentationCouchbase,
 				instrumentations.InstrumentationMemcached,

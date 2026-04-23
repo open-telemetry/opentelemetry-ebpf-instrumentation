@@ -1060,6 +1060,15 @@ func (r *metricsReporter) observe(span *request.Span) {
 					).Metric.Observe(duration)
 				}
 			}
+		case request.EventTypeAMQPClient:
+			if r.is.AMQPEnabled() {
+				switch span.Method {
+				case request.MessagingPublish:
+					r.observeHistogram(r.msgPublishDuration.WithLabelValues(labelValues(span, r.attrMsgPublishDuration)...).Metric, duration, span)
+				case request.MessagingProcess:
+					r.observeHistogram(r.msgProcessDuration.WithLabelValues(labelValues(span, r.attrMsgProcessDuration)...).Metric, duration, span)
+				}
+			}
 		case request.EventTypeGPUCudaKernelLaunch:
 			if r.is.GPUEnabled() {
 				r.addCounter(r.cudaKernelCallsTotal.WithLabelValues(labelValues(span, r.attrCudaKernelCalls)...).Metric, 1, span)

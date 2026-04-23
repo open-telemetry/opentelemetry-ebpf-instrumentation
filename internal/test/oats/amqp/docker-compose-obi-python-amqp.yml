@@ -1,0 +1,62 @@
+services:
+  lgtm:
+    network_mode: host
+    ports: []
+
+  artemis:
+    image: apache/activemq-artemis:2.43.0@sha256:036475538fe2e4a41ef007cedc116b5d3045fd4e15dc91939ee5d600d33a420b
+    network_mode: host
+    environment:
+      ARTEMIS_USER: artemis
+      ARTEMIS_PASSWORD: artemis
+      ANONYMOUS_LOGIN: "false"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sS http://localhost:8161/ > /dev/null"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+
+  testserver:
+    build:
+      context: ../../../..
+      dockerfile: ./internal/test/integration/components/pythonamqp/Dockerfile
+      network: host
+    image: pythonamqp
+    network_mode: host
+    environment:
+      AMQP_URL: amqp://artemis:artemis@127.0.0.1:5672
+      AMQP_QUEUE: oats-python-amqp
+    depends_on:
+      artemis:
+        condition: service_healthy
+
+  autoinstrumenter:
+    build:
+      context: ../../../..
+      dockerfile: ./internal/test/integration/components/obi/Dockerfile
+      network: host
+    command:
+      - --config=/configs/instrumenter-config-traces.yml
+    volumes:
+      - ./configs:/configs
+      - ./testoutput/run:/var/run/obi
+      - ../../../../testoutput:/coverage
+    privileged: true
+    network_mode: "service:testserver"
+    pid: "service:testserver"
+    environment:
+      GOCOVERDIR: "/coverage"
+      OTEL_EBPF_TRACE_PRINTER: "text"
+      OTEL_EBPF_OPEN_PORT: "8080"
+      OTEL_EBPF_SERVICE_NAMESPACE: "integration-test"
+      OTEL_EBPF_METRICS_INTERVAL: "10ms"
+      OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT: "1ms"
+      OTEL_EBPF_BPF_BATCH_TIMEOUT: "10ms"
+      OTEL_EBPF_BPF_CONTEXT_PROPAGATION: "disabled"
+      OTEL_EBPF_LOG_LEVEL: "DEBUG"
+      OTEL_EBPF_BPF_DEBUG: "true"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://127.0.0.1:4318"
+    depends_on:
+      testserver:
+        condition: service_started
