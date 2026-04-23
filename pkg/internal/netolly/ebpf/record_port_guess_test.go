@@ -18,7 +18,7 @@ func TestRecordGettersWithPortGuessMode_OrdinalUnknownInitiator(t *testing.T) {
 	record := &Record{
 		CommonAttrs: pipe.CommonAttrs{
 			SrcPort: 45678,
-			DstPort: 8080,
+			DstPort: 443,
 		},
 	}
 
@@ -28,16 +28,19 @@ func TestRecordGettersWithPortGuessMode_OrdinalUnknownInitiator(t *testing.T) {
 	require.True(t, ok)
 	serverGetter, ok := RecordStringGetters(cfg)(attr.ServerPort)
 	require.True(t, ok)
+	netProtocolGetter, ok := RecordStringGetters(cfg)(attr.NetworkProtocol)
+	require.True(t, ok)
 
 	assert.Equal(t, "45678", clientGetter(record))
-	assert.Equal(t, "8080", serverGetter(record))
+	assert.Equal(t, "443", serverGetter(record))
+	assert.Equal(t, "https", netProtocolGetter(record))
 }
 
 func TestRecordGettersWithPortGuessMode_DisableUnknownInitiator(t *testing.T) {
 	record := &Record{
 		CommonAttrs: pipe.CommonAttrs{
 			SrcPort: 45678,
-			DstPort: 8080,
+			DstPort: 443,
 		},
 	}
 
