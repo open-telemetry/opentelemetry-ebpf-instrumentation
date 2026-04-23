@@ -464,8 +464,8 @@ network:
 	validationErr := validate.Struct(cfg.Attributes.Kubernetes)
 	require.Error(t, validationErr)
 
-	fieldErrs, ok := validationErr.(validator.ValidationErrors)
-	require.True(t, ok)
+	var fieldErrs validator.ValidationErrors
+	require.ErrorAs(t, validationErr, &fieldErrs)
 	require.Len(t, fieldErrs, 1)
 	assert.Equal(t, "ReconnectInitialInterval", fieldErrs[0].Field())
 	assert.Equal(t, "gt", fieldErrs[0].Tag())
