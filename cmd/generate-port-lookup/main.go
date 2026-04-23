@@ -21,7 +21,9 @@ package main
 
 import (
 	"bufio"
+	"errors"
 	"flag"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -80,57 +82,96 @@ func requiresRegeneration() bool {
 	return !strings.Contains(string(content), ServicesURL)
 }
 
-func main() {
-	flag.Parse()
-	if !requiresRegeneration() {
-		slog.Info("protocol file is up to date, skipping generation")
-		return
-	}
-	resp, err := http.Get(ServicesURL)
-	if err != nil {
-		slog.Error("failed to get services file", "err", err)
-		return
-	}
-	defer resp.Body.Close()
-	slog.Info("reading services file")
-	s := bufio.NewScanner(resp.Body)
+func parseServices(r io.Reader) (map[int]string, error) {
+	s := bufio.NewScanner(r)
 	mapping := make(map[int]string)
-	for s.Scan() {
+	for lineNum := 1; s.Scan(); lineNum++ {
 		line := s.Text()
 		if strings.HasPrefix(line, "#") {
 			continue
 		}
+
 		fields := strings.Fields(line)
 		if len(fields) < 2 {
 			continue
 		}
-		portdef := strings.Split(fields[1], "/")
-		if n, err := strconv.Atoi(portdef[0]); err == nil {
-			if portdef[1] == "udp" || portdef[1] == "tcp" {
-				mapping[n] = fields[0]
-			}
+
+		port, protocol, ok := strings.Cut(fields[1], "/")
+		if !ok || port == "" || protocol == "" {
+			return nil, fmt.Errorf("malformed services entry on line %d: %q", lineNum, line)
 		}
+
+		n, err := strconv.Atoi(port)
+		if err != nil {
+			continue
+		}
+
+		if protocol == "udp" || protocol == "tcp" {
+			mapping[n] = fields[0]
+		}
+	}
+
+	if err := s.Err(); err != nil {
+		return nil, err
+	}
+	if len(mapping) == 0 {
+		return nil, errors.New("services response did not contain any tcp or udp entries")
+	}
+
+	return mapping, nil
+}
+
+func fetchServices(client *http.Client, url string) (map[int]string, error) {
+	resp, err := client.Get(url)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("unexpected services response status: %s", resp.Status)
+	}
+
+	return parseServices(resp.Body)
+}
+
+func run(client *http.Client, servicesURL string) error {
+	flag.Parse()
+	if !requiresRegeneration() {
+		slog.Info("protocol file is up to date, skipping generation")
+		return nil
+	}
+	slog.Info("reading services file")
+	mapping, err := fetchServices(client, servicesURL)
+	if err != nil {
+		return fmt.Errorf("failed to read services file: %w", err)
 	}
 	slog.Info("finished reading service file", "detected_services", len(mapping))
 
 	tmpl, err := template.New("protocol.go").Parse(fileTemplate)
 	if err != nil {
-		slog.Error("failed to parse template", "err", err)
-		return
+		return fmt.Errorf("failed to parse template: %w", err)
 	}
 
 	f, err := os.Create(*protocolsFile)
 	if err != nil {
-		slog.Error("failed to open file for writing", "err", err)
-		return
+		return fmt.Errorf("failed to open file for writing: %w", err)
 	}
 	defer f.Close()
 	if err := tmpl.Execute(f, map[string]any{
-		"ServicesURL": ServicesURL,
+		"ServicesURL": servicesURL,
 		"Services":    mapping,
 	}); err != nil {
-		slog.Error("failed to execute template", "err", err)
-		return
+		return fmt.Errorf("failed to execute template: %w", err)
 	}
 	slog.Info("finished generating service lookup code")
+
+	return nil
+}
+
+func main() {
+	if err := run(http.DefaultClient, ServicesURL); err != nil {
+		slog.Error(err.Error())
+		os.Exit(1)
+	}
 }
