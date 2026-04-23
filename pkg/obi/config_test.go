@@ -441,6 +441,22 @@ network:
 	require.NoError(t, cfg.Validate())
 }
 
+func TestConfigValidate_KubeReconnectInitialIntervalZero(t *testing.T) {
+	userConfig := bytes.NewBufferString(`
+trace_printer: text
+attributes:
+  kubernetes:
+    reconnect_initial_interval: 0s
+`)
+
+	cfg, err := LoadConfig(userConfig)
+	require.NoError(t, err)
+
+	err = cfg.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "ReconnectInitialInterval")
+}
+
 func TestConfigValidate_TracePrinter(t *testing.T) {
 	type test struct {
 		env      envMap
