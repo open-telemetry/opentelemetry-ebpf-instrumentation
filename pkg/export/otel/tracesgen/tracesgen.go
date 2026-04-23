@@ -774,6 +774,7 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 			semconv.MessagingDestinationName(span.Path),
 			semconv.MessagingClientID(span.Statement),
 			operation,
+			semconv.MessagingMessageEnvelopeSize(int(span.ContentLength)),
 		}
 
 		if span.Type == request.EventTypeNATSClient {

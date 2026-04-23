@@ -836,7 +836,7 @@ func spanAttributes(s *Span) SpanAttributes {
 			"serverPort": strconv.Itoa(s.HostPort),
 			"operation":  s.Method,
 			"clientId":   s.Statement,
-			"topic":      s.Path,
+			"subject":    s.Path,
 		}
 	case EventTypeGPUCudaKernelLaunch:
 		return SpanAttributes{

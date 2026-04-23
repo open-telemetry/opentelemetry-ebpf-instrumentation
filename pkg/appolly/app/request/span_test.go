@@ -405,7 +405,7 @@ func TestSerializeJSONSpans(t *testing.T) {
 				"serverPort": "5678",
 				"operation":  "method",
 				"clientId":   "statement",
-				"topic":      "path",
+				"subject":    "path",
 			},
 		},
 		{

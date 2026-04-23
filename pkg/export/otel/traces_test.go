@@ -437,7 +437,13 @@ func TestGenerateTracesAttributes(t *testing.T) {
 	})
 
 	t.Run("test NATS trace generation", func(t *testing.T) {
-		span := request.Span{Type: request.EventTypeNATSClient, Method: "publish", Path: "updates.orders", Statement: "nats-client-1"}
+		span := request.Span{
+			Type:          request.EventTypeNATSClient,
+			Method:        "publish",
+			Path:          "updates.orders",
+			Statement:     "nats-client-1",
+			ContentLength: 42,
+		}
 		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
 		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
 
@@ -454,6 +460,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		ensureTraceStrAttr(t, attrs, semconv.MessagingDestinationNameKey, "updates.orders")
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.MessagingSystem), "nats")
 		ensureTraceStrAttr(t, attrs, semconv.MessagingClientIDKey, "nats-client-1")
+		ensureTraceIntAttr(t, attrs, semconv.MessagingMessageEnvelopeSizeKey, 42)
 	})
 
 	t.Run("test Mongo trace generation", func(t *testing.T) {
@@ -2594,6 +2601,13 @@ func ensureTraceStrSliceAttr(t *testing.T, attrs pcommon.Map, key attribute.Key,
 		got[i] = slice.At(i).Str()
 	}
 	assert.Equal(t, vals, got)
+}
+
+func ensureTraceIntAttr(t *testing.T, attrs pcommon.Map, key attribute.Key, val int64) {
+	t.Helper()
+	v, ok := attrs.Get(string(key))
+	require.True(t, ok, "expected attribute %s", key)
+	assert.Equal(t, val, v.Int())
 }
 
 func ensureTraceAttrNotExists(t *testing.T, attrs pcommon.Map, key attribute.Key) {
