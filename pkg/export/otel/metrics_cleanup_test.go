@@ -148,13 +148,7 @@ func newCleanupTestMetricsReporter(ctx context.Context) *MetricsReporter {
 			Features: export.FeatureApplicationRED | export.FeatureSpanOTel | export.FeatureSpanSizes,
 		},
 		is: instrumentations.NewInstrumentationSelection([]instrumentations.Instrumentation{
-			instrumentations.InstrumentationHTTP,
-			instrumentations.InstrumentationGRPC,
-			instrumentations.InstrumentationSQL,
-			instrumentations.InstrumentationKafka,
-			instrumentations.InstrumentationGPU,
-			instrumentations.InstrumentationDNS,
-			instrumentations.InstrumentationGenAI,
+			instrumentations.InstrumentationALL,
 		}),
 		attrGetters: func(name attr.Name) (attributes.Getter[*request.Span, attribute.KeyValue], bool) {
 			return func(*request.Span) attribute.KeyValue {
