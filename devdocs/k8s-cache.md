@@ -32,19 +32,14 @@ The source lives under:
 
 `k8s-cache` A tiny Go binary that does two things:
 
-1. Runs the same Kubernetes informers OBI would run locally
-   (`Pod`, `Node`, `Service`, `ReplicaSet`) against the Kube API, keeping an
-   in-memory view of the cluster metadata.
+1. Runs Kubernetes informers (`Pod`, `Node`, `Service`) against the Kube API,
+   keeping an in-memory view of the cluster metadata.
 2. Exposes a gRPC streaming endpoint
    (`informer.EventStreamService/Subscribe`) that clients connect to. On
    subscription, the service replays the current snapshot and then keeps
    pushing add/update/delete events in real time. An explicit
    `SYNC_FINISHED` event marks the end of the initial replay, so the client
    knows when it is safe to start decorating telemetry.
-
-Clients send a `FromTimestampEpoch` on `Subscribe`. On reconnect, OBI sends the
-timestamp of the last event it successfully processed so the cache can skip
-anything older and avoid a full snapshot replay.
 
 By default the service listens for gRPC on port `50055` and can optionally
 expose a pprof listener and a Prometheus `/metrics` endpoint for internal
@@ -65,7 +60,7 @@ Centralizing the k8s metadata collection to a single source (k8s-cache) can help
   already-populated snapshot, so it does not have to wait for its own informer
   to list the whole cluster before it can start decorating.
 - **Cheaper reconnects.** OBI passes the timestamp of its last event, so the
-  cache only replays what changed while it was disconnected.
+  snapshot replay on resubscribe skips entries it has already seen
 
 If k8s cache address is not provided, OBI will initiate its own local in-process cache.
 which is fine for small clusters but is exactly the scaling pattern this service exists
@@ -118,7 +113,7 @@ spec:
       labels:
         app: k8s-cache
     spec:
-      serviceAccountName: obi # needs list/watch on pods, nodes, services, replicasets
+      serviceAccountName: obi # needs list/watch on pods, nodes, services
       containers:
         - name: k8s-cache
           image: otel/opentelemetry-ebpf-k8s-cache:latest
@@ -197,10 +192,9 @@ Configuration is loaded in this order (later overrides earlier):
 |--------------------------|--------------------------------------------------------|----------------|------------------------------------------------------------|
 | `log_level`              | `OTEL_EBPF_K8S_CACHE_LOG_LEVEL`                        | `info`         | `debug`/`info`/`warn`/`error`.                             |
 | `port`                   | `OTEL_EBPF_K8S_CACHE_PORT`                             | `50055`        | gRPC listen port.                                          |
-| `max_connections`        | `OTEL_EBPF_K8S_CACHE_MAX_CONNECTIONS`                  | `150`          | Max concurrent subscribing OBI clients.                    |
+| `max_connections`        | `OTEL_EBPF_K8S_CACHE_MAX_CONNECTIONS`                  | `150`          | Per-transport HTTP/2 stream cap (wired into `grpc.MaxConcurrentStreams`). |
 | `profile_port`           | `OTEL_EBPF_K8S_CACHE_PROFILE_PORT`                     | `0` (disabled) | If non-zero, starts a `net/http/pprof` listener.           |
 | `informer_resync_period` | `OTEL_EBPF_K8S_CACHE_INFORMER_RESYNC_PERIOD`           | `30m`          | Full informer resync interval. Increase to lower API load. |
-| `informer_send_timeout`  | `OTEL_EBPF_K8S_CACHE_INFORMER_SEND_TIMEOUT`            | `10s`          | Drops a subscriber that does not drain an event in time.   |
 | `internal_metrics.port`  | `OTEL_EBPF_K8S_CACHE_INTERNAL_METRICS_PROMETHEUS_PORT` | `0` (disabled) | If non-zero, serves Prometheus metrics.                    |
 | `internal_metrics.path`  | `OTEL_EBPF_K8S_CACHE_INTERNAL_METRICS_PROMETHEUS_PATH` | `/metrics`     | Metrics endpoint path.                                     |
 
@@ -217,9 +211,6 @@ watch itself. The integration tests use the service account in
 
 ```yaml
 rules:
-  - apiGroups: [ "apps" ]
-    resources: [ "replicasets" ]
-    verbs: [ "list", "watch" ]
   - apiGroups: [ "" ]
     resources: [ "pods", "services", "nodes" ]
     verbs: [ "list", "watch" ]
@@ -239,9 +230,9 @@ service exposes these Prometheus metrics (prefix defined by
   received from the Kube API.
 - `*_kube_cache_connected_clients` — current number of subscribed OBI
   instances.
-- `*_kube_cache_client_messages_total{status=submit|success|timeout|error}` —
-  outcome of events forwarded to clients. Growing `timeout` or `error`
-  typically means a slow subscriber hitting `informer_send_timeout`.
+- `*_kube_cache_client_messages_total{status=submit|success|error}` —
+  outcome of events forwarded to clients. Growing `error` typically means a
+  client stream that failed on `Send` (the connection is then closed).
 - `*_informer_receive_lag_seconds` — histogram of the delay between a Kube
   event happening and the cache forwarding it. Useful to spot informer
   backpressure.
