@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"go.opentelemetry.io/collector/component"
+	"go.opentelemetry.io/collector/component/componenttest"
 
 	"go.opentelemetry.io/obi/pkg/obi"
 )
@@ -22,7 +23,7 @@ func TestShutdownAfterStartFailureCleansSharedController(t *testing.T) {
 
 	c := newTestController(t, id, cfg)
 
-	if err := c.Start(context.Background(), nil); err == nil {
+	if err := c.Start(context.Background(), componenttest.NewNopHost()); err == nil {
 		t.Fatal("expected Start to fail")
 	}
 
@@ -31,12 +32,15 @@ func TestShutdownAfterStartFailureCleansSharedController(t *testing.T) {
 		shutdownDone <- c.Shutdown(context.Background())
 	}()
 
+	timer := newShutdownTimer(t)
+	defer stopTestTimer(timer)
+
 	select {
 	case err := <-shutdownDone:
 		if err != nil {
 			t.Fatalf("expected Shutdown to return nil after failed start, got %v", err)
 		}
-	case <-time.After(time.Second):
+	case <-timer.C:
 		t.Fatal("Shutdown blocked after Start failure")
 	}
 
@@ -98,4 +102,29 @@ func newTestController(t *testing.T, id component.ID, cfg *obi.Config) *Controll
 	})
 
 	return c
+}
+
+func newShutdownTimer(t *testing.T) *time.Timer {
+	t.Helper()
+
+	timeout := 5 * time.Second
+	if deadline, ok := t.Deadline(); ok {
+		remaining := time.Until(deadline)
+		if remaining > time.Second && remaining-time.Second < timeout {
+			timeout = remaining - time.Second
+		}
+	}
+
+	return time.NewTimer(timeout)
+}
+
+func stopTestTimer(timer *time.Timer) {
+	if timer.Stop() {
+		return
+	}
+
+	select {
+	case <-timer.C:
+	default:
+	}
 }

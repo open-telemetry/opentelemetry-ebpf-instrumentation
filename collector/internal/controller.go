@@ -127,9 +127,8 @@ func (c *Controller) Start(ctx context.Context, _ component.Host) error {
 // Shutdown stops the receiver. Only the last shutdown call actually stops OBI.
 func (c *Controller) Shutdown(_ context.Context) error {
 	c.shared.mu.Lock()
-	defer c.shared.mu.Unlock()
-
 	if c.shared.refCnt == 0 {
+		c.shared.mu.Unlock()
 		c.cleanupSharedController()
 		return nil
 	}
@@ -137,27 +136,36 @@ func (c *Controller) Shutdown(_ context.Context) error {
 	c.shared.refCnt--
 
 	if c.shared.refCnt > 0 {
+		c.shared.mu.Unlock()
 		// Other receivers still using the shared controller
 		return nil
 	}
 
 	// Last receiver shutting down, stop OBI
-	if c.shared.cancel != nil {
-		c.shared.cancel()
+	cancel := c.shared.cancel
+	runDone := c.shared.runDone
+	c.shared.mu.Unlock()
+
+	if cancel != nil {
+		cancel()
 	}
 
-	if c.shared.runDone == nil {
+	if runDone == nil {
 		c.cleanupSharedController()
 		return nil
 	}
 
 	// Wait for OBI to finish
-	<-c.shared.runDone
+	<-runDone
 
 	// Clean up the shared controller for this component ID
 	c.cleanupSharedController()
 
-	return c.shared.runErr
+	c.shared.mu.Lock()
+	runErr := c.shared.runErr
+	c.shared.mu.Unlock()
+
+	return runErr
 }
 
 func (c *Controller) cleanupSharedController() {
