@@ -5,7 +5,9 @@ package ebpfcommon
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
+	"io"
 	"log/slog"
 	"sync/atomic"
 	"testing"
@@ -176,6 +178,42 @@ func TestForwardRingbuf_Close(t *testing.T) {
 	assert.Equal(t, 0, metrics.flushedLen)
 }
 
+func TestRingbufLastReadAtRace(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	rbf := &ringBufForwarder[HTTPRequestTrace]{
+		cfg:    &config.EBPFTracer{BatchLength: 1},
+		logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		parse: func(*ringbuf.Record) (HTTPRequestTrace, bool, error) {
+			return HTTPRequestTrace{}, true, nil
+		},
+	}
+
+	eventsReader := newFlushTrackingReader()
+	readDone := make(chan struct{})
+	go func() {
+		defer close(readDone)
+		rbf.readAndForwardInner(ctx, eventsReader, msg.NewQueue[[]HTTPRequestTrace](msg.ChannelBufferLen(1)))
+	}()
+
+	deadline := time.Now().Add(flushInterval + 500*time.Millisecond)
+	for time.Now().Before(deadline) {
+		eventsReader.AllowRead()
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	assert.Zero(t, eventsReader.FlushCount())
+
+	require.Eventually(t, func() bool {
+		return eventsReader.FlushCount() > 0
+	}, 2*flushInterval+time.Second, 100*time.Millisecond)
+
+	cancel()
+	eventsReader.Close()
+	<-readDone
+}
+
 // replaces the original ring buffer factory by a fake ring buffer creator and returns it
 func replaceTestRingBuf() *fakeRingBufReader {
 	rb := fakeRingBufReader{events: make(chan HTTPRequestTrace, 100), closeCh: make(chan struct{})}
@@ -223,6 +261,62 @@ func (f *fakeRingBufReader) ReadInto(record *ringbuf.Record) error {
 func (f *fakeRingBufReader) AvailableBytes() int { return 0 }
 
 func (f *fakeRingBufReader) Flush() error { return nil }
+
+type flushTrackingReader struct {
+	readTokens chan struct{}
+	closed     chan struct{}
+	// flushCount lets the test observe when the background flusher decides
+	// reads went idle.
+	flushCount atomic.Int32
+}
+
+func newFlushTrackingReader() *flushTrackingReader {
+	return &flushTrackingReader{
+		readTokens: make(chan struct{}, 1),
+		closed:     make(chan struct{}),
+	}
+}
+
+func (f *flushTrackingReader) AllowRead() {
+	select {
+	case f.readTokens <- struct{}{}:
+	default:
+	}
+}
+
+func (f *flushTrackingReader) FlushCount() int {
+	return int(f.flushCount.Load())
+}
+
+func (f *flushTrackingReader) Close() error {
+	select {
+	case <-f.closed:
+	default:
+		close(f.closed)
+	}
+	return nil
+}
+
+func (f *flushTrackingReader) Read() (ringbuf.Record, error) { return ringbuf.Record{}, nil }
+
+func (f *flushTrackingReader) ReadInto(record *ringbuf.Record) error {
+	select {
+	case <-f.readTokens:
+		// Returning an empty sample is enough to exercise the read path and
+		// update lastReadAt.
+		record.RawSample = nil
+		return nil
+	case <-f.closed:
+		return ringbuf.ErrClosed
+	}
+}
+
+func (f *flushTrackingReader) AvailableBytes() int { return 1 }
+
+func (f *flushTrackingReader) Flush() error {
+	f.flushCount.Add(1)
+	return nil
+}
 
 type closableObject struct {
 	closed atomic.Bool
