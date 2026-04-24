@@ -201,7 +201,7 @@ func ensureEmbeddedAgent() {
 	if len(embeddedJavaAgentBytes) == 0 || strings.TrimSpace(string(embeddedJavaAgentBytes)) == javaAgentEmbedPlaceholder {
 		// Make sure to run `make java-docker-build` to build the Java Agent
 		// so that it can be embedded during build.
-		return errors.New("embedded OBI java agent artifact is missing") 
+		panic("embedded OBI java agent artifact is missing")
 	}
 }
 
