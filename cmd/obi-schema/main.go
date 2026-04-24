@@ -79,7 +79,7 @@ var packagesToScan = []string{
 
 // scanSourceFiles scans all Go source files in packagesToScan and extracts metadata.
 func (g *SchemaGenerator) scanSourceFiles() {
-	moduleRoot := findModuleRoot(filepath.Dir("../.."))
+	moduleRoot := findModuleRoot(filepath.Dir(".."))
 	if moduleRoot == "" {
 		fmt.Fprintln(os.Stderr, "Warning: could not find module root")
 		return

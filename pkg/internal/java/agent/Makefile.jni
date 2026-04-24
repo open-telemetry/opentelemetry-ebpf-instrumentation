@@ -6,8 +6,8 @@ INCLUDES = -I$(JAVA_HOME)/include -I$(JAVA_HOME)/include/linux -I$(JNI_HEADERS_D
 LDFLAGS = -shared
 
 SRC_DIR = src/main/c
-BUILD_DIR = build
-TARGET_DIR = target/classes
+BUILD_DIR ?= build
+TARGET_DIR ?= target/classes
 LIB_NAME = libobijni.so
 
 SOURCES = $(SRC_DIR)/io_opentelemetry_obi_java_jni.c

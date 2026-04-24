@@ -71,14 +71,30 @@ tasks.named("spotlessJava") {
 }
 
 // Build the native JNI library
-tasks.register<Exec>("buildNativeLib") {
+tasks.register<Exec>("buildNativeLib-amd64") {
     group = "build"
     description = "Build the JNI native library (libobijni.so)"
     
     dependsOn("compileJava")
     
     workingDir = projectDir
-    commandLine("make", "-f", "Makefile.jni")
+    // amd64 build
+    commandLine("make", "-f", "Makefile.jni", "CC=gcc", "BUILD_DIR=build/jni/linux-amd64", "TARGET_DIR=target/classes/native/linux-amd64")
+    
+    doLast {
+        println("OBI JNI library built successfully")
+    }
+}
+
+tasks.register<Exec>("buildNativeLib-aarch64") {
+    group = "build"
+    description = "Build the JNI native library (libobijni.so)"
+    
+    dependsOn("compileJava")
+    
+    workingDir = projectDir
+    // cross compile aarch64
+    commandLine("make", "-f", "Makefile.jni", "CC=aarch64-linux-gnu-gcc", "BUILD_DIR=build/jni/linux-aarch64", "TARGET_DIR=target/classes/native/linux-aarch64")
     
     doLast {
         println("OBI JNI library built successfully")
@@ -91,7 +107,8 @@ tasks.register<Delete>("cleanNativeLib") {
     description = "Clean the JNI native library build artifacts"
     
     delete(file("build"))
-    delete(file("target/classes/libobijni.so"))
+    delete(file("target/classes/native/linux-amd64/libobijni.so"))
+    delete(file("target/classes/native/linux-aarch64/libobijni.so"))
 }
 
 val jmhIncludes: String? by project
@@ -114,17 +131,19 @@ jmh {
 }
 
 tasks.shadowJar {
-    dependsOn("buildNativeLib")
+    dependsOn("buildNativeLib-amd64")
+    dependsOn("buildNativeLib-aarch64")
     
     archiveBaseName.set("agent")
     archiveVersion.set("0.1.0")
     archiveClassifier.set("shaded")
     
-    // Include the native library in the JAR
+    // Include the native libraries in the JAR
     from(file("target/classes")) {
-        include("libobijni.so")
+        include("native/linux-amd64/libobijni.so")
+        include("native/linux-aarch64/libobijni.so")
     }
-    
+
     manifest {
         attributes(
             "Premain-Class" to "io.opentelemetry.obi.java.Agent",
