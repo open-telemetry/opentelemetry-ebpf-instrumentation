@@ -1,0 +1,43 @@
+# A DaemonSet with hostPID=true that serves HTTP traffic.
+# Used to test that spans from this DaemonSet are correctly attributed to it
+# (and not to other pods sharing the host PID namespace).
+apiVersion: v1
+kind: Service
+metadata:
+  name: hostpid-httpserver
+spec:
+  selector:
+    app: hostpid-httpserver
+  ports:
+    - port: 8082
+      name: http
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: hostpid-httpserver
+  labels:
+    app: hostpid-httpserver
+spec:
+  selector:
+    matchLabels:
+      app: hostpid-httpserver
+  template:
+    metadata:
+      name: hostpid-httpserver
+      labels:
+        app: hostpid-httpserver
+    spec:
+      hostPID: true
+      containers:
+        - name: hostpid-httpserver
+          image: testserver:dev
+          imagePullPolicy: Never # loaded into Kind from localhost
+          ports:
+            - containerPort: 8082
+              hostPort: 8082
+              name: http
+          env:
+            - name: LOG_LEVEL
+              value: "DEBUG"
