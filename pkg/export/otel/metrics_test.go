@@ -19,7 +19,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/collector/consumer"
-	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/pmetric"
 	"go.opentelemetry.io/otel/attribute"
 
@@ -414,7 +413,10 @@ func TestSpanMetrics_ExtraResourceAttributes(t *testing.T) {
 
 	metrics.Send([]request.Span{span})
 
-	res := readNChan(t, metricRecords, 2, timeout)
+	res := readMetricsByName(t, metricRecords, timeout,
+		reporter.spanMetricsLatencyName(),
+		reporter.spanMetricsCallsName(),
+	)
 	assert.Len(t, res, 2)
 
 	expected := map[string]struct{}{
@@ -487,7 +489,10 @@ func TestSpanSizeMetrics_ExtraResourceAttributes(t *testing.T) {
 
 	metrics.Send([]request.Span{span})
 
-	res := readNChan(t, metricRecords, 2, timeout)
+	res := readMetricsByName(t, metricRecords, timeout,
+		SpanMetricsRequestSizes,
+		SpanMetricsResponseSizes,
+	)
 	assert.Len(t, res, 2)
 
 	expected := map[string]struct{}{
@@ -702,76 +707,9 @@ func readNChan(t require.TestingT, inCh <-chan collector.MetricRecord, numRecord
 
 func testMetricsConsumer(out chan<- collector.MetricRecord) consumer.Metrics {
 	c, err := consumer.NewMetrics(func(_ context.Context, md pmetric.Metrics) error {
-		for _, rm := range md.ResourceMetrics().All() {
-			resourceAttrs := map[string]string{}
-			rm.Resource().Attributes().Range(func(k string, v pcommon.Value) bool {
-				resourceAttrs[k] = v.AsString()
-				return true
-			})
-
-			for _, sm := range rm.ScopeMetrics().All() {
-				for _, m := range sm.Metrics().All() {
-					switch m.Type() {
-					case pmetric.MetricTypeSum:
-						for _, ndp := range m.Sum().DataPoints().All() {
-							record := collector.MetricRecord{
-								Name:               m.Name(),
-								Unit:               m.Unit(),
-								Type:               m.Type(),
-								FloatVal:           ndp.DoubleValue(),
-								IntVal:             ndp.IntValue(),
-								Attributes:         map[string]string{},
-								ResourceAttributes: resourceAttrs,
-							}
-							ndp.Attributes().Range(func(k string, v pcommon.Value) bool {
-								record.Attributes[k] = v.AsString()
-								return true
-							})
-							out <- record
-						}
-					case pmetric.MetricTypeHistogram:
-						for _, hdp := range m.Histogram().DataPoints().All() {
-							if !hdp.HasSum() {
-								continue
-							}
-
-							record := collector.MetricRecord{
-								Name:               m.Name(),
-								Unit:               m.Unit(),
-								Type:               m.Type(),
-								FloatVal:           hdp.Sum(),
-								Count:              int(hdp.Count()),
-								Attributes:         map[string]string{},
-								ResourceAttributes: resourceAttrs,
-							}
-							hdp.Attributes().Range(func(k string, v pcommon.Value) bool {
-								record.Attributes[k] = v.AsString()
-								return true
-							})
-							out <- record
-						}
-					case pmetric.MetricTypeGauge:
-						for _, gdp := range m.Gauge().DataPoints().All() {
-							record := collector.MetricRecord{
-								Name:               m.Name(),
-								Unit:               m.Unit(),
-								Type:               m.Type(),
-								FloatVal:           gdp.DoubleValue(),
-								IntVal:             gdp.IntValue(),
-								Attributes:         map[string]string{},
-								ResourceAttributes: resourceAttrs,
-							}
-							gdp.Attributes().Range(func(k string, v pcommon.Value) bool {
-								record.Attributes[k] = v.AsString()
-								return true
-							})
-							out <- record
-						}
-					}
-				}
-			}
-		}
-
+		collector.VisitMetricRecords(md, func(record collector.MetricRecord) {
+			out <- record
+		})
 		return nil
 	})
 	if err != nil {
@@ -779,6 +717,33 @@ func testMetricsConsumer(out chan<- collector.MetricRecord) consumer.Metrics {
 	}
 
 	return c
+}
+
+func readMetricsByName(t require.TestingT, inCh <-chan collector.MetricRecord, timeout time.Duration, names ...string) []collector.MetricRecord {
+	expected := map[string]struct{}{}
+	for _, name := range names {
+		expected[name] = struct{}{}
+	}
+
+	records := make([]collector.MetricRecord, 0, len(expected))
+	deadline := time.NewTimer(timeout)
+	defer deadline.Stop()
+
+	for len(expected) > 0 {
+		select {
+		case item := <-inCh:
+			if _, ok := expected[item.Name]; !ok {
+				continue
+			}
+			records = append(records, item)
+			delete(expected, item.Name)
+		case <-deadline.C:
+			require.Failf(t, "timeout while waiting for metric records", "missing metrics: %v", names)
+			return records
+		}
+	}
+
+	return records
 }
 
 func makeMetricsReporter(

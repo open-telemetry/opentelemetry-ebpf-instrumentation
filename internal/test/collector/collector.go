@@ -170,12 +170,21 @@ func (tc *TestCollector) metricEvent(writer http.ResponseWriter, body []byte) {
 	json, _ := req.MarshalJSON()
 	log.Debug("received metric", "json", string(json))
 
-	for _, rm := range req.Metrics().ResourceMetrics().All() {
+	VisitMetricRecords(req.Metrics(), func(mr MetricRecord) {
+		tc.Records() <- mr
+	})
+}
+
+// VisitMetricRecords iterates over OTLP metric payloads and emits the flattened
+// MetricRecord values used by tests.
+func VisitMetricRecords(metrics pmetric.Metrics, visit func(MetricRecord)) {
+	for _, rm := range metrics.ResourceMetrics().All() {
 		resourceAttrs := map[string]string{}
 		rm.Resource().Attributes().Range(func(k string, v pcommon.Value) bool {
 			resourceAttrs[k] = v.AsString()
 			return true
 		})
+
 		for _, sm := range rm.ScopeMetrics().All() {
 			for _, m := range sm.Metrics().All() {
 				switch m.Type() {
@@ -194,14 +203,15 @@ func (tc *TestCollector) metricEvent(writer http.ResponseWriter, body []byte) {
 							mr.Attributes[k] = v.AsString()
 							return true
 						})
-						tc.Records() <- mr
+						visit(mr)
 					}
 				case pmetric.MetricTypeHistogram:
 					for _, hdp := range m.Histogram().DataPoints().All() {
-						// for simplicity, reporting only sum histogram data
+						// For simplicity, report only histogram points with a computed sum.
 						if !hdp.HasSum() {
-							return
+							continue
 						}
+
 						mr := MetricRecord{
 							Name:               m.Name(),
 							Unit:               m.Unit(),
@@ -215,7 +225,7 @@ func (tc *TestCollector) metricEvent(writer http.ResponseWriter, body []byte) {
 							mr.Attributes[k] = v.AsString()
 							return true
 						})
-						tc.Records() <- mr
+						visit(mr)
 					}
 				case pmetric.MetricTypeGauge:
 					for _, ndp := range m.Gauge().DataPoints().All() {
@@ -232,7 +242,7 @@ func (tc *TestCollector) metricEvent(writer http.ResponseWriter, body []byte) {
 							mr.Attributes[k] = v.AsString()
 							return true
 						})
-						tc.Records() <- mr
+						visit(mr)
 					}
 				default:
 					log.Warn("unsupported metric type", "type", m.Type().String())
