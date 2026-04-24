@@ -89,16 +89,19 @@ int obi_tracepoint_inet_sock_set_state(struct trace_event_raw_inet_sock_set_stat
 
     struct sock *sk = (struct sock *)args->skaddr;
 
-    connection_info_t conn;
-    if (!parse_sock_info(sk, &conn)) {
-        return 0;
-    }
-
     const int err = BPF_CORE_READ(sk, sk_err);
+    // Trust sk_err: err==0 means the kernel saw no problem (e.g. local close()
+    // with unread data sends RST without setting sk_err).
+    // Exception: aborted connect (TCP_SYN_SENT -> TCP_CLOSE) never established, still a failure.
     if (err == 0 && args->oldstate != TCP_SYN_SENT) {
         return 0;
     }
     const u8 reason = sk_err_to_reason(err);
+
+    connection_info_t conn;
+    if (!parse_sock_info(sk, &conn)) {
+        return 0;
+    }
 
     bpf_d_printk("tcp failed: s_port=%d, d_port=%d, reason=%d", conn.s_port, conn.d_port, reason);
 
