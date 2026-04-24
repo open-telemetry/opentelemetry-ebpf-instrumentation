@@ -53,7 +53,6 @@ func TestParseServices(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -162,5 +161,28 @@ func TestRunReturnsErrorOnFetchFailure(t *testing.T) {
 	}
 	if _, statErr := os.Stat(*protocolsFile); !os.IsNotExist(statErr) {
 		t.Fatalf("expected no output file to be created, stat err = %v", statErr)
+	}
+}
+
+func TestRequiresRegenerationUsesConfiguredURL(t *testing.T) {
+	t.Parallel()
+
+	oldProtocolsFile := *protocolsFile
+	*protocolsFile = filepath.Join(t.TempDir(), "protocol.go")
+	t.Cleanup(func() {
+		*protocolsFile = oldProtocolsFile
+	})
+
+	content := strings.Replace(fileTemplate, "{{ .ServicesURL }}", "https://example.invalid/services", 1)
+	content = strings.Replace(content, "{{- range $port, $svc := .Services }}\n\t{{ $port }}: \"{{ $svc }}\",\n{{- end }}", "", 1)
+	if err := os.WriteFile(*protocolsFile, []byte(content), 0o644); err != nil {
+		t.Fatalf("failed to write protocol file: %v", err)
+	}
+
+	if requiresRegeneration("https://example.invalid/services") {
+		t.Fatal("expected matching services URL to skip regeneration")
+	}
+	if !requiresRegeneration("https://example.invalid/other-services") {
+		t.Fatal("expected different services URL to require regeneration")
 	}
 }

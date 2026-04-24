@@ -67,7 +67,7 @@ const ServicesURL = "https://raw.githubusercontent.com/openbsd/src/28304016fe935
 
 var protocolsFile = flag.String("dst", "protocol.go", "destination file path for generated code")
 
-func requiresRegeneration() bool {
+func requiresRegeneration(servicesURL string) bool {
 	existing, err := os.Open(*protocolsFile)
 	if err != nil {
 		slog.Warn("unable to open existing file, forcing rebuild", "err", err)
@@ -79,7 +79,7 @@ func requiresRegeneration() bool {
 		slog.Warn("unable to read contents of existing file, forcing rebuild", "err", err)
 		return true
 	}
-	return !strings.Contains(string(content), ServicesURL)
+	return !strings.Contains(string(content), servicesURL)
 }
 
 func parseServices(r io.Reader) (map[int]string, error) {
@@ -136,8 +136,7 @@ func fetchServices(client *http.Client, url string) (map[int]string, error) {
 }
 
 func run(client *http.Client, servicesURL string) error {
-	flag.Parse()
-	if !requiresRegeneration() {
+	if !requiresRegeneration(servicesURL) {
 		slog.Info("protocol file is up to date, skipping generation")
 		return nil
 	}
@@ -170,6 +169,8 @@ func run(client *http.Client, servicesURL string) error {
 }
 
 func main() {
+	flag.Parse()
+
 	if err := run(http.DefaultClient, ServicesURL); err != nil {
 		slog.Error(err.Error())
 		os.Exit(1)
