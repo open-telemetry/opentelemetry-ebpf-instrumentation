@@ -53,8 +53,7 @@ func NewController(id component.ID, cfg *obi.Config) (*Controller, error) {
 	shared, exists := sharedControllers[id]
 	if !exists {
 		shared = &sharedController{
-			config:  cfg,
-			runDone: make(chan struct{}),
+			config: cfg,
 		}
 		sharedControllers[id] = shared
 	} else {
@@ -104,18 +103,22 @@ func (c *Controller) Start(ctx context.Context, _ component.Host) error {
 	}
 
 	// First caller - start OBI
-	ctx, c.shared.cancel = context.WithCancel(ctx)
-	ctxInfo, err := instrumenter.BuildCommonContextInfo(ctx, c.shared.config)
+	runCtx, cancel := context.WithCancel(ctx)
+	ctxInfo, err := instrumenter.BuildCommonContextInfo(runCtx, c.shared.config)
 	if err != nil {
+		cancel()
 		c.shared.refCnt-- // rollback on failure
 		slog.Error("building common context info for OBI", "error", err, "id", c.id)
 		return err
 	}
 
+	c.shared.cancel = cancel
+	c.shared.runDone = make(chan struct{})
+
 	// Run OBI in a goroutine
 	go func() {
 		defer close(c.shared.runDone)
-		c.shared.runErr = instrumenter.RunWithContextInfo(ctx, c.shared.config, ctxInfo)
+		c.shared.runErr = instrumenter.RunWithContextInfo(runCtx, c.shared.config, ctxInfo)
 	}()
 
 	return nil
@@ -125,6 +128,11 @@ func (c *Controller) Start(ctx context.Context, _ component.Host) error {
 func (c *Controller) Shutdown(_ context.Context) error {
 	c.shared.mu.Lock()
 	defer c.shared.mu.Unlock()
+
+	if c.shared.refCnt == 0 {
+		c.cleanupSharedController()
+		return nil
+	}
 
 	c.shared.refCnt--
 
@@ -138,13 +146,22 @@ func (c *Controller) Shutdown(_ context.Context) error {
 		c.shared.cancel()
 	}
 
+	if c.shared.runDone == nil {
+		c.cleanupSharedController()
+		return nil
+	}
+
 	// Wait for OBI to finish
 	<-c.shared.runDone
 
 	// Clean up the shared controller for this component ID
+	c.cleanupSharedController()
+
+	return c.shared.runErr
+}
+
+func (c *Controller) cleanupSharedController() {
 	sharedControllersMu.Lock()
 	delete(sharedControllers, c.id)
 	sharedControllersMu.Unlock()
-
-	return c.shared.runErr
 }
