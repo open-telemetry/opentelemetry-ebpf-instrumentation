@@ -47,6 +47,7 @@ require (
 	go.mongodb.org/mongo-driver/v2 v2.5.0
 	go.opentelemetry.io/auto/sdk v1.2.1
 	go.opentelemetry.io/collector/component v1.55.0
+	go.opentelemetry.io/collector/component/componenttest v0.149.0
 	go.opentelemetry.io/collector/config/configgrpc v0.149.0
 	go.opentelemetry.io/collector/config/confighttp v0.149.0
 	go.opentelemetry.io/collector/config/configopaque v1.55.0
@@ -214,7 +215,6 @@ require (
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	go.opentelemetry.io/collector v0.149.0 // indirect
 	go.opentelemetry.io/collector/client v1.55.0 // indirect
-	go.opentelemetry.io/collector/component/componenttest v0.149.0 // indirect
 	go.opentelemetry.io/collector/config/configauth v1.55.0 // indirect
 	go.opentelemetry.io/collector/config/configcompression v1.55.0 // indirect
 	go.opentelemetry.io/collector/config/configmiddleware v1.55.0 // indirect
