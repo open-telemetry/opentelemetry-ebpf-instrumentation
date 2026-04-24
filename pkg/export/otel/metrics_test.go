@@ -18,6 +18,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"go.opentelemetry.io/collector/consumer"
+	"go.opentelemetry.io/collector/pdata/pcommon"
+	"go.opentelemetry.io/collector/pdata/pmetric"
 	"go.opentelemetry.io/otel/attribute"
 
 	"go.opentelemetry.io/obi/internal/test/collector"
@@ -359,6 +362,149 @@ func TestAppMetrics_ResourceAttributes(t *testing.T) {
 	assert.Equal(t, "upstream.obi", attributes["source"])
 }
 
+func TestSpanMetrics_ExtraResourceAttributes(t *testing.T) {
+	defer otelcfg.RestoreEnvAfterExecution()()
+
+	ctx := t.Context()
+	metricRecords := make(chan collector.MetricRecord, 100)
+
+	now := syncedClock{now: time.Now()}
+	timeNow = now.Now
+
+	metrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(20))
+	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
+	mcfg := &otelcfg.MetricsConfig{
+		Interval:                50 * time.Millisecond,
+		MetricsProtocol:         otelcfg.ProtocolHTTPProtobuf,
+		TTL:                     30 * time.Minute,
+		ReportersCacheLen:       100,
+		Instrumentations:        []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP},
+		ExtraSpanResourceLabels: []string{"deployment.environment"},
+		MetricsConsumer:         testMetricsConsumer(metricRecords),
+	}
+
+	reporter, err := newMetricsReporter(
+		ctx,
+		&global.ContextInfo{OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: mcfg}},
+		mcfg,
+		&perapp.MetricsConfig{Features: export.FeatureSpanOTel},
+		&attributes.SelectorConfig{},
+		request.UnresolvedNames{},
+		metrics,
+		processEvents,
+	)
+	require.NoError(t, err)
+
+	go reporter.reportMetrics(ctx)
+
+	span := request.Span{
+		Service: svc.Attrs{
+			Features: export.FeatureSpanOTel,
+			UID:      svc.UID{Instance: "foo"},
+			Metadata: map[attr.Name]string{
+				attr.Name("deployment.environment"): "production",
+			},
+		},
+		Type:         request.EventTypeHTTPClient,
+		Method:       "GET",
+		Route:        "/v1/traces",
+		RequestStart: 100,
+		End:          200,
+	}
+
+	metrics.Send([]request.Span{span})
+
+	res := readNChan(t, metricRecords, 2, timeout)
+	assert.Len(t, res, 2)
+
+	expected := map[string]struct{}{
+		reporter.spanMetricsLatencyName(): {},
+		reporter.spanMetricsCallsName():   {},
+	}
+
+	for _, record := range res {
+		_, ok := expected[record.Name]
+		require.Truef(t, ok, "unexpected metric %q", record.Name)
+		assert.Equal(t, "production", record.Attributes["deployment.environment"])
+		delete(expected, record.Name)
+	}
+
+	assert.Empty(t, expected)
+}
+
+func TestSpanSizeMetrics_ExtraResourceAttributes(t *testing.T) {
+	defer otelcfg.RestoreEnvAfterExecution()()
+
+	ctx := t.Context()
+	metricRecords := make(chan collector.MetricRecord, 100)
+
+	now := syncedClock{now: time.Now()}
+	timeNow = now.Now
+
+	metrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(20))
+	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
+	mcfg := &otelcfg.MetricsConfig{
+		Interval:                50 * time.Millisecond,
+		MetricsProtocol:         otelcfg.ProtocolHTTPProtobuf,
+		TTL:                     30 * time.Minute,
+		ReportersCacheLen:       100,
+		Instrumentations:        []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP},
+		ExtraSpanResourceLabels: []string{"deployment.environment"},
+		MetricsConsumer:         testMetricsConsumer(metricRecords),
+	}
+
+	reporter, err := newMetricsReporter(
+		ctx,
+		&global.ContextInfo{OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: mcfg}},
+		mcfg,
+		&perapp.MetricsConfig{Features: export.FeatureSpanSizes},
+		&attributes.SelectorConfig{},
+		request.UnresolvedNames{},
+		metrics,
+		processEvents,
+	)
+	require.NoError(t, err)
+
+	go reporter.reportMetrics(ctx)
+
+	span := request.Span{
+		Service: svc.Attrs{
+			Features: export.FeatureSpanSizes,
+			UID:      svc.UID{Instance: "foo"},
+			Metadata: map[attr.Name]string{
+				attr.Name("deployment.environment"): "production",
+			},
+		},
+		Type:           request.EventTypeHTTPClient,
+		Method:         "GET",
+		Route:          "/v1/traces",
+		RequestStart:   100,
+		End:            200,
+		ContentLength:  123,
+		ResponseLength: 456,
+		Status:         200,
+	}
+
+	metrics.Send([]request.Span{span})
+
+	res := readNChan(t, metricRecords, 2, timeout)
+	assert.Len(t, res, 2)
+
+	expected := map[string]struct{}{
+		SpanMetricsRequestSizes:  {},
+		SpanMetricsResponseSizes: {},
+	}
+
+	for _, record := range res {
+		_, ok := expected[record.Name]
+		require.Truef(t, ok, "unexpected metric %q", record.Name)
+		assert.Equal(t, "production", record.Attributes["deployment.environment"])
+		delete(expected, record.Name)
+	}
+
+	assert.Empty(t, expected)
+}
+
 func TestMetricsDiscarded(t *testing.T) {
 	svcNoExport := svc.Attrs{Features: export.FeatureAll}
 
@@ -552,6 +698,87 @@ func readNChan(t require.TestingT, inCh <-chan collector.MetricRecord, numRecord
 		}
 	}
 	return records
+}
+
+func testMetricsConsumer(out chan<- collector.MetricRecord) consumer.Metrics {
+	c, err := consumer.NewMetrics(func(_ context.Context, md pmetric.Metrics) error {
+		for _, rm := range md.ResourceMetrics().All() {
+			resourceAttrs := map[string]string{}
+			rm.Resource().Attributes().Range(func(k string, v pcommon.Value) bool {
+				resourceAttrs[k] = v.AsString()
+				return true
+			})
+
+			for _, sm := range rm.ScopeMetrics().All() {
+				for _, m := range sm.Metrics().All() {
+					switch m.Type() {
+					case pmetric.MetricTypeSum:
+						for _, ndp := range m.Sum().DataPoints().All() {
+							record := collector.MetricRecord{
+								Name:               m.Name(),
+								Unit:               m.Unit(),
+								Type:               m.Type(),
+								FloatVal:           ndp.DoubleValue(),
+								IntVal:             ndp.IntValue(),
+								Attributes:         map[string]string{},
+								ResourceAttributes: resourceAttrs,
+							}
+							ndp.Attributes().Range(func(k string, v pcommon.Value) bool {
+								record.Attributes[k] = v.AsString()
+								return true
+							})
+							out <- record
+						}
+					case pmetric.MetricTypeHistogram:
+						for _, hdp := range m.Histogram().DataPoints().All() {
+							if !hdp.HasSum() {
+								continue
+							}
+
+							record := collector.MetricRecord{
+								Name:               m.Name(),
+								Unit:               m.Unit(),
+								Type:               m.Type(),
+								FloatVal:           hdp.Sum(),
+								Count:              int(hdp.Count()),
+								Attributes:         map[string]string{},
+								ResourceAttributes: resourceAttrs,
+							}
+							hdp.Attributes().Range(func(k string, v pcommon.Value) bool {
+								record.Attributes[k] = v.AsString()
+								return true
+							})
+							out <- record
+						}
+					case pmetric.MetricTypeGauge:
+						for _, gdp := range m.Gauge().DataPoints().All() {
+							record := collector.MetricRecord{
+								Name:               m.Name(),
+								Unit:               m.Unit(),
+								Type:               m.Type(),
+								FloatVal:           gdp.DoubleValue(),
+								IntVal:             gdp.IntValue(),
+								Attributes:         map[string]string{},
+								ResourceAttributes: resourceAttrs,
+							}
+							gdp.Attributes().Range(func(k string, v pcommon.Value) bool {
+								record.Attributes[k] = v.AsString()
+								return true
+							})
+							out <- record
+						}
+					}
+				}
+			}
+		}
+
+		return nil
+	})
+	if err != nil {
+		panic(err)
+	}
+
+	return c
 }
 
 func makeMetricsReporter(
