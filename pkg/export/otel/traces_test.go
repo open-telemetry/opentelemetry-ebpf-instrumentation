@@ -436,6 +436,33 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		ensureTraceStrAttr(t, attrs, semconv.MessagingClientIDKey, "mqtt-client-1")
 	})
 
+	t.Run("test NATS trace generation", func(t *testing.T) {
+		span := request.Span{
+			Type:          request.EventTypeNATSClient,
+			Method:        "publish",
+			Path:          "updates.orders",
+			Statement:     "nats-client-1",
+			ContentLength: 42,
+		}
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		assert.Equal(t, 1, traces.ResourceSpans().Len())
+		assert.Equal(t, 1, traces.ResourceSpans().At(0).ScopeSpans().Len())
+		assert.Equal(t, 1, traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().Len())
+		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+
+		assert.NotEmpty(t, spans.At(0).SpanID().String())
+		assert.NotEmpty(t, spans.At(0).TraceID().String())
+
+		attrs := spans.At(0).Attributes()
+		ensureTraceStrAttr(t, attrs, attribute.Key(attr.MessagingOpType), "publish")
+		ensureTraceStrAttr(t, attrs, semconv.MessagingDestinationNameKey, "updates.orders")
+		ensureTraceStrAttr(t, attrs, attribute.Key(attr.MessagingSystem), "nats")
+		ensureTraceStrAttr(t, attrs, semconv.MessagingClientIDKey, "nats-client-1")
+		ensureTraceIntAttr(t, attrs, semconv.MessagingMessageEnvelopeSizeKey, 42)
+	})
+
 	t.Run("test Mongo trace generation", func(t *testing.T) {
 		span := request.Span{Type: request.EventTypeMongoClient, Method: "insert", Path: "mycollection", DBNamespace: "mydatabase", Status: 0}
 		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{"db.operation.name": {}})
@@ -2018,7 +2045,7 @@ func TestTracesInstrumentations(t *testing.T) {
 		{
 			name:     "all instrumentations",
 			instr:    []instrumentations.Instrumentation{instrumentations.InstrumentationALL},
-			expected: []string{"GET /foo", "PUT /bar", "/grpcFoo", "/grpcGoo", "SELECT credentials", "SET", "GET", "publish important-topic", "process important-topic", "publish sensors/temperature", "process sensors/#", "insert mycollection", "GET couchbase-collection", "GET", "DELETE"},
+			expected: []string{"GET /foo", "PUT /bar", "/grpcFoo", "/grpcGoo", "SELECT credentials", "SET", "GET", "publish important-topic", "process important-topic", "publish sensors/temperature", "process sensors/#", "publish updates.orders", "process updates.orders", "insert mycollection", "GET couchbase-collection", "GET", "DELETE"},
 		},
 		{
 			name:     "http only",
@@ -2049,6 +2076,11 @@ func TestTracesInstrumentations(t *testing.T) {
 			name:     "mqtt only",
 			instr:    []instrumentations.Instrumentation{instrumentations.InstrumentationMQTT},
 			expected: []string{"publish sensors/temperature", "process sensors/#"},
+		},
+		{
+			name:     "nats only",
+			instr:    []instrumentations.Instrumentation{instrumentations.InstrumentationNATS},
+			expected: []string{"publish updates.orders", "process updates.orders"},
 		},
 		{
 			name:     "none",
@@ -2094,6 +2126,8 @@ func TestTracesInstrumentations(t *testing.T) {
 		{Type: request.EventTypeKafkaServer, Method: "publish", Path: "important-topic", Statement: "test"},
 		{Type: request.EventTypeMQTTClient, Method: "publish", Path: "sensors/temperature", Statement: "mqtt-client"},
 		{Type: request.EventTypeMQTTServer, Method: "process", Path: "sensors/#", Statement: "mqtt-server"},
+		{Type: request.EventTypeNATSClient, Method: "publish", Path: "updates.orders"},
+		{Type: request.EventTypeNATSServer, Method: "process", Path: "updates.orders"},
 		{Type: request.EventTypeMongoClient, Method: "insert", Path: "mycollection", DBNamespace: "mydatabase"},
 		{Type: request.EventTypeCouchbaseClient, Method: "GET", Path: "couchbase-collection", DBNamespace: "mybucket.myscope"},
 		{Type: request.EventTypeMemcachedClient, Method: "GET", Path: "session-key"},
@@ -2474,6 +2508,18 @@ func TestHostPeerAttributes(t *testing.T) {
 			server: "server",
 		},
 		{
+			name:   "Server in different namespace NATS",
+			span:   request.Span{Type: request.EventTypeNATSClient, PeerName: "client", HostName: "server", OtherNamespace: "far", Service: svc.Attrs{UID: svc.UID{Namespace: "same"}}},
+			client: "",
+			server: "server.far",
+		},
+		{
+			name:   "Client in different namespace NATS",
+			span:   request.Span{Type: request.EventTypeNATSServer, PeerName: "client", HostName: "server", OtherNamespace: "far", Service: svc.Attrs{UID: svc.UID{Namespace: "same"}}},
+			client: "",
+			server: "server",
+		},
+		{
 			name:   "Same namespaces for Mongo client",
 			span:   request.Span{Type: request.EventTypeMongoClient, PeerName: "client", HostName: "server", OtherNamespace: "same", Service: svc.Attrs{UID: svc.UID{Namespace: "same"}}},
 			client: "",
@@ -2646,6 +2692,13 @@ func ensureTraceStrSliceAttr(t *testing.T, attrs pcommon.Map, key attribute.Key,
 		got[i] = slice.At(i).Str()
 	}
 	assert.Equal(t, vals, got)
+}
+
+func ensureTraceIntAttr(t *testing.T, attrs pcommon.Map, key attribute.Key, val int64) {
+	t.Helper()
+	v, ok := attrs.Get(string(key))
+	require.True(t, ok, "expected attribute %s", key)
+	assert.Equal(t, val, v.Int())
 }
 
 func ensureTraceAttrNotExists(t *testing.T, attrs pcommon.Map, key attribute.Key) {

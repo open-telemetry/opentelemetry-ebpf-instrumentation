@@ -1637,6 +1637,7 @@
               "memcached",
               "mongo",
               "mqtt",
+              "nats",
               "redis",
               "sql"
             ]
@@ -2011,6 +2012,7 @@
               "memcached",
               "mongo",
               "mqtt",
+              "nats",
               "redis",
               "sql"
             ]
@@ -2551,6 +2553,7 @@
               "memcached",
               "mongo",
               "mqtt",
+              "nats",
               "redis",
               "sql"
             ]
@@ -2565,6 +2568,7 @@
             "redis",
             "kafka",
             "mqtt",
+            "nats",
             "mongo",
             "couchbase",
             "memcached"

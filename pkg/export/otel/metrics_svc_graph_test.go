@@ -110,10 +110,11 @@ func TestServiceGraphConnectionType(t *testing.T) {
 		{Service: clientID, Type: request.EventTypeSQLClient, HostName: "postgres-db", Host: "client-host", Method: "SELECT", Path: "users", RequestStart: 100, End: 200},
 		{Service: clientID, Type: request.EventTypeRedisClient, HostName: "redis-cache", Host: "client-host", Method: "GET", RequestStart: 150, End: 175},
 		{Service: clientID, Type: request.EventTypeKafkaClient, HostName: "kafka-broker", Host: "client-host", Method: request.MessagingPublish, Path: "topic1", RequestStart: 200, End: 250},
+		{Service: clientID, Type: request.EventTypeNATSClient, HostName: "nats-broker", Host: "client-host", Method: request.MessagingPublish, Path: "updates.orders", RequestStart: 225, End: 275},
 	})
 
 	// Read the exported metrics
-	res := readNChan(t, otlp.Records(), 9, timeout)
+	res := readNChan(t, otlp.Records(), 12, timeout)
 	assert.NotEmpty(t, res)
 
 	// Check connection_type for each metric
@@ -124,8 +125,8 @@ func TestServiceGraphConnectionType(t *testing.T) {
 		switch server {
 		case "postgres-db", "redis-cache":
 			assert.Equal(t, "database", connType, "Database spans should have connection_type=database for server=%s", server)
-		case "kafka-broker":
-			assert.Equal(t, "messaging_system", connType, "Kafka spans should have connection_type=messaging_system for server=%s", server)
+		case "kafka-broker", "nats-broker":
+			assert.Equal(t, "messaging_system", connType, "Messaging spans should have connection_type=messaging_system for server=%s", server)
 		}
 	}
 }

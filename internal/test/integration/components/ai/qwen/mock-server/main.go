@@ -88,14 +88,16 @@ func handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	const chatResponseID = "chatcmpl-a1ad370d-b4b0-90bb-9a87-a131fd0687d6"
-	setQwenHeaders(w.Header(), chatResponseID)
 	if r.URL.Query().Has("error") {
+		const errorResponseID = "chatcmpl-err-429-insufficient-quota"
+		setQwenHeaders(w.Header(), errorResponseID)
 		w.WriteHeader(http.StatusTooManyRequests)
 		_, _ = w.Write([]byte(errorResponseBody))
 		return
 	}
 
+	const chatResponseID = "chatcmpl-a1ad370d-b4b0-90bb-9a87-a131fd0687d6"
+	setQwenHeaders(w.Header(), chatResponseID)
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte(chatResponseBody))
 }

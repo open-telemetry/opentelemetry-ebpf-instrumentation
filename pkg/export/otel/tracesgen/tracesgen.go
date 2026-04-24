@@ -283,6 +283,8 @@ func acceptSpan(is instrumentations.InstrumentationSelection, span *request.Span
 		return is.KafkaEnabled()
 	case request.EventTypeMQTTClient, request.EventTypeMQTTServer:
 		return is.MQTTEnabled()
+	case request.EventTypeNATSClient, request.EventTypeNATSServer:
+		return is.NATSEnabled()
 	case request.EventTypeMongoClient:
 		return is.MongoEnabled()
 	case request.EventTypeManualSpan:
@@ -302,6 +304,7 @@ func acceptSpan(is instrumentations.InstrumentationSelection, span *request.Span
 
 var (
 	messagingSystemMQTT = attribute.String(string(attr.MessagingSystem), "mqtt")
+	messagingSystemNATS = attribute.String(string(attr.MessagingSystem), "nats")
 	spanMetricsSkip     = attribute.Bool(string(attr.SkipSpanMetrics), true)
 )
 
@@ -808,6 +811,21 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 		if span.Type == request.EventTypeMQTTClient {
 			attrs = append(attrs, request.PeerService(request.PeerServiceFromSpan(span)))
 		}
+	case request.EventTypeNATSServer, request.EventTypeNATSClient:
+		operation := request.MessagingOperationType(span.Method)
+		attrs = []attribute.KeyValue{
+			request.ServerAddr(request.HostAsServer(span)),
+			request.ServerPort(span.HostPort),
+			messagingSystemNATS,
+			semconv.MessagingDestinationName(span.Path),
+			semconv.MessagingClientID(span.Statement),
+			operation,
+			semconv.MessagingMessageEnvelopeSize(int(span.ContentLength)),
+		}
+
+		if span.Type == request.EventTypeNATSClient {
+			attrs = append(attrs, request.PeerService(request.PeerServiceFromSpan(span)))
+		}
 	case request.EventTypeMongoClient:
 		attrs = []attribute.KeyValue{
 			request.ServerAddr(request.HostAsServer(span)),
@@ -904,11 +922,11 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 
 func spanKind(span *request.Span) trace2.SpanKind {
 	switch span.Type {
-	case request.EventTypeHTTP, request.EventTypeGRPC, request.EventTypeRedisServer, request.EventTypeKafkaServer, request.EventTypeMQTTServer, request.EventTypeMemcachedServer, request.EventTypeSQLServer:
+	case request.EventTypeHTTP, request.EventTypeGRPC, request.EventTypeRedisServer, request.EventTypeKafkaServer, request.EventTypeMQTTServer, request.EventTypeNATSServer, request.EventTypeMemcachedServer, request.EventTypeSQLServer:
 		return trace2.SpanKindServer
 	case request.EventTypeHTTPClient, request.EventTypeGRPCClient, request.EventTypeSQLClient, request.EventTypeRedisClient, request.EventTypeMongoClient, request.EventTypeCouchbaseClient, request.EventTypeMemcachedClient, request.EventTypeFailedConnect:
 		return trace2.SpanKindClient
-	case request.EventTypeKafkaClient, request.EventTypeMQTTClient:
+	case request.EventTypeKafkaClient, request.EventTypeMQTTClient, request.EventTypeNATSClient:
 		switch span.Method {
 		case request.MessagingPublish:
 			return trace2.SpanKindProducer

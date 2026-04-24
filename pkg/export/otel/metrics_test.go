@@ -160,6 +160,8 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 				"db.client.operation.duration",        // MongoDB client find
 				"messaging.client.operation.duration", // Kafka client
 				"messaging.client.operation.duration", // MQTT client
+				"messaging.client.operation.duration", // NATS client
+				"messaging.process.duration",          // NATS server (ordering within aggregated metrics)
 				"messaging.process.duration",          // MQTT server (ordering within aggregated metrics)
 				"messaging.process.duration",          // Kafka server
 				"gpu.cuda.kernel.launch.calls",        // Cuda events
@@ -225,6 +227,15 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 		{
 			name:      "mqtt only",
 			instr:     []instrumentations.Instrumentation{instrumentations.InstrumentationMQTT},
+			extraColl: 0,
+			expected: []string{
+				"messaging.client.operation.duration",
+				"messaging.process.duration",
+			},
+		},
+		{
+			name:      "nats only",
+			instr:     []instrumentations.Instrumentation{instrumentations.InstrumentationNATS},
 			extraColl: 0,
 			expected: []string{
 				"messaging.client.operation.duration",
@@ -301,6 +312,8 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeKafkaServer, Method: "process", RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeMQTTClient, Method: "publish", RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeMQTTServer, Method: "process", RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeNATSClient, Method: "publish", RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeNATSServer, Method: "process", RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeGPUCudaKernelLaunch, ContentLength: 100, SubType: 200},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeGPUCudaMemcpy, ContentLength: 100, SubType: 1},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeGPUCudaMalloc, ContentLength: 100},
@@ -898,6 +911,11 @@ func TestConnectionTypeForSpan(t *testing.T) {
 		{
 			name:     "Kafka producer",
 			span:     &request.Span{Type: request.EventTypeKafkaClient, Method: request.MessagingPublish, HostName: "kafka-broker"},
+			expected: "messaging_system",
+		},
+		{
+			name:     "NATS producer",
+			span:     &request.Span{Type: request.EventTypeNATSClient, Method: request.MessagingPublish, HostName: "nats-server"},
 			expected: "messaging_system",
 		},
 		{

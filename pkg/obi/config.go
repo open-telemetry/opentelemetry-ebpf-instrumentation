@@ -239,6 +239,7 @@ var DefaultConfig = Config{
 			instrumentations.InstrumentationRedis,
 			instrumentations.InstrumentationKafka,
 			instrumentations.InstrumentationMQTT,
+			instrumentations.InstrumentationNATS,
 			instrumentations.InstrumentationMongo,
 			instrumentations.InstrumentationCouchbase,
 			instrumentations.InstrumentationMemcached,

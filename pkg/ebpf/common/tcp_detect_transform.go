@@ -10,6 +10,8 @@ import (
 
 	"github.com/hashicorp/golang-lru/v2/simplelru"
 
+	"go.opentelemetry.io/otel/trace"
+
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/config"
@@ -245,7 +247,7 @@ func matchMemcachedNoreply(parseCtx *EBPFParseContext, event *TCPRequestInfo, re
 }
 
 // detectHeuristicProtocol runs heuristic-based protocol detection as a last resort:
-// Redis, Memcached, HTTP/2, MQTT, and Kafka (for packets the kernel couldn't classify).
+// Redis, Memcached, HTTP/2, NATS, MQTT, and Kafka (for packets the kernel couldn't classify).
 func detectHeuristicProtocol(parseCtx *EBPFParseContext, event *TCPRequestInfo, requestBuffer, responseBuffer *largebuf.LargeBuffer) (request.Span, bool, bool, error) {
 	if span, ignore, matched, err := matchRedis(parseCtx, event, requestBuffer, responseBuffer); matched {
 		return span, ignore, matched, err
@@ -263,6 +265,9 @@ func detectHeuristicProtocol(parseCtx *EBPFParseContext, event *TCPRequestInfo, 
 		if span, ignore, matched, err := matchHTTP2(event, requestBuffer, responseBuffer); matched {
 			return span, ignore, matched, err
 		}
+	}
+	if span, ignore, matched, err := matchNATS(parseCtx, event, requestBuffer, responseBuffer); matched {
+		return span, ignore, matched, err
 	}
 	if span, ignore, matched, err := matchMQTT(event, requestBuffer, responseBuffer); matched {
 		return span, ignore, matched, err
@@ -339,6 +344,27 @@ func matchHTTP2(event *TCPRequestInfo, requestBuffer, responseBuffer *largebuf.L
 	MisclassifiedEvents <- MisclassifiedEvent{EventType: EventTypeKHTTP2, TCPInfo: &evCopy}
 
 	return request.Span{}, true, true, nil // ignore for now, next event will be parsed
+}
+
+func matchNATS(parseCtx *EBPFParseContext, event *TCPRequestInfo, requestBuffer, responseBuffer *largebuf.LargeBuffer) (request.Span, bool, bool, error) { //nolint:unparam
+	info, extraInfo, ignore, err := ProcessPossibleNATSEvent(event, requestBuffer, responseBuffer)
+
+	if ignore && err == nil {
+		return request.Span{}, true, true, nil
+	}
+
+	if err != nil {
+		return request.Span{}, false, false, nil
+	}
+
+	if extraInfo != nil {
+		extraSpan := TCPToNATSToSpan(event, extraInfo)
+		extraSpan.Type = request.EventTypeNATSServer
+		extraSpan.SpanID = trace.SpanID{}
+
+		parseCtx.emitExtraSpans(extraSpan)
+	}
+	return TCPToNATSToSpan(event, info), false, true, nil
 }
 
 func matchMQTT(event *TCPRequestInfo, requestBuffer, responseBuffer *largebuf.LargeBuffer) (request.Span, bool, bool, error) { //nolint:unparam
