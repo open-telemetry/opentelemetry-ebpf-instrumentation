@@ -49,16 +49,16 @@ type JavaInjector struct {
 	cfg *obi.Config
 }
 
-func NewJavaInjector(cfg *obi.Config) (*JavaInjector, error) {
+func NewJavaInjector(cfg *obi.Config) *JavaInjector {
 	if !cfg.Java.Enabled {
-		return nil, nil
+		return nil
 	}
 	ensureEmbeddedAgent()
 
 	return &JavaInjector{
 		cfg: cfg,
 		log: slog.With("component", "javaagent.Injector"),
-	}, nil
+	}
 }
 
 func tempDirPath(root, dir string) (string, bool) {
