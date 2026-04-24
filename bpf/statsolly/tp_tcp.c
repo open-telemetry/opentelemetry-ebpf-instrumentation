@@ -80,8 +80,10 @@ int obi_tracepoint_inet_sock_set_state(struct trace_event_raw_inet_sock_set_stat
         return 0;
     }
 
-    // These are normal completions, not failures
-    if (args->oldstate == TCP_LAST_ACK || args->oldstate == TCP_TIME_WAIT) {
+    // {TCP_LAST_ACK|TCP_TIME_WAIT}->TCP_CLOSE are normal close transitions
+    // TCP_LISTEN->TCP_CLOSE is what happens when a listener socket is shut down
+    if (args->oldstate == TCP_LAST_ACK || args->oldstate == TCP_TIME_WAIT ||
+        args->oldstate == TCP_LISTEN) {
         return 0;
     }
 
@@ -93,6 +95,9 @@ int obi_tracepoint_inet_sock_set_state(struct trace_event_raw_inet_sock_set_stat
     }
 
     const int err = BPF_CORE_READ(sk, sk_err);
+    if (err == 0 && args->oldstate != TCP_SYN_SENT) {
+        return 0;
+    }
     const u8 reason = sk_err_to_reason(err);
 
     bpf_d_printk("tcp failed: s_port=%d, d_port=%d, reason=%d", conn.s_port, conn.d_port, reason);
