@@ -330,7 +330,7 @@ func createBuildContext(contextDir string) (io.ReadCloser, error) {
 // as {"errorDetail":...} messages in the stream rather than returning them from
 // ImageBuild directly.
 //
-// drainBuildStream code is copied from
+// drainBuildStream code is mostly copied from
 // https://github.com/ory/dockertest/blob/927ba364b58256b83edaaf7545fce83e59fc46a4/build.go#L295.
 func drainDockerBuildStream(r io.Reader, output io.Writer) error {
 	decoder := json.NewDecoder(r)
