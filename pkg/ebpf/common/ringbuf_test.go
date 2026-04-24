@@ -199,11 +199,13 @@ func TestRingbufLastReadAtRace(t *testing.T) {
 
 	deadline := time.Now().Add(flushInterval + 500*time.Millisecond)
 	for time.Now().Before(deadline) {
+		readCount := eventsReader.ReadCount()
 		eventsReader.AllowRead()
-		time.Sleep(100 * time.Millisecond)
+		require.Eventually(t, func() bool {
+			return eventsReader.ReadCount() > readCount
+		}, time.Second, 10*time.Millisecond)
+		assert.Zero(t, eventsReader.FlushCount())
 	}
-
-	assert.Zero(t, eventsReader.FlushCount())
 
 	require.Eventually(t, func() bool {
 		return eventsReader.FlushCount() > 0
@@ -265,6 +267,7 @@ func (f *fakeRingBufReader) Flush() error { return nil }
 type flushTrackingReader struct {
 	readTokens chan struct{}
 	closed     chan struct{}
+	readCount  atomic.Int32
 	// flushCount lets the test observe when the background flusher decides
 	// reads went idle.
 	flushCount atomic.Int32
@@ -288,6 +291,10 @@ func (f *flushTrackingReader) FlushCount() int {
 	return int(f.flushCount.Load())
 }
 
+func (f *flushTrackingReader) ReadCount() int {
+	return int(f.readCount.Load())
+}
+
 func (f *flushTrackingReader) Close() error {
 	select {
 	case <-f.closed:
@@ -297,7 +304,13 @@ func (f *flushTrackingReader) Close() error {
 	return nil
 }
 
-func (f *flushTrackingReader) Read() (ringbuf.Record, error) { return ringbuf.Record{}, nil }
+func (f *flushTrackingReader) Read() (ringbuf.Record, error) {
+	record := ringbuf.Record{}
+
+	err := f.ReadInto(&record)
+
+	return record, err
+}
 
 func (f *flushTrackingReader) ReadInto(record *ringbuf.Record) error {
 	select {
@@ -305,6 +318,7 @@ func (f *flushTrackingReader) ReadInto(record *ringbuf.Record) error {
 		// Returning an empty sample is enough to exercise the read path and
 		// update lastReadAt.
 		record.RawSample = nil
+		f.readCount.Add(1)
 		return nil
 	case <-f.closed:
 		return ringbuf.ErrClosed

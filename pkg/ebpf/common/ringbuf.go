@@ -68,8 +68,8 @@ type ringBufForwarder[T any] struct {
 
 	// metrics is optional (nil = no-op)
 	metrics imetrics.Reporter
-	// lastReadAt is updated by the read loop and observed by the periodic flusher.
-	lastReadAt atomic.Pointer[time.Time]
+	// lastReadAtUnixNano is updated by the read loop and observed by the periodic flusher.
+	lastReadAtUnixNano atomic.Int64
 }
 
 // AlreadyForwarded is used in the case when a second tracer tries to set up the
@@ -174,7 +174,7 @@ func (rbf *ringBufForwarder[T]) flushOnAvailableBytes(ctx context.Context, event
 		select {
 		case <-ticker.C:
 			available := eventsReader.AvailableBytes()
-			if available > 0 && rbf.timeSinceLastRead(time.Now()) > flushInterval {
+			if available > 0 && rbf.hasPendingReadIdleSince(time.Now(), flushInterval) {
 				err := eventsReader.Flush()
 				rbf.logger.Debug("flushing ringbuf", "available_bytes", available, "flush_err", err)
 			}
@@ -209,7 +209,6 @@ func (rbf *ringBufForwarder[T]) readAndForwardInner(ctx context.Context, eventsR
 	var record ringbuf.Record
 	for {
 		err := eventsReader.ReadInto(&record)
-		rbf.storeLastReadAt(time.Now())
 		if err != nil {
 			if errors.Is(err, ringbuf.ErrFlushed) {
 				rbf.logger.Debug("ring buffer already flushed")
@@ -222,23 +221,22 @@ func (rbf *ringBufForwarder[T]) readAndForwardInner(ctx context.Context, eventsR
 			rbf.logger.Error("error reading from perf reader", "error", err)
 			continue
 		}
+		rbf.storeLastReadAt(time.Now())
 		rbf.processAndForward(ctx, record, out)
 	}
 }
 
 func (rbf *ringBufForwarder[T]) storeLastReadAt(t time.Time) {
-	rbf.lastReadAt.Store(&t)
+	rbf.lastReadAtUnixNano.Store(t.UnixNano())
 }
 
-func (rbf *ringBufForwarder[T]) timeSinceLastRead(now time.Time) time.Duration {
-	lastReadAt := rbf.lastReadAt.Load()
-	if lastReadAt == nil {
-		// No successful read has happened yet, so allow the flusher to drain
-		// pending bytes.
-		return flushInterval + time.Nanosecond
+func (rbf *ringBufForwarder[T]) hasPendingReadIdleSince(now time.Time, interval time.Duration) bool {
+	lastReadAtUnixNano := rbf.lastReadAtUnixNano.Load()
+	if lastReadAtUnixNano == 0 {
+		return true
 	}
 
-	return now.Sub(*lastReadAt)
+	return now.Sub(time.Unix(0, lastReadAtUnixNano)) > interval
 }
 
 func (rbf *ringBufForwarder[T]) processAndForward(ctx context.Context, record ringbuf.Record, out *msg.Queue[[]T]) {
