@@ -5,6 +5,7 @@ package service
 
 import (
 	"context"
+	"log/slog"
 	"net"
 	"strconv"
 	"testing"
@@ -15,9 +16,11 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"k8s.io/client-go/kubernetes/fake"
 
+	"go.opentelemetry.io/obi/pkg/internal/helpers/sync"
 	"go.opentelemetry.io/obi/pkg/internal/testutil"
 	"go.opentelemetry.io/obi/pkg/kube/kubecache"
 	"go.opentelemetry.io/obi/pkg/kube/kubecache/informer"
+	"go.opentelemetry.io/obi/pkg/kube/kubecache/instrument"
 	"go.opentelemetry.io/obi/pkg/kube/kubecache/meta"
 )
 
@@ -128,4 +131,46 @@ func TestRunStopsServerOnContextCancellationWithActiveStream(t *testing.T) {
 	lis, err := net.Listen("tcp", address)
 	require.NoError(t, err, "port still bound after Run returned")
 	_ = lis.Close()
+}
+
+// blockingStream is a fake ServerStreamingServer whose Send blocks on the gate.
+type blockingStream struct {
+	grpc.ServerStream
+	gate <-chan struct{}
+}
+
+func (b *blockingStream) Send(*informer.Event) error {
+	<-b.gate
+	return nil
+}
+
+// TestHandleMessagesQueue_DropsStalledClientOnSendTimeout is a regression test for
+// https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/issues/1903.
+// It verifies that handleMessagesQueue drops the connection when Send blocks
+// longer than sendTimeout.
+func TestHandleMessagesQueue_DropsStalledClientOnSendTimeout(t *testing.T) {
+	gate := make(chan struct{})
+	t.Cleanup(func() { close(gate) })
+
+	o := &connection{
+		log:         slog.New(slog.DiscardHandler),
+		id:          "test-client",
+		server:      &blockingStream{gate: gate},
+		sendTimeout: 50 * time.Millisecond,
+		metrics:     instrument.FromContext(context.Background()),
+		messages:    sync.NewQueue[*informer.Event](),
+	}
+	o.messages.Enqueue(&informer.Event{})
+
+	done := make(chan struct{})
+	go func() {
+		o.handleMessagesQueue(context.Background())
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("handleMessagesQueue did not return within 200ms — sendTimeout was not enforced")
+	}
 }
