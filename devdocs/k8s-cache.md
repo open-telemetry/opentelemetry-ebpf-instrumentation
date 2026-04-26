@@ -92,6 +92,15 @@ instances that connect to a newer cache (and vice versa).
 
 ## How to deploy
 
+### Helm
+
+When using
+the [OBI Helm chart](https://github.com/open-telemetry/opentelemetry-helm-charts/tree/main/charts/opentelemetry-ebpf-instrumentation),
+you just have to provide a non-zero value for the
+`k8sCache.replicas` configuration option in `values.yaml`.
+
+### Kubernetes
+
 The canonical deployment pattern is a low replica `Deployment` plus a
 `Service` exposing gRPC, consumed by the OBI `DaemonSet`. A working reference
 is the integration test manifest at
@@ -188,15 +197,15 @@ Configuration is loaded in this order (later overrides earlier):
 2. A YAML file passed via `--config` or `OTEL_EBPF_K8S_CACHE_CONFIG_PATH`.
 3. Environment variables.
 
-| YAML key                 | Env var                                                | Default        | Purpose                                                    |
-|--------------------------|--------------------------------------------------------|----------------|------------------------------------------------------------|
-| `log_level`              | `OTEL_EBPF_K8S_CACHE_LOG_LEVEL`                        | `info`         | `debug`/`info`/`warn`/`error`.                             |
-| `port`                   | `OTEL_EBPF_K8S_CACHE_PORT`                             | `50055`        | gRPC listen port.                                          |
+| YAML key                 | Env var                                                | Default        | Purpose                                                                   |
+|--------------------------|--------------------------------------------------------|----------------|---------------------------------------------------------------------------|
+| `log_level`              | `OTEL_EBPF_K8S_CACHE_LOG_LEVEL`                        | `info`         | `debug`/`info`/`warn`/`error`.                                            |
+| `port`                   | `OTEL_EBPF_K8S_CACHE_PORT`                             | `50055`        | gRPC listen port.                                                         |
 | `max_connections`        | `OTEL_EBPF_K8S_CACHE_MAX_CONNECTIONS`                  | `150`          | Per-transport HTTP/2 stream cap (wired into `grpc.MaxConcurrentStreams`). |
-| `profile_port`           | `OTEL_EBPF_K8S_CACHE_PROFILE_PORT`                     | `0` (disabled) | If non-zero, starts a `net/http/pprof` listener.           |
-| `informer_resync_period` | `OTEL_EBPF_K8S_CACHE_INFORMER_RESYNC_PERIOD`           | `30m`          | Full informer resync interval. Increase to lower API load. |
-| `internal_metrics.port`  | `OTEL_EBPF_K8S_CACHE_INTERNAL_METRICS_PROMETHEUS_PORT` | `0` (disabled) | If non-zero, serves Prometheus metrics.                    |
-| `internal_metrics.path`  | `OTEL_EBPF_K8S_CACHE_INTERNAL_METRICS_PROMETHEUS_PATH` | `/metrics`     | Metrics endpoint path.                                     |
+| `profile_port`           | `OTEL_EBPF_K8S_CACHE_PROFILE_PORT`                     | `0` (disabled) | If non-zero, starts a `net/http/pprof` listener.                          |
+| `informer_resync_period` | `OTEL_EBPF_K8S_CACHE_INFORMER_RESYNC_PERIOD`           | `30m`          | Full informer resync interval. Increase to lower API load.                |
+| `internal_metrics.port`  | `OTEL_EBPF_K8S_CACHE_INTERNAL_METRICS_PROMETHEUS_PORT` | `0` (disabled) | If non-zero, serves Prometheus metrics.                                   |
+| `internal_metrics.path`  | `OTEL_EBPF_K8S_CACHE_INTERNAL_METRICS_PROMETHEUS_PATH` | `/metrics`     | Metrics endpoint path.                                                    |
 
 Also worth knowing:
 
