@@ -13,6 +13,7 @@
 #include <common/iov_iter.h>
 #include <common/large_buffers.h>
 #include <common/lw_thread.h>
+#include <common/protocol_defs.h>
 #include <common/ringbuf.h>
 #include <common/sock_port_ns.h>
 #include <common/http_types.h>
@@ -21,9 +22,6 @@
 #include <generictracer/maps/iovec_mem.h>
 #include <generictracer/maps/listening_ports.h>
 #include <generictracer/maps/protocol_args_mem.h>
-
-#define PACKET_TYPE_REQUEST 1
-#define PACKET_TYPE_RESPONSE 2
 
 static __always_inline u32 large_buf_emit_chunks(tcp_large_buffer_t *large_buf,
                                                  const void *u_buf,

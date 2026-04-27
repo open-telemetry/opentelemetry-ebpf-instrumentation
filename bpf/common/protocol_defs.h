@@ -42,5 +42,8 @@
 #define TCP_SEND 1
 #define TCP_RECV 0
 
+#define PACKET_TYPE_REQUEST 1
+#define PACKET_TYPE_RESPONSE 2
+
 #define NO_SSL 0
 #define WITH_SSL 1
