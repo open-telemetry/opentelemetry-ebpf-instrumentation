@@ -25,7 +25,6 @@ import (
 var mpConfig = &perapp.MetricsConfig{Features: export.FeatureNetwork | export.FeatureNetworkInterZone}
 
 func TestMetricsExpiration(t *testing.T) {
-	t.Skip("fails regularly with port already in use or data race condition")
 	now := syncedClock{now: time.Now()}
 	timeNow = now.Now
 
