@@ -12,7 +12,6 @@
 #include <maps/python_context_task.h>
 #include <maps/python_task_state.h>
 #include <maps/python_thread_state.h>
-#include <maps/server_traces.h>
 
 #include <common/connection_info.h>
 #include <common/python_task.h>
@@ -26,30 +25,15 @@
 // Python task/context pointers use 0 to mean "no active state" in thread-local tracking.
 enum { k_python_state_none = 0 };
 
-// Walks parent chain to find owning server trace; mirrors find_python_parent_trace
 static __always_inline void refresh_obi_ctx_for_task(u64 pid_tgid, u64 task_id) {
     if (!task_id) {
         obi_ctx__del(pid_tgid);
         return;
     }
-    enum { k_max_depth = 4 };
-    for (u8 i = 0; i < k_max_depth; ++i) {
-        const python_task_state_t *task_state =
-            (const python_task_state_t *)bpf_map_lookup_elem(&python_task_state, &task_id);
-        if (!task_state) {
-            break;
-        }
-        if (task_state->conn.port) {
-            tp_info_pid_t *tp = bpf_map_lookup_elem(&server_traces_aux, &task_state->conn);
-            if (tp && tp->valid) {
-                obi_ctx__set(pid_tgid, &tp->tp);
-                return;
-            }
-        }
-        if (!task_state->parent) {
-            break;
-        }
-        task_id = task_state->parent;
+    tp_info_pid_t *tp = find_python_owning_server_trace(task_id);
+    if (tp && tp->valid) {
+        obi_ctx__set(pid_tgid, &tp->tp);
+        return;
     }
     obi_ctx__del(pid_tgid);
 }
