@@ -12,15 +12,47 @@
 #include <maps/python_context_task.h>
 #include <maps/python_task_state.h>
 #include <maps/python_thread_state.h>
+#include <maps/server_traces.h>
 
 #include <common/connection_info.h>
+#include <common/python_task.h>
 
 #include <generictracer/maps/pid_tid_to_conn.h>
 
 #include <pid/pid.h>
 
+#include <shared/obi_ctx.h>
+
 // Python task/context pointers use 0 to mean "no active state" in thread-local tracking.
 enum { k_python_state_none = 0 };
+
+// Walks parent chain to find owning server trace; mirrors find_python_parent_trace
+static __always_inline void refresh_obi_ctx_for_task(u64 pid_tgid, u64 task_id) {
+    if (!task_id) {
+        obi_ctx__del(pid_tgid);
+        return;
+    }
+    enum { k_max_depth = 4 };
+    for (u8 i = 0; i < k_max_depth; ++i) {
+        const python_task_state_t *task_state =
+            (const python_task_state_t *)bpf_map_lookup_elem(&python_task_state, &task_id);
+        if (!task_state) {
+            break;
+        }
+        if (task_state->conn.port) {
+            tp_info_pid_t *tp = bpf_map_lookup_elem(&server_traces_aux, &task_state->conn);
+            if (tp && tp->valid) {
+                obi_ctx__set(pid_tgid, &tp->tp);
+                return;
+            }
+        }
+        if (!task_state->parent) {
+            break;
+        }
+        task_id = task_state->parent;
+    }
+    obi_ctx__del(pid_tgid);
+}
 
 static __always_inline void map_context_to_task(u64 context, u64 task) {
     python_context_task_t mapping = {
@@ -60,6 +92,7 @@ static __always_inline int update_current_task(u64 id, u64 task) {
     }
 
     thread_state->current_task = task;
+    refresh_obi_ctx_for_task(id, task);
     return 0;
 }
 
@@ -103,6 +136,7 @@ int obi_uprobe_task_step_ret(struct pt_regs *ctx) {
     }
 
     thread_state->current_task = k_python_state_none;
+    obi_ctx__del(id);
     if (thread_state->current_context == k_python_state_none &&
         thread_state->inflight_task == k_python_state_none) {
         bpf_map_delete_elem(&python_thread_state, &id);
@@ -130,6 +164,14 @@ int obi_uprobe_context_run(struct pt_regs *ctx) {
     }
 
     thread_state->current_context = context;
+
+    // asyncio.to_thread worker has no current_task; look up which task copied this context
+    const python_context_task_t *context_task =
+        (const python_context_task_t *)bpf_map_lookup_elem(&python_context_task, &context);
+    const u64 task_id = resolve_python_context_task(context_task);
+    if (task_id) {
+        refresh_obi_ctx_for_task(id, task_id);
+    }
 
     return 0;
 }

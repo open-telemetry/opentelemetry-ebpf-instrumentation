@@ -1,8 +1,10 @@
 from fastapi import FastAPI
 import httpx
 import asyncio
+import json
 import requests
 import os
+import sys
 
 app = FastAPI()
 http_client = None
@@ -38,6 +40,24 @@ async def test_sequential(req_id: int):
 
 @app.get("/health")
 async def health_check():
+    return {"status": "ok"}
+
+
+@app.get("/smoke")
+async def smoke():
+    return {"status": "ok"}
+
+
+@app.get("/json_logger")
+async def json_logger():
+    # Yield so concurrent requests interleave on the event loop
+    await asyncio.sleep(0.05)
+    line = json.dumps({
+        "message": "this is a json log from python async",
+        "level": "INFO",
+    })
+    sys.stdout.write(line + "\n")
+    sys.stdout.flush()
     return {"status": "ok"}
 
 
