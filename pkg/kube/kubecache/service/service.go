@@ -147,6 +147,11 @@ func (o *connection) On(event *informer.Event) error {
 }
 
 func (o *connection) handleMessagesQueue(ctx context.Context) {
+	var timer *time.Timer
+	if o.sendTimeout > 0 {
+		timer = time.NewTimer(o.sendTimeout)
+		defer timer.Stop()
+	}
 	for {
 		select {
 		case <-ctx.Done():
@@ -157,12 +162,52 @@ func (o *connection) handleMessagesQueue(ctx context.Context) {
 			if event == nil {
 				return
 			}
-			if err := o.server.Send(event); err != nil {
-				o.log.Debug("Error sending message. Closing client connection", "clientID", o.ID(), "error", err)
-				o.metrics.MessageError()
+			if err := o.sendWithTimeout(ctx, timer, event); err != nil {
 				return
 			}
 			o.metrics.MessageSucceed()
 		}
+	}
+}
+
+// sendWithTimeout sends event and, if timer is non-nil, drops the connection
+// when Send blocks longer than o.sendTimeout. Returns a non-nil error whenever
+// the caller should stop processing the queue.
+func (o *connection) sendWithTimeout(ctx context.Context, timer *time.Timer, event *informer.Event) error {
+	if timer == nil {
+		if err := o.server.Send(event); err != nil {
+			o.log.Debug("Error sending message. Closing client connection", "clientID", o.ID(), "error", err)
+			o.metrics.MessageError()
+			return err
+		}
+		return nil
+	}
+
+	sendErr := make(chan error, 1)
+	go func() { sendErr <- o.server.Send(event) }()
+
+	if !timer.Stop() {
+		select {
+		case <-timer.C:
+		default:
+		}
+	}
+	timer.Reset(o.sendTimeout)
+
+	select {
+	case err := <-sendErr:
+		if err != nil {
+			o.log.Debug("Error sending message. Closing client connection", "clientID", o.ID(), "error", err)
+			o.metrics.MessageError()
+			return err
+		}
+		return nil
+	case <-timer.C:
+		o.log.Warn("Send timed out. Closing client connection", "clientID", o.ID(), "timeout", o.sendTimeout)
+		o.metrics.MessageTimeout()
+		return context.DeadlineExceeded
+	case <-ctx.Done():
+		o.log.Debug("context done. Closing client connection")
+		return ctx.Err()
 	}
 }
