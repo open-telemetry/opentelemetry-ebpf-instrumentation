@@ -337,7 +337,7 @@ JAVA_AGENT_GRADLE_ENV := $(if $(JAVA_AGENT_JAVA_HOME),JAVA_HOME=$(JAVA_AGENT_JAV
 .PHONY: java-build
 java-build:
 	@echo "### Building Java agent"
-	cd $(JAVA_AGENT_DIR) && $(JAVA_AGENT_GRADLE_ENV) gradle build
+	cd $(JAVA_AGENT_DIR) && $(JAVA_AGENT_GRADLE_ENV) gradle build -PnativeOnly=true
 	mkdir -p $(JAVA_AGENT_EMBED_DIR)
 	cp $(JAVA_AGENT_DIR)/build/$(JAVA_AGENT) $(JAVA_AGENT_EMBED_PATH)
 
