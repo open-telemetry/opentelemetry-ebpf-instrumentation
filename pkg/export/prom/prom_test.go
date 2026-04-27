@@ -136,7 +136,7 @@ func TestAppMetricsExpiration(t *testing.T) {
 		assert.Regexp(ct, containsTracesHostInfo, exported)
 		assert.Regexp(ct, containsJob, exported)
 		assert.Regexp(ct, containsInstance, exported)
-	}, 300*timeout, 100*time.Millisecond)
+	}, timeout, 100*time.Millisecond)
 
 	// AND WHEN it keeps receiving a subset of the initial metrics during the timeout
 	now.Advance(2 * time.Minute)
