@@ -40,7 +40,6 @@ import (
 	"go.opentelemetry.io/obi/pkg/transform"
 )
 
-// LogLevel is the level of a log
 type LogLevel string
 
 const (
