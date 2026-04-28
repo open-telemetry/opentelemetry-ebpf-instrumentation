@@ -308,6 +308,106 @@ func TestSpanStatusMessage_JSONRPC(t *testing.T) {
 	}
 }
 
+func TestSpanStatusCode_MCP(t *testing.T) {
+	tests := []struct {
+		name         string
+		span         *Span
+		expectedCode string
+	}{
+		{
+			name: "server span with MCP error",
+			span: &Span{
+				Type:    EventTypeHTTP,
+				Status:  200,
+				SubType: HTTPSubtypeMCP,
+				GenAI:   &GenAI{MCP: &MCPCall{Method: "tools/call", ErrorCode: -32602, ErrorMessage: "Unknown tool"}},
+			},
+			expectedCode: StatusCodeError,
+		},
+		{
+			name: "server span without MCP error",
+			span: &Span{
+				Type:    EventTypeHTTP,
+				Status:  200,
+				SubType: HTTPSubtypeMCP,
+				GenAI:   &GenAI{MCP: &MCPCall{Method: "tools/call"}},
+			},
+			expectedCode: StatusCodeUnset,
+		},
+		{
+			name: "client span with MCP error",
+			span: &Span{
+				Type:    EventTypeHTTPClient,
+				Status:  200,
+				SubType: HTTPSubtypeMCP,
+				GenAI:   &GenAI{MCP: &MCPCall{Method: "tools/call", ErrorCode: -32600, ErrorMessage: "Invalid Request"}},
+			},
+			expectedCode: StatusCodeError,
+		},
+		{
+			name: "client span without MCP error",
+			span: &Span{
+				Type:    EventTypeHTTPClient,
+				Status:  200,
+				SubType: HTTPSubtypeMCP,
+				GenAI:   &GenAI{MCP: &MCPCall{Method: "tools/call"}},
+			},
+			expectedCode: StatusCodeUnset,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expectedCode, SpanStatusCode(tt.span))
+		})
+	}
+}
+
+func TestSpanStatusMessage_MCP(t *testing.T) {
+	tests := []struct {
+		name            string
+		span            *Span
+		expectedMessage string
+	}{
+		{
+			name: "server span with MCP error message",
+			span: &Span{
+				Type:    EventTypeHTTP,
+				Status:  200,
+				SubType: HTTPSubtypeMCP,
+				GenAI:   &GenAI{MCP: &MCPCall{Method: "tools/call", ErrorCode: -32602, ErrorMessage: "Unknown tool"}},
+			},
+			expectedMessage: "Unknown tool",
+		},
+		{
+			name: "client span with MCP error message",
+			span: &Span{
+				Type:    EventTypeHTTPClient,
+				Status:  200,
+				SubType: HTTPSubtypeMCP,
+				GenAI:   &GenAI{MCP: &MCPCall{Method: "tools/call", ErrorCode: -32600, ErrorMessage: "Invalid Request"}},
+			},
+			expectedMessage: "Invalid Request",
+		},
+		{
+			name: "server span without MCP error",
+			span: &Span{
+				Type:    EventTypeHTTP,
+				Status:  200,
+				SubType: HTTPSubtypeMCP,
+				GenAI:   &GenAI{MCP: &MCPCall{Method: "tools/call"}},
+			},
+			expectedMessage: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expectedMessage, SpanStatusMessage(tt.span))
+		})
+	}
+}
+
 type jsonObject = map[string]any
 
 func deserializeJSONObject(data []byte) (jsonObject, error) {

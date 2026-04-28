@@ -46,7 +46,6 @@ import (
 const timeout = 5 * time.Second
 
 func TestAppMetricsExpiration(t *testing.T) {
-	t.Skip("fails regularly with port already in use")
 	now := syncedClock{now: time.Now()}
 	timeNow = now.Now
 
@@ -92,11 +91,19 @@ func TestAppMetricsExpiration(t *testing.T) {
 
 	go exporter(ctx)
 
+	svcAttrs := svc.Attrs{
+		Features: export.FeatureApplicationRED | export.FeatureApplicationHost,
+		UID:      svc.UID{Name: "test-app", Namespace: "default", Instance: "test-app-1"},
+	}
+	svcAttrs001 := svc.Attrs{
+		Features: svcAttrs.Features,
+		UID:      svcAttrs.UID,
+		Metadata: map[attr.Name]string{"k8s.app.version": "v0.0.1"},
+	}
+
 	app := exec.FileInfo{
-		Service: svc.Attrs{
-			UID: svc.UID{Name: "test-app", Namespace: "default", Instance: "test-app-1"},
-		},
-		Pid: 1,
+		Service: svcAttrs,
+		Pid:     1,
 	}
 
 	// Send a process event so we make target_info and traces_host_info
@@ -105,17 +112,12 @@ func TestAppMetricsExpiration(t *testing.T) {
 	// WHEN it receives metrics
 	promInput.Send([]request.Span{
 		{
-			Type: request.EventTypeHTTP,
-			Path: "/foo",
-			End:  123 * time.Second.Nanoseconds(),
-			Service: svc.Attrs{
-				UID: svc.UID{Name: "test-app", Namespace: "default", Instance: "test-app-1"},
-				Metadata: map[attr.Name]string{
-					"k8s.app.version": "v0.0.1",
-				},
-			},
+			Type:    request.EventTypeHTTP,
+			Path:    "/foo",
+			End:     123 * time.Second.Nanoseconds(),
+			Service: svcAttrs001,
 		},
-		{Type: request.EventTypeHTTP, Path: "/baz", End: 456 * time.Second.Nanoseconds()},
+		{Service: svcAttrs, Type: request.EventTypeHTTP, Path: "/baz", End: 456 * time.Second.Nanoseconds()},
 	})
 
 	containsTargetInfo := regexp.MustCompile(`\ntarget_info\{.*host_id="my-host"`)
@@ -141,14 +143,10 @@ func TestAppMetricsExpiration(t *testing.T) {
 	// WHEN it receives metrics
 	promInput.Send([]request.Span{
 		{
-			Type: request.EventTypeHTTP,
-			Path: "/foo",
-			End:  123 * time.Second.Nanoseconds(),
-			Service: svc.Attrs{
-				Metadata: map[attr.Name]string{
-					"k8s.app.version": "v0.0.1",
-				},
-			},
+			Type:    request.EventTypeHTTP,
+			Path:    "/foo",
+			End:     123 * time.Second.Nanoseconds(),
+			Service: svcAttrs001,
 		},
 	})
 	now.Advance(2 * time.Minute)
@@ -166,7 +164,7 @@ func TestAppMetricsExpiration(t *testing.T) {
 
 	// AND WHEN the metrics labels that disappeared are received again
 	promInput.Send([]request.Span{
-		{Type: request.EventTypeHTTP, Path: "/baz", End: 456 * time.Second.Nanoseconds()},
+		{Service: svcAttrs, Type: request.EventTypeHTTP, Path: "/baz", End: 456 * time.Second.Nanoseconds()},
 	})
 	now.Advance(2 * time.Minute)
 

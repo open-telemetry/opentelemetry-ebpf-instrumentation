@@ -259,6 +259,12 @@ HTTPParsingPolicy defines the default action for http enrichment rules.
 |---|---|---|---|---|---|---|
 | `ebpf.payload_extraction.http.genai.gemini.enabled` | `boolean` | `OTEL_EBPF_HTTP_GEMINI_ENABLED` | `false` |  |  | Enable Google AI Studio (Gemini) payload extraction and parsing |
 
+#### `ebpf.payload_extraction.http.genai.mcp`
+
+| YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
+|---|---|---|---|---|---|---|
+| `ebpf.payload_extraction.http.genai.mcp.enabled` | `boolean` | `OTEL_EBPF_HTTP_MCP_ENABLED` | `false` |  |  | Enable Model Context Protocol (MCP) payload extraction and parsing |
+
 #### `ebpf.payload_extraction.http.genai.openai`
 
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |

@@ -854,6 +854,10 @@
           "$ref": "#/$defs/GeminiConfig",
           "description": "Google AI Studio (Gemini) payload extraction and parsing"
         },
+        "mcp": {
+          "$ref": "#/$defs/MCPConfig",
+          "description": "Model Context Protocol (MCP) payload extraction and parsing"
+        },
         "openai": {
           "$ref": "#/$defs/OpenAIConfig",
           "description": "Payload extraction and parsing"
@@ -1493,6 +1497,17 @@
         "service": {
           "$ref": "#/$defs/GlobDefinitionCriteria",
           "description": "Should also be contained in 'services' in the Discovery section"
+        }
+      },
+      "type": "object"
+    },
+    "MCPConfig": {
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable Model Context Protocol (MCP) payload extraction and parsing",
+          "default": false,
+          "x-env-var": "OTEL_EBPF_HTTP_MCP_ENABLED"
         }
       },
       "type": "object"

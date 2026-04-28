@@ -1753,6 +1753,118 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		ensureTraceStrAttr(t, attrs, "jsonrpc.request.id", "42")
 		ensureTraceStrAttr(t, attrs, "rpc.response.status_code", "-32600")
 	})
+	t.Run("test MCP server span with tool call success", func(t *testing.T) {
+		span := request.Span{
+			Type:    request.EventTypeHTTP,
+			Method:  "POST",
+			Path:    "/mcp",
+			Route:   "/mcp",
+			Status:  200,
+			SubType: request.HTTPSubtypeMCP,
+			GenAI: &request.GenAI{
+				MCP: &request.MCPCall{
+					Method:      "tools/call",
+					ToolName:    "get-weather",
+					SessionID:   "sess-abc",
+					ProtocolVer: "2025-03-26",
+					RequestID:   "1",
+				},
+			},
+		}
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+		topSpan := spans.At(spans.Len() - 1)
+		attrs := topSpan.Attributes()
+		status := topSpan.Status()
+
+		assert.Equal(t, "execute_tool get-weather", topSpan.Name())
+		assert.Equal(t, ptrace.StatusCodeUnset, status.Code())
+		assert.Empty(t, status.Message())
+
+		ensureTraceStrAttr(t, attrs, "mcp.method.name", "tools/call")
+		ensureTraceStrAttr(t, attrs, "gen_ai.operation.name", "execute_tool")
+		ensureTraceStrAttr(t, attrs, "gen_ai.tool.name", "get-weather")
+		ensureTraceStrAttr(t, attrs, "mcp.session.id", "sess-abc")
+		ensureTraceStrAttr(t, attrs, "mcp.protocol.version", "2025-03-26")
+		ensureTraceStrAttr(t, attrs, "jsonrpc.request.id", "1")
+		ensureTraceAttrNotExists(t, attrs, "rpc.response.status_code")
+	})
+	t.Run("test MCP server span with error", func(t *testing.T) {
+		span := request.Span{
+			Type:    request.EventTypeHTTP,
+			Method:  "POST",
+			Path:    "/mcp",
+			Route:   "/mcp",
+			Status:  200,
+			SubType: request.HTTPSubtypeMCP,
+			GenAI: &request.GenAI{
+				MCP: &request.MCPCall{
+					Method:       "tools/call",
+					ToolName:     "nonexistent",
+					SessionID:    "sess-abc",
+					RequestID:    "2",
+					ErrorCode:    -32602,
+					ErrorMessage: "Unknown tool: nonexistent",
+				},
+			},
+		}
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+		topSpan := spans.At(spans.Len() - 1)
+		attrs := topSpan.Attributes()
+		status := topSpan.Status()
+
+		assert.Equal(t, "execute_tool nonexistent", topSpan.Name())
+		assert.Equal(t, ptrace.StatusCodeError, status.Code())
+		assert.Equal(t, "Unknown tool: nonexistent", status.Message())
+
+		ensureTraceStrAttr(t, attrs, "mcp.method.name", "tools/call")
+		ensureTraceStrAttr(t, attrs, "gen_ai.tool.name", "nonexistent")
+		ensureTraceStrAttr(t, attrs, "mcp.session.id", "sess-abc")
+		ensureTraceStrAttr(t, attrs, "jsonrpc.request.id", "2")
+		ensureTraceStrAttr(t, attrs, "rpc.response.status_code", "-32602")
+		ensureTraceStrAttr(t, attrs, "error.message", "Unknown tool: nonexistent")
+	})
+	t.Run("test MCP client span with error", func(t *testing.T) {
+		span := request.Span{
+			Type:    request.EventTypeHTTPClient,
+			Method:  "POST",
+			Path:    "/mcp",
+			Status:  200,
+			SubType: request.HTTPSubtypeMCP,
+			GenAI: &request.GenAI{
+				MCP: &request.MCPCall{
+					Method:       "tools/call",
+					ToolName:     "get-weather",
+					RequestID:    "3",
+					ErrorCode:    -32600,
+					ErrorMessage: "Invalid Request",
+				},
+			},
+		}
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+		assert.Equal(t, 1, spans.Len())
+		topSpan := spans.At(0)
+		attrs := topSpan.Attributes()
+		status := topSpan.Status()
+
+		assert.Equal(t, "execute_tool get-weather", topSpan.Name())
+		assert.Equal(t, ptrace.StatusCodeError, status.Code())
+		assert.Equal(t, "Invalid Request", status.Message())
+
+		ensureTraceStrAttr(t, attrs, "mcp.method.name", "tools/call")
+		ensureTraceStrAttr(t, attrs, "gen_ai.tool.name", "get-weather")
+		ensureTraceStrAttr(t, attrs, "jsonrpc.request.id", "3")
+		ensureTraceStrAttr(t, attrs, "rpc.response.status_code", "-32600")
+		ensureTraceStrAttr(t, attrs, "error.message", "Invalid Request")
+	})
 	t.Run("test HTTP span without headers has no header attributes", func(t *testing.T) {
 		span := request.Span{
 			Type:   request.EventTypeHTTP,
