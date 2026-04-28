@@ -3,7 +3,7 @@ FROM python:3.14@sha256:61346539f7b26521a230e72c11da5ebd872924745074b19736e7d65b
 EXPOSE 8080
 
 COPY internal/test/integration/components/pythonamqp/requirements.txt /requirements.txt
-RUN pip install --no-cache-dir -r /requirements.txt
+RUN pip install --no-cache-dir --require-hashes -r /requirements.txt
 
 COPY internal/test/integration/components/pythonamqp/main.py /main.py
 

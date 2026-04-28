@@ -1,1 +1,4 @@
-python-qpid-proton==0.40.0
+python-qpid-proton==0.40.0 \
+    --hash=sha256:7680d607cf6e9684f97bf5b2ba16cda7d8512aab9e4ff78f98d44a4644fc819a \
+    --hash=sha256:a19d8c71c908700ceb38f6cbc1eb4a039428570f96bfc2caeeafdfec804fb94f \
+    --hash=sha256:fe56211c6dcc7ea1fb9d78a017208a4c08043cd901780b6602a74ff70f38bf1f
