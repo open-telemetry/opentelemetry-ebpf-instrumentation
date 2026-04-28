@@ -709,8 +709,7 @@ class ByteBufferExtractorTest {
     ((java.nio.Buffer) dup).limit(((java.nio.Buffer) dst).position());
     ((java.nio.Buffer) dup).position(savedPos);
 
-    ByteBuffer result =
-        ByteBufferExtractor.flattenFreshByteBufferArray(new ByteBuffer[] {dup});
+    ByteBuffer result = ByteBufferExtractor.flattenFreshByteBufferArray(new ByteBuffer[] {dup});
 
     assertEquals(postUnwrapPos, result.position());
     result.flip();
