@@ -200,6 +200,7 @@ func (o *connection) sendWithTimeout(ctx context.Context, timer *time.Timer, eve
 	case <-timer.C:
 		o.log.Warn("Send timed out. Closing client connection", "clientID", o.ID(), "timeout", o.sendTimeout)
 		o.metrics.MessageTimeout()
+		// sendErr is buffered; the goroutine exits when gRPC closes the stream on Subscribe's return.
 		return context.DeadlineExceeded
 	case <-ctx.Done():
 		o.log.Debug("context done. Closing client connection")
