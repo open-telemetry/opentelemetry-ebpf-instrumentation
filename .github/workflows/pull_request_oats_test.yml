@@ -157,7 +157,7 @@ jobs:
         env:
           MATRIX_BASENAME: ${{ matrix.basename }}
           TESTCASE_TIMEOUT: 5m
-        run: make oats-test-$MATRIX_BASENAME
+        run: make "oats-test-$MATRIX_BASENAME"
 
       - name: Upload oats test logs
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
