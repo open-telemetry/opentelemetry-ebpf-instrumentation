@@ -646,8 +646,8 @@ make_h2_tp_hpack(unsigned char *buf, const tp_info_t *tp, const unsigned char *e
         return;
     }
 
-    *buf++ = 0x00; // literal without indexing
-    *buf++ = 0x0b; // name length = 11
+    *buf++ = k_hpack_literal_no_index;
+    *buf++ = k_hpack_tp_name_len;
 
     *buf++ = 't';
     *buf++ = 'r';
@@ -661,7 +661,7 @@ make_h2_tp_hpack(unsigned char *buf, const tp_info_t *tp, const unsigned char *e
     *buf++ = 'n';
     *buf++ = 't';
 
-    *buf++ = 0x37; // value length = 55
+    *buf++ = k_hpack_value_len_tp;
 
     // Version
     *buf++ = '0';
