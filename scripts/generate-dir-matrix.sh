@@ -18,7 +18,7 @@ while IFS= read -r -d '' test_file; do
         continue
     fi
 
-    dir=$(basename "$(dirname "$test_file")")
+    dir=$(basename -- "$(dirname -- "$test_file")")
     if [[ ! "$dir" =~ ^[A-Za-z0-9_-]+$ ]]; then
         echo "ERROR: Invalid test directory basename '$dir' in $SEARCH_DIR; only [A-Za-z0-9_-] are allowed" >&2
         exit 1

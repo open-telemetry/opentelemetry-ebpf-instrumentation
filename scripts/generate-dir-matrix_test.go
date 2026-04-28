@@ -21,6 +21,7 @@ type dirMatrix struct {
 
 func TestGenerateDirMatrixIncludesSortedBasenames(t *testing.T) {
 	searchDir := t.TempDir()
+	mustWriteTestFile(t, searchDir, "-dash")
 	mustWriteTestFile(t, searchDir, "zeta")
 	mustWriteTestFile(t, searchDir, "alpha")
 	mustWriteTestFile(t, searchDir, "safe-name_1")
@@ -35,11 +36,11 @@ func TestGenerateDirMatrixIncludesSortedBasenames(t *testing.T) {
 		t.Fatalf("failed to parse matrix json %q: %v", stdout, err)
 	}
 
-	if len(matrix.Include) != 3 {
-		t.Fatalf("expected 3 matrix entries, got %d", len(matrix.Include))
+	if len(matrix.Include) != 4 {
+		t.Fatalf("expected 4 matrix entries, got %d", len(matrix.Include))
 	}
 
-	if matrix.Include[0].Basename != "alpha" || matrix.Include[1].Basename != "safe-name_1" || matrix.Include[2].Basename != "zeta" {
+	if matrix.Include[0].Basename != "-dash" || matrix.Include[1].Basename != "alpha" || matrix.Include[2].Basename != "safe-name_1" || matrix.Include[3].Basename != "zeta" {
 		t.Fatalf("unexpected basenames: %+v", matrix.Include)
 	}
 }
