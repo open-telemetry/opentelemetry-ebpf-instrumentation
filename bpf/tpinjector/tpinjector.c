@@ -1293,7 +1293,7 @@ static __always_inline u32 find_existing_h2_traceparent(struct sk_msg_md *msg,
                 continue;
             }
             decode_hex(tp->trace_id, &val[k_tp_val_trace_id_start], TRACE_ID_CHAR_LEN);
-            decode_hex(tp->parent_id, &val[k_tp_val_span_id_start], SPAN_ID_CHAR_LEN);
+            decode_hex(tp->span_id, &val[k_tp_val_span_id_start], SPAN_ID_CHAR_LEN);
             tp->flags = 1;
             bpf_dbg_printk("h2: found existing traceparent (plaintext)");
             return hpack_start + i + k_hpack_tp_val_offset + k_tp_val_span_id_start;
@@ -1315,7 +1315,7 @@ static __always_inline u32 find_existing_h2_traceparent(struct sk_msg_md *msg,
                 continue;
             }
             decode_hex(tp->trace_id, &val[k_tp_val_trace_id_start], TRACE_ID_CHAR_LEN);
-            decode_hex(tp->parent_id, &val[k_tp_val_span_id_start], SPAN_ID_CHAR_LEN);
+            decode_hex(tp->span_id, &val[k_tp_val_span_id_start], SPAN_ID_CHAR_LEN);
             tp->flags = 1;
             bpf_dbg_printk("h2: found existing traceparent (huffman)");
             return hpack_start + i + k_hpack_tp_val_offset_huffman + k_tp_val_span_id_start;
@@ -1354,7 +1354,14 @@ int obi_packet_extender_find_existing_h2_tp(struct sk_msg_md *msg) {
             !already_tracked_plain_http2(&t_ctx->p_conn)) {
             return SK_PASS;
         }
-        __builtin_memcpy(tp_p->tp.span_id, tp_p->tp.parent_id, sizeof(tp_p->tp.span_id));
+        // Mirror HTTP/1.1: parent_id is the in-process parent span, not wire span-id
+        init_tp_ctx_parent_tp(t_ctx);
+        if (t_ctx->has_parent_tp &&
+            bpf_memcmp(tp_p->tp.trace_id, t_ctx->parent_tp.trace_id, TRACE_ID_SIZE_BYTES) == 0) {
+            bpf_memcpy(tp_p->tp.parent_id, t_ctx->parent_tp.span_id, SPAN_ID_SIZE_BYTES);
+        } else {
+            __builtin_memset(tp_p->tp.parent_id, 0, sizeof(tp_p->tp.parent_id));
+        }
         tp_p->tp.ts = bpf_ktime_get_ns();
         tp_p->valid = 1;
         tp_p->written = 1;
