@@ -155,6 +155,41 @@ int obi_uprobe_context_run(struct pt_regs *ctx) {
     const u64 task_id = resolve_python_context_task(context_task);
     if (task_id) {
         refresh_obi_ctx_for_task(id, task_id);
+    } else if (thread_state->current_task == k_python_state_none) {
+        // Worker thread (no current_task) reusing entry from a previous job:
+        // drop stale obi_ctx so profiler samples taken before refresh are not
+        // attributed to the previous job's trace
+        obi_ctx__del(id);
+    }
+
+    return 0;
+}
+
+SEC("uretprobe/libpython3.:context_run")
+int obi_uretprobe_context_run(struct pt_regs *ctx) {
+    (void)ctx;
+    const u64 id = bpf_get_current_pid_tgid();
+    if (!valid_pid(id)) {
+        return 0;
+    }
+
+    python_thread_state_t *thread_state =
+        (python_thread_state_t *)bpf_map_lookup_elem(&python_thread_state, &id);
+    if (!thread_state) {
+        return 0;
+    }
+
+    thread_state->current_context = k_python_state_none;
+    // Only worker threads have no current_task here; on the event-loop thread
+    // task_step_ret owns obi_ctx cleanup so we leave it alone
+    if (thread_state->current_task == k_python_state_none) {
+        obi_ctx__del(id);
+    }
+
+    if (thread_state->current_context == k_python_state_none &&
+        thread_state->current_task == k_python_state_none &&
+        thread_state->inflight_task == k_python_state_none) {
+        bpf_map_delete_elem(&python_thread_state, &id);
     }
 
     return 0;
