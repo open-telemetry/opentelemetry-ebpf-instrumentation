@@ -151,13 +151,14 @@ class ByteBufferExtractorTest {
 
   @Test
   void testFlattenUsedByteBufferArray_LenGreaterThanMaxSize() {
-    ByteBuffer buf = ByteBuffer.allocate(2000);
-    for (int i = 0; i < 2000; i++) {
+    int n = ByteBufferExtractor.MAX_SIZE + 1000;
+    ByteBuffer buf = ByteBuffer.allocate(n);
+    for (int i = 0; i < n; i++) {
       buf.put((byte) (i % 128));
     }
     ByteBuffer[] buffers = new ByteBuffer[] {buf};
-    ByteBuffer result = ByteBufferExtractor.flattenUsedByteBufferArray(buffers, 2000);
-    assertEquals(2000, buf.position());
+    ByteBuffer result = ByteBufferExtractor.flattenUsedByteBufferArray(buffers, n);
+    assertEquals(n, buf.position());
 
     assertEquals(ByteBufferExtractor.MAX_SIZE, result.capacity());
 
@@ -360,8 +361,9 @@ class ByteBufferExtractorTest {
 
   @Test
   void testFlattenFreshByteBufferArray_LimitGreaterThanMaxSize() {
-    ByteBuffer buf1 = ByteBuffer.allocate(2000);
-    for (int i = 0; i < 2000; i++) {
+    int n = ByteBufferExtractor.MAX_SIZE + 1000;
+    ByteBuffer buf1 = ByteBuffer.allocate(n);
+    for (int i = 0; i < n; i++) {
       buf1.put((byte) (i % 128));
     }
     buf1.flip();
@@ -374,14 +376,16 @@ class ByteBufferExtractorTest {
       assertEquals((byte) (i % 128), result.get());
     }
     assertEquals(0, buf1.position());
-    assertEquals(2000, buf1.limit());
+    assertEquals(n, buf1.limit());
   }
 
   @Test
   void testFlattenFreshByteBufferArray_MultipleBuffers_ExceedMaxSize() {
-    ByteBuffer buf1 = ByteBuffer.allocate(800);
-    ByteBuffer buf2 = ByteBuffer.allocate(800);
-    for (int i = 0; i < 800; i++) {
+    int n = 10240;
+    int residual = ByteBufferExtractor.MAX_SIZE - (n - 1);
+    ByteBuffer buf1 = ByteBuffer.allocate(n);
+    ByteBuffer buf2 = ByteBuffer.allocate(n);
+    for (int i = 0; i < n; i++) {
       buf1.put((byte) (i + 1));
       buf2.put((byte) (i + 101));
     }
@@ -392,16 +396,16 @@ class ByteBufferExtractorTest {
     ByteBuffer result = ByteBufferExtractor.flattenFreshByteBufferArray(srcs);
     assertEquals(ByteBufferExtractor.MAX_SIZE, result.capacity());
     result.flip();
-    for (int i = 1; i < 800; i++) {
+    for (int i = 1; i < n; i++) {
       assertEquals((byte) (i + 1), result.get());
     }
-    for (int i = 0; i < 224; i++) {
+    for (int i = 0; i < residual; i++) {
       assertEquals((byte) (i + 101), result.get());
     }
     assertEquals(1, buf1.position());
-    assertEquals(800, buf1.limit());
+    assertEquals(n, buf1.limit());
     assertEquals(0, buf2.position());
-    assertEquals(800, buf2.limit());
+    assertEquals(n, buf2.limit());
   }
 
   @Test
@@ -519,19 +523,20 @@ class ByteBufferExtractorTest {
 
   @Test
   void testFromFreshBuffer_LenGreaterThanMaxSize() {
-    ByteBuffer src = ByteBuffer.allocate(2000);
-    for (int i = 0; i < 2000; i++) {
+    int n = ByteBufferExtractor.MAX_SIZE + 1000;
+    ByteBuffer src = ByteBuffer.allocate(n);
+    for (int i = 0; i < n; i++) {
       src.put((byte) (i % 128));
     }
     src.flip();
-    ByteBuffer result = ByteBufferExtractor.fromFreshBuffer(src, 2000);
+    ByteBuffer result = ByteBufferExtractor.fromFreshBuffer(src, n);
     assertEquals(ByteBufferExtractor.MAX_SIZE, result.capacity());
     result.flip();
     for (int i = 0; i < ByteBufferExtractor.MAX_SIZE; i++) {
       assertEquals((byte) (i % 128), result.get());
     }
     assertEquals(0, src.position());
-    assertEquals(2000, src.limit());
+    assertEquals(n, src.limit());
   }
 
   @Test
@@ -665,5 +670,52 @@ class ByteBufferExtractorTest {
     assertEquals(sb.toString(), ByteBufferExtractor.keyFromFreshBuffer(buf));
     assertEquals(5, buf.position());
     assertEquals(size, buf.limit());
+  }
+
+  // Regression for issue #1935: pooled ByteBuf reused across requests can leave
+  // stale TLS-record-shaped bytes past the freshly-decrypted plaintext. The
+  // unwrap-array advice must clamp dup.limit to dst.position_post_unwrap so
+  // flatten returns only the bytes that this unwrap call wrote
+  @Test
+  void testFlattenFreshByteBufferArray_DropsStaleResidueAfterUnwrap() {
+    int capacity = 1024;
+    int savedPos = 0;
+    int postUnwrapPos = 32; // unwrap wrote 32 plaintext bytes
+
+    ByteBuffer dst = ByteBuffer.allocate(capacity);
+    // Fresh plaintext written by SSLEngine.unwrap
+    byte[] plaintext = "HTTP/1.1 200 OK\r\nServer: ok\r\n\r\n!".getBytes();
+    assertEquals(postUnwrapPos, plaintext.length);
+    for (int i = 0; i < postUnwrapPos; i++) {
+      dst.put(i, plaintext[i]);
+    }
+    // Stale residue from a previous use of the pooled buffer: starts with a
+    // TLS 1.2 application-data record header followed by ciphertext-shaped bytes
+    dst.put(postUnwrapPos, (byte) 0x17);
+    dst.put(postUnwrapPos + 1, (byte) 0x03);
+    dst.put(postUnwrapPos + 2, (byte) 0x03);
+    dst.put(postUnwrapPos + 3, (byte) 0x05);
+    dst.put(postUnwrapPos + 4, (byte) 0x6a);
+    for (int i = postUnwrapPos + 5; i < capacity; i++) {
+      dst.put(i, (byte) (i & 0xff));
+    }
+    // Simulate the state SSLEngine.unwrap leaves: position advanced past the
+    // newly-written plaintext, limit unchanged at capacity
+    ((java.nio.Buffer) dst).position(postUnwrapPos);
+
+    // Build the duplicate the same way UnwrapAdviceArray.OnMethodExit does post-fix:
+    // limit clamped to dst.position(), then position rewound to savedPos
+    ByteBuffer dup = dst.duplicate();
+    ((java.nio.Buffer) dup).limit(((java.nio.Buffer) dst).position());
+    ((java.nio.Buffer) dup).position(savedPos);
+
+    ByteBuffer result =
+        ByteBufferExtractor.flattenFreshByteBufferArray(new ByteBuffer[] {dup});
+
+    assertEquals(postUnwrapPos, result.position());
+    result.flip();
+    byte[] out = new byte[result.limit()];
+    result.get(out);
+    assertArrayEquals(plaintext, out);
   }
 }

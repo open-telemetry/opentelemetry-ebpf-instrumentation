@@ -250,6 +250,11 @@ public class SSLEngineInst {
           }
           if (savedDstPositions[i] != -1) {
             dups[i] = dsts[i].duplicate();
+            // [savedPos, dsts[i].position()) covers exactly what unwrap just wrote.
+            // Bytes past dsts[i].position() may be stale residue from a pooled
+            // ByteBuf and can look like TLS records, so clamp the duplicate's
+            // limit before flattening to avoid leaking that residue downstream.
+            b(dups[i]).limit(b(dsts[i]).position());
             b(dups[i]).position(savedDstPositions[i]);
           }
         }
@@ -315,6 +320,10 @@ public class SSLEngineInst {
           return;
         }
 
+        // wrap may consume fewer bytes than we captured on enter; truncate so
+        // the captured payload matches what actually got encrypted and sent
+        int sentLen = Math.min(bLen.len, result.bytesConsumed());
+
         if (SSLStorage.debugOn) {
           System.err.println("[SSLEngineInst] wrap :" + java.util.Arrays.toString(bLen.buf));
         }
@@ -328,16 +337,16 @@ public class SSLEngineInst {
                   + Thread.currentThread().getName());
         }
         if (c != null) {
-          NativeMemory p = new NativeMemory(IOCTLPacket.packetPrefixSize + bLen.len);
-          int wOff = IOCTLPacket.writePacketPrefix(p, 0, OperationType.SEND, c, bLen.len);
-          IOCTLPacket.writePacketBuffer(p, wOff, bLen.buf, 0, bLen.len);
+          NativeMemory p = new NativeMemory(IOCTLPacket.packetPrefixSize + sentLen);
+          int wOff = IOCTLPacket.writePacketPrefix(p, 0, OperationType.SEND, c, sentLen);
+          IOCTLPacket.writePacketBuffer(p, wOff, bLen.buf, 0, sentLen);
           Agent.NativeLib.ioctl(0, Agent.IOCTL_CMD, p.getAddress());
         } else {
           String encrypted = ByteBufferExtractor.keyFromUsedBuffer(dst);
           if (SSLStorage.debugOn) {
             System.err.println("[SSLEngineInst] buf mapping on: " + encrypted);
           }
-          SSLStorage.setBufferMapping(encrypted, bLen);
+          SSLStorage.setBufferMapping(encrypted, new BytesWithLen(bLen.buf, sentLen));
         }
       }
 
@@ -385,6 +394,10 @@ public class SSLEngineInst {
           return;
         }
 
+        // wrap may consume fewer bytes than we captured on enter; truncate so
+        // the captured payload matches what actually got encrypted and sent
+        int sentLen = Math.min(bLen.len, result.bytesConsumed());
+
         if (SSLStorage.debugOn) {
           System.err.println(
               "[SSLEngineInst] wrap array :["
@@ -402,16 +415,16 @@ public class SSLEngineInst {
                   + Thread.currentThread().getName());
         }
         if (c != null) {
-          NativeMemory p = new NativeMemory(IOCTLPacket.packetPrefixSize + bLen.len);
-          int wOff = IOCTLPacket.writePacketPrefix(p, 0, OperationType.SEND, c, bLen.len);
-          IOCTLPacket.writePacketBuffer(p, wOff, bLen.buf, 0, bLen.len);
+          NativeMemory p = new NativeMemory(IOCTLPacket.packetPrefixSize + sentLen);
+          int wOff = IOCTLPacket.writePacketPrefix(p, 0, OperationType.SEND, c, sentLen);
+          IOCTLPacket.writePacketBuffer(p, wOff, bLen.buf, 0, sentLen);
           Agent.NativeLib.ioctl(0, Agent.IOCTL_CMD, p.getAddress());
         } else {
           String encrypted = ByteBufferExtractor.keyFromUsedBuffer(dst);
           if (SSLStorage.debugOn) {
             System.err.println("[SSLEngineInst] buf array mapping on: " + encrypted);
           }
-          SSLStorage.setBufferMapping(encrypted, bLen);
+          SSLStorage.setBufferMapping(encrypted, new BytesWithLen(bLen.buf, sentLen));
         }
       }
 

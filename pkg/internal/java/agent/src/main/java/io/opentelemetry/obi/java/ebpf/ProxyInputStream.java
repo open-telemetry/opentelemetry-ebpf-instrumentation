@@ -28,9 +28,9 @@ public class ProxyInputStream extends InputStream {
   public int read(byte[] b) throws IOException {
     int len = delegate.read(b);
     if (len > 0) {
-      NativeMemory p = new NativeMemory(IOCTLPacket.packetPrefixSize + b.length);
-      int wOff = IOCTLPacket.writePacketPrefix(p, 0, OperationType.RECEIVE, socket, b.length);
-      IOCTLPacket.writePacketBuffer(p, wOff, b);
+      NativeMemory p = new NativeMemory(IOCTLPacket.packetPrefixSize + len);
+      int wOff = IOCTLPacket.writePacketPrefix(p, 0, OperationType.RECEIVE, socket, len);
+      IOCTLPacket.writePacketBuffer(p, wOff, b, 0, len);
       Agent.NativeLib.ioctl(0, Agent.IOCTL_CMD, p.getAddress());
     }
     return len;
