@@ -76,6 +76,13 @@ func (ic *InformersCache) Run(ctx context.Context, opts ...meta.InformerOption) 
 	}
 }
 
+func effectiveSendTimeout(configured time.Duration) time.Duration {
+	if configured == 0 {
+		return kubecache.DefaultConfig.SendTimeout
+	}
+	return configured
+}
+
 // Subscribe method of the generated protobuf definition
 func (ic *InformersCache) Subscribe(msg *informer.SubscribeMessage, server informer.EventStreamService_SubscribeServer) error {
 	// extract peer information to identify it
@@ -84,15 +91,11 @@ func (ic *InformersCache) Subscribe(msg *informer.SubscribeMessage, server infor
 		return errors.New("failed to extract peer information")
 	}
 	ic.metrics.ClientConnect()
-	sendTimeout := ic.Config.SendTimeout
-	if sendTimeout == 0 {
-		sendTimeout = kubecache.DefaultConfig.SendTimeout
-	}
 	o := &connection{
 		log:         ic.log.With("clientID", p.Addr.String()),
 		id:          p.Addr.String(),
 		server:      server,
-		sendTimeout: sendTimeout,
+		sendTimeout: effectiveSendTimeout(ic.Config.SendTimeout),
 		metrics:     ic.metrics,
 		fromEpoch:   msg.GetFromTimestampEpoch(),
 		messages:    sync.NewQueue[*informer.Event](),

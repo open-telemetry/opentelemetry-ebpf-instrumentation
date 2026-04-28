@@ -134,6 +134,30 @@ func TestRunStopsServerOnContextCancellationWithActiveStream(t *testing.T) {
 	_ = lis.Close()
 }
 
+func TestEffectiveSendTimeout(t *testing.T) {
+	tests := []struct {
+		name       string
+		configured time.Duration
+		want       time.Duration
+	}{
+		{
+			name:       "zero uses default",
+			configured: 0,
+			want:       kubecache.DefaultConfig.SendTimeout,
+		},
+		{
+			name:       "non-zero is unchanged",
+			configured: 42 * time.Millisecond,
+			want:       42 * time.Millisecond,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, effectiveSendTimeout(tt.configured))
+		})
+	}
+}
+
 // Fake ServerStreamingServer implementations used by handleMessagesQueue tests.
 
 // immediateStream succeeds immediately on every Send.
