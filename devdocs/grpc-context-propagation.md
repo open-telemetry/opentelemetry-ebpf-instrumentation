@@ -28,8 +28,7 @@ H2 detection: checks for `PRI *` preface or `sk_h2_conn_flag` socket storage (se
 Parent lookup priority in `create_tp`:
 
 1. `outgoing_trace_map[{ports, stream_id}]` — written by Go uprobe or kprobe CLIENT
-2. `grpc_pending_egress_trace[{ports, 0}]` — Go uprobe fallback when loopyWriter fires `WriteHeaders` before `NewStream_Returns`, leaving `ongoing_streams` empty
-3. `find_parent_trace` — general fallback chain: Node.js → Python → nginx → Puma → Java → process traces → `cp_support_connect_info`
+2. `find_parent_trace` — general fallback chain: Node.js → Python → nginx → Puma → Java → process traces → `cp_support_connect_info`
 
 ### Go Uprobe Path
 
@@ -70,6 +69,10 @@ If a gRPC connection's HTTP/2 preface was sent before OBI attached, `ongoing_htt
 
 **With uprobes**: Not affected.
 
+### loopyWriter race on a fresh stream
+
+When `loopyWriter` dequeues HEADERS before `NewStream_ret` has published `ongoing_streams`, the first frame on a new stream is sent without OBI's traceparent. Subsequent frames inject normally.
+
 ## Maps
 
 | Map | Type | Key | Value | Purpose |
@@ -79,4 +82,3 @@ If a gRPC connection's HTTP/2 preface was sent before OBI attached, `ongoing_htt
 | `outgoing_trace_map` | LRU_HASH | `egress_key_t{ports, stream_id}` | `tp_info_pid_t` | Per-stream sender trace context |
 | `incoming_trace_map` | LRU_HASH | `connection_info_t` | `tp_info_pid_t` | Receiver trace context (TCP options) |
 | `grpc_conn_ptr_to_conn` | LRU_HASH | `u64 (conn_ptr)` | `connection_info_t` | Go conn pointer → TCP ports |
-| `grpc_pending_egress_trace` | LRU_HASH | `egress_key_t{ports, 0}` | `tp_info_pid_t` | Go uprobe fallback when `ongoing_streams` miss at WriteHeaders time |

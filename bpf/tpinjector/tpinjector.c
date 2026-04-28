@@ -1347,21 +1347,38 @@ int obi_packet_extender_find_existing_h2_tp(struct sk_msg_md *msg) {
 
     const u32 span_id_offset = find_existing_h2_traceparent(msg, hpack_start, hpack_len, &tp_p->tp);
     if (span_id_offset) {
-        // Adopt only in instrumented contexts to avoid churning maps for
-        // uninstrumented W3C-using apps.
+        // Adopt only in instrumented contexts
         const u64 id = bpf_get_current_pid_tgid();
         if (!get_tp_info_pid(&t_ctx->e_key) && !valid_pid(id) &&
             !already_tracked_plain_http2(&t_ctx->p_conn)) {
             return SK_PASS;
         }
-        // Mirror HTTP/1.1: parent_id is the in-process parent span, not wire span-id
+        // Mirror HTTP/1.1 assign_parent_tp: parent_id is the in-process parent span,
+        // and forwarded TPs (wire span_id == parent_tp.parent_id) get a fresh span_id
+        // so the child stays distinct on the wire
         init_tp_ctx_parent_tp(t_ctx);
+        bool forwarded = false;
         if (t_ctx->has_parent_tp &&
             bpf_memcmp(tp_p->tp.trace_id, t_ctx->parent_tp.trace_id, TRACE_ID_SIZE_BYTES) == 0) {
             bpf_memcpy(tp_p->tp.parent_id, t_ctx->parent_tp.span_id, SPAN_ID_SIZE_BYTES);
+            forwarded =
+                bpf_memcmp(tp_p->tp.span_id, t_ctx->parent_tp.parent_id, SPAN_ID_SIZE_BYTES) == 0;
         } else {
             __builtin_memset(tp_p->tp.parent_id, 0, sizeof(tp_p->tp.parent_id));
         }
+
+        if (forwarded) {
+            urand_bytes(tp_p->tp.span_id, SPAN_ID_SIZE_BYTES);
+            // Pull the HPACK span_id hex region for in-place rewrite
+            if (bpf_msg_pull_data(msg, span_id_offset, span_id_offset + SPAN_ID_CHAR_LEN, 0) == 0) {
+                unsigned char *d = msg->data;
+                const unsigned char *e = msg->data_end;
+                if (d && (void *)d + SPAN_ID_CHAR_LEN <= (void *)e) {
+                    encode_hex(d, tp_p->tp.span_id, SPAN_ID_SIZE_BYTES);
+                }
+            }
+        }
+
         tp_p->tp.ts = bpf_ktime_get_ns();
         tp_p->valid = 1;
         tp_p->written = 1;
@@ -1404,12 +1421,11 @@ int obi_packet_extender_create_h2_tp(struct sk_msg_md *msg) {
         }
     } else {
         // No existing tp: derive one locally. Go gRPC handles injection in
-        // grpcFramerWriteHeaders via bpf_probe_write_user.
+        // grpcFramerWriteHeaders via bpf_probe_write_user. create_trace_info
+        // generates a fresh trace_id with parent_id=0 when has_parent_tp is
+        // false, so root H2 clients still get a CLIENT span and injection
         init_tp_ctx_parent_tp(t_ctx);
         if (!create_trace_info(t_ctx, tp_p)) {
-            return SK_PASS;
-        }
-        if (!t_ctx->has_parent_tp) {
             return SK_PASS;
         }
     }
