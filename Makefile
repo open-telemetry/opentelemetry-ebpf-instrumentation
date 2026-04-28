@@ -367,17 +367,17 @@ java-docker-sbom:
 .PHONY: java-test
 java-test:
 	@echo "### Testing Java agent"
-	cd $(JAVA_AGENT_DIR) && $(JAVA_AGENT_GRADLE_ENV) gradle test
+	cd $(JAVA_AGENT_DIR) && $(JAVA_AGENT_GRADLE_ENV) gradle test -PnativeOnly=true
 
 .PHONY: java-spotless-check
 java-spotless-check:
 	@echo "### Checking Java code formatting"
-	cd $(JAVA_AGENT_DIR) && $(JAVA_AGENT_GRADLE_ENV) gradle spotlessCheck
+	cd $(JAVA_AGENT_DIR) && $(JAVA_AGENT_GRADLE_ENV) gradle spotlessCheck -PnativeOnly=true
 
 .PHONY: java-spotless-apply
 java-spotless-apply:
 	@echo "### Formatting Java code"
-	cd $(JAVA_AGENT_DIR) && $(JAVA_AGENT_GRADLE_ENV) gradle spotlessApply
+	cd $(JAVA_AGENT_DIR) && $(JAVA_AGENT_GRADLE_ENV) gradle spotlessApply -PnativeOnly=true
 
 .PHONY: java-clean
 java-clean:
