@@ -84,11 +84,15 @@ func (ic *InformersCache) Subscribe(msg *informer.SubscribeMessage, server infor
 		return errors.New("failed to extract peer information")
 	}
 	ic.metrics.ClientConnect()
+	sendTimeout := ic.Config.SendTimeout
+	if sendTimeout == 0 {
+		sendTimeout = kubecache.DefaultConfig.SendTimeout
+	}
 	o := &connection{
 		log:         ic.log.With("clientID", p.Addr.String()),
 		id:          p.Addr.String(),
 		server:      server,
-		sendTimeout: ic.Config.SendTimeout,
+		sendTimeout: sendTimeout,
 		metrics:     ic.metrics,
 		fromEpoch:   msg.GetFromTimestampEpoch(),
 		messages:    sync.NewQueue[*informer.Event](),
@@ -147,11 +151,8 @@ func (o *connection) On(event *informer.Event) error {
 }
 
 func (o *connection) handleMessagesQueue(ctx context.Context) {
-	var timer *time.Timer
-	if o.sendTimeout > 0 {
-		timer = time.NewTimer(o.sendTimeout)
-		defer timer.Stop()
-	}
+	timer := time.NewTimer(o.sendTimeout)
+	defer timer.Stop()
 	for {
 		select {
 		case <-ctx.Done():
@@ -165,24 +166,14 @@ func (o *connection) handleMessagesQueue(ctx context.Context) {
 			if err := o.sendWithTimeout(ctx, timer, event); err != nil {
 				return
 			}
-			o.metrics.MessageSucceed()
 		}
 	}
 }
 
-// sendWithTimeout sends event and, if timer is non-nil, drops the connection
-// when Send blocks longer than o.sendTimeout. Returns a non-nil error whenever
-// the caller should stop processing the queue.
+// sendWithTimeout sends event and drops the connection if Send blocks longer
+// than o.sendTimeout (enforced per-Send). Returns a non-nil error whenever the
+// caller should stop processing the queue.
 func (o *connection) sendWithTimeout(ctx context.Context, timer *time.Timer, event *informer.Event) error {
-	if timer == nil {
-		if err := o.server.Send(event); err != nil {
-			o.log.Debug("Error sending message. Closing client connection", "clientID", o.ID(), "error", err)
-			o.metrics.MessageError()
-			return err
-		}
-		return nil
-	}
-
 	sendErr := make(chan error, 1)
 	go func() { sendErr <- o.server.Send(event) }()
 
@@ -201,6 +192,7 @@ func (o *connection) sendWithTimeout(ctx context.Context, timer *time.Timer, eve
 			o.metrics.MessageError()
 			return err
 		}
+		o.metrics.MessageSucceed()
 		return nil
 	case <-timer.C:
 		o.log.Warn("Send timed out. Closing client connection", "clientID", o.ID(), "timeout", o.sendTimeout)
