@@ -1228,6 +1228,10 @@ func TestOverridingCloudHostIDKey(t *testing.T) {
 
 	// GIVEN a "vendored" Prometheus exporter instance that overrides the
 	// CloudHostIDKey value
+	previousCloudHostIDKey := CloudHostIDKey
+	t.Cleanup(func() {
+		CloudHostIDKey = previousCloudHostIDKey
+	})
 	CloudHostIDKey = "vendor_host_id"
 	promInput := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
 	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
