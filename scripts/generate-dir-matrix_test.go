@@ -5,6 +5,7 @@ package scripts
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -75,7 +76,8 @@ func runGenerateDirMatrix(t *testing.T, searchDir, excludePattern string) (strin
 	}
 
 	var stderr string
-	if exitErr, ok := err.(*exec.ExitError); ok {
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
 		stderr = string(exitErr.Stderr)
 	}
 
