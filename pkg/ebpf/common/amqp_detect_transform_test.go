@@ -23,12 +23,12 @@ func makeAMQP10Header(protocolID byte) []byte {
 	return []byte{'A', 'M', 'Q', 'P', protocolID, 1, 0, 0}
 }
 
-func makeAMQPSmallPerformativeFrame(frameType byte, descriptor byte) []byte {
+func makeAMQPSmallPerformativeFrame(descriptor byte) []byte {
 	body := []byte{0x00, 0x53, descriptor, 0x45}
 	frame := make([]byte, 8+len(body))
 	binary.BigEndian.PutUint32(frame[:4], uint32(len(frame)))
 	frame[4] = 2
-	frame[5] = frameType
+	frame[5] = 0x00
 	copy(frame[8:], body)
 	return frame
 }
@@ -36,7 +36,7 @@ func makeAMQPSmallPerformativeFrame(frameType byte, descriptor byte) []byte {
 func TestProcessPossibleAMQPEvent(t *testing.T) {
 	t.Run("request with transfer does not reverse", func(t *testing.T) {
 		event := &TCPRequestInfo{Direction: directionSend}
-		pkt := append(makeAMQP10Header(0), makeAMQPSmallPerformativeFrame(0x00, testDescriptorTransfer)...)
+		pkt := append(makeAMQP10Header(0), makeAMQPSmallPerformativeFrame(testDescriptorTransfer)...)
 
 		infos, ignore, err := ProcessPossibleAMQPEvent(event, largebuf.NewLargeBufferFrom(pkt), largebuf.NewLargeBuffer())
 		require.NoError(t, err)
@@ -57,7 +57,7 @@ func TestProcessPossibleAMQPEvent(t *testing.T) {
 			},
 		}
 		bad := []byte{'A', 'M', 'Q', 'P', 9, 1, 0, 0}
-		resp := append(makeAMQP10Header(0), makeAMQPSmallPerformativeFrame(0x00, testDescriptorTransfer)...)
+		resp := append(makeAMQP10Header(0), makeAMQPSmallPerformativeFrame(testDescriptorTransfer)...)
 
 		infos, ignore, err := ProcessPossibleAMQPEvent(event, largebuf.NewLargeBufferFrom(bad), largebuf.NewLargeBufferFrom(resp))
 		require.NoError(t, err)
@@ -87,8 +87,8 @@ func TestProcessPossibleAMQPEvent(t *testing.T) {
 				D_port: 8080,
 			},
 		}
-		req := append(makeAMQP10Header(0), makeAMQPSmallPerformativeFrame(0x00, testDescriptorFlow)...)
-		resp := append(makeAMQP10Header(0), makeAMQPSmallPerformativeFrame(0x00, testDescriptorTransfer)...)
+		req := append(makeAMQP10Header(0), makeAMQPSmallPerformativeFrame(testDescriptorFlow)...)
+		resp := append(makeAMQP10Header(0), makeAMQPSmallPerformativeFrame(testDescriptorTransfer)...)
 
 		infos, ignore, err := ProcessPossibleAMQPEvent(event, largebuf.NewLargeBufferFrom(req), largebuf.NewLargeBufferFrom(resp))
 		require.NoError(t, err)
@@ -108,7 +108,7 @@ func TestProcessPossibleAMQPEvent(t *testing.T) {
 				D_port: 8080,
 			},
 		}
-		resp := append(makeAMQP10Header(0), makeAMQPSmallPerformativeFrame(0x00, testDescriptorTransfer)...)
+		resp := append(makeAMQP10Header(0), makeAMQPSmallPerformativeFrame(testDescriptorTransfer)...)
 
 		// Invariant: an empty or non-AMQP request is not an AMQP-ish violation, so
 		// the response side is inspected and, if it carries a transfer, reported as
@@ -133,8 +133,8 @@ func TestProcessPossibleAMQPEvent(t *testing.T) {
 		}
 		payload := make([]byte, 0)
 		payload = append(payload, makeAMQP10Header(0)...)
-		payload = append(payload, makeAMQPSmallPerformativeFrame(0x00, testDescriptorTransfer)...)
-		payload = append(payload, makeAMQPSmallPerformativeFrame(0x00, testDescriptorTransfer)...)
+		payload = append(payload, makeAMQPSmallPerformativeFrame(testDescriptorTransfer)...)
+		payload = append(payload, makeAMQPSmallPerformativeFrame(testDescriptorTransfer)...)
 
 		infos, ignore, err := ProcessPossibleAMQPEvent(event, largebuf.NewLargeBufferFrom(payload), largebuf.NewLargeBuffer())
 		require.NoError(t, err)
@@ -151,7 +151,7 @@ func TestIsAMQP(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, looks)
 
-	frameOnly := makeAMQPSmallPerformativeFrame(0x00, testDescriptorTransfer)
+	frameOnly := makeAMQPSmallPerformativeFrame(testDescriptorTransfer)
 	looks, err = isAMQP(largebuf.NewLargeBufferFrom(frameOnly))
 	require.NoError(t, err)
 	assert.True(t, looks)
@@ -238,7 +238,7 @@ func TestAMQPOperation(t *testing.T) {
 func TestMatchAMQP(t *testing.T) {
 	t.Run("valid AMQP transfer matches", func(t *testing.T) {
 		event := &TCPRequestInfo{Direction: directionSend}
-		payload := append(makeAMQP10Header(0), makeAMQPSmallPerformativeFrame(0x00, testDescriptorTransfer)...)
+		payload := append(makeAMQP10Header(0), makeAMQPSmallPerformativeFrame(testDescriptorTransfer)...)
 
 		span, ignore, matched, err := matchAMQP(NewEBPFParseContext(nil, nil, nil), event, largebuf.NewLargeBufferFrom(payload), largebuf.NewLargeBuffer())
 		require.NoError(t, err)
@@ -307,9 +307,9 @@ func TestMatchAMQP(t *testing.T) {
 				D_port: 5672,
 			},
 		}
-		payload := append(makeAMQP10Header(0), makeAMQPSmallPerformativeFrame(0x00, testDescriptorTransfer)...)
-		payload = append(payload, makeAMQPSmallPerformativeFrame(0x00, testDescriptorTransfer)...)
-		payload = append(payload, makeAMQPSmallPerformativeFrame(0x00, testDescriptorTransfer)...)
+		payload := append(makeAMQP10Header(0), makeAMQPSmallPerformativeFrame(testDescriptorTransfer)...)
+		payload = append(payload, makeAMQPSmallPerformativeFrame(testDescriptorTransfer)...)
+		payload = append(payload, makeAMQPSmallPerformativeFrame(testDescriptorTransfer)...)
 
 		ctx := NewEBPFParseContext(nil, nil, nil)
 		span, ignore, matched, err := matchAMQP(ctx, event, largebuf.NewLargeBufferFrom(payload), largebuf.NewLargeBuffer())

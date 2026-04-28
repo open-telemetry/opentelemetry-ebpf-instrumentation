@@ -20,7 +20,8 @@ func ProcessPossibleAMQPEvent(event *TCPRequestInfo, pkt, rpkt *largebuf.LargeBu
 	reqLooks, reqInfos, reqErr := processAMQPBuffer(pkt, event.Direction)
 	respLooks, respInfos, respErr := processAMQPBuffer(rpkt, oppositeDirection(event.Direction))
 
-	infos := append(reqInfos, respInfos...)
+	infos := reqInfos
+	infos = append(infos, respInfos...)
 	if len(infos) > 0 {
 		return infos, false, nil
 	}

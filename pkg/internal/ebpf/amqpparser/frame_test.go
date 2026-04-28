@@ -5,7 +5,6 @@ package amqpparser
 
 import (
 	"encoding/binary"
-	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -43,7 +42,7 @@ func TestParseFrameHeader(t *testing.T) {
 		frame[5] = byte(frameTypeAMQP)
 		_, err := parseFrameHeader(frame)
 		require.Error(t, err)
-		assert.True(t, errors.Is(err, errIncompleteFrame))
+		assert.ErrorIs(t, err, errIncompleteFrame)
 	})
 
 	t.Run("doff=0 is rejected", func(t *testing.T) {
@@ -78,7 +77,7 @@ func TestParseFrameHeader(t *testing.T) {
 		frame[5] = byte(frameTypeAMQP)
 		_, err := parseFrameHeader(frame)
 		require.Error(t, err)
-		assert.True(t, errors.Is(err, errIncompleteFrame))
+		assert.ErrorIs(t, err, errIncompleteFrame)
 	})
 
 	t.Run("every non-AMQP, non-SASL frame type is rejected", func(t *testing.T) {

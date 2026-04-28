@@ -5,7 +5,6 @@ package amqpparser
 
 import (
 	"encoding/binary"
-	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -109,7 +108,7 @@ func TestParseTransferPresenceHappyPath(t *testing.T) {
 	t.Run("heartbeat frame only is not distinctive enough", func(t *testing.T) {
 		looks, transfer, err := parseTransferPresence(makeHeartbeatFrame())
 		require.Error(t, err)
-		assert.True(t, errors.Is(err, ErrNotAMQP))
+		require.ErrorIs(t, err, ErrNotAMQP)
 		assert.False(t, looks)
 		assert.False(t, transfer)
 	})
@@ -216,7 +215,7 @@ func TestParseAdversarial(t *testing.T) {
 func TestParseEmptyBuffer(t *testing.T) {
 	looks, transfer, err := parseTransferPresence(nil)
 	require.Error(t, err)
-	assert.True(t, errors.Is(err, ErrNotAMQP))
+	require.ErrorIs(t, err, ErrNotAMQP)
 	assert.False(t, looks)
 	assert.False(t, transfer)
 }
@@ -224,7 +223,7 @@ func TestParseEmptyBuffer(t *testing.T) {
 func TestParseShortBufferIsNotAMQP(t *testing.T) {
 	looks, transfer, err := parseTransferPresence([]byte{'A'})
 	require.Error(t, err)
-	assert.True(t, errors.Is(err, ErrNotAMQP))
+	require.ErrorIs(t, err, ErrNotAMQP)
 	assert.False(t, looks)
 	assert.False(t, transfer)
 }
