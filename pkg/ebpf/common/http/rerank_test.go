@@ -34,7 +34,8 @@ const cohereRerankResponseBody = `{
     {"index": 2, "relevance_score": 0.32713068}
   ],
   "meta": {
-    "billed_units": {"search_units": 1}
+    "billed_units": {"search_units": 1},
+    "tokens": {"input_tokens": 411}
   }
 }`
 
@@ -91,6 +92,12 @@ func TestRerankSpan_Cohere(t *testing.T) {
 	assert.NotEmpty(t, ai.Input.Documents)
 	assert.Equal(t, "abc-123-rerank", ai.Output.ID)
 	assert.NotEmpty(t, ai.Output.Results)
+
+	// Cohere uses meta.tokens for token counts
+	require.NotNil(t, ai.Output.Meta)
+	require.NotNil(t, ai.Output.Meta.Tokens)
+	assert.Equal(t, 411, ai.Output.Meta.Tokens.InputTokens)
+	assert.Equal(t, 411, ai.Output.GetTotalTokens())
 }
 
 func TestRerankSpan_CohereAI(t *testing.T) {
@@ -127,7 +134,7 @@ func TestRerankSpan_JinaAI(t *testing.T) {
 	assert.Equal(t, "jina-reranker-v2-base-multilingual", ai.Output.Model)
 	assert.Equal(t, 128, ai.Output.Usage.TotalTokens)
 	assert.Equal(t, 42, ai.Output.Usage.PromptTokens)
-	assert.Equal(t, 42, ai.Output.Usage.GetTotalTokens())
+	assert.Equal(t, 128, ai.Output.GetTotalTokens())
 }
 
 func TestRerankSpan_VoyageAI(t *testing.T) {
@@ -231,18 +238,43 @@ func TestRerankSpan_EmptyResponseBody(t *testing.T) {
 	assert.True(t, ok)
 }
 
-func TestRerankUsage_GetTotalTokens(t *testing.T) {
-	// total_tokens takes precedence
-	u := request.RerankUsage{TotalTokens: 100, PromptTokens: 42}
-	assert.Equal(t, 100, u.GetTotalTokens())
+func TestRerankResponse_GetTotalTokens(t *testing.T) {
+	// usage.total_tokens takes precedence (Jina/Voyage)
+	r := request.RerankResponse{Usage: request.RerankUsage{TotalTokens: 100, PromptTokens: 42}}
+	assert.Equal(t, 100, r.GetTotalTokens())
 
-	// falls back to prompt_tokens
-	u2 := request.RerankUsage{PromptTokens: 42}
-	assert.Equal(t, 42, u2.GetTotalTokens())
+	// falls back to usage.prompt_tokens
+	r2 := request.RerankResponse{Usage: request.RerankUsage{PromptTokens: 42}}
+	assert.Equal(t, 42, r2.GetTotalTokens())
 
-	// both zero
-	u3 := request.RerankUsage{}
-	assert.Equal(t, 0, u3.GetTotalTokens())
+	// falls back to meta.tokens.input_tokens (Cohere)
+	r3 := request.RerankResponse{
+		Meta: &request.RerankMeta{
+			Tokens: &request.RerankMetaTokens{InputTokens: 411},
+		},
+	}
+	assert.Equal(t, 411, r3.GetTotalTokens())
+
+	// all zero
+	r4 := request.RerankResponse{}
+	assert.Equal(t, 0, r4.GetTotalTokens())
+}
+
+func TestRerankSpan_TruncatedRequestBody(t *testing.T) {
+	// Simulate eBPF buffer truncation: JSON is cut off mid-way but
+	// the model field at the beginning is still intact.
+	truncatedBody := `{"model":"rerank-v3.5","query":"What is the capital","documents":["Carson City is the cap`
+	req := makeRequest(t, http.MethodPost, "http://api.cohere.com/v1/rerank", truncatedBody)
+	resp := makePlainResponse(http.StatusOK, http.Header{
+		"Content-Type": []string{"application/json"},
+	}, cohereRerankResponseBody)
+
+	base := &request.Span{}
+	span, ok := RerankSpan(base, req, resp)
+
+	require.True(t, ok)
+	// Model should be extracted even from truncated JSON via regex fallback.
+	assert.Equal(t, "rerank-v3.5", span.GenAI.Rerank.Input.Model)
 }
 
 func TestRerankSpan_TraceName(t *testing.T) {
