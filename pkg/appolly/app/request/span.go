@@ -1836,6 +1836,10 @@ func (s *Span) GenAIOutputTokens() int {
 		return s.GenAI.Embedding.GetOutputTokens()
 	}
 
+	if s.GenAI.Rerank != nil {
+		return s.GenAI.Rerank.Output.GetTotalTokens()
+	}
+
 	return 0
 }
 

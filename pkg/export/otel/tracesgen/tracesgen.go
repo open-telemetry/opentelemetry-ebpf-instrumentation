@@ -774,7 +774,7 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 			if ai.Output.ID != "" {
 				attrs = append(attrs, semconv.GenAIResponseID(ai.Output.ID))
 			}
-			attrs = append(attrs, semconv.GenAIUsageInputTokens(ai.Output.Usage.GetInputTokens()))
+			attrs = append(attrs, semconv.GenAIUsageOutputTokens(ai.Output.Usage.GetTotalTokens()))
 			if ai.Output.Error != nil && ai.Output.Error.Type != "" {
 				attrs = append(attrs, semconv.ErrorTypeKey.String(ai.Output.Error.Type))
 				attrs = append(attrs, semconv.ErrorMessage(ai.Output.Error.Message))

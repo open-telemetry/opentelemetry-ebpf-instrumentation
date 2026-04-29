@@ -127,7 +127,7 @@ func TestRerankSpan_JinaAI(t *testing.T) {
 	assert.Equal(t, "jina-reranker-v2-base-multilingual", ai.Output.Model)
 	assert.Equal(t, 128, ai.Output.Usage.TotalTokens)
 	assert.Equal(t, 42, ai.Output.Usage.PromptTokens)
-	assert.Equal(t, 42, ai.Output.Usage.GetInputTokens())
+	assert.Equal(t, 42, ai.Output.Usage.GetTotalTokens())
 }
 
 func TestRerankSpan_VoyageAI(t *testing.T) {
@@ -231,18 +231,18 @@ func TestRerankSpan_EmptyResponseBody(t *testing.T) {
 	assert.True(t, ok)
 }
 
-func TestRerankUsage_GetInputTokens(t *testing.T) {
-	// prompt_tokens takes precedence
+func TestRerankUsage_GetTotalTokens(t *testing.T) {
+	// total_tokens takes precedence
 	u := request.RerankUsage{TotalTokens: 100, PromptTokens: 42}
-	assert.Equal(t, 42, u.GetInputTokens())
+	assert.Equal(t, 100, u.GetTotalTokens())
 
-	// falls back to total_tokens
-	u2 := request.RerankUsage{TotalTokens: 100}
-	assert.Equal(t, 100, u2.GetInputTokens())
+	// falls back to prompt_tokens
+	u2 := request.RerankUsage{PromptTokens: 42}
+	assert.Equal(t, 42, u2.GetTotalTokens())
 
 	// both zero
 	u3 := request.RerankUsage{}
-	assert.Equal(t, 0, u3.GetInputTokens())
+	assert.Equal(t, 0, u3.GetTotalTokens())
 }
 
 func TestRerankSpan_TraceName(t *testing.T) {
