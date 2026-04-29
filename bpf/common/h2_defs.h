@@ -18,6 +18,9 @@ enum {
     k_h2_preface_check_len = 4,
     k_h2_max_frame_len = 65535,
     k_h2_max_frame_scan = 4,
+    // Max HEADERS frames injected per sk_msg packet — bounded by the
+    // 33 tail-call budget (≈4 hops per frame: detect → find → create → write)
+    k_h2_max_frames_per_packet = 8,
     k_h2_max_hpack_scan = 192,
     k_h2_default_max_frame_size = 16384,
 

@@ -23,7 +23,9 @@ obi_packet_extender
                  └─ write_tp — push 69 bytes of HPACK via bpf_msg_push_data
 ```
 
-H2 detection: checks for `PRI *` preface or `sk_h2_conn_flag` socket storage (set on first detection, auto-freed on socket close). Scans up to 4 frames for HEADERS with `END_HEADERS`.
+H2 detection: checks for `PRI *` preface or `sk_h2_conn_flag` socket storage (set on first detection, auto-freed on socket close). Scans up to 4 frames for HEADERS with `END_HEADERS`. PADDED/PRIORITY flags shrink the HPACK window inside the payload; `detect_h2` accounts for both.
+
+`detect_h2` is resumable across tail calls via `tailcall_ctx.h2_scan_pos`. After `write_h2_tp` injects HPACK into a frame, it tail-calls `detect_h2` with `scan_pos` past the just-injected frame so multiplexed senders that batch multiple HEADERS frames into one `sendmsg` (Node grpc-js, Go loopyWriter under contention) get every stream injected. Bounded by `k_h2_max_frames_per_packet` (8) within the 33 tail-call budget.
 
 Parent lookup priority in `create_tp`:
 
@@ -42,7 +44,8 @@ Parent lookup priority in `create_tp`:
 ## Ingress
 
 - **TCP options**: sock_ops `parse_hdr_cb` reads option kind 25, stores in `incoming_trace_map`
-- **HPACK parsing**: kprobe `http2_grpc_start` (SERVER) checks `incoming_trace_map` first, falls back to `parse_hpack_traceparent` on the captured frame data
+- **kprobe HPACK parser** (`http2_grpc_start`, SERVER side): parses HPACK first (per-stream, immune to per-connection trace_map race on multiplexed streams), bounded to the actual frame payload length so trailing batched HEADERS aren't adopted, with PADDED/PRIORITY shrink applied. Falls back to `find_trace_for_server_request` only if HPACK parsing finds no traceparent
+- **Go uprobe** (`http2Server_operateHeaders` + `server_handleStream`): writes parsed traceparent to `ongoing_grpc_server_stream_tps[{tr_ptr, stream_id}]`. `handleStream` reads per-stream first, falls back to the legacy `ongoing_grpc_transports` per-transport entry. Per-stream key avoids the last-writer-wins race when the same transport carries concurrent streams
 
 ## Parent Trace Linking
 
@@ -52,8 +55,13 @@ Writers:
 
 - **Go uprobe** (`grpcFramerWriteHeaders`) — `BPF_ANY` with `written=1`, definitive trace from Go runtime
 - **kprobe CLIENT** (`http2_grpc_start`) — `BPF_NOEXIST` with `written=0`, used only when no uprobe wrote first; span_id comes from `urand_bytes`
+- **sk_msg** (`find_existing_h2_tp` / `create_h2_tp`) — `BPF_ANY`, used by non-Go senders. Persists the traceparent that was just written onto the wire so kprobe CLIENT can adopt the same context
 
 `adopt_injected_trace`: called after `find_trace_for_client_request` in the kprobe CLIENT path. Overrides stale traces with whatever is in `outgoing_trace_map[{ports, stream_id}]`.
+
+### Cleanup
+
+`http2_grpc_end` (kprobe stream end) deletes `outgoing_trace_map[{ports, stream_id}]` for that stream. The connection-scoped `delete_client_trace_info` only clears the `stream_id=0` entry, so without per-stream cleanup the per-stream entries leak until LRU eviction.
 
 ## Known Limitations
 
@@ -71,7 +79,9 @@ If a gRPC connection's HTTP/2 preface was sent before OBI attached, `ongoing_htt
 
 ### loopyWriter race on a fresh stream
 
-When `loopyWriter` dequeues HEADERS before `NewStream_ret` has published `ongoing_streams`, the first frame on a new stream is sent without OBI's traceparent. Subsequent frames inject normally.
+When `loopyWriter` dequeues HEADERS before `NewStream_ret` has published `ongoing_streams`, the first frame on a new stream is sent without OBI's traceparent.
+
+A clean fix needs an instrumentation point between `s.id = t.nextID` and `controlBuf.put(hdr)` inside `(*http2Client).NewStream` (no such uprobe hook exists without patching gRPC). Per-connection FIFO stashing breaks under concurrent `Invoke` calls; predicting `t.nextID` at entry races with the mutex. The `sk_msg` path partially compensates by injecting a fresh trace context for any HEADERS frame missing one, but the parent linkage there is best-effort.
 
 ## Maps
 
@@ -82,3 +92,4 @@ When `loopyWriter` dequeues HEADERS before `NewStream_ret` has published `ongoin
 | `outgoing_trace_map` | LRU_HASH | `egress_key_t{ports, stream_id}` | `tp_info_pid_t` | Per-stream sender trace context |
 | `incoming_trace_map` | LRU_HASH | `connection_info_t` | `tp_info_pid_t` | Receiver trace context (TCP options) |
 | `grpc_conn_ptr_to_conn` | LRU_HASH | `u64 (conn_ptr)` | `connection_info_t` | Go conn pointer → TCP ports |
+| `ongoing_grpc_server_stream_tps` | LRU_HASH | `stream_key_t{tr_ptr, stream_id}` | `tp_info_t` | Per-stream parsed traceparent (Go gRPC server) |

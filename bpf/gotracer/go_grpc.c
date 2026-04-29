@@ -97,12 +97,24 @@ int obi_uprobe_server_handleStream(struct pt_regs *ctx) {
         bpf_dbg_printk("st_ptr=%llx", st_ptr);
         invocation.st = (u64)st_ptr;
         if (st_ptr) {
-            grpc_transports_t *t = bpf_map_lookup_elem(&ongoing_grpc_transports, &st_ptr);
-
-            bpf_dbg_printk("found t: %llx", t);
-            if (t) {
-                bpf_dbg_printk("reading the traceparent from frame headers");
-                if (valid_trace(t->tp.trace_id)) {
+            // Try per-stream first; per-transport map below is the fallback
+            u32 stream_id = 0;
+            bpf_probe_read(
+                &stream_id,
+                sizeof(stream_id),
+                (void *)(stream_stream_ptr +
+                         go_offset_of(ot, (go_offset){.v = _grpc_transport_stream_id_pos})));
+            if (stream_id) {
+                stream_key_t sk = {.conn_ptr = (u64)st_ptr, .stream_id = stream_id};
+                tp_info_t *stream_tp = bpf_map_lookup_elem(&ongoing_grpc_server_stream_tps, &sk);
+                if (stream_tp && valid_trace(stream_tp->trace_id)) {
+                    tp_ptr = stream_tp;
+                }
+                bpf_map_delete_elem(&ongoing_grpc_server_stream_tps, &sk);
+            }
+            if (!tp_ptr) {
+                grpc_transports_t *t = bpf_map_lookup_elem(&ongoing_grpc_transports, &st_ptr);
+                if (t && valid_trace(t->tp.trace_id)) {
                     tp_ptr = &t->tp;
                 }
             }
@@ -151,6 +163,22 @@ int obi_uprobe_http2Server_operateHeaders(struct pt_regs *ctx) {
 
     bpf_map_update_elem(&ongoing_grpc_operate_headers, &g_key, &tr, BPF_ANY);
     bpf_map_update_elem(&ongoing_grpc_transports, &tr, &t, BPF_ANY);
+
+    // Per-stream tp avoids last-writer-wins on the per-transport entry.
+    // MetaHeadersFrame.HeadersFrame is *HeadersFrame at offset 0;
+    // FrameHeader.StreamID is at offset 8 inside HeadersFrame.
+    if (frame && valid_trace(t.tp.trace_id)) {
+        void *headers_frame = NULL;
+        bpf_probe_read(&headers_frame, sizeof(headers_frame), frame);
+        if (headers_frame) {
+            u32 stream_id = 0;
+            bpf_probe_read(&stream_id, sizeof(stream_id), (unsigned char *)headers_frame + 8);
+            if (stream_id) {
+                stream_key_t k = {.conn_ptr = (u64)tr, .stream_id = stream_id};
+                bpf_map_update_elem(&ongoing_grpc_server_stream_tps, &k, &t.tp, BPF_ANY);
+            }
+        }
+    }
 
     return 0;
 }
@@ -741,7 +769,7 @@ int obi_uprobe_grpcFramerWriteHeaders(struct pt_regs *ctx) {
     if (invocation) {
         bpf_dbg_printk("Found invocation info: %llx", invocation);
 
-        // Publish per-stream trace for sk_msg adoption.
+        // Save the per-stream trace so sk_msg can pick it up.
         if (conn_info && valid_trace(invocation->tp.trace_id)) {
             tp_info_pid_t tp_p = {0};
             tp_p.tp = invocation->tp;

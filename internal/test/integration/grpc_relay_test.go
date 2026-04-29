@@ -23,9 +23,9 @@ const (
 	// Parent span ID injected into /relay-multiplex requests.
 	multiplexSpanID = "fedcba0987654321"
 
-	// Loop advances ~5s/iter for Jaeger indexing; observed 22–75s, 3 min
-	// gives ample headroom.
-	grpcRelayTimeout = 3 * time.Minute
+	// Loop advances ~5s/iter for Jaeger indexing; observed 22–75s.
+	// 1m suffices since the chain test pre-warms persistent state
+	grpcRelayTimeout = 1 * time.Minute
 )
 
 // expectedRelayServices lists all services in the relay chain:
@@ -338,58 +338,68 @@ func testGRPCRelayChainContextPropagation(t *testing.T) {
 	}
 }
 
-// testGRPCMultiplexedContextPropagation: /relay-multiplex fans out N concurrent
-// RPCs from go-entry to python-relay (Go uprobe egress); python-relay forwards
-// each on a persistent gRPC channel to go-grpc-to-http (sk_msg egress). Each
-// server span at BOTH hops must have a distinct parent_id — Go path catches a
-// stream_id race, generic path catches sk_msg per-stream isolation breakage
+// testGRPCMultiplexedContextPropagation fans out N concurrent gRPC streams
+// and asserts each receiver-hop server span carries a distinct parent_id
 func testGRPCMultiplexedContextPropagation(t *testing.T) {
-	muxNow := uint64(time.Now().UnixNano())
-	muxAttemptTraceID := fmt.Sprintf("%016x%016x", muxNow, muxNow+1)
+	cases := []struct {
+		name, url string
+		hops      []string
+	}{
+		// Go uprobe egress (go-entry) → python-relay (kprobe rx) → go-grpc-to-http (Go uprobe rx)
+		{"go-and-python", "http://localhost:8080/relay-multiplex", []string{"python-relay", "go-grpc-to-http"}},
+		// sk_msg egress (nodejs grpc-js) → java-relay (kprobe rx)
+		{"nodejs", "http://localhost:8092/multiplexed", []string{"java-relay"}},
+	}
 
-	var trace jaeger.Trace
-	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		req, err := http.NewRequest(http.MethodGet, "http://localhost:8080/relay-multiplex", nil)
-		require.NoError(ct, err)
-		req.Header.Set("Traceparent", fmt.Sprintf("00-%s-%s-01", muxAttemptTraceID, multiplexSpanID))
-		if wr, err := http.DefaultClient.Do(req); err == nil && wr != nil {
-			wr.Body.Close()
-		}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			now := uint64(time.Now().UnixNano())
+			traceID := fmt.Sprintf("%016x%016x", now, now+1)
 
-		resp, err := http.Get(jaegerQueryURL + "/" + muxAttemptTraceID)
-		require.NoError(ct, err)
-		require.Equal(ct, http.StatusOK, resp.StatusCode)
-		defer resp.Body.Close()
-
-		var tq jaeger.TracesQuery
-		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
-		require.NotEmpty(ct, tq.Data)
-
-		trace = tq.Data[0]
-		require.GreaterOrEqual(ct,
-			len(trace.FindByOperationNameServiceAndKind("/relay.Relay/Relay", "python-relay", "server")),
-			3, "expected at least 3 python-relay server spans in trace %s", muxAttemptTraceID)
-		require.GreaterOrEqual(ct,
-			len(trace.FindByOperationNameServiceAndKind("/relay.Relay/Relay", "go-grpc-to-http", "server")),
-			3, "expected at least 3 go-grpc-to-http server spans in trace %s", muxAttemptTraceID)
-	}, grpcRelayTimeout, time.Second)
-
-	for _, hop := range []string{"python-relay", "go-grpc-to-http"} {
-		serverSpans := trace.FindByOperationNameServiceAndKind("/relay.Relay/Relay", hop, "server")
-		parentIDs := map[string]bool{}
-		for _, s := range serverSpans {
-			pid := ""
-			for _, ref := range s.References {
-				if ref.RefType == "CHILD_OF" {
-					pid = ref.SpanID
+			var trace jaeger.Trace
+			require.EventuallyWithT(t, func(ct *assert.CollectT) {
+				req, err := http.NewRequest(http.MethodGet, c.url, nil)
+				require.NoError(ct, err)
+				req.Header.Set("Traceparent", fmt.Sprintf("00-%s-%s-01", traceID, multiplexSpanID))
+				if wr, err := http.DefaultClient.Do(req); err == nil && wr != nil {
+					wr.Body.Close()
 				}
+
+				resp, err := http.Get(jaegerQueryURL + "/" + traceID)
+				require.NoError(ct, err)
+				require.Equal(ct, http.StatusOK, resp.StatusCode)
+				defer resp.Body.Close()
+
+				var tq jaeger.TracesQuery
+				require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
+				require.NotEmpty(ct, tq.Data)
+
+				trace = tq.Data[0]
+				for _, hop := range c.hops {
+					require.GreaterOrEqual(ct,
+						len(trace.FindByOperationNameServiceAndKind("/relay.Relay/Relay", hop, "server")),
+						3, "expected at least 3 %s server spans in trace %s", hop, traceID)
+				}
+			}, grpcRelayTimeout, time.Second)
+
+			for _, hop := range c.hops {
+				serverSpans := trace.FindByOperationNameServiceAndKind("/relay.Relay/Relay", hop, "server")
+				parents := map[string]bool{}
+				for _, s := range serverSpans {
+					pid := ""
+					for _, ref := range s.References {
+						if ref.RefType == "CHILD_OF" {
+							pid = ref.SpanID
+						}
+					}
+					require.NotEmpty(t, pid, "%s span %s missing parent", hop, s.SpanID)
+					require.False(t, parents[pid],
+						"%s: parent_id %s shared by multiple server spans — stream isolation broken", hop, pid)
+					parents[pid] = true
+				}
+				t.Logf("%s: %d server spans, %d distinct parents", hop, len(serverSpans), len(parents))
 			}
-			require.NotEmpty(t, pid, "%s server span %s must have a parent", hop, s.SpanID)
-			require.False(t, parentIDs[pid],
-				"%s: parent_id %s shared by multiple server spans — stream isolation broken", hop, pid)
-			parentIDs[pid] = true
-		}
-		t.Logf("%s: %d server spans, %d distinct parents", hop, len(serverSpans), len(parentIDs))
+		})
 	}
 }
 

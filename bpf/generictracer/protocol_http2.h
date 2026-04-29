@@ -71,7 +71,7 @@ static __always_inline u8 try_parse_tp_value(const unsigned char *val, tp_info_t
     return 1;
 }
 
-// Scan HPACK bytes for traceparent. Matches plaintext (sk_msg) and huffman (Go uprobe) encodings.
+// Look for traceparent in HPACK bytes. Handles plaintext (sk_msg) and huffman (Go uprobe) encodings.
 static __always_inline u8 parse_hpack_traceparent(const unsigned char *data,
                                                   u32 data_len,
                                                   tp_info_t *tp) {
@@ -116,7 +116,7 @@ static __always_inline u8 parse_hpack_traceparent(const unsigned char *data,
     return 0;
 }
 
-// Adopt trace written by Go uprobe to outgoing_trace_map (overrides find_trace_for_client_request).
+// Use the trace the Go uprobe wrote to outgoing_trace_map (replaces what find_trace_for_client_request returned).
 static __always_inline void adopt_injected_trace(http2_conn_stream_t *s_key, tp_info_t *tp) {
     egress_key_t sorted_e = {
         .d_port = s_key->pid_conn.conn.d_port,
@@ -125,7 +125,7 @@ static __always_inline void adopt_injected_trace(http2_conn_stream_t *s_key, tp_
     };
     sort_egress_key(&sorted_e);
     tp_info_pid_t *injected = bpf_map_lookup_elem(&outgoing_trace_map, &sorted_e);
-    // written=1 confirms a uprobe authored the entry (not a kprobe urand write).
+    // written=1 means a uprobe wrote the entry (not a kprobe's random one).
     if (injected && injected->valid && injected->written && valid_trace(injected->tp.trace_id)) {
         bpf_memcpy(tp->trace_id, injected->tp.trace_id, TRACE_ID_SIZE_BYTES);
         bpf_memcpy(tp->span_id, injected->tp.span_id, SPAN_ID_SIZE_BYTES);
@@ -193,7 +193,7 @@ static __always_inline void http2_grpc_start(
     u8 found_tp = 0;
     if (is_client) {
         // Refresh cp_support t_key per stream: persistent HTTP/2 clients
-        // (Node grpc-js) have stale extra_id from first connect.
+        // (Node grpc-js) have a stale extra_id from the first connect.
         cp_support_data_t *cp = bpf_map_lookup_elem(&cp_support_connect_info, &s_key->pid_conn);
         if (cp) {
             task_tid(&cp->t_key.p_key);
@@ -202,18 +202,31 @@ static __always_inline void http2_grpc_start(
         }
         found_tp = find_trace_for_client_request(
             &s_key->pid_conn, orig_dport, k_lw_thread_none, &tp_p->tp);
-        // Override with Go uprobe's trace if available.
         adopt_injected_trace(s_key, &tp_p->tp);
         if (valid_trace(tp_p->tp.trace_id)) {
             found_tp = 1;
         }
     } else {
-        found_tp =
-            find_trace_for_server_request(&s_key->pid_conn.conn, &tp_p->tp, EVENT_HTTP_REQUEST);
+        // HPACK first: per-stream, safe from the per-connection trace_map
+        // race on concurrent multiplexed streams. Bound by this frame's
+        // payload, and skip the optional PADDED/PRIORITY prefix and trailing
+        // pad bytes. Branchless math keeps the verifier from exploding paths.
+        const u32 frame_len =
+            ((u32)h2g_info->data[0] << 16) | ((u32)h2g_info->data[1] << 8) | (u32)h2g_info->data[2];
+        const u8 flags = h2g_info->data[4];
+        const u8 padded = (flags >> 3) & 1;
+        const u8 priority = (flags >> 5) & 1;
+        const u32 prefix = padded + priority * k_h2_priority_prefix_len;
+        const u32 pad_len = padded * h2g_info->data[k_h2_frame_header_len];
+        const u32 max_payload = k_kprobes_http2_buf_size - k_h2_frame_header_len;
+        const u32 raw_len = frame_len < max_payload ? frame_len : max_payload;
+        const u32 skip = prefix + pad_len;
+        const u32 hpack_len = raw_len > skip ? raw_len - skip : 0;
+        found_tp = parse_hpack_traceparent(
+            h2g_info->data + k_h2_frame_header_len + prefix, hpack_len, &tp_p->tp);
         if (!found_tp) {
-            const unsigned char *hpack = h2g_info->data + k_h2_frame_header_len;
-            const u32 hpack_len = k_kprobes_http2_buf_size - k_h2_frame_header_len;
-            found_tp = parse_hpack_traceparent(hpack, hpack_len, &tp_p->tp);
+            found_tp =
+                find_trace_for_server_request(&s_key->pid_conn.conn, &tp_p->tp, EVENT_HTTP_REQUEST);
         }
     }
 
@@ -230,16 +243,17 @@ static __always_inline void http2_grpc_start(
         meta->type, &h2g_info->conn_info, k_lw_thread_none, tp_p, ssl, orig_dport);
 
     if (is_client) {
-        // Publish per-stream trace for sk_msg adoption.
+        // Save the per-stream trace so sk_msg can pick it up.
         egress_key_t e_key = {
             .d_port = h2g_info->conn_info.d_port,
             .s_port = h2g_info->conn_info.s_port,
             .stream_id = s_key->stream_id,
         };
         sort_egress_key(&e_key);
-        // BPF_NOEXIST: Go uprobe runs before tcp_sendmsg and writes written=1
-        // with the HPACK-injected span. Overwriting with kprobe's urand span
-        // would cause sk_msg to inject a duplicate traceparent on the wire.
+        // BPF_NOEXIST: Go uprobe runs before tcp_sendmsg and writes the
+        // HPACK-injected span (written=1). Overwriting with the kprobe's
+        // random span would make sk_msg inject a duplicate traceparent on
+        // the wire.
         bpf_map_update_elem(&outgoing_trace_map, &e_key, tp_p, BPF_NOEXIST);
     } else {
         trace_key_t t_key = {0};
@@ -268,6 +282,16 @@ http2_grpc_end(http2_conn_stream_t *stream, http2_grpc_request_t *prev_info, voi
     }
 
     bpf_map_delete_elem(&ongoing_http2_grpc, stream);
+
+    // delete_client_trace_info only clears stream_id=0 — without this the
+    // per-stream entries would leak until the LRU evicts them
+    egress_key_t e_key = {
+        .d_port = stream->pid_conn.conn.d_port,
+        .s_port = stream->pid_conn.conn.s_port,
+        .stream_id = stream->stream_id,
+    };
+    sort_egress_key(&e_key);
+    bpf_map_delete_elem(&outgoing_trace_map, &e_key);
 }
 
 static __always_inline frame_header_t next_frame(const grpc_frames_ctx_t *g_ctx) {
@@ -398,9 +422,10 @@ int obi_protocol_http2_grpc_handle_end_frame(void *ctx) {
 
         bpf_map_delete_elem(&active_ssl_connections, &g_ctx->args.pid_conn);
     } else {
-        // Wrong-direction end flag (e.g. CLIENT request's own HEADERS carries
-        // END_STREAM=1). Keep ongoing_http2_grpc so the correct-direction end
-        // (response trailers for CLIENT, request send for SERVER) can emit.
+        // Wrong-direction end flag (e.g. a CLIENT request's own HEADERS
+        // carries END_STREAM=1). Keep ongoing_http2_grpc so the correct
+        // -direction end can fire later (response trailers for CLIENT,
+        // request send for SERVER).
         bpf_dbg_printk("grpc request/response mismatch, req_type %d, prev_info->type %d",
                        req_type,
                        g_ctx->prev_info.type);

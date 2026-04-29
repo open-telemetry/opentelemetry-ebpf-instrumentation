@@ -78,3 +78,12 @@ struct {
     __type(value, connection_info_t);
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
 } grpc_conn_ptr_to_conn SEC(".maps");
+
+// Per-stream tp (Go gRPC server). operateHeaders writes, handleStream reads.
+// Avoids the last-writer-wins race on the transport-keyed ongoing_grpc_transports
+struct {
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __type(key, stream_key_t);
+    __type(value, tp_info_t);
+    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
+} ongoing_grpc_server_stream_tps SEC(".maps");

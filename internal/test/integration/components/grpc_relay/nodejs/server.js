@@ -53,10 +53,24 @@ server.bindAsync(
   }
 );
 
-// Health check endpoint
+// /multiplexed fans out N concurrent gRPC calls on the persistent client
+// to exercise sk_msg HPACK injection on multiplexed HTTP/2 streams
+const MULTIPLEX_N = 3;
 http.createServer((req, res) => {
-  res.writeHead(200);
-  res.end();
+  if (req.url !== '/multiplexed' || !client) {
+    res.writeHead(200);
+    res.end();
+    return;
+  }
+  let pending = MULTIPLEX_N;
+  for (let i = 0; i < MULTIPLEX_N; i++) {
+    client.Relay({}, () => {
+      if (--pending === 0) {
+        res.writeHead(200);
+        res.end();
+      }
+    });
+  }
 }).listen(healthPort, () => {
   console.log(`health listening on :${healthPort}`);
 });
