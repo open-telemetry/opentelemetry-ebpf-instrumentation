@@ -274,9 +274,9 @@ To add a new metric, follow these guidelines:
 5. Then, modify the `Stat` struct accordingly, by adding a data structure containing all the necessary fields. For example `TCPRtt` struct.
 6. The only thing left is to create the appropriate data structures in the `Prometheus` and `OTEL` exporters by adding the appropriate attributes. Check `statMetricsReporter` struct for Prometheus and `statMetricsExporter` struct for OTEL.
 
-### Important notes
+### Final notes
 
-Statistical metrics are calculated for all applications running on the node, regardless of the PID that triggered the event. This is because statistical metrics are important if correlated to all applications, and also because some hook points can cause unreliable PID calculations and lead to false positives.
+We decided to create a component separate from **AppO11y** and **NetO11y**, focusing only on **statistical metrics**. Statistical metrics are calculated for all applications running on the node, regardless of the PID that triggered the event. This is because statistical metrics are important if correlated to all applications, and also because some hook points can cause unreliable PID calculations and lead to false positives.
 
 The user can then filter the metrics in userspace using appropriate filters or even the collector.
 
