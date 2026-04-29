@@ -5,6 +5,7 @@
 package docker // import "go.opentelemetry.io/obi/internal/test/integration/components/docker"
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -13,9 +14,19 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"go.opentelemetry.io/obi/internal/test/tools"
 )
+
+// stopTimeout bounds how long `docker compose stop` waits between SIGTERM and
+// SIGKILL for each container. Keeps shutdown predictable when a container is
+// hung.
+const stopTimeout = "5"
+
+// waitTimeout bounds how long Close() will wait for the obi container to
+// exit. A stuck container would otherwise burn the shard's job timeout.
+const waitTimeout = 30 * time.Second
 
 type Compose struct {
 	Path   string
@@ -63,7 +74,7 @@ func (c *Compose) Logs() error {
 }
 
 func (c *Compose) Stop() error {
-	return c.command("stop")
+	return c.command("stop", "--timeout", stopTimeout)
 }
 
 func (c *Compose) Remove() error {
@@ -71,9 +82,13 @@ func (c *Compose) Remove() error {
 }
 
 func (c *Compose) command(args ...string) error {
+	return c.commandContext(context.Background(), args...)
+}
+
+func (c *Compose) commandContext(ctx context.Context, args ...string) error {
 	cmdArgs := []string{"compose", "--ansi", "never", "-f", c.Path}
 	cmdArgs = append(cmdArgs, args...)
-	cmd := exec.Command("docker", cmdArgs...)
+	cmd := exec.CommandContext(ctx, "docker", cmdArgs...)
 	cmd.Env = c.Env
 	if c.Logger != nil {
 		cmd.Stdout = c.Logger
@@ -100,16 +115,27 @@ func (c *Compose) ExecOutput(service string, args ...string) (string, error) {
 
 func (c *Compose) Close() error {
 	var errs []error
-	if err := c.Logs(); err != nil {
-		errs = append(errs, fmt.Errorf("flushing logs: %w", err))
-	}
+
+	// Logs is read-only; run it in parallel with Stop so neither blocks the other.
+	logsErr := make(chan error, 1)
+	go func() {
+		logsErr <- c.Logs()
+	}()
+
 	if err := c.Stop(); err != nil {
 		// we just warn, as the container will be force-removed later
 		slog.Warn("stopping docker compose. Will force remove", "error", err)
 	}
-	if err := c.command("wait", "obi"); err != nil {
+
+	if err := <-logsErr; err != nil {
+		errs = append(errs, fmt.Errorf("flushing logs: %w", err))
+	}
+
+	waitCtx, cancel := context.WithTimeout(context.Background(), waitTimeout)
+	if err := c.commandContext(waitCtx, "wait", "obi"); err != nil {
 		slog.Warn("waiting for obi to stop. Will force remove", "error", err)
 	}
+	cancel()
 
 	if err := c.Remove(); err != nil {
 		errs = append(errs, fmt.Errorf("removing container: %w", err))

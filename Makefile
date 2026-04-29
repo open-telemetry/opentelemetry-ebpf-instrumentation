@@ -36,6 +36,7 @@ OCI_BIN ?= docker
 DOCKER_USER=$(shell id -u):$(shell id -g)
 DEPENDENCIES_DOCKERFILE=./dependencies.Dockerfile
 GRADLE_IMAGE := $(shell awk '$$4=="gradle-java" {print $$2}' $(DEPENDENCIES_DOCKERFILE))
+GOLANG_IMAGE := $(shell awk '$$4=="golang" {print $$2}' $(DEPENDENCIES_DOCKERFILE))
 PYTHON39_IMAGE := $(shell awk '$$4=="python39" {print $$2}' $(DEPENDENCIES_DOCKERFILE))
 PYTHON314_IMAGE := $(shell awk '$$4=="python314" {print $$2}' $(DEPENDENCIES_DOCKERFILE))
 
@@ -337,7 +338,7 @@ JAVA_AGENT_GRADLE_ENV := $(if $(JAVA_AGENT_JAVA_HOME),JAVA_HOME=$(JAVA_AGENT_JAV
 .PHONY: java-build
 java-build:
 	@echo "### Building Java agent"
-	cd $(JAVA_AGENT_DIR) && $(JAVA_AGENT_GRADLE_ENV) gradle build
+	cd $(JAVA_AGENT_DIR) && $(JAVA_AGENT_GRADLE_ENV) gradle build -PnativeOnly=true
 	mkdir -p $(JAVA_AGENT_EMBED_DIR)
 	cp $(JAVA_AGENT_DIR)/build/$(JAVA_AGENT) $(JAVA_AGENT_EMBED_PATH)
 
@@ -602,7 +603,11 @@ artifact: docker-generate java-docker-build compile
 	cp ./bin/$(CMD) $$STAGING_DIR/; \
 	cp LICENSE $$STAGING_DIR/; \
 	cp NOTICE $$STAGING_DIR/; \
-	cp -r NOTICES $$STAGING_DIR/; \
+	mkdir -p $$STAGING_DIR/NOTICES; \
+	if [ -d NOTICES/bpf ]; then cp -R NOTICES/bpf $$STAGING_DIR/NOTICES/; fi; \
+	if [ -d NOTICES/java ]; then cp -R NOTICES/java $$STAGING_DIR/NOTICES/; fi; \
+	if [ ! -d NOTICES/$(GOARCH) ]; then echo "ERROR: NOTICES/$(GOARCH) missing; run 'make go-notices-update'"; exit 1; fi; \
+	cp -R NOTICES/$(GOARCH)/. $$STAGING_DIR/NOTICES/; \
 	tar -C $$STAGING_DIR -czf bin/obi-$(RELEASE_VERSION)-$(GOOS)-$(GOARCH).tar.gz $(CMD) LICENSE NOTICE NOTICES
 
 .PHONY: release
@@ -617,6 +622,11 @@ release: artifact
 	@if [ ! -f $(RELEASE_DIR)/verify-$(GOARCH)/LICENSE ]; then echo "ERROR: LICENSE missing in $(GOARCH) archive"; exit 1; fi
 	@if [ ! -f $(RELEASE_DIR)/verify-$(GOARCH)/NOTICE ]; then echo "ERROR: NOTICE missing in $(GOARCH) archive"; exit 1; fi
 	@if [ ! -d $(RELEASE_DIR)/verify-$(GOARCH)/NOTICES ]; then echo "ERROR: NOTICES directory missing in $(GOARCH) archive"; exit 1; fi
+	@for other in $(filter-out $(GOARCH),$(GO_NOTICES_ARCHES)); do \
+		if [ -d $(RELEASE_DIR)/verify-$(GOARCH)/NOTICES/$$other ]; then \
+			echo "ERROR: NOTICES/$$other leaked into $(GOARCH) archive"; exit 1; \
+		fi; \
+	done
 	@if [ ! -x $(RELEASE_DIR)/verify-$(GOARCH)/$(CMD) ]; then echo "ERROR: $(CMD) binary not executable in $(GOARCH) archive"; exit 1; fi
 	@echo "✓ Archive $(GOARCH) verified successfully"
 	@rm -rf $(RELEASE_DIR)/verify-$(GOARCH)
@@ -710,9 +720,29 @@ java-notices-update:
 		$(NOTICES_DIR)/java/agent/THIRD_PARTY_LICENSES.txt
 	@cp pkg/internal/java/agent/build/reports/dependency-license/THIRD_PARTY_LICENSES.csv $(NOTICES_DIR)/java/agent/
 
+GO_NOTICES_ARCHES := amd64 arm64
+
 .PHONY: go-notices-update
 go-notices-update:
-	@GOOS=$(GOOS) GOARCH=amd64 go tool $(TOOLS_MODFILE) go-licenses save ./... --save_path=$(NOTICES_DIR) --force
+	@echo "### Generating Go notices for linux/{$(GO_NOTICES_ARCHES)} in docker"
+	@# Migrate legacy flat layout: drop any Go-ecosystem dirs at NOTICES root (keep bpf/ + java/ + arch subtrees).
+	@find $(NOTICES_DIR) -mindepth 1 -maxdepth 1 \
+		-not -name bpf -not -name java $(foreach a,$(GO_NOTICES_ARCHES),-not -name $(a)) \
+		-exec rm -rf {} +
+	@# Build go-licenses once at container host arch, then invoke per target GOARCH so the tool binary
+	@# stays executable while it cross-inspects the build graph for each arch.
+	@$(OCI_BIN) run --rm \
+		$(if $(findstring podman,$(OCI_BIN)),,-u "$(DOCKER_USER)") \
+		-v "$(CURDIR):/src:z" \
+		-e HOME=/tmp -e GOTOOLCHAIN=local -e GOMODCACHE=/tmp/gomod \
+		-w /src \
+		$(GOLANG_IMAGE) \
+		sh -c 'set -e; \
+			go build -modfile=internal/tools/go.mod -o /tmp/go-licenses github.com/google/go-licenses/v2; \
+			for arch in $(GO_NOTICES_ARCHES); do \
+				echo "### linux/$$arch"; \
+				GOOS=linux GOARCH=$$arch /tmp/go-licenses save ./... --save_path=$(NOTICES_DIR)/$$arch --force; \
+			done'
 
 PYTHON_REQUIREMENTS_INS ?= $(shell find ./internal/test/integration/components -type f -name 'requirements.in' | sort)
 PYTHON_REQUIREMENTS_DIRS := $(sort $(dir $(PYTHON_REQUIREMENTS_INS)))

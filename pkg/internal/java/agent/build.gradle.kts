@@ -70,16 +70,34 @@ tasks.named("spotlessJava") {
     mustRunAfter(tasks.compileJava)
 }
 
+val currentArch = if (System.getProperty("os.arch").contains("aarch64")) "aarch64" else "amd64"
+
 // Build the native JNI library
-tasks.register<Exec>("buildNativeLib") {
+tasks.register<Exec>("buildNativeLib-amd64") {
     group = "build"
     description = "Build the JNI native library (libobijni.so)"
-    
+
     dependsOn("compileJava")
-    
+
     workingDir = projectDir
-    commandLine("make", "-f", "Makefile.jni")
-    
+    val cc = if (currentArch == "amd64") "gcc" else "gcc-x86-64-linux-gnu"
+    commandLine("make", "-f", "Makefile.jni", "CC=$cc", "BUILD_DIR=build/jni/linux-amd64", "TARGET_DIR=target/classes/native/linux-amd64")
+
+    doLast {
+        println("OBI JNI library built successfully")
+    }
+}
+
+tasks.register<Exec>("buildNativeLib-aarch64") {
+    group = "build"
+    description = "Build the JNI native library (libobijni.so)"
+
+    dependsOn("compileJava")
+
+    workingDir = projectDir
+    val cc = if (currentArch == "aarch64") "gcc" else "aarch64-linux-gnu-gcc"
+    commandLine("make", "-f", "Makefile.jni", "CC=$cc", "BUILD_DIR=build/jni/linux-aarch64", "TARGET_DIR=target/classes/native/linux-aarch64")
+
     doLast {
         println("OBI JNI library built successfully")
     }
@@ -91,7 +109,8 @@ tasks.register<Delete>("cleanNativeLib") {
     description = "Clean the JNI native library build artifacts"
     
     delete(file("build"))
-    delete(file("target/classes/libobijni.so"))
+    delete(file("target/classes/native/linux-amd64/libobijni.so"))
+    delete(file("target/classes/native/linux-aarch64/libobijni.so"))
 }
 
 val jmhIncludes: String? by project
@@ -113,18 +132,26 @@ jmh {
     jvmArgs.set(listOf("-Xmx2G"))
 }
 
+val nativeOnly: String? by project
+val nativeArches: List<String> = if (nativeOnly != null) {
+    val osArch = System.getProperty("os.arch")
+    listOf(if (osArch.contains("aarch64")) "aarch64" else "amd64")
+} else {
+    listOf("amd64", "aarch64")
+}
+
 tasks.shadowJar {
-    dependsOn("buildNativeLib")
-    
+    nativeArches.forEach { arch -> dependsOn("buildNativeLib-$arch") }
+
     archiveBaseName.set("agent")
     archiveVersion.set("0.1.0")
     archiveClassifier.set("shaded")
-    
-    // Include the native library in the JAR
+
+    // Include the native libraries in the JAR
     from(file("target/classes")) {
-        include("libobijni.so")
+        nativeArches.forEach { arch -> include("native/linux-$arch/libobijni.so") }
     }
-    
+
     manifest {
         attributes(
             "Premain-Class" to "io.opentelemetry.obi.java.Agent",

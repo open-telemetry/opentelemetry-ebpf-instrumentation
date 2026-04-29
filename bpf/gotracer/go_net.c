@@ -149,6 +149,19 @@ int obi_uprobe_netFdRead(struct pt_regs *ctx) {
         // on the same goroutine.
     }
 
+    bpf_tail_call(ctx, &jump_table, k_tail_continue_netfd_read);
+    return 0;
+}
+
+// k_tail_continue_netfd_read
+SEC("uprobe/netFdRead_cont")
+int obi_continue_netfd_read(struct pt_regs *ctx) {
+    void *goroutine_addr = GOROUTINE_PTR(ctx);
+    bpf_dbg_printk("=== uprobe/netFdRead_cont goroutine_addr=%lx ===", goroutine_addr);
+
+    go_addr_key_t g_key = {};
+    go_addr_key_from_id(&g_key, goroutine_addr);
+
     const u64 id = bpf_get_current_pid_tgid();
 
     void *fd_ptr = GO_PARAM1(ctx);

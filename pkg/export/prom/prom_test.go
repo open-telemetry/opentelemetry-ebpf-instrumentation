@@ -46,7 +46,6 @@ import (
 const timeout = 5 * time.Second
 
 func TestAppMetricsExpiration(t *testing.T) {
-	t.Skip("fails regularly with port already in use")
 	now := syncedClock{now: time.Now()}
 	timeNow = now.Now
 
@@ -92,11 +91,19 @@ func TestAppMetricsExpiration(t *testing.T) {
 
 	go exporter(ctx)
 
+	svcAttrs := svc.Attrs{
+		Features: export.FeatureApplicationRED | export.FeatureApplicationHost,
+		UID:      svc.UID{Name: "test-app", Namespace: "default", Instance: "test-app-1"},
+	}
+	svcAttrs001 := svc.Attrs{
+		Features: svcAttrs.Features,
+		UID:      svcAttrs.UID,
+		Metadata: map[attr.Name]string{"k8s.app.version": "v0.0.1"},
+	}
+
 	app := exec.FileInfo{
-		Service: svc.Attrs{
-			UID: svc.UID{Name: "test-app", Namespace: "default", Instance: "test-app-1"},
-		},
-		Pid: 1,
+		Service: svcAttrs,
+		Pid:     1,
 	}
 
 	// Send a process event so we make target_info and traces_host_info
@@ -105,17 +112,12 @@ func TestAppMetricsExpiration(t *testing.T) {
 	// WHEN it receives metrics
 	promInput.Send([]request.Span{
 		{
-			Type: request.EventTypeHTTP,
-			Path: "/foo",
-			End:  123 * time.Second.Nanoseconds(),
-			Service: svc.Attrs{
-				UID: svc.UID{Name: "test-app", Namespace: "default", Instance: "test-app-1"},
-				Metadata: map[attr.Name]string{
-					"k8s.app.version": "v0.0.1",
-				},
-			},
+			Type:    request.EventTypeHTTP,
+			Path:    "/foo",
+			End:     123 * time.Second.Nanoseconds(),
+			Service: svcAttrs001,
 		},
-		{Type: request.EventTypeHTTP, Path: "/baz", End: 456 * time.Second.Nanoseconds()},
+		{Service: svcAttrs, Type: request.EventTypeHTTP, Path: "/baz", End: 456 * time.Second.Nanoseconds()},
 	})
 
 	containsTargetInfo := regexp.MustCompile(`\ntarget_info\{.*host_id="my-host"`)
@@ -141,14 +143,10 @@ func TestAppMetricsExpiration(t *testing.T) {
 	// WHEN it receives metrics
 	promInput.Send([]request.Span{
 		{
-			Type: request.EventTypeHTTP,
-			Path: "/foo",
-			End:  123 * time.Second.Nanoseconds(),
-			Service: svc.Attrs{
-				Metadata: map[attr.Name]string{
-					"k8s.app.version": "v0.0.1",
-				},
-			},
+			Type:    request.EventTypeHTTP,
+			Path:    "/foo",
+			End:     123 * time.Second.Nanoseconds(),
+			Service: svcAttrs001,
 		},
 	})
 	now.Advance(2 * time.Minute)
@@ -166,7 +164,7 @@ func TestAppMetricsExpiration(t *testing.T) {
 
 	// AND WHEN the metrics labels that disappeared are received again
 	promInput.Send([]request.Span{
-		{Type: request.EventTypeHTTP, Path: "/baz", End: 456 * time.Second.Nanoseconds()},
+		{Service: svcAttrs, Type: request.EventTypeHTTP, Path: "/baz", End: 456 * time.Second.Nanoseconds()},
 	})
 	now.Advance(2 * time.Minute)
 
@@ -1218,4 +1216,78 @@ func TestHandleProcessEventCreated_EdgeCases(t *testing.T) {
 		assert.Len(t, mockEventsStore.createCalls, 5)
 		assert.Len(t, mockEventsStore.deleteCalls, 4)
 	})
+}
+
+func TestOverridingCloudHostIDKey(t *testing.T) {
+	ctx := t.Context()
+	openPort := testutil.FreeTCPPort(t)
+	promURL := fmt.Sprintf("http://127.0.0.1:%d/metrics", openPort)
+
+	var g attributes.AttrGroups
+	g.Add(attributes.GroupKubernetes)
+
+	// GIVEN a "vendored" Prometheus exporter instance that overrides the
+	// CloudHostIDKey value
+	previousCloudHostIDKey := CloudHostIDKey
+	t.Cleanup(func() {
+		CloudHostIDKey = previousCloudHostIDKey
+	})
+	CloudHostIDKey = "vendor_host_id"
+	promInput := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
+	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
+	exporter, err := PrometheusEndpoint(
+		&global.ContextInfo{
+			Prometheus:            &connector.PrometheusManager{},
+			NodeMeta:              meta.NodeMeta{HostID: "my-host"},
+			MetricAttributeGroups: g,
+		},
+		&PrometheusConfig{
+			Port:                        openPort,
+			Path:                        "/metrics",
+			TTL:                         3 * time.Minute,
+			SpanMetricsServiceCacheSize: 10,
+			Instrumentations:            []instrumentations.Instrumentation{instrumentations.InstrumentationALL},
+		},
+		&perapp.MetricsConfig{Features: export.FeatureApplicationRED | export.FeatureApplicationHost},
+		&attributes.SelectorConfig{
+			SelectionCfg: attributes.Selection{
+				attributes.HTTPServerDuration.Section: attributes.InclusionLists{
+					Include: []string{"url_path", "k8s.app.version"},
+				},
+			},
+		},
+		request.UnresolvedNames{},
+		promInput,
+		processEvents,
+	)(ctx)
+	require.NoError(t, err)
+
+	go exporter(ctx)
+
+	svcAttrs := svc.Attrs{
+		Features: export.FeatureApplicationRED | export.FeatureApplicationHost,
+		UID:      svc.UID{Name: "test-app", Namespace: "default", Instance: "test-app-1"},
+	}
+	// Send a process event so we make target_info and traces_host_info
+	processEvents.SendCtx(t.Context(), exec.ProcessEvent{Type: exec.ProcessEventCreated, File: &exec.FileInfo{
+		Service: svcAttrs,
+		Pid:     1,
+	}})
+
+	// WHEN it receives metrics
+	promInput.SendCtx(t.Context(), []request.Span{
+		{
+			Type:    request.EventTypeHTTP,
+			Path:    "/foo",
+			End:     123 * time.Second.Nanoseconds(),
+			Service: svcAttrs,
+		},
+	})
+
+	// THEN the exported traces_host_info metric overrides the default name for the cloud_host_id attribute
+	containsTracesHostInfo := regexp.MustCompile(`\ntraces_host_info\{.*vendor_host_id="my-host"`)
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		exported := getMetrics(ct, promURL)
+		assert.Regexp(ct, containsTracesHostInfo, exported)
+	}, timeout, 10*time.Millisecond)
 }

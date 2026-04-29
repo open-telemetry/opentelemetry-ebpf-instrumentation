@@ -80,6 +80,13 @@ var (
 		containerImage: "hatest-testserver-logenricher-dotnet",
 		message:        "this is a json log from dotnet",
 	}
+	logEnricherPythonAsyncConstants = testServerConstants{
+		url:            "http://localhost:8387",
+		smokeEndpoint:  "/smoke",
+		logEndpoint:    "/json_logger",
+		containerImage: "hatest-testserver-logenricher-pythonasync",
+		message:        "this is a json log from python async",
+	}
 )
 
 // logEnricherTestTraceparents are fixed W3C traceparents used by log enricher tests.
@@ -378,6 +385,115 @@ func testLogEnricherRuby(t *testing.T, constants testServerConstants) {
 		}
 
 		// Every injected trace_id must appear with a non-empty span_id.
+		for _, tp := range logEnricherTestTraceparents {
+			spanID, found := lastSpanID[tp.traceID]
+			assert.True(ct, found, "no enriched log line found for trace_id %s", tp.traceID)
+			if found {
+				assert.NotEmpty(ct, spanID, "span_id missing for trace_id %s", tp.traceID)
+			}
+		}
+	}, testTimeout, 500*time.Millisecond)
+}
+
+// pythonAsyncLogEnricherVariants enumerates the asyncio scenarios exercised
+// by the testserver. Each variant emits a distinct message so concurrent
+// requests across variants don't cross-contaminate the assertions
+var pythonAsyncLogEnricherVariants = []struct {
+	name        string
+	logEndpoint string
+	message     string
+}{
+	{
+		name:        "interleaved (sleep)",
+		logEndpoint: "/json_logger",
+		message:     "this is a json log from python async",
+	},
+	{
+		name:        "asyncio.to_thread worker",
+		logEndpoint: "/json_logger_to_thread",
+		message:     "this is a json log from python async to_thread",
+	},
+	{
+		name:        "nested create_task",
+		logEndpoint: "/json_logger_nested",
+		message:     "this is a json log from python async nested",
+	},
+	{
+		name:        "asyncio.gather siblings",
+		logEndpoint: "/json_logger_gather",
+		message:     "this is a json log from python async gather",
+	},
+}
+
+// testLogEnricherPythonAsync exercises the asyncio task-switch refresh of
+// traces_ctx_v1 by interleaving concurrent requests on a single uvicorn/uvloop
+// event-loop thread, across the variants above.
+func testLogEnricherPythonAsync(t *testing.T) {
+	waitForTestComponentsNoMetrics(t, logEnricherPythonAsyncConstants.url+logEnricherPythonAsyncConstants.smokeEndpoint)
+
+	cl, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	require.NoError(t, err)
+	defer cl.Close()
+
+	for _, v := range pythonAsyncLogEnricherVariants {
+		t.Run(v.name, func(t *testing.T) {
+			testLogEnricherPythonAsyncEndpoint(t, cl, v.logEndpoint, v.message)
+		})
+	}
+}
+
+func testLogEnricherPythonAsyncEndpoint(t *testing.T, cl *client.Client, logEndpoint, message string) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		errCh := make(chan error, len(logEnricherTestTraceparents))
+		var wg sync.WaitGroup
+		for _, tp := range logEnricherTestTraceparents {
+			wg.Add(1)
+			go func(tp struct{ traceID, parentID string }) {
+				defer wg.Done()
+				req, err := http.NewRequest(http.MethodGet,
+					logEnricherPythonAsyncConstants.url+logEndpoint, nil)
+				if err != nil {
+					errCh <- err
+					return
+				}
+				req.Header.Set("traceparent", fmt.Sprintf("00-%s-%s-01", tp.traceID, tp.parentID))
+				resp, err := http.DefaultClient.Do(req)
+				if err != nil {
+					errCh <- err
+					return
+				}
+				resp.Body.Close()
+			}(tp)
+		}
+		wg.Wait()
+		close(errCh)
+		for err := range errCh {
+			assert.NoError(ct, err, "HTTP request failed")
+		}
+
+		containerID := testContainerID(ct, cl, logEnricherPythonAsyncConstants.containerImage)
+		if !assert.NotEmpty(ct, containerID, "could not find test container ID") {
+			return
+		}
+		logs := containerLogs(ct, cl, containerID)
+		if !assert.NotEmpty(ct, logs) {
+			return
+		}
+
+		lastSpanID := make(map[string]string, len(logEnricherTestTraceparents))
+		for _, line := range logs {
+			var fields map[string]string
+			if json.Unmarshal([]byte(line), &fields) != nil {
+				continue
+			}
+			if fields["message"] != message {
+				continue
+			}
+			if tid, ok := fields["trace_id"]; ok {
+				lastSpanID[tid] = fields["span_id"]
+			}
+		}
+
 		for _, tp := range logEnricherTestTraceparents {
 			spanID, found := lastSpanID[tp.traceID]
 			assert.True(ct, found, "no enriched log line found for trace_id %s", tp.traceID)

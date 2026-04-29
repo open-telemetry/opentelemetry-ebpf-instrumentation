@@ -270,12 +270,25 @@ public class Agent {
     }
   }
 
+  // Picks the correct native library based on the
+  private static String nativeLibraryResourcePath() {
+    String arch = System.getProperty("os.arch").toLowerCase(Locale.ROOT);
+
+    if (arch.equals("amd64") || arch.equals("x86_64")) {
+      return "/native/linux-amd64/libobijni.so";
+    }
+
+    if (arch.equals("aarch64") || arch.equals("arm64")) {
+      return "/native/linux-aarch64/libobijni.so";
+    }
+
+    throw new IllegalStateException("Unsupported architecture: " + arch);
+  }
+
   // Package-private so it can be called from bootstrap classloader via reflection
   static void loadNativeLibraryFromJar() throws Exception {
-    String libraryName = "libobijni.so";
-
     // Try to load from JAR
-    InputStream libStream = Agent.class.getResourceAsStream("/" + libraryName);
+    InputStream libStream = Agent.class.getResourceAsStream(nativeLibraryResourcePath());
     if (libStream != null) {
       if (Agent.debugOn) {
         logger.info("[Agent] Found library in JAR, extracting to temp file...");

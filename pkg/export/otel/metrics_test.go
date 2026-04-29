@@ -18,6 +18,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"go.opentelemetry.io/collector/consumer"
+	"go.opentelemetry.io/collector/pdata/pmetric"
 	"go.opentelemetry.io/otel/attribute"
 
 	"go.opentelemetry.io/obi/internal/test/collector"
@@ -372,6 +374,155 @@ func TestAppMetrics_ResourceAttributes(t *testing.T) {
 	assert.Equal(t, "upstream.obi", attributes["source"])
 }
 
+func TestSpanMetrics_ExtraResourceAttributes(t *testing.T) {
+	defer otelcfg.RestoreEnvAfterExecution()()
+
+	ctx := t.Context()
+	metricRecords := make(chan collector.MetricRecord, 100)
+
+	now := syncedClock{now: time.Now()}
+	timeNow = now.Now
+
+	metrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(20))
+	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
+	mcfg := &otelcfg.MetricsConfig{
+		Interval:                50 * time.Millisecond,
+		MetricsProtocol:         otelcfg.ProtocolHTTPProtobuf,
+		TTL:                     30 * time.Minute,
+		ReportersCacheLen:       100,
+		Instrumentations:        []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP},
+		ExtraSpanResourceLabels: []string{"deployment.environment"},
+		MetricsConsumer:         testMetricsConsumer(metricRecords),
+	}
+
+	reporter, err := newMetricsReporter(
+		ctx,
+		&global.ContextInfo{OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: mcfg}},
+		mcfg,
+		&perapp.MetricsConfig{Features: export.FeatureSpanOTel},
+		&attributes.SelectorConfig{},
+		request.UnresolvedNames{},
+		metrics,
+		processEvents,
+	)
+	require.NoError(t, err)
+
+	go reporter.reportMetrics(ctx)
+
+	span := request.Span{
+		Service: svc.Attrs{
+			Features: export.FeatureSpanOTel,
+			UID:      svc.UID{Instance: "foo"},
+			Metadata: map[attr.Name]string{
+				attr.Name("deployment.environment"): "production",
+			},
+		},
+		Type:         request.EventTypeHTTPClient,
+		Method:       "GET",
+		Route:        "/v1/traces",
+		RequestStart: 100,
+		End:          200,
+	}
+
+	metrics.Send([]request.Span{span})
+
+	res := readMetricsByName(t, metricRecords, timeout,
+		reporter.spanMetricsLatencyName(),
+		reporter.spanMetricsCallsName(),
+	)
+	assert.Len(t, res, 2)
+
+	expected := map[string]struct{}{
+		reporter.spanMetricsLatencyName(): {},
+		reporter.spanMetricsCallsName():   {},
+	}
+
+	for _, record := range res {
+		_, ok := expected[record.Name]
+		require.Truef(t, ok, "unexpected metric %q", record.Name)
+		assert.Equal(t, "production", record.Attributes["deployment.environment"])
+		delete(expected, record.Name)
+	}
+
+	assert.Empty(t, expected)
+}
+
+func TestSpanSizeMetrics_ExtraResourceAttributes(t *testing.T) {
+	defer otelcfg.RestoreEnvAfterExecution()()
+
+	ctx := t.Context()
+	metricRecords := make(chan collector.MetricRecord, 100)
+
+	now := syncedClock{now: time.Now()}
+	timeNow = now.Now
+
+	metrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(20))
+	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
+	mcfg := &otelcfg.MetricsConfig{
+		Interval:                50 * time.Millisecond,
+		MetricsProtocol:         otelcfg.ProtocolHTTPProtobuf,
+		TTL:                     30 * time.Minute,
+		ReportersCacheLen:       100,
+		Instrumentations:        []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP},
+		ExtraSpanResourceLabels: []string{"deployment.environment"},
+		MetricsConsumer:         testMetricsConsumer(metricRecords),
+	}
+
+	reporter, err := newMetricsReporter(
+		ctx,
+		&global.ContextInfo{OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: mcfg}},
+		mcfg,
+		&perapp.MetricsConfig{Features: export.FeatureSpanSizes},
+		&attributes.SelectorConfig{},
+		request.UnresolvedNames{},
+		metrics,
+		processEvents,
+	)
+	require.NoError(t, err)
+
+	go reporter.reportMetrics(ctx)
+
+	span := request.Span{
+		Service: svc.Attrs{
+			Features: export.FeatureSpanSizes,
+			UID:      svc.UID{Instance: "foo"},
+			Metadata: map[attr.Name]string{
+				attr.Name("deployment.environment"): "production",
+			},
+		},
+		Type:           request.EventTypeHTTPClient,
+		Method:         "GET",
+		Route:          "/v1/traces",
+		RequestStart:   100,
+		End:            200,
+		ContentLength:  123,
+		ResponseLength: 456,
+		Status:         200,
+	}
+
+	metrics.Send([]request.Span{span})
+
+	res := readMetricsByName(t, metricRecords, timeout,
+		SpanMetricsRequestSizes,
+		SpanMetricsResponseSizes,
+	)
+	assert.Len(t, res, 2)
+
+	expected := map[string]struct{}{
+		SpanMetricsRequestSizes:  {},
+		SpanMetricsResponseSizes: {},
+	}
+
+	for _, record := range res {
+		_, ok := expected[record.Name]
+		require.Truef(t, ok, "unexpected metric %q", record.Name)
+		assert.Equal(t, "production", record.Attributes["deployment.environment"])
+		delete(expected, record.Name)
+	}
+
+	assert.Empty(t, expected)
+}
+
 func TestMetricsDiscarded(t *testing.T) {
 	svcNoExport := svc.Attrs{Features: export.FeatureAll}
 
@@ -564,6 +715,47 @@ func readNChan(t require.TestingT, inCh <-chan collector.MetricRecord, numRecord
 			return records
 		}
 	}
+	return records
+}
+
+func testMetricsConsumer(out chan<- collector.MetricRecord) consumer.Metrics {
+	c, err := consumer.NewMetrics(func(_ context.Context, md pmetric.Metrics) error {
+		collector.VisitMetricRecords(md, func(record collector.MetricRecord) {
+			out <- record
+		})
+		return nil
+	})
+	if err != nil {
+		panic(err)
+	}
+
+	return c
+}
+
+func readMetricsByName(t require.TestingT, inCh <-chan collector.MetricRecord, timeout time.Duration, names ...string) []collector.MetricRecord {
+	expected := map[string]struct{}{}
+	for _, name := range names {
+		expected[name] = struct{}{}
+	}
+
+	records := make([]collector.MetricRecord, 0, len(expected))
+	deadline := time.NewTimer(timeout)
+	defer deadline.Stop()
+
+	for len(expected) > 0 {
+		select {
+		case item := <-inCh:
+			if _, ok := expected[item.Name]; !ok {
+				continue
+			}
+			records = append(records, item)
+			delete(expected, item.Name)
+		case <-deadline.C:
+			require.Failf(t, "timeout while waiting for metric records", "missing metrics: %v", names)
+			return records
+		}
+	}
+
 	return records
 }
 
