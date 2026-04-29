@@ -215,6 +215,13 @@ func httpRequestResponseToSpan(parseCtx *EBPFParseContext, event *BPFHTTPInfo, r
 		}
 	}
 
+	if isClientEvent(event.Type) && parseCtx != nil && parseCtx.payloadExtraction.HTTP.GenAI.Rerank.Enabled {
+		span, ok := ebpfhttp.RerankSpan(&httpSpan, req, resp)
+		if ok {
+			return span
+		}
+	}
+
 	// Parse JSON-RPC once and reuse for both MCP and plain JSON-RPC
 	// detection, since MCP is a protocol layer on top of JSON-RPC.
 	if parseCtx != nil && (parseCtx.payloadExtraction.HTTP.GenAI.MCP.Enabled || parseCtx.payloadExtraction.HTTP.JSONRPC.Enabled) {

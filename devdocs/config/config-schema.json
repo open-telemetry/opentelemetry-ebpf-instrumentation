@@ -903,6 +903,10 @@
         "qwen": {
           "$ref": "#/$defs/QwenConfig",
           "description": "(DashScope) payload extraction and parsing"
+        },
+        "rerank": {
+          "$ref": "#/$defs/RerankConfig",
+          "description": "Rerank payload extraction and parsing"
         }
       },
       "type": "object"
@@ -2150,6 +2154,17 @@
           "description": "Enable Qwen (DashScope) payload extraction and parsing",
           "default": false,
           "x-env-var": "OTEL_EBPF_HTTP_QWEN_ENABLED"
+        }
+      },
+      "type": "object"
+    },
+    "RerankConfig": {
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable Rerank payload extraction and parsing",
+          "default": false,
+          "x-env-var": "OTEL_EBPF_HTTP_RERANK_ENABLED"
         }
       },
       "type": "object"
