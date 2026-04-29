@@ -212,6 +212,26 @@ gpu_cuda_memory_copies_bytes_total{cuda_memcpy_kind="HostToDevice",service_name=
 dns_lookup_duration_seconds_count{dns_question_name="www.opentelemetry.invalid.",error_type="NXDomain",service_name="python3.14",service_namespace="integration-test"} 2
 ```
 
+- **GenAIClientInputTokenUsage**:
+
+```
+gen_ai_client_token_usage_count{gen_ai_operation_name="chat",gen_ai_provider_name="openai",gen_ai_token_type="input",gen_ai_request_model="gpt-4o-mini",gen_ai_response_model="gpt-4o-mini-2024-07-18",server_address="api.openai.com",server_port="443",service_name="chat-app",service_namespace="genai-test",job="genai-test/chat-app",instance="genai-test.chat-app"} 11
+```
+
+- **GenAIClientOutputTokenUsage**:
+
+```
+gen_ai_client_token_usage_count{gen_ai_operation_name="chat",gen_ai_provider_name="openai",gen_ai_token_type_output="output",gen_ai_request_model="gpt-4o-mini",gen_ai_response_model="gpt-4o-mini-2024-07-18",server_address="api.openai.com",server_port="443",service_name="chat-app",service_namespace="genai-test",job="genai-test/chat-app",instance="genai-test.chat-app"} 19
+```
+
+- **GenAIClientOperationDuration**:
+
+```
+gen_ai_client_operation_duration_seconds_count{gen_ai_operation_name="chat",gen_ai_provider_name="openai",gen_ai_request_model="gpt-4o-mini",gen_ai_response_model="gpt-4o-mini-2024-07-18",error_type="",server_address="api.openai.com",server_port="443",service_name="chat-app",service_namespace="genai-test",job="genai-test/chat-app",instance="genai-test.chat-app"} 13
+```
+
+**Note**: `GenAIClientInputTokenUsage` and `GenAIClientOutputTokenUsage` share the same Prometheus name (`gen_ai_client_token_usage`) and are disambiguated only by the token-type label — `gen_ai_token_type="input"` vs `gen_ai_token_type_output="output"` (the latter is an OBI-specific key, see `GenAITokenTypeOutput` in [pkg/export/attributes/names/attrs.go](../pkg/export/attributes/names/attrs.go)).
+
 ### Add a new application metric
 
 To add a new application metric, follow these guidelines:
