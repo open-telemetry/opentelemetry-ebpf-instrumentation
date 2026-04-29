@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
@@ -84,6 +85,20 @@ func rerankHostname(req *http.Request) string {
 	return ""
 }
 
+// modelPattern extracts the "model" value from potentially truncated JSON.
+var modelPattern = regexp.MustCompile(`"model"\s*:\s*"([^"]+)"`)
+
+// extractModelFromPartialJSON attempts to extract the model field from
+// potentially truncated JSON using a simple regex.  This is a fallback
+// when standard json.Unmarshal fails due to eBPF buffer truncation.
+func extractModelFromPartialJSON(data []byte) string {
+	m := modelPattern.FindSubmatch(data)
+	if m != nil {
+		return string(m[1])
+	}
+	return ""
+}
+
 // RerankSpan detects rerank API calls by URL path matching and parses
 // the request/response bodies into GenAI rerank attributes.
 func RerankSpan(baseSpan *request.Span, req *http.Request, resp *http.Response) (request.Span, bool) {
@@ -107,6 +122,10 @@ func RerankSpan(baseSpan *request.Span, req *http.Request, resp *http.Response) 
 	var parsedRequest request.RerankRequest
 	if err := json.Unmarshal(reqB, &parsedRequest); err != nil {
 		slog.Debug("failed to parse rerank request", "error", err)
+		// Fallback: extract model from potentially truncated JSON.
+		if parsedRequest.Model == "" {
+			parsedRequest.Model = extractModelFromPartialJSON(reqB)
+		}
 	}
 
 	var parsedResponse request.RerankResponse

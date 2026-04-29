@@ -800,8 +800,14 @@ type RerankResponse struct {
 	Error   *RerankError    `json:"error,omitempty"`
 }
 
+// RerankMeta represents Cohere-style metadata in the rerank response.
 type RerankMeta struct {
-	Tokens *RerankMetaTokens `json:"tokens,omitempty"`
+	BilledUnits *RerankBilledUnits `json:"billed_units,omitempty"`
+	Tokens      *RerankMetaTokens  `json:"tokens,omitempty"`
+}
+
+type RerankBilledUnits struct {
+	SearchUnits float64 `json:"search_units"`
 }
 
 type RerankMetaTokens struct {
