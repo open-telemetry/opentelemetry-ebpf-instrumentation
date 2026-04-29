@@ -25,6 +25,8 @@ var rerankProviders = []struct {
 	{"cohere.ai", "cohere"},
 	{"jina.ai", "jina"},
 	{"voyageai.com", "voyageai"},
+	{"dashscope.aliyuncs.com", "dashscope"},
+	{"dashscope.aliyun.com", "dashscope"},
 }
 
 // isRerankPath returns true when the request URL path contains a rerank
