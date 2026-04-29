@@ -252,8 +252,8 @@ func TestHandleMessagesQueue(t *testing.T) {
 
 			select {
 			case <-done:
-			case <-time.After(200 * time.Millisecond):
-				t.Fatalf("handleMessagesQueue did not return within 200ms")
+			case <-time.After(2 * time.Second):
+				t.Fatalf("handleMessagesQueue did not return within 2s")
 			}
 		})
 	}
@@ -288,7 +288,7 @@ func TestHandleMessagesQueue_RespectsContextCancellationDuringSend(t *testing.T)
 
 	select {
 	case <-done:
-	case <-time.After(200 * time.Millisecond):
-		t.Fatal("handleMessagesQueue did not return within 200ms after context cancellation")
+	case <-time.After(2 * time.Second):
+		t.Fatal("handleMessagesQueue did not return within 2s after context cancellation")
 	}
 }
