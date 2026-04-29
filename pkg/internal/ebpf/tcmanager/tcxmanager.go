@@ -202,7 +202,7 @@ func (tcx *tcxManager) attachProgramToIfaceLocked(prog *attachedProg, iface int)
 	case errors.Is(err, unix.EEXIST):
 		tcx.log.Warn("Program already attached", "program", prog.name, "iface", iface)
 	case errors.Is(err, unix.ENODEV):
-		tcx.log.Warn("Interface no longer exists", "program", prog.name, "iface", iface)
+		tcx.log.Warn(eNoDevMsg, "program", prog.name, "iface", iface)
 	default:
 		tcx.emitError("Error attaching tcx", "error", err)
 	}
