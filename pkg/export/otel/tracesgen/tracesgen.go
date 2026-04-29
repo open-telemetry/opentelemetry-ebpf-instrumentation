@@ -836,8 +836,10 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 			request.ServerPort(span.HostPort),
 			messagingSystemAMQP,
 			semconv.MessagingDestinationName(span.Path),
-			semconv.MessagingClientID(span.Statement),
 			operation,
+		}
+		if span.Statement != "" {
+			attrs = append(attrs, semconv.MessagingClientID(span.Statement))
 		}
 
 		attrs = append(attrs, request.PeerService(request.PeerServiceFromSpan(span)))

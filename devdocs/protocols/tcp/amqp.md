@@ -74,7 +74,7 @@ Non-transfer performatives are recognized so the scanner can validate the stream
 
 ## Protocol Parsing
 
-AMQP packets are detected via a userspace heuristic in `ReadTCPRequestIntoSpan` ([tcp_detect_transform.go](../../../pkg/ebpf/common/tcp_detect_transform.go)). `isAMQP` matches either a 1.0 protocol header or a valid descriptor-bearing frame. A bare heartbeat frame is not distinctive enough on its own and is only accepted after stronger AMQP evidence in the same payload.
+AMQP packets are detected via a userspace heuristic in `ReadTCPRequestIntoSpan` ([tcp_detect_transform.go](../../../pkg/ebpf/common/tcp_detect_transform.go)). `matchAMQP` delegates to `ProcessPossibleAMQPEvent`, which parses the request and response buffers with `amqpparser.Parse`; a payload is accepted when it presents a 1.0 protocol header or a valid descriptor-bearing frame. A bare heartbeat frame is not distinctive enough on its own and is only accepted after stronger AMQP evidence in the same payload.
 
 The parser lives in the [amqpparser package](../../../pkg/internal/ebpf/amqpparser), split across [protocol.go](../../../pkg/internal/ebpf/amqpparser/protocol.go) (the 8-byte header), [frame.go](../../../pkg/internal/ebpf/amqpparser/frame.go) (frame header and described performative), and [parser.go](../../../pkg/internal/ebpf/amqpparser/parser.go) (stream parsing). Span creation starts in `ProcessPossibleAMQPEvent` in [amqp_detect_transform.go](../../../pkg/ebpf/common/amqp_detect_transform.go).
 
@@ -84,7 +84,7 @@ A single TCP stream may contain an optional SASL protocol header, then SASL fram
 
 ### Multiple Frames per Segment
 
-The scanner iterates every frame in a captured TCP segment. Control frames that precede TRANSFER within the same segment are parsed for state, and every TRANSFER found in the segment can produce a span.
+The scanner iterates frames in a captured TCP segment up to a bounded parser limit. Control frames that precede TRANSFER within the same segment are parsed for state, and every TRANSFER found before that limit can produce a span.
 
 ### Truncation Handling
 
@@ -114,5 +114,5 @@ End-to-end tests live in [internal/test/oats/amqp/](../../../internal/test/oats/
 - **AMQP 1.0 only**: AMQP 0-9-1 (RabbitMQ's default) is rejected at the protocol header.
 - **TRANSFER only**: only TRANSFER performatives produce spans.
 - **Plaintext frame parsing only**: AMQP-TLS protocol headers are recognized, but encrypted frame payloads cannot be decoded.
-- **No destination extraction**: link `target`/`source` and other addressing details inside the TRANSFER performative are not decoded. As a consequence, AMQP spans emit an empty `messaging.destination.name`, an empty `messaging.client.id`, a generic span name (`publish` / `process`), and empty Prometheus destination labels. Users relying on destination-level attribution should treat the current AMQP support as traffic-level only.
+- **No destination extraction**: link `target`/`source` and other addressing details inside the TRANSFER performative are not decoded. As a consequence, AMQP spans emit an empty `messaging.destination.name`, do not emit `messaging.client.id`, use a generic span name (`publish` / `process`), and have empty Prometheus destination labels. Users relying on destination-level attribution should treat the current AMQP support as traffic-level only.
 - **Direction-inferred operation**: `publish` vs `process` is derived from traffic direction. Broker-to-consumer deliveries arrive on what OBI sees as the server side and are therefore labeled `process`.

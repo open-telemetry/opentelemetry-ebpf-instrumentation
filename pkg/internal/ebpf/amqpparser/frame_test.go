@@ -11,10 +11,18 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func parseTestFrameHeader(frame []byte) (frameHeader, error) {
+	return parseFrameHeader(newLargeBufferReader(frame))
+}
+
+func parseTestPerformativeDescriptor(frame []byte, header frameHeader) (descriptor, bool, error) {
+	return parsePerformativeDescriptor(newLargeBufferReader(frame), 0, header)
+}
+
 func TestParseFrameHeader(t *testing.T) {
 	t.Run("happy path", func(t *testing.T) {
 		frame := makeFrame(frameTypeAMQP, descriptorOpen)
-		h, err := parseFrameHeader(frame)
+		h, err := parseTestFrameHeader(frame)
 		require.NoError(t, err)
 		assert.EqualValues(t, len(frame), h.Size)
 		assert.EqualValues(t, minDataOffsetWords, h.DataOffsetWords)
@@ -23,7 +31,7 @@ func TestParseFrameHeader(t *testing.T) {
 	})
 
 	t.Run("too-short buffer", func(t *testing.T) {
-		_, err := parseFrameHeader([]byte{0x00, 0x00, 0x00, 0x08, 0x02})
+		_, err := parseTestFrameHeader([]byte{0x00, 0x00, 0x00, 0x08, 0x02})
 		require.Error(t, err)
 	})
 
@@ -31,7 +39,7 @@ func TestParseFrameHeader(t *testing.T) {
 		frame := make([]byte, frameHeaderSize)
 		binary.BigEndian.PutUint32(frame[:4], frameHeaderSize-1)
 		frame[4] = minDataOffsetWords
-		_, err := parseFrameHeader(frame)
+		_, err := parseTestFrameHeader(frame)
 		require.Error(t, err)
 	})
 
@@ -40,7 +48,7 @@ func TestParseFrameHeader(t *testing.T) {
 		binary.BigEndian.PutUint32(frame[:4], frameHeaderSize+16)
 		frame[4] = minDataOffsetWords
 		frame[5] = byte(frameTypeAMQP)
-		_, err := parseFrameHeader(frame)
+		_, err := parseTestFrameHeader(frame)
 		require.Error(t, err)
 		assert.ErrorIs(t, err, errIncompleteFrame)
 	})
@@ -49,7 +57,7 @@ func TestParseFrameHeader(t *testing.T) {
 		frame := make([]byte, frameHeaderSize)
 		binary.BigEndian.PutUint32(frame[:4], frameHeaderSize)
 		frame[4] = 0
-		_, err := parseFrameHeader(frame)
+		_, err := parseTestFrameHeader(frame)
 		require.Error(t, err)
 	})
 
@@ -57,7 +65,7 @@ func TestParseFrameHeader(t *testing.T) {
 		frame := make([]byte, frameHeaderSize)
 		binary.BigEndian.PutUint32(frame[:4], frameHeaderSize)
 		frame[4] = 1
-		_, err := parseFrameHeader(frame)
+		_, err := parseTestFrameHeader(frame)
 		require.Error(t, err)
 	})
 
@@ -66,7 +74,7 @@ func TestParseFrameHeader(t *testing.T) {
 		binary.BigEndian.PutUint32(frame[:4], 12)
 		frame[4] = 255 // 255 * 4 = 1020 > 12
 		frame[5] = byte(frameTypeAMQP)
-		_, err := parseFrameHeader(frame)
+		_, err := parseTestFrameHeader(frame)
 		require.Error(t, err)
 	})
 
@@ -75,7 +83,7 @@ func TestParseFrameHeader(t *testing.T) {
 		binary.BigEndian.PutUint32(frame[:4], 0x7FFFFFFF)
 		frame[4] = minDataOffsetWords
 		frame[5] = byte(frameTypeAMQP)
-		_, err := parseFrameHeader(frame)
+		_, err := parseTestFrameHeader(frame)
 		require.Error(t, err)
 		assert.ErrorIs(t, err, errIncompleteFrame)
 	})
@@ -86,7 +94,7 @@ func TestParseFrameHeader(t *testing.T) {
 			binary.BigEndian.PutUint32(frame[:4], frameHeaderSize)
 			frame[4] = minDataOffsetWords
 			frame[5] = byte(ft)
-			_, err := parseFrameHeader(frame)
+			_, err := parseTestFrameHeader(frame)
 			require.Errorf(t, err, "frame type 0x%02X should be rejected", ft)
 		}
 	})
@@ -105,9 +113,9 @@ func TestParsePerformativeDescriptor(t *testing.T) {
 
 	t.Run("smallulong descriptor happy path", func(t *testing.T) {
 		frame := makeFrame(frameTypeAMQP, descriptorTransfer)
-		h, err := parseFrameHeader(frame)
+		h, err := parseTestFrameHeader(frame)
 		require.NoError(t, err)
-		descriptor, ok, derr := parsePerformativeDescriptor(frame, h)
+		descriptor, ok, derr := parseTestPerformativeDescriptor(frame, h)
 		require.NoError(t, derr)
 		assert.True(t, ok)
 		assert.Equal(t, descriptorTransfer, descriptor)
@@ -115,9 +123,9 @@ func TestParsePerformativeDescriptor(t *testing.T) {
 
 	t.Run("ulong descriptor happy path", func(t *testing.T) {
 		frame := makeULongFrame(frameTypeAMQP, descriptorTransfer)
-		h, err := parseFrameHeader(frame)
+		h, err := parseTestFrameHeader(frame)
 		require.NoError(t, err)
-		descriptor, ok, derr := parsePerformativeDescriptor(frame, h)
+		descriptor, ok, derr := parseTestPerformativeDescriptor(frame, h)
 		require.NoError(t, derr)
 		assert.True(t, ok)
 		assert.Equal(t, descriptorTransfer, descriptor)
@@ -125,9 +133,9 @@ func TestParsePerformativeDescriptor(t *testing.T) {
 
 	t.Run("empty body is heartbeat", func(t *testing.T) {
 		frame := makeHeartbeatFrame()
-		h, err := parseFrameHeader(frame)
+		h, err := parseTestFrameHeader(frame)
 		require.NoError(t, err)
-		descriptor, ok, derr := parsePerformativeDescriptor(frame, h)
+		descriptor, ok, derr := parseTestPerformativeDescriptor(frame, h)
 		require.NoError(t, derr)
 		assert.False(t, ok)
 		assert.EqualValues(t, 0, descriptor)
@@ -135,26 +143,26 @@ func TestParsePerformativeDescriptor(t *testing.T) {
 
 	t.Run("body shorter than descriptor prefix", func(t *testing.T) {
 		frame := makeFrameWithBody(frameTypeAMQP, []byte{0x00, 0x53})
-		h, err := parseFrameHeader(frame)
+		h, err := parseTestFrameHeader(frame)
 		require.NoError(t, err)
-		_, _, derr := parsePerformativeDescriptor(frame, h)
+		_, _, derr := parseTestPerformativeDescriptor(frame, h)
 		require.Error(t, derr)
 	})
 
 	t.Run("body not described-type (missing 0x00 constructor)", func(t *testing.T) {
 		frame := makeFrameWithBody(frameTypeAMQP, []byte{0xA0, 0x53, byte(descriptorOpen)})
-		h, err := parseFrameHeader(frame)
+		h, err := parseTestFrameHeader(frame)
 		require.NoError(t, err)
-		_, _, derr := parsePerformativeDescriptor(frame, h)
+		_, _, derr := parseTestPerformativeDescriptor(frame, h)
 		require.Error(t, derr)
 	})
 
 	t.Run("truncated ulong descriptor value", func(t *testing.T) {
 		// Full ulong prefix is 10 bytes; supply only 5 (0x00,0x80 + 3 stray bytes).
 		frame := makeFrameWithBody(frameTypeAMQP, []byte{0x00, 0x80, 0x00, 0x00, 0x00})
-		h, err := parseFrameHeader(frame)
+		h, err := parseTestFrameHeader(frame)
 		require.NoError(t, err)
-		_, _, derr := parsePerformativeDescriptor(frame, h)
+		_, _, derr := parseTestPerformativeDescriptor(frame, h)
 		require.Error(t, derr)
 	})
 
@@ -162,9 +170,9 @@ func TestParsePerformativeDescriptor(t *testing.T) {
 		// Neither 0x53 nor 0x80.
 		for _, fc := range []byte{0x54, 0x42, 0xFF} {
 			frame := makeFrameWithBody(frameTypeAMQP, []byte{0x00, fc, 0x10})
-			h, err := parseFrameHeader(frame)
+			h, err := parseTestFrameHeader(frame)
 			require.NoError(t, err)
-			_, ok, derr := parsePerformativeDescriptor(frame, h)
+			_, ok, derr := parseTestPerformativeDescriptor(frame, h)
 			require.Errorf(t, derr, "format code 0x%02X should be rejected", fc)
 			assert.False(t, ok)
 		}
@@ -173,9 +181,9 @@ func TestParsePerformativeDescriptor(t *testing.T) {
 	t.Run("known encoding with unknown descriptor code", func(t *testing.T) {
 		// Valid smallulong encoding, but 0x99 is not an AMQP-space performative.
 		frame := makeFrameWithBody(frameTypeAMQP, []byte{0x00, 0x53, 0x99})
-		h, err := parseFrameHeader(frame)
+		h, err := parseTestFrameHeader(frame)
 		require.NoError(t, err)
-		_, ok, derr := parsePerformativeDescriptor(frame, h)
+		_, ok, derr := parseTestPerformativeDescriptor(frame, h)
 		require.Error(t, derr)
 		assert.False(t, ok)
 	})

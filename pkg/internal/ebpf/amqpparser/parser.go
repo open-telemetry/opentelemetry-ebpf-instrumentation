@@ -5,6 +5,8 @@ package amqpparser // import "go.opentelemetry.io/obi/pkg/internal/ebpf/amqppars
 
 import (
 	"errors"
+
+	"go.opentelemetry.io/obi/pkg/internal/largebuf"
 )
 
 const maxFramesParsed = 128
@@ -13,12 +15,10 @@ var ErrNotAMQP = errors.New("not AMQP 1.0")
 
 type Result struct {
 	LooksLikeAMQP bool
-	Truncated     bool
 	TransferCount int
 }
 
 type frameParseResult struct {
-	nextOffset int
 	descriptor descriptor
 	found      bool
 	stop       bool
@@ -29,33 +29,31 @@ type parserState struct {
 	framesParsed int
 }
 
-// Parse parses an AMQP 1.0 payload and returns transfer facts for span creation.
-func Parse(data []byte) (Result, error) {
-	if len(data) < len(amqpMagic) {
+// Parse parses an AMQP 1.0 payload from a LargeBufferReader and returns
+// transfer facts for span creation.
+func Parse(r *largebuf.LargeBufferReader) (Result, error) {
+	if r.Remaining() < len(amqpMagic) {
 		return Result{}, ErrNotAMQP
 	}
 
 	state := parserState{}
-	offset := 0
-	for offset < len(data) {
-		if startsWithMagic(data[offset:]) {
-			nextOffset, err := parseProtocolHeaderAt(data, offset)
-			if err != nil {
+	for r.Remaining() > 0 {
+		if startsWithMagic(r) {
+			if _, err := parseProtocolHeader(r); err != nil {
 				return state.resultOrError(err)
 			}
 			state.LooksLikeAMQP = true
-			offset = nextOffset
 			continue
 		}
 
-		if len(data[offset:]) < frameHeaderSize {
+		if r.Remaining() < frameHeaderSize {
 			if state.LooksLikeAMQP {
 				break
 			}
 			return Result{}, ErrNotAMQP
 		}
 
-		frame, err := parseFrame(data, offset, state.LooksLikeAMQP)
+		frame, err := parseFrame(r, state.LooksLikeAMQP)
 		if err != nil {
 			return state.resultOrError(err)
 		}
@@ -69,10 +67,8 @@ func Parse(data []byte) (Result, error) {
 			break
 		}
 
-		offset = frame.nextOffset
 		state.framesParsed++
 		if state.framesParsed >= maxFramesParsed {
-			state.Truncated = offset < len(data)
 			break
 		}
 	}
@@ -83,20 +79,12 @@ func Parse(data []byte) (Result, error) {
 	return Result{}, ErrNotAMQP
 }
 
-func parseProtocolHeaderAt(data []byte, offset int) (int, error) {
-	if len(data[offset:]) < protocolHeaderSize {
-		return 0, errors.New("truncated AMQP protocol header")
-	}
-	if _, err := parseProtocolHeader(data[offset:]); err != nil {
-		return 0, err
-	}
-	return offset + protocolHeaderSize, nil
-}
-
-func parseFrame(data []byte, offset int, alreadyAMQP bool) (frameParseResult, error) {
-	header, err := parseFrameHeader(data[offset:])
+func parseFrame(r *largebuf.LargeBufferReader, alreadyAMQP bool) (frameParseResult, error) {
+	frameStart := r.ReadOffset()
+	available := r.Remaining()
+	header, err := parseFrameHeader(r)
 	if errors.Is(err, errIncompleteFrame) {
-		descriptor, found, derr := decodeBodyDescriptor(data[offset:], header)
+		descriptor, found, derr := decodeBodyDescriptor(r, frameStart, available, header)
 		if derr != nil && alreadyAMQP {
 			return frameParseResult{}, derr
 		}
@@ -110,13 +98,11 @@ func parseFrame(data []byte, offset int, alreadyAMQP bool) (frameParseResult, er
 		return frameParseResult{}, err
 	}
 
-	frameEnd := offset + int(header.Size)
-	descriptor, found, err := parsePerformativeDescriptor(data[offset:frameEnd], header)
+	descriptor, found, err := parsePerformativeDescriptor(r, frameStart, header)
 	if err != nil {
 		return frameParseResult{}, err
 	}
 	return frameParseResult{
-		nextOffset: frameEnd,
 		descriptor: descriptor,
 		found:      found,
 	}, nil
@@ -129,10 +115,23 @@ func (s parserState) resultOrError(err error) (Result, error) {
 	return Result{}, ErrNotAMQP
 }
 
-func decodeBodyDescriptor(frame []byte, header frameHeader) (descriptor, bool, error) {
+func decodeBodyDescriptor(r *largebuf.LargeBufferReader, frameStart, available int, header frameHeader) (descriptor, bool, error) {
 	bodyStart := header.bodyOffset()
-	if bodyStart >= len(frame) {
+	if bodyStart >= available {
 		return 0, false, nil
 	}
-	return parsePerformativeDescriptor(frame, header)
+
+	if err := skipToOffset(r, frameStart+bodyStart); err != nil {
+		return 0, false, err
+	}
+	desc, found, err := parseDescriptor(r, header.Type, available-bodyStart)
+	return desc, found, err
+}
+
+func skipToOffset(r *largebuf.LargeBufferReader, offset int) error {
+	current := r.ReadOffset()
+	if current >= offset {
+		return nil
+	}
+	return r.Skip(offset - current)
 }

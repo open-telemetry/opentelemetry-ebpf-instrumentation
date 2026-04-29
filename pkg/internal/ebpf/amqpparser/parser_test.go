@@ -9,6 +9,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"go.opentelemetry.io/obi/pkg/internal/largebuf"
 )
 
 func makeProtocolHeader(id protocolID) []byte {
@@ -53,8 +55,14 @@ func makeHeartbeatFrame() []byte {
 	return frame
 }
 
+func newLargeBufferReader(data []byte) *largebuf.LargeBufferReader {
+	lb := largebuf.NewLargeBufferFrom(data)
+	reader := lb.NewReader()
+	return &reader
+}
+
 func parseTransferPresence(data []byte) (bool, bool, error) {
-	result, err := Parse(data)
+	result, err := Parse(newLargeBufferReader(data))
 	if err != nil {
 		return result.LooksLikeAMQP, false, err
 	}
@@ -122,10 +130,24 @@ func TestParseTransferCount(t *testing.T) {
 	payload = append(payload, makeFrameOnChannel(frameTypeAMQP, descriptorTransfer, 2)...)
 	payload = append(payload, makeFrameOnChannel(frameTypeAMQP, descriptorTransfer, 3)...)
 
-	result, err := Parse(payload)
+	result, err := Parse(newLargeBufferReader(payload))
 	require.NoError(t, err)
 	require.True(t, result.LooksLikeAMQP)
 	assert.Equal(t, 2, result.TransferCount)
+}
+
+func TestParseAcrossChunks(t *testing.T) {
+	payload := append(makeProtocolHeader(protocolIDAMQP), makeFrame(frameTypeAMQP, descriptorTransfer)...)
+	lb := largebuf.NewLargeBuffer()
+	lb.AppendChunk(payload[:5])
+	lb.AppendChunk(payload[5:11])
+	lb.AppendChunk(payload[11:])
+
+	reader := lb.NewReader()
+	result, err := Parse(&reader)
+	require.NoError(t, err)
+	assert.True(t, result.LooksLikeAMQP)
+	assert.Equal(t, 1, result.TransferCount)
 }
 
 func TestParseProtocolHeaderNegotiation(t *testing.T) {
@@ -235,9 +257,8 @@ func TestParseFrameIterationCap(t *testing.T) {
 		payload = append(payload, makeFrame(frameTypeAMQP, descriptorOpen)...)
 	}
 
-	result, err := Parse(payload)
+	result, err := Parse(newLargeBufferReader(payload))
 	require.NoError(t, err)
 	assert.True(t, result.LooksLikeAMQP)
-	assert.True(t, result.Truncated)
 	assert.Zero(t, result.TransferCount)
 }

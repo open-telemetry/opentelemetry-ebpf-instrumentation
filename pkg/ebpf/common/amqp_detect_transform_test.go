@@ -146,23 +146,27 @@ func TestProcessPossibleAMQPEvent(t *testing.T) {
 	})
 }
 
-func TestIsAMQP(t *testing.T) {
-	looks, err := isAMQP(largebuf.NewLargeBufferFrom(makeAMQP10Header(0)))
+func TestProcessAMQPBufferLooksLikeAMQP(t *testing.T) {
+	looks, infos, err := processAMQPBuffer(largebuf.NewLargeBufferFrom(makeAMQP10Header(0)), directionSend)
 	require.NoError(t, err)
 	assert.True(t, looks)
+	assert.Empty(t, infos)
 
 	frameOnly := makeAMQPSmallPerformativeFrame(testDescriptorTransfer)
-	looks, err = isAMQP(largebuf.NewLargeBufferFrom(frameOnly))
+	looks, infos, err = processAMQPBuffer(largebuf.NewLargeBufferFrom(frameOnly), directionSend)
 	require.NoError(t, err)
 	assert.True(t, looks)
+	require.Len(t, infos, 1)
 
-	looks, err = isAMQP(largebuf.NewLargeBufferFrom([]byte("GET / HTTP/1.1\r\n")))
+	looks, infos, err = processAMQPBuffer(largebuf.NewLargeBufferFrom([]byte("GET / HTTP/1.1\r\n")), directionSend)
 	require.NoError(t, err)
 	assert.False(t, looks)
+	assert.Empty(t, infos)
 
-	looks, err = isAMQP(nil)
+	looks, infos, err = processAMQPBuffer(nil, directionSend)
 	require.NoError(t, err)
 	assert.False(t, looks)
+	assert.Empty(t, infos)
 
 	// Regression: a bare frame header for a non-AMQP protocol must NOT look like AMQP.
 	// Kafka-style size-prefixed packet with api_key=0 would previously false-positive.
@@ -172,17 +176,18 @@ func TestIsAMQP(t *testing.T) {
 		0x00, 0x02, 'k', 'p', 0x00, 0x01, 0x00, 0x00, 0x03, 0xe8,
 		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 	}
-	looks, err = isAMQP(largebuf.NewLargeBufferFrom(kafka))
+	looks, infos, err = processAMQPBuffer(largebuf.NewLargeBufferFrom(kafka), directionSend)
 	require.NoError(t, err)
 	assert.False(t, looks)
+	assert.Empty(t, infos)
 
-	// AMQP-shaped bytes that fail to parse: looks=true, err!=nil so matchAMQP can
-	// short-circuit without re-parsing. A valid protocol header proves AMQP, and the
-	// following malformed frame surfaces the error.
+	// AMQP-shaped bytes that fail to parse: looks=true, err!=nil. A valid protocol
+	// header proves AMQP, and the following malformed frame surfaces the error.
 	bad := append(makeAMQP10Header(0), []byte{0x00, 0x00, 0x00, 0x08, 0x02, 0xFF, 0x00, 0x00}...)
-	looks, err = isAMQP(largebuf.NewLargeBufferFrom(bad))
+	looks, infos, err = processAMQPBuffer(largebuf.NewLargeBufferFrom(bad), directionSend)
 	require.Error(t, err)
 	assert.True(t, looks)
+	assert.Empty(t, infos)
 }
 
 func TestTCPToAMQPSpan(t *testing.T) {
@@ -200,7 +205,7 @@ func TestTCPToAMQPSpan(t *testing.T) {
 		trace.Pid.UserPid = 124
 		trace.Pid.Ns = 55
 
-		span := tcpToAMQPToSpan(trace, AMQPInfo{Direction: directionSend})
+		span := TCPToAMQPToSpan(trace, AMQPInfo{Direction: directionSend})
 		assert.Equal(t, request.EventTypeAMQPClient, span.Type)
 		assert.Equal(t, request.MessagingPublish, span.Method)
 		assert.Empty(t, span.Path)
@@ -222,7 +227,7 @@ func TestTCPToAMQPSpan(t *testing.T) {
 			},
 		}
 
-		span := tcpToAMQPToSpan(trace, AMQPInfo{Direction: directionRecv})
+		span := TCPToAMQPToSpan(trace, AMQPInfo{Direction: directionRecv})
 		assert.Equal(t, request.EventTypeAMQPClient, span.Type)
 		assert.Equal(t, request.MessagingProcess, span.Method)
 		assert.Equal(t, 54321, span.PeerPort)

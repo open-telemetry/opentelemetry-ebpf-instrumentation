@@ -15,6 +15,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/config"
+	"go.opentelemetry.io/obi/pkg/internal/ebpf/amqpparser"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/kafkaparser"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/ringbuf"
 	"go.opentelemetry.io/obi/pkg/internal/largebuf"
@@ -364,18 +365,6 @@ func matchNATS(parseCtx *EBPFParseContext, event *TCPRequestInfo, requestBuffer,
 }
 
 func matchAMQP(parseCtx *EBPFParseContext, event *TCPRequestInfo, requestBuffer, responseBuffer *largebuf.LargeBuffer) (request.Span, bool, bool, error) { //nolint:unparam
-	reqLooks, reqErr := isAMQP(requestBuffer)
-	respLooks, respErr := isAMQP(responseBuffer)
-	if !reqLooks && !respLooks {
-		return request.Span{}, false, false, nil
-	}
-
-	if reqErr != nil || respErr != nil {
-		slog.Warn("AMQP heuristic matched but parsing failed, dropping event",
-			"reqErr", reqErr, "respErr", respErr)
-		return request.Span{}, true, true, nil
-	}
-
 	infos, ignore, err := ProcessPossibleAMQPEvent(event, requestBuffer, responseBuffer)
 	if ignore && err == nil {
 		return request.Span{}, true, true, nil
@@ -384,18 +373,27 @@ func matchAMQP(parseCtx *EBPFParseContext, event *TCPRequestInfo, requestBuffer,
 	if err == nil {
 		spans := make([]request.Span, 0, len(infos))
 		for _, info := range infos {
-			spans = append(spans, tcpToAMQPToSpan(event, info))
+			spans = append(spans, TCPToAMQPToSpan(event, info))
 		}
 		if len(spans) == 0 {
 			return request.Span{}, true, true, nil
 		}
 		if len(spans) > 1 {
+			// Clear SpanID on extras so tracesgen assigns fresh IDs; otherwise
+			// every clone exports with the captured SpanID, violating OTel.
+			for i := 1; i < len(spans); i++ {
+				spans[i].SpanID = trace.SpanID{}
+			}
 			parseCtx.emitExtraSpans(spans[1:]...)
 		}
 		return spans[0], false, true, nil
 	}
 
-	slog.Warn("AMQP parsing failed after heuristic match, dropping event", "error", err)
+	if errors.Is(err, amqpparser.ErrNotAMQP) {
+		return request.Span{}, false, false, nil
+	}
+
+	slog.Debug("AMQP parsing failed after heuristic match, dropping event", "error", err)
 	return request.Span{}, true, true, nil
 }
 
@@ -462,16 +460,19 @@ func getBuffers(parseCtx *EBPFParseContext, event *TCPRequestInfo) (req *largebu
 }
 
 func reverseTCPEvent(trace *TCPRequestInfo) {
-	if trace.Direction == 0 {
-		trace.Direction = 1
-	} else {
-		trace.Direction = 0
-	}
+	trace.Direction = reverseDirection(trace.Direction)
+	trace.ConnInfo = reverseTCPConnInfo(trace.ConnInfo)
+}
 
-	port := trace.ConnInfo.S_port
-	addr := trace.ConnInfo.S_addr
-	trace.ConnInfo.S_addr = trace.ConnInfo.D_addr
-	trace.ConnInfo.S_port = trace.ConnInfo.D_port
-	trace.ConnInfo.D_addr = addr
-	trace.ConnInfo.D_port = port
+func reverseDirection(direction uint8) uint8 {
+	if direction == directionSend {
+		return directionRecv
+	}
+	return directionSend
+}
+
+func reverseTCPConnInfo(conn BpfConnectionInfoT) BpfConnectionInfoT {
+	conn.S_addr, conn.D_addr = conn.D_addr, conn.S_addr
+	conn.S_port, conn.D_port = conn.D_port, conn.S_port
+	return conn
 }

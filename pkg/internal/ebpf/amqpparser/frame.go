@@ -4,9 +4,10 @@
 package amqpparser // import "go.opentelemetry.io/obi/pkg/internal/ebpf/amqpparser"
 
 import (
-	"encoding/binary"
 	"errors"
 	"fmt"
+
+	"go.opentelemetry.io/obi/pkg/internal/largebuf"
 )
 
 const (
@@ -66,25 +67,40 @@ func (h frameHeader) bodyOffset() int {
 }
 
 // parseFrameHeader validates and parses the fixed 8-byte AMQP frame header.
-func parseFrameHeader(frame []byte) (frameHeader, error) {
-	if len(frame) < frameHeaderSize {
-		return frameHeader{}, fmt.Errorf("packet too short for AMQP frame header: have %d bytes, need %d", len(frame), frameHeaderSize)
+func parseFrameHeader(r *largebuf.LargeBufferReader) (frameHeader, error) {
+	remaining := r.Remaining()
+	if remaining < frameHeaderSize {
+		return frameHeader{}, fmt.Errorf("packet too short for AMQP frame header: have %d bytes, need %d", remaining, frameHeaderSize)
 	}
 
-	size := binary.BigEndian.Uint32(frame[:4])
+	size, err := r.ReadU32BE()
+	if err != nil {
+		return frameHeader{}, err
+	}
 	if size < frameHeaderSize {
 		return frameHeader{}, fmt.Errorf("invalid AMQP frame size %d (must be >= %d)", size, frameHeaderSize)
 	}
 
-	doff := frame[4]
+	doff, err := r.ReadU8()
+	if err != nil {
+		return frameHeader{}, err
+	}
 	if doff < minDataOffsetWords {
 		return frameHeader{}, fmt.Errorf("invalid AMQP frame data offset %d (must be >= %d)", doff, minDataOffsetWords)
+	}
+
+	ft, err := r.ReadU8()
+	if err != nil {
+		return frameHeader{}, err
+	}
+	if err := r.Skip(2); err != nil {
+		return frameHeader{}, err
 	}
 
 	h := frameHeader{
 		Size:            size,
 		DataOffsetWords: doff,
-		Type:            frameType(frame[5]),
+		Type:            frameType(ft),
 	}
 
 	if h.bodyOffset() > int(h.Size) {
@@ -97,60 +113,82 @@ func parseFrameHeader(frame []byte) (frameHeader, error) {
 		return frameHeader{}, fmt.Errorf("invalid AMQP frame type 0x%02X", byte(h.Type))
 	}
 
-	if int(size) > len(frame) {
+	if int(size) > remaining {
 		return h, errIncompleteFrame
 	}
 
 	return h, nil
 }
 
-// parsePerformativeDescriptor reads the described-type ulong descriptor from a frame
-// payload.
-func parsePerformativeDescriptor(frame []byte, header frameHeader) (descriptor, bool, error) {
+// parsePerformativeDescriptor reads the described-type smallulong or ulong
+// descriptor from a frame payload.
+func parsePerformativeDescriptor(r *largebuf.LargeBufferReader, frameStart int, header frameHeader) (descriptor, bool, error) {
 	bodyStart := header.bodyOffset()
-	if bodyStart > len(frame) {
-		return 0, false, fmt.Errorf("AMQP frame body offset %d out of range (frame len %d)", bodyStart, len(frame))
+	frameEnd := frameStart + int(header.Size)
+	if err := skipToOffset(r, frameStart+bodyStart); err != nil {
+		return 0, false, err
 	}
-	body := frame[bodyStart:]
 
-	desc, _, found, err := parseDescriptor(body, header.Type)
-	return desc, found, err
+	desc, found, err := parseDescriptor(r, header.Type, frameEnd-r.ReadOffset())
+	if err != nil {
+		return 0, false, err
+	}
+	if err := skipToOffset(r, frameEnd); err != nil {
+		return 0, false, err
+	}
+
+	return desc, found, nil
 }
 
-// parseDescriptor attempts to decode a described-type ulong descriptor from the start of the provided body.
-func parseDescriptor(body []byte, ft frameType) (descriptor, int, bool, error) {
-	if len(body) == 0 {
+// parseDescriptor attempts to decode a described-type ulong descriptor from the current read offset.
+func parseDescriptor(r *largebuf.LargeBufferReader, ft frameType, bodyLen int) (descriptor, bool, error) {
+	if bodyLen == 0 {
 		// AMQP heartbeat: zero-length body.
-		return 0, 0, false, nil
+		return 0, false, nil
 	}
-	if len(body) < smallULongDescriptorSize {
-		return 0, 0, false, fmt.Errorf("AMQP frame body too short for performative: %d bytes", len(body))
+	if bodyLen < smallULongDescriptorSize {
+		return 0, false, fmt.Errorf("AMQP frame body too short for performative: %d bytes", bodyLen)
 	}
-	if body[0] != describedTypeConstructor {
-		return 0, 0, false, fmt.Errorf("AMQP performative is not described (first byte 0x%02X)", body[0])
+
+	constructor, err := r.ReadU8()
+	if err != nil {
+		return 0, false, err
+	}
+	if constructor != describedTypeConstructor {
+		return 0, false, fmt.Errorf("AMQP performative is not described (first byte 0x%02X)", constructor)
+	}
+
+	formatCode, err := r.ReadU8()
+	if err != nil {
+		return 0, false, err
 	}
 
 	var desc descriptor
-	var descriptorLen int
-	switch body[1] {
+	switch formatCode {
 	case formatCodeSmallULong:
-		desc = descriptor(body[2])
-		descriptorLen = smallULongDescriptorSize
-	case formatCodeULong:
-		if len(body) < uLongDescriptorSize {
-			return 0, 0, false, fmt.Errorf("AMQP ulong descriptor truncated: %d bytes, need %d", len(body), uLongDescriptorSize)
+		value, err := r.ReadU8()
+		if err != nil {
+			return 0, false, err
 		}
-		desc = descriptor(binary.BigEndian.Uint64(body[2:uLongDescriptorSize]))
-		descriptorLen = uLongDescriptorSize
+		desc = descriptor(value)
+	case formatCodeULong:
+		if bodyLen < uLongDescriptorSize {
+			return 0, false, fmt.Errorf("AMQP ulong descriptor truncated: %d bytes, need %d", bodyLen, uLongDescriptorSize)
+		}
+		value, err := r.ReadU64BE()
+		if err != nil {
+			return 0, false, err
+		}
+		desc = descriptor(value)
 	default:
-		return 0, 0, false, fmt.Errorf("unsupported AMQP descriptor encoding 0x%02X", body[1])
+		return 0, false, fmt.Errorf("unsupported AMQP descriptor encoding 0x%02X", formatCode)
 	}
 
 	if !isKnownPerformativeDescriptor(ft, desc) {
-		return 0, 0, false, fmt.Errorf("unknown AMQP performative descriptor 0x%X on frame type 0x%02X", uint64(desc), byte(ft))
+		return 0, false, fmt.Errorf("unknown AMQP performative descriptor 0x%X on frame type 0x%02X", uint64(desc), byte(ft))
 	}
 
-	return desc, descriptorLen, true, nil
+	return desc, true, nil
 }
 
 // isKnownPerformativeDescriptor reports whether descriptor is a standard AMQP 1.0

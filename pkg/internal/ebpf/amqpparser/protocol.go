@@ -7,6 +7,8 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+
+	"go.opentelemetry.io/obi/pkg/internal/largebuf"
 )
 
 const protocolHeaderSize = 8
@@ -37,18 +39,24 @@ type protocolHeader struct {
 	Revision uint8
 }
 
-func startsWithMagic(data []byte) bool {
-	return len(data) >= len(amqpMagic) && bytes.Equal(data[:len(amqpMagic)], amqpMagic)
+func startsWithMagic(r *largebuf.LargeBufferReader) bool {
+	data, err := r.Peek(len(amqpMagic))
+	return err == nil && bytes.Equal(data, amqpMagic)
 }
 
 // parseProtocolHeader validates and parses an AMQP 1.0 protocol header.
 // Non-1.0 versions are rejected to avoid false positives on AMQP 0-9-1.
-func parseProtocolHeader(data []byte) (protocolHeader, error) {
-	if len(data) < protocolHeaderSize {
+func parseProtocolHeader(r *largebuf.LargeBufferReader) (protocolHeader, error) {
+	if r.Remaining() < protocolHeaderSize {
 		return protocolHeader{}, errors.New("packet too short for AMQP protocol header")
 	}
 
-	if !startsWithMagic(data) {
+	data, err := r.ReadN(protocolHeaderSize)
+	if err != nil {
+		return protocolHeader{}, err
+	}
+
+	if !bytes.Equal(data[:len(amqpMagic)], amqpMagic) {
 		return protocolHeader{}, errors.New("missing AMQP protocol magic")
 	}
 

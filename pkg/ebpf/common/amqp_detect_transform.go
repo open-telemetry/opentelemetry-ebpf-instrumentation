@@ -18,7 +18,7 @@ type AMQPInfo struct {
 
 func ProcessPossibleAMQPEvent(event *TCPRequestInfo, pkt, rpkt *largebuf.LargeBuffer) ([]AMQPInfo, bool, error) {
 	reqLooks, reqInfos, reqErr := processAMQPBuffer(pkt, event.Direction)
-	respLooks, respInfos, respErr := processAMQPBuffer(rpkt, oppositeDirection(event.Direction))
+	respLooks, respInfos, respErr := processAMQPBuffer(rpkt, reverseDirection(event.Direction))
 
 	infos := reqInfos
 	infos = append(infos, respInfos...)
@@ -41,23 +41,13 @@ func ProcessPossibleAMQPEvent(event *TCPRequestInfo, pkt, rpkt *largebuf.LargeBu
 	return nil, true, amqpparser.ErrNotAMQP
 }
 
-func isAMQP(pkt *largebuf.LargeBuffer) (bool, error) {
-	if pkt == nil {
-		return false, nil
-	}
-	result, err := amqpparser.Parse(pkt.UnsafeView())
-	if errors.Is(err, amqpparser.ErrNotAMQP) {
-		return result.LooksLikeAMQP, nil
-	}
-	return result.LooksLikeAMQP, err
-}
-
 func processAMQPBuffer(pkt *largebuf.LargeBuffer, direction uint8) (bool, []AMQPInfo, error) {
 	if pkt == nil {
 		return false, nil, nil
 	}
 
-	result, err := amqpparser.Parse(pkt.UnsafeView())
+	reader := pkt.NewReader()
+	result, err := amqpparser.Parse(&reader)
 	if err != nil {
 		if errors.Is(err, amqpparser.ErrNotAMQP) {
 			return false, nil, nil
@@ -76,7 +66,7 @@ func processAMQPBuffer(pkt *largebuf.LargeBuffer, direction uint8) (bool, []AMQP
 	return true, infos, nil
 }
 
-func tcpToAMQPToSpan(trace *TCPRequestInfo, data AMQPInfo) request.Span {
+func TCPToAMQPToSpan(trace *TCPRequestInfo, data AMQPInfo) request.Span {
 	peer, peerPort, hostname, hostPort := amqpSpanEndpoints(trace, data.Direction)
 
 	return request.Span{
@@ -114,7 +104,7 @@ func amqpOperation(direction uint8) string {
 func amqpSpanEndpoints(trace *TCPRequestInfo, direction uint8) (peer string, peerPort int, host string, hostPort int) {
 	connInfo := trace.ConnInfo
 	if trace.Direction != direction {
-		connInfo = swapConnInfo(connInfo)
+		connInfo = reverseTCPConnInfo(connInfo)
 	}
 
 	source, target := (*BPFConnInfo)(&connInfo).reqHostInfo()
@@ -122,17 +112,4 @@ func amqpSpanEndpoints(trace *TCPRequestInfo, direction uint8) (peer string, pee
 		return source, int(connInfo.S_port), target, int(connInfo.D_port)
 	}
 	return target, int(connInfo.D_port), source, int(connInfo.S_port)
-}
-
-func oppositeDirection(direction uint8) uint8 {
-	if direction == directionSend {
-		return directionRecv
-	}
-	return directionSend
-}
-
-func swapConnInfo(conn BpfConnectionInfoT) BpfConnectionInfoT {
-	conn.S_addr, conn.D_addr = conn.D_addr, conn.S_addr
-	conn.S_port, conn.D_port = conn.D_port, conn.S_port
-	return conn
 }

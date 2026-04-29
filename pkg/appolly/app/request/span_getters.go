@@ -216,10 +216,7 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 			if span.Type == EventTypeMQTTClient || span.Type == EventTypeMQTTServer {
 				return semconv.MessagingDestinationName(span.Path)
 			}
-			if span.Type == EventTypeNATSClient || span.Type == EventTypeNATSServer {
-				return semconv.MessagingDestinationName(span.Path)
-			}
-			if span.Type == EventTypeAMQPClient {
+			if span.Type == EventTypeNATSClient || span.Type == EventTypeNATSServer || span.Type == EventTypeAMQPClient {
 				return semconv.MessagingDestinationName(span.Path)
 			}
 			if span.Type == EventTypeHTTPClient && span.SubType == HTTPSubtypeAWSSQS && span.AWS != nil {
