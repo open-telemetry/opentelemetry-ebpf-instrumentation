@@ -191,7 +191,7 @@ func (o *connection) sendWithTimeout(ctx context.Context, timer *time.Timer, eve
 	select {
 	case err := <-sendErr:
 		if err != nil {
-			o.log.Debug("Error sending message. Closing client connection", "clientID", o.ID(), "error", err)
+			o.log.Warn("Error sending message. Closing client connection", "clientID", o.ID(), "error", err)
 			o.metrics.MessageError()
 			return err
 		}
