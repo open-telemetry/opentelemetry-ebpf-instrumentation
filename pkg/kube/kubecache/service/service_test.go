@@ -283,7 +283,7 @@ func TestHandleMessagesQueue_RespectsContextCancellationDuringSend(t *testing.T)
 		close(done)
 	}()
 
-	<-sendCalled // wait until Send is blocking before cancelling
+	<-sendCalled // wait until Send is blocking before canceling
 	cancel()
 
 	select {
