@@ -338,26 +338,16 @@ func testGRPCRelayChainContextPropagation(t *testing.T) {
 	}
 }
 
-// testGRPCMultiplexedContextPropagation verifies that concurrent gRPC streams
-// on the same HTTP/2 connection don't mix trace context. The /relay-multiplex
-// endpoint fires 1 warmup + 3 concurrent RPCs on a shared grpc.ClientConn.
-//
-// If stream_id isolation works correctly, each go-entry CLIENT span produces
-// a distinct python-relay SERVER span whose parent_id points back to that
-// specific CLIENT span. If broken (stream_id race), multiple SERVER spans
-// would share the same parent_id (last-writer-wins).
-//
-// A fixed-per-run trace ID is used so spans from successive requests accumulate
-// under one trace while Jaeger indexes them. The stream_id isolation assertion
-// is still reliable under accumulation: if isolation is broken, all concurrent
-// streams from a single request land the same parent_id, and
-// require.False(t, parentIDs[pid]) fires on the second span with that parent —
-// regardless of how many other requests' spans are also present.
+// testGRPCMultiplexedContextPropagation: /relay-multiplex fans out N concurrent
+// RPCs from go-entry to python-relay (Go uprobe egress); python-relay forwards
+// each on a persistent gRPC channel to go-grpc-to-http (sk_msg egress). Each
+// server span at BOTH hops must have a distinct parent_id — Go path catches a
+// stream_id race, generic path catches sk_msg per-stream isolation breakage
 func testGRPCMultiplexedContextPropagation(t *testing.T) {
 	muxNow := uint64(time.Now().UnixNano())
 	muxAttemptTraceID := fmt.Sprintf("%016x%016x", muxNow, muxNow+1)
 
-	var serverSpans []jaeger.Span
+	var trace jaeger.Trace
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		req, err := http.NewRequest(http.MethodGet, "http://localhost:8080/relay-multiplex", nil)
 		require.NoError(ct, err)
@@ -375,33 +365,32 @@ func testGRPCMultiplexedContextPropagation(t *testing.T) {
 		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
 		require.NotEmpty(ct, tq.Data)
 
-		serverSpans = tq.Data[0].FindByOperationNameServiceAndKind(
-			"/relay.Relay/Relay", "python-relay", "server")
-		require.GreaterOrEqual(ct, len(serverSpans), 3,
-			"expected at least 3 python-relay server spans in trace %s", muxAttemptTraceID)
+		trace = tq.Data[0]
+		require.GreaterOrEqual(ct,
+			len(trace.FindByOperationNameServiceAndKind("/relay.Relay/Relay", "python-relay", "server")),
+			3, "expected at least 3 python-relay server spans in trace %s", muxAttemptTraceID)
+		require.GreaterOrEqual(ct,
+			len(trace.FindByOperationNameServiceAndKind("/relay.Relay/Relay", "go-grpc-to-http", "server")),
+			3, "expected at least 3 go-grpc-to-http server spans in trace %s", muxAttemptTraceID)
 	}, grpcRelayTimeout, time.Second)
 
-	// Each server span must have a DISTINCT parent_id. If stream_id
-	// isolation is broken, concurrent streams race on a single
-	// outgoing_trace_map entry and multiple server spans end up with
-	// the same parent (last-writer-wins).
-	parentIDs := map[string]bool{}
-	for _, s := range serverSpans {
-		pid := ""
-		for _, ref := range s.References {
-			if ref.RefType == "CHILD_OF" {
-				pid = ref.SpanID
+	for _, hop := range []string{"python-relay", "go-grpc-to-http"} {
+		serverSpans := trace.FindByOperationNameServiceAndKind("/relay.Relay/Relay", hop, "server")
+		parentIDs := map[string]bool{}
+		for _, s := range serverSpans {
+			pid := ""
+			for _, ref := range s.References {
+				if ref.RefType == "CHILD_OF" {
+					pid = ref.SpanID
+				}
 			}
+			require.NotEmpty(t, pid, "%s server span %s must have a parent", hop, s.SpanID)
+			require.False(t, parentIDs[pid],
+				"%s: parent_id %s shared by multiple server spans — stream isolation broken", hop, pid)
+			parentIDs[pid] = true
 		}
-		require.NotEmpty(t, pid,
-			"python-relay server span %s must have a parent", s.SpanID)
-		require.False(t, parentIDs[pid],
-			"parent_id %s is shared by multiple server spans — stream_id isolation broken", pid)
-		parentIDs[pid] = true
+		t.Logf("%s: %d server spans, %d distinct parents", hop, len(serverSpans), len(parentIDs))
 	}
-
-	t.Logf("multiplexed: %d server spans, %d distinct parents",
-		len(serverSpans), len(parentIDs))
 }
 
 // traceServices returns a set of unique service names from a trace's processes.

@@ -856,11 +856,10 @@ int obi_packet_extender(struct sk_msg_md *msg) {
     t_ctx->e_key = e_key;
     t_ctx->niter = 0;
 
-    // Plaintext H2: per-stream HPACK. Go bails — uprobe already injected.
+    // Plaintext H2 already marked: per-stream HPACK chain. Drop the previous
+    // valid_pid gate so subsequent sends on a marked H2 socket keep getting
+    // injection regardless of whether the sk_msg context PID matches
     if (is_h2_socket(msg)) {
-        if (!valid_pid(id)) {
-            return SK_PASS;
-        }
         bpf_msg_pull_data(msg, 0, msg->size, 0);
         fill_msg_buffers(msg, &t_ctx->p_conn, &e_key);
         bpf_tail_call_static(msg, &extender_jump_table, k_tail_detect_h2);

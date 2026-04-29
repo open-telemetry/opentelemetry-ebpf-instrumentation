@@ -10,15 +10,19 @@ import relay_pb2_grpc
 
 
 class RelayServicer(relay_pb2_grpc.RelayServicer):
+    # Persistent downstream channel so concurrent inbound Relay calls
+    # multiplex onto a single egress TCP connection (sk_msg coverage path)
     def __init__(self, next_hop):
         self.next_hop = next_hop
+        self.stub = None
+        if next_hop:
+            self.channel = grpc.insecure_channel(next_hop)
+            self.stub = relay_pb2_grpc.RelayStub(self.channel)
 
     def Relay(self, request, context):
         logging.info("received Relay RPC")
-        if self.next_hop:
-            with grpc.insecure_channel(self.next_hop) as channel:
-                stub = relay_pb2_grpc.RelayStub(channel)
-                stub.Relay(relay_pb2.RelayRequest())
+        if self.stub:
+            self.stub.Relay(relay_pb2.RelayRequest())
         return relay_pb2.RelayResponse()
 
 
