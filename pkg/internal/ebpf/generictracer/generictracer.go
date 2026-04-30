@@ -160,8 +160,9 @@ func (p *Tracer) SetupTailCalls() {
 		p.bpfObjects.ObiProtocolHttp2GrpcHandleEndFrame,         // 7
 		p.bpfObjects.ObiHandleBufWithArgs,                       // 8
 		p.bpfObjects.ObiContinueProtocolHttpTp,                  // 9
-		nil,                                                     // 10 — k_tail_continue_netfd_read (set elsewhere)
-		p.bpfObjects.ObiProtocolHttp2GrpcHandleStartFrameServer, // 11
+		nil,                                                             // 10 — k_tail_continue_netfd_read (set elsewhere)
+		p.bpfObjects.ObiProtocolHttp2GrpcHandleStartFrameServer,         // 11
+		p.bpfObjects.ObiProtocolHttp2GrpcHandleStartFrameServerFinalize, // 12
 	} {
 		if prog == nil {
 			continue

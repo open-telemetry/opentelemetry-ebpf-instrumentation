@@ -77,11 +77,13 @@ If a gRPC connection's HTTP/2 preface was sent before OBI attached, `ongoing_htt
 
 **With uprobes**: Not affected.
 
-### loopyWriter race on a fresh stream
+### loopyWriter race on a fresh stream — FIXED
 
-When `loopyWriter` dequeues HEADERS before `NewStream_ret` has published `ongoing_streams`, the first frame on a new stream is sent without OBI's traceparent.
+Previously: `loopyWriter` could dequeue HEADERS before `NewStream_ret` published `ongoing_streams`, so the first frame on a new stream went out without OBI's traceparent.
 
-A clean fix needs an instrumentation point between `s.id = t.nextID` and `controlBuf.put(hdr)` inside `(*http2Client).NewStream` (no such uprobe hook exists without patching gRPC). Per-connection FIFO stashing breaks under concurrent `Invoke` calls; predicting `t.nextID` at entry races with the mutex. The `sk_msg` path partially compensates by injecting a fresh trace context for any HEADERS frame missing one, but the parent linkage there is best-effort.
+Closed by a two-hop bridge in `bpf/gotracer/go_grpc.c`:
+- `(*controlBuffer).executeAndPut` runs on the caller goroutine (still inside `NewStream`); it stashes the invocation keyed by the `*headerFrame` pointer
+- `(*loopyWriter).originateStream` runs on the loopyWriter goroutine right before `framer.WriteHeaders`; by then `outStream.id` is the assigned stream_id. It looks up the stashed invocation by `*headerFrame` and writes `ongoing_streams[{conn_ptr, stream_id}]` before WriteHeaders fires.
 
 ## Maps
 

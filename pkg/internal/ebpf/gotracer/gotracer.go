@@ -470,6 +470,14 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 			Start: p.bpfObjects.ObiUprobeTransportHttp2ClientNewStream,
 			End:   p.bpfObjects.ObiUprobeTransportHttp2ClientNewStreamReturns,
 		}},
+		// Closes the loopyWriter race for stream registration — see
+		// the two-hop bridge in go_grpc.c (executeAndPut → originateStream)
+		"google.golang.org/grpc/internal/transport.(*controlBuffer).executeAndPut": {{
+			Start: p.bpfObjects.ObiUprobeGrpcControlBufferExecuteAndPut,
+		}},
+		"google.golang.org/grpc/internal/transport.(*loopyWriter).originateStream": {{
+			Start: p.bpfObjects.ObiUprobeGrpcLoopyWriterOriginateStream,
+		}},
 		"google.golang.org/grpc/internal/transport.(*http2Server).operateHeaders": {{
 			Start: p.bpfObjects.ObiUprobeHttp2ServerOperateHeaders,
 		}},

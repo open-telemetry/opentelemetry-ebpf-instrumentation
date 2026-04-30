@@ -948,3 +948,82 @@ int obi_uprobe_grpcFramerWriteHeaders_returns(struct pt_regs *ctx) {
     bpf_map_delete_elem(&grpc_framer_invocation_map, &g_key);
     return 0;
 }
+
+// Two-hop bridge that closes the loopyWriter fresh-stream race:
+//
+// 1. executeAndPut runs on the NewStream caller goroutine BEFORE the frame is
+//    queued. hdr.streamID isn't set yet (initStream assigns it on the loopy
+//    writer side later), but hdr's address is stable. Stash invocation by hdr.
+// 2. originateStream runs on the loopyWriter goroutine right BEFORE
+//    framer.WriteHeaders. By then str.id (uint32 at outStream offset 0) is the
+//    assigned stream_id. Look up the pending invocation by hdr ptr and publish
+//    ongoing_streams[{conn_ptr, stream_id}] before WriteHeaders fires.
+//
+// Both hooks read hdr ptr from the same Go interface arg layout (Go register
+// ABI: receiver, then args; cbItem interface = itab+data, so PARAM4 = data).
+
+SEC("uprobe/controlBuffer_executeAndPut")
+int obi_uprobe_grpc_controlBuffer_executeAndPut(struct pt_regs *ctx) {
+    if (!g_bpf_header_propagation) {
+        return 0;
+    }
+    void *goroutine_addr = GOROUTINE_PTR(ctx);
+    go_addr_key_t g_key = {};
+    go_addr_key_from_id(&g_key, goroutine_addr);
+
+    transport_new_client_invocation_t *wrapper =
+        bpf_map_lookup_elem(&transport_new_client_invocations, &g_key);
+    if (!wrapper) {
+        return 0; // not from a NewStream goroutine — ignore
+    }
+
+    void *hdr = (void *)GO_PARAM4(ctx); // it.data
+    if (!hdr) {
+        return 0;
+    }
+    u64 hdr_key = (u64)hdr;
+    bpf_map_update_elem(&pending_invocation_by_hdr, &hdr_key, &wrapper->inv, BPF_ANY);
+    bpf_map_update_elem(&pending_conn_by_hdr, &hdr_key, &wrapper->s_key.conn_ptr, BPF_ANY);
+    bpf_dbg_printk("executeAndPut: stashed hdr=%llx conn=%llx", hdr, wrapper->s_key.conn_ptr);
+    return 0;
+}
+
+// loopyWriter side: streamID is now known; publish ongoing_streams.
+// Signature: (l *loopyWriter) originateStream(str *outStream, hdr *headerFrame)
+// PARAM1=l, PARAM2=str, PARAM3=hdr. outStream.id is uint32 at offset 0.
+SEC("uprobe/loopyWriter_originateStream")
+int obi_uprobe_grpc_loopyWriter_originateStream(struct pt_regs *ctx) {
+    if (!g_bpf_header_propagation) {
+        return 0;
+    }
+    void *str = (void *)GO_PARAM2(ctx);
+    void *hdr = (void *)GO_PARAM3(ctx);
+    if (!str || !hdr) {
+        return 0;
+    }
+    u64 hdr_key = (u64)hdr;
+    grpc_client_func_invocation_t *inv = bpf_map_lookup_elem(&pending_invocation_by_hdr, &hdr_key);
+    if (!inv) {
+        return 0;
+    }
+    u64 *conn_ptr = bpf_map_lookup_elem(&pending_conn_by_hdr, &hdr_key);
+    if (!conn_ptr) {
+        return 0;
+    }
+
+    u32 stream_id = 0;
+    bpf_probe_read_user(&stream_id, sizeof(stream_id), str); // outStream.id at offset 0
+    if (stream_id == 0) {
+        return 0;
+    }
+
+    stream_key_t key = {.conn_ptr = *conn_ptr, .stream_id = stream_id};
+    bpf_map_update_elem(&ongoing_streams, &key, inv, BPF_ANY);
+
+    bpf_map_delete_elem(&pending_invocation_by_hdr, &hdr_key);
+    bpf_map_delete_elem(&pending_conn_by_hdr, &hdr_key);
+
+    bpf_dbg_printk(
+        "originateStream: published ongoing_streams[conn=%llx, stream=%u]", *conn_ptr, stream_id);
+    return 0;
+}

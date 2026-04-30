@@ -414,14 +414,10 @@ int obi_protocol_http2_grpc_handle_start_frame(void *ctx) {
     return 0;
 }
 
-// k_tail_protocol_http2_grpc_handle_start_frame_server
-// SERVER-side continuation of http2_grpc_start. Splits HPACK parse + fallback
-// + finalize off the main start_frame program so it fits the 1M-insn verifier
-// budget on older kernels (5.15). h2g_info + tp_p live in per-CPU scratch.
+// SERVER tail call: HPACK parse + per-conn fallback. Tail-calls finalize.
+// found_tp is implicit — valid_trace(tp_p->tp.trace_id) signals success.
 SEC("kprobe/http2")
 int obi_protocol_http2_grpc_handle_start_frame_server(void *ctx) {
-    (void)ctx;
-
     grpc_frames_ctx_t *g_ctx = grpc_ctx();
     if (!g_ctx) {
         return 0;
@@ -453,10 +449,33 @@ int obi_protocol_http2_grpc_handle_start_frame_server(void *ctx) {
     u8 found_tp = parse_hpack_traceparent(
         h2g_info->data + k_h2_frame_header_len + prefix, hpack_len, &tp_p->tp);
     if (!found_tp) {
-        found_tp = find_trace_for_server_request(
-            &g_ctx->stream.pid_conn.conn, &tp_p->tp, EVENT_HTTP_REQUEST);
+        find_trace_for_server_request(&g_ctx->stream.pid_conn.conn, &tp_p->tp, EVENT_HTTP_REQUEST);
     }
 
+    bpf_tail_call(ctx, &jump_table, k_tail_protocol_http2_grpc_handle_start_frame_server_finalize);
+    return 0;
+}
+
+// SERVER finalize: shared post-branch — new_trace_id if missing, commit tp,
+// set_trace_info_for_connection, server_or_client_trace, server_traces,
+// ongoing_http2_grpc.
+SEC("kprobe/http2")
+int obi_protocol_http2_grpc_handle_start_frame_server_finalize(void *ctx) {
+    (void)ctx;
+    grpc_frames_ctx_t *g_ctx = grpc_ctx();
+    if (!g_ctx) {
+        return 0;
+    }
+    http2_grpc_request_t *h2g_info = http2_info_get();
+    if (!h2g_info) {
+        return 0;
+    }
+    tp_info_pid_t *tp_p = tp_info_mem();
+    if (!tp_p) {
+        return 0;
+    }
+
+    const u8 found_tp = valid_trace(tp_p->tp.trace_id);
     http2_grpc_start_finalize_server(
         &g_ctx->stream, h2g_info, tp_p, found_tp, g_ctx->args.ssl, g_ctx->args.orig_dport);
 

@@ -79,6 +79,25 @@ struct {
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
 } grpc_conn_ptr_to_conn SEC(".maps");
 
+// hdr_ptr → invocation. executeAndPut stashes; originateStream reads after
+// it has the stream_id (loopyWriter goroutine ≠ NewStream goroutine, so we
+// key by hdr pointer instead of goroutine).
+struct {
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __type(key, u64); // hdr pointer
+    __type(value, grpc_client_func_invocation_t);
+    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
+} pending_invocation_by_hdr SEC(".maps");
+
+// hdr_ptr → conn_ptr (from the caller's transport). Lets originateStream
+// build the {conn_ptr, stream_id} key without hopping back to goroutine state.
+struct {
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __type(key, u64);   // hdr pointer
+    __type(value, u64); // conn_ptr
+    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
+} pending_conn_by_hdr SEC(".maps");
+
 // Per-stream tp (Go gRPC server). operateHeaders writes, handleStream reads.
 // Avoids the last-writer-wins race on the transport-keyed ongoing_grpc_transports
 struct {

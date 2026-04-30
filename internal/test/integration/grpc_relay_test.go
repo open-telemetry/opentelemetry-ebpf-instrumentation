@@ -366,13 +366,17 @@ func testGRPCMultiplexedContextPropagation(t *testing.T) {
 		name, url string
 		hops      []string
 	}{
-		// go-entry (Go uprobe egress) fans 3 streams to python-relay on one
-		// HTTP/2 connection; python-relay forwards on its persistent channel
-		// to go-grpc-to-http (sk_msg egress). Both hops share the connection.
-		{"go-and-python", "http://localhost:8080/relay-multiplex",
-			[]string{"python-relay", "go-grpc-to-http"}},
-		// nodejs (sk_msg egress) fans 3 streams on its persistent channel to
-		// java-relay (kprobe receiver, tests sk_msg HPACK on multiplex)
+		// Multiplexed segment from go-entry: streams share one HTTP/2
+		// connection through python-relay → go-grpc-to-http → go-http-to-grpc.
+		// loopyWriter fresh-stream race is closed by the executeAndPut +
+		// originateStream uprobe pair (see go_grpc.c). Beyond go-http-to-grpc
+		// the chain switches to per-call connections — that's a different
+		// concurrency concern (TODO: separate test, separate fix)
+		{
+			"go-and-python", "http://localhost:8080/relay-multiplex",
+			[]string{"python-relay", "go-grpc-to-http", "go-http-to-grpc"},
+		},
+		// nodejs (sk_msg egress) → java-relay
 		{"nodejs", "http://localhost:8092/multiplexed", []string{"java-relay"}},
 	}
 
