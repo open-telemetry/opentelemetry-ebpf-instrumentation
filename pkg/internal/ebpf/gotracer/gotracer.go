@@ -400,6 +400,14 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 		"net.(*netFD).Write": {{
 			Start: p.bpfObjects.ObiUprobeNetFdWrite,
 		}},
+		"crypto/tls.(*Conn).Read": {{
+			Start: p.bpfObjects.ObiUprobeCryptoTlsRead,
+			End:   p.bpfObjects.ObiUprobeCryptoTlsReadRet,
+		}},
+		"crypto/tls.(*Conn).Write": {{
+			Start: p.bpfObjects.ObiUprobeCryptoTlsWrite,
+			End:   p.bpfObjects.ObiUprobeCryptoTlsWriteRet,
+		}},
 		"net.(*netFD).Close": {{
 			Start: p.bpfObjects.ObiUprobeNetFdClose,
 		}},
