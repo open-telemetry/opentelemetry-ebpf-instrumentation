@@ -30,11 +30,28 @@ const (
 
 // weaverIgnoredSignals is an escape hatch for advice we explicitly suppress
 // without declaring the underlying signal in the OBI registry. Most non-semconv
-// emissions (Prometheus `target_info`, Grafana spanmetrics, Grafana service
-// graph, OBI-internal markers) are now declared in `schemas/obi/` and validated
+// emissions (Prometheus `target_info`, OTel-contrib spanmetrics / service-graph
+// shape, OBI-internal markers) are declared in `schemas/obi/` and validated
 // against by weaver, so this map is normally empty. Add entries here only as a
 // short-lived bridge while a registry update is in flight.
 var weaverIgnoredSignals = map[string]struct{}{}
+
+// weaverIgnoredAdviceMessages suppresses specific advice messages that match
+// known structural tensions weaver reports against the registry as a whole
+// rather than against any one signal. Today this only covers the `server` /
+// `client` namespace collision: the OTel collector-contrib `servicegraphconnector`
+// emits bare `server` / `client` labels (matched in `service_graph.yaml`), but
+// upstream semconv reserves `server.*` / `client.*` as namespace prefixes
+// (`server.address`, `server.port`, …). Weaver's lint flags the registry-level
+// collision on every signal that touches an upstream `server.*` / `client.*`
+// attribute, even ones that don't use the bare label. The contract OBI emits
+// is fixed by the connector convention; the ignore documents the tension.
+var weaverIgnoredAdviceMessages = map[string]struct{}{
+	"Namespace 'server' collides with existing attribute 'server.address'": {},
+	"Namespace 'server' collides with existing attribute 'server.port'":    {},
+	"Namespace 'client' collides with existing attribute 'client.address'": {},
+	"Namespace 'client' collides with existing attribute 'client.port'":    {},
+}
 
 func SemconvVersion() string {
 	// semconv.SchemaURL is "https://opentelemetry.io/schemas/1.38.0"
@@ -170,10 +187,15 @@ func validateWeaverReport(t *testing.T, report *weaverReport) {
 	t.Logf("  advisory details:")
 	for _, level := range []string{"violation", "improvement", "information"} {
 		for msg, count := range stats.AdviceMessageCounts {
+			_, msgIgnored := weaverIgnoredAdviceMessages[msg]
 			info := adviceByMsg[msg]
 			if info == nil {
-				t.Logf("    [%s] [%dx] %s (signals: unknown)", level, count, msg)
-				if level == "violation" {
+				suffix := ""
+				if msgIgnored {
+					suffix = " [ignored]"
+				}
+				t.Logf("    [%s] [%dx] %s (signals: unknown)%s", level, count, msg, suffix)
+				if level == "violation" && !msgIgnored {
 					actionableViolations += count
 				}
 				continue
@@ -182,7 +204,7 @@ func validateWeaverReport(t *testing.T, report *weaverReport) {
 				continue
 			}
 			signals := sortedSignals(info.Signals)
-			ignored := allSignalsIgnored(info.Signals)
+			ignored := msgIgnored || allSignalsIgnored(info.Signals)
 			suffix := ""
 			if ignored {
 				suffix = " [ignored]"

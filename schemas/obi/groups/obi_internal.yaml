@@ -49,12 +49,16 @@ groups:
           series exported via OBI's Prometheus exporter.
         examples: ["my-service"]
 
-  # Source: pkg/export/otel/metrics.go (constant `TargetInfo`).
+  # Source: pkg/export/otel/metrics.go (constant `TargetInfo`,
+  # `setupTargetInfo`). Emitted as `meter.Int64UpDownCounter(TargetInfo)`
+  # with no unit set; the registry mirrors that exact shape rather than
+  # the OTel-canonical `gauge` / `unit: "1"` Prometheus mapping so weaver
+  # validates against what OBI actually emits.
   - id: metric.target_info
     type: metric
     metric_name: target_info
-    instrument: gauge
-    unit: "1"
+    instrument: updowncounter
+    unit: ""
     stability: development
     brief: >
       `target_info` meta-metric in the Prometheus / OpenMetrics style.
@@ -75,7 +79,7 @@ groups:
     type: metric
     metric_name: traces_target_info
     instrument: updowncounter
-    unit: "1"
+    unit: ""
     stability: development
     brief: >
       OBI counterpart of `target_info` for the traces pipeline. Carries the
@@ -87,12 +91,13 @@ groups:
   # Source: pkg/export/otel/metrics.go (constant `TracesHostInfo`,
   # `setupHostInfoMeter`). OBI-invented per-host meta-metric — there is no
   # upstream / collector-contrib analogue — so it lives next to the
-  # `cloud.host.id` attribute it carries.
+  # `cloud.host.id` attribute it carries. Emitted as `meter.Int64Gauge`
+  # with no unit set.
   - id: metric.traces_host_info
     type: metric
     metric_name: traces_host_info
     instrument: gauge
-    unit: "1"
+    unit: ""
     stability: development
     brief: >
       OBI per-host meta-metric carrying the cloud host identifier so
