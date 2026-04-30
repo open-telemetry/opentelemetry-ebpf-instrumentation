@@ -198,7 +198,8 @@ func parseGotestsum(r io.Reader, meta RunMeta, shard string) ([]TestResult, erro
 		}
 		if r.Outcome == "failed" || r.Outcome == "flaky-passed" {
 			r.ErrorSnippet = extractErrorSnippet(ts.failOutput)
-			r.ErrorFingerprint = fingerprintFromTestOutput(r.ErrorSnippet)
+			errorMsg, traceSite := extractErrorBlock(ts.failOutput)
+			r.ErrorFingerprint = fingerprintFromTestOutput(errorMsg, r.ErrorSnippet, traceSite)
 		}
 		results = append(results, r)
 	}

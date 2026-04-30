@@ -57,16 +57,93 @@ var snippetRE = func() *regexp.Regexp {
 	return regexp.MustCompile(strings.Join(parts, "|"))
 }()
 
-func fingerprintFromTestOutput(snippet string) string {
-	if snippet == "" {
-		return "unknown"
-	}
-	for _, ep := range errorPatterns {
-		if ep.regex.MatchString(snippet) {
-			return ep.fingerprint
+// errorTraceRE captures the file:line on the same line as a testify
+// "Error Trace:" label.
+var errorTraceRE = regexp.MustCompile(`Error Trace:\s+(\S+:\d+)`)
+
+// errorMsgRE captures the inline message after a testify "Error:" label.
+var errorMsgRE = regexp.MustCompile(`Error:\s+(.*)`)
+
+// labeledLineRE detects the start of a new testify-style labeled section,
+// used to stop collecting Error: continuation lines.
+var labeledLineRE = regexp.MustCompile(`^\s*(Error Trace|Error|Test|Messages):\s`)
+
+// extractErrorBlock walks failOutput looking for the last testify-style
+// Error Trace and Error message. Returns the trace site (e.g.
+// "foo_test.go:42") and the error message text including any indented
+// continuation lines beneath the Error: label. Either may be empty if
+// the test framework didn't emit testify-style output.
+func extractErrorBlock(output []string) (errorMsg, traceSite string) {
+	msgIdx := -1
+	for i := len(output) - 1; i >= 0; i-- {
+		if errorMsgRE.MatchString(output[i]) {
+			msgIdx = i
+			break
 		}
 	}
-	// Hash the first non-empty line to group identical unknown errors.
+	if msgIdx >= 0 {
+		if m := errorMsgRE.FindStringSubmatch(output[msgIdx]); len(m) >= 2 {
+			errorMsg = strings.TrimSpace(m[1])
+		}
+		for j := msgIdx + 1; j < len(output); j++ {
+			line := output[j]
+			trimmed := strings.TrimSpace(line)
+			if trimmed == "" {
+				continue
+			}
+			if labeledLineRE.MatchString(line) || strings.Contains(line, "--- FAIL") {
+				break
+			}
+			if errorMsg == "" {
+				errorMsg = trimmed
+			} else {
+				errorMsg += " " + trimmed
+			}
+			if len(errorMsg) > 300 {
+				errorMsg = errorMsg[:300]
+				break
+			}
+		}
+	}
+
+	for i := len(output) - 1; i >= 0; i-- {
+		if m := errorTraceRE.FindStringSubmatch(output[i]); len(m) >= 2 {
+			traceSite = m[1]
+			break
+		}
+	}
+	return errorMsg, traceSite
+}
+
+// fingerprintFromTestOutput picks an error fingerprint for a failed test.
+// errorMsg (the testify Error: text, when present) takes precedence over
+// snippet because it pinpoints the assertion that actually failed; this
+// avoids attributing failures to incidental log noise. traceSite, if
+// available, anchors the unknown-XXXX hash so the same assertion site
+// groups together regardless of message wording.
+func fingerprintFromTestOutput(errorMsg, snippet, traceSite string) string {
+	if errorMsg != "" {
+		for _, ep := range errorPatterns {
+			if ep.regex.MatchString(errorMsg) {
+				return ep.fingerprint
+			}
+		}
+	}
+	if snippet != "" {
+		for _, ep := range errorPatterns {
+			if ep.regex.MatchString(snippet) {
+				return ep.fingerprint
+			}
+		}
+	}
+	if traceSite != "" {
+		h := sha256.Sum256([]byte(traceSite))
+		return fmt.Sprintf("unknown-%x", h[:4])
+	}
+	if errorMsg != "" {
+		h := sha256.Sum256([]byte(errorMsg))
+		return fmt.Sprintf("unknown-%x", h[:4])
+	}
 	for _, line := range strings.Split(snippet, "\n") {
 		if t := strings.TrimSpace(line); t != "" {
 			h := sha256.Sum256([]byte(t))
