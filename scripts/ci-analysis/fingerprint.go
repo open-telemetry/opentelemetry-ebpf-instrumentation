@@ -139,7 +139,7 @@ func extractErrorBlock(output []string) (errorMsg, traceSite string) {
 //     (e.g. an obi process being killed during teardown after an
 //     assertion already failed).
 //  4. No testify Error:: fall through to consequence patterns in the
-//     snippet so unframed failures still get a recognisable label.
+//     snippet so unframed failures still get a recognizable label.
 //  5. Final fallback: stable hash anchored on traceSite when present.
 func fingerprintFromTestOutput(errorMsg, snippet, traceSite string) string {
 	if errorMsg != "" {

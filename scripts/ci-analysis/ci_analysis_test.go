@@ -166,7 +166,7 @@ func TestFingerprintErrorMsgPriority(t *testing.T) {
 	fp := fingerprintFromTestOutput("connection refused", snippet, "")
 	require.Equal(t, "connection-refused", fp)
 
-	// When the error message has no recognised pattern, fall back to
+	// When the error message has no recognized pattern, fall back to
 	// the snippet scan.
 	fp = fingerprintFromTestOutput("zorblax not converged", "WARNING: DATA RACE\n", "")
 	require.Equal(t, "data-race", fp)
