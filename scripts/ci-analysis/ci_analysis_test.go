@@ -172,6 +172,59 @@ func TestFingerprintErrorMsgPriority(t *testing.T) {
 	require.Equal(t, "data-race", fp)
 }
 
+func TestFingerprintCauseConsequenceSplit(t *testing.T) {
+	// testify explicitly reporting exit-status as the unexpected error:
+	// the consequence pattern IS the cause here, keep the label.
+	fp := fingerprintFromTestOutput(
+		"Received unexpected error: exit status 1",
+		"Error: Received unexpected error: exit status 1\n",
+		"suites_test.go:337",
+	)
+	require.Equal(t, "exit-error", fp)
+
+	// testify reports a generic assertion ("Condition never satisfied"),
+	// while a teardown WARN line in the surrounding snippet contains
+	// "exit status 1". The exit-error must NOT win — it's teardown noise
+	// after the real assertion already failed. Expect trace-site hash.
+	fp = fingerprintFromTestOutput(
+		"Condition never satisfied",
+		`WARN waiting for obi to stop. Will force remove error="exit status 1"`+"\n"+
+			`Error: "3" is not less than or equal to "2"`+"\n"+
+			"Error: Condition never satisfied\n",
+		"red_test.go:424",
+	)
+	require.Contains(t, fp, "unknown-")
+	require.NotEqual(t, "exit-error", fp)
+
+	// Cause pattern in snippet still wins when errorMsg matches nothing —
+	// a real panic must not be hidden behind a trace-site hash.
+	fp = fingerprintFromTestOutput(
+		"some unrelated assertion message",
+		"panic: runtime error: nil pointer dereference\nError: some unrelated assertion message\n",
+		"trace.go:1",
+	)
+	require.Equal(t, "panic", fp)
+
+	// No testify Error: at all (non-framework failure). Consequence
+	// patterns are the only signal — fall back to them.
+	fp = fingerprintFromTestOutput("", "process exited with exit status 137\n", "")
+	require.Equal(t, "exit-error", fp)
+
+	// Two failures at the same outer wrapper but with different teardown
+	// noise: must land in the same trace-site bucket.
+	fpA := fingerprintFromTestOutput(
+		"Condition never satisfied",
+		`error="exit status 1"`+"\nError: Condition never satisfied\n",
+		"red_test.go:424",
+	)
+	fpB := fingerprintFromTestOutput(
+		"Condition never satisfied",
+		"received signal: interrupt\nError: Condition never satisfied\n",
+		"red_test.go:424",
+	)
+	require.Equal(t, fpA, fpB)
+}
+
 func TestFingerprintUnknownHashing_TraceSite(t *testing.T) {
 	// Two failures at the same trace site should hash identically even
 	// when the error wording differs slightly.

@@ -23,28 +23,36 @@ type logError struct {
 	snippet     string
 }
 
-// errorPatterns is the ordered list of known CI failure patterns.
-// Add new patterns here — they automatically extend fingerprinting
-// and snippet extraction. First match wins.
-var errorPatterns = []struct {
+// errorPattern pairs a regex with its fingerprint label. consequence is
+// true for patterns that frequently appear as fallout from an earlier
+// failure (teardown noise, generic exit codes, cancellation signals).
+// Consequence patterns are only treated as the root cause when no cause
+// pattern matched and the test framework didn't surface its own error.
+type errorPattern struct {
 	regex       *regexp.Regexp
 	fingerprint string
-}{
-	{regexp.MustCompile(`(?i)port is already allocated`), "port-conflict"},
-	{regexp.MustCompile(`(?i)address already in use`), "port-conflict"},
-	{regexp.MustCompile(`(?i)Bind for .+ failed`), "port-conflict"},
-	{regexp.MustCompile(`(?i)DATA RACE`), "data-race"},
-	{regexp.MustCompile(`(?i)context deadline exceeded`), "timeout"},
-	{regexp.MustCompile(`(?i)test timed out after`), "timeout"},
-	{regexp.MustCompile(`(?i)no space left on device`), "disk-full"},
-	{regexp.MustCompile(`(?i)connection refused`), "connection-refused"},
-	{regexp.MustCompile(`(?i)Error response from daemon`), "docker-error"},
-	{regexp.MustCompile(`(?i)Cannot connect to the Docker daemon`), "docker-error"},
-	{regexp.MustCompile(`(?i)OCI runtime create failed`), "docker-error"},
-	{regexp.MustCompile(`(?i)panic:`), "panic"},
-	{regexp.MustCompile(`(?i)signal: killed`), "oom-killed"},
-	{regexp.MustCompile(`(?i)received signal: interrupt`), "cancelled"},
-	{regexp.MustCompile(`(?i)exit status \d+`), "exit-error"},
+	consequence bool
+}
+
+// errorPatterns is the ordered list of known CI failure patterns. Add
+// new patterns here — they automatically extend fingerprinting and
+// snippet extraction. First match wins within each priority tier.
+var errorPatterns = []errorPattern{
+	{regexp.MustCompile(`(?i)port is already allocated`), "port-conflict", false},
+	{regexp.MustCompile(`(?i)address already in use`), "port-conflict", false},
+	{regexp.MustCompile(`(?i)Bind for .+ failed`), "port-conflict", false},
+	{regexp.MustCompile(`(?i)DATA RACE`), "data-race", false},
+	{regexp.MustCompile(`(?i)context deadline exceeded`), "timeout", false},
+	{regexp.MustCompile(`(?i)test timed out after`), "timeout", false},
+	{regexp.MustCompile(`(?i)no space left on device`), "disk-full", false},
+	{regexp.MustCompile(`(?i)connection refused`), "connection-refused", false},
+	{regexp.MustCompile(`(?i)Error response from daemon`), "docker-error", false},
+	{regexp.MustCompile(`(?i)Cannot connect to the Docker daemon`), "docker-error", false},
+	{regexp.MustCompile(`(?i)OCI runtime create failed`), "docker-error", false},
+	{regexp.MustCompile(`(?i)panic:`), "panic", false},
+	{regexp.MustCompile(`(?i)signal: killed`), "oom-killed", false},
+	{regexp.MustCompile(`(?i)received signal: interrupt`), "cancelled", true},
+	{regexp.MustCompile(`(?i)exit status \d+`), "exit-error", true},
 }
 
 // snippetRE matches lines worth including in error snippets: Go test
@@ -116,11 +124,23 @@ func extractErrorBlock(output []string) (errorMsg, traceSite string) {
 }
 
 // fingerprintFromTestOutput picks an error fingerprint for a failed test.
-// errorMsg (the testify Error: text, when present) takes precedence over
-// snippet because it pinpoints the assertion that actually failed; this
-// avoids attributing failures to incidental log noise. traceSite, if
-// available, anchors the unknown-XXXX hash so the same assertion site
-// groups together regardless of message wording.
+//
+// Priority:
+//  1. Any pattern matching the testify Error: line (errorMsg) wins. When
+//     the framework explicitly surfaces a known error there, that's the
+//     cause regardless of whether the pattern is a cause or consequence
+//     (e.g. testify reporting "Received unexpected error: exit status 1"
+//     IS the assertion failure).
+//  2. Cause patterns matching the surrounding snippet (panic, port
+//     conflict, etc.). These dominate teardown noise.
+//  3. If a testify Error: was captured but matched nothing in (1) or
+//     (2), prefer an unknown-<trace-site> hash over consequence patterns
+//     in the snippet — those are usually fallout from the real failure
+//     (e.g. an obi process being killed during teardown after an
+//     assertion already failed).
+//  4. No testify Error:: fall through to consequence patterns in the
+//     snippet so unframed failures still get a recognisable label.
+//  5. Final fallback: stable hash anchored on traceSite when present.
 func fingerprintFromTestOutput(errorMsg, snippet, traceSite string) string {
 	if errorMsg != "" {
 		for _, ep := range errorPatterns {
@@ -131,6 +151,27 @@ func fingerprintFromTestOutput(errorMsg, snippet, traceSite string) string {
 	}
 	if snippet != "" {
 		for _, ep := range errorPatterns {
+			if ep.consequence {
+				continue
+			}
+			if ep.regex.MatchString(snippet) {
+				return ep.fingerprint
+			}
+		}
+	}
+	if errorMsg != "" {
+		if traceSite != "" {
+			h := sha256.Sum256([]byte(traceSite))
+			return fmt.Sprintf("unknown-%x", h[:4])
+		}
+		h := sha256.Sum256([]byte(errorMsg))
+		return fmt.Sprintf("unknown-%x", h[:4])
+	}
+	if snippet != "" {
+		for _, ep := range errorPatterns {
+			if !ep.consequence {
+				continue
+			}
 			if ep.regex.MatchString(snippet) {
 				return ep.fingerprint
 			}
@@ -138,10 +179,6 @@ func fingerprintFromTestOutput(errorMsg, snippet, traceSite string) string {
 	}
 	if traceSite != "" {
 		h := sha256.Sum256([]byte(traceSite))
-		return fmt.Sprintf("unknown-%x", h[:4])
-	}
-	if errorMsg != "" {
-		h := sha256.Sum256([]byte(errorMsg))
 		return fmt.Sprintf("unknown-%x", h[:4])
 	}
 	for _, line := range strings.Split(snippet, "\n") {
