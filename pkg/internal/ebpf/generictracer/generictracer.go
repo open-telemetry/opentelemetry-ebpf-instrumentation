@@ -150,17 +150,22 @@ func (p *Tracer) LoadSpecs() ([]*ebpfcommon.SpecBundle, error) {
 
 func (p *Tracer) SetupTailCalls() {
 	for i, prog := range []*ebpf.Program{
-		p.bpfObjects.ObiProtocolHttp,                      // 0
-		p.bpfObjects.ObiContinueProtocolHttp,              // 1
-		p.bpfObjects.ObiContinue2ProtocolHttp,             // 2
-		p.bpfObjects.ObiProtocolHttp2,                     // 3
-		p.bpfObjects.ObiProtocolTcp,                       // 4
-		p.bpfObjects.ObiProtocolHttp2GrpcFrames,           // 5
-		p.bpfObjects.ObiProtocolHttp2GrpcHandleStartFrame, // 6
-		p.bpfObjects.ObiProtocolHttp2GrpcHandleEndFrame,   // 7
-		p.bpfObjects.ObiHandleBufWithArgs,                 // 8
-		p.bpfObjects.ObiContinueProtocolHttpTp,            // 9
+		p.bpfObjects.ObiProtocolHttp,                            // 0
+		p.bpfObjects.ObiContinueProtocolHttp,                    // 1
+		p.bpfObjects.ObiContinue2ProtocolHttp,                   // 2
+		p.bpfObjects.ObiProtocolHttp2,                           // 3
+		p.bpfObjects.ObiProtocolTcp,                             // 4
+		p.bpfObjects.ObiProtocolHttp2GrpcFrames,                 // 5
+		p.bpfObjects.ObiProtocolHttp2GrpcHandleStartFrame,       // 6
+		p.bpfObjects.ObiProtocolHttp2GrpcHandleEndFrame,         // 7
+		p.bpfObjects.ObiHandleBufWithArgs,                       // 8
+		p.bpfObjects.ObiContinueProtocolHttpTp,                  // 9
+		nil,                                                     // 10 — k_tail_continue_netfd_read (set elsewhere)
+		p.bpfObjects.ObiProtocolHttp2GrpcHandleStartFrameServer, // 11
 	} {
+		if prog == nil {
+			continue
+		}
 		p.log.Debug("loading program into tail call jump table", "index", i, "program", prog.String())
 		if err := p.bpfObjects.JumpTable.Update(uint32(i), uint32(prog.FD()), ebpf.UpdateAny); err != nil {
 			p.log.Error("error loading info tail call jump table", "error", err)

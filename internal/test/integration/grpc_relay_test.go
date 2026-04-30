@@ -23,8 +23,8 @@ const (
 	// Parent span ID injected into /relay-multiplex requests.
 	multiplexSpanID = "fedcba0987654321"
 
-	// Loop advances ~5s/iter for Jaeger indexing; observed 22–75s.
-	// 1m suffices since the chain test pre-warms persistent state
+	// Tests rely on active polling instead of long static waits — the warmup
+	// step below confirms every service is instrumented before strict checks
 	grpcRelayTimeout = 1 * time.Minute
 )
 
@@ -338,16 +338,41 @@ func testGRPCRelayChainContextPropagation(t *testing.T) {
 	}
 }
 
+// serverSpansByService returns every server-kind span in the trace owned by
+// the given service, regardless of operation name (HTTP and gRPC server spans
+// alike). Multiplex test asserts on hops where the server span is HTTP (e.g.
+// go-http-to-grpc) so an op-name filter wouldn't match
+func serverSpansByService(trace jaeger.Trace, service string) []jaeger.Span {
+	var matches []jaeger.Span
+	for _, s := range trace.Spans {
+		if proc, ok := trace.Processes[s.ProcessID]; !ok || proc.ServiceName != service {
+			continue
+		}
+		if tag, ok := jaeger.FindIn(s.Tags, "span.kind"); ok && tag.Value == "server" {
+			matches = append(matches, s)
+		}
+	}
+	return matches
+}
+
 // testGRPCMultiplexedContextPropagation fans out N concurrent gRPC streams
-// and asserts each receiver-hop server span carries a distinct parent_id
+// over a SHARED HTTP/2 connection and asserts each receiver hop along the
+// multiplexed segment has distinct parent_ids per stream. Hops listed cover
+// only the segment where the HTTP/2 connection is actually shared — beyond
+// that the chain switches to per-call connections, which is a different
+// concern (concurrent independent calls, not stream multiplexing)
 func testGRPCMultiplexedContextPropagation(t *testing.T) {
 	cases := []struct {
 		name, url string
 		hops      []string
 	}{
-		// Go uprobe egress (go-entry) → python-relay (kprobe rx) → go-grpc-to-http (Go uprobe rx)
-		{"go-and-python", "http://localhost:8080/relay-multiplex", []string{"python-relay", "go-grpc-to-http"}},
-		// sk_msg egress (nodejs grpc-js) → java-relay (kprobe rx)
+		// go-entry (Go uprobe egress) fans 3 streams to python-relay on one
+		// HTTP/2 connection; python-relay forwards on its persistent channel
+		// to go-grpc-to-http (sk_msg egress). Both hops share the connection.
+		{"go-and-python", "http://localhost:8080/relay-multiplex",
+			[]string{"python-relay", "go-grpc-to-http"}},
+		// nodejs (sk_msg egress) fans 3 streams on its persistent channel to
+		// java-relay (kprobe receiver, tests sk_msg HPACK on multiplex)
 		{"nodejs", "http://localhost:8092/multiplexed", []string{"java-relay"}},
 	}
 
@@ -377,13 +402,16 @@ func testGRPCMultiplexedContextPropagation(t *testing.T) {
 				trace = tq.Data[0]
 				for _, hop := range c.hops {
 					require.GreaterOrEqual(ct,
-						len(trace.FindByOperationNameServiceAndKind("/relay.Relay/Relay", hop, "server")),
+						len(serverSpansByService(trace, hop)),
 						3, "expected at least 3 %s server spans in trace %s", hop, traceID)
 				}
 			}, grpcRelayTimeout, time.Second)
 
+			t.Logf("trace %s: %d spans across %d services",
+				trace.TraceID, len(trace.Spans), len(traceServices(trace)))
+
 			for _, hop := range c.hops {
-				serverSpans := trace.FindByOperationNameServiceAndKind("/relay.Relay/Relay", hop, "server")
+				serverSpans := serverSpansByService(trace, hop)
 				parents := map[string]bool{}
 				for _, s := range serverSpans {
 					pid := ""
@@ -398,6 +426,46 @@ func testGRPCMultiplexedContextPropagation(t *testing.T) {
 					parents[pid] = true
 				}
 				t.Logf("%s: %d server spans, %d distinct parents", hop, len(serverSpans), len(parents))
+			}
+
+			// Walk one chain root→leaf so a failure shows which hop dropped a stream
+			leafHop := c.hops[len(c.hops)-1]
+			leafSpans := serverSpansByService(trace, leafHop)
+			if len(leafSpans) > 0 {
+				var chain []jaeger.Span
+				cur := leafSpans[0]
+				chain = append(chain, cur)
+				for {
+					parent, ok := trace.ParentOf(&cur)
+					if !ok {
+						break
+					}
+					chain = append(chain, parent)
+					cur = parent
+				}
+				for i, j := 0, len(chain)-1; i < j; i, j = i+1, j-1 {
+					chain[i], chain[j] = chain[j], chain[i]
+				}
+				t.Logf("one chain (%d spans):", len(chain))
+				for depth, span := range chain {
+					svc := "unknown"
+					if proc, ok := trace.Processes[span.ProcessID]; ok {
+						svc = proc.ServiceName
+					}
+					kind := ""
+					if tag, ok := jaeger.FindIn(span.Tags, "span.kind"); ok {
+						kind = fmt.Sprintf(" (%v)", tag.Value)
+					}
+					parentID := ""
+					for _, r := range span.References {
+						if r.RefType == "CHILD_OF" {
+							parentID = r.SpanID
+							break
+						}
+					}
+					t.Logf("%s[%s]%s span_id=[%s] parent_span_id=[%s]",
+						strings.Repeat("  ", depth), svc, kind, span.SpanID, parentID)
+				}
 			}
 		})
 	}

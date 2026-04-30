@@ -1353,7 +1353,7 @@ int obi_packet_extender_find_existing_h2_tp(struct sk_msg_md *msg) {
             forwarded =
                 bpf_memcmp(tp_p->tp.span_id, t_ctx->parent_tp.parent_id, SPAN_ID_SIZE_BYTES) == 0;
         } else {
-            __builtin_memset(tp_p->tp.parent_id, 0, sizeof(tp_p->tp.parent_id));
+            bpf_memset(tp_p->tp.parent_id, 0, sizeof(tp_p->tp.parent_id));
         }
 
         if (forwarded) {
