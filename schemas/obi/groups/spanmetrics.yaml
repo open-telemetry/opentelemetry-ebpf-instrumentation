@@ -4,11 +4,9 @@ groups:
     display_name: Span Metrics
     brief: >
       Attributes used by OBI's span-metrics emission. The metric names match
-      the legacy output of the OTel collector-contrib `spanmetricsconnector`
-      (i.e. `_total` suffix on counters, `latency` rather than `duration`)
-      under the `traces.spanmetrics` namespace, so the same dashboards
-      consume both OBI-emitted and connector-emitted data. Emitted when
-      OBI's `application_span` metrics feature is enabled.
+      the output of the OTel collector-contrib `spanmetricsconnector` so the
+      same dashboards consume both OBI-emitted and connector-emitted data.
+      Emitted when OBI's `application_span_otel` metrics feature is enabled.
 
       Per-metric resource attributes (`service.name`, `service.namespace`,
       `service.instance.id`, `host.id`, `telemetry.sdk.language`, etc.) come
@@ -70,10 +68,11 @@ groups:
         stability: development
         brief: The span status code, mirrored from the originating span.
 
-  # Source: pkg/export/otel/metrics.go (constant `SpanMetricsCalls`).
-  - id: metric.traces_spanmetrics_calls_total
+  # Source: pkg/export/otel/metrics.go (constant `SpanMetricsCallsOTel`,
+  # selected by `spanMetricsCallsName()` when not in legacy mode).
+  - id: metric.traces_span_metrics_calls_total
     type: metric
-    metric_name: traces_spanmetrics_calls_total
+    metric_name: traces_span_metrics_calls_total
     instrument: counter
     unit: "1"
     stability: development
@@ -85,51 +84,20 @@ groups:
       - ref: status.code
       - ref: source
 
-  # Source: pkg/export/otel/metrics.go (constant `SpanMetricsLatency`).
-  - id: metric.traces_spanmetrics_latency
+  # Source: pkg/export/otel/metrics.go (constant `SpanMetricsLatencyOTel`,
+  # selected by `spanMetricsLatencyName()` when not in legacy mode). Unit
+  # `s` is set explicitly via `instrument.WithUnit("s")` on the histogram.
+  - id: metric.traces_span_metrics_duration
     type: metric
-    metric_name: traces_spanmetrics_latency
+    metric_name: traces_span_metrics_duration
     instrument: histogram
     unit: "s"
     stability: development
     brief: >
-      Latency distribution for observed spans, grouped by span name / kind /
-      status.
+      Duration distribution for observed spans, grouped by span name / kind
+      / status.
     attributes:
       - ref: span.name
       - ref: span.kind
       - ref: status.code
       - ref: source
-
-  # Source: pkg/export/otel/metrics.go (constant `SpanMetricsRequestSizes`).
-  - id: metric.traces_spanmetrics_size_total
-    type: metric
-    metric_name: traces_spanmetrics_size_total
-    instrument: counter
-    unit: "By"
-    stability: development
-    brief: >
-      Total size in bytes of request payloads observed, grouped by span name
-      / kind / status.
-    attributes:
-      - ref: span.name
-      - ref: span.kind
-      - ref: status.code
-      - ref: source
-
-  # Source: pkg/export/otel/metrics.go (constant `SpanMetricsResponseSizes`).
-  - id: metric.traces_spanmetrics_response_size_total
-    type: metric
-    metric_name: traces_spanmetrics_response_size_total
-    instrument: counter
-    unit: "By"
-    stability: development
-    brief: >
-      Total size in bytes of response payloads observed, grouped by span
-      name / kind / status.
-    attributes:
-      - ref: span.name
-      - ref: span.kind
-      - ref: status.code
-      - ref: source
-
