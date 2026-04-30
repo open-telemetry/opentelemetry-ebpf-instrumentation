@@ -190,12 +190,16 @@ func validateWeaverReport(t *testing.T, report *weaverReport) {
 			_, msgIgnored := weaverIgnoredAdviceMessages[msg]
 			info := adviceByMsg[msg]
 			if info == nil {
+				if level != "violation" {
+					continue
+				}
+
 				suffix := ""
 				if msgIgnored {
 					suffix = " [ignored]"
 				}
 				t.Logf("    [%s] [%dx] %s (signals: unknown)%s", level, count, msg, suffix)
-				if level == "violation" && !msgIgnored {
+				if !msgIgnored {
 					actionableViolations += count
 				}
 				continue
