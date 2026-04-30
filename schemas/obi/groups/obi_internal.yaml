@@ -23,15 +23,6 @@ groups:
           `pkg/export/attributes/names/attrs.go` (`Source`) and
           `request.SourceMetric`.
         examples: [ "obi" ]
-      - id: cloud.host.id
-        type: string
-        stability: development
-        brief: >
-          Cloud-provider host identifier, attached to OBI's
-          `traces_host_info` meta-metric so dashboards can join trace
-          metrics back to per-host identity. Distinct from upstream
-          `host.id` (which is the OS-reported host identifier). Defined in
-          `pkg/export/otel/metrics.go` as `CloudHostIDKey`.
       - id: instance
         type: string
         stability: development
@@ -73,8 +64,10 @@ groups:
   # pattern as the metrics-pipeline series above, applied to the traces
   # pipeline so dashboards joining trace metrics back to service identity
   # have the equivalent meta-metric. Only emitted when any span-metrics
-  # feature (`application_span` or `application_service_graph`) is enabled
-  # — see the `Features.AnySpanMetrics()` gate in `createTracesTargetInfo`.
+  # feature is enabled — see the `Features.AnySpanMetrics()` gate in
+  # `createTracesTargetInfo` (the gate covers `application_span`,
+  # `application_span_otel`, and `application_span_sizes` but NOT
+  # `application_service_graph`).
   - id: metric.traces_target_info
     type: metric
     metric_name: traces_target_info
@@ -90,9 +83,8 @@ groups:
 
   # Source: pkg/export/otel/metrics.go (constant `TracesHostInfo`,
   # `setupHostInfoMeter`). OBI-invented per-host meta-metric — there is no
-  # upstream / collector-contrib analogue — so it lives next to the
-  # `cloud.host.id` attribute it carries. Emitted as `meter.Int64Gauge`
-  # with no unit set.
+  # upstream / collector-contrib analogue. Emitted as `meter.Int64Gauge`
+  # with no unit set. The carried attribute key is upstream `host.id`
   - id: metric.traces_host_info
     type: metric
     metric_name: traces_host_info
@@ -100,10 +92,10 @@ groups:
     unit: ""
     stability: development
     brief: >
-      OBI per-host meta-metric carrying the cloud host identifier so
-      dashboards can join trace metrics back to host / instance identity.
+      OBI per-host meta-metric carrying the host identifier so dashboards
+      can join trace metrics back to host / instance identity.
     attributes:
-      - ref: cloud.host.id
+      - ref: host.id
         requirement_level: opt_in
 
   # OBI deviation from upstream semconv: we currently emit `rpc.server.duration`
@@ -111,7 +103,9 @@ groups:
   # produces a duplicate-id / duplicate-metric-name warning during
   # `weaver registry check` (because the upstream registry also defines this
   # metric). The warning is non-fatal; it documents the deviation explicitly.
-  # TODO: drop this group once we update semconv to > 1.4.0
+  # TODO: drop this group once OBI emits `rpc.server.duration` in
+  # milliseconds (matching the semconv >= 1.38 unit specification — likely
+  # in lockstep with bumping the manifest's pinned semconv to >= 1.40.0).
   - id: metric.rpc.server.duration
     type: metric
     metric_name: rpc.server.duration
