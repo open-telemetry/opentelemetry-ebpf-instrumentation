@@ -88,10 +88,13 @@ services:
     command:
       - registry
       - live-check
-      # Semconv version is set via SEMCONV_VERSION env var from the test code
-      # (derived from go.opentelemetry.io/otel/semconv).
+      # OBI's own schema registry. The manifest at the root pins the upstream
+      # semconv dependency (currently v1.38.0). Bump in lockstep with the Go
+      # `go.opentelemetry.io/otel/semconv/...` import — guarded by
+      # TestSemconvVersionMatchesManifest.
       - --registry
-      - https://github.com/open-telemetry/semantic-conventions.git@v${SEMCONV_VERSION}[model]
+      - /obi-registry
+      - --include-unreferenced
       - --inactivity-timeout
       - "300"
       - --admin-port
@@ -101,6 +104,8 @@ services:
       - --diagnostic-format
       - json
       - --no-stream
+    volumes:
+      - ../../../schemas/obi:/obi-registry:ro
     ports:
       - "4320:4320" # admin port (for /stop from test host)
     healthcheck:

@@ -28,15 +28,13 @@ const (
 	weaverTimeout   = 2 * time.Minute
 )
 
-// weaverIgnoredSignals lists signals whose violations are expected and should
-// not cause the test to fail. target_info is a Prometheus/OpenMetrics convention
-// (with Prometheus-style instance/job attributes) that is not part of the OTel
-// semantic conventions registry.
-// TODO: replace with custom override / filter once
-// https://github.com/open-telemetry/weaver/pull/1256 is merged.
-var weaverIgnoredSignals = map[string]struct{}{
-	"metric:target_info": {},
-}
+// weaverIgnoredSignals is an escape hatch for advice we explicitly suppress
+// without declaring the underlying signal in the OBI registry. Most non-semconv
+// emissions (Prometheus `target_info`, Grafana spanmetrics, Grafana service
+// graph, OBI-internal markers) are now declared in `schemas/obi/` and validated
+// against by weaver, so this map is normally empty. Add entries here only as a
+// short-lived bridge while a registry update is in flight.
+var weaverIgnoredSignals = map[string]struct{}{}
 
 func SemconvVersion() string {
 	// semconv.SchemaURL is "https://opentelemetry.io/schemas/1.38.0"
