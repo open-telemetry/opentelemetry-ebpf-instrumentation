@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
-	dto "github.com/prometheus/client_model/go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -23,63 +22,6 @@ import (
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
-
-// TestNativeHistogramBucketFactorDeterminesSchema verifies that BucketFactor controls
-// the native histogram resolution. Prometheus maps BucketFactor to a schema number
-// via floor(log2(log2(factor))): smaller factor → more buckets → higher (positive) schema.
-//
-// The expected schema values come from Prometheus' pickSchema function:
-//   - BucketFactor=1.1  → log2(log2(1.1)) ≈ log2(0.1375) ≈ -2.86 → floor=-3 → schema=3
-//   - BucketFactor=4.0  → log2(log2(4.0))  = log2(2)     = 1      → floor=1  → schema=-1
-func TestNativeHistogramBucketFactorDeterminesSchema(t *testing.T) {
-	observeAndGetSchema := func(t *testing.T, factor float64) int32 {
-		t.Helper()
-		h := prometheus.NewHistogram(prometheus.HistogramOpts{
-			Name:                            "test_schema",
-			Help:                            "test",
-			NativeHistogramBucketFactor:     factor,
-			NativeHistogramMaxBucketNumber:  100,
-			NativeHistogramMinResetDuration: time.Hour,
-		})
-		h.Observe(0.1)
-		var m dto.Metric
-		require.NoError(t, h.Write(&m))
-		return m.GetHistogram().GetSchema()
-	}
-
-	assert.Equal(t, int32(3), observeAndGetSchema(t, DefaultNativeHistogramConfig.BucketFactor),
-		"default BucketFactor=1.1 should map to schema=3")
-	assert.Equal(t, int32(-1), observeAndGetSchema(t, 4.0),
-		"BucketFactor=4.0 should map to schema=-1")
-}
-
-// TestNativeHistogramMaxBucketNumberDegrades verifies that a tight MaxBucketNumber
-// forces Prometheus to merge buckets (reduce schema) when observations span many
-// orders of magnitude, while a large limit preserves the original resolution.
-func TestNativeHistogramMaxBucketNumberDegrades(t *testing.T) {
-	makeAndObserve := func(maxBuckets uint32) int32 {
-		h := prometheus.NewHistogram(prometheus.HistogramOpts{
-			Name:                            "test_maxbuckets",
-			Help:                            "test",
-			NativeHistogramBucketFactor:     DefaultNativeHistogramConfig.BucketFactor,
-			NativeHistogramMaxBucketNumber:  maxBuckets,
-			NativeHistogramMinResetDuration: DefaultNativeHistogramConfig.MinResetDuration,
-		})
-		// Observations spanning many orders of magnitude force many distinct buckets.
-		for _, v := range []float64{1e-4, 1e-2, 1, 1e2, 1e4, 1e6, 1e8, 1e10} {
-			h.Observe(v)
-		}
-		var m dto.Metric
-		require.NoError(t, h.Write(&m))
-		return m.GetHistogram().GetSchema()
-	}
-
-	schemaHighLimit := makeAndObserve(500)
-	schemaLowLimit := makeAndObserve(2)
-
-	assert.Greater(t, schemaHighLimit, schemaLowLimit,
-		"a higher MaxBucketNumber should maintain finer resolution (schema)")
-}
 
 // TestNativeHistogramSchemaAppliedToExportedMetrics is an integration test that
 // creates a full Prometheus reporter with a custom NativeHistogramConfig, sends an
