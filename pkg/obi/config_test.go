@@ -247,6 +247,7 @@ discovery:
 			},
 			TTL:                         time.Second,
 			SpanMetricsServiceCacheSize: 10000,
+			NativeHistogram:             prom.DefaultNativeHistogramConfig,
 			Buckets: export.Buckets{
 				DurationHistogram:            export.DefaultBuckets.DurationHistogram,
 				RequestSizeHistogram:         []float64{0, 10, 20, 22},

@@ -14,6 +14,7 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
+	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	"go.opentelemetry.io/obi/pkg/export/connector"
@@ -21,40 +22,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
-	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 )
-
-func TestNativeHistogramConfigDefaultsWhenNil(t *testing.T) {
-	cfg := &PrometheusConfig{}
-
-	assert.Equal(t, defaultHistogramBucketFactor, cfg.HistogramBucketFactor())
-	assert.Equal(t, defaultHistogramMaxBucketNumber, cfg.HistogramMaxBucketNumber())
-	assert.Equal(t, defaultHistogramMinResetDuration, cfg.HistogramMinResetDuration())
-}
-
-func TestNativeHistogramConfigDefaultsWhenEmpty(t *testing.T) {
-	cfg := &PrometheusConfig{
-		NativeHistogram: &NativeHistogramConfig{},
-	}
-
-	assert.Equal(t, defaultHistogramBucketFactor, cfg.HistogramBucketFactor())
-	assert.Equal(t, defaultHistogramMaxBucketNumber, cfg.HistogramMaxBucketNumber())
-	assert.Equal(t, defaultHistogramMinResetDuration, cfg.HistogramMinResetDuration())
-}
-
-func TestNativeHistogramConfigCustomValues(t *testing.T) {
-	cfg := &PrometheusConfig{
-		NativeHistogram: &NativeHistogramConfig{
-			BucketFactor:     4.0,
-			MaxBucketNumber:  50,
-			MinResetDuration: 30 * time.Minute,
-		},
-	}
-
-	assert.Equal(t, 4.0, cfg.HistogramBucketFactor())
-	assert.Equal(t, uint32(50), cfg.HistogramMaxBucketNumber())
-	assert.Equal(t, 30*time.Minute, cfg.HistogramMinResetDuration())
-}
 
 // TestNativeHistogramBucketFactorDeterminesSchema verifies that BucketFactor controls
 // the native histogram resolution. Prometheus maps BucketFactor to a schema number
@@ -79,13 +47,10 @@ func TestNativeHistogramBucketFactorDeterminesSchema(t *testing.T) {
 		return m.GetHistogram().GetSchema()
 	}
 
-	assert.Equal(t, int32(3), observeAndGetSchema(t, defaultHistogramBucketFactor),
+	assert.Equal(t, int32(3), observeAndGetSchema(t, DefaultNativeHistogramConfig.BucketFactor),
 		"default BucketFactor=1.1 should map to schema=3")
 	assert.Equal(t, int32(-1), observeAndGetSchema(t, 4.0),
 		"BucketFactor=4.0 should map to schema=-1")
-
-	assert.Greater(t, observeAndGetSchema(t, defaultHistogramBucketFactor), observeAndGetSchema(t, 4.0),
-		"finer BucketFactor should produce a higher schema (more resolution)")
 }
 
 // TestNativeHistogramMaxBucketNumberDegrades verifies that a tight MaxBucketNumber
@@ -96,9 +61,9 @@ func TestNativeHistogramMaxBucketNumberDegrades(t *testing.T) {
 		h := prometheus.NewHistogram(prometheus.HistogramOpts{
 			Name:                            "test_maxbuckets",
 			Help:                            "test",
-			NativeHistogramBucketFactor:     defaultHistogramBucketFactor,
+			NativeHistogramBucketFactor:     DefaultNativeHistogramConfig.BucketFactor,
 			NativeHistogramMaxBucketNumber:  maxBuckets,
-			NativeHistogramMinResetDuration: time.Hour,
+			NativeHistogramMinResetDuration: DefaultNativeHistogramConfig.MinResetDuration,
 		})
 		// Observations spanning many orders of magnitude force many distinct buckets.
 		for _, v := range []float64{1e-4, 1e-2, 1, 1e2, 1e4, 1e6, 1e8, 1e10} {
@@ -112,8 +77,8 @@ func TestNativeHistogramMaxBucketNumberDegrades(t *testing.T) {
 	schemaHighLimit := makeAndObserve(500)
 	schemaLowLimit := makeAndObserve(2)
 
-	assert.GreaterOrEqual(t, schemaHighLimit, schemaLowLimit,
-		"a higher MaxBucketNumber should maintain equal or finer resolution (schema)")
+	assert.Greater(t, schemaHighLimit, schemaLowLimit,
+		"a higher MaxBucketNumber should maintain finer resolution (schema)")
 }
 
 // TestNativeHistogramSchemaAppliedToExportedMetrics is an integration test that
@@ -122,17 +87,17 @@ func TestNativeHistogramMaxBucketNumberDegrades(t *testing.T) {
 func TestNativeHistogramSchemaAppliedToExportedMetrics(t *testing.T) {
 	for _, tc := range []struct {
 		name           string
-		nhCfg          *NativeHistogramConfig
+		nhCfg          NativeHistogramConfig
 		expectedSchema int32
 	}{
 		{
 			name:           "default config produces schema 3",
-			nhCfg:          nil,
+			nhCfg:          DefaultNativeHistogramConfig,
 			expectedSchema: 3,
 		},
 		{
 			name:           "BucketFactor=4.0 produces schema -1",
-			nhCfg:          &NativeHistogramConfig{BucketFactor: 4.0, MaxBucketNumber: 100, MinResetDuration: time.Hour},
+			nhCfg:          NativeHistogramConfig{BucketFactor: 4.0, MaxBucketNumber: 100, MinResetDuration: time.Hour},
 			expectedSchema: -1,
 		},
 	} {
@@ -148,6 +113,7 @@ func TestNativeHistogramSchemaAppliedToExportedMetrics(t *testing.T) {
 					Registry:         registry,
 					Instrumentations: []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP},
 					NativeHistogram:  tc.nhCfg,
+					ExemplarFilter:   "always_off",
 				},
 				&perapp.MetricsConfig{Features: export.FeatureApplicationRED},
 				&attributes.SelectorConfig{},

@@ -250,14 +250,9 @@ var DefaultConfig = Config{
 		},
 	},
 	Prometheus: prom.PrometheusConfig{
-		Path:    "/metrics",
-		Buckets: export.DefaultBuckets,
-		NativeHistogram: prom.NativeHistogramConfig{
-			// recommended values for native histogram migration
-			BucketFactor:     1.1,
-			MaxBucketNumber:  100,
-			MinResetDuration: time.Hour,
-		},
+		Path:            "/metrics",
+		Buckets:         export.DefaultBuckets,
+		NativeHistogram: prom.DefaultNativeHistogramConfig,
 		Instrumentations: []instrumentations.Instrumentation{
 			instrumentations.InstrumentationALL,
 		},

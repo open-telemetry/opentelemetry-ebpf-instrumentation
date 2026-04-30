@@ -116,6 +116,13 @@ type NativeHistogramConfig struct {
 	MinResetDuration time.Duration `yaml:"min_reset_duration" env:"OTEL_EBPF_PROMETHEUS_NATIVE_HISTOGRAM_MIN_RESET_DURATION"`
 }
 
+var DefaultNativeHistogramConfig = NativeHistogramConfig{
+	// recommended values for native histogram migration
+	BucketFactor:     1.1,
+	MaxBucketNumber:  100,
+	MinResetDuration: time.Hour,
+}
+
 // TODO: TLS
 type PrometheusConfig struct {
 	Port int    `yaml:"port" env:"OTEL_EBPF_PROMETHEUS_PORT"`

@@ -347,6 +347,16 @@ TODO: TLS
 | `internal_metrics.prometheus.service_cache_size` | `integer` |  | `10000` |  |  |  |
 | `internal_metrics.prometheus.ttl` | `duration` | `OTEL_EBPF_PROMETHEUS_TTL` | `5m` | `30s`, `5m`, `1ms`, etc |  | Specifies the time since a metric was updated for the last time until it is removed from the metrics set. |
 
+#### `internal_metrics.prometheus.native_histogram`
+
+NativeHistogramConfig holds configuration for native histograms
+
+| YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
+|---|---|---|---|---|---|---|
+| `internal_metrics.prometheus.native_histogram.bucket_factor` | `number` | `OTEL_EBPF_PROMETHEUS_NATIVE_HISTOGRAM_BUCKET_FACTOR` | `1.1` |  |  |  |
+| `internal_metrics.prometheus.native_histogram.max_bucket_number` | `integer` | `OTEL_EBPF_PROMETHEUS_NATIVE_HISTOGRAM_MAX_BUCKET_NUMBER` | `100` |  |  |  |
+| `internal_metrics.prometheus.native_histogram.min_reset_duration` | `duration` | `OTEL_EBPF_PROMETHEUS_NATIVE_HISTOGRAM_MIN_RESET_DURATION` | `60m` | `30s`, `5m`, `1ms`, etc |  |  |
+
 ## `javaagent`
 
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
@@ -509,6 +519,16 @@ TODO: TLS
 | `prometheus_export.port` | `integer` | `OTEL_EBPF_PROMETHEUS_PORT` | `0` |  |  |  |
 | `prometheus_export.service_cache_size` | `integer` |  | `10000` |  |  |  |
 | `prometheus_export.ttl` | `duration` | `OTEL_EBPF_PROMETHEUS_TTL` | `5m` | `30s`, `5m`, `1ms`, etc |  | Specifies the time since a metric was updated for the last time until it is removed from the metrics set. |
+
+### `prometheus_export.native_histogram`
+
+NativeHistogramConfig holds configuration for native histograms
+
+| YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
+|---|---|---|---|---|---|---|
+| `prometheus_export.native_histogram.bucket_factor` | `number` | `OTEL_EBPF_PROMETHEUS_NATIVE_HISTOGRAM_BUCKET_FACTOR` | `1.1` |  |  |  |
+| `prometheus_export.native_histogram.max_bucket_number` | `integer` | `OTEL_EBPF_PROMETHEUS_NATIVE_HISTOGRAM_MAX_BUCKET_NUMBER` | `100` |  |  |  |
+| `prometheus_export.native_histogram.min_reset_duration` | `duration` | `OTEL_EBPF_PROMETHEUS_NATIVE_HISTOGRAM_MIN_RESET_DURATION` | `60m` | `30s`, `5m`, `1ms`, etc |  |  |
 
 ## `routes`
 

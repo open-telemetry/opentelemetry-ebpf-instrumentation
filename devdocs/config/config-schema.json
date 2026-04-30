@@ -1768,6 +1768,33 @@
       },
       "type": "object"
     },
+    "NativeHistogramConfig": {
+      "properties": {
+        "bucket_factor": {
+          "type": "number",
+          "default": 1.1,
+          "x-env-var": "OTEL_EBPF_PROMETHEUS_NATIVE_HISTOGRAM_BUCKET_FACTOR"
+        },
+        "max_bucket_number": {
+          "type": "integer",
+          "default": 100,
+          "x-env-var": "OTEL_EBPF_PROMETHEUS_NATIVE_HISTOGRAM_MAX_BUCKET_NUMBER"
+        },
+        "min_reset_duration": {
+          "type": "string",
+          "pattern": "^[0-9]+(ms|s|m)$",
+          "default": "60m",
+          "examples": [
+            "30s",
+            "5m",
+            "1ms"
+          ],
+          "x-env-var": "OTEL_EBPF_PROMETHEUS_NATIVE_HISTOGRAM_MIN_RESET_DURATION"
+        }
+      },
+      "type": "object",
+      "description": "NativeHistogramConfig holds configuration for native histograms"
+    },
     "NetworkConfig": {
       "properties": {
         "agent_ip": {
@@ -2053,6 +2080,10 @@
             "*"
           ],
           "x-env-var": "OTEL_EBPF_PROMETHEUS_INSTRUMENTATIONS"
+        },
+        "native_histogram": {
+          "$ref": "#/$defs/NativeHistogramConfig",
+          "description": "Configures native histogram bucket parameters. Uses recommended values if not specified."
         },
         "path": {
           "type": "string",
