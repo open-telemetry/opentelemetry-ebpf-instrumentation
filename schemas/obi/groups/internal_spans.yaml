@@ -1,10 +1,9 @@
 groups:
   # OBI synthesises a pair of internal child spans under every accepted
   # server-side request span to surface the queue-time vs processing-time
-  # split of the request. Both are emitted by `createSubSpans` in
-  # `pkg/export/otel/tracesgen/tracesgen.go`. They carry no custom attributes
-  # — only the standard span fields (name, kind, parent, timing) — so they
-  # are documented here purely to anchor OBI's emission contract.
+  # split of the request. They carry no custom attributes — only the
+  # standard span fields (name, kind, parent, timing) — so they are
+  # documented here purely to anchor OBI's emission contract.
 
   - id: span.obi.in_queue
     type: span
@@ -23,7 +22,5 @@ groups:
     brief: >
       Internal child span representing the time between when request
       processing started and when the response was sent. Span name is the
-      literal string `processing`. Parent is the originating server span;
-      the span ID is reused from the upstream span when valid, otherwise
-      generated.
+      literal string `processing`. Parent is the originating server span.
     attributes: []

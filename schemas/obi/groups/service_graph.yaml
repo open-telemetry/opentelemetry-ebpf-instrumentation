@@ -61,7 +61,6 @@ groups:
           connector's `dimensions` list.
         examples: ["integration-test"]
 
-  # Source: pkg/export/otel/metrics_svc_graph.go (constant `ServiceGraphTotal`).
   - id: metric.traces_service_graph_request_total
     type: metric
     metric_name: traces_service_graph_request_total
@@ -78,7 +77,6 @@ groups:
       - ref: server_service_namespace
       - ref: source
 
-  # Source: pkg/export/otel/metrics_svc_graph.go (constant `ServiceGraphFailed`).
   - id: metric.traces_service_graph_request_failed_total
     type: metric
     metric_name: traces_service_graph_request_failed_total
@@ -96,7 +94,6 @@ groups:
       - ref: server_service_namespace
       - ref: source
 
-  # Source: pkg/export/otel/metrics_svc_graph.go (constant `ServiceGraphServer`).
   - id: metric.traces_service_graph_request_server
     type: metric
     metric_name: traces_service_graph_request_server
@@ -113,7 +110,6 @@ groups:
       - ref: server_service_namespace
       - ref: source
 
-  # Source: pkg/export/otel/metrics_svc_graph.go (constant `ServiceGraphClient`).
   - id: metric.traces_service_graph_request_client
     type: metric
     metric_name: traces_service_graph_request_client

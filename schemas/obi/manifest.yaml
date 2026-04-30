@@ -20,9 +20,8 @@ description: |
   registry forms the complete contract of what OBI emits.
 stability: development
 dependencies:
-  # The dependency version MUST stay in sync with the Go semconv import in
-  # `internal/test/integration/weaver.go`. A unit test
-  # (`TestSemconvVersionMatchesManifest`) asserts both sides match — bump
-  # them together.
+  # The dependency version MUST stay in sync with the upstream
+  # OpenTelemetry semantic conventions version OBI is built against. A
+  # CI guard asserts both sides match — bump them together.
   - schema_url: https://opentelemetry.io/schemas/1.38.0
     registry_path: https://github.com/open-telemetry/semantic-conventions.git@v1.38.0[model]

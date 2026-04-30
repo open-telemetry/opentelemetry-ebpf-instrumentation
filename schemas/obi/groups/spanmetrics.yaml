@@ -24,8 +24,7 @@ groups:
           Hint set on a span by the producer to tell downstream span-metrics
           processors that this span is already accounted for in upstream
           span-metrics emissions and should be excluded from aggregation,
-          to avoid double counting. Defined in
-          `pkg/export/attributes/names/attrs.go` as `SkipSpanMetrics`.
+          to avoid double counting.
       - id: span.name
         type: string
         stability: development
@@ -68,8 +67,6 @@ groups:
         stability: development
         brief: The span status code, mirrored from the originating span.
 
-  # Source: pkg/export/otel/metrics.go (constant `SpanMetricsCallsOTel`,
-  # selected by `spanMetricsCallsName()` when not in legacy mode).
   - id: metric.traces_span_metrics_calls_total
     type: metric
     metric_name: traces_span_metrics_calls_total
@@ -84,9 +81,6 @@ groups:
       - ref: status.code
       - ref: source
 
-  # Source: pkg/export/otel/metrics.go (constant `SpanMetricsLatencyOTel`,
-  # selected by `spanMetricsLatencyName()` when not in legacy mode). Unit
-  # `s` is set explicitly via `instrument.WithUnit("s")` on the histogram.
   - id: metric.traces_span_metrics_duration
     type: metric
     metric_name: traces_span_metrics_duration

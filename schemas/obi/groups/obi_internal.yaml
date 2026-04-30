@@ -17,11 +17,9 @@ groups:
         stability: development
         brief: >
           Identifier of the vendor / SDK that produced the metric. OBI sets
-          this to its `VendorPrefix` (currently `obi`). Used by the
-          spanmetrics and service-graph emissions to disambiguate from
-          collector-contrib connector output. See
-          `pkg/export/attributes/names/attrs.go` (`Source`) and
-          `request.SourceMetric`.
+          this to `obi`. Used by the spanmetrics and service-graph
+          emissions to disambiguate from collector-contrib connector
+          output.
         examples: [ "obi" ]
       - id: instance
         type: string
@@ -40,11 +38,9 @@ groups:
           series exported via OBI's Prometheus exporter.
         examples: ["my-service"]
 
-  # Source: pkg/export/otel/metrics.go (constant `TargetInfo`,
-  # `setupTargetInfo`). Emitted as `meter.Int64UpDownCounter(TargetInfo)`
-  # with no unit set; the registry mirrors that exact shape rather than
-  # the OTel-canonical `gauge` / `unit: "1"` Prometheus mapping so weaver
-  # validates against what OBI actually emits.
+  # The instrument and (empty) unit declared here mirror what OBI currently
+  # emits over OTLP rather than the OTel-canonical `gauge` / `unit: "1"`
+  # Prometheus mapping, so weaver validates against the actual contract.
   - id: metric.target_info
     type: metric
     metric_name: target_info
@@ -59,15 +55,10 @@ groups:
       - ref: instance
       - ref: job
 
-  # Source: pkg/export/otel/metrics.go (constants `TracesTargetInfo`,
-  # `setupTracesTargetInfo` / `createTracesTargetInfo`). Same `target_info`
-  # pattern as the metrics-pipeline series above, applied to the traces
-  # pipeline so dashboards joining trace metrics back to service identity
-  # have the equivalent meta-metric. Only emitted when any span-metrics
-  # feature is enabled — see the `Features.AnySpanMetrics()` gate in
-  # `createTracesTargetInfo` (the gate covers `application_span`,
-  # `application_span_otel`, and `application_span_sizes` but NOT
-  # `application_service_graph`).
+  # The trace-pipeline counterpart of `target_info`. Only emitted when any
+  # span-metrics feature is enabled — i.e. one of `application_span`,
+  # `application_span_otel`, or `application_span_sizes` (the
+  # `application_service_graph` feature does NOT trigger it).
   - id: metric.traces_target_info
     type: metric
     metric_name: traces_target_info
@@ -81,10 +72,8 @@ groups:
     attributes:
       - ref: source
 
-  # Source: pkg/export/otel/metrics.go (constant `TracesHostInfo`,
-  # `setupHostInfoMeter`). OBI-invented per-host meta-metric — there is no
-  # upstream / collector-contrib analogue. Emitted as `meter.Int64Gauge`
-  # with no unit set. The carried attribute key is upstream `host.id`
+  # OBI-invented per-host meta-metric — there is no upstream /
+  # collector-contrib analogue. Carries the upstream `host.id` attribute.
   - id: metric.traces_host_info
     type: metric
     metric_name: traces_host_info
