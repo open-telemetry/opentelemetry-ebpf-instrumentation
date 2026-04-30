@@ -21,6 +21,8 @@ import (
 	"go.opentelemetry.io/collector/consumer"
 	"go.opentelemetry.io/collector/pdata/pmetric"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/sdk/instrumentation"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 
 	"go.opentelemetry.io/obi/internal/test/collector"
 	"go.opentelemetry.io/obi/pkg/appolly/app"
@@ -33,6 +35,7 @@ import (
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
+	otelmetric "go.opentelemetry.io/obi/pkg/export/otel/metric"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
@@ -40,6 +43,62 @@ import (
 )
 
 var fakeMux = sync.Mutex{}
+
+func TestOtelHistogramConfig_ExponentialHistogramUsesConfiguredMaxSizeAndScale(t *testing.T) {
+	const metricName = "test.histogram"
+
+	reporter := MetricsReporter{
+		cfg: &otelcfg.MetricsConfig{
+			HistogramAggregation: otelcfg.HistogramAggregationExponential,
+			ExponentialHistogram: otelcfg.ExponentialHistogramConfig{
+				MaxSize:  64,
+				MaxScale: 12,
+			},
+		},
+		log: mlog(),
+	}
+
+	view := reporter.otelHistogramConfig(metricName, nil)
+
+	stream, ok := view(otelmetric.Instrument{
+		Name:  metricName,
+		Scope: instrumentation.Scope{Name: reporterName},
+	})
+	require.True(t, ok)
+
+	aggregation, ok := stream.Aggregation.(sdkmetric.AggregationBase2ExponentialHistogram)
+	require.True(t, ok)
+	assert.Equal(t, int32(64), aggregation.MaxSize)
+	assert.Equal(t, int32(12), aggregation.MaxScale)
+}
+
+func TestOtelHistogramConfig_ExplicitHistogramUsesBuckets(t *testing.T) {
+	const metricName = "test.histogram"
+	buckets := []float64{1, 2, 4}
+
+	reporter := MetricsReporter{
+		cfg: &otelcfg.MetricsConfig{
+			HistogramAggregation: otelcfg.HistogramAggregationExplicit,
+			ExponentialHistogram: otelcfg.ExponentialHistogramConfig{
+				MaxSize:  160,
+				MaxScale: 20,
+			},
+		},
+		log: mlog(),
+	}
+
+	view := reporter.otelHistogramConfig(metricName, buckets)
+
+	stream, ok := view(otelmetric.Instrument{
+		Name:  metricName,
+		Scope: instrumentation.Scope{Name: reporterName},
+	})
+	require.True(t, ok)
+
+	aggregation, ok := stream.Aggregation.(sdkmetric.AggregationExplicitBucketHistogram)
+	require.True(t, ok)
+	assert.Equal(t, buckets, aggregation.Boundaries)
+}
 
 func TestMetrics_InternalInstrumentation(t *testing.T) {
 	defer otelcfg.RestoreEnvAfterExecution()()

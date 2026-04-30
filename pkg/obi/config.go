@@ -223,6 +223,10 @@ var DefaultConfig = Config{
 		Buckets:              export.DefaultBuckets,
 		ReportersCacheLen:    ReporterLRUSize,
 		HistogramAggregation: otelcfg.HistogramAggregationExplicit,
+		ExponentialHistogram: otelcfg.ExponentialHistogramConfig{
+			MaxSize:  160,
+			MaxScale: 20,
+		},
 		Instrumentations: []instrumentations.Instrumentation{
 			instrumentations.InstrumentationALL,
 		},

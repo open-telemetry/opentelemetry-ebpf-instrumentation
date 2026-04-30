@@ -56,6 +56,9 @@ otel_metrics_export:
   buckets:
     duration_histogram: [0, 1, 2]
   histogram_aggregation: base2_exponential_bucket_histogram
+  exponential_histogram:
+    max_size: 128
+    max_scale: 16
 prometheus_export:
   ttl: 1s
   buckets:
@@ -216,7 +219,11 @@ discovery:
 				instrumentations.InstrumentationALL,
 			},
 			HistogramAggregation: "base2_exponential_bucket_histogram",
-			TTL:                  5 * time.Minute,
+			ExponentialHistogram: otelcfg.ExponentialHistogramConfig{
+				MaxSize:  128,
+				MaxScale: 16,
+			},
+			TTL: 5 * time.Minute,
 		},
 		Traces: otelcfg.TracesConfig{
 			Protocol:          otelcfg.ProtocolUnset,
@@ -354,6 +361,49 @@ func TestConfig_ShutdownTimeout(t *testing.T) {
 	cfg, err := LoadConfig(bytes.NewReader(nil))
 	require.NoError(t, err)
 	assert.Equal(t, time.Minute, cfg.ShutdownTimeout)
+}
+
+func TestConfig_ExponentialHistogramConfigFromEnv(t *testing.T) {
+	t.Setenv("OTEL_EBPF_METRICS_EXPONENTIAL_HISTOGRAM_MAX_SIZE", "96")
+	t.Setenv("OTEL_EBPF_METRICS_EXPONENTIAL_HISTOGRAM_MAX_SCALE", "14")
+
+	cfg, err := LoadConfig(bytes.NewReader(nil))
+	require.NoError(t, err)
+
+	assert.Equal(t, int32(96), cfg.OTELMetrics.ExponentialHistogram.MaxSize)
+	assert.Equal(t, int32(14), cfg.OTELMetrics.ExponentialHistogram.MaxScale)
+}
+
+func TestConfigValidate_ExponentialHistogramConfig(t *testing.T) {
+	t.Run("valid scale range", func(t *testing.T) {
+		cfg := loadConfig(t, envMap{
+			"OTEL_EBPF_EXECUTABLE_PATH":                         "foo",
+			"OTEL_EBPF_TRACE_PRINTER":                           "text",
+			"OTEL_EBPF_METRICS_EXPONENTIAL_HISTOGRAM_MAX_SCALE": "0",
+		})
+
+		require.NoError(t, cfg.Validate())
+	})
+
+	t.Run("invalid size", func(t *testing.T) {
+		cfg := loadConfig(t, envMap{
+			"OTEL_EBPF_EXECUTABLE_PATH":                        "foo",
+			"OTEL_EBPF_TRACE_PRINTER":                          "text",
+			"OTEL_EBPF_METRICS_EXPONENTIAL_HISTOGRAM_MAX_SIZE": "0",
+		})
+
+		require.Error(t, cfg.Validate())
+	})
+
+	t.Run("invalid scale", func(t *testing.T) {
+		cfg := loadConfig(t, envMap{
+			"OTEL_EBPF_EXECUTABLE_PATH":                         "foo",
+			"OTEL_EBPF_TRACE_PRINTER":                           "text",
+			"OTEL_EBPF_METRICS_EXPONENTIAL_HISTOGRAM_MAX_SCALE": "21",
+		})
+
+		require.Error(t, cfg.Validate())
+	})
 }
 
 func TestConfigValidate(t *testing.T) {

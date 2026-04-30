@@ -790,6 +790,24 @@
       "type": "object",
       "description": "EnrichmentConfig configures HTTP header and payload extraction with policy-based rules."
     },
+    "ExponentialHistogramConfig": {
+      "properties": {
+        "max_scale": {
+          "type": "integer",
+          "description": "Sets the maximum resolution scale used by base-2 exponential histograms. Higher values create narrower buckets and more precision, but may require more buckets. Valid values are from -10 to 20.",
+          "default": 20,
+          "x-env-var": "OTEL_EBPF_METRICS_EXPONENTIAL_HISTOGRAM_MAX_SCALE"
+        },
+        "max_size": {
+          "type": "integer",
+          "description": "Sets the maximum number of buckets used for a base-2 exponential histogram. Higher values reduce bucket compaction and preserve more detail at the cost of larger metric payloads.",
+          "default": 160,
+          "x-env-var": "OTEL_EBPF_METRICS_EXPONENTIAL_HISTOGRAM_MAX_SIZE"
+        }
+      },
+      "type": "object",
+      "description": "ExponentialHistogramConfig configures the precision and size of exponential histograms according to https://opentelemetry.io/docs/specs/otel/metrics/sdk/#base2-exponential-bucket-histogram-aggregation"
+    },
     "ExportModes": {
       "items": {
         "type": "string",
@@ -1621,6 +1639,9 @@
           "type": "string",
           "format": "uri",
           "x-env-var": "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT"
+        },
+        "exponential_histogram": {
+          "$ref": "#/$defs/ExponentialHistogramConfig"
         },
         "extra_span_resource_attributes": {
           "items": {
