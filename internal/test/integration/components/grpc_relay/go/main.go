@@ -61,12 +61,34 @@ func callNextHopHTTP(ctx context.Context, url string) error {
 	return nil
 }
 
+// One persistent grpc.NewClient per (addr) — concurrent calls share a single
+// HTTP/2 connection and multiplex as separate streams. Without this, every
+// request creates its own connection, collapsing multiplex semantics past
+// this hop and making it impossible to assert per-stream isolation downstream
+var (
+	nextHopConnsMu sync.Mutex
+	nextHopConns   = map[string]*grpc.ClientConn{}
+)
+
+func nextHopConn(addr string) (*grpc.ClientConn, error) {
+	nextHopConnsMu.Lock()
+	defer nextHopConnsMu.Unlock()
+	if c, ok := nextHopConns[addr]; ok {
+		return c, nil
+	}
+	c, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return nil, err
+	}
+	nextHopConns[addr] = c
+	return c, nil
+}
+
 func callNextHop(ctx context.Context, addr string) error {
-	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := nextHopConn(addr)
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
 
 	ctx, cancel := context.WithTimeout(ctx, grpcCallTimeout)
 	defer cancel()

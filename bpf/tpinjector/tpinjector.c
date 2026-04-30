@@ -887,6 +887,10 @@ int obi_packet_extender(struct sk_msg_md *msg) {
     }
 
     const u64 id = bpf_get_current_pid_tgid();
+    if (!valid_pid(id)) {
+        return SK_PASS;
+    }
+
     const connection_info_t conn = get_connection_info(msg);
     const egress_key_t e_key = make_egress_key(&conn);
 
@@ -898,7 +902,6 @@ int obi_packet_extender(struct sk_msg_md *msg) {
     t_ctx->h2_scan_pos = 0;
     t_ctx->h2_frames = 0;
 
-    // Marked H2 socket: per-stream HPACK chain (no valid_pid check)
     if (is_h2_socket(msg)) {
         bpf_msg_pull_data(msg, 0, msg->size, 0);
         fill_msg_buffers(msg, &t_ctx->p_conn, &e_key);
@@ -917,24 +920,19 @@ int obi_packet_extender(struct sk_msg_md *msg) {
         return SK_PASS;
     }
 
-    if (valid_pid(id)) {
-        bpf_dbg_printk("MSG=%llx:%d ->", conn.s_ip[3], conn.s_port);
-        bpf_dbg_printk("MSG TO=%llx:%d", conn.d_ip[3], conn.d_port);
-        bpf_dbg_printk("MSG SIZE=%u", msg->size);
+    bpf_dbg_printk("MSG=%llx:%d ->", conn.s_ip[3], conn.s_port);
+    bpf_dbg_printk("MSG TO=%llx:%d", conn.d_ip[3], conn.d_port);
+    bpf_dbg_printk("MSG SIZE=%u", msg->size);
 
-        bpf_msg_pull_data(msg, 0, msg->size, 0);
-        const bool is_http = protocol_detector(msg, id, &conn, &e_key);
-        if (is_http) {
-            bpf_dbg_printk("len=%d, s_port=%d", msg->size, msg->local_port);
-            init_tp_ctx_parent_tp(t_ctx);
-            bpf_tail_call_static(msg, &extender_jump_table, k_tail_find_existing_tp);
-            return SK_PASS;
-        }
+    bpf_msg_pull_data(msg, 0, msg->size, 0);
+    const bool is_http = protocol_detector(msg, id, &conn, &e_key);
+    if (is_http) {
+        bpf_dbg_printk("len=%d, s_port=%d", msg->size, msg->local_port);
+        init_tp_ctx_parent_tp(t_ctx);
+        bpf_tail_call_static(msg, &extender_jump_table, k_tail_find_existing_tp);
+        return SK_PASS;
     }
 
-    // H2 detect runs even without valid_pid: Go binaries are tracked by
-    // uprobes (not in the PID map), and sk_msg tgid can differ for forked
-    // workers
     wrap_http2_traceparent(msg, &t_ctx->p_conn);
     return SK_PASS;
 }
@@ -963,37 +961,30 @@ int obi_packet_extender_write_msg_tp(struct sk_msg_md *msg) {
     return SK_PASS;
 }
 
+// Shared by HTTP/1 and HTTP/2 existing-tp paths. When the in-process parent
+// matches (trace_ids equal), copies parent_tp.span_id into tp->parent_id so
+// the child span has the right in-process parent. Returns true if the wire
+// span_id is just forwarding the parent (proxy hop) — a fresh span_id is
+// generated and caller must rewrite it on the wire
+static __always_inline bool apply_parent_tp(const tailcall_ctx *t_ctx, tp_info_t *tp) {
+    if (!t_ctx->has_parent_tp ||
+        bpf_memcmp(tp->trace_id, t_ctx->parent_tp.trace_id, TRACE_ID_SIZE_BYTES) != 0) {
+        return false;
+    }
+    bpf_memcpy(tp->parent_id, t_ctx->parent_tp.span_id, SPAN_ID_SIZE_BYTES);
+    if (bpf_memcmp(tp->span_id, t_ctx->parent_tp.parent_id, SPAN_ID_SIZE_BYTES) != 0) {
+        return false;
+    }
+    urand_bytes(tp->span_id, SPAN_ID_SIZE_BYTES);
+    return true;
+}
+
 static __always_inline void
 assign_parent_tp(const tailcall_ctx *t_ctx, tp_info_t *tp, unsigned char *span_id) {
-    if (!t_ctx->has_parent_tp) {
-        return;
+    if (apply_parent_tp(t_ctx, tp)) {
+        bpf_dbg_printk("detected forwarded TP header, overriding span id");
+        encode_hex(span_id, tp->span_id, SPAN_ID_SIZE_BYTES);
     }
-
-    // test if the trace ids are equal - if they aren't, we don't
-    // assign a parent
-    if (__bpf_memcmp(tp->trace_id, t_ctx->parent_tp.trace_id, TRACE_ID_SIZE_BYTES) != 0) {
-        return;
-    }
-
-    __builtin_memcpy(tp->parent_id, t_ctx->parent_tp.span_id, SPAN_ID_SIZE_BYTES);
-
-    // check if the TP we parsed is a legimate one, or a
-    // proxy-forwarded header - in which case we need to
-    // override it
-    if (__bpf_memcmp(tp->span_id, t_ctx->parent_tp.parent_id, SPAN_ID_SIZE_BYTES) != 0) {
-        return;
-    }
-
-    // at this point, the span id of this outgoing call is equal to the span
-    // id of the parent call (i.e. the Traceparent header is the same), which
-    // hints it's being forwarded by some kind of proxy - in this case, we
-    // generate a new span id and overwrite the header
-
-    bpf_dbg_printk("detected forwarded TP header, overriding span id");
-
-    urand_bytes(tp->span_id, SPAN_ID_SIZE_BYTES);
-
-    encode_hex(span_id, tp->span_id, SPAN_ID_SIZE_BYTES);
 }
 
 //k_tail_find_existing_tp
@@ -1338,26 +1329,11 @@ int obi_packet_extender_find_existing_h2_tp(struct sk_msg_md *msg) {
 
     const u32 span_id_offset = find_existing_h2_traceparent(msg, hpack_start, hpack_len, &tp_p->tp);
     if (span_id_offset) {
-        const u64 id = bpf_get_current_pid_tgid();
-        if (!get_tp_info_pid(&t_ctx->e_key) && !valid_pid(id) &&
-            !already_tracked_plain_http2(&t_ctx->p_conn)) {
-            return SK_PASS;
-        }
-        // Same idea as HTTP/1 assign_parent_tp: forwarded TPs get a new
-        // span_id so the child has its own ID on the wire
         init_tp_ctx_parent_tp(t_ctx);
-        bool forwarded = false;
-        if (t_ctx->has_parent_tp &&
-            bpf_memcmp(tp_p->tp.trace_id, t_ctx->parent_tp.trace_id, TRACE_ID_SIZE_BYTES) == 0) {
-            bpf_memcpy(tp_p->tp.parent_id, t_ctx->parent_tp.span_id, SPAN_ID_SIZE_BYTES);
-            forwarded =
-                bpf_memcmp(tp_p->tp.span_id, t_ctx->parent_tp.parent_id, SPAN_ID_SIZE_BYTES) == 0;
-        } else {
-            bpf_memset(tp_p->tp.parent_id, 0, sizeof(tp_p->tp.parent_id));
-        }
-
-        if (forwarded) {
-            urand_bytes(tp_p->tp.span_id, SPAN_ID_SIZE_BYTES);
+        bpf_memset(tp_p->tp.parent_id, 0, sizeof(tp_p->tp.parent_id));
+        if (apply_parent_tp(t_ctx, &tp_p->tp)) {
+            // Forwarded HPACK traceparent — rewrite the wire span_id so the
+            // child has its own ID
             if (bpf_msg_pull_data(msg, span_id_offset, span_id_offset + SPAN_ID_CHAR_LEN, 0) == 0) {
                 unsigned char *d = msg->data;
                 const unsigned char *e = msg->data_end;

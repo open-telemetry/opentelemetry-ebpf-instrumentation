@@ -1,6 +1,6 @@
 module grpc-relay
 
-go 1.25
+go 1.25.8
 
 require (
 	google.golang.org/grpc v1.70.0

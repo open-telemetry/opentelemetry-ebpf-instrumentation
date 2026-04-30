@@ -982,9 +982,12 @@ int obi_uprobe_grpc_controlBuffer_executeAndPut(struct pt_regs *ctx) {
         return 0;
     }
     u64 hdr_key = (u64)hdr;
-    bpf_map_update_elem(&pending_invocation_by_hdr, &hdr_key, &wrapper->inv, BPF_ANY);
-    bpf_map_update_elem(&pending_conn_by_hdr, &hdr_key, &wrapper->s_key.conn_ptr, BPF_ANY);
-    bpf_dbg_printk("executeAndPut: stashed hdr=%llx conn=%llx", hdr, wrapper->s_key.conn_ptr);
+    pending_h2_invocation_t pending = {
+        .inv = wrapper->inv,
+        .conn_ptr = wrapper->s_key.conn_ptr,
+    };
+    bpf_map_update_elem(&pending_h2_invocations, &hdr_key, &pending, BPF_ANY);
+    bpf_dbg_printk("executeAndPut: stashed hdr=%llx conn=%llx", hdr, pending.conn_ptr);
     return 0;
 }
 
@@ -1002,12 +1005,8 @@ int obi_uprobe_grpc_loopyWriter_originateStream(struct pt_regs *ctx) {
         return 0;
     }
     u64 hdr_key = (u64)hdr;
-    grpc_client_func_invocation_t *inv = bpf_map_lookup_elem(&pending_invocation_by_hdr, &hdr_key);
-    if (!inv) {
-        return 0;
-    }
-    u64 *conn_ptr = bpf_map_lookup_elem(&pending_conn_by_hdr, &hdr_key);
-    if (!conn_ptr) {
+    pending_h2_invocation_t *pending = bpf_map_lookup_elem(&pending_h2_invocations, &hdr_key);
+    if (!pending) {
         return 0;
     }
 
@@ -1017,13 +1016,13 @@ int obi_uprobe_grpc_loopyWriter_originateStream(struct pt_regs *ctx) {
         return 0;
     }
 
-    stream_key_t key = {.conn_ptr = *conn_ptr, .stream_id = stream_id};
-    bpf_map_update_elem(&ongoing_streams, &key, inv, BPF_ANY);
+    stream_key_t key = {.conn_ptr = pending->conn_ptr, .stream_id = stream_id};
+    bpf_map_update_elem(&ongoing_streams, &key, &pending->inv, BPF_ANY);
 
-    bpf_map_delete_elem(&pending_invocation_by_hdr, &hdr_key);
-    bpf_map_delete_elem(&pending_conn_by_hdr, &hdr_key);
+    bpf_map_delete_elem(&pending_h2_invocations, &hdr_key);
 
-    bpf_dbg_printk(
-        "originateStream: published ongoing_streams[conn=%llx, stream=%u]", *conn_ptr, stream_id);
+    bpf_dbg_printk("originateStream: published ongoing_streams[conn=%llx, stream=%u]",
+                   pending->conn_ptr,
+                   stream_id);
     return 0;
 }

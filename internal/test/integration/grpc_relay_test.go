@@ -339,139 +339,130 @@ func testGRPCRelayChainContextPropagation(t *testing.T) {
 }
 
 // serverSpansByService returns every server-kind span in the trace owned by
-// the given service, regardless of operation name (HTTP and gRPC server spans
-// alike). Multiplex test asserts on hops where the server span is HTTP (e.g.
-// go-http-to-grpc) so an op-name filter wouldn't match
+// the given service, deduped by span_id. Some OBI paths emit a generic op="*"
+// HTTP/2 span alongside the gRPC-named span for the same logical request; both
+// share the same span_id. Counting them twice would flag a false isolation
+// break in the multiplex assertion
 func serverSpansByService(trace jaeger.Trace, service string) []jaeger.Span {
+	seen := map[string]bool{}
 	var matches []jaeger.Span
 	for _, s := range trace.Spans {
 		if proc, ok := trace.Processes[s.ProcessID]; !ok || proc.ServiceName != service {
 			continue
 		}
-		if tag, ok := jaeger.FindIn(s.Tags, "span.kind"); ok && tag.Value == "server" {
-			matches = append(matches, s)
+		tag, ok := jaeger.FindIn(s.Tags, "span.kind")
+		if !ok || tag.Value != "server" {
+			continue
 		}
+		if seen[s.SpanID] {
+			continue
+		}
+		seen[s.SpanID] = true
+		matches = append(matches, s)
 	}
 	return matches
 }
 
 // testGRPCMultiplexedContextPropagation fans out N concurrent gRPC streams
-// over a SHARED HTTP/2 connection and asserts each receiver hop along the
-// multiplexed segment has distinct parent_ids per stream. Hops listed cover
-// only the segment where the HTTP/2 connection is actually shared — beyond
-// that the chain switches to per-call connections, which is a different
-// concern (concurrent independent calls, not stream multiplexing)
+// from go-entry and asserts every gRPC server hop in the chain has distinct
+// parent_ids per stream. Each Go relay holds a singleton grpc.NewClient per
+// next-hop addr (see callNextHop in main.go), so concurrent fan-outs share
+// one HTTP/2 connection and multiplex as separate streams down the line.
+// nodejs and java handlers naturally reuse their persistent clients too
 func testGRPCMultiplexedContextPropagation(t *testing.T) {
-	cases := []struct {
-		name, url string
-		hops      []string
-	}{
-		// Multiplexed segment from go-entry: streams share one HTTP/2
-		// connection through python-relay → go-grpc-to-http → go-http-to-grpc.
-		// loopyWriter fresh-stream race is closed by the executeAndPut +
-		// originateStream uprobe pair (see go_grpc.c). Beyond go-http-to-grpc
-		// the chain switches to per-call connections — that's a different
-		// concurrency concern (TODO: separate test, separate fix)
-		{
-			"go-and-python", "http://localhost:8080/relay-multiplex",
-			[]string{"python-relay", "go-grpc-to-http", "go-http-to-grpc"},
-		},
-		// nodejs (sk_msg egress) → java-relay
-		{"nodejs", "http://localhost:8092/multiplexed", []string{"java-relay"}},
+	// Hops asserted: every gRPC server in the chain after the multiplexing
+	// origin. go-http-to-grpc receives HTTP/1 (not gRPC server-side), so it
+	// has no gRPC server span to assert on
+	hops := []string{"python-relay", "go-grpc-to-http", "nodejs-relay", "java-relay"}
+
+	now := uint64(time.Now().UnixNano())
+	traceID := fmt.Sprintf("%016x%016x", now, now+1)
+
+	var trace jaeger.Trace
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		req, err := http.NewRequest(http.MethodGet, "http://localhost:8080/relay-multiplex", nil)
+		require.NoError(ct, err)
+		req.Header.Set("Traceparent", fmt.Sprintf("00-%s-%s-01", traceID, multiplexSpanID))
+		if wr, err := http.DefaultClient.Do(req); err == nil && wr != nil {
+			wr.Body.Close()
+		}
+
+		resp, err := http.Get(jaegerQueryURL + "/" + traceID)
+		require.NoError(ct, err)
+		require.Equal(ct, http.StatusOK, resp.StatusCode)
+		defer resp.Body.Close()
+
+		var tq jaeger.TracesQuery
+		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
+		require.NotEmpty(ct, tq.Data)
+
+		trace = tq.Data[0]
+		for _, hop := range hops {
+			require.GreaterOrEqual(ct,
+				len(serverSpansByService(trace, hop)),
+				3, "expected at least 3 %s server spans in trace %s", hop, traceID)
+		}
+	}, grpcRelayTimeout, time.Second)
+
+	t.Logf("trace %s: %d spans across %d services",
+		trace.TraceID, len(trace.Spans), len(traceServices(trace)))
+
+	for _, hop := range hops {
+		serverSpans := serverSpansByService(trace, hop)
+		parents := map[string]bool{}
+		for _, s := range serverSpans {
+			pid := ""
+			for _, ref := range s.References {
+				if ref.RefType == "CHILD_OF" {
+					pid = ref.SpanID
+				}
+			}
+			require.NotEmpty(t, pid, "%s span %s missing parent", hop, s.SpanID)
+			require.False(t, parents[pid],
+				"%s: parent_id %s shared by multiple server spans — stream isolation broken", hop, pid)
+			parents[pid] = true
+		}
+		t.Logf("%s: %d server spans, %d distinct parents", hop, len(serverSpans), len(parents))
 	}
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			now := uint64(time.Now().UnixNano())
-			traceID := fmt.Sprintf("%016x%016x", now, now+1)
-
-			var trace jaeger.Trace
-			require.EventuallyWithT(t, func(ct *assert.CollectT) {
-				req, err := http.NewRequest(http.MethodGet, c.url, nil)
-				require.NoError(ct, err)
-				req.Header.Set("Traceparent", fmt.Sprintf("00-%s-%s-01", traceID, multiplexSpanID))
-				if wr, err := http.DefaultClient.Do(req); err == nil && wr != nil {
-					wr.Body.Close()
-				}
-
-				resp, err := http.Get(jaegerQueryURL + "/" + traceID)
-				require.NoError(ct, err)
-				require.Equal(ct, http.StatusOK, resp.StatusCode)
-				defer resp.Body.Close()
-
-				var tq jaeger.TracesQuery
-				require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
-				require.NotEmpty(ct, tq.Data)
-
-				trace = tq.Data[0]
-				for _, hop := range c.hops {
-					require.GreaterOrEqual(ct,
-						len(serverSpansByService(trace, hop)),
-						3, "expected at least 3 %s server spans in trace %s", hop, traceID)
-				}
-			}, grpcRelayTimeout, time.Second)
-
-			t.Logf("trace %s: %d spans across %d services",
-				trace.TraceID, len(trace.Spans), len(traceServices(trace)))
-
-			for _, hop := range c.hops {
-				serverSpans := serverSpansByService(trace, hop)
-				parents := map[string]bool{}
-				for _, s := range serverSpans {
-					pid := ""
-					for _, ref := range s.References {
-						if ref.RefType == "CHILD_OF" {
-							pid = ref.SpanID
-						}
-					}
-					require.NotEmpty(t, pid, "%s span %s missing parent", hop, s.SpanID)
-					require.False(t, parents[pid],
-						"%s: parent_id %s shared by multiple server spans — stream isolation broken", hop, pid)
-					parents[pid] = true
-				}
-				t.Logf("%s: %d server spans, %d distinct parents", hop, len(serverSpans), len(parents))
+	// Walk one chain root→leaf so a failure shows which hop dropped a stream
+	leafHop := hops[len(hops)-1]
+	leafSpans := serverSpansByService(trace, leafHop)
+	if len(leafSpans) > 0 {
+		var chain []jaeger.Span
+		cur := leafSpans[0]
+		chain = append(chain, cur)
+		for {
+			parent, ok := trace.ParentOf(&cur)
+			if !ok {
+				break
 			}
-
-			// Walk one chain root→leaf so a failure shows which hop dropped a stream
-			leafHop := c.hops[len(c.hops)-1]
-			leafSpans := serverSpansByService(trace, leafHop)
-			if len(leafSpans) > 0 {
-				var chain []jaeger.Span
-				cur := leafSpans[0]
-				chain = append(chain, cur)
-				for {
-					parent, ok := trace.ParentOf(&cur)
-					if !ok {
-						break
-					}
-					chain = append(chain, parent)
-					cur = parent
-				}
-				for i, j := 0, len(chain)-1; i < j; i, j = i+1, j-1 {
-					chain[i], chain[j] = chain[j], chain[i]
-				}
-				t.Logf("one chain (%d spans):", len(chain))
-				for depth, span := range chain {
-					svc := "unknown"
-					if proc, ok := trace.Processes[span.ProcessID]; ok {
-						svc = proc.ServiceName
-					}
-					kind := ""
-					if tag, ok := jaeger.FindIn(span.Tags, "span.kind"); ok {
-						kind = fmt.Sprintf(" (%v)", tag.Value)
-					}
-					parentID := ""
-					for _, r := range span.References {
-						if r.RefType == "CHILD_OF" {
-							parentID = r.SpanID
-							break
-						}
-					}
-					t.Logf("%s[%s]%s span_id=[%s] parent_span_id=[%s]",
-						strings.Repeat("  ", depth), svc, kind, span.SpanID, parentID)
+			chain = append(chain, parent)
+			cur = parent
+		}
+		for i, j := 0, len(chain)-1; i < j; i, j = i+1, j-1 {
+			chain[i], chain[j] = chain[j], chain[i]
+		}
+		t.Logf("one chain (%d spans):", len(chain))
+		for depth, span := range chain {
+			svc := "unknown"
+			if proc, ok := trace.Processes[span.ProcessID]; ok {
+				svc = proc.ServiceName
+			}
+			kind := ""
+			if tag, ok := jaeger.FindIn(span.Tags, "span.kind"); ok {
+				kind = fmt.Sprintf(" (%v)", tag.Value)
+			}
+			parentID := ""
+			for _, r := range span.References {
+				if r.RefType == "CHILD_OF" {
+					parentID = r.SpanID
+					break
 				}
 			}
-		})
+			t.Logf("%s[%s]%s span_id=[%s] parent_span_id=[%s]",
+				strings.Repeat("  ", depth), svc, kind, span.SpanID, parentID)
+		}
 	}
 }
 
