@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include <common/http_buf_size.h>
 #include <common/tp_info.h>
 
 // HTTP/2 and HPACK constants (RFC 7540, RFC 7541)
@@ -18,6 +19,7 @@ enum {
     k_h2_preface_check_len = 4,
     k_h2_max_frame_len = 65535,
     k_h2_max_frame_scan = 4,
+    k_h2_max_payload = k_kprobes_http2_buf_size - k_h2_frame_header_len,
     // Max HEADERS frames injected per sk_msg packet — bounded by the
     // 33 tail-call budget (≈4 hops per frame: detect → find → create → write)
     k_h2_max_frames_per_packet = 8,

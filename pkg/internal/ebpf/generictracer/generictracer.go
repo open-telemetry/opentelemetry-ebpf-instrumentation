@@ -149,18 +149,23 @@ func (p *Tracer) LoadSpecs() ([]*ebpfcommon.SpecBundle, error) {
 }
 
 func (p *Tracer) SetupTailCalls() {
+	// Order must match the k_tail_* enum in bpf/generictracer/k_tracer_tailcall.h
 	for i, prog := range []*ebpf.Program{
-		p.bpfObjects.ObiProtocolHttp,                                    // 0
-		p.bpfObjects.ObiContinueProtocolHttp,                            // 1
-		p.bpfObjects.ObiContinue2ProtocolHttp,                           // 2
-		p.bpfObjects.ObiProtocolHttp2,                                   // 3
-		p.bpfObjects.ObiProtocolTcp,                                     // 4
-		p.bpfObjects.ObiProtocolHttp2GrpcFrames,                         // 5
-		p.bpfObjects.ObiProtocolHttp2GrpcHandleStartFrame,               // 6
-		p.bpfObjects.ObiProtocolHttp2GrpcHandleEndFrame,                 // 7
-		p.bpfObjects.ObiHandleBufWithArgs,                               // 8
-		p.bpfObjects.ObiContinueProtocolHttpTp,                          // 9
-		nil,                                                             // 10 — k_tail_continue_netfd_read (set elsewhere)
+		// HTTP/1
+		p.bpfObjects.ObiProtocolHttp,           // 0  k_tail_protocol_http
+		p.bpfObjects.ObiContinueProtocolHttp,   // 1  k_tail_continue_protocol_http
+		p.bpfObjects.ObiContinue2ProtocolHttp,  // 2  k_tail_continue2_protocol_http
+		p.bpfObjects.ObiContinueProtocolHttpTp, // 3  k_tail_continue_protocol_http_tp
+		// TCP
+		p.bpfObjects.ObiProtocolTcp, // 4  k_tail_protocol_tcp
+		// generic
+		p.bpfObjects.ObiHandleBufWithArgs, // 5  k_tail_handle_buf_with_args
+		nil,                               // 6  k_tail_continue_netfd_read (gotracer-only)
+		// HTTP/2 + gRPC
+		p.bpfObjects.ObiProtocolHttp2,                                   // 7
+		p.bpfObjects.ObiProtocolHttp2GrpcFrames,                         // 8
+		p.bpfObjects.ObiProtocolHttp2GrpcHandleStartFrame,               // 9
+		p.bpfObjects.ObiProtocolHttp2GrpcHandleEndFrame,                 // 10
 		p.bpfObjects.ObiProtocolHttp2GrpcHandleStartFrameServer,         // 11
 		p.bpfObjects.ObiProtocolHttp2GrpcHandleStartFrameServerFinalize, // 12
 	} {

@@ -10,7 +10,8 @@
 #include <common/map_sizing.h>
 #include <common/pin_internal.h>
 
-// Outbound conns owned by Go uprobes. sk_msg bails so it doesn't double-inject
+// Outbound conns owned by Go gRPC client uprobes. sk_msg bails so it doesn't
+// overwrite the per-stream outgoing_trace_map entry the uprobe set
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __type(key, pid_connection_info_t);

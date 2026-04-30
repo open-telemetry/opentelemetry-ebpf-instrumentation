@@ -39,6 +39,7 @@
 #include <maps/tp_info_mem.h>
 
 #include <tpinjector/h2_parse.h>
+#include <tpinjector/tp_pid.h>
 #include <tpinjector/maps/sk_h2_conn_flag.h>
 #include <tpinjector/maps/sk_tp_info_pid_map.h>
 
@@ -55,6 +56,9 @@ char __license[] SEC("license") = "Dual MIT/GPL";
 //   │     └─ fill_msg_buffers         │  the TCP option (out-of-band) and
 //   │     └─ SK_PASS                  │  bails — never overwrites the
 //   │                                 │  per-stream outgoing_trace_map entry
+//   │                                 │
+//   ├── !valid_pid → SK_PASS          │  All paths below run only for
+//   │                                 │  tracked PIDs (incl. ns_ppid match)
 //   │                                 │
 //   ├── is_h2_socket?                 │  Plaintext H2 (non-Go): per-stream
 //   │     └─ tail-call detect_h2      │  HPACK chain (see right column)
@@ -93,9 +97,8 @@ enum {
 volatile const u32 inject_flags =
     k_inject_http_headers | k_inject_tcp_options; // default: both enabled
 
-// TCP option kind for OpenTelemetry context propagation
-// Kind 25 is free per IANA TCP Parameters registry
-// Don't use experimental kinds 253-254 — those can't ship as default
+// Kind 25 is unassigned per IANA TCP Parameters registry (released 2000-12-18)
+// Better than experimental options (253-254) which must not be shipped as defaults
 enum { k_tcp_option_kind_otel = 25 };
 
 enum {
@@ -177,8 +180,7 @@ static __always_inline void mark_h2_socket(struct sk_msg_md *msg) {
     if (!sk) {
         return;
     }
-    const u8 val = 1;
-    bpf_sk_storage_get(&sk_h2_conn_flag, sk, (void *)&val, BPF_SK_STORAGE_GET_F_CREATE);
+    bpf_sk_storage_get(&sk_h2_conn_flag, sk, &(u8){1}, BPF_SK_STORAGE_GET_F_CREATE);
 }
 
 #ifndef ENOMSG
@@ -921,6 +923,10 @@ int obi_packet_extender(struct sk_msg_md *msg) {
         return SK_PASS;
     }
 
+    if (!tp_valid_pid(id)) {
+        return SK_PASS;
+    }
+
     if (is_h2_socket(msg)) {
         bpf_msg_pull_data(msg, 0, msg->size, 0);
         fill_msg_buffers(msg, &t_ctx->p_conn, &e_key);
@@ -939,19 +945,17 @@ int obi_packet_extender(struct sk_msg_md *msg) {
         return SK_PASS;
     }
 
-    if (valid_pid(id)) {
-        bpf_dbg_printk("MSG=%llx:%d ->", conn.s_ip[3], conn.s_port);
-        bpf_dbg_printk("MSG TO=%llx:%d", conn.d_ip[3], conn.d_port);
-        bpf_dbg_printk("MSG SIZE=%u", msg->size);
+    bpf_dbg_printk("MSG=%llx:%d ->", conn.s_ip[3], conn.s_port);
+    bpf_dbg_printk("MSG TO=%llx:%d", conn.d_ip[3], conn.d_port);
+    bpf_dbg_printk("MSG SIZE=%u", msg->size);
 
-        bpf_msg_pull_data(msg, 0, msg->size, 0);
-        const bool is_http = protocol_detector(msg, id, &conn, &e_key);
-        if (is_http) {
-            bpf_dbg_printk("len=%d, s_port=%d", msg->size, msg->local_port);
-            init_tp_ctx_parent_tp(t_ctx);
-            bpf_tail_call_static(msg, &extender_jump_table, k_tail_find_existing_tp);
-            return SK_PASS;
-        }
+    bpf_msg_pull_data(msg, 0, msg->size, 0);
+    const bool is_http = protocol_detector(msg, id, &conn, &e_key);
+    if (is_http) {
+        bpf_dbg_printk("len=%d, s_port=%d", msg->size, msg->local_port);
+        init_tp_ctx_parent_tp(t_ctx);
+        bpf_tail_call_static(msg, &extender_jump_table, k_tail_find_existing_tp);
+        return SK_PASS;
     }
 
     wrap_http2_traceparent(msg, &t_ctx->p_conn);
@@ -982,11 +986,9 @@ int obi_packet_extender_write_msg_tp(struct sk_msg_md *msg) {
     return SK_PASS;
 }
 
-// Shared by HTTP/1 and HTTP/2 existing-tp paths. When the in-process parent
-// matches (trace_ids equal), copies parent_tp.span_id into tp->parent_id so
-// the child span has the right in-process parent. Returns true if the wire
-// span_id is just forwarding the parent (proxy hop) — a fresh span_id is
-// generated and caller must rewrite it on the wire
+// Stitches the parsed wire tp into the in-process trace context. Returns true
+// when a proxy was just forwarding our own header — caller must overwrite the
+// span_id on the wire to keep the child distinct from the parent
 static __always_inline bool apply_parent_tp(const tailcall_ctx *t_ctx, tp_info_t *tp) {
     if (!t_ctx->has_parent_tp ||
         bpf_memcmp(tp->trace_id, t_ctx->parent_tp.trace_id, TRACE_ID_SIZE_BYTES) != 0) {

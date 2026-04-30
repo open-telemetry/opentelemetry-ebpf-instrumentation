@@ -32,8 +32,7 @@
 enum { http2_conn_flag_ssl = WITH_SSL, http2_conn_flag_new = 0x2 };
 
 static __always_inline grpc_frames_ctx_t *grpc_ctx() {
-    int zero = 0;
-    return bpf_map_lookup_elem(&grpc_frames_ctx_mem, &zero);
+    return bpf_map_lookup_elem(&grpc_frames_ctx_mem, &(int){0});
 }
 
 static __always_inline u8 http2_flag_ssl(u8 flags) {
@@ -45,16 +44,11 @@ static __always_inline u8 http2_flag_new(u8 flags) {
 }
 
 static __always_inline http2_grpc_request_t *empty_http2_info() {
-    int zero = 0;
-    http2_grpc_request_t *value = bpf_map_lookup_elem(&http2_info_mem, &zero);
+    http2_grpc_request_t *value = http2_info_mem();
     if (value) {
-        __builtin_memset(value, 0, sizeof(http2_grpc_request_t));
+        bpf_memset(value, 0, sizeof(http2_grpc_request_t));
     }
     return value;
-}
-
-static __always_inline http2_grpc_request_t *http2_info_get() {
-    return bpf_map_lookup_elem(&http2_info_mem, &(int){0});
 }
 
 static __always_inline u64 uniqueHTTP2ConnId(pid_connection_info_t *p_conn) {
@@ -137,11 +131,8 @@ static __always_inline void adopt_injected_trace(http2_conn_stream_t *s_key, tp_
     }
 }
 
-// SERVER-side finalize: assumes h2g_info + tp_p in per-CPU scratch are populated
-// by http2_grpc_start. Hits the post-branch shared logic for found_tp fallback,
-// h2g_info->tp commit, set_trace_info_for_connection, server_or_client_trace,
-// server_traces[t_key], and ongoing_http2_grpc[s_key]. found_tp is in tp_p->valid
-// flipped to 2 as a sentinel (1 = unmatched, 2 = matched). Avoids a separate map.
+// SERVER finalize: shared post-branch tail of http2_grpc_start. h2g_info /
+// tp_p are populated in per-CPU scratch by the caller
 static __always_inline void http2_grpc_start_finalize_server(http2_conn_stream_t *s_key,
                                                              http2_grpc_request_t *h2g_info,
                                                              tp_info_pid_t *tp_p,
@@ -230,18 +221,15 @@ static __always_inline void http2_grpc_start(void *ctx,
     urand_bytes(tp_p->tp.span_id, SPAN_ID_SIZE_BYTES);
 
     if (!is_client) {
-        // SERVER finalize is heavy (HPACK parse + fallback + post-branch);
-        // tail-call into its own program to stay under the 1M-insn verifier
-        // limit on older kernels. h2g_info + tp_p remain in per-CPU scratch.
+        // Server finalize tail-called to stay under verifier insn limit on 5.15
         bpf_tail_call(ctx, &jump_table, k_tail_protocol_http2_grpc_handle_start_frame_server);
-        return; // tail call failed
+        return;
     }
 
-    // CLIENT path: find_trace_for_client_request + adopt_injected_trace
     cp_support_data_t *cp = bpf_map_lookup_elem(&cp_support_connect_info, &s_key->pid_conn);
     if (cp) {
-        // Refresh cp_support t_key per stream: persistent HTTP/2 clients
-        // (Node grpc-js) have a stale extra_id from the first connect.
+        // Refresh per stream — persistent H2 clients (Node grpc-js) carry a
+        // stale extra_id from the first connect
         task_tid(&cp->t_key.p_key);
         cp->t_key.extra_id = extra_runtime_id();
         cp->ts = bpf_ktime_get_ns();
@@ -264,17 +252,13 @@ static __always_inline void http2_grpc_start(void *ctx,
     server_or_client_trace(
         EVENT_HTTP_CLIENT, &h2g_info->conn_info, k_lw_thread_none, tp_p, ssl, orig_dport);
 
-    // Save the per-stream trace so sk_msg can pick it up.
     egress_key_t e_key = {
         .d_port = h2g_info->conn_info.d_port,
         .s_port = h2g_info->conn_info.s_port,
         .stream_id = s_key->stream_id,
     };
     sort_egress_key(&e_key);
-    // BPF_NOEXIST: Go uprobe runs before tcp_sendmsg and writes the
-    // HPACK-injected span (written=1). Overwriting with the kprobe's
-    // random span would make sk_msg inject a duplicate traceparent on
-    // the wire.
+    // BPF_NOEXIST: don't overwrite a Go uprobe's HPACK-injected span (written=1)
     bpf_map_update_elem(&outgoing_trace_map, &e_key, tp_p, BPF_NOEXIST);
 
     bpf_map_update_elem(&ongoing_http2_grpc, s_key, h2g_info, BPF_ANY);
@@ -414,15 +398,15 @@ int obi_protocol_http2_grpc_handle_start_frame(void *ctx) {
     return 0;
 }
 
-// SERVER tail call: HPACK parse + per-conn fallback. Tail-calls finalize.
-// found_tp is implicit — valid_trace(tp_p->tp.trace_id) signals success.
+// SERVER tail call: HPACK parse first (per-stream, no trace_map race), per-conn
+// fallback if missed. Skips optional PADDED/PRIORITY prefix + trailing pad
 SEC("kprobe/http2")
 int obi_protocol_http2_grpc_handle_start_frame_server(void *ctx) {
     grpc_frames_ctx_t *g_ctx = grpc_ctx();
     if (!g_ctx) {
         return 0;
     }
-    http2_grpc_request_t *h2g_info = http2_info_get();
+    http2_grpc_request_t *h2g_info = http2_info_mem();
     if (!h2g_info) {
         return 0;
     }
@@ -431,24 +415,16 @@ int obi_protocol_http2_grpc_handle_start_frame_server(void *ctx) {
         return 0;
     }
 
-    // HPACK first: per-stream, safe from the per-connection trace_map
-    // race on concurrent multiplexed streams. Bound by this frame's
-    // payload, and skip the optional PADDED/PRIORITY prefix and trailing
-    // pad bytes. Branchless math keeps the verifier from exploding paths.
-    const u32 frame_len =
-        ((u32)h2g_info->data[0] << 16) | ((u32)h2g_info->data[1] << 8) | (u32)h2g_info->data[2];
     const u8 flags = h2g_info->data[4];
     const u8 padded = (flags >> 3) & 1;
-    const u8 priority = (flags >> 5) & 1;
-    const u32 prefix = padded + priority * k_h2_priority_prefix_len;
-    const u32 pad_len = padded * h2g_info->data[k_h2_frame_header_len];
-    const u32 max_payload = k_kprobes_http2_buf_size - k_h2_frame_header_len;
-    const u32 raw_len = frame_len < max_payload ? frame_len : max_payload;
-    const u32 skip = prefix + pad_len;
+    const u32 prefix = padded + ((flags >> 5) & 1) * k_h2_priority_prefix_len;
+    const u32 frame_len =
+        ((u32)h2g_info->data[0] << 16) | ((u32)h2g_info->data[1] << 8) | (u32)h2g_info->data[2];
+    const u32 raw_len = frame_len < k_h2_max_payload ? frame_len : k_h2_max_payload;
+    const u32 skip = prefix + padded * h2g_info->data[k_h2_frame_header_len];
     const u32 hpack_len = raw_len > skip ? raw_len - skip : 0;
-    u8 found_tp = parse_hpack_traceparent(
-        h2g_info->data + k_h2_frame_header_len + prefix, hpack_len, &tp_p->tp);
-    if (!found_tp) {
+    if (!parse_hpack_traceparent(
+            h2g_info->data + k_h2_frame_header_len + prefix, hpack_len, &tp_p->tp)) {
         find_trace_for_server_request(&g_ctx->stream.pid_conn.conn, &tp_p->tp, EVENT_HTTP_REQUEST);
     }
 
@@ -466,7 +442,7 @@ int obi_protocol_http2_grpc_handle_start_frame_server_finalize(void *ctx) {
     if (!g_ctx) {
         return 0;
     }
-    http2_grpc_request_t *h2g_info = http2_info_get();
+    http2_grpc_request_t *h2g_info = http2_info_mem();
     if (!h2g_info) {
         return 0;
     }

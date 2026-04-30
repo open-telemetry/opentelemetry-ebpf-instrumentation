@@ -25,7 +25,7 @@ import (
 
 type Tracer struct{}
 
-func New(_ *obi.Config) *Tracer                                          { return nil }
+func New(_ *obi.Config, _ ebpfcommon.ServiceFilter) *Tracer              { return nil }
 func (p *Tracer) AllowPID(_ app.PID, _ uint32, _ *svc.Attrs)             {}
 func (p *Tracer) BlockPID(_ app.PID, _ uint32)                           {}
 func (p *Tracer) LoadSpecs() ([]*ebpfcommon.SpecBundle, error)           { return nil, nil }

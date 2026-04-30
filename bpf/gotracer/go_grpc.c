@@ -98,7 +98,6 @@ int obi_uprobe_server_handleStream(struct pt_regs *ctx) {
         bpf_dbg_printk("st_ptr=%llx", st_ptr);
         invocation.st = (u64)st_ptr;
         if (st_ptr) {
-            // Try per-stream first; per-transport map below is the fallback
             u32 stream_id = 0;
             bpf_probe_read(
                 &stream_id,
@@ -112,12 +111,6 @@ int obi_uprobe_server_handleStream(struct pt_regs *ctx) {
                     tp_ptr = stream_tp;
                 }
                 bpf_map_delete_elem(&ongoing_grpc_server_stream_tps, &sk);
-            }
-            if (!tp_ptr) {
-                grpc_transports_t *t = bpf_map_lookup_elem(&ongoing_grpc_transports, &st_ptr);
-                if (t && valid_trace(t->tp.trace_id)) {
-                    tp_ptr = &t->tp;
-                }
             }
         }
 
@@ -605,8 +598,8 @@ int obi_uprobe_transport_http2Client_NewStream(struct pt_regs *ctx) {
                             &cached_grpc_client_connections, &t_ptr, &conn, BPF_ANY);
 
                         if (conn_ptr_key) {
-                            u64 ck = (u64)conn_ptr_key;
-                            bpf_map_update_elem(&grpc_conn_ptr_to_conn, &ck, &conn, BPF_ANY);
+                            bpf_map_update_elem(
+                                &grpc_conn_ptr_to_conn, &(u64){(u64)conn_ptr_key}, &conn, BPF_ANY);
                         }
                     }
                 }
@@ -615,8 +608,8 @@ int obi_uprobe_transport_http2Client_NewStream(struct pt_regs *ctx) {
             bpf_map_update_elem(&ongoing_client_connections, &g_key, cached_conn, BPF_ANY);
 
             if (conn_ptr_key) {
-                u64 ck = (u64)conn_ptr_key;
-                bpf_map_update_elem(&grpc_conn_ptr_to_conn, &ck, cached_conn, BPF_ANY);
+                bpf_map_update_elem(
+                    &grpc_conn_ptr_to_conn, &(u64){(u64)conn_ptr_key}, cached_conn, BPF_ANY);
             }
         }
 
@@ -764,8 +757,8 @@ int obi_uprobe_grpcFramerWriteHeaders(struct pt_regs *ctx) {
     key.conn_ptr = (u64)conn_ptr;
 
     grpc_client_func_invocation_t *invocation = bpf_map_lookup_elem(&ongoing_streams, &key);
-    u64 conn_key = (u64)conn_ptr;
-    connection_info_t *conn_info = bpf_map_lookup_elem(&grpc_conn_ptr_to_conn, &conn_key);
+    connection_info_t *conn_info =
+        bpf_map_lookup_elem(&grpc_conn_ptr_to_conn, &(u64){(u64)conn_ptr});
 
     if (invocation) {
         bpf_dbg_printk("Found invocation info: %llx", invocation);
@@ -956,18 +949,11 @@ int obi_uprobe_grpcFramerWriteHeaders_returns(struct pt_regs *ctx) {
     return 0;
 }
 
-// Two-hop bridge that closes the loopyWriter fresh-stream race:
-//
-// 1. executeAndPut runs on the NewStream caller goroutine BEFORE the frame is
-//    queued. hdr.streamID isn't set yet (initStream assigns it on the loopy
-//    writer side later), but hdr's address is stable. Stash invocation by hdr.
-// 2. originateStream runs on the loopyWriter goroutine right BEFORE
-//    framer.WriteHeaders. By then str.id (uint32 at outStream offset 0) is the
-//    assigned stream_id. Look up the pending invocation by hdr ptr and publish
-//    ongoing_streams[{conn_ptr, stream_id}] before WriteHeaders fires.
-//
-// Both hooks read hdr ptr from the same Go interface arg layout (Go register
-// ABI: receiver, then args; cbItem interface = itab+data, so PARAM4 = data).
+// NewStream and WriteHeaders run on different goroutines. NewStream knows the
+// trace context but not the stream_id yet; WriteHeaders sees the stream_id but
+// has no goroutine-local link back to the invocation. The headerFrame pointer
+// is the only thing both sides see — so we stash on the way in, publish on
+// the way out.
 
 SEC("uprobe/controlBuffer_executeAndPut")
 int obi_uprobe_grpc_controlBuffer_executeAndPut(struct pt_regs *ctx) {

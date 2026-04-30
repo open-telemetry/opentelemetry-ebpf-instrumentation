@@ -15,6 +15,5 @@ static __always_inline u8 *is_go_connection(const pid_connection_info_t *conn) {
 }
 
 static __always_inline void mark_go_connection(const pid_connection_info_t *conn) {
-    const u8 v = 1;
-    bpf_map_update_elem(&active_go_connections, conn, &v, BPF_ANY);
+    bpf_map_update_elem(&active_go_connections, conn, &(u8){1}, BPF_ANY);
 }
