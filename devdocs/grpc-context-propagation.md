@@ -35,7 +35,11 @@ Parent lookup priority in `create_tp`:
 ### Go Uprobe Path
 
 1. **`transport_http2Client_NewStream`** — caches `conn_ptr → connection_info_t` in `grpc_conn_ptr_to_conn`
-2. **`grpcFramerWriteHeaders`** — has both stream_id and trace context. Writes `outgoing_trace_map[{ports, stream_id}]`. Also injects traceparent via `bpf_probe_write_user` when `g_bpf_header_propagation` is true.
+2. **`grpcFramerWriteHeaders`** — has both stream_id and trace context. Writes `outgoing_trace_map[{ports, stream_id}]`. Also marks the conn in `active_go_connections` and injects traceparent via `bpf_probe_write_user` when `g_bpf_header_propagation` is true.
+
+### sk_msg Bail for Go gRPC Conns
+
+Once a conn is marked in `active_go_connections`, `obi_packet_extender` (sk_msg) takes a short-circuit path: pulls the data, populates `msg_buffers` for the `tcp_sendmsg` kprobe, schedules the TCP option (out-of-band, still works for Go conns), and returns `SK_PASS`. It never enters `detect_h2` for these conns, so the per-stream `outgoing_trace_map` entry the uprobe just wrote is preserved verbatim — sk_msg can't recompute parent_id and overwrite it. HTTP/1 traffic from the same Go process is unmarked and goes through the unchanged HTTP/1 detection path.
 
 ### TCP Options
 
@@ -77,13 +81,26 @@ If a gRPC connection's HTTP/2 preface was sent before OBI attached, `ongoing_htt
 
 **With uprobes**: Not affected.
 
-### loopyWriter race on a fresh stream — FIXED
+### Two uprobes for the loopyWriter race — `executeAndPut` + `originateStream`
 
-Previously: `loopyWriter` could dequeue HEADERS before `NewStream_ret` published `ongoing_streams`, so the first frame on a new stream went out without OBI's traceparent.
+**The race.** When a Go gRPC client opens a new stream, two goroutines are involved:
 
-Closed by a two-hop bridge in `bpf/gotracer/go_grpc.c`:
-- `(*controlBuffer).executeAndPut` runs on the caller goroutine (still inside `NewStream`); it stashes the invocation keyed by the `*headerFrame` pointer
-- `(*loopyWriter).originateStream` runs on the loopyWriter goroutine right before `framer.WriteHeaders`; by then `outStream.id` is the assigned stream_id. It looks up the stashed invocation by `*headerFrame` and writes `ongoing_streams[{conn_ptr, stream_id}]` before WriteHeaders fires.
+1. The caller goroutine runs `NewStream`, which builds a `*headerFrame` and queues it on the `controlBuffer`.
+2. The `loopyWriter` goroutine dequeues that `headerFrame`, assigns the HTTP/2 `stream_id`, and calls `framer.WriteHeaders`.
+
+Our HPACK injection lives in `framer.WriteHeaders` and looks up the trace context in `ongoing_streams[{conn_ptr, stream_id}]`. That map is populated at `NewStream_ret` on the caller goroutine. But `loopyWriter` can run `WriteHeaders` *before* `NewStream` has returned — so for the first HEADERS frame the lookup misses and the trace context goes out without `traceparent`.
+
+**Why two probes.**
+
+- At `NewStream_ret` we know the trace context but not yet a usable stream_id (the stream isn't queued yet).
+- At `WriteHeaders` we know the stream_id but we're on a different goroutine, so goroutine-keyed state from `NewStream` isn't visible.
+
+We need a key both goroutines can agree on. The `*headerFrame` pointer fits: it's allocated by `NewStream` and passed all the way to `loopyWriter`.
+
+**The bridge** (`bpf/gotracer/go_grpc.c`):
+
+- **`(*controlBuffer).executeAndPut`** — runs on the caller goroutine just before the `headerFrame` is queued. Stashes the invocation in `pending_h2_invocations[hdr_ptr]`.
+- **`(*loopyWriter).originateStream`** — runs on the loopyWriter goroutine just before `WriteHeaders`. By now `outStream.id` is assigned. Looks up the stash by `hdr_ptr`, then publishes `ongoing_streams[{conn_ptr, stream_id}]` so the existing `grpcFramerWriteHeaders` uprobe sees it.
 
 ## Maps
 
@@ -95,3 +112,5 @@ Closed by a two-hop bridge in `bpf/gotracer/go_grpc.c`:
 | `incoming_trace_map` | LRU_HASH | `connection_info_t` | `tp_info_pid_t` | Receiver trace context (TCP options) |
 | `grpc_conn_ptr_to_conn` | LRU_HASH | `u64 (conn_ptr)` | `connection_info_t` | Go conn pointer → TCP ports |
 | `ongoing_grpc_server_stream_tps` | LRU_HASH | `stream_key_t{tr_ptr, stream_id}` | `tp_info_t` | Per-stream parsed traceparent (Go gRPC server) |
+| `pending_h2_invocations` | LRU_HASH | `u64 (hdr ptr)` | `pending_h2_invocation_t{inv, conn_ptr}` | Two-hop bridge from `executeAndPut` to `originateStream` |
+| `active_go_connections` | LRU_HASH | `pid_connection_info_t` | `u8` | Marks Go gRPC client conns; sk_msg bails so it doesn't overwrite the per-stream entry the uprobe set |

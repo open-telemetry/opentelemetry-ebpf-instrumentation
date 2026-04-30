@@ -19,6 +19,7 @@
 
 #include <common/common.h>
 #include <common/globals.h>
+#include <common/go_connection.h>
 #include <common/ringbuf.h>
 #include <common/trace_helpers.h>
 
@@ -785,6 +786,12 @@ int obi_uprobe_grpcFramerWriteHeaders(struct pt_regs *ctx) {
             };
             sort_egress_key(&e_key);
             bpf_map_update_elem(&outgoing_trace_map, &e_key, &tp_p, BPF_ANY);
+
+            // Mark conn so sk_msg skips: Go uprobe writes the HPACK
+            // traceparent in the user buffer, sk_msg must not overwrite
+            pid_connection_info_t p_conn = {.conn = *conn_info, .pid = tp_p.pid};
+            sort_connection_info(&p_conn.conn);
+            mark_go_connection(&p_conn);
         }
 
         void *goroutine_addr = GOROUTINE_PTR(ctx);

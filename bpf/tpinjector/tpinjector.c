@@ -9,8 +9,9 @@
 #include <common/algorithm.h>
 #include <common/connection_info.h>
 #include <common/egress_key.h>
-#include <common/h2_defs.h>
 #include <common/event_defs.h>
+#include <common/go_connection.h>
+#include <common/h2_defs.h>
 #include <common/http_buf_size.h>
 #include <common/http_types.h>
 #include <common/lw_thread.h>
@@ -49,28 +50,35 @@ char __license[] SEC("license") = "Dual MIT/GPL";
 //
 //   obi_packet_extender (sk_msg entry)
 //   │
-//   ├── is_h2_socket?               ─┐
-//   │                                │
-//   ├── tp_pid present?              │  HTTP/1 + TCP option (uprobe-set tp)
-//   │     └── handle_existing_tp_pid │  ── if HTTP/1: write_msg_traceparent
-//   │                                │
-//   ├── HTTP/1 detected?             │  ── find_existing_tp ── create_tp ──
-//   │                                │     write_msg_traceparent
-//   │                                │
-//   └── fall through ────────────────┴─▶ wrap_http2_traceparent
-//                                          │
-//                                          ▼
-//                                       detect_h2 ◀──────────────┐
-//                                          │                     │
-//                                          │ HEADERS+END_HEADERS │ resume on
-//                                          ▼                     │ batched
-//                                       find_existing_h2_tp ─────┤ frame via
-//                                          │ adopt or            │ h2_scan_pos
-//                                          ▼                     │
-//                                       create_h2_tp ────────────┤
-//                                          │                     │
-//                                          ▼                     │
-//                                       write_h2_tp ─────────────┘
+//   ├── is_go_connection?            ─┐  Go gRPC client: uprobe wrote HPACK
+//   │     └─ schedule TCP option      │  in user buffer; sk_msg only sets
+//   │     └─ fill_msg_buffers         │  the TCP option (out-of-band) and
+//   │     └─ SK_PASS                  │  bails — never overwrites the
+//   │                                 │  per-stream outgoing_trace_map entry
+//   │                                 │
+//   ├── is_h2_socket?                 │  Plaintext H2 (non-Go): per-stream
+//   │     └─ tail-call detect_h2      │  HPACK chain (see right column)
+//   │                                 │
+//   ├── tp_pid present?               │  HTTP/1 + TCP option (uprobe-set tp)
+//   │     └── handle_existing_tp_pid  │  ── if HTTP/1: write_msg_traceparent
+//   │                                 │
+//   ├── HTTP/1 detected?              │  ── find_existing_tp ── create_tp ──
+//   │                                 │     write_msg_traceparent
+//   │                                 │
+//   └── fall through ─────────────────┴─▶ wrap_http2_traceparent
+//                                           │
+//                                           ▼
+//                                        detect_h2 ◀──────────────┐
+//                                           │                     │
+//                                           │ HEADERS+END_HEADERS │ resume on
+//                                           ▼                     │ batched
+//                                        find_existing_h2_tp ─────┤ frame via
+//                                           │ adopt or            │ h2_scan_pos
+//                                           ▼                     │
+//                                        create_h2_tp ────────────┤
+//                                           │                     │
+//                                           ▼                     │
+//                                        write_h2_tp ─────────────┘
 //
 // State for the H2 chain lives in tailcall_ctx (per-CPU scratch); see its
 // definition below for field meanings.
@@ -887,10 +895,6 @@ int obi_packet_extender(struct sk_msg_md *msg) {
     }
 
     const u64 id = bpf_get_current_pid_tgid();
-    if (!valid_pid(id)) {
-        return SK_PASS;
-    }
-
     const connection_info_t conn = get_connection_info(msg);
     const egress_key_t e_key = make_egress_key(&conn);
 
@@ -901,6 +905,21 @@ int obi_packet_extender(struct sk_msg_md *msg) {
     t_ctx->niter = 0;
     t_ctx->h2_scan_pos = 0;
     t_ctx->h2_frames = 0;
+
+    // Go gRPC clients: uprobe injects HPACK in the user buffer. Bail so
+    // sk_msg doesn't overwrite the per-stream outgoing_trace_map entry the
+    // uprobe set. Schedule TCP option out-of-band
+    if (is_go_connection(&t_ctx->p_conn)) {
+        bpf_msg_pull_data(msg, 0, msg->size, 0);
+        fill_msg_buffers(msg, &t_ctx->p_conn, &e_key);
+        if (inject_flags & k_inject_tcp_options) {
+            tp_info_pid_t *tp_pid = get_tp_info_pid(&e_key);
+            if (tp_pid && tp_pid->valid) {
+                schedule_write_tcp_option(msg, tp_pid);
+            }
+        }
+        return SK_PASS;
+    }
 
     if (is_h2_socket(msg)) {
         bpf_msg_pull_data(msg, 0, msg->size, 0);
@@ -920,17 +939,19 @@ int obi_packet_extender(struct sk_msg_md *msg) {
         return SK_PASS;
     }
 
-    bpf_dbg_printk("MSG=%llx:%d ->", conn.s_ip[3], conn.s_port);
-    bpf_dbg_printk("MSG TO=%llx:%d", conn.d_ip[3], conn.d_port);
-    bpf_dbg_printk("MSG SIZE=%u", msg->size);
+    if (valid_pid(id)) {
+        bpf_dbg_printk("MSG=%llx:%d ->", conn.s_ip[3], conn.s_port);
+        bpf_dbg_printk("MSG TO=%llx:%d", conn.d_ip[3], conn.d_port);
+        bpf_dbg_printk("MSG SIZE=%u", msg->size);
 
-    bpf_msg_pull_data(msg, 0, msg->size, 0);
-    const bool is_http = protocol_detector(msg, id, &conn, &e_key);
-    if (is_http) {
-        bpf_dbg_printk("len=%d, s_port=%d", msg->size, msg->local_port);
-        init_tp_ctx_parent_tp(t_ctx);
-        bpf_tail_call_static(msg, &extender_jump_table, k_tail_find_existing_tp);
-        return SK_PASS;
+        bpf_msg_pull_data(msg, 0, msg->size, 0);
+        const bool is_http = protocol_detector(msg, id, &conn, &e_key);
+        if (is_http) {
+            bpf_dbg_printk("len=%d, s_port=%d", msg->size, msg->local_port);
+            init_tp_ctx_parent_tp(t_ctx);
+            bpf_tail_call_static(msg, &extender_jump_table, k_tail_find_existing_tp);
+            return SK_PASS;
+        }
     }
 
     wrap_http2_traceparent(msg, &t_ctx->p_conn);
