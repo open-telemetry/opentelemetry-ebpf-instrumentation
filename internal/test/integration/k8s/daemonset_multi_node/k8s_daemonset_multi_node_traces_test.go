@@ -71,7 +71,7 @@ func TestMultiNodeTracing(t *testing.T) {
 					require.Empty(ct, sd, sd.String())
 
 					// Check the information of the Go jsonrpc span
-					res = trace.FindByOperationName("Arith.T /jsonrpc", "server")
+					res = trace.FindByOperationName("Arith.Traceme", "server")
 					require.Len(ct, res, 1)
 					parent = res[0]
 					require.NotEmpty(ct, parent.TraceID)

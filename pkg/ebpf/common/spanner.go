@@ -5,6 +5,7 @@ package ebpfcommon // import "go.opentelemetry.io/obi/pkg/ebpf/common"
 
 import (
 	"log/slog"
+	"net/http"
 	"strings"
 	"unsafe"
 
@@ -20,6 +21,14 @@ func HTTPRequestTraceToSpan(trace *HTTPRequestTrace) request.Span {
 	pattern := cstr(trace.Pattern[:])
 	scheme := cstr(trace.Scheme[:])
 	origHost := cstr(trace.Host[:])
+
+	var overrideTraceName string
+	if method == "JSONRPC" {
+		// json rpc signal
+		method = http.MethodPost
+		overrideTraceName = pattern
+		pattern = path
+	}
 
 	if pattern != "" {
 		pattern = stripPattern(pattern)
@@ -68,7 +77,8 @@ func HTTPRequestTraceToSpan(trace *HTTPRequestTrace) request.Span {
 			UserPID:   app.PID(trace.Pid.UserPid),
 			Namespace: trace.Pid.Ns,
 		},
-		Statement: schemeHost,
+		Statement:         schemeHost,
+		OverrideTraceName: overrideTraceName,
 	}
 }
 

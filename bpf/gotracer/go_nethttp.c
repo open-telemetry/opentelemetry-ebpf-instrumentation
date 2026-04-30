@@ -1400,15 +1400,16 @@ int obi_uprobe_jsonrpcReadRequestHeaderReturns(struct pt_regs *ctx) {
         return 0;
     }
 
+    bpf_memcpy(invocation->method, "JSONRPC", 7);
     if (!read_go_str("JSON-RPC method",
                      (void *)rpc_request_addr,
                      go_offset_of(ot, (go_offset){.v = _jsonrpc_request_header_service_method_pos}),
-                     invocation->method,
-                     k_method_max_len)) {
+                     invocation->pattern,
+                     k_pattern_max_len)) {
         bpf_dbg_printk("Failed to read JSON-RPC method from: %llx", rpc_request_addr);
         return 0;
     }
-    bpf_dbg_printk("read jsonrpc method: %s", invocation->method);
+    bpf_dbg_printk("read jsonrpc method: %s", invocation->pattern);
 
     return 0;
 }
