@@ -60,6 +60,8 @@ func processAMQPBuffer(pkt *largebuf.LargeBuffer, direction uint8) (bool, []AMQP
 
 	infos := make([]AMQPInfo, 0, result.TransferCount)
 	for i := 0; i < result.TransferCount; i++ {
+		// Each TRANSFER maps to a span; the minimal parser only records direction, so
+		// same-direction transfers can look identical until deeper AMQP fields are parsed.
 		infos = append(infos, AMQPInfo{Direction: direction})
 	}
 
