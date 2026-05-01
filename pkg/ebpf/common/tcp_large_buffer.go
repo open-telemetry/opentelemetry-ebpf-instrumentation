@@ -16,6 +16,7 @@ type largeBufferKey struct {
 	traceID               [16]uint8
 	packetType, direction uint8
 	connInfo              BpfConnectionInfoT
+	pid                   uint32
 }
 
 const (
@@ -36,6 +37,7 @@ func appendTCPLargeBuffer(parseCtx *EBPFParseContext, record *ringbuf.Record) (r
 		packetType: event.PacketType,
 		direction:  event.Direction,
 		connInfo:   event.ConnInfo,
+		pid:        event.Pid,
 	}
 
 	if parseCtx.protocolDebug {
@@ -74,12 +76,14 @@ func extractTCPLargeBuffer(
 	traceID [16]uint8,
 	packetType, direction uint8,
 	connInfo BpfConnectionInfoT,
+	pid uint32,
 ) (*largebuf.LargeBuffer, bool) {
 	key := largeBufferKey{
 		traceID:    traceID,
 		packetType: packetType,
 		direction:  direction,
 		connInfo:   connInfo,
+		pid:        pid,
 	}
 
 	lb, ok := parseCtx.largeBuffers.Get(key)
