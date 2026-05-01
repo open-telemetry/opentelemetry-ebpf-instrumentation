@@ -36,16 +36,16 @@ static __always_inline void *unwrap_conn(void *conn) {
     return conn_conn;
 }
 
-static __always_inline bool should_process(void *conn_conn, go_addr_key_t *g_key) {
+static __always_inline void *should_process(void *conn_conn, go_addr_key_t *g_key) {
     void *fd_ptr = fd_ptr_from_conn(conn_conn);
 
     bpf_dbg_printk("found fd_ptr %llx", fd_ptr);
 
     if (already_handled_goroutine(g_key, fd_ptr)) {
-        return false;
+        return 0;
     }
 
-    return true;
+    return fd_ptr;
 }
 
 SEC("uprobe/cryptoTlsRead")
@@ -70,19 +70,30 @@ int obi_uprobe_cryptoTlsRead(struct pt_regs *ctx) {
 
     void *conn_conn = unwrap_conn(conn);
     if (conn_conn) {
-        if (!should_process(conn_conn, &g_key)) {
+        void *fd_ptr = should_process(conn_conn, &g_key);
+        if (!fd_ptr) {
             return 0;
         }
 
-        if (!get_conn_info(conn_conn, &args.p_conn.conn)) {
+        if (!get_conn_info_from_fd(fd_ptr, &args.p_conn.conn, false)) {
             bpf_dbg_printk("cannot read connection info from %llx", conn_conn);
             return 0;
         }
+
         const u64 id = bpf_get_current_pid_tgid();
         args.p_conn.pid = pid_from_pid_tgid(id);
         args.byte_ptr = (u64)buf;
 
         dbg_print_http_connection_info(&args.p_conn.conn);
+
+        pid_connection_info_t p_conn = args.p_conn;
+
+        sort_connection_info(&p_conn.conn);
+
+        if (already_handled_request_sorted(&p_conn.conn)) {
+            cleanup_duplicate_generic_events_sorted(&p_conn);
+            return 0;
+        }
 
         bpf_map_update_elem(&ongoing_ssl_ops, &g_key, &args, BPF_ANY);
     }
@@ -116,11 +127,6 @@ int obi_uprobe_cryptoTlsReadRet(struct pt_regs *ctx) {
         sort_connection_info(&args->p_conn.conn);
 
         dbg_print_http_connection_info(&args->p_conn.conn);
-
-        if (already_handled_request_sorted(&args->p_conn.conn)) {
-            cleanup_duplicate_generic_events_sorted(&args->p_conn);
-            goto done;
-        }
 
         // we don't need to mark the connection as SSL, the kprobes on send/receive
         // never fire for Go programs, we are just calling the buffer handling.
@@ -169,11 +175,12 @@ int obi_uprobe_cryptoTlsWrite(struct pt_regs *ctx) {
 
     void *conn_conn = unwrap_conn(c);
     if (conn_conn) {
-        if (!should_process(conn_conn, &g_key)) {
+        void *fd_ptr = should_process(conn_conn, &g_key);
+        if (!fd_ptr) {
             return 0;
         }
 
-        if (!get_conn_info(conn_conn, &args.p_conn.conn)) {
+        if (!get_conn_info_from_fd(fd_ptr, &args.p_conn.conn, false)) {
             bpf_dbg_printk("cannot read connection info from %llx", conn_conn);
             return 0;
         }
