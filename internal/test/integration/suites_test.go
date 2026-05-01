@@ -85,6 +85,7 @@ func TestSuiteGoGeneric(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, compose.Up())
 	t.Run("Generic Go HTTP/TCP traces (all spans nested)", testGoGenericHTTPTraces)
+	t.Run("Generic Go HTTPS/TCP(TLS) traces (all spans nested)", testGoGenericHTTPSTraces)
 	require.NoError(t, compose.Close())
 }
 

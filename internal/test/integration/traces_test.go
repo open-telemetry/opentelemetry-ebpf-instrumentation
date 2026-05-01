@@ -1661,7 +1661,7 @@ func testGoGenericHTTPTraces(t *testing.T) {
 	//
 	// 1. Go Generic client (Kafka) call nested within Go Generic Server (Fiber)
 	// 2. HTTP client call nested within Go Generic Server (Fiber)
-	// 2. HTTP non-Go library call nested within Go HTTP Server
+	// 3. HTTP non-Go library call nested within Go HTTP Server
 
 	for i := 0; i < 20; i++ {
 		ti.DoHTTPGet(t, "http://localhost:8080/produce", 200)
@@ -1767,6 +1767,89 @@ func testGoGenericHTTPTraces(t *testing.T) {
 				jaeger.Tag{Key: "http.request.method", Type: "string", Value: "GET"},
 				jaeger.Tag{Key: "http.response.status_code", Type: "int64", Value: float64(200)},
 				jaeger.Tag{Key: "server.port", Type: "int64", Value: float64(3030)},
+				jaeger.Tag{Key: "span.kind", Type: "string", Value: "client"},
+			)
+			assert.Empty(ct, sd, sd.String())
+		}, testTimeout, 100*time.Millisecond)
+	})
+}
+
+func testGoGenericHTTPSTraces(t *testing.T) {
+	waitForTestComponents(t, "http://localhost:8080")
+
+	// We make requests such that we see all combinations
+	//
+	// 1. Go Generic client TLS (Kafka) call nested within Go Generic Server TLS (Fiber)
+	// 2. HTTPS non-Go library call nested within Go Generic Server TLS (Fiber)
+
+	for i := 0; i < 20; i++ {
+		ti.DoHTTPGet(t, "https://localhost:8443/produce/tls", 200)
+		ti.DoHTTPGet(t, "https://localhost:8443/api/pingssl", 200)
+	}
+
+	t.Run("Traces Go Generic HTTPS Server, Go Generic TCP TLS client", func(t *testing.T) {
+		var trace jaeger.Trace
+		require.EventuallyWithT(t, func(ct *assert.CollectT) {
+			resp, err := http.Get(jaegerQueryURL + "?service=testserver&operation=GET%20%2Fproduce%2Ftls")
+			require.NoError(ct, err)
+			if resp == nil {
+				return
+			}
+			require.Equal(ct, http.StatusOK, resp.StatusCode)
+			var tq jaeger.TracesQuery
+			require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
+			traces := tq.FindBySpan(jaeger.Tag{Key: "url.path", Type: "string", Value: "/produce/tls"})
+			require.GreaterOrEqual(ct, len(traces), 1)
+			trace = traces[len(traces)-1]
+
+			res := trace.FindByOperationName("GET /produce/tls", "server")
+			require.Len(ct, res, 1)
+			server := res[0]
+			require.NotEmpty(ct, server.TraceID)
+
+			res = trace.FindByOperationName("publish my-topic", "producer")
+			require.Len(ct, res, 1)
+			client := res[0]
+			// Check parenthood
+			assert.Equal(ct, server.TraceID, client.TraceID)
+			sd := client.Diff(
+				jaeger.Tag{Key: "messaging.operation.type", Type: "string", Value: "publish"},
+				jaeger.Tag{Key: "messaging.system", Type: "string", Value: "kafka"},
+				jaeger.Tag{Key: "span.kind", Type: "string", Value: "producer"},
+			)
+			assert.Empty(ct, sd, sd.String())
+		}, testTimeout, 100*time.Millisecond)
+	})
+
+	t.Run("Traces Go Generic HTTPS Server, Go standard HTTPS client", func(t *testing.T) {
+		var trace jaeger.Trace
+		require.EventuallyWithT(t, func(ct *assert.CollectT) {
+			resp, err := http.Get(jaegerQueryURL + "?service=testserver&operation=GET%20%2Fapi%2Fpingssl")
+			require.NoError(ct, err)
+			if resp == nil {
+				return
+			}
+			require.Equal(ct, http.StatusOK, resp.StatusCode)
+			var tq jaeger.TracesQuery
+			require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
+			traces := tq.FindBySpan(jaeger.Tag{Key: "url.path", Type: "string", Value: "/api/pingssl"})
+			require.GreaterOrEqual(ct, len(traces), 1)
+			trace = traces[len(traces)-1]
+
+			res := trace.FindByOperationName("GET /api/pingssl", "server")
+			require.Len(ct, res, 1)
+			server := res[0]
+			require.NotEmpty(ct, server.TraceID)
+
+			res = trace.FindByOperationName("GET /", "client")
+			require.Len(ct, res, 1)
+			client := res[0]
+			// Check parenthood
+			assert.Equal(ct, server.TraceID, client.TraceID)
+			sd := client.Diff(
+				jaeger.Tag{Key: "http.request.method", Type: "string", Value: "GET"},
+				jaeger.Tag{Key: "http.response.status_code", Type: "int64", Value: float64(200)},
+				jaeger.Tag{Key: "server.port", Type: "int64", Value: float64(443)},
 				jaeger.Tag{Key: "span.kind", Type: "string", Value: "client"},
 			)
 			assert.Empty(ct, sd, sd.String())
