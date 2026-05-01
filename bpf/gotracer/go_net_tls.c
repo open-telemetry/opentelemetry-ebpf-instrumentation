@@ -55,7 +55,7 @@ int obi_uprobe_cryptoTlsRead(struct pt_regs *ctx) {
     go_addr_key_from_id(&g_key, goroutine_addr);
 
     void *conn = GO_PARAM1(ctx);
-    void *buf = GO_PARAM2(ctx);
+    const void *buf = GO_PARAM2(ctx);
 
     bpf_printk("=== uprobe/cryptoTlsRead goroutine_addr=%lx, c=%llx, buf=%llx === ",
                goroutine_addr,
@@ -96,7 +96,7 @@ int obi_uprobe_cryptoTlsReadRet(struct pt_regs *ctx) {
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
 
-    u64 len = (u64)GO_PARAM1(ctx);
+    const u64 len = (u64)GO_PARAM1(ctx);
     void *err = GO_PARAM2(ctx);
 
     bpf_dbg_printk("=== uprobe/cryptoTlsRead returns goroutine_addr=%lx, size=%d, err=%llx === ",
@@ -112,7 +112,7 @@ int obi_uprobe_cryptoTlsReadRet(struct pt_regs *ctx) {
     if (args) {
         bpf_printk("buf = %s", args->byte_ptr);
 
-        u16 orig_dport = args->p_conn.conn.d_port;
+        const u16 orig_dport = args->p_conn.conn.d_port;
         sort_connection_info(&args->p_conn.conn);
 
         dbg_print_http_connection_info(&args->p_conn.conn);
@@ -147,7 +147,7 @@ int obi_uprobe_cryptoTlsWrite(struct pt_regs *ctx) {
 
     void *c = GO_PARAM1(ctx);
     void *buf = GO_PARAM2(ctx);
-    u64 len = (u64)GO_PARAM3(ctx);
+    const u64 len = (u64)GO_PARAM3(ctx);
 
     bpf_dbg_printk("=== uprobe/cryptoTlsWrite goroutine_addr=%lx, c=%llx, buf=%llx === ",
                    goroutine_addr,
