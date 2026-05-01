@@ -188,6 +188,8 @@ func (rbf *ringBufForwarder[T]) readAndForwardInner(ctx context.Context, eventsR
 	rbf.items = make([]T, rbf.cfg.BatchLength)
 	rbf.itemsLen = 0
 
+	// 2x: one batch for the parser to work on, one for the reader to fill concurrently.
+	// Smaller would stall the reader while waiting for the parser to finish.
 	poolSize := 2 * rbf.cfg.BatchLength
 	records := make([]ringbuf.Record, poolSize)
 	freeIdx := make(chan int, poolSize)
