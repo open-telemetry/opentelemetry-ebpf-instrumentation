@@ -30,6 +30,7 @@ func TestTCPLargeBuffers(t *testing.T) {
 		PacketType: 1,
 		Direction:  0,
 		Len:        10,
+		Pid:        1,
 	}
 	firstEvent.Tp.TraceId = [16]uint8{'1'}
 	firstEvent.ConnInfo = BpfConnectionInfoT{
@@ -79,6 +80,7 @@ func TestTCPLargeBuffers(t *testing.T) {
 		PacketType: firstEvent.PacketType,
 		Len:        6,
 		Action:     largeBufferActionAppend,
+		Pid:        1,
 	}
 	appendEvent.Tp.TraceId = firstEvent.Tp.TraceId
 	appendEvent.ConnInfo = BpfConnectionInfoT{
