@@ -273,55 +273,73 @@ func (rbf *ringBufForwarder[T]) parserLoop(
 	workIdx <-chan int,
 	out *msg.Queue[[]T],
 ) {
+	pending := make([]int, 0, cap(workIdx))
+	parsed := make([]T, 0, cap(workIdx))
+
 	for {
-		var i int
-		var ok bool
+		pending = pending[:0]
+		parsed = parsed[:0]
+
+		// Block until at least one record is ready.
 		select {
 		case <-ctx.Done():
 			return
-		case i, ok = <-workIdx:
+		case i, ok := <-workIdx:
 			if !ok {
 				return
 			}
+			pending = append(pending, i)
+		}
+
+		// Drain any additional records that are already waiting.
+		for {
+			select {
+			case i, ok := <-workIdx:
+				if ok {
+					pending = append(pending, i)
+					continue
+				}
+			default:
+			}
+			break
 		}
 
 		if depth := len(workIdx); depth == cap(workIdx)-1 {
 			rbf.logger.Debug("parser falling behind: work queue full", "depth", depth+1)
 		}
 
-		rbf.parseAndAccumulate(ctx, i, records, freeIdx, out)
-	}
-}
-
-func (rbf *ringBufForwarder[T]) parseAndAccumulate(
-	ctx context.Context,
-	i int,
-	records []ringbuf.Record,
-	freeIdx chan<- int,
-	out *msg.Queue[[]T],
-) {
-	item, ignore, err := rbf.parse(&records[i])
-	freeIdx <- i
-
-	if err != nil {
-		rbf.logger.Debug("error parsing perf event", "error", err)
-		return
-	}
-	if ignore {
-		return
-	}
-
-	rbf.access.Lock()
-	rbf.items[rbf.itemsLen] = item
-	rbf.itemsLen++
-	if rbf.itemsLen == rbf.cfg.BatchLength {
-		rbf.logger.Debug("submitting batch (full)", "len", rbf.itemsLen)
-		rbf.flushEvents(ctx, out)
-		if rbf.ticker != nil {
-			rbf.ticker.Reset(rbf.cfg.BatchTimeout)
+		// Parse outside the lock, return each slot to the pool immediately.
+		for _, i := range pending {
+			item, ignore, err := rbf.parse(&records[i])
+			freeIdx <- i
+			if err != nil {
+				rbf.logger.Debug("error parsing perf event", "error", err)
+				continue
+			}
+			if !ignore {
+				parsed = append(parsed, item)
+			}
 		}
+
+		if len(parsed) == 0 {
+			continue
+		}
+
+		// Lock once to enqueue the whole batch.
+		rbf.access.Lock()
+		for _, item := range parsed {
+			rbf.items[rbf.itemsLen] = item
+			rbf.itemsLen++
+			if rbf.itemsLen == rbf.cfg.BatchLength {
+				rbf.logger.Debug("submitting batch (full)", "len", rbf.itemsLen)
+				rbf.flushEvents(ctx, out)
+				if rbf.ticker != nil {
+					rbf.ticker.Reset(rbf.cfg.BatchTimeout)
+				}
+			}
+		}
+		rbf.access.Unlock()
 	}
-	rbf.access.Unlock()
 }
 
 func (rbf *ringBufForwarder[T]) storeLastReadAt(t time.Time) {
