@@ -57,10 +57,10 @@ int obi_uprobe_cryptoTlsRead(struct pt_regs *ctx) {
     void *conn = GO_PARAM1(ctx);
     const void *buf = GO_PARAM2(ctx);
 
-    bpf_printk("=== uprobe/cryptoTlsRead goroutine_addr=%lx, c=%llx, buf=%llx === ",
-               goroutine_addr,
-               conn,
-               buf);
+    bpf_dbg_printk("=== uprobe/cryptoTlsRead goroutine_addr=%lx, c=%llx, buf=%llx === ",
+                   goroutine_addr,
+                   conn,
+                   buf);
 
     if (!buf) {
         return 0;
@@ -110,12 +110,17 @@ int obi_uprobe_cryptoTlsReadRet(struct pt_regs *ctx) {
 
     net_args_t *args = bpf_map_lookup_elem(&ongoing_ssl_ops, &g_key);
     if (args) {
-        bpf_printk("buf = %s", args->byte_ptr);
+        bpf_dbg_printk("buf = %s", args->byte_ptr);
 
         const u16 orig_dport = args->p_conn.conn.d_port;
         sort_connection_info(&args->p_conn.conn);
 
         dbg_print_http_connection_info(&args->p_conn.conn);
+
+        if (already_handled_request_sorted(&args->p_conn.conn)) {
+            cleanup_duplicate_generic_events_sorted(&args->p_conn);
+            goto done;
+        }
 
         // we don't need to mark the connection as SSL, the kprobes on send/receive
         // never fire for Go programs, we are just calling the buffer handling.
@@ -185,7 +190,10 @@ int obi_uprobe_cryptoTlsWrite(struct pt_regs *ctx) {
         u16 orig_dport = args.p_conn.conn.d_port;
         sort_connection_info(&args.p_conn.conn);
 
-        dbg_print_http_connection_info(&args.p_conn.conn);
+        if (already_handled_request_sorted(&args.p_conn.conn)) {
+            cleanup_duplicate_generic_events_sorted(&args.p_conn);
+            return 0;
+        }
 
         // we don't need to mark the connection as SSL, the kprobes on send/receive
         // never fire for Go programs, we are just calling the buffer handling.
