@@ -134,7 +134,7 @@ func (rbf *ringBufForwarder[T]) sharedReadAndForward(ctx context.Context, closer
 	// user space.
 	eventsReader, err := readerFactory(rbf.ringbuffer)
 	if err != nil {
-		rbf.logger.Error("creating perf reader. Exiting", "error", err)
+		rbf.logger.Error("creating ring buffer reader. Exiting", "error", err)
 		return
 	}
 	// If the underlying context is closed, it closes the objects we have allocated for this bpf program
@@ -148,7 +148,7 @@ func (rbf *ringBufForwarder[T]) readAndForward(ctx context.Context, out *msg.Que
 	// user space.
 	eventsReader, err := readerFactory(rbf.ringbuffer)
 	if err != nil {
-		rbf.logger.Error("creating perf reader. Exiting", "error", err)
+		rbf.logger.Error("creating ring buffer reader. Exiting", "error", err)
 		return
 	}
 	rbf.closers = append(rbf.closers, eventsReader)
@@ -251,7 +251,7 @@ func (rbf *ringBufForwarder[T]) fillAndDispatch(
 			rbf.logger.Debug("ring buffer is closed")
 			return false
 		default:
-			rbf.logger.Error("error reading from perf reader", "error", err)
+			rbf.logger.Error("error reading from ring buffer", "error", err)
 			return true
 		}
 	}
@@ -313,7 +313,7 @@ func (rbf *ringBufForwarder[T]) parserLoop(
 			item, ignore, err := rbf.parse(&records[i])
 			freeIdx <- i
 			if err != nil {
-				rbf.logger.Debug("error parsing perf event", "error", err)
+				rbf.logger.Debug("error parsing ring buffer event", "error", err)
 				continue
 			}
 			if !ignore {

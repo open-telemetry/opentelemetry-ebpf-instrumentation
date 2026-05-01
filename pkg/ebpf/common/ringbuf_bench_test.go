@@ -30,7 +30,7 @@ const benchBatchLen = 100
 //
 //	go test -bench=BenchmarkForwardRingbuf -benchtime=5s ./pkg/ebpf/common/...
 func BenchmarkForwardRingbuf(b *testing.B) {
-	for _, latency := range []time.Duration{time.Microsecond, 10 * time.Microsecond} {
+	for _, latency := range []time.Duration{time.Microsecond, 10 * time.Microsecond, 100 * time.Microsecond} {
 		b.Run(fmt.Sprintf("latency=%v", latency), func(b *testing.B) {
 			benchForwardRingbuf(b, latency)
 		})
@@ -46,7 +46,9 @@ func benchForwardRingbuf(b *testing.B, latency time.Duration) {
 	n := ((b.N + benchBatchLen - 1) / benchBatchLen) * benchBatchLen
 
 	rb := &benchReader{n: n, latency: latency}
+	prevFactory := readerFactory
 	readerFactory = func(_ *ebpf.Map) (ringBufReader, error) { return rb, nil }
+	defer func() { readerFactory = prevFactory }()
 
 	cfg := &config.EBPFTracer{BatchLength: benchBatchLen}
 	parse := func(_ *ringbuf.Record) (request.Span, bool, error) {
@@ -59,7 +61,6 @@ func benchForwardRingbuf(b *testing.B, latency time.Duration) {
 	sub := out.Subscribe()
 
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	fwd := ForwardRingbuf[request.Span](
 		cfg, nil, parse, nil,
@@ -67,14 +68,20 @@ func benchForwardRingbuf(b *testing.B, latency time.Duration) {
 		&metricsReporter{},
 	)
 
+	done := make(chan struct{})
 	b.ResetTimer()
-	go fwd(ctx, out)
+	go func() {
+		defer close(done)
+		fwd(ctx, out)
+	}()
 
 	for range batches {
 		<-sub
 	}
 
 	b.StopTimer()
+	cancel()
+	<-done
 	b.ReportMetric(float64(n)/b.Elapsed().Seconds(), "events/s")
 }
 
