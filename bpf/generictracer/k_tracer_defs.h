@@ -9,7 +9,7 @@
 #include <common/connection_info.h>
 #include <common/http_types.h>
 #include <common/lw_thread.h>
-#include <common/protocol_http.h>
+#include <common/protocol_http_helpers.h>
 
 #include <generictracer/k_tracer_tailcall.h>
 #include <generictracer/protocol_common.h>

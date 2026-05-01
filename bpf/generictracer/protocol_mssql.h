@@ -201,6 +201,7 @@ static __always_inline void mssql_send_large_buffer(tcp_req_t *req,
         large_buf->direction = direction;
         large_buf->conn_info = req->conn_info;
         large_buf->tp = req->tp;
+        large_buf->pid = req->pid.host_pid;
 
         u32 max_available_bytes = mssql_max_captured_bytes - bytes_sent;
         bpf_clamp_umax(max_available_bytes, k_large_buf_max_mssql_captured_bytes);

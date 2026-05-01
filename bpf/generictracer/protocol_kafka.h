@@ -370,6 +370,7 @@ static __always_inline int kafka_send_large_buffer(tcp_req_t *req,
     lb->direction = direction;
     lb->conn_info = pid_conn->conn;
     lb->tp = req->tp;
+    lb->pid = req->pid.host_pid;
 
     u32 max_available_bytes = kafka_max_captured_bytes - req->lb_res_bytes;
     u32 consumed_bytes = 0;
