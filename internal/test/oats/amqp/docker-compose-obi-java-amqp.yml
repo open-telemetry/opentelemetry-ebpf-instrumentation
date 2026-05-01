@@ -4,7 +4,7 @@ services:
     ports: []
 
   artemis:
-    image: apache/activemq-artemis:2.43.0@sha256:036475538fe2e4a41ef007cedc116b5d3045fd4e15dc91939ee5d600d33a420b
+    image: apache/activemq-artemis:2.44.0@sha256:0305c26f19eda00c0506d0953cfe265600a72ac1b17f7934412120c01a595cff
     network_mode: host
     environment:
       ARTEMIS_USER: artemis
