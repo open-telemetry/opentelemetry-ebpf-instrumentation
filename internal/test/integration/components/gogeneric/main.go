@@ -5,10 +5,17 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
 	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
 	"flag"
 	"fmt"
 	"log"
+	"math/big"
+	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -22,9 +29,11 @@ import (
 )
 
 var (
-	addr       = flag.String("addr", ":8080", "The address to bind to")
-	brokers    = flag.String("brokers", os.Getenv("KAFKA_PEERS"), "The Kafka brokers to connect to, as a comma separated list")
-	downstream = flag.String("downstream", os.Getenv("HTTP_PEER"), "Downstream service to test HTTP client")
+	addr        = flag.String("addr", ":8080", "The address to bind to")
+	tlsAddr     = flag.String("tls-addr", ":8443", "The address to bind to for TLS")
+	brokers     = flag.String("brokers", os.Getenv("KAFKA_PEERS"), "The Kafka brokers to connect to, as a comma separated list")
+	tlsBrokers  = flag.String("tls-brokers", os.Getenv("KAFKA_TLS_PEERS"), "Kafka brokers to connect to over TLS (port 9094), as a comma separated list")
+	downstream  = flag.String("downstream", os.Getenv("HTTP_PEER"), "Downstream service to test HTTP client")
 )
 
 const kafkaRetryDelay = 3 * time.Second
@@ -67,6 +76,12 @@ func main() {
 	app.Get("/produce/orders", producerHandlerWithTopic(client, "orders"))
 	app.Get("/consume", consumerHandler(client))
 
+	if *tlsBrokers != "" {
+		tlsClient := newKafkaTLSClient(*tlsBrokers)
+		app.Get("/produce/tls", producerHandlerWithTopic(tlsClient, "my-topic"))
+		app.Get("/produce/orders/tls", producerHandlerWithTopic(tlsClient, "orders"))
+	}
+
 	// Routes
 	app.Get("/", handleHome)
 	app.Get("/smoke", handleHome)
@@ -75,12 +90,61 @@ func main() {
 	app.Post("/api/echo", handleEcho)
 	app.Get("/ping", handlePingGoogle)
 	app.Get("/fastPing", handlePingGoogleFastHTTPFiber)
+	app.Get("/api/pingssl", handlePingGoogleFast)
+
+	// TLS listener using a self-signed cert generated at startup
+	if *tlsAddr != "" {
+		tlsCert, err := generateSelfSignedCert()
+		if err != nil {
+			log.Fatalf("Failed to generate TLS cert: %v", err)
+		}
+		tlsListener, err := tls.Listen("tcp", *tlsAddr, &tls.Config{
+			Certificates: []tls.Certificate{tlsCert},
+		})
+		if err != nil {
+			log.Fatalf("Failed to create TLS listener on %s: %v", *tlsAddr, err)
+		}
+		go func() {
+			log.Println("Starting TLS server on " + *tlsAddr)
+			if err := app.Listener(tlsListener); err != nil {
+				log.Fatalf("Failed to start TLS server: %v", err)
+			}
+		}()
+	}
 
 	// Start server
 	log.Println("Starting server on " + *addr)
 	if err := app.Listen(*addr); err != nil {
 		log.Fatalf("Failed to start server: %v", err)
 	}
+}
+
+func generateSelfSignedCert() (tls.Certificate, error) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		return tls.Certificate{}, err
+	}
+
+	template := &x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{Organization: []string{"Test"}},
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(10 * 365 * 24 * time.Hour),
+		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		BasicConstraintsValid: true,
+		IPAddresses:           []net.IP{net.ParseIP("127.0.0.1")},
+		DNSNames:              []string{"localhost"},
+	}
+
+	certDER, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	if err != nil {
+		return tls.Certificate{}, err
+	}
+
+	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
+	return tls.X509KeyPair(certPEM, keyPEM)
 }
 
 func newKafkaClient(brokers string) *kgo.Client {
@@ -202,4 +266,21 @@ func handlePingGoogleFastHTTP() http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprintf(w, `{"status":"OK"}`)
 	}
+}
+
+func handlePingGoogleFast(c *fiber.Ctx) error {
+	client := &fasthttp.Client{TLSConfig: &tls.Config{InsecureSkipVerify: true}} //nolint:gosec
+	req := fasthttp.AcquireRequest()
+	resp := fasthttp.AcquireResponse()
+	defer fasthttp.ReleaseRequest(req)
+	defer fasthttp.ReleaseResponse(resp)
+
+	req.SetRequestURI("https://www.google.com")
+	if err := client.Do(req, resp); err != nil {
+		return c.Status(fiber.StatusBadGateway).JSON(fiber.Map{
+			"error": err.Error(),
+		})
+	}
+
+	return c.SendString("OK")
 }
