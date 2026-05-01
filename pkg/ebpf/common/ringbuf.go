@@ -137,9 +137,6 @@ func (rbf *ringBufForwarder[T]) sharedReadAndForward(ctx context.Context, closer
 		rbf.logger.Error("creating perf reader. Exiting", "error", err)
 		return
 	}
-	rbf.items = make([]T, rbf.cfg.BatchLength)
-	rbf.itemsLen = 0
-
 	// If the underlying context is closed, it closes the objects we have allocated for this bpf program
 	go rbf.bgListenSharedContextCancelation(ctx, closers, eventsReader)
 	rbf.readAndForwardInner(ctx, eventsReader, out)
@@ -156,9 +153,6 @@ func (rbf *ringBufForwarder[T]) readAndForward(ctx context.Context, out *msg.Que
 	}
 	rbf.closers = append(rbf.closers, eventsReader)
 	defer rbf.closeAllResources()
-
-	rbf.items = make([]T, rbf.cfg.BatchLength)
-	rbf.itemsLen = 0
 
 	// If the underlying context is closed, it closes the events reader
 	// so the function can exit.
@@ -185,45 +179,149 @@ func (rbf *ringBufForwarder[T]) flushOnAvailableBytes(ctx context.Context, event
 }
 
 func (rbf *ringBufForwarder[T]) readAndForwardInner(ctx context.Context, eventsReader ringBufReader, out *msg.Queue[[]T]) {
-	// Forwards periodically on timeout, if the batch is not full
 	if rbf.cfg.BatchTimeout > 0 {
 		rbf.ticker = time.NewTicker(rbf.cfg.BatchTimeout)
 		go rbf.bgFlushOnTimeout(ctx, out)
 	}
-
-	// Ensure we periodically flush any pending bytes
 	go rbf.flushOnAvailableBytes(ctx, eventsReader)
 
-	// Main loop:
-	// 1. Listen for content in the ring buffer
-	// 2. Decode binary data into HTTPRequestTrace instance
-	// 3. Accumulate the HTTPRequestTrace into a batch slice
-	// 4. When the length of the batch slice reaches cfg.BatchLength,
-	//    submit it to the next stage of the pipeline
+	rbf.items = make([]T, rbf.cfg.BatchLength)
+	rbf.itemsLen = 0
 
-	// We just log the first ring buffer read to check that the eBPF side is sending stuff
-	// Logging each message adds few information and a lot of noise to the debug logs
-	// in production systems with thousands of messages per second
+	poolSize := 2 * rbf.cfg.BatchLength
+	records := make([]ringbuf.Record, poolSize)
+	freeIdx := make(chan int, poolSize)
+	workIdx := make(chan int, poolSize)
+	for i := range poolSize {
+		freeIdx <- i
+	}
+
+	go rbf.parserLoop(ctx, records, freeIdx, workIdx, out)
+
 	rbf.logger.Debug("starting to read ring buffer")
+	rbf.readerLoop(ctx, eventsReader, records, freeIdx, workIdx)
+}
 
-	var record ringbuf.Record
+func (rbf *ringBufForwarder[T]) readerLoop(
+	ctx context.Context,
+	eventsReader ringBufReader,
+	records []ringbuf.Record,
+	freeIdx chan int,
+	workIdx chan<- int,
+) {
+	defer close(workIdx)
+
 	for {
-		err := eventsReader.ReadInto(&record)
-		if err != nil {
-			if errors.Is(err, ringbuf.ErrFlushed) {
-				rbf.logger.Debug("ring buffer already flushed")
-				continue
+		var i int
+		select {
+		case <-ctx.Done():
+			return
+		case i = <-freeIdx:
+		default:
+			rbf.logger.Debug("reader stalled: record pool exhausted",
+				"pool_size", len(records), "pending_parse", len(workIdx))
+			select {
+			case <-ctx.Done():
+				return
+			case i = <-freeIdx:
 			}
-			if errors.Is(err, ringbuf.ErrClosed) {
-				rbf.logger.Debug("ring buffer is closed")
+		}
+
+		if !rbf.fillAndDispatch(ctx, i, eventsReader, records, freeIdx, workIdx) {
+			return
+		}
+	}
+}
+
+func (rbf *ringBufForwarder[T]) fillAndDispatch(
+	ctx context.Context,
+	i int,
+	eventsReader ringBufReader,
+	records []ringbuf.Record,
+	freeIdx chan int,
+	workIdx chan<- int,
+) bool {
+	if err := eventsReader.ReadInto(&records[i]); err != nil {
+		freeIdx <- i
+		switch {
+		case errors.Is(err, ringbuf.ErrFlushed):
+			rbf.logger.Debug("ring buffer already flushed")
+			return true
+		case errors.Is(err, ringbuf.ErrClosed):
+			rbf.logger.Debug("ring buffer is closed")
+			return false
+		default:
+			rbf.logger.Error("error reading from perf reader", "error", err)
+			return true
+		}
+	}
+
+	rbf.storeLastReadAt(time.Now())
+
+	select {
+	case workIdx <- i:
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
+
+func (rbf *ringBufForwarder[T]) parserLoop(
+	ctx context.Context,
+	records []ringbuf.Record,
+	freeIdx chan<- int,
+	workIdx <-chan int,
+	out *msg.Queue[[]T],
+) {
+	for {
+		var i int
+		var ok bool
+		select {
+		case <-ctx.Done():
+			return
+		case i, ok = <-workIdx:
+			if !ok {
 				return
 			}
-			rbf.logger.Error("error reading from perf reader", "error", err)
-			continue
 		}
-		rbf.storeLastReadAt(time.Now())
-		rbf.processAndForward(ctx, record, out)
+
+		if depth := len(workIdx); depth == cap(workIdx)-1 {
+			rbf.logger.Debug("parser falling behind: work queue full", "depth", depth+1)
+		}
+
+		rbf.parseAndAccumulate(ctx, i, records, freeIdx, out)
 	}
+}
+
+func (rbf *ringBufForwarder[T]) parseAndAccumulate(
+	ctx context.Context,
+	i int,
+	records []ringbuf.Record,
+	freeIdx chan<- int,
+	out *msg.Queue[[]T],
+) {
+	item, ignore, err := rbf.parse(&records[i])
+	freeIdx <- i
+
+	if err != nil {
+		rbf.logger.Debug("error parsing perf event", "error", err)
+		return
+	}
+	if ignore {
+		return
+	}
+
+	rbf.access.Lock()
+	rbf.items[rbf.itemsLen] = item
+	rbf.itemsLen++
+	if rbf.itemsLen == rbf.cfg.BatchLength {
+		rbf.logger.Debug("submitting batch (full)", "len", rbf.itemsLen)
+		rbf.flushEvents(ctx, out)
+		if rbf.ticker != nil {
+			rbf.ticker.Reset(rbf.cfg.BatchTimeout)
+		}
+	}
+	rbf.access.Unlock()
 }
 
 func (rbf *ringBufForwarder[T]) storeLastReadAt(t time.Time) {
@@ -237,28 +335,6 @@ func (rbf *ringBufForwarder[T]) hasPendingReadIdleSince(now time.Time, interval 
 	}
 
 	return now.Sub(time.Unix(0, lastReadAtUnixNano)) > interval
-}
-
-func (rbf *ringBufForwarder[T]) processAndForward(ctx context.Context, record ringbuf.Record, out *msg.Queue[[]T]) {
-	rbf.access.Lock()
-	defer rbf.access.Unlock()
-	item, ignore, err := rbf.parse(&record)
-	if err != nil {
-		rbf.logger.Debug("error parsing perf event", "error", err)
-		return
-	}
-	if ignore {
-		return
-	}
-	rbf.items[rbf.itemsLen] = item
-	rbf.itemsLen++
-	if rbf.itemsLen == rbf.cfg.BatchLength {
-		rbf.logger.Debug("submitting batch (full)", "len", rbf.itemsLen)
-		rbf.flushEvents(ctx, out)
-		if rbf.ticker != nil {
-			rbf.ticker.Reset(rbf.cfg.BatchTimeout)
-		}
-	}
 }
 
 func (rbf *ringBufForwarder[T]) flushEvents(ctx context.Context, out *msg.Queue[[]T]) {
