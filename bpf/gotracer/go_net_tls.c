@@ -28,6 +28,26 @@
 
 #include <logger/bpf_dbg.h>
 
+static __always_inline void *unwrap_conn(void *conn) {
+    void *conn_conn = 0;
+    bpf_probe_read(&conn_conn, sizeof(conn_conn), conn + 8); // 8 skip embedded data structure class
+    bpf_dbg_printk("unwrapped conn %llx", conn_conn);
+
+    return conn_conn;
+}
+
+static __always_inline bool should_process(void *conn_conn, go_addr_key_t *g_key) {
+    void *fd_ptr = fd_ptr_from_conn(conn_conn);
+
+    bpf_dbg_printk("found fd_ptr %llx", fd_ptr);
+
+    if (already_handled_goroutine(g_key, fd_ptr)) {
+        return false;
+    }
+
+    return true;
+}
+
 SEC("uprobe/cryptoTlsRead")
 int obi_uprobe_cryptoTlsRead(struct pt_regs *ctx) {
     void *goroutine_addr = GOROUTINE_PTR(ctx);
@@ -48,15 +68,9 @@ int obi_uprobe_cryptoTlsRead(struct pt_regs *ctx) {
 
     net_args_t args = {0};
 
-    void *conn_conn = 0;
-    bpf_probe_read(&conn_conn, sizeof(conn_conn), conn + 8); // 8 skip embedded data structure class
-    bpf_dbg_printk("unwrapped conn %llx", conn_conn);
+    void *conn_conn = unwrap_conn(conn);
     if (conn_conn) {
-        void *fd_ptr = fd_ptr_from_conn(conn_conn);
-
-        bpf_dbg_printk("found fd_ptr %llx", fd_ptr);
-
-        if (already_handled_goroutine(&g_key, fd_ptr)) {
+        if (!should_process(conn_conn, &g_key)) {
             return 0;
         }
 
@@ -97,6 +111,26 @@ int obi_uprobe_cryptoTlsReadRet(struct pt_regs *ctx) {
     net_args_t *args = bpf_map_lookup_elem(&ongoing_ssl_ops, &g_key);
     if (args) {
         bpf_printk("buf = %s", args->byte_ptr);
+
+        u16 orig_dport = args->p_conn.conn.d_port;
+        sort_connection_info(&args->p_conn.conn);
+
+        dbg_print_http_connection_info(&args->p_conn.conn);
+
+        // we don't need to mark the connection as SSL, the kprobes on send/receive
+        // never fire for Go programs, we are just calling the buffer handling.
+
+        bpf_map_delete_elem(&ongoing_ssl_ops, &g_key);
+        // doesn't return
+        handle_light_weight_thread_buf(ctx,
+                                       (lw_thread_t)goroutine_addr,
+                                       (protocol_selector_t){.http = 1, .http2 = 0, .tcp = 1},
+                                       &args->p_conn,
+                                       (void *)args->byte_ptr,
+                                       len,
+                                       WITH_SSL,
+                                       TCP_RECV,
+                                       orig_dport);
     }
 
 done:
@@ -111,13 +145,62 @@ int obi_uprobe_cryptoTlsWrite(struct pt_regs *ctx) {
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
 
+    void *c = GO_PARAM1(ctx);
+    void *buf = GO_PARAM2(ctx);
+    u64 len = (u64)GO_PARAM3(ctx);
+
     bpf_dbg_printk("=== uprobe/cryptoTlsWrite goroutine_addr=%lx, c=%llx, buf=%llx === ",
                    goroutine_addr,
-                   GO_PARAM1(ctx),
-                   GO_PARAM2(ctx));
+                   c,
+                   buf);
+
+    if (!buf || len <= 0) {
+        return 0;
+    }
+
+    bpf_dbg_printk("[%d] buf=%s", len, buf);
 
     net_args_t args = {0};
-    bpf_map_update_elem(&ongoing_ssl_ops, &g_key, &args, BPF_ANY);
+
+    void *conn_conn = unwrap_conn(c);
+    if (conn_conn) {
+        if (!should_process(conn_conn, &g_key)) {
+            return 0;
+        }
+
+        if (!get_conn_info(conn_conn, &args.p_conn.conn)) {
+            bpf_dbg_printk("cannot read connection info from %llx", conn_conn);
+            return 0;
+        }
+        const u64 id = bpf_get_current_pid_tgid();
+        args.p_conn.pid = pid_from_pid_tgid(id);
+        args.byte_ptr = (u64)buf;
+
+        dbg_print_http_connection_info(&args.p_conn.conn);
+
+        // we store this ongoing_ssl_ops, so the non TLS probes on netFD (go_net.c)
+        // skip this work. the return probes clean up
+        bpf_map_update_elem(&ongoing_ssl_ops, &g_key, &args, BPF_ANY);
+
+        u16 orig_dport = args.p_conn.conn.d_port;
+        sort_connection_info(&args.p_conn.conn);
+
+        dbg_print_http_connection_info(&args.p_conn.conn);
+
+        // we don't need to mark the connection as SSL, the kprobes on send/receive
+        // never fire for Go programs, we are just calling the buffer handling.
+
+        // doesn't return
+        handle_light_weight_thread_buf(ctx,
+                                       (lw_thread_t)goroutine_addr,
+                                       (protocol_selector_t){.http = 1, .http2 = 0, .tcp = 1},
+                                       &args.p_conn,
+                                       buf,
+                                       len,
+                                       WITH_SSL,
+                                       TCP_SEND,
+                                       orig_dport);
+    }
 
     return 0;
 }
