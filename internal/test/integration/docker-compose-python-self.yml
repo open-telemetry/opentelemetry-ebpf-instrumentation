@@ -50,7 +50,7 @@ services:
       OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT: "0ms"
       OTEL_EBPF_BPF_HTTP_REQUEST_TIMEOUT: "5s"
       OTEL_EBPF_PROCESSES_INTERVAL: "100ms"
-      OTEL_EBPF_METRICS_FEATURES: "application,application_span,application_service_graph"
+      OTEL_EBPF_METRICS_FEATURES: "application,application_span_otel,application_service_graph"
       OTEL_EBPF_BPF_BUFFER_SIZE_HTTP: 1024
       OTEL_EBPF_BPF_MAX_TRANSACTION_TIME: "500ms"
     depends_on:
@@ -83,17 +83,18 @@ services:
         condition: service_healthy
 
   # Weaver semantic convention validator — receives OTLP from the collector
-  # and validates telemetry against the OpenTelemetry semantic conventions.
+  # and validates emitted telemetry against the OBI schema registry under
+  # `schemas/obi/`, which itself depends on the upstream OpenTelemetry
+  # semantic conventions. Bind-mounted into the container at /obi-registry.
   weaver:
-    image: otel/weaver:v0.22.1@sha256:33ae522ae4b71c1c562563c1d81f46aa0f79f088a0873199143a1f11ac30e5c9
+    image: otel/weaver:v0.23.0@sha256:7984ecb55b859eb3034ae9d836c4eeda137e2bdd0873b7ba2bb6c3d24d6ff457
     container_name: weaver
     command:
       - registry
       - live-check
-      # Semconv version is set via SEMCONV_VERSION env var from the test code
-      # (derived from go.opentelemetry.io/otel/semconv).
       - --registry
-      - https://github.com/open-telemetry/semantic-conventions.git@v${SEMCONV_VERSION}[model]
+      - /obi-registry
+      - --include-unreferenced
       - --inactivity-timeout
       - "300"
       - --admin-port
@@ -103,6 +104,8 @@ services:
       - --diagnostic-format
       - json
       - --no-stream
+    volumes:
+      - ../../../schemas/obi:/obi-registry:ro
     ports:
       - "4320:4320" # admin port (for /stop from test host)
     healthcheck:
