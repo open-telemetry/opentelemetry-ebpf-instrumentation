@@ -10,8 +10,29 @@ services:
       - "6000:6000"
       - "6001:6001"
       - "6002:6002"
+      - "7000:7000"
+      - "7001:7001"
+      - "7002:7002"
     environment:
       LOG_LEVEL: DEBUG
+    depends_on:
+      otelcol:
+        condition: service_started
+      jaeger:
+        condition: service_started
+
+  # Go counterpart of tpclient: exercises the gotracer readContinuedLineSlice
+  # uretprobe path, which fires per header line and finds the traceparent
+  # regardless of how many large headers precede it.
+  tpclient-go:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/tpclient-go/Dockerfile
+    image: tpclient-go
+    ports:
+      - "8000:8000"
+      - "8001:8001"
+      - "8002:8002"
     depends_on:
       otelcol:
         condition: service_started
@@ -44,8 +65,9 @@ services:
       OTEL_EBPF_INTERNAL_METRICS_PROMETHEUS_PORT: 8999
       OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT: "1ms"
       OTEL_EBPF_BPF_HIGH_REQUEST_VOLUME: 1
-      OTEL_EBPF_OPEN_PORT: "6000,6001,6002"
+      OTEL_EBPF_OPEN_PORT: "6000,6001,6002,7000,7001,7002,8000,8001,8002"
       OTEL_EBPF_BPF_CONTEXT_PROPAGATION: "headers"
+      OTEL_EBPF_BPF_MAX_REQUEST_TP_PARSE_SIZE_KB: "4"
       OTEL_EBPF_EXECUTABLE_PATH: "${OTEL_EBPF_EXECUTABLE_PATH}"
     ports:
       - "8999:8999"

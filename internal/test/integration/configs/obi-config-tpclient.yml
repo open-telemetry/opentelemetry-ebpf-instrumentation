@@ -16,3 +16,9 @@ discovery:
       open_ports: 6001
     - name: tpclient-c
       open_ports: 6002
+    - name: tpclient-go-a
+      open_ports: 8000
+    - name: tpclient-go-b
+      open_ports: 8001
+    - name: tpclient-go-c
+      open_ports: 8002

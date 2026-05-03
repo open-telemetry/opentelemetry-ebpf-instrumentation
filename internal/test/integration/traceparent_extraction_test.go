@@ -4,6 +4,7 @@
 package integration
 
 import (
+	"crypto/tls"
 	"net/http"
 	"path"
 	"strings"
@@ -20,9 +21,11 @@ import (
 )
 
 const (
-	staticTraceID       = "12345678901234567890123456789012" // Easy to spot
-	staticHugeTPTraceID = "aabbccddeeff00112233445566778899" // Distinct ID for the HTTP huge-headers sub-test
-	forwardedSpanID     = "1111111111111111"                 // Span ID used in forwarded traceparent
+	staticTraceID        = "12345678901234567890123456789012" // Easy to spot
+	staticGoTraceID      = "abcdef12345678901234567890abcdef" // Distinct ID for the Go uprobe sub-test
+	staticHugeTPTraceID  = "aabbccddeeff00112233445566778899" // Distinct ID for the HTTP huge-headers sub-test
+	staticHugeTLSTraceID = "99887766554433221100ffeeddccbbaa" // Distinct ID for the TLS huge-headers sub-test
+	forwardedSpanID      = "1111111111111111"                 // Span ID used in forwarded traceparent
 )
 
 // TestTraceparentExtraction validates that the eBPF tpinjector correctly:
@@ -37,6 +40,8 @@ func TestTraceparentExtraction(t *testing.T) {
 
 	// Wait for all services to be ready.
 	waitForTestComponents(t, "http://localhost:6000")
+	waitForTestComponents(t, "http://localhost:8000")
+	waitForTestComponents(t, "https://localhost:7000")
 
 	// Wait for instrumentation to be ready
 	t.Log("waiting for instrumentation to be ready")
@@ -60,6 +65,8 @@ func TestTraceparentExtraction(t *testing.T) {
 	t.Run("with_traceparent", testWithTraceparent)
 	t.Run("with_forwarded_traceparent", testWithForwardedTraceparent)
 	t.Run("with_huge_headers_traceparent", testWithHugeHeadersTraceparent)
+	t.Run("with_huge_headers_traceparent_tls", testWithHugeHeadersTraceparentTLS)
+	t.Run("with_huge_headers_traceparent_go_uprobe", testWithHugeHeadersTraceparentGoUprobe)
 
 	require.NoError(t, compose.Close())
 }
@@ -206,6 +213,66 @@ func testWithHugeHeadersTraceparent(t *testing.T) {
 		chainServices: []string{"tpclient-a", "tpclient-b", "tpclient-c"},
 		traceID:       staticHugeTPTraceID,
 		urlPath:       "/with-huge-tp",
+	})
+}
+
+// testWithHugeHeadersTraceparentGoUprobe validates the per-line traceparent
+// parser on the Go gotracer path. The Go services (tpclient-go-a/b/c) are
+// instrumented via the readContinuedLineSlice uretprobe, which fires for each
+// header line returned by the textproto reader — a different code path from
+// the kprobe-based Node services covered above.
+//
+// A distinct trace ID (staticGoTraceID) is used to avoid cross-contamination
+// with the Node.js sub-tests that also use /with-huge-tp and staticTraceID:
+// some Jaeger versions return a trace by ID regardless of the service filter,
+// so re-using staticTraceID could surface old Node.js spans instead of the
+// expected Go spans.
+func testWithHugeHeadersTraceparentGoUprobe(t *testing.T) {
+	req, err := http.NewRequest(http.MethodGet, "http://localhost:8000/with-huge-tp", nil)
+	require.NoError(t, err)
+	// Lower-case header name sorts before "Traceparent": net/http writes
+	// headers in canonical order so the filler reaches the wire first and
+	// forces the per-line parser to see the traceparent only on its own line.
+	req.Header.Set("big-filler", strings.Repeat("X", 2500))
+	req.Header.Set("traceparent", "00-"+staticGoTraceID+"-0000000000000001-01")
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	require.NoError(t, resp.Body.Close())
+
+	assertHugeHeadersTraceparent(t, hugeHeadersCase{
+		jaegerService: "tpclient-go-a",
+		chainServices: []string{"tpclient-go-a", "tpclient-go-b", "tpclient-go-c"},
+		traceID:       staticGoTraceID,
+		urlPath:       "/with-huge-tp",
+	})
+}
+
+// testWithHugeHeadersTraceparentTLS validates that when a large filler header (>2KB)
+// precedes the Traceparent header over a TLS connection, the eBPF uprobe parser still finds it.
+func testWithHugeHeadersTraceparentTLS(t *testing.T) {
+	tr := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+	}
+	client := &http.Client{Transport: tr}
+
+	req, err := http.NewRequest(http.MethodGet, "https://localhost:7000/with-huge-tp-tls", nil)
+	require.NoError(t, err)
+	// See note above: sort order matters so the filler is on-wire before traceparent.
+	req.Header.Set("big-filler", strings.Repeat("X", 2500))
+	req.Header.Set("traceparent", "00-"+staticHugeTLSTraceID+"-0000000000000001-01")
+
+	resp, err := client.Do(req)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	require.NoError(t, resp.Body.Close())
+
+	assertHugeHeadersTraceparent(t, hugeHeadersCase{
+		jaegerService: "tpclient-a",
+		chainServices: []string{"tpclient-a", "tpclient-b", "tpclient-c"},
+		traceID:       staticHugeTLSTraceID,
+		urlPath:       "/with-huge-tp-tls",
 	})
 }
 

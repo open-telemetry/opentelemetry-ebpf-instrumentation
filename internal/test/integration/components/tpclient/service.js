@@ -1,5 +1,11 @@
 const express = require('express');
 const axios = require('axios');
+const https = require('https');
+const fs = require('fs');
+
+// Global axios instance to ignore self-signed cert errors
+const httpsAgent = new https.Agent({ rejectUnauthorized: false });
+const axiosInstance = axios.create({ httpsAgent });
 
 const app = express();
 
@@ -45,7 +51,7 @@ app.get('/no-tp', async (req, res) => {
       const downstreamURL = `${upstream}/no-tp`;
       console.log(`[${route}/no-tp] Making client call to ${downstreamURL} WITHOUT traceparent`);
       // DO NOT add traceparent - let eBPF generate it
-      const response = await axios.get(downstreamURL);
+      const response = await axiosInstance.get(downstreamURL);
       res.send(`${route}/no-tp → ${response.data}`);
     } catch (err) {
       console.error(`[${route}/no-tp] Error:`, err.message);
@@ -68,7 +74,7 @@ app.get('/with-tp', async (req, res) => {
       console.log(`[${route}/with-tp] Making client call to ${downstreamURL} WITH traceparent: ${traceparent}`);
 
       // Add traceparent to outgoing request - eBPF should extract it
-      const response = await axios.get(downstreamURL, {
+      const response = await axiosInstance.get(downstreamURL, {
         headers: { 'traceparent': traceparent }
       });
       res.send(`${route}/with-tp → ${response.data}`);
@@ -91,7 +97,7 @@ app.get('/with-forwarded-tp', async (req, res) => {
       // This should trigger eBPF's proxy detection logic which will override the span ID
       console.log(`[${route}/with-forwarded-tp] Making client call to ${downstreamURL} WITH forwarded traceparent: ${FORWARDED_TRACEPARENT}`);
 
-      const response = await axios.get(downstreamURL, {
+      const response = await axiosInstance.get(downstreamURL, {
         headers: { 'traceparent': FORWARDED_TRACEPARENT }
       });
       res.send(`${route}/with-forwarded-tp → ${response.data}`);
@@ -113,7 +119,7 @@ app.get('/with-huge-tp', async (req, res) => {
       // Send a large filler header (~2500 bytes) to push traceparent beyond the 1KB window
       const hugeValue = 'X'.repeat(2500);
       console.log(`[${route}/with-huge-tp] Making client call to ${downstreamURL} WITH huge headers + traceparent`);
-      const response = await axios.get(downstreamURL, {
+      const response = await axiosInstance.get(downstreamURL, {
         headers: {
           'a-filler': hugeValue, // 'a' sorts before 'traceparent' regardless of header ordering
           'traceparent': traceparent
@@ -136,4 +142,45 @@ app.get('/smoke', (req, res) => {
 app.listen(port, () => {
   console.log(`Service ${route.toUpperCase()} HTTP running on port ${port}`);
   console.log(upstream ? `Upstream: ${upstream}` : `End of chain`);
+});
+
+// Endpoint: Request WITH huge headers before traceparent via TLS
+app.get('/with-huge-tp-tls', async (req, res) => {
+  if (upstream) {
+    try {
+      // For TLS testing, upstream must use https and port+1000
+      const upURL = new URL(upstream);
+      const upPort = parseInt(upURL.port, 10);
+      if (Number.isNaN(upPort)) {
+        return res.status(500).send('Error: upstream URL is missing an explicit port');
+      }
+      const downstreamURL = `https://${upURL.hostname}:${upPort + 1000}/with-huge-tp-tls`;
+
+      const traceparent = nextTraceparent(req.headers.traceparent, STATIC_TRACEPARENT);
+      const hugeValue = 'X'.repeat(2500);
+
+      console.log(`[${route}/with-huge-tp-tls] Making client call to ${downstreamURL} WITH huge headers + traceparent`);
+      const response = await axiosInstance.get(downstreamURL, {
+        headers: {
+          'a-filler': hugeValue, // 'a' sorts before 'traceparent' regardless of header ordering
+          'traceparent': traceparent
+        }
+      });
+      res.send(`${route}/with-huge-tp-tls → ${response.data}`);
+    } catch (err) {
+      console.error(`[${route}/with-huge-tp-tls] Error:`, err.message);
+      res.status(500).send(`Error: ${err.message}`);
+    }
+  } else {
+    res.send(`End of chain (${route})`);
+  }
+});
+
+const options = {
+  key: fs.readFileSync('key.pem'),
+  cert: fs.readFileSync('cert.pem')
+};
+
+https.createServer(options, app).listen(parseInt(port) + 1000, () => {
+  console.log(`Service ${route.toUpperCase()} HTTPS running on port ${parseInt(port) + 1000}`);
 });
