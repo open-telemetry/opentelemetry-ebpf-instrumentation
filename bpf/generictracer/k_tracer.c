@@ -37,6 +37,7 @@
 #include <generictracer/protocol_http2.h>
 #include <generictracer/protocol_mysql.h>
 #include <generictracer/protocol_postgres.h>
+#include <generictracer/protocol_mssql.h>
 #include <generictracer/protocol_tcp.h>
 #include <generictracer/ssl_defs.h>
 

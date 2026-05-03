@@ -36,6 +36,7 @@ OCI_BIN ?= docker
 DOCKER_USER=$(shell id -u):$(shell id -g)
 DEPENDENCIES_DOCKERFILE=./dependencies.Dockerfile
 GRADLE_IMAGE := $(shell awk '$$4=="gradle-java" {print $$2}' $(DEPENDENCIES_DOCKERFILE))
+GOLANG_IMAGE := $(shell awk '$$4=="golang" {print $$2}' $(DEPENDENCIES_DOCKERFILE))
 PYTHON39_IMAGE := $(shell awk '$$4=="python39" {print $$2}' $(DEPENDENCIES_DOCKERFILE))
 PYTHON314_IMAGE := $(shell awk '$$4=="python314" {print $$2}' $(DEPENDENCIES_DOCKERFILE))
 
@@ -55,6 +56,7 @@ EXCLUDE_COVERAGE_FILES := "(_bpfel.go)|(.pb.go)|$\
 (/obi/configs/)|$\
 (/obi/examples/)|$\
 (/obi/internal/test/)|$\
+(/obi/scripts/)|$\
 (/pkg/export/otel/metric/)"
 
 .DEFAULT_GOAL := all
@@ -138,7 +140,7 @@ lint-fix: LINT_EXTRA_ARGS = --fix
 lint-fix: lint-run
 
 .PHONY: lint-run
-lint-run: vanity-import-check lint-dependency-policy
+lint-run: vanity-import-check lint-dependency-policy lint-collectt
 	@echo "### Linting code"
 	go tool $(TOOLS_MODFILE) golangci-lint run ./... --timeout=6m $(LINT_EXTRA_ARGS)
 
@@ -151,6 +153,11 @@ lint-dependency-policy:
 	else \
 		./scripts/lint-dependency-policy.sh; \
 	fi
+
+.PHONY: lint-collectt
+lint-collectt:
+	@echo "### Checking EventuallyWithT callbacks use CollectT"
+	go run ./internal/test/analyzer/collectt/cmd/collecttlint ./...
 
 MARKDOWNIMAGE := $(shell awk '$$4=="markdown" {print $$2}' $(DEPENDENCIES_DOCKERFILE))
 .PHONY: lint-markdown
@@ -210,7 +217,7 @@ update-offsets:
 BPF_ROOT = pkg/
 
 # Find all generated Go and object files (used as Make targets)
-BPF_GEN_GO := $(shell find $(BPF_ROOT) -type f \( -name 'bpf_*_bpfe[lb].go' -o -name 'net_*_bpfe[lb].go' -o -name 'netsk_*_bpfe[lb].go' \))
+BPF_GEN_GO := $(shell find $(BPF_ROOT) -type f \( -name 'bpf_*_bpfe[lb].go' -o -name 'net_*_bpfe[lb].go' -o -name 'netsk_*_bpfe[lb].go' -o -name 'stats_*_bpfe[lb].go' \))
 BPF_GEN_OBJ := $(BPF_GEN_GO:.go=.o)
 BPF_GEN_ALL := $(if $(BPF_GEN_GO),$(BPF_GEN_GO) $(BPF_GEN_OBJ))
 
@@ -331,7 +338,7 @@ JAVA_AGENT_GRADLE_ENV := $(if $(JAVA_AGENT_JAVA_HOME),JAVA_HOME=$(JAVA_AGENT_JAV
 .PHONY: java-build
 java-build:
 	@echo "### Building Java agent"
-	cd $(JAVA_AGENT_DIR) && $(JAVA_AGENT_GRADLE_ENV) gradle build
+	cd $(JAVA_AGENT_DIR) && $(JAVA_AGENT_GRADLE_ENV) gradle build -PnativeOnly=true
 	mkdir -p $(JAVA_AGENT_EMBED_DIR)
 	cp $(JAVA_AGENT_DIR)/build/$(JAVA_AGENT) $(JAVA_AGENT_EMBED_PATH)
 
@@ -360,17 +367,17 @@ java-docker-sbom:
 .PHONY: java-test
 java-test:
 	@echo "### Testing Java agent"
-	cd $(JAVA_AGENT_DIR) && $(JAVA_AGENT_GRADLE_ENV) gradle test
+	cd $(JAVA_AGENT_DIR) && $(JAVA_AGENT_GRADLE_ENV) gradle test -PnativeOnly=true
 
 .PHONY: java-spotless-check
 java-spotless-check:
 	@echo "### Checking Java code formatting"
-	cd $(JAVA_AGENT_DIR) && $(JAVA_AGENT_GRADLE_ENV) gradle spotlessCheck
+	cd $(JAVA_AGENT_DIR) && $(JAVA_AGENT_GRADLE_ENV) gradle spotlessCheck -PnativeOnly=true
 
 .PHONY: java-spotless-apply
 java-spotless-apply:
 	@echo "### Formatting Java code"
-	cd $(JAVA_AGENT_DIR) && $(JAVA_AGENT_GRADLE_ENV) gradle spotlessApply
+	cd $(JAVA_AGENT_DIR) && $(JAVA_AGENT_GRADLE_ENV) gradle spotlessApply -PnativeOnly=true
 
 .PHONY: java-clean
 java-clean:
@@ -565,8 +572,13 @@ oats-test-ai: oats-prereq
 	mkdir -p internal/test/oats/ai/$(TEST_OUTPUT)/run
 	cd internal/test/oats/ai && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml go tool $(TOOLS_MODFILE) ginkgo -v -r
 
+.PHONY: oats-test-nats
+oats-test-nats: oats-prereq
+	mkdir -p internal/test/oats/nats/$(TEST_OUTPUT)/run
+	cd internal/test/oats/nats && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml go tool $(TOOLS_MODFILE) ginkgo -v -r
+
 .PHONY: oats-test
-oats-test: oats-test-sql oats-test-mongo oats-test-redis oats-test-kafka oats-test-http oats-test-memcached oats-test-ai
+oats-test: oats-test-sql oats-test-mongo oats-test-redis oats-test-kafka oats-test-http oats-test-memcached oats-test-ai oats-test-nats
 	$(MAKE) itest-coverage-data
 
 .PHONY: oats-test-debug
@@ -591,7 +603,11 @@ artifact: docker-generate java-docker-build compile
 	cp ./bin/$(CMD) $$STAGING_DIR/; \
 	cp LICENSE $$STAGING_DIR/; \
 	cp NOTICE $$STAGING_DIR/; \
-	cp -r NOTICES $$STAGING_DIR/; \
+	mkdir -p $$STAGING_DIR/NOTICES; \
+	if [ -d NOTICES/bpf ]; then cp -R NOTICES/bpf $$STAGING_DIR/NOTICES/; fi; \
+	if [ -d NOTICES/java ]; then cp -R NOTICES/java $$STAGING_DIR/NOTICES/; fi; \
+	if [ ! -d NOTICES/$(GOARCH) ]; then echo "ERROR: NOTICES/$(GOARCH) missing; run 'make go-notices-update'"; exit 1; fi; \
+	cp -R NOTICES/$(GOARCH)/. $$STAGING_DIR/NOTICES/; \
 	tar -C $$STAGING_DIR -czf bin/obi-$(RELEASE_VERSION)-$(GOOS)-$(GOARCH).tar.gz $(CMD) LICENSE NOTICE NOTICES
 
 .PHONY: release
@@ -606,6 +622,11 @@ release: artifact
 	@if [ ! -f $(RELEASE_DIR)/verify-$(GOARCH)/LICENSE ]; then echo "ERROR: LICENSE missing in $(GOARCH) archive"; exit 1; fi
 	@if [ ! -f $(RELEASE_DIR)/verify-$(GOARCH)/NOTICE ]; then echo "ERROR: NOTICE missing in $(GOARCH) archive"; exit 1; fi
 	@if [ ! -d $(RELEASE_DIR)/verify-$(GOARCH)/NOTICES ]; then echo "ERROR: NOTICES directory missing in $(GOARCH) archive"; exit 1; fi
+	@for other in $(filter-out $(GOARCH),$(GO_NOTICES_ARCHES)); do \
+		if [ -d $(RELEASE_DIR)/verify-$(GOARCH)/NOTICES/$$other ]; then \
+			echo "ERROR: NOTICES/$$other leaked into $(GOARCH) archive"; exit 1; \
+		fi; \
+	done
 	@if [ ! -x $(RELEASE_DIR)/verify-$(GOARCH)/$(CMD) ]; then echo "ERROR: $(CMD) binary not executable in $(GOARCH) archive"; exit 1; fi
 	@echo "✓ Archive $(GOARCH) verified successfully"
 	@rm -rf $(RELEASE_DIR)/verify-$(GOARCH)
@@ -699,9 +720,29 @@ java-notices-update:
 		$(NOTICES_DIR)/java/agent/THIRD_PARTY_LICENSES.txt
 	@cp pkg/internal/java/agent/build/reports/dependency-license/THIRD_PARTY_LICENSES.csv $(NOTICES_DIR)/java/agent/
 
+GO_NOTICES_ARCHES := amd64 arm64
+
 .PHONY: go-notices-update
 go-notices-update:
-	@GOOS=$(GOOS) GOARCH=amd64 go tool $(TOOLS_MODFILE) go-licenses save ./... --save_path=$(NOTICES_DIR) --force
+	@echo "### Generating Go notices for linux/{$(GO_NOTICES_ARCHES)} in docker"
+	@# Migrate legacy flat layout: drop any Go-ecosystem dirs at NOTICES root (keep bpf/ + java/ + arch subtrees).
+	@find $(NOTICES_DIR) -mindepth 1 -maxdepth 1 \
+		-not -name bpf -not -name java $(foreach a,$(GO_NOTICES_ARCHES),-not -name $(a)) \
+		-exec rm -rf {} +
+	@# Build go-licenses once at container host arch, then invoke per target GOARCH so the tool binary
+	@# stays executable while it cross-inspects the build graph for each arch.
+	@$(OCI_BIN) run --rm \
+		$(if $(findstring podman,$(OCI_BIN)),,-u "$(DOCKER_USER)") \
+		-v "$(CURDIR):/src:z" \
+		-e HOME=/tmp -e GOTOOLCHAIN=local -e GOMODCACHE=/tmp/gomod \
+		-w /src \
+		$(GOLANG_IMAGE) \
+		sh -c 'set -e; \
+			go build -modfile=internal/tools/go.mod -o /tmp/go-licenses github.com/google/go-licenses/v2; \
+			for arch in $(GO_NOTICES_ARCHES); do \
+				echo "### linux/$$arch"; \
+				GOOS=linux GOARCH=$$arch /tmp/go-licenses save ./... --save_path=$(NOTICES_DIR)/$$arch --force; \
+			done'
 
 PYTHON_REQUIREMENTS_INS ?= $(shell find ./internal/test/integration/components -type f -name 'requirements.in' | sort)
 PYTHON_REQUIREMENTS_DIRS := $(sort $(dir $(PYTHON_REQUIREMENTS_INS)))
@@ -824,13 +865,16 @@ regenerate-port-lookup:
 	go run cmd/generate-port-lookup/main.go -dst pkg/internal/netolly/flow/transport/protocol.go
 	$(MAKE) fmt
 
-CONFIG_SCHEMA_FILE ?= docs/config-schema.json
+CONFIG_SCHEMA_FILE ?= devdocs/config/config-schema.json
+CONFIG_DOCS_FILE ?= devdocs/config/CONFIG.md
 
 .PHONY: generate-config-schema
 generate-config-schema:
 	@echo "### Generating JSON schema for OBI configuration"
 	@mkdir -p $(dir $(CONFIG_SCHEMA_FILE))
 	go run ./cmd/obi-schema -output $(CONFIG_SCHEMA_FILE)
+	@echo "### Generating configuration reference docs"
+	go run ./cmd/config-docs -schema $(CONFIG_SCHEMA_FILE) -output $(CONFIG_DOCS_FILE)
 
 .PHONY: check-config-schema
 check-config-schema:
@@ -846,3 +890,14 @@ check-config-schema:
 	fi
 	@rm -f $(CONFIG_SCHEMA_FILE).tmp
 	@echo "JSON schema is up-to-date"
+	@echo "### Checking if configuration docs are up-to-date"
+	@go run ./cmd/config-docs -schema $(CONFIG_SCHEMA_FILE) -output $(CONFIG_DOCS_FILE).tmp
+	@if ! diff -q $(CONFIG_DOCS_FILE) $(CONFIG_DOCS_FILE).tmp > /dev/null 2>&1; then \
+		echo "Configuration docs are out of date. Run 'make generate-config-schema' to update."; \
+		echo "Diff:"; \
+		diff $(CONFIG_DOCS_FILE) $(CONFIG_DOCS_FILE).tmp || true; \
+		rm -f $(CONFIG_DOCS_FILE).tmp; \
+		exit 1; \
+	fi
+	@rm -f $(CONFIG_DOCS_FILE).tmp
+	@echo "Configuration docs are up-to-date"

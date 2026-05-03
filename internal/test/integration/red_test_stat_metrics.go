@@ -41,3 +41,13 @@ func testStatMetricsTCPRttGo(t *testing.T) {
 		})
 	}
 }
+
+func testStatMetricsTCPFailedConnectionGo(t *testing.T) {
+	pq := promtest.Client{HostPort: prometheusHostPort}
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		results, err := pq.Query(`obi_stat_tcp_failed_connections{dst_port="19999"}`)
+		require.NoError(ct, err)
+		enoughPromResults(ct, results)
+		assert.Positive(ct, totalPromCount(ct, results))
+	}, testTimeout, 100*time.Millisecond)
+}

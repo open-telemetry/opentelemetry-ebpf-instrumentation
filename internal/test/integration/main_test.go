@@ -4,16 +4,17 @@
 package integration
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
 	"testing"
 
-	"github.com/ory/dockertest/v3"
-	dockerclient "github.com/ory/dockertest/v3/docker"
+	"github.com/moby/moby/client"
+	"github.com/ory/dockertest/v4"
 )
 
-var dockerPool *dockertest.Pool
+var dockerPool dockertest.ClosablePool
 
 func TestMain(m *testing.M) {
 	flag.Parse()
@@ -22,37 +23,31 @@ func TestMain(m *testing.M) {
 		return
 	}
 
+	ctx := context.Background()
+
 	var err error
-	dockerPool, err = dockertest.NewPool("")
+	dockerPool, err = dockertest.NewPool(ctx, "")
 	if err != nil {
 		fmt.Printf("could not create Docker pool: %v\n", err)
 		os.Exit(1)
 	}
 
-	// The default dockertest client uses API 1.25 which is rejected by Docker 25+.
-	// Query the daemon for its API version and create a client that matches.
-	env, err := dockerPool.Client.Version()
-	if err != nil {
-		fmt.Printf("could not get Docker version: %v\n", err)
-		os.Exit(1)
-	}
-	apiVersion := env.Get("ApiVersion")
-	versionedClient, err := dockerclient.NewVersionedClient(dockerPool.Client.Endpoint(), apiVersion)
-	if err != nil {
-		fmt.Printf("could not create versioned Docker client: %v\n", err)
-		os.Exit(1)
-	}
-	dockerPool.Client = versionedClient
-
-	if err = dockerPool.Client.Ping(); err != nil {
+	if _, err = dockerPool.Client().Ping(ctx, client.PingOptions{}); err != nil {
 		fmt.Printf("could not connect to Docker daemon: %v\n", err)
 		os.Exit(1)
 	}
 
-	if err = buildOBIImage(); err != nil {
+	if err = buildOBIImage(ctx); err != nil {
 		fmt.Printf("failed to build OBI image: %v\n", err)
 		os.Exit(1)
 	}
 
-	m.Run()
+	code := m.Run()
+
+	if err = dockerPool.Close(ctx); err != nil {
+		fmt.Printf("could not close Docker pool: %v\n", err)
+		os.Exit(1)
+	}
+
+	os.Exit(code)
 }

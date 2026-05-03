@@ -479,6 +479,16 @@ func TestSuite_PythonMySQL(t *testing.T) {
 	require.NoError(t, compose.Close())
 }
 
+func TestSuite_PythonMSSQL(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-python-mssql.yml", path.Join(pathOutput, "test-suite-python-mssql.log"))
+	require.NoError(t, err)
+
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)
+	require.NoError(t, compose.Up())
+	t.Run("Python MSSQL tests", testPythonMSSQL)
+	require.NoError(t, compose.Close())
+}
+
 func TestSuite_PythonKafka(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-python-kafka.yml", path.Join(pathOutput, "test-suite-python-kafka.log"))
 	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)
@@ -581,6 +591,7 @@ func TestSuite_PythonCouchbase(t *testing.T) {
 	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)
 	require.NoError(t, compose.Up())
 	t.Run("Python Couchbase metrics", testREDMetricsPythonCouchbaseOnly)
+	t.Run("Python Couchbase default collection", testREDMetricsPythonCouchbaseDefaultCollection)
 	t.Run("Python Couchbase error", testREDMetricsPythonCouchbaseError)
 	t.Run("Python Couchbase SQL++ metrics", testREDMetricsPythonCouchbaseSQLPP)
 	t.Run("Python Couchbase SQL++ with context", testREDMetricsPythonCouchbaseSQLPPWithContext)
@@ -649,6 +660,17 @@ func TestSuite_PythonJsonRPC(t *testing.T) {
 	t.Run("Python JSON-RPC server span", testPythonJSONRPCServer)
 	t.Run("Python JSON-RPC RPC metrics", testPythonJSONRPCMetrics)
 	runWeaverValidation(t)
+	require.NoError(t, compose.Close())
+}
+
+func TestSuite_PythonMCP(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-python-mcp.yml", path.Join(pathOutput, "test-suite-python-mcp.log"))
+	require.NoError(t, err)
+
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)
+	require.NoError(t, compose.Up())
+	t.Run("Python MCP server span", testPythonMCPServer)
+	t.Run("Python MCP initialize", testPythonMCPInitialize)
 	require.NoError(t, compose.Close())
 }
 
@@ -867,6 +889,19 @@ func TestSuite_LogEnricherDotNet(t *testing.T) {
 
 	t.Run("Log Enricher .NET", func(t *testing.T) {
 		testLogEnricherDotNet(t)
+	})
+	require.NoError(t, compose.Close())
+}
+
+func TestSuite_LogEnricherPythonAsync(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-log-enricher.yml", path.Join(pathOutput, "test-suite-log-enricher-pythonasync.log"))
+	require.NoError(t, err)
+
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8391`, `OTEL_EBPF_EXECUTABLE_PATH=`)
+	require.NoError(t, compose.Up())
+
+	t.Run("Log Enricher Python async", func(t *testing.T) {
+		testLogEnricherPythonAsync(t)
 	})
 	require.NoError(t, compose.Close())
 }

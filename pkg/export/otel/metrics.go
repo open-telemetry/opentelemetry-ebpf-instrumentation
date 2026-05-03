@@ -728,28 +728,28 @@ func (mr *MetricsReporter) newMetricSet(service *svc.Attrs) (*Metrics, error) {
 	meter := m.provider.Meter(reporterName)
 	var err error
 
-	if mr.jointMetricsCfg.Features.AppRED() {
-		err = mr.setupOtelMeters(&m, meter)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	if mr.jointMetricsCfg.Features.SpanMetrics() {
-		err = mr.setupSpanMeters(&m, meter)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	if mr.jointMetricsCfg.Features.SpanSizes() {
-		err = mr.setupSpanSizeMeters(&m, meter)
-		if err != nil {
-			return nil, err
-		}
+	err = mr.setupMetricExpirers(&m, meter)
+	if err != nil {
+		return nil, err
 	}
 
 	return &m, nil
+}
+
+func (mr *MetricsReporter) setupMetricExpirers(m *Metrics, meter instrument.Meter) error {
+	if err := mr.setupOtelMeters(m, meter); err != nil {
+		return err
+	}
+
+	if err := mr.setupSpanMeters(m, meter); err != nil {
+		return err
+	}
+
+	if err := mr.setupSpanSizeMeters(m, meter); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func isExponentialAggregation(mc *otelcfg.MetricsConfig, mlog *slog.Logger) bool {
@@ -968,6 +968,17 @@ func (r *Metrics) record(span *request.Span, mr *MetricsReporter) {
 					msgProcessDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
 				}
 			}
+		case request.EventTypeNATSClient, request.EventTypeNATSServer:
+			if mr.is.NATSEnabled() {
+				switch span.Method {
+				case request.MessagingPublish:
+					msgPublishDuration, attrs := r.msgPublishDuration.ForRecord(span)
+					msgPublishDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
+				case request.MessagingProcess:
+					msgProcessDuration, attrs := r.msgProcessDuration.ForRecord(span)
+					msgProcessDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
+				}
+			}
 		case request.EventTypeGPUCudaKernelLaunch:
 			if mr.is.GPUEnabled() {
 				gcalls, attrs := r.gpuKernelCallsTotal.ForRecord(span)
@@ -1012,18 +1023,18 @@ func (r *Metrics) record(span *request.Span, mr *MetricsReporter) {
 		}
 
 		if span.Service.Features.SpanMetrics() {
-			sml, attrs := r.spanMetricsLatency.ForRecord(span)
+			sml, attrs := r.spanMetricsLatency.ForRecord(span, extraAttrs...)
 			sml.Record(ctx, duration, instrument.WithAttributeSet(attrs))
 
-			smct, attrs := r.spanMetricsCallsTotal.ForRecord(span)
+			smct, attrs := r.spanMetricsCallsTotal.ForRecord(span, extraAttrs...)
 			smct.Add(ctx, 1, instrument.WithAttributeSet(attrs))
 		}
 
 		if span.Service.Features.SpanSizes() {
-			smst, attrs := r.spanMetricsRequestSizeTotal.ForRecord(span)
+			smst, attrs := r.spanMetricsRequestSizeTotal.ForRecord(span, extraAttrs...)
 			smst.Add(ctx, float64(span.RequestBodyLength()), instrument.WithAttributeSet(attrs))
 
-			smst, attr := r.spanMetricsResponseSizeTotal.ForRecord(span)
+			smst, attr := r.spanMetricsResponseSizeTotal.ForRecord(span, extraAttrs...)
 			smst.Add(ctx, float64(span.ResponseBodyLength()), instrument.WithAttributeSet(attr))
 		}
 	}
@@ -1281,6 +1292,7 @@ func (r *Metrics) cleanupAllMetricsInstances() {
 	cleanupFloatCounterMetrics(r.ctx, r.spanMetricsRequestSizeTotal)
 	cleanupFloatCounterMetrics(r.ctx, r.spanMetricsResponseSizeTotal)
 	cleanupCounterMetrics(r.ctx, r.gpuKernelCallsTotal)
+	cleanupCounterMetrics(r.ctx, r.gpuGraphCallsTotal)
 	cleanupCounterMetrics(r.ctx, r.gpuMemoryAllocsTotal)
 	cleanupMetrics(r.ctx, r.gpuKernelGridSize)
 	cleanupMetrics(r.ctx, r.gpuKernelBlockSize)
@@ -1288,4 +1300,5 @@ func (r *Metrics) cleanupAllMetricsInstances() {
 	cleanupMetrics(r.ctx, r.dnsLookupDuration)
 	cleanupMetrics(r.ctx, r.genAIClientDuration)
 	cleanupMetrics(r.ctx, r.genAIInputTokenUsage)
+	cleanupMetrics(r.ctx, r.genAIOutputTokenUsage)
 }

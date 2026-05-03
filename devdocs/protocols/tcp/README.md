@@ -8,4 +8,5 @@ This directory contains documentation for the supported protocol parsers that OB
 - [Kafka](kafka.md): Kafka protocol parser.
 - [Memcached](memcached.md): Memcached text protocol parser.
 - [MQTT](mqtt.md): MQTT protocol parser.
+- [NATS](nats.md): NATS protocol parser.
 - [New Tracer](new-tcp-tracer.md): how to add a new TCP protocol based BPF tracer to OBI.

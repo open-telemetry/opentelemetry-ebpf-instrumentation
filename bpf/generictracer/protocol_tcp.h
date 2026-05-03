@@ -23,6 +23,7 @@
 #include <generictracer/protocol_kafka.h>
 #include <generictracer/protocol_mysql.h>
 #include <generictracer/protocol_postgres.h>
+#include <generictracer/protocol_mssql.h>
 
 #include <generictracer/maps/tcp_req_mem.h>
 
@@ -161,6 +162,12 @@ static __always_inline int tcp_send_large_buffer(tcp_req_t *req,
         return postgres_send_large_buffer(req, u_buf, bytes_len, packet_type, direction, action);
     case k_protocol_type_kafka:
         return kafka_send_large_buffer(req, pid_conn, u_buf, bytes_len, direction, action);
+    case k_protocol_type_mssql:
+        mssql_send_large_buffer(req, u_buf, bytes_len, packet_type, direction, action);
+        if (packet_type == PACKET_TYPE_RESPONSE) {
+            return mssql_response_eom(req, u_buf, bytes_len);
+        }
+        return 0;
     case k_protocol_type_http:
     case k_protocol_type_mqtt:
     case k_protocol_type_unknown:
@@ -289,13 +296,11 @@ static __always_inline void handle_unknown_tcp_connection(pid_connection_info_t 
         }
     } else if (existing->direction != direction) {
         existing->is_server = is_server;
-        if (tcp_send_large_buffer(existing,
-                                  pid_conn,
-                                  u_buf,
-                                  bytes_len,
-                                  direction,
-                                  protocol_type,
-                                  k_large_buf_action_init) < 0) {
+        const enum large_buf_action response_action =
+            (existing->lb_res_bytes > 0) ? k_large_buf_action_append : k_large_buf_action_init;
+        if (tcp_send_large_buffer(
+                existing, pid_conn, u_buf, bytes_len, direction, protocol_type, response_action) <
+            0) {
             bpf_dbg_printk("waiting additional response data");
             return;
         }

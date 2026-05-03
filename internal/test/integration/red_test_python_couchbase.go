@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -127,6 +128,108 @@ func testREDMetricsPythonCouchbaseOnly(t *testing.T) {
 		t.Run(testCase.Route, func(t *testing.T) {
 			waitForCouchbaseTestComponents(t, testCase.Route, "/"+testCase.Subpath)
 			testREDMetricsForPythonCouchbaseLibrary(t, testCase)
+			// Verify db.query.text is emitted for KV operations. We check GET
+			// and DELETE because their rendered format is the most stable
+			// ("OP user::1"), and accept any prefix/suffix wrapping since the
+			// exact bytes depend on whether collections are enabled and how
+			// the SDK frames the key.
+			assertCouchbaseDBQueryTextContains(t, testCase.Comm, "GET test-scope.test-collection", "GET ", "user::1")
+			assertCouchbaseDBQueryTextContains(t, testCase.Comm, "DELETE test-scope.test-collection", "DELETE ", "user::1")
+		})
+	}
+}
+
+// assertCouchbaseDBQueryTextContains fetches traces from Jaeger for the given
+// operation name and verifies at least one span has a db.query.text attribute
+// whose value starts with wantPrefix and contains wantKey.
+func assertCouchbaseDBQueryTextContains(t *testing.T, comm, operation, wantPrefix, wantKey string) {
+	t.Helper()
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		resp, err := http.Get(jaegerQueryURL + "?service=" + comm + "&operation=" + url.QueryEscape(operation))
+		require.NoError(ct, err)
+		if err != nil || resp == nil {
+			return
+		}
+		defer resp.Body.Close()
+
+		require.Equal(ct, http.StatusOK, resp.StatusCode)
+		var tq jaeger.TracesQuery
+		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
+		var found bool
+		for _, tr := range tq.Data {
+			for _, sp := range tr.Spans {
+				tag, ok := jaeger.FindIn(sp.Tags, "db.query.text")
+				if !ok {
+					continue
+				}
+				v, isStr := tag.Value.(string)
+				if !isStr {
+					continue
+				}
+				if strings.HasPrefix(v, wantPrefix) && strings.Contains(v, wantKey) {
+					found = true
+					break
+				}
+			}
+			if found {
+				break
+			}
+		}
+		assert.True(ct, found, "no span with db.query.text starting %q and containing %q found for operation %q", wantPrefix, wantKey, operation)
+	}, testTimeout, time.Second)
+}
+
+func testREDMetricsPythonCouchbaseDefaultCollection(t *testing.T) {
+	couchbaseCommonAttributes := []attribute.KeyValue{
+		attribute.String("db.system.name", "couchbase"),
+		attribute.String("span.kind", "client"),
+		attribute.Int("server.port", 11210),
+	}
+	testCases := []TestCase{
+		{
+			Route:     "http://localhost:8381",
+			Subpath:   "couchbase-default",
+			Comm:      "python3.14",
+			Namespace: "integration-test",
+			Spans: []TestCaseSpan{
+				{
+					Name: "SET",
+					Attributes: []attribute.KeyValue{
+						attribute.String("db.operation.name", "SET"),
+						attribute.String("db.namespace", "test-bucket"),
+					},
+				},
+				{
+					Name: "GET",
+					Attributes: []attribute.KeyValue{
+						attribute.String("db.operation.name", "GET"),
+						attribute.String("db.namespace", "test-bucket"),
+					},
+				},
+				{
+					Name: "DELETE",
+					Attributes: []attribute.KeyValue{
+						attribute.String("db.operation.name", "DELETE"),
+						attribute.String("db.namespace", "test-bucket"),
+					},
+				},
+			},
+		},
+	}
+	for _, testCase := range testCases {
+		for i := range testCase.Spans {
+			testCase.Spans[i].Attributes = append(testCase.Spans[i].Attributes, couchbaseCommonAttributes...)
+		}
+
+		t.Run(testCase.Route, func(t *testing.T) {
+			waitForCouchbaseTestComponents(t, testCase.Route, "/"+testCase.Subpath)
+			testREDMetricsForPythonCouchbaseLibrary(t, testCase)
+			// Verify db.query.text for default collection (no GET_COLLECTION_ID
+			// negotiation — tests the Bucket-based heuristic for LEB128 stripping).
+			// Uses user::2 (not user::1) to avoid matching named-collection spans
+			// from testREDMetricsPythonCouchbaseOnly which run in the same compose.
+			assertCouchbaseDBQueryTextContains(t, testCase.Comm, "GET", "GET ", "user::2")
+			assertCouchbaseDBQueryTextContains(t, testCase.Comm, "DELETE", "DELETE ", "user::2")
 		})
 	}
 }

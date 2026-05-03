@@ -22,6 +22,8 @@ ebpf:
           enabled: true
         gemini:
           enabled: true
+        qwen:
+          enabled: true
         bedrock:
           enabled: true
 trace_printer: text

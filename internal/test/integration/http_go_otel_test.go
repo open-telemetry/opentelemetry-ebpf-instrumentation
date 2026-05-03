@@ -4,6 +4,7 @@
 package integration
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -12,12 +13,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ory/dockertest/v3"
-	"github.com/ory/dockertest/v3/docker"
+	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/client"
+	"github.com/ory/dockertest/v4"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	dockercompose "go.opentelemetry.io/obi/internal/test/integration/components/docker"
+	"go.opentelemetry.io/obi/internal/test/integration/components/docker"
 	"go.opentelemetry.io/obi/internal/test/integration/components/jaeger"
 	"go.opentelemetry.io/obi/internal/test/integration/components/promtest"
 	ti "go.opentelemetry.io/obi/pkg/test/integration"
@@ -37,19 +39,12 @@ func findHTTPGetTraces(tq jaeger.TracesQuery) []jaeger.Trace {
 	return traces
 }
 
-func setupGoOTelTestServer(t *testing.T, network *dockertest.Network, env []string) {
+func setupGoOTelTestServer(t *testing.T, net dockertest.Network, env []string) {
 	t.Helper()
 
 	buildGoOTelTestServerOnce.Do(func() {
 		t.Log("Building Go OpenTelemetry test server image...")
-		buildGoOTelTestServerErr = dockerPool.Client.BuildImage(docker.BuildImageOptions{
-			Name:         "hatest-testserver",
-			ContextDir:   pathRoot,
-			Dockerfile:   "internal/test/integration/components/go_otel/Dockerfile",
-			OutputStream: t.Output(),
-			ErrorStream:  t.Output(),
-			AuthConfigs:  dockerAuthConfigs(),
-		})
+		buildGoOTelTestServerErr = buildDockerImage(t.Context(), t.Output(), "hatest-testserver", "internal/test/integration/components/go_otel/Dockerfile")
 		if buildGoOTelTestServerErr != nil {
 			return
 		}
@@ -58,20 +53,23 @@ func setupGoOTelTestServer(t *testing.T, network *dockertest.Network, env []stri
 	require.NoError(t, buildGoOTelTestServerErr, "could not build test server Docker image")
 
 	t.Log("Starting Go OpenTelemetry test server container...")
-	testserver, err := dockerPool.RunWithOptions(&dockertest.RunOptions{
-		Repository:   "hatest-testserver",
-		Name:         fmt.Sprintf("testserver-otel-test-%d", time.Now().UnixNano()),
-		Networks:     []*dockertest.Network{network},
-		Env:          env,
-		ExposedPorts: []string{"8080/tcp"},
-		PortBindings: map[docker.Port][]docker.PortBinding{
-			"8080/tcp": {{HostIP: "127.0.0.1", HostPort: "8080"}},
-		},
-	})
+	testserver, err := dockerPool.Run(t.Context(), "hatest-testserver",
+		dockertest.WithName(fmt.Sprintf("testserver-otel-test-%d", time.Now().UnixNano())),
+		dockertest.WithEnv(env),
+		dockertest.WithPortBindings(portBindings("8080/tcp", "8080")),
+		dockertest.WithContainerConfig(func(config *container.Config) {
+			config.ExposedPorts = exposedPorts("8080/tcp")
+		}),
+		dockertest.WithoutReuse(),
+	)
 	require.NoError(t, err, "could not start test server container")
 	t.Cleanup(func() {
-		require.NoError(t, dockerPool.Purge(testserver), "could not remove test server container")
+		require.NoError(t, testserver.Close(context.Background()), "could not remove test server container")
 	})
+	_, err = dockerPool.Client().NetworkConnect(t.Context(), net.ID(), client.NetworkConnectOptions{
+		Container: testserver.ID(),
+	})
+	require.NoError(t, err, "could not connect test server container to network")
 	t.Log("Go OpenTelemetry test server container started")
 }
 
@@ -299,7 +297,7 @@ func TestHTTPGoOTelDisabledOptInstrumentedApp(t *testing.T) {
 }
 
 func TestHTTPGoOTelInstrumentedAppGRPC(t *testing.T) {
-	compose, err := dockercompose.ComposeSuite("docker-compose-go-otel-grpc.yml", path.Join(pathOutput, "test-suite-go-otel-grpc.log"))
+	compose, err := docker.ComposeSuite("docker-compose-go-otel-grpc.yml", path.Join(pathOutput, "test-suite-go-otel-grpc.log"))
 	require.NoError(t, err)
 
 	// we are going to setup discovery directly in the configuration file
@@ -343,7 +341,7 @@ func otelWaitForTestComponentsTraces(t *testing.T, url, subpath string) {
 }
 
 func TestHTTPGoOTelAvoidsInstrumentedAppGRPC(t *testing.T) {
-	compose, err := dockercompose.ComposeSuite("docker-compose-go-otel-grpc.yml", path.Join(pathOutput, "test-suite-go-otel-avoids-grpc.log"))
+	compose, err := docker.ComposeSuite("docker-compose-go-otel-grpc.yml", path.Join(pathOutput, "test-suite-go-otel-avoids-grpc.log"))
 	require.NoError(t, err)
 
 	// we are going to setup discovery directly in the configuration file

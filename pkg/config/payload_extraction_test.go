@@ -225,3 +225,23 @@ func TestEnrichmentConfig_Validate_EmptyRules(t *testing.T) {
 	cfg := EnrichmentConfig{}
 	assert.NoError(t, cfg.Validate())
 }
+
+func TestGenAIConfig_Enabled(t *testing.T) {
+	tests := []struct {
+		name    string
+		cfg     GenAIConfig
+		enabled bool
+	}{
+		{name: "all disabled", cfg: GenAIConfig{}, enabled: false},
+		{name: "openai", cfg: GenAIConfig{OpenAI: OpenAIConfig{Enabled: true}}, enabled: true},
+		{name: "anthropic", cfg: GenAIConfig{Anthropic: AnthropicConfig{Enabled: true}}, enabled: true},
+		{name: "gemini", cfg: GenAIConfig{Gemini: GeminiConfig{Enabled: true}}, enabled: true},
+		{name: "bedrock", cfg: GenAIConfig{Bedrock: BedrockConfig{Enabled: true}}, enabled: true},
+		{name: "mcp", cfg: GenAIConfig{MCP: MCPConfig{Enabled: true}}, enabled: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.enabled, tt.cfg.Enabled())
+		})
+	}
+}

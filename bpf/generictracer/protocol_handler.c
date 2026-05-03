@@ -74,6 +74,12 @@ int obi_handle_buf_with_args(void *ctx) {
                                                   &args->protocol_type)) {
         bpf_dbg_printk("Found postgres connection");
         bpf_tail_call(ctx, &jump_table, k_tail_protocol_tcp);
+    } else if (args->protocols.tcp && is_mssql(&args->pid_conn.conn,
+                                               (const unsigned char *)args->u_buf,
+                                               args->bytes_len,
+                                               &args->protocol_type)) {
+        bpf_dbg_printk("Found mssql connection");
+        bpf_tail_call(ctx, &jump_table, k_tail_protocol_tcp);
     } else if (args->protocols.tcp && is_kafka(&args->pid_conn.conn,
                                                (const unsigned char *)args->u_buf,
                                                args->bytes_len,

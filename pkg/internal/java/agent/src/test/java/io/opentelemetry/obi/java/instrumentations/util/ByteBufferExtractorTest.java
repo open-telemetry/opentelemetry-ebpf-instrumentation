@@ -151,13 +151,14 @@ class ByteBufferExtractorTest {
 
   @Test
   void testFlattenUsedByteBufferArray_LenGreaterThanMaxSize() {
-    ByteBuffer buf = ByteBuffer.allocate(2000);
-    for (int i = 0; i < 2000; i++) {
+    int n = ByteBufferExtractor.MAX_SIZE + 1000;
+    ByteBuffer buf = ByteBuffer.allocate(n);
+    for (int i = 0; i < n; i++) {
       buf.put((byte) (i % 128));
     }
     ByteBuffer[] buffers = new ByteBuffer[] {buf};
-    ByteBuffer result = ByteBufferExtractor.flattenUsedByteBufferArray(buffers, 2000);
-    assertEquals(2000, buf.position());
+    ByteBuffer result = ByteBufferExtractor.flattenUsedByteBufferArray(buffers, n);
+    assertEquals(n, buf.position());
 
     assertEquals(ByteBufferExtractor.MAX_SIZE, result.capacity());
 
@@ -360,8 +361,9 @@ class ByteBufferExtractorTest {
 
   @Test
   void testFlattenFreshByteBufferArray_LimitGreaterThanMaxSize() {
-    ByteBuffer buf1 = ByteBuffer.allocate(2000);
-    for (int i = 0; i < 2000; i++) {
+    int n = ByteBufferExtractor.MAX_SIZE + 1000;
+    ByteBuffer buf1 = ByteBuffer.allocate(n);
+    for (int i = 0; i < n; i++) {
       buf1.put((byte) (i % 128));
     }
     buf1.flip();
@@ -374,14 +376,14 @@ class ByteBufferExtractorTest {
       assertEquals((byte) (i % 128), result.get());
     }
     assertEquals(0, buf1.position());
-    assertEquals(2000, buf1.limit());
+    assertEquals(n, buf1.limit());
   }
 
   @Test
   void testFlattenFreshByteBufferArray_MultipleBuffers_ExceedMaxSize() {
-    ByteBuffer buf1 = ByteBuffer.allocate(800);
-    ByteBuffer buf2 = ByteBuffer.allocate(800);
-    for (int i = 0; i < 800; i++) {
+    ByteBuffer buf1 = ByteBuffer.allocate(10240);
+    ByteBuffer buf2 = ByteBuffer.allocate(10240);
+    for (int i = 0; i < 10240; i++) {
       buf1.put((byte) (i + 1));
       buf2.put((byte) (i + 101));
     }
@@ -392,16 +394,16 @@ class ByteBufferExtractorTest {
     ByteBuffer result = ByteBufferExtractor.flattenFreshByteBufferArray(srcs);
     assertEquals(ByteBufferExtractor.MAX_SIZE, result.capacity());
     result.flip();
-    for (int i = 1; i < 800; i++) {
+    for (int i = 1; i < 10240; i++) {
       assertEquals((byte) (i + 1), result.get());
     }
-    for (int i = 0; i < 224; i++) {
+    for (int i = 0; i < 6145; i++) {
       assertEquals((byte) (i + 101), result.get());
     }
     assertEquals(1, buf1.position());
-    assertEquals(800, buf1.limit());
+    assertEquals(10240, buf1.limit());
     assertEquals(0, buf2.position());
-    assertEquals(800, buf2.limit());
+    assertEquals(10240, buf2.limit());
   }
 
   @Test
@@ -519,19 +521,20 @@ class ByteBufferExtractorTest {
 
   @Test
   void testFromFreshBuffer_LenGreaterThanMaxSize() {
-    ByteBuffer src = ByteBuffer.allocate(2000);
-    for (int i = 0; i < 2000; i++) {
+    int n = ByteBufferExtractor.MAX_SIZE + 1000;
+    ByteBuffer src = ByteBuffer.allocate(n);
+    for (int i = 0; i < n; i++) {
       src.put((byte) (i % 128));
     }
     src.flip();
-    ByteBuffer result = ByteBufferExtractor.fromFreshBuffer(src, 2000);
+    ByteBuffer result = ByteBufferExtractor.fromFreshBuffer(src, n);
     assertEquals(ByteBufferExtractor.MAX_SIZE, result.capacity());
     result.flip();
     for (int i = 0; i < ByteBufferExtractor.MAX_SIZE; i++) {
       assertEquals((byte) (i % 128), result.get());
     }
     assertEquals(0, src.position());
-    assertEquals(2000, src.limit());
+    assertEquals(n, src.limit());
   }
 
   @Test

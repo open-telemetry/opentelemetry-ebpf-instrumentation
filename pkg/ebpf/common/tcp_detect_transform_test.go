@@ -260,6 +260,158 @@ func TestTCPReqMQTTParsing(t *testing.T) {
 	assert.Equal(t, request.EventTypeMQTTClient, s.Type)
 }
 
+func TestTCPReqNATSParsing(t *testing.T) {
+	b := []byte("PUB updates.orders 5\r\nhello\r\n")
+	r := makeTCPReq(string(b), 4222)
+	n, ignore, err := ProcessNATSEvent(largebuf.NewLargeBufferFrom(b))
+	require.NoError(t, err)
+	assert.False(t, ignore)
+	s := TCPToNATSToSpan(&r, n)
+	assert.NotNil(t, s)
+	assert.NotEmpty(t, s.Host)
+	assert.NotEmpty(t, s.Peer)
+	assert.Equal(t, 8080, s.HostPort)
+	assert.Greater(t, s.End, s.Start)
+	assert.Equal(t, request.MessagingPublish, s.Method)
+	assert.Equal(t, "updates.orders", s.Path)
+	assert.Equal(t, request.EventTypeNATSClient, s.Type)
+}
+
+func TestReadTCPRequestIntoSpan_NATSResponseTrafficIsServerSpan(t *testing.T) {
+	r := makeTCPReq("PING\r\n", 4222)
+	r.RespLen = uint32(len("MSG updates.orders sidA 5\r\nhello\r\n"))
+	copy(r.Rbuf[:], "MSG updates.orders sidA 5\r\nhello\r\n")
+
+	cfg := config.EBPFTracer{HeuristicSQLDetect: true}
+	ctx := NewEBPFParseContext(&cfg, nil, nil)
+
+	binaryRecord := bytes.Buffer{}
+	require.NoError(t, binary.Write(&binaryRecord, binary.LittleEndian, r))
+	fltr := TestPidsFilter{services: map[app.PID]svc.Attrs{}}
+
+	span, ignore, err := ReadTCPRequestIntoSpan(ctx, &cfg, &ringbuf.Record{RawSample: binaryRecord.Bytes()}, &fltr)
+	require.NoError(t, err)
+	assert.False(t, ignore)
+	assert.Equal(t, request.EventTypeNATSServer, span.Type)
+	assert.Equal(t, request.MessagingProcess, span.Method)
+	assert.Equal(t, "updates.orders", span.Path)
+}
+
+func TestReadTCPRequestIntoSpan_NATSReceiveFirstMessageIsServerSpan(t *testing.T) {
+	header := "NATS/1.0\r\nX-Test: python\r\n\r\n"
+	payload := "python-nats-1"
+	frame := fmt.Sprintf("HMSG updates.orders 1 %d %d\r\n%s%s\r\n", len(header), len(header)+len(payload), header, payload)
+
+	r := makeTCPReq(frame, 4222)
+	r.Direction = directionRecv
+
+	cfg := config.EBPFTracer{HeuristicSQLDetect: true}
+	ctx := NewEBPFParseContext(&cfg, nil, nil)
+
+	binaryRecord := bytes.Buffer{}
+	require.NoError(t, binary.Write(&binaryRecord, binary.LittleEndian, r))
+	fltr := TestPidsFilter{services: map[app.PID]svc.Attrs{}}
+
+	span, ignore, err := ReadTCPRequestIntoSpan(ctx, &cfg, &ringbuf.Record{RawSample: binaryRecord.Bytes()}, &fltr)
+	require.NoError(t, err)
+	assert.False(t, ignore)
+	assert.Equal(t, request.EventTypeNATSServer, span.Type)
+	assert.Equal(t, request.MessagingProcess, span.Method)
+	assert.Equal(t, "updates.orders", span.Path)
+}
+
+func TestReadTCPRequestIntoSpan_NATSCoalescedPublishAndProcessEmitsDistinctServerExtraSpan(t *testing.T) {
+	header := "NATS/1.0\r\nX-Test: python\r\n\r\n"
+	payload := "python-nats-1"
+	hdrLen := len(header)
+	totalLen := hdrLen + len(payload)
+
+	requestFrame := fmt.Sprintf("HPUB updates.orders %d %d\r\n%s%s\r\n", hdrLen, totalLen, header, payload)
+	responseFrame := fmt.Sprintf("HMSG updates.orders subA %d %d\r\n%s%s\r\n", hdrLen, totalLen, header, payload)
+
+	r := makeTCPReq(requestFrame, 4222)
+	r.RespLen = uint32(len(responseFrame))
+	copy(r.Rbuf[:], responseFrame)
+	r.ConnInfo.S_port = 38436
+	r.ConnInfo.D_port = 4222
+	r.Tp.TraceId = [16]uint8{1, 2, 3, 4}
+	r.Tp.SpanId = [8]uint8{5, 6, 7, 8}
+	r.Tp.ParentId = [8]uint8{9, 10, 11, 12}
+
+	cfg := config.EBPFTracer{HeuristicSQLDetect: true}
+	queue := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(4))
+	out := queue.Subscribe(msg.SubscriberName("nats"))
+	fltr := TestPidsFilter{services: map[app.PID]svc.Attrs{}}
+	ctx := NewEBPFParseContext(&cfg, queue, &fltr)
+
+	binaryRecord := bytes.Buffer{}
+	require.NoError(t, binary.Write(&binaryRecord, binary.LittleEndian, r))
+
+	span, ignore, err := ReadTCPRequestIntoSpan(ctx, &cfg, &ringbuf.Record{RawSample: binaryRecord.Bytes()}, &fltr)
+	require.NoError(t, err)
+	require.False(t, ignore)
+
+	assert.Equal(t, request.EventTypeNATSClient, span.Type)
+	assert.Equal(t, request.MessagingPublish, span.Method)
+	assert.Equal(t, "updates.orders", span.Path)
+	assert.Equal(t, 4222, span.HostPort)
+
+	extra := testutil.ReadChannel(t, out, time.Second)
+	require.Len(t, extra, 1)
+	assert.Equal(t, request.EventTypeNATSServer, extra[0].Type)
+	assert.Equal(t, request.MessagingProcess, extra[0].Method)
+	assert.Equal(t, "updates.orders", extra[0].Path)
+	assert.Equal(t, 4222, extra[0].HostPort)
+	assert.Equal(t, span.TraceID, extra[0].TraceID)
+	assert.Equal(t, span.ParentSpanID, extra[0].ParentSpanID)
+	assert.NotEqual(t, span.SpanID, extra[0].SpanID)
+	assert.False(t, extra[0].SpanID.IsValid())
+}
+
+func TestReadTCPRequestIntoSpan_NATSReversedCoalescedPublishAndProcessPreservesRoles(t *testing.T) {
+	header := "NATS/1.0\r\nX-Test: python\r\n\r\n"
+	payload := "python-nats-1"
+	hdrLen := len(header)
+	totalLen := hdrLen + len(payload)
+
+	requestFrame := fmt.Sprintf("HMSG updates.orders subA %d %d\r\n%s%s\r\n", hdrLen, totalLen, header, payload)
+	responseFrame := fmt.Sprintf("HPUB updates.orders %d %d\r\n%s%s\r\n", hdrLen, totalLen, header, payload)
+
+	r := makeTCPReq(requestFrame, 4222)
+	r.RespLen = uint32(len(responseFrame))
+	copy(r.Rbuf[:], responseFrame)
+	r.ConnInfo.S_port = 38436
+	r.ConnInfo.D_port = 4222
+	r.Tp.TraceId = [16]uint8{1, 2, 3, 4}
+	r.Tp.SpanId = [8]uint8{5, 6, 7, 8}
+	r.Tp.ParentId = [8]uint8{9, 10, 11, 12}
+
+	cfg := config.EBPFTracer{HeuristicSQLDetect: true}
+	queue := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(4))
+	out := queue.Subscribe(msg.SubscriberName("nats-reversed"))
+	fltr := TestPidsFilter{services: map[app.PID]svc.Attrs{}}
+	ctx := NewEBPFParseContext(&cfg, queue, &fltr)
+
+	binaryRecord := bytes.Buffer{}
+	require.NoError(t, binary.Write(&binaryRecord, binary.LittleEndian, r))
+
+	span, ignore, err := ReadTCPRequestIntoSpan(ctx, &cfg, &ringbuf.Record{RawSample: binaryRecord.Bytes()}, &fltr)
+	require.NoError(t, err)
+	require.False(t, ignore)
+
+	assert.Equal(t, request.EventTypeNATSClient, span.Type)
+	assert.Equal(t, request.MessagingPublish, span.Method)
+	assert.Equal(t, "updates.orders", span.Path)
+	assert.Equal(t, 4222, span.HostPort)
+
+	extra := testutil.ReadChannel(t, out, time.Second)
+	require.Len(t, extra, 1)
+	assert.Equal(t, request.EventTypeNATSServer, extra[0].Type)
+	assert.Equal(t, request.MessagingProcess, extra[0].Method)
+	assert.Equal(t, "updates.orders", extra[0].Path)
+	assert.Equal(t, 4222, extra[0].HostPort)
+}
+
 func TestTCPReqMQTTHeuristicFailure(t *testing.T) {
 	// This packet passes isMQTT() heuristic (valid PUBLISH header) but fails full parsing
 	// because the topic length (0x00, 0xFF = 255) exceeds the available data.

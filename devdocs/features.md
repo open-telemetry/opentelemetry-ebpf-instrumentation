@@ -10,12 +10,14 @@ through language-specific library instrumentation documented later in this file.
 | gRPC          |    All    |        1.0+ | All                                                                                      |  Yes   |                 No |                                      Can't get method for long living connections before OBI started, will mark method with `*`
 | MySQL         |    All    |         All | All                                                                                      |  Yes   |                 No |             In the case of prepared statements, if the statement was prepared before OBI started then the query might be missed
 | PostgreSQL    |    All    |         All | All                                                                                      |  Yes   |                 No |             In the case of prepared statements, if the statement was prepared before OBI started then the query might be missed
+| MSSQL         |    All    |         All | All                                                                                      |  Yes   |                 No |             In the case of prepared statements, if the statement was prepared before OBI started then the query might be missed
 | Redis         |    All    |         All | All                                                                                      |  Yes   |                 No |             For already started connections, can't infer the number of the database, and won't add the `db.namespace` attribute
 | MongoDB       |    All    |        5.0+ | insert, update, find, delete, findAndModify, aggregate, count, distinct, mapReduce       |  Yes   |                 No |                                                                                              no support for compressed payloads
 | Couchbase     |    All    |         All | All                                                                                      |  Yes   |                 No | Bucket unknown if SELECT_BUCKET occurred before OBI started; Collection unknown if GET_COLLECTION_ID occurred before OBI started
 | Memcached     |    All    |         All | ASCII text subset (excludes quit and meta commands)                                      |  Yes   |                 No |                     Only the first key is recorded for multi-key retrieval commands; payload bytes are not captured
 | Kafka         |    All    |         All | produce, fetch                                                                           |  Yes   |                 No |                     Might fail getting topic name for fetch requests in newer versions of kafka (where Fetch api version >= 13)
 | MQTT          |    All    |   3.1.1/5.0 | publish, subscribe                                                                       |   No   |                 No |                                                            For subscribe, only first topic filter is used; payload not captured
+| NATS          |    All    |         All | publish, process                                                                         |   No   |                 No |                                  Only `PUB`/`HPUB` and delivered `MSG`/`HMSG` frames are traced; control traffic is ignored
 | GraphQL       |    All    |         All | All                                                                                      |  Yes   |                 No |                                                                                                                             N/A
 | JSON-RPC      |    All    |         2.0 | All                                                                                      |  Yes   |                 No |                          Requires HTTP payload capture enabled (`OTEL_EBPF_BPF_BUFFER_SIZE_HTTP`) and `OTEL_EBPF_HTTP_JSONRPC_ENABLED=true`
 | Elasticsearch |    All    |       7.14+ | /_search, /_msearch, /_bulk, /_doc                                                       |  Yes   |                 No |                                                                                                                             N/A
@@ -23,7 +25,7 @@ through language-specific library instrumentation documented later in this file.
 | AWS S3        |    All    |         All | CreateBucket, DeleteBucket, PutObject, DeleteObject, ListBuckets, ListObjects, GetObject |  Yes   |                 No |                                                                                                                             N/A
 | AWS SQS       |    All    |         All | All                                                                                      |  Yes   |                 No |                                                                                                                             N/A
 | SQL++         |    All    |         All | All                                                                                      |  Yes   |                 No |                                                                                                                             N/A
-| GenAI         |    All    |         All | All                                                                                      |  Yes   |                 No |                                                                                            Supported vendors: OpenAI, Anthropic, Google AI Studio (Gemini), AWS Bedrock
+| GenAI         |    All    |         All | All                                                                                      |  Yes   |                 No |                                                                          Supported vendors: OpenAI, Anthropic, Google AI Studio (Gemini), AWS Bedrock, Qwen (DashScope), and generic embedding providers (Voyage AI, Cohere, Jina AI)
 
 ## Go Instrumentation
 
@@ -66,8 +68,9 @@ Large payloads are streamed to userspace across multiple ring-buffer events and 
 | `OTEL_EBPF_BPF_BUFFER_SIZE_MYSQL`  | MySQL      | 65535   | 0 (disabled) |
 | `OTEL_EBPF_BPF_BUFFER_SIZE_KAFKA`  | Kafka      | 65535   | 0 (disabled) |
 | `OTEL_EBPF_BPF_BUFFER_SIZE_POSTGRES` | PostgreSQL | 65535 | 0 (disabled) |
+| `OTEL_EBPF_BPF_BUFFER_SIZE_MSSQL`  | MSSQL      | 65535   | 0 (disabled) |
 
-Equivalent YAML keys live under `ebpf.buffer_sizes.{http,mysql,kafka,postgres}`.
+Equivalent YAML keys live under `ebpf.buffer_sizes.{http,mysql,kafka,postgres,mssql}`.
 
 ## GPU Instrumentation
 

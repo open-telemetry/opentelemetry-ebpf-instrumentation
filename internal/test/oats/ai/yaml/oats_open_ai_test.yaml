@@ -7,6 +7,7 @@ input:
 - path: /error
 - path: /chat
 - path: /conversations
+- path: /embeddings
 interval: 500ms
 expected:
   traces:
@@ -38,10 +39,22 @@ expected:
     attributes:
       gen_ai.operation.name: conversation
       gen_ai.conversation.id: conv_699c949418b08194ba11beed9ba85d9607f4edeb470fde91
+  # OpenAI embeddings API (client span via OpenAISpan + /v1/embeddings)
+  - traceql: '{ .gen_ai.provider.name = "openai" && .gen_ai.operation.name = "embeddings" && .gen_ai.request.model = "text-embedding-3-small"}'
+    equals: embeddings text-embedding-3-small
+    attributes:
+      gen_ai.operation.name: embeddings
+      gen_ai.input.messages: The food was delicious
+      gen_ai.response.model: text-embedding-3-small
+      gen_ai.usage.input_tokens: 5
   metrics:
   - promql: gen_ai_client_token_usage_count{gen_ai_operation_name="response",gen_ai_provider_name="openai",gen_ai_token_type="input",gen_ai_request_model="gpt-5-mini",gen_ai_response_model="gpt-5-mini-2025-08-07"}
     value: '> 0'
   - promql: gen_ai_client_token_usage_count{gen_ai_operation_name="response",gen_ai_provider_name="openai",gen_ai_token_type="output",gen_ai_request_model="gpt-5-mini",gen_ai_response_model="gpt-5-mini-2025-08-07"}
     value: '> 0'
   - promql: gen_ai_client_operation_duration_seconds_count{gen_ai_operation_name="response",gen_ai_provider_name="openai",gen_ai_request_model="gpt-5-mini",gen_ai_response_model="gpt-5-mini-2025-08-07"}
+    value: '> 0'
+  - promql: gen_ai_client_token_usage_count{gen_ai_operation_name="embeddings",gen_ai_provider_name="openai",gen_ai_token_type="input",gen_ai_request_model="text-embedding-3-small",gen_ai_response_model="text-embedding-3-small"}
+    value: '> 0'
+  - promql: gen_ai_client_operation_duration_seconds_count{gen_ai_operation_name="embeddings",gen_ai_provider_name="openai",gen_ai_request_model="text-embedding-3-small",gen_ai_response_model="text-embedding-3-small"}
     value: '> 0'

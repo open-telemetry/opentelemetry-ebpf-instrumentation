@@ -4,6 +4,7 @@
 package discover
 
 import (
+	"log/slog"
 	"testing"
 	"time"
 
@@ -661,6 +662,18 @@ func TestCriteriaMatcher_TargetPIDs(t *testing.T) {
 		}
 		assert.ElementsMatch(t, []app.PID{10, 20, 30}, pids)
 	})
+}
+
+func TestMatchProcess_TargetPIDsDoNotBypassOtherCriteria(t *testing.T) {
+	m := &Matcher{Log: slog.Default()}
+	selector := &services.GlobAttributes{
+		PIDs: []uint32{42},
+		Path: services.NewGlob("/bin/expected"),
+	}
+	obj := &ProcessAttrs{pid: 42}
+
+	assert.False(t, m.matchProcess(obj, &services.ProcessInfo{Pid: 42, ExePath: "/bin/other"}, selector))
+	assert.True(t, m.matchProcess(obj, &services.ProcessInfo{Pid: 42, ExePath: "/bin/expected"}, selector))
 }
 
 func TestCriteriaMatcher_DynamicTargetPIDs(t *testing.T) {

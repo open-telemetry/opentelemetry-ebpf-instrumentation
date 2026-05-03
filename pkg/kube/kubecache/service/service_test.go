@@ -5,6 +5,8 @@ package service
 
 import (
 	"context"
+	"errors"
+	"log/slog"
 	"net"
 	"strconv"
 	"testing"
@@ -15,9 +17,11 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"k8s.io/client-go/kubernetes/fake"
 
+	"go.opentelemetry.io/obi/pkg/internal/helpers/sync"
 	"go.opentelemetry.io/obi/pkg/internal/testutil"
 	"go.opentelemetry.io/obi/pkg/kube/kubecache"
 	"go.opentelemetry.io/obi/pkg/kube/kubecache/informer"
+	"go.opentelemetry.io/obi/pkg/kube/kubecache/instrument"
 	"go.opentelemetry.io/obi/pkg/kube/kubecache/meta"
 )
 
@@ -128,4 +132,163 @@ func TestRunStopsServerOnContextCancellationWithActiveStream(t *testing.T) {
 	lis, err := net.Listen("tcp", address)
 	require.NoError(t, err, "port still bound after Run returned")
 	_ = lis.Close()
+}
+
+func TestEffectiveSendTimeout(t *testing.T) {
+	tests := []struct {
+		name       string
+		configured time.Duration
+		want       time.Duration
+	}{
+		{
+			name:       "zero uses default",
+			configured: 0,
+			want:       kubecache.DefaultConfig.SendTimeout,
+		},
+		{
+			name:       "non-zero is unchanged",
+			configured: 42 * time.Millisecond,
+			want:       42 * time.Millisecond,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, effectiveSendTimeout(tt.configured))
+		})
+	}
+}
+
+// Fake ServerStreamingServer implementations used by handleMessagesQueue tests.
+
+// immediateStream succeeds immediately on every Send.
+type immediateStream struct{ grpc.ServerStream }
+
+func (s *immediateStream) Send(*informer.Event) error { return nil }
+
+// errStream returns a fixed error on every Send.
+type errStream struct {
+	grpc.ServerStream
+	err error
+}
+
+func (e *errStream) Send(*informer.Event) error { return e.err }
+
+// blockingStream blocks Send until the gate channel is closed.
+type blockingStream struct {
+	grpc.ServerStream
+	gate <-chan struct{}
+}
+
+func (b *blockingStream) Send(*informer.Event) error {
+	<-b.gate
+	return nil
+}
+
+// signalBlockingStream closes sendCalled when Send is entered, then blocks on gate.
+type signalBlockingStream struct {
+	grpc.ServerStream
+	sendCalled chan<- struct{}
+	gate       <-chan struct{}
+}
+
+func (s *signalBlockingStream) Send(*informer.Event) error {
+	close(s.sendCalled)
+	<-s.gate
+	return nil
+}
+
+// TestHandleMessagesQueue is a regression test for
+// https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/issues/1903.
+// It verifies that handleMessagesQueue exits promptly under each failure mode.
+func TestHandleMessagesQueue(t *testing.T) {
+	gate := make(chan struct{})
+	t.Cleanup(func() { close(gate) })
+
+	tests := []struct {
+		name        string
+		server      grpc.ServerStreamingServer[informer.Event]
+		enqueue     []*informer.Event
+		sendTimeout time.Duration
+	}{
+		{
+			name:        "send timeout drops connection",
+			server:      &blockingStream{gate: gate},
+			enqueue:     []*informer.Event{{}},
+			sendTimeout: 50 * time.Millisecond,
+		},
+		{
+			name:        "successful send exits cleanly",
+			server:      &immediateStream{},
+			enqueue:     []*informer.Event{{}, nil}, // nil stops the loop (see handleMessagesQueue)
+			sendTimeout: 50 * time.Millisecond,
+		},
+		{
+			name:        "send error drops connection",
+			server:      &errStream{err: errors.New("send error")},
+			enqueue:     []*informer.Event{{}},
+			sendTimeout: 50 * time.Millisecond,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			o := &connection{
+				log:         slog.New(slog.DiscardHandler),
+				id:          "test-client",
+				server:      tt.server,
+				sendTimeout: tt.sendTimeout,
+				metrics:     instrument.FromContext(context.Background()),
+				messages:    sync.NewQueue[*informer.Event](),
+			}
+			for _, e := range tt.enqueue {
+				o.messages.Enqueue(e)
+			}
+
+			done := make(chan struct{})
+			go func() {
+				o.handleMessagesQueue(context.Background())
+				close(done)
+			}()
+
+			select {
+			case <-done:
+			case <-time.After(2 * time.Second):
+				t.Fatalf("handleMessagesQueue did not return within 2s")
+			}
+		})
+	}
+}
+
+func TestHandleMessagesQueue_RespectsContextCancellationDuringSend(t *testing.T) {
+	sendCalled := make(chan struct{})
+	gate := make(chan struct{})
+	t.Cleanup(func() { close(gate) })
+
+	o := &connection{
+		log:         slog.New(slog.DiscardHandler),
+		id:          "test-client",
+		server:      &signalBlockingStream{sendCalled: sendCalled, gate: gate},
+		sendTimeout: 5 * time.Minute, // large enough that context cancellation wins
+		metrics:     instrument.FromContext(context.Background()),
+		messages:    sync.NewQueue[*informer.Event](),
+	}
+	o.messages.Enqueue(&informer.Event{})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	done := make(chan struct{})
+	go func() {
+		o.handleMessagesQueue(ctx)
+		close(done)
+	}()
+
+	<-sendCalled // wait until Send is blocking before canceling
+	cancel()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("handleMessagesQueue did not return within 2s after context cancellation")
+	}
 }

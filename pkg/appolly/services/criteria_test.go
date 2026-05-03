@@ -202,6 +202,11 @@ func TestRegexDefinitionCriteria_Validate(t *testing.T) {
 		require.NoError(t, yaml.Unmarshal([]byte(`- languages: "go|java"`), &dc))
 		require.NoError(t, dc.Validate())
 	})
+	t.Run("valid with cmd_args", func(t *testing.T) {
+		dc := RegexDefinitionCriteria{}
+		require.NoError(t, yaml.Unmarshal([]byte(`- cmd_args: "--foo"`), &dc))
+		require.NoError(t, dc.Validate())
+	})
 	t.Run("valid with metadata", func(t *testing.T) {
 		dc := RegexDefinitionCriteria{}
 		require.NoError(t, yaml.Unmarshal([]byte(`- k8s_namespace: "default"`), &dc))
@@ -305,6 +310,20 @@ func TestGlobDefinitionCriteria_Validate(t *testing.T) {
 		dc := GlobDefinitionCriteria{}
 		require.NoError(t, yaml.Unmarshal([]byte("- open_ports: 80\n- languages: go\n- exe_path: \"/bin/*\""), &dc))
 		require.NoError(t, dc.Validate())
+	})
+}
+
+func TestDiscoveryConfig_Validate_CmdArgsOnlyRegexCriteria(t *testing.T) {
+	t.Run("services accepts cmd_args-only regex selector", func(t *testing.T) {
+		cfg := DiscoveryConfig{}
+		require.NoError(t, yaml.Unmarshal([]byte("services:\n  - cmd_args: \"--foo\""), &cfg))
+		require.NoError(t, cfg.Validate())
+	})
+
+	t.Run("exclude_services accepts cmd_args-only regex selector", func(t *testing.T) {
+		cfg := DiscoveryConfig{}
+		require.NoError(t, yaml.Unmarshal([]byte("exclude_services:\n  - cmd_args: \"--foo\""), &cfg))
+		require.NoError(t, cfg.Validate())
 	})
 }
 

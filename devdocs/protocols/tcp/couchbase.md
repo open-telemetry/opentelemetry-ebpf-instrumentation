@@ -133,7 +133,7 @@ OBI maintains a per-connection cache (`couchbaseBucketCache`) that stores:
 - `Scope` - Current scope name
 - `Collection` - Current collection name
 
-**Limitation**: If SELECT_BUCKET occurs before OBI starts tracing, the bucket name will be unknown for that connection.
+**Limitation**: If SELECT_BUCKET occurs before OBI starts tracing, the bucket name will be unknown for that connection. This also affects `db.query.text` — see "Collection ID prefix stripping" below for the best-effort fallback.
 
 ## Protocol Parsing
 
@@ -168,15 +168,54 @@ The parser handles truncated packets gracefully:
 
 OBI generates spans with the following OpenTelemetry semantic conventions:
 
-| Attribute                 | Source             | Example                  |
-|---------------------------|--------------------|--------------------------|
-| `db.system.name`          | Constant           | `"couchbase"`            |
-| `db.operation.name`       | Opcode             | `"GET"`, `"SET"`         |
-| `db.namespace`            | Bucket             | `"mybucket"`             |
-| `db.collection.name`      | Scope + Collection | `"myscope.mycollection"` |
-| `db.response.status_code` | Status (on error)  | `"1"`                    |
-| `server.address`          | Connection info    | Server hostname          |
-| `server.port`             | Connection info    | `11210`                  |
+| Attribute                 | Source             | Example                                |
+|---------------------------|--------------------|----------------------------------------|
+| `db.system.name`          | Constant           | `"couchbase"`                          |
+| `db.operation.name`       | Opcode             | `"GET"`, `"SET"`                       |
+| `db.namespace`            | Bucket             | `"mybucket"`                           |
+| `db.collection.name`      | Scope + Collection | `"myscope.mycollection"`               |
+| `db.query.text`           | Request packet     | `"SET user::1 TTL=3600 {\"name\":…}"`  |
+| `db.response.status_code` | Status (on error)  | `"1"`                                  |
+| `server.address`          | Connection info    | Server hostname                        |
+| `server.port`             | Connection info    | `11210`                                |
+
+### Query statement for KV Operations
+
+We do not have the raw query statement, since it is parsed and transformed into the KV binary format.
+We try to render the KV operation in a Redis-style textual format: `OP key [extras] [value]`.
+It is optionally added to the `db.query.text` attribute and must be included in `attributes.select` to be emitted.
+
+**Format by opcode family:**
+
+| Opcode family             | Format                                 | Example                                          |
+|---------------------------|----------------------------------------|--------------------------------------------------|
+| GET, DELETE, GetK, GetMeta | `OP key`                              | `GET user::42`                                   |
+| SET, ADD, REPLACE          | `OP key [TTL=N] [value]`             | `SET user::42 TTL=3600 {"name":"alice"}`         |
+| APPEND, PREPEND            | `OP key [value]`                      | `APPEND log::1 more`                             |
+| INCREMENT, DECREMENT       | `OP key DELTA=N [TTL=N]`             | `INCREMENT counter::x DELTA=1`                   |
+| TOUCH, GAT                 | `OP key TTL=N`                        | `TOUCH user::42 TTL=60`                          |
+
+**Value inclusion rules:**
+
+- Values are included only when non-empty, valid UTF-8, not snappy-compressed (DataType flag 0x02),
+  and not carrying extended attributes (DataType flag 0x04). When XATTR is set, the value bytes
+  contain extended attribute metadata rather than the plain document payload.
+- Truncated values are included as-is.
+- SET/ADD/REPLACE extras: flags field is always omitted; TTL is shown only when non-zero.
+- INCREMENT/DECREMENT extras: DELTA is always shown; INITIAL is omitted; TTL is shown only when non-zero.
+
+**Collection ID prefix stripping:**
+
+Modern Couchbase SDKs (3.x+) negotiate collections via HELLO, causing all KV keys to carry a
+LEB128-encoded collection ID prefix. OBI strips this prefix when building the query statement:
+
+- When a named collection has been resolved via GET_COLLECTION_ID for the connection (scope and
+  collection are cached), the full LEB128 prefix is stripped.
+- As a best-effort fallback, a leading null byte (`0x00`, the default collection ID) is stripped
+  even when no collection info is cached (e.g., default collection usage, or connections
+  established before OBI started).
+- Non-default collection IDs (1+) on connections without a cached collection cannot be reliably
+  stripped because their LEB128 encoding overlaps with printable ASCII.
 
 ## Configuration
 

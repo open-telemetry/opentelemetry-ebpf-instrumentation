@@ -64,6 +64,20 @@ services:
     ports:
       - "8386:5266"
 
+  testserverpythonasync:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/pythonasync-uvloop/Dockerfile-3.14
+    image: hatest-testserver-logenricher-pythonasync
+    networks:
+      - shared
+    ports:
+      - "8387:8391"
+    environment:
+      PYTHONUNBUFFERED: "1"
+      UVICORN_LOOP: "uvloop"
+      BACKEND_URL: "http://testserverhttp:8380"
+
   obi:
     build:
       context: ../../..
@@ -110,6 +124,8 @@ services:
       testserverruby:
         condition: service_started
       testserverdotnet:
+        condition: service_started
+      testserverpythonasync:
         condition: service_started
 
 networks:

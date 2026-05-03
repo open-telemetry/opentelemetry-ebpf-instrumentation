@@ -65,6 +65,7 @@ through language-specific library instrumentation documented later in this file.
 | gRPC | `1.0+` | All | Yes | No | Long-lived connections started before OBI may use `*` for method names |
 | MySQL | All | All | Yes | No | Prepared statements created before OBI started may miss query text |
 | PostgreSQL | All | All | Yes | No | Prepared statements created before OBI started may miss query text |
+| MSSQL | All | All | Yes | No | Prepared statements created before OBI started may miss query text |
 | Redis | All | All | Yes | No | Existing connections may miss database number and `db.namespace` |
 | MongoDB | `5.0+` | `insert`, `update`, `find`, `delete`, `findAndModify`, `aggregate`, `count`, `distinct`, `mapReduce` | Yes | No | No support for compressed payloads |
 | Couchbase | All | All | Yes | No | Bucket or collection may be unknown if negotiation happened before OBI started |
@@ -77,7 +78,7 @@ through language-specific library instrumentation documented later in this file.
 | AWS S3 | All | `CreateBucket`, `DeleteBucket`, `PutObject`, `DeleteObject`, `ListBuckets`, `ListObjects`, `GetObject` | Yes | No | None documented |
 | AWS SQS | All | All | Yes | No | None documented |
 | SQL++ | All | All | Yes | No | None documented |
-| GenAI | All | All | Yes | No | Supported vendors are OpenAI and Anthropic |
+| GenAI | All | All | Yes | No | Supported vendors are OpenAI, Anthropic, Google AI Studio (Gemini), AWS Bedrock, Qwen (DashScope), and generic embedding providers (Voyage AI, Cohere, Jina AI) |
 
 ## Runtime, Server, And Library Instrumentation
 
@@ -129,6 +130,7 @@ OBI currently documents the following statistical instrumentation support:
 | Metric | Scope | Notes |
 |:-------|:------|:------|
 | TCP RTT | Node-wide statistical metric collection | Calculated from the kernel TCP `srtt_us` field |
+| TCP Failed Connections | Node-wide statistical metric collection | Counts the TCP failed connections between 2 endpoints |
 
 ## Context Propagation Frameworks
 

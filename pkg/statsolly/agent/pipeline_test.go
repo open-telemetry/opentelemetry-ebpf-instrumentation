@@ -46,10 +46,13 @@ func TestFilter(t *testing.T) {
 				Port: promPort,
 				TTL:  time.Hour,
 			},
-			Metrics: perapp.MetricsConfig{Features: export.FeatureStats},
+			Metrics: perapp.MetricsConfig{Features: export.FeatureStatsTCPRtt | export.FeatureStatsTCPFailedConnections},
 			Attributes: obi.Attributes{Select: attributes.Selection{
 				attributes.StatTCPRtt.Section: attributes.InclusionLists{
 					Include: []string{"obi_ip", "dst_port", "src_port"},
+				},
+				attributes.StatTCPFailedConnections.Section: attributes.InclusionLists{
+					Include: []string{"obi_ip", "dst_port", "src_port", "reason"},
 				},
 			}},
 		},
@@ -80,6 +83,11 @@ func TestFilter(t *testing.T) {
 		fakeRecord(3333, 8080),
 	}
 
+	ringBuf <- []*ebpf.Stat{
+		fakeFailedConnRecord(555, 666, uint8(ebpf.CodeConnectionRefused)),
+		fakeFailedConnRecord(777, 888, uint8(ebpf.CodeTimedOut)),
+	}
+
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		allMetrics, err := promtest.Scrape(fmt.Sprintf("http://localhost:%d/metrics", promPort))
 		require.NoError(ct, err)
@@ -87,7 +95,10 @@ func TestFilter(t *testing.T) {
 		// Filter for only the metrics you want to verify
 		var filtered []promtest.ScrapedMetric
 		for _, m := range allMetrics {
-			if m.Name == "obi_stat_tcp_rtt_seconds_count" || m.Name == "promhttp_metric_handler_errors_total" {
+			switch m.Name {
+			case "obi_stat_tcp_rtt_seconds_count",
+				"obi_stat_tcp_failed_connections",
+				"promhttp_metric_handler_errors_total":
 				// Reset values to 0 if you don't care about the specific count,
 				// or keep them if you want to verify the Value: 1 seen in your logs.
 				filtered = append(filtered, m)
@@ -100,6 +111,8 @@ func TestFilter(t *testing.T) {
 			{Name: "obi_stat_tcp_rtt_seconds_count", Value: 1, Labels: map[string]string{"obi_ip": "1.2.3.4", "dst_port": "444", "src_port": "333"}},
 			{Name: "obi_stat_tcp_rtt_seconds_count", Value: 1, Labels: map[string]string{"obi_ip": "1.2.3.4", "dst_port": "456", "src_port": "123"}},
 			{Name: "obi_stat_tcp_rtt_seconds_count", Value: 1, Labels: map[string]string{"obi_ip": "1.2.3.4", "dst_port": "8080", "src_port": "3333"}},
+			{Name: "obi_stat_tcp_failed_connections", Value: 1, Labels: map[string]string{"obi_ip": "1.2.3.4", "dst_port": "666", "src_port": "555", "reason": "refused"}},
+			{Name: "obi_stat_tcp_failed_connections", Value: 1, Labels: map[string]string{"obi_ip": "1.2.3.4", "dst_port": "888", "src_port": "777", "reason": "timed-out"}},
 			{Name: "promhttp_metric_handler_errors_total", Value: 0, Labels: map[string]string{"cause": "encoding"}},
 			{Name: "promhttp_metric_handler_errors_total", Value: 0, Labels: map[string]string{"cause": "gathering"}},
 		}, filtered)
@@ -110,6 +123,18 @@ func fakeRecord(srcPort, dstPort uint16) *ebpf.Stat {
 	return &ebpf.Stat{
 		TCPRtt: &ebpf.TCPRtt{
 			SrttUs: 100,
+		},
+		CommonAttrs: pipe.CommonAttrs{
+			SrcPort: srcPort,
+			DstPort: dstPort,
+		},
+	}
+}
+
+func fakeFailedConnRecord(srcPort, dstPort uint16, reason uint8) *ebpf.Stat {
+	return &ebpf.Stat{
+		TCPFailedConnection: &ebpf.TCPFailedConnection{
+			Reason: reason,
 		},
 		CommonAttrs: pipe.CommonAttrs{
 			SrcPort: srcPort,

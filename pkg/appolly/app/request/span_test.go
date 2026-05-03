@@ -17,7 +17,7 @@ import (
 )
 
 func TestSpanClientServer(t *testing.T) {
-	for _, st := range []EventType{EventTypeHTTP, EventTypeGRPC, EventTypeKafkaServer, EventTypeMQTTServer, EventTypeRedisServer, EventTypeMemcachedServer, EventTypeSQLServer} {
+	for _, st := range []EventType{EventTypeHTTP, EventTypeGRPC, EventTypeKafkaServer, EventTypeMQTTServer, EventTypeNATSServer, EventTypeRedisServer, EventTypeMemcachedServer, EventTypeSQLServer} {
 		span := &Span{
 			Type: st,
 		}
@@ -26,7 +26,7 @@ func TestSpanClientServer(t *testing.T) {
 
 	for _, st := range []EventType{
 		EventTypeHTTPClient, EventTypeGRPCClient, EventTypeSQLClient,
-		EventTypeRedisClient, EventTypeKafkaClient, EventTypeMQTTClient,
+		EventTypeRedisClient, EventTypeKafkaClient, EventTypeMQTTClient, EventTypeNATSClient,
 		EventTypeMongoClient, EventTypeMemcachedClient, EventTypeFailedConnect,
 	} {
 		span := &Span{
@@ -48,10 +48,12 @@ func TestEventTypeString(t *testing.T) {
 		EventTypeMemcachedClient: "MemcachedClient",
 		EventTypeKafkaClient:     "KafkaClient",
 		EventTypeMQTTClient:      "MQTTClient",
+		EventTypeNATSClient:      "NATSClient",
 		EventTypeRedisServer:     "RedisServer",
 		EventTypeMemcachedServer: "MemcachedServer",
 		EventTypeKafkaServer:     "KafkaServer",
 		EventTypeMQTTServer:      "MQTTServer",
+		EventTypeNATSServer:      "NATSServer",
 		EventTypeMongoClient:     "MongoClient",
 		EventType(99):            "UNKNOWN (99)",
 	}
@@ -67,6 +69,7 @@ func TestKindString(t *testing.T) {
 		{Type: EventTypeGRPC}:                                  "SPAN_KIND_SERVER",
 		{Type: EventTypeKafkaServer}:                           "SPAN_KIND_SERVER",
 		{Type: EventTypeMQTTServer}:                            "SPAN_KIND_SERVER",
+		{Type: EventTypeNATSServer}:                            "SPAN_KIND_SERVER",
 		{Type: EventTypeRedisServer}:                           "SPAN_KIND_SERVER",
 		{Type: EventTypeMemcachedServer}:                       "SPAN_KIND_SERVER",
 		{Type: EventTypeSQLServer}:                             "SPAN_KIND_SERVER",
@@ -80,6 +83,8 @@ func TestKindString(t *testing.T) {
 		{Type: EventTypeKafkaClient, Method: MessagingProcess}: "SPAN_KIND_CONSUMER",
 		{Type: EventTypeMQTTClient, Method: MessagingPublish}:  "SPAN_KIND_PRODUCER",
 		{Type: EventTypeMQTTClient, Method: MessagingProcess}:  "SPAN_KIND_CONSUMER",
+		{Type: EventTypeNATSClient, Method: MessagingPublish}:  "SPAN_KIND_PRODUCER",
+		{Type: EventTypeNATSClient, Method: MessagingProcess}:  "SPAN_KIND_CONSUMER",
 		{}: "SPAN_KIND_INTERNAL",
 	}
 
@@ -106,6 +111,8 @@ func TestServiceGraphConnectionType(t *testing.T) {
 		{name: "Kafka client consumer", span: &Span{Type: EventTypeKafkaClient, Method: MessagingProcess}, expected: "messaging_system"},
 		{name: "MQTT client publisher", span: &Span{Type: EventTypeMQTTClient, Method: MessagingPublish}, expected: "messaging_system"},
 		{name: "MQTT client subscriber", span: &Span{Type: EventTypeMQTTClient, Method: MessagingProcess}, expected: "messaging_system"},
+		{name: "NATS client publisher", span: &Span{Type: EventTypeNATSClient, Method: MessagingPublish}, expected: "messaging_system"},
+		{name: "NATS client subscriber", span: &Span{Type: EventTypeNATSClient, Method: MessagingProcess}, expected: "messaging_system"},
 		{name: "AWS SQS client", span: &Span{Type: EventTypeHTTPClient, SubType: HTTPSubtypeAWSSQS}, expected: "messaging_system"},
 
 		// Server spans should return empty
@@ -114,6 +121,7 @@ func TestServiceGraphConnectionType(t *testing.T) {
 		{name: "SQL server", span: &Span{Type: EventTypeSQLServer}, expected: ""},
 		{name: "Kafka server", span: &Span{Type: EventTypeKafkaServer}, expected: ""},
 		{name: "MQTT server", span: &Span{Type: EventTypeMQTTServer}, expected: ""},
+		{name: "NATS server", span: &Span{Type: EventTypeNATSServer}, expected: ""},
 
 		// Regular HTTP/gRPC spans should return empty (unset)
 		{name: "HTTP server", span: &Span{Type: EventTypeHTTP}, expected: ""},
@@ -167,6 +175,10 @@ func TestTraceName(t *testing.T) {
 		{name: "MQTT client subscribe", span: &Span{Type: EventTypeMQTTClient, Method: MessagingProcess, Path: "sensors/#"}, expected: "process sensors/#"},
 		{name: "MQTT server", span: &Span{Type: EventTypeMQTTServer, Method: MessagingProcess, Path: "home/lights"}, expected: "process home/lights"},
 		{name: "MQTT no topic", span: &Span{Type: EventTypeMQTTClient, Method: MessagingPublish}, expected: "publish"},
+		{name: "NATS client publish", span: &Span{Type: EventTypeNATSClient, Method: MessagingPublish, Path: "updates.orders"}, expected: "publish updates.orders"},
+		{name: "NATS client process", span: &Span{Type: EventTypeNATSClient, Method: MessagingProcess, Path: "updates.orders"}, expected: "process updates.orders"},
+		{name: "NATS server", span: &Span{Type: EventTypeNATSServer, Method: MessagingProcess, Path: "updates.orders"}, expected: "process updates.orders"},
+		{name: "NATS no subject", span: &Span{Type: EventTypeNATSClient, Method: MessagingPublish}, expected: "publish"},
 
 		// JSON-RPC spans
 		{name: "JSON-RPC with method", span: &Span{Type: EventTypeHTTP, SubType: HTTPSubtypeJSONRPC, JSONRPC: &JSONRPC{Method: "subtract", Version: "2.0"}}, expected: "subtract"},
@@ -296,6 +308,106 @@ func TestSpanStatusMessage_JSONRPC(t *testing.T) {
 	}
 }
 
+func TestSpanStatusCode_MCP(t *testing.T) {
+	tests := []struct {
+		name         string
+		span         *Span
+		expectedCode string
+	}{
+		{
+			name: "server span with MCP error",
+			span: &Span{
+				Type:    EventTypeHTTP,
+				Status:  200,
+				SubType: HTTPSubtypeMCP,
+				GenAI:   &GenAI{MCP: &MCPCall{Method: "tools/call", ErrorCode: -32602, ErrorMessage: "Unknown tool"}},
+			},
+			expectedCode: StatusCodeError,
+		},
+		{
+			name: "server span without MCP error",
+			span: &Span{
+				Type:    EventTypeHTTP,
+				Status:  200,
+				SubType: HTTPSubtypeMCP,
+				GenAI:   &GenAI{MCP: &MCPCall{Method: "tools/call"}},
+			},
+			expectedCode: StatusCodeUnset,
+		},
+		{
+			name: "client span with MCP error",
+			span: &Span{
+				Type:    EventTypeHTTPClient,
+				Status:  200,
+				SubType: HTTPSubtypeMCP,
+				GenAI:   &GenAI{MCP: &MCPCall{Method: "tools/call", ErrorCode: -32600, ErrorMessage: "Invalid Request"}},
+			},
+			expectedCode: StatusCodeError,
+		},
+		{
+			name: "client span without MCP error",
+			span: &Span{
+				Type:    EventTypeHTTPClient,
+				Status:  200,
+				SubType: HTTPSubtypeMCP,
+				GenAI:   &GenAI{MCP: &MCPCall{Method: "tools/call"}},
+			},
+			expectedCode: StatusCodeUnset,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expectedCode, SpanStatusCode(tt.span))
+		})
+	}
+}
+
+func TestSpanStatusMessage_MCP(t *testing.T) {
+	tests := []struct {
+		name            string
+		span            *Span
+		expectedMessage string
+	}{
+		{
+			name: "server span with MCP error message",
+			span: &Span{
+				Type:    EventTypeHTTP,
+				Status:  200,
+				SubType: HTTPSubtypeMCP,
+				GenAI:   &GenAI{MCP: &MCPCall{Method: "tools/call", ErrorCode: -32602, ErrorMessage: "Unknown tool"}},
+			},
+			expectedMessage: "Unknown tool",
+		},
+		{
+			name: "client span with MCP error message",
+			span: &Span{
+				Type:    EventTypeHTTPClient,
+				Status:  200,
+				SubType: HTTPSubtypeMCP,
+				GenAI:   &GenAI{MCP: &MCPCall{Method: "tools/call", ErrorCode: -32600, ErrorMessage: "Invalid Request"}},
+			},
+			expectedMessage: "Invalid Request",
+		},
+		{
+			name: "server span without MCP error",
+			span: &Span{
+				Type:    EventTypeHTTP,
+				Status:  200,
+				SubType: HTTPSubtypeMCP,
+				GenAI:   &GenAI{MCP: &MCPCall{Method: "tools/call"}},
+			},
+			expectedMessage: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expectedMessage, SpanStatusMessage(tt.span))
+		})
+	}
+}
+
 type jsonObject = map[string]any
 
 func deserializeJSONObject(data []byte) (jsonObject, error) {
@@ -384,6 +496,16 @@ func TestSerializeJSONSpans(t *testing.T) {
 				"clientId":   "statement",
 				"topic":      "path",
 				"partition":  "5",
+			},
+		},
+		{
+			eventType: EventTypeNATSClient,
+			attribs: map[string]any{
+				"serverAddr": "hostname",
+				"serverPort": "5678",
+				"operation":  "method",
+				"clientId":   "statement",
+				"subject":    "path",
 			},
 		},
 		{
@@ -898,6 +1020,18 @@ func TestHostPeerClientServer(t *testing.T) {
 			server: "server",
 		},
 		{
+			name:   "Same namespaces for NATS client",
+			span:   Span{Type: EventTypeNATSClient, PeerName: "client", HostName: "server", OtherNamespace: "same", Service: svc.Attrs{UID: svc.UID{Namespace: "same"}}},
+			client: "client",
+			server: "server",
+		},
+		{
+			name:   "Server in different namespace NATS",
+			span:   Span{Type: EventTypeNATSClient, PeerName: "client", HostName: "server", OtherNamespace: "far", Service: svc.Attrs{UID: svc.UID{Namespace: "same"}}},
+			client: "client",
+			server: "server.far",
+		},
+		{
 			name:   "Server in different namespace Mongo",
 			span:   Span{Type: EventTypeMongoClient, PeerName: "client", HostName: "server", OtherNamespace: "far", Service: svc.Attrs{UID: svc.UID{Namespace: "same"}}},
 			client: "client",
@@ -1088,6 +1222,23 @@ func TestHTTPSpanStatusCode_OpenAI(t *testing.T) {
 			},
 			expected: StatusCodeError,
 		},
+		{
+			name: "Qwen 2xx, error.type set → error",
+			span: &Span{
+				Type:    EventTypeHTTPClient,
+				SubType: HTTPSubtypeQwen,
+				Status:  200,
+				GenAI: &GenAI{
+					Qwen: &VendorOpenAI{
+						Error: OpenAIError{
+							Type:    "insufficient_quota",
+							Message: "Quota exceeded",
+						},
+					},
+				},
+			},
+			expected: StatusCodeError,
+		},
 	}
 
 	for _, tt := range tests {
@@ -1149,6 +1300,20 @@ func TestSpan_GenAIInputTokens(t *testing.T) {
 		}
 		result := span.GenAIInputTokens()
 		assert.Equal(t, 300, result)
+	})
+
+	t.Run("Qwen present", func(t *testing.T) {
+		span := &Span{
+			GenAI: &GenAI{
+				Qwen: &VendorOpenAI{
+					Usage: OpenAIUsage{
+						InputTokens: 333,
+					},
+				},
+			},
+		}
+		result := span.GenAIInputTokens()
+		assert.Equal(t, 333, result)
 	})
 
 	t.Run("Bedrock present", func(t *testing.T) {
@@ -1250,6 +1415,20 @@ func TestSpan_GenAIOutputTokens(t *testing.T) {
 		assert.Equal(t, 0, result)
 	})
 
+	t.Run("Qwen present", func(t *testing.T) {
+		span := &Span{
+			GenAI: &GenAI{
+				Qwen: &VendorOpenAI{
+					Usage: OpenAIUsage{
+						OutputTokens: 444,
+					},
+				},
+			},
+		}
+		result := span.GenAIOutputTokens()
+		assert.Equal(t, 444, result)
+	})
+
 	t.Run("Bedrock present", func(t *testing.T) {
 		span := &Span{
 			GenAI: &GenAI{
@@ -1319,6 +1498,18 @@ func TestSpan_GenAIOperationName(t *testing.T) {
 		assert.Equal(t, "generate_content", result)
 	})
 
+	t.Run("Qwen present", func(t *testing.T) {
+		span := &Span{
+			GenAI: &GenAI{
+				Qwen: &VendorOpenAI{
+					OperationName: "chat.completion",
+				},
+			},
+		}
+		result := span.GenAIOperationName()
+		assert.Equal(t, "chat.completion", result)
+	})
+
 	t.Run("Bedrock present", func(t *testing.T) {
 		span := &Span{
 			GenAI: &GenAI{
@@ -1366,6 +1557,16 @@ func TestSpan_GenAIProviderName(t *testing.T) {
 		}
 		result := span.GenAIProviderName()
 		assert.Equal(t, "gcp.gemini", result)
+	})
+
+	t.Run("Qwen present", func(t *testing.T) {
+		span := &Span{
+			GenAI: &GenAI{
+				Qwen: &VendorOpenAI{},
+			},
+		}
+		result := span.GenAIProviderName()
+		assert.Equal(t, "qwen", result)
 	})
 
 	t.Run("Bedrock present", func(t *testing.T) {
@@ -1425,6 +1626,20 @@ func TestSpan_GenAIRequestModel(t *testing.T) {
 		}
 		result := span.GenAIRequestModel()
 		assert.Equal(t, "gemini-2.0-flash", result)
+	})
+
+	t.Run("Qwen present", func(t *testing.T) {
+		span := &Span{
+			GenAI: &GenAI{
+				Qwen: &VendorOpenAI{
+					Request: OpenAIInput{
+						Model: "qwen-plus",
+					},
+				},
+			},
+		}
+		result := span.GenAIRequestModel()
+		assert.Equal(t, "qwen-plus", result)
 	})
 
 	t.Run("Bedrock present", func(t *testing.T) {
@@ -1499,6 +1714,35 @@ func TestSpan_GenAIResponseModel(t *testing.T) {
 		}
 		result := span.GenAIResponseModel()
 		assert.Equal(t, "gemini-2.0-flash", result)
+	})
+
+	t.Run("Qwen present with response model", func(t *testing.T) {
+		span := &Span{
+			GenAI: &GenAI{
+				Qwen: &VendorOpenAI{
+					ResponseModel: "qwen-plus-2026-01-01",
+					Request: OpenAIInput{
+						Model: "qwen-plus",
+					},
+				},
+			},
+		}
+		result := span.GenAIResponseModel()
+		assert.Equal(t, "qwen-plus-2026-01-01", result)
+	})
+
+	t.Run("Qwen present without response model", func(t *testing.T) {
+		span := &Span{
+			GenAI: &GenAI{
+				Qwen: &VendorOpenAI{
+					Request: OpenAIInput{
+						Model: "qwen-plus",
+					},
+				},
+			},
+		}
+		result := span.GenAIResponseModel()
+		assert.Equal(t, "qwen-plus", result)
 	})
 
 	t.Run("Bedrock present", func(t *testing.T) {

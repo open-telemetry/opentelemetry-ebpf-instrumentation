@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-playground/validator/v10"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -160,6 +161,7 @@ discovery:
 			},
 			MySQLPreparedStatementsCacheSize:    1024,
 			PostgresPreparedStatementsCacheSize: 1024,
+			MSSQLPreparedStatementsCacheSize:    1024,
 			MongoRequestsCacheSize:              1024,
 			KafkaTopicUUIDCacheSize:             1024,
 			CouchbaseDBCacheSize:                1024,
@@ -231,6 +233,7 @@ discovery:
 				instrumentations.InstrumentationRedis,
 				instrumentations.InstrumentationKafka,
 				instrumentations.InstrumentationMQTT,
+				instrumentations.InstrumentationNATS,
 				instrumentations.InstrumentationMongo,
 				instrumentations.InstrumentationCouchbase,
 				instrumentations.InstrumentationMemcached,
@@ -438,6 +441,54 @@ network:
 `)
 	cfg, err := LoadConfig(userConfig)
 	require.NoError(t, err)
+	require.NoError(t, cfg.Validate())
+}
+
+func TestConfigValidate_KubeReconnectInitialIntervalZero(t *testing.T) {
+	userConfig := bytes.NewBufferString(`
+otel_metrics_export:
+  endpoint: http://otelcol:4318
+trace_printer: text
+attributes:
+  kubernetes:
+    reconnect_initial_interval: 0s
+network:
+  enable: true
+`)
+
+	cfg, err := LoadConfig(userConfig)
+	require.NoError(t, err)
+
+	err = cfg.Validate()
+	require.Error(t, err)
+
+	validate := validator.New(validator.WithRequiredStructEnabled())
+	validationErr := validate.Struct(cfg.Attributes.Kubernetes)
+	require.Error(t, validationErr)
+
+	var fieldErrs validator.ValidationErrors
+	require.ErrorAs(t, validationErr, &fieldErrs)
+	require.Len(t, fieldErrs, 1)
+	assert.Equal(t, "ReconnectInitialInterval", fieldErrs[0].Field())
+	assert.Equal(t, "gt", fieldErrs[0].Tag())
+}
+
+func TestConfigValidate_KubeReconnectInitialIntervalOmitted(t *testing.T) {
+	userConfig := bytes.NewBufferString(`
+otel_metrics_export:
+  endpoint: http://otelcol:4318
+trace_printer: text
+attributes:
+  kubernetes:
+    enable: true
+network:
+  enable: true
+`)
+
+	cfg, err := LoadConfig(userConfig)
+	require.NoError(t, err)
+
+	assert.Equal(t, 5*time.Second, cfg.Attributes.Kubernetes.ReconnectInitialInterval)
 	require.NoError(t, cfg.Validate())
 }
 

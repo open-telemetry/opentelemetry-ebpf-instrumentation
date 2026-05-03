@@ -1,0 +1,36 @@
+oats-schema-version: 2
+docker-compose:
+  files:
+  - ../docker-compose-obi-python-nats.yml
+input:
+- path: /publish
+interval: 500ms
+expected:
+  traces:
+  - traceql: '{ .messaging.system = "nats" && .messaging.operation.type = "publish" && .messaging.destination.name = "updates.orders" }'
+    equals: publish updates.orders
+    attributes:
+      messaging.destination.name: updates.orders
+      messaging.operation.type: publish
+      messaging.system: nats
+      server.port: '4222'
+  - traceql: '{ .messaging.system = "nats" && .messaging.operation.type = "process" && .messaging.destination.name = "updates.orders" }'
+    equals: process updates.orders
+    attributes:
+      messaging.destination.name: updates.orders
+      messaging.operation.type: process
+      messaging.system: nats
+      server.port: '4222'
+  metrics:
+  - promql: messaging_client_operation_duration_seconds_count{messaging_system="nats", messaging_destination_name="updates.orders"}
+    value: '> 0'
+  - promql: messaging_client_operation_duration_seconds_bucket{le="0"}
+    value: == 0
+  - promql: messaging_client_operation_duration_seconds_bucket{le="10"}
+    value: '> 0'
+  - promql: messaging_process_duration_seconds_count{messaging_system="nats", messaging_destination_name="updates.orders"}
+    value: '> 0'
+  - promql: messaging_process_duration_seconds_bucket{le="0"}
+    value: == 0
+  - promql: messaging_process_duration_seconds_bucket{le="10"}
+    value: '> 0'
