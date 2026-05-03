@@ -22,6 +22,22 @@ const STATIC_TRACEPARENT = '00-12345678901234567890123456789012-0000000000000001
 // This traceparent is forwarded unchanged through the chain to trigger eBPF proxy detection
 const FORWARDED_TRACEPARENT = '00-12345678901234567890123456789012-1111111111111111-01';
 
+function nextTraceparent(traceparent, fallback) {
+  const current = traceparent || fallback;
+  const parts = current.split('-');
+  if (parts.length !== 4) {
+    return current;
+  }
+
+  const spanId = parseInt(parts[2], 16);
+  if (Number.isNaN(spanId)) {
+    return current;
+  }
+
+  const newSpanId = (spanId + 0x10).toString(16).padStart(16, '0');
+  return `${parts[0]}-${parts[1]}-${newSpanId}-${parts[3]}`;
+}
+
 // Endpoint: Request WITHOUT traceparent (eBPF should generate)
 app.get('/no-tp', async (req, res) => {
   if (upstream) {
@@ -47,15 +63,7 @@ app.get('/with-tp', async (req, res) => {
       const downstreamURL = `${upstream}/with-tp`;
 
       // Get traceparent from incoming request or use base
-      let traceparent = req.headers.traceparent || STATIC_TRACEPARENT;
-
-      // Parse and increment span ID by 0x10 for downstream call
-      const parts = traceparent.split('-');
-      if (parts.length === 4) {
-        const spanId = parseInt(parts[2], 16);
-        const newSpanId = (spanId + 0x10).toString(16).padStart(16, '0');
-        traceparent = `${parts[0]}-${parts[1]}-${newSpanId}-${parts[3]}`;
-      }
+      const traceparent = nextTraceparent(req.headers.traceparent, STATIC_TRACEPARENT);
 
       console.log(`[${route}/with-tp] Making client call to ${downstreamURL} WITH traceparent: ${traceparent}`);
 
@@ -96,11 +104,36 @@ app.get('/with-forwarded-tp', async (req, res) => {
   }
 });
 
+// Endpoint: Request WITH huge headers before traceparent (eBPF chunked parsing)
+app.get('/with-huge-tp', async (req, res) => {
+  if (upstream) {
+    try {
+      const downstreamURL = `${upstream}/with-huge-tp`;
+      const traceparent = nextTraceparent(req.headers.traceparent, STATIC_TRACEPARENT);
+      // Send a large filler header (~2500 bytes) to push traceparent beyond the 1KB window
+      const hugeValue = 'X'.repeat(2500);
+      console.log(`[${route}/with-huge-tp] Making client call to ${downstreamURL} WITH huge headers + traceparent`);
+      const response = await axios.get(downstreamURL, {
+        headers: {
+          'a-filler': hugeValue, // 'a' sorts before 'traceparent' regardless of header ordering
+          'traceparent': traceparent
+        }
+      });
+      res.send(`${route}/with-huge-tp → ${response.data}`);
+    } catch (err) {
+      console.error(`[${route}/with-huge-tp] Error:`, err.message);
+      res.status(500).send(`Error: ${err.message}`);
+    }
+  } else {
+    res.send(`End of chain (${route})`);
+  }
+});
+
 app.get('/smoke', (req, res) => {
   res.sendStatus(200);
 });
 
 app.listen(port, () => {
-  console.log(`Service ${route.toUpperCase()} running on port ${port}`);
+  console.log(`Service ${route.toUpperCase()} HTTP running on port ${port}`);
   console.log(upstream ? `Upstream: ${upstream}` : `End of chain`);
 });

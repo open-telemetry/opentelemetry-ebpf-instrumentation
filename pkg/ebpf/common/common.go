@@ -536,6 +536,14 @@ func FixupSpec(spec *ebpf.CollectionSpec, overrideKernelVersion bool) {
 	// the collection.
 	spec.Programs["obi_protocol_http_legacy"] = dummy.Copy()
 	spec.Programs["obi_continue_protocol_http_legacy"] = dummy.Copy()
+
+	if !SupportsEBPFLoops(ptlog(), overrideKernelVersion) {
+		// The chunked traceparent parser uses bpf_loop which is unavailable on
+		// legacy kernels. Replace with a dummy to prevent verifier rejection.
+		// The BPF C fallback in __obi_continue_protocol_http handles deferred
+		// server_or_client_trace and continuation when this program is not called.
+		spec.Programs["obi_parse_traceparent_http"] = dummy.Copy()
+	}
 }
 
 // Injectable for tests

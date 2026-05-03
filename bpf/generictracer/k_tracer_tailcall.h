@@ -24,5 +24,13 @@ enum {
     k_tail_protocol_http2_grpc_handle_end_frame = 7,
     k_tail_handle_buf_with_args = 8,
     k_tail_continue_protocol_http_tp = 9,
-    k_tail_continue_netfd_read = 10,
+    k_tail_parse_traceparent_http = 10,
+    // WARNING: k_tail_continue_netfd_read moved from index 10 to 11 when the
+    // chunked traceparent scanner was added at index 10. This affects gotracer
+    // (go_net.c), which calls this index. Changing jump_table indices is a
+    // hard breaking change during a rolling upgrade: the BPF objects and the
+    // Go loader programs (both generictracer and gotracer) must be updated
+    // atomically — a full pod restart is required; in-place BPF reload is not
+    // safe.
+    k_tail_continue_netfd_read = 11,
 };

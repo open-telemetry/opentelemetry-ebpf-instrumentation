@@ -50,6 +50,7 @@ type Tracer struct {
 	libsMux          sync.Mutex
 	iters            []*ebpfcommon.Iter
 	eventCtx         *ebpfcommon.EBPFEventContext
+	supportsBPFLoop  bool
 }
 
 func tlog() *slog.Logger {
@@ -57,8 +58,9 @@ func tlog() *slog.Logger {
 }
 
 func New(pidFilter ebpfcommon.ServiceFilter, cfg *obi.Config, metrics imetrics.Reporter) *Tracer {
+	log := tlog()
 	return &Tracer{
-		log:              tlog(),
+		log:              log,
 		cfg:              cfg,
 		metrics:          metrics,
 		pidsFilter:       pidFilter,
@@ -68,6 +70,7 @@ func New(pidFilter ebpfcommon.ServiceFilter, cfg *obi.Config, metrics imetrics.R
 		instrumentedLibs: make(ebpfcommon.InstrumentedLibsT),
 		libsMux:          sync.Mutex{},
 		iters:            []*ebpfcommon.Iter{},
+		supportsBPFLoop:  ebpfcommon.SupportsEBPFLoops(log, cfg.EBPF.OverrideBPFLoopEnabled),
 	}
 }
 
@@ -135,7 +138,7 @@ func (p *Tracer) BlockPID(pid app.PID, ns uint32) {
 func (p *Tracer) LoadSpecs() ([]*ebpfcommon.SpecBundle, error) {
 	if p.cfg.EBPF.TrackRequestHeaders ||
 		p.cfg.EBPF.ContextPropagation.IsEnabled() {
-		p.log.Info("Enabling trace information parsing", "bpf_loop_enabled", ebpfcommon.SupportsEBPFLoops(p.log, p.cfg.EBPF.OverrideBPFLoopEnabled))
+		p.log.Info("Enabling trace information parsing", "bpf_loop_enabled", p.supportsBPFLoop)
 	}
 
 	spec, err := LoadBpf()
@@ -160,6 +163,7 @@ func (p *Tracer) SetupTailCalls() {
 		p.bpfObjects.ObiProtocolHttp2GrpcHandleEndFrame,   // 7
 		p.bpfObjects.ObiHandleBufWithArgs,                 // 8
 		p.bpfObjects.ObiContinueProtocolHttpTp,            // 9
+		p.bpfObjects.ObiParseTraceparentHttp,              // 10
 	} {
 		p.log.Debug("loading program into tail call jump table", "index", i, "program", prog.String())
 		if err := p.bpfObjects.JumpTable.Update(uint32(i), uint32(prog.FD()), ebpf.UpdateAny); err != nil {
@@ -212,6 +216,14 @@ func (p *Tracer) constants() map[string]any {
 
 	m["g_bpf_debug"] = p.cfg.EBPF.BpfDebug
 	m["g_bpf_traceparent_enabled"] = p.cfg.EBPF.TrackRequestHeaders || p.cfg.EBPF.ContextPropagation.IsEnabled()
+
+	if p.supportsBPFLoop {
+		m["bpf_max_request_tp_parse_size_kb"] = uint32(p.cfg.EBPF.MaxRequestTPParseSizeKB)
+	} else {
+		// bpf_loop is unavailable on this kernel; set to 0 to prevent tail-calls
+		// into the dummy stub replacing obi_parse_traceparent_http.
+		m["bpf_max_request_tp_parse_size_kb"] = uint32(0)
+	}
 
 	return m
 }
