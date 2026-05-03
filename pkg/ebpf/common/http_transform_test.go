@@ -500,3 +500,30 @@ func TestHTTPRequestResponseToSpan_OpenAIEmbeddingDetectedByOpenAISpan(t *testin
 	require.NotNil(t, span.GenAI.OpenAI, "span.GenAI.OpenAI should be set")
 	assert.Equal(t, request.EmbeddingOperationName, span.GenAI.OpenAI.OperationName)
 }
+
+func TestToRequestTraceMissingLargeBuffers(t *testing.T) {
+	fltr := TestPidsFilter{services: map[app.PID]svc.Attrs{}}
+	var record BPFHTTPInfo
+
+	record.Type = 1
+	record.ReqMonotimeNs = 123450
+	record.StartMonotimeNs = 123456
+	record.EndMonotimeNs = 789012
+	record.Status = 200
+	record.HasLargeBuffers = 1 // This will trigger the missing large buffers branch
+	record.ConnInfo.D_port = 1
+	record.ConnInfo.S_addr = [16]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 192, 168, 0, 1}
+	record.ConnInfo.D_addr = [16]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 8, 8, 8, 8}
+	copy(record.Buf[:], "GET /hello HTTP/1.1\r\nHost: example.com\r\n\r\n")
+
+	buf := new(bytes.Buffer)
+	err := binary.Write(buf, binary.LittleEndian, &record)
+	require.NoError(t, err)
+
+	pctx := NewEBPFParseContext(nil, nil, nil)
+	result, _, err := ReadHTTPInfoIntoSpan(pctx, &ringbuf.Record{RawSample: buf.Bytes()}, &fltr)
+	require.NoError(t, err)
+
+	require.Equal(t, "/hello", result.Path)
+	require.Equal(t, 200, result.Status)
+}

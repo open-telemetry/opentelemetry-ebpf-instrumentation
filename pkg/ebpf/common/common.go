@@ -521,6 +521,7 @@ func FixupSpec(spec *ebpf.CollectionSpec, overrideKernelVersion bool) {
 		spec.Programs["obi_continue_protocol_http"] = spec.Programs["obi_continue_protocol_http_legacy"]
 		spec.Programs["obi_continue_protocol_http"].Name = "obi_continue_protocol_http"
 	}
+
 	dummy := &ebpf.ProgramSpec{
 		Name: "obi_dummy",
 		Type: ebpf.Kprobe,
@@ -530,10 +531,11 @@ func FixupSpec(spec *ebpf.CollectionSpec, overrideKernelVersion bool) {
 		},
 		License: "MIT",
 	}
+
 	// Hack: insert dummy unused programs in order to be able to use bpf2go generated struct to load
 	// the collection.
-	spec.Programs["obi_protocol_http_legacy"] = dummy
-	spec.Programs["obi_continue_protocol_http_legacy"] = dummy
+	spec.Programs["obi_protocol_http_legacy"] = dummy.Copy()
+	spec.Programs["obi_continue_protocol_http_legacy"] = dummy.Copy()
 }
 
 // Injectable for tests
