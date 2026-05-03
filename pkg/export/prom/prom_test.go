@@ -328,6 +328,21 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 			},
 		},
 		{
+			name:  "amqp only",
+			instr: []instrumentations.Instrumentation{instrumentations.InstrumentationAMQP},
+			expected: []string{
+				"messaging_client_operation_duration_seconds",
+				"messaging_process_duration_seconds",
+			},
+			unexpected: []string{
+				"http_server_request_duration_seconds",
+				"http_client_request_duration_seconds",
+				"rpc_server_duration_seconds",
+				"rpc_client_duration_seconds",
+				"db_client_operation_duration_seconds",
+			},
+		},
+		{
 			name:     "none",
 			instr:    nil,
 			expected: []string{},
@@ -415,6 +430,8 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeMQTTServer, Method: "process", RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeNATSClient, Method: "publish", RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeNATSServer, Method: "process", RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeAMQPClient, Method: "publish", RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeAMQPClient, Method: "process", RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeMongoClient, Method: "find", RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeGPUCudaKernelLaunch, ContentLength: 100, SubType: 200},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeGPUCudaMemcpy, ContentLength: 100, SubType: 1},

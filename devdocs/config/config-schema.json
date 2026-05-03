@@ -790,6 +790,24 @@
       "type": "object",
       "description": "EnrichmentConfig configures HTTP header and payload extraction with policy-based rules."
     },
+    "ExponentialHistogramConfig": {
+      "properties": {
+        "max_scale": {
+          "type": "integer",
+          "description": "Sets the maximum resolution scale used by base-2 exponential histograms. Higher values create narrower buckets and more precision, but may require more buckets. Valid values are from -10 to 20.",
+          "default": 20,
+          "x-env-var": "OTEL_EBPF_METRICS_EXPONENTIAL_HISTOGRAM_MAX_SCALE"
+        },
+        "max_size": {
+          "type": "integer",
+          "description": "Sets the maximum number of buckets used for a base-2 exponential histogram. Higher values reduce bucket compaction and preserve more detail at the cost of larger metric payloads.",
+          "default": 160,
+          "x-env-var": "OTEL_EBPF_METRICS_EXPONENTIAL_HISTOGRAM_MAX_SIZE"
+        }
+      },
+      "type": "object",
+      "description": "ExponentialHistogramConfig configures the precision and size of exponential histograms according to https://opentelemetry.io/docs/specs/otel/metrics/sdk/#base2-exponential-bucket-histogram-aggregation"
+    },
     "ExportModes": {
       "items": {
         "type": "string",
@@ -1622,6 +1640,9 @@
           "format": "uri",
           "x-env-var": "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT"
         },
+        "exponential_histogram": {
+          "$ref": "#/$defs/ExponentialHistogramConfig"
+        },
         "extra_span_resource_attributes": {
           "items": {
             "type": "string"
@@ -1657,6 +1678,7 @@
             "type": "string",
             "enum": [
               "*",
+              "amqp",
               "couchbase",
               "dns",
               "genai",
@@ -1767,6 +1789,33 @@
         }
       },
       "type": "object"
+    },
+    "NativeHistogramConfig": {
+      "properties": {
+        "bucket_factor": {
+          "type": "number",
+          "default": 1.1,
+          "x-env-var": "OTEL_EBPF_PROMETHEUS_NATIVE_HISTOGRAM_BUCKET_FACTOR"
+        },
+        "max_bucket_number": {
+          "type": "integer",
+          "default": 100,
+          "x-env-var": "OTEL_EBPF_PROMETHEUS_NATIVE_HISTOGRAM_MAX_BUCKET_NUMBER"
+        },
+        "min_reset_duration": {
+          "type": "string",
+          "pattern": "^[0-9]+(ms|s|m)$",
+          "default": "60m",
+          "examples": [
+            "30s",
+            "5m",
+            "1ms"
+          ],
+          "x-env-var": "OTEL_EBPF_PROMETHEUS_NATIVE_HISTOGRAM_MIN_RESET_DURATION"
+        }
+      },
+      "type": "object",
+      "description": "NativeHistogramConfig holds configuration for native histograms"
     },
     "NetworkConfig": {
       "properties": {
@@ -2032,6 +2081,7 @@
             "type": "string",
             "enum": [
               "*",
+              "amqp",
               "couchbase",
               "dns",
               "genai",
@@ -2053,6 +2103,10 @@
             "*"
           ],
           "x-env-var": "OTEL_EBPF_PROMETHEUS_INSTRUMENTATIONS"
+        },
+        "native_histogram": {
+          "$ref": "#/$defs/NativeHistogramConfig",
+          "description": "Configures native histogram bucket parameters. Uses recommended values if not specified."
         },
         "path": {
           "type": "string",
@@ -2573,6 +2627,7 @@
             "type": "string",
             "enum": [
               "*",
+              "amqp",
               "couchbase",
               "dns",
               "genai",
@@ -2599,6 +2654,7 @@
             "kafka",
             "mqtt",
             "nats",
+            "amqp",
             "mongo",
             "couchbase",
             "memcached"

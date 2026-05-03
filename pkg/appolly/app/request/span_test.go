@@ -26,7 +26,7 @@ func TestSpanClientServer(t *testing.T) {
 
 	for _, st := range []EventType{
 		EventTypeHTTPClient, EventTypeGRPCClient, EventTypeSQLClient,
-		EventTypeRedisClient, EventTypeKafkaClient, EventTypeMQTTClient, EventTypeNATSClient,
+		EventTypeRedisClient, EventTypeKafkaClient, EventTypeMQTTClient, EventTypeNATSClient, EventTypeAMQPClient,
 		EventTypeMongoClient, EventTypeMemcachedClient, EventTypeFailedConnect,
 	} {
 		span := &Span{
@@ -49,6 +49,7 @@ func TestEventTypeString(t *testing.T) {
 		EventTypeKafkaClient:     "KafkaClient",
 		EventTypeMQTTClient:      "MQTTClient",
 		EventTypeNATSClient:      "NATSClient",
+		EventTypeAMQPClient:      "AMQPClient",
 		EventTypeRedisServer:     "RedisServer",
 		EventTypeMemcachedServer: "MemcachedServer",
 		EventTypeKafkaServer:     "KafkaServer",
@@ -85,6 +86,8 @@ func TestKindString(t *testing.T) {
 		{Type: EventTypeMQTTClient, Method: MessagingProcess}:  "SPAN_KIND_CONSUMER",
 		{Type: EventTypeNATSClient, Method: MessagingPublish}:  "SPAN_KIND_PRODUCER",
 		{Type: EventTypeNATSClient, Method: MessagingProcess}:  "SPAN_KIND_CONSUMER",
+		{Type: EventTypeAMQPClient, Method: MessagingPublish}:  "SPAN_KIND_PRODUCER",
+		{Type: EventTypeAMQPClient, Method: MessagingProcess}:  "SPAN_KIND_CONSUMER",
 		{}: "SPAN_KIND_INTERNAL",
 	}
 
@@ -113,6 +116,8 @@ func TestServiceGraphConnectionType(t *testing.T) {
 		{name: "MQTT client subscriber", span: &Span{Type: EventTypeMQTTClient, Method: MessagingProcess}, expected: "messaging_system"},
 		{name: "NATS client publisher", span: &Span{Type: EventTypeNATSClient, Method: MessagingPublish}, expected: "messaging_system"},
 		{name: "NATS client subscriber", span: &Span{Type: EventTypeNATSClient, Method: MessagingProcess}, expected: "messaging_system"},
+		{name: "AMQP client publisher", span: &Span{Type: EventTypeAMQPClient, Method: MessagingPublish}, expected: "messaging_system"},
+		{name: "AMQP client subscriber", span: &Span{Type: EventTypeAMQPClient, Method: MessagingProcess}, expected: "messaging_system"},
 		{name: "AWS SQS client", span: &Span{Type: EventTypeHTTPClient, SubType: HTTPSubtypeAWSSQS}, expected: "messaging_system"},
 
 		// Server spans should return empty
@@ -179,6 +184,9 @@ func TestTraceName(t *testing.T) {
 		{name: "NATS client process", span: &Span{Type: EventTypeNATSClient, Method: MessagingProcess, Path: "updates.orders"}, expected: "process updates.orders"},
 		{name: "NATS server", span: &Span{Type: EventTypeNATSServer, Method: MessagingProcess, Path: "updates.orders"}, expected: "process updates.orders"},
 		{name: "NATS no subject", span: &Span{Type: EventTypeNATSClient, Method: MessagingPublish}, expected: "publish"},
+		{name: "AMQP client publish", span: &Span{Type: EventTypeAMQPClient, Method: MessagingPublish, Path: "orders"}, expected: "publish orders"},
+		{name: "AMQP client process", span: &Span{Type: EventTypeAMQPClient, Method: MessagingProcess, Path: "orders"}, expected: "process orders"},
+		{name: "AMQP no destination", span: &Span{Type: EventTypeAMQPClient, Method: MessagingPublish}, expected: "publish"},
 
 		// JSON-RPC spans
 		{name: "JSON-RPC with method", span: &Span{Type: EventTypeHTTP, SubType: HTTPSubtypeJSONRPC, JSONRPC: &JSONRPC{Method: "subtract", Version: "2.0"}}, expected: "subtract"},

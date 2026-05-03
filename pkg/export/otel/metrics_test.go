@@ -21,6 +21,8 @@ import (
 	"go.opentelemetry.io/collector/consumer"
 	"go.opentelemetry.io/collector/pdata/pmetric"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/sdk/instrumentation"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 
 	"go.opentelemetry.io/obi/internal/test/collector"
 	"go.opentelemetry.io/obi/pkg/appolly/app"
@@ -33,6 +35,7 @@ import (
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
+	otelmetric "go.opentelemetry.io/obi/pkg/export/otel/metric"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
@@ -40,6 +43,62 @@ import (
 )
 
 var fakeMux = sync.Mutex{}
+
+func TestOtelHistogramConfig_ExponentialHistogramUsesConfiguredMaxSizeAndScale(t *testing.T) {
+	const metricName = "test.histogram"
+
+	reporter := MetricsReporter{
+		cfg: &otelcfg.MetricsConfig{
+			HistogramAggregation: otelcfg.HistogramAggregationExponential,
+			ExponentialHistogram: otelcfg.ExponentialHistogramConfig{
+				MaxSize:  64,
+				MaxScale: 12,
+			},
+		},
+		log: mlog(),
+	}
+
+	view := reporter.otelHistogramConfig(metricName, nil)
+
+	stream, ok := view(otelmetric.Instrument{
+		Name:  metricName,
+		Scope: instrumentation.Scope{Name: reporterName},
+	})
+	require.True(t, ok)
+
+	aggregation, ok := stream.Aggregation.(sdkmetric.AggregationBase2ExponentialHistogram)
+	require.True(t, ok)
+	assert.Equal(t, int32(64), aggregation.MaxSize)
+	assert.Equal(t, int32(12), aggregation.MaxScale)
+}
+
+func TestOtelHistogramConfig_ExplicitHistogramUsesBuckets(t *testing.T) {
+	const metricName = "test.histogram"
+	buckets := []float64{1, 2, 4}
+
+	reporter := MetricsReporter{
+		cfg: &otelcfg.MetricsConfig{
+			HistogramAggregation: otelcfg.HistogramAggregationExplicit,
+			ExponentialHistogram: otelcfg.ExponentialHistogramConfig{
+				MaxSize:  160,
+				MaxScale: 20,
+			},
+		},
+		log: mlog(),
+	}
+
+	view := reporter.otelHistogramConfig(metricName, buckets)
+
+	stream, ok := view(otelmetric.Instrument{
+		Name:  metricName,
+		Scope: instrumentation.Scope{Name: reporterName},
+	})
+	require.True(t, ok)
+
+	aggregation, ok := stream.Aggregation.(sdkmetric.AggregationExplicitBucketHistogram)
+	require.True(t, ok)
+	assert.Equal(t, buckets, aggregation.Boundaries)
+}
 
 func TestMetrics_InternalInstrumentation(t *testing.T) {
 	defer otelcfg.RestoreEnvAfterExecution()()
@@ -163,6 +222,8 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 				"messaging.client.operation.duration", // Kafka client
 				"messaging.client.operation.duration", // MQTT client
 				"messaging.client.operation.duration", // NATS client
+				"messaging.client.operation.duration", // AMQP client publish
+				"messaging.client.operation.duration", // AMQP client process
 				"messaging.process.duration",          // NATS server (ordering within aggregated metrics)
 				"messaging.process.duration",          // MQTT server (ordering within aggregated metrics)
 				"messaging.process.duration",          // Kafka server
@@ -245,6 +306,15 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 			},
 		},
 		{
+			name:      "amqp only",
+			instr:     []instrumentations.Instrumentation{instrumentations.InstrumentationAMQP},
+			extraColl: 0,
+			expected: []string{
+				"messaging.client.operation.duration",
+				"messaging.process.duration",
+			},
+		},
+		{
 			name:      "none",
 			instr:     nil,
 			extraColl: 0,
@@ -316,6 +386,8 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeMQTTServer, Method: "process", RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeNATSClient, Method: "publish", RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeNATSServer, Method: "process", RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeAMQPClient, Method: "publish", RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeAMQPClient, Method: "process", RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeGPUCudaKernelLaunch, ContentLength: 100, SubType: 200},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeGPUCudaMemcpy, ContentLength: 100, SubType: 1},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeGPUCudaMalloc, ContentLength: 100},
@@ -1108,6 +1180,11 @@ func TestConnectionTypeForSpan(t *testing.T) {
 		{
 			name:     "NATS producer",
 			span:     &request.Span{Type: request.EventTypeNATSClient, Method: request.MessagingPublish, HostName: "nats-server"},
+			expected: "messaging_system",
+		},
+		{
+			name:     "AMQP producer",
+			span:     &request.Span{Type: request.EventTypeAMQPClient, Method: request.MessagingPublish, HostName: "amqp-broker"},
 			expected: "messaging_system",
 		},
 		{

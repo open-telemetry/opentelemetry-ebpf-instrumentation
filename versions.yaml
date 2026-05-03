@@ -51,6 +51,7 @@ excluded-modules:
   - go.opentelemetry.io/obi/internal/test/integration/components/testserver_1.17
   - go.opentelemetry.io/obi/internal/test/integration/components/wrapper
   - go.opentelemetry.io/obi/internal/test/oats/ai
+  - go.opentelemetry.io/obi/internal/test/oats/amqp
   - go.opentelemetry.io/obi/internal/test/oats/harness
   - go.opentelemetry.io/obi/internal/test/oats/http
   - go.opentelemetry.io/obi/internal/test/oats/kafka
