@@ -48,6 +48,9 @@
 
 #include <shared/obi_ctx.h>
 
+const char JSON_RPC[] = "JSONRPC";
+const u32 JSON_RPC_SIZE = sizeof(JSON_RPC) - 1;
+
 static __always_inline unsigned char *temp_header_mem() {
     const u32 zero = 0;
     return bpf_map_lookup_elem(&temp_header_mem_store, &zero);
@@ -1400,7 +1403,6 @@ int obi_uprobe_jsonrpcReadRequestHeaderReturns(struct pt_regs *ctx) {
         return 0;
     }
 
-    bpf_memcpy(invocation->method, "JSONRPC", 7);
     if (!read_go_str("JSON-RPC method",
                      (void *)rpc_request_addr,
                      go_offset_of(ot, (go_offset){.v = _jsonrpc_request_header_service_method_pos}),
@@ -1410,6 +1412,7 @@ int obi_uprobe_jsonrpcReadRequestHeaderReturns(struct pt_regs *ctx) {
         return 0;
     }
     bpf_dbg_printk("read jsonrpc method: %s", invocation->pattern);
+    bpf_memcpy(invocation->method, JSON_RPC, JSON_RPC_SIZE);
 
     return 0;
 }
