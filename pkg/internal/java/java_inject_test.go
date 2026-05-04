@@ -506,6 +506,55 @@ func TestJavaInjector_AttachOpts(t *testing.T) {
 	}
 }
 
+func TestNewJavaInjector_Disabled(t *testing.T) {
+	injector, err := NewJavaInjector(&obi.Config{
+		Java: obi.JavaConfig{
+			Enabled: false,
+		},
+	})
+
+	require.NoError(t, err)
+	assert.Nil(t, injector)
+}
+
+func TestNewJavaInjector_MissingEmbeddedAgent(t *testing.T) {
+	originalEmbeddedBytes := embeddedJavaAgentBytes
+	t.Cleanup(func() {
+		embeddedJavaAgentBytes = originalEmbeddedBytes
+	})
+
+	embeddedJavaAgentBytes = nil
+
+	injector, err := NewJavaInjector(&obi.Config{
+		Java: obi.JavaConfig{
+			Enabled: true,
+		},
+	})
+
+	require.Error(t, err)
+	assert.Nil(t, injector)
+	assert.Contains(t, err.Error(), "embedded OBI java agent artifact is missing from this build")
+}
+
+func TestNewJavaInjector_PlaceholderEmbeddedAgent(t *testing.T) {
+	originalEmbeddedBytes := embeddedJavaAgentBytes
+	t.Cleanup(func() {
+		embeddedJavaAgentBytes = originalEmbeddedBytes
+	})
+
+	embeddedJavaAgentBytes = []byte(javaAgentEmbedPlaceholder + "\n")
+
+	injector, err := NewJavaInjector(&obi.Config{
+		Java: obi.JavaConfig{
+			Enabled: true,
+		},
+	})
+
+	require.Error(t, err)
+	assert.Nil(t, injector)
+	assert.Contains(t, err.Error(), "embedded OBI java agent artifact is missing from this build")
+}
+
 func TestEnsureEmbeddedAgent_ForgotToEmbed(t *testing.T) {
 	originalEmbeddedBytes := embeddedJavaAgentBytes
 	t.Cleanup(func() {
