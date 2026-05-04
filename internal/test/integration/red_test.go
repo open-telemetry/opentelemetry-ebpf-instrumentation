@@ -225,7 +225,7 @@ func testSpanMetricsForJSONRPCHTTP(t *testing.T, svcName, svcNs string) {
 	pq := promtest.Client{HostPort: prometheusHostPort}
 	var results []promtest.Result
 
-	expectedSpanName := "Arith.M /jsonrpc"
+	expectedSpanName := "Arith.Multiply"
 
 	// Test span metrics
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
@@ -317,7 +317,7 @@ func testREDMetricsForJSONRPCHTTP(t *testing.T, url, svcName, svcNs string) {
 	jsonBody, err := os.ReadFile(path.Join(pathRoot, "internal", "test", "integration", "components", "testserver", "jsonrpc", "body", "formated.json"))
 	require.NoError(t, err)
 	urlPath := "/jsonrpc"
-	expectedMethod := "Arith.M"
+	expectedMethod := "POST"
 
 	for i := 0; i < 4; i++ {
 		doHTTPPost(t, url+urlPath, 200, jsonBody)
