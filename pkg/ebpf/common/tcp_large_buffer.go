@@ -12,11 +12,21 @@ import (
 	"go.opentelemetry.io/obi/pkg/internal/largebuf"
 )
 
+type largeBufferKind uint8
+
+// must match the table large_buf_kind in common.h
+const (
+	LBKindTCP      largeBufferKind = 0
+	LBKindHTTP     largeBufferKind = 1
+	LBKindTCPKnown largeBufferKind = 2
+)
+
 type largeBufferKey struct {
 	traceID               [16]uint8
 	packetType, direction uint8
 	connInfo              BpfConnectionInfoT
 	pid                   uint32
+	kind                  largeBufferKind
 }
 
 const (
@@ -38,11 +48,12 @@ func appendTCPLargeBuffer(parseCtx *EBPFParseContext, record *ringbuf.Record) (r
 		direction:  event.Direction,
 		connInfo:   event.ConnInfo,
 		pid:        event.Pid,
+		kind:       largeBufferKind(event.Kind),
 	}
 
 	if parseCtx.protocolDebug {
-		fmt.Printf(">>> LargeBufferAppend: (packet=%d direction=%d action=%d size=%d)\n%s\n",
-			event.PacketType, event.Direction, event.Action, event.Len,
+		fmt.Printf(">>> LargeBufferAppend: (packet=%d direction=%d action=%d size=%d kind=%d)\n%s\n",
+			event.PacketType, event.Direction, event.Action, event.Len, event.Kind,
 			string(record.RawSample[hdrSize:hdrSize+event.Len]))
 	}
 
@@ -71,35 +82,76 @@ func appendTCPLargeBuffer(parseCtx *EBPFParseContext, record *ringbuf.Record) (r
 	return request.Span{}, true, nil
 }
 
-func extractTCPLargeBuffer(
+func extractLargeBuffer(
 	parseCtx *EBPFParseContext,
 	traceID [16]uint8,
 	packetType, direction uint8,
 	connInfo BpfConnectionInfoT,
 	pid uint32,
+	kind largeBufferKind,
 ) (*largebuf.LargeBuffer, bool) {
+	// The kind field tells us if we want to extract HTTP or TCP buffers. In normal circumstances
+	// there never would be any mixup, it's either TCP or HTTP. However, when decrypt SSL we could
+	// see SSL packets on the same connection before we decrypt the first SSL packet. In that instance
+	// we may get TCP (SSL junk) and HTTP large buffers on the same connection and we need to
+	// be able to tell them apart. For the same reason, we tell apart the special TCP protocols from
+	// the generic TCP protocol
 	key := largeBufferKey{
 		traceID:    traceID,
 		packetType: packetType,
 		direction:  direction,
 		connInfo:   connInfo,
 		pid:        pid,
+		kind:       kind,
 	}
 
 	lb, ok := parseCtx.largeBuffers.Get(key)
 	if !ok {
 		if parseCtx.protocolDebug {
-			fmt.Printf("<<< LargeBufferExtract: not found! (packet=%d direction=%d)\n", key.packetType, key.direction)
+			fmt.Printf("<<< LargeBufferExtract: not found! (packet=%d direction=%d kind=%d)\n", key.packetType, key.direction, int(key.kind))
 		}
 		return nil, false
 	}
 
 	if parseCtx.protocolDebug {
-		fmt.Printf("<<< LargeBufferExtract: (packet=%d direction=%d len=%d)\n%s\n",
-			key.packetType, key.direction, lb.Len(), lb.UnsafeView())
+		fmt.Printf("<<< LargeBufferExtract: (packet=%d direction=%d kind=%d len=%d)\n%s\n",
+			key.packetType, key.direction, int(key.kind), lb.Len(), lb.UnsafeView())
 	}
 
 	parseCtx.largeBuffers.Remove(key)
 
 	return lb, true
+}
+
+func protocolToLargeBufferKind(protocolType uint8) largeBufferKind {
+	switch protocolType {
+	case ProtocolTypeKafka:
+	case ProtocolTypeMySQL:
+	case ProtocolTypePostgres:
+	case ProtocolTypeMSSQL:
+		return LBKindTCPKnown
+	}
+	// No large buffers for MQTT
+	return LBKindTCP
+}
+
+func extractTCPLargeBuffer(
+	parseCtx *EBPFParseContext,
+	traceID [16]uint8,
+	packetType, direction uint8,
+	connInfo BpfConnectionInfoT,
+	pid uint32,
+	protocolType uint8,
+) (*largebuf.LargeBuffer, bool) {
+	return extractLargeBuffer(parseCtx, traceID, packetType, direction, connInfo, pid, protocolToLargeBufferKind(protocolType))
+}
+
+func extractHTTPLargeBuffer(
+	parseCtx *EBPFParseContext,
+	traceID [16]uint8,
+	packetType, direction uint8,
+	connInfo BpfConnectionInfoT,
+	pid uint32,
+) (*largebuf.LargeBuffer, bool) {
+	return extractLargeBuffer(parseCtx, traceID, packetType, direction, connInfo, pid, LBKindHTTP)
 }

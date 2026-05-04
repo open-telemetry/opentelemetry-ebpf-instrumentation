@@ -359,13 +359,17 @@ static __always_inline int http_send_large_buffer(http_info_t *req,
         return -1;
     }
 
+    const u64 pid_tid = bpf_get_current_pid_tgid();
+    const u32 pid = pid_from_pid_tgid(pid_tid);
+
     large_buf->type = EVENT_TCP_LARGE_BUFFER;
     large_buf->packet_type = packet_type;
     large_buf->direction = direction;
     large_buf->conn_info = req->conn_info;
     large_buf->action = action;
+    large_buf->kind = k_large_buf_kind_http;
     large_buf->tp = req->tp;
-    large_buf->pid = req->pid.host_pid;
+    large_buf->pid = pid;
 
     u32 max_available_bytes = http_max_captured_bytes - bytes_sent;
     bpf_clamp_umax(max_available_bytes, k_large_buf_max_http_captured_bytes);

@@ -148,10 +148,13 @@ static __always_inline int mysql_send_large_buffer(tcp_req_t *req,
     lb->type = EVENT_TCP_LARGE_BUFFER;
     lb->packet_type = packet_type;
     lb->action = action;
+    lb->kind = k_large_buf_kind_tcp_known;
     lb->direction = direction;
     lb->conn_info = pid_conn->conn;
     lb->tp = req->tp;
-    lb->pid = req->pid.host_pid;
+    const u64 pid_tid = bpf_get_current_pid_tgid();
+    const u32 pid = pid_from_pid_tgid(pid_tid);
+    lb->pid = pid;
 
     u32 max_available_bytes = mysql_max_captured_bytes - bytes_sent;
 
