@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	cebpf "github.com/cilium/ebpf"
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/ringbuf"
@@ -63,3 +64,5 @@ func (testEBPFFetcher) ReadRingBuf() (ringbuf.Record, error) { return ringbuf.Re
 func (testEBPFFetcher) LookupPacketStats() (ebpf.NetPacketCount, error) {
 	return ebpf.NetPacketCount{}, nil
 }
+
+func (testEBPFFetcher) DebugEventsMap() *cebpf.Map { return nil }
