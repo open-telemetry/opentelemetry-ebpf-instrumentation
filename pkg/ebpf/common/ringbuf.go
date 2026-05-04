@@ -293,6 +293,10 @@ func (rbf *ringBufForwarder[T]) parserLoop(
 			pending = append(pending, i)
 		}
 
+		if depth := len(workIdx); depth == cap(workIdx)-1 {
+			rbf.logger.Debug("parser falling behind: work queue full", "depth", depth+1)
+		}
+
 		// Drain any additional records that are already waiting.
 		for {
 			select {
@@ -304,10 +308,6 @@ func (rbf *ringBufForwarder[T]) parserLoop(
 			default:
 			}
 			break
-		}
-
-		if depth := len(workIdx); depth == cap(workIdx)-1 {
-			rbf.logger.Debug("parser falling behind: work queue full", "depth", depth+1)
 		}
 
 		// Parse outside the lock, return each slot to the pool immediately.
