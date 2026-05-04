@@ -307,7 +307,7 @@ static __always_inline void handle_unknown_tcp_connection(pid_connection_info_t 
 
         tcp_req_t *req = empty_tcp_req();
         if (req) {
-            req->is_server = is_server || (direction == TCP_RECV);
+            req->is_server = is_server;
             int original_bytes_len = bytes_len;
             bpf_clamp_umax(bytes_len, k_tcp_max_len);
             req->flags = EVENT_TCP_REQUEST;
