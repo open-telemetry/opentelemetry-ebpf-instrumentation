@@ -69,8 +69,8 @@ func testREDMetricsForRubyHTTPLibrary(t *testing.T, url string, comm string) {
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		var err error
 		results, err = pq.Query(`target_info{` +
-			`data_center="ca",` +
-			`deployment_zone="to"}`)
+			`cloud_region="ca",` +
+			`deployment_environment_name="to"}`)
 		require.NoError(ct, err)
 		enoughPromResults(ct, results)
 		val := totalPromCount(ct, results)
