@@ -93,8 +93,10 @@ func BPFMetrics(
 	}
 }
 
-var newBPFCollectorFn = newBPFCollector
-var newInternalBPFCollectorFn = newInternalBPFCollector
+var (
+	newBPFCollectorFn         = newBPFCollector
+	newInternalBPFCollectorFn = newInternalBPFCollector
+)
 
 func internalMetricsEnabled(internalMetrics imetrics.Reporter) bool {
 	if internalMetrics == nil || imetrics.IsBuiltinNoopReporter(internalMetrics) {
