@@ -23,6 +23,8 @@ func TestFlowsStopReturnsRunnerCancelTimeout(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
+	const shutdownTimeout = 20 * time.Millisecond
+
 	blocked := make(chan struct{})
 	defer close(blocked)
 
@@ -34,11 +36,11 @@ func TestFlowsStopReturnsRunnerCancelTimeout(t *testing.T) {
 	graph, err := instancer.Instance(ctx)
 	require.NoError(t, err)
 
-	graph.Start(ctx, swarm.WithCancelTimeout(20*time.Millisecond))
+	graph.Start(ctx, swarm.WithCancelTimeout(shutdownTimeout))
 	cancel()
 
 	flows := &Flows{
-		cfg:          &obi.Config{ShutdownTimeout: 200 * time.Millisecond},
+		cfg:          &obi.Config{ShutdownTimeout: shutdownTimeout},
 		graph:        graph,
 		ifaceManager: tcmanager.NewInterfaceManager(),
 		ebpf:         testEBPFFetcher{},
