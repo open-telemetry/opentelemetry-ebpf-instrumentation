@@ -506,22 +506,26 @@ func TestJavaInjector_AttachOpts(t *testing.T) {
 	}
 }
 
-func TestEnsureEmbeddedAgentInCache_ForgotToEmbed(t *testing.T) {
+func TestEnsureEmbeddedAgent_ForgotToEmbed(t *testing.T) {
 	originalEmbeddedBytes := embeddedJavaAgentBytes
 	t.Cleanup(func() {
 		embeddedJavaAgentBytes = originalEmbeddedBytes
 	})
 
 	embeddedJavaAgentBytes = nil
-	assert.Panics(t, ensureEmbeddedAgent)
+	err := ensureEmbeddedAgent()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "embedded OBI java agent artifact is missing from this build")
 }
 
-func TestEnsureEmbeddedAgentInCache_PlaceholderBytesError(t *testing.T) {
+func TestEnsureEmbeddedAgent_PlaceholderBytesError(t *testing.T) {
 	originalEmbeddedBytes := embeddedJavaAgentBytes
 	t.Cleanup(func() {
 		embeddedJavaAgentBytes = originalEmbeddedBytes
 	})
 
 	embeddedJavaAgentBytes = []byte(javaAgentEmbedPlaceholder + "\n")
-	assert.Panics(t, ensureEmbeddedAgent)
+	err := ensureEmbeddedAgent()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "embedded OBI java agent artifact is missing from this build")
 }
