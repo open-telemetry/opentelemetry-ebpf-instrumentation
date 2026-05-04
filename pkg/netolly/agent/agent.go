@@ -287,10 +287,10 @@ func (f *Flows) stop() error {
 		alog.Debug("waiting for all nodes to finish their pending work")
 
 		f.ifaceManager.Wait()
-		<-f.graph.Done()
+		err := <-f.graph.Done()
 		f.status = StatusStopped
 
-		if err := <-f.graph.Done(); err != nil {
+		if err != nil {
 			stopped <- err
 		}
 		close(stopped)
