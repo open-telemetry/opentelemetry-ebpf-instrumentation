@@ -146,18 +146,18 @@ static __always_inline void finish_ongoing_tcp_req(pid_connection_info_t *pid_co
     bpf_map_delete_elem(&ongoing_tcp_req, pid_conn);
 }
 
-static __always_inline int unknown_send_large_buffer(tcp_req_t *req,
-                                                     pid_connection_info_t *pid_conn,
-                                                     const void *u_buf,
-                                                     u32 bytes_len,
-                                                     u8 packet_type,
-                                                     u8 direction,
-                                                     enum large_buf_action action) {
+static __always_inline void unknown_send_large_buffer(tcp_req_t *req,
+                                                      pid_connection_info_t *pid_conn,
+                                                      const void *u_buf,
+                                                      u32 bytes_len,
+                                                      u8 packet_type,
+                                                      u8 direction,
+                                                      enum large_buf_action action) {
     tcp_large_buffer_t *lb = (tcp_large_buffer_t *)tcp_large_buffers_mem();
 
     if (!lb) {
-        bpf_dbg_printk("failed to reserve space for Kafka large buffer");
-        return 0;
+        bpf_dbg_printk("failed to reserve space for generic TCP large buffer");
+        return;
     }
 
     lb->type = EVENT_TCP_LARGE_BUFFER;
@@ -188,8 +188,6 @@ static __always_inline int unknown_send_large_buffer(tcp_req_t *req,
     if (consumed_bytes > 0) {
         req->has_large_buffers = true;
     }
-
-    return 0;
 }
 
 static __always_inline int tcp_send_large_buffer(tcp_req_t *req,
@@ -199,8 +197,6 @@ static __always_inline int tcp_send_large_buffer(tcp_req_t *req,
                                                  u8 direction,
                                                  enum protocol_type protocol_type,
                                                  enum large_buf_action action) {
-    bpf_printk("is_server: %d", req->is_server);
-
     const u8 packet_type = infer_packet_type(direction, req->is_server);
 
     switch (protocol_type) {
