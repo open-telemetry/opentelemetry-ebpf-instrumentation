@@ -5,5 +5,6 @@
 #    pip-compile --generate-hashes --output-file=requirements.txt --strip-extras requirements.in
 #
 nats-py==2.14.0 \
-    --hash=sha256:4116f5d2233ce16e63c3d5538fa40a5e207f75fcf42a741773929ddf1e29d19d
+    --hash=sha256:4116f5d2233ce16e63c3d5538fa40a5e207f75fcf42a741773929ddf1e29d19d \
+    --hash=sha256:4ed02cb8e3b55c68074a063aa2687087115d805d1513297da90cb2068fb07bed
     # via -r requirements.in
