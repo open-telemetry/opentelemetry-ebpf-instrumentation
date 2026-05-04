@@ -319,11 +319,16 @@ func TestTracesConfig_Enabled(t *testing.T) {
 	tracesConsumer, err := consumer.NewTraces(func(context.Context, ptrace.Traces) error { return nil })
 	require.NoError(t, err)
 
+	providerCalls := 0
 	assert.True(t, (&TracesConfig{CommonEndpoint: "foo"}).Enabled())
 	assert.True(t, (&TracesConfig{TracesEndpoint: "foo"}).Enabled())
 	assert.True(t, (&TracesConfig{
-		OTLPEndpointProvider: func() (string, bool) { return "https://collector:4318", false },
+		OTLPEndpointProvider: func() (string, bool) {
+			providerCalls++
+			return "https://collector:4318", false
+		},
 	}).Enabled())
+	assert.Equal(t, 1, providerCalls)
 	assert.True(t, (&TracesConfig{TracesConsumer: tracesConsumer}).Enabled())
 	assert.True(t, (&TracesConfig{Protocol: ProtocolDebug}).Enabled())
 }
