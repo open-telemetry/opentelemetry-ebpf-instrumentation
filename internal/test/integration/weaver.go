@@ -40,7 +40,7 @@ var weaverIgnoredSignals = map[string]struct{}{
 	// `unit: "ms"` for this metric. Live-check resolves against the upstream
 	// definition and flags every data point as a violation; declaring an
 	// override in our registry only produces a duplicate-id warning at
-	// registry-check time without changing live-check behaviour. The unit
+	// registry-check time without changing live-check behavior. The unit
 	// reverts to `s` in semconv v1.40.0, so this entry can drop once we bump
 	// the manifest's pinned semconv version to >= 1.40.0.
 	// TODO: remove once `schemas/obi/manifest.yaml` is bumped to semconv
