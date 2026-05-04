@@ -72,6 +72,7 @@ through language-specific library instrumentation documented later in this file.
 | Memcached | All | ASCII text subset excluding `quit` and meta commands | Yes | No | Only the first key is recorded for multi-key retrieval; payload bytes are not captured |
 | Kafka | All | `produce`, `fetch` | Yes | No | Topic name lookup may fail for newer fetch API versions (`>= 13`) |
 | MQTT | `3.1.1/5.0` | `publish`, `subscribe` | No | No | Only the first topic filter is used for subscribe; payload not captured |
+| AMQP | `1.0` | `publish`, `process` | No | No | Userspace heuristic only; only transfer performatives create spans |
 | GraphQL | All | All | Yes | No | None documented |
 | Elasticsearch | `7.14+` | `/_search`, `/_msearch`, `/_bulk`, `/_doc` | Yes | No | None documented |
 | Opensearch | `3.0.0+` | `/_search`, `/_msearch`, `/_bulk`, `/_doc` | Yes | No | None documented |

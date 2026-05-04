@@ -237,6 +237,7 @@ func TestSuite_Java(t *testing.T) {
 	compose.Env = append(compose.Env, `JAVA_TEST_MODE=-native`)
 	require.NoError(t, compose.Up())
 	t.Run("Java RED metrics", testREDMetricsJavaHTTP)
+	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
 
@@ -517,6 +518,7 @@ func TestSuite_JavaKafka(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, compose.Up())
 	t.Run("Java Kafka 4.0.0 tests", func(t *testing.T) { testJavaKafka(t, 9092, "javakafka") })
+	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
 
@@ -559,6 +561,7 @@ func TestSuite_PythonAsyncUvloop_3_14(t *testing.T) {
 	t.Run("Concurrent", testPythonAsyncConcurrent)
 	t.Run("To Thread", testPythonAsyncToThread)
 	t.Run("Nested", testPythonAsyncNested)
+	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
 
@@ -686,6 +689,7 @@ func TestSuite_PythonElasticsearch(t *testing.T) {
 	t.Run("Python Opensearch", func(t *testing.T) {
 		testPythonElasticsearch(t, "opensearch")
 	})
+	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
 
