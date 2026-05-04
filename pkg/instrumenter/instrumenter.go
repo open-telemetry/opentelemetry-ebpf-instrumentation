@@ -230,6 +230,7 @@ func BuildCommonContextInfo(
 	)
 
 	ctxInfo.DockerMetadata = docker.NewStore()
+	ctxInfo.DockerMetadata.Start(ctx)
 
 	attributeGroups(config, ctxInfo)
 
