@@ -532,3 +532,11 @@ func TestIPInfoEventHandlerRefreshesDeletedEventTimestamp(t *testing.T) {
 	assert.Equal(t, informer.EventType_DELETED, observer.events[0].Type)
 	assert.GreaterOrEqual(t, observer.events[0].Resource.StatusTimeEpoch, start)
 }
+
+func TestRefreshStatusTimeEpochPreservesCurrentTimestamp(t *testing.T) {
+	em := &informer.ObjectMeta{StatusTimeEpoch: time.Now().Add(time.Hour).Unix()}
+
+	refreshStatusTimeEpoch(em)
+
+	assert.Greater(t, em.StatusTimeEpoch, time.Now().Unix())
+}
