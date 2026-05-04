@@ -126,8 +126,11 @@ func extractLargeBuffer(
 func protocolToLargeBufferKind(protocolType uint8) largeBufferKind {
 	switch protocolType {
 	case ProtocolTypeKafka:
+		fallthrough
 	case ProtocolTypeMySQL:
+		fallthrough
 	case ProtocolTypePostgres:
+		fallthrough
 	case ProtocolTypeMSSQL:
 		return LBKindTCPKnown
 	}
