@@ -32,9 +32,21 @@ const (
 // without declaring the underlying signal in the OBI registry. Most non-semconv
 // emissions (Prometheus `target_info`, OTel-contrib spanmetrics / service-graph
 // shape, OBI-internal markers) are declared in `schemas/obi/` and validated
-// against by weaver, so this map is normally empty. Add entries here only as a
-// short-lived bridge while a registry update is in flight.
-var weaverIgnoredSignals = map[string]struct{}{}
+// against by weaver, so this map is intended to stay small. Add entries here
+// only as a short-lived bridge while OBI catches up to a semconv contract.
+var weaverIgnoredSignals = map[string]struct{}{
+	// OBI emits `rpc.server.duration` with `unit: "s"`, but upstream semconv
+	// v1.38 (the version pinned in `schemas/obi/manifest.yaml`) specifies
+	// `unit: "ms"` for this metric. Live-check resolves against the upstream
+	// definition and flags every data point as a violation; declaring an
+	// override in our registry only produces a duplicate-id warning at
+	// registry-check time without changing live-check behaviour. The unit
+	// reverts to `s` in semconv v1.40.0, so this entry can drop once we bump
+	// the manifest's pinned semconv version to >= 1.40.0.
+	// TODO: remove once `schemas/obi/manifest.yaml` is bumped to semconv
+	// >= 1.40.0 (which restores `rpc.server.duration` to seconds).
+	"metric:rpc.server.duration": {},
+}
 
 // weaverIgnoredAdviceMessages suppresses specific advice messages that match
 // known structural tensions weaver reports against the registry as a whole
@@ -144,16 +156,52 @@ func runWeaverValidation(t *testing.T) {
 		t.Logf("weaver diagnostics:\n%s", stderr.String())
 	}
 
-	// Parse the JSON report from stdout.
+	// Parse the JSON report from stdout. Weaver may emit diagnostic JSON
+	// records (for example duplicate-id warnings on registry resolution)
+	// alongside the report; the live-check report itself is the value with
+	// `samples` and `statistics` fields. Iterate top-level JSON objects and
+	// pick the one that matches the report shape.
 	jsonStr := strings.TrimSpace(stdout.String())
 	if jsonStr == "" {
 		t.Fatalf("weaver produced no JSON output on stdout")
 	}
+	report, err := decodeWeaverReport(jsonStr)
+	require.NoError(t, err, "failed to parse weaver JSON report")
 
-	var report weaverReport
-	require.NoError(t, json.Unmarshal([]byte(jsonStr), &report), "failed to parse weaver JSON report")
+	validateWeaverReport(t, report)
+}
 
-	validateWeaverReport(t, &report)
+// decodeWeaverReport scans `s` for top-level JSON objects and returns the
+// first one that matches the live-check report shape (non-nil `Statistics`
+// or non-empty `Samples`). Other top-level JSON values (e.g. diagnostic
+// records) are skipped.
+func decodeWeaverReport(s string) (*weaverReport, error) {
+	dec := json.NewDecoder(strings.NewReader(s))
+	var lastErr error
+	var lastReport *weaverReport
+	for dec.More() {
+		var probe weaverReport
+		if err := dec.Decode(&probe); err != nil {
+			lastErr = err
+			break
+		}
+		// Heuristic: a live-check report has non-zero statistics or at least
+		// one sample. Anything else (diagnostics, error envelopes) wouldn't
+		// populate these.
+		if probe.Statistics.TotalEntities > 0 || probe.Statistics.TotalAdvisories > 0 || len(probe.Samples) > 0 {
+			r := probe
+			return &r, nil
+		}
+		r := probe
+		lastReport = &r
+	}
+	if lastReport != nil {
+		return lastReport, nil
+	}
+	if lastErr != nil {
+		return nil, lastErr
+	}
+	return nil, fmt.Errorf("no weaver report found in %d bytes of output", len(s))
 }
 
 func validateWeaverReport(t *testing.T, report *weaverReport) {

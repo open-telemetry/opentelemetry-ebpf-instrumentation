@@ -87,21 +87,3 @@ groups:
       - ref: host.id
         requirement_level: opt_in
 
-  # OBI deviation from upstream semconv: we currently emit `rpc.server.duration`
-  # in seconds while semconv == 1.38 specifies milliseconds. This declaration
-  # produces a duplicate-id / duplicate-metric-name warning during
-  # `weaver registry check` (because the upstream registry also defines this
-  # metric). The warning is non-fatal; it documents the deviation explicitly.
-  # TODO: drop this group once OBI emits `rpc.server.duration` in
-  # milliseconds (matching the semconv >= 1.38 unit specification — likely
-  # in lockstep with bumping the manifest's pinned semconv to >= 1.40.0).
-  - id: metric.rpc.server.duration
-    type: metric
-    metric_name: rpc.server.duration
-    instrument: histogram
-    unit: "s"
-    stability: development
-    brief: >
-      OBI deviation: rpc.server.duration is emitted in seconds rather than
-      the milliseconds specified by upstream semconv. Tracked for removal.
-    attributes: [ ]
