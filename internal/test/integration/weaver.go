@@ -114,8 +114,20 @@ type adviceInfo struct {
 // that the emitted telemetry conforms to OpenTelemetry semantic conventions.
 //
 // This must be called while the Docker Compose stack is still running.
+//
+// If the parent test has already failed (e.g. a sub-test exposed an OBI bug
+// or the test environment couldn't produce telemetry), validation is skipped
+// to avoid burying the real failure under cascading "weaver received no
+// samples" noise. We still POST /stop and `docker wait` so the weaver
+// container exits cleanly for `compose.Close()`.
 func runWeaverValidation(t *testing.T) {
 	t.Helper()
+
+	priorFailure := t.Failed()
+	if priorFailure {
+		t.Logf("skipping weaver validation: prior test failure detected; " +
+			"only stopping the weaver container so compose teardown is clean")
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), weaverTimeout)
 	defer cancel()
@@ -135,6 +147,14 @@ func runWeaverValidation(t *testing.T) {
 	_, err = exec.CommandContext(ctx, "docker", "wait", weaverContainer).Output()
 	if err != nil {
 		t.Fatalf("failed to wait for weaver container: %v", err)
+	}
+
+	// If a prior sub-test already failed, the weaver report would either be
+	// empty (no telemetry produced) or only reflect a partial run. Either
+	// way it's not the real signal — skip parsing & assertions so the
+	// upstream failure stays the headline.
+	if priorFailure {
+		return
 	}
 
 	// Capture stdout (JSON report) and stderr (log lines) separately.
