@@ -1,6 +1,6 @@
 services:
   edge-apache:
-    image: httpd:2.4.66-alpine@sha256:968c8b4098fcecb473762b45f6c541a3b2b2cfab2caccb1edbd2cece071ef160
+    image: httpd:2.4.67-alpine@sha256:0136c2d4462f3b8ecc92bea70efdfef4d06523999ae8d7aa533969dea6db4576
     container_name: edge-apache
     network_mode: host
     volumes:
@@ -12,7 +12,7 @@ services:
       - recommendations-v2
 
   recommendations-v1:
-    image: httpd:2.4.66-alpine@sha256:968c8b4098fcecb473762b45f6c541a3b2b2cfab2caccb1edbd2cece071ef160
+    image: httpd:2.4.67-alpine@sha256:0136c2d4462f3b8ecc92bea70efdfef4d06523999ae8d7aa533969dea6db4576
     container_name: recommendations-v1-apache
     network_mode: host
     volumes:
@@ -21,7 +21,7 @@ services:
       - ./htdocs:/usr/local/apache2/htdocs:ro
 
   recommendations-v2:
-    image: httpd:2.4.66-alpine@sha256:968c8b4098fcecb473762b45f6c541a3b2b2cfab2caccb1edbd2cece071ef160
+    image: httpd:2.4.67-alpine@sha256:0136c2d4462f3b8ecc92bea70efdfef4d06523999ae8d7aa533969dea6db4576
     container_name: recommendations-v2-apache
     network_mode: host
     volumes:
