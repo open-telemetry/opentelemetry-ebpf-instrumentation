@@ -22,12 +22,12 @@ func TestProtocolToLargeBufferKind(t *testing.T) {
 		protocolType uint8
 		expected     largeBufferKind
 	}{
-		{ProtocolTypeKafka, LBKindTCPKnown},
-		{ProtocolTypeMySQL, LBKindTCPKnown},
-		{ProtocolTypePostgres, LBKindTCPKnown},
-		{ProtocolTypeMSSQL, LBKindTCPKnown},
-		{ProtocolTypeMQTT, LBKindTCP},
-		{ProtocolTypeUnknown, LBKindTCP},
+		{ProtocolTypeKafka, KindLayerApp},
+		{ProtocolTypeMySQL, KindLayerApp},
+		{ProtocolTypePostgres, KindLayerApp},
+		{ProtocolTypeMSSQL, KindLayerApp},
+		{ProtocolTypeMQTT, KindLayerWire},
+		{ProtocolTypeUnknown, KindLayerWire},
 	}
 	for _, tt := range tests {
 		require.Equal(t, tt.expected, protocolToLargeBufferKind(tt.protocolType))
@@ -37,7 +37,7 @@ func TestProtocolToLargeBufferKind(t *testing.T) {
 func TestTCPLargeBuffers(t *testing.T) {
 	pctx := NewEBPFParseContext(nil, nil, nil)
 	verifyLargeBuffer := func(traceID [16]uint8, packetType, direction uint8, connInfo BpfConnectionInfoT, expectedBuf string) {
-		buf, ok := extractTCPLargeBuffer(pctx, traceID, packetType, direction, connInfo, 1, ProtocolTypeMySQL)
+		buf, ok := extractTCPLargeBuffer(pctx, traceID, packetType, direction, connInfo, ProtocolTypeMySQL)
 		require.True(t, ok, "Expected to find large buffer")
 		require.Equal(t, expectedBuf, unix.ByteSliceToString(buf.UnsafeView()), "Buffer content mismatch")
 	}
@@ -47,8 +47,7 @@ func TestTCPLargeBuffers(t *testing.T) {
 		PacketType: 1,
 		Direction:  0,
 		Len:        10,
-		Pid:        1,
-		Kind:       uint8(LBKindTCPKnown),
+		Kind:       uint8(KindLayerApp),
 	}
 	firstEvent.Tp.TraceId = [16]uint8{'1'}
 	firstEvent.ConnInfo = BpfConnectionInfoT{
@@ -74,7 +73,7 @@ func TestTCPLargeBuffers(t *testing.T) {
 	verifyLargeBuffer(firstEvent.Tp.TraceId, firstEvent.PacketType, firstEvent.Direction, firstEvent.ConnInfo, secondBuf)
 
 	// Verify second read error
-	_, ok := extractTCPLargeBuffer(pctx, firstEvent.Tp.TraceId, firstEvent.PacketType, firstEvent.Direction, firstEvent.ConnInfo, 1, ProtocolTypeMySQL)
+	_, ok := extractTCPLargeBuffer(pctx, firstEvent.Tp.TraceId, firstEvent.PacketType, firstEvent.Direction, firstEvent.ConnInfo, ProtocolTypeMySQL)
 	require.False(t, ok, "Expected to not find large buffer after first read")
 
 	firstEvent.Len = uint32(len(firstBuf))
@@ -82,9 +81,9 @@ func TestTCPLargeBuffers(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify no buffer read happens for different traceID/packet_type
-	_, ok = extractTCPLargeBuffer(pctx, [16]uint8{99}, firstEvent.PacketType, firstEvent.Direction, firstEvent.ConnInfo, 1, ProtocolTypeMySQL)
+	_, ok = extractTCPLargeBuffer(pctx, [16]uint8{99}, firstEvent.PacketType, firstEvent.Direction, firstEvent.ConnInfo, ProtocolTypeMySQL)
 	require.False(t, ok, "Expected to not find large buffer for this traceID")
-	_, ok = extractTCPLargeBuffer(pctx, firstEvent.Tp.TraceId, 3, firstEvent.Direction, firstEvent.ConnInfo, 1, ProtocolTypeMySQL)
+	_, ok = extractTCPLargeBuffer(pctx, firstEvent.Tp.TraceId, 3, firstEvent.Direction, firstEvent.ConnInfo, ProtocolTypeMySQL)
 	require.False(t, ok, "Expected to not find large buffer for this packet_type")
 	verifyLargeBuffer(firstEvent.Tp.TraceId, firstEvent.PacketType, firstEvent.Direction, firstEvent.ConnInfo, firstBuf)
 
@@ -98,8 +97,7 @@ func TestTCPLargeBuffers(t *testing.T) {
 		PacketType: firstEvent.PacketType,
 		Len:        6,
 		Action:     largeBufferActionAppend,
-		Pid:        1,
-		Kind:       uint8(LBKindTCPKnown),
+		Kind:       uint8(KindLayerApp),
 	}
 	appendEvent.Tp.TraceId = firstEvent.Tp.TraceId
 	appendEvent.ConnInfo = BpfConnectionInfoT{

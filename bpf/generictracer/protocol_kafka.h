@@ -367,13 +367,10 @@ static __always_inline int kafka_send_large_buffer(tcp_req_t *req,
     lb->type = EVENT_TCP_LARGE_BUFFER;
     lb->packet_type = PACKET_TYPE_RESPONSE;
     lb->action = action;
-    lb->kind = k_large_buf_kind_tcp_known;
+    lb->kind = k_large_buf_layer_app;
     lb->direction = direction;
     lb->conn_info = pid_conn->conn;
     lb->tp = req->tp;
-    const u64 pid_tid = bpf_get_current_pid_tgid();
-    const u32 pid = pid_from_pid_tgid(pid_tid);
-    lb->pid = pid;
 
     u32 max_available_bytes = kafka_max_captured_bytes - req->lb_res_bytes;
     u32 consumed_bytes = 0;

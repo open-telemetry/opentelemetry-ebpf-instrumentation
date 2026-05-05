@@ -163,13 +163,10 @@ static __always_inline void unknown_send_large_buffer(tcp_req_t *req,
     lb->type = EVENT_TCP_LARGE_BUFFER;
     lb->packet_type = packet_type;
     lb->action = action;
-    lb->kind = k_large_buf_kind_tcp;
+    lb->kind = k_large_buf_layer_wire;
     lb->direction = direction;
     lb->conn_info = pid_conn->conn;
     lb->tp = req->tp;
-    const u64 pid_tid = bpf_get_current_pid_tgid();
-    const u32 pid = pid_from_pid_tgid(pid_tid);
-    lb->pid = pid;
 
     const u32 bytes_sent =
         packet_type == PACKET_TYPE_REQUEST ? req->lb_req_bytes : req->lb_res_bytes;
@@ -257,6 +254,13 @@ static __always_inline void failed_to_connect_event(pid_connection_info_t *pid_c
     }
 }
 
+// Unix sockets information is not a real connection info, we cannot tell the server or client
+// other than with the directional flow of information at request creation time. Essentially,
+// if we are just creating a new request and it's TCP_RECV direction then it's a server.
+static __always_inline bool is_unix_sock_server(u8 direction, u16 orig_dport) {
+    return (direction == TCP_RECV && orig_dport == 0);
+}
+
 static __always_inline void handle_unknown_tcp_connection(pid_connection_info_t *pid_conn,
                                                           void *u_buf,
                                                           int bytes_len,
@@ -269,7 +273,6 @@ static __always_inline void handle_unknown_tcp_connection(pid_connection_info_t 
     // NOTE: this shouldn't happen, but the is_server value may be incorrect,
     // for example if an unrelated service is bound to the process port (like the metrics server)
     const u32 netns = task_netns();
-    const bool is_server = is_listening(pid_conn->conn.d_port, netns);
     if (existing) {
         if (existing->direction == direction && existing->end_monotime_ns != 0) {
             bpf_map_delete_elem(&ongoing_tcp_req, pid_conn);
@@ -306,6 +309,10 @@ static __always_inline void handle_unknown_tcp_connection(pid_connection_info_t 
 
         tcp_req_t *req = empty_tcp_req();
         if (req) {
+            // Determining the server information for unix sockets is only valid on request creation
+            const bool is_server = is_listening(pid_conn->conn.d_port, netns) ||
+                                   is_unix_sock_server(direction, orig_dport);
+
             req->is_server = is_server;
             int original_bytes_len = bytes_len;
             bpf_clamp_umax(bytes_len, k_tcp_max_len);

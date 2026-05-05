@@ -16,16 +16,14 @@ type largeBufferKind uint8
 
 // must match the table large_buf_kind in common.h
 const (
-	LBKindTCP      largeBufferKind = 0
-	LBKindHTTP     largeBufferKind = 1
-	LBKindTCPKnown largeBufferKind = 2
+	KindLayerWire largeBufferKind = 0
+	KindLayerApp  largeBufferKind = 1
 )
 
 type largeBufferKey struct {
 	traceID               [16]uint8
 	packetType, direction uint8
 	connInfo              BpfConnectionInfoT
-	pid                   uint32
 	kind                  largeBufferKind
 }
 
@@ -47,7 +45,6 @@ func appendTCPLargeBuffer(parseCtx *EBPFParseContext, record *ringbuf.Record) (r
 		packetType: event.PacketType,
 		direction:  event.Direction,
 		connInfo:   event.ConnInfo,
-		pid:        event.Pid,
 		kind:       largeBufferKind(event.Kind),
 	}
 
@@ -87,7 +84,6 @@ func extractLargeBuffer(
 	traceID [16]uint8,
 	packetType, direction uint8,
 	connInfo BpfConnectionInfoT,
-	pid uint32,
 	kind largeBufferKind,
 ) (*largebuf.LargeBuffer, bool) {
 	// The kind field tells us if we want to extract HTTP or TCP buffers. In normal circumstances
@@ -101,7 +97,6 @@ func extractLargeBuffer(
 		packetType: packetType,
 		direction:  direction,
 		connInfo:   connInfo,
-		pid:        pid,
 		kind:       kind,
 	}
 
@@ -132,10 +127,10 @@ func protocolToLargeBufferKind(protocolType uint8) largeBufferKind {
 	case ProtocolTypePostgres:
 		fallthrough
 	case ProtocolTypeMSSQL:
-		return LBKindTCPKnown
+		return KindLayerApp
 	}
 	// No large buffers for MQTT
-	return LBKindTCP
+	return KindLayerWire
 }
 
 func extractTCPLargeBuffer(
@@ -143,10 +138,9 @@ func extractTCPLargeBuffer(
 	traceID [16]uint8,
 	packetType, direction uint8,
 	connInfo BpfConnectionInfoT,
-	pid uint32,
 	protocolType uint8,
 ) (*largebuf.LargeBuffer, bool) {
-	return extractLargeBuffer(parseCtx, traceID, packetType, direction, connInfo, pid, protocolToLargeBufferKind(protocolType))
+	return extractLargeBuffer(parseCtx, traceID, packetType, direction, connInfo, protocolToLargeBufferKind(protocolType))
 }
 
 func extractHTTPLargeBuffer(
@@ -154,7 +148,6 @@ func extractHTTPLargeBuffer(
 	traceID [16]uint8,
 	packetType, direction uint8,
 	connInfo BpfConnectionInfoT,
-	pid uint32,
 ) (*largebuf.LargeBuffer, bool) {
-	return extractLargeBuffer(parseCtx, traceID, packetType, direction, connInfo, pid, LBKindHTTP)
+	return extractLargeBuffer(parseCtx, traceID, packetType, direction, connInfo, KindLayerApp)
 }

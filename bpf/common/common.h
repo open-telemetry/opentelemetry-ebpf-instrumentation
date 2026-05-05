@@ -54,9 +54,8 @@ enum large_buf_action : u8 {
 };
 
 enum large_buf_kind : u8 {
-    k_large_buf_kind_tcp = 0,
-    k_large_buf_kind_http = 1,
-    k_large_buf_kind_tcp_known = 2,
+    k_large_buf_layer_wire = 0,
+    k_large_buf_layer_app = 1,
 };
 
 enum {
@@ -173,9 +172,8 @@ typedef struct tcp_large_buffer {
     u8 direction;
     u32 len;
     connection_info_t conn_info;
-    u32 pid;
     enum large_buf_kind kind;
-    u8 _pad[7];
+    u8 _pad[3];
     tp_info_t tp;
     u8 buf[];
 } tcp_large_buffer_t;
