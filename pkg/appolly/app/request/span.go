@@ -655,7 +655,7 @@ type TitanResult struct {
 
 func (b *VendorBedrock) GetInput() string {
 	if len(b.Input.Messages) > 0 {
-		return normalizeOpenAIMessages(b.Input.Messages)
+		return NormalizeAnthropicInput(b.Input.Messages)
 	}
 	if b.Input.Prompt != "" {
 		return wrapTextAsInputMessage(b.Input.Prompt)
