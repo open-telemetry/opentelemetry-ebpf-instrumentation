@@ -29,7 +29,7 @@ exporters:
     compression: none
     sending_queue:
       enabled: true
-      queue_size: 5000
+      queue_size: 500
       block_on_overflow: false
     retry_on_failure:
       enabled: false

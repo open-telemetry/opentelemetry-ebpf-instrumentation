@@ -25,7 +25,11 @@ import (
 const (
 	weaverContainer = "weaver"
 	weaverAdminPort = 4320
-	weaverTimeout   = 2 * time.Minute
+	// weaverTimeout bounds each post-/stop step (docker wait, docker logs).
+	// Heavy multiprocess suites can leave weaver with several minutes of
+	// queued telemetry to drain on /stop, so this needs significant slack
+	// over the obvious "couple of seconds" budget.
+	weaverTimeout = 5 * time.Minute
 )
 
 // weaverIgnoredSignals is an escape hatch for advice we explicitly suppress
@@ -132,21 +136,32 @@ func runWeaverValidation(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), weaverTimeout)
 	defer cancel()
 
-	// Signal weaver to stop accepting data and produce its report.
+	// Signal weaver to stop accepting data and produce its report. If any
+	// post-/stop step fails (timeout, container already killed, …) we record
+	// the failure and force-remove the container so the surrounding
+	// `compose.Close()` still runs and the next test invocation starts from
+	// a clean slate.
 	url := fmt.Sprintf("http://127.0.0.1:%d/stop", weaverAdminPort)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
 	require.NoError(t, err)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		t.Fatalf("failed to stop weaver (is it running?): %v", err)
+		t.Errorf("failed to stop weaver (is it running?): %v", err)
+		forceRemoveWeaverContainer(t)
+		return
 	}
 	resp.Body.Close()
-	require.Less(t, resp.StatusCode, 300, "weaver /stop returned HTTP %d", resp.StatusCode)
+	if resp.StatusCode >= 300 {
+		t.Errorf("weaver /stop returned HTTP %d", resp.StatusCode)
+		forceRemoveWeaverContainer(t)
+		return
+	}
 
 	// Wait for the weaver container to finish processing and exit.
-	_, err = exec.CommandContext(ctx, "docker", "wait", weaverContainer).Output()
-	if err != nil {
-		t.Fatalf("failed to wait for weaver container: %v", err)
+	if _, err = exec.CommandContext(ctx, "docker", "wait", weaverContainer).Output(); err != nil {
+		t.Errorf("failed to wait for weaver container: %v", err)
+		forceRemoveWeaverContainer(t)
+		return
 	}
 
 	// If a prior sub-test already failed, the weaver report would either be
@@ -164,7 +179,8 @@ func runWeaverValidation(t *testing.T) {
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
-		t.Fatalf("failed to capture weaver logs: %v; stderr: %s", err, stderr.String())
+		t.Errorf("failed to capture weaver logs: %v; stderr: %s", err, stderr.String())
+		return
 	}
 
 	// Save full output for later inspection.
@@ -183,12 +199,30 @@ func runWeaverValidation(t *testing.T) {
 	// pick the one that matches the report shape.
 	jsonStr := strings.TrimSpace(stdout.String())
 	if jsonStr == "" {
-		t.Fatalf("weaver produced no JSON output on stdout")
+		t.Errorf("weaver produced no JSON output on stdout")
+		return
 	}
 	report, err := decodeWeaverReport(jsonStr)
-	require.NoError(t, err, "failed to parse weaver JSON report")
+	if err != nil {
+		t.Errorf("failed to parse weaver JSON report: %v", err)
+		return
+	}
 
 	validateWeaverReport(t, report)
+}
+
+// forceRemoveWeaverContainer is the best-effort cleanup we use when the normal
+// /stop + docker-wait sequence couldn't finish. Without this, a stuck or
+// killed weaver container survives the failed test invocation and the next
+// run hits "container name already in use" (or, worse, a half-broken admin
+// port that returns "connection reset by peer").
+func forceRemoveWeaverContainer(t *testing.T) {
+	t.Helper()
+	rmCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if out, err := exec.CommandContext(rmCtx, "docker", "rm", "-f", weaverContainer).CombinedOutput(); err != nil {
+		t.Logf("failed to force-remove weaver container (already gone?): %v; output: %s", err, strings.TrimSpace(string(out)))
+	}
 }
 
 // decodeWeaverReport scans `s` for top-level JSON objects and returns the
