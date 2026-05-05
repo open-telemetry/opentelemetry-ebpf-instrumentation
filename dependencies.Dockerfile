@@ -4,3 +4,4 @@ FROM gradle:9.3.1-jdk21-noble@sha256:f3784cc59d7fbab1e0ddb09c4cd082f13e16d3fb8c5
 FROM ghcr.io/astral-sh/uv:python3.9-trixie-slim@sha256:e37ac54d2b78397d18a825b672f7a1dc7d769b8697fa4ad0ccf8b12b89e5f259 AS python39
 FROM ghcr.io/astral-sh/uv:python3.14-trixie-slim@sha256:479708d509db76335f36d87b68ff8d781b6f7ef7b0495889eca96e1f5de7b1bb AS python314
 FROM golang:1.25.8@sha256:3ac2864710f25e84381bf5d4272261c7ba73ada0339d62034df4de20dabb33ca AS golang
+FROM otel/weaver:v0.23.0@sha256:7984ecb55b859eb3034ae9d836c4eeda137e2bdd0873b7ba2bb6c3d24d6ff457 AS weaver

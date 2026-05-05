@@ -103,6 +103,9 @@ jobs:
       - name: Lint
         run: make lint
 
+      - name: Lint OBI semantic-convention registry
+        run: make lint-schema
+
   unit-test:
     name: "Unit test ${{ matrix.description }}"
     needs: generate-and-checks
