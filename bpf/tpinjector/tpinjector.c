@@ -10,7 +10,7 @@
 #include <common/connection_info.h>
 #include <common/egress_key.h>
 #include <common/event_defs.h>
-#include <common/go_connection.h>
+#include <common/go_grpc_client_conn.h>
 #include <common/h2_defs.h>
 #include <common/http_buf_size.h>
 #include <common/http_types.h>
@@ -39,7 +39,6 @@
 #include <maps/tp_info_mem.h>
 
 #include <tpinjector/h2_parse.h>
-#include <tpinjector/tp_pid.h>
 #include <tpinjector/maps/sk_h2_conn_flag.h>
 #include <tpinjector/maps/sk_tp_info_pid_map.h>
 
@@ -51,20 +50,20 @@ char __license[] SEC("license") = "Dual MIT/GPL";
 //
 //   obi_packet_extender (sk_msg entry)
 //   │
-//   ├── is_go_connection?            ─┐  Go gRPC client: uprobe wrote HPACK
-//   │     └─ schedule TCP option      │  in user buffer; sk_msg only sets
-//   │     └─ fill_msg_buffers         │  the TCP option (out-of-band) and
-//   │     └─ SK_PASS                  │  bails — never overwrites the
-//   │                                 │  per-stream outgoing_trace_map entry
-//   │                                 │
-//   ├── !valid_pid → SK_PASS          │  All paths below run only for
-//   │                                 │  tracked PIDs (incl. ns_ppid match)
+//   ├── pull_data + fill_msg_buffers ─── single up-front for all branches
+//   │
+//   ├── is_go_grpc_client_conn?      ─┐  Go gRPC: uprobe wrote HPACK in
+//   │     └── SK_PASS                 │  user buffer; sk_msg bails
 //   │                                 │
 //   ├── is_h2_socket?                 │  Plaintext H2 (non-Go): per-stream
-//   │     └─ tail-call detect_h2      │  HPACK chain (see right column)
+//   │     └─ tail-call detect_h2      │  HPACK chain (right column). Runs
+//   │                                 │  before tp_pid so HEADERS frames
+//   │                                 │  don't go through HTTP/1 path
 //   │                                 │
-//   ├── tp_pid present?               │  HTTP/1 + TCP option (uprobe-set tp)
-//   │     └── handle_existing_tp_pid  │  ── if HTTP/1: write_msg_traceparent
+//   ├── tp_pid present?               │  Go net/http, SSL: TCP option +
+//   │     └── handle_existing_tp_pid  │  HTTP/1 inject. Bypasses valid_pid
+//   │                                 │
+//   ├── !valid_pid → SK_PASS          │
 //   │                                 │
 //   ├── HTTP/1 detected?              │  ── find_existing_tp ── create_tp ──
 //   │                                 │     write_msg_traceparent
@@ -590,13 +589,6 @@ static __always_inline u8 protocol_detector(struct sk_msg_md *msg,
     sort_connection_info(&p_conn.conn);
     p_conn.pid = pid_from_pid_tgid(id);
 
-    if (!fill_msg_buffers(msg, &p_conn, e_key)) {
-        return 0;
-    }
-
-    // We should check if we have already seen this request and we've
-    // started tracking it. We only want to extend the first packet that
-    // looks like HTTP, not something that's passing HTTP in the body.
     if (already_tracked(&p_conn)) {
         bpf_dbg_printk("already extended before, ignoring this packet...");
         return 0;
@@ -908,36 +900,29 @@ int obi_packet_extender(struct sk_msg_md *msg) {
     t_ctx->h2_scan_pos = 0;
     t_ctx->h2_frames = 0;
 
-    // Go gRPC clients: uprobe injects HPACK in the user buffer. Bail so
-    // sk_msg doesn't overwrite the per-stream outgoing_trace_map entry the
-    // uprobe set. Schedule TCP option out-of-band
-    if (is_go_connection(&t_ctx->p_conn)) {
-        bpf_msg_pull_data(msg, 0, msg->size, 0);
-        fill_msg_buffers(msg, &t_ctx->p_conn, &e_key);
-        if (inject_flags & k_inject_tcp_options) {
-            tp_info_pid_t *tp_pid = get_tp_info_pid(&e_key);
-            if (tp_pid && tp_pid->valid) {
-                schedule_write_tcp_option(msg, tp_pid);
-            }
-        }
+    // Single pull + fill so downstream branches reuse the same buffer
+    bpf_msg_pull_data(msg, 0, msg->size, 0);
+    fill_msg_buffers(msg, &t_ctx->p_conn, &e_key);
+
+    if (is_go_grpc_client_conn(&t_ctx->p_conn)) {
         return SK_PASS;
     }
 
-    if (!tp_valid_pid(id)) {
-        return SK_PASS;
-    }
-
+    // is_h2 first: HEADERS frame must hit detect_h2 before HTTP/1 path
+    // consumes tp_pid and skips HPACK
     if (is_h2_socket(msg)) {
-        bpf_msg_pull_data(msg, 0, msg->size, 0);
-        fill_msg_buffers(msg, &t_ctx->p_conn, &e_key);
         bpf_tail_call_static(msg, &extender_jump_table, k_tail_detect_h2);
         return SK_PASS;
     }
 
-    // Uprobe wrote tp (Go net/http, SSL): check it before the size guard.
-    // Small H2 frames can be under MIN_HTTP_SIZE but still valid
+    // Go net/http, SSL: uprobe-set tp_pid. Runs before valid_pid so Go
+    // PIDs (not in valid_pids) still get HTTP/1 inject + TCP option
     tp_info_pid_t *tp_pid = get_tp_info_pid(&e_key);
     if (tp_pid && handle_existing_tp_pid(msg, id, &t_ctx->p_conn, &e_key, tp_pid)) {
+        return SK_PASS;
+    }
+
+    if (!valid_pid(id)) {
         return SK_PASS;
     }
 
@@ -949,7 +934,6 @@ int obi_packet_extender(struct sk_msg_md *msg) {
     bpf_dbg_printk("MSG TO=%llx:%d", conn.d_ip[3], conn.d_port);
     bpf_dbg_printk("MSG SIZE=%u", msg->size);
 
-    bpf_msg_pull_data(msg, 0, msg->size, 0);
     const bool is_http = protocol_detector(msg, id, &conn, &e_key);
     if (is_http) {
         bpf_dbg_printk("len=%d, s_port=%d", msg->size, msg->local_port);
@@ -1210,9 +1194,6 @@ int obi_packet_extender_detect_h2(struct sk_msg_md *msg) {
             t_ctx->h2_hpack_offset = f.hpack_offset_in_msg;
             t_ctx->h2_hpack_len = f.hpack_len;
 
-            // Go retprobe already wrote HPACK (written=1): don't inject
-            // again. TCP options can't carry per-stream context (one option
-            // per segment, many streams), so H2 propagates via HPACK only
             tp_info_pid_t *go_tp = get_tp_info_pid(&t_ctx->e_key);
             if (go_tp && go_tp->valid && go_tp->written) {
                 h2_resume_after(msg, t_ctx, pos + k_h2_frame_header_len + f.payload_len);
@@ -1355,8 +1336,6 @@ int obi_packet_extender_find_existing_h2_tp(struct sk_msg_md *msg) {
         init_tp_ctx_parent_tp(t_ctx);
         bpf_memset(tp_p->tp.parent_id, 0, sizeof(tp_p->tp.parent_id));
         if (apply_parent_tp(t_ctx, &tp_p->tp)) {
-            // Forwarded HPACK traceparent — rewrite the wire span_id so the
-            // child has its own ID
             if (bpf_msg_pull_data(msg, span_id_offset, span_id_offset + SPAN_ID_CHAR_LEN, 0) == 0) {
                 unsigned char *d = msg->data;
                 const unsigned char *e = msg->data_end;
@@ -1372,7 +1351,6 @@ int obi_packet_extender_find_existing_h2_tp(struct sk_msg_md *msg) {
         tp_p->pid = t_ctx->p_conn.pid;
         tp_p->req_type = EVENT_HTTP_CLIENT;
         set_tp_info_pid(&t_ctx->e_key, tp_p);
-        // Span_id was rewritten in place — no shift
         h2_resume_after(
             msg, t_ctx, t_ctx->h2_frame_offset + k_h2_frame_header_len + t_ctx->h2_payload_len);
         return SK_PASS;
@@ -1401,15 +1379,12 @@ int obi_packet_extender_create_h2_tp(struct sk_msg_md *msg) {
 
     if (existing && existing->valid && valid_trace(existing->tp.trace_id)) {
         bpf_memcpy(tp_p, existing, sizeof(*tp_p));
-        // Uprobe already wrote HPACK (find_existing didn't catch it — outside scan window)
         if (existing->written) {
-            // No data shift since we skipped HPACK injection
             h2_resume_after(
                 msg, t_ctx, t_ctx->h2_frame_offset + k_h2_frame_header_len + t_ctx->h2_payload_len);
             return SK_PASS;
         }
     } else {
-        // create_trace_info handles the no-parent case: fresh trace_id, parent_id=0
         init_tp_ctx_parent_tp(t_ctx);
         if (!create_trace_info(t_ctx, tp_p)) {
             return SK_PASS;
@@ -1445,7 +1420,6 @@ int obi_packet_extender_write_h2_tp(struct sk_msg_md *msg) {
     const u32 frame_offset = t_ctx->h2_frame_offset;
     const u32 payload_len = t_ctx->h2_payload_len;
 
-    // Stay under default SETTINGS_MAX_FRAME_SIZE — peers can reject bigger frames
     if (payload_len + k_h2_tp_hpack_size > k_h2_default_max_frame_size) {
         return SK_PASS;
     }
@@ -1457,7 +1431,6 @@ int obi_packet_extender_write_h2_tp(struct sk_msg_md *msg) {
         return SK_PASS;
     }
 
-    // Pull the frame header so msg->data[0] is the length byte
     const u32 pull_end = inject_offset + k_h2_tp_hpack_size;
     if (bpf_msg_pull_data(msg, frame_offset, pull_end, 0) != 0) {
         return SK_PASS;

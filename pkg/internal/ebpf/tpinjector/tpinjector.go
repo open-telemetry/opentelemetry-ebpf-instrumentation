@@ -32,71 +32,20 @@ type Tracer struct {
 	closers        []io.Closer
 	log            *slog.Logger
 	iters          []*ebpfcommon.Iter
-	pidsFilter     ebpfcommon.ServiceFilter
 }
 
-func New(cfg *obi.Config, pidsFilter ebpfcommon.ServiceFilter) *Tracer {
+func New(cfg *obi.Config) *Tracer {
 	log := slog.With("component", "tpinjector")
 
 	return &Tracer{
-		log:        log,
-		cfg:        cfg,
-		pidsFilter: pidsFilter,
+		log: log,
+		cfg: cfg,
 	}
 }
 
-// Updating these requires updating the constants below in pid.h
-// (see generictracer for the same pattern)
-const (
-	maxConcurrentPids = 3001
-	primeHash         = 192053
-)
+func (p *Tracer) AllowPID(app.PID, uint32, *svc.Attrs) {}
 
-func pidSegmentBit(k uint64) (uint32, uint32) {
-	h := uint32(k % primeHash)
-	return h / 64, h & 63
-}
-
-func (p *Tracer) buildPidFilter() []uint64 {
-	result := make([]uint64, maxConcurrentPids)
-	// Both kprobe-tracked and Go-tracked PIDs: tpinjector's sk_msg gates on
-	// this so it must accept Go binaries (uprobe-instrumented but not
-	// kprobe-tracked) too. Kept separate from generictracer's valid_pids,
-	// which stays kprobe-only to avoid double-spanning Go traffic
-	for nsid, pids := range p.pidsFilter.CurrentPIDs(ebpfcommon.PIDTypeKProbes | ebpfcommon.PIDTypeGo) {
-		for pid := range pids {
-			k := (uint64(nsid) << 32) | uint64(pid)
-			segment, bit := pidSegmentBit(k)
-			result[segment] |= 1 << bit
-		}
-	}
-	return result
-}
-
-func (p *Tracer) rebuildValidPids() {
-	if p.bpfObjects.TpValidPids == nil {
-		return
-	}
-	for i, segment := range p.buildPidFilter() {
-		if err := p.bpfObjects.TpValidPids.Put(uint32(i), segment); err != nil {
-			p.log.Error("error setting up tp_valid_pids", "error", err, "i", i)
-		}
-	}
-}
-
-func (p *Tracer) AllowPID(_ app.PID, _ uint32, _ *svc.Attrs) {
-	if p.pidsFilter == nil {
-		return
-	}
-	p.rebuildValidPids()
-}
-
-func (p *Tracer) BlockPID(_ app.PID, _ uint32) {
-	if p.pidsFilter == nil {
-		return
-	}
-	p.rebuildValidPids()
-}
+func (p *Tracer) BlockPID(app.PID, uint32) {}
 
 func (p *Tracer) LoadSpecs() ([]*ebpfcommon.SpecBundle, error) {
 	spec, err := LoadBpf()
@@ -236,8 +185,6 @@ func (p *Tracer) AlreadyInstrumentedLib(uint64) bool {
 
 func (p *Tracer) Run(ctx context.Context, _ *ebpfcommon.EBPFEventContext, _ *msg.Queue[[]request.Span]) {
 	p.log.Debug("tpinjector started")
-
-	p.rebuildValidPids()
 
 	for _, it := range p.Iters() {
 		if err := it.Run(p.log); err != nil {

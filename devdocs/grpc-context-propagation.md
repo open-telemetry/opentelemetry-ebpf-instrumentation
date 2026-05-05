@@ -35,11 +35,11 @@ Parent lookup priority in `create_tp`:
 ### Go Uprobe Path
 
 1. **`transport_http2Client_NewStream`** — caches `conn_ptr → connection_info_t` in `grpc_conn_ptr_to_conn`
-2. **`grpcFramerWriteHeaders`** — has both stream_id and trace context. Writes `outgoing_trace_map[{ports, stream_id}]`. Also marks the conn in `active_go_connections` and injects traceparent via `bpf_probe_write_user` when `g_bpf_header_propagation` is true.
+2. **`grpcFramerWriteHeaders`** — has both stream_id and trace context. Writes `outgoing_trace_map[{ports, stream_id}]`. Also marks the conn via `mark_go_grpc_client_conn` and injects traceparent via `bpf_probe_write_user` when `g_bpf_header_propagation` is true.
 
 ### sk_msg Bail for Go gRPC Conns
 
-Once a conn is marked in `active_go_connections`, `obi_packet_extender` (sk_msg) takes a short-circuit path: pulls the data, populates `msg_buffers` for the `tcp_sendmsg` kprobe, schedules the TCP option (out-of-band, still works for Go conns), and returns `SK_PASS`. It never enters `detect_h2` for these conns, so the per-stream `outgoing_trace_map` entry the uprobe just wrote is preserved verbatim — sk_msg can't recompute parent_id and overwrite it. HTTP/1 traffic from the same Go process is unmarked and goes through the unchanged HTTP/1 detection path.
+Once a conn is marked, `obi_packet_extender` (sk_msg) checks `is_go_grpc_client_conn` first: pulls the data, populates `msg_buffers` for the `tcp_sendmsg` kprobe, returns `SK_PASS`. No `detect_h2`, no TCP option scheduling. The per-stream `outgoing_trace_map` entry the uprobe wrote is preserved; the user-buffer HPACK on the wire carries the traceparent. HTTP/1 traffic from the same Go process is unmarked and goes through the HTTP/1 detection path.
 
 ### TCP Options
 
@@ -113,4 +113,4 @@ We need a key both goroutines can agree on. The `*headerFrame` pointer fits: it'
 | `grpc_conn_ptr_to_conn` | LRU_HASH | `u64 (conn_ptr)` | `connection_info_t` | Go conn pointer → TCP ports |
 | `ongoing_grpc_server_stream_tps` | LRU_HASH | `stream_key_t{tr_ptr, stream_id}` | `tp_info_t` | Per-stream parsed traceparent (Go gRPC server) |
 | `pending_h2_invocations` | LRU_HASH | `u64 (hdr ptr)` | `pending_h2_invocation_t{inv, conn_ptr}` | Two-hop bridge from `executeAndPut` to `originateStream` |
-| `active_go_connections` | LRU_HASH | `pid_connection_info_t` | `u8` | Marks Go gRPC client conns; sk_msg bails so it doesn't overwrite the per-stream entry the uprobe set |
+| `go_grpc_client_conns` | LRU_HASH | `pid_connection_info_t` | `u8` | Marks Go gRPC client conns (via `mark_go_grpc_client_conn`); sk_msg bails on `is_go_grpc_client_conn` hit |

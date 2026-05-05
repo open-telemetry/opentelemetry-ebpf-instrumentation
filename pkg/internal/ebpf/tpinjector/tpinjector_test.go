@@ -92,7 +92,7 @@ func TestTracer_Constants(t *testing.T) {
 			err := cfg.EBPF.ContextPropagation.UnmarshalText([]byte(tt.contextPropagation))
 			require.NoError(t, err)
 
-			bundles, err := New(cfg, nil).LoadSpecs()
+			bundles, err := New(cfg).LoadSpecs()
 			require.NoError(t, err)
 			require.Len(t, bundles, expectedSpecCount, "tpinjector bundle count must match")
 
