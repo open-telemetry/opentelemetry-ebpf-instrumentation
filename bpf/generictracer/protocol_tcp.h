@@ -11,6 +11,7 @@
 #include <common/http_types.h>
 #include <common/large_buffers.h>
 #include <common/lw_thread.h>
+#include <common/protocol_defs.h>
 #include <common/ringbuf.h>
 #include <common/trace_helpers.h>
 #include <common/trace_lifecycle.h>
@@ -145,6 +146,50 @@ static __always_inline void finish_ongoing_tcp_req(pid_connection_info_t *pid_co
     bpf_map_delete_elem(&ongoing_tcp_req, pid_conn);
 }
 
+static __always_inline void unknown_send_large_buffer(tcp_req_t *req,
+                                                      pid_connection_info_t *pid_conn,
+                                                      const void *u_buf,
+                                                      u32 bytes_len,
+                                                      u8 packet_type,
+                                                      u8 direction,
+                                                      enum large_buf_action action) {
+    tcp_large_buffer_t *lb = (tcp_large_buffer_t *)tcp_large_buffers_mem();
+
+    if (!lb) {
+        bpf_dbg_printk("failed to reserve space for generic TCP large buffer");
+        return;
+    }
+
+    lb->type = EVENT_TCP_LARGE_BUFFER;
+    lb->packet_type = packet_type;
+    lb->action = action;
+    lb->kind = k_large_buf_layer_wire;
+    lb->direction = direction;
+    lb->conn_info = pid_conn->conn;
+    lb->tp = req->tp;
+
+    const u32 bytes_sent =
+        packet_type == PACKET_TYPE_REQUEST ? req->lb_req_bytes : req->lb_res_bytes;
+
+    u32 max_available_bytes = tcp_max_captured_bytes - bytes_sent;
+    u32 consumed_bytes = 0;
+
+    bpf_clamp_umax(max_available_bytes, k_large_buf_max_tcp_captured_bytes);
+
+    const u32 available_bytes = min(bytes_len, max_available_bytes);
+    consumed_bytes += large_buf_emit_chunks(lb, u_buf, available_bytes);
+
+    if (packet_type == PACKET_TYPE_REQUEST) {
+        req->lb_req_bytes += consumed_bytes;
+    } else {
+        req->lb_res_bytes += consumed_bytes;
+    }
+
+    if (consumed_bytes > 0) {
+        req->has_large_buffers = true;
+    }
+}
+
 static __always_inline int tcp_send_large_buffer(tcp_req_t *req,
                                                  pid_connection_info_t *pid_conn,
                                                  void *u_buf,
@@ -152,7 +197,7 @@ static __always_inline int tcp_send_large_buffer(tcp_req_t *req,
                                                  u8 direction,
                                                  enum protocol_type protocol_type,
                                                  enum large_buf_action action) {
-    const u8 packet_type = infer_packet_type(direction, pid_conn->conn.d_port);
+    const u8 packet_type = infer_packet_type(direction, req->is_server);
 
     switch (protocol_type) {
     case k_protocol_type_mysql:
@@ -170,7 +215,9 @@ static __always_inline int tcp_send_large_buffer(tcp_req_t *req,
         return 0;
     case k_protocol_type_http:
     case k_protocol_type_mqtt:
+        break;
     case k_protocol_type_unknown:
+        unknown_send_large_buffer(req, pid_conn, u_buf, bytes_len, packet_type, direction, action);
         break;
     }
 
@@ -207,6 +254,13 @@ static __always_inline void failed_to_connect_event(pid_connection_info_t *pid_c
     }
 }
 
+// Unix sockets information is not a real connection info, we cannot tell the server or client
+// other than with the directional flow of information at request creation time. Essentially,
+// if we are just creating a new request and it's TCP_RECV direction then it's a server.
+static __always_inline bool is_unix_sock_server(u8 direction, u16 orig_dport) {
+    return (direction == TCP_RECV && orig_dport == 0);
+}
+
 static __always_inline void handle_unknown_tcp_connection(pid_connection_info_t *pid_conn,
                                                           void *u_buf,
                                                           int bytes_len,
@@ -219,7 +273,6 @@ static __always_inline void handle_unknown_tcp_connection(pid_connection_info_t 
     // NOTE: this shouldn't happen, but the is_server value may be incorrect,
     // for example if an unrelated service is bound to the process port (like the metrics server)
     const u32 netns = task_netns();
-    const bool is_server = is_listening(pid_conn->conn.d_port, netns);
     if (existing) {
         if (existing->direction == direction && existing->end_monotime_ns != 0) {
             bpf_map_delete_elem(&ongoing_tcp_req, pid_conn);
@@ -256,6 +309,10 @@ static __always_inline void handle_unknown_tcp_connection(pid_connection_info_t 
 
         tcp_req_t *req = empty_tcp_req();
         if (req) {
+            // Determining the server information for unix sockets is only valid on request creation
+            const bool is_server = is_listening(pid_conn->conn.d_port, netns) ||
+                                   is_unix_sock_server(direction, orig_dport);
+
             req->is_server = is_server;
             int original_bytes_len = bytes_len;
             bpf_clamp_umax(bytes_len, k_tcp_max_len);
@@ -295,7 +352,6 @@ static __always_inline void handle_unknown_tcp_connection(pid_connection_info_t 
             bpf_map_update_elem(&ongoing_tcp_req, pid_conn, req, BPF_ANY);
         }
     } else if (existing->direction != direction) {
-        existing->is_server = is_server;
         const enum large_buf_action response_action =
             (existing->lb_res_bytes > 0) ? k_large_buf_action_append : k_large_buf_action_init;
         if (tcp_send_large_buffer(
@@ -309,7 +365,6 @@ static __always_inline void handle_unknown_tcp_connection(pid_connection_info_t 
             bpf_clamp_umax(bytes_len, k_tcp_res_len);
             existing->end_monotime_ns = bpf_ktime_get_ns();
             existing->resp_len = bytes_len;
-            existing->is_server = is_server;
             tcp_req_t *trace = bpf_ringbuf_reserve(&events, sizeof(tcp_req_t), 0);
             if (trace) {
                 bpf_dbg_printk("Sending TCP trace: existing=%lx, resp_length=%d",
@@ -325,19 +380,19 @@ static __always_inline void handle_unknown_tcp_connection(pid_connection_info_t 
             }
             cleanup_trace_info(existing, pid_conn);
         }
-    } else if (existing->len > 0 && existing->len < (k_tcp_max_len / 2)) {
-        // Attempt to append one more packet. I couldn't convince the verifier
-        // to use a variable (k_tcp_max_len-existing->len). If needed we may need
-        // to try harder. Mainly needed for userspace detection of missed gRPC, where
-        // the protocol may sent a RST frame after we've done creating the event, so
-        // the next event has an RST frame prepended.
-        u32 off = existing->len;
-        bpf_clamp_umax(off, (k_tcp_max_len / 2));
-        bpf_probe_read(existing->buf + off, (k_tcp_max_len / 2), u_buf);
+    } else {
+        if (existing->len > 0 && existing->len < (k_tcp_max_len / 2)) {
+            // Attempt to append one more packet. I couldn't convince the verifier
+            // to use a variable (k_tcp_max_len-existing->len). If needed we may need
+            // to try harder. Mainly needed for userspace detection of missed gRPC, where
+            // the protocol may sent a RST frame after we've done creating the event, so
+            // the next event has an RST frame prepended.
+            u32 off = existing->len;
+            bpf_clamp_umax(off, (k_tcp_max_len / 2));
+            bpf_probe_read(existing->buf + off, (k_tcp_max_len / 2), u_buf);
+        }
         existing->len += bytes_len;
         existing->req_len = existing->len;
-        existing->protocol_type = protocol_type;
-        existing->is_server = is_server;
 
         tcp_send_large_buffer(existing,
                               pid_conn,
@@ -346,8 +401,6 @@ static __always_inline void handle_unknown_tcp_connection(pid_connection_info_t 
                               direction,
                               protocol_type,
                               k_large_buf_action_append);
-    } else {
-        existing->req_len += bytes_len;
     }
 }
 

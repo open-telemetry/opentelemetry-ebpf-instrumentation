@@ -188,6 +188,7 @@ Per-protocol maximum bytes to capture per request per direction, sent to userspa
 | `ebpf.buffer_sizes.mssql` | `integer` | `OTEL_EBPF_BPF_BUFFER_SIZE_MSSQL` | `0` |  |  |  |
 | `ebpf.buffer_sizes.mysql` | `integer` | `OTEL_EBPF_BPF_BUFFER_SIZE_MYSQL` | `0` |  |  |  |
 | `ebpf.buffer_sizes.postgres` | `integer` | `OTEL_EBPF_BPF_BUFFER_SIZE_POSTGRES` | `0` |  |  |  |
+| `ebpf.buffer_sizes.tcp` | `integer` | `OTEL_EBPF_BPF_BUFFER_SIZE_TCP` | `0` |  |  |  |
 
 ### `ebpf.log_enricher`
 

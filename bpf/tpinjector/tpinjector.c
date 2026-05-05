@@ -14,9 +14,9 @@
 #include <common/http_types.h>
 #include <common/lw_thread.h>
 #include <common/msg_buffer.h>
-#include <common/protocol_http.h>
-#include <common/protocol_http2.h>
-#include <common/protocol_tcp.h>
+#include <common/protocol_http_helpers.h>
+#include <common/protocol_http2_helpers.h>
+#include <common/protocol_tcp_helpers.h>
 #include <common/scratch_mem.h>
 #include <common/ssl_connection.h>
 #include <common/tc_common.h>
