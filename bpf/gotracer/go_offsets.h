@@ -121,6 +121,7 @@ enum {
 enum : u32 {
     k_go_string_len_offset = 8,
     k_go_slice_len_offset = 8,
+    k_go_iface_data_offset = 8,
 };
 
 typedef struct go_offset_t {
