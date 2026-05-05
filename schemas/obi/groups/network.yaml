@@ -44,10 +44,12 @@ groups:
         type: string
         stability: development
         brief: Resolved name (DNS or workload) for the source endpoint.
+        examples: ["frontend"]
       - id: dst.name
         type: string
         stability: development
         brief: Resolved name (DNS or workload) for the destination endpoint.
+        examples: ["users-api"]
       - id: iface
         type: string
         stability: development
@@ -84,18 +86,22 @@ groups:
         type: string
         stability: development
         brief: Zone label attached to the source side (e.g. cloud availability zone).
+        examples: ["us-east-1a"]
       - id: dst.zone
         type: string
         stability: development
         brief: Zone label attached to the destination side.
+        examples: ["us-east-1b"]
       - id: src.cidr
         type: string
         stability: development
         brief: CIDR block matched against the source IP.
+        examples: ["10.0.0.0/8"]
       - id: dst.cidr
         type: string
         stability: development
         brief: CIDR block matched against the destination IP.
+        examples: ["10.0.0.0/8"]
 
   - id: metric.obi_network_flow_bytes
     type: metric
