@@ -123,7 +123,7 @@ func protocolToLargeBufferKind(protocolType uint8) largeBufferKind {
 	case ProtocolTypeKafka, ProtocolTypeMySQL, ProtocolTypePostgres, ProtocolTypeMSSQL, ProtocolTypeHTTP:
 		return KindLayerApp
 	}
-	// No large buffers for MQTT
+	// No large buffers for MQTT the rest are generic TCP buffers
 	return KindLayerWire
 }
 
