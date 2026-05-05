@@ -38,7 +38,7 @@ services:
       - "4320:4320" # admin port (for /stop from test host)
     healthcheck:
       test: ["CMD-SHELL", "wget --timeout=1 -q -O /dev/null http://127.0.0.1:4317/ 2>&1 | grep -qv refused"]
-      interval: 2s
+      interval: 5s
       timeout: 2s
-      retries: 30
-      start_period: 5s
+      retries: 60
+      start_period: 90s

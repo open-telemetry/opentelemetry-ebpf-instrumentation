@@ -20,9 +20,9 @@ WEAVER_IMAGE="$2"
 REGISTRY_PATH="$3"
 
 out=$($OCI_BIN run --rm \
-  -v "${REGISTRY_PATH}:/registry:ro" \
+  -v "${REGISTRY_PATH}:/obi-registry:ro" \
   "$WEAVER_IMAGE" registry check \
-    --registry /registry \
+    --registry /obi-registry \
     --include-unreferenced \
     --future \
     --diagnostic-format json \

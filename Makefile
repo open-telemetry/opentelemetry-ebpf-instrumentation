@@ -118,9 +118,18 @@ install-hooks:
 	fi
 
 .PHONY: prereqs
-prereqs: install-hooks
+prereqs: install-hooks fetch-upstream-semconv
 	@echo "### Check if prerequisites are met, and installing missing dependencies"
 	mkdir -p $(TEST_OUTPUT)/run
+
+.PHONY: fetch-upstream-semconv
+# Pre-fetch the upstream OpenTelemetry semantic-conventions registry that
+# `schemas/obi/manifest.yaml` depends on. weaver `live-check` reads the
+# pre-fetched copy from `schemas/obi/.deps/` instead of cloning over the
+# network on every container start (which on cold CI runners can take
+# 30–60 s and trip the otelcol→weaver healthcheck dependency).
+fetch-upstream-semconv:
+	@./scripts/fetch-upstream-semconv.sh
 
 .PHONY: fmt
 fmt:
@@ -154,7 +163,7 @@ WEAVERIMAGE := $(shell awk '$$4=="weaver" {print $$2}' $(DEPENDENCIES_DOCKERFILE
 # inspect the JSON diagnostic stream: an empty array means the registry is
 # clean. `--future` promotes pending warnings (e.g. missing examples) to
 # errors so we catch them at PR time instead of in integration logs.
-lint-schema:
+lint-schema: fetch-upstream-semconv
 	@echo "### Linting OBI semantic-convention registry"
 	@./scripts/lint-schema.sh $(OCI_BIN) $(WEAVERIMAGE) "$(CURDIR)/schemas/obi"
 
