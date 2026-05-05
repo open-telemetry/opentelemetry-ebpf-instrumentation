@@ -238,6 +238,23 @@ func TestFingerprintUnknownHashing_TraceSite(t *testing.T) {
 	require.NotEqual(t, fp1, fp3)
 }
 
+func TestExtractErrorBlock_IgnoresUnanchoredErrorLines(t *testing.T) {
+	// Application log lines that contain "Error:" or "Error Trace:" must
+	// not be picked up as the testify framework error. Only indented
+	// labeled lines (testify's emission style) should match.
+	output := []string{
+		"Error: app log before testify\n",
+		"2026/04/29 13:48:19 ERROR Error Trace: spurious.go:1\n",
+		"        \tError Trace:\tfoo_test.go:42\n",
+		"        \tError:      \tReal testify failure\n",
+		"--- FAIL: TestX (0.50s)\n",
+		"Error: app log after the FAIL marker\n",
+	}
+	msg, trace := extractErrorBlock(output)
+	require.Equal(t, "foo_test.go:42", trace)
+	require.Equal(t, "Real testify failure", msg)
+}
+
 func TestExtractErrorBlock(t *testing.T) {
 	// testify-style output with Error Trace, Error: with a continuation
 	// line, then Test: label and FAIL marker.

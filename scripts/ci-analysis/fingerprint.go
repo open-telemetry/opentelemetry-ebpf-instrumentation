@@ -16,7 +16,10 @@ import (
 	"strings"
 )
 
-const maxSnippetLen = 500
+const (
+	maxSnippetLen  = 500
+	maxErrorMsgLen = 300
+)
 
 type logError struct {
 	fingerprint string
@@ -66,15 +69,20 @@ var snippetRE = func() *regexp.Regexp {
 }()
 
 // errorTraceRE captures the file:line on the same line as a testify
-// "Error Trace:" label.
-var errorTraceRE = regexp.MustCompile(`Error Trace:\s+(\S+:\d+)`)
+// "Error Trace:" label. Anchored with `^\s+` so application log lines
+// that merely contain the substring (e.g. an app printing "Error Trace:
+// ..." mid-line) don't match — testify always indents its labeled
+// output. Multiline mode lets `^` match at line breaks inside multi-line
+// Output events.
+var errorTraceRE = regexp.MustCompile(`(?m)^\s+Error Trace:\s+(\S+:\d+)`)
 
 // errorMsgRE captures the inline message after a testify "Error:" label.
-var errorMsgRE = regexp.MustCompile(`Error:\s+(.*)`)
+// See errorTraceRE for the anchoring rationale.
+var errorMsgRE = regexp.MustCompile(`(?m)^\s+Error:\s+(.*)`)
 
 // labeledLineRE detects the start of a new testify-style labeled section,
 // used to stop collecting Error: continuation lines.
-var labeledLineRE = regexp.MustCompile(`^\s*(Error Trace|Error|Test|Messages):\s`)
+var labeledLineRE = regexp.MustCompile(`^\s+(Error Trace|Error|Test|Messages):\s`)
 
 // extractErrorBlock walks failOutput looking for the last testify-style
 // Error Trace and Error message. Returns the trace site (e.g.
@@ -107,8 +115,8 @@ func extractErrorBlock(output []string) (errorMsg, traceSite string) {
 			} else {
 				errorMsg += " " + trimmed
 			}
-			if len(errorMsg) > 300 {
-				errorMsg = errorMsg[:300]
+			if len(errorMsg) > maxErrorMsgLen {
+				errorMsg = errorMsg[:maxErrorMsgLen]
 				break
 			}
 		}
@@ -138,7 +146,7 @@ func extractErrorBlock(output []string) (errorMsg, traceSite string) {
 //     in the snippet — those are usually fallout from the real failure
 //     (e.g. an obi process being killed during teardown after an
 //     assertion already failed).
-//  4. No testify Error:: fall through to consequence patterns in the
+//  4. No testify Error: fall through to consequence patterns in the
 //     snippet so unframed failures still get a recognizable label.
 //  5. Final fallback: stable hash anchored on traceSite when present.
 func fingerprintFromTestOutput(errorMsg, snippet, traceSite string) string {
