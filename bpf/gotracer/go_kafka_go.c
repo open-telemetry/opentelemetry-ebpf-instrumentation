@@ -26,6 +26,8 @@
 
 #include <gotracer/types/kafka.h>
 
+#include <gotracer/go_offsets.h>
+
 #include <logger/bpf_dbg.h>
 
 #include <shared/obi_ctx.h>
@@ -195,8 +197,9 @@ int obi_uprobe_protocol_roundtrip_ret(struct pt_regs *ctx) {
                 trace->end_monotime_ns = bpf_ktime_get_ns();
 
                 void *conn_ptr = 0;
-                bpf_probe_read(
-                    &conn_ptr, sizeof(conn_ptr), (void *)(p_ptr->conn_ptr + 8)); // find conn
+                bpf_probe_read(&conn_ptr,
+                               sizeof(conn_ptr),
+                               (void *)(p_ptr->conn_ptr + k_go_iface_data_offset)); // find conn
                 bpf_dbg_printk("conn_ptr=%llx", conn_ptr);
                 if (conn_ptr) {
                     const u8 ok = get_conn_info(conn_ptr, &trace->conn);
@@ -252,7 +255,8 @@ int obi_uprobe_reader_read(struct pt_regs *ctx) {
 
         if (conn) {
             void *conn_ptr = 0;
-            bpf_probe_read(&conn_ptr, sizeof(conn_ptr), (void *)(conn + 8)); // find conn
+            bpf_probe_read(
+                &conn_ptr, sizeof(conn_ptr), (void *)(conn + k_go_iface_data_offset)); // find conn
             bpf_dbg_printk("conn_ptr=%llx", conn_ptr);
             if (conn_ptr) {
                 const u8 ok = get_conn_info(conn_ptr, &r.conn);
