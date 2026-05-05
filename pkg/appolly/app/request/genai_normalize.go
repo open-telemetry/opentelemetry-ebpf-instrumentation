@@ -235,14 +235,14 @@ func anthropicContentToParts(content json.RawMessage) []normalizedPart {
 	}
 
 	var blocks []struct {
-		Type       string          `json:"type"`
-		Text       string          `json:"text,omitempty"`
-		ID         string          `json:"id,omitempty"`
-		Name       string          `json:"name,omitempty"`
-		Input      json.RawMessage `json:"input,omitempty"`
-		ToolUseID  string          `json:"tool_use_id,omitempty"`
-		Content    json.RawMessage `json:"content,omitempty"`
-		Thinking   string          `json:"thinking,omitempty"`
+		Type      string          `json:"type"`
+		Text      string          `json:"text,omitempty"`
+		ID        string          `json:"id,omitempty"`
+		Name      string          `json:"name,omitempty"`
+		Input     json.RawMessage `json:"input,omitempty"`
+		ToolUseID string          `json:"tool_use_id,omitempty"`
+		Content   json.RawMessage `json:"content,omitempty"`
+		Thinking  string          `json:"thinking,omitempty"`
 	}
 	if err := json.Unmarshal(content, &blocks); err != nil {
 		return []normalizedPart{{Type: "text", Content: string(content)}}

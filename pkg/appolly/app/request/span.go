@@ -282,17 +282,17 @@ type GenAI struct {
 }
 
 type OpenAIPromptTokensDetails struct {
-	CachedTokens           int `json:"cached_tokens,omitempty"`
-	CacheCreationTokens    int `json:"cache_creation_tokens,omitempty"`
+	CachedTokens        int `json:"cached_tokens,omitempty"`
+	CacheCreationTokens int `json:"cache_creation_tokens,omitempty"`
 }
 
 type OpenAIUsage struct {
-	InputTokens         int                       `json:"input_tokens"`
-	OutputTokens        int                       `json:"output_tokens"`
-	TotalTokens         int                       `json:"total_tokens"`
-	PromptTokens        int                       `json:"prompt_tokens"`
-	CompletionTokens    int                       `json:"completion_tokens"`
-	CompletionDetails   *OpenAICompletionDetails  `json:"completion_tokens_details,omitempty"`
+	InputTokens         int                        `json:"input_tokens"`
+	OutputTokens        int                        `json:"output_tokens"`
+	TotalTokens         int                        `json:"total_tokens"`
+	PromptTokens        int                        `json:"prompt_tokens"`
+	CompletionTokens    int                        `json:"completion_tokens"`
+	CompletionDetails   *OpenAICompletionDetails   `json:"completion_tokens_details,omitempty"`
 	PromptTokensDetails *OpenAIPromptTokensDetails `json:"prompt_tokens_details,omitempty"`
 }
 
@@ -575,10 +575,10 @@ func (g *VendorGemini) GetSystemInstruction() string {
 // We capture the unified superset using omitempty and RawMessage for variable fields.
 
 type VendorBedrock struct {
-	Input      BedrockRequest
-	Output     BedrockResponse
-	Model      string // extracted from URL path: /model/{modelId}/invoke
-	IsStream   bool
+	Input       BedrockRequest
+	Output      BedrockResponse
+	Model       string // extracted from URL path: /model/{modelId}/invoke
+	IsStream    bool
 	GuardrailID string
 }
 
