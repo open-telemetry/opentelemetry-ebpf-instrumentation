@@ -7,12 +7,6 @@
 #include <bpfcore/bpf_helpers.h>
 #include <bpfcore/bpf_core_read.h>
 
-#define GO_INTERFACE_DATA_OFFSET 8
-#define GO_SLICE_ARRAY_OFFSET 0
-#define GO_SLICE_LEN_OFFSET 8
-#define GO_SLICE_CAP_OFFSET 16
-#define GO_STRING_LEN_OFFSET 8
-
 #define MAX_GO_PROGRAMS 10000 // Max 10,000 go programs tracked
 
 // To be Injected from the user space during the eBPF program load & initialization
@@ -121,6 +115,11 @@ typedef enum {
 enum {
     _gin_fullpath_off_pre_17 = 56,
     _gin_fullpath_off_post_17 = 40,
+};
+
+// Fixed offsets defined by the Go runtime type layout.
+enum {
+    GO_STRING_LEN_OFFSET = 8,
 };
 
 typedef struct go_offset_t {
