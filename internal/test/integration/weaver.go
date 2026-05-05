@@ -26,10 +26,10 @@ const (
 	weaverContainer = "weaver"
 	weaverAdminPort = 4320
 	// weaverTimeout bounds each post-/stop step (docker wait, docker logs).
-	// Heavy multiprocess suites can leave weaver with several minutes of
-	// queued telemetry to drain on /stop, so this needs significant slack
-	// over the obvious "couple of seconds" budget.
-	weaverTimeout = 5 * time.Minute
+	// Streaming mode validates each entity as it arrives, so /stop drains
+	// the in-flight gRPC queue rather than processing the full session
+	// buffer — a minute is plenty even for the heaviest multiprocess suite.
+	weaverTimeout = 1 * time.Minute
 )
 
 // weaverIgnoredSignals is an escape hatch for advice we explicitly suppress
@@ -225,37 +225,77 @@ func forceRemoveWeaverContainer(t *testing.T) {
 	}
 }
 
-// decodeWeaverReport scans `s` for top-level JSON objects and returns the
-// first one that matches the live-check report shape (non-nil `Statistics`
-// or non-empty `Samples`). Other top-level JSON values (e.g. diagnostic
-// records) are skipped.
+// decodeWeaverReport scans `s` for top-level JSON objects produced by weaver
+// and assembles a `weaverReport`. Two output shapes are supported:
+//
+//   - Streaming (default mode, no `--no-stream`): weaver emits one JSON
+//     object per ingested entity as it arrives — each carrying its own
+//     `live_check_result.all_advice` — and a single final stats object
+//     after `/stop`. The final stats object has `total_entities` /
+//     `advice_*` at the *top level*, with no `samples` or `statistics`
+//     wrapper.
+//   - Buffered (`--no-stream`): a single combined object with `samples`
+//     (the per-entity bodies) and `statistics` (the cumulative counts).
+//
+// We use the *last* stats-shaped object as authoritative — in streaming
+// mode the running stats accumulate, so the last emission is the final
+// total. Per-entity objects (everything that isn't a stats blob) feed the
+// advice extractor, regardless of which mode produced them.
 func decodeWeaverReport(s string) (*weaverReport, error) {
 	dec := json.NewDecoder(strings.NewReader(s))
+	out := &weaverReport{}
 	var lastErr error
-	var lastReport *weaverReport
 	for dec.More() {
-		var probe weaverReport
-		if err := dec.Decode(&probe); err != nil {
+		var raw json.RawMessage
+		if err := dec.Decode(&raw); err != nil {
 			lastErr = err
 			break
 		}
-		// Heuristic: a live-check report has non-zero statistics or at least
-		// one sample. Anything else (diagnostics, error envelopes) wouldn't
-		// populate these.
-		if probe.Statistics.TotalEntities > 0 || probe.Statistics.TotalAdvisories > 0 || len(probe.Samples) > 0 {
-			r := probe
-			return &r, nil
+		// Inspect the top-level keys so we can route the object to the
+		// right slot. We want to avoid double-decoding the whole tree —
+		// just peek at which fields are present.
+		var probe map[string]json.RawMessage
+		if json.Unmarshal(raw, &probe) != nil {
+			// Not an object — skip (could be a diagnostic array or scalar).
+			continue
 		}
-		r := probe
-		lastReport = &r
+		_, hasStatsWrapper := probe["statistics"]
+		_, hasSamplesWrapper := probe["samples"]
+		_, hasFlatStats := probe["total_entities"]
+
+		switch {
+		case hasStatsWrapper || hasSamplesWrapper:
+			// Buffered (no-stream) combined report. Take its stats and
+			// fold its samples into the running list.
+			var combined weaverReport
+			if err := json.Unmarshal(raw, &combined); err != nil {
+				lastErr = err
+				continue
+			}
+			out.Statistics = combined.Statistics
+			out.Samples = append(out.Samples, combined.Samples...)
+		case hasFlatStats:
+			// Streaming final stats. Fields are at the top level — decode
+			// into the same `weaverStatistics` shape.
+			var stats weaverStatistics
+			if err := json.Unmarshal(raw, &stats); err != nil {
+				lastErr = err
+				continue
+			}
+			out.Statistics = stats
+		default:
+			// Per-entity object (streaming mode) carrying live_check_result
+			// somewhere in its tree. Keep it for advice extraction.
+			out.Samples = append(out.Samples, raw)
+		}
 	}
-	if lastReport != nil {
-		return lastReport, nil
+	if out.Statistics.TotalEntities == 0 && len(out.Samples) == 0 {
+		if lastErr != nil {
+			return nil, lastErr
+		}
+		return nil, fmt.Errorf("no weaver report found in %d bytes of output", len(s))
 	}
-	if lastErr != nil {
-		return nil, lastErr
-	}
-	return nil, fmt.Errorf("no weaver report found in %d bytes of output", len(s))
+	return out, nil
 }
 
 func validateWeaverReport(t *testing.T, report *weaverReport) {

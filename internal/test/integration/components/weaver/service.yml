@@ -34,7 +34,6 @@ services:
       - json
       - --diagnostic-format
       - json
-      - --no-stream
     ports:
       - "4320:4320" # admin port (for /stop from test host)
     healthcheck:

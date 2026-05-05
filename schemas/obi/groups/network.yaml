@@ -19,16 +19,9 @@ groups:
         stability: development
         brief: Transport protocol of the flow (e.g. TCP, UDP).
         examples: ["TCP"]
-      - id: network.type
-        type: string
-        stability: development
-        brief: L3 network protocol family (IPv4 / IPv6).
-        examples: ["ipv4"]
-      - id: network.protocol.name
-        type: string
-        stability: development
-        brief: Application-layer protocol guessed from the server port.
-        examples: ["http"]
+      # `network.type`, `network.protocol.name`, `client.port`, and
+      # `server.port` are declared by upstream OpenTelemetry semantic
+      # conventions; we reference them as `ref:` on the metrics below.
       - id: src.address
         type: string
         stability: development
@@ -87,10 +80,6 @@ groups:
               stability: development
         stability: development
         brief: Whether the flow is the request or response side, derived from initiator / port heuristics.
-      - id: client.port
-        type: int
-        stability: development
-        brief: Port assigned to the client side of the flow (heuristic when initiator is unknown).
       - id: src.zone
         type: string
         stability: development
