@@ -33,8 +33,14 @@ func TestSuite_Go(t *testing.T) {
 			compose.Env = append(compose.Env, tc.env...)
 			require.NoError(t, compose.Up())
 
+			// Cleanups run LIFO: register `compose.Close()` first so it runs
+			// last, *after* runWeaverValidation has had a chance to /stop the
+			// still-running weaver container.
 			t.Cleanup(func() {
 				require.NoError(t, compose.Close())
+			})
+			t.Cleanup(func() {
+				runWeaverValidation(t)
 			})
 
 			config := ti.DefaultOBIConfig()
@@ -54,7 +60,6 @@ func TestSuite_Go(t *testing.T) {
 			t.Run("Harvested auto routes", testREDMetricsHTTPAutoRoutes)
 		})
 	}
-	runWeaverValidation(t)
 }
 
 func TestSuiteNestedTraces(t *testing.T) {
