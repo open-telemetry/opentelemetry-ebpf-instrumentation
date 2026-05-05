@@ -578,8 +578,7 @@ static __always_inline bool fill_msg_buffers(struct sk_msg_md *msg,
 
 static __always_inline u8 protocol_detector(struct sk_msg_md *msg,
                                             u64 id,
-                                            const connection_info_t *conn,
-                                            const egress_key_t *e_key) {
+                                            const connection_info_t *conn) {
     bpf_dbg_printk("id=%d, size=%d", id, msg->size);
 
     pid_connection_info_t p_conn = {};
@@ -858,7 +857,7 @@ static __always_inline bool handle_existing_tp_pid(struct sk_msg_md *msg,
         return true;
     }
 
-    const bool is_http = protocol_detector(msg, id, &p_conn->conn, e_key);
+    const bool is_http = protocol_detector(msg, id, &p_conn->conn);
     if (is_http) {
         if (inject_flags & k_inject_http_headers) {
             write_http_traceparent(msg, tp_pid);
@@ -934,7 +933,7 @@ int obi_packet_extender(struct sk_msg_md *msg) {
     bpf_dbg_printk("MSG TO=%llx:%d", conn.d_ip[3], conn.d_port);
     bpf_dbg_printk("MSG SIZE=%u", msg->size);
 
-    const bool is_http = protocol_detector(msg, id, &conn, &e_key);
+    const bool is_http = protocol_detector(msg, id, &conn);
     if (is_http) {
         bpf_dbg_printk("len=%d, s_port=%d", msg->size, msg->local_port);
         init_tp_ctx_parent_tp(t_ctx);

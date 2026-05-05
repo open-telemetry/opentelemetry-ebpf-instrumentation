@@ -212,6 +212,11 @@ static __always_inline void http2_grpc_start(void *ctx,
         return;
     }
 
+    // Clear trace/parent IDs — per-CPU scratch carries stale data and the
+    // server finalize uses valid_trace(trace_id) to decide whether to keep
+    // a parsed/looked-up traceparent or generate a fresh one
+    bpf_memset(tp_p->tp.trace_id, 0, sizeof(tp_p->tp.trace_id));
+    bpf_memset(tp_p->tp.parent_id, 0, sizeof(tp_p->tp.parent_id));
     tp_p->tp.ts = bpf_ktime_get_ns();
     tp_p->tp.flags = 1;
     tp_p->valid = 1;

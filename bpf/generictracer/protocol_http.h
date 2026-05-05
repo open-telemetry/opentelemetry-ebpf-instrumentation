@@ -461,7 +461,6 @@ __obi_continue_protocol_http_tp(struct pt_regs *ctx,
         // for customers to enable it. Off by default.
         if (!capture_header_buffer) {
             if (meta) {
-                // tp_p is per-CPU scratch; init before server_traces store
                 tp_p->tp.ts = bpf_ktime_get_ns();
                 tp_p->tp.flags = 1;
                 tp_p->valid = 1;
