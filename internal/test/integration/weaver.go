@@ -25,11 +25,12 @@ import (
 const (
 	weaverContainer = "weaver"
 	weaverAdminPort = 4320
-	// weaverTimeout bounds each post-/stop step (docker wait, docker logs).
-	// Streaming mode validates each entity as it arrives, so /stop drains
-	// the in-flight gRPC queue rather than processing the full session
-	// buffer — a minute is plenty even for the heaviest multiprocess suite.
-	weaverTimeout = 1 * time.Minute
+	// weaverTimeout bounds the entire post-/stop sequence (HTTP /stop,
+	// docker wait, docker logs, parse). Streaming mode keeps the typical
+	// case fast (per-entity processing happens during ingest), but the
+	// final drain still sincales with the unique signal count — heavy
+	// multi-language suites need real headroom.
+	weaverTimeout = 3 * time.Minute
 )
 
 // weaverIgnoredSignals is an escape hatch for advice we explicitly suppress
