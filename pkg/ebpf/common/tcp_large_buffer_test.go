@@ -26,6 +26,7 @@ func TestProtocolToLargeBufferKind(t *testing.T) {
 		{ProtocolTypeMySQL, KindLayerApp},
 		{ProtocolTypePostgres, KindLayerApp},
 		{ProtocolTypeMSSQL, KindLayerApp},
+		{ProtocolTypeHTTP, KindLayerApp},
 		{ProtocolTypeMQTT, KindLayerWire},
 		{ProtocolTypeUnknown, KindLayerWire},
 	}

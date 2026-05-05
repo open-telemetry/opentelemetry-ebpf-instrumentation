@@ -120,13 +120,7 @@ func extractLargeBuffer(
 
 func protocolToLargeBufferKind(protocolType uint8) largeBufferKind {
 	switch protocolType {
-	case ProtocolTypeKafka:
-		fallthrough
-	case ProtocolTypeMySQL:
-		fallthrough
-	case ProtocolTypePostgres:
-		fallthrough
-	case ProtocolTypeMSSQL:
+	case ProtocolTypeKafka, ProtocolTypeMySQL, ProtocolTypePostgres, ProtocolTypeMSSQL, ProtocolTypeHTTP:
 		return KindLayerApp
 	}
 	// No large buffers for MQTT
@@ -141,13 +135,4 @@ func extractTCPLargeBuffer(
 	protocolType uint8,
 ) (*largebuf.LargeBuffer, bool) {
 	return extractLargeBuffer(parseCtx, traceID, packetType, direction, connInfo, protocolToLargeBufferKind(protocolType))
-}
-
-func extractHTTPLargeBuffer(
-	parseCtx *EBPFParseContext,
-	traceID [16]uint8,
-	packetType, direction uint8,
-	connInfo BpfConnectionInfoT,
-) (*largebuf.LargeBuffer, bool) {
-	return extractLargeBuffer(parseCtx, traceID, packetType, direction, connInfo, KindLayerApp)
 }
