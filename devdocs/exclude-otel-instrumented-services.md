@@ -15,7 +15,7 @@ Two related options live under `discovery:` in the OBI config:
 
 | Option | Env var | Default | Effect |
 |---|---|---|---|
-| `exclude_otel_instrumented_services` | `OTEL_EBPF_EXCLUDE_OTEL_INSTRUMENTED_SERVICES` | `true` | Suppress OBI-generated **traces** and **RED metrics** for a service once it is detected as exporting OTLP traces / metrics. |
+| `exclude_otel_instrumented_services` | `OTEL_EBPF_EXCLUDE_OTEL_INSTRUMENTED_SERVICES` | `true` | Suppress OBI-generated **traces** for a service once it is detected as exporting OTLP traces, and suppress OBI-generated **RED metrics** for a service once it is detected as exporting OTLP metrics. The two are tracked independently — exporting traces does not suppress metrics, and vice versa. |
 | `exclude_otel_instrumented_services_span_metrics` | `OTEL_EBPF_EXCLUDE_OTEL_INSTRUMENTED_SERVICES_SPAN_METRICS` | `false` | Also suppress OBI-generated **span metrics** for a service detected as exporting OTLP traces. |
 | `default_otlp_grpc_port` | `OTEL_EBPF_DEFAULT_OTLP_GRPC_PORT` | `4317` | Fallback peer port used by the gRPC endpoint heuristic (see below) when the process has no `OTEL_EXPORTER_OTLP_*_ENDPOINT` env var set. |
 
@@ -99,8 +99,11 @@ Once a service has its `ExportsOTelMetrics` / `ExportsOTelTraces` /
 
 Each detection event increments the `obi.avoided.services` internal metric
 (Prometheus name: `obi_avoided_services`), labeled with the service identity
-and the telemetry type that was avoided (`metrics`, `traces`, or
-`metrics_span`). It's emitted from `reportAvoidedService` in
+and the telemetry type that was avoided (`metrics` or `traces`). Span-metrics
+suppression is reported under the `metrics` label, not a separate one — the
+`metrics_span` detection path in `reportAvoidedService` routes through
+`AvoidInstrumentationMetrics`, which emits `metrics`. It's emitted from
+`reportAvoidedService` in
 [`pkg/ebpf/common/pids.go`](../pkg/ebpf/common/pids.go) and is the
 authoritative signal for whether detection has fired for a given service.
 
