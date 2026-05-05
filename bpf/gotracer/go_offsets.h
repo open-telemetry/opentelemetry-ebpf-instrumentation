@@ -118,7 +118,7 @@ enum {
 };
 
 // Fixed offsets defined by the Go runtime type layout.
-enum {
+enum : u32 {
     k_go_string_len_offset = 8,
 };
 
