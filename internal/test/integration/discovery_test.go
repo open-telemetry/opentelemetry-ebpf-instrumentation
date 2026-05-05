@@ -105,5 +105,7 @@ func TestDiscoverySection(t *testing.T) {
 
 	t.Run("Selective exports", testSelectiveExports)
 
+	runWeaverValidation(t)
+
 	require.NoError(t, compose.Close())
 }

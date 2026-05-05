@@ -60,5 +60,7 @@ func TestJavaNestedTraces(t *testing.T) {
 		})
 	}
 
+	runWeaverValidation(t)
+
 	require.NoError(t, compose.Close())
 }

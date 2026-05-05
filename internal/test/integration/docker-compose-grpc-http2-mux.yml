@@ -74,7 +74,7 @@ services:
   #   image: otel/opentelemetry-collector-contrib:0.104.0
   #   container_name: otel-col
   #   restart: unless-stopped
-  #   command: [ "--config=/etc/otelcol-config/otelcol-config-4017.yml" ]
+  #   command: ["--config=/etc/otelcol-config/otelcol-config-4017-weaver.yml"]
   #   volumes:
   #     - ./configs/:/etc/otelcol-config
   #   ports:
@@ -110,3 +110,36 @@ services:
       - LOG_LEVEL=debug
 # curl http://localhost:16686/api/services
 # curl http://localhost:16686/api/traces?service=testserver
+
+  # Weaver semantic convention validator — receives OTLP from the collector
+  # and validates emitted telemetry against the OBI schema registry under
+  # `schemas/obi/`, which itself depends on the upstream OpenTelemetry
+  # semantic conventions. Bind-mounted into the container at /obi-registry.
+  weaver:
+    image: otel/weaver:v0.23.0@sha256:7984ecb55b859eb3034ae9d836c4eeda137e2bdd0873b7ba2bb6c3d24d6ff457
+    container_name: weaver
+    command:
+      - registry
+      - live-check
+      - --registry
+      - /obi-registry
+      - --include-unreferenced
+      - --inactivity-timeout
+      - "300"
+      - --admin-port
+      - "4320"
+      - --format
+      - json
+      - --diagnostic-format
+      - json
+      - --no-stream
+    volumes:
+      - ../../../schemas/obi:/obi-registry:ro
+    ports:
+      - "4320:4320" # admin port (for /stop from test host)
+    healthcheck:
+      test: ["CMD-SHELL", "wget --timeout=1 -q -O /dev/null http://127.0.0.1:4317/ 2>&1 | grep -qv refused"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+      start_period: 5s

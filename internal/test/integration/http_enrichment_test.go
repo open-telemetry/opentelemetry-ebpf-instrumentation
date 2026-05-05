@@ -228,5 +228,7 @@ func TestSuiteGenericHeaders(t *testing.T) {
 		testGenericHeaderMultipleValues(t)
 	})
 
+	runWeaverValidation(t)
+
 	require.NoError(t, compose.Close())
 }

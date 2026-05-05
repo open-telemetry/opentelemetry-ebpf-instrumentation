@@ -51,6 +51,8 @@ func TestGRPCMux(t *testing.T) {
 		testREDMetricsForGRPCMuxLibrary(t, "/grpc.health.v1.Health/Check", "grpc-http2-go", "8080")
 	})
 
+	runWeaverValidation(t)
+
 	require.NoError(t, compose.Close())
 }
 
@@ -65,6 +67,8 @@ func TestGRPCMuxTLS(t *testing.T) {
 	t.Run("Go RED metrics: grpc-http2 mux service TLS", func(t *testing.T) {
 		testREDMetricsForGRPCMuxLibrary(t, "/grpc.health.v1.Health/Check", "grpc-http2-go", "8383")
 	})
+
+	runWeaverValidation(t)
 
 	require.NoError(t, compose.Close())
 }
