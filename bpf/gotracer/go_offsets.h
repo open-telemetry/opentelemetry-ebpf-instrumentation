@@ -119,7 +119,7 @@ enum {
 
 // Fixed offsets defined by the Go runtime type layout.
 enum {
-    GO_STRING_LEN_OFFSET = 8,
+    k_go_string_len_offset = 8,
 };
 
 typedef struct go_offset_t {
