@@ -528,3 +528,20 @@ func TestSpanOTELGetters_MessagingAttributes_NATS(t *testing.T) {
 	span.Method = MessagingProcess
 	assert.Equal(t, MessagingProcess, opTypeGetter(span).Value.AsString())
 }
+
+func TestSpanOTELGetters_Instance(t *testing.T) {
+	getter, ok := spanOTELGetters(attr.Instance)
+	require.True(t, ok, "getter should be found for Instance")
+
+	span := &Span{
+		Service: svc.Attrs{
+			UID: svc.UID{
+				Instance: "instance-42",
+			},
+		},
+	}
+
+	kv := getter(span)
+	assert.Equal(t, string(attr.Instance), string(kv.Key))
+	assert.Equal(t, "instance-42", kv.Value.AsString())
+}
