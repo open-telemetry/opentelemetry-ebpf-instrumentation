@@ -37,6 +37,20 @@ groups:
           OpenMetrics convention. Carried on `target_info` and on every
           series exported via OBI's Prometheus exporter.
         examples: ["my-service"]
+      - id: obi.version
+        type: string
+        stability: development
+        brief: >
+          OBI build version, e.g. the release tag the instrumenter was
+          built from. Carried as a resource attribute on every signal.
+        examples: ["v0.42.0"]
+      - id: obi.revision
+        type: string
+        stability: development
+        brief: >
+          Git SHA of the OBI build. Carried as a resource attribute on
+          every signal.
+        examples: ["a2a9a6e2"]
 
   # The instrument and (empty) unit declared here mirror what OBI currently
   # emits over OTLP rather than the OTel-canonical `gauge` / `unit: "1"`

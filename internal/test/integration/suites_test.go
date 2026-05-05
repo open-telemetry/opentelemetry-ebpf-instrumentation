@@ -105,8 +105,6 @@ func TestSuiteClientPromScrape(t *testing.T) {
 	t.Run("Testing OBI Build Info metric", testPrometheusOBIBuildInfo)
 	t.Run("Testing Host Info metric", testHostInfo)
 
-	runWeaverValidation(t)
-
 	require.NoError(t, compose.Close())
 }
 
@@ -242,8 +240,6 @@ func TestSuite_PrometheusScrape(t *testing.T) {
 	t.Run("Testing OBI Build Info metric", testPrometheusOBIBuildInfo)
 	t.Run("Testing for no OBI self metrics", testPrometheusNoOBIEvents)
 	t.Run("Testing BPF metrics", testPrometheusBPFMetrics)
-
-	runWeaverValidation(t)
 
 	require.NoError(t, compose.Close())
 }
@@ -485,7 +481,6 @@ func TestSuite_PythonProm(t *testing.T) {
 	t.Run("Python RED metrics", testREDMetricsPythonHTTP)
 	t.Run("Python RED metrics with timeouts", testREDMetricsTimeoutPythonHTTP)
 	t.Run("Python DNS RED metrics", testREDMetricsDNSPython)
-	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
 

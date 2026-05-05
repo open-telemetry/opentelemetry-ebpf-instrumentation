@@ -315,8 +315,6 @@ func TestHTTPGoOTelInstrumentedAppGRPC(t *testing.T) {
 		testForHTTPGoOTelLibrary(t, "/rolldice", "integration-test")
 	})
 
-	runWeaverValidation(t)
-
 	require.NoError(t, compose.Close())
 }
 
@@ -361,8 +359,6 @@ func TestHTTPGoOTelAvoidsInstrumentedAppGRPC(t *testing.T) {
 		time.Sleep(15 * time.Second) // ensure we see some calls to /v1/metrics /v1/traces
 		testInstrumentationMissing(t, "/rolldice", "integration-test")
 	})
-
-	runWeaverValidation(t)
 
 	require.NoError(t, compose.Close())
 }

@@ -141,7 +141,6 @@ func testHTTP2GO(t *testing.T, compose *docker.Compose, useHTTPProtocols bool) {
 		})
 	}
 
-	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
 

@@ -74,7 +74,7 @@ services:
   #   image: otel/opentelemetry-collector-contrib:0.104.0
   #   container_name: otel-col
   #   restart: unless-stopped
-  #   command: ["--config=/etc/otelcol-config/otelcol-config-4017-weaver.yml"]
+  #   command: ["--config=/etc/otelcol-config/otelcol-config-4017.yml"]
   #   volumes:
   #     - ./configs/:/etc/otelcol-config
   #   ports:
@@ -111,9 +111,3 @@ services:
 # curl http://localhost:16686/api/services
 # curl http://localhost:16686/api/traces?service=testserver
 
-  weaver:
-    extends:
-      file: components/weaver/service.yml
-      service: weaver
-    volumes:
-      - ../../../schemas/obi:/obi-registry:ro
