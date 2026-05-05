@@ -70,10 +70,6 @@ services:
         condition: service_healthy
 
 
-  # Weaver semantic convention validator — receives OTLP from the collector
-  # and validates emitted telemetry against the OBI schema registry under
-  # `schemas/obi/`, which itself depends on the upstream OpenTelemetry
-  # semantic conventions. Bind-mounted into the container at /obi-registry.
   weaver:
     extends:
       file: components/weaver/service.yml

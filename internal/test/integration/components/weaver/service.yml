@@ -1,5 +1,10 @@
-# Shared weaver service definition extended by every weaver-wired compose
-# under `internal/test/integration/`. Each consumer pulls this in via:
+# Weaver semantic convention validator — receives OTLP from the collector
+# and validates emitted telemetry against the OBI schema registry under
+# `schemas/obi/`, which itself depends on the upstream OpenTelemetry
+# semantic conventions. Bind-mounted into the container at /obi-registry.
+#
+# Shared definition extended by every weaver-wired compose under
+# `internal/test/integration/`. Each consumer pulls this in via:
 #
 #   weaver:
 #     extends:
