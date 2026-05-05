@@ -119,9 +119,7 @@ func QwenSpan(baseSpan *request.Span, req *http.Request, resp *http.Response) (r
 		}
 	}
 
-	if parsedResponse.OperationName == "" {
-		parsedResponse.OperationName = extractQwenOperation(req)
-	}
+	parsedResponse.OperationName = extractQwenOperation(req)
 	if parsedResponse.ResponseModel == "" {
 		parsedResponse.ResponseModel = parsedRequest.Model
 	}
@@ -147,7 +145,7 @@ func extractQwenOperation(req *http.Request) string {
 	path := qwenRequestPath(req)
 	switch {
 	case strings.Contains(path, "/chat/completions"):
-		return "chat.completion"
+		return "chat"
 	case strings.Contains(path, "/completions"):
 		return "completion"
 	case strings.Contains(path, "/embeddings"):

@@ -281,12 +281,23 @@ type GenAI struct {
 	Embedding *VendorEmbedding
 }
 
+type OpenAIPromptTokensDetails struct {
+	CachedTokens           int `json:"cached_tokens,omitempty"`
+	CacheCreationTokens    int `json:"cache_creation_tokens,omitempty"`
+}
+
 type OpenAIUsage struct {
-	InputTokens      int `json:"input_tokens"`
-	OutputTokens     int `json:"output_tokens"`
-	TotalTokens      int `json:"total_tokens"`
-	PromptTokens     int `json:"prompt_tokens"`
-	CompletionTokens int `json:"completion_tokens"`
+	InputTokens         int                       `json:"input_tokens"`
+	OutputTokens        int                       `json:"output_tokens"`
+	TotalTokens         int                       `json:"total_tokens"`
+	PromptTokens        int                       `json:"prompt_tokens"`
+	CompletionTokens    int                       `json:"completion_tokens"`
+	CompletionDetails   *OpenAICompletionDetails  `json:"completion_tokens_details,omitempty"`
+	PromptTokensDetails *OpenAIPromptTokensDetails `json:"prompt_tokens_details,omitempty"`
+}
+
+type OpenAICompletionDetails struct {
+	ReasoningTokens int `json:"reasoning_tokens,omitempty"`
 }
 
 func (u *OpenAIUsage) GetInputTokens() int {
@@ -321,63 +332,97 @@ type OpenAIError struct {
 }
 
 type VendorOpenAI struct {
-	OperationName    string          `json:"object"`
-	ResponseModel    string          `json:"model"`
-	Error            OpenAIError     `json:"error"`
-	ID               string          `json:"id"`
-	FrequencyPenalty float64         `json:"frequency_penalty"`
-	Temperature      float64         `json:"temperature"`
-	TopP             float64         `json:"top_p"`
-	Usage            OpenAIUsage     `json:"usage"`
-	Output           json.RawMessage `json:"output"`
-	Request          OpenAIInput
-	Choices          json.RawMessage `json:"choices"`
-	Items            json.RawMessage `json:"items"`
-	Metadata         json.RawMessage `json:"metadata"`
-	Data             json.RawMessage `json:"data"`
+	OperationName     string          `json:"object"`
+	ResponseModel     string          `json:"model"`
+	Error             OpenAIError     `json:"error"`
+	ID                string          `json:"id"`
+	FrequencyPenalty  float64         `json:"frequency_penalty"`
+	Temperature       float64         `json:"temperature"`
+	TopP              float64         `json:"top_p"`
+	Usage             OpenAIUsage     `json:"usage"`
+	Output            json.RawMessage `json:"output"`
+	Request           OpenAIInput
+	Choices           json.RawMessage `json:"choices"`
+	Items             json.RawMessage `json:"items"`
+	Metadata          json.RawMessage `json:"metadata"`
+	Data              json.RawMessage `json:"data"`
+	ServiceTier       string          `json:"service_tier,omitempty"`
+	SystemFingerprint string          `json:"system_fingerprint,omitempty"`
+	APIType           string          `json:"-"`
+}
+
+func (ai *VendorOpenAI) GetFinishReasons() []string {
+	if len(ai.Choices) == 0 {
+		return nil
+	}
+	var choices []struct {
+		FinishReason string `json:"finish_reason"`
+	}
+	if err := json.Unmarshal(ai.Choices, &choices); err != nil {
+		return nil
+	}
+	var reasons []string
+	for _, c := range choices {
+		if c.FinishReason != "" {
+			reasons = append(reasons, c.FinishReason)
+		}
+	}
+	return reasons
 }
 
 func (ai *VendorOpenAI) GetOutput() string {
-	if len(ai.Output) > 0 {
-		return string(ai.Output)
-	}
-
-	if len(ai.Items) > 0 {
-		return string(ai.Items)
-	}
-
-	if len(ai.Data) > 0 {
-		return string(ai.Data)
-	}
-
-	return string(ai.Choices)
+	return normalizeOpenAIOutput(ai)
 }
 
 type OpenAIInput struct {
-	Input        string          `json:"input"`
-	Prompt       string          `json:"prompt"`
-	Model        string          `json:"model"`
-	Instructions string          `json:"instructions"`
-	Messages     json.RawMessage `json:"messages"`
-	Items        json.RawMessage `json:"items"`
-	Temperature  float64         `json:"temperature"`
-	Dimensions   int             `json:"dimensions,omitempty"`
+	Input           string          `json:"input"`
+	Prompt          string          `json:"prompt"`
+	Model           string          `json:"model"`
+	Instructions    string          `json:"instructions"`
+	Messages        json.RawMessage `json:"messages"`
+	Items           json.RawMessage `json:"items"`
+	Temperature     float64         `json:"temperature"`
+	Dimensions      int             `json:"dimensions,omitempty"`
+	MaxTokens       int             `json:"max_tokens,omitempty"`
+	N               int             `json:"n,omitempty"`
+	Stop            json.RawMessage `json:"stop,omitempty"`
+	PresencePenalty float64         `json:"presence_penalty,omitempty"`
+	Stream          bool            `json:"stream,omitempty"`
+	EncodingFormat  string          `json:"encoding_format,omitempty"`
+	Seed            *int            `json:"seed,omitempty"`
+	Tools           json.RawMessage `json:"tools,omitempty"`
+	ServiceTier     string          `json:"service_tier,omitempty"`
+}
+
+func (air *OpenAIInput) GetStopSequences() []string {
+	if len(air.Stop) == 0 {
+		return nil
+	}
+	var arr []string
+	if err := json.Unmarshal(air.Stop, &arr); err == nil {
+		return arr
+	}
+	var s string
+	if err := json.Unmarshal(air.Stop, &s); err == nil {
+		return []string{s}
+	}
+	return nil
 }
 
 func (air *OpenAIInput) GetInput() string {
 	if len(air.Input) > 0 {
-		return air.Input
+		return wrapTextAsInputMessage(air.Input)
 	}
 
 	if len(air.Prompt) > 0 {
-		return air.Prompt
+		return wrapTextAsInputMessage(air.Prompt)
 	}
 
 	if len(air.Items) > 0 {
 		return string(air.Items)
 	}
 
-	return string(air.Messages)
+	return normalizeOpenAIMessages(air.Messages)
 }
 
 type VendorAnthropic struct {
@@ -386,12 +431,16 @@ type VendorAnthropic struct {
 }
 
 type AnthropicRequest struct {
-	MaxTokens int             `json:"max_tokens"`
-	Messages  json.RawMessage `json:"messages"`
-	Model     string          `json:"model"`
-	Stream    bool            `json:"stream"`
-	System    string          `json:"system"`
-	Tools     json.RawMessage `json:"tools"`
+	MaxTokens     int             `json:"max_tokens"`
+	Messages      json.RawMessage `json:"messages"`
+	Model         string          `json:"model"`
+	Stream        bool            `json:"stream"`
+	System        string          `json:"system"`
+	Tools         json.RawMessage `json:"tools"`
+	Temperature   *float64        `json:"temperature,omitempty"`
+	TopP          *float64        `json:"top_p,omitempty"`
+	TopK          int             `json:"top_k,omitempty"`
+	StopSequences []string        `json:"stop_sequences,omitempty"`
 }
 
 type AnthropicResponse struct {
@@ -408,10 +457,13 @@ type AnthropicResponse struct {
 }
 
 type AnthropicUsage struct {
-	InputTokens  int    `json:"input_tokens"`
-	OutputTokens int    `json:"output_tokens"`
-	ServiceTier  string `json:"service_tier"`
-	InferenceGeo string `json:"inference_geo"`
+	InputTokens              int    `json:"input_tokens"`
+	OutputTokens             int    `json:"output_tokens"`
+	CacheCreationInputTokens int    `json:"cache_creation_input_tokens,omitempty"`
+	CacheReadInputTokens     int    `json:"cache_read_input_tokens,omitempty"`
+	ReasoningOutputTokens    int    `json:"reasoning_output_tokens,omitempty"`
+	ServiceTier              string `json:"service_tier"`
+	InferenceGeo             string `json:"inference_geo"`
 }
 
 type AnthropicError struct {
@@ -430,6 +482,7 @@ type VendorGemini struct {
 	Output    GeminiResponse
 	Model     string
 	Operation string
+	IsStream  bool
 }
 
 type GeminiRequest struct {
@@ -454,6 +507,7 @@ type GeminiGenCfg struct {
 	StopSequences    []string `json:"stopSequences,omitempty"`
 	Seed             *int     `json:"seed,omitempty"`
 	CandidateCount   int      `json:"candidateCount"`
+	ResponseMimeType string   `json:"responseMimeType,omitempty"`
 }
 
 type GeminiResponse struct {
@@ -502,19 +556,16 @@ func (g *VendorGemini) OperationName() string {
 }
 
 func (g *VendorGemini) GetOutput() string {
-	if len(g.Output.Candidates) > 0 && g.Output.Candidates[0].Content != nil {
-		return string(g.Output.Candidates[0].Content.Parts)
-	}
-	return ""
+	return normalizeGeminiOutput(&g.Output)
 }
 
 func (g *VendorGemini) GetInput() string {
-	return string(g.Input.Contents)
+	return normalizeGeminiInput(g.Input.Contents)
 }
 
 func (g *VendorGemini) GetSystemInstruction() string {
 	if g.Input.SystemInstruction != nil {
-		return string(g.Input.SystemInstruction.Parts)
+		return normalizeGeminiParts(g.Input.SystemInstruction.Parts)
 	}
 	return ""
 }
@@ -524,9 +575,11 @@ func (g *VendorGemini) GetSystemInstruction() string {
 // We capture the unified superset using omitempty and RawMessage for variable fields.
 
 type VendorBedrock struct {
-	Input  BedrockRequest
-	Output BedrockResponse
-	Model  string // extracted from URL path: /model/{modelId}/invoke
+	Input      BedrockRequest
+	Output     BedrockResponse
+	Model      string // extracted from URL path: /model/{modelId}/invoke
+	IsStream   bool
+	GuardrailID string
 }
 
 // BedrockRequest covers the common fields across all model families.
@@ -547,7 +600,8 @@ type BedrockRequest struct {
 	Prompt    string `json:"prompt,omitempty"`
 	MaxGenLen int    `json:"max_gen_len,omitempty"`
 	// Tool use (Claude / Nova)
-	Tools json.RawMessage `json:"tools,omitempty"`
+	Tools         json.RawMessage `json:"tools,omitempty"`
+	StopSequences []string        `json:"stop_sequences,omitempty"`
 }
 
 type TitanGenConfig struct {
@@ -601,39 +655,43 @@ type TitanResult struct {
 
 func (b *VendorBedrock) GetInput() string {
 	if len(b.Input.Messages) > 0 {
-		return string(b.Input.Messages)
+		return normalizeOpenAIMessages(b.Input.Messages)
 	}
 	if b.Input.Prompt != "" {
-		return b.Input.Prompt
+		return wrapTextAsInputMessage(b.Input.Prompt)
 	}
 	if b.Input.InputText != "" {
-		return b.Input.InputText
+		return wrapTextAsInputMessage(b.Input.InputText)
 	}
 	return ""
 }
 
 func (b *VendorBedrock) GetOutput() string {
-	// Anthropic Claude: content array
+	// Anthropic Claude: content array (normalized via NormalizeBedrockOutput in tracesgen)
 	if len(b.Output.Content) > 0 {
 		return string(b.Output.Content)
 	}
 	// Amazon Nova: output.message.content
 	if b.Output.Output != nil && b.Output.Output.Message != nil && len(b.Output.Output.Message.Content) > 0 {
-		return string(b.Output.Output.Message.Content)
+		return wrapTextAsOutputMessage(
+			b.Output.Output.Message.Role,
+			string(b.Output.Output.Message.Content),
+			b.Output.StopReasonNova,
+		)
 	}
 	// Meta Llama: generation
 	if b.Output.Generation != "" {
-		return b.Output.Generation
+		return wrapTextAsOutputMessage("assistant", b.Output.Generation, b.GetStopReason())
 	}
 	// Amazon Titan: results[0].outputText
 	if len(b.Output.Results) > 0 {
-		return b.Output.Results[0].OutputText
+		return wrapTextAsOutputMessage("assistant", b.Output.Results[0].OutputText, b.Output.Results[0].CompletionReason)
 	}
 	return ""
 }
 
 func (b *VendorBedrock) GetSystemInstruction() string {
-	return b.Input.System
+	return NormalizeSystemInstructions(b.Input.System)
 }
 
 func (b *VendorBedrock) GetStopReason() string {

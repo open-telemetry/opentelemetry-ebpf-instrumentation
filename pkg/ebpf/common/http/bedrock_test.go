@@ -100,7 +100,7 @@ func TestBedrockSpan_Claude(t *testing.T) {
 	assert.Equal(t, "end_turn", ai.Output.StopReason)
 	assert.NotEmpty(t, ai.GetInput())
 	assert.NotEmpty(t, ai.GetOutput())
-	assert.Equal(t, "You are a helpful assistant.", ai.GetSystemInstruction())
+	assert.JSONEq(t, `[{"type":"text","content":"You are a helpful assistant."}]`, ai.GetSystemInstruction())
 	assert.Equal(t, "end_turn", ai.GetStopReason())
 }
 
@@ -124,8 +124,8 @@ func TestBedrockSpan_Titan(t *testing.T) {
 	assert.Equal(t, "amazon.titan-text-premier-v1:0", ai.Model)
 	assert.Equal(t, 8, ai.Output.InputTokens)
 	assert.Equal(t, 6, ai.Output.OutputTokens)
-	assert.Equal(t, "Explain eBPF briefly.", ai.GetInput())
-	assert.Equal(t, "eBPF is a kernel technology.", ai.GetOutput())
+	assert.JSONEq(t, `[{"role":"user","parts":[{"type":"text","content":"Explain eBPF briefly."}]}]`, ai.GetInput())
+	assert.JSONEq(t, `[{"role":"assistant","parts":[{"type":"text","content":"eBPF is a kernel technology."}],"finish_reason":"FINISH"}]`, ai.GetOutput())
 }
 
 func TestBedrockSpan_Llama(t *testing.T) {
@@ -148,8 +148,8 @@ func TestBedrockSpan_Llama(t *testing.T) {
 	assert.Equal(t, "meta.llama3-1-70b-instruct-v1:0", ai.Model)
 	assert.Equal(t, 10, ai.Output.InputTokens)
 	assert.Equal(t, 8, ai.Output.OutputTokens)
-	assert.Equal(t, "Explain eBPF briefly.", ai.GetInput())
-	assert.Equal(t, "eBPF enables safe kernel-level programs.", ai.GetOutput())
+	assert.JSONEq(t, `[{"role":"user","parts":[{"type":"text","content":"Explain eBPF briefly."}]}]`, ai.GetInput())
+	assert.JSONEq(t, `[{"role":"assistant","parts":[{"type":"text","content":"eBPF enables safe kernel-level programs."}],"finish_reason":"stop"}]`, ai.GetOutput())
 }
 
 func TestBedrockSpan_ErrorResponse(t *testing.T) {

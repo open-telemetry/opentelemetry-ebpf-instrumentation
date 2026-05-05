@@ -108,8 +108,10 @@ type MessageStartEvent struct {
 		Type  string `json:"type"`
 		Role  string `json:"role"`
 		Usage struct {
-			InputTokens  int `json:"input_tokens"`
-			OutputTokens int `json:"output_tokens"`
+			InputTokens              int `json:"input_tokens"`
+			OutputTokens             int `json:"output_tokens"`
+			CacheCreationInputTokens int `json:"cache_creation_input_tokens,omitempty"`
+			CacheReadInputTokens     int `json:"cache_read_input_tokens,omitempty"`
 		} `json:"usage"`
 	} `json:"message"`
 }
@@ -130,8 +132,10 @@ type MessageDeltaEvent struct {
 		StopSequence *string `json:"stop_sequence"`
 	} `json:"delta"`
 	Usage struct {
-		InputTokens  int `json:"input_tokens"`
-		OutputTokens int `json:"output_tokens"`
+		InputTokens              int `json:"input_tokens"`
+		OutputTokens             int `json:"output_tokens"`
+		CacheCreationInputTokens int `json:"cache_creation_input_tokens,omitempty"`
+		CacheReadInputTokens     int `json:"cache_read_input_tokens,omitempty"`
 	} `json:"usage"`
 }
 
@@ -193,6 +197,8 @@ func processEvent(eventType, data string, response *request.AnthropicResponse, c
 		response.Type = event.Message.Type
 		response.Usage.InputTokens += event.Message.Usage.InputTokens
 		response.Usage.OutputTokens += event.Message.Usage.OutputTokens
+		response.Usage.CacheCreationInputTokens += event.Message.Usage.CacheCreationInputTokens
+		response.Usage.CacheReadInputTokens += event.Message.Usage.CacheReadInputTokens
 
 	case "content_block_delta":
 		var event ContentBlockDelta
@@ -212,6 +218,8 @@ func processEvent(eventType, data string, response *request.AnthropicResponse, c
 		response.StopSequence = event.Delta.StopSequence
 		response.Usage.InputTokens += event.Usage.InputTokens
 		response.Usage.OutputTokens += event.Usage.OutputTokens
+		response.Usage.CacheCreationInputTokens += event.Usage.CacheCreationInputTokens
+		response.Usage.CacheReadInputTokens += event.Usage.CacheReadInputTokens
 
 	case "ping", "content_block_start", "content_block_stop", "message_stop":
 		// These events don't need processing

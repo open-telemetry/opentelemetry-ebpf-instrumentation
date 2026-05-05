@@ -85,7 +85,7 @@ func TestQwenSpan_CompatibleMode(t *testing.T) {
 
 	ai := span.GenAI.Qwen
 	assert.Equal(t, "chatcmpl-123", ai.ID)
-	assert.Equal(t, "chat.completion", ai.OperationName)
+	assert.Equal(t, "chat", ai.OperationName)
 	assert.Equal(t, "qwen-plus", ai.Request.Model)
 	assert.Equal(t, "qwen-plus", ai.ResponseModel)
 	assert.Equal(t, 11, ai.Usage.GetInputTokens())
@@ -179,7 +179,7 @@ func TestQwenSpan_CompatibleModeRealResponseHeaders(t *testing.T) {
 	require.NotNil(t, span.GenAI)
 	require.NotNil(t, span.GenAI.Qwen)
 	assert.Equal(t, request.HTTPSubtypeQwen, span.SubType)
-	assert.Equal(t, "chat.completion", span.GenAI.Qwen.OperationName)
+	assert.Equal(t, "chat", span.GenAI.Qwen.OperationName)
 	assert.Equal(t, "qwen-plus", span.GenAI.Qwen.Request.Model)
 }
 
@@ -204,7 +204,7 @@ func TestExtractQwenOperation(t *testing.T) {
 		{
 			name: "chat completions",
 			url:  "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
-			want: "chat.completion",
+			want: "chat",
 		},
 		{
 			name: "completions",

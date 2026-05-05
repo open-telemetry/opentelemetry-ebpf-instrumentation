@@ -53,11 +53,18 @@ func OpenAISpan(baseSpan *request.Span, req *http.Request, resp *http.Response) 
 
 	parsedResponse.Request = parsedRequest
 
-	// Override operation name for embedding requests.
+	// Override operation name and derive API type from URL path.
 	if req.URL != nil {
 		path := strings.TrimSuffix(req.URL.Path, "/")
-		if path == "/v1/embeddings" {
+		switch path {
+		case "/v1/chat/completions":
+			parsedResponse.OperationName = "chat"
+			parsedResponse.APIType = "chat_completions"
+		case "/v1/embeddings":
 			parsedResponse.OperationName = request.EmbeddingOperationName
+			parsedResponse.APIType = "embeddings"
+		case "/v1/responses":
+			parsedResponse.APIType = "responses"
 		}
 	}
 
