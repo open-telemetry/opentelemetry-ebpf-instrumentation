@@ -219,6 +219,7 @@ func TestIsJSONRPCMethod(t *testing.T) {
 		method string
 		want   bool
 	}{
+		// Standard HTTP verbs — no "." or "/", never flipped.
 		{"", false},
 		{"GET", false},
 		{"HEAD", false},
@@ -229,10 +230,29 @@ func TestIsJSONRPCMethod(t *testing.T) {
 		{"OPTIONS", false},
 		{"TRACE", false},
 		{"PATCH", false},
+		// WebDAV / extension verbs that survive 7-byte truncation as opaque
+		// tokens — must NOT flip.
+		{"PROPFIN", false}, // PROPFIND truncated
+		{"PROPPAT", false}, // PROPPATCH truncated
+		{"MKCALEN", false}, // MKCALENDAR truncated
+		{"MKCOL", false},
+		{"COPY", false},
+		{"MOVE", false},
+		{"LOCK", false},
+		{"UNLOCK", false},
+		{"REPORT", false},
+		{"SEARCH", false},
+		{"PURGE", false},
+		// Go net/rpc procedure names always contain ".".
 		{"Arith.M", true},
+		{"X.Add", true},
+		// JSON-RPC / MCP namespaces commonly use "/".
 		{"tools/c", true},
-		{"foo", true},
-		{"get", true}, // lowercase is not a standard verb token
+		{"resourc", false}, // truncated "resources/read" loses the "/"
+		// Defensive: a procedure that survives intact and contains either
+		// separator must flip.
+		{"a.b", true},
+		{"a/b", true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.method, func(t *testing.T) {

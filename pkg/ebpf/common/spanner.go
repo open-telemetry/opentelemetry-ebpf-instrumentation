@@ -90,17 +90,22 @@ func HTTPRequestTraceToSpan(trace *HTTPRequestTrace) request.Span {
 	return span
 }
 
-// isJSONRPCMethod reports whether the captured method is something other than
-// a standard HTTP verb. It's used to detect the Go net/rpc/jsonrpc case where
-// the uprobe overwrites the HTTP method field with the procedure name.
+// isJSONRPCMethod reports whether the captured method looks like a Go
+// net/rpc/jsonrpc procedure name rather than a real HTTP method. The Go
+// uprobe overwrites the HTTP method field with the procedure name when
+// net/rpc/jsonrpc handles the request.
+//
+// We use a positive pattern instead of a negative HTTP-verb allowlist
+// because the BPF buffer truncates to k_method_max_len (7 bytes), which
+// turns longer extension verbs (WebDAV PROPFIND -> "PROPFIN", MKCALENDAR
+// -> "MKCALEN", etc.) into opaque tokens that cannot be enumerated.
+//
+// Go's net/rpc enforces "Type.Method" naming (always contains "."), and
+// JSON-RPC namespaces commonly use "/" separators (e.g. MCP "tools/call",
+// "resources/read"). Standard HTTP and WebDAV verbs contain neither
+// character, so requiring "." or "/" rules them out cleanly.
 func isJSONRPCMethod(method string) bool {
-	switch method {
-	case "",
-		"GET", "HEAD", "POST", "PUT", "DELETE",
-		"CONNECT", "OPTIONS", "TRACE", "PATCH":
-		return false
-	}
-	return true
+	return strings.ContainsAny(method, "./")
 }
 
 func stripPattern(p string) string {

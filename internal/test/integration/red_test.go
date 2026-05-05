@@ -225,7 +225,10 @@ func testSpanMetricsForJSONRPCHTTP(t *testing.T, svcName, svcNs string) {
 	pq := promtest.Client{HostPort: prometheusHostPort}
 	var results []promtest.Result
 
-	expectedSpanName := "Arith.M /jsonrpc"
+	// Once the span is promoted to HTTPSubtypeJSONRPC, Span.TraceName() returns
+	// the JSON-RPC procedure name (truncated to 7 bytes by the uprobe) rather
+	// than appending the HTTP route.
+	expectedSpanName := "Arith.M"
 
 	// Test span metrics
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
