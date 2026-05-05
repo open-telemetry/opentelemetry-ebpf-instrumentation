@@ -14,7 +14,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/internal/sqlprune"
 )
 
-const jsonRpc = "JSONRPC" // must remain in sync with value used in obi_uprobe_jsonrpcReadRequestHeaderReturns
+const jsonRPC = "JSONRPC" // must remain in sync with value used in obi_uprobe_jsonrpcReadRequestHeaderReturns
 
 func HTTPRequestTraceToSpan(trace *HTTPRequestTrace) request.Span {
 	// From C, assuming 0-ended strings
@@ -25,7 +25,7 @@ func HTTPRequestTraceToSpan(trace *HTTPRequestTrace) request.Span {
 	origHost := cstr(trace.Host[:])
 
 	var overrideTraceName string
-	if method == jsonRpc {
+	if method == jsonRPC {
 		// json rpc signal
 		method = http.MethodPost
 		overrideTraceName = pattern
