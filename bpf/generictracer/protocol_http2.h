@@ -147,8 +147,14 @@ static __always_inline void http2_grpc_start_finalize_server(http2_conn_stream_t
     h2g_info->tp = tp_p->tp;
 
     set_trace_info_for_connection(&h2g_info->conn_info, TRACE_TYPE_SERVER, tp_p);
-    server_or_client_trace(
-        EVENT_HTTP_REQUEST, &h2g_info->conn_info, k_lw_thread_none, tp_p, ssl, orig_dport);
+    server_or_client_trace(EVENT_HTTP_REQUEST,
+                           &h2g_info->conn_info,
+                           k_lw_thread_none,
+                           tp_p,
+                           ssl,
+                           orig_dport,
+                           0,
+                           BPF_ANY);
 
     trace_key_t t_key = {0};
     task_tid(&t_key.p_key);
@@ -254,17 +260,15 @@ static __always_inline void http2_grpc_start(void *ctx,
     h2g_info->tp = tp_p->tp;
 
     set_trace_info_for_connection(&h2g_info->conn_info, TRACE_TYPE_CLIENT, tp_p);
-    server_or_client_trace(
-        EVENT_HTTP_CLIENT, &h2g_info->conn_info, k_lw_thread_none, tp_p, ssl, orig_dport);
-
-    egress_key_t e_key = {
-        .d_port = h2g_info->conn_info.d_port,
-        .s_port = h2g_info->conn_info.s_port,
-        .stream_id = s_key->stream_id,
-    };
-    sort_egress_key(&e_key);
-    // BPF_NOEXIST: don't overwrite a Go uprobe's HPACK-injected span (written=1)
-    bpf_map_update_elem(&outgoing_trace_map, &e_key, tp_p, BPF_NOEXIST);
+    // BPF_NOEXIST so a Go uprobe's HPACK-injected entry (written=1) isn't clobbered
+    server_or_client_trace(EVENT_HTTP_CLIENT,
+                           &h2g_info->conn_info,
+                           k_lw_thread_none,
+                           tp_p,
+                           ssl,
+                           orig_dport,
+                           s_key->stream_id,
+                           BPF_NOEXIST);
 
     bpf_map_update_elem(&ongoing_http2_grpc, s_key, h2g_info, BPF_ANY);
 }

@@ -52,18 +52,16 @@ char __license[] SEC("license") = "Dual MIT/GPL";
 //   │
 //   ├── pull_data + fill_msg_buffers ─── single up-front for all branches
 //   │
-//   ├── is_go_grpc_client_conn?      ─┐  Go gRPC: uprobe wrote HPACK in
-//   │     └── SK_PASS                 │  user buffer; sk_msg bails
-//   │                                 │
-//   ├── is_h2_socket?                 │  Plaintext H2 (non-Go): per-stream
-//   │     └─ tail-call detect_h2      │  HPACK chain (right column). Runs
-//   │                                 │  before tp_pid so HEADERS frames
-//   │                                 │  don't go through HTTP/1 path
-//   │                                 │
-//   ├── tp_pid present?               │  Go net/http, SSL: TCP option +
-//   │     └── handle_existing_tp_pid  │  HTTP/1 inject. Bypasses valid_pid
-//   │                                 │
-//   ├── !valid_pid → SK_PASS          │
+//   ├── tp_pid present?               ─┐  Central dispatch: Go net/http,
+//   │     └── handle_existing_tp_pid   │  SSL. Inject + return
+//   │                                  │
+//   ├── is_go_grpc_client_conn?        │  Go gRPC: uprobe wrote HPACK in
+//   │     └── SK_PASS                  │  user buffer; sk_msg bails
+//   │                                  │
+//   ├── !valid_pid → SK_PASS           │  Unmonitored process
+//   │                                  │
+//   ├── is_h2_socket?                  │  Known plaintext H2: skip preface
+//   │     └─ tail-call detect_h2       │  check, go straight to HPACK chain
 //   │                                 │
 //   ├── HTTP/1 detected?              │  ── find_existing_tp ── create_tp ──
 //   │                                 │     write_msg_traceparent
@@ -903,25 +901,23 @@ int obi_packet_extender(struct sk_msg_md *msg) {
     bpf_msg_pull_data(msg, 0, msg->size, 0);
     fill_msg_buffers(msg, &t_ctx->p_conn, &e_key);
 
-    if (is_go_grpc_client_conn(&t_ctx->p_conn)) {
-        return SK_PASS;
-    }
-
-    // is_h2 first: HEADERS frame must hit detect_h2 before HTTP/1 path
-    // consumes tp_pid and skips HPACK
-    if (is_h2_socket(msg)) {
-        bpf_tail_call_static(msg, &extender_jump_table, k_tail_detect_h2);
-        return SK_PASS;
-    }
-
-    // Go net/http, SSL: uprobe-set tp_pid. Runs before valid_pid so Go
-    // PIDs (not in valid_pids) still get HTTP/1 inject + TCP option
+    // Central dispatch for uprobe-set entries (Go net/http, SSL)
     tp_info_pid_t *tp_pid = get_tp_info_pid(&e_key);
     if (tp_pid && handle_existing_tp_pid(msg, id, &t_ctx->p_conn, &e_key, tp_pid)) {
         return SK_PASS;
     }
 
+    // Go gRPC: uprobe wrote HPACK in user buffer; sk_msg bails
+    if (is_go_grpc_client_conn(&t_ctx->p_conn)) {
+        return SK_PASS;
+    }
+
     if (!valid_pid(id)) {
+        return SK_PASS;
+    }
+
+    if (is_h2_socket(msg)) {
+        bpf_tail_call_static(msg, &extender_jump_table, k_tail_detect_h2);
         return SK_PASS;
     }
 

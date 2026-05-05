@@ -103,7 +103,9 @@ static __always_inline void server_or_client_trace(const u8 type,
                                                    lw_thread_t lw_thread,
                                                    tp_info_pid_t *tp_p,
                                                    u8 ssl,
-                                                   const u16 orig_dport) {
+                                                   const u16 orig_dport,
+                                                   u32 stream_id,
+                                                   u64 map_update_flags) {
 
     const u64 id = bpf_get_current_pid_tgid();
     const u32 host_pid = pid_from_pid_tgid(id);
@@ -153,7 +155,7 @@ static __always_inline void server_or_client_trace(const u8 type,
         egress_key_t e_key = {
             .d_port = conn->d_port,
             .s_port = conn->s_port,
-            .stream_id = 0,
+            .stream_id = stream_id,
         };
         sort_egress_key(&e_key);
 
@@ -163,9 +165,9 @@ static __always_inline void server_or_client_trace(const u8 type,
             tp_info_pid_t tp_p_invalid = {0};
             __builtin_memcpy(&tp_p_invalid, tp_p, sizeof(tp_p_invalid));
             tp_p_invalid.valid = 0;
-            bpf_map_update_elem(&outgoing_trace_map, &e_key, &tp_p_invalid, BPF_ANY);
+            bpf_map_update_elem(&outgoing_trace_map, &e_key, &tp_p_invalid, map_update_flags);
         } else {
-            bpf_map_update_elem(&outgoing_trace_map, &e_key, tp_p, BPF_ANY);
+            bpf_map_update_elem(&outgoing_trace_map, &e_key, tp_p, map_update_flags);
             obi_ctx__set(id, &tp_p->tp);
         }
     }
