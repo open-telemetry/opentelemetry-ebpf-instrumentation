@@ -167,6 +167,8 @@ func TestSuite_OldestGoVersion(t *testing.T) {
 	t.Run("HTTP traces (manual spans)", testHTTPTracesNestedManualSpans)
 	t.Run("Internal Prometheus metrics", func(t *testing.T) { ti.InternalPrometheusExport(t, config) })
 
+	runWeaverValidation(t)
+
 	require.NoError(t, compose.Close())
 }
 

@@ -31,6 +31,8 @@ func TestPerAppFeatures(t *testing.T) {
 		testPerAppFeatures(t, "prometheus")
 	})
 
+	runWeaverValidation(t)
+
 	require.NoError(t, compose.Close())
 }
 

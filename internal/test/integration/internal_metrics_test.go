@@ -32,6 +32,7 @@ func TestInstrumentationErrors(t *testing.T) {
 		checkInstrumentationErrorMetrics(t)
 	})
 
+	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
 
