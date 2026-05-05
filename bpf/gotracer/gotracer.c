@@ -18,6 +18,7 @@
 
 #include "go_runtime.c"
 #include "go_net.c"
+#include "go_net_tls.c"
 #include "go_nethttp.c"
 #include "go_sql.c"
 #include "go_grpc.c"

@@ -67,7 +67,7 @@ jobs:
             # tags are in the form rustserver-0.1.0, so we use "tr" to split and later remove any prefix
             LATEST_VERSION=$(echo "${TAGS}" | \
               jq -r '.tags[]' | \
-              tr "-" "\n" | \ 
+              tr "-" "\n" | \
               grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | \
               sort -V | \
               tail -n 1)

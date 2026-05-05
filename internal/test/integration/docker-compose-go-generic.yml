@@ -17,16 +17,24 @@ services:
     ports:
       - "9093:9093"
       - "9092:9092"
+      - "9094:9094"   # SSL listener port      
     volumes:
       - "kafka-volume:/bitnami"
+      - "./components/javakafka-tls/certs:/bitnami/kafka/config/certs"   # mount certs
     environment:
       - KAFKA_BROKER_ID=1
       - KAFKA_CFG_ZOOKEEPER_CONNECT=zookeeper:2181
       - ALLOW_PLAINTEXT_LISTENER=yes
-      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CLIENT:PLAINTEXT,EXTERNAL:PLAINTEXT
-      - KAFKA_CFG_LISTENERS=CLIENT://:9092,EXTERNAL://:9093
-      - KAFKA_CFG_ADVERTISED_LISTENERS=CLIENT://kafka:9092,EXTERNAL://kafka:9093
+      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CLIENT:PLAINTEXT,EXTERNAL:PLAINTEXT,SSL:SSL
+      - KAFKA_CFG_LISTENERS=CLIENT://:9092,EXTERNAL://:9093,SSL://:9094
+      - KAFKA_CFG_ADVERTISED_LISTENERS=CLIENT://kafka:9092,EXTERNAL://kafka:9093,SSL://kafka:9094
       - KAFKA_CFG_INTER_BROKER_LISTENER_NAME=CLIENT
+      - KAFKA_CFG_SSL_KEYSTORE_LOCATION=/bitnami/kafka/config/certs/kafka.keystore.jks
+      - KAFKA_CFG_SSL_KEYSTORE_PASSWORD=changeit
+      - KAFKA_CFG_SSL_KEY_PASSWORD=changeit
+      - KAFKA_CFG_SSL_TRUSTSTORE_LOCATION=/bitnami/kafka/config/certs/kafka.truststore.jks
+      - KAFKA_CFG_SSL_TRUSTSTORE_PASSWORD=changeit
+      - KAFKA_CFG_SSL_CLIENT_AUTH=none  # set to "required" for mTLS
     depends_on:
       - zookeeper
 
@@ -50,9 +58,12 @@ services:
     ports:
       - "8080:8080"
       - "8081:8081"
+      - "8443:8443"
     environment:
       LOG_LEVEL: DEBUG
       OTEL_RESOURCE_ATTRIBUTES: "service.version=1.0.0"
+      KAFKA_PEERS: "kafka:9092"
+      KAFKA_TLS_PEERS: "kafka:9094"
     depends_on:
       kafka:
         condition: service_started
