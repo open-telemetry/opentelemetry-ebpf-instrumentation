@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Copyright The OpenTelemetry Authors
+# SPDX-License-Identifier: Apache-2.0
+#
 # Validate the OBI semantic-convention registry under `schemas/obi/`.
 #
 # `weaver registry check` always exits 0, even on hard errors, so we instead

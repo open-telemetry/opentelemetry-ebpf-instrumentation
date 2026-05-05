@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Copyright The OpenTelemetry Authors
+# SPDX-License-Identifier: Apache-2.0
+#
 # Pre-fetch the upstream OpenTelemetry semantic-conventions registry into
 # `schemas/obi/.deps/` so weaver doesn't have to clone it on every container
 # start. Without this, weaver's `live-check` resolves the dependency declared
