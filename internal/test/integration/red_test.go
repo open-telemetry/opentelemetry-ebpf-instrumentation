@@ -317,6 +317,8 @@ func testREDMetricsForJSONRPCHTTP(t *testing.T, url, svcName, svcNs string) {
 	jsonBody, err := os.ReadFile(path.Join(pathRoot, "internal", "test", "integration", "components", "testserver", "jsonrpc", "body", "formated.json"))
 	require.NoError(t, err)
 	urlPath := "/jsonrpc"
+	// The Go uprobe truncates the captured method to k_method_max_len (7 bytes),
+	// so "Arith.Multiply" surfaces as "Arith.M" on the metric label.
 	expectedMethod := "Arith.M"
 
 	for i := 0; i < 4; i++ {
@@ -328,22 +330,27 @@ func testREDMetricsForJSONRPCHTTP(t *testing.T, url, svcName, svcNs string) {
 	var results []promtest.Result
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		var err error
-		results, err = pq.Query(`http_server_request_duration_seconds_count{` +
-			`http_request_method="` + expectedMethod + `",` +
-			`http_response_status_code="200",` +
+		results, err = pq.Query(`rpc_server_duration_seconds_count{` +
+			`rpc_method="` + expectedMethod + `",` +
+			`rpc_system="jsonrpc",` +
 			`service_namespace="` + svcNs + `",` +
-			`service_name="` + svcName + `",` +
-			`url_path="` + urlPath + `"}`)
+			`service_name="` + svcName + `"}`)
 		require.NoError(ct, err)
 		enoughPromResults(ct, results)
 		val := totalPromCount(ct, results)
 		assert.LessOrEqual(ct, 3, val)
-		if len(results) > 0 {
-			res := results[0]
-			addr := res.Metric["client_address"]
-			assert.NotNil(ct, addr)
-		}
 	}, testTimeout, 100*time.Millisecond)
+
+	// Negative assertion: the JSON-RPC traffic must not surface as plain HTTP
+	// metrics carrying a procedure-name as http.request.method (the original
+	// bug from issue #1821).
+	leakResults, err := pq.Query(`http_server_request_duration_seconds_count{` +
+		`http_request_method="` + expectedMethod + `",` +
+		`service_namespace="` + svcNs + `",` +
+		`service_name="` + svcName + `",` +
+		`url_path="` + urlPath + `"}`)
+	require.NoError(t, err)
+	assert.Empty(t, leakResults, "JSON-RPC procedure must not leak into http.request.method")
 }
 
 func testREDMetricsForHTTPLibrary(t *testing.T, url, svcName, svcNs string) {

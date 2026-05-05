@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 )
@@ -141,6 +142,103 @@ func Test_EmptyHostInfo(t *testing.T) {
 
 	assert.Empty(t, src)
 	assert.Empty(t, dest)
+}
+
+func TestHTTPRequestTraceToSpan_JSONRPCDetection(t *testing.T) {
+	tests := []struct {
+		name           string
+		method         string
+		wantSubType    int
+		wantSpanMethod string
+		wantJSONRPC    *request.JSONRPC
+	}{
+		{
+			name:           "standard HTTP GET stays HTTP",
+			method:         "GET",
+			wantSubType:    request.HTTPSubtypeNone,
+			wantSpanMethod: "GET",
+			wantJSONRPC:    nil,
+		},
+		{
+			name:           "standard HTTP POST stays HTTP",
+			method:         "POST",
+			wantSubType:    request.HTTPSubtypeNone,
+			wantSpanMethod: "POST",
+			wantJSONRPC:    nil,
+		},
+		{
+			name:           "OPTIONS at 7-byte boundary stays HTTP",
+			method:         "OPTIONS",
+			wantSubType:    request.HTTPSubtypeNone,
+			wantSpanMethod: "OPTIONS",
+			wantJSONRPC:    nil,
+		},
+		{
+			name:           "empty method stays HTTP",
+			method:         "",
+			wantSubType:    request.HTTPSubtypeNone,
+			wantSpanMethod: "",
+			wantJSONRPC:    nil,
+		},
+		{
+			name:           "truncated JSON-RPC procedure flips to JSONRPC",
+			method:         "Arith.M",
+			wantSubType:    request.HTTPSubtypeJSONRPC,
+			wantSpanMethod: "POST",
+			wantJSONRPC:    &request.JSONRPC{Method: "Arith.M", Version: "2.0"},
+		},
+		{
+			name:           "truncated MCP-style procedure flips to JSONRPC",
+			method:         "tools/c",
+			wantSubType:    request.HTTPSubtypeJSONRPC,
+			wantSpanMethod: "POST",
+			wantJSONRPC:    &request.JSONRPC{Method: "tools/c", Version: "2.0"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tr := makeHTTPRequestTrace(tt.method, "/rpc", 200, 64, 32, 1)
+			s := HTTPRequestTraceToSpan(&tr)
+
+			assert.Equal(t, tt.wantSubType, s.SubType)
+			assert.Equal(t, tt.wantSpanMethod, s.Method)
+			if tt.wantJSONRPC == nil {
+				assert.Nil(t, s.JSONRPC)
+			} else {
+				require.NotNil(t, s.JSONRPC)
+				assert.Equal(t, tt.wantJSONRPC.Method, s.JSONRPC.Method)
+				assert.Equal(t, tt.wantJSONRPC.Version, s.JSONRPC.Version)
+			}
+		})
+	}
+}
+
+func TestIsJSONRPCMethod(t *testing.T) {
+	tests := []struct {
+		method string
+		want   bool
+	}{
+		{"", false},
+		{"GET", false},
+		{"HEAD", false},
+		{"POST", false},
+		{"PUT", false},
+		{"DELETE", false},
+		{"CONNECT", false},
+		{"OPTIONS", false},
+		{"TRACE", false},
+		{"PATCH", false},
+		{"Arith.M", true},
+		{"tools/c", true},
+		{"foo", true},
+		{"get", true}, // lowercase is not a standard verb token
+	}
+	for _, tt := range tests {
+		t.Run(tt.method, func(t *testing.T) {
+			assert.Equal(t, tt.want, isJSONRPCMethod(tt.method))
+		})
+	}
 }
 
 func TestStripPattern(t *testing.T) {

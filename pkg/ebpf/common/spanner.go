@@ -43,7 +43,7 @@ func HTTPRequestTraceToSpan(trace *HTTPRequestTrace) request.Span {
 		schemeHost = strings.Join([]string{scheme, origHost}, request.SchemeHostSeparator)
 	}
 
-	return request.Span{
+	span := request.Span{
 		Type:           request.EventType(trace.Type),
 		Method:         method,
 		Path:           path,
@@ -70,6 +70,37 @@ func HTTPRequestTraceToSpan(trace *HTTPRequestTrace) request.Span {
 		},
 		Statement: schemeHost,
 	}
+
+	// The Go net/http uprobe (bpf/gotracer/go_nethttp.c) overwrites the captured
+	// HTTP method with the JSON-RPC procedure name when the handler resolves to
+	// net/rpc/jsonrpc. The uprobe truncates to k_method_max_len (7 bytes), so
+	// every standard HTTP verb fits intact and any captured value outside that
+	// closed set marks a JSON-RPC procedure. Promote those traces to the
+	// HTTPSubtypeJSONRPC subtype so RPC routing in the exporters takes over
+	// (see issue #1821).
+	if isJSONRPCMethod(method) {
+		span.SubType = request.HTTPSubtypeJSONRPC
+		span.JSONRPC = &request.JSONRPC{
+			Method:  method,
+			Version: "2.0",
+		}
+		span.Method = "POST"
+	}
+
+	return span
+}
+
+// isJSONRPCMethod reports whether the captured method is something other than
+// a standard HTTP verb. It's used to detect the Go net/rpc/jsonrpc case where
+// the uprobe overwrites the HTTP method field with the procedure name.
+func isJSONRPCMethod(method string) bool {
+	switch method {
+	case "",
+		"GET", "HEAD", "POST", "PUT", "DELETE",
+		"CONNECT", "OPTIONS", "TRACE", "PATCH":
+		return false
+	}
+	return true
 }
 
 func stripPattern(p string) string {
