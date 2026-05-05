@@ -104,9 +104,11 @@ int obi_tracepoint_inet_sock_set_state(struct trace_event_raw_inet_sock_set_stat
 
     // {TCP_LAST_ACK|TCP_TIME_WAIT}->TCP_CLOSE are normal close transitions
     // TCP_LISTEN->TCP_CLOSE is what happens when a listener socket is shut down
-    if (args->oldstate == TCP_LAST_ACK || args->oldstate == TCP_TIME_WAIT ||
-        args->oldstate == TCP_LISTEN) {
+    if (args->oldstate == TCP_LAST_ACK || args->oldstate == TCP_TIME_WAIT) {
         bpf_map_delete_elem(&sock_role, &sk);
+        return 0;
+    }
+    if (args->oldstate == TCP_LISTEN) {
         return 0;
     }
 
