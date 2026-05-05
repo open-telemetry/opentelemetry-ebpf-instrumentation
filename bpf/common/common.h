@@ -54,8 +54,10 @@ enum large_buf_action : u8 {
 };
 
 enum large_buf_kind : u8 {
-    k_large_buf_layer_wire = 0,
-    k_large_buf_layer_app = 1,
+    k_large_buf_layer_wire =
+        0, // <--- wire format as seen by kprobes or socket ingress programs/xdp
+    k_large_buf_layer_app =
+        1, // <--- as seen by the app layer, e.g. ssl uprobes, detected protocols in eBPF or sk_msg on engress
 };
 
 enum {
