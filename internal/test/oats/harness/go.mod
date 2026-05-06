@@ -5,7 +5,7 @@ go 1.25.7
 require (
 	github.com/grafana/oats v0.6.1
 	github.com/onsi/ginkgo/v2 v2.28.1
-	github.com/onsi/gomega v1.39.1
+	github.com/onsi/gomega v1.40.0
 )
 
 require (
