@@ -1,0 +1,14 @@
+{
+    "name": "httpproxyserver",
+    "version": "1.0.0",
+    "description": "HTTP proxy server based on NodeJS Express",
+    "main": "app.js",
+    "scripts": {
+        "start": "node app.js"
+    },
+    "author": "The OpenTelemetry Authors",
+    "license": "Apache-2.0",
+    "dependencies": {
+        "express": "^5.0.0"
+    }
+}
