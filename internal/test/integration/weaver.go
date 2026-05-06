@@ -181,32 +181,29 @@ func runWeaverValidation(t *testing.T) {
 		return
 	}
 
-	// Capture stdout (JSON report) and stderr (log lines) separately.
-	// Weaver writes the JSON report to stdout and diagnostic messages to stderr.
-	cmd := exec.CommandContext(ctx, "docker", "logs", weaverContainer)
-	var stdout, stderr strings.Builder
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		t.Errorf("failed to capture weaver logs: %v; stderr: %s", err, stderr.String())
+	// weaver writes its consolidated report to `/tmp/live_check.json`
+	// inside the container (see `--output /tmp` in
+	// `components/weaver/service.yml`). Pulling it out via `docker cp` is
+	// dramatically faster than streaming the equivalent volume of
+	// per-entity stream-mode JSON via `docker logs`, which is what blew
+	// the test budget on heavy multi-language suites; it also avoids the
+	// host bind-mount UID mismatch a shared volume would introduce.
+	reportPath := weaverReportPath(t)
+	cpCmd := exec.CommandContext(ctx, "docker", "cp",
+		weaverContainer+":/tmp/live_check.json", reportPath)
+	if out, err := cpCmd.CombinedOutput(); err != nil {
+		t.Errorf("failed to copy weaver report from container: %v; output: %s",
+			err, strings.TrimSpace(string(out)))
 		return
 	}
-
-	// Save full output for later inspection.
-	reportPath := weaverReportPath(t)
-	require.NoError(t, os.WriteFile(reportPath, []byte(stdout.String()), 0o644),
-		"failed to write weaver report to %s", reportPath)
 	t.Logf("weaver report saved to %s", reportPath)
-	if stderr.Len() > 0 {
-		t.Logf("weaver diagnostics:\n%s", stderr.String())
-	}
 
-	// Parse the JSON report from stdout. Weaver may emit diagnostic JSON
-	// records (for example duplicate-id warnings on registry resolution)
-	// alongside the report; the live-check report itself is the value with
-	// `samples` and `statistics` fields. Iterate top-level JSON objects and
-	// pick the one that matches the report shape.
-	jsonStr := strings.TrimSpace(stdout.String())
+	rawReport, err := os.ReadFile(reportPath)
+	if err != nil {
+		t.Errorf("failed to read weaver report at %s: %v", reportPath, err)
+		return
+	}
+	jsonStr := strings.TrimSpace(string(rawReport))
 	if jsonStr == "" {
 		t.Errorf("weaver produced no JSON output on stdout")
 		return
