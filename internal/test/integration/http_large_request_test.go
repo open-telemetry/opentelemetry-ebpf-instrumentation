@@ -11,12 +11,14 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
 	"go.opentelemetry.io/obi/internal/test/integration/components/jaeger"
 )
 
@@ -40,7 +42,7 @@ func testLargeHTTPRequestEgress(t *testing.T) {
 	headers := []string{
 		"Accept: */*",
 		"User-Agent: user_agent",
-		fmt.Sprintf("Traceparent: %s", traceparent),
+		"Traceparent: " + traceparent,
 	}
 	reqSize := getHTTPRequestSize(t, host, method, path, headers...)
 
@@ -60,7 +62,7 @@ func testLargeHTTPRequestEgress(t *testing.T) {
 	assertRequestTraceID(t, method, path, traceID)
 }
 
-// This test will make sure that if a request belonging to an ingress flow is slighty bigger than 1KB,
+// This test will make sure that if a request belonging to an ingress flow is slightly bigger than 1KB,
 // bpf/generictracer/protocol_http.h:__obi_continue_protocol_http_tp() will still be able to find and
 // parse the traceparent.
 func testLargeHTTPRequestIngress(t *testing.T) {
@@ -74,7 +76,7 @@ func testLargeHTTPRequestIngress(t *testing.T) {
 	headers := []string{
 		"Accept: */*",
 		"User-Agent: user_agent",
-		fmt.Sprintf("Traceparent: %s", traceparent),
+		"Traceparent: " + traceparent,
 	}
 	reqSize := getHTTPRequestSize(t, host, method, path, headers...)
 
@@ -103,7 +105,7 @@ func testLargeHTTPRequestEgressArbitrarySize(t *testing.T) {
 	headers := []string{
 		"Accept: */*",
 		"User-Agent: user_agent",
-		fmt.Sprintf("Traceparent: %s", traceparent),
+		"Traceparent: " + traceparent,
 	}
 	reqSize := getHTTPRequestSize(t, host, method, path, headers...)
 	headers = append(headers, generatePadHeader(t, reqSize, rand.IntN(4096)))
@@ -130,7 +132,7 @@ func testLargeHTTPRequestIngressArbitrarySize(t *testing.T) {
 	headers := []string{
 		"Accept: */*",
 		"User-Agent: user_agent",
-		fmt.Sprintf("Traceparent: %s", traceparent),
+		"Traceparent: " + traceparent,
 	}
 	reqSize := getHTTPRequestSize(t, host, method, path, headers...)
 	headers = append(headers, generatePadHeader(t, reqSize, rand.IntN(4096)))
@@ -158,7 +160,7 @@ func createRawHTTPRequest(t *testing.T, method, path, host string, headers ...st
 	return rawReq.String()
 }
 
-func getHTTPRequestSize(t *testing.T, host, method, path string, headers ...string) httpRequestSize {
+func getHTTPRequestSize(t *testing.T, host, method, path string, headers ...string) httpRequestSize { //nolint:unparam // the linter complains about "method" being always "GET"
 	t.Helper()
 
 	rawReq := createRawHTTPRequest(t, host, method, path, headers...)
@@ -198,10 +200,10 @@ func sendRawHTTPRequest(t *testing.T, host, rawReq string, expectedStatus int) {
 	fmt.Fprint(conn, rawReq)
 	currentStatus, err := bufio.NewReader(conn).ReadString('\n')
 	require.NoError(t, err)
-	require.Contains(t, currentStatus, fmt.Sprintf("%d", expectedStatus))
+	require.Contains(t, currentStatus, strconv.Itoa(expectedStatus))
 }
 
-func assertRequestTraceID(t *testing.T, method, path, traceID string) {
+func assertRequestTraceID(t *testing.T, method, path, traceID string) { //nolint:unparam // the linter complains about "method" being always "GET"
 	t.Helper()
 
 	var trace jaeger.Trace
