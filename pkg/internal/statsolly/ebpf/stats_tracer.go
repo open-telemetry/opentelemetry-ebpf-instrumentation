@@ -14,6 +14,7 @@ import (
 	"sync"
 
 	"github.com/cilium/ebpf"
+	"github.com/cilium/ebpf/asm"
 	"github.com/cilium/ebpf/link"
 	"github.com/cilium/ebpf/rlimit"
 
@@ -32,6 +33,12 @@ type probe struct {
 	program *ebpf.Program
 	enabled bool
 }
+
+// Program names
+const (
+	progObiKprobeTCPCloseSrtt         = "obi_kprobe_tcp_close_srtt"
+	progObiTracepointInetSockSetState = "obi_tracepoint_inet_sock_set_state"
+)
 
 // Hook point names, grouped by attach type.
 const (
@@ -67,6 +74,8 @@ func NewStatsFetcher(cfg *config.EBPFTracer, features *export.Features) (*StatsF
 	if err != nil {
 		return nil, fmt.Errorf("loading BPF data: %w", err)
 	}
+
+	fixupSpec(spec, features)
 
 	ebpfconvenience.SetupMapSizes(spec, cfg.MapsConfig.GlobalScaleFactor)
 
@@ -161,4 +170,31 @@ func (m *StatsFetcher) StatsEventsMap() *ebpf.Map {
 
 func (m *StatsFetcher) DebugEventsMap() *ebpf.Map {
 	return m.objects.DebugEvents
+}
+
+// fixupSpec replaces disabled programs with no-op stubs before loading,
+// preventing unused eBPF code from being loaded into the kernel.
+func fixupSpec(spec *ebpf.CollectionSpec, features *export.Features) {
+	if !features.StatsTCPFailedConnections() {
+		spec.Programs[progObiTracepointInetSockSetState] = &ebpf.ProgramSpec{
+			Name: "stats_dummy_tp",
+			Type: ebpf.TracePoint,
+			Instructions: asm.Instructions{
+				asm.Mov.Imm(asm.R0, 0),
+				asm.Return(),
+			},
+			License: "Dual MIT/GPL",
+		}
+	}
+	if !features.StatsTCPRtt() {
+		spec.Programs[progObiKprobeTCPCloseSrtt] = &ebpf.ProgramSpec{
+			Name: "stats_dummy_kp",
+			Type: ebpf.Kprobe,
+			Instructions: asm.Instructions{
+				asm.Mov.Imm(asm.R0, 0),
+				asm.Return(),
+			},
+			License: "Dual MIT/GPL",
+		}
+	}
 }
