@@ -268,8 +268,8 @@ int obi_uprobe_readRequestStart(struct pt_regs *ctx) {
     if (!existing || (existing->d_port == 0 && existing->s_port == 0)) {
         void *c_ptr = GO_PARAM1(ctx);
         if (c_ptr) {
-            void *conn_conn_ptr =
-                c_ptr + 8 + go_offset_of(ot, (go_offset){.v = _c_rwc_pos}); // embedded struct
+            void *conn_conn_ptr = c_ptr + k_go_iface_data_offset +
+                                  go_offset_of(ot, (go_offset){.v = _c_rwc_pos}); // embedded struct
             void *tls_state = 0;
             bpf_probe_read(&tls_state,
                            sizeof(tls_state),
@@ -863,7 +863,9 @@ int obi_uprobe_writeSubset(struct pt_regs *ctx) {
 
     s64 size = 0;
     bpf_probe_read(
-        &size, sizeof(s64), (void *)(io_writer_addr + io_writer_buf_ptr_pos + 8)); // grab size
+        &size,
+        sizeof(s64),
+        (void *)(io_writer_addr + io_writer_buf_ptr_pos + k_go_slice_len_offset)); // grab size
 
     s64 len = 0;
     bpf_probe_read(&len, sizeof(s64),
@@ -967,12 +969,14 @@ int obi_uprobe_http2serverConn_runHandler(struct pt_regs *ctx) {
 
     if (sc) {
         void *conn_ptr = 0;
-        bpf_probe_read(
-            &conn_ptr, sizeof(void *), sc + go_offset_of(ot, (go_offset){.v = _sc_conn_pos}) + 8);
+        bpf_probe_read(&conn_ptr,
+                       sizeof(void *),
+                       sc + go_offset_of(ot, (go_offset){.v = _sc_conn_pos}) +
+                           k_go_iface_data_offset);
         bpf_dbg_printk("conn_ptr=%llx", conn_ptr);
         if (conn_ptr) {
             void *conn_conn_ptr = 0;
-            bpf_probe_read(&conn_conn_ptr, sizeof(void *), conn_ptr + 8);
+            bpf_probe_read(&conn_conn_ptr, sizeof(void *), conn_ptr + k_go_iface_data_offset);
             bpf_dbg_printk("conn_conn_ptr=%llx", conn_conn_ptr);
             if (conn_conn_ptr) {
                 connection_info_t conn = {0};
@@ -1024,12 +1028,14 @@ static __always_inline void setup_http2_client_conn(void *goroutine_addr,
         const u64 cc_tconn_pos = go_offset_of(ot, (go_offset){.v = off_cc_tconn_pos});
         bpf_dbg_printk("cc_ptr=%llx, cc_tconn_ptr=%llx", cc_ptr, cc_ptr + cc_tconn_pos);
         void *tconn = cc_ptr + go_offset_of(ot, (go_offset){.v = off_cc_tconn_pos});
-        bpf_probe_read(&tconn, sizeof(tconn), (void *)(cc_ptr + cc_tconn_pos + 8));
+        bpf_probe_read(
+            &tconn, sizeof(tconn), (void *)(cc_ptr + cc_tconn_pos + k_go_iface_data_offset));
         bpf_dbg_printk("tconn=%llx", tconn);
 
         if (tconn) {
             void *tconn_conn = 0;
-            bpf_probe_read(&tconn_conn, sizeof(tconn_conn), (void *)(tconn + 8));
+            bpf_probe_read(
+                &tconn_conn, sizeof(tconn_conn), (void *)(tconn + k_go_iface_data_offset));
             bpf_dbg_printk("tconn_conn=%llx", tconn_conn);
 
             connection_info_t conn = {0};
@@ -1147,7 +1153,8 @@ on_http2FramerWriteHeaders(struct pt_regs *ctx, off_table_t *ot, u64 stream_id) 
             void *goroutine_addr = GOROUTINE_PTR(ctx);
 
             void *w_ptr = 0;
-            bpf_probe_read(&w_ptr, sizeof(w_ptr), (void *)(framer + framer_w_pos + 8));
+            bpf_probe_read(
+                &w_ptr, sizeof(w_ptr), (void *)(framer + framer_w_pos + k_go_iface_data_offset));
             if (w_ptr) {
                 s64 n = 0;
                 bpf_probe_read(
@@ -1240,12 +1247,14 @@ int obi_uprobe_http2FramerWriteHeaders_returns(struct pt_regs *ctx) {
             goto done;
         }
 
-        bpf_probe_read(&w_ptr, sizeof(w_ptr), (void *)(f_info->framer_ptr + framer_w_pos + 8));
+        bpf_probe_read(&w_ptr,
+                       sizeof(w_ptr),
+                       (void *)(f_info->framer_ptr + framer_w_pos + k_go_iface_data_offset));
 
         bpf_dbg_printk("framer_ptr=%llx, w_ptr=%llx, framer_w_pos=%d",
                        f_info->framer_ptr,
                        w_ptr,
-                       framer_w_pos + 8);
+                       framer_w_pos + k_go_iface_data_offset);
 
         if (w_ptr) {
             void *buf_arr = 0;
@@ -1445,8 +1454,8 @@ int obi_uprobe_persistConnRoundTrip(struct pt_regs *ctx) {
 
     void *pc_ptr = GO_PARAM1(ctx);
     if (pc_ptr) {
-        void *conn_conn_ptr =
-            pc_ptr + 8 + go_offset_of(ot, (go_offset){.v = _pc_conn_pos}); // embedded struct
+        void *conn_conn_ptr = pc_ptr + k_go_iface_data_offset +
+                              go_offset_of(ot, (go_offset){.v = _pc_conn_pos}); // embedded struct
         void *tls_state = 0;
         bpf_probe_read(
             &tls_state,
