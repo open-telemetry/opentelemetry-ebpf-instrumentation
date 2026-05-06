@@ -118,9 +118,13 @@ install-hooks:
 	fi
 
 .PHONY: prereqs
-prereqs: install-hooks
+prereqs: install-hooks fetch-upstream-semconv
 	@echo "### Check if prerequisites are met, and installing missing dependencies"
 	mkdir -p $(TEST_OUTPUT)/run
+
+.PHONY: fetch-upstream-semconv
+fetch-upstream-semconv:
+	@./scripts/fetch-upstream-semconv.sh
 
 .PHONY: fmt
 fmt:
@@ -143,6 +147,12 @@ lint-fix: lint-run
 lint-run: vanity-import-check lint-dependency-policy lint-collectt
 	@echo "### Linting code"
 	go tool $(TOOLS_MODFILE) golangci-lint run ./... --timeout=6m $(LINT_EXTRA_ARGS)
+
+WEAVERIMAGE := $(shell awk '$$4=="weaver" {print $$2}' $(DEPENDENCIES_DOCKERFILE))
+.PHONY: lint-schema
+lint-schema: fetch-upstream-semconv
+	@echo "### Linting OBI semantic-convention registry"
+	@./scripts/lint-schema.sh $(OCI_BIN) $(WEAVERIMAGE) "$(CURDIR)/schemas/obi"
 
 .PHONY: lint-dependency-policy
 lint-dependency-policy:
