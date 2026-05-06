@@ -1,6 +1,6 @@
 module go.opentelemetry.io/obi/internal/test/integration/components/gomysql-otelsql
 
-go 1.25.8
+go 1.25.9
 
 require (
 	github.com/XSAM/otelsql v0.42.0

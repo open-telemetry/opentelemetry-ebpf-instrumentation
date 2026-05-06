@@ -1,0 +1,37 @@
+name: Mark stale issues and PRs
+
+on:
+  schedule:
+    - cron: '30 1 * * *'
+  workflow_dispatch:
+
+permissions:
+  issues: write
+  pull-requests: write
+
+jobs:
+  stale:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/stale@5bef64f19d7facfb25b37b414482c7164d639639 # v9
+        with:
+          days-before-issue-stale: 120
+          days-before-pr-stale: 60
+          days-before-close: -1
+          stale-issue-label: 'stale'
+          stale-pr-label: 'stale'
+          exempt-issue-labels: 'never stale,pinned,help wanted,good first issue'
+          exempt-pr-labels: 'never stale,blocked'
+          stale-issue-message: |
+            This issue has been inactive for 120 days and is now marked as stale.
+
+            cc @open-telemetry/ebpf-instrumentation-maintainers — please review and close if no longer relevant.
+
+            A comment from anyone or the `never stale` label will remove the stale marker.
+          stale-pr-message: |
+            This PR has been inactive for 60 days and is now marked as stale.
+
+            cc @open-telemetry/ebpf-instrumentation-maintainers — please review and close if no longer being worked on.
+
+            A comment or new commits will remove the stale marker.
+          operations-per-run: 200

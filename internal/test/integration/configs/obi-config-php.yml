@@ -6,3 +6,6 @@ attributes:
   select:
     "*":
       include: ["*"]
+ebpf:
+  buffer_sizes:
+    tcp: 65536

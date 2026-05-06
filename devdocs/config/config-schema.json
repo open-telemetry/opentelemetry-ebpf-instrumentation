@@ -538,6 +538,11 @@
           "type": "integer",
           "default": 0,
           "x-env-var": "OTEL_EBPF_BPF_BUFFER_SIZE_POSTGRES"
+        },
+        "tcp": {
+          "type": "integer",
+          "default": 0,
+          "x-env-var": "OTEL_EBPF_BPF_BUFFER_SIZE_TCP"
         }
       },
       "type": "object",

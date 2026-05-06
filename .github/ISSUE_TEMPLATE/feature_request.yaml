@@ -1,0 +1,36 @@
+name: Feature Request
+description: Suggest an enhancement
+labels: ["enhancement", "needs triage"]
+body:
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      description: Which part of the project does this affect?
+      options:
+        - OBI (eBPF instrumentation)
+        - k8s-cache
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What problem does this feature solve? What's the current pain point?
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Describe the solution you'd like
+      description: A clear and concise description of the desired behavior.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Describe alternatives you've considered
+      description: Any alternative approaches or workarounds you've considered.
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context

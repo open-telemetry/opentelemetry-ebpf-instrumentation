@@ -367,6 +367,7 @@ static __always_inline int kafka_send_large_buffer(tcp_req_t *req,
     lb->type = EVENT_TCP_LARGE_BUFFER;
     lb->packet_type = PACKET_TYPE_RESPONSE;
     lb->action = action;
+    lb->kind = k_large_buf_layer_app;
     lb->direction = direction;
     lb->conn_info = pid_conn->conn;
     lb->tp = req->tp;
