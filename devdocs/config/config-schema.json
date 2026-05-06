@@ -906,7 +906,7 @@
         },
         "rerank": {
           "$ref": "#/$defs/RerankConfig",
-          "description": "Rerank payload extraction and parsing"
+          "description": "Payload extraction and parsing (Cohere, Jina AI, Voyage AI, etc.)"
         }
       },
       "type": "object"
@@ -2162,7 +2162,7 @@
       "properties": {
         "enabled": {
           "type": "boolean",
-          "description": "Enable Rerank payload extraction and parsing",
+          "description": "Enable Rerank (Cohere, Jina AI, Voyage AI, etc.) payload extraction and parsing",
           "default": false,
           "x-env-var": "OTEL_EBPF_HTTP_RERANK_ENABLED"
         }
