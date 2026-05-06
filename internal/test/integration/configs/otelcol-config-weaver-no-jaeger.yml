@@ -10,6 +10,14 @@ receivers:
           allowed_origins:
             - "http://*"
             - "https://*"
+processors:
+  transform/weaver:
+    metric_statements:
+      - context: datapoint
+        statements:
+          - set(exemplars, []) where Len(exemplars) > 0
+  interval/weaver:
+    interval: 1s
 exporters:
   prometheus:
     endpoint: "otelcol:9464"
@@ -41,6 +49,7 @@ service:
     # weaver-only and naturally has nothing to back-pressure.
     metrics/weaver:
       receivers: [otlp]
+      processors: [transform/weaver, interval/weaver]
       exporters: [otlp/weaver]
     traces:
       receivers: [otlp]
