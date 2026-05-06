@@ -851,7 +851,7 @@ int obi_packet_extender_find_existing_tp(struct sk_msg_md *msg) {
 
     unsigned char *b = msg->data;
     const unsigned char *e = msg->data_end;
-    unsigned char *ptr = b + (niter * 1024);
+    unsigned char *ptr = b + (niter * k_max_chunk_size);
 
     if (ptr >= e) {
         return SK_PASS;
