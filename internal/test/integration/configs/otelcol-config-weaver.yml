@@ -10,12 +10,27 @@ receivers:
           allowed_origins:
             - "http://*"
             - "https://*"
+connectors:
+  # `forward` clones data when handing it from the production `metrics`
+  # pipeline to the side-tap `metrics/weaver` pipeline, so the mutating
+  # processors below cannot affect the prometheus exporter. Without this
+  # the otlp receiver fan-out shares in-memory metric objects across
+  # pipelines and stateful processors (interval) corrupt data the
+  # production pipeline still depends on.
+  forward/weaver:
 processors:
+  # Drop exemplars before they reach weaver — the OBI registry has no
+  # exemplar policies, so they're pure overhead (~10% of entities on a
+  # heavy multiprocess test).
   transform/weaver:
     metric_statements:
       - context: datapoint
         statements:
-          - set(exemplars, []) where Len(exemplars) > 0
+          - set(datapoint.exemplars, []) where Len(datapoint.exemplars) > 0
+  # Aggregate metric data points to one-per-series-per-second. OBI exports
+  # every 10 ms; without this, weaver re-evaluates Rego on essentially the
+  # same series 100×/sec. The shape weaver validates is unchanged but the
+  # entity count drops two orders of magnitude.
   interval/weaver:
     interval: 1s
 exporters:
@@ -46,21 +61,25 @@ exporters:
       enabled: false
 service:
   pipelines:
-    # Production paths — what the integration tests poll. Identical to the
-    # non-weaver config so test timing margins match `main`.
+    # Production paths — what the integration tests poll. The metrics
+    # pipeline also feeds the `forward/weaver` connector that fans into
+    # the side tap.
     metrics:
       receivers: [otlp]
-      exporters: [prometheus]
+      exporters: [prometheus, forward/weaver]
     traces:
       receivers: [otlp]
       exporters: [otlphttp/jaeger]
-    # Weaver taps. The OTLP receiver fans every batch out to every consuming
-    # pipeline, so weaver gets a full copy. Each pipeline manages its own
-    # queue; a slow weaver tap cannot stall the production exporters above.
+    # Weaver tap for metrics. Receives a cloned copy of the production
+    # data via the forward connector, deduplicates / strips exemplars,
+    # then sends the trimmed stream to weaver. Mutations here are
+    # isolated from the production pipeline.
     metrics/weaver:
-      receivers: [otlp]
+      receivers: [forward/weaver]
       processors: [transform/weaver, interval/weaver]
       exporters: [otlp/weaver]
+    # Traces tap is a plain fan-out from `otlp` — no processor mutates
+    # the data, so the receiver-level fan-out is safe.
     traces/weaver:
       receivers: [otlp]
       exporters: [otlp/weaver]
