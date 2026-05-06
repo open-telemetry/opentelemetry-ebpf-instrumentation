@@ -2158,17 +2158,6 @@
       },
       "type": "object"
     },
-    "RerankConfig": {
-      "properties": {
-        "enabled": {
-          "type": "boolean",
-          "description": "Enable Rerank (Cohere, Jina AI, Voyage AI, etc.) payload extraction and parsing",
-          "default": false,
-          "x-env-var": "OTEL_EBPF_HTTP_RERANK_ENABLED"
-        }
-      },
-      "type": "object"
-    },
     "RedisDBCacheConfig": {
       "properties": {
         "enabled": {
@@ -2310,6 +2299,17 @@
         "^service-..$",
         "^prod-.*-db$"
       ]
+    },
+    "RerankConfig": {
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable Rerank (Cohere, Jina AI, Voyage AI, etc.) payload extraction and parsing",
+          "default": false,
+          "x-env-var": "OTEL_EBPF_HTTP_RERANK_ENABLED"
+        }
+      },
+      "type": "object"
     },
     "ResourceLabels": {
       "additionalProperties": {
