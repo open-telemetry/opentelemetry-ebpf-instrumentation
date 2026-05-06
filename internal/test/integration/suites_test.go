@@ -503,6 +503,16 @@ func TestSuite_PythonMQTT(t *testing.T) {
 	require.NoError(t, compose.Close())
 }
 
+func TestSuite_GoMQTT(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-go-mqtt.yml", path.Join(pathOutput, "test-suite-go-mqtt.log"))
+	require.NoError(t, err)
+
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)
+	require.NoError(t, compose.Up())
+	t.Run("Go MQTT publish tests", testREDMetricsGoMQTT)
+	require.NoError(t, compose.Close())
+}
+
 func TestSuite_JavaKafka(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-java-kafka-400.yml", path.Join(pathOutput, "test-suite-java-kafka.log"))
 	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)
