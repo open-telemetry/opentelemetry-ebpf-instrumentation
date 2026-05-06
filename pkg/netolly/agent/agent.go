@@ -32,6 +32,7 @@ import (
 
 	cebpf "github.com/cilium/ebpf"
 
+	"go.opentelemetry.io/obi/pkg/internal/ebpf/logger"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/ringbuf"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/tcmanager"
 	"go.opentelemetry.io/obi/pkg/internal/netolly/ebpf"
@@ -113,7 +114,8 @@ type ebpfFlowFetcher interface {
 	LookupAndDeleteMap() map[ebpf.NetFlowId]*ebpf.NetFlowMetrics
 	ReadRingBuf() (ringbuf.Record, error)
 
-	FlowPacketStatsMap() *cebpf.Map
+	LookupPacketStats() (ebpf.NetPacketCount, error)
+	DebugEventsMap() *cebpf.Map
 }
 
 // FlowsAgent instantiates a new agent, given a configuration.
@@ -240,6 +242,14 @@ func (f *Flows) Run(ctx context.Context) error {
 	f.status = StatusStarting
 	alog.Info("starting Flows agent")
 
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	if f.cfg.EBPF.BpfDebug {
+		go logger.ReadDebugEventsMap(runCtx, f.ebpf.DebugEventsMap(),
+			slog.With("component", "netolly.BPFDebug"))
+	}
+
 	graph, err := f.buildPipeline(ctx)
 	if err != nil {
 		return fmt.Errorf("starting processing graph: %w", err)
@@ -266,34 +276,37 @@ func (f *Flows) Run(ctx context.Context) error {
 func (f *Flows) stop() error {
 	alog := alog()
 
-	stopped := make(chan error)
-	go func() {
-		f.status = StatusStopping
-		alog.Info("stopping Flows agent")
-		if err := f.ebpf.Close(); err != nil {
-			alog.Warn("eBPF resources not correctly closed", "error", err)
-		}
+	f.status = StatusStopping
+	alog.Info("stopping Flows agent")
+	if err := f.ebpf.Close(); err != nil {
+		alog.Warn("eBPF resources not correctly closed", "error", err)
+	}
 
-		alog.Debug("waiting for all nodes to finish their pending work")
+	alog.Debug("waiting for all nodes to finish their pending work")
 
-		f.ifaceManager.Wait()
-		<-f.graph.Done()
+	err := <-f.graph.Done()
+	if err != nil {
 		f.status = StatusStopped
-
-		if err := <-f.graph.Done(); err != nil {
-			stopped <- err
-		}
-		close(stopped)
-
 		alog.Info("Flows agent stopped")
+		return err
+	}
+
+	ifaceStopped := make(chan struct{})
+	go func() {
+		f.ifaceManager.Wait()
+		close(ifaceStopped)
 	}()
 
+	timer := time.NewTimer(f.cfg.ShutdownTimeout)
+	defer timer.Stop()
+
 	select {
-	case <-time.After(f.cfg.ShutdownTimeout):
+	case <-ifaceStopped:
+		f.status = StatusStopped
+		alog.Info("Flows agent stopped")
+		return nil
+	case <-timer.C:
 		return errShutdownTimeout
-	case err := <-stopped:
-		// err might be nil
-		return err
 	}
 }
 

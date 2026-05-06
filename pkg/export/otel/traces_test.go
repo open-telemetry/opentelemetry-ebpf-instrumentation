@@ -436,6 +436,33 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		ensureTraceStrAttr(t, attrs, semconv.MessagingClientIDKey, "mqtt-client-1")
 	})
 
+	t.Run("test NATS trace generation", func(t *testing.T) {
+		span := request.Span{
+			Type:          request.EventTypeNATSClient,
+			Method:        "publish",
+			Path:          "updates.orders",
+			Statement:     "nats-client-1",
+			ContentLength: 42,
+		}
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		assert.Equal(t, 1, traces.ResourceSpans().Len())
+		assert.Equal(t, 1, traces.ResourceSpans().At(0).ScopeSpans().Len())
+		assert.Equal(t, 1, traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().Len())
+		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+
+		assert.NotEmpty(t, spans.At(0).SpanID().String())
+		assert.NotEmpty(t, spans.At(0).TraceID().String())
+
+		attrs := spans.At(0).Attributes()
+		ensureTraceStrAttr(t, attrs, attribute.Key(attr.MessagingOpType), "publish")
+		ensureTraceStrAttr(t, attrs, semconv.MessagingDestinationNameKey, "updates.orders")
+		ensureTraceStrAttr(t, attrs, attribute.Key(attr.MessagingSystem), "nats")
+		ensureTraceStrAttr(t, attrs, semconv.MessagingClientIDKey, "nats-client-1")
+		ensureTraceIntAttr(t, attrs, semconv.MessagingMessageEnvelopeSizeKey, 42)
+	})
+
 	t.Run("test Mongo trace generation", func(t *testing.T) {
 		span := request.Span{Type: request.EventTypeMongoClient, Method: "insert", Path: "mycollection", DBNamespace: "mydatabase", Status: 0}
 		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{"db.operation.name": {}})
@@ -1335,6 +1362,97 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		ensureTraceAttrNotExists(t, spanAttrs, semconv.GenAIOutputMessagesKey)
 	})
 
+	makeQwenSpan := func(ai *request.VendorOpenAI) request.Span {
+		return request.Span{
+			Type:    request.EventTypeHTTPClient,
+			SubType: request.HTTPSubtypeQwen,
+			Method:  "POST",
+			Path:    "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+			Status:  200,
+			GenAI:   &request.GenAI{Qwen: ai},
+		}
+	}
+
+	t.Run("Qwen span", func(t *testing.T) {
+		span := makeQwenSpan(&request.VendorOpenAI{
+			OperationName: "chat.completion",
+			ID:            "chatcmpl-qwen123",
+			Request: request.OpenAIInput{
+				Model: "qwen-plus",
+			},
+			ResponseModel: "qwen-plus",
+			Usage: request.OpenAIUsage{
+				PromptTokens:     12,
+				CompletionTokens: 8,
+			},
+		})
+
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		spanAttrs := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
+		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIProviderNameKey, "qwen")
+		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIOperationNameKey, "chat.completion")
+		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIResponseIDKey, "chatcmpl-qwen123")
+		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIRequestModelKey, "qwen-plus")
+		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIResponseModelKey, "qwen-plus")
+	})
+
+	t.Run("Qwen span - optional attributes", func(t *testing.T) {
+		span := makeQwenSpan(&request.VendorOpenAI{
+			OperationName: "generation",
+			ID:            "req-qwen123",
+			Request: request.OpenAIInput{
+				Model:        "qwen-turbo",
+				Prompt:       "Explain eBPF",
+				Instructions: "Be concise",
+			},
+			ResponseModel: "qwen-turbo",
+			Output:        []byte(`{"text":"eBPF runs in the kernel."}`),
+			Usage: request.OpenAIUsage{
+				InputTokens:  7,
+				OutputTokens: 6,
+			},
+		})
+
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{
+			attr.GenAIInput:        {},
+			attr.GenAIOutput:       {},
+			attr.GenAIInstructions: {},
+		})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		spanAttrs := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
+		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIProviderNameKey, "qwen")
+		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIInputMessagesKey, "Explain eBPF")
+		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIOutputMessagesKey, `{"text":"eBPF runs in the kernel."}`)
+		ensureTraceStrAttr(t, spanAttrs, semconv.GenAISystemInstructionsKey, "Be concise")
+	})
+
+	t.Run("Qwen span - nil Qwen means no GenAI attrs", func(t *testing.T) {
+		span := request.Span{
+			Type:    request.EventTypeHTTPClient,
+			SubType: request.HTTPSubtypeQwen,
+			Method:  "POST",
+			Status:  200,
+			GenAI:   &request.GenAI{Qwen: nil},
+		}
+
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{
+			attr.GenAIInput:        {},
+			attr.GenAIOutput:       {},
+			attr.GenAIInstructions: {},
+			attr.GenAIMetadata:     {},
+		})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		spanAttrs := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
+		ensureTraceAttrNotExists(t, spanAttrs, semconv.GenAIProviderNameKey)
+		ensureTraceAttrNotExists(t, spanAttrs, semconv.GenAIOperationNameKey)
+		ensureTraceAttrNotExists(t, spanAttrs, semconv.GenAIInputMessagesKey)
+		ensureTraceAttrNotExists(t, spanAttrs, semconv.GenAIOutputMessagesKey)
+	})
+
 	makeBedrockSpan := func(ai *request.VendorBedrock) request.Span {
 		return request.Span{
 			Type:    request.EventTypeHTTPClient,
@@ -1635,6 +1753,118 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		ensureTraceStrAttr(t, attrs, "jsonrpc.request.id", "42")
 		ensureTraceStrAttr(t, attrs, "rpc.response.status_code", "-32600")
 	})
+	t.Run("test MCP server span with tool call success", func(t *testing.T) {
+		span := request.Span{
+			Type:    request.EventTypeHTTP,
+			Method:  "POST",
+			Path:    "/mcp",
+			Route:   "/mcp",
+			Status:  200,
+			SubType: request.HTTPSubtypeMCP,
+			GenAI: &request.GenAI{
+				MCP: &request.MCPCall{
+					Method:      "tools/call",
+					ToolName:    "get-weather",
+					SessionID:   "sess-abc",
+					ProtocolVer: "2025-03-26",
+					RequestID:   "1",
+				},
+			},
+		}
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+		topSpan := spans.At(spans.Len() - 1)
+		attrs := topSpan.Attributes()
+		status := topSpan.Status()
+
+		assert.Equal(t, "execute_tool get-weather", topSpan.Name())
+		assert.Equal(t, ptrace.StatusCodeUnset, status.Code())
+		assert.Empty(t, status.Message())
+
+		ensureTraceStrAttr(t, attrs, "mcp.method.name", "tools/call")
+		ensureTraceStrAttr(t, attrs, "gen_ai.operation.name", "execute_tool")
+		ensureTraceStrAttr(t, attrs, "gen_ai.tool.name", "get-weather")
+		ensureTraceStrAttr(t, attrs, "mcp.session.id", "sess-abc")
+		ensureTraceStrAttr(t, attrs, "mcp.protocol.version", "2025-03-26")
+		ensureTraceStrAttr(t, attrs, "jsonrpc.request.id", "1")
+		ensureTraceAttrNotExists(t, attrs, "rpc.response.status_code")
+	})
+	t.Run("test MCP server span with error", func(t *testing.T) {
+		span := request.Span{
+			Type:    request.EventTypeHTTP,
+			Method:  "POST",
+			Path:    "/mcp",
+			Route:   "/mcp",
+			Status:  200,
+			SubType: request.HTTPSubtypeMCP,
+			GenAI: &request.GenAI{
+				MCP: &request.MCPCall{
+					Method:       "tools/call",
+					ToolName:     "nonexistent",
+					SessionID:    "sess-abc",
+					RequestID:    "2",
+					ErrorCode:    -32602,
+					ErrorMessage: "Unknown tool: nonexistent",
+				},
+			},
+		}
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+		topSpan := spans.At(spans.Len() - 1)
+		attrs := topSpan.Attributes()
+		status := topSpan.Status()
+
+		assert.Equal(t, "execute_tool nonexistent", topSpan.Name())
+		assert.Equal(t, ptrace.StatusCodeError, status.Code())
+		assert.Equal(t, "Unknown tool: nonexistent", status.Message())
+
+		ensureTraceStrAttr(t, attrs, "mcp.method.name", "tools/call")
+		ensureTraceStrAttr(t, attrs, "gen_ai.tool.name", "nonexistent")
+		ensureTraceStrAttr(t, attrs, "mcp.session.id", "sess-abc")
+		ensureTraceStrAttr(t, attrs, "jsonrpc.request.id", "2")
+		ensureTraceStrAttr(t, attrs, "rpc.response.status_code", "-32602")
+		ensureTraceStrAttr(t, attrs, "error.message", "Unknown tool: nonexistent")
+	})
+	t.Run("test MCP client span with error", func(t *testing.T) {
+		span := request.Span{
+			Type:    request.EventTypeHTTPClient,
+			Method:  "POST",
+			Path:    "/mcp",
+			Status:  200,
+			SubType: request.HTTPSubtypeMCP,
+			GenAI: &request.GenAI{
+				MCP: &request.MCPCall{
+					Method:       "tools/call",
+					ToolName:     "get-weather",
+					RequestID:    "3",
+					ErrorCode:    -32600,
+					ErrorMessage: "Invalid Request",
+				},
+			},
+		}
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+		assert.Equal(t, 1, spans.Len())
+		topSpan := spans.At(0)
+		attrs := topSpan.Attributes()
+		status := topSpan.Status()
+
+		assert.Equal(t, "execute_tool get-weather", topSpan.Name())
+		assert.Equal(t, ptrace.StatusCodeError, status.Code())
+		assert.Equal(t, "Invalid Request", status.Message())
+
+		ensureTraceStrAttr(t, attrs, "mcp.method.name", "tools/call")
+		ensureTraceStrAttr(t, attrs, "gen_ai.tool.name", "get-weather")
+		ensureTraceStrAttr(t, attrs, "jsonrpc.request.id", "3")
+		ensureTraceStrAttr(t, attrs, "rpc.response.status_code", "-32600")
+		ensureTraceStrAttr(t, attrs, "error.message", "Invalid Request")
+	})
 	t.Run("test HTTP span without headers has no header attributes", func(t *testing.T) {
 		span := request.Span{
 			Type:   request.EventTypeHTTP,
@@ -1927,7 +2157,7 @@ func TestTracesInstrumentations(t *testing.T) {
 		{
 			name:     "all instrumentations",
 			instr:    []instrumentations.Instrumentation{instrumentations.InstrumentationALL},
-			expected: []string{"GET /foo", "PUT /bar", "/grpcFoo", "/grpcGoo", "SELECT credentials", "SET", "GET", "publish important-topic", "process important-topic", "publish sensors/temperature", "process sensors/#", "insert mycollection", "GET couchbase-collection", "GET", "DELETE"},
+			expected: []string{"GET /foo", "PUT /bar", "/grpcFoo", "/grpcGoo", "SELECT credentials", "SET", "GET", "publish important-topic", "process important-topic", "publish sensors/temperature", "process sensors/#", "publish updates.orders", "process updates.orders", "insert mycollection", "GET couchbase-collection", "GET", "DELETE"},
 		},
 		{
 			name:     "http only",
@@ -1958,6 +2188,11 @@ func TestTracesInstrumentations(t *testing.T) {
 			name:     "mqtt only",
 			instr:    []instrumentations.Instrumentation{instrumentations.InstrumentationMQTT},
 			expected: []string{"publish sensors/temperature", "process sensors/#"},
+		},
+		{
+			name:     "nats only",
+			instr:    []instrumentations.Instrumentation{instrumentations.InstrumentationNATS},
+			expected: []string{"publish updates.orders", "process updates.orders"},
 		},
 		{
 			name:     "none",
@@ -2003,6 +2238,8 @@ func TestTracesInstrumentations(t *testing.T) {
 		{Type: request.EventTypeKafkaServer, Method: "publish", Path: "important-topic", Statement: "test"},
 		{Type: request.EventTypeMQTTClient, Method: "publish", Path: "sensors/temperature", Statement: "mqtt-client"},
 		{Type: request.EventTypeMQTTServer, Method: "process", Path: "sensors/#", Statement: "mqtt-server"},
+		{Type: request.EventTypeNATSClient, Method: "publish", Path: "updates.orders"},
+		{Type: request.EventTypeNATSServer, Method: "process", Path: "updates.orders"},
 		{Type: request.EventTypeMongoClient, Method: "insert", Path: "mycollection", DBNamespace: "mydatabase"},
 		{Type: request.EventTypeCouchbaseClient, Method: "GET", Path: "couchbase-collection", DBNamespace: "mybucket.myscope"},
 		{Type: request.EventTypeMemcachedClient, Method: "GET", Path: "session-key"},
@@ -2383,6 +2620,18 @@ func TestHostPeerAttributes(t *testing.T) {
 			server: "server",
 		},
 		{
+			name:   "Server in different namespace NATS",
+			span:   request.Span{Type: request.EventTypeNATSClient, PeerName: "client", HostName: "server", OtherNamespace: "far", Service: svc.Attrs{UID: svc.UID{Namespace: "same"}}},
+			client: "",
+			server: "server.far",
+		},
+		{
+			name:   "Client in different namespace NATS",
+			span:   request.Span{Type: request.EventTypeNATSServer, PeerName: "client", HostName: "server", OtherNamespace: "far", Service: svc.Attrs{UID: svc.UID{Namespace: "same"}}},
+			client: "",
+			server: "server",
+		},
+		{
 			name:   "Same namespaces for Mongo client",
 			span:   request.Span{Type: request.EventTypeMongoClient, PeerName: "client", HostName: "server", OtherNamespace: "same", Service: svc.Attrs{UID: svc.UID{Namespace: "same"}}},
 			client: "",
@@ -2555,6 +2804,13 @@ func ensureTraceStrSliceAttr(t *testing.T, attrs pcommon.Map, key attribute.Key,
 		got[i] = slice.At(i).Str()
 	}
 	assert.Equal(t, vals, got)
+}
+
+func ensureTraceIntAttr(t *testing.T, attrs pcommon.Map, key attribute.Key, val int64) {
+	t.Helper()
+	v, ok := attrs.Get(string(key))
+	require.True(t, ok, "expected attribute %s", key)
+	assert.Equal(t, val, v.Int())
 }
 
 func ensureTraceAttrNotExists(t *testing.T, attrs pcommon.Map, key attribute.Key) {

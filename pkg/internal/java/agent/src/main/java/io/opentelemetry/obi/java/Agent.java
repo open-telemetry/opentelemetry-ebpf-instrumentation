@@ -19,7 +19,6 @@ import io.opentelemetry.obi.java.instrumentations.util.NettyChannelExtractor;
 import java.io.File;
 import java.io.InputStream;
 import java.lang.instrument.Instrumentation;
-import java.lang.instrument.UnmodifiableClassException;
 import java.lang.reflect.Field;
 import java.nio.file.Files;
 import java.util.*;
@@ -47,7 +46,7 @@ public class Agent {
     public static native int gettid();
   }
 
-  private static AgentBuilder builder(Map<String, String> opts, Instrumentation inst) {
+  static AgentBuilder builder(Map<String, String> opts, Instrumentation inst) {
     AgentBuilder builder =
         new AgentBuilder.Default()
             .with(
@@ -153,14 +152,21 @@ public class Agent {
   }
 
   // Needed for Dynamic Agent Injection
-  public static void agentmain(String args, Instrumentation inst)
-      throws UnmodifiableClassException {
+  public static void agentmain(String args, Instrumentation inst) {
     premain(args, inst);
+    retransformLoadedClasses(inst);
+  }
 
-    // This reattempt to instrument is required because sometimes. Depending on the classes
-    // loaded, some classes disrupt ByteBuddy such that it cannot find the classes we said
-    // we want to instrument.
+  // Package-private for testing. Retransforms already-loaded classes that match the agent's
+  // instrumentation targets. This is required for dynamic injection because some classes are
+  // loaded before ByteBuddy's transformer is installed.
+  static void retransformLoadedClasses(Instrumentation inst) {
     for (Class<?> clazz : inst.getAllLoadedClasses()) {
+      // Skip lambda classes — on Java 8 retransforming them corrupts their constant pool
+      // linkage due to JDK-8145964, causing NoClassDefFoundError.
+      if (clazz.getName().contains("$$Lambda$")) {
+        continue;
+      }
       if (SSLSocketInst.matches(clazz)
           || SSLSocketStreamInst.matchesInputStream(clazz)
           || SSLSocketStreamInst.matchesOutputStream(clazz)
@@ -264,12 +270,25 @@ public class Agent {
     }
   }
 
+  // Picks the correct native library based on the
+  private static String nativeLibraryResourcePath() {
+    String arch = System.getProperty("os.arch").toLowerCase(Locale.ROOT);
+
+    if (arch.equals("amd64") || arch.equals("x86_64")) {
+      return "/native/linux-amd64/libobijni.so";
+    }
+
+    if (arch.equals("aarch64") || arch.equals("arm64")) {
+      return "/native/linux-aarch64/libobijni.so";
+    }
+
+    throw new IllegalStateException("Unsupported architecture: " + arch);
+  }
+
   // Package-private so it can be called from bootstrap classloader via reflection
   static void loadNativeLibraryFromJar() throws Exception {
-    String libraryName = "libobijni.so";
-
     // Try to load from JAR
-    InputStream libStream = Agent.class.getResourceAsStream("/" + libraryName);
+    InputStream libStream = Agent.class.getResourceAsStream(nativeLibraryResourcePath());
     if (libStream != null) {
       if (Agent.debugOn) {
         logger.info("[Agent] Found library in JAR, extracting to temp file...");

@@ -18,7 +18,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"go.opentelemetry.io/collector/consumer"
+	"go.opentelemetry.io/collector/pdata/pmetric"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/sdk/instrumentation"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 
 	"go.opentelemetry.io/obi/internal/test/collector"
 	"go.opentelemetry.io/obi/pkg/appolly/app"
@@ -31,6 +35,7 @@ import (
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
+	otelmetric "go.opentelemetry.io/obi/pkg/export/otel/metric"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
@@ -38,6 +43,62 @@ import (
 )
 
 var fakeMux = sync.Mutex{}
+
+func TestOtelHistogramConfig_ExponentialHistogramUsesConfiguredMaxSizeAndScale(t *testing.T) {
+	const metricName = "test.histogram"
+
+	reporter := MetricsReporter{
+		cfg: &otelcfg.MetricsConfig{
+			HistogramAggregation: otelcfg.HistogramAggregationExponential,
+			ExponentialHistogram: otelcfg.ExponentialHistogramConfig{
+				MaxSize:  64,
+				MaxScale: 12,
+			},
+		},
+		log: mlog(),
+	}
+
+	view := reporter.otelHistogramConfig(metricName, nil)
+
+	stream, ok := view(otelmetric.Instrument{
+		Name:  metricName,
+		Scope: instrumentation.Scope{Name: reporterName},
+	})
+	require.True(t, ok)
+
+	aggregation, ok := stream.Aggregation.(sdkmetric.AggregationBase2ExponentialHistogram)
+	require.True(t, ok)
+	assert.Equal(t, int32(64), aggregation.MaxSize)
+	assert.Equal(t, int32(12), aggregation.MaxScale)
+}
+
+func TestOtelHistogramConfig_ExplicitHistogramUsesBuckets(t *testing.T) {
+	const metricName = "test.histogram"
+	buckets := []float64{1, 2, 4}
+
+	reporter := MetricsReporter{
+		cfg: &otelcfg.MetricsConfig{
+			HistogramAggregation: otelcfg.HistogramAggregationExplicit,
+			ExponentialHistogram: otelcfg.ExponentialHistogramConfig{
+				MaxSize:  160,
+				MaxScale: 20,
+			},
+		},
+		log: mlog(),
+	}
+
+	view := reporter.otelHistogramConfig(metricName, buckets)
+
+	stream, ok := view(otelmetric.Instrument{
+		Name:  metricName,
+		Scope: instrumentation.Scope{Name: reporterName},
+	})
+	require.True(t, ok)
+
+	aggregation, ok := stream.Aggregation.(sdkmetric.AggregationExplicitBucketHistogram)
+	require.True(t, ok)
+	assert.Equal(t, buckets, aggregation.Boundaries)
+}
 
 func TestMetrics_InternalInstrumentation(t *testing.T) {
 	defer otelcfg.RestoreEnvAfterExecution()()
@@ -160,6 +221,10 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 				"db.client.operation.duration",        // MongoDB client find
 				"messaging.client.operation.duration", // Kafka client
 				"messaging.client.operation.duration", // MQTT client
+				"messaging.client.operation.duration", // NATS client
+				"messaging.client.operation.duration", // AMQP client publish
+				"messaging.client.operation.duration", // AMQP client process
+				"messaging.process.duration",          // NATS server (ordering within aggregated metrics)
 				"messaging.process.duration",          // MQTT server (ordering within aggregated metrics)
 				"messaging.process.duration",          // Kafka server
 				"gpu.cuda.kernel.launch.calls",        // Cuda events
@@ -225,6 +290,24 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 		{
 			name:      "mqtt only",
 			instr:     []instrumentations.Instrumentation{instrumentations.InstrumentationMQTT},
+			extraColl: 0,
+			expected: []string{
+				"messaging.client.operation.duration",
+				"messaging.process.duration",
+			},
+		},
+		{
+			name:      "nats only",
+			instr:     []instrumentations.Instrumentation{instrumentations.InstrumentationNATS},
+			extraColl: 0,
+			expected: []string{
+				"messaging.client.operation.duration",
+				"messaging.process.duration",
+			},
+		},
+		{
+			name:      "amqp only",
+			instr:     []instrumentations.Instrumentation{instrumentations.InstrumentationAMQP},
 			extraColl: 0,
 			expected: []string{
 				"messaging.client.operation.duration",
@@ -301,6 +384,10 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeKafkaServer, Method: "process", RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeMQTTClient, Method: "publish", RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeMQTTServer, Method: "process", RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeNATSClient, Method: "publish", RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeNATSServer, Method: "process", RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeAMQPClient, Method: "publish", RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeAMQPClient, Method: "process", RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeGPUCudaKernelLaunch, ContentLength: 100, SubType: 200},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeGPUCudaMemcpy, ContentLength: 100, SubType: 1},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeGPUCudaMalloc, ContentLength: 100},
@@ -357,6 +444,155 @@ func TestAppMetrics_ResourceAttributes(t *testing.T) {
 	attributes := res[0].ResourceAttributes
 	assert.Equal(t, "production", attributes["deployment.environment"])
 	assert.Equal(t, "upstream.obi", attributes["source"])
+}
+
+func TestSpanMetrics_ExtraResourceAttributes(t *testing.T) {
+	defer otelcfg.RestoreEnvAfterExecution()()
+
+	ctx := t.Context()
+	metricRecords := make(chan collector.MetricRecord, 100)
+
+	now := syncedClock{now: time.Now()}
+	timeNow = now.Now
+
+	metrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(20))
+	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
+	mcfg := &otelcfg.MetricsConfig{
+		Interval:                50 * time.Millisecond,
+		MetricsProtocol:         otelcfg.ProtocolHTTPProtobuf,
+		TTL:                     30 * time.Minute,
+		ReportersCacheLen:       100,
+		Instrumentations:        []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP},
+		ExtraSpanResourceLabels: []string{"deployment.environment"},
+		MetricsConsumer:         testMetricsConsumer(metricRecords),
+	}
+
+	reporter, err := newMetricsReporter(
+		ctx,
+		&global.ContextInfo{OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: mcfg}},
+		mcfg,
+		&perapp.MetricsConfig{Features: export.FeatureSpanOTel},
+		&attributes.SelectorConfig{},
+		request.UnresolvedNames{},
+		metrics,
+		processEvents,
+	)
+	require.NoError(t, err)
+
+	go reporter.reportMetrics(ctx)
+
+	span := request.Span{
+		Service: svc.Attrs{
+			Features: export.FeatureSpanOTel,
+			UID:      svc.UID{Instance: "foo"},
+			Metadata: map[attr.Name]string{
+				attr.Name("deployment.environment"): "production",
+			},
+		},
+		Type:         request.EventTypeHTTPClient,
+		Method:       "GET",
+		Route:        "/v1/traces",
+		RequestStart: 100,
+		End:          200,
+	}
+
+	metrics.Send([]request.Span{span})
+
+	res := readMetricsByName(t, metricRecords, timeout,
+		reporter.spanMetricsLatencyName(),
+		reporter.spanMetricsCallsName(),
+	)
+	assert.Len(t, res, 2)
+
+	expected := map[string]struct{}{
+		reporter.spanMetricsLatencyName(): {},
+		reporter.spanMetricsCallsName():   {},
+	}
+
+	for _, record := range res {
+		_, ok := expected[record.Name]
+		require.Truef(t, ok, "unexpected metric %q", record.Name)
+		assert.Equal(t, "production", record.Attributes["deployment.environment"])
+		delete(expected, record.Name)
+	}
+
+	assert.Empty(t, expected)
+}
+
+func TestSpanSizeMetrics_ExtraResourceAttributes(t *testing.T) {
+	defer otelcfg.RestoreEnvAfterExecution()()
+
+	ctx := t.Context()
+	metricRecords := make(chan collector.MetricRecord, 100)
+
+	now := syncedClock{now: time.Now()}
+	timeNow = now.Now
+
+	metrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(20))
+	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
+	mcfg := &otelcfg.MetricsConfig{
+		Interval:                50 * time.Millisecond,
+		MetricsProtocol:         otelcfg.ProtocolHTTPProtobuf,
+		TTL:                     30 * time.Minute,
+		ReportersCacheLen:       100,
+		Instrumentations:        []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP},
+		ExtraSpanResourceLabels: []string{"deployment.environment"},
+		MetricsConsumer:         testMetricsConsumer(metricRecords),
+	}
+
+	reporter, err := newMetricsReporter(
+		ctx,
+		&global.ContextInfo{OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: mcfg}},
+		mcfg,
+		&perapp.MetricsConfig{Features: export.FeatureSpanSizes},
+		&attributes.SelectorConfig{},
+		request.UnresolvedNames{},
+		metrics,
+		processEvents,
+	)
+	require.NoError(t, err)
+
+	go reporter.reportMetrics(ctx)
+
+	span := request.Span{
+		Service: svc.Attrs{
+			Features: export.FeatureSpanSizes,
+			UID:      svc.UID{Instance: "foo"},
+			Metadata: map[attr.Name]string{
+				attr.Name("deployment.environment"): "production",
+			},
+		},
+		Type:           request.EventTypeHTTPClient,
+		Method:         "GET",
+		Route:          "/v1/traces",
+		RequestStart:   100,
+		End:            200,
+		ContentLength:  123,
+		ResponseLength: 456,
+		Status:         200,
+	}
+
+	metrics.Send([]request.Span{span})
+
+	res := readMetricsByName(t, metricRecords, timeout,
+		SpanMetricsRequestSizes,
+		SpanMetricsResponseSizes,
+	)
+	assert.Len(t, res, 2)
+
+	expected := map[string]struct{}{
+		SpanMetricsRequestSizes:  {},
+		SpanMetricsResponseSizes: {},
+	}
+
+	for _, record := range res {
+		_, ok := expected[record.Name]
+		require.Truef(t, ok, "unexpected metric %q", record.Name)
+		assert.Equal(t, "production", record.Attributes["deployment.environment"])
+		delete(expected, record.Name)
+	}
+
+	assert.Empty(t, expected)
 }
 
 func TestMetricsDiscarded(t *testing.T) {
@@ -551,6 +787,47 @@ func readNChan(t require.TestingT, inCh <-chan collector.MetricRecord, numRecord
 			return records
 		}
 	}
+	return records
+}
+
+func testMetricsConsumer(out chan<- collector.MetricRecord) consumer.Metrics {
+	c, err := consumer.NewMetrics(func(_ context.Context, md pmetric.Metrics) error {
+		collector.VisitMetricRecords(md, func(record collector.MetricRecord) {
+			out <- record
+		})
+		return nil
+	})
+	if err != nil {
+		panic(err)
+	}
+
+	return c
+}
+
+func readMetricsByName(t require.TestingT, inCh <-chan collector.MetricRecord, timeout time.Duration, names ...string) []collector.MetricRecord {
+	expected := map[string]struct{}{}
+	for _, name := range names {
+		expected[name] = struct{}{}
+	}
+
+	records := make([]collector.MetricRecord, 0, len(expected))
+	deadline := time.NewTimer(timeout)
+	defer deadline.Stop()
+
+	for len(expected) > 0 {
+		select {
+		case item := <-inCh:
+			if _, ok := expected[item.Name]; !ok {
+				continue
+			}
+			records = append(records, item)
+			delete(expected, item.Name)
+		case <-deadline.C:
+			require.Failf(t, "timeout while waiting for metric records", "missing metrics: %v", names)
+			return records
+		}
+	}
+
 	return records
 }
 
@@ -898,6 +1175,16 @@ func TestConnectionTypeForSpan(t *testing.T) {
 		{
 			name:     "Kafka producer",
 			span:     &request.Span{Type: request.EventTypeKafkaClient, Method: request.MessagingPublish, HostName: "kafka-broker"},
+			expected: "messaging_system",
+		},
+		{
+			name:     "NATS producer",
+			span:     &request.Span{Type: request.EventTypeNATSClient, Method: request.MessagingPublish, HostName: "nats-server"},
+			expected: "messaging_system",
+		},
+		{
+			name:     "AMQP producer",
+			span:     &request.Span{Type: request.EventTypeAMQPClient, Method: request.MessagingPublish, HostName: "amqp-broker"},
 			expected: "messaging_system",
 		},
 		{

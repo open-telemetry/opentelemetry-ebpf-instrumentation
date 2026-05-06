@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-playground/validator/v10"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -55,6 +56,9 @@ otel_metrics_export:
   buckets:
     duration_histogram: [0, 1, 2]
   histogram_aggregation: base2_exponential_bucket_histogram
+  exponential_histogram:
+    max_size: 128
+    max_scale: 16
 prometheus_export:
   ttl: 1s
   buckets:
@@ -154,12 +158,16 @@ discovery:
 				MaxSize: 1000,
 			},
 			BufferSizes: config.EBPFBufferSizes{
+				HTTP:     0,
 				MySQL:    0,
 				Postgres: 0,
 				Kafka:    0,
+				MSSQL:    0,
+				TCP:      0,
 			},
 			MySQLPreparedStatementsCacheSize:    1024,
 			PostgresPreparedStatementsCacheSize: 1024,
+			MSSQLPreparedStatementsCacheSize:    1024,
 			MongoRequestsCacheSize:              1024,
 			KafkaTopicUUIDCacheSize:             1024,
 			CouchbaseDBCacheSize:                1024,
@@ -214,7 +222,11 @@ discovery:
 				instrumentations.InstrumentationALL,
 			},
 			HistogramAggregation: "base2_exponential_bucket_histogram",
-			TTL:                  5 * time.Minute,
+			ExponentialHistogram: otelcfg.ExponentialHistogramConfig{
+				MaxSize:  128,
+				MaxScale: 16,
+			},
+			TTL: 5 * time.Minute,
 		},
 		Traces: otelcfg.TracesConfig{
 			Protocol:          otelcfg.ProtocolUnset,
@@ -231,6 +243,8 @@ discovery:
 				instrumentations.InstrumentationRedis,
 				instrumentations.InstrumentationKafka,
 				instrumentations.InstrumentationMQTT,
+				instrumentations.InstrumentationNATS,
+				instrumentations.InstrumentationAMQP,
 				instrumentations.InstrumentationMongo,
 				instrumentations.InstrumentationCouchbase,
 				instrumentations.InstrumentationMemcached,
@@ -244,6 +258,7 @@ discovery:
 			},
 			TTL:                         time.Second,
 			SpanMetricsServiceCacheSize: 10000,
+			NativeHistogram:             prom.DefaultNativeHistogramConfig,
 			Buckets: export.Buckets{
 				DurationHistogram:            export.DefaultBuckets.DurationHistogram,
 				RequestSizeHistogram:         []float64{0, 10, 20, 22},
@@ -353,6 +368,49 @@ func TestConfig_ShutdownTimeout(t *testing.T) {
 	assert.Equal(t, time.Minute, cfg.ShutdownTimeout)
 }
 
+func TestConfig_ExponentialHistogramConfigFromEnv(t *testing.T) {
+	t.Setenv("OTEL_EBPF_METRICS_EXPONENTIAL_HISTOGRAM_MAX_SIZE", "96")
+	t.Setenv("OTEL_EBPF_METRICS_EXPONENTIAL_HISTOGRAM_MAX_SCALE", "14")
+
+	cfg, err := LoadConfig(bytes.NewReader(nil))
+	require.NoError(t, err)
+
+	assert.Equal(t, int32(96), cfg.OTELMetrics.ExponentialHistogram.MaxSize)
+	assert.Equal(t, int32(14), cfg.OTELMetrics.ExponentialHistogram.MaxScale)
+}
+
+func TestConfigValidate_ExponentialHistogramConfig(t *testing.T) {
+	t.Run("valid scale range", func(t *testing.T) {
+		cfg := loadConfig(t, envMap{
+			"OTEL_EBPF_EXECUTABLE_PATH":                         "foo",
+			"OTEL_EBPF_TRACE_PRINTER":                           "text",
+			"OTEL_EBPF_METRICS_EXPONENTIAL_HISTOGRAM_MAX_SCALE": "0",
+		})
+
+		require.NoError(t, cfg.Validate())
+	})
+
+	t.Run("invalid size", func(t *testing.T) {
+		cfg := loadConfig(t, envMap{
+			"OTEL_EBPF_EXECUTABLE_PATH":                        "foo",
+			"OTEL_EBPF_TRACE_PRINTER":                          "text",
+			"OTEL_EBPF_METRICS_EXPONENTIAL_HISTOGRAM_MAX_SIZE": "0",
+		})
+
+		require.Error(t, cfg.Validate())
+	})
+
+	t.Run("invalid scale", func(t *testing.T) {
+		cfg := loadConfig(t, envMap{
+			"OTEL_EBPF_EXECUTABLE_PATH":                         "foo",
+			"OTEL_EBPF_TRACE_PRINTER":                           "text",
+			"OTEL_EBPF_METRICS_EXPONENTIAL_HISTOGRAM_MAX_SCALE": "21",
+		})
+
+		require.Error(t, cfg.Validate())
+	})
+}
+
 func TestConfigValidate(t *testing.T) {
 	testCases := []envMap{
 		{"OTEL_EXPORTER_OTLP_ENDPOINT": "localhost:1234", "OTEL_EBPF_EXECUTABLE_PATH": "foo", "INSTRUMENT_FUNC_NAME": "bar"},
@@ -438,6 +496,54 @@ network:
 `)
 	cfg, err := LoadConfig(userConfig)
 	require.NoError(t, err)
+	require.NoError(t, cfg.Validate())
+}
+
+func TestConfigValidate_KubeReconnectInitialIntervalZero(t *testing.T) {
+	userConfig := bytes.NewBufferString(`
+otel_metrics_export:
+  endpoint: http://otelcol:4318
+trace_printer: text
+attributes:
+  kubernetes:
+    reconnect_initial_interval: 0s
+network:
+  enable: true
+`)
+
+	cfg, err := LoadConfig(userConfig)
+	require.NoError(t, err)
+
+	err = cfg.Validate()
+	require.Error(t, err)
+
+	validate := validator.New(validator.WithRequiredStructEnabled())
+	validationErr := validate.Struct(cfg.Attributes.Kubernetes)
+	require.Error(t, validationErr)
+
+	var fieldErrs validator.ValidationErrors
+	require.ErrorAs(t, validationErr, &fieldErrs)
+	require.Len(t, fieldErrs, 1)
+	assert.Equal(t, "ReconnectInitialInterval", fieldErrs[0].Field())
+	assert.Equal(t, "gt", fieldErrs[0].Tag())
+}
+
+func TestConfigValidate_KubeReconnectInitialIntervalOmitted(t *testing.T) {
+	userConfig := bytes.NewBufferString(`
+otel_metrics_export:
+  endpoint: http://otelcol:4318
+trace_printer: text
+attributes:
+  kubernetes:
+    enable: true
+network:
+  enable: true
+`)
+
+	cfg, err := LoadConfig(userConfig)
+	require.NoError(t, err)
+
+	assert.Equal(t, 5*time.Second, cfg.Attributes.Kubernetes.ReconnectInitialInterval)
 	require.NoError(t, cfg.Validate())
 }
 

@@ -145,6 +145,22 @@ const conversationBody = `
 }
 `
 
+const embeddingsBody = `{
+  "object": "list",
+  "data": [
+    {
+      "object": "embedding",
+      "embedding": [0.0023064255, -0.009327292],
+      "index": 0
+    }
+  ],
+  "model": "text-embedding-3-small",
+  "usage": {
+    "prompt_tokens": 5,
+    "total_tokens": 5
+  }
+}`
+
 type responsesRequest struct {
 	Input        string `json:"input"`
 	Instructions string `json:"instructions"`
@@ -297,6 +313,65 @@ type conversationRequest struct {
 	Metadata json.RawMessage `json:"metadata"`
 }
 
+type embeddingsRequest struct {
+	Model      string          `json:"model"`
+	Input      json.RawMessage `json:"input"`
+	Dimensions int             `json:"dimensions"`
+}
+
+func handleEmbeddings(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("failed to read request body: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	var req embeddingsRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		http.Error(w, fmt.Sprintf("invalid JSON: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	var validationErrors []string
+	if len(req.Input) == 0 {
+		validationErrors = append(validationErrors, "input cannot be empty")
+	}
+	if req.Model == "" {
+		validationErrors = append(validationErrors, "model cannot be empty")
+	}
+	if len(validationErrors) > 0 {
+		http.Error(w, "request validation failed:\n"+strings.Join(validationErrors, "\n"), http.StatusBadRequest)
+		return
+	}
+
+	if r.URL.Query().Has("error") {
+		h := w.Header()
+		h.Set("Content-Type", "application/json")
+		h.Set("Openai-Version", "2020-10-01")
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte(errorBody))
+		return
+	}
+
+	h := w.Header()
+	setResponseHeaders(h)
+	w.WriteHeader(http.StatusOK)
+
+	gz := gzip.NewWriter(w)
+	if _, err := gz.Write([]byte(embeddingsBody)); err != nil {
+		log.Printf("error writing gzip body: %v", err)
+		return
+	}
+	if err := gz.Close(); err != nil {
+		log.Printf("error closing gzip writer: %v", err)
+	}
+}
+
 func handleConversations(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -359,6 +434,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v1/responses", handleResponses)
 	mux.HandleFunc("/v1/chat/completions", handleCompletions)
+	mux.HandleFunc("/v1/embeddings", handleEmbeddings)
 	mux.HandleFunc("/v1/conversations", handleConversations)
 
 	addr := ":" + port

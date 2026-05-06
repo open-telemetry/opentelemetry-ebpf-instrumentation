@@ -227,7 +227,7 @@ The following areas require explicit care because users may otherwise assume str
 - Go version support for module consumers is a build-time compatibility concern and is distinct from runtime support for the shipped binaries and container images
 - support matrix changes: dropping an old kernel, distro, container runtime, language runtime, or library version may be a breaking change
 - auto-instrumentation defaults: changing default enabled instrumentation, attribute sets, or span or metric naming can be breaking from the user's point of view
-- generated configuration artifacts: changes to `docs/config-schema.json` and configuration validation are part of the public surface when configuration is stable
+- generated configuration artifacts: changes to `devdocs/config` and configuration validation are part of the public surface when configuration is stable
 - image tags: `latest` is a moving, non-stable tag and is not part of the compatibility contract; the semver release tag is
 
 ## Deprecation

@@ -24,7 +24,6 @@ func TestCloudResourceMetadata_AWS(t *testing.T) {
 	setupContainerPrometheus(t, network, "prometheus-config-perapp.yml")
 	setupContainerJaeger(t, network)
 	setupContainerCollector(t, network, "otelcol-config.yml")
-	defer network.Close()
 	setupGoOTelTestServer(t, network, nil)
 
 	if t.Failed() {

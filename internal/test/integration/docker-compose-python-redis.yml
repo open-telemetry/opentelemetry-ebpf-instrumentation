@@ -57,7 +57,7 @@ services:
 
   # OpenTelemetry Collector
   otelcol:
-    image: otel/opentelemetry-collector-contrib:0.150.1@sha256:a516c26968aa1feb5e5fc0562e3338ea13755cb4f373603226bcc4e276374ad0
+    image: otel/opentelemetry-collector-contrib:0.151.0@sha256:d57bfe8eee2378f31cb1193239fbcac521d54a5a071fca2bfc106916a32b892d
     container_name: otel-col
     deploy:
       resources:
@@ -83,15 +83,18 @@ services:
   # Weaver semantic convention validator — receives OTLP from the collector
   # and validates telemetry against the OpenTelemetry semantic conventions.
   weaver:
-    image: otel/weaver:v0.22.1@sha256:33ae522ae4b71c1c562563c1d81f46aa0f79f088a0873199143a1f11ac30e5c9
+    image: otel/weaver:v0.23.0@sha256:7984ecb55b859eb3034ae9d836c4eeda137e2bdd0873b7ba2bb6c3d24d6ff457
     container_name: weaver
     command:
       - registry
       - live-check
-      # Semconv version is set via SEMCONV_VERSION env var from the test code
-      # (derived from go.opentelemetry.io/otel/semconv).
+      # OBI's own schema registry. The manifest at the root pins the upstream
+      # semconv dependency (currently v1.38.0). Bump in lockstep with the Go
+      # `go.opentelemetry.io/otel/semconv/...` import — guarded by
+      # TestSemconvVersionMatchesManifest.
       - --registry
-      - https://github.com/open-telemetry/semantic-conventions.git@v${SEMCONV_VERSION}[model]
+      - /obi-registry
+      - --include-unreferenced
       - --inactivity-timeout
       - "300"
       - --admin-port
@@ -101,6 +104,8 @@ services:
       - --diagnostic-format
       - json
       - --no-stream
+    volumes:
+      - ../../../schemas/obi:/obi-registry:ro
     ports:
       - "4320:4320" # admin port (for /stop from test host)
     healthcheck:

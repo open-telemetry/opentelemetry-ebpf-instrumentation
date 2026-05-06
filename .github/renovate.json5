@@ -25,6 +25,11 @@
   },
   "packageRules": [
     {
+      "description": "Run `go mod tidy` and rewrite import paths on any Go module update",
+      "matchManagers": ["gomod"],
+      "postUpdateOptions": ["gomodTidy", "gomodUpdateImportPaths"]
+    },
+    {
       "groupName": "Go",
       "matchManagers": ["gomod"],
       "matchUpdateTypes": ["patch", "digest", "minor"],

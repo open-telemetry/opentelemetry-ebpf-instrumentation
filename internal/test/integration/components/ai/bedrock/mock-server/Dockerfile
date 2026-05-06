@@ -1,6 +1,6 @@
 # Build the mock Bedrock server binary
 # Docker command must be invoked from the project root directory
-FROM golang:1.25.8@sha256:f55a6ec7f24aedc1ed66e2641fdc52de01f2d24d6e49d1fa38582c07dd5f601d AS builder
+FROM golang:1.25.9@sha256:8a7adc288b77e9b787cd2695029eb54d10ae80571b21d44fed68d067ad0a9c96 AS builder
 
 ARG TARGETARCH
 

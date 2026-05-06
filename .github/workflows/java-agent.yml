@@ -84,6 +84,11 @@ jobs:
           gradle-version: ${{ steps.gradle-source.outputs.version }}
           cache-disabled: true
 
+      - name: Install cross compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gcc-aarch64-linux-gnu libc6-dev-arm64-cross
+
       - name: Check code formatting (Spotless)
         env:
           GRADLE_OPTS: -Dorg.gradle.java.home=${{ steps.gradle-jdk.outputs.path }}

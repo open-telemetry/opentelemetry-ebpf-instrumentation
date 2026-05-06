@@ -65,19 +65,21 @@ through language-specific library instrumentation documented later in this file.
 | gRPC | `1.0+` | All | Yes | No | Long-lived connections started before OBI may use `*` for method names |
 | MySQL | All | All | Yes | No | Prepared statements created before OBI started may miss query text |
 | PostgreSQL | All | All | Yes | No | Prepared statements created before OBI started may miss query text |
+| MSSQL | All | All | Yes | No | Prepared statements created before OBI started may miss query text |
 | Redis | All | All | Yes | No | Existing connections may miss database number and `db.namespace` |
 | MongoDB | `5.0+` | `insert`, `update`, `find`, `delete`, `findAndModify`, `aggregate`, `count`, `distinct`, `mapReduce` | Yes | No | No support for compressed payloads |
 | Couchbase | All | All | Yes | No | Bucket or collection may be unknown if negotiation happened before OBI started |
 | Memcached | All | ASCII text subset excluding `quit` and meta commands | Yes | No | Only the first key is recorded for multi-key retrieval; payload bytes are not captured |
 | Kafka | All | `produce`, `fetch` | Yes | No | Topic name lookup may fail for newer fetch API versions (`>= 13`) |
 | MQTT | `3.1.1/5.0` | `publish`, `subscribe` | No | No | Only the first topic filter is used for subscribe; payload not captured |
+| AMQP | `1.0` | `publish`, `process` | No | No | Userspace heuristic only; only transfer performatives create spans |
 | GraphQL | All | All | Yes | No | None documented |
 | Elasticsearch | `7.14+` | `/_search`, `/_msearch`, `/_bulk`, `/_doc` | Yes | No | None documented |
 | Opensearch | `3.0.0+` | `/_search`, `/_msearch`, `/_bulk`, `/_doc` | Yes | No | None documented |
 | AWS S3 | All | `CreateBucket`, `DeleteBucket`, `PutObject`, `DeleteObject`, `ListBuckets`, `ListObjects`, `GetObject` | Yes | No | None documented |
 | AWS SQS | All | All | Yes | No | None documented |
 | SQL++ | All | All | Yes | No | None documented |
-| GenAI | All | All | Yes | No | Supported vendors are OpenAI and Anthropic |
+| GenAI | All | All | Yes | No | Supported vendors are OpenAI, Anthropic, Google AI Studio (Gemini), AWS Bedrock, Qwen (DashScope), and generic embedding providers (Voyage AI, Cohere, Jina AI) |
 
 ## Runtime, Server, And Library Instrumentation
 

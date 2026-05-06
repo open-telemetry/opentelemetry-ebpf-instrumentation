@@ -350,6 +350,21 @@ func TestSpanOTELGetters_MessagingOpName(t *testing.T) {
 			expected: "process",
 		},
 		{
+			name:     "nats client publish",
+			span:     &Span{Type: EventTypeNATSClient, Method: MessagingPublish},
+			expected: "publish",
+		},
+		{
+			name:     "nats server process",
+			span:     &Span{Type: EventTypeNATSServer, Method: MessagingProcess},
+			expected: "process",
+		},
+		{
+			name:     "amqp client publish",
+			span:     &Span{Type: EventTypeAMQPClient, Method: MessagingPublish},
+			expected: "publish",
+		},
+		{
 			name:     "http span returns empty",
 			span:     &Span{Type: EventTypeHTTP, Method: "GET"},
 			expected: "",
@@ -485,4 +500,48 @@ func TestSpanOTELGetters_JSONRPCAttributes(t *testing.T) {
 			assert.Equal(t, tt.expected, kv.Value.AsString())
 		})
 	}
+}
+
+func TestSpanOTELGetters_MessagingAttributes_NATS(t *testing.T) {
+	span := &Span{
+		Type:   EventTypeNATSClient,
+		Path:   "updates.orders",
+		Method: MessagingPublish,
+	}
+
+	systemGetter, ok := spanOTELGetters(attr.MessagingSystem)
+	require.True(t, ok, "getter should be found for MessagingSystem")
+	systemKV := systemGetter(span)
+	assert.Equal(t, string(attr.MessagingSystem), string(systemKV.Key))
+	assert.Equal(t, "nats", systemKV.Value.AsString())
+
+	destinationGetter, ok := spanOTELGetters(attr.MessagingDestination)
+	require.True(t, ok, "getter should be found for MessagingDestination")
+	destinationKV := destinationGetter(span)
+	assert.Equal(t, string(attr.MessagingDestination), string(destinationKV.Key))
+	assert.Equal(t, "updates.orders", destinationKV.Value.AsString())
+
+	opTypeGetter, ok := spanOTELGetters(attr.MessagingOpType)
+	require.True(t, ok, "getter should be found for MessagingOpType")
+	assert.Equal(t, MessagingPublish, opTypeGetter(span).Value.AsString())
+
+	span.Method = MessagingProcess
+	assert.Equal(t, MessagingProcess, opTypeGetter(span).Value.AsString())
+}
+
+func TestSpanOTELGetters_Instance(t *testing.T) {
+	getter, ok := spanOTELGetters(attr.Instance)
+	require.True(t, ok, "getter should be found for Instance")
+
+	span := &Span{
+		Service: svc.Attrs{
+			UID: svc.UID{
+				Instance: "instance-42",
+			},
+		},
+	}
+
+	kv := getter(span)
+	assert.Equal(t, string(attr.Instance), string(kv.Key))
+	assert.Equal(t, "instance-42", kv.Value.AsString())
 }

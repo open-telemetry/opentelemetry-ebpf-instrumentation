@@ -84,10 +84,7 @@ static __always_inline u32 task_netns() {
     return (u32)BPF_CORE_READ(task, nsproxy, net_ns, ns.inum);
 }
 
-static __always_inline u8 infer_packet_type(u8 direction, u16 port) {
-    const u32 netns = task_netns();
-    const bool is_server = is_listening(port, netns);
-
+static __always_inline u8 infer_packet_type(u8 direction, bool is_server) {
     if ((direction == TCP_RECV && is_server) || (direction == TCP_SEND && !is_server)) {
         return PACKET_TYPE_REQUEST;
     }

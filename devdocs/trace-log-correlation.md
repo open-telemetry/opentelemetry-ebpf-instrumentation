@@ -12,6 +12,7 @@ OBI can enrich JSON log lines with `trace_id` and `span_id` fields, linking logs
   - [Node.js — `async_hooks` before callback + `uv_fs_access` uprobe](#nodejs--async_hooks-before-callback--uv_fs_access-uprobe)
   - [Java — `k_ioctl_java_threads` in the ioctl kprobe](#java--k_ioctl_java_threads-in-the-ioctl-kprobe)
   - [Ruby (Puma) — `rb_ary_shift` uprobe](#ruby-puma--rb_ary_shift-uprobe)
+  - [Python (asyncio) — `task_step` / `context_run` uprobes](#python-asyncio--task_step--context_run-uprobes)
 - [Per-runtime stdout buffering](#per-runtime-stdout-buffering)
   - [.NET specifics](#net-specifics)
 - [Requirements](#requirements)
@@ -47,6 +48,7 @@ The map is **written** by the generic tracer (in `server_or_client_trace()`) whe
 - **Node.js**: The single-threaded event loop can read data for multiple in-flight requests (via libuv) before invoking any JS callback, overwriting `traces_ctx_v1` each time.
 - **Java**: HTTP servers (Tomcat, Netty) use thread pools. The acceptor thread receives the data, but a worker thread from the pool processes the request and writes logs.
 - **Ruby (Puma)**: When all workers are busy, the reactor thread reads HTTP data (setting context for itself), then hands off to a worker that has no context.
+- **Python (asyncio)**: A single OS thread runs many tasks via the event loop. `pid_tgid` identifies the thread, not the request, so any `await` boundary that switches tasks would otherwise leave `traces_ctx_v1[pid_tgid]` pointing at whichever task ran most recently.
 
 Without correction, `traces_ctx_v1[pid_tgid]` may carry the wrong trace context when a log is written. Each runtime has a dedicated mechanism to refresh the map at the right moment.
 
@@ -98,6 +100,20 @@ OBI hooks `rb_ary_shift` (Ruby's `Array#shift`), which fires when a Puma worker 
 3. If found, calls `obi_ctx__set(worker_pid_tgid, &tp)`.
 
 In the direct path, `server_traces_aux` won't have an entry yet (HTTP hasn't been parsed), so step 2 is a harmless no-op.
+
+### Python (asyncio) — `task_step` / `context_run` uprobes
+
+OBI hooks the CPython internals that mark every async transition:
+
+- `_asyncio.Task.__init__` → records the new task and its parent so each task carries the request connection it was created under.
+- `PyContext_CopyCurrent` (and `context_new_from_vars` under tail-call optimization) → binds the copied `PyContext*` to the task that owns it, including child tasks created via `asyncio.create_task` and worker contexts copied for `asyncio.to_thread`.
+- `_asyncio.Task.task_step` (3.12+) / `task_step_legacy` (< 3.12) → fires when the event loop resumes a task. The handler walks the task's parent chain (up to 4 levels) to find the owning server connection in `server_traces_aux` and calls `obi_ctx__set(pid_tgid, &tp)`.
+- `task_step_ret` → fires when a task yields back to the loop. The handler calls `obi_ctx__del(pid_tgid)` so logs emitted from idle event-loop code aren't attributed to the previous task.
+- `libpython3.context_run` → covers the `asyncio.to_thread` worker thread, where the user function runs inside a copied context but no `task_step` ever fires. The handler resolves the originating task via `python_context_task[context]` and refreshes `traces_ctx_v1` for the worker `pid_tgid`.
+
+Together these probes keep `traces_ctx_v1[pid_tgid]` aligned with whichever async task is currently executing, so logs written between any two `await` points get the correct trace/span IDs.
+
+This works for plain `asyncio` and uvloop (the probe targets are CPython's `_asyncio` module and `libpython3.so` — both loops drive the same task machinery). Greenlet/gevent are out of scope: their context switches happen entirely inside the greenlet C extension and don't touch any of the probed symbols.
 
 ## Per-runtime stdout buffering
 

@@ -286,3 +286,43 @@ func TestOpenAIInput_GetInput(t *testing.T) {
 	inp4 := &request.OpenAIInput{Items: []byte(`[{"item":1}]`)}
 	assert.JSONEq(t, `[{"item":1}]`, inp4.GetInput())
 }
+
+const embeddingsRequestBody = `{"input":"The food was delicious","model":"text-embedding-3-small","dimensions":256}`
+
+const embeddingsResponseBody = `{
+  "object": "list",
+  "data": [
+    {
+      "object": "embedding",
+      "embedding": [0.0023064255, -0.009327292],
+      "index": 0
+    }
+  ],
+  "model": "text-embedding-3-small",
+  "usage": {
+    "prompt_tokens": 5,
+    "total_tokens": 5
+  }
+}`
+
+func TestOpenAISpan_Embeddings(t *testing.T) {
+	req := makeRequest(t, http.MethodPost, "http://api.openai.com/v1/embeddings", embeddingsRequestBody)
+	resp := makeGzipResponse(t, http.StatusOK, openAIHeaders(), embeddingsResponseBody)
+
+	base := &request.Span{}
+	span, ok := OpenAISpan(base, req, resp)
+
+	require.True(t, ok)
+	require.NotNil(t, span.GenAI.OpenAI)
+	assert.Equal(t, request.HTTPSubtypeOpenAI, span.SubType)
+
+	ai := span.GenAI.OpenAI
+	assert.Equal(t, "embeddings", ai.OperationName)
+	assert.Equal(t, "text-embedding-3-small", ai.ResponseModel)
+	assert.Equal(t, 5, ai.Usage.GetInputTokens())
+
+	// request fields
+	assert.Equal(t, "text-embedding-3-small", ai.Request.Model)
+	assert.Equal(t, 256, ai.Request.Dimensions)
+	assert.Equal(t, "The food was delicious", ai.Request.Input)
+}

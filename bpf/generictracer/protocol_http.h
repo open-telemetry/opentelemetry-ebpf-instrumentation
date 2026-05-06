@@ -131,6 +131,8 @@ static __always_inline void finish_http(http_info_t *info, pid_connection_info_t
         if (info->delayed) {
             bpf_map_delete_elem(&ongoing_http, pid_conn);
         }
+
+        bpf_map_delete_elem(&active_ssl_connections, pid_conn);
     }
 }
 
@@ -231,12 +233,12 @@ static __always_inline void cleanup_http_request_data(pid_connection_info_t *pid
             delete_client_trace_info(pid_conn);
         }
     }
-    bpf_map_delete_elem(&active_ssl_connections, pid_conn);
 }
 
 static __always_inline void terminate_http_request_if_needed(pid_connection_info_t *pid_conn) {
     http_info_t *info = bpf_map_lookup_elem(&ongoing_http, pid_conn);
     cleanup_http_request_data(pid_conn, info);
+    bpf_map_delete_elem(&active_ssl_connections, pid_conn);
 }
 
 static __always_inline void process_http_request(http_info_t *info,
@@ -362,6 +364,7 @@ static __always_inline int http_send_large_buffer(http_info_t *req,
     large_buf->direction = direction;
     large_buf->conn_info = req->conn_info;
     large_buf->action = action;
+    large_buf->kind = k_large_buf_layer_app;
     large_buf->tp = req->tp;
 
     u32 max_available_bytes = http_max_captured_bytes - bytes_sent;
@@ -650,7 +653,23 @@ skip_tp:
     }
 }
 
-// k_tail_continue_protocol_http
+// k_tail_continue_protocol_http (legacy)
+SEC("kprobe/http")
+int obi_continue_protocol_http_legacy(struct pt_regs *ctx) {
+    call_protocol_args_t *args = protocol_args();
+    if (!args) {
+        return 0;
+    }
+
+    http_info_t *info = bpf_map_lookup_elem(&ongoing_http, &args->pid_conn);
+    if (!info) {
+        return 0;
+    }
+
+    return __obi_continue_protocol_http(ctx, args, info, bpf_strstr_tp_loop__legacy);
+}
+
+// k_tail_continue_protocol_http (new kernels)
 SEC("kprobe/http")
 int obi_continue_protocol_http(struct pt_regs *ctx) {
     call_protocol_args_t *args = protocol_args();
@@ -661,6 +680,10 @@ int obi_continue_protocol_http(struct pt_regs *ctx) {
     http_info_t *info = bpf_map_lookup_elem(&ongoing_http, &args->pid_conn);
     if (!info) {
         return 0;
+    }
+
+    if (args->use_bpf_loop) {
+        return __obi_continue_protocol_http(ctx, args, info, bpf_strstr_tp_loop);
     }
 
     return __obi_continue_protocol_http(ctx, args, info, bpf_strstr_tp_loop__legacy);
@@ -712,12 +735,11 @@ __obi_protocol_http(struct pt_regs *ctx, unsigned char *(*tp_loop_fn)(unsigned c
     info->direction = args->direction;
     if (args->packet_type == PACKET_TYPE_REQUEST && (info->status == 0) &&
         (info->start_monotime_ns == 0)) {
-        if (tp_loop_fn == bpf_strstr_tp_loop) {
-            return __obi_continue_protocol_http(ctx, args, info, bpf_strstr_tp_loop);
-        } else {
-            bpf_tail_call(ctx, &jump_table, k_tail_continue_protocol_http);
-            return 0;
-        }
+
+        args->use_bpf_loop = tp_loop_fn == bpf_strstr_tp_loop;
+        bpf_tail_call(ctx, &jump_table, k_tail_continue_protocol_http);
+
+        return 0;
     } else if ((args->packet_type == PACKET_TYPE_RESPONSE) && (info->status == 0)) {
         http_send_large_buffer(info,
                                (void *)args->u_buf,

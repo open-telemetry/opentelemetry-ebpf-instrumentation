@@ -19,6 +19,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
+	"go.opentelemetry.io/obi/pkg/config"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/ringbuf"
 )
 
@@ -407,4 +408,95 @@ func makeBPFInfoWithBuf(buf []uint8) BPFHTTPInfo {
 	copy(bpfInfo.Buf[:], buf)
 
 	return bpfInfo
+}
+
+func TestHTTPRequestResponseToSpan_EmbeddingTakesPriorityOverOpenAI(t *testing.T) {
+	// When a known embedding provider request returns OpenAI-compatible response headers,
+	// EmbeddingSpan should take priority over OpenAISpan because it matches the
+	// hostname and path of a known embedding provider.
+	parseCtx := &EBPFParseContext{
+		payloadExtraction: config.PayloadExtraction{
+			HTTP: config.HTTPConfig{
+				GenAI: config.GenAIConfig{
+					Embedding: config.EmbeddingProviderConfig{Enabled: true}, OpenAI: config.OpenAIConfig{Enabled: true},
+				},
+			},
+		},
+	}
+
+	reqBody := `{"model":"text-embedding-v3","input":"hello"}`
+	respBody := `{"object":"list","data":[{"object":"embedding","embedding":[0.1],"index":0}],"model":"text-embedding-v3","usage":{"prompt_tokens":5,"total_tokens":5}}`
+
+	req := &http.Request{
+		Method: http.MethodPost,
+		URL:    &url.URL{Scheme: "https", Host: "api.jina.ai", Path: "/v1/embeddings"},
+		Host:   "api.jina.ai",
+		Body:   io.NopCloser(strings.NewReader(reqBody)),
+	}
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header: http.Header{
+			"Content-Type":        []string{"application/json"},
+			"Openai-Organization": []string{"org-123"},
+			"Openai-Version":      []string{"2020-10-01"},
+		},
+		Body: io.NopCloser(strings.NewReader(respBody)),
+	}
+	event := &BPFHTTPInfo{
+		Type: uint8(request.EventTypeHTTPClient),
+	}
+
+	span := httpRequestResponseToSpan(parseCtx, event, req, resp)
+
+	assert.Equal(t, request.HTTPSubtypeEmbedding, span.SubType,
+		"known embedding provider request should be detected as Embedding span, not OpenAI span")
+	require.NotNil(t, span.GenAI)
+	require.NotNil(t, span.GenAI.Embedding, "span.GenAI.Embedding should be set")
+	assert.Nil(t, span.GenAI.OpenAI, "span.GenAI.OpenAI should not be set")
+	assert.Equal(t, "jina", span.GenAI.Embedding.Provider)
+}
+
+func TestHTTPRequestResponseToSpan_OpenAIEmbeddingDetectedByOpenAISpan(t *testing.T) {
+	// When a request to api.openai.com/v1/embeddings returns OpenAI response headers,
+	// it should still be detected by OpenAISpan (not EmbeddingSpan) because
+	// api.openai.com is not a known embedding-only provider.
+	parseCtx := &EBPFParseContext{
+		payloadExtraction: config.PayloadExtraction{
+			HTTP: config.HTTPConfig{
+				GenAI: config.GenAIConfig{
+					Embedding: config.EmbeddingProviderConfig{Enabled: true}, OpenAI: config.OpenAIConfig{Enabled: true},
+				},
+			},
+		},
+	}
+
+	reqBody := `{"model":"text-embedding-3-small","input":"hello"}`
+	respBody := `{"object":"list","data":[{"object":"embedding","embedding":[0.1],"index":0}],"model":"text-embedding-3-small","usage":{"prompt_tokens":5,"total_tokens":5}}`
+
+	req := &http.Request{
+		Method: http.MethodPost,
+		URL:    &url.URL{Scheme: "https", Host: "api.openai.com", Path: "/v1/embeddings"},
+		Host:   "api.openai.com",
+		Body:   io.NopCloser(strings.NewReader(reqBody)),
+	}
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header: http.Header{
+			"Content-Type":        []string{"application/json"},
+			"Openai-Organization": []string{"org-123"},
+			"Openai-Version":      []string{"2020-10-01"},
+		},
+		Body: io.NopCloser(strings.NewReader(respBody)),
+	}
+	event := &BPFHTTPInfo{
+		Type: uint8(request.EventTypeHTTPClient),
+	}
+
+	span := httpRequestResponseToSpan(parseCtx, event, req, resp)
+
+	assert.Equal(t, request.HTTPSubtypeOpenAI, span.SubType,
+		"OpenAI embedding request should be detected by OpenAISpan")
+	require.NotNil(t, span.GenAI)
+	require.NotNil(t, span.GenAI.OpenAI, "span.GenAI.OpenAI should be set")
+	assert.Equal(t, request.EmbeddingOperationName, span.GenAI.OpenAI.OperationName)
 }

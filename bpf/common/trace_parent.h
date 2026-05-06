@@ -175,10 +175,7 @@ static __always_inline u64 resolve_python_current_task(const trace_key_t *t_key,
 
 static __always_inline tp_info_pid_t *find_python_parent_trace(const trace_key_t *t_key,
                                                                u64 pid_tgid) {
-    enum { k_max_depth = 4 };
-
-    u64 task_id = resolve_python_current_task(t_key, pid_tgid);
-
+    const u64 task_id = resolve_python_current_task(t_key, pid_tgid);
     if (!task_id) {
         bpf_dbg_printk("find_python_parent_trace: no current task pid=%d tid=%d",
                        t_key->p_key.pid,
@@ -186,38 +183,16 @@ static __always_inline tp_info_pid_t *find_python_parent_trace(const trace_key_t
         return NULL;
     }
 
-    for (u8 i = 0; i < k_max_depth; ++i) {
-        const python_task_state_t *task_state =
-            (const python_task_state_t *)bpf_map_lookup_elem(&python_task_state, &task_id);
-        if (!task_state) {
-            bpf_dbg_printk("find_python_parent_trace: no task state for tid=%d task=%llx",
-                           t_key->p_key.tid,
-                           task_id);
-            break;
-        }
-
-        if (task_state->conn.port) {
-            tp_info_pid_t *server_tp = bpf_map_lookup_elem(&server_traces_aux, &task_state->conn);
-            if (server_tp) {
-                bpf_dbg_printk("find_python_parent_trace: FOUND tid=%d task=%llx port=%d",
-                               t_key->p_key.tid,
-                               task_id,
-                               task_state->conn.port);
-                return server_tp;
-            }
-        }
-
-        if (!task_state->parent) {
-            bpf_dbg_printk("find_python_parent_trace: no parent for tid=%d task=%llx",
-                           t_key->p_key.tid,
-                           task_id);
-            break;
-        }
-
-        task_id = task_state->parent;
+    tp_info_pid_t *server_tp = find_python_owning_server_trace(task_id);
+    if (server_tp) {
+        bpf_dbg_printk(
+            "find_python_parent_trace: FOUND tid=%d task=%llx", t_key->p_key.tid, task_id);
+    } else {
+        bpf_dbg_printk("find_python_parent_trace: no owning trace for tid=%d task=%llx",
+                       t_key->p_key.tid,
+                       task_id);
     }
-
-    return NULL;
+    return server_tp;
 }
 
 static __always_inline tp_info_pid_t *find_parent_java_trace(trace_key_t *t_key) {

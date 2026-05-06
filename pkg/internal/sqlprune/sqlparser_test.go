@@ -233,6 +233,73 @@ func TestSQLParseError(t *testing.T) {
 			buf:      []uint8{0x00, 0x00, 0x00, 0x00},
 			expected: nil,
 		},
+		{
+			name:   "Valid MSSQL error",
+			dbKind: request.DBMSSQL,
+			buf: []uint8{
+				0x04,       // Packet Type: Response
+				0x01,       // Status: EOM
+				0x00, 0x24, // Length: 36 bytes (8 header + 28 payload)
+				0x00, 0x00, // SPID
+				0x00,       // PacketID
+				0x00,       // Window
+				0xAA,       // Token: ERROR
+				0x12, 0x00, // Token length: 18 bytes (excluding token byte and length itself)
+				0x39, 0x30, 0x00, 0x00, // Number: 12345 (0x3039)
+				0x01,       // State
+				0x02,       // Class
+				0x05, 0x00, // MsgLen: 5 characters
+				'H', 0x00, 'e', 0x00, 'l', 0x00, 'l', 0x00, 'o', 0x00, // Message: "Hello" (UTF-16LE)
+			},
+			expected: &request.SQLError{
+				Code:     12345,
+				Message:  "Hello",
+				SQLState: "1",
+			},
+		},
+		{
+			name:   "MSSQL error with large code (exceeds uint16)",
+			dbKind: request.DBMSSQL,
+			buf: []uint8{
+				0x04,       // Packet Type: Response
+				0x01,       // Status: EOM
+				0x00, 0x24, // Length
+				0x00, 0x00, // SPID
+				0x00,       // PacketID
+				0x00,       // Window
+				0xAA,       // Token: ERROR
+				0x12, 0x00, // Token length
+				0x00, 0x00, 0x01, 0x00, // Number: 65536 (0x10000)
+				0x01,       // State
+				0x02,       // Class
+				0x05, 0x00, // MsgLen: 5 characters
+				'H', 0x00, 'e', 0x00, 'l', 0x00, 'l', 0x00, 'o', 0x00, // Message: "Hello" (UTF-16LE)
+			},
+			expected: &request.SQLError{
+				Code:     0, // Should be 0 because 65536 > 0xFFFF
+				Message:  "Hello",
+				SQLState: "1",
+			},
+		},
+		{
+			name:   "MSSQL non-response packet",
+			dbKind: request.DBMSSQL,
+			buf: []uint8{
+				0x01, // Packet Type: SQL Batch (not Response)
+				0x01, 0x00, 0x08, 0x00, 0x00, 0x00, 0x00,
+				0xAA,
+			},
+			expected: nil,
+		},
+		{
+			name:   "MSSQL truncated error token",
+			dbKind: request.DBMSSQL,
+			buf: []uint8{
+				0x04, 0x01, 0x00, 0x0A, 0x00, 0x00, 0x00, 0x00,
+				0xAA, 0x01, // Missing length, etc.
+			},
+			expected: nil,
+		},
 	}
 
 	for _, tt := range tests {

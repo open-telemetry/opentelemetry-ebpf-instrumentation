@@ -1,8 +1,10 @@
 from fastapi import FastAPI
 import httpx
 import asyncio
+import json
 import requests
 import os
+import sys
 
 app = FastAPI()
 http_client = None
@@ -38,6 +40,62 @@ async def test_sequential(req_id: int):
 
 @app.get("/health")
 async def health_check():
+    return {"status": "ok"}
+
+
+@app.get("/smoke")
+async def smoke():
+    return {"status": "ok"}
+
+
+def _emit_json_log(message: str):
+    sys.stdout.write(json.dumps({"message": message, "level": "INFO"}) + "\n")
+    sys.stdout.flush()
+
+
+@app.get("/json_logger")
+async def json_logger():
+    # Yield so concurrent requests interleave on the event loop
+    await asyncio.sleep(0.05)
+    _emit_json_log("this is a json log from python async")
+    return {"status": "ok"}
+
+
+@app.get("/json_logger_to_thread")
+async def json_logger_to_thread():
+    # Log from a worker thread offloaded via asyncio.to_thread; the worker has
+    # no current_task, so the context_run uprobe path drives the refresh
+    def worker():
+        _emit_json_log("this is a json log from python async to_thread")
+
+    await asyncio.to_thread(worker)
+    return {"status": "ok"}
+
+
+@app.get("/json_logger_nested")
+async def json_logger_nested():
+    # Log from a nested create_task chain; exercises the parent-chain walk
+    async def leaf():
+        await asyncio.sleep(0.01)
+        _emit_json_log("this is a json log from python async nested")
+
+    async def middle():
+        await asyncio.gather(asyncio.create_task(leaf()), asyncio.create_task(leaf()))
+
+    await asyncio.create_task(middle())
+    return {"status": "ok"}
+
+
+@app.get("/json_logger_gather")
+async def json_logger_gather():
+    # Log from sibling tasks running under asyncio.gather; each task yields
+    # so the event loop interleaves them and the task_step refresh has to
+    # update traces_ctx_v1 between sibling boundaries
+    async def sibling():
+        await asyncio.sleep(0.02)
+        _emit_json_log("this is a json log from python async gather")
+
+    await asyncio.gather(sibling(), sibling(), sibling())
     return {"status": "ok"}
 
 
