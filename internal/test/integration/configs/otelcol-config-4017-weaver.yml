@@ -10,18 +10,6 @@ receivers:
           allowed_origins:
             - "http://*"
             - "https://*"
-connectors:
-  # See otelcol-config-weaver.yml — forward clones data into the side tap
-  # so mutating processors can't corrupt the production pipeline.
-  forward/weaver:
-processors:
-  transform/weaver:
-    metric_statements:
-      - context: datapoint
-        statements:
-          - set(datapoint.exemplars, []) where Len(datapoint.exemplars) > 0
-  interval/weaver:
-    interval: 1s
 exporters:
   prometheus:
     endpoint: "otelcol:9464"
@@ -50,14 +38,13 @@ service:
     # Production paths.
     metrics:
       receivers: [otlp]
-      exporters: [prometheus, forward/weaver]
+      exporters: [prometheus]
     traces:
       receivers: [otlp]
       exporters: [otlphttp/jaeger]
-    # Weaver tap fed via forward connector for proper data isolation.
+    # Weaver taps with their own independent queues.
     metrics/weaver:
-      receivers: [forward/weaver]
-      processors: [transform/weaver, interval/weaver]
+      receivers: [otlp]
       exporters: [otlp/weaver]
     traces/weaver:
       receivers: [otlp]
