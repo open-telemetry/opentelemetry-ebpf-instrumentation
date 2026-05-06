@@ -50,15 +50,17 @@ char __license[] SEC("license") = "Dual MIT/GPL";
 //
 //   obi_packet_extender (sk_msg entry)
 //   │
-//   ├── pull_data + fill_msg_buffers ─── single up-front for all branches
-//   │
 //   ├── tp_pid present?               ─┐  Central dispatch: Go net/http,
-//   │     └── handle_existing_tp_pid   │  SSL. Inject + return
+//   │     └── handle_existing_tp_pid   │  SSL. Pulls+fills internally after
+//   │                                  │  passing valid check, then injects
 //   │                                  │
 //   ├── is_go_grpc_client_conn?        │  Go gRPC: uprobe wrote HPACK in
-//   │     └── SK_PASS                  │  user buffer; sk_msg bails
+//   │     └── pull+fill, SK_PASS       │  user buffer; sk_msg bails (kprobe
+//   │                                  │  needs fill for correlation)
 //   │                                  │
-//   ├── !valid_pid → SK_PASS           │  Unmonitored process
+//   ├── !valid_pid → SK_PASS           │  Unmonitored process — no pull
+//   │                                  │
+//   ├── pull_data + fill_msg_buffers   │  Committed to processing
 //   │                                  │
 //   ├── is_h2_socket?                  │  Known plaintext H2: skip preface
 //   │     └─ tail-call detect_h2       │  check, go straight to HPACK chain
@@ -855,6 +857,9 @@ static __always_inline bool handle_existing_tp_pid(struct sk_msg_md *msg,
         return true;
     }
 
+    bpf_msg_pull_data(msg, 0, msg->size, 0);
+    fill_msg_buffers(msg, p_conn, e_key);
+
     const bool is_http = protocol_detector(msg, id, &p_conn->conn);
     if (is_http) {
         if (inject_flags & k_inject_http_headers) {
@@ -897,24 +902,23 @@ int obi_packet_extender(struct sk_msg_md *msg) {
     t_ctx->h2_scan_pos = 0;
     t_ctx->h2_frames = 0;
 
-    // Single pull + fill so downstream branches reuse the same buffer
-    bpf_msg_pull_data(msg, 0, msg->size, 0);
-    fill_msg_buffers(msg, &t_ctx->p_conn, &e_key);
-
-    // Central dispatch for uprobe-set entries (Go net/http, SSL)
     tp_info_pid_t *tp_pid = get_tp_info_pid(&e_key);
     if (tp_pid && handle_existing_tp_pid(msg, id, &t_ctx->p_conn, &e_key, tp_pid)) {
         return SK_PASS;
     }
 
-    // Go gRPC: uprobe wrote HPACK in user buffer; sk_msg bails
     if (is_go_grpc_client_conn(&t_ctx->p_conn)) {
+        bpf_msg_pull_data(msg, 0, msg->size, 0);
+        fill_msg_buffers(msg, &t_ctx->p_conn, &e_key);
         return SK_PASS;
     }
 
     if (!valid_pid(id)) {
         return SK_PASS;
     }
+
+    bpf_msg_pull_data(msg, 0, msg->size, 0);
+    fill_msg_buffers(msg, &t_ctx->p_conn, &e_key);
 
     if (is_h2_socket(msg)) {
         bpf_tail_call_static(msg, &extender_jump_table, k_tail_detect_h2);
