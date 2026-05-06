@@ -45,7 +45,7 @@ const (
 	// Kprobes: kernel function names.
 	KprobeTCPClose = "tcp_close"
 
-	// Tracepoints: group/name.
+	// Tracepoints: group/name, are validated by TestTracepointConstantFormat
 	TracepointInetSockSetState = "sock/inet_sock_set_state"
 )
 
@@ -121,12 +121,8 @@ func NewStatsFetcher(cfg *config.EBPFTracer, features *export.Features) (*StatsF
 			continue
 		}
 
-		parts := strings.SplitN(t.name, "/", 2)
-		if len(parts) != 2 {
-			closeAll(closables)
-			return nil, fmt.Errorf("invalid tracepoint %q: must be group/name", t.name)
-		}
-		l, err := link.Tracepoint(parts[0], parts[1], t.program, nil)
+		group, tp, _ := strings.Cut(t.name, "/")
+		l, err := link.Tracepoint(group, tp, t.program, nil)
 		if err != nil {
 			closeAll(closables)
 			return nil, fmt.Errorf("failed tracepoint attachment %s: %w", t.name, err)
