@@ -16,26 +16,26 @@ groups:
         type:
           allow_custom_values: true
           members:
-            - id: connection_refused
-              value: ConnectionRefused
+            - id: refused
+              value: refused
               stability: development
-            - id: connection_reset
-              value: ConnectionReset
+            - id: reset
+              value: reset
               stability: development
             - id: timed_out
-              value: TimedOut
+              value: timed-out
               stability: development
             - id: host_unreachable
-              value: HostUnreachable
+              value: host-unreachable
               stability: development
             - id: net_unreachable
-              value: NetUnreachable
+              value: net-unreachable
               stability: development
             - id: other
-              value: Other
+              value: other
               stability: development
             - id: unknown
-              value: Unknown
+              value: unknown
               stability: development
         stability: development
         brief: Classification of why a TCP connection failed.

@@ -26,10 +26,9 @@ const (
 	weaverContainer = "weaver"
 	weaverAdminPort = 4320
 	// weaverTimeout bounds the entire post-/stop sequence (HTTP /stop,
-	// docker wait, docker logs, parse). Streaming mode keeps the typical
-	// case fast (per-entity processing happens during ingest), but the
-	// final drain still sincales with the unique signal count — heavy
-	// multi-language suites need real headroom.
+	// docker wait, docker cp of the report file, parse). The drain after
+	// /stop scales with the unique signal count — heavy multi-language
+	// suites need real headroom.
 	weaverTimeout = 3 * time.Minute
 )
 
