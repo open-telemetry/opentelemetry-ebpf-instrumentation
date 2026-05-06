@@ -30,6 +30,31 @@
       "postUpdateOptions": ["gomodTidy", "gomodUpdateImportPaths"]
     },
     {
+      "description": "Block the known-bad github.com/cilium/ebpf v0.21.0 update while allowing later releases through",
+      "matchManagers": ["gomod"],
+      "matchPackageNames": [
+        "github.com/cilium/ebpf"
+      ],
+      "allowedVersions": "!/^v?0\\.21\\.0$/"
+    },
+    {
+      "description": "Block Go dependency updates that outpace the generator toolchain (currently Go 1.25.x) until the generator image is upgraded",
+      "matchManagers": ["gomod"],
+      "matchPackageNames": [
+        "k8s.io/api",
+        "k8s.io/apiextensions-apiserver",
+        "k8s.io/apimachinery",
+        "k8s.io/client-go",
+        "k8s.io/component-base",
+        "k8s.io/kube-openapi",
+        "k8s.io/utils",
+        "sigs.k8s.io/controller-runtime",
+        "sigs.k8s.io/controller-runtime/tools/setup-envtest",
+        "sigs.k8s.io/e2e-framework"
+      ],
+      "enabled": false
+    },
+    {
       "groupName": "Go",
       "matchManagers": ["gomod"],
       "matchUpdateTypes": ["patch", "digest", "minor"],
