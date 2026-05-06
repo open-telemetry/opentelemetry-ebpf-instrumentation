@@ -22,14 +22,22 @@ OCI_BIN="$1"
 WEAVER_IMAGE="$2"
 REGISTRY_PATH="$3"
 
-out=$($OCI_BIN run --rm \
+stderr=$(mktemp)
+trap 'rm -f "$stderr"' EXIT
+
+if ! out=$($OCI_BIN run --rm \
   -v "${REGISTRY_PATH}:/obi-registry:ro" \
+  -w /obi-registry \
   "$WEAVER_IMAGE" registry check \
     --registry /obi-registry \
     --include-unreferenced \
     --future \
     --diagnostic-format json \
-    --diagnostic-stdout 2>/dev/null)
+    --diagnostic-stdout 2>"$stderr"); then
+  echo "weaver registry check failed to run:" >&2
+  cat "$stderr" >&2
+  exit 1
+fi
 
 if [ -n "$out" ] && [ "$out" != "[]" ]; then
   echo "weaver registry check produced diagnostics:" >&2
