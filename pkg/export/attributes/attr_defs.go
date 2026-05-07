@@ -423,10 +423,6 @@ func getDefinitions(
 				attr.ErrorType:       true,
 			},
 		},
-		StatTCPRtt.Section: {
-			SubGroups:  []*AttrReportGroup{&statsAttributes, &statsKubeAttributes},
-			Attributes: map[attr.Name]Default{},
-		},
 		GenAIClientInputTokenUsage.Section: {
 			SubGroups: []*AttrReportGroup{&appAttributes},
 			Attributes: map[attr.Name]Default{
@@ -461,6 +457,12 @@ func getDefinitions(
 				attr.ErrorType:          true,
 				attr.ServerPort:         true,
 				attr.ServerAddr:         true,
+			},
+		},
+		StatTCPRtt.Section: {
+			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes},
+			Attributes: map[attr.Name]Default{
+				attr.NetworkTCPHandshakeRole: false,
 			},
 		},
 		StatTCPFailedConnections.Section: {

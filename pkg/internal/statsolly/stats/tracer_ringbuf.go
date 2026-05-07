@@ -91,6 +91,7 @@ func readTCPRttIntoStat(record *ringbuf.Record) (ebpf.Stat, error) {
 		Type: ebpf.StatTypeTCPRtt,
 		TCPRtt: &ebpf.TCPRtt{
 			SrttUs: event.SrttUs,
+			Role:   event.Role,
 		},
 		CommonAttrs: pipe.CommonAttrs{
 			SrcAddr: srcAddr,

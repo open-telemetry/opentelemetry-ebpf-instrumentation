@@ -72,6 +72,7 @@ type Stat struct {
 
 type TCPRtt struct {
 	SrttUs uint32 `json:"srtt_us"`
+	Role   uint8  `json:"role"`
 }
 
 type TCPFailedConnection struct {

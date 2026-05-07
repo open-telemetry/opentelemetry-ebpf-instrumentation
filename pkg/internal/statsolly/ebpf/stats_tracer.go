@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"slices"
 	"strings"
 	"sync"
 
@@ -20,6 +21,8 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/config"
 	"go.opentelemetry.io/obi/pkg/export"
+	"go.opentelemetry.io/obi/pkg/export/attributes"
+	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	ebpfconvenience "go.opentelemetry.io/obi/pkg/internal/ebpf/convenience"
 )
 
@@ -36,8 +39,9 @@ type probe struct {
 
 // Program names
 const (
-	progObiKprobeTCPCloseSrtt         = "obi_kprobe_tcp_close_srtt"
-	progObiTracepointInetSockSetState = "obi_tracepoint_inet_sock_set_state"
+	progObiKprobeTCPCloseSrtt              = "obi_kprobe_tcp_close_srtt"
+	progObiTpInetSockSetStateConnRole      = "obi_tp_inet_sock_set_state_conn_role"
+	progObiTpInetSockSetStateTCPFailedConn = "obi_tp_inet_sock_set_state_tcp_failed_conn"
 )
 
 // Hook point names, grouped by attach type.
@@ -62,7 +66,7 @@ func tlog() *slog.Logger {
 	return slog.With("component", "ebpf.StatFetcher")
 }
 
-func NewStatsFetcher(cfg *config.EBPFTracer, features *export.Features) (*StatsFetcher, error) {
+func NewStatsFetcher(cfg *config.EBPFTracer, features *export.Features, selectorCfg *attributes.SelectorConfig) (*StatsFetcher, error) {
 	tlog := tlog()
 	if err := rlimit.RemoveMemlock(); err != nil {
 		tlog.Warn("can't remove mem lock. The agent could not be able to start eBPF programs",
@@ -75,7 +79,15 @@ func NewStatsFetcher(cfg *config.EBPFTracer, features *export.Features) (*StatsF
 		return nil, fmt.Errorf("loading BPF data: %w", err)
 	}
 
-	fixupSpec(spec, features)
+	attrSel, err := attributes.NewAttrSelector(attributes.UndefinedGroup, selectorCfg)
+	if err != nil {
+		return nil, fmt.Errorf("creating attr selector: %w", err)
+	}
+
+	connRoleEnabled := slices.Contains(attrSel.For(attributes.StatTCPRtt), attr.NetworkTCPHandshakeRole) ||
+		slices.Contains(attrSel.For(attributes.StatTCPFailedConnections), attr.NetworkTCPHandshakeRole)
+
+	fixupSpec(spec, features, connRoleEnabled)
 
 	ebpfconvenience.SetupMapSizes(spec, cfg.MapsConfig.GlobalScaleFactor)
 
@@ -110,11 +122,22 @@ func NewStatsFetcher(cfg *config.EBPFTracer, features *export.Features) (*StatsF
 	}
 
 	// tracepoints
+	// ObiTpInetSockSetStateTcpFailedConn (or any other probes that use role)
+	// must be attached before ObiTpInetSockSetStateConnRole.
+	// Both attach to the same tracepoint and BPF programs run FIFO:
+	// the probes read sock_role first, conn_role deletes it after.
+	// Swapping the order would cause tcp_failed_conn or any other probes
+	// to see NULL on the same TCP_CLOSE event that conn_role is cleaning up.
 	for _, t := range []probe{
 		{
 			name:    TracepointInetSockSetState,
-			program: objects.ObiTracepointInetSockSetState,
+			program: objects.ObiTpInetSockSetStateTcpFailedConn,
 			enabled: features.StatsTCPFailedConnections(),
+		},
+		{
+			name:    TracepointInetSockSetState,
+			program: objects.ObiTpInetSockSetStateConnRole,
+			enabled: (features.StatsTCPFailedConnections() || features.StatsTCPRtt()) && connRoleEnabled,
 		},
 	} {
 		if !t.enabled {
@@ -170,9 +193,20 @@ func (m *StatsFetcher) DebugEventsMap() *ebpf.Map {
 
 // fixupSpec replaces disabled programs with no-op stubs before loading,
 // preventing unused eBPF code from being loaded into the kernel.
-func fixupSpec(spec *ebpf.CollectionSpec, features *export.Features) {
+func fixupSpec(spec *ebpf.CollectionSpec, features *export.Features, connRoleEnabled bool) {
 	if !features.StatsTCPFailedConnections() {
-		spec.Programs[progObiTracepointInetSockSetState] = &ebpf.ProgramSpec{
+		spec.Programs[progObiTpInetSockSetStateTCPFailedConn] = &ebpf.ProgramSpec{
+			Name: "stats_dummy_tp",
+			Type: ebpf.TracePoint,
+			Instructions: asm.Instructions{
+				asm.Mov.Imm(asm.R0, 0),
+				asm.Return(),
+			},
+			License: "Dual MIT/GPL",
+		}
+	}
+	if !(features.StatsTCPFailedConnections() || features.StatsTCPRtt()) || !connRoleEnabled {
+		spec.Programs[progObiTpInetSockSetStateConnRole] = &ebpf.ProgramSpec{
 			Name: "stats_dummy_tp",
 			Type: ebpf.TracePoint,
 			Instructions: asm.Instructions{

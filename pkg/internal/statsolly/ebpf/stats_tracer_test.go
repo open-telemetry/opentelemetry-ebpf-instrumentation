@@ -21,8 +21,8 @@ func TestFixupSpec(t *testing.T) {
 	makeSpec := func() *ebpf.CollectionSpec {
 		return &ebpf.CollectionSpec{
 			Programs: map[string]*ebpf.ProgramSpec{
-				progObiKprobeTCPCloseSrtt:         {Name: origKpName, Type: ebpf.Kprobe},
-				progObiTracepointInetSockSetState: {Name: origTpName, Type: ebpf.TracePoint},
+				progObiKprobeTCPCloseSrtt:              {Name: origKpName, Type: ebpf.Kprobe},
+				progObiTpInetSockSetStateTCPFailedConn: {Name: origTpName, Type: ebpf.TracePoint},
 			},
 		}
 	}
@@ -62,11 +62,11 @@ func TestFixupSpec(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			spec := makeSpec()
-			fixupSpec(spec, &tc.features)
+			fixupSpec(spec, &tc.features, false)
 			if got := spec.Programs[progObiKprobeTCPCloseSrtt].Name; got != tc.wantKpName {
 				t.Errorf("kprobe program: got %q, want %q", got, tc.wantKpName)
 			}
-			if got := spec.Programs[progObiTracepointInetSockSetState].Name; got != tc.wantTpName {
+			if got := spec.Programs[progObiTpInetSockSetStateTCPFailedConn].Name; got != tc.wantTpName {
 				t.Errorf("tracepoint program: got %q, want %q", got, tc.wantTpName)
 			}
 		})
