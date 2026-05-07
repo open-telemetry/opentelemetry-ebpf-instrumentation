@@ -508,7 +508,7 @@ func TestServiceNameLabelPriority(t *testing.T) {
 			Kind:      "Pod",
 			Labels:    labels,
 			Pod: &informer.PodInfo{
-				Owners: []*informer.Owner{{Name: "my-deployment", Kind: "Deployment"}},
+				Owners:     []*informer.Owner{{Name: "my-deployment", Kind: "Deployment"}},
 				Containers: []*informer.ContainerInfo{{Id: "c1", Env: map[string]string{}}},
 			},
 		}
