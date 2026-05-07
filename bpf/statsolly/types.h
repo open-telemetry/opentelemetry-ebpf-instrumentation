@@ -8,3 +8,9 @@ enum {
     k_event_stat_tcp_rtt = 1,               // StatTypeTCPRtt
     k_event_stat_tcp_failed_connection = 2, // StatTypeTCPFailedConnection
 };
+
+enum tcp_handshake_role {
+    role_unknown = 0,
+    role_client = 1,
+    role_server = 2,
+};

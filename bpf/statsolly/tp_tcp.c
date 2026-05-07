@@ -42,12 +42,6 @@ enum tcp_fail_reason {
     reason_other = 255,
 };
 
-enum tcp_handshake_role {
-    role_unknown = 0,
-    role_client = 1,
-    role_server = 2,
-};
-
 static __always_inline u8 sk_err_to_reason(const int err) {
     switch (err) {
     case ECONNREFUSED:
@@ -78,6 +72,16 @@ typedef struct tcp_failed_connection {
 // Force tcp_failed_connection_t
 const tcp_failed_connection_t *unused_tcp_failed_connection __attribute__((unused));
 
+// obi_tp_inet_sock_set_state_conn_role is the sole owner of the sock_role map.
+// It writes the role (client/server) when a connection is established and
+// it also handles all cleanup: any transition to TCP_CLOSE removes the entry, 
+// covering both normal graceful closes and abnormal ones.
+//
+// Attachment order invariant: this program must be attached AFTER
+// obi_tp_inet_sock_set_state_tcp_failed_conn (or any future tp probes that need the role)
+// on the same tracepoint. BPF programs on a tracepoint run FIFO, so the probe(s) read sock_role first,
+// then this program deletes it. Reversing the order would cause tcp_failed_conn or any other probes
+// to see a stale NULL on the same TCP_CLOSE event.
 SEC("tracepoint/sock/inet_sock_set_state")
 int obi_tp_inet_sock_set_state_conn_role(struct trace_event_raw_inet_sock_set_state *args) {
     if (args->protocol != IPPROTO_TCP) {
@@ -93,9 +97,7 @@ int obi_tp_inet_sock_set_state_conn_role(struct trace_event_raw_inet_sock_set_st
         }
     }
 
-    // {TCP_LAST_ACK|TCP_TIME_WAIT}->TCP_CLOSE are normal close transitions
-    // TCP_LISTEN->TCP_CLOSE is what happens when a listener socket is shut down
-    if (args->newstate == TCP_CLOSE && (args->oldstate == TCP_LAST_ACK || args->oldstate == TCP_TIME_WAIT)) {
+    if (args->newstate == TCP_CLOSE) {
         bpf_map_delete_elem(&sock_role, &sk);
         return 0;
     }
