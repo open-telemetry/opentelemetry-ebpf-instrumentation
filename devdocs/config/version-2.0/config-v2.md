@@ -130,13 +130,15 @@ To ground this redesign in user needs, we start with the top user journeys and e
 At a high level, the target configuration shape is a standard [OpenTelemetry declarative configuration](https://github.com/open-telemetry/opentelemetry-configuration) document with a root `file_format` field and top-level sections for `resource`, `propagator`, `tracer_provider`, and `meter_provider`.
 All OBI-specific configuration lives under `extensions.obi`.
 
+The root `file_format` follows the declarative schema version (`major.minor`), not the upstream release tag. For the current stable declarative shape, the correct value is `file_format: "1.0"` rather than `1.0.0`, `1.0.0-rc.3`, or `1.0.0-rc.1`.
+
 The `extensions.obi` block is divided by deployment scope:
 
 - `capture`: valid in **all** deployment modes. Contains everything OBI needs to select workloads and capture telemetry. When running OBI as a Collector receiver, this block is embedded directly in the receiver configuration — no manual extraction required.
 - `enrich`, `correlation`, `daemon`: **standalone-mode only**. These sections are not valid in Collector receiver deployments. The Collector pipeline handles enrichment (via processors) and process lifecycle (logging, profiling, shutdown) in receiver mode.
 
 ```yaml
-file_format: '1.0-rc.1'
+file_format: '1.0'
 
 resource: {}
 propagator: {}

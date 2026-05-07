@@ -2,7 +2,8 @@
 # Values are mapped from current defaults in pkg/obi/DefaultConfig.
 
 # OTel declarative document version.
-file_format: '1.0-rc.1'
+# This tracks the declarative schema major.minor, not an upstream release tag.
+file_format: '1.0'
 
 # Standard OTel resource attributes (service.name, service.namespace, etc.).
 resource: {}
