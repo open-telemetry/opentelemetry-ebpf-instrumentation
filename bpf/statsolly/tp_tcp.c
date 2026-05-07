@@ -79,7 +79,7 @@ typedef struct tcp_failed_connection {
 const tcp_failed_connection_t *unused_tcp_failed_connection __attribute__((unused));
 
 SEC("tracepoint/sock/inet_sock_set_state")
-int obi_tracepoint_inet_sock_set_state(struct trace_event_raw_inet_sock_set_state *args) {
+int obi_tp_inet_sock_set_state_conn_role(struct trace_event_raw_inet_sock_set_state *args) {
     if (args->protocol != IPPROTO_TCP) {
         return 0;
     }
@@ -93,16 +93,31 @@ int obi_tracepoint_inet_sock_set_state(struct trace_event_raw_inet_sock_set_stat
         }
     }
 
+    // {TCP_LAST_ACK|TCP_TIME_WAIT}->TCP_CLOSE are normal close transitions
+    // TCP_LISTEN->TCP_CLOSE is what happens when a listener socket is shut down
+    if (args->newstate == TCP_CLOSE && (args->oldstate == TCP_LAST_ACK || args->oldstate == TCP_TIME_WAIT)) {
+        bpf_map_delete_elem(&sock_role, &sk);
+        return 0;
+    }
+
+    return 0;
+}
+
+SEC("tracepoint/sock/inet_sock_set_state")
+int obi_tp_inet_sock_set_state_tcp_failed_conn(struct trace_event_raw_inet_sock_set_state *args) {
+    if (args->protocol != IPPROTO_TCP) {
+        return 0;
+    }
+
+    struct sock *const sk = (struct sock *)args->skaddr;
+
     if (args->newstate != TCP_CLOSE) {
         return 0;
     }
 
     // {TCP_LAST_ACK|TCP_TIME_WAIT}->TCP_CLOSE are normal close transitions
     // TCP_LISTEN->TCP_CLOSE is what happens when a listener socket is shut down
-    if (args->oldstate == TCP_LAST_ACK || args->oldstate == TCP_TIME_WAIT) {
-        goto cleanup;
-    }
-    if (args->oldstate == TCP_LISTEN) {
+    if (args->oldstate == TCP_LAST_ACK || args->oldstate == TCP_TIME_WAIT || args->oldstate == TCP_LISTEN) {
         return 0;
     }
 
@@ -111,20 +126,20 @@ int obi_tracepoint_inet_sock_set_state(struct trace_event_raw_inet_sock_set_stat
     // with unread data sends RST without setting sk_err).
     // Exception: aborted connect (TCP_SYN_SENT -> TCP_CLOSE) never established, still a failure.
     if (err == 0 && args->oldstate != TCP_SYN_SENT) {
-        goto cleanup;
+        return 0;
     }
     const u8 reason = sk_err_to_reason(err);
 
     connection_info_t conn;
     if (!parse_sock_info(sk, &conn)) {
-        goto cleanup;
+        return 0;
     }
 
     bpf_d_printk("tcp failed: s_port=%d, d_port=%d, reason=%d", conn.s_port, conn.d_port, reason);
 
     tcp_failed_connection_t *const se = bpf_ringbuf_reserve(&stats_events, sizeof(*se), 0);
     if (!se) {
-        goto cleanup;
+        return 0;
     }
 
     se->flags = k_event_stat_tcp_failed_connection;
@@ -144,7 +159,5 @@ int obi_tracepoint_inet_sock_set_state(struct trace_event_raw_inet_sock_set_stat
 
     bpf_ringbuf_submit(se, stats_events_flags());
 
-cleanup:
-    bpf_map_delete_elem(&sock_role, &sk);
     return 0;
 }
