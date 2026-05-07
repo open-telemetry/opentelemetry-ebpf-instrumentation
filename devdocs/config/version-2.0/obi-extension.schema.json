@@ -913,51 +913,27 @@
         },
         "payload_extraction": {
           "type": "object",
-          "description": "HTTP payload extraction feature toggles.",
+          "description": "HTTP payload extraction controls.",
           "additionalProperties": false,
           "properties": {
-            "graphql": {
-              "type": "object",
-              "additionalProperties": false,
-              "properties": {
-                "enabled": {
-                  "type": "boolean",
-                  "default": false,
-                  "description": "Enable GraphQL payload extraction.\nIf omitted, false is used.\n"
-                }
-              }
-            },
-            "elasticsearch": {
-              "type": "object",
-              "additionalProperties": false,
-              "properties": {
-                "enabled": {
-                  "type": "boolean",
-                  "default": false,
-                  "description": "Enable Elasticsearch payload extraction.\nIf omitted, false is used.\n"
-                }
-              }
-            },
-            "aws": {
-              "type": "object",
-              "additionalProperties": false,
-              "properties": {
-                "enabled": {
-                  "type": "boolean",
-                  "default": false,
-                  "description": "Enable AWS payload extraction.\nIf omitted, false is used.\n"
-                }
-              }
+            "enabled": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "graphql",
+                  "elasticsearch",
+                  "aws",
+                  "sqlpp"
+                ]
+              },
+              "default": [],
+              "description": "Payload extractors enabled for HTTP-derived parsing.\nIf omitted, no payload extractors are enabled.\n"
             },
             "sqlpp": {
               "type": "object",
               "additionalProperties": false,
               "properties": {
-                "enabled": {
-                  "type": "boolean",
-                  "default": false,
-                  "description": "Enable SQL++ payload extraction.\nIf omitted, false is used.\n"
-                },
                 "endpoint_patterns": {
                   "type": "array",
                   "items": {

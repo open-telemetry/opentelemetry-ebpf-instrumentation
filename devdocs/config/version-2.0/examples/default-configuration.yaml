@@ -231,14 +231,10 @@ extensions:
                 delay: 1m0s
           # HTTP payload-level extraction features.
           payload_extraction:
-            graphql:
-              enabled: false
-            elasticsearch:
-              enabled: false
-            aws:
-              enabled: false
+            # List-based enablement, consistent with other instrumentation selectors.
+            # Supported values today: graphql, elasticsearch, aws, sqlpp.
+            enabled: []
             sqlpp:
-              enabled: false
               endpoint_patterns:
                 - /query/service
         # gRPC protocol instrumentation toggle.

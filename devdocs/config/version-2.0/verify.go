@@ -312,6 +312,34 @@ func mustMapNetworkFiltersPerSignal(cur map[string]any, ex map[string]any) error
 	return nil
 }
 
+func mustMapPayloadExtractionMembership(cur map[string]any, ex map[string]any, extractor string) error {
+	currentValue, ok := get(cur, "ebpf", "payload_extraction", "http", extractor, "enabled")
+	if !ok {
+		return fmt.Errorf("missing current key [ebpf payload_extraction http %s enabled]", extractor)
+	}
+
+	enabledValue, ok := get(ex, "obi", "capture", "instrumentation", "http", "payload_extraction", "enabled")
+	if !ok {
+		return errors.New("missing example key [obi capture instrumentation http payload_extraction enabled]")
+	}
+	enabledValues := toStringSlice(enabledValue)
+
+	wantEnabled := fmt.Sprintf("%v", currentValue) == "true"
+	found := false
+	for _, item := range enabledValues {
+		if item == extractor {
+			found = true
+			break
+		}
+	}
+
+	if found != wantEnabled {
+		return fmt.Errorf("payload extraction mismatch for %s: current=%v example list=%v", extractor, wantEnabled, enabledValues)
+	}
+
+	return nil
+}
+
 //go:embed .verify/default-config-current.yaml
 var defaultConf []byte
 
@@ -340,8 +368,6 @@ func main() {
 		{[]string{"ebpf", "max_transaction_time"}, []string{"obi", "capture", "engine", "transactions", "max_duration"}},
 		{[]string{"discovery", "bpf_pid_filter_off"}, []string{"obi", "capture", "engine", "pid_filter", "disabled"}},
 		{[]string{"ebpf", "dns_request_timeout"}, []string{"obi", "capture", "instrumentation", "dns", "request_timeout"}},
-		{[]string{"ebpf", "payload_extraction", "http", "graphql", "enabled"}, []string{"obi", "capture", "instrumentation", "http", "payload_extraction", "graphql", "enabled"}},
-		{[]string{"ebpf", "payload_extraction", "http", "sqlpp", "enabled"}, []string{"obi", "capture", "instrumentation", "http", "payload_extraction", "sqlpp", "enabled"}},
 		{[]string{"ebpf", "log_enricher", "cache_ttl"}, []string{"obi", "correlation", "log_trace_annotation", "cache", "ttl"}},
 		{[]string{"ebpf", "log_enricher", "cache_size"}, []string{"obi", "correlation", "log_trace_annotation", "cache", "size"}},
 		{[]string{"ebpf", "log_enricher", "async_writer_workers"}, []string{"obi", "correlation", "log_trace_annotation", "async_writer", "workers"}},
@@ -387,6 +413,7 @@ func main() {
 		{[]string{"routes", "unmatched"}, []string{"obi", "capture", "instrumentation", "http", "routes", "unmatched"}},
 		{[]string{"routes", "wildcard_char"}, []string{"obi", "capture", "instrumentation", "http", "routes", "wildcard_char"}},
 		{[]string{"routes", "max_path_segment_cardinality"}, []string{"obi", "capture", "instrumentation", "http", "routes", "max_path_segment_cardinality"}},
+		{[]string{"ebpf", "payload_extraction", "http", "sqlpp", "endpoint_patterns"}, []string{"obi", "capture", "instrumentation", "http", "payload_extraction", "sqlpp", "endpoint_patterns"}},
 
 		{[]string{"otel_metrics_export", "histogram_aggregation"}, []string{"meter_provider", "readers", "0", "periodic", "exporter", "otlp_grpc", "default_histogram_aggregation"}},
 		{[]string{"otel_metrics_export", "reporters_cache_len"}, []string{"obi", "capture", "telemetry", "metrics", "reporters_cache_len"}},
@@ -475,5 +502,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	fmt.Printf("feature parity verification passed: %d mapped default checks\n", len(checks)+6)
+	for _, extractor := range []string{"graphql", "elasticsearch", "aws", "sqlpp"} {
+		if err := mustMapPayloadExtractionMembership(cur, ex, extractor); err != nil {
+			fmt.Println("FAIL:", err)
+			fmt.Printf("verification failed: %d mismatches\n", failures+1)
+			os.Exit(1)
+		}
+	}
+
+	fmt.Printf("feature parity verification passed: %d mapped default checks\n", len(checks)+10)
 }

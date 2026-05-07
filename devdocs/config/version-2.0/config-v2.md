@@ -409,6 +409,13 @@ All protocols (HTTP, gRPC, SQL, Redis, Kafka, MongoDB, Couchbase, DNS, GPU) have
 Each protocol can also have its own specific configuration subsections.
 For example, SQL has `mysql` and `postgres` for driver-specific controls, HTTP has `routes.discovery` for route harvesting controls, etc.
 
+HTTP `payload_extraction` uses the same list-based enablement model as other instrumentation selectors:
+
+- `payload_extraction.enabled` is the only enablement surface.
+- Concrete values currently supported are `graphql`, `elasticsearch`, `aws`, and `sqlpp`.
+- Nested extractor blocks are for tuning, not duplicate enablement. For example, `payload_extraction.sqlpp.endpoint_patterns` refines SQL++ matching after `sqlpp` is enabled in the list.
+- If future aliases or families are needed, they should be added as values in the same `enabled` list rather than introducing parallel knobs.
+
 ### `capture.runtimes` Section
 
 The `capture.runtimes` section defines how language-specific runtime instrumentation injection mechanisms are controlled.
@@ -556,8 +563,11 @@ Important mapping notes:
 | `ebpf.log_enricher.async_writer_channel_len` | `extensions.obi.correlation.log_trace_annotation.async_writer.channel_len` | Move + rename |
 | `ebpf.max_transaction_time` | `extensions.obi.capture.engine.transactions.max_duration` | Move + rename |
 | `ebpf.mysql_prepared_statements_cache_size` | `extensions.obi.capture.instrumentation.sql.mysql.prepared_statements_cache_size` | Move |
-| `ebpf.payload_extraction.http.graphql.enabled` | `extensions.obi.capture.instrumentation.http.payload_extraction.graphql.enabled` | Move |
-| `ebpf.payload_extraction.http.sqlpp.enabled` | `extensions.obi.capture.instrumentation.http.payload_extraction.sqlpp.enabled` | Move |
+| `ebpf.payload_extraction.http.graphql.enabled` | `extensions.obi.capture.instrumentation.http.payload_extraction.enabled[]` contains `graphql` | Move + normalize |
+| `ebpf.payload_extraction.http.elasticsearch.enabled` | `extensions.obi.capture.instrumentation.http.payload_extraction.enabled[]` contains `elasticsearch` | Move + normalize |
+| `ebpf.payload_extraction.http.aws.enabled` | `extensions.obi.capture.instrumentation.http.payload_extraction.enabled[]` contains `aws` | Move + normalize |
+| `ebpf.payload_extraction.http.sqlpp.enabled` | `extensions.obi.capture.instrumentation.http.payload_extraction.enabled[]` contains `sqlpp` | Move + normalize |
+| `ebpf.payload_extraction.http.sqlpp.endpoint_patterns` | `extensions.obi.capture.instrumentation.http.payload_extraction.sqlpp.endpoint_patterns` | Move |
 | `ebpf.postgres_prepared_statements_cache_size` | `extensions.obi.capture.instrumentation.sql.postgres.prepared_statements_cache_size` | Move |
 | `ebpf.redis_db_cache.enabled` | `extensions.obi.capture.instrumentation.redis.db_cache.enabled` | Move |
 | `ebpf.traffic_control_backend` | `extensions.obi.capture.engine.traffic.control_backend` | Move + rename |
