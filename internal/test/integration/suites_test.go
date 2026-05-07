@@ -903,6 +903,22 @@ func TestSuite_LogEnricherPythonAsync(t *testing.T) {
 	require.NoError(t, compose.Close())
 }
 
+func TestSuite_LogEnricherMultiSegWritev(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-log-enricher.yml", path.Join(pathOutput, "test-suite-log-enricher-multiseg-writev.log"))
+	require.NoError(t, err)
+
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8388`, `OTEL_EBPF_EXECUTABLE_PATH=`)
+	require.NoError(t, compose.Up())
+
+	t.Run("Log Enricher multi-seg writev", func(t *testing.T) {
+		testLogEnricherMultiSegWritev(t)
+	})
+	t.Run("Log Enricher shipper filters", func(t *testing.T) {
+		testLogEnricherShipperFilters(t)
+	})
+	require.NoError(t, compose.Close())
+}
+
 // The idea behind this test suite is to make sure that when an HTTP request is bigger than 1KB,
 // the traceparent is detected and parsed correctly during an ingress flow (protocol_http kprob)
 // and an egress flow (tpinjector sk_msg kprobe).

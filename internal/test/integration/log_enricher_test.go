@@ -9,6 +9,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"path"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -94,6 +97,13 @@ var (
 		containerImage: "hatest-testserver-logenricher-pythonasync",
 		message:        "this is a json log from python async",
 	}
+	logEnricherMultiSegWritevConstants = testServerConstants{
+		url:            "http://localhost:8388",
+		smokeEndpoint:  "/smoke",
+		logEndpoint:    "/json_logger",
+		containerImage: "hatest-testserver-logenricher-multiseg-writev",
+		message:        "this is a json log via multi-seg writev",
+	}
 )
 
 const logEnricherGoWritevRegressionLeakMarker = "writev-leak-marker-should-never-appear"
@@ -165,7 +175,7 @@ func testContainerID(t assert.TestingT, cl *client.Client, image string) string 
 func testLogEnricherNodeJS(t *testing.T) {
 	waitForTestComponentsNoMetrics(t, logEnricherNodeJSConstants.url+logEnricherNodeJSConstants.smokeEndpoint)
 
-	cl, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	cl, err := client.New(client.FromEnv)
 	require.NoError(t, err)
 	defer cl.Close()
 
@@ -260,7 +270,7 @@ func testLogEnricherNodeJS(t *testing.T) {
 func testLogEnricherJava(t *testing.T) {
 	waitForTestComponentsNoMetrics(t, logEnricherJavaConstants.url+logEnricherJavaConstants.smokeEndpoint)
 
-	cl, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	cl, err := client.New(client.FromEnv)
 	require.NoError(t, err)
 	defer cl.Close()
 
@@ -333,7 +343,7 @@ func testLogEnricherJava(t *testing.T) {
 func testLogEnricherRuby(t *testing.T, constants testServerConstants) {
 	waitForTestComponentsNoMetrics(t, constants.url+constants.smokeEndpoint)
 
-	cl, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	cl, err := client.New(client.FromEnv)
 	require.NoError(t, err)
 	defer cl.Close()
 
@@ -440,7 +450,7 @@ var pythonAsyncLogEnricherVariants = []struct {
 func testLogEnricherPythonAsync(t *testing.T) {
 	waitForTestComponentsNoMetrics(t, logEnricherPythonAsyncConstants.url+logEnricherPythonAsyncConstants.smokeEndpoint)
 
-	cl, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	cl, err := client.New(client.FromEnv)
 	require.NoError(t, err)
 	defer cl.Close()
 
@@ -522,7 +532,7 @@ func testLogEnricherPythonAsyncEndpoint(t *testing.T, cl *client.Client, logEndp
 func testLogEnricherDotNet(t *testing.T) {
 	waitForTestComponentsNoMetrics(t, logEnricherDotNetConstants.url+logEnricherDotNetConstants.smokeEndpoint)
 
-	cl, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	cl, err := client.New(client.FromEnv)
 	require.NoError(t, err)
 	defer cl.Close()
 
@@ -586,10 +596,202 @@ func testLogEnricherDotNet(t *testing.T) {
 	}, testTimeout, 500*time.Millisecond)
 }
 
+// testLogEnricherMultiSegWritev exercises the multi-segment ITER_IOVEC path.
+// The C testserver emits JSON log lines via writev(2) split across 3 iovec
+// segments. The BPF logenricher must concatenate all segments to capture the
+// full line; userspace then enriches with trace_id/span_id.
+func testLogEnricherMultiSegWritev(t *testing.T) {
+	waitForTestComponentsNoMetrics(t, logEnricherMultiSegWritevConstants.url+logEnricherMultiSegWritevConstants.smokeEndpoint)
+
+	cl, err := client.New(client.FromEnv)
+	require.NoError(t, err)
+	defer cl.Close()
+
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		errCh := make(chan error, len(logEnricherTestTraceparents))
+		var wg sync.WaitGroup
+		for _, tp := range logEnricherTestTraceparents {
+			wg.Add(1)
+			go func(tp struct{ traceID, parentID string }) {
+				defer wg.Done()
+				req, err := http.NewRequest(http.MethodGet,
+					logEnricherMultiSegWritevConstants.url+logEnricherMultiSegWritevConstants.logEndpoint, nil)
+				if err != nil {
+					errCh <- err
+					return
+				}
+				req.Header.Set("traceparent", fmt.Sprintf("00-%s-%s-01", tp.traceID, tp.parentID))
+				resp, err := http.DefaultClient.Do(req)
+				if err != nil {
+					errCh <- err
+					return
+				}
+				resp.Body.Close()
+			}(tp)
+		}
+		wg.Wait()
+		close(errCh)
+		for err := range errCh {
+			assert.NoError(ct, err, "HTTP request failed")
+		}
+
+		containerID := testContainerID(ct, cl, logEnricherMultiSegWritevConstants.containerImage)
+		if !assert.NotEmpty(ct, containerID, "could not find test container ID") {
+			return
+		}
+		logs := containerLogs(ct, cl, containerID)
+		if !assert.NotEmpty(ct, logs) {
+			return
+		}
+
+		lastSpanID := make(map[string]string, len(logEnricherTestTraceparents))
+		for _, line := range logs {
+			var fields map[string]string
+			if json.Unmarshal([]byte(line), &fields) != nil {
+				continue
+			}
+			if fields["message"] != logEnricherMultiSegWritevConstants.message {
+				continue
+			}
+			if tid, ok := fields["trace_id"]; ok {
+				lastSpanID[tid] = fields["span_id"]
+			}
+		}
+
+		for _, tp := range logEnricherTestTraceparents {
+			spanID, found := lastSpanID[tp.traceID]
+			assert.True(ct, found, "no enriched log line found for trace_id %s", tp.traceID)
+			if found {
+				assert.NotEmpty(ct, spanID, "span_id missing for trace_id %s", tp.traceID)
+			}
+		}
+	}, testTimeout, 500*time.Millisecond)
+}
+
+// testLogEnricherShipperFilters validates the otelcol and fluent-bit filter
+// configs documented in devdocs/trace-log-correlation.md actually drop the
+// NUL-stuffed empty lines that the BPF logenricher leaves on stdout, while
+// passing through the OBI-enriched JSON lines unchanged.
+func testLogEnricherShipperFilters(t *testing.T) {
+	type shipper struct {
+		name     string
+		filePath string
+	}
+	shippers := []shipper{
+		{name: "otelcol", filePath: path.Join(pathOutput, "multiseg-shipper-output", "otelcol-filtered.json")},
+		{name: "fluent-bit", filePath: path.Join(pathOutput, "multiseg-shipper-output", "fluentbit-filtered.json")},
+	}
+
+	for _, sh := range shippers {
+		t.Run(sh.name, func(t *testing.T) {
+			require.EventuallyWithT(t, func(ct *assert.CollectT) {
+				data, err := os.ReadFile(sh.filePath)
+				if !assert.NoError(ct, err) {
+					return
+				}
+				if !assert.NotEmpty(ct, data, "shipper produced no filtered output yet") {
+					return
+				}
+
+				// No NUL-only lines (the suppression pattern) should survive
+				// the documented filter
+				nulLine := regexp.MustCompile(`^[\x00\s]*$`)
+				scanner := bufio.NewScanner(strings.NewReader(string(data)))
+				scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
+				for scanner.Scan() {
+					line := scanner.Text()
+					if line == "" {
+						continue
+					}
+					assert.False(ct, nulLine.MatchString(line),
+						"%s output still contains a NUL/whitespace-only line — filter is incorrect", sh.name)
+				}
+				assert.NoError(ct, scanner.Err(), "%s output scan failed", sh.name)
+
+				// Every test traceparent should appear at least once as an
+				// OBI-injected `"trace_id":"<id>"` field. Both fluent-bit
+				// (docker JSON) and otelcol (OTLP attributes[log]) emit the
+				// log content as a JSON-encoded string, so the literal
+				// substring on disk is `\"trace_id\":\"<id>\"`. This guards
+				// against the app's own `traceparent_seen` field satisfying
+				// a plain hex-only `Contains(data, hex)` check
+				for _, tp := range logEnricherTestTraceparents {
+					needle := fmt.Sprintf(`\"trace_id\":\"%s\"`, tp.traceID)
+					assert.Contains(ct, string(data), needle,
+						"%s output missing enriched line for trace_id %s", sh.name, tp.traceID)
+				}
+			}, testTimeout, 1*time.Second)
+
+			// Dump the multiseg testserver's `log` field one-per-line, quoted
+			// so embedded newlines, NUL bytes and empty entries are visible.
+			// fluent-bit emits docker JSON ({"log":"..","stream":..,..}) and
+			// otelcol's file exporter emits OTLP JSON whose body.stringValue
+			// holds the same docker JSON envelope — parse both shapes.
+			// Filter by content to avoid drowning the test log in OBI/Java/
+			// Docker chatter from sibling containers
+			data, err := os.ReadFile(sh.filePath)
+			require.NoError(t, err)
+			t.Logf("=== %s app logs from multiseg_writev (%d bytes raw) ===", sh.name, len(data))
+			dump := bufio.NewScanner(strings.NewReader(string(data)))
+			dump.Buffer(make([]byte, 1024*1024), 1024*1024)
+			lineNo := 0
+			for dump.Scan() {
+				logField := extractShipperLog(dump.Bytes())
+				// match only the multiseg testserver's actual stdout/stderr
+				// output (not OBI BPFLogger lines that happen to contain
+				// `comm=multiseg_writev`)
+				if !strings.Contains(logField, logEnricherMultiSegWritevConstants.message) &&
+					!strings.HasPrefix(logField, "multiseg_writev listening") {
+					continue
+				}
+				lineNo++
+				t.Logf("[%4d] %q", lineNo, logField)
+			}
+			require.NoError(t, dump.Err(), "%s output dump scan failed", sh.name)
+		})
+	}
+}
+
+// extractShipperLog returns the `log` field from a single shipper output
+// record. Handles fluent-bit's docker-shape lines and otelcol's OTLP
+// stringValue wrapper. Returns the raw line as a fallback
+func extractShipperLog(line []byte) string {
+	var docker struct {
+		Log string `json:"log"`
+	}
+	if err := json.Unmarshal(line, &docker); err == nil && docker.Log != "" {
+		return docker.Log
+	}
+	var otlp struct {
+		ResourceLogs []struct {
+			ScopeLogs []struct {
+				LogRecords []struct {
+					Body struct {
+						StringValue string `json:"stringValue"`
+					} `json:"body"`
+				} `json:"logRecords"`
+			} `json:"scopeLogs"`
+		} `json:"resourceLogs"`
+	}
+	if err := json.Unmarshal(line, &otlp); err == nil &&
+		len(otlp.ResourceLogs) > 0 &&
+		len(otlp.ResourceLogs[0].ScopeLogs) > 0 &&
+		len(otlp.ResourceLogs[0].ScopeLogs[0].LogRecords) > 0 {
+		body := otlp.ResourceLogs[0].ScopeLogs[0].LogRecords[0].Body.StringValue
+		// otelcol's body holds the docker JSON envelope as a string —
+		// unwrap one more level to surface the actual log line
+		if err := json.Unmarshal([]byte(body), &docker); err == nil && docker.Log != "" {
+			return docker.Log
+		}
+		return body
+	}
+	return string(line)
+}
+
 func testLogEnricher(t *testing.T, constants testServerConstants) {
 	waitForTestComponentsNoMetrics(t, constants.url+constants.smokeEndpoint)
 
-	cl, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	cl, err := client.New(client.FromEnv)
 	require.NoError(t, err)
 	defer cl.Close()
 

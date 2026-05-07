@@ -78,6 +78,45 @@ services:
       UVICORN_LOOP: "uvloop"
       BACKEND_URL: "http://testserverhttp:8380"
 
+  testservermultisegwritev:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/logenricher_writev/Dockerfile
+    image: hatest-testserver-logenricher-multiseg-writev
+    networks:
+      - shared
+    ports:
+      - "8388:8388"
+    environment:
+      PORT: "8388"
+
+  multisegwritev_otelcol:
+    image: otel/opentelemetry-collector-contrib:0.151.0@sha256:d57bfe8eee2378f31cb1193239fbcac521d54a5a071fca2bfc106916a32b892d
+    user: "0:0"
+    volumes:
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - ./configs/otelcol-multiseg-filter.yaml:/etc/otelcol-contrib/config.yaml:ro
+      - ../../../testoutput/multiseg-shipper-output:/output
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    networks:
+      - shared
+    depends_on:
+      testservermultisegwritev:
+        condition: service_started
+
+  multisegwritev_fluentbit:
+    image: fluent/fluent-bit:3.1.10@sha256:e72c08d2ec8d93999dfb74b17bd0ec8bcb07fedde0d53308f59e7aa0b5f293e1
+    user: "0:0"
+    volumes:
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - ./configs/fluentbit-multiseg-filter.conf:/fluent-bit/etc/fluent-bit.conf:ro
+      - ../../../testoutput/multiseg-shipper-output:/output
+    networks:
+      - shared
+    depends_on:
+      testservermultisegwritev:
+        condition: service_started
+
   obi:
     build:
       context: ../../..
@@ -126,6 +165,8 @@ services:
       testserverdotnet:
         condition: service_started
       testserverpythonasync:
+        condition: service_started
+      testservermultisegwritev:
         condition: service_started
 
 networks:
