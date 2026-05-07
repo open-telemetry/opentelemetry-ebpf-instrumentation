@@ -157,7 +157,7 @@ func setupContainerJaeger(t *testing.T, net dockertest.Network) {
 }
 
 // setupContainerCollector starts an OpenTelemetry Collector container.
-func setupContainerCollector(t *testing.T, net dockertest.Network, configFile string) { //nolint:unparam // configFile is always passed in current usages but may vary in future
+func setupContainerCollector(t *testing.T, net dockertest.Network, configFile string) {
 	t.Helper()
 
 	t.Log("Starting OpenTelemetry Collector container...")
