@@ -80,6 +80,10 @@ const (
 	SchemeHostSeparator = ";"
 )
 
+const (
+	DBErrorMessagePlaceholder = "enable the db.response.error attribute for details"
+)
+
 type SQLKind uint8
 
 const (
@@ -1159,21 +1163,30 @@ func SpanStatusCode(span *Span) string {
 	return StatusCodeUnset
 }
 
-func SpanStatusMessage(span *Span) string {
+func SpanStatusMessage(span *Span, attrs map[attr.Name]struct{}) string {
 	switch span.Type {
 	case EventTypeRedisClient, EventTypeRedisServer, EventTypeMongoClient, EventTypeCouchbaseClient, EventTypeMemcachedClient, EventTypeMemcachedServer:
 		if span.Status != 0 && span.DBError.Description != "" {
-			return span.DBError.Description
+			if dbResponseErrorAllowed(attrs) {
+				return span.DBError.Description
+			}
+			return DBErrorMessagePlaceholder
 		}
 	case EventTypeSQLClient, EventTypeSQLServer:
 		if span.Status != 0 && span.SQLError != nil {
-			return span.SQLErrorDescription()
+			if dbResponseErrorAllowed(attrs) {
+				return span.SQLErrorDescription()
+			}
+			return DBErrorMessagePlaceholder
 		}
 	case EventTypeManualSpan:
 		return span.Path
 	case EventTypeHTTPClient:
 		if span.SubType == HTTPSubtypeSQLPP && span.Status != 0 && span.DBError.Description != "" {
-			return span.DBError.Description
+			if dbResponseErrorAllowed(attrs) {
+				return span.DBError.Description
+			}
+			return DBErrorMessagePlaceholder
 		}
 		if span.SubType == HTTPSubtypeJSONRPC && span.JSONRPC != nil && span.JSONRPC.ErrorMessage != "" {
 			return span.JSONRPC.ErrorMessage
@@ -1190,6 +1203,11 @@ func SpanStatusMessage(span *Span) string {
 		}
 	}
 	return ""
+}
+
+func dbResponseErrorAllowed(attrs map[attr.Name]struct{}) bool {
+	_, allowed := attrs[attr.DBResponseError]
+	return allowed
 }
 
 // HTTPSpanStatusCode https://opentelemetry.io/docs/specs/otel/trace/semantic_conventions/http/#status

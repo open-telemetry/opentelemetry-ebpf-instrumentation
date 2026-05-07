@@ -115,6 +115,7 @@ func GenerateTracesWithAttributes(
 	envResourceAttrs []attribute.KeyValue,
 	nodeMeta *meta.NodeMeta,
 	spans []TraceSpanAndAttributes,
+	traceAttrs map[attr.Name]struct{},
 	reporterName string,
 	extraResAttrs ...attribute.KeyValue,
 ) ptrace.Traces {
@@ -170,7 +171,7 @@ func GenerateTracesWithAttributes(
 		// Set status code
 		statusCode := CodeToStatusCode(request.SpanStatusCode(span))
 		s.Status().SetCode(statusCode)
-		statusMessage := request.SpanStatusMessage(span)
+		statusMessage := request.SpanStatusMessage(span, traceAttrs)
 		if statusMessage != "" {
 			s.Status().SetMessage(statusMessage)
 		}
@@ -452,6 +453,7 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 			if span.DBError.ErrorCode != "" {
 				attrs = append(attrs, request.ErrorType(span.DBError.ErrorCode))
 				attrs = append(attrs, request.DBResponseStatusCode(span.DBError.ErrorCode))
+				attrs = append(attrs, dbResponseErrorAttr(optionalAttrs, span.DBError.Description)...)
 			}
 			break
 		}
@@ -821,6 +823,7 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 		if span.Status == 1 && span.SQLError != nil {
 			attrs = append(attrs, request.DBResponseStatusCode(strconv.Itoa(int(span.SQLError.Code))))
 			attrs = append(attrs, request.ErrorType(span.SQLError.SQLState))
+			attrs = append(attrs, dbResponseErrorAttr(optionalAttrs, span.SQLErrorDescription())...)
 		}
 	case request.EventTypeRedisServer, request.EventTypeRedisClient:
 		attrs = []attribute.KeyValue{
@@ -843,6 +846,7 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 		}
 		if span.Status == 1 {
 			attrs = append(attrs, request.DBResponseStatusCode(span.DBError.ErrorCode))
+			attrs = append(attrs, dbResponseErrorAttr(optionalAttrs, span.DBError.Description)...)
 		}
 		if span.DBNamespace != "" {
 			attrs = append(attrs, request.DBNamespace(span.DBNamespace))
@@ -923,6 +927,7 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 		}
 		if span.Status == 1 {
 			attrs = append(attrs, request.DBResponseStatusCode(span.DBError.ErrorCode))
+			attrs = append(attrs, dbResponseErrorAttr(optionalAttrs, span.DBError.Description)...)
 		}
 		if span.DBNamespace != "" {
 			attrs = append(attrs, request.DBNamespace(span.DBNamespace))
@@ -948,6 +953,7 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 		}
 		if span.Status != 0 {
 			attrs = append(attrs, request.DBResponseStatusCode(span.DBError.ErrorCode))
+			attrs = append(attrs, dbResponseErrorAttr(optionalAttrs, span.DBError.Description)...)
 		}
 		if span.DBNamespace != "" {
 			attrs = append(attrs, request.DBNamespace(span.DBNamespace))
@@ -971,6 +977,7 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 		}
 		if span.Status != 0 {
 			attrs = append(attrs, request.DBResponseStatusCode(span.DBError.ErrorCode))
+			attrs = append(attrs, dbResponseErrorAttr(optionalAttrs, span.DBError.Description)...)
 		}
 	case request.EventTypeManualSpan:
 		attrs = manualSpanAttributes(span)
@@ -999,6 +1006,16 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 	}
 
 	return attrs
+}
+
+func dbResponseErrorAttr(optionalAttrs map[attr.Name]struct{}, description string) []attribute.KeyValue {
+	if description == "" {
+		return nil
+	}
+	if _, ok := optionalAttrs[attr.DBResponseError]; !ok {
+		return nil
+	}
+	return []attribute.KeyValue{request.DBResponseError(description)}
 }
 
 func spanKind(span *request.Span) trace2.SpanKind {

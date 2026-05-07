@@ -14,6 +14,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
+	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 )
 
 func TestSpanClientServer(t *testing.T) {
@@ -311,7 +312,66 @@ func TestSpanStatusMessage_JSONRPC(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.expectedMessage, SpanStatusMessage(tt.span))
+			assert.Equal(t, tt.expectedMessage, SpanStatusMessage(tt.span, nil))
+		})
+	}
+}
+
+func TestSpanStatusMessage_DBResponseErrorOptional(t *testing.T) {
+	traceAttrs := map[attr.Name]struct{}{attr.DBResponseError: {}}
+
+	tests := []struct {
+		name            string
+		span            *Span
+		expectedDefault string
+		expectedAllowed string
+	}{
+		{
+			name: "redis error",
+			span: &Span{
+				Type:    EventTypeRedisClient,
+				Status:  1,
+				DBError: DBError{ErrorCode: "WRONGTYPE", Description: "WRONGTYPE Operation against a key holding the wrong kind of value"},
+			},
+			expectedDefault: DBErrorMessagePlaceholder,
+			expectedAllowed: "WRONGTYPE Operation against a key holding the wrong kind of value",
+		},
+		{
+			name: "sql error",
+			span: &Span{
+				Type:     EventTypeSQLClient,
+				Status:   1,
+				SQLError: &SQLError{Code: 8, SQLState: "ABC", Message: "SQL error message"},
+			},
+			expectedDefault: DBErrorMessagePlaceholder,
+			expectedAllowed: "SQL Server errored: error_code=8 sql_state=ABC message=SQL error message",
+		},
+		{
+			name: "sqlpp error",
+			span: &Span{
+				Type:    EventTypeHTTPClient,
+				SubType: HTTPSubtypeSQLPP,
+				Status:  1,
+				DBError: DBError{ErrorCode: "12003", Description: "Keyspace not found in CB datastore"},
+			},
+			expectedDefault: DBErrorMessagePlaceholder,
+			expectedAllowed: "Keyspace not found in CB datastore",
+		},
+		{
+			name: "redis success",
+			span: &Span{
+				Type:   EventTypeRedisClient,
+				Status: 0,
+			},
+			expectedDefault: "",
+			expectedAllowed: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expectedDefault, SpanStatusMessage(tt.span, nil))
+			assert.Equal(t, tt.expectedAllowed, SpanStatusMessage(tt.span, traceAttrs))
 		})
 	}
 }
@@ -411,7 +471,7 @@ func TestSpanStatusMessage_MCP(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.expectedMessage, SpanStatusMessage(tt.span))
+			assert.Equal(t, tt.expectedMessage, SpanStatusMessage(tt.span, nil))
 		})
 	}
 }
