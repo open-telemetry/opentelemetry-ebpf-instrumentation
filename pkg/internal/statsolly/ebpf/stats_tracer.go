@@ -79,15 +79,32 @@ func NewStatsFetcher(cfg *config.EBPFTracer, features *export.Features, selector
 		return nil, fmt.Errorf("loading BPF data: %w", err)
 	}
 
+	// UndefinedGroup is intentional: we only need to check NetworkTCPHandshakeRole,
+	// which is a direct metric attribute.
 	attrSel, err := attributes.NewAttrSelector(attributes.UndefinedGroup, selectorCfg)
 	if err != nil {
 		return nil, fmt.Errorf("creating attr selector: %w", err)
 	}
 
-	connRoleEnabled := slices.Contains(attrSel.For(attributes.StatTCPRtt), attr.NetworkTCPHandshakeRole) ||
+	// OR across both metrics: a single shared probe writes sock_role for both consumers,
+	// so the probe is needed if either metric has the attribute enabled.
+	connRoleAttrSelected := slices.Contains(attrSel.For(attributes.StatTCPRtt), attr.NetworkTCPHandshakeRole) ||
 		slices.Contains(attrSel.For(attributes.StatTCPFailedConnections), attr.NetworkTCPHandshakeRole)
+	connRoleUsed := (features.StatsTCPFailedConnections() || features.StatsTCPRtt()) && connRoleAttrSelected
 
-	fixupSpec(spec, features, connRoleEnabled)
+	var toDisable []string
+	if !features.StatsTCPFailedConnections() {
+		toDisable = append(toDisable, progObiTpInetSockSetStateTCPFailedConn)
+	}
+	if !connRoleUsed {
+		toDisable = append(toDisable, progObiTpInetSockSetStateConnRole)
+	}
+	if !features.StatsTCPRtt() {
+		toDisable = append(toDisable, progObiKprobeTCPCloseSrtt)
+	}
+	if err := fixupSpec(spec, toDisable); err != nil {
+		return nil, fmt.Errorf("fixing up BPF spec: %w", err)
+	}
 
 	ebpfconvenience.SetupMapSizes(spec, cfg.MapsConfig.GlobalScaleFactor)
 
@@ -137,7 +154,7 @@ func NewStatsFetcher(cfg *config.EBPFTracer, features *export.Features, selector
 		{
 			name:    TracepointInetSockSetState,
 			program: objects.ObiTpInetSockSetStateConnRole,
-			enabled: (features.StatsTCPFailedConnections() || features.StatsTCPRtt()) && connRoleEnabled,
+			enabled: connRoleUsed,
 		},
 	} {
 		if !t.enabled {
@@ -193,38 +210,28 @@ func (m *StatsFetcher) DebugEventsMap() *ebpf.Map {
 
 // fixupSpec replaces disabled programs with no-op stubs before loading,
 // preventing unused eBPF code from being loaded into the kernel.
-func fixupSpec(spec *ebpf.CollectionSpec, features *export.Features, connRoleEnabled bool) {
-	if !features.StatsTCPFailedConnections() {
-		spec.Programs[progObiTpInetSockSetStateTCPFailedConn] = &ebpf.ProgramSpec{
-			Name: "stats_dummy_tp",
-			Type: ebpf.TracePoint,
-			Instructions: asm.Instructions{
-				asm.Mov.Imm(asm.R0, 0),
-				asm.Return(),
-			},
-			License: "Dual MIT/GPL",
+func fixupSpec(spec *ebpf.CollectionSpec, toDisable []string) error {
+	for _, name := range toDisable {
+		prog := spec.Programs[name]
+		if prog == nil {
+			return fmt.Errorf("unknown program name %s", name)
+		}
+		progType := prog.Type
+		var stubName string
+		switch progType {
+		case ebpf.TracePoint:
+			stubName = "stats_dummy_tp"
+		case ebpf.Kprobe:
+			stubName = "stats_dummy_kp"
+		default:
+			return fmt.Errorf("unsupported program type %v for %s", progType, name)
+		}
+		spec.Programs[name] = &ebpf.ProgramSpec{
+			Name:         stubName,
+			Type:         progType,
+			Instructions: asm.Instructions{asm.Mov.Imm(asm.R0, 0), asm.Return()},
+			License:      "Dual MIT/GPL",
 		}
 	}
-	if !(features.StatsTCPFailedConnections() || features.StatsTCPRtt()) || !connRoleEnabled {
-		spec.Programs[progObiTpInetSockSetStateConnRole] = &ebpf.ProgramSpec{
-			Name: "stats_dummy_tp",
-			Type: ebpf.TracePoint,
-			Instructions: asm.Instructions{
-				asm.Mov.Imm(asm.R0, 0),
-				asm.Return(),
-			},
-			License: "Dual MIT/GPL",
-		}
-	}
-	if !features.StatsTCPRtt() {
-		spec.Programs[progObiKprobeTCPCloseSrtt] = &ebpf.ProgramSpec{
-			Name: "stats_dummy_kp",
-			Type: ebpf.Kprobe,
-			Instructions: asm.Instructions{
-				asm.Mov.Imm(asm.R0, 0),
-				asm.Return(),
-			},
-			License: "Dual MIT/GPL",
-		}
-	}
+	return nil
 }
