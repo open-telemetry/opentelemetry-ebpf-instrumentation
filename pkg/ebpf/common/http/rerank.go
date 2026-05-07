@@ -16,17 +16,19 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 )
 
-// rerankProviders maps hostname substrings to GenAI provider names.
+// rerankProviders maps hostname suffixes to GenAI provider names.
+// Provider names are aligned with existing canonical names used elsewhere
+// in the codebase (e.g. embedding uses "voyage" for Voyage AI).
 var rerankProviders = []struct {
-	host     string
-	provider string
+	hostSuffix string
+	provider   string
 }{
 	{"cohere.com", "cohere"},
 	{"cohere.ai", "cohere"},
 	{"jina.ai", "jina"},
-	{"voyageai.com", "voyageai"},
-	{"dashscope.aliyuncs.com", "dashscope"},
-	{"dashscope.aliyun.com", "dashscope"},
+	{"voyageai.com", "voyage"},
+	{"dashscope.aliyuncs.com", "qwen"},
+	{"dashscope.aliyun.com", "qwen"},
 }
 
 // isRerankPath returns true when the request URL path contains a rerank
@@ -66,25 +68,15 @@ func rerankRequestPath(req *http.Request) string {
 
 // rerankProviderFromHost returns the provider name based on the request
 // hostname.  It falls back to "unknown" when no known provider matches.
+// Uses suffix matching (like EmbeddingSpan) to avoid false positives.
 func rerankProviderFromHost(req *http.Request) string {
-	host := rerankHostname(req)
+	host := extractHostname(req)
 	for _, p := range rerankProviders {
-		if strings.Contains(host, p.host) {
+		if host == p.hostSuffix || strings.HasSuffix(host, "."+p.hostSuffix) {
 			return p.provider
 		}
 	}
 	return "unknown"
-}
-
-// rerankHostname returns the hostname from the request URL or Host header.
-func rerankHostname(req *http.Request) string {
-	if req.URL != nil && req.URL.Host != "" {
-		return strings.ToLower(req.URL.Host)
-	}
-	if req.Host != "" {
-		return strings.ToLower(req.Host)
-	}
-	return ""
 }
 
 // modelPattern extracts the "model" value from potentially truncated JSON.
@@ -103,39 +95,54 @@ func extractModelFromPartialJSON(data []byte) string {
 
 // RerankSpan detects rerank API calls by URL path matching and parses
 // the request/response bodies into GenAI rerank attributes.
+// Body parsing is best-effort: once the rerank path is detected, the span
+// is always classified as rerank regardless of body read/parse failures.
 func RerankSpan(baseSpan *request.Span, req *http.Request, resp *http.Response) (request.Span, bool) {
 	if !isRerankPath(req) {
 		return *baseSpan, false
 	}
 
-	reqB, err := io.ReadAll(req.Body)
-	if err != nil && len(reqB) == 0 {
-		return *baseSpan, false
-	}
-	req.Body = io.NopCloser(bytes.NewBuffer(reqB))
+	provider := rerankProviderFromHost(req)
 
+	// Request body parsing is best-effort: since the provider is already
+	// confirmed by URL path, a body read failure should not prevent
+	// classification.
+	var reqB []byte
+	if req.Body != nil {
+		var err error
+		reqB, err = io.ReadAll(req.Body)
+		if err != nil {
+			slog.Debug("RerankSpan: failed to read request body, continuing without it", "provider", provider, "error", err)
+		}
+		req.Body = io.NopCloser(bytes.NewBuffer(reqB))
+	}
+
+	// Response body parsing is best-effort: truncated responses may fail
+	// to parse but should not prevent provider detection.
 	respB, err := getResponseBody(resp)
-	if err != nil && len(respB) == 0 {
-		return *baseSpan, false
+	if err != nil {
+		slog.Debug("RerankSpan: failed to read response body, continuing without it", "provider", provider, "error", err)
 	}
 
-	slog.Debug("Rerank", "request", string(reqB), "response", string(respB))
+	slog.Debug("Rerank", "provider", provider, "request", string(reqB), "response", string(respB))
 
 	var parsedRequest request.RerankRequest
-	if err := json.Unmarshal(reqB, &parsedRequest); err != nil {
-		slog.Debug("failed to parse rerank request", "error", err)
-		// Fallback: extract model from potentially truncated JSON.
-		if parsedRequest.Model == "" {
-			parsedRequest.Model = extractModelFromPartialJSON(reqB)
+	if len(reqB) > 0 {
+		if err := json.Unmarshal(reqB, &parsedRequest); err != nil {
+			slog.Debug("failed to parse rerank request", "provider", provider, "error", err)
+			// Fallback: extract model from potentially truncated JSON.
+			if parsedRequest.Model == "" {
+				parsedRequest.Model = extractModelFromPartialJSON(reqB)
+			}
 		}
 	}
 
 	var parsedResponse request.RerankResponse
-	if err := json.Unmarshal(respB, &parsedResponse); err != nil {
-		slog.Debug("failed to parse rerank response", "error", err)
+	if len(respB) > 0 {
+		if err := json.Unmarshal(respB, &parsedResponse); err != nil {
+			slog.Debug("failed to parse rerank response", "provider", provider, "error", err)
+		}
 	}
-
-	provider := rerankProviderFromHost(req)
 
 	baseSpan.SubType = request.HTTPSubtypeRerank
 	baseSpan.GenAI = &request.GenAI{

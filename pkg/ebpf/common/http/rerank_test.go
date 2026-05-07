@@ -147,7 +147,7 @@ func TestRerankSpan_VoyageAI(t *testing.T) {
 	span, ok := RerankSpan(base, req, resp)
 
 	require.True(t, ok)
-	assert.Equal(t, "voyageai", span.GenAI.Rerank.Provider)
+	assert.Equal(t, "voyage", span.GenAI.Rerank.Provider)
 }
 
 func TestRerankSpan_UnknownProvider(t *testing.T) {
