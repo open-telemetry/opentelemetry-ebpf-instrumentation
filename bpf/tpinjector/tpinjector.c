@@ -1373,25 +1373,34 @@ int obi_packet_extender_create_h2_tp(struct sk_msg_md *msg) {
     if (!tp_p) {
         return SK_PASS;
     }
+    bpf_memset(tp_p, 0, sizeof(*tp_p));
 
     tp_info_pid_t *existing = get_tp_info_pid(&t_ctx->e_key);
+    const bool have_existing = existing && existing->valid && valid_trace(existing->tp.trace_id);
 
-    if (existing && existing->valid && valid_trace(existing->tp.trace_id)) {
+    if (have_existing && existing->written) {
+        h2_resume_after(
+            msg, t_ctx, t_ctx->h2_frame_offset + k_h2_frame_header_len + t_ctx->h2_payload_len);
+        return SK_PASS;
+    }
+
+    if (have_existing) {
         bpf_memcpy(tp_p, existing, sizeof(*tp_p));
-        if (existing->written) {
-            h2_resume_after(
-                msg, t_ctx, t_ctx->h2_frame_offset + k_h2_frame_header_len + t_ctx->h2_payload_len);
-            return SK_PASS;
-        }
+        tp_p->written = 1;
+        set_tp_info_pid(&t_ctx->e_key, tp_p);
     } else {
         init_tp_ctx_parent_tp(t_ctx);
         if (!create_trace_info(t_ctx, tp_p)) {
             return SK_PASS;
         }
+        tp_p->written = 1;
+        if (bpf_map_update_elem(&outgoing_trace_map, &t_ctx->e_key, tp_p, BPF_NOEXIST) != 0) {
+            existing = get_tp_info_pid(&t_ctx->e_key);
+            if (existing) {
+                bpf_memcpy(tp_p, existing, sizeof(*tp_p));
+            }
+        }
     }
-
-    tp_p->written = 1;
-    set_tp_info_pid(&t_ctx->e_key, tp_p);
 
     if (inject_flags & k_inject_http_headers) {
         bpf_tail_call_static(msg, &extender_jump_table, k_tail_write_h2_traceparent);
