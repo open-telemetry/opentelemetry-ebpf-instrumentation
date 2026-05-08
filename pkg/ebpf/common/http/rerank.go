@@ -9,7 +9,6 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"regexp"
 	"strings"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
@@ -79,34 +78,60 @@ func extractModelFromPartialJSON(data []byte) string {
 	return ""
 }
 
-// rerankQueryFieldRegexp detects the presence of a top-level "query" field
-// in a (possibly truncated) JSON request body.
-var rerankQueryFieldRegexp = regexp.MustCompile(`"query"\s*:\s*"`)
-
-// rerankDocumentsFieldRegexp detects the presence of a top-level "documents"
-// field in a (possibly truncated) JSON request body.
-var rerankDocumentsFieldRegexp = regexp.MustCompile(`"documents"\s*:\s*\[`)
-
-// hasRerankStructuralSignals checks for multiple rerank-specific fields in
-// the request body prefix.  For unknown providers, we require "model" plus
-// at least one of "query" or "documents" to confirm this is a genuine GenAI
-// rerank request.  This avoids false positives on arbitrary POST /rerank
-// endpoints that happen to have a nested "model" key.
-func hasRerankStructuralSignals(data []byte) bool {
+// hasTopLevelRerankSignals uses a streaming JSON decoder to check for
+// top-level rerank-specific fields in the request body prefix.  For unknown
+// providers, we require "model" plus at least one of "query" or "documents"
+// as top-level keys to confirm this is a genuine GenAI rerank request.
+//
+// Unlike regex-based matching, this approach only inspects top-level object
+// keys, so nested JSON like {"workflow": {"model": ..., "query": ...}} will
+// not produce false positives.  Truncated bodies are handled gracefully:
+// the decoder stops on error and we use whatever top-level keys were found.
+func hasTopLevelRerankSignals(data []byte) bool {
 	window := data
 	if len(window) > modelSearchWindow {
 		window = window[:modelSearchWindow]
 	}
 
-	hasModel := modelFieldRegexp.Match(window)
-	if !hasModel {
+	dec := json.NewDecoder(bytes.NewReader(window))
+
+	// Expect opening '{' for a top-level JSON object.
+	tok, err := dec.Token()
+	if err != nil || tok != json.Delim('{') {
 		return false
 	}
 
-	hasQuery := rerankQueryFieldRegexp.Match(window)
-	hasDocuments := rerankDocumentsFieldRegexp.Match(window)
+	var hasModel, hasQuery, hasDocuments bool
 
-	return hasQuery || hasDocuments
+	for dec.More() {
+		keyTok, err := dec.Token()
+		if err != nil {
+			break
+		}
+
+		key, ok := keyTok.(string)
+		if !ok {
+			break
+		}
+
+		switch key {
+		case "model":
+			hasModel = true
+		case "query":
+			hasQuery = true
+		case "documents":
+			hasDocuments = true
+		}
+
+		// Skip the value associated with this key.
+		var raw json.RawMessage
+		if err := dec.Decode(&raw); err != nil {
+			// Truncated body: stop here and use only the top-level keys found so far.
+			break
+		}
+	}
+
+	return hasModel && (hasQuery || hasDocuments)
 }
 
 // RerankSpan detects rerank API calls by URL path matching and validates
@@ -138,11 +163,11 @@ func RerankSpan(baseSpan *request.Span, req *http.Request, resp *http.Response) 
 		req.Body = io.NopCloser(bytes.NewBuffer(reqB))
 	}
 
-	// Validate: require either a known provider (by hostname) or multiple
-	// rerank-specific structural signals (model + query/documents) in the
-	// request body.  This prevents false positives on non-GenAI POST /rerank
-	// endpoints where a nested "model" key alone would be insufficient.
-	if provider == "unknown" && !hasRerankStructuralSignals(reqB) {
+	// Validate: require either a known provider (by hostname) or top-level
+	// rerank-specific fields (model + query/documents) in the request body.
+	// This prevents false positives on non-GenAI POST /rerank endpoints
+	// where nested keys would otherwise trigger a match.
+	if provider == "unknown" && !hasTopLevelRerankSignals(reqB) {
 		slog.Debug("RerankSpan: path matches /rerank but no known provider or sufficient structural signals found, skipping", "path", requestPath(req), "host", extractHostname(req))
 		return *baseSpan, false
 	}

@@ -212,6 +212,22 @@ func TestRerankSpan_NotRerank_ModelOnlyNoQueryOrDocuments(t *testing.T) {
 	assert.False(t, ok, "should not be detected as rerank when only model field is present without query or documents")
 }
 
+func TestRerankSpan_NotRerank_NestedRerankFields(t *testing.T) {
+	// URL ends with /rerank, unknown hostname, body has "model", "query",
+	// and "documents" but they are nested inside another object — not
+	// top-level rerank fields.  Should NOT be classified as rerank.
+	body := `{"workflow":{"model":"internal-ranker","query":"status","documents":["a","b"]}}`
+	req := makeRequest(t, http.MethodPost, "http://example.com/v1/rerank", body)
+	resp := makePlainResponse(http.StatusOK, http.Header{
+		"Content-Type": []string{"application/json"},
+	}, `{"result":"ok"}`)
+
+	base := &request.Span{}
+	_, ok := RerankSpan(base, req, resp)
+
+	assert.False(t, ok, "should not be detected as rerank when model/query/documents are nested inside another object")
+}
+
 func TestRerankSpan_NotRerank_WrongPath(t *testing.T) {
 	req := makeRequest(t, http.MethodPost, "http://api.cohere.com/v1/chat", `{"query":"hello"}`)
 	resp := makePlainResponse(http.StatusOK, http.Header{
