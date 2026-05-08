@@ -1,7 +1,7 @@
 # This is a renovate-friendly source of Docker images.
-FROM davidanson/markdownlint-cli2:v0.22.0@sha256:ea33f1f6a0f062f88a3dddfc49f6d6b5621648a93a0ff49a58bf8ac5a15330b9 AS markdown
-FROM gradle:9.3.1-jdk21-noble@sha256:f3784cc59d7fbab1e0ddb09c4cd082f13e16d3fb8c50b7922b7aeae8e9507da5 AS gradle-java
-FROM ghcr.io/astral-sh/uv:python3.9-trixie-slim@sha256:e37ac54d2b78397d18a825b672f7a1dc7d769b8697fa4ad0ccf8b12b89e5f259 AS python39
-FROM ghcr.io/astral-sh/uv:python3.14-trixie-slim@sha256:479708d509db76335f36d87b68ff8d781b6f7ef7b0495889eca96e1f5de7b1bb AS python314
-FROM golang:1.25.9@sha256:8a7adc288b77e9b787cd2695029eb54d10ae80571b21d44fed68d067ad0a9c96 AS golang
+FROM davidanson/markdownlint-cli2:v0.22.1@sha256:0ed9a5f4c77ef447da2a2ac6e67caf74b214a7f80288819565e8b7d2ac148fe5 AS markdown
+FROM gradle:9.5.0-jdk21-noble@sha256:a7647686fbef2a7f2f84b25192433c83642a9e0b2d1bbe48bc5f489a589560db AS gradle-java
+FROM ghcr.io/astral-sh/uv:python3.9-trixie-slim@sha256:9d292e004ee37686d86c09ec879000bfda0b4ba336a78842fd4555ad84efa0fb AS python39
+FROM ghcr.io/astral-sh/uv:python3.14-trixie-slim@sha256:3e70f580d0e63d78408c35d332d780024b6e1d46d9744c888e22fa944393448e AS python314
+FROM golang:1.26.3@sha256:efaccb5b497e90df3ebe5216cc25cd9f98e73874e2d638b56e38d4a3f098c41c AS golang
 FROM otel/weaver:v0.23.0@sha256:7984ecb55b859eb3034ae9d836c4eeda137e2bdd0873b7ba2bb6c3d24d6ff457 AS weaver

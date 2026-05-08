@@ -1,4 +1,4 @@
-FROM ruby:3.0.2@sha256:15dd21ae353c5f4faebed038d9d131c47b9fd84c14be8c3cfbc750204b63f009 AS builder
+FROM ruby:3.4.9@sha256:b366bf9c5c46cb2111e93cbc8a22e76150caf1a182cb90a86d5c5df108c307ed AS builder
 
 WORKDIR /build
 
@@ -13,7 +13,7 @@ RUN bundle _2.2.22_ install
 RUN bundle exec rake app:update:bin
 RUN bundle exec rake db:migrate
 
-FROM ruby:3.0.2-slim@sha256:9c4076bcc90de736bca3419299cf7b5e5ce0c83d659bad4c1f88a1ad8ca6dbf4
+FROM ruby:3.4.9-slim@sha256:756f37e6d559e7a081ff430be227efdce614047d8c7498a5795480545421b2fe
 
 WORKDIR /
 
