@@ -19,7 +19,7 @@ import (
 // https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/issues/2026
 //
 // The race is between:
-//   - a time.AfterFunc goroutine (simulated here) writing svc.Attrs.harvestedRouteMatcher
+//   - a time.AfterFunc goroutine (simulated here) writing svc.Attrs.routeMatcher
 //     via SetHarvestedRoutes on the original *svc.Attrs
 //   - PIDsFilter.Filter reading *info.service (dereferencing the same pointer) to copy
 //     the struct into a span
@@ -70,7 +70,7 @@ func TestHarvestedRouteMatcherRace(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for i := 0; i < iters; i++ {
-			pf.Filter(makeSpans()) // reads *info.service including harvestedRouteMatcher
+			pf.Filter(makeSpans()) // reads *info.service including routeMatcher
 		}
 	}()
 

@@ -131,12 +131,12 @@ type Attrs struct {
 
 	CustomInRouteMatcher  route.Matcher
 	CustomOutRouteMatcher route.Matcher
-	// harvestedRouteMatcher is written by the Java route-harvest timer goroutine and
+	// routeMatcher is written by the Java route-harvest timer goroutine and
 	// read concurrently by the span-filter goroutine. Storing it behind an
 	// *atomic.Pointer keeps Attrs copy-safe (only the 8-byte pointer is copied) while
 	// making the actual load/store atomic. Callers must use InitHarvestedRoutes before
-	// the first SetHarvestedRoutes call, and HarvestedRoutes to read.
-	harvestedRouteMatcher *atomic.Pointer[route.Matcher]
+	// the first SetHarvestedRoutes call, and HarvestedRouteMatcher to read.
+	routeMatcher *atomic.Pointer[route.Matcher]
 	PathTrie              *clusterurl.PathTrie
 }
 
@@ -199,24 +199,24 @@ func (i *Attrs) ExportsOTelTraces() bool {
 // matcher. It must be called once on the owning *Attrs before any concurrent
 // access (i.e. before the process is registered with the PIDsFilter).
 func (i *Attrs) InitHarvestedRoutes() {
-	i.harvestedRouteMatcher = &atomic.Pointer[route.Matcher]{}
+	i.routeMatcher = &atomic.Pointer[route.Matcher]{}
 }
 
 // SetHarvestedRoutes atomically stores the harvested route matcher.
 // It is safe to call concurrently with HarvestedRouteMatcher.
 func (i *Attrs) SetHarvestedRoutes(matcher route.Matcher) {
-	if i.harvestedRouteMatcher != nil {
-		i.harvestedRouteMatcher.Store(&matcher)
+	if i.routeMatcher != nil {
+		i.routeMatcher.Store(&matcher)
 	}
 }
 
 // HarvestedRouteMatcher atomically loads the harvested route matcher.
 // Returns nil if no matcher has been set yet.
 func (i *Attrs) HarvestedRouteMatcher() route.Matcher {
-	if i.harvestedRouteMatcher == nil {
+	if i.routeMatcher == nil {
 		return nil
 	}
-	if p := i.harvestedRouteMatcher.Load(); p != nil {
+	if p := i.routeMatcher.Load(); p != nil {
 		return *p
 	}
 	return nil
