@@ -18,7 +18,6 @@ import (
 	"go.opentelemetry.io/collector/receiver"
 
 	"go.opentelemetry.io/obi/collector/internal"
-	"go.opentelemetry.io/obi/pkg/obi"
 )
 
 var loggerOnce sync.Once
@@ -37,13 +36,13 @@ func BuildTracesReceiver() receiver.CreateTracesFunc {
 	) (receiver.Traces, error) {
 		initLogger(rs)
 
-		cfg, ok := baseCfg.(*obi.Config)
+		cfg, ok := baseCfg.(*receiverConfig)
 		if !ok {
 			return nil, errInvalidConfig
 		}
-		cfg.Traces.TracesConsumer = nextConsumer
+		cfg.runtime.Traces.TracesConsumer = nextConsumer
 
-		return internal.NewController(rs.ID, cfg)
+		return internal.NewController(rs.ID, cfg.runtime)
 	}
 }
 
@@ -55,21 +54,21 @@ func BuildMetricsReceiver() receiver.CreateMetricsFunc {
 	) (receiver.Metrics, error) {
 		initLogger(rs)
 
-		cfg, ok := baseCfg.(*obi.Config)
+		cfg, ok := baseCfg.(*receiverConfig)
 		if !ok {
 			return nil, errInvalidConfig
 		}
-		cfg.OTELMetrics.MetricsConsumer = nextConsumer
+		cfg.runtime.OTELMetrics.MetricsConsumer = nextConsumer
 
-		return internal.NewController(rs.ID, cfg)
+		return internal.NewController(rs.ID, cfg.runtime)
 	}
 }
 
 func defaultConfig() component.Config {
-	cfg := obi.DefaultConfig
+	cfg := newReceiverConfig()
 	// These are placeholders for the consumers; without these obi config will be invalid.
 	// The actual consumers are set when the receiver is created.
-	cfg.Traces.TracesConsumer = consumertest.NewNop()
-	cfg.OTELMetrics.MetricsConsumer = consumertest.NewNop()
-	return &cfg
+	cfg.runtime.Traces.TracesConsumer = consumertest.NewNop()
+	cfg.runtime.OTELMetrics.MetricsConsumer = consumertest.NewNop()
+	return cfg
 }

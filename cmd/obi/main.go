@@ -4,7 +4,9 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -18,12 +20,18 @@ import (
 
 	otelsdk "go.opentelemetry.io/otel/sdk"
 
+	obiconfigv2 "go.opentelemetry.io/obi/internal/obiconfigv2"
 	"go.opentelemetry.io/obi/pkg/buildinfo"
 	"go.opentelemetry.io/obi/pkg/instrumenter"
 	"go.opentelemetry.io/obi/pkg/obi"
+	obiv2 "go.opentelemetry.io/obi/pkg/obiconfig/v2"
 )
 
 func main() {
+	if maybeRunConfigCommand(os.Args[1:]) {
+		return
+	}
+
 	lvl := slog.LevelVar{}
 	lvl.Set(slog.LevelInfo)
 
@@ -100,6 +108,7 @@ func main() {
 
 func loadConfig(configPath *string) *obi.Config {
 	var configReader io.ReadCloser
+	var configBytes []byte
 	if configPath != nil && *configPath != "" {
 		var err error
 		if configReader, err = os.Open(*configPath); err != nil {
@@ -107,12 +116,42 @@ func loadConfig(configPath *string) *obi.Config {
 			os.Exit(-1)
 		}
 		defer configReader.Close()
+		configBytes, err = io.ReadAll(configReader)
+		if err != nil {
+			slog.Error("can't read "+*configPath, "error", err)
+			os.Exit(-1)
+		}
 	}
-	config, err := obi.LoadConfig(configReader)
+
+	if len(configBytes) > 0 {
+		if doc, _, err := obiv2.ParseYAML(configBytes, obiv2.DeploymentModeStandalone); err == nil {
+			config, adaptErr := obiconfigv2.StandaloneToRuntime(doc)
+			if adaptErr != nil {
+				slog.Error("wrong configuration", "error", adaptErr)
+				os.Exit(-1)
+			}
+			return config
+		} else {
+			var notV2 *obiv2.NotV2Error
+			if !errors.As(err, &notV2) {
+				slog.Error("wrong configuration", "error", err)
+				os.Exit(-1)
+			}
+		}
+	}
+
+	config, err := obi.LoadConfig(bytesReader(configBytes))
 	if err != nil {
 		slog.Error("wrong configuration", "error", err)
 		//nolint:gocritic
 		os.Exit(-1)
 	}
 	return config
+}
+
+func bytesReader(data []byte) io.Reader {
+	if len(data) == 0 {
+		return nil
+	}
+	return bytes.NewReader(data)
 }

@@ -767,6 +767,12 @@ func (c *Config) SpanMetricsEnabledForTraces() bool {
 		(c.OTELMetrics.EndpointEnabled() || c.Prometheus.EndpointEnabled())
 }
 
+// NormalizeForLoad applies the same post-processing used by LoadConfig after
+// the config has been built by an alternate loader.
+func (c *Config) NormalizeForLoad() {
+	c.normalize()
+}
+
 // ExternalLogger sets the logging capabilities of OBI.
 // Used for integrating OBI with an external logging system (for example an OpenTelemetry collector)
 // TODO: maybe this method has too many responsibilities, as it affects the global logger.
