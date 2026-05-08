@@ -58,7 +58,7 @@ func OpenAISpan(baseSpan *request.Span, req *http.Request, resp *http.Response) 
 		path := strings.TrimSuffix(req.URL.Path, "/")
 		switch path {
 		case "/v1/chat/completions":
-			parsedResponse.OperationName = "chat"
+			parsedResponse.OperationName = request.ChatOperationName
 			parsedResponse.APIType = "chat_completions"
 		case "/v1/embeddings":
 			parsedResponse.OperationName = request.EmbeddingOperationName

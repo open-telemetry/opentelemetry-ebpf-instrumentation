@@ -139,20 +139,20 @@ func QwenSpan(baseSpan *request.Span, req *http.Request, resp *http.Response) (r
 
 func extractQwenOperation(req *http.Request) string {
 	if req == nil {
-		return "generation"
+		return request.GenerationOperationName
 	}
 
 	path := qwenRequestPath(req)
 	switch {
 	case strings.Contains(path, "/chat/completions"):
-		return "chat"
+		return request.ChatOperationName
 	case strings.Contains(path, "/completions"):
-		return "completion"
+		return request.CompletionOperationName
 	case strings.Contains(path, "/embeddings"):
-		return "embedding"
+		return request.EmbeddingOperationName
 	case strings.Contains(path, "/generation"):
-		return "generation"
+		return request.GenerationOperationName
 	default:
-		return "generation"
+		return request.GenerationOperationName
 	}
 }

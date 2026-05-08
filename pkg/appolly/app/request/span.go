@@ -736,8 +736,14 @@ type JSONRPC struct {
 
 // Generic embedding provider types (Voyage AI, Cohere, Jina AI)
 
-// EmbeddingOperationName is the canonical operation name for embedding spans.
-const EmbeddingOperationName = "embeddings"
+// GenAI operation name constants aligned with OTel semantic conventions.
+const (
+	ChatOperationName        = "chat"
+	CompletionOperationName  = "completion"
+	GenerationOperationName  = "generation"
+	InvokeModelOperationName = "invoke_model"
+	EmbeddingOperationName   = "embeddings"
+)
 
 // VendorEmbedding represents a generic embedding API provider such as
 // Voyage AI, Cohere, or Jina AI.
@@ -1496,9 +1502,9 @@ func (s *Span) TraceName() string {
 
 		if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeAWSBedrock && s.GenAI != nil && s.GenAI.Bedrock != nil {
 			if s.GenAI.Bedrock.Model != "" {
-				return "invoke_model " + s.GenAI.Bedrock.Model
+				return InvokeModelOperationName + " " + s.GenAI.Bedrock.Model
 			}
-			return "invoke_model"
+			return InvokeModelOperationName
 		}
 
 		if s.SubType == HTTPSubtypeMCP && s.GenAI != nil && s.GenAI.MCP != nil {
@@ -1823,7 +1829,7 @@ func (s *Span) GenAIOperationName() string {
 		return s.GenAI.Qwen.OperationName
 	}
 	if s.GenAI.Bedrock != nil {
-		return "invoke_model"
+		return InvokeModelOperationName
 	}
 	if s.GenAI.Embedding != nil {
 		return s.GenAI.Embedding.OperationName()

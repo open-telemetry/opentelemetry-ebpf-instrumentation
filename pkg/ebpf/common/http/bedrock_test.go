@@ -245,3 +245,66 @@ func TestExtractBedrockModel(t *testing.T) {
 		})
 	}
 }
+
+func TestExtractBedrockGuardrailID(t *testing.T) {
+	tests := []struct {
+		name       string
+		reqURL     string
+		respHeader http.Header
+		want       string
+	}{
+		{
+			name:   "header present",
+			reqURL: "https://bedrock-runtime.us-east-1.amazonaws.com/model/claude/invoke",
+			respHeader: http.Header{
+				"X-Amzn-Bedrock-Guardrail-Id": []string{"gr-abc123"},
+			},
+			want: "gr-abc123",
+		},
+		{
+			name:       "guardrail in path with trailing segment",
+			reqURL:     "https://bedrock-runtime.us-east-1.amazonaws.com/guardrail/gr-xyz789/version/1/apply",
+			respHeader: http.Header{},
+			want:       "gr-xyz789",
+		},
+		{
+			name:       "guardrail in path without trailing slash",
+			reqURL:     "https://bedrock-runtime.us-east-1.amazonaws.com/guardrail/gr-only",
+			respHeader: http.Header{},
+			want:       "gr-only",
+		},
+		{
+			name:       "no guardrail in path or header",
+			reqURL:     "https://bedrock-runtime.us-east-1.amazonaws.com/model/claude/invoke",
+			respHeader: http.Header{},
+			want:       "",
+		},
+		{
+			name:   "header takes priority over path",
+			reqURL: "https://bedrock-runtime.us-east-1.amazonaws.com/guardrail/gr-from-path/version/1",
+			respHeader: http.Header{
+				"X-Amzn-Bedrock-Guardrail-Id": []string{"gr-from-header"},
+			},
+			want: "gr-from-header",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := makeRequest(t, http.MethodPost, tt.reqURL, "{}")
+			resp := &http.Response{Header: tt.respHeader}
+			assert.Equal(t, tt.want, extractBedrockGuardrailID(req, resp))
+		})
+	}
+}
+
+func TestExtractBedrockGuardrailID_NilRequest(t *testing.T) {
+	resp := &http.Response{Header: http.Header{}}
+	assert.Equal(t, "", extractBedrockGuardrailID(nil, resp))
+}
+
+func TestExtractBedrockGuardrailID_NilRequestURL(t *testing.T) {
+	req := &http.Request{}
+	resp := &http.Response{Header: http.Header{}}
+	assert.Equal(t, "", extractBedrockGuardrailID(req, resp))
+}

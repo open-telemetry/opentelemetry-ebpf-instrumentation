@@ -214,7 +214,7 @@ func TestExtractQwenOperation(t *testing.T) {
 		{
 			name: "embeddings",
 			url:  "https://dashscope.aliyuncs.com/compatible-mode/v1/embeddings",
-			want: "embedding",
+			want: "embeddings",
 		},
 		{
 			name: "generation",

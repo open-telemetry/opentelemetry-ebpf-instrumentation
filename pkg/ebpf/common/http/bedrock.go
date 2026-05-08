@@ -116,7 +116,7 @@ func isBedrockStream(req *http.Request) bool {
 }
 
 // extractBedrockGuardrailID extracts the guardrail identifier from the
-// response header or the request JSON body.
+// response header or the request URL path.
 func extractBedrockGuardrailID(req *http.Request, resp *http.Response) string {
 	if id := resp.Header.Get("X-Amzn-Bedrock-Guardrail-Id"); id != "" {
 		return id
