@@ -288,7 +288,7 @@ HTTPParsingPolicy defines the default action for http enrichment rules.
 
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
-| `ebpf.payload_extraction.http.genai.rerank.enabled` | `boolean` | `OTEL_EBPF_HTTP_RERANK_ENABLED` | `false` |  |  | Enable rerank payload extraction and parsing for HTTP requests matching rerank-style endpoints (including providers such as Cohere, Jina AI, and Voyage AI). Requests to non-recognized hosts may still be classified as rerank with `provider="unknown"`. |
+| `ebpf.payload_extraction.http.genai.rerank.enabled` | `boolean` | `OTEL_EBPF_HTTP_RERANK_ENABLED` | `false` |  |  | Enable Rerank (Cohere, Jina AI, Voyage AI, etc.) payload extraction and parsing |
 
 #### `ebpf.payload_extraction.http.graphql`
 
