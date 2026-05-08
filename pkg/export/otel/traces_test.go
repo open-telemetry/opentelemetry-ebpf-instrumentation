@@ -1619,6 +1619,25 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
 
 		attrs := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
+		ensureTraceStrAttr(t, attrs, semconv.URLFullKey, "https://api.example.com/external/api")
+	})
+	t.Run("test HTTP client url.full includes query with opt-in", func(t *testing.T) {
+		span := request.Span{
+			Type:      request.EventTypeHTTPClient,
+			Method:    "GET",
+			Path:      "/external/api",
+			FullPath:  "/external/api?foo=bar",
+			Status:    200,
+			Host:      "api.example.com",
+			HostPort:  443,
+			Statement: "https;api.example.com",
+		}
+
+		optionalAttrs := map[attr.Name]struct{}{attr.HTTPUrlQuery: {}}
+		tAttrs := tracesgen.TraceAttributesSelector(&span, optionalAttrs)
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		attrs := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
 		ensureTraceStrAttr(t, attrs, semconv.URLFullKey, "https://api.example.com/external/api?foo=bar")
 	})
 	t.Run("test HTTP client url.full falls back to Path when FullPath is empty", func(t *testing.T) {
@@ -1651,7 +1670,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
 
 		attrs := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
-		ensureTraceStrAttr(t, attrs, semconv.URLFullKey, "https://upstream.example.com/external/api?foo=bar")
+		ensureTraceStrAttr(t, attrs, semconv.URLFullKey, "https://upstream.example.com/external/api")
 	})
 	t.Run("test JSON-RPC server span with error", func(t *testing.T) {
 		span := request.Span{
