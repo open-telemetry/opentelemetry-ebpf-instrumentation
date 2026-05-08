@@ -1639,6 +1639,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 
 		attrs := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
 		ensureTraceStrAttr(t, attrs, semconv.URLFullKey, "https://api.example.com/external/api?foo=bar")
+		ensureTraceStrAttr(t, attrs, semconv.URLQueryKey, "foo=bar")
 	})
 	t.Run("test HTTP client url.full falls back to Path when FullPath is empty", func(t *testing.T) {
 		span := request.Span{
