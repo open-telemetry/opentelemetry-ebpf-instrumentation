@@ -154,6 +154,14 @@
       "enabled": false
     },
     {
+      "description": "Block qpid-jms-client major upgrades for javaamqp test component",
+      "matchFileNames": ["internal/test/integration/components/javaamqp/pom.xml"],
+      "matchManagers": ["maven"],
+      "matchPackageNames": ["org.apache.qpid:qpid-jms-client"],
+      "matchUpdateTypes": ["major"],
+      "enabled": false
+    },
+    {
       "description": "Block JUnit major upgrades for the Java agent (JUnit 6 requires Java 17+)",
       "matchFileNames": ["pkg/internal/java/agent/build.gradle.kts"],
       "matchManagers": ["gradle"],
@@ -174,6 +182,20 @@
       "matchFileNames": ["internal/test/integration/components/java_tls/netty_tls/pom.xml"],
       "matchManagers": ["maven"],
       "matchPackageNames": ["org.springframework.boot:spring-boot-starter-parent"],
+      "matchUpdateTypes": ["major"],
+      "enabled": false
+    },
+    {
+      "description": "Block native-maven-plugin major upgrades for Java test components",
+      "matchFileNames": [
+        "internal/test/integration/components/java_tls/sync_async_tls/pom.xml",
+        "internal/test/integration/components/javakafka/pom.xml",
+        "internal/test/integration/components/javakafka/pom400.xml",
+        "internal/test/integration/components/javakafka-lb/pom400.xml",
+        "internal/test/integration/components/javatestserver/pom.xml"
+      ],
+      "matchManagers": ["maven"],
+      "matchPackageNames": ["org.graalvm.buildtools:native-maven-plugin"],
       "matchUpdateTypes": ["major"],
       "enabled": false
     }
