@@ -197,6 +197,21 @@ func TestRerankSpan_NotRerank_NoModelOrProvider(t *testing.T) {
 	assert.False(t, ok, "should not be detected as rerank when path ends with /rerank but no known provider or model field")
 }
 
+func TestRerankSpan_NotRerank_ModelOnlyNoQueryOrDocuments(t *testing.T) {
+	// URL ends with /rerank, unknown hostname, body has "model" but lacks
+	// "query" or "documents".  Should NOT be detected as rerank because
+	// a nested "model" key alone is insufficient structural signal.
+	req := makeRequest(t, http.MethodPost, "http://example.com/v1/rerank", `{"model":"some-model","action":"process"}`)
+	resp := makePlainResponse(http.StatusOK, http.Header{
+		"Content-Type": []string{"application/json"},
+	}, `{"result":"ok"}`)
+
+	base := &request.Span{}
+	_, ok := RerankSpan(base, req, resp)
+
+	assert.False(t, ok, "should not be detected as rerank when only model field is present without query or documents")
+}
+
 func TestRerankSpan_NotRerank_WrongPath(t *testing.T) {
 	req := makeRequest(t, http.MethodPost, "http://api.cohere.com/v1/chat", `{"query":"hello"}`)
 	resp := makePlainResponse(http.StatusOK, http.Header{

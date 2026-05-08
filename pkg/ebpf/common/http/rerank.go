@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"regexp"
 	"strings"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
@@ -78,12 +79,42 @@ func extractModelFromPartialJSON(data []byte) string {
 	return ""
 }
 
+// rerankQueryFieldRegexp detects the presence of a top-level "query" field
+// in a (possibly truncated) JSON request body.
+var rerankQueryFieldRegexp = regexp.MustCompile(`"query"\s*:\s*"`)
+
+// rerankDocumentsFieldRegexp detects the presence of a top-level "documents"
+// field in a (possibly truncated) JSON request body.
+var rerankDocumentsFieldRegexp = regexp.MustCompile(`"documents"\s*:\s*\[`)
+
+// hasRerankStructuralSignals checks for multiple rerank-specific fields in
+// the request body prefix.  For unknown providers, we require "model" plus
+// at least one of "query" or "documents" to confirm this is a genuine GenAI
+// rerank request.  This avoids false positives on arbitrary POST /rerank
+// endpoints that happen to have a nested "model" key.
+func hasRerankStructuralSignals(data []byte) bool {
+	window := data
+	if len(window) > modelSearchWindow {
+		window = window[:modelSearchWindow]
+	}
+
+	hasModel := modelFieldRegexp.Match(window)
+	if !hasModel {
+		return false
+	}
+
+	hasQuery := rerankQueryFieldRegexp.Match(window)
+	hasDocuments := rerankDocumentsFieldRegexp.Match(window)
+
+	return hasQuery || hasDocuments
+}
+
 // RerankSpan detects rerank API calls by URL path matching and validates
 // the request against known GenAI providers or request body characteristics.
 // The span is classified as rerank only when:
-//   - The URL path ends with /rerank AND
+//   - The URL path contains a /rerank segment AND
 //   - The hostname matches a known provider OR the request body contains
-//     a "model" field (indicating a genuine GenAI rerank request)
+//     multiple rerank-specific structural signals (model + query/documents)
 //
 // Body parsing is best-effort: once validated, the span is always classified
 // as rerank regardless of body read/parse failures.
@@ -107,18 +138,12 @@ func RerankSpan(baseSpan *request.Span, req *http.Request, resp *http.Response) 
 		req.Body = io.NopCloser(bytes.NewBuffer(reqB))
 	}
 
-	// Validate: require either a known provider (by hostname) or a model field
-	// in the request body to confirm this is a genuine GenAI rerank request.
-	// This prevents false positives on non-GenAI URLs that happen to end with /rerank.
-	hasModel := false
-	if len(reqB) > 0 {
-		if model := extractModelFromPartialJSON(reqB); model != "" {
-			hasModel = true
-		}
-	}
-
-	if provider == "unknown" && !hasModel {
-		slog.Debug("RerankSpan: path matches /rerank but no known provider or model field found, skipping", "path", requestPath(req), "host", extractHostname(req))
+	// Validate: require either a known provider (by hostname) or multiple
+	// rerank-specific structural signals (model + query/documents) in the
+	// request body.  This prevents false positives on non-GenAI POST /rerank
+	// endpoints where a nested "model" key alone would be insufficient.
+	if provider == "unknown" && !hasRerankStructuralSignals(reqB) {
+		slog.Debug("RerankSpan: path matches /rerank but no known provider or sufficient structural signals found, skipping", "path", requestPath(req), "host", extractHostname(req))
 		return *baseSpan, false
 	}
 

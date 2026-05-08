@@ -1337,6 +1337,20 @@ func TestSpan_GenAIInputTokens(t *testing.T) {
 		result := span.GenAIInputTokens()
 		assert.Equal(t, 25, result)
 	})
+
+	t.Run("Rerank present", func(t *testing.T) {
+		span := &Span{
+			GenAI: &GenAI{
+				Rerank: &VendorRerank{
+					Output: RerankResponse{
+						Usage: RerankUsage{TotalTokens: 411},
+					},
+				},
+			},
+		}
+		result := span.GenAIInputTokens()
+		assert.Equal(t, 411, result)
+	})
 }
 
 // Test GenAIOutputTokens
@@ -1455,6 +1469,21 @@ func TestSpan_GenAIOutputTokens(t *testing.T) {
 		span := &Span{
 			GenAI: &GenAI{
 				Bedrock: &VendorBedrock{},
+			},
+		}
+		result := span.GenAIOutputTokens()
+		assert.Equal(t, 0, result)
+	})
+
+	t.Run("Rerank present returns zero", func(t *testing.T) {
+		// Rerank has no generated output, so output tokens should always be 0.
+		span := &Span{
+			GenAI: &GenAI{
+				Rerank: &VendorRerank{
+					Output: RerankResponse{
+						Usage: RerankUsage{TotalTokens: 411},
+					},
+				},
 			},
 		}
 		result := span.GenAIOutputTokens()

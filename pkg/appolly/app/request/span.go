@@ -1806,6 +1806,10 @@ func (s *Span) GenAIInputTokens() int {
 		return s.GenAI.Embedding.GetInputTokens()
 	}
 
+	if s.GenAI.Rerank != nil {
+		return s.GenAI.Rerank.Output.GetTotalTokens()
+	}
+
 	return 0
 }
 
@@ -1836,10 +1840,6 @@ func (s *Span) GenAIOutputTokens() int {
 
 	if s.GenAI.Embedding != nil {
 		return s.GenAI.Embedding.GetOutputTokens()
-	}
-
-	if s.GenAI.Rerank != nil {
-		return s.GenAI.Rerank.Output.GetTotalTokens()
 	}
 
 	return 0
