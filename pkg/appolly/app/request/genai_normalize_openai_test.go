@@ -31,8 +31,8 @@ func TestNormalizeOpenAIMessages_Valid(t *testing.T) {
 }
 
 func TestNormalizeOpenAIMessages_Empty(t *testing.T) {
-	assert.Equal(t, "", normalizeOpenAIMessages(nil))
-	assert.Equal(t, "", normalizeOpenAIMessages(json.RawMessage{}))
+	assert.Empty(t, normalizeOpenAIMessages(nil))
+	assert.Empty(t, normalizeOpenAIMessages(json.RawMessage{}))
 }
 
 func TestNormalizeOpenAIMessages_ParseFailure(t *testing.T) {
@@ -81,7 +81,7 @@ func TestNormalizeOpenAIMessages_NullContent(t *testing.T) {
 	assert.Equal(t, "assistant", msgs[0].Role)
 	require.Len(t, msgs[0].Parts, 1)
 	assert.Equal(t, "text", msgs[0].Parts[0].Type)
-	assert.Equal(t, "", msgs[0].Parts[0].Content)
+	assert.Empty(t, msgs[0].Parts[0].Content)
 }
 
 func TestNormalizeOpenAIOutput_Choices(t *testing.T) {
@@ -116,7 +116,7 @@ func TestNormalizeOpenAIOutput_ResponsesAPI(t *testing.T) {
 
 func TestNormalizeOpenAIOutput_Empty(t *testing.T) {
 	ai := &VendorOpenAI{}
-	assert.Equal(t, "", normalizeOpenAIOutput(ai))
+	assert.Empty(t, normalizeOpenAIOutput(ai))
 }
 
 func TestNormalizeOpenAIOutput_Items(t *testing.T) {

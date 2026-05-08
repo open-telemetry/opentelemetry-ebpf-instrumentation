@@ -75,8 +75,8 @@ func TestNormalizeAnthropicInput_ThinkingBlock(t *testing.T) {
 }
 
 func TestNormalizeAnthropicInput_Empty(t *testing.T) {
-	assert.Equal(t, "", NormalizeAnthropicInput(nil))
-	assert.Equal(t, "", NormalizeAnthropicInput(json.RawMessage{}))
+	assert.Empty(t, NormalizeAnthropicInput(nil))
+	assert.Empty(t, NormalizeAnthropicInput(json.RawMessage{}))
 }
 
 func TestNormalizeAnthropicInput_ParseFailure(t *testing.T) {
@@ -162,7 +162,7 @@ func TestNormalizeAnthropicOutput_Thinking(t *testing.T) {
 
 func TestNormalizeAnthropicOutput_Empty(t *testing.T) {
 	resp := &AnthropicResponse{Role: "assistant"}
-	assert.Equal(t, "", NormalizeAnthropicOutput(resp))
+	assert.Empty(t, NormalizeAnthropicOutput(resp))
 }
 
 func TestNormalizeAnthropicOutput_UnmarshalFailure(t *testing.T) {

@@ -22,7 +22,7 @@ func TestNormalizeSystemInstructions_NonEmpty(t *testing.T) {
 }
 
 func TestNormalizeSystemInstructions_Empty(t *testing.T) {
-	assert.Equal(t, "", NormalizeSystemInstructions(""))
+	assert.Empty(t, NormalizeSystemInstructions(""))
 }
 
 func TestNormalizeToolDefinitions_OpenAIFormat(t *testing.T) {
@@ -64,8 +64,8 @@ func TestNormalizeToolDefinitions_GeminiFormat(t *testing.T) {
 }
 
 func TestNormalizeToolDefinitions_Empty(t *testing.T) {
-	assert.Equal(t, "", NormalizeToolDefinitions(nil))
-	assert.Equal(t, "", NormalizeToolDefinitions(json.RawMessage{}))
+	assert.Empty(t, NormalizeToolDefinitions(nil))
+	assert.Empty(t, NormalizeToolDefinitions(json.RawMessage{}))
 }
 
 func TestNormalizeToolDefinitions_ParseFailure(t *testing.T) {

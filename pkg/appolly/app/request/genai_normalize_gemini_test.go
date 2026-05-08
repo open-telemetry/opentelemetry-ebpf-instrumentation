@@ -49,8 +49,8 @@ func TestNormalizeGeminiInput_FunctionResponse(t *testing.T) {
 }
 
 func TestNormalizeGeminiInput_Empty(t *testing.T) {
-	assert.Equal(t, "", normalizeGeminiInput(nil))
-	assert.Equal(t, "", normalizeGeminiInput(json.RawMessage{}))
+	assert.Empty(t, normalizeGeminiInput(nil))
+	assert.Empty(t, normalizeGeminiInput(json.RawMessage{}))
 }
 
 func TestNormalizeGeminiInput_ParseFailure(t *testing.T) {
@@ -112,7 +112,7 @@ func TestNormalizeGeminiOutput_FunctionCallInCandidate(t *testing.T) {
 
 func TestNormalizeGeminiOutput_EmptyCandidates(t *testing.T) {
 	resp := &GeminiResponse{}
-	assert.Equal(t, "", normalizeGeminiOutput(resp))
+	assert.Empty(t, normalizeGeminiOutput(resp))
 }
 
 func TestNormalizeGeminiOutput_NilContent(t *testing.T) {
@@ -142,8 +142,8 @@ func TestNormalizeGeminiParts_Valid(t *testing.T) {
 }
 
 func TestNormalizeGeminiParts_Empty(t *testing.T) {
-	assert.Equal(t, "", normalizeGeminiParts(nil))
-	assert.Equal(t, "", normalizeGeminiParts(json.RawMessage{}))
+	assert.Empty(t, normalizeGeminiParts(nil))
+	assert.Empty(t, normalizeGeminiParts(json.RawMessage{}))
 }
 
 func TestNormalizeGeminiParts_ParseFailure(t *testing.T) {

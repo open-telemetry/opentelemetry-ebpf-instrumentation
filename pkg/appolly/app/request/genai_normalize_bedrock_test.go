@@ -61,7 +61,7 @@ func TestNormalizeBedrockOutput_MixedBlocks(t *testing.T) {
 
 func TestNormalizeBedrockOutput_Empty(t *testing.T) {
 	resp := &BedrockResponse{}
-	assert.Equal(t, "", NormalizeBedrockOutput(resp))
+	assert.Empty(t, NormalizeBedrockOutput(resp))
 }
 
 func TestNormalizeBedrockOutput_UnmarshalFailure(t *testing.T) {

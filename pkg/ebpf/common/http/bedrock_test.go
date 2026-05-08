@@ -300,11 +300,11 @@ func TestExtractBedrockGuardrailID(t *testing.T) {
 
 func TestExtractBedrockGuardrailID_NilRequest(t *testing.T) {
 	resp := &http.Response{Header: http.Header{}}
-	assert.Equal(t, "", extractBedrockGuardrailID(nil, resp))
+	assert.Empty(t, extractBedrockGuardrailID(nil, resp))
 }
 
 func TestExtractBedrockGuardrailID_NilRequestURL(t *testing.T) {
 	req := &http.Request{}
 	resp := &http.Response{Header: http.Header{}}
-	assert.Equal(t, "", extractBedrockGuardrailID(req, resp))
+	assert.Empty(t, extractBedrockGuardrailID(req, resp))
 }
