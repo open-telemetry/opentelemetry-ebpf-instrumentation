@@ -31,39 +31,23 @@ var rerankProviders = []struct {
 	{"dashscope.aliyun.com", "qwen"},
 }
 
-// isRerankPath returns true when the request URL path contains a rerank
-// endpoint segment (e.g. /v1/rerank, /v2/rerank).
+// isRerankPath returns true when the request URL path contains a complete
+// path segment "rerank" (e.g. /v1/rerank, /v2/rerank).
+// Uses path segment matching to avoid false positives on paths where
+// "rerank" is just a substring (e.g. /v1/rerankings, /foo/rerankable).
 func isRerankPath(req *http.Request) bool {
-	path := rerankRequestPath(req)
-	return strings.Contains(path, "/rerank")
-}
+	path := requestPath(req)
+	if path == "" {
+		return false
+	}
 
-// rerankRequestPath extracts the request path from multiple URL representations,
-// handling opaque URLs and fallback to RequestURI.
-func rerankRequestPath(req *http.Request) string {
-	if req == nil {
-		return ""
-	}
-	if req.URL != nil {
-		if req.URL.Path != "" {
-			return req.URL.Path
-		}
-		if req.URL.Opaque != "" {
-			if parsed, err := url.Parse(req.URL.Opaque); err == nil && parsed.Path != "" {
-				return parsed.Path
-			}
-			if strings.HasPrefix(req.URL.Opaque, "/") {
-				return req.URL.Opaque
-			}
+	for _, segment := range strings.Split(path, "/") {
+		if segment == "rerank" {
+			return true
 		}
 	}
-	if req.RequestURI == "" {
-		return ""
-	}
-	if parsed, err := url.ParseRequestURI(req.RequestURI); err == nil && parsed.Path != "" {
-		return parsed.Path
-	}
-	return req.RequestURI
+
+	return false
 }
 
 // rerankProviderFromHost returns the provider name based on the request
@@ -79,24 +63,41 @@ func rerankProviderFromHost(req *http.Request) string {
 	return "unknown"
 }
 
-// modelPattern extracts the "model" value from potentially truncated JSON.
-var modelPattern = regexp.MustCompile(`"model"\s*:\s*"([^"]+)"`)
+// modelFieldRegexp extracts the top-level "model" value from a (possibly
+// truncated) JSON request body.  It is a best-effort fallback used only when
+// json.Unmarshal cannot parse the body.  We limit the search window to
+// modelSearchWindow bytes so that we don't accidentally match a "model"
+// key buried inside user-provided documents or query text.
+var modelFieldRegexp = regexp.MustCompile(`"model"\s*:\s*"([^"]+)"`)
+
+const modelSearchWindow = 200
 
 // extractModelFromPartialJSON attempts to extract the model field from
 // potentially truncated JSON using a simple regex.  This is a fallback
 // when standard json.Unmarshal fails due to eBPF buffer truncation.
+// Limits the search to the first modelSearchWindow bytes to avoid matching
+// "model" fields inside user-provided documents or query text.
 func extractModelFromPartialJSON(data []byte) string {
-	m := modelPattern.FindSubmatch(data)
+	window := data
+	if len(window) > modelSearchWindow {
+		window = window[:modelSearchWindow]
+	}
+	m := modelFieldRegexp.FindSubmatch(window)
 	if m != nil {
-		return string(m[1])
+		return strings.TrimSpace(string(m[1]))
 	}
 	return ""
 }
 
-// RerankSpan detects rerank API calls by URL path matching and parses
-// the request/response bodies into GenAI rerank attributes.
-// Body parsing is best-effort: once the rerank path is detected, the span
-// is always classified as rerank regardless of body read/parse failures.
+// RerankSpan detects rerank API calls by URL path matching and validates
+// the request against known GenAI providers or request body characteristics.
+// The span is classified as rerank only when:
+//   - The URL path ends with /rerank AND
+//   - The hostname matches a known provider OR the request body contains
+//     a "model" field (indicating a genuine GenAI rerank request)
+//
+// Body parsing is best-effort: once validated, the span is always classified
+// as rerank regardless of body read/parse failures.
 func RerankSpan(baseSpan *request.Span, req *http.Request, resp *http.Response) (request.Span, bool) {
 	if !isRerankPath(req) {
 		return *baseSpan, false
@@ -104,9 +105,9 @@ func RerankSpan(baseSpan *request.Span, req *http.Request, resp *http.Response) 
 
 	provider := rerankProviderFromHost(req)
 
-	// Request body parsing is best-effort: since the provider is already
-	// confirmed by URL path, a body read failure should not prevent
-	// classification.
+	// Request body parsing is best-effort: read the body first to validate
+	// that this is actually a GenAI rerank request (not just any URL ending
+	// in /rerank).
 	var reqB []byte
 	if req.Body != nil {
 		var err error
@@ -116,6 +117,24 @@ func RerankSpan(baseSpan *request.Span, req *http.Request, resp *http.Response) 
 		}
 		req.Body = io.NopCloser(bytes.NewBuffer(reqB))
 	}
+
+	// Validate: require either a known provider (by hostname) or a model field
+	// in the request body to confirm this is a genuine GenAI rerank request.
+	// This prevents false positives on non-GenAI URLs that happen to end with /rerank.
+	hasModel := false
+	if len(reqB) > 0 {
+		if model := extractModelFromPartialJSON(reqB); model != "" {
+			hasModel = true
+		}
+	}
+
+	if provider == "unknown" && !hasModel {
+		slog.Debug("RerankSpan: path matches /rerank but no known provider or model field found, skipping", "path", rerankRequestPath(req), "host", extractHostname(req))
+		return *baseSpan, false
+	}
+
+	// At this point, we've confirmed this is a genuine rerank request.
+	// Continue with full parsing even if provider is "unknown" (as long as model exists).
 
 	// Response body parsing is best-effort: truncated responses may fail
 	// to parse but should not prevent provider detection.

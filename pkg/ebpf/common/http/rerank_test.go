@@ -151,6 +151,8 @@ func TestRerankSpan_VoyageAI(t *testing.T) {
 }
 
 func TestRerankSpan_UnknownProvider(t *testing.T) {
+	// Unknown hostname but request body contains "model" field,
+	// so it should still be detected as a rerank request.
 	req := makeRequest(t, http.MethodPost, "http://custom-rerank.example.com/v1/rerank", cohereRerankRequestBody)
 	resp := makePlainResponse(http.StatusOK, http.Header{
 		"Content-Type": []string{"application/json"},
@@ -181,7 +183,21 @@ func TestRerankSpan_ErrorResponse(t *testing.T) {
 	assert.Equal(t, "invalid api token", ai.Output.Error.Message)
 }
 
-func TestRerankSpan_NotRerank(t *testing.T) {
+func TestRerankSpan_NotRerank_NoModelOrProvider(t *testing.T) {
+	// URL ends with /rerank but unknown hostname and no model field in body.
+	// Should NOT be detected as rerank to avoid false positives.
+	req := makeRequest(t, http.MethodPost, "http://example.com/v1/rerank", `{"query":"hello"}`)
+	resp := makePlainResponse(http.StatusOK, http.Header{
+		"Content-Type": []string{"application/json"},
+	}, `{"result":"ok"}`)
+
+	base := &request.Span{}
+	_, ok := RerankSpan(base, req, resp)
+
+	assert.False(t, ok, "should not be detected as rerank when path ends with /rerank but no known provider or model field")
+}
+
+func TestRerankSpan_NotRerank_WrongPath(t *testing.T) {
 	req := makeRequest(t, http.MethodPost, "http://api.cohere.com/v1/chat", `{"query":"hello"}`)
 	resp := makePlainResponse(http.StatusOK, http.Header{
 		"Content-Type": []string{"application/json"},
@@ -190,10 +206,12 @@ func TestRerankSpan_NotRerank(t *testing.T) {
 	base := &request.Span{}
 	_, ok := RerankSpan(base, req, resp)
 
-	assert.False(t, ok, "should not be detected as rerank when path does not contain /rerank")
+	assert.False(t, ok, "should not be detected as rerank when path does not end with /rerank")
 }
 
 func TestRerankSpan_MalformedBody(t *testing.T) {
+	// Known provider hostname but malformed JSON body.
+	// Should still be detected because hostname matches a known provider.
 	req := makeRequest(t, http.MethodPost, "http://api.cohere.com/v1/rerank", `not-json`)
 	resp := makePlainResponse(http.StatusOK, http.Header{
 		"Content-Type": []string{"application/json"},
@@ -202,7 +220,7 @@ func TestRerankSpan_MalformedBody(t *testing.T) {
 	base := &request.Span{}
 	span, ok := RerankSpan(base, req, resp)
 
-	// Still detected as rerank (path matches), span returned even if JSON is junk
+	// Still detected as rerank (known provider + path matches), span returned even if JSON is junk
 	assert.True(t, ok)
 	assert.NotNil(t, span.GenAI.Rerank)
 	assert.Empty(t, span.GenAI.Rerank.Input.Model)

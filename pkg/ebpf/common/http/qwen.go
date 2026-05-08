@@ -25,32 +25,6 @@ var modelFieldRegexp = regexp.MustCompile(`"model"\s*:\s*"([^"]+)"`)
 
 const modelSearchWindow = 200
 
-func qwenRequestPath(req *http.Request) string {
-	if req == nil {
-		return ""
-	}
-	if req.URL != nil {
-		if req.URL.Path != "" {
-			return req.URL.Path
-		}
-		if req.URL.Opaque != "" {
-			if parsed, err := url.Parse(req.URL.Opaque); err == nil && parsed.Path != "" {
-				return parsed.Path
-			}
-			if strings.HasPrefix(req.URL.Opaque, "/") {
-				return req.URL.Opaque
-			}
-		}
-	}
-	if req.RequestURI == "" {
-		return ""
-	}
-	if parsed, err := url.ParseRequestURI(req.RequestURI); err == nil && parsed.Path != "" {
-		return parsed.Path
-	}
-	return req.RequestURI
-}
-
 func isQwen(respHeader http.Header) bool {
 	for _, header := range []string{"X-DashScope-Request-Id", "X-Dashscope-Call-Gateway"} {
 		if val := respHeader.Get(header); val != "" {
@@ -144,7 +118,7 @@ func extractQwenOperation(req *http.Request) string {
 		return "generation"
 	}
 
-	path := qwenRequestPath(req)
+	path := requestPath(req)
 	switch {
 	case strings.Contains(path, "/chat/completions"):
 		return "chat.completion"

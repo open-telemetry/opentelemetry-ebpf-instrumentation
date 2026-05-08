@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strings"
 
 	"github.com/andybalholm/brotli"
 	"github.com/klauspost/compress/zstd"
@@ -26,6 +28,35 @@ var errResponseBodyTooLarge = fmt.Errorf(
 	"response body exceeds decompression limit of %d bytes",
 	maxDecompressedResponseBodyBytes,
 )
+
+// requestPath extracts the request path from multiple URL representations,
+// handling opaque URLs and fallback to RequestURI. This is a shared helper
+// used by various protocol detectors (Qwen, rerank, etc.) to avoid code duplication.
+func requestPath(req *http.Request) string {
+	if req == nil {
+		return ""
+	}
+	if req.URL != nil {
+		if req.URL.Path != "" {
+			return req.URL.Path
+		}
+		if req.URL.Opaque != "" {
+			if parsed, err := url.Parse(req.URL.Opaque); err == nil && parsed.Path != "" {
+				return parsed.Path
+			}
+			if strings.HasPrefix(req.URL.Opaque, "/") {
+				return req.URL.Opaque
+			}
+		}
+	}
+	if req.RequestURI == "" {
+		return ""
+	}
+	if parsed, err := url.ParseRequestURI(req.RequestURI); err == nil && parsed.Path != "" {
+		return parsed.Path
+	}
+	return req.RequestURI
+}
 
 // getResponseBody tries to read the body as plain text and then
 // if it's encoded in compressed format, it tries to decompress
