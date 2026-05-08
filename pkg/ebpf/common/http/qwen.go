@@ -9,21 +9,11 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"net/url"
 	"regexp"
 	"strings"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 )
-
-// modelFieldRegexp extracts the top-level "model" value from a (possibly
-// truncated) JSON request body.  It is a best-effort fallback used only when
-// json.Unmarshal cannot parse the body.  We limit the search window to
-// modelSearchWindow bytes so that we don't accidentally match a "model"
-// key buried inside a user prompt or message content.
-var modelFieldRegexp = regexp.MustCompile(`"model"\s*:\s*"([^"]+)"`)
-
-const modelSearchWindow = 200
 
 func isQwen(respHeader http.Header) bool {
 	for _, header := range []string{"X-DashScope-Request-Id", "X-Dashscope-Call-Gateway"} {

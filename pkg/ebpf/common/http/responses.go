@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 
 	"github.com/andybalholm/brotli"
@@ -57,6 +58,17 @@ func requestPath(req *http.Request) string {
 	}
 	return req.RequestURI
 }
+
+// modelFieldRegexp extracts the top-level "model" value from a (possibly
+// truncated) JSON request body.  It is a best-effort fallback used only when
+// json.Unmarshal cannot parse the body.  We limit the search window to
+// modelSearchWindow bytes so that we don't accidentally match a "model"
+// key buried inside a user prompt, message content, or document text.
+var modelFieldRegexp = regexp.MustCompile(`"model"\s*:\s*"([^"]+)"`)
+
+// modelSearchWindow limits the search window for model field extraction
+// to avoid matching "model" keys buried inside user-provided content.
+const modelSearchWindow = 200
 
 // getResponseBody tries to read the body as plain text and then
 // if it's encoded in compressed format, it tries to decompress

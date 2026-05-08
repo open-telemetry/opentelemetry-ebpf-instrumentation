@@ -9,7 +9,6 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"net/url"
 	"regexp"
 	"strings"
 
@@ -62,15 +61,6 @@ func rerankProviderFromHost(req *http.Request) string {
 	}
 	return "unknown"
 }
-
-// modelFieldRegexp extracts the top-level "model" value from a (possibly
-// truncated) JSON request body.  It is a best-effort fallback used only when
-// json.Unmarshal cannot parse the body.  We limit the search window to
-// modelSearchWindow bytes so that we don't accidentally match a "model"
-// key buried inside user-provided documents or query text.
-var modelFieldRegexp = regexp.MustCompile(`"model"\s*:\s*"([^"]+)"`)
-
-const modelSearchWindow = 200
 
 // extractModelFromPartialJSON attempts to extract the model field from
 // potentially truncated JSON using a simple regex.  This is a fallback
@@ -129,7 +119,7 @@ func RerankSpan(baseSpan *request.Span, req *http.Request, resp *http.Response) 
 	}
 
 	if provider == "unknown" && !hasModel {
-		slog.Debug("RerankSpan: path matches /rerank but no known provider or model field found, skipping", "path", rerankRequestPath(req), "host", extractHostname(req))
+		slog.Debug("RerankSpan: path matches /rerank but no known provider or model field found, skipping", "path", requestPath(req), "host", extractHostname(req))
 		return *baseSpan, false
 	}
 
