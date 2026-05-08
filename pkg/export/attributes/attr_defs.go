@@ -380,6 +380,7 @@ func getDefinitions(
 		Traces.Section: {
 			Attributes: map[attr.Name]Default{
 				attr.DBQueryText:       false,
+				attr.HTTPUrlQuery:      false,
 				attr.GenAIInput:        false,
 				attr.GenAIOutput:       false,
 				attr.GenAIInstructions: false,

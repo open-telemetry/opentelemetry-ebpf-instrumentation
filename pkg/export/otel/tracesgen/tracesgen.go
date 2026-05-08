@@ -465,8 +465,10 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 		}
 		// Strip query parameters from url.full by default to avoid leaking
 		// sensitive data (tokens, PII). Include them only when explicitly opted in.
-		if _, ok := optionalAttrs[attr.HTTPUrlQuery]; !ok {
-			if idx := strings.IndexByte(urlPath, '?'); idx > 0 {
+		var queryString string
+		if idx := strings.IndexByte(urlPath, '?'); idx > 0 {
+			queryString = urlPath[idx+1:]
+			if _, ok := optionalAttrs[attr.HTTPUrlQuery]; !ok {
 				urlPath = urlPath[:idx]
 			}
 		}
@@ -485,6 +487,10 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 			request.ServerPort(span.HostPort),
 			request.HTTPRequestBodySize(int(span.RequestBodyLength())),
 			request.HTTPResponseBodySize(span.ResponseBodyLength()),
+		}
+
+		if _, ok := optionalAttrs[attr.HTTPUrlQuery]; ok && queryString != "" {
+			attrs = append(attrs, request.HTTPUrlQuery(queryString))
 		}
 
 		if span.SubType == request.HTTPSubtypeElasticsearch && span.Elasticsearch != nil {

@@ -36,6 +36,10 @@ func HTTPUrlFull(val string) attribute.KeyValue {
 	return attribute.Key(attr.HTTPUrlFull).String(val)
 }
 
+func HTTPUrlQuery(val string) attribute.KeyValue {
+	return attribute.Key(attr.HTTPUrlQuery).String(val)
+}
+
 func ClientAddr(val string) attribute.KeyValue {
 	return attribute.Key(attr.ClientAddr).String(val)
 }
