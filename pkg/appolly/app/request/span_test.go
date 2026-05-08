@@ -14,6 +14,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
+	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 )
 
@@ -312,7 +313,7 @@ func TestSpanStatusMessage_JSONRPC(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.expectedMessage, SpanStatusMessage(tt.span, nil))
+			assert.Equal(t, tt.expectedMessage, SpanStatusMessage(tt.span))
 		})
 	}
 }
@@ -333,7 +334,7 @@ func TestSpanStatusMessage_DBResponseErrorOptional(t *testing.T) {
 				Status:  1,
 				DBError: DBError{ErrorCode: "WRONGTYPE", Description: "WRONGTYPE Operation against a key holding the wrong kind of value"},
 			},
-			expectedDefault: DBErrorMessagePlaceholder,
+			expectedDefault: attributes.DBErrorMessagePlaceholder,
 			expectedAllowed: "WRONGTYPE Operation against a key holding the wrong kind of value",
 		},
 		{
@@ -343,7 +344,7 @@ func TestSpanStatusMessage_DBResponseErrorOptional(t *testing.T) {
 				Status:   1,
 				SQLError: &SQLError{Code: 8, SQLState: "ABC", Message: "SQL error message"},
 			},
-			expectedDefault: DBErrorMessagePlaceholder,
+			expectedDefault: attributes.DBErrorMessagePlaceholder,
 			expectedAllowed: "SQL Server errored: error_code=8 sql_state=ABC message=SQL error message",
 		},
 		{
@@ -354,7 +355,7 @@ func TestSpanStatusMessage_DBResponseErrorOptional(t *testing.T) {
 				Status:  1,
 				DBError: DBError{ErrorCode: "12003", Description: "Keyspace not found in CB datastore"},
 			},
-			expectedDefault: DBErrorMessagePlaceholder,
+			expectedDefault: attributes.DBErrorMessagePlaceholder,
 			expectedAllowed: "Keyspace not found in CB datastore",
 		},
 		{
@@ -370,8 +371,18 @@ func TestSpanStatusMessage_DBResponseErrorOptional(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.expectedDefault, SpanStatusMessage(tt.span, nil))
-			assert.Equal(t, tt.expectedAllowed, SpanStatusMessage(tt.span, traceAttrs))
+			messageAllowed := attributes.DBResponseErrorAttr(traceAttrs, tt.expectedAllowed)
+			messageDefault := attributes.DBResponseErrorAttr(nil, tt.expectedAllowed)
+			if len(messageDefault) > 0 {
+				assert.Equal(t, tt.expectedDefault, SpanDBStatusMessage(tt.span, messageDefault[0].Value.AsString()))
+			} else {
+				assert.Equal(t, tt.expectedDefault, SpanDBStatusMessage(tt.span, ""))
+			}
+			if len(messageAllowed) > 0 {
+				assert.Equal(t, tt.expectedAllowed, SpanDBStatusMessage(tt.span, messageAllowed[0].Value.AsString()))
+			} else {
+				assert.Equal(t, tt.expectedAllowed, SpanDBStatusMessage(tt.span, ""))
+			}
 		})
 	}
 }
@@ -471,7 +482,7 @@ func TestSpanStatusMessage_MCP(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.expectedMessage, SpanStatusMessage(tt.span, nil))
+			assert.Equal(t, tt.expectedMessage, SpanStatusMessage(tt.span))
 		})
 	}
 }

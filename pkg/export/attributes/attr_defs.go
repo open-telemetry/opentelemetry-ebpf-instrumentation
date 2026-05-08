@@ -6,6 +6,8 @@ package attributes // import "go.opentelemetry.io/obi/pkg/export/attributes"
 import (
 	"maps"
 
+	"go.opentelemetry.io/otel/attribute"
+
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 )
 
@@ -520,4 +522,19 @@ func AllAttributeNames(
 		}
 	}
 	return names
+}
+
+const (
+	DBErrorMessagePlaceholder = "enable the db.response.error attribute for details"
+)
+
+// DBResponseErrorAttr returns a database response error attribute or a placeholder if the attribute is not selected
+func DBResponseErrorAttr(optionalAttrs map[attr.Name]struct{}, description string) []attribute.KeyValue {
+	if description == "" {
+		return nil
+	}
+	if _, ok := optionalAttrs[attr.DBResponseError]; !ok {
+		return []attribute.KeyValue{attribute.Key(attr.DBResponseError).String(DBErrorMessagePlaceholder)}
+	}
+	return []attribute.KeyValue{attribute.Key(attr.DBResponseError).String(description)}
 }
