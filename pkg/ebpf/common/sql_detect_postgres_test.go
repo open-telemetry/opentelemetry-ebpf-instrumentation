@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"go.opentelemetry.io/obi/pkg/config"
 	"go.opentelemetry.io/obi/pkg/internal/largebuf"
 )
 
@@ -131,4 +132,47 @@ func TestPostgresMessagesIteratorNoAllocs(t *testing.T) {
 	if allocs != 0 {
 		t.Errorf("MessageIterator allocated %v allocs per run; want 0", allocs)
 	}
+}
+
+// TestPostgresHandleBindTruncatedDoesNotPanic reproduces the production crash
+// where the BPF ring buffer captures only the portal-name portion of a Postgres
+// BIND message (statement-name byte was lost to TCP segmentation). Without a
+// bounds check, msg.data[portalLen:] in the BIND case panics with
+// "slice bounds out of range [13:12]".
+//
+// Stack trace observed in production:
+//
+//	panic: runtime error: slice bounds out of range [13:12]
+//	  go.opentelemetry.io/obi/pkg/ebpf/common.handlePostgres(...)
+//	    sql_detect_postgres.go:330
+//	  go.opentelemetry.io/obi/pkg/ebpf/common.dispatchPostgres(...)
+//	    tcp_detect_transform.go:151
+//	  go.opentelemetry.io/obi/pkg/ebpf/common.ReadTCPRequestIntoSpan(...)
+//	    tcp_detect_transform.go:61
+//
+// Trigger: Rust application (sqlx / tokio-postgres) sending prepared-statement
+// BIND messages large enough that the BIND header arrives in one BPF event but
+// the body is captured truncated.
+func TestPostgresHandleBindTruncatedDoesNotPanic(t *testing.T) {
+	// Body = 12 bytes of portal-name with NO null terminator within the buffer.
+	// unix.ByteSliceToString reads to the end → portal length = 12,
+	// portalLen = len(portal)+1 = 13, but len(msg.data) = 12 → slice [13:12].
+	body := []byte("abcdefghijkl")
+
+	// Postgres BIND wire frame: type byte + 4-byte length (length includes
+	// itself, excludes the type byte).
+	bind := []byte{'B', 0, 0, 0, byte(4 + len(body))}
+	bind = append(bind, body...)
+
+	requestBuffer := largebuf.NewLargeBufferFrom(bind)
+	// Minimal valid response buffer (just the header bytes — content is not
+	// consulted on the panic path).
+	responseBuffer := largebuf.NewLargeBufferFrom([]byte{'B', 0, 0, 0, 4})
+
+	cfg := config.EBPFTracer{HeuristicSQLDetect: true}
+	ctx := NewEBPFParseContext(&cfg, nil, nil)
+
+	require.NotPanics(t, func() {
+		_, _ = handlePostgres(ctx, &TCPRequestInfo{}, requestBuffer, responseBuffer)
+	}, "handlePostgres must not panic on a Postgres BIND message truncated mid-portal")
 }
