@@ -6,6 +6,7 @@ services:
       context: ../../..
       dockerfile: internal/test/integration/components/testserver/Dockerfile
     image: hatest-testserver
+    user: "0:0"
     ports:
       - "8080:8080"
       - "8088:8088"
@@ -22,6 +23,7 @@ services:
   # of metrics when they come from the same executable file
   testserver-unused:
     image: hatest-testserver
+    user: "0:0"
     ports:
       - "38080:8080"
     environment:
@@ -33,6 +35,7 @@ services:
       context: ../../..
       dockerfile: internal/test/integration/components/testserver/Dockerfile_rename1
     image: hatest-testserver1
+    user: "0:0"
     ports:
       - "8900:8900"
     environment:
@@ -47,6 +50,7 @@ services:
       context: ../../..
       dockerfile: internal/test/integration/components/testserver/Dockerfile_duplicate
     image: hatest-testserver-duplicate
+    user: "0:0"
     ports:
       - "18080:18080"
       - "18090:18090"
@@ -56,11 +60,13 @@ services:
 
   rtestserver:
     image: ghcr.io/open-telemetry/obi-testimg:rust-0.1.0@sha256:3989aa18c1e23cbb5a4c511ae1ad3456f94a9b967fd916bc21ee10c1d940a95d
+    user: "0:0"
     ports:
       - 8091:8090
 
   rtestserverssl:
     image: ghcr.io/open-telemetry/obi-testimg:rust-ssl-0.1.0@sha256:9f7d6352112dd6f3999f85cdb847c1e8b462a48dedbf2ba55337f3efcbd6fd1a
+    user: "0:0"
     ports:
       - 8491:8490
     environment:
@@ -71,6 +77,7 @@ services:
       context: ../../..
       dockerfile: internal/test/integration/components/pythonserver/Dockerfile_tls
     image: hatest-testserver-python-ssl
+    user: "0:0"
     ports:
       - 8381:8380
 
@@ -79,6 +86,7 @@ services:
       context: ../../..
       dockerfile: internal/test/integration/components/pythonserver/Dockerfile_7773
     image: hatest-testserver-python
+    user: "0:0"
     ports:
       - 7773:7773
 
@@ -87,6 +95,7 @@ services:
       context: ../../..
       dockerfile: internal/test/integration/components/nodejsserver/Dockerfile
     image: hatest-testserver-node-ssl
+    user: "0:0"
     command:
       - node
       - app_tls.js
@@ -98,6 +107,7 @@ services:
       context: ../../..
       dockerfile: internal/test/integration/components/nodejsserver/Dockerfile
     image: hatest-testserver-node
+    user: "0:0"
     command:
       - node
       - app.js
@@ -106,16 +116,19 @@ services:
 
   utestserver:
     image: ghcr.io/open-telemetry/obi-testimg:rails-0.1.0@sha256:7a72159a113b9044378c42f7ea27ab00673c6a0ebfe3ac205cc006f46606b36c
+    user: "0:0"
     ports:
       - 3041:3040
 
   utestserverssl:
     image: ghcr.io/open-telemetry/obi-testimg:rails-ssl-0.1.0@sha256:b230987a8e15e33c42f4d8fc1bdda22539c9614695ac833c1e7e9697efd2aaa7
+    user: "0:0"
     ports:
       - 3044:3043
 
   jtestserver:
     image: ghcr.io/open-telemetry/obi-testimg:java-jar-0.1.0@sha256:92d325a0a7aadcce2559de70ef66d39fa07075b57d8fa33b4244ada4dde3787e
+    user: "0:0"
     ports:
       - "8086:8085"
 
@@ -132,6 +145,7 @@ services:
       - ../../../testoutput:/coverage
       - ../../../testoutput/run-multi:/var/run/obi
     image: hatest-obi
+    user: "0:0"
     privileged: true # in some environments (not GH Pull Requests) you can set it to false and then cap_add: [ SYS_ADMIN ]
     network_mode: "host"
     pid: "host"
