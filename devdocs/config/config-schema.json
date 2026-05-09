@@ -2315,6 +2315,15 @@
       },
       "type": "object"
     },
+    "ResourceLabels": {
+      "additionalProperties": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "type": "object"
+    },
     "RetrievalConfig": {
       "properties": {
         "enabled": {
@@ -2323,15 +2332,6 @@
           "default": false,
           "x-env-var": "OTEL_EBPF_HTTP_RETRIEVAL_ENABLED"
         }
-      },
-      "type": "object"
-    },
-    "ResourceLabels": {
-      "additionalProperties": {
-        "items": {
-          "type": "string"
-        },
-        "type": "array"
       },
       "type": "object"
     },
