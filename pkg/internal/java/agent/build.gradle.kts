@@ -43,14 +43,14 @@ repositories {
 }
 
 dependencies {
-    implementation("net.bytebuddy:byte-buddy:1.18.8-jdk5")
-    implementation("net.bytebuddy:byte-buddy-agent:1.18.8-jdk5")
+    implementation("net.bytebuddy:byte-buddy:1.18.8")
+    implementation("net.bytebuddy:byte-buddy-agent:1.18.8")
 
-    testImplementation("org.junit.jupiter:junit-jupiter-api:5.14.3")
-    testImplementation("org.junit.platform:junit-platform-launcher:1.14.3")
+    testImplementation("org.junit.jupiter:junit-jupiter-api:5.14.4")
+    testImplementation("org.junit.platform:junit-platform-launcher:1.14.4")
     testImplementation("org.awaitility:awaitility:4.3.0")
 
-    testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine:5.14.3")
+    testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine:5.14.4")
 }
 
 tasks.register("prepareKotlinBuildScriptModel"){}

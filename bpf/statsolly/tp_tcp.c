@@ -14,6 +14,7 @@
 
 #include <statsolly/types.h>
 #include <statsolly/maps/stats_events.h>
+#include <statsolly/maps/sock_role.h>
 
 #ifndef ECONNREFUSED
 #define ECONNREFUSED 111
@@ -41,6 +42,12 @@ enum tcp_fail_reason {
     reason_other = 255,
 };
 
+enum tcp_handshake_role {
+    role_unknown = 0,
+    role_client = 1,
+    role_server = 2,
+};
+
 static __always_inline u8 sk_err_to_reason(const int err) {
     switch (err) {
     case ECONNREFUSED:
@@ -63,7 +70,8 @@ static __always_inline u8 sk_err_to_reason(const int err) {
 typedef struct tcp_failed_connection {
     u8 flags; // Must be first, we use it to tell what kind of event we have on the ring buffer
     u8 reason;
-    u8 _pad[2];
+    u8 role;
+    u8 _pad[1];
     connection_info_t conn;
 } tcp_failed_connection_t;
 
@@ -76,45 +84,67 @@ int obi_tracepoint_inet_sock_set_state(struct trace_event_raw_inet_sock_set_stat
         return 0;
     }
 
+    struct sock *const sk = (struct sock *)args->skaddr;
+
+    if (args->oldstate == TCP_SYN_SENT || args->oldstate == TCP_SYN_RECV) {
+        if (args->newstate == TCP_ESTABLISHED) {
+            const u8 role = (args->oldstate == TCP_SYN_SENT) ? role_client : role_server;
+            bpf_map_update_elem(&sock_role, &sk, &role, BPF_ANY);
+        }
+    }
+
     if (args->newstate != TCP_CLOSE) {
         return 0;
     }
 
     // {TCP_LAST_ACK|TCP_TIME_WAIT}->TCP_CLOSE are normal close transitions
     // TCP_LISTEN->TCP_CLOSE is what happens when a listener socket is shut down
-    if (args->oldstate == TCP_LAST_ACK || args->oldstate == TCP_TIME_WAIT ||
-        args->oldstate == TCP_LISTEN) {
+    if (args->oldstate == TCP_LAST_ACK || args->oldstate == TCP_TIME_WAIT) {
+        goto cleanup;
+    }
+    if (args->oldstate == TCP_LISTEN) {
         return 0;
     }
-
-    struct sock *sk = (struct sock *)args->skaddr;
 
     const int err = BPF_CORE_READ(sk, sk_err);
     // Trust sk_err: err==0 means the kernel saw no problem (e.g. local close()
     // with unread data sends RST without setting sk_err).
     // Exception: aborted connect (TCP_SYN_SENT -> TCP_CLOSE) never established, still a failure.
     if (err == 0 && args->oldstate != TCP_SYN_SENT) {
-        return 0;
+        goto cleanup;
     }
     const u8 reason = sk_err_to_reason(err);
 
     connection_info_t conn;
     if (!parse_sock_info(sk, &conn)) {
-        return 0;
+        goto cleanup;
     }
 
     bpf_d_printk("tcp failed: s_port=%d, d_port=%d, reason=%d", conn.s_port, conn.d_port, reason);
 
-    tcp_failed_connection_t *se = bpf_ringbuf_reserve(&stats_events, sizeof(*se), 0);
+    tcp_failed_connection_t *const se = bpf_ringbuf_reserve(&stats_events, sizeof(*se), 0);
     if (!se) {
-        return 0;
+        goto cleanup;
     }
 
     se->flags = k_event_stat_tcp_failed_connection;
     se->reason = reason;
     se->conn = conn;
 
+    const u8 *role_ptr = bpf_map_lookup_elem(&sock_role, &sk);
+    if (role_ptr) {
+        se->role = *role_ptr;
+    } else if (args->oldstate == TCP_SYN_SENT) {
+        se->role = role_client;
+    } else if (args->oldstate == TCP_SYN_RECV) {
+        se->role = role_server;
+    } else {
+        se->role = role_unknown;
+    }
+
     bpf_ringbuf_submit(se, stats_events_flags());
 
+cleanup:
+    bpf_map_delete_elem(&sock_role, &sk);
     return 0;
 }

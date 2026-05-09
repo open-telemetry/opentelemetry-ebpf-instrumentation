@@ -828,7 +828,8 @@ assign_parent_tp(const tailcall_ctx *t_ctx, tp_info_t *tp, unsigned char *span_i
 //k_tail_find_existing_tp
 SEC("sk_msg")
 int obi_packet_extender_find_existing_tp(struct sk_msg_md *msg) {
-    const u32 k_max_iter = 4; // iterate up to 4KB
+    const u32 k_max_iter = 4;          // iterate up to 4KB
+    const u32 k_max_chunk_size = 1024; // 1KB chunks per iteration
 
     tailcall_ctx *t_ctx = tailcall_ctx_mem();
 
@@ -850,7 +851,7 @@ int obi_packet_extender_find_existing_tp(struct sk_msg_md *msg) {
 
     unsigned char *b = msg->data;
     const unsigned char *e = msg->data_end;
-    unsigned char *ptr = b + (niter * 1024);
+    unsigned char *ptr = b + (niter * k_max_chunk_size);
 
     if (ptr >= e) {
         return SK_PASS;
@@ -858,7 +859,11 @@ int obi_packet_extender_find_existing_tp(struct sk_msg_md *msg) {
 
     bpf_dbg_printk("looking for traceparent header (iter=%u)", niter);
 
-    const u32 data_size = (e - ptr) & 0x3ff; // 1KB chunks per iteration
+    u32 data_size = e - ptr;
+
+    if (data_size > k_max_chunk_size) {
+        data_size = k_max_chunk_size;
+    }
 
     for (u32 i = 0; i < data_size; ++i) {
         if ((ptr + TP_SIZE >= e) || is_eoh(ptr)) {

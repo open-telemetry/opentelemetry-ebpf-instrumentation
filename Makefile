@@ -123,11 +123,6 @@ prereqs: install-hooks fetch-upstream-semconv
 	mkdir -p $(TEST_OUTPUT)/run
 
 .PHONY: fetch-upstream-semconv
-# Pre-fetch the upstream OpenTelemetry semantic-conventions registry that
-# `schemas/obi/manifest.yaml` depends on. weaver `live-check` reads the
-# pre-fetched copy from `schemas/obi/.deps/` instead of cloning over the
-# network on every container start (which on cold CI runners can take
-# 30–60 s and trip the otelcol→weaver healthcheck dependency).
 fetch-upstream-semconv:
 	@./scripts/fetch-upstream-semconv.sh
 
@@ -153,16 +148,8 @@ lint-run: vanity-import-check lint-dependency-policy lint-collectt
 	@echo "### Linting code"
 	go tool $(TOOLS_MODFILE) golangci-lint run ./... --timeout=6m $(LINT_EXTRA_ARGS)
 
-# `lint-schema` is intentionally NOT a dependency of `lint-run`: it requires
-# docker, which the macOS lint runner does not provide. The Linux PR Lint job
-# invokes it as a separate workflow step (see `.github/workflows/pull_request.yml`).
 WEAVERIMAGE := $(shell awk '$$4=="weaver" {print $$2}' $(DEPENDENCIES_DOCKERFILE))
 .PHONY: lint-schema
-# Validate the OBI semantic-convention registry under `schemas/obi/`.
-# `weaver registry check` always exits 0 — even on hard errors — so we instead
-# inspect the JSON diagnostic stream: an empty array means the registry is
-# clean. `--future` promotes pending warnings (e.g. missing examples) to
-# errors so we catch them at PR time instead of in integration logs.
 lint-schema: fetch-upstream-semconv
 	@echo "### Linting OBI semantic-convention registry"
 	@./scripts/lint-schema.sh $(OCI_BIN) $(WEAVERIMAGE) "$(CURDIR)/schemas/obi"

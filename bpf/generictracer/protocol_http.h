@@ -475,7 +475,8 @@ __obi_continue_protocol_http_tp(struct pt_regs *ctx,
 
         unsigned char *buf = (unsigned char *)tp_char_buf_mem();
         if (buf) {
-            const u16 buf_len = args->bytes_len & (TRACE_BUF_SIZE - 1);
+            u16 buf_len = args->bytes_len;
+            bpf_clamp_umax(buf_len, TRACE_BUF_SIZE - 1);
 
             bpf_probe_read(buf, buf_len, (void *)args->u_buf);
             // null terminate to make proper string

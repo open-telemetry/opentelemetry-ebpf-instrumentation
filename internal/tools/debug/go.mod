@@ -2,7 +2,7 @@ module go.opentelemetry.io/obi/internal/tools/debug
 
 go 1.25.9
 
-require github.com/go-delve/delve v1.26.1
+require github.com/go-delve/delve v1.26.3
 
 require (
 	github.com/cilium/ebpf v0.11.0 // indirect

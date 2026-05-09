@@ -545,6 +545,16 @@ func TestSuite_PythonMQTT(t *testing.T) {
 	require.NoError(t, compose.Close())
 }
 
+func TestSuite_GoMQTT(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-go-mqtt.yml", path.Join(pathOutput, "test-suite-go-mqtt.log"))
+	require.NoError(t, err)
+
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)
+	require.NoError(t, compose.Up())
+	t.Run("Go MQTT publish tests", testREDMetricsGoMQTT)
+	require.NoError(t, compose.Close())
+}
+
 func TestSuite_JavaKafka(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-java-kafka-400.yml", path.Join(pathOutput, "test-suite-java-kafka.log"))
 	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)
@@ -955,6 +965,39 @@ func TestSuite_LogEnricherPythonAsync(t *testing.T) {
 	t.Run("Log Enricher Python async", func(t *testing.T) {
 		testLogEnricherPythonAsync(t)
 	})
+	require.NoError(t, compose.Close())
+}
+
+// The idea behind this test suite is to make sure that when an HTTP request is bigger than 1KB,
+// the traceparent is detected and parsed correctly during an ingress flow (protocol_http kprob)
+// and an egress flow (tpinjector sk_msg kprobe).
+// In previous versions of OBI, tpinjector.c:obi_packet_extender_find_existing_tp()
+// and protocol_http.h:__obi_continue_protocol_http_tp() had problematic bitwise operations that
+// can change or corrupt the traceparent header when parsing a 1KB+ HTTP request.
+func TestSuite_LargeHTTPRequest(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-large-http-req.yml", path.Join(pathOutput, "test-suite-large-http-req.log"))
+	require.NoError(t, err)
+
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=3030`, `OTEL_EBPF_EXECUTABLE_PATH=`)
+	require.NoError(t, compose.Up())
+
+	t.Run("Large HTTP Request egress flow (kprobe: tpinjector[sk_msg])", func(t *testing.T) {
+		waitForTestComponents(t, "http://localhost:3035")
+		testLargeHTTPRequestEgress(t)
+	})
+
+	t.Run("Large HTTP Request ingress flow (kprobe: protocol_http)", func(t *testing.T) {
+		testLargeHTTPRequestIngress(t)
+	})
+
+	t.Run("Large HTTP Request egress flow with arbitrary size (kprobe: tpinjector[sk_msg])", func(t *testing.T) {
+		testLargeHTTPRequestEgressArbitrarySize(t)
+	})
+
+	t.Run("Large HTTP Request ingress flow with arbitrary size (kprobe: protocol_http)", func(t *testing.T) {
+		testLargeHTTPRequestIngressArbitrarySize(t)
+	})
+
 	require.NoError(t, compose.Close())
 }
 

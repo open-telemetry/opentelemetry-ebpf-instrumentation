@@ -172,21 +172,10 @@ func runWeaverValidation(t *testing.T) {
 		return
 	}
 
-	// If a prior sub-test already failed, the weaver report would either be
-	// empty (no telemetry produced) or only reflect a partial run. Either
-	// way it's not the real signal — skip parsing & assertions so the
-	// upstream failure stays the headline.
 	if priorFailure {
 		return
 	}
 
-	// weaver writes its consolidated report to `/tmp/live_check.json`
-	// inside the container (see `--output /tmp` in
-	// `components/weaver/service.yml`). Pulling it out via `docker cp` is
-	// dramatically faster than streaming the equivalent volume of
-	// per-entity stream-mode JSON via `docker logs`, which is what blew
-	// the test budget on heavy multi-language suites; it also avoids the
-	// host bind-mount UID mismatch a shared volume would introduce.
 	reportPath := weaverReportPath(t)
 	cpCmd := exec.CommandContext(ctx, "docker", "cp",
 		weaverContainer+":/tmp/live_check.json", reportPath)
