@@ -885,6 +885,9 @@ regenerate-port-lookup:
 
 CONFIG_SCHEMA_FILE ?= devdocs/config/config-schema.json
 CONFIG_DOCS_FILE ?= devdocs/config/CONFIG.md
+CONFIG_V2_DIR ?= devdocs/config/version-2.0
+CONFIG_V2_SCHEMA_FILE ?= $(CONFIG_V2_DIR)/obi-extension.schema.json
+CONFIG_V2_EXAMPLE_FILE ?= $(CONFIG_V2_DIR)/examples/default-configuration.yaml
 
 .PHONY: generate-config-schema
 generate-config-schema:
@@ -919,3 +922,29 @@ check-config-schema:
 	fi
 	@rm -f $(CONFIG_DOCS_FILE).tmp
 	@echo "Configuration docs are up-to-date"
+
+.PHONY: generate-config-v2-artifacts
+generate-config-v2-artifacts:
+	@echo "### Generating config v2 schema and example artifacts"
+	@mkdir -p $(dir $(CONFIG_V2_SCHEMA_FILE)) $(dir $(CONFIG_V2_EXAMPLE_FILE))
+	go run ./cmd/obi-config-v2 -schema $(CONFIG_V2_SCHEMA_FILE) -example $(CONFIG_V2_EXAMPLE_FILE)
+
+.PHONY: check-config-v2-artifacts
+check-config-v2-artifacts:
+	@echo "### Checking config v2 schema drift"
+	@mkdir -p $(dir $(CONFIG_V2_SCHEMA_FILE)) $(dir $(CONFIG_V2_EXAMPLE_FILE))
+	@go run ./cmd/obi-config-v2 -schema $(CONFIG_V2_SCHEMA_FILE).tmp -example $(CONFIG_V2_EXAMPLE_FILE).tmp
+	@if ! diff -q $(CONFIG_V2_SCHEMA_FILE) $(CONFIG_V2_SCHEMA_FILE).tmp > /dev/null 2>&1; then \
+		echo "Config v2 schema is out of date. Run 'make generate-config-v2-artifacts' to update it."; \
+		diff $(CONFIG_V2_SCHEMA_FILE) $(CONFIG_V2_SCHEMA_FILE).tmp || true; \
+		rm -f $(CONFIG_V2_SCHEMA_FILE).tmp $(CONFIG_V2_EXAMPLE_FILE).tmp; \
+		exit 1; \
+	fi
+	@if ! diff -q $(CONFIG_V2_EXAMPLE_FILE) $(CONFIG_V2_EXAMPLE_FILE).tmp > /dev/null 2>&1; then \
+		echo "Config v2 example is out of date. Run 'make generate-config-v2-artifacts' to update it."; \
+		diff $(CONFIG_V2_EXAMPLE_FILE) $(CONFIG_V2_EXAMPLE_FILE).tmp || true; \
+		rm -f $(CONFIG_V2_SCHEMA_FILE).tmp $(CONFIG_V2_EXAMPLE_FILE).tmp; \
+		exit 1; \
+	fi
+	@rm -f $(CONFIG_V2_SCHEMA_FILE).tmp $(CONFIG_V2_EXAMPLE_FILE).tmp
+	@echo "Config v2 artifacts are up-to-date"
