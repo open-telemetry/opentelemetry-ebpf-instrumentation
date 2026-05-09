@@ -862,6 +862,9 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 			if count := ai.ResultCount(); count > 0 {
 				attrs = append(attrs, attribute.Int("gen_ai.retrieval.result_count", count))
 			}
+			if units := ai.Output.Usage.ReadUnits; units > 0 {
+				attrs = append(attrs, attribute.Int("gen_ai.retrieval.read_units", units))
+			}
 		}
 
 		attrs = append(attrs, jsonRPCAttributes(span)...)

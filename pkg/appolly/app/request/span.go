@@ -916,9 +916,6 @@ type RetrievalRequest struct {
 	TopK      int `json:"top_k,omitempty"`
 	TopKCamel int `json:"topK,omitempty"`
 	Limit     int `json:"limit,omitempty"`
-	// Vector is the query vector, kept as raw JSON to avoid decoding the
-	// full float array; used only to derive dimensionality when needed.
-	Vector json.RawMessage `json:"vector,omitempty"`
 }
 
 // RetrievalResponse captures the common fields from vector search response
