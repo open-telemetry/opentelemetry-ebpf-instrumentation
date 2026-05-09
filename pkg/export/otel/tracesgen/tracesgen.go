@@ -75,7 +75,14 @@ func UserSelectedAttributes(selectorCfg *attributes.SelectorConfig) (map[attr.Na
 }
 
 // GroupSpans must remain public for collectors embedding OBI
-func GroupSpans(ctx context.Context, spans []request.Span, traceAttrs map[attr.Name]struct{}, sampler trace.Sampler, is instrumentations.InstrumentationSelection) map[svc.UID][]TraceSpanAndAttributes {
+func GroupSpans(
+	ctx context.Context,
+	spans []request.Span,
+	traceAttrs map[attr.Name]struct{},
+	sampler trace.Sampler,
+	resourceAttrs func(*svc.Attrs) []attribute.KeyValue,
+	is instrumentations.InstrumentationSelection,
+) map[svc.UID][]TraceSpanAndAttributes {
 	spanGroups := map[svc.UID][]TraceSpanAndAttributes{}
 
 	for i := range spans {
@@ -88,6 +95,7 @@ func GroupSpans(ctx context.Context, spans []request.Span, traceAttrs map[attr.N
 		}
 
 		finalAttrs := TraceAttributesSelector(span, traceAttrs)
+		samplingAttrs := finalAttrs
 
 		spanSampler := func() trace.Sampler {
 			if span.Service.Sampler != nil {
@@ -97,12 +105,18 @@ func GroupSpans(ctx context.Context, spans []request.Span, traceAttrs map[attr.N
 			return sampler
 		}
 
+		if resourceAttrs != nil {
+			if attrs := resourceAttrs(&span.Service); len(attrs) > 0 {
+				samplingAttrs = append(append([]attribute.KeyValue{}, finalAttrs...), attrs...)
+			}
+		}
+
 		sr := spanSampler().ShouldSample(trace.SamplingParameters{
 			ParentContext: ctx,
 			Name:          span.TraceName(),
 			TraceID:       span.TraceID,
 			Kind:          spanKind(span),
-			Attributes:    finalAttrs,
+			Attributes:    samplingAttrs,
 		})
 
 		if sr.Decision == trace.Drop {

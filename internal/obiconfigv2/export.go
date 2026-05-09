@@ -469,7 +469,7 @@ func daemonMap(cfg *obi.Config) map[string]any {
 }
 
 func tracerProviderMap(cfg *obi.Config) map[string]any {
-	return map[string]any{
+	out := map[string]any{
 		"processors": []any{
 			map[string]any{
 				"batch": map[string]any{
@@ -487,6 +487,12 @@ func tracerProviderMap(cfg *obi.Config) map[string]any {
 			},
 		},
 	}
+
+	if sampler := samplerMap(cfg.Traces.SamplerConfig); sampler != nil {
+		out["sampler"] = sampler
+	}
+
+	return out
 }
 
 func meterProviderMap(cfg *obi.Config) map[string]any {
@@ -553,4 +559,52 @@ func globString(g services.GlobAttr) string {
 		return str
 	}
 	return ""
+}
+
+func samplerMap(cfg services.SamplerConfig) map[string]any {
+	out := map[string]any{}
+	if cfg.Name != "" {
+		out["name"] = cfg.Name
+	}
+	if cfg.Arg != "" {
+		out["arg"] = cfg.Arg
+	}
+	if cfg.OBIRuleBased != nil {
+		out["obi_rule_based"] = map[string]any{
+			"fallback": samplerLeafMap(cfg.OBIRuleBased.Fallback),
+			"rules":    samplerRulesMap(cfg.OBIRuleBased.Rules),
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func samplerLeafMap(cfg services.SamplerLeafConfig) map[string]any {
+	out := map[string]any{}
+	if cfg.Name != "" {
+		out["name"] = cfg.Name
+	}
+	if cfg.Arg != "" {
+		out["arg"] = cfg.Arg
+	}
+	return out
+}
+
+func samplerRulesMap(rules []services.OBIRuleBasedSamplerRule) []any {
+	if len(rules) == 0 {
+		return nil
+	}
+
+	out := make([]any, 0, len(rules))
+	for _, rule := range rules {
+		out = append(out, map[string]any{
+			"match": map[string]any{
+				"resource_attributes": rule.Match.ResourceAttributes,
+			},
+			"action": samplerLeafMap(rule.Action),
+		})
+	}
+	return out
 }

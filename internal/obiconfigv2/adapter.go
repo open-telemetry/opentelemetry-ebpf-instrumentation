@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"time"
 
+	"gopkg.in/yaml.v3"
+
 	obiv2 "go.opentelemetry.io/obi/pkg/obiconfig/v2"
 
 	"go.opentelemetry.io/obi/pkg/appolly/services"
@@ -200,6 +202,7 @@ func applyStandalone(cfg *obi.Config, src *obiv2.Extension) {
 }
 
 func applyTopLevelPipelines(cfg *obi.Config, doc *obiv2.Document) {
+	setSamplerConfig(&cfg.Traces.SamplerConfig, nestedMap(doc.TracerProvider, "sampler"))
 	setInt(&cfg.Traces.QueueSize, nestedMap(doc.TracerProvider, "processors", "0", "batch"), "max_queue_size")
 	setMilliseconds(&cfg.Traces.BatchTimeout, nestedMap(doc.TracerProvider, "processors", "0", "batch"), "schedule_delay")
 	setString(&cfg.Traces.TracesEndpoint, nestedMap(doc.TracerProvider, "processors", "0", "batch", "exporter", "otlp_grpc"), "endpoint")
@@ -456,4 +459,22 @@ func setStringSlice[T ~string](dst *[]T, m map[string]any, key string) {
 		out = append(out, T(value))
 	}
 	*dst = out
+}
+
+func setSamplerConfig(dst *services.SamplerConfig, m map[string]any) {
+	if m == nil {
+		return
+	}
+
+	data, err := yaml.Marshal(m)
+	if err != nil {
+		return
+	}
+
+	var sampler services.SamplerConfig
+	if err := yaml.Unmarshal(data, &sampler); err != nil {
+		return
+	}
+
+	*dst = sampler
 }

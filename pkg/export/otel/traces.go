@@ -114,7 +114,12 @@ func (tr *tracesOTELReceiver) getConstantAttributes() (map[attr.Name]struct{}, e
 }
 
 func (tr *tracesOTELReceiver) processSpans(ctx context.Context, exp exporter.Traces, spans []request.Span, traceAttrs map[attr.Name]struct{}, sampler trace.Sampler) {
-	spanGroups := tracesgen.GroupSpans(ctx, spans, traceAttrs, sampler, tr.is)
+	spanGroups := tracesgen.GroupSpans(ctx, spans, traceAttrs, sampler, func(service *svc.Attrs) []attribute.KeyValue {
+		return append(
+			otelcfg.GetAppResourceAttrs(&tr.ctxInfo.NodeMeta, service),
+			otelcfg.ResourceAttrsFromEnv(service)...,
+		)
+	}, tr.is)
 
 	for _, spanGroup := range spanGroups {
 		if len(spanGroup) > 0 {

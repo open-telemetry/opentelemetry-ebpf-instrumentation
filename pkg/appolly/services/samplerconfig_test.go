@@ -4,11 +4,14 @@
 package services
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/sdk/trace"
+	oteltrace "go.opentelemetry.io/otel/trace"
 )
 
 func TestSamplerImplementation(t *testing.T) {
@@ -53,4 +56,44 @@ func TestSamplerImplementation(t *testing.T) {
 			assert.Equal(t, tc.out, tc.in.Implementation())
 		})
 	}
+}
+
+func TestOBIRuleBasedSamplerImplementation(t *testing.T) {
+	cfg := SamplerConfig{
+		OBIRuleBased: &OBIRuleBasedSamplerConfig{
+			Fallback: SamplerLeafConfig{Name: SamplerAlwaysOff},
+			Rules: []OBIRuleBasedSamplerRule{{
+				Match: OBIRuleBasedSamplerMatch{
+					ResourceAttributes: map[string]string{
+						"service.name":      "frontend",
+						"service.namespace": "default",
+					},
+				},
+				Action: SamplerLeafConfig{Name: SamplerAlwaysOn},
+			}},
+		},
+	}
+
+	sampler := cfg.Implementation()
+	match := sampler.ShouldSample(trace.SamplingParameters{
+		ParentContext: context.Background(),
+		TraceID:       oteltrace.TraceID{1},
+		Name:          "GET /",
+		Attributes: []attribute.KeyValue{
+			attribute.String("service.name", "frontend"),
+			attribute.String("service.namespace", "default"),
+		},
+	})
+	assert.Equal(t, trace.RecordAndSample, match.Decision)
+
+	miss := sampler.ShouldSample(trace.SamplingParameters{
+		ParentContext: context.Background(),
+		TraceID:       oteltrace.TraceID{2},
+		Name:          "GET /",
+		Attributes: []attribute.KeyValue{
+			attribute.String("service.name", "backend"),
+			attribute.String("service.namespace", "default"),
+		},
+	})
+	assert.Equal(t, trace.Drop, miss.Decision)
 }

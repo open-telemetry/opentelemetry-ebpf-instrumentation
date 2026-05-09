@@ -4,17 +4,22 @@
 package tracesgen
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.38.0"
+	oteltrace "go.opentelemetry.io/otel/trace"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
+	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
+	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 )
 
 func TestTraceAttributesSelector_DNSQuestionName(t *testing.T) {
@@ -85,4 +90,64 @@ func TestGenAIToolCallAttributes(t *testing.T) {
 		assert.Equal(t, attribute.StringSlice(string(attr.GenAIToolName), []string{"get_time"}), attrs[0])
 		assert.Equal(t, attribute.StringSlice(string(attr.GenAIToolCallID), []string{"call_2"}), attrs[1])
 	})
+}
+
+func TestGroupSpansUsesResourceAttrsForSampling(t *testing.T) {
+	span := request.Span{
+		Type:   request.EventTypeHTTP,
+		Method: "GET",
+		Path:   "/orders",
+		Service: svc.Attrs{
+			UID: svc.UID{
+				Name:      "frontend",
+				Namespace: "default",
+			},
+		},
+		TraceID: oteltrace.TraceID{1},
+	}
+
+	resourceSampler := samplerFunc(func(params trace.SamplingParameters) trace.SamplingResult {
+		for _, kv := range params.Attributes {
+			if kv.Key == "service.name" && kv.Value.AsString() == "frontend" {
+				return trace.SamplingResult{Decision: trace.RecordAndSample}
+			}
+		}
+		return trace.SamplingResult{Decision: trace.Drop}
+	})
+
+	noResourceGroups := GroupSpans(
+		context.Background(),
+		[]request.Span{span},
+		map[attr.Name]struct{}{},
+		resourceSampler,
+		nil,
+		instrumentations.NewInstrumentationSelection([]instrumentations.Instrumentation{instrumentations.InstrumentationALL}),
+	)
+	assert.Empty(t, noResourceGroups)
+
+	withResourceGroups := GroupSpans(
+		context.Background(),
+		[]request.Span{span},
+		map[attr.Name]struct{}{},
+		resourceSampler,
+		func(service *svc.Attrs) []attribute.KeyValue {
+			return []attribute.KeyValue{
+				attribute.String("service.name", service.UID.Name),
+				attribute.String("service.namespace", service.UID.Namespace),
+			}
+		},
+		instrumentations.NewInstrumentationSelection([]instrumentations.Instrumentation{instrumentations.InstrumentationALL}),
+	)
+	assert.Len(t, withResourceGroups, 1)
+	assert.Len(t, withResourceGroups[span.Service.UID], 1)
+}
+
+type samplerFunc func(params trace.SamplingParameters) trace.SamplingResult
+
+func (f samplerFunc) ShouldSample(params trace.SamplingParameters) trace.SamplingResult {
+	return f(params)
+}
+
+func (samplerFunc) Description() string {
+	return "test"
 }
