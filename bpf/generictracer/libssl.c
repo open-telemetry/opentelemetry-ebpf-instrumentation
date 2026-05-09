@@ -65,6 +65,10 @@ int BPF_URETPROBE(obi_uretprobe_ssl_read, int ret) {
 
     bpf_map_delete_elem(&active_ssl_read_args, &id);
 
+    if (ret <= 0) {
+        return 0;
+    }
+
     // must be last in the function, doesn't return
     handle_ssl_buf(ctx, id, args, ret, TCP_RECV);
     return 0;
