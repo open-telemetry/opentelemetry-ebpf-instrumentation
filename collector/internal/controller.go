@@ -14,6 +14,7 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/instrumenter"
 	"go.opentelemetry.io/obi/pkg/obi"
+	"go.opentelemetry.io/obi/pkg/obisystem"
 )
 
 // sharedController manages an OBI instance that can be shared between
@@ -67,12 +68,18 @@ func NewController(id component.ID, cfg *obi.Config) (*Controller, error) {
 		}
 	}
 
-	if err := obi.CheckOSSupport(); err != nil {
+	if err := obisystem.CheckSupport(); err != nil {
 		slog.Error("can't start OBI Receiver", "error", err, "id", id)
 		return nil, err
 	}
 
-	if err := obi.CheckOSCapabilities(cfg); err != nil {
+	if err := obisystem.CheckCapabilities(obisystem.CapabilityConfig{
+		AppO11yEnabled:            cfg.Enabled(obi.FeatureAppO11y),
+		NetO11yEnabled:            cfg.Enabled(obi.FeatureNetO11y),
+		StatsO11yEnabled:          cfg.Enabled(obi.FeatureStatsO11y),
+		ContextPropagationEnabled: cfg.EBPF.ContextPropagation.IsEnabled(),
+		NetworkSource:             cfg.NetworkFlows.Source,
+	}); err != nil {
 		if cfg.EnforceSysCaps {
 			slog.Error("can't start OBI Receiver", "error", err, "id", id)
 			return nil, err

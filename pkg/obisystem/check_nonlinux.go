@@ -3,13 +3,13 @@
 
 //go:build !linux
 
-package obi // import "go.opentelemetry.io/obi/pkg/obi"
+package obisystem
 
-var CheckOSSupport = func() error {
+var CheckSupport = func() error {
 	return nil
 }
 
-func CheckOSCapabilities(_ *Config) error {
+func CheckCapabilities(_ CapabilityConfig) error {
 	return nil
 }
 

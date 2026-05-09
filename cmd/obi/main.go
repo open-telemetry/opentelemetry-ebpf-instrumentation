@@ -25,6 +25,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/instrumenter"
 	"go.opentelemetry.io/obi/pkg/obi"
 	obiv2 "go.opentelemetry.io/obi/pkg/obiconfig/v2"
+	"go.opentelemetry.io/obi/pkg/obisystem"
 )
 
 func main() {
@@ -65,7 +66,7 @@ func main() {
 
 	slog.Info("OpenTelemetry eBPF Instrumentation", "Version", buildinfo.Version, "Revision", buildinfo.Revision, "OpenTelemetry SDK Version", otelsdk.Version())
 
-	if err := obi.CheckOSSupport(); err != nil {
+	if err := obisystem.CheckSupport(); err != nil {
 		slog.Error("can't start OpenTelemetry eBPF Instrumentation", "error", err)
 		os.Exit(-1)
 	}
@@ -75,7 +76,13 @@ func main() {
 		os.Exit(-1)
 	}
 
-	if err := obi.CheckOSCapabilities(config); err != nil {
+	if err := obisystem.CheckCapabilities(obisystem.CapabilityConfig{
+		AppO11yEnabled:            config.Enabled(obi.FeatureAppO11y),
+		NetO11yEnabled:            config.Enabled(obi.FeatureNetO11y),
+		StatsO11yEnabled:          config.Enabled(obi.FeatureStatsO11y),
+		ContextPropagationEnabled: config.EBPF.ContextPropagation.IsEnabled(),
+		NetworkSource:             config.NetworkFlows.Source,
+	}); err != nil {
 		if config.EnforceSysCaps {
 			slog.Error("can't start OpenTelemetry eBPF Instrumentation", "error", err)
 			os.Exit(-1)

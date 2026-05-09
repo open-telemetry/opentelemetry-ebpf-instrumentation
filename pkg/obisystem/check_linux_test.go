@@ -3,7 +3,7 @@
 
 //go:build linux
 
-package obi
+package obisystem
 
 import (
 	"errors"
@@ -14,7 +14,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sys/unix"
 
-	"go.opentelemetry.io/obi/pkg/config"
 	"go.opentelemetry.io/obi/pkg/internal/helpers"
 )
 
@@ -29,7 +28,7 @@ var overrideKernelVersion = func(tc testCase) {
 	}
 }
 
-func TestCheckOSSupport_Supported(t *testing.T) {
+func TestCheckSupport_Supported(t *testing.T) {
 	isRHELBased = func() bool { return false }
 	hasBTF = func() bool { return true }
 	for _, tc := range []testCase{
@@ -39,12 +38,12 @@ func TestCheckOSSupport_Supported(t *testing.T) {
 	} {
 		t.Run(fmt.Sprintf("%d.%d", tc.maj, tc.min), func(t *testing.T) {
 			overrideKernelVersion(tc)
-			require.NoError(t, checkOSSupport())
+			require.NoError(t, checkSupport())
 		})
 	}
 }
 
-func TestCheckOSSupport_Unsupported(t *testing.T) {
+func TestCheckSupport_Unsupported(t *testing.T) {
 	isRHELBased = func() bool { return false }
 	hasBTF = func() bool { return true }
 	for _, tc := range []testCase{
@@ -56,12 +55,12 @@ func TestCheckOSSupport_Unsupported(t *testing.T) {
 	} {
 		t.Run(fmt.Sprintf("%d.%d", tc.maj, tc.min), func(t *testing.T) {
 			overrideKernelVersion(tc)
-			require.Error(t, checkOSSupport())
+			require.Error(t, checkSupport())
 		})
 	}
 }
 
-func TestCheckOSSupport_RHELBased(t *testing.T) {
+func TestCheckSupport_RHELBased(t *testing.T) {
 	hasBTF = func() bool { return true }
 	for _, tc := range []struct {
 		name     string
@@ -80,19 +79,19 @@ func TestCheckOSSupport_RHELBased(t *testing.T) {
 			rhel := tc.isRHEL
 			isRHELBased = func() bool { return rhel }
 			if tc.wantErr {
-				require.Error(t, checkOSSupport())
+				require.Error(t, checkSupport())
 			} else {
-				require.NoError(t, checkOSSupport())
+				require.NoError(t, checkSupport())
 			}
 		})
 	}
 }
 
-func TestCheckOSSupport_NoBTF(t *testing.T) {
+func TestCheckSupport_NoBTF(t *testing.T) {
 	overrideKernelVersion(testCase{6, 0})
 	isRHELBased = func() bool { return false }
 	hasBTF = func() bool { return false }
-	err := checkOSSupport()
+	err := checkSupport()
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "BTF")
 }
@@ -213,7 +212,7 @@ var capTests = []capTestData{
 	{osCap: unix.CAP_NET_ADMIN, class: capNet, kernMaj: 6, kernMin: 10, tcSource: true},
 }
 
-func TestCheckOSCapabilities(t *testing.T) {
+func TestCheckCapabilities(t *testing.T) {
 	caps, err := helpers.GetCurrentProcCapabilities()
 
 	require.NoError(t, err)
@@ -227,33 +226,26 @@ func TestCheckOSCapabilities(t *testing.T) {
 	test := func(data *capTestData) {
 		overrideKernelVersion(testCase{data.kernMaj, data.kernMin})
 
-		netSource := EbpfSourceSock
+		netSource := networkSourceSocketFilter
 		if data.tcSource {
-			netSource = EbpfSourceTC
+			netSource = networkSourceTC
 		}
 
-		contextProp := config.ContextPropagationDisabled
-		if data.contextPropOn {
-			contextProp = config.ContextPropagationHeaders
+		cfg := CapabilityConfig{
+			AppO11yEnabled:            data.class == capApp,
+			NetO11yEnabled:            data.class == capNet,
+			ContextPropagationEnabled: data.contextPropOn,
+			NetworkSource:             netSource,
 		}
 
-		cfg := Config{
-			NetworkFlows: NetworkConfig{Enable: data.class == capNet, Source: netSource},
-			EBPF:         config.EBPFTracer{ContextPropagation: contextProp},
-		}
-		if data.class == capApp {
-			// activates app o11y feature
-			require.NoError(t, cfg.Exec.UnmarshalText([]byte(".")))
-		}
+		err := CheckCapabilities(cfg)
 
-		err := CheckOSCapabilities(&cfg)
-
-		require.Error(t, err, "CheckOSCapabilities() should have returned an error")
+		require.Error(t, err, "CheckCapabilities() should have returned an error")
 
 		var osCapErr osCapabilitiesError
 
 		if !errors.As(err, &osCapErr) {
-			assert.Fail(t, "CheckOSCapabilities failed", err)
+			assert.Fail(t, "CheckCapabilities failed", err)
 		}
 
 		assert.Truef(t, osCapErr.IsSet(data.osCap),

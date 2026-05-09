@@ -3,7 +3,7 @@
 
 //go:build linux
 
-package obi // import "go.opentelemetry.io/obi/pkg/obi"
+package obisystem
 
 import (
 	"errors"
@@ -12,10 +12,10 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"syscall"
 
 	"golang.org/x/sys/unix"
 
-	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/internal/helpers"
 )
 
@@ -25,7 +25,31 @@ const (
 	minRHELKernMaj, minRHELKernMin = 4, 18
 )
 
-var kernelVersion = ebpfcommon.KernelVersion
+var kernelVersion = func() (major, minor int) {
+	var uname syscall.Utsname
+	if err := syscall.Uname(&uname); err != nil {
+		return
+	}
+
+	var (
+		values    [2]int
+		value, vi int
+	)
+	for _, c := range uname.Release {
+		if '0' <= c && c <= '9' {
+			value = (value * 10) + int(c-'0')
+		} else {
+			values[vi] = value
+			vi++
+			if vi >= len(values) {
+				break
+			}
+			value = 0
+		}
+	}
+
+	return values[0], values[1]
+}
 
 var rhelIDs = []string{"rhel", "centos", "rocky", "alma"}
 
@@ -101,8 +125,9 @@ var hasBTF = func() bool {
 	return false
 }
 
-// checkOSSupport contains the actual logic; tests call it directly.
-func checkOSSupport() error {
+// checkSupport contains the actual logic.
+// Tests call this directly.
+func checkSupport() error {
 	major, minor := kernelVersion()
 	general := major > minKernMaj || (major == minKernMaj && minor >= minKernMin)
 	// RHEL relaxation only applies at the 4.18 floor.
@@ -119,10 +144,10 @@ func checkOSSupport() error {
 	return nil
 }
 
-// CheckOSSupport returns an error if the running operating system does not support
+// CheckSupport returns an error if the running operating system does not support
 // the minimum required OBI features.
 // The result is cached after the first call.
-var CheckOSSupport = sync.OnceValue(checkOSSupport)
+var CheckSupport = sync.OnceValue(checkSupport)
 
 type osCapabilitiesError uint64
 
@@ -171,24 +196,24 @@ func testAndSet(caps *helpers.OSCapabilities, capError *osCapabilitiesError, c h
 	}
 }
 
-func checkCapabilitiesForSetOptions(config *Config, caps *helpers.OSCapabilities, capError *osCapabilitiesError) {
-	if config.Enabled(FeatureAppO11y) {
+func checkCapabilitiesForSetOptions(config CapabilityConfig, caps *helpers.OSCapabilities, capError *osCapabilitiesError) {
+	if config.AppO11yEnabled {
 		testAndSet(caps, capError, unix.CAP_CHECKPOINT_RESTORE)
 		testAndSet(caps, capError, unix.CAP_DAC_READ_SEARCH)
 		testAndSet(caps, capError, unix.CAP_SYS_PTRACE)
 		testAndSet(caps, capError, unix.CAP_PERFMON)
 		testAndSet(caps, capError, unix.CAP_NET_RAW)
 
-		if config.EBPF.ContextPropagation.IsEnabled() {
+		if config.ContextPropagationEnabled {
 			testAndSet(caps, capError, unix.CAP_NET_ADMIN)
 		}
 	}
 
-	if config.Enabled(FeatureNetO11y) {
-		switch config.NetworkFlows.Source {
-		case EbpfSourceSock:
+	if config.NetO11yEnabled {
+		switch config.NetworkSource {
+		case networkSourceSocketFilter:
 			testAndSet(caps, capError, unix.CAP_NET_RAW)
-		case EbpfSourceTC:
+		case networkSourceTC:
 			testAndSet(caps, capError, unix.CAP_PERFMON)
 			testAndSet(caps, capError, unix.CAP_NET_ADMIN)
 		}
@@ -197,14 +222,14 @@ func checkCapabilitiesForSetOptions(config *Config, caps *helpers.OSCapabilities
 	// Note: these should be the minimum caps needed to run statsolly right now.
 	// As metrics are added in the future, this list may change depending on
 	// the probe used to calculate the metric.
-	if config.Enabled(FeatureStatsO11y) {
+	if config.StatsO11yEnabled {
 		testAndSet(caps, capError, unix.CAP_SYS_PTRACE)
 		testAndSet(caps, capError, unix.CAP_PERFMON)
 		testAndSet(caps, capError, unix.CAP_NET_RAW)
 	}
 }
 
-func CheckOSCapabilities(config *Config) error {
+func CheckCapabilities(config CapabilityConfig) error {
 	caps, err := helpers.GetCurrentProcCapabilities()
 	if err != nil {
 		return fmt.Errorf("unable to query OS capabilities: %w", err)
@@ -245,4 +270,17 @@ func CheckOSCapabilities(config *Config) error {
 	}
 
 	return capError
+}
+
+const (
+	networkSourceSocketFilter = "socket_filter"
+	networkSourceTC           = "tc"
+)
+
+type CapabilityConfig struct {
+	AppO11yEnabled            bool
+	NetO11yEnabled            bool
+	StatsO11yEnabled          bool
+	ContextPropagationEnabled bool
+	NetworkSource             string
 }
