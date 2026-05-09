@@ -116,9 +116,23 @@ func TestRetrievalSpan_Milvus(t *testing.T) {
 	assert.Equal(t, 2, span.GenAI.Retrieval.ResultCount())
 }
 
-func TestRetrievalSpan_UnknownHost(t *testing.T) {
+func TestRetrievalSpan_UnknownHost_GenericDetection(t *testing.T) {
 	req := makeRequest(t, http.MethodPost,
-		"https://api.example.com/v1/search", `{"vector":[0.1],"top_k":3}`)
+		"https://api.example.com/v1/search", `{"vector":[0.1],"top_k":3,"collection":"docs"}`)
+	resp := makePlainResponse(http.StatusOK, http.Header{
+		"Content-Type": []string{"application/json"},
+	}, `{"matches":[]}`)
+
+	base := &request.Span{}
+	span, ok := RetrievalSpan(base, req, resp)
+	require.True(t, ok)
+	require.NotNil(t, span.GenAI.Retrieval)
+	assert.Equal(t, genericRetrievalProvider, span.GenAI.Retrieval.Provider)
+}
+
+func TestRetrievalSpan_UnknownHost_InsufficientSignals(t *testing.T) {
+	req := makeRequest(t, http.MethodPost,
+		"https://api.example.com/v1/search", `{"query":"hello"}`)
 	resp := makePlainResponse(http.StatusOK, http.Header{
 		"Content-Type": []string{"application/json"},
 	}, `{"matches":[]}`)
@@ -149,6 +163,73 @@ func TestParseRetrievalProvider(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			req := makeRequest(t, http.MethodPost, tt.url, "{}")
 			assert.Equal(t, tt.expected, parseRetrievalProvider(req))
+		})
+	}
+}
+
+func TestDetectRetrievalProvider(t *testing.T) {
+	tests := []struct {
+		name     string
+		method   string
+		url      string
+		body     string
+		expected string
+	}{
+		{
+			name:     "known provider still wins",
+			method:   http.MethodPost,
+			url:      "https://idx.pinecone.io/query",
+			body:     pineconeQueryRequest,
+			expected: "pinecone",
+		},
+		{
+			name:     "unknown host generic retrieval",
+			method:   http.MethodPost,
+			url:      "https://vector.company.internal/v1/search",
+			body:     `{"vector":[0.1],"limit":5,"collection":"docs"}`,
+			expected: genericRetrievalProvider,
+		},
+		{
+			name:     "unknown host query path",
+			method:   http.MethodPost,
+			url:      "https://gateway.example.com/api/query",
+			body:     `{"namespace":"ns1","topK":3,"vector":[0.1]}`,
+			expected: genericRetrievalProvider,
+		},
+		{
+			name:     "get method is ignored",
+			method:   http.MethodGet,
+			url:      "https://vector.company.internal/v1/search",
+			body:     `{"vector":[0.1],"limit":5}`,
+			expected: "",
+		},
+		{
+			name:     "insufficient body signals",
+			method:   http.MethodPost,
+			url:      "https://vector.company.internal/v1/search",
+			body:     `{"query":"hello"}`,
+			expected: "",
+		},
+		{
+			name:     "graphql retrieval on unknown host",
+			method:   http.MethodPost,
+			url:      "https://gateway.example.com/v1/graphql",
+			body:     `{"query":"{ Get { Article(nearText: { concepts: [\"biology\"] }, limit: 3) { title } } }"}`,
+			expected: genericRetrievalProvider,
+		},
+		{
+			name:     "graphql non retrieval on unknown host",
+			method:   http.MethodPost,
+			url:      "https://gateway.example.com/v1/graphql",
+			body:     `{"query":"{ Aggregate { Article { meta { count } } } }"}`,
+			expected: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := makeRequest(t, tt.method, tt.url, tt.body)
+			assert.Equal(t, tt.expected, detectRetrievalProvider(req, []byte(tt.body)))
 		})
 	}
 }

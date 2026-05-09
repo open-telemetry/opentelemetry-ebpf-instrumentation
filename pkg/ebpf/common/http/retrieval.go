@@ -16,9 +16,12 @@ import (
 
 // retrievalHostPattern pairs a known vector database hostname suffix with a
 // URL path suffix and the provider name to assign when both match.
-// Detection is host-anchored (like EmbeddingSpan) to keep false positives
-// close to zero: a request is only classified as retrieval when it targets
-// a known vector store endpoint.
+//
+// Known hosts are treated as a strong provider-identification signal, but not
+// as a hard requirement for classifying a request as retrieval. This keeps the
+// detector extensible for self-hosted deployments, custom domains and cloud
+// vendor-managed endpoints while still preserving precise provider names when
+// they can be inferred from the hostname.
 type retrievalHostPattern struct {
 	hostSuffix string
 	pathSuffix string
@@ -58,6 +61,29 @@ var retrievalHostPatterns = []retrievalHostPattern{
 	{"weaviate.network", "/v1/graphql", "weaviate"},
 }
 
+var retrievalPathSignals = []string{
+	"/query",
+	"/search",
+	"/points/search",
+	"/points/query",
+	"/vector/search",
+	"/entities/search",
+}
+
+var retrievalBodySignals = []string{
+	`"vector"`,
+	`"top_k"`,
+	`"topK"`,
+	`"limit"`,
+	`"namespace"`,
+	`"collection"`,
+	`"collectionName"`,
+	`"collection_name"`,
+	`"query_embeddings"`,
+}
+
+const genericRetrievalProvider = "generic"
+
 var weaviateGraphQLRetrievalSignals = []string{
 	"nearvector",
 	"neartext",
@@ -66,16 +92,13 @@ var weaviateGraphQLRetrievalSignals = []string{
 	"bm25",
 }
 
-// parseRetrievalProvider returns the provider name when the request targets
-// a known vector retrieval endpoint (host suffix + path suffix match), and
-// an empty string otherwise.
 func parseRetrievalProvider(req *http.Request) string {
 	if req == nil || req.URL == nil {
 		return ""
 	}
 
 	host := extractHostname(req)
-	path := strings.TrimSuffix(req.URL.Path, "/")
+	path := normalizedRetrievalPath(req)
 
 	for _, hp := range retrievalHostPatterns {
 		if (host == hp.hostSuffix || strings.HasSuffix(host, "."+hp.hostSuffix)) &&
@@ -85,6 +108,84 @@ func parseRetrievalProvider(req *http.Request) string {
 	}
 
 	return ""
+}
+
+func normalizedRetrievalPath(req *http.Request) string {
+	if req == nil || req.URL == nil {
+		return ""
+	}
+
+	path := strings.TrimSpace(req.URL.Path)
+	if path == "" {
+		return ""
+	}
+	if path == "/" {
+		return "/"
+	}
+	return strings.TrimSuffix(path, "/")
+}
+
+func hasRetrievalPathSignal(path string) bool {
+	for _, signal := range retrievalPathSignals {
+		if strings.HasSuffix(path, signal) {
+			return true
+		}
+	}
+	return false
+}
+
+func retrievalBodySignalCount(body []byte) int {
+	if len(body) == 0 {
+		return 0
+	}
+
+	count := 0
+	for _, signal := range retrievalBodySignals {
+		if bytes.Contains(body, []byte(signal)) {
+			count++
+		}
+	}
+	return count
+}
+
+func detectRetrievalProvider(req *http.Request, body []byte) string {
+	if req == nil || req.URL == nil {
+		return ""
+	}
+	if req.Method != http.MethodPost {
+		return ""
+	}
+
+	provider := parseRetrievalProvider(req)
+	path := normalizedRetrievalPath(req)
+
+	if provider == "weaviate" {
+		if hasWeaviateRetrievalSignals(body) {
+			return provider
+		}
+		return ""
+	}
+
+	if provider != "" {
+		return provider
+	}
+
+	if path == "/v1/graphql" {
+		if hasWeaviateRetrievalSignals(body) {
+			return genericRetrievalProvider
+		}
+		return ""
+	}
+
+	if !hasRetrievalPathSignal(path) {
+		return ""
+	}
+
+	if retrievalBodySignalCount(body) < 2 {
+		return ""
+	}
+
+	return genericRetrievalProvider
 }
 
 func isWeaviateRetrievalGraphQLQuery(query string) bool {
@@ -153,32 +254,27 @@ func hasWeaviateRetrievalSignals(body []byte) bool {
 	return isWeaviateRetrievalGraphQLQuery(string(body))
 }
 
-// RetrievalSpan detects vector retrieval (similarity search) API calls to
-// known vector databases based on hostname and URL path matching, and
-// extracts retrieval-specific fields into the span.
+// RetrievalSpan detects vector retrieval (similarity search) API calls based
+// on a combination of provider-specific host matches and generic path/body
+// heuristics, then extracts retrieval-specific fields into the span.
 //
-// Body parsing is best-effort: once the provider is confirmed by the URL,
-// retrieval spans are classified even if parsing fails, except Weaviate
-// GraphQL where body-level retrieval signals are required to reduce false
+// Body parsing is best-effort: once retrieval is detected, spans are
+// classified even if request/response parsing fails. For GraphQL requests at
+// /v1/graphql, body-level retrieval signals are required to reduce false
 // positives on non-retrieval operations.
 func RetrievalSpan(baseSpan *request.Span, req *http.Request, resp *http.Response) (request.Span, bool) {
-	provider := parseRetrievalProvider(req)
-	if provider == "" {
-		return *baseSpan, false
-	}
-
 	var reqB []byte
-	if req.Body != nil {
+	if req != nil && req.Body != nil {
 		var err error
 		reqB, err = io.ReadAll(req.Body)
 		if err != nil {
-			slog.Debug("RetrievalSpan: failed to read request body, continuing without it", "provider", provider, "error", err)
+			slog.Debug("RetrievalSpan: failed to read request body, continuing without it", "error", err)
 		}
 		req.Body = io.NopCloser(bytes.NewBuffer(reqB))
 	}
 
-	if provider == "weaviate" && !hasWeaviateRetrievalSignals(reqB) {
-		slog.Debug("RetrievalSpan: weaviate GraphQL request without retrieval signals, skipping", "path", requestPath(req), "host", extractHostname(req))
+	provider := detectRetrievalProvider(req, reqB)
+	if provider == "" {
 		return *baseSpan, false
 	}
 
