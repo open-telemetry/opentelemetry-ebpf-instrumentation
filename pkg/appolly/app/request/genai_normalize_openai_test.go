@@ -171,8 +171,98 @@ func TestOpenAIContentToParts_String(t *testing.T) {
 	assert.Equal(t, "hello world", parts[0].Content)
 }
 
-func TestOpenAIContentToParts_NonString(t *testing.T) {
-	raw := json.RawMessage(`[{"type":"text","text":"array content"}]`)
+func TestOpenAIContentToParts_TextArray(t *testing.T) {
+	parts := openAIContentToParts(json.RawMessage(`[{"type":"text","text":"array content"}]`))
+	require.Len(t, parts, 1)
+	assert.Equal(t, "text", parts[0].Type)
+	assert.Equal(t, "array content", parts[0].Content)
+}
+
+func TestOpenAIContentToParts_ImageURL(t *testing.T) {
+	parts := openAIContentToParts(json.RawMessage(`[{"type":"image_url","image_url":{"url":"https://example.com/img.png","detail":"high"}}]`))
+	require.Len(t, parts, 1)
+	assert.Equal(t, "uri", parts[0].Type)
+	assert.Equal(t, "https://example.com/img.png", parts[0].URI)
+	assert.Equal(t, "image", parts[0].Modality)
+	assert.Empty(t, parts[0].Content)
+}
+
+func TestOpenAIContentToParts_InputAudio(t *testing.T) {
+	parts := openAIContentToParts(json.RawMessage(`[{"type":"input_audio","input_audio":{"data":"base64data","format":"wav"}}]`))
+	require.Len(t, parts, 1)
+	assert.Equal(t, "blob", parts[0].Type)
+	assert.Equal(t, "base64data", parts[0].Content)
+	assert.Equal(t, "audio", parts[0].Modality)
+	assert.Equal(t, "audio/wav", parts[0].MimeType)
+}
+
+func TestOpenAIContentToParts_InputAudio_NoFormat(t *testing.T) {
+	parts := openAIContentToParts(json.RawMessage(`[{"type":"input_audio","input_audio":{"data":"base64data"}}]`))
+	require.Len(t, parts, 1)
+	assert.Equal(t, "blob", parts[0].Type)
+	assert.Equal(t, "base64data", parts[0].Content)
+	assert.Equal(t, "audio", parts[0].Modality)
+	assert.Empty(t, parts[0].MimeType)
+}
+
+func TestOpenAIContentToParts_FileByID(t *testing.T) {
+	parts := openAIContentToParts(json.RawMessage(`[{"type":"file","file":{"file_id":"file_abc123"}}]`))
+	require.Len(t, parts, 1)
+	assert.Equal(t, "file", parts[0].Type)
+	assert.Equal(t, "file_abc123", parts[0].FileID)
+	assert.Equal(t, "file", parts[0].Modality)
+}
+
+func TestOpenAIContentToParts_FileByID_ImageFilename(t *testing.T) {
+	parts := openAIContentToParts(json.RawMessage(`[{"type":"file","file":{"file_id":"file_abc123","filename":"photo.PNG"}}]`))
+	require.Len(t, parts, 1)
+	assert.Equal(t, "file", parts[0].Type)
+	assert.Equal(t, "file_abc123", parts[0].FileID)
+	assert.Equal(t, "image", parts[0].Modality)
+}
+
+func TestOpenAIContentToParts_FileByData(t *testing.T) {
+	parts := openAIContentToParts(json.RawMessage(`[{"type":"file","file":{"file_data":"base64pdf","filename":"doc.pdf"}}]`))
+	require.Len(t, parts, 1)
+	assert.Equal(t, "blob", parts[0].Type)
+	assert.Equal(t, "base64pdf", parts[0].Content)
+	assert.Equal(t, "file", parts[0].Modality)
+}
+
+func TestOpenAIContentToParts_FileByData_AudioFilename(t *testing.T) {
+	parts := openAIContentToParts(json.RawMessage(`[{"type":"file","file":{"file_data":"base64audio","filename":"clip.mp3"}}]`))
+	require.Len(t, parts, 1)
+	assert.Equal(t, "blob", parts[0].Type)
+	assert.Equal(t, "base64audio", parts[0].Content)
+	assert.Equal(t, "audio", parts[0].Modality)
+}
+
+func TestOpenAIContentToParts_Refusal(t *testing.T) {
+	parts := openAIContentToParts(json.RawMessage(`[{"type":"refusal","refusal":"I cannot help with that."}]`))
+	require.Len(t, parts, 1)
+	assert.Equal(t, "text", parts[0].Type)
+	assert.Equal(t, "I cannot help with that.", parts[0].Content)
+}
+
+func TestOpenAIContentToParts_Mixed(t *testing.T) {
+	parts := openAIContentToParts(json.RawMessage(`[{"type":"text","text":"look at this"},{"type":"image_url","image_url":{"url":"https://x/y.png"}}]`))
+	require.Len(t, parts, 2)
+	assert.Equal(t, "text", parts[0].Type)
+	assert.Equal(t, "look at this", parts[0].Content)
+	assert.Equal(t, "uri", parts[1].Type)
+	assert.Equal(t, "https://x/y.png", parts[1].URI)
+	assert.Equal(t, "image", parts[1].Modality)
+}
+
+func TestOpenAIContentToParts_UnknownType(t *testing.T) {
+	parts := openAIContentToParts(json.RawMessage(`[{"type":"video_url","text":"fallback"}]`))
+	require.Len(t, parts, 1)
+	assert.Equal(t, "video_url", parts[0].Type)
+	assert.Equal(t, "fallback", parts[0].Content)
+}
+
+func TestOpenAIContentToParts_InvalidJSON(t *testing.T) {
+	raw := json.RawMessage(`{"not":"an array"}`)
 	parts := openAIContentToParts(raw)
 	require.Len(t, parts, 1)
 	assert.Equal(t, "text", parts[0].Type)

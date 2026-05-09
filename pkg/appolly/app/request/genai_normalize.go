@@ -18,6 +18,10 @@ type normalizedPart struct {
 	ID        string          `json:"id,omitempty"`
 	Name      string          `json:"name,omitempty"`
 	Arguments json.RawMessage `json:"arguments,omitempty"`
+	URI       string          `json:"uri,omitempty"`
+	FileID    string          `json:"file_id,omitempty"`
+	Modality  string          `json:"modality,omitempty"`
+	MimeType  string          `json:"mime_type,omitempty"`
 }
 
 type normalizedMessage struct {

@@ -5,6 +5,7 @@ package request // import "go.opentelemetry.io/obi/pkg/appolly/app/request"
 
 import (
 	"encoding/json"
+	"strings"
 )
 
 // normalizeOpenAIMessages converts OpenAI-style messages (flat "content")
@@ -50,6 +51,11 @@ func normalizeOpenAIMessages(raw json.RawMessage) string {
 	return string(b)
 }
 
+// openAIContentToParts converts OpenAI message content (string or
+// structured array) to semconv parts. Structured content blocks
+// (image_url, input_audio, file, refusal) map to the corresponding
+// semconv part types (uri, blob, file, text) per the GenAI semconv
+// schema, which requires modality on uri/blob/file parts.
 func openAIContentToParts(content json.RawMessage) []normalizedPart {
 	if len(content) == 0 {
 		return nil
@@ -60,7 +66,99 @@ func openAIContentToParts(content json.RawMessage) []normalizedPart {
 		return []normalizedPart{{Type: "text", Content: s}}
 	}
 
-	return []normalizedPart{{Type: "text", Content: string(content)}}
+	var blocks []struct {
+		Type     string `json:"type"`
+		Text     string `json:"text,omitempty"`
+		Refusal  string `json:"refusal,omitempty"`
+		ImageURL *struct {
+			URL    string `json:"url"`
+			Detail string `json:"detail,omitempty"`
+		} `json:"image_url,omitempty"`
+		InputAudio *struct {
+			Data   string `json:"data"`
+			Format string `json:"format,omitempty"`
+		} `json:"input_audio,omitempty"`
+		File *struct {
+			FileID   string `json:"file_id,omitempty"`
+			Filename string `json:"filename,omitempty"`
+			FileData string `json:"file_data,omitempty"`
+		} `json:"file,omitempty"`
+	}
+	if err := json.Unmarshal(content, &blocks); err != nil {
+		return []normalizedPart{{Type: "text", Content: string(content)}}
+	}
+
+	parts := make([]normalizedPart, 0, len(blocks))
+	for _, b := range blocks {
+		switch b.Type {
+		case "text":
+			parts = append(parts, normalizedPart{Type: "text", Content: b.Text})
+		case "image_url":
+			if b.ImageURL != nil {
+				parts = append(parts, normalizedPart{
+					Type:     "uri",
+					URI:      b.ImageURL.URL,
+					Modality: "image",
+				})
+			}
+		case "input_audio":
+			if b.InputAudio != nil {
+				p := normalizedPart{
+					Type:     "blob",
+					Content:  b.InputAudio.Data,
+					Modality: "audio",
+				}
+				if b.InputAudio.Format != "" {
+					p.MimeType = "audio/" + b.InputAudio.Format
+				}
+				parts = append(parts, p)
+			}
+		case "file":
+			if b.File != nil {
+				modality := modalityFromFilename(b.File.Filename)
+				if b.File.FileID != "" {
+					parts = append(parts, normalizedPart{
+						Type:     "file",
+						FileID:   b.File.FileID,
+						Modality: modality,
+					})
+				} else if b.File.FileData != "" {
+					parts = append(parts, normalizedPart{
+						Type:     "blob",
+						Content:  b.File.FileData,
+						Modality: modality,
+					})
+				}
+			}
+		case "refusal":
+			parts = append(parts, normalizedPart{Type: "text", Content: b.Refusal})
+		default:
+			parts = append(parts, normalizedPart{Type: b.Type, Content: b.Text})
+		}
+	}
+	return parts
+}
+
+// modalityFromFilename returns a semconv modality string derived from a
+// filename's extension, or "file" when the modality cannot be determined.
+// The semconv schema accepts the enum image|video|audio or any string.
+func modalityFromFilename(filename string) string {
+	if filename == "" {
+		return "file"
+	}
+	dot := strings.LastIndex(filename, ".")
+	if dot < 0 || dot == len(filename)-1 {
+		return "file"
+	}
+	switch strings.ToLower(filename[dot+1:]) {
+	case "png", "jpg", "jpeg", "gif", "webp", "bmp", "svg", "tiff":
+		return "image"
+	case "mp3", "wav", "ogg", "flac", "m4a", "aac", "opus":
+		return "audio"
+	case "mp4", "webm", "mov", "mkv", "avi":
+		return "video"
+	}
+	return "file"
 }
 
 func openAIToolCallsToParts(raw json.RawMessage) []normalizedPart {
