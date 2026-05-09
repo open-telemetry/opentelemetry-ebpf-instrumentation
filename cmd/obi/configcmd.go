@@ -142,41 +142,15 @@ func runConfigMigrate(args []string) {
 		os.Exit(1)
 	}
 
-	if doc, _, err := obiv2.ParseYAML(data, obiv2.DeploymentModeStandalone); err == nil {
-		encoded, encodeErr := marshalCanonicalV2(doc)
-		if encodeErr != nil {
-			fmt.Fprintln(os.Stderr, encodeErr)
-			os.Exit(1)
-		}
-		fmt.Fprint(os.Stdout, encoded)
-		return
-	}
-
-	cfg, err := obi.LoadConfig(bytesReader(data))
+	encoded, report, err := migrateConfigData(data)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-
-	doc, err := obiconfigv2.RuntimeToDocument(cfg)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+	if report != "" {
+		fmt.Fprint(os.Stderr, report)
 	}
-	encoded, err := marshalCanonicalV2(doc)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
-
-	fmt.Fprintln(os.Stderr, "migrated v1 config to canonical v2")
-	fmt.Fprintln(os.Stderr, "mapping report:")
-	fmt.Fprintln(os.Stderr, "- legacy runtime config parsed through pkg/obi.Config")
-	fmt.Fprintln(os.Stderr, "- OTel pipeline sections emitted at top level: tracer_provider, meter_provider")
-	fmt.Fprintln(os.Stderr, "- OBI-owned capture, enrich, correlation, and daemon settings emitted under extensions.obi")
-	fmt.Fprintln(os.Stderr, "- application and network attribute filters fanned out to signal-scoped v2 filter blocks")
-	fmt.Fprintln(os.Stderr, "- discovery.skip_go_specific_tracers inverted into capture.runtimes.go.enabled")
-	fmt.Fprintln(os.Stdout, encoded)
+	fmt.Fprint(os.Stdout, encoded)
 }
 
 func marshalCanonicalV2(doc *obiv2.Document) (string, error) {
@@ -185,4 +159,36 @@ func marshalCanonicalV2(doc *obiv2.Document) (string, error) {
 		return "", err
 	}
 	return string(data), nil
+}
+
+func migrateConfigData(data []byte) (string, string, error) {
+	if doc, _, err := obiv2.ParseYAML(data, obiv2.DeploymentModeStandalone); err == nil {
+		encoded, encodeErr := marshalCanonicalV2(doc)
+		return encoded, "", encodeErr
+	}
+
+	cfg, err := obi.LoadConfig(bytesReader(data))
+	if err != nil {
+		return "", "", err
+	}
+
+	doc, err := obiconfigv2.RuntimeToDocument(cfg)
+	if err != nil {
+		return "", "", err
+	}
+	encoded, err := marshalCanonicalV2(doc)
+	if err != nil {
+		return "", "", err
+	}
+
+	report := "" +
+		"migrated v1 config to canonical v2\n" +
+		"mapping report:\n" +
+		"- legacy runtime config parsed through pkg/obi.Config\n" +
+		"- OTel pipeline sections emitted at top level: tracer_provider, meter_provider\n" +
+		"- OBI-owned capture, enrich, correlation, and daemon settings emitted under extensions.obi\n" +
+		"- application and network attribute filters fanned out to signal-scoped v2 filter blocks\n" +
+		"- discovery.skip_go_specific_tracers inverted into capture.runtimes.go.enabled\n"
+
+	return encoded, report, nil
 }
