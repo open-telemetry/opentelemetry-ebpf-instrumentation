@@ -71,6 +71,7 @@ daemon:
 	var notAllowed *SectionNotAllowedError
 	require.True(t, errors.As(err, &notAllowed))
 	require.Equal(t, "daemon", notAllowed.Section)
+	require.Contains(t, err.Error(), "standalone mode")
 }
 
 func TestUnsupportedVersion(t *testing.T) {

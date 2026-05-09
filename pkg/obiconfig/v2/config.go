@@ -95,6 +95,13 @@ type SectionNotAllowedError struct {
 }
 
 func (e *SectionNotAllowedError) Error() string {
+	if e.Mode == DeploymentModeReceiver {
+		return fmt.Sprintf(
+			"section %q is not allowed in %s mode; remove it from the receiver config or run this config in standalone mode",
+			e.Section,
+			e.Mode,
+		)
+	}
 	return fmt.Sprintf("section %q is not allowed in %s mode", e.Section, e.Mode)
 }
 
