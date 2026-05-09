@@ -190,7 +190,9 @@ func detectRetrievalProvider(req *http.Request, body []byte) string {
 
 func isWeaviateRetrievalGraphQLQuery(query string) bool {
 	normalized := strings.Join(strings.Fields(strings.ToLower(query)), " ")
-	if !strings.Contains(normalized, "get {") {
+	// GraphQL allows `Get {` and `Get{` interchangeably; accept both to avoid
+	// false negatives when clients omit the space before the selection set.
+	if !strings.Contains(normalized, "get {") && !strings.Contains(normalized, "get{") {
 		return false
 	}
 
@@ -254,6 +256,21 @@ func hasWeaviateRetrievalSignals(body []byte) bool {
 	return isWeaviateRetrievalGraphQLQuery(string(body))
 }
 
+// retrievalNeedsBodyProbe returns true when the request's method / host / path
+// could plausibly correspond to a vector retrieval call. It is intentionally a
+// cheap pre-check so non-retrieval traffic bypasses the request-body read in
+// [RetrievalSpan] entirely.
+func retrievalNeedsBodyProbe(req *http.Request) bool {
+	if req == nil || req.URL == nil || req.Method != http.MethodPost {
+		return false
+	}
+	if parseRetrievalProvider(req) != "" {
+		return true
+	}
+	path := normalizedRetrievalPath(req)
+	return path == "/v1/graphql" || hasRetrievalPathSignal(path)
+}
+
 // RetrievalSpan detects vector retrieval (similarity search) API calls based
 // on a combination of provider-specific host matches and generic path/body
 // heuristics, then extracts retrieval-specific fields into the span.
@@ -263,8 +280,12 @@ func hasWeaviateRetrievalSignals(body []byte) bool {
 // /v1/graphql, body-level retrieval signals are required to reduce false
 // positives on non-retrieval operations.
 func RetrievalSpan(baseSpan *request.Span, req *http.Request, resp *http.Response) (request.Span, bool) {
+	if !retrievalNeedsBodyProbe(req) {
+		return *baseSpan, false
+	}
+
 	var reqB []byte
-	if req != nil && req.Body != nil {
+	if req.Body != nil {
 		var err error
 		reqB, err = io.ReadAll(req.Body)
 		if err != nil {
@@ -283,7 +304,11 @@ func RetrievalSpan(baseSpan *request.Span, req *http.Request, resp *http.Respons
 		slog.Debug("RetrievalSpan: failed to read response body, continuing without it", "provider", provider, "error", err)
 	}
 
-	slog.Debug("Retrieval", "provider", provider, "request", string(reqB), "response", string(respB))
+	// Deliberately avoid logging full request/response bodies: they may
+	// contain sensitive user content and can be large. Log only minimal
+	// metadata sufficient for troubleshooting.
+	slog.Debug("Retrieval", "provider", provider, "path", requestPath(req),
+		"requestBytes", len(reqB), "responseBytes", len(respB))
 
 	var parsedRequest request.RetrievalRequest
 	if len(reqB) > 0 {
