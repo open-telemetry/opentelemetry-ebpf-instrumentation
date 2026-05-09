@@ -15,6 +15,17 @@ func TestParseYAMLStandalone(t *testing.T) {
 
 	doc, cfg, err := ParseYAML([]byte(`
 file_format: "1.0"
+tracer_provider:
+  sampler:
+    obi_rule_based:
+      fallback:
+        name: parentbased_always_on
+      rules:
+        - match:
+            resource_attributes:
+              service.name: frontend
+          action:
+            name: always_off
 extensions:
   obi:
     version: "2.0"
@@ -26,6 +37,7 @@ extensions:
 	require.NotNil(t, doc)
 	require.NotNil(t, cfg)
 	require.Equal(t, SupportedVersion, cfg.Version)
+	require.NotNil(t, nestedMap(doc.TracerProvider, "sampler", "obi_rule_based"))
 }
 
 func TestParseYAMLReceiver(t *testing.T) {

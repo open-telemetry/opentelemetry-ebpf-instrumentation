@@ -132,6 +132,37 @@ All OBI-specific configuration lives under `extensions.obi`.
 
 The root `file_format` follows the declarative schema version (`major.minor`), not the upstream release tag. For the current stable declarative shape, the correct value is `file_format: "1.0"` rather than `1.0.0`, `1.0.0-rc.3`, or `1.0.0-rc.1`.
 
+## Sampler Plugin
+
+Config v2 also supports an OBI-owned rule-based sampler plugin at
+`tracer_provider.sampler.obi_rule_based`.
+
+- Rules are evaluated in order.
+- Rules match on resolved resource attributes, not discovery selectors.
+- Each rule leaf uses the existing built-in sampler actions (`always_on`,
+  `always_off`, `traceidratio`, `parentbased_always_on`,
+  `parentbased_always_off`, `parentbased_traceidratio`).
+- When no rule matches, the configured `fallback` sampler is used.
+
+Example:
+
+```yaml
+tracer_provider:
+  sampler:
+    obi_rule_based:
+      fallback:
+        name: parentbased_always_on
+      rules:
+        - match:
+            resource_attributes:
+              service.name: frontend
+              service.namespace: default
+          action:
+            name: always_off
+```
+
+## Layout
+
 The `extensions.obi` block is divided by deployment scope:
 
 - `capture`: valid in **all** deployment modes. Contains everything OBI needs to select workloads and capture telemetry. When running OBI as a Collector receiver, this block is embedded directly in the receiver configuration — no manual extraction required.
