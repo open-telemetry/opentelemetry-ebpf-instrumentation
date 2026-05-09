@@ -8,6 +8,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/filter"
 	"go.opentelemetry.io/obi/pkg/obi"
@@ -531,7 +532,7 @@ func featureNames(features export.Features) []string {
 		if name == "*" || name == "all" {
 			continue
 		}
-		if features.Any(feature) {
+		if features&feature != 0 {
 			names = append(names, name)
 		}
 	}

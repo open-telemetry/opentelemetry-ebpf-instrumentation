@@ -4,6 +4,7 @@
 package obiconfigv2
 
 import (
+	"encoding"
 	"fmt"
 	"strconv"
 	"time"
@@ -15,6 +16,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/services"
 	obicfg "go.opentelemetry.io/obi/pkg/config"
 	"go.opentelemetry.io/obi/pkg/export/debug"
+	"go.opentelemetry.io/obi/pkg/filter"
 	"go.opentelemetry.io/obi/pkg/obi"
 )
 
@@ -64,33 +66,34 @@ func applyCapture(cfg *obi.Config, src *obiv2.Extension) {
 	setInt(&cfg.EBPF.WakeupLen, nestedMap(src.Capture.Engine, "batching"), "wakeup_len")
 	setInt(&cfg.EBPF.BatchLength, nestedMap(src.Capture.Engine, "batching"), "batch_length")
 	setDuration(&cfg.EBPF.BatchTimeout, nestedMap(src.Capture.Engine, "batching"), "batch_timeout")
-	setString((*string)(&cfg.EBPF.ContextPropagation), nestedMap(src.Capture.Engine, "propagation"), "context_propagation")
+	setText(&cfg.EBPF.ContextPropagation, nestedMap(src.Capture.Engine, "propagation"), "context_propagation")
 	setBool(&cfg.EBPF.OverrideBPFLoopEnabled, nestedMap(src.Capture.Engine, "propagation"), "override_bpfloop_enabled")
-	setString((*string)(&cfg.EBPF.TCBackend), nestedMap(src.Capture.Engine, "traffic"), "control_backend")
+	setText(&cfg.EBPF.TCBackend, nestedMap(src.Capture.Engine, "traffic"), "control_backend")
 	setBool(&cfg.EBPF.HighRequestVolume, nestedMap(src.Capture.Engine, "traffic"), "high_request_volume")
 	setDuration(&cfg.EBPF.MaxTransactionTime, nestedMap(src.Capture.Engine, "transactions"), "max_duration")
 	setString(&cfg.EBPF.BPFFSPath, nestedMap(src.Capture.Engine, "bpf_filesystem"), "path")
 
 	httpCfg := nestedMap(src.Capture.Instrumentation, "http")
+	mergeSignalFilters(&cfg.Filters.Application, nestedMap(httpCfg, "filters"))
 	setBool(&cfg.EBPF.TrackRequestHeaders, httpCfg, "track_request_headers")
 	setDuration(&cfg.EBPF.HTTPRequestTimeout, httpCfg, "request_timeout")
-	setInt(&cfg.EBPF.BufferSizes.HTTP, httpCfg, "buffer_size")
-	setString((*string)(&cfg.Routes.Unmatch), nestedMap(httpCfg, "routes"), "unmatched")
+	setUint32(&cfg.EBPF.BufferSizes.HTTP, httpCfg, "buffer_size")
+	setStringAlias(&cfg.Routes.Unmatch, nestedMap(httpCfg, "routes"), "unmatched")
 	setString(&cfg.Routes.WildcardChar, nestedMap(httpCfg, "routes"), "wildcard_char")
 	setInt(&cfg.Routes.MaxPathSegmentCardinality, nestedMap(httpCfg, "routes"), "max_path_segment_cardinality")
 	setDuration(&cfg.Discovery.RouteHarvesterTimeout, nestedMap(httpCfg, "routes", "discovery"), "timeout")
 	setStringSlice(&cfg.Discovery.DisabledRouteHarvesters, nestedMap(httpCfg, "routes", "discovery"), "disabled_languages")
 	setDuration(&cfg.Discovery.RouteHarvestConfig.JavaHarvestDelay, nestedMap(httpCfg, "routes", "discovery", "java"), "delay")
 	setStringSlice(&cfg.Routes.Patterns, nestedMap(httpCfg, "routes"), "patterns")
-	setStringSlice(&cfg.Routes.IgnoredPatterns, nestedMap(httpCfg, "routes"), "ignored_patterns")
-	setString((*string)(&cfg.Routes.IgnoredEvents), nestedMap(httpCfg, "routes"), "ignore_mode")
+	setStringSlice(&cfg.Routes.IgnorePatterns, nestedMap(httpCfg, "routes"), "ignored_patterns")
+	setStringAlias(&cfg.Routes.IgnoredEvents, nestedMap(httpCfg, "routes"), "ignore_mode")
 	mapPayloadExtraction(cfg, nestedMap(httpCfg, "payload_extraction"))
 
 	sqlCfg := nestedMap(src.Capture.Instrumentation, "sql")
 	setBool(&cfg.EBPF.HeuristicSQLDetect, sqlCfg, "heuristic_detect")
-	setInt(&cfg.EBPF.BufferSizes.MySQL, nestedMap(sqlCfg, "mysql"), "buffer_size")
+	setUint32(&cfg.EBPF.BufferSizes.MySQL, nestedMap(sqlCfg, "mysql"), "buffer_size")
 	setInt(&cfg.EBPF.MySQLPreparedStatementsCacheSize, nestedMap(sqlCfg, "mysql"), "prepared_statements_cache_size")
-	setInt(&cfg.EBPF.BufferSizes.Postgres, nestedMap(sqlCfg, "postgres"), "buffer_size")
+	setUint32(&cfg.EBPF.BufferSizes.Postgres, nestedMap(sqlCfg, "postgres"), "buffer_size")
 	setInt(&cfg.EBPF.PostgresPreparedStatementsCacheSize, nestedMap(sqlCfg, "postgres"), "prepared_statements_cache_size")
 
 	redisCfg := nestedMap(src.Capture.Instrumentation, "redis")
@@ -98,7 +101,7 @@ func applyCapture(cfg *obi.Config, src *obiv2.Extension) {
 	setInt(&cfg.EBPF.RedisDBCache.MaxSize, nestedMap(redisCfg, "db_cache"), "max_size")
 
 	kafkaCfg := nestedMap(src.Capture.Instrumentation, "kafka")
-	setInt(&cfg.EBPF.BufferSizes.Kafka, kafkaCfg, "buffer_size")
+	setUint32(&cfg.EBPF.BufferSizes.Kafka, kafkaCfg, "buffer_size")
 	setInt(&cfg.EBPF.KafkaTopicUUIDCacheSize, kafkaCfg, "topic_uuid_cache_size")
 
 	mongoCfg := nestedMap(src.Capture.Instrumentation, "mongo")
@@ -111,13 +114,14 @@ func applyCapture(cfg *obi.Config, src *obiv2.Extension) {
 	setDuration(&cfg.EBPF.DNSRequestTimeout, dnsCfg, "request_timeout")
 
 	gpuCfg := nestedMap(src.Capture.Instrumentation, "gpu")
-	setString((*string)(&cfg.EBPF.InstrumentCuda), gpuCfg, "enabled_mode")
+	setText(&cfg.EBPF.InstrumentCuda, gpuCfg, "enabled_mode")
 
 	network := nestedMap(src.Capture.Network, "capture")
+	mergeSignalFilters(&cfg.Filters.Network, nestedMap(network, "filters"))
 	setBool(&cfg.NetworkFlows.Enable, network, "enabled")
 	setString(&cfg.NetworkFlows.Source, network, "source")
 	setString(&cfg.NetworkFlows.AgentIP, nestedMap(network, "endpoint_identity"), "agent_ip")
-	setString((*string)(&cfg.NetworkFlows.AgentIPIface), nestedMap(network, "endpoint_identity"), "agent_ip_interface")
+	setStringAlias(&cfg.NetworkFlows.AgentIPIface, nestedMap(network, "endpoint_identity"), "agent_ip_interface")
 	setString(&cfg.NetworkFlows.AgentIPType, nestedMap(network, "endpoint_identity"), "agent_ip_family")
 	setStringSlice(&cfg.NetworkFlows.Interfaces, nestedMap(network, "selection", "interfaces"), "include")
 	setStringSlice(&cfg.NetworkFlows.ExcludeInterfaces, nestedMap(network, "selection", "interfaces"), "exclude")
@@ -461,6 +465,42 @@ func setStringSlice[T ~string](dst *[]T, m map[string]any, key string) {
 	*dst = out
 }
 
+func setUint32(dst *uint32, m map[string]any, key string) {
+	if m == nil {
+		return
+	}
+	switch value := m[key].(type) {
+	case int:
+		*dst = uint32(value)
+	case int64:
+		*dst = uint32(value)
+	case float64:
+		*dst = uint32(value)
+	}
+}
+
+func setText(dst encoding.TextUnmarshaler, m map[string]any, key string) {
+	if m == nil {
+		return
+	}
+	value, ok := m[key].(string)
+	if !ok {
+		return
+	}
+	_ = dst.UnmarshalText([]byte(value))
+}
+
+func setStringAlias[T ~string](dst *T, m map[string]any, key string) {
+	if m == nil {
+		return
+	}
+	value, ok := m[key].(string)
+	if !ok {
+		return
+	}
+	*dst = T(value)
+}
+
 func setSamplerConfig(dst *services.SamplerConfig, m map[string]any) {
 	if m == nil {
 		return
@@ -477,4 +517,41 @@ func setSamplerConfig(dst *services.SamplerConfig, m map[string]any) {
 	}
 
 	*dst = sampler
+}
+
+func mergeSignalFilters(dst *filter.AttributeFamilyConfig, m map[string]any) {
+	if m == nil {
+		return
+	}
+
+	for _, key := range []string{"traces", "metrics"} {
+		filters := decodeFilterFamily(nestedMap(m, key))
+		if len(filters) == 0 {
+			continue
+		}
+		if *dst == nil {
+			*dst = filter.AttributeFamilyConfig{}
+		}
+		for attr, def := range filters {
+			(*dst)[attr] = def
+		}
+	}
+}
+
+func decodeFilterFamily(m map[string]any) filter.AttributeFamilyConfig {
+	if m == nil {
+		return nil
+	}
+
+	data, err := yaml.Marshal(m)
+	if err != nil {
+		return nil
+	}
+
+	var filters filter.AttributeFamilyConfig
+	if err := yaml.Unmarshal(data, &filters); err != nil {
+		return nil
+	}
+
+	return filters
 }

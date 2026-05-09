@@ -947,6 +947,6 @@ check-config-v2-artifacts:
 		exit 1; \
 	fi
 	@echo "### Validating config v2 example against schema"
-	python3 devdocs/config/version-2.0/validate_example.py --schema $(CONFIG_V2_SCHEMA_FILE) --example $(CONFIG_V2_EXAMPLE_FILE)
+	python3 devdocs/config/version-2.0/validate_example.py --schema $(CONFIG_V2_SCHEMA_FILE) --config $(CONFIG_V2_EXAMPLE_FILE)
 	@rm -f $(CONFIG_V2_SCHEMA_FILE).tmp $(CONFIG_V2_EXAMPLE_FILE).tmp
 	@echo "Config v2 artifacts are up-to-date"
