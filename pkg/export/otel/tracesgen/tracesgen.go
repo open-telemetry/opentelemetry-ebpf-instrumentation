@@ -854,16 +854,21 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 				attrs = append(attrs, semconv.GenAIUsageInputTokens(tokens))
 			}
 			if collection := ai.GetCollection(); collection != "" {
-				attrs = append(attrs, attribute.String("gen_ai.retrieval.collection", collection))
+				attrs = append(attrs, semconv.GenAIDataSourceID(collection))
 			}
+			// top_k / result_count / read_units are intentionally placed outside the
+			// gen_ai.retrieval.* namespace, which the OTel GenAI semantic conventions
+			// reserve for spec-defined keys (e.g. gen_ai.retrieval.documents,
+			// gen_ai.retrieval.query.text). Use db.vector.* / provider-specific keys
+			// instead to avoid future collisions.
 			if topK := ai.GetTopK(); topK > 0 {
-				attrs = append(attrs, attribute.Int("gen_ai.retrieval.top_k", topK))
+				attrs = append(attrs, attribute.Int("db.vector.query.top_k", topK))
 			}
 			if count := ai.ResultCount(); count > 0 {
-				attrs = append(attrs, attribute.Int("gen_ai.retrieval.result_count", count))
+				attrs = append(attrs, attribute.Int("db.vector.query.result_count", count))
 			}
 			if units := ai.Output.Usage.ReadUnits; units > 0 {
-				attrs = append(attrs, attribute.Int("gen_ai.retrieval.read_units", units))
+				attrs = append(attrs, attribute.Int("pinecone.usage.read_units", units))
 			}
 		}
 

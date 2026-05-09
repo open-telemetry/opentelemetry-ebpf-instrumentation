@@ -896,6 +896,9 @@ func (r *VendorRetrieval) GetCollection() string {
 	if r.Input.CollectionName != "" {
 		return r.Input.CollectionName
 	}
+	if r.Input.CollectionSnake != "" {
+		return r.Input.CollectionSnake
+	}
 	return r.Input.Namespace
 }
 
@@ -908,9 +911,10 @@ type RetrievalRequest struct {
 	Model string `json:"model,omitempty"`
 	// Collection / index name when the provider places it in the body
 	// (Pinecone uses namespace, Milvus uses collectionName, Chroma uses collection).
-	Collection     string `json:"collectionName,omitempty"`
-	CollectionName string `json:"collection_name,omitempty"`
-	Namespace      string `json:"namespace,omitempty"`
+	Collection      string `json:"collection,omitempty"`
+	CollectionName  string `json:"collectionName,omitempty"`
+	CollectionSnake string `json:"collection_name,omitempty"`
+	Namespace       string `json:"namespace,omitempty"`
 	// TopK / limit: maximum number of results requested. Pinecone uses
 	// "topK", Qdrant/Milvus/Chroma use "limit", some clients use "top_k".
 	TopK      int `json:"top_k,omitempty"`
@@ -925,7 +929,8 @@ type RetrievalResponse struct {
 	ID      string          `json:"id,omitempty"`
 	Model   string          `json:"model,omitempty"`
 	Matches json.RawMessage `json:"matches,omitempty"` // Pinecone
-	Results json.RawMessage `json:"results,omitempty"` // Qdrant, Chroma
+	Result  json.RawMessage `json:"result,omitempty"`  // Qdrant
+	Results json.RawMessage `json:"results,omitempty"` // Chroma
 	Data    json.RawMessage `json:"data,omitempty"`    // Milvus
 	Usage   RetrievalUsage  `json:"usage,omitempty"`
 }
@@ -951,16 +956,30 @@ func (r *VendorRetrieval) GetInputTokens() int {
 // ResultCount returns the number of matched items in the response, looking
 // at provider-specific fields in order.
 func (r *VendorRetrieval) ResultCount() int {
-	for _, raw := range []json.RawMessage{r.Output.Matches, r.Output.Results, r.Output.Data} {
-		if len(raw) == 0 {
-			continue
-		}
-		var arr []json.RawMessage
-		if json.Unmarshal(raw, &arr) == nil {
-			return len(arr)
-		}
+	if count, ok := retrievalArrayLen(r.Output.Matches); ok {
+		return count
+	}
+	if count, ok := retrievalArrayLen(r.Output.Result); ok {
+		return count
+	}
+	if count, ok := retrievalArrayLen(r.Output.Results); ok {
+		return count
+	}
+	if count, ok := retrievalArrayLen(r.Output.Data); ok {
+		return count
 	}
 	return 0
+}
+
+func retrievalArrayLen(raw json.RawMessage) (int, bool) {
+	if len(raw) == 0 {
+		return 0, false
+	}
+	var arr []json.RawMessage
+	if json.Unmarshal(raw, &arr) == nil {
+		return len(arr), true
+	}
+	return 0, false
 }
 
 // Span contains the information being submitted by the following nodes in the graph.

@@ -94,6 +94,7 @@ func TestRetrievalSpan_Qdrant(t *testing.T) {
 	require.NotNil(t, span.GenAI.Retrieval)
 	assert.Equal(t, "qdrant", span.GenAI.Retrieval.Provider)
 	assert.Equal(t, 5, span.GenAI.Retrieval.GetTopK())
+	assert.Equal(t, 2, span.GenAI.Retrieval.ResultCount())
 }
 
 func TestRetrievalSpan_Milvus(t *testing.T) {
@@ -148,6 +149,94 @@ func TestParseRetrievalProvider(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			req := makeRequest(t, http.MethodPost, tt.url, "{}")
 			assert.Equal(t, tt.expected, parseRetrievalProvider(req))
+		})
+	}
+}
+
+func TestRetrievalSpan_WeaviateGraphQL(t *testing.T) {
+	t.Run("retrieval query", func(t *testing.T) {
+		req := makeRequest(t, http.MethodPost,
+			"https://x.weaviate.cloud/v1/graphql",
+			`{"query":"{ Get { Article(nearText: { concepts: [\"biology\"] }, limit: 3) { title } } }"}`,
+		)
+		resp := makePlainResponse(http.StatusOK, http.Header{
+			"Content-Type": []string{"application/json"},
+		}, `{"data":{"Get":{"Article":[]}}}`)
+
+		base := &request.Span{}
+		span, ok := RetrievalSpan(base, req, resp)
+		require.True(t, ok)
+		require.NotNil(t, span.GenAI.Retrieval)
+		assert.Equal(t, "weaviate", span.GenAI.Retrieval.Provider)
+	})
+
+	t.Run("retrieval query with newlines and whitespace", func(t *testing.T) {
+		req := makeRequest(t, http.MethodPost,
+			"https://x.weaviate.cloud/v1/graphql",
+			`{"query":"{\n  Get\t{\n    Article(\n      nearText: { concepts: [\"biology\"] }\n      limit: 3\n    ) {\n      title\n    }\n  }\n}"}`,
+		)
+		resp := makePlainResponse(http.StatusOK, http.Header{
+			"Content-Type": []string{"application/json"},
+		}, `{"data":{"Get":{"Article":[]}}}`)
+
+		base := &request.Span{}
+		span, ok := RetrievalSpan(base, req, resp)
+		require.True(t, ok)
+		require.NotNil(t, span.GenAI.Retrieval)
+		assert.Equal(t, "weaviate", span.GenAI.Retrieval.Provider)
+	})
+
+	t.Run("non retrieval query", func(t *testing.T) {
+		req := makeRequest(t, http.MethodPost,
+			"https://x.weaviate.cloud/v1/graphql",
+			`{"query":"{ Aggregate { Article { meta { count } } } }"}`,
+		)
+		resp := makePlainResponse(http.StatusOK, http.Header{
+			"Content-Type": []string{"application/json"},
+		}, `{"data":{"Aggregate":{"Article":[{"meta":{"count":10}}]}}}`)
+
+		base := &request.Span{}
+		_, ok := RetrievalSpan(base, req, resp)
+		assert.False(t, ok)
+	})
+}
+
+func TestRetrievalSpan_CollectionVariants(t *testing.T) {
+	tests := []struct {
+		name        string
+		requestBody string
+		expected    string
+	}{
+		{
+			name:        "collection",
+			requestBody: `{"collection":"docs","limit":1}`,
+			expected:    "docs",
+		},
+		{
+			name:        "collectionName",
+			requestBody: `{"collectionName":"docs-camel","limit":1}`,
+			expected:    "docs-camel",
+		},
+		{
+			name:        "collection_name",
+			requestBody: `{"collection_name":"docs-snake","limit":1}`,
+			expected:    "docs-snake",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := makeRequest(t, http.MethodPost,
+				"https://x.trychroma.com/api/v1/collections/id/query", tt.requestBody)
+			resp := makePlainResponse(http.StatusOK, http.Header{
+				"Content-Type": []string{"application/json"},
+			}, `{"results":[]}`)
+
+			base := &request.Span{}
+			span, ok := RetrievalSpan(base, req, resp)
+			require.True(t, ok)
+			require.NotNil(t, span.GenAI.Retrieval)
+			assert.Equal(t, tt.expected, span.GenAI.Retrieval.GetCollection())
 		})
 	}
 }

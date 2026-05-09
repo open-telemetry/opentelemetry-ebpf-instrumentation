@@ -58,6 +58,14 @@ var retrievalHostPatterns = []retrievalHostPattern{
 	{"weaviate.network", "/v1/graphql", "weaviate"},
 }
 
+var weaviateGraphQLRetrievalSignals = []string{
+	"nearvector",
+	"neartext",
+	"nearobject",
+	"hybrid",
+	"bm25",
+}
+
 // parseRetrievalProvider returns the provider name when the request targets
 // a known vector retrieval endpoint (host suffix + path suffix match), and
 // an empty string otherwise.
@@ -79,13 +87,80 @@ func parseRetrievalProvider(req *http.Request) string {
 	return ""
 }
 
+func isWeaviateRetrievalGraphQLQuery(query string) bool {
+	normalized := strings.Join(strings.Fields(strings.ToLower(query)), " ")
+	if !strings.Contains(normalized, "get {") {
+		return false
+	}
+
+	for _, signal := range weaviateGraphQLRetrievalSignals {
+		if strings.Contains(normalized, signal) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func weaviateTopLevelQuery(body []byte) string {
+	dec := json.NewDecoder(bytes.NewReader(body))
+	tok, err := dec.Token()
+	if err != nil || tok != json.Delim('{') {
+		return ""
+	}
+
+	for dec.More() {
+		keyTok, err := dec.Token()
+		if err != nil {
+			break
+		}
+
+		key, ok := keyTok.(string)
+		if !ok {
+			break
+		}
+
+		if key == "query" {
+			var query string
+			if err := dec.Decode(&query); err == nil {
+				return query
+			}
+			return ""
+		}
+
+		var raw json.RawMessage
+		if err := dec.Decode(&raw); err != nil {
+			break
+		}
+	}
+
+	return ""
+}
+
+func hasWeaviateRetrievalSignals(body []byte) bool {
+	if len(body) == 0 {
+		return false
+	}
+
+	if query := weaviateTopLevelQuery(body); query != "" {
+		return isWeaviateRetrievalGraphQLQuery(query)
+	}
+
+	if !bytes.Contains(body, []byte(`"query"`)) {
+		return false
+	}
+
+	return isWeaviateRetrievalGraphQLQuery(string(body))
+}
+
 // RetrievalSpan detects vector retrieval (similarity search) API calls to
 // known vector databases based on hostname and URL path matching, and
 // extracts retrieval-specific fields into the span.
 //
 // Body parsing is best-effort: once the provider is confirmed by the URL,
-// the span is always classified as retrieval even if the body cannot be
-// read or parsed (e.g. due to eBPF payload truncation).
+// retrieval spans are classified even if parsing fails, except Weaviate
+// GraphQL where body-level retrieval signals are required to reduce false
+// positives on non-retrieval operations.
 func RetrievalSpan(baseSpan *request.Span, req *http.Request, resp *http.Response) (request.Span, bool) {
 	provider := parseRetrievalProvider(req)
 	if provider == "" {
@@ -100,6 +175,11 @@ func RetrievalSpan(baseSpan *request.Span, req *http.Request, resp *http.Respons
 			slog.Debug("RetrievalSpan: failed to read request body, continuing without it", "provider", provider, "error", err)
 		}
 		req.Body = io.NopCloser(bytes.NewBuffer(reqB))
+	}
+
+	if provider == "weaviate" && !hasWeaviateRetrievalSignals(reqB) {
+		slog.Debug("RetrievalSpan: weaviate GraphQL request without retrieval signals, skipping", "path", requestPath(req), "host", extractHostname(req))
+		return *baseSpan, false
 	}
 
 	respB, err := getResponseBody(resp)
