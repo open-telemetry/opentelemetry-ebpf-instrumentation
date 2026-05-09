@@ -62,8 +62,16 @@ func TestSemconvVersionMatchesManifest(t *testing.T) {
 		SemconvVersion(), manifestSemconvVersion)
 
 	// The registry_path also embeds the version; sanity-check it matches.
-	expectedRefspec := "@v" + manifestSemconvVersion
-	require.Contains(t, dep.RegistryPath, expectedRefspec,
-		"manifest semconv dependency registry_path (%s) does not pin %s",
-		dep.RegistryPath, expectedRefspec)
+	// We accept either the upstream git-URL form (`@vX.Y.Z`) or the local
+	// pre-fetched cache form (`upstream-vX.Y.Z`) — `make fetch-upstream-semconv`
+	// populates the latter and the manifest references it so weaver doesn't
+	// need network on every container start.
+	gitRefspec := "@v" + manifestSemconvVersion
+	localRefspec := "upstream-v" + manifestSemconvVersion
+	if !strings.Contains(dep.RegistryPath, gitRefspec) &&
+		!strings.Contains(dep.RegistryPath, localRefspec) {
+		t.Fatalf("manifest semconv dependency registry_path (%s) does not pin "+
+			"%s (git form) or %s (local cache form)",
+			dep.RegistryPath, gitRefspec, localRefspec)
+	}
 }

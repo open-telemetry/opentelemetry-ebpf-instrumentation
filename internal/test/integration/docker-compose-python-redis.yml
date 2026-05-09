@@ -40,7 +40,7 @@ services:
       OTEL_EBPF_DISCOVERY_POLL_INTERVAL: 500ms
       OTEL_EBPF_EXECUTABLE_PATH: "${OTEL_EBPF_EXECUTABLE_PATH}"
       OTEL_EBPF_SERVICE_NAMESPACE: "integration-test"
-      OTEL_EBPF_METRICS_INTERVAL: "10ms"
+      OTEL_EBPF_METRICS_INTERVAL: "1s"
       OTEL_EBPF_BPF_BATCH_TIMEOUT: "10ms"
       OTEL_EBPF_LOG_LEVEL: "DEBUG"
       OTEL_EBPF_BPF_DEBUG: "TRUE"
@@ -80,40 +80,12 @@ services:
       weaver:
         condition: service_healthy
 
-  # Weaver semantic convention validator — receives OTLP from the collector
-  # and validates telemetry against the OpenTelemetry semantic conventions.
   weaver:
-    image: otel/weaver:v0.23.0@sha256:7984ecb55b859eb3034ae9d836c4eeda137e2bdd0873b7ba2bb6c3d24d6ff457
-    container_name: weaver
-    command:
-      - registry
-      - live-check
-      # OBI's own schema registry. The manifest at the root pins the upstream
-      # semconv dependency (currently v1.38.0). Bump in lockstep with the Go
-      # `go.opentelemetry.io/otel/semconv/...` import — guarded by
-      # TestSemconvVersionMatchesManifest.
-      - --registry
-      - /obi-registry
-      - --include-unreferenced
-      - --inactivity-timeout
-      - "300"
-      - --admin-port
-      - "4320"
-      - --format
-      - json
-      - --diagnostic-format
-      - json
-      - --no-stream
+    extends:
+      file: components/weaver/service.yml
+      service: weaver
     volumes:
       - ../../../schemas/obi:/obi-registry:ro
-    ports:
-      - "4320:4320" # admin port (for /stop from test host)
-    healthcheck:
-      test: ["CMD-SHELL", "wget --timeout=1 -q -O /dev/null http://127.0.0.1:4317/ 2>&1 | grep -qv refused"]
-      interval: 2s
-      timeout: 2s
-      retries: 30
-      start_period: 5s
 
   # Prometheus
   prometheus:

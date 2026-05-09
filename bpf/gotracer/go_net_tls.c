@@ -19,6 +19,8 @@
 #include <bpfcore/bpf_helpers.h>
 #include <bpfcore/utils.h>
 
+#include <gotracer/go_offsets.h>
+
 #include <gotracer/go_common.h>
 #include <gotracer/maps/ongoing_ssl_ops.h>
 
@@ -30,7 +32,7 @@
 
 static __always_inline void *unwrap_conn(void *conn) {
     void *conn_conn = 0;
-    bpf_probe_read(&conn_conn, sizeof(conn_conn), conn + 8); // 8 skip embedded data structure class
+    bpf_probe_read(&conn_conn, sizeof(conn_conn), conn + k_go_iface_data_offset);
     bpf_dbg_printk("unwrapped conn %llx", conn_conn);
 
     return conn_conn;

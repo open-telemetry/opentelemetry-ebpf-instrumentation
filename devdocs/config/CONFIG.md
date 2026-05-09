@@ -188,6 +188,7 @@ Per-protocol maximum bytes to capture per request per direction, sent to userspa
 | `ebpf.buffer_sizes.mssql` | `integer` | `OTEL_EBPF_BPF_BUFFER_SIZE_MSSQL` | `0` |  |  |  |
 | `ebpf.buffer_sizes.mysql` | `integer` | `OTEL_EBPF_BPF_BUFFER_SIZE_MYSQL` | `0` |  |  |  |
 | `ebpf.buffer_sizes.postgres` | `integer` | `OTEL_EBPF_BPF_BUFFER_SIZE_POSTGRES` | `0` |  |  |  |
+| `ebpf.buffer_sizes.tcp` | `integer` | `OTEL_EBPF_BPF_BUFFER_SIZE_TCP` | `0` |  |  |  |
 
 ### `ebpf.log_enricher`
 
@@ -282,6 +283,12 @@ HTTPParsingPolicy defines the default action for http enrichment rules.
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
 | `ebpf.payload_extraction.http.genai.qwen.enabled` | `boolean` | `OTEL_EBPF_HTTP_QWEN_ENABLED` | `false` |  |  | Enable Qwen (DashScope) payload extraction and parsing |
+
+#### `ebpf.payload_extraction.http.genai.rerank`
+
+| YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
+|---|---|---|---|---|---|---|
+| `ebpf.payload_extraction.http.genai.rerank.enabled` | `boolean` | `OTEL_EBPF_HTTP_RERANK_ENABLED` | `false` |  |  | Enable Rerank (Cohere, Jina AI, Voyage AI, etc.) payload extraction and parsing |
 
 #### `ebpf.payload_extraction.http.graphql`
 

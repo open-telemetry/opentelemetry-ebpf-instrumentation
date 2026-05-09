@@ -372,7 +372,8 @@ func TestGenerateTracesAttributes(t *testing.T) {
 
 	t.Run("test SQL trace generation, error", func(t *testing.T) {
 		span := makeSQLRequestErroredSpan("SELECT * FROM obi.nonexisting")
-		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{attr.DBQueryText: {}})
+		traceAttrs := map[attr.Name]struct{}{attr.DBQueryText: {}}
+		tAttrs := tracesgen.TraceAttributesSelector(&span, traceAttrs)
 		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
 
 		assert.Equal(t, 1, traces.ResourceSpans().Len())
@@ -386,7 +387,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		attrs := spans.At(0).Attributes()
 		status := spans.At(0).Status()
 		assert.Equal(t, ptrace.StatusCodeError, status.Code())
-		assert.Equal(t, "SQL Server errored: error_code=8 sql_state=#1234 message=SQL error message", status.Message())
+		assert.Equal(t, attributes.DBErrorMessagePlaceholder, status.Message())
 
 		assert.Equal(t, 9, attrs.Len())
 
@@ -396,6 +397,28 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBResponseStatusCode), "8")
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.ErrorType), "#1234")
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBQueryText), "SELECT * FROM obi.nonexisting")
+		ensureTraceAttrNotExists(t, attrs, attribute.Key(attr.DBResponseError))
+	})
+
+	t.Run("test SQL trace generation, error response selected", func(t *testing.T) {
+		span := makeSQLRequestErroredSpan("SELECT * FROM obi.nonexisting")
+		traceAttrs := map[attr.Name]struct{}{
+			attr.DBQueryText:     {},
+			attr.DBResponseError: {},
+		}
+		tAttrs := tracesgen.TraceAttributesSelector(&span, traceAttrs)
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+		attrs := spans.At(0).Attributes()
+		status := spans.At(0).Status()
+		expectedError := "SQL Server errored: error_code=8 sql_state=#1234 message=SQL error message"
+
+		assert.Equal(t, ptrace.StatusCodeError, status.Code())
+		assert.Equal(t, expectedError, status.Message())
+		assert.Equal(t, 9, attrs.Len())
+
+		ensureTraceAttrNotExists(t, attrs, attribute.Key(attr.DBResponseError))
 	})
 
 	t.Run("test Kafka trace generation", func(t *testing.T) {
@@ -508,8 +531,9 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBSystemName), "mongodb")
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBResponseStatusCode), "1")
 		ensureTraceAttrNotExists(t, attrs, attribute.Key(attr.DBQueryText))
+		ensureTraceAttrNotExists(t, attrs, attribute.Key(attr.DBResponseError))
 		assert.Equal(t, ptrace.StatusCodeError, spans.At(0).Status().Code())
-		assert.Equal(t, "Internal MongoDB error", spans.At(0).Status().Message())
+		assert.Equal(t, attributes.DBErrorMessagePlaceholder, spans.At(0).Status().Message())
 	})
 	t.Run("test Couchbase trace generation", func(t *testing.T) {
 		span := request.Span{Type: request.EventTypeCouchbaseClient, Method: "GET", Path: "mycollection", DBNamespace: "mybucket.myscope", Status: 0}
@@ -556,8 +580,9 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBSystemName), "couchbase")
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBResponseStatusCode), "1")
 		ensureTraceAttrNotExists(t, attrs, attribute.Key(attr.DBQueryText))
+		ensureTraceAttrNotExists(t, attrs, attribute.Key(attr.DBResponseError))
 		assert.Equal(t, ptrace.StatusCodeError, spans.At(0).Status().Code())
-		assert.Equal(t, "KEY_NOT_FOUND", spans.At(0).Status().Message())
+		assert.Equal(t, attributes.DBErrorMessagePlaceholder, spans.At(0).Status().Message())
 	})
 	t.Run("test Couchbase trace generation with db.query.text", func(t *testing.T) {
 		span := request.Span{
@@ -652,8 +677,9 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBSystemName), "memcached")
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBResponseStatusCode), "SERVER_ERROR")
 		ensureTraceAttrNotExists(t, attrs, semconv.PeerServiceKey)
+		ensureTraceAttrNotExists(t, attrs, attribute.Key(attr.DBResponseError))
 		assert.Equal(t, ptrace.StatusCodeError, spans.At(0).Status().Code())
-		assert.Equal(t, "SERVER_ERROR out of memory", spans.At(0).Status().Message())
+		assert.Equal(t, attributes.DBErrorMessagePlaceholder, spans.At(0).Status().Message())
 	})
 	t.Run("test SQL++ trace generation", func(t *testing.T) {
 		span := request.Span{
@@ -761,8 +787,9 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBQueryText), "SELECT * FROM `travel-sample`._default.nonexistent")
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.ErrorType), "12003")
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBResponseStatusCode), "12003")
+		ensureTraceAttrNotExists(t, attrs, attribute.Key(attr.DBResponseError))
 		assert.Equal(t, ptrace.StatusCodeError, spans.At(0).Status().Code())
-		assert.Equal(t, "Keyspace not found in CB datastore: default:travel-sample._default.nonexistent", spans.At(0).Status().Message())
+		assert.Equal(t, attributes.DBErrorMessagePlaceholder, spans.At(0).Status().Message())
 	})
 	t.Run("test SQL++ trace generation with minimal attributes", func(t *testing.T) {
 		span := request.Span{
@@ -1695,7 +1722,54 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
 
 		attrs := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
+		ensureTraceStrAttr(t, attrs, semconv.URLFullKey, "https://api.example.com/external/api")
+	})
+	t.Run("test HTTP client url.full includes query with opt-in", func(t *testing.T) {
+		span := request.Span{
+			Type:      request.EventTypeHTTPClient,
+			Method:    "GET",
+			Path:      "/external/api",
+			FullPath:  "/external/api?foo=bar",
+			Status:    200,
+			Host:      "api.example.com",
+			HostPort:  443,
+			Statement: "https;api.example.com",
+		}
+
+		optionalAttrs := map[attr.Name]struct{}{attr.HTTPUrlQuery: {}}
+		tAttrs := tracesgen.TraceAttributesSelector(&span, optionalAttrs)
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		attrs := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
 		ensureTraceStrAttr(t, attrs, semconv.URLFullKey, "https://api.example.com/external/api?foo=bar")
+		ensureTraceStrAttr(t, attrs, semconv.URLQueryKey, "foo=bar")
+	})
+	t.Run("test HTTP client url.full includes query through selector config opt-in", func(t *testing.T) {
+		tr := makeTracesTestReceiver([]instrumentations.Instrumentation{instrumentations.InstrumentationHTTP})
+		tr.selectorCfg = &attributes.SelectorConfig{
+			SelectionCfg: attributes.Selection{
+				"traces": attributes.InclusionLists{
+					Include: []string{"url.query"},
+				},
+			},
+		}
+
+		traces := generateTracesForSpans(t, tr, []request.Span{{
+			Type:      request.EventTypeHTTPClient,
+			Method:    "GET",
+			Path:      "/external/api",
+			FullPath:  "/external/api?foo=bar",
+			Status:    200,
+			Host:      "api.example.com",
+			HostPort:  443,
+			Statement: "https;api.example.com",
+		}})
+
+		require.Len(t, traces, 1)
+
+		attrs := traces[0].ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
+		ensureTraceStrAttr(t, attrs, semconv.URLFullKey, "https://api.example.com/external/api?foo=bar")
+		ensureTraceStrAttr(t, attrs, semconv.URLQueryKey, "foo=bar")
 	})
 	t.Run("test HTTP client url.full falls back to Path when FullPath is empty", func(t *testing.T) {
 		span := request.Span{
@@ -1727,7 +1801,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
 
 		attrs := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
-		ensureTraceStrAttr(t, attrs, semconv.URLFullKey, "https://upstream.example.com/external/api?foo=bar")
+		ensureTraceStrAttr(t, attrs, semconv.URLFullKey, "https://upstream.example.com/external/api")
 	})
 	t.Run("test JSON-RPC server span with error", func(t *testing.T) {
 		span := request.Span{

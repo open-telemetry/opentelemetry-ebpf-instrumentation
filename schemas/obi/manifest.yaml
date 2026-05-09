@@ -23,5 +23,13 @@ dependencies:
   # The dependency version MUST stay in sync with the upstream
   # OpenTelemetry semantic conventions version OBI is built against. A
   # CI guard asserts both sides match — bump them together.
+  #
+  # `registry_path` points to a local pre-fetched copy under `.deps/` so
+  # weaver doesn't clone semconv on every container start. Run
+  # `make fetch-upstream-semconv` (also invoked by `make prereqs`) to
+  # populate it; CI caches the directory so cold runs stay fast. The path
+  # is resolved relative to this manifest, so the same value works whether
+  # weaver runs against the registry on the host or inside a container
+  # bind-mount.
   - schema_url: https://opentelemetry.io/schemas/1.38.0
-    registry_path: https://github.com/open-telemetry/semantic-conventions.git@v1.38.0[model]
+    registry_path: .deps/upstream-v1.38.0[model]

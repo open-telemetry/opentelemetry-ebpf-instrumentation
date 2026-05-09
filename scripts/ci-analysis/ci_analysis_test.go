@@ -145,17 +145,150 @@ func TestWriteReport(t *testing.T) {
 
 func TestFingerprintUnknownHashing(t *testing.T) {
 	// Two different unknown errors should get different fingerprints.
-	fp1 := fingerprintFromTestOutput("some weird error A")
-	fp2 := fingerprintFromTestOutput("some weird error B")
+	fp1 := fingerprintFromTestOutput("", "some weird error A", "")
+	fp2 := fingerprintFromTestOutput("", "some weird error B", "")
 	require.Contains(t, fp1, "unknown-")
 	require.Contains(t, fp2, "unknown-")
 	require.NotEqual(t, fp1, fp2)
 
 	// Same error should get the same fingerprint.
-	require.Equal(t, fp1, fingerprintFromTestOutput("some weird error A"))
+	require.Equal(t, fp1, fingerprintFromTestOutput("", "some weird error A", ""))
 
-	// Empty snippet stays plain "unknown".
-	require.Equal(t, "unknown", fingerprintFromTestOutput(""))
+	// Empty inputs stay plain "unknown".
+	require.Equal(t, "unknown", fingerprintFromTestOutput("", "", ""))
+}
+
+func TestFingerprintErrorMsgPriority(t *testing.T) {
+	// Error message pattern wins over an incidental snippet pattern.
+	// Here the snippet contains a panic from teardown but the actual
+	// assertion was a connection-refused: connection-refused must win.
+	snippet := "panic: goroutine teardown\n    Error: connection refused\n"
+	fp := fingerprintFromTestOutput("connection refused", snippet, "")
+	require.Equal(t, "connection-refused", fp)
+
+	// When the error message has no recognized pattern, fall back to
+	// the snippet scan.
+	fp = fingerprintFromTestOutput("zorblax not converged", "WARNING: DATA RACE\n", "")
+	require.Equal(t, "data-race", fp)
+}
+
+func TestFingerprintCauseConsequenceSplit(t *testing.T) {
+	// testify explicitly reporting exit-status as the unexpected error:
+	// the consequence pattern IS the cause here, keep the label.
+	fp := fingerprintFromTestOutput(
+		"Received unexpected error: exit status 1",
+		"Error: Received unexpected error: exit status 1\n",
+		"suites_test.go:337",
+	)
+	require.Equal(t, "exit-error", fp)
+
+	// testify reports a generic assertion ("Condition never satisfied"),
+	// while a teardown WARN line in the surrounding snippet contains
+	// "exit status 1". The exit-error must NOT win — it's teardown noise
+	// after the real assertion already failed. Expect trace-site hash.
+	fp = fingerprintFromTestOutput(
+		"Condition never satisfied",
+		`WARN waiting for obi to stop. Will force remove error="exit status 1"`+"\n"+
+			`Error: "3" is not less than or equal to "2"`+"\n"+
+			"Error: Condition never satisfied\n",
+		"red_test.go:424",
+	)
+	require.Contains(t, fp, "unknown-")
+	require.NotEqual(t, "exit-error", fp)
+
+	// Cause pattern in snippet still wins when errorMsg matches nothing —
+	// a real panic must not be hidden behind a trace-site hash.
+	fp = fingerprintFromTestOutput(
+		"some unrelated assertion message",
+		"panic: runtime error: nil pointer dereference\nError: some unrelated assertion message\n",
+		"trace.go:1",
+	)
+	require.Equal(t, "panic", fp)
+
+	// No testify Error: at all (non-framework failure). Consequence
+	// patterns are the only signal — fall back to them.
+	fp = fingerprintFromTestOutput("", "process exited with exit status 137\n", "")
+	require.Equal(t, "exit-error", fp)
+
+	// Two failures at the same outer wrapper but with different teardown
+	// noise: must land in the same trace-site bucket.
+	fpA := fingerprintFromTestOutput(
+		"Condition never satisfied",
+		`error="exit status 1"`+"\nError: Condition never satisfied\n",
+		"red_test.go:424",
+	)
+	fpB := fingerprintFromTestOutput(
+		"Condition never satisfied",
+		"received signal: interrupt\nError: Condition never satisfied\n",
+		"red_test.go:424",
+	)
+	require.Equal(t, fpA, fpB)
+}
+
+func TestFingerprintUnknownHashing_TraceSite(t *testing.T) {
+	// Two failures at the same trace site should hash identically even
+	// when the error wording differs slightly.
+	fp1 := fingerprintFromTestOutput("expected 5 got 4", "", "foo_test.go:42")
+	fp2 := fingerprintFromTestOutput("expected 7 got 3", "", "foo_test.go:42")
+	require.Equal(t, fp1, fp2)
+	require.Contains(t, fp1, "unknown-")
+
+	// Different trace sites should hash differently.
+	fp3 := fingerprintFromTestOutput("expected 5 got 4", "", "bar_test.go:99")
+	require.NotEqual(t, fp1, fp3)
+}
+
+func TestExtractErrorBlock_IgnoresUnanchoredErrorLines(t *testing.T) {
+	// Application log lines that contain "Error:" or "Error Trace:" must
+	// not be picked up as the testify framework error. Only indented
+	// labeled lines (testify's emission style) should match.
+	output := []string{
+		"Error: app log before testify\n",
+		"2026/04/29 13:48:19 ERROR Error Trace: spurious.go:1\n",
+		"        \tError Trace:\tfoo_test.go:42\n",
+		"        \tError:      \tReal testify failure\n",
+		"--- FAIL: TestX (0.50s)\n",
+		"Error: app log after the FAIL marker\n",
+	}
+	msg, trace := extractErrorBlock(output)
+	require.Equal(t, "foo_test.go:42", trace)
+	require.Equal(t, "Real testify failure", msg)
+}
+
+func TestExtractErrorBlock(t *testing.T) {
+	// testify-style output with Error Trace, Error: with a continuation
+	// line, then Test: label and FAIL marker.
+	output := []string{
+		"=== RUN   TestX\n",
+		"    file_test.go:25: \n",
+		"        \tError Trace:\tfoo_test.go:42\n",
+		"        \tError:      \tReceived unexpected error:\n",
+		"        \t            \tconnection refused\n",
+		"        \tTest:       \tTestX\n",
+		"--- FAIL: TestX (0.50s)\n",
+	}
+	msg, trace := extractErrorBlock(output)
+	require.Equal(t, "foo_test.go:42", trace)
+	require.Contains(t, msg, "Received unexpected error:")
+	require.Contains(t, msg, "connection refused")
+	// Continuation collection must stop at the Test: label.
+	require.NotContains(t, msg, "TestX")
+
+	// Output with no testify labels returns empty values.
+	msg, trace = extractErrorBlock([]string{"=== RUN   TestY\n", "panic: nope\n"})
+	require.Empty(t, msg)
+	require.Empty(t, trace)
+
+	// When multiple Error: blocks are present, the last one wins.
+	output = []string{
+		"        \tError Trace:\tfirst.go:10\n",
+		"        \tError:      \tearly failure\n",
+		"        \tError Trace:\tsecond.go:20\n",
+		"        \tError:      \tlate failure\n",
+	}
+	msg, trace = extractErrorBlock(output)
+	require.Equal(t, "second.go:20", trace)
+	require.Contains(t, msg, "late failure")
 }
 
 func TestClassifyOutcome(t *testing.T) {

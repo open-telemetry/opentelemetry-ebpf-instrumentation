@@ -37,6 +37,20 @@ groups:
           OpenMetrics convention. Carried on `target_info` and on every
           series exported via OBI's Prometheus exporter.
         examples: ["my-service"]
+      - id: obi.version
+        type: string
+        stability: development
+        brief: >
+          OBI build version, e.g. the release tag the instrumenter was
+          built from. Carried as a resource attribute on every signal.
+        examples: ["v0.42.0"]
+      - id: obi.revision
+        type: string
+        stability: development
+        brief: >
+          Git SHA of the OBI build. Carried as a resource attribute on
+          every signal.
+        examples: ["a2a9a6e2"]
 
   # The instrument and (empty) unit declared here mirror what OBI currently
   # emits over OTLP rather than the OTel-canonical `gauge` / `unit: "1"`
@@ -87,21 +101,3 @@ groups:
       - ref: host.id
         requirement_level: opt_in
 
-  # OBI deviation from upstream semconv: we currently emit `rpc.server.duration`
-  # in seconds while semconv == 1.38 specifies milliseconds. This declaration
-  # produces a duplicate-id / duplicate-metric-name warning during
-  # `weaver registry check` (because the upstream registry also defines this
-  # metric). The warning is non-fatal; it documents the deviation explicitly.
-  # TODO: drop this group once OBI emits `rpc.server.duration` in
-  # milliseconds (matching the semconv >= 1.38 unit specification — likely
-  # in lockstep with bumping the manifest's pinned semconv to >= 1.40.0).
-  - id: metric.rpc.server.duration
-    type: metric
-    metric_name: rpc.server.duration
-    instrument: histogram
-    unit: "s"
-    stability: development
-    brief: >
-      OBI deviation: rpc.server.duration is emitted in seconds rather than
-      the milliseconds specified by upstream semconv. Tracked for removal.
-    attributes: [ ]

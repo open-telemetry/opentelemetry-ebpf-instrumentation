@@ -795,3 +795,20 @@ func TestSpanOTELGetters_GenAITools(t *testing.T) {
 		})
 	}
 }
+
+func TestSpanOTELGetters_Instance(t *testing.T) {
+	getter, ok := spanOTELGetters(attr.Instance)
+	require.True(t, ok, "getter should be found for Instance")
+
+	span := &Span{
+		Service: svc.Attrs{
+			UID: svc.UID{
+				Instance: "instance-42",
+			},
+		},
+	}
+
+	kv := getter(span)
+	assert.Equal(t, string(attr.Instance), string(kv.Key))
+	assert.Equal(t, "instance-42", kv.Value.AsString())
+}

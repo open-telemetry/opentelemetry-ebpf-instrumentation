@@ -61,11 +61,13 @@ groups:
           connector's `dimensions` list.
         examples: ["integration-test"]
 
+  # Counter has no explicit OTLP unit set; mirror that here so live-check
+  # doesn't complain "Unit should be '1', but found ''".
   - id: metric.traces_service_graph_request_total
     type: metric
     metric_name: traces_service_graph_request_total
     instrument: counter
-    unit: "1"
+    unit: ""
     stability: development
     brief: >
       Total number of edges in the service graph, grouped by client / server.
@@ -77,11 +79,13 @@ groups:
       - ref: server_service_namespace
       - ref: source
 
+  # Counter has no explicit OTLP unit set; mirror that here so live-check
+  # doesn't complain "Unit should be '1', but found ''".
   - id: metric.traces_service_graph_request_failed_total
     type: metric
     metric_name: traces_service_graph_request_failed_total
     instrument: counter
-    unit: "1"
+    unit: ""
     stability: development
     brief: >
       Total number of failed edges in the service graph, grouped by

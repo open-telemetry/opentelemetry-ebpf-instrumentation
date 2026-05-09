@@ -117,6 +117,13 @@ enum {
     _gin_fullpath_off_post_17 = 40,
 };
 
+// Fixed offsets defined by the Go runtime type layout.
+enum : u32 {
+    k_go_string_len_offset = 8,
+    k_go_slice_len_offset = 8,
+    k_go_iface_data_offset = 8,
+};
+
 typedef struct go_offset_t {
     go_offset_const v;
 } go_offset;

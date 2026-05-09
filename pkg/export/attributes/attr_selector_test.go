@@ -236,12 +236,13 @@ func TestTraces(t *testing.T) {
 	p, err := NewAttrSelector(GroupTraces, &SelectorConfig{
 		SelectionCfg: Selection{
 			"traces": InclusionLists{
-				Include: []string{"db.query.text", "obi.ip", "src.*", "k8s.*"},
+				Include: []string{"db.query.text", "db.response.error", "obi.ip", "src.*", "k8s.*"},
 			},
 		},
 	})
 	require.NoError(t, err)
 	assert.Equal(t, []attr.Name{
 		"db.query.text",
+		"db.response.error",
 	}, p.For(Traces))
 }

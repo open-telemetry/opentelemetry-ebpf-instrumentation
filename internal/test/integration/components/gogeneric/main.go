@@ -29,11 +29,11 @@ import (
 )
 
 var (
-	addr        = flag.String("addr", ":8080", "The address to bind to")
-	tlsAddr     = flag.String("tls-addr", ":8443", "The address to bind to for TLS")
-	brokers     = flag.String("brokers", os.Getenv("KAFKA_PEERS"), "The Kafka brokers to connect to, as a comma separated list")
-	tlsBrokers  = flag.String("tls-brokers", os.Getenv("KAFKA_TLS_PEERS"), "Kafka brokers to connect to over TLS (port 9094), as a comma separated list")
-	downstream  = flag.String("downstream", os.Getenv("HTTP_PEER"), "Downstream service to test HTTP client")
+	addr       = flag.String("addr", ":8080", "The address to bind to")
+	tlsAddr    = flag.String("tls-addr", ":8443", "The address to bind to for TLS")
+	brokers    = flag.String("brokers", os.Getenv("KAFKA_PEERS"), "The Kafka brokers to connect to, as a comma separated list")
+	tlsBrokers = flag.String("tls-brokers", os.Getenv("KAFKA_TLS_PEERS"), "Kafka brokers to connect to over TLS (port 9094), as a comma separated list")
+	downstream = flag.String("downstream", os.Getenv("HTTP_PEER"), "Downstream service to test HTTP client")
 )
 
 const kafkaRetryDelay = 3 * time.Second
