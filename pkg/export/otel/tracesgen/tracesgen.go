@@ -835,6 +835,35 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 			}
 		}
 
+		if span.SubType == request.HTTPSubtypeRetrieval && span.GenAI != nil && span.GenAI.Retrieval != nil {
+			ai := span.GenAI.Retrieval
+			attrs = append(attrs, semconv.GenAIProviderNameKey.String(ai.Provider))
+			attrs = append(attrs, semconv.GenAIOperationNameKey.String(ai.OperationName()))
+			if ai.Input.Model != "" {
+				attrs = append(attrs, semconv.GenAIRequestModel(ai.Input.Model))
+			}
+			if ai.Output.Model != "" {
+				attrs = append(attrs, semconv.GenAIResponseModel(ai.Output.Model))
+			} else if ai.Input.Model != "" {
+				attrs = append(attrs, semconv.GenAIResponseModel(ai.Input.Model))
+			}
+			if ai.Output.ID != "" {
+				attrs = append(attrs, semconv.GenAIResponseID(ai.Output.ID))
+			}
+			if tokens := ai.GetInputTokens(); tokens > 0 {
+				attrs = append(attrs, semconv.GenAIUsageInputTokens(tokens))
+			}
+			if collection := ai.GetCollection(); collection != "" {
+				attrs = append(attrs, attribute.String("gen_ai.retrieval.collection", collection))
+			}
+			if topK := ai.GetTopK(); topK > 0 {
+				attrs = append(attrs, attribute.Int("gen_ai.retrieval.top_k", topK))
+			}
+			if count := ai.ResultCount(); count > 0 {
+				attrs = append(attrs, attribute.Int("gen_ai.retrieval.result_count", count))
+			}
+		}
+
 		attrs = append(attrs, jsonRPCAttributes(span)...)
 		attrs = append(attrs, httpEnrichmentAttributes(span)...)
 	case request.EventTypeGRPCClient:

@@ -907,6 +907,10 @@
         "rerank": {
           "$ref": "#/$defs/RerankConfig",
           "description": "Payload extraction and parsing (Cohere, Jina AI, Voyage AI, etc.)"
+        },
+        "retrieval": {
+          "$ref": "#/$defs/RetrievalConfig",
+          "description": "Vector retrieval payload extraction and parsing (Pinecone, Qdrant, Milvus, Chroma, Weaviate, etc.)"
         }
       },
       "type": "object"
@@ -2307,6 +2311,17 @@
           "description": "Enable Rerank (Cohere, Jina AI, Voyage AI, etc.) payload extraction and parsing",
           "default": false,
           "x-env-var": "OTEL_EBPF_HTTP_RERANK_ENABLED"
+        }
+      },
+      "type": "object"
+    },
+    "RetrievalConfig": {
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable vector retrieval (Pinecone, Qdrant, Milvus, Chroma, Weaviate, etc.) payload extraction and parsing",
+          "default": false,
+          "x-env-var": "OTEL_EBPF_HTTP_RETRIEVAL_ENABLED"
         }
       },
       "type": "object"

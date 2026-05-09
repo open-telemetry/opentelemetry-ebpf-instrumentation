@@ -290,6 +290,12 @@ HTTPParsingPolicy defines the default action for http enrichment rules.
 |---|---|---|---|---|---|---|
 | `ebpf.payload_extraction.http.genai.rerank.enabled` | `boolean` | `OTEL_EBPF_HTTP_RERANK_ENABLED` | `false` |  |  | Enable Rerank (Cohere, Jina AI, Voyage AI, etc.) payload extraction and parsing |
 
+#### `ebpf.payload_extraction.http.genai.retrieval`
+
+| YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
+|---|---|---|---|---|---|---|
+| `ebpf.payload_extraction.http.genai.retrieval.enabled` | `boolean` | `OTEL_EBPF_HTTP_RETRIEVAL_ENABLED` | `false` |  |  | Enable vector retrieval (Pinecone, Qdrant, Milvus, Chroma, Weaviate, etc.) payload extraction and parsing |
+
 #### `ebpf.payload_extraction.http.graphql`
 
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |

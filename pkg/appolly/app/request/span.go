@@ -105,6 +105,7 @@ const (
 	HTTPSubtypeMCP           = 12 // http + Model Context Protocol
 	HTTPSubtypeEmbedding     = 13 // http + generic embedding provider (Voyage, Cohere, Jina)
 	HTTPSubtypeRerank        = 14 // http + Rerank (Cohere, Jina, Voyage, etc.)
+	HTTPSubtypeRetrieval     = 15 // http + vector retrieval (Pinecone, Qdrant, Milvus, Chroma, Weaviate, etc.)
 )
 
 func IsGenAISubtype(subtype int) bool {
@@ -115,7 +116,8 @@ func IsGenAISubtype(subtype int) bool {
 		subtype == HTTPSubtypeAWSBedrock ||
 		subtype == HTTPSubtypeMCP ||
 		subtype == HTTPSubtypeEmbedding ||
-		subtype == HTTPSubtypeRerank
+		subtype == HTTPSubtypeRerank ||
+		subtype == HTTPSubtypeRetrieval
 }
 
 //nolint:cyclop
@@ -282,6 +284,7 @@ type GenAI struct {
 	MCP       *MCPCall
 	Embedding *VendorEmbedding
 	Rerank    *VendorRerank
+	Retrieval *VendorRetrieval
 }
 
 type OpenAIUsage struct {
@@ -847,6 +850,120 @@ func (r *RerankResponse) GetTotalTokens() int {
 type RerankError struct {
 	Type    string `json:"type"`
 	Message string `json:"message"`
+}
+
+// Vector retrieval provider types (Pinecone, Qdrant, Milvus, Chroma, Weaviate, etc.)
+
+// RetrievalOperationName is the canonical operation name for vector
+// retrieval spans, aligned with the OpenTelemetry GenAI semantic
+// conventions (gen_ai.operation.name = "retrieval").
+const RetrievalOperationName = "retrieval"
+
+// VendorRetrieval holds parsed data from a vector database retrieval
+// (similarity search) request/response. Vector stores differ significantly
+// in their request/response shape, so both Input and Output keep only the
+// fields that are common or easy to recover across providers.
+type VendorRetrieval struct {
+	Provider string
+	Input    RetrievalRequest
+	Output   RetrievalResponse
+}
+
+// OperationName returns the canonical retrieval operation name.
+func (r *VendorRetrieval) OperationName() string {
+	return RetrievalOperationName
+}
+
+// GetTopK returns the requested number of results. Vector stores use
+// different field names for the same concept: Pinecone uses topK,
+// Qdrant/Milvus/Chroma use limit, some clients use top_k.
+func (r *VendorRetrieval) GetTopK() int {
+	if r.Input.TopK > 0 {
+		return r.Input.TopK
+	}
+	if r.Input.TopKCamel > 0 {
+		return r.Input.TopKCamel
+	}
+	return r.Input.Limit
+}
+
+// GetCollection returns the collection / index / namespace name, checking
+// the provider-specific aliases in order.
+func (r *VendorRetrieval) GetCollection() string {
+	if r.Input.Collection != "" {
+		return r.Input.Collection
+	}
+	if r.Input.CollectionName != "" {
+		return r.Input.CollectionName
+	}
+	return r.Input.Namespace
+}
+
+// RetrievalRequest captures the common fields from vector search request
+// bodies across Pinecone, Qdrant, Milvus, Chroma and Weaviate. Unknown
+// fields are ignored; missing fields are harmless.
+type RetrievalRequest struct {
+	// Model is the embedding model used, when reported by the request body
+	// (rarely present; most vector stores do not require a model).
+	Model string `json:"model,omitempty"`
+	// Collection / index name when the provider places it in the body
+	// (Pinecone uses namespace, Milvus uses collectionName, Chroma uses collection).
+	Collection     string `json:"collectionName,omitempty"`
+	CollectionName string `json:"collection_name,omitempty"`
+	Namespace      string `json:"namespace,omitempty"`
+	// TopK / limit: maximum number of results requested. Pinecone uses
+	// "topK", Qdrant/Milvus/Chroma use "limit", some clients use "top_k".
+	TopK      int `json:"top_k,omitempty"`
+	TopKCamel int `json:"topK,omitempty"`
+	Limit     int `json:"limit,omitempty"`
+	// Vector is the query vector, kept as raw JSON to avoid decoding the
+	// full float array; used only to derive dimensionality when needed.
+	Vector json.RawMessage `json:"vector,omitempty"`
+}
+
+// RetrievalResponse captures the common fields from vector search response
+// bodies. Providers use different names for the matched items array; all
+// three are kept as raw JSON so we can report the number of matches.
+type RetrievalResponse struct {
+	ID      string          `json:"id,omitempty"`
+	Model   string          `json:"model,omitempty"`
+	Matches json.RawMessage `json:"matches,omitempty"` // Pinecone
+	Results json.RawMessage `json:"results,omitempty"` // Qdrant, Chroma
+	Data    json.RawMessage `json:"data,omitempty"`    // Milvus
+	Usage   RetrievalUsage  `json:"usage,omitempty"`
+}
+
+// RetrievalUsage captures optional usage information returned by some
+// vector stores (e.g. Pinecone returns readUnits; embedding-aware stores
+// may also return token counts).
+type RetrievalUsage struct {
+	ReadUnits    int `json:"readUnits,omitempty"`
+	TotalTokens  int `json:"total_tokens,omitempty"`
+	PromptTokens int `json:"prompt_tokens,omitempty"`
+}
+
+// GetInputTokens returns the input token count, preferring prompt_tokens
+// and falling back to total_tokens. Returns zero when not reported.
+func (r *VendorRetrieval) GetInputTokens() int {
+	if r.Output.Usage.PromptTokens > 0 {
+		return r.Output.Usage.PromptTokens
+	}
+	return r.Output.Usage.TotalTokens
+}
+
+// ResultCount returns the number of matched items in the response, looking
+// at provider-specific fields in order.
+func (r *VendorRetrieval) ResultCount() int {
+	for _, raw := range []json.RawMessage{r.Output.Matches, r.Output.Results, r.Output.Data} {
+		if len(raw) == 0 {
+			continue
+		}
+		var arr []json.RawMessage
+		if json.Unmarshal(raw, &arr) == nil {
+			return len(arr)
+		}
+	}
+	return 0
 }
 
 // Span contains the information being submitted by the following nodes in the graph.
@@ -1565,6 +1682,16 @@ func (s *Span) TraceName() string {
 			return "rerank"
 		}
 
+		if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeRetrieval && s.GenAI != nil && s.GenAI.Retrieval != nil {
+			if name := s.GenAI.Retrieval.GetCollection(); name != "" {
+				return RetrievalOperationName + " " + name
+			}
+			if s.GenAI.Retrieval.Provider != "" {
+				return RetrievalOperationName + " " + s.GenAI.Retrieval.Provider
+			}
+			return RetrievalOperationName
+		}
+
 		if s.SubType == HTTPSubtypeJSONRPC && s.JSONRPC != nil {
 			if s.JSONRPC.Method != "" {
 				return s.JSONRPC.Method
@@ -1819,6 +1946,10 @@ func (s *Span) GenAIInputTokens() int {
 		return s.GenAI.Rerank.Output.GetTotalTokens()
 	}
 
+	if s.GenAI.Retrieval != nil {
+		return s.GenAI.Retrieval.GetInputTokens()
+	}
+
 	return 0
 }
 
@@ -1879,6 +2010,9 @@ func (s *Span) GenAIOperationName() string {
 	if s.GenAI.Rerank != nil {
 		return "rerank"
 	}
+	if s.GenAI.Retrieval != nil {
+		return s.GenAI.Retrieval.OperationName()
+	}
 	return ""
 }
 
@@ -1906,6 +2040,9 @@ func (s *Span) GenAIProviderName() string {
 	}
 	if s.GenAI.Rerank != nil {
 		return s.GenAI.Rerank.Provider
+	}
+	if s.GenAI.Retrieval != nil {
+		return s.GenAI.Retrieval.Provider
 	}
 	return ""
 }
@@ -1937,6 +2074,9 @@ func (s *Span) GenAIRequestModel() string {
 	}
 	if s.GenAI.Rerank != nil {
 		return s.GenAI.Rerank.Input.Model
+	}
+	if s.GenAI.Retrieval != nil {
+		return s.GenAI.Retrieval.Input.Model
 	}
 	return ""
 }
@@ -1977,6 +2117,12 @@ func (s *Span) GenAIResponseModel() string {
 			return s.GenAI.Rerank.Output.Model
 		}
 		return s.GenAI.Rerank.Input.Model
+	}
+	if s.GenAI.Retrieval != nil {
+		if s.GenAI.Retrieval.Output.Model != "" {
+			return s.GenAI.Retrieval.Output.Model
+		}
+		return s.GenAI.Retrieval.Input.Model
 	}
 	return ""
 }
