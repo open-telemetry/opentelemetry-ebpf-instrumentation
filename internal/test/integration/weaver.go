@@ -126,12 +126,6 @@ type adviceInfo struct {
 // that the emitted telemetry conforms to OpenTelemetry semantic conventions.
 //
 // This must be called while the Docker Compose stack is still running.
-//
-// If the parent test has already failed (e.g. a sub-test exposed an OBI bug
-// or the test environment couldn't produce telemetry), validation is skipped
-// to avoid burying the real failure under cascading "weaver received no
-// samples" noise. We still POST /stop and `docker wait` so the weaver
-// container exits cleanly for `compose.Close()`.
 func runWeaverValidation(t *testing.T) {
 	t.Helper()
 
