@@ -60,7 +60,9 @@ Centralizing the k8s metadata collection to a single source (k8s-cache) can help
   already-populated snapshot, so it does not have to wait for its own informer
   to list the whole cluster before it can start decorating.
 - **Cheaper reconnects.** OBI passes the timestamp of its last event, so the
-  snapshot replay on resubscribe skips entries it has already seen
+  snapshot replay on resubscribe can skip older entries. This reduces replay
+  volume, but it is not a durable event log and reconnects can still replay
+  entries from the same timestamp window.
 
 If k8s cache address is not provided, OBI will initiate its own local in-process cache.
 which is fine for small clusters but is exactly the scaling pattern this service exists
@@ -204,6 +206,7 @@ Configuration is loaded in this order (later overrides earlier):
 | `max_connections`        | `OTEL_EBPF_K8S_CACHE_MAX_CONNECTIONS`                  | `150`          | Per-transport HTTP/2 stream cap (wired into `grpc.MaxConcurrentStreams`). |
 | `profile_port`           | `OTEL_EBPF_K8S_CACHE_PROFILE_PORT`                     | `0` (disabled) | If non-zero, starts a `net/http/pprof` listener.                          |
 | `informer_resync_period` | `OTEL_EBPF_K8S_CACHE_INFORMER_RESYNC_PERIOD`           | `30m`          | Full informer resync interval. Increase to lower API load.                |
+| `informer_send_timeout`  | `OTEL_EBPF_K8S_CACHE_INFORMER_SEND_TIMEOUT`            | `10s`          | Per-message send deadline before a slow subscriber connection is closed.  |
 | `internal_metrics.port`  | `OTEL_EBPF_K8S_CACHE_INTERNAL_METRICS_PROMETHEUS_PORT` | `0` (disabled) | If non-zero, serves Prometheus metrics.                                   |
 | `internal_metrics.path`  | `OTEL_EBPF_K8S_CACHE_INTERNAL_METRICS_PROMETHEUS_PATH` | `/metrics`     | Metrics endpoint path.                                                    |
 
@@ -239,9 +242,10 @@ service exposes these Prometheus metrics (prefix defined by
   received from the Kube API.
 - `*_kube_cache_connected_clients` — current number of subscribed OBI
   instances.
-- `*_kube_cache_client_messages_total{status=submit|success|error}` —
-  outcome of events forwarded to clients. Growing `error` typically means a
-  client stream that failed on `Send` (the connection is then closed).
+- `*_kube_cache_client_messages_total{status=submit|success|timeout|error}` —
+  outcome of events forwarded to clients. Growing `timeout` means a slow
+  subscriber hit `informer_send_timeout`; growing `error` means the stream
+  failed during `Send`.
 - `*_informer_receive_lag_seconds` — histogram of the delay between a Kube
   event happening and the cache forwarding it. Useful to spot informer
   backpressure.
