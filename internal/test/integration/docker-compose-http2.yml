@@ -23,9 +23,7 @@ services:
     environment:
       TEST_HTTP2_PROTOCOLS: ${TEST_HTTP2_PROTOCOLS}
     depends_on:
-      prometheus:
-        condition: service_started
-      jaeger:
+      otelcol:
         condition: service_started
 
   obi:
@@ -45,7 +43,7 @@ services:
     environment:
       GOCOVERDIR: "/coverage"
       OTEL_EBPF_TRACE_PRINTER: "text"
-      OTEL_EBPF_METRICS_INTERVAL: "10ms"
+      OTEL_EBPF_METRICS_INTERVAL: "1s"
       OTEL_EBPF_BPF_BATCH_TIMEOUT: "10ms"
       OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT: "1ms"
       OTEL_EBPF_LOG_LEVEL: "DEBUG"
@@ -55,39 +53,38 @@ services:
       testclient:
         condition: service_started
 
-  # otelcol:
-  #   image: grafana/agent
-  #   container_name: demo-agent
-  #   command:
-  #     - run
-  #     - /etc/agent/agent-config.river
-  #   volumes:
-  #     - ./configs/:/etc/agent
-  #   environment:
-  #     AGENT_MODE: "flow"
-  #   ports:
-  #     - "4017:4017"
-  #     - "4018:4018"
-  #   depends_on:
-  #     prometheus:
-  #       condition: service_started
+  # OpenTelemetry Collector — fans OBI's OTLP push out to jaeger (production
+  # path used by the test's trace assertions) and to weaver (semconv tap).
+  otelcol:
+    image: otel/opentelemetry-collector-contrib:0.151.0@sha256:d57bfe8eee2378f31cb1193239fbcac521d54a5a071fca2bfc106916a32b892d
+    container_name: otel-col
+    deploy:
+      resources:
+        limits:
+          memory: 125M
+    restart: unless-stopped
+    command: ["--config=/etc/otelcol-config/otelcol-config-weaver.yml"]
+    volumes:
+      - ./configs/:/etc/otelcol-config
+    ports:
+      - "4317" # OTLP over gRPC receiver
+      - "4318:4318" # OTLP over HTTP receiver
+      - "9464" # Prometheus exporter
+      - "8888" # metrics endpoint
+    depends_on:
+      jaeger:
+        condition: service_started
+      prometheus:
+        condition: service_started
+      weaver:
+        condition: service_healthy
 
-  # OpenTelemetry Collector
-  # otelcol:
-  #   image: otel/opentelemetry-collector-contrib:0.104.0
-  #   container_name: otel-col
-  #   restart: unless-stopped
-  #   command: ["--config=/etc/otelcol-config/otelcol-config-4017.yml"]
-  #   volumes:
-  #     - ./configs/:/etc/otelcol-config
-  #   ports:
-  #     - "4017"          # OTLP over gRPC receiver
-  #     - "4018:4018"     # OTLP over HTTP receiver
-  #     - "9464"          # Prometheus exporter
-  #     - "8888"          # metrics endpoint
-  #   depends_on:
-  #     prometheus:
-  #       condition: service_started
+  weaver:
+    extends:
+      file: components/weaver/service.yml
+      service: weaver
+    volumes:
+      - ../../../schemas/obi:/obi-registry:ro
 
   # Prometheus
   prometheus:
@@ -106,11 +103,10 @@ services:
     image: jaegertracing/all-in-one:1.60@sha256:4fd2d70fa347d6a47e79fcb06b1c177e6079f92cba88b083153d56263082135e
     ports:
       - "16686:16686" # Query frontend
-      - "4317:4317" # OTEL GRPC traces collector
-      - "4318:4318" # OTEL HTTP traces collector
+      - "4317" # OTEL GRPC traces collector (internal — otelcol talks to jaeger over the docker network)
+      - "4318" # OTEL HTTP traces collector (internal)
     environment:
       - COLLECTOR_OTLP_ENABLED=true
       - LOG_LEVEL=debug
 # curl http://localhost:16686/api/services
 # curl http://localhost:16686/api/traces?service=testserver
-
