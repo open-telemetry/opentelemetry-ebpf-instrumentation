@@ -135,7 +135,11 @@ func newStatMetricsExporter(
 	if cfg.CommonCfg.Features.StatsTCPRtt() {
 		log := log.With("metricFamily", "StatsTCPRtt")
 
-		tcpRtt, err := ebpfEvents.Float64Histogram(attributes.StatTCPRtt.OTEL, metric2.WithUnit("s"))
+		tcpRtt, err := ebpfEvents.Float64Histogram(
+			attributes.StatTCPRtt.OTEL,
+			metric2.WithUnit("s"),
+			metric2.WithExplicitBucketBoundaries(0.0005, 0.001, 0.002, 0.005, 0.010, 0.025, 0.050, 0.100, 0.250, 0.500, 1.0),
+		)
 		if err != nil {
 			log.Error("creating stats tcp rtt histogram", "error", err)
 			return nil, err
