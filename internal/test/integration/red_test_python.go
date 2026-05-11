@@ -82,12 +82,14 @@ func testREDMetricsDNSForPython(t *testing.T, url, comm, namespace string) {
 	}
 
 	// Eventually, Prometheus would make this query visible
+	// Note: dns_question_name is intentionally excluded from default metric labels
+	// to prevent unbounded cardinality (issue #2028). DNS metrics are tracked without
+	// the raw domain name label.
 	pq := promtest.Client{HostPort: prometheusHostPort}
 	var results []promtest.Result
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		var err error
 		results, err = pq.Query(`dns_lookup_duration_seconds_count{` +
-			`dns_question_name="opentelemetry.io.",` +
 			`service_namespace="` + namespace + `",` +
 			`service_name="` + comm + `"}`)
 		require.NoError(ct, err)
@@ -95,8 +97,8 @@ func testREDMetricsDNSForPython(t *testing.T, url, comm, namespace string) {
 		val := totalPromCount(ct, results)
 		assert.LessOrEqual(ct, 1, val)
 
+		// Verify error-labeled DNS metrics still work (NXDomain responses)
 		results, err = pq.Query(`dns_lookup_duration_seconds_count{` +
-			`dns_question_name="www.opentelemetry.invalid.",` +
 			`error_type="NXDomain",` +
 			`service_namespace="` + namespace + `",` +
 			`service_name="` + comm + `"}`)
