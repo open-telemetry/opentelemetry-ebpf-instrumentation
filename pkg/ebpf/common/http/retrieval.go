@@ -82,6 +82,17 @@ var retrievalBodySignals = []string{
 	`"query_embeddings"`,
 }
 
+// retrievalBodySignalBytes is the precomputed []byte form of
+// retrievalBodySignals, avoiding repeated string→[]byte conversions
+// during request classification.
+var retrievalBodySignalBytes = func() [][]byte {
+	out := make([][]byte, len(retrievalBodySignals))
+	for i, s := range retrievalBodySignals {
+		out[i] = []byte(s)
+	}
+	return out
+}()
+
 const genericRetrievalProvider = "generic"
 
 var weaviateGraphQLRetrievalSignals = []string{
@@ -111,11 +122,7 @@ func parseRetrievalProvider(req *http.Request) string {
 }
 
 func normalizedRetrievalPath(req *http.Request) string {
-	if req == nil || req.URL == nil {
-		return ""
-	}
-
-	path := strings.TrimSpace(req.URL.Path)
+	path := strings.TrimSpace(requestPath(req))
 	if path == "" {
 		return ""
 	}
@@ -140,8 +147,8 @@ func retrievalBodySignalCount(body []byte) int {
 	}
 
 	count := 0
-	for _, signal := range retrievalBodySignals {
-		if bytes.Contains(body, []byte(signal)) {
+	for _, signal := range retrievalBodySignalBytes {
+		if bytes.Contains(body, signal) {
 			count++
 		}
 	}
