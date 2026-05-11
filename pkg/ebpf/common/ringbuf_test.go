@@ -421,3 +421,7 @@ func (pf *TestPidsFilter) Filter(inputSpans []request.Span) []request.Span {
 	}
 	return inputSpans
 }
+
+func (pf *TestPidsFilter) OnAvoidedTraces(_ AvoidedTracesCB) (unsubscribe func()) {
+	return func() {}
+}

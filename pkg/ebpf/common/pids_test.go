@@ -279,6 +279,129 @@ func TestFilter_TriggersOTelSpanFiltering(t *testing.T) {
 	}
 }
 
+type firedEvent struct {
+	pid app.PID
+	ns  uint32
+}
+
+func TestFilter_OnAvoidedTraces_SingleSubscriber(t *testing.T) {
+	const defaultOtlpPort = 4317
+
+	pf := NewPIDsFilter(&services.DiscoveryConfig{}, slog.With("env", "testing"), &imetrics.NoopReporter{})
+
+	var fired []firedEvent
+
+	pf.OnAvoidedTraces(func(pid app.PID, ns uint32) {
+		fired = append(fired, firedEvent{pid, ns})
+	})
+
+	s := svc.Attrs{}
+
+	metricsSpan := request.Span{
+		Type: request.EventTypeHTTPClient, Method: "GET", Path: "/v1/metrics",
+		RequestStart: 100, End: 200, Status: 200,
+		Pid: request.PidInfo{UserPID: 11, Namespace: 22},
+	}
+
+	pf.checkIfExportsOTel(&s, &metricsSpan, defaultOtlpPort)
+
+	assert.True(t, s.ExportsOTelMetrics())
+	assert.False(t, s.ExportsOTelTraces())
+	assert.Empty(t, fired)
+
+	tracesSpan := request.Span{
+		Type: request.EventTypeHTTPClient, Method: "GET", Path: "/v1/traces",
+		RequestStart: 100, End: 200, Status: 200,
+		Pid: request.PidInfo{UserPID: 33, Namespace: 44},
+	}
+
+	pf.checkIfExportsOTel(&s, &tracesSpan, defaultOtlpPort)
+
+	assert.True(t, s.ExportsOTelTraces())
+	assert.Equal(t, []firedEvent{{app.PID(33), 44}}, fired)
+
+	pf.checkIfExportsOTel(&s, &tracesSpan, defaultOtlpPort)
+
+	assert.Len(t, fired, 1)
+}
+
+func TestFilter_OnAvoidedTraces_MultipleSubscribers(t *testing.T) {
+	const defaultOtlpPort = 4317
+
+	pf := NewPIDsFilter(&services.DiscoveryConfig{}, slog.With("env", "testing"), &imetrics.NoopReporter{})
+
+	var firedA, firedB []firedEvent
+
+	pf.OnAvoidedTraces(func(pid app.PID, ns uint32) {
+		firedA = append(firedA, firedEvent{pid, ns})
+	})
+
+	pf.OnAvoidedTraces(func(pid app.PID, ns uint32) {
+		firedB = append(firedB, firedEvent{pid, ns})
+	})
+
+	s := svc.Attrs{}
+	span := request.Span{
+		Type: request.EventTypeHTTPClient, Method: "GET", Path: "/v1/traces",
+		RequestStart: 100, End: 200, Status: 200,
+		Pid: request.PidInfo{UserPID: 77, Namespace: 88},
+	}
+
+	pf.checkIfExportsOTel(&s, &span, defaultOtlpPort)
+
+	assert.Equal(t, []firedEvent{{app.PID(77), 88}}, firedA)
+	assert.Equal(t, []firedEvent{{app.PID(77), 88}}, firedB)
+}
+
+func TestFilter_OnAvoidedTraces_Unsubscribe(t *testing.T) {
+	const defaultOtlpPort = 4317
+
+	pf := NewPIDsFilter(&services.DiscoveryConfig{}, slog.With("env", "testing"), &imetrics.NoopReporter{})
+
+	var firedA, firedB []firedEvent
+
+	unsubA := pf.OnAvoidedTraces(func(pid app.PID, ns uint32) {
+		firedA = append(firedA, firedEvent{pid, ns})
+	})
+
+	pf.OnAvoidedTraces(func(pid app.PID, ns uint32) {
+		firedB = append(firedB, firedEvent{pid, ns})
+	})
+
+	unsubA()
+
+	s := svc.Attrs{}
+	span := request.Span{
+		Type: request.EventTypeHTTPClient, Method: "GET", Path: "/v1/traces",
+		RequestStart: 100, End: 200, Status: 200,
+		Pid: request.PidInfo{UserPID: 5, Namespace: 6},
+	}
+
+	pf.checkIfExportsOTel(&s, &span, defaultOtlpPort)
+
+	assert.Empty(t, firedA)
+	assert.Equal(t, []firedEvent{{app.PID(5), 6}}, firedB)
+}
+
+func TestFilter_OnAvoidedTraces_NotRegistered(t *testing.T) {
+	const defaultOtlpPort = 4317
+
+	pf := NewPIDsFilter(&services.DiscoveryConfig{}, slog.With("env", "testing"), &imetrics.NoopReporter{})
+
+	s := svc.Attrs{}
+	span := request.Span{
+		Type: request.EventTypeHTTPClient, Method: "GET", Path: "/v1/traces",
+		RequestStart: 100, End: 200, Status: 200,
+		Pid: request.PidInfo{UserPID: 1, Namespace: 2},
+	}
+
+	assert.NotPanics(t, func() {
+		pf.checkIfExportsOTel(&s, &span, defaultOtlpPort)
+	})
+
+	assert.True(t, s.ExportsOTelTraces())
+}
+
 func TestFilter_Cleanup(t *testing.T) {
 	readNamespacePIDs = func(pid app.PID) ([]app.PID, error) {
 		switch pid {

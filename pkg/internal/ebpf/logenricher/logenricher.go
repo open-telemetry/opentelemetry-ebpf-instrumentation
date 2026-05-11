@@ -45,18 +45,19 @@ type LogEvent struct {
 }
 
 type Tracer struct {
-	ctx         context.Context
-	cfg         *obi.Config
-	bpfObjects  BpfObjects
-	closers     []io.Closer
-	log         *slog.Logger
-	fdCache     *expirable.LRU[string, *os.File]
-	asyncWriter *shardedqueue.ShardedQueue[LogEvent]
-	pids        map[uint64][]uint64 // pid:[]nsPids
-	pidsMU      sync.Mutex
+	ctx                context.Context
+	cfg                *obi.Config
+	bpfObjects         BpfObjects
+	closers            []io.Closer
+	log                *slog.Logger
+	fdCache            *expirable.LRU[string, *os.File]
+	asyncWriter        *shardedqueue.ShardedQueue[LogEvent]
+	pids               map[uint64][]uint64 // pid:[]nsPids
+	pidsMU             sync.Mutex
+	avoidedTracesUnsub func()
 }
 
-func New(cfg *obi.Config) *Tracer {
+func New(cfg *obi.Config, pidFilter ebpfcommon.ServiceFilter) *Tracer {
 	logger := slog.With("component", "logenricher")
 
 	if !ebpfcommon.SupportsLogInjection(logger) {
@@ -85,6 +86,8 @@ func New(cfg *obi.Config) *Tracer {
 	)
 
 	tr.asyncWriter = asyncWriter
+
+	tr.avoidedTracesUnsub = pidFilter.OnAvoidedTraces(tr.BlockPID)
 
 	return tr
 }
@@ -230,7 +233,14 @@ func (p *Tracer) removePID(key uint64) error {
 	return nil
 }
 
-func (p *Tracer) AllowPID(pid app.PID, ns uint32, _ *svc.Attrs) {
+func (p *Tracer) AllowPID(pid app.PID, ns uint32, svcAttrs *svc.Attrs) {
+	if p.cfg.Discovery.ExcludeOTelInstrumentedServices &&
+		svcAttrs != nil && svcAttrs.ExportsOTelTraces() {
+		p.log.Debug("skipping log enrichment for OTel-instrumented service",
+			"pid", pid, "ns", ns, "service", svcAttrs.UID.Name)
+		return
+	}
+
 	p.pidsMU.Lock()
 	defer p.pidsMU.Unlock()
 
@@ -283,6 +293,12 @@ func (p *Tracer) Run(ctx context.Context, _ *ebpfcommon.EBPFEventContext, _ *msg
 	p.log.Debug("starting")
 
 	p.ctx = ctx
+
+	defer func() {
+		if p.avoidedTracesUnsub != nil {
+			p.avoidedTracesUnsub()
+		}
+	}()
 
 	ebpfcommon.ForwardRingbuf(
 		&p.cfg.EBPF,

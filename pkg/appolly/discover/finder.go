@@ -169,7 +169,7 @@ func newCommonTracersGroup(cfg *obi.Config, metrics imetrics.Reporter, pidFilter
 
 	// Enables log enricher which handles trace-log correlation
 	if cfg.EBPF.LogEnricher.Enabled() {
-		logEnricher := logenricher.New(cfg)
+		logEnricher := logenricher.New(cfg, pidFilter)
 		if logEnricher != nil {
 			tracers = append(tracers, logEnricher)
 		}

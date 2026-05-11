@@ -5,7 +5,9 @@ package ebpfcommon // import "go.opentelemetry.io/obi/pkg/ebpf/common"
 
 import (
 	"log/slog"
+	"maps"
 	"sync"
+	"weak"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
@@ -34,12 +36,18 @@ type PIDInfo struct {
 	otherKnownPids []app.PID
 }
 
+type AvoidedTracesCB func(pid app.PID, ns uint32)
+
+type avoidedTracesCBMap map[uint64]AvoidedTracesCB
+
 type ServiceFilter interface {
 	AllowPID(app.PID, uint32, *svc.Attrs, PIDType)
 	BlockPID(app.PID, uint32)
 	ValidPID(app.PID, uint32, PIDType) bool
 	Filter(inputSpans []request.Span) []request.Span
 	CurrentPIDs(PIDType) map[uint32]map[app.PID]svc.Attrs
+
+	OnAvoidedTraces(cb AvoidedTracesCB) (unsubscribe func())
 }
 
 // PIDsFilter keeps a thread-safe copy of the PIDs whose traces are allowed to
@@ -53,6 +61,39 @@ type PIDsFilter struct {
 	ignoreOtelSpan      bool
 	defaultOtlpGRPCPort int
 	metrics             imetrics.Reporter
+
+	callbacksMu      sync.Mutex
+	avoidedTracesCBs avoidedTracesCBMap
+	nextCBID         uint64
+}
+
+func (pf *PIDsFilter) OnAvoidedTraces(cb AvoidedTracesCB) (unsubscribe func()) {
+	pf.callbacksMu.Lock()
+	defer pf.callbacksMu.Unlock()
+
+	if pf.avoidedTracesCBs == nil {
+		pf.avoidedTracesCBs = avoidedTracesCBMap{}
+	}
+
+	id := pf.nextCBID
+	pf.nextCBID++
+
+	pf.avoidedTracesCBs[id] = cb
+
+	weakPf := weak.Make(pf)
+
+	return func() {
+		live := weakPf.Value()
+
+		if live == nil {
+			return
+		}
+
+		live.callbacksMu.Lock()
+		defer live.callbacksMu.Unlock()
+
+		delete(live.avoidedTracesCBs, id)
+	}
 }
 
 func NewPIDsFilter(c *services.DiscoveryConfig, log *slog.Logger, metrics imetrics.Reporter) *PIDsFilter {
@@ -221,6 +262,10 @@ func (pf *IdentityPidsFilter) Filter(inputSpans []request.Span) []request.Span {
 	return inputSpans
 }
 
+func (pf *IdentityPidsFilter) OnAvoidedTraces(_ AvoidedTracesCB) (unsubscribe func()) {
+	return func() {}
+}
+
 func (pf *PIDsFilter) checkIfExportsOTel(svc *svc.Attrs, span *request.Span, defaultOtlpGRPCPort int) {
 	if !svc.ExportsOTelMetrics() && span.IsExportMetricsSpan(defaultOtlpGRPCPort) {
 		svc.SetExportsOTelMetrics()
@@ -228,6 +273,29 @@ func (pf *PIDsFilter) checkIfExportsOTel(svc *svc.Attrs, span *request.Span, def
 	} else if !svc.ExportsOTelTraces() && span.IsExportTracesSpan(defaultOtlpGRPCPort) {
 		svc.SetExportsOTelTraces()
 		pf.reportAvoidedService(svc, "traces")
+		pf.fireOnAvoidedTraces(span)
+	}
+}
+
+func (pf *PIDsFilter) fireOnAvoidedTraces(span *request.Span) {
+	cbs := avoidedTracesCBMap{}
+
+	func() {
+		pf.callbacksMu.Lock()
+		defer pf.callbacksMu.Unlock()
+
+		cbs = maps.Clone(pf.avoidedTracesCBs)
+	}()
+
+	if len(cbs) == 0 {
+		return
+	}
+
+	pid := span.Pid.UserPID
+	ns := span.Pid.Namespace
+
+	for _, cb := range cbs {
+		cb(pid, ns)
 	}
 }
 
