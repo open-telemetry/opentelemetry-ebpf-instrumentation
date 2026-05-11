@@ -86,18 +86,24 @@ func TestBPFMetricsCollectsInternalMetricsForPrometheusReporter(t *testing.T) {
 	})
 
 	newInternalBPFCollectorFn = func(ctxInfo *global.ContextInfo, cfg *PrometheusConfig, mpCfg *perapp.MetricsConfig) *BPFCollector {
+		var collected bool
 		return &BPFCollector{
 			promCfg:         cfg,
 			commonCfg:       mpCfg,
 			internalMetrics: ctxInfo.Metrics,
 			ctxInfo:         ctxInfo,
 			probeMetrics: func() []ProbeMetrics {
+				count := uint64(0)
+				if !collected {
+					count = 3
+					collected = true
+				}
 				return []ProbeMetrics{{
 					probeType: "kprobe",
 					probeName: "tcp_connect",
 					probeID:   "7",
 					latency:   0.25,
-					count:     3,
+					count:     count,
 				}}
 			},
 			mapMetrics: func() []BpfMapMetrics {
