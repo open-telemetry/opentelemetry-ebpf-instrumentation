@@ -144,8 +144,9 @@
     {
       "description": "Disable Docker updates for the VM test runtime base image",
       "matchFileNames": ["internal/test/vm/Dockerfile"],
+      "matchManagers": ["dockerfile"],
       "matchDatasources": ["docker"],
-      "matchPackageNames": ["alpine"],
+      "matchPackageNames": ["alpine", "library/alpine", "docker.io/library/alpine"],
       "enabled": false
     },
     {
