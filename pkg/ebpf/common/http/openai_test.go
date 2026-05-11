@@ -48,7 +48,7 @@ const responsesResponseBody = `{
   }
 }`
 
-const completionsRequestBody = `{"messages":[{"role":"system","content":"You are a helpful travel assistant."},{"role":"user","content":"Plan a 6-day luxury trip to London for 3 people with a $440[...]`
+const completionsRequestBody = `{"messages":[{"role":"system","content":"You are a helpful travel assistant."},{"role":"user","content":"Plan a 6-day luxury trip to London for 3 people with a $4400 budget."}],"model":"gpt-4o-mini","temperature":1.0}`
 
 const completionsResponseBody = `{
   "id": "chatcmpl-DBTg5Ms2mJhaAhZ56Wq8QSf2djw3S",
@@ -89,6 +89,7 @@ func gzipBody(t *testing.T, body string) io.ReadCloser {
 	return io.NopCloser(&buf)
 }
 
+//nolint:unparam
 func makeRequest(t *testing.T, method, url, body string) *http.Request {
 	t.Helper()
 	req, err := http.NewRequest(method, url, strings.NewReader(body))
