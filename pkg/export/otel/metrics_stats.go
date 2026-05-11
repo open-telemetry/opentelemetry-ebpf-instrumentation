@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/sdk/instrumentation"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	semconv "go.opentelemetry.io/otel/semconv/v1.38.0"
@@ -27,6 +28,13 @@ import (
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
 )
+
+const statScopeName = "stats_ebpf_events"
+
+// defaultStatTCPRttBuckets are RTT-specific boundaries (sub-millisecond to low-second range).
+// Must be kept in sync with the equivalent slice in prom_stats.go until a shared Buckets field is added.
+// TODO: add a StatTCPRttHistogram field to export.Buckets to make this user-configurable.
+var defaultStatTCPRttBuckets = []float64{0.0005, 0.001, 0.002, 0.005, 0.010, 0.025, 0.050, 0.100, 0.250, 0.500, 1.0}
 
 // StatMetricsConfig extends MetricsConfig for Statistical Metrics
 type StatMetricsConfig struct {
@@ -64,11 +72,40 @@ func createFilteredStatsResource(hostID string, attrSelector attributes.Selectio
 	return resource.NewWithAttributes(semconv.SchemaURL, attrs...)
 }
 
-func newStatMeterProvider(res *resource.Resource, exporter *sdkmetric.Exporter, interval time.Duration) *metric.MeterProvider {
+func newStatMeterProvider(res *resource.Resource, exporter *sdkmetric.Exporter, interval time.Duration, cfg *otelcfg.MetricsConfig) *metric.MeterProvider {
 	return metric.NewMeterProvider(
 		metric.WithResource(res),
 		metric.WithReader(metric.NewPeriodicReader(*exporter, metric.WithInterval(interval))),
+		metric.WithView(statRttHistogramView(cfg)),
 	)
+}
+
+func statRttHistogramView(cfg *otelcfg.MetricsConfig) metric.View {
+	if cfg.HistogramAggregation == otelcfg.HistogramAggregationExponential {
+		return metric.NewView(
+			metric.Instrument{
+				Name:  attributes.StatTCPRtt.OTEL,
+				Scope: instrumentation.Scope{Name: statScopeName},
+			},
+			metric.Stream{
+				Name: attributes.StatTCPRtt.OTEL,
+				Aggregation: sdkmetric.AggregationBase2ExponentialHistogram{
+					MaxScale: cfg.ExponentialHistogram.MaxScale,
+					MaxSize:  cfg.ExponentialHistogram.MaxSize,
+				},
+			})
+	}
+	return metric.NewView(
+		metric.Instrument{
+			Name:  attributes.StatTCPRtt.OTEL,
+			Scope: instrumentation.Scope{Name: statScopeName},
+		},
+		metric.Stream{
+			Name: attributes.StatTCPRtt.OTEL,
+			Aggregation: sdkmetric.AggregationExplicitBucketHistogram{
+				Boundaries: defaultStatTCPRttBuckets,
+			},
+		})
 }
 
 type statMetricsExporter struct {
@@ -116,7 +153,7 @@ func newStatMetricsExporter(
 	exporter = instrumentMetricsExporter(ctxInfo.Metrics, exporter)
 
 	resource := createFilteredStatsResource(ctxInfo.NodeMeta.HostID, cfg.SelectorCfg.SelectionCfg)
-	provider := newMeterProvider(resource, &exporter, cfg.Metrics.Interval)
+	provider := newStatMeterProvider(resource, &exporter, cfg.Metrics.Interval, cfg.Metrics)
 
 	attrProv, err := attributes.NewAttrSelector(ctxInfo.MetricAttributeGroups, cfg.SelectorCfg)
 	if err != nil {
@@ -125,7 +162,7 @@ func newStatMetricsExporter(
 
 	clock := expire.NewCachedClock(timeNow)
 
-	ebpfEvents := provider.Meter("stats_ebpf_events")
+	ebpfEvents := provider.Meter(statScopeName)
 
 	nme := &statMetricsExporter{
 		clock:     clock,
