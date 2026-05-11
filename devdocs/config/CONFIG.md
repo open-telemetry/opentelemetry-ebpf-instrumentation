@@ -64,11 +64,11 @@ Attributes configures the decoration of some extra attributes that will be added
 | `attributes.rename_unresolved_hosts_outgoing` | `string` | `OTEL_EBPF_RENAME_UNRESOLVED_HOSTS_OUTGOING` | `outgoing` |  |  |  |
 | `attributes.select` | `map[string]object` |  |  |  |  | Selection specifies which attributes are allowed for each signal. The key is usually the metric name (Prometheus or OpenTelemetry format); the key `traces` selects optional attributes for exported OTLP traces (see below). The value is the enumeration of included/excluded attribute globs |
 
-#### Trace selection (`traces`)
+### Trace selection (`traces`)
 
 For exported OpenTelemetry traces, use the `traces` key (not a metric name). It controls optional trace decoration such as `db.query.text`, `url.query`, GenAI payload attributes, and **`db.response.error`**.
 
-##### `db.response.error`
+#### `db.response.error`
 
 `db.response.error` is **not** part of the OpenTelemetry semantic conventions. OBI reuses that string only as a **configuration flag** under `attributes.select.traces`.
 
