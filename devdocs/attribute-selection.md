@@ -1,4 +1,4 @@
-# Trace Selection and `db.response.error`
+# Attribute Selection
 
 ## Trace selection (`traces`)
 
