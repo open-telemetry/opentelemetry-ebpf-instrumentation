@@ -62,7 +62,31 @@ Attributes configures the decoration of some extra attributes that will be added
 | `attributes.rename_unresolved_hosts` | `string` | `OTEL_EBPF_RENAME_UNRESOLVED_HOSTS` | `unresolved` |  |  | Will replace HostName and PeerName attributes when they are empty or contain unresolved IP addresses to reduce cardinality. Set this value to the empty string to disable this feature. |
 | `attributes.rename_unresolved_hosts_incoming` | `string` | `OTEL_EBPF_RENAME_UNRESOLVED_HOSTS_INCOMING` | `incoming` |  |  |  |
 | `attributes.rename_unresolved_hosts_outgoing` | `string` | `OTEL_EBPF_RENAME_UNRESOLVED_HOSTS_OUTGOING` | `outgoing` |  |  |  |
-| `attributes.select` | `map[string]object` |  |  |  |  | Selection specifies which attributes are allowed for each metric. The key is the metric name (either in Prometheus or OpenTelemetry format) The value is the enumeration of included/excluded attribute globs |
+| `attributes.select` | `map[string]object` |  |  |  |  | Selection specifies which attributes are allowed for each signal. The key is usually the metric name (Prometheus or OpenTelemetry format); the key `traces` selects optional attributes for exported OTLP traces (see below). The value is the enumeration of included/excluded attribute globs |
+
+#### Trace selection (`traces`)
+
+For exported OpenTelemetry traces, use the `traces` key (not a metric name). It controls optional trace decoration such as `db.query.text`, `url.query`, GenAI payload attributes, and **`db.response.error`**.
+
+##### `db.response.error`
+
+`db.response.error` is **not** part of the OpenTelemetry semantic conventions. OBI reuses that string only as a **configuration flag** under `attributes.select.traces`.
+
+- **Default (not included):** On failed database-related spans (for example SQL, Redis, MongoDB, Couchbase, Memcached, or SQL++ over HTTP), `span.status.message` is set to the fixed hint `enable the db.response.error attribute for details`. The underlying database error text is not copied into the span status.
+- **When included:** On those same spans, `span.status.message` is set to the **actual** error description parsed from the protocol response.
+- **Exported attributes:** `db.response.error` is **never** attached as a span attribute on OTLP traces. During export, OBI uses the gated value only to build `span.status.message` for database spans, then drops the attribute from the exported span. Enabling this option changes **status description**, not a separate `db.response.error` field on the span.
+
+Opt-in exists because error strings may contain sensitive or high-cardinality detail (schema names, fragments of queries, or data values).
+
+Example:
+
+```yaml
+attributes:
+  select:
+    traces:
+      include:
+        - db.response.error
+```
 
 ### `attributes.host_id`
 
