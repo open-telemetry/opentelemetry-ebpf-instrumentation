@@ -52,13 +52,14 @@ func StatGetters(name attr.Name) (attributes.Getter[*Stat, attribute.KeyValue], 
 		}
 	case attr.NetworkTCPHandshakeRole:
 		getter = func(s *Stat) attribute.KeyValue {
-			if s.TCPFailedConnection != nil {
-				return attribute.String(string(attr.NetworkTCPHandshakeRole), networkTCPHandshakeRoleStr(s.TCPFailedConnection.Role))
+			var role uint8
+			switch s.Type {
+			case StatTypeTCPFailedConnection:
+				role = s.TCPFailedConnection.Role
+			case StatTypeTCPRtt:
+				role = s.TCPRtt.Role
 			}
-			if s.TCPRtt != nil {
-				return attribute.String(string(attr.NetworkTCPHandshakeRole), networkTCPHandshakeRoleStr(s.TCPRtt.Role))
-			}
-			return attribute.String(string(attr.NetworkTCPHandshakeRole), string(RoleUnknown))
+			return attribute.String(string(attr.NetworkTCPHandshakeRole), networkTCPHandshakeRoleStr(role))
 		}
 
 	default:
