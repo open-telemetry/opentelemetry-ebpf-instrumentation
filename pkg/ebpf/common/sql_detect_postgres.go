@@ -325,16 +325,14 @@ Loop:
 
 			continue
 		case "BIND":
-			portal := strings.Clone(unix.ByteSliceToString(msg.data))
-			portalLen := len(portal) + 1 // +1 for the null terminator
+			portalStr := unix.ByteSliceToString(msg.data)
+			portalLen := len(portalStr) + 1 // +1 for the null terminator
 			if portalLen >= len(msg.data) {
-				// BIND message truncated by BPF ring buffer: portal name fills the
-				// captured buffer, leaving no room for the statement name. Skip the
-				// statement-name lookup rather than panicking on the slice expression.
 				slog.Debug("Postgres BIND message truncated; skipping portal mapping",
 					"portal_len", portalLen, "buf_len", len(msg.data))
 				continue
 			}
+			portal := strings.Clone(portalStr)
 			stmtName := strings.Clone(unix.ByteSliceToString(msg.data[portalLen:]))
 
 			parseCtx.postgresPortals.Add(postgresPortalsKey{
