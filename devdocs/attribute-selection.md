@@ -14,9 +14,9 @@ OBI reuses that string only as a **configuration flag** under
 
 - **Default (not included):** On failed database-related spans (for example SQL,
   Redis, MongoDB, Couchbase, Memcached, or SQL++ over HTTP),
-  `span.status.message` is set to the fixed hint
-  `enable the db.response.error attribute for details`. The underlying database
-  error text is not copied into the span status.
+  `span.status.message` is left **empty**. This is consistent with how other
+  optional attributes (e.g. `db.query.text`) behave — when not selected, they are
+  simply omitted.
 - **When included:** On those same spans, `span.status.message` is set to the
   **actual** error description parsed from the protocol response.
 - **Exported attributes:** `db.response.error` is **never** attached as a span
