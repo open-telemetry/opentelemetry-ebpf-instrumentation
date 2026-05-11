@@ -30,11 +30,6 @@ import (
 
 const statScopeName = "stats_ebpf_events"
 
-// defaultStatTCPRttBuckets are RTT-specific boundaries (sub-millisecond to low-second range).
-// Must be kept in sync with the equivalent slice in prom_stats.go until a shared Buckets field is added.
-// TODO: add a StatTCPRttHistogram field to export.Buckets to make this user-configurable.
-var defaultStatTCPRttBuckets = []float64{0.0005, 0.001, 0.002, 0.005, 0.010, 0.025, 0.050, 0.100, 0.250, 0.500, 1.0}
-
 // StatMetricsConfig extends MetricsConfig for Statistical Metrics
 type StatMetricsConfig struct {
 	Metrics     *otelcfg.MetricsConfig
@@ -86,7 +81,7 @@ func statRttHistogramView(cfg *otelcfg.MetricsConfig) metric.View {
 			string(otelcfg.HistogramAggregationExponential)+", "+string(otelcfg.HistogramAggregationExplicit)+" (default). Using default",
 			"value", cfg.HistogramAggregation)
 	}
-	return newHistogramView(attributes.StatTCPRtt.OTEL, statScopeName, defaultStatTCPRttBuckets, isExponential, cfg.ExponentialHistogram)
+	return newHistogramView(attributes.StatTCPRtt.OTEL, statScopeName, cfg.Buckets.StatTCPRttHistogram, isExponential, cfg.ExponentialHistogram)
 }
 
 type statMetricsExporter struct {
@@ -156,7 +151,6 @@ func newStatMetricsExporter(
 		tcpRtt, err := ebpfEvents.Float64Histogram(
 			attributes.StatTCPRtt.OTEL,
 			metric2.WithUnit("s"),
-			metric2.WithExplicitBucketBoundaries(0.0005, 0.001, 0.002, 0.005, 0.010, 0.025, 0.050, 0.100, 0.250, 0.500, 1.0),
 		)
 		if err != nil {
 			log.Error("creating stats tcp rtt histogram", "error", err)

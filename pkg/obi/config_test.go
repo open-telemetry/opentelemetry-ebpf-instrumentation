@@ -217,6 +217,7 @@ discovery:
 				ResponseSizeHistogram:        export.DefaultBuckets.ResponseSizeHistogram,
 				GenAITokenUsageHistogram:     export.DefaultBuckets.GenAITokenUsageHistogram,
 				GenAIClientDurationHistogram: export.DefaultBuckets.GenAIClientDurationHistogram,
+				StatTCPRttHistogram:          export.DefaultBuckets.StatTCPRttHistogram,
 			},
 			Instrumentations: []instrumentations.Instrumentation{
 				instrumentations.InstrumentationALL,
@@ -265,6 +266,7 @@ discovery:
 				ResponseSizeHistogram:        []float64{0, 10, 20, 22},
 				GenAITokenUsageHistogram:     []float64{1, 2, 3, 4},
 				GenAIClientDurationHistogram: []float64{5, 6, 7, 8},
+				StatTCPRttHistogram:          export.DefaultBuckets.StatTCPRttHistogram,
 			},
 		},
 		InternalMetrics: imetrics.InternalMetricsConfig{
