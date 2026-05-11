@@ -74,7 +74,7 @@ const tcp_failed_connection_t *unused_tcp_failed_connection __attribute__((unuse
 
 // obi_tp_inet_sock_set_state_conn_role is the sole owner of the sock_role map.
 // It writes the role (client/server) when a connection is established and
-// it also handles all cleanup: any transition to TCP_CLOSE removes the entry, 
+// it also handles all cleanup: any transition to TCP_CLOSE removes the entry,
 // covering both normal graceful closes and abnormal ones.
 //
 // Attachment order invariant: this program must be attached AFTER
@@ -119,7 +119,8 @@ int obi_tp_inet_sock_set_state_tcp_failed_conn(struct trace_event_raw_inet_sock_
 
     // {TCP_LAST_ACK|TCP_TIME_WAIT}->TCP_CLOSE are normal close transitions
     // TCP_LISTEN->TCP_CLOSE is what happens when a listener socket is shut down
-    if (args->oldstate == TCP_LAST_ACK || args->oldstate == TCP_TIME_WAIT || args->oldstate == TCP_LISTEN) {
+    if (args->oldstate == TCP_LAST_ACK || args->oldstate == TCP_TIME_WAIT ||
+        args->oldstate == TCP_LISTEN) {
         return 0;
     }
 

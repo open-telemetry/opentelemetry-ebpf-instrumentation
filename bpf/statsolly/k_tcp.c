@@ -67,7 +67,8 @@ int BPF_KPROBE(obi_kprobe_tcp_close_srtt, struct sock *sk) {
     const u8 *role_ptr = bpf_map_lookup_elem(&sock_role, &sk);
     se->role = role_ptr ? *role_ptr : role_unknown;
 
-    bpf_d_printk("tcp rtt: s_port=%d, d_port=%d, srtt_us=%u", se->conn.s_port, se->conn.d_port, se->srtt_us);
+    bpf_d_printk(
+        "tcp rtt: s_port=%d, d_port=%d, srtt_us=%u", se->conn.s_port, se->conn.d_port, se->srtt_us);
     bpf_ringbuf_submit(se, stats_events_flags());
 
     return 0;
