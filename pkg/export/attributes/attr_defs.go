@@ -381,6 +381,7 @@ func getDefinitions(
 		},
 		Traces.Section: {
 			Attributes: map[attr.Name]Default{
+				attr.DNSQuestionName: false,
 				attr.DBQueryText:       false,
 				attr.HTTPUrlQuery:      false,
 				attr.GenAIInput:        false,
