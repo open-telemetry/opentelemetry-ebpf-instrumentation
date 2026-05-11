@@ -20,7 +20,8 @@ type StatsFetcher struct{}
 type StatsTCPRtt struct {
 	_      structs.HostLayout
 	Flags  uint8
-	Pad    [3]uint8
+	Role   uint8
+	Pad    [2]uint8
 	SrttUs uint32
 	Conn   struct {
 		_      structs.HostLayout
