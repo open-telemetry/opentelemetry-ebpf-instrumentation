@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/sdk/instrumentation"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	semconv "go.opentelemetry.io/otel/semconv/v1.38.0"
@@ -81,31 +80,13 @@ func newStatMeterProvider(res *resource.Resource, exporter *sdkmetric.Exporter, 
 }
 
 func statRttHistogramView(cfg *otelcfg.MetricsConfig) metric.View {
-	if cfg.HistogramAggregation == otelcfg.HistogramAggregationExponential {
-		return metric.NewView(
-			metric.Instrument{
-				Name:  attributes.StatTCPRtt.OTEL,
-				Scope: instrumentation.Scope{Name: statScopeName},
-			},
-			metric.Stream{
-				Name: attributes.StatTCPRtt.OTEL,
-				Aggregation: sdkmetric.AggregationBase2ExponentialHistogram{
-					MaxScale: cfg.ExponentialHistogram.MaxScale,
-					MaxSize:  cfg.ExponentialHistogram.MaxSize,
-				},
-			})
+	isExponential := cfg.HistogramAggregation == otelcfg.HistogramAggregationExponential
+	if !isExponential && cfg.HistogramAggregation != otelcfg.HistogramAggregationExplicit {
+		smlog().Warn("invalid value for histogram aggregation. Accepted values are: "+
+			string(otelcfg.HistogramAggregationExponential)+", "+string(otelcfg.HistogramAggregationExplicit)+" (default). Using default",
+			"value", cfg.HistogramAggregation)
 	}
-	return metric.NewView(
-		metric.Instrument{
-			Name:  attributes.StatTCPRtt.OTEL,
-			Scope: instrumentation.Scope{Name: statScopeName},
-		},
-		metric.Stream{
-			Name: attributes.StatTCPRtt.OTEL,
-			Aggregation: sdkmetric.AggregationExplicitBucketHistogram{
-				Boundaries: defaultStatTCPRttBuckets,
-			},
-		})
+	return newHistogramView(attributes.StatTCPRtt.OTEL, statScopeName, defaultStatTCPRttBuckets, isExponential, cfg.ExponentialHistogram)
 }
 
 type statMetricsExporter struct {
