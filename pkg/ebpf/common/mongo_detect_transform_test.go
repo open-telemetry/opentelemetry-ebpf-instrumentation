@@ -474,7 +474,7 @@ func TestParseOpMessageShortBufferReturnsError(t *testing.T) {
 	request, moreToCome, err := parseOpMessage(buf, 0, false, nil)
 
 	require.Error(t, err)
-	assert.EqualError(t, err, "packet too short for MongoDB flag bits")
+	require.EqualError(t, err, "packet too short for MongoDB flag bits")
 	assert.Nil(t, request)
 	assert.False(t, moreToCome)
 }
@@ -486,7 +486,7 @@ func TestParseSectionsDocSequenceShortReturnsError(t *testing.T) {
 	sections, err := parseSections(buf)
 
 	require.Error(t, err)
-	assert.EqualError(t, err, "not enough data for section[1] length")
+	require.EqualError(t, err, "not enough data for section[1] length")
 	assert.Nil(t, sections)
 }
 
@@ -496,7 +496,7 @@ func TestParseFirstFieldTypeAssertionReturnsError(t *testing.T) {
 	comm, collection, err := parseFirstField(field)
 
 	require.Error(t, err)
-	assert.EqualError(t, err, "MongoDB command 'insert' has non-string collection type int32")
+	require.EqualError(t, err, "MongoDB command 'insert' has non-string collection type int32")
 	assert.Empty(t, comm)
 	assert.Empty(t, collection)
 }

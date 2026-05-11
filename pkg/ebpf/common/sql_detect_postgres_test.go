@@ -178,8 +178,8 @@ func TestParsePostgresBindNames(t *testing.T) {
 			wantOK: false,
 		},
 		{
-			name:   "missing statement terminator",
-			data:   []byte("portal\x00stmt-without-nul"),
+			name:       "missing statement terminator",
+			data:       []byte("portal\x00stmt-without-nul"),
 			wantPortal: "portal",
 			wantStmt:   "stmt-without-nul",
 			wantOK:     true,
