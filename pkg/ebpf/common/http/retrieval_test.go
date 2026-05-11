@@ -5,6 +5,7 @@ package ebpfcommon
 
 import (
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -222,7 +223,15 @@ func TestDetectRetrievalProvider(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := makeRequest(t, tt.method, tt.url, tt.body)
+			var req *http.Request
+			if tt.method == http.MethodPost {
+				req = makeRequest(t, http.MethodPost, tt.url, tt.body)
+			} else {
+				var err error
+				req, err = http.NewRequest(tt.method, tt.url, strings.NewReader(tt.body))
+				require.NoError(t, err)
+				req.Header.Set("Content-Type", "application/json")
+			}
 			assert.Equal(t, tt.expected, detectRetrievalProvider(req, []byte(tt.body)))
 		})
 	}
