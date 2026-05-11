@@ -874,19 +874,6 @@ func (r *VendorRetrieval) OperationName() string {
 	return RetrievalOperationName
 }
 
-// GetTopK returns the requested number of results. Vector stores use
-// different field names for the same concept: Pinecone uses topK,
-// Qdrant/Milvus/Chroma use limit, some clients use top_k.
-func (r *VendorRetrieval) GetTopK() int {
-	if r.Input.TopK > 0 {
-		return r.Input.TopK
-	}
-	if r.Input.TopKCamel > 0 {
-		return r.Input.TopKCamel
-	}
-	return r.Input.Limit
-}
-
 // GetCollection returns the collection / index / namespace name, checking
 // the provider-specific aliases in order.
 func (r *VendorRetrieval) GetCollection() string {
@@ -915,31 +902,19 @@ type RetrievalRequest struct {
 	CollectionName  string `json:"collectionName,omitempty"`
 	CollectionSnake string `json:"collection_name,omitempty"`
 	Namespace       string `json:"namespace,omitempty"`
-	// TopK / limit: maximum number of results requested. Pinecone uses
-	// "topK", Qdrant/Milvus/Chroma use "limit", some clients use "top_k".
-	TopK      int `json:"top_k,omitempty"`
-	TopKCamel int `json:"topK,omitempty"`
-	Limit     int `json:"limit,omitempty"`
 }
 
 // RetrievalResponse captures the common fields from vector search response
-// bodies. Providers use different names for the matched items array; all
-// three are kept as raw JSON so we can report the number of matches.
+// bodies.
 type RetrievalResponse struct {
-	ID      string          `json:"id,omitempty"`
-	Model   string          `json:"model,omitempty"`
-	Matches json.RawMessage `json:"matches,omitempty"` // Pinecone
-	Result  json.RawMessage `json:"result,omitempty"`  // Qdrant
-	Results json.RawMessage `json:"results,omitempty"` // Chroma
-	Data    json.RawMessage `json:"data,omitempty"`    // Milvus
-	Usage   RetrievalUsage  `json:"usage,omitempty"`
+	ID    string         `json:"id,omitempty"`
+	Model string         `json:"model,omitempty"`
+	Usage RetrievalUsage `json:"usage,omitempty"`
 }
 
-// RetrievalUsage captures optional usage information returned by some
-// vector stores (e.g. Pinecone returns readUnits; embedding-aware stores
-// may also return token counts).
+// RetrievalUsage captures optional token usage information returned by
+// embedding-aware vector stores.
 type RetrievalUsage struct {
-	ReadUnits    int `json:"readUnits,omitempty"`
 	TotalTokens  int `json:"total_tokens,omitempty"`
 	PromptTokens int `json:"prompt_tokens,omitempty"`
 }
@@ -951,35 +926,6 @@ func (r *VendorRetrieval) GetInputTokens() int {
 		return r.Output.Usage.PromptTokens
 	}
 	return r.Output.Usage.TotalTokens
-}
-
-// ResultCount returns the number of matched items in the response, looking
-// at provider-specific fields in order.
-func (r *VendorRetrieval) ResultCount() int {
-	if count, ok := retrievalArrayLen(r.Output.Matches); ok {
-		return count
-	}
-	if count, ok := retrievalArrayLen(r.Output.Result); ok {
-		return count
-	}
-	if count, ok := retrievalArrayLen(r.Output.Results); ok {
-		return count
-	}
-	if count, ok := retrievalArrayLen(r.Output.Data); ok {
-		return count
-	}
-	return 0
-}
-
-func retrievalArrayLen(raw json.RawMessage) (int, bool) {
-	if len(raw) == 0 {
-		return 0, false
-	}
-	var arr []json.RawMessage
-	if json.Unmarshal(raw, &arr) == nil {
-		return len(arr), true
-	}
-	return 0, false
 }
 
 // Span contains the information being submitted by the following nodes in the graph.

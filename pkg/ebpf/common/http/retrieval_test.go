@@ -75,8 +75,6 @@ func TestRetrievalSpan_Pinecone(t *testing.T) {
 	assert.Equal(t, "pinecone", ai.Provider)
 	assert.Equal(t, "retrieval", ai.OperationName())
 	assert.Equal(t, "ns1", ai.GetCollection())
-	assert.Equal(t, 3, ai.GetTopK())
-	assert.Equal(t, 3, ai.ResultCount())
 }
 
 func TestRetrievalSpan_Qdrant(t *testing.T) {
@@ -93,8 +91,6 @@ func TestRetrievalSpan_Qdrant(t *testing.T) {
 	require.True(t, ok)
 	require.NotNil(t, span.GenAI.Retrieval)
 	assert.Equal(t, "qdrant", span.GenAI.Retrieval.Provider)
-	assert.Equal(t, 5, span.GenAI.Retrieval.GetTopK())
-	assert.Equal(t, 2, span.GenAI.Retrieval.ResultCount())
 }
 
 func TestRetrievalSpan_Milvus(t *testing.T) {
@@ -112,8 +108,6 @@ func TestRetrievalSpan_Milvus(t *testing.T) {
 	require.NotNil(t, span.GenAI.Retrieval)
 	assert.Equal(t, "zilliz", span.GenAI.Retrieval.Provider)
 	assert.Equal(t, "documents", span.GenAI.Retrieval.GetCollection())
-	assert.Equal(t, 10, span.GenAI.Retrieval.GetTopK())
-	assert.Equal(t, 2, span.GenAI.Retrieval.ResultCount())
 }
 
 func TestRetrievalSpan_UnknownHost_GenericDetection(t *testing.T) {
