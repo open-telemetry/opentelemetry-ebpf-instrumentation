@@ -15,7 +15,7 @@ import (
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 )
 
-func TestTraceAttributesSelectorDNSQuestionNameSelection(t *testing.T) {
+func TestTraceAttributesSelector_DNSQuestionName(t *testing.T) {
 	span := &request.Span{
 		Type:   request.EventTypeDNS,
 		Method: "A",
@@ -23,6 +23,7 @@ func TestTraceAttributesSelectorDNSQuestionNameSelection(t *testing.T) {
 	}
 
 	defaultAttrs := TraceAttributesSelector(span, map[attr.Name]struct{}{})
+	assert.NotEmpty(t, defaultAttrs)
 	assert.NotContains(t, defaultAttrs, semconv.DNSQuestionName("example.com"))
 
 	selectedAttrs, err := UserSelectedAttributes(&attributes.SelectorConfig{
