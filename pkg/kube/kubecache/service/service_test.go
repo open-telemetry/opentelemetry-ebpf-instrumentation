@@ -17,7 +17,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"k8s.io/client-go/kubernetes/fake"
 
-	"go.opentelemetry.io/obi/pkg/internal/helpers/sync"
+	queuesync "go.opentelemetry.io/obi/pkg/internal/helpers/sync"
 	"go.opentelemetry.io/obi/pkg/internal/testutil"
 	"go.opentelemetry.io/obi/pkg/kube/kubecache"
 	"go.opentelemetry.io/obi/pkg/kube/kubecache/informer"
@@ -238,7 +238,7 @@ func TestHandleMessagesQueue(t *testing.T) {
 				server:      tt.server,
 				sendTimeout: tt.sendTimeout,
 				metrics:     instrument.FromContext(context.Background()),
-				messages:    sync.NewQueue[*informer.Event](),
+				messages:    queuesync.NewQueue[*informer.Event](),
 			}
 			for _, e := range tt.enqueue {
 				o.messages.Enqueue(e)
@@ -270,7 +270,7 @@ func TestHandleMessagesQueue_RespectsContextCancellationDuringSend(t *testing.T)
 		server:      &signalBlockingStream{sendCalled: sendCalled, gate: gate},
 		sendTimeout: 5 * time.Minute, // large enough that context cancellation wins
 		metrics:     instrument.FromContext(context.Background()),
-		messages:    sync.NewQueue[*informer.Event](),
+		messages:    queuesync.NewQueue[*informer.Event](),
 	}
 	o.messages.Enqueue(&informer.Event{})
 
@@ -290,5 +290,42 @@ func TestHandleMessagesQueue_RespectsContextCancellationDuringSend(t *testing.T)
 	case <-done:
 	case <-time.After(2 * time.Second):
 		t.Fatal("handleMessagesQueue did not return within 2s after context cancellation")
+	}
+}
+
+func TestConnectionOnFiltersEventsBeforeFromEpoch(t *testing.T) {
+	conn := &connection{
+		fromEpoch: 100,
+		messages:  queuesync.NewQueue[*informer.Event](),
+		metrics:   instrument.FromContext(context.Background()),
+	}
+
+	require.NoError(t, conn.On(&informer.Event{
+		Type:     informer.EventType_UPDATED,
+		Resource: &informer.ObjectMeta{StatusTimeEpoch: 99},
+	}))
+
+	dequeued := make(chan *informer.Event, 1)
+	go func() {
+		dequeued <- conn.messages.Dequeue()
+	}()
+
+	select {
+	case event := <-dequeued:
+		t.Fatalf("unexpected queued event: %+v", event)
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	require.NoError(t, conn.On(&informer.Event{
+		Type:     informer.EventType_UPDATED,
+		Resource: &informer.ObjectMeta{StatusTimeEpoch: 100},
+	}))
+
+	select {
+	case event := <-dequeued:
+		require.NotNil(t, event)
+		require.Equal(t, int64(100), event.Resource.StatusTimeEpoch)
+	case <-time.After(time.Second):
+		t.Fatal("expected event to be queued")
 	}
 }

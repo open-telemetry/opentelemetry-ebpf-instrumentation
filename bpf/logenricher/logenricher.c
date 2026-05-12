@@ -74,6 +74,10 @@ __write(struct kiocb *iocb, struct iov_iter *from, const int fd, const struct ta
     }
 
     const size_t count = BPF_CORE_READ(from, count);
+    size_t bounded_count = count;
+    if (bounded_count > iov.iov_len) {
+        bounded_count = iov.iov_len;
+    }
     const u64 pid_tgid = bpf_get_current_pid_tgid();
     obi_ctx_info_t *obi_ctx = obi_ctx__get(pid_tgid);
 
@@ -83,7 +87,7 @@ __write(struct kiocb *iocb, struct iov_iter *from, const int fd, const struct ta
         return 0;
     }
     e->tgid = pid_tgid >> 32;
-    e->len = count & k_log_event_max_log_mask;
+    e->len = bounded_count & k_log_event_max_log_mask;
     e->ctx = obi_ctx ? *obi_ctx : (obi_ctx_info_t){0};
     e->fd = fd;
     bpf_probe_read_user(e->log, e->len, iov.iov_base);

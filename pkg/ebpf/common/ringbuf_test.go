@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"fmt"
 	"io"
 	"log/slog"
 	"sync/atomic"
@@ -176,6 +177,47 @@ func TestForwardRingbuf_Close(t *testing.T) {
 	// AND metrics haven't been updated
 	assert.Equal(t, 0, metrics.flushes)
 	assert.Equal(t, 0, metrics.flushedLen)
+}
+
+func TestForwardRingbuf_NoEventLoss(t *testing.T) {
+	const N = 10000
+	for _, batchLen := range []int{1, 10, 100} {
+		t.Run(fmt.Sprintf("batchLen=%d", batchLen), func(t *testing.T) {
+			ringBuf := replaceTestRingBuf()
+			cfg := &config.EBPFTracer{
+				BatchLength:  batchLen,
+				BatchTimeout: 10 * time.Millisecond,
+			}
+			out := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(N/batchLen + 10))
+			sub := out.Subscribe()
+
+			go ForwardRingbuf(
+				cfg, nil,
+				func(_ *ringbuf.Record) (request.Span, bool, error) {
+					return request.Span{Type: 1}, false, nil
+				},
+				nil,
+				slog.New(slog.NewTextHandler(io.Discard, nil)),
+				&metricsReporter{},
+			)(t.Context(), out)
+
+			for range N {
+				ringBuf.events <- HTTPRequestTrace{Type: 1}
+			}
+
+			received := 0
+			deadline := time.After(10 * time.Second)
+			for received < N {
+				select {
+				case batch := <-sub:
+					received += len(batch)
+				case <-deadline:
+					t.Fatalf("timeout: got %d/%d events", received, N)
+				}
+			}
+			assert.Equal(t, N, received)
+		})
+	}
 }
 
 func TestRingbufLastReadAtRace(t *testing.T) {

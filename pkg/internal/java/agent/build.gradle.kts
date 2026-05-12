@@ -43,14 +43,14 @@ repositories {
 }
 
 dependencies {
-    implementation("net.bytebuddy:byte-buddy:1.18.8-jdk5")
-    implementation("net.bytebuddy:byte-buddy-agent:1.18.8-jdk5")
+    implementation("net.bytebuddy:byte-buddy:1.18.8")
+    implementation("net.bytebuddy:byte-buddy-agent:1.18.8")
 
-    testImplementation("org.junit.jupiter:junit-jupiter-api:5.14.3")
-    testImplementation("org.junit.platform:junit-platform-launcher:1.14.3")
+    testImplementation("org.junit.jupiter:junit-jupiter-api:5.14.4")
+    testImplementation("org.junit.platform:junit-platform-launcher:1.14.4")
     testImplementation("org.awaitility:awaitility:4.3.0")
 
-    testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine:5.14.3")
+    testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine:5.14.4")
 }
 
 tasks.register("prepareKotlinBuildScriptModel"){}
@@ -115,6 +115,9 @@ tasks.register<Delete>("cleanNativeLib") {
 
 val jmhIncludes: String? by project
 val jmhProfilers: String? by project
+val jmhWarmupIterations: String? by project
+val jmhIterations: String? by project
+val jmhForks: String? by project
 
 jmh {
     includes.set(listOf(".*Benchmark.*"))
@@ -126,9 +129,9 @@ jmh {
     }
     benchmarkMode.set(listOf("avgt"))
     timeUnit.set("ns")
-    warmupIterations.set(3)
-    iterations.set(5)
-    fork.set(1)
+    warmupIterations.set(jmhWarmupIterations?.toInt() ?: 3)
+    iterations.set(jmhIterations?.toInt() ?: 5)
+    fork.set(jmhForks?.toInt() ?: 1)
     jvmArgs.set(listOf("-Xmx2G"))
 }
 

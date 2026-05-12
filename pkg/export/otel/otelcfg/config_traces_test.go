@@ -4,6 +4,7 @@
 package otelcfg
 
 import (
+	"context"
 	"os"
 	"sync"
 	"testing"
@@ -11,6 +12,9 @@ import (
 	"github.com/caarlos0/env/v11"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"go.opentelemetry.io/collector/consumer"
+	"go.opentelemetry.io/collector/pdata/ptrace"
 
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 )
@@ -312,12 +316,28 @@ func TestTracesSetupHTTP_DoNotOverrideEnv(t *testing.T) {
 }
 
 func TestTracesConfig_Enabled(t *testing.T) {
+	tracesConsumer, err := consumer.NewTraces(func(context.Context, ptrace.Traces) error { return nil })
+	require.NoError(t, err)
+
+	providerCalls := 0
 	assert.True(t, (&TracesConfig{CommonEndpoint: "foo"}).Enabled())
 	assert.True(t, (&TracesConfig{TracesEndpoint: "foo"}).Enabled())
+	assert.True(t, (&TracesConfig{
+		OTLPEndpointProvider: func() (string, bool) {
+			providerCalls++
+			return "https://collector:4318", false
+		},
+	}).Enabled())
+	assert.Equal(t, 1, providerCalls)
+	assert.True(t, (&TracesConfig{TracesConsumer: tracesConsumer}).Enabled())
+	assert.True(t, (&TracesConfig{Protocol: ProtocolDebug}).Enabled())
 }
 
 func TestTracesConfig_Disabled(t *testing.T) {
 	assert.False(t, (&TracesConfig{}).Enabled())
+	assert.False(t, (&TracesConfig{
+		OTLPEndpointProvider: func() (string, bool) { return "", false },
+	}).Enabled())
 }
 
 func TestNormalizeQueueConfig(t *testing.T) {

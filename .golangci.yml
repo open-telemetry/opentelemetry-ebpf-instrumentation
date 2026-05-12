@@ -172,6 +172,10 @@ linters:
         # defined in this repository are not in the execution hot path.
         # See https://github.com/open-telemetry/opentelemetry-collector/issues/2789
         - fieldalignment
+        # This analyzer reports inlining suggestions that are not correctness issues
+        # and it flags already-direct code paths such as reflect.Kind checks. Keep
+        # these call sites readable and avoid platform/toolchain-specific churn.
+        - inline
       enable-all: true
       # settings per analyzer
       settings:

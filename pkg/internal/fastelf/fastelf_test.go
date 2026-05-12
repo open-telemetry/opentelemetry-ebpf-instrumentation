@@ -4,8 +4,10 @@
 package fastelf
 
 import (
+	"math"
 	"os"
 	"testing"
+	"unsafe"
 
 	"github.com/stretchr/testify/require"
 )
@@ -76,6 +78,77 @@ func TestFastElf_FileNoSections(t *testing.T) {
 	require.False(t, ctx.HasSection(".gnu_debuglink"))
 
 	require.NoError(t, ctx.Close())
+}
+
+func TestGetCString_OutOfRangeOffset(t *testing.T) {
+	require.Empty(t, GetCString([]byte("abc\x00"), 100))
+}
+
+func TestGetCStringUnsafe_OutOfRangeOffset(t *testing.T) {
+	require.Empty(t, GetCStringUnsafe([]byte("abc\x00"), 100))
+}
+
+func TestReadStruct_OutOfRangeOffsets(t *testing.T) {
+	data := make([]byte, 16)
+
+	require.Nil(t, ReadStruct[Elf64_Ehdr](data, -1))
+	require.Nil(t, ReadStruct[Elf64_Ehdr](data, math.MaxInt))
+	require.Nil(t, ReadStruct[Elf64_Ehdr](data, len(data)))
+}
+
+func TestReadStruct_ExactBoundary(t *testing.T) {
+	size := int(unsafe.Sizeof(Elf64_Sym{}))
+	data := make([]byte, size)
+
+	require.NotNil(t, ReadStruct[Elf64_Sym](data, 0))
+	require.Nil(t, ReadStruct[Elf64_Sym](data, 1))
+}
+
+func TestFastElf_HasSymbol_InvalidSymtabEntrySize(t *testing.T) {
+	ctx := &ElfContext{
+		Data: []byte("strtab\x00"),
+		Sections: []*Elf64_Shdr{
+			{Type: SHT_SYMTAB, Link: 1, Size: 64, Entsize: 0},
+			{Offset: 0},
+		},
+	}
+
+	require.False(t, ctx.HasSymbol("setprogname"))
+}
+
+func TestFastElf_HasSymbol_OutOfRangeLinkIndex(t *testing.T) {
+	ctx := &ElfContext{
+		Data: []byte("strtab\x00"),
+		Sections: []*Elf64_Shdr{
+			{Type: SHT_SYMTAB, Link: 99, Size: 64, Entsize: 24},
+		},
+	}
+
+	require.False(t, ctx.HasSymbol("setprogname"))
+}
+
+func TestFastElf_HasSymbol_NilStrtab(t *testing.T) {
+	ctx := &ElfContext{
+		Data: []byte("strtab\x00"),
+		Sections: []*Elf64_Shdr{
+			{Type: SHT_SYMTAB, Link: 1, Size: 64, Entsize: 24},
+			nil,
+		},
+	}
+
+	require.False(t, ctx.HasSymbol("setprogname"))
+}
+
+func TestFastElf_HasSymbol_StrtabOffsetBeyondData(t *testing.T) {
+	ctx := &ElfContext{
+		Data: []byte("strtab\x00"),
+		Sections: []*Elf64_Shdr{
+			{Type: SHT_SYMTAB, Link: 1, Size: 64, Entsize: 24},
+			{Offset: 9999},
+		},
+	}
+
+	require.False(t, ctx.HasSymbol("setprogname"))
 }
 
 /* ---- minimal.S

@@ -1,0 +1,152 @@
+groups:
+  - id: registry.obi.network
+    type: attribute_group
+    display_name: OBI Network Flow Metrics
+    brief: >
+      Attributes carried on OBI's network-flow metrics. Emitted when the
+      `network` or `network_inter_zone` metrics feature is enabled. The
+      attribute set per data point is configurable via `attributes.select`;
+      the listing here is the universe of keys OBI may produce, not a
+      mandatory minimum.
+    attributes:
+      - id: obi.ip
+        type: string
+        stability: development
+        brief: IP address of the host running OBI.
+        examples: ["10.0.0.5"]
+      - id: transport
+        type: string
+        stability: development
+        brief: Transport protocol of the flow (e.g. TCP, UDP).
+        examples: ["TCP"]
+      # `network.type`, `network.protocol.name`, `client.port`, and
+      # `server.port` are declared by upstream OpenTelemetry semantic
+      # conventions; we reference them as `ref:` on the metrics below.
+      - id: src.address
+        type: string
+        stability: development
+        brief: Source IP address of the flow.
+        examples: ["10.0.0.5"]
+      - id: dst.address
+        type: string
+        stability: development
+        brief: Destination IP address of the flow.
+        examples: ["10.0.0.6"]
+      - id: src.port
+        type: int
+        stability: development
+        brief: Source TCP/UDP port.
+      - id: dst.port
+        type: int
+        stability: development
+        brief: Destination TCP/UDP port.
+      - id: src.name
+        type: string
+        stability: development
+        brief: Resolved name (DNS or workload) for the source endpoint.
+        examples: ["frontend"]
+      - id: dst.name
+        type: string
+        stability: development
+        brief: Resolved name (DNS or workload) for the destination endpoint.
+        examples: ["users-api"]
+      - id: iface
+        type: string
+        stability: development
+        brief: Network interface the flow was observed on.
+        examples: ["eth0"]
+      - id: iface.direction
+        type:
+          allow_custom_values: true
+          members:
+            - id: ingress
+              value: ingress
+              stability: development
+            - id: egress
+              value: egress
+              stability: development
+        stability: development
+        brief: Direction of the flow relative to the interface.
+      - id: direction
+        type:
+          allow_custom_values: true
+          members:
+            - id: request
+              value: request
+              stability: development
+            - id: response
+              value: response
+              stability: development
+            - id: unknown
+              value: unknown
+              stability: development
+        stability: development
+        brief: Whether the flow is the request or response side, derived from initiator / port heuristics.
+      - id: src.zone
+        type: string
+        stability: development
+        brief: Zone label attached to the source side (e.g. cloud availability zone).
+        examples: ["us-east-1a"]
+      - id: dst.zone
+        type: string
+        stability: development
+        brief: Zone label attached to the destination side.
+        examples: ["us-east-1b"]
+      - id: src.cidr
+        type: string
+        stability: development
+        brief: CIDR block matched against the source IP.
+        examples: ["10.0.0.0/8"]
+      - id: dst.cidr
+        type: string
+        stability: development
+        brief: CIDR block matched against the destination IP.
+        examples: ["10.0.0.0/8"]
+
+  - id: metric.obi_network_flow_bytes
+    type: metric
+    metric_name: obi.network.flow.bytes
+    instrument: counter
+    unit: "{bytes}"
+    stability: development
+    brief: >
+      Total bytes observed per network flow, grouped by the configured
+      attribute selection.
+    attributes:
+      - ref: obi.ip
+      - ref: transport
+      - ref: network.type
+      - ref: network.protocol.name
+      - ref: src.address
+      - ref: dst.address
+      - ref: src.port
+      - ref: dst.port
+      - ref: src.name
+      - ref: dst.name
+      - ref: iface
+      - ref: iface.direction
+      - ref: direction
+      - ref: client.port
+      - ref: server.port
+      - ref: src.zone
+      - ref: dst.zone
+      - ref: src.cidr
+      - ref: dst.cidr
+
+  - id: metric.obi_network_inter_zone_bytes
+    type: metric
+    metric_name: obi.network.inter.zone.bytes
+    instrument: counter
+    unit: "{bytes}"
+    stability: development
+    brief: >
+      Total bytes for flows that cross a zone boundary (`src.zone` !=
+      `dst.zone`). Emitted when the `network_inter_zone` feature is enabled.
+    attributes:
+      - ref: obi.ip
+      - ref: src.address
+      - ref: dst.address
+      - ref: src.zone
+      - ref: dst.zone
+      - ref: src.name
+      - ref: dst.name

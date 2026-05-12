@@ -1,0 +1,64 @@
+# Weaver semantic convention validator — receives OTLP from the collector
+# and validates emitted telemetry against the OBI schema registry under
+# `schemas/obi/`, which itself depends on the upstream OpenTelemetry
+# semantic conventions. Bind-mounted into the container at /obi-registry.
+#
+# Shared definition extended by every weaver-wired compose under
+# `internal/test/integration/`. Each consumer pulls this in via:
+#
+#   weaver:
+#     extends:
+#       file: components/weaver/service.yml
+#       service: weaver
+#     volumes:
+#       - ../../../schemas/obi:/obi-registry:ro
+#
+# The `volumes` mount is intentionally NOT defined here: relative paths in
+# volumes resolve against the file that declares them, so the consuming
+# compose must own its own bind mount or the registry path would be wrong.
+#
+# weaver writes its consolidated live-check report to `/tmp/live_check.json`
+# inside the container (see `--output /tmp` in the command below). The test
+# harness pulls it out with `docker cp` after `/stop`, before
+# `compose.Close()` removes the container. This avoids a host bind-mount
+# whose UID would mismatch weaver's non-root container UID.
+services:
+  weaver:
+    image: otel/weaver:v0.23.0@sha256:7984ecb55b859eb3034ae9d836c4eeda137e2bdd0873b7ba2bb6c3d24d6ff457
+    container_name: weaver
+    # Run with the registry mount as the working dir so relative
+    # `registry_path` entries in `manifest.yaml` (e.g. the `.deps/upstream-*`
+    # cache) resolve correctly without the manifest having to embed the
+    # in-container mount point.
+    working_dir: /obi-registry
+    command:
+      - registry
+      - live-check
+      - --registry
+      - /obi-registry
+      - --include-unreferenced
+      - --inactivity-timeout
+      - "300"
+      - --admin-port
+      - "4320"
+      - --format
+      - json
+      - --diagnostic-format
+      - json
+      # Write the final consolidated live-check report to /tmp inside the
+      # container (always present in the upstream image). With `--output`,
+      # weaver buffers per-entity Rego findings internally and emits a
+      # single `live_check.json` at /stop time, leaving stdout empty. The
+      # test harness extracts it with `docker cp` — no host bind mount
+      # required, so we don't have to wrestle with the UID mismatch
+      # between weaver's non-root container user and the runner user.
+      - --output
+      - /tmp
+    ports:
+      - "4320:4320" # admin port (for /stop from test host)
+    healthcheck:
+      test: ["CMD-SHELL", "wget --timeout=1 -q -O /dev/null http://127.0.0.1:4317/ 2>&1 | grep -qv refused"]
+      interval: 5s
+      timeout: 2s
+      retries: 60
+      start_period: 90s

@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
+	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 )
 
 func TestHostFromSchemeHost(t *testing.T) {
@@ -57,4 +59,14 @@ func TestHostFromSchemeHost(t *testing.T) {
 		}
 		assert.Empty(t, HostFromSchemeHost(span))
 	})
+}
+
+func TestJobAndInstanceAttributesUseOwnKeys(t *testing.T) {
+	job := Job("checkout/api")
+	assert.Equal(t, string(attr.Job), string(job.Key))
+	assert.Equal(t, "checkout/api", job.Value.AsString())
+
+	instance := Instance("pod-123")
+	assert.Equal(t, string(attr.Instance), string(instance.Key))
+	assert.Equal(t, "pod-123", instance.Value.AsString())
 }

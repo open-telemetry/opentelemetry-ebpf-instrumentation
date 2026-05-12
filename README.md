@@ -21,6 +21,12 @@ If you are evaluating OBI for production use:
 For the project's versioning and stability policy, see [VERSIONING.md](./VERSIONING.md).
 For the environments and artifact platforms OBI currently documents as supported, see [SUPPORT_MATRIX.md](./SUPPORT_MATRIX.md).
 
+## Telemetry Schema
+
+OBI's emission contract is defined as a [Weaver](https://github.com/open-telemetry/weaver)-compatible schema registry under [schemas/obi/](./schemas/obi/).
+
+It extends the upstream [OpenTelemetry semantic conventions](https://github.com/open-telemetry/semantic-conventions) registry with the metrics, spans, and attributes OBI emits that are not covered upstream.
+
 ## How to start developing
 
 Requirements:

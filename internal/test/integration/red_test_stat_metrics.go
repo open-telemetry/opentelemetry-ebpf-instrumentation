@@ -14,20 +14,24 @@ import (
 )
 
 func testStatMetricsTCPRtt(t *testing.T, port string) {
-	// Eventually, Prometheus would make this query visible
 	pq := promtest.Client{HostPort: prometheusHostPort}
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		// Observations should appear above the 100ms bucket (pumba injects 100ms delay)
-		bucketAt100ms, err := pq.Query(`obi_stat_tcp_rtt_seconds_bucket{dst_port="` + port + `",le="0.1"}`)
-		require.NoError(ct, err)
-		enoughPromResults(ct, bucketAt100ms)
-
 		countResults, err := pq.Query(`obi_stat_tcp_rtt_seconds_count{dst_port="` + port + `"}`)
 		require.NoError(ct, err)
 		enoughPromResults(ct, countResults)
 
-		// if pumba is working, not all observations fit in the <=100ms bucket
-		assert.Less(ct, totalPromCount(ct, bucketAt100ms), totalPromCount(ct, countResults))
+		// pumba injects a 100ms delay on the testclient, so the average
+		// observed RTT (sum/count, aggregated across all matching series)
+		// should be at or above 100ms. The threshold is folded into the
+		// PromQL: a comparison operator filters the result, so a non-empty
+		// response means "the average exists and is >= 100ms". Asserting on
+		// the average rather than a specific bucket boundary keeps the test
+		// independent of the histogram's exact bucket layout.
+		avgQuery := `sum(obi_stat_tcp_rtt_seconds_sum{dst_port="` + port + `"}) /` +
+			` sum(obi_stat_tcp_rtt_seconds_count{dst_port="` + port + `"}) >= 0.1`
+		avgResults, err := pq.Query(avgQuery)
+		require.NoError(ct, err)
+		enoughPromResults(ct, avgResults)
 	}, testTimeout, 100*time.Millisecond)
 }
 
@@ -45,7 +49,7 @@ func testStatMetricsTCPRttGo(t *testing.T) {
 func testStatMetricsTCPFailedConnectionGo(t *testing.T) {
 	pq := promtest.Client{HostPort: prometheusHostPort}
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		results, err := pq.Query(`obi_stat_tcp_failed_connections{dst_port="19999"}`)
+		results, err := pq.Query(`obi_stat_tcp_failed_connections_total{dst_port="19999",network_tcp_handshake_role="client"}`)
 		require.NoError(ct, err)
 		enoughPromResults(ct, results)
 		assert.Positive(ct, totalPromCount(ct, results))

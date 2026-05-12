@@ -4,14 +4,33 @@
 package meta
 
 import (
+	"context"
+	"io"
+	"log/slog"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"go.opentelemetry.io/obi/pkg/kube/kubecache/informer"
 )
+
+type eventObserver struct {
+	id     string
+	events []*informer.Event
+}
+
+func (o *eventObserver) ID() string {
+	return o.id
+}
+
+func (o *eventObserver) On(event *informer.Event) error {
+	o.events = append(o.events, event)
+	return nil
+}
 
 func TestEnvironmentFiltering(t *testing.T) {
 	vars := []v1.EnvVar{{Name: "A", Value: "B"}, {Value: "C"}, {}, {Name: "OTEL_SERVICE_NAME", Value: "service_name"}, {Name: "OTEL_RESOURCE_ATTRIBUTES", Value: "resource_attributes"}}
@@ -455,4 +474,69 @@ func TestUnchanged(t *testing.T) {
 			testUnchangedImpl(t, &d.o1, &d.o2, d.expectedResult)
 		})
 	}
+}
+
+func TestIPInfoEventHandlerRefreshesUpdatedEventTimestamp(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	inf := &Informers{
+		log:          log,
+		BaseNotifier: NewBaseNotifier(log),
+	}
+	observer := &eventObserver{id: "observer"}
+	inf.BaseNotifier.Subscribe(observer)
+
+	handler := inf.ipInfoEventHandler(context.Background())
+	staleTimestamp := time.Now().Add(-time.Hour).Unix()
+	start := time.Now().Unix()
+
+	handler.UpdateFunc(
+		&indexableEntity{EncodedMeta: &informer.ObjectMeta{
+			Name:            "pod",
+			Kind:            typePod,
+			StatusTimeEpoch: staleTimestamp,
+			Labels:          map[string]string{"version": "old"},
+		}},
+		&indexableEntity{EncodedMeta: &informer.ObjectMeta{
+			Name:            "pod",
+			Kind:            typePod,
+			StatusTimeEpoch: staleTimestamp,
+			Labels:          map[string]string{"version": "new"},
+		}},
+	)
+
+	require.Len(t, observer.events, 1)
+	assert.Equal(t, informer.EventType_UPDATED, observer.events[0].Type)
+	assert.GreaterOrEqual(t, observer.events[0].Resource.StatusTimeEpoch, start)
+}
+
+func TestIPInfoEventHandlerRefreshesDeletedEventTimestamp(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	inf := &Informers{
+		log:          log,
+		BaseNotifier: NewBaseNotifier(log),
+	}
+	observer := &eventObserver{id: "observer"}
+	inf.BaseNotifier.Subscribe(observer)
+
+	handler := inf.ipInfoEventHandler(context.Background())
+	staleTimestamp := time.Now().Add(-time.Hour).Unix()
+	start := time.Now().Unix()
+
+	handler.DeleteFunc(&indexableEntity{EncodedMeta: &informer.ObjectMeta{
+		Name:            "pod",
+		Kind:            typePod,
+		StatusTimeEpoch: staleTimestamp,
+	}})
+
+	require.Len(t, observer.events, 1)
+	assert.Equal(t, informer.EventType_DELETED, observer.events[0].Type)
+	assert.GreaterOrEqual(t, observer.events[0].Resource.StatusTimeEpoch, start)
+}
+
+func TestRefreshStatusTimeEpochPreservesCurrentTimestamp(t *testing.T) {
+	em := &informer.ObjectMeta{StatusTimeEpoch: time.Now().Add(time.Hour).Unix()}
+
+	refreshStatusTimeEpoch(em)
+
+	assert.Greater(t, em.StatusTimeEpoch, time.Now().Unix())
 }

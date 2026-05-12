@@ -6,11 +6,6 @@ plugins {
     id("com.diffplug.spotless")
 }
 
-// We need this dependency to load the resource JNA shared libraries
-dependencies {
-    implementation("net.java.dev.jna:jna:5.18.1")
-}
-
 configure<SpotlessExtension> {
     java {
         // Use Google Java Format

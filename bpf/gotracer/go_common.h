@@ -15,8 +15,8 @@
 
 #pragma once
 
-#include "common/tp_info.h"
 #include <bpfcore/utils.h>
+#include <bpfcore/bpf_helpers.h>
 
 #include <common/go_addr_key.h>
 #include <common/map_sizing.h>
@@ -24,6 +24,7 @@
 #include <common/strings.h>
 #include <common/trace_util.h>
 #include <common/tracing.h>
+#include <common/tp_info.h>
 
 #include <gotracer/go_offsets.h>
 
@@ -417,8 +418,7 @@ static __always_inline u8 get_conn_info_from_fd(void *fd_ptr,
     return 0;
 }
 
-// HTTP black-box context propagation
-static __always_inline u8 get_conn_info(void *conn_ptr, connection_info_t *info) {
+static __always_inline void *fd_ptr_from_conn(void *conn_ptr) {
     if (conn_ptr) {
         void *fd_ptr = 0;
         off_table_t *ot = get_offsets_table();
@@ -428,9 +428,21 @@ static __always_inline u8 get_conn_info(void *conn_ptr, connection_info_t *info)
             sizeof(fd_ptr),
             (void *)(conn_ptr + go_offset_of(ot, (go_offset){.v = _conn_fd_pos}))); // find fd
 
+        return fd_ptr;
+    }
+
+    return 0;
+}
+
+// HTTP black-box context propagation
+static __always_inline u8 get_conn_info(void *conn_ptr, connection_info_t *info) {
+    if (conn_ptr) {
+        void *fd_ptr = fd_ptr_from_conn(conn_ptr);
         bpf_dbg_printk("Found fd, fd_ptr=%llx", fd_ptr);
 
-        return get_conn_info_from_fd(fd_ptr, info, true);
+        if (fd_ptr) {
+            return get_conn_info_from_fd(fd_ptr, info, true);
+        }
     }
 
     return 0;

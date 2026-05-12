@@ -53,6 +53,13 @@ enum large_buf_action : u8 {
     k_large_buf_action_append = 1,
 };
 
+enum large_buf_kind : u8 {
+    k_large_buf_layer_wire =
+        0, // <--- wire format as seen by kprobes or socket ingress programs/xdp
+    k_large_buf_layer_app =
+        1, // <--- as seen by the app layer, e.g. ssl uprobes, detected protocols in eBPF or sk_msg on egress
+};
+
 enum {
     k_dns_max_len = 512, // must be a power of 2
 };
@@ -167,7 +174,8 @@ typedef struct tcp_large_buffer {
     u8 direction;
     u32 len;
     connection_info_t conn_info;
-    u32 _pad2;
+    enum large_buf_kind kind;
+    u8 _pad[3];
     tp_info_t tp;
     u8 buf[];
 } tcp_large_buffer_t;

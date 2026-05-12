@@ -25,17 +25,36 @@ import (
 const (
 	weaverContainer = "weaver"
 	weaverAdminPort = 4320
-	weaverTimeout   = 2 * time.Minute
+	// weaverTimeout bounds the entire post-/stop sequence (HTTP /stop,
+	// docker wait, docker cp of the report file, parse). The drain after
+	// /stop scales with the unique signal count — heavy multi-language
+	// suites need real headroom.
+	weaverTimeout = 3 * time.Minute
 )
 
-// weaverIgnoredSignals lists signals whose violations are expected and should
-// not cause the test to fail. target_info is a Prometheus/OpenMetrics convention
-// (with Prometheus-style instance/job attributes) that is not part of the OTel
-// semantic conventions registry.
-// TODO: replace with custom override / filter once
-// https://github.com/open-telemetry/weaver/pull/1256 is merged.
-var weaverIgnoredSignals = map[string]struct{}{
-	"metric:target_info": {},
+// weaverIgnoredSignals is an escape hatch for advice we explicitly suppress
+// without declaring the underlying signal in the OBI registry. Most non-semconv
+// emissions (Prometheus `target_info`, OTel-contrib spanmetrics / service-graph
+// shape, OBI-internal markers) are declared in `schemas/obi/` and validated
+// against by weaver, so this map is normally empty. Add entries here only as a
+// short-lived bridge while a registry update is in flight.
+var weaverIgnoredSignals = map[string]struct{}{}
+
+// weaverIgnoredAdviceMessages suppresses specific advice messages that match
+// known structural tensions weaver reports against the registry as a whole
+// rather than against any one signal. Today this only covers the `server` /
+// `client` namespace collision: the OTel collector-contrib `servicegraphconnector`
+// emits bare `server` / `client` labels (matched in `service_graph.yaml`), but
+// upstream semconv reserves `server.*` / `client.*` as namespace prefixes
+// (`server.address`, `server.port`, …). Weaver's lint flags the registry-level
+// collision on every signal that touches an upstream `server.*` / `client.*`
+// attribute, even ones that don't use the bare label. The contract OBI emits
+// is fixed by the connector convention; the ignore documents the tension.
+var weaverIgnoredAdviceMessages = map[string]struct{}{
+	"Namespace 'server' collides with existing attribute 'server.address'": {},
+	"Namespace 'server' collides with existing attribute 'server.port'":    {},
+	"Namespace 'client' collides with existing attribute 'client.address'": {},
+	"Namespace 'client' collides with existing attribute 'client.port'":    {},
 }
 
 func SemconvVersion() string {
@@ -90,55 +109,87 @@ type adviceInfo struct {
 func runWeaverValidation(t *testing.T) {
 	t.Helper()
 
+	priorFailure := t.Failed()
+	if priorFailure {
+		t.Logf("skipping weaver validation: prior test failure detected; " +
+			"only stopping the weaver container so compose teardown is clean")
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), weaverTimeout)
 	defer cancel()
 
-	// Signal weaver to stop accepting data and produce its report.
+	// Signal weaver to stop accepting data and produce its report. If any
+	// post-/stop step fails (timeout, container already killed, …) we record
+	// the failure and force-remove the container so the surrounding
+	// `compose.Close()` still runs and the next test invocation starts from
+	// a clean slate.
 	url := fmt.Sprintf("http://127.0.0.1:%d/stop", weaverAdminPort)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
 	require.NoError(t, err)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		t.Fatalf("failed to stop weaver (is it running?): %v", err)
+		t.Errorf("failed to stop weaver (is it running?): %v", err)
+		forceRemoveWeaverContainer(t)
+		return
 	}
 	resp.Body.Close()
-	require.Less(t, resp.StatusCode, 300, "weaver /stop returned HTTP %d", resp.StatusCode)
+	if resp.StatusCode >= 300 {
+		t.Errorf("weaver /stop returned HTTP %d", resp.StatusCode)
+		forceRemoveWeaverContainer(t)
+		return
+	}
 
 	// Wait for the weaver container to finish processing and exit.
-	_, err = exec.CommandContext(ctx, "docker", "wait", weaverContainer).Output()
-	if err != nil {
-		t.Fatalf("failed to wait for weaver container: %v", err)
+	if _, err = exec.CommandContext(ctx, "docker", "wait", weaverContainer).Output(); err != nil {
+		t.Errorf("failed to wait for weaver container: %v", err)
+		forceRemoveWeaverContainer(t)
+		return
 	}
 
-	// Capture stdout (JSON report) and stderr (log lines) separately.
-	// Weaver writes the JSON report to stdout and diagnostic messages to stderr.
-	cmd := exec.CommandContext(ctx, "docker", "logs", weaverContainer)
-	var stdout, stderr strings.Builder
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("failed to capture weaver logs: %v; stderr: %s", err, stderr.String())
+	if priorFailure {
+		return
 	}
 
-	// Save full output for later inspection.
 	reportPath := weaverReportPath(t)
-	require.NoError(t, os.WriteFile(reportPath, []byte(stdout.String()), 0o644),
-		"failed to write weaver report to %s", reportPath)
+	cpCmd := exec.CommandContext(ctx, "docker", "cp",
+		weaverContainer+":/tmp/live_check.json", reportPath)
+	if out, err := cpCmd.CombinedOutput(); err != nil {
+		t.Errorf("failed to copy weaver report from container: %v; output: %s",
+			err, strings.TrimSpace(string(out)))
+		return
+	}
 	t.Logf("weaver report saved to %s", reportPath)
-	if stderr.Len() > 0 {
-		t.Logf("weaver diagnostics:\n%s", stderr.String())
-	}
 
-	// Parse the JSON report from stdout.
-	jsonStr := strings.TrimSpace(stdout.String())
-	if jsonStr == "" {
-		t.Fatalf("weaver produced no JSON output on stdout")
+	rawReport, err := os.ReadFile(reportPath)
+	if err != nil {
+		t.Errorf("failed to read weaver report at %s: %v", reportPath, err)
+		return
 	}
-
+	if len(rawReport) == 0 {
+		t.Errorf("weaver report file %s is empty", reportPath)
+		return
+	}
 	var report weaverReport
-	require.NoError(t, json.Unmarshal([]byte(jsonStr), &report), "failed to parse weaver JSON report")
+	if err := json.Unmarshal(rawReport, &report); err != nil {
+		t.Errorf("failed to parse weaver JSON report: %v", err)
+		return
+	}
 
 	validateWeaverReport(t, &report)
+}
+
+// forceRemoveWeaverContainer is the best-effort cleanup we use when the normal
+// /stop + docker-wait sequence couldn't finish. Without this, a stuck or
+// killed weaver container survives the failed test invocation and the next
+// run hits "container name already in use" (or, worse, a half-broken admin
+// port that returns "connection reset by peer").
+func forceRemoveWeaverContainer(t *testing.T) {
+	t.Helper()
+	rmCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if out, err := exec.CommandContext(rmCtx, "docker", "rm", "-f", weaverContainer).CombinedOutput(); err != nil {
+		t.Logf("failed to force-remove weaver container (already gone?): %v; output: %s", err, strings.TrimSpace(string(out)))
+	}
 }
 
 func validateWeaverReport(t *testing.T, report *weaverReport) {
@@ -172,10 +223,19 @@ func validateWeaverReport(t *testing.T, report *weaverReport) {
 	t.Logf("  advisory details:")
 	for _, level := range []string{"violation", "improvement", "information"} {
 		for msg, count := range stats.AdviceMessageCounts {
+			_, msgIgnored := weaverIgnoredAdviceMessages[msg]
 			info := adviceByMsg[msg]
 			if info == nil {
-				t.Logf("    [%s] [%dx] %s (signals: unknown)", level, count, msg)
-				if level == "violation" {
+				if level != "violation" {
+					continue
+				}
+
+				suffix := ""
+				if msgIgnored {
+					suffix = " [ignored]"
+				}
+				t.Logf("    [%s] [%dx] %s (signals: unknown)%s", level, count, msg, suffix)
+				if !msgIgnored {
 					actionableViolations += count
 				}
 				continue
@@ -184,7 +244,7 @@ func validateWeaverReport(t *testing.T, report *weaverReport) {
 				continue
 			}
 			signals := sortedSignals(info.Signals)
-			ignored := allSignalsIgnored(info.Signals)
+			ignored := msgIgnored || allSignalsIgnored(info.Signals)
 			suffix := ""
 			if ignored {
 				suffix = " [ignored]"

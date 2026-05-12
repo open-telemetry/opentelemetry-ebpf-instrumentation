@@ -506,22 +506,75 @@ func TestJavaInjector_AttachOpts(t *testing.T) {
 	}
 }
 
-func TestEnsureEmbeddedAgentInCache_ForgotToEmbed(t *testing.T) {
+func TestNewJavaInjector_Disabled(t *testing.T) {
+	injector, err := NewJavaInjector(&obi.Config{
+		Java: obi.JavaConfig{
+			Enabled: false,
+		},
+	})
+
+	require.NoError(t, err)
+	assert.Nil(t, injector)
+}
+
+func TestNewJavaInjector_MissingEmbeddedAgent(t *testing.T) {
 	originalEmbeddedBytes := embeddedJavaAgentBytes
 	t.Cleanup(func() {
 		embeddedJavaAgentBytes = originalEmbeddedBytes
 	})
 
 	embeddedJavaAgentBytes = nil
-	assert.Panics(t, ensureEmbeddedAgent)
+
+	injector, err := NewJavaInjector(&obi.Config{
+		Java: obi.JavaConfig{
+			Enabled: true,
+		},
+	})
+
+	require.Error(t, err)
+	assert.Nil(t, injector)
+	assert.Contains(t, err.Error(), "embedded OBI java agent artifact is missing from this build")
 }
 
-func TestEnsureEmbeddedAgentInCache_PlaceholderBytesError(t *testing.T) {
+func TestNewJavaInjector_PlaceholderEmbeddedAgent(t *testing.T) {
 	originalEmbeddedBytes := embeddedJavaAgentBytes
 	t.Cleanup(func() {
 		embeddedJavaAgentBytes = originalEmbeddedBytes
 	})
 
 	embeddedJavaAgentBytes = []byte(javaAgentEmbedPlaceholder + "\n")
-	assert.Panics(t, ensureEmbeddedAgent)
+
+	injector, err := NewJavaInjector(&obi.Config{
+		Java: obi.JavaConfig{
+			Enabled: true,
+		},
+	})
+
+	require.Error(t, err)
+	assert.Nil(t, injector)
+	assert.Contains(t, err.Error(), "embedded OBI java agent artifact is missing from this build")
+}
+
+func TestEnsureEmbeddedAgent_ForgotToEmbed(t *testing.T) {
+	originalEmbeddedBytes := embeddedJavaAgentBytes
+	t.Cleanup(func() {
+		embeddedJavaAgentBytes = originalEmbeddedBytes
+	})
+
+	embeddedJavaAgentBytes = nil
+	err := ensureEmbeddedAgent()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "embedded OBI java agent artifact is missing from this build")
+}
+
+func TestEnsureEmbeddedAgent_PlaceholderBytesError(t *testing.T) {
+	originalEmbeddedBytes := embeddedJavaAgentBytes
+	t.Cleanup(func() {
+		embeddedJavaAgentBytes = originalEmbeddedBytes
+	})
+
+	embeddedJavaAgentBytes = []byte(javaAgentEmbedPlaceholder + "\n")
+	err := ensureEmbeddedAgent()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "embedded OBI java agent artifact is missing from this build")
 }

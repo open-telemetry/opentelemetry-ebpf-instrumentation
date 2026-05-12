@@ -5,6 +5,8 @@ package ebpfcommon
 
 import (
 	"bytes"
+	"fmt"
+	"math"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -265,6 +267,7 @@ func TestMemcachedCommandBytesField(t *testing.T) {
 		{name: "missing bytes field", line: "set session 0 300", op: "SET", wantOK: false},
 		{name: "bytes must be int", line: "set session 0 300 nope", op: "SET", wantOK: false},
 		{name: "bytes cannot be negative", line: "set session 0 300 -1", op: "SET", wantOK: false},
+		{name: "bytes can be max int", line: fmt.Sprintf("set session 0 300 %d", math.MaxInt), op: "SET", want: math.MaxInt, wantOK: true},
 	}
 
 	for _, tt := range tests {
@@ -274,6 +277,15 @@ func TestMemcachedCommandBytesField(t *testing.T) {
 			assert.Equal(t, tt.want, got)
 		})
 	}
+}
+
+func TestMemcachedConsumeStoragePayloadOverflowSafe(t *testing.T) {
+	fields := bytes.Fields([]byte(fmt.Sprintf("set session 0 300 %d", math.MaxInt)))
+	reader := largebuf.NewLargeBufferFrom([]byte("value\r\n")).NewReader()
+
+	assert.NotPanics(t, func() {
+		assert.False(t, memcachedConsumeStoragePayload(&reader, fields, "SET"))
+	})
 }
 
 func TestParseMemcachedExplicitNoreply(t *testing.T) {

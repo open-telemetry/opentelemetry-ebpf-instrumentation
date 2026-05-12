@@ -1,4 +1,4 @@
-FROM bash:5.2.37-alpine3.22@sha256:a4b03e1bbd85d85af7f5db16d2c4337aa852b8b40f3df8346624a4b9e06c1f7c
+FROM bash:5.3.8-alpine3.22@sha256:84e9597a44c52678823f5292b595004b0bccc722092b0764cb4269e2859f540a
 
 RUN apk add --no-cache curl
 

@@ -45,6 +45,13 @@ var (
 		containerImage: "hatest-testserver-logenricher-grpc-go",
 		message:        "hello!",
 	}
+	logEnricherGoWritevRegressionConstants = testServerConstants{
+		url:            "http://localhost:8382",
+		smokeEndpoint:  "/smoke",
+		logEndpoint:    "/log_writev_regression",
+		containerImage: "hatest-testserver-logenricher-grpc-go",
+		message:        "go writev regression log",
+	}
 	logEnricherNodeJSConstants = testServerConstants{
 		url:            "http://localhost:8383",
 		smokeEndpoint:  "/smoke",
@@ -88,6 +95,8 @@ var (
 		message:        "this is a json log from python async",
 	}
 )
+
+const logEnricherGoWritevRegressionLeakMarker = "writev-leak-marker-should-never-appear"
 
 // logEnricherTestTraceparents are fixed W3C traceparents used by log enricher tests.
 // Fixed IDs allow exact equality assertions on trace_id and ordering assertions
@@ -617,5 +626,47 @@ func testLogEnricher(t *testing.T, constants testServerConstants) {
 		assert.Equal(ct, "INFO", logFields["level"])
 		assert.Contains(ct, logFields, "trace_id")
 		assert.Contains(ct, logFields, "span_id")
+	}, 2*testTimeout, time.Second)
+}
+
+func testLogEnricherWritevClamp(t *testing.T, constants testServerConstants) {
+	waitForTestComponentsNoMetrics(t, constants.url+constants.smokeEndpoint)
+
+	cl, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	require.NoError(t, err)
+	defer cl.Close()
+
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		ti.DoHTTPGet(ct, constants.url+constants.logEndpoint, 200)
+
+		containerID := testContainerID(ct, cl, constants.containerImage)
+		if !assert.NotEmpty(ct, containerID, "could not find test container ID") {
+			return
+		}
+
+		logs := containerLogs(ct, cl, containerID)
+		if !assert.NotEmpty(ct, logs) {
+			return
+		}
+
+		foundEnriched := false
+		for _, line := range logs {
+			assert.NotContains(ct, line, logEnricherGoWritevRegressionLeakMarker)
+
+			var fields map[string]string
+			if json.Unmarshal([]byte(line), &fields) != nil {
+				continue
+			}
+
+			if fields["message"] != constants.message {
+				continue
+			}
+
+			assert.NotEmpty(ct, fields["trace_id"], "trace_id missing from writev-regression log")
+			assert.NotEmpty(ct, fields["span_id"], "span_id missing from writev-regression log")
+			foundEnriched = true
+		}
+
+		assert.True(ct, foundEnriched, "no enriched writev-regression log line found yet")
 	}, 2*testTimeout, time.Second)
 }

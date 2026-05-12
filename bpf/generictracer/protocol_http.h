@@ -364,6 +364,7 @@ static __always_inline int http_send_large_buffer(http_info_t *req,
     large_buf->direction = direction;
     large_buf->conn_info = req->conn_info;
     large_buf->action = action;
+    large_buf->kind = k_large_buf_layer_app;
     large_buf->tp = req->tp;
 
     u32 max_available_bytes = http_max_captured_bytes - bytes_sent;
@@ -474,7 +475,8 @@ __obi_continue_protocol_http_tp(struct pt_regs *ctx,
 
         unsigned char *buf = (unsigned char *)tp_char_buf_mem();
         if (buf) {
-            const u16 buf_len = args->bytes_len & (TRACE_BUF_SIZE - 1);
+            u16 buf_len = args->bytes_len;
+            bpf_clamp_umax(buf_len, TRACE_BUF_SIZE - 1);
 
             bpf_probe_read(buf, buf_len, (void *)args->u_buf);
             // null terminate to make proper string

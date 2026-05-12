@@ -499,6 +499,74 @@ func TestServiceInfo(t *testing.T) {
 	assert.Equal(t, "namespaceA", k8sNamespace)
 }
 
+func TestServiceNameLabelPriority(t *testing.T) {
+	newPod := func(labels map[string]string) informer.ObjectMeta {
+		return informer.ObjectMeta{
+			Name:      "podA",
+			Namespace: "ns",
+			Ips:       []string{"1.2.3.4"},
+			Kind:      "Pod",
+			Labels:    labels,
+			Pod: &informer.PodInfo{
+				Owners:     []*informer.Owner{{Name: "my-deployment", Kind: "Deployment"}},
+				Containers: []*informer.ContainerInfo{{Id: "c1", Env: map[string]string{}}},
+			},
+		}
+	}
+
+	t.Run("instance label takes precedence over name label", func(t *testing.T) {
+		store := createTestStore()
+		pod := newPod(map[string]string{
+			"app.kubernetes.io/name":     "from-name",
+			"app.kubernetes.io/instance": "from-instance",
+		})
+		_ = store.On(&informer.Event{Type: informer.EventType_CREATED, Resource: &pod})
+		name, _, _ := store.ServiceNameNamespaceForIP("1.2.3.4")
+		assert.Equal(t, "from-instance", name)
+	})
+
+	t.Run("name label used when instance label absent", func(t *testing.T) {
+		store := createTestStore()
+		pod := newPod(map[string]string{
+			"app.kubernetes.io/name": "from-name",
+		})
+		_ = store.On(&informer.Event{Type: informer.EventType_CREATED, Resource: &pod})
+		name, _, _ := store.ServiceNameNamespaceForIP("1.2.3.4")
+		assert.Equal(t, "from-name", name)
+	})
+
+	t.Run("instance label alone sets service name", func(t *testing.T) {
+		store := createTestStore()
+		pod := newPod(map[string]string{
+			"app.kubernetes.io/instance": "from-instance",
+		})
+		_ = store.On(&informer.Event{Type: informer.EventType_CREATED, Resource: &pod})
+		name, _, _ := store.ServiceNameNamespaceForIP("1.2.3.4")
+		assert.Equal(t, "from-instance", name)
+	})
+
+	t.Run("annotation overrides instance label", func(t *testing.T) {
+		store := createTestStore()
+		pod := newPod(map[string]string{
+			"app.kubernetes.io/instance": "from-instance",
+		})
+		pod.Annotations = map[string]string{
+			ServiceNameAnnotation: "from-annotation",
+		}
+		_ = store.On(&informer.Event{Type: informer.EventType_CREATED, Resource: &pod})
+		name, _, _ := store.ServiceNameNamespaceForIP("1.2.3.4")
+		assert.Equal(t, "from-annotation", name)
+	})
+
+	t.Run("falls back to owner name when no labels set", func(t *testing.T) {
+		store := createTestStore()
+		pod := newPod(nil)
+		_ = store.On(&informer.Event{Type: informer.EventType_CREATED, Resource: &pod})
+		name, _, _ := store.ServiceNameNamespaceForIP("1.2.3.4")
+		assert.Equal(t, "my-deployment", name)
+	})
+}
+
 func TestMemoryCleanedUp(t *testing.T) {
 	deployment := informer.Owner{
 		Name: "service",
