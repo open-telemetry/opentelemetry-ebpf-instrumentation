@@ -38,7 +38,7 @@ services:
       OTEL_EBPF_TRACE_PRINTER: "json"
       OTEL_EBPF_DISCOVERY_POLL_INTERVAL: 500ms
       OTEL_EBPF_SERVICE_NAMESPACE: "integration-test"
-      OTEL_EBPF_METRICS_INTERVAL: "10ms"
+      OTEL_EBPF_METRICS_INTERVAL: "1s"
       OTEL_EBPF_BPF_BATCH_TIMEOUT: "10ms"
       OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT: "1ms"
       OTEL_EBPF_LOG_LEVEL: "DEBUG"
@@ -65,7 +65,7 @@ services:
         limits:
           memory: 125M
     restart: unless-stopped
-    command: ["--config=/etc/otelcol-config/otelcol-config.yml"]
+    command: ["--config=/etc/otelcol-config/otelcol-config-weaver-no-jaeger.yml"]
     volumes:
       - ./configs/:/etc/otelcol-config
     ports:
@@ -76,6 +76,15 @@ services:
     depends_on:
       prometheus:
         condition: service_started
+      weaver:
+        condition: service_healthy
+
+  weaver:
+    extends:
+      file: components/weaver/service.yml
+      service: weaver
+    volumes:
+      - ../../../schemas/obi:/obi-registry:ro
 
  # Prometheus
   prometheus:
