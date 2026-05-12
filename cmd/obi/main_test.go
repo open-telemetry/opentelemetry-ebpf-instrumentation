@@ -30,6 +30,27 @@ extensions:
 	require.Equal(t, 123, cfg.ChannelBufferLen)
 }
 
+func TestLoadConfigReplacesEnvForV2(t *testing.T) {
+	t.Setenv("OBI_BUFFER_LEN", "123")
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config-v2.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(`
+file_format: "1.0"
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      policy:
+        default_action: include
+      channels:
+        buffer_len: ${OBI_BUFFER_LEN}
+`), 0o600))
+
+	cfg := loadConfig(&path)
+	require.Equal(t, 123, cfg.ChannelBufferLen)
+}
+
 func TestLoadConfigFallsBackToLegacy(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config-v1.yaml")

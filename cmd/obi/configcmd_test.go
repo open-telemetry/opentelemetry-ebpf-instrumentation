@@ -24,6 +24,23 @@ extensions:
 `)))
 }
 
+func TestValidateStandaloneConfigSupportsV2EnvSubstitution(t *testing.T) {
+	t.Setenv("OBI_DEFAULT_ACTION", "include")
+
+	require.NoError(t, validateStandaloneConfig([]byte(`
+file_format: "1.0"
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      policy:
+        default_action: ${OBI_DEFAULT_ACTION}
+    daemon:
+      logging:
+        debug_trace_output: text
+`)))
+}
+
 func TestValidateReceiverConfigSupportsV2(t *testing.T) {
 	require.NoError(t, validateReceiverConfig([]byte(`
 version: "2.0"
@@ -51,6 +68,23 @@ file_format: "1.0"
 extensions:
   obi:
     version: "2.0"
+    capture:
+      policy:
+        default_action: include
+`))
+	require.NoError(t, err)
+	require.Empty(t, report)
+	require.Contains(t, encoded, "version: \"2.0\"")
+}
+
+func TestMigrateConfigDataSupportsV2EnvSubstitution(t *testing.T) {
+	t.Setenv("OBI_VERSION", "2.0")
+
+	encoded, report, err := migrateConfigData([]byte(`
+file_format: "1.0"
+extensions:
+  obi:
+    version: "${OBI_VERSION}"
     capture:
       policy:
         default_action: include

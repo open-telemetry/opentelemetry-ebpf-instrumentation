@@ -22,6 +22,7 @@ import (
 
 	obiconfigv2 "go.opentelemetry.io/obi/internal/obiconfigv2"
 	"go.opentelemetry.io/obi/pkg/buildinfo"
+	obicfg "go.opentelemetry.io/obi/pkg/config"
 	"go.opentelemetry.io/obi/pkg/instrumenter"
 	"go.opentelemetry.io/obi/pkg/obi"
 	obiv2 "go.opentelemetry.io/obi/pkg/obiconfig/v2"
@@ -131,6 +132,8 @@ func loadConfig(configPath *string) *obi.Config {
 	}
 
 	if len(configBytes) > 0 {
+		configBytes = obicfg.ReplaceEnv(configBytes)
+
 		if doc, _, err := obiv2.ParseYAML(configBytes, obiv2.DeploymentModeStandalone); err == nil {
 			config, adaptErr := obiconfigv2.StandaloneToRuntime(doc)
 			if adaptErr != nil {

@@ -13,6 +13,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	obiconfigv2 "go.opentelemetry.io/obi/internal/obiconfigv2"
+	obicfg "go.opentelemetry.io/obi/pkg/config"
 	"go.opentelemetry.io/obi/pkg/obi"
 	obiv2 "go.opentelemetry.io/obi/pkg/obiconfig/v2"
 )
@@ -74,6 +75,8 @@ func runConfigValidate(args []string) {
 }
 
 func validateStandaloneConfig(data []byte) error {
+	data = obicfg.ReplaceEnv(data)
+
 	doc, _, err := obiv2.ParseYAML(data, obiv2.DeploymentModeStandalone)
 	if err == nil {
 		cfg, err := obiconfigv2.StandaloneToRuntime(doc)
@@ -98,6 +101,8 @@ func validateStandaloneConfig(data []byte) error {
 }
 
 func validateReceiverConfig(data []byte) error {
+	data = obicfg.ReplaceEnv(data)
+
 	_, ext, err := obiv2.ParseYAML(data, obiv2.DeploymentModeReceiver)
 	if err == nil {
 		cfg, err := obiconfigv2.ConfigToRuntime(ext, obiv2.DeploymentModeReceiver)
@@ -164,6 +169,8 @@ func marshalCanonicalV2(doc *obiv2.Document) (string, error) {
 }
 
 func migrateConfigData(data []byte) (string, string, error) {
+	data = obicfg.ReplaceEnv(data)
+
 	if doc, _, err := obiv2.ParseYAML(data, obiv2.DeploymentModeStandalone); err == nil {
 		encoded, encodeErr := marshalCanonicalV2(doc)
 		return encoded, "", encodeErr
