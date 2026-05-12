@@ -139,6 +139,7 @@ func (s *ContainerStore) ContainerInfo(ctx context.Context, pid app.PID) (Contai
 	}
 
 	meta := ContainerMeta{
+		// some containers start with '/'. Removing it
 		Name:           strings.Trim(inspectInfo.Name, "/"),
 		ID:             inspectInfo.ID,
 		ComposeService: composeSvcName,
