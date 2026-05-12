@@ -45,7 +45,7 @@ func TestFixupSpec(t *testing.T) {
 			name:      "disable kprobe only",
 			toDisable: []string{progObiKprobeTCPCloseSrtt},
 			want: map[string]string{
-				progObiKprobeTCPCloseSrtt:              "stats_dummy_kp",
+				progObiKprobeTCPCloseSrtt:              "stats_dummy",
 				progObiTpInetSockSetStateTCPFailedConn: origTpName,
 				progObiTpInetSockSetStateConnRole:      origConnRoleName,
 			},
@@ -55,7 +55,7 @@ func TestFixupSpec(t *testing.T) {
 			toDisable: []string{progObiTpInetSockSetStateTCPFailedConn},
 			want: map[string]string{
 				progObiKprobeTCPCloseSrtt:              origKpName,
-				progObiTpInetSockSetStateTCPFailedConn: "stats_dummy_tp",
+				progObiTpInetSockSetStateTCPFailedConn: "stats_dummy",
 				progObiTpInetSockSetStateConnRole:      origConnRoleName,
 			},
 		},
@@ -65,7 +65,7 @@ func TestFixupSpec(t *testing.T) {
 			want: map[string]string{
 				progObiKprobeTCPCloseSrtt:              origKpName,
 				progObiTpInetSockSetStateTCPFailedConn: origTpName,
-				progObiTpInetSockSetStateConnRole:      "stats_dummy_tp",
+				progObiTpInetSockSetStateConnRole:      "stats_dummy",
 			},
 		},
 		{
@@ -76,9 +76,9 @@ func TestFixupSpec(t *testing.T) {
 				progObiTpInetSockSetStateConnRole,
 			},
 			want: map[string]string{
-				progObiKprobeTCPCloseSrtt:              "stats_dummy_kp",
-				progObiTpInetSockSetStateTCPFailedConn: "stats_dummy_tp",
-				progObiTpInetSockSetStateConnRole:      "stats_dummy_tp",
+				progObiKprobeTCPCloseSrtt:              "stats_dummy",
+				progObiTpInetSockSetStateTCPFailedConn: "stats_dummy",
+				progObiTpInetSockSetStateConnRole:      "stats_dummy",
 			},
 		},
 	}

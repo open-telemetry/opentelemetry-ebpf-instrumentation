@@ -216,19 +216,9 @@ func fixupSpec(spec *ebpf.CollectionSpec, toDisable []string) error {
 		if prog == nil {
 			return fmt.Errorf("unknown program name %s", name)
 		}
-		progType := prog.Type
-		var stubName string
-		switch progType {
-		case ebpf.TracePoint:
-			stubName = "stats_dummy_tp"
-		case ebpf.Kprobe:
-			stubName = "stats_dummy_kp"
-		default:
-			return fmt.Errorf("unsupported program type %v for %s", progType, name)
-		}
 		spec.Programs[name] = &ebpf.ProgramSpec{
-			Name:         stubName,
-			Type:         progType,
+			Name:         "stats_dummy",
+			Type:         prog.Type,
 			Instructions: asm.Instructions{asm.Mov.Imm(asm.R0, 0), asm.Return()},
 			License:      "Dual MIT/GPL",
 		}
