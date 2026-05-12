@@ -94,6 +94,20 @@ extensions:
 	require.Contains(t, encoded, "version: \"2.0\"")
 }
 
+func TestMigrateConfigDataCanonicalizesReceiverShapedV2(t *testing.T) {
+	encoded, report, err := migrateConfigData([]byte(`
+version: "2.0"
+policy:
+  default_action: include
+`))
+	require.NoError(t, err)
+	require.Empty(t, report)
+	require.Contains(t, encoded, "file_format: \"1.0\"")
+	require.Contains(t, encoded, "extensions:")
+	require.Contains(t, encoded, "version: \"2.0\"")
+	require.NotEqual(t, "null\n", encoded)
+}
+
 func TestMigrateConfigDataMigratesLegacy(t *testing.T) {
 	encoded, report, err := migrateConfigData([]byte(`{}`))
 	require.NoError(t, err)

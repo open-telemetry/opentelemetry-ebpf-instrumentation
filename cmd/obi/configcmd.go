@@ -171,7 +171,13 @@ func marshalCanonicalV2(doc *obiv2.Document) (string, error) {
 func migrateConfigData(data []byte) (string, string, error) {
 	data = obicfg.ReplaceEnv(data)
 
-	if doc, _, err := obiv2.ParseYAML(data, obiv2.DeploymentModeStandalone); err == nil {
+	if doc, ext, err := obiv2.ParseYAML(data, obiv2.DeploymentModeStandalone); err == nil {
+		if doc == nil && ext != nil {
+			doc = &obiv2.Document{
+				FileFormat: "1.0",
+				Extensions: obiv2.Extensions{OBI: ext},
+			}
+		}
 		encoded, encodeErr := marshalCanonicalV2(doc)
 		return encoded, "", encodeErr
 	}
