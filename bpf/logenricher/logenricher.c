@@ -107,18 +107,8 @@ static __always_inline u32 consume_iovec(log_event_t *e,
 
 static __always_inline int
 __write(struct kiocb *iocb, struct iov_iter *from, const int fd, const struct task_struct *task) {
-    struct iovec iov = {};
-    if (!__fill_iov(&iov, from)) {
-        return 0;
-    }
-
-    const size_t count = BPF_CORE_READ(from, count);
-    size_t bounded_count = count;
-    if (bounded_count > iov.iov_len) {
-        bounded_count = iov.iov_len;
-    }
-    const u64 pid_tgid = bpf_get_current_pid_tgid();
-    obi_ctx_info_t *obi_ctx = obi_ctx__get(pid_tgid);
+    iovec_iter_ctx ictx;
+    get_iovec_ctx(&ictx, (struct iov_iter___dummy *)from);
 
     log_event_t *e = (log_event_t *)log_event_mem();
     if (!e) {
@@ -134,7 +124,6 @@ __write(struct kiocb *iocb, struct iov_iter *from, const int fd, const struct ta
     const u64 pid_tgid = bpf_get_current_pid_tgid();
     obi_ctx_info_t *obi_ctx = obi_ctx__get(pid_tgid);
     e->tgid = pid_tgid >> 32;
-    e->len = bounded_count & k_log_event_max_log_mask;
     e->ctx = obi_ctx ? *obi_ctx : (obi_ctx_info_t){0};
     e->fd = fd;
 
