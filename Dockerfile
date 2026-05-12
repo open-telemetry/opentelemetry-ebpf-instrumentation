@@ -70,6 +70,7 @@ RUN --mount=type=cache,target=/go/pkg/mod go mod download
 COPY .git/ .git/
 COPY bpf/ bpf/
 COPY cmd/ cmd/
+COPY internal/ internal/
 COPY pkg/ pkg/
 COPY Makefile dependencies.Dockerfile ./
 COPY --from=javaagent-builder /build/build/obi-java-agent.jar /src/pkg/internal/java/embedded/obi-java-agent.jar
