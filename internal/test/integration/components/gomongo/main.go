@@ -17,9 +17,9 @@ import (
 )
 
 type Item struct {
-	ID    string `bson:"_id,omitempty" json:"id,omitempty"`
-	Name  string `bson:"name" json:"name"`
-	Value int    `bson:"value" json:"value"`
+	ID    bson.ObjectID `bson:"_id,omitempty" json:"id,omitempty"`
+	Name  string        `bson:"name" json:"name"`
+	Value int           `bson:"value" json:"value"`
 }
 
 func main() {
