@@ -18,7 +18,7 @@ struct callback_ctx {
     u8 _pad[4];
 };
 
-enum { k_tp_pos_not_found = 0xffffffffu };
+enum : u32 { k_tp_pos_not_found = 0xFFFFFFFFU };
 
 static unsigned char *hex = (unsigned char *)"0123456789abcdef";
 static unsigned char *reverse_hex =
