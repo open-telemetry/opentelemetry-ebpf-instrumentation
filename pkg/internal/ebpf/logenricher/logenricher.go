@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -228,6 +229,9 @@ func (p *Tracer) addPID(key uint64) error {
 func (p *Tracer) removePID(key uint64) error {
 	p.log.Debug("removing pid", "pid", uint32(key), "ns", key>>32)
 	if err := p.bpfObjects.LogEnricherPids.Delete(key); err != nil {
+		if errors.Is(err, ebpf.ErrKeyNotExist) {
+			return nil
+		}
 		return fmt.Errorf("error removing pid %d (ns=%d) from bpf map: %w", uint32(key), key>>32, err)
 	}
 	return nil

@@ -305,7 +305,7 @@ func TestFilter_OnAvoidedTraces_SingleSubscriber(t *testing.T) {
 	sharedSvc := svc.Attrs{UID: svc.UID{Name: "scoring-engine"}}
 	pf.AllowPID(33, 44, &sharedSvc, PIDTypeGo)
 
-	var fired firedEventSet = firedEventSet{}
+	fired := firedEventSet{}
 
 	pf.OnAvoidedTraces(func(pid app.PID, ns uint32) {
 		fired[firedEvent{pid, ns}]++
@@ -446,6 +446,34 @@ func TestFilter_OnAvoidedTraces_Unsubscribe(t *testing.T) {
 
 	assert.Empty(t, firedA)
 	assert.Equal(t, makeFiredEventSet(firedEvent{5, 6}), firedB)
+}
+
+func TestFilter_OnAvoidedTraces_NilCallback(t *testing.T) {
+	const defaultOtlpPort = 4317
+	readNamespacePIDs = func(pid app.PID) ([]app.PID, error) {
+		return []app.PID{pid}, nil
+	}
+
+	pf := NewPIDsFilter(&services.DiscoveryConfig{}, slog.With("env", "testing"), &imetrics.NoopReporter{})
+
+	sharedSvc := svc.Attrs{UID: svc.UID{Name: "scoring-engine"}}
+	pf.AllowPID(7, 8, &sharedSvc, PIDTypeGo)
+
+	unsub := pf.OnAvoidedTraces(nil)
+
+	assert.NotNil(t, unsub)
+	assert.NotPanics(t, unsub)
+
+	span := request.Span{
+		Type: request.EventTypeHTTPClient, Method: "GET", Path: "/v1/traces",
+		RequestStart: 100, End: 200, Status: 200,
+		Pid: request.PidInfo{UserPID: 7, Namespace: 8},
+	}
+
+	assert.NotPanics(t, func() {
+		pf.checkIfExportsOTel(&sharedSvc, &span, defaultOtlpPort)
+	})
+	assert.True(t, sharedSvc.ExportsOTelTraces())
 }
 
 func TestFilter_OnAvoidedTraces_NotRegistered(t *testing.T) {

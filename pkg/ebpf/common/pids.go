@@ -68,6 +68,10 @@ type PIDsFilter struct {
 }
 
 func (pf *PIDsFilter) OnAvoidedTraces(cb AvoidedTracesCB) (unsubscribe func()) {
+	if cb == nil {
+		return func() {}
+	}
+
 	pf.callbacksMu.Lock()
 	defer pf.callbacksMu.Unlock()
 
