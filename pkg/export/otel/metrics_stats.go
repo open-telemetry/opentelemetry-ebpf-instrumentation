@@ -67,21 +67,21 @@ func createFilteredStatsResource(hostID string, attrSelector attributes.Selectio
 }
 
 func newStatMeterProvider(res *resource.Resource, exporter *sdkmetric.Exporter, interval time.Duration, cfg *otelcfg.MetricsConfig) *metric.MeterProvider {
-	return metric.NewMeterProvider(
-		metric.WithResource(res),
-		metric.WithReader(metric.NewPeriodicReader(*exporter, metric.WithInterval(interval))),
-		metric.WithView(statRttHistogramView(cfg)),
-	)
-}
-
-func statRttHistogramView(cfg *otelcfg.MetricsConfig) metric.View {
 	isExponential := cfg.HistogramAggregation == otelcfg.HistogramAggregationExponential
 	if !isExponential && cfg.HistogramAggregation != otelcfg.HistogramAggregationExplicit {
 		smlog().Warn("invalid value for histogram aggregation. Accepted values are: "+
 			string(otelcfg.HistogramAggregationExponential)+", "+string(otelcfg.HistogramAggregationExplicit)+" (default). Using default",
 			"value", cfg.HistogramAggregation)
 	}
-	return newHistogramView(attributes.StatTCPRtt.OTEL, statScopeName, cfg.Buckets.StatTCPRttHistogram, isExponential, cfg.ExponentialHistogram)
+	return metric.NewMeterProvider(
+		metric.WithResource(res),
+		metric.WithReader(metric.NewPeriodicReader(*exporter, metric.WithInterval(interval))),
+		metric.WithView(statHistogramView(attributes.StatTCPRtt.OTEL, cfg.Buckets.StatTCPRttHistogram, isExponential, cfg.ExponentialHistogram)),
+	)
+}
+
+func statHistogramView(metricName string, buckets []float64, isExponential bool, expCfg otelcfg.ExponentialHistogramConfig) metric.View {
+	return newHistogramView(metricName, statScopeName, buckets, isExponential, expCfg)
 }
 
 type statMetricsExporter struct {
