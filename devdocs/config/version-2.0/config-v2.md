@@ -618,7 +618,7 @@ Important mapping notes:
 | `prometheus_export.extra_resource_attributes` | `extensions.obi.daemon.telemetry.metrics.prometheus.extra_resource_attributes` | Move to daemon telemetry tuning |
 | `prometheus_export.extra_span_resource_attributes` | `extensions.obi.daemon.telemetry.metrics.prometheus.extra_span_resource_attributes` | Move to daemon telemetry tuning |
 | `prometheus_export.port` | `meter_provider.readers[1].pull.exporter.prometheus/development.port` | OTel ownership move + declarative reader/exporter shape |
-| `prometheus_export.path` | _No canonical OTel core path in current declarative schema_ | Distribution-specific/unsupported in current target shape |
+| `prometheus_export.path` | *No canonical OTel core path in current declarative schema* | Distribution-specific/unsupported in current target shape |
 | `prometheus_export.service_cache_size` | `extensions.obi.daemon.telemetry.metrics.prometheus.span_metrics_service_cache_size` | Move to daemon telemetry tuning + rename |
 | `routes.max_path_segment_cardinality` | `extensions.obi.capture.instrumentation.http.routes.max_path_segment_cardinality` | Move |
 | `routes.unmatched` | `extensions.obi.capture.instrumentation.http.routes.unmatched` | Move |
