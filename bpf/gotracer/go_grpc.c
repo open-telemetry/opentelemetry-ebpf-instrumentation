@@ -63,20 +63,24 @@ int obi_uprobe_server_handleStream(struct pt_regs *ctx) {
                    stream_ptr,
                    new_handle_stream,
                    reduce_pointers_stream);
-    if (new_handle_stream == 1 && reduce_pointers_stream != 1) {
-        // Read the embedded object ptr
-        bpf_probe_read(
-            &stream_stream_ptr,
-            sizeof(stream_stream_ptr),
-            (void *)(stream_ptr + go_offset_of(ot, (go_offset){.v = _grpc_server_stream_stream})));
-
-        bpf_dbg_printk("new stream pointer, stream_stream_ptr=%llx", stream_stream_ptr);
-        if (!stream_stream_ptr) {
-            bpf_dbg_printk("Error loading embedded server stream pointer from stream_ptr: %llx",
-                           stream_ptr);
-            return 0;
-        }
+    if (new_handle_stream == 1) {
         st_offset = go_offset_of(ot, (go_offset){.v = _grpc_server_stream_st_ptr_pos});
+
+        if (reduce_pointers_stream != 1) {
+            // Before grpc 1.77, ServerStream stores a pointer to the embedded Stream.
+            bpf_probe_read(
+                &stream_stream_ptr,
+                sizeof(stream_stream_ptr),
+                (void *)(stream_ptr +
+                         go_offset_of(ot, (go_offset){.v = _grpc_server_stream_stream})));
+
+            bpf_dbg_printk("new stream pointer, stream_stream_ptr=%llx", stream_stream_ptr);
+            if (!stream_stream_ptr) {
+                bpf_dbg_printk("Error loading embedded server stream pointer from stream_ptr: %llx",
+                               stream_ptr);
+                return 0;
+            }
+        }
     }
 
     grpc_srv_func_invocation_t invocation = {
