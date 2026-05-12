@@ -32,6 +32,19 @@ func TestReceiverConfigUnmarshalV2(t *testing.T) {
 	require.Equal(t, 123, cfg.runtime.ChannelBufferLen)
 }
 
+func TestReceiverConfigValidateV2(t *testing.T) {
+	cfg := newReceiverConfig()
+	component := confmap.NewFromStringMap(map[string]any{
+		"version": "2.0",
+		"policy": map[string]any{
+			"default_action": "include",
+		},
+	})
+
+	require.NoError(t, cfg.Unmarshal(component))
+	require.NoError(t, cfg.Validate())
+}
+
 func TestReceiverConfigUnmarshalLegacy(t *testing.T) {
 	cfg := newReceiverConfig()
 	component := confmap.NewFromStringMap(map[string]any{})

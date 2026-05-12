@@ -104,6 +104,8 @@ func validateReceiverConfig(data []byte) error {
 		if err != nil {
 			return err
 		}
+		cfg.Traces.TracesConsumer = consumertest.NewNop()
+		cfg.OTELMetrics.MetricsConsumer = consumertest.NewNop()
 		return cfg.Validate()
 	}
 

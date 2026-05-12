@@ -24,6 +24,14 @@ extensions:
 `)))
 }
 
+func TestValidateReceiverConfigSupportsV2(t *testing.T) {
+	require.NoError(t, validateReceiverConfig([]byte(`
+version: "2.0"
+policy:
+  default_action: include
+`)))
+}
+
 func TestValidateReceiverConfigRejectsStandaloneSections(t *testing.T) {
 	err := validateReceiverConfig([]byte(`
 version: "2.0"

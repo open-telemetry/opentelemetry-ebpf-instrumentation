@@ -10,6 +10,7 @@ import (
 	"fmt"
 
 	"go.opentelemetry.io/collector/confmap"
+	"go.opentelemetry.io/collector/consumer/consumertest"
 
 	obiconfigv2 "go.opentelemetry.io/obi/internal/obiconfigv2"
 	"go.opentelemetry.io/obi/pkg/obi"
@@ -20,8 +21,22 @@ type receiverConfig struct {
 	runtime *obi.Config
 }
 
+func seedReceiverConsumers(cfg *obi.Config) {
+	if cfg == nil {
+		return
+	}
+
+	if cfg.Traces.TracesConsumer == nil {
+		cfg.Traces.TracesConsumer = consumertest.NewNop()
+	}
+	if cfg.OTELMetrics.MetricsConsumer == nil {
+		cfg.OTELMetrics.MetricsConsumer = consumertest.NewNop()
+	}
+}
+
 func newReceiverConfig() *receiverConfig {
 	cfg := obi.DefaultConfig
+	seedReceiverConsumers(&cfg)
 	return &receiverConfig{runtime: &cfg}
 }
 
@@ -37,6 +52,7 @@ func (c *receiverConfig) Unmarshal(component *confmap.Conf) error {
 		if adaptErr != nil {
 			return adaptErr
 		}
+		seedReceiverConsumers(runtime)
 		c.runtime = runtime
 		return nil
 	}
@@ -51,6 +67,7 @@ func (c *receiverConfig) Unmarshal(component *confmap.Conf) error {
 		return fmt.Errorf("decoding legacy receiver config: %w", err)
 	}
 	cfg.NormalizeForLoad()
+	seedReceiverConsumers(&cfg)
 	c.runtime = &cfg
 	return nil
 }
