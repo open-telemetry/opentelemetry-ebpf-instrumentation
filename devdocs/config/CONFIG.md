@@ -627,6 +627,7 @@ Buckets defines the histograms bucket boundaries, and allows users to redefine t
 | `gen_ai_client_token_usage_histogram` | `number`[] |  |  |
 | `request_size_histogram` | `number`[] |  |  |
 | `response_size_histogram` | `number`[] |  |  |
+| `stat_tcp_rtt_histogram` | `number`[] |  |  |
 
 ### ExtraGroupAttributesMap
 
