@@ -88,7 +88,9 @@ func New(cfg *obi.Config, pidFilter ebpfcommon.ServiceFilter) *Tracer {
 
 	tr.asyncWriter = asyncWriter
 
-	tr.avoidedTracesUnsub = pidFilter.OnAvoidedTraces(tr.BlockPID)
+	if cfg.Discovery.ExcludeOTelInstrumentedServices {
+		tr.avoidedTracesUnsub = pidFilter.OnAvoidedTraces(tr.BlockPID)
+	}
 
 	return tr
 }

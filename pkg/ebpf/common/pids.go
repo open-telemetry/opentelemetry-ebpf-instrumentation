@@ -38,6 +38,7 @@ type PIDInfo struct {
 
 type AvoidedTracesCB func(pid app.PID, ns uint32)
 
+// the map key here is just a monotonically increasing ID derived from nextCBID
 type avoidedTracesCBMap map[uint64]AvoidedTracesCB
 
 type ServiceFilter interface {
@@ -69,7 +70,7 @@ type PIDsFilter struct {
 
 func (pf *PIDsFilter) OnAvoidedTraces(cb AvoidedTracesCB) (unsubscribe func()) {
 	if cb == nil {
-		return func() {}
+		panic("PIDsFilter.OnAvoidedTraces called with nil callback")
 	}
 
 	pf.callbacksMu.Lock()
@@ -167,10 +168,13 @@ func (pf *PIDsFilter) normalizeTraceContext(span *request.Span) {
 
 func (pf *PIDsFilter) Filter(inputSpans []request.Span) []request.Span {
 	pf.mux.RLock()
-	defer pf.mux.RUnlock()
+
+	var pendingAvoidedTraces []*svc.Attrs
+
 	// todo: adaptive presizing as a function of the historical percentage
 	// of filtered spans
 	outputSpans := make([]request.Span, 0, len(inputSpans))
+
 	for i := range inputSpans {
 		span := &inputSpans[i]
 
@@ -186,7 +190,11 @@ func (pf *PIDsFilter) Filter(inputSpans []request.Span) []request.Span {
 		// of container layers. The Host PID is always the outer most layer.
 		if info, pidExists := ns[span.Pid.UserPID]; pidExists {
 			if pf.ignoreOtel {
+				alreadyExportsOTelTraces := info.service.ExportsOTelTraces()
 				pf.checkIfExportsOTel(info.service, span, pf.defaultOtlpGRPCPort)
+				if !alreadyExportsOTelTraces && info.service.ExportsOTelTraces() {
+					pendingAvoidedTraces = append(pendingAvoidedTraces, info.service)
+				}
 			}
 			if pf.ignoreOtelSpan {
 				pf.checkIfExportsOTelSpanMetrics(info.service, span, pf.defaultOtlpGRPCPort)
@@ -203,6 +211,13 @@ func (pf *PIDsFilter) Filter(inputSpans []request.Span) []request.Span {
 			"pids", pf.current, "spans", inputSpans,
 		)
 	}
+
+	pf.mux.RUnlock()
+
+	for _, s := range pendingAvoidedTraces {
+		pf.fireOnAvoidedTraces(s)
+	}
+
 	return outputSpans
 }
 
@@ -277,35 +292,47 @@ func (pf *PIDsFilter) checkIfExportsOTel(svc *svc.Attrs, span *request.Span, def
 	} else if !svc.ExportsOTelTraces() && span.IsExportTracesSpan(defaultOtlpGRPCPort) {
 		svc.SetExportsOTelTraces()
 		pf.reportAvoidedService(svc, "traces")
-		pf.fireOnAvoidedTracesLocked(svc)
 	}
 }
 
-func (pf *PIDsFilter) fireOnAvoidedTracesLocked(svcAttrs *svc.Attrs) {
-	cbs := avoidedTracesCBMap{}
+type avoidedTracesTarget struct {
+	pid app.PID
+	ns  uint32
+}
 
-	func() {
-		pf.callbacksMu.Lock()
-		defer pf.callbacksMu.Unlock()
+func (pf *PIDsFilter) collectAvoidedTracesTargets(uid svc.UID) []avoidedTracesTarget {
+	pf.mux.RLock()
+	defer pf.mux.RUnlock()
 
-		cbs = maps.Clone(pf.avoidedTracesCBs)
-	}()
+	var targets []avoidedTracesTarget
+
+	for ns, pidMap := range pf.current {
+		for pid, info := range pidMap {
+			if info.service == nil || info.service.UID != uid {
+				continue
+			}
+
+			targets = append(targets, avoidedTracesTarget{pid, ns})
+		}
+	}
+
+	return targets
+}
+
+func (pf *PIDsFilter) fireOnAvoidedTraces(svcAttrs *svc.Attrs) {
+	pf.callbacksMu.Lock()
+	cbs := maps.Clone(pf.avoidedTracesCBs)
+	pf.callbacksMu.Unlock()
 
 	if len(cbs) == 0 {
 		return
 	}
 
-	targetUID := svcAttrs.UID
+	targets := pf.collectAvoidedTracesTargets(svcAttrs.UID)
 
-	for ns, pidMap := range pf.current {
-		for pid, info := range pidMap {
-			if info.service == nil || info.service.UID != targetUID {
-				continue
-			}
-
-			for _, cb := range cbs {
-				cb(pid, ns)
-			}
+	for _, t := range targets {
+		for _, cb := range cbs {
+			cb(t.pid, t.ns)
 		}
 	}
 }
