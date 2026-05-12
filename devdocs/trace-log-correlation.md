@@ -28,6 +28,8 @@ The logenricher hooks into write paths (`tty_write`, `pipe_write`, `ksys_write`,
 
 Because the original user buffer is zeroed out (step 3), the container log file will contain NULL characters in place of the original log line. This is expected — the enriched line is written separately by user-space, and the NULLs prevent the container runtime from capturing the un-enriched duplicate.
 
+OBI only fills `trace_id`/`span_id` fields that are not already present in the JSON — if the application's logger or SDK already injected them (e.g. via Python `LoggingInstrumentor`), those values are preserved. For services OBI detects as exporting OTel traces directly (see [exclude-otel-instrumented-services](exclude-otel-instrumented-services.md)), only `trace_id` is injected and `span_id` is never written: OBI's BPF-generated `span_id` would not match the SDK's actual span and would point at a span the SDK emits under a different ID.
+
 Both `ITER_UBUF` (kernel ≥ 6.0, used by `write()`) and `ITER_IOVEC` (all kernel versions, used by `writev()`) iterator types are supported. The `do_writev` kprobe captures the fd for `writev()` calls so `pipe_write` can resolve the file descriptor (registered as non-required — if the symbol isn't available, `write()`-based enrichment still works).
 
 ## The `traces_ctx_v1` map

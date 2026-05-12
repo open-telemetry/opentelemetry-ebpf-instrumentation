@@ -900,6 +900,12 @@ func TestSuite_LogEnricherPythonAsync(t *testing.T) {
 	t.Run("Log Enricher Python async", func(t *testing.T) {
 		testLogEnricherPythonAsync(t)
 	})
+	// Must run after the regular Python async test: this subtest causes OBI to
+	// flag the service as OTel-exporting, which persists for the rest of the
+	// container's lifetime.
+	t.Run("Log Enricher Python async OTel-instrumented", func(t *testing.T) {
+		testLogEnricherPythonAsyncOTelInstrumented(t)
+	})
 	require.NoError(t, compose.Close())
 }
 

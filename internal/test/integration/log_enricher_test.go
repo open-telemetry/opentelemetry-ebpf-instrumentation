@@ -513,6 +513,91 @@ func testLogEnricherPythonAsyncEndpoint(t *testing.T, cl *client.Client, logEndp
 	}, testTimeout, 500*time.Millisecond)
 }
 
+// testLogEnricherPythonAsyncOTelInstrumented exercises the trace_id-only
+// behavior for services OBI detects as exporting OTel traces directly. The
+// server endpoint makes an outgoing POST to /v1/traces (a "fake" OTLP HTTP
+// endpoint on the backend) before logging, which triggers PIDsFilter's
+// checkIfExportsOTel via the resulting EventTypeHTTPClient span. After
+// detection fires, subsequent log lines from the same service must carry
+// trace_id but no span_id.
+func testLogEnricherPythonAsyncOTelInstrumented(t *testing.T) {
+	waitForTestComponentsNoMetrics(t, logEnricherPythonAsyncConstants.url+logEnricherPythonAsyncConstants.smokeEndpoint)
+
+	cl, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	require.NoError(t, err)
+	defer cl.Close()
+
+	const expectedMessage = "this is a json log from python async otel exporter"
+
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		errCh := make(chan error, len(logEnricherTestTraceparents))
+		var wg sync.WaitGroup
+		for _, tp := range logEnricherTestTraceparents {
+			wg.Add(1)
+			go func(tp struct{ traceID, parentID string }) {
+				defer wg.Done()
+				req, err := http.NewRequest(http.MethodGet,
+					logEnricherPythonAsyncConstants.url+"/json_logger_otel_exporter", nil)
+				if err != nil {
+					errCh <- err
+					return
+				}
+				req.Header.Set("traceparent", fmt.Sprintf("00-%s-%s-01", tp.traceID, tp.parentID))
+				resp, err := http.DefaultClient.Do(req)
+				if err != nil {
+					errCh <- err
+					return
+				}
+				resp.Body.Close()
+			}(tp)
+		}
+		wg.Wait()
+		close(errCh)
+		for err := range errCh {
+			assert.NoError(ct, err, "HTTP request failed")
+		}
+
+		containerID := testContainerID(ct, cl, logEnricherPythonAsyncConstants.containerImage)
+		if !assert.NotEmpty(ct, containerID, "could not find test container ID") {
+			return
+		}
+		logs := containerLogs(ct, cl, containerID)
+		if !assert.NotEmpty(ct, logs) {
+			return
+		}
+
+		// For each trace_id, track whether the latest matching log line carried
+		// a span_id. Once OBI detects the service as OTel-exporting, every
+		// subsequent log line for that service drops span_id.
+		lastHasSpanID := make(map[string]bool, len(logEnricherTestTraceparents))
+		seen := make(map[string]bool, len(logEnricherTestTraceparents))
+		for _, line := range logs {
+			var fields map[string]any
+			if json.Unmarshal([]byte(line), &fields) != nil {
+				continue
+			}
+			if fields["message"] != expectedMessage {
+				continue
+			}
+			tid, ok := fields["trace_id"].(string)
+			if !ok {
+				continue
+			}
+			seen[tid] = true
+			_, hasSpan := fields["span_id"]
+			lastHasSpanID[tid] = hasSpan
+		}
+
+		for _, tp := range logEnricherTestTraceparents {
+			assert.True(ct, seen[tp.traceID],
+				"expected an enriched log line for trace_id %s", tp.traceID)
+			assert.False(ct, lastHasSpanID[tp.traceID],
+				"latest log line for trace_id %s should not carry span_id once OBI flags the service as OTel-exporting",
+				tp.traceID)
+		}
+	}, 2*testTimeout, time.Second)
+}
+
 // testLogEnricherDotNet sends concurrent requests with distinct traceparent
 // headers and verifies each enriched log line contains the correct trace_id.
 // ASP.NET Core (Kestrel) dispatches requests on a thread pool, so concurrent

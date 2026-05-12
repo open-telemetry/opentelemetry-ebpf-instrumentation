@@ -99,6 +99,17 @@ async def json_logger_gather():
     return {"status": "ok"}
 
 
+@app.get("/json_logger_otel_exporter")
+async def json_logger_otel_exporter():
+    try:
+        await http_client.post(f"{BACKEND_URL}/v1/traces", content=b"", timeout=5.0)
+    except Exception:
+        pass
+    await asyncio.sleep(0.05)
+    _emit_json_log("this is a json log from python async otel exporter")
+    return {"status": "ok"}
+
+
 @app.get("/to-thread/{req_id}")
 async def test_to_thread(req_id: int):
     def blocking_http_call(url: str):

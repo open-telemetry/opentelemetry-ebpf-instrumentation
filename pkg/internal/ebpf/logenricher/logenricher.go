@@ -230,16 +230,16 @@ func (p *Tracer) shouldOmitSpanID(hostPID uint32) bool {
 }
 
 func applyTraceContext(m map[string]any, traceID, spanID string, includeSpan bool) {
-	if includeSpan {
+	if _, present := m["trace_id"]; !present {
 		m["trace_id"] = traceID
-		m["span_id"] = spanID
+	}
+
+	if !includeSpan {
 		return
 	}
 
-	// for OTel-instrumented services we only inject trace_id as we can't derive
-	// the correct span_id to inject
-	if _, present := m["trace_id"]; !present {
-		m["trace_id"] = traceID
+	if _, present := m["span_id"]; !present {
+		m["span_id"] = spanID
 	}
 }
 
