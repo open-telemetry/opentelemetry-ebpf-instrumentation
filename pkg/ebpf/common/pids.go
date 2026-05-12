@@ -273,11 +273,11 @@ func (pf *PIDsFilter) checkIfExportsOTel(svc *svc.Attrs, span *request.Span, def
 	} else if !svc.ExportsOTelTraces() && span.IsExportTracesSpan(defaultOtlpGRPCPort) {
 		svc.SetExportsOTelTraces()
 		pf.reportAvoidedService(svc, "traces")
-		pf.fireOnAvoidedTraces(span)
+		pf.fireOnAvoidedTracesLocked(svc)
 	}
 }
 
-func (pf *PIDsFilter) fireOnAvoidedTraces(span *request.Span) {
+func (pf *PIDsFilter) fireOnAvoidedTracesLocked(svcAttrs *svc.Attrs) {
 	cbs := avoidedTracesCBMap{}
 
 	func() {
@@ -291,11 +291,18 @@ func (pf *PIDsFilter) fireOnAvoidedTraces(span *request.Span) {
 		return
 	}
 
-	pid := span.Pid.UserPID
-	ns := span.Pid.Namespace
+	targetUID := svcAttrs.UID
 
-	for _, cb := range cbs {
-		cb(pid, ns)
+	for ns, pidMap := range pf.current {
+		for pid, info := range pidMap {
+			if info.service == nil || info.service.UID != targetUID {
+				continue
+			}
+
+			for _, cb := range cbs {
+				cb(pid, ns)
+			}
+		}
 	}
 }
 
