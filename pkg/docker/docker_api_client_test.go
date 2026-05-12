@@ -20,11 +20,11 @@ func TestContainerStoreInvalidation(t *testing.T) {
 		store := NewStore()
 		pid1 := app.PID(1111)
 		pid2 := app.PID(2222)
-		containerID := "abc123def456"
+		fullContainerID := "abc123def456789abc123def456789abc123def456789abc123def456789abcdef"
 
 		// Manually populate cache to simulate a successful ContainerInfo call
 		meta := ContainerMeta{
-			ID:             containerID[:12],
+			ID:             fullContainerID,
 			Name:           "test-container",
 			ComposeService: "",
 		}
@@ -32,7 +32,7 @@ func TestContainerStoreInvalidation(t *testing.T) {
 		store.cacheMu.Lock()
 		store.byPID[pid1] = meta
 		store.byPID[pid2] = meta
-		store.byID[meta.ID] = []app.PID{pid1, pid2}
+		store.byID[fullContainerID] = []app.PID{pid1, pid2}
 		store.cacheMu.Unlock()
 
 		// Verify both PIDs are cached
@@ -43,14 +43,14 @@ func TestContainerStoreInvalidation(t *testing.T) {
 		assert.True(t, ok1)
 		assert.True(t, ok2)
 
-		// Invalidate by container ID
-		store.invalidateContainer(meta.ID)
+		// Invalidate by full container ID (as Docker events would)
+		store.invalidateContainer(fullContainerID)
 
 		// Verify both PIDs are cleared
 		store.cacheMu.RLock()
 		_, ok1 = store.byPID[pid1]
 		_, ok2 = store.byPID[pid2]
-		_, ok3 := store.byID[meta.ID]
+		_, ok3 := store.byID[fullContainerID]
 		store.cacheMu.RUnlock()
 		assert.False(t, ok1)
 		assert.False(t, ok2)
@@ -61,21 +61,21 @@ func TestContainerStoreInvalidation(t *testing.T) {
 		store := NewStore()
 		pid1 := app.PID(1111)
 		pid2 := app.PID(2222)
-		containerID1 := "abc123def456"
-		containerID2 := "xyz789abc012"
+		fullContainerID1 := "abc123def456789abc123def456789abc123def456789abc123def456789abcdef"
+		fullContainerID2 := "xyz789abc012xyz789abc012xyz789abc012xyz789abc012xyz789abc012xyzabc"
 
-		meta1 := ContainerMeta{ID: containerID1[:12], Name: "container1"}
-		meta2 := ContainerMeta{ID: containerID2[:12], Name: "container2"}
+		meta1 := ContainerMeta{ID: fullContainerID1, Name: "container1"}
+		meta2 := ContainerMeta{ID: fullContainerID2, Name: "container2"}
 
 		store.cacheMu.Lock()
 		store.byPID[pid1] = meta1
 		store.byPID[pid2] = meta2
-		store.byID[meta1.ID] = []app.PID{pid1}
-		store.byID[meta2.ID] = []app.PID{pid2}
+		store.byID[fullContainerID1] = []app.PID{pid1}
+		store.byID[fullContainerID2] = []app.PID{pid2}
 		store.cacheMu.Unlock()
 
-		// Invalidate only the first container
-		store.invalidateContainer(meta1.ID)
+		// Invalidate only the first container (by full ID, as Docker events would)
+		store.invalidateContainer(fullContainerID1)
 
 		// Verify only pid1 is cleared, pid2 remains
 		store.cacheMu.RLock()

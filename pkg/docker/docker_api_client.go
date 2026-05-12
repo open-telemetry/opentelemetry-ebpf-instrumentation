@@ -132,11 +132,6 @@ func (s *ContainerStore) ContainerInfo(ctx context.Context, pid app.PID) (Contai
 	}
 
 	inspectInfo := inspectResult.Container
-	const abbreviationLength = 12
-	containerID := inspectInfo.ID
-	if len(containerID) > abbreviationLength {
-		containerID = containerID[:abbreviationLength]
-	}
 
 	composeSvcName := ""
 	if inspectInfo.Config != nil && len(inspectInfo.Config.Labels) > 0 {
@@ -145,13 +140,13 @@ func (s *ContainerStore) ContainerInfo(ctx context.Context, pid app.PID) (Contai
 
 	meta := ContainerMeta{
 		Name:           strings.Trim(inspectInfo.Name, "/"),
-		ID:             containerID,
+		ID:             inspectInfo.ID,
 		ComposeService: composeSvcName,
 	}
 
 	s.cacheMu.Lock()
 	s.byPID[pid] = meta
-	s.byID[meta.ID] = append(s.byID[meta.ID], pid)
+	s.byID[inspectInfo.ID] = append(s.byID[inspectInfo.ID], pid)
 	s.cacheMu.Unlock()
 
 	return meta, true
