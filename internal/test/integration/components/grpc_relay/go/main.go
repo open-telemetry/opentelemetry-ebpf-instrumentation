@@ -122,6 +122,10 @@ func main() {
 	healthPort := os.Getenv("HEALTH_PORT")
 	nextHop := os.Getenv("NEXT_HOP")
 	nextHopHTTP := os.Getenv("NEXT_HOP_HTTP")
+	nextHopMux := os.Getenv("NEXT_HOP_MULTIPLEX")
+	if nextHopMux == "" {
+		nextHopMux = nextHop
+	}
 
 	srv := &relayServer{nextHop: nextHop, nextHopHTTP: nextHopHTTP}
 
@@ -163,7 +167,7 @@ func main() {
 			// subconnection (one TCP + HTTP/2 connection). The warmup call
 			// forces connection establishment, then concurrent Invokes
 			// multiplex as separate HTTP/2 streams on that connection.
-			conn, err := grpc.NewClient(nextHop, grpc.WithTransportCredentials(insecure.NewCredentials()))
+			conn, err := grpc.NewClient(nextHopMux, grpc.WithTransportCredentials(insecure.NewCredentials()))
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return

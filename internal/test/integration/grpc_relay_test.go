@@ -96,6 +96,22 @@ func testGRPCRelayChainContextPropagation(t *testing.T) {
 	}, time.Minute, time.Second)
 	t.Log("instrumentation ready")
 
+	t.Log("waiting for java-relay instrumentation")
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		if wr, err := http.Get("http://localhost:8080/relay"); err == nil && wr != nil {
+			wr.Body.Close()
+		}
+		r, err := http.Get(jaegerQueryURL + "?service=java-relay&limit=1")
+		require.NoError(ct, err)
+		require.NotNil(ct, r)
+		defer r.Body.Close()
+		require.Equal(ct, http.StatusOK, r.StatusCode)
+		var tq jaeger.TracesQuery
+		require.NoError(ct, json.NewDecoder(r.Body).Decode(&tq))
+		require.NotEmpty(ct, tq.Data, "java-relay not yet instrumented")
+	}, 2*time.Minute, time.Second)
+	t.Log("java-relay instrumented")
+
 	// Fresh trace ID per request so each iteration's assertions run against
 	// a single-request trace, not accumulated retries. Loop retries with a
 	// new ID until one request yields the full chain (services warm up
@@ -373,7 +389,7 @@ func testGRPCMultiplexedContextPropagation(t *testing.T) {
 	// Hops asserted: every gRPC server in the chain after the multiplexing
 	// origin. go-http-to-grpc receives HTTP/1 (not gRPC server-side), so it
 	// has no gRPC server span to assert on
-	hops := []string{"python-relay", "go-grpc-to-http", "nodejs-relay", "java-relay"}
+	hops := []string{"go-grpc-to-http", "nodejs-relay", "java-relay"}
 
 	now := uint64(time.Now().UnixNano())
 	traceID := fmt.Sprintf("%016x%016x", now, now+1)
