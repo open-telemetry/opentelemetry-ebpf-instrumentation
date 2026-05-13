@@ -39,6 +39,26 @@ groups:
               stability: development
         stability: development
         brief: Classification of why a TCP connection failed.
+      # Mirrors `NetworkTCPHandshakeRoleType` in
+      # `pkg/internal/statsolly/ebpf/stat.go`. Identifies which side of the
+      # TCP handshake OBI observed the failure on.
+      - id: network.tcp.handshake.role
+        type:
+          allow_custom_values: true
+          members:
+            - id: client
+              value: client
+              stability: development
+            - id: server
+              value: server
+              stability: development
+            - id: unknown
+              value: unknown
+              stability: development
+        stability: development
+        brief: >
+          Role of the local endpoint in the failed TCP three-way handshake
+          (`client` initiated the SYN, `server` was awaiting it).
 
   - id: metric.obi_stat_tcp_rtt
     type: metric
@@ -81,3 +101,4 @@ groups:
       - ref: src.zone
       - ref: dst.zone
       - ref: reason
+      - ref: network.tcp.handshake.role
