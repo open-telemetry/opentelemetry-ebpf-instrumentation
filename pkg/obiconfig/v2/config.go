@@ -73,7 +73,7 @@ func (e *NotV2Error) Error() string {
 	if e == nil || e.Reason == "" {
 		return "configuration is not OBI config v2"
 	}
-	return fmt.Sprintf("configuration is not OBI config v2: %s", e.Reason)
+	return "configuration is not OBI config v2: " + e.Reason
 }
 
 func (e *NotV2Error) Is(target error) bool {
@@ -225,7 +225,7 @@ func looksLikeV1(raw map[string]any) bool {
 func decode(raw map[string]any, dst any) error {
 	buf, err := yaml.Marshal(raw)
 	if err != nil {
-		return fmt.Errorf("marshalling config v2 YAML: %w", err)
+		return fmt.Errorf("marshaling config v2 YAML: %w", err)
 	}
 	if err := yaml.Unmarshal(buf, dst); err != nil {
 		return fmt.Errorf("decoding config v2 YAML: %w", err)

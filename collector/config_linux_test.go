@@ -6,7 +6,6 @@
 package collector
 
 import (
-	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -71,6 +70,6 @@ func TestReceiverConfigRejectsStandaloneSections(t *testing.T) {
 	require.Error(t, err)
 
 	var notAllowed *obiv2.SectionNotAllowedError
-	require.True(t, errors.As(err, &notAllowed))
+	require.ErrorAs(t, err, &notAllowed)
 	require.Equal(t, "daemon", notAllowed.Section)
 }

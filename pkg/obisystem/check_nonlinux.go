@@ -3,7 +3,7 @@
 
 //go:build !linux
 
-package obisystem
+package obisystem // import "go.opentelemetry.io/obi/pkg/obisystem"
 
 var CheckSupport = func() error {
 	return nil

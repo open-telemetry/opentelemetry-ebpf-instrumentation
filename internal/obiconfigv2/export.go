@@ -1,15 +1,14 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package obiconfigv2
+package obiconfigv2 // import "go.opentelemetry.io/obi/internal/obiconfigv2"
 
 import (
-	"fmt"
+	"errors"
 
 	"gopkg.in/yaml.v3"
 
 	"go.opentelemetry.io/obi/pkg/appolly/services"
-	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/filter"
 	"go.opentelemetry.io/obi/pkg/obi"
 	obiv2 "go.opentelemetry.io/obi/pkg/obiconfig/v2"
@@ -17,7 +16,7 @@ import (
 
 func RuntimeToDocument(cfg *obi.Config) (*obiv2.Document, error) {
 	if cfg == nil {
-		return nil, fmt.Errorf("missing runtime config")
+		return nil, errors.New("missing runtime config")
 	}
 
 	doc := &obiv2.Document{
@@ -524,19 +523,6 @@ func meterProviderMap(cfg *obi.Config) map[string]any {
 			},
 		},
 	}
-}
-
-func featureNames(features export.Features) []string {
-	names := []string{}
-	for name, feature := range export.FeatureMapper {
-		if name == "*" || name == "all" {
-			continue
-		}
-		if features&feature != 0 {
-			names = append(names, name)
-		}
-	}
-	return names
 }
 
 func toMap(v any) (map[string]any, error) {

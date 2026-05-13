@@ -1,28 +1,28 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package obiconfigv2
+package obiconfigv2 // import "go.opentelemetry.io/obi/internal/obiconfigv2"
 
 import (
 	"encoding"
-	"fmt"
+	"errors"
 	"strconv"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
-
-	obiv2 "go.opentelemetry.io/obi/pkg/obiconfig/v2"
 
 	"go.opentelemetry.io/obi/pkg/appolly/services"
 	obicfg "go.opentelemetry.io/obi/pkg/config"
 	"go.opentelemetry.io/obi/pkg/export/debug"
 	"go.opentelemetry.io/obi/pkg/filter"
 	"go.opentelemetry.io/obi/pkg/obi"
+	obiv2 "go.opentelemetry.io/obi/pkg/obiconfig/v2"
 )
 
 func StandaloneToRuntime(doc *obiv2.Document) (*obi.Config, error) {
 	if doc == nil || doc.Extensions.OBI == nil {
-		return nil, fmt.Errorf("missing extensions.obi config")
+		return nil, errors.New("missing extensions.obi config")
 	}
 
 	cfg, err := ConfigToRuntime(doc.Extensions.OBI, obiv2.DeploymentModeStandalone)
@@ -77,7 +77,7 @@ func applyCapture(cfg *obi.Config, src *obiv2.Extension) {
 	mergeSignalFilters(&cfg.Filters.Application, nestedMap(httpCfg, "filters"))
 	setBool(&cfg.EBPF.TrackRequestHeaders, httpCfg, "track_request_headers")
 	setDuration(&cfg.EBPF.HTTPRequestTimeout, httpCfg, "request_timeout")
-	setUint32(&cfg.EBPF.BufferSizes.HTTP, httpCfg, "buffer_size")
+	setBufferSize(&cfg.EBPF.BufferSizes.HTTP, httpCfg)
 	setStringAlias(&cfg.Routes.Unmatch, nestedMap(httpCfg, "routes"), "unmatched")
 	setString(&cfg.Routes.WildcardChar, nestedMap(httpCfg, "routes"), "wildcard_char")
 	setInt(&cfg.Routes.MaxPathSegmentCardinality, nestedMap(httpCfg, "routes"), "max_path_segment_cardinality")
@@ -91,9 +91,9 @@ func applyCapture(cfg *obi.Config, src *obiv2.Extension) {
 
 	sqlCfg := nestedMap(src.Capture.Instrumentation, "sql")
 	setBool(&cfg.EBPF.HeuristicSQLDetect, sqlCfg, "heuristic_detect")
-	setUint32(&cfg.EBPF.BufferSizes.MySQL, nestedMap(sqlCfg, "mysql"), "buffer_size")
+	setBufferSize(&cfg.EBPF.BufferSizes.MySQL, nestedMap(sqlCfg, "mysql"))
 	setInt(&cfg.EBPF.MySQLPreparedStatementsCacheSize, nestedMap(sqlCfg, "mysql"), "prepared_statements_cache_size")
-	setUint32(&cfg.EBPF.BufferSizes.Postgres, nestedMap(sqlCfg, "postgres"), "buffer_size")
+	setBufferSize(&cfg.EBPF.BufferSizes.Postgres, nestedMap(sqlCfg, "postgres"))
 	setInt(&cfg.EBPF.PostgresPreparedStatementsCacheSize, nestedMap(sqlCfg, "postgres"), "prepared_statements_cache_size")
 
 	redisCfg := nestedMap(src.Capture.Instrumentation, "redis")
@@ -101,7 +101,7 @@ func applyCapture(cfg *obi.Config, src *obiv2.Extension) {
 	setInt(&cfg.EBPF.RedisDBCache.MaxSize, nestedMap(redisCfg, "db_cache"), "max_size")
 
 	kafkaCfg := nestedMap(src.Capture.Instrumentation, "kafka")
-	setUint32(&cfg.EBPF.BufferSizes.Kafka, kafkaCfg, "buffer_size")
+	setBufferSize(&cfg.EBPF.BufferSizes.Kafka, kafkaCfg)
 	setInt(&cfg.EBPF.KafkaTopicUUIDCacheSize, kafkaCfg, "topic_uuid_cache_size")
 
 	mongoCfg := nestedMap(src.Capture.Instrumentation, "mongo")
@@ -311,11 +311,7 @@ func join(values []string) string {
 	case 1:
 		return values[0]
 	default:
-		out := values[0]
-		for _, value := range values[1:] {
-			out += "," + value
-		}
-		return out
+		return strings.Join(values, ",")
 	}
 }
 
@@ -465,11 +461,11 @@ func setStringSlice[T ~string](dst *[]T, m map[string]any, key string) {
 	*dst = out
 }
 
-func setUint32(dst *uint32, m map[string]any, key string) {
+func setBufferSize(dst *uint32, m map[string]any) {
 	if m == nil {
 		return
 	}
-	switch value := m[key].(type) {
+	switch value := m["buffer_size"].(type) {
 	case int:
 		*dst = uint32(value)
 	case int64:

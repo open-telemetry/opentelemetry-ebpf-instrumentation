@@ -4,7 +4,6 @@
 package v2
 
 import (
-	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -69,7 +68,7 @@ daemon:
 	require.Error(t, err)
 
 	var notAllowed *SectionNotAllowedError
-	require.True(t, errors.As(err, &notAllowed))
+	require.ErrorAs(t, err, &notAllowed)
 	require.Equal(t, "daemon", notAllowed.Section)
 	require.Contains(t, err.Error(), "standalone mode")
 }
@@ -83,7 +82,7 @@ version: "3.0"
 	require.Error(t, err)
 
 	var unsupported *UnsupportedVersionError
-	require.True(t, errors.As(err, &unsupported))
+	require.ErrorAs(t, err, &unsupported)
 	require.Equal(t, "3.0", unsupported.Version)
 }
 
@@ -97,5 +96,5 @@ discovery: {}
 	require.Error(t, err)
 
 	var notV2 *NotV2Error
-	require.True(t, errors.As(err, &notV2))
+	require.ErrorAs(t, err, &notV2)
 }

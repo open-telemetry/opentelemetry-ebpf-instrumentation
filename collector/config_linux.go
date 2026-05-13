@@ -3,7 +3,7 @@
 
 //go:build linux && (amd64 || arm64)
 
-package collector
+package collector // import "go.opentelemetry.io/obi/collector"
 
 import (
 	"errors"
