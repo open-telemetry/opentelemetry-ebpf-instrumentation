@@ -51,7 +51,7 @@ typedef struct call_protocol_args {
     protocol_selector_t protocols;
     u8 skip_tp_parsing;
     u8 use_bpf_loop;
-    u8 pad[5];
+    u8 pad[1];
     u32 niter;
     int bytes_len;
     u16 orig_dport;
@@ -61,7 +61,7 @@ typedef struct call_protocol_args {
     // chunked transfer encoding.
     u8 is_append;
     u8 u_buf_is_user;
-    u8 pad_align_ubuf[8];
+    u8 _pad_ubuf[4];
     u64 u_buf;
     u64 self_ref_parent_id;
     lw_thread_t lw_thread;
