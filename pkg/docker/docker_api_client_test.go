@@ -86,6 +86,36 @@ func TestContainerStoreInvalidation(t *testing.T) {
 		assert.True(t, ok2)
 	})
 
+	t.Run("pid_invalidation_removes_pid_from_both_indexes", func(t *testing.T) {
+		store := NewStore()
+		pid1 := app.PID(1111)
+		pid2 := app.PID(2222)
+		containerID := "abc123def456789abc123def456789abc123def456789abc123def456789abcdef"
+
+		meta := ContainerMeta{
+			ID:   containerID,
+			Name: "test-container",
+		}
+
+		store.cacheMu.Lock()
+		store.byPID[pid1] = meta
+		store.byPID[pid2] = meta
+		store.byID[containerID] = []app.PID{pid1, pid2}
+		store.cacheMu.Unlock()
+
+		store.invalidatePID(pid1)
+
+		store.cacheMu.RLock()
+		_, ok1 := store.byPID[pid1]
+		_, ok2 := store.byPID[pid2]
+		pids := store.byID[containerID]
+		store.cacheMu.RUnlock()
+
+		assert.False(t, ok1)
+		assert.True(t, ok2)
+		assert.Equal(t, []app.PID{pid2}, pids)
+	})
+
 	t.Run("event_stream_can_be_created", func(t *testing.T) {
 		store := NewStore()
 		eventsChan := make(chan events.Message, 1)
@@ -102,7 +132,6 @@ func TestContainerStoreInvalidation(t *testing.T) {
 		}
 		store.docker = mockClient.mockDockerClientBase
 
-		// Verify store can be initialized with mocked client
 		assert.NotNil(t, store.docker)
 	})
 }

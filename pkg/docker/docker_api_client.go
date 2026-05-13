@@ -251,6 +251,30 @@ func (s *ContainerStore) eventsLoop(ctx context.Context, fltrs client.Filters) e
 	}
 }
 
+func (s *ContainerStore) invalidatePID(pid app.PID) {
+	s.cacheMu.Lock()
+	defer s.cacheMu.Unlock()
+
+	meta, ok := s.byPID[pid]
+	if !ok {
+		return
+	}
+	delete(s.byPID, pid)
+
+	pids := s.byID[meta.ID][:0]
+	for _, cachedPID := range s.byID[meta.ID] {
+		if cachedPID != pid {
+			pids = append(pids, cachedPID)
+		}
+	}
+
+	if len(pids) == 0 {
+		delete(s.byID, meta.ID)
+		return
+	}
+	s.byID[meta.ID] = pids
+}
+
 func (s *ContainerStore) invalidateContainer(containerID string) {
 	s.cacheMu.Lock()
 	defer s.cacheMu.Unlock()
@@ -258,4 +282,5 @@ func (s *ContainerStore) invalidateContainer(containerID string) {
 		delete(s.byPID, pid)
 	}
 	delete(s.byID, containerID)
+}
 }
