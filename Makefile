@@ -3,9 +3,11 @@
 CMD ?= obi
 JAVA_AGENT ?= obi-java-agent.jar
 MAIN_GO_FILE ?= cmd/$(CMD)/main.go
+MAIN_GO_PKG ?= ./cmd/$(CMD)
 
 CACHE_CMD ?= k8s-cache
 CACHE_MAIN_GO_FILE ?= cmd/$(CACHE_CMD)/main.go
+CACHE_MAIN_GO_PKG ?= ./cmd/$(CACHE_CMD)
 
 GOOS ?= linux
 GOARCH ?= $(shell go env GOARCH || echo amd64)
@@ -283,14 +285,14 @@ all: docker-generate notices-update build
 .PHONY: compile compile-cache
 compile:
 	@echo "### Compiling OpenTelemetry eBPF Instrumentation"
-	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -ldflags="-X '$(BUILDINFO_PKG).Version=$(RELEASE_VERSION)' -X '$(BUILDINFO_PKG).Revision=$(RELEASE_REVISION)'" -a -o bin/$(CMD) $(MAIN_GO_FILE)
+	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -ldflags="-X '$(BUILDINFO_PKG).Version=$(RELEASE_VERSION)' -X '$(BUILDINFO_PKG).Revision=$(RELEASE_REVISION)'" -a -o bin/$(CMD) $(MAIN_GO_PKG)
 compile-cache:
 	@echo "### Compiling OpenTelemetry eBPF Instrumentation K8s cache"
-	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -ldflags="-X '$(BUILDINFO_PKG).Version=$(RELEASE_VERSION)' -X '$(BUILDINFO_PKG).Revision=$(RELEASE_REVISION)'" -a -o bin/$(CACHE_CMD) $(CACHE_MAIN_GO_FILE)
+	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -ldflags="-X '$(BUILDINFO_PKG).Version=$(RELEASE_VERSION)' -X '$(BUILDINFO_PKG).Revision=$(RELEASE_REVISION)'" -a -o bin/$(CACHE_CMD) $(CACHE_MAIN_GO_PKG)
 
 .PHONY: debug
 debug:
-	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -gcflags "-N -l" -ldflags="-X '$(BUILDINFO_PKG).Version=$(RELEASE_VERSION)' -X '$(BUILDINFO_PKG).Revision=$(RELEASE_REVISION)'" -a -o bin/$(CMD) $(MAIN_GO_FILE)
+	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -gcflags "-N -l" -ldflags="-X '$(BUILDINFO_PKG).Version=$(RELEASE_VERSION)' -X '$(BUILDINFO_PKG).Revision=$(RELEASE_REVISION)'" -a -o bin/$(CMD) $(MAIN_GO_PKG)
 
 .PHONY: dev
 dev: prereqs generate compile-for-coverage
@@ -299,10 +301,10 @@ dev: prereqs generate compile-for-coverage
 .PHONY: compile-for-coverage compile-cache-for-coverage
 compile-for-coverage:
 	@echo "### Compiling project to generate coverage profiles"
-	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -cover -a -o bin/$(CMD) $(MAIN_GO_FILE)
+	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -cover -a -o bin/$(CMD) $(MAIN_GO_PKG)
 compile-cache-for-coverage:
 	@echo "### Compiling K8s cache service to generate coverage profiles"
-	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -cover -a -o bin/$(CACHE_CMD) $(CACHE_MAIN_GO_FILE)
+	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -cover -a -o bin/$(CACHE_CMD) $(CACHE_MAIN_GO_PKG)
 
 .PHONY: test
 test:

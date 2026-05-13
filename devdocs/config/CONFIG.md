@@ -539,7 +539,14 @@ Sampler standard configuration <https://opentelemetry.io/docs/concepts/sdk-confi
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
 | `otel_traces_export.sampler.arg` | `string` | `OTEL_TRACES_SAMPLER_ARG` |  |  |  |  |
-| `otel_traces_export.sampler.name` | `string` | `OTEL_TRACES_SAMPLER` |  | `always_off`, `always_on`, `parentbased_always_off`, `parentbased_always_on`, `parentbased_traceidratio`, `traceidratio` |  |  |
+| `otel_traces_export.sampler.name` | `string` | `OTEL_TRACES_SAMPLER` |  | `always_off`, `always_on`, `obi_rule_based`, `parentbased_always_off`, `parentbased_always_on`, `parentbased_traceidratio`, `traceidratio` |  |  |
+
+#### `otel_traces_export.sampler.obi_rule_based`
+
+| YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
+|---|---|---|---|---|---|---|
+| `otel_traces_export.sampler.obi_rule_based.fallback` | [`SamplerLeafConfig`](#samplerleafconfig) |  |  |  |  |  |
+| `otel_traces_export.sampler.obi_rule_based.rules` | [`OBIRuleBasedSamplerRule`](#obirulebasedsamplerrule)[] |  |  |  |  |  |
 
 ## `prometheus_export`
 
@@ -716,6 +723,13 @@ IntEnum defines an enumeration of integers (e.g. ports or PIDs). It allows a set
 |---|---|---|---|
 | `service` | [`GlobAttributes`](#globattributes)[] |  | Should also be contained in 'services' in the Discovery section |
 
+### OBIRuleBasedSamplerRule
+
+| Field | Type | Values | Description |
+|---|---|---|---|
+| `action` | [`SamplerLeafConfig`](#samplerleafconfig) |  |  |
+| `match` | [`OBIRuleBasedSamplerMatch`](#obirulebasedsamplermatch) |  |  |
+
 ### RegexSelector
 
 RegexSelector that specify a given instrumented service. Each instance has to define either the OpenPorts or Path property, or both. These are used to match a given executable. If both OpenPorts and Path are defined, the inspected executable must fulfill both properties.
@@ -749,6 +763,13 @@ RegexSelector that specify a given instrumented service. Each instance has to de
 | `sampler` | [`SamplerConfig`](#samplerconfig) |  | Sampler standard configuration <https://opentelemetry.io/docs/concepts/sdk-configuration/general-sdk-configuration/#otel_traces_sampler> We don't support, yet, the jaeger and xray samplers. |
 | `target_pids` | `integer`[] |  | Allows selecting processes by PID. When non-empty, the process PID must be in this list (in addition to any path/port criteria). |
 
+### SamplerLeafConfig
+
+| Field | Type | Values | Description |
+|---|---|---|---|
+| `arg` | `string` |  |  |
+| `name` | `string` | `always_off`, `always_on`, `obi_rule_based`, `parentbased_always_off`, `parentbased_always_on`, `parentbased_traceidratio`, `traceidratio` |  |
+
 ### CustomRoutesConfig
 
 | Field | Type | Values | Description |
@@ -768,6 +789,12 @@ HTTPParsingMatch defines matching criteria for an HTTP parsing rule. Header rule
 | `patterns` | `glob`[] | `app-*`, `service-??`, `prod-*-db`, etc | Is a list of glob patterns to match header names against (headers only) |
 | `url_path_patterns` | `glob`[] | `app-*`, `service-??`, `prod-*-db`, etc | Is a list of glob patterns to match the request path against (shared) |
 
+### OBIRuleBasedSamplerMatch
+
+| Field | Type | Values | Description |
+|---|---|---|---|
+| `resource_attributes` | `map[string]string` |  |  |
+
 ### SamplerConfig
 
 Sampler standard configuration <https://opentelemetry.io/docs/concepts/sdk-configuration/general-sdk-configuration/#otel_traces_sampler> We don't support, yet, the jaeger and xray samplers.
@@ -775,7 +802,8 @@ Sampler standard configuration <https://opentelemetry.io/docs/concepts/sdk-confi
 | Field | Type | Values | Description |
 |---|---|---|---|
 | `arg` | `string` |  |  |
-| `name` | `string` | `always_off`, `always_on`, `parentbased_always_off`, `parentbased_always_on`, `parentbased_traceidratio`, `traceidratio` |  |
+| `name` | `string` | `always_off`, `always_on`, `obi_rule_based`, `parentbased_always_off`, `parentbased_always_on`, `parentbased_traceidratio`, `traceidratio` |  |
+| `obi_rule_based` | [`OBIRuleBasedSamplerConfig`](#obirulebasedsamplerconfig) |  |  |
 
 ### SvcMetricsConfig
 
@@ -784,3 +812,10 @@ SvcMetricsConfig is equivalent to MetricsConfig, but avoids defining environment
 | Field | Type | Values | Description |
 |---|---|---|---|
 | `features` | `string`[] | `*`, `all`, `application`, `application_host`, `application_service_graph`, `application_span`, `application_span_otel`, `application_span_sizes`, `ebpf`, `network`, `network_inter_zone`, `stats`, `stats_tcp_failed_connections`, `stats_tcp_io`, `stats_tcp_retransmits`, `stats_tcp_rtt` | Specifies which metric features to export. Accepted values: application, network, application_span, application_service_graph, ... envDefault is provided to avoid breaking changes |
+
+### OBIRuleBasedSamplerConfig
+
+| Field | Type | Values | Description |
+|---|---|---|---|
+| `fallback` | [`SamplerLeafConfig`](#samplerleafconfig) |  |  |
+| `rules` | [`OBIRuleBasedSamplerRule`](#obirulebasedsamplerrule)[] |  |  |

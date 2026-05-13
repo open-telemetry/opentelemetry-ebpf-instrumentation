@@ -2070,6 +2070,42 @@
       },
       "type": "object"
     },
+    "OBIRuleBasedSamplerConfig": {
+      "properties": {
+        "fallback": {
+          "$ref": "#/$defs/SamplerLeafConfig"
+        },
+        "rules": {
+          "items": {
+            "$ref": "#/$defs/OBIRuleBasedSamplerRule"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "OBIRuleBasedSamplerMatch": {
+      "properties": {
+        "resource_attributes": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        }
+      },
+      "type": "object"
+    },
+    "OBIRuleBasedSamplerRule": {
+      "properties": {
+        "action": {
+          "$ref": "#/$defs/SamplerLeafConfig"
+        },
+        "match": {
+          "$ref": "#/$defs/OBIRuleBasedSamplerMatch"
+        }
+      },
+      "type": "object"
+    },
     "OpenAIConfig": {
       "properties": {
         "enabled": {
@@ -2559,16 +2595,40 @@
           "enum": [
             "always_off",
             "always_on",
+            "obi_rule_based",
             "parentbased_always_off",
             "parentbased_always_on",
             "parentbased_traceidratio",
             "traceidratio"
           ],
           "x-env-var": "OTEL_TRACES_SAMPLER"
+        },
+        "obi_rule_based": {
+          "$ref": "#/$defs/OBIRuleBasedSamplerConfig"
         }
       },
       "type": "object",
       "description": "Sampler standard configuration https://opentelemetry.io/docs/concepts/sdk-configuration/general-sdk-configuration/#otel_traces_sampler We don't support, yet, the jaeger and xray samplers."
+    },
+    "SamplerLeafConfig": {
+      "properties": {
+        "arg": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string",
+          "enum": [
+            "always_off",
+            "always_on",
+            "obi_rule_based",
+            "parentbased_always_off",
+            "parentbased_always_on",
+            "parentbased_traceidratio",
+            "traceidratio"
+          ]
+        }
+      },
+      "type": "object"
     },
     "Selection": {
       "additionalProperties": {

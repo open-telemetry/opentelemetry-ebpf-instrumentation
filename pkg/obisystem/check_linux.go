@@ -276,11 +276,3 @@ const (
 	networkSourceSocketFilter = "socket_filter"
 	networkSourceTC           = "tc"
 )
-
-type CapabilityConfig struct {
-	AppO11yEnabled            bool
-	NetO11yEnabled            bool
-	StatsO11yEnabled          bool
-	ContextPropagationEnabled bool
-	NetworkSource             string
-}
