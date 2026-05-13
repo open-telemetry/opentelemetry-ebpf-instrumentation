@@ -14,23 +14,18 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 )
 
-// retrievalHostPattern pairs a known vector database hostname suffix with a
-// URL path suffix and the provider name to assign when both match.
-//
-// Known hosts are treated as a strong provider-identification signal, but not
-// as a hard requirement for classifying a request as retrieval. This keeps the
-// detector extensible for self-hosted deployments, custom domains and cloud
-// vendor-managed endpoints while still preserving precise provider names when
-// they can be inferred from the hostname.
-type retrievalHostPattern struct {
-	hostSuffix string
+// retrievalHostEntry pairs a path suffix with the provider name returned
+// when a request matches. Entries are stored per-host in the map below.
+type retrievalHostEntry struct {
 	pathSuffix string
 	provider   string
 }
 
-// retrievalHostPatterns enumerates known vector retrieval (similarity
-// search) endpoints. Paths use suffix matching so that collection / index
-// IDs embedded in the path (Qdrant, Milvus, Chroma) are handled naturally.
+// retrievalHostMap provides O(1) host lookup for known vector retrieval
+// (similarity search) endpoints. The key is the registrable domain
+// (last two labels, e.g. "pinecone.io"). Paths use suffix matching so
+// that collection / index IDs embedded in the path (Qdrant, Milvus,
+// Chroma) are handled naturally.
 //
 // References (public docs):
 //   - Pinecone:  POST /query, POST /vectors/query on *.pinecone.io
@@ -39,26 +34,44 @@ type retrievalHostPattern struct {
 //   - Zilliz:    same Milvus paths on *.zillizcloud.com
 //   - Chroma:    POST /api/v1/collections/{id}/query on *.trychroma.com
 //   - Weaviate:  POST /v1/graphql on *.weaviate.io / *.weaviate.cloud / *.weaviate.network
-var retrievalHostPatterns = []retrievalHostPattern{
+var retrievalHostMap = map[string][]retrievalHostEntry{
 	// Pinecone
-	{"pinecone.io", "/query", "pinecone"},
-	{"pinecone.io", "/vectors/query", "pinecone"},
+	"pinecone.io": {
+		{"/query", "pinecone"},
+		{"/vectors/query", "pinecone"},
+	},
 	// Qdrant
-	{"qdrant.tech", "/points/search", "qdrant"},
-	{"qdrant.tech", "/points/query", "qdrant"},
-	{"qdrant.io", "/points/search", "qdrant"},
-	{"qdrant.io", "/points/query", "qdrant"},
+	"qdrant.tech": {
+		{"/points/search", "qdrant"},
+		{"/points/query", "qdrant"},
+	},
+	"qdrant.io": {
+		{"/points/search", "qdrant"},
+		{"/points/query", "qdrant"},
+	},
 	// Milvus / Zilliz
-	{"milvus.io", "/vector/search", "milvus"},
-	{"milvus.io", "/entities/search", "milvus"},
-	{"zillizcloud.com", "/vector/search", "zilliz"},
-	{"zillizcloud.com", "/entities/search", "zilliz"},
+	"milvus.io": {
+		{"/vector/search", "milvus"},
+		{"/entities/search", "milvus"},
+	},
+	"zillizcloud.com": {
+		{"/vector/search", "zilliz"},
+		{"/entities/search", "zilliz"},
+	},
 	// Chroma
-	{"trychroma.com", "/query", "chroma"},
+	"trychroma.com": {
+		{"/query", "chroma"},
+	},
 	// Weaviate (GraphQL-based similarity search)
-	{"weaviate.io", "/v1/graphql", "weaviate"},
-	{"weaviate.cloud", "/v1/graphql", "weaviate"},
-	{"weaviate.network", "/v1/graphql", "weaviate"},
+	"weaviate.io": {
+		{"/v1/graphql", "weaviate"},
+	},
+	"weaviate.cloud": {
+		{"/v1/graphql", "weaviate"},
+	},
+	"weaviate.network": {
+		{"/v1/graphql", "weaviate"},
+	},
 }
 
 var retrievalPathSignals = []string{
@@ -70,37 +83,43 @@ var retrievalPathSignals = []string{
 	"/entities/search",
 }
 
-var retrievalBodySignals = []string{
-	`"vector"`,
-	`"top_k"`,
-	`"topK"`,
-	`"limit"`,
-	`"namespace"`,
-	`"collection"`,
-	`"collectionName"`,
-	`"collection_name"`,
-	`"query_embeddings"`,
+// retrievalBodySignalBytes contains the byte patterns scanned in request
+// bodies to heuristically identify vector retrieval calls from unknown hosts.
+var retrievalBodySignalBytes = [][]byte{
+	[]byte(`"vector"`),
+	[]byte(`"top_k"`),
+	[]byte(`"topK"`),
+	[]byte(`"limit"`),
+	[]byte(`"namespace"`),
+	[]byte(`"collection"`),
+	[]byte(`"collectionName"`),
+	[]byte(`"collection_name"`),
+	[]byte(`"query_embeddings"`),
 }
-
-// retrievalBodySignalBytes is the precomputed []byte form of
-// retrievalBodySignals, avoiding repeated string→[]byte conversions
-// during request classification.
-var retrievalBodySignalBytes = func() [][]byte {
-	out := make([][]byte, len(retrievalBodySignals))
-	for i, s := range retrievalBodySignals {
-		out[i] = []byte(s)
-	}
-	return out
-}()
 
 const genericRetrievalProvider = "generic"
 
+// weaviateGraphQLRetrievalSignals lists the Weaviate GraphQL near-*
+// operators and search methods whose presence inside a "Get" query
+// indicates a vector retrieval (similarity search) operation.
+//
+// Reference: https://weaviate.io/developers/weaviate/search/similarity
 var weaviateGraphQLRetrievalSignals = []string{
 	"nearvector",
 	"neartext",
 	"nearobject",
 	"hybrid",
 	"bm25",
+}
+
+// registrableDomain extracts the last two labels of a hostname
+// (e.g. "foo.bar.pinecone.io" → "pinecone.io").
+func registrableDomain(host string) string {
+	parts := strings.Split(host, ".")
+	if len(parts) < 2 {
+		return host
+	}
+	return parts[len(parts)-2] + "." + parts[len(parts)-1]
 }
 
 func parseRetrievalProvider(req *http.Request) string {
@@ -111,10 +130,14 @@ func parseRetrievalProvider(req *http.Request) string {
 	host := extractHostname(req)
 	path := normalizedRetrievalPath(req)
 
-	for _, hp := range retrievalHostPatterns {
-		if (host == hp.hostSuffix || strings.HasSuffix(host, "."+hp.hostSuffix)) &&
-			strings.HasSuffix(path, hp.pathSuffix) {
-			return hp.provider
+	domain := registrableDomain(host)
+	entries, ok := retrievalHostMap[domain]
+	if !ok {
+		return ""
+	}
+	for _, e := range entries {
+		if strings.HasSuffix(path, e.pathSuffix) {
+			return e.provider
 		}
 	}
 
@@ -141,7 +164,10 @@ func hasRetrievalPathSignal(path string) bool {
 	return false
 }
 
-func retrievalBodySignalCount(body []byte) int {
+// retrievalBodySignalCount scans body for known retrieval JSON-key patterns.
+// It stops early once minRequired matches are found to avoid unnecessary work
+// on large payloads.
+func retrievalBodySignalCount(body []byte, minRequired int) int {
 	if len(body) == 0 {
 		return 0
 	}
@@ -150,6 +176,9 @@ func retrievalBodySignalCount(body []byte) int {
 	for _, signal := range retrievalBodySignalBytes {
 		if bytes.Contains(body, signal) {
 			count++
+			if count >= minRequired {
+				return count
+			}
 		}
 	}
 	return count
@@ -188,7 +217,8 @@ func detectRetrievalProvider(req *http.Request, body []byte) string {
 		return ""
 	}
 
-	if retrievalBodySignalCount(body) < 2 {
+	const minBodySignals = 2
+	if retrievalBodySignalCount(body, minBodySignals) < minBodySignals {
 		return ""
 	}
 
