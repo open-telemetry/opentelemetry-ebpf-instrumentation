@@ -78,6 +78,8 @@ const (
 	defaultMetricsTTL = 5 * time.Minute
 )
 
+var v2MetricsFeatureMask = export.AppO11yFeatures | export.FeatureNetwork | export.FeatureNetworkInterZone
+
 // ExtraGroupAttributesMap defines additional attributes for attribute groups.
 // Currently only "k8s_app_meta" is supported as a key.
 type ExtraGroupAttributesMap map[string][]attr.Name
@@ -765,6 +767,18 @@ func (c *Config) Enabled(feature Feature) bool {
 func (c *Config) SpanMetricsEnabledForTraces() bool {
 	return c.Metrics.Features.AnySpanMetrics() &&
 		(c.OTELMetrics.EndpointEnabled() || c.Prometheus.EndpointEnabled())
+}
+
+// ApplyV2MetricsEnablement rewrites the legacy metrics feature buckets that are
+// represented by v2 protocol and network enablement while preserving unrelated bits.
+func (c *Config) ApplyV2MetricsEnablement(appMetricsEnabled, networkMetricsEnabled bool) {
+	c.Metrics.Features &^= v2MetricsFeatureMask
+	if appMetricsEnabled {
+		c.Metrics.Features |= export.FeatureApplicationRED
+	}
+	if networkMetricsEnabled {
+		c.Metrics.Features |= export.FeatureNetwork
+	}
 }
 
 // NormalizeForLoad applies the same post-processing used by LoadConfig after

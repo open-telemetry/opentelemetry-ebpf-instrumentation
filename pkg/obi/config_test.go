@@ -1051,3 +1051,43 @@ func TestNormalizeConfig_Network(t *testing.T) {
 	assert.Equal(t, export.FeatureApplicationRED|export.FeatureNetwork,
 		obi.Metrics.Features)
 }
+
+func TestApplyV2MetricsEnablement(t *testing.T) {
+	testCases := []struct {
+		name           string
+		initial        export.Features
+		appEnabled     bool
+		networkEnabled bool
+		expected       export.Features
+	}{
+		{
+			name:           "application only replaces legacy app buckets",
+			initial:        export.FeatureSpanOTel | export.FeatureGraph | export.FeatureStatsTCPRtt,
+			appEnabled:     true,
+			networkEnabled: false,
+			expected:       export.FeatureApplicationRED | export.FeatureStatsTCPRtt,
+		},
+		{
+			name:           "network only preserves stats",
+			initial:        export.FeatureApplicationHost | export.FeatureNetworkInterZone | export.FeatureStatsTCPFailedConnections,
+			appEnabled:     false,
+			networkEnabled: true,
+			expected:       export.FeatureNetwork | export.FeatureStatsTCPFailedConnections,
+		},
+		{
+			name:           "disabling v2-controlled metrics clears app and network buckets",
+			initial:        export.FeatureApplicationRED | export.FeatureNetwork | export.FeatureStats,
+			appEnabled:     false,
+			networkEnabled: false,
+			expected:       export.FeatureStats,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := Config{Metrics: perapp.MetricsConfig{Features: tc.initial}}
+			cfg.ApplyV2MetricsEnablement(tc.appEnabled, tc.networkEnabled)
+			assert.Equal(t, tc.expected, cfg.Metrics.Features)
+		})
+	}
+}

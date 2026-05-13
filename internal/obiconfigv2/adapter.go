@@ -46,6 +46,7 @@ func ConfigToRuntime(src *obiv2.Extension, mode obiv2.DeploymentMode) (*obi.Conf
 	if mode == obiv2.DeploymentModeStandalone {
 		applyStandalone(&cfg, src)
 	}
+	applyMetricsEnablement(&cfg, src)
 
 	cfg.NormalizeForLoad()
 	return &cfg, nil
@@ -165,6 +166,21 @@ func applyProtocolEnablement(cfg *obi.Config, instrumentationCfg map[string]any)
 	cfg.Traces.Instrumentations = applySignalEnablement(cfg.Traces.Instrumentations, instrumentationCfg, "traces")
 	cfg.OTELMetrics.Instrumentations = applySignalEnablement(cfg.OTELMetrics.Instrumentations, instrumentationCfg, "metrics")
 	cfg.Prometheus.Instrumentations = applySignalEnablement(cfg.Prometheus.Instrumentations, instrumentationCfg, "metrics")
+}
+
+func applyMetricsEnablement(cfg *obi.Config, src *obiv2.Extension) {
+	appMetricsEnabled := false
+	for _, mapping := range protocolMappings {
+		if boolValue(nestedMap(src.Capture.Instrumentation, mapping.name, "enabled"), "metrics") {
+			appMetricsEnabled = true
+			break
+		}
+	}
+
+	cfg.ApplyV2MetricsEnablement(
+		appMetricsEnabled,
+		boolValue(nestedMap(src.Capture.Network, "capture"), "enabled"),
+	)
 }
 
 func applySignalEnablement(

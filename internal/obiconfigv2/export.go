@@ -170,7 +170,7 @@ func captureConfig(cfg *obi.Config) obiv2.CaptureConfig {
 		},
 		Network: map[string]any{
 			"capture": map[string]any{
-				"enabled": cfg.NetworkFlows.Enable,
+				"enabled": cfg.NetworkFlows.Enable || cfg.Metrics.Features.AnyNetwork(),
 				"source":  cfg.NetworkFlows.Source,
 				"endpoint_identity": map[string]any{
 					"agent_ip":           cfg.NetworkFlows.AgentIP,

@@ -104,10 +104,81 @@ func TestConfigToRuntimeAppliesProtocolEnablement(t *testing.T) {
 	require.Equal(t, export.FeatureApplicationRED|export.FeatureNetwork, cfg.Metrics.Features)
 }
 
+func TestConfigToRuntimeAppliesMetricsFeatureBuckets(t *testing.T) {
+	testCases := []struct {
+		name     string
+		src      *obiv2.Extension
+		expected export.Features
+	}{
+		{
+			name: "application metrics only",
+			src: &obiv2.Extension{
+				Version: obiv2.SupportedVersion,
+				Capture: obiv2.CaptureConfig{
+					Instrumentation: map[string]any{
+						"http": map[string]any{
+							"enabled": map[string]any{"metrics": true},
+						},
+					},
+				},
+			},
+			expected: export.FeatureApplicationRED,
+		},
+		{
+			name: "network only",
+			src: &obiv2.Extension{
+				Version: obiv2.SupportedVersion,
+				Capture: obiv2.CaptureConfig{
+					Instrumentation: map[string]any{
+						"http": map[string]any{
+							"enabled": map[string]any{"metrics": false},
+						},
+					},
+					Network: map[string]any{
+						"capture": map[string]any{
+							"enabled": true,
+						},
+					},
+				},
+			},
+			expected: export.FeatureNetwork,
+		},
+		{
+			name: "all protocol and network metrics disabled",
+			src: &obiv2.Extension{
+				Version: obiv2.SupportedVersion,
+				Capture: obiv2.CaptureConfig{
+					Instrumentation: map[string]any{
+						"http": map[string]any{
+							"enabled": map[string]any{"metrics": false},
+						},
+						"dns": map[string]any{
+							"enabled": map[string]any{"metrics": false},
+						},
+					},
+					Network: map[string]any{
+						"capture": map[string]any{
+							"enabled": false,
+						},
+					},
+				},
+			},
+			expected: 0,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg, err := ConfigToRuntime(tc.src, obiv2.DeploymentModeStandalone)
+			require.NoError(t, err)
+			require.Equal(t, tc.expected, cfg.Metrics.Features)
+		})
+	}
+}
+
 func TestRuntimeProtocolEnablementRoundTrip(t *testing.T) {
 	cfg := obi.DefaultConfig
-	cfg.Metrics.Features = export.FeatureApplicationRED | export.FeatureNetwork
-	cfg.NetworkFlows.Enable = true
+	cfg.Metrics.Features = export.FeatureApplicationRED | export.FeatureNetworkInterZone
 	cfg.Traces.Instrumentations = []instrumentations.Instrumentation{
 		instrumentations.InstrumentationSQL,
 		instrumentations.InstrumentationDNS,
@@ -144,5 +215,5 @@ func TestRuntimeProtocolEnablementRoundTrip(t *testing.T) {
 	require.Contains(t, got.Prometheus.Instrumentations, instrumentations.InstrumentationDNS)
 	require.NotContains(t, got.Prometheus.Instrumentations, instrumentations.InstrumentationSQL)
 	require.True(t, got.NetworkFlows.Enable)
-	require.Equal(t, cfg.Metrics.Features, got.Metrics.Features)
+	require.Equal(t, export.FeatureApplicationRED|export.FeatureNetwork, got.Metrics.Features)
 }
