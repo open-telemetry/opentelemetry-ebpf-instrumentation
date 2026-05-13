@@ -8,6 +8,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"go.opentelemetry.io/obi/pkg/export"
+	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/filter"
 	"go.opentelemetry.io/obi/pkg/obi"
 	obiv2 "go.opentelemetry.io/obi/pkg/obiconfig/v2"
@@ -60,4 +62,87 @@ func TestRuntimeFilterAndGoFlagRoundTrip(t *testing.T) {
 	require.True(t, got.Discovery.SkipGoSpecificTracers)
 	require.Equal(t, cfg.Filters.Application, got.Filters.Application)
 	require.Equal(t, cfg.Filters.Network, got.Filters.Network)
+}
+
+func TestConfigToRuntimeAppliesProtocolEnablement(t *testing.T) {
+	cfg, err := ConfigToRuntime(&obiv2.Extension{
+		Version: obiv2.SupportedVersion,
+		Capture: obiv2.CaptureConfig{
+			Instrumentation: map[string]any{
+				"http": map[string]any{
+					"enabled": map[string]any{"traces": false, "metrics": false},
+				},
+				"sql": map[string]any{
+					"enabled": map[string]any{"traces": true, "metrics": false},
+				},
+				"dns": map[string]any{
+					"enabled": map[string]any{"traces": true, "metrics": true},
+				},
+			},
+			Network: map[string]any{
+				"capture": map[string]any{
+					"enabled": true,
+				},
+			},
+		},
+	}, obiv2.DeploymentModeStandalone)
+	require.NoError(t, err)
+
+	require.NotContains(t, cfg.Traces.Instrumentations, instrumentations.InstrumentationHTTP)
+	require.Contains(t, cfg.Traces.Instrumentations, instrumentations.InstrumentationSQL)
+	require.Contains(t, cfg.Traces.Instrumentations, instrumentations.InstrumentationDNS)
+
+	require.NotContains(t, cfg.OTELMetrics.Instrumentations, instrumentations.InstrumentationHTTP)
+	require.NotContains(t, cfg.OTELMetrics.Instrumentations, instrumentations.InstrumentationSQL)
+	require.Contains(t, cfg.OTELMetrics.Instrumentations, instrumentations.InstrumentationDNS)
+
+	require.NotContains(t, cfg.Prometheus.Instrumentations, instrumentations.InstrumentationHTTP)
+	require.NotContains(t, cfg.Prometheus.Instrumentations, instrumentations.InstrumentationSQL)
+	require.Contains(t, cfg.Prometheus.Instrumentations, instrumentations.InstrumentationDNS)
+
+	require.True(t, cfg.NetworkFlows.Enable)
+	require.Equal(t, export.FeatureApplicationRED|export.FeatureNetwork, cfg.Metrics.Features)
+}
+
+func TestRuntimeProtocolEnablementRoundTrip(t *testing.T) {
+	cfg := obi.DefaultConfig
+	cfg.Metrics.Features = export.FeatureApplicationRED | export.FeatureNetwork
+	cfg.NetworkFlows.Enable = true
+	cfg.Traces.Instrumentations = []instrumentations.Instrumentation{
+		instrumentations.InstrumentationSQL,
+		instrumentations.InstrumentationDNS,
+	}
+	cfg.OTELMetrics.Instrumentations = []instrumentations.Instrumentation{
+		instrumentations.InstrumentationHTTP,
+		instrumentations.InstrumentationDNS,
+	}
+	cfg.Prometheus.Instrumentations = []instrumentations.Instrumentation{
+		instrumentations.InstrumentationHTTP,
+		instrumentations.InstrumentationDNS,
+	}
+
+	doc, err := RuntimeToDocument(&cfg)
+	require.NoError(t, err)
+
+	require.Equal(t, map[string]any{"traces": false, "metrics": true}, nestedMap(doc.Extensions.OBI.Capture.Instrumentation, "http")["enabled"])
+	require.Equal(t, map[string]any{"traces": true, "metrics": false}, nestedMap(doc.Extensions.OBI.Capture.Instrumentation, "sql")["enabled"])
+	require.Equal(t, map[string]any{"traces": true, "metrics": true}, nestedMap(doc.Extensions.OBI.Capture.Instrumentation, "dns")["enabled"])
+	require.Equal(t, true, nestedMap(doc.Extensions.OBI.Capture.Network, "capture")["enabled"])
+
+	got, err := ConfigToRuntime(doc.Extensions.OBI, obiv2.DeploymentModeStandalone)
+	require.NoError(t, err)
+
+	require.Contains(t, got.Traces.Instrumentations, instrumentations.InstrumentationSQL)
+	require.Contains(t, got.Traces.Instrumentations, instrumentations.InstrumentationDNS)
+	require.NotContains(t, got.Traces.Instrumentations, instrumentations.InstrumentationHTTP)
+
+	require.Contains(t, got.OTELMetrics.Instrumentations, instrumentations.InstrumentationHTTP)
+	require.Contains(t, got.OTELMetrics.Instrumentations, instrumentations.InstrumentationDNS)
+	require.NotContains(t, got.OTELMetrics.Instrumentations, instrumentations.InstrumentationSQL)
+
+	require.Contains(t, got.Prometheus.Instrumentations, instrumentations.InstrumentationHTTP)
+	require.Contains(t, got.Prometheus.Instrumentations, instrumentations.InstrumentationDNS)
+	require.NotContains(t, got.Prometheus.Instrumentations, instrumentations.InstrumentationSQL)
+	require.True(t, got.NetworkFlows.Enable)
+	require.Equal(t, cfg.Metrics.Features, got.Metrics.Features)
 }

@@ -15,6 +15,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/services"
 	obicfg "go.opentelemetry.io/obi/pkg/config"
 	"go.opentelemetry.io/obi/pkg/export/debug"
+	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/filter"
 	"go.opentelemetry.io/obi/pkg/obi"
 	obiv2 "go.opentelemetry.io/obi/pkg/obiconfig/v2"
@@ -116,6 +117,8 @@ func applyCapture(cfg *obi.Config, src *obiv2.Extension) {
 	gpuCfg := nestedMap(src.Capture.Instrumentation, "gpu")
 	setText(&cfg.EBPF.InstrumentCuda, gpuCfg, "enabled_mode")
 
+	applyProtocolEnablement(cfg, src.Capture.Instrumentation)
+
 	network := nestedMap(src.Capture.Network, "capture")
 	mergeSignalFilters(&cfg.Filters.Network, nestedMap(network, "filters"))
 	setBool(&cfg.NetworkFlows.Enable, network, "enabled")
@@ -156,6 +159,69 @@ func applyCapture(cfg *obi.Config, src *obiv2.Extension) {
 	setDuration(&cfg.Java.Timeout, nestedMap(src.Capture.Runtimes, "java"), "attach_timeout")
 
 	mapRules(cfg, src)
+}
+
+func applyProtocolEnablement(cfg *obi.Config, instrumentationCfg map[string]any) {
+	cfg.Traces.Instrumentations = applySignalEnablement(cfg.Traces.Instrumentations, instrumentationCfg, "traces")
+	cfg.OTELMetrics.Instrumentations = applySignalEnablement(cfg.OTELMetrics.Instrumentations, instrumentationCfg, "metrics")
+	cfg.Prometheus.Instrumentations = applySignalEnablement(cfg.Prometheus.Instrumentations, instrumentationCfg, "metrics")
+}
+
+func applySignalEnablement(
+	current []instrumentations.Instrumentation,
+	instrumentationCfg map[string]any,
+	signal string,
+) []instrumentations.Instrumentation {
+	if len(instrumentationCfg) == 0 {
+		return current
+	}
+
+	selected := map[instrumentations.Instrumentation]bool{}
+	hasAll := false
+	for _, instr := range current {
+		if instr == instrumentations.InstrumentationALL {
+			hasAll = true
+			for _, candidate := range runtimeInstrumentations {
+				selected[candidate] = true
+			}
+			continue
+		}
+		selected[instr] = true
+	}
+
+	updated := false
+	for _, mapping := range protocolMappings {
+		enabledCfg := nestedMap(instrumentationCfg, mapping.name, "enabled")
+		enabled, ok := enabledCfg[signal].(bool)
+		if !ok {
+			continue
+		}
+		selected[mapping.instr] = enabled
+		updated = true
+	}
+
+	if !updated {
+		return current
+	}
+
+	allRuntimeEnabled := true
+	for _, candidate := range runtimeInstrumentations {
+		if !selected[candidate] {
+			allRuntimeEnabled = false
+			break
+		}
+	}
+	if hasAll && allRuntimeEnabled {
+		return []instrumentations.Instrumentation{instrumentations.InstrumentationALL}
+	}
+
+	out := make([]instrumentations.Instrumentation, 0, len(runtimeInstrumentations))
+	for _, candidate := range runtimeInstrumentations {
+		if selected[candidate] {
+			out = append(out, candidate)
+		}
+	}
+	return out
 }
 
 func applyStandalone(cfg *obi.Config, src *obiv2.Extension) {

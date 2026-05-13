@@ -9,6 +9,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"go.opentelemetry.io/obi/pkg/appolly/services"
+	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/filter"
 	"go.opentelemetry.io/obi/pkg/obi"
 	obiv2 "go.opentelemetry.io/obi/pkg/obiconfig/v2"
@@ -58,9 +59,13 @@ func RuntimeToReceiverExtension(cfg *obi.Config) (*obiv2.Extension, error) {
 }
 
 func captureConfig(cfg *obi.Config) obiv2.CaptureConfig {
+	tracesSelection := instrumentationSelection(cfg.Traces.Instrumentations)
+	metricsSelection := instrumentationSelection(metricsInstrumentations(cfg))
+	appMetricsEnabled := cfg.Metrics.Features.AnyAppO11yMetric()
+
 	instrumentation := map[string]any{
 		"http": map[string]any{
-			"enabled":               map[string]any{"traces": true, "metrics": true},
+			"enabled":               protocolEnabled(tracesSelection, metricsSelection, appMetricsEnabled, "http"),
 			"filters":               signalFilters(cfg.Filters.Application),
 			"track_request_headers": cfg.EBPF.TrackRequestHeaders,
 			"request_timeout":       cfg.EBPF.HTTPRequestTimeout.String(),
@@ -83,11 +88,11 @@ func captureConfig(cfg *obi.Config) obiv2.CaptureConfig {
 			"payload_extraction": payloadExtractionMap(cfg),
 		},
 		"grpc": map[string]any{
-			"enabled": map[string]any{"traces": true, "metrics": true},
+			"enabled": protocolEnabled(tracesSelection, metricsSelection, appMetricsEnabled, "grpc"),
 			"filters": signalFilters(cfg.Filters.Application),
 		},
 		"sql": map[string]any{
-			"enabled":          map[string]any{"traces": true, "metrics": true},
+			"enabled":          protocolEnabled(tracesSelection, metricsSelection, appMetricsEnabled, "sql"),
 			"filters":          signalFilters(cfg.Filters.Application),
 			"heuristic_detect": cfg.EBPF.HeuristicSQLDetect,
 			"mysql": map[string]any{
@@ -100,7 +105,7 @@ func captureConfig(cfg *obi.Config) obiv2.CaptureConfig {
 			},
 		},
 		"redis": map[string]any{
-			"enabled": map[string]any{"traces": true, "metrics": true},
+			"enabled": protocolEnabled(tracesSelection, metricsSelection, appMetricsEnabled, "redis"),
 			"filters": signalFilters(cfg.Filters.Application),
 			"db_cache": map[string]any{
 				"enabled":  cfg.EBPF.RedisDBCache.Enabled,
@@ -108,28 +113,28 @@ func captureConfig(cfg *obi.Config) obiv2.CaptureConfig {
 			},
 		},
 		"kafka": map[string]any{
-			"enabled":               map[string]any{"traces": true, "metrics": true},
+			"enabled":               protocolEnabled(tracesSelection, metricsSelection, appMetricsEnabled, "kafka"),
 			"filters":               signalFilters(cfg.Filters.Application),
 			"buffer_size":           cfg.EBPF.BufferSizes.Kafka,
 			"topic_uuid_cache_size": cfg.EBPF.KafkaTopicUUIDCacheSize,
 		},
 		"mongo": map[string]any{
-			"enabled":             map[string]any{"traces": true, "metrics": true},
+			"enabled":             protocolEnabled(tracesSelection, metricsSelection, appMetricsEnabled, "mongo"),
 			"filters":             signalFilters(cfg.Filters.Application),
 			"requests_cache_size": cfg.EBPF.MongoRequestsCacheSize,
 		},
 		"couchbase": map[string]any{
-			"enabled":       map[string]any{"traces": true, "metrics": true},
+			"enabled":       protocolEnabled(tracesSelection, metricsSelection, appMetricsEnabled, "couchbase"),
 			"filters":       signalFilters(cfg.Filters.Application),
 			"db_cache_size": cfg.EBPF.CouchbaseDBCacheSize,
 		},
 		"dns": map[string]any{
-			"enabled":         map[string]any{"traces": false, "metrics": false},
+			"enabled":         protocolEnabled(tracesSelection, metricsSelection, appMetricsEnabled, "dns"),
 			"filters":         signalFilters(cfg.Filters.Application),
 			"request_timeout": cfg.EBPF.DNSRequestTimeout.String(),
 		},
 		"gpu": map[string]any{
-			"enabled":      map[string]any{"traces": true, "metrics": true},
+			"enabled":      protocolEnabled(tracesSelection, metricsSelection, appMetricsEnabled, "gpu"),
 			"filters":      signalFilters(cfg.Filters.Application),
 			"enabled_mode": cfg.EBPF.InstrumentCuda,
 		},
@@ -275,6 +280,56 @@ func captureConfig(cfg *obi.Config) obiv2.CaptureConfig {
 			},
 		},
 	}
+}
+
+func instrumentationSelection(list []instrumentations.Instrumentation) instrumentations.InstrumentationSelection {
+	return instrumentations.NewInstrumentationSelection(list)
+}
+
+func metricsInstrumentations(cfg *obi.Config) []instrumentations.Instrumentation {
+	combined := append([]instrumentations.Instrumentation{}, cfg.OTELMetrics.Instrumentations...)
+	for _, instr := range cfg.Prometheus.Instrumentations {
+		found := false
+		for _, existing := range combined {
+			if existing == instr {
+				found = true
+				break
+			}
+		}
+		if !found {
+			combined = append(combined, instr)
+		}
+	}
+	return combined
+}
+
+func protocolEnabled(
+	tracesSelection instrumentations.InstrumentationSelection,
+	metricsSelection instrumentations.InstrumentationSelection,
+	appMetricsEnabled bool,
+	name string,
+) map[string]any {
+	for _, mapping := range protocolMappings {
+		if mapping.name != name {
+			continue
+		}
+
+		metricsEnabled := protocolSelected(metricsSelection, mapping.instr)
+		if mapping.appMetrics {
+			metricsEnabled = metricsEnabled && appMetricsEnabled
+		}
+
+		return map[string]any{
+			"traces":  protocolSelected(tracesSelection, mapping.instr),
+			"metrics": metricsEnabled,
+		}
+	}
+
+	return map[string]any{"traces": false, "metrics": false}
+}
+
+func protocolSelected(selection instrumentations.InstrumentationSelection, instr instrumentations.Instrumentation) bool {
+	return instrumentations.NewInstrumentationSelection([]instrumentations.Instrumentation{instr})&selection != 0
 }
 
 func payloadExtractionMap(cfg *obi.Config) map[string]any {
