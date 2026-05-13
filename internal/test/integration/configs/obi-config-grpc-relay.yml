@@ -16,5 +16,7 @@ discovery:
       open_ports: 50053
     - name: java-relay
       open_ports: 50055
+    - name: dotnet-relay
+      open_ports: 50056
     - name: go-terminal
       open_ports: 50054

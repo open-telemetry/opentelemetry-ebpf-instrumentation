@@ -89,10 +89,25 @@ services:
     image: hatest-grpc-relay-java
     environment:
       GRPC_PORT: "50055"
-      NEXT_HOP: "go-terminal:50054"
+      NEXT_HOP: "dotnet-relay:50056"
       HEALTH_PORT: "8093"
     ports:
       - "8093:8093"
+    depends_on:
+      dotnet-relay:
+        condition: service_started
+
+  dotnet-relay:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/grpc_relay/dotnet/Dockerfile
+    image: hatest-grpc-relay-dotnet
+    environment:
+      GRPC_PORT: "50056"
+      NEXT_HOP: "go-terminal:50054"
+      HEALTH_PORT: "8095"
+    ports:
+      - "8095:8095"
     depends_on:
       go-terminal:
         condition: service_started

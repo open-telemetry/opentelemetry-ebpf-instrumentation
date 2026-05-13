@@ -25,12 +25,12 @@ const (
 
 	// Tests rely on active polling instead of long static waits — the warmup
 	// step below confirms every service is instrumented before strict checks
-	grpcRelayTimeout = 1 * time.Minute
+	grpcRelayTimeout = 2 * time.Minute
 )
 
 // expectedRelayServices lists all services in the relay chain:
 // Go (HTTP entry) -> Python (gRPC) -> Go (gRPC→HTTP bridge) -> Go (HTTP→gRPC bridge)
-// -> Node.js (gRPC) -> Java (gRPC) -> Go (gRPC terminal)
+// -> Node.js (gRPC) -> Java (gRPC) -> .NET (gRPC) -> Go (gRPC terminal)
 var expectedRelayServices = []string{
 	"go-entry",
 	"python-relay",
@@ -38,6 +38,7 @@ var expectedRelayServices = []string{
 	"go-http-to-grpc",
 	"nodejs-relay",
 	"java-relay",
+	"dotnet-relay",
 	"go-terminal",
 }
 
@@ -68,6 +69,7 @@ func TestSuite_GRPCRelay(t *testing.T) {
 		"http://localhost:8081/health", // go-http-to-grpc
 		"http://localhost:8092/health", // nodejs-relay
 		"http://localhost:8093/health", // java-relay
+		"http://localhost:8095/health", // dotnet-relay
 		"http://localhost:8094/health", // go-terminal
 	}
 	for _, url := range healthURLs {
@@ -85,7 +87,7 @@ func testGRPCRelayChainContextPropagation(t *testing.T) {
 		if wr, err := http.Get("http://localhost:8080/smoke"); err == nil && wr != nil {
 			wr.Body.Close()
 		}
-		r, err := http.Get(jaegerQueryURL + "?service=go-entry&limit=1")
+		r, err := http.Get(jaegerQueryURL + "?service=go-entry&limit=1&lookback=5m")
 		require.NoError(ct, err)
 		require.NotNil(ct, r)
 		defer r.Body.Close()
@@ -96,21 +98,21 @@ func testGRPCRelayChainContextPropagation(t *testing.T) {
 	}, time.Minute, time.Second)
 	t.Log("instrumentation ready")
 
-	t.Log("waiting for java-relay instrumentation")
+	t.Log("waiting for dotnet-relay instrumentation")
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		if wr, err := http.Get("http://localhost:8080/relay"); err == nil && wr != nil {
 			wr.Body.Close()
 		}
-		r, err := http.Get(jaegerQueryURL + "?service=java-relay&limit=1")
+		r, err := http.Get(jaegerQueryURL + "?service=dotnet-relay&limit=1&lookback=5m")
 		require.NoError(ct, err)
 		require.NotNil(ct, r)
 		defer r.Body.Close()
 		require.Equal(ct, http.StatusOK, r.StatusCode)
 		var tq jaeger.TracesQuery
 		require.NoError(ct, json.NewDecoder(r.Body).Decode(&tq))
-		require.NotEmpty(ct, tq.Data, "java-relay not yet instrumented")
+		require.NotEmpty(ct, tq.Data, "dotnet-relay not yet instrumented")
 	}, 2*time.Minute, time.Second)
-	t.Log("java-relay instrumented")
+	t.Log("dotnet-relay instrumented")
 
 	// Fresh trace ID per request so each iteration's assertions run against
 	// a single-request trace, not accumulated retries. Loop retries with a
@@ -128,20 +130,17 @@ func testGRPCRelayChainContextPropagation(t *testing.T) {
 			wr.Body.Close()
 		}
 
-		// Wait for the 7-hop chain to complete and Jaeger to batch-index.
-		time.Sleep(5 * time.Second)
-
-		// Query Jaeger for our exact trace ID.
-		resp, err := http.Get(jaegerQueryURL + "/" + relayAttemptTraceID)
-		if err != nil {
-			require.NoError(ct, err)
-			return
-		}
-		defer resp.Body.Close()
-
+		// Poll Jaeger for our exact trace ID — gives a slow CI chain
+		// (JVM attach + nodejs/python startup) time to land all spans
+		// without burning the outer Eventually budget on fresh trace IDs.
 		var tq jaeger.TracesQuery
-		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
-		require.NotEmpty(ct, tq.Data)
+		require.EventuallyWithT(ct, func(ctt *assert.CollectT) {
+			resp, err := http.Get(jaegerQueryURL + "/" + relayAttemptTraceID)
+			require.NoError(ctt, err)
+			defer resp.Body.Close()
+			require.NoError(ctt, json.NewDecoder(resp.Body).Decode(&tq))
+			require.NotEmpty(ctt, tq.Data)
+		}, 30*time.Second, time.Second)
 
 		// Pick the trace and check it spans all expected services.
 		trace = tq.Data[0]
@@ -155,10 +154,10 @@ func testGRPCRelayChainContextPropagation(t *testing.T) {
 		relayServerSpans := trace.FindByOperationName("/relay.Relay/Relay", "server")
 		relayClientSpans := trace.FindByOperationName("/relay.Relay/Relay", "client")
 
-		require.GreaterOrEqual(ct, len(relayServerSpans), 5,
-			"should have at least 5 gRPC server spans (one per gRPC relay hop)")
-		require.GreaterOrEqual(ct, len(relayClientSpans), 5,
-			"should have at least 5 gRPC client spans (one per gRPC relay hop)")
+		require.GreaterOrEqual(ct, len(relayServerSpans), 6,
+			"should have at least 6 gRPC server spans (one per gRPC relay hop)")
+		require.GreaterOrEqual(ct, len(relayClientSpans), 6,
+			"should have at least 6 gRPC client spans (one per gRPC relay hop)")
 
 		// Verify the parent chain: for each gRPC hop, at least one server
 		// span must have a parent client span from the expected service.
@@ -167,7 +166,8 @@ func testGRPCRelayChainContextPropagation(t *testing.T) {
 			{"go-grpc-to-http", "python-relay"},
 			{"nodejs-relay", "go-http-to-grpc"},
 			{"java-relay", "nodejs-relay"},
-			{"go-terminal", "java-relay"},
+			{"dotnet-relay", "java-relay"},
+			{"go-terminal", "dotnet-relay"},
 		}
 		for _, hop := range grpcParentChain {
 			serverSpans := trace.FindByOperationNameServiceAndKind("/relay.Relay/Relay", hop.server, "server")
@@ -389,7 +389,52 @@ func testGRPCMultiplexedContextPropagation(t *testing.T) {
 	// Hops asserted: every gRPC server in the chain after the multiplexing
 	// origin. go-http-to-grpc receives HTTP/1 (not gRPC server-side), so it
 	// has no gRPC server span to assert on
-	hops := []string{"go-grpc-to-http", "nodejs-relay", "java-relay"}
+	hops := []string{"go-grpc-to-http", "nodejs-relay", "java-relay", "dotnet-relay"}
+
+	// Wait for OBI to instrument go-entry — suite health checks only prove the
+	// service is up, not that OBI has discovered the pid
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		if wr, err := http.Get("http://localhost:8080/smoke"); err == nil && wr != nil {
+			wr.Body.Close()
+		}
+		r, err := http.Get(jaegerQueryURL + "?service=go-entry&limit=1&lookback=5m")
+		require.NoError(ct, err)
+		require.NotNil(ct, r)
+		defer r.Body.Close()
+		require.Equal(ct, http.StatusOK, r.StatusCode)
+		var tq jaeger.TracesQuery
+		require.NoError(ct, json.NewDecoder(r.Body).Decode(&tq))
+		require.NotEmpty(ct, tq.Data, "go-entry not yet instrumented")
+	}, 3*time.Minute, time.Second)
+
+	// Persistent gRPC connections established before OBI discovers the peer
+	// pid stay un-tracked for their lifetime — loop until a request with a
+	// known traceparent reaches every hop on the same trace
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		now := uint64(time.Now().UnixNano())
+		warmupTraceID := fmt.Sprintf("%016x%016x", now, now+1)
+		req, err := http.NewRequest(http.MethodGet, "http://localhost:8080/relay-multiplex", nil)
+		require.NoError(ct, err)
+		req.Header.Set("Traceparent", fmt.Sprintf("00-%s-%s-01", warmupTraceID, multiplexSpanID))
+		if wr, err := http.DefaultClient.Do(req); err == nil && wr != nil {
+			wr.Body.Close()
+		}
+
+		var tq jaeger.TracesQuery
+		require.EventuallyWithT(ct, func(ctt *assert.CollectT) {
+			resp, err := http.Get(jaegerQueryURL + "/" + warmupTraceID)
+			require.NoError(ctt, err)
+			defer resp.Body.Close()
+			require.Equal(ctt, http.StatusOK, resp.StatusCode)
+			require.NoError(ctt, json.NewDecoder(resp.Body).Decode(&tq))
+			require.NotEmpty(ctt, tq.Data, "warmup trace not in jaeger yet")
+		}, 30*time.Second, time.Second)
+
+		for _, hop := range hops {
+			require.NotEmpty(ct, serverSpansByService(tq.Data[0], hop),
+				"warmup: %s missing on trace %s — propagation chain not yet established", hop, warmupTraceID)
+		}
+	}, 3*time.Minute, time.Second)
 
 	now := uint64(time.Now().UnixNano())
 	traceID := fmt.Sprintf("%016x%016x", now, now+1)
