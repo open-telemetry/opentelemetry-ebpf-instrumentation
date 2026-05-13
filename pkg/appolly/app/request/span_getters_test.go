@@ -644,6 +644,32 @@ func TestSpanOTELGetters_GenAIOutput(t *testing.T) {
 			span:     &Span{Type: EventTypeHTTPClient, SubType: HTTPSubtypeAnthropic},
 			expected: "",
 		},
+		{
+			// gen_ai.output.messages must be suppressed for embeddings to
+			// stay aligned with the tracesgen path.
+			name: "openai embeddings suppressed",
+			span: &Span{
+				Type:    EventTypeHTTPClient,
+				SubType: HTTPSubtypeOpenAI,
+				GenAI: &GenAI{OpenAI: &VendorOpenAI{
+					OperationName: EmbeddingOperationName,
+					Data:          json.RawMessage(`[{"object":"embedding","embedding":[0.1,0.2]}]`),
+				}},
+			},
+			expected: "",
+		},
+		{
+			name: "qwen embeddings suppressed",
+			span: &Span{
+				Type:    EventTypeHTTPClient,
+				SubType: HTTPSubtypeQwen,
+				GenAI: &GenAI{Qwen: &VendorOpenAI{
+					OperationName: EmbeddingOperationName,
+					Data:          json.RawMessage(`[{"object":"embedding","embedding":[0.1]}]`),
+				}},
+			},
+			expected: "",
+		},
 	}
 
 	getter, ok := spanOTELGetters(attr.GenAIOutput)

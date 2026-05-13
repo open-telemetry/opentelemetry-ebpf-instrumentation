@@ -76,7 +76,35 @@ func TestNormalizeToolDefinitions_ParseFailure(t *testing.T) {
 func TestNormalizeToolDefinitions_InvalidItem(t *testing.T) {
 	raw := json.RawMessage(`[123]`)
 	result := NormalizeToolDefinitions(raw)
-	assert.Equal(t, "null", result)
+	assert.Equal(t, "[]", result)
+}
+
+func TestNormalizeToolDefinitions_DropsUnsupportedAnthropicType(t *testing.T) {
+	raw := json.RawMessage(`[{"type":"computer_20241022","name":"computer","display_width_px":1024}]`)
+	result := NormalizeToolDefinitions(raw)
+	assert.Equal(t, "[]", result)
+}
+
+func TestNormalizeToolDefinitions_MixedValidInvalid(t *testing.T) {
+	raw := json.RawMessage(`[{"type":"function","function":{"name":"valid"}},{"type":"computer_20241022","name":"computer"},123]`)
+	result := NormalizeToolDefinitions(raw)
+
+	var tools []normalizedTool
+	require.NoError(t, json.Unmarshal([]byte(result), &tools))
+	require.Len(t, tools, 1)
+	assert.Equal(t, "function", tools[0].Type)
+	assert.Equal(t, "valid", tools[0].Name)
+}
+
+func TestNormalizeToolDefinitions_PreservesFunctionType(t *testing.T) {
+	raw := json.RawMessage(`[{"type":"function","function":{"name":"f","description":"d"}}]`)
+	result := NormalizeToolDefinitions(raw)
+
+	var tools []normalizedTool
+	require.NoError(t, json.Unmarshal([]byte(result), &tools))
+	require.Len(t, tools, 1)
+	assert.Equal(t, "function", tools[0].Type)
+	assert.Equal(t, "f", tools[0].Name)
 }
 
 func TestWrapTextAsInputMessage(t *testing.T) {

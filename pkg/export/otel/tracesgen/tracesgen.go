@@ -669,12 +669,10 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 			}
 			attrs = append(attrs, semconv.GenAIRequestModel(ai.Input.Model))
 			attrs = append(attrs, semconv.GenAIResponseModel(ai.Output.Model))
-			// Per Anthropic semconv: input_tokens excludes cached tokens.
-			// Compute total: input_tokens + cache_read + cache_creation.
-			anthropicInputTokens := ai.Output.Usage.InputTokens +
-				ai.Output.Usage.CacheReadInputTokens +
-				ai.Output.Usage.CacheCreationInputTokens
-			attrs = append(attrs, semconv.GenAIUsageInputTokens(anthropicInputTokens))
+			// Per Anthropic semconv, input_tokens excludes cached tokens.
+			// Span.GenAIInputTokens() returns the cache-inclusive total so
+			// traces and metrics stay in lockstep.
+			attrs = append(attrs, semconv.GenAIUsageInputTokens(span.GenAIInputTokens()))
 			attrs = append(attrs, semconv.GenAIUsageOutputTokens(ai.Output.Usage.OutputTokens))
 			if ai.Input.MaxTokens > 0 {
 				attrs = append(attrs, semconv.GenAIRequestMaxTokens(ai.Input.MaxTokens))

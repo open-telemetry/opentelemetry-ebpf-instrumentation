@@ -379,6 +379,9 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 	case attr.GenAIOutput:
 		getter = func(s *Span) attribute.KeyValue {
 			if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeOpenAI && s.GenAI != nil && s.GenAI.OpenAI != nil {
+				if s.GenAI.OpenAI.OperationName == EmbeddingOperationName {
+					return semconv.GenAIOutputMessagesKey.String("")
+				}
 				return semconv.GenAIOutputMessagesKey.String(s.GenAI.OpenAI.GetOutput())
 			}
 			if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeAnthropic && s.GenAI != nil && s.GenAI.Anthropic != nil {
@@ -388,6 +391,9 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 				return semconv.GenAIOutputMessagesKey.String(s.GenAI.Gemini.GetOutput())
 			}
 			if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeQwen && s.GenAI != nil && s.GenAI.Qwen != nil {
+				if s.GenAI.Qwen.OperationName == EmbeddingOperationName {
+					return semconv.GenAIOutputMessagesKey.String("")
+				}
 				return semconv.GenAIOutputMessagesKey.String(s.GenAI.Qwen.GetOutput())
 			}
 			if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeAWSBedrock && s.GenAI != nil && s.GenAI.Bedrock != nil {

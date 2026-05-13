@@ -206,31 +206,60 @@ func normalizeOpenAIOutput(ai *VendorOpenAI) string {
 }
 
 // normalizeOpenAIResponsesOutput converts the OpenAI Responses API output
-// array to the semconv output messages schema.
+// array to the semconv output messages schema. The Responses API output is a
+// heterogeneous array whose item types include "message", "function_call", and
+// others ("reasoning", "web_search_call", ...). Only message and function_call
+// items have semconv mappings; unknown item types are dropped.
 func normalizeOpenAIResponsesOutput(raw json.RawMessage) string {
 	var items []struct {
+		Type    string `json:"type"`
 		Role    string `json:"role"`
 		Status  string `json:"status"`
 		Content []struct {
 			Type string `json:"type"`
 			Text string `json:"text"`
 		} `json:"content"`
+		// function_call items
+		ID        string          `json:"id"`
+		CallID    string          `json:"call_id"`
+		Name      string          `json:"name"`
+		Arguments json.RawMessage `json:"arguments"`
 	}
 	if err := json.Unmarshal(raw, &items); err != nil {
 		return string(raw)
 	}
 
-	var out []normalizedMessage
+	out := make([]normalizedMessage, 0, len(items))
 	for _, item := range items {
-		var parts []normalizedPart
-		for _, c := range item.Content {
-			parts = append(parts, normalizedPart{Type: "text", Content: c.Text})
+		switch item.Type {
+		case "function_call":
+			id := item.CallID
+			if id == "" {
+				id = item.ID
+			}
+			out = append(out, normalizedMessage{
+				Role: "assistant",
+				Parts: []normalizedPart{{
+					Type:      "tool_call",
+					ID:        id,
+					Name:      item.Name,
+					Arguments: item.Arguments,
+				}},
+			})
+		case "", "message":
+			parts := make([]normalizedPart, 0, len(item.Content))
+			for _, c := range item.Content {
+				parts = append(parts, normalizedPart{Type: "text", Content: c.Text})
+			}
+			if len(parts) == 0 {
+				continue
+			}
+			out = append(out, normalizedMessage{
+				Role:         item.Role,
+				Parts:        parts,
+				FinishReason: item.Status,
+			})
 		}
-		out = append(out, normalizedMessage{
-			Role:         item.Role,
-			Parts:        parts,
-			FinishReason: item.Status,
-		})
 	}
 
 	b, err := json.Marshal(out)

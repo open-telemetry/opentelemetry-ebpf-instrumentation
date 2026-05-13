@@ -1860,7 +1860,10 @@ func (s *Span) GenAIInputTokens() int {
 	}
 
 	if s.GenAI.Anthropic != nil {
-		return s.GenAI.Anthropic.Output.Usage.InputTokens
+		// Per Anthropic semconv: input_tokens excludes cached tokens.
+		// Total = input_tokens + cache_read + cache_creation.
+		u := s.GenAI.Anthropic.Output.Usage
+		return u.InputTokens + u.CacheReadInputTokens + u.CacheCreationInputTokens
 	}
 
 	if s.GenAI.Gemini != nil {

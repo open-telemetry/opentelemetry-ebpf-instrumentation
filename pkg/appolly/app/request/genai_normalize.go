@@ -88,7 +88,7 @@ func NormalizeToolDefinitions(raw json.RawMessage) string {
 		return string(raw)
 	}
 
-	var out []normalizedTool
+	out := make([]normalizedTool, 0, len(items))
 	for _, item := range items {
 		out = append(out, normalizeToolItem(item)...)
 	}
@@ -127,6 +127,9 @@ func normalizeToolItem(raw json.RawMessage) []normalizedTool {
 	if len(probe.FunctionDeclarations) > 0 {
 		out := make([]normalizedTool, 0, len(probe.FunctionDeclarations))
 		for _, fd := range probe.FunctionDeclarations {
+			if fd.Name == "" {
+				continue
+			}
 			out = append(out, normalizedTool{
 				Type:        "function",
 				Name:        fd.Name,
@@ -137,15 +140,28 @@ func normalizeToolItem(raw json.RawMessage) []normalizedTool {
 		return out
 	}
 
-	nt := normalizedTool{Type: "function"}
-	if probe.Function != nil {
-		nt.Name = probe.Function.Name
-		nt.Description = probe.Function.Description
-		nt.Parameters = probe.Function.Parameters
-	} else {
-		nt.Name = probe.Name
-		nt.Description = probe.Description
-		nt.Parameters = probe.InputSchema
+	// OpenAI wrapper: only normalize when the wrapper declares type:"function"
+	// and carries a function object. Other wrapper types are not in semconv.
+	if probe.Function != nil && probe.Function.Name != "" && (probe.Type == "" || probe.Type == "function") {
+		return []normalizedTool{{
+			Type:        "function",
+			Name:        probe.Function.Name,
+			Description: probe.Function.Description,
+			Parameters:  probe.Function.Parameters,
+		}}
 	}
-	return []normalizedTool{nt}
+
+	// Anthropic direct shape. Only emit when a name is present; non-function
+	// Anthropic tools (computer_*, text_editor_*, bash_*) carry a type field
+	// but are not part of semconv's gen_ai.tool.definitions schema, so drop them.
+	if probe.Name != "" && probe.Type == "" {
+		return []normalizedTool{{
+			Type:        "function",
+			Name:        probe.Name,
+			Description: probe.Description,
+			Parameters:  probe.InputSchema,
+		}}
+	}
+
+	return nil
 }

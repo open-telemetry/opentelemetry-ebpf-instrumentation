@@ -294,3 +294,67 @@ func TestNormalizeOpenAIResponsesOutput_ParseFailure(t *testing.T) {
 	raw := json.RawMessage(`bad data`)
 	assert.Equal(t, "bad data", normalizeOpenAIResponsesOutput(raw))
 }
+
+func TestNormalizeOpenAIOutput_ResponsesAPI_FunctionCall(t *testing.T) {
+	ai := &VendorOpenAI{
+		Output: json.RawMessage(`[{"type":"function_call","id":"fc_1","call_id":"call_abc","name":"get_weather","arguments":"{\"city\":\"sf\"}"}]`),
+	}
+	result := normalizeOpenAIOutput(ai)
+
+	var msgs []normalizedMessage
+	require.NoError(t, json.Unmarshal([]byte(result), &msgs))
+	require.Len(t, msgs, 1)
+	assert.Equal(t, "assistant", msgs[0].Role)
+	require.Len(t, msgs[0].Parts, 1)
+	assert.Equal(t, "tool_call", msgs[0].Parts[0].Type)
+	assert.Equal(t, "call_abc", msgs[0].Parts[0].ID)
+	assert.Equal(t, "get_weather", msgs[0].Parts[0].Name)
+	assert.JSONEq(t, `"{\"city\":\"sf\"}"`, string(msgs[0].Parts[0].Arguments))
+}
+
+func TestNormalizeOpenAIOutput_ResponsesAPI_MixedItems(t *testing.T) {
+	ai := &VendorOpenAI{
+		Output: json.RawMessage(`[` +
+			`{"type":"message","role":"assistant","status":"completed","content":[{"type":"text","text":"hello"}]},` +
+			`{"type":"function_call","call_id":"call_1","name":"do_thing","arguments":"{}"}` +
+			`]`),
+	}
+	result := normalizeOpenAIOutput(ai)
+
+	var msgs []normalizedMessage
+	require.NoError(t, json.Unmarshal([]byte(result), &msgs))
+	require.Len(t, msgs, 2)
+	// First: text message preserves order
+	assert.Equal(t, "assistant", msgs[0].Role)
+	require.Len(t, msgs[0].Parts, 1)
+	assert.Equal(t, "text", msgs[0].Parts[0].Type)
+	assert.Equal(t, "hello", msgs[0].Parts[0].Content)
+	// Second: function_call follows
+	assert.Equal(t, "assistant", msgs[1].Role)
+	require.Len(t, msgs[1].Parts, 1)
+	assert.Equal(t, "tool_call", msgs[1].Parts[0].Type)
+	assert.Equal(t, "call_1", msgs[1].Parts[0].ID)
+	assert.Equal(t, "do_thing", msgs[1].Parts[0].Name)
+}
+
+func TestNormalizeOpenAIOutput_ResponsesAPI_UnknownItemTypeDropped(t *testing.T) {
+	ai := &VendorOpenAI{
+		Output: json.RawMessage(`[{"type":"reasoning","id":"r1","summary":[]},{"type":"web_search_call","id":"ws1"}]`),
+	}
+	result := normalizeOpenAIOutput(ai)
+	assert.Equal(t, "[]", result)
+}
+
+func TestNormalizeOpenAIOutput_ResponsesAPI_FunctionCallFallbackID(t *testing.T) {
+	// When call_id is missing, fall back to id.
+	ai := &VendorOpenAI{
+		Output: json.RawMessage(`[{"type":"function_call","id":"fc_only","name":"do","arguments":"{}"}]`),
+	}
+	result := normalizeOpenAIOutput(ai)
+
+	var msgs []normalizedMessage
+	require.NoError(t, json.Unmarshal([]byte(result), &msgs))
+	require.Len(t, msgs, 1)
+	require.Len(t, msgs[0].Parts, 1)
+	assert.Equal(t, "fc_only", msgs[0].Parts[0].ID)
+}

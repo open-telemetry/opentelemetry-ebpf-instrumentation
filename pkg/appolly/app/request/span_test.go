@@ -1365,6 +1365,26 @@ func TestSpan_GenAIInputTokens(t *testing.T) {
 		assert.Equal(t, 200, result)
 	})
 
+	t.Run("Anthropic with cache tokens", func(t *testing.T) {
+		// Per Anthropic semconv: input_tokens excludes cached tokens, so the
+		// reported total must include cache_read and cache_creation.
+		span := &Span{
+			GenAI: &GenAI{
+				Anthropic: &VendorAnthropic{
+					Output: AnthropicResponse{
+						Usage: AnthropicUsage{
+							InputTokens:              200,
+							CacheReadInputTokens:     50,
+							CacheCreationInputTokens: 30,
+						},
+					},
+				},
+			},
+		}
+		result := span.GenAIInputTokens()
+		assert.Equal(t, 280, result)
+	})
+
 	t.Run("Gemini present", func(t *testing.T) {
 		span := &Span{
 			GenAI: &GenAI{
