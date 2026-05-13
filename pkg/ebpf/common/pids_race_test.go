@@ -32,7 +32,7 @@ func TestHarvestedRouteMatcherRace(_ *testing.T) {
 		logger,
 		imetrics.NoopReporter{},
 	)
-	// AllowPID calls addPID which initialises the CoW atomic pointer on service.
+	// AllowPID calls addPID which initializes the CoW atomic pointer on service.
 	pf.AllowPID(1, 1, service, PIDTypeKProbes)
 
 	makeSpans := func() []request.Span {
