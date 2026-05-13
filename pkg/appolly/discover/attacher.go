@@ -143,9 +143,6 @@ func (ta *traceAttacher) getTracer(ie *ebpf.Instrumentable) bool {
 			"child", ie.ChildPids,
 			"cmd", ie.FileInfo.CmdExePath)
 		ie.FileInfo.Service.SDKLanguage = ie.Type
-		// InitHarvestedRoutes must be called before harvestRoutes so the atomic
-		// storage exists before the timer goroutine or monitorPIDs can race on it.
-		ie.FileInfo.Service.InitHarvestedRoutes()
 		// Must be called after we've set the SDKLanguage
 		ta.harvestRoutes(ie, true)
 
@@ -218,9 +215,6 @@ func (ta *traceAttacher) getTracer(ie *ebpf.Instrumentable) bool {
 	}
 
 	ie.FileInfo.Service.SDKLanguage = ie.Type
-	// InitHarvestedRoutes must be called before harvestRoutes so the atomic
-	// storage exists before the timer goroutine or monitorPIDs can race on it.
-	ie.FileInfo.Service.InitHarvestedRoutes()
 	// Must be called after we've set the SDKLanguage
 	ta.harvestRoutes(ie, false)
 

@@ -136,10 +136,8 @@ func (rn *routerNode) provideRoutes(_ context.Context) (swarm.RunFunc, error) {
 						}
 					}
 
-					if s.Route == "" {
-						if m := s.Service.HarvestedRouteMatcher(); m != nil {
-							s.Route = m.Find(s.Path)
-						}
+					if s.Route == "" && s.Service.HarvestedRouteMatcher != nil {
+						s.Route = s.Service.HarvestedRouteMatcher.Find(s.Path)
 					}
 				}
 

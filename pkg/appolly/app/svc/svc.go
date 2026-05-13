@@ -131,13 +131,11 @@ type Attrs struct {
 
 	CustomInRouteMatcher  route.Matcher
 	CustomOutRouteMatcher route.Matcher
-	// routeMatcher is written by the Java route-harvest timer goroutine and
-	// read concurrently by the span-filter goroutine. Storing it behind an
-	// *atomic.Pointer keeps Attrs copy-safe (only the 8-byte pointer is copied) while
-	// making the actual load/store atomic. Callers must use InitHarvestedRoutes before
-	// the first SetHarvestedRoutes call, and HarvestedRouteMatcher to read.
-	routeMatcher *atomic.Pointer[route.Matcher]
+	HarvestedRouteMatcher route.Matcher
 	PathTrie              *clusterurl.PathTrie
+
+	// cowPtr enables copy-on-write updates from the harvest timer; set by PIDsFilter.addPID.
+	cowPtr *atomic.Pointer[Attrs]
 }
 
 func (i *Attrs) GetUID() UID {
@@ -195,31 +193,22 @@ func (i *Attrs) ExportsOTelTraces() bool {
 	return i.getFlag(exportsOTelTraces)
 }
 
-// InitHarvestedRoutes allocates the atomic storage for the harvested route
-// matcher. It must be called once on the owning *Attrs before any concurrent
-// access (i.e. before the process is registered with the PIDsFilter).
-func (i *Attrs) InitHarvestedRoutes() {
-	i.routeMatcher = &atomic.Pointer[route.Matcher]{}
+// SetCowPtr is called by PIDsFilter.addPID before any concurrent access.
+func (i *Attrs) SetCowPtr(p *atomic.Pointer[Attrs]) {
+	i.cowPtr = p
 }
 
-// SetHarvestedRoutes atomically stores the harvested route matcher.
-// It is safe to call concurrently with HarvestedRouteMatcher.
-func (i *Attrs) SetHarvestedRoutes(matcher route.Matcher) {
-	if i.routeMatcher != nil {
-		i.routeMatcher.Store(&matcher)
+// SetHarvestedRoutes atomically swaps HarvestedRouteMatcher via copy-on-write.
+// Falls back to a direct write if cowPtr is not yet set (non-delayed harvest).
+func (i *Attrs) SetHarvestedRoutes(m route.Matcher) {
+	if i.cowPtr == nil {
+		i.HarvestedRouteMatcher = m
+		return
 	}
-}
-
-// HarvestedRouteMatcher atomically loads the harvested route matcher.
-// Returns nil if no matcher has been set yet.
-func (i *Attrs) HarvestedRouteMatcher() route.Matcher {
-	if i.routeMatcher == nil {
-		return nil
-	}
-	if p := i.routeMatcher.Load(); p != nil {
-		return *p
-	}
-	return nil
+	cur := i.cowPtr.Load()
+	updated := *cur
+	updated.HarvestedRouteMatcher = m
+	i.cowPtr.Store(&updated)
 }
 
 func (i *Attrs) SetCustomRoutes(config *services.CustomRoutesConfig) {

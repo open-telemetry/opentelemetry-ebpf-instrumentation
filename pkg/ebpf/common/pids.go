@@ -6,6 +6,7 @@ package ebpfcommon // import "go.opentelemetry.io/obi/pkg/ebpf/common"
 import (
 	"log/slog"
 	"sync"
+	"sync/atomic"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
@@ -29,7 +30,8 @@ const (
 var readNamespacePIDs = procs.FindNamespacedPids
 
 type PIDInfo struct {
-	service        *svc.Attrs
+	// service holds the current svc.Attrs snapshot; updated via CoW by the harvest timer.
+	service        *atomic.Pointer[svc.Attrs]
 	pidTypes       PIDType
 	otherKnownPids []app.PID
 }
@@ -101,7 +103,7 @@ func (pf *PIDsFilter) CurrentPIDs(t PIDType) map[uint32]map[app.PID]svc.Attrs {
 		cVal := map[app.PID]svc.Attrs{}
 		for kv, vv := range v {
 			if vv.pidTypes&t != 0 {
-				cVal[kv] = *vv.service
+				cVal[kv] = *vv.service.Load()
 			}
 		}
 		cp[k] = cVal
@@ -140,13 +142,14 @@ func (pf *PIDsFilter) Filter(inputSpans []request.Span) []request.Span {
 		// saw. We don't check for the host pid, because we can't be sure of the number
 		// of container layers. The Host PID is always the outer most layer.
 		if info, pidExists := ns[span.Pid.UserPID]; pidExists {
+			current := info.service.Load()
 			if pf.ignoreOtel {
-				pf.checkIfExportsOTel(info.service, span, pf.defaultOtlpGRPCPort)
+				pf.checkIfExportsOTel(current, span, pf.defaultOtlpGRPCPort)
 			}
 			if pf.ignoreOtelSpan {
-				pf.checkIfExportsOTelSpanMetrics(info.service, span, pf.defaultOtlpGRPCPort)
+				pf.checkIfExportsOTelSpanMetrics(current, span, pf.defaultOtlpGRPCPort)
 			}
-			inputSpans[i].Service = *info.service
+			inputSpans[i].Service = *current
 			pf.normalizeTraceContext(&inputSpans[i])
 			outputSpans = append(outputSpans, inputSpans[i])
 		}
@@ -174,9 +177,15 @@ func (pf *PIDsFilter) addPID(pid app.PID, nsid uint32, s *svc.Attrs, t PIDType) 
 		return
 	}
 
+	// All PIDs for the same executable share one atomic pointer so that a CoW
+	// swap by the harvest timer is visible to every sibling PID in Filter.
+	cowPtr := new(atomic.Pointer[svc.Attrs])
+	cowPtr.Store(s)
+	s.SetCowPtr(cowPtr)
+
 	for _, p := range allPids {
 		pidInfo := ns[p]
-		pidInfo.service = s
+		pidInfo.service = cowPtr
 		pidInfo.pidTypes |= t
 		pidInfo.otherKnownPids = allPids
 		ns[p] = pidInfo
