@@ -56,7 +56,6 @@ int obi_uprobe_server_handleStream(struct pt_regs *ctx) {
     off_table_t *ot = get_offsets_table();
 
     u64 st_offset = go_offset_of(ot, (go_offset){.v = _grpc_stream_st_ptr_pos});
-    void *st_base_ptr = stream_ptr;
 
     const u64 new_handle_stream = go_offset_of(ot, (go_offset){.v = _grpc_one_six_nine});
     const u64 reduce_pointers_stream = go_offset_of(ot, (go_offset){.v = _grpc_one_seven_seven});
@@ -81,8 +80,6 @@ int obi_uprobe_server_handleStream(struct pt_regs *ctx) {
                                stream_ptr);
                 return 0;
             }
-
-            st_base_ptr = stream_stream_ptr;
         }
     }
 
@@ -93,12 +90,12 @@ int obi_uprobe_server_handleStream(struct pt_regs *ctx) {
         .tp = {0},
     };
 
-    if (st_base_ptr) {
+    if (stream_ptr) {
         void *st_ptr = 0;
         void *tp_ptr = 0;
-        // grpc 1.69 introduced ServerStream. Before 1.77 its st field still lives on the
-        // embedded Stream, so the base object for the st lookup depends on the layout.
-        bpf_probe_read(&st_ptr, sizeof(st_ptr), (void *)(st_base_ptr + st_offset + sizeof(void *)));
+        // grpc 1.69 introduced ServerStream, which keeps the transport on ServerStream.st
+        // even when the embedded Stream changes shape in grpc 1.77.
+        bpf_probe_read(&st_ptr, sizeof(st_ptr), (void *)(stream_ptr + st_offset + sizeof(void *)));
 
         bpf_dbg_printk("st_ptr=%llx", st_ptr);
         invocation.st = (u64)st_ptr;
