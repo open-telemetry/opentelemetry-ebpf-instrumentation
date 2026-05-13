@@ -105,7 +105,7 @@ services:
         condition: service_started
 
   multisegwritev_fluentbit:
-    image: fluent/fluent-bit:3.1.10@sha256:e72c08d2ec8d93999dfb74b17bd0ec8bcb07fedde0d53308f59e7aa0b5f293e1
+    image: fluent/fluent-bit:3.2.10@sha256:d6dec000c4929a439562525728c708f6e99800d7ddc82efd6aa4f45f3a20b562
     user: "0:0"
     volumes:
       - /var/lib/docker/containers:/var/lib/docker/containers:ro
