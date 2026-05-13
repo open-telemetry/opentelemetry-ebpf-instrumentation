@@ -132,6 +132,11 @@ func (s *ContainerStore) ContainerInfo(ctx context.Context, pid app.PID) (Contai
 	}
 
 	inspectInfo := inspectResult.Container
+	const abbreviationLength = 12
+	containerID := inspectInfo.ID
+	if len(containerID) > abbreviationLength {
+		containerID = containerID[:abbreviationLength]
+	}
 
 	composeSvcName := ""
 	if inspectInfo.Config != nil && len(inspectInfo.Config.Labels) > 0 {
@@ -141,7 +146,7 @@ func (s *ContainerStore) ContainerInfo(ctx context.Context, pid app.PID) (Contai
 	meta := ContainerMeta{
 		// some containers start with '/'. Removing it
 		Name:           strings.Trim(inspectInfo.Name, "/"),
-		ID:             inspectInfo.ID,
+		ID:             containerID,
 		ComposeService: composeSvcName,
 	}
 
@@ -282,5 +287,4 @@ func (s *ContainerStore) invalidateContainer(containerID string) {
 		delete(s.byPID, pid)
 	}
 	delete(s.byID, containerID)
-}
 }
