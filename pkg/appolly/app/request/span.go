@@ -742,7 +742,7 @@ type JSONRPC struct {
 // GenAI operation name constants aligned with OTel semantic conventions.
 const (
 	ChatOperationName        = "chat"
-	CompletionOperationName  = "completion"
+	CompletionOperationName  = "text_completion"
 	GenerationOperationName  = "generation"
 	InvokeModelOperationName = "invoke_model"
 	EmbeddingOperationName   = "embeddings"
