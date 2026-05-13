@@ -103,7 +103,7 @@ func TestContainerStoreInvalidation(t *testing.T) {
 		store.byID[containerID] = []app.PID{pid1, pid2}
 		store.cacheMu.Unlock()
 
-		store.invalidatePID(pid1)
+		store.InvalidatePID(pid1)
 
 		store.cacheMu.RLock()
 		_, ok1 := store.byPID[pid1]

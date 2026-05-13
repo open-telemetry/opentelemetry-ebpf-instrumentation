@@ -117,6 +117,7 @@ func DockerProcessEventDecoratorProvider(
 					}
 				case exec.ProcessEventTerminated:
 					delete(containerByPID, ev.File.Pid)
+					containers.InvalidatePID(ev.File.Pid)
 				}
 				output.SendCtx(ctx, ev)
 			})

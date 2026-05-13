@@ -256,7 +256,7 @@ func (s *ContainerStore) eventsLoop(ctx context.Context, fltrs client.Filters) e
 	}
 }
 
-func (s *ContainerStore) invalidatePID(pid app.PID) {
+func (s *ContainerStore) InvalidatePID(pid app.PID) {
 	s.cacheMu.Lock()
 	defer s.cacheMu.Unlock()
 
