@@ -23,6 +23,7 @@ typedef struct http_info {
     u64 req_monotime_ns;
     u64 extra_id;
     tp_info_t tp;
+    unsigned char original_trace_id[16];
     pid_info pid;
     u32 len;
     u32 resp_len;
@@ -34,6 +35,7 @@ typedef struct http_info {
     u8 has_large_buffers;
     u8 direction;
     u8 submitted;
+    u8 _pad2[3];
     enum event_source_type event_source;
-    u8 _pad[2];
+    u8 _pad[7];
 } http_info_t;

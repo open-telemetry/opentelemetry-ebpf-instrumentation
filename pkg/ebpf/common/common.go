@@ -614,15 +614,13 @@ func FixupSpec(spec *ebpf.CollectionSpec, overrideKernelVersion bool) {
 		},
 		License: "MIT",
 	}
-
 	if !SupportsEBPFLoops(ptlog(), overrideKernelVersion) {
-		// Swap the bpf_loop-based programs with their legacy counterparts so
-		// bpf2go-generated struct fields still bind on kernels without bpf_loop.
+		// Hack: instead of redefining bpf2go generated struct for mutually exclusive conditional programs,
+		// use one predefined field name to store either of them.
 		spec.Programs["obi_protocol_http"] = spec.Programs["obi_protocol_http_legacy"]
 		spec.Programs["obi_protocol_http"].Name = "obi_protocol_http"
 		spec.Programs["obi_continue_protocol_http"] = spec.Programs["obi_continue_protocol_http_legacy"]
 		spec.Programs["obi_continue_protocol_http"].Name = "obi_continue_protocol_http"
-
 		// gotracer's obi_uprobe_readMimeHeader inlines a bpf_loop call. The
 		// runtime probe map (see gotracer.Tracer.UProbes) only attaches it on
 		// kernels >= 5.17, but the program still loads as part of the spec.
@@ -634,10 +632,12 @@ func FixupSpec(spec *ebpf.CollectionSpec, overrideKernelVersion bool) {
 		if _, ok := spec.Programs["obi_uprobe_readMimeHeader"]; ok {
 			spec.Programs["obi_uprobe_readMimeHeader"] = dummy
 		}
+		// bpf_loop requires kernel ≥ 5.17; replace with stubs on older kernels.
+		spec.Programs["obi_parse_traceparent_http"] = dummy.Copy()
+		spec.Programs["obi_parse_traceparent_http_append"] = dummy.Copy()
 	}
-
-	// Slot dummies in place of the legacy programs we already moved, so the
-	// bpf2go struct binding still resolves them.
+	// Hack: insert dummy unused programs in order to be able to use bpf2go generated struct to load
+	// the collection.
 	spec.Programs["obi_protocol_http_legacy"] = dummy
 	spec.Programs["obi_continue_protocol_http_legacy"] = dummy
 }

@@ -150,6 +150,50 @@ type EBPFTracer struct {
 
 	// eBPF map configurations
 	MapsConfig MapsConfig `yaml:"maps_config"`
+
+	// Maximum size in kilobytes to scan for a traceparent header buried after large
+	// HTTP headers. Valid range: 4–27. How much of this budget is actually used
+	// depends on the Linux kernel version running on the node:
+	//
+	//   - kernel < 5.17: this setting is ignored entirely. Only the first ~350
+	//     bytes of a request are scanned. Traceparent headers placed after large
+	//     headers (e.g. big auth tokens or cookies) will not be found.
+	//
+	//   - kernel 5.17 or newer: the full budget applies. The scanner reads through
+	//     the request in 956-byte steps until it finds the header or exhausts the
+	//     budget. Works for the vast majority of HTTP clients (curl, standard Go
+	//     and Java HTTP clients, nginx, envoy, …).
+	//
+	//     On kernels older than 6.0, a rare limitation may apply: if an
+	//     application explicitly sends a request using multiple separate memory
+	//     buffers at once (scatter-gather I/O), the scanner only covers the first
+	//     buffer, which is capped at 8 KB. If the traceparent header falls beyond
+	//     that 8 KB boundary it will not be found, regardless of this setting.
+	//     This does not affect the common case where the full request is in a
+	//     single contiguous buffer (curl, Go, Java, most proxies).
+	//     On kernel 6.0 and newer this limitation does not exist.
+	//
+	// On kernels without bpf_loop support (< 5.17), chunked scanning is disabled
+	// automatically regardless of this setting. To stop traceparent scanning
+	// entirely, disable both context propagation and track_request_headers.
+	//
+	// The scanner stops as soon as it detects the end-of-headers boundary
+	// (CRLFCRLF) within a chunk, so it does not read into the request body
+	// within a single received buffer. For multi-segment TCP requests where
+	// headers and body arrive in separate kernel receive calls, OBI cannot
+	// distinguish a body-only segment from a header segment; in that case the
+	// body is not scanned because the traceparent has already been found or the
+	// headers-complete event was observed in an earlier segment.
+	//
+	// Minimum is 4 KB because the chunked scanner starts at the second chunk
+	// (niter=1, offset=956 bytes): the first ~1 KB is already scanned in the
+	// initial BPF pass. A budget below ~1 KB would never trigger a second
+	// chunk and the setting would have no effect. 4 KB provides at least
+	// three additional 956-byte windows and covers the common case of a
+	// single large header (e.g. a 2-3 KB auth token or cookie) before
+	// traceparent. Maximum is 27 KB to stay within the tail-call budget
+	// (k_tp_parse_max_niter=29 iterations × 956-byte step ≈ 27.7 KB).
+	MaxRequestTPParseSizeKB int `yaml:"max_request_tp_parse_size_kb" env:"OTEL_EBPF_BPF_MAX_REQUEST_TP_PARSE_SIZE_KB" validate:"gte=4,lte=27" jsonschema:"minimum=4,maximum=27,default=4"`
 }
 
 var nvidiaSMIExistsFunc = nvidiaSMIExists

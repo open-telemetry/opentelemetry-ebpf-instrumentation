@@ -980,6 +980,8 @@ static __always_inline int return_recvmsg(void *ctx, struct sock *in_sock, u64 i
     }
 
     unsigned char *buf = 0;
+    u64 orig_ubuf = 0;
+    int full_copied_len = copied_len;
     if (args) {
         iovec_iter_ctx *iov_ctx = (iovec_iter_ctx *)&args->iovec_ctx;
 
@@ -987,6 +989,22 @@ static __always_inline int return_recvmsg(void *ctx, struct sock *in_sock, u64 i
             bpf_dbg_printk("iovec_ptr found in kprobe is NULL, ignoring this tcp_recvmsg");
 
             goto done;
+        }
+
+        if (bpf_core_enum_value_exists(enum iter_type___dummy, ITER_UBUF) &&
+            iov_ctx->iter_type == bpf_core_enum_value(enum iter_type___dummy, ITER_UBUF)) {
+            orig_ubuf = (u64)iov_ctx->ubuf;
+        } else if (iov_ctx->iter_type == bpf_core_enum_value(enum iter_type, ITER_IOVEC) &&
+                   iov_ctx->nr_segs == 1) {
+            // On kernels < 6.0, ITER_UBUF does not exist and single-buffer recvmsg calls
+            // use ITER_IOVEC with exactly one segment.  In that case the entire receive
+            // payload is in one contiguous userspace buffer; capture its base pointer so
+            // the chunked traceparent scanner can read beyond the 8 KB iovec scratch cap
+            // using bpf_probe_read_user (same mechanism as ITER_UBUF on newer kernels).
+            struct iovec vec;
+            if (bpf_probe_read_kernel(&vec, sizeof(vec), &iov_ctx->iov[0]) == 0 && vec.iov_base) {
+                orig_ubuf = (u64)vec.iov_base;
+            }
         }
 
         buf = iovec_memory();
@@ -1042,8 +1060,16 @@ static __always_inline int return_recvmsg(void *ctx, struct sock *in_sock, u64 i
             if (buf && copied_len) {
                 bpf_map_delete_elem(&active_recv_args, &id);
                 // doesn't return must be logically last statement
-                handle_buf_with_connection(
-                    ctx, &info, buf, copied_len, NO_SSL, TCP_RECV, orig_dport);
+                handle_buf_with_connection_ext(ctx,
+                                               &info,
+                                               buf,
+                                               copied_len,
+                                               NO_SSL,
+                                               TCP_RECV,
+                                               orig_dport,
+                                               orig_ubuf,
+                                               full_copied_len,
+                                               0);
             }
         } else {
             bpf_dbg_printk("identified SSL connection, ignoring: [%llx]...", *ssl);

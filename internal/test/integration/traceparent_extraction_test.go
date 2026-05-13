@@ -6,6 +6,7 @@ package integration
 import (
 	"net/http"
 	"path"
+	"strings"
 	"testing"
 	"time"
 
@@ -19,8 +20,9 @@ import (
 )
 
 const (
-	staticTraceID   = "12345678901234567890123456789012" // Easy to spot
-	forwardedSpanID = "1111111111111111"                 // Span ID used in forwarded traceparent
+	staticTraceID       = "12345678901234567890123456789012" // Easy to spot
+	staticHugeTPTraceID = "aabbccddeeff00112233445566778899" // Distinct ID for the HTTP huge-headers sub-test
+	forwardedSpanID     = "1111111111111111"                 // Span ID used in forwarded traceparent
 )
 
 // TestTraceparentExtraction validates that the eBPF tpinjector correctly:
@@ -33,7 +35,7 @@ func TestTraceparentExtraction(t *testing.T) {
 	compose.Env = append(compose.Env, `OTEL_EBPF_EXECUTABLE_PATH=`, `OTEL_EBPF_OPEN_PORT=`)
 	require.NoError(t, compose.Up())
 
-	// Wait for service to be ready
+	// Wait for all services to be ready.
 	waitForTestComponents(t, "http://localhost:6000")
 
 	// Wait for instrumentation to be ready
@@ -57,6 +59,7 @@ func TestTraceparentExtraction(t *testing.T) {
 	t.Run("without_traceparent", testWithoutTraceparent)
 	t.Run("with_traceparent", testWithTraceparent)
 	t.Run("with_forwarded_traceparent", testWithForwardedTraceparent)
+	t.Run("with_huge_headers_traceparent", testWithHugeHeadersTraceparent)
 
 	runWeaverValidation(t)
 
@@ -214,4 +217,96 @@ func requireChildOfReference(t *testing.T, child, parent jaeger.Span, msgAndArgs
 		}
 	}
 	require.Fail(t, "missing CHILD_OF reference", msgAndArgs...)
+}
+
+// testWithHugeHeadersTraceparent validates that when a large filler header (>2KB)
+// precedes the Traceparent header, the eBPF chunked tail-call parser still finds it.
+func testWithHugeHeadersTraceparent(t *testing.T) {
+	req, err := http.NewRequest(http.MethodGet, "http://localhost:6000/with-huge-tp", nil)
+	require.NoError(t, err)
+	// Header name is chosen so it sorts before "Traceparent" alphabetically.
+	// net/http writes request headers in sorted order, so this guarantees the
+	// filler precedes the traceparent on the wire and forces the chunked parser path.
+	req.Header.Set("big-filler", strings.Repeat("X", 2500))
+	req.Header.Set("traceparent", "00-"+staticHugeTPTraceID+"-0000000000000001-01")
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	require.NoError(t, resp.Body.Close())
+
+	assertHugeHeadersTraceparent(t, hugeHeadersCase{
+		jaegerService: "tpclient-a",
+		chainServices: []string{"tpclient-a", "tpclient-b", "tpclient-c"},
+		traceID:       staticHugeTPTraceID,
+		urlPath:       "/with-huge-tp",
+	})
+}
+
+// hugeHeadersCase holds the parameters that vary across the huge-headers
+// traceparent sub-tests. jaegerService is the entry service of the chain.
+// chainServices lists every service expected to contribute a server span;
+// the assertion verifies each one is present so a partial trace (e.g. only
+// tpclient-a showed up) is detected and retried.
+type hugeHeadersCase struct {
+	jaegerService string
+	chainServices []string
+	traceID       string
+	urlPath       string
+}
+
+// assertHugeHeadersTraceparent polls Jaeger until the expected trace appears
+// and asserts that every span in the chain carries the static trace ID,
+// proving the eBPF parser found the traceparent even when it was buried
+// after 2KB+ of filler headers.
+func assertHugeHeadersTraceparent(t *testing.T, c hugeHeadersCase) {
+	t.Helper()
+	opName := "GET " + c.urlPath
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		resp, err := http.Get(jaegerQueryURL + "?service=" + c.jaegerService + "&traceID=" + c.traceID)
+		require.NoError(ct, err)
+		defer resp.Body.Close()
+		require.Equal(ct, http.StatusOK, resp.StatusCode)
+
+		var tq jaeger.TracesQuery
+		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
+
+		traces := tq.FindBySpan(jaeger.Tag{Key: "url.path", Type: "string", Value: c.urlPath})
+		require.GreaterOrEqual(ct, len(traces), 1,
+			"should find trace with huge headers + traceparent for service %s", c.jaegerService)
+
+		// Iterate all returned traces to find the first one where every chain
+		// service has contributed a server span. Using traces[0] unconditionally
+		// risks a false positive when Jaeger returns a stale complete trace from
+		// a previous run alongside the current one (same static trace ID).
+		var trace *jaeger.Trace
+		for i := range traces {
+			tr := &traces[i]
+			allPresent := true
+			for _, svc := range c.chainServices {
+				found := false
+				for _, span := range tr.FindByOperationName(opName, "server") {
+					if proc, ok := tr.Processes[span.ProcessID]; ok && proc.ServiceName == svc {
+						found = true
+						break
+					}
+				}
+				if !found {
+					allPresent = false
+					break
+				}
+			}
+			if allPresent {
+				trace = tr
+				break
+			}
+		}
+		require.NotNil(ct, trace,
+			"no complete trace found with all chain services for traceID %s", c.traceID)
+
+		for _, span := range trace.Spans {
+			require.Equal(ct, c.traceID, span.TraceID,
+				"eBPF parser should extract the static trace ID even when buried after 2KB+ of headers")
+		}
+	}, testTimeout, 100*time.Millisecond)
 }

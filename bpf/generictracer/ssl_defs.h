@@ -144,13 +144,13 @@ handle_ssl_buf(void *ctx, u64 id, ssl_args_t *args, int bytes_len, u8 direction)
             // connection.
             cleanup_trace_info_for_delayed_trace(&conn->p_conn, ssl, (void *)args->buf, bytes_len);
             // must be last, doesn't return
-            handle_buf_with_connection(ctx,
-                                       &conn->p_conn,
-                                       (void *)args->buf,
-                                       bytes_len,
-                                       WITH_SSL,
-                                       direction,
-                                       conn->orig_dport);
+            handle_user_buf_with_connection(ctx,
+                                            &conn->p_conn,
+                                            (void *)args->buf,
+                                            bytes_len,
+                                            WITH_SSL,
+                                            direction,
+                                            conn->orig_dport);
         } else {
             bpf_dbg_printk("No connection info! This is a bug.");
         }

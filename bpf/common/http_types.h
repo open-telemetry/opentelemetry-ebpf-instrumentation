@@ -51,13 +51,26 @@ typedef struct call_protocol_args {
     protocol_selector_t protocols;
     u8 skip_tp_parsing;
     u8 use_bpf_loop;
-    u8 pad[1];
+    u8 pad[5];
+    u32 niter;
     int bytes_len;
     u16 orig_dport;
-    u16 _pad2;
+    // is_append: set when this invocation originates from the large-buffer
+    // still_reading path (obi_handle_buf_with_args / __obi_protocol_http),
+    // as opposed to the initial request parse path. Unrelated to HTTP
+    // chunked transfer encoding.
+    u8 is_append;
+    u8 u_buf_is_user;
+    u8 pad_align_ubuf[8];
     u64 u_buf;
     u64 self_ref_parent_id;
     lw_thread_t lw_thread;
+    u64 orig_buf;
+    // full_bytes_len is the actual payload length when orig_buf is set
+    // (ITER_UBUF or single-segment ITER_IOVEC paths in return_recvmsg).
+    // It equals bytes_len in all other cases.
+    u32 full_bytes_len;
+    u32 _pad2;
 } call_protocol_args_t;
 
 // Here we keep information on the packets passing through the socket filter

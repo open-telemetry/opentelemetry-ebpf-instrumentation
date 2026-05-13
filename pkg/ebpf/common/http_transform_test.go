@@ -547,6 +547,7 @@ func TestToRequestTraceLargeBuffers(t *testing.T) {
 			record.HasLargeBuffers = 1
 			record.ConnInfo = connInfo
 			record.Tp.TraceId = traceID
+			record.OriginalTraceId = traceID
 			copy(record.Buf[:], tc.primaryBuf)
 
 			pctx := NewEBPFParseContext(nil, nil, nil)

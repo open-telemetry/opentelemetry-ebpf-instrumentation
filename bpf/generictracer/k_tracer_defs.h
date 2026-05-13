@@ -60,6 +60,11 @@ static __always_inline call_protocol_args_t *make_protocol_args(const pid_connec
     args->u_buf = (u64)u_buf;
     args->lw_thread = lw_thread;
     args->protocols = protocols;
+    args->orig_buf = 0;
+    args->full_bytes_len = 0;
+    args->niter = 0;
+    args->is_append = 0;
+    args->u_buf_is_user = 0;
     args->protocol_type = protocol_type_for_conn_info(info);
 
     args->pid_conn = *info;
@@ -71,13 +76,16 @@ static __always_inline call_protocol_args_t *make_protocol_args(const pid_connec
     return args;
 }
 
-static __always_inline void handle_buf_with_connection(void *ctx,
-                                                       pid_connection_info_t *pid_conn,
-                                                       void *u_buf,
-                                                       int bytes_len,
-                                                       u8 ssl,
-                                                       u8 direction,
-                                                       u16 orig_dport) {
+static __always_inline void handle_buf_with_connection_ext(void *ctx,
+                                                           pid_connection_info_t *pid_conn,
+                                                           void *u_buf,
+                                                           int bytes_len,
+                                                           u8 ssl,
+                                                           u8 direction,
+                                                           u16 orig_dport,
+                                                           u64 orig_buf,
+                                                           u32 full_bytes_len,
+                                                           u8 u_buf_is_user) {
     call_protocol_args_t *args = make_protocol_args(pid_conn,
                                                     k_lw_thread_none,
                                                     k_protocol_selector_all,
@@ -90,7 +98,32 @@ static __always_inline void handle_buf_with_connection(void *ctx,
         return;
     }
 
+    args->orig_buf = orig_buf;
+    args->full_bytes_len = full_bytes_len;
+    args->u_buf_is_user = u_buf_is_user;
     bpf_tail_call(ctx, &jump_table, k_tail_handle_buf_with_args);
+}
+
+static __always_inline void handle_buf_with_connection(void *ctx,
+                                                       pid_connection_info_t *pid_conn,
+                                                       void *u_buf,
+                                                       int bytes_len,
+                                                       u8 ssl,
+                                                       u8 direction,
+                                                       u16 orig_dport) {
+    handle_buf_with_connection_ext(
+        ctx, pid_conn, u_buf, bytes_len, ssl, direction, orig_dport, 0, 0, 0);
+}
+
+static __always_inline void handle_user_buf_with_connection(void *ctx,
+                                                            pid_connection_info_t *pid_conn,
+                                                            void *u_buf,
+                                                            int bytes_len,
+                                                            u8 ssl,
+                                                            u8 direction,
+                                                            u16 orig_dport) {
+    handle_buf_with_connection_ext(
+        ctx, pid_conn, u_buf, bytes_len, ssl, direction, orig_dport, 0, 0, 1);
 }
 
 static __always_inline void handle_light_weight_thread_buf(void *ctx,
@@ -108,6 +141,7 @@ static __always_inline void handle_light_weight_thread_buf(void *ctx,
         return;
     }
 
+    args->u_buf_is_user = 1;
     bpf_tail_call(ctx, &jump_table, k_tail_handle_buf_with_args);
 }
 

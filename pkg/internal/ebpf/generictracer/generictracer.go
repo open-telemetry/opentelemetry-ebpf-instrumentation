@@ -52,6 +52,7 @@ type Tracer struct {
 	iters            []*ebpfcommon.Iter
 	eventCtx         *ebpfcommon.EBPFEventContext
 	jvmUSDTManager   ebpfcommon.USDTSpecManager
+	supportsBPFLoop  bool
 }
 
 func tlog() *slog.Logger {
@@ -59,8 +60,9 @@ func tlog() *slog.Logger {
 }
 
 func New(pidFilter ebpfcommon.ServiceFilter, cfg *obi.Config, metrics imetrics.Reporter) *Tracer {
+	log := tlog()
 	return &Tracer{
-		log:              tlog(),
+		log:              log,
 		cfg:              cfg,
 		metrics:          metrics,
 		pidsFilter:       pidFilter,
@@ -70,6 +72,7 @@ func New(pidFilter ebpfcommon.ServiceFilter, cfg *obi.Config, metrics imetrics.R
 		instrumentedLibs: make(ebpfcommon.InstrumentedLibsT),
 		libsMux:          sync.Mutex{},
 		iters:            []*ebpfcommon.Iter{},
+		supportsBPFLoop:  ebpfcommon.SupportsEBPFLoops(log, cfg.EBPF.OverrideBPFLoopEnabled),
 	}
 }
 
@@ -147,7 +150,7 @@ func (p *Tracer) BlockPID(pid app.PID, ns uint32) {
 func (p *Tracer) LoadSpecs() ([]*ebpfcommon.SpecBundle, error) {
 	if p.cfg.EBPF.TrackRequestHeaders ||
 		p.cfg.EBPF.ContextPropagation.IsEnabled() {
-		p.log.Info("Enabling trace information parsing", "bpf_loop_enabled", ebpfcommon.SupportsEBPFLoops(p.log, p.cfg.EBPF.OverrideBPFLoopEnabled))
+		p.log.Info("Enabling trace information parsing", "bpf_loop_enabled", p.supportsBPFLoop)
 	}
 
 	spec, err := LoadBpf()
@@ -170,7 +173,7 @@ func (p *Tracer) SetupTailCalls() {
 		p.bpfObjects.ObiContinueProtocolHttpTp, // 3  k_tail_continue_protocol_http_tp
 		// TCP
 		p.bpfObjects.ObiProtocolTcp, // 4  k_tail_protocol_tcp
-		// generic
+		// Generic
 		p.bpfObjects.ObiHandleBufWithArgs, // 5  k_tail_handle_buf_with_args
 		nil,                               // 6  k_tail_continue_netfd_read (gotracer-only)
 		// HTTP/2 + gRPC
@@ -182,6 +185,8 @@ func (p *Tracer) SetupTailCalls() {
 		p.bpfObjects.ObiProtocolHttp2GrpcHandleStartFrameServerFinalize, // 12
 		// Large buffer multi-batch emission
 		p.bpfObjects.ObiLargeBufEmitContinue, // 13  k_tail_large_buf_emit_continue
+		// Chunked traceparent scanner
+		p.bpfObjects.ObiParseTraceparentHttp, // 14  k_tail_parse_traceparent_http
 	} {
 		if prog == nil {
 			continue
@@ -241,6 +246,14 @@ func (p *Tracer) constants() map[string]any {
 	m["jvm_sampling_interval_ns"] = uint64(0)
 	if p.jvmRuntimeMetricsEnabled() {
 		m["jvm_sampling_interval_ns"] = uint64(p.cfg.JVMRuntimeMetrics.SamplingInterval.Nanoseconds())
+	}
+
+	if p.supportsBPFLoop {
+		m["bpf_max_request_tp_parse_size_kb"] = uint32(p.cfg.EBPF.MaxRequestTPParseSizeKB)
+	} else {
+		// bpf_loop is unavailable on this kernel; set to 0 to prevent tail-calls
+		// into the dummy stub replacing obi_parse_traceparent_http.
+		m["bpf_max_request_tp_parse_size_kb"] = uint32(0)
 	}
 
 	return m
