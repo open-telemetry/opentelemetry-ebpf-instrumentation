@@ -381,7 +381,7 @@ func getDefinitions(
 		},
 		Traces.Section: {
 			Attributes: map[attr.Name]Default{
-				attr.DNSQuestionName:   false,
+				attr.DNSQuestionName:   true,
 				attr.DBQueryText:       false,
 				attr.HTTPUrlQuery:      false,
 				attr.GenAIInput:        false,
@@ -420,11 +420,8 @@ func getDefinitions(
 		DNSLookupDuration.Section: {
 			SubGroups: []*AttrReportGroup{&appAttributes},
 			Attributes: map[attr.Name]Default{
-				attr.ErrorType: true,
-				// Note: DNSQuestionName is intentionally NOT included as a default
-				// metric label to avoid unbounded cardinality (issue #2028).
-				// Users can explicitly enable it via attribute configuration if needed,
-				// but should be aware of cardinality implications.
+				attr.DNSQuestionName: false,
+				attr.ErrorType:       true,
 			},
 		},
 		StatTCPRtt.Section: {

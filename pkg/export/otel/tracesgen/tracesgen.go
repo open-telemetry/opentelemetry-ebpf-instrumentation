@@ -1040,9 +1040,7 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 			request.ServerPort(span.HostPort),
 			request.DNSAnswers(span.Statement),
 		}
-		// DNSQuestionName is intentionally excluded by default to prevent unbounded
-		// metric cardinality from highly variable DNS domains (issue #2028).
-		// Only emit it when explicitly selected via optionalAttrs.
+		// Include DNSQuestionName only when selected via attribute config.
 		if _, ok := optionalAttrs[attr.DNSQuestionName]; ok {
 			attrs = append(attrs, semconv.DNSQuestionName(span.Path))
 		}

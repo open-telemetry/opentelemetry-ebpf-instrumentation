@@ -23,20 +23,17 @@ func TestTraceAttributesSelector_DNSQuestionName(t *testing.T) {
 		Path:   "example.com",
 	}
 
-	defaultAttrs := TraceAttributesSelector(span, map[attr.Name]struct{}{})
-	assert.NotEmpty(t, defaultAttrs)
-	assert.NotContains(t, defaultAttrs, semconv.DNSQuestionName("example.com"))
+	// When optionalAttrs is empty, DNSQuestionName is not emitted
+	emptyAttrs := TraceAttributesSelector(span, map[attr.Name]struct{}{})
+	assert.NotEmpty(t, emptyAttrs)
+	assert.NotContains(t, emptyAttrs, semconv.DNSQuestionName("example.com"))
 
-	selectedAttrs, err := UserSelectedAttributes(&attributes.SelectorConfig{
-		SelectionCfg: attributes.Selection{
-			"traces": attributes.InclusionLists{
-				Include: []string{"dns.question.name"},
-			},
-		},
-	})
+	// With default config (no explicit user selection), DNSQuestionName defaults
+	// to true for traces, so it should be present in the selected attributes.
+	defaultAttrs, err := UserSelectedAttributes(&attributes.SelectorConfig{})
 	require.NoError(t, err)
-	assert.Contains(t, selectedAttrs, attr.DNSQuestionName)
+	assert.Contains(t, defaultAttrs, attr.DNSQuestionName)
 
-	optInAttrs := TraceAttributesSelector(span, selectedAttrs)
+	optInAttrs := TraceAttributesSelector(span, defaultAttrs)
 	assert.Contains(t, optInAttrs, semconv.DNSQuestionName("example.com"))
 }
