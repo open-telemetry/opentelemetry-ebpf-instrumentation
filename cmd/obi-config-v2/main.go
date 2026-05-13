@@ -9,9 +9,10 @@ import (
 	"log"
 	"os"
 
+	"gopkg.in/yaml.v3"
+
 	obiconfigv2 "go.opentelemetry.io/obi/internal/obiconfigv2"
 	"go.opentelemetry.io/obi/pkg/obi"
-	"gopkg.in/yaml.v3"
 )
 
 func main() {

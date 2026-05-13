@@ -9,8 +9,9 @@ import (
 	"fmt"
 	"os"
 
-	"go.opentelemetry.io/collector/consumer/consumertest"
 	"gopkg.in/yaml.v3"
+
+	"go.opentelemetry.io/collector/consumer/consumertest"
 
 	obiconfigv2 "go.opentelemetry.io/obi/internal/obiconfigv2"
 	obicfg "go.opentelemetry.io/obi/pkg/config"
@@ -44,7 +45,10 @@ func maybeRunConfigCommand(args []string) bool {
 func runConfigValidate(args []string) {
 	fs := flag.NewFlagSet("config validate", flag.ExitOnError)
 	mode := fs.String("mode", string(obiv2.DeploymentModeStandalone), "validation mode: standalone or receiver")
-	fs.Parse(args)
+	if err := fs.Parse(args); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
 
 	if fs.NArg() != 1 {
 		fmt.Fprintln(os.Stderr, "usage: obi config validate [--mode=standalone|receiver] <path>")
@@ -132,7 +136,10 @@ func runConfigMigrate(args []string) {
 	fs := flag.NewFlagSet("config migrate", flag.ExitOnError)
 	from := fs.String("from", "v1", "source config version")
 	to := fs.String("to", "v2", "destination config version")
-	fs.Parse(args)
+	if err := fs.Parse(args); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
 
 	if *from != "v1" || *to != "v2" {
 		fmt.Fprintln(os.Stderr, "only --from v1 --to v2 is currently supported")

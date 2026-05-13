@@ -115,18 +115,12 @@ func main() {
 }
 
 func loadConfig(configPath *string) *obi.Config {
-	var configReader io.ReadCloser
 	var configBytes []byte
 	if configPath != nil && *configPath != "" {
 		var err error
-		if configReader, err = os.Open(*configPath); err != nil {
-			slog.Error("can't open "+*configPath, "error", err)
-			os.Exit(-1)
-		}
-		defer configReader.Close()
-		configBytes, err = io.ReadAll(configReader)
+		configBytes, err = os.ReadFile(*configPath)
 		if err != nil {
-			slog.Error("can't read "+*configPath, "error", err)
+			slog.Error("can't open "+*configPath, "error", err)
 			os.Exit(-1)
 		}
 	}
@@ -153,7 +147,6 @@ func loadConfig(configPath *string) *obi.Config {
 	config, err := obi.LoadConfig(bytesReader(configBytes))
 	if err != nil {
 		slog.Error("wrong configuration", "error", err)
-		//nolint:gocritic
 		os.Exit(-1)
 	}
 	return config
