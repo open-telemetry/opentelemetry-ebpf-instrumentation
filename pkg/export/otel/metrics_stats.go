@@ -202,7 +202,7 @@ func (me *statMetricsExporter) Do(ctx context.Context) {
 				tcpFailedConnections, attrs := me.tcpFailedConnections.ForRecord(v)
 				tcpFailedConnections.Add(ctx, 1, metric2.WithAttributeSet(attrs))
 			}
-			if me.tcpRetransmits != nil && v.TCPRetransmit != nil {
+			if me.tcpRetransmits != nil && v.TCPRetransmit {
 				tcpRetransmits, attrs := me.tcpRetransmits.ForRecord(v)
 				tcpRetransmits.Add(ctx, 1, metric2.WithAttributeSet(attrs))
 			}

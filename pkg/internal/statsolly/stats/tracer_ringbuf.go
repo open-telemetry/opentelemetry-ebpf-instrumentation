@@ -123,7 +123,7 @@ func readTCPRetransmitIntoStat(record *ringbuf.Record) (ebpf.Stat, error) {
 	}
 	return ebpf.Stat{
 		Type:          ebpf.StatTypeTCPRetransmit,
-		TCPRetransmit: &ebpf.TCPRetransmit{},
+		TCPRetransmit: true,
 		CommonAttrs:   connToCommonAttrs(event.Conn.S_addr, event.Conn.D_addr, event.Conn.S_port, event.Conn.D_port),
 	}, nil
 }

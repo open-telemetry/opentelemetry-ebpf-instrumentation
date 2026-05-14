@@ -193,7 +193,7 @@ func (r *statMetricsReporter) observeTCPFailedConnections(stat *ebpf.Stat) {
 }
 
 func (r *statMetricsReporter) observeTCPRetransmits(stat *ebpf.Stat) {
-	if r.tcpRetransmits == nil || stat.TCPRetransmit == nil {
+	if r.tcpRetransmits == nil || !stat.TCPRetransmit {
 		return
 	}
 	r.tcpRetransmits.WithLabelValues(labelValues(stat, r.tcpRetransmitsAttrs)...).

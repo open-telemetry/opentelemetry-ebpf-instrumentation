@@ -66,7 +66,7 @@ type Stat struct {
 	Type                StatType             `json:"type"`
 	TCPRtt              *TCPRtt              `json:"-"`
 	TCPFailedConnection *TCPFailedConnection `json:"-"`
-	TCPRetransmit       *TCPRetransmit       `json:"-"`
+	TCPRetransmit       bool                 `json:"-"`
 
 	// Attrs of the flow record: source/destination, OBI IP, etc...
 	CommonAttrs pipe.CommonAttrs
@@ -81,5 +81,3 @@ type TCPFailedConnection struct {
 	Reason uint8 `json:"reason"`
 	Role   uint8 `json:"role"`
 }
-
-type TCPRetransmit struct{}

@@ -154,7 +154,7 @@ func fakeFailedConnRecord(srcPort, dstPort uint16, reason uint8) *ebpf.Stat {
 
 func fakeRetransmitRecord(srcPort, dstPort uint16) *ebpf.Stat {
 	return &ebpf.Stat{
-		TCPRetransmit: &ebpf.TCPRetransmit{},
+		TCPRetransmit: true,
 		CommonAttrs: pipe.CommonAttrs{
 			SrcPort: srcPort,
 			DstPort: dstPort,
