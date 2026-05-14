@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/filter"
@@ -217,6 +218,92 @@ func TestRuntimeProtocolEnablementRoundTrip(t *testing.T) {
 	require.NotContains(t, got.Prometheus.Instrumentations, instrumentations.InstrumentationSQL)
 	require.True(t, got.NetworkFlows.Enable)
 	require.Equal(t, export.FeatureApplicationRED|export.FeatureNetwork, got.Metrics.Features)
+}
+
+func TestDiscoverySelectorPIDAndPortRoundTrip(t *testing.T) {
+	cfg := obi.DefaultConfig
+	cfg.Discovery.Instrument = []services.GlobAttributes{
+		{OpenPorts: services.IntEnum{Ranges: []services.IntRange{{Start: 8080}, {Start: 8443, End: 8444}}}},
+		{PIDs: []uint32{1234, 5678}},
+	}
+	cfg.Discovery.ExcludeInstrument = []services.GlobAttributes{
+		{OpenPorts: services.IntEnum{Ranges: []services.IntRange{{Start: 4317}}}},
+		{PIDs: []uint32{99}},
+	}
+
+	doc, err := RuntimeToDocument(&cfg)
+	require.NoError(t, err)
+
+	rules := doc.Extensions.OBI.Capture.Rules
+	require.Contains(t, rules, obiv2.Rule{
+		Action: "include",
+		Match: map[string]any{
+			"process": map[string]any{
+				"open_ports": services.IntEnum{Ranges: []services.IntRange{{Start: 8080}, {Start: 8443, End: 8444}}},
+			},
+		},
+	})
+	require.Contains(t, rules, obiv2.Rule{
+		Action: "include",
+		Match: map[string]any{
+			"process": map[string]any{
+				"target_pids": []uint32{1234, 5678},
+			},
+		},
+	})
+	require.Contains(t, rules, obiv2.Rule{
+		Action: "exclude",
+		Match: map[string]any{
+			"process": map[string]any{
+				"open_ports": services.IntEnum{Ranges: []services.IntRange{{Start: 4317}}},
+			},
+		},
+	})
+	require.Contains(t, rules, obiv2.Rule{
+		Action: "exclude",
+		Match: map[string]any{
+			"process": map[string]any{
+				"target_pids": []uint32{99},
+			},
+		},
+	})
+
+	got, err := StandaloneToRuntime(doc)
+	require.NoError(t, err)
+	require.Condition(t, func() bool {
+		for _, selector := range got.Discovery.Instrument {
+			if len(selector.OpenPorts.Ranges) == 2 &&
+				selector.OpenPorts.Ranges[0] == (services.IntRange{Start: 8080}) &&
+				selector.OpenPorts.Ranges[1] == (services.IntRange{Start: 8443, End: 8444}) {
+				return true
+			}
+		}
+		return false
+	})
+	require.Condition(t, func() bool {
+		for _, selector := range got.Discovery.Instrument {
+			if len(selector.PIDs) == 2 && selector.PIDs[0] == 1234 && selector.PIDs[1] == 5678 {
+				return true
+			}
+		}
+		return false
+	})
+	require.Condition(t, func() bool {
+		for _, selector := range got.Discovery.ExcludeInstrument {
+			if len(selector.OpenPorts.Ranges) == 1 && selector.OpenPorts.Ranges[0] == (services.IntRange{Start: 4317}) {
+				return true
+			}
+		}
+		return false
+	})
+	require.Condition(t, func() bool {
+		for _, selector := range got.Discovery.ExcludeInstrument {
+			if len(selector.PIDs) == 1 && selector.PIDs[0] == 99 {
+				return true
+			}
+		}
+		return false
+	})
 }
 
 func TestRuntimeStatsConfigRoundTrip(t *testing.T) {

@@ -338,6 +338,14 @@ func mapRules(cfg *obi.Config, src *obiv2.Extension) {
 				continue
 			}
 
+			if ports, ok := intEnumValue(process, "open_ports"); ok {
+				appendRuleSelector(cfg, rule.Action, services.GlobAttributes{OpenPorts: ports})
+			}
+
+			if pids := uint32SliceValue(process, "target_pids"); len(pids) > 0 {
+				appendRuleSelector(cfg, rule.Action, services.GlobAttributes{PIDs: pids})
+			}
+
 			globs := stringSliceValue(process, "exe_path_glob")
 			if len(globs) > 0 {
 				if rule.Name == "exclude-linux-system-paths" {
@@ -473,6 +481,60 @@ func stringSliceValue(m map[string]any, key string) []string {
 		}
 	}
 	return result
+}
+
+func uint32SliceValue(m map[string]any, key string) []uint32 {
+	if m == nil {
+		return nil
+	}
+	if values, ok := m[key].([]uint32); ok {
+		return append([]uint32(nil), values...)
+	}
+	values, ok := m[key].([]any)
+	if !ok {
+		return nil
+	}
+	result := make([]uint32, 0, len(values))
+	for _, value := range values {
+		switch n := value.(type) {
+		case int:
+			result = append(result, uint32(n))
+		case int64:
+			result = append(result, uint32(n))
+		case float64:
+			result = append(result, uint32(n))
+		}
+	}
+	return result
+}
+
+func intEnumValue(m map[string]any, key string) (services.IntEnum, bool) {
+	if m == nil {
+		return services.IntEnum{}, false
+	}
+
+	var out services.IntEnum
+	switch value := m[key].(type) {
+	case services.IntEnum:
+		if value.Len() > 0 {
+			return value, true
+		}
+	case string:
+		if err := out.UnmarshalText([]byte(value)); err == nil && out.Len() > 0 {
+			return out, true
+		}
+	case int:
+		out.Ranges = []services.IntRange{{Start: value}}
+		return out, true
+	case int64:
+		out.Ranges = []services.IntRange{{Start: int(value)}}
+		return out, true
+	case float64:
+		out.Ranges = []services.IntRange{{Start: int(value)}}
+		return out, true
+	}
+
+	return services.IntEnum{}, false
 }
 
 func setString(dst *string, m map[string]any, key string) {

@@ -98,3 +98,24 @@ discovery: {}
 	var notV2 *NotV2Error
 	require.ErrorAs(t, err, &notV2)
 }
+
+func TestParseYAMLDiscoveryPIDAndPortRules(t *testing.T) {
+	t.Parallel()
+
+	_, cfg, err := ParseYAML([]byte(`
+version: "2.0"
+rules:
+  - action: include
+    match:
+      process:
+        open_ports: 8080,8443-8444
+  - action: exclude
+    match:
+      process:
+        target_pids: [99, 100]
+`), DeploymentModeReceiver)
+	require.NoError(t, err)
+	require.Len(t, cfg.Capture.Rules, 2)
+	require.Equal(t, "8080,8443-8444", nestedMap(cfg.Capture.Rules[0].Match, "process")["open_ports"])
+	require.Equal(t, []any{99, 100}, nestedMap(cfg.Capture.Rules[1].Match, "process")["target_pids"])
+}

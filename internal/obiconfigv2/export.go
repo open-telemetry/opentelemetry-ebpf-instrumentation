@@ -414,6 +414,26 @@ func filterMap(in filter.AttributeFamilyConfig) map[string]any {
 func rulesFromRuntime(cfg *obi.Config) []obiv2.Rule {
 	rules := []obiv2.Rule{}
 	for _, selector := range cfg.Discovery.ExcludeInstrument {
+		if selector.OpenPorts.Len() > 0 {
+			rules = append(rules, obiv2.Rule{
+				Action: "exclude",
+				Match: map[string]any{
+					"process": map[string]any{
+						"open_ports": selector.OpenPorts,
+					},
+				},
+			})
+		}
+		if len(selector.PIDs) > 0 {
+			rules = append(rules, obiv2.Rule{
+				Action: "exclude",
+				Match: map[string]any{
+					"process": map[string]any{
+						"target_pids": selector.PIDs,
+					},
+				},
+			})
+		}
 		if selector.Path.IsSet() {
 			rules = append(rules, obiv2.Rule{
 				Action: "exclude",
@@ -430,6 +450,28 @@ func rulesFromRuntime(cfg *obi.Config) []obiv2.Rule {
 				Match: map[string]any{
 					"kubernetes": map[string]any{
 						"namespace_glob": []string{globString(*namespace)},
+					},
+				},
+			})
+		}
+	}
+	for _, selector := range cfg.Discovery.Instrument {
+		if selector.OpenPorts.Len() > 0 {
+			rules = append(rules, obiv2.Rule{
+				Action: "include",
+				Match: map[string]any{
+					"process": map[string]any{
+						"open_ports": selector.OpenPorts,
+					},
+				},
+			})
+		}
+		if len(selector.PIDs) > 0 {
+			rules = append(rules, obiv2.Rule{
+				Action: "include",
+				Match: map[string]any{
+					"process": map[string]any{
+						"target_pids": selector.PIDs,
 					},
 				},
 			})
