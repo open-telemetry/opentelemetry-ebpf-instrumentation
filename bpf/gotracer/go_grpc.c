@@ -562,6 +562,9 @@ int obi_uprobe_transport_http2Client_NewStream(struct pt_regs *ctx) {
             bpf_probe_read(&conn_ptr_key, sizeof(conn_ptr_key), conn_ptr);
         }
 
+        // PID-scoped cache key: uses the transport pointer as the address
+        // component to avoid stale entries when pointer values are recycled
+        // across different processes.
         go_addr_key_t cache_key = {};
         go_addr_key_from_id(&cache_key, t_ptr);
 
