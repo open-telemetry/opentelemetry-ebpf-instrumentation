@@ -361,21 +361,40 @@ func applyStandalone(cfg *obi.Config, src *obiv2.Extension) {
 
 func applyTopLevelPipelines(cfg *obi.Config, doc *obiv2.Document) {
 	setSamplerConfig(&cfg.Traces.SamplerConfig, nestedMap(doc.TracerProvider, "sampler"))
+	setInt(&cfg.Traces.BatchMaxSize, nestedMap(doc.TracerProvider, "processors", "0", "batch"), "max_export_batch_size")
 	setInt(&cfg.Traces.QueueSize, nestedMap(doc.TracerProvider, "processors", "0", "batch"), "max_queue_size")
 	setMilliseconds(&cfg.Traces.BatchTimeout, nestedMap(doc.TracerProvider, "processors", "0", "batch"), "schedule_delay")
 	setString(&cfg.Traces.TracesEndpoint, nestedMap(doc.TracerProvider, "processors", "0", "batch", "exporter", "otlp_grpc"), "endpoint")
 	setBool(&cfg.Traces.InsecureSkipVerify, nestedMap(doc.TracerProvider, "processors", "0", "batch", "exporter", "otlp_grpc", "tls"), "insecure")
+	setDuration(&cfg.Traces.BackOffInitialInterval, nestedMap(doc.TracerProvider, "processors", "0", "batch", "exporter", "otlp_grpc", "retry"), "initial_interval")
+	setDuration(&cfg.Traces.BackOffMaxInterval, nestedMap(doc.TracerProvider, "processors", "0", "batch", "exporter", "otlp_grpc", "retry"), "max_interval")
+	setDuration(&cfg.Traces.BackOffMaxElapsedTime, nestedMap(doc.TracerProvider, "processors", "0", "batch", "exporter", "otlp_grpc", "retry"), "max_elapsed_time")
 
-	setMillisecondsInt(&cfg.OTELMetrics.OTELIntervalMS, nestedMap(doc.MeterProvider, "readers", "0", "periodic"), "interval")
-	setString(&cfg.OTELMetrics.MetricsEndpoint, nestedMap(doc.MeterProvider, "readers", "0", "periodic", "exporter", "otlp_grpc"), "endpoint")
-	setString((*string)(&cfg.OTELMetrics.HistogramAggregation), nestedMap(doc.MeterProvider, "readers", "0", "periodic", "exporter", "otlp_grpc"), "default_histogram_aggregation")
-	setBool(&cfg.OTELMetrics.InsecureSkipVerify, nestedMap(doc.MeterProvider, "readers", "0", "periodic", "exporter", "otlp_grpc", "tls"), "insecure")
-	setInt(&cfg.Prometheus.Port, nestedMap(doc.MeterProvider, "readers", "1", "pull", "exporter", "prometheus/development"), "port")
+	periodicReader := topLevelMeterReader(doc.MeterProvider, "periodic")
+	setMillisecondsInt(&cfg.OTELMetrics.OTELIntervalMS, periodicReader, "interval")
+	setString(&cfg.OTELMetrics.MetricsEndpoint, nestedMap(periodicReader, "exporter", "otlp_grpc"), "endpoint")
+	setString((*string)(&cfg.OTELMetrics.HistogramAggregation), nestedMap(periodicReader, "exporter", "otlp_grpc"), "default_histogram_aggregation")
+	setBool(&cfg.OTELMetrics.InsecureSkipVerify, nestedMap(periodicReader, "exporter", "otlp_grpc", "tls"), "insecure")
+
+	pullReader := topLevelMeterReader(doc.MeterProvider, "pull")
+	setInt(&cfg.Prometheus.Port, nestedMap(pullReader, "exporter", "prometheus/development"), "port")
 }
 
 func applyTopLevelResource(cfg *obi.Config, doc *obiv2.Document) {
 	setString(&cfg.Attributes.InstanceID.OverrideHostname, doc.Resource, "host.name")
 	setString(&cfg.Attributes.HostID.Override, doc.Resource, "host.id")
+}
+
+func topLevelMeterReader(meterProvider map[string]any, readerType string) map[string]any {
+	readers, _ := meterProvider["readers"].([]any)
+	for _, reader := range readers {
+		readerMap, _ := reader.(map[string]any)
+		if readerCfg := nestedMap(readerMap, readerType); readerCfg != nil {
+			return readerCfg
+		}
+	}
+
+	return nil
 }
 
 func mapRules(cfg *obi.Config, src *obiv2.Extension) {

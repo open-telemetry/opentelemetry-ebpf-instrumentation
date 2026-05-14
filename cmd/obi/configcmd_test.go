@@ -41,6 +41,33 @@ extensions:
 `)))
 }
 
+func TestValidateStandaloneConfigSupportsTopLevelTracesPipelineFields(t *testing.T) {
+	require.NoError(t, validateStandaloneConfig([]byte(`
+file_format: "1.0"
+tracer_provider:
+  processors:
+    - batch:
+        max_export_batch_size: 512
+        max_queue_size: 4096
+        schedule_delay: 7000
+        exporter:
+          otlp_grpc:
+            endpoint: https://collector:4317
+            retry:
+              initial_interval: 2s
+              max_interval: 9s
+              max_elapsed_time: 45s
+            tls:
+              insecure: true
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      policy:
+        default_action: include
+`)))
+}
+
 func TestValidateReceiverConfigSupportsV2(t *testing.T) {
 	require.NoError(t, validateReceiverConfig([]byte(`
 version: "2.0"

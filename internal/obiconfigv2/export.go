@@ -770,11 +770,17 @@ func tracerProviderMap(cfg *obi.Config) map[string]any {
 		"processors": []any{
 			map[string]any{
 				"batch": map[string]any{
-					"max_queue_size": cfg.Traces.QueueSize,
-					"schedule_delay": cfg.Traces.BatchTimeout.Milliseconds(),
+					"max_export_batch_size": cfg.Traces.BatchMaxSize,
+					"max_queue_size":        cfg.Traces.QueueSize,
+					"schedule_delay":        cfg.Traces.BatchTimeout.Milliseconds(),
 					"exporter": map[string]any{
 						"otlp_grpc": map[string]any{
 							"endpoint": cfg.Traces.TracesEndpoint,
+							"retry": map[string]any{
+								"initial_interval": cfg.Traces.BackOffInitialInterval.String(),
+								"max_interval":     cfg.Traces.BackOffMaxInterval.String(),
+								"max_elapsed_time": cfg.Traces.BackOffMaxElapsedTime.String(),
+							},
 							"tls": map[string]any{
 								"insecure": cfg.Traces.InsecureSkipVerify,
 							},

@@ -51,8 +51,45 @@ func TestDefaultConfigRoundTrip(t *testing.T) {
 	require.Equal(t, obi.DefaultConfig.OTELMetrics.OTELIntervalMS, got.OTELMetrics.OTELIntervalMS)
 }
 
+func TestTopLevelTracesPipelineRoundTrip(t *testing.T) {
+	cfg := obi.DefaultConfig
+	cfg.Traces.BatchMaxSize = 512
+	cfg.Traces.QueueSize = 4096
+	cfg.Traces.BatchTimeout = 7 * time.Second
+	cfg.Traces.TracesEndpoint = "https://collector:4317"
+	cfg.Traces.InsecureSkipVerify = true
+	cfg.Traces.BackOffInitialInterval = 2 * time.Second
+	cfg.Traces.BackOffMaxInterval = 9 * time.Second
+	cfg.Traces.BackOffMaxElapsedTime = 45 * time.Second
+
+	doc, err := RuntimeToDocument(&cfg)
+	require.NoError(t, err)
+
+	batch := nestedMap(doc.TracerProvider, "processors", "0", "batch")
+	require.Equal(t, 512, batch["max_export_batch_size"])
+	require.Equal(t, 4096, batch["max_queue_size"])
+	require.Equal(t, int64(7000), batch["schedule_delay"])
+	require.Equal(t, "https://collector:4317", nestedMap(batch, "exporter", "otlp_grpc")["endpoint"])
+	require.Equal(t, true, nestedMap(batch, "exporter", "otlp_grpc", "tls")["insecure"])
+	require.Equal(t, "2s", nestedMap(batch, "exporter", "otlp_grpc", "retry")["initial_interval"])
+	require.Equal(t, "9s", nestedMap(batch, "exporter", "otlp_grpc", "retry")["max_interval"])
+	require.Equal(t, "45s", nestedMap(batch, "exporter", "otlp_grpc", "retry")["max_elapsed_time"])
+
+	got, err := StandaloneToRuntime(doc)
+	require.NoError(t, err)
+	require.Equal(t, cfg.Traces.BatchMaxSize, got.Traces.BatchMaxSize)
+	require.Equal(t, cfg.Traces.QueueSize, got.Traces.QueueSize)
+	require.Equal(t, cfg.Traces.BatchTimeout, got.Traces.BatchTimeout)
+	require.Equal(t, cfg.Traces.TracesEndpoint, got.Traces.TracesEndpoint)
+	require.Equal(t, cfg.Traces.InsecureSkipVerify, got.Traces.InsecureSkipVerify)
+	require.Equal(t, cfg.Traces.BackOffInitialInterval, got.Traces.BackOffInitialInterval)
+	require.Equal(t, cfg.Traces.BackOffMaxInterval, got.Traces.BackOffMaxInterval)
+	require.Equal(t, cfg.Traces.BackOffMaxElapsedTime, got.Traces.BackOffMaxElapsedTime)
+}
+
 func TestTracerControlsRoundTrip(t *testing.T) {
 	cfg := obi.DefaultConfig
+	cfg.Traces.BatchMaxSize = 1024
 	cfg.EBPF.DisableBlackBoxCP = true
 	cfg.EBPF.ContextPropagation = config.ContextPropagationHeaders
 	cfg.EBPF.TCBackend = config.TCBackendTCX
@@ -62,6 +99,7 @@ func TestTracerControlsRoundTrip(t *testing.T) {
 	doc, err := RuntimeToDocument(&cfg)
 	require.NoError(t, err)
 
+	require.Equal(t, 1024, nestedMap(doc.TracerProvider, "processors", "0", "batch")["max_export_batch_size"])
 	require.Equal(t, "headers", nestedMap(doc.Extensions.OBI.Raw, "capture", "engine", "propagation")["context_propagation"])
 	require.Equal(t, true, nestedMap(doc.Extensions.OBI.Raw, "capture", "engine", "propagation")["disable_black_box_cp"])
 	require.Equal(t, "tcx", nestedMap(doc.Extensions.OBI.Raw, "capture", "engine", "traffic")["control_backend"])
@@ -71,11 +109,54 @@ func TestTracerControlsRoundTrip(t *testing.T) {
 	got, err := StandaloneToRuntime(doc)
 	require.NoError(t, err)
 
+	require.Equal(t, 1024, got.Traces.BatchMaxSize)
 	require.True(t, got.EBPF.DisableBlackBoxCP)
 	require.Equal(t, config.ContextPropagationHeaders, got.EBPF.ContextPropagation)
 	require.Equal(t, config.TCBackendTCX, got.EBPF.TCBackend)
 	require.Equal(t, config.MapReaderLegacy, got.EBPF.ForceBPFMapReader)
 	require.Equal(t, 2, got.EBPF.MapsConfig.GlobalScaleFactor)
+}
+
+func TestStandaloneToRuntimeAppliesTopLevelTracesBatchConfig(t *testing.T) {
+	cfg, err := StandaloneToRuntime(&obiv2.Document{
+		FileFormat: "1.0",
+		TracerProvider: map[string]any{
+			"processors": []any{
+				map[string]any{
+					"batch": map[string]any{
+						"max_export_batch_size": 512,
+						"max_queue_size":        4096,
+						"schedule_delay":        int64(2500),
+						"exporter": map[string]any{
+							"otlp_grpc": map[string]any{
+								"endpoint": "https://collector:4317",
+								"tls": map[string]any{
+									"insecure": true,
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		Extensions: obiv2.Extensions{
+			OBI: &obiv2.Extension{
+				Version: obiv2.SupportedVersion,
+				Capture: obiv2.CaptureConfig{
+					Policy: map[string]any{
+						"default_action": "include",
+					},
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	require.Equal(t, 512, cfg.Traces.BatchMaxSize)
+	require.Equal(t, 4096, cfg.Traces.QueueSize)
+	require.Equal(t, 2500*time.Millisecond, cfg.Traces.BatchTimeout)
+	require.Equal(t, "https://collector:4317", cfg.Traces.TracesEndpoint)
+	require.True(t, cfg.Traces.InsecureSkipVerify)
 }
 
 func TestMSSQLAndTCPBufferRoundTrip(t *testing.T) {
@@ -276,6 +357,70 @@ func TestRuntimeProtocolEnablementRoundTrip(t *testing.T) {
 	require.NotContains(t, got.Prometheus.Instrumentations, instrumentations.InstrumentationSQL)
 	require.True(t, got.NetworkFlows.Enable)
 	require.Equal(t, export.FeatureApplicationRED|export.FeatureNetwork, got.Metrics.Features)
+}
+
+func TestStandaloneToRuntimeAppliesTopLevelTracesPipeline(t *testing.T) {
+	doc := &obiv2.Document{
+		FileFormat: "1.0",
+		TracerProvider: map[string]any{
+			"processors": []any{
+				map[string]any{
+					"batch": map[string]any{
+						"max_export_batch_size": 512,
+						"max_queue_size":        2048,
+						"schedule_delay":        int64(3210),
+						"exporter": map[string]any{
+							"otlp_grpc": map[string]any{
+								"endpoint": "collector:4317",
+								"tls": map[string]any{
+									"insecure": true,
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		Extensions: obiv2.Extensions{
+			OBI: &obiv2.Extension{
+				Version: obiv2.SupportedVersion,
+				Capture: obiv2.CaptureConfig{
+					Policy: map[string]any{
+						"default_action": "include",
+					},
+				},
+			},
+		},
+	}
+
+	got, err := StandaloneToRuntime(doc)
+	require.NoError(t, err)
+	require.Equal(t, 512, got.Traces.BatchMaxSize)
+	require.Equal(t, 2048, got.Traces.QueueSize)
+	require.Equal(t, 3210*time.Millisecond, got.Traces.BatchTimeout)
+	require.Equal(t, "collector:4317", got.Traces.TracesEndpoint)
+	require.True(t, got.Traces.InsecureSkipVerify)
+}
+
+func TestRuntimeTopLevelTracesPipelineRoundTrip(t *testing.T) {
+	cfg := obi.DefaultConfig
+	cfg.Traces.BatchMaxSize = 512
+	cfg.Traces.QueueSize = 2048
+	cfg.Traces.BatchTimeout = 3210 * time.Millisecond
+	cfg.Traces.TracesEndpoint = "collector:4317"
+	cfg.Traces.InsecureSkipVerify = true
+
+	doc, err := RuntimeToDocument(&cfg)
+	require.NoError(t, err)
+	require.Equal(t, 512, nestedMap(doc.TracerProvider, "processors", "0", "batch")["max_export_batch_size"])
+
+	got, err := StandaloneToRuntime(doc)
+	require.NoError(t, err)
+	require.Equal(t, cfg.Traces.BatchMaxSize, got.Traces.BatchMaxSize)
+	require.Equal(t, cfg.Traces.QueueSize, got.Traces.QueueSize)
+	require.Equal(t, cfg.Traces.BatchTimeout, got.Traces.BatchTimeout)
+	require.Equal(t, cfg.Traces.TracesEndpoint, got.Traces.TracesEndpoint)
+	require.Equal(t, cfg.Traces.InsecureSkipVerify, got.Traces.InsecureSkipVerify)
 }
 
 func TestDiscoverySelectorPIDAndPortRoundTrip(t *testing.T) {
