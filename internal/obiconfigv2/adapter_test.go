@@ -402,6 +402,57 @@ func TestStandaloneToRuntimeAppliesTopLevelTracesPipeline(t *testing.T) {
 	require.True(t, got.Traces.InsecureSkipVerify)
 }
 
+func TestStandaloneToRuntimeAppliesTopLevelMetricsPipeline(t *testing.T) {
+	doc := &obiv2.Document{
+		FileFormat: "1.0",
+		MeterProvider: map[string]any{
+			"readers": []any{
+				map[string]any{
+					"pull": map[string]any{
+						"exporter": map[string]any{
+							"prometheus/development": map[string]any{
+								"port": 9090,
+							},
+						},
+					},
+				},
+				map[string]any{
+					"periodic": map[string]any{
+						"interval": int64(15000),
+						"exporter": map[string]any{
+							"otlp_grpc": map[string]any{
+								"endpoint":                      "https://collector:4317",
+								"default_histogram_aggregation": "base2_exponential_bucket_histogram",
+								"tls": map[string]any{
+									"insecure": true,
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		Extensions: obiv2.Extensions{
+			OBI: &obiv2.Extension{
+				Version: obiv2.SupportedVersion,
+				Capture: obiv2.CaptureConfig{
+					Policy: map[string]any{
+						"default_action": "include",
+					},
+				},
+			},
+		},
+	}
+
+	got, err := StandaloneToRuntime(doc)
+	require.NoError(t, err)
+	require.Equal(t, 15000, got.OTELMetrics.OTELIntervalMS)
+	require.Equal(t, "https://collector:4317", got.OTELMetrics.MetricsEndpoint)
+	require.Equal(t, "base2_exponential_bucket_histogram", string(got.OTELMetrics.HistogramAggregation))
+	require.True(t, got.OTELMetrics.InsecureSkipVerify)
+	require.Equal(t, 9090, got.Prometheus.Port)
+}
+
 func TestRuntimeTopLevelTracesPipelineRoundTrip(t *testing.T) {
 	cfg := obi.DefaultConfig
 	cfg.Traces.BatchMaxSize = 512
@@ -421,6 +472,29 @@ func TestRuntimeTopLevelTracesPipelineRoundTrip(t *testing.T) {
 	require.Equal(t, cfg.Traces.BatchTimeout, got.Traces.BatchTimeout)
 	require.Equal(t, cfg.Traces.TracesEndpoint, got.Traces.TracesEndpoint)
 	require.Equal(t, cfg.Traces.InsecureSkipVerify, got.Traces.InsecureSkipVerify)
+}
+
+func TestRuntimeTopLevelMetricsPipelineRoundTrip(t *testing.T) {
+	cfg := obi.DefaultConfig
+	cfg.OTELMetrics.OTELIntervalMS = 15000
+	cfg.OTELMetrics.MetricsEndpoint = "https://collector:4317"
+	cfg.OTELMetrics.HistogramAggregation = "base2_exponential_bucket_histogram"
+	cfg.OTELMetrics.InsecureSkipVerify = true
+	cfg.Prometheus.Port = 9090
+
+	doc, err := RuntimeToDocument(&cfg)
+	require.NoError(t, err)
+	require.Equal(t, 15000, nestedMap(doc.MeterProvider, "readers", "0", "periodic")["interval"])
+	require.Equal(t, cfg.OTELMetrics.HistogramAggregation, nestedMap(doc.MeterProvider, "readers", "0", "periodic", "exporter", "otlp_grpc")["default_histogram_aggregation"])
+	require.Equal(t, 9090, nestedMap(doc.MeterProvider, "readers", "1", "pull", "exporter", "prometheus/development")["port"])
+
+	got, err := StandaloneToRuntime(doc)
+	require.NoError(t, err)
+	require.Equal(t, cfg.OTELMetrics.OTELIntervalMS, got.OTELMetrics.OTELIntervalMS)
+	require.Equal(t, cfg.OTELMetrics.MetricsEndpoint, got.OTELMetrics.MetricsEndpoint)
+	require.Equal(t, cfg.OTELMetrics.HistogramAggregation, got.OTELMetrics.HistogramAggregation)
+	require.Equal(t, cfg.OTELMetrics.InsecureSkipVerify, got.OTELMetrics.InsecureSkipVerify)
+	require.Equal(t, cfg.Prometheus.Port, got.Prometheus.Port)
 }
 
 func TestDiscoverySelectorPIDAndPortRoundTrip(t *testing.T) {

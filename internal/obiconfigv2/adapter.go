@@ -6,6 +6,7 @@ package obiconfigv2 // import "go.opentelemetry.io/obi/internal/obiconfigv2"
 import (
 	"encoding"
 	"errors"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -555,11 +556,24 @@ func stringValue(m map[string]any, key string) string {
 	if m == nil {
 		return ""
 	}
-	value, ok := m[key].(string)
+	value, ok := stringLikeValue(m[key])
 	if !ok {
 		return ""
 	}
 	return value
+}
+
+func stringLikeValue(value any) (string, bool) {
+	if str, ok := value.(string); ok {
+		return str, true
+	}
+
+	rv := reflect.ValueOf(value)
+	if !rv.IsValid() || rv.Kind() != reflect.String {
+		return "", false
+	}
+
+	return rv.String(), true
 }
 
 func boolValue(m map[string]any, key string) bool {
@@ -725,7 +739,7 @@ func setString(dst *string, m map[string]any, key string) {
 	if m == nil {
 		return
 	}
-	if value, ok := m[key].(string); ok {
+	if value, ok := stringLikeValue(m[key]); ok {
 		*dst = value
 	}
 }
