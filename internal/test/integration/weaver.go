@@ -52,6 +52,13 @@ var weaverIgnoredSignals = map[string]struct{}{
 	// >= 1.40.0 (which restores rpc duration to seconds).
 	"metric:rpc.server.duration": {},
 	"metric:rpc.client.duration": {},
+	// OBI keeps `dns.question.name` as opt-in on `dns.lookup.duration` to
+	// avoid unbounded label cardinality for services that query many
+	// distinct hostnames. Upstream semconv v1.38 declares the attribute
+	// as `requirement_level: required`, so live-check flags every emitted
+	// data point. Users who accept the cardinality can enable the
+	// attribute via the metrics attribute selection.
+	"metric:dns.lookup.duration": {},
 }
 
 // weaverIgnoredAdviceMessages suppresses specific advice messages that match
