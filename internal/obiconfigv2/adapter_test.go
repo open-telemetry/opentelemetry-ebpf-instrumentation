@@ -10,8 +10,10 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"go.opentelemetry.io/obi/pkg/appolly/meta"
 	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/export"
+	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/filter"
 	"go.opentelemetry.io/obi/pkg/kube"
@@ -526,6 +528,38 @@ func TestKubernetesReconnectAndResourceLabelsRoundTrip(t *testing.T) {
 		"service.name":      {"app.kubernetes.io/name", "app.kubernetes.io/instance"},
 		"service.namespace": {"team"},
 	}, got.Attributes.Kubernetes.ResourceLabels)
+}
+
+func TestAttributeGroupingAndMetadataRetryRoundTrip(t *testing.T) {
+	cfg := obi.DefaultConfig
+	cfg.Prometheus.Port = 9090
+	cfg.Attributes.ExtraGroupAttributes = obi.ExtraGroupAttributesMap{
+		"k8s_app_meta": {attr.Name("k8s.app.version")},
+	}
+	cfg.Attributes.MetadataRetry = meta.RetryConfig{
+		Timeout:       45 * time.Second,
+		StartInterval: 2 * time.Second,
+		MaxInterval:   9 * time.Second,
+	}
+
+	doc, err := RuntimeToDocument(&cfg)
+	require.NoError(t, err)
+
+	attributes := nestedMap(doc.Extensions.OBI.Enrich, "attributes")
+	require.Equal(t, obi.ExtraGroupAttributesMap{
+		"k8s_app_meta": {attr.Name("k8s.app.version")},
+	}, attributes["extra_group_attributes"])
+	require.Equal(t, map[string]any{
+		"timeout":        "45s",
+		"start_interval": "2s",
+		"max_interval":   "9s",
+	}, attributes["metadata_retry"])
+
+	got, err := StandaloneToRuntime(doc)
+	require.NoError(t, err)
+	require.Equal(t, cfg.Attributes.ExtraGroupAttributes, got.Attributes.ExtraGroupAttributes)
+	require.Equal(t, cfg.Attributes.MetadataRetry, got.Attributes.MetadataRetry)
+	require.NoError(t, got.Validate())
 }
 
 func TestTopLevelResourceIdentityImport(t *testing.T) {

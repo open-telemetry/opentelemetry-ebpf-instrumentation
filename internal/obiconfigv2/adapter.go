@@ -294,6 +294,14 @@ func applyStandalone(cfg *obi.Config, src *obiv2.Extension) {
 	setBool(&cfg.Attributes.Kubernetes.MetaRestrictLocalNode, nestedMap(src.Enrich, "enrichers", "kubernetes", "metadata_cache"), "restrict_local_node")
 	setString(&cfg.Attributes.Kubernetes.MetaSourceLabels.ServiceName, nestedMap(src.Enrich, "enrichers", "kubernetes", "metadata_cache", "source_labels"), "service_name")
 	setString(&cfg.Attributes.Kubernetes.MetaSourceLabels.ServiceNamespace, nestedMap(src.Enrich, "enrichers", "kubernetes", "metadata_cache", "source_labels"), "service_namespace")
+	if attributes := nestedMap(src.Enrich, "attributes"); attributes["extra_group_attributes"] != nil {
+		cfg.Attributes.ExtraGroupAttributes = nil
+		setDecoded(&cfg.Attributes.ExtraGroupAttributes, attributes, "extra_group_attributes")
+	}
+	metadataRetry := nestedMap(src.Enrich, "attributes", "metadata_retry")
+	setDuration(&cfg.Attributes.MetadataRetry.Timeout, metadataRetry, "timeout")
+	setDuration(&cfg.Attributes.MetadataRetry.StartInterval, metadataRetry, "start_interval")
+	setDuration(&cfg.Attributes.MetadataRetry.MaxInterval, metadataRetry, "max_interval")
 
 	if boolValue(nestedMap(src.Correlation, "log_trace_annotation"), "enabled") {
 		cfg.EBPF.LogEnricher.Services = []obicfg.LogEnricherServiceConfig{{

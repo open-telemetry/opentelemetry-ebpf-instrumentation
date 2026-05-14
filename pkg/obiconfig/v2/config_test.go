@@ -195,3 +195,34 @@ extensions:
 		"service.namespace": []any{"team"},
 	}, nestedMap(cfg.Enrich, "enrichers", "kubernetes")["resource_labels"])
 }
+
+func TestParseYAMLStandaloneAttributeGroupingAndMetadataRetry(t *testing.T) {
+	t.Parallel()
+
+	_, cfg, err := ParseYAML([]byte(`
+file_format: "1.0"
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      policy:
+        default_action: include
+    enrich:
+      attributes:
+        extra_group_attributes:
+          k8s_app_meta: [k8s.app.version]
+        metadata_retry:
+          timeout: 45s
+          start_interval: 2s
+          max_interval: 9s
+`), DeploymentModeStandalone)
+	require.NoError(t, err)
+	require.Equal(t, map[string]any{
+		"k8s_app_meta": []any{"k8s.app.version"},
+	}, nestedMap(cfg.Enrich, "attributes")["extra_group_attributes"])
+	require.Equal(t, map[string]any{
+		"timeout":        "45s",
+		"start_interval": "2s",
+		"max_interval":   "9s",
+	}, nestedMap(cfg.Enrich, "attributes")["metadata_retry"])
+}

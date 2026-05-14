@@ -648,7 +648,14 @@ func enrichMap(cfg *obi.Config) map[string]any {
 				},
 			},
 		},
-		"attributes": map[string]any{},
+		"attributes": map[string]any{
+			"extra_group_attributes": cfg.Attributes.ExtraGroupAttributes,
+			"metadata_retry": map[string]any{
+				"timeout":        cfg.Attributes.MetadataRetry.Timeout.String(),
+				"start_interval": cfg.Attributes.MetadataRetry.StartInterval.String(),
+				"max_interval":   cfg.Attributes.MetadataRetry.MaxInterval.String(),
+			},
+		},
 	}
 }
 
