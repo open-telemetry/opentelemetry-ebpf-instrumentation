@@ -79,6 +79,25 @@ groups:
       - ref: src.zone
       - ref: dst.zone
 
+  - id: metric.obi_stat_tcp_retransmits
+    type: metric
+    metric_name: obi.stat.tcp.retransmits
+    instrument: counter
+    unit: ""
+    stability: development
+    brief: >
+      Count of TCP retransmissions observed per connection.
+    attributes:
+      - ref: obi.ip
+      - ref: src.address
+      - ref: dst.address
+      - ref: src.port
+      - ref: dst.port
+      - ref: src.name
+      - ref: dst.name
+      - ref: src.zone
+      - ref: dst.zone
+
   # Counter has no explicit OTLP unit set; mirror that here so live-check
   # doesn't complain "Unit should be '1', but found ''".
   - id: metric.obi_stat_tcp_failed_connections
