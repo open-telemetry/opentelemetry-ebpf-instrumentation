@@ -347,6 +347,88 @@ func TestComputeTestStats_ScopedPerWorkflow(t *testing.T) {
 	require.Equal(t, 1, countUniqueTests(tests))
 }
 
+func TestComputeTestStats_SameNameDifferentPackages(t *testing.T) {
+	// Unit-test shards run multiple Go packages in one gotestsum file. Two
+	// tests sharing a name across packages must stay distinct in the
+	// aggregation, otherwise their results get silently merged.
+	results := []TestResult{
+		{RunID: "1", Workflow: "Wf", Package: "pkg/a", Test: "TestNew", Outcome: "passed"},
+		{RunID: "1", Workflow: "Wf", Package: "pkg/b", Test: "TestNew", Outcome: "failed", ErrorFingerprint: "timeout"},
+	}
+	tests := computeTestStats(results)
+	require.Len(t, tests, 2, "same name in two packages must produce two stats entries")
+
+	byPkg := map[string]*testStats{}
+	for _, ts := range tests {
+		byPkg[ts.pkg] = ts
+	}
+	require.Equal(t, 1, byPkg["pkg/a"].passed)
+	require.Equal(t, 0, byPkg["pkg/a"].failed)
+	require.Equal(t, 0, byPkg["pkg/b"].passed)
+	require.Equal(t, 1, byPkg["pkg/b"].failed)
+}
+
+func TestParseGotestsum_SameNameDifferentPackages(t *testing.T) {
+	// parseGotestsum's internal state map must key by (package, test) — a
+	// single gotestsum file from a unit-test shard can contain events for
+	// multiple packages with overlapping test names.
+	input := strings.Join([]string{
+		`{"Action":"run","Package":"pkg/a","Test":"TestNew"}`,
+		`{"Action":"pass","Package":"pkg/a","Test":"TestNew"}`,
+		`{"Action":"run","Package":"pkg/b","Test":"TestNew"}`,
+		`{"Action":"output","Package":"pkg/b","Test":"TestNew","Output":"    Error: connection refused\n"}`,
+		`{"Action":"fail","Package":"pkg/b","Test":"TestNew"}`,
+	}, "\n")
+	results, err := parseGotestsum(strings.NewReader(input), testMeta())
+	require.NoError(t, err)
+	require.Len(t, results, 2)
+
+	byPkg := map[string]TestResult{}
+	for _, r := range results {
+		byPkg[r.Package] = r
+	}
+	require.Equal(t, "passed", byPkg["pkg/a"].Outcome)
+	require.Equal(t, "failed", byPkg["pkg/b"].Outcome)
+}
+
+func TestDisplayTestName(t *testing.T) {
+	// Package leaf prefixes the test name; empty package falls back to bare.
+	require.Equal(t, "ebpf.TestNew", displayTestName("go.opentelemetry.io/obi/pkg/components/ebpf", "TestNew"))
+	require.Equal(t, "pkg.TestNew", displayTestName("pkg", "TestNew"))
+	require.Equal(t, "TestNoPkg", displayTestName("", "TestNoPkg"))
+}
+
+func TestComputeFingerprintStats_AffectedTestsCountsByPackage(t *testing.T) {
+	// Two distinct tests sharing a name in different packages must count as
+	// two affected tests, not one.
+	results := []TestResult{
+		{RunID: "1", Workflow: "Wf", Package: "pkg/a", Test: "TestNew", Outcome: "failed", ErrorFingerprint: "timeout"},
+		{RunID: "1", Workflow: "Wf", Package: "pkg/b", Test: "TestNew", Outcome: "failed", ErrorFingerprint: "timeout"},
+	}
+	stats := computeFingerprintStats(results)
+	require.Len(t, stats, 1)
+	require.Len(t, stats[0].affectedTests, 2, "affectedTests must distinguish packages")
+}
+
+func TestWriteReport_RendersPackageQualifiedNames(t *testing.T) {
+	// Every test row should display "pkg-leaf.TestName" so identities are
+	// stable and same-named tests in different packages are distinguishable.
+	results := []TestResult{
+		{RunID: "1", Workflow: "Wf", Package: "go.test/pkg/a", Test: "TestNew", Outcome: "failed", ErrorFingerprint: "timeout"},
+		{RunID: "1", Workflow: "Wf", Package: "go.test/pkg/b", Test: "TestNew", Outcome: "failed", ErrorFingerprint: "timeout"},
+	}
+	metaMap := map[string]RunMeta{
+		"1": {RunID: "1", Workflow: "Wf", Conclusion: "failure"},
+	}
+	var buf bytes.Buffer
+	require.NoError(t, writeReport(&buf, results, metaMap, "test/repo"))
+
+	out := buf.String()
+	require.Contains(t, out, "`a.TestNew`", "rows should include the package leaf; got:\n%s", out)
+	require.Contains(t, out, "`b.TestNew`")
+	require.NotContains(t, out, "| `TestNew` |", "bare test name should not appear when a package is set")
+}
+
 func TestComputeTestStats_DedupShardsPerRun(t *testing.T) {
 	// A test that appears in multiple shards within the same run counts as
 	// one run; the worst outcome wins.

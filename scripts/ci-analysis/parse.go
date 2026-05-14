@@ -18,15 +18,20 @@ import (
 
 // TestEvent represents a single go test -json event.
 type TestEvent struct {
-	Action string `json:"Action"`
-	Test   string `json:"Test"`
-	Output string `json:"Output"`
+	Action  string `json:"Action"`
+	Package string `json:"Package"`
+	Test    string `json:"Test"`
+	Output  string `json:"Output"`
 }
 
 // TestResult is the parsed outcome for a single test in a single run.
 type TestResult struct {
-	RunID            string
-	Workflow         string
+	RunID    string
+	Workflow string
+	// Package is part of the test identity: unit-test shards run multiple Go
+	// packages in one gotestsum file, so two TestFoo entries in different
+	// packages must not be merged. Do not remove.
+	Package          string
 	Test             string
 	Outcome          string
 	ErrorFingerprint string
@@ -115,8 +120,13 @@ type testState struct {
 	failOutput []string
 }
 
+// pkgTest identifies a test by both package and name; a gotestsum file can
+// span multiple Go packages (unit-test shards), and tests sharing a name
+// across packages must stay distinct.
+type pkgTest struct{ pkg, test string }
+
 func parseGotestsum(r io.Reader, meta RunMeta) ([]TestResult, error) {
-	tests := map[string]*testState{}
+	tests := map[pkgTest]*testState{}
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 0, 1024*1024), 1024*1024)
 
@@ -134,10 +144,11 @@ func parseGotestsum(r io.Reader, meta RunMeta) ([]TestResult, error) {
 			topTest = ev.Test[:idx]
 		}
 
-		ts, ok := tests[topTest]
+		key := pkgTest{ev.Package, topTest}
+		ts, ok := tests[key]
 		if !ok {
 			ts = &testState{}
-			tests[topTest] = ts
+			tests[key] = ts
 		}
 
 		switch ev.Action {
@@ -158,11 +169,12 @@ func parseGotestsum(r io.Reader, meta RunMeta) ([]TestResult, error) {
 	}
 
 	var results []TestResult
-	for testName, ts := range tests {
+	for key, ts := range tests {
 		r := TestResult{
 			RunID:    meta.RunID,
 			Workflow: meta.Workflow,
-			Test:     testName,
+			Package:  key.pkg,
+			Test:     key.test,
 			Outcome:  classifyOutcome(ts.outcomes),
 		}
 		if r.Outcome == "failed" || r.Outcome == "flaky-passed" {
@@ -174,7 +186,10 @@ func parseGotestsum(r io.Reader, meta RunMeta) ([]TestResult, error) {
 	}
 
 	sort.Slice(results, func(i, j int) bool {
-		return results[i].Test < results[j].Test
+		if results[i].Test != results[j].Test {
+			return results[i].Test < results[j].Test
+		}
+		return results[i].Package < results[j].Package
 	})
 	return results, nil
 }

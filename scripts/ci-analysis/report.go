@@ -115,7 +115,7 @@ func writeFlakyTestsTable(p func(string, ...any), tests []*testStats) {
 			failPct = float64(ts.failed+ts.flakyPassed) / float64(ts.totalRuns) * 100
 		}
 		p("| %s | `%s` | %d | %d | %d | %.0f%% | %s |",
-			ts.workflow, ts.name, ts.totalRuns, ts.failed, ts.flakyPassed, failPct, primaryFingerprint(ts.fingerprints))
+			ts.workflow, displayTestName(ts.pkg, ts.name), ts.totalRuns, ts.failed, ts.flakyPassed, failPct, primaryFingerprint(ts.fingerprints))
 	}
 	p("")
 }
@@ -132,7 +132,7 @@ func writeErrorSummaryTable(p func(string, ...any), fingerprints []fingerprintSt
 	p("| Error | Total occurrences | Affected tests |")
 	p("|-------|------------------|----------------|")
 	for _, fp := range fingerprints {
-		testList := formatTestList(sortedKeys(fp.affectedTests))
+		testList := formatTestList(affectedTestSlice(fp.affectedTests))
 		p("| `%s` | %d | %d (%s) |", fp.fingerprint, fp.occurrences, len(fp.affectedTests), testList)
 	}
 	p("")
@@ -150,7 +150,7 @@ func writeFingerprintTable(p func(string, ...any), fingerprints []fingerprintSta
 	p("| Pattern | Occurrences | Affected tests | Example |")
 	p("|---------|------------|---------------|---------|")
 	for _, fp := range fingerprints {
-		testList := formatTestList(sortedKeys(fp.affectedTests))
+		testList := formatTestList(affectedTestSlice(fp.affectedTests))
 		example := fp.example
 		if len(example) > maxSnippetDisplay {
 			example = example[:maxSnippetDisplay-3] + "..."
@@ -172,6 +172,7 @@ func writeRecentFailuresTable(p func(string, ...any), results []TestResult, repo
 		failures = append(failures, failureEvent{
 			runID:       r.RunID,
 			workflow:    r.Workflow,
+			pkg:         r.Package,
 			test:        r.Test,
 			fingerprint: r.ErrorFingerprint,
 			snippet:     r.ErrorSnippet,
@@ -185,7 +186,10 @@ func writeRecentFailuresTable(p func(string, ...any), results []TestResult, repo
 		if failures[i].fingerprint != failures[j].fingerprint {
 			return failures[i].fingerprint < failures[j].fingerprint
 		}
-		return failures[i].test < failures[j].test
+		if failures[i].test != failures[j].test {
+			return failures[i].test < failures[j].test
+		}
+		return failures[i].pkg < failures[j].pkg
 	})
 
 	p("## Failure Details")
@@ -209,7 +213,7 @@ func writeRecentFailuresTable(p func(string, ...any), results []TestResult, repo
 			fp = "unknown"
 		}
 		p("| [%s](https://github.com/%s/actions/runs/%s) | %s | `%s` | `%s` | %s |",
-			rf.runID, repo, rf.runID, rf.workflow, rf.test, fp, snippet)
+			rf.runID, repo, rf.runID, rf.workflow, displayTestName(rf.pkg, rf.test), fp, snippet)
 	}
 	p("")
 }
@@ -235,25 +239,32 @@ func writeLegend(p func(string, ...any)) {
 	p("")
 }
 
-// formatTestList renders test names as backticked, comma-separated list,
-// truncating by count to avoid breaking markdown with partial names.
-func formatTestList(names []string) string {
-	if len(names) <= maxTestsInList {
-		backticked := make([]string, len(names))
-		for i, t := range names {
-			backticked[i] = "`" + t + "`"
-		}
-		return strings.Join(backticked, ", ")
+// formatTestList renders test identities as a backticked, comma-separated
+// list, truncating by count to avoid breaking markdown with partial names.
+func formatTestList(ids []pkgTest) string {
+	rendered := make([]string, len(ids))
+	for i, id := range ids {
+		rendered[i] = displayTestName(id.pkg, id.test)
 	}
-	backticked := make([]string, maxTestsInList)
-	for i := range maxTestsInList {
-		backticked[i] = "`" + names[i] + "`"
+	sort.Strings(rendered)
+	limit := len(rendered)
+	if limit > maxTestsInList {
+		limit = maxTestsInList
 	}
-	return strings.Join(backticked, ", ") + fmt.Sprintf(" +%d more", len(names)-maxTestsInList)
+	backticked := make([]string, limit)
+	for i := range limit {
+		backticked[i] = "`" + rendered[i] + "`"
+	}
+	joined := strings.Join(backticked, ", ")
+	if len(rendered) > maxTestsInList {
+		joined += fmt.Sprintf(" +%d more", len(rendered)-maxTestsInList)
+	}
+	return joined
 }
 
 type testStats struct {
 	name         string
+	pkg          string // part of test identity; see TestResult.Package
 	workflow     string
 	totalRuns    int // CI runs in which the test was attempted (passed/failed/flaky-passed)
 	passed       int
@@ -266,6 +277,7 @@ type testStats struct {
 type failureEvent struct {
 	runID       string
 	workflow    string
+	pkg         string
 	test        string
 	fingerprint string
 	snippet     string
@@ -284,8 +296,22 @@ type workflowStats struct {
 type fingerprintStats struct {
 	fingerprint   string
 	occurrences   int
-	affectedTests map[string]bool
+	affectedTests map[pkgTest]bool
 	example       string
+}
+
+// displayTestName renders a test identity as "pkg-leaf.TestName", or just
+// "TestName" when the package is empty (job-only workflows like OATS have no
+// test-level data and therefore no package). Rendering is stable per
+// identity — independent of which table or scope the row appears in.
+func displayTestName(pkg, name string) string {
+	if pkg == "" {
+		return name
+	}
+	if i := strings.LastIndex(pkg, "/"); i >= 0 {
+		pkg = pkg[i+1:]
+	}
+	return pkg + "." + name
 }
 
 func dateRangeFromMeta(metaMap map[string]RunMeta) (string, string) {
@@ -308,26 +334,28 @@ func dateRangeFromMeta(metaMap map[string]RunMeta) (string, string) {
 	return minDate, maxDate
 }
 
-// computeTestStats aggregates per (workflow, test) so each row in the flaky
-// table is scoped to a single workflow — the displayed Workflow column always
-// matches the Runs/Failures/Retries totals.
+// computeTestStats aggregates per (workflow, package, test) so each row in
+// the flaky table is scoped to a single workflow — the displayed Workflow
+// column always matches the Runs/Failures/Retries totals. Package is part
+// of the key because unit-test shards can run multiple Go packages in one
+// gotestsum file and tests sharing a name across packages must not merge.
 //
-// Within a workflow, results are deduplicated by RunID so that a test which
+// Within that scope, results are deduplicated by RunID so that a test which
 // appears in multiple shards or report files contributes a single outcome per
 // CI run. The per-run outcome is failed > flaky-passed > passed > skipped.
 // Skipped runs are excluded from totalRuns: a skipped test wasn't attempted,
 // and counting it would dilute failure rates.
 func computeTestStats(results []TestResult) []*testStats {
-	type statsKey struct{ workflow, test string }
+	type statsKey struct{ workflow, pkg, test string }
 	type runAggregate struct {
 		outcome      string
 		fingerprints map[string]int
 	}
 
-	// First pass: collapse shard-level results into one outcome per (workflow, test, runID).
+	// First pass: collapse shard-level results into one outcome per (workflow, package, test, runID).
 	perRun := map[statsKey]map[string]*runAggregate{}
 	for _, r := range results {
-		k := statsKey{r.Workflow, r.Test}
+		k := statsKey{r.Workflow, r.Package, r.Test}
 		if perRun[k] == nil {
 			perRun[k] = map[string]*runAggregate{}
 		}
@@ -344,11 +372,12 @@ func computeTestStats(results []TestResult) []*testStats {
 		}
 	}
 
-	// Second pass: aggregate per-run outcomes into per (workflow, test) stats.
+	// Second pass: aggregate per-run outcomes into per (workflow, package, test) stats.
 	tests := make([]*testStats, 0, len(perRun))
 	for k, runs := range perRun {
 		ts := &testStats{
 			name:         k.test,
+			pkg:          k.pkg,
 			workflow:     k.workflow,
 			fingerprints: map[string]int{},
 		}
@@ -391,12 +420,14 @@ func outcomeRank(o string) int {
 	return 0
 }
 
-// countUniqueTests returns the number of distinct test names across the given
-// stats. Tests that run in multiple workflows are counted once.
+// countUniqueTests returns the number of distinct (package, test) identities
+// across the given stats. Tests that run in multiple workflows are counted
+// once. Different packages with the same test name are counted separately so
+// the total isn't deflated by unit-test shards that span packages.
 func countUniqueTests(tests []*testStats) int {
-	seen := map[string]bool{}
+	seen := map[pkgTest]bool{}
 	for _, ts := range tests {
-		seen[ts.name] = true
+		seen[pkgTest{ts.pkg, ts.name}] = true
 	}
 	return len(seen)
 }
@@ -490,12 +521,12 @@ func computeFingerprintStats(results []TestResult) []fingerprintStats {
 		if !ok {
 			fs = &fingerprintStats{
 				fingerprint:   fp,
-				affectedTests: map[string]bool{},
+				affectedTests: map[pkgTest]bool{},
 			}
 			fpMap[fp] = fs
 		}
 		fs.occurrences++
-		fs.affectedTests[r.Test] = true
+		fs.affectedTests[pkgTest{r.Package, r.Test}] = true
 		if fs.example == "" && r.ErrorSnippet != "" {
 			fs.example = r.ErrorSnippet
 		}
@@ -527,7 +558,10 @@ func filterFlakyTests(tests []*testStats) []*testStats {
 		if flaky[i].workflow != flaky[j].workflow {
 			return flaky[i].workflow < flaky[j].workflow
 		}
-		return flaky[i].name < flaky[j].name
+		if flaky[i].name != flaky[j].name {
+			return flaky[i].name < flaky[j].name
+		}
+		return flaky[i].pkg < flaky[j].pkg
 	})
 	return flaky
 }
@@ -547,11 +581,10 @@ func primaryFingerprint(fps map[string]int) string {
 	return "`" + best + "`"
 }
 
-func sortedKeys(m map[string]bool) []string {
-	keys := make([]string, 0, len(m))
+func affectedTestSlice(m map[pkgTest]bool) []pkgTest {
+	out := make([]pkgTest, 0, len(m))
 	for k := range m {
-		keys = append(keys, k)
+		out = append(out, k)
 	}
-	sort.Strings(keys)
-	return keys
+	return out
 }
