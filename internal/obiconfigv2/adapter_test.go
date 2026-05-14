@@ -13,6 +13,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/meta"
 	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/export"
+	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/filter"
@@ -559,6 +560,36 @@ func TestAttributeGroupingAndMetadataRetryRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, cfg.Attributes.ExtraGroupAttributes, got.Attributes.ExtraGroupAttributes)
 	require.Equal(t, cfg.Attributes.MetadataRetry, got.Attributes.MetadataRetry)
+	require.NoError(t, got.Validate())
+}
+
+func TestAttributeSelectionRoundTrip(t *testing.T) {
+	cfg := obi.DefaultConfig
+	cfg.Prometheus.Port = 9090
+	cfg.Attributes.Select = attributes.Selection{
+		attributes.HTTPServerDuration.Section: {
+			Include: []string{"http.request.method", "service.*"},
+			Exclude: []string{"server.port"},
+		},
+		attributes.NetworkFlow.Section: {
+			Include: []string{"src.name", "dst.zone"},
+			Exclude: []string{"k8s.*"},
+		},
+		attributes.StatTCPRtt.Section: {
+			Include: []string{"src.port", "dst.port"},
+			Exclude: []string{"transport"},
+		},
+	}
+
+	doc, err := RuntimeToDocument(&cfg)
+	require.NoError(t, err)
+
+	attributesMap := nestedMap(doc.Extensions.OBI.Enrich, "attributes")
+	require.Equal(t, cfg.Attributes.Select, attributesMap["select"])
+
+	got, err := StandaloneToRuntime(doc)
+	require.NoError(t, err)
+	require.Equal(t, cfg.Attributes.Select, got.Attributes.Select)
 	require.NoError(t, got.Validate())
 }
 

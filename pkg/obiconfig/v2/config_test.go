@@ -226,3 +226,44 @@ extensions:
 		"max_interval":   "9s",
 	}, nestedMap(cfg.Enrich, "attributes")["metadata_retry"])
 }
+
+func TestParseYAMLStandaloneAttributeSelection(t *testing.T) {
+	t.Parallel()
+
+	_, cfg, err := ParseYAML([]byte(`
+file_format: "1.0"
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      policy:
+        default_action: include
+    enrich:
+      attributes:
+        select:
+          http.server.request.duration:
+            include: [http.request.method, service.*]
+            exclude: [server.port]
+          obi.network.flow:
+            include: [src.name, dst.zone]
+            exclude: [k8s.*]
+          obi.stat.tcp.rtt:
+            include: [src.port, dst.port]
+            exclude: [transport]
+`), DeploymentModeStandalone)
+	require.NoError(t, err)
+	require.Equal(t, map[string]any{
+		"http.server.request.duration": map[string]any{
+			"include": []any{"http.request.method", "service.*"},
+			"exclude": []any{"server.port"},
+		},
+		"obi.network.flow": map[string]any{
+			"include": []any{"src.name", "dst.zone"},
+			"exclude": []any{"k8s.*"},
+		},
+		"obi.stat.tcp.rtt": map[string]any{
+			"include": []any{"src.port", "dst.port"},
+			"exclude": []any{"transport"},
+		},
+	}, nestedMap(cfg.Enrich, "attributes")["select"])
+}

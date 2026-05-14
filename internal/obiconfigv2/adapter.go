@@ -298,6 +298,10 @@ func applyStandalone(cfg *obi.Config, src *obiv2.Extension) {
 		cfg.Attributes.ExtraGroupAttributes = nil
 		setDecoded(&cfg.Attributes.ExtraGroupAttributes, attributes, "extra_group_attributes")
 	}
+	if attributes := nestedMap(src.Enrich, "attributes"); attributes["select"] != nil {
+		cfg.Attributes.Select = nil
+		setDecoded(&cfg.Attributes.Select, attributes, "select")
+	}
 	metadataRetry := nestedMap(src.Enrich, "attributes", "metadata_retry")
 	setDuration(&cfg.Attributes.MetadataRetry.Timeout, metadataRetry, "timeout")
 	setDuration(&cfg.Attributes.MetadataRetry.StartInterval, metadataRetry, "start_interval")
