@@ -148,6 +148,26 @@ obi config validate ./path/to/config
 
 - Remove v1 parsing. Error on v1 input, and tell users how to migrate with tooling.
 
+## Parity Exit Review
+
+Before closing v2 parity work, review the compatibility ledger in
+[config-v2.md](./config-v2.md#compatibility-and-mapping-from-v1) and confirm that
+each remaining non-parity case is explicitly categorized:
+
+- Implemented parity: deterministic moves, renames, fan-out mappings, inverted
+  booleans, and the rule rewrites already covered by the mapping table and parity
+  verifier.
+- Scheduled before GA: `otel_traces_export.sampler.{name,arg}` only preserve
+  built-in OpenTelemetry sampler semantics today. Per-workload parity remains
+  scheduled work via the `obi_rule_based` sampler plugin in Phase 0.
+- Intentionally unsupported: `prometheus_export.path` has no canonical OpenTelemetry
+  declarative target in the current schema, so it is explicitly out of scope for
+  the v2 parity contract rather than an accidental omission.
+
+Exit review is incomplete if any v1 field falls outside those buckets. New gaps must
+be added to the compatibility ledger with an explicit implemented, scheduled, or
+intentionally unsupported decision before sign-off.
+
 ### Why this phased approach
 
 The dual-read period (Phase 2) is the key risk mitigation:
