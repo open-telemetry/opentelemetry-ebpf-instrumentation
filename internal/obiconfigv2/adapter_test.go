@@ -12,6 +12,7 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/appolly/meta"
 	"go.opentelemetry.io/obi/pkg/appolly/services"
+	"go.opentelemetry.io/obi/pkg/config"
 	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
@@ -37,7 +38,10 @@ func TestDefaultConfigRoundTrip(t *testing.T) {
 	require.Equal(t, obi.DefaultConfig.EBPF.BatchLength, got.EBPF.BatchLength)
 	require.Equal(t, obi.DefaultConfig.EBPF.BatchTimeout, got.EBPF.BatchTimeout)
 	require.Equal(t, obi.DefaultConfig.EBPF.ContextPropagation, got.EBPF.ContextPropagation)
+	require.Equal(t, obi.DefaultConfig.EBPF.DisableBlackBoxCP, got.EBPF.DisableBlackBoxCP)
 	require.Equal(t, obi.DefaultConfig.EBPF.TCBackend, got.EBPF.TCBackend)
+	require.Equal(t, obi.DefaultConfig.EBPF.ForceBPFMapReader, got.EBPF.ForceBPFMapReader)
+	require.Equal(t, obi.DefaultConfig.EBPF.MapsConfig, got.EBPF.MapsConfig)
 	require.Equal(t, obi.DefaultConfig.EBPF.InstrumentCuda, got.EBPF.InstrumentCuda)
 	require.Equal(t, obi.DefaultConfig.NetworkFlows.Source, got.NetworkFlows.Source)
 	require.Equal(t, obi.DefaultConfig.NetworkFlows.ListenInterfaces, got.NetworkFlows.ListenInterfaces)
@@ -45,6 +49,33 @@ func TestDefaultConfigRoundTrip(t *testing.T) {
 	require.Equal(t, obi.DefaultConfig.Attributes.Kubernetes.Enable, got.Attributes.Kubernetes.Enable)
 	require.Equal(t, obi.DefaultConfig.Traces.QueueSize, got.Traces.QueueSize)
 	require.Equal(t, obi.DefaultConfig.OTELMetrics.OTELIntervalMS, got.OTELMetrics.OTELIntervalMS)
+}
+
+func TestTracerControlsRoundTrip(t *testing.T) {
+	cfg := obi.DefaultConfig
+	cfg.EBPF.DisableBlackBoxCP = true
+	cfg.EBPF.ContextPropagation = config.ContextPropagationHeaders
+	cfg.EBPF.TCBackend = config.TCBackendTCX
+	cfg.EBPF.ForceBPFMapReader = config.MapReaderLegacy
+	cfg.EBPF.MapsConfig.GlobalScaleFactor = 2
+
+	doc, err := RuntimeToDocument(&cfg)
+	require.NoError(t, err)
+
+	require.Equal(t, "headers", nestedMap(doc.Extensions.OBI.Raw, "capture", "engine", "propagation")["context_propagation"])
+	require.Equal(t, true, nestedMap(doc.Extensions.OBI.Raw, "capture", "engine", "propagation")["disable_black_box_cp"])
+	require.Equal(t, "tcx", nestedMap(doc.Extensions.OBI.Raw, "capture", "engine", "traffic")["control_backend"])
+	require.Equal(t, "legacy", nestedMap(doc.Extensions.OBI.Raw, "capture", "engine", "traffic")["force_map_reader"])
+	require.Equal(t, 2, nestedMap(doc.Extensions.OBI.Raw, "capture", "engine", "maps")["global_scale_factor"])
+
+	got, err := StandaloneToRuntime(doc)
+	require.NoError(t, err)
+
+	require.True(t, got.EBPF.DisableBlackBoxCP)
+	require.Equal(t, config.ContextPropagationHeaders, got.EBPF.ContextPropagation)
+	require.Equal(t, config.TCBackendTCX, got.EBPF.TCBackend)
+	require.Equal(t, config.MapReaderLegacy, got.EBPF.ForceBPFMapReader)
+	require.Equal(t, 2, got.EBPF.MapsConfig.GlobalScaleFactor)
 }
 
 func TestRuntimeFilterAndGoFlagRoundTrip(t *testing.T) {

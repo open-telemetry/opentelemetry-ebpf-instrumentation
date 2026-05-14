@@ -71,10 +71,13 @@ func applyCapture(cfg *obi.Config, src *obiv2.Extension) {
 	setDuration(&cfg.EBPF.BatchTimeout, nestedMap(src.Capture.Engine, "batching"), "batch_timeout")
 	setText(&cfg.EBPF.ContextPropagation, nestedMap(src.Capture.Engine, "propagation"), "context_propagation")
 	setBool(&cfg.EBPF.OverrideBPFLoopEnabled, nestedMap(src.Capture.Engine, "propagation"), "override_bpfloop_enabled")
+	setBool(&cfg.EBPF.DisableBlackBoxCP, nestedMap(src.Capture.Engine, "propagation"), "disable_black_box_cp")
 	setText(&cfg.EBPF.TCBackend, nestedMap(src.Capture.Engine, "traffic"), "control_backend")
 	setBool(&cfg.EBPF.HighRequestVolume, nestedMap(src.Capture.Engine, "traffic"), "high_request_volume")
+	setText(&cfg.EBPF.ForceBPFMapReader, nestedMap(src.Capture.Engine, "traffic"), "force_map_reader")
 	setDuration(&cfg.EBPF.MaxTransactionTime, nestedMap(src.Capture.Engine, "transactions"), "max_duration")
 	setString(&cfg.EBPF.BPFFSPath, nestedMap(src.Capture.Engine, "bpf_filesystem"), "path")
+	setInt(&cfg.EBPF.MapsConfig.GlobalScaleFactor, nestedMap(src.Capture.Engine, "maps"), "global_scale_factor")
 
 	httpCfg := nestedMap(src.Capture.Instrumentation, "http")
 	mergeSignalFilters(&cfg.Filters.Application, nestedMap(httpCfg, "filters"))

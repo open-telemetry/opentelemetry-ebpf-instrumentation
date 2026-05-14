@@ -4,6 +4,7 @@
 package obiconfigv2 // import "go.opentelemetry.io/obi/internal/obiconfigv2"
 
 import (
+	"encoding"
 	"errors"
 
 	"gopkg.in/yaml.v3"
@@ -294,15 +295,20 @@ func captureConfig(cfg *obi.Config) obiv2.CaptureConfig {
 				"batch_timeout": cfg.EBPF.BatchTimeout.String(),
 			},
 			"propagation": map[string]any{
-				"context_propagation":      cfg.EBPF.ContextPropagation,
+				"context_propagation":      textValue(cfg.EBPF.ContextPropagation),
 				"override_bpfloop_enabled": cfg.EBPF.OverrideBPFLoopEnabled,
+				"disable_black_box_cp":     cfg.EBPF.DisableBlackBoxCP,
 			},
 			"traffic": map[string]any{
-				"control_backend":     cfg.EBPF.TCBackend,
+				"control_backend":     textValue(cfg.EBPF.TCBackend),
 				"high_request_volume": cfg.EBPF.HighRequestVolume,
+				"force_map_reader":    textValue(cfg.EBPF.ForceBPFMapReader),
 			},
 			"transactions": map[string]any{
 				"max_duration": cfg.EBPF.MaxTransactionTime.String(),
+			},
+			"maps": map[string]any{
+				"global_scale_factor": cfg.EBPF.MapsConfig.GlobalScaleFactor,
 			},
 			"bpf_filesystem": map[string]any{
 				"path": cfg.EBPF.BPFFSPath,
@@ -780,6 +786,14 @@ func toMap(v any) (map[string]any, error) {
 		return nil, err
 	}
 	return out, nil
+}
+
+func textValue(v encoding.TextMarshaler) any {
+	raw, err := v.MarshalText()
+	if err != nil {
+		return v
+	}
+	return string(raw)
 }
 
 func globString(g services.GlobAttr) string {
