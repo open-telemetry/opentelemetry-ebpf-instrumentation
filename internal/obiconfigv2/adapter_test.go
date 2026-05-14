@@ -4,6 +4,7 @@
 package obiconfigv2
 
 import (
+	"bytes"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -216,4 +217,46 @@ func TestRuntimeProtocolEnablementRoundTrip(t *testing.T) {
 	require.NotContains(t, got.Prometheus.Instrumentations, instrumentations.InstrumentationSQL)
 	require.True(t, got.NetworkFlows.Enable)
 	require.Equal(t, export.FeatureApplicationRED|export.FeatureNetwork, got.Metrics.Features)
+}
+
+func TestRuntimeStatsConfigRoundTrip(t *testing.T) {
+	cfg, err := obi.LoadConfig(bytes.NewBufferString(`
+metrics:
+  features: [stats]
+otel_metrics_export:
+  endpoint: localhost:4317
+stats:
+  agent_ip: 10.0.0.1
+  agent_ip_iface: "name:eth1"
+  agent_ip_type: ipv6
+  cidrs:
+    - cidr: 10.0.0.0/8
+      name: internal
+    - 2001:db8::/32
+  reverse_dns:
+    type: local
+    cache_len: 32
+    cache_expiry: 2m
+  print_stats: true
+  geo_ip:
+    cache_len: 64
+    cache_expiry: 3m
+    ipinfo:
+      path: /tmp/ipinfo.mmdb
+    maxmind:
+      country_path: /tmp/country.mmdb
+      asn_path: /tmp/asn.mmdb
+`))
+	require.NoError(t, err)
+
+	doc, err := RuntimeToDocument(cfg)
+	require.NoError(t, err)
+
+	require.Equal(t, true, nestedMap(doc.Extensions.OBI.Capture.Network, "stats", "diagnostics")["print_stats"])
+	require.Equal(t, "local", nestedMap(doc.Extensions.OBI.Capture.Network, "stats", "enrichment", "reverse_dns")["mode"])
+	require.Equal(t, "/tmp/ipinfo.mmdb", nestedMap(doc.Extensions.OBI.Capture.Network, "stats", "enrichment", "geo_ip", "ipinfo")["path"])
+
+	got, err := StandaloneToRuntime(doc)
+	require.NoError(t, err)
+	require.Equal(t, cfg.Stats, got.Stats)
 }

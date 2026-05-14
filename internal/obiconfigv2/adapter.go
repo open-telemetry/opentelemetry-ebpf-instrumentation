@@ -149,6 +149,21 @@ func applyCapture(cfg *obi.Config, src *obiv2.Extension) {
 	setDuration(&cfg.NetworkFlows.ReverseDNS.CacheTTL, nestedMap(network, "enrichment", "reverse_dns", "cache"), "ttl")
 	setBool(&cfg.NetworkFlows.Print, nestedMap(network, "diagnostics"), "print_flows")
 
+	stats := nestedMap(src.Capture.Network, "stats")
+	setString(&cfg.Stats.AgentIP, nestedMap(stats, "endpoint_identity"), "agent_ip")
+	setStringAlias(&cfg.Stats.AgentIPIface, nestedMap(stats, "endpoint_identity"), "agent_ip_interface")
+	setString(&cfg.Stats.AgentIPType, nestedMap(stats, "endpoint_identity"), "agent_ip_family")
+	setDecoded(&cfg.Stats.CIDRs, nestedMap(stats, "selection"), "cidrs")
+	setInt(&cfg.Stats.GeoIP.CacheLen, nestedMap(stats, "enrichment", "geo_ip", "cache"), "size")
+	setDuration(&cfg.Stats.GeoIP.CacheTTL, nestedMap(stats, "enrichment", "geo_ip", "cache"), "ttl")
+	setString(&cfg.Stats.GeoIP.IPInfo.Path, nestedMap(stats, "enrichment", "geo_ip", "ipinfo"), "path")
+	setString(&cfg.Stats.GeoIP.MaxMindInfo.CountryPath, nestedMap(stats, "enrichment", "geo_ip", "maxmind"), "country_path")
+	setString(&cfg.Stats.GeoIP.MaxMindInfo.ASNPath, nestedMap(stats, "enrichment", "geo_ip", "maxmind"), "asn_path")
+	setString(&cfg.Stats.ReverseDNS.Type, nestedMap(stats, "enrichment", "reverse_dns"), "mode")
+	setInt(&cfg.Stats.ReverseDNS.CacheLen, nestedMap(stats, "enrichment", "reverse_dns", "cache"), "size")
+	setDuration(&cfg.Stats.ReverseDNS.CacheTTL, nestedMap(stats, "enrichment", "reverse_dns", "cache"), "ttl")
+	setBool(&cfg.Stats.Print, nestedMap(stats, "diagnostics"), "print_stats")
+
 	setInt(&cfg.OTELMetrics.ReportersCacheLen, nestedMap(src.Capture.Telemetry, "metrics"), "reporters_cache_len")
 	setDuration(&cfg.OTELMetrics.TTL, nestedMap(src.Capture.Telemetry, "metrics"), "ttl")
 	setInt(&cfg.Traces.ReportersCacheLen, nestedMap(src.Capture.Telemetry, "traces"), "reporters_cache_len")
@@ -572,11 +587,31 @@ func setStringAlias[T ~string](dst *T, m map[string]any, key string) {
 	if m == nil {
 		return
 	}
-	value, ok := m[key].(string)
+
+	switch value := m[key].(type) {
+	case string:
+		*dst = T(value)
+	case T:
+		*dst = value
+	}
+}
+
+func setDecoded(dst any, m map[string]any, key string) {
+	if m == nil {
+		return
+	}
+
+	value, ok := m[key]
 	if !ok {
 		return
 	}
-	*dst = T(value)
+
+	data, err := yaml.Marshal(value)
+	if err != nil {
+		return
+	}
+
+	_ = yaml.Unmarshal(data, dst)
 }
 
 func setSamplerConfig(dst *services.SamplerConfig, m map[string]any) {

@@ -229,6 +229,41 @@ func captureConfig(cfg *obi.Config) obiv2.CaptureConfig {
 					"print_flows": cfg.NetworkFlows.Print,
 				},
 			},
+			"stats": map[string]any{
+				"endpoint_identity": map[string]any{
+					"agent_ip":           cfg.Stats.AgentIP,
+					"agent_ip_interface": cfg.Stats.AgentIPIface,
+					"agent_ip_family":    cfg.Stats.AgentIPType,
+				},
+				"selection": map[string]any{
+					"cidrs": cfg.Stats.CIDRs,
+				},
+				"enrichment": map[string]any{
+					"geo_ip": map[string]any{
+						"ipinfo": map[string]any{
+							"path": cfg.Stats.GeoIP.IPInfo.Path,
+						},
+						"maxmind": map[string]any{
+							"country_path": cfg.Stats.GeoIP.MaxMindInfo.CountryPath,
+							"asn_path":     cfg.Stats.GeoIP.MaxMindInfo.ASNPath,
+						},
+						"cache": map[string]any{
+							"size": cfg.Stats.GeoIP.CacheLen,
+							"ttl":  cfg.Stats.GeoIP.CacheTTL.String(),
+						},
+					},
+					"reverse_dns": map[string]any{
+						"mode": cfg.Stats.ReverseDNS.Type,
+						"cache": map[string]any{
+							"size": cfg.Stats.ReverseDNS.CacheLen,
+							"ttl":  cfg.Stats.ReverseDNS.CacheTTL.String(),
+						},
+					},
+				},
+				"diagnostics": map[string]any{
+					"print_stats": cfg.Stats.Print,
+				},
+			},
 		},
 		Limits: map[string]any{
 			"network_packets":   cfg.NetworkFlows.CacheMaxFlows,
