@@ -267,3 +267,43 @@ extensions:
 		},
 	}, nestedMap(cfg.Enrich, "attributes")["select"])
 }
+
+func TestParseYAMLStandaloneHTTPEnrichment(t *testing.T) {
+	t.Parallel()
+
+	_, cfg, err := ParseYAML([]byte(`
+file_format: "1.0"
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      policy:
+        default_action: include
+      instrumentation:
+        http:
+          payload_extraction:
+            enabled: [enrichment]
+            enrichment:
+              policy:
+                default_action:
+                  headers: include
+                  body: obfuscate
+                obfuscation_string: "[redacted]"
+              rules:
+                - action: obfuscate
+                  type: body
+                  scope: request
+                  match:
+                    url_path_patterns: [/login]
+                    methods: [POST]
+                    obfuscation_json_paths: ["$.password"]
+`), DeploymentModeStandalone)
+	require.NoError(t, err)
+
+	payloadExtraction := nestedMap(cfg.Capture.Instrumentation, "http", "payload_extraction")
+	require.Equal(t, []any{"enrichment"}, payloadExtraction["enabled"])
+	require.Equal(t, "include", nestedMap(payloadExtraction, "enrichment", "policy", "default_action")["headers"])
+	require.Equal(t, "obfuscate", nestedMap(payloadExtraction, "enrichment", "policy", "default_action")["body"])
+	require.Equal(t, "[redacted]", nestedMap(payloadExtraction, "enrichment", "policy")["obfuscation_string"])
+	require.Len(t, nestedMap(payloadExtraction, "enrichment")["rules"], 1)
+}

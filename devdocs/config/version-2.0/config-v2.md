@@ -457,8 +457,8 @@ For example, SQL has `mysql` and `postgres` for driver-specific controls, HTTP h
 HTTP `payload_extraction` uses the same list-based enablement model as other instrumentation selectors:
 
 - `payload_extraction.enabled` is the only enablement surface.
-- Concrete values currently supported are `graphql`, `elasticsearch`, `aws`, and `sqlpp`.
-- Nested extractor blocks are for tuning, not duplicate enablement. For example, `payload_extraction.sqlpp.endpoint_patterns` refines SQL++ matching after `sqlpp` is enabled in the list.
+- Concrete values currently supported are `graphql`, `elasticsearch`, `aws`, `sqlpp`, and `enrichment`.
+- Nested extractor blocks are for tuning, not duplicate enablement. For example, `payload_extraction.sqlpp.endpoint_patterns` refines SQL++ matching after `sqlpp` is enabled in the list, and `payload_extraction.enrichment.*` defines HTTP header/body enrichment policy and rules after `enrichment` is enabled in the list.
 - If future aliases or families are needed, they should be added as values in the same `enabled` list rather than introducing parallel knobs.
 
 ### `capture.runtimes` Section
@@ -612,6 +612,11 @@ Important mapping notes:
 | `ebpf.payload_extraction.http.elasticsearch.enabled` | `extensions.obi.capture.instrumentation.http.payload_extraction.enabled[]` contains `elasticsearch` | Move + normalize |
 | `ebpf.payload_extraction.http.aws.enabled` | `extensions.obi.capture.instrumentation.http.payload_extraction.enabled[]` contains `aws` | Move + normalize |
 | `ebpf.payload_extraction.http.sqlpp.enabled` | `extensions.obi.capture.instrumentation.http.payload_extraction.enabled[]` contains `sqlpp` | Move + normalize |
+| `ebpf.payload_extraction.http.enrichment.enabled` | `extensions.obi.capture.instrumentation.http.payload_extraction.enabled[]` contains `enrichment` | Move + normalize |
+| `ebpf.payload_extraction.http.enrichment.policy.default_action.headers` | `extensions.obi.capture.instrumentation.http.payload_extraction.enrichment.policy.default_action.headers` | Move |
+| `ebpf.payload_extraction.http.enrichment.policy.default_action.body` | `extensions.obi.capture.instrumentation.http.payload_extraction.enrichment.policy.default_action.body` | Move |
+| `ebpf.payload_extraction.http.enrichment.policy.obfuscation_string` | `extensions.obi.capture.instrumentation.http.payload_extraction.enrichment.policy.obfuscation_string` | Move |
+| `ebpf.payload_extraction.http.enrichment.rules` | `extensions.obi.capture.instrumentation.http.payload_extraction.enrichment.rules` | Move |
 | `ebpf.payload_extraction.http.sqlpp.endpoint_patterns` | `extensions.obi.capture.instrumentation.http.payload_extraction.sqlpp.endpoint_patterns` | Move |
 | `ebpf.postgres_prepared_statements_cache_size` | `extensions.obi.capture.instrumentation.sql.postgres.prepared_statements_cache_size` | Move |
 | `ebpf.redis_db_cache.enabled` | `extensions.obi.capture.instrumentation.redis.db_cache.enabled` | Move |

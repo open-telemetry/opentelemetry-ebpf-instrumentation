@@ -403,11 +403,28 @@ func payloadExtractionMap(cfg *obi.Config) map[string]any {
 	if cfg.EBPF.PayloadExtraction.HTTP.SQLPP.Enabled {
 		enabled = append(enabled, "sqlpp")
 	}
+	if cfg.EBPF.PayloadExtraction.HTTP.Enrichment.Enabled {
+		enabled = append(enabled, "enrichment")
+	}
 	return map[string]any{
 		"enabled": enabled,
 		"sqlpp": map[string]any{
 			"endpoint_patterns": cfg.EBPF.PayloadExtraction.HTTP.SQLPP.EndpointPatterns,
 		},
+		"enrichment": httpEnrichmentMap(cfg),
+	}
+}
+
+func httpEnrichmentMap(cfg *obi.Config) map[string]any {
+	return map[string]any{
+		"policy": map[string]any{
+			"default_action": map[string]any{
+				"headers": textValue(cfg.EBPF.PayloadExtraction.HTTP.Enrichment.Policy.DefaultAction.Headers),
+				"body":    textValue(cfg.EBPF.PayloadExtraction.HTTP.Enrichment.Policy.DefaultAction.Body),
+			},
+			"obfuscation_string": cfg.EBPF.PayloadExtraction.HTTP.Enrichment.Policy.ObfuscationString,
+		},
+		"rules": cfg.EBPF.PayloadExtraction.HTTP.Enrichment.Rules,
 	}
 }
 

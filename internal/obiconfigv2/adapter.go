@@ -93,7 +93,9 @@ func applyCapture(cfg *obi.Config, src *obiv2.Extension) {
 	setStringSlice(&cfg.Routes.Patterns, nestedMap(httpCfg, "routes"), "patterns")
 	setStringSlice(&cfg.Routes.IgnorePatterns, nestedMap(httpCfg, "routes"), "ignored_patterns")
 	setStringAlias(&cfg.Routes.IgnoredEvents, nestedMap(httpCfg, "routes"), "ignore_mode")
-	mapPayloadExtraction(cfg, nestedMap(httpCfg, "payload_extraction"))
+	payloadExtraction := nestedMap(httpCfg, "payload_extraction")
+	mapPayloadExtraction(cfg, payloadExtraction)
+	mapHTTPEnrichment(cfg, payloadExtraction)
 
 	sqlCfg := nestedMap(src.Capture.Instrumentation, "sql")
 	setBool(&cfg.EBPF.HeuristicSQLDetect, sqlCfg, "heuristic_detect")
@@ -183,6 +185,34 @@ func applyCapture(cfg *obi.Config, src *obiv2.Extension) {
 	setDuration(&cfg.Java.Timeout, nestedMap(src.Capture.Runtimes, "java"), "attach_timeout")
 
 	mapRules(cfg, src)
+}
+
+func mapHTTPEnrichment(cfg *obi.Config, payloadExtraction map[string]any) {
+	if cfg == nil {
+		return
+	}
+
+	enabled := false
+	for _, item := range stringSliceValue(payloadExtraction, "enabled") {
+		if item == "enrichment" {
+			enabled = true
+			break
+		}
+	}
+	cfg.EBPF.PayloadExtraction.HTTP.Enrichment.Enabled = enabled
+
+	enrichment := nestedMap(payloadExtraction, "enrichment")
+	policy := nestedMap(enrichment, "policy")
+	setText(&cfg.EBPF.PayloadExtraction.HTTP.Enrichment.Policy.DefaultAction.Headers, nestedMap(policy, "default_action"), "headers")
+	setText(&cfg.EBPF.PayloadExtraction.HTTP.Enrichment.Policy.DefaultAction.Body, nestedMap(policy, "default_action"), "body")
+	setString(&cfg.EBPF.PayloadExtraction.HTTP.Enrichment.Policy.ObfuscationString, policy, "obfuscation_string")
+
+	if rules, ok := enrichment["rules"]; ok {
+		setDecoded(&cfg.EBPF.PayloadExtraction.HTTP.Enrichment.Rules, enrichment, "rules")
+		if rules == nil {
+			cfg.EBPF.PayloadExtraction.HTTP.Enrichment.Rules = nil
+		}
+	}
 }
 
 func applyProtocolEnablement(cfg *obi.Config, instrumentationCfg map[string]any) {

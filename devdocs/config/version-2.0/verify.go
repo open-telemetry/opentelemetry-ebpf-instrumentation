@@ -414,6 +414,10 @@ func main() {
 		{[]string{"routes", "wildcard_char"}, []string{"obi", "capture", "instrumentation", "http", "routes", "wildcard_char"}},
 		{[]string{"routes", "max_path_segment_cardinality"}, []string{"obi", "capture", "instrumentation", "http", "routes", "max_path_segment_cardinality"}},
 		{[]string{"ebpf", "payload_extraction", "http", "sqlpp", "endpoint_patterns"}, []string{"obi", "capture", "instrumentation", "http", "payload_extraction", "sqlpp", "endpoint_patterns"}},
+		{[]string{"ebpf", "payload_extraction", "http", "enrichment", "policy", "default_action", "headers"}, []string{"obi", "capture", "instrumentation", "http", "payload_extraction", "enrichment", "policy", "default_action", "headers"}},
+		{[]string{"ebpf", "payload_extraction", "http", "enrichment", "policy", "default_action", "body"}, []string{"obi", "capture", "instrumentation", "http", "payload_extraction", "enrichment", "policy", "default_action", "body"}},
+		{[]string{"ebpf", "payload_extraction", "http", "enrichment", "policy", "obfuscation_string"}, []string{"obi", "capture", "instrumentation", "http", "payload_extraction", "enrichment", "policy", "obfuscation_string"}},
+		{[]string{"ebpf", "payload_extraction", "http", "enrichment", "rules"}, []string{"obi", "capture", "instrumentation", "http", "payload_extraction", "enrichment", "rules"}},
 
 		{[]string{"otel_metrics_export", "histogram_aggregation"}, []string{"meter_provider", "readers", "0", "periodic", "exporter", "otlp_grpc", "default_histogram_aggregation"}},
 		{[]string{"otel_metrics_export", "reporters_cache_len"}, []string{"obi", "capture", "telemetry", "metrics", "reporters_cache_len"}},
@@ -502,7 +506,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	for _, extractor := range []string{"graphql", "elasticsearch", "aws", "sqlpp"} {
+	for _, extractor := range []string{"graphql", "elasticsearch", "aws", "sqlpp", "enrichment"} {
 		if err := mustMapPayloadExtractionMembership(cur, ex, extractor); err != nil {
 			fmt.Println("FAIL:", err)
 			fmt.Printf("verification failed: %d mismatches\n", failures+1)
@@ -510,5 +514,5 @@ func main() {
 		}
 	}
 
-	fmt.Printf("feature parity verification passed: %d mapped default checks\n", len(checks)+10)
+	fmt.Printf("feature parity verification passed: %d mapped default checks\n", len(checks)+11)
 }

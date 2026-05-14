@@ -788,3 +788,47 @@ network:
 	require.NoError(t, err)
 	require.Equal(t, cfg.NetworkFlows.CIDRs, got.NetworkFlows.CIDRs)
 }
+
+func TestHTTPEnrichmentRoundTrip(t *testing.T) {
+	jsonPath, err := config.NewJSONPathExpr("$.password")
+	require.NoError(t, err)
+
+	cfg := obi.DefaultConfig
+	cfg.EBPF.PayloadExtraction.HTTP.Enrichment.Enabled = true
+	cfg.EBPF.PayloadExtraction.HTTP.Enrichment.Policy.DefaultAction.Headers = config.HTTPParsingActionInclude
+	cfg.EBPF.PayloadExtraction.HTTP.Enrichment.Policy.DefaultAction.Body = config.HTTPParsingActionObfuscate
+	cfg.EBPF.PayloadExtraction.HTTP.Enrichment.Policy.ObfuscationString = "[redacted]"
+	cfg.EBPF.PayloadExtraction.HTTP.Enrichment.Rules = []config.HTTPParsingRule{{
+		Action: config.HTTPParsingActionObfuscate,
+		Type:   config.HTTPParsingRuleTypeBody,
+		Scope:  config.HTTPParsingScopeRequest,
+		Match: config.HTTPParsingMatch{
+			URLPathPatterns:      []services.GlobAttr{services.NewGlob("/login")},
+			Methods:              []config.HTTPMethod{config.HTTPMethodPOST},
+			ObfuscationJSONPaths: []config.JSONPathExpr{jsonPath},
+		},
+	}}
+
+	doc, err := RuntimeToDocument(&cfg)
+	require.NoError(t, err)
+
+	payloadExtraction := nestedMap(doc.Extensions.OBI.Capture.Instrumentation, "http", "payload_extraction")
+	require.Contains(t, payloadExtraction["enabled"], "enrichment")
+	require.Equal(t, "include", nestedMap(payloadExtraction, "enrichment", "policy", "default_action")["headers"])
+	require.Equal(t, "obfuscate", nestedMap(payloadExtraction, "enrichment", "policy", "default_action")["body"])
+	require.Equal(t, "[redacted]", nestedMap(payloadExtraction, "enrichment", "policy")["obfuscation_string"])
+
+	got, err := StandaloneToRuntime(doc)
+	require.NoError(t, err)
+	require.True(t, got.EBPF.PayloadExtraction.HTTP.Enrichment.Enabled)
+	require.Equal(t, config.HTTPParsingActionInclude, got.EBPF.PayloadExtraction.HTTP.Enrichment.Policy.DefaultAction.Headers)
+	require.Equal(t, config.HTTPParsingActionObfuscate, got.EBPF.PayloadExtraction.HTTP.Enrichment.Policy.DefaultAction.Body)
+	require.Equal(t, "[redacted]", got.EBPF.PayloadExtraction.HTTP.Enrichment.Policy.ObfuscationString)
+	require.Len(t, got.EBPF.PayloadExtraction.HTTP.Enrichment.Rules, 1)
+	require.Equal(t, config.HTTPParsingActionObfuscate, got.EBPF.PayloadExtraction.HTTP.Enrichment.Rules[0].Action)
+	require.Equal(t, config.HTTPParsingRuleTypeBody, got.EBPF.PayloadExtraction.HTTP.Enrichment.Rules[0].Type)
+	require.Equal(t, config.HTTPParsingScopeRequest, got.EBPF.PayloadExtraction.HTTP.Enrichment.Rules[0].Scope)
+	require.Equal(t, services.NewGlob("/login"), got.EBPF.PayloadExtraction.HTTP.Enrichment.Rules[0].Match.URLPathPatterns[0])
+	require.Equal(t, config.HTTPMethodPOST, got.EBPF.PayloadExtraction.HTTP.Enrichment.Rules[0].Match.Methods[0])
+	require.Equal(t, "$.password", got.EBPF.PayloadExtraction.HTTP.Enrichment.Rules[0].Match.ObfuscationJSONPaths[0].String())
+}
