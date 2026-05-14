@@ -132,6 +132,7 @@ OBI currently documents the following statistical instrumentation support:
 |:-------|:------|:------|
 | TCP RTT | Node-wide statistical metric collection | Calculated from the kernel TCP `srtt_us` field |
 | TCP Failed Connections | Node-wide statistical metric collection | Counts the TCP failed connections between 2 endpoints |
+| TCP Retransmits | Node-wide statistical metric collection | Counts data-segment and client-SYN retransmits. Server-side SYN-ACK retransmits are a separate event and not counted here. |
 
 ## Context Propagation Frameworks
 
