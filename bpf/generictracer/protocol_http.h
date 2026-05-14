@@ -535,7 +535,7 @@ int obi_parse_traceparent_http(struct pt_regs *ctx) {
     const u32 max_bytes = (u32)bpf_max_request_tp_parse_size_kb * 1024;
     // In append mode, the caller already updated info->len before the tail-call,
     // so base_offset = cumulative bytes processed before this chunk.
-    const u32 base_offset = args->is_append ? (u32)(info->len - (u32)args->bytes_len) : 0;
+    const u32 base_offset = args->is_append ? info->len - (u32)args->bytes_len : 0;
     u32 offset = args->niter * chunk_size;
 
     if (args->niter >= k_tp_parse_max_niter || (base_offset + offset) >= max_bytes) {
@@ -770,8 +770,8 @@ __obi_continue_protocol_http_tp(struct pt_regs *ctx,
                 // If total data exceeds the first scan window, launch the chunked
                 // scanner starting at niter=1 (the first chunk was already scanned).
                 const u32 total_len =
-                    (args->orig_buf && (u32)args->full_bytes_len > (u32)args->bytes_len)
-                        ? (u32)args->full_bytes_len
+                    (args->orig_buf && args->full_bytes_len > (u32)args->bytes_len)
+                        ? args->full_bytes_len
                         : (u32)args->bytes_len;
                 if (tp_loop_fn == bpf_strstr_tp_loop && bpf_max_request_tp_parse_size_kb > 0 &&
                     total_len > (TRACE_BUF_SIZE - 1)) {
