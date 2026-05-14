@@ -17,6 +17,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/kube"
 	"go.opentelemetry.io/obi/pkg/obi"
 	obiv2 "go.opentelemetry.io/obi/pkg/obiconfig/v2"
+	"go.opentelemetry.io/obi/pkg/transform"
 )
 
 func TestDefaultConfigRoundTrip(t *testing.T) {
@@ -525,6 +526,27 @@ func TestKubernetesReconnectAndResourceLabelsRoundTrip(t *testing.T) {
 		"service.name":      {"app.kubernetes.io/name", "app.kubernetes.io/instance"},
 		"service.namespace": {"team"},
 	}, got.Attributes.Kubernetes.ResourceLabels)
+}
+
+func TestServiceNameResolverAndTemplateRoundTrip(t *testing.T) {
+	cfg := obi.DefaultConfig
+	cfg.TracePrinter = "text"
+	cfg.NameResolver.Sources = []transform.Source{transform.SourceDNS, transform.SourceRDNS, transform.SourceKubernetes}
+	cfg.Attributes.Kubernetes.ServiceNameTemplate = "{{ .Meta.Namespace }}/{{ .Meta.Name }}"
+
+	doc, err := RuntimeToDocument(&cfg)
+	require.NoError(t, err)
+
+	serviceName := nestedMap(doc.Extensions.OBI.Enrich, "service_name")
+	require.Equal(t, []transform.Source{transform.SourceDNS, transform.SourceRDNS, transform.SourceKubernetes}, serviceName["sources"])
+	require.Equal(t, "{{ .Meta.Namespace }}/{{ .Meta.Name }}", nestedMap(doc.Extensions.OBI.Enrich, "enrichers", "kubernetes")["service_name_template"])
+
+	got, err := StandaloneToRuntime(doc)
+	require.NoError(t, err)
+	require.Equal(t, []transform.Source{transform.SourceDNS, transform.SourceRDNS, transform.SourceKubernetes}, got.NameResolver.Sources)
+	require.Equal(t, "{{ .Meta.Namespace }}/{{ .Meta.Name }}", got.Attributes.Kubernetes.ServiceNameTemplate)
+	got.TracePrinter = "text"
+	require.NoError(t, got.Validate())
 }
 
 func TestRuntimeStatsConfigRoundTrip(t *testing.T) {

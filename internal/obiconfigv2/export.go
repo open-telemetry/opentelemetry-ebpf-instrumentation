@@ -601,6 +601,7 @@ func enrichMap(cfg *obi.Config) map[string]any {
 			"kubernetes": map[string]any{
 				"mode":         cfg.Attributes.Kubernetes.Enable,
 				"cluster_name": cfg.Attributes.Kubernetes.ClusterName,
+				"service_name_template": cfg.Attributes.Kubernetes.ServiceNameTemplate,
 				"auth": map[string]any{
 					"kubeconfig_path": cfg.Attributes.Kubernetes.KubeconfigPath,
 				},
@@ -623,6 +624,7 @@ func enrichMap(cfg *obi.Config) map[string]any {
 			},
 		},
 		"service_name": map[string]any{
+			"sources": cfg.NameResolver.Sources,
 			"cache": map[string]any{
 				"size": cfg.NameResolver.CacheLen,
 				"ttl":  cfg.NameResolver.CacheTTL.String(),

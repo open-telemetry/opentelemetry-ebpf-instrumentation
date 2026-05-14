@@ -272,11 +272,13 @@ func applyStandalone(cfg *obi.Config, src *obiv2.Extension) {
 
 	setInt(&cfg.NameResolver.CacheLen, nestedMap(src.Enrich, "service_name", "cache"), "size")
 	setDuration(&cfg.NameResolver.CacheTTL, nestedMap(src.Enrich, "service_name", "cache"), "ttl")
+	setStringSlice(&cfg.NameResolver.Sources, nestedMap(src.Enrich, "service_name"), "sources")
 	setString(&cfg.Attributes.RenameUnresolvedHosts, nestedMap(src.Enrich, "service_name", "unresolved_hosts", "names"), "default")
 	setString(&cfg.Attributes.RenameUnresolvedHostsOutgoing, nestedMap(src.Enrich, "service_name", "unresolved_hosts", "names"), "outgoing")
 	setString(&cfg.Attributes.RenameUnresolvedHostsIncoming, nestedMap(src.Enrich, "service_name", "unresolved_hosts", "names"), "incoming")
 	setString((*string)(&cfg.Attributes.Kubernetes.Enable), nestedMap(src.Enrich, "enrichers", "kubernetes"), "mode")
 	setString(&cfg.Attributes.Kubernetes.ClusterName, nestedMap(src.Enrich, "enrichers", "kubernetes"), "cluster_name")
+	setString(&cfg.Attributes.Kubernetes.ServiceNameTemplate, nestedMap(src.Enrich, "enrichers", "kubernetes"), "service_name_template")
 	setString(&cfg.Attributes.Kubernetes.KubeconfigPath, nestedMap(src.Enrich, "enrichers", "kubernetes", "auth"), "kubeconfig_path")
 	setDuration(&cfg.Attributes.Kubernetes.InformersSyncTimeout, nestedMap(src.Enrich, "enrichers", "kubernetes", "informers"), "initial_sync_timeout")
 	setDuration(&cfg.Attributes.Kubernetes.ReconnectInitialInterval, nestedMap(src.Enrich, "enrichers", "kubernetes", "informers"), "reconnect_initial_interval")
