@@ -326,6 +326,12 @@ type OpenAIError struct {
 	Type    string `json:"type"`
 }
 
+// ToolCall represents a tool invocation requested by an LLM.
+type ToolCall struct {
+	ID   string `json:"id,omitempty"`
+	Name string `json:"name"`
+}
+
 type VendorOpenAI struct {
 	OperationName    string          `json:"object"`
 	ResponseModel    string          `json:"model"`
@@ -341,6 +347,7 @@ type VendorOpenAI struct {
 	Items            json.RawMessage `json:"items"`
 	Metadata         json.RawMessage `json:"metadata"`
 	Data             json.RawMessage `json:"data"`
+	ToolCalls        []ToolCall      `json:"-"`
 }
 
 func (ai *VendorOpenAI) GetOutput() string {
@@ -387,8 +394,9 @@ func (air *OpenAIInput) GetInput() string {
 }
 
 type VendorAnthropic struct {
-	Input  AnthropicRequest
-	Output AnthropicResponse
+	Input     AnthropicRequest
+	Output    AnthropicResponse
+	ToolCalls []ToolCall `json:"-"`
 }
 
 type AnthropicRequest struct {
@@ -436,6 +444,7 @@ type VendorGemini struct {
 	Output    GeminiResponse
 	Model     string
 	Operation string
+	ToolCalls []ToolCall `json:"-"`
 }
 
 type GeminiRequest struct {
