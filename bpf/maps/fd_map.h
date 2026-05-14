@@ -23,13 +23,13 @@ struct {
 
 static __always_inline void get_ephemeral_info(connection_info_part_t *part,
                                                connection_info_t *unordered_conn) {
-    __builtin_memcpy(part->addr, unordered_conn->s_addr, IP_V6_ADDR_LEN);
+    __builtin_memcpy(part->addr, unordered_conn->s_addr, sizeof(unordered_conn->s_addr));
     part->port = unordered_conn->s_port;
 }
 
 static __always_inline void get_ephemeral_accept_info(connection_info_part_t *part,
                                                       connection_info_t *unordered_conn) {
-    __builtin_memcpy(part->addr, unordered_conn->d_addr, IP_V6_ADDR_LEN);
+    __builtin_memcpy(part->addr, unordered_conn->d_addr, sizeof(unordered_conn->d_addr));
     part->port = unordered_conn->d_port;
 }
 
