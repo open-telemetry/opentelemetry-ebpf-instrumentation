@@ -190,12 +190,12 @@ func TestJavaInjector_CopyAgent(t *testing.T) {
 			}
 
 			ie := &ebpf.Instrumentable{
-				FileInfo: &exec.FileInfo{
+				FileInfo: exec.New(exec.Init{
 					Pid: tt.pid,
 					Service: svc.Attrs{
 						EnvVars: tt.envVars,
 					},
-				},
+				}),
 				Type: svc.InstrumentableJava,
 			}
 
@@ -329,11 +329,11 @@ func TestJavaInjector_FindTempDir(t *testing.T) {
 			}
 
 			ie := &ebpf.Instrumentable{
-				FileInfo: &exec.FileInfo{
+				FileInfo: exec.New(exec.Init{
 					Service: svc.Attrs{
 						EnvVars: tt.envVars,
 					},
-				},
+				}),
 			}
 
 			tmpDir, err := injector.findTempDir(root, ie)

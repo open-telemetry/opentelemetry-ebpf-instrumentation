@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
+	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/obi"
 )
@@ -35,7 +36,7 @@ func newTestTracer(t *testing.T, exclude bool) *Tracer {
 			},
 		},
 		pids:        map[uint64][]uint64{},
-		pidServices: map[uint32]*svc.Attrs{},
+		pidServices: map[uint32]*exec.FileInfo{},
 		pidsMU:      sync.Mutex{},
 	}
 }
@@ -43,9 +44,9 @@ func newTestTracer(t *testing.T, exclude bool) *Tracer {
 func TestShouldOmitSpanID_FeatureDisabled(t *testing.T) {
 	tr := newTestTracer(t, false)
 
-	s := &svc.Attrs{UID: svc.UID{Name: "scoring-engine"}}
-	s.SetExportsOTelTraces()
-	tr.pidServices[testPIDDisabledGate] = s
+	fi := exec.New(exec.Init{Service: svc.Attrs{UID: svc.UID{Name: "scoring-engine"}}})
+	fi.EnsureExportsOTelTraces()
+	tr.pidServices[testPIDDisabledGate] = fi
 
 	assert.False(t, tr.shouldOmitSpanID(testPIDDisabledGate),
 		"feature gate off: must not omit span_id even for OTel-exporting services")
@@ -61,7 +62,7 @@ func TestShouldOmitSpanID_UnknownPID(t *testing.T) {
 func TestShouldOmitSpanID_NonOTelService(t *testing.T) {
 	tr := newTestTracer(t, true)
 
-	tr.pidServices[testPIDNonOTel] = &svc.Attrs{UID: svc.UID{Name: "regular"}}
+	tr.pidServices[testPIDNonOTel] = exec.New(exec.Init{Service: svc.Attrs{UID: svc.UID{Name: "regular"}}})
 
 	assert.False(t, tr.shouldOmitSpanID(testPIDNonOTel),
 		"non-OTel-exporting service: include span_id")
@@ -70,9 +71,9 @@ func TestShouldOmitSpanID_NonOTelService(t *testing.T) {
 func TestShouldOmitSpanID_OTelService(t *testing.T) {
 	tr := newTestTracer(t, true)
 
-	s := &svc.Attrs{UID: svc.UID{Name: "scoring-engine"}}
-	s.SetExportsOTelTraces()
-	tr.pidServices[testPIDOTelService] = s
+	fi := exec.New(exec.Init{Service: svc.Attrs{UID: svc.UID{Name: "scoring-engine"}}})
+	fi.EnsureExportsOTelTraces()
+	tr.pidServices[testPIDOTelService] = fi
 
 	assert.True(t, tr.shouldOmitSpanID(testPIDOTelService),
 		"OTel-exporting service with feature gate on: omit span_id")
@@ -81,13 +82,13 @@ func TestShouldOmitSpanID_OTelService(t *testing.T) {
 func TestShouldOmitSpanID_ReflectsFlagFlip(t *testing.T) {
 	tr := newTestTracer(t, true)
 
-	s := &svc.Attrs{UID: svc.UID{Name: "scoring-engine"}}
-	tr.pidServices[testPIDFlagFlip] = s
+	fi := exec.New(exec.Init{Service: svc.Attrs{UID: svc.UID{Name: "scoring-engine"}}})
+	tr.pidServices[testPIDFlagFlip] = fi
 
 	assert.False(t, tr.shouldOmitSpanID(testPIDFlagFlip),
 		"before flag flip: include span_id")
 
-	s.SetExportsOTelTraces()
+	fi.EnsureExportsOTelTraces()
 
 	assert.True(t, tr.shouldOmitSpanID(testPIDFlagFlip),
 		"after flag flip via shared pointer: omit span_id")

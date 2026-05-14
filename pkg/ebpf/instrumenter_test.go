@@ -20,7 +20,6 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
-	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/internal/goexec"
@@ -220,7 +219,7 @@ type stubTracer struct {
 	uprobes map[string]map[string][]*ebpfcommon.ProbeDesc
 }
 
-func (s *stubTracer) AllowPID(app.PID, uint32, *svc.Attrs)                   {}
+func (s *stubTracer) AllowPID(app.PID, uint32, *exec.FileInfo)               {}
 func (s *stubTracer) BlockPID(app.PID, uint32)                               {}
 func (s *stubTracer) LoadSpecs() ([]*ebpfcommon.SpecBundle, error)           { return nil, nil }
 func (s *stubTracer) AddCloser(...io.Closer)                                 {}
