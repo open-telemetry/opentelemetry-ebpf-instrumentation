@@ -562,8 +562,11 @@ int obi_uprobe_transport_http2Client_NewStream(struct pt_regs *ctx) {
             bpf_probe_read(&conn_ptr_key, sizeof(conn_ptr_key), conn_ptr);
         }
 
+        go_addr_key_t cache_key = {};
+        go_addr_key_from_id(&cache_key, t_ptr);
+
         connection_info_t *cached_conn =
-            bpf_map_lookup_elem(&cached_grpc_client_connections, &t_ptr);
+            bpf_map_lookup_elem(&cached_grpc_client_connections, &cache_key);
         // reading the connection can be expensive for high volume of
         // new grpc client connections. We cache it, since most grpc client
         // connections are long lived.
@@ -595,7 +598,7 @@ int obi_uprobe_transport_http2Client_NewStream(struct pt_regs *ctx) {
                     if (ok) {
                         bpf_map_update_elem(&ongoing_client_connections, &g_key, &conn, BPF_ANY);
                         bpf_map_update_elem(
-                            &cached_grpc_client_connections, &t_ptr, &conn, BPF_ANY);
+                            &cached_grpc_client_connections, &cache_key, &conn, BPF_ANY);
 
                         if (conn_ptr_key) {
                             bpf_map_update_elem(
