@@ -1,6 +1,6 @@
 name: "CI Supervisor: Rerun flaky failures"
 
-on: # zizmor: ignore[dangerous-triggers] checks out only scripts/rerun-flaky.sh from default branch (explicit ref); GITHUB_TOKEN used for all ops
+on: # zizmor: ignore[dangerous-triggers] checks out only scripts/rerun-flaky.sh from default branch (explicit ref); GITHUB_TOKEN scoped to actions:write
   workflow_run:
     workflows:
       - "Pull request checks"
@@ -23,14 +23,12 @@ jobs:
   evaluate-and-rerun:
     name: Evaluate failed checks
     if: >
-      (github.event.workflow_run.conclusion == 'failure' ||
-      github.event.workflow_run.conclusion == 'timed_out') &&
-      github.event.workflow_run.actor.login != 'renovate[bot]'
+      github.event.workflow_run.conclusion == 'failure' ||
+      github.event.workflow_run.conclusion == 'timed_out'
     runs-on: ubuntu-latest
     permissions:
       contents: read
       actions: write
-      pull-requests: write
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
