@@ -1,7 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package obiconfigv2 // import "go.opentelemetry.io/obi/internal/obiconfigv2"
+package configconv // import "go.opentelemetry.io/obi/internal/configconv"
 
 import (
 	"encoding"
@@ -15,19 +15,19 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/appolly/services"
 	obicfg "go.opentelemetry.io/obi/pkg/config"
+	configv2 "go.opentelemetry.io/obi/pkg/config/v2"
 	"go.opentelemetry.io/obi/pkg/export/debug"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/filter"
 	"go.opentelemetry.io/obi/pkg/obi"
-	obiv2 "go.opentelemetry.io/obi/pkg/obiconfig/v2"
 )
 
-func StandaloneToRuntime(doc *obiv2.Document) (*obi.Config, error) {
+func StandaloneToRuntime(doc *configv2.Document) (*obi.Config, error) {
 	if doc == nil || doc.Extensions.OBI == nil {
 		return nil, errors.New("missing extensions.obi config")
 	}
 
-	cfg, err := ConfigToRuntime(doc.Extensions.OBI, obiv2.DeploymentModeStandalone)
+	cfg, err := ConfigToRuntime(doc.Extensions.OBI, configv2.DeploymentModeStandalone)
 	if err != nil {
 		return nil, err
 	}
@@ -37,15 +37,15 @@ func StandaloneToRuntime(doc *obiv2.Document) (*obi.Config, error) {
 	return cfg, nil
 }
 
-func ConfigToRuntime(src *obiv2.Extension, mode obiv2.DeploymentMode) (*obi.Config, error) {
-	if err := obiv2.Validate(src, mode); err != nil {
+func ConfigToRuntime(src *configv2.Extension, mode configv2.DeploymentMode) (*obi.Config, error) {
+	if err := configv2.Validate(src, mode); err != nil {
 		return nil, err
 	}
 
 	cfg := obi.DefaultConfig
 
 	applyCapture(&cfg, src)
-	if mode == obiv2.DeploymentModeStandalone {
+	if mode == configv2.DeploymentModeStandalone {
 		applyStandalone(&cfg, src)
 	}
 	applyMetricsEnablement(&cfg, src)
@@ -54,7 +54,7 @@ func ConfigToRuntime(src *obiv2.Extension, mode obiv2.DeploymentMode) (*obi.Conf
 	return &cfg, nil
 }
 
-func applyCapture(cfg *obi.Config, src *obiv2.Extension) {
+func applyCapture(cfg *obi.Config, src *configv2.Extension) {
 	setDuration(&cfg.Discovery.PollInterval, src.Capture.Policy, "poll_interval")
 	setDuration(&cfg.Discovery.MinProcessAge, src.Capture.Policy, "min_process_age")
 
@@ -222,7 +222,7 @@ func applyProtocolEnablement(cfg *obi.Config, instrumentationCfg map[string]any)
 	cfg.Prometheus.Instrumentations = applySignalEnablement(cfg.Prometheus.Instrumentations, instrumentationCfg, "metrics")
 }
 
-func applyMetricsEnablement(cfg *obi.Config, src *obiv2.Extension) {
+func applyMetricsEnablement(cfg *obi.Config, src *configv2.Extension) {
 	appMetricsEnabled := false
 	for _, mapping := range protocolMappings {
 		if boolValue(nestedMap(src.Capture.Instrumentation, mapping.name, "enabled"), "metrics") {
@@ -294,7 +294,7 @@ func applySignalEnablement(
 	return out
 }
 
-func applyStandalone(cfg *obi.Config, src *obiv2.Extension) {
+func applyStandalone(cfg *obi.Config, src *configv2.Extension) {
 	setString((*string)(&cfg.TracePrinter), nestedMap(src.Daemon, "logging"), "debug_trace_output")
 	if cfg.TracePrinter == "" {
 		cfg.TracePrinter = debug.TracePrinterDisabled
@@ -360,7 +360,7 @@ func applyStandalone(cfg *obi.Config, src *obiv2.Extension) {
 	setStringSlice(&cfg.Prometheus.ExtraSpanResourceLabels, nestedMap(src.Daemon, "telemetry", "metrics", "prometheus"), "extra_span_resource_attributes")
 }
 
-func applyTopLevelPipelines(cfg *obi.Config, doc *obiv2.Document) {
+func applyTopLevelPipelines(cfg *obi.Config, doc *configv2.Document) {
 	setSamplerConfig(&cfg.Traces.SamplerConfig, nestedMap(doc.TracerProvider, "sampler"))
 	setInt(&cfg.Traces.BatchMaxSize, nestedMap(doc.TracerProvider, "processors", "0", "batch"), "max_export_batch_size")
 	setInt(&cfg.Traces.QueueSize, nestedMap(doc.TracerProvider, "processors", "0", "batch"), "max_queue_size")
@@ -381,7 +381,7 @@ func applyTopLevelPipelines(cfg *obi.Config, doc *obiv2.Document) {
 	setInt(&cfg.Prometheus.Port, nestedMap(pullReader, "exporter", "prometheus/development"), "port")
 }
 
-func applyTopLevelResource(cfg *obi.Config, doc *obiv2.Document) {
+func applyTopLevelResource(cfg *obi.Config, doc *configv2.Document) {
 	setString(&cfg.Attributes.InstanceID.OverrideHostname, doc.Resource, "host.name")
 	setString(&cfg.Attributes.HostID.Override, doc.Resource, "host.id")
 }
@@ -398,7 +398,7 @@ func topLevelMeterReader(meterProvider map[string]any, readerType string) map[st
 	return nil
 }
 
-func mapRules(cfg *obi.Config, src *obiv2.Extension) {
+func mapRules(cfg *obi.Config, src *configv2.Extension) {
 	defaultAction := stringValue(src.Capture.Policy, "default_action")
 	if defaultAction == "" {
 		defaultAction = "include"

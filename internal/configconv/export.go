@@ -1,7 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package obiconfigv2 // import "go.opentelemetry.io/obi/internal/obiconfigv2"
+package configconv // import "go.opentelemetry.io/obi/internal/configconv"
 
 import (
 	"encoding"
@@ -10,26 +10,26 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"go.opentelemetry.io/obi/pkg/appolly/services"
+	configv2 "go.opentelemetry.io/obi/pkg/config/v2"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/filter"
 	"go.opentelemetry.io/obi/pkg/obi"
-	obiv2 "go.opentelemetry.io/obi/pkg/obiconfig/v2"
 )
 
-func RuntimeToDocument(cfg *obi.Config) (*obiv2.Document, error) {
+func RuntimeToDocument(cfg *obi.Config) (*configv2.Document, error) {
 	if cfg == nil {
 		return nil, errors.New("missing runtime config")
 	}
 
-	doc := &obiv2.Document{
+	doc := &configv2.Document{
 		FileFormat:     "1.0",
 		Resource:       resourceMap(cfg),
 		Propagator:     map[string]any{},
 		TracerProvider: tracerProviderMap(cfg),
 		MeterProvider:  meterProviderMap(cfg),
-		Extensions: obiv2.Extensions{
-			OBI: &obiv2.Extension{
-				Version:     obiv2.SupportedVersion,
+		Extensions: configv2.Extensions{
+			OBI: &configv2.Extension{
+				Version:     configv2.SupportedVersion,
 				Capture:     captureConfig(cfg),
 				Enrich:      enrichMap(cfg),
 				Correlation: correlationMap(cfg),
@@ -47,7 +47,7 @@ func RuntimeToDocument(cfg *obi.Config) (*obiv2.Document, error) {
 	return doc, nil
 }
 
-func RuntimeToReceiverExtension(cfg *obi.Config) (*obiv2.Extension, error) {
+func RuntimeToReceiverExtension(cfg *obi.Config) (*configv2.Extension, error) {
 	doc, err := RuntimeToDocument(cfg)
 	if err != nil {
 		return nil, err
@@ -70,7 +70,7 @@ func resourceMap(cfg *obi.Config) map[string]any {
 	return resource
 }
 
-func captureConfig(cfg *obi.Config) obiv2.CaptureConfig {
+func captureConfig(cfg *obi.Config) configv2.CaptureConfig {
 	tracesSelection := instrumentationSelection(cfg.Traces.Instrumentations)
 	metricsSelection := instrumentationSelection(metricsInstrumentations(cfg))
 	appMetricsEnabled := cfg.Metrics.Features.AnyAppO11yMetric()
@@ -156,7 +156,7 @@ func captureConfig(cfg *obi.Config) obiv2.CaptureConfig {
 		},
 	}
 
-	return obiv2.CaptureConfig{
+	return configv2.CaptureConfig{
 		Policy: map[string]any{
 			"default_action":  "include",
 			"match_order":     "first_match_wins",
@@ -474,11 +474,11 @@ func filterMap(in filter.AttributeFamilyConfig) map[string]any {
 	return out
 }
 
-func rulesFromRuntime(cfg *obi.Config) []obiv2.Rule {
-	rules := []obiv2.Rule{}
+func rulesFromRuntime(cfg *obi.Config) []configv2.Rule {
+	rules := []configv2.Rule{}
 	for _, selector := range cfg.Discovery.ExcludeInstrument {
 		if selector.OpenPorts.Len() > 0 {
-			rules = append(rules, obiv2.Rule{
+			rules = append(rules, configv2.Rule{
 				Action: "exclude",
 				Match: map[string]any{
 					"process": map[string]any{
@@ -488,7 +488,7 @@ func rulesFromRuntime(cfg *obi.Config) []obiv2.Rule {
 			})
 		}
 		if len(selector.PIDs) > 0 {
-			rules = append(rules, obiv2.Rule{
+			rules = append(rules, configv2.Rule{
 				Action: "exclude",
 				Match: map[string]any{
 					"process": map[string]any{
@@ -498,7 +498,7 @@ func rulesFromRuntime(cfg *obi.Config) []obiv2.Rule {
 			})
 		}
 		if selector.Languages.IsSet() {
-			rules = append(rules, obiv2.Rule{
+			rules = append(rules, configv2.Rule{
 				Action: "exclude",
 				Match: map[string]any{
 					"process": map[string]any{
@@ -508,7 +508,7 @@ func rulesFromRuntime(cfg *obi.Config) []obiv2.Rule {
 			})
 		}
 		if selector.CmdArgs.IsSet() {
-			rules = append(rules, obiv2.Rule{
+			rules = append(rules, configv2.Rule{
 				Action: "exclude",
 				Match: map[string]any{
 					"process": map[string]any{
@@ -518,7 +518,7 @@ func rulesFromRuntime(cfg *obi.Config) []obiv2.Rule {
 			})
 		}
 		if selector.Path.IsSet() {
-			rules = append(rules, obiv2.Rule{
+			rules = append(rules, configv2.Rule{
 				Action: "exclude",
 				Match: map[string]any{
 					"process": map[string]any{
@@ -528,7 +528,7 @@ func rulesFromRuntime(cfg *obi.Config) []obiv2.Rule {
 			})
 		}
 		if namespace := selector.Metadata[services.AttrNamespace]; namespace != nil && namespace.IsSet() {
-			rules = append(rules, obiv2.Rule{
+			rules = append(rules, configv2.Rule{
 				Action: "exclude",
 				Match: map[string]any{
 					"kubernetes": map[string]any{
@@ -538,7 +538,7 @@ func rulesFromRuntime(cfg *obi.Config) []obiv2.Rule {
 			})
 		}
 		if len(selector.PodLabels) > 0 {
-			rules = append(rules, obiv2.Rule{
+			rules = append(rules, configv2.Rule{
 				Action: "exclude",
 				Match: map[string]any{
 					"kubernetes": map[string]any{
@@ -548,7 +548,7 @@ func rulesFromRuntime(cfg *obi.Config) []obiv2.Rule {
 			})
 		}
 		if len(selector.PodAnnotations) > 0 {
-			rules = append(rules, obiv2.Rule{
+			rules = append(rules, configv2.Rule{
 				Action: "exclude",
 				Match: map[string]any{
 					"kubernetes": map[string]any{
@@ -560,7 +560,7 @@ func rulesFromRuntime(cfg *obi.Config) []obiv2.Rule {
 	}
 	for _, selector := range cfg.Discovery.Instrument {
 		if selector.OpenPorts.Len() > 0 {
-			rules = append(rules, obiv2.Rule{
+			rules = append(rules, configv2.Rule{
 				Action: "include",
 				Match: map[string]any{
 					"process": map[string]any{
@@ -570,7 +570,7 @@ func rulesFromRuntime(cfg *obi.Config) []obiv2.Rule {
 			})
 		}
 		if len(selector.PIDs) > 0 {
-			rules = append(rules, obiv2.Rule{
+			rules = append(rules, configv2.Rule{
 				Action: "include",
 				Match: map[string]any{
 					"process": map[string]any{
@@ -580,7 +580,7 @@ func rulesFromRuntime(cfg *obi.Config) []obiv2.Rule {
 			})
 		}
 		if selector.Languages.IsSet() {
-			rules = append(rules, obiv2.Rule{
+			rules = append(rules, configv2.Rule{
 				Action: "include",
 				Match: map[string]any{
 					"process": map[string]any{
@@ -590,7 +590,7 @@ func rulesFromRuntime(cfg *obi.Config) []obiv2.Rule {
 			})
 		}
 		if selector.CmdArgs.IsSet() {
-			rules = append(rules, obiv2.Rule{
+			rules = append(rules, configv2.Rule{
 				Action: "include",
 				Match: map[string]any{
 					"process": map[string]any{
@@ -600,7 +600,7 @@ func rulesFromRuntime(cfg *obi.Config) []obiv2.Rule {
 			})
 		}
 		if namespace := selector.Metadata[services.AttrNamespace]; namespace != nil && namespace.IsSet() {
-			rules = append(rules, obiv2.Rule{
+			rules = append(rules, configv2.Rule{
 				Action: "include",
 				Match: map[string]any{
 					"kubernetes": map[string]any{
@@ -610,7 +610,7 @@ func rulesFromRuntime(cfg *obi.Config) []obiv2.Rule {
 			})
 		}
 		if len(selector.PodLabels) > 0 {
-			rules = append(rules, obiv2.Rule{
+			rules = append(rules, configv2.Rule{
 				Action: "include",
 				Match: map[string]any{
 					"kubernetes": map[string]any{
@@ -620,7 +620,7 @@ func rulesFromRuntime(cfg *obi.Config) []obiv2.Rule {
 			})
 		}
 		if len(selector.PodAnnotations) > 0 {
-			rules = append(rules, obiv2.Rule{
+			rules = append(rules, configv2.Rule{
 				Action: "include",
 				Match: map[string]any{
 					"kubernetes": map[string]any{
@@ -631,7 +631,7 @@ func rulesFromRuntime(cfg *obi.Config) []obiv2.Rule {
 		}
 	}
 	if cfg.Discovery.ExcludeOTelInstrumentedServices {
-		rules = append(rules, obiv2.Rule{
+		rules = append(rules, configv2.Rule{
 			Action: "exclude",
 			Name:   "exclude-otlp-exporters",
 			Match: map[string]any{
@@ -645,7 +645,7 @@ func rulesFromRuntime(cfg *obi.Config) []obiv2.Rule {
 		})
 	}
 	for _, path := range cfg.Discovery.ExcludedLinuxSystemPaths {
-		rules = append(rules, obiv2.Rule{
+		rules = append(rules, configv2.Rule{
 			Action: "exclude",
 			Name:   "exclude-linux-system-paths",
 			Match: map[string]any{

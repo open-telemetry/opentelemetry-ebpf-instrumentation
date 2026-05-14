@@ -13,10 +13,10 @@ import (
 
 	"go.opentelemetry.io/collector/consumer/consumertest"
 
-	obiconfigv2 "go.opentelemetry.io/obi/internal/obiconfigv2"
+	"go.opentelemetry.io/obi/internal/configconv"
 	obicfg "go.opentelemetry.io/obi/pkg/config"
+	configv2 "go.opentelemetry.io/obi/pkg/config/v2"
 	"go.opentelemetry.io/obi/pkg/obi"
-	obiv2 "go.opentelemetry.io/obi/pkg/obiconfig/v2"
 )
 
 func maybeRunConfigCommand(args []string) bool {
@@ -44,7 +44,7 @@ func maybeRunConfigCommand(args []string) bool {
 
 func runConfigValidate(args []string) {
 	fs := flag.NewFlagSet("config validate", flag.ExitOnError)
-	mode := fs.String("mode", string(obiv2.DeploymentModeStandalone), "validation mode: standalone or receiver")
+	mode := fs.String("mode", string(configv2.DeploymentModeStandalone), "validation mode: standalone or receiver")
 	if err := fs.Parse(args); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)
@@ -61,13 +61,13 @@ func runConfigValidate(args []string) {
 		os.Exit(1)
 	}
 
-	switch obiv2.DeploymentMode(*mode) {
-	case obiv2.DeploymentModeStandalone:
+	switch configv2.DeploymentMode(*mode) {
+	case configv2.DeploymentModeStandalone:
 		if err := validateStandaloneConfig(data); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
-	case obiv2.DeploymentModeReceiver:
+	case configv2.DeploymentModeReceiver:
 		if err := validateReceiverConfig(data); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
@@ -81,16 +81,16 @@ func runConfigValidate(args []string) {
 func validateStandaloneConfig(data []byte) error {
 	data = obicfg.ReplaceEnv(data)
 
-	doc, _, err := obiv2.ParseYAML(data, obiv2.DeploymentModeStandalone)
+	doc, _, err := configv2.ParseYAML(data, configv2.DeploymentModeStandalone)
 	if err == nil {
-		cfg, err := obiconfigv2.StandaloneToRuntime(doc)
+		cfg, err := configconv.StandaloneToRuntime(doc)
 		if err != nil {
 			return err
 		}
 		return cfg.Validate()
 	}
 
-	var notV2 *obiv2.NotV2Error
+	var notV2 *configv2.NotV2Error
 	if !errors.As(err, &notV2) {
 		return err
 	}
@@ -107,9 +107,9 @@ func validateStandaloneConfig(data []byte) error {
 func validateReceiverConfig(data []byte) error {
 	data = obicfg.ReplaceEnv(data)
 
-	_, ext, err := obiv2.ParseYAML(data, obiv2.DeploymentModeReceiver)
+	_, ext, err := configv2.ParseYAML(data, configv2.DeploymentModeReceiver)
 	if err == nil {
-		cfg, err := obiconfigv2.ConfigToRuntime(ext, obiv2.DeploymentModeReceiver)
+		cfg, err := configconv.ConfigToRuntime(ext, configv2.DeploymentModeReceiver)
 		if err != nil {
 			return err
 		}
@@ -118,7 +118,7 @@ func validateReceiverConfig(data []byte) error {
 		return cfg.Validate()
 	}
 
-	var notV2 *obiv2.NotV2Error
+	var notV2 *configv2.NotV2Error
 	if !errors.As(err, &notV2) {
 		return err
 	}
@@ -167,7 +167,7 @@ func runConfigMigrate(args []string) {
 	fmt.Fprint(os.Stdout, encoded)
 }
 
-func marshalCanonicalV2(doc *obiv2.Document) (string, error) {
+func marshalCanonicalV2(doc *configv2.Document) (string, error) {
 	data, err := yaml.Marshal(doc)
 	if err != nil {
 		return "", err
@@ -178,11 +178,11 @@ func marshalCanonicalV2(doc *obiv2.Document) (string, error) {
 func migrateConfigData(data []byte) (string, string, error) {
 	data = obicfg.ReplaceEnv(data)
 
-	if doc, ext, err := obiv2.ParseYAML(data, obiv2.DeploymentModeStandalone); err == nil {
+	if doc, ext, err := configv2.ParseYAML(data, configv2.DeploymentModeStandalone); err == nil {
 		if doc == nil && ext != nil {
-			doc = &obiv2.Document{
+			doc = &configv2.Document{
 				FileFormat: "1.0",
-				Extensions: obiv2.Extensions{OBI: ext},
+				Extensions: configv2.Extensions{OBI: ext},
 			}
 		}
 		encoded, encodeErr := marshalCanonicalV2(doc)
@@ -194,7 +194,7 @@ func migrateConfigData(data []byte) (string, string, error) {
 		return "", "", err
 	}
 
-	doc, err := obiconfigv2.RuntimeToDocument(cfg)
+	doc, err := configconv.RuntimeToDocument(cfg)
 	if err != nil {
 		return "", "", err
 	}

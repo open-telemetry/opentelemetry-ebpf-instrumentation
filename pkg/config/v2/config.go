@@ -1,7 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package v2 // import "go.opentelemetry.io/obi/pkg/obiconfig/v2"
+package config // import "go.opentelemetry.io/obi/pkg/config/v2"
 
 import (
 	"errors"

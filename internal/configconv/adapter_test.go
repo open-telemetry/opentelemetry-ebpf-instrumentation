@@ -1,7 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package obiconfigv2
+package configconv
 
 import (
 	"bytes"
@@ -13,6 +13,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/meta"
 	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/config"
+	obiv2 "go.opentelemetry.io/obi/pkg/config/v2"
 	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
@@ -20,7 +21,6 @@ import (
 	"go.opentelemetry.io/obi/pkg/filter"
 	"go.opentelemetry.io/obi/pkg/kube"
 	"go.opentelemetry.io/obi/pkg/obi"
-	obiv2 "go.opentelemetry.io/obi/pkg/obiconfig/v2"
 	"go.opentelemetry.io/obi/pkg/transform"
 )
 

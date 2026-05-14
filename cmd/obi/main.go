@@ -20,13 +20,13 @@ import (
 
 	otelsdk "go.opentelemetry.io/otel/sdk"
 
-	obiconfigv2 "go.opentelemetry.io/obi/internal/obiconfigv2"
+	"go.opentelemetry.io/obi/internal/configconv"
 	"go.opentelemetry.io/obi/pkg/buildinfo"
 	obicfg "go.opentelemetry.io/obi/pkg/config"
+	configv2 "go.opentelemetry.io/obi/pkg/config/v2"
 	"go.opentelemetry.io/obi/pkg/instrumenter"
 	"go.opentelemetry.io/obi/pkg/obi"
-	obiv2 "go.opentelemetry.io/obi/pkg/obiconfig/v2"
-	"go.opentelemetry.io/obi/pkg/obisystem"
+	"go.opentelemetry.io/obi/pkg/platform"
 )
 
 func main() {
@@ -67,7 +67,7 @@ func main() {
 
 	slog.Info("OpenTelemetry eBPF Instrumentation", "Version", buildinfo.Version, "Revision", buildinfo.Revision, "OpenTelemetry SDK Version", otelsdk.Version())
 
-	if err := obisystem.CheckSupport(); err != nil {
+	if err := platform.CheckSupport(); err != nil {
 		slog.Error("can't start OpenTelemetry eBPF Instrumentation", "error", err)
 		os.Exit(-1)
 	}
@@ -77,7 +77,7 @@ func main() {
 		os.Exit(-1)
 	}
 
-	if err := obisystem.CheckCapabilities(obisystem.CapabilityConfig{
+	if err := platform.CheckCapabilities(platform.CapabilityConfig{
 		AppO11yEnabled:            config.Enabled(obi.FeatureAppO11y),
 		NetO11yEnabled:            config.Enabled(obi.FeatureNetO11y),
 		StatsO11yEnabled:          config.Enabled(obi.FeatureStatsO11y),
@@ -128,15 +128,15 @@ func loadConfig(configPath *string) *obi.Config {
 	if len(configBytes) > 0 {
 		configBytes = obicfg.ReplaceEnv(configBytes)
 
-		if doc, _, err := obiv2.ParseYAML(configBytes, obiv2.DeploymentModeStandalone); err == nil {
-			config, adaptErr := obiconfigv2.StandaloneToRuntime(doc)
+		if doc, _, err := configv2.ParseYAML(configBytes, configv2.DeploymentModeStandalone); err == nil {
+			config, adaptErr := configconv.StandaloneToRuntime(doc)
 			if adaptErr != nil {
 				slog.Error("wrong configuration", "error", adaptErr)
 				os.Exit(-1)
 			}
 			return config
 		} else {
-			var notV2 *obiv2.NotV2Error
+			var notV2 *configv2.NotV2Error
 			if !errors.As(err, &notV2) {
 				slog.Error("wrong configuration", "error", err)
 				os.Exit(-1)

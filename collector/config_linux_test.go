@@ -12,7 +12,7 @@ import (
 
 	"go.opentelemetry.io/collector/confmap"
 
-	obiv2 "go.opentelemetry.io/obi/pkg/obiconfig/v2"
+	configv2 "go.opentelemetry.io/obi/pkg/config/v2"
 )
 
 func TestReceiverConfigUnmarshalV2(t *testing.T) {
@@ -69,7 +69,7 @@ func TestReceiverConfigRejectsStandaloneSections(t *testing.T) {
 	err := cfg.Unmarshal(component)
 	require.Error(t, err)
 
-	var notAllowed *obiv2.SectionNotAllowedError
+	var notAllowed *configv2.SectionNotAllowedError
 	require.ErrorAs(t, err, &notAllowed)
 	require.Equal(t, "daemon", notAllowed.Section)
 }

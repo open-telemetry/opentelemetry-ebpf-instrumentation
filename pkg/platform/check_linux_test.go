@@ -3,7 +3,7 @@
 
 //go:build linux
 
-package obisystem
+package platform
 
 import (
 	"errors"

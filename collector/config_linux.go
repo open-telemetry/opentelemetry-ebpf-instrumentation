@@ -12,9 +12,9 @@ import (
 	"go.opentelemetry.io/collector/confmap"
 	"go.opentelemetry.io/collector/consumer/consumertest"
 
-	obiconfigv2 "go.opentelemetry.io/obi/internal/obiconfigv2"
+	"go.opentelemetry.io/obi/internal/configconv"
+	configv2 "go.opentelemetry.io/obi/pkg/config/v2"
 	"go.opentelemetry.io/obi/pkg/obi"
-	"go.opentelemetry.io/obi/pkg/obiconfig/v2"
 )
 
 type receiverConfig struct {
@@ -46,9 +46,9 @@ func (c *receiverConfig) Unmarshal(component *confmap.Conf) error {
 	}
 
 	raw := component.ToStringMap()
-	_, ext, err := v2.ParseMap(raw, v2.DeploymentModeReceiver)
+	_, ext, err := configv2.ParseMap(raw, configv2.DeploymentModeReceiver)
 	if err == nil {
-		runtime, adaptErr := obiconfigv2.ConfigToRuntime(ext, v2.DeploymentModeReceiver)
+		runtime, adaptErr := configconv.ConfigToRuntime(ext, configv2.DeploymentModeReceiver)
 		if adaptErr != nil {
 			return adaptErr
 		}
@@ -57,7 +57,7 @@ func (c *receiverConfig) Unmarshal(component *confmap.Conf) error {
 		return nil
 	}
 
-	var notV2 *v2.NotV2Error
+	var notV2 *configv2.NotV2Error
 	if !errors.As(err, &notV2) {
 		return err
 	}

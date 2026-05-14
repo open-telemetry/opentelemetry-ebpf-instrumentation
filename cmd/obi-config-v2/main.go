@@ -11,7 +11,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	obiconfigv2 "go.opentelemetry.io/obi/internal/obiconfigv2"
+	"go.opentelemetry.io/obi/internal/configconv"
 	"go.opentelemetry.io/obi/pkg/obi"
 )
 
@@ -29,7 +29,7 @@ func main() {
 	}
 
 	if *examplePath != "" {
-		doc, err := obiconfigv2.RuntimeToDocument(&obi.DefaultConfig)
+		doc, err := configconv.RuntimeToDocument(&obi.DefaultConfig)
 		if err != nil {
 			log.Fatalf("building default v2 example: %v", err)
 		}

@@ -1,7 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package obisystem // import "go.opentelemetry.io/obi/pkg/obisystem"
+package platform // import "go.opentelemetry.io/obi/pkg/platform"
 
 type CapabilityConfig struct {
 	AppO11yEnabled            bool
