@@ -29,6 +29,7 @@ import (
 type (
 	StatsTCPRtt              StatsTcpRttT
 	StatsTCPFailedConnection StatsTcpFailedConnectionT
+	StatsTCPRetransmit       StatsTcpRetransmitT
 )
 
 type probe struct {
@@ -42,6 +43,7 @@ const (
 	progObiKprobeTCPCloseSrtt              = "obi_kprobe_tcp_close_srtt"
 	progObiTpInetSockSetStateConnRole      = "obi_tp_inet_sock_set_state_conn_role"
 	progObiTpInetSockSetStateTCPFailedConn = "obi_tp_inet_sock_set_state_tcp_failed_conn"
+	progObiTpTCPRetransmit                 = "obi_tp_tcp_retransmit"
 )
 
 // Hook point names, grouped by attach type.
@@ -51,10 +53,11 @@ const (
 
 	// Tracepoints: group/name, are validated by TestTracepointConstantFormat
 	TracepointInetSockSetState = "sock/inet_sock_set_state"
+	TracepointTCPRetransmitSkb = "tcp/tcp_retransmit_skb"
 )
 
 // $BPF_CLANG and $BPF_CFLAGS are set by the Makefile.
-//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -type tcp_rtt_t -type tcp_failed_connection_t -target amd64,arm64 Stats ../../../../bpf/statsolly/stats.c -- -I../../../../bpf
+//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -type tcp_rtt_t -type tcp_failed_connection_t -type tcp_retransmit_t -target amd64,arm64 Stats ../../../../bpf/statsolly/stats.c -- -I../../../../bpf
 
 type StatsFetcher struct {
 	log       *slog.Logger
@@ -102,6 +105,10 @@ func NewStatsFetcher(cfg *config.EBPFTracer, features *export.Features, selector
 	if !features.StatsTCPRtt() {
 		toDisable = append(toDisable, progObiKprobeTCPCloseSrtt)
 	}
+	if !features.StatsTCPRetransmits() {
+		toDisable = append(toDisable, progObiTpTCPRetransmit)
+	}
+
 	if err := fixupSpec(spec, toDisable); err != nil {
 		return nil, fmt.Errorf("fixing up BPF spec: %w", err)
 	}
@@ -155,6 +162,11 @@ func NewStatsFetcher(cfg *config.EBPFTracer, features *export.Features, selector
 			name:    TracepointInetSockSetState,
 			program: objects.ObiTpInetSockSetStateConnRole,
 			enabled: connRoleUsed,
+		},
+		{
+			name:    TracepointTCPRetransmitSkb,
+			program: objects.ObiTpTcpRetransmit,
+			enabled: features.StatsTCPRetransmits(),
 		},
 	} {
 		if !t.enabled {

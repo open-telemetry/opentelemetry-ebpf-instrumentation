@@ -37,14 +37,15 @@ func (p StatsPrometheusConfig) Enabled() bool {
 type statMetricsReporter struct {
 	cfg *PrometheusConfig
 
-	tcpRtt *Expirer[prometheus.Histogram]
-
+	tcpRtt               *Expirer[prometheus.Histogram]
 	tcpFailedConnections *Expirer[prometheus.Counter]
+	tcpRetransmits       *Expirer[prometheus.Counter]
 
 	promConnect *connector.PrometheusManager
 
 	tcpRttAttrs               []attributes.Field[*ebpf.Stat, string]
 	tcpFailedConnectionsAttrs []attributes.Field[*ebpf.Stat, string]
+	tcpRetransmitsAttrs       []attributes.Field[*ebpf.Stat, string]
 
 	clock *expire.CachedClock
 
@@ -117,6 +118,21 @@ func newStatsReporter(
 		register = append(register, mr.tcpRtt)
 	}
 
+	if cfg.CommonCfg.Features.StatsTCPRetransmits() {
+		log.Debug("registering stat tcp retransmits metric")
+
+		mr.tcpRetransmitsAttrs = attributes.PrometheusGetters(
+			ebpf.StatStringGetters,
+			provider.For(attributes.StatTCPRetransmits))
+
+		mr.tcpRetransmits = NewExpirer[prometheus.Counter](prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: attributes.StatTCPRetransmits.Prom,
+			Help: "counts the TCP retransmits between 2 endpoints",
+		}, labelNames(mr.tcpRetransmitsAttrs)).MetricVec, clock.Time, cfg.Config.TTL)
+
+		register = append(register, mr.tcpRetransmits)
+	}
+
 	if cfg.CommonCfg.Features.StatsTCPFailedConnections() {
 		log.Debug("registering stat tcp failed connections metric")
 
@@ -155,6 +171,7 @@ func (r *statMetricsReporter) collectMetrics(_ context.Context) {
 		for _, stat := range stats {
 			r.observeTCPRtt(stat)
 			r.observeTCPFailedConnections(stat)
+			r.observeTCPRetransmits(stat)
 		}
 	}
 }
@@ -172,5 +189,13 @@ func (r *statMetricsReporter) observeTCPFailedConnections(stat *ebpf.Stat) {
 		return
 	}
 	r.tcpFailedConnections.WithLabelValues(labelValues(stat, r.tcpFailedConnectionsAttrs)...).
+		Metric.Add(1)
+}
+
+func (r *statMetricsReporter) observeTCPRetransmits(stat *ebpf.Stat) {
+	if r.tcpRetransmits == nil || stat.TCPRetransmit == nil {
+		return
+	}
+	r.tcpRetransmits.WithLabelValues(labelValues(stat, r.tcpRetransmitsAttrs)...).
 		Metric.Add(1)
 }

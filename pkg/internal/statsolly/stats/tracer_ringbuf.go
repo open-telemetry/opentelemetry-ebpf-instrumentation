@@ -67,8 +67,22 @@ func handleStatEvent(record *ringbuf.Record) (ebpf.Stat, error) {
 		return readTCPRttIntoStat(record)
 	case ebpf.StatTypeTCPFailedConnection:
 		return readTCPFailedConnectionsIntoStat(record)
+	case ebpf.StatTypeTCPRetransmit:
+		return readTCPRetransmitIntoStat(record)
 	default:
 		return ebpf.Stat{}, fmt.Errorf("unknown stats event [type %d]", uint8(eventType))
+	}
+}
+
+func connToCommonAttrs(sAddr, dAddr [16]uint8, sPort, dPort uint16) pipe.CommonAttrs {
+	if sPort == 0 && dPort == 0 {
+		return pipe.CommonAttrs{}
+	}
+	return pipe.CommonAttrs{
+		SrcAddr: pipe.IPAddr(sAddr),
+		DstAddr: pipe.IPAddr(dAddr),
+		SrcPort: sPort,
+		DstPort: dPort,
 	}
 }
 
@@ -77,28 +91,13 @@ func readTCPRttIntoStat(record *ringbuf.Record) (ebpf.Stat, error) {
 	if err != nil {
 		return ebpf.Stat{}, err
 	}
-
-	var srcAddr, dstAddr pipe.IPAddr
-	var destinationPort uint16
-	if event.Conn.S_port != 0 || event.Conn.D_port != 0 {
-		srcAddr = pipe.IPAddr(event.Conn.S_addr)
-		dstAddr = pipe.IPAddr(event.Conn.D_addr)
-		destinationPort = event.Conn.D_port
-	}
-
-	sourcePort := event.Conn.S_port
 	return ebpf.Stat{
 		Type: ebpf.StatTypeTCPRtt,
 		TCPRtt: &ebpf.TCPRtt{
 			SrttUs: event.SrttUs,
 			Role:   event.Role,
 		},
-		CommonAttrs: pipe.CommonAttrs{
-			SrcAddr: srcAddr,
-			DstAddr: dstAddr,
-			SrcPort: sourcePort,
-			DstPort: destinationPort,
-		},
+		CommonAttrs: connToCommonAttrs(event.Conn.S_addr, event.Conn.D_addr, event.Conn.S_port, event.Conn.D_port),
 	}, nil
 }
 
@@ -107,27 +106,24 @@ func readTCPFailedConnectionsIntoStat(record *ringbuf.Record) (ebpf.Stat, error)
 	if err != nil {
 		return ebpf.Stat{}, err
 	}
-
-	var srcAddr, dstAddr pipe.IPAddr
-	var destinationPort uint16
-	if event.Conn.S_port != 0 || event.Conn.D_port != 0 {
-		srcAddr = pipe.IPAddr(event.Conn.S_addr)
-		dstAddr = pipe.IPAddr(event.Conn.D_addr)
-		destinationPort = event.Conn.D_port
-	}
-
-	sourcePort := event.Conn.S_port
 	return ebpf.Stat{
 		Type: ebpf.StatTypeTCPFailedConnection,
 		TCPFailedConnection: &ebpf.TCPFailedConnection{
 			Reason: event.Reason,
 			Role:   event.Role,
 		},
-		CommonAttrs: pipe.CommonAttrs{
-			SrcAddr: srcAddr,
-			DstAddr: dstAddr,
-			SrcPort: sourcePort,
-			DstPort: destinationPort,
-		},
+		CommonAttrs: connToCommonAttrs(event.Conn.S_addr, event.Conn.D_addr, event.Conn.S_port, event.Conn.D_port),
+	}, nil
+}
+
+func readTCPRetransmitIntoStat(record *ringbuf.Record) (ebpf.Stat, error) {
+	event, err := ebpfcommon.ReinterpretCast[ebpf.StatsTCPRetransmit](record.RawSample)
+	if err != nil {
+		return ebpf.Stat{}, err
+	}
+	return ebpf.Stat{
+		Type:          ebpf.StatTypeTCPRetransmit,
+		TCPRetransmit: &ebpf.TCPRetransmit{},
+		CommonAttrs:   connToCommonAttrs(event.Conn.S_addr, event.Conn.D_addr, event.Conn.S_port, event.Conn.D_port),
 	}, nil
 }

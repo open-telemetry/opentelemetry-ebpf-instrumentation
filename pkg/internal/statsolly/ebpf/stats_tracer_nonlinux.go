@@ -47,6 +47,19 @@ type StatsTCPFailedConnection struct {
 	}
 }
 
+type StatsTCPRetransmit struct {
+	_     structs.HostLayout
+	Flags uint8
+	Pad   [3]uint8
+	Conn  struct {
+		_      structs.HostLayout
+		S_addr [16]uint8 //nolint:revive,staticcheck
+		D_addr [16]uint8 //nolint:revive,staticcheck
+		S_port uint16    //nolint:revive,staticcheck
+		D_port uint16    //nolint:revive,staticcheck
+	}
+}
+
 func NewStatsFetcher(_ *config.EBPFTracer, _ *export.Features, _ *attributes.SelectorConfig) (*StatsFetcher, error) {
 	return nil, nil
 }

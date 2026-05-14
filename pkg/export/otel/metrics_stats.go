@@ -74,6 +74,7 @@ func newStatMeterProvider(res *resource.Resource, exporter *sdkmetric.Exporter, 
 type statMetricsExporter struct {
 	tcpRtt               *Expirer[*ebpf.Stat, metric2.Float64Histogram, float64]
 	tcpFailedConnections *Expirer[*ebpf.Stat, metric2.Int64Counter, int64]
+	tcpRetransmits       *Expirer[*ebpf.Stat, metric2.Int64Counter, int64]
 	clock                *expire.CachedClock
 	expireTTL            time.Duration
 	in                   <-chan []*ebpf.Stat
@@ -153,6 +154,22 @@ func newStatMetricsExporter(
 		nme.tcpRtt = NewExpirer[*ebpf.Stat, metric2.Float64Histogram, float64](ctx, tcpRtt, attrs, clock.Time, cfg.Metrics.TTL)
 	}
 
+	if cfg.CommonCfg.Features.StatsTCPRetransmits() {
+		log := log.With("metricFamily", "StatsTCPRetransmits")
+
+		tcpRetransmits, err := ebpfEvents.Int64Counter(attributes.StatTCPRetransmits.OTEL)
+		if err != nil {
+			log.Error("creating stats tcp retransmits counter", "error", err)
+			return nil, err
+		}
+
+		attrs := attributes.OpenTelemetryGetters(
+			ebpf.StatGetters,
+			attrProv.For(attributes.StatTCPRetransmits))
+
+		nme.tcpRetransmits = NewExpirer[*ebpf.Stat, metric2.Int64Counter, int64](ctx, tcpRetransmits, attrs, clock.Time, cfg.Metrics.TTL)
+	}
+
 	if cfg.CommonCfg.Features.StatsTCPFailedConnections() {
 		log := log.With("metricFamily", "StatsTCPFailedConnections")
 
@@ -184,6 +201,10 @@ func (me *statMetricsExporter) Do(ctx context.Context) {
 			if me.tcpFailedConnections != nil && v.TCPFailedConnection != nil {
 				tcpFailedConnections, attrs := me.tcpFailedConnections.ForRecord(v)
 				tcpFailedConnections.Add(ctx, 1, metric2.WithAttributeSet(attrs))
+			}
+			if me.tcpRetransmits != nil && v.TCPRetransmit != nil {
+				tcpRetransmits, attrs := me.tcpRetransmits.ForRecord(v)
+				tcpRetransmits.Add(ctx, 1, metric2.WithAttributeSet(attrs))
 			}
 		}
 	}
