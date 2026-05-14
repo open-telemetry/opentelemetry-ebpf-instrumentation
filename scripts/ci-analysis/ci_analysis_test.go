@@ -14,7 +14,6 @@ import (
 func testMeta() RunMeta {
 	return RunMeta{
 		RunID:     "12345",
-		SHA:       "abc",
 		CreatedAt: "2026-01-01T00:00:00Z",
 		Workflow:  "Pull request integration tests",
 	}
@@ -40,7 +39,7 @@ func TestParseGotestsum(t *testing.T) {
 		`{"Time":"2026-01-01T00:00:00Z","Action":"skip","Package":"pkg","Test":"TestSkipped","Elapsed":0.0}`,
 	}, "\n")
 
-	results, err := parseGotestsum(strings.NewReader(input), testMeta(), "shard-3")
+	results, err := parseGotestsum(strings.NewReader(input), testMeta())
 	require.NoError(t, err)
 
 	outcomes := map[string]string{}
@@ -64,7 +63,7 @@ func TestParseGotestsum_Fingerprints(t *testing.T) {
 		`{"Time":"2026-01-01T00:00:01Z","Action":"fail","Package":"pkg","Test":"TestRace","Elapsed":1.0}`,
 	}, "\n")
 
-	results, err := parseGotestsum(strings.NewReader(input), testMeta(), "shard-0")
+	results, err := parseGotestsum(strings.NewReader(input), testMeta())
 	require.NoError(t, err)
 
 	fps := map[string]string{}
@@ -115,12 +114,12 @@ func TestApplyDockerFingerprints(t *testing.T) {
 
 func TestWriteReport(t *testing.T) {
 	results := []TestResult{
-		{RunID: "1", CreatedAt: "2026-01-01", Workflow: "Pull request integration tests", Test: "TestFailed", Outcome: "failed", ErrorFingerprint: "port-conflict"},
-		{RunID: "1", CreatedAt: "2026-01-01", Workflow: "Pull request integration tests", Test: "TestFlaky", Outcome: "flaky-passed", ErrorFingerprint: "port-conflict"},
-		{RunID: "1", CreatedAt: "2026-01-01", Workflow: "Pull request integration tests", Test: "TestPassed", Outcome: "passed"},
+		{RunID: "1", Workflow: "Pull request integration tests", Test: "TestFailed", Outcome: "failed", ErrorFingerprint: "port-conflict"},
+		{RunID: "1", Workflow: "Pull request integration tests", Test: "TestFlaky", Outcome: "flaky-passed", ErrorFingerprint: "port-conflict"},
+		{RunID: "1", Workflow: "Pull request integration tests", Test: "TestPassed", Outcome: "passed"},
 	}
 	metaMap := map[string]RunMeta{
-		"1": {RunID: "1", CreatedAt: "2026-01-01", Workflow: "Pull request integration tests", Conclusion: "failure"},
+		"1": {RunID: "1", Workflow: "Pull request integration tests", Conclusion: "failure"},
 	}
 
 	var buf bytes.Buffer
@@ -308,6 +307,113 @@ func TestClassifyOutcome(t *testing.T) {
 			require.Equal(t, tt.expected, classifyOutcome(tt.outcomes))
 		})
 	}
+}
+
+func TestComputeTestStats_ScopedPerWorkflow(t *testing.T) {
+	// Same test name running in two workflows must be tracked separately so
+	// the flaky-table Workflow/Runs columns stay consistent.
+	results := []TestResult{
+		{RunID: "1", Workflow: "WfA", Test: "TestX", Outcome: "passed"},
+		{RunID: "1", Workflow: "WfB", Test: "TestX", Outcome: "failed", ErrorFingerprint: "timeout"},
+		{RunID: "2", Workflow: "WfA", Test: "TestX", Outcome: "flaky-passed", ErrorFingerprint: "port-conflict"},
+		{RunID: "2", Workflow: "WfB", Test: "TestX", Outcome: "passed"},
+	}
+	tests := computeTestStats(results)
+	require.Len(t, tests, 2)
+
+	var wfA, wfB *testStats
+	for _, ts := range tests {
+		switch ts.workflow {
+		case "WfA":
+			wfA = ts
+		case "WfB":
+			wfB = ts
+		}
+	}
+	require.NotNil(t, wfA)
+	require.NotNil(t, wfB)
+
+	require.Equal(t, 2, wfA.totalRuns)
+	require.Equal(t, 1, wfA.passed)
+	require.Equal(t, 1, wfA.flakyPassed)
+	require.Equal(t, 0, wfA.failed)
+
+	require.Equal(t, 2, wfB.totalRuns)
+	require.Equal(t, 1, wfB.passed)
+	require.Equal(t, 1, wfB.failed)
+	require.Equal(t, 0, wfB.flakyPassed)
+
+	// Tests-tracked count must collapse the same name across workflows.
+	require.Equal(t, 1, countUniqueTests(tests))
+}
+
+func TestComputeTestStats_DedupShardsPerRun(t *testing.T) {
+	// A test that appears in multiple shards within the same run counts as
+	// one run; the worst outcome wins.
+	results := []TestResult{
+		{RunID: "1", Workflow: "Wf", Test: "TestX", Outcome: "passed"},
+		{RunID: "1", Workflow: "Wf", Test: "TestX", Outcome: "failed", ErrorFingerprint: "timeout"},
+		{RunID: "2", Workflow: "Wf", Test: "TestX", Outcome: "passed"},
+	}
+	tests := computeTestStats(results)
+	require.Len(t, tests, 1)
+	for _, ts := range tests {
+		require.Equal(t, 2, ts.totalRuns, "two CI runs, even though run 1 had two shards")
+		require.Equal(t, 1, ts.failed, "run 1 collapses to failed because failed > passed")
+		require.Equal(t, 1, ts.passed)
+	}
+}
+
+func TestComputeTestStats_SkippedExcludedFromTotal(t *testing.T) {
+	// Skipped runs must not pad the denominator of the failure rate.
+	results := []TestResult{
+		{RunID: "1", Workflow: "Wf", Test: "TestX", Outcome: "skipped"},
+		{RunID: "2", Workflow: "Wf", Test: "TestX", Outcome: "skipped"},
+		{RunID: "3", Workflow: "Wf", Test: "TestX", Outcome: "failed", ErrorFingerprint: "timeout"},
+	}
+	tests := computeTestStats(results)
+	require.Len(t, tests, 1)
+	for _, ts := range tests {
+		require.Equal(t, 1, ts.totalRuns, "only the attempted run counts toward Runs")
+		require.Equal(t, 1, ts.failed)
+		require.Equal(t, 2, ts.skipped)
+	}
+}
+
+func TestWriteReport_PassRateMatchesConclusion(t *testing.T) {
+	// A workflow whose runs all eventually succeeded (with flaky retries)
+	// should show 100% pass rate, not 0% — that matches GitHub's run
+	// conclusion, which is what users see in the Actions tab.
+	results := []TestResult{
+		{RunID: "1", Workflow: "Wf", Test: "TestX", Outcome: "flaky-passed", ErrorFingerprint: "timeout"},
+		{RunID: "2", Workflow: "Wf", Test: "TestX", Outcome: "passed"},
+	}
+	metaMap := map[string]RunMeta{
+		"1": {RunID: "1", Workflow: "Wf", Conclusion: "success"},
+		"2": {RunID: "2", Workflow: "Wf", Conclusion: "success"},
+	}
+	var buf bytes.Buffer
+	require.NoError(t, writeReport(&buf, results, metaMap, "test/repo"))
+
+	report := buf.String()
+	// Workflow row format: | Wf | 2 | 1 | 1 | 0 | 100% |
+	require.Contains(t, report, "| Wf | 2 | 1 | 1 | 0 | 100% |",
+		"flaky-passed runs should not lower the pass rate; report was:\n%s", report)
+}
+
+func TestWriteReport_HardFailLowersPassRate(t *testing.T) {
+	results := []TestResult{
+		{RunID: "1", Workflow: "Wf", Test: "TestX", Outcome: "failed", ErrorFingerprint: "timeout"},
+		{RunID: "2", Workflow: "Wf", Test: "TestX", Outcome: "passed"},
+	}
+	metaMap := map[string]RunMeta{
+		"1": {RunID: "1", Workflow: "Wf", Conclusion: "failure"},
+		"2": {RunID: "2", Workflow: "Wf", Conclusion: "success"},
+	}
+	var buf bytes.Buffer
+	require.NoError(t, writeReport(&buf, results, metaMap, "test/repo"))
+
+	require.Contains(t, buf.String(), "| Wf | 2 | 1 | 0 | 1 | 50% |")
 }
 
 func TestExtractErrorSnippet_Fallback(t *testing.T) {
