@@ -78,6 +78,27 @@ func TestTracerControlsRoundTrip(t *testing.T) {
 	require.Equal(t, 2, got.EBPF.MapsConfig.GlobalScaleFactor)
 }
 
+func TestMSSQLAndTCPBufferRoundTrip(t *testing.T) {
+	cfg := obi.DefaultConfig
+	cfg.EBPF.BufferSizes.MSSQL = 8192
+	cfg.EBPF.MSSQLPreparedStatementsCacheSize = 2048
+	cfg.EBPF.BufferSizes.TCP = 4096
+	cfg.NetworkFlows.Enable = true
+
+	doc, err := RuntimeToDocument(&cfg)
+	require.NoError(t, err)
+
+	require.Equal(t, uint32(8192), nestedMap(doc.Extensions.OBI.Capture.Instrumentation, "sql", "mssql")["buffer_size"])
+	require.Equal(t, 2048, nestedMap(doc.Extensions.OBI.Capture.Instrumentation, "sql", "mssql")["prepared_statements_cache_size"])
+	require.Equal(t, uint32(4096), nestedMap(doc.Extensions.OBI.Capture.Network, "capture")["buffer_size"])
+
+	got, err := StandaloneToRuntime(doc)
+	require.NoError(t, err)
+	require.Equal(t, cfg.EBPF.BufferSizes.MSSQL, got.EBPF.BufferSizes.MSSQL)
+	require.Equal(t, cfg.EBPF.MSSQLPreparedStatementsCacheSize, got.EBPF.MSSQLPreparedStatementsCacheSize)
+	require.Equal(t, cfg.EBPF.BufferSizes.TCP, got.EBPF.BufferSizes.TCP)
+}
+
 func TestRuntimeFilterAndGoFlagRoundTrip(t *testing.T) {
 	cfg := obi.DefaultConfig
 	cfg.Discovery.SkipGoSpecificTracers = true

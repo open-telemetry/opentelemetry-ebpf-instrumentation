@@ -101,6 +101,8 @@ func applyCapture(cfg *obi.Config, src *obiv2.Extension) {
 	setInt(&cfg.EBPF.MySQLPreparedStatementsCacheSize, nestedMap(sqlCfg, "mysql"), "prepared_statements_cache_size")
 	setBufferSize(&cfg.EBPF.BufferSizes.Postgres, nestedMap(sqlCfg, "postgres"))
 	setInt(&cfg.EBPF.PostgresPreparedStatementsCacheSize, nestedMap(sqlCfg, "postgres"), "prepared_statements_cache_size")
+	setBufferSize(&cfg.EBPF.BufferSizes.MSSQL, nestedMap(sqlCfg, "mssql"))
+	setInt(&cfg.EBPF.MSSQLPreparedStatementsCacheSize, nestedMap(sqlCfg, "mssql"), "prepared_statements_cache_size")
 
 	redisCfg := nestedMap(src.Capture.Instrumentation, "redis")
 	setBool(&cfg.EBPF.RedisDBCache.Enabled, nestedMap(redisCfg, "db_cache"), "enabled")
@@ -137,6 +139,7 @@ func applyCapture(cfg *obi.Config, src *obiv2.Extension) {
 	setStringSlice(&cfg.NetworkFlows.ExcludeProtocols, nestedMap(network, "selection", "protocols"), "exclude")
 	setString(&cfg.NetworkFlows.Direction, nestedMap(network, "selection"), "direction")
 	setDecoded(&cfg.NetworkFlows.CIDRs, nestedMap(network, "selection"), "cidrs")
+	setBufferSize(&cfg.EBPF.BufferSizes.TCP, network)
 	setInt(&cfg.NetworkFlows.CacheMaxFlows, nestedMap(network, "flow_lifecycle"), "max_tracked_flows")
 	setDuration(&cfg.NetworkFlows.CacheActiveTimeout, nestedMap(network, "flow_lifecycle"), "active_timeout")
 	setString(&cfg.NetworkFlows.Deduper, nestedMap(network, "flow_lifecycle", "deduplication"), "strategy")
@@ -753,6 +756,10 @@ func setBufferSize(dst *uint32, m map[string]any) {
 		*dst = uint32(value)
 	case int64:
 		*dst = uint32(value)
+	case uint32:
+		*dst = value
+	case uint64:
+		*dst = uint32(value)
 	case float64:
 		*dst = uint32(value)
 	}
@@ -762,11 +769,15 @@ func setText(dst encoding.TextUnmarshaler, m map[string]any, key string) {
 	if m == nil {
 		return
 	}
-	value, ok := m[key].(string)
-	if !ok {
-		return
+	switch value := m[key].(type) {
+	case string:
+		_ = dst.UnmarshalText([]byte(value))
+	case encoding.TextMarshaler:
+		text, err := value.MarshalText()
+		if err == nil {
+			_ = dst.UnmarshalText(text)
+		}
 	}
-	_ = dst.UnmarshalText([]byte(value))
 }
 
 func setStringAlias[T ~string](dst *T, m map[string]any, key string) {

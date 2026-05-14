@@ -115,6 +115,10 @@ func captureConfig(cfg *obi.Config) obiv2.CaptureConfig {
 				"buffer_size":                    cfg.EBPF.BufferSizes.Postgres,
 				"prepared_statements_cache_size": cfg.EBPF.PostgresPreparedStatementsCacheSize,
 			},
+			"mssql": map[string]any{
+				"buffer_size":                    cfg.EBPF.BufferSizes.MSSQL,
+				"prepared_statements_cache_size": cfg.EBPF.MSSQLPreparedStatementsCacheSize,
+			},
 		},
 		"redis": map[string]any{
 			"enabled": protocolEnabled(tracesSelection, metricsSelection, appMetricsEnabled, "redis"),
@@ -182,8 +186,9 @@ func captureConfig(cfg *obi.Config) obiv2.CaptureConfig {
 		},
 		Network: map[string]any{
 			"capture": map[string]any{
-				"enabled": cfg.NetworkFlows.Enable || cfg.Metrics.Features.AnyNetwork(),
-				"source":  cfg.NetworkFlows.Source,
+				"enabled":     cfg.NetworkFlows.Enable || cfg.Metrics.Features.AnyNetwork(),
+				"source":      cfg.NetworkFlows.Source,
+				"buffer_size": cfg.EBPF.BufferSizes.TCP,
 				"endpoint_identity": map[string]any{
 					"agent_ip":           cfg.NetworkFlows.AgentIP,
 					"agent_ip_interface": cfg.NetworkFlows.AgentIPIface,
