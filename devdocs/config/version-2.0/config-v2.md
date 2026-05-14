@@ -457,7 +457,7 @@ For example, SQL has `mysql` and `postgres` for driver-specific controls, HTTP h
 HTTP `payload_extraction` uses the same list-based enablement model as other instrumentation selectors:
 
 - `payload_extraction.enabled` is the only enablement surface.
-- Concrete values currently supported are `graphql`, `elasticsearch`, `aws`, `sqlpp`, and `enrichment`.
+- Concrete values currently supported are `graphql`, `elasticsearch`, `aws`, `sqlpp`, `openai`, `anthropic`, `gemini`, `qwen`, `bedrock`, `mcp`, `embedding`, `rerank`, and `enrichment`.
 - Nested extractor blocks are for tuning, not duplicate enablement. For example, `payload_extraction.sqlpp.endpoint_patterns` refines SQL++ matching after `sqlpp` is enabled in the list, and `payload_extraction.enrichment.*` defines HTTP header/body enrichment policy and rules after `enrichment` is enabled in the list.
 - If future aliases or families are needed, they should be added as values in the same `enabled` list rather than introducing parallel knobs.
 
@@ -612,6 +612,14 @@ Important mapping notes:
 | `ebpf.payload_extraction.http.elasticsearch.enabled` | `extensions.obi.capture.instrumentation.http.payload_extraction.enabled[]` contains `elasticsearch` | Move + normalize |
 | `ebpf.payload_extraction.http.aws.enabled` | `extensions.obi.capture.instrumentation.http.payload_extraction.enabled[]` contains `aws` | Move + normalize |
 | `ebpf.payload_extraction.http.sqlpp.enabled` | `extensions.obi.capture.instrumentation.http.payload_extraction.enabled[]` contains `sqlpp` | Move + normalize |
+| `ebpf.payload_extraction.http.genai.openai.enabled` | `extensions.obi.capture.instrumentation.http.payload_extraction.enabled[]` contains `openai` | Move + normalize |
+| `ebpf.payload_extraction.http.genai.anthropic.enabled` | `extensions.obi.capture.instrumentation.http.payload_extraction.enabled[]` contains `anthropic` | Move + normalize |
+| `ebpf.payload_extraction.http.genai.gemini.enabled` | `extensions.obi.capture.instrumentation.http.payload_extraction.enabled[]` contains `gemini` | Move + normalize |
+| `ebpf.payload_extraction.http.genai.qwen.enabled` | `extensions.obi.capture.instrumentation.http.payload_extraction.enabled[]` contains `qwen` | Move + normalize |
+| `ebpf.payload_extraction.http.genai.bedrock.enabled` | `extensions.obi.capture.instrumentation.http.payload_extraction.enabled[]` contains `bedrock` | Move + normalize |
+| `ebpf.payload_extraction.http.genai.mcp.enabled` | `extensions.obi.capture.instrumentation.http.payload_extraction.enabled[]` contains `mcp` | Move + normalize |
+| `ebpf.payload_extraction.http.genai.embedding.enabled` | `extensions.obi.capture.instrumentation.http.payload_extraction.enabled[]` contains `embedding` | Move + normalize |
+| `ebpf.payload_extraction.http.genai.rerank.enabled` | `extensions.obi.capture.instrumentation.http.payload_extraction.enabled[]` contains `rerank` | Move + normalize |
 | `ebpf.payload_extraction.http.enrichment.enabled` | `extensions.obi.capture.instrumentation.http.payload_extraction.enabled[]` contains `enrichment` | Move + normalize |
 | `ebpf.payload_extraction.http.enrichment.policy.default_action.headers` | `extensions.obi.capture.instrumentation.http.payload_extraction.enrichment.policy.default_action.headers` | Move |
 | `ebpf.payload_extraction.http.enrichment.policy.default_action.body` | `extensions.obi.capture.instrumentation.http.payload_extraction.enrichment.policy.default_action.body` | Move |

@@ -472,6 +472,14 @@ func mapPayloadExtraction(cfg *obi.Config, m map[string]any) {
 	cfg.EBPF.PayloadExtraction.HTTP.Elasticsearch.Enabled = enabled["elasticsearch"]
 	cfg.EBPF.PayloadExtraction.HTTP.AWS.Enabled = enabled["aws"]
 	cfg.EBPF.PayloadExtraction.HTTP.SQLPP.Enabled = enabled["sqlpp"]
+	cfg.EBPF.PayloadExtraction.HTTP.GenAI.OpenAI.Enabled = enabled["openai"]
+	cfg.EBPF.PayloadExtraction.HTTP.GenAI.Anthropic.Enabled = enabled["anthropic"]
+	cfg.EBPF.PayloadExtraction.HTTP.GenAI.Gemini.Enabled = enabled["gemini"]
+	cfg.EBPF.PayloadExtraction.HTTP.GenAI.Qwen.Enabled = enabled["qwen"]
+	cfg.EBPF.PayloadExtraction.HTTP.GenAI.Bedrock.Enabled = enabled["bedrock"]
+	cfg.EBPF.PayloadExtraction.HTTP.GenAI.MCP.Enabled = enabled["mcp"]
+	cfg.EBPF.PayloadExtraction.HTTP.GenAI.Embedding.Enabled = enabled["embedding"]
+	cfg.EBPF.PayloadExtraction.HTTP.GenAI.Rerank.Enabled = enabled["rerank"]
 	setStringSlice(&cfg.EBPF.PayloadExtraction.HTTP.SQLPP.EndpointPatterns, nestedMap(m, "sqlpp"), "endpoint_patterns")
 }
 

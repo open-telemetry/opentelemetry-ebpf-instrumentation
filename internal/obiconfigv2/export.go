@@ -403,6 +403,30 @@ func payloadExtractionMap(cfg *obi.Config) map[string]any {
 	if cfg.EBPF.PayloadExtraction.HTTP.SQLPP.Enabled {
 		enabled = append(enabled, "sqlpp")
 	}
+	if cfg.EBPF.PayloadExtraction.HTTP.GenAI.OpenAI.Enabled {
+		enabled = append(enabled, "openai")
+	}
+	if cfg.EBPF.PayloadExtraction.HTTP.GenAI.Anthropic.Enabled {
+		enabled = append(enabled, "anthropic")
+	}
+	if cfg.EBPF.PayloadExtraction.HTTP.GenAI.Gemini.Enabled {
+		enabled = append(enabled, "gemini")
+	}
+	if cfg.EBPF.PayloadExtraction.HTTP.GenAI.Qwen.Enabled {
+		enabled = append(enabled, "qwen")
+	}
+	if cfg.EBPF.PayloadExtraction.HTTP.GenAI.Bedrock.Enabled {
+		enabled = append(enabled, "bedrock")
+	}
+	if cfg.EBPF.PayloadExtraction.HTTP.GenAI.MCP.Enabled {
+		enabled = append(enabled, "mcp")
+	}
+	if cfg.EBPF.PayloadExtraction.HTTP.GenAI.Embedding.Enabled {
+		enabled = append(enabled, "embedding")
+	}
+	if cfg.EBPF.PayloadExtraction.HTTP.GenAI.Rerank.Enabled {
+		enabled = append(enabled, "rerank")
+	}
 	if cfg.EBPF.PayloadExtraction.HTTP.Enrichment.Enabled {
 		enabled = append(enabled, "enrichment")
 	}

@@ -312,10 +312,13 @@ func mustMapNetworkFiltersPerSignal(cur map[string]any, ex map[string]any) error
 	return nil
 }
 
-func mustMapPayloadExtractionMembership(cur map[string]any, ex map[string]any, extractor string) error {
-	currentValue, ok := get(cur, "ebpf", "payload_extraction", "http", extractor, "enabled")
+func mustMapPayloadExtractionMembership(cur map[string]any, ex map[string]any, extractor string, currentPath ...string) error {
+	path := append([]string{"ebpf", "payload_extraction", "http"}, currentPath...)
+	path = append(path, "enabled")
+
+	currentValue, ok := get(cur, path...)
 	if !ok {
-		return fmt.Errorf("missing current key [ebpf payload_extraction http %s enabled]", extractor)
+		return fmt.Errorf("missing current key %v", path)
 	}
 
 	enabledValue, ok := get(ex, "obi", "capture", "instrumentation", "http", "payload_extraction", "enabled")
@@ -506,13 +509,30 @@ func main() {
 		os.Exit(1)
 	}
 
-	for _, extractor := range []string{"graphql", "elasticsearch", "aws", "sqlpp", "enrichment"} {
-		if err := mustMapPayloadExtractionMembership(cur, ex, extractor); err != nil {
+	for _, extractor := range []struct {
+		name        string
+		currentPath []string
+	}{
+		{name: "graphql", currentPath: []string{"graphql"}},
+		{name: "elasticsearch", currentPath: []string{"elasticsearch"}},
+		{name: "aws", currentPath: []string{"aws"}},
+		{name: "sqlpp", currentPath: []string{"sqlpp"}},
+		{name: "openai", currentPath: []string{"genai", "openai"}},
+		{name: "anthropic", currentPath: []string{"genai", "anthropic"}},
+		{name: "gemini", currentPath: []string{"genai", "gemini"}},
+		{name: "qwen", currentPath: []string{"genai", "qwen"}},
+		{name: "bedrock", currentPath: []string{"genai", "bedrock"}},
+		{name: "mcp", currentPath: []string{"genai", "mcp"}},
+		{name: "embedding", currentPath: []string{"genai", "embedding"}},
+		{name: "rerank", currentPath: []string{"genai", "rerank"}},
+		{name: "enrichment", currentPath: []string{"enrichment"}},
+	} {
+		if err := mustMapPayloadExtractionMembership(cur, ex, extractor.name, extractor.currentPath...); err != nil {
 			fmt.Println("FAIL:", err)
 			fmt.Printf("verification failed: %d mismatches\n", failures+1)
 			os.Exit(1)
 		}
 	}
 
-	fmt.Printf("feature parity verification passed: %d mapped default checks\n", len(checks)+11)
+	fmt.Printf("feature parity verification passed: %d mapped default checks\n", len(checks)+19)
 }

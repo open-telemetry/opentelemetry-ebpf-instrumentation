@@ -307,3 +307,34 @@ extensions:
 	require.Equal(t, "[redacted]", nestedMap(payloadExtraction, "enrichment", "policy")["obfuscation_string"])
 	require.Len(t, nestedMap(payloadExtraction, "enrichment")["rules"], 1)
 }
+
+func TestParseYAMLStandaloneHTTPGenAIPayloadExtraction(t *testing.T) {
+	t.Parallel()
+
+	_, cfg, err := ParseYAML([]byte(`
+file_format: "1.0"
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      policy:
+        default_action: include
+      instrumentation:
+        http:
+          payload_extraction:
+            enabled: [openai, anthropic, gemini, qwen, bedrock, mcp, embedding, rerank]
+`), DeploymentModeStandalone)
+	require.NoError(t, err)
+
+	payloadExtraction := nestedMap(cfg.Capture.Instrumentation, "http", "payload_extraction")
+	require.ElementsMatch(t, []any{
+		"openai",
+		"anthropic",
+		"gemini",
+		"qwen",
+		"bedrock",
+		"mcp",
+		"embedding",
+		"rerank",
+	}, payloadExtraction["enabled"])
+}

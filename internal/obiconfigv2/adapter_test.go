@@ -832,3 +832,41 @@ func TestHTTPEnrichmentRoundTrip(t *testing.T) {
 	require.Equal(t, config.HTTPMethodPOST, got.EBPF.PayloadExtraction.HTTP.Enrichment.Rules[0].Match.Methods[0])
 	require.Equal(t, "$.password", got.EBPF.PayloadExtraction.HTTP.Enrichment.Rules[0].Match.ObfuscationJSONPaths[0].String())
 }
+
+func TestHTTPGenAIPayloadExtractionRoundTrip(t *testing.T) {
+	cfg := obi.DefaultConfig
+	cfg.EBPF.PayloadExtraction.HTTP.GenAI.OpenAI.Enabled = true
+	cfg.EBPF.PayloadExtraction.HTTP.GenAI.Anthropic.Enabled = true
+	cfg.EBPF.PayloadExtraction.HTTP.GenAI.Gemini.Enabled = true
+	cfg.EBPF.PayloadExtraction.HTTP.GenAI.Qwen.Enabled = true
+	cfg.EBPF.PayloadExtraction.HTTP.GenAI.Bedrock.Enabled = true
+	cfg.EBPF.PayloadExtraction.HTTP.GenAI.MCP.Enabled = true
+	cfg.EBPF.PayloadExtraction.HTTP.GenAI.Embedding.Enabled = true
+	cfg.EBPF.PayloadExtraction.HTTP.GenAI.Rerank.Enabled = true
+
+	doc, err := RuntimeToDocument(&cfg)
+	require.NoError(t, err)
+
+	payloadExtraction := nestedMap(doc.Extensions.OBI.Capture.Instrumentation, "http", "payload_extraction")
+	require.ElementsMatch(t, []any{
+		"openai",
+		"anthropic",
+		"gemini",
+		"qwen",
+		"bedrock",
+		"mcp",
+		"embedding",
+		"rerank",
+	}, payloadExtraction["enabled"])
+
+	got, err := StandaloneToRuntime(doc)
+	require.NoError(t, err)
+	require.True(t, got.EBPF.PayloadExtraction.HTTP.GenAI.OpenAI.Enabled)
+	require.True(t, got.EBPF.PayloadExtraction.HTTP.GenAI.Anthropic.Enabled)
+	require.True(t, got.EBPF.PayloadExtraction.HTTP.GenAI.Gemini.Enabled)
+	require.True(t, got.EBPF.PayloadExtraction.HTTP.GenAI.Qwen.Enabled)
+	require.True(t, got.EBPF.PayloadExtraction.HTTP.GenAI.Bedrock.Enabled)
+	require.True(t, got.EBPF.PayloadExtraction.HTTP.GenAI.MCP.Enabled)
+	require.True(t, got.EBPF.PayloadExtraction.HTTP.GenAI.Embedding.Enabled)
+	require.True(t, got.EBPF.PayloadExtraction.HTTP.GenAI.Rerank.Enabled)
+}
