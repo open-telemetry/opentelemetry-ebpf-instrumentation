@@ -329,7 +329,7 @@ func (pt *ProcessTracer) NewExecutable(exe *link.Executable, ie *Instrumentable)
 		offsets:     ie.Offsets, // this is needed for the function offsets, not fields
 		modules:     map[uint64]struct{}{},
 		metrics:     pt.metrics,
-		processName: ie.FileInfo.CmdExePath,
+		processName: ie.FileInfo.ExecutableName(),
 	}
 
 	for _, p := range pt.Programs {
