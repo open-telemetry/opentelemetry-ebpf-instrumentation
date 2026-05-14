@@ -747,6 +747,9 @@ func TestDefaultExclusionFilter(t *testing.T) {
 	assert.True(t, c[0].Path.MatchString("otelcol-contrib"))
 
 	assert.False(t, c[0].Path.MatchString("/usr/bin/obi/test"))
+	assert.False(t, c[0].Path.MatchString("myobi"))
+	assert.False(t, c[0].Path.MatchString("/usr/bin/myobi"))
+	assert.False(t, c[0].Path.MatchString("/usr/bin/obi-helper"))
 	assert.False(t, c[0].Path.MatchString("/usr/bin/otelcol-contrib/test"))
 
 	assert.True(t, c[0].Path.MatchString("/obi"))
@@ -763,6 +766,10 @@ func TestDefaultLegacyExclusionFilter(t *testing.T) {
 	assert.True(t, c[0].Path.MatchString("obi"))
 	assert.True(t, c[0].Path.MatchString("otelcol-contrib"))
 
+	assert.False(t, c[0].Path.MatchString("/usr/bin/obi/test"))
+	assert.False(t, c[0].Path.MatchString("myobi"))
+	assert.False(t, c[0].Path.MatchString("/usr/bin/myobi"))
+	assert.False(t, c[0].Path.MatchString("/usr/bin/obi-helper"))
 	assert.False(t, c[0].Path.MatchString("/usr/bin/otelcol-contrib/test"))
 
 	assert.True(t, c[0].Path.MatchString("/obi"))
