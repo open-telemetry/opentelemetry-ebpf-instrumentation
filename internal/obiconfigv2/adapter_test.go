@@ -6,6 +6,7 @@ package obiconfigv2
 import (
 	"bytes"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -13,6 +14,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/filter"
+	"go.opentelemetry.io/obi/pkg/kube"
 	"go.opentelemetry.io/obi/pkg/obi"
 	obiv2 "go.opentelemetry.io/obi/pkg/obiconfig/v2"
 )
@@ -496,6 +498,33 @@ func TestDiscoverySelectorPodMetadataRoundTrip(t *testing.T) {
 		}
 		return false
 	})
+}
+
+func TestKubernetesReconnectAndResourceLabelsRoundTrip(t *testing.T) {
+	cfg := obi.DefaultConfig
+	cfg.Attributes.Kubernetes.ReconnectInitialInterval = 17 * time.Second
+	cfg.Attributes.Kubernetes.ResourceLabels = kube.ResourceLabels{
+		"service.name":      {"app.kubernetes.io/name", "app.kubernetes.io/instance"},
+		"service.namespace": {"team"},
+	}
+
+	doc, err := RuntimeToDocument(&cfg)
+	require.NoError(t, err)
+
+	kubernetes := nestedMap(doc.Extensions.OBI.Enrich, "enrichers", "kubernetes")
+	require.Equal(t, "17s", nestedMap(kubernetes, "informers")["reconnect_initial_interval"])
+	require.Equal(t, kube.ResourceLabels{
+		"service.name":      {"app.kubernetes.io/name", "app.kubernetes.io/instance"},
+		"service.namespace": {"team"},
+	}, kubernetes["resource_labels"])
+
+	got, err := StandaloneToRuntime(doc)
+	require.NoError(t, err)
+	require.Equal(t, 17*time.Second, got.Attributes.Kubernetes.ReconnectInitialInterval)
+	require.Equal(t, kube.ResourceLabels{
+		"service.name":      {"app.kubernetes.io/name", "app.kubernetes.io/instance"},
+		"service.namespace": {"team"},
+	}, got.Attributes.Kubernetes.ResourceLabels)
 }
 
 func TestRuntimeStatsConfigRoundTrip(t *testing.T) {

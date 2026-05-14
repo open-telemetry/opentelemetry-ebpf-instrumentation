@@ -279,9 +279,14 @@ func applyStandalone(cfg *obi.Config, src *obiv2.Extension) {
 	setString(&cfg.Attributes.Kubernetes.ClusterName, nestedMap(src.Enrich, "enrichers", "kubernetes"), "cluster_name")
 	setString(&cfg.Attributes.Kubernetes.KubeconfigPath, nestedMap(src.Enrich, "enrichers", "kubernetes", "auth"), "kubeconfig_path")
 	setDuration(&cfg.Attributes.Kubernetes.InformersSyncTimeout, nestedMap(src.Enrich, "enrichers", "kubernetes", "informers"), "initial_sync_timeout")
+	setDuration(&cfg.Attributes.Kubernetes.ReconnectInitialInterval, nestedMap(src.Enrich, "enrichers", "kubernetes", "informers"), "reconnect_initial_interval")
 	setDuration(&cfg.Attributes.Kubernetes.InformersResyncPeriod, nestedMap(src.Enrich, "enrichers", "kubernetes", "informers"), "resync_period")
 	setStringSlice(&cfg.Attributes.Kubernetes.DisableInformers, nestedMap(src.Enrich, "enrichers", "kubernetes", "informers"), "disabled")
 	setBool(&cfg.Attributes.Kubernetes.DropExternal, nestedMap(src.Enrich, "enrichers", "kubernetes"), "drop_external")
+	if kubernetes := nestedMap(src.Enrich, "enrichers", "kubernetes"); kubernetes["resource_labels"] != nil {
+		cfg.Attributes.Kubernetes.ResourceLabels = nil
+		setDecoded(&cfg.Attributes.Kubernetes.ResourceLabels, kubernetes, "resource_labels")
+	}
 	setString(&cfg.Attributes.Kubernetes.MetaCacheAddress, nestedMap(src.Enrich, "enrichers", "kubernetes", "metadata_cache"), "address")
 	setBool(&cfg.Attributes.Kubernetes.MetaRestrictLocalNode, nestedMap(src.Enrich, "enrichers", "kubernetes", "metadata_cache"), "restrict_local_node")
 	setString(&cfg.Attributes.Kubernetes.MetaSourceLabels.ServiceName, nestedMap(src.Enrich, "enrichers", "kubernetes", "metadata_cache", "source_labels"), "service_name")

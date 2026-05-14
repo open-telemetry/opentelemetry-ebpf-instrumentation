@@ -167,3 +167,31 @@ rules:
 		"sidecar.istio.io/status": []any{"*"},
 	}, nestedMap(cfg.Capture.Rules[1].Match, "kubernetes")["pod_annotations"])
 }
+
+func TestParseYAMLStandaloneKubernetesReconnectAndResourceLabels(t *testing.T) {
+	t.Parallel()
+
+	_, cfg, err := ParseYAML([]byte(`
+file_format: "1.0"
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      policy:
+        default_action: include
+    enrich:
+      enrichers:
+        kubernetes:
+          informers:
+            reconnect_initial_interval: 17s
+          resource_labels:
+            service.name: [app.kubernetes.io/name, app.kubernetes.io/instance]
+            service.namespace: [team]
+`), DeploymentModeStandalone)
+	require.NoError(t, err)
+	require.Equal(t, "17s", nestedMap(cfg.Enrich, "enrichers", "kubernetes", "informers")["reconnect_initial_interval"])
+	require.Equal(t, map[string]any{
+		"service.name":      []any{"app.kubernetes.io/name", "app.kubernetes.io/instance"},
+		"service.namespace": []any{"team"},
+	}, nestedMap(cfg.Enrich, "enrichers", "kubernetes")["resource_labels"])
+}

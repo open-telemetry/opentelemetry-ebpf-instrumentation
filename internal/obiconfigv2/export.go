@@ -605,11 +605,13 @@ func enrichMap(cfg *obi.Config) map[string]any {
 					"kubeconfig_path": cfg.Attributes.Kubernetes.KubeconfigPath,
 				},
 				"informers": map[string]any{
-					"initial_sync_timeout": cfg.Attributes.Kubernetes.InformersSyncTimeout.String(),
-					"resync_period":        cfg.Attributes.Kubernetes.InformersResyncPeriod.String(),
-					"disabled":             cfg.Attributes.Kubernetes.DisableInformers,
+					"initial_sync_timeout":       cfg.Attributes.Kubernetes.InformersSyncTimeout.String(),
+					"reconnect_initial_interval": cfg.Attributes.Kubernetes.ReconnectInitialInterval.String(),
+					"resync_period":              cfg.Attributes.Kubernetes.InformersResyncPeriod.String(),
+					"disabled":                   cfg.Attributes.Kubernetes.DisableInformers,
 				},
-				"drop_external": cfg.Attributes.Kubernetes.DropExternal,
+				"drop_external":   cfg.Attributes.Kubernetes.DropExternal,
+				"resource_labels": cfg.Attributes.Kubernetes.ResourceLabels,
 				"metadata_cache": map[string]any{
 					"address":             cfg.Attributes.Kubernetes.MetaCacheAddress,
 					"restrict_local_node": cfg.Attributes.Kubernetes.MetaRestrictLocalNode,
