@@ -83,6 +83,6 @@ func TestGenAIToolCallAttributes(t *testing.T) {
 		})
 		require.Len(t, attrs, 2)
 		assert.Equal(t, attribute.StringSlice(string(attr.GenAIToolName), []string{"get_time"}), attrs[0])
-		assert.Equal(t, attribute.StringSlice(string(attr.GenAIToolCallID), []string{"call_1", "call_2"}), attrs[1])
+		assert.Equal(t, attribute.StringSlice(string(attr.GenAIToolCallID), []string{"call_2"}), attrs[1])
 	})
 }

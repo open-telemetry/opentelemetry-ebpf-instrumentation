@@ -326,6 +326,8 @@ var (
 )
 
 // genAIToolCallAttributes returns trace attributes for LLM tool calls.
+// Only tool calls with non-empty names are included. Names and IDs are kept
+// aligned so that the same index refers to the same tool call.
 func genAIToolCallAttributes(toolCalls []request.ToolCall) []attribute.KeyValue {
 	if len(toolCalls) == 0 {
 		return nil
@@ -333,12 +335,15 @@ func genAIToolCallAttributes(toolCalls []request.ToolCall) []attribute.KeyValue 
 
 	var names []string
 	var ids []string
+	hasIDs := false
 	for _, tc := range toolCalls {
-		if tc.Name != "" {
-			names = append(names, tc.Name)
+		if tc.Name == "" {
+			continue
 		}
+		names = append(names, tc.Name)
+		ids = append(ids, tc.ID)
 		if tc.ID != "" {
-			ids = append(ids, tc.ID)
+			hasIDs = true
 		}
 	}
 
@@ -346,7 +351,7 @@ func genAIToolCallAttributes(toolCalls []request.ToolCall) []attribute.KeyValue 
 	if len(names) > 0 {
 		attrs = append(attrs, attribute.StringSlice(string(attr.GenAIToolName), names))
 	}
-	if len(ids) > 0 {
+	if hasIDs {
 		attrs = append(attrs, attribute.StringSlice(string(attr.GenAIToolCallID), ids))
 	}
 	return attrs
