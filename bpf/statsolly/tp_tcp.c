@@ -172,10 +172,10 @@ int obi_tp_inet_sock_set_state_tcp_failed_conn(struct trace_event_raw_inet_sock_
     return 0;
 }
 
-SEC("tracepoint/tcp/tcp_retransmit_skb")
-int obi_tp_tcp_retransmit(struct trace_event_raw_tcp_event_sk_skb *args) {
+SEC("raw_tracepoint/tcp_retransmit_skb")
+int obi_raw_tp_tcp_retransmit(struct bpf_raw_tracepoint_args *ctx) {
 
-    struct sock *const sk = (struct sock *)args->skaddr;
+    struct sock *const sk = (struct sock *)ctx->args[0];
 
     connection_info_t conn;
     if (!parse_sock_info(sk, &conn)) {

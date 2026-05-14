@@ -43,7 +43,7 @@ const (
 	progObiKprobeTCPCloseSrtt              = "obi_kprobe_tcp_close_srtt"
 	progObiTpInetSockSetStateConnRole      = "obi_tp_inet_sock_set_state_conn_role"
 	progObiTpInetSockSetStateTCPFailedConn = "obi_tp_inet_sock_set_state_tcp_failed_conn"
-	progObiTpTCPRetransmit                 = "obi_tp_tcp_retransmit"
+	progObiRawTpTCPRetransmit              = "obi_raw_tp_tcp_retransmit"
 )
 
 // Hook point names, grouped by attach type.
@@ -53,7 +53,9 @@ const (
 
 	// Tracepoints: group/name, are validated by TestTracepointConstantFormat
 	TracepointInetSockSetState = "sock/inet_sock_set_state"
-	TracepointTCPRetransmitSkb = "tcp/tcp_retransmit_skb"
+
+	// Raw tracepoints: name only (no group prefix).
+	RawTracepointTCPRetransmitSkb = "tcp_retransmit_skb"
 )
 
 // $BPF_CLANG and $BPF_CFLAGS are set by the Makefile.
@@ -106,7 +108,7 @@ func NewStatsFetcher(cfg *config.EBPFTracer, features *export.Features, selector
 		toDisable = append(toDisable, progObiKprobeTCPCloseSrtt)
 	}
 	if !features.StatsTCPRetransmits() {
-		toDisable = append(toDisable, progObiTpTCPRetransmit)
+		toDisable = append(toDisable, progObiRawTpTCPRetransmit)
 	}
 
 	if err := fixupSpec(spec, toDisable); err != nil {
@@ -163,11 +165,6 @@ func NewStatsFetcher(cfg *config.EBPFTracer, features *export.Features, selector
 			program: objects.ObiTpInetSockSetStateConnRole,
 			enabled: connRoleUsed,
 		},
-		{
-			name:    TracepointTCPRetransmitSkb,
-			program: objects.ObiTpTcpRetransmit,
-			enabled: features.StatsTCPRetransmits(),
-		},
 	} {
 		if !t.enabled {
 			continue
@@ -178,6 +175,19 @@ func NewStatsFetcher(cfg *config.EBPFTracer, features *export.Features, selector
 		if err != nil {
 			closeAll(closables)
 			return nil, fmt.Errorf("failed tracepoint attachment %s: %w", t.name, err)
+		}
+		closables = append(closables, l)
+	}
+
+	// raw tracepoints
+	if features.StatsTCPRetransmits() {
+		l, err := link.AttachRawTracepoint(link.RawTracepointOptions{
+			Name:    RawTracepointTCPRetransmitSkb,
+			Program: objects.ObiRawTpTcpRetransmit,
+		})
+		if err != nil {
+			closeAll(closables)
+			return nil, fmt.Errorf("failed raw tracepoint attachment %s: %w", RawTracepointTCPRetransmitSkb, err)
 		}
 		closables = append(closables, l)
 	}
