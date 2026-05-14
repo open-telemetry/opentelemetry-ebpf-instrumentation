@@ -95,7 +95,7 @@ func (l *spanNameLimiter) aggregate(spans []request.Span) []request.Span {
 	// assuming many spans from the same service could come in a row
 	// we can slightly optimize by avoiding the cache lookup for each span
 	var lastKey svc.ServiceNameNamespace
-	lastCount := &routesCount{}
+	lastCount := &routesCount{routes: map[string]struct{}{}}
 
 	output := spans
 	alreadyCopying := false

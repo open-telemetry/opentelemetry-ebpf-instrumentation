@@ -174,6 +174,36 @@ func TestSpanNameLimiter_ExpireOld(t *testing.T) {
 	})
 }
 
+func TestSpanNameLimiter_ZeroValueServiceKey(t *testing.T) {
+	// Regression test for #2036: aggregate must not panic when the first span
+	// in a batch has a zero-value ServiceNameNamespace key.
+	input := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
+	output := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
+	outCh := output.Subscribe()
+	runSpanNameLimiter, err := SpanNameLimiter(SpanNameLimiterConfig{
+		Limit:      maxCardinalityBeforeAggregation,
+		OTEL:       &otelcfg.MetricsConfig{TTL: time.Minute},
+		Prom:       &prom.PrometheusConfig{TTL: time.Minute},
+		MetricsCfg: &perapp.MetricsConfig{Features: export.FeatureSpanLegacy},
+	}, input, output)(t.Context())
+	require.NoError(t, err)
+
+	go runSpanNameLimiter(t.Context())
+
+	// Send spans with a zero-value service (empty namespace, name, instance).
+	// This must not panic due to writing to a nil map.
+	zeroSvc := svc.Attrs{} // zero-value UID
+	input.Send([]request.Span{
+		{Service: zeroSvc, Type: request.EventTypeHTTP, Method: "GET", Route: "/zero-1"},
+		{Service: zeroSvc, Type: request.EventTypeHTTP, Method: "GET", Route: "/zero-2"},
+	})
+
+	spans := testutil.ReadChannel(t, outCh, testTimeout)
+	require.Len(t, spans, 2)
+	assert.Equal(t, "GET /zero-1", spans[0].TraceName())
+	assert.Equal(t, "GET /zero-2", spans[1].TraceName())
+}
+
 func TestSpanNameLimiter_CopiesOutput(t *testing.T) {
 	// OBI has to mark as AGGREGATED only span metrics while the traces/spans need to
 	// keep the original, high-cardinality span name.
