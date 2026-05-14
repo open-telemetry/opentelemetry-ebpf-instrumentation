@@ -69,8 +69,15 @@ typedef struct tcp_failed_connection {
     connection_info_t conn;
 } tcp_failed_connection_t;
 
-// Force tcp_failed_connection_t
+typedef struct tcp_retransmit {
+    u8 flags; // Must be first, we use it to tell what kind of event we have on the ring buffer
+    u8 _pad[3];
+    connection_info_t conn;
+} tcp_retransmit_t;
+
+// Force structs into the ELF for automatic creation of Golang struct
 const tcp_failed_connection_t *unused_tcp_failed_connection __attribute__((unused));
+const tcp_retransmit_t *unused_tcp_retransmit_t __attribute__((unused));
 
 // obi_tp_inet_sock_set_state_conn_role is the sole owner of the sock_role map.
 // It writes the role (client/server) when a connection is established and
@@ -159,6 +166,31 @@ int obi_tp_inet_sock_set_state_tcp_failed_conn(struct trace_event_raw_inet_sock_
     } else {
         se->role = role_unknown;
     }
+
+    bpf_ringbuf_submit(se, stats_events_flags());
+
+    return 0;
+}
+
+SEC("tracepoint/tcp/tcp_retransmit_skb")
+int obi_tp_tcp_retransmit(struct trace_event_raw_tcp_event_sk_skb *args) {
+
+    struct sock *const sk = (struct sock *)args->skaddr;
+
+    connection_info_t conn;
+    if (!parse_sock_info(sk, &conn)) {
+        return 0;
+    }
+
+    bpf_d_printk("tcp retransmit: s_port=%d, d_port=%d", conn.s_port, conn.d_port);
+
+    tcp_retransmit_t *const se = bpf_ringbuf_reserve(&stats_events, sizeof(*se), 0);
+    if (!se) {
+        return 0;
+    }
+
+    se->flags = k_event_stat_tcp_retransmit;
+    se->conn = conn;
 
     bpf_ringbuf_submit(se, stats_events_flags());
 

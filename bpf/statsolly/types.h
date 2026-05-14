@@ -7,6 +7,7 @@
 enum {
     k_event_stat_tcp_rtt = 1,               // StatTypeTCPRtt
     k_event_stat_tcp_failed_connection = 2, // StatTypeTCPFailedConnection
+    k_event_stat_tcp_retransmit = 3,        // StatTypeTCPRetransmit
 };
 
 enum tcp_handshake_role {
