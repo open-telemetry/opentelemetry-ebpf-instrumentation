@@ -539,3 +539,26 @@ stats:
 	require.NoError(t, err)
 	require.Equal(t, cfg.Stats, got.Stats)
 }
+
+func TestRuntimeNetworkCIDRsRoundTrip(t *testing.T) {
+	cfg, err := obi.LoadConfig(bytes.NewBufferString(`
+metrics:
+  features: [network]
+network:
+  enable: true
+  cidrs:
+    - cidr: 10.0.0.0/8
+      name: internal
+    - 2001:db8::/32
+`))
+	require.NoError(t, err)
+
+	doc, err := RuntimeToDocument(cfg)
+	require.NoError(t, err)
+
+	require.Equal(t, cfg.NetworkFlows.CIDRs, nestedMap(doc.Extensions.OBI.Capture.Network, "capture", "selection")["cidrs"])
+
+	got, err := StandaloneToRuntime(doc)
+	require.NoError(t, err)
+	require.Equal(t, cfg.NetworkFlows.CIDRs, got.NetworkFlows.CIDRs)
+}

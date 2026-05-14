@@ -132,6 +132,7 @@ func applyCapture(cfg *obi.Config, src *obiv2.Extension) {
 	setStringSlice(&cfg.NetworkFlows.Protocols, nestedMap(network, "selection", "protocols"), "include")
 	setStringSlice(&cfg.NetworkFlows.ExcludeProtocols, nestedMap(network, "selection", "protocols"), "exclude")
 	setString(&cfg.NetworkFlows.Direction, nestedMap(network, "selection"), "direction")
+	setDecoded(&cfg.NetworkFlows.CIDRs, nestedMap(network, "selection"), "cidrs")
 	setInt(&cfg.NetworkFlows.CacheMaxFlows, nestedMap(network, "flow_lifecycle"), "max_tracked_flows")
 	setDuration(&cfg.NetworkFlows.CacheActiveTimeout, nestedMap(network, "flow_lifecycle"), "active_timeout")
 	setString(&cfg.NetworkFlows.Deduper, nestedMap(network, "flow_lifecycle", "deduplication"), "strategy")
