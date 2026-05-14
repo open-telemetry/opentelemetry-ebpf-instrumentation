@@ -119,3 +119,24 @@ rules:
 	require.Equal(t, "8080,8443-8444", nestedMap(cfg.Capture.Rules[0].Match, "process")["open_ports"])
 	require.Equal(t, []any{99, 100}, nestedMap(cfg.Capture.Rules[1].Match, "process")["target_pids"])
 }
+
+func TestParseYAMLDiscoveryLanguageAndCmdArgsRules(t *testing.T) {
+	t.Parallel()
+
+	_, cfg, err := ParseYAML([]byte(`
+version: "2.0"
+rules:
+  - action: include
+    match:
+      process:
+        language_glob: [java, go]
+  - action: exclude
+    match:
+      process:
+        cmd_args_glob: ["*sidecar*"]
+`), DeploymentModeReceiver)
+	require.NoError(t, err)
+	require.Len(t, cfg.Capture.Rules, 2)
+	require.Equal(t, []any{"java", "go"}, nestedMap(cfg.Capture.Rules[0].Match, "process")["language_glob"])
+	require.Equal(t, []any{"*sidecar*"}, nestedMap(cfg.Capture.Rules[1].Match, "process")["cmd_args_glob"])
+}

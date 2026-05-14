@@ -306,6 +306,90 @@ func TestDiscoverySelectorPIDAndPortRoundTrip(t *testing.T) {
 	})
 }
 
+func TestDiscoverySelectorLanguageAndCmdArgsRoundTrip(t *testing.T) {
+	cfg := obi.DefaultConfig
+	cfg.Discovery.Instrument = []services.GlobAttributes{
+		{Languages: services.NewGlob("java")},
+		{CmdArgs: services.NewGlob("*serve*")},
+	}
+	cfg.Discovery.ExcludeInstrument = []services.GlobAttributes{
+		{Languages: services.NewGlob("python")},
+		{CmdArgs: services.NewGlob("*sidecar*")},
+	}
+
+	doc, err := RuntimeToDocument(&cfg)
+	require.NoError(t, err)
+
+	rules := doc.Extensions.OBI.Capture.Rules
+	require.Contains(t, rules, obiv2.Rule{
+		Action: "include",
+		Match: map[string]any{
+			"process": map[string]any{
+				"language_glob": []string{"java"},
+			},
+		},
+	})
+	require.Contains(t, rules, obiv2.Rule{
+		Action: "include",
+		Match: map[string]any{
+			"process": map[string]any{
+				"cmd_args_glob": []string{"*serve*"},
+			},
+		},
+	})
+	require.Contains(t, rules, obiv2.Rule{
+		Action: "exclude",
+		Match: map[string]any{
+			"process": map[string]any{
+				"language_glob": []string{"python"},
+			},
+		},
+	})
+	require.Contains(t, rules, obiv2.Rule{
+		Action: "exclude",
+		Match: map[string]any{
+			"process": map[string]any{
+				"cmd_args_glob": []string{"*sidecar*"},
+			},
+		},
+	})
+
+	got, err := StandaloneToRuntime(doc)
+	require.NoError(t, err)
+	require.Condition(t, func() bool {
+		for _, selector := range got.Discovery.Instrument {
+			if selector.Languages.IsSet() && globString(selector.Languages) == "java" {
+				return true
+			}
+		}
+		return false
+	})
+	require.Condition(t, func() bool {
+		for _, selector := range got.Discovery.Instrument {
+			if selector.CmdArgs.IsSet() && globString(selector.CmdArgs) == "*serve*" {
+				return true
+			}
+		}
+		return false
+	})
+	require.Condition(t, func() bool {
+		for _, selector := range got.Discovery.ExcludeInstrument {
+			if selector.Languages.IsSet() && globString(selector.Languages) == "python" {
+				return true
+			}
+		}
+		return false
+	})
+	require.Condition(t, func() bool {
+		for _, selector := range got.Discovery.ExcludeInstrument {
+			if selector.CmdArgs.IsSet() && globString(selector.CmdArgs) == "*sidecar*" {
+				return true
+			}
+		}
+		return false
+	})
+}
+
 func TestRuntimeStatsConfigRoundTrip(t *testing.T) {
 	cfg, err := obi.LoadConfig(bytes.NewBufferString(`
 metrics:

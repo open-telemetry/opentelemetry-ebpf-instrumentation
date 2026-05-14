@@ -346,6 +346,14 @@ func mapRules(cfg *obi.Config, src *obiv2.Extension) {
 				appendRuleSelector(cfg, rule.Action, services.GlobAttributes{PIDs: pids})
 			}
 
+			for _, glob := range stringSliceValue(process, "language_glob") {
+				appendRuleSelector(cfg, rule.Action, services.GlobAttributes{Languages: services.NewGlob(glob)})
+			}
+
+			for _, glob := range stringSliceValue(process, "cmd_args_glob") {
+				appendRuleSelector(cfg, rule.Action, services.GlobAttributes{CmdArgs: services.NewGlob(glob)})
+			}
+
 			globs := stringSliceValue(process, "exe_path_glob")
 			if len(globs) > 0 {
 				if rule.Name == "exclude-linux-system-paths" {
@@ -468,6 +476,9 @@ func boolValue(m map[string]any, key string) bool {
 func stringSliceValue(m map[string]any, key string) []string {
 	if m == nil {
 		return nil
+	}
+	if values, ok := m[key].([]string); ok {
+		return append([]string(nil), values...)
 	}
 	values, ok := m[key].([]any)
 	if !ok {

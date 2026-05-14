@@ -434,6 +434,26 @@ func rulesFromRuntime(cfg *obi.Config) []obiv2.Rule {
 				},
 			})
 		}
+		if selector.Languages.IsSet() {
+			rules = append(rules, obiv2.Rule{
+				Action: "exclude",
+				Match: map[string]any{
+					"process": map[string]any{
+						"language_glob": []string{globString(selector.Languages)},
+					},
+				},
+			})
+		}
+		if selector.CmdArgs.IsSet() {
+			rules = append(rules, obiv2.Rule{
+				Action: "exclude",
+				Match: map[string]any{
+					"process": map[string]any{
+						"cmd_args_glob": []string{globString(selector.CmdArgs)},
+					},
+				},
+			})
+		}
 		if selector.Path.IsSet() {
 			rules = append(rules, obiv2.Rule{
 				Action: "exclude",
@@ -472,6 +492,26 @@ func rulesFromRuntime(cfg *obi.Config) []obiv2.Rule {
 				Match: map[string]any{
 					"process": map[string]any{
 						"target_pids": selector.PIDs,
+					},
+				},
+			})
+		}
+		if selector.Languages.IsSet() {
+			rules = append(rules, obiv2.Rule{
+				Action: "include",
+				Match: map[string]any{
+					"process": map[string]any{
+						"language_glob": []string{globString(selector.Languages)},
+					},
+				},
+			})
+		}
+		if selector.CmdArgs.IsSet() {
+			rules = append(rules, obiv2.Rule{
+				Action: "include",
+				Match: map[string]any{
+					"process": map[string]any{
+						"cmd_args_glob": []string{globString(selector.CmdArgs)},
 					},
 				},
 			})
