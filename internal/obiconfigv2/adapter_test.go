@@ -528,6 +528,64 @@ func TestKubernetesReconnectAndResourceLabelsRoundTrip(t *testing.T) {
 	}, got.Attributes.Kubernetes.ResourceLabels)
 }
 
+func TestTopLevelResourceIdentityImport(t *testing.T) {
+	t.Run("unset preserves defaults", func(t *testing.T) {
+		got, err := StandaloneToRuntime(&obiv2.Document{
+			Resource: map[string]any{},
+			Extensions: obiv2.Extensions{
+				OBI: &obiv2.Extension{
+					Version: obiv2.SupportedVersion,
+					Capture: obiv2.CaptureConfig{},
+				},
+			},
+		})
+		require.NoError(t, err)
+		require.True(t, got.Attributes.InstanceID.HostnameDNSResolution)
+		require.Empty(t, got.Attributes.InstanceID.OverrideHostname)
+		require.Empty(t, got.Attributes.HostID.Override)
+	})
+
+	t.Run("explicit overrides apply", func(t *testing.T) {
+		got, err := StandaloneToRuntime(&obiv2.Document{
+			Resource: map[string]any{
+				"host.name": "collector-node",
+				"host.id":   "node-123",
+			},
+			Extensions: obiv2.Extensions{
+				OBI: &obiv2.Extension{
+					Version: obiv2.SupportedVersion,
+					Capture: obiv2.CaptureConfig{},
+				},
+			},
+		})
+		require.NoError(t, err)
+		require.Equal(t, "collector-node", got.Attributes.InstanceID.OverrideHostname)
+		require.Equal(t, "node-123", got.Attributes.HostID.Override)
+		require.True(t, got.Attributes.InstanceID.HostnameDNSResolution)
+	})
+}
+
+func TestTopLevelResourceIdentityExport(t *testing.T) {
+	t.Run("explicit overrides export", func(t *testing.T) {
+		cfg := obi.DefaultConfig
+		cfg.Attributes.InstanceID.OverrideHostname = "collector-node"
+		cfg.Attributes.HostID.Override = "node-123"
+
+		doc, err := RuntimeToDocument(&cfg)
+		require.NoError(t, err)
+		require.Equal(t, map[string]any{
+			"host.name": "collector-node",
+			"host.id":   "node-123",
+		}, doc.Resource)
+	})
+
+	t.Run("defaults do not export synthetic identity resource", func(t *testing.T) {
+		doc, err := RuntimeToDocument(&obi.DefaultConfig)
+		require.NoError(t, err)
+		require.Empty(t, doc.Resource)
+	})
+}
+
 func TestServiceNameResolverAndTemplateRoundTrip(t *testing.T) {
 	cfg := obi.DefaultConfig
 	cfg.TracePrinter = "text"

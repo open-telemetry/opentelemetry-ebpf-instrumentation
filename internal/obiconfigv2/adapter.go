@@ -31,6 +31,7 @@ func StandaloneToRuntime(doc *obiv2.Document) (*obi.Config, error) {
 		return nil, err
 	}
 
+	applyTopLevelResource(cfg, doc)
 	applyTopLevelPipelines(cfg, doc)
 	return cfg, nil
 }
@@ -322,6 +323,11 @@ func applyTopLevelPipelines(cfg *obi.Config, doc *obiv2.Document) {
 	setString((*string)(&cfg.OTELMetrics.HistogramAggregation), nestedMap(doc.MeterProvider, "readers", "0", "periodic", "exporter", "otlp_grpc"), "default_histogram_aggregation")
 	setBool(&cfg.OTELMetrics.InsecureSkipVerify, nestedMap(doc.MeterProvider, "readers", "0", "periodic", "exporter", "otlp_grpc", "tls"), "insecure")
 	setInt(&cfg.Prometheus.Port, nestedMap(doc.MeterProvider, "readers", "1", "pull", "exporter", "prometheus/development"), "port")
+}
+
+func applyTopLevelResource(cfg *obi.Config, doc *obiv2.Document) {
+	setString(&cfg.Attributes.InstanceID.OverrideHostname, doc.Resource, "host.name")
+	setString(&cfg.Attributes.HostID.Override, doc.Resource, "host.id")
 }
 
 func mapRules(cfg *obi.Config, src *obiv2.Extension) {

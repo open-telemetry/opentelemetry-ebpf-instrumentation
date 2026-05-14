@@ -22,7 +22,7 @@ func RuntimeToDocument(cfg *obi.Config) (*obiv2.Document, error) {
 
 	doc := &obiv2.Document{
 		FileFormat:     "1.0",
-		Resource:       map[string]any{},
+		Resource:       resourceMap(cfg),
 		Propagator:     map[string]any{},
 		TracerProvider: tracerProviderMap(cfg),
 		MeterProvider:  meterProviderMap(cfg),
@@ -56,6 +56,17 @@ func RuntimeToReceiverExtension(cfg *obi.Config) (*obiv2.Extension, error) {
 	out.Correlation = nil
 	out.Daemon = nil
 	return &out, nil
+}
+
+func resourceMap(cfg *obi.Config) map[string]any {
+	resource := map[string]any{}
+	if cfg.Attributes.InstanceID.OverrideHostname != "" {
+		resource["host.name"] = cfg.Attributes.InstanceID.OverrideHostname
+	}
+	if cfg.Attributes.HostID.Override != "" {
+		resource["host.id"] = cfg.Attributes.HostID.Override
+	}
+	return resource
 }
 
 func captureConfig(cfg *obi.Config) obiv2.CaptureConfig {
@@ -599,8 +610,8 @@ func enrichMap(cfg *obi.Config) map[string]any {
 	return map[string]any{
 		"enrichers": map[string]any{
 			"kubernetes": map[string]any{
-				"mode":         cfg.Attributes.Kubernetes.Enable,
-				"cluster_name": cfg.Attributes.Kubernetes.ClusterName,
+				"mode":                  cfg.Attributes.Kubernetes.Enable,
+				"cluster_name":          cfg.Attributes.Kubernetes.ClusterName,
 				"service_name_template": cfg.Attributes.Kubernetes.ServiceNameTemplate,
 				"auth": map[string]any{
 					"kubeconfig_path": cfg.Attributes.Kubernetes.KubeconfigPath,
