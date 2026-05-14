@@ -373,9 +373,17 @@ func mapRules(cfg *obi.Config, src *obiv2.Extension) {
 			if len(namespaces) > 0 {
 				appendRuleSelector(cfg, rule.Action, services.GlobAttributes{
 					Metadata: services.MetadataGlobMap{
-						services.AttrNamespace: globPointer("{" + join(namespaces) + "}"),
+						services.AttrNamespace: combinedGlobPointer(namespaces),
 					},
 				})
+			}
+
+			if labels := globMapValue(k8s, "pod_labels"); len(labels) > 0 {
+				appendRuleSelector(cfg, rule.Action, services.GlobAttributes{PodLabels: labels})
+			}
+
+			if annotations := globMapValue(k8s, "pod_annotations"); len(annotations) > 0 {
+				appendRuleSelector(cfg, rule.Action, services.GlobAttributes{PodAnnotations: annotations})
 			}
 		}
 	}
@@ -494,29 +502,105 @@ func stringSliceValue(m map[string]any, key string) []string {
 	return result
 }
 
+func globMapValue(m map[string]any, key string) map[string]*services.GlobAttr {
+	if m == nil {
+		return nil
+	}
+
+	values, ok := m[key].(map[string]any)
+	if !ok {
+		return nil
+	}
+
+	result := make(map[string]*services.GlobAttr, len(values))
+	for name, raw := range values {
+		globs := globListValue(raw)
+		if len(globs) == 0 {
+			continue
+		}
+		result[name] = combinedGlobPointer(globs)
+	}
+
+	if len(result) == 0 {
+		return nil
+	}
+
+	return result
+}
+
+func globListValue(value any) []string {
+	switch typed := value.(type) {
+	case string:
+		if typed == "" {
+			return nil
+		}
+		return []string{typed}
+	case []string:
+		return append([]string(nil), typed...)
+	case []any:
+		result := make([]string, 0, len(typed))
+		for _, item := range typed {
+			str, ok := item.(string)
+			if ok {
+				result = append(result, str)
+			}
+		}
+		return result
+	default:
+		return nil
+	}
+}
+
+func combinedGlobPointer(globs []string) *services.GlobAttr {
+	if len(globs) == 0 {
+		return nil
+	}
+	if len(globs) == 1 {
+		return globPointer(globs[0])
+	}
+	return globPointer("{" + join(globs) + "}")
+}
+
 func uint32SliceValue(m map[string]any, key string) []uint32 {
 	if m == nil {
 		return nil
 	}
-	if values, ok := m[key].([]uint32); ok {
+	switch values := m[key].(type) {
+	case []uint32:
 		return append([]uint32(nil), values...)
-	}
-	values, ok := m[key].([]any)
-	if !ok {
-		return nil
-	}
-	result := make([]uint32, 0, len(values))
-	for _, value := range values {
-		switch n := value.(type) {
-		case int:
-			result = append(result, uint32(n))
-		case int64:
-			result = append(result, uint32(n))
-		case float64:
-			result = append(result, uint32(n))
+	case []int:
+		result := make([]uint32, 0, len(values))
+		for _, value := range values {
+			result = append(result, uint32(value))
 		}
+		return result
+	case []int64:
+		result := make([]uint32, 0, len(values))
+		for _, value := range values {
+			result = append(result, uint32(value))
+		}
+		return result
+	case []float64:
+		result := make([]uint32, 0, len(values))
+		for _, value := range values {
+			result = append(result, uint32(value))
+		}
+		return result
+	case []any:
+		result := make([]uint32, 0, len(values))
+		for _, value := range values {
+			switch n := value.(type) {
+			case int:
+				result = append(result, uint32(n))
+			case int64:
+				result = append(result, uint32(n))
+			case float64:
+				result = append(result, uint32(n))
+			}
+		}
+		return result
 	}
-	return result
+	return nil
 }
 
 func intEnumValue(m map[string]any, key string) (services.IntEnum, bool) {

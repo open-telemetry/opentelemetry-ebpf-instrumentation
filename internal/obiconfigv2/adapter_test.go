@@ -390,6 +390,114 @@ func TestDiscoverySelectorLanguageAndCmdArgsRoundTrip(t *testing.T) {
 	})
 }
 
+func TestDiscoverySelectorPodMetadataRoundTrip(t *testing.T) {
+	cfg := obi.DefaultConfig
+	cfg.Discovery.Instrument = []services.GlobAttributes{
+		{
+			PodLabels: map[string]*services.GlobAttr{
+				"app.kubernetes.io/name": globPointer("{frontend,checkout}"),
+			},
+		},
+		{
+			PodAnnotations: map[string]*services.GlobAttr{
+				"instrumentation.opentelemetry.io/inject-java": globPointer("true"),
+			},
+		},
+	}
+	cfg.Discovery.ExcludeInstrument = []services.GlobAttributes{
+		{
+			PodLabels: map[string]*services.GlobAttr{
+				"team": globPointer("platform-*"),
+			},
+		},
+		{
+			PodAnnotations: map[string]*services.GlobAttr{
+				"sidecar.istio.io/status": globPointer("*"),
+			},
+		},
+	}
+
+	doc, err := RuntimeToDocument(&cfg)
+	require.NoError(t, err)
+
+	rules := doc.Extensions.OBI.Capture.Rules
+	require.Contains(t, rules, obiv2.Rule{
+		Action: "include",
+		Match: map[string]any{
+			"kubernetes": map[string]any{
+				"pod_labels": map[string]any{
+					"app.kubernetes.io/name": []string{"{frontend,checkout}"},
+				},
+			},
+		},
+	})
+	require.Contains(t, rules, obiv2.Rule{
+		Action: "include",
+		Match: map[string]any{
+			"kubernetes": map[string]any{
+				"pod_annotations": map[string]any{
+					"instrumentation.opentelemetry.io/inject-java": []string{"true"},
+				},
+			},
+		},
+	})
+	require.Contains(t, rules, obiv2.Rule{
+		Action: "exclude",
+		Match: map[string]any{
+			"kubernetes": map[string]any{
+				"pod_labels": map[string]any{
+					"team": []string{"platform-*"},
+				},
+			},
+		},
+	})
+	require.Contains(t, rules, obiv2.Rule{
+		Action: "exclude",
+		Match: map[string]any{
+			"kubernetes": map[string]any{
+				"pod_annotations": map[string]any{
+					"sidecar.istio.io/status": []string{"*"},
+				},
+			},
+		},
+	})
+
+	got, err := StandaloneToRuntime(doc)
+	require.NoError(t, err)
+	require.Condition(t, func() bool {
+		for _, selector := range got.Discovery.Instrument {
+			if glob := selector.PodLabels["app.kubernetes.io/name"]; glob != nil && globString(*glob) == "{frontend,checkout}" {
+				return true
+			}
+		}
+		return false
+	})
+	require.Condition(t, func() bool {
+		for _, selector := range got.Discovery.Instrument {
+			if glob := selector.PodAnnotations["instrumentation.opentelemetry.io/inject-java"]; glob != nil && globString(*glob) == "true" {
+				return true
+			}
+		}
+		return false
+	})
+	require.Condition(t, func() bool {
+		for _, selector := range got.Discovery.ExcludeInstrument {
+			if glob := selector.PodLabels["team"]; glob != nil && globString(*glob) == "platform-*" {
+				return true
+			}
+		}
+		return false
+	})
+	require.Condition(t, func() bool {
+		for _, selector := range got.Discovery.ExcludeInstrument {
+			if glob := selector.PodAnnotations["sidecar.istio.io/status"]; glob != nil && globString(*glob) == "*" {
+				return true
+			}
+		}
+		return false
+	})
+}
+
 func TestRuntimeStatsConfigRoundTrip(t *testing.T) {
 	cfg, err := obi.LoadConfig(bytes.NewBufferString(`
 metrics:

@@ -295,6 +295,20 @@ The `capture` grouping was introduced for two reasons:
 Rules are based on process identity, network identity, language, Kubernetes metadata, and already-instrumented status.
 These are the primary user controls for defining which services get instrumented by OBI.
 
+Kubernetes pod metadata selectors use keyed glob maps under `match.kubernetes`:
+
+```yaml
+match:
+  kubernetes:
+    namespace_glob: ["payments"]
+    pod_labels:
+      app.kubernetes.io/name: ["checkout", "frontend-*"]
+    pod_annotations:
+      instrumentation.opentelemetry.io/inject-java: ["true"]
+```
+
+Each label or annotation key maps to one or more glob patterns. A workload matches that entry when the pod metadata contains the key and its value matches any configured glob for that key.
+
 **Why `policy` and `rules` are direct children of `capture`, not nested under `capture.selection`**
 
 An earlier draft had a `selection` sub-section under `capture` (i.e., `capture.selection.policy` and `capture.selection.rules`).

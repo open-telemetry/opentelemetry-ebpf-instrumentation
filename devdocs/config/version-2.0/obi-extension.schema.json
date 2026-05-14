@@ -157,6 +157,28 @@
             "type": "string"
           },
           "description": "Glob patterns matched against Kubernetes namespace names.\n"
+        },
+        "pod_labels": {
+          "type": "object",
+          "description": "Pod label selectors keyed by label name. Each key maps to one or more glob patterns matched against the pod label value.\n",
+          "additionalProperties": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "pod_annotations": {
+          "type": "object",
+          "description": "Pod annotation selectors keyed by annotation name. Each key maps to one or more glob patterns matched against the pod annotation value.\n",
+          "additionalProperties": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string"
+            }
+          }
         }
       }
     },

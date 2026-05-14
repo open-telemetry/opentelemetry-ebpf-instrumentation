@@ -474,6 +474,26 @@ func rulesFromRuntime(cfg *obi.Config) []obiv2.Rule {
 				},
 			})
 		}
+		if len(selector.PodLabels) > 0 {
+			rules = append(rules, obiv2.Rule{
+				Action: "exclude",
+				Match: map[string]any{
+					"kubernetes": map[string]any{
+						"pod_labels": stringMapToGlobArrays(selector.PodLabels),
+					},
+				},
+			})
+		}
+		if len(selector.PodAnnotations) > 0 {
+			rules = append(rules, obiv2.Rule{
+				Action: "exclude",
+				Match: map[string]any{
+					"kubernetes": map[string]any{
+						"pod_annotations": stringMapToGlobArrays(selector.PodAnnotations),
+					},
+				},
+			})
+		}
 	}
 	for _, selector := range cfg.Discovery.Instrument {
 		if selector.OpenPorts.Len() > 0 {
@@ -512,6 +532,36 @@ func rulesFromRuntime(cfg *obi.Config) []obiv2.Rule {
 				Match: map[string]any{
 					"process": map[string]any{
 						"cmd_args_glob": []string{globString(selector.CmdArgs)},
+					},
+				},
+			})
+		}
+		if namespace := selector.Metadata[services.AttrNamespace]; namespace != nil && namespace.IsSet() {
+			rules = append(rules, obiv2.Rule{
+				Action: "include",
+				Match: map[string]any{
+					"kubernetes": map[string]any{
+						"namespace_glob": []string{globString(*namespace)},
+					},
+				},
+			})
+		}
+		if len(selector.PodLabels) > 0 {
+			rules = append(rules, obiv2.Rule{
+				Action: "include",
+				Match: map[string]any{
+					"kubernetes": map[string]any{
+						"pod_labels": stringMapToGlobArrays(selector.PodLabels),
+					},
+				},
+			})
+		}
+		if len(selector.PodAnnotations) > 0 {
+			rules = append(rules, obiv2.Rule{
+				Action: "include",
+				Match: map[string]any{
+					"kubernetes": map[string]any{
+						"pod_annotations": stringMapToGlobArrays(selector.PodAnnotations),
 					},
 				},
 			})
@@ -718,6 +768,17 @@ func globString(g services.GlobAttr) string {
 		return str
 	}
 	return ""
+}
+
+func stringMapToGlobArrays(values map[string]*services.GlobAttr) map[string]any {
+	out := make(map[string]any, len(values))
+	for key, value := range values {
+		if value == nil || !value.IsSet() {
+			continue
+		}
+		out[key] = []string{globString(*value)}
+	}
+	return out
 }
 
 func samplerMap(cfg services.SamplerConfig) map[string]any {

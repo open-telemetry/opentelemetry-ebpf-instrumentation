@@ -140,3 +140,30 @@ rules:
 	require.Equal(t, []any{"java", "go"}, nestedMap(cfg.Capture.Rules[0].Match, "process")["language_glob"])
 	require.Equal(t, []any{"*sidecar*"}, nestedMap(cfg.Capture.Rules[1].Match, "process")["cmd_args_glob"])
 }
+
+func TestParseYAMLDiscoveryPodMetadataRules(t *testing.T) {
+	t.Parallel()
+
+	_, cfg, err := ParseYAML([]byte(`
+version: "2.0"
+rules:
+  - action: include
+    match:
+      kubernetes:
+        pod_labels:
+          app.kubernetes.io/name: [frontend, checkout]
+  - action: exclude
+    match:
+      kubernetes:
+        pod_annotations:
+          sidecar.istio.io/status: ["*"]
+`), DeploymentModeReceiver)
+	require.NoError(t, err)
+	require.Len(t, cfg.Capture.Rules, 2)
+	require.Equal(t, map[string]any{
+		"app.kubernetes.io/name": []any{"frontend", "checkout"},
+	}, nestedMap(cfg.Capture.Rules[0].Match, "kubernetes")["pod_labels"])
+	require.Equal(t, map[string]any{
+		"sidecar.istio.io/status": []any{"*"},
+	}, nestedMap(cfg.Capture.Rules[1].Match, "kubernetes")["pod_annotations"])
+}
