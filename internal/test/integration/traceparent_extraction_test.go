@@ -4,6 +4,9 @@
 package integration
 
 import (
+	"fmt"
+	"io"
+	"net"
 	"net/http"
 	"path"
 	"strings"
@@ -20,9 +23,27 @@ import (
 )
 
 const (
-	staticTraceID       = "12345678901234567890123456789012" // Easy to spot
-	staticHugeTPTraceID = "aabbccddeeff00112233445566778899" // Distinct ID for the HTTP huge-headers sub-test
-	forwardedSpanID     = "1111111111111111"                 // Span ID used in forwarded traceparent
+	staticTraceID           = "12345678901234567890123456789012" // Easy to spot
+	staticHugeTPTraceID     = "aabbccddeeff00112233445566778899" // Distinct ID for the HTTP huge-headers sub-test
+	staticBoundaryTPTraceID = "deadbeefcafe00112233445566778899" // Distinct ID for the chunk-boundary sub-test
+	forwardedSpanID         = "1111111111111111"                 // Span ID used in forwarded traceparent
+
+	// traceparentChunkBoundary is the number of filler bytes that places the
+	// traceparent header exactly at byte offset 956 of the TCP stream.
+	//
+	// Derivation:
+	//   k_tp_chunk_step = TRACE_BUF_SIZE - TRACE_PARENT_HEADER_LEN = 1024 - 68 = 956
+	//   HTTP overhead before the traceparent header line:
+	//     "GET /with-huge-tp HTTP/1.1\r\n" = 28 bytes
+	//     "Host: localhost:6000\r\n"        = 22 bytes
+	//     "X-Filler: <filler>\r\n" prefix  = 10 + 2 = 12 bytes
+	//     ─────────────────────────────────────────────────
+	//     total fixed overhead              = 62 bytes
+	//   fillerSize = 956 - 62 = 894
+	//
+	// With fillerSize=894 the eBPF strstr guard (index >= 956) skips the
+	// traceparent in chunk 0; it is found at local index 0 of chunk 1.
+	traceparentChunkBoundary = 894
 )
 
 // TestTraceparentExtraction validates that the eBPF tpinjector correctly:
@@ -60,6 +81,7 @@ func TestTraceparentExtraction(t *testing.T) {
 	t.Run("with_traceparent", testWithTraceparent)
 	t.Run("with_forwarded_traceparent", testWithForwardedTraceparent)
 	t.Run("with_huge_headers_traceparent", testWithHugeHeadersTraceparent)
+	t.Run("with_traceparent_at_chunk_boundary", testWithTraceparentAtChunkBoundary)
 
 	runWeaverValidation(t)
 
@@ -217,6 +239,56 @@ func requireChildOfReference(t *testing.T, child, parent jaeger.Span, msgAndArgs
 		}
 	}
 	require.Fail(t, "missing CHILD_OF reference", msgAndArgs...)
+}
+
+// sendRawRequest writes a raw HTTP/1.1 GET request over a plain TCP connection.
+// The header order is fully controlled by the caller, which is not guaranteed by
+// net/http (headers are sorted alphabetically before being written to the wire).
+// The response is drained and the connection is closed before returning.
+func sendRawRequest(addr, urlPath string, fillerSize int, traceparent string) error {
+	conn, err := net.DialTimeout("tcp", addr, 5*time.Second)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "GET %s HTTP/1.1\r\n", urlPath)
+	fmt.Fprintf(&sb, "Host: %s\r\n", addr)
+	fmt.Fprintf(&sb, "X-Filler: %s\r\n", strings.Repeat("X", fillerSize))
+	fmt.Fprintf(&sb, "traceparent: %s\r\n", traceparent)
+	sb.WriteString("Connection: close\r\n")
+	sb.WriteString("\r\n")
+
+	if _, err = io.WriteString(conn, sb.String()); err != nil {
+		return err
+	}
+	// Drain the response so the server has time to process the request before
+	// the connection is closed. A deadline avoids blocking forever if the server
+	// does not honor Connection: close.
+	if err = conn.SetDeadline(time.Now().Add(10 * time.Second)); err != nil {
+		return err
+	}
+	_, err = io.ReadAll(conn)
+	return err
+}
+
+// testWithTraceparentAtChunkBoundary validates that the eBPF chunked tail-call
+// parser finds the traceparent header when it is placed exactly at the chunk
+// boundary (byte offset 956 of the TCP stream). This is the case where the eBPF
+// strstr guard (index >= TRACE_BUF_SIZE - TRACE_PARENT_HEADER_LEN = 956) skips
+// the header in chunk 0 and it is only found at local index 0 of chunk 1.
+func testWithTraceparentAtChunkBoundary(t *testing.T) {
+	tp := "00-" + staticBoundaryTPTraceID + "-0000000000000001-01"
+	err := sendRawRequest("localhost:6000", "/with-huge-tp", traceparentChunkBoundary, tp)
+	require.NoError(t, err)
+
+	assertHugeHeadersTraceparent(t, hugeHeadersCase{
+		jaegerService: "tpclient-a",
+		chainServices: []string{"tpclient-a", "tpclient-b", "tpclient-c"},
+		traceID:       staticBoundaryTPTraceID,
+		urlPath:       "/with-huge-tp",
+	})
 }
 
 // testWithHugeHeadersTraceparent validates that when a large filler header (>2KB)

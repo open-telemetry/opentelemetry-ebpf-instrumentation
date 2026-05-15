@@ -140,7 +140,6 @@ func toRingbufRecord(t *testing.T, event TCPLargeBufferHeader, buf string) *ring
 		RawSample: fixedPart.Bytes(),
 	}
 }
-
 // TestLargeBufferKeyStability verifies that a large buffer appended under an
 // original trace ID is still retrievable after the request's trace ID has been
 // overwritten by a chunked traceparent scan.
