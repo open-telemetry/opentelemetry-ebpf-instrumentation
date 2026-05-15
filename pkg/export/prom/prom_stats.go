@@ -109,9 +109,9 @@ func newStatsReporter(
 			Name:                            attributes.StatTCPRtt.Prom,
 			Help:                            "measures the smoothed TCP RTT as calculated by the kernel in seconds",
 			Buckets:                         cfg.Config.Buckets.StatTCPRttHistogram,
-			NativeHistogramBucketFactor:     DefaultNativeHistogramConfig.BucketFactor,
-			NativeHistogramMaxBucketNumber:  DefaultNativeHistogramConfig.MaxBucketNumber,
-			NativeHistogramMinResetDuration: DefaultNativeHistogramConfig.MinResetDuration,
+			NativeHistogramBucketFactor:     cfg.Config.NativeHistogram.BucketFactor,
+			NativeHistogramMaxBucketNumber:  cfg.Config.NativeHistogram.MaxBucketNumber,
+			NativeHistogramMinResetDuration: cfg.Config.NativeHistogram.MinResetDuration,
 		}, labelNames(mr.tcpRttAttrs)).MetricVec, clock.Time, cfg.Config.TTL)
 		register = append(register, mr.tcpRtt)
 	}

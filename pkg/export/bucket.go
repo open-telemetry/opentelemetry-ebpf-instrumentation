@@ -14,7 +14,8 @@ type Buckets struct {
 	StatTCPRttHistogram          []float64 `yaml:"stat_tcp_rtt_histogram"`
 }
 
-// DefaultBuckets are used only when histogram_aggregation=explicit_bucket_histogram; ignored for exponential.
+// DefaultBuckets define the default explicit bucket boundaries. They are ignored by the OTEL exporter when
+// histogram_aggregation=base2_exponential_bucket_histogram.
 var DefaultBuckets = Buckets{
 	// Default values as specified in the OTEL specification
 	// https://opentelemetry.io/docs/specs/semconv/http/http-metrics/#metric-httpserverrequestduration
