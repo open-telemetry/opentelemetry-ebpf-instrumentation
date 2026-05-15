@@ -1,6 +1,6 @@
 module go.opentelemetry.io/obi/internal/test/oats/kafka
 
-go 1.25.9
+go 1.25.10
 
 require go.opentelemetry.io/obi/internal/test/oats/harness v0.0.0
 

@@ -1,3 +1,3 @@
 module go.opentelemetry.io/obi/examples/http-header-enrichment-demo/app
 
-go 1.25.9
+go 1.25.10
