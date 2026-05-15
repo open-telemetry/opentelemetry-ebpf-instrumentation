@@ -102,22 +102,18 @@ func AnthropicSpan(baseSpan *request.Span, req *http.Request, resp *http.Respons
 	}
 
 	var parsedResponse request.AnthropicResponse
-	var streamToolCalls []request.ToolCall
+	var toolCalls []request.ToolCall
 	if len(respB) > 0 && respB[0] == '{' {
 		if err := json.Unmarshal(respB, &parsedResponse); err != nil {
 			slog.Debug("failed to parse Anthropic response", "error", err)
 		}
+		toolCalls = extractAnthropicToolCalls(parsedResponse.Content)
 	} else {
 		reader := bytes.NewReader(respB)
 		if streamResponse, tc, err := parseAnthropicStream(reader); err == nil {
 			parsedResponse = *streamResponse
-			streamToolCalls = tc
+			toolCalls = tc
 		}
-	}
-
-	toolCalls := extractAnthropicToolCalls(parsedResponse.Content)
-	if len(toolCalls) == 0 {
-		toolCalls = streamToolCalls
 	}
 
 	baseSpan.SubType = request.HTTPSubtypeAnthropic
