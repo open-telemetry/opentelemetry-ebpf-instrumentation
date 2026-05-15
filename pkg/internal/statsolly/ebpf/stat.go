@@ -4,6 +4,8 @@
 package ebpf // import "go.opentelemetry.io/obi/pkg/internal/statsolly/ebpf"
 
 import (
+	"structs"
+
 	"go.opentelemetry.io/obi/pkg/internal/pipe"
 )
 
@@ -80,4 +82,38 @@ type TCPRtt struct {
 type TCPFailedConnection struct {
 	Reason uint8 `json:"reason"`
 	Role   uint8 `json:"role"`
+}
+
+// Conn mirrors connection_info_t from bpf/common/connection_info.h.
+type Conn struct {
+	_      structs.HostLayout
+	S_addr [16]uint8 //nolint:revive,staticcheck
+	D_addr [16]uint8 //nolint:revive,staticcheck
+	S_port uint16    //nolint:revive,staticcheck
+	D_port uint16    //nolint:revive,staticcheck
+}
+
+type StatsTCPRtt struct {
+	_      structs.HostLayout
+	Flags  uint8
+	Role   uint8
+	Pad    [2]uint8
+	SrttUs uint32
+	Conn
+}
+
+type StatsTCPFailedConnection struct {
+	_      structs.HostLayout
+	Flags  uint8
+	Reason uint8
+	Role   uint8
+	Pad    [1]uint8
+	Conn
+}
+
+type StatsTCPRetransmit struct {
+	_     structs.HostLayout
+	Flags uint8
+	Pad   [3]uint8
+	Conn
 }

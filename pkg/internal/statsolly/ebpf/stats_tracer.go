@@ -26,12 +26,6 @@ import (
 	ebpfconvenience "go.opentelemetry.io/obi/pkg/internal/ebpf/convenience"
 )
 
-type (
-	StatsTCPRtt              StatsTcpRttT
-	StatsTCPFailedConnection StatsTcpFailedConnectionT
-	StatsTCPRetransmit       StatsTcpRetransmitT
-)
-
 type probe struct {
 	name    string
 	program *ebpf.Program

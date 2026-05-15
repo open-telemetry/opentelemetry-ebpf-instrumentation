@@ -74,15 +74,15 @@ func handleStatEvent(record *ringbuf.Record) (ebpf.Stat, error) {
 	}
 }
 
-func connToCommonAttrs(sAddr, dAddr [16]uint8, sPort, dPort uint16) pipe.CommonAttrs {
-	if sPort == 0 && dPort == 0 {
+func connToCommonAttrs(conn ebpf.Conn) pipe.CommonAttrs {
+	if conn.S_port == 0 && conn.D_port == 0 {
 		return pipe.CommonAttrs{}
 	}
 	return pipe.CommonAttrs{
-		SrcAddr: pipe.IPAddr(sAddr),
-		DstAddr: pipe.IPAddr(dAddr),
-		SrcPort: sPort,
-		DstPort: dPort,
+		SrcAddr: pipe.IPAddr(conn.S_addr),
+		DstAddr: pipe.IPAddr(conn.D_addr),
+		SrcPort: conn.S_port,
+		DstPort: conn.D_port,
 	}
 }
 
@@ -97,7 +97,7 @@ func readTCPRttIntoStat(record *ringbuf.Record) (ebpf.Stat, error) {
 			SrttUs: event.SrttUs,
 			Role:   event.Role,
 		},
-		CommonAttrs: connToCommonAttrs(event.Conn.S_addr, event.Conn.D_addr, event.Conn.S_port, event.Conn.D_port),
+		CommonAttrs: connToCommonAttrs(event.Conn),
 	}, nil
 }
 
@@ -112,7 +112,7 @@ func readTCPFailedConnectionsIntoStat(record *ringbuf.Record) (ebpf.Stat, error)
 			Reason: event.Reason,
 			Role:   event.Role,
 		},
-		CommonAttrs: connToCommonAttrs(event.Conn.S_addr, event.Conn.D_addr, event.Conn.S_port, event.Conn.D_port),
+		CommonAttrs: connToCommonAttrs(event.Conn),
 	}, nil
 }
 
@@ -124,6 +124,6 @@ func readTCPRetransmitIntoStat(record *ringbuf.Record) (ebpf.Stat, error) {
 	return ebpf.Stat{
 		Type:          ebpf.StatTypeTCPRetransmit,
 		TCPRetransmit: true,
-		CommonAttrs:   connToCommonAttrs(event.Conn.S_addr, event.Conn.D_addr, event.Conn.S_port, event.Conn.D_port),
+		CommonAttrs:   connToCommonAttrs(event.Conn),
 	}, nil
 }
