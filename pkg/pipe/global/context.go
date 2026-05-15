@@ -13,6 +13,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/connector"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
+	"go.opentelemetry.io/obi/pkg/health"
 	netebpf "go.opentelemetry.io/obi/pkg/internal/netolly/ebpf"
 	statsebpf "go.opentelemetry.io/obi/pkg/internal/statsolly/ebpf"
 	"go.opentelemetry.io/obi/pkg/kube"
@@ -65,6 +66,14 @@ type ContextInfo struct {
 
 	// OTELMetricsExporter allows sharing the same OTEL exporter through diverse metrics export nodes (Application, Network...)
 	OTELMetricsExporter *otelcfg.MetricsExporterInstancer
+
+	// Heartbeats holds per-subsystem liveness counters. nil when health
+	// reporting is disabled.
+	Heartbeats *health.Tracker
+
+	AppO11yHeartbeat   func()
+	NetO11yHeartbeat   func()
+	StatsO11yHeartbeat func()
 }
 
 // AppO11y stores context information that is only required for application observability.

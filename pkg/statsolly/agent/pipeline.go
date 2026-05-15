@@ -5,11 +5,13 @@ package agent // import "go.opentelemetry.io/obi/pkg/statsolly/agent"
 
 import (
 	"context"
+	"time"
 
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	"go.opentelemetry.io/obi/pkg/export/otel"
 	"go.opentelemetry.io/obi/pkg/export/prom"
 	"go.opentelemetry.io/obi/pkg/filter"
+	"go.opentelemetry.io/obi/pkg/health"
 	msgh "go.opentelemetry.io/obi/pkg/internal/helpers/msg"
 	"go.opentelemetry.io/obi/pkg/internal/pipe"
 	"go.opentelemetry.io/obi/pkg/internal/pipe/cidr"
@@ -43,6 +45,11 @@ func (s *Stats) buildPipeline(ctx context.Context) (*swarm.Runner, error) {
 	}
 
 	swi := &swarm.Instancer{}
+
+	swi.Add(swarm.DirectInstance(func(ctx context.Context) {
+		health.TickEvery(ctx, s.ctxInfo.StatsO11yHeartbeat, 5*time.Second)
+	}), swarm.WithID("Heartbeat"))
+
 	// Start nodes: those generating stats (reading them from eBPF)
 	ebpfStats := msgh.QueueFromConfig[[]*ebpf.Stat](s.cfg, "ebpfStats")
 	swi.Add(swarm.DirectInstance(newRingBufTracer(s, ebpfStats)), swarm.WithID("RingBufTracer"))

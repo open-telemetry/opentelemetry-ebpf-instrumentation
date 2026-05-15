@@ -5,11 +5,13 @@ package agent // import "go.opentelemetry.io/obi/pkg/netolly/agent"
 
 import (
 	"context"
+	"time"
 
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	"go.opentelemetry.io/obi/pkg/export/otel"
 	"go.opentelemetry.io/obi/pkg/export/prom"
 	"go.opentelemetry.io/obi/pkg/filter"
+	"go.opentelemetry.io/obi/pkg/health"
 	msgh "go.opentelemetry.io/obi/pkg/internal/helpers/msg"
 	"go.opentelemetry.io/obi/pkg/internal/netolly/ebpf"
 	"go.opentelemetry.io/obi/pkg/internal/netolly/export"
@@ -49,6 +51,11 @@ func (f *Flows) buildPipeline(ctx context.Context) (*swarm.Runner, error) {
 	}
 
 	swi := &swarm.Instancer{}
+
+	swi.Add(swarm.DirectInstance(func(ctx context.Context) {
+		health.TickEvery(ctx, f.ctxInfo.NetO11yHeartbeat, 5*time.Second)
+	}), swarm.WithID("Heartbeat"))
+
 	// Start nodes: those generating flow records (reading them from eBPF)
 	ebpfFlows := msgh.QueueFromConfig[[]*ebpf.Record](f.cfg, "ebpfFlows")
 	swi.Add(swarm.DirectInstance(newMapTracer(f, ebpfFlows)), swarm.WithID("MapTracer"))

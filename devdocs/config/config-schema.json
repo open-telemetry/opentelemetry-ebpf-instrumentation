@@ -1256,6 +1256,21 @@
         "response"
       ]
     },
+    "HealthCheckConfig": {
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": false,
+          "x-env-var": "OTEL_EBPF_HEALTH_CHECK_ENABLED"
+        },
+        "port": {
+          "type": "integer",
+          "default": 54545,
+          "x-env-var": "OTEL_EBPF_HEALTH_CHECK_PORT"
+        }
+      },
+      "type": "object"
+    },
     "HostIDConfig": {
       "properties": {
         "override": {
@@ -2808,6 +2823,9 @@
     },
     "filter": {
       "$ref": "#/$defs/AttributesConfig"
+    },
+    "health_check": {
+      "$ref": "#/$defs/HealthCheckConfig"
     },
     "internal_metrics": {
       "$ref": "#/$defs/InternalMetricsConfig"

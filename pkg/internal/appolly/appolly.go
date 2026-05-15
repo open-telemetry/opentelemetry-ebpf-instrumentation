@@ -19,6 +19,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/traces"
 	"go.opentelemetry.io/obi/pkg/ebpf"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
+	"go.opentelemetry.io/obi/pkg/health"
 	msg2 "go.opentelemetry.io/obi/pkg/internal/helpers/msg"
 	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
@@ -68,6 +69,10 @@ func New(ctx context.Context, ctxInfo *global.ContextInfo, config *obi.Config) (
 	tracesInput := msg2.QueueFromConfig[[]request.Span](config, "tracesInput")
 
 	swi := &swarm.Instancer{}
+
+	swi.Add(swarm.DirectInstance(func(ctx context.Context) {
+		health.TickEvery(ctx, ctxInfo.AppO11yHeartbeat, 5*time.Second)
+	}), swarm.WithID("Heartbeat"))
 
 	processEventsInput := msg2.QueueFromConfig[exec.ProcessEvent](config, "processEventsInput")
 	processEventsHostDecorated := msg2.QueueFromConfig[exec.ProcessEvent](config, "processEventsHostDecorated")
