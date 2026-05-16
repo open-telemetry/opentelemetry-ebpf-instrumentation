@@ -224,6 +224,25 @@
             4096,
             8192
           ]
+        },
+        "stat_tcp_rtt_histogram": {
+          "items": {
+            "type": "number"
+          },
+          "type": "array",
+          "default": [
+            0.0005,
+            0.001,
+            0.002,
+            0.005,
+            0.01,
+            0.025,
+            0.05,
+            0.1,
+            0.25,
+            0.5,
+            1
+          ]
         }
       },
       "type": "object",
@@ -857,6 +876,7 @@
           "network_inter_zone",
           "stats",
           "stats_tcp_failed_connections",
+          "stats_tcp_retransmits",
           "stats_tcp_rtt"
         ]
       },
@@ -907,6 +927,10 @@
         "rerank": {
           "$ref": "#/$defs/RerankConfig",
           "description": "Payload extraction and parsing (Cohere, Jina AI, Voyage AI, etc.)"
+        },
+        "retrieval": {
+          "$ref": "#/$defs/RetrievalConfig",
+          "description": "Vector retrieval payload extraction and parsing (Pinecone, Qdrant, Milvus, Chroma, Weaviate, etc.)"
         }
       },
       "type": "object"
@@ -1663,7 +1687,7 @@
         "features": {
           "$ref": "#/$defs/Features",
           "description": "Specifies which metric features to export. Accepted values: application, network, application_span, application_service_graph, ... envDefault is provided to avoid breaking changes  use top-level MetricsConfig.Features instead.",
-          "default": 32,
+          "default": 64,
           "deprecated": true,
           "x-env-var": "OTEL_EBPF_METRICS_FEATURES"
         },
@@ -2320,6 +2344,17 @@
       },
       "type": "object"
     },
+    "RetrievalConfig": {
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable vector retrieval (Pinecone, Qdrant, Milvus, Chroma, Weaviate, etc.) payload extraction and parsing",
+          "default": false,
+          "x-env-var": "OTEL_EBPF_HTTP_RETRIEVAL_ENABLED"
+        }
+      },
+      "type": "object"
+    },
     "RetryConfig": {
       "properties": {
         "max_interval": {
@@ -2516,7 +2551,7 @@
         "$ref": "#/$defs/InclusionLists"
       },
       "type": "object",
-      "description": "Selection specifies which attributes are allowed for each metric. The key is the metric name (either in Prometheus or OpenTelemetry format) The value is the enumeration of included/excluded attribute globs"
+      "description": "Selection specifies which attributes are allowed for each signal. The key is usually the metric name (either in Prometheus or OpenTelemetry format); the key \"traces\" selects optional attributes for exported OTLP traces. The value is the enumeration of included/excluded attribute globs"
     },
     "StatsConfig": {
       "properties": {

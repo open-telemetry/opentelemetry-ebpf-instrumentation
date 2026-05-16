@@ -28,14 +28,14 @@ while IFS= read -r -d '' test_file; do
         seen_dirs["$dir"]=1
         test_dirs+=("$dir")
     fi
-done < <(find "$SEARCH_DIR" -name "*_test.go" -print0 | sort -z)
+done < <(find "$SEARCH_DIR" -name "*_test.go" -print0 | LC_ALL=C sort -z)
 
 if [ "${#test_dirs[@]}" -eq 0 ]; then
     echo "ERROR: No test directories found in $SEARCH_DIR" >&2
     exit 1
 fi
 
-mapfile -t sorted_dirs < <(printf '%s\n' "${test_dirs[@]}" | sort)
+mapfile -t sorted_dirs < <(printf '%s\n' "${test_dirs[@]}" | LC_ALL=C sort)
 
 DIR_COUNT="${#sorted_dirs[@]}"
 echo "Total test packages: $DIR_COUNT" >&2

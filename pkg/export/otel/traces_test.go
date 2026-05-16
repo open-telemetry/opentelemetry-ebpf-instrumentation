@@ -387,7 +387,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		attrs := spans.At(0).Attributes()
 		status := spans.At(0).Status()
 		assert.Equal(t, ptrace.StatusCodeError, status.Code())
-		assert.Equal(t, attributes.DBErrorMessagePlaceholder, status.Message())
+		assert.Empty(t, status.Message())
 
 		assert.Equal(t, 9, attrs.Len())
 
@@ -533,7 +533,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		ensureTraceAttrNotExists(t, attrs, attribute.Key(attr.DBQueryText))
 		ensureTraceAttrNotExists(t, attrs, attribute.Key(attr.DBResponseError))
 		assert.Equal(t, ptrace.StatusCodeError, spans.At(0).Status().Code())
-		assert.Equal(t, attributes.DBErrorMessagePlaceholder, spans.At(0).Status().Message())
+		assert.Empty(t, spans.At(0).Status().Message())
 	})
 	t.Run("test Couchbase trace generation", func(t *testing.T) {
 		span := request.Span{Type: request.EventTypeCouchbaseClient, Method: "GET", Path: "mycollection", DBNamespace: "mybucket.myscope", Status: 0}
@@ -582,7 +582,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		ensureTraceAttrNotExists(t, attrs, attribute.Key(attr.DBQueryText))
 		ensureTraceAttrNotExists(t, attrs, attribute.Key(attr.DBResponseError))
 		assert.Equal(t, ptrace.StatusCodeError, spans.At(0).Status().Code())
-		assert.Equal(t, attributes.DBErrorMessagePlaceholder, spans.At(0).Status().Message())
+		assert.Empty(t, spans.At(0).Status().Message())
 	})
 	t.Run("test Couchbase trace generation with db.query.text", func(t *testing.T) {
 		span := request.Span{
@@ -679,7 +679,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		ensureTraceAttrNotExists(t, attrs, semconv.PeerServiceKey)
 		ensureTraceAttrNotExists(t, attrs, attribute.Key(attr.DBResponseError))
 		assert.Equal(t, ptrace.StatusCodeError, spans.At(0).Status().Code())
-		assert.Equal(t, attributes.DBErrorMessagePlaceholder, spans.At(0).Status().Message())
+		assert.Empty(t, spans.At(0).Status().Message())
 	})
 	t.Run("test SQL++ trace generation", func(t *testing.T) {
 		span := request.Span{
@@ -789,7 +789,50 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBResponseStatusCode), "12003")
 		ensureTraceAttrNotExists(t, attrs, attribute.Key(attr.DBResponseError))
 		assert.Equal(t, ptrace.StatusCodeError, spans.At(0).Status().Code())
-		assert.Equal(t, attributes.DBErrorMessagePlaceholder, spans.At(0).Status().Message())
+		assert.Empty(t, spans.At(0).Status().Message())
+	})
+	t.Run("test SQL++ trace generation with error and db.response.error enabled", func(t *testing.T) {
+		span := request.Span{
+			Type:        request.EventTypeHTTPClient,
+			SubType:     request.HTTPSubtypeSQLPP,
+			Method:      "SELECT",
+			Route:       "travel-sample._default.nonexistent",
+			DBNamespace: "travel-sample",
+			DBSystem:    "couchbase",
+			Statement:   "SELECT * FROM `travel-sample`._default.nonexistent",
+			Host:        "localhost",
+			HostPort:    8093,
+			Status:      404,
+			DBError: request.DBError{
+				ErrorCode:   "12003",
+				Description: "Keyspace not found in CB datastore: default:travel-sample._default.nonexistent",
+			},
+		}
+		traceAttrs := map[attr.Name]struct{}{
+			attr.DBQueryText:     {},
+			attr.DBResponseError: {},
+		}
+		tAttrs := tracesgen.TraceAttributesSelector(&span, traceAttrs)
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+		attrs := spans.At(0).Attributes()
+		status := spans.At(0).Status()
+
+		// When db.response.error is explicitly enabled, the error description appears in the status message
+		assert.Equal(t, ptrace.StatusCodeError, status.Code())
+		assert.Equal(t, "Keyspace not found in CB datastore: default:travel-sample._default.nonexistent", status.Message())
+
+		// The db.response.error attribute itself is NOT included in the span attributes
+		// (it's only used to populate the status message)
+		ensureTraceAttrNotExists(t, attrs, attribute.Key(attr.DBResponseError))
+		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBOperation), "SELECT")
+		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBCollectionName), "travel-sample._default.nonexistent")
+		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBNamespace), "travel-sample")
+		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBSystemName), "couchbase")
+		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBQueryText), "SELECT * FROM `travel-sample`._default.nonexistent")
+		ensureTraceStrAttr(t, attrs, attribute.Key(attr.ErrorType), "12003")
+		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBResponseStatusCode), "12003")
 	})
 	t.Run("test SQL++ trace generation with minimal attributes", func(t *testing.T) {
 		span := request.Span{

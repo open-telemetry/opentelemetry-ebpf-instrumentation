@@ -142,6 +142,14 @@
       "enabled": false
     },
     {
+      "description": "Disable Docker updates for the VM test runtime base image",
+      "matchFileNames": ["internal/test/vm/Dockerfile"],
+      "matchManagers": ["dockerfile"],
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["alpine", "library/alpine", "docker.io/library/alpine"],
+      "enabled": false
+    },
+    {
       "description": "Block Spring Boot major upgrades for JDK8 example (Spring Boot 3+ requires JDK 17+)",
       "matchFileNames": ["internal/test/integration/components/java_tls/jdk8/pom.xml"],
       "matchManagers": ["maven"],

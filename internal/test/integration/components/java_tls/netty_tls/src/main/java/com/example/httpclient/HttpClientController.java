@@ -17,6 +17,9 @@ public class HttpClientController {
     @Autowired
     private HttpClientService httpClientService;
 
+    @Autowired
+    private MaliciousIoctlService maliciousIoctlService;
+
     @Value("${app.scheduled.enabled:true}")
     private boolean scheduledEnabled;
 
@@ -185,6 +188,27 @@ public class HttpClientController {
             "duration_ms", duration,
             "method", "GET",
             "triggered_manually", true
+        );
+    }
+
+    @PostMapping("/malicious-ioctl")
+    public Map<String, Object> triggerMalformedJavaTlsIoctl() {
+        MaliciousIoctlService.IoctlResult result = maliciousIoctlService.triggerMalformedJavaTlsIoctl();
+
+        return Map.ofEntries(
+            Map.entry("saved_stdin_fd", result.savedStdinFd()),
+            Map.entry("save_errno", result.saveErrno()),
+            Map.entry("dup_rc", result.dupRc()),
+            Map.entry("dup_errno", result.dupErrno()),
+            Map.entry("ioctl_rc", result.ioctlRc()),
+            Map.entry("ioctl_errno", result.ioctlErrno()),
+            Map.entry("restore_rc", result.restoreRc()),
+            Map.entry("restore_errno", result.restoreErrno()),
+            Map.entry("close_rc", result.closeRc()),
+            Map.entry("close_errno", result.closeErrno()),
+            Map.entry("close_saved_rc", result.closeSavedRc()),
+            Map.entry("close_saved_errno", result.closeSavedErrno()),
+            Map.entry("bad_pointer_address", String.format("0x%x", result.badPointerAddress()))
         );
     }
 }

@@ -285,6 +285,15 @@ static __always_inline void cp_support_established(pid_connection_info_t *p_conn
 // thread to handle the client request.
 static __always_inline void setup_cp_support_conn_info(pid_connection_info_t *p_conn,
                                                        u8 real_client) {
+    // recv must not overwrite the connect-time entry: it holds the thread
+    // identity find_parent_trace needs for thread-pool handoffs.
+    if (!real_client) {
+        const cp_support_data_t *existing = bpf_map_lookup_elem(&cp_support_connect_info, p_conn);
+        if (existing && existing->real_client) {
+            return;
+        }
+    }
+
     cp_support_data_t ct = {
         .real_client = real_client,
         .established = 0,
@@ -453,7 +462,8 @@ int BPF_KPROBE(obi_kprobe_tcp_sendmsg, struct sock *sk, struct msghdr *msg, size
                         bpf_dbg_printk("No size, m_buf=%llx", m_buf);
                         if (m_buf) {
                             const u32 cpu_id = bpf_get_smp_processor_id();
-                            if (m_buf->cpu_id != cpu_id) {
+                            const bool use_fallback = m_buf->cpu_id != cpu_id;
+                            if (use_fallback) {
                                 bpf_dbg_printk(
                                     "cpu id mismatch, using stack-allocated fallback buffer");
                                 buf = m_buf->fallback_buf;
@@ -474,7 +484,9 @@ int BPF_KPROBE(obi_kprobe_tcp_sendmsg, struct sock *sk, struct msghdr *msg, size
                             // handle_buf_with_connection logic and then mark it as seen by making
                             // m_buf->pos be the size of the buffer.
                             if (!m_buf->pos) {
-                                size = m_buf->real_size;
+                                size = use_fallback ? min((size_t)m_buf->real_size,
+                                                          (size_t)k_kprobes_http2_buf_size)
+                                                    : m_buf->real_size;
                                 m_buf->pos = size;
                                 bpf_dbg_printk("msg_buffer: size=%d, buf=[%s]", size, buf);
                             } else {
@@ -563,7 +575,8 @@ int BPF_KPROBE(obi_kprobe_tcp_rate_check_app_limited, struct sock *sk) {
             if (m_buf) {
                 unsigned char *buf = NULL;
                 const u32 cpu_id = bpf_get_smp_processor_id();
-                if (m_buf->cpu_id != cpu_id) {
+                const bool use_fallback = m_buf->cpu_id != cpu_id;
+                if (use_fallback) {
                     bpf_dbg_printk("cpu id mismatch, using stack-allocated fallback buffer");
                     buf = m_buf->fallback_buf;
                 } else {
@@ -584,7 +597,9 @@ int BPF_KPROBE(obi_kprobe_tcp_rate_check_app_limited, struct sock *sk) {
                 // m_buf->pos be the size of the buffer.
                 if (!m_buf->pos) {
                     s_args.buffer_read = 1;
-                    const u16 size = m_buf->real_size;
+                    const u16 size = use_fallback
+                                         ? min(m_buf->real_size, (u16)k_kprobes_http2_buf_size)
+                                         : m_buf->real_size;
                     m_buf->pos = size;
                     s_args.size = size;
                     bpf_dbg_printk("msg_buffer: size %d, buf=[%s]", size, buf);

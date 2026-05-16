@@ -15,7 +15,9 @@ OBI can enrich JSON log lines with `trace_id` and `span_id` fields, linking logs
   - [Python (asyncio) — `task_step` / `context_run` uprobes](#python-asyncio--task_step--context_run-uprobes)
 - [Per-runtime stdout buffering](#per-runtime-stdout-buffering)
   - [.NET specifics](#net-specifics)
+- [Filtering the suppressed placeholder lines](#filtering-the-suppressed-placeholder-lines)
 - [Requirements](#requirements)
+- [Limits](#limits)
 
 ## Overview
 
@@ -26,7 +28,9 @@ The logenricher hooks into write paths (`tty_write`, `pipe_write`, `ksys_write`,
 3. Overwrites the original user buffer with zeros via `bpf_probe_write_user` to suppress the un-enriched line.
 4. User-space reads from the ring buffer and re-emits the log with `trace_id`/`span_id` injected into the JSON.
 
-Because the original user buffer is zeroed out (step 3), the container log file will contain NULL characters in place of the original log line. This is expected — the enriched line is written separately by user-space, and the NULLs prevent the container runtime from capturing the un-enriched duplicate.
+Because the original user buffer is zeroed out (step 3), the container log file will contain NULL characters in place of the original log line, terminated with `\n`. For writes up to 8 KiB this produces one fully-zeroed placeholder line that downstream tooling can drop with a single regex (see [Filtering the suppressed placeholder lines](#filtering-the-suppressed-placeholder-lines)). For writes larger than 8 KiB only the first 8 KiB is zeroed and terminated with `\n`; the remainder of the write reaches the container log un-enriched and will not match the placeholder regex — see [Limits](#limits). The enriched line is written separately by user-space, and the NULL suppression prevents the container runtime from capturing the un-enriched duplicate.
+
+OBI only fills `trace_id`/`span_id` fields that are not already present in the JSON — if the application's logger or SDK already injected them (e.g. via Python `LoggingInstrumentor`), those values are preserved. For services OBI detects as exporting OTel traces directly (see [exclude-otel-instrumented-services](exclude-otel-instrumented-services.md)), only `trace_id` is injected and `span_id` is never written: OBI's BPF-generated `span_id` would not match the SDK's actual span and would point at a span the SDK emits under a different ID.
 
 Both `ITER_UBUF` (kernel ≥ 6.0, used by `write()`) and `ITER_IOVEC` (all kernel versions, used by `writev()`) iterator types are supported. The `do_writev` kprobe captures the fd for `writev()` calls so `pipe_write` can resolve the file descriptor (registered as non-required — if the symbol isn't available, `write()`-based enrichment still works).
 
@@ -151,9 +155,73 @@ Console.SetOut(stdout);
 
 There is no environment variable equivalent to Python's `PYTHONUNBUFFERED=1` for .NET.
 
+## Filtering the suppressed placeholder lines
+
+Each traced `write()`/`writev()` of up to 8 KiB leaves one placeholder
+line in the container log: the original bytes are overwritten with NULs
+and a trailing `\n`. Drop them downstream with the regex
+`^[\x00\s]*$`. Writes larger than 8 KiB only produce a placeholder for
+the first 8 KiB; the leaked tail bypasses this filter — see
+[Limits](#limits).
+
+JSON log envelopes (CRI body, Docker `log` field) serialise NUL as
+`\u0000`; both shippers below decode the JSON string before the filter
+runs, so the regex matches real `\x00` bytes.
+
+### OpenTelemetry Collector — `filelog` receiver
+
+The `container` operator handles CRI and Docker JSON formats and
+exposes the line in `body`.
+
+```yaml
+receivers:
+  filelog:
+    include:
+      - /var/log/pods/*/*/*.log
+    start_at: end
+    operators:
+      - type: container
+      - type: filter
+        expr: 'body matches "^[\\x00\\s]*$"'
+```
+
+### Fluent Bit
+
+```ini
+[INPUT]
+    Name              tail
+    Path              /var/log/pods/*/*/*.log
+    multiline.parser  cri
+    Tag               kube.*
+
+[FILTER]
+    Name    grep
+    Match   *
+    Exclude log ^[\x00\s]*$
+```
+
+### Legacy: Docker JSON log driver
+
+```yaml
+receivers:
+  filelog:
+    include: [/var/lib/docker/containers/*/*-json.log]
+    operators:
+      - type: json_parser
+        parse_from: body
+        parse_to: attributes
+      - type: filter
+        # bracket access: `log` collides with expr-lang math.log
+        expr: 'attributes["log"] matches "^[\\x00\\s]*$"'
+```
+
 ## Requirements
 
 - `CAP_SYS_ADMIN` capability and permission to use `bpf_probe_write_user` (kernel security lockdown mode should be `[none]`)
 - The target application writes logs in **JSON format**
 - Log writes must occur synchronously on the request-handling thread (see [Per-runtime stdout buffering](#per-runtime-stdout-buffering) above)
 - BPFFS mounted at `/sys/fs/bpf` (or another mountpath configurable via `config.ebpf.bpf_fs_path` / `OTEL_EBPF_BPF_FS_PATH`)
+
+## Limits
+
+- **Per-write cap of 8 KiB.** Bytes past 8 KiB in a single `write()`/`writev()` are not zeroed or enriched; they leak through the tty/pipe as-is.

@@ -115,6 +115,9 @@ tasks.register<Delete>("cleanNativeLib") {
 
 val jmhIncludes: String? by project
 val jmhProfilers: String? by project
+val jmhWarmupIterations: String? by project
+val jmhIterations: String? by project
+val jmhForks: String? by project
 
 jmh {
     includes.set(listOf(".*Benchmark.*"))
@@ -126,9 +129,9 @@ jmh {
     }
     benchmarkMode.set(listOf("avgt"))
     timeUnit.set("ns")
-    warmupIterations.set(3)
-    iterations.set(5)
-    fork.set(1)
+    warmupIterations.set(jmhWarmupIterations?.toInt() ?: 3)
+    iterations.set(jmhIterations?.toInt() ?: 5)
+    fork.set(jmhForks?.toInt() ?: 1)
     jvmArgs.set(listOf("-Xmx2G"))
 }
 

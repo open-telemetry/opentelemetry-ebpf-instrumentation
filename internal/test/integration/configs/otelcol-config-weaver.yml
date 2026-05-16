@@ -20,16 +20,38 @@ exporters:
     endpoint: http://jaeger:4318
     tls:
       insecure: true
+  # Bounded weaver-side queue with no retries / no block-on-overflow so a
+  # slow weaver never back-pressures the production pipelines (prometheus /
+  # jaeger). Sample loss on the weaver side is acceptable — semconv
+  # validation only needs to *see* each unique advisory once, not aggregate
+  # every data point.
   otlp/weaver:
     endpoint: weaver:4317
     tls:
       insecure: true
     compression: none
+    sending_queue:
+      enabled: true
+      queue_size: 500
+      block_on_overflow: false
+    retry_on_failure:
+      enabled: false
 service:
   pipelines:
+    # Production paths — what the integration tests poll. Identical to the
+    # non-weaver config so test timing margins match `main`.
     metrics:
       receivers: [otlp]
-      exporters: [prometheus, otlp/weaver]
+      exporters: [prometheus]
     traces:
       receivers: [otlp]
-      exporters: [otlphttp/jaeger, otlp/weaver]
+      exporters: [otlphttp/jaeger]
+    # Weaver taps. The OTLP receiver fans every batch out to every consuming
+    # pipeline, so weaver gets a full copy. Each pipeline manages its own
+    # queue; a slow weaver tap cannot stall the production exporters above.
+    metrics/weaver:
+      receivers: [otlp]
+      exporters: [otlp/weaver]
+    traces/weaver:
+      receivers: [otlp]
+      exporters: [otlp/weaver]

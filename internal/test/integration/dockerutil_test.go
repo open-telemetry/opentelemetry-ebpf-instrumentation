@@ -35,6 +35,11 @@ const (
 	versionCollector   = "0.144.0"
 	versionAWSMetaMock = "v1.9.2"
 	versionNginx       = "1.29.5"
+	// versionWeaver MUST match the digest pinned in
+	// `internal/test/integration/components/weaver/service.yml` so the
+	// programmatic-setup tests run weaver with the same image as the
+	// compose-driven ones.
+	versionWeaver = "v0.23.0@sha256:7984ecb55b859eb3034ae9d836c4eeda137e2bdd0873b7ba2bb6c3d24d6ff457"
 )
 
 // setupDockerNetwork initializes a custom network for the test.
@@ -152,7 +157,7 @@ func setupContainerJaeger(t *testing.T, net dockertest.Network) {
 }
 
 // setupContainerCollector starts an OpenTelemetry Collector container.
-func setupContainerCollector(t *testing.T, net dockertest.Network, configFile string) { //nolint:unparam // configFile is always passed in current usages but may vary in future
+func setupContainerCollector(t *testing.T, net dockertest.Network, configFile string) {
 	t.Helper()
 
 	t.Log("Starting OpenTelemetry Collector container...")
@@ -179,6 +184,54 @@ func setupContainerCollector(t *testing.T, net dockertest.Network, configFile st
 	})
 	require.NoError(t, err, "could not connect OpenTelemetry Collector container to network")
 	t.Log("OpenTelemetry Collector container started")
+}
+
+// setupContainerWeaver starts the weaver semantic-convention validator
+// alongside the otelcol container. Mirrors the shared compose snippet at
+// `components/weaver/service.yml`: same image digest.
+// The container is named exactly "weaver" — matching `weaverContainer` in
+// `weaver.go` — because `runWeaverValidation` `docker wait` / `docker cp`
+// by name.
+func setupContainerWeaver(t *testing.T, net dockertest.Network) {
+	t.Helper()
+
+	t.Log("Starting weaver container...")
+	w, err := dockerPool.Run(t.Context(), "otel/weaver",
+		dockertest.WithTag(versionWeaver),
+		dockertest.WithName(weaverContainer),
+		dockertest.WithCmd([]string{
+			"registry", "live-check",
+			"--registry", "/obi-registry",
+			"--include-unreferenced",
+			"--inactivity-timeout", "300",
+			"--admin-port", "4320",
+			"--format", "json",
+			"--diagnostic-format", "json",
+			"--output", "/tmp",
+		}),
+		dockertest.WithMounts([]string{
+			filepath.Join(pathRoot, "schemas/obi") + ":/obi-registry:ro",
+		}),
+		dockertest.WithPortBindings(portBindings("4320/tcp", "4320")),
+		dockertest.WithContainerConfig(func(config *container.Config) {
+			config.WorkingDir = "/obi-registry"
+			config.ExposedPorts = exposedPorts("4317/tcp", "4320/tcp")
+		}),
+		dockertest.WithoutReuse(),
+	)
+	require.NoError(t, err, "could not start weaver container")
+	t.Cleanup(func() {
+		// Best-effort: `runWeaverValidation` may have already removed it via
+		// `docker wait` + `docker rm -f`; ignore the error in that case.
+		_ = w.Close(context.Background())
+	})
+
+	_, err = dockerPool.Client().NetworkConnect(t.Context(), net.ID(), client.NetworkConnectOptions{
+		Container:      w.ID(),
+		EndpointConfig: endpointAliases("weaver"),
+	})
+	require.NoError(t, err, "could not connect weaver container to network")
+	t.Log("Weaver container started")
 }
 
 // buildOBIImage builds the OBI image. When SKIP_DOCKER_BUILD is set, the image
@@ -415,8 +468,8 @@ func (o obi) instrument(t *testing.T, net dockertest.Network, configFile string)
 				"GOCOVERDIR=/coverage",
 				`OTEL_EBPF_SHUTDOWN_TIMEOUT=2s`,
 				"OTEL_EBPF_TRACE_PRINTER=text",
-				"OTEL_EBPF_METRICS_FEATURES=application,application_span",
-				"OTEL_EBPF_PROMETHEUS_FEATURES=application,application_span",
+				"OTEL_EBPF_METRICS_FEATURES=application,application_span_otel",
+				"OTEL_EBPF_PROMETHEUS_FEATURES=application,application_span_otel",
 				"OTEL_EBPF_DISCOVERY_POLL_INTERVAL=500ms",
 				"OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT=1ms",
 				"OTEL_EBPF_SERVICE_NAMESPACE=integration-test",

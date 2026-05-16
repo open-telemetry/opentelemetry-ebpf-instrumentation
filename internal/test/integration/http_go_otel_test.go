@@ -184,7 +184,8 @@ func TestHTTPGoOTelInstrumentedApp(t *testing.T) {
 	network := setupDockerNetwork(t)
 	setupContainerPrometheus(t, network, "prometheus-config.yml")
 	setupContainerJaeger(t, network)
-	setupContainerCollector(t, network, "otelcol-config.yml")
+	setupContainerWeaver(t, network)
+	setupContainerCollector(t, network, "otelcol-config-weaver.yml")
 	setupGoOTelTestServer(t, network, nil)
 
 	if t.Failed() {
@@ -206,6 +207,8 @@ func TestHTTPGoOTelInstrumentedApp(t *testing.T) {
 		waitForTestComponents(t, "http://localhost:8080")
 		testForHTTPGoOTelLibrary(t, "/rolldice", "integration-test")
 	})
+
+	runWeaverValidation(t)
 }
 
 func otelWaitForTestComponents(t *testing.T, url, subpath string) {
@@ -235,7 +238,8 @@ func TestHTTPGoOTelAvoidsInstrumentedApp(t *testing.T) {
 	network := setupDockerNetwork(t)
 	setupContainerPrometheus(t, network, "prometheus-config.yml")
 	setupContainerJaeger(t, network)
-	setupContainerCollector(t, network, "otelcol-config.yml")
+	setupContainerWeaver(t, network)
+	setupContainerCollector(t, network, "otelcol-config-weaver.yml")
 	setupGoOTelTestServer(t, network, []string{
 		"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=http://otelcol:4318",
 		"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://jaeger:4318",
@@ -261,13 +265,16 @@ func TestHTTPGoOTelAvoidsInstrumentedApp(t *testing.T) {
 		time.Sleep(15 * time.Second) // ensure we see some calls to /v1/metrics /v1/traces
 		testInstrumentationMissing(t, "/rolldice", "integration-test")
 	})
+
+	runWeaverValidation(t)
 }
 
 func TestHTTPGoOTelDisabledOptInstrumentedApp(t *testing.T) {
 	network := setupDockerNetwork(t)
 	setupContainerPrometheus(t, network, "prometheus-config.yml")
 	setupContainerJaeger(t, network)
-	setupContainerCollector(t, network, "otelcol-config.yml")
+	setupContainerWeaver(t, network)
+	setupContainerCollector(t, network, "otelcol-config-weaver.yml")
 	setupGoOTelTestServer(t, network, []string{
 		"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=http://otelcol:4318",
 		"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://jaeger:4318",
@@ -294,6 +301,8 @@ func TestHTTPGoOTelDisabledOptInstrumentedApp(t *testing.T) {
 		time.Sleep(15 * time.Second) // ensure we see some calls to /v1/metrics /v1/traces
 		testForHTTPGoOTelLibrary(t, "/rolldice", "integration-test")
 	})
+
+	runWeaverValidation(t)
 }
 
 func TestHTTPGoOTelInstrumentedAppGRPC(t *testing.T) {

@@ -217,6 +217,7 @@ discovery:
 				ResponseSizeHistogram:        export.DefaultBuckets.ResponseSizeHistogram,
 				GenAITokenUsageHistogram:     export.DefaultBuckets.GenAITokenUsageHistogram,
 				GenAIClientDurationHistogram: export.DefaultBuckets.GenAIClientDurationHistogram,
+				StatTCPRttHistogram:          export.DefaultBuckets.StatTCPRttHistogram,
 			},
 			Instrumentations: []instrumentations.Instrumentation{
 				instrumentations.InstrumentationALL,
@@ -265,6 +266,7 @@ discovery:
 				ResponseSizeHistogram:        []float64{0, 10, 20, 22},
 				GenAITokenUsageHistogram:     []float64{1, 2, 3, 4},
 				GenAIClientDurationHistogram: []float64{5, 6, 7, 8},
+				StatTCPRttHistogram:          export.DefaultBuckets.StatTCPRttHistogram,
 			},
 		},
 		InternalMetrics: imetrics.InternalMetricsConfig{
@@ -747,6 +749,9 @@ func TestDefaultExclusionFilter(t *testing.T) {
 	assert.True(t, c[0].Path.MatchString("otelcol-contrib"))
 
 	assert.False(t, c[0].Path.MatchString("/usr/bin/obi/test"))
+	assert.False(t, c[0].Path.MatchString("myobi"))
+	assert.False(t, c[0].Path.MatchString("/usr/bin/myobi"))
+	assert.False(t, c[0].Path.MatchString("/usr/bin/obi-helper"))
 	assert.False(t, c[0].Path.MatchString("/usr/bin/otelcol-contrib/test"))
 
 	assert.True(t, c[0].Path.MatchString("/obi"))
@@ -763,6 +768,10 @@ func TestDefaultLegacyExclusionFilter(t *testing.T) {
 	assert.True(t, c[0].Path.MatchString("obi"))
 	assert.True(t, c[0].Path.MatchString("otelcol-contrib"))
 
+	assert.False(t, c[0].Path.MatchString("/usr/bin/obi/test"))
+	assert.False(t, c[0].Path.MatchString("myobi"))
+	assert.False(t, c[0].Path.MatchString("/usr/bin/myobi"))
+	assert.False(t, c[0].Path.MatchString("/usr/bin/obi-helper"))
 	assert.False(t, c[0].Path.MatchString("/usr/bin/otelcol-contrib/test"))
 
 	assert.True(t, c[0].Path.MatchString("/obi"))

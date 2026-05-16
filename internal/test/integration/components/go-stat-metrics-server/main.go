@@ -11,13 +11,18 @@ import (
 )
 
 func main() {
-	listener, err := net.Listen("tcp", ":8080")
+	go serve(":8081")
+	serve(":8080")
+}
+
+func serve(addr string) {
+	listener, err := net.Listen("tcp", addr)
 	if err != nil {
-		fmt.Printf("Failed to start server: %v\n", err)
+		fmt.Printf("Failed to start server on %s: %v\n", addr, err)
 		os.Exit(1)
 	}
 	defer listener.Close()
-	fmt.Println("Server listening on :8080.")
+	fmt.Printf("Server listening on %s.\n", addr)
 
 	for {
 		conn, err := listener.Accept()
@@ -26,7 +31,7 @@ func main() {
 			continue
 		}
 
-		handleConnection(conn)
+		go handleConnection(conn)
 	}
 }
 

@@ -33,6 +33,8 @@ func TestNetwork_Deduplication(t *testing.T) {
 		require.Contains(t, f.Metric, "iface_direction")
 	}
 
+	runWeaverValidation(t)
+
 	require.NoError(t, compose.Close())
 }
 
@@ -48,6 +50,8 @@ func TestNetwork_Deduplication_Use_Socket_Filter(t *testing.T) {
 		require.NotContains(t, f.Metric, "iface")
 		require.Contains(t, f.Metric, "iface_direction")
 	}
+
+	runWeaverValidation(t)
 
 	require.NoError(t, compose.Close())
 }
@@ -67,6 +71,8 @@ func TestNetwork_NoDeduplication(t *testing.T) {
 		assert.NotEmpty(t, f.Metric["iface"])
 		assert.Regexp(t, validIfaceDirections, f.Metric["iface_direction"])
 	}
+
+	runWeaverValidation(t)
 
 	require.NoError(t, compose.Close())
 }
@@ -101,6 +107,8 @@ func TestNetwork_AllowedAttributes(t *testing.T) {
 		}
 	}
 
+	runWeaverValidation(t)
+
 	require.NoError(t, compose.Close())
 }
 
@@ -122,6 +130,8 @@ func TestNetwork_ReverseDNS(t *testing.T) {
 
 	checkCurlFlows(`{dst_name="github.com"}`)
 	checkCurlFlows(`{src_name="github.com"}`)
+
+	runWeaverValidation(t)
 
 	require.NoError(t, compose.Close())
 }
@@ -151,6 +161,8 @@ func TestNetwork_Direction(t *testing.T) {
 	assert.Equal(t, "7000", server.Metric["client_port"])
 	assert.Equal(t, "8080", server.Metric["server_port"])
 
+	runWeaverValidation(t)
+
 	require.NoError(t, compose.Close())
 }
 
@@ -178,6 +190,8 @@ func TestNetwork_IfaceDirection_Use_Socket_Filter(t *testing.T) {
 	require.Equal(t, "ingress", server.Metric["iface_direction"])
 	require.Equal(t, "7000", server.Metric["client_port"])
 	require.Equal(t, "8080", server.Metric["server_port"])
+
+	runWeaverValidation(t)
 
 	require.NoError(t, compose.Close())
 }

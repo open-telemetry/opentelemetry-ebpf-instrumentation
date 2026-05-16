@@ -381,6 +381,7 @@ func getDefinitions(
 		},
 		Traces.Section: {
 			Attributes: map[attr.Name]Default{
+				attr.DNSQuestionName:   true,
 				attr.DBQueryText:       false,
 				attr.HTTPUrlQuery:      false,
 				attr.GenAIInput:        false,
@@ -420,13 +421,9 @@ func getDefinitions(
 		DNSLookupDuration.Section: {
 			SubGroups: []*AttrReportGroup{&appAttributes},
 			Attributes: map[attr.Name]Default{
-				attr.DNSQuestionName: true,
+				attr.DNSQuestionName: false,
 				attr.ErrorType:       true,
 			},
-		},
-		StatTCPRtt.Section: {
-			SubGroups:  []*AttrReportGroup{&statsAttributes, &statsKubeAttributes},
-			Attributes: map[attr.Name]Default{},
 		},
 		GenAIClientInputTokenUsage.Section: {
 			SubGroups: []*AttrReportGroup{&appAttributes},
@@ -464,12 +461,22 @@ func getDefinitions(
 				attr.ServerAddr:         true,
 			},
 		},
+		StatTCPRtt.Section: {
+			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes},
+			Attributes: map[attr.Name]Default{
+				attr.NetworkTCPHandshakeRole: false,
+			},
+		},
 		StatTCPFailedConnections.Section: {
 			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes},
 			Attributes: map[attr.Name]Default{
 				attr.TCPFailedConnectionReason: false,
 				attr.NetworkTCPHandshakeRole:   false,
 			},
+		},
+		StatTCPRetransmits.Section: {
+			SubGroups:  []*AttrReportGroup{&statsAttributes, &statsKubeAttributes},
+			Attributes: map[attr.Name]Default{},
 		},
 
 		// span and service graph metrics don't yet implement attribute selection,
@@ -526,17 +533,15 @@ func AllAttributeNames(
 	return names
 }
 
-const (
-	DBErrorMessagePlaceholder = "enable the db.response.error attribute for details"
-)
-
-// DBResponseErrorAttr returns a database response error attribute or a placeholder if the attribute is not selected
+// DBResponseErrorAttr returns a database response error attribute if the attribute is selected, nil otherwise.
+// When the attribute is not selected, it is simply omitted — consistent with how other optional
+// attributes (e.g. db.query.text) behave.
 func DBResponseErrorAttr(optionalAttrs map[attr.Name]struct{}, description string) []attribute.KeyValue {
 	if description == "" {
 		return nil
 	}
 	if _, ok := optionalAttrs[attr.DBResponseError]; !ok {
-		return []attribute.KeyValue{attribute.Key(attr.DBResponseError).String(DBErrorMessagePlaceholder)}
+		return nil
 	}
 	return []attribute.KeyValue{attribute.Key(attr.DBResponseError).String(description)}
 }

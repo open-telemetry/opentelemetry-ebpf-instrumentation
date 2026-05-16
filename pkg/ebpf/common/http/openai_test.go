@@ -6,6 +6,7 @@ package ebpfcommon
 import (
 	"bytes"
 	"compress/gzip"
+	"encoding/json"
 	"io"
 	"net/http"
 	"strings"
@@ -304,6 +305,37 @@ const embeddingsResponseBody = `{
     "total_tokens": 5
   }
 }`
+
+func TestOpenAIToolCalls(t *testing.T) {
+	t.Run("single tool call", func(t *testing.T) {
+		choices := json.RawMessage(`[{"message":{"tool_calls":[{"id":"call_1","type":"function","function":{"name":"get_weather"}}]},"finish_reason":"tool_calls"}]`)
+		result := extractToolCalls(choices)
+		require.Len(t, result, 1)
+		assert.Equal(t, "call_1", result[0].ID)
+		assert.Equal(t, "get_weather", result[0].Name)
+	})
+
+	t.Run("multiple tool calls", func(t *testing.T) {
+		choices := json.RawMessage(`[{"message":{"tool_calls":[{"id":"call_1","type":"function","function":{"name":"get_weather"}},{"id":"call_2","type":"function","function":{"name":"get_time"}}]},"finish_reason":"tool_calls"}]`)
+		result := extractToolCalls(choices)
+		require.Len(t, result, 2)
+		assert.Equal(t, "call_1", result[0].ID)
+		assert.Equal(t, "get_weather", result[0].Name)
+		assert.Equal(t, "call_2", result[1].ID)
+		assert.Equal(t, "get_time", result[1].Name)
+	})
+
+	t.Run("no tool calls", func(t *testing.T) {
+		choices := json.RawMessage(`[{"message":{"content":"Hello"},"finish_reason":"stop"}]`)
+		result := extractToolCalls(choices)
+		assert.Empty(t, result)
+	})
+
+	t.Run("empty or nil choices", func(t *testing.T) {
+		assert.Nil(t, extractToolCalls(nil))
+		assert.Nil(t, extractToolCalls(json.RawMessage{}))
+	})
+}
 
 func TestOpenAISpan_Embeddings(t *testing.T) {
 	req := makeRequest(t, http.MethodPost, "http://api.openai.com/v1/embeddings", embeddingsRequestBody)

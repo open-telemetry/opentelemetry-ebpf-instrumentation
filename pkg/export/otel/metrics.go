@@ -792,24 +792,28 @@ func (mr *MetricsReporter) otelHistogramConfig(
 	metricName string,
 	buckets []float64,
 ) metric.View {
-	if mr.isExponentialAggregation() {
+	return newHistogramView(metricName, reporterName, buckets, mr.isExponentialAggregation(), mr.cfg.ExponentialHistogram)
+}
+
+func newHistogramView(metricName, scopeName string, buckets []float64, isExponential bool, expCfg otelcfg.ExponentialHistogramConfig) metric.View {
+	if isExponential {
 		return metric.NewView(
 			metric.Instrument{
 				Name:  metricName,
-				Scope: instrumentation.Scope{Name: reporterName},
+				Scope: instrumentation.Scope{Name: scopeName},
 			},
 			metric.Stream{
 				Name: metricName,
 				Aggregation: sdkmetric.AggregationBase2ExponentialHistogram{
-					MaxScale: mr.cfg.ExponentialHistogram.MaxScale,
-					MaxSize:  mr.cfg.ExponentialHistogram.MaxSize,
+					MaxScale: expCfg.MaxScale,
+					MaxSize:  expCfg.MaxSize,
 				},
 			})
 	}
 	return metric.NewView(
 		metric.Instrument{
 			Name:  metricName,
-			Scope: instrumentation.Scope{Name: reporterName},
+			Scope: instrumentation.Scope{Name: scopeName},
 		},
 		metric.Stream{
 			Name: metricName,

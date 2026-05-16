@@ -62,7 +62,7 @@ Attributes configures the decoration of some extra attributes that will be added
 | `attributes.rename_unresolved_hosts` | `string` | `OTEL_EBPF_RENAME_UNRESOLVED_HOSTS` | `unresolved` |  |  | Will replace HostName and PeerName attributes when they are empty or contain unresolved IP addresses to reduce cardinality. Set this value to the empty string to disable this feature. |
 | `attributes.rename_unresolved_hosts_incoming` | `string` | `OTEL_EBPF_RENAME_UNRESOLVED_HOSTS_INCOMING` | `incoming` |  |  |  |
 | `attributes.rename_unresolved_hosts_outgoing` | `string` | `OTEL_EBPF_RENAME_UNRESOLVED_HOSTS_OUTGOING` | `outgoing` |  |  |  |
-| `attributes.select` | `map[string]object` |  |  |  |  | Selection specifies which attributes are allowed for each metric. The key is the metric name (either in Prometheus or OpenTelemetry format) The value is the enumeration of included/excluded attribute globs |
+| `attributes.select` | `map[string]object` |  |  |  |  | Selection specifies which attributes are allowed for each signal. The key is usually the metric name (either in Prometheus or OpenTelemetry format); the key "traces" selects optional attributes for exported OTLP traces. The value is the enumeration of included/excluded attribute globs |
 
 ### `attributes.host_id`
 
@@ -290,6 +290,12 @@ HTTPParsingPolicy defines the default action for http enrichment rules.
 |---|---|---|---|---|---|---|
 | `ebpf.payload_extraction.http.genai.rerank.enabled` | `boolean` | `OTEL_EBPF_HTTP_RERANK_ENABLED` | `false` |  |  | Enable Rerank (Cohere, Jina AI, Voyage AI, etc.) payload extraction and parsing |
 
+#### `ebpf.payload_extraction.http.genai.retrieval`
+
+| YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
+|---|---|---|---|---|---|---|
+| `ebpf.payload_extraction.http.genai.retrieval.enabled` | `boolean` | `OTEL_EBPF_HTTP_RETRIEVAL_ENABLED` | `false` |  |  | Enable vector retrieval (Pinecone, Qdrant, Milvus, Chroma, Weaviate, etc.) payload extraction and parsing |
+
 #### `ebpf.payload_extraction.http.graphql`
 
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
@@ -347,7 +353,7 @@ TODO: TLS
 | `internal_metrics.prometheus.exemplar_filter` | `string` | `OTEL_EBPF_PROMETHEUS_EXEMPLAR_FILTER` |  |  |  | Controls when exemplars are attached to metrics. Accepted values: "always_on", "always_off", "trace_based". Defaults to "always_off": do not attach exemplars. This mimics the OTEL_METRICS_EXEMPLAR_FILTER specification. |
 | `internal_metrics.prometheus.extra_resource_attributes` | `string`[] | `OTEL_EBPF_PROMETHEUS_EXTRA_RESOURCE_ATTRIBUTES` |  |  |  | Adds extra metadata labels to Prometheus metrics from sources whose availability can't be known beforehand. For example, to add the OTEL deployment.environment resource attribute as a Prometheus resource attribute, you should add `deployment.environment`. |
 | `internal_metrics.prometheus.extra_span_resource_attributes` | `string`[] | `OTEL_EBPF_PROMETHEUS_EXTRA_SPAN_RESOURCE_ATTRIBUTES` |  |  |  | Adds extra metadata labels to Prometheus span metrics from sources whose availability can't be known beforehand. For example, to add the OTEL deployment.environment resource attribute as a Prometheus resource attribute, you should add `deployment.environment`. |
-| `internal_metrics.prometheus.features` | `string`[] | `OTEL_EBPF_PROMETHEUS_FEATURES` | `0` | `*`, `all`, `application`, `application_host`, `application_service_graph`, `application_span`, `application_span_otel`, `application_span_sizes`, `ebpf`, `network`, `network_inter_zone`, `stats`, `stats_tcp_failed_connections`, `stats_tcp_rtt` | Yes | Features specifies which metric features to export. Accepted values: application, network, application_span, application_service_graph, ...  use top-level MetricsConfig.Features instead. |
+| `internal_metrics.prometheus.features` | `string`[] | `OTEL_EBPF_PROMETHEUS_FEATURES` | `0` | `*`, `all`, `application`, `application_host`, `application_service_graph`, `application_span`, `application_span_otel`, `application_span_sizes`, `ebpf`, `network`, `network_inter_zone`, `stats`, `stats_tcp_failed_connections`, `stats_tcp_retransmits`, `stats_tcp_rtt` | Yes | Features specifies which metric features to export. Accepted values: application, network, application_span, application_service_graph, ...  use top-level MetricsConfig.Features instead. |
 | `internal_metrics.prometheus.instrumentations` | `string`[] | `OTEL_EBPF_PROMETHEUS_INSTRUMENTATIONS` | `*` | `*`, `amqp`, `couchbase`, `dns`, `genai`, `gpu`, `grpc`, `http`, `kafka`, `memcached`, `mongo`, `mqtt`, `nats`, `redis`, `sql` |  | Allows configuration of which instrumentations should be enabled, e.g. http, grpc, sql... |
 | `internal_metrics.prometheus.path` | `string` | `OTEL_EBPF_PROMETHEUS_PATH` | `/internal/metrics` |  |  |  |
 | `internal_metrics.prometheus.port` | `integer` | `OTEL_EBPF_PROMETHEUS_PORT` | `0` |  |  |  |
@@ -382,7 +388,7 @@ NativeHistogramConfig holds configuration for native histograms
 | `metrics.buckets` | [`Buckets`](#buckets) |  |  |  |  | Buckets defines the histograms bucket boundaries, and allows users to redefine them |
 | `metrics.endpoint` | `uri` | `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` |  |  |  |  |
 | `metrics.extra_span_resource_attributes` | `string`[] | `OTEL_EBPF_EXTRA_SPAN_RESOURCE_ATTRIBUTES` |  |  |  | Adds extra metadata labels to OTEL span metrics from sources whose availability can't be known beforehand. For example, to add the OTEL deployment.environment resource attribute as a OTEL resource attribute, you should add `deployment.environment`. |
-| `metrics.features` | `string`[] | `OTEL_EBPF_METRICS_FEATURES` | `32` | `*`, `all`, `application`, `application_host`, `application_service_graph`, `application_span`, `application_span_otel`, `application_span_sizes`, `ebpf`, `network`, `network_inter_zone`, `stats`, `stats_tcp_failed_connections`, `stats_tcp_rtt` | Yes | Specifies which metric features to export. Accepted values: application, network, application_span, application_service_graph, ... envDefault is provided to avoid breaking changes  use top-level MetricsConfig.Features instead. |
+| `metrics.features` | `string`[] | `OTEL_EBPF_METRICS_FEATURES` | `64` | `*`, `all`, `application`, `application_host`, `application_service_graph`, `application_span`, `application_span_otel`, `application_span_sizes`, `ebpf`, `network`, `network_inter_zone`, `stats`, `stats_tcp_failed_connections`, `stats_tcp_retransmits`, `stats_tcp_rtt` | Yes | Specifies which metric features to export. Accepted values: application, network, application_span, application_service_graph, ... envDefault is provided to avoid breaking changes  use top-level MetricsConfig.Features instead. |
 | `metrics.histogram_aggregation` | `string` | `OTEL_EXPORTER_OTLP_METRICS_DEFAULT_HISTOGRAM_AGGREGATION` | `explicit_bucket_histogram` | `base2_exponential_bucket_histogram`, `explicit_bucket_histogram` |  |  |
 | `metrics.insecure_skip_verify` | `boolean` | `OTEL_EBPF_INSECURE_SKIP_VERIFY` | `false` |  |  | Enables skipping TLS certificate verification (not standard, so we don't follow the same naming convention) |
 | `metrics.instrumentations` | `string`[] | `OTEL_EBPF_METRICS_INSTRUMENTATIONS` | `*` | `*`, `amqp`, `couchbase`, `dns`, `genai`, `gpu`, `grpc`, `http`, `kafka`, `memcached`, `mongo`, `mqtt`, `nats`, `redis`, `sql` |  | Allows configuration of which instrumentations should be enabled, e.g. http, grpc, sql... |
@@ -481,7 +487,7 @@ ReverseDNS is currently experimental. It is kept disabled by default and will be
 | `otel_metrics_export.buckets` | [`Buckets`](#buckets) |  |  |  |  | Buckets defines the histograms bucket boundaries, and allows users to redefine them |
 | `otel_metrics_export.endpoint` | `uri` | `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` |  |  |  |  |
 | `otel_metrics_export.extra_span_resource_attributes` | `string`[] | `OTEL_EBPF_EXTRA_SPAN_RESOURCE_ATTRIBUTES` |  |  |  | Adds extra metadata labels to OTEL span metrics from sources whose availability can't be known beforehand. For example, to add the OTEL deployment.environment resource attribute as a OTEL resource attribute, you should add `deployment.environment`. |
-| `otel_metrics_export.features` | `string`[] | `OTEL_EBPF_METRICS_FEATURES` | `32` | `*`, `all`, `application`, `application_host`, `application_service_graph`, `application_span`, `application_span_otel`, `application_span_sizes`, `ebpf`, `network`, `network_inter_zone`, `stats`, `stats_tcp_failed_connections`, `stats_tcp_rtt` | Yes | Specifies which metric features to export. Accepted values: application, network, application_span, application_service_graph, ... envDefault is provided to avoid breaking changes  use top-level MetricsConfig.Features instead. |
+| `otel_metrics_export.features` | `string`[] | `OTEL_EBPF_METRICS_FEATURES` | `64` | `*`, `all`, `application`, `application_host`, `application_service_graph`, `application_span`, `application_span_otel`, `application_span_sizes`, `ebpf`, `network`, `network_inter_zone`, `stats`, `stats_tcp_failed_connections`, `stats_tcp_retransmits`, `stats_tcp_rtt` | Yes | Specifies which metric features to export. Accepted values: application, network, application_span, application_service_graph, ... envDefault is provided to avoid breaking changes  use top-level MetricsConfig.Features instead. |
 | `otel_metrics_export.histogram_aggregation` | `string` | `OTEL_EXPORTER_OTLP_METRICS_DEFAULT_HISTOGRAM_AGGREGATION` | `explicit_bucket_histogram` | `base2_exponential_bucket_histogram`, `explicit_bucket_histogram` |  |  |
 | `otel_metrics_export.insecure_skip_verify` | `boolean` | `OTEL_EBPF_INSECURE_SKIP_VERIFY` | `false` |  |  | Enables skipping TLS certificate verification (not standard, so we don't follow the same naming convention) |
 | `otel_metrics_export.instrumentations` | `string`[] | `OTEL_EBPF_METRICS_INSTRUMENTATIONS` | `*` | `*`, `amqp`, `couchbase`, `dns`, `genai`, `gpu`, `grpc`, `http`, `kafka`, `memcached`, `mongo`, `mqtt`, `nats`, `redis`, `sql` |  | Allows configuration of which instrumentations should be enabled, e.g. http, grpc, sql... |
@@ -538,7 +544,7 @@ TODO: TLS
 | `prometheus_export.exemplar_filter` | `string` | `OTEL_EBPF_PROMETHEUS_EXEMPLAR_FILTER` |  |  |  | Controls when exemplars are attached to metrics. Accepted values: "always_on", "always_off", "trace_based". Defaults to "always_off": do not attach exemplars. This mimics the OTEL_METRICS_EXEMPLAR_FILTER specification. |
 | `prometheus_export.extra_resource_attributes` | `string`[] | `OTEL_EBPF_PROMETHEUS_EXTRA_RESOURCE_ATTRIBUTES` |  |  |  | Adds extra metadata labels to Prometheus metrics from sources whose availability can't be known beforehand. For example, to add the OTEL deployment.environment resource attribute as a Prometheus resource attribute, you should add `deployment.environment`. |
 | `prometheus_export.extra_span_resource_attributes` | `string`[] | `OTEL_EBPF_PROMETHEUS_EXTRA_SPAN_RESOURCE_ATTRIBUTES` |  |  |  | Adds extra metadata labels to Prometheus span metrics from sources whose availability can't be known beforehand. For example, to add the OTEL deployment.environment resource attribute as a Prometheus resource attribute, you should add `deployment.environment`. |
-| `prometheus_export.features` | `string`[] | `OTEL_EBPF_PROMETHEUS_FEATURES` | `0` | `*`, `all`, `application`, `application_host`, `application_service_graph`, `application_span`, `application_span_otel`, `application_span_sizes`, `ebpf`, `network`, `network_inter_zone`, `stats`, `stats_tcp_failed_connections`, `stats_tcp_rtt` | Yes | Features specifies which metric features to export. Accepted values: application, network, application_span, application_service_graph, ...  use top-level MetricsConfig.Features instead. |
+| `prometheus_export.features` | `string`[] | `OTEL_EBPF_PROMETHEUS_FEATURES` | `0` | `*`, `all`, `application`, `application_host`, `application_service_graph`, `application_span`, `application_span_otel`, `application_span_sizes`, `ebpf`, `network`, `network_inter_zone`, `stats`, `stats_tcp_failed_connections`, `stats_tcp_retransmits`, `stats_tcp_rtt` | Yes | Features specifies which metric features to export. Accepted values: application, network, application_span, application_service_graph, ...  use top-level MetricsConfig.Features instead. |
 | `prometheus_export.instrumentations` | `string`[] | `OTEL_EBPF_PROMETHEUS_INSTRUMENTATIONS` | `*` | `*`, `amqp`, `couchbase`, `dns`, `genai`, `gpu`, `grpc`, `http`, `kafka`, `memcached`, `mongo`, `mqtt`, `nats`, `redis`, `sql` |  | Allows configuration of which instrumentations should be enabled, e.g. http, grpc, sql... |
 | `prometheus_export.path` | `string` | `OTEL_EBPF_PROMETHEUS_PATH` | `/internal/metrics` |  |  |  |
 | `prometheus_export.port` | `integer` | `OTEL_EBPF_PROMETHEUS_PORT` | `0` |  |  |  |
@@ -627,6 +633,7 @@ Buckets defines the histograms bucket boundaries, and allows users to redefine t
 | `gen_ai_client_token_usage_histogram` | `number`[] |  |  |
 | `request_size_histogram` | `number`[] |  |  |
 | `response_size_histogram` | `number`[] |  |  |
+| `stat_tcp_rtt_histogram` | `number`[] |  |  |
 
 ### ExtraGroupAttributesMap
 
@@ -767,4 +774,4 @@ SvcMetricsConfig is equivalent to MetricsConfig, but avoids defining environment
 
 | Field | Type | Values | Description |
 |---|---|---|---|
-| `features` | `string`[] | `*`, `all`, `application`, `application_host`, `application_service_graph`, `application_span`, `application_span_otel`, `application_span_sizes`, `ebpf`, `network`, `network_inter_zone`, `stats`, `stats_tcp_failed_connections`, `stats_tcp_rtt` | Specifies which metric features to export. Accepted values: application, network, application_span, application_service_graph, ... envDefault is provided to avoid breaking changes |
+| `features` | `string`[] | `*`, `all`, `application`, `application_host`, `application_service_graph`, `application_span`, `application_span_otel`, `application_span_sizes`, `ebpf`, `network`, `network_inter_zone`, `stats`, `stats_tcp_failed_connections`, `stats_tcp_retransmits`, `stats_tcp_rtt` | Specifies which metric features to export. Accepted values: application, network, application_span, application_service_graph, ... envDefault is provided to avoid breaking changes |

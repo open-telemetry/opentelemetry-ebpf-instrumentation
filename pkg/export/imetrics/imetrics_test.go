@@ -38,4 +38,4 @@ type noopEmbeddingReporter struct {
 	NoopReporter
 }
 
-func (n *noopEmbeddingReporter) BpfProbeLatency(_, _, _ string, _ float64) {}
+func (n *noopEmbeddingReporter) BpfProbeStats(_, _, _ string, _ uint64, _ float64) {}

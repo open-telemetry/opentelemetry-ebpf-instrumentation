@@ -65,7 +65,7 @@ static __always_inline void set_tcp_trace_info(u32 type,
     set_trace_info_for_connection(conn, type, tp_p);
     dbg_print_http_connection_info(conn);
 
-    server_or_client_trace(type, conn, lw_thread, tp_p, ssl, orig_dport);
+    server_or_client_trace(type, conn, lw_thread, tp_p, ssl, orig_dport, 0, BPF_ANY);
 }
 
 static __always_inline void tcp_get_or_set_trace_info(tcp_req_t *req,

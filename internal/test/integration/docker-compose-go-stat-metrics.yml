@@ -19,6 +19,17 @@ services:
       - TARGET_ADDRESS=testserver:8080
       - FAIL_TARGET_ADDRESS=testserver:19999
 
+  testclient-retransmit:
+    build:
+      context: ../../..
+      dockerfile: ./internal/test/integration/components/go-stat-metrics-client/Dockerfile
+    image: hatest-testclient-go-stat-metrics
+    environment:
+      - RETRANSMIT_TARGET_ADDRESS=testserver:8081
+    depends_on:
+      testserver:
+        condition: service_started
+
   obi:
     build:
       context: ../../..
@@ -38,7 +49,7 @@ services:
       OTEL_EBPF_TRACE_PRINTER: "json"
       OTEL_EBPF_DISCOVERY_POLL_INTERVAL: 500ms
       OTEL_EBPF_SERVICE_NAMESPACE: "integration-test"
-      OTEL_EBPF_METRICS_INTERVAL: "10ms"
+      OTEL_EBPF_METRICS_INTERVAL: "1s"
       OTEL_EBPF_BPF_BATCH_TIMEOUT: "10ms"
       OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT: "1ms"
       OTEL_EBPF_LOG_LEVEL: "DEBUG"
@@ -58,14 +69,14 @@ services:
 
   # OpenTelemetry Collector
   otelcol:
-    image: otel/opentelemetry-collector-contrib:0.151.0@sha256:d57bfe8eee2378f31cb1193239fbcac521d54a5a071fca2bfc106916a32b892d
+    image: otel/opentelemetry-collector-contrib:0.152.0@sha256:f41d7995565df3733b7568702073a9c490792f9c6ac60684fe6a4da21a313f8d
     container_name: otel-col
     deploy:
       resources:
         limits:
           memory: 125M
     restart: unless-stopped
-    command: ["--config=/etc/otelcol-config/otelcol-config.yml"]
+    command: ["--config=/etc/otelcol-config/otelcol-config-weaver-no-jaeger.yml"]
     volumes:
       - ./configs/:/etc/otelcol-config
     ports:
@@ -76,6 +87,15 @@ services:
     depends_on:
       prometheus:
         condition: service_started
+      weaver:
+        condition: service_healthy
+
+  weaver:
+    extends:
+      file: components/weaver/service.yml
+      service: weaver
+    volumes:
+      - ../../../schemas/obi:/obi-registry:ro
 
  # Prometheus
   prometheus:
@@ -90,7 +110,7 @@ services:
     ports:
       - "9090:9090"
 
-  # pumba is used to add a delay in the client in order to obtain a srtt different from 0
+  # pumba adds a 100ms delay to the testclient so the RTT test can assert avg RTT >= 100ms
   pumba:
     image: ghcr.io/alexei-led/pumba@sha256:b1226a1db9a82fdb74eb39ae36ef25ac576910edb569ae94dad3b640340656e8
     volumes:
@@ -101,4 +121,17 @@ services:
     command: netem --duration 30m delay --time 100 integration-testclient-1
     depends_on:
       testclient:
+        condition: service_started
+
+  # pumba-loss injects 20% packet loss on testclient-retransmit to trigger tcp_retransmit_skb events
+  pumba-loss:
+    image: ghcr.io/alexei-led/pumba@sha256:b1226a1db9a82fdb74eb39ae36ef25ac576910edb569ae94dad3b640340656e8
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    privileged: true
+    pid: "host"
+    container_name: pumba-loss
+    command: netem --duration 30m loss --percent 20 integration-testclient-retransmit-1
+    depends_on:
+      testclient-retransmit:
         condition: service_started

@@ -9,7 +9,9 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.Random;
 import java.util.Set;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -18,6 +20,154 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 
 class CappedConcurrentHashMapTest {
+
+  @Test
+  void testConcurrency_CyclicKeysWithRandomDeletes() throws InterruptedException {
+    // 5 cycling keys against a capacity of 3: eviction must fire on every new key
+    // beyond the third, and remove+re-insert of the same key exercises ghost-eviction paths.
+    final int capacity = 30;
+    final int numKeys = 5;
+    final int numThreads = 30;
+    final int opsPerThread = 500;
+
+    CappedConcurrentHashMap<Integer, Integer> map = new CappedConcurrentHashMap<>(capacity);
+
+    ExecutorService executor = Executors.newFixedThreadPool(numThreads);
+    CountDownLatch startLatch = new CountDownLatch(1);
+    CountDownLatch doneLatch = new CountDownLatch(numThreads);
+
+    for (int t = 0; t < numThreads; t++) {
+      executor.submit(
+          () -> {
+            Random rng = new Random();
+            try {
+              startLatch.await();
+              for (int i = 0; i < opsPerThread; i++) {
+                int key = i % numKeys;
+                if (rng.nextInt(3) == 0) {
+                  map.remove(key);
+                } else {
+                  map.put(key, key);
+                }
+              }
+            } catch (InterruptedException e) {
+              Thread.currentThread().interrupt();
+            } finally {
+              doneLatch.countDown();
+            }
+          });
+    }
+
+    startLatch.countDown();
+    assertTrue(doneLatch.await(30, TimeUnit.SECONDS));
+    executor.shutdown();
+    assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
+
+    assertTrue(map.size() <= numKeys, "Map size " + map.size() + " exceeded capacity " + numKeys);
+  }
+
+  @Test
+  void testConcurrency_OverfillWithRandomDeletes() throws InterruptedException {
+    final int capacity = 200;
+    final int numThreads = 30;
+    // ~6000 inserts across all threads >> capacity; ~3000 deletes mixed in
+    final int opsPerThread = 300;
+
+    CappedConcurrentHashMap<Integer, Integer> map = new CappedConcurrentHashMap<>(capacity);
+    AtomicInteger keyGen = new AtomicInteger();
+    ConcurrentLinkedQueue<Integer> liveKeys = new ConcurrentLinkedQueue<>();
+
+    ExecutorService executor = Executors.newFixedThreadPool(numThreads);
+    CountDownLatch startLatch = new CountDownLatch(1);
+    CountDownLatch doneLatch = new CountDownLatch(numThreads);
+
+    for (int t = 0; t < numThreads; t++) {
+      executor.submit(
+          () -> {
+            Random rng = new Random();
+            try {
+              startLatch.await();
+              for (int i = 0; i < opsPerThread; i++) {
+                if (rng.nextInt(3) == 0) {
+                  // 1/3 of ops: delete a random live key
+                  Integer key = liveKeys.poll();
+                  if (key != null) {
+                    map.remove(key);
+                  }
+                } else {
+                  // 2/3 of ops: insert a new unique key
+                  int key = keyGen.getAndIncrement();
+                  map.put(key, key);
+                  liveKeys.offer(key);
+                }
+              }
+            } catch (InterruptedException e) {
+              Thread.currentThread().interrupt();
+            } finally {
+              doneLatch.countDown();
+            }
+          });
+    }
+
+    startLatch.countDown();
+    assertTrue(doneLatch.await(30, TimeUnit.SECONDS));
+    executor.shutdown();
+    assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
+
+    assertTrue(map.size() <= capacity, "Map size " + map.size() + " exceeded capacity " + capacity);
+    assertTrue(
+        map.size() > (int) (capacity * 0.9), "Map size " + map.size() + " too small " + capacity);
+
+    // The 10 highest-numbered keys are the last inserted. liveKeys is FIFO so
+    // poll() removes the oldest keys first — the tail keys are never explicitly
+    // deleted. The ring evicts oldest entries first, so the newest keys survive.
+    int totalKeys = keyGen.get();
+    for (int key = totalKeys - 10; key < totalKeys; key++) {
+      assertTrue(
+          map.containsKey(key), "Recently inserted key " + key + " should still be in the map");
+    }
+  }
+
+  @Test
+  void testFloorMod_bothPositive() {
+    assertEquals(1, CappedConcurrentHashMap.floorMod(7, 3));
+  }
+
+  @Test
+  void testFloorMod_bothPositiveExact() {
+    assertEquals(0, CappedConcurrentHashMap.floorMod(6, 3));
+  }
+
+  @Test
+  void testFloorMod_zeroDividend() {
+    assertEquals(0, CappedConcurrentHashMap.floorMod(0, 5));
+  }
+
+  @Test
+  void testFloorMod_negativeDividend() {
+    assertEquals(2, CappedConcurrentHashMap.floorMod(-3, 5));
+  }
+
+  @Test
+  void testFloorMod_negativeDividendExact() {
+    assertEquals(0, CappedConcurrentHashMap.floorMod(-5, 5));
+  }
+
+  @Test
+  void testFloorMod_negativeDividendMinusOne() {
+    assertEquals(4, CappedConcurrentHashMap.floorMod(-1, 5));
+  }
+
+  @Test
+  void testFloorMod_longMinValue() {
+    // Long.MIN_VALUE % 10000 = -5808 via Java %; floorMod must return 4192
+    assertEquals(4192, CappedConcurrentHashMap.floorMod(Long.MIN_VALUE, 10000));
+  }
+
+  @Test
+  void testFloorMod_longMaxValue() {
+    assertEquals(Long.MAX_VALUE % 10000, CappedConcurrentHashMap.floorMod(Long.MAX_VALUE, 10000));
+  }
 
   @Test
   void testConstructor_ValidCapacity() {

@@ -202,5 +202,7 @@ func TestSuiteBodyExtraction(t *testing.T) {
 		testBodyExtractionContentTypeHeader(t)
 	})
 
+	runWeaverValidation(t)
+
 	require.NoError(t, compose.Close())
 }
