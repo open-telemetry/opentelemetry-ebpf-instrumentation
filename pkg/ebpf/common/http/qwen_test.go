@@ -209,7 +209,7 @@ func TestExtractQwenOperation(t *testing.T) {
 		{
 			name: "completions",
 			url:  "https://dashscope.aliyuncs.com/compatible-mode/v1/completions",
-			want: "completion",
+			want: "text_completion",
 		},
 		{
 			name: "embeddings",
