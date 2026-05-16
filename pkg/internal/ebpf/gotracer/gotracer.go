@@ -264,7 +264,8 @@ func (p *Tracer) SetupTailCalls() {
 		// Large buffer multi-batch emission
 		p.bpfObjects.ObiLargeBufEmitContinue, // 13  k_tail_large_buf_emit_continue
 		// Chunked traceparent scanner
-		p.bpfObjects.ObiParseTraceparentHttp, // 14  k_tail_parse_traceparent_http (dummy on legacy kernels via FixupSpec)
+		p.bpfObjects.ObiParseTraceparentHttp,       // 14  k_tail_parse_traceparent_http
+		p.bpfObjects.ObiParseTraceparentHttpAppend, // 15  k_tail_parse_traceparent_http_append
 	} {
 		p.log.Debug("loading program into tail call jump table", "index", i, "program", prog.String())
 		if err := p.bpfObjects.JumpTable.Update(uint32(i), uint32(prog.FD()), ebpf.UpdateAny); err != nil {

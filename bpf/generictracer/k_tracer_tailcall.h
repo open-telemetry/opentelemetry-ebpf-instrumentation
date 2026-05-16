@@ -35,4 +35,5 @@ enum {
     k_tail_large_buf_emit_continue = 13,
     // Chunked traceparent scanner
     k_tail_parse_traceparent_http = 14,
+    k_tail_parse_traceparent_http_append = 15,
 };

@@ -60,7 +60,7 @@ through language-specific library instrumentation documented later in this file.
 
 | Protocol | Versions | Methods or operations | Secure | Context propagation | Limitations |
 |:---------|:---------|:----------------------|:------:|:-------------------:|:------------|
-| HTTP | `1.0/1.1` | All | Yes | Yes | None documented |
+| HTTP | `1.0/1.1` | All | Yes | Yes | Chunked traceparent scanner (finding `traceparent` buried after large headers) requires kernel `5.17+` and context propagation or request header tracking to be enabled (`OTEL_EBPF_TRACK_REQUEST_HEADERS=true` or `OTEL_EBPF_CONTEXT_PROPAGATION=true`). On older kernels only the first ~1 KB is scanned. |
 | HTTP | `2.0` | All | Yes | No | Context propagation for HTTP/2 is only through Go library instrumentation |
 | gRPC | `1.0+` | All | Yes | No | Long-lived connections started before OBI may use `*` for method names |
 | MySQL | All | All | Yes | No | Prepared statements created before OBI started may miss query text |

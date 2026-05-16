@@ -92,6 +92,23 @@ Large payloads are streamed to userspace across multiple ring-buffer events and 
 
 Equivalent YAML keys live under `ebpf.buffer_sizes.{http,mysql,kafka,postgres,mssql}`.
 
+## Chunked Traceparent Scanner
+
+When the `traceparent` W3C header is placed after large HTTP headers (auth tokens, cookies, correlation IDs)
+that push it beyond the initial ~1 KB scan window, OBI uses a tail-call-driven chunked scanner to find it.
+The scanner walks the request in 956-byte overlapping windows and stops as soon as it finds the header or
+reaches the end-of-headers marker (`\r\n\r\n`).
+
+This feature requires context propagation or request header tracking to be enabled
+(`OTEL_EBPF_TRACK_REQUEST_HEADERS=true` or `OTEL_EBPF_CONTEXT_PROPAGATION=true`) and kernel ≥ 5.17 (`bpf_loop` support). On older kernels the scanner is automatically disabled
+and only the first ~1 KB of the request is searched.
+
+| Environment variable | Range | Default | Notes |
+|:---------------------|------:|--------:|:------|
+| `OTEL_EBPF_BPF_MAX_REQUEST_TP_PARSE_SIZE_KB` | 4–27 | 4 | Maximum kilobytes to scan. 4 KB covers a single large header before `traceparent`; 27 KB is the tail-call budget ceiling (29 iterations × 956 bytes). Requires kernel ≥ 5.17. |
+
+Equivalent YAML key: `ebpf.max_request_tp_parse_size_kb`.
+
 ## GPU Instrumentation
 
 Specifically for instrumenting GPU execution primitives, like NVIDIA CUDA kernel launches and memory copies. This

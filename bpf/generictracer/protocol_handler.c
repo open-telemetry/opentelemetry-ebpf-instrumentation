@@ -157,9 +157,8 @@ int obi_handle_buf_with_args(void *ctx) {
                         bpf_max_request_tp_parse_size_kb > 0 &&
                         prev_len < (u32)bpf_max_request_tp_parse_size_kb * 1024) {
                         args->packet_type = packet_type;
-                        args->is_append = 1;
                         args->niter = 0;
-                        bpf_tail_call(ctx, &jump_table, k_tail_parse_traceparent_http);
+                        bpf_tail_call(ctx, &jump_table, k_tail_parse_traceparent_http_append);
                         // tail-call failed — fall through
                     }
                 } else if (responding) {

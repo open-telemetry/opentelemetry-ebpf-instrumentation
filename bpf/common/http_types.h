@@ -55,13 +55,10 @@ typedef struct call_protocol_args {
     u32 niter;
     int bytes_len;
     u16 orig_dport;
-    // is_append: set when this invocation originates from the large-buffer
-    // still_reading path (obi_handle_buf_with_args / __obi_protocol_http),
-    // as opposed to the initial request parse path. Unrelated to HTTP
-    // chunked transfer encoding.
-    u8 is_append;
     u8 u_buf_is_user;
-    u8 _pad_ubuf[4];
+    // Align u_buf to the next 8-byte boundary (offset 88).
+    // orig_dport (2B) + u_buf_is_user (1B) consume 3 bytes from offset 80, leaving 5 bytes to fill.
+    u8 _pad_ubuf[5];
     u64 u_buf;
     u64 self_ref_parent_id;
     lw_thread_t lw_thread;

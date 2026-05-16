@@ -186,7 +186,8 @@ func (p *Tracer) SetupTailCalls() {
 		// Large buffer multi-batch emission
 		p.bpfObjects.ObiLargeBufEmitContinue, // 13  k_tail_large_buf_emit_continue
 		// Chunked traceparent scanner
-		p.bpfObjects.ObiParseTraceparentHttp, // 14  k_tail_parse_traceparent_http
+		p.bpfObjects.ObiParseTraceparentHttp,       // 14  k_tail_parse_traceparent_http
+		p.bpfObjects.ObiParseTraceparentHttpAppend, // 15  k_tail_parse_traceparent_http_append
 	} {
 		if prog == nil {
 			continue
