@@ -39,8 +39,26 @@ jobs:
           go-version-file: "go.mod"
           cache: false
 
+      - name: Compute snapshot date
+        id: date
+        run: echo "today=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+
       - name: Generate test analysis report
         env:
           GH_TOKEN: ${{ github.token }}
           LOOKBACK_DAYS: ${{ inputs.lookback_days || '5' }}
+          SNAPSHOT_OUT: ${{ github.workspace }}/snapshot/snapshot.json
         run: bash scripts/ci-analysis/collect.sh >> "$GITHUB_STEP_SUMMARY"
+
+      # Snapshot is consumed by the weekly rollup workflow. Retention of 8
+      # days gives a one-day safety margin over the 7-day rollup window
+      # (the weekly job runs ~1h after the previous Monday's daily job).
+      # Date prefix makes the artifact list scannable; run_id keeps the
+      # name unique across manual workflow_dispatch reruns on the same day.
+      - name: Upload daily snapshot
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ci-daily-snapshot-${{ steps.date.outputs.today }}-${{ github.run_id }}
+          path: snapshot/snapshot.json
+          retention-days: 8
+          if-no-files-found: error
