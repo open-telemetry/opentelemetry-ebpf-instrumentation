@@ -46,6 +46,8 @@ enum : u32 {
     k_http_body_max_len = 64,
     k_http_header_max_len = 100,
     k_http_content_type_max_len = 16,
+    k_openai_model_max_len = 64,
+    k_openai_response_id_max_len = 64,
 };
 
 enum large_buf_action : u8 {
@@ -281,3 +283,18 @@ typedef struct dns_req {
     unsigned char buf[k_dns_max_len];
     u8 _pad3[4];
 } dns_req_t;
+
+typedef struct openai_go_req {
+    u8 type; // Must be first
+    u8 _pad[7];
+    u64 start_monotime_ns;
+    u64 end_monotime_ns;
+    pid_info pid;
+    u8 _pad2[4];
+    tp_info_t tp;
+    unsigned char request_model[k_openai_model_max_len];
+    unsigned char response_model[k_openai_model_max_len];
+    unsigned char response_id[k_openai_response_id_max_len];
+    s64 prompt_tokens;
+    s64 completion_tokens;
+} openai_go_req_t;

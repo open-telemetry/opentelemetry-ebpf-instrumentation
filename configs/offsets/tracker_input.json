@@ -176,5 +176,14 @@
       "github.com/jackc/pgx/v5.Conn": ["config"],
       "github.com/jackc/pgx/v5/pgconn.Config": ["Host"]
     }
+  },
+  "github.com/openai/openai-go/v3": {
+    "inspect": "./configs/offsets/openai/inspect.go",
+    "versions": ">= v3.0.0",
+    "fields": {
+      "github.com/openai/openai-go/v3.ChatCompletionNewParams": ["Messages", "Model"],
+      "github.com/openai/openai-go/v3.ChatCompletion": ["ID", "Model", "Created", "Choices", "Usage"],
+      "github.com/openai/openai-go/v3.CompletionUsage": ["CompletionTokens", "PromptTokens", "TotalTokens"]
+    }
   }
 }

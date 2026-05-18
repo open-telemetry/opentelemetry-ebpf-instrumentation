@@ -131,6 +131,13 @@ const (
 	// route harvesting offsets
 	MuxTemplatePos
 	GinFullpathPos
+	// openai
+	OpenAIChatParamsModelPos
+	OpenAIChatCompletionIDPos
+	OpenAIChatCompletionModelPos
+	OpenAIChatCompletionUsagePos
+	OpenAICompletionUsageCompletionTokensPos
+	OpenAICompletionUsagePromptTokensPos
 )
 
 //go:embed offsets.json
@@ -499,6 +506,27 @@ var structMembers = map[string]structInfo{
 		lib: "github.com/gin-gonic/gin",
 		fields: map[string]GoOffset{
 			"fullPath": GinFullpathPos,
+		},
+	},
+	"github.com/openai/openai-go/v3.ChatCompletionNewParams": {
+		lib: "github.com/openai/openai-go/v3",
+		fields: map[string]GoOffset{
+			"Model": OpenAIChatParamsModelPos,
+		},
+	},
+	"github.com/openai/openai-go/v3.ChatCompletion": {
+		lib: "github.com/openai/openai-go/v3",
+		fields: map[string]GoOffset{
+			"ID":    OpenAIChatCompletionIDPos,
+			"Model": OpenAIChatCompletionModelPos,
+			"Usage": OpenAIChatCompletionUsagePos,
+		},
+	},
+	"github.com/openai/openai-go/v3.CompletionUsage": {
+		lib: "github.com/openai/openai-go/v3",
+		fields: map[string]GoOffset{
+			"CompletionTokens": OpenAICompletionUsageCompletionTokensPos,
+			"PromptTokens":     OpenAICompletionUsagePromptTokensPos,
 		},
 	},
 }

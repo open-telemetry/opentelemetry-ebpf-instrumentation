@@ -109,6 +109,13 @@ typedef enum {
     // route resolution
     _mux_template_pos,
     _gin_fullpath_pos,
+    // openai
+    _openai_chat_params_model_pos,
+    _openai_chat_completion_id_pos,
+    _openai_chat_completion_model_pos,
+    _openai_chat_completion_usage_pos,
+    _openai_completion_usage_completion_tokens_pos,
+    _openai_completion_usage_prompt_tokens_pos,
     _last_go_offset,
 } go_offset_const;
 

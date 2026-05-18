@@ -73,6 +73,7 @@ const (
 	EventTypeGoMongo        = 14 // EVENT_GO_MONGO - Go MongoDB spans
 	EventTypeFailedConnect  = 15 // EVENT_FAILED_CONNECT - Failed Connections
 	EventTypeDNS            = 16 // EVENT_DNS_REQUEST - DNS events
+	EventTypeGoOpenAIChat   = 17 // EVENT_GO_OPENAI - Go OpenAI chat completion spans
 )
 
 // Kernel-side classification
@@ -424,6 +425,8 @@ func ReadBPFTraceAsSpan(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, reco
 		return ReadFailedConnectIntoSpan(record, filter)
 	case EventTypeDNS:
 		return readDNSEventIntoSpan(parseCtx, record)
+	case EventTypeGoOpenAIChat:
+		return ReadGoOpenAIRequestIntoSpan(record)
 	}
 
 	event, err := ReinterpretCast[HTTPRequestTrace](record.RawSample)

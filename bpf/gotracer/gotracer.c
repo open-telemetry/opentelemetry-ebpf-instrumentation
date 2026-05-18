@@ -27,6 +27,7 @@
 #include "go_sarama.c"
 #include "go_sdk.c"
 #include "go_mongo.c"
+#include "go_openai.c"
 //FIXME - move common code to common location
 #include "generictracer/protocol_handler.c"
 

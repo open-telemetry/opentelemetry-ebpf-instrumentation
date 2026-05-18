@@ -280,6 +280,13 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 		goexec.PgxConfigHostPos,
 		goexec.MuxTemplatePos,
 		goexec.GinFullpathPos,
+		// openai
+		goexec.OpenAIChatParamsModelPos,
+		goexec.OpenAIChatCompletionIDPos,
+		goexec.OpenAIChatCompletionModelPos,
+		goexec.OpenAIChatCompletionUsagePos,
+		goexec.OpenAICompletionUsageCompletionTokensPos,
+		goexec.OpenAICompletionUsagePromptTokensPos,
 	} {
 		if val, ok := offsets.Field[field].(uint64); ok {
 			offTable.Table[field] = val
@@ -586,6 +593,11 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 		}},
 		"go.opentelemetry.io/auto/sdk.(*span).RecordError": {{
 			Start: p.bpfObjects.ObiUprobeRecordError,
+		}},
+		// Go OpenAI
+		"github.com/openai/openai-go/v3.(*ChatCompletionService).New": {{
+			Start: p.bpfObjects.ObiUprobeOpenaiChatNew,
+			End:   p.bpfObjects.ObiUprobeOpenaiChatNewRet,
 		}},
 		// Go MongoDB
 		"go.mongodb.org/mongo-driver/x/mongo/driver.Operation.Execute": {{
