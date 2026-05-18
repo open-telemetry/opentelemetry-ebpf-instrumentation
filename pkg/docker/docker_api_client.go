@@ -60,6 +60,7 @@ type ContainerStore struct {
 
 	cacheMu sync.RWMutex
 	byPID   map[app.PID]ContainerMeta
+	pidToID map[app.PID]string
 	byID    map[string][]app.PID
 }
 
@@ -211,27 +212,36 @@ func (s *ContainerStore) Start(ctx context.Context) {
 }
 
 func (s *ContainerStore) watchContainerEvents(ctx context.Context) {
-	s.initMutex.Lock()
-	if s.docker == nil {
-		s.initMutex.Unlock()
-		return
-	}
-	s.initMutex.Unlock()
-
-	fltrs := make(client.Filters).
-		Add("type", string(events.ContainerEventType)).
-		Add("event", string(events.ActionDie), string(events.ActionDestroy))
-
 	for {
-		if err := s.eventsLoop(ctx, fltrs); err != nil && !errors.Is(err, context.Canceled) {
-			s.log.Debug("docker event stream error", "error", err)
+		s.initMutex.Lock()
+		s.initialize(ctx)
+		docker := s.docker
+		s.initMutex.Unlock()
+
+		if docker == nil {
 			select {
 			case <-time.After(time.Second):
 			case <-ctx.Done():
 				return
 			}
+			continue
+		}
+
+		fltrs := make(client.Filters).
+			Add("type", string(events.ContainerEventType)).
+			Add("event", string(events.ActionDie), string(events.ActionDestroy))
+
+		if err := s.eventsLoop(ctx, fltrs); err != nil && !errors.Is(err, context.Canceled) {
+			s.log.Debug("docker event stream error", "error", err)
+		}
+
+		select {
+		case <-time.After(time.Second):
+		case <-ctx.Done():
+			return
 		}
 	}
+}
 }
 
 func (s *ContainerStore) eventsLoop(ctx context.Context, fltrs client.Filters) error {

@@ -93,7 +93,7 @@ func TestContainerStoreInvalidation(t *testing.T) {
 		containerID := "abc123def456789abc123def456789abc123def456789abc123def456789abcdef"
 
 		meta := ContainerMeta{
-			ID:   containerID,
+			ID:   containerID[:12],
 			Name: "test-container",
 		}
 
@@ -101,6 +101,7 @@ func TestContainerStoreInvalidation(t *testing.T) {
 		store.byPID[pid1] = meta
 		store.byPID[pid2] = meta
 		store.byID[containerID] = []app.PID{pid1, pid2}
+		store.cacheMu.Unlock()
 		store.cacheMu.Unlock()
 
 		store.InvalidatePID(pid1)
