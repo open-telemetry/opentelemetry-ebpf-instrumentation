@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 )
 
 // snapshotVersion is bumped when the on-disk schema changes incompatibly.
@@ -145,9 +146,25 @@ func mergeSnapshots(snaps []Snapshot) ([]RunMeta, []TestResult) {
 	return runs, results
 }
 
+// validateSince checks that since parses as either YYYY-MM-DD or RFC3339.
+// Both formats compare correctly under lexicographic ordering against the
+// RFC3339 timestamps stored in RunMeta.CreatedAt, so no normalization is
+// needed — only validation, to fail fast on typos rather than producing a
+// silently-empty report.
+func validateSince(since string) error {
+	if _, err := time.Parse("2006-01-02", since); err == nil {
+		return nil
+	}
+	if _, err := time.Parse(time.RFC3339, since); err == nil {
+		return nil
+	}
+	return fmt.Errorf("must be YYYY-MM-DD or RFC3339, got %q", since)
+}
+
 // filterByDate keeps runs whose CreatedAt is >= since, and the results that
 // belong to those runs. since may be a date prefix (YYYY-MM-DD) or full
-// RFC3339; both compare correctly under lexicographic ordering.
+// RFC3339; both compare correctly under lexicographic ordering. Callers
+// should call validateSince first to reject malformed input.
 func filterByDate(runs []RunMeta, results []TestResult, since string) ([]RunMeta, []TestResult) {
 	if since == "" {
 		return runs, results

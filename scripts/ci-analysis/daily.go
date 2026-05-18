@@ -17,9 +17,8 @@ func runDaily(args []string) {
 	metaFile := fs.String("meta", "", "JSON file with array of run metadata objects")
 	repo := fs.String("repo", "open-telemetry/opentelemetry-ebpf-instrumentation", "GitHub repository for linking")
 	snapshotOut := fs.String("snapshot-out", "", "Optional path to write a JSON snapshot for downstream rollups")
-	if err := fs.Parse(args); err != nil {
-		log.Fatalf("parsing flags: %v", err)
-	}
+	// ExitOnError handles parse failures internally — no need to check the return.
+	_ = fs.Parse(args)
 
 	if *reportsDir == "" {
 		log.Fatal("--reports-dir is required")

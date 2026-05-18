@@ -102,6 +102,23 @@ func TestLoadSnapshotsRecursive(t *testing.T) {
 	require.Len(t, snaps, 2)
 }
 
+func TestValidateSince(t *testing.T) {
+	t.Run("date-only", func(t *testing.T) {
+		require.NoError(t, validateSince("2026-05-18"))
+	})
+	t.Run("rfc3339", func(t *testing.T) {
+		require.NoError(t, validateSince("2026-05-18T06:00:00Z"))
+	})
+	t.Run("garbage", func(t *testing.T) {
+		err := validateSince("last-monday")
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "YYYY-MM-DD or RFC3339")
+	})
+	t.Run("nearly-valid", func(t *testing.T) {
+		require.Error(t, validateSince("2026/05/18"))
+	})
+}
+
 func TestReadSnapshotRejectsFutureVersion(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "future.json")
 	require.NoError(t, os.WriteFile(path, []byte(`{"version": 999, "kind": "daily"}`), 0o644))

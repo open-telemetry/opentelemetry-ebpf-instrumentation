@@ -17,9 +17,8 @@ func runWeekly(args []string) {
 	repo := fs.String("repo", "open-telemetry/opentelemetry-ebpf-instrumentation", "GitHub repository for linking")
 	snapshotOut := fs.String("snapshot-out", "", "Optional path to write a JSON snapshot for downstream rollups (e.g. monthly)")
 	title := fs.String("title", "Weekly CI Test Analysis Report", "Report title")
-	if err := fs.Parse(args); err != nil {
-		log.Fatalf("parsing flags: %v", err)
-	}
+	// ExitOnError handles parse failures internally — no need to check the return.
+	_ = fs.Parse(args)
 
 	if *snapshotsDir == "" {
 		log.Fatal("--snapshots-dir is required")
@@ -27,6 +26,8 @@ func runWeekly(args []string) {
 
 	if *since == "" {
 		*since = time.Now().UTC().AddDate(0, 0, -7).Format("2006-01-02")
+	} else if err := validateSince(*since); err != nil {
+		log.Fatalf("--since: %v", err)
 	}
 
 	snaps, err := loadSnapshots(*snapshotsDir)

@@ -19,6 +19,12 @@ set -euo pipefail
 
 WORKFLOW_FILE="${WORKFLOW_FILE:-daily_test_analysis.yml}"
 LOOKBACK_RUNS="${LOOKBACK_RUNS:-15}"
+# GitHub caps per_page at 100; reject anything outside [1, 100] to fail fast
+# instead of producing a confusing gh api error.
+if ! [[ "$LOOKBACK_RUNS" =~ ^[0-9]+$ ]] || [ "$LOOKBACK_RUNS" -lt 1 ] || [ "$LOOKBACK_RUNS" -gt 100 ]; then
+  echo "Error: LOOKBACK_RUNS must be an integer between 1 and 100, got: $LOOKBACK_RUNS" >&2
+  exit 1
+fi
 SCRIPT_DIR="${SCRIPT_DIR:-$(cd "$(dirname "$0")" && pwd)}"
 WORK_DIR=$(mktemp -d)
 trap 'rm -rf "$WORK_DIR"' EXIT
