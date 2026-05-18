@@ -31,6 +31,8 @@ jobs:
       with:
         app-id: ${{ vars.OTELBOT_APP_ID }}
         private-key: ${{ secrets.OTELBOT_PRIVATE_KEY }}
+        permission-contents: write
+        permission-pull-requests: write
     - name: "Create/update PR"
       env:
         # not using secrets.GITHUB_TOKEN since pull requests from that token do not run workflows
