@@ -1,0 +1,1504 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opentelemetry.io/obi/schemas/obi-extension.schema.json",
+  "title": "OBI Extension Configuration",
+  "description": "Schema for the `extensions.obi` section in OTel declarative config files.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "type": "string",
+      "description": "OBI extension schema version.\nProperty is required and must be `2.0`.\n",
+      "const": "2.0"
+    },
+    "capture": {
+      "$ref": "#/$defs/Capture",
+      "description": "Configure what OBI captures and how.\nThis block is valid in all deployment modes (standalone daemon and Collector receiver).\nWhen running OBI as a Collector receiver, this is the sub-config that is embedded directly.\nIf omitted, defaults are used.\n"
+    },
+    "enrich": {
+      "$ref": "#/$defs/Enrich",
+      "description": "Configure metadata enrichment behavior.\nStandalone-mode only: not valid in Collector receiver deployments.\nIf omitted, enrichment defaults are used.\n"
+    },
+    "correlation": {
+      "$ref": "#/$defs/Correlation",
+      "description": "Configure trace-context correlation features for external streams.\nStandalone-mode only: not valid in Collector receiver deployments.\nIf omitted, correlation defaults are used.\n"
+    },
+    "daemon": {
+      "$ref": "#/$defs/Daemon",
+      "description": "Configure OBI daemon process behavior (logging, profiling, shutdown, internal metrics).\nStandalone-mode only: not valid in Collector receiver deployments.\nIf omitted, daemon defaults are used.\n"
+    }
+  },
+  "$defs": {
+    "SignalEnabled": {
+      "type": "object",
+      "description": "Enable/disable each signal explicitly for a protocol scope.",
+      "additionalProperties": false,
+      "properties": {
+        "traces": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable trace signal generation for this scope.\nIf omitted, true is used.\n"
+        },
+        "metrics": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable metric signal generation for this scope.\nIf omitted, true is used.\n"
+        }
+      }
+    },
+    "MatchDefinition": {
+      "type": "object",
+      "description": "Match expression using either an include (`match`) or exclude (`not_match`) wildcard pattern.",
+      "additionalProperties": false,
+      "properties": {
+        "match": {
+          "type": "string",
+          "description": "Include wildcard pattern. Use `*` for zero or more characters and `?` for a single character.\nCannot be set together with `.not_match`.\n"
+        },
+        "not_match": {
+          "type": "string",
+          "description": "Exclude wildcard pattern. Use `*` for zero or more characters and `?` for a single character.\nCannot be set together with `.match`.\n"
+        }
+      },
+      "oneOf": [
+        {
+          "required": [
+            "match"
+          ],
+          "not": {
+            "required": [
+              "not_match"
+            ]
+          }
+        },
+        {
+          "required": [
+            "not_match"
+          ],
+          "not": {
+            "required": [
+              "match"
+            ]
+          }
+        }
+      ]
+    },
+    "FilterMap": {
+      "type": "object",
+      "description": "Map of filter keys to match definitions.",
+      "additionalProperties": {
+        "$ref": "#/$defs/MatchDefinition"
+      }
+    },
+    "SignalFilters": {
+      "type": "object",
+      "description": "Signal-specific filters for traces and metrics.",
+      "additionalProperties": false,
+      "properties": {
+        "traces": {
+          "$ref": "#/$defs/FilterMap",
+          "description": "Filters applied to traces in this scope.\nIf omitted, no trace filtering is applied.\n"
+        },
+        "metrics": {
+          "$ref": "#/$defs/FilterMap",
+          "description": "Filters applied to metrics in this scope.\nIf omitted, no metric filtering is applied.\n"
+        }
+      }
+    },
+    "SelectionExportsOTLP": {
+      "type": "object",
+      "description": "Match predicate for detecting workloads that already export OTLP.",
+      "additionalProperties": false,
+      "properties": {
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535,
+          "description": "OTLP receiver port expected on the target workload.\nValue must be between 1 and 65535.\n"
+        },
+        "protocol": {
+          "type": "string",
+          "description": "OTLP transport/protocol identifier expected on the target workload (for example `protobuf`).\n"
+        }
+      },
+      "required": [
+        "port",
+        "protocol"
+      ]
+    },
+    "SelectionProcessMatch": {
+      "type": "object",
+      "description": "Process-level selection predicates.",
+      "additionalProperties": true,
+      "properties": {
+        "exe_path_glob": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string"
+          },
+          "description": "Glob patterns matched against process executable paths.\n"
+        },
+        "exports_otlp": {
+          "$ref": "#/$defs/SelectionExportsOTLP",
+          "description": "Predicate matching workloads that expose OTLP exports.\n"
+        }
+      }
+    },
+    "SelectionKubernetesMatch": {
+      "type": "object",
+      "description": "Kubernetes-level selection predicates.",
+      "additionalProperties": true,
+      "properties": {
+        "namespace_glob": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string"
+          },
+          "description": "Glob patterns matched against Kubernetes namespace names.\n"
+        }
+      }
+    },
+    "SelectionRuleMatch": {
+      "type": "object",
+      "description": "Rule match clause with light validation for known predicates while remaining extensible.",
+      "minProperties": 1,
+      "additionalProperties": true,
+      "properties": {
+        "process": {
+          "$ref": "#/$defs/SelectionProcessMatch",
+          "description": "Process identity and runtime predicate matches.\n"
+        },
+        "kubernetes": {
+          "$ref": "#/$defs/SelectionKubernetesMatch",
+          "description": "Kubernetes metadata predicate matches.\n"
+        }
+      }
+    },
+    "SelectionRuleRefine": {
+      "type": "object",
+      "description": "Optional workload-scoped configuration overrides applied on top of global defaults when an include rule matches.\nOnly explicitly listed fields are overridable.\nOnly meaningful on include rules; ignored on exclude rules.\n",
+      "additionalProperties": false,
+      "properties": {
+        "exports": {
+          "type": "object",
+          "description": "Override which signals are emitted for matched workloads.\nIf omitted, global instrumentation enablement applies.\n",
+          "additionalProperties": false,
+          "properties": {
+            "traces": {
+              "type": "boolean",
+              "description": "Enable or disable trace emission for this workload.\nIf omitted, the global protocol trace enablement applies.\n"
+            },
+            "metrics": {
+              "type": "boolean",
+              "description": "Enable or disable metric emission for this workload.\nIf omitted, the global protocol metric enablement applies.\n"
+            }
+          }
+        },
+        "http": {
+          "type": "object",
+          "description": "HTTP-specific per-workload overrides.\nFields here take precedence over the global `instrumentation.http` values for matched workloads.\n",
+          "additionalProperties": false,
+          "properties": {
+            "routes": {
+              "type": "object",
+              "description": "Per-workload HTTP route override.\nIf omitted, global route configuration applies.\n",
+              "additionalProperties": false,
+              "properties": {
+                "unmatched": {
+                  "type": "string",
+                  "enum": [
+                    "heuristic",
+                    "wildcard",
+                    "random_hash",
+                    "disabled"
+                  ],
+                  "description": "Fallback policy when no explicit route pattern matches.\nIf omitted, global `instrumentation.http.routes.unmatched` applies.\n"
+                },
+                "patterns": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "Explicit route patterns for this workload.\nThese are merged with (and take precedence over) global patterns.\nIf omitted, global patterns apply.\n"
+                },
+                "ignored_patterns": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "Route patterns to ignore for this workload.\nIf omitted, global ignored patterns apply.\n"
+                }
+              }
+            },
+            "filters": {
+              "$ref": "#/$defs/SignalFilters",
+              "description": "Per-workload HTTP trace and metric filters.\nThese replace (not merge with) the global HTTP filters for matched workloads.\nIf omitted, global filters apply.\n"
+            }
+          }
+        }
+      }
+    },
+    "SelectionPolicy": {
+      "type": "object",
+      "description": "Global rule evaluation behavior.",
+      "additionalProperties": false,
+      "properties": {
+        "default_action": {
+          "type": "string",
+          "enum": [
+            "include",
+            "exclude"
+          ],
+          "default": "include",
+          "description": "Default action when no rule matches.\nValues include: `include`, `exclude`.\nIf omitted, `include` is used.\n"
+        },
+        "match_order": {
+          "type": "string",
+          "enum": [
+            "first_match_wins",
+            "last_match_wins"
+          ],
+          "default": "first_match_wins",
+          "description": "Rule evaluation order semantics.\nValues include: `first_match_wins`, `last_match_wins`.\nIf omitted, `first_match_wins` is used.\n"
+        },
+        "poll_interval": {
+          "type": "string",
+          "default": "5s",
+          "description": "Polling interval used to refresh selection inputs.\nIf omitted, `5s` is used.\n"
+        },
+        "min_process_age": {
+          "type": "string",
+          "default": "5s",
+          "description": "Minimum process age required before a process becomes eligible for selection.\nIf omitted, `5s` is used.\n"
+        }
+      }
+    },
+    "SelectionRules": {
+      "type": "array",
+      "description": "Ordered selection rules.\nIf omitted, the default rule set is used.\n",
+      "minItems": 1,
+      "default": [
+        {
+          "action": "exclude",
+          "name": "exclude-obi-and-collectors",
+          "description": "Exclude OBI and collector binaries to avoid self-instrumentation and collector recursion.",
+          "match": {
+            "process": {
+              "exe_path_glob": [
+                "*/obi",
+                "obi",
+                "*otelcol",
+                "*otelcol-contrib",
+                "*otelcol-contrib[!/]*"
+              ]
+            }
+          }
+        },
+        {
+          "action": "exclude",
+          "name": "exclude-system-namespaces",
+          "description": "Exclude common platform/system Kubernetes namespaces from instrumentation by default.",
+          "match": {
+            "kubernetes": {
+              "namespace_glob": [
+                "kube-system",
+                "kube-node-lease",
+                "local-path-storage",
+                "cert-manager",
+                "monitoring",
+                "gke-connect",
+                "gke-gmp-system",
+                "gke-managed-cim",
+                "gke-managed-filestorecsi",
+                "gke-managed-metrics-server",
+                "gke-managed-system",
+                "gke-system",
+                "gke-managed-volumepopulator",
+                "gatekeeper-system"
+              ]
+            }
+          }
+        },
+        {
+          "action": "exclude",
+          "name": "exclude-otlp-exporters",
+          "description": "Exclude services that already export OTLP to prevent duplicate telemetry pipelines.",
+          "match": {
+            "process": {
+              "exports_otlp": {
+                "port": 4317,
+                "protocol": "protobuf"
+              }
+            }
+          }
+        },
+        {
+          "action": "exclude",
+          "name": "exclude-linux-system-paths",
+          "description": "Exclude Linux system/service executable paths that are not typical application workloads.",
+          "match": {
+            "process": {
+              "exe_path_glob": [
+                "/lib/systemd/*",
+                "/usr/lib/systemd/*",
+                "/usr/libexec/*",
+                "/sbin/*",
+                "/usr/sbin/*"
+              ]
+            }
+          }
+        }
+      ],
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "include",
+              "exclude"
+            ],
+            "description": "Rule action when `.match` evaluates true.\nValues include: `include`, `exclude`.\nProperty is required and must be non-null.\n"
+          },
+          "name": {
+            "type": "string",
+            "description": "Human-readable rule name.\nIf omitted, implementation may derive a generated identifier.\n"
+          },
+          "description": {
+            "type": "string",
+            "description": "Human-readable rule intent.\nIf omitted, no description is recorded.\n"
+          },
+          "match": {
+            "$ref": "#/$defs/SelectionRuleMatch",
+            "description": "Rule match clause. Known predicates are lightly validated while extension predicates remain allowed.\nProperty is required and must be non-null.\n"
+          },
+          "refine": {
+            "$ref": "#/$defs/SelectionRuleRefine",
+            "description": "Optional workload-scoped configuration overrides for matched workloads.\nOnly meaningful on include rules; ignored on exclude rules.\nIf omitted, global defaults apply without modification.\n"
+          }
+        },
+        "required": [
+          "action",
+          "match"
+        ]
+      }
+    },
+    "Capture": {
+      "type": "object",
+      "description": "What OBI captures and how.\nValid in all deployment modes. When running as a Collector receiver, this block is embedded directly in the receiver config.",
+      "additionalProperties": false,
+      "properties": {
+        "policy": {
+          "$ref": "#/$defs/SelectionPolicy",
+          "description": "Global rule evaluation behavior.\nIf omitted, defaults are used.\n"
+        },
+        "rules": {
+          "$ref": "#/$defs/SelectionRules",
+          "description": "Ordered workload selection rules.\nIf omitted, the default rule set is used.\n"
+        },
+        "instrumentation": {
+          "$ref": "#/$defs/Instrumentation",
+          "description": "Protocol instrumentation controls.\nIf omitted, per-protocol defaults are used.\n"
+        },
+        "runtimes": {
+          "$ref": "#/$defs/Runtimes",
+          "description": "Runtime injection mechanisms (Go, Node.js, Java).\nIf omitted, runtime injection defaults are used.\n"
+        },
+        "network": {
+          "$ref": "#/$defs/Network",
+          "description": "Network capture controls.\nIf omitted, network capture defaults are used.\n"
+        },
+        "limits": {
+          "type": "object",
+          "description": "Numeric limits to constrain memory and cardinality growth.\nIf omitted, defaults are used.\n",
+          "additionalProperties": false,
+          "properties": {
+            "network_packets": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 5000,
+              "description": "Maximum number of network packets to retain in internal processing windows.\nValue must be positive.\nIf omitted, `5000` is used.\n"
+            },
+            "metric_span_names": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 100,
+              "description": "Maximum tracked span-name cardinality for derived metrics.\nValue must be non-negative.\nA value of `0` disables span-name limiting.\nIf omitted, `100` is used.\n"
+            }
+          }
+        },
+        "engine": {
+          "type": "object",
+          "description": "eBPF engine internals: batching, pid filtering, BPF filesystem, context propagation, traffic backend, transaction limits, and debug toggles.",
+          "additionalProperties": false,
+          "properties": {
+            "debug": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "bpf": {
+                  "type": "boolean",
+                  "default": false,
+                  "description": "Enable eBPF debug logging.\nIf omitted, false is used.\n"
+                },
+                "protocol_print": {
+                  "type": "boolean",
+                  "default": false,
+                  "description": "Enable protocol debug printing.\nIf omitted, false is used.\n"
+                }
+              }
+            },
+            "pid_filter": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "disabled": {
+                  "type": "boolean",
+                  "default": false,
+                  "description": "Disable PID-based filtering in discovery/capture flows.\nIf omitted, false is used.\n"
+                }
+              }
+            },
+            "batching": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "wakeup_len": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "default": 500,
+                  "description": "Ringbuffer wakeup threshold for capture batching.\nIf omitted, `500` is used.\n"
+                },
+                "batch_length": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "default": 100,
+                  "description": "Maximum number of captured events grouped per batch.\nIf omitted, `100` is used.\n"
+                },
+                "batch_timeout": {
+                  "type": "string",
+                  "default": "1s",
+                  "description": "Maximum time to wait before flushing a partial batch.\nIf omitted, `1s` is used.\n"
+                }
+              }
+            },
+            "propagation": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "context_propagation": {
+                  "type": "string",
+                  "enum": [
+                    "disabled",
+                    "headers",
+                    "tcp",
+                    "ip",
+                    "all"
+                  ],
+                  "default": "disabled",
+                  "description": "Context propagation mode.\nValues include: `disabled`, `headers`, `tcp`, `ip`, `all`.\nIf omitted, `disabled` is used.\n"
+                },
+                "override_bpfloop_enabled": {
+                  "type": "boolean",
+                  "default": false,
+                  "description": "Override kernel bpf_loop capability checks.\nIf omitted, false is used.\n"
+                },
+                "disable_black_box_cp": {
+                  "type": "boolean",
+                  "default": false,
+                  "description": "Disable black-box context propagation.\nIf omitted, false is used.\n"
+                }
+              }
+            },
+            "traffic": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "control_backend": {
+                  "type": "string",
+                  "enum": [
+                    "auto",
+                    "tc",
+                    "tcx"
+                  ],
+                  "default": "auto",
+                  "description": "Traffic control backend selection.\nValues include: `auto`, `tc`, `tcx`.\nIf omitted, `auto` is used.\n"
+                },
+                "high_request_volume": {
+                  "type": "boolean",
+                  "default": false,
+                  "description": "Optimize capture behavior for high request volume workloads.\nIf omitted, false is used.\n"
+                }
+              }
+            },
+            "transactions": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "max_duration": {
+                  "type": "string",
+                  "default": "5m0s",
+                  "description": "Maximum duration allowed for correlating request/response transactions.\nIf omitted, `5m0s` is used.\n"
+                }
+              }
+            },
+            "bpf_filesystem": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "default": "/sys/fs/bpf/",
+                  "description": "Filesystem path used for pinned BPF objects/maps.\nIf omitted, `/sys/fs/bpf/` is used.\n"
+                }
+              }
+            }
+          }
+        },
+        "safety": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enforce_system_capabilities": {
+              "type": "boolean",
+              "default": false,
+              "description": "Enforce required system capabilities on startup.\nIf omitted, false is used.\n"
+            }
+          }
+        },
+        "channels": {
+          "type": "object",
+          "description": "Internal channel backpressure controls.",
+          "additionalProperties": false,
+          "properties": {
+            "buffer_len": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 50,
+              "description": "Runtime channel buffer length.\nIf omitted, `50` is used.\n"
+            },
+            "send_timeout": {
+              "type": "string",
+              "default": "1m0s",
+              "description": "Runtime channel send timeout.\nIf omitted, `1m0s` is used.\n"
+            },
+            "panic_on_send_timeout": {
+              "type": "boolean",
+              "default": false,
+              "description": "Panic when a runtime channel send timeout occurs.\nIf omitted, false is used.\n"
+            }
+          }
+        },
+        "telemetry": {
+          "type": "object",
+          "description": "Reporter cache and metric TTL tuning for OBI capture internals.",
+          "additionalProperties": false,
+          "properties": {
+            "traces": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "reporters_cache_len": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "default": 256,
+                  "description": "Trace reporter cache size used by OBI internals.\nIf omitted, `256` is used.\n"
+                }
+              }
+            },
+            "metrics": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "ttl": {
+                  "type": "string",
+                  "default": "5m0s",
+                  "description": "Metric time-to-live for stale metric series generated by OBI internals.\nIf omitted, `5m0s` is used.\n"
+                },
+                "reporters_cache_len": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "default": 256,
+                  "description": "Metric reporter cache size used by OBI internals.\nIf omitted, `256` is used.\n"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "Daemon": {
+      "type": "object",
+      "description": "OBI daemon process controls. Standalone-mode only: not valid in Collector receiver deployments.",
+      "additionalProperties": false,
+      "properties": {
+        "logging": {
+          "type": "object",
+          "description": "Logging behavior and debug-output controls.",
+          "additionalProperties": false,
+          "properties": {
+            "level": {
+              "type": "string",
+              "enum": [
+                "DEBUG",
+                "INFO",
+                "WARN",
+                "ERROR"
+              ],
+              "default": "INFO",
+              "description": "OBI log level.\nValues include: `DEBUG`, `INFO`, `WARN`, `ERROR`.\nIf omitted, `INFO` is used.\n"
+            },
+            "format": {
+              "type": "string",
+              "enum": [
+                "",
+                "yaml",
+                "json"
+              ],
+              "default": "",
+              "description": "Startup configuration log format. Empty string disables startup config logging.\nValues include: `yaml`, `json`.\nIf omitted, empty string is used.\n"
+            },
+            "debug_trace_output": {
+              "type": "string",
+              "enum": [
+                "disabled",
+                "counter",
+                "text",
+                "json",
+                "json_indent"
+              ],
+              "default": "disabled",
+              "description": "Debug trace output mode.\nValues include: `disabled`, `counter`, `text`, `json`, `json_indent`.\nIf omitted, `disabled` is used.\n"
+            }
+          }
+        },
+        "profiling": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "port": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "description": "Profiling server port. Set `0` to disable.\nIf omitted, `0` is used.\n"
+            }
+          }
+        },
+        "shutdown": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "timeout": {
+              "type": "string",
+              "default": "10s",
+              "description": "Graceful shutdown timeout.\nIf omitted, `10s` is used.\n"
+            }
+          }
+        },
+        "internal_metrics": {
+          "type": "object",
+          "description": "OBI daemon's own metrics exporter configuration.",
+          "additionalProperties": false,
+          "properties": {
+            "exporter": {
+              "type": "string",
+              "enum": [
+                "disabled",
+                "prometheus",
+                "otel"
+              ],
+              "default": "disabled",
+              "description": "Internal metrics exporter mode.\nValues include: `disabled`, `prometheus`, `otel`.\nIf omitted, `disabled` is used.\n"
+            },
+            "prometheus": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "port": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "default": 0,
+                  "description": "Internal Prometheus exporter port. Set `0` to disable listener.\nIf omitted, `0` is used.\n"
+                },
+                "path": {
+                  "type": "string",
+                  "default": "/internal/metrics",
+                  "description": "Internal Prometheus metrics path.\nIf omitted, `/internal/metrics` is used.\n"
+                }
+              }
+            },
+            "bpf": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "scrape_interval": {
+                  "type": "string",
+                  "default": "15s",
+                  "description": "Scrape interval for BPF internal metrics collection.\nIf omitted, `15s` is used.\n"
+                }
+              }
+            }
+          }
+        },
+        "telemetry": {
+          "type": "object",
+          "description": "Prometheus-exporter-specific metric shaping for OBI standalone output.",
+          "additionalProperties": false,
+          "properties": {
+            "metrics": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "prometheus": {
+                  "type": "object",
+                  "description": "Prometheus-exporter-specific metric tuning.",
+                  "additionalProperties": false,
+                  "properties": {
+                    "allow_service_graph_self_references": {
+                      "type": "boolean",
+                      "default": false,
+                      "description": "Allow service graph self-references in OBI-generated Prometheus metrics.\nIf omitted, false is used.\n"
+                    },
+                    "span_metrics_service_cache_size": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "default": 10000,
+                      "description": "Service cache size for span-metrics aggregation in OBI-generated Prometheus metrics.\nIf omitted, `10000` is used.\n"
+                    },
+                    "extra_resource_attributes": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "default": [],
+                      "description": "Additional resource attributes to include in OBI-generated Prometheus metrics.\nIf omitted, no extra attributes are added.\n"
+                    },
+                    "extra_span_resource_attributes": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "default": [],
+                      "description": "Additional span resource attributes to include in OBI-generated Prometheus span metrics.\nIf omitted, no extra attributes are added.\n"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "InstrumentationProtocol": {
+      "type": "object",
+      "description": "Shared envelope for a protocol/language instrumentation section.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "$ref": "#/$defs/SignalEnabled",
+          "description": "Enable controls for traces and metrics.\nIf omitted, signal defaults are used.\n"
+        },
+        "filters": {
+          "$ref": "#/$defs/SignalFilters",
+          "description": "Signal-specific filters used by this section.\nIf omitted, no filtering is applied.\n"
+        }
+      }
+    },
+    "HttpInstrumentation": {
+      "type": "object",
+      "description": "HTTP instrumentation controls.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "$ref": "#/$defs/SignalEnabled",
+          "description": "Enable HTTP traces/metrics.\nIf omitted, signal defaults are used.\n"
+        },
+        "filters": {
+          "$ref": "#/$defs/SignalFilters",
+          "description": "Signal-specific HTTP filters.\nIf omitted, no filtering is applied.\n"
+        },
+        "track_request_headers": {
+          "type": "boolean",
+          "default": false,
+          "description": "Capture configured inbound/outbound HTTP headers.\nIf omitted, false is used.\n"
+        },
+        "request_timeout": {
+          "type": "string",
+          "default": "0s",
+          "description": "HTTP request timeout guard for capture/processing.\nIf omitted, `0s` is used.\n"
+        },
+        "buffer_size": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0,
+          "description": "HTTP parser/capture buffer size.\nIf omitted, `0` is used.\n"
+        },
+        "routes": {
+          "type": "object",
+          "description": "HTTP route normalization and discovery controls.",
+          "additionalProperties": false,
+          "properties": {
+            "unmatched": {
+              "type": "string",
+              "default": "heuristic",
+              "description": "Fallback route policy when no explicit pattern matches.\nIf omitted, `heuristic` is used.\n"
+            },
+            "patterns": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "default": [],
+              "description": "User-supplied route patterns.\nIf omitted, no explicit patterns are used.\n"
+            },
+            "ignored_patterns": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "default": [],
+              "description": "Route patterns to ignore.\nIf omitted, no patterns are ignored.\n"
+            },
+            "ignore_mode": {
+              "type": "string",
+              "default": "all",
+              "description": "Signal mode for ignored patterns.\nIf omitted, `all` is used.\n"
+            },
+            "wildcard_char": {
+              "type": "string",
+              "default": "*",
+              "description": "Wildcard replacement character for route templates.\nIf omitted, `*` is used.\n"
+            },
+            "max_path_segment_cardinality": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 10,
+              "description": "Maximum per-segment path cardinality in heuristic mode.\nIf omitted, `10` is used.\n"
+            },
+            "discovery": {
+              "type": "object",
+              "description": "HTTP route template discovery controls.",
+              "additionalProperties": false,
+              "properties": {
+                "timeout": {
+                  "type": "string",
+                  "default": "10s",
+                  "description": "Global timeout for route discovery runs.\nIf omitted, `10s` is used.\n"
+                },
+                "disabled_languages": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "default": [],
+                  "description": "Languages excluded from route discovery.\nIf omitted, no languages are excluded.\n"
+                },
+                "java": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "delay": {
+                      "type": "string",
+                      "default": "1m0s",
+                      "description": "Delay before Java route discovery starts.\nIf omitted, `1m0s` is used.\n"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "payload_extraction": {
+          "type": "object",
+          "description": "HTTP payload extraction controls.",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "graphql",
+                  "elasticsearch",
+                  "aws",
+                  "sqlpp"
+                ]
+              },
+              "default": [],
+              "description": "Payload extractors enabled for HTTP-derived parsing.\nIf omitted, no payload extractors are enabled.\n"
+            },
+            "sqlpp": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "endpoint_patterns": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "default": [
+                    "/query/service"
+                  ],
+                  "description": "Endpoint patterns eligible for SQL++ payload extraction.\nIf omitted, `/query/service` is used.\n"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "TraceAnnotation": {
+      "type": "object",
+      "description": "Trace-context annotation controls for process logs.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable trace-context annotation on log streams for selected workloads.\nIf omitted, false is used.\n"
+        },
+        "filter": {
+          "$ref": "#/$defs/FilterMap",
+          "description": "Attribute-based refinement filter for log trace annotation.\nApplied after selection admits a workload.\nIf omitted, no additional filtering is applied.\n"
+        },
+        "cache": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "ttl": {
+              "type": "string",
+              "default": "30m0s",
+              "description": "Trace annotation cache TTL.\nIf omitted, `30m0s` is used.\n"
+            },
+            "size": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 128,
+              "description": "Trace annotation cache size.\nIf omitted, `128` is used.\n"
+            }
+          }
+        },
+        "async_writer": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "workers": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 8,
+              "description": "Trace annotation async writer worker count.\nIf omitted, `8` is used.\n"
+            },
+            "channel_len": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 500,
+              "description": "Trace annotation async writer channel length.\nIf omitted, `500` is used.\n"
+            }
+          }
+        }
+      }
+    },
+    "Correlation": {
+      "type": "object",
+      "description": "Trace-context correlation feature controls for external streams.",
+      "additionalProperties": false,
+      "properties": {
+        "log_trace_annotation": {
+          "$ref": "#/$defs/TraceAnnotation",
+          "description": "Trace-context annotation controls for process logs.\nIf omitted, defaults are used.\n"
+        }
+      },
+      "default": {
+        "log_trace_annotation": {
+          "enabled": false,
+          "filter": {},
+          "cache": {
+            "ttl": "30m0s",
+            "size": 128
+          },
+          "async_writer": {
+            "workers": 8,
+            "channel_len": 500
+          }
+        }
+      }
+    },
+    "SqlInstrumentation": {
+      "type": "object",
+      "description": "SQL instrumentation controls.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "$ref": "#/$defs/SignalEnabled",
+          "description": "Enable SQL traces/metrics.\nIf omitted, signal defaults are used.\n"
+        },
+        "filters": {
+          "$ref": "#/$defs/SignalFilters",
+          "description": "Signal-specific SQL filters.\nIf omitted, no filtering is applied.\n"
+        },
+        "heuristic_detect": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable heuristic SQL protocol detection.\nIf omitted, false is used.\n"
+        },
+        "mysql": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "buffer_size": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "description": "MySQL parser buffer size.\nIf omitted, `0` is used.\n"
+            },
+            "prepared_statements_cache_size": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 1024,
+              "description": "MySQL prepared statements cache size.\nIf omitted, `1024` is used.\n"
+            }
+          }
+        },
+        "postgres": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "buffer_size": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "description": "PostgreSQL parser buffer size.\nIf omitted, `0` is used.\n"
+            },
+            "prepared_statements_cache_size": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 1024,
+              "description": "PostgreSQL prepared statements cache size.\nIf omitted, `1024` is used.\n"
+            }
+          }
+        }
+      }
+    },
+    "RedisInstrumentation": {
+      "type": "object",
+      "description": "Redis instrumentation controls.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "$ref": "#/$defs/SignalEnabled",
+          "description": "Enable Redis traces/metrics.\nIf omitted, signal defaults are used.\n"
+        },
+        "filters": {
+          "$ref": "#/$defs/SignalFilters",
+          "description": "Signal-specific Redis filters.\nIf omitted, no filtering is applied.\n"
+        },
+        "db_cache": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false,
+              "description": "Enable Redis DB cache.\nIf omitted, false is used.\n"
+            },
+            "max_size": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 1000,
+              "description": "Redis DB cache max size.\nIf omitted, `1000` is used.\n"
+            }
+          }
+        }
+      }
+    },
+    "KafkaInstrumentation": {
+      "type": "object",
+      "description": "Kafka instrumentation controls.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "$ref": "#/$defs/SignalEnabled",
+          "description": "Enable Kafka traces/metrics.\nIf omitted, signal defaults are used.\n"
+        },
+        "filters": {
+          "$ref": "#/$defs/SignalFilters",
+          "description": "Signal-specific Kafka filters.\nIf omitted, no filtering is applied.\n"
+        },
+        "buffer_size": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0,
+          "description": "Kafka parser buffer size.\nIf omitted, `0` is used.\n"
+        },
+        "topic_uuid_cache_size": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 1024,
+          "description": "Kafka topic UUID cache size.\nIf omitted, `1024` is used.\n"
+        }
+      }
+    },
+    "MongoInstrumentation": {
+      "type": "object",
+      "description": "MongoDB instrumentation controls.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "$ref": "#/$defs/SignalEnabled",
+          "description": "Enable MongoDB traces/metrics.\nIf omitted, signal defaults are used.\n"
+        },
+        "filters": {
+          "$ref": "#/$defs/SignalFilters",
+          "description": "Signal-specific MongoDB filters.\nIf omitted, no filtering is applied.\n"
+        },
+        "requests_cache_size": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 1024,
+          "description": "Mongo request cache size.\nIf omitted, `1024` is used.\n"
+        }
+      }
+    },
+    "CouchbaseInstrumentation": {
+      "type": "object",
+      "description": "Couchbase instrumentation controls.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "$ref": "#/$defs/SignalEnabled",
+          "description": "Enable Couchbase traces/metrics.\nIf omitted, signal defaults are used.\n"
+        },
+        "filters": {
+          "$ref": "#/$defs/SignalFilters",
+          "description": "Signal-specific Couchbase filters.\nIf omitted, no filtering is applied.\n"
+        },
+        "db_cache_size": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 1024,
+          "description": "Couchbase DB cache size.\nIf omitted, `1024` is used.\n"
+        }
+      }
+    },
+    "DnsInstrumentation": {
+      "type": "object",
+      "description": "DNS instrumentation controls.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "$ref": "#/$defs/SignalEnabled",
+          "description": "Enable DNS traces/metrics.\nIf omitted, DNS defaults are used.\n",
+          "default": {
+            "traces": false,
+            "metrics": false
+          }
+        },
+        "filters": {
+          "$ref": "#/$defs/SignalFilters",
+          "description": "Signal-specific DNS filters.\nIf omitted, no filtering is applied.\n"
+        },
+        "request_timeout": {
+          "type": "string",
+          "default": "5s",
+          "description": "DNS request timeout.\nIf omitted, `5s` is used.\n"
+        }
+      }
+    },
+    "GpuInstrumentation": {
+      "type": "object",
+      "description": "GPU instrumentation controls.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "$ref": "#/$defs/SignalEnabled",
+          "description": "Enable GPU traces/metrics.\nIf omitted, signal defaults are used.\n"
+        },
+        "filters": {
+          "$ref": "#/$defs/SignalFilters",
+          "description": "Signal-specific GPU filters.\nIf omitted, no filtering is applied.\n"
+        },
+        "enabled_mode": {
+          "type": "string",
+          "default": "auto",
+          "description": "GPU instrumentation mode.\nIf omitted, `auto` is used.\n"
+        }
+      }
+    },
+    "RuntimeInjection": {
+      "type": "object",
+      "description": "Runtime injection mechanism configuration. Controls whether a runtime injection (Go probes, Node.js SIGUSR1, Java agent) is enabled for workloads selected via the global selection rules.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable this runtime injection mechanism.\nIf omitted, true is used.\n"
+        },
+        "filter": {
+          "$ref": "#/$defs/FilterMap",
+          "description": "Optional per-injector refinement filter.\nIf omitted, injection applies to all selected services.\n"
+        }
+      }
+    },
+    "JavaRuntime": {
+      "type": "object",
+      "description": "Java runtime injection controls.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable Java agent injection.\nIf omitted, true is used.\n"
+        },
+        "filter": {
+          "$ref": "#/$defs/FilterMap",
+          "description": "Optional per-injector refinement filter.\nIf omitted, injection applies to all selected services.\n"
+        },
+        "debug": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false,
+              "description": "Enable Java agent debug mode.\nIf omitted, false is used.\n"
+            },
+            "bytecode_instrumentation": {
+              "type": "boolean",
+              "default": false,
+              "description": "Enable Java bytecode instrumentation debug logs.\nIf omitted, false is used.\n"
+            }
+          }
+        },
+        "attach_timeout": {
+          "type": "string",
+          "default": "10s",
+          "description": "Java attach timeout.\nIf omitted, `10s` is used.\n"
+        }
+      }
+    },
+    "Runtimes": {
+      "type": "object",
+      "description": "Runtime injection mechanism configurations. These control how language-specific runtime instrumentation is injected into workloads selected via the global selection rules.",
+      "additionalProperties": false,
+      "properties": {
+        "go": {
+          "$ref": "#/$defs/RuntimeInjection",
+          "description": "Go runtime instrumentation controls.\nIf omitted, Go injection defaults are used.\n",
+          "default": {
+            "enabled": true,
+            "filter": {}
+          }
+        },
+        "nodejs": {
+          "$ref": "#/$defs/RuntimeInjection",
+          "description": "Node.js runtime instrumentation controls.\nIf omitted, Node.js injection defaults are used.\n",
+          "default": {
+            "enabled": true,
+            "filter": {}
+          }
+        },
+        "java": {
+          "$ref": "#/$defs/JavaRuntime",
+          "description": "Java runtime instrumentation controls.\nIf omitted, Java injection defaults are used.\n",
+          "default": {
+            "enabled": true,
+            "filter": {}
+          }
+        }
+      }
+    },
+    "Instrumentation": {
+      "type": "object",
+      "description": "Protocol and language instrumentation configuration.",
+      "additionalProperties": false,
+      "properties": {
+        "http": {
+          "$ref": "#/$defs/HttpInstrumentation",
+          "description": "HTTP instrumentation controls.\nIf omitted, HTTP defaults are used.\n"
+        },
+        "grpc": {
+          "$ref": "#/$defs/InstrumentationProtocol",
+          "description": "gRPC instrumentation controls.\nIf omitted, gRPC defaults are used.\n",
+          "default": {
+            "enabled": {
+              "traces": true,
+              "metrics": true
+            },
+            "filters": {}
+          }
+        },
+        "sql": {
+          "$ref": "#/$defs/SqlInstrumentation",
+          "description": "SQL instrumentation controls.\nIf omitted, SQL defaults are used.\n"
+        },
+        "redis": {
+          "$ref": "#/$defs/RedisInstrumentation",
+          "description": "Redis instrumentation controls.\nIf omitted, Redis defaults are used.\n"
+        },
+        "kafka": {
+          "$ref": "#/$defs/KafkaInstrumentation",
+          "description": "Kafka instrumentation controls.\nIf omitted, Kafka defaults are used.\n"
+        },
+        "mongo": {
+          "$ref": "#/$defs/MongoInstrumentation",
+          "description": "MongoDB instrumentation controls.\nIf omitted, MongoDB defaults are used.\n"
+        },
+        "couchbase": {
+          "$ref": "#/$defs/CouchbaseInstrumentation",
+          "description": "Couchbase instrumentation controls.\nIf omitted, Couchbase defaults are used.\n"
+        },
+        "dns": {
+          "$ref": "#/$defs/DnsInstrumentation",
+          "description": "DNS instrumentation controls.\nIf omitted, DNS defaults are used.\n"
+        },
+        "gpu": {
+          "$ref": "#/$defs/GpuInstrumentation",
+          "description": "GPU event instrumentation controls.\nIf omitted, GPU defaults are used.\n"
+        }
+      },
+      "default": {
+        "http": {
+          "enabled": {
+            "traces": true,
+            "metrics": true
+          },
+          "filters": {}
+        },
+        "grpc": {
+          "enabled": {
+            "traces": true,
+            "metrics": true
+          },
+          "filters": {}
+        },
+        "sql": {
+          "enabled": {
+            "traces": true,
+            "metrics": true
+          },
+          "filters": {}
+        },
+        "redis": {
+          "enabled": {
+            "traces": true,
+            "metrics": true
+          },
+          "filters": {}
+        },
+        "kafka": {
+          "enabled": {
+            "traces": true,
+            "metrics": true
+          },
+          "filters": {}
+        },
+        "mongo": {
+          "enabled": {
+            "traces": true,
+            "metrics": true
+          },
+          "filters": {}
+        },
+        "couchbase": {
+          "enabled": {
+            "traces": true,
+            "metrics": true
+          },
+          "filters": {}
+        },
+        "dns": {
+          "enabled": {
+            "traces": false,
+            "metrics": false
+          },
+          "filters": {}
+        },
+        "gpu": {
+          "enabled": {
+            "traces": true,
+            "metrics": true
+          },
+          "filters": {}
+        }
+      }
+    },
+    "Network": {
+      "type": "object",
+      "description": "Network capture configuration.",
+      "additionalProperties": false,
+      "properties": {
+        "capture": {
+          "type": "object",
+          "description": "Packet capture controls and network-sourced filtering.",
+          "additionalProperties": true,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false,
+              "description": "Enable network capture.\nIf omitted, false is used.\n"
+            },
+            "source": {
+              "type": "string",
+              "enum": [
+                "socket_filter",
+                "tc"
+              ],
+              "default": "socket_filter",
+              "description": "Network capture source implementation.\nValues include: `socket_filter`, `tc`.\nIf omitted, `socket_filter` is used.\n"
+            },
+            "filters": {
+              "$ref": "#/$defs/SignalFilters",
+              "description": "Signal-specific filters applied to network capture output.\nIf omitted, no filtering is applied.\n"
+            }
+          }
+        }
+      }
+    },
+    "Enrich": {
+      "type": "object",
+      "description": "Enrichment configuration. Additional implementation-specific enrichment settings are allowed.",
+      "additionalProperties": true,
+      "properties": {
+        "enrichers": {
+          "type": "object",
+          "description": "Enable/disable named enrichers and set enricher options.\nIf omitted, implementation defaults are used.\n",
+          "additionalProperties": true,
+          "properties": {
+            "kubernetes": {
+              "type": "object",
+              "description": "Kubernetes metadata enricher configuration.\nWhen running OBI as a standalone daemon this enricher provides k8s pod/namespace/deployment metadata.\nWhen running OBI as a Collector receiver, consider setting `mode: disabled` and using the\n`k8sattributesprocessor` instead to avoid duplicate k8s API queries.\nIf omitted, implementation defaults are used.\n",
+              "additionalProperties": true,
+              "properties": {
+                "mode": {
+                  "type": "string",
+                  "enum": [
+                    "autodetect",
+                    "enabled",
+                    "disabled"
+                  ],
+                  "default": "autodetect",
+                  "description": "Kubernetes enricher activation mode.\n`autodetect`: enable if a Kubernetes environment is detected (default).\n`enabled`: always enable.\n`disabled`: disable. Recommended when running as a Collector receiver and using `k8sattributesprocessor`.\nIf omitted, `autodetect` is used.\n"
+                }
+              }
+            }
+          }
+        },
+        "service_name": {
+          "type": "object",
+          "description": "Service name derivation controls.\nIf omitted, implementation defaults are used.\n"
+        },
+        "attributes": {
+          "type": "object",
+          "description": "Attribute enrichment rules and defaults.\nIf omitted, implementation defaults are used.\n"
+        }
+      }
+    }
+  },
+  "required": [
+    "version"
+  ]
+}

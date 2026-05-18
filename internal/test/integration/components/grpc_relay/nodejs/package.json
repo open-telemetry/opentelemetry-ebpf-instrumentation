@@ -1,0 +1,9 @@
+{
+  "name": "grpc-relay-nodejs",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "@grpc/grpc-js": "^1.12.0",
+    "@grpc/proto-loader": "^0.7.0"
+  }
+}

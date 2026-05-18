@@ -12,41 +12,35 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
 )
 
 // TestEvent represents a single go test -json event.
 type TestEvent struct {
-	Time    string  `json:"Time"`
-	Action  string  `json:"Action"`
-	Package string  `json:"Package"`
-	Test    string  `json:"Test"`
-	Output  string  `json:"Output"`
-	Elapsed float64 `json:"Elapsed"`
+	Action  string `json:"Action"`
+	Package string `json:"Package"`
+	Test    string `json:"Test"`
+	Output  string `json:"Output"`
 }
 
 // TestResult is the parsed outcome for a single test in a single run.
 type TestResult struct {
-	RunID            string  `json:"run_id"`
-	SHA              string  `json:"sha"`
-	CreatedAt        string  `json:"created_at"`
-	Workflow         string  `json:"workflow"`
-	Shard            string  `json:"shard"`
-	Test             string  `json:"test"`
-	Package          string  `json:"package"`
-	Outcome          string  `json:"outcome"`
-	Attempts         int     `json:"attempts"`
-	ElapsedS         float64 `json:"elapsed_s"`
-	ErrorFingerprint string  `json:"error_fingerprint,omitempty"`
-	ErrorSnippet     string  `json:"error_snippet,omitempty"`
+	RunID    string
+	Workflow string
+	// Package is part of the test identity: unit-test shards run multiple Go
+	// packages in one gotestsum file, so two TestFoo entries in different
+	// packages must not be merged. Do not remove.
+	Package          string
+	Test             string
+	Outcome          string
+	ErrorFingerprint string
+	ErrorSnippet     string
 }
 
 // RunMeta contains metadata for each run being parsed.
 type RunMeta struct {
 	RunID      string `json:"run_id"`
-	SHA        string `json:"sha"`
 	CreatedAt  string `json:"created_at"`
 	Workflow   string `json:"workflow"`
 	Conclusion string `json:"conclusion"`
@@ -83,12 +77,11 @@ func parseAllReports(reportsDir, logsDir string, metaMap map[string]RunMeta) ([]
 		}
 
 		relPath, _ := filepath.Rel(reportsDir, path)
-		parts := strings.SplitN(relPath, string(filepath.Separator), 3)
+		parts := strings.SplitN(relPath, string(filepath.Separator), 2)
 
-		var runID, shard string
-		if len(parts) >= 2 {
+		var runID string
+		if len(parts) >= 1 {
 			runID = parts[0]
-			shard = extractShard(parts[1])
 		}
 
 		meta := metaMap[runID]
@@ -103,7 +96,7 @@ func parseAllReports(reportsDir, logsDir string, metaMap map[string]RunMeta) ([]
 		}
 		defer f.Close()
 
-		results, err := parseGotestsum(f, meta, shard)
+		results, err := parseGotestsum(f, meta)
 		if err != nil {
 			log.Printf("warning: parsing %s: %v", path, err)
 			return nil
@@ -120,27 +113,20 @@ func parseAllReports(reportsDir, logsDir string, metaMap map[string]RunMeta) ([]
 	return all, err
 }
 
-var shardRE = regexp.MustCompile(`reports?-(\d+)-`)
-
-func extractShard(artifactName string) string {
-	m := shardRE.FindStringSubmatch(artifactName)
-	if len(m) >= 2 {
-		return "shard-" + m[1]
-	}
-	return artifactName
-}
-
 // testState tracks events for a single test across potential reruns.
 type testState struct {
-	pkg        string
 	outcomes   []string
-	elapsed    float64
 	outputBuf  []string
 	failOutput []string
 }
 
-func parseGotestsum(r io.Reader, meta RunMeta, shard string) ([]TestResult, error) {
-	tests := map[string]*testState{}
+// pkgTest identifies a test by both package and name; a gotestsum file can
+// span multiple Go packages (unit-test shards), and tests sharing a name
+// across packages must stay distinct.
+type pkgTest struct{ pkg, test string }
+
+func parseGotestsum(r io.Reader, meta RunMeta) ([]TestResult, error) {
+	tests := map[pkgTest]*testState{}
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 0, 1024*1024), 1024*1024)
 
@@ -158,10 +144,11 @@ func parseGotestsum(r io.Reader, meta RunMeta, shard string) ([]TestResult, erro
 			topTest = ev.Test[:idx]
 		}
 
-		ts, ok := tests[topTest]
+		key := pkgTest{ev.Package, topTest}
+		ts, ok := tests[key]
 		if !ok {
-			ts = &testState{pkg: ev.Package}
-			tests[topTest] = ts
+			ts = &testState{}
+			tests[key] = ts
 		}
 
 		switch ev.Action {
@@ -170,7 +157,6 @@ func parseGotestsum(r io.Reader, meta RunMeta, shard string) ([]TestResult, erro
 		case "pass", "fail", "skip":
 			if ev.Test == topTest {
 				ts.outcomes = append(ts.outcomes, ev.Action)
-				ts.elapsed = ev.Elapsed
 				if ev.Action == "fail" {
 					ts.failOutput = make([]string, len(ts.outputBuf))
 					copy(ts.failOutput, ts.outputBuf)
@@ -183,18 +169,13 @@ func parseGotestsum(r io.Reader, meta RunMeta, shard string) ([]TestResult, erro
 	}
 
 	var results []TestResult
-	for testName, ts := range tests {
+	for key, ts := range tests {
 		r := TestResult{
-			RunID:     meta.RunID,
-			SHA:       meta.SHA,
-			CreatedAt: meta.CreatedAt,
-			Workflow:  meta.Workflow,
-			Shard:     shard,
-			Test:      testName,
-			Package:   ts.pkg,
-			Outcome:   classifyOutcome(ts.outcomes),
-			Attempts:  countAttempts(ts.outcomes),
-			ElapsedS:  ts.elapsed,
+			RunID:    meta.RunID,
+			Workflow: meta.Workflow,
+			Package:  key.pkg,
+			Test:     key.test,
+			Outcome:  classifyOutcome(ts.outcomes),
 		}
 		if r.Outcome == "failed" || r.Outcome == "flaky-passed" {
 			r.ErrorSnippet = extractErrorSnippet(ts.failOutput)
@@ -205,7 +186,10 @@ func parseGotestsum(r io.Reader, meta RunMeta, shard string) ([]TestResult, erro
 	}
 
 	sort.Slice(results, func(i, j int) bool {
-		return results[i].Test < results[j].Test
+		if results[i].Test != results[j].Test {
+			return results[i].Test < results[j].Test
+		}
+		return results[i].Package < results[j].Package
 	})
 	return results, nil
 }
@@ -237,19 +221,6 @@ func classifyOutcome(outcomes []string) string {
 	default:
 		return "skipped"
 	}
-}
-
-func countAttempts(outcomes []string) int {
-	count := 0
-	for _, o := range outcomes {
-		if o == "pass" || o == "fail" {
-			count++
-		}
-	}
-	if count == 0 {
-		return 1
-	}
-	return count
 }
 
 func extractErrorSnippet(output []string) string {

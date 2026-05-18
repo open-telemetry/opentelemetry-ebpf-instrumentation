@@ -21,6 +21,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
+	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	"go.opentelemetry.io/obi/pkg/config"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/ringbuf"
@@ -37,7 +38,7 @@ func TestForwardRingbuf_CapacityFull(t *testing.T) {
 	forwardedMessagesQueue := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(100))
 	forwardedMessages := forwardedMessagesQueue.Subscribe()
 	fltr := TestPidsFilter{services: map[app.PID]svc.Attrs{}}
-	fltr.AllowPID(1, 1, &svc.Attrs{UID: svc.UID{Name: "myService"}}, PIDTypeGo)
+	fltr.AllowPID(1, 1, exec.New(exec.Init{Service: svc.Attrs{UID: svc.UID{Name: "myService"}}}), PIDTypeGo)
 	cfg := &config.EBPFTracer{BatchLength: 10}
 	go ForwardRingbuf(
 		cfg,
@@ -95,7 +96,7 @@ func TestForwardRingbuf_Deadline(t *testing.T) {
 	forwardedMessagesQueue := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(100))
 	forwardedMessages := forwardedMessagesQueue.Subscribe()
 	fltr := TestPidsFilter{services: map[app.PID]svc.Attrs{}}
-	fltr.AllowPID(1, 1, &svc.Attrs{UID: svc.UID{Name: "myService"}}, PIDTypeGo)
+	fltr.AllowPID(1, 1, exec.New(exec.Init{Service: svc.Attrs{UID: svc.UID{Name: "myService"}}}), PIDTypeGo)
 	cfg := &config.EBPFTracer{BatchLength: 10, BatchTimeout: 20 * time.Millisecond}
 	go ForwardRingbuf(
 		cfg,
@@ -398,8 +399,8 @@ type TestPidsFilter struct {
 	services map[app.PID]svc.Attrs
 }
 
-func (pf *TestPidsFilter) AllowPID(p app.PID, _ uint32, s *svc.Attrs, _ PIDType) {
-	pf.services[p] = *s
+func (pf *TestPidsFilter) AllowPID(p app.PID, _ uint32, fi *exec.FileInfo, _ PIDType) {
+	pf.services[p] = fi.ServiceAttrs()
 }
 
 func (pf *TestPidsFilter) BlockPID(p app.PID, _ uint32) {

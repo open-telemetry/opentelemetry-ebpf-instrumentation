@@ -176,7 +176,7 @@ func (i *Instrumenter) instrumentedEventLoop(ctx context.Context, processEvents 
 		case discover.EventCreated:
 			pt := ev.Obj
 			log.Debug("running tracer for new process",
-				"inode", pt.FileInfo.Ino, "pid", pt.FileInfo.Pid, "exec", pt.FileInfo.CmdExePath)
+				"inode", pt.FileInfo.Ino(), "pid", pt.FileInfo.Pid(), "exec", pt.FileInfo.CmdExePath())
 			if pt.Tracer != nil {
 				i.tracersWg.Go(func() {
 					pt.Tracer.Run(ctx, i.ebpfEventContext, i.tracesInput)
@@ -186,7 +186,7 @@ func (i *Instrumenter) instrumentedEventLoop(ctx context.Context, processEvents 
 		case discover.EventDeleted:
 			dp := ev.Obj
 			log.Debug("stopping ProcessTracer because there are no more instances of such process",
-				"inode", dp.FileInfo.Ino, "pid", dp.FileInfo.Pid, "exec", dp.FileInfo.CmdExePath)
+				"inode", dp.FileInfo.Ino(), "pid", dp.FileInfo.Pid(), "exec", dp.FileInfo.CmdExePath())
 			if dp.Tracer != nil {
 				dp.Tracer.UnlinkExecutable(dp.FileInfo)
 			}

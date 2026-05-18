@@ -4,6 +4,7 @@
 package ebpfcommon
 
 import (
+	"encoding/json"
 	"net/http"
 	"strings"
 	"testing"
@@ -216,7 +217,7 @@ data: {"type":"message_stop"}
 
 `
 
-	resp, err := parseAnthropicStream(strings.NewReader(stream))
+	resp, _, err := parseAnthropicStream(strings.NewReader(stream))
 
 	require.NoError(t, err)
 	require.NotNil(t, resp)
@@ -260,4 +261,117 @@ func TestAnthropicSpan_NotAnthropic(t *testing.T) {
 	_, ok := AnthropicSpan(base, req, resp)
 
 	assert.False(t, ok)
+}
+
+func TestAnthropicToolCalls(t *testing.T) {
+	t.Run("single tool_use", func(t *testing.T) {
+		content := json.RawMessage(`[{"type":"tool_use","id":"toolu_01","name":"get_weather","input":{}}]`)
+		result := extractAnthropicToolCalls(content)
+		require.Len(t, result, 1)
+		assert.Equal(t, "toolu_01", result[0].ID)
+		assert.Equal(t, "get_weather", result[0].Name)
+	})
+
+	t.Run("mixed content text and tool_use", func(t *testing.T) {
+		content := json.RawMessage(`[{"type":"text","text":"hello"},{"type":"tool_use","id":"toolu_01","name":"get_weather","input":{}},{"type":"tool_use","id":"toolu_02","name":"get_time","input":{}}]`)
+		result := extractAnthropicToolCalls(content)
+		require.Len(t, result, 2)
+		assert.Equal(t, "toolu_01", result[0].ID)
+		assert.Equal(t, "get_weather", result[0].Name)
+		assert.Equal(t, "toolu_02", result[1].ID)
+		assert.Equal(t, "get_time", result[1].Name)
+	})
+
+	t.Run("no tool calls", func(t *testing.T) {
+		content := json.RawMessage(`[{"type":"text","text":"Hello"}]`)
+		result := extractAnthropicToolCalls(content)
+		assert.Empty(t, result)
+	})
+
+	t.Run("empty content", func(t *testing.T) {
+		assert.Nil(t, extractAnthropicToolCalls(nil))
+		assert.Nil(t, extractAnthropicToolCalls(json.RawMessage{}))
+	})
+}
+
+func TestAnthropicStreamToolCalls(t *testing.T) {
+	stream := `event: message_start
+data: {"type":"message_start","message":{"id":"msg_01","type":"message","role":"assistant","content":[],"model":"claude-sonnet-4-20250514","stop_reason":null,"usage":{"input_tokens":100,"output_tokens":0}}}
+
+event: content_block_start
+data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Let me check the weather."}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":0}
+
+event: content_block_start
+data: {"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"toolu_01","name":"get_weather"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\"location\":\"Beijing\"}"}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":1}
+
+event: content_block_start
+data: {"type":"content_block_start","index":2,"content_block":{"type":"tool_use","id":"toolu_02","name":"get_time"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":2,"delta":{"type":"input_json_delta","partial_json":"{\"timezone\":\"UTC\"}"}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":2}
+
+event: message_delta
+data: {"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":50}}
+
+event: message_stop
+data: {"type":"message_stop"}
+
+`
+
+	resp, toolCalls, err := parseAnthropicStream(strings.NewReader(stream))
+
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	assert.Equal(t, "msg_01", resp.ID)
+	assert.Equal(t, "claude-sonnet-4-20250514", resp.Model)
+
+	require.Len(t, toolCalls, 2)
+	assert.Equal(t, "toolu_01", toolCalls[0].ID)
+	assert.Equal(t, "get_weather", toolCalls[0].Name)
+	assert.Equal(t, "toolu_02", toolCalls[1].ID)
+	assert.Equal(t, "get_time", toolCalls[1].Name)
+}
+
+func TestAnthropicStreamNoToolCalls(t *testing.T) {
+	stream := `event: message_start
+data: {"type":"message_start","message":{"id":"msg_02","type":"message","role":"assistant","content":[],"model":"claude-sonnet-4-20250514","stop_reason":null,"usage":{"input_tokens":50,"output_tokens":0}}}
+
+event: content_block_start
+data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello!"}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":0}
+
+event: message_delta
+data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":10}}
+
+event: message_stop
+data: {"type":"message_stop"}
+
+`
+
+	resp, toolCalls, err := parseAnthropicStream(strings.NewReader(stream))
+
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	assert.Empty(t, toolCalls)
+	assert.Equal(t, "msg_02", resp.ID)
 }

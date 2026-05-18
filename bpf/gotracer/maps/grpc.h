@@ -35,7 +35,7 @@ struct {
 
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __type(key, u64); // key: pointer to the client
+    __type(key, go_addr_key_t); // key: pid + pointer to the transport
     __type(value, connection_info_t);
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
 } cached_grpc_client_connections SEC(".maps");
@@ -70,3 +70,30 @@ struct {
         grpc_framer_func_invocation_t); // the goroutine of the round trip request, which is the key for our traceparent info
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
 } grpc_framer_invocation_map SEC(".maps");
+
+// net.Conn* → connection_info. Populated in NewStream, read in WriteHeaders.
+struct {
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __type(key, u64); // key: conn_ptr
+    __type(value, connection_info_t);
+    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
+} grpc_conn_ptr_to_conn SEC(".maps");
+
+// hdr_ptr → {invocation, conn_ptr}. executeAndPut stashes on the NewStream
+// goroutine; originateStream reads on the loopyWriter goroutine once the
+// stream_id is assigned, then builds {conn_ptr, stream_id} for ongoing_streams
+struct {
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __type(key, u64); // hdr pointer
+    __type(value, pending_h2_invocation_t);
+    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
+} pending_h2_invocations SEC(".maps");
+
+// Per-stream tp (Go gRPC server). operateHeaders writes, handleStream reads.
+// Avoids the last-writer-wins race on the transport-keyed ongoing_grpc_transports
+struct {
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __type(key, stream_key_t);
+    __type(value, tp_info_t);
+    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
+} ongoing_grpc_server_stream_tps SEC(".maps");

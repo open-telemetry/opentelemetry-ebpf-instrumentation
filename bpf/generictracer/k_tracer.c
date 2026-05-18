@@ -285,6 +285,15 @@ static __always_inline void cp_support_established(pid_connection_info_t *p_conn
 // thread to handle the client request.
 static __always_inline void setup_cp_support_conn_info(pid_connection_info_t *p_conn,
                                                        u8 real_client) {
+    // recv must not overwrite the connect-time entry: it holds the thread
+    // identity find_parent_trace needs for thread-pool handoffs.
+    if (!real_client) {
+        const cp_support_data_t *existing = bpf_map_lookup_elem(&cp_support_connect_info, p_conn);
+        if (existing && existing->real_client) {
+            return;
+        }
+    }
+
     cp_support_data_t ct = {
         .real_client = real_client,
         .established = 0,

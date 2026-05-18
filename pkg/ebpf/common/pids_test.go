@@ -15,6 +15,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
+	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
 )
@@ -42,9 +43,9 @@ func TestFilter_SameNS(t *testing.T) {
 		return []app.PID{pid}, nil
 	}
 	pf := NewPIDsFilter(&services.DiscoveryConfig{}, slog.With("env", "testing"), &imetrics.NoopReporter{})
-	pf.AllowPID(123, 33, &svc.Attrs{}, PIDTypeGo)
-	pf.AllowPID(456, 33, &svc.Attrs{}, PIDTypeGo)
-	pf.AllowPID(789, 33, &svc.Attrs{}, PIDTypeGo)
+	pf.AllowPID(123, 33, exec.New(exec.Init{}), PIDTypeGo)
+	pf.AllowPID(456, 33, exec.New(exec.Init{}), PIDTypeGo)
+	pf.AllowPID(789, 33, exec.New(exec.Init{}), PIDTypeGo)
 
 	// with the same namespace, it filters by user PID, as it is the PID
 	// that is seen by OBI's process discovery
@@ -60,9 +61,9 @@ func TestFilter_DifferentNS(t *testing.T) {
 		return []app.PID{pid}, nil
 	}
 	pf := NewPIDsFilter(&services.DiscoveryConfig{}, slog.With("env", "testing"), &imetrics.NoopReporter{})
-	pf.AllowPID(123, 22, &svc.Attrs{}, PIDTypeGo)
-	pf.AllowPID(456, 22, &svc.Attrs{}, PIDTypeGo)
-	pf.AllowPID(666, 22, &svc.Attrs{}, PIDTypeGo)
+	pf.AllowPID(123, 22, exec.New(exec.Init{}), PIDTypeGo)
+	pf.AllowPID(456, 22, exec.New(exec.Init{}), PIDTypeGo)
+	pf.AllowPID(666, 22, exec.New(exec.Init{}), PIDTypeGo)
 
 	// with the same namespace, it filters by user PID, as it is the PID
 	// that is seen by OBI's process discovery
@@ -74,8 +75,8 @@ func TestFilter_Block(t *testing.T) {
 		return []app.PID{pid}, nil
 	}
 	pf := NewPIDsFilter(&services.DiscoveryConfig{}, slog.With("env", "testing"), &imetrics.NoopReporter{})
-	pf.AllowPID(123, 33, &svc.Attrs{}, PIDTypeGo)
-	pf.AllowPID(456, 33, &svc.Attrs{}, PIDTypeGo)
+	pf.AllowPID(123, 33, exec.New(exec.Init{}), PIDTypeGo)
+	pf.AllowPID(456, 33, exec.New(exec.Init{}), PIDTypeGo)
 	pf.BlockPID(123, 33)
 
 	// with the same namespace, it filters by user PID, as it is the PID
@@ -92,9 +93,9 @@ func TestFilter_NewNSLater(t *testing.T) {
 		return []app.PID{pid}, nil
 	}
 	pf := NewPIDsFilter(&services.DiscoveryConfig{}, slog.With("env", "testing"), &imetrics.NoopReporter{})
-	pf.AllowPID(123, 33, &svc.Attrs{}, PIDTypeGo)
-	pf.AllowPID(456, 33, &svc.Attrs{}, PIDTypeGo)
-	pf.AllowPID(789, 33, &svc.Attrs{}, PIDTypeGo)
+	pf.AllowPID(123, 33, exec.New(exec.Init{}), PIDTypeGo)
+	pf.AllowPID(456, 33, exec.New(exec.Init{}), PIDTypeGo)
+	pf.AllowPID(789, 33, exec.New(exec.Init{}), PIDTypeGo)
 
 	// with the same namespace, it filters by user PID, as it is the PID
 	// that is seen by OBI's process discovery
@@ -104,7 +105,7 @@ func TestFilter_NewNSLater(t *testing.T) {
 		{Pid: request.PidInfo{UserPID: 789, HostPID: 234, Namespace: 33}},
 	}, resetTraceContext(pf.Filter(spanSet)))
 
-	pf.AllowPID(1000, 44, &svc.Attrs{}, PIDTypeGo)
+	pf.AllowPID(1000, 44, exec.New(exec.Init{}), PIDTypeGo)
 
 	assert.Equal(t, []request.Span{
 		{Pid: request.PidInfo{UserPID: 123, HostPID: 333, Namespace: 33}},
@@ -133,60 +134,60 @@ func TestFilter_ExportsOTelDetection(t *testing.T) {
 	const defaultOtlpPort = 4317
 	pf := NewPIDsFilter(&services.DiscoveryConfig{}, slog.With("env", "testing"), &imetrics.NoopReporter{})
 
-	s := svc.Attrs{}
+	fi := exec.New(exec.Init{})
 	span := request.Span{Type: request.EventTypeHTTP, Method: "GET", Path: "/random/server/span", RequestStart: 100, End: 200, Status: 200}
 
-	pf.checkIfExportsOTel(&s, &span, defaultOtlpPort)
-	assert.False(t, s.ExportsOTelMetricsSpan())
-	assert.False(t, s.ExportsOTelMetrics())
-	assert.False(t, s.ExportsOTelTraces())
+	pf.checkIfExportsOTel(fi, &span, defaultOtlpPort)
+	assert.False(t, fi.ExportsOTelMetricsSpan())
+	assert.False(t, fi.ExportsOTelMetrics())
+	assert.False(t, fi.ExportsOTelTraces())
 
-	s = svc.Attrs{}
+	fi = exec.New(exec.Init{})
 	span = request.Span{Type: request.EventTypeHTTPClient, Method: "GET", Path: "/v1/metrics", RequestStart: 100, End: 200, Status: 200}
 
-	pf.checkIfExportsOTel(&s, &span, defaultOtlpPort)
-	assert.False(t, s.ExportsOTelMetricsSpan())
-	assert.True(t, s.ExportsOTelMetrics())
-	assert.False(t, s.ExportsOTelTraces())
+	pf.checkIfExportsOTel(fi, &span, defaultOtlpPort)
+	assert.False(t, fi.ExportsOTelMetricsSpan())
+	assert.True(t, fi.ExportsOTelMetrics())
+	assert.False(t, fi.ExportsOTelTraces())
 
-	s = svc.Attrs{}
+	fi = exec.New(exec.Init{})
 	span = request.Span{Type: request.EventTypeHTTPClient, Method: "GET", Path: "/v1/traces", RequestStart: 100, End: 200, Status: 200}
 
-	pf.checkIfExportsOTel(&s, &span, defaultOtlpPort)
-	assert.False(t, s.ExportsOTelMetricsSpan())
-	assert.False(t, s.ExportsOTelMetrics())
-	assert.True(t, s.ExportsOTelTraces())
+	pf.checkIfExportsOTel(fi, &span, defaultOtlpPort)
+	assert.False(t, fi.ExportsOTelMetricsSpan())
+	assert.False(t, fi.ExportsOTelMetrics())
+	assert.True(t, fi.ExportsOTelTraces())
 }
 
 func TestFilter_ExportsOTelSpanDetection(t *testing.T) {
 	const defaultOtlpPort = 4317
 	pf := NewPIDsFilter(&services.DiscoveryConfig{}, slog.With("env", "testing"), &imetrics.NoopReporter{})
 
-	s := svc.Attrs{}
+	fi := exec.New(exec.Init{})
 	span := request.Span{Type: request.EventTypeHTTP, Method: "GET", Path: "/random/server/span", RequestStart: 100, End: 200, Status: 200}
 
-	pf.checkIfExportsOTelSpanMetrics(&s, &span, defaultOtlpPort)
-	assert.False(t, s.ExportsOTelMetricsSpan())
-	assert.False(t, s.ExportsOTelMetrics())
-	assert.False(t, s.ExportsOTelTraces())
+	pf.checkIfExportsOTelSpanMetrics(fi, &span, defaultOtlpPort)
+	assert.False(t, fi.ExportsOTelMetricsSpan())
+	assert.False(t, fi.ExportsOTelMetrics())
+	assert.False(t, fi.ExportsOTelTraces())
 
-	s = svc.Attrs{}
+	fi = exec.New(exec.Init{})
 	span = request.Span{Type: request.EventTypeHTTPClient, Method: "GET", Path: "/v1/metrics", RequestStart: 100, End: 200, Status: 200}
 
-	pf.checkIfExportsOTelSpanMetrics(&s, &span, defaultOtlpPort)
-	assert.False(t, s.ExportsOTelMetricsSpan())
-	assert.False(t, s.ExportsOTelMetrics())
-	assert.False(t, s.ExportsOTelTraces())
+	pf.checkIfExportsOTelSpanMetrics(fi, &span, defaultOtlpPort)
+	assert.False(t, fi.ExportsOTelMetricsSpan())
+	assert.False(t, fi.ExportsOTelMetrics())
+	assert.False(t, fi.ExportsOTelTraces())
 
-	s = svc.Attrs{}
+	fi = exec.New(exec.Init{})
 	span = request.Span{Type: request.EventTypeHTTPClient, Method: "GET", Path: "/v1/traces", RequestStart: 100, End: 200, Status: 200}
 
-	pf.checkIfExportsOTelSpanMetrics(&s, &span, defaultOtlpPort)
-	assert.False(t, s.ExportsOTelMetrics())
-	assert.True(t, s.ExportsOTelMetricsSpan())
-	assert.False(t, s.ExportsOTelTraces())
-	pf.checkIfExportsOTel(&s, &span, defaultOtlpPort)
-	assert.True(t, s.ExportsOTelTraces())
+	pf.checkIfExportsOTelSpanMetrics(fi, &span, defaultOtlpPort)
+	assert.False(t, fi.ExportsOTelMetrics())
+	assert.True(t, fi.ExportsOTelMetricsSpan())
+	assert.False(t, fi.ExportsOTelTraces())
+	pf.checkIfExportsOTel(fi, &span, defaultOtlpPort)
+	assert.True(t, fi.ExportsOTelTraces())
 }
 
 func TestFilter_TriggersOTelFiltering(t *testing.T) {
@@ -195,12 +196,12 @@ func TestFilter_TriggersOTelFiltering(t *testing.T) {
 	}
 	pf := NewPIDsFilter(&services.DiscoveryConfig{ExcludeOTelInstrumentedServices: true, ExcludeOTelInstrumentedServicesSpanMetrics: true}, slog.With("env", "testing"), &imetrics.NoopReporter{})
 
-	commonSvc := svc.Attrs{}
-	pf.AllowPID(33, 33, &commonSvc, PIDTypeGo)
-	pf.AllowPID(123, 33, &commonSvc, PIDTypeGo)
-	pf.AllowPID(456, 33, &commonSvc, PIDTypeGo)
-	pf.AllowPID(66, 33, &commonSvc, PIDTypeGo)
-	pf.AllowPID(789, 33, &commonSvc, PIDTypeGo)
+	commonSvc := exec.New(exec.Init{})
+	pf.AllowPID(33, 33, commonSvc, PIDTypeGo)
+	pf.AllowPID(123, 33, commonSvc, PIDTypeGo)
+	pf.AllowPID(456, 33, commonSvc, PIDTypeGo)
+	pf.AllowPID(66, 33, commonSvc, PIDTypeGo)
+	pf.AllowPID(789, 33, commonSvc, PIDTypeGo)
 
 	testSpans := make([]request.Span, len(spanSetWithPaths))
 
@@ -240,12 +241,12 @@ func TestFilter_TriggersOTelSpanFiltering(t *testing.T) {
 	}
 	pf := NewPIDsFilter(&services.DiscoveryConfig{ExcludeOTelInstrumentedServices: true}, slog.With("env", "testing"), &imetrics.NoopReporter{})
 
-	commonSvc := svc.Attrs{}
-	pf.AllowPID(33, 33, &commonSvc, PIDTypeGo)
-	pf.AllowPID(123, 33, &commonSvc, PIDTypeGo)
-	pf.AllowPID(456, 33, &commonSvc, PIDTypeGo)
-	pf.AllowPID(66, 33, &commonSvc, PIDTypeGo)
-	pf.AllowPID(789, 33, &commonSvc, PIDTypeGo)
+	commonSvc := exec.New(exec.Init{})
+	pf.AllowPID(33, 33, commonSvc, PIDTypeGo)
+	pf.AllowPID(123, 33, commonSvc, PIDTypeGo)
+	pf.AllowPID(456, 33, commonSvc, PIDTypeGo)
+	pf.AllowPID(66, 33, commonSvc, PIDTypeGo)
+	pf.AllowPID(789, 33, commonSvc, PIDTypeGo)
 
 	testSpans := make([]request.Span, len(spanSetWithPaths))
 
@@ -293,9 +294,9 @@ func TestFilter_Cleanup(t *testing.T) {
 		return nil, nil
 	}
 	pf := NewPIDsFilter(&services.DiscoveryConfig{}, slog.With("env", "testing"), &imetrics.NoopReporter{})
-	pf.AllowPID(123, 33, &svc.Attrs{}, PIDTypeGo)
-	pf.AllowPID(456, 33, &svc.Attrs{}, PIDTypeGo)
-	pf.AllowPID(789, 33, &svc.Attrs{}, PIDTypeGo)
+	pf.AllowPID(123, 33, exec.New(exec.Init{}), PIDTypeGo)
+	pf.AllowPID(456, 33, exec.New(exec.Init{}), PIDTypeGo)
+	pf.AllowPID(789, 33, exec.New(exec.Init{}), PIDTypeGo)
 
 	// with the same namespace, it filters by user PID, as it is the PID
 	// that is seen by OBI's process discovery
@@ -341,8 +342,8 @@ func TestFilter_PreservesMultiplePIDTypes(t *testing.T) {
 	}
 	pf := NewPIDsFilter(&services.DiscoveryConfig{}, slog.With("env", "testing"), &imetrics.NoopReporter{})
 
-	pf.AllowPID(123, 33, &svc.Attrs{}, PIDTypeGo)
-	pf.AllowPID(123, 33, &svc.Attrs{}, PIDTypeKProbes)
+	pf.AllowPID(123, 33, exec.New(exec.Init{}), PIDTypeGo)
+	pf.AllowPID(123, 33, exec.New(exec.Init{}), PIDTypeKProbes)
 
 	assert.True(t, pf.ValidPID(123, 33, PIDTypeGo))
 	assert.True(t, pf.ValidPID(123, 33, PIDTypeKProbes))

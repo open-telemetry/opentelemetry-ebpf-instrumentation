@@ -71,7 +71,7 @@ services:
       OTEL_EBPF_DISCOVERY_POLL_INTERVAL: 500ms
       OTEL_EBPF_EXECUTABLE_PATH: "${OTEL_EBPF_EXECUTABLE_PATH}"
       OTEL_EBPF_SERVICE_NAMESPACE: "integration-test"
-      OTEL_EBPF_METRICS_INTERVAL: "10ms"
+      OTEL_EBPF_METRICS_INTERVAL: "1s"
       OTEL_EBPF_BPF_BATCH_TIMEOUT: "10ms"
       OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT: "1ms"
       OTEL_EBPF_LOG_LEVEL: "DEBUG"
@@ -90,14 +90,14 @@ services:
 
   # OpenTelemetry Collector
   otelcol:
-    image: otel/opentelemetry-collector-contrib:0.151.0@sha256:d57bfe8eee2378f31cb1193239fbcac521d54a5a071fca2bfc106916a32b892d
+    image: otel/opentelemetry-collector-contrib:0.152.0@sha256:f41d7995565df3733b7568702073a9c490792f9c6ac60684fe6a4da21a313f8d
     container_name: otel-col
     deploy:
       resources:
         limits:
           memory: 125M
     restart: unless-stopped
-    command: ["--config=/etc/otelcol-config/otelcol-config.yml"]
+    command: ["--config=/etc/otelcol-config/otelcol-config-weaver.yml"]
     volumes:
       - ./configs/:/etc/otelcol-config
     ports:
@@ -108,6 +108,17 @@ services:
     depends_on:
       prometheus:
         condition: service_started
+      jaeger:
+        condition: service_started
+      weaver:
+        condition: service_healthy
+
+  weaver:
+    extends:
+      file: components/weaver/service.yml
+      service: weaver
+    volumes:
+      - ../../../schemas/obi:/obi-registry:ro
 
   # Prometheus
   prometheus:

@@ -461,6 +461,11 @@ __obi_continue_protocol_http_tp(struct pt_regs *ctx,
         // for customers to enable it. Off by default.
         if (!capture_header_buffer) {
             if (meta) {
+                tp_p->tp.ts = bpf_ktime_get_ns();
+                tp_p->tp.flags = 1;
+                tp_p->valid = 1;
+                tp_p->pid = args->pid_conn.pid;
+                tp_p->req_type = meta->type;
                 const u32 type = trace_type_from_meta(meta);
                 set_trace_info_for_connection(&args->pid_conn.conn, type, tp_p);
                 server_or_client_trace(meta->type,
@@ -468,7 +473,9 @@ __obi_continue_protocol_http_tp(struct pt_regs *ctx,
                                        args->lw_thread,
                                        tp_p,
                                        args->ssl,
-                                       args->orig_dport);
+                                       args->orig_dport,
+                                       0,
+                                       BPF_ANY);
             }
             goto done;
         }
@@ -516,8 +523,14 @@ __obi_continue_protocol_http_tp(struct pt_regs *ctx,
         // sock_msg program has already punched a hole in the HTTP headers and has made
         // the HTTP header invalid. We need to add more smarts there or pull the
         // sock msg information here and mark it so that we don't override the span_id.
-        server_or_client_trace(
-            meta->type, &args->pid_conn.conn, args->lw_thread, tp_p, args->ssl, args->orig_dport);
+        server_or_client_trace(meta->type,
+                               &args->pid_conn.conn,
+                               args->lw_thread,
+                               tp_p,
+                               args->ssl,
+                               args->orig_dport,
+                               0,
+                               BPF_ANY);
     }
 
 done:

@@ -36,9 +36,23 @@ const (
 // without declaring the underlying signal in the OBI registry. Most non-semconv
 // emissions (Prometheus `target_info`, OTel-contrib spanmetrics / service-graph
 // shape, OBI-internal markers) are declared in `schemas/obi/` and validated
-// against by weaver, so this map is normally empty. Add entries here only as a
-// short-lived bridge while a registry update is in flight.
-var weaverIgnoredSignals = map[string]struct{}{}
+// against by weaver, so this map is intended to stay small. Add entries here
+// only as a short-lived bridge while OBI catches up to a semconv contract.
+var weaverIgnoredSignals = map[string]struct{}{
+	// OBI emits `rpc.server.duration` and `rpc.client.duration` with
+	// `unit: "s"`, but upstream semconv v1.38 (the version pinned in
+	// `schemas/obi/manifest.yaml`) specifies `unit: "ms"` for these metrics.
+	// Live-check resolves against the upstream definition and flags every
+	// data point as a violation; declaring an override in our registry only
+	// produces a duplicate-id warning at registry-check time without
+	// changing live-check behavior. The unit reverts to `s` in semconv
+	// v1.40.0, so these entries can drop once we bump the manifest's pinned
+	// semconv version to >= 1.40.0.
+	// TODO: remove once `schemas/obi/manifest.yaml` is bumped to semconv
+	// >= 1.40.0 (which restores rpc duration to seconds).
+	"metric:rpc.server.duration": {},
+	"metric:rpc.client.duration": {},
+}
 
 // weaverIgnoredAdviceMessages suppresses specific advice messages that match
 // known structural tensions weaver reports against the registry as a whole
@@ -55,6 +69,12 @@ var weaverIgnoredAdviceMessages = map[string]struct{}{
 	"Namespace 'server' collides with existing attribute 'server.port'":    {},
 	"Namespace 'client' collides with existing attribute 'client.address'": {},
 	"Namespace 'client' collides with existing attribute 'client.port'":    {},
+	// OBI emits `iface` (interface name) alongside `iface.direction`, so
+	// `iface` is both a leaf attribute *and* the namespace of another. The
+	// emission contract is owned by netolly, mirrors the older
+	// network-flow exporter convention, and is not negotiable for backward
+	// compatibility — accept the structural warning.
+	"Namespace 'iface' collides with existing attribute 'iface.direction'": {},
 }
 
 func SemconvVersion() string {

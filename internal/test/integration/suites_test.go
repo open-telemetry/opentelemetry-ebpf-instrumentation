@@ -33,8 +33,14 @@ func TestSuite_Go(t *testing.T) {
 			compose.Env = append(compose.Env, tc.env...)
 			require.NoError(t, compose.Up())
 
+			// Cleanups run LIFO: register `compose.Close()` first so it runs
+			// last, *after* runWeaverValidation has had a chance to /stop the
+			// still-running weaver container.
 			t.Cleanup(func() {
 				require.NoError(t, compose.Close())
+			})
+			t.Cleanup(func() {
+				runWeaverValidation(t)
 			})
 
 			config := ti.DefaultOBIConfig()
@@ -77,6 +83,7 @@ func TestSuiteNestedTraces(t *testing.T) {
 		t.Run("HTTP traces (nested client span)", testHTTPTracesNestedClient)
 		t.Run("HTTP -> gRPC traces (nested client span)", testHTTP2GRPCTracesNestedCallsNoPropagation)
 	}
+	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
 
@@ -86,6 +93,7 @@ func TestSuiteGoGeneric(t *testing.T) {
 	require.NoError(t, compose.Up())
 	t.Run("Generic Go HTTP/TCP traces (all spans nested)", testGoGenericHTTPTraces)
 	t.Run("Generic Go HTTPS/TCP(TLS) traces (all spans nested)", testGoGenericHTTPSTraces)
+	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
 
@@ -122,6 +130,8 @@ func TestSuite_NoDebugInfo(t *testing.T) {
 	t.Run("GRPC RED metrics", testREDMetricsGRPC)
 	t.Run("Internal Prometheus metrics", func(t *testing.T) { ti.InternalPrometheusExport(t, config) })
 
+	runWeaverValidation(t)
+
 	require.NoError(t, compose.Close())
 }
 
@@ -141,6 +151,8 @@ func TestSuite_StaticCompilation(t *testing.T) {
 	t.Run("GRPC RED metrics", testREDMetricsGRPC)
 	t.Run("Internal Prometheus metrics", func(t *testing.T) { ti.InternalPrometheusExport(t, config) })
 
+	runWeaverValidation(t)
+
 	require.NoError(t, compose.Close())
 }
 
@@ -159,6 +171,8 @@ func TestSuite_OldestGoVersion(t *testing.T) {
 	t.Run("HTTP traces (manual spans)", testHTTPTracesNestedManualSpans)
 	t.Run("Internal Prometheus metrics", func(t *testing.T) { ti.InternalPrometheusExport(t, config) })
 
+	runWeaverValidation(t)
+
 	require.NoError(t, compose.Close())
 }
 
@@ -170,6 +184,7 @@ func TestSuite_SkipGoTracers(t *testing.T) {
 	compose.Env = append(compose.Env, `OTEL_EBPF_SKIP_GO_SPECIFIC_TRACERS=1`)
 	require.NoError(t, compose.Up())
 	t.Run("RED metrics", testREDMetricsShortHTTP)
+	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
 
@@ -183,6 +198,8 @@ func TestSuite_GRPCExport(t *testing.T) {
 	t.Run("trace HTTP service and export as GRPC traces", testHTTPTraces)
 	t.Run("trace GRPC service and export as GRPC traces", testGRPCTraces)
 	t.Run("GRPC RED metrics", testREDMetricsGRPC)
+
+	runWeaverValidation(t)
 
 	require.NoError(t, compose.Close())
 }
@@ -199,6 +216,8 @@ func TestSuite_GRPCExportKProbes(t *testing.T) {
 
 	t.Run("trace GRPC service and export as GRPC traces - kprobes", testGRPCKProbeTraces)
 	t.Run("GRPC RED metrics - kprobes", testREDMetricsGRPC)
+
+	runWeaverValidation(t)
 
 	require.NoError(t, compose.Close())
 }
@@ -238,6 +257,7 @@ func TestSuite_Java(t *testing.T) {
 	compose.Env = append(compose.Env, `JAVA_TEST_MODE=-native`)
 	require.NoError(t, compose.Up())
 	t.Run("Java RED metrics", testREDMetricsJavaHTTP)
+	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
 
@@ -249,6 +269,7 @@ func TestSuite_Java_PID(t *testing.T) {
 	compose.Env = append(compose.Env, `JAVA_OPEN_PORT=8085`, `JAVA_EXECUTABLE_PATH=`, `JAVA_TEST_MODE=-jar`, `OTEL_SERVICE_NAME=greeting`)
 	require.NoError(t, compose.Up())
 	t.Run("Java RED metrics", testREDMetricsJavaHTTP)
+	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
 
@@ -261,6 +282,8 @@ func TestSuite_Java_OpenPort(t *testing.T) {
 	require.NoError(t, compose.Up())
 	t.Run("Java RED metrics", testREDMetricsJavaHTTP)
 
+	runWeaverValidation(t)
+
 	require.NoError(t, compose.Close())
 }
 
@@ -272,6 +295,7 @@ func TestSuite_Java_Host_Network(t *testing.T) {
 	compose.Env = append(compose.Env, `JAVA_TEST_MODE=-native`)
 	require.NoError(t, compose.Up())
 	t.Run("Java RED metrics", testREDMetricsJavaHTTP)
+	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
 
@@ -282,6 +306,7 @@ func TestSuite_Rust(t *testing.T) {
 	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8090`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8091:8090`)
 	require.NoError(t, compose.Up())
 	t.Run("Rust RED metrics", testREDMetricsRustHTTP)
+	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
 
@@ -292,6 +317,7 @@ func TestSuite_RustSSL(t *testing.T) {
 	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8490`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8491:8490`, `TESTSERVER_IMAGE_SUFFIX=-ssl`)
 	require.NoError(t, compose.Up())
 	t.Run("Rust RED metrics", testREDMetricsRustHTTPS)
+	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
 
@@ -305,6 +331,7 @@ func TestSuite_RustHTTP2(t *testing.T) {
 
 	require.NoError(t, compose.Up())
 	t.Run("Rust RED metrics", testREDMetricsRustHTTP2)
+	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
 
@@ -317,6 +344,7 @@ func TestSuite_NodeJS(t *testing.T) {
 	t.Run("NodeJS RED metrics", testREDMetricsNodeJSHTTP)
 	t.Run("HTTP traces (kprobes)", testHTTPTracesKProbes)
 	t.Run("HTTP nested traces large HTTPS (kprobes)", testHTTPTracesNestedNodeJSLargeHTTPS)
+	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
 
@@ -327,6 +355,7 @@ func TestSuite_NodeJSTLS(t *testing.T) {
 	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=3033`, `OTEL_EBPF_EXECUTABLE_PATH=`, `NODE_APP=app_tls`)
 	require.NoError(t, compose.Up())
 	t.Run("NodeJS SSL RED metrics", testREDMetricsNodeJSHTTPS)
+	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
 
@@ -338,6 +367,7 @@ func TestSuite_Rails(t *testing.T) {
 	require.NoError(t, compose.Up())
 	t.Run("Rails RED metrics", testREDMetricsRailsHTTP)
 	t.Run("Rails NGINX traces", testHTTPTracesNestedNginx)
+	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
 
@@ -356,6 +386,7 @@ func TestSuite_RailsNginxSupportFloor(t *testing.T) {
 
 	t.Run("Rails RED metrics", testREDMetricsRailsHTTP)
 	t.Run("Rails NGINX traces", testHTTPTracesNestedNginx)
+	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
 
@@ -370,6 +401,7 @@ func TestSuite_RailsRuby302Puma5(t *testing.T) {
 	})
 	t.Run("Rails RED metrics", testREDMetricsRailsHTTP)
 	t.Run("Rails NGINX traces", testHTTPTracesNestedNginx)
+	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
 
@@ -381,6 +413,7 @@ func TestSuite_RailsNginxSQL(t *testing.T) {
 	require.NoError(t, compose.Up())
 	t.Run("Rails RED metrics", testREDMetricsRailsHTTP)
 	t.Run("Rails NGINX SQL traces nested", testHTTPTracesNestedNginxSQL)
+	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
 
@@ -391,6 +424,7 @@ func TestSuite_RailsTLS(t *testing.T) {
 	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=3043`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TESTSERVER_IMAGE_SUFFIX=-ssl`, `TEST_SERVICE_PORTS=3044:3043`)
 	require.NoError(t, compose.Up())
 	t.Run("Rails SSL RED metrics", testREDMetricsRailsHTTPS)
+	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
 
@@ -401,6 +435,7 @@ func TestSuite_DotNet(t *testing.T) {
 	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=5266`, `OTEL_EBPF_EXECUTABLE_PATH=`)
 	require.NoError(t, compose.Up())
 	t.Run("DotNet RED metrics", testREDMetricsDotNetHTTP)
+	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
 
@@ -414,6 +449,7 @@ func TestSuite_DotNetTLS(t *testing.T) {
 	// Add these above if you want to get the trace_pipe output in the test logs: `INSTRUMENT_DOCKERFILE_SUFFIX=_dbg`, `INSTRUMENT_COMMAND_SUFFIX=_wrapper.sh`
 	require.NoError(t, compose.Up())
 	t.Run("DotNet SSL RED metrics", testREDMetricsDotNetHTTPS)
+	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
 
@@ -432,6 +468,7 @@ func TestSuite_Python(t *testing.T) {
 	t.Run("Python RED metrics", testREDMetricsPythonHTTP)
 	t.Run("Python RED metrics with timeouts", testREDMetricsTimeoutPythonHTTP)
 	t.Run("Python DNS RED metrics", testREDMetricsDNSPython)
+	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
 
@@ -460,6 +497,7 @@ func TestSuite_PythonPostgres(t *testing.T) {
 	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)
 	require.NoError(t, compose.Up())
 	t.Run("Python Postgres tests", testPythonPostgres)
+	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
 
@@ -470,6 +508,7 @@ func TestSuite_PythonMySQL(t *testing.T) {
 	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)
 	require.NoError(t, compose.Up())
 	t.Run("Python MySQL tests", testPythonMySQL)
+	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
 
@@ -480,6 +519,7 @@ func TestSuite_PythonMSSQL(t *testing.T) {
 	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)
 	require.NoError(t, compose.Up())
 	t.Run("Python MSSQL tests", testPythonMSSQL)
+	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
 
@@ -489,6 +529,7 @@ func TestSuite_PythonKafka(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, compose.Up())
 	t.Run("Python Kafka tests", testREDMetricsPythonKafkaOnly)
+	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
 
@@ -500,6 +541,7 @@ func TestSuite_PythonMQTT(t *testing.T) {
 	require.NoError(t, compose.Up())
 	t.Run("Python MQTT publish tests", testREDMetricsPythonMQTT)
 	t.Run("Python MQTT subscribe tests", testREDMetricsPythonMQTTSubscribe)
+	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
 
@@ -519,6 +561,7 @@ func TestSuite_JavaKafka(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, compose.Up())
 	t.Run("Java Kafka 4.0.0 tests", func(t *testing.T) { testJavaKafka(t, 9092, "javakafka") })
+	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
 
@@ -528,6 +571,7 @@ func TestSuite_JavaKafkaTLS(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, compose.Up())
 	t.Run("Java Kafka 4.0.0 tests", func(t *testing.T) { testJavaKafka(t, 9094, "java") })
+	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
 
@@ -537,6 +581,7 @@ func TestSuite_JavaKafkaLargeBuffer(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, compose.Up())
 	t.Run("Java Kafka 4.0.0 large buffer tests", testJavaKafkaLargeBuffer)
+	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
 
@@ -549,6 +594,7 @@ func TestSuite_PythonAsyncUvloop_3_9(t *testing.T) {
 	t.Run("Concurrent", testPythonAsyncConcurrent)
 	t.Run("To Thread", testPythonAsyncToThread)
 	t.Run("Nested", testPythonAsyncNested)
+	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
 
@@ -561,6 +607,7 @@ func TestSuite_PythonAsyncUvloop_3_14(t *testing.T) {
 	t.Run("Concurrent", testPythonAsyncConcurrent)
 	t.Run("To Thread", testPythonAsyncToThread)
 	t.Run("Nested", testPythonAsyncNested)
+	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
 
@@ -582,6 +629,7 @@ func TestSuite_PythonMongo(t *testing.T) {
 	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)
 	require.NoError(t, compose.Up())
 	t.Run("Python Mongo metrics", testREDMetricsPythonMongoOnly)
+	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
 
@@ -597,6 +645,7 @@ func TestSuite_PythonCouchbase(t *testing.T) {
 	t.Run("Python Couchbase SQL++ metrics", testREDMetricsPythonCouchbaseSQLPP)
 	t.Run("Python Couchbase SQL++ with context", testREDMetricsPythonCouchbaseSQLPPWithContext)
 	t.Run("Python Couchbase SQL++ error", testREDMetricsPythonCouchbaseSQLPPError)
+	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
 
@@ -607,6 +656,7 @@ func TestSuite_PythonSQLSSL(t *testing.T) {
 	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)
 	require.NoError(t, compose.Up())
 	t.Run("Python SQL metrics", testREDMetricsPythonSQLSSL)
+	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
 
@@ -624,6 +674,7 @@ func TestSuite_PythonTLS(t *testing.T) {
 	)
 	require.NoError(t, compose.Up())
 	t.Run("Python SSL RED metrics", testREDMetricsPythonHTTPS)
+	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
 
@@ -635,6 +686,7 @@ func TestSuite_PythonSelfReference(t *testing.T) {
 	require.NoError(t, compose.Up())
 	t.Run("Python Traces with self-references", testHTTPTracesNestedSelfCalls)
 	t.Run("Python Traces transaction too long", testHTTPTracesNestedCallsTooLong)
+	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
 
@@ -645,6 +697,7 @@ func TestSuite_PythonGraphQL(t *testing.T) {
 	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)
 	require.NoError(t, compose.Up())
 	t.Run("Python GraphQL", testPythonGraphQL)
+	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
 
@@ -656,6 +709,7 @@ func TestSuite_PythonJsonRPC(t *testing.T) {
 	require.NoError(t, compose.Up())
 	t.Run("Python JSON-RPC server span", testPythonJSONRPCServer)
 	t.Run("Python JSON-RPC RPC metrics", testPythonJSONRPCMetrics)
+	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
 
@@ -667,6 +721,7 @@ func TestSuite_PythonMCP(t *testing.T) {
 	require.NoError(t, compose.Up())
 	t.Run("Python MCP server span", testPythonMCPServer)
 	t.Run("Python MCP initialize", testPythonMCPInitialize)
+	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
 
@@ -682,6 +737,7 @@ func TestSuite_PythonElasticsearch(t *testing.T) {
 	t.Run("Python Opensearch", func(t *testing.T) {
 		testPythonElasticsearch(t, "opensearch")
 	})
+	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
 
@@ -692,6 +748,7 @@ func TestSuite_PythonAWSS3(t *testing.T) {
 	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)
 	require.NoError(t, compose.Up())
 	t.Run("Python AWS S3", testPythonAWSS3)
+	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
 
@@ -702,6 +759,7 @@ func TestSuite_PythonAWSSQS(t *testing.T) {
 	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)
 	require.NoError(t, compose.Up())
 	t.Run("Python AWS SQS", testPythonAWSSQS)
+	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
 
@@ -712,6 +770,7 @@ func TestSuite_NodeJSDist(t *testing.T) {
 	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=`, `OTEL_EBPF_EXECUTABLE_PATH=`)
 	require.NoError(t, compose.Up())
 	t.Run("NodeJS Distributed Traces with multiple chained calls", testHTTPTracesNestedNodeJSDistCalls)
+	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
 
@@ -730,6 +789,8 @@ func TestSuite_DisableKeepAlives(t *testing.T) {
 	t.Run("Internal Prometheus DisableKeepAlives metrics", func(t *testing.T) { ti.InternalPrometheusExport(t, config) })
 	// Reset to defaults for any tests run afterward
 	setHTTPClientDisableKeepAlives(false)
+
+	runWeaverValidation(t)
 
 	require.NoError(t, compose.Close())
 }
@@ -751,6 +812,8 @@ func TestSuite_OverrideServiceName(t *testing.T) {
 		testGRPCTracesForServiceName(t, "overridden-svc-name")
 	})
 
+	runWeaverValidation(t)
+
 	require.NoError(t, compose.Close())
 }
 
@@ -763,6 +826,7 @@ func TestSuiteNodeClient(t *testing.T) {
 	t.Run("Node Client RED metrics", func(t *testing.T) {
 		testNodeClientWithMethodAndStatusCode(t, "GET", 301, 80, "0000000000000000")
 	})
+	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
 
@@ -775,6 +839,7 @@ func TestSuiteNodeClientTLS(t *testing.T) {
 	t.Run("Node Client RED metrics", func(t *testing.T) {
 		testNodeClientWithMethodAndStatusCode(t, "GET", 200, 443, "0000000000000001")
 	})
+	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
 
@@ -785,6 +850,7 @@ func TestSuiteNoRoutes(t *testing.T) {
 	compose.Env = append(compose.Env, "INSTRUMENTER_CONFIG_SUFFIX=-no-route")
 	require.NoError(t, compose.Up())
 	t.Run("RED metrics", testREDMetricsHTTPNoRoute)
+	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
 
@@ -795,6 +861,7 @@ func TestSuiteNoRoutesLowCardinality(t *testing.T) {
 	compose.Env = append(compose.Env, "INSTRUMENTER_CONFIG_SUFFIX=-no-route-lc")
 	require.NoError(t, compose.Up())
 	t.Run("RED metrics", testREDMetricsHTTPNoRouteLowCardinality)
+	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
 
@@ -803,6 +870,7 @@ func TestSuite_Elixir(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, compose.Up())
 	t.Run("Elixir RED metrics", testREDMetricsElixirHTTP)
+	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
 
@@ -899,6 +967,28 @@ func TestSuite_LogEnricherPythonAsync(t *testing.T) {
 
 	t.Run("Log Enricher Python async", func(t *testing.T) {
 		testLogEnricherPythonAsync(t)
+	})
+	// Must run after the regular Python async test: this subtest causes OBI to
+	// flag the service as OTel-exporting, which persists for the rest of the
+	// container's lifetime.
+	t.Run("Log Enricher Python async OTel-instrumented", func(t *testing.T) {
+		testLogEnricherPythonAsyncOTelInstrumented(t)
+	})
+	require.NoError(t, compose.Close())
+}
+
+func TestSuite_LogEnricherMultiSegWritev(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-log-enricher.yml", path.Join(pathOutput, "test-suite-log-enricher-multiseg-writev.log"))
+	require.NoError(t, err)
+
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8388`, `OTEL_EBPF_EXECUTABLE_PATH=`)
+	require.NoError(t, compose.Up())
+
+	t.Run("Log Enricher multi-seg writev", func(t *testing.T) {
+		testLogEnricherMultiSegWritev(t)
+	})
+	t.Run("Log Enricher shipper filters", func(t *testing.T) {
+		testLogEnricherShipperFilters(t)
 	})
 	require.NoError(t, compose.Close())
 }

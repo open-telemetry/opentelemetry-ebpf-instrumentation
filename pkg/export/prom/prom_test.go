@@ -101,13 +101,13 @@ func TestAppMetricsExpiration(t *testing.T) {
 		Metadata: map[attr.Name]string{"k8s.app.version": "v0.0.1"},
 	}
 
-	app := exec.FileInfo{
+	app := exec.New(exec.Init{
 		Service: svcAttrs,
 		Pid:     1,
-	}
+	})
 
 	// Send a process event so we make target_info and traces_host_info
-	processEvents.Send(exec.ProcessEvent{Type: exec.ProcessEventCreated, File: &app})
+	processEvents.Send(exec.ProcessEvent{Type: exec.ProcessEventCreated, File: app})
 
 	// WHEN it receives metrics
 	promInput.Send([]request.Span{
@@ -179,7 +179,7 @@ func TestAppMetricsExpiration(t *testing.T) {
 	// AND WHEN the observed process is terminated
 	processEvents.Send(exec.ProcessEvent{
 		Type: exec.ProcessEventTerminated,
-		File: &app,
+		File: app,
 	})
 
 	// THEN traces_host_info and traces_target_info are removed
@@ -931,7 +931,7 @@ func TestHandleProcessEventCreated(t *testing.T) {
 			},
 			event: exec.ProcessEvent{
 				Type: exec.ProcessEventCreated,
-				File: &exec.FileInfo{
+				File: exec.New(exec.Init{
 					Pid: 1234,
 					Service: svc.Attrs{
 						UID: svc.UID{
@@ -941,7 +941,7 @@ func TestHandleProcessEventCreated(t *testing.T) {
 						},
 						HostName: "test-host",
 					},
-				},
+				}),
 			},
 			expectedCreate: []svc.Attrs{
 				{
@@ -985,7 +985,7 @@ func TestHandleProcessEventCreated(t *testing.T) {
 			},
 			event: exec.ProcessEvent{
 				Type: exec.ProcessEventCreated,
-				File: &exec.FileInfo{
+				File: exec.New(exec.Init{
 					Pid: 1234,
 					Service: svc.Attrs{
 						UID: svc.UID{
@@ -995,7 +995,7 @@ func TestHandleProcessEventCreated(t *testing.T) {
 						},
 						HostName: "new-host",
 					},
-				},
+				}),
 			},
 			expectedCreate: []svc.Attrs{
 				{
@@ -1051,7 +1051,7 @@ func TestHandleProcessEventCreated(t *testing.T) {
 			},
 			event: exec.ProcessEvent{
 				Type: exec.ProcessEventCreated,
-				File: &exec.FileInfo{
+				File: exec.New(exec.Init{
 					Pid: 1234,
 					Service: svc.Attrs{
 						UID: svc.UID{
@@ -1061,7 +1061,7 @@ func TestHandleProcessEventCreated(t *testing.T) {
 						},
 						HostName: "test-host",
 					},
-				},
+				}),
 			},
 			expectedCreate: []svc.Attrs{
 				{
@@ -1112,7 +1112,7 @@ func TestHandleProcessEventCreated(t *testing.T) {
 			},
 			event: exec.ProcessEvent{
 				Type: exec.ProcessEventCreated,
-				File: &exec.FileInfo{
+				File: exec.New(exec.Init{
 					Pid: 1234,
 					Service: svc.Attrs{
 						UID: svc.UID{
@@ -1122,7 +1122,7 @@ func TestHandleProcessEventCreated(t *testing.T) {
 						},
 						HostName: "test-host",
 					},
-				},
+				}),
 			},
 			expectedCreate: nil,
 			expectedDelete: nil,
@@ -1183,14 +1183,14 @@ func TestHandleProcessEventCreated_EdgeCases(t *testing.T) {
 		// Add first PID
 		event1 := exec.ProcessEvent{
 			Type: exec.ProcessEventCreated,
-			File: &exec.FileInfo{Pid: 1111, Service: service},
+			File: exec.New(exec.Init{Pid: 1111, Service: service}),
 		}
 		reporter.handleProcessEvent(event1, slog.Default())
 
 		// Add second PID for same service
 		event2 := exec.ProcessEvent{
 			Type: exec.ProcessEventCreated,
-			File: &exec.FileInfo{Pid: 2222, Service: service},
+			File: exec.New(exec.Init{Pid: 2222, Service: service}),
 		}
 		reporter.handleProcessEvent(event2, slog.Default())
 
@@ -1220,7 +1220,7 @@ func TestHandleProcessEventCreated_EdgeCases(t *testing.T) {
 
 			event := exec.ProcessEvent{
 				Type: exec.ProcessEventCreated,
-				File: &exec.FileInfo{Pid: app.PID(1000 + i), Service: service},
+				File: exec.New(exec.Init{Pid: app.PID(1000 + i), Service: service}),
 			}
 			reporter.handleProcessEvent(event, slog.Default())
 		}
@@ -1286,10 +1286,10 @@ func TestOverridingCloudHostIDKey(t *testing.T) {
 		UID:      svc.UID{Name: "test-app", Namespace: "default", Instance: "test-app-1"},
 	}
 	// Send a process event so we make target_info and traces_host_info
-	processEvents.SendCtx(t.Context(), exec.ProcessEvent{Type: exec.ProcessEventCreated, File: &exec.FileInfo{
+	processEvents.SendCtx(t.Context(), exec.ProcessEvent{Type: exec.ProcessEventCreated, File: exec.New(exec.Init{
 		Service: svcAttrs,
 		Pid:     1,
-	}})
+	})})
 
 	// WHEN it receives metrics
 	promInput.SendCtx(t.Context(), []request.Span{

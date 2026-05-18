@@ -34,4 +34,14 @@ typedef struct grpc_framer_func_invocation {
     u64 framer_ptr;
     tp_info_t tp;
     s64 offset;
+    u16 s_port;
+    u16 d_port;
+    u32 stream_id;
 } grpc_framer_func_invocation_t;
+
+// Bridge state stashed by executeAndPut on the NewStream goroutine and consumed
+// by originateStream on the loopyWriter goroutine. Keyed by *headerFrame ptr
+typedef struct pending_h2_invocation {
+    grpc_client_func_invocation_t inv;
+    u64 conn_ptr;
+} pending_h2_invocation_t;

@@ -8,10 +8,18 @@
 #include <bpfcore/bpf_helpers.h>
 
 #include <common/connection_info.h>
+#include <common/protocol_defs.h>
 
 #include <maps/ongoing_http2_connections.h>
 
 static __always_inline u8 already_tracked_http2(const pid_connection_info_t *p_conn) {
     http2_conn_info_data_t *http2_info = bpf_map_lookup_elem(&ongoing_http2_connections, p_conn);
     return http2_info != 0;
+}
+
+// Returns non-zero only for HTTP/2 sockets not carrying TLS — sk_msg HPACK
+// injection must skip SSL since payload on the wire is ciphertext.
+static __always_inline u8 already_tracked_plain_http2(const pid_connection_info_t *p_conn) {
+    http2_conn_info_data_t *h2 = bpf_map_lookup_elem(&ongoing_http2_connections, p_conn);
+    return h2 && !(h2->flags & WITH_SSL);
 }

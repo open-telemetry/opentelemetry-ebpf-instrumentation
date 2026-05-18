@@ -55,6 +55,10 @@ def black_hole():
 
     return "LIGHT!"
 
+@app.route("/v1/traces", methods=["POST"])
+def otlp_traces():
+    return Response(status=200)
+
 @app.route("/users", methods=['POST'])
 def users():
     content = request.json

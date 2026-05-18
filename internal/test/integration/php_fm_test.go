@@ -122,6 +122,8 @@ func TestPHPFM(t *testing.T) {
 
 	t.Run("PHP-FM RED metrics", testREDMetricsPHPFPM)
 
+	runWeaverValidation(t)
+
 	require.NoError(t, compose.Close())
 }
 
@@ -193,6 +195,8 @@ func TestPHPFMUnixSock(t *testing.T) {
 
 	t.Run("PHP-FM RED metrics", testTracesPHPFPM)
 
+	runWeaverValidation(t)
+
 	require.NoError(t, compose.Close())
 }
 
@@ -209,6 +213,8 @@ func TestPHPFMUnixSockNginxSupportFloor(t *testing.T) {
 	require.NoError(t, compose.Up())
 
 	t.Run("PHP-FM traces", testTracesPHPFPM)
+
+	runWeaverValidation(t)
 
 	require.NoError(t, compose.Close())
 }

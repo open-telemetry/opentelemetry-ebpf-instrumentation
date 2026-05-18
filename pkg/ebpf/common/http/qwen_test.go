@@ -195,6 +195,54 @@ func TestQwenSpan_NotQwen(t *testing.T) {
 	assert.False(t, ok)
 }
 
+const qwenToolCallRequestBody = `{
+  "model":"qwen-plus",
+  "messages":[{"role":"user","content":"What is the weather in Beijing?"}],
+  "tools":[{"type":"function","function":{"name":"get_weather","parameters":{"type":"object","properties":{"location":{"type":"string"}}}}}]
+}`
+
+const qwenToolCallResponseBody = `{
+  "id":"chatcmpl-tool-456",
+  "object":"chat.completion",
+  "model":"qwen-plus",
+  "choices":[{"index":0,"message":{"role":"assistant","content":null,"tool_calls":[{"id":"call_abc","type":"function","function":{"name":"get_weather"}}]},"finish_reason":"tool_calls"}],
+  "usage":{"prompt_tokens":20,"completion_tokens":5,"total_tokens":25}
+}`
+
+func TestQwenSpan_ToolCalls(t *testing.T) {
+	req := makeRequest(t, http.MethodPost, "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions", qwenToolCallRequestBody)
+	resp := makePlainResponse(http.StatusOK, qwenHeaders(), qwenToolCallResponseBody)
+
+	base := &request.Span{}
+	span, ok := QwenSpan(base, req, resp)
+
+	require.True(t, ok)
+	require.NotNil(t, span.GenAI)
+	require.NotNil(t, span.GenAI.Qwen)
+	assert.Equal(t, request.HTTPSubtypeQwen, span.SubType)
+
+	ai := span.GenAI.Qwen
+	assert.Equal(t, "chatcmpl-tool-456", ai.ID)
+	assert.Equal(t, "chat.completion", ai.OperationName)
+	assert.Equal(t, "qwen-plus", ai.Request.Model)
+	require.Len(t, ai.ToolCalls, 1)
+	assert.Equal(t, "call_abc", ai.ToolCalls[0].ID)
+	assert.Equal(t, "get_weather", ai.ToolCalls[0].Name)
+}
+
+func TestQwenSpan_NoToolCalls(t *testing.T) {
+	req := makeRequest(t, http.MethodPost, "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions", qwenCompatibleRequestBody)
+	resp := makePlainResponse(http.StatusOK, qwenHeaders(), qwenCompatibleResponseBody)
+
+	base := &request.Span{}
+	span, ok := QwenSpan(base, req, resp)
+
+	require.True(t, ok)
+	require.NotNil(t, span.GenAI)
+	require.NotNil(t, span.GenAI.Qwen)
+	assert.Empty(t, span.GenAI.Qwen.ToolCalls)
+}
+
 func TestExtractQwenOperation(t *testing.T) {
 	tests := []struct {
 		name string

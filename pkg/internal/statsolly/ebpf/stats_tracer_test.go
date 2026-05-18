@@ -10,66 +10,102 @@ import (
 	"testing"
 
 	"github.com/cilium/ebpf"
-
-	"go.opentelemetry.io/obi/pkg/export"
 )
 
 func TestFixupSpec(t *testing.T) {
 	const origKpName = "real_kp"
 	const origTpName = "real_tp"
+	const origConnRoleName = "real_conn_role"
 
 	makeSpec := func() *ebpf.CollectionSpec {
 		return &ebpf.CollectionSpec{
 			Programs: map[string]*ebpf.ProgramSpec{
-				progObiKprobeTCPCloseSrtt:         {Name: origKpName, Type: ebpf.Kprobe},
-				progObiTracepointInetSockSetState: {Name: origTpName, Type: ebpf.TracePoint},
+				progObiKprobeTCPCloseSrtt:              {Name: origKpName, Type: ebpf.Kprobe},
+				progObiTpInetSockSetStateTCPFailedConn: {Name: origTpName, Type: ebpf.TracePoint},
+				progObiTpInetSockSetStateConnRole:      {Name: origConnRoleName, Type: ebpf.TracePoint},
 			},
 		}
 	}
 
 	tests := []struct {
-		name       string
-		features   export.Features
-		wantKpName string
-		wantTpName string
+		name      string
+		toDisable []string
+		want      map[string]string
 	}{
 		{
-			name:       "all disabled",
-			features:   export.Features(0),
-			wantKpName: "stats_dummy_kp",
-			wantTpName: "stats_dummy_tp",
+			name:      "disable nothing",
+			toDisable: nil,
+			want: map[string]string{
+				progObiKprobeTCPCloseSrtt:              origKpName,
+				progObiTpInetSockSetStateTCPFailedConn: origTpName,
+				progObiTpInetSockSetStateConnRole:      origConnRoleName,
+			},
 		},
 		{
-			name:       "rtt only",
-			features:   export.FeatureStatsTCPRtt,
-			wantKpName: origKpName,
-			wantTpName: "stats_dummy_tp",
+			name:      "disable kprobe only",
+			toDisable: []string{progObiKprobeTCPCloseSrtt},
+			want: map[string]string{
+				progObiKprobeTCPCloseSrtt:              "stats_dummy",
+				progObiTpInetSockSetStateTCPFailedConn: origTpName,
+				progObiTpInetSockSetStateConnRole:      origConnRoleName,
+			},
 		},
 		{
-			name:       "failed connections only",
-			features:   export.FeatureStatsTCPFailedConnections,
-			wantKpName: "stats_dummy_kp",
-			wantTpName: origTpName,
+			name:      "disable failed conn only",
+			toDisable: []string{progObiTpInetSockSetStateTCPFailedConn},
+			want: map[string]string{
+				progObiKprobeTCPCloseSrtt:              origKpName,
+				progObiTpInetSockSetStateTCPFailedConn: "stats_dummy",
+				progObiTpInetSockSetStateConnRole:      origConnRoleName,
+			},
 		},
 		{
-			name:       "all enabled",
-			features:   export.FeatureStats,
-			wantKpName: origKpName,
-			wantTpName: origTpName,
+			name:      "disable conn role only",
+			toDisable: []string{progObiTpInetSockSetStateConnRole},
+			want: map[string]string{
+				progObiKprobeTCPCloseSrtt:              origKpName,
+				progObiTpInetSockSetStateTCPFailedConn: origTpName,
+				progObiTpInetSockSetStateConnRole:      "stats_dummy",
+			},
+		},
+		{
+			name: "disable all",
+			toDisable: []string{
+				progObiKprobeTCPCloseSrtt,
+				progObiTpInetSockSetStateTCPFailedConn,
+				progObiTpInetSockSetStateConnRole,
+			},
+			want: map[string]string{
+				progObiKprobeTCPCloseSrtt:              "stats_dummy",
+				progObiTpInetSockSetStateTCPFailedConn: "stats_dummy",
+				progObiTpInetSockSetStateConnRole:      "stats_dummy",
+			},
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			spec := makeSpec()
-			fixupSpec(spec, &tc.features)
-			if got := spec.Programs[progObiKprobeTCPCloseSrtt].Name; got != tc.wantKpName {
-				t.Errorf("kprobe program: got %q, want %q", got, tc.wantKpName)
+			if err := fixupSpec(spec, tc.toDisable); err != nil {
+				t.Fatalf("fixupSpec: %v", err)
 			}
-			if got := spec.Programs[progObiTracepointInetSockSetState].Name; got != tc.wantTpName {
-				t.Errorf("tracepoint program: got %q, want %q", got, tc.wantTpName)
+			for prog, wantName := range tc.want {
+				if got := spec.Programs[prog].Name; got != wantName {
+					t.Errorf("program %s: got %q, want %q", prog, got, wantName)
+				}
 			}
 		})
+	}
+}
+
+func TestFixupSpecUnknownProgram(t *testing.T) {
+	spec := &ebpf.CollectionSpec{
+		Programs: map[string]*ebpf.ProgramSpec{
+			progObiKprobeTCPCloseSrtt: {Name: "real_kp", Type: ebpf.Kprobe},
+		},
+	}
+	if err := fixupSpec(spec, []string{"nonexistent_prog"}); err == nil {
+		t.Error("expected error for unknown program name, got nil")
 	}
 }
 

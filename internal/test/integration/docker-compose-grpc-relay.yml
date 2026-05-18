@@ -1,0 +1,170 @@
+services:
+  # Go entry: HTTP on 8080, calls python-relay via gRPC
+  go-entry:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/grpc_relay/go/Dockerfile
+    image: hatest-grpc-relay-go-entry
+    environment:
+      HTTP_PORT: "8080"
+      NEXT_HOP: "python-relay:50051"
+      NEXT_HOP_MULTIPLEX: "go-grpc-to-http:50060"
+    ports:
+      - "8080:8080"
+    depends_on:
+      python-relay:
+        condition: service_started
+
+  # Python relay: gRPC on 50051, calls go-grpc-to-http via gRPC
+  python-relay:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/grpc_relay/python/Dockerfile
+    image: hatest-grpc-relay-python
+    environment:
+      GRPC_PORT: "50051"
+      NEXT_HOP: "go-grpc-to-http:50060"
+      HEALTH_PORT: "8090"
+    ports:
+      - "8090:8090"
+    depends_on:
+      go-grpc-to-http:
+        condition: service_started
+
+  # Go gRPC-to-HTTP bridge: receives gRPC on 50060, forwards via HTTP to go-http-to-grpc.
+  # Tests gRPC server span → HTTP client call parent linking.
+  go-grpc-to-http:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/grpc_relay/go/Dockerfile
+    image: hatest-grpc-relay-go-grpc-to-http
+    environment:
+      GRPC_PORT: "50060"
+      NEXT_HOP_HTTP: "http://go-http-to-grpc:8081/relay"
+      HEALTH_PORT: "8091"
+    ports:
+      - "8091:8091"
+    depends_on:
+      go-http-to-grpc:
+        condition: service_started
+
+  # Go HTTP-to-gRPC bridge: receives HTTP on 8081, forwards via gRPC to nodejs-relay.
+  # Tests HTTP server span → gRPC client call parent linking.
+  go-http-to-grpc:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/grpc_relay/go/Dockerfile
+    image: hatest-grpc-relay-go-http-to-grpc
+    environment:
+      HTTP_PORT: "8081"
+      NEXT_HOP: "nodejs-relay:50053"
+    ports:
+      - "8081:8081"
+    depends_on:
+      nodejs-relay:
+        condition: service_started
+
+  # Node.js relay: gRPC on 50053, calls java-relay via gRPC
+  nodejs-relay:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/grpc_relay/nodejs/Dockerfile
+    image: hatest-grpc-relay-nodejs
+    environment:
+      GRPC_PORT: "50053"
+      NEXT_HOP: "java-relay:50055"
+      GRPC_DNS_RESOLVER: "native"
+      HEALTH_PORT: "8092"
+    ports:
+      - "8092:8092"
+    depends_on:
+      java-relay:
+        condition: service_started
+
+  # Java relay: gRPC on 50055, calls go-terminal via gRPC
+  java-relay:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/grpc_relay/java/Dockerfile
+    image: hatest-grpc-relay-java
+    environment:
+      GRPC_PORT: "50055"
+      NEXT_HOP: "dotnet-relay:50056"
+      HEALTH_PORT: "8093"
+    ports:
+      - "8093:8093"
+    depends_on:
+      dotnet-relay:
+        condition: service_started
+
+  dotnet-relay:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/grpc_relay/dotnet/Dockerfile
+    image: hatest-grpc-relay-dotnet
+    environment:
+      GRPC_PORT: "50056"
+      NEXT_HOP: "go-terminal:50054"
+      HEALTH_PORT: "8095"
+    ports:
+      - "8095:8095"
+    depends_on:
+      go-terminal:
+        condition: service_started
+
+  # Go terminal: gRPC on 50054, end of chain
+  go-terminal:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/grpc_relay/go/Dockerfile
+    image: hatest-grpc-relay-go-terminal
+    environment:
+      GRPC_PORT: "50054"
+      HEALTH_PORT: "8094"
+    ports:
+      - "8094:8094"
+    depends_on:
+      jaeger:
+        condition: service_started
+
+  obi:
+    build:
+      context: ../../..
+      dockerfile: ./internal/test/integration/components/obi/Dockerfile
+    command:
+      - --config=/configs/obi-config-grpc-relay.yml
+    volumes:
+      - ./configs/:/configs
+      - ./system/sys/kernel/security${SECURITY_CONFIG_SUFFIX}:/sys/kernel/security
+      - /sys/fs/bpf:/sys/fs/bpf
+      - /sys/fs/cgroup:/sys/fs/cgroup
+      - ../../../testoutput:/coverage
+      - ../../../testoutput/run-grpc-relay:/var/run/obi
+    image: hatest-obi
+    privileged: true
+    pid: "host"
+    cgroup: "host"
+    environment:
+      GOCOVERDIR: "/coverage"
+      OTEL_EBPF_TRACE_PRINTER: "text"
+      OTEL_EBPF_METRICS_INTERVAL: "${OTEL_EBPF_METRICS_INTERVAL:-1s}"
+      OTEL_EBPF_BPF_BATCH_TIMEOUT: "${OTEL_EBPF_BPF_BATCH_TIMEOUT:-250ms}"
+      OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT: "${OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT:-200ms}"
+      OTEL_EBPF_HOSTNAME: "beyla"
+      OTEL_EBPF_BPF_CONTEXT_PROPAGATION: "${OTEL_EBPF_BPF_CONTEXT_PROPAGATION:-all}"
+      OTEL_EBPF_DISCOVERY_POLL_INTERVAL: "${OTEL_EBPF_DISCOVERY_POLL_INTERVAL:-1s}"
+      OTEL_EBPF_BPF_DEBUG: "${OTEL_EBPF_BPF_DEBUG:-false}"
+      OTEL_EBPF_LOG_LEVEL: "DEBUG"
+    depends_on:
+      go-entry:
+        condition: service_started
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.60@sha256:4fd2d70fa347d6a47e79fcb06b1c177e6079f92cba88b083153d56263082135e
+    ports:
+      - "16686:16686"
+      - "4317:4317"
+      - "4318:4318"
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+      - LOG_LEVEL=debug

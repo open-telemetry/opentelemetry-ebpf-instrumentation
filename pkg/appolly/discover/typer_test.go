@@ -155,12 +155,12 @@ func TestFilterClassify_EventDeleted_EvictsInstrumentableCache(t *testing.T) {
 		Type: svc.InstrumentableGeneric,
 	})
 
-	fInfo := &exec.FileInfo{
+	fInfo := exec.New(exec.Init{
 		Pid:        testPID,
 		Dev:        testDev,
 		Ino:        testInode,
 		CmdExePath: "/usr/bin/version-b",
-	}
+	})
 
 	ty := typer{
 		cfg:                 &obi.Config{Routes: &transform.RoutesConfig{}},

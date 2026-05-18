@@ -79,7 +79,7 @@ through language-specific library instrumentation documented later in this file.
 | AWS S3 | All | `CreateBucket`, `DeleteBucket`, `PutObject`, `DeleteObject`, `ListBuckets`, `ListObjects`, `GetObject` | Yes | No | None documented |
 | AWS SQS | All | All | Yes | No | None documented |
 | SQL++ | All | All | Yes | No | None documented |
-| GenAI | All | All | Yes | No | Supported vendors are OpenAI, Anthropic, Google AI Studio (Gemini), AWS Bedrock, Qwen (DashScope), generic embedding providers (Voyage AI, Cohere, Jina AI), Cohere (Rerank), Jina AI (Rerank), Voyage AI (Rerank), and Qwen (DashScope) (Rerank) |
+| GenAI | All | All | Yes | No | Supported vendors are OpenAI, Anthropic, Google AI Studio (Gemini), AWS Bedrock, Qwen (DashScope), generic embedding providers (Voyage AI, Cohere, Jina AI), Cohere (Rerank), Jina AI (Rerank), Voyage AI (Rerank), Qwen (DashScope) (Rerank), and vector retrieval providers (Pinecone, Qdrant, Milvus, Zilliz, Chroma, Weaviate) |
 
 ## Runtime, Server, And Library Instrumentation
 
@@ -132,6 +132,7 @@ OBI currently documents the following statistical instrumentation support:
 |:-------|:------|:------|
 | TCP RTT | Node-wide statistical metric collection | Calculated from the kernel TCP `srtt_us` field |
 | TCP Failed Connections | Node-wide statistical metric collection | Counts the TCP failed connections between 2 endpoints |
+| TCP Retransmits | Node-wide statistical metric collection | Counts data-segment and client-SYN retransmits. Server-side SYN-ACK retransmits are a separate event and not counted here. |
 
 ## Context Propagation Frameworks
 

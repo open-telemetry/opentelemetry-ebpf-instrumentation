@@ -500,3 +500,77 @@ func TestHTTPRequestResponseToSpan_OpenAIEmbeddingDetectedByOpenAISpan(t *testin
 	require.NotNil(t, span.GenAI.OpenAI, "span.GenAI.OpenAI should be set")
 	assert.Equal(t, request.EmbeddingOperationName, span.GenAI.OpenAI.OperationName)
 }
+
+func TestToRequestTraceLargeBuffers(t *testing.T) {
+	connInfo := BpfConnectionInfoT{
+		D_port: 1,
+		S_addr: [16]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 192, 168, 0, 1},
+		D_addr: [16]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 8, 8, 8, 8},
+	}
+	traceID := [16]uint8{'t', 'r', 'a', 'c', 'e', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '1'}
+
+	tests := []struct {
+		name         string
+		withLargeBuf bool
+		primaryBuf   string
+		largeRequest string
+		expectedPath string
+	}{
+		{
+			name:         "fallback to primary buffer when large buffer is absent",
+			withLargeBuf: false,
+			primaryBuf:   "GET /hello HTTP/1.1\r\nHost: example.com\r\n\r\n",
+			expectedPath: "/hello",
+		},
+		{
+			name:         "large buffer takes precedence over primary buffer",
+			withLargeBuf: true,
+			primaryBuf:   "GET /short HTTP/1.1\r\n\r\n",
+			largeRequest: "GET /from-large-buffer HTTP/1.1\r\nHost: example.com\r\n\r\n",
+			expectedPath: "/from-large-buffer",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			fltr := TestPidsFilter{services: map[app.PID]svc.Attrs{}}
+			var record BPFHTTPInfo
+
+			record.Type = 1
+			record.ReqMonotimeNs = 123450
+			record.StartMonotimeNs = 123456
+			record.EndMonotimeNs = 789012
+			record.Status = 200
+			record.HasLargeBuffers = 1
+			record.ConnInfo = connInfo
+			record.Tp.TraceId = traceID
+			copy(record.Buf[:], tc.primaryBuf)
+
+			pctx := NewEBPFParseContext(nil, nil, nil)
+
+			if tc.withLargeBuf {
+				lbHdr := TCPLargeBufferHeader{
+					PacketType: packetTypeRequest,
+					Len:        uint32(len(tc.largeRequest)),
+					Action:     largeBufferActionInit,
+					Kind:       uint8(KindLayerApp),
+				}
+				lbHdr.Tp.TraceId = traceID
+				lbHdr.ConnInfo = connInfo
+
+				_, _, err := appendTCPLargeBuffer(pctx, toRingbufRecord(t, lbHdr, tc.largeRequest))
+				require.NoError(t, err)
+			}
+
+			buf := new(bytes.Buffer)
+			err := binary.Write(buf, binary.LittleEndian, &record)
+			require.NoError(t, err)
+
+			result, _, err := ReadHTTPInfoIntoSpan(pctx, &ringbuf.Record{RawSample: buf.Bytes()}, &fltr)
+			require.NoError(t, err)
+
+			require.Equal(t, tc.expectedPath, result.Path)
+			require.Equal(t, 200, result.Status)
+		})
+	}
+}

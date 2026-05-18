@@ -1,0 +1,371 @@
+ebpf:
+    bpf_debug: false
+    wakeup_len: 500
+    batch_length: 100
+    batch_timeout: 1s
+    track_request_headers: false
+    http_request_timeout: 0s
+    context_propagation: disabled
+    override_bpfloop_enabled: false
+    traffic_control_backend: auto
+    disable_black_box_cp: false
+    high_request_volume: false
+    heuristic_sql_detect: false
+    instrument_cuda: auto
+    protocol_debug_print: false
+    redis_db_cache:
+        enabled: false
+        max_size: 1000
+    buffer_sizes:
+        http: 0
+        mysql: 0
+        kafka: 0
+        postgres: 0
+    mysql_prepared_statements_cache_size: 1024
+    postgres_prepared_statements_cache_size: 1024
+    kafka_topic_uuid_cache_size: 1024
+    mongo_requests_cache_size: 1024
+    payload_extraction:
+        http:
+            graphql:
+                enabled: false
+            elasticsearch:
+                enabled: false
+            aws:
+                enabled: false
+            sqlpp:
+                enabled: false
+                endpoint_patterns:
+                    - /query/service
+    max_transaction_time: 5m0s
+    dns_request_timeout: 5s
+    log_enricher:
+        services: []
+        cache_ttl: 30m0s
+        cache_size: 128
+        async_writer_workers: 8
+        async_writer_channel_len: 500
+    couchbase_db_cache_size: 1024
+    bpf_fs_path: /sys/fs/bpf/
+network:
+    enable: false
+    source: socket_filter
+    agent_ip: ""
+    agent_ip_iface: external
+    agent_ip_type: any
+    interfaces: []
+    exclude_interfaces:
+        - lo
+    protocols: []
+    exclude_protocols: []
+    cache_max_flows: 5000
+    cache_active_timeout: 5s
+    deduper: first_come
+    deduper_fc_ttl: 0s
+    direction: both
+    sampling: 0
+    listen_interfaces: watch
+    listen_poll_period: 10s
+    geo_ip:
+        ipinfo:
+            path: ""
+        maxmind:
+            country_path: ""
+            asn_path: ""
+        cache_len: 512
+        cache_expiry: 1h0m0s
+    reverse_dns:
+        type: none
+        cache_len: 256
+        cache_expiry: 1h0m0s
+    print_flows: false
+    cidrs: []
+filter:
+    application: {}
+    network: {}
+attributes:
+    kubernetes:
+        enable: autodetect
+        cluster_name: ""
+        kubeconfig_path: ""
+        informers_sync_timeout: 30s
+        informers_resync_period: 30m0s
+        drop_external: false
+        disable_informers: []
+        meta_cache_address: ""
+        meta_restrict_local_node: false
+        meta_source_labels:
+            service_name: ""
+            service_namespace: ""
+        resource_labels:
+            service.name:
+                - app.kubernetes.io/name
+            service.namespace:
+                - app.kubernetes.io/part-of
+            service.version:
+                - app.kubernetes.io/version
+        service_name_template: ""
+    instance_id:
+        dns: true
+        override_hostname: ""
+    select: {}
+    host_id:
+        override: ""
+    extra_group_attributes: {}
+    rename_unresolved_hosts: unresolved
+    rename_unresolved_hosts_outgoing: outgoing
+    rename_unresolved_hosts_incoming: incoming
+    metric_span_names_limit: 100
+routes:
+    unmatched: heuristic
+    patterns: []
+    ignored_patterns: []
+    ignore_mode: ""
+    wildcard_char: '*'
+    max_path_segment_cardinality: 10
+name_resolver:
+    sources:
+        - k8s
+    cache_len: 1024
+    cache_expiry: 5m0s
+otel_metrics_export:
+    allow_service_graph_self_references: false
+    buckets:
+        duration_histogram:
+            - 0
+            - 0.005
+            - 0.01
+            - 0.025
+            - 0.05
+            - 0.075
+            - 0.1
+            - 0.25
+            - 0.5
+            - 0.75
+            - 1
+            - 2.5
+            - 5
+            - 7.5
+            - 10
+        request_size_histogram:
+            - 0
+            - 32
+            - 64
+            - 128
+            - 256
+            - 512
+            - 1024
+            - 2048
+            - 4096
+            - 8192
+        response_size_histogram:
+            - 0
+            - 32
+            - 64
+            - 128
+            - 256
+            - 512
+            - 1024
+            - 2048
+            - 4096
+            - 8192
+    endpoint: '***'
+    extra_span_resource_attributes: []
+    features: 0
+    histogram_aggregation: explicit_bucket_histogram
+    insecure_skip_verify: false
+    instrumentations:
+        - '*'
+    interval: 0s
+    otel_sdk_log_level: ""
+    protocol: ""
+    reporters_cache_len: 256
+    ttl: 5m0s
+otel_traces_export:
+    backoff_initial_interval: 0s
+    backoff_max_elapsed_time: 0s
+    backoff_max_interval: 0s
+    batch_timeout: 15s
+    endpoint: '***'
+    insecure_skip_verify: false
+    instrumentations:
+        - http
+        - grpc
+        - sql
+        - redis
+        - kafka
+        - mqtt
+        - mongo
+        - couchbase
+    max_queue_size: 4096
+    otel_sdk_log_level: ""
+    protocol: ""
+    reporters_cache_len: 256
+    sampler:
+        name: ""
+        arg: ""
+prometheus_export:
+    port: 0
+    path: /metrics
+    disable_build_info: false
+    features: 0
+    instrumentations:
+        - '*'
+    buckets:
+        duration_histogram:
+            - 0
+            - 0.005
+            - 0.01
+            - 0.025
+            - 0.05
+            - 0.075
+            - 0.1
+            - 0.25
+            - 0.5
+            - 0.75
+            - 1
+            - 2.5
+            - 5
+            - 7.5
+            - 10
+        request_size_histogram:
+            - 0
+            - 32
+            - 64
+            - 128
+            - 256
+            - 512
+            - 1024
+            - 2048
+            - 4096
+            - 8192
+        response_size_histogram:
+            - 0
+            - 32
+            - 64
+            - 128
+            - 256
+            - 512
+            - 1024
+            - 2048
+            - 4096
+            - 8192
+    ttl: 5m0s
+    service_cache_size: 10000
+    allow_service_graph_self_references: false
+    extra_resource_attributes: []
+    extra_span_resource_attributes: []
+trace_printer: disabled
+executable_path: ""
+autotargetexe: ""
+open_port: ""
+autotargetlanguage: ""
+target_pids: ""
+service_name: ""
+service_namespace: ""
+metrics:
+    features: 8
+discovery:
+    services: []
+    exclude_services: []
+    default_exclude_services:
+        - name: ""
+          namespace: ""
+          open_ports: ""
+          target_pids: []
+          exe_path: (?:^|/)(obi$|otelcol[^/]*$)
+          languages: ""
+          exe_path_regexp: ""
+          k8s_pod_labels: {}
+          k8s_pod_annotations: {}
+          containers_only: false
+          exports: null
+          sampler: null
+          routes: null
+          metrics:
+            features: 0
+        - name: ""
+          namespace: ""
+          open_ports: ""
+          target_pids: []
+          exe_path: ""
+          languages: ""
+          exe_path_regexp: ""
+          k8s_pod_labels: {}
+          k8s_pod_annotations: {}
+          containers_only: false
+          exports: null
+          sampler: null
+          routes: null
+          metrics:
+            features: 0
+          k8s_namespace: ^kube-system$|^kube-node-lease$|^local-path-storage$|^cert-manager$|^monitoring$|^gke-connect$|^gke-gmp-system$|^gke-managed-cim$|^gke-managed-filestorecsi$|^gke-managed-metrics-server$|^gke-managed-system$|^gke-system$|^gke-managed-volumepopulator$|^gatekeeper-system
+    instrument: []
+    exclude_instrument: []
+    default_exclude_instrument:
+        - name: ""
+          namespace: ""
+          open_ports: ""
+          languages: ""
+          target_pids: []
+          exe_path: '{*/obi,obi,*otelcol,*otelcol-contrib,*otelcol-contrib[!/]*}'
+          k8s_pod_labels: {}
+          k8s_pod_annotations: {}
+          containers_only: false
+          exports: null
+          sampler: null
+          routes: null
+          metrics:
+            features: 0
+        - name: ""
+          namespace: ""
+          open_ports: ""
+          languages: ""
+          target_pids: []
+          exe_path: ""
+          k8s_pod_labels: {}
+          k8s_pod_annotations: {}
+          containers_only: false
+          exports: null
+          sampler: null
+          routes: null
+          metrics:
+            features: 0
+          k8s_namespace: '{kube-system,kube-node-lease,local-path-storage,cert-manager,monitoring,gke-connect,gke-gmp-system,gke-managed-cim,gke-managed-filestorecsi,gke-managed-metrics-server,gke-managed-system,gke-system,gke-managed-volumepopulator,gatekeeper-system}'
+    poll_interval: 0s
+    skip_go_specific_tracers: false
+    bpf_pid_filter_off: false
+    exclude_otel_instrumented_services: true
+    default_otlp_grpc_port: 4317
+    min_process_age: 5s
+    exclude_otel_instrumented_services_span_metrics: false
+    route_harvester_timeout: 10s
+    disabled_route_harvesters: []
+    route_harvester_advanced:
+        java_harvest_delay: 1m0s
+    excluded_linux_system_paths:
+        - /lib/systemd/
+        - /usr/lib/systemd/
+        - /usr/libexec/
+        - /sbin/
+        - /usr/sbin/
+log_level: INFO
+shutdown_timeout: 10s
+enforce_sys_caps: false
+channel_buffer_len: 50
+channel_send_timeout: 1m0s
+channel_send_timeout_panic: false
+profile_port: 0
+internal_metrics:
+    prometheus:
+        path: /internal/metrics
+    exporter: disabled
+    bpf_metric_scrape_interval: 15s
+log_config: ""
+nodejs:
+    enabled: true
+javaagent:
+    enabled: true
+    debug: false
+    debug_instrumentation: false
+    attach_timeout: 10s

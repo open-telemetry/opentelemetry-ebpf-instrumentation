@@ -334,7 +334,7 @@ func TestSpanStatusMessage_DBResponseErrorOptional(t *testing.T) {
 				Status:  1,
 				DBError: DBError{ErrorCode: "WRONGTYPE", Description: "WRONGTYPE Operation against a key holding the wrong kind of value"},
 			},
-			expectedDefault: attributes.DBErrorMessagePlaceholder,
+			expectedDefault: "",
 			expectedAllowed: "WRONGTYPE Operation against a key holding the wrong kind of value",
 		},
 		{
@@ -344,7 +344,7 @@ func TestSpanStatusMessage_DBResponseErrorOptional(t *testing.T) {
 				Status:   1,
 				SQLError: &SQLError{Code: 8, SQLState: "ABC", Message: "SQL error message"},
 			},
-			expectedDefault: attributes.DBErrorMessagePlaceholder,
+			expectedDefault: "",
 			expectedAllowed: "SQL Server errored: error_code=8 sql_state=ABC message=SQL error message",
 		},
 		{
@@ -355,7 +355,7 @@ func TestSpanStatusMessage_DBResponseErrorOptional(t *testing.T) {
 				Status:  1,
 				DBError: DBError{ErrorCode: "12003", Description: "Keyspace not found in CB datastore"},
 			},
-			expectedDefault: attributes.DBErrorMessagePlaceholder,
+			expectedDefault: "",
 			expectedAllowed: "Keyspace not found in CB datastore",
 		},
 		{

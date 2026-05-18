@@ -53,6 +53,9 @@ static __always_inline void init_new_trace(tp_info_t *tp) {
     new_trace_id(tp);
     urand_bytes(tp->span_id, SPAN_ID_SIZE_BYTES);
     __builtin_memset(tp->parent_id, 0, sizeof(tp->span_id));
+    // ts gates should_be_in_same_transaction
+    tp->ts = bpf_ktime_get_ns();
+    tp->flags = 1;
 
     if (g_bpf_debug) {
         unsigned char tp_buf[TP_MAX_VAL_LENGTH];

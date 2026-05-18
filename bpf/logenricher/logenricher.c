@@ -47,50 +47,102 @@ static __always_inline bool pid_tracked(const struct task_struct *task) {
     return tracked != NULL;
 }
 
-static __always_inline bool __fill_iov(struct iovec *iov, struct iov_iter *from) {
-    iovec_iter_ctx iov_ctx;
-    get_iovec_ctx(&iov_ctx, (struct iov_iter___dummy *)from);
+static __always_inline u32 consume_ubuf(log_event_t *e,
+                                        struct iov_iter *from,
+                                        void *ubuf,
+                                        const char *fill) {
+    const size_t count = BPF_CORE_READ(from, count);
+    u32 to_copy = (u32)count;
 
-    if (bpf_core_enum_value_exists(enum iter_type___dummy, ITER_UBUF) &&
-        iov_ctx.iter_type == bpf_core_enum_value(enum iter_type___dummy, ITER_UBUF)) {
-        const long offset = bpf_core_field_offset(struct iov_iter, count) - 8;
-        bpf_probe_read(iov, sizeof(*iov), (char *)from + offset);
-    } else if (iov_ctx.iter_type == bpf_core_enum_value(enum iter_type, ITER_IOVEC) &&
-               iov_ctx.iov) {
-        bpf_probe_read(iov, sizeof(*iov), &iov_ctx.iov[0]);
-    } else {
-        bpf_dbg_printk("logenricher: unsupported iter_type %d", iov_ctx.iter_type);
-        return false;
+    bpf_clamp_umax(to_copy, k_log_event_max_log_len);
+    if (to_copy == 0) {
+        return 0;
     }
 
-    return iov->iov_base && iov->iov_len;
+    bpf_probe_read_user(e->log, to_copy, ubuf);
+    bpf_clamp_umin(to_copy, 1);
+    bpf_probe_write_user(ubuf, fill, to_copy);
+    bpf_probe_write_user((char *)ubuf + to_copy - 1, &k_newline, 1);
+
+    return to_copy;
+}
+
+static __always_inline u32 consume_iovec(log_event_t *e,
+                                         const struct iovec *iov,
+                                         unsigned long nr_segs,
+                                         const char *fill) {
+    u32 tot = 0;
+    void *last_end = NULL;
+
+    bpf_clamp_umax(nr_segs, k_iov_max_segs);
+
+    for (unsigned long i = 0; i < k_iov_max_segs && i < nr_segs; i++) {
+        struct iovec vec;
+        if (bpf_probe_read_kernel(&vec, sizeof(vec), &iov[i]) != 0) {
+            break;
+        }
+        if (!vec.iov_base || !vec.iov_len) {
+            continue;
+        }
+
+        u32 to_copy = (u32)vec.iov_len;
+        bpf_clamp_umax(to_copy, k_iov_seg_max_len);
+        bpf_clamp_umax(tot, k_log_event_max_log_len);
+        if (tot + to_copy > k_log_event_max_log_len) {
+            break;
+        }
+
+        bpf_probe_read_user(&e->log[tot], to_copy, vec.iov_base);
+        bpf_clamp_umin(to_copy, 1);
+        bpf_probe_write_user(vec.iov_base, fill, to_copy);
+        last_end = (char *)vec.iov_base + to_copy - 1;
+        tot += to_copy;
+    }
+
+    if (last_end) {
+        bpf_probe_write_user(last_end, &k_newline, 1);
+    }
+    return tot;
 }
 
 static __always_inline int
 __write(struct kiocb *iocb, struct iov_iter *from, const int fd, const struct task_struct *task) {
-    struct iovec iov = {};
-    if (!__fill_iov(&iov, from)) {
-        return 0;
-    }
-
-    const size_t count = BPF_CORE_READ(from, count);
-    size_t bounded_count = count;
-    if (bounded_count > iov.iov_len) {
-        bounded_count = iov.iov_len;
-    }
-    const u64 pid_tgid = bpf_get_current_pid_tgid();
-    obi_ctx_info_t *obi_ctx = obi_ctx__get(pid_tgid);
+    iovec_iter_ctx ictx;
+    get_iovec_ctx(&ictx, (struct iov_iter___dummy *)from);
 
     log_event_t *e = (log_event_t *)log_event_mem();
     if (!e) {
         bpf_dbg_printk("logenricher: failed to reserve event space");
         return 0;
     }
+    char *fill = bpf_map_lookup_elem(&zeros, &(u32){0});
+    if (!fill) {
+        bpf_dbg_printk("logenricher: failed to get zero buffer");
+        return 0;
+    }
+
+    const u64 pid_tgid = bpf_get_current_pid_tgid();
+    obi_ctx_info_t *obi_ctx = obi_ctx__get(pid_tgid);
     e->tgid = pid_tgid >> 32;
-    e->len = bounded_count & k_log_event_max_log_mask;
     e->ctx = obi_ctx ? *obi_ctx : (obi_ctx_info_t){0};
     e->fd = fd;
-    bpf_probe_read_user(e->log, e->len, iov.iov_base);
+
+    u32 tot = 0;
+
+    if (bpf_core_enum_value_exists(enum iter_type___dummy, ITER_UBUF) &&
+        ictx.iter_type == bpf_core_enum_value(enum iter_type___dummy, ITER_UBUF) && ictx.ubuf) {
+        tot = consume_ubuf(e, from, ictx.ubuf, fill);
+    } else if (ictx.iter_type == bpf_core_enum_value(enum iter_type, ITER_IOVEC) && ictx.iov) {
+        tot = consume_iovec(e, ictx.iov, ictx.nr_segs, fill);
+    } else {
+        bpf_dbg_printk("logenricher: unsupported iter_type %d", ictx.iter_type);
+        return 0;
+    }
+
+    e->len = tot;
+    if (e->len == 0) {
+        return 0;
+    }
 
     if (fd == 0) {
         // We are in the TTY path so we can resolve the filepath
@@ -105,32 +157,11 @@ __write(struct kiocb *iocb, struct iov_iter *from, const int fd, const struct ta
         e->file_path[0] = '\0';
     }
 
-    if (e->len > 0) {
-        // From this point on, the responsibility of writing to stdout is on us,
-        // so if something fails, we must always fallback to writing the original data.
-        const long err =
-            bpf_ringbuf_output(&log_events,
-                               e,
-                               (sizeof(log_event_t) + e->len) & k_log_event_max_size_mask,
-                               log_events_flags());
-        if (err < 0) {
-            bpf_dbg_printk("logenricher: failed to write log event to ringbuf: %d", err);
-            return 0;
-        }
-
-        // Delete current buffer to avoid double logging.
-        char *zero = bpf_map_lookup_elem(&zeros, &(u32){0});
-        if (!zero) {
-            bpf_dbg_printk("logenricher: failed to get zero buffer");
-            return 0;
-        }
-
-        u32 to_write = e->len & k_log_event_max_log_mask;
-        if (to_write == 0) {
-            return 0;
-        }
-        bpf_clamp_umin(to_write, 1);
-        bpf_probe_write_user(iov.iov_base, zero, to_write);
+    u64 out_size = sizeof(log_event_t) + e->len;
+    bpf_clamp_umax(out_size, k_log_event_max_size);
+    const long err = bpf_ringbuf_output(&log_events, e, out_size, log_events_flags());
+    if (err < 0) {
+        bpf_dbg_printk("logenricher: failed to write log event to ringbuf: %d", err);
     }
 
     return 0;

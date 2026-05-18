@@ -882,12 +882,12 @@ func TestAppMetrics_TracesHostInfo(t *testing.T) {
 
 	processEvents.Send(exec.ProcessEvent{
 		Type: exec.ProcessEventCreated,
-		File: &exec.FileInfo{
+		File: exec.New(exec.Init{
 			Service: svc.Attrs{
 				Features: feats,
 				UID:      svc.UID{Instance: "foo"},
 			},
-		},
+		}),
 	})
 
 	metrics.Send([]request.Span{
@@ -902,12 +902,12 @@ func TestAppMetrics_TracesHostInfo(t *testing.T) {
 	// Check expiration logic
 	processEvents.Send(exec.ProcessEvent{
 		Type: exec.ProcessEventTerminated,
-		File: &exec.FileInfo{
+		File: exec.New(exec.Init{
 			Service: svc.Attrs{
 				Features: feats,
 				UID:      svc.UID{Instance: "foo"},
 			},
-		},
+		}),
 	})
 
 	now.Advance(50 * time.Minute)
@@ -1250,7 +1250,7 @@ func TestHandleProcessEventCreated(t *testing.T) {
 			},
 			event: exec.ProcessEvent{
 				Type: exec.ProcessEventCreated,
-				File: &exec.FileInfo{
+				File: exec.New(exec.Init{
 					Pid: 1234,
 					Service: svc.Attrs{
 						Features: export.FeatureApplicationRED,
@@ -1261,7 +1261,7 @@ func TestHandleProcessEventCreated(t *testing.T) {
 						},
 						HostName: "test-host",
 					},
-				},
+				}),
 			},
 			expectedCreate: []svc.Attrs{
 				{
@@ -1308,7 +1308,7 @@ func TestHandleProcessEventCreated(t *testing.T) {
 			},
 			event: exec.ProcessEvent{
 				Type: exec.ProcessEventCreated,
-				File: &exec.FileInfo{
+				File: exec.New(exec.Init{
 					Pid: 1234,
 					Service: svc.Attrs{
 						Features: export.FeatureApplicationRED,
@@ -1319,7 +1319,7 @@ func TestHandleProcessEventCreated(t *testing.T) {
 						},
 						HostName: "new-host",
 					},
-				},
+				}),
 			},
 			expectedCreate: []svc.Attrs{
 				{
@@ -1379,7 +1379,7 @@ func TestHandleProcessEventCreated(t *testing.T) {
 			},
 			event: exec.ProcessEvent{
 				Type: exec.ProcessEventCreated,
-				File: &exec.FileInfo{
+				File: exec.New(exec.Init{
 					Pid: 1234,
 					Service: svc.Attrs{
 						Features: export.FeatureApplicationRED,
@@ -1390,7 +1390,7 @@ func TestHandleProcessEventCreated(t *testing.T) {
 						},
 						HostName: "test-host",
 					},
-				},
+				}),
 			},
 			expectedCreate: []svc.Attrs{
 				{
@@ -1444,7 +1444,7 @@ func TestHandleProcessEventCreated(t *testing.T) {
 			},
 			event: exec.ProcessEvent{
 				Type: exec.ProcessEventCreated,
-				File: &exec.FileInfo{
+				File: exec.New(exec.Init{
 					Pid: 1234,
 					Service: svc.Attrs{
 						Features: export.FeatureApplicationRED,
@@ -1455,7 +1455,7 @@ func TestHandleProcessEventCreated(t *testing.T) {
 						},
 						HostName: "test-host",
 					},
-				},
+				}),
 			},
 			expectedCreate: nil,
 			expectedDelete: nil,
@@ -1543,14 +1543,14 @@ func TestHandleProcessEventCreated_EdgeCases(t *testing.T) {
 		// Add first PID
 		event1 := exec.ProcessEvent{
 			Type: exec.ProcessEventCreated,
-			File: &exec.FileInfo{Pid: 1111, Service: service},
+			File: exec.New(exec.Init{Pid: 1111, Service: service}),
 		}
 		reporter.onProcessEvent(&event1)
 
 		// Add second PID for same service
 		event2 := exec.ProcessEvent{
 			Type: exec.ProcessEventCreated,
-			File: &exec.FileInfo{Pid: 2222, Service: service},
+			File: exec.New(exec.Init{Pid: 2222, Service: service}),
 		}
 		reporter.onProcessEvent(&event2)
 
@@ -1584,7 +1584,7 @@ func TestHandleProcessEventCreated_EdgeCases(t *testing.T) {
 
 			event := exec.ProcessEvent{
 				Type: exec.ProcessEventCreated,
-				File: &exec.FileInfo{Pid: app.PID(1000 + i), Service: service},
+				File: exec.New(exec.Init{Pid: app.PID(1000 + i), Service: service}),
 			}
 			reporter.onProcessEvent(&event)
 		}

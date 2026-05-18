@@ -18,6 +18,8 @@ struct callback_ctx {
     u8 _pad[4];
 };
 
+enum : u32 { k_tp_pos_not_found = 0xFFFFFFFFU };
+
 static unsigned char *hex = (unsigned char *)"0123456789abcdef";
 static unsigned char *reverse_hex =
     (unsigned char *)"\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff"
@@ -101,13 +103,13 @@ static __always_inline unsigned char *bpf_strstr_tp_loop(unsigned char *buf, con
         return NULL;
     }
 
-    struct callback_ctx data = {.buf = buf, .pos = 0};
+    struct callback_ctx data = {.buf = buf, .pos = k_tp_pos_not_found};
 
     const u32 nr_loops = (u32)buf_len;
 
     bpf_loop(nr_loops, tp_match, &data, 0);
 
-    if (data.pos) {
+    if (data.pos != k_tp_pos_not_found) {
         return (data.pos > (TRACE_BUF_SIZE - TRACE_PARENT_HEADER_LEN)) ? NULL : &buf[data.pos];
     }
 
