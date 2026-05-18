@@ -45,16 +45,16 @@ type openaiGoReqT struct {
 	Pad2 [4]uint8
 	Tp   struct {
 		_        structs.HostLayout
-		TraceId  [16]uint8
-		SpanId   [8]uint8
-		ParentId [8]uint8
-		Ts       uint64
+		TraceID  [16]uint8
+		SpanID   [8]uint8
+		ParentID [8]uint8
+		TS       uint64
 		Flags    uint8
 		Pad      [7]uint8
 	}
 	RequestModel     [64]uint8
 	ResponseModel    [64]uint8
-	ResponseId       [64]uint8
+	ResponseID       [64]uint8
 	PromptTokens     int64
 	CompletionTokens int64
 }
@@ -71,7 +71,7 @@ func ReadGoOpenAIRequestIntoSpan(record *ringbuf.Record) (request.Span, bool, er
 
 	reqModel := cstr(event.RequestModel[:])
 	respModel := cstr(event.ResponseModel[:])
-	respID := cstr(event.ResponseId[:])
+	respID := cstr(event.ResponseID[:])
 
 	return request.Span{
 		Type:         request.EventTypeHTTPClient,
@@ -81,9 +81,9 @@ func ReadGoOpenAIRequestIntoSpan(record *ringbuf.Record) (request.Span, bool, er
 		RequestStart: int64(event.StartMonotimeNs),
 		Start:        int64(event.StartMonotimeNs),
 		End:          int64(event.EndMonotimeNs),
-		TraceID:      trace2.TraceID(event.Tp.TraceId),
-		SpanID:       trace2.SpanID(event.Tp.SpanId),
-		ParentSpanID: trace2.SpanID(event.Tp.ParentId),
+		TraceID:      trace2.TraceID(event.Tp.TraceID),
+		SpanID:       trace2.SpanID(event.Tp.SpanID),
+		ParentSpanID: trace2.SpanID(event.Tp.ParentID),
 		TraceFlags:   event.Tp.Flags,
 		Pid: request.PidInfo{
 			HostPID:   app.PID(event.Pid.HostPid),
