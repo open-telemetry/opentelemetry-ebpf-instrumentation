@@ -1,10 +1,10 @@
-name: Privileged unit tests
+name: Unit tests (privileged)
 
 on:
   push:
-    branches: ["main", "release-*"]
+    branches: [main, release-*]
   pull_request:
-    branches: ["main", "release-*"]
+    branches: [main, release-*]
   workflow_call:
     inputs:
       ref:
@@ -13,7 +13,7 @@ on:
         type: string
 
 concurrency:
-  group: pull-request-privileged-${{ github.head_ref || github.run_id }}
+  group: pr-privileged-${{ github.head_ref || github.run_id }}
   cancel-in-progress: true
 
 permissions:
@@ -44,7 +44,7 @@ jobs:
           restore-keys: |
             go-build-pr-race-${{ runner.os }}-${{ runner.arch }}-
 
-      - name: Generate and build tools
+      - name: Generate BPF + build test tools
         run: make prereqs docker-generate
 
       - name: Run privileged unit tests
@@ -60,4 +60,4 @@ jobs:
         with:
           files: ./testoutput/cover.txt
           flags: unittests
-          name: go-privileged-unittests-coverage
+          name: unit-privileged-coverage

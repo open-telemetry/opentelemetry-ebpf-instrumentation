@@ -94,70 +94,115 @@ jobs:
           fi
           echo "Tag '$TAG' verified to exist in repository"
 
-  unit-tests:
-    name: Unit Tests
+  pr-checks:
+    name: PR checks
     uses: ./.github/workflows/pull_request.yml
+    needs: validate-tag
+    permissions:
+      contents: read
+    secrets: inherit # zizmor: ignore[secrets-inherit]
+    with:
+      ref: ${{ inputs.tag || github.ref_name }}
+
+  lint:
+    name: Lint
+    uses: ./.github/workflows/lint.yml
+    needs: validate-tag
+    permissions:
+      contents: read
+    secrets: inherit # zizmor: ignore[secrets-inherit]
+    with:
+      ref: ${{ inputs.tag || github.ref_name }}
+
+  unit-tests:
+    name: Unit tests
+    uses: ./.github/workflows/unit_tests.yml
     needs: validate-tag
     permissions:
       contents: read
       checks: write
       pull-requests: write
+    secrets: inherit # zizmor: ignore[secrets-inherit]
+    with:
+      ref: ${{ inputs.tag || github.ref_name }}
+
+  unit-tests-privileged:
+    name: Unit tests (privileged)
+    uses: ./.github/workflows/pull_request_privileged.yml
+    needs: validate-tag
+    permissions:
+      contents: read
+    secrets: inherit # zizmor: ignore[secrets-inherit]
+    with:
+      ref: ${{ inputs.tag || github.ref_name }}
+
+  bpf-verifier:
+    name: BPF verifier
+    uses: ./.github/workflows/bpf_verifier.yml
+    needs: validate-tag
+    permissions:
+      contents: read
+    secrets: inherit # zizmor: ignore[secrets-inherit]
     with:
       ref: ${{ inputs.tag || github.ref_name }}
 
   integration-tests:
-    name: Integration Tests
+    name: Integration tests
     uses: ./.github/workflows/pull_request_integration_tests.yml
     needs: validate-tag
     permissions:
       contents: read
       checks: write
       pull-requests: write
-      actions: write
-    secrets:
-      DOCKER_TOKEN_EBPF_INSTRUMENTATION: ${{ secrets.DOCKER_TOKEN_EBPF_INSTRUMENTATION }}
+    secrets: inherit # zizmor: ignore[secrets-inherit]
+    with:
+      ref: ${{ inputs.tag || github.ref_name }}
+
+  integration-tests-arm:
+    name: Integration tests ARM
+    uses: ./.github/workflows/pull_request_integration_tests_arm.yml
+    needs: validate-tag
+    permissions:
+      contents: read
+      checks: write
+      pull-requests: write
+    secrets: inherit # zizmor: ignore[secrets-inherit]
     with:
       ref: ${{ inputs.tag || github.ref_name }}
 
   k8s-integration-tests:
-    name: K8s Integration Tests
+    name: K8s integration tests
     uses: ./.github/workflows/pull_request_k8s_integration_tests.yml
     needs: validate-tag
     permissions:
       contents: read
       checks: write
       pull-requests: write
-      actions: write
-    secrets:
-      DOCKER_TOKEN_EBPF_INSTRUMENTATION: ${{ secrets.DOCKER_TOKEN_EBPF_INSTRUMENTATION }}
+    secrets: inherit # zizmor: ignore[secrets-inherit]
     with:
       ref: ${{ inputs.tag || github.ref_name }}
 
   oats-tests:
-    name: OATS Tests
+    name: OATS tests
     uses: ./.github/workflows/pull_request_oats_test.yml
     needs: validate-tag
     permissions:
       contents: read
       checks: write
       pull-requests: write
-      actions: write
-    secrets:
-      DOCKER_TOKEN_EBPF_INSTRUMENTATION: ${{ secrets.DOCKER_TOKEN_EBPF_INSTRUMENTATION }}
+    secrets: inherit # zizmor: ignore[secrets-inherit]
     with:
       ref: ${{ inputs.tag || github.ref_name }}
 
   vm-integration-tests:
-    name: VM Integration Tests
+    name: VM integration tests
     uses: ./.github/workflows/workflow_integration_tests_vm.yml
     needs: validate-tag
     permissions:
       contents: read
       checks: write
       pull-requests: write
-      actions: write
-    secrets:
-      DOCKER_TOKEN_EBPF_INSTRUMENTATION: ${{ secrets.DOCKER_TOKEN_EBPF_INSTRUMENTATION }}
+    secrets: inherit # zizmor: ignore[secrets-inherit]
     with:
       ref: ${{ inputs.tag || github.ref_name }}
 
@@ -167,38 +212,6 @@ jobs:
     needs: validate-tag
     permissions:
       contents: read
-    with:
-      ref: ${{ inputs.tag || github.ref_name }}
-
-  format-check:
-    name: Format Check
-    uses: ./.github/workflows/clang-format-check.yml
-    needs: validate-tag
-    permissions:
-      contents: read
-    with:
-      ref: ${{ inputs.tag || github.ref_name }}
-
-  tidy-check:
-    name: Tidy Check
-    uses: ./.github/workflows/clang-tidy-check.yml
-    needs: validate-tag
-    permissions:
-      contents: read
-    with:
-      ref: ${{ inputs.tag || github.ref_name }}
-
-  arm-integration-tests:
-    name: ARM Integration Tests
-    uses: ./.github/workflows/pull_request_integration_tests_arm.yml
-    needs: validate-tag
-    permissions:
-      contents: read
-      checks: write
-      pull-requests: write
-      actions: write
-    secrets:
-      DOCKER_TOKEN_EBPF_INSTRUMENTATION: ${{ secrets.DOCKER_TOKEN_EBPF_INSTRUMENTATION }}
     with:
       ref: ${{ inputs.tag || github.ref_name }}
 
@@ -256,15 +269,17 @@ jobs:
   tests-passed:
     name: All Tests Passed
     needs:
+      - pr-checks
+      - lint
       - unit-tests
+      - unit-tests-privileged
+      - bpf-verifier
       - integration-tests
+      - integration-tests-arm
       - k8s-integration-tests
       - oats-tests
       - vm-integration-tests
       - java-agent-tests
-      - format-check
-      - tidy-check
-      - arm-integration-tests
       - docker-build-test
     runs-on: ubuntu-latest
     permissions: {}
