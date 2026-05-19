@@ -1258,14 +1258,9 @@
     },
     "HealthCheckConfig": {
       "properties": {
-        "enabled": {
-          "type": "boolean",
-          "default": false,
-          "x-env-var": "OTEL_EBPF_HEALTH_CHECK_ENABLED"
-        },
         "port": {
           "type": "integer",
-          "default": 54545,
+          "default": 0,
           "x-env-var": "OTEL_EBPF_HEALTH_CHECK_PORT"
         }
       },

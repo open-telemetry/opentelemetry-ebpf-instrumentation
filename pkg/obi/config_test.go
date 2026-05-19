@@ -352,8 +352,7 @@ discovery:
 			Timeout: 10 * time.Second,
 		},
 		HealthCheck: HealthCheckConfig{
-			Enabled: false,
-			Port:    54545,
+			Port: 0,
 		},
 	}, cfg)
 }

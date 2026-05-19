@@ -56,14 +56,12 @@ func RunWithContextInfo(
 	net := cfg.Enabled(obi.FeatureNetO11y)
 	stats := cfg.Enabled(obi.FeatureStatsO11y)
 
-	registerHeartbeats(ctxInfo, app, net, stats)
-
 	// if one of nodes fail, the other should stop
 	g, ctx := errgroup.WithContext(ctx)
 
-	if cfg.HealthCheck.Enabled {
+	if cfg.HealthCheck.Port != 0 {
 		g.Go(func() error {
-			return health.ListenAndServe(ctx, cfg.HealthCheck.Port, ctxInfo.Heartbeats)
+			return health.ListenAndServe(ctx, cfg.HealthCheck.Port)
 		})
 	}
 
@@ -179,17 +177,6 @@ func buildServiceNameTemplate(config *obi.Config) (*template.Template, error) {
 	return templ, nil
 }
 
-func registerHeartbeats(ctxInfo *global.ContextInfo, app, net, stats bool) {
-	hb := ctxInfo.Heartbeats
-	if hb == nil {
-		return
-	}
-
-	ctxInfo.AppO11yHeartbeat = hb.Register("appo11y", app)
-	ctxInfo.NetO11yHeartbeat = hb.Register("neto11y", net)
-	ctxInfo.StatsO11yHeartbeat = hb.Register("statso11y", stats)
-}
-
 // BuildCommonContextInfo populates some globally shared components and properties
 // from the user-provided configuration
 func BuildCommonContextInfo(
@@ -223,7 +210,6 @@ func BuildCommonContextInfo(
 	ctxInfo := &global.ContextInfo{
 		Prometheus:          promMgr,
 		OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: &config.OTELMetrics},
-		Heartbeats:          health.NewTracker(),
 	}
 	ctxInfo.Metrics, err = internalMetrics(ctx, config, ctxInfo, promMgr)
 	if err != nil {

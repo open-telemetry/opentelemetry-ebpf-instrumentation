@@ -337,8 +337,7 @@ AttributesConfig stores the user-provided section for filtering either Applicati
 
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
-| `health_check.enabled` | `boolean` | `OTEL_EBPF_HEALTH_CHECK_ENABLED` | `false` |  |  |  |
-| `health_check.port` | `integer` | `OTEL_EBPF_HEALTH_CHECK_PORT` | `54545` |  |  |  |
+| `health_check.port` | `integer` | `OTEL_EBPF_HEALTH_CHECK_PORT` | `0` |  |  |  |
 
 ## `internal_metrics`
 

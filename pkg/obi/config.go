@@ -333,8 +333,7 @@ var DefaultConfig = Config{
 		Timeout: 10 * time.Second,
 	},
 	HealthCheck: HealthCheckConfig{
-		Enabled: false,
-		Port:    54545,
+		Port: 0,
 	},
 }
 
@@ -430,8 +429,7 @@ type Config struct {
 }
 
 type HealthCheckConfig struct {
-	Enabled bool `yaml:"enabled" env:"OTEL_EBPF_HEALTH_CHECK_ENABLED"`
-	Port    int  `yaml:"port" env:"OTEL_EBPF_HEALTH_CHECK_PORT"`
+	Port int `yaml:"port" env:"OTEL_EBPF_HEALTH_CHECK_PORT"`
 }
 
 func (c *Config) Unmarshal(component *confmap.Conf) error {
