@@ -1,10 +1,10 @@
-name: Pull request integration tests ARM
+name: Integration tests ARM
 
 on:
   push:
-    branches: ["main", "release-*"]
+    branches: [main, release-*]
   pull_request:
-    branches: ["main", "release-*"]
+    branches: [main, release-*]
     paths:
       - ".github/workflows/pull_request_integration_tests_arm.yml"
       - "**.go"
@@ -28,15 +28,30 @@ on:
         required: false
 
 concurrency:
-  group: integration-tests-arm-${{ github.head_ref || github.run_id }}
+  group: pr-integration-arm-${{ github.head_ref || github.run_id }}
   cancel-in-progress: true
 
 permissions:
   contents: read
 
 jobs:
+  generate-bpf:
+    name: Generate BPF
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
+
+      - uses: ./.github/actions/generate-bpf
+        with:
+          artifact-name: bpf-generated-arm-${{ github.run_id }}
+          cache-key-prefix: go-build-integration
+
   test-matrix:
-    name: "Build ARM integration matrix"
+    name: "Build matrix"
     runs-on: ubuntu-latest
     timeout-minutes: 45
     outputs:
@@ -47,7 +62,7 @@ jobs:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
 
-      - name: build matrix
+      - name: Build test matrix
         id: build-matrix
         env:
           # 5 partitions, one for each of:
@@ -63,65 +78,22 @@ jobs:
 
   test:
     name: ${{ matrix.description }}
-    needs: test-matrix
+    needs: [test-matrix, generate-bpf]
     permissions:
-      # Required for codecov
       checks: write
       pull-requests: write
-      # Required for uploading artifacts
-      actions: write
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.test-matrix.outputs.matrix) }}
     steps:
-      - name: Check initial disk usage
-        run: df -h
-
-      - name: Free up disk space
-        run: |
-          # Remove Java (JDKs)
-          sudo rm -rf /usr/lib/jvm
-
-          # Remove .NET SDKs
-          sudo rm -rf /usr/share/dotnet
-
-          # Remove Swift toolchain
-          sudo rm -rf /usr/share/swift
-
-          # Remove Haskell (GHC)
-          sudo rm -rf /usr/local/.ghcup
-
-          # Remove Julia
-          sudo rm -rf /usr/local/julia*
-
-          # Remove Android SDKs
-          sudo rm -rf /usr/local/lib/android
-
-          # Remove Chromium (optional if not using for browser tests)
-          sudo rm -rf /usr/local/share/chromium
-
-          # Remove Microsoft/Edge and Google Chrome builds
-          sudo rm -rf /opt/microsoft /opt/google
-
-          # Remove Azure CLI
-          sudo rm -rf /opt/az
-
-          # Remove PowerShell
-          sudo rm -rf /usr/local/share/powershell
-
-          # Remove CodeQL (but keep hostedtoolcache for Go)
-          sudo rm -rf /opt/hostedtoolcache/CodeQL
-
-          docker system prune -af || true
-          docker builder prune -af || true
-          df -h
-
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
+
+      - uses: ./.github/actions/free-disk
 
       - name: Check for Docker Hub token
         id: check-docker-token
@@ -155,8 +127,13 @@ jobs:
           restore-keys: |
             go-build-integration-${{ runner.os }}-${{ runner.arch }}-
 
-      - name: Generate files
-        run: make prereqs docker-generate
+      - name: Download generated BPF files
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bpf-generated-arm-${{ github.run_id }}
+
+      - name: Build test tools
+        run: make prereqs
 
       - name: Check disk usage before tests
         run: df -h
@@ -195,13 +172,13 @@ jobs:
         with:
           files: ./testoutput/itest-covdata.txt
           flags: integration-test-arm
-          name: go-integration-test-arm-coverage-${{ matrix.id }}-${{ github.run_number }}
+          name: integration-arm-coverage-${{ matrix.id }}-${{ github.run_number }}
 
       - name: Upload test reports
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: go-integration-test-arm-reports-${{ matrix.id }}-${{ github.run_number }}
+          name: integration-arm-reports-${{ matrix.id }}-${{ github.run_number }}
           path: /home/runner/reports/*.log
           retention-days: 5
 
@@ -209,7 +186,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
-          name: go-integration-test-arm-logs-${{ matrix.id }}-${{ github.run_number }}
+          name: integration-arm-logs-${{ matrix.id }}-${{ github.run_number }}
           path: |
             testoutput/*.log
             testoutput/kind
