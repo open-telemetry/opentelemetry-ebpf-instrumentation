@@ -114,11 +114,8 @@ int obi_uprobe_openai_chat_new_ret(struct pt_regs *ctx) {
 
         // See comment in the entry probe: pre-offset the base pointer so
         // read_go_str accepts a wide offset without truncating to u8.
-        read_go_str("openai response id",
-                    resp_ptr + id_off,
-                    0,
-                    req->response_id,
-                    sizeof(req->response_id));
+        read_go_str(
+            "openai response id", resp_ptr + id_off, 0, req->response_id, sizeof(req->response_id));
 
         read_go_str("openai response model",
                     resp_ptr + model_off,
