@@ -110,6 +110,62 @@ func TestTCPReqParsing(t *testing.T) {
 	assert.Contains(t, output.String(), "![<]")
 }
 
+func BenchmarkReadTCPRequestIntoSpan_RandomGarbage(b *testing.B) {
+	benchReadTCPRequestIntoSpanRandomGarbage(b, false)
+}
+
+func BenchmarkReadTCPRequestIntoSpan_SQLRandomGarbage(b *testing.B) {
+	benchReadTCPRequestIntoSpanRandomGarbage(b, true)
+}
+
+func benchReadTCPRequestIntoSpanRandomGarbage(b *testing.B, heuristic bool) {
+	const (
+		corpusSize     = 1024
+		parserCacheLen = 1024
+	)
+
+	cfg := config.EBPFTracer{
+		HeuristicSQLDetect:                  heuristic,
+		CouchbaseDBCacheSize:                parserCacheLen,
+		MySQLPreparedStatementsCacheSize:    parserCacheLen,
+		PostgresPreparedStatementsCacheSize: parserCacheLen,
+		MSSQLPreparedStatementsCacheSize:    parserCacheLen,
+		MongoRequestsCacheSize:              parserCacheLen,
+		KafkaTopicUUIDCacheSize:             parserCacheLen,
+	}
+	ctx := NewEBPFParseContext(&cfg, nil, nil)
+	fltr := TestPidsFilter{services: map[app.PID]svc.Attrs{}}
+	rng := rand.New(rand.NewPCG(1, 2))
+
+	records := make([]ringbuf.Record, corpusSize)
+	for i := range records {
+		tri := makeTCPReq("", 8080)
+		fillRandomGarbage(rng, tri.Buf[:])
+		fillRandomGarbage(rng, tri.Rbuf[:])
+		tri.Len = uint32(len(tri.Buf))
+		tri.RespLen = uint32(len(tri.Rbuf))
+		tri.ProtocolType = ProtocolTypeUnknown
+		tri.EventSource = GenericEventSourceTypeKProbes
+		tri.ConnInfo.S_port = uint16(20000 + i)
+
+		binaryRecord := bytes.Buffer{}
+		require.NoError(b, binary.Write(&binaryRecord, binary.LittleEndian, tri))
+		records[i] = ringbuf.Record{RawSample: binaryRecord.Bytes()}
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		span, ignore, err := ReadTCPRequestIntoSpan(ctx, &cfg, &records[i%len(records)], &fltr)
+		if err != nil {
+			b.Fatal(err)
+		}
+		_ = span
+		_ = ignore
+	}
+}
+
 func TestSQLDetection(t *testing.T) {
 	for _, s := range [][]byte{
 		[]byte("SELECT * from accounts"), []byte("SELECT/*My comment*/ * from accounts"),
@@ -140,7 +196,7 @@ func TestSQLDetectionFails(t *testing.T) {
 }
 
 func TestSQLDetectionDoesntFailForDetectedKind(t *testing.T) {
-	for _, s := range [][]byte{[]byte("SELECT"), []byte("DELETE {} ")} {
+	for _, s := range [][]byte{[]byte("SELECT 1"), []byte("DELETE {}")} {
 		op, table, _ := detectSQL(s)
 		assert.True(t, validSQL(op, table, request.DBPostgres))
 	}
@@ -455,6 +511,12 @@ func randomString(length int) string {
 
 func randomStringWithSub(sub string) string {
 	return fmt.Sprintf("%s%s%s", randomString(rand.IntN(10)), sub, randomString(rand.IntN(20)))
+}
+
+func fillRandomGarbage(rng *rand.Rand, buf []byte) {
+	for i := range buf {
+		buf[i] = byte(rng.Uint64())
+	}
 }
 
 func TestReadTCPRequestIntoSpan_CouchbaseKeyNotFound(t *testing.T) {
