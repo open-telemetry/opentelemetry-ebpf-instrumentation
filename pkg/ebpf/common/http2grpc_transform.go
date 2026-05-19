@@ -557,7 +557,7 @@ func isHTTP2(data *largebuf.LargeBuffer, eventLen int) bool {
 	}
 
 	dataReader := data.NewReader()
-	framer := http2.NewFramer(io.Discard, &dataReader)
+	framer := http2.NewReusableFramer(io.Discard, &dataReader)
 
 	for {
 		f, err := framer.ReadFrame()
