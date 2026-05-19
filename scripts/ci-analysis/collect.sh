@@ -40,17 +40,17 @@ echo "Collecting data since: $SINCE" >&2
 
 # Workflows that produce gotestsum JSON artifacts
 GOTESTSUM_WORKFLOWS=(
-  "Pull request integration tests"
-  "Pull request integration tests ARM"
-  "Pull request K8s integration tests"
-  "Pull request integration tests on VM"
-  "Pull request checks"
+  "Integration tests"
+  "Integration tests ARM"
+  "Integration tests K8S"
+  "Integration tests VM"
+  "PR checks"
 )
 
 # Workflows tracked at job level only (no gotestsum JSON artifacts).
 # OATS uses Ginkgo, so test-level parsing is not supported yet.
 JOB_ONLY_WORKFLOWS=(
-  "PR OATS test"
+  "OATS tests"
 )
 
 ALL_WORKFLOWS=("${GOTESTSUM_WORKFLOWS[@]}" "${JOB_ONLY_WORKFLOWS[@]}")

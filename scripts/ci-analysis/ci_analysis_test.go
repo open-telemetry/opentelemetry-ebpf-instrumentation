@@ -15,7 +15,7 @@ func testMeta() RunMeta {
 	return RunMeta{
 		RunID:     "12345",
 		CreatedAt: "2026-01-01T00:00:00Z",
-		Workflow:  "Pull request integration tests",
+		Workflow:  "Integration tests",
 	}
 }
 
@@ -114,12 +114,12 @@ func TestApplyDockerFingerprints(t *testing.T) {
 
 func TestWriteReport(t *testing.T) {
 	results := []TestResult{
-		{RunID: "1", Workflow: "Pull request integration tests", Test: "TestFailed", Outcome: "failed", ErrorFingerprint: "port-conflict"},
-		{RunID: "1", Workflow: "Pull request integration tests", Test: "TestFlaky", Outcome: "flaky-passed", ErrorFingerprint: "port-conflict"},
-		{RunID: "1", Workflow: "Pull request integration tests", Test: "TestPassed", Outcome: "passed"},
+		{RunID: "1", Workflow: "Integration tests", Test: "TestFailed", Outcome: "failed", ErrorFingerprint: "port-conflict"},
+		{RunID: "1", Workflow: "Integration tests", Test: "TestFlaky", Outcome: "flaky-passed", ErrorFingerprint: "port-conflict"},
+		{RunID: "1", Workflow: "Integration tests", Test: "TestPassed", Outcome: "passed"},
 	}
 	metaMap := map[string]RunMeta{
-		"1": {RunID: "1", Workflow: "Pull request integration tests", Conclusion: "failure"},
+		"1": {RunID: "1", Workflow: "Integration tests", Conclusion: "failure"},
 	}
 
 	var buf bytes.Buffer
@@ -128,7 +128,7 @@ func TestWriteReport(t *testing.T) {
 
 	report := buf.String()
 	require.Contains(t, report, "# CI Test Analysis Report")
-	require.Contains(t, report, "Pull request integration tests")
+	require.Contains(t, report, "Integration tests")
 	require.Contains(t, report, "TestFailed")
 	require.Contains(t, report, "TestFlaky")
 	require.Contains(t, report, "port-conflict")
