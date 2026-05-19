@@ -1,0 +1,79 @@
+name: "Slash: /all-vm-tests"
+
+# Listens for /all-vm-tests on PR comments. Validates commenter has write
+# access, resolves PR head SHA, then dispatches Integration tests VM with
+# all_kernels=true. Posts a reply with the run URL.
+on:
+  issue_comment:
+    types: [created]
+
+permissions: {}
+
+concurrency:
+  group: slash-all-vm-tests-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    name: Dispatch all-kernel VM run
+    if: >-
+      github.event.issue.pull_request != null &&
+      startsWith(github.event.comment.body, '/all-vm-tests') &&
+      (github.event.comment.author_association == 'OWNER' ||
+       github.event.comment.author_association == 'MEMBER' ||
+       github.event.comment.author_association == 'COLLABORATOR')
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write       # dispatch the VM workflow
+      pull-requests: write # comment back with run URL
+    steps:
+      - name: React with eyes (acknowledge command)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OWNER: ${{ github.repository_owner }}
+          REPO: ${{ github.event.repository.name }}
+          COMMENT_ID: ${{ github.event.comment.id }}
+        run: |
+          gh api -X POST "repos/${OWNER}/${REPO}/issues/comments/${COMMENT_ID}/reactions" \
+            -f content=eyes >/dev/null
+
+      - name: Resolve PR head SHA
+        id: pr
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OWNER: ${{ github.repository_owner }}
+          REPO: ${{ github.event.repository.name }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          SHA=$(gh api "repos/${OWNER}/${REPO}/pulls/${PR_NUMBER}" --jq .head.sha)
+          if [ -z "$SHA" ]; then
+            echo "could not resolve PR head SHA" >&2
+            exit 1
+          fi
+          echo "sha=${SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Dispatch Integration tests VM with all_kernels=true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OWNER: ${{ github.repository_owner }}
+          REPO: ${{ github.event.repository.name }}
+          REF: ${{ steps.pr.outputs.sha }}
+        run: |
+          gh workflow run workflow_integration_tests_vm.yml \
+            --repo "${OWNER}/${REPO}" \
+            --ref main \
+            -f ref="${REF}" \
+            -f all_kernels=true
+
+      - name: Comment back with run URL
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OWNER: ${{ github.repository_owner }}
+          REPO: ${{ github.event.repository.name }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+          REF: ${{ steps.pr.outputs.sha }}
+        run: |
+          URL="https://github.com/${OWNER}/${REPO}/actions/workflows/workflow_integration_tests_vm.yml?query=event%3Aworkflow_dispatch"
+          BODY="Dispatched **Integration tests VM** on all kernels for \`${REF}\`. Watch progress: ${URL}"
+          gh api -X POST "repos/${OWNER}/${REPO}/issues/${PR_NUMBER}/comments" \
+            -f body="${BODY}" >/dev/null
