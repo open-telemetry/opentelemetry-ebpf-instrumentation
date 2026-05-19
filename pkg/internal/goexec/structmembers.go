@@ -133,9 +133,13 @@ const (
 	GinFullpathPos
 	// openai
 	OpenAIChatParamsModelPos
+	OpenAIChatParamsMessagesPos
 	OpenAIChatCompletionIDPos
 	OpenAIChatCompletionModelPos
 	OpenAIChatCompletionUsagePos
+	OpenAIChatCompletionChoicesPos
+	OpenAIChatCompletionChoiceMessagePos
+	OpenAIChatCompletionMessageContentPos
 	OpenAICompletionUsageCompletionTokensPos
 	OpenAICompletionUsagePromptTokensPos
 )
@@ -511,15 +515,29 @@ var structMembers = map[string]structInfo{
 	"github.com/openai/openai-go/v3.ChatCompletionNewParams": {
 		lib: "github.com/openai/openai-go/v3",
 		fields: map[string]GoOffset{
-			"Model": OpenAIChatParamsModelPos,
+			"Model":    OpenAIChatParamsModelPos,
+			"Messages": OpenAIChatParamsMessagesPos,
 		},
 	},
 	"github.com/openai/openai-go/v3.ChatCompletion": {
 		lib: "github.com/openai/openai-go/v3",
 		fields: map[string]GoOffset{
-			"ID":    OpenAIChatCompletionIDPos,
-			"Model": OpenAIChatCompletionModelPos,
-			"Usage": OpenAIChatCompletionUsagePos,
+			"ID":      OpenAIChatCompletionIDPos,
+			"Model":   OpenAIChatCompletionModelPos,
+			"Usage":   OpenAIChatCompletionUsagePos,
+			"Choices": OpenAIChatCompletionChoicesPos,
+		},
+	},
+	"github.com/openai/openai-go/v3.ChatCompletionChoice": {
+		lib: "github.com/openai/openai-go/v3",
+		fields: map[string]GoOffset{
+			"Message": OpenAIChatCompletionChoiceMessagePos,
+		},
+	},
+	"github.com/openai/openai-go/v3.ChatCompletionMessage": {
+		lib: "github.com/openai/openai-go/v3",
+		fields: map[string]GoOffset{
+			"Content": OpenAIChatCompletionMessageContentPos,
 		},
 	},
 	"github.com/openai/openai-go/v3.CompletionUsage": {

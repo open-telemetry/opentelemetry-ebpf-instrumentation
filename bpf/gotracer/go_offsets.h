@@ -111,9 +111,13 @@ typedef enum {
     _gin_fullpath_pos,
     // openai
     _openai_chat_params_model_pos,
+    _openai_chat_params_messages_pos,
     _openai_chat_completion_id_pos,
     _openai_chat_completion_model_pos,
     _openai_chat_completion_usage_pos,
+    _openai_chat_completion_choices_pos,
+    _openai_chat_completion_choice_message_pos,
+    _openai_chat_completion_message_content_pos,
     _openai_completion_usage_completion_tokens_pos,
     _openai_completion_usage_prompt_tokens_pos,
     _last_go_offset,

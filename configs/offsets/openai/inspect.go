@@ -34,6 +34,11 @@ func main() {
 	fmt.Println(c.Created)
 	fmt.Println(len(c.Choices))
 
+	if len(c.Choices) > 0 {
+		choice := c.Choices[0]
+		fmt.Println(choice.Message.Content)
+	}
+
 	var u openai.CompletionUsage = c.Usage
 	fmt.Println(u.CompletionTokens)
 	fmt.Println(u.PromptTokens)

@@ -4,6 +4,7 @@
 package ebpfcommon // import "go.opentelemetry.io/obi/pkg/ebpf/common"
 
 import (
+	"encoding/json"
 	"structs"
 
 	trace2 "go.opentelemetry.io/otel/trace"
@@ -29,6 +30,10 @@ import (
 //	    unsigned char response_id[64];
 //	    s64 prompt_tokens;
 //	    s64 completion_tokens;
+//	    unsigned char input_message_content[256];
+//	    unsigned char output_message_content[256];
+//	    u8 input_message_role;
+//	    u8 _pad3[7];
 //	} openai_go_req_t;
 type openaiGoReqT struct {
 	_               structs.HostLayout
@@ -52,11 +57,48 @@ type openaiGoReqT struct {
 		Flags    uint8
 		Pad      [7]uint8
 	}
-	RequestModel     [64]uint8
-	ResponseModel    [64]uint8
-	ResponseID       [64]uint8
-	PromptTokens     int64
-	CompletionTokens int64
+	RequestModel         [64]uint8
+	ResponseModel        [64]uint8
+	ResponseID           [64]uint8
+	PromptTokens         int64
+	CompletionTokens     int64
+	InputMessageContent  [256]uint8
+	OutputMessageContent [256]uint8
+	InputMessageRole     uint8
+	Pad3                 [7]uint8
+}
+
+type genAIMessage struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
+func openAIRoleString(role uint8) string {
+	switch role {
+	case 1:
+		return "system"
+	case 2:
+		return "assistant"
+	case 3:
+		return "developer"
+	case 4:
+		return "tool"
+	case 5:
+		return "function"
+	default:
+		return "user"
+	}
+}
+
+func marshalGenAIMessages(role, content string) json.RawMessage {
+	if content == "" {
+		return nil
+	}
+	data, err := json.Marshal([]genAIMessage{{Role: role, Content: content}})
+	if err != nil {
+		return nil
+	}
+	return json.RawMessage(data)
 }
 
 // ReadGoOpenAIRequestIntoSpan parses a raw ring buffer record containing an
@@ -72,6 +114,12 @@ func ReadGoOpenAIRequestIntoSpan(record *ringbuf.Record) (request.Span, bool, er
 	reqModel := cstr(event.RequestModel[:])
 	respModel := cstr(event.ResponseModel[:])
 	respID := cstr(event.ResponseID[:])
+
+	inputContent := cstr(event.InputMessageContent[:])
+	outputContent := cstr(event.OutputMessageContent[:])
+
+	inputMessages := marshalGenAIMessages(openAIRoleString(event.InputMessageRole), inputContent)
+	outputChoices := marshalGenAIMessages("assistant", outputContent)
 
 	return request.Span{
 		Type:         request.EventTypeHTTPClient,
@@ -96,8 +144,10 @@ func ReadGoOpenAIRequestIntoSpan(record *ringbuf.Record) (request.Span, bool, er
 				ID:            respID,
 				ResponseModel: respModel,
 				Request: request.OpenAIInput{
-					Model: reqModel,
+					Model:    reqModel,
+					Messages: inputMessages,
 				},
+				Choices: outputChoices,
 				Usage: request.OpenAIUsage{
 					PromptTokens:     int(event.PromptTokens),
 					CompletionTokens: int(event.CompletionTokens),

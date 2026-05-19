@@ -48,6 +48,7 @@ enum : u32 {
     k_http_content_type_max_len = 16,
     k_openai_model_max_len = 64,
     k_openai_response_id_max_len = 64,
+    k_openai_msg_content_max_len = 256,
 };
 
 enum large_buf_action : u8 {
@@ -297,4 +298,8 @@ typedef struct openai_go_req {
     unsigned char response_id[k_openai_response_id_max_len];
     s64 prompt_tokens;
     s64 completion_tokens;
+    unsigned char input_message_content[k_openai_msg_content_max_len];
+    unsigned char output_message_content[k_openai_msg_content_max_len];
+    u8 input_message_role; // 0=user, 1=system, 2=assistant, 3=developer, 4=tool, 5=function
+    u8 _pad3[7];
 } openai_go_req_t;
