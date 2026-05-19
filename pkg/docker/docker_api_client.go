@@ -32,7 +32,8 @@ var osInfoForPID = container.InfoForPID
 
 type ContainerMeta struct {
 	// TODO: add other fields https://opentelemetry.io/docs/specs/semconv/resource/container/
-	ID             string
+	ID             string // short ID limited to abbreviationLength
+	FullID         string
 	Name           string
 	ComposeService string
 }
@@ -60,7 +61,6 @@ type ContainerStore struct {
 
 	cacheMu sync.RWMutex
 	byPID   map[app.PID]ContainerMeta
-	pidToID map[app.PID]string
 	byID    map[string][]app.PID
 }
 
@@ -148,6 +148,7 @@ func (s *ContainerStore) ContainerInfo(ctx context.Context, pid app.PID) (Contai
 		// some containers start with '/'. Removing it
 		Name:           strings.Trim(inspectInfo.Name, "/"),
 		ID:             containerID,
+		FullID:         inspectInfo.ID,
 		ComposeService: composeSvcName,
 	}
 
@@ -241,7 +242,6 @@ func (s *ContainerStore) watchContainerEvents(ctx context.Context) {
 			return
 		}
 	}
-}
 }
 
 func (s *ContainerStore) eventsLoop(ctx context.Context, fltrs client.Filters) error {

@@ -24,7 +24,8 @@ func TestContainerStoreInvalidation(t *testing.T) {
 
 		// Manually populate cache to simulate a successful ContainerInfo call
 		meta := ContainerMeta{
-			ID:             fullContainerID,
+			ID:             fullContainerID[:12],
+			FullID:         fullContainerID,
 			Name:           "test-container",
 			ComposeService: "",
 		}
@@ -64,8 +65,8 @@ func TestContainerStoreInvalidation(t *testing.T) {
 		fullContainerID1 := "abc123def456789abc123def456789abc123def456789abc123def456789abcdef"
 		fullContainerID2 := "xyz789abc012xyz789abc012xyz789abc012xyz789abc012xyz789abc012xyzabc"
 
-		meta1 := ContainerMeta{ID: fullContainerID1, Name: "container1"}
-		meta2 := ContainerMeta{ID: fullContainerID2, Name: "container2"}
+		meta1 := ContainerMeta{ID: fullContainerID1[:12], FullID: fullContainerID1, Name: "container1"}
+		meta2 := ContainerMeta{ID: fullContainerID2[:12], FullID: fullContainerID2, Name: "container2"}
 
 		store.cacheMu.Lock()
 		store.byPID[pid1] = meta1
@@ -93,15 +94,15 @@ func TestContainerStoreInvalidation(t *testing.T) {
 		containerID := "abc123def456789abc123def456789abc123def456789abc123def456789abcdef"
 
 		meta := ContainerMeta{
-			ID:   containerID[:12],
-			Name: "test-container",
+			ID:     containerID[:12],
+			FullID: containerID,
+			Name:   "test-container",
 		}
 
 		store.cacheMu.Lock()
 		store.byPID[pid1] = meta
 		store.byPID[pid2] = meta
 		store.byID[containerID] = []app.PID{pid1, pid2}
-		store.cacheMu.Unlock()
 		store.cacheMu.Unlock()
 
 		store.InvalidatePID(pid1)
