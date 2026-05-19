@@ -53,12 +53,6 @@ func ProcessPossibleMQTTEvent(event *TCPRequestInfo, pkt *largebuf.LargeBuffer, 
 	pktView := pkt.UnsafeView()
 	rpktView := rpkt.UnsafeView()
 
-	// Cheap prefilter: if neither buffer has a plausible MQTT fixed-header
-	// byte 0, skip the variable-length parsing entirely.
-	if !mqttparser.IsLikelyMQTT(pktView) && !mqttparser.IsLikelyMQTT(rpktView) {
-		return nil, true, errNotMQTT
-	}
-
 	m, ignore, err := ProcessMQTTEvent(pktView)
 	if err != nil {
 		// If we are getting the information in the response buffer, the event

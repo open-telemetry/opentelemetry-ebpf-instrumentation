@@ -120,6 +120,18 @@ var isHTTP2TestCases = []struct {
 		expected:      true,
 		expectedQuick: true,
 	},
+	{
+		// Random garbage: byte[3]=0x01 (FrameHeaders), byte[5..8] starts
+		// 0x17 so the reserved bit is 0 and StreamID is non-zero. Before
+		// the 6.5.2 length bound and 4.1 flag-mask checks, this slipped
+		// through isLikelyHTTP2 as a "valid" HEADERS frame even though
+		// Length=0xA46E71 (~10MB) and Flags=0x6A sets reserved bits.
+		name:          "Random garbage misclassified as HEADERS",
+		input:         []byte{164, 110, 113, 1, 106, 23, 253, 162, 163, 72, 189, 1, 167, 129, 223, 103, 240, 248, 141, 115, 130, 57, 6, 202, 156, 118, 117, 222, 165, 192, 26, 203, 107, 74, 155, 217, 126, 137, 30, 182, 52, 167, 108, 198, 76, 221, 214, 85, 94, 8, 160, 220, 164, 214, 124, 156, 147, 43, 247, 227, 81, 115, 196, 184},
+		inputLen:      64,
+		expected:      false,
+		expectedQuick: false,
+	},
 }
 
 func TestHTTP2QuickDetection(t *testing.T) {
