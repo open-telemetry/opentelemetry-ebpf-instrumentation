@@ -22,7 +22,6 @@ import (
 	"go.opentelemetry.io/obi/pkg/internal/helpers/container"
 )
 
-
 type mockDockerClient struct {
 	inspectResult client.ContainerInspectResult
 	inspectErr    error
@@ -304,7 +303,6 @@ func TestStart(t *testing.T) {
 		}, 500*time.Millisecond, 5*time.Millisecond)
 	})
 }
-
 
 // TestCacheConsistency is a table-driven suite that verifies the bidirectional
 // invariant between byPID and byID is preserved across every invalidation path.
