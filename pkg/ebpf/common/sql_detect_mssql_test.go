@@ -171,8 +171,8 @@ func TestMSSQLBatchParsing(t *testing.T) {
 	}{
 		{
 			name:   "valid single-packet batch",
-			buf:    makeTDSPacket(kMSSQLBatch, 0x01, []byte{'S', 0, 'E', 0, 'L', 0, 'E', 0, 'C', 0, 'T', 0}),
-			wantOp: "SELECT", wantTable: "", wantStmt: "SELECT",
+			buf:    makeTDSPacket(kMSSQLBatch, 0x01, []byte{'S', 0, 'E', 0, 'L', 0, 'E', 0, 'C', 0, 'T', 0, ' ', 0, '1', 0}),
+			wantOp: "SELECT", wantTable: "", wantStmt: "SELECT 1",
 		},
 		{
 			name: "sql split across two TDS packets",
