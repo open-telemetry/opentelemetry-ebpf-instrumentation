@@ -486,7 +486,7 @@ func TestParseSectionsDocSequenceShortReturnsError(t *testing.T) {
 	sections, err := parseSections(buf)
 
 	require.Error(t, err)
-	require.EqualError(t, err, "not enough data for section[1] length")
+	require.EqualError(t, err, "not enough data for MongoDB section length")
 	assert.Nil(t, sections)
 }
 
@@ -496,7 +496,7 @@ func TestParseFirstFieldTypeAssertionReturnsError(t *testing.T) {
 	comm, collection, err := parseFirstField(field)
 
 	require.Error(t, err)
-	require.EqualError(t, err, "MongoDB command 'insert' has non-string collection type int32")
+	require.EqualError(t, err, "MongoDB command has non-string collection type")
 	assert.Empty(t, comm)
 	assert.Empty(t, collection)
 }
@@ -575,7 +575,7 @@ func TestGetMongoInfoFailForCollectionCommandWithNonStringCollection(t *testing.
 
 	_, err := getMongoInfo(&mongoRequest)
 	require.Error(t, err)
-	assert.EqualError(t, err, "MongoDB command 'find' has non-string collection type int32")
+	assert.EqualError(t, err, "MongoDB command has non-string collection type")
 }
 
 func TestGetMongoInfoOperationUnknownForEmptyRequestSection(t *testing.T) {
