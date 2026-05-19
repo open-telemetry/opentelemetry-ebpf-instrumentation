@@ -9,7 +9,6 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
-	"strconv"
 	"testing"
 	"time"
 
@@ -44,28 +43,22 @@ func TestServeHTTPAdvancesTime(t *testing.T) {
 	assert.GreaterOrEqual(t, r2.ProcessUptimeNs, r1.ProcessUptimeNs)
 }
 
-func TestListenAndServeEndToEnd(t *testing.T) {
-	port := freePort(t)
+func TestServeEndToEnd(t *testing.T) {
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	srvErr := make(chan error, 1)
 	go func() {
-		srvErr <- ListenAndServe(ctx, port)
+		srvErr <- Serve(ctx, lis)
 	}()
 
-	url := "http://127.0.0.1:" + strconv.Itoa(port) + path
+	url := "http://" + lis.Addr().String() + path
 
-	var resp *http.Response
-	require.Eventually(t, func() bool {
-		r, err := http.Get(url)
-		if err != nil {
-			return false
-		}
-		resp = r
-		return true
-	}, 3*time.Second, 20*time.Millisecond)
+	resp, err := http.Get(url)
+	require.NoError(t, err)
 	defer resp.Body.Close()
 
 	require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -76,15 +69,6 @@ func TestListenAndServeEndToEnd(t *testing.T) {
 
 	cancel()
 	require.NoError(t, <-srvErr)
-}
-
-func freePort(t *testing.T) int {
-	t.Helper()
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	port := l.Addr().(*net.TCPAddr).Port
-	require.NoError(t, l.Close())
-	return port
 }
 
 func snapshotFor(t *testing.T, e *endpoint) response {

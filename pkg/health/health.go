@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"time"
 )
@@ -45,21 +46,30 @@ func (e *endpoint) ServeHTTP(w http.ResponseWriter, _ *http.Request) {
 }
 
 func ListenAndServe(ctx context.Context, port int) error {
+	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+	if err != nil {
+		log().With("port", port).Error("can't bind health endpoint", "err", err)
+		return nil
+	}
+
+	return Serve(ctx, lis)
+}
+
+func Serve(ctx context.Context, lis net.Listener) error {
 	mux := http.NewServeMux()
 	mux.Handle(path, &endpoint{start: time.Now()})
 
 	server := &http.Server{
-		Addr:              fmt.Sprintf(":%d", port),
 		Handler:           mux,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
-	l := log().With("port", port, "path", path)
+	l := log().With("addr", lis.Addr().String(), "path", path)
 	l.Info("starting health endpoint")
 
 	srvErr := make(chan error, 1)
 	go func() {
-		err := server.ListenAndServe()
+		err := server.Serve(lis)
 		if !errors.Is(err, http.ErrServerClosed) {
 			srvErr <- err
 			return
