@@ -599,10 +599,21 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 			attrs = append(attrs, semconv.GenAIUsageInputTokens(ai.Usage.GetInputTokens()))
 			attrs = append(attrs, semconv.GenAIUsageOutputTokens(ai.Usage.GetOutputTokens()))
 			if _, ok := optionalAttrs[attr.GenAIInput]; ok {
-				attrs = append(attrs, semconv.GenAIInputMessagesKey.String(ai.Request.GetInput()))
+				// Prefer the raw chat-completions messages array when present so
+				// gen_ai.input.messages reflects the structured conversation
+				// rather than the responses/embedding-style scalar input.
+				if len(ai.Request.Messages) > 0 {
+					attrs = append(attrs, semconv.GenAIInputMessagesKey.String(string(ai.Request.Messages)))
+				} else {
+					attrs = append(attrs, semconv.GenAIInputMessagesKey.String(ai.Request.GetInput()))
+				}
 			}
 			if _, ok := optionalAttrs[attr.GenAIOutput]; ok {
-				attrs = append(attrs, semconv.GenAIOutputMessagesKey.String(ai.GetOutput()))
+				if len(ai.Choices) > 0 {
+					attrs = append(attrs, semconv.GenAIOutputMessagesKey.String(string(ai.Choices)))
+				} else {
+					attrs = append(attrs, semconv.GenAIOutputMessagesKey.String(ai.GetOutput()))
+				}
 			}
 			if _, ok := optionalAttrs[attr.GenAIInstructions]; ok {
 				if ai.Request.Instructions != "" {
