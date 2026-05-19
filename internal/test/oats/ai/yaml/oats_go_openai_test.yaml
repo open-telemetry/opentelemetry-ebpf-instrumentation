@@ -1,0 +1,27 @@
+oats-schema-version: 2
+docker-compose:
+  files:
+  - ../docker-compose-go-openai.yml
+input:
+- path: /chat
+interval: 500ms
+expected:
+  traces:
+  # openai-go v3 Chat Completions: uprobe-emitted GenAI client span
+  - traceql: '{ .gen_ai.provider.name = "openai" && .gen_ai.operation.name = "chat.completion" && .gen_ai.request.model = "gpt-4o-mini"}'
+    equals: chat.completion gpt-4o-mini
+    attributes:
+      gen_ai.operation.name: chat.completion
+      gen_ai.provider.name: openai
+      gen_ai.request.model: gpt-4o-mini
+      gen_ai.response.model: gpt-4o-mini-2024-07-18
+      gen_ai.response.id: chatcmpl-DBTg5Ms2mJhaAhZ56Wq8QSf2djw3S
+      gen_ai.usage.input_tokens: 396
+      gen_ai.usage.output_tokens: 816
+  metrics:
+  - promql: gen_ai_client_token_usage_count{gen_ai_operation_name="chat.completion",gen_ai_provider_name="openai",gen_ai_token_type="input",gen_ai_request_model="gpt-4o-mini",gen_ai_response_model="gpt-4o-mini-2024-07-18"}
+    value: '> 0'
+  - promql: gen_ai_client_token_usage_count{gen_ai_operation_name="chat.completion",gen_ai_provider_name="openai",gen_ai_token_type="output",gen_ai_request_model="gpt-4o-mini",gen_ai_response_model="gpt-4o-mini-2024-07-18"}
+    value: '> 0'
+  - promql: gen_ai_client_operation_duration_seconds_count{gen_ai_operation_name="chat.completion",gen_ai_provider_name="openai",gen_ai_request_model="gpt-4o-mini",gen_ai_response_model="gpt-4o-mini-2024-07-18"}
+    value: '> 0'

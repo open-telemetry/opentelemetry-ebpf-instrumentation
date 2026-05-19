@@ -37,6 +37,7 @@ excluded-modules:
   - go.opentelemetry.io/obi/internal/test/integration/components/gokafka-seg
   - go.opentelemetry.io/obi/internal/test/integration/components/gomongo
   - go.opentelemetry.io/obi/internal/test/integration/components/gomongov2
+  - go.opentelemetry.io/obi/internal/test/integration/components/goopenai
   - go.opentelemetry.io/obi/internal/test/integration/components/gomqtt
   - go.opentelemetry.io/obi/internal/test/integration/components/gomysql
   - go.opentelemetry.io/obi/internal/test/integration/components/gomysql-otelsql
