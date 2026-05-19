@@ -14,6 +14,8 @@ import (
 	"go.opentelemetry.io/obi/pkg/internal/largebuf"
 )
 
+var errNotMQTT = errors.New("packet does not look like MQTT")
+
 // MQTTInfo holds parsed information from an MQTT packet.
 type MQTTInfo struct {
 	// PacketType is the MQTT packet type (PUBLISH, SUBSCRIBE, etc.)
@@ -48,11 +50,20 @@ func packetTypeToMethod(packetType mqttparser.PacketType) string {
 // Otherwise, returns MQTTInfo with the processed data. The ignore bool indicates whether the event
 // should be ignored for span creation (e.g., control packets like CONNECT).
 func ProcessPossibleMQTTEvent(event *TCPRequestInfo, pkt *largebuf.LargeBuffer, rpkt *largebuf.LargeBuffer) (*MQTTInfo, bool, error) {
-	m, ignore, err := ProcessMQTTEvent(pkt.UnsafeView())
+	pktView := pkt.UnsafeView()
+	rpktView := rpkt.UnsafeView()
+
+	// Cheap prefilter: if neither buffer has a plausible MQTT fixed-header
+	// byte 0, skip the variable-length parsing entirely.
+	if !mqttparser.IsLikelyMQTT(pktView) && !mqttparser.IsLikelyMQTT(rpktView) {
+		return nil, true, errNotMQTT
+	}
+
+	m, ignore, err := ProcessMQTTEvent(pktView)
 	if err != nil {
 		// If we are getting the information in the response buffer, the event
 		// must be reversed and that's how we captured it.
-		m, ignore, err = ProcessMQTTEvent(rpkt.UnsafeView())
+		m, ignore, err = ProcessMQTTEvent(rpktView)
 		if err == nil && !ignore {
 			reverseTCPEvent(event)
 		}
@@ -98,7 +109,7 @@ func ProcessMQTTEvent(pkt []byte) (*MQTTInfo, bool, error) {
 }
 
 // processMQTTPacket processes a single MQTT packet based on its type.
-func processMQTTPacket(pkt []byte, startOffset int, packet mqttparser.MQTTControlPacket) (*MQTTInfo, bool, error) {
+func processMQTTPacket(pkt []byte, startOffset int, packet *mqttparser.MQTTControlPacket) (*MQTTInfo, bool, error) {
 	// Variable header starts after fixed header
 	varHeaderOffset := startOffset + packet.FixedHeader.Length
 
