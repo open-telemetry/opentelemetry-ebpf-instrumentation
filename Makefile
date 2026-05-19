@@ -439,28 +439,30 @@ run-integration-test-k8s:
 	go clean -testcache
 	go test -p 1 -failfast -v -timeout 60m -a ./internal/test/integration/k8s/...
 
+PRECOMPILED_TESTS_DIR ?= /precompiled-tests
+
 .PHONY: run-integration-test-vm
 run-integration-test-vm:
 	@echo "### Running integration tests (pattern: $(TEST_PATTERN))"
 	@TEST_TIMEOUT="60m"; \
 	TEST_PARALLEL="1"; \
-	if [ -f "/precompiled-tests/integration.test" ] && [ -f "/precompiled-tests/gotestsum" ]; then \
+	if [ -f "$(PRECOMPILED_TESTS_DIR)/integration.test" ] && [ -f "$(PRECOMPILED_TESTS_DIR)/gotestsum" ]; then \
 		echo "Using pre-compiled integration tests with gotestsum"; \
-		chmod +x /precompiled-tests/integration.test /precompiled-tests/gotestsum; \
-		/precompiled-tests/gotestsum \
+		chmod +x $(PRECOMPILED_TESTS_DIR)/integration.test $(PRECOMPILED_TESTS_DIR)/gotestsum; \
+		$(PRECOMPILED_TESTS_DIR)/gotestsum \
 			--rerun-fails=2 --rerun-fails-max-failures=2 \
 			--raw-command -ftestname \
 			--jsonfile=testoutput/vm-test-run-$(RUN_NUMBER).log \
 			-- go tool test2json -t -p integration \
-			/precompiled-tests/integration.test \
+			$(PRECOMPILED_TESTS_DIR)/integration.test \
 			-test.parallel=$$TEST_PARALLEL \
 			-test.timeout=$$TEST_TIMEOUT \
 			-test.v \
 			-test.run="^($(TEST_PATTERN))\$$"; \
-	elif [ -f "/precompiled-tests/integration.test" ]; then \
+	elif [ -f "$(PRECOMPILED_TESTS_DIR)/integration.test" ]; then \
 		echo "Using pre-compiled integration tests (gotestsum not available)"; \
-		chmod +x /precompiled-tests/integration.test; \
-		/precompiled-tests/integration.test \
+		chmod +x $(PRECOMPILED_TESTS_DIR)/integration.test; \
+		$(PRECOMPILED_TESTS_DIR)/integration.test \
 			-test.parallel=$$TEST_PARALLEL \
 			-test.timeout=$$TEST_TIMEOUT \
 			-test.v \
@@ -500,11 +502,12 @@ run-unit-test-shard:
 integration-test-matrix-json:
 	@./scripts/generate-integration-matrix.sh internal/test/integration "$${PARTITIONS:-5}"
 
-# Shared matrix for workflows that run the TestMultiProcess* suite
-# (VM integration tests and ARM integration tests use the same set of tests).
+# Shared matrix for workflows that run the VM-side test suite. Pattern
+# covers multiprocess context propagation, gRPC relay, the HTTP
+# logenricher pipeline, and the large HTTP request body path.
 .PHONY: multiprocess-integration-test-matrix-json
 multiprocess-integration-test-matrix-json:
-	@./scripts/generate-integration-matrix.sh internal/test/integration "$${PARTITIONS:-5}" "TestMultiProcess"
+	@./scripts/generate-integration-matrix.sh internal/test/integration "$${PARTITIONS:-5}" "(TestMultiProcess|TestSuite_LogEnricherHTTP|TestSuite_LargeHTTPRequest)"
 
 .PHONY: k8s-integration-test-matrix-json
 k8s-integration-test-matrix-json:

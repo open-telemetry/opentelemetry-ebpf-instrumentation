@@ -16,6 +16,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -296,6 +297,18 @@ func createBuildContext(contextDir string) (io.ReadCloser, error) {
 	go func() {
 		tw := tar.NewWriter(pw)
 
+		// Paths excluded from the build context to keep the streamed tar small
+		// and avoid files being concurrently written during the test run.
+		// .dockerignore is not consulted by this Go helper, so the list lives here.
+		excludePrefixes := []string{
+			"testoutput",
+			"compiled-tests",
+			"rootfs.qcow2",
+			"rootfs.raw",
+			"docker-disk.img",
+			"internal/test/vm/lvh/out",
+		}
+
 		// Walk the context directory and add files to tar
 		err := filepath.WalkDir(contextDir, func(path string, d os.DirEntry, err error) error {
 			if err != nil {
@@ -311,6 +324,15 @@ func createBuildContext(contextDir string) (io.ReadCloser, error) {
 			// Skip the context directory itself
 			if relPath == "." {
 				return nil
+			}
+
+			for _, p := range excludePrefixes {
+				if relPath == p || strings.HasPrefix(relPath, p+string(filepath.Separator)) {
+					if d.IsDir() {
+						return filepath.SkipDir
+					}
+					return nil
+				}
 			}
 
 			info, err := d.Info()
@@ -346,7 +368,11 @@ func createBuildContext(contextDir string) (io.ReadCloser, error) {
 				return err
 			}
 
-			// Write file content for regular files only
+			// Write file content for regular files only.
+			// Use CopyN with the header's declared size so a file growing under
+			// us (overlayfs+9p concurrency in the test VM, log files, etc.) does
+			// not produce "archive/tar: write too long". If the file shrunk,
+			// CopyN's short read is padded with zeros to header.Size by tar.
 			if info.Mode().IsRegular() {
 				// #nosec G304 -- path is from filepath.WalkDir of a known build context directory
 				file, err := os.Open(path)
@@ -354,9 +380,16 @@ func createBuildContext(contextDir string) (io.ReadCloser, error) {
 					return err
 				}
 
-				if _, err := io.Copy(tw, file); err != nil {
+				written, err := io.CopyN(tw, file, header.Size)
+				if err != nil && !errors.Is(err, io.EOF) {
 					_ = file.Close()
 					return err
+				}
+				if written < header.Size {
+					if _, err := tw.Write(make([]byte, header.Size-written)); err != nil {
+						_ = file.Close()
+						return err
+					}
 				}
 				if err := file.Close(); err != nil {
 					return err
