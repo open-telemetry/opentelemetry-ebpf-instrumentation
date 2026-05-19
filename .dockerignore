@@ -1,0 +1,7 @@
+testoutput/
+compiled-tests/
+rootfs.qcow2
+rootfs.raw
+docker-disk.img
+internal/test/vm/lvh/out/
+.git/objects/
