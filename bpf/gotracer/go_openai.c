@@ -21,6 +21,7 @@
 #include <common/ringbuf.h>
 
 #include <gotracer/go_common.h>
+#include <gotracer/go_str.h>
 
 #include <gotracer/maps/openai.h>
 
@@ -59,16 +60,14 @@ int obi_uprobe_openai_chat_new(struct pt_regs *ctx) {
 
     const u64 model_off = go_offset_of(ot, (go_offset){.v = _openai_chat_params_model_pos});
 
-    void *model_ptr = 0;
-    u64 model_len = 0;
-
-    if (bpf_probe_read_user(&model_ptr, sizeof(model_ptr), body_ptr + model_off) == 0 &&
-        bpf_probe_read_user(
-            &model_len, sizeof(model_len), body_ptr + model_off + k_go_string_len_offset) == 0 &&
-        model_ptr && model_len > 0) {
-        bpf_clamp_umax(model_len, k_openai_model_max_len - 1);
-        bpf_probe_read_user(req.request_model, model_len, model_ptr);
-    }
+    // Pre-offset the base pointer so read_go_str can consume a wide offset
+    // (its `offset` parameter is u8). body_ptr + model_off then points at the
+    // Go string header (ptr + len) we want to dereference.
+    read_go_str("openai request model",
+                (void *)body_ptr + model_off,
+                0,
+                req.request_model,
+                sizeof(req.request_model));
 
     bpf_dbg_printk("openai request model=[%s]", req.request_model);
 
@@ -113,36 +112,32 @@ int obi_uprobe_openai_chat_new_ret(struct pt_regs *ctx) {
         const u64 prompt_tokens_off =
             go_offset_of(ot, (go_offset){.v = _openai_completion_usage_prompt_tokens_pos});
 
-        void *id_ptr = 0;
-        u64 id_len = 0;
+        // See comment in the entry probe: pre-offset the base pointer so
+        // read_go_str accepts a wide offset without truncating to u8.
+        read_go_str("openai response id",
+                    (void *)resp_ptr + id_off,
+                    0,
+                    req->response_id,
+                    sizeof(req->response_id));
 
-        if (bpf_probe_read_user(&id_ptr, sizeof(id_ptr), resp_ptr + id_off) == 0 &&
-            bpf_probe_read_user(
-                &id_len, sizeof(id_len), resp_ptr + id_off + k_go_string_len_offset) == 0 &&
-            id_ptr && id_len > 0) {
-            bpf_clamp_umax(id_len, k_openai_response_id_max_len - 1);
-            bpf_probe_read_user(req->response_id, id_len, id_ptr);
-        }
-
-        void *resp_model_ptr = 0;
-        u64 resp_model_len = 0;
-
-        if (bpf_probe_read_user(&resp_model_ptr, sizeof(resp_model_ptr), resp_ptr + model_off) ==
-                0 &&
-            bpf_probe_read_user(&resp_model_len,
-                                sizeof(resp_model_len),
-                                resp_ptr + model_off + k_go_string_len_offset) == 0 &&
-            resp_model_ptr && resp_model_len > 0) {
-            bpf_clamp_umax(resp_model_len, k_openai_model_max_len - 1);
-            bpf_probe_read_user(req->response_model, resp_model_len, resp_model_ptr);
-        }
+        read_go_str("openai response model",
+                    (void *)resp_ptr + model_off,
+                    0,
+                    req->response_model,
+                    sizeof(req->response_model));
 
         const void *usage_ptr = resp_ptr + usage_off;
 
-        bpf_probe_read_user(
-            &req->completion_tokens, sizeof(req->completion_tokens), usage_ptr + comp_tokens_off);
-        bpf_probe_read_user(
-            &req->prompt_tokens, sizeof(req->prompt_tokens), usage_ptr + prompt_tokens_off);
+        if (bpf_probe_read_user(&req->completion_tokens,
+                                sizeof(req->completion_tokens),
+                                usage_ptr + comp_tokens_off) != 0) {
+            bpf_dbg_printk("can't read openai completion_tokens");
+        }
+        if (bpf_probe_read_user(&req->prompt_tokens,
+                                sizeof(req->prompt_tokens),
+                                usage_ptr + prompt_tokens_off) != 0) {
+            bpf_dbg_printk("can't read openai prompt_tokens");
+        }
 
         bpf_dbg_printk("openai response_id=[%s] model=[%s]", req->response_id, req->response_model);
         bpf_dbg_printk("openai prompt_tokens=%lld completion_tokens=%lld",

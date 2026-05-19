@@ -181,9 +181,9 @@
     "inspect": "./configs/offsets/openai/inspect.go",
     "versions": ">= v3.0.0",
     "fields": {
-      "github.com/openai/openai-go/v3.ChatCompletionNewParams": ["Messages", "Model"],
-      "github.com/openai/openai-go/v3.ChatCompletion": ["ID", "Model", "Created", "Choices", "Usage"],
-      "github.com/openai/openai-go/v3.CompletionUsage": ["CompletionTokens", "PromptTokens", "TotalTokens"]
+      "github.com/openai/openai-go/v3.ChatCompletionNewParams": ["Model"],
+      "github.com/openai/openai-go/v3.ChatCompletion": ["ID", "Model", "Usage"],
+      "github.com/openai/openai-go/v3.CompletionUsage": ["CompletionTokens", "PromptTokens"]
     }
   }
 }
