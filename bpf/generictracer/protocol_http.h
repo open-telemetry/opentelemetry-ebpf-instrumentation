@@ -41,21 +41,9 @@ volatile const u32 high_request_volume;
 
 SCRATCH_MEM_SIZED(http_previous_trace_id, TRACE_ID_SIZE_BYTES);
 
-// Tail-call budget analysis:
-//
-// Non-append path (initial request parse):
-//   3 preamble tail-calls (handle_buf_with_args → protocol_http → continue_protocol_http)
-//   + 28 chunk iterations (niter 1..28; chunk 0 is scanned inline in
-//   __obi_continue_protocol_http_tp before the first tail-call to this program)
-//   = 31 ≤ BPF_MAX_TAIL_CALL_CNT (32 on kernels 5.8–5.9, 33 on 5.10+).
-//
-// Append path (large-buffer still_reading / obi_handle_buf_with_args):
-//   1 preamble tail-call (handle_buf_with_args) + 29 chunk iterations (niter 0..28)
-//   = 30 ≤ 32.
-//
-// k_tp_chunk_step overlaps by TRACE_PARENT_HEADER_LEN so a header straddling a chunk
-// boundary is always fully contained in at least one chunk. The last iteration (niter=28)
-// starts at offset 26,768 and covers up to 27,792 bytes (27 KB maximum).
+// Tail-call budgets: non-append 3 + 28 = 31 ≤ 32 (BPF_MAX_TAIL_CALL_CNT on 5.8–5.9).
+// Append: 1 + 29 = 30 ≤ 32. k_tp_chunk_step overlaps by TRACE_PARENT_HEADER_LEN so
+// a header straddling a chunk boundary is always contained in at least one chunk.
 enum {
     k_tp_parse_max_niter = 29,
     k_tp_chunk_step = TRACE_BUF_SIZE - TRACE_PARENT_HEADER_LEN,
@@ -464,7 +452,6 @@ int obi_continue2_protocol_http(struct pt_regs *ctx) {
 
 volatile const u32 bpf_max_request_tp_parse_size_kb;
 
-// Return values for __tp_chunk_scan.
 enum tp_scan_result {
     k_tp_scan_found,    /* traceparent extracted; tp_p->tp and info->tp updated */
     k_tp_scan_eoh,      /* end-of-headers reached, no traceparent in headers */
@@ -472,11 +459,8 @@ enum tp_scan_result {
     k_tp_scan_continue, /* args->niter incremented; caller must tail-call scanner */
 };
 
-// Reads the chunk at args->niter from the request buffer, searches for a
-// traceparent header, and decodes it into tp_p->tp / info->tp on success.
 // On k_tp_scan_found, set_trace_info_for_connection has already been called.
-// On k_tp_scan_continue, args->niter has been incremented; the caller must
-// issue the appropriate tail-call.
+// On k_tp_scan_continue, args->niter has been incremented; caller must tail-call.
 static __always_inline enum tp_scan_result __tp_chunk_scan(call_protocol_args_t *args,
                                                            http_info_t *info,
                                                            tp_info_pid_t *tp_p,
@@ -491,7 +475,6 @@ static __always_inline enum tp_scan_result __tp_chunk_scan(call_protocol_args_t 
         return k_tp_scan_done;
     }
 
-    // Use full_bytes_len when we have orig_buf (direct userspace reads beyond iovec buffer).
     const bool use_orig = args->orig_buf && args->full_bytes_len > (u32)args->bytes_len;
     bool read_user = args->u_buf_is_user;
     u32 effective_len = (u32)args->bytes_len;
@@ -515,7 +498,6 @@ static __always_inline enum tp_scan_result __tp_chunk_scan(call_protocol_args_t 
     if (to_read > TRACE_BUF_SIZE) {
         to_read = TRACE_BUF_SIZE;
     }
-    // Clamp to_read so the read window does not extend past max_bytes.
     const u32 remaining_budget =
         max_bytes > (base_offset + offset) ? max_bytes - (base_offset + offset) : 0;
     if (to_read > remaining_budget) {
@@ -530,8 +512,7 @@ static __always_inline enum tp_scan_result __tp_chunk_scan(call_protocol_args_t 
 
     _Static_assert(TRACE_BUF_SIZE == 1024,
                    "Please fix the __bpf_memzero statements below this line");
-    // Split into two half-size zeroing calls: a single 1024-byte __bpf_memzero
-    // increases verifier complexity and may be rejected on older kernels.
+    // Single 1024-byte __bpf_memzero increases verifier complexity on older kernels.
     __bpf_memzero(buf, TRACE_BUF_SIZE / 2);
     __bpf_memzero(buf + (TRACE_BUF_SIZE / 2), TRACE_BUF_SIZE / 2);
 
@@ -539,7 +520,6 @@ static __always_inline enum tp_scan_result __tp_chunk_scan(call_protocol_args_t 
     if (read_user) {
         read_ret = bpf_probe_read_user(buf, buf_len, (void *)(read_base + offset));
     } else {
-        // u_buf points to the kernel scratch buffer filled by read_iovec_ctx / backup paths.
         read_ret = bpf_probe_read_kernel(buf, buf_len, (void *)(read_base + offset));
     }
     if (read_ret < 0) {
@@ -573,8 +553,6 @@ static __always_inline enum tp_scan_result __tp_chunk_scan(call_protocol_args_t 
         }
 
         __builtin_memcpy(&info->tp, &tp_p->tp, sizeof(tp_info_t));
-        // Always update the connection map so downstream client spans see the
-        // extracted trace ID, not the generated one.
         set_trace_info_for_connection(&args->pid_conn.conn, type, tp_p);
         return k_tp_scan_found;
     }
@@ -593,10 +571,6 @@ static __always_inline enum tp_scan_result __tp_chunk_scan(call_protocol_args_t 
 }
 
 // k_tail_parse_traceparent_http (index 13)
-// Tail-called from __obi_continue_protocol_http_tp (initial-request path).
-// tp_p sourced from tp_info_mem() — per-CPU scratch, stable across the chain.
-// Finalises the trace and inlines __obi_continue2_protocol_http on exit.
-// jump_table is populated at runtime by Go, so bpf_tail_call_static cannot be used here.
 SEC("kprobe/http")
 int obi_parse_traceparent_http(struct pt_regs *ctx) {
     call_protocol_args_t *args = protocol_args();
@@ -624,11 +598,8 @@ int obi_parse_traceparent_http(struct pt_regs *ctx) {
             bpf_tail_call(ctx, &jump_table, k_tail_parse_traceparent_http);
         }
         if (result != k_tp_scan_found) {
-            // Commit the generated (or pre-existing) trace ID into the connection map.
             set_trace_info_for_connection(&args->pid_conn.conn, type, tp_p);
         }
-        // Always update the trace store and connection map so downstream spans
-        // issued from the same handler see the correct trace ID.
         server_or_client_trace(meta->type,
                                &args->pid_conn.conn,
                                args->lw_thread,
@@ -646,9 +617,6 @@ int obi_parse_traceparent_http(struct pt_regs *ctx) {
 }
 
 // k_tail_parse_traceparent_http_append (index 14)
-// Tail-called from the still_reading / large-buffer append path.
-// tp_p sourced from trace_info_for_connection() — stored during initial processing.
-// Emits the body chunk via http_send_large_buffer on exit.
 SEC("kprobe/http")
 int obi_parse_traceparent_http_append(struct pt_regs *ctx) {
     call_protocol_args_t *args = protocol_args();
@@ -664,7 +632,6 @@ int obi_parse_traceparent_http_append(struct pt_regs *ctx) {
     http_connection_metadata_t *meta =
         connection_meta_by_direction(args->direction, PACKET_TYPE_REQUEST);
     if (!meta) {
-        // Trace info is unavailable; emit the large buffer as-is.
         http_send_large_buffer(ctx,
                                info,
                                &args->pid_conn,
@@ -679,7 +646,6 @@ int obi_parse_traceparent_http_append(struct pt_regs *ctx) {
     const u32 type = trace_type_from_meta(meta);
     tp_info_pid_t *tp_p = trace_info_for_connection(&args->pid_conn.conn, type);
     if (tp_p) {
-        // info->len was updated by the caller before the tail-call.
         const u32 base_offset = info->len - (u32)args->bytes_len;
         enum tp_scan_result result = __tp_chunk_scan(args, info, tp_p, meta, type, base_offset);
         if (result == k_tp_scan_continue) {
@@ -740,11 +706,7 @@ __obi_continue_protocol_http_tp(struct pt_regs *ctx,
 
         unsigned char *buf = (unsigned char *)tp_char_buf_mem();
         if (buf) {
-            // Clamp (not mask) to TRACE_BUF_SIZE-1: the old `& (TRACE_BUF_SIZE-1)`
-            // silently zeroed buf_len when bytes_len == TRACE_BUF_SIZE.
-            // Keep one byte for the NUL terminator used by debug printing while still
-            // scanning almost the full first chunk. The chunked parser starts at the
-            // next overlapping step, so this does not leave an unscanned gap.
+            // Clamp to TRACE_BUF_SIZE-1: masking silently zeros buf_len when bytes_len == TRACE_BUF_SIZE.
             u16 buf_len = args->bytes_len;
             bpf_clamp_umax(buf_len, TRACE_BUF_SIZE - 1);
 
@@ -785,8 +747,6 @@ __obi_continue_protocol_http_tp(struct pt_regs *ctx,
                 }
             } else {
                 bpf_dbg_printk("No additional traceparent in headers, using what was made before");
-                // If total data exceeds the first scan window, launch the chunked
-                // scanner starting at niter=1 (the first chunk was already scanned).
                 const u32 total_len =
                     (args->orig_buf && args->full_bytes_len > (u32)args->bytes_len)
                         ? args->full_bytes_len
@@ -1054,9 +1014,7 @@ __obi_protocol_http(struct pt_regs *ctx, unsigned char *(*tp_loop_fn)(unsigned c
                                k_large_buf_action_init);
     } else if (still_reading(info)) {
         const u32 prev_len = info->len;
-        // Update info->len before the tail-call: obi_parse_traceparent_http
-        // reads info->len to derive base_offset in append mode, so it must
-        // reflect the cumulative byte count including this chunk.
+        // Must precede the tail-call: append mode derives base_offset from info->len.
         info->len += args->bytes_len;
         if (g_bpf_traceparent_enabled && capture_header_buffer &&
             tp_loop_fn == bpf_strstr_tp_loop &&
@@ -1064,15 +1022,8 @@ __obi_protocol_http(struct pt_regs *ctx, unsigned char *(*tp_loop_fn)(unsigned c
             args->packet_type = PACKET_TYPE_REQUEST;
             args->niter = 0;
             bpf_tail_call(ctx, &jump_table, k_tail_parse_traceparent_http_append);
-            // tail-call failed — fall through to http_send_large_buffer.
-            // info->len is already updated above, which is correct: the next
-            // invocation of this function for the following chunk will compute
-            // base_offset from info->len and see the right cumulative offset.
-            // This chunk is emitted below with the current (stable) trace ID;
-            // acceptable degradation since the trace ID is stable from the initial
-            // request parse and all large buffers are keyed on the same connection.
+            // tail-call failed — fall through.
         }
-        // TP parsing not needed or tail-call failed: emit large buffer.
         http_send_large_buffer(ctx,
                                info,
                                &args->pid_conn,

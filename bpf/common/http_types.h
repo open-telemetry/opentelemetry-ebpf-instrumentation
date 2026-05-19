@@ -56,17 +56,12 @@ typedef struct call_protocol_args {
     int bytes_len;
     u16 orig_dport;
     u8 u_buf_is_user;
-    // Align u_buf to the next 8-byte boundary (offset 88).
-    // orig_dport (2B) + u_buf_is_user (1B) consume 3 bytes from offset 80, leaving 5 bytes to fill.
-    u8 _pad_ubuf[5];
+    u8 _pad_ubuf[5]; // align u_buf to 8 bytes (offset 88)
     u64 u_buf;
     u64 self_ref_parent_id;
     lw_thread_t lw_thread;
     u64 orig_buf;
-    // full_bytes_len is the actual payload length when orig_buf is set
-    // (ITER_UBUF or single-segment ITER_IOVEC paths in return_recvmsg).
-    // It equals bytes_len in all other cases.
-    u32 full_bytes_len;
+    u32 full_bytes_len; // payload length when orig_buf is set; equals bytes_len otherwise
     u32 _pad2;
 } call_protocol_args_t;
 

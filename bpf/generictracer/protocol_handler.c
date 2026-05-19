@@ -159,7 +159,7 @@ int obi_handle_buf_with_args(void *ctx) {
                         args->packet_type = packet_type;
                         args->niter = 0;
                         bpf_tail_call(ctx, &jump_table, k_tail_parse_traceparent_http_append);
-                        // tail-call failed — fall through
+                        // tail-call failed — fall through.
                     }
                 } else if (responding) {
                     info->end_monotime_ns = bpf_ktime_get_ns();
@@ -167,9 +167,6 @@ int obi_handle_buf_with_args(void *ctx) {
                     info->resp_len += args->bytes_len;
                 }
 
-                // TP parsing not needed or tail-call failed: emit large buffer now.
-                // When the tail-call succeeds, obi_parse_traceparent_http emits
-                // it at done: instead, so this path is only reached as a fallback.
                 http_send_large_buffer(ctx,
                                        info,
                                        &args->pid_conn,

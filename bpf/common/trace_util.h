@@ -110,25 +110,15 @@ static __always_inline u32 traceparent_scan_loop_count(const u16 buf_len) {
     return min((u32)buf_len - TRACE_PARENT_HEADER_LEN + 1, k_tp_max_scan_loops);
 }
 
-// Combined traceparent + end-of-headers search context.
-// Used by bpf_strstr_tp_eoh to find both in a single bpf_loop pass.
 struct callback_ctx_eoh {
     unsigned char *buf;
     u32 tp_pos;
     u32 eoh_pos;
 };
 
-// Searches for traceparent and \r\n\r\n in a single pass.
-// Stops at whichever comes first:
-//   - traceparent found → records tp_pos, stops
-//   - \r\n\r\n found    → records eoh_pos, stops (end of headers reached)
-//
-// The guard uses TRACE_PARENT_HEADER_LEN (68 bytes) as the cutoff for both
-// checks. is_eoh only needs 4 bytes, so the last 64 bytes of the buffer are
-// not checked for EOH here. Any EOH in that window is covered by the 68-byte
-// chunk overlap: the next chunk starts TRACE_PARENT_HEADER_LEN bytes before
-// the end of the current one, so the overlap bytes [956..1023] are rescanned
-// at local indices [0..67] in the next iteration.
+// The guard uses TRACE_PARENT_HEADER_LEN (68 bytes) as the cutoff for both checks.
+// EOH in the last 64 bytes is covered by the chunk overlap: the next chunk rescans
+// bytes [956..1023] at local indices [0..67].
 static int tp_eoh_match(u32 index, void *data) {
     if (index >= (TRACE_BUF_SIZE - TRACE_PARENT_HEADER_LEN)) {
         return 1;
@@ -151,7 +141,6 @@ static int tp_eoh_match(u32 index, void *data) {
 }
 
 // Like bpf_strstr_tp_loop but also stops at the end-of-headers marker.
-// Sets *eoh_found=true if \r\n\r\n was reached before any traceparent.
 // Callers must not tail-call to the next chunk when *eoh_found is true.
 static __always_inline unsigned char *
 bpf_strstr_tp_eoh(unsigned char *buf, const u16 buf_len, bool *eoh_found) {

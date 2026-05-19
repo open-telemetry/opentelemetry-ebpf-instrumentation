@@ -996,11 +996,7 @@ static __always_inline int return_recvmsg(void *ctx, struct sock *in_sock, u64 i
             orig_ubuf = (u64)iov_ctx->ubuf;
         } else if (iov_ctx->iter_type == bpf_core_enum_value(enum iter_type, ITER_IOVEC) &&
                    iov_ctx->nr_segs == 1) {
-            // On kernels < 6.0, ITER_UBUF does not exist and single-buffer recvmsg calls
-            // use ITER_IOVEC with exactly one segment.  In that case the entire receive
-            // payload is in one contiguous userspace buffer; capture its base pointer so
-            // the chunked traceparent scanner can read beyond the 8 KB iovec scratch cap
-            // using bpf_probe_read_user (same mechanism as ITER_UBUF on newer kernels).
+            // Pre-6.0: single-segment ITER_IOVEC is equivalent to ITER_UBUF.
             struct iovec vec;
             if (bpf_probe_read_kernel(&vec, sizeof(vec), &iov_ctx->iov[0]) == 0 && vec.iov_base) {
                 orig_ubuf = (u64)vec.iov_base;
