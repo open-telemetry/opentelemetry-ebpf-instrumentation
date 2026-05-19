@@ -175,9 +175,16 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 		{"filter_pids", []any{int32(0), int32(1)}},
 		{"inject_flags", []any{uint32(0), uint32(1), uint32(2), uint32(3)}},
 	})
-	forEachCombination(t, "tpinjector/BpfIter", tpinjectorbpf.LoadBpfIter, []constOption{
-		{"g_bpf_debug", []any{true, false}},
-	})
+	// tpinjector/BpfIter needs bpf_iter_tcp_get_func_proto (kernel >= 5.11)
+	// for the verifier to recognize the sock_iter ctx type. Runtime loader
+	// has a separate >= 6.4 gate (RCU stall) enforced in tpinjector.Iters.
+	if major, minor := ebpfcommon.KernelVersion(); major > 5 || (major == 5 && minor >= 11) {
+		forEachCombination(t, "tpinjector/BpfIter", tpinjectorbpf.LoadBpfIter, []constOption{
+			{"g_bpf_debug", []any{true, false}},
+		})
+	} else {
+		t.Logf("skipping tpinjector/BpfIter: kernel %d.%d < 5.11", major, minor)
+	}
 
 	// watcher
 	forEachCombination(t, "watcher/Bpf", watcherbpf.LoadBpf, []constOption{
