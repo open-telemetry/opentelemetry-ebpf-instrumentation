@@ -22,7 +22,11 @@ import (
 	"go.opentelemetry.io/obi/pkg/internal/helpers/container"
 )
 
-const composeServiceLabelKey = "com.docker.compose.service"
+const (
+	composeServiceLabelKey = "com.docker.compose.service"
+	// abbreviationLength defines the length for the short ID form
+	abbreviationLength = 12
+)
 
 func cmlog() *slog.Logger {
 	return slog.With("component", "docker.ContainerStore")
@@ -32,8 +36,8 @@ var osInfoForPID = container.InfoForPID
 
 type ContainerMeta struct {
 	// TODO: add other fields https://opentelemetry.io/docs/specs/semconv/resource/container/
-	ID             string // short ID limited to abbreviationLength
-	FullID         string
+	ID             string // short form ID limited to abbreviationLength
+	FullID         string // Full length ID as provided by the docker API
 	Name           string
 	ComposeService string
 }
@@ -61,7 +65,7 @@ type ContainerStore struct {
 
 	cacheMu sync.RWMutex
 	byPID   map[app.PID]ContainerMeta
-	byID    map[string][]app.PID
+	byID    map[string][]app.PID // maps full ID to []app.PID
 }
 
 func NewStore() *ContainerStore {
@@ -133,7 +137,6 @@ func (s *ContainerStore) ContainerInfo(ctx context.Context, pid app.PID) (Contai
 	}
 
 	inspectInfo := inspectResult.Container
-	const abbreviationLength = 12
 	containerID := inspectInfo.ID
 	if len(containerID) > abbreviationLength {
 		containerID = containerID[:abbreviationLength]
@@ -276,18 +279,18 @@ func (s *ContainerStore) InvalidatePID(pid app.PID) {
 	}
 	delete(s.byPID, pid)
 
-	pids := s.byID[meta.ID][:0]
-	for _, cachedPID := range s.byID[meta.ID] {
+	pids := s.byID[meta.FullID][:0]
+	for _, cachedPID := range s.byID[meta.FullID] {
 		if cachedPID != pid {
 			pids = append(pids, cachedPID)
 		}
 	}
 
 	if len(pids) == 0 {
-		delete(s.byID, meta.ID)
+		delete(s.byID, meta.FullID)
 		return
 	}
-	s.byID[meta.ID] = pids
+	s.byID[meta.FullID] = pids
 }
 
 func (s *ContainerStore) invalidateContainer(containerID string) {
