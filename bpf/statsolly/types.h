@@ -8,10 +8,16 @@ enum {
     k_event_stat_tcp_rtt = 1,               // StatTypeTCPRtt
     k_event_stat_tcp_failed_connection = 2, // StatTypeTCPFailedConnection
     k_event_stat_tcp_retransmit = 3,        // StatTypeTCPRetransmit
+    k_event_stat_tcp_io = 4,                // StatTypeTCPIo
 };
 
 enum tcp_handshake_role {
     role_unknown = 0,
     role_client = 1,
     role_server = 2,
+};
+
+enum network_io_direction {
+    direction_receive = 1,
+    direction_transmit = 2,
 };

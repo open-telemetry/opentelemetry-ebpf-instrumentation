@@ -63,3 +63,17 @@ func testStatMetricsTCPRetransmitsGo(t *testing.T) {
 		assert.Positive(ct, totalPromCount(ct, results))
 	}, testTimeout, 100*time.Millisecond)
 }
+
+func testStatMetricsTCPIoGo(t *testing.T) {
+	pq := promtest.Client{HostPort: prometheusHostPort}
+	for _, direction := range []string{"transmit", "receive"} {
+		t.Run(direction, func(t *testing.T) {
+			require.EventuallyWithT(t, func(ct *assert.CollectT) {
+				results, err := pq.Query(`obi_stat_tcp_io_bytes_total{dst_port="8080",network_io_direction="` + direction + `"}`)
+				require.NoError(ct, err)
+				enoughPromResults(ct, results)
+				assert.Positive(ct, totalPromCount(ct, results))
+			}, testTimeout, 100*time.Millisecond)
+		})
+	}
+}

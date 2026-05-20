@@ -98,6 +98,27 @@ groups:
       - ref: src.zone
       - ref: dst.zone
 
+  - id: metric.obi_stat_tcp_io
+    type: metric
+    metric_name: obi.stat.tcp.io
+    instrument: counter
+    unit: "By"
+    stability: development
+    brief: >
+      Count of bytes transferred at the socket layer per TCP connection,
+      broken down by direction.
+    attributes:
+      - ref: obi.ip
+      - ref: src.address
+      - ref: dst.address
+      - ref: src.port
+      - ref: dst.port
+      - ref: src.name
+      - ref: dst.name
+      - ref: src.zone
+      - ref: dst.zone
+      - ref: network.io.direction
+
   # Counter has no explicit OTLP unit set; mirror that here so live-check
   # doesn't complain "Unit should be '1', but found ''".
   - id: metric.obi_stat_tcp_failed_connections

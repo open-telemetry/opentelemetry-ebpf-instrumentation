@@ -61,6 +61,14 @@ func StatGetters(name attr.Name) (attributes.Getter[*Stat, attribute.KeyValue], 
 			}
 			return attribute.String(string(attr.NetworkTCPHandshakeRole), networkTCPHandshakeRoleStr(role))
 		}
+	case attr.NetworkIoDirection:
+		getter = func(s *Stat) attribute.KeyValue {
+			var direction uint8
+			if s.TCPIo != nil {
+				direction = s.TCPIo.Direction
+			}
+			return attribute.String(string(attr.NetworkIoDirection), networkIoDirectionStr(NetworkIoDirectionCode(direction)))
+		}
 
 	default:
 		getter = func(s *Stat) attribute.KeyValue { return attribute.String(string(name), s.CommonAttrs.Metadata[name]) }
@@ -102,5 +110,16 @@ func networkTCPHandshakeRoleStr(role uint8) string {
 		return string(RoleServer)
 	default:
 		return string(RoleUnknown)
+	}
+}
+
+func networkIoDirectionStr(d NetworkIoDirectionCode) string {
+	switch d {
+	case CodeDirectionTransmit:
+		return string(DirectionTransmit)
+	case CodeDirectionReceive:
+		return string(DirectionReceive)
+	default:
+		return string(DirectionUnknown)
 	}
 }

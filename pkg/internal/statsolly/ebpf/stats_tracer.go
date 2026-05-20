@@ -34,16 +34,20 @@ type probe struct {
 
 // Program names
 const (
-	progObiKprobeTCPCloseSrtt              = "obi_kprobe_tcp_close_srtt"
-	progObiTpInetSockSetStateConnRole      = "obi_tp_inet_sock_set_state_conn_role"
-	progObiTpInetSockSetStateTCPFailedConn = "obi_tp_inet_sock_set_state_tcp_failed_conn"
-	progObiRawTpTCPRetransmit              = "obi_raw_tp_tcp_retransmit"
+	progObiKprobeTCPCloseSrtt               = "obi_kprobe_tcp_close_srtt"
+	progObiTpInetSockSetStateConnRole       = "obi_tp_inet_sock_set_state_conn_role"
+	progObiTpInetSockSetStateTCPFailedConn  = "obi_tp_inet_sock_set_state_tcp_failed_conn"
+	progObiRawTpTCPRetransmit               = "obi_raw_tp_tcp_retransmit"
+	progObiKprobeTCPSendmsgBytesTransmit    = "obi_kprobe_tcp_sendmsg_bytes_transmit"
+	progObiKprobeTCPCleanupRbufBytesReceive = "obi_kprobe_tcp_cleanup_rbuf_bytes_receive"
 )
 
 // Hook point names, grouped by attach type.
 const (
 	// Kprobes: kernel function names.
-	KprobeTCPClose = "tcp_close"
+	KprobeTCPClose       = "tcp_close"
+	KprobeTCPSendMsg     = "tcp_sendmsg"
+	KprobeTCPCleanupRbuf = "tcp_cleanup_rbuf"
 
 	// Tracepoints: group/name, are validated by TestTracepointConstantFormat
 	TracepointInetSockSetState = "sock/inet_sock_set_state"
@@ -53,7 +57,7 @@ const (
 )
 
 // $BPF_CLANG and $BPF_CFLAGS are set by the Makefile.
-//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -type tcp_rtt_t -type tcp_failed_connection_t -type tcp_retransmit_t -target amd64,arm64 Stats ../../../../bpf/statsolly/stats.c -- -I../../../../bpf
+//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -type tcp_io_t -type tcp_rtt_t -type tcp_failed_connection_t -type tcp_retransmit_t -target amd64,arm64 Stats ../../../../bpf/statsolly/stats.c -- -I../../../../bpf
 
 type StatsFetcher struct {
 	log       *slog.Logger
@@ -104,6 +108,9 @@ func NewStatsFetcher(cfg *config.EBPFTracer, features *export.Features, selector
 	if !features.StatsTCPRetransmits() {
 		toDisable = append(toDisable, progObiRawTpTCPRetransmit)
 	}
+	if !features.StatsTCPIo() {
+		toDisable = append(toDisable, progObiKprobeTCPSendmsgBytesTransmit, progObiKprobeTCPCleanupRbufBytesReceive)
+	}
 
 	if err := fixupSpec(spec, toDisable); err != nil {
 		return nil, fmt.Errorf("fixing up BPF spec: %w", err)
@@ -127,6 +134,16 @@ func NewStatsFetcher(cfg *config.EBPFTracer, features *export.Features, selector
 			name:    KprobeTCPClose,
 			program: objects.ObiKprobeTcpCloseSrtt,
 			enabled: features.StatsTCPRtt(),
+		},
+		{
+			name:    KprobeTCPSendMsg,
+			program: objects.ObiKprobeTcpSendmsgBytesTransmit,
+			enabled: features.StatsTCPIo(),
+		},
+		{
+			name:    KprobeTCPCleanupRbuf,
+			program: objects.ObiKprobeTcpCleanupRbufBytesReceive,
+			enabled: features.StatsTCPIo(),
 		},
 	} {
 		if !k.enabled {

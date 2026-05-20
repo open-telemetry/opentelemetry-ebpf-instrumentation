@@ -15,6 +15,7 @@ const (
 	StatTypeTCPRtt StatType = iota + 1
 	StatTypeTCPFailedConnection
 	StatTypeTCPRetransmit
+	StatTypeTCPIo
 )
 
 type TCPFailReasonType string
@@ -50,13 +51,29 @@ const (
 	RoleServer  NetworkTCPHandshakeRoleType = "server"
 )
 
-// NetworkTCPHandshakeRoleCode mirrors enum tcp_handshake_role in bpf/statsolly/tp_tcp.c.
+// NetworkTCPHandshakeRoleCode mirrors enum tcp_handshake_role in bpf/statsolly/types.h.
 type NetworkTCPHandshakeRoleCode uint8
 
 const (
 	CodeRoleUnknown NetworkTCPHandshakeRoleCode = 0
 	CodeRoleClient  NetworkTCPHandshakeRoleCode = 1
 	CodeRoleServer  NetworkTCPHandshakeRoleCode = 2
+)
+
+type NetworkIoDirectionType string
+
+const (
+	DirectionUnknown  NetworkIoDirectionType = "unknown"
+	DirectionReceive  NetworkIoDirectionType = "receive"
+	DirectionTransmit NetworkIoDirectionType = "transmit"
+)
+
+// NetworkIoDirectionCode mirrors enum network_io_direction in bpf/statsolly/types.h.
+type NetworkIoDirectionCode uint8
+
+const (
+	CodeDirectionReceive  NetworkIoDirectionCode = 1
+	CodeDirectionTransmit NetworkIoDirectionCode = 2
 )
 
 // Stat contains accumulated metrics from a stat, with extra metadata
@@ -69,6 +86,7 @@ type Stat struct {
 	TCPRtt              *TCPRtt              `json:"-"`
 	TCPFailedConnection *TCPFailedConnection `json:"-"`
 	TCPRetransmit       bool                 `json:"-"`
+	TCPIo               *TCPIo               `json:"-"`
 
 	// Attrs of the flow record: source/destination, OBI IP, etc...
 	CommonAttrs pipe.CommonAttrs
@@ -82,6 +100,11 @@ type TCPRtt struct {
 type TCPFailedConnection struct {
 	Reason uint8 `json:"reason"`
 	Role   uint8 `json:"role"`
+}
+
+type TCPIo struct {
+	Direction uint8  `json:"direction"`
+	Bytes     uint64 `json:"bytes"`
 }
 
 // Conn mirrors connection_info_t from bpf/common/connection_info.h.
@@ -116,4 +139,14 @@ type StatsTCPRetransmit struct {
 	Flags uint8
 	Pad   [3]uint8
 	Conn
+}
+
+type StatsTCPIo struct {
+	_         structs.HostLayout
+	Flags     uint8
+	Direction uint8
+	Pad       [6]uint8
+	Bytes     uint64
+	Conn
+	FinalPad [4]uint8 // aligns sizeof to 56, matching tcp_io_t in k_tcp.c
 }

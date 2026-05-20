@@ -17,12 +17,17 @@ func TestFixupSpec(t *testing.T) {
 	const origTpName = "real_tp"
 	const origConnRoleName = "real_conn_role"
 
+	const origSendmsgName = "real_sendmsg"
+	const origCleanupRbufName = "real_cleanup_rbuf"
+
 	makeSpec := func() *ebpf.CollectionSpec {
 		return &ebpf.CollectionSpec{
 			Programs: map[string]*ebpf.ProgramSpec{
-				progObiKprobeTCPCloseSrtt:              {Name: origKpName, Type: ebpf.Kprobe},
-				progObiTpInetSockSetStateTCPFailedConn: {Name: origTpName, Type: ebpf.TracePoint},
-				progObiTpInetSockSetStateConnRole:      {Name: origConnRoleName, Type: ebpf.TracePoint},
+				progObiKprobeTCPCloseSrtt:               {Name: origKpName, Type: ebpf.Kprobe},
+				progObiTpInetSockSetStateTCPFailedConn:  {Name: origTpName, Type: ebpf.TracePoint},
+				progObiTpInetSockSetStateConnRole:       {Name: origConnRoleName, Type: ebpf.TracePoint},
+				progObiKprobeTCPSendmsgBytesTransmit:    {Name: origSendmsgName, Type: ebpf.Kprobe},
+				progObiKprobeTCPCleanupRbufBytesReceive: {Name: origCleanupRbufName, Type: ebpf.Kprobe},
 			},
 		}
 	}
@@ -69,16 +74,29 @@ func TestFixupSpec(t *testing.T) {
 			},
 		},
 		{
+			name:      "disable io programs",
+			toDisable: []string{progObiKprobeTCPSendmsgBytesTransmit, progObiKprobeTCPCleanupRbufBytesReceive},
+			want: map[string]string{
+				progObiKprobeTCPCloseSrtt:               origKpName,
+				progObiKprobeTCPSendmsgBytesTransmit:    "stats_dummy",
+				progObiKprobeTCPCleanupRbufBytesReceive: "stats_dummy",
+			},
+		},
+		{
 			name: "disable all",
 			toDisable: []string{
 				progObiKprobeTCPCloseSrtt,
 				progObiTpInetSockSetStateTCPFailedConn,
 				progObiTpInetSockSetStateConnRole,
+				progObiKprobeTCPSendmsgBytesTransmit,
+				progObiKprobeTCPCleanupRbufBytesReceive,
 			},
 			want: map[string]string{
-				progObiKprobeTCPCloseSrtt:              "stats_dummy",
-				progObiTpInetSockSetStateTCPFailedConn: "stats_dummy",
-				progObiTpInetSockSetStateConnRole:      "stats_dummy",
+				progObiKprobeTCPCloseSrtt:               "stats_dummy",
+				progObiTpInetSockSetStateTCPFailedConn:  "stats_dummy",
+				progObiTpInetSockSetStateConnRole:       "stats_dummy",
+				progObiKprobeTCPSendmsgBytesTransmit:    "stats_dummy",
+				progObiKprobeTCPCleanupRbufBytesReceive: "stats_dummy",
 			},
 		},
 	}

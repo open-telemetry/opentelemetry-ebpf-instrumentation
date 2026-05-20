@@ -29,8 +29,18 @@ typedef struct tcp_rtt {
     connection_info_t conn;
 } tcp_rtt_t;
 
-// Force tcp_rtt_t
+typedef struct tcp_io {
+    u8 flags; // Must be first, we use it to tell what kind of event we have on the ring buffer
+    u8 direction;
+    u8 _pad[6];
+    u64 bytes;
+    connection_info_t conn;
+    u8 _final_pad[4];
+} tcp_io_t;
+
+// Force structs into the ELF for automatic creation of Golang struct
 const tcp_rtt_t *unused_tcp_rtt __attribute__((unused));
+const tcp_io_t *unused_tcp_io __attribute__((unused));
 
 SEC("kprobe/tcp_close")
 int BPF_KPROBE(obi_kprobe_tcp_close_srtt, struct sock *sk) {
@@ -69,6 +79,63 @@ int BPF_KPROBE(obi_kprobe_tcp_close_srtt, struct sock *sk) {
 
     bpf_d_printk(
         "tcp rtt: s_port=%d, d_port=%d, srtt_us=%u", se->conn.s_port, se->conn.d_port, se->srtt_us);
+    bpf_ringbuf_submit(se, stats_events_flags());
+
+    return 0;
+}
+
+SEC("kprobe/tcp_sendmsg")
+int BPF_KPROBE(obi_kprobe_tcp_sendmsg_bytes_transmit,
+               struct sock *sk,
+               struct msghdr *msg,
+               size_t size) {
+    (void)ctx;
+    (void)msg;
+    connection_info_t conn;
+    if (!parse_sock_info(sk, &conn)) {
+        return 0;
+    }
+
+    tcp_io_t *se = bpf_ringbuf_reserve(&stats_events, sizeof(*se), 0);
+    if (!se) {
+        return 0;
+    }
+
+    se->flags = k_event_stat_tcp_io;
+    se->direction = direction_transmit;
+    // size gives us the bytes submitted to the send path by the application
+    // which may overcount in cases of failure of tcp_sendmsg
+    se->bytes = size;
+    se->conn = conn;
+
+    bpf_ringbuf_submit(se, stats_events_flags());
+
+    return 0;
+}
+
+SEC("kprobe/tcp_cleanup_rbuf")
+int BPF_KPROBE(obi_kprobe_tcp_cleanup_rbuf_bytes_receive, struct sock *sk, int copied) {
+    (void)ctx;
+
+    if (copied <= 0) {
+        return 0;
+    }
+
+    connection_info_t conn;
+    if (!parse_sock_info(sk, &conn)) {
+        return 0;
+    }
+
+    tcp_io_t *se = bpf_ringbuf_reserve(&stats_events, sizeof(*se), 0);
+    if (!se) {
+        return 0;
+    }
+
+    se->flags = k_event_stat_tcp_io;
+    se->direction = direction_receive;
+    se->bytes = copied;
+    se->conn = conn;
+
     bpf_ringbuf_submit(se, stats_events_flags());
 
     return 0;
