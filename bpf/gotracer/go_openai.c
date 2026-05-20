@@ -241,7 +241,7 @@ int obi_uprobe_openai_chat_new(struct pt_regs *ctx) {
 // Return registers (AMD64):
 //   res *ChatCompletion -> AX (GO_PARAM1)
 //   err error           -> BX (GO_PARAM2) type, CX (GO_PARAM3) data
-SEC("uprobe/openai_chat_new")
+SEC("uprobe/openai_chat_new_ret")
 int obi_uprobe_openai_chat_new_ret(struct pt_regs *ctx) {
     void *goroutine_addr = GOROUTINE_PTR(ctx);
     bpf_dbg_printk("=== uprobe/openai_chat_new_ret goroutine_addr=%lx ===", goroutine_addr);
