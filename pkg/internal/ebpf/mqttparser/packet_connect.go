@@ -33,7 +33,7 @@ type ConnectPacket struct {
 }
 
 var (
-	errInsufficientConnectData = errors.New("insufficient data for CONNECT packet")
+	errInsufficientConnectData       = errors.New("insufficient data for CONNECT packet")
 	errUnrecognizedMQTTProtocolName  = errors.New("unrecognized mqtt protocol name")
 	errUnrecognizedMQTTProtocolLevel = errors.New("unrecognized mqtt protocol level")
 )

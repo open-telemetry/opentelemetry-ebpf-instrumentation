@@ -23,8 +23,8 @@ const (
 )
 
 var (
-	errKafkaUnsupportedAPIKey            = errors.New("unsupported Kafka API key")
-	errKafkaNoResponseBufferForMetadata  = errors.New("no response buffer for metadata request")
+	errKafkaUnsupportedAPIKey           = errors.New("unsupported Kafka API key")
+	errKafkaNoResponseBufferForMetadata = errors.New("no response buffer for metadata request")
 )
 
 type PartitionInfo struct {

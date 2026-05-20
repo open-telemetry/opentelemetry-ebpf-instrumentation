@@ -8,10 +8,10 @@ import (
 )
 
 var (
-	errSubscribeInsufficientData    = errors.New("insufficient data for SUBSCRIBE packet")
-	errSubscribeReadTopicFilter     = errors.New("failed to read topic filter")
-	errSubscribeReadOptions         = errors.New("failed to read subscription options")
-	errSubscribeRequiresAtLeastOne  = errors.New("SUBSCRIBE packet must contain at least one subscription")
+	errSubscribeInsufficientData   = errors.New("insufficient data for SUBSCRIBE packet")
+	errSubscribeReadTopicFilter    = errors.New("failed to read topic filter")
+	errSubscribeReadOptions        = errors.New("failed to read subscription options")
+	errSubscribeRequiresAtLeastOne = errors.New("SUBSCRIBE packet must contain at least one subscription")
 )
 
 // Subscription represents a single topic subscription with its QoS level.

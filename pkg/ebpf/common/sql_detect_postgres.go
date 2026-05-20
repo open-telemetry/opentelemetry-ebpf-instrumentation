@@ -39,14 +39,14 @@ const (
 )
 
 var (
-	errPGTooShort                       = errors.New("too short")
-	errPGTooShortStatement              = errors.New("too short, while parsing statement")
-	errPGTooShortPortal                 = errors.New("too short, while parsing portal")
-	errPGTooShortFormatCodes            = errors.New("too short, while parsing format codes")
-	errPGTooShortParams                 = errors.New("too short, while parsing params")
-	errPGRemainingTooShortHeader        = errors.New("remaining buffer too short for message header")
-	errPGMalformedMessage               = errors.New("malformed Postgres message")
-	errPGRemainingTooShortMessageData   = errors.New("remaining buffer too short for message data")
+	errPGTooShort                     = errors.New("too short")
+	errPGTooShortStatement            = errors.New("too short, while parsing statement")
+	errPGTooShortPortal               = errors.New("too short, while parsing portal")
+	errPGTooShortFormatCodes          = errors.New("too short, while parsing format codes")
+	errPGTooShortParams               = errors.New("too short, while parsing params")
+	errPGRemainingTooShortHeader      = errors.New("remaining buffer too short for message header")
+	errPGMalformedMessage             = errors.New("malformed Postgres message")
+	errPGRemainingTooShortMessageData = errors.New("remaining buffer too short for message data")
 )
 
 func isPostgres(b *largebuf.LargeBuffer) bool {
