@@ -59,6 +59,37 @@ func TestIsMemcachedCommands(t *testing.T) {
 	}
 }
 
+func TestIsMemcachedFirstByte(t *testing.T) {
+	// Source of truth: the bitmap must accept exactly these 32 characters and
+	// nothing else.
+	const allowed = "acdfgimprstvVESNDTOCHM0123456789"
+
+	inAllowed := func(b byte) bool {
+		return bytes.IndexByte([]byte(allowed), b) >= 0
+	}
+
+	// Spot-check each allowed character explicitly so a failure points at the
+	// specific missing one.
+	for i := 0; i < len(allowed); i++ {
+		b := allowed[i]
+		assert.Truef(t, isMemcachedFirstByte(b), "expected %q (0x%02X) to be accepted", b, b)
+	}
+
+	// Exhaustive sweep across all 256 possible byte values to guarantee the
+	// bitmap doesn't accept anything outside the allowed set.
+	for b := 0; b < 256; b++ {
+		got := isMemcachedFirstByte(byte(b))
+		want := inAllowed(byte(b))
+		assert.Equalf(t, want, got, "byte 0x%02X (%q): want %v", b, byte(b), want)
+	}
+
+	// Sanity-check a handful of bytes that look plausible but must be rejected
+	// (uppercase letters that don't start any keyword, control bytes, high bit).
+	for _, b := range []byte{'A', 'B', 'Z', 'b', 'e', 'h', 'q', 'z', 0x00, 0x1F, 0x7F, 0x80, 0xFF, ' ', '\t', '\n', '\r', '+', '-'} {
+		assert.Falsef(t, isMemcachedFirstByte(b), "byte 0x%02X (%q) must be rejected", b, b)
+	}
+}
+
 func TestParseMemcachedRequest(t *testing.T) {
 	tests := []struct {
 		name  string

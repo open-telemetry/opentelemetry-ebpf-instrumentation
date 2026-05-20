@@ -23,20 +23,22 @@ const (
 )
 
 // https://github.com/memcached/memcached/blob/master/doc/protocol.txt
-// memcachedFirstByte is the set of valid first-byte characters for any
+// memcachedFirstByteBitmap is the set of valid first-byte characters for any
 // memcached text-protocol frame: classic command letters (lowercase), classic
 // response keywords (uppercase first letters), numeric reply lines (digits),
 // plus the meta-protocol additions ('m' for mg/ms/md/me/ma/mn; 'H' for HD; 'M'
 // for ME/MN). O(1) prefilter that rejects ~87% of random byte values before
 // scanning for the CRLF line terminator.
-var memcachedFirstByte = [256]bool{
-	'a': true, 'c': true, 'd': true, 'f': true, 'g': true,
-	'i': true, 'm': true, 'p': true, 'r': true, 's': true,
-	't': true, 'v': true,
-	'V': true, 'E': true, 'S': true, 'N': true, 'D': true,
-	'T': true, 'O': true, 'C': true, 'H': true, 'M': true,
-	'0': true, '1': true, '2': true, '3': true, '4': true,
-	'5': true, '6': true, '7': true, '8': true, '9': true,
+var memcachedFirstByteBitmap = func() [4]uint64 {
+	var m [4]uint64
+	for _, c := range []byte("acdfgimprstvVESNDTOCHM0123456789") {
+		m[c>>6] |= 1 << (c & 63)
+	}
+	return m
+}()
+
+func isMemcachedFirstByte(b byte) bool {
+	return memcachedFirstByteBitmap[b>>6]&(1<<(b&63)) != 0
 }
 
 var (
@@ -71,7 +73,7 @@ func isMemcachedBuf(buf *largebuf.LargeBuffer) bool {
 	// letter, a response keyword, or a digit. Reject anything else without
 	// scanning the buffer for a CRLF that doesn't exist.
 	first, err := buf.U8At(0)
-	if err != nil || !memcachedFirstByte[first] {
+	if err != nil || !isMemcachedFirstByte(first) {
 		return false
 	}
 
