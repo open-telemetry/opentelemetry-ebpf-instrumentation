@@ -67,11 +67,9 @@ enum : u32 {
 
 // Reads the Content string of the last ChatCompletionMessageParamUnion in the
 // Messages slice and stores it (with its role) into req.
-static __always_inline void read_last_input_message(off_table_t *ot,
-                                                    const void *body_ptr,
-                                                    openai_go_req_t *req) {
-    const u64 messages_off =
-        go_offset_of(ot, (go_offset){.v = _openai_chat_params_messages_pos});
+static __always_inline void
+read_last_input_message(off_table_t *ot, const void *body_ptr, openai_go_req_t *req) {
+    const u64 messages_off = go_offset_of(ot, (go_offset){.v = _openai_chat_params_messages_pos});
 
     void *msgs_arr = NULL;
     if (bpf_probe_read_user(&msgs_arr, sizeof(msgs_arr), (void *)body_ptr + messages_off) != 0) {
@@ -151,8 +149,7 @@ static __always_inline void read_last_input_message(off_table_t *ot,
 // Reads the response Choices[0].Message.Content into req->output_message_content.
 static __always_inline void
 read_first_output_choice(off_table_t *ot, void *resp_ptr, openai_go_req_t *req) {
-    const u64 choices_off =
-        go_offset_of(ot, (go_offset){.v = _openai_chat_completion_choices_pos});
+    const u64 choices_off = go_offset_of(ot, (go_offset){.v = _openai_chat_completion_choices_pos});
     const u64 choice_message_off =
         go_offset_of(ot, (go_offset){.v = _openai_chat_completion_choice_message_pos});
     const u64 message_content_off =
@@ -201,16 +198,22 @@ int obi_uprobe_openai_chat_new(struct pt_regs *ctx) {
     void *goroutine_addr = GOROUTINE_PTR(ctx);
     bpf_dbg_printk("=== uprobe/openai_chat_new goroutine_addr=%lx ===", goroutine_addr);
 
+    u32 zero = 0;
+    openai_go_req_t *req = bpf_map_lookup_elem(&openai_req_mem, &zero);
+    if (!req) {
+        return 0;
+    }
+    __builtin_memset(req, 0, sizeof(openai_go_req_t));
+
     off_table_t *ot = get_offsets_table();
 
     const void *body_ptr = (const void *)PT_REGS_SP(ctx) + k_openai_body_sp_offset;
 
-    openai_go_req_t req = {};
-    req.type = EVENT_GO_OPENAI;
-    req.start_monotime_ns = bpf_ktime_get_ns();
-    req.input_message_role = k_openai_role_unknown;
+    req->type = EVENT_GO_OPENAI;
+    req->start_monotime_ns = bpf_ktime_get_ns();
+    req->input_message_role = k_openai_role_unknown;
 
-    client_trace_parent(goroutine_addr, &req.tp);
+    client_trace_parent(goroutine_addr, &req->tp);
 
     const u64 model_off = go_offset_of(ot, (go_offset){.v = _openai_chat_params_model_pos});
 
@@ -220,18 +223,18 @@ int obi_uprobe_openai_chat_new(struct pt_regs *ctx) {
     read_go_str("openai request model",
                 (void *)body_ptr + model_off,
                 0,
-                req.request_model,
-                sizeof(req.request_model));
+                req->request_model,
+                sizeof(req->request_model));
 
-    bpf_dbg_printk("openai request model=[%s]", req.request_model);
+    bpf_dbg_printk("openai request model=[%s]", req->request_model);
 
-    read_last_input_message(ot, body_ptr, &req);
+    read_last_input_message(ot, body_ptr, req);
 
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
-    bpf_map_update_elem(&ongoing_openai_requests, &g_key, &req, BPF_ANY);
+    bpf_map_update_elem(&ongoing_openai_requests, &g_key, req, BPF_ANY);
 
-    obi_ctx__set(bpf_get_current_pid_tgid(), &req.tp);
+    obi_ctx__set(bpf_get_current_pid_tgid(), &req->tp);
 
     return 0;
 }

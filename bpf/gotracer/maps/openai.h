@@ -16,3 +16,10 @@ struct {
     __type(value, openai_go_req_t); // the in-flight Chat Completion request
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
 } ongoing_openai_requests SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+    __type(key, u32);
+    __type(value, openai_go_req_t);
+    __uint(max_entries, 1);
+} openai_req_mem SEC(".maps");
