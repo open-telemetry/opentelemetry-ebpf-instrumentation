@@ -7,7 +7,7 @@ COPY internal/test/integration/components/javaamqp/src /build/src
 
 RUN mvn -B --no-transfer-progress -DskipTests package
 
-FROM eclipse-temurin:17-jre@sha256:55f9905b45a83a43aba875de8ad1ffc7b635813ae6bc0830d076f7fd086da48e
+FROM eclipse-temurin:25.0.3_9-jre@sha256:db3011b348ad87ced055afe5145238d87a3d8f0e8f23eb4d0cd8cecb4659b085
 
 WORKDIR /app
 EXPOSE 8080
