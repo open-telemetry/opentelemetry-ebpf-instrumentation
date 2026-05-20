@@ -77,12 +77,12 @@ type FixedHeader struct {
 // is obviously not MQTT.
 // https://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html
 // https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html
-func IsLikelyMQTT(pkt []byte) bool {
-	if len(pkt) < MinPacketLen {
+func IsLikelyMQTT(first byte, pktLen int) bool {
+	if pktLen < MinPacketLen {
 		return false
 	}
-	pt := PacketType((pkt[0] >> 4) & 0x0F)
-	flags := pkt[0] & 0x0F
+	pt := PacketType((first >> 4) & 0x0F)
+	flags := first & 0x0F
 	switch pt {
 	case PacketTypePUBLISH:
 		// QoS occupies bits 2-1 of the flag nibble; QoS=3 is invalid.

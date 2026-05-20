@@ -406,12 +406,14 @@ func matchAMQP(parseCtx *EBPFParseContext, event *TCPRequestInfo, requestBuffer,
 }
 
 func matchMQTT(event *TCPRequestInfo, requestBuffer, responseBuffer *largebuf.LargeBuffer) (request.Span, bool, bool, error) { //nolint:unparam
-	pktView := requestBuffer.UnsafeView()
-	rpktView := responseBuffer.UnsafeView()
+	isLikelyMQTT := func(pkt *largebuf.LargeBuffer) bool {
+		first, err := pkt.U8At(0)
 
+		return err == nil && mqttparser.IsLikelyMQTT(first, pkt.Len())
+	}
 	// Cheap prefilter: if neither buffer has a plausible MQTT fixed-header
 	// byte 0, skip the variable-length parsing entirely.
-	if !mqttparser.IsLikelyMQTT(pktView) && !mqttparser.IsLikelyMQTT(rpktView) {
+	if !isLikelyMQTT(requestBuffer) && !isLikelyMQTT(responseBuffer) {
 		return request.Span{}, false, false, nil
 	}
 

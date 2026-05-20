@@ -17,21 +17,21 @@ import (
 
 // https://docs.nats.io/reference/reference-protocols/nats-protocol
 // https://docs.nats.io/reference/reference-protocols/nats-server-protocol
-// natsCmdFirstByte is the set of valid first-byte characters for any NATS
+// natsCmdFirstByteBitmap is the set of valid first-byte characters for any NATS
 // control frame: +OK, -ERR, PING, PONG, INFO, CONNECT, SUB, UNSUB, PUB, MSG,
 // HPUB, HMSG. Case-insensitive (lowercase variants accepted by the parser).
 // Used as an O(1) prefilter that rejects ~94% of random byte values.
-var natsCmdFirstByte = [256]bool{
-	'+': true, '-': true,
-	'P': true, 'p': true,
-	'I': true, 'i': true,
-	'C': true, 'c': true,
-	'S': true, 's': true,
-	'U': true, 'u': true,
-	'M': true, 'm': true,
-	'H': true, 'h': true,
-	// needed for NATS server protocol if we see any
-	'R': true, 'r': true,
+
+var natsCmdFirstByteBitmap = func() [4]uint64 {
+	var m [4]uint64
+	for _, c := range []byte("+-PpIiCcSsUuMmHhRr") {
+		m[c>>6] |= 1 << (c & 63)
+	}
+	return m
+}()
+
+func isNATSCmdFirstByte(b byte) bool {
+	return natsCmdFirstByteBitmap[b>>6]&(1<<(b&63)) != 0
 }
 
 var (
@@ -144,11 +144,13 @@ func ProcessNATSEvent(pkt *largebuf.LargeBuffer) (*NATSInfo, bool, error) {
 		return nil, true, errPacketTooShortForNATS
 	}
 
+	first, err := pkt.U8At(0)
+
 	// Cheap prefilter: every NATS frame starts with the first letter of one of
 	// the protocol commands (+OK, -ERR, PING/PONG/PUB, INFO, CONNECT, SUB,
 	// UNSUB, MSG, HPUB/HMSG). Reject anything else without invoking the
 	// frame parser.
-	if !natsCmdFirstByte[pkt.UnsafeView()[0]] {
+	if err != nil || !isNATSCmdFirstByte(first) {
 		return nil, true, errNotLikelyNATS
 	}
 

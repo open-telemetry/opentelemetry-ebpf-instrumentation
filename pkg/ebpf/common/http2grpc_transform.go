@@ -494,7 +494,7 @@ const frameHeaderLen = 9
 // maximum is 2^24 - 1; we pick 4 MiB so that eBPF captures starting after a
 // peer has bumped the limit (e.g. gRPC streaming workloads) still pass the
 // prefilter, while ~75% of random 24-bit length values are still rejected.
-// Bump this if real traffic is dropped — false negatives are worse than
+// Bump this if real traffic is dropped - false negatives are worse than
 // false positives here, since the downstream parser rejects garbage anyway.
 const maxPlausibleHTTP2FrameLen = 1 << 22
 
@@ -558,7 +558,7 @@ func http2FlagsMask(t http2FrameType) uint8 {
 // isPlausibleHTTP2Frame applies the per-frame-type stream-ID, payload-length
 // and flag constraints from RFC 7540 6 + 4.1. Real HTTP/2 implementations
 // cannot send frames that violate these rules, so we can safely abort the
-// prefilter walk when a candidate frame fails them — almost no random byte
+// prefilter walk when a candidate frame fails them - almost no random byte
 // sequence satisfies the fixed-length / stream-zero / known-flag rules.
 func isPlausibleHTTP2Frame(fr *frameHeader) bool {
 	// Reserved flag bits must be zero (4.1).
