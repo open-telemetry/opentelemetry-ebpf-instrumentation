@@ -122,17 +122,23 @@ func maybeFastCGI(b *largebuf.LargeBuffer) bool {
 	if b.Len() <= fastCGIRequestHeaderLen {
 		return false
 	}
-	view := b.UnsafeView()
 	// FastCGI 1.0: every record starts with version=1 and a record type in
 	// 1..11. Cheap 2-byte check that filters ~99.98% of non-FastCGI payloads
 	// before the more expensive REQUEST_METHOD substring scan.
-	if view[0] != fcgiVersion1 {
+
+	ver, err := b.U8At(0)
+
+	if err != nil || ver != fcgiVersion1 {
 		return false
 	}
-	if view[1] < fcgiFrameTypeBeginReq || view[1] > fcgiFrameTypeUnknown {
+
+	frameType, err := b.U8At(1)
+
+	if err != nil || frameType < fcgiFrameTypeBeginReq || frameType > fcgiFrameTypeUnknown {
 		return false
 	}
-	return bytes.Contains(view, []byte(requestMethodKey))
+
+	return bytes.Contains(b.UnsafeView(), []byte(requestMethodKey))
 }
 
 func parseHeader(b *largebuf.LargeBuffer) ([]byte, error) {
