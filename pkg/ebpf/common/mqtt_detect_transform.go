@@ -14,7 +14,13 @@ import (
 	"go.opentelemetry.io/obi/pkg/internal/largebuf"
 )
 
-var errNotMQTT = errors.New("packet does not look like MQTT")
+var (
+	errPacketTooShortForMQTT     = errors.New("packet too short for MQTT")
+	errNoMQTTPacketsFound        = errors.New("no MQTT packets found")
+	errNoSpanWorthyMQTTPackets   = errors.New("no span-worthy MQTT packets found")
+	errUnsupportedMQTTPacketType = errors.New("unsupported MQTT packet type")
+	errNoMQTTSubscriptionsFound  = errors.New("no subscriptions found")
+)
 
 // MQTTInfo holds parsed information from an MQTT packet.
 type MQTTInfo struct {
@@ -69,7 +75,7 @@ func ProcessPossibleMQTTEvent(event *TCPRequestInfo, pkt *largebuf.LargeBuffer, 
 // Returns MQTTInfo for span-worthy packets, or ignore=true for control packets.
 func ProcessMQTTEvent(pkt []byte) (*MQTTInfo, bool, error) {
 	if len(pkt) < mqttparser.MinPacketLen {
-		return nil, true, errors.New("packet too short for MQTT")
+		return nil, true, errPacketTooShortForMQTT
 	}
 
 	packets, err := mqttparser.ParseMQTTPackets(pkt)
@@ -78,7 +84,7 @@ func ProcessMQTTEvent(pkt []byte) (*MQTTInfo, bool, error) {
 	}
 
 	if len(packets) == 0 {
-		return nil, true, errors.New("no MQTT packets found")
+		return nil, true, errNoMQTTPacketsFound
 	}
 
 	// Process the first packet that we can extract span information from
@@ -99,7 +105,7 @@ func ProcessMQTTEvent(pkt []byte) (*MQTTInfo, bool, error) {
 		offset += packet.Length()
 	}
 
-	return nil, true, errors.New("no span-worthy MQTT packets found")
+	return nil, true, errNoSpanWorthyMQTTPackets
 }
 
 // processMQTTPacket processes a single MQTT packet based on its type.
@@ -129,7 +135,7 @@ func processMQTTPacket(pkt []byte, startOffset int, packet *mqttparser.MQTTContr
 		// Control packets - ignore for span creation
 		return nil, true, nil
 	default:
-		return nil, true, errors.New("unsupported MQTT packet type")
+		return nil, true, errUnsupportedMQTTPacketType
 	}
 }
 
@@ -154,7 +160,7 @@ func processSubscribePacket(pkt []byte, offset int, remainingLength int) (*MQTTI
 	}
 
 	if len(subscribe.Subscriptions) == 0 {
-		return nil, true, errors.New("no subscriptions found")
+		return nil, true, errNoMQTTSubscriptionsFound
 	}
 
 	// Use the first subscription for the span
