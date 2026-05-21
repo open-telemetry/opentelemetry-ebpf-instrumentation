@@ -282,9 +282,13 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 		goexec.GinFullpathPos,
 		// openai
 		goexec.OpenAIChatParamsModelPos,
+		goexec.OpenAIChatParamsMessagesPos,
 		goexec.OpenAIChatCompletionIDPos,
 		goexec.OpenAIChatCompletionModelPos,
 		goexec.OpenAIChatCompletionUsagePos,
+		goexec.OpenAIChatCompletionChoicesPos,
+		goexec.OpenAIChatCompletionChoiceMessagePos,
+		goexec.OpenAIChatCompletionMessageContentPos,
 		goexec.OpenAICompletionUsageCompletionTokensPos,
 		goexec.OpenAICompletionUsagePromptTokensPos,
 	} {
