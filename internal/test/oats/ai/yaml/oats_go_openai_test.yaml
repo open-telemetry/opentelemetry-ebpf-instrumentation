@@ -18,6 +18,10 @@ expected:
       gen_ai.response.id: chatcmpl-DBTg5Ms2mJhaAhZ56Wq8QSf2djw3S
       gen_ai.usage.input_tokens: 396
       gen_ai.usage.output_tokens: 816
+      gen_ai.input.messages: '[{"role":"user","content":"Plan a 6-day luxury trip to London for 3 people with a $4400 budget."}]'
+  # Verify output messages are captured (content is truncated by BPF buffer)
+  - traceql: '{ .gen_ai.provider.name = "openai" && .gen_ai.operation.name = "chat.completion" && .gen_ai.output.messages != "" }'
+    equals: chat.completion gpt-4o-mini
   metrics:
   - promql: gen_ai_client_token_usage_count{gen_ai_operation_name="chat.completion",gen_ai_provider_name="openai",gen_ai_token_type="input",gen_ai_request_model="gpt-4o-mini",gen_ai_response_model="gpt-4o-mini-2024-07-18"}
     value: '> 0'
