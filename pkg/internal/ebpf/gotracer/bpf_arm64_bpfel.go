@@ -352,7 +352,32 @@ type BpfObiCtxInfoT struct {
 
 type BpfOffTableT struct {
 	_     structs.HostLayout
-	Table [82]uint64
+	Table [92]uint64
+}
+
+type BpfOpenaiGoReqT struct {
+	_               structs.HostLayout
+	Type            uint8
+	Pad             [7]uint8
+	StartMonotimeNs uint64
+	EndMonotimeNs   uint64
+	Pid             struct {
+		_       structs.HostLayout
+		HostPid uint32
+		UserPid uint32
+		Ns      uint32
+	}
+	Pad2                 [4]uint8
+	Tp                   BpfTpInfoT
+	RequestModel         [64]uint8
+	ResponseModel        [64]uint8
+	ResponseId           [64]uint8
+	PromptTokens         int64
+	CompletionTokens     int64
+	InputMessageContent  [256]uint8
+	OutputMessageContent [256]uint8
+	InputMessageRole     uint8
+	Pad3                 [7]uint8
 }
 
 type BpfOtelSpanT struct {
@@ -832,6 +857,7 @@ type BpfMapSpecs struct {
 	OngoingHttpServerRequests      *ebpf.MapSpec `ebpf:"ongoing_http_server_requests"`
 	OngoingKafkaRequests           *ebpf.MapSpec `ebpf:"ongoing_kafka_requests"`
 	OngoingMongoRequests           *ebpf.MapSpec `ebpf:"ongoing_mongo_requests"`
+	OngoingOpenaiRequests          *ebpf.MapSpec `ebpf:"ongoing_openai_requests"`
 	OngoingProduceMessages         *ebpf.MapSpec `ebpf:"ongoing_produce_messages"`
 	OngoingProduceTopics           *ebpf.MapSpec `ebpf:"ongoing_produce_topics"`
 	OngoingRedisRequests           *ebpf.MapSpec `ebpf:"ongoing_redis_requests"`
@@ -840,6 +866,7 @@ type BpfMapSpecs struct {
 	OngoingSslOps                  *ebpf.MapSpec `ebpf:"ongoing_ssl_ops"`
 	OngoingStreams                 *ebpf.MapSpec `ebpf:"ongoing_streams"`
 	OngoingTcpReq                  *ebpf.MapSpec `ebpf:"ongoing_tcp_req"`
+	OpenaiReqMem                   *ebpf.MapSpec `ebpf:"openai_req_mem"`
 	OutgoingTraceMap               *ebpf.MapSpec `ebpf:"outgoing_trace_map"`
 	PendingH2Invocations           *ebpf.MapSpec `ebpf:"pending_h2_invocations"`
 	PqHostnames                    *ebpf.MapSpec `ebpf:"pq_hostnames"`
@@ -991,6 +1018,7 @@ type BpfMaps struct {
 	OngoingHttpServerRequests      *ebpf.Map `ebpf:"ongoing_http_server_requests"`
 	OngoingKafkaRequests           *ebpf.Map `ebpf:"ongoing_kafka_requests"`
 	OngoingMongoRequests           *ebpf.Map `ebpf:"ongoing_mongo_requests"`
+	OngoingOpenaiRequests          *ebpf.Map `ebpf:"ongoing_openai_requests"`
 	OngoingProduceMessages         *ebpf.Map `ebpf:"ongoing_produce_messages"`
 	OngoingProduceTopics           *ebpf.Map `ebpf:"ongoing_produce_topics"`
 	OngoingRedisRequests           *ebpf.Map `ebpf:"ongoing_redis_requests"`
@@ -999,6 +1027,7 @@ type BpfMaps struct {
 	OngoingSslOps                  *ebpf.Map `ebpf:"ongoing_ssl_ops"`
 	OngoingStreams                 *ebpf.Map `ebpf:"ongoing_streams"`
 	OngoingTcpReq                  *ebpf.Map `ebpf:"ongoing_tcp_req"`
+	OpenaiReqMem                   *ebpf.Map `ebpf:"openai_req_mem"`
 	OutgoingTraceMap               *ebpf.Map `ebpf:"outgoing_trace_map"`
 	PendingH2Invocations           *ebpf.Map `ebpf:"pending_h2_invocations"`
 	PqHostnames                    *ebpf.Map `ebpf:"pq_hostnames"`
@@ -1089,6 +1118,7 @@ func (m *BpfMaps) Close() error {
 		m.OngoingHttpServerRequests,
 		m.OngoingKafkaRequests,
 		m.OngoingMongoRequests,
+		m.OngoingOpenaiRequests,
 		m.OngoingProduceMessages,
 		m.OngoingProduceTopics,
 		m.OngoingRedisRequests,
@@ -1097,6 +1127,7 @@ func (m *BpfMaps) Close() error {
 		m.OngoingSslOps,
 		m.OngoingStreams,
 		m.OngoingTcpReq,
+		m.OpenaiReqMem,
 		m.OutgoingTraceMap,
 		m.PendingH2Invocations,
 		m.PqHostnames,
