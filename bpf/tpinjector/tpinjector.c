@@ -910,6 +910,7 @@ int obi_packet_extender(struct sk_msg_md *msg) {
     if (is_go_grpc_client_conn(&t_ctx->p_conn)) {
         bpf_msg_pull_data(msg, 0, msg->size, 0);
         fill_msg_buffers(msg, &t_ctx->p_conn, &e_key);
+        bpf_tail_call_static(msg, &extender_jump_table, k_tail_detect_h2);
         return SK_PASS;
     }
 
@@ -1195,6 +1196,9 @@ int obi_packet_extender_detect_h2(struct sk_msg_md *msg) {
 
             tp_info_pid_t *go_tp = get_tp_info_pid(&t_ctx->e_key);
             if (go_tp && go_tp->valid && go_tp->written) {
+                if (inject_flags & k_inject_tcp_options) {
+                    schedule_write_tcp_option(msg, go_tp);
+                }
                 h2_resume_after(msg, t_ctx, pos + k_h2_frame_header_len + f.payload_len);
                 return SK_PASS;
             }
