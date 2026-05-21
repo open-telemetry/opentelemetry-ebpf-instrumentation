@@ -24,7 +24,9 @@ RUN_NUMBER ?= 1
 TEST_OUTPUT = $(REPO_ROOT)/testoutput
 MNT ?= mnt
 IMG_SIZE ?= 20G
-QEMU_BIN = qemu-system-x86_64
+# Map Linux arch names to QEMU binary names.
+QEMU_ARCH := $(if $(filter $(ARCH),amd64 x86_64),x86_64,$(if $(filter $(ARCH),arm64 aarch64),aarch64,$(ARCH)))
+QEMU_BIN = qemu-system-$(QEMU_ARCH)
 QEMU := $(shell which $(QEMU_BIN))
 QEMU_MEMORY ?= 8192
 PRECOMPILED_TESTS_DIR ?=
@@ -50,10 +52,6 @@ $(TEST_OUTPUT):
 	mkdir -p $(TEST_OUTPUT)
 
 $(ROOT_IMG): Dockerfile
-	# Build the Docker image and create a tarball. Test args (TARGET_TEST,
-	# TEST_PATTERN, RUN_NUMBER) are no longer baked here; they get written to
-	# testoutput/test-env at launchvm time, letting the qcow2 be cached
-	# across kernel/test matrix entries.
 	DOCKER_BUILDKIT=1 docker build --quiet -f Dockerfile \
 		--output "type=tar,dest=$(TARBALL)" .
 	# Create a raw image, format it, and extract the tarball
