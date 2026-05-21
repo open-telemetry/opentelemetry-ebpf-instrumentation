@@ -665,11 +665,7 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 			}
 			if _, ok := optionalAttrs[attr.GenAIOutput]; ok {
 				if ai.OperationName != request.EmbeddingOperationName {
-					if len(ai.Choices) > 0 {
-						attrs = append(attrs, semconv.GenAIOutputMessagesKey.String(string(ai.Choices)))
-					} else {
-						attrs = append(attrs, semconv.GenAIOutputMessagesKey.String(ai.GetOutput()))
-					}
+					attrs = append(attrs, semconv.GenAIOutputMessagesKey.String(ai.GetOutput()))
 				}
 			}
 			if _, ok := optionalAttrs[attr.GenAIInstructions]; ok {
