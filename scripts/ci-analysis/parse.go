@@ -25,17 +25,19 @@ type TestEvent struct {
 }
 
 // TestResult is the parsed outcome for a single test in a single run.
+// JSON tags define the on-disk snapshot schema consumed by the weekly
+// rollup (see snapshot.go); changing them is a breaking change.
 type TestResult struct {
-	RunID    string
-	Workflow string
+	RunID    string `json:"run_id"`
+	Workflow string `json:"workflow"`
 	// Package is part of the test identity: unit-test shards run multiple Go
 	// packages in one gotestsum file, so two TestFoo entries in different
 	// packages must not be merged. Do not remove.
-	Package          string
-	Test             string
-	Outcome          string
-	ErrorFingerprint string
-	ErrorSnippet     string
+	Package          string `json:"package"`
+	Test             string `json:"test"`
+	Outcome          string `json:"outcome"`
+	ErrorFingerprint string `json:"error_fingerprint,omitempty"`
+	ErrorSnippet     string `json:"error_snippet,omitempty"`
 }
 
 // RunMeta contains metadata for each run being parsed.

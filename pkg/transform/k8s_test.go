@@ -407,11 +407,11 @@ func TestDecorationProcessEvents(t *testing.T) {
 	autoNameSvc.SetAutoName()
 
 	t.Run("complete pod info should set deployment as name", func(t *testing.T) {
-		inputQueue.Send(exec.ProcessEvent{File: &exec.FileInfo{Pid: 12, Ns: 1012, Service: autoNameSvc}, Type: exec.ProcessEventCreated})
+		inputQueue.Send(exec.ProcessEvent{File: exec.New(exec.Init{Pid: 12, Ns: 1012, Service: autoNameSvc}), Type: exec.ProcessEventCreated})
 		deco := testutil.ReadChannel(t, outputCh, timeout)
-		assert.Equal(t, "the-ns", deco.File.Service.UID.Namespace)
-		assert.Equal(t, "deployment-12", deco.File.Service.UID.Name)
-		assert.Equal(t, "the-ns.pod-12.a-container", deco.File.Service.UID.Instance)
+		assert.Equal(t, "the-ns", deco.File.ServiceAttrs().UID.Namespace)
+		assert.Equal(t, "deployment-12", deco.File.ServiceAttrs().UID.Name)
+		assert.Equal(t, "the-ns.pod-12.a-container", deco.File.ServiceAttrs().UID.Instance)
 		assert.Equal(t, map[attr.Name]string{
 			"k8s.node.name":       "the-node",
 			"k8s.namespace.name":  "the-ns",
@@ -423,16 +423,16 @@ func TestDecorationProcessEvents(t *testing.T) {
 			"k8s.pod.start_time":  "2020-01-02 12:12:56",
 			"k8s.cluster.name":    "the-cluster",
 			"k8s.kind":            "Deployment",
-		}, deco.File.Service.Metadata)
+		}, deco.File.ServiceAttrs().Metadata)
 	})
 
 	// When we send 34 we first get naked PID info, the kubernetes metadata was delayed
-	inputQueue.Send(exec.ProcessEvent{File: &exec.FileInfo{Pid: 34, Ns: 1034, Service: autoNameSvc}, Type: exec.ProcessEventCreated})
+	inputQueue.Send(exec.ProcessEvent{File: exec.New(exec.Init{Pid: 34, Ns: 1034, Service: autoNameSvc}), Type: exec.ProcessEventCreated})
 	deco := testutil.ReadChannel(t, outputCh, timeout)
-	assert.Empty(t, deco.File.Service.UID.Namespace)
-	assert.Empty(t, deco.File.Service.UID.Name)
-	assert.Empty(t, deco.File.Service.UID.Instance)
-	assert.Empty(t, deco.File.Service.Metadata)
+	assert.Empty(t, deco.File.ServiceAttrs().UID.Namespace)
+	assert.Empty(t, deco.File.ServiceAttrs().UID.Name)
+	assert.Empty(t, deco.File.ServiceAttrs().UID.Instance)
+	assert.Empty(t, deco.File.ServiceAttrs().Metadata)
 
 	// we now notify on new informer
 	inf.Notify(&informer.Event{Type: informer.EventType_CREATED, Resource: &informer.ObjectMeta{
@@ -448,11 +448,11 @@ func TestDecorationProcessEvents(t *testing.T) {
 
 	// After we got new information, there's no need to send the event again, it's
 	// automatically going to generate a process event with the updated info
-	// inputQueue.Send(exec.ProcessEvent{File: &exec.FileInfo{Pid: 34, Ns: 1034, Service: autoNameSvc}, Type: exec.ProcessEventCreated})
+	// inputQueue.Send(exec.ProcessEvent{File: exec.New(exec.Init{Pid: 34, Ns: 1034, Service: autoNameSvc}), Type: exec.ProcessEventCreated})
 	deco = testutil.ReadChannel(t, outputCh, timeout)
-	assert.Equal(t, "the-ns", deco.File.Service.UID.Namespace)
-	assert.Equal(t, "rs", deco.File.Service.UID.Name)
-	assert.Equal(t, "the-ns.pod-34.a-container", deco.File.Service.UID.Instance)
+	assert.Equal(t, "the-ns", deco.File.ServiceAttrs().UID.Namespace)
+	assert.Equal(t, "rs", deco.File.ServiceAttrs().UID.Name)
+	assert.Equal(t, "the-ns.pod-34.a-container", deco.File.ServiceAttrs().UID.Instance)
 	assert.Equal(t, map[attr.Name]string{
 		"k8s.node.name":       "the-node",
 		"k8s.namespace.name":  "the-ns",
@@ -464,38 +464,38 @@ func TestDecorationProcessEvents(t *testing.T) {
 		"k8s.pod.start_time":  "2020-01-02 12:34:56",
 		"k8s.cluster.name":    "the-cluster",
 		"k8s.kind":            "ReplicaSet",
-	}, deco.File.Service.Metadata)
+	}, deco.File.ServiceAttrs().Metadata)
 
 	// Now let's send the rest of the PIDs. We'll send all and remove half
 	// 56, 78, 83, 66
 	// They all have the same namespace -- they are in the same container
-	inputQueue.Send(exec.ProcessEvent{File: &exec.FileInfo{Pid: 56, Ns: 1056, Service: autoNameSvc}, Type: exec.ProcessEventCreated})
-	inputQueue.Send(exec.ProcessEvent{File: &exec.FileInfo{Pid: 78, Ns: 1056, Service: autoNameSvc}, Type: exec.ProcessEventCreated})
-	inputQueue.Send(exec.ProcessEvent{File: &exec.FileInfo{Pid: 83, Ns: 1056, Service: autoNameSvc}, Type: exec.ProcessEventCreated})
-	inputQueue.Send(exec.ProcessEvent{File: &exec.FileInfo{Pid: 66, Ns: 1056, Service: autoNameSvc}, Type: exec.ProcessEventCreated})
+	inputQueue.Send(exec.ProcessEvent{File: exec.New(exec.Init{Pid: 56, Ns: 1056, Service: autoNameSvc}), Type: exec.ProcessEventCreated})
+	inputQueue.Send(exec.ProcessEvent{File: exec.New(exec.Init{Pid: 78, Ns: 1056, Service: autoNameSvc}), Type: exec.ProcessEventCreated})
+	inputQueue.Send(exec.ProcessEvent{File: exec.New(exec.Init{Pid: 83, Ns: 1056, Service: autoNameSvc}), Type: exec.ProcessEventCreated})
+	inputQueue.Send(exec.ProcessEvent{File: exec.New(exec.Init{Pid: 66, Ns: 1056, Service: autoNameSvc}), Type: exec.ProcessEventCreated})
 
 	// remove two
-	inputQueue.Send(exec.ProcessEvent{File: &exec.FileInfo{Pid: 56, Ns: 1056, Service: autoNameSvc}, Type: exec.ProcessEventTerminated})
-	inputQueue.Send(exec.ProcessEvent{File: &exec.FileInfo{Pid: 78, Ns: 1056, Service: autoNameSvc}, Type: exec.ProcessEventTerminated})
+	inputQueue.Send(exec.ProcessEvent{File: exec.New(exec.Init{Pid: 56, Ns: 1056, Service: autoNameSvc}), Type: exec.ProcessEventTerminated})
+	inputQueue.Send(exec.ProcessEvent{File: exec.New(exec.Init{Pid: 78, Ns: 1056, Service: autoNameSvc}), Type: exec.ProcessEventTerminated})
 
 	// this produces 6 events exactly
 	// all without metadata
 	for range 4 {
 		deco := testutil.ReadChannel(t, outputCh, timeout)
 		assert.Equal(t, exec.ProcessEventCreated, deco.Type)
-		assert.Empty(t, deco.File.Service.UID.Namespace)
-		assert.Empty(t, deco.File.Service.UID.Name)
-		assert.Empty(t, deco.File.Service.UID.Instance)
-		assert.Empty(t, deco.File.Service.Metadata)
+		assert.Empty(t, deco.File.ServiceAttrs().UID.Namespace)
+		assert.Empty(t, deco.File.ServiceAttrs().UID.Name)
+		assert.Empty(t, deco.File.ServiceAttrs().UID.Instance)
+		assert.Empty(t, deco.File.ServiceAttrs().Metadata)
 	}
 
 	for range 2 {
 		deco := testutil.ReadChannel(t, outputCh, timeout)
 		assert.Equal(t, exec.ProcessEventTerminated, deco.Type)
-		assert.Empty(t, deco.File.Service.UID.Namespace)
-		assert.Empty(t, deco.File.Service.UID.Name)
-		assert.Empty(t, deco.File.Service.UID.Instance)
-		assert.Empty(t, deco.File.Service.Metadata)
+		assert.Empty(t, deco.File.ServiceAttrs().UID.Namespace)
+		assert.Empty(t, deco.File.ServiceAttrs().UID.Name)
+		assert.Empty(t, deco.File.ServiceAttrs().UID.Instance)
+		assert.Empty(t, deco.File.ServiceAttrs().Metadata)
 	}
 
 	// Now we'll receive pod information for 56, this is the container where all the pids are
@@ -529,10 +529,10 @@ func TestDecorationProcessEvents(t *testing.T) {
 
 	seenPids := map[app.PID]struct{}{}
 	for _, deco := range []exec.ProcessEvent{testutil.ReadChannel(t, outputCh, timeout), testutil.ReadChannel(t, outputCh, timeout)} {
-		seenPids[deco.File.Pid] = struct{}{}
-		assert.Equal(t, "the-ns", deco.File.Service.UID.Namespace)
-		assert.Equal(t, "the-pod", deco.File.Service.UID.Name)
-		assert.Equal(t, "the-ns.the-pod.a-container", deco.File.Service.UID.Instance)
+		seenPids[deco.File.Pid()] = struct{}{}
+		assert.Equal(t, "the-ns", deco.File.ServiceAttrs().UID.Namespace)
+		assert.Equal(t, "the-pod", deco.File.ServiceAttrs().UID.Name)
+		assert.Equal(t, "the-ns.the-pod.a-container", deco.File.ServiceAttrs().UID.Instance)
 		assert.Equal(t, map[attr.Name]string{
 			"k8s.node.name":      "the-node",
 			"k8s.namespace.name": "the-ns",
@@ -541,11 +541,11 @@ func TestDecorationProcessEvents(t *testing.T) {
 			"k8s.pod.uid":        "uid-56",
 			"k8s.pod.start_time": "2020-01-02 12:56:56",
 			"k8s.cluster.name":   "the-cluster",
-		}, deco.File.Service.Metadata)
+		}, deco.File.ServiceAttrs().Metadata)
 
-		assert.Equal(t, "the-ns", deco.File.Service.UID.Namespace)
-		assert.Equal(t, "the-pod", deco.File.Service.UID.Name)
-		assert.Equal(t, "the-ns.the-pod.a-container", deco.File.Service.UID.Instance)
+		assert.Equal(t, "the-ns", deco.File.ServiceAttrs().UID.Namespace)
+		assert.Equal(t, "the-pod", deco.File.ServiceAttrs().UID.Name)
+		assert.Equal(t, "the-ns.the-pod.a-container", deco.File.ServiceAttrs().UID.Instance)
 		assert.Equal(t, map[attr.Name]string{
 			"k8s.node.name":      "the-node",
 			"k8s.namespace.name": "the-ns",
@@ -554,7 +554,7 @@ func TestDecorationProcessEvents(t *testing.T) {
 			"k8s.pod.uid":        "uid-56",
 			"k8s.pod.start_time": "2020-01-02 12:56:56",
 			"k8s.cluster.name":   "the-cluster",
-		}, deco.File.Service.Metadata)
+		}, deco.File.ServiceAttrs().Metadata)
 	}
 
 	assert.Len(t, seenPids, 2)

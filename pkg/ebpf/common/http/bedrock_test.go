@@ -100,7 +100,7 @@ func TestBedrockSpan_Claude(t *testing.T) {
 	assert.Equal(t, "end_turn", ai.Output.StopReason)
 	assert.NotEmpty(t, ai.GetInput())
 	assert.NotEmpty(t, ai.GetOutput())
-	assert.Equal(t, "You are a helpful assistant.", ai.GetSystemInstruction())
+	assert.JSONEq(t, `[{"type":"text","content":"You are a helpful assistant."}]`, ai.GetSystemInstruction())
 	assert.Equal(t, "end_turn", ai.GetStopReason())
 }
 
@@ -124,8 +124,8 @@ func TestBedrockSpan_Titan(t *testing.T) {
 	assert.Equal(t, "amazon.titan-text-premier-v1:0", ai.Model)
 	assert.Equal(t, 8, ai.Output.InputTokens)
 	assert.Equal(t, 6, ai.Output.OutputTokens)
-	assert.Equal(t, "Explain eBPF briefly.", ai.GetInput())
-	assert.Equal(t, "eBPF is a kernel technology.", ai.GetOutput())
+	assert.JSONEq(t, `[{"role":"user","parts":[{"type":"text","content":"Explain eBPF briefly."}]}]`, ai.GetInput())
+	assert.JSONEq(t, `[{"role":"assistant","parts":[{"type":"text","content":"eBPF is a kernel technology."}],"finish_reason":"FINISH"}]`, ai.GetOutput())
 }
 
 func TestBedrockSpan_Llama(t *testing.T) {
@@ -148,8 +148,8 @@ func TestBedrockSpan_Llama(t *testing.T) {
 	assert.Equal(t, "meta.llama3-1-70b-instruct-v1:0", ai.Model)
 	assert.Equal(t, 10, ai.Output.InputTokens)
 	assert.Equal(t, 8, ai.Output.OutputTokens)
-	assert.Equal(t, "Explain eBPF briefly.", ai.GetInput())
-	assert.Equal(t, "eBPF enables safe kernel-level programs.", ai.GetOutput())
+	assert.JSONEq(t, `[{"role":"user","parts":[{"type":"text","content":"Explain eBPF briefly."}]}]`, ai.GetInput())
+	assert.JSONEq(t, `[{"role":"assistant","parts":[{"type":"text","content":"eBPF enables safe kernel-level programs."}],"finish_reason":"stop"}]`, ai.GetOutput())
 }
 
 func TestBedrockSpan_ErrorResponse(t *testing.T) {
@@ -244,4 +244,67 @@ func TestExtractBedrockModel(t *testing.T) {
 			assert.Equal(t, tt.want, extractBedrockModel(req))
 		})
 	}
+}
+
+func TestExtractBedrockGuardrailID(t *testing.T) {
+	tests := []struct {
+		name       string
+		reqURL     string
+		respHeader http.Header
+		want       string
+	}{
+		{
+			name:   "header present",
+			reqURL: "https://bedrock-runtime.us-east-1.amazonaws.com/model/claude/invoke",
+			respHeader: http.Header{
+				"X-Amzn-Bedrock-Guardrail-Id": []string{"gr-abc123"},
+			},
+			want: "gr-abc123",
+		},
+		{
+			name:       "guardrail in path with trailing segment",
+			reqURL:     "https://bedrock-runtime.us-east-1.amazonaws.com/guardrail/gr-xyz789/version/1/apply",
+			respHeader: http.Header{},
+			want:       "gr-xyz789",
+		},
+		{
+			name:       "guardrail in path without trailing slash",
+			reqURL:     "https://bedrock-runtime.us-east-1.amazonaws.com/guardrail/gr-only",
+			respHeader: http.Header{},
+			want:       "gr-only",
+		},
+		{
+			name:       "no guardrail in path or header",
+			reqURL:     "https://bedrock-runtime.us-east-1.amazonaws.com/model/claude/invoke",
+			respHeader: http.Header{},
+			want:       "",
+		},
+		{
+			name:   "header takes priority over path",
+			reqURL: "https://bedrock-runtime.us-east-1.amazonaws.com/guardrail/gr-from-path/version/1",
+			respHeader: http.Header{
+				"X-Amzn-Bedrock-Guardrail-Id": []string{"gr-from-header"},
+			},
+			want: "gr-from-header",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := makeRequest(t, http.MethodPost, tt.reqURL, "{}")
+			resp := &http.Response{Header: tt.respHeader}
+			assert.Equal(t, tt.want, extractBedrockGuardrailID(req, resp))
+		})
+	}
+}
+
+func TestExtractBedrockGuardrailID_NilRequest(t *testing.T) {
+	resp := &http.Response{Header: http.Header{}}
+	assert.Empty(t, extractBedrockGuardrailID(nil, resp))
+}
+
+func TestExtractBedrockGuardrailID_NilRequestURL(t *testing.T) {
+	req := &http.Request{}
+	resp := &http.Response{Header: http.Header{}}
+	assert.Empty(t, extractBedrockGuardrailID(req, resp))
 }

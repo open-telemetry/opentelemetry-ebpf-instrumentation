@@ -11,6 +11,7 @@
 #   GITHUB_REPOSITORY - owner/repo string (auto-set by GitHub Actions)
 #   LOOKBACK_DAYS     - Number of days to look back (default: 5, max limited by artifact retention)
 #   SCRIPT_DIR        - Override for the directory containing this script
+#   SNAPSHOT_OUT      - Optional path to write a JSON snapshot for the weekly rollup
 
 set -euo pipefail
 
@@ -141,8 +142,13 @@ done
 echo "]" >> "$META_FILE"
 
 echo "Generating report..." >&2
-go run "${SCRIPT_DIR}/" \
+SNAPSHOT_ARGS=()
+if [ -n "${SNAPSHOT_OUT:-}" ]; then
+  SNAPSHOT_ARGS=(--snapshot-out="$SNAPSHOT_OUT")
+fi
+go run "${SCRIPT_DIR}/" daily \
   --reports-dir="$REPORTS_DIR" \
   --logs-dir="$LOGS_DIR" \
   --meta="$META_FILE" \
-  --repo="$GITHUB_REPOSITORY"
+  --repo="$GITHUB_REPOSITORY" \
+  "${SNAPSHOT_ARGS[@]}"

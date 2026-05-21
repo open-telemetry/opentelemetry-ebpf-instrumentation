@@ -27,7 +27,6 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
-	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/ringbuf"
@@ -53,8 +52,8 @@ type Tracer struct {
 	log         *slog.Logger
 	fdCache     *expirable.LRU[string, *os.File]
 	asyncWriter *shardedqueue.ShardedQueue[LogEvent]
-	pids        map[uint64][]uint64   // pid:[]nsPids
-	pidServices map[uint32]*svc.Attrs // host pid -> service attrs, for run-time OTel-export check in handle()
+	pids        map[uint64][]uint64       // pid:[]nsPids
+	pidServices map[uint32]*exec.FileInfo // host pid -> file info, for run-time OTel-export check in handle()
 	pidsMU      sync.Mutex
 }
 
@@ -73,7 +72,7 @@ func New(cfg *obi.Config) *Tracer {
 			f.Close()
 		}, cfg.EBPF.LogEnricher.CacheTTL),
 		pids:        make(map[uint64][]uint64),
-		pidServices: make(map[uint32]*svc.Attrs),
+		pidServices: make(map[uint32]*exec.FileInfo),
 	}
 
 	asyncWriter := shardedqueue.NewShardedQueue[LogEvent](
@@ -262,12 +261,12 @@ func (p *Tracer) removePID(key uint64) error {
 	return nil
 }
 
-func (p *Tracer) AllowPID(pid app.PID, ns uint32, svcAttrs *svc.Attrs) {
+func (p *Tracer) AllowPID(pid app.PID, ns uint32, fi *exec.FileInfo) {
 	p.pidsMU.Lock()
 	defer p.pidsMU.Unlock()
 
-	if svcAttrs != nil {
-		p.pidServices[uint32(pid)] = svcAttrs
+	if fi != nil {
+		p.pidServices[uint32(pid)] = fi
 	}
 
 	pk := p.pidKey(ns, uint32(pid))

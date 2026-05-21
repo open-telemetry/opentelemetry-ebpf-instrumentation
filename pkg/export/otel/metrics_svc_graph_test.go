@@ -49,11 +49,11 @@ func TestServiceGraphMetrics(t *testing.T) {
 
 	processEvents.Send(exec.ProcessEvent{
 		Type: exec.ProcessEventCreated,
-		File: &exec.FileInfo{Service: clientID, Pid: clientID.ProcPID},
+		File: exec.New(exec.Init{Service: clientID, Pid: clientID.ProcPID}),
 	})
 	processEvents.Send(exec.ProcessEvent{
 		Type: exec.ProcessEventCreated,
-		File: &exec.FileInfo{Service: serverID, Pid: serverID.ProcPID},
+		File: exec.New(exec.Init{Service: serverID, Pid: serverID.ProcPID}),
 	})
 
 	metrics.Send([]request.Span{
@@ -102,7 +102,7 @@ func TestServiceGraphConnectionType(t *testing.T) {
 
 	processEvents.Send(exec.ProcessEvent{
 		Type: exec.ProcessEventCreated,
-		File: &exec.FileInfo{Service: clientID, Pid: clientID.ProcPID},
+		File: exec.New(exec.Init{Service: clientID, Pid: clientID.ProcPID}),
 	})
 
 	// Send database client spans

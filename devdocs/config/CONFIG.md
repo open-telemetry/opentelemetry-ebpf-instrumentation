@@ -14,6 +14,7 @@ Generated from [`config-schema.json`](config-schema.json).
 - [`discovery`](#discovery)
 - [`ebpf`](#ebpf)
 - [`filter`](#filter)
+- [`health_check`](#health-check)
 - [`internal_metrics`](#internal-metrics)
 - [`javaagent`](#javaagent)
 - [`metrics`](#metrics)
@@ -331,6 +332,12 @@ AttributesConfig stores the user-provided section for filtering either Applicati
 | `filter.application` | `map[string]object` |  |  |  |  | AttributeFamilyConfig maps, for a given record, each attribute with its MatchDefinition |
 | `filter.network` | `map[string]object` |  |  |  |  | AttributeFamilyConfig maps, for a given record, each attribute with its MatchDefinition |
 | `filter.stats` | `map[string]object` |  |  |  |  | AttributeFamilyConfig maps, for a given record, each attribute with its MatchDefinition |
+
+## `health_check`
+
+| YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
+|---|---|---|---|---|---|---|
+| `health_check.port` | `integer` | `OTEL_EBPF_HEALTH_CHECK_PORT` | `0` |  |  |  |
 
 ## `internal_metrics`
 

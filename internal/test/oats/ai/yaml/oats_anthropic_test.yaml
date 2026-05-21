@@ -14,7 +14,7 @@ expected:
     equals: message claude-sonnet-4-6
     attributes:
       gen_ai.operation.name: message
-      gen_ai.system_instructions: You are a helpful assistant that always responds in haiku format.
+      gen_ai.system_instructions: '[{"type":"text","content":"You are a helpful assistant that always responds in haiku format."}]'
       gen_ai.response.model: claude-sonnet-4-6
   # Error returned by Anthropic
   - traceql: '{ .error.type = "authentication_error" && .gen_ai.request.model = "claude-sonnet-4-6"}'

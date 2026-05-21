@@ -4,6 +4,7 @@
 package request
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -527,6 +528,298 @@ func TestSpanOTELGetters_MessagingAttributes_NATS(t *testing.T) {
 
 	span.Method = MessagingProcess
 	assert.Equal(t, MessagingProcess, opTypeGetter(span).Value.AsString())
+}
+
+func TestSpanOTELGetters_GenAIInput(t *testing.T) {
+	tests := []struct {
+		name     string
+		span     *Span
+		expected string
+	}{
+		{
+			name: "openai",
+			span: &Span{
+				Type:    EventTypeHTTPClient,
+				SubType: HTTPSubtypeOpenAI,
+				GenAI: &GenAI{OpenAI: &VendorOpenAI{Request: OpenAIInput{
+					Messages: json.RawMessage(`[{"role":"user","content":"hi"}]`),
+				}}},
+			},
+			expected: `[{"role":"user","parts":[{"type":"text","content":"hi"}]}]`,
+		},
+		{
+			name: "anthropic",
+			span: &Span{
+				Type:    EventTypeHTTPClient,
+				SubType: HTTPSubtypeAnthropic,
+				GenAI: &GenAI{Anthropic: &VendorAnthropic{Input: AnthropicRequest{
+					Messages: json.RawMessage(`[{"role":"user","content":"hello"}]`),
+				}}},
+			},
+			expected: `[{"role":"user","parts":[{"type":"text","content":"hello"}]}]`,
+		},
+		{
+			name: "qwen",
+			span: &Span{
+				Type:    EventTypeHTTPClient,
+				SubType: HTTPSubtypeQwen,
+				GenAI: &GenAI{Qwen: &VendorOpenAI{Request: OpenAIInput{
+					Messages: json.RawMessage(`[{"role":"user","content":"hey"}]`),
+				}}},
+			},
+			expected: `[{"role":"user","parts":[{"type":"text","content":"hey"}]}]`,
+		},
+		{
+			name: "bedrock",
+			span: &Span{
+				Type:    EventTypeHTTPClient,
+				SubType: HTTPSubtypeAWSBedrock,
+				GenAI: &GenAI{Bedrock: &VendorBedrock{Input: BedrockRequest{
+					Messages: json.RawMessage(`[{"role":"user","content":"howdy"}]`),
+				}}},
+			},
+			expected: `[{"role":"user","parts":[{"type":"text","content":"howdy"}]}]`,
+		},
+		{
+			name:     "no genai",
+			span:     &Span{Type: EventTypeHTTPClient, SubType: HTTPSubtypeOpenAI},
+			expected: "",
+		},
+	}
+
+	getter, ok := spanOTELGetters(attr.GenAIInput)
+	require.True(t, ok)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, getter(tt.span).Value.AsString())
+		})
+	}
+}
+
+func TestSpanOTELGetters_GenAIOutput(t *testing.T) {
+	tests := []struct {
+		name     string
+		span     *Span
+		expected string
+	}{
+		{
+			name: "anthropic",
+			span: &Span{
+				Type:    EventTypeHTTPClient,
+				SubType: HTTPSubtypeAnthropic,
+				GenAI: &GenAI{Anthropic: &VendorAnthropic{Output: AnthropicResponse{
+					Role:       "assistant",
+					Content:    json.RawMessage(`[{"type":"text","text":"hello"}]`),
+					StopReason: "end_turn",
+				}}},
+			},
+			expected: `[{"role":"assistant","parts":[{"type":"text","content":"hello"}],"finish_reason":"end_turn"}]`,
+		},
+		{
+			name: "bedrock anthropic format",
+			span: &Span{
+				Type:    EventTypeHTTPClient,
+				SubType: HTTPSubtypeAWSBedrock,
+				GenAI: &GenAI{Bedrock: &VendorBedrock{Output: BedrockResponse{
+					Content:    json.RawMessage(`[{"type":"text","text":"hi from bedrock"}]`),
+					StopReason: "end_turn",
+				}}},
+			},
+			expected: `[{"role":"assistant","parts":[{"type":"text","content":"hi from bedrock"}],"finish_reason":"end_turn"}]`,
+		},
+		{
+			name: "bedrock llama format",
+			span: &Span{
+				Type:    EventTypeHTTPClient,
+				SubType: HTTPSubtypeAWSBedrock,
+				GenAI: &GenAI{Bedrock: &VendorBedrock{Output: BedrockResponse{
+					Generation: "llama says hi",
+					StopReason: "stop",
+				}}},
+			},
+			expected: `[{"role":"assistant","parts":[{"type":"text","content":"llama says hi"}],"finish_reason":"stop"}]`,
+		},
+		{
+			name:     "no genai",
+			span:     &Span{Type: EventTypeHTTPClient, SubType: HTTPSubtypeAnthropic},
+			expected: "",
+		},
+		{
+			// gen_ai.output.messages must be suppressed for embeddings to
+			// stay aligned with the tracesgen path.
+			name: "openai embeddings suppressed",
+			span: &Span{
+				Type:    EventTypeHTTPClient,
+				SubType: HTTPSubtypeOpenAI,
+				GenAI: &GenAI{OpenAI: &VendorOpenAI{
+					OperationName: EmbeddingOperationName,
+					Data:          json.RawMessage(`[{"object":"embedding","embedding":[0.1,0.2]}]`),
+				}},
+			},
+			expected: "",
+		},
+		{
+			name: "qwen embeddings suppressed",
+			span: &Span{
+				Type:    EventTypeHTTPClient,
+				SubType: HTTPSubtypeQwen,
+				GenAI: &GenAI{Qwen: &VendorOpenAI{
+					OperationName: EmbeddingOperationName,
+					Data:          json.RawMessage(`[{"object":"embedding","embedding":[0.1]}]`),
+				}},
+			},
+			expected: "",
+		},
+	}
+
+	getter, ok := spanOTELGetters(attr.GenAIOutput)
+	require.True(t, ok)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, getter(tt.span).Value.AsString())
+		})
+	}
+}
+
+func TestSpanOTELGetters_GenAIInstructions(t *testing.T) {
+	tests := []struct {
+		name     string
+		span     *Span
+		expected string
+	}{
+		{
+			name: "openai",
+			span: &Span{
+				Type:    EventTypeHTTPClient,
+				SubType: HTTPSubtypeOpenAI,
+				GenAI: &GenAI{OpenAI: &VendorOpenAI{Request: OpenAIInput{
+					Instructions: "be concise",
+				}}},
+			},
+			expected: `[{"type":"text","content":"be concise"}]`,
+		},
+		{
+			name: "anthropic",
+			span: &Span{
+				Type:    EventTypeHTTPClient,
+				SubType: HTTPSubtypeAnthropic,
+				GenAI: &GenAI{Anthropic: &VendorAnthropic{Input: AnthropicRequest{
+					System: "you are helpful",
+				}}},
+			},
+			expected: `[{"type":"text","content":"you are helpful"}]`,
+		},
+		{
+			name: "qwen",
+			span: &Span{
+				Type:    EventTypeHTTPClient,
+				SubType: HTTPSubtypeQwen,
+				GenAI: &GenAI{Qwen: &VendorOpenAI{Request: OpenAIInput{
+					Instructions: "respond in english",
+				}}},
+			},
+			expected: `[{"type":"text","content":"respond in english"}]`,
+		},
+		{
+			name: "openai empty instructions",
+			span: &Span{
+				Type:    EventTypeHTTPClient,
+				SubType: HTTPSubtypeOpenAI,
+				GenAI:   &GenAI{OpenAI: &VendorOpenAI{}},
+			},
+			expected: "",
+		},
+	}
+
+	getter, ok := spanOTELGetters(attr.GenAIInstructions)
+	require.True(t, ok)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, getter(tt.span).Value.AsString())
+		})
+	}
+}
+
+func TestSpanOTELGetters_GenAITools(t *testing.T) {
+	openAITools := json.RawMessage(`[{"type":"function","function":{"name":"get_weather","description":"get weather","parameters":{"type":"object"}}}]`)
+	anthropicTools := json.RawMessage(`[{"name":"get_weather","description":"get weather","input_schema":{"type":"object"}}]`)
+	geminiTools := json.RawMessage(`[{"functionDeclarations":[{"name":"get_weather","description":"get weather","parameters":{"type":"object"}}]}]`)
+	expectedNormalized := `[{"type":"function","name":"get_weather","description":"get weather","parameters":{"type":"object"}}]`
+
+	tests := []struct {
+		name     string
+		span     *Span
+		expected string
+	}{
+		{
+			name: "openai",
+			span: &Span{
+				Type:    EventTypeHTTPClient,
+				SubType: HTTPSubtypeOpenAI,
+				GenAI: &GenAI{OpenAI: &VendorOpenAI{Request: OpenAIInput{
+					Tools: openAITools,
+				}}},
+			},
+			expected: expectedNormalized,
+		},
+		{
+			name: "anthropic",
+			span: &Span{
+				Type:    EventTypeHTTPClient,
+				SubType: HTTPSubtypeAnthropic,
+				GenAI: &GenAI{Anthropic: &VendorAnthropic{Input: AnthropicRequest{
+					Tools: anthropicTools,
+				}}},
+			},
+			expected: expectedNormalized,
+		},
+		{
+			name: "gemini",
+			span: &Span{
+				Type:    EventTypeHTTPClient,
+				SubType: HTTPSubtypeGemini,
+				GenAI: &GenAI{Gemini: &VendorGemini{Input: GeminiRequest{
+					Tools: geminiTools,
+				}}},
+			},
+			expected: expectedNormalized,
+		},
+		{
+			name: "qwen",
+			span: &Span{
+				Type:    EventTypeHTTPClient,
+				SubType: HTTPSubtypeQwen,
+				GenAI: &GenAI{Qwen: &VendorOpenAI{Request: OpenAIInput{
+					Tools: openAITools,
+				}}},
+			},
+			expected: expectedNormalized,
+		},
+		{
+			name: "bedrock",
+			span: &Span{
+				Type:    EventTypeHTTPClient,
+				SubType: HTTPSubtypeAWSBedrock,
+				GenAI: &GenAI{Bedrock: &VendorBedrock{Input: BedrockRequest{
+					Tools: anthropicTools,
+				}}},
+			},
+			expected: expectedNormalized,
+		},
+		{
+			name:     "no genai",
+			span:     &Span{Type: EventTypeHTTPClient, SubType: HTTPSubtypeAnthropic},
+			expected: "",
+		},
+	}
+
+	getter, ok := spanOTELGetters(attr.GenAITools)
+	require.True(t, ok)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, getter(tt.span).Value.AsString())
+		})
+	}
 }
 
 func TestSpanOTELGetters_Instance(t *testing.T) {

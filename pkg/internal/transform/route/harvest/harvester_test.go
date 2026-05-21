@@ -66,12 +66,12 @@ func emptyResultExtractRoutes(app.PID) (*RouteHarvesterResult, error) {
 }
 
 func createTestFileInfo(language svc.InstrumentableType) *exec.FileInfo {
-	return &exec.FileInfo{
+	return exec.New(exec.Init{
 		Pid: 12345,
 		Service: svc.Attrs{
 			SDKLanguage: language,
 		},
-	}
+	})
 }
 
 func TestHarvestRoutes_Successful(t *testing.T) {

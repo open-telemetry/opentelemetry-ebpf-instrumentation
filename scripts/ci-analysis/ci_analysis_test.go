@@ -123,7 +123,7 @@ func TestWriteReport(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	err := writeReport(&buf, results, metaMap, "test/repo")
+	err := writeReport(&buf, "CI Test Analysis Report", results, metaMap, "test/repo")
 	require.NoError(t, err)
 
 	report := buf.String()
@@ -421,7 +421,7 @@ func TestWriteReport_RendersPackageQualifiedNames(t *testing.T) {
 		"1": {RunID: "1", Workflow: "Wf", Conclusion: "failure"},
 	}
 	var buf bytes.Buffer
-	require.NoError(t, writeReport(&buf, results, metaMap, "test/repo"))
+	require.NoError(t, writeReport(&buf, "CI Test Analysis Report", results, metaMap, "test/repo"))
 
 	out := buf.String()
 	require.Contains(t, out, "`a.TestNew`", "rows should include the package leaf; got:\n%s", out)
@@ -475,7 +475,7 @@ func TestWriteReport_PassRateMatchesConclusion(t *testing.T) {
 		"2": {RunID: "2", Workflow: "Wf", Conclusion: "success"},
 	}
 	var buf bytes.Buffer
-	require.NoError(t, writeReport(&buf, results, metaMap, "test/repo"))
+	require.NoError(t, writeReport(&buf, "CI Test Analysis Report", results, metaMap, "test/repo"))
 
 	report := buf.String()
 	// Workflow row format: | Wf | 2 | 1 | 1 | 0 | 100% |
@@ -493,7 +493,7 @@ func TestWriteReport_HardFailLowersPassRate(t *testing.T) {
 		"2": {RunID: "2", Workflow: "Wf", Conclusion: "success"},
 	}
 	var buf bytes.Buffer
-	require.NoError(t, writeReport(&buf, results, metaMap, "test/repo"))
+	require.NoError(t, writeReport(&buf, "CI Test Analysis Report", results, metaMap, "test/repo"))
 
 	require.Contains(t, buf.String(), "| Wf | 2 | 1 | 0 | 1 | 50% |")
 }

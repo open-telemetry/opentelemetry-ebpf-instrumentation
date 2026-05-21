@@ -351,6 +351,9 @@ discovery:
 			Enabled: true,
 			Timeout: 10 * time.Second,
 		},
+		HealthCheck: HealthCheckConfig{
+			Port: 0,
+		},
 	}, cfg)
 }
 

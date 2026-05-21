@@ -209,6 +209,7 @@ jobs:
         with:
           app-id: ${{ vars.OTELBOT_APP_ID }}
           private-key: ${{ secrets.OTELBOT_PRIVATE_KEY }}
+          permission-contents: write
 
       - name: Apply patch and push
         env:
