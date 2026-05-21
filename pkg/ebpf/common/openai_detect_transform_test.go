@@ -67,14 +67,24 @@ func TestReadGoOpenAIRequestIntoSpan_InputOutputMessages(t *testing.T) {
 	assert.Equal(t, "user", inputMsgs[0].Role)
 	assert.Equal(t, "Hello, how are you?", inputMsgs[0].Content)
 
-	// Verify output messages (choices)
+	// Verify output messages (choices) carry the OpenAI chat-completions
+	// wire format expected by normalizeOpenAIChoices: an array of
+	// {message: {role, content}, finish_reason} objects.
 	assert.NotNil(t, ai.Choices, "output messages (choices) should be populated")
-	var outputMsgs []genAIMessage
-	err = json.Unmarshal(ai.Choices, &outputMsgs)
-	require.NoError(t, err, "output messages should be valid JSON")
-	require.Len(t, outputMsgs, 1)
-	assert.Equal(t, "assistant", outputMsgs[0].Role)
-	assert.Equal(t, "I am doing well, thank you!", outputMsgs[0].Content)
+	var outputChoices []genAIChoice
+	err = json.Unmarshal(ai.Choices, &outputChoices)
+	require.NoError(t, err, "output choices should be valid JSON")
+	require.Len(t, outputChoices, 1)
+	assert.Equal(t, "assistant", outputChoices[0].Message.Role)
+	assert.Equal(t, "I am doing well, thank you!", outputChoices[0].Message.Content)
+	assert.Equal(t, "stop", outputChoices[0].FinishReason)
+
+	// And it must be consumable by the canonical output normalizer.
+	normalized := ai.GetOutput()
+	assert.JSONEq(t,
+		`[{"role":"assistant","parts":[{"type":"text","content":"I am doing well, thank you!"}],"finish_reason":"stop"}]`,
+		normalized,
+	)
 }
 
 func TestReadGoOpenAIRequestIntoSpan_SystemRole(t *testing.T) {
@@ -159,6 +169,25 @@ func TestMarshalGenAIMessages(t *testing.T) {
 		require.Len(t, msgs, 1)
 		assert.Equal(t, "assistant", msgs[0].Role)
 		assert.Equal(t, "I can help with that.", msgs[0].Content)
+	})
+}
+
+func TestMarshalGenAIChoices(t *testing.T) {
+	t.Run("non-empty content produces openai choices wire format", func(t *testing.T) {
+		result := marshalGenAIChoices("assistant", "Hello!", "stop")
+		require.NotNil(t, result)
+
+		var choices []genAIChoice
+		err := json.Unmarshal(result, &choices)
+		require.NoError(t, err)
+		require.Len(t, choices, 1)
+		assert.Equal(t, "assistant", choices[0].Message.Role)
+		assert.Equal(t, "Hello!", choices[0].Message.Content)
+		assert.Equal(t, "stop", choices[0].FinishReason)
+	})
+
+	t.Run("empty content returns nil", func(t *testing.T) {
+		assert.Nil(t, marshalGenAIChoices("assistant", "", "stop"))
 	})
 }
 

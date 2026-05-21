@@ -73,6 +73,15 @@ type genAIMessage struct {
 	Content string `json:"content"`
 }
 
+// genAIChoice mirrors the OpenAI Chat Completions choice wire format so that
+// downstream normalization (normalizeOpenAIChoices) can extract role,
+// content and finish_reason from VendorOpenAI.Choices.
+type genAIChoice struct {
+	Index        int          `json:"index"`
+	Message      genAIMessage `json:"message"`
+	FinishReason string       `json:"finish_reason,omitempty"`
+}
+
 func openAIRoleString(role uint8) string {
 	switch role {
 	case 1:
@@ -90,11 +99,32 @@ func openAIRoleString(role uint8) string {
 	}
 }
 
+// marshalGenAIMessages serializes a single role/content pair as the flat
+// OpenAI Chat Completions request messages array used by VendorOpenAI's
+// Request.Messages field (consumed by normalizeOpenAIMessages).
 func marshalGenAIMessages(role, content string) json.RawMessage {
 	if content == "" {
 		return nil
 	}
 	data, err := json.Marshal([]genAIMessage{{Role: role, Content: content}})
+	if err != nil {
+		return nil
+	}
+	return json.RawMessage(data)
+}
+
+// marshalGenAIChoices serializes the assistant response as an OpenAI Chat
+// Completions choices array so that normalizeOpenAIChoices can map the
+// message/finish_reason into the semconv output messages schema.
+func marshalGenAIChoices(role, content, finishReason string) json.RawMessage {
+	if content == "" {
+		return nil
+	}
+	data, err := json.Marshal([]genAIChoice{{
+		Index:        0,
+		Message:      genAIMessage{Role: role, Content: content},
+		FinishReason: finishReason,
+	}})
 	if err != nil {
 		return nil
 	}
@@ -119,7 +149,10 @@ func ReadGoOpenAIRequestIntoSpan(record *ringbuf.Record) (request.Span, bool, er
 	outputContent := cstr(event.OutputMessageContent[:])
 
 	inputMessages := marshalGenAIMessages(openAIRoleString(event.InputMessageRole), inputContent)
-	outputChoices := marshalGenAIMessages("assistant", outputContent)
+	// Chat Completion responses always carry the assistant role; the BPF
+	// program does not capture finish_reason, so default to "stop" which is
+	// the only terminal reason emitted for non-streamed completions.
+	outputChoices := marshalGenAIChoices("assistant", outputContent, "stop")
 
 	return request.Span{
 		Type:         request.EventTypeHTTPClient,
