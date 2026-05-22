@@ -23,11 +23,11 @@ func TestFixupSpec(t *testing.T) {
 	makeSpec := func() *ebpf.CollectionSpec {
 		return &ebpf.CollectionSpec{
 			Programs: map[string]*ebpf.ProgramSpec{
-				progObiKprobeTCPCloseSrtt:               {Name: origKpName, Type: ebpf.Kprobe},
-				progObiTpInetSockSetStateTCPFailedConn:  {Name: origTpName, Type: ebpf.TracePoint},
-				progObiTpInetSockSetStateConnRole:       {Name: origConnRoleName, Type: ebpf.TracePoint},
-				progObiKprobeTCPSendmsgBytesTransmit:    {Name: origSendmsgName, Type: ebpf.Kprobe},
-				progObiKprobeTCPCleanupRbufBytesReceive: {Name: origCleanupRbufName, Type: ebpf.Kprobe},
+				progObiKprobeTCPCloseSrtt:              {Name: origKpName, Type: ebpf.Kprobe},
+				progObiTpInetSockSetStateTCPFailedConn: {Name: origTpName, Type: ebpf.TracePoint},
+				progObiTpInetSockSetStateConnRole:      {Name: origConnRoleName, Type: ebpf.TracePoint},
+				progObiKprobeTCPSendmsgIo:              {Name: origSendmsgName, Type: ebpf.Kprobe},
+				progObiKprobeTCPCleanupRbufIo:          {Name: origCleanupRbufName, Type: ebpf.Kprobe},
 			},
 		}
 	}
@@ -75,11 +75,11 @@ func TestFixupSpec(t *testing.T) {
 		},
 		{
 			name:      "disable io programs",
-			toDisable: []string{progObiKprobeTCPSendmsgBytesTransmit, progObiKprobeTCPCleanupRbufBytesReceive},
+			toDisable: []string{progObiKprobeTCPSendmsgIo, progObiKprobeTCPCleanupRbufIo},
 			want: map[string]string{
-				progObiKprobeTCPCloseSrtt:               origKpName,
-				progObiKprobeTCPSendmsgBytesTransmit:    "stats_dummy",
-				progObiKprobeTCPCleanupRbufBytesReceive: "stats_dummy",
+				progObiKprobeTCPCloseSrtt:     origKpName,
+				progObiKprobeTCPSendmsgIo:     "stats_dummy",
+				progObiKprobeTCPCleanupRbufIo: "stats_dummy",
 			},
 		},
 		{
@@ -88,15 +88,15 @@ func TestFixupSpec(t *testing.T) {
 				progObiKprobeTCPCloseSrtt,
 				progObiTpInetSockSetStateTCPFailedConn,
 				progObiTpInetSockSetStateConnRole,
-				progObiKprobeTCPSendmsgBytesTransmit,
-				progObiKprobeTCPCleanupRbufBytesReceive,
+				progObiKprobeTCPSendmsgIo,
+				progObiKprobeTCPCleanupRbufIo,
 			},
 			want: map[string]string{
-				progObiKprobeTCPCloseSrtt:               "stats_dummy",
-				progObiTpInetSockSetStateTCPFailedConn:  "stats_dummy",
-				progObiTpInetSockSetStateConnRole:       "stats_dummy",
-				progObiKprobeTCPSendmsgBytesTransmit:    "stats_dummy",
-				progObiKprobeTCPCleanupRbufBytesReceive: "stats_dummy",
+				progObiKprobeTCPCloseSrtt:              "stats_dummy",
+				progObiTpInetSockSetStateTCPFailedConn: "stats_dummy",
+				progObiTpInetSockSetStateConnRole:      "stats_dummy",
+				progObiKprobeTCPSendmsgIo:              "stats_dummy",
+				progObiKprobeTCPCleanupRbufIo:          "stats_dummy",
 			},
 		},
 	}

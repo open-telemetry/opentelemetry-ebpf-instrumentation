@@ -15,6 +15,7 @@
 #include <statsolly/types.h>
 #include <statsolly/maps/stats_events.h>
 #include <statsolly/maps/sock_role.h>
+#include <statsolly/maps/tcp_sendmsg_sock.h>
 
 enum {
     k_usec_per_sec = 1000000ULL,
@@ -23,7 +24,7 @@ enum {
 
 typedef struct tcp_rtt {
     u8 flags; // Must be first, we use it to tell what kind of event we have on the ring buffer
-    u8 role;
+    enum tcp_handshake_role role;
     u8 _pad[2];
     u32 srtt_us;
     connection_info_t conn;
@@ -31,11 +32,10 @@ typedef struct tcp_rtt {
 
 typedef struct tcp_io {
     u8 flags; // Must be first, we use it to tell what kind of event we have on the ring buffer
-    u8 direction;
-    u8 _pad[6];
-    u64 bytes;
+    enum network_io_direction direction;
+    u8 _pad[2];
+    u32 bytes;
     connection_info_t conn;
-    u8 _final_pad[4];
 } tcp_io_t;
 
 // Force structs into the ELF for automatic creation of Golang struct
@@ -85,12 +85,31 @@ int BPF_KPROBE(obi_kprobe_tcp_close_srtt, struct sock *sk) {
 }
 
 SEC("kprobe/tcp_sendmsg")
-int BPF_KPROBE(obi_kprobe_tcp_sendmsg_bytes_transmit,
-               struct sock *sk,
-               struct msghdr *msg,
-               size_t size) {
+int BPF_KPROBE(obi_kprobe_tcp_sendmsg_io, struct sock *sk, struct msghdr *msg, size_t size) {
     (void)ctx;
     (void)msg;
+    (void)size;
+    const u64 pid_tgid = bpf_get_current_pid_tgid();
+    bpf_map_update_elem(&tcp_sendmsg_sock, &pid_tgid, &sk, BPF_ANY);
+    return 0;
+}
+
+SEC("kretprobe/tcp_sendmsg")
+int BPF_KRETPROBE(obi_kretprobe_tcp_sendmsg_io) {
+    const u64 pid_tgid = bpf_get_current_pid_tgid();
+    struct sock *const *skp = bpf_map_lookup_elem(&tcp_sendmsg_sock, &pid_tgid);
+
+    if (!skp) {
+        return 0;
+    }
+    struct sock *const sk = *skp;
+    bpf_map_delete_elem(&tcp_sendmsg_sock, &pid_tgid);
+
+    const long sent = PT_REGS_RC(ctx);
+    if (sent <= 0) {
+        return 0;
+    }
+
     connection_info_t conn;
     if (!parse_sock_info(sk, &conn)) {
         return 0;
@@ -103,18 +122,15 @@ int BPF_KPROBE(obi_kprobe_tcp_sendmsg_bytes_transmit,
 
     se->flags = k_event_stat_tcp_io;
     se->direction = direction_transmit;
-    // size gives us the bytes submitted to the send path by the application
-    // which may overcount in cases of failure of tcp_sendmsg
-    se->bytes = size;
+    se->bytes = (u32)sent;
     se->conn = conn;
 
     bpf_ringbuf_submit(se, stats_events_flags());
-
     return 0;
 }
 
 SEC("kprobe/tcp_cleanup_rbuf")
-int BPF_KPROBE(obi_kprobe_tcp_cleanup_rbuf_bytes_receive, struct sock *sk, int copied) {
+int BPF_KPROBE(obi_kprobe_tcp_cleanup_rbuf_io, struct sock *sk, int copied) {
     (void)ctx;
 
     if (copied <= 0) {
@@ -133,7 +149,7 @@ int BPF_KPROBE(obi_kprobe_tcp_cleanup_rbuf_bytes_receive, struct sock *sk, int c
 
     se->flags = k_event_stat_tcp_io;
     se->direction = direction_receive;
-    se->bytes = copied;
+    se->bytes = (u32)copied;
     se->conn = conn;
 
     bpf_ringbuf_submit(se, stats_events_flags());

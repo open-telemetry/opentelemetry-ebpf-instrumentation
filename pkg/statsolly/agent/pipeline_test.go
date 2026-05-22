@@ -114,7 +114,7 @@ func TestFilter(t *testing.T) {
 			case "obi_stat_tcp_rtt_seconds_count",
 				"obi_stat_tcp_failed_connections",
 				"obi_stat_tcp_retransmits",
-				"obi_stat_tcp_io",
+				"obi_stat_tcp_io_bytes_total",
 				"promhttp_metric_handler_errors_total":
 				// Reset values to 0 if you don't care about the specific count,
 				// or keep them if you want to verify the Value: 1 seen in your logs.
@@ -131,8 +131,8 @@ func TestFilter(t *testing.T) {
 			{Name: "obi_stat_tcp_failed_connections", Value: 1, Labels: map[string]string{"obi_ip": "1.2.3.4", "dst_port": "666", "src_port": "555", "reason": "refused"}},
 			{Name: "obi_stat_tcp_failed_connections", Value: 1, Labels: map[string]string{"obi_ip": "1.2.3.4", "dst_port": "888", "src_port": "777", "reason": "timed-out"}},
 			{Name: "obi_stat_tcp_retransmits", Value: 1, Labels: map[string]string{"obi_ip": "1.2.3.4", "dst_port": "888", "src_port": "777"}},
-			{Name: "obi_stat_tcp_io", Value: 1500, Labels: map[string]string{"obi_ip": "1.2.3.4", "dst_port": "200", "src_port": "100", "network_io_direction": "transmit"}},
-			{Name: "obi_stat_tcp_io", Value: 2000, Labels: map[string]string{"obi_ip": "1.2.3.4", "dst_port": "200", "src_port": "100", "network_io_direction": "receive"}},
+			{Name: "obi_stat_tcp_io_bytes_total", Value: 1500, Labels: map[string]string{"obi_ip": "1.2.3.4", "dst_port": "200", "src_port": "100", "network_io_direction": "transmit"}},
+			{Name: "obi_stat_tcp_io_bytes_total", Value: 2000, Labels: map[string]string{"obi_ip": "1.2.3.4", "dst_port": "200", "src_port": "100", "network_io_direction": "receive"}},
 			{Name: "promhttp_metric_handler_errors_total", Value: 0, Labels: map[string]string{"cause": "encoding"}},
 			{Name: "promhttp_metric_handler_errors_total", Value: 0, Labels: map[string]string{"cause": "gathering"}},
 		}, filtered)
@@ -173,7 +173,7 @@ func fakeRetransmitRecord(srcPort, dstPort uint16) *ebpf.Stat {
 	}
 }
 
-func fakeIoRecord(srcPort, dstPort uint16, direction uint8, bytes uint64) *ebpf.Stat {
+func fakeIoRecord(srcPort, dstPort uint16, direction uint8, bytes uint32) *ebpf.Stat {
 	return &ebpf.Stat{
 		TCPIo: &ebpf.TCPIo{
 			Direction: direction,

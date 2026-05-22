@@ -119,7 +119,6 @@ func networkIoDirectionStr(d NetworkIoDirectionCode) string {
 		return string(DirectionTransmit)
 	case CodeDirectionReceive:
 		return string(DirectionReceive)
-	default:
-		return string(DirectionUnknown)
 	}
+	return ""
 }

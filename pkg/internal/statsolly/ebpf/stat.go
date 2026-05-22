@@ -30,7 +30,7 @@ const (
 	Other             TCPFailReasonType = "other"
 )
 
-// TCPFailReasonTypeCode mirrors enum tcp_fail_reason in bpf/statsolly/tp_tcp.c.
+// TCPFailReasonTypeCode mirrors enum tcp_fail_reason in bpf/statsolly/types.h
 type TCPFailReasonTypeCode uint8
 
 const (
@@ -63,7 +63,6 @@ const (
 type NetworkIoDirectionType string
 
 const (
-	DirectionUnknown  NetworkIoDirectionType = "unknown"
 	DirectionReceive  NetworkIoDirectionType = "receive"
 	DirectionTransmit NetworkIoDirectionType = "transmit"
 )
@@ -104,7 +103,7 @@ type TCPFailedConnection struct {
 
 type TCPIo struct {
 	Direction uint8  `json:"direction"`
-	Bytes     uint64 `json:"bytes"`
+	Bytes     uint32 `json:"bytes"`
 }
 
 // Conn mirrors connection_info_t from bpf/common/connection_info.h.
@@ -144,9 +143,8 @@ type StatsTCPRetransmit struct {
 type StatsTCPIo struct {
 	_         structs.HostLayout
 	Flags     uint8
-	Direction uint8
-	Pad       [6]uint8
-	Bytes     uint64
+	Direction uint32
+	Pad       [2]uint8
+	Bytes     uint32
 	Conn
-	FinalPad [4]uint8 // aligns sizeof to 56, matching tcp_io_t in k_tcp.c
 }

@@ -34,12 +34,13 @@ type probe struct {
 
 // Program names
 const (
-	progObiKprobeTCPCloseSrtt               = "obi_kprobe_tcp_close_srtt"
-	progObiTpInetSockSetStateConnRole       = "obi_tp_inet_sock_set_state_conn_role"
-	progObiTpInetSockSetStateTCPFailedConn  = "obi_tp_inet_sock_set_state_tcp_failed_conn"
-	progObiRawTpTCPRetransmit               = "obi_raw_tp_tcp_retransmit"
-	progObiKprobeTCPSendmsgBytesTransmit    = "obi_kprobe_tcp_sendmsg_bytes_transmit"
-	progObiKprobeTCPCleanupRbufBytesReceive = "obi_kprobe_tcp_cleanup_rbuf_bytes_receive"
+	progObiKprobeTCPCloseSrtt              = "obi_kprobe_tcp_close_srtt"
+	progObiTpInetSockSetStateConnRole      = "obi_tp_inet_sock_set_state_conn_role"
+	progObiTpInetSockSetStateTCPFailedConn = "obi_tp_inet_sock_set_state_tcp_failed_conn"
+	progObiRawTpTCPRetransmit              = "obi_raw_tp_tcp_retransmit"
+	progObiKprobeTCPSendmsgIo              = "obi_kprobe_tcp_sendmsg_io"
+	progObiKretprobeTCPSendmsgIo           = "obi_kretprobe_tcp_sendmsg_io"
+	progObiKprobeTCPCleanupRbufIo          = "obi_kprobe_tcp_cleanup_rbuf_io"
 )
 
 // Hook point names, grouped by attach type.
@@ -109,7 +110,7 @@ func NewStatsFetcher(cfg *config.EBPFTracer, features *export.Features, selector
 		toDisable = append(toDisable, progObiRawTpTCPRetransmit)
 	}
 	if !features.StatsTCPIo() {
-		toDisable = append(toDisable, progObiKprobeTCPSendmsgBytesTransmit, progObiKprobeTCPCleanupRbufBytesReceive)
+		toDisable = append(toDisable, progObiKprobeTCPSendmsgIo, progObiKretprobeTCPSendmsgIo, progObiKprobeTCPCleanupRbufIo)
 	}
 
 	if err := fixupSpec(spec, toDisable); err != nil {
@@ -137,12 +138,12 @@ func NewStatsFetcher(cfg *config.EBPFTracer, features *export.Features, selector
 		},
 		{
 			name:    KprobeTCPSendMsg,
-			program: objects.ObiKprobeTcpSendmsgBytesTransmit,
+			program: objects.ObiKprobeTcpSendmsgIo,
 			enabled: features.StatsTCPIo(),
 		},
 		{
 			name:    KprobeTCPCleanupRbuf,
-			program: objects.ObiKprobeTcpCleanupRbufBytesReceive,
+			program: objects.ObiKprobeTcpCleanupRbufIo,
 			enabled: features.StatsTCPIo(),
 		},
 	} {
@@ -154,6 +155,16 @@ func NewStatsFetcher(cfg *config.EBPFTracer, features *export.Features, selector
 		if err != nil {
 			closeAll(closables)
 			return nil, fmt.Errorf("failed kprobe attachment %s: %w", k.name, err)
+		}
+		closables = append(closables, l)
+	}
+
+	// kretprobes
+	if features.StatsTCPIo() {
+		l, err := link.Kretprobe(KprobeTCPSendMsg, objects.ObiKretprobeTcpSendmsgIo, nil)
+		if err != nil {
+			closeAll(closables)
+			return nil, fmt.Errorf("failed kretprobe attachment %s: %w", KprobeTCPSendMsg, err)
 		}
 		closables = append(closables, l)
 	}

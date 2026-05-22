@@ -156,7 +156,7 @@ var (
 	}
 	StatTCPIo = Name{
 		Section: "obi.stat.tcp.io",
-		Prom:    "obi_stat_tcp_io",
+		Prom:    "obi_stat_tcp_io_bytes_total",
 		OTEL:    "obi.stat.tcp.io",
 	}
 )

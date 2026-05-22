@@ -10,7 +10,7 @@
 
 struct {
     __uint(type, BPF_MAP_TYPE_RINGBUF);
-    __uint(max_entries, 1 << 16);
+    __uint(max_entries, 1 << 20);
     __uint(pinning, OBI_PIN_INTERNAL);
 } stats_events SEC(".maps");
 

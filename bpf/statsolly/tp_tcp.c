@@ -32,17 +32,7 @@
 #define ENETUNREACH 101
 #endif
 
-enum tcp_fail_reason {
-    reason_unknown = 0,
-    reason_connection_refused = 1,
-    reason_connection_reset = 2,
-    reason_timed_out = 3,
-    reason_host_unreachable = 4,
-    reason_net_unreachable = 5,
-    reason_other = 255,
-};
-
-static __always_inline u8 sk_err_to_reason(const int err) {
+static __always_inline enum tcp_fail_reason sk_err_to_reason(const int err) {
     switch (err) {
     case ECONNREFUSED:
         return reason_connection_refused;
@@ -63,8 +53,8 @@ static __always_inline u8 sk_err_to_reason(const int err) {
 
 typedef struct tcp_failed_connection {
     u8 flags; // Must be first, we use it to tell what kind of event we have on the ring buffer
-    u8 reason;
-    u8 role;
+    enum tcp_fail_reason reason;
+    enum tcp_handshake_role role;
     u8 _pad[1];
     connection_info_t conn;
 } tcp_failed_connection_t;
