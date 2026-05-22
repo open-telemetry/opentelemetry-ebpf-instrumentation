@@ -5,16 +5,14 @@ package ebpfcommon // import "go.opentelemetry.io/obi/pkg/ebpf/common"
 
 import (
 	"log/slog"
-	"net/http"
 	"strings"
 	"unsafe"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
+	ebpfhttp "go.opentelemetry.io/obi/pkg/ebpf/common/http"
 	"go.opentelemetry.io/obi/pkg/internal/sqlprune"
 )
-
-const jsonRPC = "JSONRPC" // must remain in sync with value used in obi_uprobe_jsonrpcReadRequestHeaderReturns
 
 func HTTPRequestTraceToSpan(trace *HTTPRequestTrace) request.Span {
 	// From C, assuming 0-ended strings
@@ -24,12 +22,15 @@ func HTTPRequestTraceToSpan(trace *HTTPRequestTrace) request.Span {
 	scheme := cstr(trace.Scheme[:])
 	origHost := cstr(trace.Host[:])
 
-	var overrideTraceName string
-	if method == jsonRPC {
-		// json rpc signal
-		method = http.MethodPost
-		overrideTraceName = pattern
+	var jsonRPC *request.JSONRPC
+	var subType int
+	if trace.IsJsonrpc {
+		jsonRPC = &request.JSONRPC{
+			Method:  pattern,
+			Version: ebpfhttp.JSONRPCVersionV1,
+		}
 		pattern = path
+		subType = request.HTTPSubtypeJSONRPC
 	}
 
 	if pattern != "" {
@@ -79,8 +80,9 @@ func HTTPRequestTraceToSpan(trace *HTTPRequestTrace) request.Span {
 			UserPID:   app.PID(trace.Pid.UserPid),
 			Namespace: trace.Pid.Ns,
 		},
-		Statement:         schemeHost,
-		OverrideTraceName: overrideTraceName,
+		Statement: schemeHost,
+		JSONRPC:   jsonRPC,
+		SubType:   subType,
 	}
 }
 

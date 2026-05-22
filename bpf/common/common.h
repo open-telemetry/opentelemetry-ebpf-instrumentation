@@ -70,7 +70,8 @@ typedef struct http_request_trace {
     u16 status;
     unsigned char method[k_method_max_len];
     unsigned char scheme[k_scheme_max_len];
-    u8 _pad1[11];
+    bool is_jsonrpc;
+    u8 _pad1[10];
     u64 go_start_monotime_ns;
     u64 start_monotime_ns;
     u64 end_monotime_ns;

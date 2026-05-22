@@ -48,9 +48,6 @@
 
 #include <shared/obi_ctx.h>
 
-const char JSON_RPC[] = "JSONRPC";
-const u32 JSON_RPC_SIZE = sizeof(JSON_RPC) - 1;
-
 static __always_inline unsigned char *temp_header_mem() {
     const u32 zero = 0;
     return bpf_map_lookup_elem(&temp_header_mem_store, &zero);
@@ -583,12 +580,14 @@ static __always_inline int serve_http_returns(struct pt_regs *ctx) {
     __builtin_memcpy(trace->pattern, invocation->pattern, sizeof(trace->pattern));
     trace->status = (u16)invocation->status;
     trace->response_length = invocation->response_length;
+    trace->is_jsonrpc = invocation->is_jsonrpc;
 
     make_tp_string(tp_buf, &invocation->tp);
     bpf_dbg_printk("tp=%s", tp_buf);
     bpf_dbg_printk("method=%s", trace->method);
     bpf_dbg_printk("path=%s", trace->path);
     bpf_dbg_printk("pattern=%s", trace->pattern);
+    bpf_dbg_printk("is_jsonrpc=%d", trace->pattern);
 
     // submit the completed trace via ringbuffer
     bpf_ringbuf_submit(trace, get_flags());
@@ -739,6 +738,7 @@ int obi_uprobe_roundTripReturn(struct pt_regs *ctx) {
     trace->go_start_monotime_ns = invocation->start_monotime_ns;
     trace->end_monotime_ns = bpf_ktime_get_ns();
     trace->pattern[0] = '\0';
+    trace->is_jsonrpc = false;
 
     // Copy the values read on request start
     __builtin_memcpy(trace->method, data->method, sizeof(trace->method));
@@ -1412,7 +1412,7 @@ int obi_uprobe_jsonrpcReadRequestHeaderReturns(struct pt_regs *ctx) {
         return 0;
     }
     bpf_dbg_printk("read jsonrpc method: %s", invocation->pattern);
-    bpf_memcpy(invocation->method, JSON_RPC, JSON_RPC_SIZE);
+    invocation->is_jsonrpc = true;
 
     return 0;
 }
