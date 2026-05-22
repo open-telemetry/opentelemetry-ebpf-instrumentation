@@ -286,7 +286,7 @@ typedef struct dns_req {
 } dns_req_t;
 
 typedef struct openai_go_req {
-    u8 type; // Must be first
+    u8 type;               // Must be first
     u8 input_message_role; // 0=user, 1=system, 2=assistant, 3=developer, 4=tool, 5=function
     u8 _pad[6];
     u64 start_monotime_ns;
