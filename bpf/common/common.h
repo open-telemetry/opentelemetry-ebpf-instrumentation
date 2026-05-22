@@ -287,12 +287,15 @@ typedef struct dns_req {
 
 typedef struct openai_go_req {
     u8 type; // Must be first
-    u8 _pad[7];
+    u8 input_message_role; // 0=user, 1=system, 2=assistant, 3=developer, 4=tool, 5=function
+    u8 _pad[6];
     u64 start_monotime_ns;
     u64 end_monotime_ns;
     pid_info pid;
     u8 _pad2[4];
     tp_info_t tp;
+    connection_info_t conn;
+    u8 _pad3[4];
     unsigned char request_model[k_openai_model_max_len];
     unsigned char response_model[k_openai_model_max_len];
     unsigned char response_id[k_openai_response_id_max_len];
@@ -300,6 +303,4 @@ typedef struct openai_go_req {
     s64 completion_tokens;
     unsigned char input_message_content[k_openai_msg_content_max_len];
     unsigned char output_message_content[k_openai_msg_content_max_len];
-    u8 input_message_role; // 0=user, 1=system, 2=assistant, 3=developer, 4=tool, 5=function
-    u8 _pad3[7];
 } openai_go_req_t;

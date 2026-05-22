@@ -6,6 +6,7 @@ package ebpfcommon // import "go.opentelemetry.io/obi/pkg/ebpf/common"
 import (
 	"encoding/json"
 	"structs"
+	"unsafe"
 
 	trace2 "go.opentelemetry.io/otel/trace"
 
@@ -19,12 +20,15 @@ import (
 //
 //	typedef struct openai_go_req {
 //	    u8 type;
-//	    u8 _pad[7];
+//	    u8 input_message_role;
+//	    u8 _pad[6];
 //	    u64 start_monotime_ns;
 //	    u64 end_monotime_ns;
 //	    pid_info pid;
 //	    u8 _pad2[4];
 //	    tp_info_t tp;
+//	    connection_info_t conn;
+//	    u8 _pad3[4];
 //	    unsigned char request_model[64];
 //	    unsigned char response_model[64];
 //	    unsigned char response_id[64];
@@ -32,16 +36,15 @@ import (
 //	    s64 completion_tokens;
 //	    unsigned char input_message_content[256];
 //	    unsigned char output_message_content[256];
-//	    u8 input_message_role;
-//	    u8 _pad3[7];
 //	} openai_go_req_t;
 type openaiGoReqT struct {
-	_               structs.HostLayout
-	Type            uint8
-	Pad             [7]uint8
-	StartMonotimeNs uint64
-	EndMonotimeNs   uint64
-	Pid             struct {
+	_                structs.HostLayout
+	Type             uint8
+	InputMessageRole uint8
+	Pad              [6]uint8
+	StartMonotimeNs  uint64
+	EndMonotimeNs    uint64
+	Pid              struct {
 		_       structs.HostLayout
 		HostPid uint32
 		UserPid uint32
@@ -57,6 +60,14 @@ type openaiGoReqT struct {
 		Flags    uint8
 		Pad      [7]uint8
 	}
+	Conn struct {
+		_     structs.HostLayout
+		SAddr [16]uint8
+		DAddr [16]uint8
+		SPort uint16
+		DPort uint16
+	}
+	Pad3                 [4]uint8
 	RequestModel         [64]uint8
 	ResponseModel        [64]uint8
 	ResponseID           [64]uint8
@@ -64,8 +75,6 @@ type openaiGoReqT struct {
 	CompletionTokens     int64
 	InputMessageContent  [256]uint8
 	OutputMessageContent [256]uint8
-	InputMessageRole     uint8
-	Pad3                 [7]uint8
 }
 
 type genAIMessage struct {
@@ -154,6 +163,8 @@ func ReadGoOpenAIRequestIntoSpan(record *ringbuf.Record) (request.Span, bool, er
 	// the only terminal reason emitted for non-streamed completions.
 	outputChoices := marshalGenAIChoices("assistant", outputContent, "stop")
 
+	peer, host := (*BPFConnInfo)(unsafe.Pointer(&event.Conn)).reqHostInfo()
+
 	return request.Span{
 		Type:         request.EventTypeHTTPClient,
 		SubType:      request.HTTPSubtypeOpenAI,
@@ -166,6 +177,10 @@ func ReadGoOpenAIRequestIntoSpan(record *ringbuf.Record) (request.Span, bool, er
 		SpanID:       trace2.SpanID(event.Tp.SpanID),
 		ParentSpanID: trace2.SpanID(event.Tp.ParentID),
 		TraceFlags:   event.Tp.Flags,
+		Peer:         peer,
+		PeerPort:     int(event.Conn.SPort),
+		Host:         host,
+		HostPort:     int(event.Conn.DPort),
 		Pid: request.PidInfo{
 			HostPID:   app.PID(event.Pid.HostPid),
 			UserPID:   app.PID(event.Pid.UserPid),

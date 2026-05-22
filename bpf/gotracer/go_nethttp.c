@@ -33,6 +33,7 @@
 #include <gotracer/go_str.h>
 
 #include <gotracer/maps/nethttp.h>
+#include <gotracer/maps/openai.h>
 
 #include <gotracer/types/nethttp.h>
 #include <gotracer/types/stream_key.h>
@@ -710,6 +711,18 @@ int obi_uprobe_roundTripReturn(struct pt_regs *ctx) {
     bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
+
+    // If this HTTP client request belongs to an in-flight OpenAI SDK call,
+    // attach the connection info to the OpenAI entry and skip emitting an
+    // HTTP client span (the OpenAI uprobe will emit a GenAI span instead).
+    openai_go_req_t *openai_req = bpf_map_lookup_elem(&ongoing_openai_requests, &g_key);
+    if (openai_req) {
+        connection_info_t *conn_info = bpf_map_lookup_elem(&ongoing_client_connections, &g_key);
+        if (conn_info) {
+            __builtin_memcpy(&openai_req->conn, conn_info, sizeof(connection_info_t));
+        }
+        goto done;
+    }
 
     http_func_invocation_t *invocation =
         bpf_map_lookup_elem(&go_ongoing_http_client_requests, &g_key);
