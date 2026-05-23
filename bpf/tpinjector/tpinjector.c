@@ -393,6 +393,10 @@ static __always_inline void bpf_sock_ops_active_est_cb(struct bpf_sock_ops *skop
 }
 
 static __always_inline void bpf_sock_ops_passive_est_cb(struct bpf_sock_ops *skops) {
+    if (!(inject_flags & k_inject_tcp_options)) {
+        return;
+    }
+
     bpf_sock_ops_set_flags(skops, BPF_SOCK_OPS_PARSE_ALL_HDR_OPT_CB_FLAG);
 }
 
@@ -456,6 +460,10 @@ static __always_inline void bpf_sock_ops_write_hdr_cb(struct bpf_sock_ops *skops
 }
 
 static __always_inline void bpf_sock_ops_parse_hdr_cb(struct bpf_sock_ops *skops) {
+    if (!(inject_flags & k_inject_tcp_options)) {
+        return;
+    }
+
     struct tp_option opt = {};
     opt.kind = k_tcp_option_kind_otel;
 
