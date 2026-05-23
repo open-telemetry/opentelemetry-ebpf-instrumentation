@@ -587,7 +587,7 @@ static __always_inline int serve_http_returns(struct pt_regs *ctx) {
     bpf_dbg_printk("method=%s", trace->method);
     bpf_dbg_printk("path=%s", trace->path);
     bpf_dbg_printk("pattern=%s", trace->pattern);
-    bpf_dbg_printk("is_jsonrpc=%d", trace->pattern);
+    bpf_dbg_printk("is_jsonrpc=%d", trace->is_jsonrpc);
 
     // submit the completed trace via ringbuffer
     bpf_ringbuf_submit(trace, get_flags());
