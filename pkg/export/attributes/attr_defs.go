@@ -6,6 +6,8 @@ package attributes // import "go.opentelemetry.io/obi/pkg/export/attributes"
 import (
 	"maps"
 
+	"go.opentelemetry.io/otel/attribute"
+
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 )
 
@@ -379,11 +381,15 @@ func getDefinitions(
 		},
 		Traces.Section: {
 			Attributes: map[attr.Name]Default{
+				attr.DNSQuestionName:   true,
 				attr.DBQueryText:       false,
+				attr.HTTPUrlQuery:      false,
 				attr.GenAIInput:        false,
 				attr.GenAIOutput:       false,
 				attr.GenAIInstructions: false,
 				attr.GenAIMetadata:     false,
+				attr.GenAITools:        false,
+				attr.DBResponseError:   false,
 			},
 		},
 		GPUCudaKernelLaunchCalls.Section: {
@@ -415,13 +421,9 @@ func getDefinitions(
 		DNSLookupDuration.Section: {
 			SubGroups: []*AttrReportGroup{&appAttributes},
 			Attributes: map[attr.Name]Default{
-				attr.DNSQuestionName: true,
+				attr.DNSQuestionName: false,
 				attr.ErrorType:       true,
 			},
-		},
-		StatTCPRtt.Section: {
-			SubGroups:  []*AttrReportGroup{&statsAttributes, &statsKubeAttributes},
-			Attributes: map[attr.Name]Default{},
 		},
 		GenAIClientInputTokenUsage.Section: {
 			SubGroups: []*AttrReportGroup{&appAttributes},
@@ -459,11 +461,22 @@ func getDefinitions(
 				attr.ServerAddr:         true,
 			},
 		},
+		StatTCPRtt.Section: {
+			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes},
+			Attributes: map[attr.Name]Default{
+				attr.NetworkTCPHandshakeRole: false,
+			},
+		},
 		StatTCPFailedConnections.Section: {
 			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes},
 			Attributes: map[attr.Name]Default{
 				attr.TCPFailedConnectionReason: false,
+				attr.NetworkTCPHandshakeRole:   false,
 			},
+		},
+		StatTCPRetransmits.Section: {
+			SubGroups:  []*AttrReportGroup{&statsAttributes, &statsKubeAttributes},
+			Attributes: map[attr.Name]Default{},
 		},
 
 		// span and service graph metrics don't yet implement attribute selection,
@@ -518,4 +531,17 @@ func AllAttributeNames(
 		}
 	}
 	return names
+}
+
+// DBResponseErrorAttr returns a database response error attribute if the attribute is selected, nil otherwise.
+// When the attribute is not selected, it is simply omitted — consistent with how other optional
+// attributes (e.g. db.query.text) behave.
+func DBResponseErrorAttr(optionalAttrs map[attr.Name]struct{}, description string) []attribute.KeyValue {
+	if description == "" {
+		return nil
+	}
+	if _, ok := optionalAttrs[attr.DBResponseError]; !ok {
+		return nil
+	}
+	return []attribute.KeyValue{attribute.Key(attr.DBResponseError).String(description)}
 }

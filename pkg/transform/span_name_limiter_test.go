@@ -174,6 +174,47 @@ func TestSpanNameLimiter_ExpireOld(t *testing.T) {
 	})
 }
 
+func TestSpanNameLimiter_ZeroValueServiceKey(t *testing.T) {
+	// Regression test for #2036: aggregate must not panic when the first span
+	// in a batch has a zero-value ServiceNameNamespace key, and must properly
+	// track route counts in the cache across batches.
+	input := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
+	output := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
+	outCh := output.Subscribe()
+	runSpanNameLimiter, err := SpanNameLimiter(SpanNameLimiterConfig{
+		Limit:      3,
+		OTEL:       &otelcfg.MetricsConfig{TTL: time.Minute},
+		Prom:       &prom.PrometheusConfig{TTL: time.Minute},
+		MetricsCfg: &perapp.MetricsConfig{Features: export.FeatureSpanLegacy},
+	}, input, output)(t.Context())
+	require.NoError(t, err)
+
+	go runSpanNameLimiter(t.Context())
+
+	zeroSvc := svc.Attrs{} // zero-value UID => zero-value ServiceNameNamespace key
+
+	// First batch: must not panic, and routes are tracked in cache.
+	input.Send([]request.Span{
+		{Service: zeroSvc, Type: request.EventTypeHTTP, Method: "GET", Route: "/zero-1"},
+		{Service: zeroSvc, Type: request.EventTypeHTTP, Method: "GET", Route: "/zero-2"},
+	})
+	spans := testutil.ReadChannel(t, outCh, testTimeout)
+	require.Len(t, spans, 2)
+	assert.Equal(t, "GET /zero-1", spans[0].TraceName())
+	assert.Equal(t, "GET /zero-2", spans[1].TraceName())
+
+	// Second batch: the limit (3) is reached across batches, so new routes
+	// must be aggregated, proving counts are properly cached.
+	input.Send([]request.Span{
+		{Service: zeroSvc, Type: request.EventTypeHTTP, Method: "GET", Route: "/zero-3"},
+		{Service: zeroSvc, Type: request.EventTypeHTTP, Method: "GET", Route: "/zero-4"},
+	})
+	spans = testutil.ReadChannel(t, outCh, testTimeout)
+	require.Len(t, spans, 2)
+	assert.Equal(t, "GET /zero-3", spans[0].TraceName())
+	assert.Equal(t, "AGGREGATED", spans[1].TraceName())
+}
+
 func TestSpanNameLimiter_CopiesOutput(t *testing.T) {
 	// OBI has to mark as AGGREGATED only span metrics while the traces/spans need to
 	// keep the original, high-cardinality span name.

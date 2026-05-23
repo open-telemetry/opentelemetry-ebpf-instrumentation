@@ -224,6 +224,25 @@
             4096,
             8192
           ]
+        },
+        "stat_tcp_rtt_histogram": {
+          "items": {
+            "type": "number"
+          },
+          "type": "array",
+          "default": [
+            0.0005,
+            0.001,
+            0.002,
+            0.005,
+            0.01,
+            0.025,
+            0.05,
+            0.1,
+            0.25,
+            0.5,
+            1
+          ]
         }
       },
       "type": "object",
@@ -538,6 +557,11 @@
           "type": "integer",
           "default": 0,
           "x-env-var": "OTEL_EBPF_BPF_BUFFER_SIZE_POSTGRES"
+        },
+        "tcp": {
+          "type": "integer",
+          "default": 0,
+          "x-env-var": "OTEL_EBPF_BPF_BUFFER_SIZE_TCP"
         }
       },
       "type": "object",
@@ -852,6 +876,7 @@
           "network_inter_zone",
           "stats",
           "stats_tcp_failed_connections",
+          "stats_tcp_retransmits",
           "stats_tcp_rtt"
         ]
       },
@@ -898,6 +923,14 @@
         "qwen": {
           "$ref": "#/$defs/QwenConfig",
           "description": "(DashScope) payload extraction and parsing"
+        },
+        "rerank": {
+          "$ref": "#/$defs/RerankConfig",
+          "description": "Payload extraction and parsing (Cohere, Jina AI, Voyage AI, etc.)"
+        },
+        "retrieval": {
+          "$ref": "#/$defs/RetrievalConfig",
+          "description": "Vector retrieval payload extraction and parsing (Pinecone, Qdrant, Milvus, Chroma, Weaviate, etc.)"
         }
       },
       "type": "object"
@@ -1222,6 +1255,16 @@
         "request",
         "response"
       ]
+    },
+    "HealthCheckConfig": {
+      "properties": {
+        "port": {
+          "type": "integer",
+          "default": 0,
+          "x-env-var": "OTEL_EBPF_HEALTH_CHECK_PORT"
+        }
+      },
+      "type": "object"
     },
     "HostIDConfig": {
       "properties": {
@@ -1654,7 +1697,7 @@
         "features": {
           "$ref": "#/$defs/Features",
           "description": "Specifies which metric features to export. Accepted values: application, network, application_span, application_service_graph, ... envDefault is provided to avoid breaking changes  use top-level MetricsConfig.Features instead.",
-          "default": 32,
+          "default": 64,
           "deprecated": true,
           "x-env-var": "OTEL_EBPF_METRICS_FEATURES"
         },
@@ -2291,12 +2334,34 @@
         "^prod-.*-db$"
       ]
     },
+    "RerankConfig": {
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable Rerank (Cohere, Jina AI, Voyage AI, etc.) payload extraction and parsing",
+          "default": false,
+          "x-env-var": "OTEL_EBPF_HTTP_RERANK_ENABLED"
+        }
+      },
+      "type": "object"
+    },
     "ResourceLabels": {
       "additionalProperties": {
         "items": {
           "type": "string"
         },
         "type": "array"
+      },
+      "type": "object"
+    },
+    "RetrievalConfig": {
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable vector retrieval (Pinecone, Qdrant, Milvus, Chroma, Weaviate, etc.) payload extraction and parsing",
+          "default": false,
+          "x-env-var": "OTEL_EBPF_HTTP_RETRIEVAL_ENABLED"
+        }
       },
       "type": "object"
     },
@@ -2496,7 +2561,7 @@
         "$ref": "#/$defs/InclusionLists"
       },
       "type": "object",
-      "description": "Selection specifies which attributes are allowed for each metric. The key is the metric name (either in Prometheus or OpenTelemetry format) The value is the enumeration of included/excluded attribute globs"
+      "description": "Selection specifies which attributes are allowed for each signal. The key is usually the metric name (either in Prometheus or OpenTelemetry format); the key \"traces\" selects optional attributes for exported OTLP traces. The value is the enumeration of included/excluded attribute globs"
     },
     "StatsConfig": {
       "properties": {
@@ -2753,6 +2818,9 @@
     },
     "filter": {
       "$ref": "#/$defs/AttributesConfig"
+    },
+    "health_check": {
+      "$ref": "#/$defs/HealthCheckConfig"
     },
     "internal_metrics": {
       "$ref": "#/$defs/InternalMetricsConfig"

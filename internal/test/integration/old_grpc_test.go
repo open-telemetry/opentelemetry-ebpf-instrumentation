@@ -146,5 +146,7 @@ func TestSuiteOtherGRPCGo(t *testing.T) {
 		testGRPCGoClientFailsToConnect(t)
 	})
 
+	runWeaverValidation(t)
+
 	require.NoError(t, compose.Close())
 }

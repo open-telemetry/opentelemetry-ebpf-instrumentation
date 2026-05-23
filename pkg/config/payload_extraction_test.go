@@ -238,6 +238,7 @@ func TestGenAIConfig_Enabled(t *testing.T) {
 		{name: "gemini", cfg: GenAIConfig{Gemini: GeminiConfig{Enabled: true}}, enabled: true},
 		{name: "bedrock", cfg: GenAIConfig{Bedrock: BedrockConfig{Enabled: true}}, enabled: true},
 		{name: "mcp", cfg: GenAIConfig{MCP: MCPConfig{Enabled: true}}, enabled: true},
+		{name: "retrieval", cfg: GenAIConfig{Retrieval: RetrievalConfig{Enabled: true}}, enabled: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

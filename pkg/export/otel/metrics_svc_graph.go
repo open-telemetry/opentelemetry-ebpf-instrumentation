@@ -129,7 +129,8 @@ func newSvcGraphMetricsReporter(
 		log:              log,
 	}
 
-	mr.reporters = otelcfg.NewReporterPool[*svc.Attrs, *SvcGraphMetrics](cfg.ReportersCacheLen, cfg.TTL, timeNow,
+	var err error
+	mr.reporters, err = otelcfg.NewReporterPool[*svc.Attrs, *SvcGraphMetrics](cfg.ReportersCacheLen, cfg.TTL, timeNow,
 		func(id svc.UID, v *SvcGraphMetrics) {
 			llog := log.With("service", id)
 			llog.Debug("evicting metrics reporter from cache")
@@ -141,6 +142,9 @@ func newSvcGraphMetricsReporter(
 				}
 			}()
 		}, mr.newMetricSet)
+	if err != nil {
+		return nil, fmt.Errorf("creating service graph metrics reporters pool: %w", err)
+	}
 
 	// Instantiate the OTLP HTTP or GRPC metrics exporter
 	exporter, err := ctxInfo.OTELMetricsExporter.Instantiate(ctx)
@@ -428,16 +432,18 @@ func (mr *SvcGraphMetricsReporter) reportMetrics(ctx context.Context) {
 }
 
 func (mr *SvcGraphMetricsReporter) onProcessEvent(pe *exec.ProcessEvent) {
-	mr.log.Debug("Received new process event", "event type", pe.Type, "pid", pe.File.Pid, "attrs", pe.File.Service.UID)
+	snap := pe.File.ServiceAttrs()
+	pid := pe.File.Pid()
+	mr.log.Debug("Received new process event", "event type", pe.Type, "pid", pid, "attrs", snap.UID)
 
 	if pe.Type == exec.ProcessEventCreated {
-		mr.setupPIDToServiceRelationship(pe.File.Pid, pe.File.Service.UID)
+		mr.setupPIDToServiceRelationship(pid, snap.UID)
 	} else {
-		if deleted, origUID := mr.disassociatePIDFromService(pe.File.Pid); deleted {
+		if deleted, origUID := mr.disassociatePIDFromService(pid); deleted {
 			mr.log.Debug("deleting infos for",
-				"pid", pe.File.Pid,
+				"pid", pid,
 				"uid", origUID,
-				"attrs", pe.File.Service)
+				"attrs", snap)
 		}
 	}
 }

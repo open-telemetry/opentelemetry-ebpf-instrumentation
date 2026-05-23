@@ -5,6 +5,8 @@ package ebpfcommon
 
 import (
 	"bytes"
+	"fmt"
+	"math"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -54,6 +56,37 @@ func TestIsMemcachedCommands(t *testing.T) {
 		"unknown key\r\n",
 	} {
 		assert.False(t, isMemcachedBuf(largebuf.NewLargeBufferFrom([]byte(tc))), tc)
+	}
+}
+
+func TestIsMemcachedFirstByte(t *testing.T) {
+	// Source of truth: the bitmap must accept exactly these 32 characters and
+	// nothing else.
+	const allowed = "acdfgimprstvVESNDTOCHM0123456789"
+
+	inAllowed := func(b byte) bool {
+		return bytes.IndexByte([]byte(allowed), b) >= 0
+	}
+
+	// Spot-check each allowed character explicitly so a failure points at the
+	// specific missing one.
+	for i := 0; i < len(allowed); i++ {
+		b := allowed[i]
+		assert.Truef(t, isMemcachedFirstByte(b), "expected %q (0x%02X) to be accepted", b, b)
+	}
+
+	// Exhaustive sweep across all 256 possible byte values to guarantee the
+	// bitmap doesn't accept anything outside the allowed set.
+	for b := 0; b < 256; b++ {
+		got := isMemcachedFirstByte(byte(b))
+		want := inAllowed(byte(b))
+		assert.Equalf(t, want, got, "byte 0x%02X (%q): want %v", b, byte(b), want)
+	}
+
+	// Sanity-check a handful of bytes that look plausible but must be rejected
+	// (uppercase letters that don't start any keyword, control bytes, high bit).
+	for _, b := range []byte{'A', 'B', 'Z', 'b', 'e', 'h', 'q', 'z', 0x00, 0x1F, 0x7F, 0x80, 0xFF, ' ', '\t', '\n', '\r', '+', '-'} {
+		assert.Falsef(t, isMemcachedFirstByte(b), "byte 0x%02X (%q) must be rejected", b, b)
 	}
 }
 
@@ -265,6 +298,7 @@ func TestMemcachedCommandBytesField(t *testing.T) {
 		{name: "missing bytes field", line: "set session 0 300", op: "SET", wantOK: false},
 		{name: "bytes must be int", line: "set session 0 300 nope", op: "SET", wantOK: false},
 		{name: "bytes cannot be negative", line: "set session 0 300 -1", op: "SET", wantOK: false},
+		{name: "bytes can be max int", line: fmt.Sprintf("set session 0 300 %d", math.MaxInt), op: "SET", want: math.MaxInt, wantOK: true},
 	}
 
 	for _, tt := range tests {
@@ -274,6 +308,15 @@ func TestMemcachedCommandBytesField(t *testing.T) {
 			assert.Equal(t, tt.want, got)
 		})
 	}
+}
+
+func TestMemcachedConsumeStoragePayloadOverflowSafe(t *testing.T) {
+	fields := bytes.Fields([]byte(fmt.Sprintf("set session 0 300 %d", math.MaxInt)))
+	reader := largebuf.NewLargeBufferFrom([]byte("value\r\n")).NewReader()
+
+	assert.NotPanics(t, func() {
+		assert.False(t, memcachedConsumeStoragePayload(&reader, fields, "SET"))
+	})
 }
 
 func TestParseMemcachedExplicitNoreply(t *testing.T) {

@@ -1,0 +1,47 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+        max_recv_msg_size_mib: 100
+      http:
+        endpoint: 0.0.0.0:4318
+        cors:
+          allowed_origins:
+            - "http://*"
+            - "https://*"
+exporters:
+  prometheus:
+    endpoint: "otelcol:9464"
+    resource_to_telemetry_conversion:
+      enabled: true
+    enable_open_metrics: true
+  # See note in otelcol-config-weaver.yml — weaver tap is bounded and
+  # non-blocking so it never back-pressures the production prometheus
+  # exporter.
+  otlp/weaver:
+    endpoint: weaver:4317
+    tls:
+      insecure: true
+    compression: none
+    sending_queue:
+      enabled: true
+      queue_size: 500
+      block_on_overflow: false
+    retry_on_failure:
+      enabled: false
+service:
+  pipelines:
+    # Production metrics path — what the integration tests poll.
+    metrics:
+      receivers: [otlp]
+      exporters: [prometheus]
+    # Weaver taps with their own independent queues. Traces go only to
+    # weaver in this config (no jaeger), so the traces pipeline is
+    # weaver-only and naturally has nothing to back-pressure.
+    metrics/weaver:
+      receivers: [otlp]
+      exporters: [otlp/weaver]
+    traces:
+      receivers: [otlp]
+      exporters: [otlp/weaver]

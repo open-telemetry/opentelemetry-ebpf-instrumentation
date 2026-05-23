@@ -34,6 +34,7 @@ const (
 	HTTPURLScheme          = Name(semconv.URLSchemeKey)
 	HTTPUrlPath            = Name(semconv.URLPathKey)
 	HTTPUrlFull            = Name(semconv.URLFullKey)
+	HTTPUrlQuery           = Name(semconv.URLQueryKey)
 	ClientAddr             = Name(semconv.ClientAddressKey)
 	ServerAddr             = Name(semconv.ServerAddressKey)
 	ServerPort             = Name(semconv.ServerPortKey)
@@ -221,6 +222,7 @@ const (
 	DBQueryText          = Name(semconv.DBQueryTextKey)
 	DBResponseStatusCode = Name(semconv.DBResponseStatusCodeKey)
 	DBNamespace          = Name(semconv.DBNamespaceKey)
+	DBResponseError      = Name("db.response.error")
 
 	// Messaging
 	MessagingPartition   = Name(semconv.MessagingDestinationPartitionIDKey)
@@ -246,6 +248,7 @@ const (
 	GenAIMetadata     = Name("gen_ai.metadata")
 	GenAITools        = Name(semconv.GenAIToolDefinitionsKey)
 	GenAIToolName     = Name("gen_ai.tool.name")
+	GenAIToolCallID   = Name("gen_ai.tool.call.id")
 	GenAIPromptName   = Name("gen_ai.prompt.name")
 )
 
@@ -294,4 +297,5 @@ const (
 // Stat metrics
 const (
 	TCPFailedConnectionReason = Name("reason")
+	NetworkTCPHandshakeRole   = Name("network.tcp.handshake.role")
 )

@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+package relay;
+
+option go_package = "./relaypb";
+
+service Relay {
+  rpc Relay(RelayRequest) returns (RelayResponse);
+}
+
+message RelayRequest {}
+
+message RelayResponse {}

@@ -73,12 +73,44 @@ func (c *Compose) Logs() error {
 	return c.command("logs")
 }
 
+func (c *Compose) LogsOutput(services ...string) (string, error) {
+	cmdArgs := []string{"compose", "--ansi", "never", "-f", c.Path, "logs"}
+	cmdArgs = append(cmdArgs, services...)
+	cmd := exec.Command("docker", cmdArgs...)
+	cmd.Env = c.Env
+
+	output, err := cmd.CombinedOutput()
+
+	if c.Logger != nil && len(output) > 0 {
+		if _, writeErr := c.Logger.Write(output); writeErr != nil {
+			err = errors.Join(err, writeErr)
+		}
+	}
+
+	return strings.TrimSpace(string(output)), err
+}
+
 func (c *Compose) Stop() error {
 	return c.command("stop", "--timeout", stopTimeout)
 }
 
 func (c *Compose) Remove() error {
-	return c.command("rm", "-f", "-v")
+	cmdArgs := []string{"compose", "--ansi", "never", "-f", c.Path, "rm", "-f", "-v"}
+	cmd := exec.Command("docker", cmdArgs...)
+	cmd.Env = c.Env
+
+	output, err := cmd.CombinedOutput()
+	if c.Logger != nil && len(output) > 0 {
+		if _, writeErr := c.Logger.Write(output); writeErr != nil {
+			err = errors.Join(err, writeErr)
+		}
+	}
+
+	if err != nil && strings.Contains(string(output), "already in progress") {
+		return nil
+	}
+
+	return err
 }
 
 func (c *Compose) command(args ...string) error {

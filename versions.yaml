@@ -3,7 +3,7 @@
 
 module-sets:
   obi:
-    version: v0.8.0
+    version: v0.9.0
     modules:
       - go.opentelemetry.io/obi
 excluded-modules:
@@ -57,6 +57,7 @@ excluded-modules:
   - go.opentelemetry.io/obi/internal/test/oats/kafka
   - go.opentelemetry.io/obi/internal/test/oats/memcached
   - go.opentelemetry.io/obi/internal/test/oats/mongo
+  - go.opentelemetry.io/obi/internal/test/oats/nats
   - go.opentelemetry.io/obi/internal/test/oats/redis
   - go.opentelemetry.io/obi/internal/test/oats/sql
   - go.opentelemetry.io/obi/internal/tools

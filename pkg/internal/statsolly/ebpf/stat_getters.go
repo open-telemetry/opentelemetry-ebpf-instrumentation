@@ -50,6 +50,18 @@ func StatGetters(name attr.Name) (attributes.Getter[*Stat, attribute.KeyValue], 
 			}
 			return attribute.String(string(attr.TCPFailedConnectionReason), tcpFailReasonStr(s.TCPFailedConnection.Reason))
 		}
+	case attr.NetworkTCPHandshakeRole:
+		getter = func(s *Stat) attribute.KeyValue {
+			var role uint8
+			switch s.Type {
+			case StatTypeTCPFailedConnection:
+				role = s.TCPFailedConnection.Role
+			case StatTypeTCPRtt:
+				role = s.TCPRtt.Role
+			}
+			return attribute.String(string(attr.NetworkTCPHandshakeRole), networkTCPHandshakeRoleStr(role))
+		}
+
 	default:
 		getter = func(s *Stat) attribute.KeyValue { return attribute.String(string(name), s.CommonAttrs.Metadata[name]) }
 	}
@@ -79,5 +91,16 @@ func tcpFailReasonStr(reason uint8) string {
 		return string(Other)
 	default:
 		return string(Unknown)
+	}
+}
+
+func networkTCPHandshakeRoleStr(role uint8) string {
+	switch NetworkTCPHandshakeRoleCode(role) {
+	case CodeRoleClient:
+		return string(RoleClient)
+	case CodeRoleServer:
+		return string(RoleServer)
+	default:
+		return string(RoleUnknown)
 	}
 }

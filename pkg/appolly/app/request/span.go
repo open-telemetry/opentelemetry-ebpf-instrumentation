@@ -104,6 +104,8 @@ const (
 	HTTPSubtypeQwen          = 11 // http + Qwen (DashScope)
 	HTTPSubtypeMCP           = 12 // http + Model Context Protocol
 	HTTPSubtypeEmbedding     = 13 // http + generic embedding provider (Voyage, Cohere, Jina)
+	HTTPSubtypeRerank        = 14 // http + Rerank (Cohere, Jina, Voyage, etc.)
+	HTTPSubtypeRetrieval     = 15 // http + vector retrieval (Pinecone, Qdrant, Milvus, Chroma, Weaviate, etc.)
 )
 
 func IsGenAISubtype(subtype int) bool {
@@ -113,7 +115,9 @@ func IsGenAISubtype(subtype int) bool {
 		subtype == HTTPSubtypeQwen ||
 		subtype == HTTPSubtypeAWSBedrock ||
 		subtype == HTTPSubtypeMCP ||
-		subtype == HTTPSubtypeEmbedding
+		subtype == HTTPSubtypeEmbedding ||
+		subtype == HTTPSubtypeRerank ||
+		subtype == HTTPSubtypeRetrieval
 }
 
 //nolint:cyclop
@@ -279,14 +283,27 @@ type GenAI struct {
 	Bedrock   *VendorBedrock
 	MCP       *MCPCall
 	Embedding *VendorEmbedding
+	Rerank    *VendorRerank
+	Retrieval *VendorRetrieval
+}
+
+type OpenAIPromptTokensDetails struct {
+	CachedTokens        int `json:"cached_tokens,omitempty"`
+	CacheCreationTokens int `json:"cache_creation_tokens,omitempty"`
 }
 
 type OpenAIUsage struct {
-	InputTokens      int `json:"input_tokens"`
-	OutputTokens     int `json:"output_tokens"`
-	TotalTokens      int `json:"total_tokens"`
-	PromptTokens     int `json:"prompt_tokens"`
-	CompletionTokens int `json:"completion_tokens"`
+	InputTokens         int                        `json:"input_tokens"`
+	OutputTokens        int                        `json:"output_tokens"`
+	TotalTokens         int                        `json:"total_tokens"`
+	PromptTokens        int                        `json:"prompt_tokens"`
+	CompletionTokens    int                        `json:"completion_tokens"`
+	CompletionDetails   *OpenAICompletionDetails   `json:"completion_tokens_details,omitempty"`
+	PromptTokensDetails *OpenAIPromptTokensDetails `json:"prompt_tokens_details,omitempty"`
+}
+
+type OpenAICompletionDetails struct {
+	ReasoningTokens int `json:"reasoning_tokens,omitempty"`
 }
 
 func (u *OpenAIUsage) GetInputTokens() int {
@@ -320,78 +337,124 @@ type OpenAIError struct {
 	Type    string `json:"type"`
 }
 
+// ToolCall represents a tool invocation requested by an LLM.
+type ToolCall struct {
+	ID   string `json:"id,omitempty"`
+	Name string `json:"name"`
+}
+
 type VendorOpenAI struct {
-	OperationName    string          `json:"object"`
-	ResponseModel    string          `json:"model"`
-	Error            OpenAIError     `json:"error"`
-	ID               string          `json:"id"`
-	FrequencyPenalty float64         `json:"frequency_penalty"`
-	Temperature      float64         `json:"temperature"`
-	TopP             float64         `json:"top_p"`
-	Usage            OpenAIUsage     `json:"usage"`
-	Output           json.RawMessage `json:"output"`
-	Request          OpenAIInput
-	Choices          json.RawMessage `json:"choices"`
-	Items            json.RawMessage `json:"items"`
-	Metadata         json.RawMessage `json:"metadata"`
-	Data             json.RawMessage `json:"data"`
+	OperationName     string          `json:"object"`
+	ResponseModel     string          `json:"model"`
+	Error             OpenAIError     `json:"error"`
+	ID                string          `json:"id"`
+	FrequencyPenalty  float64         `json:"frequency_penalty"`
+	Temperature       float64         `json:"temperature"`
+	TopP              float64         `json:"top_p"`
+	Usage             OpenAIUsage     `json:"usage"`
+	Output            json.RawMessage `json:"output"`
+	Request           OpenAIInput
+	Choices           json.RawMessage `json:"choices"`
+	Items             json.RawMessage `json:"items"`
+	Metadata          json.RawMessage `json:"metadata"`
+	Data              json.RawMessage `json:"data"`
+	ServiceTier       string          `json:"service_tier,omitempty"`
+	SystemFingerprint string          `json:"system_fingerprint,omitempty"`
+	APIType           string          `json:"-"`
+	ToolCalls         []ToolCall      `json:"-"`
+}
+
+func (ai *VendorOpenAI) GetFinishReasons() []string {
+	if len(ai.Choices) == 0 {
+		return nil
+	}
+	var choices []struct {
+		FinishReason string `json:"finish_reason"`
+	}
+	if err := json.Unmarshal(ai.Choices, &choices); err != nil {
+		return nil
+	}
+	var reasons []string
+	for _, c := range choices {
+		if c.FinishReason != "" {
+			reasons = append(reasons, c.FinishReason)
+		}
+	}
+	return reasons
 }
 
 func (ai *VendorOpenAI) GetOutput() string {
-	if len(ai.Output) > 0 {
-		return string(ai.Output)
-	}
-
-	if len(ai.Items) > 0 {
-		return string(ai.Items)
-	}
-
-	if len(ai.Data) > 0 {
-		return string(ai.Data)
-	}
-
-	return string(ai.Choices)
+	return normalizeOpenAIOutput(ai)
 }
 
 type OpenAIInput struct {
-	Input        string          `json:"input"`
-	Prompt       string          `json:"prompt"`
-	Model        string          `json:"model"`
-	Instructions string          `json:"instructions"`
-	Messages     json.RawMessage `json:"messages"`
-	Items        json.RawMessage `json:"items"`
-	Temperature  float64         `json:"temperature"`
-	Dimensions   int             `json:"dimensions,omitempty"`
+	Input           string          `json:"input"`
+	Prompt          string          `json:"prompt"`
+	Model           string          `json:"model"`
+	Instructions    string          `json:"instructions"`
+	Messages        json.RawMessage `json:"messages"`
+	Items           json.RawMessage `json:"items"`
+	Temperature     float64         `json:"temperature"`
+	Dimensions      int             `json:"dimensions,omitempty"`
+	MaxTokens       int             `json:"max_tokens,omitempty"`
+	N               int             `json:"n,omitempty"`
+	Stop            json.RawMessage `json:"stop,omitempty"`
+	PresencePenalty float64         `json:"presence_penalty,omitempty"`
+	Stream          bool            `json:"stream,omitempty"`
+	EncodingFormat  string          `json:"encoding_format,omitempty"`
+	Seed            *int            `json:"seed,omitempty"`
+	Tools           json.RawMessage `json:"tools,omitempty"`
+	ServiceTier     string          `json:"service_tier,omitempty"`
+}
+
+func (air *OpenAIInput) GetStopSequences() []string {
+	if len(air.Stop) == 0 {
+		return nil
+	}
+	var arr []string
+	if err := json.Unmarshal(air.Stop, &arr); err == nil {
+		return arr
+	}
+	var s string
+	if err := json.Unmarshal(air.Stop, &s); err == nil {
+		return []string{s}
+	}
+	return nil
 }
 
 func (air *OpenAIInput) GetInput() string {
 	if len(air.Input) > 0 {
-		return air.Input
+		return wrapTextAsInputMessage(air.Input)
 	}
 
 	if len(air.Prompt) > 0 {
-		return air.Prompt
+		return wrapTextAsInputMessage(air.Prompt)
 	}
 
 	if len(air.Items) > 0 {
 		return string(air.Items)
 	}
 
-	return string(air.Messages)
+	return normalizeOpenAIMessages(air.Messages)
 }
 
 type VendorAnthropic struct {
-	Input  AnthropicRequest
-	Output AnthropicResponse
+	Input     AnthropicRequest
+	Output    AnthropicResponse
+	ToolCalls []ToolCall `json:"-"`
 }
 
 type AnthropicRequest struct {
-	MaxTokens int             `json:"max_tokens"`
-	Messages  json.RawMessage `json:"messages"`
-	Model     string          `json:"model"`
-	Stream    bool            `json:"stream"`
-	System    string          `json:"system"`
-	Tools     json.RawMessage `json:"tools"`
+	MaxTokens     int             `json:"max_tokens"`
+	Messages      json.RawMessage `json:"messages"`
+	Model         string          `json:"model"`
+	Stream        bool            `json:"stream"`
+	System        string          `json:"system"`
+	Tools         json.RawMessage `json:"tools"`
+	Temperature   *float64        `json:"temperature,omitempty"`
+	TopP          *float64        `json:"top_p,omitempty"`
+	TopK          int             `json:"top_k,omitempty"`
+	StopSequences []string        `json:"stop_sequences,omitempty"`
 }
 
 type AnthropicResponse struct {
@@ -408,10 +471,13 @@ type AnthropicResponse struct {
 }
 
 type AnthropicUsage struct {
-	InputTokens  int    `json:"input_tokens"`
-	OutputTokens int    `json:"output_tokens"`
-	ServiceTier  string `json:"service_tier"`
-	InferenceGeo string `json:"inference_geo"`
+	InputTokens              int    `json:"input_tokens"`
+	OutputTokens             int    `json:"output_tokens"`
+	CacheCreationInputTokens int    `json:"cache_creation_input_tokens,omitempty"`
+	CacheReadInputTokens     int    `json:"cache_read_input_tokens,omitempty"`
+	ReasoningOutputTokens    int    `json:"reasoning_output_tokens,omitempty"`
+	ServiceTier              string `json:"service_tier"`
+	InferenceGeo             string `json:"inference_geo"`
 }
 
 type AnthropicError struct {
@@ -430,6 +496,8 @@ type VendorGemini struct {
 	Output    GeminiResponse
 	Model     string
 	Operation string
+	IsStream  bool
+	ToolCalls []ToolCall `json:"-"`
 }
 
 type GeminiRequest struct {
@@ -454,6 +522,7 @@ type GeminiGenCfg struct {
 	StopSequences    []string `json:"stopSequences,omitempty"`
 	Seed             *int     `json:"seed,omitempty"`
 	CandidateCount   int      `json:"candidateCount"`
+	ResponseMimeType string   `json:"responseMimeType,omitempty"`
 }
 
 type GeminiResponse struct {
@@ -502,19 +571,16 @@ func (g *VendorGemini) OperationName() string {
 }
 
 func (g *VendorGemini) GetOutput() string {
-	if len(g.Output.Candidates) > 0 && g.Output.Candidates[0].Content != nil {
-		return string(g.Output.Candidates[0].Content.Parts)
-	}
-	return ""
+	return normalizeGeminiOutput(&g.Output)
 }
 
 func (g *VendorGemini) GetInput() string {
-	return string(g.Input.Contents)
+	return normalizeGeminiInput(g.Input.Contents)
 }
 
 func (g *VendorGemini) GetSystemInstruction() string {
 	if g.Input.SystemInstruction != nil {
-		return string(g.Input.SystemInstruction.Parts)
+		return normalizeGeminiParts(g.Input.SystemInstruction.Parts)
 	}
 	return ""
 }
@@ -524,9 +590,11 @@ func (g *VendorGemini) GetSystemInstruction() string {
 // We capture the unified superset using omitempty and RawMessage for variable fields.
 
 type VendorBedrock struct {
-	Input  BedrockRequest
-	Output BedrockResponse
-	Model  string // extracted from URL path: /model/{modelId}/invoke
+	Input       BedrockRequest
+	Output      BedrockResponse
+	Model       string // extracted from URL path: /model/{modelId}/invoke
+	IsStream    bool
+	GuardrailID string
 }
 
 // BedrockRequest covers the common fields across all model families.
@@ -547,7 +615,8 @@ type BedrockRequest struct {
 	Prompt    string `json:"prompt,omitempty"`
 	MaxGenLen int    `json:"max_gen_len,omitempty"`
 	// Tool use (Claude / Nova)
-	Tools json.RawMessage `json:"tools,omitempty"`
+	Tools         json.RawMessage `json:"tools,omitempty"`
+	StopSequences []string        `json:"stop_sequences,omitempty"`
 }
 
 type TitanGenConfig struct {
@@ -601,39 +670,43 @@ type TitanResult struct {
 
 func (b *VendorBedrock) GetInput() string {
 	if len(b.Input.Messages) > 0 {
-		return string(b.Input.Messages)
+		return NormalizeAnthropicInput(b.Input.Messages)
 	}
 	if b.Input.Prompt != "" {
-		return b.Input.Prompt
+		return wrapTextAsInputMessage(b.Input.Prompt)
 	}
 	if b.Input.InputText != "" {
-		return b.Input.InputText
+		return wrapTextAsInputMessage(b.Input.InputText)
 	}
 	return ""
 }
 
 func (b *VendorBedrock) GetOutput() string {
-	// Anthropic Claude: content array
+	// Anthropic Claude: content array (normalized via NormalizeBedrockOutput in tracesgen)
 	if len(b.Output.Content) > 0 {
 		return string(b.Output.Content)
 	}
 	// Amazon Nova: output.message.content
 	if b.Output.Output != nil && b.Output.Output.Message != nil && len(b.Output.Output.Message.Content) > 0 {
-		return string(b.Output.Output.Message.Content)
+		return wrapTextAsOutputMessage(
+			b.Output.Output.Message.Role,
+			string(b.Output.Output.Message.Content),
+			b.Output.StopReasonNova,
+		)
 	}
 	// Meta Llama: generation
 	if b.Output.Generation != "" {
-		return b.Output.Generation
+		return wrapTextAsOutputMessage("assistant", b.Output.Generation, b.GetStopReason())
 	}
 	// Amazon Titan: results[0].outputText
 	if len(b.Output.Results) > 0 {
-		return b.Output.Results[0].OutputText
+		return wrapTextAsOutputMessage("assistant", b.Output.Results[0].OutputText, b.Output.Results[0].CompletionReason)
 	}
 	return ""
 }
 
 func (b *VendorBedrock) GetSystemInstruction() string {
-	return b.Input.System
+	return NormalizeSystemInstructions(b.Input.System)
 }
 
 func (b *VendorBedrock) GetStopReason() string {
@@ -678,8 +751,14 @@ type JSONRPC struct {
 
 // Generic embedding provider types (Voyage AI, Cohere, Jina AI)
 
-// EmbeddingOperationName is the canonical operation name for embedding spans.
-const EmbeddingOperationName = "embeddings"
+// GenAI operation name constants aligned with OTel semantic conventions.
+const (
+	ChatOperationName        = "chat"
+	CompletionOperationName  = "text_completion"
+	GenerationOperationName  = "generation"
+	InvokeModelOperationName = "invoke_model"
+	EmbeddingOperationName   = "embeddings"
+)
 
 // VendorEmbedding represents a generic embedding API provider such as
 // Voyage AI, Cohere, or Jina AI.
@@ -768,6 +847,158 @@ func (e *VendorEmbedding) GetOutputTokens() int {
 		return e.Output.Usage.TotalTokens - e.Output.Usage.PromptTokens
 	}
 	return 0
+}
+
+// VendorRerank holds parsed data from a rerank API request/response.
+// Reranking services (Cohere, Jina AI, Voyage AI, etc.) share a similar
+// REST API shape: POST /v1/rerank with a JSON body containing model,
+// query, and documents.  The provider is identified from the request
+// hostname.
+type VendorRerank struct {
+	Input    RerankRequest
+	Output   RerankResponse
+	Provider string
+}
+
+type RerankRequest struct {
+	Model     string          `json:"model"`
+	Query     string          `json:"query"`
+	TopN      int             `json:"top_n"`
+	Documents json.RawMessage `json:"documents"`
+}
+
+type RerankResponse struct {
+	ID      string          `json:"id"`
+	Model   string          `json:"model"`
+	Results json.RawMessage `json:"results"`
+	Usage   RerankUsage     `json:"usage"`
+	Meta    *RerankMeta     `json:"meta,omitempty"`
+	Error   *RerankError    `json:"error,omitempty"`
+}
+
+// RerankMeta represents Cohere-style metadata in the rerank response.
+type RerankMeta struct {
+	BilledUnits *RerankBilledUnits `json:"billed_units,omitempty"`
+	Tokens      *RerankMetaTokens  `json:"tokens,omitempty"`
+}
+
+type RerankBilledUnits struct {
+	SearchUnits float64 `json:"search_units"`
+}
+
+type RerankMetaTokens struct {
+	InputTokens int `json:"input_tokens"`
+}
+
+type RerankUsage struct {
+	TotalTokens  int `json:"total_tokens"`
+	PromptTokens int `json:"prompt_tokens"`
+	SearchUnits  int `json:"search_units"`
+}
+
+func (u *RerankUsage) GetInputTokens() int {
+	if u.PromptTokens > 0 {
+		return u.PromptTokens
+	}
+	return u.TotalTokens
+}
+
+// GetTotalTokens returns the total token count from any supported response
+// format.  It checks usage.total_tokens (Jina/Voyage), then
+// usage.prompt_tokens, and finally falls back to meta.tokens.input_tokens
+// (Cohere).
+func (r *RerankResponse) GetTotalTokens() int {
+	if r.Usage.TotalTokens > 0 {
+		return r.Usage.TotalTokens
+	}
+	if r.Usage.PromptTokens > 0 {
+		return r.Usage.PromptTokens
+	}
+	if r.Meta != nil && r.Meta.Tokens != nil && r.Meta.Tokens.InputTokens > 0 {
+		return r.Meta.Tokens.InputTokens
+	}
+	return 0
+}
+
+type RerankError struct {
+	Type    string `json:"type"`
+	Message string `json:"message"`
+}
+
+// Vector retrieval provider types (Pinecone, Qdrant, Milvus, Chroma, Weaviate, etc.)
+
+// RetrievalOperationName is the canonical operation name for vector
+// retrieval spans, aligned with the OpenTelemetry GenAI semantic
+// conventions (gen_ai.operation.name = "retrieval").
+const RetrievalOperationName = "retrieval"
+
+// VendorRetrieval holds parsed data from a vector database retrieval
+// (similarity search) request/response. Vector stores differ significantly
+// in their request/response shape, so both Input and Output keep only the
+// fields that are common or easy to recover across providers.
+type VendorRetrieval struct {
+	Provider string
+	Input    RetrievalRequest
+	Output   RetrievalResponse
+}
+
+// OperationName returns the canonical retrieval operation name.
+func (r *VendorRetrieval) OperationName() string {
+	return RetrievalOperationName
+}
+
+// GetCollection returns the collection / index / namespace name, checking
+// the provider-specific aliases in order.
+func (r *VendorRetrieval) GetCollection() string {
+	if r.Input.Collection != "" {
+		return r.Input.Collection
+	}
+	if r.Input.CollectionName != "" {
+		return r.Input.CollectionName
+	}
+	if r.Input.CollectionSnake != "" {
+		return r.Input.CollectionSnake
+	}
+	return r.Input.Namespace
+}
+
+// RetrievalRequest captures the common fields from vector search request
+// bodies across Pinecone, Qdrant, Milvus, Chroma and Weaviate. Unknown
+// fields are ignored; missing fields are harmless.
+type RetrievalRequest struct {
+	// Model is the embedding model used, when reported by the request body
+	// (rarely present; most vector stores do not require a model).
+	Model string `json:"model,omitempty"`
+	// Collection / index name when the provider places it in the body
+	// (Pinecone uses namespace, Milvus uses collectionName, Chroma uses collection).
+	Collection      string `json:"collection,omitempty"`
+	CollectionName  string `json:"collectionName,omitempty"`
+	CollectionSnake string `json:"collection_name,omitempty"`
+	Namespace       string `json:"namespace,omitempty"`
+}
+
+// RetrievalResponse captures the common fields from vector search response
+// bodies.
+type RetrievalResponse struct {
+	ID    string         `json:"id,omitempty"`
+	Model string         `json:"model,omitempty"`
+	Usage RetrievalUsage `json:"usage,omitempty"`
+}
+
+// RetrievalUsage captures optional token usage information returned by
+// embedding-aware vector stores.
+type RetrievalUsage struct {
+	TotalTokens  int `json:"total_tokens,omitempty"`
+	PromptTokens int `json:"prompt_tokens,omitempty"`
+}
+
+// GetInputTokens returns the input token count, preferring prompt_tokens
+// and falling back to total_tokens. Returns zero when not reported.
+func (r *VendorRetrieval) GetInputTokens() int {
+	if r.Output.Usage.PromptTokens > 0 {
+		return r.Output.Usage.PromptTokens
+	}
+	return r.Output.Usage.TotalTokens
 }
 
 // Span contains the information being submitted by the following nodes in the graph.
@@ -1159,22 +1390,31 @@ func SpanStatusCode(span *Span) string {
 	return StatusCodeUnset
 }
 
+func SpanDBStatusMessage(span *Span, dbError string) string {
+	if span.Status != 0 && dbError != "" {
+		return dbError
+	}
+	return ""
+}
+
+func (s *Span) IsDBSpan() bool {
+	switch s.Type {
+	case EventTypeRedisClient, EventTypeRedisServer, EventTypeMongoClient, EventTypeCouchbaseClient, EventTypeMemcachedClient, EventTypeMemcachedServer, EventTypeSQLClient, EventTypeSQLServer:
+		return true
+	case EventTypeHTTPClient:
+		if s.SubType == HTTPSubtypeSQLPP {
+			return true
+		}
+	}
+
+	return false
+}
+
 func SpanStatusMessage(span *Span) string {
 	switch span.Type {
-	case EventTypeRedisClient, EventTypeRedisServer, EventTypeMongoClient, EventTypeCouchbaseClient, EventTypeMemcachedClient, EventTypeMemcachedServer:
-		if span.Status != 0 && span.DBError.Description != "" {
-			return span.DBError.Description
-		}
-	case EventTypeSQLClient, EventTypeSQLServer:
-		if span.Status != 0 && span.SQLError != nil {
-			return span.SQLErrorDescription()
-		}
 	case EventTypeManualSpan:
 		return span.Path
 	case EventTypeHTTPClient:
-		if span.SubType == HTTPSubtypeSQLPP && span.Status != 0 && span.DBError.Description != "" {
-			return span.DBError.Description
-		}
 		if span.SubType == HTTPSubtypeJSONRPC && span.JSONRPC != nil && span.JSONRPC.ErrorMessage != "" {
 			return span.JSONRPC.ErrorMessage
 		}
@@ -1227,6 +1467,9 @@ func HTTPSpanStatusCode(span *Span) string {
 					return StatusCodeError
 				}
 				if span.GenAI.Bedrock != nil && span.GenAI.Bedrock.Output.ErrorType != "" {
+					return StatusCodeError
+				}
+				if span.GenAI.Rerank != nil && span.GenAI.Rerank.Output.Error != nil && span.GenAI.Rerank.Output.Error.Type != "" {
 					return StatusCodeError
 				}
 			}
@@ -1438,9 +1681,9 @@ func (s *Span) TraceName() string {
 
 		if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeAWSBedrock && s.GenAI != nil && s.GenAI.Bedrock != nil {
 			if s.GenAI.Bedrock.Model != "" {
-				return "invoke_model " + s.GenAI.Bedrock.Model
+				return InvokeModelOperationName + " " + s.GenAI.Bedrock.Model
 			}
-			return "invoke_model"
+			return InvokeModelOperationName
 		}
 
 		if s.SubType == HTTPSubtypeMCP && s.GenAI != nil && s.GenAI.MCP != nil {
@@ -1461,6 +1704,27 @@ func (s *Span) TraceName() string {
 				return op + " " + model
 			}
 			return op
+		}
+
+		if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeRerank && s.GenAI != nil && s.GenAI.Rerank != nil {
+			model := s.GenAI.Rerank.Input.Model
+			if model == "" {
+				model = s.GenAI.Rerank.Output.Model
+			}
+			if model != "" {
+				return "rerank " + model
+			}
+			return "rerank"
+		}
+
+		if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeRetrieval && s.GenAI != nil && s.GenAI.Retrieval != nil {
+			if name := s.GenAI.Retrieval.GetCollection(); name != "" {
+				return RetrievalOperationName + " " + name
+			}
+			if s.GenAI.Retrieval.Provider != "" {
+				return RetrievalOperationName + " " + s.GenAI.Retrieval.Provider
+			}
+			return RetrievalOperationName
 		}
 
 		if s.SubType == HTTPSubtypeJSONRPC && s.JSONRPC != nil {
@@ -1694,7 +1958,10 @@ func (s *Span) GenAIInputTokens() int {
 	}
 
 	if s.GenAI.Anthropic != nil {
-		return s.GenAI.Anthropic.Output.Usage.InputTokens
+		// Per Anthropic semconv: input_tokens excludes cached tokens.
+		// Total = input_tokens + cache_read + cache_creation.
+		u := s.GenAI.Anthropic.Output.Usage
+		return u.InputTokens + u.CacheReadInputTokens + u.CacheCreationInputTokens
 	}
 
 	if s.GenAI.Gemini != nil {
@@ -1711,6 +1978,14 @@ func (s *Span) GenAIInputTokens() int {
 
 	if s.GenAI.Embedding != nil {
 		return s.GenAI.Embedding.GetInputTokens()
+	}
+
+	if s.GenAI.Rerank != nil {
+		return s.GenAI.Rerank.Output.GetTotalTokens()
+	}
+
+	if s.GenAI.Retrieval != nil {
+		return s.GenAI.Retrieval.GetInputTokens()
 	}
 
 	return 0
@@ -1765,10 +2040,16 @@ func (s *Span) GenAIOperationName() string {
 		return s.GenAI.Qwen.OperationName
 	}
 	if s.GenAI.Bedrock != nil {
-		return "invoke_model"
+		return InvokeModelOperationName
 	}
 	if s.GenAI.Embedding != nil {
 		return s.GenAI.Embedding.OperationName()
+	}
+	if s.GenAI.Rerank != nil {
+		return "rerank"
+	}
+	if s.GenAI.Retrieval != nil {
+		return s.GenAI.Retrieval.OperationName()
 	}
 	return ""
 }
@@ -1794,6 +2075,12 @@ func (s *Span) GenAIProviderName() string {
 	}
 	if s.GenAI.Embedding != nil {
 		return s.GenAI.Embedding.Provider
+	}
+	if s.GenAI.Rerank != nil {
+		return s.GenAI.Rerank.Provider
+	}
+	if s.GenAI.Retrieval != nil {
+		return s.GenAI.Retrieval.Provider
 	}
 	return ""
 }
@@ -1822,6 +2109,12 @@ func (s *Span) GenAIRequestModel() string {
 			return s.GenAI.Embedding.Input.Model
 		}
 		return s.GenAI.Embedding.Model
+	}
+	if s.GenAI.Rerank != nil {
+		return s.GenAI.Rerank.Input.Model
+	}
+	if s.GenAI.Retrieval != nil {
+		return s.GenAI.Retrieval.Input.Model
 	}
 	return ""
 }
@@ -1856,6 +2149,18 @@ func (s *Span) GenAIResponseModel() string {
 			return s.GenAI.Embedding.Output.Model
 		}
 		return s.GenAI.Embedding.Model
+	}
+	if s.GenAI.Rerank != nil {
+		if s.GenAI.Rerank.Output.Model != "" {
+			return s.GenAI.Rerank.Output.Model
+		}
+		return s.GenAI.Rerank.Input.Model
+	}
+	if s.GenAI.Retrieval != nil {
+		if s.GenAI.Retrieval.Output.Model != "" {
+			return s.GenAI.Retrieval.Output.Model
+		}
+		return s.GenAI.Retrieval.Input.Model
 	}
 	return ""
 }

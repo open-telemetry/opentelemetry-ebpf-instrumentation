@@ -1,0 +1,51 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+        max_recv_msg_size_mib: 100
+      http:
+        endpoint: 0.0.0.0:4318
+        cors:
+          allowed_origins:
+            - "http://*"
+            - "https://*"
+exporters:
+  prometheus:
+    endpoint: "otelcol:9464"
+    resource_to_telemetry_conversion:
+      enabled: true
+    enable_open_metrics: true
+  otlphttp/jaeger:
+    endpoint: http://jaeger:4318
+    tls:
+      insecure: true
+  # See note in otelcol-config-weaver.yml — weaver tap is bounded and
+  # non-blocking so it never back-pressures the production exporters.
+  otlp/weaver:
+    endpoint: weaver:4317
+    tls:
+      insecure: true
+    compression: none
+    sending_queue:
+      enabled: true
+      queue_size: 500
+      block_on_overflow: false
+    retry_on_failure:
+      enabled: false
+  debug/traces:
+    verbosity: detailed
+service:
+  pipelines:
+    metrics:
+      receivers: [otlp]
+      exporters: [prometheus]
+    traces:
+      receivers: [otlp]
+      exporters: [otlphttp/jaeger, debug/traces]
+    metrics/weaver:
+      receivers: [otlp]
+      exporters: [otlp/weaver]
+    traces/weaver:
+      receivers: [otlp]
+      exporters: [otlp/weaver]

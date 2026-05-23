@@ -1,4 +1,4 @@
-FROM golang:1.25.8@sha256:f55a6ec7f24aedc1ed66e2641fdc52de01f2d24d6e49d1fa38582c07dd5f601d AS builder
+FROM golang:1.25.10@sha256:315d6d304226d0180a011ead57af82c9fe16f84fcf0eaa17d11034a53f63fbc4 AS builder
 
 WORKDIR /src/go.opentelemetry.io/obi/internal/test/integration/components/old_grpc/
 

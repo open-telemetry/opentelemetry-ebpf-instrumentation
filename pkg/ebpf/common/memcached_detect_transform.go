@@ -5,6 +5,7 @@ package ebpfcommon // import "go.opentelemetry.io/obi/pkg/ebpf/common"
 
 import (
 	"bytes"
+	"math"
 	"strconv"
 	"strings"
 	"unsafe"
@@ -20,6 +21,25 @@ const (
 	memcachedDelim       = "\r\n"
 	minMemcachedFrameLen = 3
 )
+
+// https://github.com/memcached/memcached/blob/master/doc/protocol.txt
+// memcachedFirstByteBitmap is the set of valid first-byte characters for any
+// memcached text-protocol frame: classic command letters (lowercase), classic
+// response keywords (uppercase first letters), numeric reply lines (digits),
+// plus the meta-protocol additions ('m' for mg/ms/md/me/ma/mn; 'H' for HD; 'M'
+// for ME/MN). O(1) prefilter that rejects ~87% of random byte values before
+// scanning for the CRLF line terminator.
+var memcachedFirstByteBitmap = func() [4]uint64 {
+	var m [4]uint64
+	for _, c := range []byte("acdfgimprstvVESNDTOCHM0123456789") {
+		m[c>>6] |= 1 << (c & 63)
+	}
+	return m
+}()
+
+func isMemcachedFirstByte(b byte) bool {
+	return memcachedFirstByteBitmap[b>>6]&(1<<(b&63)) != 0
+}
 
 var (
 	memcachedDelimBytes = []byte(memcachedDelim)
@@ -46,6 +66,14 @@ type memcachedParseResult struct {
 
 func isMemcachedBuf(buf *largebuf.LargeBuffer) bool {
 	if buf.Len() < minMemcachedFrameLen {
+		return false
+	}
+
+	// Cheap prefilter: every memcached text frame starts with a command
+	// letter, a response keyword, or a digit. Reject anything else without
+	// scanning the buffer for a CRLF that doesn't exist.
+	first, err := buf.U8At(0)
+	if err != nil || !isMemcachedFirstByte(first) {
 		return false
 	}
 
@@ -322,6 +350,9 @@ func memcachedNormalizeCommand(token string) string {
 func memcachedConsumeStoragePayload(r *largebuf.LargeBufferReader, fields [][]byte, op string) bool {
 	bytesField, ok := memcachedCommandBytesField(fields, op)
 	if !ok {
+		return false
+	}
+	if bytesField > math.MaxInt-len(memcachedDelimBytes) {
 		return false
 	}
 

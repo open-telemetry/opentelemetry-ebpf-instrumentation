@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"fmt"
 	"io"
 	"log/slog"
 	"sync/atomic"
@@ -20,6 +21,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
+	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	"go.opentelemetry.io/obi/pkg/config"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/ringbuf"
@@ -36,7 +38,7 @@ func TestForwardRingbuf_CapacityFull(t *testing.T) {
 	forwardedMessagesQueue := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(100))
 	forwardedMessages := forwardedMessagesQueue.Subscribe()
 	fltr := TestPidsFilter{services: map[app.PID]svc.Attrs{}}
-	fltr.AllowPID(1, 1, &svc.Attrs{UID: svc.UID{Name: "myService"}}, PIDTypeGo)
+	fltr.AllowPID(1, 1, exec.New(exec.Init{Service: svc.Attrs{UID: svc.UID{Name: "myService"}}}), PIDTypeGo)
 	cfg := &config.EBPFTracer{BatchLength: 10}
 	go ForwardRingbuf(
 		cfg,
@@ -94,7 +96,7 @@ func TestForwardRingbuf_Deadline(t *testing.T) {
 	forwardedMessagesQueue := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(100))
 	forwardedMessages := forwardedMessagesQueue.Subscribe()
 	fltr := TestPidsFilter{services: map[app.PID]svc.Attrs{}}
-	fltr.AllowPID(1, 1, &svc.Attrs{UID: svc.UID{Name: "myService"}}, PIDTypeGo)
+	fltr.AllowPID(1, 1, exec.New(exec.Init{Service: svc.Attrs{UID: svc.UID{Name: "myService"}}}), PIDTypeGo)
 	cfg := &config.EBPFTracer{BatchLength: 10, BatchTimeout: 20 * time.Millisecond}
 	go ForwardRingbuf(
 		cfg,
@@ -176,6 +178,47 @@ func TestForwardRingbuf_Close(t *testing.T) {
 	// AND metrics haven't been updated
 	assert.Equal(t, 0, metrics.flushes)
 	assert.Equal(t, 0, metrics.flushedLen)
+}
+
+func TestForwardRingbuf_NoEventLoss(t *testing.T) {
+	const N = 10000
+	for _, batchLen := range []int{1, 10, 100} {
+		t.Run(fmt.Sprintf("batchLen=%d", batchLen), func(t *testing.T) {
+			ringBuf := replaceTestRingBuf()
+			cfg := &config.EBPFTracer{
+				BatchLength:  batchLen,
+				BatchTimeout: 10 * time.Millisecond,
+			}
+			out := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(N/batchLen + 10))
+			sub := out.Subscribe()
+
+			go ForwardRingbuf(
+				cfg, nil,
+				func(_ *ringbuf.Record) (request.Span, bool, error) {
+					return request.Span{Type: 1}, false, nil
+				},
+				nil,
+				slog.New(slog.NewTextHandler(io.Discard, nil)),
+				&metricsReporter{},
+			)(t.Context(), out)
+
+			for range N {
+				ringBuf.events <- HTTPRequestTrace{Type: 1}
+			}
+
+			received := 0
+			deadline := time.After(10 * time.Second)
+			for received < N {
+				select {
+				case batch := <-sub:
+					received += len(batch)
+				case <-deadline:
+					t.Fatalf("timeout: got %d/%d events", received, N)
+				}
+			}
+			assert.Equal(t, N, received)
+		})
+	}
 }
 
 func TestRingbufLastReadAtRace(t *testing.T) {
@@ -356,8 +399,8 @@ type TestPidsFilter struct {
 	services map[app.PID]svc.Attrs
 }
 
-func (pf *TestPidsFilter) AllowPID(p app.PID, _ uint32, s *svc.Attrs, _ PIDType) {
-	pf.services[p] = *s
+func (pf *TestPidsFilter) AllowPID(p app.PID, _ uint32, fi *exec.FileInfo, _ PIDType) {
+	pf.services[p] = fi.ServiceAttrs()
 }
 
 func (pf *TestPidsFilter) BlockPID(p app.PID, _ uint32) {

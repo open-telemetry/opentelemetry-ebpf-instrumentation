@@ -6,6 +6,7 @@ package ebpfcommon
 import (
 	"bytes"
 	"compress/gzip"
+	"encoding/json"
 	"io"
 	"net/http"
 	"strings"
@@ -165,7 +166,7 @@ func TestOpenAISpan_ChatCompletions(t *testing.T) {
 
 	ai := span.GenAI.OpenAI
 	assert.Equal(t, "chatcmpl-DBTg5Ms2mJhaAhZ56Wq8QSf2djw3S", ai.ID)
-	assert.Equal(t, "chat.completion", ai.OperationName)
+	assert.Equal(t, "chat", ai.OperationName)
 	assert.Equal(t, "gpt-4o-mini-2024-07-18", ai.ResponseModel)
 	assert.Equal(t, 396, ai.Usage.GetInputTokens())
 	assert.Equal(t, 816, ai.Usage.GetOutputTokens())
@@ -252,9 +253,9 @@ func TestOpenAISpan_UsageTokenHelpers(t *testing.T) {
 }
 
 func TestOpenAISpan_GetOutput(t *testing.T) {
-	// output field populated (responses API)
-	ai := &request.VendorOpenAI{Output: []byte(`[{"type":"message"}]`)}
-	assert.JSONEq(t, `[{"type":"message"}]`, ai.GetOutput())
+	// output field populated (responses API) - normalized to semconv schema
+	ai := &request.VendorOpenAI{Output: []byte(`[{"type":"message","status":"completed","content":[{"type":"output_text","text":"Arrr!"}],"role":"assistant"}]`)}
+	assert.JSONEq(t, `[{"role":"assistant","parts":[{"type":"text","content":"Arrr!"}],"finish_reason":"completed"}]`, ai.GetOutput())
 
 	// items fallback
 	ai2 := &request.VendorOpenAI{Items: []byte(`[{"item":1}]`)}
@@ -264,23 +265,23 @@ func TestOpenAISpan_GetOutput(t *testing.T) {
 	ai3 := &request.VendorOpenAI{Data: []byte(`[{"id":"emb-1"}]`)}
 	assert.JSONEq(t, `[{"id":"emb-1"}]`, ai3.GetOutput())
 
-	// choices fallback (completions API)
-	ai4 := &request.VendorOpenAI{Choices: []byte(`[{"index":0}]`)}
-	assert.JSONEq(t, `[{"index":0}]`, ai4.GetOutput())
+	// choices fallback (completions API) - normalized to semconv schema
+	ai4 := &request.VendorOpenAI{Choices: []byte(`[{"index":0,"message":{"role":"assistant","content":"test"},"finish_reason":"stop"}]`)}
+	assert.JSONEq(t, `[{"role":"assistant","parts":[{"type":"text","content":"test"}],"finish_reason":"stop"}]`, ai4.GetOutput())
 }
 
 func TestOpenAIInput_GetInput(t *testing.T) {
-	// direct input string
+	// direct input string - wrapped as input message
 	inp := &request.OpenAIInput{Input: "hello"}
-	assert.Equal(t, "hello", inp.GetInput())
+	assert.JSONEq(t, `[{"role":"user","parts":[{"type":"text","content":"hello"}]}]`, inp.GetInput())
 
-	// prompt fallback (completions v1)
+	// prompt fallback (completions v1) - wrapped as input message
 	inp2 := &request.OpenAIInput{Prompt: "pirate prompt"}
-	assert.Equal(t, "pirate prompt", inp2.GetInput())
+	assert.JSONEq(t, `[{"role":"user","parts":[{"type":"text","content":"pirate prompt"}]}]`, inp2.GetInput())
 
-	// messages fallback
+	// messages fallback - normalized to semconv schema (null parts when no content)
 	inp3 := &request.OpenAIInput{Messages: []byte(`[{"role":"user"}]`)}
-	assert.JSONEq(t, `[{"role":"user"}]`, inp3.GetInput())
+	assert.JSONEq(t, `[{"role":"user","parts":null}]`, inp3.GetInput())
 
 	// items fallback
 	inp4 := &request.OpenAIInput{Items: []byte(`[{"item":1}]`)}
@@ -305,6 +306,37 @@ const embeddingsResponseBody = `{
   }
 }`
 
+func TestOpenAIToolCalls(t *testing.T) {
+	t.Run("single tool call", func(t *testing.T) {
+		choices := json.RawMessage(`[{"message":{"tool_calls":[{"id":"call_1","type":"function","function":{"name":"get_weather"}}]},"finish_reason":"tool_calls"}]`)
+		result := extractToolCalls(choices)
+		require.Len(t, result, 1)
+		assert.Equal(t, "call_1", result[0].ID)
+		assert.Equal(t, "get_weather", result[0].Name)
+	})
+
+	t.Run("multiple tool calls", func(t *testing.T) {
+		choices := json.RawMessage(`[{"message":{"tool_calls":[{"id":"call_1","type":"function","function":{"name":"get_weather"}},{"id":"call_2","type":"function","function":{"name":"get_time"}}]},"finish_reason":"tool_calls"}]`)
+		result := extractToolCalls(choices)
+		require.Len(t, result, 2)
+		assert.Equal(t, "call_1", result[0].ID)
+		assert.Equal(t, "get_weather", result[0].Name)
+		assert.Equal(t, "call_2", result[1].ID)
+		assert.Equal(t, "get_time", result[1].Name)
+	})
+
+	t.Run("no tool calls", func(t *testing.T) {
+		choices := json.RawMessage(`[{"message":{"content":"Hello"},"finish_reason":"stop"}]`)
+		result := extractToolCalls(choices)
+		assert.Empty(t, result)
+	})
+
+	t.Run("empty or nil choices", func(t *testing.T) {
+		assert.Nil(t, extractToolCalls(nil))
+		assert.Nil(t, extractToolCalls(json.RawMessage{}))
+	})
+}
+
 func TestOpenAISpan_Embeddings(t *testing.T) {
 	req := makeRequest(t, http.MethodPost, "http://api.openai.com/v1/embeddings", embeddingsRequestBody)
 	resp := makeGzipResponse(t, http.StatusOK, openAIHeaders(), embeddingsResponseBody)
@@ -324,5 +356,6 @@ func TestOpenAISpan_Embeddings(t *testing.T) {
 	// request fields
 	assert.Equal(t, "text-embedding-3-small", ai.Request.Model)
 	assert.Equal(t, 256, ai.Request.Dimensions)
-	assert.Equal(t, "The food was delicious", ai.Request.Input)
+	assert.Equal(t, "The food was delicious", ai.Request.Input) // raw field
+	assert.JSONEq(t, `[{"role":"user","parts":[{"type":"text","content":"The food was delicious"}]}]`, ai.Request.GetInput())
 }

@@ -1,87 +1,130 @@
 VIRTUAL MACHINE TESTS
 =====================
 
-Virtual Machine Tests (VM tests) enables OBI to be tested under different
-kernel versions and architectures. This works by exposing the path to the
-OBI source code (i.e. this git repository) to the guest by means of mounting
-it to the '/build' directory. This allows Makefile targets to be invoked from
-within the guest, in particular those tied to integration tests. Analogous to
-a Docker container, changes to the '/build' directory are volatile and are
-neither reflected on the host nor preserved once the VM terminates.
+VM Tests boot a QEMU guest against a selected Linux kernel and run OBI's
+integration and BPF-verifier test suites inside it. This allows OBI to be
+exercised against a matrix of kernel versions and architectures.
 
-The supported pre-compiled kernels can be found in the 'kernels/$arch/'
-subdirectory, alongside their respective kernel config files.
+The host's OBI source tree is shared into the guest via 9p (mount tag 'obi'),
+overlaid with /overlay/upper, and mounted at /build. Test outputs flow back
+through a second 9p mount (mount tag 'testout') so artifacts are available on
+the host after the VM exits. LVH-sourced kernels also receive their loadable
+modules through a third 9p mount (tag 'modules').
+
+
+KERNEL MATRIX
+=============
+
+All kernels are described in 'kernels.yaml'. Each entry declares:
+
+  - id:              short slug used as KERNEL_ID and in artifact filenames
+  - lvh_tag:         exact tag on quay.io/lvh-images/kernel-images, pinned to
+                     a dated build (e.g. "6.12-20260504.013701")
+  - pr_integration:  true => included in the PR-default integration matrix
+  - pr_verifier:     true => included in the PR-default verifier matrix
+
+Everything runs on amd64. arm64 was dropped because GitHub-hosted arm64
+runners don't expose nested KVM and TCG is ~12x slower — infeasible at
+PR scale.
+
+Steady state:
+  - 5.10-lts, 5.15-lts, 6.1-lts, 6.6-lts, 6.12-lts, 6.18-lts   LTS
+  - bpf, bpf-next                                               Dev trees
+  - rhel8.9, rhel8.10, rhel9.6                                  RHEL
+
+PR runs cover only the fast-lane integration kernels (5.15-lts + 6.18-lts).
+To include a kernel in PR runs, set 'pr_integration: true' (or
+'pr_verifier: true') on its kernels.yaml entry.
+
+
+KERNEL ARTIFACTS
+================
+
+Kernels are not committed to the repository. They are pulled on demand from
+'quay.io/lvh-images/kernel-images:<lvh_tag>' and cached under:
+
+    internal/test/vm/lvh/out/vmlinuz-${id}-${arch}
+    internal/test/vm/lvh/out/vmlinuz-${id}-${arch}.config
+    internal/test/vm/lvh/out/vmlinuz-${id}-${arch}.buildinfo
+    internal/test/vm/lvh/out/modules-${id}-${arch}/<release>/
+
+Each OCI artifact ships vmlinuz + .config + /lib/modules/<release> with all
+.ko files. The build pipeline used to produce these images is maintained by
+the Cilium project at github.com/cilium/little-vm-helper-images.
+
+To bump a kernel:
+
+  1. Find the desired tag at
+     https://quay.io/repository/lvh-images/kernel-images?tab=tags
+     (always prefer dated tags over the rolling '<id>-main' alias).
+  2. Update 'lvh_tag' in 'kernels.yaml'.
+  3. Done. CI re-pulls on the next run.
+
 
 USAGE
 =====
 
-Simply run 'make' to get started. This will build a new rootfs image and
-launch the VM using the default kernel specified in the Makefile. To select a
-different kernel version. The following environment variables can be used to
-specify the kernel version or architecture to run:
+Run integration tests inside the VM against a specific kernel:
 
-  - ARCH: the target architecture (currently only x86_64 is supported)
+    KERNEL_ID=6.18-lts make
 
-  - KERNEL_VER: the kernel version to use OR;
+Run the BPF verifier suite instead of integration tests:
 
-  - KERNEL: path the kernel image to use
+    TARGET_TEST=run-bpf-verifier-vm KERNEL_ID=6.12-lts make
 
-  - TARGET_TEST: the target to pass to OBI's toplevel Makefile (defaults to
-    run-integration-test-vm). When set to empty, the VM will drop onto an
-    interactive shell
+Boot with an explicit kernel path (overrides KERNEL_ID):
 
-For debugging purposes, the VM also exposes an SSH endpoint at port 2222. The
-access credentials are 'root:root'.
+    KERNEL=/tmp/bzImage MODULES_DIR=/tmp/modules make
 
-EXAMPLES
-========
+Drop into an interactive shell instead of running tests:
 
-Running tests against kernel 6.10.6
+    TARGET_TEST= KERNEL_ID=6.18-lts make
 
-    KERNEL_VER=6.10.6 make
+For interactive debugging, the qemu serial console (-nographic) attaches to
+your terminal; an agetty respawn auto-logs in as root on ttyS0.
 
-Running tests against a custom kernel
 
-    KERNEL=/tmp/bzImage make
+PULLING KERNELS LOCALLY
+=======================
 
-Running tests against kernel 6.10.6 invoking a custom target
+'lvh/pull-kernel.sh' fetches a single kernel from quay and extracts vmlinuz
+plus the modules tree:
 
-    TARGET_TEST=test KERNEL_VER=6.10.6 make
+    bash internal/test/vm/lvh/pull-kernel.sh 6.12-lts amd64
 
-Running an interactive shell
+'prepare-kernel.sh' wraps the pull for the Makefile and CI; it returns
+'KERNEL=' and 'MODULES_DIR=' assignments for eval and pulls on cache miss:
 
-    TARGET_TEST= make
+    eval "$(bash internal/test/vm/prepare-kernel.sh 6.12-lts amd64)"
 
-ADDING A NEW KERNEL VERSION
-===========================
 
-In order to add a new kernel version, you will need to download the
-corresponding sources from https://cdn.kernel.org/pub/linux/kernel/ and
-configure it accordingly. Each kernel version requires slightly different
-config flags to be set. All kernel features should be compiled as part of the
-kernel - the VM DOES NOT support kernel modules at this time.
+CI WORKFLOWS
+============
 
-In order to test whether your newly compiled kernel works, simply run
+  - workflow_integration_tests_vm.yml
+        Runs integration tests inside the VM for every kernel marked
+        'pr_integration: true' in kernels.yaml.
 
-    KERNEL=path/linux-x.x.x/arch/<arch>/boot/bzImage make
-
-After verifying the kernel works, copy its '.config' file to
-'kernels/<arch>/linux-x.y.z.config' and the resulting 'bzImage' to
-'kernels/<arch>/vmlinuz-linux-x.y.z'.
+  - pull_request.yml :: bpf-verifier
+        Runs BPF verifier tests inside the VM for every kernel marked
+        'pr_verifier: true'. Cheap (~5 minutes per kernel on amd64 KVM).
 
 
 TECHNICAL NOTES
 ===============
 
-    - The VM relies on an Alpine root filesystem containing the minimal
-      dependencies to run the 'run-integration-test-vm' target.
-
-    - The OBI sources are mounted using an 9p filesystem to /obi
-
-    - For backwards compatibility, $OTEL_EBPF_REPO_ROOT/testoutput is mounted
-      using an 9p filesystem to /overlay/upper/testoutput - as such, the test
-      outputs are available back to the host in the respective directory
-
-    - The final work directory from which tests are run is an overlay of
-      /obi and /overlay/upper mounted using overlayfs to /build
-
+  - Rootfs definition lives in 'Dockerfile' in this directory. The Alpine
+    image ships docker, docker-cli-buildx, docker-cli-compose, iptables
+    (legacy + nft), openrc, plus a Go toolchain imported from the pinned
+    golang image. No sshd — debug via the serial console (-nographic).
+  - 'modules-load' openrc service mounts /lib/modules via 9p (if a 'modules'
+    mount tag is supplied) and modprobes overlay/br_netfilter/iptable_*/
+    nf_*/veth/vxlan/macvlan before localmount runs. This is required for
+    LVH kernels (modular) and is a harmless no-op for monolithic ones.
+  - /sbin/iptables is symlinked to iptables-legacy at image build time.
+    All LVH kernels enable CONFIG_IP_NF_IPTABLES_LEGACY but disable
+    CONFIG_NFT_NAT/COMPAT, so the nft backend fails on "TABLE_ADD nat" and
+    legacy is the only one Docker can use.
+  - 'GOCACHE' and 'TMPDIR' are pointed at /build (overlay over qcow2 ~20GB)
+    rather than tmpfs /tmp, so heavy Go builds (verifier test pulls k8s.io
+    deps) don't OOM the 8GB-RAM tmpfs.

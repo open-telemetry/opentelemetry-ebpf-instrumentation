@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+package relay;
+
+option java_package = "relay";
+option java_outer_classname = "RelayProto";
+
+service Relay {
+  rpc Relay(RelayRequest) returns (RelayResponse);
+}
+
+message RelayRequest {}
+
+message RelayResponse {}

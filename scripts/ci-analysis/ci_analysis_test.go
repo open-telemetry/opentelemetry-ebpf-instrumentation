@@ -14,9 +14,8 @@ import (
 func testMeta() RunMeta {
 	return RunMeta{
 		RunID:     "12345",
-		SHA:       "abc",
 		CreatedAt: "2026-01-01T00:00:00Z",
-		Workflow:  "Pull request integration tests",
+		Workflow:  "Integration tests",
 	}
 }
 
@@ -40,7 +39,7 @@ func TestParseGotestsum(t *testing.T) {
 		`{"Time":"2026-01-01T00:00:00Z","Action":"skip","Package":"pkg","Test":"TestSkipped","Elapsed":0.0}`,
 	}, "\n")
 
-	results, err := parseGotestsum(strings.NewReader(input), testMeta(), "shard-3")
+	results, err := parseGotestsum(strings.NewReader(input), testMeta())
 	require.NoError(t, err)
 
 	outcomes := map[string]string{}
@@ -64,7 +63,7 @@ func TestParseGotestsum_Fingerprints(t *testing.T) {
 		`{"Time":"2026-01-01T00:00:01Z","Action":"fail","Package":"pkg","Test":"TestRace","Elapsed":1.0}`,
 	}, "\n")
 
-	results, err := parseGotestsum(strings.NewReader(input), testMeta(), "shard-0")
+	results, err := parseGotestsum(strings.NewReader(input), testMeta())
 	require.NoError(t, err)
 
 	fps := map[string]string{}
@@ -115,21 +114,21 @@ func TestApplyDockerFingerprints(t *testing.T) {
 
 func TestWriteReport(t *testing.T) {
 	results := []TestResult{
-		{RunID: "1", CreatedAt: "2026-01-01", Workflow: "Pull request integration tests", Test: "TestFailed", Outcome: "failed", ErrorFingerprint: "port-conflict"},
-		{RunID: "1", CreatedAt: "2026-01-01", Workflow: "Pull request integration tests", Test: "TestFlaky", Outcome: "flaky-passed", ErrorFingerprint: "port-conflict"},
-		{RunID: "1", CreatedAt: "2026-01-01", Workflow: "Pull request integration tests", Test: "TestPassed", Outcome: "passed"},
+		{RunID: "1", Workflow: "Integration tests", Test: "TestFailed", Outcome: "failed", ErrorFingerprint: "port-conflict"},
+		{RunID: "1", Workflow: "Integration tests", Test: "TestFlaky", Outcome: "flaky-passed", ErrorFingerprint: "port-conflict"},
+		{RunID: "1", Workflow: "Integration tests", Test: "TestPassed", Outcome: "passed"},
 	}
 	metaMap := map[string]RunMeta{
-		"1": {RunID: "1", CreatedAt: "2026-01-01", Workflow: "Pull request integration tests", Conclusion: "failure"},
+		"1": {RunID: "1", Workflow: "Integration tests", Conclusion: "failure"},
 	}
 
 	var buf bytes.Buffer
-	err := writeReport(&buf, results, metaMap, "test/repo")
+	err := writeReport(&buf, "CI Test Analysis Report", results, metaMap, "test/repo")
 	require.NoError(t, err)
 
 	report := buf.String()
 	require.Contains(t, report, "# CI Test Analysis Report")
-	require.Contains(t, report, "Pull request integration tests")
+	require.Contains(t, report, "Integration tests")
 	require.Contains(t, report, "TestFailed")
 	require.Contains(t, report, "TestFlaky")
 	require.Contains(t, report, "port-conflict")
@@ -145,17 +144,150 @@ func TestWriteReport(t *testing.T) {
 
 func TestFingerprintUnknownHashing(t *testing.T) {
 	// Two different unknown errors should get different fingerprints.
-	fp1 := fingerprintFromTestOutput("some weird error A")
-	fp2 := fingerprintFromTestOutput("some weird error B")
+	fp1 := fingerprintFromTestOutput("", "some weird error A", "")
+	fp2 := fingerprintFromTestOutput("", "some weird error B", "")
 	require.Contains(t, fp1, "unknown-")
 	require.Contains(t, fp2, "unknown-")
 	require.NotEqual(t, fp1, fp2)
 
 	// Same error should get the same fingerprint.
-	require.Equal(t, fp1, fingerprintFromTestOutput("some weird error A"))
+	require.Equal(t, fp1, fingerprintFromTestOutput("", "some weird error A", ""))
 
-	// Empty snippet stays plain "unknown".
-	require.Equal(t, "unknown", fingerprintFromTestOutput(""))
+	// Empty inputs stay plain "unknown".
+	require.Equal(t, "unknown", fingerprintFromTestOutput("", "", ""))
+}
+
+func TestFingerprintErrorMsgPriority(t *testing.T) {
+	// Error message pattern wins over an incidental snippet pattern.
+	// Here the snippet contains a panic from teardown but the actual
+	// assertion was a connection-refused: connection-refused must win.
+	snippet := "panic: goroutine teardown\n    Error: connection refused\n"
+	fp := fingerprintFromTestOutput("connection refused", snippet, "")
+	require.Equal(t, "connection-refused", fp)
+
+	// When the error message has no recognized pattern, fall back to
+	// the snippet scan.
+	fp = fingerprintFromTestOutput("zorblax not converged", "WARNING: DATA RACE\n", "")
+	require.Equal(t, "data-race", fp)
+}
+
+func TestFingerprintCauseConsequenceSplit(t *testing.T) {
+	// testify explicitly reporting exit-status as the unexpected error:
+	// the consequence pattern IS the cause here, keep the label.
+	fp := fingerprintFromTestOutput(
+		"Received unexpected error: exit status 1",
+		"Error: Received unexpected error: exit status 1\n",
+		"suites_test.go:337",
+	)
+	require.Equal(t, "exit-error", fp)
+
+	// testify reports a generic assertion ("Condition never satisfied"),
+	// while a teardown WARN line in the surrounding snippet contains
+	// "exit status 1". The exit-error must NOT win — it's teardown noise
+	// after the real assertion already failed. Expect trace-site hash.
+	fp = fingerprintFromTestOutput(
+		"Condition never satisfied",
+		`WARN waiting for obi to stop. Will force remove error="exit status 1"`+"\n"+
+			`Error: "3" is not less than or equal to "2"`+"\n"+
+			"Error: Condition never satisfied\n",
+		"red_test.go:424",
+	)
+	require.Contains(t, fp, "unknown-")
+	require.NotEqual(t, "exit-error", fp)
+
+	// Cause pattern in snippet still wins when errorMsg matches nothing —
+	// a real panic must not be hidden behind a trace-site hash.
+	fp = fingerprintFromTestOutput(
+		"some unrelated assertion message",
+		"panic: runtime error: nil pointer dereference\nError: some unrelated assertion message\n",
+		"trace.go:1",
+	)
+	require.Equal(t, "panic", fp)
+
+	// No testify Error: at all (non-framework failure). Consequence
+	// patterns are the only signal — fall back to them.
+	fp = fingerprintFromTestOutput("", "process exited with exit status 137\n", "")
+	require.Equal(t, "exit-error", fp)
+
+	// Two failures at the same outer wrapper but with different teardown
+	// noise: must land in the same trace-site bucket.
+	fpA := fingerprintFromTestOutput(
+		"Condition never satisfied",
+		`error="exit status 1"`+"\nError: Condition never satisfied\n",
+		"red_test.go:424",
+	)
+	fpB := fingerprintFromTestOutput(
+		"Condition never satisfied",
+		"received signal: interrupt\nError: Condition never satisfied\n",
+		"red_test.go:424",
+	)
+	require.Equal(t, fpA, fpB)
+}
+
+func TestFingerprintUnknownHashing_TraceSite(t *testing.T) {
+	// Two failures at the same trace site should hash identically even
+	// when the error wording differs slightly.
+	fp1 := fingerprintFromTestOutput("expected 5 got 4", "", "foo_test.go:42")
+	fp2 := fingerprintFromTestOutput("expected 7 got 3", "", "foo_test.go:42")
+	require.Equal(t, fp1, fp2)
+	require.Contains(t, fp1, "unknown-")
+
+	// Different trace sites should hash differently.
+	fp3 := fingerprintFromTestOutput("expected 5 got 4", "", "bar_test.go:99")
+	require.NotEqual(t, fp1, fp3)
+}
+
+func TestExtractErrorBlock_IgnoresUnanchoredErrorLines(t *testing.T) {
+	// Application log lines that contain "Error:" or "Error Trace:" must
+	// not be picked up as the testify framework error. Only indented
+	// labeled lines (testify's emission style) should match.
+	output := []string{
+		"Error: app log before testify\n",
+		"2026/04/29 13:48:19 ERROR Error Trace: spurious.go:1\n",
+		"        \tError Trace:\tfoo_test.go:42\n",
+		"        \tError:      \tReal testify failure\n",
+		"--- FAIL: TestX (0.50s)\n",
+		"Error: app log after the FAIL marker\n",
+	}
+	msg, trace := extractErrorBlock(output)
+	require.Equal(t, "foo_test.go:42", trace)
+	require.Equal(t, "Real testify failure", msg)
+}
+
+func TestExtractErrorBlock(t *testing.T) {
+	// testify-style output with Error Trace, Error: with a continuation
+	// line, then Test: label and FAIL marker.
+	output := []string{
+		"=== RUN   TestX\n",
+		"    file_test.go:25: \n",
+		"        \tError Trace:\tfoo_test.go:42\n",
+		"        \tError:      \tReceived unexpected error:\n",
+		"        \t            \tconnection refused\n",
+		"        \tTest:       \tTestX\n",
+		"--- FAIL: TestX (0.50s)\n",
+	}
+	msg, trace := extractErrorBlock(output)
+	require.Equal(t, "foo_test.go:42", trace)
+	require.Contains(t, msg, "Received unexpected error:")
+	require.Contains(t, msg, "connection refused")
+	// Continuation collection must stop at the Test: label.
+	require.NotContains(t, msg, "TestX")
+
+	// Output with no testify labels returns empty values.
+	msg, trace = extractErrorBlock([]string{"=== RUN   TestY\n", "panic: nope\n"})
+	require.Empty(t, msg)
+	require.Empty(t, trace)
+
+	// When multiple Error: blocks are present, the last one wins.
+	output = []string{
+		"        \tError Trace:\tfirst.go:10\n",
+		"        \tError:      \tearly failure\n",
+		"        \tError Trace:\tsecond.go:20\n",
+		"        \tError:      \tlate failure\n",
+	}
+	msg, trace = extractErrorBlock(output)
+	require.Equal(t, "second.go:20", trace)
+	require.Contains(t, msg, "late failure")
 }
 
 func TestClassifyOutcome(t *testing.T) {
@@ -175,6 +307,195 @@ func TestClassifyOutcome(t *testing.T) {
 			require.Equal(t, tt.expected, classifyOutcome(tt.outcomes))
 		})
 	}
+}
+
+func TestComputeTestStats_ScopedPerWorkflow(t *testing.T) {
+	// Same test name running in two workflows must be tracked separately so
+	// the flaky-table Workflow/Runs columns stay consistent.
+	results := []TestResult{
+		{RunID: "1", Workflow: "WfA", Test: "TestX", Outcome: "passed"},
+		{RunID: "1", Workflow: "WfB", Test: "TestX", Outcome: "failed", ErrorFingerprint: "timeout"},
+		{RunID: "2", Workflow: "WfA", Test: "TestX", Outcome: "flaky-passed", ErrorFingerprint: "port-conflict"},
+		{RunID: "2", Workflow: "WfB", Test: "TestX", Outcome: "passed"},
+	}
+	tests := computeTestStats(results)
+	require.Len(t, tests, 2)
+
+	var wfA, wfB *testStats
+	for _, ts := range tests {
+		switch ts.workflow {
+		case "WfA":
+			wfA = ts
+		case "WfB":
+			wfB = ts
+		}
+	}
+	require.NotNil(t, wfA)
+	require.NotNil(t, wfB)
+
+	require.Equal(t, 2, wfA.totalRuns)
+	require.Equal(t, 1, wfA.passed)
+	require.Equal(t, 1, wfA.flakyPassed)
+	require.Equal(t, 0, wfA.failed)
+
+	require.Equal(t, 2, wfB.totalRuns)
+	require.Equal(t, 1, wfB.passed)
+	require.Equal(t, 1, wfB.failed)
+	require.Equal(t, 0, wfB.flakyPassed)
+
+	// Tests-tracked count must collapse the same name across workflows.
+	require.Equal(t, 1, countUniqueTests(tests))
+}
+
+func TestComputeTestStats_SameNameDifferentPackages(t *testing.T) {
+	// Unit-test shards run multiple Go packages in one gotestsum file. Two
+	// tests sharing a name across packages must stay distinct in the
+	// aggregation, otherwise their results get silently merged.
+	results := []TestResult{
+		{RunID: "1", Workflow: "Wf", Package: "pkg/a", Test: "TestNew", Outcome: "passed"},
+		{RunID: "1", Workflow: "Wf", Package: "pkg/b", Test: "TestNew", Outcome: "failed", ErrorFingerprint: "timeout"},
+	}
+	tests := computeTestStats(results)
+	require.Len(t, tests, 2, "same name in two packages must produce two stats entries")
+
+	byPkg := map[string]*testStats{}
+	for _, ts := range tests {
+		byPkg[ts.pkg] = ts
+	}
+	require.Equal(t, 1, byPkg["pkg/a"].passed)
+	require.Equal(t, 0, byPkg["pkg/a"].failed)
+	require.Equal(t, 0, byPkg["pkg/b"].passed)
+	require.Equal(t, 1, byPkg["pkg/b"].failed)
+}
+
+func TestParseGotestsum_SameNameDifferentPackages(t *testing.T) {
+	// parseGotestsum's internal state map must key by (package, test) — a
+	// single gotestsum file from a unit-test shard can contain events for
+	// multiple packages with overlapping test names.
+	input := strings.Join([]string{
+		`{"Action":"run","Package":"pkg/a","Test":"TestNew"}`,
+		`{"Action":"pass","Package":"pkg/a","Test":"TestNew"}`,
+		`{"Action":"run","Package":"pkg/b","Test":"TestNew"}`,
+		`{"Action":"output","Package":"pkg/b","Test":"TestNew","Output":"    Error: connection refused\n"}`,
+		`{"Action":"fail","Package":"pkg/b","Test":"TestNew"}`,
+	}, "\n")
+	results, err := parseGotestsum(strings.NewReader(input), testMeta())
+	require.NoError(t, err)
+	require.Len(t, results, 2)
+
+	byPkg := map[string]TestResult{}
+	for _, r := range results {
+		byPkg[r.Package] = r
+	}
+	require.Equal(t, "passed", byPkg["pkg/a"].Outcome)
+	require.Equal(t, "failed", byPkg["pkg/b"].Outcome)
+}
+
+func TestDisplayTestName(t *testing.T) {
+	// Package leaf prefixes the test name; empty package falls back to bare.
+	require.Equal(t, "ebpf.TestNew", displayTestName("go.opentelemetry.io/obi/pkg/components/ebpf", "TestNew"))
+	require.Equal(t, "pkg.TestNew", displayTestName("pkg", "TestNew"))
+	require.Equal(t, "TestNoPkg", displayTestName("", "TestNoPkg"))
+}
+
+func TestComputeFingerprintStats_AffectedTestsCountsByPackage(t *testing.T) {
+	// Two distinct tests sharing a name in different packages must count as
+	// two affected tests, not one.
+	results := []TestResult{
+		{RunID: "1", Workflow: "Wf", Package: "pkg/a", Test: "TestNew", Outcome: "failed", ErrorFingerprint: "timeout"},
+		{RunID: "1", Workflow: "Wf", Package: "pkg/b", Test: "TestNew", Outcome: "failed", ErrorFingerprint: "timeout"},
+	}
+	stats := computeFingerprintStats(results)
+	require.Len(t, stats, 1)
+	require.Len(t, stats[0].affectedTests, 2, "affectedTests must distinguish packages")
+}
+
+func TestWriteReport_RendersPackageQualifiedNames(t *testing.T) {
+	// Every test row should display "pkg-leaf.TestName" so identities are
+	// stable and same-named tests in different packages are distinguishable.
+	results := []TestResult{
+		{RunID: "1", Workflow: "Wf", Package: "go.test/pkg/a", Test: "TestNew", Outcome: "failed", ErrorFingerprint: "timeout"},
+		{RunID: "1", Workflow: "Wf", Package: "go.test/pkg/b", Test: "TestNew", Outcome: "failed", ErrorFingerprint: "timeout"},
+	}
+	metaMap := map[string]RunMeta{
+		"1": {RunID: "1", Workflow: "Wf", Conclusion: "failure"},
+	}
+	var buf bytes.Buffer
+	require.NoError(t, writeReport(&buf, "CI Test Analysis Report", results, metaMap, "test/repo"))
+
+	out := buf.String()
+	require.Contains(t, out, "`a.TestNew`", "rows should include the package leaf; got:\n%s", out)
+	require.Contains(t, out, "`b.TestNew`")
+	require.NotContains(t, out, "| `TestNew` |", "bare test name should not appear when a package is set")
+}
+
+func TestComputeTestStats_DedupShardsPerRun(t *testing.T) {
+	// A test that appears in multiple shards within the same run counts as
+	// one run; the worst outcome wins.
+	results := []TestResult{
+		{RunID: "1", Workflow: "Wf", Test: "TestX", Outcome: "passed"},
+		{RunID: "1", Workflow: "Wf", Test: "TestX", Outcome: "failed", ErrorFingerprint: "timeout"},
+		{RunID: "2", Workflow: "Wf", Test: "TestX", Outcome: "passed"},
+	}
+	tests := computeTestStats(results)
+	require.Len(t, tests, 1)
+	for _, ts := range tests {
+		require.Equal(t, 2, ts.totalRuns, "two CI runs, even though run 1 had two shards")
+		require.Equal(t, 1, ts.failed, "run 1 collapses to failed because failed > passed")
+		require.Equal(t, 1, ts.passed)
+	}
+}
+
+func TestComputeTestStats_SkippedExcludedFromTotal(t *testing.T) {
+	// Skipped runs must not pad the denominator of the failure rate.
+	results := []TestResult{
+		{RunID: "1", Workflow: "Wf", Test: "TestX", Outcome: "skipped"},
+		{RunID: "2", Workflow: "Wf", Test: "TestX", Outcome: "skipped"},
+		{RunID: "3", Workflow: "Wf", Test: "TestX", Outcome: "failed", ErrorFingerprint: "timeout"},
+	}
+	tests := computeTestStats(results)
+	require.Len(t, tests, 1)
+	for _, ts := range tests {
+		require.Equal(t, 1, ts.totalRuns, "only the attempted run counts toward Runs")
+		require.Equal(t, 1, ts.failed)
+		require.Equal(t, 2, ts.skipped)
+	}
+}
+
+func TestWriteReport_PassRateMatchesConclusion(t *testing.T) {
+	// A workflow whose runs all eventually succeeded (with flaky retries)
+	// should show 100% pass rate, not 0% — that matches GitHub's run
+	// conclusion, which is what users see in the Actions tab.
+	results := []TestResult{
+		{RunID: "1", Workflow: "Wf", Test: "TestX", Outcome: "flaky-passed", ErrorFingerprint: "timeout"},
+		{RunID: "2", Workflow: "Wf", Test: "TestX", Outcome: "passed"},
+	}
+	metaMap := map[string]RunMeta{
+		"1": {RunID: "1", Workflow: "Wf", Conclusion: "success"},
+		"2": {RunID: "2", Workflow: "Wf", Conclusion: "success"},
+	}
+	var buf bytes.Buffer
+	require.NoError(t, writeReport(&buf, "CI Test Analysis Report", results, metaMap, "test/repo"))
+
+	report := buf.String()
+	// Workflow row format: | Wf | 2 | 1 | 1 | 0 | 100% |
+	require.Contains(t, report, "| Wf | 2 | 1 | 1 | 0 | 100% |",
+		"flaky-passed runs should not lower the pass rate; report was:\n%s", report)
+}
+
+func TestWriteReport_HardFailLowersPassRate(t *testing.T) {
+	results := []TestResult{
+		{RunID: "1", Workflow: "Wf", Test: "TestX", Outcome: "failed", ErrorFingerprint: "timeout"},
+		{RunID: "2", Workflow: "Wf", Test: "TestX", Outcome: "passed"},
+	}
+	metaMap := map[string]RunMeta{
+		"1": {RunID: "1", Workflow: "Wf", Conclusion: "failure"},
+		"2": {RunID: "2", Workflow: "Wf", Conclusion: "success"},
+	}
+	var buf bytes.Buffer
+	require.NoError(t, writeReport(&buf, "CI Test Analysis Report", results, metaMap, "test/repo"))
+
+	require.Contains(t, buf.String(), "| Wf | 2 | 1 | 0 | 1 | 50% |")
 }
 
 func TestExtractErrorSnippet_Fallback(t *testing.T) {

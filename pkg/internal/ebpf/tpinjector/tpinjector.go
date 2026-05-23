@@ -14,7 +14,6 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
-	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/internal/goexec"
@@ -43,7 +42,7 @@ func New(cfg *obi.Config) *Tracer {
 	}
 }
 
-func (p *Tracer) AllowPID(app.PID, uint32, *svc.Attrs) {}
+func (p *Tracer) AllowPID(app.PID, uint32, *exec.FileInfo) {}
 
 func (p *Tracer) BlockPID(app.PID, uint32) {}
 
@@ -53,23 +52,30 @@ func (p *Tracer) LoadSpecs() ([]*ebpfcommon.SpecBundle, error) {
 		return nil, err
 	}
 
-	iterSpec, err := LoadBpfIter()
-	if err != nil {
-		return nil, err
-	}
+	bundles := []*ebpfcommon.SpecBundle{{
+		Spec:      spec,
+		Objects:   &p.bpfObjects,
+		Constants: p.constants(),
+	}}
 
-	return []*ebpfcommon.SpecBundle{
-		{
-			Spec:      spec,
-			Objects:   &p.bpfObjects,
-			Constants: p.constants(),
-		},
-		{
+	// BpfIter uses bpf_iter__tcp. The verifier needs bpf_iter_tcp_get_func_proto
+	// to recognize the sock_iter ctx type; that landed in 5.11. Loading on older
+	// kernels fails with "Unrecognized arg#0 type PTR". Iters() additionally
+	// gates attach on >= 6.4 (RCU stall bug), so skipping the bundle below 5.11
+	// is strictly an extension of that.
+	if major, minor := ebpfcommon.KernelVersion(); major > 5 || (major == 5 && minor >= 11) {
+		iterSpec, err := LoadBpfIter()
+		if err != nil {
+			return nil, err
+		}
+		bundles = append(bundles, &ebpfcommon.SpecBundle{
 			Spec:      iterSpec,
 			Objects:   &p.bpfIterObjects,
 			Constants: p.iterConstants(),
-		},
-	}, nil
+		})
+	}
+
+	return bundles, nil
 }
 
 func (p *Tracer) constants() map[string]any {

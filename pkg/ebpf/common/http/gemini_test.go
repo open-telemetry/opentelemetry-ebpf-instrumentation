@@ -5,6 +5,7 @@ package ebpfcommon
 
 import (
 	"bufio"
+	"encoding/json"
 	"net/http"
 	"strings"
 	"testing"
@@ -344,4 +345,72 @@ func TestIsGeminiURL(t *testing.T) {
 			assert.Equal(t, tt.want, isGeminiURL(req))
 		})
 	}
+}
+
+func TestGeminiFunctionCalls(t *testing.T) {
+	t.Run("single function call", func(t *testing.T) {
+		resp := &request.GeminiResponse{
+			Candidates: []request.GeminiCandidate{
+				{
+					Content: &request.GeminiContent{
+						Parts: json.RawMessage(`[{"functionCall":{"name":"get_weather"}}]`),
+						Role:  "model",
+					},
+					FinishReason: "STOP",
+				},
+			},
+		}
+		result := extractGeminiFunctionCalls(resp)
+		require.Len(t, result, 1)
+		assert.Equal(t, "get_weather", result[0].Name)
+		assert.Empty(t, result[0].ID)
+	})
+
+	t.Run("multiple function calls", func(t *testing.T) {
+		resp := &request.GeminiResponse{
+			Candidates: []request.GeminiCandidate{
+				{
+					Content: &request.GeminiContent{
+						Parts: json.RawMessage(`[{"functionCall":{"name":"get_weather"}},{"functionCall":{"name":"get_time"}}]`),
+						Role:  "model",
+					},
+					FinishReason: "STOP",
+				},
+			},
+		}
+		result := extractGeminiFunctionCalls(resp)
+		require.Len(t, result, 2)
+		assert.Equal(t, "get_weather", result[0].Name)
+		assert.Equal(t, "get_time", result[1].Name)
+	})
+
+	t.Run("no function calls", func(t *testing.T) {
+		resp := &request.GeminiResponse{
+			Candidates: []request.GeminiCandidate{
+				{
+					Content: &request.GeminiContent{
+						Parts: json.RawMessage(`[{"text":"Hello, how can I help?"}]`),
+						Role:  "model",
+					},
+					FinishReason: "STOP",
+				},
+			},
+		}
+		result := extractGeminiFunctionCalls(resp)
+		assert.Empty(t, result)
+	})
+
+	t.Run("empty candidates", func(t *testing.T) {
+		resp := &request.GeminiResponse{}
+		result := extractGeminiFunctionCalls(resp)
+		assert.Empty(t, result)
+
+		resp2 := &request.GeminiResponse{
+			Candidates: []request.GeminiCandidate{
+				{Content: nil},
+			},
+		}
+		result2 := extractGeminiFunctionCalls(resp2)
+		assert.Empty(t, result2)
+	})
 }

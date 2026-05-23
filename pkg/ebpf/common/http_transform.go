@@ -180,6 +180,16 @@ func httpRequestResponseToSpan(parseCtx *EBPFParseContext, event *BPFHTTPInfo, r
 		}
 	}
 
+	// Retrieval detection runs alongside embedding: both are host-anchored
+	// and target dedicated vector database endpoints that do not overlap
+	// with LLM providers, so ordering between them does not matter.
+	if isClientEvent(event.Type) && parseCtx != nil && parseCtx.payloadExtraction.HTTP.GenAI.Retrieval.Enabled {
+		span, ok := ebpfhttp.RetrievalSpan(&httpSpan, req, resp)
+		if ok {
+			return span
+		}
+	}
+
 	if isClientEvent(event.Type) && parseCtx != nil && parseCtx.payloadExtraction.HTTP.GenAI.OpenAI.Enabled {
 		span, ok := ebpfhttp.OpenAISpan(&httpSpan, req, resp)
 		if ok {
@@ -196,6 +206,13 @@ func httpRequestResponseToSpan(parseCtx *EBPFParseContext, event *BPFHTTPInfo, r
 
 	if isClientEvent(event.Type) && parseCtx != nil && parseCtx.payloadExtraction.HTTP.GenAI.Gemini.Enabled {
 		span, ok := ebpfhttp.GeminiSpan(&httpSpan, req, resp)
+		if ok {
+			return span
+		}
+	}
+
+	if isClientEvent(event.Type) && parseCtx != nil && parseCtx.payloadExtraction.HTTP.GenAI.Rerank.Enabled {
+		span, ok := ebpfhttp.RerankSpan(&httpSpan, req, resp)
 		if ok {
 			return span
 		}
@@ -262,7 +279,7 @@ func HTTPInfoEventToSpan(parseCtx *EBPFParseContext, event *BPFHTTPInfo) (reques
 	slog.Debug("Event", "traceID", event.Tp.TraceId, "conn", event.ConnInfo, "buf", event.Buf[:])
 
 	if event.HasLargeBuffers == 1 {
-		b, ok := extractTCPLargeBuffer(parseCtx, event.Tp.TraceId, packetTypeRequest, directionByPacketType(packetTypeRequest, isClient), event.ConnInfo)
+		b, ok := extractTCPLargeBuffer(parseCtx, event.Tp.TraceId, packetTypeRequest, directionByPacketType(packetTypeRequest, isClient), event.ConnInfo, ProtocolTypeHTTP)
 		if ok {
 			requestBuffer = b
 		} else {
@@ -270,7 +287,7 @@ func HTTPInfoEventToSpan(parseCtx *EBPFParseContext, event *BPFHTTPInfo) (reques
 			requestBuffer = largebuf.NewLargeBufferFrom(event.Buf[:])
 		}
 
-		b, ok = extractTCPLargeBuffer(parseCtx, event.Tp.TraceId, packetTypeResponse, directionByPacketType(packetTypeResponse, isClient), event.ConnInfo)
+		b, ok = extractTCPLargeBuffer(parseCtx, event.Tp.TraceId, packetTypeResponse, directionByPacketType(packetTypeResponse, isClient), event.ConnInfo, ProtocolTypeHTTP)
 		if ok {
 			responseBuffer = b
 			hasResponse = true

@@ -1,0 +1,71 @@
+# Kernel matrix for OBI VM integration tests.
+#
+# All entries come from cilium/little-vm-helper-images
+# (quay.io/lvh-images/kernel-images:<lvh_tag>).
+# Pinned to dated tags for reproducibility.
+#
+# Fields:
+#   id              human-readable identifier (used in matrix output + paths)
+#   lvh_tag         exact LVH tag, e.g. "6.12-20260504.013701"
+#   pr_integration  include in PR VM integration matrix
+#   pr_verifier     include in PR BPF verifier matrix
+
+kernels:
+  - id: "5.10-lts"
+    lvh_tag: "5.10-20260504.013701"
+    pr_integration: false
+    pr_verifier: true
+
+  - id: "5.15-lts"
+    lvh_tag: "5.15-20260504.013701"
+    pr_integration: true
+    pr_verifier: true
+
+  - id: "6.1-lts"
+    lvh_tag: "6.1-20260504.013701"
+    pr_integration: false
+    pr_verifier: true
+
+  - id: "6.6-lts"
+    lvh_tag: "6.6-20260504.013701"
+    pr_integration: false
+    pr_verifier: true
+
+  - id: "6.12-lts"
+    lvh_tag: "6.12-20260504.013701"
+    pr_integration: false
+    pr_verifier: true
+
+  - id: "6.18-lts"
+    lvh_tag: "6.18-20260504.013701"
+    pr_integration: true
+    pr_verifier: true
+
+  - id: "bpf"
+    lvh_tag: "bpf-20260504.013701"
+    pr_integration: false
+    pr_verifier: true
+
+  - id: "bpf-next"
+    lvh_tag: "bpf-next-20260504.013701"
+    pr_integration: false
+    pr_verifier: true
+
+  # TODO: fix bpf program loading on rhel8.x (kernel 4.18) because
+  # obi_packet_extender_find_existing_h2_tp exhausts the verifier
+  # complexity limit (>1M insns) — older verifier explores more states
+  # than 5.14+.
+  - id: "rhel8.9"
+    lvh_tag: "rhel8.9-20260504.013701"
+    pr_integration: false
+    pr_verifier: false
+
+  - id: "rhel8.10"
+    lvh_tag: "rhel8.10-20260504.013701"
+    pr_integration: false
+    pr_verifier: false
+
+  - id: "rhel9.6"
+    lvh_tag: "rhel9.6-20260504.013701"
+    pr_integration: false
+    pr_verifier: true

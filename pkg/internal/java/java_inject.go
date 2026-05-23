@@ -49,16 +49,18 @@ type JavaInjector struct {
 	cfg *obi.Config
 }
 
-func NewJavaInjector(cfg *obi.Config) *JavaInjector {
+func NewJavaInjector(cfg *obi.Config) (*JavaInjector, error) {
 	if !cfg.Java.Enabled {
-		return nil
+		return nil, nil
 	}
-	ensureEmbeddedAgent()
+	if err := ensureEmbeddedAgent(); err != nil {
+		return nil, err
+	}
 
 	return &JavaInjector{
 		cfg: cfg,
 		log: slog.With("component", "javaagent.Injector"),
-	}
+	}, nil
 }
 
 func tempDirPath(root, dir string) (string, bool) {
@@ -91,7 +93,7 @@ func dirOK(root, dir string) bool {
 }
 
 func (i *JavaInjector) findTempDir(root string, ie *ebpf.Instrumentable) (string, error) {
-	if tmpDir, ok := ie.FileInfo.Service.EnvVars["TMPDIR"]; ok {
+	if tmpDir, ok := ie.FileInfo.ServiceAttrs().EnvVars["TMPDIR"]; ok {
 		if dirOK(root, tmpDir) {
 			return tmpDir, nil
 		}
@@ -141,7 +143,7 @@ func (i *JavaInjector) NewExecutable(ie *ebpf.Instrumentable) error {
 				}
 			}()
 
-			ok, jdk8 := i.verifyJVMVersion(attacher, ie.FileInfo.Pid)
+			ok, jdk8 := i.verifyJVMVersion(attacher, ie.FileInfo.Pid())
 			if !ok {
 				resultChan <- result{err: &JavaInjectError{Message: "unsupported Java version for OpenTelemetry eBPF instrumentation"}}
 				return
@@ -150,9 +152,9 @@ func (i *JavaInjector) NewExecutable(ie *ebpf.Instrumentable) error {
 			var loaded bool
 			var err error
 			if jdk8 {
-				loaded, err = i.jdkAgentAlreadyLoadedHotspot8(attacher, ie.FileInfo.Pid)
+				loaded, err = i.jdkAgentAlreadyLoadedHotspot8(attacher, ie.FileInfo.Pid())
 			} else {
-				loaded, err = i.jdkAgentAlreadyLoaded(attacher, ie.FileInfo.Pid)
+				loaded, err = i.jdkAgentAlreadyLoaded(attacher, ie.FileInfo.Pid())
 			}
 
 			if err != nil {
@@ -166,17 +168,17 @@ func (i *JavaInjector) NewExecutable(ie *ebpf.Instrumentable) error {
 				return
 			}
 
-			i.log.Info("injecting OpenTelemetry eBPF instrumentation for Java process", "pid", ie.FileInfo.Pid)
+			i.log.Info("injecting OpenTelemetry eBPF instrumentation for Java process", "pid", ie.FileInfo.Pid())
 
 			agentPath, err := i.copyAgent(ie)
 			if err != nil {
-				i.log.Error("failed to extract java agent", "pid", ie.FileInfo.Pid, "error", err)
+				i.log.Error("failed to extract java agent", "pid", ie.FileInfo.Pid(), "error", err)
 				resultChan <- result{err: err}
 				return
 			}
 
-			if err = i.attachJDKAgent(attacher, ie.FileInfo.Pid, agentPath); err != nil {
-				i.log.Error("couldn't attach OpenTelemetry eBPF Java Agent", "pid", ie.FileInfo.Pid, "path", agentPath, "error", err)
+			if err = i.attachJDKAgent(attacher, ie.FileInfo.Pid(), agentPath); err != nil {
+				i.log.Error("couldn't attach OpenTelemetry eBPF Java Agent", "pid", ie.FileInfo.Pid(), "path", agentPath, "error", err)
 				resultChan <- result{err: err}
 				return
 			}
@@ -189,7 +191,7 @@ func (i *JavaInjector) NewExecutable(ie *ebpf.Instrumentable) error {
 		case result := <-resultChan:
 			return result.err
 		case <-ctx.Done():
-			i.log.Warn("java attach timed out", "timeout", i.cfg.Java.Timeout, "pid", ie.FileInfo.Pid)
+			i.log.Warn("java attach timed out", "timeout", i.cfg.Java.Timeout, "pid", ie.FileInfo.Pid())
 			return &JavaInjectError{Message: "java attach timed out"}
 		}
 	}
@@ -197,19 +199,19 @@ func (i *JavaInjector) NewExecutable(ie *ebpf.Instrumentable) error {
 	return nil
 }
 
-func ensureEmbeddedAgent() {
+func ensureEmbeddedAgent() error {
 	if len(embeddedJavaAgentBytes) == 0 || strings.TrimSpace(string(embeddedJavaAgentBytes)) == javaAgentEmbedPlaceholder {
-		// Make sure to run `make java-docker-build` to build the Java Agent
-		// so that it can be embedded during build.
-		panic("embedded OBI java agent artifact is missing")
+		return errors.New("embedded OBI java agent artifact is missing from this build; Java TLS telemetry generation will be disabled")
 	}
+
+	return nil
 }
 
 // to be changed in tests
 var rootDirForPID func(app.PID) string = ebpfcommon.RootDirectoryForPID
 
 func (i *JavaInjector) copyAgent(ie *ebpf.Instrumentable) (string, error) {
-	root := rootDirForPID(ie.FileInfo.Pid)
+	root := rootDirForPID(ie.FileInfo.Pid())
 	tempDir, err := i.findTempDir(root, ie)
 	if err != nil {
 		return "", fmt.Errorf("error accessing temp directory: %w", err)
@@ -220,7 +222,7 @@ func (i *JavaInjector) copyAgent(ie *ebpf.Instrumentable) (string, error) {
 		return "", fmt.Errorf("invalid temp directory for injection: %q", tempDir)
 	}
 
-	i.log.Info("found injection directory for process", "pid", ie.FileInfo.Pid, "path", fullTempDir)
+	i.log.Info("found injection directory for process", "pid", ie.FileInfo.Pid(), "path", fullTempDir)
 
 	agentPathHost := filepath.Join(fullTempDir, ObiJavaAgentFileName)
 

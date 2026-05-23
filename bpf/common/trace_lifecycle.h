@@ -42,6 +42,7 @@ static __always_inline void delete_client_trace_info(pid_connection_info_t *pid_
         .d_port = pid_conn->conn.d_port,
         .s_port = pid_conn->conn.s_port,
     };
+    sort_egress_key(&e_key);
     bpf_map_delete_elem(&outgoing_trace_map, &e_key);
     bpf_map_delete_elem(&cp_support_connect_info, pid_conn);
 }
@@ -50,13 +51,15 @@ static __always_inline u8 find_trace_for_server_request(connection_info_t *conn,
                                                         tp_info_t *tp,
                                                         const u8 type) {
     u8 found_tp = 0;
-    tp_info_pid_t *existing_tp = bpf_map_lookup_elem(&incoming_trace_map, conn);
+    connection_info_t sorted_conn = *conn;
+    sort_connection_info(&sorted_conn);
+    tp_info_pid_t *existing_tp = bpf_map_lookup_elem(&incoming_trace_map, &sorted_conn);
     if (existing_tp) {
         found_tp = 1;
         bpf_dbg_printk("Found incoming (TCP/IP) tp for server request");
         __builtin_memcpy(tp->trace_id, existing_tp->tp.trace_id, sizeof(tp->trace_id));
         __builtin_memcpy(tp->parent_id, existing_tp->tp.span_id, sizeof(tp->parent_id));
-        bpf_map_delete_elem(&incoming_trace_map, conn);
+        bpf_map_delete_elem(&incoming_trace_map, &sorted_conn);
     } else {
         bpf_dbg_printk("Looking up tracemap for");
         dbg_print_http_connection_info(conn);
@@ -100,7 +103,9 @@ static __always_inline void server_or_client_trace(const u8 type,
                                                    lw_thread_t lw_thread,
                                                    tp_info_pid_t *tp_p,
                                                    u8 ssl,
-                                                   const u16 orig_dport) {
+                                                   const u16 orig_dport,
+                                                   u32 stream_id,
+                                                   u64 map_update_flags) {
 
     const u64 id = bpf_get_current_pid_tgid();
     const u32 host_pid = pid_from_pid_tgid(id);
@@ -147,10 +152,12 @@ static __always_inline void server_or_client_trace(const u8 type,
         // We need the PID id to be able to query ongoing_http and update
         // the span id with the SEQ/ACK pair.
         tp_p->pid = host_pid;
-        const egress_key_t e_key = {
+        egress_key_t e_key = {
             .d_port = conn->d_port,
             .s_port = conn->s_port,
+            .stream_id = stream_id,
         };
+        sort_egress_key(&e_key);
 
         if (ssl) {
             // Clone and mark it invalid for the purpose of storing it in the
@@ -158,9 +165,9 @@ static __always_inline void server_or_client_trace(const u8 type,
             tp_info_pid_t tp_p_invalid = {0};
             __builtin_memcpy(&tp_p_invalid, tp_p, sizeof(tp_p_invalid));
             tp_p_invalid.valid = 0;
-            bpf_map_update_elem(&outgoing_trace_map, &e_key, &tp_p_invalid, BPF_ANY);
+            bpf_map_update_elem(&outgoing_trace_map, &e_key, &tp_p_invalid, map_update_flags);
         } else {
-            bpf_map_update_elem(&outgoing_trace_map, &e_key, tp_p, BPF_ANY);
+            bpf_map_update_elem(&outgoing_trace_map, &e_key, tp_p, map_update_flags);
             obi_ctx__set(id, &tp_p->tp);
         }
     }

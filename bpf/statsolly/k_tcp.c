@@ -14,6 +14,7 @@
 
 #include <statsolly/types.h>
 #include <statsolly/maps/stats_events.h>
+#include <statsolly/maps/sock_role.h>
 
 enum {
     k_usec_per_sec = 1000000ULL,
@@ -22,7 +23,8 @@ enum {
 
 typedef struct tcp_rtt {
     u8 flags; // Must be first, we use it to tell what kind of event we have on the ring buffer
-    u8 _pad[3];
+    u8 role;
+    u8 _pad[2];
     u32 srtt_us;
     connection_info_t conn;
 } tcp_rtt_t;
@@ -62,8 +64,11 @@ int BPF_KPROBE(obi_kprobe_tcp_close_srtt, struct sock *sk) {
     se->flags = k_event_stat_tcp_rtt;
     se->srtt_us = srtt_us;
     se->conn = conn;
+    const u8 *role_ptr = bpf_map_lookup_elem(&sock_role, &sk);
+    se->role = role_ptr ? *role_ptr : role_unknown;
 
-    bpf_d_printk("s_port=%d, d_port=%d, srtt_us=%u", se->conn.s_port, se->conn.d_port, se->srtt_us);
+    bpf_d_printk(
+        "tcp rtt: s_port=%d, d_port=%d, srtt_us=%u", se->conn.s_port, se->conn.d_port, se->srtt_us);
     bpf_ringbuf_submit(se, stats_events_flags());
 
     return 0;

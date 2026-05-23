@@ -15,8 +15,8 @@
 
 #pragma once
 
-#include "common/tp_info.h"
 #include <bpfcore/utils.h>
+#include <bpfcore/bpf_helpers.h>
 
 #include <common/go_addr_key.h>
 #include <common/map_sizing.h>
@@ -24,6 +24,7 @@
 #include <common/strings.h>
 #include <common/trace_util.h>
 #include <common/tracing.h>
+#include <common/tp_info.h>
 
 #include <gotracer/go_offsets.h>
 
@@ -280,6 +281,8 @@ server_trace_parent(void *goroutine_addr, tp_info_t *tp, tp_info_t *found_tp) {
     }
 
     urand_bytes(tp->span_id, SPAN_ID_SIZE_BYTES);
+    // found_tp memcpy clobbered ts; reset before go_trace_map store
+    tp->ts = bpf_ktime_get_ns();
     bpf_map_update_elem(&go_trace_map, &g_key, tp, BPF_ANY);
 
     unsigned char tp_buf[TP_MAX_VAL_LENGTH];
@@ -417,8 +420,7 @@ static __always_inline u8 get_conn_info_from_fd(void *fd_ptr,
     return 0;
 }
 
-// HTTP black-box context propagation
-static __always_inline u8 get_conn_info(void *conn_ptr, connection_info_t *info) {
+static __always_inline void *fd_ptr_from_conn(void *conn_ptr) {
     if (conn_ptr) {
         void *fd_ptr = 0;
         off_table_t *ot = get_offsets_table();
@@ -428,9 +430,21 @@ static __always_inline u8 get_conn_info(void *conn_ptr, connection_info_t *info)
             sizeof(fd_ptr),
             (void *)(conn_ptr + go_offset_of(ot, (go_offset){.v = _conn_fd_pos}))); // find fd
 
+        return fd_ptr;
+    }
+
+    return 0;
+}
+
+// HTTP black-box context propagation
+static __always_inline u8 get_conn_info(void *conn_ptr, connection_info_t *info) {
+    if (conn_ptr) {
+        void *fd_ptr = fd_ptr_from_conn(conn_ptr);
         bpf_dbg_printk("Found fd, fd_ptr=%llx", fd_ptr);
 
-        return get_conn_info_from_fd(fd_ptr, info, true);
+        if (fd_ptr) {
+            return get_conn_info_from_fd(fd_ptr, info, true);
+        }
     }
 
     return 0;
@@ -465,16 +479,14 @@ static __always_inline void process_meta_frame_headers(void *frame, tp_info_t *t
     bpf_probe_read(&fields_len, sizeof(fields_len), (void *)(frame + fields_off + 8));
     bpf_dbg_printk("fields=%llx, fields_len=%d", fields, fields_len);
     if (fields && fields_len > 0) {
-        for (u8 i = 0; i < 16; i++) {
+        // 32: gRPC HEADERS + forwarded metadata + tpinjector-appended TP
+        for (u8 i = 0; i < 32; i++) {
             if (i >= fields_len) {
                 break;
             }
             void *field_ptr = fields + (i * sizeof(grpc_header_field_t));
-            //bpf_dbg_printk("field_ptr=%llx", field_ptr);
             grpc_header_field_t field = {};
             bpf_probe_read(&field, sizeof(grpc_header_field_t), field_ptr);
-            //bpf_dbg_printk("grpc header=%s:%s", field.key_ptr, field.val_ptr);
-            //bpf_dbg_printk("grpc sizes=%d:%d", field.key_len, field.val_len);
             if (field.key_len == W3C_KEY_LENGTH && field.val_len == W3C_VAL_LENGTH) {
                 unsigned char temp[W3C_VAL_LENGTH];
 

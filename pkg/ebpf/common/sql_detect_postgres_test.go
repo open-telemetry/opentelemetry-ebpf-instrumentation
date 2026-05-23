@@ -132,3 +132,66 @@ func TestPostgresMessagesIteratorNoAllocs(t *testing.T) {
 		t.Errorf("MessageIterator allocated %v allocs per run; want 0", allocs)
 	}
 }
+
+func TestParsePostgresBindNames(t *testing.T) {
+	tests := []struct {
+		name       string
+		data       []byte
+		wantPortal string
+		wantStmt   string
+		wantOK     bool
+	}{
+		{
+			name:       "valid portal and statement",
+			data:       []byte("portal\x00stmt\x00rest"),
+			wantPortal: "portal",
+			wantStmt:   "stmt",
+			wantOK:     true,
+		},
+		{
+			name:       "valid unnamed portal",
+			data:       []byte("\x00stmt\x00rest"),
+			wantPortal: "",
+			wantStmt:   "stmt",
+			wantOK:     true,
+		},
+		{
+			name:       "valid unnamed portal and statement",
+			data:       []byte("\x00\x00rest"),
+			wantPortal: "",
+			wantStmt:   "",
+			wantOK:     true,
+		},
+		{
+			name:   "empty payload",
+			data:   []byte{},
+			wantOK: false,
+		},
+		{
+			name:   "missing portal terminator",
+			data:   []byte("portal-without-nul"),
+			wantOK: false,
+		},
+		{
+			name:   "missing statement name",
+			data:   []byte("portal\x00"),
+			wantOK: false,
+		},
+		{
+			name:       "missing statement terminator",
+			data:       []byte("portal\x00stmt-without-nul"),
+			wantPortal: "portal",
+			wantStmt:   "stmt-without-nul",
+			wantOK:     true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			portal, stmt, ok := parsePostgresBindNames(tt.data)
+			assert.Equal(t, tt.wantOK, ok)
+			assert.Equal(t, tt.wantPortal, portal)
+			assert.Equal(t, tt.wantStmt, stmt)
+		})
+	}
+}

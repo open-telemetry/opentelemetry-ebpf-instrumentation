@@ -36,6 +36,10 @@ func HTTPUrlFull(val string) attribute.KeyValue {
 	return attribute.Key(attr.HTTPUrlFull).String(val)
 }
 
+func HTTPUrlQuery(val string) attribute.KeyValue {
+	return attribute.Key(attr.HTTPUrlQuery).String(val)
+}
+
 func ClientAddr(val string) attribute.KeyValue {
 	return attribute.Key(attr.ClientAddr).String(val)
 }
@@ -327,11 +331,11 @@ func CudaMemcpy(val int) attribute.KeyValue {
 }
 
 func Job(val string) attribute.KeyValue {
-	return attribute.Key(attr.MessagingOpType).String(val)
+	return attribute.Key(attr.Job).String(val)
 }
 
 func Instance(val string) attribute.KeyValue {
-	return attribute.Key(attr.MessagingOpType).String(val)
+	return attribute.Key(attr.Instance).String(val)
 }
 
 func DNSAnswers(val string) attribute.KeyValue {
@@ -340,4 +344,8 @@ func DNSAnswers(val string) attribute.KeyValue {
 
 func ErrorMessage(val string) attribute.KeyValue {
 	return attribute.Key(attr.ErrorMessage).String(val)
+}
+
+func DBResponseError(val string) attribute.KeyValue {
+	return attribute.Key(attr.DBResponseError).String(val)
 }

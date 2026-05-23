@@ -58,6 +58,8 @@ func TestTraceparentExtraction(t *testing.T) {
 	t.Run("with_traceparent", testWithTraceparent)
 	t.Run("with_forwarded_traceparent", testWithForwardedTraceparent)
 
+	runWeaverValidation(t)
+
 	require.NoError(t, compose.Close())
 }
 

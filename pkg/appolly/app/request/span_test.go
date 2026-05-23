@@ -14,6 +14,8 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
+	"go.opentelemetry.io/obi/pkg/export/attributes"
+	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 )
 
 func TestSpanClientServer(t *testing.T) {
@@ -312,6 +314,75 @@ func TestSpanStatusMessage_JSONRPC(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			assert.Equal(t, tt.expectedMessage, SpanStatusMessage(tt.span))
+		})
+	}
+}
+
+func TestSpanStatusMessage_DBResponseErrorOptional(t *testing.T) {
+	traceAttrs := map[attr.Name]struct{}{attr.DBResponseError: {}}
+
+	tests := []struct {
+		name            string
+		span            *Span
+		expectedDefault string
+		expectedAllowed string
+	}{
+		{
+			name: "redis error",
+			span: &Span{
+				Type:    EventTypeRedisClient,
+				Status:  1,
+				DBError: DBError{ErrorCode: "WRONGTYPE", Description: "WRONGTYPE Operation against a key holding the wrong kind of value"},
+			},
+			expectedDefault: "",
+			expectedAllowed: "WRONGTYPE Operation against a key holding the wrong kind of value",
+		},
+		{
+			name: "sql error",
+			span: &Span{
+				Type:     EventTypeSQLClient,
+				Status:   1,
+				SQLError: &SQLError{Code: 8, SQLState: "ABC", Message: "SQL error message"},
+			},
+			expectedDefault: "",
+			expectedAllowed: "SQL Server errored: error_code=8 sql_state=ABC message=SQL error message",
+		},
+		{
+			name: "sqlpp error",
+			span: &Span{
+				Type:    EventTypeHTTPClient,
+				SubType: HTTPSubtypeSQLPP,
+				Status:  1,
+				DBError: DBError{ErrorCode: "12003", Description: "Keyspace not found in CB datastore"},
+			},
+			expectedDefault: "",
+			expectedAllowed: "Keyspace not found in CB datastore",
+		},
+		{
+			name: "redis success",
+			span: &Span{
+				Type:   EventTypeRedisClient,
+				Status: 0,
+			},
+			expectedDefault: "",
+			expectedAllowed: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			messageAllowed := attributes.DBResponseErrorAttr(traceAttrs, tt.expectedAllowed)
+			messageDefault := attributes.DBResponseErrorAttr(nil, tt.expectedAllowed)
+			if len(messageDefault) > 0 {
+				assert.Equal(t, tt.expectedDefault, SpanDBStatusMessage(tt.span, messageDefault[0].Value.AsString()))
+			} else {
+				assert.Equal(t, tt.expectedDefault, SpanDBStatusMessage(tt.span, ""))
+			}
+			if len(messageAllowed) > 0 {
+				assert.Equal(t, tt.expectedAllowed, SpanDBStatusMessage(tt.span, messageAllowed[0].Value.AsString()))
+			} else {
+				assert.Equal(t, tt.expectedAllowed, SpanDBStatusMessage(tt.span, ""))
+			}
 		})
 	}
 }
@@ -1294,6 +1365,26 @@ func TestSpan_GenAIInputTokens(t *testing.T) {
 		assert.Equal(t, 200, result)
 	})
 
+	t.Run("Anthropic with cache tokens", func(t *testing.T) {
+		// Per Anthropic semconv: input_tokens excludes cached tokens, so the
+		// reported total must include cache_read and cache_creation.
+		span := &Span{
+			GenAI: &GenAI{
+				Anthropic: &VendorAnthropic{
+					Output: AnthropicResponse{
+						Usage: AnthropicUsage{
+							InputTokens:              200,
+							CacheReadInputTokens:     50,
+							CacheCreationInputTokens: 30,
+						},
+					},
+				},
+			},
+		}
+		result := span.GenAIInputTokens()
+		assert.Equal(t, 280, result)
+	})
+
 	t.Run("Gemini present", func(t *testing.T) {
 		span := &Span{
 			GenAI: &GenAI{
@@ -1336,6 +1427,20 @@ func TestSpan_GenAIInputTokens(t *testing.T) {
 		}
 		result := span.GenAIInputTokens()
 		assert.Equal(t, 25, result)
+	})
+
+	t.Run("Rerank present", func(t *testing.T) {
+		span := &Span{
+			GenAI: &GenAI{
+				Rerank: &VendorRerank{
+					Output: RerankResponse{
+						Usage: RerankUsage{TotalTokens: 411},
+					},
+				},
+			},
+		}
+		result := span.GenAIInputTokens()
+		assert.Equal(t, 411, result)
 	})
 }
 
@@ -1455,6 +1560,21 @@ func TestSpan_GenAIOutputTokens(t *testing.T) {
 		span := &Span{
 			GenAI: &GenAI{
 				Bedrock: &VendorBedrock{},
+			},
+		}
+		result := span.GenAIOutputTokens()
+		assert.Equal(t, 0, result)
+	})
+
+	t.Run("Rerank present returns zero", func(t *testing.T) {
+		// Rerank has no generated output, so output tokens should always be 0.
+		span := &Span{
+			GenAI: &GenAI{
+				Rerank: &VendorRerank{
+					Output: RerankResponse{
+						Usage: RerankUsage{TotalTokens: 411},
+					},
+				},
 			},
 		}
 		result := span.GenAIOutputTokens()
