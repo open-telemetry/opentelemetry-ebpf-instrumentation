@@ -76,7 +76,7 @@ func TestMultiNodeTracing(t *testing.T) {
 					parent = res[0]
 					require.NotEmpty(ct, parent.TraceID)
 					require.Equal(ct, traceID, parent.TraceID)
-					sd = jaeger.DiffAsRegexp([]jaeger.Tag{
+					sd = jaeger.Diff([]jaeger.Tag{
 						{Key: "jsonrpc.protocol.version", Type: "string", Value: "1.0"},
 						{Key: "rpc.method", Type: "string", Value: "Arith.Traceme"},
 						{Key: "rpc.system", Type: "string", Value: "jsonrpc"},
