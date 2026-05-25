@@ -143,8 +143,12 @@ type StatsTCPRetransmit struct {
 type StatsTCPIo struct {
 	_         structs.HostLayout
 	Flags     uint8
-	Direction uint32
-	Pad       [2]uint8
-	Bytes     uint32
+	Direction uint8
+	Count     uint8
+	Pad       [1]uint8
+	Bytes     [TCPIoBatchSize]uint32
 	Conn
 }
+
+// TCPIoBatchSize mirrors k_tcp_io_batch_size in bpf/statsolly/types.h.
+const TCPIoBatchSize = 10

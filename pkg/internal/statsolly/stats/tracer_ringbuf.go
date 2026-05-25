@@ -135,11 +135,15 @@ func readTCPIoIntoStat(record *ringbuf.Record) (ebpf.Stat, error) {
 	if err != nil {
 		return ebpf.Stat{}, err
 	}
+	var total uint32
+	for _, b := range event.Bytes[:min(int(event.Count), ebpf.TCPIoBatchSize)] {
+		total += b
+	}
 	return ebpf.Stat{
 		Type: ebpf.StatTypeTCPIo,
 		TCPIo: &ebpf.TCPIo{
-			Direction: uint8(event.Direction),
-			Bytes:     event.Bytes,
+			Direction: event.Direction,
+			Bytes:     total,
 		},
 		CommonAttrs: connToCommonAttrs(event.Conn),
 	}, nil

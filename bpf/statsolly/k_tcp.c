@@ -16,6 +16,7 @@
 #include <statsolly/maps/stats_events.h>
 #include <statsolly/maps/sock_role.h>
 #include <statsolly/maps/tcp_sendmsg_sock.h>
+#include <statsolly/maps/tcp_io_accum.h>
 
 enum {
     k_usec_per_sec = 1000000ULL,
@@ -33,8 +34,9 @@ typedef struct tcp_rtt {
 typedef struct tcp_io {
     u8 flags; // Must be first, we use it to tell what kind of event we have on the ring buffer
     enum network_io_direction direction;
-    u8 _pad[2];
-    u32 bytes;
+    u8 count;
+    u8 _pad[1];
+    u32 bytes[k_tcp_io_batch_size];
     connection_info_t conn;
 } tcp_io_t;
 
@@ -42,9 +44,66 @@ typedef struct tcp_io {
 const tcp_rtt_t *unused_tcp_rtt __attribute__((unused));
 const tcp_io_t *unused_tcp_io __attribute__((unused));
 
+static __always_inline void flush_tcp_io_accum(struct sock *sk,
+                                               enum network_io_direction direction,
+                                               const tcp_io_accum_t *accum) {
+    tcp_io_t *se = bpf_ringbuf_reserve(&stats_events, sizeof(*se), 0);
+    if (!se) {
+        return;
+    }
+    connection_info_t conn;
+    if (!parse_sock_info(sk, &conn)) {
+        bpf_ringbuf_discard(se, 0);
+        return;
+    }
+    se->flags = k_event_stat_tcp_io;
+    se->direction = direction;
+    se->count = accum->count;
+    __builtin_memcpy(se->bytes, accum->bytes, sizeof(se->bytes));
+    se->conn = conn;
+    bpf_ringbuf_submit(se, stats_events_flags());
+}
+
+static __always_inline void flush_and_delete_io_accum(struct sock *sk,
+                                                      enum network_io_direction direction) {
+    const tcp_io_accum_key_t key = {.sock_ptr = (u64)(uintptr_t)sk, .direction = direction};
+    tcp_io_accum_t *accum = bpf_map_lookup_elem(&tcp_io_accum, &key);
+    if (accum && accum->count > 0) {
+        flush_tcp_io_accum(sk, direction, accum);
+    }
+    bpf_map_delete_elem(&tcp_io_accum, &key);
+}
+
+static __always_inline void
+accumulate_tcp_io(struct sock *sk, enum network_io_direction direction, u32 bytes) {
+    const tcp_io_accum_key_t key = {.sock_ptr = (u64)(uintptr_t)sk, .direction = direction};
+    tcp_io_accum_t *accum = bpf_map_lookup_elem(&tcp_io_accum, &key);
+    if (!accum) {
+        tcp_io_accum_t new_accum = {};
+        new_accum.bytes[0] = bytes;
+        new_accum.count = 1;
+        bpf_map_update_elem(&tcp_io_accum, &key, &new_accum, BPF_NOEXIST);
+        return;
+    }
+    const u8 idx = accum->count;
+    if (idx < k_tcp_io_batch_size) {
+        accum->bytes[idx] = bytes;
+        accum->count = idx + 1;
+        if (accum->count >= k_tcp_io_batch_size) {
+            flush_tcp_io_accum(sk, direction, accum);
+            bpf_map_delete_elem(&tcp_io_accum, &key);
+        }
+    }
+}
+
 SEC("kprobe/tcp_close")
 int BPF_KPROBE(obi_kprobe_tcp_close_srtt, struct sock *sk) {
     (void)ctx;
+
+    // Flush any pending IO batches before the socket is torn down.
+    flush_and_delete_io_accum(sk, direction_transmit);
+    flush_and_delete_io_accum(sk, direction_receive);
+
     connection_info_t conn;
     if (!parse_sock_info(sk, &conn)) {
         return 0;
@@ -110,22 +169,7 @@ int BPF_KRETPROBE(obi_kretprobe_tcp_sendmsg_io) {
         return 0;
     }
 
-    connection_info_t conn;
-    if (!parse_sock_info(sk, &conn)) {
-        return 0;
-    }
-
-    tcp_io_t *se = bpf_ringbuf_reserve(&stats_events, sizeof(*se), 0);
-    if (!se) {
-        return 0;
-    }
-
-    se->flags = k_event_stat_tcp_io;
-    se->direction = direction_transmit;
-    se->bytes = (u32)sent;
-    se->conn = conn;
-
-    bpf_ringbuf_submit(se, stats_events_flags());
+    accumulate_tcp_io(sk, direction_transmit, (u32)sent);
     return 0;
 }
 
@@ -137,22 +181,6 @@ int BPF_KPROBE(obi_kprobe_tcp_cleanup_rbuf_io, struct sock *sk, int copied) {
         return 0;
     }
 
-    connection_info_t conn;
-    if (!parse_sock_info(sk, &conn)) {
-        return 0;
-    }
-
-    tcp_io_t *se = bpf_ringbuf_reserve(&stats_events, sizeof(*se), 0);
-    if (!se) {
-        return 0;
-    }
-
-    se->flags = k_event_stat_tcp_io;
-    se->direction = direction_receive;
-    se->bytes = (u32)copied;
-    se->conn = conn;
-
-    bpf_ringbuf_submit(se, stats_events_flags());
-
+    accumulate_tcp_io(sk, direction_receive, (u32)copied);
     return 0;
 }

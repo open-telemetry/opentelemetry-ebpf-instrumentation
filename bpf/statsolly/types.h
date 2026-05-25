@@ -13,6 +13,11 @@ enum {
     k_event_stat_tcp_io = 4,                // StatTypeTCPIo
 };
 
+// batch size used in tcp io metric
+enum {
+    k_tcp_io_batch_size = 10,
+};
+
 enum tcp_handshake_role : u8 {
     role_unknown = 0,
     role_client = 1,
