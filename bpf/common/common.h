@@ -286,7 +286,6 @@ typedef struct dns_req {
     u8 _pad3[4];
 } dns_req_t;
 
-
 typedef struct openai_go_req {
     u8 type; // Must be first
     enum openai_role input_message_role;
