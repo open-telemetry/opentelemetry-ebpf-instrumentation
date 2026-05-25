@@ -20,8 +20,8 @@ func TestFixupSpec(t *testing.T) {
 	const origSendmsgName = "real_sendmsg"
 	const origRetprobeSendmsgName = "real_retprobe_sendmsg"
 	const origCleanupRbufName = "real_cleanup_rbuf"
-
 	const origCloseIoFlushName = "real_close_io_flush"
+	const origRetransmitName = "real_retransmit"
 
 	makeSpec := func() *ebpf.CollectionSpec {
 		return &ebpf.CollectionSpec{
@@ -33,6 +33,7 @@ func TestFixupSpec(t *testing.T) {
 				progObiStatsKretprobeTCPSendmsg:                   {Name: origRetprobeSendmsgName, Type: ebpf.Kprobe},
 				progObiStatsKprobeTCPCleanupRbuf:                  {Name: origCleanupRbufName, Type: ebpf.Kprobe},
 				progObiStatsKprobeTCPCloseIoFlush:                 {Name: origCloseIoFlushName, Type: ebpf.Kprobe},
+				progObiStatsRawTpTCPRetransmitSkb:                 {Name: origRetransmitName, Type: ebpf.RawTracepoint},
 			},
 		}
 	}
@@ -53,29 +54,33 @@ func TestFixupSpec(t *testing.T) {
 				progObiStatsKretprobeTCPSendmsg:                   origRetprobeSendmsgName,
 				progObiStatsKprobeTCPCleanupRbuf:                  origCleanupRbufName,
 				progObiStatsKprobeTCPCloseIoFlush:                 origCloseIoFlushName,
+				progObiStatsRawTpTCPRetransmitSkb:                 origRetransmitName,
 			},
 		},
 		{
-			name:      "disable srtt kprobe only",
+			// Regression: stats_tcp_io standalone (no stats_tcp_rtt) must still attach
+			// the io_flush probe on tcp_close to avoid losing the final incomplete batch.
+			name:      "disable srtt only",
 			toDisable: []string{progObiStatsKprobeTCPCloseSrtt},
 			want: map[string]string{
 				progObiStatsKprobeTCPCloseSrtt:                    "stats_dummy",
 				progObiStatsTpInetSockSetStateTCPFailedConnection: origTpName,
 				progObiStatsTpInetSockSetStateConnRole:            origConnRoleName,
 				progObiStatsKprobeTCPCloseIoFlush:                 origCloseIoFlushName,
+				progObiStatsKprobeTCPSendmsg:                      origSendmsgName,
+				progObiStatsKretprobeTCPSendmsg:                   origRetprobeSendmsgName,
+				progObiStatsKprobeTCPCleanupRbuf:                  origCleanupRbufName,
+				progObiStatsRawTpTCPRetransmitSkb:                 origRetransmitName,
 			},
 		},
 		{
-			// Regression: stats_tcp_io standalone (no stats_tcp_rtt) must still attach
-			// the io_flush probe on tcp_close to avoid losing the final incomplete batch.
-			name:      "srtt disabled io enabled",
-			toDisable: []string{progObiStatsKprobeTCPCloseSrtt},
+			name:      "disable retransmits only",
+			toDisable: []string{progObiStatsRawTpTCPRetransmitSkb},
 			want: map[string]string{
-				progObiStatsKprobeTCPCloseSrtt:    "stats_dummy",
-				progObiStatsKprobeTCPCloseIoFlush: origCloseIoFlushName,
-				progObiStatsKprobeTCPSendmsg:      origSendmsgName,
-				progObiStatsKretprobeTCPSendmsg:   origRetprobeSendmsgName,
-				progObiStatsKprobeTCPCleanupRbuf:  origCleanupRbufName,
+				progObiStatsKprobeTCPCloseSrtt:                    origKpName,
+				progObiStatsTpInetSockSetStateTCPFailedConnection: origTpName,
+				progObiStatsTpInetSockSetStateConnRole:            origConnRoleName,
+				progObiStatsRawTpTCPRetransmitSkb:                 "stats_dummy",
 			},
 		},
 		{
@@ -117,6 +122,7 @@ func TestFixupSpec(t *testing.T) {
 				progObiStatsKretprobeTCPSendmsg,
 				progObiStatsKprobeTCPCleanupRbuf,
 				progObiStatsKprobeTCPCloseIoFlush,
+				progObiStatsRawTpTCPRetransmitSkb,
 			},
 			want: map[string]string{
 				progObiStatsKprobeTCPCloseSrtt:                    "stats_dummy",
@@ -126,6 +132,7 @@ func TestFixupSpec(t *testing.T) {
 				progObiStatsKretprobeTCPSendmsg:                   "stats_dummy",
 				progObiStatsKprobeTCPCleanupRbuf:                  "stats_dummy",
 				progObiStatsKprobeTCPCloseIoFlush:                 "stats_dummy",
+				progObiStatsRawTpTCPRetransmitSkb:                 "stats_dummy",
 			},
 		},
 	}
