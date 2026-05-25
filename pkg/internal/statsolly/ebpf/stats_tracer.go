@@ -34,13 +34,13 @@ type probe struct {
 
 // Program names
 const (
-	progObiKprobeTCPCloseSrtt              = "obi_kprobe_tcp_close_srtt"
-	progObiTpInetSockSetStateConnRole      = "obi_tp_inet_sock_set_state_conn_role"
-	progObiTpInetSockSetStateTCPFailedConn = "obi_tp_inet_sock_set_state_tcp_failed_conn"
-	progObiRawTpTCPRetransmit              = "obi_raw_tp_tcp_retransmit"
-	progObiKprobeTCPSendmsgIo              = "obi_kprobe_tcp_sendmsg_io"
-	progObiKretprobeTCPSendmsgIo           = "obi_kretprobe_tcp_sendmsg_io"
-	progObiKprobeTCPCleanupRbufIo          = "obi_kprobe_tcp_cleanup_rbuf_io"
+	progObiStatsKprobeTCPClose                        = "obi_stats_kprobe_tcp_close"
+	progObiStatsTpInetSockSetStateConnRole            = "obi_stats_tp_inet_sock_set_state_conn_role"
+	progObiStatsTpInetSockSetStateTCPFailedConnection = "obi_stats_tp_inet_sock_set_state_tcp_failed_connection"
+	progObiStatsRawTpTCPRetransmitSkb                 = "obi_stats_raw_tp_tcp_retransmit_skb"
+	progObiStatsKprobeTCPSendmsg                      = "obi_stats_kprobe_tcp_sendmsg"
+	progObiStatsKretprobeTCPSendmsg                   = "obi_stats_kretprobe_tcp_sendmsg"
+	progObiStatsKprobeTCPCleanupRbuf                  = "obi_stats_kprobe_tcp_cleanup_rbuf"
 )
 
 // Hook point names, grouped by attach type.
@@ -98,19 +98,19 @@ func NewStatsFetcher(cfg *config.EBPFTracer, features *export.Features, selector
 
 	var toDisable []string
 	if !features.StatsTCPFailedConnections() {
-		toDisable = append(toDisable, progObiTpInetSockSetStateTCPFailedConn)
+		toDisable = append(toDisable, progObiStatsTpInetSockSetStateTCPFailedConnection)
 	}
 	if !connRoleUsed {
-		toDisable = append(toDisable, progObiTpInetSockSetStateConnRole)
+		toDisable = append(toDisable, progObiStatsTpInetSockSetStateConnRole)
 	}
 	if !features.StatsTCPRtt() {
-		toDisable = append(toDisable, progObiKprobeTCPCloseSrtt)
+		toDisable = append(toDisable, progObiStatsKprobeTCPClose)
 	}
 	if !features.StatsTCPRetransmits() {
-		toDisable = append(toDisable, progObiRawTpTCPRetransmit)
+		toDisable = append(toDisable, progObiStatsRawTpTCPRetransmitSkb)
 	}
 	if !features.StatsTCPIo() {
-		toDisable = append(toDisable, progObiKprobeTCPSendmsgIo, progObiKretprobeTCPSendmsgIo, progObiKprobeTCPCleanupRbufIo)
+		toDisable = append(toDisable, progObiStatsKprobeTCPSendmsg, progObiStatsKretprobeTCPSendmsg, progObiStatsKprobeTCPCleanupRbuf)
 	}
 
 	if err := fixupSpec(spec, toDisable); err != nil {
@@ -133,17 +133,17 @@ func NewStatsFetcher(cfg *config.EBPFTracer, features *export.Features, selector
 	for _, k := range []probe{
 		{
 			name:    KprobeTCPClose,
-			program: objects.ObiKprobeTcpCloseSrtt,
+			program: objects.ObiStatsKprobeTcpClose,
 			enabled: features.StatsTCPRtt(),
 		},
 		{
 			name:    KprobeTCPSendMsg,
-			program: objects.ObiKprobeTcpSendmsgIo,
+			program: objects.ObiStatsKprobeTcpSendmsg,
 			enabled: features.StatsTCPIo(),
 		},
 		{
 			name:    KprobeTCPCleanupRbuf,
-			program: objects.ObiKprobeTcpCleanupRbufIo,
+			program: objects.ObiStatsKprobeTcpCleanupRbuf,
 			enabled: features.StatsTCPIo(),
 		},
 	} {
@@ -160,18 +160,27 @@ func NewStatsFetcher(cfg *config.EBPFTracer, features *export.Features, selector
 	}
 
 	// kretprobes
-	if features.StatsTCPIo() {
-		l, err := link.Kretprobe(KprobeTCPSendMsg, objects.ObiKretprobeTcpSendmsgIo, nil)
+	for _, k := range []probe{
+		{
+			name:    KprobeTCPSendMsg,
+			program: objects.ObiStatsKretprobeTcpSendmsg,
+			enabled: features.StatsTCPIo(),
+		},
+	} {
+		if !k.enabled {
+			continue
+		}
+		l, err := link.Kretprobe(k.name, k.program, nil)
 		if err != nil {
 			closeAll(closables)
-			return nil, fmt.Errorf("failed kretprobe attachment %s: %w", KprobeTCPSendMsg, err)
+			return nil, fmt.Errorf("failed kretprobe attachment %s: %w", k.name, err)
 		}
 		closables = append(closables, l)
 	}
 
 	// tracepoints
-	// ObiTpInetSockSetStateTcpFailedConn (or any other probes that use role)
-	// must be attached before ObiTpInetSockSetStateConnRole.
+	// ObiStatsTpInetSockSetStateTcpFailedConnection (or any other probes that use role)
+	// must be attached before ObiStatsTpInetSockSetStateConnRole.
 	// Both attach to the same tracepoint and BPF programs run FIFO:
 	// the probes read sock_role first, conn_role deletes it after.
 	// Swapping the order would cause tcp_failed_conn or any other probes
@@ -179,12 +188,12 @@ func NewStatsFetcher(cfg *config.EBPFTracer, features *export.Features, selector
 	for _, t := range []probe{
 		{
 			name:    TracepointInetSockSetState,
-			program: objects.ObiTpInetSockSetStateTcpFailedConn,
+			program: objects.ObiStatsTpInetSockSetStateTcpFailedConnection,
 			enabled: features.StatsTCPFailedConnections(),
 		},
 		{
 			name:    TracepointInetSockSetState,
-			program: objects.ObiTpInetSockSetStateConnRole,
+			program: objects.ObiStatsTpInetSockSetStateConnRole,
 			enabled: connRoleUsed,
 		},
 	} {
@@ -205,7 +214,7 @@ func NewStatsFetcher(cfg *config.EBPFTracer, features *export.Features, selector
 	if features.StatsTCPRetransmits() {
 		l, err := link.AttachRawTracepoint(link.RawTracepointOptions{
 			Name:    RawTracepointTCPRetransmitSkb,
-			Program: objects.ObiRawTpTcpRetransmit,
+			Program: objects.ObiStatsRawTpTcpRetransmitSkb,
 		})
 		if err != nil {
 			closeAll(closables)

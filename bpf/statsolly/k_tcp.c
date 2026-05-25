@@ -97,7 +97,7 @@ accumulate_tcp_io(struct sock *sk, enum network_io_direction direction, u32 byte
 }
 
 SEC("kprobe/tcp_close")
-int BPF_KPROBE(obi_kprobe_tcp_close_srtt, struct sock *sk) {
+int BPF_KPROBE(obi_stats_kprobe_tcp_close, struct sock *sk) {
     (void)ctx;
 
     // Flush any pending IO batches before the socket is torn down.
@@ -144,7 +144,7 @@ int BPF_KPROBE(obi_kprobe_tcp_close_srtt, struct sock *sk) {
 }
 
 SEC("kprobe/tcp_sendmsg")
-int BPF_KPROBE(obi_kprobe_tcp_sendmsg_io, struct sock *sk, struct msghdr *msg, size_t size) {
+int BPF_KPROBE(obi_stats_kprobe_tcp_sendmsg, struct sock *sk, struct msghdr *msg, size_t size) {
     (void)ctx;
     (void)msg;
     (void)size;
@@ -154,7 +154,7 @@ int BPF_KPROBE(obi_kprobe_tcp_sendmsg_io, struct sock *sk, struct msghdr *msg, s
 }
 
 SEC("kretprobe/tcp_sendmsg")
-int BPF_KRETPROBE(obi_kretprobe_tcp_sendmsg_io) {
+int BPF_KRETPROBE(obi_stats_kretprobe_tcp_sendmsg) {
     const u64 pid_tgid = bpf_get_current_pid_tgid();
     struct sock *const *skp = bpf_map_lookup_elem(&tcp_sendmsg_sock, &pid_tgid);
 
@@ -174,7 +174,7 @@ int BPF_KRETPROBE(obi_kretprobe_tcp_sendmsg_io) {
 }
 
 SEC("kprobe/tcp_cleanup_rbuf")
-int BPF_KPROBE(obi_kprobe_tcp_cleanup_rbuf_io, struct sock *sk, int copied) {
+int BPF_KPROBE(obi_stats_kprobe_tcp_cleanup_rbuf, struct sock *sk, int copied) {
     (void)ctx;
 
     if (copied <= 0) {

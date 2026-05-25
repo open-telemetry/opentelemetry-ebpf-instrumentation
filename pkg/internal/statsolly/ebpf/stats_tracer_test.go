@@ -18,16 +18,18 @@ func TestFixupSpec(t *testing.T) {
 	const origConnRoleName = "real_conn_role"
 
 	const origSendmsgName = "real_sendmsg"
+	const origRetprobeSendmsgName = "real_retprobe_sendmsg"
 	const origCleanupRbufName = "real_cleanup_rbuf"
 
 	makeSpec := func() *ebpf.CollectionSpec {
 		return &ebpf.CollectionSpec{
 			Programs: map[string]*ebpf.ProgramSpec{
-				progObiKprobeTCPCloseSrtt:              {Name: origKpName, Type: ebpf.Kprobe},
-				progObiTpInetSockSetStateTCPFailedConn: {Name: origTpName, Type: ebpf.TracePoint},
-				progObiTpInetSockSetStateConnRole:      {Name: origConnRoleName, Type: ebpf.TracePoint},
-				progObiKprobeTCPSendmsgIo:              {Name: origSendmsgName, Type: ebpf.Kprobe},
-				progObiKprobeTCPCleanupRbufIo:          {Name: origCleanupRbufName, Type: ebpf.Kprobe},
+				progObiStatsKprobeTCPClose:                        {Name: origKpName, Type: ebpf.Kprobe},
+				progObiStatsTpInetSockSetStateTCPFailedConnection: {Name: origTpName, Type: ebpf.TracePoint},
+				progObiStatsTpInetSockSetStateConnRole:            {Name: origConnRoleName, Type: ebpf.TracePoint},
+				progObiStatsKprobeTCPSendmsg:                      {Name: origSendmsgName, Type: ebpf.Kprobe},
+				progObiStatsKretprobeTCPSendmsg:                   {Name: origRetprobeSendmsgName, Type: ebpf.Kprobe},
+				progObiStatsKprobeTCPCleanupRbuf:                  {Name: origCleanupRbufName, Type: ebpf.Kprobe},
 			},
 		}
 	}
@@ -41,62 +43,65 @@ func TestFixupSpec(t *testing.T) {
 			name:      "disable nothing",
 			toDisable: nil,
 			want: map[string]string{
-				progObiKprobeTCPCloseSrtt:              origKpName,
-				progObiTpInetSockSetStateTCPFailedConn: origTpName,
-				progObiTpInetSockSetStateConnRole:      origConnRoleName,
+				progObiStatsKprobeTCPClose:                        origKpName,
+				progObiStatsTpInetSockSetStateTCPFailedConnection: origTpName,
+				progObiStatsTpInetSockSetStateConnRole:            origConnRoleName,
 			},
 		},
 		{
 			name:      "disable kprobe only",
-			toDisable: []string{progObiKprobeTCPCloseSrtt},
+			toDisable: []string{progObiStatsKprobeTCPClose},
 			want: map[string]string{
-				progObiKprobeTCPCloseSrtt:              "stats_dummy",
-				progObiTpInetSockSetStateTCPFailedConn: origTpName,
-				progObiTpInetSockSetStateConnRole:      origConnRoleName,
+				progObiStatsKprobeTCPClose:                        "stats_dummy",
+				progObiStatsTpInetSockSetStateTCPFailedConnection: origTpName,
+				progObiStatsTpInetSockSetStateConnRole:            origConnRoleName,
 			},
 		},
 		{
 			name:      "disable failed conn only",
-			toDisable: []string{progObiTpInetSockSetStateTCPFailedConn},
+			toDisable: []string{progObiStatsTpInetSockSetStateTCPFailedConnection},
 			want: map[string]string{
-				progObiKprobeTCPCloseSrtt:              origKpName,
-				progObiTpInetSockSetStateTCPFailedConn: "stats_dummy",
-				progObiTpInetSockSetStateConnRole:      origConnRoleName,
+				progObiStatsKprobeTCPClose:                        origKpName,
+				progObiStatsTpInetSockSetStateTCPFailedConnection: "stats_dummy",
+				progObiStatsTpInetSockSetStateConnRole:            origConnRoleName,
 			},
 		},
 		{
 			name:      "disable conn role only",
-			toDisable: []string{progObiTpInetSockSetStateConnRole},
+			toDisable: []string{progObiStatsTpInetSockSetStateConnRole},
 			want: map[string]string{
-				progObiKprobeTCPCloseSrtt:              origKpName,
-				progObiTpInetSockSetStateTCPFailedConn: origTpName,
-				progObiTpInetSockSetStateConnRole:      "stats_dummy",
+				progObiStatsKprobeTCPClose:                        origKpName,
+				progObiStatsTpInetSockSetStateTCPFailedConnection: origTpName,
+				progObiStatsTpInetSockSetStateConnRole:            "stats_dummy",
 			},
 		},
 		{
 			name:      "disable io programs",
-			toDisable: []string{progObiKprobeTCPSendmsgIo, progObiKprobeTCPCleanupRbufIo},
+			toDisable: []string{progObiStatsKprobeTCPSendmsg, progObiStatsKretprobeTCPSendmsg, progObiStatsKprobeTCPCleanupRbuf},
 			want: map[string]string{
-				progObiKprobeTCPCloseSrtt:     origKpName,
-				progObiKprobeTCPSendmsgIo:     "stats_dummy",
-				progObiKprobeTCPCleanupRbufIo: "stats_dummy",
+				progObiStatsKprobeTCPClose:       origKpName,
+				progObiStatsKprobeTCPSendmsg:     "stats_dummy",
+				progObiStatsKretprobeTCPSendmsg:  "stats_dummy",
+				progObiStatsKprobeTCPCleanupRbuf: "stats_dummy",
 			},
 		},
 		{
 			name: "disable all",
 			toDisable: []string{
-				progObiKprobeTCPCloseSrtt,
-				progObiTpInetSockSetStateTCPFailedConn,
-				progObiTpInetSockSetStateConnRole,
-				progObiKprobeTCPSendmsgIo,
-				progObiKprobeTCPCleanupRbufIo,
+				progObiStatsKprobeTCPClose,
+				progObiStatsTpInetSockSetStateTCPFailedConnection,
+				progObiStatsTpInetSockSetStateConnRole,
+				progObiStatsKprobeTCPSendmsg,
+				progObiStatsKretprobeTCPSendmsg,
+				progObiStatsKprobeTCPCleanupRbuf,
 			},
 			want: map[string]string{
-				progObiKprobeTCPCloseSrtt:              "stats_dummy",
-				progObiTpInetSockSetStateTCPFailedConn: "stats_dummy",
-				progObiTpInetSockSetStateConnRole:      "stats_dummy",
-				progObiKprobeTCPSendmsgIo:              "stats_dummy",
-				progObiKprobeTCPCleanupRbufIo:          "stats_dummy",
+				progObiStatsKprobeTCPClose:                        "stats_dummy",
+				progObiStatsTpInetSockSetStateTCPFailedConnection: "stats_dummy",
+				progObiStatsTpInetSockSetStateConnRole:            "stats_dummy",
+				progObiStatsKprobeTCPSendmsg:                      "stats_dummy",
+				progObiStatsKretprobeTCPSendmsg:                   "stats_dummy",
+				progObiStatsKprobeTCPCleanupRbuf:                  "stats_dummy",
 			},
 		},
 	}
@@ -119,7 +124,7 @@ func TestFixupSpec(t *testing.T) {
 func TestFixupSpecUnknownProgram(t *testing.T) {
 	spec := &ebpf.CollectionSpec{
 		Programs: map[string]*ebpf.ProgramSpec{
-			progObiKprobeTCPCloseSrtt: {Name: "real_kp", Type: ebpf.Kprobe},
+			progObiStatsKprobeTCPClose: {Name: "real_kp", Type: ebpf.Kprobe},
 		},
 	}
 	if err := fixupSpec(spec, []string{"nonexistent_prog"}); err == nil {

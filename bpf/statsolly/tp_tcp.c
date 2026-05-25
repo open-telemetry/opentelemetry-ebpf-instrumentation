@@ -69,18 +69,18 @@ typedef struct tcp_retransmit {
 const tcp_failed_connection_t *unused_tcp_failed_connection __attribute__((unused));
 const tcp_retransmit_t *unused_tcp_retransmit_t __attribute__((unused));
 
-// obi_tp_inet_sock_set_state_conn_role is the sole owner of the sock_role map.
+// obi_stats_tp_inet_sock_set_state_conn_role is the sole owner of the sock_role map.
 // It writes the role (client/server) when a connection is established and
 // it also handles all cleanup: any transition to TCP_CLOSE removes the entry,
 // covering both normal graceful closes and abnormal ones.
 //
 // Attachment order invariant: this program must be attached AFTER
-// obi_tp_inet_sock_set_state_tcp_failed_conn (or any future tp probes that need the role)
+// obi_stats_tp_inet_sock_set_state_tcp_failed_connection (or any future tp probes that need the role)
 // on the same tracepoint. BPF programs on a tracepoint run FIFO, so the probe(s) read sock_role first,
 // then this program deletes it. Reversing the order would cause tcp_failed_conn or any other probes
 // to see a stale NULL on the same TCP_CLOSE event.
 SEC("tracepoint/sock/inet_sock_set_state")
-int obi_tp_inet_sock_set_state_conn_role(struct trace_event_raw_inet_sock_set_state *args) {
+int obi_stats_tp_inet_sock_set_state_conn_role(struct trace_event_raw_inet_sock_set_state *args) {
     if (args->protocol != IPPROTO_TCP) {
         return 0;
     }
@@ -103,7 +103,8 @@ int obi_tp_inet_sock_set_state_conn_role(struct trace_event_raw_inet_sock_set_st
 }
 
 SEC("tracepoint/sock/inet_sock_set_state")
-int obi_tp_inet_sock_set_state_tcp_failed_conn(struct trace_event_raw_inet_sock_set_state *args) {
+int obi_stats_tp_inet_sock_set_state_tcp_failed_connection(
+    struct trace_event_raw_inet_sock_set_state *args) {
     if (args->protocol != IPPROTO_TCP) {
         return 0;
     }
@@ -163,7 +164,7 @@ int obi_tp_inet_sock_set_state_tcp_failed_conn(struct trace_event_raw_inet_sock_
 }
 
 SEC("raw_tracepoint/tcp_retransmit_skb")
-int obi_raw_tp_tcp_retransmit(struct bpf_raw_tracepoint_args *ctx) {
+int obi_stats_raw_tp_tcp_retransmit_skb(struct bpf_raw_tracepoint_args *ctx) {
 
     struct sock *const sk = (struct sock *)ctx->args[0];
 
