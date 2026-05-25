@@ -52,6 +52,7 @@ type (
 	GoOTelSpanTrace      BpfOtelSpanT
 	GoMongoClientInfo    BpfMongoGoClientReqT
 	DNSInfo              BpfDnsReqT
+	GoOpenAIInfo         BpfOpenaiGoReqT
 )
 
 // Go mirror of tp_info.h -> enum tp_flags

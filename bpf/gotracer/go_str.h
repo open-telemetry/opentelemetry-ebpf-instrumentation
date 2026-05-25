@@ -41,7 +41,7 @@ read_go_str_n(char *name, void *base_ptr, u64 len, void *field, u64 max_size) {
 }
 
 static __always_inline int
-read_go_str(char *name, void *base_ptr, u8 offset, void *field, u64 max_size) {
+read_go_str(char *name, void *base_ptr, u32 offset, void *field, u64 max_size) {
     void *ptr = 0;
     if (bpf_probe_read(&ptr, sizeof(ptr), (void *)(base_ptr + offset)) != 0) {
         bpf_dbg_printk("can't read ptr for %s", name);
@@ -69,7 +69,7 @@ read_go_str(char *name, void *base_ptr, u8 offset, void *field, u64 max_size) {
     return 1;
 }
 
-static __always_inline u64 peek_go_str_len(const char *name, const void *base_ptr, u8 offset) {
+static __always_inline u64 peek_go_str_len(const char *name, const void *base_ptr, u32 offset) {
     u64 len = 0;
     if (bpf_probe_read(
             &len, sizeof(len), (const void *)(base_ptr + (offset + k_go_string_len_offset))) != 0) {

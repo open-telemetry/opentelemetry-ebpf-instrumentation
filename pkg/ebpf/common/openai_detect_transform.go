@@ -5,7 +5,6 @@ package ebpfcommon // import "go.opentelemetry.io/obi/pkg/ebpf/common"
 
 import (
 	"encoding/json"
-	"structs"
 	"unsafe"
 
 	trace2 "go.opentelemetry.io/otel/trace"
@@ -14,68 +13,6 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/ringbuf"
 )
-
-// openaiGoReqT mirrors the C struct openai_go_req_t defined in
-// bpf/common/common.h. The layout must be kept in sync with the C definition.
-//
-//	typedef struct openai_go_req {
-//	    u8 type;
-//	    u8 input_message_role;
-//	    u8 _pad[6];
-//	    u64 start_monotime_ns;
-//	    u64 end_monotime_ns;
-//	    pid_info pid;
-//	    u8 _pad2[4];
-//	    tp_info_t tp;
-//	    connection_info_t conn;
-//	    u8 _pad3[4];
-//	    unsigned char request_model[64];
-//	    unsigned char response_model[64];
-//	    unsigned char response_id[64];
-//	    s64 prompt_tokens;
-//	    s64 completion_tokens;
-//	    unsigned char input_message_content[256];
-//	    unsigned char output_message_content[256];
-//	} openai_go_req_t;
-type openaiGoReqT struct {
-	_                structs.HostLayout
-	Type             uint8
-	InputMessageRole uint8
-	Pad              [6]uint8
-	StartMonotimeNs  uint64
-	EndMonotimeNs    uint64
-	Pid              struct {
-		_       structs.HostLayout
-		HostPid uint32
-		UserPid uint32
-		Ns      uint32
-	}
-	Pad2 [4]uint8
-	Tp   struct {
-		_        structs.HostLayout
-		TraceID  [16]uint8
-		SpanID   [8]uint8
-		ParentID [8]uint8
-		TS       uint64
-		Flags    uint8
-		Pad      [7]uint8
-	}
-	Conn struct {
-		_     structs.HostLayout
-		SAddr [16]uint8
-		DAddr [16]uint8
-		SPort uint16
-		DPort uint16
-	}
-	Pad3                 [4]uint8
-	RequestModel         [64]uint8
-	ResponseModel        [64]uint8
-	ResponseID           [64]uint8
-	PromptTokens         int64
-	CompletionTokens     int64
-	InputMessageContent  [256]uint8
-	OutputMessageContent [256]uint8
-}
 
 type genAIMessage struct {
 	Role    string `json:"role"`
@@ -145,14 +82,14 @@ func marshalGenAIChoices(role, content, finishReason string) json.RawMessage {
 // The returned span uses EventTypeHTTPClient with HTTPSubtypeOpenAI so that
 // the existing tracesgen.go export logic emits the correct GenAI attributes.
 func ReadGoOpenAIRequestIntoSpan(record *ringbuf.Record) (request.Span, bool, error) {
-	event, err := ReinterpretCast[openaiGoReqT](record.RawSample)
+	event, err := ReinterpretCast[GoOpenAIInfo](record.RawSample)
 	if err != nil {
 		return request.Span{}, true, err
 	}
 
 	reqModel := cstr(event.RequestModel[:])
 	respModel := cstr(event.ResponseModel[:])
-	respID := cstr(event.ResponseID[:])
+	respID := cstr(event.ResponseId[:])
 
 	inputContent := cstr(event.InputMessageContent[:])
 	outputContent := cstr(event.OutputMessageContent[:])
@@ -173,14 +110,14 @@ func ReadGoOpenAIRequestIntoSpan(record *ringbuf.Record) (request.Span, bool, er
 		RequestStart: int64(event.StartMonotimeNs),
 		Start:        int64(event.StartMonotimeNs),
 		End:          int64(event.EndMonotimeNs),
-		TraceID:      trace2.TraceID(event.Tp.TraceID),
-		SpanID:       trace2.SpanID(event.Tp.SpanID),
-		ParentSpanID: trace2.SpanID(event.Tp.ParentID),
+		TraceID:      trace2.TraceID(event.Tp.TraceId),
+		SpanID:       trace2.SpanID(event.Tp.SpanId),
+		ParentSpanID: trace2.SpanID(event.Tp.ParentId),
 		TraceFlags:   event.Tp.Flags,
 		Peer:         peer,
-		PeerPort:     int(event.Conn.SPort),
+		PeerPort:     int(event.Conn.S_port),
 		Host:         host,
-		HostPort:     int(event.Conn.DPort),
+		HostPort:     int(event.Conn.D_port),
 		Pid: request.PidInfo{
 			HostPID:   app.PID(event.Pid.HostPid),
 			UserPID:   app.PID(event.Pid.UserPid),

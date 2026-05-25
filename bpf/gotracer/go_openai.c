@@ -19,40 +19,27 @@
 
 #include <common/common.h>
 #include <common/ringbuf.h>
+#include <common/scratch_mem.h>
 
 #include <gotracer/go_common.h>
 #include <gotracer/go_str.h>
 
-#include <gotracer/maps/openai.h>
+#include <gotracer/maps/ongoing_openai_requests.h>
 
 #include <logger/bpf_dbg.h>
 
 #include <shared/obi_ctx.h>
 
-// Stack offset for the body parameter in the Go register ABI calling convention.
+SCRATCH_MEM_TYPED(openai_scratch, openai_go_req_t);
+
 enum : u32 {
-    k_openai_body_sp_offset = 8, // body is the first stack-spilled argument (after return addr)
+    k_openai_body_sp_offset = 8,
 };
 
-// Layout of the openai-go ChatCompletionMessageParamUnion type.
-// The struct contains six *ChatCompletion*MessageParam pointers followed by an
-// embedded paramUnion (param.APIUnion -> metadata{ any }) that adds 16 bytes
-// for the interface header, so each slice element occupies 64 bytes.
 enum : u32 {
     k_openai_msg_union_size = 64,
     k_openai_msg_union_ptr_count = 6,
     k_openai_max_messages = 4096,
-};
-
-// Role values stored in openai_go_req_t.input_message_role.
-enum : u8 {
-    k_openai_role_user = 0,
-    k_openai_role_system = 1,
-    k_openai_role_assistant = 2,
-    k_openai_role_developer = 3,
-    k_openai_role_tool = 4,
-    k_openai_role_function = 5,
-    k_openai_role_unknown = 0xFF,
 };
 
 // Index of each OfXxx pointer inside ChatCompletionMessageParamUnion.
@@ -129,12 +116,6 @@ read_last_input_message(off_table_t *ot, const void *body_ptr, openai_go_req_t *
 
     req->input_message_role = role;
 
-    // For developer/system/user/tool message params, Content is a
-    // ChatCompletionXxxMessageParamContentUnion whose OfString (param.Opt[string])
-    // sits at offset 0 with its Value (Go string header) also at offset 0.
-    // For function message params, Content is directly param.Opt[string] at offset 0.
-    // For assistant the Content field is not at offset 0, so the text content may
-    // not be captured for that variant.
     read_go_str("openai request message content",
                 msg_ptr,
                 0,
@@ -173,8 +154,8 @@ read_first_output_choice(off_table_t *ot, void *resp_ptr, openai_go_req_t *req) 
         return;
     }
 
-    // Content lives inside the first Choice's Message struct.
-    void *content_hdr = (unsigned char *)choices_arr + choice_message_off + message_content_off;
+    unsigned char *content_hdr =
+        (unsigned char *)choices_arr + choice_message_off + message_content_off;
     read_go_str("openai response message content",
                 content_hdr,
                 0,
@@ -185,21 +166,12 @@ read_first_output_choice(off_table_t *ot, void *resp_ptr, openai_go_req_t *req) 
 }
 
 // github.com/openai/openai-go/v3.(*ChatCompletionService).New
-// func (r *ChatCompletionService) New(ctx context.Context, body ChatCompletionNewParams,
-//                                     opts ...option.RequestOption) (*ChatCompletion, error)
-//
-// Go 1.17+ register ABI (AMD64):
-//   r   *ChatCompletionService -> AX  (GO_PARAM1)
-//   ctx context.Context        -> BX  (GO_PARAM2) type, CX (GO_PARAM3) data
-//   body ChatCompletionNewParams -> stack at SP+8 (too large for remaining registers)
-//   opts ...option.RequestOption -> stack (variadic slice)
 SEC("uprobe/openai_chat_new")
 int obi_uprobe_openai_chat_new(struct pt_regs *ctx) {
     void *goroutine_addr = GOROUTINE_PTR(ctx);
     bpf_dbg_printk("=== uprobe/openai_chat_new goroutine_addr=%lx ===", goroutine_addr);
 
-    u32 zero = 0;
-    openai_go_req_t *req = bpf_map_lookup_elem(&openai_req_mem, &zero);
+    openai_go_req_t *req = openai_scratch_mem();
     if (!req) {
         return 0;
     }
@@ -217,12 +189,9 @@ int obi_uprobe_openai_chat_new(struct pt_regs *ctx) {
 
     const u64 model_off = go_offset_of(ot, (go_offset){.v = _openai_chat_params_model_pos});
 
-    // Pre-offset the base pointer so read_go_str can consume a wide offset
-    // (its `offset` parameter is u8). body_ptr + model_off then points at the
-    // Go string header (ptr + len) we want to dereference.
     read_go_str("openai request model",
-                (void *)body_ptr + model_off,
-                0,
+                (void *)body_ptr,
+                model_off,
                 req->request_model,
                 sizeof(req->request_model));
 
@@ -240,10 +209,6 @@ int obi_uprobe_openai_chat_new(struct pt_regs *ctx) {
 }
 
 // Return probe for github.com/openai/openai-go/v3.(*ChatCompletionService).New
-//
-// Return registers (AMD64):
-//   res *ChatCompletion -> AX (GO_PARAM1)
-//   err error           -> BX (GO_PARAM2) type, CX (GO_PARAM3) data
 SEC("uprobe/openai_chat_new_ret")
 int obi_uprobe_openai_chat_new_ret(struct pt_regs *ctx) {
     void *goroutine_addr = GOROUTINE_PTR(ctx);
@@ -271,14 +236,12 @@ int obi_uprobe_openai_chat_new_ret(struct pt_regs *ctx) {
         const u64 prompt_tokens_off =
             go_offset_of(ot, (go_offset){.v = _openai_completion_usage_prompt_tokens_pos});
 
-        // See comment in the entry probe: pre-offset the base pointer so
-        // read_go_str accepts a wide offset without truncating to u8.
         read_go_str(
-            "openai response id", resp_ptr + id_off, 0, req->response_id, sizeof(req->response_id));
+            "openai response id", resp_ptr, id_off, req->response_id, sizeof(req->response_id));
 
         read_go_str("openai response model",
-                    resp_ptr + model_off,
-                    0,
+                    resp_ptr,
+                    model_off,
                     req->response_model,
                     sizeof(req->response_model));
 
@@ -303,13 +266,9 @@ int obi_uprobe_openai_chat_new_ret(struct pt_regs *ctx) {
         read_first_output_choice(ot, resp_ptr, req);
     }
 
-    openai_go_req_t *trace = bpf_ringbuf_reserve(&events, sizeof(openai_go_req_t), 0);
-    if (trace) {
-        __builtin_memcpy(trace, req, sizeof(openai_go_req_t));
-        trace->end_monotime_ns = bpf_ktime_get_ns();
-        task_pid(&trace->pid);
-        bpf_ringbuf_submit(trace, get_flags());
-    }
+    req->end_monotime_ns = bpf_ktime_get_ns();
+    task_pid(&req->pid);
+    bpf_ringbuf_output(&events, req, sizeof(openai_go_req_t), get_flags());
 
     bpf_map_delete_elem(&ongoing_openai_requests, &g_key);
     obi_ctx__del(bpf_get_current_pid_tgid());

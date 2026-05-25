@@ -14,7 +14,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/ringbuf"
 )
 
-func buildOpenAIReqBytes(req openaiGoReqT) []byte {
+func buildOpenAIReqBytes(req GoOpenAIInfo) []byte {
 	size := int(unsafe.Sizeof(req))
 	b := (*[1 << 20]byte)(unsafe.Pointer(&req))[:size:size]
 	out := make([]byte, size)
@@ -27,7 +27,7 @@ func copyStringToArray(dst []uint8, src string) {
 }
 
 func TestReadGoOpenAIRequestIntoSpan_InputOutputMessages(t *testing.T) {
-	var req openaiGoReqT
+	var req GoOpenAIInfo
 
 	// Set basic fields
 	req.Type = 21 // EVENT_GO_OPENAI
@@ -39,7 +39,7 @@ func TestReadGoOpenAIRequestIntoSpan_InputOutputMessages(t *testing.T) {
 	// Set model fields
 	copyStringToArray(req.RequestModel[:], "gpt-4o-mini")
 	copyStringToArray(req.ResponseModel[:], "gpt-4o-mini-2024-07-18")
-	copyStringToArray(req.ResponseID[:], "chatcmpl-test123")
+	copyStringToArray(req.ResponseId[:], "chatcmpl-test123")
 
 	// Set input message (user role = 0)
 	req.InputMessageRole = 0 // user
@@ -88,14 +88,14 @@ func TestReadGoOpenAIRequestIntoSpan_InputOutputMessages(t *testing.T) {
 }
 
 func TestReadGoOpenAIRequestIntoSpan_SystemRole(t *testing.T) {
-	var req openaiGoReqT
+	var req GoOpenAIInfo
 
 	req.Type = 21
 	req.StartMonotimeNs = 1000
 	req.EndMonotimeNs = 2000
 	copyStringToArray(req.RequestModel[:], "gpt-4o")
 	copyStringToArray(req.ResponseModel[:], "gpt-4o")
-	copyStringToArray(req.ResponseID[:], "chatcmpl-sys")
+	copyStringToArray(req.ResponseId[:], "chatcmpl-sys")
 
 	// Set input message with system role = 1
 	req.InputMessageRole = 1 // system
@@ -117,14 +117,14 @@ func TestReadGoOpenAIRequestIntoSpan_SystemRole(t *testing.T) {
 }
 
 func TestReadGoOpenAIRequestIntoSpan_EmptyMessages(t *testing.T) {
-	var req openaiGoReqT
+	var req GoOpenAIInfo
 
 	req.Type = 21
 	req.StartMonotimeNs = 1000
 	req.EndMonotimeNs = 2000
 	copyStringToArray(req.RequestModel[:], "gpt-4o-mini")
 	copyStringToArray(req.ResponseModel[:], "gpt-4o-mini")
-	copyStringToArray(req.ResponseID[:], "chatcmpl-empty")
+	copyStringToArray(req.ResponseId[:], "chatcmpl-empty")
 
 	// Leave InputMessageContent and OutputMessageContent as zero (empty)
 	req.InputMessageRole = 0

@@ -33,7 +33,7 @@
 #include <gotracer/go_str.h>
 
 #include <gotracer/maps/nethttp.h>
-#include <gotracer/maps/openai.h>
+#include <gotracer/maps/ongoing_openai_requests.h>
 
 #include <gotracer/types/nethttp.h>
 #include <gotracer/types/stream_key.h>
@@ -719,7 +719,7 @@ int obi_uprobe_roundTripReturn(struct pt_regs *ctx) {
     if (openai_req) {
         connection_info_t *conn_info = bpf_map_lookup_elem(&ongoing_client_connections, &g_key);
         if (conn_info) {
-            __builtin_memcpy(&openai_req->conn, conn_info, sizeof(connection_info_t));
+            openai_req->conn = *conn_info;
         }
         goto done;
     }
