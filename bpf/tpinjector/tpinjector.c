@@ -847,9 +847,8 @@ static __always_inline void wrap_http2_traceparent(struct sk_msg_md *msg,
     }
 }
 
-// HTTP/1 + TCP option only. Returns false so caller can try H2 — H2 needs
-// per-stream keys, not the connection-scoped tp_pid. Helper owns clearing
-// the tp_pid in every exit path
+// HTTP/1 only. Caller must skip this for H2 sockets — connection-scoped tp_pid
+// carries the wrong context for multiplexed streams.
 static __always_inline bool handle_existing_tp_pid(struct sk_msg_md *msg,
                                                    u64 id,
                                                    const pid_connection_info_t *p_conn,
@@ -910,8 +909,10 @@ int obi_packet_extender(struct sk_msg_md *msg) {
     t_ctx->h2_scan_pos = 0;
     t_ctx->h2_frames = 0;
 
+    // skip H2 here — it uses HPACK for per-stream traceparents
     tp_info_pid_t *tp_pid = get_tp_info_pid(&e_key);
-    if (tp_pid && handle_existing_tp_pid(msg, id, &t_ctx->p_conn, &e_key, tp_pid)) {
+    if (tp_pid && !is_h2_socket(msg) &&
+        handle_existing_tp_pid(msg, id, &t_ctx->p_conn, &e_key, tp_pid)) {
         return SK_PASS;
     }
 
