@@ -21,15 +21,18 @@ func TestFixupSpec(t *testing.T) {
 	const origRetprobeSendmsgName = "real_retprobe_sendmsg"
 	const origCleanupRbufName = "real_cleanup_rbuf"
 
+	const origCloseIoFlushName = "real_close_io_flush"
+
 	makeSpec := func() *ebpf.CollectionSpec {
 		return &ebpf.CollectionSpec{
 			Programs: map[string]*ebpf.ProgramSpec{
-				progObiStatsKprobeTCPClose:                        {Name: origKpName, Type: ebpf.Kprobe},
+				progObiStatsKprobeTCPCloseSrtt:                    {Name: origKpName, Type: ebpf.Kprobe},
 				progObiStatsTpInetSockSetStateTCPFailedConnection: {Name: origTpName, Type: ebpf.TracePoint},
 				progObiStatsTpInetSockSetStateConnRole:            {Name: origConnRoleName, Type: ebpf.TracePoint},
 				progObiStatsKprobeTCPSendmsg:                      {Name: origSendmsgName, Type: ebpf.Kprobe},
 				progObiStatsKretprobeTCPSendmsg:                   {Name: origRetprobeSendmsgName, Type: ebpf.Kprobe},
 				progObiStatsKprobeTCPCleanupRbuf:                  {Name: origCleanupRbufName, Type: ebpf.Kprobe},
+				progObiStatsKprobeTCPCloseIoFlush:                 {Name: origCloseIoFlushName, Type: ebpf.Kprobe},
 			},
 		}
 	}
@@ -43,25 +46,43 @@ func TestFixupSpec(t *testing.T) {
 			name:      "disable nothing",
 			toDisable: nil,
 			want: map[string]string{
-				progObiStatsKprobeTCPClose:                        origKpName,
+				progObiStatsKprobeTCPCloseSrtt:                    origKpName,
 				progObiStatsTpInetSockSetStateTCPFailedConnection: origTpName,
 				progObiStatsTpInetSockSetStateConnRole:            origConnRoleName,
+				progObiStatsKprobeTCPSendmsg:                      origSendmsgName,
+				progObiStatsKretprobeTCPSendmsg:                   origRetprobeSendmsgName,
+				progObiStatsKprobeTCPCleanupRbuf:                  origCleanupRbufName,
+				progObiStatsKprobeTCPCloseIoFlush:                 origCloseIoFlushName,
 			},
 		},
 		{
-			name:      "disable kprobe only",
-			toDisable: []string{progObiStatsKprobeTCPClose},
+			name:      "disable srtt kprobe only",
+			toDisable: []string{progObiStatsKprobeTCPCloseSrtt},
 			want: map[string]string{
-				progObiStatsKprobeTCPClose:                        "stats_dummy",
+				progObiStatsKprobeTCPCloseSrtt:                    "stats_dummy",
 				progObiStatsTpInetSockSetStateTCPFailedConnection: origTpName,
 				progObiStatsTpInetSockSetStateConnRole:            origConnRoleName,
+				progObiStatsKprobeTCPCloseIoFlush:                 origCloseIoFlushName,
+			},
+		},
+		{
+			// Regression: stats_tcp_io standalone (no stats_tcp_rtt) must still attach
+			// the io_flush probe on tcp_close to avoid losing the final incomplete batch.
+			name:      "srtt disabled io enabled",
+			toDisable: []string{progObiStatsKprobeTCPCloseSrtt},
+			want: map[string]string{
+				progObiStatsKprobeTCPCloseSrtt:    "stats_dummy",
+				progObiStatsKprobeTCPCloseIoFlush: origCloseIoFlushName,
+				progObiStatsKprobeTCPSendmsg:      origSendmsgName,
+				progObiStatsKretprobeTCPSendmsg:   origRetprobeSendmsgName,
+				progObiStatsKprobeTCPCleanupRbuf:  origCleanupRbufName,
 			},
 		},
 		{
 			name:      "disable failed conn only",
 			toDisable: []string{progObiStatsTpInetSockSetStateTCPFailedConnection},
 			want: map[string]string{
-				progObiStatsKprobeTCPClose:                        origKpName,
+				progObiStatsKprobeTCPCloseSrtt:                    origKpName,
 				progObiStatsTpInetSockSetStateTCPFailedConnection: "stats_dummy",
 				progObiStatsTpInetSockSetStateConnRole:            origConnRoleName,
 			},
@@ -70,38 +91,41 @@ func TestFixupSpec(t *testing.T) {
 			name:      "disable conn role only",
 			toDisable: []string{progObiStatsTpInetSockSetStateConnRole},
 			want: map[string]string{
-				progObiStatsKprobeTCPClose:                        origKpName,
+				progObiStatsKprobeTCPCloseSrtt:                    origKpName,
 				progObiStatsTpInetSockSetStateTCPFailedConnection: origTpName,
 				progObiStatsTpInetSockSetStateConnRole:            "stats_dummy",
 			},
 		},
 		{
 			name:      "disable io programs",
-			toDisable: []string{progObiStatsKprobeTCPSendmsg, progObiStatsKretprobeTCPSendmsg, progObiStatsKprobeTCPCleanupRbuf},
+			toDisable: []string{progObiStatsKprobeTCPSendmsg, progObiStatsKretprobeTCPSendmsg, progObiStatsKprobeTCPCleanupRbuf, progObiStatsKprobeTCPCloseIoFlush},
 			want: map[string]string{
-				progObiStatsKprobeTCPClose:       origKpName,
-				progObiStatsKprobeTCPSendmsg:     "stats_dummy",
-				progObiStatsKretprobeTCPSendmsg:  "stats_dummy",
-				progObiStatsKprobeTCPCleanupRbuf: "stats_dummy",
+				progObiStatsKprobeTCPCloseSrtt:    origKpName,
+				progObiStatsKprobeTCPSendmsg:      "stats_dummy",
+				progObiStatsKretprobeTCPSendmsg:   "stats_dummy",
+				progObiStatsKprobeTCPCleanupRbuf:  "stats_dummy",
+				progObiStatsKprobeTCPCloseIoFlush: "stats_dummy",
 			},
 		},
 		{
 			name: "disable all",
 			toDisable: []string{
-				progObiStatsKprobeTCPClose,
+				progObiStatsKprobeTCPCloseSrtt,
 				progObiStatsTpInetSockSetStateTCPFailedConnection,
 				progObiStatsTpInetSockSetStateConnRole,
 				progObiStatsKprobeTCPSendmsg,
 				progObiStatsKretprobeTCPSendmsg,
 				progObiStatsKprobeTCPCleanupRbuf,
+				progObiStatsKprobeTCPCloseIoFlush,
 			},
 			want: map[string]string{
-				progObiStatsKprobeTCPClose:                        "stats_dummy",
+				progObiStatsKprobeTCPCloseSrtt:                    "stats_dummy",
 				progObiStatsTpInetSockSetStateTCPFailedConnection: "stats_dummy",
 				progObiStatsTpInetSockSetStateConnRole:            "stats_dummy",
 				progObiStatsKprobeTCPSendmsg:                      "stats_dummy",
 				progObiStatsKretprobeTCPSendmsg:                   "stats_dummy",
 				progObiStatsKprobeTCPCleanupRbuf:                  "stats_dummy",
+				progObiStatsKprobeTCPCloseIoFlush:                 "stats_dummy",
 			},
 		},
 	}
@@ -124,7 +148,7 @@ func TestFixupSpec(t *testing.T) {
 func TestFixupSpecUnknownProgram(t *testing.T) {
 	spec := &ebpf.CollectionSpec{
 		Programs: map[string]*ebpf.ProgramSpec{
-			progObiStatsKprobeTCPClose: {Name: "real_kp", Type: ebpf.Kprobe},
+			progObiStatsKprobeTCPCloseSrtt: {Name: "real_kp", Type: ebpf.Kprobe},
 		},
 	}
 	if err := fixupSpec(spec, []string{"nonexistent_prog"}); err == nil {

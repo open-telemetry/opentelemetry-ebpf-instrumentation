@@ -109,7 +109,7 @@ To add a new metric, follow these guidelines:
 2. Add a unique flag that indicates an event related to the metric you want to calculate in [bpf/statsolly/types.h](../bpf/statsolly/types.h) and the corresponding Go constant in [stat.go](../pkg/internal/statsolly/ebpf/stat.go), for example, `k_event_stat_tcp_rtt` and `StatTypeTCPRtt`.
 3. Add the eBPF probe to the [bpf/statsolly](../bpf/statsolly/) folder, following the naming convention above. The metric will be calculated and sent to userspace using the `stats_events` ringbuffer.
 4. Wire the probe into [stats_tracer.go](../pkg/internal/statsolly/ebpf/stats_tracer.go):
-    - add a program name constant (e.g. `progObiStatsKprobeTCPClose`) matching the C symbol;
+    - add a program name constant (e.g. `progObiStatsKprobeTCPCloseSrtt`) matching the C symbol;
     - add a hook-point constant (kernel function name for kprobes, `group/name` for tracepoints);
     - add an entry to the appropriate `kprobes` or `tracepoints` slice inside `NewStatsFetcher`, with `enabled` driven by the corresponding `features.StatsXxx()` predicate. Disabled probes are replaced with a dummy program and are not attached.
 5. In the [tracer_ringbuf.go](../pkg/internal/statsolly/stats/tracer_ringbuf.go), simply add a function that handles that metric. This function will convert the event to a `ebpf.Stat`.
@@ -143,7 +143,7 @@ StatsO11y probes fire at different points relative to `inet_put_port()`, so the 
 
 Some stat metrics attach to kernel functions that are called very frequently (e.g. `tcp_sendmsg`, `tcp_cleanup_rbuf` for TCP IO). These probes add a small overhead on every call, so the aggregate cost is proportional to the rate of TCP sends/receives on the node. Consider:
 
-- Enabling high-frequency metrics **individually** (e.g. `stats_tcp_io`) rather than through the `stats` aggregate feature, so other stat metrics do not incur unrelated overhead.
+- If you need RTT, failed connections, or retransmits **without** TCP IO overhead, enable those individually (`stats_tcp_rtt`, `stats_tcp_failed_connections`, `stats_tcp_retransmits`) instead of using the `stats` aggregate feature — `stats` includes `stats_tcp_io`, which fires on every `tcp_sendmsg` and `tcp_cleanup_rbuf` call.
 - The `stats_events` ring buffer and the per-metric eBPF maps (e.g. `tcp_io_accum`) have default size limits; on nodes with a very large number of concurrent connections these can be resized via the `ebpf.*` configuration knobs if events start being dropped.
 
 ### Final notes

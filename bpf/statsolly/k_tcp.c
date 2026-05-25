@@ -49,6 +49,7 @@ static __always_inline void flush_tcp_io_accum(struct sock *sk,
                                                const tcp_io_accum_t *accum) {
     tcp_io_t *se = bpf_ringbuf_reserve(&stats_events, sizeof(*se), 0);
     if (!se) {
+        bpf_d_printk("tcp_io_accum: stats_events ring buffer full, dropping batch");
         return;
     }
     connection_info_t conn;
@@ -68,7 +69,10 @@ static __always_inline void flush_and_delete_io_accum(struct sock *sk,
                                                       enum network_io_direction direction) {
     const tcp_io_accum_key_t key = {.sock_ptr = (u64)(uintptr_t)sk, .direction = direction};
     tcp_io_accum_t *accum = bpf_map_lookup_elem(&tcp_io_accum, &key);
-    if (accum && accum->count > 0) {
+    if (!accum) {
+        return;
+    }
+    if (accum->count > 0) {
         flush_tcp_io_accum(sk, direction, accum);
     }
     bpf_map_delete_elem(&tcp_io_accum, &key);
@@ -82,7 +86,9 @@ accumulate_tcp_io(struct sock *sk, enum network_io_direction direction, u32 byte
         tcp_io_accum_t new_accum = {};
         new_accum.bytes[0] = bytes;
         new_accum.count = 1;
-        bpf_map_update_elem(&tcp_io_accum, &key, &new_accum, BPF_NOEXIST);
+        if (bpf_map_update_elem(&tcp_io_accum, &key, &new_accum, BPF_NOEXIST) != 0) {
+            bpf_d_printk("tcp_io_accum map full, dropping %u bytes", bytes);
+        }
         return;
     }
     const u8 idx = accum->count;
@@ -97,12 +103,16 @@ accumulate_tcp_io(struct sock *sk, enum network_io_direction direction, u32 byte
 }
 
 SEC("kprobe/tcp_close")
-int BPF_KPROBE(obi_stats_kprobe_tcp_close, struct sock *sk) {
+int BPF_KPROBE(obi_stats_kprobe_tcp_close_io_flush, struct sock *sk) {
     (void)ctx;
-
-    // Flush any pending IO batches before the socket is torn down.
     flush_and_delete_io_accum(sk, direction_transmit);
     flush_and_delete_io_accum(sk, direction_receive);
+    return 0;
+}
+
+SEC("kprobe/tcp_close")
+int BPF_KPROBE(obi_stats_kprobe_tcp_close_srtt, struct sock *sk) {
+    (void)ctx;
 
     connection_info_t conn;
     if (!parse_sock_info(sk, &conn)) {

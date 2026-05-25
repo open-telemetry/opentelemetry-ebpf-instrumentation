@@ -34,7 +34,8 @@ type probe struct {
 
 // Program names
 const (
-	progObiStatsKprobeTCPClose                        = "obi_stats_kprobe_tcp_close"
+	progObiStatsKprobeTCPCloseSrtt                    = "obi_stats_kprobe_tcp_close_srtt"
+	progObiStatsKprobeTCPCloseIoFlush                 = "obi_stats_kprobe_tcp_close_io_flush"
 	progObiStatsTpInetSockSetStateConnRole            = "obi_stats_tp_inet_sock_set_state_conn_role"
 	progObiStatsTpInetSockSetStateTCPFailedConnection = "obi_stats_tp_inet_sock_set_state_tcp_failed_connection"
 	progObiStatsRawTpTCPRetransmitSkb                 = "obi_stats_raw_tp_tcp_retransmit_skb"
@@ -104,13 +105,13 @@ func NewStatsFetcher(cfg *config.EBPFTracer, features *export.Features, selector
 		toDisable = append(toDisable, progObiStatsTpInetSockSetStateConnRole)
 	}
 	if !features.StatsTCPRtt() {
-		toDisable = append(toDisable, progObiStatsKprobeTCPClose)
+		toDisable = append(toDisable, progObiStatsKprobeTCPCloseSrtt)
 	}
 	if !features.StatsTCPRetransmits() {
 		toDisable = append(toDisable, progObiStatsRawTpTCPRetransmitSkb)
 	}
 	if !features.StatsTCPIo() {
-		toDisable = append(toDisable, progObiStatsKprobeTCPSendmsg, progObiStatsKretprobeTCPSendmsg, progObiStatsKprobeTCPCleanupRbuf)
+		toDisable = append(toDisable, progObiStatsKprobeTCPSendmsg, progObiStatsKretprobeTCPSendmsg, progObiStatsKprobeTCPCleanupRbuf, progObiStatsKprobeTCPCloseIoFlush)
 	}
 
 	if err := fixupSpec(spec, toDisable); err != nil {
@@ -133,8 +134,13 @@ func NewStatsFetcher(cfg *config.EBPFTracer, features *export.Features, selector
 	for _, k := range []probe{
 		{
 			name:    KprobeTCPClose,
-			program: objects.ObiStatsKprobeTcpClose,
+			program: objects.ObiStatsKprobeTcpCloseSrtt,
 			enabled: features.StatsTCPRtt(),
+		},
+		{
+			name:    KprobeTCPClose,
+			program: objects.ObiStatsKprobeTcpCloseIoFlush,
+			enabled: features.StatsTCPIo(),
 		},
 		{
 			name:    KprobeTCPSendMsg,
