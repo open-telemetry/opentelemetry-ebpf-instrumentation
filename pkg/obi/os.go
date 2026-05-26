@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 	"sync"
 
@@ -26,10 +27,10 @@ const (
 
 var kernelVersion = ebpfcommon.KernelVersion
 
-// parseOSReleaseIsRHEL checks whether os-release content indicates an RHEL-based distro.
+var rhelIDs = []string{"rhel", "centos", "rocky", "alma"}
+
 func parseOSReleaseIsRHEL(data []byte) bool {
 	content := strings.ToLower(string(data))
-	// matches ID="rhel" or ID_LIKE containing "rhel" (e.g. Rocky, AlmaLinux, CentOS set ID_LIKE="rhel ...")
 	for _, line := range strings.Split(content, "\n") {
 		var val string
 		switch {
@@ -40,22 +41,32 @@ func parseOSReleaseIsRHEL(data []byte) bool {
 		default:
 			continue
 		}
-		val = strings.Trim(val, "\"'")
-		if strings.Contains(val, "rhel") || strings.Contains(val, "centos") ||
-			strings.Contains(val, "rocky") || strings.Contains(val, "alma") {
-			return true
+		val = strings.Trim(val, `"'`)
+		for _, id := range rhelIDs {
+			if strings.Contains(val, id) {
+				return true
+			}
 		}
 	}
 	return false
 }
 
-// isRHELBased is a var so tests can override it.
+// .elN matches vendor-built RHEL-family kernels (4.18.0-553.el8.x86_64).
+// (Red Hat X.Y.Z-N) catches RHEL kernels rebuilt with stripped localversion — gcc banner remains.
+var rhelKernelRE = regexp.MustCompile(`\.el\d+(_\d+)?\b|\(Red Hat \d+\.\d+\.\d+-\d+\)`)
+
+func parseProcVersionIsRHEL(data []byte) bool {
+	return rhelKernelRE.Match(data)
+}
+
 var isRHELBased = func() bool {
-	data, err := os.ReadFile("/etc/os-release")
-	if err != nil {
-		return false
+	if data, err := os.ReadFile("/etc/os-release"); err == nil && parseOSReleaseIsRHEL(data) {
+		return true
 	}
-	return parseOSReleaseIsRHEL(data)
+	if data, err := os.ReadFile("/proc/version"); err == nil && parseProcVersionIsRHEL(data) {
+		return true
+	}
+	return false
 }
 
 // hasBTF checks whether the kernel exposes BTF information by looking for the
