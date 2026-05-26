@@ -135,6 +135,11 @@ func runWeaverValidation(t *testing.T) {
 			"only stopping the weaver container so compose teardown is clean")
 	}
 
+	// Bind-mount source matches weaver service.yml.
+	const hostReport = "/tmp/obi-weaver-out/live_check.json"
+	// Drop stale report from prior test so a weaver crash before /stop fails loudly instead of reading old data.
+	_ = os.Remove(hostReport)
+
 	ctx, cancel := context.WithTimeout(context.Background(), weaverTimeout)
 	defer cancel()
 
@@ -171,23 +176,19 @@ func runWeaverValidation(t *testing.T) {
 	}
 
 	reportPath := weaverReportPath(t)
-	cpCmd := exec.CommandContext(ctx, "docker", "cp",
-		weaverContainer+":/tmp/live_check.json", reportPath)
-	if out, err := cpCmd.CombinedOutput(); err != nil {
-		t.Errorf("failed to copy weaver report from container: %v; output: %s",
-			err, strings.TrimSpace(string(out)))
-		return
-	}
-	t.Logf("weaver report saved to %s", reportPath)
-
-	rawReport, err := os.ReadFile(reportPath)
+	rawReport, err := os.ReadFile(hostReport)
 	if err != nil {
-		t.Errorf("failed to read weaver report at %s: %v", reportPath, err)
+		t.Errorf("failed to read weaver report at %s: %v", hostReport, err)
 		return
 	}
 	if len(rawReport) == 0 {
-		t.Errorf("weaver report file %s is empty", reportPath)
+		t.Errorf("weaver report file %s is empty", hostReport)
 		return
+	}
+	if err := os.WriteFile(reportPath, rawReport, 0o644); err != nil {
+		t.Logf("warn: failed to archive weaver report to %s: %v", reportPath, err)
+	} else {
+		t.Logf("weaver report saved to %s", reportPath)
 	}
 	var report weaverReport
 	if err := json.Unmarshal(rawReport, &report); err != nil {
