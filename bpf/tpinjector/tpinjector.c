@@ -107,6 +107,7 @@ enum {
     k_tail_write_h2_traceparent,
     k_tail_create_h2_tp,
     k_tail_find_existing_h2_tp,
+    k_tail_validate_h2_tp,
     k_tail_detect_h2,
 };
 
@@ -116,11 +117,12 @@ int obi_packet_extender_create_tp(struct sk_msg_md *msg);
 int obi_packet_extender_write_h2_tp(struct sk_msg_md *msg);
 int obi_packet_extender_create_h2_tp(struct sk_msg_md *msg);
 int obi_packet_extender_find_existing_h2_tp(struct sk_msg_md *msg);
+int obi_packet_extender_validate_h2_tp(struct sk_msg_md *msg);
 int obi_packet_extender_detect_h2(struct sk_msg_md *msg);
 
 struct {
     __uint(type, BPF_MAP_TYPE_PROG_ARRAY);
-    __uint(max_entries, 7);
+    __uint(max_entries, 8);
     __uint(key_size, sizeof(u32));
     __array(values, int(void *));
 } extender_jump_table SEC(".maps") = {
@@ -132,6 +134,7 @@ struct {
             [k_tail_write_h2_traceparent] = (void *)&obi_packet_extender_write_h2_tp,
             [k_tail_create_h2_tp] = (void *)&obi_packet_extender_create_h2_tp,
             [k_tail_find_existing_h2_tp] = (void *)&obi_packet_extender_find_existing_h2_tp,
+            [k_tail_validate_h2_tp] = (void *)&obi_packet_extender_validate_h2_tp,
             [k_tail_detect_h2] = (void *)&obi_packet_extender_detect_h2,
         },
 };
@@ -147,10 +150,11 @@ typedef struct tailcall_ctx {
     u32 h2_hpack_offset;          // start of HPACK bytes (after PADDED/PRIORITY prefix)
     u32 h2_hpack_len;             // HPACK length (frame payload minus prefix and trailing pad)
     u32 h2_scan_pos;              // resume offset for detect_h2 across tail calls
+    u32 h2_tp_candidate_pos;      // HPACK candidate offset (>= k_h2_max_hpack_scan = none)
     u8 niter;                     // HTTP/1 find-existing scan iteration counter
     u8 h2_frames;                 // H2 frames already injected this packet (capped)
     bool has_parent_tp;           // true if parent_tp holds a valid context
-    u8 _pad[1];
+    u8 _pad[5];
 } tailcall_ctx;
 
 SCRATCH_MEM(tailcall_ctx);
@@ -1230,119 +1234,164 @@ static __always_inline bool decode_tp_value(const unsigned char *val, tp_info_t 
     return true;
 }
 
-// Returns wire offset of span_id hex (>0) if HPACK traceparent found, else 0.
-// Handles plaintext (0x0b name) and huffman (0x88 + 8 bytes) encodings.
-// Mirrors parse_hpack_traceparent in protocol_http2.h — sk_msg uses
-// bpf_msg_pull_data, kprobe uses bpf_probe_read; can't share code.
-static __always_inline u32 find_existing_h2_traceparent(struct sk_msg_md *msg,
-                                                        const u32 hpack_start,
-                                                        const u32 hpack_len,
-                                                        tp_info_t *tp) {
-    // Outer loop uses the huffman entry size (smaller); the plaintext branch
-    // adds 3 more bytes. pull_len uses the plaintext size so a plaintext
-    // entry at the last scan pos still fits
-    enum { k_min_entry_huffman = k_h2_tp_hpack_huffman_size };
-    enum { k_min_entry_plain = k_h2_tp_hpack_size };
-
-    if (hpack_len < k_min_entry_huffman) {
+static __always_inline u32 validate_h2_tp_plain(const unsigned char *p,
+                                                const unsigned char *end,
+                                                tp_info_t *tp) {
+    if ((void *)(p + k_h2_tp_hpack_size) > (void *)end) {
         return 0;
     }
+    if (bpf_memcmp(p + k_hpack_tp_name_offset, k_hpack_tp_name, k_hpack_tp_name_len) != 0) {
+        return 0;
+    }
+    if (p[k_hpack_tp_name_offset + k_hpack_tp_name_len] != k_hpack_value_len_tp) {
+        return 0;
+    }
+    if (!decode_tp_value(p + k_hpack_tp_val_offset, tp)) {
+        return 0;
+    }
+    return k_hpack_tp_val_offset + k_tp_val_span_id_start;
+}
 
+static __always_inline u32 validate_h2_tp_huffman(const unsigned char *p,
+                                                  const unsigned char *end,
+                                                  tp_info_t *tp) {
+    if ((void *)(p + k_h2_tp_hpack_huffman_size) > (void *)end) {
+        return 0;
+    }
+    if (bpf_memcmp(p + k_hpack_tp_name_offset, k_hpack_tp_huffman, k_hpack_tp_name_huffman_len) !=
+        0) {
+        return 0;
+    }
+    if (p[k_hpack_tp_name_offset + k_hpack_tp_name_huffman_len] != k_hpack_value_len_tp) {
+        return 0;
+    }
+    if (!decode_tp_value(p + k_hpack_tp_val_offset_huffman, tp)) {
+        return 0;
+    }
+    return k_hpack_tp_val_offset_huffman + k_tp_val_span_id_start;
+}
+
+// Pull the HPACK scan window into linear data. Idempotent across tail calls.
+static __always_inline bool
+pull_hpack_window(struct sk_msg_md *msg, const u32 hpack_start, const u32 hpack_len) {
+    enum { k_min_entry_plain = k_h2_tp_hpack_size };
+    if (hpack_len < k_h2_tp_hpack_huffman_size) {
+        return false;
+    }
     const u32 pull_len = hpack_len < (k_h2_max_hpack_scan + k_min_entry_plain)
                              ? hpack_len
                              : (k_h2_max_hpack_scan + k_min_entry_plain);
-    const long pull_err = bpf_msg_pull_data(msg, hpack_start, hpack_start + pull_len, 0);
-    if (pull_err != 0) {
-        return 0;
-    }
+    return bpf_msg_pull_data(msg, hpack_start, hpack_start + pull_len, 0) == 0;
+}
 
+// Find first 0x00 + valid name_len position. Validation deferred to validate_h2_tp tail call to keep this loop body cheap.
+// Returns position [0, k_h2_max_hpack_scan) on hit, k_h2_max_hpack_scan on miss.
+static __always_inline u32 find_first_h2_tp_candidate(struct sk_msg_md *msg,
+                                                      const u32 hpack_start,
+                                                      const u32 hpack_len) {
+    enum { k_min_entry_huffman = k_h2_tp_hpack_huffman_size };
+
+    if (!pull_hpack_window(msg, hpack_start, hpack_len)) {
+        return k_h2_max_hpack_scan;
+    }
     const unsigned char *data = msg->data;
     const unsigned char *end = msg->data_end;
-
     if (!data) {
-        return 0;
+        return k_h2_max_hpack_scan;
     }
 
     for (u32 i = 0; i < k_h2_max_hpack_scan; i++) {
         if (i + k_min_entry_huffman > hpack_len) {
             break;
         }
-
         const unsigned char *p = data + i;
-
         if ((void *)(p + k_min_entry_huffman) > (void *)end) {
             break;
         }
-
-        if (*p != k_hpack_literal_no_index) {
+        if (p[0] != k_hpack_literal_no_index) {
             continue;
         }
-
-        const u8 name_len_byte = p[1];
-
-        // Plaintext name: [0x00][0x0b]["traceparent"][0x37][value]
-        if (name_len_byte == k_hpack_tp_name_len) {
-            if (bpf_memcmp(p + k_hpack_tp_name_offset, k_hpack_tp_name, k_hpack_tp_name_len) != 0) {
-                continue;
-            }
-            if (p[k_hpack_tp_name_offset + k_hpack_tp_name_len] != k_hpack_value_len_tp) {
-                continue;
-            }
-            if ((void *)(p + k_min_entry_plain) > (void *)end) {
-                continue;
-            }
-            if (!decode_tp_value(p + k_hpack_tp_val_offset, tp)) {
-                continue;
-            }
-            bpf_dbg_printk("h2: found existing traceparent (plaintext)");
-            return hpack_start + i + k_hpack_tp_val_offset + k_tp_val_span_id_start;
+        const u8 nlb = p[1];
+        if (nlb != k_hpack_tp_name_len && nlb != (k_hpack_tp_name_huffman_len | 0x80)) {
+            continue;
         }
-
-        // Huffman name: [0x00][0x88][8 huffman bytes][0x37][value]
-        if (name_len_byte == (k_hpack_tp_name_huffman_len | 0x80)) {
-            if (bpf_memcmp(p + k_hpack_tp_name_offset,
-                           k_hpack_tp_huffman,
-                           k_hpack_tp_name_huffman_len) != 0) {
-                continue;
-            }
-            if (p[k_hpack_tp_name_offset + k_hpack_tp_name_huffman_len] != k_hpack_value_len_tp) {
-                continue;
-            }
-            if (!decode_tp_value(p + k_hpack_tp_val_offset_huffman, tp)) {
-                continue;
-            }
-            bpf_dbg_printk("h2: found existing traceparent (huffman)");
-            return hpack_start + i + k_hpack_tp_val_offset_huffman + k_tp_val_span_id_start;
-        }
+        return i;
     }
-
-    return 0;
+    return k_h2_max_hpack_scan;
 }
 
-// k_tail_find_existing_h2_tp
-// Scan HPACK for existing traceparent. Adopt if found, else tail-call create.
-// Separate tail call: 192-byte scan + find_parent_trace exceeds 512-byte stack.
+// Validation is a separate tail call: inlining it under the 192-iter scan blows older verifiers' complexity budget.
 SEC("sk_msg")
 int obi_packet_extender_find_existing_h2_tp(struct sk_msg_md *msg) {
     bpf_dbg_printk("=== sk_msg find existing h2 tp ===");
-
     tailcall_ctx *t_ctx = tailcall_ctx_mem();
     if (!t_ctx) {
         return SK_PASS;
     }
+    t_ctx->h2_tp_candidate_pos =
+        find_first_h2_tp_candidate(msg, t_ctx->h2_hpack_offset, t_ctx->h2_hpack_len);
+    bpf_tail_call_static(msg, &extender_jump_table, k_tail_validate_h2_tp);
+    return SK_PASS;
+}
 
-    const u32 hpack_start = t_ctx->h2_hpack_offset;
-    const u32 hpack_len = t_ctx->h2_hpack_len;
-
+// Re-walks with a loop counter: a pkt pointer offset by a value loaded from the stack loses its verified range.
+SEC("sk_msg")
+int obi_packet_extender_validate_h2_tp(struct sk_msg_md *msg) {
+    bpf_dbg_printk("=== sk_msg validate h2 tp ===");
+    tailcall_ctx *t_ctx = tailcall_ctx_mem();
+    if (!t_ctx) {
+        return SK_PASS;
+    }
+    const u32 target = t_ctx->h2_tp_candidate_pos;
+    if (target >= k_h2_max_hpack_scan) {
+        bpf_tail_call_static(msg, &extender_jump_table, k_tail_create_h2_tp);
+        return SK_PASS;
+    }
     tp_info_pid_t *tp_p = (tp_info_pid_t *)tp_info_mem();
     if (!tp_p) {
         return SK_PASS;
     }
+    const u32 hpack_start = t_ctx->h2_hpack_offset;
+    const u32 hpack_len = t_ctx->h2_hpack_len;
+    if (!pull_hpack_window(msg, hpack_start, hpack_len)) {
+        bpf_tail_call_static(msg, &extender_jump_table, k_tail_create_h2_tp);
+        return SK_PASS;
+    }
+    const unsigned char *data = msg->data;
+    const unsigned char *end = msg->data_end;
+    if (!data) {
+        bpf_tail_call_static(msg, &extender_jump_table, k_tail_create_h2_tp);
+        return SK_PASS;
+    }
 
-    const u32 span_id_offset = find_existing_h2_traceparent(msg, hpack_start, hpack_len, &tp_p->tp);
-    if (span_id_offset) {
+    u32 off = 0;
+    for (u32 i = 0; i < k_h2_max_hpack_scan; i++) {
+        if (i + k_h2_tp_hpack_huffman_size > hpack_len) {
+            break;
+        }
+        const unsigned char *p = data + i;
+        if ((void *)(p + k_h2_tp_hpack_huffman_size) > (void *)end) {
+            break;
+        }
+        if (i > target) {
+            break;
+        }
+        if (i != target) {
+            continue;
+        }
+        const u8 nlb = p[1];
+        if (nlb == k_hpack_tp_name_len) {
+            off = validate_h2_tp_plain(p, end, &tp_p->tp);
+        } else if (nlb == (k_hpack_tp_name_huffman_len | 0x80)) {
+            off = validate_h2_tp_huffman(p, end, &tp_p->tp);
+        }
+        break;
+    }
+
+    if (off) {
         init_tp_ctx_parent_tp(t_ctx);
         bpf_memset(tp_p->tp.parent_id, 0, sizeof(tp_p->tp.parent_id));
+        const u32 span_id_offset = hpack_start + target + off;
         if (apply_parent_tp(t_ctx, &tp_p->tp)) {
             if (bpf_msg_pull_data(msg, span_id_offset, span_id_offset + SPAN_ID_CHAR_LEN, 0) == 0) {
                 unsigned char *d = msg->data;
@@ -1352,7 +1401,6 @@ int obi_packet_extender_find_existing_h2_tp(struct sk_msg_md *msg) {
                 }
             }
         }
-
         tp_p->tp.ts = bpf_ktime_get_ns();
         tp_p->valid = 1;
         tp_p->written = 1;
@@ -1363,7 +1411,6 @@ int obi_packet_extender_find_existing_h2_tp(struct sk_msg_md *msg) {
             msg, t_ctx, t_ctx->h2_frame_offset + k_h2_frame_header_len + t_ctx->h2_payload_len);
         return SK_PASS;
     }
-
     bpf_tail_call_static(msg, &extender_jump_table, k_tail_create_h2_tp);
     return SK_PASS;
 }
