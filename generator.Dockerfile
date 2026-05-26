@@ -9,7 +9,10 @@ ENV PROTOC_AARCH_64_SHA256="56af3fc2e43a0230802e6fadb621d890ba506c5c17a1ae1070f6
 
 ARG TARGETARCH
 
-RUN apk add clang llvm20 wget unzip curl make bash git
+RUN echo "https://dl-cdn.alpinelinux.org/alpine/edge/main" >> /etc/apk/repositories
+RUN echo "https://dl-cdn.alpinelinux.org/alpine/edge/community" >> /etc/apk/repositories
+
+RUN apk add clang22 llvm22 wget unzip curl make bash git
 RUN apk cache purge
 
 COPY internal/tools/generator/ internal/tools/generator/
@@ -39,9 +42,9 @@ RUN --mount=type=cache,target=/go/pkg \
 
 RUN cat <<EOF > /generate.sh
 #!/bin/sh
-export PATH="/usr/lib/llvm20/bin:\$PATH"
+export PATH="/usr/lib/llvm22/bin:\$PATH"
 export BPF2GO=/go/bin/bpf2go
-export BPF_CLANG=clang
+export BPF_CLANG=clang-22
 export BPF_CFLAGS="-O2 -g -Wall -Werror"
 export GOCACHE=/tmp/go-build
 make generate
