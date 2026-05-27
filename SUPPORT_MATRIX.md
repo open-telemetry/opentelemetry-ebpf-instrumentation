@@ -128,11 +128,11 @@ OBI currently documents the following Go library compatibility baselines:
 
 OBI currently documents the following statistical instrumentation support:
 
-| Metric | Scope | Notes |
-|:-------|:------|:------|
-| TCP RTT | Node-wide statistical metric collection | Calculated from the kernel TCP `srtt_us` field |
-| TCP Failed Connections | Node-wide statistical metric collection | Counts the TCP failed connections between 2 endpoints |
-| TCP Retransmits | Node-wide statistical metric collection | Counts data-segment and client-SYN retransmits. Server-side SYN-ACK retransmits are a separate event and not counted here. |
+| Metric | Scope | Description | Limitations |
+|:-------|:------|:------------|:------------|
+| TCP RTT | Node-wide statistical metric collection | Calculated from the kernel TCP `srtt_us` field | `src.port` may be `0` on the RST-receiver side; see [devdocs/metrics.md](devdocs/metrics.md) |
+| TCP Failed Connections | Node-wide statistical metric collection | Counts TCP failed connections between two endpoints | `src.port` may be `0` on the RST-receiver side; see [devdocs/metrics.md](devdocs/metrics.md) |
+| TCP Retransmits | Node-wide statistical metric collection | Counts data-segment and client-SYN retransmits | Server-side SYN-ACK retransmits are a separate event and not counted |
 
 ## Context Propagation Frameworks
 
