@@ -3,6 +3,7 @@
 
 //go:build obi_bpf_ignore
 #include <bpfcore/vmlinux.h>
+#include <bpfcore/bpf_builtins.h>
 #include <bpfcore/bpf_helpers.h>
 #include <bpfcore/bpf_tracing.h>
 #include <bpfcore/bpf_core_read.h>
@@ -60,7 +61,7 @@ static __always_inline void flush_tcp_io_accum(struct sock *sk,
     se->flags = k_event_stat_tcp_io;
     se->direction = direction;
     se->count = accum->count;
-    __builtin_memcpy(se->bytes, accum->bytes, sizeof(se->bytes));
+    bpf_memcpy(se->bytes, accum->bytes, sizeof(se->bytes));
     se->conn = conn;
     bpf_ringbuf_submit(se, stats_events_flags());
 }
@@ -164,7 +165,8 @@ int BPF_KPROBE(obi_stats_kprobe_tcp_sendmsg, struct sock *sk, struct msghdr *msg
 }
 
 SEC("kretprobe/tcp_sendmsg")
-int BPF_KRETPROBE(obi_stats_kretprobe_tcp_sendmsg) {
+int BPF_KRETPROBE(obi_stats_kretprobe_tcp_sendmsg, long sent) {
+    (void)ctx;
     const u64 pid_tgid = bpf_get_current_pid_tgid();
     struct sock *const *skp = bpf_map_lookup_elem(&tcp_sendmsg_sock, &pid_tgid);
 
@@ -174,7 +176,6 @@ int BPF_KRETPROBE(obi_stats_kretprobe_tcp_sendmsg) {
     struct sock *const sk = *skp;
     bpf_map_delete_elem(&tcp_sendmsg_sock, &pid_tgid);
 
-    const long sent = PT_REGS_RC(ctx);
     if (sent <= 0) {
         return 0;
     }

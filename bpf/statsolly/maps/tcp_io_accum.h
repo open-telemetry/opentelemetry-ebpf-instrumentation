@@ -20,8 +20,8 @@ typedef struct tcp_io_accum {
 } tcp_io_accum_t;
 
 struct {
-    __uint(type, BPF_MAP_TYPE_HASH);
-    __uint(max_entries, 20480);
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __uint(max_entries, 1 << 14);
     __type(key, tcp_io_accum_key_t);
     __type(value, tcp_io_accum_t);
 } tcp_io_accum SEC(".maps");
