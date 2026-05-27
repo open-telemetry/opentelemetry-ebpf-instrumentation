@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Copyright The OpenTelemetry Authors
+# SPDX-License-Identifier: Apache-2.0
+
 # PoC: aggregate per-shard bpftool snapshot directories into one summary.
 #
 # Expects an input dir containing one subdirectory per shard, each holding

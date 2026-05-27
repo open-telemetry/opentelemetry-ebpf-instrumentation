@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Copyright The OpenTelemetry Authors
+# SPDX-License-Identifier: Apache-2.0
+
 # PoC: read snapshots produced by bpf-metrics-sampler.sh and emit a markdown
 # summary to stdout (or to $GITHUB_STEP_SUMMARY if set).
 #

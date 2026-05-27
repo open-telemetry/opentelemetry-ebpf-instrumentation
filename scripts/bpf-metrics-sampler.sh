@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Copyright The OpenTelemetry Authors
+# SPDX-License-Identifier: Apache-2.0
+
 # PoC: poll bpftool periodically and append JSON snapshots to an output dir.
 # Each snapshot is one file: <out_dir>/snap-<unix_ts>.json with shape:
 #   { "ts": <unix>, "maps": [...], "progs": [...] }
