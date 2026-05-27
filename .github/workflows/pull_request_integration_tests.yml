@@ -136,11 +136,15 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y linux-tools-generic jq
-          BPFTOOL_BIN=$(find /usr/lib/linux-tools -maxdepth 2 -name bpftool -type f | head -n1)
+          BPFTOOL_BIN=$(find /usr/lib -maxdepth 3 -name bpftool 2>/dev/null \
+            | grep linux-tools | head -n1)
           if [ -z "$BPFTOOL_BIN" ]; then
-            echo "Could not find bpftool binary under /usr/lib/linux-tools" >&2
+            echo "Could not find bpftool binary. Diagnostics:" >&2
+            dpkg -l | grep linux-tools >&2 || true
+            find /usr/lib -maxdepth 3 -name bpftool 2>/dev/null >&2 || true
             exit 1
           fi
+          echo "Using bpftool: $BPFTOOL_BIN"
           sudo ln -sf "$BPFTOOL_BIN" /usr/local/sbin/bpftool
           sudo /usr/local/sbin/bpftool version
 
