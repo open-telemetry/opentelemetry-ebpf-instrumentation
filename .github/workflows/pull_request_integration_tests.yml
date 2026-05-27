@@ -132,6 +132,29 @@ jobs:
       - name: Check disk usage before tests
         run: df -h
 
+      - name: Install bpftool (PoC eBPF metrics)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y linux-tools-common linux-tools-generic jq
+          if ! command -v bpftool >/dev/null 2>&1; then
+            BPFTOOL_BIN=$(find /usr/lib/linux-tools -maxdepth 2 -name bpftool -type f | head -n1)
+            if [ -n "$BPFTOOL_BIN" ]; then
+              sudo ln -sf "$BPFTOOL_BIN" /usr/local/sbin/bpftool
+            fi
+          fi
+          sudo bpftool version
+
+      - name: Start bpftool sampler (PoC eBPF metrics)
+        env:
+          BPF_SAMPLE_DIR: /tmp/bpfsamples
+          BPF_SAMPLE_INTERVAL: "2"
+        run: |
+          mkdir -p "$BPF_SAMPLE_DIR"
+          nohup bash ./scripts/bpf-metrics-sampler.sh "$BPF_SAMPLE_DIR" "$BPF_SAMPLE_INTERVAL" \
+            >"$BPF_SAMPLE_DIR/sampler.log" 2>&1 &
+          echo $! > "$BPF_SAMPLE_DIR/sampler.pid"
+          echo "Sampler started, PID $(cat "$BPF_SAMPLE_DIR/sampler.pid")"
+
       - name: Run integration tests
         env:
           MATRIX_ID: ${{ matrix.id }}
@@ -155,6 +178,32 @@ jobs:
               --jsonfile=/home/runner/reports/test-run-"${RUN_NUMBER}"-"${MATRIX_ID}".log \
               -- -race -count=1 -timeout 40m \
               -run="^(${MATRIX_TEST_PATTERN})$" ./internal/test/integration
+
+      - name: Stop bpftool sampler (PoC eBPF metrics)
+        if: always()
+        env:
+          BPF_SAMPLE_DIR: /tmp/bpfsamples
+        run: |
+          if [ -f "$BPF_SAMPLE_DIR/sampler.pid" ]; then
+            kill "$(cat "$BPF_SAMPLE_DIR/sampler.pid")" 2>/dev/null || true
+          fi
+          shopt -s nullglob
+          snaps=("$BPF_SAMPLE_DIR"/snap-*.json)
+          echo "Sample count: ${#snaps[@]}"
+
+      - name: Build eBPF metrics summary (PoC)
+        if: always()
+        env:
+          BPF_SAMPLE_DIR: /tmp/bpfsamples
+        run: bash ./scripts/bpf-metrics-summary.sh "$BPF_SAMPLE_DIR" || true
+
+      - name: Upload eBPF metrics snapshots (PoC)
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: bpf-metrics-${{ matrix.id }}-${{ github.run_number }}
+          path: /tmp/bpfsamples/
+          retention-days: 5
 
       - name: Process coverage data
         run: make itest-coverage-data
@@ -188,3 +237,39 @@ jobs:
       - name: Check final disk usage
         if: always()
         run: df -h
+
+  bpf-metrics-aggregate:
+    name: Aggregate eBPF metrics (PoC)
+    needs: [test]
+    # Run after the matrix completes, including when shards fail, but skip
+    # entirely if the matrix was cancelled or skipped (nothing to aggregate).
+    if: ${{ !cancelled() && (needs.test.result == 'success' || needs.test.result == 'failure') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
+
+      - name: Install jq
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq
+
+      - name: Download per-shard eBPF metrics artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: bpf-metrics-*-${{ github.run_number }}
+          path: ./all-shards
+
+      - name: Aggregate and emit summary
+        run: bash ./scripts/bpf-metrics-aggregate.sh ./all-shards /tmp/bpf-metrics-aggregate.md
+
+      - name: Upload aggregated summary
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: bpf-metrics-aggregate-${{ github.run_number }}
+          path: /tmp/bpf-metrics-aggregate.md
+          retention-days: 30
