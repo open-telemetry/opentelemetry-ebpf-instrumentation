@@ -20,7 +20,13 @@ type RedisDBCacheConfig struct {
 	MaxSize int  `yaml:"max_size" env:"OTEL_EBPF_BPF_REDIS_DB_CACHE_MAX_SIZE" validate:"gt=0"`
 }
 
+type BPFDebugMode uint8
+
 const (
+	BPFDebugDisabled BPFDebugMode = iota
+	BPFDebugDefault
+	BPFDebugTracePipe
+
 	ContextPropagationDisabled ContextPropagationMode = 0
 	ContextPropagationHeaders  ContextPropagationMode = 1 << 0 // HTTP headers
 	ContextPropagationTCP      ContextPropagationMode = 1 << 1 // TCP options
@@ -34,6 +40,59 @@ const (
 	StrContextPropagationTCP      = "tcp"
 )
 
+func (m BPFDebugMode) Enabled() bool {
+	return m != BPFDebugDisabled
+}
+
+func (m BPFDebugMode) RingbufEnabled() bool {
+	return m == BPFDebugDefault
+}
+
+func (m *BPFDebugMode) UnmarshalText(text []byte) error {
+	switch strings.ToLower(strings.TrimSpace(string(text))) {
+	case "", "false", "0":
+		*m = BPFDebugDisabled
+	case "true", "1", "default":
+		*m = BPFDebugDefault
+	case "trace_pipe":
+		*m = BPFDebugTracePipe
+	default:
+		return fmt.Errorf("invalid BPF debug mode %q", text)
+	}
+	return nil
+}
+
+func (m BPFDebugMode) MarshalText() ([]byte, error) {
+	switch m {
+	case BPFDebugDisabled:
+		return []byte("false"), nil
+	case BPFDebugDefault:
+		return []byte("true"), nil
+	case BPFDebugTracePipe:
+		return []byte("trace_pipe"), nil
+	default:
+		return nil, fmt.Errorf("invalid BPF debug mode %d", m)
+	}
+}
+
+func (BPFDebugMode) JSONSchema() *jsonschema.Schema {
+	return &jsonschema.Schema{
+		OneOf: []*jsonschema.Schema{
+			{
+				Type:        "boolean",
+				Description: "false disables eBPF debug logging; true enables trace_pipe and userspace ring buffer debug logging",
+			},
+			{
+				Type:        "string",
+				Enum:        []any{"false", "true", "default", "trace_pipe"},
+				Description: "false disables eBPF debug logging; true/default enables trace_pipe and userspace ring buffer debug logging; trace_pipe skips userspace debug event forwarding",
+			},
+		},
+		Title:       "BPF Debug Mode",
+		Description: "Controls eBPF debug logging. Boolean values keep the existing behavior; trace_pipe skips userspace debug event forwarding.",
+	}
+}
+
 type MapsConfig struct {
 	// GlobalScaleFactor scales map sizes in powers of two:
 	//   > 0: grows size (2x per step)
@@ -45,7 +104,7 @@ type MapsConfig struct {
 // EBPFTracer configuration for eBPF programs
 type EBPFTracer struct {
 	// Enables logging of eBPF program events
-	BpfDebug bool `yaml:"bpf_debug" env:"OTEL_EBPF_BPF_DEBUG" validate:"boolean"`
+	BpfDebug BPFDebugMode `yaml:"bpf_debug" env:"OTEL_EBPF_BPF_DEBUG" validate:"oneof=0 1 2"`
 
 	// WakeupLen specifies how many messages need to be accumulated in the eBPF ringbuffer
 	// before sending a wakeup request.

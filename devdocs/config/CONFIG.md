@@ -155,7 +155,7 @@ EBPFTracer configuration for eBPF programs
 |---|---|---|---|---|---|---|
 | `ebpf.batch_length` | `integer` | `OTEL_EBPF_BPF_BATCH_LENGTH` | `100` |  |  | Allows specifying how many items (traces/metrics) will be batched at the initial stage before being forwarded to the next stage Must be at least 1 |
 | `ebpf.batch_timeout` | `duration` | `OTEL_EBPF_BPF_BATCH_TIMEOUT` | `1s` | `30s`, `5m`, `1ms`, etc |  | Specifies the timeout to forward the data batch if it didn't reach the BatchLength size |
-| `ebpf.bpf_debug` | `boolean` | `OTEL_EBPF_BPF_DEBUG` | `false` |  |  | Enables logging of eBPF program events |
+| `ebpf.bpf_debug` | [`BPFDebugMode`](#bpfdebugmode) | `OTEL_EBPF_BPF_DEBUG` | `false` |  |  | Enables logging of eBPF program events |
 | `ebpf.bpf_fs_path` | `string` | `OTEL_EBPF_BPF_FS_PATH` | `/sys/fs/bpf/` |  |  | BPF path used to pin eBPF maps |
 | `ebpf.context_propagation` | `string` | `OTEL_EBPF_BPF_CONTEXT_PROPAGATION` | `disabled` | ``, `all`, `disabled` |  | Enables distributed context propagation. Can be a combination of: headers, tcp (e.g., "headers,tcp" or "all") |
 | `ebpf.couchbase_db_cache_size` | `integer` | `OTEL_EBPF_COUCHBASE_DB_CACHE_SIZE` | `1024` |  |  |  |
@@ -628,6 +628,15 @@ ReverseDNS is currently experimental. It is kept disabled by default and will be
 ---
 
 ## Type Definitions
+
+### BPFDebugMode
+
+Controls eBPF debug logging. Boolean values keep the existing behavior; trace_pipe skips userspace debug event forwarding.
+
+**One of:**
+
+- false disables eBPF debug logging; true enables trace_pipe and userspace ring buffer debug logging
+- false disables eBPF debug logging; true/default enables trace_pipe and userspace ring buffer debug logging; trace_pipe skips userspace debug event forwarding
 
 ### Buckets
 

@@ -9,6 +9,40 @@ import (
 	"testing"
 )
 
+func TestBPFDebugMode_UnmarshalText(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		want    BPFDebugMode
+		wantErr bool
+	}{
+		{name: "empty", input: "", want: BPFDebugDisabled},
+		{name: "false", input: "false", want: BPFDebugDisabled},
+		{name: "zero", input: "0", want: BPFDebugDisabled},
+		{name: "true", input: "true", want: BPFDebugDefault},
+		{name: "one", input: "1", want: BPFDebugDefault},
+		{name: "default", input: "default", want: BPFDebugDefault},
+		{name: "trace pipe", input: "trace_pipe", want: BPFDebugTracePipe},
+		{name: "invalid", input: "invalid", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var got BPFDebugMode
+			err := got.UnmarshalText([]byte(tt.input))
+
+			if (err != nil) != tt.wantErr {
+				t.Errorf("UnmarshalText() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+
+			if !tt.wantErr && got != tt.want {
+				t.Errorf("UnmarshalText() got = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestContextPropagationMode_UnmarshalText(t *testing.T) {
 	tests := []struct {
 		name    string

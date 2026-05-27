@@ -20,7 +20,8 @@ import (
 
 const (
 	// const defined in bpf/common/globals.h as "volatile const"
-	gBpfDebug = "g_bpf_debug"
+	gBpfDebug        = "g_bpf_debug"
+	gBpfDebugRingbuf = "g_bpf_debug_ringbuf"
 )
 
 // tracer represents the main structure for DNS response tracking.
@@ -64,7 +65,8 @@ func newTracer(ebpfCfg *config.EBPFTracer) (*tracer, error) {
 	sharedMaps := map[string]*ebpf.Map{}
 	var mu sync.Mutex
 	if err := convenience.LoadSpec(spec, &objects, map[string]any{
-		gBpfDebug: ebpfCfg.BpfDebug,
+		gBpfDebug:        ebpfCfg.BpfDebug.Enabled(),
+		gBpfDebugRingbuf: ebpfCfg.BpfDebug.RingbufEnabled(),
 	}, sharedMaps, &mu, ""); err != nil {
 		return nil, err
 	}

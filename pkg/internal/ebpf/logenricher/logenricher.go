@@ -104,7 +104,10 @@ func (p *Tracer) LoadSpecs() ([]*ebpfcommon.SpecBundle, error) {
 }
 
 func (p *Tracer) constants() map[string]any {
-	return map[string]any{"g_bpf_debug": p.cfg.EBPF.BpfDebug}
+	return map[string]any{
+		"g_bpf_debug":         p.cfg.EBPF.BpfDebug.Enabled(),
+		"g_bpf_debug_ringbuf": p.cfg.EBPF.BpfDebug.RingbufEnabled(),
+	}
 }
 
 func (p *Tracer) SetupTailCalls() {}

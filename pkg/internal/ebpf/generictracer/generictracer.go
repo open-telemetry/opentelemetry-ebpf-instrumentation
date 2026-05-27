@@ -221,7 +221,8 @@ func (p *Tracer) constants() map[string]any {
 
 	m["max_transaction_time"] = uint64(p.cfg.EBPF.MaxTransactionTime.Nanoseconds())
 
-	m["g_bpf_debug"] = p.cfg.EBPF.BpfDebug
+	m["g_bpf_debug"] = p.cfg.EBPF.BpfDebug.Enabled()
+	m["g_bpf_debug_ringbuf"] = p.cfg.EBPF.BpfDebug.RingbufEnabled()
 	m["g_bpf_traceparent_enabled"] = p.cfg.EBPF.TrackRequestHeaders || p.cfg.EBPF.ContextPropagation.IsEnabled()
 
 	return m

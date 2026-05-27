@@ -773,7 +773,7 @@ func (c *Config) ExternalLogger(handler slog.Handler, debugMode bool) {
 	slog.SetDefault(slog.New(handler))
 	if debugMode {
 		c.TracePrinter = debug.TracePrinterText
-		c.EBPF.BpfDebug = true
+		c.EBPF.BpfDebug = config.BPFDebugDefault
 		c.EBPF.ProtocolDebug = true
 		if c.NetworkFlows.Enable {
 			c.NetworkFlows.Print = true

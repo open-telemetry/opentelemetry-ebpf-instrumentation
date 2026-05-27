@@ -688,6 +688,21 @@ func TestConfig_AutoLanguageEnv(t *testing.T) {
 	assert.True(t, cfg.AutoTargetLanguage.MatchString("java"))
 }
 
+func TestConfig_BPFDebugMode(t *testing.T) {
+	t.Run("trace pipe from env", func(t *testing.T) {
+		t.Setenv("OTEL_EBPF_BPF_DEBUG", "trace_pipe")
+		cfg, err := LoadConfig(bytes.NewReader(nil))
+		require.NoError(t, err)
+		assert.Equal(t, config.BPFDebugTracePipe, cfg.EBPF.BpfDebug)
+	})
+
+	t.Run("boolean yaml remains supported", func(t *testing.T) {
+		cfg, err := LoadConfig(bytes.NewReader([]byte("ebpf:\n  bpf_debug: true\n")))
+		require.NoError(t, err)
+		assert.Equal(t, config.BPFDebugDefault, cfg.EBPF.BpfDebug)
+	})
+}
+
 func TestConfig_ExternalLogger(t *testing.T) {
 	type testCase struct {
 		name          string
@@ -715,7 +730,7 @@ time=\S+ level=DEBUG msg=debug arg=debug$`),
 		debugMode: true,
 		expectedCfg: Config{
 			TracePrinter: debug.TracePrinterText,
-			EBPF:         config.EBPFTracer{BpfDebug: true, ProtocolDebug: true},
+			EBPF:         config.EBPFTracer{BpfDebug: config.BPFDebugDefault, ProtocolDebug: true},
 		},
 	}, {
 		name: "debug log with network flows",
@@ -729,7 +744,7 @@ time=\S+ level=DEBUG msg=debug arg=debug$`),
 		debugMode: true,
 		expectedCfg: Config{
 			TracePrinter: debug.TracePrinterText,
-			EBPF:         config.EBPFTracer{BpfDebug: true, ProtocolDebug: true},
+			EBPF:         config.EBPFTracer{BpfDebug: config.BPFDebugDefault, ProtocolDebug: true},
 			NetworkFlows: NetworkConfig{Enable: true, Print: true},
 		},
 	}} {

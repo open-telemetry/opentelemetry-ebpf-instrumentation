@@ -114,7 +114,8 @@ func NewStatsFetcher(cfg *config.EBPFTracer, features *export.Features, selector
 	sharedMaps := map[string]*ebpf.Map{}
 	var mu sync.Mutex
 	if err := ebpfconvenience.LoadSpec(spec, &objects, map[string]any{
-		"g_bpf_debug": cfg.BpfDebug,
+		"g_bpf_debug":         cfg.BpfDebug.Enabled(),
+		"g_bpf_debug_ringbuf": cfg.BpfDebug.RingbufEnabled(),
 	}, sharedMaps, &mu, ""); err != nil {
 		return nil, fmt.Errorf("loading stats eBPF spec: %w", err)
 	}

@@ -115,7 +115,8 @@ func (p *Tracer) constants() map[string]any {
 	}
 
 	m := map[string]any{
-		"g_bpf_debug":               p.cfg.BpfDebug,
+		"g_bpf_debug":               p.cfg.BpfDebug.Enabled(),
+		"g_bpf_debug_ringbuf":       p.cfg.BpfDebug.RingbufEnabled(),
 		"g_bpf_header_propagation":  p.supportsContextPropagation(),
 		"wakeup_data_bytes":         uint32(p.cfg.WakeupLen) * uint32(unsafe.Sizeof(ebpfcommon.HTTPRequestTrace{})),
 		"disable_black_box_cp":      blackBoxCP,

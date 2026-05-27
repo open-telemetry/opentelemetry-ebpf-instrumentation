@@ -109,6 +109,26 @@
       "type": "object",
       "description": "AttributesConfig stores the user-provided section for filtering either Application or Network records by attribute values"
     },
+    "BPFDebugMode": {
+      "oneOf": [
+        {
+          "type": "boolean",
+          "description": "false disables eBPF debug logging; true enables trace_pipe and userspace ring buffer debug logging"
+        },
+        {
+          "type": "string",
+          "enum": [
+            "default",
+            "false",
+            "trace_pipe",
+            "true"
+          ],
+          "description": "false disables eBPF debug logging; true/default enables trace_pipe and userspace ring buffer debug logging; trace_pipe skips userspace debug event forwarding"
+        }
+      ],
+      "title": "BPF Debug Mode",
+      "description": "Controls eBPF debug logging. Boolean values keep the existing behavior; trace_pipe skips userspace debug event forwarding."
+    },
     "BedrockConfig": {
       "properties": {
         "enabled": {
@@ -588,9 +608,9 @@
           "x-env-var": "OTEL_EBPF_BPF_BATCH_TIMEOUT"
         },
         "bpf_debug": {
-          "type": "boolean",
+          "$ref": "#/$defs/BPFDebugMode",
           "description": "Enables logging of eBPF program events",
-          "default": false,
+          "default": "false",
           "x-env-var": "OTEL_EBPF_BPF_DEBUG"
         },
         "bpf_fs_path": {
