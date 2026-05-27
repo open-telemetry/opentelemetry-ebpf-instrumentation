@@ -102,17 +102,15 @@ var hasBTF = func() bool {
 	return false
 }
 
-// checkOSSupport contains the actual logic
-// tests call this directly.
+// checkOSSupport contains the actual logic; tests call it directly.
 func checkOSSupport() error {
 	major, minor := kernelVersion()
-	maj, mnr := minKernMaj, minKernMin
-	if isRHELBased() {
-		maj, mnr = minRHELKernMaj, minRHELKernMin
-	}
-	if major < maj || (major == maj && minor < mnr) {
+	general := major > minKernMaj || (major == minKernMaj && minor >= minKernMin)
+	// isRHELBased only consulted at 4.18 so distro misclassification can't pass other unsupported kernels.
+	rhel418 := major == minRHELKernMaj && minor == minRHELKernMin && isRHELBased()
+	if !general && !rhel418 {
 		return fmt.Errorf("kernel version %d.%d not supported. Minimum required version is %d.%d",
-			major, minor, maj, mnr)
+			major, minor, minKernMaj, minKernMin)
 	}
 
 	if !hasBTF() {

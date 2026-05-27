@@ -1284,8 +1284,29 @@ pull_hpack_window(struct sk_msg_md *msg, const u32 hpack_start, const u32 hpack_
     return bpf_msg_pull_data(msg, hpack_start, hpack_start + pull_len, 0) == 0;
 }
 
-// Find first 0x00 + valid name_len position. Validation deferred to validate_h2_tp tail call to keep this loop body cheap.
-// Returns position [0, k_h2_max_hpack_scan) on hit, k_h2_max_hpack_scan on miss.
+// Fingerprints: full traceparent name + value-length byte (0x37). Lets the scan
+// short-circuit on near-certain hits without invoking validate per candidate.
+enum {
+    k_h2_nlb_plain = k_hpack_tp_name_len,
+    k_h2_nlb_huffman = k_hpack_tp_name_huffman_len | 0x80,
+};
+static const u64 k_h2_tp_fp_plain_lo = 0x7261706563617274ULL; // "tracepar" (LE)
+static const u32 k_h2_tp_fp_plain_hi = 0x37746e65U;           // "ent" + 0x37 (LE)
+static const u64 k_h2_tp_fp_huffman = 0x3fa9851d6b21834dULL;  // huffman("traceparent") (LE)
+
+static __always_inline bool match_h2_tp_plain(const unsigned char *p) {
+    return *(const u64 *)(p + k_hpack_tp_name_offset) == k_h2_tp_fp_plain_lo &&
+           *(const u32 *)(p + k_hpack_tp_name_offset + 8) == k_h2_tp_fp_plain_hi;
+}
+
+static __always_inline bool match_h2_tp_huffman(const unsigned char *p) {
+    return *(const u64 *)(p + k_hpack_tp_name_offset) == k_h2_tp_fp_huffman &&
+           p[k_hpack_tp_name_offset + k_hpack_tp_name_huffman_len] == k_hpack_value_len_tp;
+}
+
+// Scan for traceparent in the HPACK window. Returns its offset within the window or
+// k_h2_max_hpack_scan if not found. Full-name+0x37 fingerprint match keeps the loop
+// body cheap and makes validate_h2_tp a near-formality.
 static __always_inline u32 find_first_h2_tp_candidate(struct sk_msg_md *msg,
                                                       const u32 hpack_start,
                                                       const u32 hpack_len) {
@@ -1312,10 +1333,12 @@ static __always_inline u32 find_first_h2_tp_candidate(struct sk_msg_md *msg,
             continue;
         }
         const u8 nlb = p[1];
-        if (nlb != k_hpack_tp_name_len && nlb != (k_hpack_tp_name_huffman_len | 0x80)) {
-            continue;
+        if (nlb == k_h2_nlb_plain && match_h2_tp_plain(p)) {
+            return i;
         }
-        return i;
+        if (nlb == k_h2_nlb_huffman && match_h2_tp_huffman(p)) {
+            return i;
+        }
     }
     return k_h2_max_hpack_scan;
 }
@@ -1411,6 +1434,7 @@ int obi_packet_extender_validate_h2_tp(struct sk_msg_md *msg) {
             msg, t_ctx, t_ctx->h2_frame_offset + k_h2_frame_header_len + t_ctx->h2_payload_len);
         return SK_PASS;
     }
+
     bpf_tail_call_static(msg, &extender_jump_table, k_tail_create_h2_tp);
     return SK_PASS;
 }

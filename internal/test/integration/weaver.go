@@ -138,7 +138,10 @@ func runWeaverValidation(t *testing.T) {
 	// Bind-mount source matches weaver service.yml.
 	const hostReport = "/tmp/obi-weaver-out/live_check.json"
 	// Drop stale report from prior test so a weaver crash before /stop fails loudly instead of reading old data.
-	_ = os.Remove(hostReport)
+	if err := os.Remove(hostReport); err != nil && !os.IsNotExist(err) {
+		t.Errorf("failed to remove stale weaver report at %s: %v", hostReport, err)
+		return
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), weaverTimeout)
 	defer cancel()
