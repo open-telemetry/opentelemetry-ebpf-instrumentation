@@ -23,6 +23,22 @@
       "/^\\.github\\/.*-requirements\\.txt$/"
     ]
   },
+  "customManagers": [
+    {
+      // Keep the LVH kernel images in internal/test/vm/kernels.yaml pinned to
+      // both a dated tag and the corresponding sha256 manifest digest. The
+      // tag is the human-readable handle; the digest is what `docker pull`
+      // actually resolves against (see lvh/pull-kernel.sh). Renovate updates
+      // both fields together whenever a newer tag is published on quay.io.
+      "customType": "regex",
+      "managerFilePatterns": ["/^internal\\/test\\/vm\\/kernels\\.yaml$/"],
+      "matchStrings": [
+        "lvh_tag:\\s+\"(?<currentValue>[^\"]+)\"\\s*\\n\\s*digest:\\s+\"(?<currentDigest>sha256:[a-f0-9]{64})\""
+      ],
+      "depNameTemplate": "quay.io/lvh-images/kernel-images",
+      "datasourceTemplate": "docker"
+    }
+  ],
   "packageRules": [
     {
       "description": "Run `go mod tidy` and rewrite import paths on any Go module update",
@@ -121,6 +137,14 @@
       "matchFileNames": ["internal/test/**"],
       "matchUpdateTypes": ["patch", "digest"],
       "enabled": false
+    },
+    {
+      "description": "Re-enable LVH kernel image updates: kernels.yaml is supply-chain-critical, must stay pinned to current dated tag + digest",
+      "matchFileNames": ["internal/test/vm/kernels.yaml"],
+      "matchPackageNames": ["quay.io/lvh-images/kernel-images"],
+      "enabled": true,
+      "groupName": "LVH kernel images",
+      "schedule": ["before 6am on Tuesday"]
     },
     {
       "description": "Disable Go 1.17 testserver updates",
