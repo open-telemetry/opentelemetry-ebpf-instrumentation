@@ -32,7 +32,7 @@ static __always_inline bool set_attr_value(otel_attribute_t *attr,
 
     // Constant size values
     if (vtype == attr_type_bool || vtype == attr_type_int64 || vtype == attr_type_float64) {
-        bpf_probe_read(attr->value, sizeof(s64), &go_attr_value->numeric);
+        __builtin_memcpy(attr->value, &go_attr_value->numeric, sizeof(go_attr_value->numeric));
         return true;
     }
 
@@ -77,14 +77,15 @@ convert_go_otel_attributes(void *attrs_buf, u64 slice_len, otel_attributes_t *en
         }
         __builtin_memset(&go_attr_value, 0, sizeof(go_otel_attr_value_t));
         // Read the value struct
-        bpf_probe_read(&go_attr_value, sizeof(go_otel_attr_value_t), &go_attr[go_attr_index].value);
+        bpf_probe_read_user(
+            &go_attr_value, sizeof(go_otel_attr_value_t), &go_attr[go_attr_index].value);
 
         if (go_attr_value.vtype == attr_type_invalid) {
             continue;
         }
 
         // Read the key string
-        bpf_probe_read(&go_str, sizeof(struct go_string), &go_attr[go_attr_index].key);
+        bpf_probe_read_user(&go_str, sizeof(struct go_string), &go_attr[go_attr_index].key);
         if (go_str.len >= OTEL_ATTRIBUTE_KEY_MAX_LEN) {
             // key string is too large
             bpf_dbg_printk("Attribute key string is too long\n");
