@@ -20,6 +20,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	semconv "go.opentelemetry.io/otel/semconv/v1.38.0"
+
+	"go.opentelemetry.io/obi/internal/test/integration/components/docker"
 )
 
 const (
@@ -135,11 +137,13 @@ func runWeaverValidation(t *testing.T) {
 			"only stopping the weaver container so compose teardown is clean")
 	}
 
-	// Bind-mount source matches weaver service.yml.
+	// weaver writes the report as root; delete via docker exec, not os.Remove.
 	const hostReport = "/tmp/obi-weaver-out/live_check.json"
-	// Drop stale report from prior test so a weaver crash before /stop fails loudly instead of reading old data.
-	if err := os.Remove(hostReport); err != nil && !os.IsNotExist(err) {
-		t.Errorf("failed to remove stale weaver report at %s: %v", hostReport, err)
+	const containerReport = "/tmp/weaver-out/live_check.json"
+	rmCtx, rmCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer rmCancel()
+	if _, err := docker.Exec(rmCtx, weaverContainer, "rm", "-f", containerReport); err != nil {
+		t.Errorf("removing stale weaver report: %v", err)
 		return
 	}
 

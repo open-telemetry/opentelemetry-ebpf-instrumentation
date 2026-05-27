@@ -1271,7 +1271,6 @@ static __always_inline u32 validate_h2_tp_huffman(const unsigned char *p,
     return k_hpack_tp_val_offset_huffman + k_tp_val_span_id_start;
 }
 
-// Pull the HPACK scan window into linear data. Idempotent across tail calls.
 static __always_inline bool
 pull_hpack_window(struct sk_msg_md *msg, const u32 hpack_start, const u32 hpack_len) {
     enum { k_min_entry_plain = k_h2_tp_hpack_size };
@@ -1284,8 +1283,7 @@ pull_hpack_window(struct sk_msg_md *msg, const u32 hpack_start, const u32 hpack_
     return bpf_msg_pull_data(msg, hpack_start, hpack_start + pull_len, 0) == 0;
 }
 
-// Fingerprints: full traceparent name + value-length byte (0x37). Lets the scan
-// short-circuit on near-certain hits without invoking validate per candidate.
+// Fingerprints for full traceparent name + value-length byte (0x37).
 enum {
     k_h2_nlb_plain = k_hpack_tp_name_len,
     k_h2_nlb_huffman = k_hpack_tp_name_huffman_len | 0x80,
@@ -1304,9 +1302,7 @@ static __always_inline bool match_h2_tp_huffman(const unsigned char *p) {
            p[k_hpack_tp_name_offset + k_hpack_tp_name_huffman_len] == k_hpack_value_len_tp;
 }
 
-// Scan for traceparent in the HPACK window. Returns its offset within the window or
-// k_h2_max_hpack_scan if not found. Full-name+0x37 fingerprint match keeps the loop
-// body cheap and makes validate_h2_tp a near-formality.
+// Returns offset of the traceparent name in HPACK, or k_h2_max_hpack_scan if not found.
 static __always_inline u32 find_first_h2_tp_candidate(struct sk_msg_md *msg,
                                                       const u32 hpack_start,
                                                       const u32 hpack_len) {
@@ -1343,7 +1339,7 @@ static __always_inline u32 find_first_h2_tp_candidate(struct sk_msg_md *msg,
     return k_h2_max_hpack_scan;
 }
 
-// Validation is a separate tail call: inlining it under the 192-iter scan blows older verifiers' complexity budget.
+// Validate via a separate tail call — inlining under the 192-iter scan blows older verifiers.
 SEC("sk_msg")
 int obi_packet_extender_find_existing_h2_tp(struct sk_msg_md *msg) {
     bpf_dbg_printk("=== sk_msg find existing h2 tp ===");
@@ -1357,7 +1353,7 @@ int obi_packet_extender_find_existing_h2_tp(struct sk_msg_md *msg) {
     return SK_PASS;
 }
 
-// Re-walks with a loop counter: a pkt pointer offset by a value loaded from the stack loses its verified range.
+// Walk with a loop counter — pkt pointer offset by a stack-loaded scalar loses its verified range.
 SEC("sk_msg")
 int obi_packet_extender_validate_h2_tp(struct sk_msg_md *msg) {
     bpf_dbg_printk("=== sk_msg validate h2 tp ===");

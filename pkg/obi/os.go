@@ -51,8 +51,7 @@ func parseOSReleaseIsRHEL(data []byte) bool {
 	return false
 }
 
-// .elN matches vendor-built RHEL-family kernels (4.18.0-553.el8.x86_64).
-// (Red Hat X.Y.Z-N) catches RHEL kernels rebuilt with stripped localversion — gcc banner remains.
+// Matches RHEL release tag (.elN) or rebuilt RHEL kernels via the gcc banner.
 var rhelKernelRE = regexp.MustCompile(`\.el\d+(_\d+)?\b|\(Red Hat \d+\.\d+\.\d+-\d+\)`)
 
 func parseProcVersionIsRHEL(data []byte) bool {
@@ -106,7 +105,7 @@ var hasBTF = func() bool {
 func checkOSSupport() error {
 	major, minor := kernelVersion()
 	general := major > minKernMaj || (major == minKernMaj && minor >= minKernMin)
-	// isRHELBased only consulted at 4.18 so distro misclassification can't pass other unsupported kernels.
+	// RHEL relaxation only applies at the 4.18 floor.
 	rhel418 := major == minRHELKernMaj && minor == minRHELKernMin && isRHELBased()
 	if !general && !rhel418 {
 		return fmt.Errorf("kernel version %d.%d not supported. Minimum required version is %d.%d",
