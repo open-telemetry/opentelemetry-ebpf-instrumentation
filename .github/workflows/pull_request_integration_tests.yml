@@ -135,14 +135,14 @@ jobs:
       - name: Install bpftool (PoC eBPF metrics)
         run: |
           sudo apt-get update
-          sudo apt-get install -y linux-tools-common linux-tools-generic jq
-          if ! command -v bpftool >/dev/null 2>&1; then
-            BPFTOOL_BIN=$(find /usr/lib/linux-tools -maxdepth 2 -name bpftool -type f | head -n1)
-            if [ -n "$BPFTOOL_BIN" ]; then
-              sudo ln -sf "$BPFTOOL_BIN" /usr/local/sbin/bpftool
-            fi
+          sudo apt-get install -y linux-tools-generic jq
+          BPFTOOL_BIN=$(find /usr/lib/linux-tools -maxdepth 2 -name bpftool -type f | head -n1)
+          if [ -z "$BPFTOOL_BIN" ]; then
+            echo "Could not find bpftool binary under /usr/lib/linux-tools" >&2
+            exit 1
           fi
-          sudo bpftool version
+          sudo ln -sf "$BPFTOOL_BIN" /usr/local/sbin/bpftool
+          sudo /usr/local/sbin/bpftool version
 
       - name: Start bpftool sampler (PoC eBPF metrics)
         env:
