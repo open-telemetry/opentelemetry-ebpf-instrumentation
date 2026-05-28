@@ -201,5 +201,6 @@ services:
     environment:
       - COLLECTOR_OTLP_ENABLED=true
       - LOG_LEVEL=debug
+
 # curl http://localhost:16686/api/services
 # curl http://localhost:16686/api/traces?service=testserver
