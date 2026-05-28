@@ -1284,13 +1284,23 @@ pull_hpack_window(struct sk_msg_md *msg, const u32 hpack_start, const u32 hpack_
 }
 
 // Fingerprints for full traceparent name + value-length byte (0x37).
+// Values match what *(u32/u64 *)p loads on the build target, so the comparisons
+// work on bpfel and bpfeb.
 enum {
     k_h2_nlb_plain = k_hpack_tp_name_len,
     k_h2_nlb_huffman = k_hpack_tp_name_huffman_len | 0x80,
 };
-static const u64 k_h2_tp_fp_plain_lo = 0x7261706563617274ULL; // "tracepar" (LE)
-static const u32 k_h2_tp_fp_plain_hi = 0x37746e65U;           // "ent" + 0x37 (LE)
-static const u64 k_h2_tp_fp_huffman = 0x3fa9851d6b21834dULL;  // huffman("traceparent") (LE)
+#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+static const u64 k_h2_tp_fp_plain_lo = 0x7261706563617274ULL; // "tracepar"
+static const u32 k_h2_tp_fp_plain_hi = 0x37746e65U;           // "ent" + 0x37
+static const u64 k_h2_tp_fp_huffman = 0x3fa9851d6b21834dULL;  // huffman("traceparent")
+#elif __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+static const u64 k_h2_tp_fp_plain_lo = 0x7472616365706172ULL; // "tracepar"
+static const u32 k_h2_tp_fp_plain_hi = 0x656e7437U;           // "ent" + 0x37
+static const u64 k_h2_tp_fp_huffman = 0x4d83216b1d85a93fULL;  // huffman("traceparent")
+#else
+#error "unsupported __BYTE_ORDER__"
+#endif
 
 static __always_inline bool match_h2_tp_plain(const unsigned char *p) {
     return *(const u64 *)(p + k_hpack_tp_name_offset) == k_h2_tp_fp_plain_lo &&
