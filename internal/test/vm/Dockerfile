@@ -1,19 +1,21 @@
 FROM golang:1.26.3@sha256:efaccb5b497e90df3ebe5216cc25cd9f98e73874e2d638b56e38d4a3f098c41c AS goimage
 
-FROM alpine:3.20@sha256:a4f4213abb84c497377b8544c81b3564f313746700372ec4fe84653e4fb03805
+FROM alpine:3.23@sha256:5b10f432ef3da1b8d4c7eb6c487f2f5a8f096bc91145e68878dd4a5019afde11
 
 # Import the Go toolchain from the pinned golang image while keeping Alpine as runtime base.
 COPY --from=goimage /usr/local/go /usr/local/go
 ENV PATH="/usr/local/go/bin:${PATH}"
 
-# Install Docker/runc from the pinned Alpine 3.20 base image
-# The procfs security checks in newer runc (CVE-2025-52881, CVE-2025-52565,
-# CVE-2025-31133) prevent containers from starting in nested virtualization.
-# Even buildkit containers fail to boot, so insecure buildx approach is not viable.
+# Use crun instead of runc as the OCI runtime. Newer runc (CVE-2025-52881,
+# CVE-2025-52565, CVE-2025-31133) hardened its procfs validation in a way
+# that fires under nested KVM, blocking container start. crun's procfs
+# handling takes a different path that currently passes in this environment,
+# letting us stay on current Alpine instead of pinning to 3.20.
 RUN apk update && apk add --no-cache \
     agetty \
     bash \
     ca-certificates \
+    crun \
     docker \
     docker-cli-compose \
     git \
@@ -21,6 +23,20 @@ RUN apk update && apk add --no-cache \
     iptables-legacy \
     make \
     openrc
+
+# Point dockerd at crun. The runc binary from the docker package is left
+# in place as a fallback runtime so individual containers can opt back in
+# via `--runtime=runc` if a test ever needs it.
+RUN mkdir -p /etc/docker && cat <<'EOF' > /etc/docker/daemon.json
+{
+  "default-runtime": "crun",
+  "runtimes": {
+    "crun": {
+      "path": "/usr/bin/crun"
+    }
+  }
+}
+EOF
 
 # Default iptables symlink to legacy; modules-load may relink to nft on
 # RHEL kernels that lack CONFIG_IP_NF_NAT modules.
