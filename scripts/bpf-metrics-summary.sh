@@ -2,25 +2,35 @@
 # Copyright The OpenTelemetry Authors
 # SPDX-License-Identifier: Apache-2.0
 
-# PoC: read snapshots produced by bpf-metrics-sampler.sh and emit a markdown
-# summary to stdout (or to $GITHUB_STEP_SUMMARY if set).
+# PoC: process per-shard bpftool snapshots into a markdown report + JSON
+# sidecar. When a gotestsum json log is provided, also produces per-suite
+# attribution showing which top-level tests are the heaviest eBPF consumers.
 #
-# NOTE: This sums bytes_memlock across ALL eBPF objects on the runner, not
-# just OBI's. On a GH Actions runner this is a fair proxy because no other
-# eBPF programs are loaded, but for production tracking we would filter
-# by the OBI process PID via `bpftool prog show -j` -> `.pids[].pid`.
+# Usage:
+#   bpf-metrics-summary.sh --in <snapshot_dir> [--testlog <gotestsum.jsonl>] [--out-json <file>]
+#
+# Emits markdown to $GITHUB_STEP_SUMMARY (or stdout). Optionally writes a
+# machine-readable JSON sidecar for downstream aggregation/rollup.
+
 set -euo pipefail
 
-IN_DIR="${1:-/tmp/bpfsamples}"
+IN_DIR=""
+TEST_LOG=""
+OUT_JSON=""
+SHARD_LABEL=""
 
-shopt -s nullglob
-# Bash globs expand in lexically sorted order, which matches numerical
-# order here since snap-*.json filenames embed a fixed-width unix timestamp.
-snapshots=("$IN_DIR"/snap-*.json)
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --in) IN_DIR="$2"; shift 2 ;;
+    --testlog) TEST_LOG="$2"; shift 2 ;;
+    --out-json) OUT_JSON="$2"; shift 2 ;;
+    --shard) SHARD_LABEL="$2"; shift 2 ;;
+    *) echo "Unknown arg: $1" >&2; exit 2 ;;
+  esac
+done
 
-if [ ${#snapshots[@]} -eq 0 ]; then
-  echo "No snapshots found in $IN_DIR" >&2
-  exit 0
+if [ -z "$IN_DIR" ]; then
+  IN_DIR="${1:-/tmp/bpfsamples}"
 fi
 
 emit() {
@@ -31,72 +41,228 @@ emit() {
   fi
 }
 
-# Find the snapshot with the highest total bytes_memlock.
-peak_snapshot=""
-peak_total=-1
+shopt -s nullglob
+snapshots=("$IN_DIR"/snap-*.json)
+
+if [ ${#snapshots[@]} -eq 0 ]; then
+  emit "## bpftool snapshot${SHARD_LABEL:+ (shard $SHARD_LABEL)}"
+  emit ""
+  emit "_No snapshots found in \`$IN_DIR\`._"
+  if [ -n "$OUT_JSON" ]; then
+    printf '{"shard":"%s","snapshots":0,"suites":[]}\n' "$SHARD_LABEL" > "$OUT_JSON"
+  fi
+  exit 0
+fi
+
+# Build a per-snapshot index of total bytes_memlock keyed by ts.
+# Format: one line per snapshot: "<ts> <total_bytes>"
+SNAP_INDEX=$(mktemp)
+trap 'rm -f "$SNAP_INDEX"' EXIT
+
 for f in "${snapshots[@]}"; do
   total=$(jq '[.maps[]?.bytes_memlock // 0] | add // 0' "$f" 2>/dev/null || echo 0)
-  if [ "$total" -gt "$peak_total" ]; then
-    peak_total=$total
-    peak_snapshot=$f
-  fi
-done
+  ts=$(jq -r '.ts' "$f" 2>/dev/null || basename "$f" | sed 's/snap-//;s/.json//')
+  printf '%s %s %s\n' "$ts" "$total" "$f"
+done | sort -n > "$SNAP_INDEX"
 
-first_snapshot=${snapshots[0]}
-last_snapshot=${snapshots[-1]}
+# Peak snapshot across the whole shard (for top-N maps/progs).
+peak_line=$(sort -k2,2 -n "$SNAP_INDEX" | tail -1)
+peak_total=$(awk '{print $2}' <<< "$peak_line")
+peak_snapshot=$(awk '{print $3}' <<< "$peak_line")
+peak_ts=$(awk '{print $1}' <<< "$peak_line")
+first_ts=$(head -1 "$SNAP_INDEX" | awk '{print $1}')
+last_ts=$(tail -1 "$SNAP_INDEX" | awk '{print $1}')
 sample_count=${#snapshots[@]}
-
-peak_map_count=$(jq '.maps | length' "$peak_snapshot")
-peak_prog_count=$(jq '.progs | length' "$peak_snapshot")
-peak_ts=$(jq -r '.ts' "$peak_snapshot")
-first_ts=$(jq -r '.ts' "$first_snapshot")
-last_ts=$(jq -r '.ts' "$last_snapshot")
 peak_mib=$(awk -v t="$peak_total" 'BEGIN{printf "%.2f", t/1024/1024}')
 
-emit "## eBPF metrics (PoC)"
-emit ""
-emit "- Snapshots taken: **$sample_count**"
-emit "- Window: $first_ts → $last_ts (unix)"
-emit "- Peak snapshot @ ts=$peak_ts"
-emit "  - Total \`bytes_memlock\`: **$peak_total** bytes ($peak_mib MiB)"
-emit "  - Maps loaded: $peak_map_count"
-emit "  - Programs loaded: $peak_prog_count"
-emit ""
-emit "### Top 20 maps by \`bytes_memlock\` at peak"
-emit ""
-emit "| name | type | max_entries | bytes_memlock |"
-emit "| --- | --- | ---: | ---: |"
+# Convert byte values to MiB for jq pipelines below.
+b2mib='(./1024/1024 * 100 | round / 100)'
 
-while IFS= read -r line; do emit "$line"; done < <(jq -r '
+# Suite-level attribution (optional): parse gotestsum jsonfile if given.
+# Top-level tests are .Test values that contain no '/'. We collect each
+# such test's [start_ts, end_ts] then bucket snapshots into those windows.
+SUITES_JSON="[]"
+if [ -n "$TEST_LOG" ] && [ -f "$TEST_LOG" ]; then
+  # Build per-suite { name, start, end } from gotestsum events.
+  SUITE_WINDOWS=$(jq -s -r '
+    map(select(.Test != null and (.Test | contains("/") | not)))
+    | group_by(.Test)
+    | map({
+        name: .[0].Test,
+        start: (map(select(.Action == "run")) | .[0].Time // null),
+        end:   (map(select(.Action == "pass" or .Action == "fail" or .Action == "skip")) | .[0].Time // null),
+        result: (map(select(.Action == "pass" or .Action == "fail" or .Action == "skip")) | .[0].Action // "unknown")
+      })
+    | map(select(.start != null))
+  ' < <(jq -c 'select(.Test != null and (.Action == "run" or .Action == "pass" or .Action == "fail" or .Action == "skip"))' "$TEST_LOG"))
+
+  # For each suite window, find snapshot totals within and compute stats.
+  # We pass the snapshot index in via --rawfile and parse it inside jq.
+  SUITES_JSON=$(jq --rawfile snaps "$SNAP_INDEX" '
+    def parse_ts: sub("\\.[0-9]+"; "") | fromdateiso8601;
+    def snap_lines: $snaps | split("\n") | map(select(length > 0));
+    def snap_series:
+      snap_lines | map(split(" ") | { ts: (.[0] | tonumber), total: (.[1] | tonumber) });
+    . as $suites
+    | snap_series as $series
+    | $suites
+    | map(
+        .start_ts = (.start | parse_ts)
+        | .end_ts = (if .end then (.end | parse_ts) else .start_ts end)
+      )
+    | map(
+        . as $s
+        | ($series | map(select(.ts >= $s.start_ts and .ts <= $s.end_ts))) as $window
+        | .snapshots_in_window = ($window | length)
+        | .peak_bytes = ($window | map(.total) | max // 0)
+        | .series = ($window | map(.total))
+      )
+    | map(del(.start_ts, .end_ts))
+  ' <<< "$SUITE_WINDOWS")
+fi
+
+# Sparkline encoder: takes a JSON array of numbers via stdin, emits a string.
+sparkline_from_json() {
+  jq -r '
+    if length == 0 then ""
+    else
+      . as $vals
+      | ($vals | min) as $lo
+      | ($vals | max) as $hi
+      | ($hi - $lo) as $rng
+      | ["▁","▂","▃","▄","▅","▆","▇","█"] as $chars
+      | $vals
+      | map(
+          if $rng == 0 then 3
+          else ((. - $lo) / $rng * 7) | floor
+          end
+          | $chars[.]
+        )
+      | join("")
+    end
+  '
+}
+
+# --- Markdown output ---
+
+emit "## bpftool snapshot${SHARD_LABEL:+ (shard $SHARD_LABEL)}"
+emit ""
+emit "_Data source: \`bpftool map show -j\` + \`bpftool prog show -j\`._"
+emit "_Future data sources for this section may include bpftop and OBI's own internal metrics._"
+emit ""
+emit "**Shard overview**"
+emit ""
+emit "| metric | value |"
+emit "| --- | ---: |"
+emit "| snapshots | $sample_count |"
+emit "| window (unix) | $first_ts → $last_ts |"
+emit "| peak memlock (MiB) | $peak_mib |"
+emit "| maps at peak | $(jq '.maps | length' "$peak_snapshot") |"
+emit "| programs at peak | $(jq '.progs | length' "$peak_snapshot") |"
+emit ""
+
+# Per-suite table (only if we have test attribution).
+if [ "$(jq 'length' <<< "$SUITES_JSON")" -gt 0 ]; then
+  emit "### Top suites by peak memlock"
+  emit ""
+  emit "| suite | duration (s) | peak memlock (MiB) | snapshots in window | trend |"
+  emit "| --- | ---: | ---: | ---: | --- |"
+
+  # Build rows sorted by peak descending. Skip suites with no snapshots in window.
+  rows=$(jq -r '
+    map(select(.snapshots_in_window > 0))
+    | sort_by(-.peak_bytes)
+    | .[]
+    | [
+        .name,
+        ((.series | length) // 0),
+        (.peak_bytes / 1024 / 1024 * 100 | round / 100),
+        .snapshots_in_window,
+        (.series | tojson)
+      ] | @tsv
+  ' <<< "$SUITES_JSON")
+
+  while IFS=$'\t' read -r name samples_count peak_mib_v snaps_v series_json; do
+    spark=$(sparkline_from_json <<< "$series_json")
+    emit "| \`$name\` | $samples_count | $peak_mib_v | $snaps_v | $spark |"
+  done <<< "$rows"
+  emit ""
+fi
+
+# Top-N maps at peak (dedupe by name, count instances of the same name).
+emit "<details><summary>Top 20 maps at peak (by total bytes_memlock)</summary>"
+emit ""
+emit "_Map names are limited to 15 characters by the kernel's \`BPF_OBJ_NAME_LEN\`. The \`count\` column shows how many distinct map instances share that truncated name (typically one per OBI process running concurrently)._"
+emit ""
+emit "| name | type | count | total bytes_memlock (MiB) | max_entries |"
+emit "| --- | --- | ---: | ---: | ---: |"
+
+while IFS= read -r line; do emit "$line"; done < <(jq -r --arg b2mib_label "MiB" '
   .maps
+  | group_by(.name // "<unnamed>")
   | map({
-      name: (.name // "<unnamed>"),
-      type: (.type // "?"),
-      max_entries: (.max_entries // 0),
-      bytes_memlock: (.bytes_memlock // 0)
+      name: (.[0].name // "<unnamed>"),
+      type: (.[0].type // "?"),
+      count: length,
+      total_memlock: ([.[].bytes_memlock // 0] | add),
+      max_entries: ([.[].max_entries // 0] | max)
     })
-  | sort_by(-.bytes_memlock)
+  | sort_by(-.total_memlock)
   | .[0:20]
   | .[]
-  | "| \(.name) | \(.type) | \(.max_entries) | \(.bytes_memlock) |"
+  | "| \(.name) | \(.type) | \(.count) | \((.total_memlock / 1024 / 1024 * 100 | round / 100)) | \(.max_entries) |"
 ' "$peak_snapshot")
 
 emit ""
-emit "### Top 10 programs by \`run_time_ns\` at peak"
+emit "</details>"
 emit ""
-emit "| name | type | run_cnt | run_time_ns |"
-emit "| --- | --- | ---: | ---: |"
+
+emit "<details><summary>Top 10 programs at peak (by run_time_ns)</summary>"
+emit ""
+emit "| name | type | count | total run_cnt | total run_time_ns |"
+emit "| --- | --- | ---: | ---: | ---: |"
 
 while IFS= read -r line; do emit "$line"; done < <(jq -r '
   .progs
+  | group_by(.name // "<unnamed>")
   | map({
-      name: (.name // "<unnamed>"),
-      type: (.type // "?"),
-      run_cnt: (.run_cnt // 0),
-      run_time_ns: (.run_time_ns // 0)
+      name: (.[0].name // "<unnamed>"),
+      type: (.[0].type // "?"),
+      count: length,
+      total_run_cnt: ([.[].run_cnt // 0] | add),
+      total_run_time_ns: ([.[].run_time_ns // 0] | add)
     })
-  | sort_by(-.run_time_ns)
+  | sort_by(-.total_run_time_ns)
   | .[0:10]
   | .[]
-  | "| \(.name) | \(.type) | \(.run_cnt) | \(.run_time_ns) |"
+  | "| \(.name) | \(.type) | \(.count) | \(.total_run_cnt) | \(.total_run_time_ns) |"
 ' "$peak_snapshot")
+
+emit ""
+emit "</details>"
+
+# --- JSON sidecar ---
+
+if [ -n "$OUT_JSON" ]; then
+  jq -n \
+    --arg shard "$SHARD_LABEL" \
+    --argjson sample_count "$sample_count" \
+    --argjson first_ts "$first_ts" \
+    --argjson last_ts "$last_ts" \
+    --argjson peak_bytes "$peak_total" \
+    --argjson peak_ts "$peak_ts" \
+    --argjson suites "$SUITES_JSON" \
+    --slurpfile peak_snap "$peak_snapshot" \
+    '{
+       shard: $shard,
+       snapshots: $sample_count,
+       window: { start: $first_ts, end: $last_ts },
+       peak: {
+         ts: $peak_ts,
+         total_bytes_memlock: $peak_bytes,
+         maps: ($peak_snap[0].maps | length),
+         progs: ($peak_snap[0].progs | length)
+       },
+       suites: $suites
+     }' > "$OUT_JSON"
+fi

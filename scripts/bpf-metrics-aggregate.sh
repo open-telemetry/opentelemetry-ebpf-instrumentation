@@ -2,135 +2,175 @@
 # Copyright The OpenTelemetry Authors
 # SPDX-License-Identifier: Apache-2.0
 
-# PoC: aggregate per-shard bpftool snapshot directories into one summary.
+# PoC: aggregate per-shard summary JSON sidecars (produced by
+# bpf-metrics-summary.sh --out-json) into a single workflow-level report.
 #
-# Expects an input dir containing one subdirectory per shard, each holding
-# snap-*.json files (as produced by bpf-metrics-sampler.sh). The standard
-# layout from actions/download-artifact with no `name:` filter is:
-#   <in_dir>/bpf-metrics-<shard_id>-<run>/snap-*.json
+# Usage:
+#   bpf-metrics-aggregate.sh --in <dir-of-shard-dirs> --out-md <file> --out-json <file>
 #
-# Emits markdown to $GITHUB_STEP_SUMMARY (or stdout) and writes a copy to
-# <out_file> for upload as a workflow-level artifact.
-#
-# Usage: ./scripts/bpf-metrics-aggregate.sh <in_dir> <out_file>
-#
-# NOTE: This sums bytes_memlock across ALL eBPF objects on the runner, not
-# just OBI's. See bpf-metrics-summary.sh for the same caveat.
+# Input layout (as produced by actions/download-artifact with a pattern):
+#   <in>/bpf-metrics-<shard>-<run>/summary.json
+#   <in>/bpf-metrics-<shard>-<run>/snap-*.json (ignored here)
+
 set -euo pipefail
 
-IN_DIR="${1:-./all-shards}"
-OUT_FILE="${2:-/tmp/bpf-metrics-aggregate.md}"
+IN_DIR=""
+OUT_MD=""
+OUT_JSON=""
 
-: > "$OUT_FILE"
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --in) IN_DIR="$2"; shift 2 ;;
+    --out-md) OUT_MD="$2"; shift 2 ;;
+    --out-json) OUT_JSON="$2"; shift 2 ;;
+    *) echo "Unknown arg: $1" >&2; exit 2 ;;
+  esac
+done
+
+IN_DIR="${IN_DIR:-./all-shards}"
+OUT_MD="${OUT_MD:-/tmp/bpf-metrics-aggregate.md}"
+
+: > "$OUT_MD"
 
 emit() {
-  printf '%s\n' "$1" >> "$OUT_FILE"
+  printf '%s\n' "$1" >> "$OUT_MD"
   if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
     printf '%s\n' "$1" >> "$GITHUB_STEP_SUMMARY"
   fi
 }
 
 shopt -s nullglob
-shard_dirs=("$IN_DIR"/bpf-metrics-*)
+summaries=("$IN_DIR"/*/summary.json)
 
-if [ ${#shard_dirs[@]} -eq 0 ]; then
-  emit "## eBPF metrics (aggregate)"
+if [ ${#summaries[@]} -eq 0 ]; then
+  emit "## bpftool aggregate"
   emit ""
-  emit "_No per-shard artifacts found under \`$IN_DIR\`._"
+  emit "_No per-shard summary JSON sidecars found under \`$IN_DIR\`._"
+  if [ -n "$OUT_JSON" ]; then
+    printf '{"shards":0,"suites":[]}\n' > "$OUT_JSON"
+  fi
   exit 0
 fi
 
-emit "## eBPF metrics — aggregate across ${#shard_dirs[@]} shards"
+MERGED_JSON=$(jq -s '
+  {
+    shards: length,
+    per_shard: map({
+      shard: .shard,
+      snapshots: .snapshots,
+      window: .window,
+      peak: .peak
+    }),
+    suites: (
+      [.[] | .shard as $sh | .suites[]? | . + {shard: $sh}]
+      | group_by(.name)
+      | map({
+          name: .[0].name,
+          observations: length,
+          peak_bytes: ([.[].peak_bytes] | max),
+          peak_shard: (sort_by(-.peak_bytes) | .[0].shard),
+          total_snapshots_in_window: ([.[].snapshots_in_window] | add),
+          per_shard: map({
+            shard: .shard,
+            peak_bytes: .peak_bytes,
+            snapshots_in_window: .snapshots_in_window,
+            series: .series
+          })
+        })
+      | sort_by(-.peak_bytes)
+    )
+  }
+' "${summaries[@]}")
+
+emit "## bpftool aggregate"
 emit ""
-emit "| shard | snapshots | peak memlock (bytes) | peak memlock (MiB) | maps@peak | progs@peak |"
-emit "| --- | ---: | ---: | ---: | ---: | ---: |"
-
-best_total=-1
-best_shard=""
-best_snapshot=""
-
-for shard_dir in "${shard_dirs[@]}"; do
-  shard_name=$(basename "$shard_dir")
-  # Strip the bpf-metrics- prefix and the trailing -<run> suffix for display.
-  shard_label=${shard_name#bpf-metrics-}
-  shard_label=${shard_label%-*}
-
-  snapshots=("$shard_dir"/snap-*.json)
-  if [ ${#snapshots[@]} -eq 0 ]; then
-    emit "| $shard_label | 0 | n/a | n/a | n/a | n/a |"
-    continue
-  fi
-
-  shard_peak_snap=""
-  shard_peak_total=-1
-  for f in "${snapshots[@]}"; do
-    total=$(jq '[.maps[]?.bytes_memlock // 0] | add // 0' "$f" 2>/dev/null || echo 0)
-    if [ "$total" -gt "$shard_peak_total" ]; then
-      shard_peak_total=$total
-      shard_peak_snap=$f
-    fi
-  done
-
-  maps_at_peak=$(jq '.maps | length' "$shard_peak_snap")
-  progs_at_peak=$(jq '.progs | length' "$shard_peak_snap")
-  mib=$(awk -v t="$shard_peak_total" 'BEGIN{printf "%.2f", t/1024/1024}')
-
-  emit "| $shard_label | ${#snapshots[@]} | $shard_peak_total | $mib | $maps_at_peak | $progs_at_peak |"
-
-  if [ "$shard_peak_total" -gt "$best_total" ]; then
-    best_total=$shard_peak_total
-    best_shard=$shard_label
-    best_snapshot=$shard_peak_snap
-  fi
-done
-
+emit "_Data source: \`bpftool map show -j\` + \`bpftool prog show -j\`, sampled across all integration test shards._"
+emit "_Future data sources for this section may include bpftop and OBI's own internal metrics._"
 emit ""
 
-if [ -z "$best_snapshot" ]; then
-  emit "_No snapshots contained map data._"
-  exit 0
+shard_count=$(jq -r '.shards' <<< "$MERGED_JSON")
+total_suites=$(jq -r '.suites | length' <<< "$MERGED_JSON")
+
+emit "**Run overview**"
+emit ""
+emit "| metric | value |"
+emit "| --- | ---: |"
+emit "| shards reporting | $shard_count |"
+emit "| suites observed | $total_suites |"
+emit ""
+
+emit "**Per-shard peaks**"
+emit ""
+emit "| shard | peak memlock (MiB) | maps at peak | progs at peak |"
+emit "| --- | ---: | ---: | ---: |"
+
+while IFS= read -r line; do emit "$line"; done < <(jq -r '
+  .per_shard
+  | sort_by(.shard)
+  | .[]
+  | "| \(.shard) | \((.peak.total_bytes_memlock / 1024 / 1024 * 100 | round / 100)) | \(.peak.maps) | \(.peak.progs) |"
+' <<< "$MERGED_JSON")
+emit ""
+
+# Sparkline helper, identical to the one in summary.sh.
+sparkline_from_json() {
+  jq -r '
+    if length == 0 then ""
+    else
+      . as $vals
+      | ($vals | min) as $lo
+      | ($vals | max) as $hi
+      | ($hi - $lo) as $rng
+      | ["▁","▂","▃","▄","▅","▆","▇","█"] as $chars
+      | $vals
+      | map(
+          if $rng == 0 then 3
+          else ((. - $lo) / $rng * 7) | floor
+          end
+          | $chars[.]
+        )
+      | join("")
+    end
+  '
+}
+
+if [ "$total_suites" -gt 0 ]; then
+  emit "### Top suites by peak memlock (across all shards)"
+  emit ""
+  emit "Sparkline shows the per-shard peak series for the suite, ordered by shard."
+  emit ""
+  emit "| suite | peak memlock (MiB) | peak shard | shards seen | trend across shards |"
+  emit "| --- | ---: | --- | ---: | --- |"
+
+  rows=$(jq -r '
+    .suites
+    | .[0:30]
+    | .[]
+    | [
+        .name,
+        (.peak_bytes / 1024 / 1024 * 100 | round / 100),
+        .peak_shard,
+        .observations,
+        ([.per_shard | sort_by(.shard) | .[] | .peak_bytes] | tojson)
+      ] | @tsv
+  ' <<< "$MERGED_JSON")
+
+  while IFS=$'\t' read -r name peak_mib shard observations series; do
+    spark=$(sparkline_from_json <<< "$series")
+    emit "| \`$name\` | $peak_mib | $shard | $observations | $spark |"
+  done <<< "$rows"
+  emit ""
 fi
 
-best_mib=$(awk -v t="$best_total" 'BEGIN{printf "%.2f", t/1024/1024}')
-emit "### Overall peak: shard \`$best_shard\` — **$best_total** bytes ($best_mib MiB)"
+emit "<details><summary>How to interpret this report</summary>"
 emit ""
-emit "Snapshot: \`$(basename "$best_snapshot")\` from \`$best_shard\`"
+emit "- **memlock** is the bytes the kernel locks on behalf of an eBPF map (\`bpftool map show -j\` → \`bytes_memlock\`). It tracks closely with map sizing in the source."
+emit "- **Map names** are truncated to 15 characters by the kernel's \`BPF_OBJ_NAME_LEN\`."
+emit "- **Per-suite attribution** intersects the per-shard sampler timeline with gotestsum's test-event log. Snapshots that fall inside a top-level test's run-to-pass window are attributed to that suite. Peak values include any concurrent residue from prior tests whose teardown is still in flight, so treat absolute numbers as upper bounds, not minimums."
+emit "- **Trend** sparklines encode the per-shard peak series for that suite, ordered by shard label, using 8 unicode block heights."
 emit ""
-emit "#### Top 20 maps by \`bytes_memlock\` at overall peak"
-emit ""
-emit "| name | type | max_entries | bytes_memlock |"
-emit "| --- | --- | ---: | ---: |"
+emit "</details>"
 
-while IFS= read -r line; do emit "$line"; done < <(jq -r '
-  .maps
-  | map({
-      name: (.name // "<unnamed>"),
-      type: (.type // "?"),
-      max_entries: (.max_entries // 0),
-      bytes_memlock: (.bytes_memlock // 0)
-    })
-  | sort_by(-.bytes_memlock)
-  | .[0:20]
-  | .[]
-  | "| \(.name) | \(.type) | \(.max_entries) | \(.bytes_memlock) |"
-' "$best_snapshot")
-
-emit ""
-emit "#### Top 10 programs by \`run_time_ns\` at overall peak"
-emit ""
-emit "| name | type | run_cnt | run_time_ns |"
-emit "| --- | --- | ---: | ---: |"
-
-while IFS= read -r line; do emit "$line"; done < <(jq -r '
-  .progs
-  | map({
-      name: (.name // "<unnamed>"),
-      type: (.type // "?"),
-      run_cnt: (.run_cnt // 0),
-      run_time_ns: (.run_time_ns // 0)
-    })
-  | sort_by(-.run_time_ns)
-  | .[0:10]
-  | .[]
-  | "| \(.name) | \(.type) | \(.run_cnt) | \(.run_time_ns) |"
-' "$best_snapshot")
+if [ -n "$OUT_JSON" ]; then
+  printf '%s\n' "$MERGED_JSON" > "$OUT_JSON"
+fi

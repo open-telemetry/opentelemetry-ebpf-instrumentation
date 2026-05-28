@@ -199,7 +199,15 @@ jobs:
         if: always()
         env:
           BPF_SAMPLE_DIR: /tmp/bpfsamples
-        run: bash ./scripts/bpf-metrics-summary.sh "$BPF_SAMPLE_DIR" || true
+          MATRIX_ID: ${{ matrix.id }}
+          RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          TEST_LOG="/home/runner/reports/test-run-${RUN_NUMBER}-${MATRIX_ID}.log"
+          ARGS=(--in "$BPF_SAMPLE_DIR" --shard "$MATRIX_ID" --out-json "$BPF_SAMPLE_DIR/summary.json")
+          if [ -f "$TEST_LOG" ]; then
+            ARGS+=(--testlog "$TEST_LOG")
+          fi
+          bash ./scripts/bpf-metrics-summary.sh "${ARGS[@]}" || true
 
       - name: Upload eBPF metrics snapshots (PoC)
         if: always()
@@ -261,19 +269,27 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y jq
 
+      # Match only numeric shard IDs so this job's own aggregate artifact
+      # (uploaded later in this same job on reruns sharing a run_number)
+      # is not pulled back in.
       - name: Download per-shard eBPF metrics artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          pattern: bpf-metrics-*-${{ github.run_number }}
+          pattern: bpf-metrics-[0-9]*-${{ github.run_number }}
           path: ./all-shards
 
       - name: Aggregate and emit summary
-        run: bash ./scripts/bpf-metrics-aggregate.sh ./all-shards /tmp/bpf-metrics-aggregate.md
+        run: |
+          mkdir -p /tmp/bpf-aggregate
+          bash ./scripts/bpf-metrics-aggregate.sh \
+            --in ./all-shards \
+            --out-md /tmp/bpf-aggregate/aggregate.md \
+            --out-json /tmp/bpf-aggregate/aggregate.json
 
       - name: Upload aggregated summary
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: bpf-metrics-aggregate-${{ github.run_number }}
-          path: /tmp/bpf-metrics-aggregate.md
+          path: /tmp/bpf-aggregate/
           retention-days: 30
