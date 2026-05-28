@@ -16,6 +16,20 @@ import (
 	ti "go.opentelemetry.io/obi/pkg/test/integration"
 )
 
+// Digest-pinned obi-testimg references. These were previously selected at
+// compose-time via `${JAVA_TEST_MODE}` / `${TESTSERVER_IMAGE_SUFFIX}`
+// interpolation in the tag, which made it impossible to pin by sha256 and
+// left the integration suite vulnerable to a compromise of the OBI ghcr
+// publish workflow swapping in a malicious image.
+const (
+	obiTestImgJavaNative = "ghcr.io/open-telemetry/obi-testimg:java-native-0.1.0@sha256:a9b136f208afb31318ba60682922fd3785e247e3aa1f4416e0b207ea2238caf7"
+	obiTestImgJavaJar    = "ghcr.io/open-telemetry/obi-testimg:java-jar-0.1.0@sha256:92d325a0a7aadcce2559de70ef66d39fa07075b57d8fa33b4244ada4dde3787e"
+	obiTestImgRust       = "ghcr.io/open-telemetry/obi-testimg:rust-0.1.0@sha256:3989aa18c1e23cbb5a4c511ae1ad3456f94a9b967fd916bc21ee10c1d940a95d"
+	obiTestImgRustSSL    = "ghcr.io/open-telemetry/obi-testimg:rust-ssl-0.1.0@sha256:9f7d6352112dd6f3999f85cdb847c1e8b462a48dedbf2ba55337f3efcbd6fd1a"
+	obiTestImgRails      = "ghcr.io/open-telemetry/obi-testimg:rails-0.1.0@sha256:7a72159a113b9044378c42f7ea27ab00673c6a0ebfe3ac205cc006f46606b36c"
+	obiTestImgRailsSSL   = "ghcr.io/open-telemetry/obi-testimg:rails-ssl-0.1.0@sha256:b230987a8e15e33c42f4d8fc1bdda22539c9614695ac833c1e7e9697efd2aaa7"
+)
+
 func TestSuite_Go(t *testing.T) {
 	type testCase struct {
 		name string
@@ -254,7 +268,7 @@ func TestSuite_Java(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-java.yml", path.Join(pathOutput, "test-suite-java.log"))
 	require.NoError(t, err)
 
-	compose.Env = append(compose.Env, `JAVA_TEST_MODE=-native`)
+	compose.Env = append(compose.Env, `TESTSERVER_IMAGE=`+obiTestImgJavaNative)
 	require.NoError(t, compose.Up())
 	t.Run("Java RED metrics", testREDMetricsJavaHTTP)
 	runWeaverValidation(t)
@@ -266,7 +280,7 @@ func TestSuite_Java_PID(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-java-pid.yml", path.Join(pathOutput, "test-suite-java-pid.log"))
 	require.NoError(t, err)
 
-	compose.Env = append(compose.Env, `JAVA_OPEN_PORT=8085`, `JAVA_EXECUTABLE_PATH=`, `JAVA_TEST_MODE=-jar`, `OTEL_SERVICE_NAME=greeting`)
+	compose.Env = append(compose.Env, `JAVA_OPEN_PORT=8085`, `JAVA_EXECUTABLE_PATH=`, `TESTSERVER_IMAGE=`+obiTestImgJavaJar, `OTEL_SERVICE_NAME=greeting`)
 	require.NoError(t, compose.Up())
 	t.Run("Java RED metrics", testREDMetricsJavaHTTP)
 	runWeaverValidation(t)
@@ -278,7 +292,7 @@ func TestSuite_Java_OpenPort(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-java.yml", path.Join(pathOutput, "test-suite-java-openport.log"))
 	require.NoError(t, err)
 
-	compose.Env = append(compose.Env, `JAVA_OPEN_PORT=8085`, `JAVA_EXECUTABLE_PATH=`, `JAVA_TEST_MODE=-jar`, `OTEL_SERVICE_NAME=greeting`)
+	compose.Env = append(compose.Env, `JAVA_OPEN_PORT=8085`, `JAVA_EXECUTABLE_PATH=`, `TESTSERVER_IMAGE=`+obiTestImgJavaJar, `OTEL_SERVICE_NAME=greeting`)
 	require.NoError(t, compose.Up())
 	t.Run("Java RED metrics", testREDMetricsJavaHTTP)
 
@@ -292,7 +306,7 @@ func TestSuite_Java_Host_Network(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-java-host.yml", path.Join(pathOutput, "test-suite-java-host-network.log"))
 	require.NoError(t, err)
 
-	compose.Env = append(compose.Env, `JAVA_TEST_MODE=-native`)
+	compose.Env = append(compose.Env, `TESTSERVER_IMAGE=`+obiTestImgJavaNative)
 	require.NoError(t, compose.Up())
 	t.Run("Java RED metrics", testREDMetricsJavaHTTP)
 	runWeaverValidation(t)
@@ -303,7 +317,7 @@ func TestSuite_Rust(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-rust.yml", path.Join(pathOutput, "test-suite-rust.log"))
 	require.NoError(t, err)
 
-	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8090`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8091:8090`)
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8090`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8091:8090`, `TESTSERVER_IMAGE=`+obiTestImgRust)
 	require.NoError(t, compose.Up())
 	t.Run("Rust RED metrics", testREDMetricsRustHTTP)
 	runWeaverValidation(t)
@@ -314,7 +328,7 @@ func TestSuite_RustSSL(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-rust.yml", path.Join(pathOutput, "test-suite-rust-tls.log"))
 	require.NoError(t, err)
 
-	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8490`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8491:8490`, `TESTSERVER_IMAGE_SUFFIX=-ssl`)
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8490`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8491:8490`, `TESTSERVER_IMAGE=`+obiTestImgRustSSL)
 	require.NoError(t, compose.Up())
 	t.Run("Rust RED metrics", testREDMetricsRustHTTPS)
 	runWeaverValidation(t)
@@ -327,7 +341,7 @@ func TestSuite_RustSSL(t *testing.T) {
 func TestSuite_RustHTTP2(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-rust.yml", path.Join(pathOutput, "test-suite-rust-http2.log"))
 	require.NoError(t, err)
-	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8490`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8491:8490`, `TESTSERVER_IMAGE_SUFFIX=-ssl`)
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8490`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8491:8490`, `TESTSERVER_IMAGE=`+obiTestImgRustSSL)
 
 	require.NoError(t, compose.Up())
 	t.Run("Rust RED metrics", testREDMetricsRustHTTP2)
@@ -363,7 +377,7 @@ func TestSuite_Rails(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-ruby.yml", path.Join(pathOutput, "test-suite-ruby.log"))
 	require.NoError(t, err)
 
-	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=3040,443`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=3041:3040`)
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=3040,443`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=3041:3040`, `TESTSERVER_IMAGE=`+obiTestImgRails)
 	require.NoError(t, compose.Up())
 	t.Run("Rails RED metrics", testREDMetricsRailsHTTP)
 	t.Run("Rails NGINX traces", testHTTPTracesNestedNginx)
@@ -381,6 +395,7 @@ func TestSuite_RailsNginxSupportFloor(t *testing.T) {
 		`OTEL_EBPF_EXECUTABLE_PATH=`,
 		`TEST_SERVICE_PORTS=3041:3040`,
 		`NGINX_IMAGE=`+nginxReverseProxySupportFloorImage,
+		`TESTSERVER_IMAGE=`+obiTestImgRails,
 	)
 	require.NoError(t, compose.Up())
 
@@ -421,7 +436,7 @@ func TestSuite_RailsTLS(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-ruby.yml", path.Join(pathOutput, "test-suite-ruby-tls.log"))
 	require.NoError(t, err)
 
-	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=3043`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TESTSERVER_IMAGE_SUFFIX=-ssl`, `TEST_SERVICE_PORTS=3044:3043`)
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=3043`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TESTSERVER_IMAGE=`+obiTestImgRailsSSL, `TEST_SERVICE_PORTS=3044:3043`)
 	require.NoError(t, compose.Up())
 	t.Run("Rails SSL RED metrics", testREDMetricsRailsHTTPS)
 	runWeaverValidation(t)

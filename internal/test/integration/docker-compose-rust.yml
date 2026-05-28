@@ -2,7 +2,7 @@ version: "3.8"
 
 services:
   testserver:
-    image: ghcr.io/open-telemetry/obi-testimg:rust${TESTSERVER_IMAGE_SUFFIX}-0.1.0
+    image: ${TESTSERVER_IMAGE:?TESTSERVER_IMAGE must be set to a digest-pinned obi-testimg rust reference}
     ports:
       - "${TEST_SERVICE_PORTS}"
     environment:

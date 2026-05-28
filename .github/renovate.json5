@@ -37,6 +37,28 @@
       ],
       "depNameTemplate": "quay.io/lvh-images/kernel-images",
       "datasourceTemplate": "docker"
+    },
+    {
+      // Keep any digest-pinned container image reference embedded in a Go
+      // source file under internal/test/integration/ fresh. Matches the
+      // generic shape `<registry>/<path>:<tag>@sha256:<hex>` so adding a new
+      // pinned image anywhere in the integration suite gets tracked
+      // automatically — no need to touch this config.
+      //
+      // The versioning regex accepts three tag shapes:
+      //   * `<variant>-X.Y.Z`  (e.g. `rust-ssl-0.1.0`)
+      //   * `vX.Y.Z`           (e.g. `v1.4.2`)
+      //   * `X.Y.Z`            (e.g. `1.4.2`)
+      // For tagged-variant images the optional `compatibility` group keeps
+      // bumps scoped to the same variant: a newer `rust-0.2.0` will never
+      // overwrite a `rails-0.1.0` pin even though they share an image.
+      "customType": "regex",
+      "managerFilePatterns": ["/^internal\\/test\\/integration\\/.*\\.go$/"],
+      "matchStrings": [
+        "(?<depName>[a-z0-9][a-z0-9.\\-]*(?:/[a-z0-9][a-z0-9._\\-]*)+):(?<currentValue>[a-zA-Z0-9][a-zA-Z0-9._\\-]*)@(?<currentDigest>sha256:[a-f0-9]{64})"
+      ],
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "regex:^(?:(?<compatibility>.+?)-)?v?(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)$"
     }
   ],
   "packageRules": [
@@ -144,6 +166,14 @@
       "matchPackageNames": ["quay.io/lvh-images/kernel-images"],
       "enabled": true,
       "groupName": "LVH kernel images",
+      "schedule": ["before 6am on Tuesday"]
+    },
+    {
+      "description": "Re-enable digest/patch bumps for digest-pinned container images embedded in integration test Go sources: these pins exist for supply-chain reasons and must track upstream",
+      "matchFileNames": ["internal/test/integration/**/*.go"],
+      "matchDatasources": ["docker"],
+      "enabled": true,
+      "groupName": "integration test pinned images",
       "schedule": ["before 6am on Tuesday"]
     },
     {
