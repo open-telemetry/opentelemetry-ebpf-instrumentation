@@ -189,7 +189,19 @@ jobs:
           BPF_SAMPLE_DIR: /tmp/bpfsamples
         run: |
           if [ -f "$BPF_SAMPLE_DIR/sampler.pid" ]; then
-            kill "$(cat "$BPF_SAMPLE_DIR/sampler.pid")" 2>/dev/null || true
+            SAMPLER_PID=$(cat "$BPF_SAMPLE_DIR/sampler.pid")
+            kill "$SAMPLER_PID" 2>/dev/null || true
+            # Wait up to 5s for SIGTERM handler + EXIT trap to finish so the
+            # summary doesn't read snapshots mid-write and the sysctl gets
+            # restored. Force kill if it overruns.
+            for _ in $(seq 1 50); do
+              kill -0 "$SAMPLER_PID" 2>/dev/null || break
+              sleep 0.1
+            done
+            if kill -0 "$SAMPLER_PID" 2>/dev/null; then
+              echo "Sampler $SAMPLER_PID did not exit after 5s; sending SIGKILL"
+              kill -9 "$SAMPLER_PID" 2>/dev/null || true
+            fi
           fi
           shopt -s nullglob
           snaps=("$BPF_SAMPLE_DIR"/snap-*.json)

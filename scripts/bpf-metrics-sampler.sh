@@ -51,7 +51,10 @@ while true; do
   # downstream scripts can still parse the file.
   maps=$("${BPFTOOL[@]}" map show -j 2>/dev/null || echo '[]')
   progs=$("${BPFTOOL[@]}" prog show -j 2>/dev/null || echo '[]')
-  printf '{"ts":%s,"maps":%s,"progs":%s}\n' "$ts" "$maps" "$progs" \
-    > "$OUT_DIR/snap-$ts.json"
+  # Write to a temp file then rename so readers never observe a partial
+  # snapshot, even if we get SIGTERM'd mid-write.
+  tmp="$OUT_DIR/.snap-$ts.json.tmp"
+  printf '{"ts":%s,"maps":%s,"progs":%s}\n' "$ts" "$maps" "$progs" > "$tmp"
+  mv "$tmp" "$OUT_DIR/snap-$ts.json"
   sleep "$INTERVAL"
 done
