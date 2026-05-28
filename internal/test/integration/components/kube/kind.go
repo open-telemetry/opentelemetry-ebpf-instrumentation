@@ -13,12 +13,12 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"os/exec"
 	"path"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/vladimirvivien/gexe"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -176,9 +176,8 @@ func (k *Kind) exportLogs() env.Func {
 		}
 		log := log()
 		log.With("directory", k.logsDir).Info("exporting cluster logs")
-		exe := gexe.New()
-		out := exe.Run("kind export logs " + k.logsDir + " --name " + k.clusterName)
-		log.With("out", out).Info("exported cluster logs")
+		out, _ := exec.Command("kind", "export", "logs", k.logsDir, "--name", k.clusterName).CombinedOutput()
+		log.With("out", string(out)).Info("exported cluster logs")
 		return ctx, nil
 	}
 }
