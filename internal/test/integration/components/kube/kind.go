@@ -176,7 +176,11 @@ func (k *Kind) exportLogs() env.Func {
 		}
 		log := log()
 		log.With("directory", k.logsDir).Info("exporting cluster logs")
-		out, _ := exec.Command("kind", "export", "logs", k.logsDir, "--name", k.clusterName).CombinedOutput()
+		out, err := exec.Command("kind", "export", "logs", k.logsDir, "--name", k.clusterName).CombinedOutput()
+		if err != nil {
+			log.With("out", string(out), "error", err).Error("failed to export cluster logs")
+			return ctx, fmt.Errorf("export kind logs: %w", err)
+		}
 		log.With("out", string(out)).Info("exported cluster logs")
 		return ctx, nil
 	}
