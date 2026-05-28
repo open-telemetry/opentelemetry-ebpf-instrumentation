@@ -416,7 +416,7 @@ type Config struct {
 	ChannelSendTimeout      time.Duration `yaml:"channel_send_timeout" env:"OTEL_EBPF_CHANNEL_SEND_TIMEOUT"`
 	ChannelSendTimeoutPanic bool          `yaml:"channel_send_timeout_panic" env:"OTEL_EBPF_CHANNEL_SEND_TIMEOUT_PANIC"`
 
-	ProfilePort     int                            `yaml:"profile_port" env:"OTEL_EBPF_PROFILE_PORT"`
+	ProfilePort     int                            `yaml:"profile_port" env:"OTEL_EBPF_PROFILE_PORT" validate:"gte=0,lte=65535"`
 	InternalMetrics imetrics.InternalMetricsConfig `yaml:"internal_metrics"`
 
 	// LogConfig enables the logging of the configuration on startup.
@@ -429,7 +429,8 @@ type Config struct {
 }
 
 type HealthCheckConfig struct {
-	Port int `yaml:"port" env:"OTEL_EBPF_HEALTH_CHECK_PORT"`
+	// 0 (default) means disabled
+	Port int `yaml:"port" env:"OTEL_EBPF_HEALTH_CHECK_PORT" validate:"gte=0,lte=65535"`
 }
 
 func (c *Config) Unmarshal(component *confmap.Conf) error {
@@ -711,10 +712,6 @@ func (c *Config) Validate() error {
 		if c.Metrics.Features.ResolveSpanMetricsConflict() {
 			slog.Warn("application_span and application_span_otel cannot be used together, application_span_otel is selected automatically")
 		}
-	}
-
-	if len(c.Routes.WildcardChar) > 1 {
-		return ConfigError("wildcard_char can only be a single character, multiple characters are not allowed")
 	}
 
 	if c.InternalMetrics.Exporter == imetrics.InternalMetricsExporterOTEL && c.InternalMetrics.Prometheus.Port != 0 {

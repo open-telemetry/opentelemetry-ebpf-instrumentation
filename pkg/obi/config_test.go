@@ -625,6 +625,103 @@ routes:
 	}
 }
 
+func TestConfigValidate_SDKLogLevel(t *testing.T) {
+	t.Run("lowercase accepted", func(t *testing.T) {
+		cfg := loadConfig(t, envMap{"OTEL_EBPF_EXECUTABLE_PATH": "foo", "OTEL_EBPF_TRACE_PRINTER": "text", "OTEL_EBPF_SDK_LOG_LEVEL": "debug"})
+		require.NoError(t, cfg.Validate())
+	})
+	t.Run("uppercase accepted", func(t *testing.T) {
+		cfg := loadConfig(t, envMap{"OTEL_EBPF_EXECUTABLE_PATH": "foo", "OTEL_EBPF_TRACE_PRINTER": "text", "OTEL_EBPF_SDK_LOG_LEVEL": "DEBUG"})
+		require.NoError(t, cfg.Validate())
+	})
+	t.Run("mixed case accepted", func(t *testing.T) {
+		cfg := loadConfig(t, envMap{"OTEL_EBPF_EXECUTABLE_PATH": "foo", "OTEL_EBPF_TRACE_PRINTER": "text", "OTEL_EBPF_SDK_LOG_LEVEL": "Warn"})
+		require.NoError(t, cfg.Validate())
+	})
+	t.Run("invalid value rejected", func(t *testing.T) {
+		cfg := loadConfig(t, envMap{"OTEL_EBPF_EXECUTABLE_PATH": "foo", "OTEL_EBPF_TRACE_PRINTER": "text", "OTEL_EBPF_SDK_LOG_LEVEL": "verbose"})
+		require.Error(t, cfg.Validate())
+	})
+}
+
+func TestConfigValidate_SamplerName(t *testing.T) {
+	t.Run("valid sampler accepted", func(t *testing.T) {
+		userConfig := bytes.NewBufferString(`executable_path: foo
+trace_printer: text
+otel_traces_export:
+  sampler:
+    name: parentbased_always_on
+`)
+		cfg, err := LoadConfig(userConfig)
+		require.NoError(t, err)
+		require.NoError(t, cfg.Validate())
+	})
+	t.Run("invalid sampler rejected", func(t *testing.T) {
+		userConfig := bytes.NewBufferString(`executable_path: foo
+trace_printer: text
+otel_traces_export:
+  sampler:
+    name: invalid_sampler
+`)
+		cfg, err := LoadConfig(userConfig)
+		require.NoError(t, err)
+		require.Error(t, cfg.Validate())
+	})
+}
+
+func TestConfigValidate_Ports(t *testing.T) {
+	t.Run("profile port out of range rejected", func(t *testing.T) {
+		cfg := loadConfig(t, envMap{"OTEL_EBPF_EXECUTABLE_PATH": "foo", "OTEL_EBPF_TRACE_PRINTER": "text", "OTEL_EBPF_PROFILE_PORT": "99999"})
+		require.Error(t, cfg.Validate())
+	})
+	t.Run("health check port out of range rejected", func(t *testing.T) {
+		userConfig := bytes.NewBufferString(`executable_path: foo
+trace_printer: text
+health_check:
+  port: 99999
+`)
+		cfg, err := LoadConfig(userConfig)
+		require.NoError(t, err)
+		require.Error(t, cfg.Validate())
+	})
+}
+
+func TestConfigValidate_RouteHarvesterTimeout(t *testing.T) {
+	t.Run("zero timeout rejected", func(t *testing.T) {
+		userConfig := bytes.NewBufferString(`executable_path: foo
+trace_printer: text
+discovery:
+  route_harvester_timeout: 0s
+`)
+		cfg, err := LoadConfig(userConfig)
+		require.NoError(t, err)
+		require.Error(t, cfg.Validate())
+	})
+}
+
+func TestConfigValidate_NameResolver(t *testing.T) {
+	t.Run("zero cache len rejected", func(t *testing.T) {
+		userConfig := bytes.NewBufferString(`executable_path: foo
+trace_printer: text
+name_resolver:
+  cache_len: 0
+`)
+		cfg, err := LoadConfig(userConfig)
+		require.NoError(t, err)
+		require.Error(t, cfg.Validate())
+	})
+	t.Run("zero cache ttl rejected", func(t *testing.T) {
+		userConfig := bytes.NewBufferString(`executable_path: foo
+trace_printer: text
+name_resolver:
+  cache_expiry: 0s
+`)
+		cfg, err := LoadConfig(userConfig)
+		require.NoError(t, err)
+		require.Error(t, cfg.Validate())
+	})
+}
+
 func TestConfig_OtelGoAutoEnv(t *testing.T) {
 	// OTEL_GO_AUTO_TARGET_EXE is an alias to OTEL_EBPF_AUTO_TARGET_EXE
 	// (Compatibility with OpenTelemetry)
