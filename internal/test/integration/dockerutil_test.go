@@ -28,19 +28,20 @@ import (
 	"github.com/moby/moby/client"
 	"github.com/ory/dockertest/v4"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/obi/internal/test/tools/img"
 )
 
 const (
-	versionPrometheus  = "v2.55.1"
-	versionJaeger      = "1.60"
-	versionCollector   = "0.144.0"
-	versionAWSMetaMock = "v1.9.2"
-	versionNginx       = "1.29.5"
-	// versionWeaver MUST match the digest pinned in
+	imgPrometheus  = img.Docker("quay.io/prometheus/prometheus:v2.55.1@sha256:2659f4c2ebb718e7695cb9b25ffa7d6be64db013daba13e05c875451cf51b0d3")
+	imgJaeger      = img.Docker("jaegertracing/all-in-one:1.60@sha256:4fd2d70fa347d6a47e79fcb06b1c177e6079f92cba88b083153d56263082135e")
+	imgCollector   = img.Docker("otel/opentelemetry-collector-contrib:0.144.0@sha256:213886eb6407af91b87fa47551c3632be1a6419ff3a5114ef1e6fc364628496f")
+	imgAWSMetaMock = img.Docker("amazon/amazon-ec2-metadata-mock:v1.9.2@sha256:55cc3b9fb46d7e30aec202fc8ccab5391f7f9fc7169ae7dc726aae82562d61c4")
+	imgNginx       = img.Docker("library/nginx:1.29.5@sha256:0236ee02dcbce00b9bd83e0f5fbc51069e7e1161bd59d99885b3ae1734f3392e")
+	// imgWeaver MUST match the digest pinned in
 	// `internal/test/integration/components/weaver/service.yml` so the
 	// programmatic-setup tests run weaver with the same image as the
 	// compose-driven ones.
-	versionWeaver = "v0.23.0@sha256:7984ecb55b859eb3034ae9d836c4eeda137e2bdd0873b7ba2bb6c3d24d6ff457"
+	imgWeaver = img.Docker("otel/weaver:v0.23.0@sha256:7984ecb55b859eb3034ae9d836c4eeda137e2bdd0873b7ba2bb6c3d24d6ff457")
 )
 
 // setupDockerNetwork initializes a custom network for the test.
@@ -98,8 +99,8 @@ func setupContainerPrometheus(t *testing.T, net dockertest.Network, configFile s
 	t.Helper()
 
 	t.Log("Starting Prometheus container...")
-	prometheus, err := dockerPool.Run(t.Context(), "quay.io/prometheus/prometheus",
-		dockertest.WithTag(versionPrometheus),
+	prometheus, err := dockerPool.Run(t.Context(), imgPrometheus.Repository(),
+		dockertest.WithTag(imgPrometheus.Tag()),
 		dockertest.WithName(fmt.Sprintf("prometheus-otel-test-%d", time.Now().UnixNano())),
 		dockertest.WithMounts([]string{
 			filepath.Join(pathRoot, "internal/test/integration/configs") + ":/etc/prometheus",
@@ -131,8 +132,8 @@ func setupContainerJaeger(t *testing.T, net dockertest.Network) {
 	t.Helper()
 
 	t.Log("Starting Jaeger container...")
-	jaeger, err := dockerPool.Run(t.Context(), "jaegertracing/all-in-one",
-		dockertest.WithTag(versionJaeger),
+	jaeger, err := dockerPool.Run(t.Context(), imgJaeger.Repository(),
+		dockertest.WithTag(imgJaeger.Tag()),
 		dockertest.WithName(fmt.Sprintf("jaeger-otel-test-%d", time.Now().UnixNano())),
 		dockertest.WithEnv([]string{
 			"COLLECTOR_OTLP_ENABLED=true",
@@ -162,8 +163,8 @@ func setupContainerCollector(t *testing.T, net dockertest.Network, configFile st
 	t.Helper()
 
 	t.Log("Starting OpenTelemetry Collector container...")
-	otelcol, err := dockerPool.Run(t.Context(), "otel/opentelemetry-collector-contrib",
-		dockertest.WithTag(versionCollector),
+	otelcol, err := dockerPool.Run(t.Context(), imgCollector.Repository(),
+		dockertest.WithTag(imgCollector.Tag()),
 		dockertest.WithName(fmt.Sprintf("otelcol-otel-test-%d", time.Now().UnixNano())),
 		dockertest.WithCmd([]string{"--config=/etc/otelcol-config/" + configFile}),
 		dockertest.WithMounts([]string{
@@ -197,8 +198,8 @@ func setupContainerWeaver(t *testing.T, net dockertest.Network) {
 	t.Helper()
 
 	t.Log("Starting weaver container...")
-	w, err := dockerPool.Run(t.Context(), "otel/weaver",
-		dockertest.WithTag(versionWeaver),
+	w, err := dockerPool.Run(t.Context(), imgWeaver.Repository(),
+		dockertest.WithTag(imgWeaver.Tag()),
 		dockertest.WithName(weaverContainer),
 		dockertest.WithCmd([]string{
 			"registry", "live-check",
