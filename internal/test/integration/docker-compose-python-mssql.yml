@@ -93,7 +93,7 @@ services:
     volumes:
       - ../../../schemas/obi:/obi-registry:ro
   prometheus:
-    image: quay.io/prometheus/prometheus:v3.11.2@sha256:cd37346c974517be59bd528c43cfff51727fb75393df0ad8d10ce10013a047b6
+    image: quay.io/prometheus/prometheus:v3.12.0@sha256:69f5241418838263316593f7274a304b095c40bcf22e57272865da91bd60a8ac
     container_name: prometheus
     command:
       - --config.file=/etc/prometheus/prometheus-config.yml
