@@ -17,7 +17,7 @@ import (
 func MonoTimeNow() time.Duration {
 	var ts unix.Timespec
 	if err := unix.ClockGettime(unix.CLOCK_MONOTONIC, &ts); err != nil {
-		return time.Duration(time.Now().Nanosecond())
+		return 0
 	}
 	return time.Duration(ts.Nano())
 }
