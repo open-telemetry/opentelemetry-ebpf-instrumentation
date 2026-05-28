@@ -41,6 +41,14 @@ emit() {
   fi
 }
 
+iso_utc() {
+  # GNU date (Linux) accepts -d; BSD date (macOS) uses -r. Fall back to the
+  # raw unix timestamp only if neither form is available.
+  date -u -d "@$1" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null \
+    || date -u -r "$1" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null \
+    || echo "$1"
+}
+
 shopt -s nullglob
 snapshots=("$IN_DIR"/snap-*.json)
 
@@ -109,6 +117,7 @@ if [ -n "$TEST_LOG" ] && [ -f "$TEST_LOG" ]; then
     | map(
         .start_ts = (.start | parse_ts)
         | .end_ts = (if .end then (.end | parse_ts) else .start_ts end)
+        | .duration_s = (.end_ts - .start_ts)
       )
     | map(
         . as $s
@@ -155,8 +164,9 @@ emit ""
 emit "| metric | value |"
 emit "| --- | ---: |"
 emit "| snapshots | $sample_count |"
-emit "| window (unix) | $first_ts → $last_ts |"
+emit "| window (UTC) | $(iso_utc "$first_ts") → $(iso_utc "$last_ts") |"
 emit "| peak memlock (MiB) | $peak_mib |"
+emit "| peak (UTC) | $(iso_utc "$peak_ts") |"
 emit "| maps at peak | $(jq '.maps | length' "$peak_snapshot") |"
 emit "| programs at peak | $(jq '.progs | length' "$peak_snapshot") |"
 emit ""
@@ -175,29 +185,23 @@ if [ "$(jq 'length' <<< "$SUITES_JSON")" -gt 0 ]; then
     | .[]
     | [
         .name,
-        ((.series | length) // 0),
+        (.duration_s // 0),
         (.peak_bytes / 1024 / 1024 * 100 | round / 100),
         .snapshots_in_window,
         (.series | tojson)
       ] | @tsv
   ' <<< "$SUITES_JSON")
 
-  while IFS=$'\t' read -r name samples_count peak_mib_v snaps_v series_json; do
+  while IFS=$'\t' read -r name duration_s peak_mib_v snaps_v series_json; do
     spark=$(sparkline_from_json <<< "$series_json")
-    emit "| \`$name\` | $samples_count | $peak_mib_v | $snaps_v | $spark |"
+    emit "| \`$name\` | $duration_s | $peak_mib_v | $snaps_v | $spark |"
   done <<< "$rows"
   emit ""
 fi
 
-# Top-N maps at peak (dedupe by name, count instances of the same name).
-emit "<details><summary>Top 20 maps at peak (by total bytes_memlock)</summary>"
-emit ""
-emit "_Map names are limited to 15 characters by the kernel's \`BPF_OBJ_NAME_LEN\`. The \`count\` column shows how many distinct map instances share that truncated name (typically one per OBI process running concurrently)._"
-emit ""
-emit "| name | type | count | total bytes_memlock (MiB) | max_entries |"
-emit "| --- | --- | ---: | ---: | ---: |"
-
-while IFS= read -r line; do emit "$line"; done < <(jq -r --arg b2mib_label "MiB" '
+# Group peak-snapshot maps & progs by name once, used by both markdown
+# and the JSON sidecar (so the aggregator can merge across shards).
+PEAK_MAPS_GROUPED=$(jq '
   .maps
   | group_by(.name // "<unnamed>")
   | map({
@@ -208,10 +212,33 @@ while IFS= read -r line; do emit "$line"; done < <(jq -r --arg b2mib_label "MiB"
       max_entries: ([.[].max_entries // 0] | max)
     })
   | sort_by(-.total_memlock)
-  | .[0:20]
+' "$peak_snapshot")
+
+PEAK_PROGS_GROUPED=$(jq '
+  .progs
+  | group_by(.name // "<unnamed>")
+  | map({
+      name: (.[0].name // "<unnamed>"),
+      type: (.[0].type // "?"),
+      count: length,
+      total_run_cnt: ([.[].run_cnt // 0] | add),
+      total_run_time_ns: ([.[].run_time_ns // 0] | add)
+    })
+  | sort_by(-.total_run_time_ns)
+' "$peak_snapshot")
+
+emit "<details><summary>Top 20 maps at peak (by total bytes_memlock)</summary>"
+emit ""
+emit "_Map names are limited to 15 characters by the kernel's \`BPF_OBJ_NAME_LEN\`. The \`count\` column shows how many distinct map instances share that truncated name (typically one per OBI process running concurrently)._"
+emit ""
+emit "| name | type | count | total bytes_memlock (MiB) | max_entries |"
+emit "| --- | --- | ---: | ---: | ---: |"
+
+while IFS= read -r line; do emit "$line"; done < <(jq -r '
+  .[0:20]
   | .[]
   | "| \(.name) | \(.type) | \(.count) | \((.total_memlock / 1024 / 1024 * 100 | round / 100)) | \(.max_entries) |"
-' "$peak_snapshot")
+' <<< "$PEAK_MAPS_GROUPED")
 
 emit ""
 emit "</details>"
@@ -223,20 +250,10 @@ emit "| name | type | count | total run_cnt | total run_time_ns |"
 emit "| --- | --- | ---: | ---: | ---: |"
 
 while IFS= read -r line; do emit "$line"; done < <(jq -r '
-  .progs
-  | group_by(.name // "<unnamed>")
-  | map({
-      name: (.[0].name // "<unnamed>"),
-      type: (.[0].type // "?"),
-      count: length,
-      total_run_cnt: ([.[].run_cnt // 0] | add),
-      total_run_time_ns: ([.[].run_time_ns // 0] | add)
-    })
-  | sort_by(-.total_run_time_ns)
-  | .[0:10]
+  .[0:10]
   | .[]
   | "| \(.name) | \(.type) | \(.count) | \(.total_run_cnt) | \(.total_run_time_ns) |"
-' "$peak_snapshot")
+' <<< "$PEAK_PROGS_GROUPED")
 
 emit ""
 emit "</details>"
@@ -252,6 +269,8 @@ if [ -n "$OUT_JSON" ]; then
     --argjson peak_bytes "$peak_total" \
     --argjson peak_ts "$peak_ts" \
     --argjson suites "$SUITES_JSON" \
+    --argjson peak_maps "$PEAK_MAPS_GROUPED" \
+    --argjson peak_progs "$PEAK_PROGS_GROUPED" \
     --slurpfile peak_snap "$peak_snapshot" \
     '{
        shard: $shard,
@@ -261,7 +280,9 @@ if [ -n "$OUT_JSON" ]; then
          ts: $peak_ts,
          total_bytes_memlock: $peak_bytes,
          maps: ($peak_snap[0].maps | length),
-         progs: ($peak_snap[0].progs | length)
+         progs: ($peak_snap[0].progs | length),
+         maps_grouped: $peak_maps,
+         progs_grouped: $peak_progs
        },
        suites: $suites
      }' > "$OUT_JSON"

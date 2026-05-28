@@ -64,20 +64,44 @@ MERGED_JSON=$(jq -s '
     suites: (
       [.[] | .shard as $sh | .suites[]? | . + {shard: $sh}]
       | group_by(.name)
+      | map(
+          sort_by(-.peak_bytes) as $by_peak
+          | {
+              name: $by_peak[0].name,
+              peak_bytes: $by_peak[0].peak_bytes,
+              peak_shard: $by_peak[0].shard,
+              peak_duration_s: $by_peak[0].duration_s,
+              peak_snapshots_in_window: $by_peak[0].snapshots_in_window,
+              peak_series: $by_peak[0].series,
+              peak_result: $by_peak[0].result
+            }
+        )
+      | sort_by(-.peak_bytes)
+    ),
+    peak_maps: (
+      [.[] | .peak.maps_grouped[]?]
+      | group_by(.name)
       | map({
           name: .[0].name,
-          observations: length,
-          peak_bytes: ([.[].peak_bytes] | max),
-          peak_shard: (sort_by(-.peak_bytes) | .[0].shard),
-          total_snapshots_in_window: ([.[].snapshots_in_window] | add),
-          per_shard: map({
-            shard: .shard,
-            peak_bytes: .peak_bytes,
-            snapshots_in_window: .snapshots_in_window,
-            series: .series
-          })
+          type: .[0].type,
+          max_total_memlock: ([.[].total_memlock] | max),
+          max_count: ([.[].count] | max),
+          max_entries: ([.[].max_entries] | max),
+          observed_in_shards: length
         })
-      | sort_by(-.peak_bytes)
+      | sort_by(-.max_total_memlock)
+    ),
+    peak_progs: (
+      [.[] | .peak.progs_grouped[]?]
+      | group_by(.name)
+      | map({
+          name: .[0].name,
+          type: .[0].type,
+          max_total_run_time_ns: ([.[].total_run_time_ns] | max),
+          max_total_run_cnt: ([.[].total_run_cnt] | max),
+          observed_in_shards: length
+        })
+      | sort_by(-.max_total_run_time_ns)
     )
   }
 ' "${summaries[@]}")
@@ -137,10 +161,10 @@ sparkline_from_json() {
 if [ "$total_suites" -gt 0 ]; then
   emit "### Top suites by peak memlock (across all shards)"
   emit ""
-  emit "Sparkline shows the per-shard peak series for the suite, ordered by shard."
+  emit "Each suite only runs on one shard. \`peak shard\` is where it ran. \`trend\` is the in-shard sampler series for that suite."
   emit ""
-  emit "| suite | peak memlock (MiB) | peak shard | shards seen | trend across shards |"
-  emit "| --- | ---: | --- | ---: | --- |"
+  emit "| suite | duration (s) | peak memlock (MiB) | peak shard | trend |"
+  emit "| --- | ---: | ---: | --- | --- |"
 
   rows=$(jq -r '
     .suites
@@ -148,17 +172,58 @@ if [ "$total_suites" -gt 0 ]; then
     | .[]
     | [
         .name,
+        (.peak_duration_s // 0),
         (.peak_bytes / 1024 / 1024 * 100 | round / 100),
         .peak_shard,
-        .observations,
-        ([.per_shard | sort_by(.shard) | .[] | .peak_bytes] | tojson)
+        (.peak_series | tojson)
       ] | @tsv
   ' <<< "$MERGED_JSON")
 
-  while IFS=$'\t' read -r name peak_mib shard observations series; do
+  while IFS=$'\t' read -r name duration_s peak_mib shard series; do
     spark=$(sparkline_from_json <<< "$series")
-    emit "| \`$name\` | $peak_mib | $shard | $observations | $spark |"
+    emit "| \`$name\` | $duration_s | $peak_mib | $shard | $spark |"
   done <<< "$rows"
+  emit ""
+fi
+
+# Cross-shard top-N maps & progs: max value per name across all shards' peaks.
+peak_map_count=$(jq -r '.peak_maps | length' <<< "$MERGED_JSON")
+if [ "$peak_map_count" -gt 0 ]; then
+  emit "<details><summary>Top 20 maps at peak (max across all shards)</summary>"
+  emit ""
+  emit "_Per-name max of the \`total bytes_memlock\` observed in any shard's peak snapshot. \`observed in N shards\` indicates how many shards saw the map at all._"
+  emit ""
+  emit "| name | type | max total bytes_memlock (MiB) | max instances per shard | max_entries | observed in N shards |"
+  emit "| --- | --- | ---: | ---: | ---: | ---: |"
+
+  while IFS= read -r line; do emit "$line"; done < <(jq -r '
+    .peak_maps
+    | .[0:20]
+    | .[]
+    | "| \(.name) | \(.type) | \((.max_total_memlock / 1024 / 1024 * 100 | round / 100)) | \(.max_count) | \(.max_entries) | \(.observed_in_shards) |"
+  ' <<< "$MERGED_JSON")
+
+  emit ""
+  emit "</details>"
+  emit ""
+fi
+
+peak_prog_count=$(jq -r '.peak_progs | length' <<< "$MERGED_JSON")
+if [ "$peak_prog_count" -gt 0 ]; then
+  emit "<details><summary>Top 10 programs at peak (max run_time_ns across all shards)</summary>"
+  emit ""
+  emit "| name | type | max run_time_ns | max run_cnt | observed in N shards |"
+  emit "| --- | --- | ---: | ---: | ---: |"
+
+  while IFS= read -r line; do emit "$line"; done < <(jq -r '
+    .peak_progs
+    | .[0:10]
+    | .[]
+    | "| \(.name) | \(.type) | \(.max_total_run_time_ns) | \(.max_total_run_cnt) | \(.observed_in_shards) |"
+  ' <<< "$MERGED_JSON")
+
+  emit ""
+  emit "</details>"
   emit ""
 fi
 
@@ -167,7 +232,7 @@ emit ""
 emit "- **memlock** is the bytes the kernel locks on behalf of an eBPF map (\`bpftool map show -j\` → \`bytes_memlock\`). It tracks closely with map sizing in the source."
 emit "- **Map names** are truncated to 15 characters by the kernel's \`BPF_OBJ_NAME_LEN\`."
 emit "- **Per-suite attribution** intersects the per-shard sampler timeline with gotestsum's test-event log. Snapshots that fall inside a top-level test's run-to-pass window are attributed to that suite. Peak values include any concurrent residue from prior tests whose teardown is still in flight, so treat absolute numbers as upper bounds, not minimums."
-emit "- **Trend** sparklines encode the per-shard peak series for that suite, ordered by shard label, using 8 unicode block heights."
+emit "- **Trend** sparklines on the suite table show the in-shard sampler series during that suite's run window."
 emit ""
 emit "</details>"
 
