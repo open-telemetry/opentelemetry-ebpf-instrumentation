@@ -1,7 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package img // import "go.opentelemetry.io/obi/internal/test/img"
+package img // import "go.opentelemetry.io/obi/internal/test/tools/img"
 
 import "strings"
 

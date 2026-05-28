@@ -28,6 +28,7 @@ import (
 	"github.com/moby/moby/client"
 	"github.com/ory/dockertest/v4"
 	"github.com/stretchr/testify/require"
+
 	"go.opentelemetry.io/obi/internal/test/tools/img"
 )
 
