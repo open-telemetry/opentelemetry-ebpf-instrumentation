@@ -103,9 +103,8 @@ func (p *Tracer) constants() map[string]any {
 	}
 
 	return map[string]any{
-		"filter_pids":         filterPids,
-		"g_bpf_debug":         p.cfg.EBPF.BpfDebug.Enabled(),
-		"g_bpf_debug_ringbuf": p.cfg.EBPF.BpfDebug.RingbufEnabled(),
+		"filter_pids":       filterPids,
+		"g_bpf_debug_flags": p.cfg.EBPF.BpfDebug.Flags(),
 	}
 }
 

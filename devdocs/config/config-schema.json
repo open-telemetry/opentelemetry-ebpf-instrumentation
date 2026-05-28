@@ -113,7 +113,7 @@
       "oneOf": [
         {
           "type": "boolean",
-          "description": "false disables eBPF debug logging; true enables trace_pipe and userspace ring buffer debug logging"
+          "description": "false disables eBPF debug logging; true enables trace_pipe and userspace ring buffer debug logging."
         },
         {
           "type": "string",
@@ -123,11 +123,23 @@
             "trace_pipe",
             "true"
           ],
-          "description": "false disables eBPF debug logging; true/default enables trace_pipe and userspace ring buffer debug logging; trace_pipe skips userspace debug event forwarding"
+          "description": "String values are supported for compatibility. Use bpf_debug_mode for new configurations."
         }
       ],
       "title": "BPF Debug Mode",
-      "description": "Controls eBPF debug logging. Boolean values keep the existing behavior; trace_pipe skips userspace debug event forwarding."
+      "description": "Controls eBPF debug logging. Deprecated: use bpf_debug_mode instead."
+    },
+    "BPFDebugModeList": {
+      "items": {
+        "type": "string",
+        "enum": [
+          "ringbuffer",
+          "trace_pipe"
+        ]
+      },
+      "type": "array",
+      "title": "BPF Debug Mode List",
+      "description": "Controls eBPF debug logging outputs. Empty disables eBPF debug logging."
     },
     "BedrockConfig": {
       "properties": {
@@ -609,9 +621,15 @@
         },
         "bpf_debug": {
           "$ref": "#/$defs/BPFDebugMode",
-          "description": "Enables logging of eBPF program events",
+          "description": "Use bpf_debug_mode instead.",
           "default": "false",
+          "deprecated": true,
           "x-env-var": "OTEL_EBPF_BPF_DEBUG"
+        },
+        "bpf_debug_mode": {
+          "$ref": "#/$defs/BPFDebugModeList",
+          "description": "Enables logging of eBPF program events to the selected outputs.",
+          "x-env-var": "OTEL_EBPF_BPF_DEBUG_MODE"
         },
         "bpf_fs_path": {
           "type": "string",

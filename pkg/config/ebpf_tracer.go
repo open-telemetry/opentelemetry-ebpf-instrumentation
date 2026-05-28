@@ -20,12 +20,22 @@ type RedisDBCacheConfig struct {
 	MaxSize int  `yaml:"max_size" env:"OTEL_EBPF_BPF_REDIS_DB_CACHE_MAX_SIZE" validate:"gt=0"`
 }
 
-type BPFDebugMode uint8
+type (
+	BPFDebugMode     uint8
+	BPFDebugOutput   string
+	BPFDebugModeList []BPFDebugOutput
+)
 
 const (
 	BPFDebugDisabled BPFDebugMode = iota
 	BPFDebugDefault
 	BPFDebugTracePipe
+
+	BPFDebugOutputTracePipe BPFDebugOutput = "trace_pipe"
+	BPFDebugOutputRingbuf   BPFDebugOutput = "ringbuffer"
+
+	BPFDebugFlagTracePipe uint32 = 1 << 0
+	BPFDebugFlagRingbuf   uint32 = 1 << 1
 
 	ContextPropagationDisabled ContextPropagationMode = 0
 	ContextPropagationHeaders  ContextPropagationMode = 1 << 0 // HTTP headers
@@ -48,6 +58,49 @@ func (m BPFDebugMode) RingbufEnabled() bool {
 	return m == BPFDebugDefault
 }
 
+func (m BPFDebugMode) Flags() uint32 {
+	switch m {
+	case BPFDebugDefault:
+		return BPFDebugFlagTracePipe | BPFDebugFlagRingbuf
+	case BPFDebugTracePipe:
+		return BPFDebugFlagTracePipe
+	default:
+		return 0
+	}
+}
+
+func (m BPFDebugModeList) Enabled() bool {
+	return len(m) > 0
+}
+
+func (m BPFDebugModeList) RingbufEnabled() bool {
+	for _, output := range m {
+		if output == BPFDebugOutputRingbuf {
+			return true
+		}
+	}
+	return false
+}
+
+func (m BPFDebugModeList) TracePipeEnabled() bool {
+	for _, output := range m {
+		if output == BPFDebugOutputTracePipe {
+			return true
+		}
+	}
+	return false
+}
+
+func (m BPFDebugModeList) EffectiveMode() BPFDebugMode {
+	if !m.Enabled() {
+		return BPFDebugDisabled
+	}
+	if m.RingbufEnabled() {
+		return BPFDebugDefault
+	}
+	return BPFDebugTracePipe
+}
+
 func (m *BPFDebugMode) UnmarshalText(text []byte) error {
 	switch strings.ToLower(strings.TrimSpace(string(text))) {
 	case "", "false", "0":
@@ -60,6 +113,27 @@ func (m *BPFDebugMode) UnmarshalText(text []byte) error {
 		return fmt.Errorf("invalid BPF debug mode %q", text)
 	}
 	return nil
+}
+
+func (m *BPFDebugOutput) UnmarshalText(text []byte) error {
+	switch BPFDebugOutput(strings.ToLower(strings.TrimSpace(string(text)))) {
+	case BPFDebugOutputTracePipe:
+		*m = BPFDebugOutputTracePipe
+	case BPFDebugOutputRingbuf:
+		*m = BPFDebugOutputRingbuf
+	default:
+		return fmt.Errorf("invalid BPF debug output %q", text)
+	}
+	return nil
+}
+
+func (m BPFDebugOutput) MarshalText() ([]byte, error) {
+	switch m {
+	case BPFDebugOutputTracePipe, BPFDebugOutputRingbuf:
+		return []byte(m), nil
+	default:
+		return nil, fmt.Errorf("invalid BPF debug output %q", m)
+	}
 }
 
 func (m BPFDebugMode) MarshalText() ([]byte, error) {
@@ -80,16 +154,28 @@ func (BPFDebugMode) JSONSchema() *jsonschema.Schema {
 		OneOf: []*jsonschema.Schema{
 			{
 				Type:        "boolean",
-				Description: "false disables eBPF debug logging; true enables trace_pipe and userspace ring buffer debug logging",
+				Description: "false disables eBPF debug logging; true enables trace_pipe and userspace ring buffer debug logging.",
 			},
 			{
 				Type:        "string",
 				Enum:        []any{"false", "true", "default", "trace_pipe"},
-				Description: "false disables eBPF debug logging; true/default enables trace_pipe and userspace ring buffer debug logging; trace_pipe skips userspace debug event forwarding",
+				Description: "String values are supported for compatibility. Use bpf_debug_mode for new configurations.",
 			},
 		},
 		Title:       "BPF Debug Mode",
-		Description: "Controls eBPF debug logging. Boolean values keep the existing behavior; trace_pipe skips userspace debug event forwarding.",
+		Description: "Controls eBPF debug logging. Deprecated: use bpf_debug_mode instead.",
+	}
+}
+
+func (BPFDebugModeList) JSONSchema() *jsonschema.Schema {
+	return &jsonschema.Schema{
+		Type:        "array",
+		Title:       "BPF Debug Mode List",
+		Description: "Controls eBPF debug logging outputs. Empty disables eBPF debug logging.",
+		Items: &jsonschema.Schema{
+			Type: "string",
+			Enum: []any{BPFDebugOutputTracePipe, BPFDebugOutputRingbuf},
+		},
 	}
 }
 
@@ -103,8 +189,11 @@ type MapsConfig struct {
 
 // EBPFTracer configuration for eBPF programs
 type EBPFTracer struct {
-	// Enables logging of eBPF program events
-	BpfDebug BPFDebugMode `yaml:"bpf_debug" env:"OTEL_EBPF_BPF_DEBUG" validate:"oneof=0 1 2"`
+	// Deprecated: Use bpf_debug_mode instead.
+	BpfDebug BPFDebugMode `yaml:"bpf_debug" env:"OTEL_EBPF_BPF_DEBUG"`
+
+	// Enables logging of eBPF program events to the selected outputs.
+	BpfDebugMode BPFDebugModeList `yaml:"bpf_debug_mode" env:"OTEL_EBPF_BPF_DEBUG_MODE" envSeparator:"," validate:"-"`
 
 	// WakeupLen specifies how many messages need to be accumulated in the eBPF ringbuffer
 	// before sending a wakeup request.

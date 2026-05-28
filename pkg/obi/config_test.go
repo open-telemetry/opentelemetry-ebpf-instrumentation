@@ -690,16 +690,24 @@ func TestConfig_AutoLanguageEnv(t *testing.T) {
 
 func TestConfig_BPFDebugMode(t *testing.T) {
 	t.Run("trace pipe from env", func(t *testing.T) {
-		t.Setenv("OTEL_EBPF_BPF_DEBUG", "trace_pipe")
+		t.Setenv("OTEL_EBPF_BPF_DEBUG_MODE", "trace_pipe")
 		cfg, err := LoadConfig(bytes.NewReader(nil))
 		require.NoError(t, err)
 		assert.Equal(t, config.BPFDebugTracePipe, cfg.EBPF.BpfDebug)
+		assert.Equal(t, config.BPFDebugModeList{config.BPFDebugOutputTracePipe}, cfg.EBPF.BpfDebugMode)
 	})
 
 	t.Run("boolean yaml remains supported", func(t *testing.T) {
 		cfg, err := LoadConfig(bytes.NewReader([]byte("ebpf:\n  bpf_debug: true\n")))
 		require.NoError(t, err)
 		assert.Equal(t, config.BPFDebugDefault, cfg.EBPF.BpfDebug)
+	})
+
+	t.Run("mode yaml enables both debug outputs", func(t *testing.T) {
+		cfg, err := LoadConfig(bytes.NewReader([]byte("ebpf:\n  bpf_debug_mode: [trace_pipe, ringbuffer]\n")))
+		require.NoError(t, err)
+		assert.Equal(t, config.BPFDebugDefault, cfg.EBPF.BpfDebug)
+		assert.Equal(t, config.BPFDebugModeList{config.BPFDebugOutputTracePipe, config.BPFDebugOutputRingbuf}, cfg.EBPF.BpfDebugMode)
 	})
 }
 

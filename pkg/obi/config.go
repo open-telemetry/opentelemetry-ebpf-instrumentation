@@ -818,6 +818,10 @@ func registerCustomValidations(validate *validator.Validate, customValidations C
 
 // normalizeConfig normalizes user input to a common set of assumptions that are global to OBI
 func (c *Config) normalize() {
+	if c.EBPF.BpfDebugMode.Enabled() {
+		c.EBPF.BpfDebug = c.EBPF.BpfDebugMode.EffectiveMode()
+	}
+
 	c.Attributes.Select.Normalize()
 	// backwards compatibility assumptions for the deprecated Metric feature sections in OTEL and Prom metrics config.
 	// Old, deprecated properties would take precedence over metrics > features, to avoid breaking changes.

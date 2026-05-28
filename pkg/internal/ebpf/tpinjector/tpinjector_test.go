@@ -110,18 +110,14 @@ func TestTracer_Constants(t *testing.T) {
 			_, ok = c["max_transaction_time"]
 			assert.True(t, ok, "max_transaction_time should be present")
 
-			_, ok = c["g_bpf_debug"]
-			assert.True(t, ok, "g_bpf_debug should be present")
-			_, ok = c["g_bpf_debug_ringbuf"]
-			assert.True(t, ok, "g_bpf_debug_ringbuf should be present")
+			_, ok = c["g_bpf_debug_flags"]
+			assert.True(t, ok, "g_bpf_debug_flags should be present")
 
 			// Spec 1 (sock_iter) carries only the debug flags.
 			iterC := bundles[1].Constants
-			_, ok = iterC["g_bpf_debug"]
-			assert.True(t, ok, "iter g_bpf_debug should be present")
-			_, ok = iterC["g_bpf_debug_ringbuf"]
-			assert.True(t, ok, "iter g_bpf_debug_ringbuf should be present")
-			assert.Len(t, iterC, 2, "iter spec should have only g_bpf_debug constants")
+			_, ok = iterC["g_bpf_debug_flags"]
+			assert.True(t, ok, "iter g_bpf_debug_flags should be present")
+			assert.Len(t, iterC, 1, "iter spec should have only g_bpf_debug_flags constant")
 		})
 	}
 }

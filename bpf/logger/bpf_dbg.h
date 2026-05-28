@@ -44,8 +44,10 @@ enum bpf_func_id___x {
         if (!g_bpf_debug) {                                                                        \
             break;                                                                                 \
         }                                                                                          \
-        bpf_printk("%s: " fmt, __FUNCTION__, ##args);                                              \
-        if (!g_bpf_debug_ringbuf) {                                                                \
+        if (g_bpf_debug_flags & BPF_DEBUG_TRACE_PIPE) {                                            \
+            bpf_printk(fmt, ##args);                                                               \
+        }                                                                                          \
+        if (!(g_bpf_debug_flags & BPF_DEBUG_RINGBUF)) {                                            \
             break;                                                                                 \
         }                                                                                          \
         log_info_t *__trace__ = bpf_ringbuf_reserve(&debug_events, sizeof(log_info_t), 0);         \
@@ -69,8 +71,8 @@ enum bpf_func_id___x {
         bpf_ringbuf_submit(__trace__, 0);                                                          \
     } while (0)
 
-#define bpf_dbg_enter() bpf_dbg_printk("%s entered", __FUNCTION__)
-#define bpf_dbg_return() bpf_dbg_printk("%s returning", __FUNCTION__)
+#define bpf_dbg_enter() bpf_dbg_printk("entered")
+#define bpf_dbg_return() bpf_dbg_printk("returning")
 
 #define bpf_d_printk(fmt, args...)                                                                 \
     do {                                                                                           \

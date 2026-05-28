@@ -25,7 +25,7 @@ enum {
     k_max_fd_digits = 4
 };
 
-static __always_inline int handle_async_switch(char *buf, const u64 pid_tgid) {
+static __always_inline int handle_async_switch(const char *buf, const u64 pid_tgid) {
     u32 fd = 0;
     for (u8 i = 0; i < k_max_fd_digits; ++i) {
         fd *= 10;
@@ -51,7 +51,7 @@ static __always_inline int handle_async_switch(char *buf, const u64 pid_tgid) {
     return 0;
 }
 
-static __always_inline int handle_fd_correlation(char *buf, const u64 pid_tgid) {
+static __always_inline int handle_fd_correlation(const char *buf, const u64 pid_tgid) {
     u32 fd1 = 0;
     u32 fd2 = 0;
 

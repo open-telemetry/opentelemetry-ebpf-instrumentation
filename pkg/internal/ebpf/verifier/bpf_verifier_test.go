@@ -139,9 +139,12 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 		t.Skipf("cannot remove memlock limit (insufficient privileges?): %v", err)
 	}
 
+	debugFlags := []any{uint32(0), uint32(1), uint32(3)}
+	tracePipeDebugFlags := []any{uint32(0), uint32(1)}
+
 	// netolly
 	netollyOpts := []constOption{
-		{"g_bpf_debug", []any{true, false}},
+		{"g_bpf_debug_flags", debugFlags},
 		{"sampling", []any{uint32(0), uint32(1), uint32(1000)}},
 		{"trace_messages", []any{uint8(0), uint8(1)}},
 		{"port_guessing", []any{uint8(0), uint8(1)}},
@@ -151,7 +154,7 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 
 	// generictracer
 	forEachCombination(t, "generictracer/Bpf", generictracerbpf.LoadBpf, []constOption{
-		{"g_bpf_debug", []any{true, false}},
+		{"g_bpf_debug_flags", debugFlags},
 		{"g_bpf_traceparent_enabled", []any{true, false}},
 		{"filter_pids", []any{int32(0), int32(1)}},
 		{"capture_header_buffer", []any{int32(0), int32(1)}},
@@ -161,7 +164,7 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 
 	// gotracer
 	forEachCombination(t, "gotracer/Bpf", gotracerbpf.LoadBpf, []constOption{
-		{"g_bpf_debug", []any{true, false}},
+		{"g_bpf_debug_flags", tracePipeDebugFlags},
 		{"g_bpf_traceparent_enabled", []any{true, false}},
 		{"g_bpf_header_propagation", []any{true, false}},
 		{"g_bpf_loop_enabled", []any{ebpfcommon.SupportsEBPFLoops(slog.Default(), false)}},
@@ -171,7 +174,7 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 	// tpinjector
 	// inject_flags is a bitmask: bit 0 = HTTP headers, bit 1 = TCP options.
 	forEachCombination(t, "tpinjector/Bpf", tpinjectorbpf.LoadBpf, []constOption{
-		{"g_bpf_debug", []any{true, false}},
+		{"g_bpf_debug_flags", debugFlags},
 		{"filter_pids", []any{int32(0), int32(1)}},
 		{"inject_flags", []any{uint32(0), uint32(1), uint32(2), uint32(3)}},
 	})
@@ -180,7 +183,7 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 	// has a separate >= 6.4 gate (RCU stall) enforced in tpinjector.Iters.
 	if major, minor := ebpfcommon.KernelVersion(); major > 5 || (major == 5 && minor >= 11) {
 		forEachCombination(t, "tpinjector/BpfIter", tpinjectorbpf.LoadBpfIter, []constOption{
-			{"g_bpf_debug", []any{true, false}},
+			{"g_bpf_debug_flags", debugFlags},
 		})
 	} else {
 		t.Logf("skipping tpinjector/BpfIter: kernel %d.%d < 5.11", major, minor)
@@ -188,32 +191,32 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 
 	// watcher
 	forEachCombination(t, "watcher/Bpf", watcherbpf.LoadBpf, []constOption{
-		{"g_bpf_debug", []any{true, false}},
+		{"g_bpf_debug_flags", debugFlags},
 	})
 
 	// gpuevent
 	forEachCombination(t, "gpuevent/Bpf", gpueventbpf.LoadBpf, []constOption{
-		{"g_bpf_debug", []any{true, false}},
+		{"g_bpf_debug_flags", debugFlags},
 		{"filter_pids", []any{int32(0), int32(1)}},
 	})
 
 	// logger
 	forEachCombination(t, "logger/Bpf", loggerbpf.LoadBpf, []constOption{
-		{"g_bpf_debug", []any{true, false}},
+		{"g_bpf_debug_flags", debugFlags},
 	})
 
 	// logenricher
 	forEachCombination(t, "logenricher/Bpf", logenricherbpf.LoadBpf, []constOption{
-		{"g_bpf_debug", []any{true, false}},
+		{"g_bpf_debug_flags", debugFlags},
 	})
 
 	// rdns xdp
 	forEachCombination(t, "rdns/xdp/Bpf", rdnsxdpbpf.LoadBpf, []constOption{
-		{"g_bpf_debug", []any{true, false}},
+		{"g_bpf_debug_flags", debugFlags},
 	})
 
 	// statsolly
 	forEachCombination(t, "statsolly/Stats", statsolly.LoadStats, []constOption{
-		{"g_bpf_debug", []any{true, false}},
+		{"g_bpf_debug_flags", debugFlags},
 	})
 }

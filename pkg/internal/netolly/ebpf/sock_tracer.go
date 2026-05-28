@@ -97,8 +97,7 @@ func NewSockFlowFetcher(
 		constSampling:      uint32(sampling),
 		constTraceMessages: uint8(traceMsgs),
 		constPortGuessing:  portGuessing,
-		gBpfDebug:          cfg.BpfDebug.Enabled(),
-		gBpfDebugRingbuf:   cfg.BpfDebug.RingbufEnabled(),
+		gBpfDebugFlags:     cfg.BpfDebug.Flags(),
 	}, sharedMaps, &mu, ""); err != nil {
 		printVerifierErrorInfo(err)
 		return nil, err
