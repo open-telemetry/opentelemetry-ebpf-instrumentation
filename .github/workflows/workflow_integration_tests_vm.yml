@@ -218,7 +218,7 @@ jobs:
     permissions:
       checks: write
       pull-requests: write
-    runs-on: ubuntu-latest
+    runs-on: cncf-ubuntu-4-16-x86
     timeout-minutes: 45
     strategy:
       fail-fast: false
@@ -245,6 +245,14 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends qemu-utils qemu-system-x86
+
+      - name: Verify KVM is available
+        run: |
+          if [ ! -e /dev/kvm ]; then
+            echo "::error::/dev/kvm not present on this runner. The VM integration tests require a KVM-capable host (see issue #872)." >&2
+            exit 1
+          fi
+          echo "/dev/kvm present"
 
       - name: Stage schemas/obi/.deps from prep artifact
         run: |
