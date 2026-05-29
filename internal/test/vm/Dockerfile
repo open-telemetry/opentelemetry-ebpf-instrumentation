@@ -92,6 +92,7 @@ start() {
         modprobe xt_MASQUERADE 2>/dev/null || true
         modprobe xt_REDIRECT 2>/dev/null || true
         modprobe nf_nat 2>/dev/null || true
+        modprobe iptable_raw 2>/dev/null || true
         set_ipt_backend legacy
         einfo "iptables backend: legacy"
     elif modprobe nf_tables 2>/dev/null \
