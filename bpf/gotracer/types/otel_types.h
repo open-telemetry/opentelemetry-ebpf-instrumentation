@@ -8,7 +8,6 @@
 #define _OTEL_TYPES_H
 
 #include <bpfcore/vmlinux.h>
-#include <bpfcore/bpf_builtins.h>
 #include <bpfcore/bpf_helpers.h>
 
 #include <common/common.h>
@@ -33,7 +32,7 @@ static __always_inline bool set_attr_value(otel_attribute_t *attr,
 
     // Constant size values
     if (vtype == attr_type_bool || vtype == attr_type_int64 || vtype == attr_type_float64) {
-        bpf_memcpy(attr->value, &go_attr_value->numeric, sizeof(go_attr_value->numeric));
+        bpf_probe_read(attr->value, sizeof(s64), &go_attr_value->numeric);
         return true;
     }
 

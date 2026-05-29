@@ -427,7 +427,7 @@ int obi_uprobe_RecordError(struct pt_regs *ctx) {
             struct go_string go_str = {0};
             bpf_probe_read_user(&go_str, sizeof(struct go_string), str_err);
             u8 valid_attrs = span->span_attrs.valid_attrs;
-            bpf_dbg_printk("valid_attrs=%d, len=%d, str=%llx", valid_attrs, go_str.len, go_str.str);
+            bpf_dbg_printk("valid_attrs=%d, len=%d, str=%s", valid_attrs, go_str.len, go_str.str);
 
             if ((go_str.len < OTEL_ATTRIBUTE_KEY_MAX_LEN) &&
                 (valid_attrs < OTEL_ATTRIBUTE_MAX_COUNT)) {
