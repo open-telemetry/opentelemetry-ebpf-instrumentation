@@ -226,7 +226,7 @@ static __always_inline const char *tp_string_from_opt(const struct tp_option *op
 }
 
 static __always_inline void print_tp(const char *msg, const tp_info_t *tp) {
-    if (!g_bpf_debug) {
+    if (!bpf_debug_enabled()) {
         return;
     }
 
@@ -450,7 +450,7 @@ static __always_inline void bpf_sock_ops_write_hdr_cb(struct bpf_sock_ops *skops
         bpf_dbg_printk("failed to store option: %d", ret);
     }
 
-    if (g_bpf_debug) {
+    if (bpf_debug_enabled()) {
         const char *tp_str = tp_string_from_opt(&opt);
 
         if (tp_str) {
@@ -478,7 +478,7 @@ static __always_inline void bpf_sock_ops_parse_hdr_cb(struct bpf_sock_ops *skops
         return;
     }
 
-    if (g_bpf_debug) {
+    if (bpf_debug_enabled()) {
         const char *tp_str = tp_string_from_opt(&opt);
 
         if (tp_str) {

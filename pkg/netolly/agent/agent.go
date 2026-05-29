@@ -245,7 +245,7 @@ func (f *Flows) Run(ctx context.Context) error {
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	if f.cfg.EBPF.BpfDebug.RingbufEnabled() {
+	if f.cfg.EBPF.BpfDebugMode.UserspaceEnabled() {
 		go logger.ReadDebugEventsMap(runCtx, f.ebpf.DebugEventsMap(),
 			slog.With("component", "netolly.BPFDebug"))
 	}

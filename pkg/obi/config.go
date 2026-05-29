@@ -773,7 +773,8 @@ func (c *Config) ExternalLogger(handler slog.Handler, debugMode bool) {
 	slog.SetDefault(slog.New(handler))
 	if debugMode {
 		c.TracePrinter = debug.TracePrinterText
-		c.EBPF.BpfDebug = config.BPFDebugDefault
+		c.EBPF.BpfDebug = true
+		c.EBPF.BpfDebugMode = config.BPFDebugDefault
 		c.EBPF.ProtocolDebug = true
 		if c.NetworkFlows.Enable {
 			c.NetworkFlows.Print = true
@@ -819,7 +820,9 @@ func registerCustomValidations(validate *validator.Validate, customValidations C
 // normalizeConfig normalizes user input to a common set of assumptions that are global to OBI
 func (c *Config) normalize() {
 	if c.EBPF.BpfDebugMode.Enabled() {
-		c.EBPF.BpfDebug = c.EBPF.BpfDebugMode.EffectiveMode()
+		c.EBPF.BpfDebug = true
+	} else if c.EBPF.BpfDebug {
+		c.EBPF.BpfDebugMode = config.BPFDebugDefault
 	}
 
 	c.Attributes.Select.Normalize()

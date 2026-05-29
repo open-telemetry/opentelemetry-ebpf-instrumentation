@@ -17,12 +17,11 @@ func TestBPFDebugMode_UnmarshalText(t *testing.T) {
 		wantErr bool
 	}{
 		{name: "empty", input: "", want: BPFDebugDisabled},
-		{name: "false", input: "false", want: BPFDebugDisabled},
-		{name: "zero", input: "0", want: BPFDebugDisabled},
-		{name: "true", input: "true", want: BPFDebugDefault},
-		{name: "one", input: "1", want: BPFDebugDefault},
-		{name: "default", input: "default", want: BPFDebugDefault},
+		{name: "disabled", input: "disabled", want: BPFDebugDisabled},
+		{name: "all", input: "all", want: BPFDebugDefault},
 		{name: "trace pipe", input: "trace_pipe", want: BPFDebugTracePipe},
+		{name: "userspace", input: "userspace", want: BPFDebugUserspace},
+		{name: "trace pipe and userspace", input: "trace_pipe,userspace", want: BPFDebugDefault},
 		{name: "invalid", input: "invalid", wantErr: true},
 	}
 
@@ -38,56 +37,6 @@ func TestBPFDebugMode_UnmarshalText(t *testing.T) {
 
 			if !tt.wantErr && got != tt.want {
 				t.Errorf("UnmarshalText() got = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
-func TestBPFDebugOutput_UnmarshalText(t *testing.T) {
-	tests := []struct {
-		name    string
-		input   string
-		want    BPFDebugOutput
-		wantErr bool
-	}{
-		{name: "trace pipe", input: "trace_pipe", want: BPFDebugOutputTracePipe},
-		{name: "ringbuffer", input: "ringbuffer", want: BPFDebugOutputRingbuf},
-		{name: "invalid", input: "invalid", wantErr: true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			var got BPFDebugOutput
-			err := got.UnmarshalText([]byte(tt.input))
-
-			if (err != nil) != tt.wantErr {
-				t.Errorf("UnmarshalText() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-
-			if !tt.wantErr && got != tt.want {
-				t.Errorf("UnmarshalText() got = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
-func TestBPFDebugModeList_EffectiveMode(t *testing.T) {
-	tests := []struct {
-		name string
-		mode BPFDebugModeList
-		want BPFDebugMode
-	}{
-		{name: "empty", mode: nil, want: BPFDebugDisabled},
-		{name: "trace pipe", mode: BPFDebugModeList{BPFDebugOutputTracePipe}, want: BPFDebugTracePipe},
-		{name: "ringbuffer", mode: BPFDebugModeList{BPFDebugOutputRingbuf}, want: BPFDebugDefault},
-		{name: "both", mode: BPFDebugModeList{BPFDebugOutputTracePipe, BPFDebugOutputRingbuf}, want: BPFDebugDefault},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := tt.mode.EffectiveMode(); got != tt.want {
-				t.Errorf("EffectiveMode() got = %v, want %v", got, tt.want)
 			}
 		})
 	}

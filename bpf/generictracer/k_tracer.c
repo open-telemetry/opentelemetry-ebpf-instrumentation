@@ -713,7 +713,7 @@ int BPF_KPROBE(obi_kprobe_tcp_close, struct sock *sk, long timeout) {
             cp_support_data_t *ct = bpf_map_lookup_elem(&cp_support_connect_info, &info);
             bpf_dbg_printk("possibly never connected sock: id=%d, sock=%llx, ct=%llx", id, sk, ct);
 
-            if (g_bpf_debug && ct) {
+            if (bpf_debug_enabled() && ct) {
                 bpf_dbg_printk("established=%d, already failed=%d", ct->established, ct->failed);
             }
 
@@ -1065,7 +1065,7 @@ int BPF_KPROBE(obi_kprobe_tcp_cleanup_rbuf, struct sock *sk, int copied) {
 
     bpf_dbg_printk("=== kprobe/tcp_cleanup_rbuf(recvmsg) id=%d, copied_len=%d ===", id, copied);
 
-    if (g_bpf_debug) {
+    if (bpf_debug_enabled()) {
         connection_info_t conn = {};
 
         if (parse_sock_info(sk, &conn)) {

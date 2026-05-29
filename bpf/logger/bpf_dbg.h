@@ -41,13 +41,13 @@ enum bpf_func_id___x {
 
 #define bpf_dbg_printk(fmt, args...)                                                               \
     do {                                                                                           \
-        if (!g_bpf_debug) {                                                                        \
+        if (!bpf_debug_enabled()) {                                                                \
             break;                                                                                 \
         }                                                                                          \
-        if (g_bpf_debug_flags & BPF_DEBUG_TRACE_PIPE) {                                            \
+        if (g_bpf_debug_flags & k_bpf_debug_trace_pipe) {                                          \
             bpf_printk(fmt, ##args);                                                               \
         }                                                                                          \
-        if (!(g_bpf_debug_flags & BPF_DEBUG_RINGBUF)) {                                            \
+        if (!(g_bpf_debug_flags & k_bpf_debug_userspace)) {                                        \
             break;                                                                                 \
         }                                                                                          \
         log_info_t *__trace__ = bpf_ringbuf_reserve(&debug_events, sizeof(log_info_t), 0);         \
@@ -71,12 +71,12 @@ enum bpf_func_id___x {
         bpf_ringbuf_submit(__trace__, 0);                                                          \
     } while (0)
 
-#define bpf_dbg_enter() bpf_dbg_printk("entered")
-#define bpf_dbg_return() bpf_dbg_printk("returning")
+#define bpf_dbg_enter() bpf_dbg_printk("%s entered", __FUNCTION__)
+#define bpf_dbg_return() bpf_dbg_printk("%s returning", __FUNCTION__)
 
 #define bpf_d_printk(fmt, args...)                                                                 \
     do {                                                                                           \
-        if (!g_bpf_debug) {                                                                        \
+        if (!bpf_debug_enabled()) {                                                                \
             break;                                                                                 \
         }                                                                                          \
         bpf_printk(fmt, ##args);                                                                   \

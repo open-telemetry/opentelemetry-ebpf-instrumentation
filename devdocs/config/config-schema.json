@@ -112,34 +112,27 @@
     "BPFDebugMode": {
       "oneOf": [
         {
-          "type": "boolean",
-          "description": "false disables eBPF debug logging; true enables trace_pipe and userspace ring buffer debug logging."
+          "type": "string",
+          "enum": [
+            "",
+            "all",
+            "disabled"
+          ],
+          "description": "Enable all debug outputs, disable debug logging, or use empty string for disabled."
         },
         {
           "type": "string",
-          "enum": [
-            "default",
-            "false",
+          "pattern": "^(trace_pipe|userspace)(,(trace_pipe|userspace))*$",
+          "description": "List of debug outputs to enable, separated by commas.",
+          "examples": [
             "trace_pipe",
-            "true"
-          ],
-          "description": "String values are supported for compatibility. Use bpf_debug_mode for new configurations."
+            "userspace",
+            "trace_pipe,userspace"
+          ]
         }
       ],
       "title": "BPF Debug Mode",
-      "description": "Controls eBPF debug logging. Deprecated: use bpf_debug_mode instead."
-    },
-    "BPFDebugModeList": {
-      "items": {
-        "type": "string",
-        "enum": [
-          "ringbuffer",
-          "trace_pipe"
-        ]
-      },
-      "type": "array",
-      "title": "BPF Debug Mode List",
-      "description": "Controls eBPF debug logging outputs. Empty disables eBPF debug logging."
+      "description": "Controls eBPF debug logging. Can be 'all' to enable all outputs, 'disabled'/'' to disable, or a list of specific outputs: 'trace_pipe', 'userspace'."
     },
     "BedrockConfig": {
       "properties": {
@@ -620,15 +613,16 @@
           "x-env-var": "OTEL_EBPF_BPF_BATCH_TIMEOUT"
         },
         "bpf_debug": {
-          "$ref": "#/$defs/BPFDebugMode",
+          "type": "boolean",
           "description": "Use bpf_debug_mode instead.",
-          "default": "false",
+          "default": false,
           "deprecated": true,
           "x-env-var": "OTEL_EBPF_BPF_DEBUG"
         },
         "bpf_debug_mode": {
-          "$ref": "#/$defs/BPFDebugModeList",
+          "$ref": "#/$defs/BPFDebugMode",
           "description": "Enables logging of eBPF program events to the selected outputs.",
+          "default": "disabled",
           "x-env-var": "OTEL_EBPF_BPF_DEBUG_MODE"
         },
         "bpf_fs_path": {

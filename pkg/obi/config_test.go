@@ -693,21 +693,22 @@ func TestConfig_BPFDebugMode(t *testing.T) {
 		t.Setenv("OTEL_EBPF_BPF_DEBUG_MODE", "trace_pipe")
 		cfg, err := LoadConfig(bytes.NewReader(nil))
 		require.NoError(t, err)
-		assert.Equal(t, config.BPFDebugTracePipe, cfg.EBPF.BpfDebug)
-		assert.Equal(t, config.BPFDebugModeList{config.BPFDebugOutputTracePipe}, cfg.EBPF.BpfDebugMode)
+		assert.True(t, cfg.EBPF.BpfDebug)
+		assert.Equal(t, config.BPFDebugTracePipe, cfg.EBPF.BpfDebugMode)
 	})
 
 	t.Run("boolean yaml remains supported", func(t *testing.T) {
 		cfg, err := LoadConfig(bytes.NewReader([]byte("ebpf:\n  bpf_debug: true\n")))
 		require.NoError(t, err)
-		assert.Equal(t, config.BPFDebugDefault, cfg.EBPF.BpfDebug)
+		assert.True(t, cfg.EBPF.BpfDebug)
+		assert.Equal(t, config.BPFDebugDefault, cfg.EBPF.BpfDebugMode)
 	})
 
 	t.Run("mode yaml enables both debug outputs", func(t *testing.T) {
-		cfg, err := LoadConfig(bytes.NewReader([]byte("ebpf:\n  bpf_debug_mode: [trace_pipe, ringbuffer]\n")))
+		cfg, err := LoadConfig(bytes.NewReader([]byte("ebpf:\n  bpf_debug_mode: [trace_pipe, userspace]\n")))
 		require.NoError(t, err)
-		assert.Equal(t, config.BPFDebugDefault, cfg.EBPF.BpfDebug)
-		assert.Equal(t, config.BPFDebugModeList{config.BPFDebugOutputTracePipe, config.BPFDebugOutputRingbuf}, cfg.EBPF.BpfDebugMode)
+		assert.True(t, cfg.EBPF.BpfDebug)
+		assert.Equal(t, config.BPFDebugDefault, cfg.EBPF.BpfDebugMode)
 	})
 }
 
@@ -738,7 +739,7 @@ time=\S+ level=DEBUG msg=debug arg=debug$`),
 		debugMode: true,
 		expectedCfg: Config{
 			TracePrinter: debug.TracePrinterText,
-			EBPF:         config.EBPFTracer{BpfDebug: config.BPFDebugDefault, ProtocolDebug: true},
+			EBPF:         config.EBPFTracer{BpfDebug: true, BpfDebugMode: config.BPFDebugDefault, ProtocolDebug: true},
 		},
 	}, {
 		name: "debug log with network flows",
@@ -752,7 +753,7 @@ time=\S+ level=DEBUG msg=debug arg=debug$`),
 		debugMode: true,
 		expectedCfg: Config{
 			TracePrinter: debug.TracePrinterText,
-			EBPF:         config.EBPFTracer{BpfDebug: config.BPFDebugDefault, ProtocolDebug: true},
+			EBPF:         config.EBPFTracer{BpfDebug: true, BpfDebugMode: config.BPFDebugDefault, ProtocolDebug: true},
 			NetworkFlows: NetworkConfig{Enable: true, Print: true},
 		},
 	}} {

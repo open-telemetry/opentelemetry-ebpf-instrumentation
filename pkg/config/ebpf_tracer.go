@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/invopop/jsonschema"
+	"gopkg.in/yaml.v3"
 )
 
 type ContextPropagationMode uint8
@@ -20,22 +21,16 @@ type RedisDBCacheConfig struct {
 	MaxSize int  `yaml:"max_size" env:"OTEL_EBPF_BPF_REDIS_DB_CACHE_MAX_SIZE" validate:"gt=0"`
 }
 
-type (
-	BPFDebugMode     uint8
-	BPFDebugOutput   string
-	BPFDebugModeList []BPFDebugOutput
-)
+type BPFDebugMode uint8
 
 const (
-	BPFDebugDisabled BPFDebugMode = iota
-	BPFDebugDefault
-	BPFDebugTracePipe
-
-	BPFDebugOutputTracePipe BPFDebugOutput = "trace_pipe"
-	BPFDebugOutputRingbuf   BPFDebugOutput = "ringbuffer"
+	BPFDebugDisabled  BPFDebugMode = 0
+	BPFDebugTracePipe BPFDebugMode = 1 << 0
+	BPFDebugUserspace BPFDebugMode = 1 << 1
+	BPFDebugDefault   BPFDebugMode = BPFDebugTracePipe | BPFDebugUserspace
 
 	BPFDebugFlagTracePipe uint32 = 1 << 0
-	BPFDebugFlagRingbuf   uint32 = 1 << 1
+	BPFDebugFlagUserspace uint32 = 1 << 1
 
 	ContextPropagationDisabled ContextPropagationMode = 0
 	ContextPropagationHeaders  ContextPropagationMode = 1 << 0 // HTTP headers
@@ -48,134 +43,123 @@ const (
 	StrContextPropagationHeaders  = "headers"
 	StrContextPropagationHTTP     = "http"
 	StrContextPropagationTCP      = "tcp"
+	StrBPFDebugDisabled           = "disabled"
+	StrBPFDebugTracePipe          = "trace_pipe"
+	StrBPFDebugUserspace          = "userspace"
+	StrBPFDebugAll                = "all"
 )
 
 func (m BPFDebugMode) Enabled() bool {
 	return m != BPFDebugDisabled
 }
 
-func (m BPFDebugMode) RingbufEnabled() bool {
-	return m == BPFDebugDefault
+func (m BPFDebugMode) UserspaceEnabled() bool {
+	return m&BPFDebugUserspace != 0
 }
 
 func (m BPFDebugMode) Flags() uint32 {
-	switch m {
-	case BPFDebugDefault:
-		return BPFDebugFlagTracePipe | BPFDebugFlagRingbuf
-	case BPFDebugTracePipe:
-		return BPFDebugFlagTracePipe
-	default:
-		return 0
+	var flags uint32
+	if m&BPFDebugTracePipe != 0 {
+		flags |= BPFDebugFlagTracePipe
 	}
-}
-
-func (m BPFDebugModeList) Enabled() bool {
-	return len(m) > 0
-}
-
-func (m BPFDebugModeList) RingbufEnabled() bool {
-	for _, output := range m {
-		if output == BPFDebugOutputRingbuf {
-			return true
-		}
+	if m&BPFDebugUserspace != 0 {
+		flags |= BPFDebugFlagUserspace
 	}
-	return false
-}
-
-func (m BPFDebugModeList) TracePipeEnabled() bool {
-	for _, output := range m {
-		if output == BPFDebugOutputTracePipe {
-			return true
-		}
-	}
-	return false
-}
-
-func (m BPFDebugModeList) EffectiveMode() BPFDebugMode {
-	if !m.Enabled() {
-		return BPFDebugDisabled
-	}
-	if m.RingbufEnabled() {
-		return BPFDebugDefault
-	}
-	return BPFDebugTracePipe
+	return flags
 }
 
 func (m *BPFDebugMode) UnmarshalText(text []byte) error {
-	switch strings.ToLower(strings.TrimSpace(string(text))) {
-	case "", "false", "0":
+	str := strings.ToLower(strings.TrimSpace(string(text)))
+
+	switch str {
+	case "", StrBPFDebugDisabled:
 		*m = BPFDebugDisabled
-	case "true", "1", "default":
+		return nil
+	case StrBPFDebugAll:
 		*m = BPFDebugDefault
-	case "trace_pipe":
-		*m = BPFDebugTracePipe
-	default:
-		return fmt.Errorf("invalid BPF debug mode %q", text)
+		return nil
 	}
+
+	parts := strings.Split(str, ",")
+	var result BPFDebugMode
+	for _, part := range parts {
+		switch strings.TrimSpace(part) {
+		case StrBPFDebugTracePipe:
+			result |= BPFDebugTracePipe
+		case StrBPFDebugUserspace:
+			result |= BPFDebugUserspace
+		default:
+			return fmt.Errorf("invalid value for bpf_debug_mode: '%s' (valid: disabled, trace_pipe, userspace, all)", part)
+		}
+	}
+
+	*m = result
 	return nil
 }
 
-func (m *BPFDebugOutput) UnmarshalText(text []byte) error {
-	switch BPFDebugOutput(strings.ToLower(strings.TrimSpace(string(text)))) {
-	case BPFDebugOutputTracePipe:
-		*m = BPFDebugOutputTracePipe
-	case BPFDebugOutputRingbuf:
-		*m = BPFDebugOutputRingbuf
+func (m *BPFDebugMode) UnmarshalYAML(value *yaml.Node) error {
+	switch value.Kind {
+	case yaml.ScalarNode:
+		return m.UnmarshalText([]byte(value.Value))
+	case yaml.SequenceNode:
+		parts := make([]string, 0, len(value.Content))
+		for _, item := range value.Content {
+			if item.Kind != yaml.ScalarNode {
+				return fmt.Errorf("invalid value for bpf_debug_mode: expected string value")
+			}
+			parts = append(parts, item.Value)
+		}
+		return m.UnmarshalText([]byte(strings.Join(parts, ",")))
 	default:
-		return fmt.Errorf("invalid BPF debug output %q", text)
-	}
-	return nil
-}
-
-func (m BPFDebugOutput) MarshalText() ([]byte, error) {
-	switch m {
-	case BPFDebugOutputTracePipe, BPFDebugOutputRingbuf:
-		return []byte(m), nil
-	default:
-		return nil, fmt.Errorf("invalid BPF debug output %q", m)
+		return fmt.Errorf("invalid value for bpf_debug_mode: expected string or string list")
 	}
 }
 
 func (m BPFDebugMode) MarshalText() ([]byte, error) {
 	switch m {
 	case BPFDebugDisabled:
-		return []byte("false"), nil
+		return []byte(StrBPFDebugDisabled), nil
 	case BPFDebugDefault:
-		return []byte("true"), nil
+		return []byte(StrBPFDebugAll), nil
 	case BPFDebugTracePipe:
-		return []byte("trace_pipe"), nil
+		return []byte(StrBPFDebugTracePipe), nil
+	case BPFDebugUserspace:
+		return []byte(StrBPFDebugUserspace), nil
 	default:
-		return nil, fmt.Errorf("invalid BPF debug mode %d", m)
+		var parts []string
+		if m&BPFDebugTracePipe != 0 {
+			parts = append(parts, StrBPFDebugTracePipe)
+		}
+		if m&BPFDebugUserspace != 0 {
+			parts = append(parts, StrBPFDebugUserspace)
+		}
+		if len(parts) == 0 {
+			return nil, fmt.Errorf("invalid BPF debug mode: %d", m)
+		}
+		return []byte(strings.Join(parts, ",")), nil
 	}
 }
 
 func (BPFDebugMode) JSONSchema() *jsonschema.Schema {
+	options := []string{StrBPFDebugTracePipe, StrBPFDebugUserspace}
+	optionsStr := strings.Join(options, "|")
+	optionsRegexp := fmt.Sprintf("^(%s)(,(%s))*$", optionsStr, optionsStr)
 	return &jsonschema.Schema{
 		OneOf: []*jsonschema.Schema{
 			{
-				Type:        "boolean",
-				Description: "false disables eBPF debug logging; true enables trace_pipe and userspace ring buffer debug logging.",
+				Type:        "string",
+				Enum:        []any{StrBPFDebugAll, StrBPFDebugDisabled, ""},
+				Description: "Enable all debug outputs, disable debug logging, or use empty string for disabled.",
 			},
 			{
 				Type:        "string",
-				Enum:        []any{"false", "true", "default", "trace_pipe"},
-				Description: "String values are supported for compatibility. Use bpf_debug_mode for new configurations.",
+				Description: "List of debug outputs to enable, separated by commas.",
+				Examples:    []any{StrBPFDebugTracePipe, StrBPFDebugUserspace, StrBPFDebugTracePipe + "," + StrBPFDebugUserspace},
+				Pattern:     optionsRegexp,
 			},
 		},
 		Title:       "BPF Debug Mode",
-		Description: "Controls eBPF debug logging. Deprecated: use bpf_debug_mode instead.",
-	}
-}
-
-func (BPFDebugModeList) JSONSchema() *jsonschema.Schema {
-	return &jsonschema.Schema{
-		Type:        "array",
-		Title:       "BPF Debug Mode List",
-		Description: "Controls eBPF debug logging outputs. Empty disables eBPF debug logging.",
-		Items: &jsonschema.Schema{
-			Type: "string",
-			Enum: []any{BPFDebugOutputTracePipe, BPFDebugOutputRingbuf},
-		},
+		Description: "Controls eBPF debug logging. Can be 'all' to enable all outputs, 'disabled'/'' to disable, or a list of specific outputs: 'trace_pipe', 'userspace'.",
 	}
 }
 
@@ -190,10 +174,10 @@ type MapsConfig struct {
 // EBPFTracer configuration for eBPF programs
 type EBPFTracer struct {
 	// Deprecated: Use bpf_debug_mode instead.
-	BpfDebug BPFDebugMode `yaml:"bpf_debug" env:"OTEL_EBPF_BPF_DEBUG"`
+	BpfDebug bool `yaml:"bpf_debug" env:"OTEL_EBPF_BPF_DEBUG" validate:"boolean"`
 
 	// Enables logging of eBPF program events to the selected outputs.
-	BpfDebugMode BPFDebugModeList `yaml:"bpf_debug_mode" env:"OTEL_EBPF_BPF_DEBUG_MODE" envSeparator:"," validate:"-"`
+	BpfDebugMode BPFDebugMode `yaml:"bpf_debug_mode" env:"OTEL_EBPF_BPF_DEBUG_MODE" validate:"-"`
 
 	// WakeupLen specifies how many messages need to be accumulated in the eBPF ringbuffer
 	// before sending a wakeup request.

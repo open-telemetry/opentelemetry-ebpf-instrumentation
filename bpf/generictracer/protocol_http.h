@@ -502,7 +502,7 @@ __obi_continue_protocol_http_tp(struct pt_regs *ctx,
                     decode_hex(tp_p->tp.parent_id, s_id, SPAN_ID_CHAR_LEN);
                 }
 
-                if (g_bpf_debug) {
+                if (bpf_debug_enabled()) {
                     unsigned char tp_buf[TP_MAX_VAL_LENGTH];
                     make_tp_string(tp_buf, &tp_p->tp);
                     bpf_dbg_printk("new tp: %s", tp_buf);
@@ -631,7 +631,7 @@ __obi_continue_protocol_http(struct pt_regs *ctx,
         bpf_dbg_printk("Using old traceparent id");
     }
 
-    if (g_bpf_debug) {
+    if (bpf_debug_enabled()) {
         unsigned char tp_buf[TP_MAX_VAL_LENGTH];
         make_tp_string(tp_buf, &tp_p->tp);
         bpf_dbg_printk("tp: %s", tp_buf);
