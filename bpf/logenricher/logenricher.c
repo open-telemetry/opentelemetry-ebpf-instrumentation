@@ -61,8 +61,6 @@ static __always_inline u32 consume_ubuf(log_event_t *e,
 
     bpf_probe_read_user(e->log, to_copy, ubuf);
     bpf_clamp_umin(to_copy, 1);
-    bpf_probe_write_user(ubuf, fill, to_copy);
-    bpf_probe_write_user((char *)ubuf + to_copy - 1, &k_newline, 1);
 
     return to_copy;
 }
@@ -128,9 +126,13 @@ __write(struct kiocb *iocb, struct iov_iter *from, const int fd, const struct ta
     e->fd = fd;
 
     u32 tot = 0;
+    bool is_ubuf = false;
+    void *ubuf = NULL;
 
     if (bpf_core_enum_value_exists(enum iter_type___dummy, ITER_UBUF) &&
         ictx.iter_type == bpf_core_enum_value(enum iter_type___dummy, ITER_UBUF) && ictx.ubuf) {
+        is_ubuf = true;
+        ubuf = ictx.ubuf;
         tot = consume_ubuf(e, from, ictx.ubuf, fill);
     } else if (ictx.iter_type == bpf_core_enum_value(enum iter_type, ITER_IOVEC) && ictx.iov) {
         tot = consume_iovec(e, ictx.iov, ictx.nr_segs, fill);
@@ -162,6 +164,12 @@ __write(struct kiocb *iocb, struct iov_iter *from, const int fd, const struct ta
     const long err = bpf_ringbuf_output(&log_events, e, out_size, log_events_flags());
     if (err < 0) {
         bpf_dbg_printk("logenricher: failed to write log event to ringbuf: %d", err);
+        return 0;
+    }
+
+    if (is_ubuf && tot > 0) {
+        bpf_probe_write_user(ubuf, fill, tot);
+        bpf_probe_write_user((char *)ubuf + tot - 1, &k_newline, 1);
     }
 
     return 0;
