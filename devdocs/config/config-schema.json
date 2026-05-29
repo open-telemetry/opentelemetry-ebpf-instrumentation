@@ -493,7 +493,7 @@
         "poll_interval": {
           "type": "string",
           "pattern": "^[0-9]+(ms|s|m)$",
-          "description": "Specifies, for the poll service watcher, the interval time between process inspections",
+          "description": "Specifies, for the poll service watcher, the interval time between process inspections. 0 is treated as a default (5s) by the process watcher.",
           "default": "0s",
           "examples": [
             "30s",
@@ -1260,6 +1260,7 @@
       "properties": {
         "port": {
           "type": "integer",
+          "description": "0 (default) means disabled",
           "default": 0,
           "x-env-var": "OTEL_EBPF_HEALTH_CHECK_PORT"
         }
@@ -2158,6 +2159,7 @@
         },
         "port": {
           "type": "integer",
+          "description": "0 means disabled",
           "default": 0,
           "x-env-var": "OTEL_EBPF_PROMETHEUS_PORT"
         },
@@ -2480,7 +2482,7 @@
         },
         "max_path_segment_cardinality": {
           "type": "integer",
-          "description": "Max allowed path segment cardinality (per service) for the heuristic matcher",
+          "description": "Max allowed path segment cardinality (per service) for the heuristic matcher 0 = disabled",
           "default": 10
         },
         "patterns": {
@@ -2499,7 +2501,7 @@
             "unset",
             "wildcard"
           ],
-          "description": "Specifies what to do when a route pattern is not matched",
+          "description": "Specifies what to do when a route pattern is not matched. Empty string is treated the same as \"wildcard\".",
           "default": "heuristic"
         },
         "wildcard_char": {

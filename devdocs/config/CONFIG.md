@@ -136,7 +136,7 @@ DiscoveryConfig for the discover.ProcessFinder pipeline
 | `discovery.excluded_linux_system_paths` | `string`[] |  | `/lib/systemd/`, `/usr/lib/systemd/`, `/usr/libexec/`, `/sbin/`, `/usr/sbin/` |  |  | Executable paths for which we don't run language detection and cannot be selected using the path or language selection criteria |
 | `discovery.instrument` | [`GlobAttributes`](#globattributes)[] |  |  |  |  | Selects the services to instrument via Globs. If this section is set, both the Services and ExcludeServices section is ignored. If the user defined the OTEL_EBPF_INSTRUMENT_COMMAND or OTEL_EBPF_INSTRUMENT_PORTS variables, they will be automatically added to the instrument criteria, with the lowest preference. |
 | `discovery.min_process_age` | `duration` | `OTEL_EBPF_MIN_PROCESS_AGE` | `5s` | `30s`, `5m`, `1ms`, etc |  | Min process age to be considered for discovery. |
-| `discovery.poll_interval` | `duration` | `OTEL_EBPF_DISCOVERY_POLL_INTERVAL` | `0s` | `30s`, `5m`, `1ms`, etc |  | Specifies, for the poll service watcher, the interval time between process inspections |
+| `discovery.poll_interval` | `duration` | `OTEL_EBPF_DISCOVERY_POLL_INTERVAL` | `0s` | `30s`, `5m`, `1ms`, etc |  | Specifies, for the poll service watcher, the interval time between process inspections. 0 is treated as a default (5s) by the process watcher. |
 | `discovery.route_harvester_timeout` | `duration` | `OTEL_EBPF_ROUTE_HARVESTER_TIMEOUT` | `10s` | `30s`, `5m`, `1ms`, etc |  |  |
 | `discovery.services` | [`RegexSelector`](#regexselector)[] |  |  |  | Yes | Selection. If the user defined the OTEL_EBPF_EXECUTABLE_PATH or OTEL_EBPF_OPEN_PORT variables, they will be automatically added to the services definition criteria, with the lowest preference.  Use Instrument instead |
 | `discovery.skip_go_specific_tracers` | `boolean` | `OTEL_EBPF_SKIP_GO_SPECIFIC_TRACERS` | `false` |  |  | This can be enabled to use generic HTTP tracers only, no Go-specifics will be used: |
@@ -337,7 +337,7 @@ AttributesConfig stores the user-provided section for filtering either Applicati
 
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
-| `health_check.port` | `integer` | `OTEL_EBPF_HEALTH_CHECK_PORT` | `0` |  |  |  |
+| `health_check.port` | `integer` | `OTEL_EBPF_HEALTH_CHECK_PORT` | `0` |  |  | 0 (default) means disabled |
 
 ## `internal_metrics`
 
@@ -363,7 +363,7 @@ TODO: TLS
 | `internal_metrics.prometheus.features` | `string`[] | `OTEL_EBPF_PROMETHEUS_FEATURES` | `0` | `*`, `all`, `application`, `application_host`, `application_service_graph`, `application_span`, `application_span_otel`, `application_span_sizes`, `ebpf`, `network`, `network_inter_zone`, `stats`, `stats_tcp_failed_connections`, `stats_tcp_retransmits`, `stats_tcp_rtt` | Yes | Features specifies which metric features to export. Accepted values: application, network, application_span, application_service_graph, ...  use top-level MetricsConfig.Features instead. |
 | `internal_metrics.prometheus.instrumentations` | `string`[] | `OTEL_EBPF_PROMETHEUS_INSTRUMENTATIONS` | `*` | `*`, `amqp`, `couchbase`, `dns`, `genai`, `gpu`, `grpc`, `http`, `kafka`, `memcached`, `mongo`, `mqtt`, `nats`, `redis`, `sql` |  | Allows configuration of which instrumentations should be enabled, e.g. http, grpc, sql... |
 | `internal_metrics.prometheus.path` | `string` | `OTEL_EBPF_PROMETHEUS_PATH` | `/internal/metrics` |  |  |  |
-| `internal_metrics.prometheus.port` | `integer` | `OTEL_EBPF_PROMETHEUS_PORT` | `0` |  |  |  |
+| `internal_metrics.prometheus.port` | `integer` | `OTEL_EBPF_PROMETHEUS_PORT` | `0` |  |  | 0 means disabled |
 | `internal_metrics.prometheus.service_cache_size` | `integer` |  | `10000` |  |  |  |
 | `internal_metrics.prometheus.ttl` | `duration` | `OTEL_EBPF_PROMETHEUS_TTL` | `5m` | `30s`, `5m`, `1ms`, etc |  | Specifies the time since a metric was updated for the last time until it is removed from the metrics set. |
 
@@ -554,7 +554,7 @@ TODO: TLS
 | `prometheus_export.features` | `string`[] | `OTEL_EBPF_PROMETHEUS_FEATURES` | `0` | `*`, `all`, `application`, `application_host`, `application_service_graph`, `application_span`, `application_span_otel`, `application_span_sizes`, `ebpf`, `network`, `network_inter_zone`, `stats`, `stats_tcp_failed_connections`, `stats_tcp_retransmits`, `stats_tcp_rtt` | Yes | Features specifies which metric features to export. Accepted values: application, network, application_span, application_service_graph, ...  use top-level MetricsConfig.Features instead. |
 | `prometheus_export.instrumentations` | `string`[] | `OTEL_EBPF_PROMETHEUS_INSTRUMENTATIONS` | `*` | `*`, `amqp`, `couchbase`, `dns`, `genai`, `gpu`, `grpc`, `http`, `kafka`, `memcached`, `mongo`, `mqtt`, `nats`, `redis`, `sql` |  | Allows configuration of which instrumentations should be enabled, e.g. http, grpc, sql... |
 | `prometheus_export.path` | `string` | `OTEL_EBPF_PROMETHEUS_PATH` | `/internal/metrics` |  |  |  |
-| `prometheus_export.port` | `integer` | `OTEL_EBPF_PROMETHEUS_PORT` | `0` |  |  |  |
+| `prometheus_export.port` | `integer` | `OTEL_EBPF_PROMETHEUS_PORT` | `0` |  |  | 0 means disabled |
 | `prometheus_export.service_cache_size` | `integer` |  | `10000` |  |  |  |
 | `prometheus_export.ttl` | `duration` | `OTEL_EBPF_PROMETHEUS_TTL` | `5m` | `30s`, `5m`, `1ms`, etc |  | Specifies the time since a metric was updated for the last time until it is removed from the metrics set. |
 
@@ -576,9 +576,9 @@ RoutesConfig allows grouping URLs sharing a given pattern.
 |---|---|---|---|---|---|---|
 | `routes.ignore_mode` | `string` |  |  | `all`, `metrics`, `traces` | Yes | To be removed and replaced by a collector-like filtering mechanism |
 | `routes.ignored_patterns` | `string`[] |  |  |  | Yes | To be removed and replaced by a collector-like filtering mechanism |
-| `routes.max_path_segment_cardinality` | `integer` |  | `10` |  |  | Max allowed path segment cardinality (per service) for the heuristic matcher |
+| `routes.max_path_segment_cardinality` | `integer` |  | `10` |  |  | Max allowed path segment cardinality (per service) for the heuristic matcher 0 = disabled |
 | `routes.patterns` | `string`[] |  |  |  |  | Defines the URL path patterns that will match to a route |
-| `routes.unmatched` | `string` |  | `heuristic` | `heuristic`, `low-cardinality`, `path`, `unset`, `wildcard` |  | Specifies what to do when a route pattern is not matched |
+| `routes.unmatched` | `string` |  | `heuristic` | `heuristic`, `low-cardinality`, `path`, `unset`, `wildcard` |  | Specifies what to do when a route pattern is not matched. Empty string is treated the same as "wildcard". |
 | `routes.wildcard_char` | `string` |  | `*` |  |  | Character that will be used to replace route segments |
 
 ## `stats`
