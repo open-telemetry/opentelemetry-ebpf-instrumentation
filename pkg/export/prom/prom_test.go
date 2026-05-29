@@ -139,7 +139,9 @@ func TestAppMetricsExpiration(t *testing.T) {
 	}, timeout, 100*time.Millisecond)
 
 	// AND WHEN it keeps receiving a subset of the initial metrics during the timeout
-	now.Advance(2 * time.Minute)
+	// advance the clock before sending so the consumer observes the final time (the cached
+	// clock only updates on span consumption); sending after advancing avoids a flaky race
+	now.Advance(4 * time.Minute)
 	// WHEN it receives metrics
 	promInput.Send([]request.Span{
 		{
@@ -149,7 +151,6 @@ func TestAppMetricsExpiration(t *testing.T) {
 			Service: svcAttrs001,
 		},
 	})
-	now.Advance(2 * time.Minute)
 
 	// THEN THE metrics that have been received during the timeout period are still visible
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
@@ -160,13 +161,12 @@ func TestAppMetricsExpiration(t *testing.T) {
 		assert.NotContains(ct, exported, `http_server_request_duration_seconds_sum{k8s_app_version="",url_path="/baz"}`)
 		assert.Regexp(ct, containsTargetInfo, exported)
 	}, timeout, 100*time.Millisecond)
-	now.Advance(2 * time.Minute)
 
 	// AND WHEN the metrics labels that disappeared are received again
+	now.Advance(4 * time.Minute)
 	promInput.Send([]request.Span{
 		{Service: svcAttrs, Type: request.EventTypeHTTP, Path: "/baz", End: 456 * time.Second.Nanoseconds()},
 	})
-	now.Advance(2 * time.Minute)
 
 	// THEN they are reported again, starting from zero in the case of counters
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
