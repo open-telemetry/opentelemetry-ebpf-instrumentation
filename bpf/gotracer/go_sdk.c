@@ -94,7 +94,7 @@ static __always_inline otel_span_t *zero_initialised_span() {
 static __always_inline void
 read_span_name(unsigned char *buf, const u64 span_name_len, void *span_name_ptr) {
     const u64 span_name_size = min(k_max_span_name_len, span_name_len);
-    bpf_probe_read(buf, span_name_size, span_name_ptr);
+    bpf_probe_read_user(buf, span_name_size, span_name_ptr);
 }
 
 static __always_inline int tracer_start(struct pt_regs *ctx, u8 check_delegate) {
@@ -106,7 +106,7 @@ static __always_inline int tracer_start(struct pt_regs *ctx, u8 check_delegate) 
         off_table_t *ot = get_offsets_table();
 
         void *delegate_ptr = NULL;
-        bpf_probe_read(
+        bpf_probe_read_user(
             &delegate_ptr,
             sizeof(delegate_ptr),
             (void *)(tracer_ptr + go_offset_of(ot, (go_offset){.v = _tracer_delegate_pos})));
@@ -168,10 +168,10 @@ static __always_inline void read_attrs_from_opts(otel_span_t *span, void *opts_p
 
     for (int i = 0; i < count; i++) {
         void *type = 0;
-        bpf_probe_read(&type, sizeof(void *), opts_ptr + (i * k_go_ptr_arr_size));
+        bpf_probe_read_user(&type, sizeof(void *), opts_ptr + (i * k_go_ptr_arr_size));
         if (type) {
             void *itype = 0;
-            bpf_probe_read(&itype, sizeof(void *), type + k_go_interface_type_offset);
+            bpf_probe_read_user(&itype, sizeof(void *), type + k_go_interface_type_offset);
             if (itype && (itype == type_off)) {
                 read_from = i;
                 break;
@@ -183,14 +183,15 @@ static __always_inline void read_attrs_from_opts(otel_span_t *span, void *opts_p
 
     if (read_from >= 0) {
         void *attrs_arg = 0;
-        bpf_probe_read(&attrs_arg, sizeof(void *), opts_ptr + (read_from * k_go_ptr_arr_size) + 8);
+        bpf_probe_read_user(
+            &attrs_arg, sizeof(void *), opts_ptr + (read_from * k_go_ptr_arr_size) + 8);
 
         if (attrs_arg) {
             void *attributes_usr_buf = 0;
             u64 attributes_len = 0;
 
-            bpf_probe_read(&attributes_usr_buf, sizeof(void *), attrs_arg);
-            bpf_probe_read(&attributes_len, sizeof(u64), attrs_arg + 8);
+            bpf_probe_read_user(&attributes_usr_buf, sizeof(void *), attrs_arg);
+            bpf_probe_read_user(&attributes_len, sizeof(u64), attrs_arg + 8);
 
             bpf_dbg_printk(
                 "attributes_usr_buf=%llx, attributes_len=%d", attributes_usr_buf, attributes_len);
@@ -314,7 +315,7 @@ int obi_uprobe_SetStatus(struct pt_regs *ctx) {
     // Getting span description
     const u64 description_len = (u64)GO_PARAM4(ctx);
     const u64 description_size = min(k_max_status_description_len, description_len);
-    bpf_probe_read(span->span_description.buf, description_size, description_ptr);
+    bpf_probe_read_user(span->span_description.buf, description_size, description_ptr);
 
     span->status = (u32)status_code;
 
@@ -397,7 +398,7 @@ int obi_uprobe_RecordError(struct pt_regs *ctx) {
     void *err_type = (void *)GO_PARAM2(ctx);
 
     void *itype = 0;
-    bpf_probe_read(&itype, sizeof(void *), err_type + k_go_interface_type_offset);
+    bpf_probe_read_user(&itype, sizeof(void *), err_type + k_go_interface_type_offset);
     bpf_dbg_printk("error, itype=%llx", itype);
 
     if (!itype) {
@@ -424,7 +425,7 @@ int obi_uprobe_RecordError(struct pt_regs *ctx) {
         bpf_dbg_printk("str_err=%llx", str_err);
         if (str_err) {
             struct go_string go_str = {0};
-            bpf_probe_read(&go_str, sizeof(struct go_string), str_err);
+            bpf_probe_read_user(&go_str, sizeof(struct go_string), str_err);
             u8 valid_attrs = span->span_attrs.valid_attrs;
             bpf_dbg_printk("valid_attrs=%d, len=%d, str=%s", valid_attrs, go_str.len, go_str.str);
 

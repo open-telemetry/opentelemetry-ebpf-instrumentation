@@ -133,6 +133,7 @@ OBI currently documents the following statistical instrumentation support:
 | TCP RTT | Node-wide statistical metric collection | Calculated from the kernel TCP `srtt_us` field | `src.port` may be `0` on the RST-receiver side; see [devdocs/metrics.md](devdocs/metrics.md) |
 | TCP Failed Connections | Node-wide statistical metric collection | Counts TCP failed connections between two endpoints | `src.port` may be `0` on the RST-receiver side; see [devdocs/metrics.md](devdocs/metrics.md) |
 | TCP Retransmits | Node-wide statistical metric collection | Counts data-segment and client-SYN retransmits | Server-side SYN-ACK retransmits are a separate event and not counted |
+| TCP IO | Node-wide statistical metric collection | Count bytes transferred at the socket layer. When enabled, the eBPF probes fire on every `tcp_sendmsg` and `tcp_cleanup_rbuf` call, so consider enabling it standalone with `stats_tcp_io` if overhead is a concern. | On kernels older than ~6.5, traffic sent via `sendfile()` is not captured because it went through `tcp_sendpage` rather than `tcp_sendmsg`; on kernels 6.5+ the splice path was unified and `sendfile()` traffic is captured. The internal accumulation map size can be increased via the `ebpf.*` configuration knobs on nodes with many concurrent connections. |
 
 ## Context Propagation Frameworks
 
