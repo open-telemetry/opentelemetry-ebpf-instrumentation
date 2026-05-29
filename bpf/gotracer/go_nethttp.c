@@ -580,12 +580,14 @@ static __always_inline int serve_http_returns(struct pt_regs *ctx) {
     __builtin_memcpy(trace->pattern, invocation->pattern, sizeof(trace->pattern));
     trace->status = (u16)invocation->status;
     trace->response_length = invocation->response_length;
+    trace->is_jsonrpc = invocation->is_jsonrpc;
 
     make_tp_string(tp_buf, &invocation->tp);
     bpf_dbg_printk("tp=%s", tp_buf);
     bpf_dbg_printk("method=%s", trace->method);
     bpf_dbg_printk("path=%s", trace->path);
     bpf_dbg_printk("pattern=%s", trace->pattern);
+    bpf_dbg_printk("is_jsonrpc=%d", trace->is_jsonrpc);
 
     // submit the completed trace via ringbuffer
     bpf_ringbuf_submit(trace, get_flags());
@@ -736,6 +738,7 @@ int obi_uprobe_roundTripReturn(struct pt_regs *ctx) {
     trace->go_start_monotime_ns = invocation->start_monotime_ns;
     trace->end_monotime_ns = bpf_ktime_get_ns();
     trace->pattern[0] = '\0';
+    trace->is_jsonrpc = false;
 
     // Copy the values read on request start
     __builtin_memcpy(trace->method, data->method, sizeof(trace->method));
@@ -1412,12 +1415,13 @@ int obi_uprobe_jsonrpcReadRequestHeaderReturns(struct pt_regs *ctx) {
     if (!read_go_str("JSON-RPC method",
                      (void *)rpc_request_addr,
                      go_offset_of(ot, (go_offset){.v = _jsonrpc_request_header_service_method_pos}),
-                     invocation->method,
-                     k_method_max_len)) {
+                     invocation->pattern,
+                     k_pattern_max_len)) {
         bpf_dbg_printk("Failed to read JSON-RPC method from: %llx", rpc_request_addr);
         return 0;
     }
-    bpf_dbg_printk("read jsonrpc method: %s", invocation->method);
+    bpf_dbg_printk("read jsonrpc method: %s", invocation->pattern);
+    invocation->is_jsonrpc = true;
 
     return 0;
 }

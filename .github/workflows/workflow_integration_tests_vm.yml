@@ -1,4 +1,6 @@
 name: Integration tests VM
+run-name: >-
+  Integration tests VM${{ inputs.pr_number && format(' · PR #{0}', inputs.pr_number) || '' }}${{ inputs.ref && format(' @ {0}', inputs.ref) || '' }}
 
 on:
   push:
@@ -23,6 +25,10 @@ on:
         required: false
         type: boolean
         default: false
+      pr_number:
+        description: "PR number this dispatch is associated with (informational; surfaced in run-name)"
+        required: false
+        type: string
     secrets:
       DOCKER_TOKEN_EBPF_INSTRUMENTATION:
         description: "Docker Hub token for pulling images (optional)"
@@ -38,6 +44,10 @@ on:
         required: false
         type: boolean
         default: false
+      pr_number:
+        description: "PR number this dispatch is associated with (informational; surfaced in run-name)"
+        required: false
+        type: string
 
 concurrency:
   group: pr-integration-vm-${{ github.head_ref || github.run_id }}
@@ -137,10 +147,11 @@ jobs:
 
       - name: Cache Docker images
         id: docker-images-cache
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5 # zizmor: ignore[cache-poisoning] keyed on hash of compose+Dockerfile inputs
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5 # zizmor: ignore[cache-poisoning] keyed on hash of compose+Dockerfile+source inputs
         with:
           path: compiled-tests/docker-images.tar
-          key: vm-docker-images-${{ hashFiles('internal/test/integration/docker-compose-multiexec*.yml', 'internal/test/integration/**/Dockerfile*') }}
+          # OBI binary bakes bpf/cmd/pkg sources; hash them too or source changes reuse stale images.
+          key: vm-docker-images-${{ hashFiles('internal/test/integration/docker-compose-multiexec*.yml', 'internal/test/integration/**/Dockerfile*', 'bpf/**', 'cmd/**', 'pkg/**', 'go.mod', 'go.sum') }}
 
       - name: Pre-build Docker images
         if: steps.docker-images-cache.outputs.cache-hit != 'true'

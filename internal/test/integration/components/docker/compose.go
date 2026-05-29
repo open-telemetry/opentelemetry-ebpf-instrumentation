@@ -129,6 +129,17 @@ func (c *Compose) commandContext(ctx context.Context, args ...string) error {
 	return cmd.Run()
 }
 
+// Exec runs `docker exec <container> <args...>`. Use when there's no Compose handle.
+func Exec(ctx context.Context, container string, args ...string) (string, error) {
+	cmdArgs := append([]string{"exec", container}, args...)
+	out, err := exec.CommandContext(ctx, "docker", cmdArgs...).CombinedOutput()
+	if err != nil {
+		return strings.TrimSpace(string(out)),
+			fmt.Errorf("docker exec %s %v: %w; output: %s", container, args, err, strings.TrimSpace(string(out)))
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
 func (c *Compose) ExecOutput(service string, args ...string) (string, error) {
 	cmdArgs := []string{"compose", "--ansi", "never", "-f", c.Path, "exec", "-T", service}
 	cmdArgs = append(cmdArgs, args...)

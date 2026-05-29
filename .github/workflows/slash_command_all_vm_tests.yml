@@ -58,12 +58,14 @@ jobs:
           OWNER: ${{ github.repository_owner }}
           REPO: ${{ github.event.repository.name }}
           REF: ${{ steps.pr.outputs.sha }}
+          PR_NUMBER: ${{ github.event.issue.number }}
         run: |
           gh workflow run workflow_integration_tests_vm.yml \
             --repo "${OWNER}/${REPO}" \
             --ref main \
             -f ref="${REF}" \
-            -f all_kernels=true
+            -f all_kernels=true \
+            -f pr_number="${PR_NUMBER}"
 
       - name: Comment back with run URL
         env:
@@ -74,6 +76,6 @@ jobs:
           REF: ${{ steps.pr.outputs.sha }}
         run: |
           URL="https://github.com/${OWNER}/${REPO}/actions/workflows/workflow_integration_tests_vm.yml?query=event%3Aworkflow_dispatch"
-          BODY="Dispatched **Integration tests VM** on all kernels for \`${REF}\`. Watch progress: ${URL}"
+          BODY="Dispatched **Integration tests VM** on all kernels for \`${REF}\` (PR #${PR_NUMBER}). Watch progress: ${URL}"
           gh api -X POST "repos/${OWNER}/${REPO}/issues/${PR_NUMBER}/comments" \
             -f body="${BODY}" >/dev/null
