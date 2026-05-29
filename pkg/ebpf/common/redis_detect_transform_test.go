@@ -4,6 +4,7 @@
 package ebpfcommon
 
 import (
+	"bytes"
 	"fmt"
 	"testing"
 
@@ -17,6 +18,12 @@ type crlfTest struct {
 	testStr string
 	result  bool
 }
+
+var (
+	benchmarkRedisOp   string
+	benchmarkRedisText string
+	benchmarkRedisOK   bool
+)
 
 func TestCRLFMatching(t *testing.T) {
 	for _, ts := range []crlfTest{
@@ -33,6 +40,95 @@ func TestCRLFMatching(t *testing.T) {
 		})
 		assert.Equal(t, res, ts.result)
 	}
+}
+
+func BenchmarkParseRedisRequest(b *testing.B) {
+	tests := []struct {
+		name   string
+		input  []byte
+		wantOK bool
+	}{
+		{
+			name:   "get",
+			input:  redisBenchmarkCommand("GET", "session-key"),
+			wantOK: true,
+		},
+		{
+			name:   "set",
+			input:  redisBenchmarkCommand("SET", "session-key", "session-value"),
+			wantOK: true,
+		},
+		{
+			name:   "mget_many_keys",
+			input:  redisBenchmarkMGet(32),
+			wantOK: true,
+		},
+		{
+			name:   "pipeline_get",
+			input:  redisBenchmarkPipeline(16, "GET", "session-key"),
+			wantOK: true,
+		},
+		{
+			name: "client_setinfo",
+			input: []byte(fmt.Sprintf(
+				"*4\r\n$6\r\nclient\r\n$7\r\nsetinfo\r\n$8\r\nLIB-NAME\r\n$19\r\n%s(,go1.22.2)\r\n*4\r\n$6\r\nclient\r\n$7\r\nsetinfo\r\n$7\r\nLIB-VER\r\n$5\r\n9.5.1\r\n",
+				"go-redis",
+			)),
+			wantOK: true,
+		},
+		{
+			name:   "short_invalid",
+			input:  []byte("2"),
+			wantOK: false,
+		},
+	}
+
+	for _, tt := range tests {
+		b.Run(tt.name, func(b *testing.B) {
+			b.ReportAllocs()
+			b.SetBytes(int64(len(tt.input)))
+			b.ResetTimer()
+
+			for i := 0; i < b.N; i++ {
+				op, text, ok := parseRedisRequest(tt.input)
+				if ok != tt.wantOK {
+					b.Fatalf("parseRedisRequest ok = %v, want %v", ok, tt.wantOK)
+				}
+				benchmarkRedisOp = op
+				benchmarkRedisText = text
+				benchmarkRedisOK = ok
+			}
+		})
+	}
+}
+
+func redisBenchmarkCommand(args ...string) []byte {
+	buf := bytes.Buffer{}
+	fmt.Fprintf(&buf, "*%d\r\n", len(args))
+	for _, arg := range args {
+		fmt.Fprintf(&buf, "$%d\r\n%s\r\n", len(arg), arg)
+	}
+
+	return buf.Bytes()
+}
+
+func redisBenchmarkMGet(keys int) []byte {
+	args := make([]string, 0, keys+1)
+	args = append(args, "MGET")
+	for i := 0; i < keys; i++ {
+		args = append(args, fmt.Sprintf("session-key:%02d", i))
+	}
+
+	return redisBenchmarkCommand(args...)
+}
+
+func redisBenchmarkPipeline(commands int, args ...string) []byte {
+	buf := bytes.Buffer{}
+	for i := 0; i < commands; i++ {
+		buf.Write(redisBenchmarkCommand(args...))
+	}
+
+	return buf.Bytes()
 }
 
 func TestRedisParsing(t *testing.T) {
