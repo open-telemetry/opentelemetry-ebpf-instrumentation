@@ -6,12 +6,9 @@ FROM alpine:3.23@sha256:5b10f432ef3da1b8d4c7eb6c487f2f5a8f096bc91145e68878dd4a50
 COPY --from=goimage /usr/local/go /usr/local/go
 ENV PATH="/usr/local/go/bin:${PATH}"
 
-# Track the latest Alpine instead of pinning to 3.20.
-# The procfs security checks in newer runc (CVE-2025-52881, CVE-2025-52565,
-# CVE-2025-31133) reject containers when /proc looks unsafe, which is what
-# nested virtualization under TCG (software) emulation looks like. Running the
-# integration VM job on a KVM-capable runner gives the guest a real procfs, so
-# runc is satisfied and we no longer need the Alpine 3.20 pin. See issue #872.
+# Track the latest Alpine instead of pinning to 3.20. The 3.20 pin worked
+# around newer runc's procfs hardening ("unsafe procfs detected") failing in
+# the nested-VM CI; that no longer reproduces on the current runner. See #872.
 RUN apk update && apk add --no-cache \
     agetty \
     bash \
@@ -24,12 +21,8 @@ RUN apk update && apk add --no-cache \
     make \
     openrc
 
-# Default iptables to the legacy backend; modules-load may relink to nft on
-# RHEL kernels that lack CONFIG_IP_NF_NAT modules. Docker shells out to the
-# `iptables` it finds on PATH (Alpine 3.21+ ships it at /usr/sbin/iptables,
-# pointing at the nft wrapper), so we must overwrite that exact binary rather
-# than a fixed /sbin path — otherwise the symlink dangles and docker silently
-# keeps using nft while we load only the legacy NAT modules.
+# Default iptables symlink to legacy; modules-load may relink to nft on
+# RHEL kernels that lack CONFIG_IP_NF_NAT modules.
 RUN for t in iptables ip6tables; do \
         ln -sf "$(command -v ${t}-legacy)" "$(command -v ${t})"; \
     done

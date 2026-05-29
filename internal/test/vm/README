@@ -121,15 +121,10 @@ TECHNICAL NOTES
     mount tag is supplied) and modprobes overlay/br_netfilter/iptable_*/
     nf_*/veth/vxlan/macvlan before localmount runs. This is required for
     LVH kernels (modular) and is a harmless no-op for monolithic ones.
-  - iptables is symlinked to iptables-legacy at image build time. The install
-    dir is resolved with 'command -v' because Alpine 3.21+ ships the binaries
-    in /usr/sbin rather than /sbin. All LVH kernels enable
-    CONFIG_IP_NF_IPTABLES_LEGACY but disable CONFIG_NFT_NAT/COMPAT, so the nft
-    backend fails on "TABLE_ADD nat" and legacy is the only one Docker can use.
-  - The rootfs tracks the latest Alpine (no longer pinned to 3.20). Newer runc
-    enforces post-CVE procfs checks that fail under TCG software emulation, so
-    the integration VM job runs on a KVM-capable self-hosted runner
-    (cncf-ubuntu-4-16-x86) where the guest gets a real procfs. See issue #872.
+  - iptables is symlinked to iptables-legacy at image build time. All LVH
+    kernels enable CONFIG_IP_NF_IPTABLES_LEGACY but disable
+    CONFIG_NFT_NAT/COMPAT, so the nft backend fails on "TABLE_ADD nat" and
+    legacy is the only one Docker can use.
   - 'GOCACHE' and 'TMPDIR' are pointed at /build (overlay over qcow2 ~20GB)
     rather than tmpfs /tmp, so heavy Go builds (verifier test pulls k8s.io
     deps) don't OOM the 8GB-RAM tmpfs.
