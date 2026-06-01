@@ -19,7 +19,7 @@ import (
 )
 
 func TestSpanClientServer(t *testing.T) {
-	for _, st := range []EventType{EventTypeHTTP, EventTypeGRPC, EventTypeKafkaServer, EventTypeMQTTServer, EventTypeNATSServer, EventTypeRedisServer, EventTypeMemcachedServer, EventTypeSQLServer} {
+	for _, st := range []EventType{EventTypeHTTP, EventTypeGRPC, EventTypeKafkaServer, EventTypeMQTTServer, EventTypeNATSServer, EventTypeSunRPCServer, EventTypeRedisServer, EventTypeMemcachedServer, EventTypeSQLServer} {
 		span := &Span{
 			Type: st,
 		}
@@ -28,7 +28,7 @@ func TestSpanClientServer(t *testing.T) {
 
 	for _, st := range []EventType{
 		EventTypeHTTPClient, EventTypeGRPCClient, EventTypeSQLClient,
-		EventTypeRedisClient, EventTypeKafkaClient, EventTypeMQTTClient, EventTypeNATSClient, EventTypeAMQPClient,
+		EventTypeRedisClient, EventTypeKafkaClient, EventTypeMQTTClient, EventTypeNATSClient, EventTypeAMQPClient, EventTypeSunRPCClient,
 		EventTypeMongoClient, EventTypeMemcachedClient, EventTypeFailedConnect,
 	} {
 		span := &Span{
@@ -52,6 +52,8 @@ func TestEventTypeString(t *testing.T) {
 		EventTypeMQTTClient:      "MQTTClient",
 		EventTypeNATSClient:      "NATSClient",
 		EventTypeAMQPClient:      "AMQPClient",
+		EventTypeSunRPCClient:    "SunRPCClient",
+		EventTypeSunRPCServer:    "SunRPCServer",
 		EventTypeRedisServer:     "RedisServer",
 		EventTypeMemcachedServer: "MemcachedServer",
 		EventTypeKafkaServer:     "KafkaServer",
@@ -73,6 +75,8 @@ func TestKindString(t *testing.T) {
 		{Type: EventTypeKafkaServer}:                           "SPAN_KIND_SERVER",
 		{Type: EventTypeMQTTServer}:                            "SPAN_KIND_SERVER",
 		{Type: EventTypeNATSServer}:                            "SPAN_KIND_SERVER",
+		{Type: EventTypeSunRPCServer}:                          "SPAN_KIND_SERVER",
+		{Type: EventTypeSunRPCClient}:                          "SPAN_KIND_CLIENT",
 		{Type: EventTypeRedisServer}:                           "SPAN_KIND_SERVER",
 		{Type: EventTypeMemcachedServer}:                       "SPAN_KIND_SERVER",
 		{Type: EventTypeSQLServer}:                             "SPAN_KIND_SERVER",
@@ -189,6 +193,10 @@ func TestTraceName(t *testing.T) {
 		{name: "AMQP client publish", span: &Span{Type: EventTypeAMQPClient, Method: MessagingPublish, Path: "orders"}, expected: "publish orders"},
 		{name: "AMQP client process", span: &Span{Type: EventTypeAMQPClient, Method: MessagingProcess, Path: "orders"}, expected: "process orders"},
 		{name: "AMQP no destination", span: &Span{Type: EventTypeAMQPClient, Method: MessagingPublish}, expected: "publish"},
+
+		// SunRPC spans
+		{name: "SunRPC client", span: &Span{Type: EventTypeSunRPCClient, Path: "portmapper", Method: "0"}, expected: "portmapper/0"},
+		{name: "SunRPC no program", span: &Span{Type: EventTypeSunRPCServer, Method: "6"}, expected: "sunrpc/6"},
 
 		// JSON-RPC spans
 		{name: "JSON-RPC with method", span: &Span{Type: EventTypeHTTP, SubType: HTTPSubtypeJSONRPC, JSONRPC: &JSONRPC{Method: "subtract", Version: "2.0"}}, expected: "subtract"},

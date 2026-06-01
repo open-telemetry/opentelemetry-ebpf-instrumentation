@@ -250,6 +250,7 @@ discovery:
 				instrumentations.InstrumentationMongo,
 				instrumentations.InstrumentationCouchbase,
 				instrumentations.InstrumentationMemcached,
+				instrumentations.InstrumentationSunRPC,
 				// no traces for DNS and GPU by default
 			},
 		},
