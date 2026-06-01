@@ -20,6 +20,7 @@ import (
 
 	otelsdk "go.opentelemetry.io/otel/sdk"
 
+	"go.opentelemetry.io/obi/cmd/obi/internal/configcmd"
 	"go.opentelemetry.io/obi/internal/configconv"
 	"go.opentelemetry.io/obi/pkg/buildinfo"
 	obicfg "go.opentelemetry.io/obi/pkg/config"
@@ -30,7 +31,7 @@ import (
 )
 
 func main() {
-	if maybeRunConfigCommand(os.Args[1:]) {
+	if configcmd.MaybeRun(os.Args[1:]) {
 		return
 	}
 

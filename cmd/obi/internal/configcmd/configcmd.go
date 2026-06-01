@@ -1,12 +1,14 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package main
+package configcmd
 
 import (
+	"bytes"
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 
 	"gopkg.in/yaml.v3"
@@ -19,7 +21,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/obi"
 )
 
-func maybeRunConfigCommand(args []string) bool {
+func MaybeRun(args []string) bool {
 	if len(args) == 0 || args[0] != "config" {
 		return false
 	}
@@ -213,4 +215,11 @@ func migrateConfigData(data []byte) (string, string, error) {
 		"- discovery.skip_go_specific_tracers inverted into capture.runtimes.go.enabled\n"
 
 	return encoded, report, nil
+}
+
+func bytesReader(data []byte) io.Reader {
+	if len(data) == 0 {
+		return nil
+	}
+	return bytes.NewReader(data)
 }
