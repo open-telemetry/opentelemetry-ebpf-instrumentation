@@ -96,7 +96,7 @@ func (md *MatchDefinition) Validate() error {
 		return errors.New("attribute must include a match/not_match clause or numeric comparison")
 	}
 	if md.Match != "" && md.NotMatch != "" {
-		return errors.New("attribute can't include bot match or not_match clauses")
+		return errors.New("attribute can't include both match and not_match clauses")
 	}
 	if hasGlob && hasNumeric {
 		return errors.New("attribute can't combine match/not_match clauses with numeric comparisons")
