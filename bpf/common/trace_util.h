@@ -118,16 +118,20 @@ static __always_inline unsigned char *bpf_strstr_tp_loop(unsigned char *buf, con
 
 static __always_inline unsigned char *bpf_strstr_tp_loop__legacy(unsigned char *buf,
                                                                  const u16 buf_len) {
-    (void)buf_len;
-
     if (!g_bpf_traceparent_enabled) {
+        return NULL;
+    }
+
+    if (buf_len < TRACE_PARENT_HEADER_LEN) {
         return NULL;
     }
 
     // Limited best-effort search to stay within insns limit
     const u16 k_besteffort_max_loops = 350;
+    const u16 scan_len = buf_len - TRACE_PARENT_HEADER_LEN + 1;
+    const u16 nr_loops = scan_len < k_besteffort_max_loops ? scan_len : k_besteffort_max_loops;
 
-    for (u16 i = 0; i < k_besteffort_max_loops; i++) {
+    for (u16 i = 0; i < nr_loops; i++) {
         if (is_traceparent(&buf[i])) {
             return &buf[i];
         }
