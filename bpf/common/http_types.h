@@ -61,7 +61,7 @@ typedef struct call_protocol_args {
     u64 self_ref_parent_id;
     lw_thread_t lw_thread;
     u64 orig_buf;
-    u32 full_bytes_len; // payload length when orig_buf is set; equals bytes_len otherwise
+    u32 full_bytes_len; // pre-truncation recv length; only used when orig_buf is set
     u32 _pad2;
 } call_protocol_args_t;
 

@@ -615,8 +615,8 @@ func FixupSpec(spec *ebpf.CollectionSpec, overrideKernelVersion bool) {
 		License: "MIT",
 	}
 	if !SupportsEBPFLoops(ptlog(), overrideKernelVersion) {
-		// Hack: instead of redefining bpf2go generated struct for mutually exclusive conditional programs,
-		// use one predefined field name to store either of them.
+		// Swap the bpf_loop-based programs with their legacy counterparts so
+		// bpf2go-generated struct fields still bind on kernels without bpf_loop.
 		spec.Programs["obi_protocol_http"] = spec.Programs["obi_protocol_http_legacy"]
 		spec.Programs["obi_protocol_http"].Name = "obi_protocol_http"
 		spec.Programs["obi_continue_protocol_http"] = spec.Programs["obi_continue_protocol_http_legacy"]
@@ -636,8 +636,8 @@ func FixupSpec(spec *ebpf.CollectionSpec, overrideKernelVersion bool) {
 		spec.Programs["obi_parse_traceparent_http"] = dummy.Copy()
 		spec.Programs["obi_parse_traceparent_http_append"] = dummy.Copy()
 	}
-	// Hack: insert dummy unused programs in order to be able to use bpf2go generated struct to load
-	// the collection.
+	// Slot dummies in place of the legacy programs we already moved, so the
+	// bpf2go struct binding still resolves them.
 	spec.Programs["obi_protocol_http_legacy"] = dummy
 	spec.Programs["obi_continue_protocol_http_legacy"] = dummy
 }

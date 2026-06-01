@@ -41,9 +41,11 @@ volatile const u32 high_request_volume;
 
 SCRATCH_MEM_SIZED(http_previous_trace_id, TRACE_ID_SIZE_BYTES);
 
-// Tail-call budgets: non-append 3 + 28 = 31 ≤ 32 (BPF_MAX_TAIL_CALL_CNT on 5.8–5.9).
-// Append: 1 + 29 = 30 ≤ 32. k_tp_chunk_step overlaps by TRACE_PARENT_HEADER_LEN so
-// a header straddling a chunk boundary is always contained in at least one chunk.
+// Tail-call budgets (BPF_MAX_TAIL_CALL_CNT = 32 on kernels 5.8–5.9):
+//   prog 14 (non-append): 3 preceding TCs + 28 self-TCs (niter=1..28) = 31
+//   prog 15 (append): tightest path is 3 preceding TCs + 29 self-TCs (niter=0..28) = 32
+// k_tp_chunk_step overlaps by TRACE_PARENT_HEADER_LEN so a header straddling
+// a chunk boundary is always fully contained in at least one window.
 enum {
     k_tp_parse_max_niter = 29,
     k_tp_chunk_step = TRACE_BUF_SIZE - TRACE_PARENT_HEADER_LEN,
@@ -369,7 +371,6 @@ static __always_inline int http_send_large_buffer(void *ctx,
     if (http_max_captured_bytes == 0 || bytes_sent >= http_max_captured_bytes || bytes_len == 0) {
         return 0;
     }
-
 
     u32 max_available_bytes = http_max_captured_bytes - bytes_sent;
     bpf_clamp_umax(max_available_bytes, k_large_buf_max_http_captured_bytes);
@@ -706,7 +707,6 @@ __obi_continue_protocol_http_tp(struct pt_regs *ctx,
 
         unsigned char *buf = (unsigned char *)tp_char_buf_mem();
         if (buf) {
-            // Clamp to TRACE_BUF_SIZE-1: masking silently zeros buf_len when bytes_len == TRACE_BUF_SIZE.
             u16 buf_len = args->bytes_len;
             bpf_clamp_umax(buf_len, TRACE_BUF_SIZE - 1);
 

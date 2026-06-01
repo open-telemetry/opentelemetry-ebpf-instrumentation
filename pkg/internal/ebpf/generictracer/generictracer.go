@@ -173,7 +173,7 @@ func (p *Tracer) SetupTailCalls() {
 		p.bpfObjects.ObiContinueProtocolHttpTp, // 3  k_tail_continue_protocol_http_tp
 		// TCP
 		p.bpfObjects.ObiProtocolTcp, // 4  k_tail_protocol_tcp
-		// Generic
+		// generic
 		p.bpfObjects.ObiHandleBufWithArgs, // 5  k_tail_handle_buf_with_args
 		nil,                               // 6  k_tail_continue_netfd_read (gotracer-only)
 		// HTTP/2 + gRPC
@@ -253,7 +253,7 @@ func (p *Tracer) constants() map[string]any {
 		m["bpf_max_request_tp_parse_size_kb"] = uint32(p.cfg.EBPF.MaxRequestTPParseSizeKB)
 	} else {
 		// bpf_loop is unavailable on this kernel; set to 0 to prevent tail-calls
-		// into the dummy stub replacing obi_parse_traceparent_http.
+		// into the dummy stubs replacing obi_parse_traceparent_http{,_append}.
 		m["bpf_max_request_tp_parse_size_kb"] = uint32(0)
 	}
 

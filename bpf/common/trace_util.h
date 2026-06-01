@@ -117,7 +117,7 @@ struct callback_ctx_eoh {
 };
 
 // The guard uses TRACE_PARENT_HEADER_LEN (68 bytes) as the cutoff for both checks.
-// EOH in the last 64 bytes is covered by the chunk overlap: the next chunk rescans
+// EOH in the last 68 bytes is covered by the chunk overlap: the next chunk rescans
 // bytes [956..1023] at local indices [0..67].
 static int tp_eoh_match(u32 index, void *data) {
     if (index >= (TRACE_BUF_SIZE - TRACE_PARENT_HEADER_LEN)) {

@@ -36,7 +36,7 @@ const (
 	//   HTTP overhead before the traceparent header line:
 	//     "GET /with-huge-tp HTTP/1.1\r\n" = 28 bytes
 	//     "Host: localhost:6000\r\n"        = 22 bytes
-	//     "X-Filler: <filler>\r\n" prefix  = 10 + 2 = 12 bytes
+	//     "A-Filler: <filler>\r\n" prefix  = 10 + 2 = 12 bytes
 	//     ─────────────────────────────────────────────────
 	//     total fixed overhead              = 62 bytes
 	//   fillerSize = 956 - 62 = 894
@@ -56,7 +56,7 @@ func TestTraceparentExtraction(t *testing.T) {
 	compose.Env = append(compose.Env, `OTEL_EBPF_EXECUTABLE_PATH=`, `OTEL_EBPF_OPEN_PORT=`)
 	require.NoError(t, compose.Up())
 
-	// Wait for all services to be ready.
+	// Wait for service to be ready
 	waitForTestComponents(t, "http://localhost:6000")
 
 	// Wait for instrumentation to be ready
@@ -255,7 +255,7 @@ func sendRawRequest(addr, urlPath string, fillerSize int, traceparent string) er
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "GET %s HTTP/1.1\r\n", urlPath)
 	fmt.Fprintf(&sb, "Host: %s\r\n", addr)
-	fmt.Fprintf(&sb, "X-Filler: %s\r\n", strings.Repeat("X", fillerSize))
+	fmt.Fprintf(&sb, "A-Filler: %s\r\n", strings.Repeat("X", fillerSize))
 	fmt.Fprintf(&sb, "traceparent: %s\r\n", traceparent)
 	sb.WriteString("Connection: close\r\n")
 	sb.WriteString("\r\n")

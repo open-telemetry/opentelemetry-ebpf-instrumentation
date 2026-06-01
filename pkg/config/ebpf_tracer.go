@@ -166,12 +166,14 @@ type EBPFTracer struct {
 	//
 	//     On kernels older than 6.0, a rare limitation may apply: if an
 	//     application explicitly sends a request using multiple separate memory
-	//     buffers at once (scatter-gather I/O), the scanner only covers the first
-	//     buffer, which is capped at 8 KB. If the traceparent header falls beyond
-	//     that 8 KB boundary it will not be found, regardless of this setting.
-	//     This does not affect the common case where the full request is in a
-	//     single contiguous buffer (curl, Go, Java, most proxies).
-	//     On kernel 6.0 and newer this limitation does not exist.
+	//     buffers at once (scatter-gather I/O with nr_segs > 1), the chunked
+	//     rescan is unavailable because orig_buf is only captured for single-segment
+	//     requests. The initial read still covers up to 16 segments (8 KB total),
+	//     but no chunked scan beyond that initial copy is possible.
+	//     If the traceparent header falls beyond that 8 KB boundary it will not be
+	//     found, regardless of this setting. This does not affect the common case
+	//     where the full request is in a single contiguous buffer (curl, Go, Java,
+	//     most proxies). On kernel 6.0 and newer this limitation does not exist.
 	//
 	// On kernels without bpf_loop support (< 5.17), chunked scanning is disabled
 	// automatically regardless of this setting. To stop traceparent scanning
@@ -192,7 +194,9 @@ type EBPFTracer struct {
 	// three additional 956-byte windows and covers the common case of a
 	// single large header (e.g. a 2-3 KB auth token or cookie) before
 	// traceparent. Maximum is 27 KB to stay within the tail-call budget
-	// (k_tp_parse_max_niter=29 iterations × 956-byte step ≈ 27.7 KB).
+	// (tightest path: 3 preceding TCs + 29 invocations of prog 14 = 32 = BPF_MAX_TAIL_CALL_CNT;
+	// at niter=28, offset=28×956=26,768; budget cap of 27×1024=27,648 limits the last read
+	// to 880 bytes; next chunk at 29×956=27,724 exceeds the budget and is never read).
 	MaxRequestTPParseSizeKB int `yaml:"max_request_tp_parse_size_kb" env:"OTEL_EBPF_BPF_MAX_REQUEST_TP_PARSE_SIZE_KB" validate:"gte=4,lte=27" jsonschema:"minimum=4,maximum=27,default=4"`
 }
 

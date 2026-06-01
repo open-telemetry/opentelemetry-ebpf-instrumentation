@@ -234,7 +234,7 @@ func (p *Tracer) constants() map[string]any {
 		m["bpf_max_request_tp_parse_size_kb"] = uint32(p.cfg.MaxRequestTPParseSizeKB)
 	} else {
 		// bpf_loop is unavailable on this kernel; set to 0 to prevent tail-calls
-		// into the dummy stub replacing obi_parse_traceparent_http.
+		// into the dummy stubs replacing obi_parse_traceparent_http{,_append}.
 		m["bpf_max_request_tp_parse_size_kb"] = uint32(0)
 	}
 
@@ -986,9 +986,9 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 		}}
 	}
 
-	// HTTP Header extraction.
-	// When bpf_loop is available, scan the whole bufio.Reader buffer at readMimeHeader
-	// entry as a fast path for small headers that fit in the initial fill.
+	// HTTP Header extraction
+	// with bpf_loop we scan the buffer with a single uprobe - this is less overhead
+	// otherwise we have a probe per header net/textproto.(*Reader).readContinuedLineSlice
 	if p.supportsBPFLoop {
 		m["net/textproto.readMIMEHeader"] = []*ebpfcommon.ProbeDesc{{
 			Start: p.bpfObjects.ObiUprobeReadMimeHeader,
@@ -1007,7 +1007,7 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 	//   prevents overwriting an already-extracted traceparent.
 	// On modern kernels without header tracking this probe is skipped to avoid
 	// firing once per header line when the result would be discarded by BPF.
-	headersActive := p.cfg.TrackRequestHeaders || p.cfg.ContextPropagation.IsEnabled()
+	headersActive := p.cfg != nil && (p.cfg.TrackRequestHeaders || p.cfg.ContextPropagation.IsEnabled())
 	if !p.supportsBPFLoop || headersActive {
 		m["net/textproto.(*Reader).readContinuedLineSlice"] = []*ebpfcommon.ProbeDesc{{
 			End: p.bpfObjects.ObiUprobeReadContinuedLineSliceReturns,
