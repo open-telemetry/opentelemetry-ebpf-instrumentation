@@ -267,6 +267,8 @@ const (
 	OncRPCProcedureName   = Name(semconv.OncRPCProcedureNameKey)
 	OncRPCProcedureNumber = Name(semconv.OncRPCProcedureNumberKey)
 	OncRPCVersion         = Name(semconv.OncRPCVersionKey)
+	// Extension until semconv adds an official auth flavor attribute.
+	OncRPCAuthFlavor = Name("onc_rpc.auth.flavor")
 )
 
 // MCP (Model Context Protocol) attributes

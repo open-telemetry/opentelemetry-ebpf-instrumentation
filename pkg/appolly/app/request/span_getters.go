@@ -74,6 +74,12 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 		getter = func(s *Span) attribute.KeyValue { return ServerPort(s.HostPort) }
 	case attr.RPCMethod:
 		getter = func(s *Span) attribute.KeyValue {
+			if s.Type == EventTypeSunRPCClient || s.Type == EventTypeSunRPCServer {
+				if s.Route != "" {
+					return semconv.RPCMethod(s.Route)
+				}
+				return semconv.RPCMethod(s.Method)
+			}
 			if s.SubType == HTTPSubtypeJSONRPC && s.JSONRPC != nil {
 				return semconv.RPCMethod(s.JSONRPC.Method)
 			}
@@ -84,6 +90,9 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 		}
 	case attr.RPCSystem:
 		getter = func(s *Span) attribute.KeyValue {
+			if s.Type == EventTypeSunRPCClient || s.Type == EventTypeSunRPCServer {
+				return semconv.RPCSystemOncRPC
+			}
 			if s.SubType == HTTPSubtypeJSONRPC {
 				return semconv.RPCSystemNameJSONRPC
 			}
@@ -91,6 +100,58 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 				return RPCSystem("aws-api")
 			}
 			return semconv.RPCSystemNameGRPC
+		}
+	case attr.RPCService:
+		getter = func(s *Span) attribute.KeyValue {
+			if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeAWSS3 {
+				return semconv.RPCService("S3")
+			}
+			return semconv.RPCService("")
+		}
+	case attr.RPCGRPCStatusCode:
+		getter = func(s *Span) attribute.KeyValue {
+			if s.Type == EventTypeSunRPCClient || s.Type == EventTypeSunRPCServer {
+				return semconv.RPCGRPCStatusCodeKey.Int(0)
+			}
+			return semconv.RPCGRPCStatusCodeKey.Int(s.Status)
+		}
+	case attr.OncRPCProgramName:
+		getter = func(s *Span) attribute.KeyValue {
+			if s.Type != EventTypeSunRPCClient && s.Type != EventTypeSunRPCServer {
+				return semconv.OncRPCProgramName("")
+			}
+			return semconv.OncRPCProgramName(s.Path)
+		}
+	case attr.OncRPCProcedureNumber:
+		getter = func(s *Span) attribute.KeyValue {
+			if s.Type != EventTypeSunRPCClient && s.Type != EventTypeSunRPCServer {
+				return semconv.OncRPCProcedureNumber(0)
+			}
+			if s.Route == "" {
+				return semconv.OncRPCProcedureNumber(0)
+			}
+			proc, err := strconv.Atoi(s.Route)
+			if err != nil {
+				return semconv.OncRPCProcedureNumber(0)
+			}
+			return semconv.OncRPCProcedureNumber(proc)
+		}
+	case attr.OncRPCProcedureName:
+		getter = func(s *Span) attribute.KeyValue {
+			if s.Type != EventTypeSunRPCClient && s.Type != EventTypeSunRPCServer {
+				return semconv.OncRPCProcedureName("")
+			}
+			if s.Method == "" || s.Method == s.Route {
+				return semconv.OncRPCProcedureName("")
+			}
+			return semconv.OncRPCProcedureName(s.Method)
+		}
+	case attr.OncRPCVersion:
+		getter = func(s *Span) attribute.KeyValue {
+			if s.Type != EventTypeSunRPCClient && s.Type != EventTypeSunRPCServer {
+				return semconv.OncRPCVersion(0)
+			}
+			return semconv.OncRPCVersion(s.SubType)
 		}
 	case attr.Server:
 		getter = func(s *Span) attribute.KeyValue { return ServerMetric(SpanHost(s)) }

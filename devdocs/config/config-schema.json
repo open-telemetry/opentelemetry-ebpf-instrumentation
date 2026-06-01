@@ -1760,7 +1760,8 @@
               "mqtt",
               "nats",
               "redis",
-              "sql"
+              "sql",
+              "sunrpc"
             ]
           },
           "type": "array",
@@ -2163,7 +2164,8 @@
               "mqtt",
               "nats",
               "redis",
-              "sql"
+              "sql",
+              "sunrpc"
             ]
           },
           "type": "array",
@@ -2732,7 +2734,8 @@
               "mqtt",
               "nats",
               "redis",
-              "sql"
+              "sql",
+              "sunrpc"
             ]
           },
           "type": "array",
@@ -2749,7 +2752,8 @@
             "amqp",
             "mongo",
             "couchbase",
-            "memcached"
+            "memcached",
+            "sunrpc"
           ],
           "x-env-var": "OTEL_EBPF_TRACES_INSTRUMENTATIONS"
         },

@@ -374,11 +374,16 @@ func newReporter(
 
 	var attrGRPCDuration, attrGRPCClientDuration []attributes.Field[*request.Span, string]
 
-	if is.GRPCEnabled() {
-		attrGRPCDuration = attributes.PrometheusGetters(attributeGetters,
-			attrsProvider.For(attributes.RPCServerDuration))
-		attrGRPCClientDuration = attributes.PrometheusGetters(attributeGetters,
-			attrsProvider.For(attributes.RPCClientDuration))
+	rpcServerAttrs := attrsProvider.For(attributes.RPCServerDuration)
+	rpcClientAttrs := attrsProvider.For(attributes.RPCClientDuration)
+	if is.SunRPCEnabled() {
+		rpcServerAttrs = attributes.AppendUniqueNames(rpcServerAttrs, attributes.OncRPCMetricAttributes)
+		rpcClientAttrs = attributes.AppendUniqueNames(rpcClientAttrs, attributes.OncRPCMetricAttributes)
+	}
+
+	if is.GRPCEnabled() || is.SunRPCEnabled() {
+		attrGRPCDuration = attributes.PrometheusGetters(attributeGetters, rpcServerAttrs)
+		attrGRPCClientDuration = attributes.PrometheusGetters(attributeGetters, rpcClientAttrs)
 	}
 
 	var attrDBClientDuration []attributes.Field[*request.Span, string]
@@ -537,7 +542,7 @@ func newReporter(
 				NativeHistogramMinResetDuration: cfg.NativeHistogram.MinResetDuration,
 			}, labelNames(attrHTTPClientDuration)).MetricVec, clock.Time, cfg.TTL)
 		}),
-		grpcDuration: optionalHistogramProvider(is.GRPCEnabled(), func() *Expirer[prometheus.Histogram] {
+		grpcDuration: optionalHistogramProvider(is.GRPCEnabled() || is.SunRPCEnabled(), func() *Expirer[prometheus.Histogram] {
 			return NewExpirer[prometheus.Histogram](prometheus.NewHistogramVec(prometheus.HistogramOpts{
 				Name:                            attributes.RPCServerDuration.Prom,
 				Help:                            "duration of RCP service calls from the server side, in seconds",
@@ -547,7 +552,7 @@ func newReporter(
 				NativeHistogramMinResetDuration: cfg.NativeHistogram.MinResetDuration,
 			}, labelNames(attrGRPCDuration)).MetricVec, clock.Time, cfg.TTL)
 		}),
-		grpcClientDuration: optionalHistogramProvider(is.GRPCEnabled(), func() *Expirer[prometheus.Histogram] {
+		grpcClientDuration: optionalHistogramProvider(is.GRPCEnabled() || is.SunRPCEnabled(), func() *Expirer[prometheus.Histogram] {
 			return NewExpirer[prometheus.Histogram](prometheus.NewHistogramVec(prometheus.HistogramOpts{
 				Name:                            attributes.RPCClientDuration.Prom,
 				Help:                            "duration of GRPC service calls from the client side, in seconds",
@@ -1075,6 +1080,14 @@ func (r *metricsReporter) observe(span *request.Span) {
 		case request.EventTypeGRPCClient:
 			if r.is.GRPCEnabled() {
 				r.observeHistogram(r.grpcClientDuration.WithLabelValues(labelValues(span, r.attrGRPCClientDuration)...).Metric, duration, span)
+			}
+		case request.EventTypeSunRPCClient:
+			if r.is.SunRPCEnabled() {
+				r.observeHistogram(r.grpcClientDuration.WithLabelValues(labelValues(span, r.attrGRPCClientDuration)...).Metric, duration, span)
+			}
+		case request.EventTypeSunRPCServer:
+			if r.is.SunRPCEnabled() {
+				r.observeHistogram(r.grpcDuration.WithLabelValues(labelValues(span, r.attrGRPCDuration)...).Metric, duration, span)
 			}
 		case request.EventTypeRedisClient, request.EventTypeSQLClient, request.EventTypeRedisServer, request.EventTypeMongoClient, request.EventTypeCouchbaseClient, request.EventTypeMemcachedClient, request.EventTypeMemcachedServer:
 			if r.is.DBEnabled() {
