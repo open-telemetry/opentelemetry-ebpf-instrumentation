@@ -30,6 +30,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	"go.opentelemetry.io/obi/pkg/appolly/meta"
+	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
@@ -1519,6 +1520,68 @@ func TestHandleProcessEventCreated(t *testing.T) {
 			// Verify service map state
 			assert.Equal(t, tm, reporter.targetMetrics,
 				"Service map should match expected state")
+		})
+	}
+}
+
+func TestHandleProcessEventCreatedMetricsExportDisabled(t *testing.T) {
+	exportsEmpty := services.NewExportModes()
+	tracesOnly := services.NewExportModes()
+	tracesOnly.AllowTraces()
+
+	for _, tt := range []struct {
+		name        string
+		exportModes services.ExportModes
+	}{
+		{
+			name:        "exports empty",
+			exportModes: exportsEmpty,
+		},
+		{
+			name:        "traces only",
+			exportModes: tracesOnly,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			mockEventsStore := newMockEventMetrics()
+			reporter := &MetricsReporter{
+				cfg:                &otelcfg.MetricsConfig{},
+				log:                slog.Default(),
+				jointMetricsCfg:    &perapp.MetricsConfig{Features: export.FeatureApplicationRED},
+				targetMetrics:      make(map[svc.UID]*TargetMetrics),
+				pidTracker:         NewPidServiceTracker(),
+				createEventMetrics: mockEventsStore.createEventMetrics,
+				deleteEventMetrics: mockEventsStore.deleteEventMetrics,
+			}
+
+			uid := svc.UID{Name: "metrics-disabled-service-" + tt.name, Namespace: "default", Instance: "instance-1"}
+			event := exec.ProcessEvent{
+				Type: exec.ProcessEventCreated,
+				File: exec.New(exec.Init{
+					Pid: 1234,
+					Service: svc.Attrs{
+						Features:    export.FeatureApplicationRED,
+						ExportModes: tt.exportModes,
+						UID:         uid,
+						HostName:    "test-host",
+					},
+				}),
+			}
+
+			reporter.onProcessEvent(&event)
+
+			assert.Empty(t, mockEventsStore.createCalls)
+			assert.Empty(t, mockEventsStore.deleteCalls)
+			assert.Empty(t, reporter.targetMetrics)
+			assert.True(t, reporter.pidTracker.ServiceLive(uid))
+
+			terminated := exec.ProcessEvent{Type: exec.ProcessEventTerminated, File: event.File}
+			reporter.onProcessEvent(&terminated)
+
+			assert.Empty(t, mockEventsStore.createCalls)
+			assert.Empty(t, mockEventsStore.deleteCalls)
+			assert.Empty(t, reporter.targetMetrics)
+			assert.False(t, reporter.pidTracker.ServiceLive(uid))
 		})
 	}
 }

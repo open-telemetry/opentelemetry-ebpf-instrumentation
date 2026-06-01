@@ -1371,6 +1371,10 @@ func (r *metricsReporter) disassociatePIDFromService(pid app.PID) (bool, svc.UID
 }
 
 func (r *metricsReporter) createTargetInfos(service *svc.Attrs) {
+	if service == nil || !service.ExportModes.CanExportMetrics() {
+		return
+	}
+
 	r.createTargetInfo(service)
 	r.createTracesTargetInfo(service)
 }
@@ -1381,7 +1385,12 @@ func (r *metricsReporter) deleteTargetInfoMetrics(service *svc.Attrs) {
 }
 
 func (r *metricsReporter) deleteTargetInfos(uid svc.UID, service *svc.Attrs) {
-	r.deleteEventMetrics(r.origService(uid, service))
+	orig := r.origService(uid, service)
+	if orig == nil || !orig.ExportModes.CanExportMetrics() {
+		return
+	}
+
+	r.deleteEventMetrics(orig)
 }
 
 func (r *metricsReporter) handleProcessEvent(pe exec.ProcessEvent, log *slog.Logger) {
@@ -1398,10 +1407,14 @@ func (r *metricsReporter) handleProcessEvent(pe exec.ProcessEvent, log *slog.Log
 			r.pidsTracker.ReplaceUID(staleUID, uid)
 			if origAttrs, ok := r.serviceMap[staleUID]; ok {
 				log.Debug("updating service attributes for", "service", uid)
-				r.deleteEventMetrics(&origAttrs)
+				if origAttrs.ExportModes.CanExportMetrics() {
+					r.deleteEventMetrics(&origAttrs)
+				}
 				delete(r.serviceMap, staleUID)
 				r.serviceMap[uid] = snap
-				r.createEventMetrics(&snap)
+				if snap.ExportModes.CanExportMetrics() {
+					r.createEventMetrics(&snap)
+				}
 				// we don't setup the pid again, we just replaced the metrics it's associated with
 			}
 			return
@@ -1412,10 +1425,14 @@ func (r *metricsReporter) handleProcessEvent(pe exec.ProcessEvent, log *slog.Log
 		// the old target info
 		if origAttrs, ok := r.serviceMap[uid]; ok {
 			log.Debug("updating stale attributes for", "service", uid)
-			r.deleteEventMetrics(&origAttrs)
+			if origAttrs.ExportModes.CanExportMetrics() {
+				r.deleteEventMetrics(&origAttrs)
+			}
 		}
 
-		r.createEventMetrics(&snap)
+		if snap.ExportModes.CanExportMetrics() {
+			r.createEventMetrics(&snap)
+		}
 		r.serviceMap[uid] = snap
 		r.setupPIDToServiceRelationship(pid, uid)
 	} else {
