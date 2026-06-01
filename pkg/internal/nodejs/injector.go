@@ -39,6 +39,8 @@ type evalParams struct {
 	IncludeCommandLineAPI bool   `json:"includeCommandLineAPI"`
 }
 
+const inspectorRequestTimeout = 5 * time.Second
+
 // IMPORTANT: the code in this file needs to run in the network namespace of the
 // target process in order to be able to connect to its inspector port - the
 // network namespace switching is done by the withNetNS function, which locks
@@ -166,6 +168,10 @@ func upgradeConn(conn net.Conn, wsURL string) (*websocket.Conn, *http.Response, 
 }
 
 func sendEvaluate(wsConn *websocket.Conn, exp string, id int) error {
+	return sendEvaluateWithTimeout(wsConn, exp, id, inspectorRequestTimeout)
+}
+
+func sendEvaluateWithTimeout(wsConn *websocket.Conn, exp string, id int, timeout time.Duration) error {
 	req := cdpRequest{
 		ID:     id,
 		Method: "Runtime.evaluate",
@@ -178,6 +184,16 @@ func sendEvaluate(wsConn *websocket.Conn, exp string, id int) error {
 	data, err := json.Marshal(req)
 	if err != nil {
 		return fmt.Errorf("failed to serialize request: %w", err)
+	}
+
+	deadline := time.Now().Add(timeout)
+
+	if err := wsConn.SetWriteDeadline(deadline); err != nil {
+		return fmt.Errorf("websocket write deadline error: %w", err)
+	}
+
+	if err := wsConn.SetReadDeadline(deadline); err != nil {
+		return fmt.Errorf("websocket read deadline error: %w", err)
 	}
 
 	if err := wsConn.WriteMessage(websocket.TextMessage, data); err != nil {
