@@ -46,6 +46,21 @@ func NewHTTPEnricher(cfg config.EnrichmentConfig) *HTTPEnricher {
 	return e
 }
 
+// statusCodeMatches returns true if the span's response status code satisfies the range.
+// A nil range always matches.
+func statusCodeMatches(r *config.HTTPResponseStatusCodeRange, status int) bool {
+	if r == nil {
+		return true
+	}
+	if r.GreaterEquals != nil && status < *r.GreaterEquals {
+		return false
+	}
+	if r.LessEquals != nil && status > *r.LessEquals {
+		return false
+	}
+	return true
+}
+
 // Enrich applies header and body extraction rules to the span.
 // Returns true if any content was extracted.
 func (e *HTTPEnricher) Enrich(
@@ -242,7 +257,8 @@ func (e *HTTPEnricher) processBody(
 func ruleApplies(rule config.HTTPParsingRule, scope config.HTTPParsingScope, span *request.Span) bool {
 	return scopeApplies(rule.Scope, scope) &&
 		urlPathMatches(rule.Match.URLPathPatterns, span.Path) &&
-		methodMatches(rule.Match.Methods, span.Method)
+		methodMatches(rule.Match.Methods, span.Method) &&
+		statusCodeMatches(rule.Match.HTTPResponseStatusCode, span.Status)
 }
 
 // scopeApplies returns true if the rule scope covers the given header source.
