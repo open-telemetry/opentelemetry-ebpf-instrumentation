@@ -73,6 +73,7 @@ through language-specific library instrumentation documented later in this file.
 | Kafka | All | `produce`, `fetch` | Yes | No | Topic name lookup may fail for newer fetch API versions (`>= 13`) |
 | MQTT | `3.1.1/5.0` | `publish`, `subscribe` | No | No | Only the first topic filter is used for subscribe; payload not captured |
 | AMQP | `1.0` | `publish`, `process` | No | No | Userspace heuristic only; only transfer performatives create spans |
+| SunRPC (ONC RPC) | All | TCP CALL on common programs (portmapper, mount, nfs, …) | Yes | No | TCP only; kernel + userspace fallback; RPCSEC_GSS hides arguments; procedure names not mapped yet |
 | GraphQL | All | All | Yes | No | None documented |
 | Elasticsearch | `7.14+` | `/_search`, `/_msearch`, `/_bulk`, `/_doc` | Yes | No | None documented |
 | Opensearch | `3.0.0+` | `/_search`, `/_msearch`, `/_bulk`, `/_doc` | Yes | No | None documented |
