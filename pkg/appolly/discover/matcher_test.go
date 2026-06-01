@@ -301,6 +301,49 @@ func TestCriteriaMatcher_Exclude_Metadata(t *testing.T) {
 	testMatch(t, matches[1], "", "", services.ProcessInfo{Pid: 3, ExePath: "server"})
 }
 
+func TestCriteriaMatcher_MetadataWithDeprecatedPathRegexp(t *testing.T) {
+	pipeConfig := obi.Config{}
+	require.NoError(t, yaml.Unmarshal([]byte(`discovery:
+  services:
+  - name: server
+    exe_path_regexp: "^/bin/server$"
+    k8s_namespace: prod
+`), &pipeConfig))
+
+	criteria := FindingCriteria(&pipeConfig)
+	require.Len(t, criteria, 1)
+	assert.False(t, criteria[0].GetPath().IsSet())
+	assert.True(t, criteria[0].GetPathRegexp().IsSet())
+
+	discoveredProcesses := msg.NewQueue[[]Event[ProcessAttrs]](msg.ChannelBufferLen(10))
+	filteredProcessesQu := msg.NewQueue[[]Event[ProcessMatch]](msg.ChannelBufferLen(10))
+	filteredProcesses := filteredProcessesQu.Subscribe()
+	matcherFunc, err := criteriaMatcherProvider(&pipeConfig, discoveredProcesses, filteredProcessesQu, criteria, nil)(t.Context())
+	require.NoError(t, err)
+	go matcherFunc(t.Context())
+	defer func() {
+		discoveredProcesses.Close()
+		testutil.DrainUntilClosed(filteredProcesses)
+	}()
+
+	processInfo = func(pp ProcessAttrs) (*services.ProcessInfo, error) {
+		exePath := map[app.PID]string{
+			1: "/bin/server",
+			2: "/bin/worker",
+		}[pp.pid]
+		return &services.ProcessInfo{Pid: pp.pid, ExePath: exePath}, nil
+	}
+
+	discoveredProcesses.Send([]Event[ProcessAttrs]{
+		{Type: EventCreated, Obj: ProcessAttrs{pid: 1, metadata: map[string]string{services.AttrNamespace: "prod"}}},
+		{Type: EventCreated, Obj: ProcessAttrs{pid: 2, metadata: map[string]string{services.AttrNamespace: "prod"}}},
+	})
+
+	matches := testutil.ReadChannel(t, filteredProcesses, testTimeout)
+	require.Len(t, matches, 1)
+	testMatch(t, matches[0], "server", "", services.ProcessInfo{Pid: 1, ExePath: "/bin/server"})
+}
+
 func TestCriteriaMatcher_MustMatchAllAttributes(t *testing.T) {
 	pipeConfig := obi.Config{}
 	require.NoError(t, yaml.Unmarshal([]byte(`discovery:
