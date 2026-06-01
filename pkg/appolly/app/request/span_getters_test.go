@@ -12,6 +12,7 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 func TestSpanOTELGetters_K8SClientNamespace(t *testing.T) {
@@ -561,7 +562,8 @@ func TestSpanOTELGetters_DBQueryText(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			kv := getter(tt.span)
+			var kv attribute.KeyValue
+			assert.NotPanics(t, func() { kv = getter(tt.span) })
 			assert.Equal(t, string(attr.DBQueryText), string(kv.Key))
 			assert.Equal(t, tt.expected, kv.Value.AsString())
 		})
