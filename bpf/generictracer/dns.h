@@ -166,7 +166,7 @@ static __always_inline u8 handle_dns(struct __sk_buff *skb,
     }
 
     struct dnshdr hdr;
-    if (bpf_skb_load_bytes(skb, dns_off, &hdr, sizeof(hdr))) {
+    if (bpf_skb_load_bytes(skb, dns_off, &hdr, sizeof(hdr)) != 0) {
         return 0;
     }
 
