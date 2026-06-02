@@ -22,6 +22,7 @@ func TestBPFDebugMode_UnmarshalText(t *testing.T) {
 		{name: "trace pipe", input: "trace_pipe", want: BPFDebugTracePipe},
 		{name: "userspace", input: "userspace", want: BPFDebugUserspace},
 		{name: "trace pipe and userspace", input: "trace_pipe,userspace", want: BPFDebugDefault},
+		{name: "uppercase invalid", input: "TRACE_PIPE", wantErr: true},
 		{name: "invalid", input: "invalid", wantErr: true},
 	}
 
@@ -37,6 +38,79 @@ func TestBPFDebugMode_UnmarshalText(t *testing.T) {
 
 			if !tt.wantErr && got != tt.want {
 				t.Errorf("UnmarshalText() got = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestBPFDebugMode_Accessors(t *testing.T) {
+	tests := []struct {
+		name          string
+		mode          BPFDebugMode
+		wantEnabled   bool
+		wantUserspace bool
+		wantFlags     uint32
+	}{
+		{
+			name:          "disabled",
+			mode:          BPFDebugDisabled,
+			wantEnabled:   false,
+			wantUserspace: false,
+			wantFlags:     0,
+		},
+		{
+			name:          "trace pipe",
+			mode:          BPFDebugTracePipe,
+			wantEnabled:   true,
+			wantUserspace: false,
+			wantFlags:     uint32(BPFDebugTracePipe),
+		},
+		{
+			name:          "userspace",
+			mode:          BPFDebugUserspace,
+			wantEnabled:   true,
+			wantUserspace: true,
+			wantFlags:     uint32(BPFDebugUserspace),
+		},
+		{
+			name:          "default",
+			mode:          BPFDebugDefault,
+			wantEnabled:   true,
+			wantUserspace: true,
+			wantFlags:     uint32(BPFDebugDefault),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.mode.IsEnabled(); got != tt.wantEnabled {
+				t.Errorf("IsEnabled() got = %v, want %v", got, tt.wantEnabled)
+			}
+			if got := tt.mode.IsUserspaceEnabled(); got != tt.wantUserspace {
+				t.Errorf("IsUserspaceEnabled() got = %v, want %v", got, tt.wantUserspace)
+			}
+			if got := tt.mode.Flags(); got != tt.wantFlags {
+				t.Errorf("Flags() got = %v, want %v", got, tt.wantFlags)
+			}
+		})
+	}
+}
+
+func TestEBPFTracer_DebugMode(t *testing.T) {
+	tests := []struct {
+		name   string
+		tracer EBPFTracer
+		want   BPFDebugMode
+	}{
+		{name: "disabled", tracer: EBPFTracer{}, want: BPFDebugDisabled},
+		{name: "deprecated boolean", tracer: EBPFTracer{BpfDebug: true}, want: BPFDebugDefault},
+		{name: "mode", tracer: EBPFTracer{BpfDebugMode: BPFDebugTracePipe}, want: BPFDebugTracePipe},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.tracer.DebugMode(); got != tt.want {
+				t.Errorf("DebugMode() got = %v, want %v", got, tt.want)
 			}
 		})
 	}

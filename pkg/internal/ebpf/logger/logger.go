@@ -43,7 +43,7 @@ func New(cfg *obi.Config) *BPFLogger {
 }
 
 func (p *BPFLogger) LoadSpecs() ([]*ebpfcommon.SpecBundle, error) {
-	if p.cfg.EBPF.BpfDebugMode.UserspaceEnabled() {
+	if p.cfg.EBPF.DebugMode().IsUserspaceEnabled() {
 		spec, err := LoadBpf()
 		if err != nil {
 			return nil, err
@@ -54,12 +54,12 @@ func (p *BPFLogger) LoadSpecs() ([]*ebpfcommon.SpecBundle, error) {
 			Constants: p.constants(),
 		}}, nil
 	}
-	return nil, errors.New("BPF debug is not enabled")
+	return nil, errors.New("BPF userspace debug is not enabled")
 }
 
 func (p *BPFLogger) constants() map[string]any {
 	return map[string]any{
-		"g_bpf_debug_flags": p.cfg.EBPF.BpfDebugMode.Flags(),
+		"g_bpf_debug_flags": p.cfg.EBPF.DebugMode().Flags(),
 	}
 }
 

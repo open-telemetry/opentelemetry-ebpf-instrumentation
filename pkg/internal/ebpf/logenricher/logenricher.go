@@ -105,7 +105,7 @@ func (p *Tracer) LoadSpecs() ([]*ebpfcommon.SpecBundle, error) {
 
 func (p *Tracer) constants() map[string]any {
 	return map[string]any{
-		"g_bpf_debug_flags": p.cfg.EBPF.BpfDebugMode.Flags(),
+		"g_bpf_debug_flags": p.cfg.EBPF.DebugMode().Flags(),
 	}
 }
 

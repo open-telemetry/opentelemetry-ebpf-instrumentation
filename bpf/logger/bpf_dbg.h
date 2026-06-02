@@ -41,9 +41,6 @@ enum bpf_func_id___x {
 
 #define bpf_dbg_printk(fmt, args...)                                                               \
     do {                                                                                           \
-        if (!bpf_debug_enabled()) {                                                                \
-            break;                                                                                 \
-        }                                                                                          \
         if (g_bpf_debug_flags & k_bpf_debug_trace_pipe) {                                          \
             bpf_printk(fmt, ##args);                                                               \
         }                                                                                          \
@@ -76,7 +73,7 @@ enum bpf_func_id___x {
 
 #define bpf_d_printk(fmt, args...)                                                                 \
     do {                                                                                           \
-        if (!bpf_debug_enabled()) {                                                                \
+        if (!(g_bpf_debug_flags & k_bpf_debug_trace_pipe)) {                                       \
             break;                                                                                 \
         }                                                                                          \
         bpf_printk(fmt, ##args);                                                                   \

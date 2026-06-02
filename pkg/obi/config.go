@@ -508,6 +508,9 @@ func stringSliceToTextUnmarshalerHookFunc() mapstructure.DecodeHookFunc {
 		}
 
 		if slice, ok := data.([]any); ok {
+			if to == reflect.TypeOf(config.BPFDebugMode(0)) {
+				return data, fmt.Errorf("bpf_debug_mode expects a string, not a list")
+			}
 			strs := make([]string, 0, len(slice))
 			for _, v := range slice {
 				if s, ok := v.(string); ok {
@@ -522,6 +525,9 @@ func stringSliceToTextUnmarshalerHookFunc() mapstructure.DecodeHookFunc {
 
 		// Handle []string directly
 		if slice, ok := data.([]string); ok {
+			if to == reflect.TypeOf(config.BPFDebugMode(0)) {
+				return data, fmt.Errorf("bpf_debug_mode expects a string, not a list")
+			}
 			return strings.Join(slice, ","), nil
 		}
 
@@ -641,6 +647,10 @@ func (c *Config) Validate() error {
 
 	if err := validate.Struct(c); err != nil {
 		return ConfigError(err.Error())
+	}
+
+	if c.EBPF.BpfDebug && c.EBPF.BpfDebugMode.IsEnabled() {
+		return ConfigError("bpf_debug and bpf_debug_mode cannot be set at the same time")
 	}
 
 	if err := c.Discovery.Validate(); err != nil {
@@ -774,7 +784,6 @@ func (c *Config) ExternalLogger(handler slog.Handler, debugMode bool) {
 	if debugMode {
 		c.TracePrinter = debug.TracePrinterText
 		c.EBPF.BpfDebug = true
-		c.EBPF.BpfDebugMode = config.BPFDebugDefault
 		c.EBPF.ProtocolDebug = true
 		if c.NetworkFlows.Enable {
 			c.NetworkFlows.Print = true
@@ -819,12 +828,6 @@ func registerCustomValidations(validate *validator.Validate, customValidations C
 
 // normalizeConfig normalizes user input to a common set of assumptions that are global to OBI
 func (c *Config) normalize() {
-	if c.EBPF.BpfDebugMode.Enabled() {
-		c.EBPF.BpfDebug = true
-	} else if c.EBPF.BpfDebug {
-		c.EBPF.BpfDebugMode = config.BPFDebugDefault
-	}
-
 	c.Attributes.Select.Normalize()
 	// backwards compatibility assumptions for the deprecated Metric feature sections in OTEL and Prom metrics config.
 	// Old, deprecated properties would take precedence over metrics > features, to avoid breaking changes.

@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/invopop/jsonschema"
-	"gopkg.in/yaml.v3"
 )
 
 type ContextPropagationMode uint8
@@ -28,9 +27,6 @@ const (
 	BPFDebugTracePipe BPFDebugMode = 1 << 0
 	BPFDebugUserspace BPFDebugMode = 1 << 1
 	BPFDebugDefault   BPFDebugMode = BPFDebugTracePipe | BPFDebugUserspace
-
-	BPFDebugFlagTracePipe uint32 = 1 << 0
-	BPFDebugFlagUserspace uint32 = 1 << 1
 
 	ContextPropagationDisabled ContextPropagationMode = 0
 	ContextPropagationHeaders  ContextPropagationMode = 1 << 0 // HTTP headers
@@ -49,27 +45,20 @@ const (
 	StrBPFDebugAll                = "all"
 )
 
-func (m BPFDebugMode) Enabled() bool {
+func (m BPFDebugMode) IsEnabled() bool {
 	return m != BPFDebugDisabled
 }
 
-func (m BPFDebugMode) UserspaceEnabled() bool {
+func (m BPFDebugMode) IsUserspaceEnabled() bool {
 	return m&BPFDebugUserspace != 0
 }
 
 func (m BPFDebugMode) Flags() uint32 {
-	var flags uint32
-	if m&BPFDebugTracePipe != 0 {
-		flags |= BPFDebugFlagTracePipe
-	}
-	if m&BPFDebugUserspace != 0 {
-		flags |= BPFDebugFlagUserspace
-	}
-	return flags
+	return uint32(m)
 }
 
 func (m *BPFDebugMode) UnmarshalText(text []byte) error {
-	str := strings.ToLower(strings.TrimSpace(string(text)))
+	str := strings.TrimSpace(string(text))
 
 	switch str {
 	case "", StrBPFDebugDisabled:
@@ -95,24 +84,6 @@ func (m *BPFDebugMode) UnmarshalText(text []byte) error {
 
 	*m = result
 	return nil
-}
-
-func (m *BPFDebugMode) UnmarshalYAML(value *yaml.Node) error {
-	switch value.Kind {
-	case yaml.ScalarNode:
-		return m.UnmarshalText([]byte(value.Value))
-	case yaml.SequenceNode:
-		parts := make([]string, 0, len(value.Content))
-		for _, item := range value.Content {
-			if item.Kind != yaml.ScalarNode {
-				return fmt.Errorf("invalid value for bpf_debug_mode: expected string value")
-			}
-			parts = append(parts, item.Value)
-		}
-		return m.UnmarshalText([]byte(strings.Join(parts, ",")))
-	default:
-		return fmt.Errorf("invalid value for bpf_debug_mode: expected string or string list")
-	}
 }
 
 func (m BPFDebugMode) MarshalText() ([]byte, error) {
@@ -276,6 +247,13 @@ type EBPFTracer struct {
 
 	// eBPF map configurations
 	MapsConfig MapsConfig `yaml:"maps_config"`
+}
+
+func (c EBPFTracer) DebugMode() BPFDebugMode {
+	if c.BpfDebug {
+		return BPFDebugDefault
+	}
+	return c.BpfDebugMode
 }
 
 var nvidiaSMIExistsFunc = nvidiaSMIExists
