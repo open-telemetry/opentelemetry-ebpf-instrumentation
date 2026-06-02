@@ -691,6 +691,22 @@ func TestSerializeJSONSpans(t *testing.T) {
 	}
 }
 
+func TestSpanAttributesGraphQLOmitsDocument(t *testing.T) {
+	attrs := spanAttributes(&Span{
+		Type:    EventTypeHTTP,
+		SubType: HTTPSubtypeGraphQL,
+		GraphQL: &GraphQL{
+			Document:      `mutation ChangeEmail { updateUser(email: "secret@example.com") { id } }`,
+			OperationName: "ChangeEmail",
+			OperationType: "mutation",
+		},
+	})
+
+	assert.NotContains(t, attrs, "graphqlDocument")
+	assert.Equal(t, "ChangeEmail", attrs["graphqlOperationName"])
+	assert.Equal(t, "mutation", attrs["graphqlOperationType"])
+}
+
 func TestDetectsOTelExport(t *testing.T) {
 	const defaultOtlpGRPCPort = 4317
 	// Metrics

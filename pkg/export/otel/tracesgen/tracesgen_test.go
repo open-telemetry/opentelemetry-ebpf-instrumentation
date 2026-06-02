@@ -39,6 +39,54 @@ func TestTraceAttributesSelector_DNSQuestionName(t *testing.T) {
 	assert.Contains(t, optInAttrs, semconv.DNSQuestionName("example.com"))
 }
 
+func TestTraceAttributesSelector_GraphQLDocumentSelection(t *testing.T) {
+	const document = `mutation ChangeEmail { updateUser(email: "secret@example.com") { id } }`
+
+	span := &request.Span{
+		Type:    request.EventTypeHTTP,
+		SubType: request.HTTPSubtypeGraphQL,
+		Method:  "POST",
+		Path:    "/graphql",
+		Status:  200,
+		GraphQL: &request.GraphQL{
+			Document:      document,
+			OperationName: "ChangeEmail",
+			OperationType: "mutation",
+		},
+	}
+
+	defaultAttrs, err := UserSelectedAttributes(&attributes.SelectorConfig{})
+	require.NoError(t, err)
+	assert.NotContains(t, defaultAttrs, attr.GraphQLDocument)
+
+	defaultSelected := AttrsToMap(TraceAttributesSelector(span, defaultAttrs))
+	_, ok := defaultSelected.Get(string(semconv.GraphQLDocumentKey))
+	assert.False(t, ok)
+
+	operationName, ok := defaultSelected.Get(string(semconv.GraphQLOperationNameKey))
+	require.True(t, ok)
+	assert.Equal(t, "ChangeEmail", operationName.Str())
+
+	operationType, ok := defaultSelected.Get(string(semconv.GraphQLOperationTypeKey))
+	require.True(t, ok)
+	assert.Equal(t, "mutation", operationType.Str())
+
+	optInAttrs, err := UserSelectedAttributes(&attributes.SelectorConfig{
+		SelectionCfg: attributes.Selection{
+			attributes.Traces.Section: attributes.InclusionLists{
+				Include: []string{string(attr.GraphQLDocument)},
+			},
+		},
+	})
+	require.NoError(t, err)
+	assert.Contains(t, optInAttrs, attr.GraphQLDocument)
+
+	optInSelected := AttrsToMap(TraceAttributesSelector(span, optInAttrs))
+	selectedDocument, ok := optInSelected.Get(string(semconv.GraphQLDocumentKey))
+	require.True(t, ok)
+	assert.Equal(t, document, selectedDocument.Str())
+}
+
 func TestGenAIToolCallAttributes(t *testing.T) {
 	t.Run("nil tool calls", func(t *testing.T) {
 		assert.Nil(t, genAIToolCallAttributes(nil))
