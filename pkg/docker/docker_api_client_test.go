@@ -49,7 +49,7 @@ func requireConsistency(t *testing.T, s *ContainerStore) {
 	defer s.cacheMu.RUnlock()
 
 	for pid, meta := range s.byPID {
-		pids, ok := s.byID[meta.FullID]
+		pids, ok := s.byID[string(meta.FullID)]
 		require.Truef(t, ok,
 			"byPID[%d] references fullID %q but byID has no entry for it", pid, meta.FullID)
 		found := false
@@ -68,7 +68,7 @@ func requireConsistency(t *testing.T, s *ContainerStore) {
 			meta, ok := s.byPID[pid]
 			require.Truef(t, ok,
 				"byID[%q] lists pid %d but byPID has no entry for it", fullID, pid)
-			require.Equalf(t, fullID, meta.FullID,
+			require.Equalf(t, ContainerID(fullID), meta.FullID,
 				"byID[%q] lists pid %d but byPID[%d].FullID is %q", fullID, pid, pid, meta.FullID)
 		}
 	}
@@ -164,7 +164,7 @@ func TestContainerInfo(t *testing.T) {
 		got, ok := s.ContainerInfo(context.Background(), pid)
 		require.True(t, ok)
 		assert.Equal(t, fullID[:abbreviationLength], got.ID)
-		assert.Equal(t, fullID, got.FullID)
+		assert.Equal(t, ContainerID(fullID), got.FullID)
 		assert.Equal(t, "my-container", got.Name)
 		assert.Equal(t, "web", got.ComposeService)
 		requireConsistency(t, s)
