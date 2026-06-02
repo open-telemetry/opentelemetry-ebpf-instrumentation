@@ -34,10 +34,13 @@ func cmlog() *slog.Logger {
 
 var osInfoForPID = container.InfoForPID
 
+// Full length ID as provided by the docker API
+type ContainerID string
+
 type ContainerMeta struct {
 	// TODO: add other fields https://opentelemetry.io/docs/specs/semconv/resource/container/
 	ID             string // short form ID limited to abbreviationLength
-	FullID         string // Full length ID as provided by the docker API
+	FullID         ContainerID
 	Name           string
 	ComposeService string
 }
@@ -151,7 +154,7 @@ func (s *ContainerStore) ContainerInfo(ctx context.Context, pid app.PID) (Contai
 		// some containers start with '/'. Removing it
 		Name:           strings.Trim(inspectInfo.Name, "/"),
 		ID:             containerID,
-		FullID:         inspectInfo.ID,
+		FullID:         ContainerID(inspectInfo.ID),
 		ComposeService: composeSvcName,
 	}
 
@@ -279,18 +282,18 @@ func (s *ContainerStore) InvalidatePID(pid app.PID) {
 	}
 	delete(s.byPID, pid)
 
-	pids := s.byID[meta.FullID][:0]
-	for _, cachedPID := range s.byID[meta.FullID] {
+	pids := s.byID[string(meta.FullID)][:0]
+	for _, cachedPID := range s.byID[string(meta.FullID)] {
 		if cachedPID != pid {
 			pids = append(pids, cachedPID)
 		}
 	}
 
 	if len(pids) == 0 {
-		delete(s.byID, meta.FullID)
+		delete(s.byID, string(meta.FullID))
 		return
 	}
-	s.byID[meta.FullID] = pids
+	s.byID[string(meta.FullID)] = pids
 }
 
 func (s *ContainerStore) invalidateContainer(containerID string) {
