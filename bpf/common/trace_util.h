@@ -15,10 +15,13 @@
 struct callback_ctx {
     unsigned char *buf;
     u32 pos;
-    u32 len;
+    u8 _pad[4];
 };
 
-enum : u32 { k_tp_pos_not_found = 0xFFFFFFFFU };
+enum : u32 {
+    k_tp_pos_not_found = 0xFFFFFFFFU,
+    k_tp_max_scan_loops = TRACE_BUF_SIZE - TRACE_PARENT_HEADER_LEN,
+};
 
 static unsigned char *hex = (unsigned char *)"0123456789abcdef";
 static unsigned char *reverse_hex =
@@ -88,13 +91,6 @@ static int tp_match(u32 index, void *data) {
     }
 
     struct callback_ctx *ctx = data;
-    if (ctx->len < TRACE_PARENT_HEADER_LEN) {
-        return 1;
-    }
-    if (index > ctx->len - TRACE_PARENT_HEADER_LEN) {
-        return 1;
-    }
-
     unsigned char *s = &(ctx->buf[index]);
 
     if (is_traceparent(s)) {
@@ -105,14 +101,30 @@ static int tp_match(u32 index, void *data) {
     return 0;
 }
 
+static __always_inline u32 traceparent_scan_loop_count(const u16 buf_len) {
+    if (buf_len < TRACE_PARENT_HEADER_LEN) {
+        return 0;
+    }
+
+    u32 nr_loops = (u32)buf_len - TRACE_PARENT_HEADER_LEN + 1;
+    if (nr_loops > k_tp_max_scan_loops) {
+        return k_tp_max_scan_loops;
+    }
+
+    return nr_loops;
+}
+
 static __always_inline unsigned char *bpf_strstr_tp_loop(unsigned char *buf, const u16 buf_len) {
     if (!g_bpf_traceparent_enabled) {
         return NULL;
     }
 
-    struct callback_ctx data = {.buf = buf, .pos = k_tp_pos_not_found, .len = (u32)buf_len};
+    const u32 nr_loops = traceparent_scan_loop_count(buf_len);
+    if (nr_loops == 0) {
+        return NULL;
+    }
 
-    const u32 nr_loops = (u32)buf_len;
+    struct callback_ctx data = {.buf = buf, .pos = k_tp_pos_not_found};
 
     bpf_loop(nr_loops, tp_match, &data, 0);
 

@@ -40,9 +40,9 @@ traceparent_pos_after_read(const unsigned char *stale, const unsigned char *fres
     memcpy(buf, stale, strlen((const char *)stale));
     memcpy(buf, fresh, fresh_len);
 
-    struct callback_ctx ctx = {.buf = buf, .pos = k_tp_pos_not_found, .len = fresh_len};
+    struct callback_ctx ctx = {.buf = buf, .pos = k_tp_pos_not_found};
 
-    tp_match(1, &ctx);
+    bpf_loop(traceparent_scan_loop_count(fresh_len), tp_match, &ctx, 0);
     return ctx.pos;
 }
 
