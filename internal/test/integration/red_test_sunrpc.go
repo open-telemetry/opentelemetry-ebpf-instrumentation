@@ -16,6 +16,7 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.38.0"
 
 	"go.opentelemetry.io/obi/internal/test/integration/components/jaeger"
+	"go.opentelemetry.io/obi/internal/test/integration/components/promtest"
 )
 
 func runSunRPCTestCase(t *testing.T, testCase TestCase) {
@@ -87,6 +88,57 @@ func testREDMetricsGoSunRPC(t *testing.T) {
 			runSunRPCTestCase(t, testCase)
 		})
 	}
+}
+
+func testREDMetricsGoSunRPCPrometheus(t *testing.T) {
+	const (
+		url     = "http://localhost:8381"
+		subpath = "sunrpc"
+		svcNs   = "integration-test"
+		svcName = "testserver"
+	)
+
+	waitForHTTP200(t, url+"/health")
+
+	for range 4 {
+		req, err := http.NewRequest(http.MethodGet, url+"/"+subpath, nil)
+		require.NoError(t, err)
+		resp, err := testHTTPClient.Do(req)
+		require.NoError(t, err)
+		require.Equal(t, http.StatusOK, resp.StatusCode)
+		resp.Body.Close()
+	}
+
+	pq := promtest.Client{HostPort: prometheusHostPort}
+
+	// SunRPC uses the same semconv rpc.* metric names as gRPC; rpc_system distinguishes protocols.
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		results, err := pq.Query(`rpc_client_duration_seconds_count{` +
+			`rpc_system="onc_rpc",` +
+			`rpc_method="0",` +
+			`onc_rpc_program_name="portmapper",` +
+			`rpc_grpc_status_code="0",` +
+			`service_namespace="` + svcNs + `",` +
+			`service_name="` + svcName + `"}`)
+		require.NoError(ct, err)
+		enoughPromResults(ct, results)
+		val := totalPromCount(ct, results)
+		assert.LessOrEqual(ct, 1, val)
+	}, 2*testTimeout, 100*time.Millisecond)
+
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		results, err := pq.Query(`rpc_server_duration_seconds_count{` +
+			`rpc_system="onc_rpc",` +
+			`rpc_method="0",` +
+			`onc_rpc_program_name="portmapper",` +
+			`rpc_grpc_status_code="0",` +
+			`service_namespace="` + svcNs + `",` +
+			`service_name="` + svcName + `"}`)
+		require.NoError(ct, err)
+		enoughPromResults(ct, results)
+		val := totalPromCount(ct, results)
+		assert.LessOrEqual(ct, 1, val)
+	}, 2*testTimeout, 100*time.Millisecond)
 }
 
 func waitForHTTP200(t *testing.T, url string) {

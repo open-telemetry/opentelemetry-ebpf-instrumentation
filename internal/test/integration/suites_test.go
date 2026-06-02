@@ -589,6 +589,7 @@ func TestSuite_GoSunRPC(t *testing.T) {
 	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)
 	require.NoError(t, compose.Up())
 	t.Run("Go SunRPC tests", testREDMetricsGoSunRPC)
+	t.Run("Go SunRPC Prometheus metrics", testREDMetricsGoSunRPCPrometheus)
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
