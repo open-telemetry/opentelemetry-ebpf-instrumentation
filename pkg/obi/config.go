@@ -431,6 +431,9 @@ type Config struct {
 type HealthCheckConfig struct {
 	// 0 (default) means disabled
 	Port int `yaml:"port" env:"OTEL_EBPF_HEALTH_CHECK_PORT" validate:"gte=0,lte=65535"`
+	// when set, the health endpoint binds this unix socket (a filesystem path or a leading-'@'
+	// abstract name) instead of the TCP port
+	UnixSocketPath string `yaml:"unix_socket_path" env:"OTEL_EBPF_HEALTH_CHECK_UNIX_SOCKET_PATH"`
 }
 
 func (c *Config) Unmarshal(component *confmap.Conf) error {

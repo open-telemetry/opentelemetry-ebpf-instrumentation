@@ -338,6 +338,7 @@ AttributesConfig stores the user-provided section for filtering either Applicati
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
 | `health_check.port` | `integer` | `OTEL_EBPF_HEALTH_CHECK_PORT` | `0` |  |  | 0 (default) means disabled |
+| `health_check.unix_socket_path` | `string` | `OTEL_EBPF_HEALTH_CHECK_UNIX_SOCKET_PATH` |  |  |  | when set, the health endpoint binds this unix socket (a filesystem path or a leading-'@' abstract name) instead of the TCP port |
 
 ## `internal_metrics`
 

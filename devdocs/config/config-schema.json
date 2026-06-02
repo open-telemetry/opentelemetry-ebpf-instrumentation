@@ -1264,6 +1264,11 @@
           "description": "0 (default) means disabled",
           "default": 0,
           "x-env-var": "OTEL_EBPF_HEALTH_CHECK_PORT"
+        },
+        "unix_socket_path": {
+          "type": "string",
+          "description": "when set, the health endpoint binds this unix socket (a filesystem path or a leading-'@' abstract name) instead of the TCP port",
+          "x-env-var": "OTEL_EBPF_HEALTH_CHECK_UNIX_SOCKET_PATH"
         }
       },
       "type": "object"
