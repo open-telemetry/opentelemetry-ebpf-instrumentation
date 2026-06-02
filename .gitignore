@@ -113,3 +113,4 @@ internal/test/benchmarks/goshorturl/shorturl
 # Pre-fetched upstream OpenTelemetry semantic-conventions registry consumed
 # by weaver. Populated by `make fetch-upstream-semconv` (a prereqs dep).
 schemas/obi/.deps/
+internal/test/vm/lvh/out/

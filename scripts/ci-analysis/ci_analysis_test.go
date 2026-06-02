@@ -15,7 +15,7 @@ func testMeta() RunMeta {
 	return RunMeta{
 		RunID:     "12345",
 		CreatedAt: "2026-01-01T00:00:00Z",
-		Workflow:  "Pull request integration tests",
+		Workflow:  "Integration tests",
 	}
 }
 
@@ -114,21 +114,21 @@ func TestApplyDockerFingerprints(t *testing.T) {
 
 func TestWriteReport(t *testing.T) {
 	results := []TestResult{
-		{RunID: "1", Workflow: "Pull request integration tests", Test: "TestFailed", Outcome: "failed", ErrorFingerprint: "port-conflict"},
-		{RunID: "1", Workflow: "Pull request integration tests", Test: "TestFlaky", Outcome: "flaky-passed", ErrorFingerprint: "port-conflict"},
-		{RunID: "1", Workflow: "Pull request integration tests", Test: "TestPassed", Outcome: "passed"},
+		{RunID: "1", Workflow: "Integration tests", Test: "TestFailed", Outcome: "failed", ErrorFingerprint: "port-conflict"},
+		{RunID: "1", Workflow: "Integration tests", Test: "TestFlaky", Outcome: "flaky-passed", ErrorFingerprint: "port-conflict"},
+		{RunID: "1", Workflow: "Integration tests", Test: "TestPassed", Outcome: "passed"},
 	}
 	metaMap := map[string]RunMeta{
-		"1": {RunID: "1", Workflow: "Pull request integration tests", Conclusion: "failure"},
+		"1": {RunID: "1", Workflow: "Integration tests", Conclusion: "failure"},
 	}
 
 	var buf bytes.Buffer
-	err := writeReport(&buf, results, metaMap, "test/repo")
+	err := writeReport(&buf, "CI Test Analysis Report", results, metaMap, "test/repo")
 	require.NoError(t, err)
 
 	report := buf.String()
 	require.Contains(t, report, "# CI Test Analysis Report")
-	require.Contains(t, report, "Pull request integration tests")
+	require.Contains(t, report, "Integration tests")
 	require.Contains(t, report, "TestFailed")
 	require.Contains(t, report, "TestFlaky")
 	require.Contains(t, report, "port-conflict")
@@ -421,7 +421,7 @@ func TestWriteReport_RendersPackageQualifiedNames(t *testing.T) {
 		"1": {RunID: "1", Workflow: "Wf", Conclusion: "failure"},
 	}
 	var buf bytes.Buffer
-	require.NoError(t, writeReport(&buf, results, metaMap, "test/repo"))
+	require.NoError(t, writeReport(&buf, "CI Test Analysis Report", results, metaMap, "test/repo"))
 
 	out := buf.String()
 	require.Contains(t, out, "`a.TestNew`", "rows should include the package leaf; got:\n%s", out)
@@ -475,7 +475,7 @@ func TestWriteReport_PassRateMatchesConclusion(t *testing.T) {
 		"2": {RunID: "2", Workflow: "Wf", Conclusion: "success"},
 	}
 	var buf bytes.Buffer
-	require.NoError(t, writeReport(&buf, results, metaMap, "test/repo"))
+	require.NoError(t, writeReport(&buf, "CI Test Analysis Report", results, metaMap, "test/repo"))
 
 	report := buf.String()
 	// Workflow row format: | Wf | 2 | 1 | 1 | 0 | 100% |
@@ -493,7 +493,7 @@ func TestWriteReport_HardFailLowersPassRate(t *testing.T) {
 		"2": {RunID: "2", Workflow: "Wf", Conclusion: "success"},
 	}
 	var buf bytes.Buffer
-	require.NoError(t, writeReport(&buf, results, metaMap, "test/repo"))
+	require.NoError(t, writeReport(&buf, "CI Test Analysis Report", results, metaMap, "test/repo"))
 
 	require.Contains(t, buf.String(), "| Wf | 2 | 1 | 0 | 1 | 50% |")
 }

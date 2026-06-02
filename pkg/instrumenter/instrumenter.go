@@ -19,6 +19,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
 	"go.opentelemetry.io/obi/pkg/export/otel"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
+	"go.opentelemetry.io/obi/pkg/health"
 	"go.opentelemetry.io/obi/pkg/internal/appolly"
 	"go.opentelemetry.io/obi/pkg/kube"
 	netagent "go.opentelemetry.io/obi/pkg/netolly/agent"
@@ -57,6 +58,12 @@ func RunWithContextInfo(
 
 	// if one of nodes fail, the other should stop
 	g, ctx := errgroup.WithContext(ctx)
+
+	if cfg.HealthCheck.Port != 0 {
+		g.Go(func() error {
+			return health.ListenAndServe(ctx, cfg.HealthCheck.Port)
+		})
+	}
 
 	if app {
 		g.Go(func() error {

@@ -388,6 +388,7 @@ func getDefinitions(
 				attr.GenAIOutput:       false,
 				attr.GenAIInstructions: false,
 				attr.GenAIMetadata:     false,
+				attr.GenAITools:        false,
 				attr.DBResponseError:   false,
 			},
 		},
@@ -476,6 +477,12 @@ func getDefinitions(
 		StatTCPRetransmits.Section: {
 			SubGroups:  []*AttrReportGroup{&statsAttributes, &statsKubeAttributes},
 			Attributes: map[attr.Name]Default{},
+		},
+		StatTCPIo.Section: {
+			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes},
+			Attributes: map[attr.Name]Default{
+				attr.NetworkIoDirection: true,
+			},
 		},
 
 		// span and service graph metrics don't yet implement attribute selection,

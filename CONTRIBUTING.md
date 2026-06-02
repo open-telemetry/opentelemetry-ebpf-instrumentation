@@ -11,6 +11,8 @@ for a summary description of past meetings. To request edit access,
 join the meeting or get in touch on
 [Slack](https://cloud-native.slack.com/archives/C08P9L4FPKJ).
 
+⚠️ Generative/Agentic code users, please read carefully our [OpenTelemetry eBPF Instrumentation Generative AI Policy](AI-POLICY.md) ⚠️
+
 ## Scope
 
 It is important to note what this project is and is not intended to achieve.

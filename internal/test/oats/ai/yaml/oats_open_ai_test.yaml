@@ -15,22 +15,22 @@ expected:
   - traceql: '{ .gen_ai.provider.name = "openai" && .gen_ai.request.model = "gpt-5-mini" && .gen_ai.response.id = "resp_09687a288637e2be006998ad7af05481a2bb0938f77da5a9db"}'
     equals: response gpt-5-mini
     attributes:
-      gen_ai.input.messages: How do I check if a Python object is an instance of a class?
+      gen_ai.input.messages: '[{"role":"user","parts":[{"type":"text","content":"How do I check if a Python object is an instance of a class?"}]}]'
       gen_ai.operation.name: response
-      gen_ai.system_instructions: You are a coding assistant that talks like a pirate.
+      gen_ai.system_instructions: '[{"type":"text","content":"You are a coding assistant that talks like a pirate."}]'
       gen_ai.response.model: gpt-5-mini-2025-08-07
   # Error returned by OpenAI
   - traceql: '{ .error.type = "insufficient_quota" && .gen_ai.request.model = "gpt-5-mini"}'
     equals: POST /v1/responses
     attributes:
-      gen_ai.input.messages: How do I check if a Python object is an instance of a class?
-      gen_ai.system_instructions: You are a coding assistant that talks like a pirate.
+      gen_ai.input.messages: '[{"role":"user","parts":[{"type":"text","content":"How do I check if a Python object is an instance of a class?"}]}]'
+      gen_ai.system_instructions: '[{"type":"text","content":"You are a coding assistant that talks like a pirate."}]'
       gen_ai.provider.name: openai
   # Chat completion
   - traceql: '{ .gen_ai.provider.name = "openai" && .gen_ai.request.model = "gpt-4o-mini"}'
-    equals: chat.completion gpt-4o-mini
+    equals: chat gpt-4o-mini
     attributes:
-      gen_ai.operation.name: chat.completion
+      gen_ai.operation.name: chat
       gen_ai.response.model: gpt-4o-mini-2024-07-18
       gen_ai.usage.output_tokens: 816
   # Conversations
@@ -44,7 +44,7 @@ expected:
     equals: embeddings text-embedding-3-small
     attributes:
       gen_ai.operation.name: embeddings
-      gen_ai.input.messages: The food was delicious
+      gen_ai.input.messages: '[{"role":"user","parts":[{"type":"text","content":"The food was delicious"}]}]'
       gen_ai.response.model: text-embedding-3-small
       gen_ai.usage.input_tokens: 5
   metrics:

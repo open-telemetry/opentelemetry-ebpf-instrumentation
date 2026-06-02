@@ -3,13 +3,17 @@ name: "CI Supervisor: Rerun flaky failures"
 on: # zizmor: ignore[dangerous-triggers] checks out only scripts/rerun-flaky.sh from default branch (explicit ref); GITHUB_TOKEN scoped to actions:write
   workflow_run:
     workflows:
-      - "Pull request checks"
-      - "Pull request integration tests"
-      - "Pull request integration tests ARM"
-      - "Pull request K8s integration tests"
-      - "PR OATS test"
-      - "Test Docker build"
-      - "Pull request integration tests on VM"
+      - "PR checks"
+      - "Lint"
+      - "Unit tests"
+      - "Unit tests (privileged)"
+      - "BPF verifier"
+      - "Integration tests"
+      - "Integration tests ARM"
+      - "Integration tests K8S"
+      - "OATS tests"
+      - "Build test"
+      - "Integration tests VM"
       - "Java Agent CI"
     types: [completed]
 

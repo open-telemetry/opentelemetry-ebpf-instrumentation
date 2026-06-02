@@ -1,10 +1,10 @@
-name: Privileged unit tests
+name: Unit tests (privileged)
 
 on:
   push:
-    branches: ["main", "release-*"]
+    branches: [main, release-*]
   pull_request:
-    branches: ["main", "release-*"]
+    branches: [main, release-*]
   workflow_call:
     inputs:
       ref:
@@ -13,7 +13,7 @@ on:
         type: string
 
 concurrency:
-  group: pull-request-privileged-${{ github.head_ref || github.run_id }}
+  group: pr-privileged-${{ github.head_ref || github.run_id }}
   cancel-in-progress: true
 
 permissions:
@@ -44,7 +44,7 @@ jobs:
           restore-keys: |
             go-build-pr-race-${{ runner.os }}-${{ runner.arch }}-
 
-      - name: Generate and build tools
+      - name: Generate BPF + build test tools
         run: make prereqs docker-generate
 
       - name: Run privileged unit tests
@@ -54,10 +54,10 @@ jobs:
         run: make cov-exclude-generated
 
       - name: Report coverage
-        uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2 # v6.0.0
+        uses: codecov/codecov-action@e79a6962e0d4c0c17b229090214935d2e33f8354 # v6.0.1
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
         with:
           files: ./testoutput/cover.txt
           flags: unittests
-          name: go-privileged-unittests-coverage
+          name: unit-privileged-coverage

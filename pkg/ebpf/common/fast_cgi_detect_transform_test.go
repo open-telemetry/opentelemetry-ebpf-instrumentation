@@ -42,6 +42,67 @@ func TestMaybeFastCGI(t *testing.T) {
 			inputLen: 100,
 			expected: false,
 		},
+		// The next group exercises the cheap header prefilter (version byte
+		// must be 1, record-type byte must be in 1..11). The buffers all
+		// contain the literal "REQUEST_METHOD" so the prefilter is the
+		// only thing that can reject them.
+		{
+			name:     "version byte zero",
+			input:    []byte{0, 1, 0, 0, 0, 8, 0, 0, 0, 'R', 'E', 'Q', 'U', 'E', 'S', 'T', '_', 'M', 'E', 'T', 'H', 'O', 'D'},
+			inputLen: 100,
+			expected: false,
+		},
+		{
+			name:     "version byte 2 (unsupported)",
+			input:    []byte{2, 1, 0, 0, 0, 8, 0, 0, 0, 'R', 'E', 'Q', 'U', 'E', 'S', 'T', '_', 'M', 'E', 'T', 'H', 'O', 'D'},
+			inputLen: 100,
+			expected: false,
+		},
+		{
+			name:     "version byte 255",
+			input:    []byte{255, 1, 0, 0, 0, 8, 0, 0, 0, 'R', 'E', 'Q', 'U', 'E', 'S', 'T', '_', 'M', 'E', 'T', 'H', 'O', 'D'},
+			inputLen: 100,
+			expected: false,
+		},
+		{
+			name:     "type byte zero (below valid range)",
+			input:    []byte{1, 0, 0, 0, 0, 8, 0, 0, 0, 'R', 'E', 'Q', 'U', 'E', 'S', 'T', '_', 'M', 'E', 'T', 'H', 'O', 'D'},
+			inputLen: 100,
+			expected: false,
+		},
+		{
+			name:     "type byte 12 (just above valid range)",
+			input:    []byte{1, 12, 0, 0, 0, 8, 0, 0, 0, 'R', 'E', 'Q', 'U', 'E', 'S', 'T', '_', 'M', 'E', 'T', 'H', 'O', 'D'},
+			inputLen: 100,
+			expected: false,
+		},
+		{
+			name:     "type byte 255 (well above valid range)",
+			input:    []byte{1, 255, 0, 0, 0, 8, 0, 0, 0, 'R', 'E', 'Q', 'U', 'E', 'S', 'T', '_', 'M', 'E', 'T', 'H', 'O', 'D'},
+			inputLen: 100,
+			expected: false,
+		},
+		{
+			name:     "type byte 1 (BEGIN_REQUEST, lower boundary) accepted",
+			input:    []byte{1, 1, 0, 0, 0, 8, 0, 0, 0, 'R', 'E', 'Q', 'U', 'E', 'S', 'T', '_', 'M', 'E', 'T', 'H', 'O', 'D'},
+			inputLen: 100,
+			expected: true,
+		},
+		{
+			name:     "type byte 11 (UNKNOWN_TYPE, upper boundary) accepted",
+			input:    []byte{1, 11, 0, 0, 0, 8, 0, 0, 0, 'R', 'E', 'Q', 'U', 'E', 'S', 'T', '_', 'M', 'E', 'T', 'H', 'O', 'D'},
+			inputLen: 100,
+			expected: true,
+		},
+		{
+			// Without the header prefilter this random-bytes buffer would be a
+			// false positive: it happens to contain "REQUEST_METHOD" but is
+			// clearly not FastCGI traffic.
+			name:     "random bytes containing REQUEST_METHOD literal are rejected",
+			input:    []byte{0xff, 0xfe, 0xfd, 0xfc, 0xfb, 0xfa, 0xf9, 0xf8, 0xf7, 'R', 'E', 'Q', 'U', 'E', 'S', 'T', '_', 'M', 'E', 'T', 'H', 'O', 'D'},
+			inputLen: 100,
+			expected: false,
+		},
 	}
 
 	for _, tt := range tests {

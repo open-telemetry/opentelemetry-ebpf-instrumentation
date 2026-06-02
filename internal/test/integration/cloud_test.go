@@ -67,8 +67,8 @@ func setupAWSMockIMDS(t *testing.T, net dockertest.Network) {
 	t.Helper()
 
 	t.Log("Starting AWS EC2 Metadata Mock container...")
-	mockIMDS, err := dockerPool.Run(t.Context(), "amazon/amazon-ec2-metadata-mock",
-		dockertest.WithTag(versionAWSMetaMock),
+	mockIMDS, err := dockerPool.Run(t.Context(), imgAWSMetaMock.Repository(),
+		dockertest.WithTag(imgAWSMetaMock.Tag()),
 		dockertest.WithName(fmt.Sprintf("mock-imds-test-%d", time.Now().UnixNano())),
 		dockertest.WithMounts([]string{
 			pathRoot + "/internal/test/integration/configs/aws-metadata-mock.json:/config/aws-metadata-mock.json",
@@ -108,8 +108,8 @@ func setupMockAzureIMDS(t *testing.T, imdsSubnet dockertest.Network) {
 	t.Helper()
 	t.Log("Starting Azure IMDS Mock container...")
 
-	mockIMDS, err := dockerPool.Run(t.Context(), "nginx",
-		dockertest.WithTag(versionNginx),
+	mockIMDS, err := dockerPool.Run(t.Context(), imgNginx.Repository(),
+		dockertest.WithTag(imgNginx.Tag()),
 		dockertest.WithName(fmt.Sprintf("mock-imds-nginx-%d", time.Now().UnixNano())),
 		dockertest.WithMounts([]string{
 			pathRoot + "/internal/test/integration/components/azure-imds/nginx.conf:/etc/nginx/nginx.conf",
@@ -148,8 +148,8 @@ func setupMockGCPIMDS(t *testing.T, net dockertest.Network) {
 	t.Helper()
 	t.Log("Starting GCP IMDS Mock container...")
 
-	mockIMDS, err := dockerPool.Run(t.Context(), "nginx",
-		dockertest.WithTag(versionNginx),
+	mockIMDS, err := dockerPool.Run(t.Context(), imgNginx.Repository(),
+		dockertest.WithTag(imgNginx.Tag()),
 		dockertest.WithName(fmt.Sprintf("mock-imds-gcp-nginx-%d", time.Now().UnixNano())),
 		dockertest.WithMounts([]string{
 			pathRoot + "/internal/test/integration/components/gcp-imds/nginx.conf:/etc/nginx/nginx.conf",

@@ -35,12 +35,16 @@ FOUND_FAILURE=0
 
 while IFS=$'\t' read -r job_name job_conclusion; do
   FOUND_FAILURE=1
-  # Unrecoverable: lint/format/tidy failures won't be fixed by re-running
-  if [ "$WORKFLOW_NAME" = "Pull request checks" ] \
-     && echo "$job_name" | grep -qi "lint"; then
+  # Unrecoverable: lint/clang-format/clang-tidy failures are deterministic
+  # and won't be fixed by re-running. The Lint workflow is dedicated to
+  # these so any failure under it is unrecoverable. PR checks hosts the
+  # clang-format/clang-tidy jobs so match those by job name there.
+  if [ "$WORKFLOW_NAME" = "Lint" ] \
+     || { [ "$WORKFLOW_NAME" = "PR checks" ] \
+          && echo "$job_name" | grep -qiE "lint|clang"; }; then
     if [ "$VERDICT" != "skip" ]; then
       VERDICT="skip"
-      REASON="Lint job failed in '${WORKFLOW_NAME}' -- static analysis/style failure, re-run will not help"
+      REASON="Lint/format job failed in '${WORKFLOW_NAME}' -- static analysis/style failure, re-run will not help"
     fi
   fi
 done < <(echo "$RUN_JSON" | jq -r '.jobs[] | select(.conclusion == "failure" or .conclusion == "timed_out") | [.name, .conclusion] | @tsv')

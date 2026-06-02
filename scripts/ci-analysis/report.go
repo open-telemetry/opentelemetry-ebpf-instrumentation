@@ -18,9 +18,12 @@ const (
 	maxTestsInList         = 8
 )
 
-func writeReport(w io.Writer, results []TestResult, metaMap map[string]RunMeta, repo string) error {
+func writeReport(w io.Writer, title string, results []TestResult, metaMap map[string]RunMeta, repo string) error {
+	if title == "" {
+		title = "CI Test Analysis Report"
+	}
 	if len(results) == 0 && len(metaMap) == 0 {
-		_, err := fmt.Fprintln(w, "# CI Test Analysis Report\n\nNo test data found for the analysis period.")
+		_, err := fmt.Fprintf(w, "# %s\n\nNo test data found for the analysis period.\n", title)
 		return err
 	}
 
@@ -34,7 +37,7 @@ func writeReport(w io.Writer, results []TestResult, metaMap map[string]RunMeta, 
 		fmt.Fprintf(w, format+"\n", args...)
 	}
 
-	p("# CI Test Analysis Report")
+	p("# %s", title)
 	p("")
 	p("**Period:** %s to %s", minDate, maxDate)
 	p("**Runs analyzed:** %d | **Tests tracked:** %d", len(metaMap), uniqueTests)

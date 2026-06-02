@@ -62,7 +62,7 @@ services:
 
   # OpenTelemetry Collector
   otelcol:
-    image: otel/opentelemetry-collector-contrib:0.152.0@sha256:f41d7995565df3733b7568702073a9c490792f9c6ac60684fe6a4da21a313f8d
+    image: otel/opentelemetry-collector-contrib:0.153.0@sha256:93aad750175cbf1a973ae1c5886c3371f4d800f61be25cdd26870b8441ffe9fa
     container_name: otel-col
     deploy:
       resources:
@@ -93,7 +93,7 @@ services:
     volumes:
       - ../../../schemas/obi:/obi-registry:ro
   prometheus:
-    image: quay.io/prometheus/prometheus:v3.11.2@sha256:cd37346c974517be59bd528c43cfff51727fb75393df0ad8d10ce10013a047b6
+    image: quay.io/prometheus/prometheus:v3.12.0@sha256:69f5241418838263316593f7274a304b095c40bcf22e57272865da91bd60a8ac
     container_name: prometheus
     command:
       - --config.file=/etc/prometheus/prometheus-config.yml

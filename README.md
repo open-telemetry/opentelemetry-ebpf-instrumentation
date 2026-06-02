@@ -218,7 +218,7 @@ issuer and identity regexp shown above.
 
 ## Contributing
 
-See [CONTRIBUTING](CONTRIBUTING.md)
+See [CONTRIBUTING](CONTRIBUTING.md) and [OpenTelemetry eBPF Instrumentation Generative AI Policy](AI-POLICY.md).
 
 ## License
 

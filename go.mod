@@ -8,7 +8,6 @@ require (
 	github.com/caarlos0/env/v11 v11.4.1
 	github.com/cilium/ebpf v0.20.0
 	github.com/containers/common v0.64.2
-	github.com/gavv/monotime v0.0.0-20190418164738-30dba4353424
 	github.com/gin-gonic/gin v1.12.0
 	github.com/go-logr/logr v1.4.3
 	github.com/go-logr/stdr v1.2.2
@@ -37,7 +36,6 @@ require (
 	github.com/prometheus/procfs v0.20.1
 	github.com/shirou/gopsutil/v4 v4.26.4
 	github.com/stretchr/testify v1.11.1
-	github.com/tklauser/go-sysconf v0.3.16
 	github.com/vektah/gqlparser/v2 v2.5.33
 	github.com/vishvananda/netlink v1.3.1
 	github.com/vladimirvivien/gexe v0.5.0
@@ -192,6 +190,7 @@ require (
 	github.com/rs/cors v1.11.1 // indirect
 	github.com/spf13/pflag v1.0.9 // indirect
 	github.com/stretchr/objx v0.5.3 // indirect
+	github.com/tklauser/go-sysconf v0.3.16 // indirect
 	github.com/tklauser/numcpus v0.11.0 // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	github.com/ugorji/go/codec v1.3.1 // indirect

@@ -7,7 +7,7 @@ services:
     ports:
       - "{{ .GrafanaHTTPPort }}:3000"
   prometheus:
-    image: prom/prometheus:v3.11.2@sha256:5550dc63da361dc30f6fe02ac0e4dfc736ededfef3c8d12a634db04a67824d78
+    image: prom/prometheus:v3.12.0@sha256:69f5241418838263316593f7274a304b095c40bcf22e57272865da91bd60a8ac
     command:
       - --web.enable-remote-write-receiver
       - --enable-feature=exemplar-storage
@@ -16,7 +16,7 @@ services:
     ports:
       - "{{ .PrometheusHTTPPort }}:9090"
   tempo:
-    image: grafana/tempo:2.10.3@sha256:cac9de2ac9f6da8efca5b64b690a7cb8c786a0c49cac7b4517dd1b0089a6c703
+    image: grafana/tempo:3.0.0@sha256:78439f7f7cf3c97122846c13a832e060c6c7ef67dcc814dccf0a5f3f78393a93
     volumes:
       - "{{ .ConfigDir }}/tempo-config.yaml:/config.yaml"
     command:
@@ -29,7 +29,7 @@ services:
 #    ports:
 #      - "{{ .LokiHTTPPort }}:3100"
   collector:
-    image: otel/opentelemetry-collector-contrib:0.152.0@sha256:f41d7995565df3733b7568702073a9c490792f9c6ac60684fe6a4da21a313f8d
+    image: otel/opentelemetry-collector-contrib:0.153.0@sha256:93aad750175cbf1a973ae1c5886c3371f4d800f61be25cdd26870b8441ffe9fa
     volumes:
       - "{{ .ConfigDir }}/otelcol-config.yaml:/config.yaml"
     command:

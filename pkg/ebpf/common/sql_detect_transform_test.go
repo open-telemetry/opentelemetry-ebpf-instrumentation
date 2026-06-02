@@ -231,3 +231,108 @@ func TestIsASCII(t *testing.T) {
 		})
 	}
 }
+
+func TestMinSQLPrintableRun(t *testing.T) {
+	// Pinned to the length of "SELECT 1" so that the shortest detectable SQL
+	// statement just clears the prefilter threshold. If this changes, audit
+	// the SQL detection tests in tcp_detect_transform_test.go.
+	assert.Len(t, "SELECT 1", minSQLPrintableRun)
+}
+
+func TestIsSQLByte(t *testing.T) {
+	t.Run("accepts every printable ASCII byte in [0x20, 0x7F)", func(t *testing.T) {
+		for b := 0x20; b < 0x7f; b++ {
+			assert.Truef(t, isSQLByte(byte(b)), "byte 0x%02X should be accepted", b)
+		}
+	})
+
+	t.Run("accepts tab, LF, and CR", func(t *testing.T) {
+		for _, b := range []byte{'\t', '\n', '\r'} {
+			assert.Truef(t, isSQLByte(b), "whitespace 0x%02X should be accepted", b)
+		}
+	})
+
+	t.Run("rejects control bytes other than tab/LF/CR", func(t *testing.T) {
+		for _, b := range []byte{0x00, 0x01, '\b', '\v', '\f', 0x1B, 0x1F} {
+			assert.Falsef(t, isSQLByte(b), "control byte 0x%02X should be rejected", b)
+		}
+	})
+
+	t.Run("rejects DEL (0x7F)", func(t *testing.T) {
+		// 0x7F sits just outside the [0x20, 0x7F) printable range.
+		assert.False(t, isSQLByte(0x7f))
+	})
+
+	t.Run("rejects bytes with the high bit set", func(t *testing.T) {
+		for _, b := range []byte{0x80, 0xA5, 0xC2, 0xFE, 0xFF} {
+			assert.Falsef(t, isSQLByte(b), "high-bit byte 0x%02X should be rejected", b)
+		}
+	})
+}
+
+func TestFirstSQLRun(t *testing.T) {
+	t.Run("returns -1 when the buffer is shorter than minLen", func(t *testing.T) {
+		assert.Equal(t, -1, firstSQLRun([]byte("hi"), 5))
+		assert.Equal(t, -1, firstSQLRun(nil, 1))
+		assert.Equal(t, -1, firstSQLRun([]byte{}, 1))
+	})
+
+	t.Run("returns 0 when the whole buffer is printable", func(t *testing.T) {
+		assert.Equal(t, 0, firstSQLRun([]byte("SELECT 1"), 8))
+		assert.Equal(t, 0, firstSQLRun([]byte("SELECT * FROM users"), 8))
+	})
+
+	t.Run("returns 0 when the buffer is exactly minLen and all printable", func(t *testing.T) {
+		assert.Equal(t, 0, firstSQLRun([]byte("ABCDEFGH"), 8))
+	})
+
+	t.Run("returns the start of a qualifying run that follows a binary prefix", func(t *testing.T) {
+		// 5 bytes of binary, then "SELECT 1" (8 printable bytes).
+		buf := append([]byte{0x00, 0x01, 0xff, 0xfe, 0x80}, []byte("SELECT 1")...)
+		assert.Equal(t, 5, firstSQLRun(buf, 8))
+	})
+
+	t.Run("returns -1 when no printable run reaches minLen", func(t *testing.T) {
+		// Three 4-byte printable islands separated by binary; none qualifies.
+		buf := []byte("ABCD\x00XYZW\xffPQRS")
+		assert.Equal(t, -1, firstSQLRun(buf, 8))
+	})
+
+	t.Run("skips a short run and finds a later qualifying one", func(t *testing.T) {
+		// 4 printable bytes, a binary byte, then 8 printable bytes.
+		buf := append([]byte("ABCD\x00"), []byte("SELECT 1")...)
+		assert.Equal(t, 5, firstSQLRun(buf, 8))
+	})
+
+	t.Run("counts tab, LF, and CR as part of a run", func(t *testing.T) {
+		// "S\tE\nL\rE\tCT" = 9 bytes, all SQL-plausible.
+		buf := []byte("S\tE\nL\rE\tCT")
+		assert.Equal(t, 0, firstSQLRun(buf, 8))
+	})
+
+	t.Run("returns the earliest qualifying run when several exist", func(t *testing.T) {
+		// Two 8+ byte printable runs separated by binary; the first one wins.
+		buf := append([]byte("FIRSTONE\x00"), []byte("SECONDONE")...)
+		assert.Equal(t, 0, firstSQLRun(buf, 8))
+	})
+
+	t.Run("returns the correct offset when a single binary byte precedes a qualifying run", func(t *testing.T) {
+		// Exercises the i - minLen + 1 arithmetic at the boundary.
+		buf := []byte("\x00SELECT 1")
+		assert.Equal(t, 1, firstSQLRun(buf, 8))
+	})
+
+	t.Run("DEL byte interrupts a run", func(t *testing.T) {
+		// 0x7F is not SQL-plausible, so "SELECT" (6 chars) is too short and
+		// the run only qualifies starting at the space after 0x7F.
+		buf := []byte("SELECT\x7f 1 FROM x")
+		assert.Equal(t, 7, firstSQLRun(buf, 8))
+	})
+
+	t.Run("high-bit bytes interrupt a run", func(t *testing.T) {
+		// Half of a UTF-8 emoji in the middle of otherwise-printable text.
+		buf := []byte("SELECT\xc2\xa9 1 FROM x")
+		// The qualifying run starts at the space (index 8) and runs to end.
+		assert.Equal(t, 8, firstSQLRun(buf, 8))
+	})
+}
