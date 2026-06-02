@@ -175,6 +175,9 @@ func upgradeConnWithTimeout(conn net.Conn, wsURL string, timeout time.Duration) 
 	if err := conn.SetDeadline(time.Now().Add(timeout)); err != nil {
 		return nil, nil, fmt.Errorf("connection deadline error: %w", err)
 	}
+	defer func() {
+		_ = conn.SetDeadline(time.Time{})
+	}()
 
 	dialer := websocket.Dialer{
 		HandshakeTimeout: timeout,
@@ -211,6 +214,10 @@ func sendEvaluateWithTimeout(wsConn *websocket.Conn, exp string, id int, timeout
 	if err := wsConn.SetWriteDeadline(deadline); err != nil {
 		return fmt.Errorf("websocket write deadline error: %w", err)
 	}
+	defer func() {
+		_ = wsConn.SetWriteDeadline(time.Time{})
+		_ = wsConn.SetReadDeadline(time.Time{})
+	}()
 
 	if err := wsConn.SetReadDeadline(deadline); err != nil {
 		return fmt.Errorf("websocket read deadline error: %w", err)

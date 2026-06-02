@@ -77,6 +77,17 @@ func TestSendEvaluateTimesOutWhenInspectorRespondsTooSlowly(t *testing.T) {
 	assertTimeoutError(t, err)
 }
 
+func TestSendEvaluateClearsDeadlines(t *testing.T) {
+	wsConn := newRespondingTestInspectorConn(t)
+
+	if err := runSendEvaluateWithTimeout(t, wsConn, testInspectorTimeout); err != nil {
+		t.Fatalf("send evaluate: %v", err)
+	}
+
+	time.Sleep(2 * testInspectorTimeout)
+	assertWebSocketUsable(t, wsConn)
+}
+
 func TestHTTPGetTimesOutWhenInspectorDoesNotRespond(t *testing.T) {
 	conn := newPipeInspectorConn(t, func(conn net.Conn, done <-chan struct{}) {
 		defer conn.Close()
@@ -145,6 +156,27 @@ func TestUpgradeConnTimesOutWhenInspectorDoesNotRespond(t *testing.T) {
 	assertTimeoutError(t, err)
 }
 
+func TestUpgradeConnClearsDeadline(t *testing.T) {
+	srv := newRespondingTestInspectorServer(t)
+	conn, err := net.Dial("tcp", srv.Listener.Addr().String())
+	if err != nil {
+		t.Fatalf("dial websocket server: %v", err)
+	}
+
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http")
+	wsConn, _, err := upgradeConnWithTimeout(conn, wsURL, testInspectorTimeout)
+	if err != nil {
+		_ = conn.Close()
+		t.Fatalf("upgrade websocket: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = wsConn.Close()
+	})
+
+	time.Sleep(2 * testInspectorTimeout)
+	assertWebSocketUsable(t, wsConn)
+}
+
 func newTestInspectorConn(t *testing.T, handle func(*websocket.Conn)) *websocket.Conn {
 	t.Helper()
 
@@ -169,6 +201,57 @@ func newTestInspectorConn(t *testing.T, handle func(*websocket.Conn)) *websocket
 	})
 
 	return wsConn
+}
+
+func newRespondingTestInspectorConn(t *testing.T) *websocket.Conn {
+	t.Helper()
+
+	srv := newRespondingTestInspectorServer(t)
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http")
+
+	wsConn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = wsConn.Close()
+	})
+
+	return wsConn
+}
+
+func newRespondingTestInspectorServer(t *testing.T) *httptest.Server {
+	t.Helper()
+
+	upgrader := websocket.Upgrader{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+
+		for {
+			if _, _, err := conn.ReadMessage(); err != nil {
+				return
+			}
+
+			if err := conn.WriteJSON(cdpResponse{
+				ID: 1,
+				Result: map[string]any{
+					"result": map[string]any{
+						"type":  "number",
+						"value": 2,
+					},
+				},
+			}); err != nil {
+				return
+			}
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	return srv
 }
 
 func newPipeInspectorConn(t *testing.T, handle func(net.Conn, <-chan struct{})) net.Conn {
@@ -225,6 +308,22 @@ func runWithOperationTimeout(t *testing.T, name string, run func() error) error 
 	case <-time.After(testInspectorOperationTimeout):
 		t.Fatalf("%s did not return", name)
 		return nil
+	}
+}
+
+func assertWebSocketUsable(t *testing.T, wsConn *websocket.Conn) {
+	t.Helper()
+
+	err := runWithOperationTimeout(t, "websocket use after deadline", func() error {
+		if err := wsConn.WriteMessage(websocket.TextMessage, []byte(`{"id":1}`)); err != nil {
+			return err
+		}
+
+		_, _, err := wsConn.ReadMessage()
+		return err
+	})
+	if err != nil {
+		t.Fatalf("expected websocket to remain usable: %v", err)
 	}
 }
 
