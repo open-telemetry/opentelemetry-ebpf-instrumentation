@@ -21,6 +21,17 @@ enum {
     k_sunrpc_reply_accepted = 0,
 };
 
+// auth_flavor_t values from RFC 5531 / IANA RPC Authentication Numbers.
+enum sunrpc_auth_flavor : u8 {
+    k_sunrpc_auth_null = 0,
+    k_sunrpc_auth_unix = 1,
+    k_sunrpc_auth_short = 2,
+    k_sunrpc_auth_des = 3,
+    k_sunrpc_auth_kerb = 4,
+    k_sunrpc_auth_rsa = 5,
+    k_sunrpc_auth_rpcsec_gss = 6,
+};
+
 static __always_inline u32 sunrpc_read_u32_be(const unsigned char *p) {
     u32 v = 0;
     bpf_probe_read(&v, sizeof(v), p);
@@ -42,13 +53,13 @@ static __always_inline u8 sunrpc_valid_program(u32 prog) {
 
 static __always_inline u8 sunrpc_valid_auth_flavor(u32 flavor) {
     switch (flavor) {
-    case 0: // AUTH_NULL
-    case 1: // AUTH_UNIX
-    case 2: // AUTH_SHORT
-    case 3: // AUTH_DES
-    case 4: // AUTH_KERB
-    case 5: // AUTH_RSA
-    case 6: // RPCSEC_GSS
+    case k_sunrpc_auth_null:
+    case k_sunrpc_auth_unix:
+    case k_sunrpc_auth_short:
+    case k_sunrpc_auth_des:
+    case k_sunrpc_auth_kerb:
+    case k_sunrpc_auth_rsa:
+    case k_sunrpc_auth_rpcsec_gss:
         return 1;
     default:
         return 0;

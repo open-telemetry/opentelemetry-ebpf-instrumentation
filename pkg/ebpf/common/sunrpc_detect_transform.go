@@ -97,7 +97,7 @@ func processSunRPCBuffer(pkt *largebuf.LargeBuffer) (*SunRPCInfo, bool, error) {
 		return nil, true, sunrpcparser.ErrNotSunRPC
 	}
 
-	reader = pkt.NewReader()
+	reader.Reset()
 	result, err := sunrpcparser.Parse(&reader)
 	if err != nil {
 		return nil, true, err
