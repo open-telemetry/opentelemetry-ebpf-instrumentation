@@ -62,7 +62,7 @@ static __always_inline call_protocol_args_t *make_protocol_args(const pid_connec
     __builtin_memset(args->small_buf, 0, sizeof(args->small_buf));
     if (bytes_len > 0) {
         u32 small_buf_len = (u32)bytes_len;
-        bpf_clamp_umax(small_buf_len, MIN_HTTP2_SIZE);
+        bpf_clamp_umax(small_buf_len, sizeof(args->small_buf));
         bpf_probe_read(args->small_buf, small_buf_len, (void *)args->u_buf);
     }
 
