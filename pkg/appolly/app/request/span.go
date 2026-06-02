@@ -1231,16 +1231,19 @@ func spanAttributes(s *Span) SpanAttributes {
 			"subject":    s.Path,
 		}
 	case EventTypeSunRPCServer, EventTypeSunRPCClient:
-		return SpanAttributes{
+		attrs := SpanAttributes{
 			"serverAddr":                      SpanHost(s),
 			"serverPort":                      strconv.Itoa(s.HostPort),
 			attr.OncRPCProgramName.Prom():     s.Path,
 			attr.OncRPCProcedureNumber.Prom(): s.Route,
-			attr.OncRPCProcedureName.Prom():   s.Method,
 			attr.OncRPCVersion.Prom():         strconv.Itoa(s.SubType),
 			attr.OncRPCAuthFlavor.Prom():      s.Statement,
 			"status":                          strconv.Itoa(s.Status),
 		}
+		if procName := s.SunRPCProcedureNameForExport(); procName != "" {
+			attrs[attr.OncRPCProcedureName.Prom()] = procName
+		}
+		return attrs
 	case EventTypeGPUCudaKernelLaunch:
 		return SpanAttributes{
 			"gridSize":  strconv.FormatInt(s.ContentLength, 10),

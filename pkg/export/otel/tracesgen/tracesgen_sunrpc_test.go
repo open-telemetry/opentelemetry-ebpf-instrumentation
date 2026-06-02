@@ -37,8 +37,35 @@ func TestTraceAttributesSelector_SunRPCClient(t *testing.T) {
 	assert.Contains(t, attrs, semconv.RPCSystemOncRPC)
 	assert.Contains(t, attrs, semconv.OncRPCProgramName("nfs"))
 	assert.Contains(t, attrs, semconv.OncRPCProcedureNumber(3))
+	assert.NotContains(t, attrs, semconv.OncRPCProcedureName("3"))
 	assert.Contains(t, attrs, semconv.OncRPCVersion(4))
 	assert.Contains(t, attrs, attribute.String(string(attr.OncRPCAuthFlavor), "rpcsec_gss"))
+}
+
+func TestTraceAttributesSelector_SunRPCProcedureName(t *testing.T) {
+	t.Run("mapped name", func(t *testing.T) {
+		span := &request.Span{
+			Type:   request.EventTypeSunRPCClient,
+			Method: "MOUNTPROC_EXPORT",
+			Path:   "mount",
+			Route:  "5",
+		}
+		attrs := TraceAttributesSelector(span, map[attr.Name]struct{}{})
+		assert.Contains(t, attrs, semconv.OncRPCProcedureName("MOUNTPROC_EXPORT"))
+	})
+
+	t.Run("reply-only synthetic", func(t *testing.T) {
+		span := &request.Span{
+			Type:   request.EventTypeSunRPCServer,
+			Method: request.SunRPCSyntheticReplyMethod,
+			Path:   "sunrpc",
+			Route:  "0",
+		}
+		attrs := TraceAttributesSelector(span, map[attr.Name]struct{}{})
+		for _, kv := range attrs {
+			assert.NotEqual(t, string(semconv.OncRPCProcedureNameKey), string(kv.Key))
+		}
+	})
 }
 
 func TestSpanKind_SunRPCServer(t *testing.T) {

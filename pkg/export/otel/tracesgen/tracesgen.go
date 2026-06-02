@@ -1192,8 +1192,8 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 				attrs = append(attrs, semconv.OncRPCProcedureNumber(proc))
 			}
 		}
-		if span.Method != "" && span.Method != span.Route {
-			attrs = append(attrs, semconv.OncRPCProcedureName(span.Method))
+		if procName := span.SunRPCProcedureNameForExport(); procName != "" {
+			attrs = append(attrs, semconv.OncRPCProcedureName(procName))
 		}
 		if span.SubType != 0 {
 			attrs = append(attrs, semconv.OncRPCVersion(span.SubType))

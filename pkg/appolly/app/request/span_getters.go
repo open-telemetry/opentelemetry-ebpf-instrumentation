@@ -138,13 +138,7 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 		}
 	case attr.OncRPCProcedureName:
 		getter = func(s *Span) attribute.KeyValue {
-			if s.Type != EventTypeSunRPCClient && s.Type != EventTypeSunRPCServer {
-				return semconv.OncRPCProcedureName("")
-			}
-			if s.Method == "" || s.Method == s.Route {
-				return semconv.OncRPCProcedureName("")
-			}
-			return semconv.OncRPCProcedureName(s.Method)
+			return semconv.OncRPCProcedureName(s.SunRPCProcedureNameForExport())
 		}
 	case attr.OncRPCVersion:
 		getter = func(s *Span) attribute.KeyValue {

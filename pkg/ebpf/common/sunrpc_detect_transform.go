@@ -69,9 +69,9 @@ func ProcessPossibleSunRPCEvent(event *TCPRequestInfo, pkt, rpkt *largebuf.Large
 	return nil, true, errSunRPCParseFailed
 }
 
-// isSunRPCCallInfo distinguishes CALL spans from REPLY-only spans (Method == "reply").
+// isSunRPCCallInfo distinguishes CALL spans from REPLY-only spans (Method == SunRPCSyntheticReplyMethod).
 func isSunRPCCallInfo(info *SunRPCInfo) bool {
-	return info != nil && info.Method != "reply"
+	return info != nil && info.Method != request.SunRPCSyntheticReplyMethod
 }
 
 // mergeSunRPCReplyStatus copies accept_stat from a paired REPLY into the CALL span.
@@ -142,7 +142,7 @@ func sunRPCInfoFromCall(call *sunrpcparser.CallInfo, reply *sunrpcparser.ReplyIn
 func sunRPCInfoFromReply(reply *sunrpcparser.ReplyInfo) *SunRPCInfo {
 	info := &SunRPCInfo{
 		ProgramName: "sunrpc",
-		Method:      "reply",
+		Method:      request.SunRPCSyntheticReplyMethod,
 	}
 	if !reply.Denied && reply.AcceptStat != sunrpcAcceptSuccess {
 		info.Status = int(reply.AcceptStat) + 1
