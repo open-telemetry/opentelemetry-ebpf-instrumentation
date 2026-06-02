@@ -1,4 +1,4 @@
-FROM rust:1.95.0-bookworm@sha256:adab7941580c74513aa3347f2d2a1f975498280743d29ec62978ba12e3540d3a AS rustbuilder
+FROM rust:1.96.0-bookworm@sha256:13c186980fa33cc12759b429662a1322939dbe697484b7c33b47dd2698d28460 AS rustbuilder
 
 RUN apt update
 RUN apt install -y build-essential curl pkg-config libssl-dev
