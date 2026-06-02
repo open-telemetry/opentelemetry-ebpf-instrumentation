@@ -495,11 +495,22 @@ __obi_continue_protocol_http_tp(struct pt_regs *ctx,
                 unsigned char *t_id = extract_trace_id(res);
                 unsigned char *s_id = extract_span_id(res);
                 unsigned char *f_id = extract_flags(res);
+                const bool is_client = meta && meta->type == EVENT_HTTP_CLIENT;
+                unsigned char previous_trace_id[TRACE_ID_SIZE_BYTES] = {};
+
+                if (is_client) {
+                    __builtin_memcpy(
+                        previous_trace_id, tp_p->tp.trace_id, sizeof(previous_trace_id));
+                }
 
                 decode_hex(tp_p->tp.trace_id, t_id, TRACE_ID_CHAR_LEN);
                 decode_hex((unsigned char *)&tp_p->tp.flags, f_id, FLAGS_CHAR_LEN);
                 if (meta && meta->type != EVENT_HTTP_CLIENT) {
                     decode_hex(tp_p->tp.parent_id, s_id, SPAN_ID_CHAR_LEN);
+                } else if (is_client && bpf_memcmp(previous_trace_id,
+                                                   tp_p->tp.trace_id,
+                                                   sizeof(previous_trace_id)) != 0) {
+                    __builtin_memset(tp_p->tp.parent_id, 0, sizeof(tp_p->tp.parent_id));
                 }
 
                 if (g_bpf_debug) {
