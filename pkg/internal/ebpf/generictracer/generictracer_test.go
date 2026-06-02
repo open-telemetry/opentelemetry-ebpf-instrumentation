@@ -7,6 +7,7 @@ package generictracer
 
 import (
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -46,17 +47,20 @@ func TestHandleDNSChecksSKBHeaderRead(t *testing.T) {
 	require.NotEqual(t, -1, handleDNSBufStart)
 
 	handleDNS := src[handleDNSStart : handleDNSStart+handleDNSBufStart]
-	switchEnd := strings.Index(handleDNS, "    default:\n        return 0;\n    }\n\n")
-	require.NotEqual(t, -1, switchEnd)
+	switchPattern := regexp.MustCompile(`(?s)switch\s*\(p_info->l4_proto\)\s*\{.*?default:\s*return 0;\s*\}`)
+	switchMatch := switchPattern.FindStringIndex(handleDNS)
+	require.NotNil(t, switchMatch)
 
-	lengthCheck := strings.Index(handleDNS, "if (skb->len <= (dns_off + sizeof(struct dnshdr))) {")
-	require.NotEqual(t, -1, lengthCheck)
-	require.Greater(t, lengthCheck, switchEnd)
+	lengthGuardPattern := regexp.MustCompile(`if\s*\(\s*skb->len\s*<\s*\(\s*dns_off\s*\+\s*sizeof\(struct dnshdr\)\s*\)\s*\)\s*\{`)
+	lengthGuardMatch := lengthGuardPattern.FindStringIndex(handleDNS)
+	require.NotNil(t, lengthGuardMatch)
+	require.Greater(t, lengthGuardMatch[0], switchMatch[1])
 
-	headerRead := strings.Index(handleDNS, "if (bpf_skb_load_bytes(skb, dns_off, &hdr, sizeof(hdr))) {")
-	require.NotEqual(t, -1, headerRead)
-	require.Less(t, lengthCheck, headerRead)
+	headerReadPattern := regexp.MustCompile(`if\s*\(\s*bpf_skb_load_bytes\s*\(\s*skb\s*,\s*dns_off\s*,\s*&hdr\s*,\s*sizeof\(hdr\)\s*\)\s*\)\s*\{`)
+	headerReadMatch := headerReadPattern.FindStringIndex(handleDNS)
+	require.NotNil(t, headerReadMatch)
+	require.Less(t, lengthGuardMatch[0], headerReadMatch[0])
 
-	require.Equal(t, 1, strings.Count(handleDNS, "bpf_skb_load_bytes(skb, dns_off, &hdr, sizeof(hdr))"))
+	require.Len(t, headerReadPattern.FindAllStringIndex(handleDNS, -1), 1)
 	require.NotContains(t, handleDNS, "\n    bpf_skb_load_bytes(skb, dns_off, &hdr, sizeof(hdr));")
 }

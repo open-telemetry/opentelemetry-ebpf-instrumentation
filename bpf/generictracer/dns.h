@@ -161,7 +161,7 @@ static __always_inline u8 handle_dns(struct __sk_buff *skb,
         return 0;
     }
 
-    if (skb->len <= (dns_off + sizeof(struct dnshdr))) {
+    if (skb->len < (dns_off + sizeof(struct dnshdr))) {
         return 0;
     }
 
