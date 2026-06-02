@@ -25,6 +25,8 @@ type SunRPCInfo struct {
 	Status      int
 }
 
+var errSunRPCParseFailed = errors.New("sunrpc parse failed")
+
 // ProcessPossibleSunRPCEvent parses both TCP capture buffers and picks the best SunRPC
 // metadata for span creation. The ignore bool means drop quietly; ErrNotSunRPC means
 // this event is not SunRPC.
@@ -64,7 +66,7 @@ func ProcessPossibleSunRPCEvent(event *TCPRequestInfo, pkt, rpkt *largebuf.Large
 		return nil, true, sunrpcparser.ErrNotSunRPC
 	}
 
-	return nil, true, errors.Join(reqErr, respErr)
+	return nil, true, errSunRPCParseFailed
 }
 
 // isSunRPCCallInfo distinguishes CALL spans from REPLY-only spans (Method == "reply").
