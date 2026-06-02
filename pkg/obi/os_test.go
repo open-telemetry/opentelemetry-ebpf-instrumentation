@@ -120,6 +120,28 @@ func TestParseOSReleaseIsRHEL(t *testing.T) {
 	}
 }
 
+func TestParseProcVersionIsRHEL(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		content string
+		want    bool
+	}{
+		{name: "RHEL 8 release tag", content: "Linux version 4.18.0-553.el8.x86_64 (mockbuild@x86-vm-29) #1 SMP\n", want: true},
+		{name: "Rocky el8_8", content: "Linux version 4.18.0-477.10.1.el8_8.x86_64 (gcc 8.5.0)\n", want: true},
+		{name: "AlmaLinux 9", content: "Linux version 5.14.0-284.30.1.el9_2.x86_64 (mockbuild@) #1 SMP\n", want: true},
+		{name: "rebuilt RHEL 8 with stripped localversion", content: "Linux version 4.18.0 (root@buildkitsandbox) (gcc version 8.5.0 20210514 (Red Hat 8.5.0-28) (GCC)) #1 SMP\n", want: true},
+		// Fedora gcc banner matches; harmless since Fedora kernels are >= 5.8.
+		{name: "Fedora with Red Hat gcc (cosmetic false positive)", content: "Linux version 5.14.10-300.fc35.x86_64 (mockbuild) (gcc (GCC) 11.2.1 20210728 (Red Hat 11.2.1-1))\n", want: true},
+		{name: "Ubuntu", content: "Linux version 5.15.0-92-generic (buildd@bos03-amd64-003) (gcc-11)\n", want: false},
+		{name: "Debian", content: "Linux version 6.1.0-13-amd64 (debian-kernel@lists.debian.org) (gcc-12)\n", want: false},
+		{name: "empty", content: "", want: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, parseProcVersionIsRHEL([]byte(tc.content)))
+		})
+	}
+}
+
 func TestOSCapabilitiesError_Empty(t *testing.T) {
 	var capErr osCapabilitiesError
 

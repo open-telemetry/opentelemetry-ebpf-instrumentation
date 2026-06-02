@@ -4,12 +4,11 @@ Builds on the general [Context Propagation Architecture](context-propagation.md)
 
 ## Overview
 
-Injects `traceparent` HPACK headers into outgoing HTTP/2 HEADERS frames and parses them on the receiving side. Two network mechanisms:
+Injects `traceparent` HPACK headers into outgoing HTTP/2 HEADERS frames and parses them on the receiving side.
 
-1. **sk_msg HPACK injection** — inserts traceparent into HEADERS frames via `bpf_msg_push_data`
-2. **TCP options** — carries trace context in TCP option kind 25
+**HPACK is the only network mechanism for gRPC/H2 CP.** TCP options are explicitly not used — see [Why not TCP options](#why-not-tcp-options).
 
-All cross-process propagation is network-only.
+Cross-process propagation is network-only.
 
 ## Egress
 
@@ -41,13 +40,8 @@ Parent lookup priority in `create_tp`:
 
 Once a conn is marked, `obi_packet_extender` (sk_msg) checks `is_go_grpc_client_conn` first: pulls the data, populates `msg_buffers` for the `tcp_sendmsg` kprobe, returns `SK_PASS`. No `detect_h2`, no TCP option scheduling. The per-stream `outgoing_trace_map` entry the uprobe wrote is preserved; the user-buffer HPACK on the wire carries the traceparent. HTTP/1 traffic from the same Go process is unmarked and goes through the HTTP/1 detection path.
 
-### TCP Options
-
-`schedule_write_tcp_option` stores trace in socket storage. sock_ops `write_hdr_cb` writes TCP option kind 25 on every outgoing segment.
-
 ## Ingress
 
-- **TCP options**: sock_ops `parse_hdr_cb` reads option kind 25, stores in `incoming_trace_map`
 - **kprobe HPACK parser** (`http2_grpc_start`, SERVER side): parses HPACK first (per-stream, immune to per-connection trace_map race on multiplexed streams), bounded to the actual frame payload length so trailing batched HEADERS aren't adopted, with PADDED/PRIORITY shrink applied. Falls back to `find_trace_for_server_request` only if HPACK parsing finds no traceparent
 - **Go uprobe** (`http2Server_operateHeaders` + `server_handleStream`): writes parsed traceparent to `ongoing_grpc_server_stream_tps[{tr_ptr, stream_id}]`. `handleStream` reads per-stream first, falls back to the legacy `ongoing_grpc_transports` per-transport entry. Per-stream key avoids the last-writer-wins race when the same transport carries concurrent streams
 
@@ -66,6 +60,14 @@ Writers:
 ### Cleanup
 
 `http2_grpc_end` (kprobe stream end) deletes `outgoing_trace_map[{ports, stream_id}]` for that stream. The connection-scoped `delete_client_trace_info` only clears the `stream_id=0` entry, so without per-stream cleanup the per-stream entries leak until LRU eviction.
+
+## Why not TCP options
+
+HTTP/1 CP uses TCP option kind 25 (`schedule_write_tcp_option` → sock_ops `write_hdr_cb`) as a robust per-connection channel for `trace_id`+`span_id`. gRPC/H2 deliberately does not.
+
+**Multiplexing.** A single H2 connection carries many concurrent streams, each with its own trace context. TCP option kind 25 is **connection-scoped**: a single 24-byte payload carrying one `trace_id`+`span_id`. It cannot represent N distinct per-stream contexts. The first stream's context "wins" and all other streams on the same connection get the wrong context via TCP option. HPACK is per-frame and naturally per-stream.
+
+**Enforcement.** `handle_existing_tp_pid` in `bpf/tpinjector/tpinjector.c` gates the TCP-option schedule on `!is_h2_socket(msg)`. The H2 tail-call chain (`detect_h2` → `find_existing_h2_tp` → `create_h2_tp` → `write_h2_tp`) never calls `schedule_write_tcp_option`. The Go gRPC bail (`is_go_grpc_client_conn`) also returns `SK_PASS` without scheduling.
 
 ## Known Limitations
 
@@ -109,7 +111,7 @@ We need a key both goroutines can agree on. The `*headerFrame` pointer fits: it'
 | `sk_h2_conn_flag` | SK_STORAGE | socket | `u8` | Marks socket as HTTP/2 |
 | `ongoing_http2_connections` | HASH | `pid_connection_info_t` | `http2_conn_info_data_t` | H2 connection tracking |
 | `outgoing_trace_map` | LRU_HASH | `egress_key_t{ports, stream_id}` | `tp_info_pid_t` | Per-stream sender trace context |
-| `incoming_trace_map` | LRU_HASH | `connection_info_t` | `tp_info_pid_t` | Receiver trace context (TCP options) |
+| `incoming_trace_map` | LRU_HASH | `connection_info_t` | `tp_info_pid_t` | Receiver trace context (HTTP/1 path only; gRPC uses per-stream maps) |
 | `grpc_conn_ptr_to_conn` | LRU_HASH | `u64 (conn_ptr)` | `connection_info_t` | Go conn pointer → TCP ports |
 | `ongoing_grpc_server_stream_tps` | LRU_HASH | `stream_key_t{tr_ptr, stream_id}` | `tp_info_t` | Per-stream parsed traceparent (Go gRPC server) |
 | `pending_h2_invocations` | LRU_HASH | `u64 (hdr ptr)` | `pending_h2_invocation_t{inv, conn_ptr}` | Two-hop bridge from `executeAndPut` to `originateStream` |

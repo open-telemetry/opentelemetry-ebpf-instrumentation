@@ -81,6 +81,11 @@ public class SSLSocketStreamInst {
                             .and(ElementMatchers.takesArgument(0, byte[].class))));
   }
 
+  static int writeReadPacket(NativeMemory p, Socket socket, byte[] b, int off, int len) {
+    int wOff = IOCTLPacket.writePacketPrefix(p, 0, OperationType.RECEIVE, socket, len);
+    return IOCTLPacket.writePacketBuffer(p, wOff, b, off, len);
+  }
+
   public static final class InputStreamReadAdvice {
     @Advice.OnMethodExit(suppress = Throwable.class)
     public static void read(
@@ -104,9 +109,8 @@ public class SSLSocketStreamInst {
         }
         if (socket != null) {
           try {
-            NativeMemory p = new NativeMemory(IOCTLPacket.packetPrefixSize + b.length);
-            int wOff = IOCTLPacket.writePacketPrefix(p, 0, OperationType.RECEIVE, socket, b.length);
-            IOCTLPacket.writePacketBuffer(p, wOff, b);
+            NativeMemory p = new NativeMemory(IOCTLPacket.packetPrefixSize + len);
+            writeReadPacket(p, socket, b, 0, len);
             Agent.NativeLib.ioctl(0, Agent.IOCTL_CMD, p.getAddress());
           } catch (Throwable t) {
             if (SSLStorage.debugOn) {
@@ -142,9 +146,7 @@ public class SSLSocketStreamInst {
         if (socket != null) {
           try {
             NativeMemory p = new NativeMemory(IOCTLPacket.packetPrefixSize + bytesRead);
-            int wOff =
-                IOCTLPacket.writePacketPrefix(p, 0, OperationType.RECEIVE, socket, bytesRead);
-            IOCTLPacket.writePacketBuffer(p, wOff, b, off, bytesRead);
+            writeReadPacket(p, socket, b, off, bytesRead);
             Agent.NativeLib.ioctl(0, Agent.IOCTL_CMD, p.getAddress());
           } catch (Throwable t) {
             if (SSLStorage.debugOn) {

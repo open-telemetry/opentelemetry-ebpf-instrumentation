@@ -17,19 +17,17 @@
 # volumes resolve against the file that declares them, so the consuming
 # compose must own its own bind mount or the registry path would be wrong.
 #
-# weaver writes its consolidated live-check report to `/tmp/live_check.json`
-# inside the container (see `--output /tmp` in the command below). The test
-# harness pulls it out with `docker cp` after `/stop`, before
-# `compose.Close()` removes the container. This avoids a host bind-mount
-# whose UID would mismatch weaver's non-root container UID.
+# weaver writes its live-check report to /tmp/weaver-out/live_check.json,
+# bind-mounted to /tmp/obi-weaver-out on the docker host. Test harness reads
+# directly from the host path — docker cp from a stopped container on RHEL
+# overlayfs returned sparse files with mid-stream NUL holes. user: 0 lets
+# the container write into the docker-managed bind mount source regardless
+# of host ownership.
 services:
   weaver:
     image: otel/weaver:v0.23.0@sha256:7984ecb55b859eb3034ae9d836c4eeda137e2bdd0873b7ba2bb6c3d24d6ff457
     container_name: weaver
-    # Run with the registry mount as the working dir so relative
-    # `registry_path` entries in `manifest.yaml` (e.g. the `.deps/upstream-*`
-    # cache) resolve correctly without the manifest having to embed the
-    # in-container mount point.
+    user: "0:0"
     working_dir: /obi-registry
     command:
       - registry
@@ -45,15 +43,10 @@ services:
       - json
       - --diagnostic-format
       - json
-      # Write the final consolidated live-check report to /tmp inside the
-      # container (always present in the upstream image). With `--output`,
-      # weaver buffers per-entity Rego findings internally and emits a
-      # single `live_check.json` at /stop time, leaving stdout empty. The
-      # test harness extracts it with `docker cp` — no host bind mount
-      # required, so we don't have to wrestle with the UID mismatch
-      # between weaver's non-root container user and the runner user.
       - --output
-      - /tmp
+      - /tmp/weaver-out
+    volumes:
+      - /tmp/obi-weaver-out:/tmp/weaver-out
     ports:
       - "4320:4320" # admin port (for /stop from test host)
     healthcheck:

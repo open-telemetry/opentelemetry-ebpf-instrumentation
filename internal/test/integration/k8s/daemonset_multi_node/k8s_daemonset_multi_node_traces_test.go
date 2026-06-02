@@ -71,11 +71,17 @@ func TestMultiNodeTracing(t *testing.T) {
 					require.Empty(ct, sd, sd.String())
 
 					// Check the information of the Go jsonrpc span
-					res = trace.FindByOperationName("Arith.T /jsonrpc", "server")
+					res = trace.FindByOperationName("Arith.Traceme", "server")
 					require.Len(ct, res, 1)
 					parent = res[0]
 					require.NotEmpty(ct, parent.TraceID)
 					require.Equal(ct, traceID, parent.TraceID)
+					sd = jaeger.Diff([]jaeger.Tag{
+						{Key: "jsonrpc.protocol.version", Type: "string", Value: "1.0"},
+						{Key: "rpc.method", Type: "string", Value: "Arith.Traceme"},
+						{Key: "rpc.system", Type: "string", Value: "jsonrpc"},
+					}, parent.Tags)
+					require.Empty(ct, sd, sd.String())
 
 					// Check the information of the Python span
 					res = trace.FindByOperationName("GET /tracemetoo", "server")

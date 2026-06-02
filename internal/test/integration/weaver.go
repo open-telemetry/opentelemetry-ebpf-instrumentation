@@ -20,6 +20,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	semconv "go.opentelemetry.io/otel/semconv/v1.38.0"
+
+	"go.opentelemetry.io/obi/internal/test/integration/components/docker"
 )
 
 const (
@@ -135,6 +137,16 @@ func runWeaverValidation(t *testing.T) {
 			"only stopping the weaver container so compose teardown is clean")
 	}
 
+	// weaver writes the report as root; delete via docker exec, not os.Remove.
+	const hostReport = "/tmp/obi-weaver-out/live_check.json"
+	const containerReport = "/tmp/weaver-out/live_check.json"
+	rmCtx, rmCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer rmCancel()
+	if _, err := docker.Exec(rmCtx, weaverContainer, "rm", "-f", containerReport); err != nil {
+		t.Errorf("removing stale weaver report: %v", err)
+		return
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), weaverTimeout)
 	defer cancel()
 
@@ -171,23 +183,19 @@ func runWeaverValidation(t *testing.T) {
 	}
 
 	reportPath := weaverReportPath(t)
-	cpCmd := exec.CommandContext(ctx, "docker", "cp",
-		weaverContainer+":/tmp/live_check.json", reportPath)
-	if out, err := cpCmd.CombinedOutput(); err != nil {
-		t.Errorf("failed to copy weaver report from container: %v; output: %s",
-			err, strings.TrimSpace(string(out)))
-		return
-	}
-	t.Logf("weaver report saved to %s", reportPath)
-
-	rawReport, err := os.ReadFile(reportPath)
+	rawReport, err := os.ReadFile(hostReport)
 	if err != nil {
-		t.Errorf("failed to read weaver report at %s: %v", reportPath, err)
+		t.Errorf("failed to read weaver report at %s: %v", hostReport, err)
 		return
 	}
 	if len(rawReport) == 0 {
-		t.Errorf("weaver report file %s is empty", reportPath)
+		t.Errorf("weaver report file %s is empty", hostReport)
 		return
+	}
+	if err := os.WriteFile(reportPath, rawReport, 0o644); err != nil {
+		t.Logf("warn: failed to archive weaver report to %s: %v", reportPath, err)
+	} else {
+		t.Logf("weaver report saved to %s", reportPath)
 	}
 	var report weaverReport
 	if err := json.Unmarshal(rawReport, &report); err != nil {
