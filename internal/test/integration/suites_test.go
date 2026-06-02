@@ -548,6 +548,18 @@ func TestSuite_PythonKafka(t *testing.T) {
 	require.NoError(t, compose.Close())
 }
 
+func TestSuite_GoKafkaTraceparent(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-go-kafka-traceparent.yml", path.Join(pathOutput, "test-suite-go-kafka-traceparent.log"))
+	// Discover by executable name: the Kafka broker and Zookeeper are Java processes
+	// (Zookeeper's admin server also listens on 8080), so port-based discovery is
+	// ambiguous under pid:host. Match only the Go "testserver" binary.
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=`, `OTEL_EBPF_EXECUTABLE_PATH=testserver`, `TEST_SERVICE_PORTS=8389:8080`)
+	require.NoError(t, err)
+	require.NoError(t, compose.Up())
+	t.Run("Go Kafka stale traceparent contamination (#2046)", testGoKafkaTraceparent)
+	require.NoError(t, compose.Close())
+}
+
 func TestSuite_PythonMQTT(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-python-mqtt.yml", path.Join(pathOutput, "test-suite-python-mqtt.log"))
 	require.NoError(t, err)
