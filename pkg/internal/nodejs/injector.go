@@ -111,10 +111,21 @@ func connectWait(ip string, port int, timeout time.Duration, interval time.Durat
 }
 
 func httpGet(conn net.Conn, path string) ([]byte, error) {
+	return httpGetWithTimeout(conn, path, inspectorRequestTimeout)
+}
+
+func httpGetWithTimeout(conn net.Conn, path string, timeout time.Duration) ([]byte, error) {
 	req, err := http.NewRequest(http.MethodGet, path, nil)
 	if err != nil {
 		return []byte{}, fmt.Errorf("request error: %w", err)
 	}
+
+	if err := conn.SetDeadline(time.Now().Add(timeout)); err != nil {
+		return []byte{}, fmt.Errorf("connection deadline error: %w", err)
+	}
+	defer func() {
+		_ = conn.SetDeadline(time.Time{})
+	}()
 
 	if err = req.Write(conn); err != nil {
 		return []byte{}, fmt.Errorf("error writing request: %w", err)
@@ -157,7 +168,16 @@ func (i *NodeInjector) requestDebuggerURL(conn net.Conn) (string, error) {
 }
 
 func upgradeConn(conn net.Conn, wsURL string) (*websocket.Conn, *http.Response, error) {
+	return upgradeConnWithTimeout(conn, wsURL, inspectorRequestTimeout)
+}
+
+func upgradeConnWithTimeout(conn net.Conn, wsURL string, timeout time.Duration) (*websocket.Conn, *http.Response, error) {
+	if err := conn.SetDeadline(time.Now().Add(timeout)); err != nil {
+		return nil, nil, fmt.Errorf("connection deadline error: %w", err)
+	}
+
 	dialer := websocket.Dialer{
+		HandshakeTimeout: timeout,
 		NetDial: func(_, _ string) (net.Conn, error) {
 			return conn, nil
 		},
