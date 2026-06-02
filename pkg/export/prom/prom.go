@@ -817,7 +817,7 @@ func newReporter(
 			)
 		}
 
-		if is.GRPCEnabled() {
+		if is.GRPCEnabled() || is.SunRPCEnabled() {
 			registeredMetrics = append(registeredMetrics,
 				mr.grpcClientDuration,
 				mr.grpcDuration,

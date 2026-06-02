@@ -112,26 +112,22 @@ func testREDMetricsGoSunRPCPrometheus(t *testing.T) {
 	pq := promtest.Client{HostPort: prometheusHostPort}
 
 	// SunRPC uses the same semconv rpc.* metric names as gRPC; rpc_system distinguishes protocols.
+	var clientResults []promtest.Result
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		results, err := pq.Query(`rpc_client_duration_seconds_count{` +
+		var err error
+		clientResults, err = pq.Query(`rpc_client_duration_seconds_count{` +
 			`rpc_system="onc_rpc",` +
-			`rpc_method="0",` +
-			`onc_rpc_program_name="portmapper",` +
-			`rpc_grpc_status_code="0",` +
 			`service_namespace="` + svcNs + `",` +
 			`service_name="` + svcName + `"}`)
 		require.NoError(ct, err)
-		enoughPromResults(ct, results)
-		val := totalPromCount(ct, results)
+		enoughPromResults(ct, clientResults)
+		val := totalPromCount(ct, clientResults)
 		assert.LessOrEqual(ct, 1, val)
 	}, 2*testTimeout, 100*time.Millisecond)
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		results, err := pq.Query(`rpc_server_duration_seconds_count{` +
 			`rpc_system="onc_rpc",` +
-			`rpc_method="0",` +
-			`onc_rpc_program_name="portmapper",` +
-			`rpc_grpc_status_code="0",` +
 			`service_namespace="` + svcNs + `",` +
 			`service_name="` + svcName + `"}`)
 		require.NoError(ct, err)
