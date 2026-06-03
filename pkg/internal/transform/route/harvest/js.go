@@ -346,31 +346,6 @@ func (e *RouteExtractor) extractNextJSRoutesFromManifest(dir string) error {
 	return nil
 }
 
-func openJSFileForScan(path string) (*os.File, bool, error) {
-	info, err := os.Lstat(path)
-	if err != nil {
-		return nil, false, err
-	}
-	if !info.Mode().IsRegular() || info.Size() > MaxJSFileScanBytes {
-		return nil, false, nil
-	}
-
-	file, err := os.Open(path)
-	if err != nil {
-		return nil, false, err
-	}
-	info, err = file.Stat()
-	if err != nil {
-		file.Close()
-		return nil, false, err
-	}
-	if !info.Mode().IsRegular() || info.Size() > MaxJSFileScanBytes {
-		file.Close()
-		return nil, false, nil
-	}
-	return file, true, nil
-}
-
 // ScanJSFileLines opens a JS/TS file and calls fn for each non-empty,
 // non-comment line (trimmed). It skips non-regular files and files larger than
 // MaxJSFileScanBytes. The callback receives the trimmed line and returns true
