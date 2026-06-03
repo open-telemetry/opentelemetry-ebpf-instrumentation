@@ -286,6 +286,7 @@ func NewEBPFParseContext(cfg *config.EBPFTracer, spansChan *msg.Queue[[]request.
 		mongoRequestCache          PendingMongoDBRequests
 		payloadExtraction          config.PayloadExtraction
 		dnsEvents                  *expirable.LRU[dnsparser.DNSId, *request.Span]
+		pendingSpanLinks           *pendingSpanLinks
 		emitSpans                  func([]request.Span)
 	)
 
@@ -351,6 +352,9 @@ func NewEBPFParseContext(cfg *config.EBPFTracer, spansChan *msg.Queue[[]request.
 		payloadExtraction = cfg.PayloadExtraction
 
 		dnsEvents = expirable.NewLRU(1024, dnsEventExpireHandler(emitSpans), cfg.DNSRequestTimeout)
+		if cfg.GoChannelSpanLinks {
+			pendingSpanLinks = newPendingSpanLinks()
+		}
 	}
 
 	var httpEnricher *ebpfhttp.HTTPEnricher
@@ -374,7 +378,7 @@ func NewEBPFParseContext(cfg *config.EBPFTracer, spansChan *msg.Queue[[]request.
 		httpEnricher:               httpEnricher,
 		dnsEvents:                  dnsEvents,
 		emitSpans:                  emitSpans,
-		pendingSpanLinks:           newPendingSpanLinks(),
+		pendingSpanLinks:           pendingSpanLinks,
 	}
 }
 

@@ -105,6 +105,9 @@ type EBPFTracer struct {
 	// Enables debug printing of the protocol data
 	ProtocolDebug bool `yaml:"protocol_debug_print" env:"OTEL_EBPF_PROTOCOL_DEBUG_PRINT" validate:"boolean"`
 
+	// Enables experimental receiver-side span links for supported Go channel handoffs.
+	GoChannelSpanLinks bool `yaml:"go_channel_span_links" env:"OTEL_EBPF_GO_CHANNEL_SPAN_LINKS" validate:"boolean"`
+
 	RedisDBCache RedisDBCacheConfig `yaml:"redis_db_cache"`
 
 	// Limit max data buffer size per protocol.

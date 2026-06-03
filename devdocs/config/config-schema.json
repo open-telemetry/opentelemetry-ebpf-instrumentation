@@ -643,6 +643,12 @@
           "default": "auto",
           "x-env-var": "OTEL_EBPF_FORCE_BPF_MAP_READER"
         },
+        "go_channel_span_links": {
+          "type": "boolean",
+          "description": "Enables experimental receiver-side span links for supported Go channel handoffs.",
+          "default": false,
+          "x-env-var": "OTEL_EBPF_GO_CHANNEL_SPAN_LINKS"
+        },
         "heuristic_sql_detect": {
           "type": "boolean",
           "description": "Enables the heuristic based detection of SQL requests. This can be used to detect talking to databases other than the ones we recognize in OBI, like Postgres and MySQL",

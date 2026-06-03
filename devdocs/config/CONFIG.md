@@ -162,6 +162,7 @@ EBPFTracer configuration for eBPF programs
 | `ebpf.disable_black_box_cp` | `boolean` | `OTEL_EBPF_BPF_DISABLE_BLACK_BOX_CP` | `false` |  |  | Disables OBI black-box context propagation. Used for testing purposes only. |
 | `ebpf.dns_request_timeout` | `duration` | `OTEL_EBPF_BPF_DNS_REQUEST_TIMEOUT` | `5s` | `30s`, `5m`, `1ms`, etc |  | DNS timeout after which we report failed event |
 | `ebpf.force_bpf_map_reader` | `string` | `OTEL_EBPF_FORCE_BPF_MAP_READER` | `auto` | `auto`, `batch`, `legacy` |  | Forces the PerCPU HashMap operation of the Network Flows reader. The system will always try "batch", which is more efficient, but legacy systems like RHEL8-based will fallback to "legacy" (the slowest, more resource-consuming iterate&delete approach). |
+| `ebpf.go_channel_span_links` | `boolean` | `OTEL_EBPF_GO_CHANNEL_SPAN_LINKS` | `false` |  |  | Enables experimental receiver-side span links for supported Go channel handoffs. |
 | `ebpf.heuristic_sql_detect` | `boolean` | `OTEL_EBPF_HEURISTIC_SQL_DETECT` | `false` |  |  | Enables the heuristic based detection of SQL requests. This can be used to detect talking to databases other than the ones we recognize in OBI, like Postgres and MySQL |
 | `ebpf.high_request_volume` | `boolean` | `OTEL_EBPF_BPF_HIGH_REQUEST_VOLUME` | `false` |  |  | Optimizes for getting requests information immediately when request response is seen |
 | `ebpf.http_request_timeout` | `duration` | `OTEL_EBPF_BPF_HTTP_REQUEST_TIMEOUT` | `0s` | `30s`, `5m`, `1ms`, etc |  | Must be at least 0 |

@@ -1,3 +1,5 @@
+ebpf:
+  go_channel_span_links: true
 otel_metrics_export:
   endpoint: http://lgtm:4318
 otel_traces_export:

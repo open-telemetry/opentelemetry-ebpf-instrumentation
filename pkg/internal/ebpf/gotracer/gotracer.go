@@ -188,7 +188,7 @@ func (p *Tracer) SetupTailCalls() {
 
 func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offsets) {
 	channelLinkEnabled := false
-	if offsets != nil {
+	if p.cfg != nil && p.cfg.GoChannelSpanLinks && offsets != nil {
 		_, haveDataqsiz := offsets.Field[goexec.HchanDataqsizPos].(uint64)
 		_, haveSendx := offsets.Field[goexec.HchanSendxPos].(uint64)
 		_, haveRecvx := offsets.Field[goexec.HchanRecvxPos].(uint64)
@@ -196,7 +196,7 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 	}
 
 	p.channelLinkOffsetsByIno[fileInfo.Ino()] = channelLinkEnabled
-	if !channelLinkEnabled {
+	if p.cfg != nil && p.cfg.GoChannelSpanLinks && !channelLinkEnabled {
 		p.log.Debug("disabling Go channel link probes for binary with missing runtime.hchan offsets",
 			"pid", fileInfo.Pid(), "ino", fileInfo.Ino(), "cmd", fileInfo.CmdExePath())
 	}
@@ -693,11 +693,7 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 		}},
 	}
 
-	channelLinkEnabled := true
-	if p.currentBinaryIno != 0 {
-		channelLinkEnabled = p.channelLinkOffsetsByIno[p.currentBinaryIno]
-	}
-	if channelLinkEnabled {
+	if p.goChannelSpanLinkProbesEnabled() {
 		m["runtime.chansend1"] = []*ebpfcommon.ProbeDesc{{
 			Start: p.bpfObjects.ObiUprobeRuntimeChansend1,
 			End:   p.bpfObjects.ObiUprobeRuntimeChansend1Return,
@@ -769,6 +765,14 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 	}
 
 	return m
+}
+
+func (p *Tracer) goChannelSpanLinkProbesEnabled() bool {
+	if p == nil || p.cfg == nil || !p.cfg.GoChannelSpanLinks || p.currentBinaryIno == 0 {
+		return false
+	}
+
+	return p.channelLinkOffsetsByIno[p.currentBinaryIno]
 }
 
 func (p *Tracer) KProbes() map[string]ebpfcommon.ProbeDesc {

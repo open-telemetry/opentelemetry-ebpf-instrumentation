@@ -374,6 +374,24 @@ func TestConfig_ShutdownTimeout(t *testing.T) {
 	assert.Equal(t, time.Minute, cfg.ShutdownTimeout)
 }
 
+func TestConfig_GoChannelSpanLinks(t *testing.T) {
+	cfg, err := LoadConfig(bytes.NewReader(nil))
+	require.NoError(t, err)
+	assert.False(t, cfg.EBPF.GoChannelSpanLinks)
+
+	cfg, err = LoadConfig(bytes.NewBufferString(`
+ebpf:
+  go_channel_span_links: true
+`))
+	require.NoError(t, err)
+	assert.True(t, cfg.EBPF.GoChannelSpanLinks)
+
+	t.Setenv("OTEL_EBPF_GO_CHANNEL_SPAN_LINKS", "true")
+	cfg, err = LoadConfig(bytes.NewReader(nil))
+	require.NoError(t, err)
+	assert.True(t, cfg.EBPF.GoChannelSpanLinks)
+}
+
 func TestConfig_ExponentialHistogramConfigFromEnv(t *testing.T) {
 	t.Setenv("OTEL_EBPF_METRICS_EXPONENTIAL_HISTOGRAM_MAX_SIZE", "96")
 	t.Setenv("OTEL_EBPF_METRICS_EXPONENTIAL_HISTOGRAM_MAX_SCALE", "14")
