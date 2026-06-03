@@ -12,8 +12,6 @@
 
 #include <common/common.h>
 
-#include <logger/bpf_dbg.h>
-
 volatile const u64 attr_type_invalid;
 
 volatile const u64 attr_type_bool;
@@ -39,7 +37,6 @@ static __always_inline bool set_attr_value(otel_attribute_t *attr,
     // String values
     if (vtype == attr_type_string) {
         if (go_attr_value->string.len >= OTEL_ATTRIBUTE_VALUE_MAX_LEN) {
-            bpf_dbg_printk("Attribute string value is too long");
             return false;
         }
         const long res =
@@ -88,7 +85,6 @@ convert_go_otel_attributes(void *attrs_buf, u64 slice_len, otel_attributes_t *en
         bpf_probe_read_user(&go_str, sizeof(struct go_string), &go_attr[go_attr_index].key);
         if (go_str.len >= OTEL_ATTRIBUTE_KEY_MAX_LEN) {
             // key string is too large
-            bpf_dbg_printk("Attribute key string is too long\n");
             continue;
         }
 
