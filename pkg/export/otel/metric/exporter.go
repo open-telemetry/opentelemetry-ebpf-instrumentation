@@ -13,7 +13,7 @@ import (
 
 // ErrExporterShutdown is returned if Export or Shutdown are called after an
 // Exporter has been Shutdown.
-var ErrExporterShutdown = fmt.Errorf("exporter is shutdown")
+var ErrExporterShutdown = errors.New("exporter is shutdown")
 
 // Exporter handles the delivery of metric data to external receivers. This is
 // the final component in the metric push pipeline.

@@ -438,7 +438,8 @@ func (i *inserter[N]) instID(kind InstrumentKind, stream Stream) instID {
 // aggregateFunc returns new aggregate functions matching agg, kind, and
 // monotonic. If the agg is unknown or temporality is invalid, an error is
 // returned.
-// nolint:cyclop
+//
+//nolint:cyclop
 func (i *inserter[N]) aggregateFunc(b aggregate.Builder[N], agg sdkmetric.Aggregation, kind InstrumentKind) (meas aggregate.Measure[N], remove aggregate.Remove, comp aggregate.ComputeAggregation, err error) {
 	switch a := agg.(type) {
 	case sdkmetric.AggregationDefault:

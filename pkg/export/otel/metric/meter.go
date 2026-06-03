@@ -450,7 +450,7 @@ func (m *meter) RegisterCallback(f metric.Callback, insts ...metric.Observable) 
 			reg.registerFloat64(o.observablID)
 		default:
 			// Instrument external to the SDK.
-			return nil, fmt.Errorf("invalid observable: from different implementation")
+			return nil, errors.New("invalid observable: from different implementation")
 		}
 	}
 
@@ -601,7 +601,7 @@ func (p int64InstProvider) histogramAggs(name string, cfg metric.Int64HistogramC
 
 // lookup returns the resolved instrumentImpl.
 func (p int64InstProvider) lookup(kind InstrumentKind, name, desc, u string) (*int64Inst, error) {
-	return p.meter.int64Insts.Lookup(instID{
+	return p.int64Insts.Lookup(instID{
 		Name:        name,
 		Description: desc,
 		Unit:        u,
@@ -614,7 +614,7 @@ func (p int64InstProvider) lookup(kind InstrumentKind, name, desc, u string) (*i
 
 // lookupHistogram returns the resolved instrumentImpl.
 func (p int64InstProvider) lookupHistogram(name string, cfg metric.Int64HistogramConfig) (*int64Inst, error) {
-	return p.meter.int64Insts.Lookup(instID{
+	return p.int64Insts.Lookup(instID{
 		Name:        name,
 		Description: cfg.Description(),
 		Unit:        cfg.Unit(),
@@ -654,7 +654,7 @@ func (p float64InstProvider) histogramAggs(name string, cfg metric.Float64Histog
 
 // lookup returns the resolved instrumentImpl.
 func (p float64InstProvider) lookup(kind InstrumentKind, name, desc, u string) (*float64Inst, error) {
-	return p.meter.float64Insts.Lookup(instID{
+	return p.float64Insts.Lookup(instID{
 		Name:        name,
 		Description: desc,
 		Unit:        u,
@@ -667,7 +667,7 @@ func (p float64InstProvider) lookup(kind InstrumentKind, name, desc, u string) (
 
 // lookupHistogram returns the resolved instrumentImpl.
 func (p float64InstProvider) lookupHistogram(name string, cfg metric.Float64HistogramConfig) (*float64Inst, error) {
-	return p.meter.float64Insts.Lookup(instID{
+	return p.float64Insts.Lookup(instID{
 		Name:        name,
 		Description: cfg.Description(),
 		Unit:        cfg.Unit(),
