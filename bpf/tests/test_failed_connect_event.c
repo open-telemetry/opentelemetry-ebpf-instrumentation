@@ -1,7 +1,10 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-// Run me with: make test_failed_connect_event && ./test_failed_connect_event
+// Run from repo root:
+//   make -C bpf/tests test_failed_connect_event && bpf/tests/test_failed_connect_event
+// Run from bpf/tests:
+//   make test_failed_connect_event && ./test_failed_connect_event
 
 #include <stdbool.h>
 #include <stddef.h>

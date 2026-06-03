@@ -31,7 +31,7 @@ static __always_inline void init_failed_connect_tcp_req(tcp_req_t *req,
     req->len = 0;
     req->req_len = req->len;
     req->extra_id = extra_id;
-    req->protocol_type = 0;
+    req->protocol_type = k_protocol_type_unknown;
     req->pid = *pid;
     req->buf[0] = '\0';
 
