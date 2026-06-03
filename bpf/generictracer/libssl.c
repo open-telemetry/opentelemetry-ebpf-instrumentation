@@ -124,7 +124,7 @@ int BPF_URETPROBE(obi_uretprobe_ssl_read_ex, int ret) {
     }
 
     size_t read_len = 0;
-    bpf_probe_read(&read_len, sizeof(read_len), (void *)args->len_ptr);
+    bpf_probe_read_user(&read_len, sizeof(read_len), (void *)args->len_ptr);
 
     bpf_map_delete_elem(&active_ssl_read_args, &id);
     // must be last in the function, doesn't return
@@ -227,7 +227,7 @@ int BPF_URETPROBE(obi_uretprobe_ssl_write_ex, int ret) {
     }
 
     size_t write_len = 0;
-    bpf_probe_read(&write_len, sizeof(write_len), (void *)args->len_ptr);
+    bpf_probe_read_user(&write_len, sizeof(write_len), (void *)args->len_ptr);
 
     ssl_args_t saved = {};
     __builtin_memcpy(&saved, args, sizeof(ssl_args_t));

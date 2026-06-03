@@ -78,7 +78,7 @@ static void *test_map_lookup(void *map, const void *key) {
 
     if (map == &pid_tid_to_conn) {
         const u64 pid_tid = *(const u64 *)key;
-        if (test_ssl_conn_available && pid_tid == test_mapped_pid_tid) {
+        if (test_mapped_pid_tid_available && pid_tid == test_mapped_pid_tid) {
             return &test_ssl_conn;
         }
         return NULL;
@@ -208,6 +208,24 @@ static void test_successful_read_can_create_fake_connection(void) {
     assert_int_eq(128, test_last_parser_bytes_len, "positive read forwards the read length");
 }
 
+static void test_successful_read_can_reuse_mapped_pid_tid_connection(void) {
+    reset();
+    test_mapped_pid_tid = 0x2a00000002ULL;
+    test_mapped_pid_tid_available = 1;
+    test_ssl_conn.orig_dport = 8443;
+    test_ssl_conn.p_conn.pid = 42;
+    ssl_args_t args = ssl_args();
+
+    handle_ssl_buf(NULL, 0x2a00000001ULL, &args, 64, TCP_RECV);
+
+    assert_int_eq(1, ssl_pid_tid_delete_count, "ssl_to_pid_tid entry is deleted");
+    assert_int_eq(1, pid_tid_delete_count, "current pid_tid mapping is removed after reuse");
+    assert_int_eq(1, ssl_to_conn_update_count, "mapped pid_tid connection is cached by ssl");
+    assert_int_eq(1, test_parser_call_count, "mapped pid_tid connection enters protocol parsing");
+    assert_int_eq(64, test_last_parser_bytes_len, "mapped pid_tid read forwards the read length");
+    assert_u16_eq(8443, test_last_orig_dport, "mapped pid_tid connection preserves original dport");
+}
+
 static void test_missing_args_noops(void) {
     reset();
 
@@ -223,6 +241,7 @@ int main(void) {
     test_eof_read_skips_parser_after_cleanup();
     test_successful_read_still_parses();
     test_successful_read_can_create_fake_connection();
+    test_successful_read_can_reuse_mapped_pid_tid_connection();
     test_missing_args_noops();
 
     return 0;
