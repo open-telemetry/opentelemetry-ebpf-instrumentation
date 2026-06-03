@@ -69,13 +69,24 @@ static __always_inline void encode_hex(unsigned char *dst, const unsigned char *
 }
 
 static __always_inline bool is_traceparent(const unsigned char *p) {
-    if (((p[0] == 'T') || (p[0] == 't')) && (p[1] == 'r') && (p[2] == 'a') && (p[3] == 'c') &&
-        (p[4] == 'e') && ((p[5] == 'p') || (p[5] == 'P')) && (p[6] == 'a') && (p[7] == 'r') &&
-        (p[8] == 'e') && (p[9] == 'n') && (p[10] == 't') && (p[11] == ':') && (p[12] == ' ')) {
-        return true;
+    if ((p[0] | 0x20) != 't') {
+        return false;
     }
 
-    return false;
+    u64 w0;
+    __builtin_memcpy(&w0, p, sizeof(w0)); // "Tracepar"
+    u32 w1;
+    __builtin_memcpy(&w1, p + 8, sizeof(w1)); // "ent:"
+    u8 w2 = p[12];                            // " "
+
+    w0 |= 0x2020202020202020ULL;
+    w1 |= 0x20202020U;
+
+    const u64 want0 = 't' | ('r' << 8) | ('a' << 16) | ((u64)'c' << 24) | ((u64)'e' << 32) |
+                      ((u64)'p' << 40) | ((u64)'a' << 48) | ((u64)'r' << 56);
+    const u32 want1 = 'e' | ('n' << 8) | ('t' << 16) | (':' << 24);
+
+    return ((w0 ^ want0) | (w1 ^ want1) | (u8)(w2 ^ ' ')) == 0;
 }
 
 static __always_inline bool is_eoh(const unsigned char *p) {
