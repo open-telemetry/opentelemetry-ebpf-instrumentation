@@ -8,7 +8,7 @@ The app exposes two HTTP endpoints, `/receive` and `/dispatch`. Each cycle:
 - serves `GET /dispatch`, which sends work into that same `chan`
 - creates a channel handoff between two separate HTTP handler goroutines
 
-OBI observes the `runtime.chansend1` and `runtime.chanrecv1`/`runtime.chanrecv2` handoff and emits link metadata for the active OBI spans involved in that handoff. In this example those are ordinary OBI HTTP server spans for `/dispatch` and `/receive`.
+With `ebpf.go_channel_span_links` enabled, OBI observes the `runtime.chansend1` and `runtime.chanrecv1`/`runtime.chanrecv2` handoff and emits link metadata from the receiving span to the sending span. In this example those are ordinary OBI HTTP server spans for `/dispatch` and `/receive`.
 
 ## Topology
 
@@ -58,12 +58,13 @@ wait
 What to look for:
 
 - the `GET /receive` server span has a `Links` section
-- the `GET /dispatch` server span has a `Links` section
-- each link points to the peer trace's `processing` span created by OBI
+- the `GET /dispatch` server span does not receive a reciprocal link
+- the receive link points to the sending trace's span created by OBI
 - the two requests remain separate traces; the relationship is expressed with links, not parent-child edges
 
 ## Notes
 
 - The compose stack uses the same privileged OBI + LGTM pattern as the NGINX example.
+- Go channel span links are experimental and disabled by default; this example enables them in `obi-config.yaml`.
 - You can still override the OBI image explicitly with `OBI_IMAGE=... docker compose up -d`.
 - The example intentionally uses a plain blocking receive (`item := <-workCh`). `select`-based channel receive paths are not covered by this probe set.

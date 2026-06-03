@@ -70,9 +70,9 @@ Go's context refresh has two complementary mechanisms:
 
 **Why setting context at uprobe entry is safe**: At the moment the uprobe fires (e.g. `ServeHTTP`), the goroutine is guaranteed to be running on the current OS thread — `bpf_get_current_pid_tgid()` returns the correct `pid_tgid`. The `traces_ctx_v1` map uses `BPF_ANY` semantics, so the write is idempotent: the subsequent `casgstatus` transition will overwrite the entry with the same trace/span IDs. If the goroutine migrates to a different OS thread later, `casgstatus` handles the update for the new `pid_tgid`, and the `default` branch deletes the stale entry for the old one.
 
-OBI also hooks the runtime channel wrappers `runtime.chansend1`, `runtime.chanrecv1`, and `runtime.chanrecv2` to detect work handed between goroutines through a `chan`.
+When experimental `ebpf.go_channel_span_links` is enabled, OBI also hooks the runtime channel wrappers `runtime.chansend1`, `runtime.chanrecv1`, and `runtime.chanrecv2` to detect work handed between goroutines through a `chan`.
 
-When a send and receive are matched, the Go runtime probe reads the active OBI trace context on the sending goroutine and the receiving goroutine and emits a dedicated channel-link event. User-space keeps that link temporarily and attaches it when the normal OBI span event for either side is decoded. The resulting OTLP spans contain ordinary span links.
+When a send and receive are matched, the Go runtime probe reads the active OBI trace context on the sending goroutine and the receiving goroutine and emits a dedicated channel-link event. User-space keeps that link temporarily and attaches it when the normal OBI span event for the receiver is decoded. The resulting OTLP receiver span contains an ordinary span link to the sender span.
 
 Example:
 
@@ -105,9 +105,9 @@ func main() {
 }
 ```
 
-In this example, the `/receive` and `/dispatch` handlers run in separate goroutines and produce separate OBI HTTP server spans. OBI observes the `chan` handoff, emits a channel-link event in eBPF space, and the exported `/receive` and `/dispatch` spans carry reciprocal span links so the relationship is visible downstream even though the two requests are separate traces.
+In this example, the `/receive` and `/dispatch` handlers run in separate goroutines and produce separate OBI HTTP server spans. OBI observes the `chan` handoff, emits a channel-link event in eBPF space, and the exported `/receive` span links to the `/dispatch` span so the relationship is visible downstream even though the two requests are separate traces.
 
-Current limitation: this channel-linking path covers the direct runtime send/receive wrappers above. `select`-based receive paths use different runtime internals and are not covered by these probes.
+Current limitation: this channel-linking path covers the direct runtime send/receive wrappers above. `select`-based channel paths use different runtime internals and are not covered by these probes.
 
 ### Node.js — `async_hooks` before callback + `uv_fs_access` uprobe
 

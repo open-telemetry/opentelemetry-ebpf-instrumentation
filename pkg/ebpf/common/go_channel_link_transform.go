@@ -7,27 +7,12 @@ import (
 	"time"
 
 	"github.com/hashicorp/golang-lru/v2/expirable"
+
 	"go.opentelemetry.io/otel/trace"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/ringbuf"
 )
-
-type channelLinkTrace struct {
-	Type         uint8
-	_            [7]byte
-	SpanTp       channelLinkTP
-	LinkedSpanTp channelLinkTP
-}
-
-type channelLinkTP struct {
-	TraceId  [16]byte
-	SpanId   [8]byte
-	ParentId [8]byte
-	Ts       uint64
-	Flags    uint8
-	_        [7]byte
-}
 
 const (
 	maxPendingSpanLinks = 1024
@@ -59,18 +44,14 @@ func readGoChannelLinkEvent(parseCtx *EBPFParseContext, record *ringbuf.Record) 
 		return request.Span{}, true, nil
 	}
 
-	event, err := ReinterpretCast[channelLinkTrace](record.RawSample)
+	event, err := ReinterpretCast[GoChannelLinkTrace](record.RawSample)
 	if err != nil {
 		return request.Span{}, true, err
 	}
 
-	parseCtx.pendingSpanLinks.recordPair(
-		tpToSpanLinkKey(&event.SpanTp),
-		tpToSpanLink(&event.LinkedSpanTp),
-	)
-	parseCtx.pendingSpanLinks.recordPair(
-		tpToSpanLinkKey(&event.LinkedSpanTp),
-		tpToSpanLink(&event.SpanTp),
+	parseCtx.pendingSpanLinks.recordLink(
+		tpToSpanLinkKey(event.ReceiverTp.TraceId, event.ReceiverTp.SpanId),
+		tpToSpanLink(event.SenderTp.TraceId, event.SenderTp.SpanId, event.SenderTp.Flags),
 	)
 
 	return request.Span{}, true, nil
@@ -88,27 +69,31 @@ func (ctx *EBPFParseContext) consumePendingSpanLinks(span *request.Span) {
 	ctx.pendingSpanLinks.consume(span)
 }
 
-func tpToSpanLinkKey(tp *channelLinkTP) spanLinkKey {
+func tpToSpanLinkKey(traceID [16]uint8, spanID [8]uint8) spanLinkKey {
 	return spanLinkKey{
-		traceID: trace.TraceID(tp.TraceId),
-		spanID:  trace.SpanID(tp.SpanId),
+		traceID: trace.TraceID(traceID),
+		spanID:  trace.SpanID(spanID),
 	}
 }
 
-func tpToSpanLink(tp *channelLinkTP) request.SpanLink {
+func tpToSpanLink(traceID [16]uint8, spanID [8]uint8, flags uint8) request.SpanLink {
 	return request.SpanLink{
-		TraceID:    trace.TraceID(tp.TraceId),
-		SpanID:     trace.SpanID(tp.SpanId),
-		TraceFlags: tp.Flags,
+		TraceID:    trace.TraceID(traceID),
+		SpanID:     trace.SpanID(spanID),
+		TraceFlags: flags,
 	}
 }
 
-func (p *pendingSpanLinks) recordPair(key spanLinkKey, link request.SpanLink) {
+func (p *pendingSpanLinks) recordLink(key spanLinkKey, link request.SpanLink) {
 	if p == nil || p.cache == nil {
 		return
 	}
 
 	if !key.traceID.IsValid() || !key.spanID.IsValid() || !link.TraceID.IsValid() || !link.SpanID.IsValid() {
+		return
+	}
+
+	if key.traceID == link.TraceID && key.spanID == link.SpanID {
 		return
 	}
 

@@ -48,6 +48,7 @@ type (
 	GoSaramaClientInfo   BpfKafkaClientReqT
 	GoRedisClientInfo    BpfRedisClientReqT
 	GoKafkaGoClientInfo  BpfKafkaGoReqT
+	GoChannelLinkTrace   BpfChannelLinkTraceT
 	TCPLargeBufferHeader BpfTcpLargeBufferT
 	GoOTelSpanTrace      BpfOtelSpanT
 	GoMongoClientInfo    BpfMongoGoClientReqT

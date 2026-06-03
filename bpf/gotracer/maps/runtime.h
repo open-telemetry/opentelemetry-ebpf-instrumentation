@@ -27,6 +27,12 @@ typedef struct chan_handoff {
     tp_info_t tp;
 } chan_handoff_t;
 
+typedef struct direct_chan_handoff {
+    chan_handoff_t handoff;
+    u8 ambiguous;
+    u8 _pad[7];
+} direct_chan_handoff_t;
+
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __type(key, void *); // *m
@@ -61,7 +67,7 @@ struct {
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __type(key, u64);
-    __type(value, chan_handoff_t);
+    __type(value, direct_chan_handoff_t);
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
     __uint(pinning, OBI_PIN_INTERNAL);
 } direct_channel_senders SEC(".maps");
@@ -69,7 +75,7 @@ struct {
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __type(key, u64);
-    __type(value, chan_handoff_t);
+    __type(value, direct_chan_handoff_t);
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
     __uint(pinning, OBI_PIN_INTERNAL);
 } direct_channel_receivers SEC(".maps");

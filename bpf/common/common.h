@@ -255,8 +255,8 @@ typedef struct otel_span {
 typedef struct channel_link_trace {
     u8 type; // Must be first
     u8 _pad[7];
-    tp_info_t span_tp;
-    tp_info_t linked_span_tp;
+    tp_info_t sender_tp;
+    tp_info_t receiver_tp;
 } channel_link_trace_t;
 
 typedef struct mongo_go_client_req {
