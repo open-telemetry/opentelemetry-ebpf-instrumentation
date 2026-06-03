@@ -62,6 +62,35 @@ func TestMatchSunRPC_ClientSpan(t *testing.T) {
 	assert.Equal(t, request.EventTypeSunRPCClient, span.Type)
 }
 
+func TestMatchSunRPC_DeniedReplySetsErrorStatus(t *testing.T) {
+	call := buildSunRPCCallRecord(9, sunrpcparser.ProgramPortmapper, 2, 0, "auth_null")
+	denied := buildSunRPCDeniedReply(9)
+
+	event := &TCPRequestInfo{Direction: directionSend}
+	req := largebuf.NewLargeBufferFrom(append(wrapSunRPCTCPRecord(call), wrapSunRPCTCPRecord(denied)...))
+	resp := largebuf.NewLargeBuffer()
+
+	span, ignore, matched, err := matchSunRPC(NewEBPFParseContext(nil, nil, nil), event, req, resp)
+	require.NoError(t, err)
+	require.True(t, matched)
+	assert.False(t, ignore)
+	assert.Equal(t, request.StatusCodeError, request.SpanStatusCode(&span))
+}
+
+func TestMatchSunRPC_ReplyOnlyDeniedSetsErrorStatus(t *testing.T) {
+	denied := buildSunRPCDeniedReply(9)
+
+	event := &TCPRequestInfo{Direction: directionRecv}
+	req := largebuf.NewLargeBufferFrom(wrapSunRPCTCPRecord(denied))
+	resp := largebuf.NewLargeBuffer()
+
+	span, ignore, matched, err := matchSunRPC(NewEBPFParseContext(nil, nil, nil), event, req, resp)
+	require.NoError(t, err)
+	require.True(t, matched)
+	assert.False(t, ignore)
+	assert.Equal(t, request.StatusCodeError, request.SpanStatusCode(&span))
+}
+
 func TestMatchSunRPC_ReplyOnlyServerSpan(t *testing.T) {
 	reply := buildSunRPCAcceptedReply(9)
 
@@ -75,6 +104,7 @@ func TestMatchSunRPC_ReplyOnlyServerSpan(t *testing.T) {
 	assert.False(t, ignore)
 	assert.Equal(t, request.EventTypeSunRPCServer, span.Type)
 	assert.Equal(t, "reply", span.Method)
+	assert.Empty(t, span.Route)
 }
 
 func TestMatchSunRPC_ReplyOnlyClientSpan(t *testing.T) {
@@ -89,6 +119,7 @@ func TestMatchSunRPC_ReplyOnlyClientSpan(t *testing.T) {
 	require.True(t, matched)
 	assert.False(t, ignore)
 	assert.Equal(t, request.EventTypeSunRPCClient, span.Type)
+	assert.Empty(t, span.Route)
 }
 
 func TestMatchSunRPC_PrefersCallInResponseBuffer(t *testing.T) {
@@ -161,6 +192,17 @@ func buildSunRPCAcceptedReply(xid uint32) []byte {
 	body := appendU32BE(nil, 0)
 	body = appendOpaque(body, 0, nil)
 	body = appendU32BE(body, 0)
+
+	msg := appendU32BE(nil, xid)
+	msg = appendU32BE(msg, 1)
+	msg = append(msg, body...)
+	return msg
+}
+
+func buildSunRPCDeniedReply(xid uint32) []byte {
+	body := appendU32BE(nil, 1)
+	body = appendU32BE(body, 1)
+	body = appendU32BE(body, 1)
 
 	msg := appendU32BE(nil, xid)
 	msg = appendU32BE(msg, 1)

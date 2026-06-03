@@ -1232,13 +1232,15 @@ func spanAttributes(s *Span) SpanAttributes {
 		}
 	case EventTypeSunRPCServer, EventTypeSunRPCClient:
 		attrs := SpanAttributes{
-			"serverAddr":                      SpanHost(s),
-			"serverPort":                      strconv.Itoa(s.HostPort),
-			attr.OncRPCProgramName.Prom():     s.Path,
-			attr.OncRPCProcedureNumber.Prom(): s.Route,
-			attr.OncRPCVersion.Prom():         strconv.Itoa(s.SubType),
-			attr.OncRPCAuthFlavor.Prom():      s.Statement,
-			"status":                          strconv.Itoa(s.Status),
+			"serverAddr":                  SpanHost(s),
+			"serverPort":                  strconv.Itoa(s.HostPort),
+			attr.OncRPCProgramName.Prom(): s.Path,
+			attr.OncRPCVersion.Prom():     strconv.Itoa(s.SubType),
+			attr.OncRPCAuthFlavor.Prom():  s.Statement,
+			"status":                      strconv.Itoa(s.Status),
+		}
+		if procRoute := s.SunRPCProcedureRouteForExport(); procRoute != "" {
+			attrs[attr.OncRPCProcedureNumber.Prom()] = procRoute
 		}
 		if procName := s.SunRPCProcedureNameForExport(); procName != "" {
 			attrs[attr.OncRPCProcedureName.Prom()] = procName

@@ -59,11 +59,11 @@ func TestTraceAttributesSelector_SunRPCProcedureName(t *testing.T) {
 			Type:   request.EventTypeSunRPCServer,
 			Method: request.SunRPCSyntheticReplyMethod,
 			Path:   "sunrpc",
-			Route:  "0",
 		}
 		attrs := TraceAttributesSelector(span, map[attr.Name]struct{}{})
 		for _, kv := range attrs {
 			assert.NotEqual(t, string(semconv.OncRPCProcedureNameKey), string(kv.Key))
+			assert.NotEqual(t, string(semconv.OncRPCProcedureNumberKey), string(kv.Key))
 		}
 	})
 }

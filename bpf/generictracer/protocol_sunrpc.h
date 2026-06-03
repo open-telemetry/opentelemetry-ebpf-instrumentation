@@ -19,6 +19,10 @@ enum {
     k_sunrpc_msg_call = 0,
     k_sunrpc_msg_reply = 1,
     k_sunrpc_reply_accepted = 0,
+    k_sunrpc_reply_denied = 1,
+    k_sunrpc_reject_rpc_mismatch = 0,
+    k_sunrpc_reject_auth_error = 1,
+    k_sunrpc_max_auth_stat = 13,
 };
 
 // auth_flavor_t values from RFC 5531 / IANA RPC Authentication Numbers.
@@ -68,7 +72,7 @@ static __always_inline u8 sunrpc_valid_auth_flavor(u32 flavor) {
 
 static __always_inline int
 sunrpc_skip_opaque_auth(const unsigned char *data, u32 data_len, u32 *off) {
-    if (*off + 8 > data_len) {
+    if (*off > data_len || data_len - *off < 8) {
         return -1;
     }
 
@@ -78,8 +82,13 @@ sunrpc_skip_opaque_auth(const unsigned char *data, u32 data_len, u32 *off) {
         return -1;
     }
 
+    const u32 remaining = data_len - *off - 8;
+    if (length > remaining) {
+        return -1;
+    }
+
     const u32 padded = (length + 3) & ~3U;
-    if (*off + 8 + padded > data_len) {
+    if (padded > remaining) {
         return -1;
     }
 
@@ -117,6 +126,27 @@ static __always_inline u8 sunrpc_parse_call_msg(const unsigned char *rpc, u32 rp
     return 1;
 }
 
+static __always_inline u8 sunrpc_validate_rejected_reply(const unsigned char *body, u32 body_len) {
+    if (body_len < 4) {
+        return 0;
+    }
+
+    const u32 reject_stat = sunrpc_read_u32_be(body);
+    switch (reject_stat) {
+    case k_sunrpc_reject_rpc_mismatch:
+        return body_len >= 12;
+    case k_sunrpc_reject_auth_error: {
+        if (body_len < 8) {
+            return 0;
+        }
+        const u32 auth_stat = sunrpc_read_u32_be(body + 4);
+        return auth_stat <= k_sunrpc_max_auth_stat;
+    }
+    default:
+        return 0;
+    }
+}
+
 static __always_inline u8 sunrpc_parse_reply_msg(const unsigned char *rpc, u32 rpc_len) {
     if (rpc_len < 16) {
         return 0;
@@ -127,8 +157,14 @@ static __always_inline u8 sunrpc_parse_reply_msg(const unsigned char *rpc, u32 r
     }
 
     const u32 reply_stat = sunrpc_read_u32_be(rpc + 8);
-    if (reply_stat != k_sunrpc_reply_accepted) {
-        return reply_stat <= 1;
+    if (reply_stat > k_sunrpc_reply_denied) {
+        return 0;
+    }
+    if (reply_stat == k_sunrpc_reply_denied) {
+        if (rpc_len < 12) {
+            return 0;
+        }
+        return sunrpc_validate_rejected_reply(rpc + 12, rpc_len - 12);
     }
 
     u32 off = 12;

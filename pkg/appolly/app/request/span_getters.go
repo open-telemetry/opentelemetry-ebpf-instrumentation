@@ -124,15 +124,13 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 		}
 	case attr.OncRPCProcedureNumber:
 		getter = func(s *Span) attribute.KeyValue {
-			if s.Type != EventTypeSunRPCClient && s.Type != EventTypeSunRPCServer {
-				return semconv.OncRPCProcedureNumber(0)
+			route := s.SunRPCProcedureRouteForExport()
+			if route == "" {
+				return attribute.KeyValue{}
 			}
-			if s.Route == "" {
-				return semconv.OncRPCProcedureNumber(0)
-			}
-			proc, err := strconv.Atoi(s.Route)
+			proc, err := strconv.Atoi(route)
 			if err != nil {
-				return semconv.OncRPCProcedureNumber(0)
+				return attribute.KeyValue{}
 			}
 			return semconv.OncRPCProcedureNumber(proc)
 		}
@@ -555,6 +553,9 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 //
 //nolint:cyclop
 func spanPromGetters(attrName attr.Name) attributes.Getter[*Span, string] {
+	if attrName == attr.OncRPCProcedureNumber {
+		return func(s *Span) string { return s.SunRPCProcedureRouteForExport() }
+	}
 	if otelGetter, ok := spanOTELGetters(attrName); ok {
 		return func(span *Span) string { return otelGetter(span).Value.Emit() }
 	}

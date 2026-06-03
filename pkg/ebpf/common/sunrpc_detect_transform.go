@@ -130,10 +130,8 @@ func sunRPCInfoFromCall(call *sunrpcparser.CallInfo, reply *sunrpcparser.ReplyIn
 		AuthFlavor:  sunrpcparser.AuthFlavorName(call.AuthFlavor),
 	}
 
-	if reply != nil && reply.MatchCallXid && !reply.Denied {
-		if reply.AcceptStat != sunrpcAcceptSuccess {
-			info.Status = int(reply.AcceptStat) + 1
-		}
+	if reply != nil && reply.MatchCallXid {
+		info.Status = sunRPCStatusFromReply(reply)
 	}
 
 	return info
@@ -144,10 +142,19 @@ func sunRPCInfoFromReply(reply *sunrpcparser.ReplyInfo) *SunRPCInfo {
 		ProgramName: "sunrpc",
 		Method:      request.SunRPCSyntheticReplyMethod,
 	}
-	if !reply.Denied && reply.AcceptStat != sunrpcAcceptSuccess {
-		info.Status = int(reply.AcceptStat) + 1
-	}
+	info.Status = sunRPCStatusFromReply(reply)
 	return info
+}
+
+// sunRPCStatusFromReply maps REPLY outcomes to span.Status (non-zero => STATUS_CODE_ERROR).
+func sunRPCStatusFromReply(reply *sunrpcparser.ReplyInfo) int {
+	switch {
+	case reply.Denied:
+		return 1
+	case reply.AcceptStat != sunrpcAcceptSuccess:
+		return int(reply.AcceptStat) + 1
+	}
+	return 0
 }
 
 const sunrpcAcceptSuccess = 0
@@ -171,11 +178,16 @@ func TCPToSunRPCToSpan(trace *TCPRequestInfo, data *SunRPCInfo) request.Span {
 		subType = int(data.Version)
 	}
 
+	route := ""
+	if isSunRPCCallInfo(data) {
+		route = strconv.FormatUint(uint64(data.Procedure), 10)
+	}
+
 	return request.Span{
 		Type:         spanType,
 		Method:       data.Method,
 		Path:         data.ProgramName,
-		Route:        strconv.FormatUint(uint64(data.Procedure), 10),
+		Route:        route,
 		Statement:    data.AuthFlavor,
 		SubType:      subType,
 		Peer:         peer,

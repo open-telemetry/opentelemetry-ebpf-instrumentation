@@ -27,7 +27,7 @@ func TestSunRPCProcedureNameForExport(t *testing.T) {
 		},
 		{
 			name: "reply-only synthetic",
-			span: Span{Type: EventTypeSunRPCServer, Method: SunRPCSyntheticReplyMethod, Route: "0"},
+			span: Span{Type: EventTypeSunRPCServer, Method: SunRPCSyntheticReplyMethod},
 			want: "",
 		},
 		{
@@ -45,6 +45,41 @@ func TestSunRPCProcedureNameForExport(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			assert.Equal(t, tt.want, tt.span.SunRPCProcedureNameForExport())
+		})
+	}
+}
+
+func TestSunRPCProcedureRouteForExport(t *testing.T) {
+	tests := []struct {
+		name string
+		span Span
+		want string
+	}{
+		{
+			name: "call span",
+			span: Span{Type: EventTypeSunRPCClient, Method: "6", Route: "6"},
+			want: "6",
+		},
+		{
+			name: "portmapper null",
+			span: Span{Type: EventTypeSunRPCClient, Method: "0", Route: "0"},
+			want: "0",
+		},
+		{
+			name: "reply-only synthetic",
+			span: Span{Type: EventTypeSunRPCServer, Method: SunRPCSyntheticReplyMethod},
+			want: "",
+		},
+		{
+			name: "non-sunrpc",
+			span: Span{Type: EventTypeGRPC, Route: "1"},
+			want: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, tt.span.SunRPCProcedureRouteForExport())
 		})
 	}
 }

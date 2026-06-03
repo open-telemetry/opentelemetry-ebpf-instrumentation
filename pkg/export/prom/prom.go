@@ -545,7 +545,7 @@ func newReporter(
 		grpcDuration: optionalHistogramProvider(is.GRPCEnabled() || is.SunRPCEnabled(), func() *Expirer[prometheus.Histogram] {
 			return NewExpirer[prometheus.Histogram](prometheus.NewHistogramVec(prometheus.HistogramOpts{
 				Name:                            attributes.RPCServerDuration.Prom,
-				Help:                            "duration of RCP service calls from the server side, in seconds",
+				Help:                            "duration of RPC service calls from the server side, in seconds",
 				Buckets:                         cfg.Buckets.DurationHistogram,
 				NativeHistogramBucketFactor:     cfg.NativeHistogram.BucketFactor,
 				NativeHistogramMaxBucketNumber:  cfg.NativeHistogram.MaxBucketNumber,
@@ -555,7 +555,7 @@ func newReporter(
 		grpcClientDuration: optionalHistogramProvider(is.GRPCEnabled() || is.SunRPCEnabled(), func() *Expirer[prometheus.Histogram] {
 			return NewExpirer[prometheus.Histogram](prometheus.NewHistogramVec(prometheus.HistogramOpts{
 				Name:                            attributes.RPCClientDuration.Prom,
-				Help:                            "duration of GRPC service calls from the client side, in seconds",
+				Help:                            "duration of RPC service calls from the client side, in seconds",
 				Buckets:                         cfg.Buckets.DurationHistogram,
 				NativeHistogramBucketFactor:     cfg.NativeHistogram.BucketFactor,
 				NativeHistogramMaxBucketNumber:  cfg.NativeHistogram.MaxBucketNumber,
