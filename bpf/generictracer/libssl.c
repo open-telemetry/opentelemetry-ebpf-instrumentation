@@ -39,7 +39,6 @@ int BPF_UPROBE(obi_uprobe_ssl_read, void *ssl, const void *buf, int num) {
     ssl_args_t args = {};
     args.buf = (u64)buf;
     args.ssl = (u64)ssl;
-    args.len_ptr = 0;
     args.flags = 0;
 
     bpf_map_update_elem(&active_ssl_read_args, &id, &args, BPF_ANY);
@@ -139,6 +138,7 @@ int BPF_URETPROBE(obi_uretprobe_ssl_read_ex, int ret) {
 SEC("uprobe/libssl.so:SSL_write")
 int BPF_UPROBE(obi_uprobe_ssl_write, void *ssl, const void *buf, int num) {
     (void)ctx;
+    (void)num;
 
     const u64 id = bpf_get_current_pid_tgid();
 
@@ -151,7 +151,6 @@ int BPF_UPROBE(obi_uprobe_ssl_write, void *ssl, const void *buf, int num) {
     ssl_args_t args = {};
     args.buf = (u64)buf;
     args.ssl = (u64)ssl;
-    args.len_ptr = num;
     args.flags = 0;
 
     bpf_map_update_elem(&active_ssl_write_args, &id, &args, BPF_ANY);
@@ -161,8 +160,6 @@ int BPF_UPROBE(obi_uprobe_ssl_write, void *ssl, const void *buf, int num) {
 
 SEC("uretprobe/libssl.so:SSL_write")
 int BPF_URETPROBE(obi_uretprobe_ssl_write, int ret) {
-    (void)ret;
-
     const u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
@@ -178,7 +175,7 @@ int BPF_URETPROBE(obi_uretprobe_ssl_write, int ret) {
         __builtin_memcpy(&saved, args, sizeof(ssl_args_t));
         bpf_map_delete_elem(&active_ssl_write_args, &id);
         // must be last in the function, doesn't return
-        handle_ssl_buf(ctx, id, &saved, saved.len_ptr, TCP_SEND);
+        handle_ssl_buf(ctx, id, &saved, ret, TCP_SEND);
     }
 
     return 0;
@@ -191,7 +188,7 @@ int BPF_UPROBE(obi_uprobe_ssl_write_ex,
                int num,
                size_t *written) { //NOLINT(readability-non-const-parameter)
     (void)ctx;
-    (void)written;
+    (void)num;
 
     const u64 id = bpf_get_current_pid_tgid();
 
@@ -204,7 +201,7 @@ int BPF_UPROBE(obi_uprobe_ssl_write_ex,
     ssl_args_t args = {};
     args.buf = (u64)buf;
     args.ssl = (u64)ssl;
-    args.len_ptr = num;
+    args.len_ptr = (u64)written;
     args.flags = 0;
 
     bpf_map_update_elem(&active_ssl_write_args, &id, &args, BPF_ANY);
@@ -214,8 +211,6 @@ int BPF_UPROBE(obi_uprobe_ssl_write_ex,
 
 SEC("uretprobe/libssl.so:SSL_write_ex")
 int BPF_URETPROBE(obi_uretprobe_ssl_write_ex, int ret) {
-    (void)ret;
-
     const u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
@@ -226,13 +221,19 @@ int BPF_URETPROBE(obi_uretprobe_ssl_write_ex, int ret) {
 
     bpf_dbg_printk("=== uretprobe SSL_write_ex id=%d args %llx ===", id, args);
 
-    if (args) {
-        ssl_args_t saved = {};
-        __builtin_memcpy(&saved, args, sizeof(ssl_args_t));
+    if (ret != 1 || !args) {
         bpf_map_delete_elem(&active_ssl_write_args, &id);
-        // must be last in the function, doesn't return
-        handle_ssl_buf(ctx, id, &saved, saved.len_ptr, TCP_SEND);
+        return 0;
     }
+
+    size_t write_len = 0;
+    bpf_probe_read(&write_len, sizeof(write_len), (void *)args->len_ptr);
+
+    ssl_args_t saved = {};
+    __builtin_memcpy(&saved, args, sizeof(ssl_args_t));
+    bpf_map_delete_elem(&active_ssl_write_args, &id);
+    // must be last in the function, doesn't return
+    handle_ssl_buf(ctx, id, &saved, write_len, TCP_SEND);
 
     return 0;
 }
