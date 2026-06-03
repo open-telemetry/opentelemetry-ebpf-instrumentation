@@ -446,8 +446,9 @@ int obi_uprobe_readMimeHeader(struct pt_regs *ctx) {
 
     bpf_clamp_umax(len, TRACE_BUF_SIZE);
 
-    if (bpf_probe_read_user(buf, len, arr) != 0) {
-        bpf_dbg_printk("failed to read buffer");
+    long rc = bpf_probe_read_user(buf, len, arr);
+    if (rc != 0) {
+        bpf_dbg_printk("failed to read buffer rc=%ld", rc);
         return 0;
     }
 
