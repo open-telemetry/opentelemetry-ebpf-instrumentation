@@ -141,10 +141,12 @@ lint: lint-run
 
 .PHONY: lint-fix
 lint-fix: LINT_EXTRA_ARGS = --fix
-lint-fix: lint-run
+lint-fix: lint-fix-run
 
-.PHONY: lint-run
+.PHONY: lint-run lint-fix-run
 lint-run: vanity-import-check lint-dependency-policy lint-collectt
+lint-fix-run: vanity-import-fix-check lint-dependency-policy lint-collectt
+lint-run lint-fix-run:
 	@echo "### Linting code"
 	go tool $(TOOLS_MODFILE) golangci-lint run ./... --timeout=6m $(LINT_EXTRA_ARGS)
 
@@ -870,8 +872,9 @@ check-ebpf-ver-synced:
 		exit 1; \
 	fi
 
-.PHONY: vanity-import-check
-vanity-import-check:
+.PHONY: vanity-import-check vanity-import-fix-check
+vanity-import-fix-check: vanity-import-fix
+vanity-import-check vanity-import-fix-check:
 	go tool $(TOOLS_MODFILE) porto --include-internal --skip-dirs "^NOTICES$$" -l . || ( echo "(run: make vanity-import-fix)"; exit 1 )
 
 .PHONY: vanity-import-fix
