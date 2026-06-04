@@ -16,9 +16,15 @@ package main
 
 import (
 	"bytes"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
+
+var legacyFrontendAssetBrand = regexp.MustCompile(`Hip` + `ster|Cym` + `bal`)
 
 func TestHeaderUsesOBIStoreBrand(t *testing.T) {
 	output := renderTemplateForTest(t, "header")
@@ -39,6 +45,35 @@ func TestAssistantUsesOBIStoreBrand(t *testing.T) {
 
 	if !strings.Contains(output, "Hi, I'm the OBI Store assistant.") {
 		t.Fatal("rendered assistant greeting does not use OBI Store branding")
+	}
+}
+
+func TestFrontendAssetsAreDebranded(t *testing.T) {
+	for _, root := range []string{"static", "templates"} {
+		err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if d.IsDir() {
+				return nil
+			}
+			if legacyFrontendAssetBrand.MatchString(path) {
+				t.Errorf("frontend asset path still uses legacy brand: %s", path)
+			}
+
+			content, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			if legacyFrontendAssetBrand.Match(content) {
+				t.Errorf("frontend asset content still uses legacy brand: %s", path)
+			}
+
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("walk %s: %v", root, err)
+		}
 	}
 }
 

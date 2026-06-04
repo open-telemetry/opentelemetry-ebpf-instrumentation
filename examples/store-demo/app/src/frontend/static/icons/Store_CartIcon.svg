@@ -10,7 +10,7 @@
    inkscape:version="1.0 (4035a4f, 2020-05-01)"
    height="11.002236"
    width="10.434605"
-   sodipodi:docname="Hipster_CartIcon.svg"
+   sodipodi:docname="Store_CartIcon.svg"
    version="1.1"
    viewBox="0 0 10.434605 11.002236"
    data-name="Layer 1"
@@ -23,7 +23,7 @@
         <dc:format>image/svg+xml</dc:format>
         <dc:type
            rdf:resource="http://purl.org/dc/dcmitype/StillImage" />
-        <dc:title>Hipster</dc:title>
+        <dc:title>Store</dc:title>
       </cc:Work>
     </rdf:RDF>
   </metadata>
@@ -57,7 +57,7 @@
        id="style1186">.cls-1{fill:#b4b2bb}</style>
   </defs>
   <title
-     id="title1190">Hipster</title>
+     id="title1190">Store</title>
   <g
      transform="translate(-4.4609375,-5.5)"
      id="g1196">

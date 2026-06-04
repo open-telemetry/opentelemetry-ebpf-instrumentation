@@ -586,10 +586,10 @@ select {
   -webkit-border-radius: 0px;
 }
 
-/* Cymbal */
+/* Store */
 
 /*
-If we ever decide to create a separate Cymbal CSS library for Cymbal components,
+If we ever decide to create a separate Store CSS library for Store components,
 the rules below could be extracted.
 */
 
