@@ -215,7 +215,7 @@ version: 2.0
 	}
 }
 
-func TestNotV2(t *testing.T) {
+func TestStandaloneNotV2(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -226,12 +226,12 @@ func TestNotV2(t *testing.T) {
 		{
 			name: "empty",
 			yaml: "",
-			want: "missing OBI v2 version field",
+			want: "missing extensions.obi.version field",
 		},
 		{
 			name: "missing version",
 			yaml: "file_format: \"1.0\"\n",
-			want: "missing OBI v2 version field",
+			want: "missing extensions.obi.version field",
 		},
 		{
 			name: "v1",
@@ -252,7 +252,53 @@ stats: {}
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			_, _, err := ParseYAML([]byte(test.yaml))
+			_, _, err := ParseStandaloneYAML([]byte(test.yaml))
+
+			var notV2 *NotV2Error
+			require.ErrorAs(t, err, &notV2)
+			require.Contains(t, err.Error(), test.want)
+		})
+	}
+}
+
+func TestReceiverNotV2(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		yaml string
+		want string
+	}{
+		{
+			name: "empty",
+			yaml: "",
+			want: "missing top-level OBI v2 version field",
+		},
+		{
+			name: "missing version",
+			yaml: "policy: {}\n",
+			want: "missing top-level OBI v2 version field",
+		},
+		{
+			name: "v1",
+			yaml: `
+ebpf: {}
+discovery: {}
+otel_metrics_export: {}
+otel_traces_export: {}
+prometheus_export: {}
+network: {}
+stats: {}
+`,
+			want: "detected legacy v1 config shape",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := ParseReceiverYAML([]byte(test.yaml))
 
 			var notV2 *NotV2Error
 			require.ErrorAs(t, err, &notV2)
@@ -284,31 +330,6 @@ extensions:
 	var receiverNotV2 *NotV2Error
 	require.ErrorAs(t, err, &receiverNotV2)
 	require.Contains(t, err.Error(), "missing top-level OBI v2 version field")
-}
-
-func TestParseYAMLAutoDetectsLayout(t *testing.T) {
-	t.Parallel()
-
-	doc, cfg, err := ParseYAML([]byte(`
-file_format: "1.0"
-extensions:
-  obi:
-    version: "2.0"
-    capture: {}
-`))
-	require.NoError(t, err)
-	require.NotNil(t, doc)
-	require.NotNil(t, cfg)
-
-	doc, cfg, err = ParseYAML([]byte(`
-version: "2.0"
-policy:
-  default_action: include
-`))
-	require.NoError(t, err)
-	require.Nil(t, doc)
-	require.NotNil(t, cfg)
-	require.Equal(t, "include", cfg.Capture.Policy["default_action"])
 }
 
 func TestParseMapPreservesDocumentRaw(t *testing.T) {

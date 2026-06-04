@@ -151,52 +151,6 @@ func (e *SectionNotAllowedError) Error() string {
 	return fmt.Sprintf("section %q is not allowed in %s mode", e.Section, e.Mode)
 }
 
-// ParseYAML decodes data as YAML and parses it as an OBI v2 configuration.
-//
-// Full declarative documents return both a Document and its OBI Extension.
-// Receiver-embedded configurations return a nil Document and the synthesized OBI
-// Extension. Standalone-only sections are rejected for receiver-embedded
-// configurations.
-func ParseYAML(data []byte) (*Document, *Extension, error) {
-	raw, err := parseYAML(data)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	return ParseMap(raw)
-}
-
-// ParseMap parses a decoded YAML map as an OBI v2 configuration.
-//
-// A map with extensions.obi.version is treated as a full declarative document. A
-// map with a top-level version is treated as a receiver-embedded configuration,
-// where top-level capture sections are moved under Extension.Capture. Missing v2
-// markers return NotV2Error; present but unsupported markers return
-// UnsupportedVersionError.
-func ParseMap(raw map[string]any) (*Document, *Extension, error) {
-	if len(raw) == 0 {
-		return nil, nil, &NotV2Error{Reason: "missing OBI v2 version field"}
-	}
-
-	if _, ok := nestedValue(raw, "extensions", "obi", "version"); ok {
-		return ParseStandaloneMap(raw)
-	}
-
-	if _, ok := nestedValue(raw, "version"); ok {
-		cfg, err := ParseReceiverMap(raw)
-		if err != nil {
-			return nil, nil, err
-		}
-		return nil, cfg, nil
-	}
-
-	if looksLikeV1(raw) {
-		return nil, nil, &NotV2Error{Reason: "detected legacy v1 config shape"}
-	}
-
-	return nil, nil, &NotV2Error{Reason: "missing OBI v2 version field"}
-}
-
 // ParseStandaloneYAML decodes a standalone OBI v2 declarative document.
 func ParseStandaloneYAML(data []byte) (*Document, *Extension, error) {
 	raw, err := parseYAML(data)
