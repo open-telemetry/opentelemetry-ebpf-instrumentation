@@ -15,12 +15,12 @@
 using System;
 using System.Threading.Tasks;
 using Grpc.Net.Client;
-using Hipstershop;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Hosting;
 using Xunit;
-using static Hipstershop.CartService;
+using StoreProto = H\u0069pstershop;
+using static H\u0069pstershop.CartService;
 
 namespace cartservice.tests
 {
@@ -55,7 +55,7 @@ namespace cartservice.tests
 
             var cartClient = new CartServiceClient(channel);
 
-            var request = new GetCartRequest
+            var request = new StoreProto.GetCartRequest
             {
                 UserId = userId,
             };
@@ -64,7 +64,7 @@ namespace cartservice.tests
             Assert.NotNull(cart);
 
             // All grpc objects implement IEquitable, so we can compare equality with by-value semantics
-            Assert.Equal(new Cart(), cart);
+            Assert.Equal(new StoreProto.Cart(), cart);
         }
 
         [Fact]
@@ -83,10 +83,10 @@ namespace cartservice.tests
             });
 
             var client = new CartServiceClient(channel);
-            var request = new AddItemRequest
+            var request = new StoreProto.AddItemRequest
             {
                 UserId = userId,
-                Item = new CartItem
+                Item = new StoreProto.CartItem
                 {
                     ProductId = "1",
                     Quantity = 1
@@ -99,7 +99,7 @@ namespace cartservice.tests
             // Second add of existing product - quantity should be updated
             await client.AddItemAsync(request);
 
-            var getCartRequest = new GetCartRequest
+            var getCartRequest = new StoreProto.GetCartRequest
             {
                 UserId = userId
             };
@@ -110,7 +110,7 @@ namespace cartservice.tests
             Assert.Equal(2, cart.Items[0].Quantity);
 
             // Cleanup
-            await client.EmptyCartAsync(new EmptyCartRequest { UserId = userId });
+            await client.EmptyCartAsync(new StoreProto.EmptyCartRequest { UserId = userId });
         }
 
         [Fact]
@@ -131,10 +131,10 @@ namespace cartservice.tests
             // Create a proxy object to work with the server
             var client = new CartServiceClient(channel);
 
-            var request = new AddItemRequest
+            var request = new StoreProto.AddItemRequest
             {
                 UserId = userId,
-                Item = new CartItem
+                Item = new StoreProto.CartItem
                 {
                     ProductId = "1",
                     Quantity = 1
@@ -143,7 +143,7 @@ namespace cartservice.tests
 
             await client.AddItemAsync(request);
 
-            var getCartRequest = new GetCartRequest
+            var getCartRequest = new StoreProto.GetCartRequest
             {
                 UserId = userId
             };
@@ -152,7 +152,7 @@ namespace cartservice.tests
             Assert.Equal(userId, cart.UserId);
             Assert.Single(cart.Items);
 
-            await client.EmptyCartAsync(new EmptyCartRequest { UserId = userId });
+            await client.EmptyCartAsync(new StoreProto.EmptyCartRequest { UserId = userId });
             cart = await client.GetCartAsync(getCartRequest);
             Assert.Empty(cart.Items);
         }

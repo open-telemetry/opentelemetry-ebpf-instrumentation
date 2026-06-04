@@ -186,15 +186,15 @@ func initProfiling(service, version string) {
 		}); err != nil {
 			log.Warnf("failed to start profiler: %+v", err)
 		} else {
-			log.Info("started Stackdriver profiler")
-			return
+				log.Info("started profiler")
+				return
+			}
+			d := time.Second * 10 * time.Duration(i)
+			log.Infof("sleeping %v to retry initializing profiler", d)
+			time.Sleep(d)
 		}
-		d := time.Second * 10 * time.Duration(i)
-		log.Infof("sleeping %v to retry initializing Stackdriver profiler", d)
-		time.Sleep(d)
+		log.Warn("could not initialize profiler after retrying, giving up")
 	}
-	log.Warn("could not initialize Stackdriver profiler after retrying, giving up")
-}
 
 func mustMapEnv(target *string, envKey string) {
 	v := os.Getenv(envKey)

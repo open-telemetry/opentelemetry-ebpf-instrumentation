@@ -129,7 +129,7 @@ func (plat *platformDetails) setPlatformDetails(env string) {
 		plat.provider = "Azure"
 		plat.css = "azure-platform"
 	} else if env == "gcp" {
-		plat.provider = "Google Cloud"
+		plat.provider = "cloud platform"
 		plat.css = "gcp-platform"
 	} else if env == "alibaba" {
 		plat.provider = "Alibaba Cloud"
@@ -185,7 +185,7 @@ func (fe *frontendServer) productHandler(w http.ResponseWriter, r *http.Request)
 	}{p, price}
 
 	// Fetch packaging info (weight/dimensions) of the product
-	// The packaging service is an optional microservice you can run as part of a Google Cloud demo.
+	// The packaging service is an optional microservice for the store demo.
 	var packagingInfo *PackagingInfo = nil
 	if isPackagingServiceConfigured() {
 		packagingInfo, err = httpGetPackagingInfo(id)

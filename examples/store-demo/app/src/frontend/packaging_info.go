@@ -23,7 +23,7 @@ import (
 )
 
 /*
-As part of an optional Google Cloud demo, you can run an additional "packaging" microservice (HTTP server).
+As part of an optional store demo, you can run an additional "packaging" microservice (HTTP server).
 This file contains code related to the frontend and the "packaging" microservice.
 */
 

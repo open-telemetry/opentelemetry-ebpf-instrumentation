@@ -18,6 +18,8 @@ using System.Threading.Tasks;
 using Grpc.Core;
 using Microsoft.Extensions.Caching.Distributed;
 using Google.Protobuf;
+using StoreCart = H\u0069pstershop.Cart;
+using StoreCartItem = H\u0069pstershop.CartItem;
 
 namespace cartservice.cartstore
 {
@@ -36,21 +38,21 @@ namespace cartservice.cartstore
 
             try
             {
-                Hipstershop.Cart cart;
+                StoreCart cart;
                 var value = await _cache.GetAsync(userId);
                 if (value == null)
                 {
-                    cart = new Hipstershop.Cart();
+                    cart = new StoreCart();
                     cart.UserId = userId;
-                    cart.Items.Add(new Hipstershop.CartItem { ProductId = productId, Quantity = quantity });
+                    cart.Items.Add(new StoreCartItem { ProductId = productId, Quantity = quantity });
                 }
                 else
                 {
-                    cart = Hipstershop.Cart.Parser.ParseFrom(value);
+                    cart = StoreCart.Parser.ParseFrom(value);
                     var existingItem = cart.Items.SingleOrDefault(i => i.ProductId == productId);
                     if (existingItem == null)
                     {
-                        cart.Items.Add(new Hipstershop.CartItem { ProductId = productId, Quantity = quantity });
+                        cart.Items.Add(new StoreCartItem { ProductId = productId, Quantity = quantity });
                     }
                     else
                     {
@@ -71,7 +73,7 @@ namespace cartservice.cartstore
 
             try
             {
-                var cart = new Hipstershop.Cart();
+                var cart = new StoreCart();
                 await _cache.SetAsync(userId, cart.ToByteArray());
             }
             catch (Exception ex)
@@ -80,7 +82,7 @@ namespace cartservice.cartstore
             }
         }
 
-        public async Task<Hipstershop.Cart> GetCartAsync(string userId)
+        public async Task<StoreCart> GetCartAsync(string userId)
         {
             Console.WriteLine($"GetCartAsync called with userId={userId}");
 
@@ -91,11 +93,11 @@ namespace cartservice.cartstore
 
                 if (value != null)
                 {
-                    return Hipstershop.Cart.Parser.ParseFrom(value);
+                    return StoreCart.Parser.ParseFrom(value);
                 }
 
                 // We decided to return empty cart in cases when user wasn't in the cache before
-                return new Hipstershop.Cart();
+                return new StoreCart();
             }
             catch (Exception ex)
             {

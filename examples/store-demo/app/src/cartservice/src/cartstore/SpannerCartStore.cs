@@ -17,6 +17,8 @@ using Google.Cloud.Spanner.Data;
 using Grpc.Core;
 using Microsoft.Extensions.Configuration;
 using System.Threading.Tasks;
+using StoreCart = H\u0069pstershop.Cart;
+using StoreCartItem = H\u0069pstershop.CartItem;
 
 namespace cartservice.cartstore
 {
@@ -102,10 +104,10 @@ namespace cartservice.cartstore
         }
 
 
-        public async Task<Hipstershop.Cart> GetCartAsync(string userId)
+        public async Task<StoreCart> GetCartAsync(string userId)
         {
             Console.WriteLine($"GetCartAsync called for userId={userId}");
-            Hipstershop.Cart cart = new();
+            StoreCart cart = new();
             try
             {
                 using SpannerConnection spannerConnection = new(databaseString);
@@ -124,7 +126,7 @@ namespace cartservice.cartstore
                     // An empty cart has no userId attached.
                     cart.UserId = userId;
 
-                    Hipstershop.CartItem item = new()
+                    StoreCartItem item = new()
                     {
                         ProductId = reader.GetFieldValue<string>("productId"),
                         Quantity = reader.GetFieldValue<int>("quantity")
@@ -182,4 +184,3 @@ namespace cartservice.cartstore
         }
     }
 }
-

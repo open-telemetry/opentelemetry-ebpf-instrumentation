@@ -19,10 +19,10 @@
   <Appenders>
     <Console name="STDOUT" target="SYSTEM_OUT">
 
-      <!-- This is a JSON format that can be read by the Stackdriver Logging agent. The trace ID,
-           span ID, sampling decision, and timestamp are interpreted by Stackdriver. It uses the
-           special JSON keys that the Stackdriver Logging agent converts to "trace", "spanId",
-           "traceSampled", and "timestamp" in the Stackdriver LogEntry
+      <!-- This is a JSON format that can be read by the logging agent. The trace ID,
+           span ID, sampling decision, and timestamp are interpreted by the logging backend. It uses the
+           special JSON keys that the logging agent converts to "trace", "spanId",
+           "traceSampled", and "timestamp" in the log entry
            (https://cloud.google.com/logging/docs/agent/configuration#special-fields). -->
 
       <JsonLayout compact="true" eventEol="true">

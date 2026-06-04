@@ -13,6 +13,7 @@
 // limitations under the License.
 
 using System.Threading.Tasks;
+using StoreCart = H\u0069pstershop.Cart;
 
 namespace cartservice.cartstore
 {
@@ -20,7 +21,7 @@ namespace cartservice.cartstore
     {
         Task AddItemAsync(string userId, string productId, int quantity);
         Task EmptyCartAsync(string userId);
-        Task<Hipstershop.Cart> GetCartAsync(string userId);
+        Task<StoreCart> GetCartAsync(string userId);
         bool Ping();
     }
 }

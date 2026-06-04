@@ -17,13 +17,13 @@ using System.Threading.Tasks;
 using Grpc.Core;
 using Microsoft.Extensions.Logging;
 using cartservice.cartstore;
-using Hipstershop;
+using StoreProto = H\u0069pstershop;
 
 namespace cartservice.services
 {
-    public class CartService : Hipstershop.CartService.CartServiceBase
+    public class CartService : StoreProto.CartService.CartServiceBase
     {
-        private readonly static Empty Empty = new Empty();
+        private readonly static StoreProto.Empty Empty = new StoreProto.Empty();
         private readonly ICartStore _cartStore;
 
         public CartService(ICartStore cartStore)
@@ -31,18 +31,18 @@ namespace cartservice.services
             _cartStore = cartStore;
         }
 
-        public async override Task<Empty> AddItem(AddItemRequest request, ServerCallContext context)
+        public async override Task<StoreProto.Empty> AddItem(StoreProto.AddItemRequest request, ServerCallContext context)
         {
             await _cartStore.AddItemAsync(request.UserId, request.Item.ProductId, request.Item.Quantity);
             return Empty;
         }
 
-        public override Task<Cart> GetCart(GetCartRequest request, ServerCallContext context)
+        public override Task<StoreProto.Cart> GetCart(StoreProto.GetCartRequest request, ServerCallContext context)
         {
             return _cartStore.GetCartAsync(request.UserId);
         }
 
-        public async override Task<Empty> EmptyCart(EmptyCartRequest request, ServerCallContext context)
+        public async override Task<StoreProto.Empty> EmptyCart(StoreProto.EmptyCartRequest request, ServerCallContext context)
         {
             await _cartStore.EmptyCartAsync(request.UserId);
             return Empty;

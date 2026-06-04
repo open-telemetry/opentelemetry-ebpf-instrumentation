@@ -40,7 +40,7 @@ from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExport
 from logger import getJSONLogger
 logger = getJSONLogger('recommendationservice-server')
 
-def initStackdriverProfiling():
+def initProfiling():
   project_id = None
   try:
     project_id = os.environ["GCP_PROJECT_ID"]
@@ -55,15 +55,15 @@ def initStackdriverProfiling():
   #       googlecloudprofiler.start(service='recommendation_server', service_version='1.0.0', verbose=0, project_id=project_id)
   #     else:
   #       googlecloudprofiler.start(service='recommendation_server', service_version='1.0.0', verbose=0)
-  #     logger.info("Successfully started Stackdriver Profiler.")
+  #     logger.info("Successfully started profiler.")
   #     return
   #   except (BaseException) as exc:
-  #     logger.info("Unable to start Stackdriver Profiler Python agent. " + str(exc))
+  #     logger.info("Unable to start profiler Python agent. " + str(exc))
   #     if (retry < 4):
-  #       logger.info("Sleeping %d seconds to retry Stackdriver Profiler agent initialization"%(retry*10))
+  #       logger.info("Sleeping %d seconds to retry profiler agent initialization"%(retry*10))
   #       time.sleep (1)
   #     else:
-  #       logger.warning("Could not initialize Stackdriver Profiler after retrying, giving up")
+  #       logger.warning("Could not initialize profiler after retrying, giving up")
   return
 
 class RecommendationService(demo_pb2_grpc.RecommendationServiceServicer):
@@ -102,7 +102,7 @@ if __name__ == "__main__":
         raise KeyError()
       else:
         logger.info("Profiler enabled.")
-        initStackdriverProfiling()
+        initProfiling()
     except KeyError:
         logger.info("Profiler disabled.")
 

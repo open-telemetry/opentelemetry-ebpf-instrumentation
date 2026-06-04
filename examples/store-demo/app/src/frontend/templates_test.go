@@ -26,6 +26,17 @@ import (
 
 var legacyFrontendAssetBrand = regexp.MustCompile(`Hip` + `ster|Cym` + `bal`)
 
+var legacyStoreDemoSourceTerms = []string{
+	"Online " + "Boutique",
+	"Cym" + "bal Shops",
+	"Google " + "Cloud",
+	"G" + "KE",
+	"Cloud " + "Operations",
+	"Stack" + "driver",
+	"Hip" + "ster",
+	"Cym" + "bal",
+}
+
 func TestHeaderUsesOBIStoreBrand(t *testing.T) {
 	output := renderTemplateForTest(t, "header")
 
@@ -75,6 +86,56 @@ func TestFrontendAssetsAreDebranded(t *testing.T) {
 			t.Fatalf("walk %s: %v", root, err)
 		}
 	}
+}
+
+func TestStoreDemoSourceIsDebranded(t *testing.T) {
+	err := filepath.WalkDir("..", func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if shouldSkipDebrandSourceScan(path, d) {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if d.IsDir() {
+			return nil
+		}
+
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		for _, term := range legacyStoreDemoSourceTerms {
+			if strings.Contains(string(content), term) {
+				t.Errorf("store demo source contains legacy service text %q in %s", term, path)
+			}
+		}
+
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk store demo source: %v", err)
+	}
+}
+
+func shouldSkipDebrandSourceScan(path string, d fs.DirEntry) bool {
+	name := d.Name()
+	if d.IsDir() {
+		switch name {
+		case "bin", "genproto", "node_modules", "obj":
+			return true
+		default:
+			return false
+		}
+	}
+
+	if name == "go.sum" || name == "package-lock.json" {
+		return true
+	}
+
+	return strings.HasPrefix(name, "demo_pb2") && strings.HasSuffix(name, ".py")
 }
 
 func renderTemplateForTest(t *testing.T, name string) string {
