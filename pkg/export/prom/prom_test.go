@@ -1186,13 +1186,12 @@ func TestHandleProcessEventCreatedMetricsExportDisabled(t *testing.T) {
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			mockEventsStore := newMockEventMetrics()
 			reporter := &metricsReporter{
-				serviceMap:         make(map[svc.UID]svc.Attrs),
-				pidsTracker:        otel.NewPidServiceTracker(),
-				createEventMetrics: mockEventsStore.createEventMetrics,
-				deleteEventMetrics: mockEventsStore.deleteEventMetrics,
+				serviceMap:  make(map[svc.UID]svc.Attrs),
+				pidsTracker: otel.NewPidServiceTracker(),
 			}
+			reporter.createEventMetrics = reporter.createTargetInfos
+			reporter.deleteEventMetrics = reporter.deleteTargetInfoMetrics
 
 			uid := svc.UID{Name: "metrics-disabled-service-" + tt.name, Namespace: "default", Instance: "instance-1"}
 			service := svc.Attrs{
@@ -1210,8 +1209,6 @@ func TestHandleProcessEventCreatedMetricsExportDisabled(t *testing.T) {
 
 			reporter.handleProcessEvent(event, slog.Default())
 
-			assert.Empty(t, mockEventsStore.createCalls)
-			assert.Empty(t, mockEventsStore.deleteCalls)
 			assert.Equal(t, map[svc.UID]svc.Attrs{uid: service}, reporter.serviceMap)
 			assert.True(t, reporter.pidsTracker.ServiceLive(uid))
 
@@ -1220,10 +1217,53 @@ func TestHandleProcessEventCreatedMetricsExportDisabled(t *testing.T) {
 				File: event.File,
 			}, slog.Default())
 
-			assert.Empty(t, mockEventsStore.createCalls)
-			assert.Empty(t, mockEventsStore.deleteCalls)
 			assert.Empty(t, reporter.serviceMap)
 			assert.False(t, reporter.pidsTracker.ServiceLive(uid))
+		})
+	}
+}
+
+func TestTargetInfoHelpersSkipMetricsExportDisabled(t *testing.T) {
+	exportsEmpty := services.NewExportModes()
+	tracesOnly := services.NewExportModes()
+	tracesOnly.AllowTraces()
+
+	for _, tt := range []struct {
+		name        string
+		exportModes services.ExportModes
+	}{
+		{
+			name:        "exports empty",
+			exportModes: exportsEmpty,
+		},
+		{
+			name:        "traces only",
+			exportModes: tracesOnly,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			uid := svc.UID{Name: "metrics-disabled-service-" + tt.name, Namespace: "default", Instance: "instance-1"}
+			service := svc.Attrs{
+				ExportModes: tt.exportModes,
+				UID:         uid,
+				HostName:    "test-host",
+			}
+			mockEventsStore := newMockEventMetrics()
+			reporter := &metricsReporter{
+				serviceMap:         map[svc.UID]svc.Attrs{uid: service},
+				deleteEventMetrics: mockEventsStore.deleteEventMetrics,
+			}
+
+			assert.NotPanics(t, func() {
+				reporter.createTargetInfos(&service)
+			})
+			assert.NotPanics(t, func() {
+				reporter.deleteTargetInfoMetrics(&service)
+			})
+
+			reporter.deleteTargetInfos(uid, &service)
+
+			assert.Empty(t, mockEventsStore.deleteCalls)
 		})
 	}
 }

@@ -1380,6 +1380,10 @@ func (r *metricsReporter) createTargetInfos(service *svc.Attrs) {
 }
 
 func (r *metricsReporter) deleteTargetInfoMetrics(service *svc.Attrs) {
+	if service == nil || !service.ExportModes.CanExportMetrics() {
+		return
+	}
+
 	r.deleteTargetInfoMetric(service)
 	r.deleteTracesTargetInfoMetric(service)
 }
@@ -1407,14 +1411,10 @@ func (r *metricsReporter) handleProcessEvent(pe exec.ProcessEvent, log *slog.Log
 			r.pidsTracker.ReplaceUID(staleUID, uid)
 			if origAttrs, ok := r.serviceMap[staleUID]; ok {
 				log.Debug("updating service attributes for", "service", uid)
-				if origAttrs.ExportModes.CanExportMetrics() {
-					r.deleteEventMetrics(&origAttrs)
-				}
+				r.deleteEventMetrics(&origAttrs)
 				delete(r.serviceMap, staleUID)
 				r.serviceMap[uid] = snap
-				if snap.ExportModes.CanExportMetrics() {
-					r.createEventMetrics(&snap)
-				}
+				r.createEventMetrics(&snap)
 				// we don't setup the pid again, we just replaced the metrics it's associated with
 			}
 			return
@@ -1425,14 +1425,10 @@ func (r *metricsReporter) handleProcessEvent(pe exec.ProcessEvent, log *slog.Log
 		// the old target info
 		if origAttrs, ok := r.serviceMap[uid]; ok {
 			log.Debug("updating stale attributes for", "service", uid)
-			if origAttrs.ExportModes.CanExportMetrics() {
-				r.deleteEventMetrics(&origAttrs)
-			}
+			r.deleteEventMetrics(&origAttrs)
 		}
 
-		if snap.ExportModes.CanExportMetrics() {
-			r.createEventMetrics(&snap)
-		}
+		r.createEventMetrics(&snap)
 		r.serviceMap[uid] = snap
 		r.setupPIDToServiceRelationship(pid, uid)
 	} else {
