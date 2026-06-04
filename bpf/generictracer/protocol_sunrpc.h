@@ -43,9 +43,6 @@ static __always_inline u32 sunrpc_read_u32_be(const unsigned char *p) {
 }
 
 static __always_inline u8 sunrpc_valid_program(u32 prog) {
-    if (prog == 0 || prog >= 0x40000000) {
-        return 0;
-    }
     if (prog >= 100000 && prog <= 101000) {
         return 1;
     }
@@ -70,6 +67,9 @@ static __always_inline u8 sunrpc_valid_auth_flavor(u32 flavor) {
     }
 }
 
+// Validate opaque_auth at data[*off] and advance *off past flavor, length, and padded body.
+// For CALL, this validates cred then verf (same opaque_auth layout, 2 function calls); for REPLY,
+// this validates verf only (1 function call).
 static __always_inline int
 sunrpc_skip_opaque_auth(const unsigned char *data, u32 data_len, u32 *off) {
     if (*off > data_len || data_len - *off < 8) {
@@ -115,6 +115,8 @@ static __always_inline u8 sunrpc_parse_call_msg(const unsigned char *rpc, u32 rp
         return 0;
     }
 
+    // CALL: cred then verf (same opaque_auth layout); off walks rpc, each skip checks
+    // rpc+off and advances off.
     u32 off = 24;
     if (sunrpc_skip_opaque_auth(rpc, rpc_len, &off) != 0) {
         return 0;
@@ -167,6 +169,7 @@ static __always_inline u8 sunrpc_parse_reply_msg(const unsigned char *rpc, u32 r
         return sunrpc_validate_rejected_reply(rpc + 12, rpc_len - 12);
     }
 
+    // ACCEPTED reply: reply verf only, then accept_stat at the advanced off.
     u32 off = 12;
     if (sunrpc_skip_opaque_auth(rpc, rpc_len, &off) != 0) {
         return 0;

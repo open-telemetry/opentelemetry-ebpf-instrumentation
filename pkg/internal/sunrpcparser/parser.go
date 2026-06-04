@@ -244,6 +244,8 @@ func parseCall(body []byte) (*CallInfo, bool, error) {
 		return nil, false, nil
 	}
 
+	// CALL cred then verf: off walks the body; each readOpaqueAuth uses body[off:]
+	// and off += n so the second read is verf, not a repeat of cred.
 	off := 16
 	flavor, n, err := readOpaqueAuth(body[off:])
 	if err != nil {
@@ -289,6 +291,7 @@ func parseReply(body []byte) (*ReplyInfo, bool, error) {
 		return &ReplyInfo{Denied: true}, true, nil
 	}
 
+	// ACCEPTED reply: one opaque_auth at body[off], then accept_stat after off += n.
 	off := 4
 	verfFlavor, n, err := readOpaqueAuth(body[off:])
 	if err != nil {
