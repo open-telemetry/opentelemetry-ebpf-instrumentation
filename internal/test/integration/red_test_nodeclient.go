@@ -84,7 +84,7 @@ func testNodeClientWithMethodAndStatusCode(t *testing.T, method string, statusCo
 		jaeger.Tag{Key: "http.response.status_code", Type: "int64", Value: float64(statusCode)},
 		jaeger.Tag{Key: "url.full", Type: "string", Value: urlFull},
 		jaeger.Tag{Key: "server.port", Type: "int64", Value: float64(port)},
-		jaeger.Tag{Key: "server.address", Type: "string", Value: "grafana.com"},
+		jaeger.Tag{Key: "server", Type: "string", Value: "grafana.com"},
 		jaeger.Tag{Key: "span.kind", Type: "string", Value: "client"},
 	)
 	assert.Empty(t, sd, sd.String())
