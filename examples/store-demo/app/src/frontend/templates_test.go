@@ -37,6 +37,16 @@ var legacyStoreDemoSourceTerms = []string{
 	"Cym" + "bal",
 }
 
+var inProcessTelemetryTerms = []string{
+	"go." + "opentelemetry.io",
+	"cloud.google.com/go/" + "profiler",
+	"otel" + "http",
+	"otel" + "grpc",
+	"ENABLE_" + "TRACING",
+	"ENABLE_" + "PROFILER",
+	"COLLECTOR_" + "SERVICE_ADDR",
+}
+
 func TestHeaderUsesOBIStoreBrand(t *testing.T) {
 	output := renderTemplateForTest(t, "header")
 
@@ -85,6 +95,38 @@ func TestFrontendAssetsAreDebranded(t *testing.T) {
 		if err != nil {
 			t.Fatalf("walk %s: %v", root, err)
 		}
+	}
+}
+
+func TestFrontendDoesNotUseInProcessTelemetry(t *testing.T) {
+	err := filepath.WalkDir(".", func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if shouldSkipDebrandSourceScan(path, d) {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if d.IsDir() {
+			return nil
+		}
+
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		for _, term := range inProcessTelemetryTerms {
+			if strings.Contains(string(content), term) {
+				t.Errorf("frontend source contains in-process telemetry term %q in %s", term, path)
+			}
+		}
+
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk frontend source: %v", err)
 	}
 }
 
