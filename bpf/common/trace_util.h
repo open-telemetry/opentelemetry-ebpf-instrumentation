@@ -6,6 +6,7 @@
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_helpers.h>
 
+#include <common/algorithm.h>
 #include <common/globals.h>
 #include <common/http_buf_size.h>
 
@@ -106,12 +107,7 @@ static __always_inline u32 traceparent_scan_loop_count(const u16 buf_len) {
         return 0;
     }
 
-    u32 nr_loops = (u32)buf_len - TRACE_PARENT_HEADER_LEN + 1;
-    if (nr_loops > k_tp_max_scan_loops) {
-        return k_tp_max_scan_loops;
-    }
-
-    return nr_loops;
+    return min((u32)buf_len - TRACE_PARENT_HEADER_LEN + 1, k_tp_max_scan_loops);
 }
 
 static __always_inline unsigned char *bpf_strstr_tp_loop(unsigned char *buf, const u16 buf_len) {
@@ -120,6 +116,7 @@ static __always_inline unsigned char *bpf_strstr_tp_loop(unsigned char *buf, con
     }
 
     const u32 nr_loops = traceparent_scan_loop_count(buf_len);
+
     if (nr_loops == 0) {
         return NULL;
     }
