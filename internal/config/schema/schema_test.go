@@ -9,10 +9,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestParseYAMLStandaloneDocument(t *testing.T) {
+func TestParseStandaloneYAMLDocument(t *testing.T) {
 	t.Parallel()
 
-	doc, cfg, err := ParseYAML([]byte(`
+	doc, cfg, err := ParseStandaloneYAML([]byte(`
 file_format: "1.0"
 resource:
   attributes:
@@ -52,7 +52,7 @@ extensions:
               filters:
                 traces:
                   status_code: ["5*"]
-`), DeploymentModeStandalone)
+`))
 
 	require.NoError(t, err)
 	require.NotNil(t, doc)
@@ -81,10 +81,10 @@ extensions:
 	}, cfg.Capture.Rules[0].Refine.HTTP)
 }
 
-func TestParseYAMLReceiverEmbedded(t *testing.T) {
+func TestParseReceiverYAMLEmbedded(t *testing.T) {
 	t.Parallel()
 
-	doc, cfg, err := ParseYAML([]byte(`
+	cfg, err := ParseReceiverYAML([]byte(`
 version: "2.0"
 policy:
   default_action: exclude
@@ -100,10 +100,9 @@ instrumentation:
       metrics: false
 channels:
   buffer_len: 123
-`), DeploymentModeReceiver)
+`))
 
 	require.NoError(t, err)
-	require.Nil(t, doc)
 	require.NotNil(t, cfg)
 	require.Equal(t, SupportedVersion, cfg.Version)
 	require.Equal(t, "exclude", cfg.Capture.Policy["default_action"])
@@ -122,14 +121,14 @@ func TestReceiverRejectsStandaloneSections(t *testing.T) {
 		t.Run(section, func(t *testing.T) {
 			t.Parallel()
 
-			_, _, err := ParseMap(map[string]any{
+			_, err := ParseReceiverMap(map[string]any{
 				"version": "2.0",
 				section:   map[string]any{},
-			}, DeploymentModeReceiver)
+			})
 
 			var notAllowed *SectionNotAllowedError
 			require.ErrorAs(t, err, &notAllowed)
-			require.Equal(t, DeploymentModeReceiver, notAllowed.Mode)
+			require.Equal(t, string(validationModeReceiver), notAllowed.Mode)
 			require.Equal(t, section, notAllowed.Section)
 			require.Contains(t, err.Error(), "standalone mode")
 		})
@@ -139,7 +138,7 @@ func TestReceiverRejectsStandaloneSections(t *testing.T) {
 func TestStandaloneAllowsStandaloneSections(t *testing.T) {
 	t.Parallel()
 
-	_, cfg, err := ParseYAML([]byte(`
+	_, cfg, err := ParseStandaloneYAML([]byte(`
 file_format: "1.0"
 extensions:
   obi:
@@ -150,7 +149,7 @@ extensions:
     enrich: {}
     correlation: {}
     daemon: {}
-`), DeploymentModeStandalone)
+`))
 
 	require.NoError(t, err)
 	require.NotNil(t, cfg)
@@ -160,10 +159,10 @@ func TestUnsupportedVersion(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
-		yaml string
-		mode DeploymentMode
-		want string
+		name  string
+		yaml  string
+		parse func([]byte) error
+		want  string
 	}{
 		{
 			name: "document",
@@ -173,7 +172,10 @@ extensions:
   obi:
     version: "3.0"
 `,
-			mode: DeploymentModeStandalone,
+			parse: func(data []byte) error {
+				_, _, err := ParseStandaloneYAML(data)
+				return err
+			},
 			want: "3.0",
 		},
 		{
@@ -181,7 +183,10 @@ extensions:
 			yaml: `
 version: "3.0"
 `,
-			mode: DeploymentModeReceiver,
+			parse: func(data []byte) error {
+				_, err := ParseReceiverYAML(data)
+				return err
+			},
 			want: "3.0",
 		},
 		{
@@ -189,7 +194,10 @@ version: "3.0"
 			yaml: `
 version: 2.0
 `,
-			mode: DeploymentModeReceiver,
+			parse: func(data []byte) error {
+				_, err := ParseReceiverYAML(data)
+				return err
+			},
 			want: "2",
 		},
 	}
@@ -198,7 +206,7 @@ version: 2.0
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			_, _, err := ParseYAML([]byte(test.yaml), test.mode)
+			err := test.parse([]byte(test.yaml))
 
 			var unsupported *UnsupportedVersionError
 			require.ErrorAs(t, err, &unsupported)
@@ -244,13 +252,38 @@ stats: {}
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			_, _, err := ParseYAML([]byte(test.yaml), DeploymentModeStandalone)
+			_, _, err := ParseYAML([]byte(test.yaml))
 
 			var notV2 *NotV2Error
 			require.ErrorAs(t, err, &notV2)
 			require.Contains(t, err.Error(), test.want)
 		})
 	}
+}
+
+func TestParseYAMLAutoDetectsLayout(t *testing.T) {
+	t.Parallel()
+
+	doc, cfg, err := ParseYAML([]byte(`
+file_format: "1.0"
+extensions:
+  obi:
+    version: "2.0"
+    capture: {}
+`))
+	require.NoError(t, err)
+	require.NotNil(t, doc)
+	require.NotNil(t, cfg)
+
+	doc, cfg, err = ParseYAML([]byte(`
+version: "2.0"
+policy:
+  default_action: include
+`))
+	require.NoError(t, err)
+	require.Nil(t, doc)
+	require.NotNil(t, cfg)
+	require.Equal(t, "include", cfg.Capture.Policy["default_action"])
 }
 
 func TestParseMapPreservesDocumentRaw(t *testing.T) {
@@ -270,7 +303,7 @@ func TestParseMapPreservesDocumentRaw(t *testing.T) {
 		},
 	}
 
-	doc, cfg, err := ParseMap(raw, DeploymentModeStandalone)
+	doc, cfg, err := ParseStandaloneMap(raw)
 
 	require.NoError(t, err)
 	doc.Raw["added"] = true

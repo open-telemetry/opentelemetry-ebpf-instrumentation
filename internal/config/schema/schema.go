@@ -9,10 +9,10 @@
 //   - a receiver-embedded OBI configuration with version and capture sections at
 //     the top level
 //
-// This package validates only the version, shape, and deployment-mode section
-// boundaries needed to route the configuration. It intentionally leaves nested
-// OBI sections as map values so migration and validation layers can preserve and
-// inspect the original keys.
+// This package validates only the version, shape, and deployment-specific
+// section boundaries needed to route the configuration. It intentionally leaves
+// nested OBI sections as map values so migration and validation layers can
+// preserve and inspect the original keys.
 package schema // import "go.opentelemetry.io/obi/internal/config/schema"
 
 import (
@@ -26,18 +26,11 @@ import (
 // package.
 const SupportedVersion = "2.0"
 
-// DeploymentMode identifies where an OBI v2 configuration will run.
-type DeploymentMode string
+type validationMode string
 
 const (
-	// DeploymentModeStandalone allows the full OBI extension, including sections
-	// that manage enrichment, correlation, and daemon behavior.
-	DeploymentModeStandalone DeploymentMode = "standalone"
-
-	// DeploymentModeReceiver allows only receiver-embeddable capture settings.
-	// Standalone-only sections are rejected because the Collector owns those
-	// concerns in receiver deployments.
-	DeploymentModeReceiver DeploymentMode = "receiver"
+	validationModeStandalone validationMode = "standalone"
+	validationModeReceiver   validationMode = "receiver"
 )
 
 // Document is the top-level OpenTelemetry declarative configuration document
@@ -46,7 +39,7 @@ const (
 // OBI-specific settings are available through Extensions.OBI. Other declarative
 // configuration sections are retained as maps because this package only needs to
 // locate and validate the OBI extension. Raw aliases the decoded YAML map passed
-// to ParseMap, or the map decoded by ParseYAML.
+// to ParseStandaloneMap, or the map decoded by ParseStandaloneYAML.
 type Document struct {
 	FileFormat     string         `yaml:"file_format"`
 	Resource       map[string]any `yaml:"resource"`
@@ -143,12 +136,12 @@ func (e *UnsupportedVersionError) Error() string {
 }
 
 type SectionNotAllowedError struct {
-	Mode    DeploymentMode
+	Mode    string
 	Section string
 }
 
 func (e *SectionNotAllowedError) Error() string {
-	if e.Mode == DeploymentModeReceiver {
+	if e.Mode == string(validationModeReceiver) {
 		return fmt.Sprintf(
 			"section %q is not allowed in %s mode; remove it from the receiver config or run this config in standalone mode",
 			e.Section,
@@ -162,14 +155,15 @@ func (e *SectionNotAllowedError) Error() string {
 //
 // Full declarative documents return both a Document and its OBI Extension.
 // Receiver-embedded configurations return a nil Document and the synthesized OBI
-// Extension. The mode controls validation of standalone-only sections.
-func ParseYAML(data []byte, mode DeploymentMode) (*Document, *Extension, error) {
-	var raw map[string]any
-	if err := yaml.Unmarshal(data, &raw); err != nil {
-		return nil, nil, fmt.Errorf("parsing config v2 YAML: %w", err)
+// Extension. Standalone-only sections are rejected for receiver-embedded
+// configurations.
+func ParseYAML(data []byte) (*Document, *Extension, error) {
+	raw, err := parseYAML(data)
+	if err != nil {
+		return nil, nil, err
 	}
 
-	return ParseMap(raw, mode)
+	return ParseMap(raw)
 }
 
 // ParseMap parses a decoded YAML map as an OBI v2 configuration.
@@ -179,31 +173,21 @@ func ParseYAML(data []byte, mode DeploymentMode) (*Document, *Extension, error) 
 // where top-level capture sections are moved under Extension.Capture. Missing v2
 // markers return NotV2Error; present but unsupported markers return
 // UnsupportedVersionError.
-func ParseMap(raw map[string]any, mode DeploymentMode) (*Document, *Extension, error) {
+func ParseMap(raw map[string]any) (*Document, *Extension, error) {
 	if len(raw) == 0 {
 		return nil, nil, &NotV2Error{Reason: "missing OBI v2 version field"}
 	}
 
-	if version, ok := nestedString(raw, "extensions", "obi", "version"); ok {
-		if version != SupportedVersion {
-			return nil, nil, &UnsupportedVersionError{Version: version}
+	if _, ok := nestedValue(raw, "extensions", "obi", "version"); ok {
+		return ParseStandaloneMap(raw)
+	}
+
+	if _, ok := nestedValue(raw, "version"); ok {
+		cfg, err := ParseReceiverMap(raw)
+		if err != nil {
+			return nil, nil, err
 		}
-		return parseDocument(raw, mode)
-	}
-
-	if version, ok := nestedString(raw, "version"); ok {
-		if version != SupportedVersion {
-			return nil, nil, &UnsupportedVersionError{Version: version}
-		}
-		return parseReceiver(raw, mode)
-	}
-
-	if version, ok := nestedValue(raw, "extensions", "obi", "version"); ok {
-		return nil, nil, &UnsupportedVersionError{Version: fmt.Sprint(version)}
-	}
-
-	if version, ok := nestedValue(raw, "version"); ok {
-		return nil, nil, &UnsupportedVersionError{Version: fmt.Sprint(version)}
+		return nil, cfg, nil
 	}
 
 	if looksLikeV1(raw) {
@@ -213,19 +197,97 @@ func ParseMap(raw map[string]any, mode DeploymentMode) (*Document, *Extension, e
 	return nil, nil, &NotV2Error{Reason: "missing OBI v2 version field"}
 }
 
-// Validate checks version support and deployment-mode section boundaries for an
-// already decoded OBI extension.
-func Validate(cfg *Extension, mode DeploymentMode) error {
+// ParseStandaloneYAML decodes a standalone OBI v2 declarative document.
+func ParseStandaloneYAML(data []byte) (*Document, *Extension, error) {
+	raw, err := parseYAML(data)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return ParseStandaloneMap(raw)
+}
+
+// ParseStandaloneMap parses a standalone OBI v2 declarative document.
+func ParseStandaloneMap(raw map[string]any) (*Document, *Extension, error) {
+	if len(raw) == 0 {
+		return nil, nil, &NotV2Error{Reason: "missing extensions.obi.version field"}
+	}
+
+	if version, ok := nestedString(raw, "extensions", "obi", "version"); ok {
+		if version != SupportedVersion {
+			return nil, nil, &UnsupportedVersionError{Version: version}
+		}
+		return parseDocument(raw)
+	}
+
+	if version, ok := nestedValue(raw, "extensions", "obi", "version"); ok {
+		return nil, nil, &UnsupportedVersionError{Version: fmt.Sprint(version)}
+	}
+
+	if looksLikeV1(raw) {
+		return nil, nil, &NotV2Error{Reason: "detected legacy v1 config shape"}
+	}
+
+	return nil, nil, &NotV2Error{Reason: "missing extensions.obi.version field"}
+}
+
+// ParseReceiverYAML decodes a receiver-embedded OBI v2 configuration.
+func ParseReceiverYAML(data []byte) (*Extension, error) {
+	raw, err := parseYAML(data)
+	if err != nil {
+		return nil, err
+	}
+
+	return ParseReceiverMap(raw)
+}
+
+// ParseReceiverMap parses a receiver-embedded OBI v2 configuration.
+func ParseReceiverMap(raw map[string]any) (*Extension, error) {
+	if len(raw) == 0 {
+		return nil, &NotV2Error{Reason: "missing top-level OBI v2 version field"}
+	}
+
+	if version, ok := nestedString(raw, "version"); ok {
+		if version != SupportedVersion {
+			return nil, &UnsupportedVersionError{Version: version}
+		}
+		return parseReceiver(raw)
+	}
+
+	if version, ok := nestedValue(raw, "version"); ok {
+		return nil, &UnsupportedVersionError{Version: fmt.Sprint(version)}
+	}
+
+	if looksLikeV1(raw) {
+		return nil, &NotV2Error{Reason: "detected legacy v1 config shape"}
+	}
+
+	return nil, &NotV2Error{Reason: "missing top-level OBI v2 version field"}
+}
+
+// ValidateStandalone checks version support for a standalone OBI extension.
+func ValidateStandalone(cfg *Extension) error {
+	return validate(cfg, validationModeStandalone)
+}
+
+// ValidateReceiver checks version support and receiver section boundaries.
+func ValidateReceiver(cfg *Extension) error {
+	return validate(cfg, validationModeReceiver)
+}
+
+// validate checks version support and deployment-specific section boundaries for
+// an already decoded OBI extension.
+func validate(cfg *Extension, mode validationMode) error {
 	if cfg == nil {
 		return errors.New("missing OBI config")
 	}
 	if cfg.Version != SupportedVersion {
 		return &UnsupportedVersionError{Version: cfg.Version}
 	}
-	if mode == DeploymentModeReceiver {
+	if mode == validationModeReceiver {
 		for _, section := range []string{"enrich", "correlation", "daemon"} {
 			if hasStandaloneSection(cfg, section) {
-				return &SectionNotAllowedError{Mode: mode, Section: section}
+				return &SectionNotAllowedError{Mode: string(mode), Section: section}
 			}
 		}
 	}
@@ -234,7 +296,7 @@ func Validate(cfg *Extension, mode DeploymentMode) error {
 
 // parseDocument decodes the full declarative layout and wires Raw fields to the
 // corresponding source maps.
-func parseDocument(raw map[string]any, mode DeploymentMode) (*Document, *Extension, error) {
+func parseDocument(raw map[string]any) (*Document, *Extension, error) {
 	var doc Document
 	if err := decode(raw, &doc); err != nil {
 		return nil, nil, err
@@ -246,7 +308,7 @@ func parseDocument(raw map[string]any, mode DeploymentMode) (*Document, *Extensi
 
 	doc.Extensions.OBI.Raw = nestedMap(raw, "extensions", "obi")
 	doc.Extensions.OBI.Capture.Raw = nestedMap(raw, "extensions", "obi", "capture")
-	if err := Validate(doc.Extensions.OBI, mode); err != nil {
+	if err := ValidateStandalone(doc.Extensions.OBI); err != nil {
 		return nil, nil, err
 	}
 	return &doc, doc.Extensions.OBI, nil
@@ -255,7 +317,7 @@ func parseDocument(raw map[string]any, mode DeploymentMode) (*Document, *Extensi
 // parseReceiver adapts the receiver-embedded layout into Extension. Capture
 // sections are accepted at the top level in receiver configuration files, but the
 // resulting value uses the same Extension shape as full documents.
-func parseReceiver(raw map[string]any, mode DeploymentMode) (*Document, *Extension, error) {
+func parseReceiver(raw map[string]any) (*Extension, error) {
 	receiver := map[string]any{
 		"version":     raw["version"],
 		"capture":     map[string]any{},
@@ -273,14 +335,14 @@ func parseReceiver(raw map[string]any, mode DeploymentMode) (*Document, *Extensi
 
 	var cfg Extension
 	if err := decode(receiver, &cfg); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	cfg.Raw = raw
 	cfg.Capture.Raw = capture
-	if err := Validate(&cfg, mode); err != nil {
-		return nil, nil, err
+	if err := ValidateReceiver(&cfg); err != nil {
+		return nil, err
 	}
-	return nil, &cfg, nil
+	return &cfg, nil
 }
 
 func hasStandaloneSection(cfg *Extension, section string) bool {
@@ -336,6 +398,14 @@ func captureKeys() []string {
 		"channels",
 		"telemetry",
 	}
+}
+
+func parseYAML(data []byte) (map[string]any, error) {
+	var raw map[string]any
+	if err := yaml.Unmarshal(data, &raw); err != nil {
+		return nil, fmt.Errorf("parsing config v2 YAML: %w", err)
+	}
+	return raw, nil
 }
 
 func decode(raw map[string]any, dst any) error {
