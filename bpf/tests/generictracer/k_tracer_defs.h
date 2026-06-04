@@ -7,17 +7,11 @@
 
 #include <common/connection_info.h>
 
-enum { TCP_RECV = 0, TCP_SEND = 1, WITH_SSL = 1 };
-
 extern int test_parser_call_count;
 extern int test_last_parser_bytes_len;
 extern u8 test_last_ssl;
 extern u8 test_last_direction;
 extern u16 test_last_orig_dport;
-
-static __always_inline u32 pid_from_pid_tgid(u64 id) {
-    return (u32)(id >> 32);
-}
 
 static __always_inline void handle_buf_with_connection(void *ctx,
                                                        pid_connection_info_t *pid_conn,
