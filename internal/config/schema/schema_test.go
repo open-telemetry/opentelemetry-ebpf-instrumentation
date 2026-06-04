@@ -261,6 +261,31 @@ stats: {}
 	}
 }
 
+func TestSpecificParsersRejectWrongLayout(t *testing.T) {
+	t.Parallel()
+
+	_, _, err := ParseStandaloneYAML([]byte(`
+version: "2.0"
+policy:
+  default_action: include
+network: {}
+`))
+	var standaloneNotV2 *NotV2Error
+	require.ErrorAs(t, err, &standaloneNotV2)
+	require.Contains(t, err.Error(), "missing extensions.obi.version field")
+
+	_, err = ParseReceiverYAML([]byte(`
+file_format: "1.0"
+extensions:
+  obi:
+    version: "2.0"
+    capture: {}
+`))
+	var receiverNotV2 *NotV2Error
+	require.ErrorAs(t, err, &receiverNotV2)
+	require.Contains(t, err.Error(), "missing top-level OBI v2 version field")
+}
+
 func TestParseYAMLAutoDetectsLayout(t *testing.T) {
 	t.Parallel()
 

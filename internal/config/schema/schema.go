@@ -224,6 +224,10 @@ func ParseStandaloneMap(raw map[string]any) (*Document, *Extension, error) {
 		return nil, nil, &UnsupportedVersionError{Version: fmt.Sprint(version)}
 	}
 
+	if _, ok := nestedValue(raw, "version"); ok {
+		return nil, nil, &NotV2Error{Reason: "missing extensions.obi.version field"}
+	}
+
 	if looksLikeV1(raw) {
 		return nil, nil, &NotV2Error{Reason: "detected legacy v1 config shape"}
 	}
