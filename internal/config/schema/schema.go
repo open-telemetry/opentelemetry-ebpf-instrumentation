@@ -1,6 +1,18 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
+// Package schema parses OBI configuration documents that use the v2 schema.
+//
+// The parser recognizes both supported layouts:
+//   - a full OpenTelemetry declarative configuration document with the OBI
+//     extension at extensions.obi
+//   - a receiver-embedded OBI configuration with version and capture sections at
+//     the top level
+//
+// This package validates only the version, shape, and deployment-mode section
+// boundaries needed to route the configuration. It intentionally leaves nested
+// OBI sections as map values so migration and validation layers can preserve and
+// inspect the original keys.
 package schema // import "go.opentelemetry.io/obi/internal/config/schema"
 
 import (
@@ -10,15 +22,31 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// SupportedVersion is the OBI configuration schema version handled by this
+// package.
 const SupportedVersion = "2.0"
 
+// DeploymentMode identifies where an OBI v2 configuration will run.
 type DeploymentMode string
 
 const (
+	// DeploymentModeStandalone allows the full OBI extension, including sections
+	// that manage enrichment, correlation, and daemon behavior.
 	DeploymentModeStandalone DeploymentMode = "standalone"
-	DeploymentModeReceiver   DeploymentMode = "receiver"
+
+	// DeploymentModeReceiver allows only receiver-embeddable capture settings.
+	// Standalone-only sections are rejected because the Collector owns those
+	// concerns in receiver deployments.
+	DeploymentModeReceiver DeploymentMode = "receiver"
 )
 
+// Document is the top-level OpenTelemetry declarative configuration document
+// that contains extensions.obi.
+//
+// OBI-specific settings are available through Extensions.OBI. Other declarative
+// configuration sections are retained as maps because this package only needs to
+// locate and validate the OBI extension. Raw aliases the decoded YAML map passed
+// to ParseMap, or the map decoded by ParseYAML.
 type Document struct {
 	FileFormat     string         `yaml:"file_format"`
 	Resource       map[string]any `yaml:"resource"`
@@ -29,10 +57,18 @@ type Document struct {
 	Raw            map[string]any `yaml:"-"`
 }
 
+// Extensions holds declarative configuration extensions recognized by this
+// package.
 type Extensions struct {
 	OBI *Extension `yaml:"obi"`
 }
 
+// Extension is the OBI v2 extension configuration.
+//
+// Capture is valid in all deployment modes. Enrich, Correlation, and Daemon are
+// standalone-only sections and are rejected when validating receiver mode. Raw
+// aliases the source map for this extension in full documents and the top-level
+// source map in receiver-embedded configurations.
 type Extension struct {
 	Version     string         `yaml:"version"`
 	Capture     Capture        `yaml:"capture"`
@@ -42,6 +78,12 @@ type Extension struct {
 	Raw         map[string]any `yaml:"-"`
 }
 
+// Capture contains receiver-embeddable OBI capture settings.
+//
+// The individual sections remain map values so callers can preserve unknown
+// fields and apply schema-specific validation or migration elsewhere. Raw aliases
+// the source capture map in full documents and the synthesized capture map in
+// receiver-embedded configurations.
 type Capture struct {
 	Policy          map[string]any `yaml:"policy"`
 	Rules           []Rule         `yaml:"rules"`
@@ -56,6 +98,7 @@ type Capture struct {
 	Raw             map[string]any `yaml:"-"`
 }
 
+// Rule describes one capture policy rule.
 type Rule struct {
 	Action      string         `yaml:"action"`
 	Name        string         `yaml:"name"`
@@ -64,11 +107,17 @@ type Rule struct {
 	Refine      RuleRefinement `yaml:"refine"`
 }
 
+// RuleRefinement holds per-rule overrides that apply after a rule matches.
 type RuleRefinement struct {
 	Exports map[string]any `yaml:"exports,omitempty"`
 	HTTP    map[string]any `yaml:"http,omitempty"`
 }
 
+// NotV2Error reports input that does not contain an OBI v2 configuration.
+//
+// It is distinct from UnsupportedVersionError: NotV2Error means no usable OBI v2
+// version marker was found, while UnsupportedVersionError means a version marker
+// was found but is not supported by this package.
 type NotV2Error struct {
 	Reason string
 }
@@ -109,6 +158,11 @@ func (e *SectionNotAllowedError) Error() string {
 	return fmt.Sprintf("section %q is not allowed in %s mode", e.Section, e.Mode)
 }
 
+// ParseYAML decodes data as YAML and parses it as an OBI v2 configuration.
+//
+// Full declarative documents return both a Document and its OBI Extension.
+// Receiver-embedded configurations return a nil Document and the synthesized OBI
+// Extension. The mode controls validation of standalone-only sections.
 func ParseYAML(data []byte, mode DeploymentMode) (*Document, *Extension, error) {
 	var raw map[string]any
 	if err := yaml.Unmarshal(data, &raw); err != nil {
@@ -118,6 +172,13 @@ func ParseYAML(data []byte, mode DeploymentMode) (*Document, *Extension, error) 
 	return ParseMap(raw, mode)
 }
 
+// ParseMap parses a decoded YAML map as an OBI v2 configuration.
+//
+// A map with extensions.obi.version is treated as a full declarative document. A
+// map with a top-level version is treated as a receiver-embedded configuration,
+// where top-level capture sections are moved under Extension.Capture. Missing v2
+// markers return NotV2Error; present but unsupported markers return
+// UnsupportedVersionError.
 func ParseMap(raw map[string]any, mode DeploymentMode) (*Document, *Extension, error) {
 	if len(raw) == 0 {
 		return nil, nil, &NotV2Error{Reason: "missing OBI v2 version field"}
@@ -152,6 +213,8 @@ func ParseMap(raw map[string]any, mode DeploymentMode) (*Document, *Extension, e
 	return nil, nil, &NotV2Error{Reason: "missing OBI v2 version field"}
 }
 
+// Validate checks version support and deployment-mode section boundaries for an
+// already decoded OBI extension.
 func Validate(cfg *Extension, mode DeploymentMode) error {
 	if cfg == nil {
 		return errors.New("missing OBI config")
@@ -169,6 +232,8 @@ func Validate(cfg *Extension, mode DeploymentMode) error {
 	return nil
 }
 
+// parseDocument decodes the full declarative layout and wires Raw fields to the
+// corresponding source maps.
 func parseDocument(raw map[string]any, mode DeploymentMode) (*Document, *Extension, error) {
 	var doc Document
 	if err := decode(raw, &doc); err != nil {
@@ -187,6 +252,9 @@ func parseDocument(raw map[string]any, mode DeploymentMode) (*Document, *Extensi
 	return &doc, doc.Extensions.OBI, nil
 }
 
+// parseReceiver adapts the receiver-embedded layout into Extension. Capture
+// sections are accepted at the top level in receiver configuration files, but the
+// resulting value uses the same Extension shape as full documents.
 func parseReceiver(raw map[string]any, mode DeploymentMode) (*Document, *Extension, error) {
 	receiver := map[string]any{
 		"version":     raw["version"],
@@ -253,6 +321,8 @@ func looksLikeV1(raw map[string]any) bool {
 	return false
 }
 
+// captureKeys lists top-level receiver-embedded sections that belong under
+// Extension.Capture in the normalized representation.
 func captureKeys() []string {
 	return []string{
 		"policy",
