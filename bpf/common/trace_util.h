@@ -127,11 +127,11 @@ static __always_inline unsigned char *bpf_strstr_tp_loop__legacy(unsigned char *
     }
 
     // Limited best-effort search to stay within insns limit
-    const u16 k_besteffort_max_loops = 350;
-    const u16 scan_len = buf_len - TRACE_PARENT_HEADER_LEN + 1;
-    const u16 nr_loops = scan_len < k_besteffort_max_loops ? scan_len : k_besteffort_max_loops;
+    const u32 k_besteffort_max_loops = 350;
+    const u32 scan_len = (u32)buf_len - TRACE_PARENT_HEADER_LEN + 1;
+    const u32 nr_loops = scan_len < k_besteffort_max_loops ? scan_len : k_besteffort_max_loops;
 
-    for (u16 i = 0; i < nr_loops; i++) {
+    for (u32 i = 0; i < nr_loops; i++) {
         if (is_traceparent(&buf[i])) {
             return &buf[i];
         }
