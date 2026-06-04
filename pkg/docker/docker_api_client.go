@@ -45,6 +45,13 @@ type ContainerMeta struct {
 	ComposeService string
 }
 
+// containerEntry groups container metadata with the PIDs known to belong to it.
+// This allows a single map lookup to both retrieve metadata and support PID-based invalidation.
+type containerEntry struct {
+	meta ContainerMeta
+	pids []app.PID
+}
+
 // dockerClient defines the Docker API methods needed by ContainerStore.
 type dockerClient interface {
 	ContainerInspect(ctx context.Context, container string, options client.ContainerInspectOptions) (client.ContainerInspectResult, error)
@@ -66,16 +73,16 @@ type ContainerStore struct {
 	log            *slog.Logger
 	watcherStarted sync.Once
 
-	cacheMu sync.RWMutex
-	byPID   map[app.PID]ContainerMeta
-	byID    map[string][]app.PID // maps full ID to []app.PID
+	cacheMu       sync.RWMutex
+	byPID         map[app.PID]ContainerMeta
+	byContainerID map[ContainerID]containerEntry // metadata + PIDs keyed by full container ID
 }
 
 func NewStore() *ContainerStore {
 	return &ContainerStore{
-		log:   cmlog(),
-		byPID: make(map[app.PID]ContainerMeta),
-		byID:  make(map[string][]app.PID),
+		log:           cmlog(),
+		byPID:         make(map[app.PID]ContainerMeta),
+		byContainerID: make(map[ContainerID]containerEntry),
 	}
 }
 
@@ -130,6 +137,22 @@ func (s *ContainerStore) ContainerInfo(ctx context.Context, pid app.PID) (Contai
 		s.log.Debug("failed to get OS container info for pid", "pid", pid, "error", err)
 		return ContainerMeta{}, false
 	}
+
+	// Reuse metadata if another PID from the same container is already cached.
+	s.cacheMu.RLock()
+	if entry, ok := s.byContainerID[ContainerID(osCntInfo.ContainerID)]; ok {
+		meta := entry.meta
+		s.cacheMu.RUnlock()
+		s.cacheMu.Lock()
+		s.byPID[pid] = meta
+		entry = s.byContainerID[ContainerID(osCntInfo.ContainerID)]
+		entry.pids = append(entry.pids, pid)
+		s.byContainerID[ContainerID(osCntInfo.ContainerID)] = entry
+		s.cacheMu.Unlock()
+		return meta, true
+	}
+	s.cacheMu.RUnlock()
+
 	inspectResult, err := s.docker.ContainerInspect(ctx, osCntInfo.ContainerID, client.ContainerInspectOptions{})
 	if err != nil {
 		s.log.Debug("failed to inspect docker container",
@@ -160,7 +183,7 @@ func (s *ContainerStore) ContainerInfo(ctx context.Context, pid app.PID) (Contai
 
 	s.cacheMu.Lock()
 	s.byPID[pid] = meta
-	s.byID[inspectInfo.ID] = append(s.byID[inspectInfo.ID], pid)
+	s.byContainerID[ContainerID(inspectInfo.ID)] = containerEntry{meta: meta, pids: []app.PID{pid}}
 	s.cacheMu.Unlock()
 
 	return meta, true
@@ -282,25 +305,26 @@ func (s *ContainerStore) InvalidatePID(pid app.PID) {
 	}
 	delete(s.byPID, pid)
 
-	pids := s.byID[string(meta.FullID)][:0]
-	for _, cachedPID := range s.byID[string(meta.FullID)] {
+	entry := s.byContainerID[meta.FullID]
+	newPIDs := entry.pids[:0]
+	for _, cachedPID := range entry.pids {
 		if cachedPID != pid {
-			pids = append(pids, cachedPID)
+			newPIDs = append(newPIDs, cachedPID)
 		}
 	}
 
-	if len(pids) == 0 {
-		delete(s.byID, string(meta.FullID))
+	if len(newPIDs) == 0 {
+		delete(s.byContainerID, meta.FullID)
 		return
 	}
-	s.byID[string(meta.FullID)] = pids
+	s.byContainerID[meta.FullID] = containerEntry{meta: entry.meta, pids: newPIDs}
 }
 
 func (s *ContainerStore) invalidateContainer(containerID string) {
 	s.cacheMu.Lock()
 	defer s.cacheMu.Unlock()
-	for _, pid := range s.byID[containerID] {
+	for _, pid := range s.byContainerID[ContainerID(containerID)].pids {
 		delete(s.byPID, pid)
 	}
-	delete(s.byID, containerID)
+	delete(s.byContainerID, ContainerID(containerID))
 }

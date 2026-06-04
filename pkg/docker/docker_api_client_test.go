@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"sync"
 	"testing"
 	"time"
 
@@ -23,13 +24,18 @@ import (
 )
 
 type mockDockerClient struct {
-	inspectResult client.ContainerInspectResult
-	inspectErr    error
-	eventsChan    chan events.Message
-	errsChan      chan error
+	inspectResult  client.ContainerInspectResult
+	inspectErr     error
+	eventsChan     chan events.Message
+	errsChan       chan error
+	inspectCallsMu sync.Mutex
+	inspectCalls   int
 }
 
 func (m *mockDockerClient) ContainerInspect(_ context.Context, _ string, _ client.ContainerInspectOptions) (client.ContainerInspectResult, error) {
+	m.inspectCallsMu.Lock()
+	m.inspectCalls++
+	m.inspectCallsMu.Unlock()
 	return m.inspectResult, m.inspectErr
 }
 
@@ -40,36 +46,36 @@ func (m *mockDockerClient) Events(_ context.Context, _ client.EventsListOptions)
 	}
 }
 
-// requireConsistency verifies the bidirectional invariant between byPID and byID:
-//   - every (pid → meta) in byPID: byID[meta.FullID] contains that pid
-//   - every (fullID → pids) in byID: every pid in the slice has a byPID entry pointing back to fullID
+// requireConsistency verifies the bidirectional invariants between byPID and byContainerID:
+//   - every (pid → meta) in byPID: byContainerID[meta.FullID].pids contains that pid
+//   - every (fullID → entry) in byContainerID: every pid in entry.pids has a byPID entry pointing back to fullID
 func requireConsistency(t *testing.T, s *ContainerStore) {
 	t.Helper()
 	s.cacheMu.RLock()
 	defer s.cacheMu.RUnlock()
 
 	for pid, meta := range s.byPID {
-		pids, ok := s.byID[string(meta.FullID)]
+		entry, ok := s.byContainerID[meta.FullID]
 		require.Truef(t, ok,
-			"byPID[%d] references fullID %q but byID has no entry for it", pid, meta.FullID)
+			"byPID[%d] references fullID %q but byContainerID has no entry for it", pid, meta.FullID)
 		found := false
-		for _, p := range pids {
+		for _, p := range entry.pids {
 			if p == pid {
 				found = true
 				break
 			}
 		}
 		require.Truef(t, found,
-			"byPID[%d] references fullID %q but that pid is not listed in byID[%q]", pid, meta.FullID, meta.FullID)
+			"byPID[%d] references fullID %q but that pid is not listed in byContainerID[%q].pids", pid, meta.FullID, meta.FullID)
 	}
 
-	for fullID, pids := range s.byID {
-		for _, pid := range pids {
+	for fullID, entry := range s.byContainerID {
+		for _, pid := range entry.pids {
 			meta, ok := s.byPID[pid]
 			require.Truef(t, ok,
-				"byID[%q] lists pid %d but byPID has no entry for it", fullID, pid)
-			require.Equalf(t, ContainerID(fullID), meta.FullID,
-				"byID[%q] lists pid %d but byPID[%d].FullID is %q", fullID, pid, pid, meta.FullID)
+				"byContainerID[%q] lists pid %d but byPID has no entry for it", fullID, pid)
+			require.Equalf(t, fullID, meta.FullID,
+				"byContainerID[%q] lists pid %d but byPID[%d].FullID is %q", fullID, pid, pid, meta.FullID)
 		}
 	}
 }
@@ -177,6 +183,41 @@ func TestContainerInfo(t *testing.T) {
 		assert.Equal(t, got, cached)
 	})
 
+	t.Run("second_pid_same_container_skips_inspect", func(t *testing.T) {
+		mock := &mockDockerClient{
+			inspectResult: client.ContainerInspectResult{
+				Container: containerTypes.InspectResponse{
+					ID:   fullID,
+					Name: "/multi-proc",
+					Config: &containerTypes.Config{
+						Labels: map[string]string{},
+					},
+				},
+			},
+		}
+		s := NewStore()
+		s.docker = mock
+
+		orig := osInfoForPID
+		osInfoForPID = func(_ app.PID) (container.Info, error) {
+			return container.Info{ContainerID: fullID}, nil
+		}
+		defer func() { osInfoForPID = orig }()
+
+		got1, ok1 := s.ContainerInfo(context.Background(), app.PID(10))
+		require.True(t, ok1)
+
+		got2, ok2 := s.ContainerInfo(context.Background(), app.PID(11))
+		require.True(t, ok2)
+
+		assert.Equal(t, got1, got2)
+		mock.inspectCallsMu.Lock()
+		calls := mock.inspectCalls
+		mock.inspectCallsMu.Unlock()
+		assert.Equal(t, 1, calls, "ContainerInspect should be called only once for two PIDs in the same container")
+		requireConsistency(t, s)
+	})
+
 	t.Run("success_without_config", func(t *testing.T) {
 		s := NewStore()
 		s.docker = &mockDockerClient{
@@ -281,7 +322,7 @@ func TestStart(t *testing.T) {
 		s.cacheMu.Lock()
 		meta := ContainerMeta{ID: fullID[:abbreviationLength], FullID: fullID, Name: "svc"}
 		s.byPID[pid] = meta
-		s.byID[fullID] = []app.PID{pid}
+		s.byContainerID[fullID] = containerEntry{meta: meta, pids: []app.PID{pid}}
 		s.cacheMu.Unlock()
 
 		s.docker = &mockDockerClient{eventsChan: eventsChan, errsChan: errsChan}
@@ -305,7 +346,7 @@ func TestStart(t *testing.T) {
 }
 
 // TestCacheConsistency is a table-driven suite that verifies the bidirectional
-// invariant between byPID and byID is preserved across every invalidation path.
+// invariant between byPID and byContainerID is preserved across every invalidation path.
 func TestCacheConsistency(t *testing.T) {
 	const (
 		fullID1 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
@@ -314,7 +355,7 @@ func TestCacheConsistency(t *testing.T) {
 	meta1 := ContainerMeta{ID: fullID1[:abbreviationLength], FullID: fullID1, Name: "c1"}
 	meta2 := ContainerMeta{ID: fullID2[:abbreviationLength], FullID: fullID2, Name: "c2"}
 
-	// setup builds a store with two containers sharing pid1+pid2 and pid3 respectively.
+	// setup builds a store with two containers: container1 has pid1+pid2, container2 has pid3.
 	setup := func() (*ContainerStore, app.PID, app.PID, app.PID) {
 		pid1, pid2, pid3 := app.PID(1), app.PID(2), app.PID(3)
 		s := NewStore()
@@ -322,8 +363,8 @@ func TestCacheConsistency(t *testing.T) {
 		s.byPID[pid1] = meta1
 		s.byPID[pid2] = meta1
 		s.byPID[pid3] = meta2
-		s.byID[fullID1] = []app.PID{pid1, pid2}
-		s.byID[fullID2] = []app.PID{pid3}
+		s.byContainerID[fullID1] = containerEntry{meta: meta1, pids: []app.PID{pid1, pid2}}
+		s.byContainerID[fullID2] = containerEntry{meta: meta2, pids: []app.PID{pid3}}
 		s.cacheMu.Unlock()
 		return s, pid1, pid2, pid3
 	}
@@ -338,30 +379,30 @@ func TestCacheConsistency(t *testing.T) {
 		s.InvalidatePID(pid1)
 		requireConsistency(t, s)
 
-		// pid1 gone from byPID; byID still lists pid2; other container intact
+		// pid1 gone from byPID; byContainerID still lists pid2; other container intact
 		s.cacheMu.RLock()
 		_, p1ok := s.byPID[pid1]
-		pids1 := s.byID[fullID1]
+		entry1 := s.byContainerID[fullID1]
 		_, p3ok := s.byPID[app.PID(3)]
-		pids2 := s.byID[fullID2]
+		entry2 := s.byContainerID[fullID2]
 		s.cacheMu.RUnlock()
 		assert.False(t, p1ok)
-		assert.Equal(t, []app.PID{app.PID(2)}, pids1)
+		assert.Equal(t, []app.PID{app.PID(2)}, entry1.pids)
 		assert.True(t, p3ok)
-		assert.Equal(t, []app.PID{app.PID(3)}, pids2)
+		assert.Equal(t, []app.PID{app.PID(3)}, entry2.pids)
 	})
 
-	t.Run("invalidate_last_pid_of_container_removes_byid_entry", func(t *testing.T) {
+	t.Run("invalidate_last_pid_of_container_removes_bycontainer_entry", func(t *testing.T) {
 		s, _, _, pid3 := setup()
 		s.InvalidatePID(pid3)
 		requireConsistency(t, s)
 
 		s.cacheMu.RLock()
 		_, p3ok := s.byPID[pid3]
-		_, id2ok := s.byID[fullID2]
+		_, id2ok := s.byContainerID[fullID2]
 		s.cacheMu.RUnlock()
 		assert.False(t, p3ok, "byPID entry for last pid should be gone")
-		assert.False(t, id2ok, "byID entry should be removed when all its pids are gone")
+		assert.False(t, id2ok, "byContainerID entry should be removed when all its pids are gone")
 	})
 
 	t.Run("invalidate_container_removes_all_its_pids_from_bypid", func(t *testing.T) {
@@ -372,11 +413,11 @@ func TestCacheConsistency(t *testing.T) {
 		s.cacheMu.RLock()
 		_, p1ok := s.byPID[pid1]
 		_, p2ok := s.byPID[pid2]
-		_, id1ok := s.byID[fullID1]
+		_, id1ok := s.byContainerID[fullID1]
 		s.cacheMu.RUnlock()
 		assert.False(t, p1ok, "all pids of invalidated container should be removed from byPID")
 		assert.False(t, p2ok, "all pids of invalidated container should be removed from byPID")
-		assert.False(t, id1ok, "byID entry for invalidated container should be gone")
+		assert.False(t, id1ok, "byContainerID entry for invalidated container should be gone")
 	})
 
 	t.Run("sequential_pid_invalidations_leave_empty_maps", func(t *testing.T) {
@@ -391,7 +432,7 @@ func TestCacheConsistency(t *testing.T) {
 
 		s.cacheMu.RLock()
 		assert.Empty(t, s.byPID)
-		assert.Empty(t, s.byID)
+		assert.Empty(t, s.byContainerID)
 		s.cacheMu.RUnlock()
 	})
 
@@ -402,10 +443,10 @@ func TestCacheConsistency(t *testing.T) {
 
 		s.cacheMu.RLock()
 		_, p3ok := s.byPID[app.PID(3)]
-		pids2 := s.byID[fullID2]
+		entry2 := s.byContainerID[fullID2]
 		s.cacheMu.RUnlock()
 		assert.True(t, p3ok, "other container's pid must remain in byPID")
-		assert.Equal(t, []app.PID{app.PID(3)}, pids2, "other container's byID entry must remain")
+		assert.Equal(t, []app.PID{app.PID(3)}, entry2.pids, "other container's byContainerID entry must remain")
 	})
 
 	t.Run("unknown_pid_is_noop", func(t *testing.T) {
