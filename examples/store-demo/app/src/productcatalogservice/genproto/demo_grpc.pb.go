@@ -29,8 +29,8 @@ import (
 
 // This is a compile-time assertion to ensure that this generated file
 // is compatible with the grpc package it is being compiled against.
-// Requires gRPC-Go v1.64.0 or later.
-const _ = grpc.SupportPackageIsVersion9
+// Requires gRPC-Go v1.32.0 or later.
+const _ = grpc.SupportPackageIsVersion7
 
 const (
 	CartService_AddItem_FullMethodName   = "/hipstershop.CartService/AddItem"
@@ -56,9 +56,8 @@ func NewCartServiceClient(cc grpc.ClientConnInterface) CartServiceClient {
 }
 
 func (c *cartServiceClient) AddItem(ctx context.Context, in *AddItemRequest, opts ...grpc.CallOption) (*Empty, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(Empty)
-	err := c.cc.Invoke(ctx, CartService_AddItem_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, CartService_AddItem_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -66,9 +65,8 @@ func (c *cartServiceClient) AddItem(ctx context.Context, in *AddItemRequest, opt
 }
 
 func (c *cartServiceClient) GetCart(ctx context.Context, in *GetCartRequest, opts ...grpc.CallOption) (*Cart, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(Cart)
-	err := c.cc.Invoke(ctx, CartService_GetCart_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, CartService_GetCart_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -76,9 +74,8 @@ func (c *cartServiceClient) GetCart(ctx context.Context, in *GetCartRequest, opt
 }
 
 func (c *cartServiceClient) EmptyCart(ctx context.Context, in *EmptyCartRequest, opts ...grpc.CallOption) (*Empty, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(Empty)
-	err := c.cc.Invoke(ctx, CartService_EmptyCart_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, CartService_EmptyCart_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -230,9 +227,8 @@ func NewRecommendationServiceClient(cc grpc.ClientConnInterface) RecommendationS
 }
 
 func (c *recommendationServiceClient) ListRecommendations(ctx context.Context, in *ListRecommendationsRequest, opts ...grpc.CallOption) (*ListRecommendationsResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ListRecommendationsResponse)
-	err := c.cc.Invoke(ctx, RecommendationService_ListRecommendations_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, RecommendationService_ListRecommendations_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -336,9 +332,8 @@ func NewProductCatalogServiceClient(cc grpc.ClientConnInterface) ProductCatalogS
 }
 
 func (c *productCatalogServiceClient) ListProducts(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*ListProductsResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ListProductsResponse)
-	err := c.cc.Invoke(ctx, ProductCatalogService_ListProducts_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, ProductCatalogService_ListProducts_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -346,9 +341,8 @@ func (c *productCatalogServiceClient) ListProducts(ctx context.Context, in *Empt
 }
 
 func (c *productCatalogServiceClient) GetProduct(ctx context.Context, in *GetProductRequest, opts ...grpc.CallOption) (*Product, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(Product)
-	err := c.cc.Invoke(ctx, ProductCatalogService_GetProduct_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, ProductCatalogService_GetProduct_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -356,9 +350,8 @@ func (c *productCatalogServiceClient) GetProduct(ctx context.Context, in *GetPro
 }
 
 func (c *productCatalogServiceClient) SearchProducts(ctx context.Context, in *SearchProductsRequest, opts ...grpc.CallOption) (*SearchProductsResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(SearchProductsResponse)
-	err := c.cc.Invoke(ctx, ProductCatalogService_SearchProducts_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, ProductCatalogService_SearchProducts_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -512,9 +505,8 @@ func NewShippingServiceClient(cc grpc.ClientConnInterface) ShippingServiceClient
 }
 
 func (c *shippingServiceClient) GetQuote(ctx context.Context, in *GetQuoteRequest, opts ...grpc.CallOption) (*GetQuoteResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(GetQuoteResponse)
-	err := c.cc.Invoke(ctx, ShippingService_GetQuote_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, ShippingService_GetQuote_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -522,9 +514,8 @@ func (c *shippingServiceClient) GetQuote(ctx context.Context, in *GetQuoteReques
 }
 
 func (c *shippingServiceClient) ShipOrder(ctx context.Context, in *ShipOrderRequest, opts ...grpc.CallOption) (*ShipOrderResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ShipOrderResponse)
-	err := c.cc.Invoke(ctx, ShippingService_ShipOrder_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, ShippingService_ShipOrder_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -652,9 +643,8 @@ func NewCurrencyServiceClient(cc grpc.ClientConnInterface) CurrencyServiceClient
 }
 
 func (c *currencyServiceClient) GetSupportedCurrencies(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*GetSupportedCurrenciesResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(GetSupportedCurrenciesResponse)
-	err := c.cc.Invoke(ctx, CurrencyService_GetSupportedCurrencies_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, CurrencyService_GetSupportedCurrencies_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -662,9 +652,8 @@ func (c *currencyServiceClient) GetSupportedCurrencies(ctx context.Context, in *
 }
 
 func (c *currencyServiceClient) Convert(ctx context.Context, in *CurrencyConversionRequest, opts ...grpc.CallOption) (*Money, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(Money)
-	err := c.cc.Invoke(ctx, CurrencyService_Convert_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, CurrencyService_Convert_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -790,9 +779,8 @@ func NewPaymentServiceClient(cc grpc.ClientConnInterface) PaymentServiceClient {
 }
 
 func (c *paymentServiceClient) Charge(ctx context.Context, in *ChargeRequest, opts ...grpc.CallOption) (*ChargeResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ChargeResponse)
-	err := c.cc.Invoke(ctx, PaymentService_Charge_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, PaymentService_Charge_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -892,9 +880,8 @@ func NewEmailServiceClient(cc grpc.ClientConnInterface) EmailServiceClient {
 }
 
 func (c *emailServiceClient) SendOrderConfirmation(ctx context.Context, in *SendOrderConfirmationRequest, opts ...grpc.CallOption) (*Empty, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(Empty)
-	err := c.cc.Invoke(ctx, EmailService_SendOrderConfirmation_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, EmailService_SendOrderConfirmation_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -994,9 +981,8 @@ func NewCheckoutServiceClient(cc grpc.ClientConnInterface) CheckoutServiceClient
 }
 
 func (c *checkoutServiceClient) PlaceOrder(ctx context.Context, in *PlaceOrderRequest, opts ...grpc.CallOption) (*PlaceOrderResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(PlaceOrderResponse)
-	err := c.cc.Invoke(ctx, CheckoutService_PlaceOrder_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, CheckoutService_PlaceOrder_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -1096,9 +1082,8 @@ func NewAdServiceClient(cc grpc.ClientConnInterface) AdServiceClient {
 }
 
 func (c *adServiceClient) GetAds(ctx context.Context, in *AdRequest, opts ...grpc.CallOption) (*AdResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(AdResponse)
-	err := c.cc.Invoke(ctx, AdService_GetAds_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, AdService_GetAds_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}

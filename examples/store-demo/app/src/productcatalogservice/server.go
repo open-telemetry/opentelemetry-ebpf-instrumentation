@@ -15,7 +15,6 @@
 package main
 
 import (
-	"context"
 	"flag"
 	"fmt"
 	"net"
@@ -26,18 +25,10 @@ import (
 	"time"
 
 	pb "github.com/GoogleCloudPlatform/microservices-demo/src/productcatalogservice/genproto"
-	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/health"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 
-	"cloud.google.com/go/profiler"
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
-	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
-	"go.opentelemetry.io/otel/propagation"
-	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"google.golang.org/grpc"
 )
 
@@ -66,22 +57,6 @@ func init() {
 }
 
 func main() {
-	if os.Getenv("ENABLE_TRACING") == "1" {
-		err := initTracing()
-		if err != nil {
-			log.Warnf("warn: failed to start tracer: %+v", err)
-		}
-	} else {
-		log.Info("Tracing disabled.")
-	}
-
-	if os.Getenv("DISABLE_PROFILER") == "" {
-		log.Info("Profiling enabled.")
-		go initProfiling("productcatalogservice", "1.0.0")
-	} else {
-		log.Info("Profiling disabled.")
-	}
-
 	flag.Parse()
 
 	// set injected latency
@@ -126,13 +101,7 @@ func run(port string) string {
 		log.Fatal(err)
 	}
 
-	// Propagate trace context
-	otel.SetTextMapPropagator(
-		propagation.NewCompositeTextMapPropagator(
-			propagation.TraceContext{}, propagation.Baggage{}))
-	var srv *grpc.Server
-	srv = grpc.NewServer(
-		grpc.StatsHandler(otelgrpc.NewServerHandler()))
+	srv := grpc.NewServer()
 
 	svc := &productCatalog{}
 	err = loadCatalog(&svc.catalog)
@@ -146,72 +115,4 @@ func run(port string) string {
 	go srv.Serve(listener)
 
 	return listener.Addr().String()
-}
-
-func initStats() {
-	// TODO(drewbr) Implement OpenTelemetry stats
-}
-
-func initTracing() error {
-	var (
-		collectorAddr string
-		collectorConn *grpc.ClientConn
-	)
-
-	ctx := context.Background()
-
-	mustMapEnv(&collectorAddr, "COLLECTOR_SERVICE_ADDR")
-	mustConnGRPC(ctx, &collectorConn, collectorAddr)
-
-	exporter, err := otlptracegrpc.New(
-		ctx,
-		otlptracegrpc.WithGRPCConn(collectorConn))
-	if err != nil {
-		log.Warnf("warn: Failed to create trace exporter: %v", err)
-	}
-	tp := sdktrace.NewTracerProvider(
-		sdktrace.WithBatcher(exporter),
-		sdktrace.WithSampler(sdktrace.AlwaysSample()))
-	otel.SetTracerProvider(tp)
-	return err
-}
-
-func initProfiling(service, version string) {
-	for i := 1; i <= 3; i++ {
-		if err := profiler.Start(profiler.Config{
-			Service:        service,
-			ServiceVersion: version,
-			// ProjectID must be set if not running on GCP.
-			// ProjectID: "my-project",
-		}); err != nil {
-			log.Warnf("failed to start profiler: %+v", err)
-		} else {
-			log.Info("started profiler")
-			return
-		}
-		d := time.Second * 10 * time.Duration(i)
-		log.Infof("sleeping %v to retry initializing profiler", d)
-		time.Sleep(d)
-	}
-	log.Warn("could not initialize profiler after retrying, giving up")
-}
-
-func mustMapEnv(target *string, envKey string) {
-	v := os.Getenv(envKey)
-	if v == "" {
-		panic(fmt.Sprintf("environment variable %q not set", envKey))
-	}
-	*target = v
-}
-
-func mustConnGRPC(ctx context.Context, conn **grpc.ClientConn, addr string) {
-	var err error
-	_, cancel := context.WithTimeout(ctx, time.Second*3)
-	defer cancel()
-	*conn, err = grpc.NewClient(addr,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithStatsHandler(otelgrpc.NewClientHandler()))
-	if err != nil {
-		panic(errors.Wrapf(err, "grpc: failed to connect %s", addr))
-	}
 }
