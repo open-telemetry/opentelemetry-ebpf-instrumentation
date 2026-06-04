@@ -185,7 +185,7 @@ SEC("uprobe/libssl.so:SSL_write_ex")
 int BPF_UPROBE(obi_uprobe_ssl_write_ex,
                void *ssl,
                const void *buf,
-               int num,
+               size_t num,
                size_t *written) { //NOLINT(readability-non-const-parameter)
     (void)ctx;
     (void)num;
@@ -209,6 +209,36 @@ int BPF_UPROBE(obi_uprobe_ssl_write_ex,
     return 0;
 }
 
+SEC("uprobe/libssl.so:SSL_write_ex2")
+int BPF_UPROBE(obi_uprobe_ssl_write_ex2,
+               void *ssl,
+               const void *buf,
+               size_t num,
+               u64 flags,
+               size_t *written) { //NOLINT(readability-non-const-parameter)
+    (void)ctx;
+    (void)num;
+    (void)flags;
+
+    const u64 id = bpf_get_current_pid_tgid();
+
+    if (!valid_pid(id)) {
+        return 0;
+    }
+
+    bpf_dbg_printk("=== SSL_write_ex2 id=%d ssl=%llx ===", id, ssl);
+
+    ssl_args_t args = {};
+    args.buf = (u64)buf;
+    args.ssl = (u64)ssl;
+    args.len_ptr = (u64)written;
+    args.flags = 0;
+
+    bpf_map_update_elem(&active_ssl_write_args, &id, &args, BPF_ANY);
+
+    return 0;
+}
+
 SEC("uretprobe/libssl.so:SSL_write_ex")
 int BPF_URETPROBE(obi_uretprobe_ssl_write_ex, int ret) {
     const u64 id = bpf_get_current_pid_tgid();
@@ -220,6 +250,35 @@ int BPF_URETPROBE(obi_uretprobe_ssl_write_ex, int ret) {
     ssl_args_t *args = bpf_map_lookup_elem(&active_ssl_write_args, &id);
 
     bpf_dbg_printk("=== uretprobe SSL_write_ex id=%d args %llx ===", id, args);
+
+    if (ret != 1 || !args) {
+        bpf_map_delete_elem(&active_ssl_write_args, &id);
+        return 0;
+    }
+
+    size_t write_len = 0;
+    bpf_probe_read_user(&write_len, sizeof(write_len), (void *)args->len_ptr);
+
+    ssl_args_t saved = {};
+    __builtin_memcpy(&saved, args, sizeof(ssl_args_t));
+    bpf_map_delete_elem(&active_ssl_write_args, &id);
+    // must be last in the function, doesn't return
+    handle_ssl_buf(ctx, id, &saved, write_len, TCP_SEND);
+
+    return 0;
+}
+
+SEC("uretprobe/libssl.so:SSL_write_ex2")
+int BPF_URETPROBE(obi_uretprobe_ssl_write_ex2, int ret) {
+    const u64 id = bpf_get_current_pid_tgid();
+
+    if (!valid_pid(id)) {
+        return 0;
+    }
+
+    ssl_args_t *args = bpf_map_lookup_elem(&active_ssl_write_args, &id);
+
+    bpf_dbg_printk("=== uretprobe SSL_write_ex2 id=%d args %llx ===", id, args);
 
     if (ret != 1 || !args) {
         bpf_map_delete_elem(&active_ssl_write_args, &id);

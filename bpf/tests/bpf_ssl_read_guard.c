@@ -195,6 +195,34 @@ static void test_successful_read_still_parses(void) {
     assert_u16_eq(443, test_last_orig_dport, "successful read preserves original dport");
 }
 
+static void test_failed_write_skips_parser_after_cleanup(void) {
+    reset();
+    seed_existing_ssl_connection(443);
+    ssl_args_t args = ssl_args();
+
+    handle_ssl_buf(NULL, 0x2a00000001ULL, &args, 0, TCP_SEND);
+
+    assert_int_eq(1, ssl_pid_tid_delete_count, "ssl_to_pid_tid entry is deleted on failed write");
+    assert_int_eq(0, ssl_to_conn_update_count, "failed write does not create connection info");
+    assert_int_eq(0, test_parser_call_count, "failed write does not enter protocol parsing");
+}
+
+static void test_successful_write_still_parses(void) {
+    reset();
+    seed_existing_ssl_connection(443);
+    ssl_args_t args = ssl_args();
+
+    handle_ssl_buf(NULL, 0x2a00000001ULL, &args, 32, TCP_SEND);
+
+    assert_int_eq(1, ssl_pid_tid_delete_count, "ssl_to_pid_tid entry is deleted on write success");
+    assert_int_eq(0, ssl_to_conn_update_count, "existing connection is reused");
+    assert_int_eq(1, test_parser_call_count, "successful write enters protocol parsing");
+    assert_int_eq(32, test_last_parser_bytes_len, "successful write forwards the written length");
+    assert_int_eq(WITH_SSL, test_last_ssl, "successful write is marked as SSL");
+    assert_int_eq(TCP_SEND, test_last_direction, "successful write preserves direction");
+    assert_u16_eq(443, test_last_orig_dport, "successful write preserves original dport");
+}
+
 static void test_successful_read_can_create_fake_connection(void) {
     reset();
     ssl_args_t args = ssl_args();
@@ -240,6 +268,8 @@ int main(void) {
     test_failed_read_skips_parser_after_cleanup();
     test_eof_read_skips_parser_after_cleanup();
     test_successful_read_still_parses();
+    test_failed_write_skips_parser_after_cleanup();
+    test_successful_write_still_parses();
     test_successful_read_can_create_fake_connection();
     test_successful_read_can_reuse_mapped_pid_tid_connection();
     test_missing_args_noops();
