@@ -109,6 +109,11 @@ typedef enum {
     // route resolution
     _mux_template_pos,
     _gin_fullpath_pos,
+    // Go runtime metrics
+    _runtime_memstats_numgc_pos,
+    _runtime_memstats_numforcedgc_pos,
+    _runtime_gc_controller_memory_limit_pos,
+    _runtime_gc_controller_gc_percent_pos,
     _last_go_offset,
 } go_offset_const;
 

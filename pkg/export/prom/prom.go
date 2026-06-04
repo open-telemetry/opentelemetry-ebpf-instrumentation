@@ -29,6 +29,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/export/otel"
 	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
+	"go.opentelemetry.io/obi/pkg/internal/runtimemetrics"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
@@ -188,6 +189,7 @@ type metricsReporter struct {
 
 	input         <-chan []request.Span
 	processEvents <-chan exec.ProcessEvent
+	runtimeInput  <-chan []runtimemetrics.RuntimeMetricSnapshot
 
 	obiInfo                *Expirer[prometheus.Gauge]
 	httpDuration           *Expirer[prometheus.Histogram]
@@ -256,6 +258,8 @@ type metricsReporter struct {
 	genAIClientDuration *Expirer[prometheus.Histogram]
 	genAITokenUsage     *Expirer[prometheus.Histogram]
 
+	goRuntimeMetrics goRuntimeMetricsCollector
+
 	promConnect *connector.PrometheusManager
 
 	clock   *expire.CachedClock
@@ -285,12 +289,23 @@ func PrometheusEndpoint(
 	unresolved request.UnresolvedNames,
 	input *msg.Queue[[]request.Span],
 	processEventCh *msg.Queue[exec.ProcessEvent],
+	runtimeMetricCh *msg.Queue[[]runtimemetrics.RuntimeMetricSnapshot],
 ) swarm.InstanceFunc {
 	return func(ctx context.Context) (swarm.RunFunc, error) {
-		if !cfg.EndpointEnabled() || !jointMetricsConfig.Features.AppOrSpan() {
+		if !cfg.EndpointEnabled() || !jointMetricsConfig.Features.AnyAppO11yMetric() {
 			return swarm.EmptyRunFunc()
 		}
-		reporter, err := newReporter(ctx, ctxInfo, cfg, jointMetricsConfig, selectorCfg, unresolved, input, processEventCh)
+		reporter, err := newReporter(
+			ctx,
+			ctxInfo,
+			cfg,
+			jointMetricsConfig,
+			selectorCfg,
+			unresolved,
+			input,
+			processEventCh,
+			runtimeMetricCh,
+		)
 		if err != nil {
 			return nil, fmt.Errorf("instantiating Prometheus endpoint: %w", err)
 		}
@@ -325,6 +340,7 @@ func newReporter(
 	unresolved request.UnresolvedNames,
 	input *msg.Queue[[]request.Span],
 	processEventCh *msg.Queue[exec.ProcessEvent],
+	runtimeMetricCh *msg.Queue[[]runtimemetrics.RuntimeMetricSnapshot],
 ) (*metricsReporter, error) {
 	groups := ctxInfo.MetricAttributeGroups
 	groups.Add(attributes.GroupPrometheus)
@@ -439,9 +455,19 @@ func newReporter(
 	// executable inspector
 	extraMetadataLabels := parseExtraMetadata(cfg.ExtraResourceLabels)
 	extraSpanMetadataLabels := parseExtraMetadata(cfg.ExtraSpanResourceLabels)
+	var inputCh <-chan []request.Span
+	if input != nil {
+		inputCh = input.Subscribe(msg.SubscriberName("prom.InputSpans"))
+	}
+	var runtimeInputCh <-chan []runtimemetrics.RuntimeMetricSnapshot
+	if runtimeMetricCh != nil {
+		runtimeInputCh = runtimeMetricCh.Subscribe(msg.SubscriberName("prom.RuntimeMetrics"))
+	}
+
 	mr := &metricsReporter{
-		input:                      input.Subscribe(msg.SubscriberName("prom.InputSpans")),
+		input:                      inputCh,
 		processEvents:              processEventCh.Subscribe(msg.SubscriberName("prom.ProcessEvents")),
+		runtimeInput:               runtimeInputCh,
 		serviceMap:                 map[svc.UID]svc.Attrs{},
 		pidsTracker:                otel.NewPidServiceTracker(),
 		ctxInfo:                    ctxInfo,
@@ -757,8 +783,14 @@ func newReporter(
 		}),
 	}
 
+	if jointMetricsConfig.Features.AppRuntime() {
+		mr.goRuntimeMetrics = newGoRuntimeMetricsCollector(
+			labelNamesTargetInfo(kubeEnabled, dockerEnabled, &ctxInfo.NodeMeta, extraMetadataLabels),
+		)
+	}
+
 	// testing aid
-	mr.deleteEventMetrics = mr.deleteTargetInfoMetrics
+	mr.deleteEventMetrics = mr.deleteMetricsForService
 	mr.createEventMetrics = mr.createTargetInfos
 
 	registeredMetrics := []prometheus.Collector{mr.targetInfo}
@@ -840,6 +872,10 @@ func newReporter(
 		registeredMetrics = append(registeredMetrics, mr.tracesHostInfo)
 	}
 
+	if jointMetricsConfig.Features.AppRuntime() {
+		registeredMetrics = append(registeredMetrics, mr.goRuntimeMetrics.collectors()...)
+	}
+
 	if is.GPUEnabled() {
 		registeredMetrics = append(registeredMetrics,
 			mr.cudaKernelCallsTotal,
@@ -909,6 +945,9 @@ func (r *metricsReporter) reportMetrics(ctx context.Context) {
 
 func (r *metricsReporter) collectMetrics(ctx context.Context) {
 	go r.watchForProcessEvents(ctx)
+	if r.runtimeInput != nil {
+		go r.watchForRuntimeMetrics(ctx)
+	}
 	swarms.ForEachInput(ctx, r.input, nil, func(spans []request.Span) {
 		// clock needs to be updated to let the expirer
 		// remove the old metrics
@@ -1377,6 +1416,11 @@ func (r *metricsReporter) createTargetInfos(service *svc.Attrs) {
 func (r *metricsReporter) deleteTargetInfoMetrics(service *svc.Attrs) {
 	r.deleteTargetInfoMetric(service)
 	r.deleteTracesTargetInfoMetric(service)
+}
+
+func (r *metricsReporter) deleteMetricsForService(service *svc.Attrs) {
+	r.deleteTargetInfoMetrics(service)
+	r.deleteRuntimeMetrics(service)
 }
 
 func (r *metricsReporter) deleteTargetInfos(uid svc.UID, service *svc.Attrs) {

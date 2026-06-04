@@ -33,6 +33,7 @@ const (
 	FeatureSpanSizes
 	FeatureGraph
 	FeatureApplicationHost
+	FeatureApplicationRuntime
 	FeatureEBPF
 	FeatureAll = Features(^uint(0)) // all bits to 1
 )
@@ -55,6 +56,7 @@ var FeatureMapper = map[string]Features{
 	"application_span_sizes":       FeatureSpanSizes,
 	"application_service_graph":    FeatureGraph,
 	"application_host":             FeatureApplicationHost,
+	"application_runtime":          FeatureApplicationRuntime,
 	"ebpf":                         FeatureEBPF,
 	"all":                          FeatureAll,
 	"*":                            FeatureAll,
@@ -135,7 +137,7 @@ func (f Features) Empty() bool {
 }
 
 func (f Features) AnyAppO11yMetric() bool {
-	return f.any(AppO11yFeatures)
+	return f.any(AppO11yFeatures | FeatureApplicationRuntime)
 }
 
 func (f Features) SpanMetrics() bool {
@@ -168,6 +170,10 @@ func (f Features) ServiceGraph() bool {
 
 func (f Features) AppHost() bool {
 	return f.any(FeatureApplicationHost)
+}
+
+func (f Features) AppRuntime() bool {
+	return f.any(FeatureApplicationRuntime)
 }
 
 func (f Features) AppRED() bool {

@@ -1,0 +1,6 @@
+prometheus_export:
+  port: 8999
+attributes:
+  select:
+    "*":
+      include: ["*"]
