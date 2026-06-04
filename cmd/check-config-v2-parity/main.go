@@ -4,8 +4,8 @@
 package main
 
 import (
-	_ "embed"
 	"errors"
+	"flag"
 	"fmt"
 	"os"
 	"strconv"
@@ -13,7 +13,11 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
+
+	"go.opentelemetry.io/obi/pkg/obi"
 )
+
+const defaultV2DefaultPath = "devdocs/config/version-2.0/examples/default-configuration.yaml"
 
 func asMap(v any) map[string]any {
 	if v == nil {
@@ -340,26 +344,37 @@ func mustMapPayloadExtractionMembership(cur map[string]any, ex map[string]any, e
 	return nil
 }
 
-//go:embed .verify/default-config-current.yaml
-var defaultConf []byte
-
-//go:embed examples/default-configuration.yaml
-var v2DefaultConf []byte
-
-func main() {
-	var cur map[string]any
-	var ex map[string]any
-	if err := yaml.Unmarshal(defaultConf, &cur); err != nil {
-		panic(err)
+func currentDefaultConfig() (map[string]any, error) {
+	data, err := yaml.Marshal(obi.DefaultConfig)
+	if err != nil {
+		return nil, fmt.Errorf("marshal current defaults: %w", err)
 	}
-	if err := yaml.Unmarshal(v2DefaultConf, &ex); err != nil {
-		panic(err)
-	}
+	return unmarshalYAML(data, "current defaults")
+}
 
-	checks := []struct {
-		cur []string
-		ex  []string
-	}{
+func readYAML(path string) (map[string]any, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", path, err)
+	}
+	return unmarshalYAML(data, path)
+}
+
+func unmarshalYAML(data []byte, source string) (map[string]any, error) {
+	var out map[string]any
+	if err := yaml.Unmarshal(data, &out); err != nil {
+		return nil, fmt.Errorf("unmarshal %s: %w", source, err)
+	}
+	return out, nil
+}
+
+type parityCheck struct {
+	cur []string
+	ex  []string
+}
+
+func parityChecks() []parityCheck {
+	return []parityCheck{
 		{[]string{"ebpf", "batch_length"}, []string{"obi", "capture", "engine", "batching", "batch_length"}},
 		{[]string{"ebpf", "batch_timeout"}, []string{"obi", "capture", "engine", "batching", "batch_timeout"}},
 		{[]string{"ebpf", "wakeup_len"}, []string{"obi", "capture", "engine", "batching", "wakeup_len"}},
@@ -420,7 +435,8 @@ func main() {
 		{[]string{"otel_metrics_export", "ttl"}, []string{"obi", "capture", "telemetry", "metrics", "ttl"}},
 		{[]string{"otel_metrics_export", "extra_span_resource_attributes"}, []string{"obi", "daemon", "telemetry", "metrics", "prometheus", "extra_span_resource_attributes"}},
 
-		{[]string{"otel_traces_export", "max_queue_size"}, []string{"tracer_provider", "processors", "0", "batch", "max_queue_size"}},
+		{[]string{"otel_traces_export", "queue_size"}, []string{"tracer_provider", "processors", "0", "batch", "max_queue_size"}},
+		{[]string{"otel_traces_export", "batch_max_size"}, []string{"tracer_provider", "processors", "0", "batch", "max_export_batch_size"}},
 		{[]string{"otel_traces_export", "reporters_cache_len"}, []string{"obi", "capture", "telemetry", "traces", "reporters_cache_len"}},
 
 		{[]string{"prometheus_export", "port"}, []string{"meter_provider", "readers", "1", "pull", "exporter", "prometheus/development", "port"}},
@@ -448,12 +464,14 @@ func main() {
 		{[]string{"javaagent", "debug_instrumentation"}, []string{"obi", "capture", "runtimes", "java", "debug", "bytecode_instrumentation"}},
 		{[]string{"javaagent", "attach_timeout"}, []string{"obi", "capture", "runtimes", "java", "attach_timeout"}},
 	}
+}
 
-	failures := 0
+func verifyDefaults(cur map[string]any, ex map[string]any) ([]error, int) {
+	checks := parityChecks()
+	failures := []error{}
 	for _, c := range checks {
 		if err := mustEq(cur, ex, c.cur, c.ex); err != nil {
-			fmt.Println("FAIL:", err)
-			failures++
+			failures = append(failures, err)
 		}
 	}
 
@@ -463,52 +481,69 @@ func main() {
 		[]string{"otel_traces_export", "batch_timeout"},
 		[]string{"tracer_provider", "processors", "0", "batch", "schedule_delay"},
 	); err != nil {
-		fmt.Println("FAIL:", err)
-		failures++
-	}
-
-	if failures > 0 {
-		fmt.Printf("verification failed: %d mismatches\n", failures)
-		os.Exit(1)
+		failures = append(failures, err)
 	}
 
 	if err := mustMapExcludedSystemPaths(cur, ex); err != nil {
-		fmt.Println("FAIL:", err)
-		fmt.Printf("verification failed: %d mismatches\n", failures+1)
-		os.Exit(1)
+		failures = append(failures, err)
 	}
 
 	if err := mustMapAlreadyInstrumentedExclusion(cur, ex); err != nil {
-		fmt.Println("FAIL:", err)
-		fmt.Printf("verification failed: %d mismatches\n", failures+1)
-		os.Exit(1)
+		failures = append(failures, err)
 	}
 
 	if err := mustMapGoSpecificTracers(cur, ex); err != nil {
-		fmt.Println("FAIL:", err)
-		fmt.Printf("verification failed: %d mismatches\n", failures+1)
-		os.Exit(1)
+		failures = append(failures, err)
 	}
 
 	if err := mustMapApplicationFiltersPerInstrumentation(cur, ex); err != nil {
-		fmt.Println("FAIL:", err)
-		fmt.Printf("verification failed: %d mismatches\n", failures+1)
-		os.Exit(1)
+		failures = append(failures, err)
 	}
 
 	if err := mustMapNetworkFiltersPerSignal(cur, ex); err != nil {
-		fmt.Println("FAIL:", err)
-		fmt.Printf("verification failed: %d mismatches\n", failures+1)
-		os.Exit(1)
+		failures = append(failures, err)
 	}
 
 	for _, extractor := range []string{"graphql", "elasticsearch", "aws", "sqlpp"} {
 		if err := mustMapPayloadExtractionMembership(cur, ex, extractor); err != nil {
-			fmt.Println("FAIL:", err)
-			fmt.Printf("verification failed: %d mismatches\n", failures+1)
-			os.Exit(1)
+			failures = append(failures, err)
 		}
 	}
 
-	fmt.Printf("feature parity verification passed: %d mapped default checks\n", len(checks)+10)
+	return failures, len(checks) + 10
+}
+
+func run(args []string) error {
+	flags := flag.NewFlagSet("check-config-v2-parity", flag.ContinueOnError)
+	v2DefaultPath := flags.String("v2-default", defaultV2DefaultPath, "path to the merged config v2 default configuration")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+
+	cur, err := currentDefaultConfig()
+	if err != nil {
+		return err
+	}
+	ex, err := readYAML(*v2DefaultPath)
+	if err != nil {
+		return err
+	}
+
+	failures, mappedChecks := verifyDefaults(cur, ex)
+	if len(failures) > 0 {
+		for _, failure := range failures {
+			fmt.Println("FAIL:", failure)
+		}
+		return fmt.Errorf("verification failed: %d mismatches", len(failures))
+	}
+
+	fmt.Printf("feature parity verification passed: %d mapped default checks\n", mappedChecks)
+	return nil
+}
+
+func main() {
+	if err := run(os.Args[1:]); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 }

@@ -919,3 +919,8 @@ check-config-schema:
 	fi
 	@rm -f $(CONFIG_DOCS_FILE).tmp
 	@echo "Configuration docs are up-to-date"
+
+.PHONY: check-config-v2-parity
+check-config-v2-parity:
+	@echo "### Checking config v2 default parity"
+	go run ./cmd/check-config-v2-parity
