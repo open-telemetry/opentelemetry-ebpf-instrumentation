@@ -42,6 +42,10 @@ func run(pass *analysis.Pass) (any, error) {
 
 		// The first argument should be the outer *testing.T.
 		outerT := call.Args[0]
+		outerTIdent, ok := outerT.(*ast.Ident)
+		if !ok {
+			return
+		}
 		outerTObj := resolveIdentFromInfo(pass, outerT)
 		if outerTObj == nil {
 			return
@@ -97,11 +101,21 @@ func run(pass *analysis.Pass) (any, error) {
 			// Flag if the first arg resolves to the outer *testing.T
 			// rather than the callback's *assert.CollectT parameter.
 			if argObj == outerTObj && argObj != collectTObj {
-				pass.Reportf(innerCall.Args[0].Pos(),
-					"use %s instead of %s inside EventuallyWithT callback",
-					collectTParam.Names[0].Name,
-					outerT.(*ast.Ident).Name,
-				)
+				collectTName := collectTParam.Names[0].Name
+				pass.Report(analysis.Diagnostic{
+					Pos: innerCall.Args[0].Pos(),
+					End: innerCall.Args[0].End(),
+					Message: "use " + collectTName + " instead of " + outerTIdent.Name +
+						" inside EventuallyWithT callback",
+					SuggestedFixes: []analysis.SuggestedFix{{
+						Message: "Use CollectT callback parameter",
+						TextEdits: []analysis.TextEdit{{
+							Pos:     innerCall.Args[0].Pos(),
+							End:     innerCall.Args[0].End(),
+							NewText: []byte(collectTName),
+						}},
+					}},
+				})
 			}
 
 			return true

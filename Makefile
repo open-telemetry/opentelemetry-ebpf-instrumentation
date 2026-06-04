@@ -145,7 +145,7 @@ lint-fix: lint-fix-run
 
 .PHONY: lint-run lint-fix-run
 lint-run: vanity-import-check lint-dependency-policy lint-collectt
-lint-fix-run: vanity-import-fix-check lint-dependency-policy lint-collectt
+lint-fix-run: vanity-import-fix-check lint-dependency-policy lint-collectt-fix
 lint-run lint-fix-run:
 	@echo "### Linting code"
 	go tool $(TOOLS_MODFILE) golangci-lint run ./... --timeout=6m $(LINT_EXTRA_ARGS)
@@ -170,6 +170,11 @@ lint-dependency-policy:
 lint-collectt:
 	@echo "### Checking EventuallyWithT callbacks use CollectT"
 	go run ./internal/test/analyzer/collectt/cmd/collecttlint ./...
+
+.PHONY: lint-collectt-fix
+lint-collectt-fix:
+	@echo "### Fixing EventuallyWithT callbacks to use CollectT"
+	go run ./internal/test/analyzer/collectt/cmd/collecttlint -fix ./...
 
 MARKDOWNIMAGE := $(shell awk '$$4=="markdown" {print $$2}' $(DEPENDENCIES_DOCKERFILE))
 .PHONY: lint-markdown
