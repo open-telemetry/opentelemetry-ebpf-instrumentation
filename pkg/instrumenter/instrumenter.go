@@ -65,7 +65,7 @@ func RunWithContextInfo(
 
 	// Enable App O11y when config enables it or when the caller passed a dynamic PID selector
 	// (allows an "empty" instrumenter that only instruments PIDs added via the selector).
-	app := cfg.Enabled(obi.FeatureAppO11y) || ctxInfo.AppO11y.DynamicPIDSelector != nil
+	app := cfg.Enabled(obi.FeatureAppO11y) || ctxInfo.DynamicPIDSelector != nil
 	net := cfg.Enabled(obi.FeatureNetO11y)
 	stats := cfg.Enabled(obi.FeatureStatsO11y)
 
