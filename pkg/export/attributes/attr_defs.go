@@ -274,7 +274,7 @@ func getDefinitions(
 		nil,
 		map[attr.Name]Default{
 			attr.ClientAddr: false,
-			attr.ServerAddr: true,
+			attr.Server:     true,
 			attr.ServerPort: true,
 		},
 		extraGroupAttributes[GroupServerInfo],
@@ -284,7 +284,7 @@ func getDefinitions(
 		false,
 		nil,
 		map[attr.Name]Default{
-			attr.ServerAddr: true,
+			attr.Server:     true,
 			attr.ServerPort: true,
 		},
 		extraGroupAttributes[GroupHTTPClientInfo],
@@ -294,7 +294,7 @@ func getDefinitions(
 		false,
 		nil,
 		map[attr.Name]Default{
-			attr.ServerAddr: true,
+			attr.Server: true,
 		},
 		extraGroupAttributes[GroupGRPCClientInfo],
 	)
@@ -318,7 +318,7 @@ func getDefinitions(
 			attr.MessagingSystem:      true,
 			attr.MessagingDestination: true,
 			attr.MessagingOpName:      true,
-			attr.ServerAddr:           true,
+			attr.Server:               true,
 		},
 		extraGroupAttributes[GroupMessaging],
 	)
@@ -367,7 +367,7 @@ func getDefinitions(
 		DBClientDuration.Section: {
 			SubGroups: []*AttrReportGroup{&appAttributes},
 			Attributes: map[attr.Name]Default{
-				attr.ServerAddr:   true,
+				attr.Server:       true,
 				attr.DBOperation:  true,
 				attr.DBSystemName: true,
 				attr.ErrorType:    true,
@@ -434,7 +434,7 @@ func getDefinitions(
 				attr.GenAIRequestModel:   true,
 				attr.GenAIResponseModel:  true,
 				attr.ServerPort:          true,
-				attr.ServerAddr:          true,
+				attr.Server:              true,
 			},
 		},
 		GenAIClientOutputTokenUsage.Section: {
@@ -446,7 +446,7 @@ func getDefinitions(
 				attr.GenAIRequestModel:    true,
 				attr.GenAIResponseModel:   true,
 				attr.ServerPort:           true,
-				attr.ServerAddr:           true,
+				attr.Server:               true,
 			},
 		},
 		GenAIClientOperationDuration.Section: {
@@ -458,7 +458,7 @@ func getDefinitions(
 				attr.GenAIResponseModel: true,
 				attr.ErrorType:          true,
 				attr.ServerPort:         true,
-				attr.ServerAddr:         true,
+				attr.Server:             true,
 			},
 		},
 		StatTCPRtt.Section: {

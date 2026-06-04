@@ -223,7 +223,7 @@ func TestExtraGroupAttributes(t *testing.T) {
 		"k8s.pod.uid",
 		"k8s.replicaset.name",
 		"k8s.statefulset.name",
-		"server.address",
+		"server",
 		"server.port",
 		"service.name",
 		"url.scheme",
