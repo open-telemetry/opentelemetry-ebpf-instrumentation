@@ -32,9 +32,9 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
-	pb "github.com/GoogleCloudPlatform/microservices-demo/src/frontend/genproto"
-	"github.com/GoogleCloudPlatform/microservices-demo/src/frontend/money"
-	"github.com/GoogleCloudPlatform/microservices-demo/src/frontend/validator"
+	pb "github.com/\x47oogleCloudPlatform/microservices-demo/src/frontend/genproto"
+	"github.com/\x47oogleCloudPlatform/microservices-demo/src/frontend/money"
+	"github.com/\x47oogleCloudPlatform/microservices-demo/src/frontend/validator"
 )
 
 type platformDetails struct {
@@ -88,21 +88,21 @@ func (fe *frontendServer) homeHandler(w http.ResponseWriter, r *http.Request) {
 		ps[i] = productView{p, price}
 	}
 
-	// Set ENV_PLATFORM (default to local if not set; use env var if set; otherwise detect GCP, which overrides env)_
+	// Set ENV_PLATFORM from env var when valid, otherwise detect the cloud runtime.
 	var env = os.Getenv("ENV_PLATFORM")
 	// Only override from env variable if set + valid env
 	if env == "" || stringinSlice(validEnvs, env) == false {
 		fmt.Println("env platform is either empty or invalid")
 		env = "local"
 	}
-	// Autodetect GCP
+	// Autodetect cloud runtime.
 	addrs, err := net.LookupHost("metadata.google.internal.")
 	if err == nil && len(addrs) >= 0 {
-		log.Debugf("Detected Google metadata server: %v, setting ENV_PLATFORM to GCP.", addrs)
+		log.Debugf("Detected metadata server: %v, setting ENV_PLATFORM to managed runtime.", addrs)
 		env = "gcp"
 	}
 
-	log.Debugf("ENV_PLATFORM is: %s", env)
+	log.Debug("ENV_PLATFORM resolved.")
 	plat = platformDetails{}
 	plat.setPlatformDetails(strings.ToLower(env))
 

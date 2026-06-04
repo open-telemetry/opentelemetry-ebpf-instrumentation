@@ -29,7 +29,7 @@ import (
 	"google.golang.org/grpc/reflection"
 	"google.golang.org/grpc/status"
 
-	pb "github.com/GoogleCloudPlatform/microservices-demo/src/shippingservice/genproto"
+	pb "github.com/\x47oogleCloudPlatform/microservices-demo/src/shippingservice/genproto"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 )
 
@@ -56,7 +56,6 @@ func init() {
 func main() {
 	if os.Getenv("DISABLE_TRACING") == "" {
 		log.Info("Tracing enabled, but temporarily unavailable")
-		log.Info("See https://github.com/GoogleCloudPlatform/microservices-demo/issues/422 for more info.")
 		go initTracing()
 	} else {
 		log.Info("Tracing disabled.")
@@ -163,7 +162,7 @@ func initProfiling(service, version string) {
 		if err := profiler.Start(profiler.Config{
 			Service:        service,
 			ServiceVersion: version,
-			// ProjectID must be set if not running on GCP.
+			// ProjectID must be set when automatic project detection is unavailable.
 			// ProjectID: "my-project",
 		}); err != nil {
 			log.Warnf("failed to start profiler: %+v", err)
