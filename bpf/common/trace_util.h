@@ -147,15 +147,29 @@ static __always_inline unsigned char *bpf_strstr_tp_loop__legacy(unsigned char *
 
     // Limited best-effort search to stay within insns limit
     const u16 k_besteffort_max_loops = 350;
-    u16 loop_limit = buf_len - TRACE_PARENT_HEADER_LEN + 1;
-    if (loop_limit > k_besteffort_max_loops) {
-        loop_limit = k_besteffort_max_loops;
-    }
 
-    for (u16 i = 0; i < loop_limit; i++) {
-        if (is_traceparent(&buf[i])) {
-            return &buf[i];
+    for (u16 i = 0; i < k_besteffort_max_loops; i++) {
+        // buf is null terminated
+        if (*buf == '\0') {
+            return NULL;
         }
+
+        if (is_traceparent(buf)) {
+            // here we validate if the actual traceparent value is complete,
+            // i.e. we haven't hit any incomplete traceparent - notice that
+            // everything here is constant (13 is the offset from
+            // 'Traceparent: ' and TRACE_PARENT_HEADER_LEN is also a constant
+            // - this allows the 5.10 kernel to prune this instead of tripping
+            for (u8 j = 13; j < TRACE_PARENT_HEADER_LEN; j++) {
+                if (buf[j] == '\0') {
+                    return NULL;
+                }
+            }
+
+            return buf;
+        }
+
+        ++buf;
     }
 
     return NULL;
