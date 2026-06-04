@@ -44,7 +44,6 @@ type platformDetails struct {
 
 var (
 	frontendMessage  = strings.TrimSpace(os.Getenv("FRONTEND_MESSAGE"))
-	isCymbalBrand    = "true" == strings.ToLower(os.Getenv("CYMBAL_BRANDING"))
 	assistantEnabled = "true" == strings.ToLower(os.Getenv("ENABLE_ASSISTANT"))
 	templates        = template.Must(template.New("").
 				Funcs(template.FuncMap{
@@ -555,7 +554,6 @@ func injectCommonTemplateData(r *http.Request, payload map[string]interface{}) m
 		"user_currency":     currentCurrency(r),
 		"platform_css":      plat.css,
 		"platform_name":     plat.provider,
-		"is_cymbal_brand":   isCymbalBrand,
 		"assistant_enabled": assistantEnabled,
 		"deploymentDetails": deploymentDetailsMap,
 		"frontendMessage":   frontendMessage,
