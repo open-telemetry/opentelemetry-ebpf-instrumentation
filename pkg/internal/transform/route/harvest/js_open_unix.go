@@ -1,9 +1,9 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-//go:build linux
+//go:build unix
 
-package harvest
+package harvest // import "go.opentelemetry.io/obi/pkg/internal/transform/route/harvest"
 
 import (
 	"errors"
@@ -13,6 +13,8 @@ import (
 )
 
 func openJSFileForScan(path string) (*os.File, bool, error) {
+	// Open nonblocking so a path swapped to a FIFO or device cannot block
+	// before Fstat validates the opened file.
 	fd, err := unix.Open(path, unix.O_RDONLY|unix.O_NONBLOCK|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
 	if err != nil {
 		if errors.Is(err, unix.ELOOP) {
