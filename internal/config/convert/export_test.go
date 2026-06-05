@@ -26,9 +26,15 @@ func TestRuntimeToV2DefaultConfig(t *testing.T) {
 
 	require.Equal(t, "1.0", doc.FileFormat)
 	require.Same(t, ext, doc.Extensions.OBI)
+	require.NotNil(t, doc.Resource)
+	require.NotNil(t, doc.Propagator)
+	require.NotNil(t, doc.TracerProvider)
+	require.NotNil(t, doc.MeterProvider)
 	require.Equal(t, schema.SupportedVersion, ext.Version)
 	require.Nil(t, ext.Enrich)
 	require.Nil(t, ext.Correlation)
+	require.NotNil(t, ext.Capture.Rules)
+	require.NotNil(t, ext.Capture.Telemetry)
 
 	require.Equal(t, "include", value(t, ext.Capture.Policy, "default_action"))
 	require.Equal(t, "first_match_wins", value(t, ext.Capture.Policy, "match_order"))
@@ -54,7 +60,18 @@ func TestRuntimeToV2DefaultConfig(t *testing.T) {
 	require.Equal(t, true, value(t, ext.Capture.Instrumentation, "http", "enabled", "traces"))
 	require.Equal(t, true, value(t, ext.Capture.Instrumentation, "http", "enabled", "metrics"))
 	require.Equal(t, false, value(t, ext.Capture.Instrumentation, "dns", "enabled", "traces"))
-	require.Equal(t, true, value(t, ext.Capture.Instrumentation, "dns", "enabled", "metrics"))
+	require.Equal(t, false, value(t, ext.Capture.Instrumentation, "dns", "enabled", "metrics"))
+	require.ElementsMatch(t, []string{
+		"http",
+		"grpc",
+		"sql",
+		"redis",
+		"kafka",
+		"mongo",
+		"couchbase",
+		"dns",
+		"gpu",
+	}, keys(ext.Capture.Instrumentation))
 
 	require.Equal(t, true, value(t, ext.Capture.Runtimes, "go", "enabled"))
 	require.Equal(t, true, value(t, ext.Capture.Runtimes, "nodejs", "enabled"))
@@ -136,6 +153,7 @@ func TestRuntimeToV2CustomConfig(t *testing.T) {
 	}
 	cfg.Prometheus.Instrumentations = []instrumentations.Instrumentation{
 		instrumentations.InstrumentationRedis,
+		instrumentations.InstrumentationDNS,
 	}
 	cfg.Metrics.Features = export.FeatureApplicationRED | export.FeatureNetwork
 
@@ -183,6 +201,8 @@ func TestRuntimeToV2CustomConfig(t *testing.T) {
 	require.Equal(t, false, value(t, ext.Capture.Instrumentation, "kafka", "enabled", "metrics"))
 	require.Equal(t, false, value(t, ext.Capture.Instrumentation, "redis", "enabled", "traces"))
 	require.Equal(t, true, value(t, ext.Capture.Instrumentation, "redis", "enabled", "metrics"))
+	require.Equal(t, false, value(t, ext.Capture.Instrumentation, "dns", "enabled", "traces"))
+	require.Equal(t, true, value(t, ext.Capture.Instrumentation, "dns", "enabled", "metrics"))
 	require.Equal(t, false, value(t, ext.Capture.Instrumentation, "grpc", "enabled", "traces"))
 	require.Equal(t, false, value(t, ext.Capture.Instrumentation, "grpc", "enabled", "metrics"))
 	require.Equal(t, uint32(100), value(t, ext.Capture.Instrumentation, "http", "buffer_size"))
@@ -227,9 +247,17 @@ func TestRuntimeToV2DocumentParsesAsStandaloneV2(t *testing.T) {
 
 	data, err := yaml.Marshal(doc)
 	require.NoError(t, err)
+	require.NotContains(t, string(data), "tracer_provider: null")
+	require.NotContains(t, string(data), "meter_provider: null")
+	require.NotContains(t, string(data), "rules: null")
+	require.NotContains(t, string(data), "telemetry: null")
 
 	parsedDoc, parsedExt, err := schema.ParseStandaloneYAML(data)
 	require.NoError(t, err)
+	require.NotNil(t, parsedDoc.TracerProvider)
+	require.NotNil(t, parsedDoc.MeterProvider)
+	require.NotNil(t, parsedExt.Capture.Rules)
+	require.NotNil(t, parsedExt.Capture.Telemetry)
 	require.Equal(t, "1.0", parsedDoc.FileFormat)
 	require.Equal(t, schema.SupportedVersion, parsedExt.Version)
 	require.Equal(t, "include", parsedExt.Capture.Policy["default_action"])
@@ -247,4 +275,12 @@ func value(t *testing.T, root any, path ...string) any {
 		require.Truef(t, ok, "missing key %q in %v", key, path)
 	}
 	return cur
+}
+
+func keys(m map[string]any) []string {
+	out := make([]string, 0, len(m))
+	for key := range m {
+		out = append(out, key)
+	}
+	return out
 }

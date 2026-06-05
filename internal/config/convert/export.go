@@ -31,15 +31,19 @@ func RuntimeToV2(cfg *obi.Config) (*schema.Document, *schema.Extension) {
 			Engine:          captureEngine(cfg),
 			Safety:          captureSafety(cfg),
 			Channels:        captureChannels(cfg),
+			Rules:           []schema.Rule{},
+			Telemetry:       map[string]any{},
 		},
 		Daemon: daemon(cfg),
 	}
 
 	doc := &schema.Document{
-		FileFormat: "1.0",
-		Resource:   map[string]any{},
-		Propagator: map[string]any{},
-		Extensions: schema.Extensions{OBI: ext},
+		FileFormat:     "1.0",
+		Resource:       map[string]any{},
+		Propagator:     map[string]any{},
+		TracerProvider: map[string]any{},
+		MeterProvider:  map[string]any{},
+		Extensions:     schema.Extensions{OBI: ext},
 	}
 
 	return doc, ext
@@ -55,14 +59,14 @@ func capturePolicy(cfg *obi.Config) map[string]any {
 }
 
 func captureInstrumentation(cfg *obi.Config) map[string]any {
-	tracesSelection := instrumentations.NewInstrumentationSelection(cfg.Traces.Instrumentations)
-	metricsSelection := instrumentations.NewInstrumentationSelection(metricsInstrumentations(cfg))
+	tracesInstrumentations := cfg.Traces.Instrumentations
+	metricsInstrs := metricsInstrumentations(cfg)
 	appMetricsEnabled := cfg.Metrics.Features.AnyAppO11yMetric()
 
 	instrumentation := make(map[string]any, len(protocolMappings))
 	for _, mapping := range protocolMappings {
 		instrumentation[mapping.name] = map[string]any{
-			"enabled": protocolEnabled(tracesSelection, metricsSelection, appMetricsEnabled, mapping),
+			"enabled": protocolEnabled(tracesInstrumentations, metricsInstrs, appMetricsEnabled, mapping),
 		}
 	}
 
@@ -131,24 +135,32 @@ func containsInstrumentation(list []instrumentations.Instrumentation, needle ins
 }
 
 func protocolEnabled(
-	tracesSelection instrumentations.InstrumentationSelection,
-	metricsSelection instrumentations.InstrumentationSelection,
+	tracesInstrumentations []instrumentations.Instrumentation,
+	metricsInstrumentations []instrumentations.Instrumentation,
 	appMetricsEnabled bool,
 	mapping protocolMapping,
 ) map[string]any {
-	metricsEnabled := protocolSelected(metricsSelection, mapping.instr)
+	metricsEnabled := protocolSelected(metricsInstrumentations, mapping, mapping.metricWildcard)
 	if mapping.appMetrics {
 		metricsEnabled = metricsEnabled && appMetricsEnabled
 	}
 
 	return map[string]any{
-		"traces":  protocolSelected(tracesSelection, mapping.instr),
+		"traces":  protocolSelected(tracesInstrumentations, mapping, true),
 		"metrics": metricsEnabled,
 	}
 }
 
-func protocolSelected(selection instrumentations.InstrumentationSelection, instr instrumentations.Instrumentation) bool {
-	return selection&instrumentations.NewInstrumentationSelection([]instrumentations.Instrumentation{instr}) != 0
+func protocolSelected(list []instrumentations.Instrumentation, mapping protocolMapping, wildcard bool) bool {
+	for _, instr := range list {
+		if instr == mapping.instr {
+			return true
+		}
+		if instr == instrumentations.InstrumentationALL && wildcard {
+			return true
+		}
+	}
+	return false
 }
 
 func captureRuntimes(cfg *obi.Config) map[string]any {
