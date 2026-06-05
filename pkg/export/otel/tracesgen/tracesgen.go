@@ -171,6 +171,10 @@ func generateTracesWithAttributes(
 		span := spanWithAttributes.Span
 		attrs := spanWithAttributes.Attributes
 
+		if len(span.ManualOTelJSON) > 0 && appendManualOTelJSON(rs, span.ManualOTelJSON) {
+			continue
+		}
+
 		ss := rs.ScopeSpans().AppendEmpty()
 
 		t := span.Timings()
@@ -233,6 +237,27 @@ func generateTracesWithAttributes(
 		s.SetEndTimestamp(pcommon.NewTimestampFromTime(t.End))
 	}
 	return traces
+}
+
+func appendManualOTelJSON(rs ptrace.ResourceSpans, payload []byte) bool {
+	var unmarshaler ptrace.JSONUnmarshaler
+	traces, err := unmarshaler.UnmarshalTraces(payload)
+	if err != nil {
+		return false
+	}
+
+	appended := false
+	resourceSpans := traces.ResourceSpans()
+	for i := 0; i < resourceSpans.Len(); i++ {
+		scopeSpans := resourceSpans.At(i).ScopeSpans()
+		for j := 0; j < scopeSpans.Len(); j++ {
+			dst := rs.ScopeSpans().AppendEmpty()
+			scopeSpans.At(j).CopyTo(dst)
+			appended = true
+		}
+	}
+
+	return appended
 }
 
 func SpanDiscarded(span *request.Span, is instrumentations.InstrumentationSelection) bool {

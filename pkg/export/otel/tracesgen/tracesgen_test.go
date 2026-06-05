@@ -6,13 +6,17 @@ package tracesgen
 import (
 	"testing"
 
+	expirable2 "github.com/hashicorp/golang-lru/v2/expirable"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"go.opentelemetry.io/collector/pdata/ptrace"
 	"go.opentelemetry.io/otel/attribute"
 	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
+	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
+	"go.opentelemetry.io/obi/pkg/appolly/meta"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 )
@@ -275,4 +279,129 @@ func TestGenAIToolCallAttributes(t *testing.T) {
 		assert.Equal(t, attribute.StringSlice(string(attr.GenAIToolName), []string{"get_time"}), attrs[0])
 		assert.Equal(t, attribute.StringSlice(string(attr.GenAIToolCallID), []string{"call_2"}), attrs[1])
 	})
+}
+
+func TestGenerateTracesWithAttributes_ManualOTelJSON(t *testing.T) {
+	payload := []byte(`{
+		"resourceSpans": [{
+			"scopeSpans": [{
+				"scope": {
+					"name": "manual-scope",
+					"version": "v1.0.0"
+				},
+				"spans": [{
+					"traceId": "00000000000000000000000000000001",
+					"spanId": "0000000000000002",
+					"parentSpanId": "0000000000000003",
+					"traceState": "tenant=a",
+					"flags": 1,
+					"name": "manual-json",
+					"kind": 1,
+					"startTimeUnixNano": 946684800000000000,
+					"endTimeUnixNano": 946684801000000000,
+					"attributes": [{
+						"key": "foo",
+						"value": {
+							"stringValue": "bar"
+						}
+					}],
+					"droppedAttributesCount": 7,
+					"events": [{
+						"timeUnixNano": 946684800100000000,
+						"name": "event-a",
+						"attributes": [{
+							"key": "event.foo",
+							"value": {
+								"stringValue": "event-bar"
+							}
+						}]
+					}],
+					"droppedEventsCount": 8,
+					"links": [{
+						"traceId": "00000000000000000000000000000004",
+						"spanId": "0000000000000005",
+						"traceState": "link=b",
+						"flags": 1,
+						"attributes": [{
+							"key": "link.foo",
+							"value": {
+								"stringValue": "link-bar"
+							}
+						}]
+					}],
+					"droppedLinksCount": 9,
+					"status": {
+						"code": 2,
+						"message": "boom"
+					}
+				}]
+			}]
+		}]
+	}`)
+
+	service := &svc.Attrs{
+		UID:         svc.UID{Name: "checkout"},
+		SDKLanguage: svc.InstrumentableGolang,
+	}
+	cache := expirable2.NewLRU[svc.UID, []attribute.KeyValue](10, nil, 0)
+	traces := GenerateTracesWithAttributes(
+		cache,
+		service,
+		nil,
+		&meta.NodeMeta{},
+		[]TraceSpanAndAttributes{{
+			Span: &request.Span{
+				Type:           request.EventTypeManualSpan,
+				Method:         "manual-json",
+				ManualOTelJSON: payload,
+			},
+		}},
+		"obi",
+	)
+
+	require.Equal(t, 1, traces.ResourceSpans().Len())
+	rs := traces.ResourceSpans().At(0)
+	serviceName, ok := rs.Resource().Attributes().Get(string(semconv.ServiceNameKey))
+	require.True(t, ok)
+	assert.Equal(t, "checkout", serviceName.Str())
+
+	require.Equal(t, 1, rs.ScopeSpans().Len())
+	ss := rs.ScopeSpans().At(0)
+	assert.Equal(t, "manual-scope", ss.Scope().Name())
+	assert.Equal(t, "v1.0.0", ss.Scope().Version())
+
+	require.Equal(t, 1, ss.Spans().Len())
+	span := ss.Spans().At(0)
+	assert.Equal(t, "manual-json", span.Name())
+	assert.Equal(t, "00000000000000000000000000000001", span.TraceID().String())
+	assert.Equal(t, "0000000000000002", span.SpanID().String())
+	assert.Equal(t, "0000000000000003", span.ParentSpanID().String())
+	assert.Equal(t, "tenant=a", span.TraceState().AsRaw())
+	assert.Equal(t, uint32(1), span.Flags())
+	assert.Equal(t, ptrace.StatusCodeError, span.Status().Code())
+	assert.Equal(t, "boom", span.Status().Message())
+	assert.Equal(t, uint32(7), span.DroppedAttributesCount())
+	assert.Equal(t, uint32(8), span.DroppedEventsCount())
+	assert.Equal(t, uint32(9), span.DroppedLinksCount())
+
+	foo, ok := span.Attributes().Get("foo")
+	require.True(t, ok)
+	assert.Equal(t, "bar", foo.Str())
+
+	require.Equal(t, 1, span.Events().Len())
+	event := span.Events().At(0)
+	assert.Equal(t, "event-a", event.Name())
+	eventFoo, ok := event.Attributes().Get("event.foo")
+	require.True(t, ok)
+	assert.Equal(t, "event-bar", eventFoo.Str())
+
+	require.Equal(t, 1, span.Links().Len())
+	link := span.Links().At(0)
+	assert.Equal(t, "00000000000000000000000000000004", link.TraceID().String())
+	assert.Equal(t, "0000000000000005", link.SpanID().String())
+	assert.Equal(t, "link=b", link.TraceState().AsRaw())
+	assert.Equal(t, uint32(1), link.Flags())
+	linkFoo, ok := link.Attributes().Get("link.foo")
+	require.True(t, ok)
+	assert.Equal(t, "link-bar", linkFoo.Str())
 }
