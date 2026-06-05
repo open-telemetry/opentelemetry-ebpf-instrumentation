@@ -16,10 +16,16 @@
 
 # [START gke_productcatalogservice_genproto]
 
-PATH=$PATH:$(go env GOPATH)/bin
+tools_bin=$(mktemp -d)
+trap 'rm -rf "$tools_bin"' EXIT
+
+GOBIN="$tools_bin" go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.34.2
+GOBIN="$tools_bin" go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.3.0
+
+export PATH="$tools_bin:$PATH"
 protodir=../../protos
 outdir=./genproto
 
-protoc --proto_path=$protodir --go_out=./$outdir --go_opt=paths=source_relative --go-grpc_out=./$outdir --go-grpc_opt=paths=source_relative $protodir/demo.proto
+protoc --proto_path="$protodir" --go_out="$outdir" --go_opt=paths=source_relative --go-grpc_out="$outdir" --go-grpc_opt=paths=source_relative "$protodir/demo.proto"
 
 # [END gke_productcatalogservice_genproto]
