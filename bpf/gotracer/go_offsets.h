@@ -90,6 +90,10 @@ typedef enum {
     _hchan_dataqsiz_pos,
     _hchan_sendx_pos,
     _hchan_recvx_pos,
+    // go auto SDK spans
+    _span_context_trace_id_pos,
+    _span_context_span_id_pos,
+    _span_context_trace_flags_pos,
     // go jsonrpc
     _jsonrpc_request_header_service_method_pos,
     // go mongodb

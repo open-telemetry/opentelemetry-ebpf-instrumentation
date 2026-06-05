@@ -1201,6 +1201,9 @@ type Span struct {
 	// OverrideTraceName is set under some conditions, like spanmetrics reaching the maximum
 	// cardinality for trace names.
 	OverrideTraceName string `json:"-"`
+
+	// ManualOTelJSON stores OTLP JSON emitted by the Go Auto SDK manual span bridge.
+	ManualOTelJSON []byte `json:"-"`
 }
 
 func (s *Span) Inside(parent *Span) bool {

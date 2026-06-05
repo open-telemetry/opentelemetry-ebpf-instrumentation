@@ -112,6 +112,10 @@ const (
 	HchanDataqsizPos
 	HchanSendxPos
 	HchanRecvxPos
+	// go auto SDK spans
+	SpanContextTraceIDPos
+	SpanContextSpanIDPos
+	SpanContextTraceFlagsPos
 	// go jsonrpc
 	GoJsonrpcRequestHeaderServiceMethodPos
 	// go mongodb
@@ -438,6 +442,14 @@ var structMembers = map[string]structInfo{
 			"dataqsiz": HchanDataqsizPos,
 			"sendx":    HchanSendxPos,
 			"recvx":    HchanRecvxPos,
+		},
+	},
+	"go.opentelemetry.io/otel/trace.SpanContext": {
+		lib: "go.opentelemetry.io/otel/trace",
+		fields: map[string]GoOffset{
+			"traceID":    SpanContextTraceIDPos,
+			"spanID":     SpanContextSpanIDPos,
+			"traceFlags": SpanContextTraceFlagsPos,
 		},
 	},
 	"go.mongodb.org/mongo-driver/mongo.Collection": {

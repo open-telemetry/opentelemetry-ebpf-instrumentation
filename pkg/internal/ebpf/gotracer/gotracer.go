@@ -295,6 +295,10 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 		goexec.HchanDataqsizPos,
 		goexec.HchanSendxPos,
 		goexec.HchanRecvxPos,
+		// go auto SDK spans
+		goexec.SpanContextTraceIDPos,
+		goexec.SpanContextSpanIDPos,
+		goexec.SpanContextTraceFlagsPos,
 		// go jsonrpc
 		goexec.GoJsonrpcRequestHeaderServiceMethodPos,
 		// go mongodb
@@ -722,9 +726,15 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 			Start: p.bpfObjects.ObiUprobeSaramaSendInternal,
 		}},
 		// Go OTel SDK
+		"go.opentelemetry.io/otel/internal/global.(*tracer).newSpan": {{
+			Start: p.bpfObjects.ObiUprobeTracerNewSpan,
+		}},
 		"go.opentelemetry.io/otel/internal/global.(*tracer).Start": {{
 			Start: p.bpfObjects.ObiUprobeTracerStartGlobal,
 			End:   p.bpfObjects.ObiUprobeTracerStartReturns,
+		}},
+		"go.opentelemetry.io/auto/sdk.(*tracer).start": {{
+			Start: p.bpfObjects.ObiUprobeAutoSdkTracerStart,
 		}},
 		"go.opentelemetry.io/auto/sdk.(*tracer).Start": {{
 			Start: p.bpfObjects.ObiUprobeTracerStart,
@@ -735,6 +745,9 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 		}},
 		"go.opentelemetry.io/auto/sdk.(*span).End": {{
 			Start: p.bpfObjects.ObiUprobeNonRecordingSpanEnd,
+		}},
+		"go.opentelemetry.io/auto/sdk.(*span).ended": {{
+			Start: p.bpfObjects.ObiUprobeAutoSdkSpanEnded,
 		}},
 		"go.opentelemetry.io/otel/internal/global.(*nonRecordingSpan).SetStatus": {{
 			Start: p.bpfObjects.ObiUprobeSetStatus,

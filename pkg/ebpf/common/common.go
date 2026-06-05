@@ -35,7 +35,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
 
-//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -target amd64,arm64 -type http_request_trace_t -type sql_request_trace_t -type http_info_t -type connection_info_t -type http2_grpc_request_t -type tcp_req_t -type kafka_client_req_t -type kafka_go_req_t -type redis_client_req_t -type tcp_large_buffer_t -type otel_span_t -type channel_link_trace_t -type mongo_go_client_req_t -type dns_req_t Bpf ../../../bpf/common/common.c -- -I../../../bpf
+//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -target amd64,arm64 -type http_request_trace_t -type sql_request_trace_t -type http_info_t -type connection_info_t -type http2_grpc_request_t -type tcp_req_t -type kafka_client_req_t -type kafka_go_req_t -type redis_client_req_t -type tcp_large_buffer_t -type otel_span_t -type channel_link_trace_t -type go_auto_span_t -type mongo_go_client_req_t -type dns_req_t Bpf ../../../bpf/common/common.c -- -I../../../bpf
 
 // HTTPRequestTrace contains information from an HTTP request as directly received from the
 // eBPF layer. This contains low-level C structures for accurate binary read from ring buffer.
@@ -51,6 +51,7 @@ type (
 	GoChannelLinkTrace   BpfChannelLinkTraceT
 	TCPLargeBufferHeader BpfTcpLargeBufferT
 	GoOTelSpanTrace      BpfOtelSpanT
+	GoAutoSpanTrace      BpfGoAutoSpanT
 	GoMongoClientInfo    BpfMongoGoClientReqT
 	DNSInfo              BpfDnsReqT
 )
@@ -75,6 +76,7 @@ const (
 	EventTypeFailedConnect  = 15 // EVENT_FAILED_CONNECT - Failed Connections
 	EventTypeDNS            = 16 // EVENT_DNS_REQUEST - DNS events
 	EventTypeGoChannelLink  = 18 // EVENT_GO_CHANNEL_LINK - Go channel handoff span links
+	EventTypeGoAutoSpan     = 21 // EVENT_GO_AUTO_SPAN - Go Auto SDK OTLP JSON span
 )
 
 // Kernel-side classification
@@ -504,6 +506,9 @@ func ReadBPFTraceAsSpan(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, reco
 		return appendTCPLargeBuffer(parseCtx, record)
 	case EventOTelSDKGo:
 		span, ignore, err := ReadGoOTelEventIntoSpan(record)
+		return finalizeParsedSpan(parseCtx, span, ignore, err)
+	case EventTypeGoAutoSpan:
+		span, ignore, err := ReadGoAutoSpanEventIntoSpan(record)
 		return finalizeParsedSpan(parseCtx, span, ignore, err)
 	case EventTypeFailedConnect:
 		span, ignore, err := ReadFailedConnectIntoSpan(record, filter)

@@ -23,6 +23,7 @@
 
 #include <common/algorithm.h>
 #include <common/common.h>
+#include <common/globals.h>
 #include <common/http_types.h>
 #include <common/map_sizing.h>
 #include <common/ringbuf.h>
@@ -97,6 +98,107 @@ read_span_name(unsigned char *buf, const u64 span_name_len, void *span_name_ptr)
     bpf_probe_read_user(buf, span_name_size, span_name_ptr);
 }
 
+static __always_inline u8 span_context_offsets_available() {
+    off_table_t *ot = get_offsets_table();
+    if (!ot) {
+        return 0;
+    }
+
+    const u64 span_id_pos = go_offset_of(ot, (go_offset){.v = _span_context_span_id_pos});
+    const u64 flags_pos = go_offset_of(ot, (go_offset){.v = _span_context_trace_flags_pos});
+
+    return span_id_pos && flags_pos;
+}
+
+static __always_inline long
+write_go_span_context(void *go_sc, tp_info_t *tp, unsigned char *span_id) {
+    if (!g_bpf_header_propagation) {
+        return -1;
+    }
+    if (!go_sc || !tp || !span_id) {
+        return -2;
+    }
+
+    off_table_t *ot = get_offsets_table();
+    if (!ot) {
+        return -3;
+    }
+
+    const u64 trace_id_pos = go_offset_of(ot, (go_offset){.v = _span_context_trace_id_pos});
+    const u64 span_id_pos = go_offset_of(ot, (go_offset){.v = _span_context_span_id_pos});
+    const u64 flags_pos = go_offset_of(ot, (go_offset){.v = _span_context_trace_flags_pos});
+    if (!span_id_pos || !flags_pos) {
+        return -4;
+    }
+
+    long ret =
+        bpf_probe_write_user((void *)(go_sc + trace_id_pos), tp->trace_id, TRACE_ID_SIZE_BYTES);
+    if (ret != 0) {
+        return -5;
+    }
+
+    ret = bpf_probe_write_user((void *)(go_sc + span_id_pos), span_id, SPAN_ID_SIZE_BYTES);
+    if (ret != 0) {
+        return -6;
+    }
+
+    ret = bpf_probe_write_user((void *)(go_sc + flags_pos), &tp->flags, sizeof(tp->flags));
+    if (ret != 0) {
+        return -7;
+    }
+
+    return 0;
+}
+
+static __always_inline u8 empty_trace_parent(tp_info_t *tp) {
+    return !*((u64 *)tp->trace_id) && !*((u64 *)(tp->trace_id + 8)) && !*((u64 *)tp->span_id);
+}
+
+static __always_inline u8 init_span_trace_parent(otel_span_t *span,
+                                                 go_addr_key_t *g_key,
+                                                 void *goroutine_addr,
+                                                 u8 allow_root) {
+    tp_info_t *tp = tp_info_from_parent_go(g_key, &span->parent_go);
+    if (tp) {
+        __builtin_memcpy(&span->prev_tp, tp, sizeof(tp_info_t));
+        tp_from_parent(&span->tp, tp);
+        span->tp.flags = tp->flags;
+    } else if (allow_root) {
+        span->parent_go = (u64)goroutine_addr;
+        span->tp.flags = k_flag_sampled;
+        urand_bytes(span->tp.trace_id, TRACE_ID_SIZE_BYTES);
+        *((u64 *)span->tp.parent_id) = 0;
+    } else {
+        return 0;
+    }
+
+    urand_bytes(span->tp.span_id, SPAN_ID_SIZE_BYTES);
+    span->tp.ts = bpf_ktime_get_ns();
+
+    if (span->parent_go) {
+        go_addr_key_t gp_key = {};
+        go_addr_key_from_id(&gp_key, (void *)span->parent_go);
+        update_tp_parent_go(&gp_key, &span->tp);
+    }
+
+    return 1;
+}
+
+static __always_inline void restore_span_trace_parent(otel_span_t *span) {
+    if (!span->parent_go) {
+        return;
+    }
+
+    go_addr_key_t gp_key = {};
+    go_addr_key_from_id(&gp_key, (void *)span->parent_go);
+    if (empty_trace_parent(&span->prev_tp)) {
+        bpf_map_delete_elem(&go_trace_map, &gp_key);
+        return;
+    }
+
+    update_tp_parent_go(&gp_key, &span->prev_tp);
+}
+
 static __always_inline int tracer_start(struct pt_regs *ctx, u8 check_delegate) {
     void *goroutine_addr = GOROUTINE_PTR(ctx);
 
@@ -142,6 +244,28 @@ int obi_uprobe_tracer_Start(struct pt_regs *ctx) {
 SEC("uprobe/tracer_Start_global")
 int obi_uprobe_tracer_Start_global(struct pt_regs *ctx) {
     return tracer_start(ctx, 1);
+}
+
+// Reference:
+// https://github.com/open-telemetry/opentelemetry-go-instrumentation/blob/main/internal/pkg/instrumentation/bpf/go.opentelemetry.io/otel/traceglobal/bpf/probe.bpf.c
+SEC("uprobe/tracer_new_span")
+int obi_uprobe_tracer_NewSpan(struct pt_regs *ctx) {
+    if (!g_bpf_header_propagation || !span_context_offsets_available()) {
+        return 0;
+    }
+
+    void *flag_ptr = GO_PARAM4(ctx);
+    if (!flag_ptr) {
+        return 0;
+    }
+
+    bool true_value = true;
+    long ret = bpf_probe_write_user(flag_ptr, &true_value, sizeof(true_value));
+    if (ret != 0) {
+        bpf_dbg_printk("failed to write Go OTel auto span flag: %ld", ret);
+    }
+
+    return 0;
 }
 
 static __always_inline void read_attrs_from_opts(otel_span_t *span, void *opts_ptr, u64 len) {
@@ -221,9 +345,17 @@ int obi_uprobe_tracer_Start_Returns(struct pt_regs *ctx) {
         return 0;
     }
 
+    go_addr_key_t s_key = {};
+    go_addr_key_from_id(&s_key, span_ptr);
+    if (bpf_map_lookup_elem(&active_spans, &s_key)) {
+        bpf_map_delete_elem(&span_names, &g_key);
+        return 0;
+    }
+
     otel_span_t *span = zero_initialised_span();
 
     if (!span) {
+        bpf_map_delete_elem(&span_names, &g_key);
         return 0;
     }
 
@@ -234,28 +366,76 @@ int obi_uprobe_tracer_Start_Returns(struct pt_regs *ctx) {
         read_attrs_from_opts(span, (void *)span_info->opts_ptr, span_info->opts_len);
     }
 
-    unsigned char tp_buf[TP_MAX_VAL_LENGTH];
-    tp_info_t *tp = tp_info_from_parent_go(&g_key, &span->parent_go);
-    if (tp) {
-        __builtin_memcpy(&span->prev_tp, tp, sizeof(tp_info_t));
-        tp_from_parent(&span->tp, tp);
-        span->tp.flags = tp->flags;
-        urand_bytes(span->tp.span_id, SPAN_ID_SIZE_BYTES);
-        encode_hex(tp_buf, span->tp.parent_id, SPAN_ID_SIZE_BYTES);
-
-        if (span->parent_go) {
-            go_addr_key_t gp_key = {};
-            go_addr_key_from_id(&gp_key, (void *)span->parent_go);
-            update_tp_parent_go(&gp_key, &span->tp);
-
-            // reusing gp_key to save stack space
-            go_addr_key_from_id(&gp_key, span_ptr);
-
-            bpf_map_update_elem(&active_spans, &gp_key, span, BPF_ANY);
-        }
+    if (init_span_trace_parent(span, &g_key, goroutine_addr, 0)) {
+        bpf_map_update_elem(&active_spans, &s_key, span, BPF_ANY);
     }
 
     bpf_map_delete_elem(&span_names, &g_key);
+    return 0;
+}
+
+// Reference:
+// https://github.com/open-telemetry/opentelemetry-go-instrumentation/blob/main/internal/pkg/instrumentation/bpf/go.opentelemetry.io/auto/sdk/bpf/probe.bpf.c
+SEC("uprobe/auto_sdk_tracer_start")
+int obi_uprobe_auto_sdk_tracer_Start(struct pt_regs *ctx) {
+    if (!g_bpf_header_propagation || !span_context_offsets_available()) {
+        return 0;
+    }
+
+    void *span_ptr = (void *)GO_PARAM4(ctx);
+    if (!span_ptr) {
+        return 0;
+    }
+
+    go_addr_key_t s_key = {};
+    go_addr_key_from_id(&s_key, span_ptr);
+    if (bpf_map_lookup_elem(&active_spans, &s_key)) {
+        return 0;
+    }
+
+    void *goroutine_addr = (void *)GOROUTINE_PTR(ctx);
+    go_addr_key_t g_key = {};
+    go_addr_key_from_id(&g_key, goroutine_addr);
+
+    otel_span_t *span = zero_initialised_span();
+    if (!span) {
+        return 0;
+    }
+
+    span->start_time = bpf_ktime_get_ns();
+    span->auto_span = 1;
+
+    if (!init_span_trace_parent(span, &g_key, goroutine_addr, 1)) {
+        return 0;
+    }
+
+    void *parent_span_context = GO_PARAM5(ctx);
+    long ret = write_go_span_context(parent_span_context, &span->prev_tp, span->prev_tp.span_id);
+    if (ret != 0) {
+        restore_span_trace_parent(span);
+        return 0;
+    }
+
+    if (!(span->tp.flags & k_flag_sampled)) {
+        void *sampled_ptr = GO_PARAM6(ctx);
+        if (sampled_ptr) {
+            bool false_value = false;
+            ret = bpf_probe_write_user(sampled_ptr, &false_value, sizeof(false_value));
+            if (ret != 0) {
+                restore_span_trace_parent(span);
+                return 0;
+            }
+        }
+    }
+
+    void *span_context = GO_PARAM7(ctx);
+    ret = write_go_span_context(span_context, &span->tp, span->tp.span_id);
+    if (ret != 0) {
+        restore_span_trace_parent(span);
+        return 0;
+    }
+
+    bpf_map_update_elem(&active_spans, &s_key, span, BPF_ANY);
     return 0;
 }
 
@@ -272,22 +452,76 @@ int obi_uprobe_nonRecordingSpan_End(struct pt_regs *ctx) {
     if (span == NULL) {
         return 0;
     }
+    if (span->auto_span) {
+        if (!(span->tp.flags & k_flag_sampled)) {
+            restore_span_trace_parent(span);
+            bpf_map_delete_elem(&active_spans, &s_key);
+        }
+        return 0;
+    }
 
     span->type = EVENT_GO_SPAN;
     span->end_time = bpf_ktime_get_ns();
     task_pid(&span->pid);
 
-    if (span->parent_go) {
-        go_addr_key_t gp_key = {};
-        go_addr_key_from_id(&gp_key, (void *)span->parent_go);
-        update_tp_parent_go(&gp_key, &span->prev_tp);
-    }
+    restore_span_trace_parent(span);
 
     bpf_ringbuf_output(&events, span, sizeof(otel_span_t), get_flags());
     bpf_dbg_printk("submitted manual span trace");
 
     bpf_map_delete_elem(&active_spans, &s_key);
 
+    return 0;
+}
+
+// Reference:
+// https://github.com/open-telemetry/opentelemetry-go-instrumentation/blob/main/internal/pkg/instrumentation/bpf/go.opentelemetry.io/auto/sdk/bpf/probe.bpf.c
+SEC("uprobe/auto_sdk_span_ended")
+int obi_uprobe_auto_sdk_span_Ended(struct pt_regs *ctx) {
+    void *span_ptr = (void *)GO_PARAM1(ctx);
+
+    go_addr_key_t s_key = {};
+    go_addr_key_from_id(&s_key, span_ptr);
+
+    otel_span_t *span = bpf_map_lookup_elem(&active_spans, &s_key);
+    if (span == NULL || !span->auto_span) {
+        return 0;
+    }
+
+    const u8 sampled = span->tp.flags & k_flag_sampled;
+    restore_span_trace_parent(span);
+    bpf_map_delete_elem(&active_spans, &s_key);
+    if (!sampled) {
+        return 0;
+    }
+
+    u64 len = (u64)GO_PARAM3(ctx);
+    if (len == 0 || len > k_go_auto_span_json_max_len) {
+        return 0;
+    }
+
+    void *data_ptr = GO_PARAM2(ctx);
+    if (!data_ptr) {
+        return 0;
+    }
+
+    go_auto_span_t *event = bpf_ringbuf_reserve(&events, sizeof(go_auto_span_t), 0);
+    if (!event) {
+        return 0;
+    }
+
+    event->type = EVENT_GO_AUTO_SPAN;
+    const u32 size = (u32)len;
+    event->size = size;
+    task_pid(&event->pid);
+
+    long ret = bpf_probe_read_user(event->buf, size, data_ptr);
+    if (ret != 0) {
+        bpf_ringbuf_discard(event, 0);
+        return 0;
+    }
+
+    bpf_ringbuf_submit(event, get_flags());
     return 0;
 }
 
