@@ -18,5 +18,6 @@ func TestRuntimeMetrics(t *testing.T) {
 	compose.Env = append(compose.Env, `TEST_SERVICE_PORTS=`+runtimeMetricsHostPort+`:8080`)
 	require.NoError(t, compose.Up())
 	t.Run("Go runtime metrics", testRuntimeMetricsGo)
+	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
