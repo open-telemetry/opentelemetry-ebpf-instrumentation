@@ -24,7 +24,7 @@ COPY . .
 
 RUN GOOS=${TARGETOS} GOARCH=${TARGETARCH} CGO_ENABLED=0 go build -ldflags="-s -w" -o /go/bin/shippingservice .
 
-FROM gcr.io/distroless/static
+FROM gcr.io/distroless/static@sha256:3592aa8171c77482f62bbc4164e6a2d141c6122554ace66e5cc910cadb961ff0
 
 WORKDIR /src
 COPY --from=builder /go/bin/shippingservice /src/shippingservice

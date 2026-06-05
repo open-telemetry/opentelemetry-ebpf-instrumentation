@@ -25,7 +25,7 @@ RUN apk update \
 
 COPY requirements.txt .
 
-RUN pip install --prefix="/install" -r requirements.txt
+RUN pip install --prefix="/install" --require-hashes -r requirements.txt
 
 FROM base
 
