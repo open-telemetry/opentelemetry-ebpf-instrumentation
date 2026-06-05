@@ -42,7 +42,7 @@ spec:
               - ALL
           privileged: false
           readOnlyRootFilesystem: true
-        image: shippingservice:local
+        image: obi-store-demo-shippingservice:local
         ports:
         - containerPort: 50051
         env:

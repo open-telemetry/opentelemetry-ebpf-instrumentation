@@ -43,7 +43,7 @@ spec:
               - ALL
           privileged: false
           readOnlyRootFilesystem: true
-        image: recommendationservice:local
+        image: obi-store-demo-recommendationservice:local
         ports:
         - containerPort: 8080
         readinessProbe:

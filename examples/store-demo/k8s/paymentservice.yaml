@@ -43,7 +43,7 @@ spec:
               - ALL
           privileged: false
           readOnlyRootFilesystem: true
-        image: paymentservice:local
+        image: obi-store-demo-paymentservice:local
         ports:
         - containerPort: 50051
         env:

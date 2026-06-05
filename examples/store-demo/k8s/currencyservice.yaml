@@ -43,7 +43,7 @@ spec:
               - ALL
           privileged: false
           readOnlyRootFilesystem: true
-        image: currencyservice:local
+        image: obi-store-demo-currencyservice:local
         ports:
         - name: grpc
           containerPort: 7000
