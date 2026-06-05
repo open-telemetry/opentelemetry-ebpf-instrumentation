@@ -71,14 +71,14 @@ func TestConvertGoRuntimeMetricSnapshotSuppressesInvalidProcessorLimit(t *testin
 	require.Nil(t, snapshot.ProcessorLimit)
 }
 
-func TestRuntimeMetricServiceRequiresGoRuntimeService(t *testing.T) {
+func TestRuntimeMetricServiceRequiresRuntimeMetricsFeature(t *testing.T) {
 	service := svc.Attrs{
-		SDKLanguage: svc.InstrumentableGolang,
-		Features:    export.FeatureApplicationRuntime,
+		Features: export.FeatureApplicationRuntime,
 	}
 	currentPIDs := map[uint32]map[app.PID]svc.Attrs{
 		33: {
 			123: service,
+			456: {SDKLanguage: svc.InstrumentableGolang},
 		},
 	}
 
@@ -87,6 +87,9 @@ func TestRuntimeMetricServiceRequiresGoRuntimeService(t *testing.T) {
 	require.Equal(t, service, got)
 
 	_, ok = runtimeMetricService(currentPIDs, goRuntimeMetricRawKey{UserPID: 456, Ns: 33})
+	require.False(t, ok)
+
+	_, ok = runtimeMetricService(currentPIDs, goRuntimeMetricRawKey{UserPID: 789, Ns: 33})
 	require.False(t, ok)
 }
 

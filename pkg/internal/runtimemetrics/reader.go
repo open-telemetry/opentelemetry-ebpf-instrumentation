@@ -90,7 +90,7 @@ func runtimeMetricService(
 		return svc.Attrs{}, false
 	}
 	service, ok := pids[app.PID(key.UserPID)]
-	if !ok || service.SDKLanguage != svc.InstrumentableGolang || !service.Features.AppRuntime() {
+	if !ok || !service.Features.AppRuntime() {
 		return svc.Attrs{}, false
 	}
 	return service, true
