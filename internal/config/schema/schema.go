@@ -251,7 +251,6 @@ func looksLikeV1(root *yaml.Node) bool {
 		"prometheus_export",
 		"attributes",
 		"routes",
-		"network",
 		"stats",
 		"javaagent",
 	} {

@@ -329,6 +329,15 @@ func TestReceiverNotV2(t *testing.T) {
 			want: "missing top-level OBI v2 version field",
 		},
 		{
+			name: "missing version with network capture",
+			yaml: `
+network:
+  capture:
+    enabled: true
+`,
+			want: "missing top-level OBI v2 version field",
+		},
+		{
 			name: "v1",
 			yaml: `
 ebpf: {}
