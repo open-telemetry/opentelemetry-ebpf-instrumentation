@@ -156,6 +156,9 @@ func ParseReceiverYAML(data []byte) (*Extension, error) {
 		if version != SupportedVersion {
 			return nil, &UnsupportedVersionError{Version: version}
 		}
+		if section, ok := disallowedReceiverSection(root); ok {
+			return nil, &SectionNotAllowedError{Mode: string(validationModeReceiver), Section: section}
+		}
 		var receiver receiverConfig
 		if err := decode(root, &receiver); err != nil {
 			return nil, err
@@ -211,6 +214,15 @@ func validate(cfg *Extension, mode validationMode) error {
 		}
 	}
 	return nil
+}
+
+func disallowedReceiverSection(root *yaml.Node) (string, bool) {
+	for _, section := range []string{"enrich", "correlation", "daemon"} {
+		if _, ok := mappingValue(root, section); ok {
+			return section, true
+		}
+	}
+	return "", false
 }
 
 func hasStandaloneSection(cfg *Extension, section string) bool {

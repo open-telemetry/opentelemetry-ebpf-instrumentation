@@ -116,18 +116,32 @@ channels:
 func TestReceiverRejectsStandaloneSections(t *testing.T) {
 	t.Parallel()
 
-	tests := []string{"enrich", "correlation", "daemon"}
-	for _, section := range tests {
+	tests := []struct {
+		name  string
+		value string
+	}{
+		{name: "map", value: "{}"},
+		{name: "implicit null", value: ""},
+		{name: "explicit null", value: "null"},
+		{name: "list", value: "[]"},
+	}
+	for _, section := range []string{"enrich", "correlation", "daemon"} {
 		t.Run(section, func(t *testing.T) {
 			t.Parallel()
 
-			_, err := ParseReceiverYAML([]byte("version: \"2.0\"\n" + section + ": {}\n"))
+			for _, test := range tests {
+				t.Run(test.name, func(t *testing.T) {
+					t.Parallel()
 
-			var notAllowed *SectionNotAllowedError
-			require.ErrorAs(t, err, &notAllowed)
-			require.Equal(t, string(validationModeReceiver), notAllowed.Mode)
-			require.Equal(t, section, notAllowed.Section)
-			require.Contains(t, err.Error(), "standalone mode")
+					_, err := ParseReceiverYAML([]byte("version: \"2.0\"\n" + section + ": " + test.value + "\n"))
+
+					var notAllowed *SectionNotAllowedError
+					require.ErrorAs(t, err, &notAllowed)
+					require.Equal(t, string(validationModeReceiver), notAllowed.Mode)
+					require.Equal(t, section, notAllowed.Section)
+					require.Contains(t, err.Error(), "standalone mode")
+				})
+			}
 		})
 	}
 }
