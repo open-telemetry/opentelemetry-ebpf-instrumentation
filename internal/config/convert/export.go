@@ -116,13 +116,31 @@ func captureInstrumentation(cfg *obi.Config) map[string]any {
 }
 
 func metricsInstrumentations(cfg *obi.Config) []instrumentations.Instrumentation {
-	combined := append([]instrumentations.Instrumentation{}, cfg.OTELMetrics.Instrumentations...)
-	for _, instr := range cfg.Prometheus.Instrumentations {
-		if !containsInstrumentation(combined, instr) {
-			combined = append(combined, instr)
+	var combined []instrumentations.Instrumentation
+	if cfg.OTELMetrics.EndpointEnabled() {
+		combined = appendMetricInstrumentations(combined, cfg.OTELMetrics.Instrumentations)
+	}
+	if cfg.Prometheus.EndpointEnabled() {
+		combined = appendMetricInstrumentations(combined, cfg.Prometheus.Instrumentations)
+	}
+	if len(combined) != 0 {
+		return combined
+	}
+
+	combined = appendMetricInstrumentations(combined, cfg.OTELMetrics.Instrumentations)
+	return appendMetricInstrumentations(combined, cfg.Prometheus.Instrumentations)
+}
+
+func appendMetricInstrumentations(
+	dst []instrumentations.Instrumentation,
+	src []instrumentations.Instrumentation,
+) []instrumentations.Instrumentation {
+	for _, instr := range src {
+		if !containsInstrumentation(dst, instr) {
+			dst = append(dst, instr)
 		}
 	}
-	return combined
+	return dst
 }
 
 func containsInstrumentation(list []instrumentations.Instrumentation, needle instrumentations.Instrumentation) bool {

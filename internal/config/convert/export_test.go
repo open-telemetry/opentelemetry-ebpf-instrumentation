@@ -240,6 +240,47 @@ func TestRuntimeToV2CustomConfig(t *testing.T) {
 	require.Equal(t, "4s", value(t, ext.Daemon, "internal_metrics", "bpf", "scrape_interval"))
 }
 
+func TestRuntimeToV2MetricInstrumentationsUseEnabledExporters(t *testing.T) {
+	t.Parallel()
+
+	t.Run("ignores disabled exporter defaults", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := obi.DefaultConfig
+		cfg.OTELMetrics.MetricsEndpoint = "http://localhost:4318"
+		cfg.OTELMetrics.Instrumentations = []instrumentations.Instrumentation{
+			instrumentations.InstrumentationHTTP,
+		}
+
+		_, ext := RuntimeToV2(&cfg)
+
+		require.Equal(t, true, value(t, ext.Capture.Instrumentation, "http", "enabled", "metrics"))
+		require.Equal(t, false, value(t, ext.Capture.Instrumentation, "grpc", "enabled", "metrics"))
+		require.Equal(t, false, value(t, ext.Capture.Instrumentation, "sql", "enabled", "metrics"))
+		require.Equal(t, false, value(t, ext.Capture.Instrumentation, "redis", "enabled", "metrics"))
+	})
+
+	t.Run("unions enabled exporters", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := obi.DefaultConfig
+		cfg.OTELMetrics.MetricsEndpoint = "http://localhost:4318"
+		cfg.OTELMetrics.Instrumentations = []instrumentations.Instrumentation{
+			instrumentations.InstrumentationHTTP,
+		}
+		cfg.Prometheus.Port = 9090
+		cfg.Prometheus.Instrumentations = []instrumentations.Instrumentation{
+			instrumentations.InstrumentationRedis,
+		}
+
+		_, ext := RuntimeToV2(&cfg)
+
+		require.Equal(t, true, value(t, ext.Capture.Instrumentation, "http", "enabled", "metrics"))
+		require.Equal(t, true, value(t, ext.Capture.Instrumentation, "redis", "enabled", "metrics"))
+		require.Equal(t, false, value(t, ext.Capture.Instrumentation, "grpc", "enabled", "metrics"))
+	})
+}
+
 func TestRuntimeToV2DocumentParsesAsStandaloneV2(t *testing.T) {
 	t.Parallel()
 
