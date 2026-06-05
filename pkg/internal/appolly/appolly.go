@@ -20,6 +20,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/ebpf"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	msg2 "go.opentelemetry.io/obi/pkg/internal/helpers/msg"
+	"go.opentelemetry.io/obi/pkg/internal/runtimemetrics"
 	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
@@ -50,6 +51,8 @@ type Instrumenter struct {
 
 	// global data structures for all eBPF tracers
 	ebpfEventContext *ebpfcommon.EBPFEventContext
+
+	runtimeMetrics *msg.Queue[[]runtimemetrics.RuntimeMetricSnapshot]
 
 	// dynamicPIDSelector is the runtime PID set; from WithDynamicPIDSelector or created in New. Finder preloads from config.
 	dynamicPIDSelector *discover.DynamicPIDSelector
@@ -93,7 +96,9 @@ func New(ctx context.Context, ctxInfo *global.ContextInfo, config *obi.Config) (
 		processEventsDockerDecorated,
 	), swarm.WithID("DockerProcessEventDecorator"))
 
-	bp, err := appolly.Build(ctx, config, ctxInfo, tracesInput, processEventsDockerDecorated)
+	runtimeMetrics := newRuntimeMetricsQueue(config)
+
+	bp, err := appolly.Build(ctx, config, ctxInfo, tracesInput, processEventsDockerDecorated, runtimeMetrics)
 	if err != nil {
 		return nil, fmt.Errorf("can't instantiate instrumentation pipeline: %w", err)
 	}
@@ -115,9 +120,22 @@ func New(ctx context.Context, ctxInfo *global.ContextInfo, config *obi.Config) (
 		bp:                 bp,
 		peGraphBuilder:     swi,
 		ebpfEventContext:   ebpfcommon.NewEBPFEventContext(),
+		runtimeMetrics:     runtimeMetrics,
 		dynamicPIDSelector: sel,
 	}
 	return instr, nil
+}
+
+func newRuntimeMetricsQueue(config *obi.Config) *msg.Queue[[]runtimemetrics.RuntimeMetricSnapshot] {
+	jointMetricsConfig := appolly.JoinMetricsConfig(config)
+
+	if !jointMetricsConfig.Features.AppRuntime() ||
+		!jointMetricsConfig.Features.AnyAppO11yMetric() ||
+		(!config.OTELMetrics.EndpointEnabled() && !config.Prometheus.EndpointEnabled()) {
+		return nil
+	}
+
+	return msg2.QueueFromConfig[[]runtimemetrics.RuntimeMetricSnapshot](config, "runtimeMetrics")
 }
 
 // FindAndInstrument searches in background for any new executable matching the
@@ -125,7 +143,7 @@ func New(ctx context.Context, ctxInfo *global.ContextInfo, config *obi.Config) (
 // Returns a channel that is closed when the Instrumenter completed all its tasks.
 // This is: when the context is cancelled, it has unloaded all the eBPF probes.
 func (i *Instrumenter) FindAndInstrument(ctx context.Context) error {
-	finder := discover.NewProcessFinder(i.config, i.ctxInfo, i.tracesInput, i.ebpfEventContext)
+	finder := discover.NewProcessFinder(i.config, i.ctxInfo, i.tracesInput, i.runtimeMetrics, i.ebpfEventContext)
 	opts := []discover.ProcessFinderStartOpt{
 		discover.WithDynamicPIDSelector(i.dynamicPIDSelector),
 	}

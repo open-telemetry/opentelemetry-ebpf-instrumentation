@@ -14,7 +14,6 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	netebpf "go.opentelemetry.io/obi/pkg/internal/netolly/ebpf"
-	"go.opentelemetry.io/obi/pkg/internal/runtimemetrics"
 	statsebpf "go.opentelemetry.io/obi/pkg/internal/statsolly/ebpf"
 	"go.opentelemetry.io/obi/pkg/kube"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
@@ -76,6 +75,4 @@ type AppO11y struct {
 	// (e.g. discover.NewDynamicPIDSelector()), passes it via instrumenter.WithDynamicPIDSelector, and
 	// calls AddPIDs/RemovePIDs/GetPIDs on it directly. The instrumenter does not implement an updater interface.
 	DynamicPIDSelector any
-	// RuntimeMetrics receives application runtime metric snapshots emitted by eBPF tracers.
-	RuntimeMetrics *msg.Queue[[]runtimemetrics.RuntimeMetricSnapshot]
 }

@@ -29,6 +29,7 @@ type ProcessFinder struct {
 	cfg              *obi.Config
 	ctxInfo          *global.ContextInfo
 	tracesInput      *msg.Queue[[]request.Span]
+	runtimeMetrics   *msg.Queue[[]runtimemetrics.RuntimeMetricSnapshot]
 	ebpfEventContext *ebpfcommon.EBPFEventContext
 	doneChan         <-chan error
 }
@@ -37,9 +38,16 @@ func NewProcessFinder(
 	cfg *obi.Config,
 	ctxInfo *global.ContextInfo,
 	tracesInput *msg.Queue[[]request.Span],
+	runtimeMetrics *msg.Queue[[]runtimemetrics.RuntimeMetricSnapshot],
 	ebpfEventContext *ebpfcommon.EBPFEventContext,
 ) *ProcessFinder {
-	return &ProcessFinder{cfg: cfg, ctxInfo: ctxInfo, tracesInput: tracesInput, ebpfEventContext: ebpfEventContext}
+	return &ProcessFinder{
+		cfg:              cfg,
+		ctxInfo:          ctxInfo,
+		tracesInput:      tracesInput,
+		runtimeMetrics:   runtimeMetrics,
+		ebpfEventContext: ebpfEventContext,
+	}
 }
 
 type processFinderStartConfig struct {
@@ -135,7 +143,7 @@ func (pf *ProcessFinder) Start(ctx context.Context, opts ...ProcessFinderStartOp
 		OutputTracerEvents:  tracerEvents,
 		Metrics:             pf.ctxInfo.Metrics,
 		SpanSignalsShortcut: pf.tracesInput,
-		RuntimeMetrics:      pf.ctxInfo.AppO11y.RuntimeMetrics,
+		RuntimeMetrics:      pf.runtimeMetrics,
 
 		InputInstrumentables: storedExecutableTypes,
 		EbpfEventContext:     pf.ebpfEventContext,

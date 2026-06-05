@@ -6,10 +6,12 @@ package prom // import "go.opentelemetry.io/obi/pkg/export/prom"
 import (
 	"context"
 	"strings"
+	"sync"
 
 	"github.com/prometheus/client_golang/prometheus"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
+	"go.opentelemetry.io/obi/pkg/export/attributes"
 	"go.opentelemetry.io/obi/pkg/internal/runtimemetrics"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm/swarms"
 )
@@ -19,32 +21,33 @@ type goRuntimeMetricsCollector struct {
 	memoryGCCycles *prometheus.CounterVec
 	processorLimit *prometheus.GaugeVec
 	configGOGC     *prometheus.GaugeVec
+	gcCyclesMu     sync.Mutex
 	gcCycles       map[string]uint64
 }
 
 func newGoRuntimeMetricsCollector(runtimeLabelNames []string) goRuntimeMetricsCollector {
 	return goRuntimeMetricsCollector{
 		memoryLimit: prometheus.NewGaugeVec(prometheus.GaugeOpts{
-			Name: "go_memory_limit_bytes",
+			Name: attributes.GoRuntimeMemoryLimit.Prom,
 			Help: "Runtime memory limit configured by the user, if a limit exists.",
 		}, runtimeLabelNames),
 		memoryGCCycles: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "go_memory_gc_cycles_total",
+			Name: attributes.GoRuntimeMemoryGCCycles.Prom,
 			Help: "Number of completed Go garbage collection cycles.",
 		}, runtimeLabelNames),
 		processorLimit: prometheus.NewGaugeVec(prometheus.GaugeOpts{
-			Name: "go_processor_limit",
+			Name: attributes.GoRuntimeProcessorLimit.Prom,
 			Help: "The number of OS threads that can execute user-level Go code simultaneously.",
 		}, runtimeLabelNames),
 		configGOGC: prometheus.NewGaugeVec(prometheus.GaugeOpts{
-			Name: "go_config_gogc_percent",
+			Name: attributes.GoRuntimeConfigGOGC.Prom,
 			Help: "Heap size target percentage configured by the user, otherwise 100.",
 		}, runtimeLabelNames),
 		gcCycles: map[string]uint64{},
 	}
 }
 
-func (c goRuntimeMetricsCollector) collectors() []prometheus.Collector {
+func (c *goRuntimeMetricsCollector) collectors() []prometheus.Collector {
 	if c.memoryLimit == nil {
 		return nil
 	}
@@ -99,6 +102,9 @@ func (r *metricsReporter) collectGoRuntimeMetrics(snapshot runtimemetrics.Runtim
 }
 
 func (c *goRuntimeMetricsCollector) addGCCycles(labels []string, value uint64) {
+	c.gcCyclesMu.Lock()
+	defer c.gcCyclesMu.Unlock()
+
 	key := runtimeMetricLabelsKey(labels)
 	if c.gcCycles == nil {
 		c.gcCycles = map[string]uint64{}
@@ -118,6 +124,9 @@ func (c *goRuntimeMetricsCollector) addGCCycles(labels []string, value uint64) {
 }
 
 func (c *goRuntimeMetricsCollector) deleteGCCycles(labels []string) {
+	c.gcCyclesMu.Lock()
+	defer c.gcCyclesMu.Unlock()
+
 	delete(c.gcCycles, runtimeMetricLabelsKey(labels))
 	c.memoryGCCycles.DeleteLabelValues(labels...)
 }

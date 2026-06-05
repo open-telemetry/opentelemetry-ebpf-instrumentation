@@ -15,6 +15,7 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/meta"
+	"go.opentelemetry.io/obi/pkg/export/attributes"
 	"go.opentelemetry.io/obi/pkg/export/otel/metric"
 	instrument "go.opentelemetry.io/obi/pkg/export/otel/metric/api/metric"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
@@ -66,7 +67,7 @@ func ReportRuntimeMetrics(
 	input *msg.Queue[[]runtimemetrics.RuntimeMetricSnapshot],
 ) swarm.InstanceFunc {
 	return func(ctx context.Context) (swarm.RunFunc, error) {
-		if !cfg.EndpointEnabled() || !jointMetricsConfig.Features.AppRuntime() {
+		if !cfg.EndpointEnabled() || !jointMetricsConfig.Features.AppRuntime() || input == nil {
 			return swarm.EmptyRunFunc()
 		}
 		otelcfg.SetupInternalOTELSDKLogger(cfg.SDKLogLevel)
@@ -158,19 +159,19 @@ func setupRuntimeMeters(metrics *RuntimeMetrics, meter instrument.Meter) error {
 
 func setupGoRuntimeMeters(metrics *goRuntimeMetrics, meter instrument.Meter) error {
 	var err error
-	metrics.memoryLimit, err = meter.Int64UpDownCounter("go.memory.limit", instrument.WithUnit("By"))
+	metrics.memoryLimit, err = meter.Int64UpDownCounter(attributes.GoRuntimeMemoryLimit.OTEL, instrument.WithUnit("By"))
 	if err != nil {
 		return fmt.Errorf("creating go memory limit: %w", err)
 	}
-	metrics.memoryGCCycles, err = meter.Int64Counter("go.memory.gc.cycles", instrument.WithUnit("{gc_cycle}"))
+	metrics.memoryGCCycles, err = meter.Int64Counter(attributes.GoRuntimeMemoryGCCycles.OTEL, instrument.WithUnit("{gc_cycle}"))
 	if err != nil {
 		return fmt.Errorf("creating go memory gc cycles: %w", err)
 	}
-	metrics.processorLimit, err = meter.Int64UpDownCounter("go.processor.limit", instrument.WithUnit("{thread}"))
+	metrics.processorLimit, err = meter.Int64UpDownCounter(attributes.GoRuntimeProcessorLimit.OTEL, instrument.WithUnit("{thread}"))
 	if err != nil {
 		return fmt.Errorf("creating go processor limit: %w", err)
 	}
-	metrics.configGOGC, err = meter.Int64UpDownCounter("go.config.gogc", instrument.WithUnit("%"))
+	metrics.configGOGC, err = meter.Int64UpDownCounter(attributes.GoRuntimeConfigGOGC.OTEL, instrument.WithUnit("%"))
 	if err != nil {
 		return fmt.Errorf("creating go config gogc: %w", err)
 	}
