@@ -125,7 +125,7 @@ func TestReceiverRejectsStandaloneSections(t *testing.T) {
 		{name: "explicit null", value: "null"},
 		{name: "list", value: "[]"},
 	}
-	for _, section := range []string{"enrich", "correlation", "daemon"} {
+	for _, section := range []string{sectionEnrich, sectionCorrelation, sectionDaemon} {
 		t.Run(section, func(t *testing.T) {
 			t.Parallel()
 
@@ -137,8 +137,8 @@ func TestReceiverRejectsStandaloneSections(t *testing.T) {
 
 					var notAllowed *SectionNotAllowedError
 					require.ErrorAs(t, err, &notAllowed)
-					require.Equal(t, string(validationModeReceiver), notAllowed.Mode)
 					require.Equal(t, section, notAllowed.Section)
+					require.Contains(t, err.Error(), "receiver config")
 					require.Contains(t, err.Error(), "standalone mode")
 				})
 			}
@@ -164,6 +164,44 @@ extensions:
 
 	require.NoError(t, err)
 	require.NotNil(t, cfg)
+}
+
+func TestValidateReceiverRejectsDecodedStandaloneSections(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		cfg     Extension
+		section string
+	}{
+		{
+			name:    sectionEnrich,
+			cfg:     Extension{Version: SupportedVersion, Enrich: map[string]any{}},
+			section: sectionEnrich,
+		},
+		{
+			name:    sectionCorrelation,
+			cfg:     Extension{Version: SupportedVersion, Correlation: map[string]any{}},
+			section: sectionCorrelation,
+		},
+		{
+			name:    sectionDaemon,
+			cfg:     Extension{Version: SupportedVersion, Daemon: map[string]any{}},
+			section: sectionDaemon,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := ValidateReceiver(&test.cfg)
+
+			var notAllowed *SectionNotAllowedError
+			require.ErrorAs(t, err, &notAllowed)
+			require.Equal(t, test.section, notAllowed.Section)
+		})
+	}
 }
 
 func TestUnsupportedVersion(t *testing.T) {

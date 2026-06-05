@@ -28,11 +28,10 @@ import (
 // package.
 const SupportedVersion = "2.0"
 
-type validationMode string
-
 const (
-	validationModeStandalone validationMode = "standalone"
-	validationModeReceiver   validationMode = "receiver"
+	sectionEnrich      = "enrich"
+	sectionCorrelation = "correlation"
+	sectionDaemon      = "daemon"
 )
 
 // Document is the top-level OpenTelemetry declarative configuration document
@@ -107,11 +106,8 @@ type RuleRefinement struct {
 // appear beside version at the top level instead of under an extension.capture
 // object.
 type receiverConfig struct {
-	Version     string `yaml:"version"`
-	Capture     `yaml:",inline"`
-	Enrich      map[string]any `yaml:"enrich,omitempty"`
-	Correlation map[string]any `yaml:"correlation,omitempty"`
-	Daemon      map[string]any `yaml:"daemon,omitempty"`
+	Version string `yaml:"version"`
+	Capture `yaml:",inline"`
 }
 
 // ParseStandaloneYAML decodes a standalone OBI v2 declarative document.
@@ -173,18 +169,15 @@ func ParseReceiverYAML(data []byte) (*Extension, error) {
 			return nil, &UnsupportedVersionError{Version: version}
 		}
 		if section, ok := disallowedReceiverSection(root); ok {
-			return nil, &SectionNotAllowedError{Mode: string(validationModeReceiver), Section: section}
+			return nil, &SectionNotAllowedError{Section: section}
 		}
 		var receiver receiverConfig
 		if err := decode(root, &receiver); err != nil {
 			return nil, err
 		}
 		cfg := Extension{
-			Version:     receiver.Version,
-			Capture:     receiver.Capture,
-			Enrich:      receiver.Enrich,
-			Correlation: receiver.Correlation,
-			Daemon:      receiver.Daemon,
+			Version: receiver.Version,
+			Capture: receiver.Capture,
 		}
 		if err := ValidateReceiver(&cfg); err != nil {
 			return nil, err
@@ -205,54 +198,48 @@ func ParseReceiverYAML(data []byte) (*Extension, error) {
 
 // ValidateStandalone checks version support for a standalone OBI extension.
 func ValidateStandalone(cfg *Extension) error {
-	return validate(cfg, validationModeStandalone)
+	return validateVersion(cfg)
 }
 
 // ValidateReceiver checks version support and receiver section boundaries for an
 // already decoded OBI extension.
 func ValidateReceiver(cfg *Extension) error {
-	return validate(cfg, validationModeReceiver)
+	if err := validateVersion(cfg); err != nil {
+		return err
+	}
+	if cfg.Enrich != nil {
+		return &SectionNotAllowedError{Section: sectionEnrich}
+	}
+	if cfg.Correlation != nil {
+		return &SectionNotAllowedError{Section: sectionCorrelation}
+	}
+	if cfg.Daemon != nil {
+		return &SectionNotAllowedError{Section: sectionDaemon}
+	}
+	return nil
 }
 
-// validate checks version support and deployment-specific section boundaries for
-// an already decoded OBI extension.
-func validate(cfg *Extension, mode validationMode) error {
+func validateVersion(cfg *Extension) error {
 	if cfg == nil {
 		return errors.New("missing OBI config")
 	}
 	if cfg.Version != SupportedVersion {
 		return &UnsupportedVersionError{Version: cfg.Version}
 	}
-	if mode == validationModeReceiver {
-		for _, section := range []string{"enrich", "correlation", "daemon"} {
-			if hasStandaloneSection(cfg, section) {
-				return &SectionNotAllowedError{Mode: string(mode), Section: section}
-			}
-		}
-	}
 	return nil
 }
 
 func disallowedReceiverSection(root *yaml.Node) (string, bool) {
-	for _, section := range []string{"enrich", "correlation", "daemon"} {
-		if _, ok := mappingValue(root, section); ok {
-			return section, true
-		}
+	if _, ok := mappingValue(root, sectionEnrich); ok {
+		return sectionEnrich, true
+	}
+	if _, ok := mappingValue(root, sectionCorrelation); ok {
+		return sectionCorrelation, true
+	}
+	if _, ok := mappingValue(root, sectionDaemon); ok {
+		return sectionDaemon, true
 	}
 	return "", false
-}
-
-func hasStandaloneSection(cfg *Extension, section string) bool {
-	switch section {
-	case "enrich":
-		return cfg.Enrich != nil
-	case "correlation":
-		return cfg.Correlation != nil
-	case "daemon":
-		return cfg.Daemon != nil
-	default:
-		return false
-	}
 }
 
 func looksLikeV1(root *yaml.Node) bool {

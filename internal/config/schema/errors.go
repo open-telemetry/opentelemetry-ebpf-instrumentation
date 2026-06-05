@@ -36,22 +36,16 @@ func (e *UnsupportedVersionError) Error() string {
 	return fmt.Sprintf("unsupported OBI config version %q", e.Version)
 }
 
-// SectionNotAllowedError reports a configuration section that is structurally
-// valid OBI v2 but invalid for the selected deployment parser.
+// SectionNotAllowedError reports a standalone-only configuration section in a
+// receiver-embedded OBI config.
 type SectionNotAllowedError struct {
-	// Mode is the deployment mode whose parser rejected the section.
-	Mode string
-	// Section is the YAML key that is not allowed in Mode.
+	// Section is the YAML key that is not allowed in receiver config.
 	Section string
 }
 
 func (e *SectionNotAllowedError) Error() string {
-	if e.Mode == string(validationModeReceiver) {
-		return fmt.Sprintf(
-			"section %q is not allowed in %s mode; remove it from the receiver config or run this config in standalone mode",
-			e.Section,
-			e.Mode,
-		)
-	}
-	return fmt.Sprintf("section %q is not allowed in %s mode", e.Section, e.Mode)
+	return fmt.Sprintf(
+		"section %q is not allowed in receiver config; remove it from the receiver config or run this config in standalone mode",
+		e.Section,
+	)
 }
