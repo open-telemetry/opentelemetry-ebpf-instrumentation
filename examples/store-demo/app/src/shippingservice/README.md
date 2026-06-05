@@ -6,7 +6,9 @@ The Shipping service provides price quote, tracking IDs, and the impression of o
 
 Run the following command to restore dependencies to `vendor/` directory:
 
-    dep ensure --vendor-only
+```
+dep ensure --vendor-only
+```
 
 ## Build
 

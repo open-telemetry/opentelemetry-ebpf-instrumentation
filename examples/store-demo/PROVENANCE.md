@@ -2,7 +2,7 @@
 
 ## Upstream Source
 
-- Repository: https://github.com/GoogleCloudPlatform/microservices-demo
+- Repository: <https://github.com/GoogleCloudPlatform/microservices-demo>
 - Tag: v0.10.5
 - Commit: 16a51f8dbabc4af2c4c82f81ca6d4813888c2c34
 - License: Apache License 2.0
