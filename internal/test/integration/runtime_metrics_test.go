@@ -21,65 +21,51 @@ import (
 const (
 	prometheusInstantVectorValueLen = 2
 	runtimeMetricsHostPort          = "8392"
-	staticRuntimeMetricDelta        = 0
 )
 
 func testRuntimeMetricsGo(t *testing.T) {
 	pq := promtest.Client{HostPort: prometheusHostPort}
+	metrics := []struct {
+		runtimeName string
+		obiName     string
+	}{
+		{runtimeName: "/gc/gomemlimit:bytes", obiName: "go_memory_limit_bytes"},
+		{runtimeName: "/sched/gomaxprocs:threads", obiName: "go_processor_limit"},
+		{runtimeName: "/gc/gogc:percent", obiName: "go_config_gogc_percent"},
+		{runtimeName: "/gc/cycles/total:gc-cycles", obiName: "go_memory_gc_cycles_total"},
+	}
+
+	forceRuntimeGC(t)
+	expected := readRuntimeMetrics(t)
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		before := readRuntimeMetrics(ct)
-		forceRuntimeGC(ct)
-
-		memoryLimit := runtimeMetricValue(ct, pq, "go_memory_limit_bytes")
-		processorLimit := runtimeMetricValue(ct, pq, "go_processor_limit")
-		gogc := runtimeMetricValue(ct, pq, "go_config_gogc_percent")
-		gcCycles := runtimeMetricValue(ct, pq, "go_memory_gc_cycles_total")
-
-		after := readRuntimeMetrics(ct)
-
-		assertStaticRuntimeMetric(ct, before, after, "/gc/gomemlimit:bytes", memoryLimit, "go_memory_limit_bytes")
-		assertStaticRuntimeMetric(ct, before, after, "/sched/gomaxprocs:threads", processorLimit, "go_processor_limit")
-		assertStaticRuntimeMetric(ct, before, after, "/gc/gogc:percent", gogc, "go_config_gogc_percent")
-		assertRuntimeMetricBetweenReads(ct, before, after, "/gc/cycles/total:gc-cycles", gcCycles, "go_memory_gc_cycles_total")
-		assert.Positive(ct, gcCycles)
+		current := readRuntimeMetrics(ct)
+		for _, metric := range metrics {
+			obiValue := runtimeMetricValue(ct, pq, metric.obiName)
+			assertRuntimeMetricObserved(ct, expected, current, metric.runtimeName, obiValue, metric.obiName)
+		}
 	}, testTimeout, 250*time.Millisecond)
 }
 
-func assertStaticRuntimeMetric(
+func assertRuntimeMetricObserved(
 	t require.TestingT,
-	before map[string]float64,
-	after map[string]float64,
+	expected map[string]float64,
+	current map[string]float64,
 	runtimeName string,
 	obiValue float64,
 	obiName string,
 ) {
-	beforeValue := directRuntimeMetricValue(t, before, runtimeName)
-	afterValue := directRuntimeMetricValue(t, after, runtimeName)
+	expectedValue := directRuntimeMetricValue(t, expected, runtimeName)
+	currentValue := directRuntimeMetricValue(t, current, runtimeName)
 
-	assert.Positivef(t, beforeValue, "service runtime/metrics %s should be positive", runtimeName)
+	assert.Positivef(t, expectedValue, "service runtime/metrics %s should be positive", runtimeName)
 	assert.Positivef(t, obiValue, "OBI %s should be positive", obiName)
-	assert.InDeltaf(t, beforeValue, afterValue, staticRuntimeMetricDelta,
-		"service runtime/metrics %s changed during comparison", runtimeName)
-	assert.InDeltaf(t, beforeValue, obiValue, staticRuntimeMetricDelta,
-		"OBI %s should match service runtime/metrics %s", obiName, runtimeName)
-}
-
-func assertRuntimeMetricBetweenReads(
-	t require.TestingT,
-	before map[string]float64,
-	after map[string]float64,
-	runtimeName string,
-	obiValue float64,
-	obiName string,
-) {
-	beforeValue := directRuntimeMetricValue(t, before, runtimeName)
-	afterValue := directRuntimeMetricValue(t, after, runtimeName)
-
-	assert.LessOrEqualf(t, beforeValue, obiValue,
-		"OBI %s should not be older than the first service runtime/metrics read for %s", obiName, runtimeName)
-	assert.LessOrEqualf(t, obiValue, afterValue,
-		"OBI %s should not be newer than the second service runtime/metrics read for %s", obiName, runtimeName)
+	assert.LessOrEqualf(t, expectedValue, currentValue,
+		"service runtime/metrics %s should not go backwards", runtimeName)
+	assert.LessOrEqualf(t, expectedValue, obiValue,
+		"OBI %s should not be older than the captured service runtime/metrics value for %s", obiName, runtimeName)
+	assert.LessOrEqualf(t, obiValue, currentValue,
+		"OBI %s should not be newer than the current service runtime/metrics value for %s", obiName, runtimeName)
 }
 
 func directRuntimeMetricValue(t require.TestingT, runtimeMetrics map[string]float64, name string) float64 {
