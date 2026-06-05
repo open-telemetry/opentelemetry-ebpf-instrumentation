@@ -15,6 +15,8 @@
 package main
 
 import (
+	"os"
+	"strings"
 	"testing"
 
 	"golang.org/x/net/context"
@@ -86,5 +88,28 @@ func TestShipOrder(t *testing.T) {
 	// @todo improve quality of this test to check for a pattern such as '[A-Z]{2}-\d+-\d+'.
 	if len(res.TrackingId) != 18 {
 		t.Errorf("TestShipOrder: Tracking ID is malformed - has %d characters, %d expected", len(res.TrackingId), 18)
+	}
+}
+
+func TestCloudProfileHooksRemoved(t *testing.T) {
+	blocked := []string{
+		"cloud.google.com/go/" + "profiler",
+		"DISABLE_" + "PROFILER",
+		"Stack" + "driver",
+	}
+	files := []string{"main.go", "go.mod"}
+
+	for _, file := range files {
+		contents, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatalf("reading %s: %v", file, err)
+		}
+
+		text := string(contents)
+		for _, entry := range blocked {
+			if strings.Contains(text, entry) {
+				t.Fatalf("%s still contains removed cloud profiling hook %q", file, entry)
+			}
+		}
 	}
 }
