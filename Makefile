@@ -175,6 +175,8 @@ lint-collectt:
 lint-collectt-fix:
 	@echo "### Fixing EventuallyWithT callbacks to use CollectT"
 	go run ./internal/test/analyzer/collectt/cmd/collecttlint -fix ./...
+	@echo "### Checking EventuallyWithT callbacks use CollectT"
+	go run ./internal/test/analyzer/collectt/cmd/collecttlint ./...
 
 MARKDOWNIMAGE := $(shell awk '$$4=="markdown" {print $$2}' $(DEPENDENCIES_DOCKERFILE))
 .PHONY: lint-markdown

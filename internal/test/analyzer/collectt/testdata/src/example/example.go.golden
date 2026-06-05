@@ -61,3 +61,17 @@ func TestAssertEventuallyWithT(t *testing.T) {
 		assert.Equal(ct, 1, 1)
 	}, time.Minute, time.Second)
 }
+
+func TestBlankCollectTParam(t *testing.T) {
+	require.EventuallyWithT(t, func(_ *assert.CollectT) {
+		require.NoError(t, nil) // want `name and use the CollectT callback parameter instead of t inside EventuallyWithT callback`
+	}, time.Minute, time.Second)
+}
+
+func TestNestedEventuallyWithT(t *testing.T) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		require.EventuallyWithT(ct, func(ctt *assert.CollectT) { // want `use ct instead of t inside EventuallyWithT callback`
+			require.Equal(ctt, 1, 1) // want `use ctt instead of t inside EventuallyWithT callback`
+		}, time.Minute, time.Second)
+	}, time.Minute, time.Second)
+}
