@@ -32,9 +32,6 @@ FROM base
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
-# Enable Profiler
-ENV ENABLE_PROFILER=1
-
 RUN apk update \
     && apk add --no-cache libstdc++ \
     && rm -rf /var/cache/apk/*
