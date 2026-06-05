@@ -26,6 +26,8 @@ func (e *NotV2Error) Is(target error) bool {
 	return ok
 }
 
+// UnsupportedVersionError reports an OBI v2 version field whose value is present
+// but not handled by this package.
 type UnsupportedVersionError struct {
 	Version string
 }
@@ -34,8 +36,12 @@ func (e *UnsupportedVersionError) Error() string {
 	return fmt.Sprintf("unsupported OBI config version %q", e.Version)
 }
 
+// SectionNotAllowedError reports a configuration section that is structurally
+// valid OBI v2 but invalid for the selected deployment parser.
 type SectionNotAllowedError struct {
-	Mode    string
+	// Mode is the deployment mode whose parser rejected the section.
+	Mode string
+	// Section is the YAML key that is not allowed in Mode.
 	Section string
 }
 

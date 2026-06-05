@@ -3,11 +3,13 @@
 
 // Package schema parses OBI configuration documents that use the v2 schema.
 //
-// The parser recognizes both supported layouts:
+// Callers choose the parser that matches the deployment target. The package does
+// not auto-detect deployment mode because standalone and receiver deployments
+// allow different sections:
 //   - a full OpenTelemetry declarative configuration document with the OBI
-//     extension at extensions.obi
+//     extension at extensions.obi, parsed by ParseStandaloneYAML
 //   - a receiver-embedded OBI configuration with version and capture sections at
-//     the top level
+//     the top level, parsed by ParseReceiverYAML
 //
 // This package validates only the version, shape, and deployment-specific
 // section boundaries needed to route the configuration. It intentionally leaves
@@ -36,9 +38,9 @@ const (
 // Document is the top-level OpenTelemetry declarative configuration document
 // that contains extensions.obi.
 //
-// OBI-specific settings are available through Extensions.OBI. Other declarative
-// configuration sections are retained as maps because this package only needs to
-// locate and validate the OBI extension.
+// OBI-specific settings are available through Extensions.OBI. Declarative
+// configuration sections that can influence later conversion are retained as maps
+// because this package only needs to locate and validate the OBI extension.
 type Document struct {
 	FileFormat     string         `yaml:"file_format"`
 	Resource       map[string]any `yaml:"resource"`
@@ -57,7 +59,9 @@ type Extensions struct {
 // Extension is the OBI v2 extension configuration.
 //
 // Capture is valid in all deployment modes. Enrich, Correlation, and Daemon are
-// standalone-only sections and are rejected when validating receiver mode.
+// standalone-only sections and are rejected when parsing receiver-embedded
+// configuration. ParseReceiverYAML synthesizes this shape from top-level receiver
+// capture sections.
 type Extension struct {
 	Version     string         `yaml:"version"`
 	Capture     Capture        `yaml:"capture"`
@@ -68,8 +72,9 @@ type Extension struct {
 
 // Capture contains receiver-embeddable OBI capture settings.
 //
-// The individual sections remain map values so callers can preserve unknown
-// fields and apply schema-specific validation or migration elsewhere.
+// Known capture sections remain map values so callers can preserve unknown fields
+// inside those sections and apply schema-specific validation or migration
+// elsewhere.
 type Capture struct {
 	Policy          map[string]any `yaml:"policy"`
 	Rules           []Rule         `yaml:"rules"`
@@ -98,6 +103,9 @@ type RuleRefinement struct {
 	HTTP    map[string]any `yaml:"http,omitempty"`
 }
 
+// receiverConfig mirrors the receiver-embedded layout, where capture sections
+// appear beside version at the top level instead of under an extension.capture
+// object.
 type receiverConfig struct {
 	Version     string `yaml:"version"`
 	Capture     `yaml:",inline"`
@@ -107,6 +115,10 @@ type receiverConfig struct {
 }
 
 // ParseStandaloneYAML decodes a standalone OBI v2 declarative document.
+//
+// The document must contain extensions.obi.version equal to SupportedVersion.
+// Missing v2 markers return NotV2Error; present but unsupported markers return
+// UnsupportedVersionError.
 func ParseStandaloneYAML(data []byte) (*Document, *Extension, error) {
 	root, err := parseYAML(data)
 	if err != nil {
@@ -146,6 +158,10 @@ func ParseStandaloneYAML(data []byte) (*Document, *Extension, error) {
 }
 
 // ParseReceiverYAML decodes a receiver-embedded OBI v2 configuration.
+//
+// Receiver capture sections are accepted at the top level and normalized into
+// Extension.Capture. Standalone-only keys are rejected by presence before decode
+// so null or malformed values still report SectionNotAllowedError.
 func ParseReceiverYAML(data []byte) (*Extension, error) {
 	root, err := parseYAML(data)
 	if err != nil {
@@ -192,7 +208,8 @@ func ValidateStandalone(cfg *Extension) error {
 	return validate(cfg, validationModeStandalone)
 }
 
-// ValidateReceiver checks version support and receiver section boundaries.
+// ValidateReceiver checks version support and receiver section boundaries for an
+// already decoded OBI extension.
 func ValidateReceiver(cfg *Extension) error {
 	return validate(cfg, validationModeReceiver)
 }
