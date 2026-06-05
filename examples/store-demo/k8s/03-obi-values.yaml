@@ -15,6 +15,17 @@ config:
     attributes:
       kubernetes:
         enable: true
+    routes:
+      patterns:
+        - /
+        - /product/:product_id
+        - /cart
+        - /cart/empty
+        - /setCurrency
+        - /logout
+        - /cart/checkout
+        - /_healthz
+      unmatched: low-cardinality
     otel_metrics_export:
       endpoint: http://${LGTM_SERVICE_HOST}:4318
     otel_traces_export:
