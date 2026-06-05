@@ -108,7 +108,7 @@ func main() {
 	mustMapEnv(&svc.checkoutSvcAddr, "CHECKOUT_SERVICE_ADDR")
 	mustMapEnv(&svc.shippingSvcAddr, "SHIPPING_SERVICE_ADDR")
 	mustMapEnv(&svc.adSvcAddr, "AD_SERVICE_ADDR")
-	mustMapEnv(&svc.shoppingAssistantSvcAddr, "SHOPPING_ASSISTANT_SERVICE_ADDR")
+	mapOptionalEnv(&svc.shoppingAssistantSvcAddr, "SHOPPING_ASSISTANT_SERVICE_ADDR")
 
 	mustConnGRPC(ctx, &svc.currencySvcConn, svc.currencySvcAddr)
 	mustConnGRPC(ctx, &svc.productCatalogSvcConn, svc.productCatalogSvcAddr)
@@ -148,6 +148,10 @@ func mustMapEnv(target *string, envKey string) {
 		panic(fmt.Sprintf("environment variable %q not set", envKey))
 	}
 	*target = v
+}
+
+func mapOptionalEnv(target *string, envKey string) {
+	*target = os.Getenv(envKey)
 }
 
 func mustConnGRPC(ctx context.Context, conn **grpc.ClientConn, addr string) {

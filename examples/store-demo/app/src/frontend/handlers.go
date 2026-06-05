@@ -44,7 +44,7 @@ type platformDetails struct {
 
 var (
 	frontendMessage  = strings.TrimSpace(os.Getenv("FRONTEND_MESSAGE"))
-	assistantEnabled = "true" == strings.ToLower(os.Getenv("ENABLE_ASSISTANT"))
+	assistantEnabled = isAssistantEnabled(os.Getenv("ENABLE_ASSISTANT"), os.Getenv("SHOPPING_ASSISTANT_SERVICE_ADDR"))
 	templates        = template.Must(template.New("").
 				Funcs(template.FuncMap{
 			"renderMoney":        renderMoney,
@@ -400,6 +400,11 @@ func (fe *frontendServer) placeOrderHandler(w http.ResponseWriter, r *http.Reque
 }
 
 func (fe *frontendServer) assistantHandler(w http.ResponseWriter, r *http.Request) {
+	if !fe.isAssistantAvailable() {
+		http.NotFound(w, r)
+		return
+	}
+
 	currencies, err := fe.getCurrencies(r.Context())
 	if err != nil {
 		renderHTTPError(log, r, w, errors.Wrap(err, "could not retrieve currencies"), http.StatusInternalServerError)
@@ -448,10 +453,18 @@ func (fe *frontendServer) getProductByID(w http.ResponseWriter, r *http.Request)
 }
 
 func (fe *frontendServer) chatBotHandler(w http.ResponseWriter, r *http.Request) {
-	log := r.Context().Value(ctxKeyLog{}).(logrus.FieldLogger)
 	type Response struct {
 		Message string `json:"message"`
 	}
+
+	if !fe.isAssistantAvailable() {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		json.NewEncoder(w).Encode(Response{Message: "Shopping assistant is unavailable."})
+		return
+	}
+
+	log := r.Context().Value(ctxKeyLog{}).(logrus.FieldLogger)
 
 	type LLMResponse struct {
 		Content string         `json:"content"`
@@ -566,6 +579,14 @@ func injectCommonTemplateData(r *http.Request, payload map[string]interface{}) m
 	}
 
 	return data
+}
+
+func (fe *frontendServer) isAssistantAvailable() bool {
+	return assistantEnabled && fe.shoppingAssistantSvcAddr != ""
+}
+
+func isAssistantEnabled(enableAssistant, shoppingAssistantSvcAddr string) bool {
+	return "true" == strings.ToLower(enableAssistant) && shoppingAssistantSvcAddr != ""
 }
 
 func currentCurrency(r *http.Request) string {
