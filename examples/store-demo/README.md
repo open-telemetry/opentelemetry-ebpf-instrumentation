@@ -132,6 +132,30 @@ In Grafana Explore:
 The OBI Helm values define low-cardinality route patterns for common frontend
 paths such as `/`, `/product/:product_id`, `/cart`, and `/cart/checkout`.
 
+## Expected OBI Visibility And Current Gaps
+
+Use these expectations when deciding whether the demo is healthy:
+
+- Service discovery should find the store deployments listed in
+  [`03-obi-values.yaml`](./k8s/03-obi-values.yaml) and attach Kubernetes
+  workload metadata to their telemetry.
+- Frontend HTTP traffic should produce traces and metrics for requests such as
+  `/`, `/product/:product_id`, `/cart`, and `/cart/checkout`.
+- Metrics should be available in Grafana for the discovered services, with HTTP
+  metrics grouped by route, status code, and Kubernetes workload metadata.
+- The service graph should show the frontend and the backend services OBI can
+  observe from the generated traffic. Some backend edges can be missing while
+  the demo is still working.
+- Expect partial backend gRPC visibility. Online Boutique uses gRPC for most
+  service-to-service calls, and OBI can report supported gRPC spans and metrics,
+  but not every backend RPC is guaranteed to appear with a complete method name
+  or matching client/server pair.
+- Current gRPC propagation does not guarantee a fully stitched checkout trace.
+  The trace may not continue through frontend, checkoutservice, cartservice,
+  currencyservice, paymentservice, emailservice, and shippingservice. Separate
+  backend gRPC traces or incomplete service-graph edges are expected OBI
+  visibility gaps, not store-demo failures.
+
 ## Cleanup
 
 ```bash
