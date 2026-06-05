@@ -270,22 +270,28 @@ func (m ContextPropagationMode) MarshalText() ([]byte, error) {
 func (ContextPropagationMode) JSONSchema() *jsonschema.Schema {
 	options := []string{StrContextPropagationHeaders, StrContextPropagationHTTP, StrContextPropagationTCP}
 	optionsStr := strings.Join(options, "|")
-	OptionsRegexp := fmt.Sprintf("^(%s)(,(%s))*$", optionsStr, optionsStr)
+	optionsRegexp := fmt.Sprintf("^(%s)(,(%s))*$", optionsStr, optionsStr)
 	return &jsonschema.Schema{
 		OneOf: []*jsonschema.Schema{
 			{
 				Type:        "string",
-				Enum:        []any{StrContextPropagationAll, StrContextPropagationDisabled, "", StrContextPropagationHeaders, StrContextPropagationHTTP, StrContextPropagationTCP},
+				Enum:        []any{StrContextPropagationAll, StrContextPropagationDisabled, ""},
 				Description: "Enable all propagation methods, disable propagation, or use empty string for disabled",
 			},
 			{
 				Type:        "string",
-				Description: "List of propagation methods to enable (headers/http for HTTP headers, tcp for TCP options), separated by commas",
+				Description: "Comma-separated list of propagation methods (headers/http for HTTP headers, tcp for TCP options)",
 				Examples:    []any{"headers", "tcp", "headers,tcp"},
-				Pattern:     OptionsRegexp,
+				Pattern:     optionsRegexp,
+			},
+			{
+				Type:        "string",
+				Enum:        []any{"ip"},
+				Deprecated:  true,
+				Description: "IP options injection has been removed and has no effect",
 			},
 		},
 		Title:       "Context Propagation Mode",
-		Description: "Configures distributed context propagation. Can be 'all' to enable all methods, 'disabled'/'' to disable, or a list of specific methods: 'headers' (or 'http') for HTTP headers, 'tcp' for TCP options.",
+		Description: "Configures distributed context propagation. Can be 'all' to enable all methods, 'disabled'/'' to disable, or a comma-separated list of methods: 'headers' (or 'http') for HTTP headers, 'tcp' for TCP options (e.g. \"headers,tcp\").",
 	}
 }

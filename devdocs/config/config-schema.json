@@ -262,16 +262,24 @@
         {
           "type": "string",
           "pattern": "^(headers|http|tcp)(,(headers|http|tcp))*$",
-          "description": "List of propagation methods to enable (headers/http for HTTP headers, tcp for TCP options), separated by commas",
+          "description": "Comma-separated list of propagation methods (headers/http for HTTP headers, tcp for TCP options)",
           "examples": [
             "headers",
             "tcp",
             "headers,tcp"
           ]
+        },
+        {
+          "type": "string",
+          "enum": [
+            "ip"
+          ],
+          "description": "IP options injection has been removed and has no effect",
+          "deprecated": true
         }
       ],
       "title": "Context Propagation Mode",
-      "description": "Configures distributed context propagation. Can be 'all' to enable all methods, 'disabled'/'' to disable, or a list of specific methods: 'headers' (or 'http') for HTTP headers, 'tcp' for TCP options."
+      "description": "Configures distributed context propagation. Can be 'all' to enable all methods, 'disabled'/'' to disable, or a comma-separated list of methods: 'headers' (or 'http') for HTTP headers, 'tcp' for TCP options (e.g. \"headers,tcp\")."
     },
     "CustomRoutesConfig": {
       "properties": {

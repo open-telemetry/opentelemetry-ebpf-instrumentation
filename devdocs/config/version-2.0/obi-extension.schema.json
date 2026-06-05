@@ -490,13 +490,25 @@
               "additionalProperties": false,
               "properties": {
                 "context_propagation": {
-                  "type": "string",
-                  "enum": [
-                    "disabled",
-                    "headers",
-                    "http",
-                    "tcp",
-                    "all"
+                  "oneOf": [
+                    {
+                      "type": "string",
+                      "enum": [
+                        "disabled",
+                        "headers",
+                        "http",
+                        "tcp",
+                        "all"
+                      ]
+                    },
+                    {
+                      "type": "string",
+                      "enum": [
+                        "ip"
+                      ],
+                      "deprecated": true,
+                      "description": "IP options injection has been removed and has no effect"
+                    }
                   ],
                   "default": "disabled",
                   "description": "Context propagation mode.\nValues include: `disabled`, `headers` (or `http`), `tcp`, `all`.\nIf omitted, `disabled` is used.\n"
