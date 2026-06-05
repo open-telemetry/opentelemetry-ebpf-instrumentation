@@ -113,6 +113,34 @@ curl http://127.0.0.1:8080/product/OLJCESPC7Z
 curl http://127.0.0.1:8080/cart
 ```
 
+## Validate OBI Telemetry
+
+Run these checks after the store, LGTM, and OBI are running. They use the
+Kubernetes service proxy for LGTM, so Grafana does not need to be port-forwarded.
+
+Check the OBI Helm release and ready pod, frontend HTTP metrics with Kubernetes
+deployment attributes, backend gRPC metrics, frontend traces, and backend gRPC
+traces. The backend trace check accepts separate backend gRPC traces; current
+OBI gRPC propagation does not guarantee a fully stitched checkout trace.
+
+```bash
+helm -n obi-store-demo list
+kubectl -n obi-store-demo wait --for=condition=Ready pod \
+  -l app.kubernetes.io/instance=obi \
+  --timeout=120s
+python3 -c "import json, subprocess; raw=subprocess.check_output(['kubectl','-n','obi-store-demo','get','--raw','/api/v1/namespaces/obi-store-demo/services/http:lgtm:3000/proxy/api/datasources/proxy/uid/prometheus/api/v1/query?query=http_server_request_duration_seconds_count'], text=True); data=json.loads(raw); assert any(item['metric'].get('service_name') == 'frontend' and item['metric'].get('k8s_deployment_name') == 'frontend' and item['metric'].get('http_route') in {'/','/product/{id}','/cart','/cart/checkout'} for item in data['data']['result'])"
+python3 -c "import json, subprocess; raw=subprocess.check_output(['kubectl','-n','obi-store-demo','get','--raw','/api/v1/namespaces/obi-store-demo/services/http:lgtm:3000/proxy/api/datasources/proxy/uid/prometheus/api/v1/query?query=rpc_server_duration_seconds_count'], text=True); data=json.loads(raw); assert any(item['metric'].get('rpc_system') == 'grpc' and item['metric'].get('k8s_namespace_name') == 'obi-store-demo' and item['metric'].get('service_name') in {'checkoutservice','productcatalogservice','shippingservice','emailservice','cartservice','currencyservice','adservice'} for item in data['data']['result'])"
+python3 -c "import json, subprocess; raw=subprocess.check_output(['kubectl','-n','obi-store-demo','get','--raw','/api/v1/namespaces/obi-store-demo/services/http:lgtm:3000/proxy/api/datasources/proxy/uid/tempo/api/search?tags=service.name%3Dfrontend&limit=10'], text=True); data=json.loads(raw); assert any(trace.get('rootServiceName') == 'frontend' for trace in data.get('traces', []))"
+python3 -c "import json, subprocess; services={'adservice','cartservice','checkoutservice','currencyservice','emailservice','productcatalogservice','shippingservice'}; url='/api/v1/namespaces/obi-store-demo/services/http:lgtm:3000/proxy/api/datasources/proxy/uid/tempo/api/search?tags=service.name%3D{}&limit=10'; assert any(trace.get('rootServiceName') == service and trace.get('rootTraceName','').startswith('/') for service in services for trace in json.loads(subprocess.check_output(['kubectl','-n','obi-store-demo','get','--raw',url.format(service)], text=True)).get('traces', []))"
+```
+
+Check that the demo app deployments are not exporting telemetry through app SDK
+OTLP settings:
+
+```bash
+python3 -c "import json, subprocess; apps={'adservice','cartservice','checkoutservice','currencyservice','emailservice','frontend','paymentservice','productcatalogservice','recommendationservice','shippingservice'}; data=json.loads(subprocess.check_output(['kubectl','-n','obi-store-demo','get','deploy','-o','json'], text=True)); bad=[]; [bad.append((dep['metadata']['name'], env.get('name'))) for dep in data['items'] if dep['metadata']['name'] in apps for container in dep['spec']['template']['spec'].get('containers', []) for env in container.get('env', []) if env.get('name','').startswith('OTEL_EXPORTER_OTLP') or env.get('name','') in {'OTEL_TRACES_EXPORTER','OTEL_METRICS_EXPORTER','OTEL_EXPORTER_OTLP_ENDPOINT'}]; assert not bad, bad"
+```
+
 ## Explore Telemetry In Grafana
 
 Port-forward Grafana from the LGTM service:
