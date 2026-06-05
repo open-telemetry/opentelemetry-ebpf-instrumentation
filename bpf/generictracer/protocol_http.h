@@ -17,6 +17,7 @@
 #include <common/lw_thread.h>
 #include <common/ringbuf.h>
 #include <common/runtime.h>
+#include <common/scratch_mem.h>
 #include <common/trace_helpers.h>
 #include <common/trace_lifecycle.h>
 #include <common/trace_parent.h>
@@ -36,6 +37,8 @@
 #include <maps/tp_char_buf_mem.h>
 
 volatile const u32 high_request_volume;
+
+SCRATCH_MEM_SIZED(http_previous_trace_id, TRACE_ID_SIZE_BYTES);
 
 // empty_http_info zeroes and return the unique percpu copy in the map
 // this function assumes that a given thread is not trying to use many
@@ -495,11 +498,24 @@ __obi_continue_protocol_http_tp(struct pt_regs *ctx,
                 unsigned char *t_id = extract_trace_id(res);
                 unsigned char *s_id = extract_span_id(res);
                 unsigned char *f_id = extract_flags(res);
+                const bool is_client = meta && meta->type == EVENT_HTTP_CLIENT;
+                unsigned char *previous_trace_id = NULL;
+
+                if (is_client && valid_trace(tp_p->tp.trace_id)) {
+                    previous_trace_id = (unsigned char *)http_previous_trace_id_mem();
+                    if (previous_trace_id) {
+                        __builtin_memcpy(previous_trace_id, tp_p->tp.trace_id, TRACE_ID_SIZE_BYTES);
+                    }
+                }
 
                 decode_hex(tp_p->tp.trace_id, t_id, TRACE_ID_CHAR_LEN);
                 decode_hex((unsigned char *)&tp_p->tp.flags, f_id, FLAGS_CHAR_LEN);
                 if (meta && meta->type != EVENT_HTTP_CLIENT) {
                     decode_hex(tp_p->tp.parent_id, s_id, SPAN_ID_CHAR_LEN);
+                } else if (previous_trace_id &&
+                           bpf_memcmp(previous_trace_id, tp_p->tp.trace_id, TRACE_ID_SIZE_BYTES) !=
+                               0) {
+                    __builtin_memset(tp_p->tp.parent_id, 0, sizeof(tp_p->tp.parent_id));
                 }
 
                 if (g_bpf_debug) {

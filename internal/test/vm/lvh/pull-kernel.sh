@@ -13,6 +13,10 @@
 #   OBI_KERNELS_YAML  path to kernels.yaml (default: ../kernels.yaml relative to this script)
 #   OUT_DIR           output directory (default: ./out)
 #
+# Every kernels.yaml entry MUST carry a `digest: "sha256:<64-hex>"` field;
+# pulls are always content-addressed against quay.io to defend against an
+# attacker re-pushing a dated LVH tag. Renovate keeps the digests fresh.
+#
 # Outputs in $OUT_DIR:
 #   vmlinuz-${id}-${arch}                  (kernel image)
 #   vmlinuz-${id}-${arch}.config           (kernel config)
@@ -44,9 +48,19 @@ if ! command -v docker >/dev/null 2>&1; then
 fi
 
 LVH_TAG=$(yq ".kernels[] | select(.id == \"${KERNEL_ID}\") | .lvh_tag // \"\"" "$OBI_KERNELS_YAML")
+LVH_DIGEST=$(yq ".kernels[] | select(.id == \"${KERNEL_ID}\") | .digest // \"\"" "$OBI_KERNELS_YAML")
 
 if [ -z "$LVH_TAG" ] || [ "$LVH_TAG" = "null" ]; then
     echo "pull-kernel.sh: kernel id '${KERNEL_ID}' missing or has no lvh_tag in ${OBI_KERNELS_YAML}" >&2
+    exit 1
+fi
+
+if [ -z "$LVH_DIGEST" ] || [ "$LVH_DIGEST" = "null" ]; then
+    echo "pull-kernel.sh: kernel id '${KERNEL_ID}' has no digest in ${OBI_KERNELS_YAML} (every entry must pin sha256:<64-hex>)" >&2
+    exit 1
+fi
+if ! [[ "$LVH_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+    echo "pull-kernel.sh: invalid digest format for kernel id '${KERNEL_ID}': '${LVH_DIGEST}' (want sha256:<64-hex>)" >&2
     exit 1
 fi
 
@@ -54,11 +68,12 @@ mkdir -p "$OUT_DIR"
 WORKDIR="$(mktemp -d)"
 trap 'rm -rf "$WORKDIR"; docker rm -f "$CID" >/dev/null 2>&1 || true' EXIT
 
-IMAGE="${LVH_REGISTRY}:${LVH_TAG}"
-echo "pull-kernel.sh: pulling ${IMAGE} (${DOCKER_PLATFORM})" >&2
-docker pull --quiet --platform "$DOCKER_PLATFORM" "$IMAGE" >&2
+PULL_REF="${LVH_REGISTRY}@${LVH_DIGEST}"
+IMAGE="${LVH_REGISTRY}:${LVH_TAG}@${LVH_DIGEST}"
+echo "pull-kernel.sh: pulling ${PULL_REF} (${DOCKER_PLATFORM})" >&2
+docker pull --quiet --platform "$DOCKER_PLATFORM" "$PULL_REF" >&2
 
-CID="$(docker create --platform "$DOCKER_PLATFORM" "$IMAGE")"
+CID="$(docker create --platform "$DOCKER_PLATFORM" "$PULL_REF")"
 docker cp "${CID}:/data" "${WORKDIR}/" >&2
 
 KVER_DIR="$(ls -d ${WORKDIR}/data/kernels/*/ | head -1)"
@@ -96,6 +111,7 @@ cat > "${OUT_DIR}/${ART_BASE}.buildinfo" <<EOF
   "kernel_branch": "${KVER}",
   "source": "lvh",
   "lvh_tag": "${LVH_TAG}",
+  "lvh_digest": "${LVH_DIGEST}",
   "lvh_image": "${IMAGE}",
   "target_arch": "${ARCH}",
   "pulled_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",

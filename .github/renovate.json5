@@ -23,6 +23,56 @@
       "/^\\.github\\/.*-requirements\\.txt$/"
     ]
   },
+  "customManagers": [
+    {
+      // Keep the LVH kernel images in internal/test/vm/kernels.yaml pinned to
+      // both a dated tag and the corresponding sha256 manifest digest. The
+      // tag is the human-readable handle; the digest is what `docker pull`
+      // actually resolves against (see lvh/pull-kernel.sh). Renovate updates
+      // both fields together whenever a newer tag is published on quay.io.
+      //
+      // Tags look like `<kernel-id>-<YYYYMMDD>.<HHMMSS>`, where <kernel-id> is
+      // the concrete kernel we deliberately test (`5.10`, `6.12`, `bpf-next`,
+      // `rhel8.9`, ...). We must NOT let Renovate bump that kernel version: a
+      // `6.1` pin must never roll forward to `6.18` (we use it in integration
+      // tests that want to test this concrete Kernel version). The versioning regex
+      // therefore captures <kernel-id> as the `compatibility` group, which
+      // scopes every update to tags sharing that exact prefix, and exposes
+      // only the trailing date/time build stamp (major=YYYY, minor=MM,
+      // patch=DD, build=HHMMSS) as the version that may advance. Net effect:
+      // only the rebuild date moves; the kernel version stays put.
+      "customType": "regex",
+      "managerFilePatterns": ["/^internal\\/test\\/vm\\/kernels\\.yaml$/"],
+      "matchStrings": [
+        "lvh_tag:\\s+\"(?<currentValue>[^\"]+)\"\\s*\\n\\s*digest:\\s+\"(?<currentDigest>sha256:[a-f0-9]{64})\""
+      ],
+      "depNameTemplate": "quay.io/lvh-images/kernel-images",
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "regex:^(?<compatibility>.+)-(?<major>\\d{4})(?<minor>\\d{2})(?<patch>\\d{2})\\.(?<build>\\d+)$"
+    },
+    {
+      // Keep any digest-pinned container image reference embedded in a Go
+      // source file under internal/test/integration/ fresh. Matches the
+      // generic shape `<registry>/<path>:<tag>@sha256:<hex>` so adding a new
+      // pinned image anywhere in the integration suite gets tracked
+      // automatically — no need to touch this config.
+      //
+      // The versioning regex accepts three tag shapes:
+      //   * `<variant>-X.Y.Z`  (e.g. `rust-ssl-0.1.0`)
+      //   * `vX.Y.Z`           (e.g. `v1.4.2`)
+      //   * `X.Y.Z`            (e.g. `1.4.2`)
+      // For tagged-variant images the optional `compatibility` group keeps
+      // bumps scoped to the same variant: a newer `rust-0.2.0` will never
+      // overwrite a `rails-0.1.0` pin even though they share an image.
+      "customType": "regex",
+      "managerFilePatterns": ["/^internal\\/test\\/integration\\/.*\\.go$/"],
+      "matchStrings": [
+        "(?<depName>[a-z0-9][a-z0-9.\\-]*(?:/[a-z0-9][a-z0-9._\\-]*)+):(?<currentValue>[a-zA-Z0-9][a-zA-Z0-9._\\-]*)@(?<currentDigest>sha256:[a-f0-9]{64})"
+      ],
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "regex:^(?:(?<compatibility>.+?)-)?v?(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)$"
+    }
+  ],
   "packageRules": [
     {
       "description": "Run `go mod tidy` and rewrite import paths on any Go module update",
@@ -121,6 +171,22 @@
       "matchFileNames": ["internal/test/**"],
       "matchUpdateTypes": ["patch", "digest"],
       "enabled": false
+    },
+    {
+      "description": "Re-enable LVH kernel image updates: kernels.yaml is supply-chain-critical, must stay pinned to current dated tag + digest",
+      "matchFileNames": ["internal/test/vm/kernels.yaml"],
+      "matchPackageNames": ["quay.io/lvh-images/kernel-images"],
+      "enabled": true,
+      "groupName": "LVH kernel images",
+      "schedule": ["before 6am on Tuesday"]
+    },
+    {
+      "description": "Re-enable digest/patch bumps for digest-pinned container images embedded in integration test Go sources: these pins exist for supply-chain reasons and must track upstream",
+      "matchFileNames": ["internal/test/integration/**/*.go"],
+      "matchDatasources": ["docker"],
+      "enabled": true,
+      "groupName": "integration test pinned images",
+      "schedule": ["before 6am on Tuesday"]
     },
     {
       "description": "Disable Go 1.17 testserver updates",

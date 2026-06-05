@@ -140,14 +140,14 @@ func testGRPCRelayChainContextPropagation(t *testing.T) {
 			defer resp.Body.Close()
 			require.NoError(ctt, json.NewDecoder(resp.Body).Decode(&tq))
 			require.NotEmpty(ctt, tq.Data)
+			svcs := traceServices(tq.Data[0])
+			for _, svc := range expectedRelayServices {
+				require.Contains(ctt, svcs, svc, "trace missing service %s", svc)
+			}
 		}, 30*time.Second, time.Second)
 
-		// Pick the trace and check it spans all expected services.
+		// Pick the completed trace for the structural checks below.
 		trace = tq.Data[0]
-		svcs := traceServices(trace)
-		for _, svc := range expectedRelayServices {
-			require.Contains(ct, svcs, svc, "trace missing service %s", svc)
-		}
 
 		// All checks inside the loop so we retry if Jaeger hasn't
 		// indexed all spans yet.

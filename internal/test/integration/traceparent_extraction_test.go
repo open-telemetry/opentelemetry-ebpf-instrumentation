@@ -134,6 +134,18 @@ func testWithTraceparent(t *testing.T) {
 	// Verify we have spans from all 3 services in the chain
 	require.GreaterOrEqual(t, len(trace.Spans), 3,
 		"Should have spans from all services in the chain (a, b, c)")
+
+	serviceAClientSpans := trace.FindByOperationNameServiceAndKind("GET /with-tp", "tpclient-a", "client")
+	require.GreaterOrEqual(t, len(serviceAClientSpans), 1, "should find tpclient-a client span")
+	requireNoChildOfReference(t, serviceAClientSpans[0],
+		"tpclient-a client span should not inherit a parent from the generated server trace")
+
+	serviceBServerSpans := trace.FindByOperationNameServiceAndKind("GET /with-tp", "tpclient-b", "server")
+	require.GreaterOrEqual(t, len(serviceBServerSpans), 1, "should find tpclient-b server span")
+	serviceBClientSpans := trace.FindByOperationNameServiceAndKind("GET /with-tp", "tpclient-b", "client")
+	require.GreaterOrEqual(t, len(serviceBClientSpans), 1, "should find tpclient-b client span")
+	requireChildOfReference(t, serviceBClientSpans[0], serviceBServerSpans[0],
+		"tpclient-b client span should keep the matching in-process parent")
 }
 
 // testWithForwardedTraceparent validates that when the SAME Traceparent is forwarded
@@ -182,4 +194,24 @@ func testWithForwardedTraceparent(t *testing.T) {
 	// Verify we have spans from all 3 services in the chain
 	require.GreaterOrEqual(t, len(trace.Spans), 3,
 		"Should have spans from all services in the chain (a, b, c)")
+}
+
+func requireNoChildOfReference(t *testing.T, span jaeger.Span, msgAndArgs ...any) {
+	t.Helper()
+
+	for _, ref := range span.References {
+		require.NotEqual(t, "CHILD_OF", ref.RefType, msgAndArgs...)
+	}
+}
+
+func requireChildOfReference(t *testing.T, child, parent jaeger.Span, msgAndArgs ...any) {
+	t.Helper()
+
+	for _, ref := range child.References {
+		if ref.RefType == "CHILD_OF" {
+			require.Equal(t, parent.SpanID, ref.SpanID, msgAndArgs...)
+			return
+		}
+	}
+	require.Fail(t, "missing CHILD_OF reference", msgAndArgs...)
 }

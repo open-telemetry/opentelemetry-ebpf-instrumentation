@@ -586,6 +586,8 @@ func TestAttributeFilter_VerificationError(t *testing.T) {
 		{"obi.ip": MatchDefinition{}},
 		// valid attribute with double match definition
 		{"obi.ip": MatchDefinition{Match: "foo", NotMatch: "foo"}},
+		// valid attribute with invalid mixed glob and numeric comparisons
+		{"http.response.status_code": MatchDefinition{Match: "2*", GreaterEquals: intPtr(200)}},
 	}
 	for _, tc := range testCases {
 		t.Run(fmt.Sprintf("%v", tc), func(t *testing.T) {

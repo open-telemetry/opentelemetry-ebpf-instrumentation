@@ -202,9 +202,14 @@ func TestForwardRingbuf_NoEventLoss(t *testing.T) {
 				&metricsReporter{},
 			)(t.Context(), out)
 
-			for range N {
-				ringBuf.events <- HTTPRequestTrace{Type: 1}
-			}
+			// Feed events from a separate goroutine so we consume concurrently.
+			// Producing everything up front before consuming would let the output queue
+			// fill up and deadlock the whole pipeline.
+			go func() {
+				for range N {
+					ringBuf.events <- HTTPRequestTrace{Type: 1}
+				}
+			}()
 
 			received := 0
 			deadline := time.After(10 * time.Second)

@@ -40,7 +40,7 @@ typedef struct flow_metrics_t {
     u64 bytes;
     // start_mono_time_ts and end_mono_time_ts are the start and end times as system monotonic timestamps
     // in nanoseconds, as output from bpf_ktime_get_ns() (kernel space)
-    // and monotime.Now() (user space)
+    // and MonoTimeNow() (user space)
     u64 start_mono_time_ns;
     u64 end_mono_time_ns;
 

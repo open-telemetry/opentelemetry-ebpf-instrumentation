@@ -383,6 +383,7 @@ func getDefinitions(
 			Attributes: map[attr.Name]Default{
 				attr.DNSQuestionName:   true,
 				attr.DBQueryText:       false,
+				attr.GraphQLDocument:   false,
 				attr.HTTPUrlQuery:      false,
 				attr.GenAIInput:        false,
 				attr.GenAIOutput:       false,
@@ -477,6 +478,12 @@ func getDefinitions(
 		StatTCPRetransmits.Section: {
 			SubGroups:  []*AttrReportGroup{&statsAttributes, &statsKubeAttributes},
 			Attributes: map[attr.Name]Default{},
+		},
+		StatTCPIo.Section: {
+			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes},
+			Attributes: map[attr.Name]Default{
+				attr.NetworkIoDirection: true,
+			},
 		},
 
 		// span and service graph metrics don't yet implement attribute selection,

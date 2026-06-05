@@ -36,7 +36,8 @@ typedef struct server_http_func_invocation {
     u8 path[k_path_max_len];
     u8 pattern[k_pattern_max_len];
     u8 is_tls;
-    u8 _pad[4];
+    bool is_jsonrpc;
+    u8 _pad[3];
 } server_http_func_invocation_t;
 
 typedef struct framer_func_invocation {

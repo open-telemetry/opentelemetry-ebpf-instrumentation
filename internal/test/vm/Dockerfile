@@ -1,15 +1,14 @@
 FROM golang:1.26.3@sha256:efaccb5b497e90df3ebe5216cc25cd9f98e73874e2d638b56e38d4a3f098c41c AS goimage
 
-FROM alpine:3.20@sha256:a4f4213abb84c497377b8544c81b3564f313746700372ec4fe84653e4fb03805
+FROM alpine:3.23@sha256:5b10f432ef3da1b8d4c7eb6c487f2f5a8f096bc91145e68878dd4a5019afde11
 
 # Import the Go toolchain from the pinned golang image while keeping Alpine as runtime base.
 COPY --from=goimage /usr/local/go /usr/local/go
 ENV PATH="/usr/local/go/bin:${PATH}"
 
-# Install Docker/runc from the pinned Alpine 3.20 base image
-# The procfs security checks in newer runc (CVE-2025-52881, CVE-2025-52565,
-# CVE-2025-31133) prevent containers from starting in nested virtualization.
-# Even buildkit containers fail to boot, so insecure buildx approach is not viable.
+# Track the latest Alpine instead of pinning to 3.20. The 3.20 pin worked
+# around newer runc's procfs hardening ("unsafe procfs detected") failing in
+# the nested-VM CI; that no longer reproduces on the current runner. See #872.
 RUN apk update && apk add --no-cache \
     agetty \
     bash \
@@ -24,8 +23,9 @@ RUN apk update && apk add --no-cache \
 
 # Default iptables symlink to legacy; modules-load may relink to nft on
 # RHEL kernels that lack CONFIG_IP_NF_NAT modules.
-RUN ln -sf /sbin/iptables-legacy /sbin/iptables && \
-    ln -sf /sbin/ip6tables-legacy /sbin/ip6tables
+RUN for t in iptables ip6tables; do \
+        ln -sf "$(command -v ${t}-legacy)" "$(command -v ${t})"; \
+    done
 
 # Module-load service: LVH kernels ship loadable modules for overlayfs,
 # br_netfilter, nf_tables, etc. Runs before localmount because /etc/fstab
@@ -73,6 +73,17 @@ start() {
         eend 1 "overlay module not loaded; check /lib/modules/${KREL} contents"
         return 1
     fi
+    # Repoint the iptables/ip6tables CLI docker shells out to. Resolve the
+    # binary docker actually runs (Alpine 3.21+ keeps these in /usr/sbin, not
+    # /sbin) instead of hardcoding a directory, so a missing variant yields a
+    # no-op rather than a dangling link that leaves docker on the wrong backend.
+    set_ipt_backend() {
+        for t in iptables ip6tables; do
+            target="$(command -v "${t}-$1" 2>/dev/null)" || continue
+            link="$(command -v "$t" 2>/dev/null)" || link="/usr/sbin/$t"
+            ln -sf "$target" "$link"
+        done
+    }
     # Pick iptables backend at runtime. xt_nat (DNAT/SNAT target) doesn't
     # autoload on RHEL kernels so we modprobe it explicitly; if missing,
     # fall through to the nft branch.
@@ -81,16 +92,15 @@ start() {
         modprobe xt_MASQUERADE 2>/dev/null || true
         modprobe xt_REDIRECT 2>/dev/null || true
         modprobe nf_nat 2>/dev/null || true
-        ln -sf /sbin/iptables-legacy /sbin/iptables
-        ln -sf /sbin/ip6tables-legacy /sbin/ip6tables
+        modprobe iptable_raw 2>/dev/null || true
+        set_ipt_backend legacy
         einfo "iptables backend: legacy"
     elif modprobe nf_tables 2>/dev/null \
         && modprobe nft_compat 2>/dev/null \
         && modprobe nft_chain_nat 2>/dev/null; then
         modprobe nft_masq 2>/dev/null || true
         modprobe nf_nat 2>/dev/null || true
-        ln -sf /sbin/iptables-nft /sbin/iptables
-        ln -sf /sbin/ip6tables-nft /sbin/ip6tables
+        set_ipt_backend nft
         einfo "iptables backend: nft"
     else
         ewarn "neither legacy nor nft NAT modules available; docker NAT will fail"

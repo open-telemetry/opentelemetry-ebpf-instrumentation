@@ -493,7 +493,7 @@
         "poll_interval": {
           "type": "string",
           "pattern": "^[0-9]+(ms|s|m)$",
-          "description": "Specifies, for the poll service watcher, the interval time between process inspections",
+          "description": "Specifies, for the poll service watcher, the interval time between process inspections. 0 is treated as a default (5s) by the process watcher.",
           "default": "0s",
           "examples": [
             "30s",
@@ -742,6 +742,12 @@
         "redis_db_cache": {
           "$ref": "#/$defs/RedisDBCacheConfig"
         },
+        "stats_wakeup_data_bytes": {
+          "type": "integer",
+          "description": "Specifies the minimum number of bytes that must be available in the stats eBPF ring buffer before waking up the userspace consumer. When 0, every submission wakes up userspace immediately. Higher values reduce wakeup overhead under high traffic at the cost of delivery latency. The value should be well below ring buffer size / flushInterval to avoid event loss.",
+          "default": 4096,
+          "x-env-var": "OTEL_EBPF_STATS_WAKEUP_DATA_BYTES"
+        },
         "track_request_headers": {
           "type": "boolean",
           "description": "Enables the kprobes based HTTP request tracking to start tracking the request headers to process any 'Traceparent' fields.",
@@ -877,6 +883,7 @@
           "network_inter_zone",
           "stats",
           "stats_tcp_failed_connections",
+          "stats_tcp_io",
           "stats_tcp_retransmits",
           "stats_tcp_rtt"
         ]
@@ -1261,8 +1268,14 @@
       "properties": {
         "port": {
           "type": "integer",
+          "description": "0 (default) means disabled",
           "default": 0,
           "x-env-var": "OTEL_EBPF_HEALTH_CHECK_PORT"
+        },
+        "unix_socket_path": {
+          "type": "string",
+          "description": "when set, the health endpoint binds this unix socket (a filesystem path or a leading-'@' abstract name) instead of the TCP port",
+          "x-env-var": "OTEL_EBPF_HEALTH_CHECK_UNIX_SOCKET_PATH"
         }
       },
       "type": "object"
@@ -1698,7 +1711,7 @@
         "features": {
           "$ref": "#/$defs/Features",
           "description": "Specifies which metric features to export. Accepted values: application, network, application_span, application_service_graph, ... envDefault is provided to avoid breaking changes  use top-level MetricsConfig.Features instead.",
-          "default": 64,
+          "default": 128,
           "deprecated": true,
           "x-env-var": "OTEL_EBPF_METRICS_FEATURES"
         },
@@ -2159,6 +2172,7 @@
         },
         "port": {
           "type": "integer",
+          "description": "0 means disabled",
           "default": 0,
           "x-env-var": "OTEL_EBPF_PROMETHEUS_PORT"
         },
@@ -2481,7 +2495,7 @@
         },
         "max_path_segment_cardinality": {
           "type": "integer",
-          "description": "Max allowed path segment cardinality (per service) for the heuristic matcher",
+          "description": "Max allowed path segment cardinality (per service) for the heuristic matcher 0 = disabled",
           "default": 10
         },
         "patterns": {
@@ -2500,7 +2514,7 @@
             "unset",
             "wildcard"
           ],
-          "description": "Specifies what to do when a route pattern is not matched",
+          "description": "Specifies what to do when a route pattern is not matched. Empty string is treated the same as \"wildcard\".",
           "default": "heuristic"
         },
         "wildcard_char": {

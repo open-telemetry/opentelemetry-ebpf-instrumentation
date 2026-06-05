@@ -51,6 +51,41 @@ func producerHandlerWithTopic(kafkaWriter *kafka.Writer, topic string) func(http
 	})
 }
 
+// Marker log lines for the issue #2046 traceparent-contamination regression test.
+const (
+	kafkaTPPositiveControlMsg = "kafka-tp-positive-control"
+	kafkaTPAfterProduceMsg    = "kafka-tp-after-produce"
+)
+
+func logJSON(message string) {
+	fmt.Printf(`{"message":"%s","level":"INFO"}`+"\n", message)
+}
+
+// traceparentProbeHandler logs once from the request goroutine (positive control),
+// then runs a Kafka produce followed by a log line on a worker goroutine that has
+// no request context of its own (issue #2046).
+func traceparentProbeHandler(kafkaWriter *kafka.Writer) func(http.ResponseWriter, *http.Request) {
+	return http.HandlerFunc(func(wrt http.ResponseWriter, _ *http.Request) {
+		logJSON(kafkaTPPositiveControlMsg)
+
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			err := kafkaWriter.WriteMessages(context.Background(), kafka.Message{
+				Key:   []byte("tp-probe"),
+				Value: []byte("tp-probe"),
+			})
+			if err != nil {
+				fmt.Printf("error %v\n", err)
+			}
+			logJSON(kafkaTPAfterProduceMsg)
+		}()
+		<-done
+
+		_, _ = wrt.Write([]byte("ok\n"))
+	})
+}
+
 func getKafkaWriter(kafkaURL, topic string) *kafka.Writer {
 	return &kafka.Writer{
 		Addr:     kafka.TCP(kafkaURL),
@@ -122,6 +157,10 @@ func main() {
 	// Add handle func for producer.
 	http.HandleFunc("/ping", producerHandler(kafkaWriter))
 	http.HandleFunc("/withTopic", producerHandlerWithTopic(kafkaWriter2, topic))
+	http.HandleFunc("/traceparent_probe", traceparentProbeHandler(kafkaWriter))
+	http.HandleFunc("/smoke", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("ok\n"))
+	})
 
 	// Run the web server.
 	fmt.Println("started test server on port 8080 ...")

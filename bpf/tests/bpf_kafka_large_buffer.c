@@ -104,6 +104,10 @@ enum {
     k_kafka_hdr_request_api_key = 2,
     k_kafka_hdr_request_api_version = 2,
     k_kafka_hdr_correlation_id = 4,
+    k_kafka_request_header_fields_without_message_size =
+        k_kafka_hdr_request_api_key + k_kafka_hdr_request_api_version + k_kafka_hdr_correlation_id,
+    k_kafka_min_request_header_size =
+        k_kafka_hdr_message_size + k_kafka_request_header_fields_without_message_size,
 
     k_kafka_min_response_message_size_value = 4, // correlation_id (4)
 
@@ -251,7 +255,12 @@ int kafka_store_state_data(const connection_info_t *conn_info,
 // and 13 because these versions contain the topic_id while versions < 9 have
 // directly the topic_name.
 int kafka_check_request_header_fields_without_message_size(struct kafka_request_hdr *hdr,
-                                                           const unsigned char *data) {
+                                                           const unsigned char *data,
+                                                           size_t data_len) {
+
+    if (data_len < k_kafka_request_header_fields_without_message_size) {
+        return -1;
+    }
 
     u8 offset = 0;
 
@@ -309,7 +318,7 @@ int kafka_parse_fixup_request_header(const connection_info_t *conn_info,
     if (hdr->message_size == (data_len - k_kafka_hdr_message_size)) {
         // Header is valid and we have the full data, we can proceed.
         if (kafka_check_request_header_fields_without_message_size(
-                hdr, data + k_kafka_hdr_message_size) < 0) {
+                hdr, data + k_kafka_hdr_message_size, data_len - k_kafka_hdr_message_size) < 0) {
             return -1;
         }
         return 0;
@@ -320,7 +329,7 @@ int kafka_parse_fixup_request_header(const connection_info_t *conn_info,
     if (state_data != NULL && state_data->message_size == data_len) {
         // Prepend the header from state data.
         hdr->message_size = state_data->message_size;
-        if (kafka_check_request_header_fields_without_message_size(hdr, data) < 0) {
+        if (kafka_check_request_header_fields_without_message_size(hdr, data, data_len) < 0) {
             return -1;
         }
         return 0;
@@ -752,11 +761,73 @@ void test4() {
     assert_equal(0, result, "The event should NOT be sent to userspace");
 }
 
+// test5
+// short metadata requests that do not contain a full correlation_id are rejected
+void test5() {
+    int result = 0;
+    printf("Test 5\n");
+
+    connection_info_t conn = {
+        .src_ip = 0x0a000007,
+        .dst_ip = 0x0a000008,
+        .src_port = 12345,
+        .dst_port = 9092,
+    };
+
+    unsigned char req[DATA_LEN] = {};
+    const size_t short_req_len = k_kafka_min_request_header_size - k_kafka_hdr_correlation_id;
+    s32 message_size = htonl(short_req_len - k_kafka_hdr_message_size);
+    s16 request_api_key = htons(k_kafka_api_key_metadata);
+    s16 request_api_version = htons(k_kafka_max_metadata_api_version);
+
+    int offset = 0;
+    memcpy(req + offset, &message_size, k_kafka_hdr_message_size);
+    offset += k_kafka_hdr_message_size;
+    memcpy(req + offset, &request_api_key, k_kafka_hdr_request_api_key);
+    offset += k_kafka_hdr_request_api_key;
+    memcpy(req + offset, &request_api_version, k_kafka_hdr_request_api_version);
+    offset += k_kafka_hdr_request_api_version;
+
+    assert_equal((int)short_req_len, offset, "Unexpected short request length");
+
+    result = is_kafka(&conn, req, offset, TCP_RECV);
+    assert_equal(0, result, "A short request without correlation_id must not be Kafka");
+
+    connection_info_t split_conn = {
+        .src_ip = 0x0a000009,
+        .dst_ip = 0x0a00000a,
+        .src_port = 12345,
+        .dst_port = 9092,
+    };
+
+    const size_t short_split_len =
+        k_kafka_request_header_fields_without_message_size - k_kafka_hdr_correlation_id + 1;
+    unsigned char first[DATA_LEN] = {};
+    message_size = htonl(short_split_len);
+    memcpy(first, &message_size, k_kafka_hdr_message_size);
+    result = is_kafka(&split_conn, first, k_kafka_hdr_message_size, TCP_RECV);
+    assert_equal(0, result, "The event should simply be saved in the kafka state map");
+
+    unsigned char second[DATA_LEN] = {};
+    offset = 0;
+    memcpy(second + offset, &request_api_key, k_kafka_hdr_request_api_key);
+    offset += k_kafka_hdr_request_api_key;
+    memcpy(second + offset, &request_api_version, k_kafka_hdr_request_api_version);
+    offset += k_kafka_hdr_request_api_version;
+    offset += 1;
+
+    assert_equal((int)short_split_len, offset, "Unexpected short split request length");
+
+    result = is_kafka(&split_conn, second, offset, TCP_RECV);
+    assert_equal(0, result, "A short split request without correlation_id must not be Kafka");
+}
+
 int main(int argc, char **argv) {
     test1();
     test2();
     test3();
     test4();
+    test5();
 
     printf("\nAll tests PASSED!\n");
     return 0;
