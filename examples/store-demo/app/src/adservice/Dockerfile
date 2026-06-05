@@ -12,18 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-FROM --platform=$BUILDPLATFORM eclipse-temurin:24.0.2_12-jdk-noble@sha256:dacac8e9a0df0d2bd24e702b4431132875c249930b70555ebd7ca285b5bee684 AS builder
+FROM --platform=$BUILDPLATFORM gradle:8.14.4-jdk21-noble@sha256:cc90b5198f747c454f4a3e17495b626fbdfa7ac77f1ad08502c355e6f81e6772 AS builder
 
 WORKDIR /app
 
-COPY ["build.gradle", "gradlew", "./"]
-COPY gradle gradle
-RUN chmod +x gradlew
-RUN ./gradlew downloadRepos
+COPY build.gradle .
+RUN gradle downloadRepos
 
 COPY . .
-RUN chmod +x gradlew
-RUN ./gradlew installDist
+RUN gradle installDist
 
 FROM eclipse-temurin:25.0.1_8-jre-alpine@sha256:9c65fe190cb22ba92f50b8d29a749d0f1cfb2437e09fe5fbf9ff927c45fc6e99
 

@@ -4,21 +4,17 @@ The Ad service provides advertisement based on context keys. If no context keys 
 
 ## Building locally
 
-The Ad service uses gradlew to compile/install/distribute. Gradle wrapper is already part of the source code. To build Ad Service, run:
+The Ad service uses Gradle to compile/install/distribute. To build Ad Service, run:
 
 ```
-./gradlew installDist
+gradle installDist
 ```
 
 It will create executable script src/adservice/build/install/hipstershop/bin/AdService
 
 ### Upgrading gradle version
 
-If you need to upgrade the version of gradle then run
-
-```
-./gradlew wrapper --gradle-version <new-version>
-```
+If you need to upgrade the version of Gradle, update the pinned Gradle builder image in the Dockerfile.
 
 ## Building docker image
 
