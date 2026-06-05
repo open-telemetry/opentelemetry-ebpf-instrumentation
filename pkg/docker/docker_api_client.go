@@ -182,8 +182,25 @@ func (s *ContainerStore) ContainerInfo(ctx context.Context, pid app.PID) (Contai
 	}
 
 	s.cacheMu.Lock()
+	if entry, ok := s.byContainerID[meta.FullID]; ok {
+		meta = entry.meta
+		seen := false
+		for _, cachedPID := range entry.pids {
+			if cachedPID == pid {
+				seen = true
+				break
+			}
+		}
+		if !seen {
+			entry.pids = append(entry.pids, pid)
+		}
+		s.byPID[pid] = meta
+		s.byContainerID[meta.FullID] = entry
+		s.cacheMu.Unlock()
+		return meta, true
+	}
 	s.byPID[pid] = meta
-	s.byContainerID[ContainerID(inspectInfo.ID)] = containerEntry{meta: meta, pids: []app.PID{pid}}
+	s.byContainerID[meta.FullID] = containerEntry{meta: meta, pids: []app.PID{pid}}
 	s.cacheMu.Unlock()
 
 	return meta, true
