@@ -140,12 +140,13 @@ lint: LINT_EXTRA_ARGS =
 lint: lint-run
 
 .PHONY: lint-fix
-lint-fix: LINT_EXTRA_ARGS = --fix
 lint-fix: lint-fix-run
 
 .PHONY: lint-run lint-fix-run
 lint-run: vanity-import-check lint-dependency-policy lint-collectt
+lint-fix-run: LINT_EXTRA_ARGS = --fix
 lint-fix-run: vanity-import-fix-check lint-dependency-policy lint-collectt-fix
+.NOTPARALLEL: lint-fix-run
 lint-run lint-fix-run:
 	@echo "### Linting code"
 	go tool $(TOOLS_MODFILE) golangci-lint run ./... --timeout=6m $(LINT_EXTRA_ARGS)
