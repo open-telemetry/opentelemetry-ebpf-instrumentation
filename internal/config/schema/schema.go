@@ -38,8 +38,7 @@ const (
 //
 // OBI-specific settings are available through Extensions.OBI. Other declarative
 // configuration sections are retained as maps because this package only needs to
-// locate and validate the OBI extension. Raw aliases the decoded YAML map passed
-// to ParseStandaloneMap, or the map decoded by ParseStandaloneYAML.
+// locate and validate the OBI extension.
 type Document struct {
 	FileFormat     string         `yaml:"file_format"`
 	Resource       map[string]any `yaml:"resource"`
@@ -47,7 +46,6 @@ type Document struct {
 	TracerProvider map[string]any `yaml:"tracer_provider"`
 	MeterProvider  map[string]any `yaml:"meter_provider"`
 	Extensions     Extensions     `yaml:"extensions"`
-	Raw            map[string]any `yaml:"-"`
 }
 
 // Extensions holds declarative configuration extensions recognized by this
@@ -59,24 +57,19 @@ type Extensions struct {
 // Extension is the OBI v2 extension configuration.
 //
 // Capture is valid in all deployment modes. Enrich, Correlation, and Daemon are
-// standalone-only sections and are rejected when validating receiver mode. Raw
-// aliases the source map for this extension in full documents and the top-level
-// source map in receiver-embedded configurations.
+// standalone-only sections and are rejected when validating receiver mode.
 type Extension struct {
 	Version     string         `yaml:"version"`
 	Capture     Capture        `yaml:"capture"`
 	Enrich      map[string]any `yaml:"enrich,omitempty"`
 	Correlation map[string]any `yaml:"correlation,omitempty"`
 	Daemon      map[string]any `yaml:"daemon,omitempty"`
-	Raw         map[string]any `yaml:"-"`
 }
 
 // Capture contains receiver-embeddable OBI capture settings.
 //
 // The individual sections remain map values so callers can preserve unknown
-// fields and apply schema-specific validation or migration elsewhere. Raw aliases
-// the source capture map in full documents and the synthesized capture map in
-// receiver-embedded configurations.
+// fields and apply schema-specific validation or migration elsewhere.
 type Capture struct {
 	Policy          map[string]any `yaml:"policy"`
 	Rules           []Rule         `yaml:"rules"`
@@ -88,7 +81,6 @@ type Capture struct {
 	Safety          map[string]any `yaml:"safety"`
 	Channels        map[string]any `yaml:"channels"`
 	Telemetry       map[string]any `yaml:"telemetry"`
-	Raw             map[string]any `yaml:"-"`
 }
 
 // Rule describes one capture policy rule.
@@ -106,38 +98,47 @@ type RuleRefinement struct {
 	HTTP    map[string]any `yaml:"http,omitempty"`
 }
 
+type receiverConfig struct {
+	Version     string `yaml:"version"`
+	Capture     `yaml:",inline"`
+	Enrich      map[string]any `yaml:"enrich,omitempty"`
+	Correlation map[string]any `yaml:"correlation,omitempty"`
+	Daemon      map[string]any `yaml:"daemon,omitempty"`
+}
+
 // ParseStandaloneYAML decodes a standalone OBI v2 declarative document.
 func ParseStandaloneYAML(data []byte) (*Document, *Extension, error) {
-	raw, err := parseYAML(data)
+	root, err := parseYAML(data)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	return ParseStandaloneMap(raw)
-}
-
-// ParseStandaloneMap parses a standalone OBI v2 declarative document.
-func ParseStandaloneMap(raw map[string]any) (*Document, *Extension, error) {
-	if len(raw) == 0 {
-		return nil, nil, &NotV2Error{Reason: "missing extensions.obi.version field"}
-	}
-
-	if version, ok := nestedString(raw, "extensions", "obi", "version"); ok {
+	if version, ok := nestedScalar(root, "extensions", "obi", "version"); ok {
 		if version != SupportedVersion {
 			return nil, nil, &UnsupportedVersionError{Version: version}
 		}
-		return parseDocument(raw)
+		var doc Document
+		if err := decode(root, &doc); err != nil {
+			return nil, nil, err
+		}
+		if doc.Extensions.OBI == nil {
+			return nil, nil, &NotV2Error{Reason: "missing extensions.obi"}
+		}
+		if err := ValidateStandalone(doc.Extensions.OBI); err != nil {
+			return nil, nil, err
+		}
+		return &doc, doc.Extensions.OBI, nil
 	}
 
-	if version, ok := nestedValue(raw, "extensions", "obi", "version"); ok {
-		return nil, nil, &UnsupportedVersionError{Version: fmt.Sprint(version)}
+	if version, ok := nestedVersion(root, "extensions", "obi", "version"); ok {
+		return nil, nil, &UnsupportedVersionError{Version: version}
 	}
 
-	if _, ok := nestedValue(raw, "version"); ok {
+	if _, ok := nestedVersion(root, "version"); ok {
 		return nil, nil, &NotV2Error{Reason: "missing extensions.obi.version field"}
 	}
 
-	if looksLikeV1(raw) {
+	if looksLikeV1(root) {
 		return nil, nil, &NotV2Error{Reason: "detected legacy v1 config shape"}
 	}
 
@@ -146,32 +147,37 @@ func ParseStandaloneMap(raw map[string]any) (*Document, *Extension, error) {
 
 // ParseReceiverYAML decodes a receiver-embedded OBI v2 configuration.
 func ParseReceiverYAML(data []byte) (*Extension, error) {
-	raw, err := parseYAML(data)
+	root, err := parseYAML(data)
 	if err != nil {
 		return nil, err
 	}
 
-	return ParseReceiverMap(raw)
-}
-
-// ParseReceiverMap parses a receiver-embedded OBI v2 configuration.
-func ParseReceiverMap(raw map[string]any) (*Extension, error) {
-	if len(raw) == 0 {
-		return nil, &NotV2Error{Reason: "missing top-level OBI v2 version field"}
-	}
-
-	if version, ok := nestedString(raw, "version"); ok {
+	if version, ok := nestedScalar(root, "version"); ok {
 		if version != SupportedVersion {
 			return nil, &UnsupportedVersionError{Version: version}
 		}
-		return parseReceiver(raw)
+		var receiver receiverConfig
+		if err := decode(root, &receiver); err != nil {
+			return nil, err
+		}
+		cfg := Extension{
+			Version:     receiver.Version,
+			Capture:     receiver.Capture,
+			Enrich:      receiver.Enrich,
+			Correlation: receiver.Correlation,
+			Daemon:      receiver.Daemon,
+		}
+		if err := ValidateReceiver(&cfg); err != nil {
+			return nil, err
+		}
+		return &cfg, nil
 	}
 
-	if version, ok := nestedValue(raw, "version"); ok {
-		return nil, &UnsupportedVersionError{Version: fmt.Sprint(version)}
+	if version, ok := nestedVersion(root, "version"); ok {
+		return nil, &UnsupportedVersionError{Version: version}
 	}
 
-	if looksLikeV1(raw) {
+	if looksLikeV1(root) {
 		return nil, &NotV2Error{Reason: "detected legacy v1 config shape"}
 	}
 
@@ -207,63 +213,7 @@ func validate(cfg *Extension, mode validationMode) error {
 	return nil
 }
 
-// parseDocument decodes the full declarative layout and wires Raw fields to the
-// corresponding source maps.
-func parseDocument(raw map[string]any) (*Document, *Extension, error) {
-	var doc Document
-	if err := decode(raw, &doc); err != nil {
-		return nil, nil, err
-	}
-	doc.Raw = raw
-	if doc.Extensions.OBI == nil {
-		return nil, nil, &NotV2Error{Reason: "missing extensions.obi"}
-	}
-
-	doc.Extensions.OBI.Raw = nestedMap(raw, "extensions", "obi")
-	doc.Extensions.OBI.Capture.Raw = nestedMap(raw, "extensions", "obi", "capture")
-	if err := ValidateStandalone(doc.Extensions.OBI); err != nil {
-		return nil, nil, err
-	}
-	return &doc, doc.Extensions.OBI, nil
-}
-
-// parseReceiver adapts the receiver-embedded layout into Extension. Capture
-// sections are accepted at the top level in receiver configuration files, but the
-// resulting value uses the same Extension shape as full documents.
-func parseReceiver(raw map[string]any) (*Extension, error) {
-	receiver := map[string]any{
-		"version":     raw["version"],
-		"capture":     map[string]any{},
-		"enrich":      raw["enrich"],
-		"correlation": raw["correlation"],
-		"daemon":      raw["daemon"],
-	}
-
-	capture := receiver["capture"].(map[string]any)
-	for _, key := range captureKeys() {
-		if value, ok := raw[key]; ok {
-			capture[key] = value
-		}
-	}
-
-	var cfg Extension
-	if err := decode(receiver, &cfg); err != nil {
-		return nil, err
-	}
-	cfg.Raw = raw
-	cfg.Capture.Raw = capture
-	if err := ValidateReceiver(&cfg); err != nil {
-		return nil, err
-	}
-	return &cfg, nil
-}
-
 func hasStandaloneSection(cfg *Extension, section string) bool {
-	if cfg.Raw != nil {
-		_, ok := cfg.Raw[section]
-		return ok
-	}
-
 	switch section {
 	case "enrich":
 		return cfg.Enrich != nil
@@ -276,7 +226,7 @@ func hasStandaloneSection(cfg *Extension, section string) bool {
 	}
 }
 
-func looksLikeV1(raw map[string]any) bool {
+func looksLikeV1(root *yaml.Node) bool {
 	for _, key := range []string{
 		"ebpf",
 		"discovery",
@@ -289,78 +239,70 @@ func looksLikeV1(raw map[string]any) bool {
 		"stats",
 		"javaagent",
 	} {
-		if _, ok := raw[key]; ok {
+		if _, ok := mappingValue(root, key); ok {
 			return true
 		}
 	}
 	return false
 }
 
-// captureKeys lists top-level receiver-embedded sections that belong under
-// Extension.Capture in the normalized representation.
-func captureKeys() []string {
-	return []string{
-		"policy",
-		"rules",
-		"instrumentation",
-		"runtimes",
-		"network",
-		"limits",
-		"engine",
-		"safety",
-		"channels",
-		"telemetry",
-	}
-}
-
-func parseYAML(data []byte) (map[string]any, error) {
-	var raw map[string]any
-	if err := yaml.Unmarshal(data, &raw); err != nil {
+func parseYAML(data []byte) (*yaml.Node, error) {
+	var doc yaml.Node
+	if err := yaml.Unmarshal(data, &doc); err != nil {
 		return nil, fmt.Errorf("parsing config v2 YAML: %w", err)
 	}
-	return raw, nil
+	if doc.Kind == yaml.DocumentNode && len(doc.Content) > 0 {
+		return doc.Content[0], nil
+	}
+	return &doc, nil
 }
 
-func decode(raw map[string]any, dst any) error {
-	buf, err := yaml.Marshal(raw)
-	if err != nil {
-		return fmt.Errorf("marshaling config v2 YAML: %w", err)
-	}
-	if err := yaml.Unmarshal(buf, dst); err != nil {
+func decode(node *yaml.Node, dst any) error {
+	if err := node.Decode(dst); err != nil {
 		return fmt.Errorf("decoding config v2 YAML: %w", err)
 	}
 	return nil
 }
 
-func nestedMap(raw map[string]any, path ...string) map[string]any {
-	value, ok := nestedValue(raw, path...)
-	if !ok {
-		return nil
+func nestedScalar(root *yaml.Node, path ...string) (string, bool) {
+	value, ok := nestedNode(root, path...)
+	if !ok || value.Kind != yaml.ScalarNode || value.ShortTag() != "!!str" {
+		return "", false
 	}
-	result, _ := value.(map[string]any)
-	return result
+	return value.Value, true
 }
 
-func nestedString(raw map[string]any, path ...string) (string, bool) {
-	value, ok := nestedValue(raw, path...)
+func nestedVersion(root *yaml.Node, path ...string) (string, bool) {
+	value, ok := nestedNode(root, path...)
 	if !ok {
 		return "", false
 	}
-	result, ok := value.(string)
-	return result, ok
+	if value.Kind == yaml.ScalarNode {
+		return value.Value, true
+	}
+	return value.ShortTag(), true
 }
 
-func nestedValue(raw map[string]any, path ...string) (any, bool) {
-	cur := any(raw)
+func nestedNode(root *yaml.Node, path ...string) (*yaml.Node, bool) {
+	cur := root
 	for _, key := range path {
-		next, ok := cur.(map[string]any)
+		next, ok := mappingValue(cur, key)
 		if !ok {
 			return nil, false
 		}
-		cur, ok = next[key]
-		if !ok {
-			return nil, false
-		}
+		cur = next
 	}
 	return cur, true
+}
+
+func mappingValue(node *yaml.Node, key string) (*yaml.Node, bool) {
+	if node == nil || node.Kind != yaml.MappingNode {
+		return nil, false
+	}
+	for i := 0; i < len(node.Content)-1; i += 2 {
+		if node.Content[i].Value == key {
+			return node.Content[i+1], true
+		}
+	}
+	return nil, false
 }

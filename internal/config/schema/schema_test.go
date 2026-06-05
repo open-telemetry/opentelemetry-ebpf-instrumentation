@@ -121,10 +121,7 @@ func TestReceiverRejectsStandaloneSections(t *testing.T) {
 		t.Run(section, func(t *testing.T) {
 			t.Parallel()
 
-			_, err := ParseReceiverMap(map[string]any{
-				"version": "2.0",
-				section:   map[string]any{},
-			})
+			_, err := ParseReceiverYAML([]byte("version: \"2.0\"\n" + section + ": {}\n"))
 
 			var notAllowed *SectionNotAllowedError
 			require.ErrorAs(t, err, &notAllowed)
@@ -198,7 +195,7 @@ version: 2.0
 				_, err := ParseReceiverYAML(data)
 				return err
 			},
-			want: "2",
+			want: "2.0",
 		},
 	}
 
@@ -332,31 +329,11 @@ extensions:
 	require.Contains(t, err.Error(), "missing top-level OBI v2 version field")
 }
 
-func TestParseMapPreservesDocumentRaw(t *testing.T) {
-	t.Parallel()
-
-	raw := map[string]any{
-		"file_format": "1.0",
-		"extensions": map[string]any{
-			"obi": map[string]any{
-				"version": "2.0",
-				"capture": map[string]any{
-					"policy": map[string]any{
-						"default_action": "include",
-					},
-				},
-			},
-		},
+func nestedMap(raw map[string]any, path ...string) map[string]any {
+	cur := raw
+	for _, key := range path {
+		next, _ := cur[key].(map[string]any)
+		cur = next
 	}
-
-	doc, cfg, err := ParseStandaloneMap(raw)
-
-	require.NoError(t, err)
-	doc.Raw["added"] = true
-	cfg.Raw["added_to_extension"] = true
-	cfg.Capture.Raw["added_to_capture"] = true
-
-	require.True(t, raw["added"].(bool))
-	require.True(t, raw["extensions"].(map[string]any)["obi"].(map[string]any)["added_to_extension"].(bool))
-	require.True(t, cfg.Raw["capture"].(map[string]any)["added_to_capture"].(bool))
+	return cur
 }
