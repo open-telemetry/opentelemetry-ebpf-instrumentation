@@ -18,7 +18,11 @@ import (
 	"go.opentelemetry.io/obi/internal/test/integration/components/promtest"
 )
 
-const prometheusInstantVectorValueLen = 2
+const (
+	prometheusInstantVectorValueLen = 2
+	runtimeMetricsHostPort          = "8392"
+	staticRuntimeMetricDelta        = 0
+)
 
 func testRuntimeMetricsGo(t *testing.T) {
 	pq := promtest.Client{HostPort: prometheusHostPort}
@@ -55,9 +59,9 @@ func assertStaticRuntimeMetric(
 
 	assert.Positivef(t, beforeValue, "service runtime/metrics %s should be positive", runtimeName)
 	assert.Positivef(t, obiValue, "OBI %s should be positive", obiName)
-	assert.Equalf(t, beforeValue, afterValue,
+	assert.InDeltaf(t, beforeValue, afterValue, staticRuntimeMetricDelta,
 		"service runtime/metrics %s changed during comparison", runtimeName)
-	assert.Equalf(t, beforeValue, obiValue,
+	assert.InDeltaf(t, beforeValue, obiValue, staticRuntimeMetricDelta,
 		"OBI %s should match service runtime/metrics %s", obiName, runtimeName)
 }
 
@@ -123,7 +127,7 @@ func readRuntimeMetrics(t require.TestingT) map[string]float64 {
 }
 
 func runtimeMetricsConn(t require.TestingT) net.Conn {
-	conn, err := net.DialTimeout("tcp", "localhost:8381", 2*time.Second)
+	conn, err := net.DialTimeout("tcp", net.JoinHostPort("localhost", runtimeMetricsHostPort), 2*time.Second)
 	require.NoError(t, err)
 	require.NoError(t, conn.SetDeadline(time.Now().Add(2*time.Second)))
 	return conn

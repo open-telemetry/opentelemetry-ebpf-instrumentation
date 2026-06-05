@@ -15,7 +15,7 @@ import (
 func TestRuntimeMetrics(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-go-runtime-metrics.yml", path.Join(pathOutput, "test-suite-runtime-metrics.log"))
 	require.NoError(t, err)
-	compose.Env = append(compose.Env, `TEST_SERVICE_PORTS=8381:8080`)
+	compose.Env = append(compose.Env, `TEST_SERVICE_PORTS=`+runtimeMetricsHostPort+`:8080`)
 	require.NoError(t, compose.Up())
 	t.Run("Go runtime metrics", testRuntimeMetricsGo)
 	require.NoError(t, compose.Close())

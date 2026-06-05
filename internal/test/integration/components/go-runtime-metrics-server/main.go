@@ -64,6 +64,7 @@ func runtimeMetricValues() map[string]float64 {
 		"/gc/gomemlimit:bytes",
 		"/gc/cycles/automatic:gc-cycles",
 		"/gc/cycles/forced:gc-cycles",
+		"/gc/cycles/total:gc-cycles",
 		"/sched/gomaxprocs:threads",
 	}
 	samples := make([]runtimemetrics.Sample, len(names))

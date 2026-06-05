@@ -8,6 +8,7 @@
 
 #include <common/event_defs.h>
 #include <common/pin_internal.h>
+#include <gotracer/go_constants.h>
 #include <pid/types/pid_info.h>
 
 struct {

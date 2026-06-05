@@ -7,7 +7,7 @@
 #include <bpfcore/bpf_helpers.h>
 #include <bpfcore/bpf_core_read.h>
 
-#define MAX_GO_PROGRAMS 10000 // Max 10,000 go programs tracked
+#include <gotracer/go_constants.h>
 
 // To be Injected from the user space during the eBPF program load & initialization
 typedef enum {

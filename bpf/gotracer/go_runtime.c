@@ -50,6 +50,8 @@ struct {
 
 SEC("uprobe/runtime.gcMarkDone_return")
 int obi_uprobe_runtime_gc_mark_done(struct pt_regs *ctx) {
+    (void)ctx;
+
     pid_info key = {};
     task_pid(&key);
 

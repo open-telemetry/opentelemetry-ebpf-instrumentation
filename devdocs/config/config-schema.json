@@ -867,6 +867,7 @@
           "all",
           "application",
           "application_host",
+          "application_runtime",
           "application_service_graph",
           "application_span",
           "application_span_otel",
