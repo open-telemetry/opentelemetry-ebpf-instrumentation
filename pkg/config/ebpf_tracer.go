@@ -79,7 +79,7 @@ type EBPFTracer struct {
 	HTTPRequestTimeout time.Duration `yaml:"http_request_timeout" env:"OTEL_EBPF_BPF_HTTP_REQUEST_TIMEOUT" validate:"gte=0"`
 
 	// Enables distributed context propagation.
-	// Can be a combination of: headers, tcp (e.g., "headers,tcp" or "all")
+	// Can be a combination of: headers/http, tcp (e.g., "headers,tcp" or "all")
 	ContextPropagation ContextPropagationMode `yaml:"context_propagation" env:"OTEL_EBPF_BPF_CONTEXT_PROPAGATION"`
 
 	// Skips checking the kernel version for bpf_loop functionality. Some modified kernels have this
@@ -236,7 +236,7 @@ func (m *ContextPropagationMode) UnmarshalText(text []byte) error {
 		case "ip":
 			slog.Warn("context_propagation value 'ip' is deprecated and has no effect; IP options injection has been removed")
 		default:
-			return fmt.Errorf("invalid value for context_propagation: '%s' (valid: all, disabled, headers, tcp)", part)
+			return fmt.Errorf("invalid value for context_propagation: '%s' (valid: all, disabled, headers, http, tcp)", part)
 		}
 	}
 
@@ -275,7 +275,7 @@ func (ContextPropagationMode) JSONSchema() *jsonschema.Schema {
 		OneOf: []*jsonschema.Schema{
 			{
 				Type:        "string",
-				Enum:        []any{StrContextPropagationAll, StrContextPropagationDisabled, ""},
+				Enum:        []any{StrContextPropagationAll, StrContextPropagationDisabled, "", StrContextPropagationHeaders, StrContextPropagationHTTP, StrContextPropagationTCP},
 				Description: "Enable all propagation methods, disable propagation, or use empty string for disabled",
 			},
 			{

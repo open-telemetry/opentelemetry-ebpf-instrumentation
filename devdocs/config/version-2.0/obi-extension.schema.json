@@ -494,12 +494,12 @@
                   "enum": [
                     "disabled",
                     "headers",
+                    "http",
                     "tcp",
-                    "ip",
                     "all"
                   ],
                   "default": "disabled",
-                  "description": "Context propagation mode.\nValues include: `disabled`, `headers`, `tcp`, `ip`, `all`.\nIf omitted, `disabled` is used.\n"
+                  "description": "Context propagation mode.\nValues include: `disabled`, `headers` (or `http`), `tcp`, `all`.\nIf omitted, `disabled` is used.\n"
                 },
                 "override_bpfloop_enabled": {
                   "type": "boolean",

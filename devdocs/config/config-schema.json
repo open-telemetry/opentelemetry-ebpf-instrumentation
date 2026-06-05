@@ -605,7 +605,7 @@
         },
         "context_propagation": {
           "$ref": "#/$defs/ContextPropagationMode",
-          "description": "Enables distributed context propagation. Can be a combination of: headers, tcp (e.g., \"headers,tcp\" or \"all\")",
+          "description": "Enables distributed context propagation. Can be a combination of: headers/http, tcp (e.g., \"headers,tcp\" or \"all\")",
           "default": "disabled",
           "x-env-var": "OTEL_EBPF_BPF_CONTEXT_PROPAGATION"
         },

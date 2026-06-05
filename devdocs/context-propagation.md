@@ -39,10 +39,10 @@ Context propagation allows distributed tracing by injecting trace context (trace
 
 Context propagation is controlled via `OTEL_EBPF_BPF_CONTEXT_PROPAGATION` which accepts a comma-separated list:
 
-- `headers` - Inject HTTP headers
+- `headers` (or `http`) - Inject HTTP headers
 - `tcp` - Inject TCP options
-- `all` - Enable all methods (default)
-- `disabled` - Disable context propagation
+- `all` - Enable all methods
+- `disabled` - Disable context propagation (default)
 
 Examples:
 
