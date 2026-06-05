@@ -57,6 +57,11 @@ spec:
           periodSeconds: 5
           grpc:
             port: 8080
+        startupProbe:
+          periodSeconds: 5
+          failureThreshold: 12
+          grpc:
+            port: 8080
         resources:
           requests:
             cpu: 100m
