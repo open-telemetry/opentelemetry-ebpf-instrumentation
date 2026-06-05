@@ -21,7 +21,7 @@ import (
 )
 
 func TestNoInProcessObservabilityHooks(t *testing.T) {
-	for _, path := range []string{"main.go", "go.mod"} {
+	for _, path := range []string{"main.go", "go.mod", "go.sum"} {
 		contents, err := os.ReadFile(path)
 		if err != nil {
 			t.Fatalf("read %s: %v", path, err)
