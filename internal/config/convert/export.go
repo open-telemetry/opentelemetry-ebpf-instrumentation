@@ -85,10 +85,6 @@ func captureInstrumentation(cfg *obi.Config) map[string]any {
 		"buffer_size":                    cfg.EBPF.BufferSizes.Postgres,
 		"prepared_statements_cache_size": cfg.EBPF.PostgresPreparedStatementsCacheSize,
 	}
-	sql["mssql"] = map[string]any{
-		"buffer_size":                    cfg.EBPF.BufferSizes.MSSQL,
-		"prepared_statements_cache_size": cfg.EBPF.MSSQLPreparedStatementsCacheSize,
-	}
 
 	redis := instrumentation["redis"].(map[string]any)
 	redis["db_cache"] = map[string]any{

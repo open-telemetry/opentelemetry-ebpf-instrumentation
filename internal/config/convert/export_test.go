@@ -207,6 +207,7 @@ func TestRuntimeToV2CustomConfig(t *testing.T) {
 	require.Equal(t, false, value(t, ext.Capture.Instrumentation, "grpc", "enabled", "metrics"))
 	require.Equal(t, uint32(100), value(t, ext.Capture.Instrumentation, "http", "buffer_size"))
 	require.Equal(t, uint32(101), value(t, ext.Capture.Instrumentation, "sql", "mysql", "buffer_size"))
+	require.NotContains(t, value(t, ext.Capture.Instrumentation, "sql"), "mssql")
 	require.Equal(t, true, value(t, ext.Capture.Instrumentation, "redis", "db_cache", "enabled"))
 	require.Equal(t, 204, value(t, ext.Capture.Instrumentation, "kafka", "topic_uuid_cache_size"))
 	require.Equal(t, "on", value(t, ext.Capture.Instrumentation, "gpu", "enabled_mode"))
