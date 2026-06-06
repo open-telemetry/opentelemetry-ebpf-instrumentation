@@ -34,6 +34,12 @@ public class RunnableInst {
   public static final class RunnableAdvice {
     @Advice.OnMethodEnter(suppress = Throwable.class)
     public static void enter(@Advice.This Runnable task) {
+      // VT correlation is handled by the VirtualThread.mount hook; the
+      // tracked parent here would be the dispatcher's tid (e.g. Tomcat
+      // Poller), which poisons java_tasks under virtual threads.
+      if (ThreadInfo.loomTaskOrVirtualThread(task)) {
+        return;
+      }
       Long parentId = SSLStorage.parentThreadId(task);
       if (parentId != null) {
         long threadId = Agent.NativeLib.gettid();
@@ -47,7 +53,7 @@ public class RunnableInst {
                   + threadId);
         }
         if (parentId != threadId) {
-          ThreadInfo.sendParentThreadContext(parentId);
+          ThreadInfo.sendTaskParentThreadContext(parentId);
         }
       }
       SSLStorage.untrackTask(task);

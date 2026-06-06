@@ -129,10 +129,19 @@ Each runtime behaves differently:
 |---------|--------------------------|----------------------|
 | Go | `fmt.Println` calls `write()` synchronously on the goroutine | Yes — Go refreshes `traces_ctx_v1` on every goroutine context switch via `runtime.casgstatus` |
 | Node.js | `process.stdout.write()` is synchronous | Yes |
-| Java | `System.out.println()` flushes immediately (PrintStream `autoFlush=true` by default) | Yes |
+| Java | `System.out.println()` flushes immediately (PrintStream `autoFlush=true` by default) | Yes — on platform threads (see below for virtual threads) |
 | Ruby | `puts` / `STDOUT.syswrite` — both issue `write()`/`writev()` synchronously on the request thread | Yes |
 | Python | stdout is block-buffered when not a TTY (Docker) | **No** — set `PYTHONUNBUFFERED=1` |
 | .NET | `Console.Out` (StreamWriter) is block-buffered when stdout is a pipe | **No** — see below |
+
+### Java virtual threads
+
+Requests handled on virtual threads do not write `traces_ctx_v1`: the map is
+keyed by kernel thread id per the OTEP contract, and under virtual threads the
+carrier tid does not identify the request, so an entry would attribute another
+request's trace id to whichever code logs from that carrier next. Log lines
+emitted from virtual threads are therefore not enriched; platform-thread
+enrichment is unchanged.
 
 ### .NET specifics
 

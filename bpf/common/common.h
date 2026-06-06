@@ -153,6 +153,8 @@ typedef struct tcp_req {
     u64 start_monotime_ns;
     u64 end_monotime_ns;
     u64 extra_id;
+    u32 task_tid;
+    u8 _pad3[4];
     u32 req_len;
     u32 resp_len;
     u32 lb_req_bytes;

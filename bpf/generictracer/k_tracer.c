@@ -194,6 +194,7 @@ static __always_inline void store_sock_pid(struct sock *sk) {
         conn_pid_t conn_pid = {0};
         task_pid(&conn_pid.p_info);
         task_tid(&conn_pid.p_key);
+        java_vt_translate_tid(&conn_pid.p_key);
         conn_pid.id = bpf_get_current_pid_tgid();
         conn_pid.ts = bpf_ktime_get_ns();
 
@@ -305,6 +306,7 @@ static __always_inline void setup_cp_support_conn_info(pid_connection_info_t *p_
     }
 
     task_tid(&ct.t_key.p_key);
+    java_vt_translate_tid(&ct.t_key.p_key);
     ct.t_key.extra_id = extra_runtime_id();
     ct.ts = bpf_ktime_get_ns();
 
@@ -1379,7 +1381,14 @@ int BPF_KPROBE(obi_kprobe_sys_exit, int status) {
     // This won't delete trace ids for traces with extra_id, like NodeJS. But,
     // we expect that it doesn't matter, since NodeJS main thread won't exit.
     bpf_map_delete_elem(&server_traces, &task);
+    trace_key_t vt_task = task;
+    if (java_vt_translate_tid(&vt_task.p_key)) {
+        bpf_map_delete_elem(&server_traces, &vt_task);
+    }
     obi_ctx__del(id);
+    // A carrier dying without VirtualThread.unmount() must not leave a
+    // stale entry that would re-key a future thread reusing this tid.
+    bpf_map_delete_elem(&java_vt_threads, &task.p_key);
 
     return 0;
 }

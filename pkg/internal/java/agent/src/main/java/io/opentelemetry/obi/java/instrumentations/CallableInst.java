@@ -45,6 +45,10 @@ public class CallableInst {
   public static final class CallableAdvice {
     @Advice.OnMethodEnter(suppress = Throwable.class)
     public static void enter(@Advice.This Callable<?> task) {
+      // see RunnableInst, same reasoning
+      if (ThreadInfo.loomTaskOrVirtualThread(task)) {
+        return;
+      }
       Long parentId = SSLStorage.parentThreadId(task);
       if (parentId != null) {
         long threadId = Agent.NativeLib.gettid();
@@ -58,7 +62,7 @@ public class CallableInst {
                   + threadId);
         }
         if (parentId != threadId) {
-          ThreadInfo.sendParentThreadContext(parentId);
+          ThreadInfo.sendTaskParentThreadContext(parentId);
         }
       }
       SSLStorage.untrackTask(task);

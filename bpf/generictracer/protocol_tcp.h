@@ -113,6 +113,9 @@ static __always_inline void cleanup_trace_info(tcp_req_t *tcp, pid_connection_in
     if (tcp->direction == TCP_RECV) {
         trace_key_t t_key = {0};
         task_tid(&t_key.p_key);
+        if (tcp->task_tid) {
+            t_key.p_key.tid = tcp->task_tid;
+        }
         t_key.extra_id = tcp->extra_id;
 
         delete_server_trace(pid_conn, &t_key);
@@ -319,6 +322,10 @@ static __always_inline void handle_unknown_tcp_connection(pid_connection_info_t 
             req->event_source = event_source(lw_thread); // generic events generated from Go
             req->req_len = original_bytes_len;
             req->extra_id = extra_runtime_id();
+            pid_key_t req_task = {0};
+            task_tid(&req_task);
+            java_vt_translate_tid(&req_task);
+            req->task_tid = req_task.tid;
             req->protocol_type = protocol_type;
             task_pid(&req->pid);
             bpf_probe_read(req->buf, bytes_len, u_buf);
