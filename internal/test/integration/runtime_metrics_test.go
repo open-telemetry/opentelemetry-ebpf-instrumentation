@@ -39,6 +39,7 @@ func testRuntimeMetricsGo(t *testing.T) {
 	expected := readRuntimeMetrics(t)
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		forceRuntimeGC(ct)
 		current := readRuntimeMetrics(ct)
 		for _, metric := range metrics {
 			obiValue := runtimeMetricValue(ct, pq, metric.obiName)

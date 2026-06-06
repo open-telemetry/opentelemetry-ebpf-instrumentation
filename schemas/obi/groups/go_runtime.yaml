@@ -1,0 +1,13 @@
+groups:
+  # `go.memory.gc.cycles` was added upstream in semconv 1.41. Keep this
+  # local declaration while OBI's registry dependency is pinned to 1.38.
+  - id: metric.go.memory.gc.cycles
+    type: metric
+    metric_name: go.memory.gc.cycles
+    instrument: counter
+    unit: "{gc_cycle}"
+    stability: development
+    brief: >
+      Count of completed Go garbage collection cycles.
+    note: >
+      Computed from `/gc/cycles/total:gc-cycles`.
