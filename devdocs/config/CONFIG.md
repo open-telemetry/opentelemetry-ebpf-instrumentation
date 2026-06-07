@@ -765,23 +765,7 @@ HTTPParsingMatch defines matching criteria for an HTTP parsing rule. Header rule
 | `obfuscation_json_paths` | `string`[] | `$.password`, `$.user.name`, `$.items[0].id`, etc | Is a list of JSONPath expressions for fields to obfuscate (body only) |
 | `patterns` | `glob`[] | `app-*`, `service-??`, `prod-*-db`, etc | Is a list of glob patterns to match header names against (headers only) |
 | `url_path_patterns` | `glob`[] | `app-*`, `service-??`, `prod-*-db`, etc | Is a list of glob patterns to match the request path against (shared) |
-| `http_response_status_code` | [`HTTPResponseStatusCodeRange`](#httpresponsestatuscoderange) |  | Filters this rule to only apply when the response status code matches the given range. If unset, the rule applies regardless of status code. (body rules only) |
-
-### HTTPResponseStatusCodeRange
-
-HTTPResponseStatusCodeRange defines an inclusive numeric range to match HTTP response status codes. Both bounds are optional — omitting one leaves that end open.
-
-| Field | Type | Values | Description |
-|---|---|---|---|
-| `greater_equals` | `integer` |  | Matches if the response status code is greater than or equal to this value |
-| `less_equals` | `integer` |  | Matches if the response status code is less than or equal to this value |
-
-Example — match only 5xx responses:
-
-```yaml
-http_response_status_code:
-  greater_equals: 500
-  less_equals: 599
+| `response_status_code` | [`MatchDefinition`](#matchdefinition) |  | Filters this rule to only apply when the response status code matches the given numeric criteria. If unset, the rule applies regardless of status code. (body rules only) |
 
 ### SamplerConfig
 

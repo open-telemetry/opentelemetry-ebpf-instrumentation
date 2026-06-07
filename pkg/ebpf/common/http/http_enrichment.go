@@ -16,6 +16,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/config"
+	"go.opentelemetry.io/obi/pkg/filter"
 )
 
 // HTTPEnricher applies HTTP enrichment rules to extract headers and body
@@ -46,16 +47,28 @@ func NewHTTPEnricher(cfg config.EnrichmentConfig) *HTTPEnricher {
 	return e
 }
 
-// statusCodeMatches returns true if the span's response status code satisfies the range.
-// A nil range always matches.
-func statusCodeMatches(r *config.HTTPResponseStatusCodeRange, status int) bool {
-	if r == nil {
+// statusCodeMatches returns true if the span's response status code satisfies the match definition.
+// A nil definition always matches.
+func statusCodeMatches(m *filter.MatchDefinition, status int) bool {
+	if m == nil {
 		return true
 	}
-	if r.GreaterEquals != nil && status < *r.GreaterEquals {
+	if m.GreaterEquals != nil && status < *m.GreaterEquals {
 		return false
 	}
-	if r.LessEquals != nil && status > *r.LessEquals {
+	if m.GreaterThan != nil && status <= *m.GreaterThan {
+		return false
+	}
+	if m.LessEquals != nil && status > *m.LessEquals {
+		return false
+	}
+	if m.LessThan != nil && status >= *m.LessThan {
+		return false
+	}
+	if m.Equals != nil && status != *m.Equals {
+		return false
+	}
+	if m.NotEquals != nil && status == *m.NotEquals {
 		return false
 	}
 	return true
@@ -258,7 +271,7 @@ func ruleApplies(rule config.HTTPParsingRule, scope config.HTTPParsingScope, spa
 	return scopeApplies(rule.Scope, scope) &&
 		urlPathMatches(rule.Match.URLPathPatterns, span.Path) &&
 		methodMatches(rule.Match.Methods, span.Method) &&
-		statusCodeMatches(rule.Match.HTTPResponseStatusCode, span.Status)
+		statusCodeMatches(rule.Match.ResponseStatusCode, span.Status)
 }
 
 // scopeApplies returns true if the rule scope covers the given header source.

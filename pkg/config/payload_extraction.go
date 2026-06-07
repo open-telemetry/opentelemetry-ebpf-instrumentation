@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"github.com/invopop/jsonschema"
+
+	"go.opentelemetry.io/obi/pkg/filter"
 	"github.com/ohler55/ojg/jp"
 	"gopkg.in/yaml.v3"
 
@@ -43,13 +45,6 @@ type HTTPConfig struct {
 	JSONRPC JSONRPCConfig `yaml:"jsonrpc"`
 	// Enrichment configures HTTP header and payload extraction with policy-based rules
 	Enrichment EnrichmentConfig `yaml:"enrichment"`
-}
-
-type HTTPResponseStatusCodeRange struct {
-	// GreaterEquals matches if the response code is >= this value.
-	GreaterEquals *int `yaml:"greater_equals"`
-	// LessEquals matches if the response code <= this value.
-	LessEquals *int `yaml:"less_equals"`
 }
 
 type GraphQLConfig struct {
@@ -182,9 +177,9 @@ func (c EnrichmentConfig) Validate() error {
 }
 
 func validateStatusCodeRange(i int, match HTTPParsingMatch) error {
-	if sc := match.HTTPResponseStatusCode; sc != nil {
+	if sc := match.ResponseStatusCode; sc != nil {
 		if sc.GreaterEquals != nil && sc.LessEquals != nil && *sc.GreaterEquals > *sc.LessEquals {
-			return fmt.Errorf("rule %d: http_response_status_code greater_equals (%d) must not exceed less_equals (%d)",
+			return fmt.Errorf("rule %d: response_status_code greater_equals (%d) must not exceed less_equals (%d)",
 				i, *sc.GreaterEquals, *sc.LessEquals)
 		}
 	}
@@ -342,9 +337,9 @@ type HTTPParsingMatch struct {
 	URLPathPatterns []services.GlobAttr `yaml:"url_path_patterns"`
 	// Methods is a list of HTTP methods this rule applies to (shared). Empty means all methods.
 	Methods []HTTPMethod `yaml:"methods"`
-	// HTTPResponseStatusCode filters this rule to only when the response code matches teh given
-	// range
-	HTTPResponseStatusCode *HTTPResponseStatusCodeRange `yaml:"http_response_status_code"`
+	// ResponseStatusCode filters this rule to only apply when the response status code matches the given range.
+	// If unset, the rule applies regardless of status code.
+	ResponseStatusCode *filter.MatchDefinition `yaml:"response_status_code"`
 }
 
 // UnmarshalYAML deserializes the match config and compiles glob patterns
@@ -355,8 +350,8 @@ func (m *HTTPParsingMatch) UnmarshalYAML(value *yaml.Node) error {
 		CaseSensitive          bool                         `yaml:"case_sensitive"`
 		ObfuscationJSONPaths   []string                     `yaml:"obfuscation_json_paths"`
 		URLPathPatterns        []string                     `yaml:"url_path_patterns"`
-		Methods                []HTTPMethod                 `yaml:"methods"`
-		HTTPResponseStatusCode *HTTPResponseStatusCodeRange `yaml:"http_response_status_code"`
+		Methods            []HTTPMethod            `yaml:"methods"`
+		ResponseStatusCode *filter.MatchDefinition `yaml:"response_status_code"`
 	}
 	if err := value.Decode(&raw); err != nil {
 		return err
@@ -364,7 +359,7 @@ func (m *HTTPParsingMatch) UnmarshalYAML(value *yaml.Node) error {
 
 	m.CaseSensitive = raw.CaseSensitive
 	m.Methods = raw.Methods
-	m.HTTPResponseStatusCode = raw.HTTPResponseStatusCode
+	m.ResponseStatusCode = raw.ResponseStatusCode
 
 	// Compile header name patterns
 	m.Patterns = make([]services.GlobAttr, 0, len(raw.Patterns))
