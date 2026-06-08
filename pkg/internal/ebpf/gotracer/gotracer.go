@@ -277,6 +277,10 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 		goexec.GrpcClientStreamStream,
 		// go manual spans
 		goexec.GoTracerDelegatePos,
+		// go runtime channels
+		goexec.HchanDataqsizPos,
+		goexec.HchanSendxPos,
+		goexec.HchanRecvxPos,
 		// go jsonrpc
 		goexec.GoJsonrpcRequestHeaderServiceMethodPos,
 		// go mongodb

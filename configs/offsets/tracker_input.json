@@ -29,7 +29,8 @@
       "bufio.Reader": ["buf", "w"],
       "runtime.moduledata": ["pcHeader", "pclntable", "minpc", "maxpc", "text", "etext"],
       "runtime.mstats": ["numgc", "numforcedgc"],
-      "runtime.gcControllerState": ["[1.19.0]memoryLimit", "gcPercent"]
+      "runtime.gcControllerState": ["[1.19.0]memoryLimit", "gcPercent"],
+      "runtime.hchan": ["dataqsiz", "sendx", "recvx"]
     }
   },
   "golang.org/x/net": {

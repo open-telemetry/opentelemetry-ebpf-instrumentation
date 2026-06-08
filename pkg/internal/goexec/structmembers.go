@@ -107,6 +107,10 @@ const (
 	GoTracerDelegatePos
 	GoTracerAttributeOptOffset
 	GoErrorStringOffset
+	// go runtime channels
+	HchanDataqsizPos
+	HchanSendxPos
+	HchanRecvxPos
 	// go jsonrpc
 	GoJsonrpcRequestHeaderServiceMethodPos
 	// go mongodb
@@ -424,6 +428,14 @@ var structMembers = map[string]structInfo{
 		lib: "go.opentelemetry.io/otel",
 		fields: map[string]GoOffset{
 			"delegate": GoTracerDelegatePos,
+		},
+	},
+	"runtime.hchan": {
+		lib: "go",
+		fields: map[string]GoOffset{
+			"dataqsiz": HchanDataqsizPos,
+			"sendx":    HchanSendxPos,
+			"recvx":    HchanRecvxPos,
 		},
 	},
 	"go.mongodb.org/mongo-driver/mongo.Collection": {

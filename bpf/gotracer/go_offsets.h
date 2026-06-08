@@ -85,6 +85,10 @@ typedef enum {
     _tracer_delegate_pos,
     _tracer_attribute_opt_off,
     _error_string_off,
+    // go runtime channels
+    _hchan_dataqsiz_pos,
+    _hchan_sendx_pos,
+    _hchan_recvx_pos,
     // go jsonrpc
     _jsonrpc_request_header_service_method_pos,
     // go mongodb
