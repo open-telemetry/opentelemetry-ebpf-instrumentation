@@ -316,6 +316,92 @@ func mustMapNetworkFiltersPerSignal(cur map[string]any, ex map[string]any) error
 	return nil
 }
 
+func mustMapStatsFiltersPerSignal(cur map[string]any, ex map[string]any) error {
+	currentValue, ok := get(cur, "filter", "stats")
+	if !ok {
+		return errors.New("missing current key [filter stats]")
+	}
+
+	signals := []string{"traces", "metrics"}
+	for _, signal := range signals {
+		exampleValue, ok := get(ex, "obi", "capture", "network", "stats", "filters", signal)
+		if !ok {
+			return fmt.Errorf("missing example key [obi capture network stats filters %s]", signal)
+		}
+		if fmt.Sprintf("%v", currentValue) != fmt.Sprintf("%v", exampleValue) {
+			return fmt.Errorf("filter.stats mismatch for signal %s", signal)
+		}
+	}
+
+	return nil
+}
+
+func mustMapStatsFeatures(cur map[string]any, ex map[string]any) error {
+	currentFeaturesValue, ok := get(cur, "metrics", "features")
+	if !ok {
+		return errors.New("missing current key [metrics features]")
+	}
+	currentFeatures := toStringSlice(currentFeaturesValue)
+	wantFeatures := statsFeatureNames(currentFeatures)
+
+	exampleFeaturesValue, ok := get(ex, "obi", "capture", "network", "stats", "features")
+	if !ok {
+		return errors.New("missing example key [obi capture network stats features]")
+	}
+	exampleFeatures := toStringSlice(exampleFeaturesValue)
+	if fmt.Sprintf("%v", wantFeatures) != fmt.Sprintf("%v", exampleFeatures) {
+		return fmt.Errorf("metrics.features stats mismatch: current=%v example=%v", wantFeatures, exampleFeatures)
+	}
+
+	exampleEnabled, ok := get(ex, "obi", "capture", "network", "stats", "enabled")
+	if !ok {
+		return errors.New("missing example key [obi capture network stats enabled]")
+	}
+	wantEnabled := len(wantFeatures) > 0 && metricsEndpointEnabled(cur)
+	if fmt.Sprintf("%v", wantEnabled) != fmt.Sprintf("%v", exampleEnabled) {
+		return fmt.Errorf("metrics.features stats enabled mismatch: current=%v example=%v", wantEnabled, exampleEnabled)
+	}
+
+	return nil
+}
+
+func statsFeatureNames(features []string) []string {
+	allStats := hasString(features, "stats") || hasString(features, "all") || hasString(features, "*")
+	out := []string{}
+	if allStats || hasString(features, "stats_tcp_rtt") {
+		out = append(out, "tcp_rtt")
+	}
+	if allStats || hasString(features, "stats_tcp_failed_connections") {
+		out = append(out, "tcp_failed_connections")
+	}
+	if allStats || hasString(features, "stats_tcp_retransmits") {
+		out = append(out, "tcp_retransmits")
+	}
+	if allStats || hasString(features, "stats_tcp_io") {
+		out = append(out, "tcp_io")
+	}
+	return out
+}
+
+func metricsEndpointEnabled(cur map[string]any) bool {
+	if endpoint, ok := get(cur, "otel_metrics_export", "endpoint"); ok && fmt.Sprintf("%v", endpoint) != "" {
+		return true
+	}
+	if port, ok := get(cur, "prometheus_export", "port"); ok && fmt.Sprintf("%v", port) != "0" {
+		return true
+	}
+	return false
+}
+
+func hasString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
+}
+
 func mustMapPayloadExtractionMembership(cur map[string]any, ex map[string]any, extractor string) error {
 	currentValue, ok := get(cur, "ebpf", "payload_extraction", "http", extractor, "enabled")
 	if !ok {
@@ -504,13 +590,21 @@ func verifyDefaults(cur map[string]any, ex map[string]any) ([]error, int) {
 		failures = append(failures, err)
 	}
 
+	if err := mustMapStatsFiltersPerSignal(cur, ex); err != nil {
+		failures = append(failures, err)
+	}
+
+	if err := mustMapStatsFeatures(cur, ex); err != nil {
+		failures = append(failures, err)
+	}
+
 	for _, extractor := range []string{"graphql", "elasticsearch", "aws", "sqlpp"} {
 		if err := mustMapPayloadExtractionMembership(cur, ex, extractor); err != nil {
 			failures = append(failures, err)
 		}
 	}
 
-	return failures, len(checks) + 10
+	return failures, len(checks) + 12
 }
 
 func run(args []string) error {

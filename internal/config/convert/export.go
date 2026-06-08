@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	"go.opentelemetry.io/obi/internal/config/schema"
+	featureexport "go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/obi"
 )
@@ -275,6 +276,8 @@ func captureNetwork(cfg *obi.Config) map[string]any {
 			},
 		},
 		"stats": map[string]any{
+			"enabled":  cfg.Enabled(obi.FeatureStatsO11y),
+			"features": statsFeatures(cfg.Metrics.Features),
 			"endpoint_identity": map[string]any{
 				"agent_ip":           cfg.Stats.AgentIP,
 				"agent_ip_interface": cfg.Stats.AgentIPIface,
@@ -290,6 +293,23 @@ func captureNetwork(cfg *obi.Config) map[string]any {
 			},
 		},
 	}
+}
+
+func statsFeatures(features featureexport.Features) []string {
+	out := []string{}
+	if features.StatsTCPRtt() {
+		out = append(out, "tcp_rtt")
+	}
+	if features.StatsTCPFailedConnections() {
+		out = append(out, "tcp_failed_connections")
+	}
+	if features.StatsTCPRetransmits() {
+		out = append(out, "tcp_retransmits")
+	}
+	if features.StatsTCPIo() {
+		out = append(out, "tcp_io")
+	}
+	return out
 }
 
 func captureLimits(cfg *obi.Config) map[string]any {

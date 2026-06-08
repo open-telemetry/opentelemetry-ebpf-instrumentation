@@ -59,6 +59,8 @@ func TestRuntimeToV2DefaultConfig(t *testing.T) {
 	require.Equal(t, obi.EbpfSourceSock, value(t, ext.Capture.Network, "capture", "source"))
 	require.Equal(t, []string{"lo"}, value(t, ext.Capture.Network, "capture", "selection", "interfaces", "exclude"))
 	require.Equal(t, "both", value(t, ext.Capture.Network, "capture", "selection", "direction"))
+	require.Equal(t, false, value(t, ext.Capture.Network, "stats", "enabled"))
+	require.Empty(t, value(t, ext.Capture.Network, "stats", "features"))
 
 	require.Equal(t, true, value(t, ext.Capture.Instrumentation, "http", "enabled", "traces"))
 	require.Equal(t, true, value(t, ext.Capture.Instrumentation, "http", "enabled", "metrics"))
@@ -563,6 +565,58 @@ func TestRuntimeToV2MetricInstrumentationsUseEnabledExporters(t *testing.T) {
 		require.Equal(t, true, value(t, ext.Capture.Instrumentation, "http", "enabled", "metrics"))
 		require.Equal(t, true, value(t, ext.Capture.Instrumentation, "redis", "enabled", "metrics"))
 		require.Equal(t, false, value(t, ext.Capture.Instrumentation, "grpc", "enabled", "metrics"))
+	})
+}
+
+func TestRuntimeToV2StatsEnablementAndFeatures(t *testing.T) {
+	t.Parallel()
+
+	t.Run("preserves features even without enabled metrics endpoint", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := obi.DefaultConfig
+		cfg.Metrics.Features = export.FeatureStats
+
+		_, ext := RuntimeToV2(&cfg)
+
+		require.Equal(t, false, value(t, ext.Capture.Network, "stats", "enabled"))
+		require.ElementsMatch(t, []string{
+			"tcp_rtt",
+			"tcp_failed_connections",
+			"tcp_retransmits",
+			"tcp_io",
+		}, value(t, ext.Capture.Network, "stats", "features"))
+	})
+
+	t.Run("enables aggregate stats with metrics endpoint", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := obi.DefaultConfig
+		cfg.Prometheus.Port = 9090
+		cfg.Metrics.Features = export.FeatureStats
+
+		_, ext := RuntimeToV2(&cfg)
+
+		require.Equal(t, true, value(t, ext.Capture.Network, "stats", "enabled"))
+		require.ElementsMatch(t, []string{
+			"tcp_rtt",
+			"tcp_failed_connections",
+			"tcp_retransmits",
+			"tcp_io",
+		}, value(t, ext.Capture.Network, "stats", "features"))
+	})
+
+	t.Run("preserves individual stat families", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := obi.DefaultConfig
+		cfg.OTELMetrics.MetricsEndpoint = "http://localhost:4318"
+		cfg.Metrics.Features = export.FeatureStatsTCPRtt | export.FeatureStatsTCPRetransmits
+
+		_, ext := RuntimeToV2(&cfg)
+
+		require.Equal(t, true, value(t, ext.Capture.Network, "stats", "enabled"))
+		require.ElementsMatch(t, []string{"tcp_rtt", "tcp_retransmits"}, value(t, ext.Capture.Network, "stats", "features"))
 	})
 }
 
