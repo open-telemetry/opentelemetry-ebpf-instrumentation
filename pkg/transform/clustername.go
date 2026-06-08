@@ -10,9 +10,13 @@ package transform // import "go.opentelemetry.io/obi/pkg/transform"
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
+	"crypto/x509"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -36,16 +40,16 @@ var metadataClient = http.Client{Timeout: time.Second}
 
 type clusterNameFetcher func(context.Context) (string, error)
 
-// fetchClusterName tries to automatically guess the cluster name from three major
-// cloud providers: EC2, GCP, Azure.
-// TODO: consider other providers (Alibaba, Oracle, etc...)
+// fetchClusterName tries to automatically detect the cluster name from
+// node labels, cloud providers (EC2, GCP, Azure), or OpenShift.
 func fetchClusterName(ctx context.Context, k8sInformer *kube.MetadataProvider) string {
 	log := klog().With("func", "fetchClusterName")
 	clusterNameFetchers := map[string]clusterNameFetcher{
-		"Label": nodeLabelsClusterNameFetcher(k8sInformer),
-		"EC2":   eksClusterNameFetcher,
-		"GCP":   gcpClusterNameFetcher,
-		"Azure": azureClusterNameFetcher,
+		"Label":     nodeLabelsClusterNameFetcher(k8sInformer),
+		"EC2":       eksClusterNameFetcher,
+		"GCP":       gcpClusterNameFetcher,
+		"Azure":     azureClusterNameFetcher,
+		"OpenShift": openshiftClusterNameFetcher,
 	}
 	for provider, fetch := range clusterNameFetchers {
 		log := log.With("provider", provider)
@@ -116,6 +120,73 @@ func eksClusterNameFetcher(ctx context.Context) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("did not find any cluster attribute in %+v", resource.Attributes())
+}
+
+const (
+	saTokenPath = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+	saCACertPath = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+	openshiftInfraPath = "/apis/config.openshift.io/v1/infrastructures/cluster"
+)
+
+type openshiftInfrastructureResponse struct {
+	Status struct {
+		InfrastructureName string `json:"infrastructureName"`
+	} `json:"status"`
+}
+
+func openshiftClusterNameFetcher(ctx context.Context) (string, error) {
+	host := os.Getenv("KUBERNETES_SERVICE_HOST")
+	port := os.Getenv("KUBERNETES_SERVICE_PORT")
+	if host == "" || port == "" {
+		return "", fmt.Errorf("KUBERNETES_SERVICE_HOST/PORT not set")
+	}
+
+	token, err := os.ReadFile(saTokenPath)
+	if err != nil {
+		return "", fmt.Errorf("reading service account token: %w", err)
+	}
+
+	caCert, err := os.ReadFile(saCACertPath)
+	if err != nil {
+		return "", fmt.Errorf("reading service account CA cert: %w", err)
+	}
+	caCertPool := x509.NewCertPool()
+	if !caCertPool.AppendCertsFromPEM(caCert) {
+		return "", fmt.Errorf("failed to parse CA certificate")
+	}
+
+	client := &http.Client{
+		Timeout: time.Second,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{
+				RootCAs: caCertPool,
+			},
+		},
+	}
+
+	url := fmt.Sprintf("https://%s:%s%s", host, port, openshiftInfraPath)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return "", fmt.Errorf("creating request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+string(token))
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("requesting OpenShift infrastructure CR: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("OpenShift API returned %d %s", resp.StatusCode, resp.Status)
+	}
+
+	var infra openshiftInfrastructureResponse
+	if err := json.NewDecoder(resp.Body).Decode(&infra); err != nil {
+		return "", fmt.Errorf("decoding infrastructure response: %w", err)
+	}
+
+	return infra.Status.InfrastructureName, nil
 }
 
 func nodeLabelsClusterNameFetcher(k8sInformer *kube.MetadataProvider) func(ctx context.Context) (string, error) {
