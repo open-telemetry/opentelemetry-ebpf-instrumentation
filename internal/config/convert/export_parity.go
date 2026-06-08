@@ -36,53 +36,71 @@ func httpRoutes(cfg *obi.Config) map[string]any {
 	return out
 }
 
+const (
+	payloadExtractorGraphQL       = "graphql"
+	payloadExtractorElasticsearch = "elasticsearch"
+	payloadExtractorAWS           = "aws"
+	payloadExtractorSQLPP         = "sqlpp"
+	payloadExtractorOpenAI        = "openai"
+	payloadExtractorAnthropic     = "anthropic"
+	payloadExtractorGemini        = "gemini"
+	payloadExtractorQwen          = "qwen"
+	payloadExtractorBedrock       = "bedrock"
+	payloadExtractorMCP           = "mcp"
+	payloadExtractorEmbedding     = "embedding"
+	payloadExtractorRerank        = "rerank"
+	payloadExtractorRetrieval     = "retrieval"
+	payloadExtractorJSONRPC       = "jsonrpc"
+	payloadExtractorEnrichment    = "enrichment"
+)
+
 func payloadExtraction(cfg *obi.Config) map[string]any {
 	http := cfg.EBPF.PayloadExtraction.HTTP
 	enabled := []string{}
 	if http.GraphQL.Enabled {
-		enabled = append(enabled, "graphql")
+		enabled = append(enabled, payloadExtractorGraphQL)
 	}
 	if http.Elasticsearch.Enabled {
-		enabled = append(enabled, "elasticsearch")
+		enabled = append(enabled, payloadExtractorElasticsearch)
 	}
 	if http.AWS.Enabled {
-		enabled = append(enabled, "aws")
+		enabled = append(enabled, payloadExtractorAWS)
 	}
 	if http.SQLPP.Enabled {
-		enabled = append(enabled, "sqlpp")
+		enabled = append(enabled, payloadExtractorSQLPP)
 	}
 	if http.GenAI.OpenAI.Enabled {
-		enabled = append(enabled, "openai")
+		enabled = append(enabled, payloadExtractorOpenAI)
 	}
 	if http.GenAI.Anthropic.Enabled {
-		enabled = append(enabled, "anthropic")
+		enabled = append(enabled, payloadExtractorAnthropic)
 	}
 	if http.GenAI.Gemini.Enabled {
-		enabled = append(enabled, "gemini")
+		enabled = append(enabled, payloadExtractorGemini)
 	}
 	if http.GenAI.Qwen.Enabled {
-		enabled = append(enabled, "qwen")
+		enabled = append(enabled, payloadExtractorQwen)
 	}
 	if http.GenAI.Bedrock.Enabled {
-		enabled = append(enabled, "bedrock")
+		enabled = append(enabled, payloadExtractorBedrock)
 	}
 	if http.GenAI.MCP.Enabled {
-		enabled = append(enabled, "mcp")
+		enabled = append(enabled, payloadExtractorMCP)
 	}
 	if http.GenAI.Embedding.Enabled {
-		enabled = append(enabled, "embedding")
+		enabled = append(enabled, payloadExtractorEmbedding)
 	}
 	if http.GenAI.Rerank.Enabled {
-		enabled = append(enabled, "rerank")
+		enabled = append(enabled, payloadExtractorRerank)
 	}
 	if http.GenAI.Retrieval.Enabled {
-		enabled = append(enabled, "retrieval")
+		enabled = append(enabled, payloadExtractorRetrieval)
 	}
 	if http.JSONRPC.Enabled {
-		enabled = append(enabled, "jsonrpc")
+		enabled = append(enabled, payloadExtractorJSONRPC)
 	}
 	if http.Enrichment.Enabled {
-		enabled = append(enabled, "enrichment")
+		enabled = append(enabled, payloadExtractorEnrichment)
 	}
 
 	return map[string]any{
