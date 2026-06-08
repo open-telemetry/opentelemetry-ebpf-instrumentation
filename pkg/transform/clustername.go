@@ -38,18 +38,23 @@ var metadataClient = http.Client{Timeout: time.Second}
 
 type clusterNameFetcher func(context.Context) (string, error)
 
-// fetchClusterName tries to automatically detect the cluster name from
+// fetchClusterName tries to automatically guess the cluster name from
 // node labels, cloud providers (EC2, GCP, Azure), or OpenShift.
+// TODO: consider other providers (Alibaba, Oracle, etc...)
 func fetchClusterName(ctx context.Context, k8sInformer *kube.MetadataProvider) string {
 	log := klog().With("func", "fetchClusterName")
-	clusterNameFetchers := map[string]clusterNameFetcher{
-		"Label":     nodeLabelsClusterNameFetcher(k8sInformer),
-		"EC2":       eksClusterNameFetcher,
-		"GCP":       gcpClusterNameFetcher,
-		"Azure":     azureClusterNameFetcher,
-		"OpenShift": openshiftClusterNameFetcher(k8sInformer),
+	clusterNameFetchers := []struct {
+		provider string
+		fetch    clusterNameFetcher
+	}{
+		{"Label", nodeLabelsClusterNameFetcher(k8sInformer)},
+		{"OpenShift", openshiftClusterNameFetcher(k8sInformer)},
+		{"EC2", eksClusterNameFetcher},
+		{"GCP", gcpClusterNameFetcher},
+		{"Azure", azureClusterNameFetcher},
 	}
-	for provider, fetch := range clusterNameFetchers {
+	for _, f := range clusterNameFetchers {
+		provider, fetch := f.provider, f.fetch
 		log := log.With("provider", provider)
 		log.Debug("trying to retrieve cluster name")
 		if name, err := fetch(ctx); err != nil {
