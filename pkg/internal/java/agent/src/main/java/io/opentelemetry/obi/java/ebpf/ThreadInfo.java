@@ -56,16 +56,26 @@ public class ThreadInfo {
   // mount/unmount path must stay lock-free and must never enter
   // ByteBuffer.allocateDirect (Bits.reserveMemory can run System.gc() and
   // sleep), or carriers can stall inside VirtualThread.mount(). Slots are
-  // claimed and released with lock-free CAS. Armed off the mount path by
-  // initVtEmitPool, called at agent install AFTER the native library is
-  // registered for this classloader copy (the NativeMemory constructor needs
-  // the JNI binding, so the allocations cannot live in the static
-  // initializer). Until armed, or if every slot is transiently claimed, the
-  // emit falls back to a one-shot buffer.
-  private static final int VT_POOL_SIZE = 64; // power of two
+  // claimed and released with lock-free CAS. The pool holds one buffer per
+  // carrier thread (sized from availableProcessors, rounded up to a power of
+  // two), so at most one in-flight emit per carrier never exhausts it. Armed
+  // off the mount path by initVtEmitPool, called at agent install AFTER the
+  // native library is registered for this classloader copy (the NativeMemory
+  // constructor needs the JNI binding, so the allocations cannot live in the
+  // static initializer). Until armed, or in the by-construction-unreachable
+  // case that every slot is claimed, the emit is dropped rather than
+  // allocating: a dropped mount falls back to carrier-tid keying, and a
+  // dropped unmount is reaped by the sys_exit backstop and LRU eviction.
+  private static final int VT_POOL_SIZE = vtPoolSize();
   private static final AtomicReferenceArray<NativeMemory> vtEmitPool =
       new AtomicReferenceArray<>(VT_POOL_SIZE);
   private static volatile boolean vtEmitPoolReady;
+
+  private static int vtPoolSize() {
+    int carriers = Math.max(Runtime.getRuntime().availableProcessors() * 2, 64);
+    int size = Integer.highestOneBit(carriers);
+    return size < carriers ? size << 1 : size;
+  }
 
   // Called once at agent install, on the bootstrap-injected classloader copy
   // (the one the VirtualThread advices resolve).
@@ -77,26 +87,23 @@ public class ThreadInfo {
   }
 
   private static void emitVtOp(OperationType op, long value) {
-    if (vtEmitPoolReady) {
-      final int start = (int) Thread.currentThread().getId() & (VT_POOL_SIZE - 1);
-      for (int i = 0; i < VT_POOL_SIZE; i++) {
-        final int slot = (start + i) & (VT_POOL_SIZE - 1);
-        final NativeMemory mem = vtEmitPool.getAndSet(slot, null);
-        if (mem != null) {
-          try {
-            IOCTLPacket.writePacket(mem, 0, op, value);
-            Agent.NativeLib.ioctl(0, Agent.IOCTL_CMD, mem.getAddress());
-          } finally {
-            vtEmitPool.set(slot, mem);
-          }
-          return;
+    if (!vtEmitPoolReady) {
+      return;
+    }
+    final int start = (int) Thread.currentThread().getId() & (VT_POOL_SIZE - 1);
+    for (int i = 0; i < VT_POOL_SIZE; i++) {
+      final int slot = (start + i) & (VT_POOL_SIZE - 1);
+      final NativeMemory mem = vtEmitPool.getAndSet(slot, null);
+      if (mem != null) {
+        try {
+          IOCTLPacket.writePacket(mem, 0, op, value);
+          Agent.NativeLib.ioctl(0, Agent.IOCTL_CMD, mem.getAddress());
+        } finally {
+          vtEmitPool.set(slot, mem);
         }
+        return;
       }
     }
-    // Pool not armed yet (or transiently exhausted): one-shot buffer.
-    NativeMemory p = new NativeMemory(IOCTLPacket.packetPrefixSize);
-    IOCTLPacket.writePacket(p, 0, op, value);
-    Agent.NativeLib.ioctl(0, Agent.IOCTL_CMD, p.getAddress());
   }
 
   // Called at VirtualThread.mount() EXIT, when Thread.currentThread() is

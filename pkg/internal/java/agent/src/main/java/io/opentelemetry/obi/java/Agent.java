@@ -271,10 +271,10 @@ public class Agent {
       // mount path (JarFile synchronized I/O) can pin carriers and deadlock.
       for (String name :
           new String[] {
-            "io.opentelemetry.obi.java.ebpf.ThreadInfo",
-            "io.opentelemetry.obi.java.ebpf.IOCTLPacket",
-            "io.opentelemetry.obi.java.ebpf.OperationType",
-            "io.opentelemetry.obi.java.ebpf.NativeMemory",
+            io.opentelemetry.obi.java.ebpf.ThreadInfo.class.getName(),
+            io.opentelemetry.obi.java.ebpf.IOCTLPacket.class.getName(),
+            io.opentelemetry.obi.java.ebpf.OperationType.class.getName(),
+            io.opentelemetry.obi.java.ebpf.NativeMemory.class.getName(),
           }) {
         Class.forName(name, true, null);
       }
@@ -284,14 +284,14 @@ public class Agent {
       // library binding is in place: the mount path must never allocate
       // direct memory (Bits.reserveMemory can System.gc/sleep).
       // A failed warmup (e.g. direct-memory pressure throwing an Error) must
-      // not disable the whole agent: emitVtOp falls back to one-shot buffers
-      // while the pool is unarmed, so catch Throwable and continue.
+      // not disable the whole agent: emitVtOp drops VT emits while the pool is
+      // unarmed (degrading to carrier-tid keying), so catch Throwable and continue.
       try {
         Class<?> bootstrapThreadInfo =
-            Class.forName("io.opentelemetry.obi.java.ebpf.ThreadInfo", true, null);
+            Class.forName(io.opentelemetry.obi.java.ebpf.ThreadInfo.class.getName(), true, null);
         bootstrapThreadInfo.getDeclaredMethod("initVtEmitPool").invoke(null);
       } catch (Throwable t) {
-        logger.severe("Failed to arm VT emit buffers, using one-shot fallback: " + t);
+        logger.severe("Failed to arm VT emit buffers, VT correlation disabled: " + t);
       }
     } catch (Exception e) {
       if (Agent.debugOn) {
