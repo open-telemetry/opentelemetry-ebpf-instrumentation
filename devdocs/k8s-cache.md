@@ -232,6 +232,17 @@ rules:
 discovery. If you disable those in your OBI config you can drop the
 corresponding rules too.
 
+On OpenShift, OBI can auto-detect the cluster name from the Infrastructure CR.
+This requires an additional rule:
+
+```yaml
+  - apiGroups: ["config.openshift.io"]
+    resources: ["infrastructures"]
+    verbs: ["get"]
+```
+
+Without it, the fetcher fails gracefully and the next provider is tried.
+
 ## Internal metrics
 
 When `OTEL_EBPF_K8S_CACHE_INTERNAL_METRICS_PROMETHEUS_PORT` is set, the
