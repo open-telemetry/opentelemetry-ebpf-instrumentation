@@ -382,12 +382,8 @@ func TestRuntimeToV2AdvancedCaptureParity(t *testing.T) {
 	cfg.Stats.ReverseDNS.CacheTTL = 84 * time.Second
 	cfg.Stats.Print = true
 
-	_, ext, diagnostics := RuntimeToV2WithDiagnostics(&cfg)
+	_, ext := RuntimeToV2(&cfg)
 
-	require.Len(t, diagnostics, 1)
-	require.Equal(t, DiagnosticSeverityWarning, diagnostics[0].Severity)
-	require.Equal(t, "unsupported_directional_http_routes", diagnostics[0].Code)
-	require.Equal(t, "capture.rules[].refine.http.routes", diagnostics[0].Path)
 	require.Equal(t, "exclude", value(t, ext.Capture.Policy, "default_action"))
 	require.Equal(t, cfg.Routes.Unmatch, value(t, ext.Capture.Instrumentation, "http", "routes", "unmatched"))
 	require.Equal(t, []string{"/products/{id}"}, value(t, ext.Capture.Instrumentation, "http", "routes", "patterns"))

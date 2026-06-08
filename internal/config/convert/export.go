@@ -16,17 +16,6 @@ import (
 // RuntimeToV2 converts an already-loaded v1 runtime configuration into the
 // internal config v2 document shape.
 func RuntimeToV2(cfg *obi.Config) (*schema.Document, *schema.Extension) {
-	doc, ext, _ := RuntimeToV2WithDiagnostics(cfg)
-	return doc, ext
-}
-
-func RuntimeToV2WithDiagnostics(cfg *obi.Config) (*schema.Document, *schema.Extension, []Diagnostic) {
-	ctx := &exportContext{}
-	doc, ext := runtimeToV2(cfg, ctx)
-	return doc, ext, ctx.diagnostics
-}
-
-func runtimeToV2(cfg *obi.Config, ctx *exportContext) (*schema.Document, *schema.Extension) {
 	if cfg == nil {
 		defaultConfig := obi.DefaultConfig
 		cfg = &defaultConfig
@@ -46,7 +35,7 @@ func runtimeToV2(cfg *obi.Config, ctx *exportContext) (*schema.Document, *schema
 			Engine:          captureEngine(cfg),
 			Safety:          captureSafety(cfg),
 			Channels:        captureChannels(cfg),
-			Rules:           rulesFromRuntime(cfg, ctx),
+			Rules:           rulesFromRuntime(cfg),
 			Telemetry:       map[string]any{},
 		},
 		Daemon: daemon(cfg),

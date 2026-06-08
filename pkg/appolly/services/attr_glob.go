@@ -173,16 +173,13 @@ func (p GlobAttr) MarshalYAML() (any, error) {
 
 func (p *GlobAttr) UnmarshalText(text []byte) error {
 	if len(text) == 0 {
-		p.str = ""
 		p.glob = nil
 		return nil
 	}
-	pattern := string(text)
-	re, err := glob.Compile(pattern)
+	re, err := glob.Compile(string(text))
 	if err != nil {
-		return fmt.Errorf("invalid regular expression %q: %w", pattern, err)
+		return fmt.Errorf("invalid regular expression %q: %w", string(text), err)
 	}
-	p.str = pattern
 	p.glob = re
 	return nil
 }

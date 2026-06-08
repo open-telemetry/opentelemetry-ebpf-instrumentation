@@ -204,14 +204,14 @@ func statsEnrichment(cfg *obi.Config) map[string]any {
 	}
 }
 
-func rulesFromRuntime(cfg *obi.Config, ctx *exportContext) []schema.Rule {
+func rulesFromRuntime(cfg *obi.Config) []schema.Rule {
 	rules := []schema.Rule{}
 	if discover.OnlyDefinesDeprecatedServiceSelection(cfg) {
-		rules = appendSelectorRules(rules, "exclude", discover.RegexAsSelector(cfg.Discovery.ExcludeServices), nil, ctx)
-		rules = appendSelectorRules(rules, "exclude", discover.RegexAsSelector(cfg.Discovery.DefaultExcludeServices), defaultExcludeRule, ctx)
+		rules = appendSelectorRules(rules, "exclude", discover.RegexAsSelector(cfg.Discovery.ExcludeServices), nil)
+		rules = appendSelectorRules(rules, "exclude", discover.RegexAsSelector(cfg.Discovery.DefaultExcludeServices), defaultExcludeRule)
 	} else {
-		rules = appendSelectorRules(rules, "exclude", discover.GlobsAsSelector(cfg.Discovery.ExcludeInstrument), nil, ctx)
-		rules = appendSelectorRules(rules, "exclude", discover.GlobsAsSelector(cfg.Discovery.DefaultExcludeInstrument), defaultExcludeRule, ctx)
+		rules = appendSelectorRules(rules, "exclude", discover.GlobsAsSelector(cfg.Discovery.ExcludeInstrument), nil)
+		rules = appendSelectorRules(rules, "exclude", discover.GlobsAsSelector(cfg.Discovery.DefaultExcludeInstrument), defaultExcludeRule)
 	}
 
 	if cfg.Discovery.ExcludeOTelInstrumentedServices {
@@ -247,7 +247,7 @@ func rulesFromRuntime(cfg *obi.Config, ctx *exportContext) []schema.Rule {
 		})
 	}
 
-	rules = appendSelectorRules(rules, "include", discover.FindingCriteria(cfg), nil, ctx)
+	rules = appendSelectorRules(rules, "include", discover.FindingCriteria(cfg), nil)
 
 	return rules
 }
@@ -259,10 +259,9 @@ func appendSelectorRules(
 	action string,
 	selectors []services.Selector,
 	defaultRule defaultRuleFunc,
-	ctx *exportContext,
 ) []schema.Rule {
 	for i, selector := range selectors {
-		match := selectorMatch(selector, ctx)
+		match := selectorMatch(selector)
 		if len(match) == 0 {
 			continue
 		}
@@ -274,24 +273,19 @@ func appendSelectorRules(
 		if defaultRule != nil {
 			rule.Name, rule.Description = defaultRule(i, match)
 		}
-		rule.Refine = selectorRefinement(action, selector, ctx)
+		rule.Refine = selectorRefinement(action, selector)
 		rules = append(rules, rule)
 	}
 	return rules
 }
 
-func selectorMatch(selector services.Selector, ctx *exportContext) map[string]any {
+func selectorMatch(selector services.Selector) map[string]any {
 	switch selector := selector.(type) {
 	case *services.GlobAttributes:
 		return globSelectorMatch(selector)
 	case *services.RegexSelector:
 		return regexSelectorMatch(selector)
 	default:
-		ctx.warn(
-			"unsupported_selector_type",
-			"capture.rules",
-			"skipping discovery selector with unsupported runtime type",
-		)
 		return nil
 	}
 }
@@ -391,7 +385,7 @@ func regexSelectorMatch(selector *services.RegexSelector) map[string]any {
 	return match
 }
 
-func selectorRefinement(action string, selector services.Selector, ctx *exportContext) schema.RuleRefinement {
+func selectorRefinement(action string, selector services.Selector) schema.RuleRefinement {
 	refine := schema.RuleRefinement{}
 	if action != "include" {
 		return refine
@@ -402,11 +396,6 @@ func selectorRefinement(action string, selector services.Selector, ctx *exportCo
 	if routes := selector.GetRoutesConfig(); routes != nil {
 		if len(routes.Incoming) > 0 || len(routes.Outgoing) > 0 {
 			// TODO(#2251): add a direction-aware v2 route refinement shape.
-			ctx.warn(
-				"unsupported_directional_http_routes",
-				"capture.rules[].refine.http.routes",
-				"skipping per-selector incoming/outgoing HTTP route overrides because config v2 does not yet have a direction-aware route refinement shape",
-			)
 		}
 	}
 	return refine
