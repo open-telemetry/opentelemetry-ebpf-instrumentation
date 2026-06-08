@@ -382,8 +382,12 @@ func TestRuntimeToV2AdvancedCaptureParity(t *testing.T) {
 	cfg.Stats.ReverseDNS.CacheTTL = 84 * time.Second
 	cfg.Stats.Print = true
 
-	_, ext := RuntimeToV2(&cfg)
+	_, ext, diagnostics := RuntimeToV2WithDiagnostics(&cfg)
 
+	require.Len(t, diagnostics, 1)
+	require.Equal(t, DiagnosticSeverityWarning, diagnostics[0].Severity)
+	require.Equal(t, "unsupported_directional_http_routes", diagnostics[0].Code)
+	require.Equal(t, "capture.rules[].refine.http.routes", diagnostics[0].Path)
 	require.Equal(t, "exclude", value(t, ext.Capture.Policy, "default_action"))
 	require.Equal(t, cfg.Routes.Unmatch, value(t, ext.Capture.Instrumentation, "http", "routes", "unmatched"))
 	require.Equal(t, []string{"/products/{id}"}, value(t, ext.Capture.Instrumentation, "http", "routes", "patterns"))
@@ -441,7 +445,7 @@ func TestRuntimeToV2AdvancedCaptureParity(t *testing.T) {
 	require.Equal(t, []string{"checkout"}, value(t, ext.Capture.Rules[3].Match, "kubernetes", "pod_labels", "app"))
 	require.Equal(t, []string{"payments"}, value(t, ext.Capture.Rules[3].Match, "kubernetes", "pod_annotations", "team"))
 	require.Equal(t, map[string]any{"traces": false, "metrics": true}, ext.Capture.Rules[3].Refine.Exports)
-	require.Equal(t, []string{"/orders/{id}", "/inventory/{id}"}, value(t, ext.Capture.Rules[3].Refine.HTTP, "routes", "patterns"))
+	require.Nil(t, ext.Capture.Rules[3].Refine.HTTP)
 }
 
 func TestRuntimeToV2EffectiveDiscoveryCriteria(t *testing.T) {

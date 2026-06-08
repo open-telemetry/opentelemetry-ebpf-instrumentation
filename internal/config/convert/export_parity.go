@@ -274,7 +274,7 @@ func appendSelectorRules(
 		if defaultRule != nil {
 			rule.Name, rule.Description = defaultRule(i, match)
 		}
-		rule.Refine = selectorRefinement(action, selector)
+		rule.Refine = selectorRefinement(action, selector, ctx)
 		rules = append(rules, rule)
 	}
 	return rules
@@ -391,7 +391,7 @@ func regexSelectorMatch(selector *services.RegexSelector) map[string]any {
 	return match
 }
 
-func selectorRefinement(action string, selector services.Selector) schema.RuleRefinement {
+func selectorRefinement(action string, selector services.Selector, ctx *exportContext) schema.RuleRefinement {
 	refine := schema.RuleRefinement{}
 	if action != "include" {
 		return refine
@@ -400,12 +400,13 @@ func selectorRefinement(action string, selector services.Selector) schema.RuleRe
 		refine.Exports = exports
 	}
 	if routes := selector.GetRoutesConfig(); routes != nil {
-		patterns := append([]string{}, routes.Incoming...)
-		patterns = append(patterns, routes.Outgoing...)
-		refine.HTTP = map[string]any{
-			"routes": map[string]any{
-				"patterns": patterns,
-			},
+		if len(routes.Incoming) > 0 || len(routes.Outgoing) > 0 {
+			// TODO(#2251): add a direction-aware v2 route refinement shape.
+			ctx.warn(
+				"unsupported_directional_http_routes",
+				"capture.rules[].refine.http.routes",
+				"skipping per-selector incoming/outgoing HTTP route overrides because config v2 does not yet have a direction-aware route refinement shape",
+			)
 		}
 	}
 	return refine
