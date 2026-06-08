@@ -32,19 +32,17 @@ func RuntimeToV2(cfg *obi.Config) (*schema.Document, *schema.Extension) {
 			Safety:          captureSafety(cfg),
 			Channels:        captureChannels(cfg),
 			Rules:           rulesFromRuntime(cfg),
-			Telemetry:       captureTelemetry(cfg),
+			Telemetry:       map[string]any{},
 		},
-		Enrich:      enrich(cfg),
-		Correlation: correlation(cfg),
-		Daemon:      daemon(cfg),
+		Daemon: daemon(cfg),
 	}
 
 	doc := &schema.Document{
 		FileFormat:     "1.0",
-		Resource:       resource(cfg),
+		Resource:       map[string]any{},
 		Propagator:     map[string]any{},
-		TracerProvider: tracerProvider(cfg),
-		MeterProvider:  meterProvider(cfg),
+		TracerProvider: map[string]any{},
+		MeterProvider:  map[string]any{},
 		Extensions:     schema.Extensions{OBI: ext},
 	}
 
@@ -353,16 +351,6 @@ func daemon(cfg *obi.Config) map[string]any {
 			},
 			"bpf": map[string]any{
 				"scrape_interval": cfg.InternalMetrics.BpfMetricScrapeInterval.String(),
-			},
-		},
-		"telemetry": map[string]any{
-			"metrics": map[string]any{
-				"prometheus": map[string]any{
-					"allow_service_graph_self_references": cfg.Prometheus.AllowServiceGraphSelfReferences,
-					"span_metrics_service_cache_size":     cfg.Prometheus.SpanMetricsServiceCacheSize,
-					"extra_resource_attributes":           cfg.Prometheus.ExtraResourceLabels,
-					"extra_span_resource_attributes":      cfg.Prometheus.ExtraSpanResourceLabels,
-				},
 			},
 		},
 	}
