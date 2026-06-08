@@ -84,7 +84,7 @@ InstanceIDConfig configures how OBI will get the Instance ID of the traces/metri
 
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
-| `attributes.kubernetes.cluster_name` | `string` | `OTEL_EBPF_KUBE_CLUSTER_NAME` |  |  |  | Overrides cluster name. If empty, the NetO11y module will try to retrieve it from the Cloud Provider Metadata (EC2, GCP and Azure), and leave it empty if it fails to. |
+| `attributes.kubernetes.cluster_name` | `string` | `OTEL_EBPF_KUBE_CLUSTER_NAME` |  |  |  | Overrides cluster name. If empty, OBI will try to retrieve it from node labels, the OpenShift Infrastructure CR, or cloud provider metadata (EC2, GCP, Azure), and leave it empty if all fail. |
 | `attributes.kubernetes.disable_informers` | `string`[] | `OTEL_EBPF_KUBE_DISABLE_INFORMERS` |  |  |  | Allows selectively disabling some informers. Accepted value is a list that might contain node or service. Disabling any of them will cause metadata to be incomplete but will reduce the load of the Kube API. Pods informer can't be disabled. For that purpose, you should disable the whole kubernetes metadata decoration. |
 | `attributes.kubernetes.drop_external` | `boolean` | `OTEL_EBPF_NETWORK_DROP_EXTERNAL` | `false` |  |  | Will drop, in NetO11y component, any flow where the source or destination IPs are not matched to any kubernetes entity, assuming they are cluster-external |
 | `attributes.kubernetes.enable` | `string` | `OTEL_EBPF_KUBE_METADATA_ENABLE` | `autodetect` | `autodetect`, `false`, `true` |  |  |
