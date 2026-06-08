@@ -556,14 +556,6 @@ func DBResponseErrorAttr(optionalAttrs map[attr.Name]struct{}, description strin
 	return []attribute.KeyValue{attribute.Key(attr.DBResponseError).String(description)}
 }
 
-// OncRPCMetricAttributes are added to rpc.*.duration metrics only for SunRPC spans.
-var OncRPCMetricAttributes = []attr.Name{
-	attr.OncRPCProgramName,
-	attr.OncRPCProcedureNumber,
-	attr.OncRPCProcedureName,
-	attr.OncRPCVersion,
-}
-
 func AppendUniqueNames(base []attr.Name, extra []attr.Name) []attr.Name {
 	seen := make(map[attr.Name]struct{}, len(base)+len(extra))
 	out := make([]attr.Name, 0, len(base)+len(extra))

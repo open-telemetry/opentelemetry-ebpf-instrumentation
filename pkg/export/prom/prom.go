@@ -374,14 +374,9 @@ func newReporter(
 
 	var attrGRPCDuration, attrGRPCClientDuration []attributes.Field[*request.Span, string]
 
-	rpcServerAttrs := attrsProvider.For(attributes.RPCServerDuration)
-	rpcClientAttrs := attrsProvider.For(attributes.RPCClientDuration)
-	if is.SunRPCEnabled() {
-		rpcServerAttrs = attributes.AppendUniqueNames(rpcServerAttrs, attributes.OncRPCMetricAttributes)
-		rpcClientAttrs = attributes.AppendUniqueNames(rpcClientAttrs, attributes.OncRPCMetricAttributes)
-	}
-
 	if is.GRPCEnabled() || is.SunRPCEnabled() {
+		rpcServerAttrs := attrsProvider.For(attributes.RPCServerDuration)
+		rpcClientAttrs := attrsProvider.For(attributes.RPCClientDuration)
 		attrGRPCDuration = attributes.PrometheusGetters(attributeGetters, rpcServerAttrs)
 		attrGRPCClientDuration = attributes.PrometheusGetters(attributeGetters, rpcClientAttrs)
 	}

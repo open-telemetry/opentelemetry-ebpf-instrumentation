@@ -89,8 +89,6 @@ type MetricsReporter struct {
 	attrHTTPClientDuration     []attributes.Field[*request.Span, attribute.KeyValue]
 	attrGRPCServer             []attributes.Field[*request.Span, attribute.KeyValue]
 	attrGRPCClient             []attributes.Field[*request.Span, attribute.KeyValue]
-	attrSunRPCServer           []attributes.Field[*request.Span, attribute.KeyValue]
-	attrSunRPCClient           []attributes.Field[*request.Span, attribute.KeyValue]
 	attrDBClient               []attributes.Field[*request.Span, attribute.KeyValue]
 	attrMessagingPublish       []attributes.Field[*request.Span, attribute.KeyValue]
 	attrMessagingProcess       []attributes.Field[*request.Span, attribute.KeyValue]
@@ -132,8 +130,6 @@ type Metrics struct {
 	httpClientDuration     *Expirer[*request.Span, instrument.Float64Histogram, float64]
 	grpcDuration           *Expirer[*request.Span, instrument.Float64Histogram, float64]
 	grpcClientDuration     *Expirer[*request.Span, instrument.Float64Histogram, float64]
-	sunrpcDuration         *Expirer[*request.Span, instrument.Float64Histogram, float64]
-	sunrpcClientDuration   *Expirer[*request.Span, instrument.Float64Histogram, float64]
 	dbClientDuration       *Expirer[*request.Span, instrument.Float64Histogram, float64]
 	msgPublishDuration     *Expirer[*request.Span, instrument.Float64Histogram, float64]
 	msgProcessDuration     *Expirer[*request.Span, instrument.Float64Histogram, float64]
@@ -257,18 +253,11 @@ func newMetricsReporter(
 			mr.attrGetters, mr.attributes.For(attributes.HTTPClientResponseSize))
 	}
 
-	if is.GRPCEnabled() {
+	if is.GRPCEnabled() || is.SunRPCEnabled() {
 		mr.attrGRPCServer = attributes.OpenTelemetryGetters(
 			mr.attrGetters, mr.attributes.For(attributes.RPCServerDuration))
 		mr.attrGRPCClient = attributes.OpenTelemetryGetters(
 			mr.attrGetters, mr.attributes.For(attributes.RPCClientDuration))
-	}
-
-	if is.SunRPCEnabled() {
-		mr.attrSunRPCServer = attributes.OpenTelemetryGetters(mr.attrGetters, attributes.AppendUniqueNames(
-			mr.attributes.For(attributes.RPCServerDuration), attributes.OncRPCMetricAttributes))
-		mr.attrSunRPCClient = attributes.OpenTelemetryGetters(mr.attrGetters, attributes.AppendUniqueNames(
-			mr.attributes.For(attributes.RPCClientDuration), attributes.OncRPCMetricAttributes))
 	}
 
 	if is.DBEnabled() {
@@ -374,14 +363,7 @@ func (mr *MetricsReporter) otelMetricOptions() []metric.Option {
 		)
 	}
 
-	if mr.is.GRPCEnabled() {
-		opts = append(opts,
-			metric.WithView(mr.otelHistogramConfig(attributes.RPCServerDuration.OTEL, mr.cfg.Buckets.DurationHistogram)),
-			metric.WithView(mr.otelHistogramConfig(attributes.RPCClientDuration.OTEL, mr.cfg.Buckets.DurationHistogram)),
-		)
-	}
-
-	if mr.is.SunRPCEnabled() {
+	if mr.is.GRPCEnabled() || mr.is.SunRPCEnabled() {
 		opts = append(opts,
 			metric.WithView(mr.otelHistogramConfig(attributes.RPCServerDuration.OTEL, mr.cfg.Buckets.DurationHistogram)),
 			metric.WithView(mr.otelHistogramConfig(attributes.RPCClientDuration.OTEL, mr.cfg.Buckets.DurationHistogram)),
@@ -493,7 +475,7 @@ func (mr *MetricsReporter) setupOtelMeters(m *Metrics, meter instrument.Meter) e
 			m.ctx, httpClientResponseSize, mr.attrHTTPClientResponseSize, timeNow, mr.cfg.TTL)
 	}
 
-	if mr.is.GRPCEnabled() {
+	if mr.is.GRPCEnabled() || mr.is.SunRPCEnabled() {
 		grpcDuration, err := meter.Float64Histogram(attributes.RPCServerDuration.OTEL, instrument.WithUnit("s"))
 		if err != nil {
 			return fmt.Errorf("creating grpc duration histogram metric: %w", err)
@@ -507,22 +489,6 @@ func (mr *MetricsReporter) setupOtelMeters(m *Metrics, meter instrument.Meter) e
 		}
 		m.grpcClientDuration = NewExpirer[*request.Span, instrument.Float64Histogram, float64](
 			m.ctx, grpcClientDuration, mr.attrGRPCClient, timeNow, mr.cfg.TTL)
-	}
-
-	if mr.is.SunRPCEnabled() {
-		sunrpcServerDuration, err := meter.Float64Histogram(attributes.RPCServerDuration.OTEL, instrument.WithUnit("s"))
-		if err != nil {
-			return fmt.Errorf("creating SunRPC server duration histogram metric: %w", err)
-		}
-		m.sunrpcDuration = NewExpirer[*request.Span, instrument.Float64Histogram, float64](
-			m.ctx, sunrpcServerDuration, mr.attrSunRPCServer, timeNow, mr.cfg.TTL)
-
-		sunrpcClientDuration, err := meter.Float64Histogram(attributes.RPCClientDuration.OTEL, instrument.WithUnit("s"))
-		if err != nil {
-			return fmt.Errorf("creating SunRPC client duration histogram metric: %w", err)
-		}
-		m.sunrpcClientDuration = NewExpirer[*request.Span, instrument.Float64Histogram, float64](
-			m.ctx, sunrpcClientDuration, mr.attrSunRPCClient, timeNow, mr.cfg.TTL)
 	}
 
 	if mr.is.DBEnabled() {
@@ -967,13 +933,13 @@ func (r *Metrics) record(span *request.Span, mr *MetricsReporter) {
 			}
 		case request.EventTypeSunRPCClient:
 			if mr.is.SunRPCEnabled() {
-				sunrpcClientDuration, attrs := r.sunrpcClientDuration.ForRecord(span)
-				sunrpcClientDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
+				grpcClientDuration, attrs := r.grpcClientDuration.ForRecord(span)
+				grpcClientDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
 			}
 		case request.EventTypeSunRPCServer:
 			if mr.is.SunRPCEnabled() {
-				sunrpcDuration, attrs := r.sunrpcDuration.ForRecord(span)
-				sunrpcDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
+				grpcDuration, attrs := r.grpcDuration.ForRecord(span)
+				grpcDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
 			}
 		case request.EventTypeHTTPClient:
 			// HTTP client subtypes that are database calls get recorded as db client metrics
@@ -1355,8 +1321,6 @@ func (r *Metrics) cleanupAllMetricsInstances() {
 	cleanupMetrics(r.ctx, r.httpClientDuration)
 	cleanupMetrics(r.ctx, r.grpcDuration)
 	cleanupMetrics(r.ctx, r.grpcClientDuration)
-	cleanupMetrics(r.ctx, r.sunrpcDuration)
-	cleanupMetrics(r.ctx, r.sunrpcClientDuration)
 	cleanupMetrics(r.ctx, r.dbClientDuration)
 	cleanupMetrics(r.ctx, r.msgPublishDuration)
 	cleanupMetrics(r.ctx, r.msgProcessDuration)
