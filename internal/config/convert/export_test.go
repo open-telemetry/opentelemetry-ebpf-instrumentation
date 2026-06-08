@@ -274,7 +274,8 @@ func TestRuntimeToV2AdvancedCaptureParity(t *testing.T) {
 			Path:           services.NewGlob("/usr/bin/checkout"),
 			ContainersOnly: true,
 			Metadata: services.MetadataGlobMap{
-				services.AttrNamespace: globPtr("shop-*"),
+				services.AttrNamespace:      globPtr("shop-*"),
+				services.AttrDeploymentName: globPtr("checkout-*"),
 			},
 			PodLabels: map[string]*services.GlobAttr{
 				"app": globPtr("checkout"),
@@ -381,6 +382,7 @@ func TestRuntimeToV2AdvancedCaptureParity(t *testing.T) {
 
 	_, ext := RuntimeToV2(&cfg)
 
+	require.Equal(t, "exclude", value(t, ext.Capture.Policy, "default_action"))
 	require.Equal(t, cfg.Routes.Unmatch, value(t, ext.Capture.Instrumentation, "http", "routes", "unmatched"))
 	require.Equal(t, []string{"/products/{id}"}, value(t, ext.Capture.Instrumentation, "http", "routes", "patterns"))
 	require.Equal(t, []string{"/health"}, value(t, ext.Capture.Instrumentation, "http", "routes", "ignored_patterns"))
@@ -425,17 +427,102 @@ func TestRuntimeToV2AdvancedCaptureParity(t *testing.T) {
 	require.Len(t, ext.Capture.Rules, 4)
 	require.Equal(t, "exclude", ext.Capture.Rules[0].Action)
 	require.Equal(t, []string{"/tmp/*"}, value(t, ext.Capture.Rules[0].Match, "process", "exe_path_glob"))
-	require.Equal(t, "include", ext.Capture.Rules[1].Action)
-	require.Equal(t, ports, value(t, ext.Capture.Rules[1].Match, "process", "open_ports"))
-	require.Equal(t, []uint32{1234, 5678}, value(t, ext.Capture.Rules[1].Match, "process", "target_pids"))
-	require.Equal(t, []string{"go", "java"}, value(t, ext.Capture.Rules[1].Match, "process", "language_glob"))
-	require.Equal(t, true, value(t, ext.Capture.Rules[1].Match, "process", "containers_only"))
-	require.Equal(t, []string{"shop-*"}, value(t, ext.Capture.Rules[1].Match, "kubernetes", "namespace_glob"))
-	require.Equal(t, []string{"checkout"}, value(t, ext.Capture.Rules[1].Match, "kubernetes", "pod_labels", "app"))
-	require.Equal(t, map[string]any{"traces": false, "metrics": true}, ext.Capture.Rules[1].Refine.Exports)
-	require.Equal(t, []string{"/orders/{id}", "/inventory/{id}"}, value(t, ext.Capture.Rules[1].Refine.HTTP, "routes", "patterns"))
-	require.Equal(t, 14317, value(t, ext.Capture.Rules[2].Match, "process", "exports_otlp", "port"))
-	require.Equal(t, []string{"/lib/systemd/*", "/usr/sbin/*"}, value(t, ext.Capture.Rules[3].Match, "process", "exe_path_glob"))
+	require.Equal(t, 14317, value(t, ext.Capture.Rules[1].Match, "process", "exports_otlp", "port"))
+	require.Equal(t, []string{"/lib/systemd/*", "/usr/sbin/*"}, value(t, ext.Capture.Rules[2].Match, "process", "exe_path_glob"))
+	require.Equal(t, "include", ext.Capture.Rules[3].Action)
+	require.Equal(t, ports, value(t, ext.Capture.Rules[3].Match, "process", "open_ports"))
+	require.Equal(t, []uint32{1234, 5678}, value(t, ext.Capture.Rules[3].Match, "process", "target_pids"))
+	require.Equal(t, []string{"go", "java"}, value(t, ext.Capture.Rules[3].Match, "process", "language_glob"))
+	require.Equal(t, true, value(t, ext.Capture.Rules[3].Match, "process", "containers_only"))
+	require.Equal(t, []string{"shop-*"}, value(t, ext.Capture.Rules[3].Match, "kubernetes", "namespace_glob"))
+	require.Equal(t, []string{"checkout-*"}, value(t, ext.Capture.Rules[3].Match, "kubernetes", "metadata_glob", services.AttrDeploymentName))
+	require.Equal(t, []string{"checkout"}, value(t, ext.Capture.Rules[3].Match, "kubernetes", "pod_labels", "app"))
+	require.Equal(t, []string{"payments"}, value(t, ext.Capture.Rules[3].Match, "kubernetes", "pod_annotations", "team"))
+	require.Equal(t, map[string]any{"traces": false, "metrics": true}, ext.Capture.Rules[3].Refine.Exports)
+	require.Equal(t, []string{"/orders/{id}", "/inventory/{id}"}, value(t, ext.Capture.Rules[3].Refine.HTTP, "routes", "patterns"))
+}
+
+func TestRuntimeToV2EffectiveDiscoveryCriteria(t *testing.T) {
+	t.Parallel()
+
+	t.Run("top-level glob selectors", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := minimalSelectionConfig()
+		require.NoError(t, cfg.Port.UnmarshalText([]byte("8080,9090-9091")))
+		cfg.AutoTargetExe = services.NewGlob("/srv/*")
+		cfg.AutoTargetLanguage = services.NewGlob("{go,java}")
+
+		_, ext := RuntimeToV2(&cfg)
+
+		require.Equal(t, "exclude", value(t, ext.Capture.Policy, "default_action"))
+		require.Len(t, ext.Capture.Rules, 1)
+		require.Equal(t, "include", ext.Capture.Rules[0].Action)
+		require.Equal(t, cfg.Port, value(t, ext.Capture.Rules[0].Match, "process", "open_ports"))
+		require.Equal(t, []string{"/srv/*"}, value(t, ext.Capture.Rules[0].Match, "process", "exe_path_glob"))
+		require.Equal(t, []string{"go", "java"}, value(t, ext.Capture.Rules[0].Match, "process", "language_glob"))
+	})
+
+	t.Run("target pids selector", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := minimalSelectionConfig()
+		require.NoError(t, cfg.TargetPIDs.UnmarshalText([]byte("1234,5678")))
+
+		_, ext := RuntimeToV2(&cfg)
+
+		require.Equal(t, "exclude", value(t, ext.Capture.Policy, "default_action"))
+		require.Len(t, ext.Capture.Rules, 1)
+		require.Equal(t, []uint32{1234, 5678}, value(t, ext.Capture.Rules[0].Match, "process", "target_pids"))
+	})
+
+	t.Run("deprecated regex selectors", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := minimalSelectionConfig()
+		require.NoError(t, cfg.Port.UnmarshalText([]byte("8080")))
+		cfg.Exec = services.NewRegexp("^/srv/fallback$")
+		cfg.Discovery.Services = services.RegexDefinitionCriteria{
+			{
+				Path:      services.NewRegexp("^/srv/api$"),
+				Languages: services.NewRegexp("go|java"),
+				CmdArgs:   services.NewRegexp("--serve"),
+				Metadata: services.MetadataRegexMap{
+					services.AttrNamespace:      regexPtr("^shop$"),
+					services.AttrDeploymentName: regexPtr("^checkout-.+$"),
+				},
+				PodLabels: map[string]*services.RegexpAttr{
+					"app": regexPtr("^checkout$"),
+				},
+				PodAnnotations: map[string]*services.RegexpAttr{
+					"team": regexPtr("^payments$"),
+				},
+			},
+		}
+		cfg.Discovery.ExcludeServices = services.RegexDefinitionCriteria{
+			{
+				PathRegexp: services.NewRegexp("^/tmp/.*$"),
+			},
+		}
+
+		_, ext := RuntimeToV2(&cfg)
+
+		require.Equal(t, "exclude", value(t, ext.Capture.Policy, "default_action"))
+		require.Len(t, ext.Capture.Rules, 3)
+		require.Equal(t, "exclude", ext.Capture.Rules[0].Action)
+		require.Equal(t, "^/tmp/.*$", value(t, ext.Capture.Rules[0].Match, "process", "exe_path_regex"))
+		require.Equal(t, "include", ext.Capture.Rules[1].Action)
+		require.Equal(t, "^/srv/api$", value(t, ext.Capture.Rules[1].Match, "process", "exe_path_regex"))
+		require.Equal(t, "go|java", value(t, ext.Capture.Rules[1].Match, "process", "language_regex"))
+		require.Equal(t, "--serve", value(t, ext.Capture.Rules[1].Match, "process", "cmd_args_regex"))
+		require.Equal(t, "^shop$", value(t, ext.Capture.Rules[1].Match, "kubernetes", "namespace_regex"))
+		require.Equal(t, "^checkout-.+$", value(t, ext.Capture.Rules[1].Match, "kubernetes", "metadata_regex", services.AttrDeploymentName))
+		require.Equal(t, "^checkout$", value(t, ext.Capture.Rules[1].Match, "kubernetes", "pod_labels_regex", "app"))
+		require.Equal(t, "^payments$", value(t, ext.Capture.Rules[1].Match, "kubernetes", "pod_annotations_regex", "team"))
+		require.Equal(t, "include", ext.Capture.Rules[2].Action)
+		require.Equal(t, cfg.Port, value(t, ext.Capture.Rules[2].Match, "process", "open_ports"))
+		require.Equal(t, "^/srv/fallback$", value(t, ext.Capture.Rules[2].Match, "process", "exe_path_regex"))
+	})
 }
 
 func TestRuntimeToV2MetricInstrumentationsUseEnabledExporters(t *testing.T) {
@@ -528,6 +615,20 @@ func value(t *testing.T, root any, path ...string) any {
 func globPtr(pattern string) *services.GlobAttr {
 	glob := services.NewGlob(pattern)
 	return &glob
+}
+
+func regexPtr(pattern string) *services.RegexpAttr {
+	regex := services.NewRegexp(pattern)
+	return &regex
+}
+
+func minimalSelectionConfig() obi.Config {
+	cfg := obi.DefaultConfig
+	cfg.Discovery.DefaultExcludeInstrument = nil
+	cfg.Discovery.DefaultExcludeServices = nil
+	cfg.Discovery.ExcludeOTelInstrumentedServices = false
+	cfg.Discovery.ExcludedLinuxSystemPaths = nil
+	return cfg
 }
 
 func keys(m map[string]any) []string {

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"go.opentelemetry.io/obi/internal/config/schema"
+	"go.opentelemetry.io/obi/pkg/appolly/discover"
 	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/filter"
 	"go.opentelemetry.io/obi/pkg/obi"
@@ -203,11 +204,15 @@ func statsEnrichment(cfg *obi.Config) map[string]any {
 	}
 }
 
-func rulesFromRuntime(cfg *obi.Config) []schema.Rule {
+func rulesFromRuntime(cfg *obi.Config, ctx *exportContext) []schema.Rule {
 	rules := []schema.Rule{}
-	rules = appendSelectorRules(rules, "exclude", cfg.Discovery.DefaultExcludeInstrument, defaultExcludeRule)
-	rules = appendSelectorRules(rules, "exclude", cfg.Discovery.ExcludeInstrument, nil)
-	rules = appendSelectorRules(rules, "include", cfg.Discovery.Instrument, nil)
+	if discover.OnlyDefinesDeprecatedServiceSelection(cfg) {
+		rules = appendSelectorRules(rules, "exclude", discover.RegexAsSelector(cfg.Discovery.ExcludeServices), nil, ctx)
+		rules = appendSelectorRules(rules, "exclude", discover.RegexAsSelector(cfg.Discovery.DefaultExcludeServices), defaultExcludeRule, ctx)
+	} else {
+		rules = appendSelectorRules(rules, "exclude", discover.GlobsAsSelector(cfg.Discovery.ExcludeInstrument), nil, ctx)
+		rules = appendSelectorRules(rules, "exclude", discover.GlobsAsSelector(cfg.Discovery.DefaultExcludeInstrument), defaultExcludeRule, ctx)
+	}
 
 	if cfg.Discovery.ExcludeOTelInstrumentedServices {
 		rules = append(rules, schema.Rule{
@@ -242,6 +247,8 @@ func rulesFromRuntime(cfg *obi.Config) []schema.Rule {
 		})
 	}
 
+	rules = appendSelectorRules(rules, "include", discover.FindingCriteria(cfg), nil, ctx)
+
 	return rules
 }
 
@@ -250,11 +257,12 @@ type defaultRuleFunc func(int, map[string]any) (string, string)
 func appendSelectorRules(
 	rules []schema.Rule,
 	action string,
-	selectors services.GlobDefinitionCriteria,
+	selectors []services.Selector,
 	defaultRule defaultRuleFunc,
+	ctx *exportContext,
 ) []schema.Rule {
 	for i, selector := range selectors {
-		match := selectorMatch(selector)
+		match := selectorMatch(selector, ctx)
 		if len(match) == 0 {
 			continue
 		}
@@ -272,7 +280,23 @@ func appendSelectorRules(
 	return rules
 }
 
-func selectorMatch(selector services.GlobAttributes) map[string]any {
+func selectorMatch(selector services.Selector, ctx *exportContext) map[string]any {
+	switch selector := selector.(type) {
+	case *services.GlobAttributes:
+		return globSelectorMatch(selector)
+	case *services.RegexSelector:
+		return regexSelectorMatch(selector)
+	default:
+		ctx.warn(
+			"unsupported_selector_type",
+			"capture.rules",
+			"skipping discovery selector with unsupported runtime type",
+		)
+		return nil
+	}
+}
+
+func globSelectorMatch(selector *services.GlobAttributes) map[string]any {
 	match := map[string]any{}
 	process := map[string]any{}
 	kubernetes := map[string]any{}
@@ -299,6 +323,9 @@ func selectorMatch(selector services.GlobAttributes) map[string]any {
 	if namespace := selector.Metadata[services.AttrNamespace]; namespace != nil && namespace.IsSet() {
 		kubernetes["namespace_glob"] = globList(*namespace)
 	}
+	if metadata := globMetadataMap(selector.Metadata); len(metadata) > 0 {
+		kubernetes["metadata_glob"] = metadata
+	}
 	if labels := globMap(selector.PodLabels); len(labels) > 0 {
 		kubernetes["pod_labels"] = labels
 	}
@@ -315,17 +342,66 @@ func selectorMatch(selector services.GlobAttributes) map[string]any {
 	return match
 }
 
-func selectorRefinement(action string, selector services.GlobAttributes) schema.RuleRefinement {
+func regexSelectorMatch(selector *services.RegexSelector) map[string]any {
+	match := map[string]any{}
+	process := map[string]any{}
+	kubernetes := map[string]any{}
+
+	if selector.OpenPorts.Len() > 0 {
+		process["open_ports"] = selector.OpenPorts
+	}
+	if len(selector.PIDs) > 0 {
+		process["target_pids"] = selector.PIDs
+	}
+	if selector.Languages.IsSet() {
+		process["language_regex"] = regexString(selector.Languages)
+	}
+	if selector.CmdArgs.IsSet() {
+		process["cmd_args_regex"] = regexString(selector.CmdArgs)
+	}
+	switch {
+	case selector.Path.IsSet():
+		process["exe_path_regex"] = regexString(selector.Path)
+	case selector.PathRegexp.IsSet():
+		process["exe_path_regex"] = regexString(selector.PathRegexp)
+	}
+	if selector.ContainersOnly {
+		process["containers_only"] = true
+	}
+
+	if namespace := selector.Metadata[services.AttrNamespace]; namespace != nil && namespace.IsSet() {
+		kubernetes["namespace_regex"] = regexString(*namespace)
+	}
+	if metadata := regexMetadataMap(selector.Metadata); len(metadata) > 0 {
+		kubernetes["metadata_regex"] = metadata
+	}
+	if labels := regexMap(selector.PodLabels); len(labels) > 0 {
+		kubernetes["pod_labels_regex"] = labels
+	}
+	if annotations := regexMap(selector.PodAnnotations); len(annotations) > 0 {
+		kubernetes["pod_annotations_regex"] = annotations
+	}
+
+	if len(process) > 0 {
+		match["process"] = process
+	}
+	if len(kubernetes) > 0 {
+		match["kubernetes"] = kubernetes
+	}
+	return match
+}
+
+func selectorRefinement(action string, selector services.Selector) schema.RuleRefinement {
 	refine := schema.RuleRefinement{}
 	if action != "include" {
 		return refine
 	}
-	if exports := exportModeRefinement(selector.ExportModes); exports != nil {
+	if exports := exportModeRefinement(selector.GetExportModes()); exports != nil {
 		refine.Exports = exports
 	}
-	if selector.Routes != nil {
-		patterns := append([]string{}, selector.Routes.Incoming...)
-		patterns = append(patterns, selector.Routes.Outgoing...)
+	if routes := selector.GetRoutesConfig(); routes != nil {
+		patterns := append([]string{}, routes.Incoming...)
+		patterns = append(patterns, routes.Outgoing...)
 		refine.HTTP = map[string]any{
 			"routes": map[string]any{
 				"patterns": patterns,
@@ -373,6 +449,17 @@ func globMap(values map[string]*services.GlobAttr) map[string]any {
 	return out
 }
 
+func globMetadataMap(values services.MetadataGlobMap) map[string]any {
+	out := make(map[string]any, len(values))
+	for key, value := range values {
+		if key == services.AttrNamespace || value == nil || !value.IsSet() {
+			continue
+		}
+		out[key] = globList(*value)
+	}
+	return out
+}
+
 func globList(value services.GlobAttr) []string {
 	raw := globString(value)
 	if raw == "" {
@@ -389,6 +476,39 @@ func globList(value services.GlobAttr) []string {
 
 func globString(g services.GlobAttr) string {
 	value, err := g.MarshalYAML()
+	if err != nil {
+		return ""
+	}
+	if str, ok := value.(string); ok {
+		return str
+	}
+	return ""
+}
+
+func regexMap(values map[string]*services.RegexpAttr) map[string]any {
+	out := make(map[string]any, len(values))
+	for key, value := range values {
+		if value == nil || !value.IsSet() {
+			continue
+		}
+		out[key] = regexString(*value)
+	}
+	return out
+}
+
+func regexMetadataMap(values services.MetadataRegexMap) map[string]any {
+	out := make(map[string]any, len(values))
+	for key, value := range values {
+		if key == services.AttrNamespace || value == nil || !value.IsSet() {
+			continue
+		}
+		out[key] = regexString(*value)
+	}
+	return out
+}
+
+func regexString(r services.RegexpAttr) string {
+	value, err := r.MarshalYAML()
 	if err != nil {
 		return ""
 	}

@@ -15,6 +15,17 @@ import (
 // RuntimeToV2 converts an already-loaded v1 runtime configuration into the
 // internal config v2 document shape.
 func RuntimeToV2(cfg *obi.Config) (*schema.Document, *schema.Extension) {
+	doc, ext, _ := RuntimeToV2WithDiagnostics(cfg)
+	return doc, ext
+}
+
+func RuntimeToV2WithDiagnostics(cfg *obi.Config) (*schema.Document, *schema.Extension, []Diagnostic) {
+	ctx := &exportContext{}
+	doc, ext := runtimeToV2(cfg, ctx)
+	return doc, ext, ctx.diagnostics
+}
+
+func runtimeToV2(cfg *obi.Config, ctx *exportContext) (*schema.Document, *schema.Extension) {
 	if cfg == nil {
 		defaultConfig := obi.DefaultConfig
 		cfg = &defaultConfig
@@ -34,7 +45,7 @@ func RuntimeToV2(cfg *obi.Config) (*schema.Document, *schema.Extension) {
 			Engine:          captureEngine(cfg),
 			Safety:          captureSafety(cfg),
 			Channels:        captureChannels(cfg),
-			Rules:           rulesFromRuntime(cfg),
+			Rules:           rulesFromRuntime(cfg, ctx),
 			Telemetry:       map[string]any{},
 		},
 		Daemon: daemon(cfg),
@@ -54,11 +65,18 @@ func RuntimeToV2(cfg *obi.Config) (*schema.Document, *schema.Extension) {
 
 func capturePolicy(cfg *obi.Config) map[string]any {
 	return map[string]any{
-		"default_action":  "include",
+		"default_action":  defaultPolicyAction(cfg),
 		"match_order":     "first_match_wins",
 		"poll_interval":   cfg.Discovery.PollInterval.String(),
 		"min_process_age": cfg.Discovery.MinProcessAge.String(),
 	}
+}
+
+func defaultPolicyAction(cfg *obi.Config) string {
+	if cfg.Enabled(obi.FeatureAppO11y) {
+		return "exclude"
+	}
+	return "include"
 }
 
 func captureInstrumentation(cfg *obi.Config) map[string]any {
