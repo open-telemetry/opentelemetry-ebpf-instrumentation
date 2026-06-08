@@ -405,11 +405,7 @@ func selectorRefinement(action string, selector services.Selector) schema.RuleRe
 	if exports := exportModeRefinement(selector.GetExportModes()); exports != nil {
 		refine.Exports = exports
 	}
-	if routes := selector.GetRoutesConfig(); routes != nil {
-		if len(routes.Incoming) > 0 || len(routes.Outgoing) > 0 {
-			// TODO(#2251): add a direction-aware v2 route refinement shape.
-		}
-	}
+	// TODO(#2251): add a direction-aware v2 route refinement shape for selector routes.
 	return refine
 }
 
