@@ -284,19 +284,26 @@ func captureNetwork(cfg *obi.Config) map[string]any {
 	}
 }
 
+const (
+	statsFeatureTCPRtt               = "tcp_rtt"
+	statsFeatureTCPFailedConnections = "tcp_failed_connections"
+	statsFeatureTCPRetransmits       = "tcp_retransmits"
+	statsFeatureTCPIo                = "tcp_io"
+)
+
 func statsFeatures(features featureexport.Features) []string {
 	out := []string{}
 	if features.StatsTCPRtt() {
-		out = append(out, "tcp_rtt")
+		out = append(out, statsFeatureTCPRtt)
 	}
 	if features.StatsTCPFailedConnections() {
-		out = append(out, "tcp_failed_connections")
+		out = append(out, statsFeatureTCPFailedConnections)
 	}
 	if features.StatsTCPRetransmits() {
-		out = append(out, "tcp_retransmits")
+		out = append(out, statsFeatureTCPRetransmits)
 	}
 	if features.StatsTCPIo() {
-		out = append(out, "tcp_io")
+		out = append(out, statsFeatureTCPIo)
 	}
 	return out
 }
