@@ -73,21 +73,19 @@ func captureInstrumentation(cfg *obi.Config) map[string]any {
 		}
 	}
 
+	for _, mapping := range protocolMappings {
+		protocolCfg := instrumentation[mapping.name].(map[string]any)
+		protocolCfg["filters"] = signalFilters(cfg.Filters.Application)
+	}
+
 	http := instrumentation["http"].(map[string]any)
-	http["filters"] = signalFilters(cfg.Filters.Application)
 	http["track_request_headers"] = cfg.EBPF.TrackRequestHeaders
 	http["request_timeout"] = cfg.EBPF.HTTPRequestTimeout.String()
 	http["buffer_size"] = cfg.EBPF.BufferSizes.HTTP
 	http["routes"] = httpRoutes(cfg)
 	http["payload_extraction"] = payloadExtraction(cfg)
 
-	for _, protocol := range []string{"grpc", "redis", "kafka", "mongo", "couchbase", "dns", "gpu"} {
-		protocolCfg := instrumentation[protocol].(map[string]any)
-		protocolCfg["filters"] = signalFilters(cfg.Filters.Application)
-	}
-
 	sql := instrumentation["sql"].(map[string]any)
-	sql["filters"] = signalFilters(cfg.Filters.Application)
 	sql["heuristic_detect"] = cfg.EBPF.HeuristicSQLDetect
 	sql["mysql"] = map[string]any{
 		"buffer_size":                    cfg.EBPF.BufferSizes.MySQL,
