@@ -256,9 +256,12 @@ func parseCall(body []byte) (*CallInfo, bool, error) {
 	}
 	off += n
 
-	_, n, err = readOpaqueAuth(body[off:])
+	verfFlavor, n, err := readOpaqueAuth(body[off:])
 	if err != nil {
 		return nil, false, err
+	}
+	if !validAuthFlavor(verfFlavor) {
+		return nil, false, nil
 	}
 	off += n
 

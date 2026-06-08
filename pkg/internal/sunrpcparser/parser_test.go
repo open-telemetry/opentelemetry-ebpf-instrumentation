@@ -168,6 +168,21 @@ func TestIsLikelySunRPC_rejectsDeniedWithoutRejectStat(t *testing.T) {
 	assert.False(t, IsLikelySunRPC(&reader))
 }
 
+func TestIsLikelySunRPC_rejectsCallWithInvalidVerfFlavor(t *testing.T) {
+	record := buildCallRecord(t, callParams{
+		xid:        1,
+		prog:       ProgramPortmapper,
+		vers:       2,
+		proc:       0,
+		authFlavor: authNull,
+		verfFlavor: 99,
+	})
+	buf := largebuf.NewLargeBufferFrom(wrapTCPRecord(record))
+	reader := buf.NewReader()
+
+	assert.False(t, IsLikelySunRPC(&reader))
+}
+
 func TestIsLikelySunRPC_acceptsValidCall(t *testing.T) {
 	record := buildCallRecord(t, callParams{
 		xid:        1,
@@ -207,6 +222,7 @@ type callParams struct {
 	proc       uint32
 	authFlavor uint32
 	authBody   []byte
+	verfFlavor uint32
 }
 
 func buildCallRecord(t *testing.T, p callParams) []byte {
@@ -218,7 +234,11 @@ func buildCallRecord(t *testing.T, p callParams) []byte {
 	body = appendU32(body, p.vers)
 	body = appendU32(body, p.proc)
 	body = appendOpaqueAuth(body, p.authFlavor, p.authBody)
-	body = appendOpaqueAuth(body, authNull, nil)
+	verfFlavor := uint32(authNull)
+	if p.verfFlavor != 0 {
+		verfFlavor = p.verfFlavor
+	}
+	body = appendOpaqueAuth(body, verfFlavor, nil)
 
 	msg := make([]byte, 0, 8+len(body))
 	msg = appendU32(msg, p.xid)

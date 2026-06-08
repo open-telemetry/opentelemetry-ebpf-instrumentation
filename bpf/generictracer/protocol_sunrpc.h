@@ -15,6 +15,9 @@ enum {
     k_sunrpc_rm_last_frag = 0x80000000,
     k_sunrpc_rm_frag_len_mask = 0x7fffffff,
     k_sunrpc_max_record = 1 << 20,
+    // Smallest valid RPC message: REPLY denied with AUTH_ERROR (xid, msg_type, reply_stat,
+    // reject_stat, auth_stat). CALL and other replies enforce larger bounds in their parsers.
+    k_sunrpc_min_record = 20,
     k_sunrpc_rpc_version = 2,
     k_sunrpc_msg_call = 0,
     k_sunrpc_msg_reply = 1,
@@ -193,7 +196,7 @@ static __always_inline u8 sunrpc_record_looks_valid(const unsigned char *data, u
     }
 
     const u32 rec_len = rm & k_sunrpc_rm_frag_len_mask;
-    if (rec_len < 24 || rec_len > k_sunrpc_max_record) {
+    if (rec_len < k_sunrpc_min_record || rec_len > k_sunrpc_max_record) {
         return 0;
     }
     if (data_len < 4 + rec_len) {
