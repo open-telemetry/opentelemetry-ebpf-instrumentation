@@ -17,17 +17,18 @@ import (
 	"strings"
 	"time"
 
-	"go.opentelemetry.io/contrib/detectors/aws/eks"
 	"k8s.io/client-go/rest"
+
+	"go.opentelemetry.io/contrib/detectors/aws/eks"
 
 	attr2 "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/kube"
 )
 
 const (
-	gcpMetadataURL       = "http://metadata.google.internal/computeMetadata/v1/instance/attributes/cluster-name"
-	azureMetadataURL     = "http://169.254.169.254/metadata/instance/compute/resourceGroupName?api-version=2017-08-01&format=text"
-	openshiftInfraPath   = "/apis/config.openshift.io/v1/infrastructures/cluster"
+	gcpMetadataURL     = "http://metadata.google.internal/computeMetadata/v1/instance/attributes/cluster-name"
+	azureMetadataURL   = "http://169.254.169.254/metadata/instance/compute/resourceGroupName?api-version=2017-08-01&format=text"
+	openshiftInfraPath = "/apis/config.openshift.io/v1/infrastructures/cluster"
 )
 
 var (
