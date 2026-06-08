@@ -25,8 +25,9 @@ import (
 )
 
 const (
-	gcpMetadataURL   = "http://metadata.google.internal/computeMetadata/v1/instance/attributes/cluster-name"
-	azureMetadataURL = "http://169.254.169.254/metadata/instance/compute/resourceGroupName?api-version=2017-08-01&format=text"
+	gcpMetadataURL       = "http://metadata.google.internal/computeMetadata/v1/instance/attributes/cluster-name"
+	azureMetadataURL     = "http://169.254.169.254/metadata/instance/compute/resourceGroupName?api-version=2017-08-01&format=text"
+	openshiftInfraPath   = "/apis/config.openshift.io/v1/infrastructures/cluster"
 )
 
 var (
@@ -124,8 +125,6 @@ func eksClusterNameFetcher(ctx context.Context) (string, error) {
 	}
 	return "", fmt.Errorf("did not find any cluster attribute in %+v", resource.Attributes())
 }
-
-const openshiftInfraPath = "/apis/config.openshift.io/v1/infrastructures/cluster"
 
 type openshiftInfrastructureResponse struct {
 	Status struct {
