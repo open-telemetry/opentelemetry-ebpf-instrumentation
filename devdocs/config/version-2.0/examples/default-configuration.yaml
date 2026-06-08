@@ -427,37 +427,6 @@ extensions:
           # Debug/diagnostics output controls.
           diagnostics:
             print_flows: false
-        stats:
-          # Master switch for TCP stats observability.
-          enabled: false
-          # Enabled TCP stats families. Supported values: tcp_rtt, tcp_failed_connections, tcp_retransmits, tcp_io.
-          features: []
-          endpoint_identity:
-            agent_ip: ""
-            agent_ip_interface: external
-            agent_ip_family: any
-          selection:
-            cidrs: []
-          filters:
-            traces: {}
-            metrics: {}
-          enrichment:
-            geo_ip:
-              ipinfo:
-                path: ""
-              maxmind:
-                country_path: ""
-                asn_path: ""
-              cache:
-                size: 512
-                ttl: 1h0m0s
-            reverse_dns:
-              mode: none
-              cache:
-                size: 256
-                ttl: 1h0m0s
-          diagnostics:
-            print_stats: false
 
       # limits constrains cardinality and memory growth during capture.
       limits:

@@ -427,12 +427,8 @@ Java also includes additional runtime-specific configuration such as debug contr
 
 ### `capture.network` Section
 
-The `capture.network` section defines how network observability is configured, including endpoint identity, selection criteria, flow lifecycle controls, interface discovery behavior, enrichment options, TCP stats, and diagnostics.
+The `capture.network` section defines how network observability is configured, including endpoint identity, selection criteria, flow lifecycle controls, interface discovery behavior, enrichment options, and diagnostics.
 This section is the primary user control for defining how OBI captures and processes network telemetry.
-
-Network flow capture lives under `capture.network.capture`.
-TCP stats capture lives under `capture.network.stats`.
-Stats use `enabled` as the capture switch and `features` to preserve the selected TCP stats families: `tcp_rtt`, `tcp_failed_connections`, `tcp_retransmits`, and `tcp_io`.
 
 ### `capture.engine` Section
 
@@ -530,8 +526,7 @@ Important mapping notes:
 - Some mappings are non-1:1:
   - `filter.application` fans out to `capture.instrumentation.<protocol>.filters.{traces,metrics}`.
   - `filter.network` fans out to `capture.network.capture.filters.{traces,metrics}`.
-  - `filter.stats` fans out to `capture.network.stats.filters.{traces,metrics}`.
-  - `metrics.features` maps to `capture.instrumentation.<protocol>.enabled.metrics` + `capture.network.capture.enabled` + `capture.network.stats.{enabled,features}`.
+  - `metrics.features` maps to `capture.instrumentation.<protocol>.enabled.metrics` + `capture.network.capture.enabled`.
   - `discovery.skip_go_specific_tracers` maps to `capture.runtimes.go.enabled` with inverted semantics.
 
 | v1 field | v2 canonical location | Notes |
@@ -580,7 +575,6 @@ Important mapping notes:
 | `enforce_sys_caps` | `extensions.obi.capture.safety.enforce_system_capabilities` | Move + rename |
 | `filter.application` | `extensions.obi.capture.instrumentation.<protocol>.filters.{traces,metrics}` | Fan-out to all protocols/signals |
 | `filter.network` | `extensions.obi.capture.network.capture.filters.{traces,metrics}` | Fan-out to both signals |
-| `filter.stats` | `extensions.obi.capture.network.stats.filters.{traces,metrics}` | Fan-out to both signals |
 | `internal_metrics.bpf_metric_scrape_interval` | `extensions.obi.daemon.internal_metrics.bpf.scrape_interval` | Move + rename |
 | `internal_metrics.exporter` | `extensions.obi.daemon.internal_metrics.exporter` | Move |
 | `internal_metrics.prometheus.path` | `extensions.obi.daemon.internal_metrics.prometheus.path` | Move |
@@ -590,7 +584,7 @@ Important mapping notes:
 | `javaagent.enabled` | `extensions.obi.capture.runtimes.java.enabled` | Simplified to boolean |
 | `log_config` | `extensions.obi.daemon.logging.format` | Move + rename |
 | `log_level` | `extensions.obi.daemon.logging.level` | Move |
-| `metrics.features` | `extensions.obi.capture.instrumentation.<protocol>.enabled.metrics` + `extensions.obi.capture.network.capture.enabled` + `extensions.obi.capture.network.stats.{enabled,features}` | Split mapping |
+| `metrics.features` | `extensions.obi.capture.instrumentation.<protocol>.enabled.metrics` + `extensions.obi.capture.network.capture.enabled` | Split mapping |
 | `name_resolver.cache_expiry` | `extensions.obi.enrich.service_name.cache.ttl` | Move + rename |
 | `name_resolver.cache_len` | `extensions.obi.enrich.service_name.cache.size` | Move + rename |
 | `network.agent_ip` | `extensions.obi.capture.network.capture.endpoint_identity.agent_ip` | Move |
