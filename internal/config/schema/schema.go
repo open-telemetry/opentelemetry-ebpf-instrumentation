@@ -93,7 +93,7 @@ type Rule struct {
 	Name        string         `yaml:"name"`
 	Description string         `yaml:"description"`
 	Match       map[string]any `yaml:"match"`
-	Refine      RuleRefinement `yaml:"refine"`
+	Refine      RuleRefinement `yaml:"refine,omitempty"`
 }
 
 // RuleRefinement holds per-rule overrides that apply after a rule matches.

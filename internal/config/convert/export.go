@@ -31,18 +31,20 @@ func RuntimeToV2(cfg *obi.Config) (*schema.Document, *schema.Extension) {
 			Engine:          captureEngine(cfg),
 			Safety:          captureSafety(cfg),
 			Channels:        captureChannels(cfg),
-			Rules:           []schema.Rule{},
-			Telemetry:       map[string]any{},
+			Rules:           rulesFromRuntime(cfg),
+			Telemetry:       captureTelemetry(cfg),
 		},
-		Daemon: daemon(cfg),
+		Enrich:      enrich(cfg),
+		Correlation: correlation(cfg),
+		Daemon:      daemon(cfg),
 	}
 
 	doc := &schema.Document{
 		FileFormat:     "1.0",
-		Resource:       map[string]any{},
+		Resource:       resource(cfg),
 		Propagator:     map[string]any{},
-		TracerProvider: map[string]any{},
-		MeterProvider:  map[string]any{},
+		TracerProvider: tracerProvider(cfg),
+		MeterProvider:  meterProvider(cfg),
 		Extensions:     schema.Extensions{OBI: ext},
 	}
 
@@ -71,11 +73,20 @@ func captureInstrumentation(cfg *obi.Config) map[string]any {
 	}
 
 	http := instrumentation["http"].(map[string]any)
+	http["filters"] = signalFilters(cfg.Filters.Application)
 	http["track_request_headers"] = cfg.EBPF.TrackRequestHeaders
 	http["request_timeout"] = cfg.EBPF.HTTPRequestTimeout.String()
 	http["buffer_size"] = cfg.EBPF.BufferSizes.HTTP
+	http["routes"] = httpRoutes(cfg)
+	http["payload_extraction"] = payloadExtraction(cfg)
+
+	for _, protocol := range []string{"grpc", "redis", "kafka", "mongo", "couchbase", "dns", "gpu"} {
+		protocolCfg := instrumentation[protocol].(map[string]any)
+		protocolCfg["filters"] = signalFilters(cfg.Filters.Application)
+	}
 
 	sql := instrumentation["sql"].(map[string]any)
+	sql["filters"] = signalFilters(cfg.Filters.Application)
 	sql["heuristic_detect"] = cfg.EBPF.HeuristicSQLDetect
 	sql["mysql"] = map[string]any{
 		"buffer_size":                    cfg.EBPF.BufferSizes.MySQL,
@@ -84,6 +95,10 @@ func captureInstrumentation(cfg *obi.Config) map[string]any {
 	sql["postgres"] = map[string]any{
 		"buffer_size":                    cfg.EBPF.BufferSizes.Postgres,
 		"prepared_statements_cache_size": cfg.EBPF.PostgresPreparedStatementsCacheSize,
+	}
+	sql["mssql"] = map[string]any{
+		"buffer_size":                    cfg.EBPF.BufferSizes.MSSQL,
+		"prepared_statements_cache_size": cfg.EBPF.MSSQLPreparedStatementsCacheSize,
 	}
 
 	redis := instrumentation["redis"].(map[string]any)
@@ -220,7 +235,9 @@ func captureNetwork(cfg *obi.Config) map[string]any {
 					"exclude": cfg.NetworkFlows.ExcludeProtocols,
 				},
 				"direction": cfg.NetworkFlows.Direction,
+				"cidrs":     cfg.NetworkFlows.CIDRs,
 			},
+			"filters": signalFilters(cfg.Filters.Network),
 			"flow_lifecycle": map[string]any{
 				"max_tracked_flows": cfg.NetworkFlows.CacheMaxFlows,
 				"active_timeout":    cfg.NetworkFlows.CacheActiveTimeout.String(),
@@ -228,14 +245,31 @@ func captureNetwork(cfg *obi.Config) map[string]any {
 					"strategy":       cfg.NetworkFlows.Deduper,
 					"first_come_ttl": cfg.NetworkFlows.DeduperFCTTL.String(),
 				},
-				"sampling": cfg.NetworkFlows.Sampling,
+				"sampling":    cfg.NetworkFlows.Sampling,
+				"guess_ports": cfg.NetworkFlows.GuessPorts,
 			},
 			"interface_discovery": map[string]any{
 				"mode":          cfg.NetworkFlows.ListenInterfaces,
 				"poll_interval": cfg.NetworkFlows.ListenPollPeriod.String(),
 			},
+			"enrichment": networkFlowEnrichment(cfg),
 			"diagnostics": map[string]any{
 				"print_flows": cfg.NetworkFlows.Print,
+			},
+		},
+		"stats": map[string]any{
+			"endpoint_identity": map[string]any{
+				"agent_ip":           cfg.Stats.AgentIP,
+				"agent_ip_interface": cfg.Stats.AgentIPIface,
+				"agent_ip_family":    cfg.Stats.AgentIPType,
+			},
+			"selection": map[string]any{
+				"cidrs": cfg.Stats.CIDRs,
+			},
+			"filters":    signalFilters(cfg.Filters.Stats),
+			"enrichment": statsEnrichment(cfg),
+			"diagnostics": map[string]any{
+				"print_stats": cfg.Stats.Print,
 			},
 		},
 	}
@@ -270,9 +304,13 @@ func captureEngine(cfg *obi.Config) map[string]any {
 		"traffic": map[string]any{
 			"control_backend":     textValue(cfg.EBPF.TCBackend),
 			"high_request_volume": cfg.EBPF.HighRequestVolume,
+			"force_map_reader":    textValue(cfg.EBPF.ForceBPFMapReader),
 		},
 		"transactions": map[string]any{
 			"max_duration": cfg.EBPF.MaxTransactionTime.String(),
+		},
+		"maps": map[string]any{
+			"global_scale_factor": cfg.EBPF.MapsConfig.GlobalScaleFactor,
 		},
 		"bpf_filesystem": map[string]any{
 			"path": cfg.EBPF.BPFFSPath,
@@ -315,6 +353,16 @@ func daemon(cfg *obi.Config) map[string]any {
 			},
 			"bpf": map[string]any{
 				"scrape_interval": cfg.InternalMetrics.BpfMetricScrapeInterval.String(),
+			},
+		},
+		"telemetry": map[string]any{
+			"metrics": map[string]any{
+				"prometheus": map[string]any{
+					"allow_service_graph_self_references": cfg.Prometheus.AllowServiceGraphSelfReferences,
+					"span_metrics_service_cache_size":     cfg.Prometheus.SpanMetricsServiceCacheSize,
+					"extra_resource_attributes":           cfg.Prometheus.ExtraResourceLabels,
+					"extra_span_resource_attributes":      cfg.Prometheus.ExtraSpanResourceLabels,
+				},
 			},
 		},
 	}
