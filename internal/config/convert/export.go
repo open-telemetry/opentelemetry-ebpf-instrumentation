@@ -20,6 +20,9 @@ func RuntimeToV2(cfg *obi.Config) (*schema.Document, *schema.Extension) {
 		cfg = &defaultConfig
 	}
 
+	// TODO(#2251): Fill the standalone resource/provider, capture telemetry,
+	// enrich, correlation, and daemon telemetry sections in the follow-up export
+	// parity slice.
 	ext := &schema.Extension{
 		Version: schema.SupportedVersion,
 		Capture: schema.Capture{
