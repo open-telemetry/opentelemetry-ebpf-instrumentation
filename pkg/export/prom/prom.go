@@ -1371,17 +1371,30 @@ func (r *metricsReporter) disassociatePIDFromService(pid app.PID) (bool, svc.UID
 }
 
 func (r *metricsReporter) createTargetInfos(service *svc.Attrs) {
+	if service == nil || !service.ExportModes.CanExportMetrics() {
+		return
+	}
+
 	r.createTargetInfo(service)
 	r.createTracesTargetInfo(service)
 }
 
 func (r *metricsReporter) deleteTargetInfoMetrics(service *svc.Attrs) {
+	if service == nil || !service.ExportModes.CanExportMetrics() {
+		return
+	}
+
 	r.deleteTargetInfoMetric(service)
 	r.deleteTracesTargetInfoMetric(service)
 }
 
 func (r *metricsReporter) deleteTargetInfos(uid svc.UID, service *svc.Attrs) {
-	r.deleteEventMetrics(r.origService(uid, service))
+	orig := r.origService(uid, service)
+	if orig == nil || !orig.ExportModes.CanExportMetrics() {
+		return
+	}
+
+	r.deleteEventMetrics(orig)
 }
 
 func (r *metricsReporter) handleProcessEvent(pe exec.ProcessEvent, log *slog.Logger) {
