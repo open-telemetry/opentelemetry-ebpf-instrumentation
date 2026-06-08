@@ -15,12 +15,6 @@ import (
 
 func httpRoutes(cfg *obi.Config) map[string]any {
 	out := map[string]any{
-		"unmatched":                    "",
-		"patterns":                     []string{},
-		"ignored_patterns":             []string{},
-		"ignore_mode":                  "",
-		"wildcard_char":                "",
-		"max_path_segment_cardinality": 0,
 		"discovery": map[string]any{
 			"timeout":            cfg.Discovery.RouteHarvesterTimeout.String(),
 			"disabled_languages": cfg.Discovery.DisabledRouteHarvesters,

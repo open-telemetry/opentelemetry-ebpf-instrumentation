@@ -97,6 +97,29 @@ func TestRuntimeToV2DefaultConfig(t *testing.T) {
 	require.Equal(t, "protobuf", value(t, ext.Capture.Rules[2].Match, "process", "exports_otlp", "protocol"))
 }
 
+func TestRuntimeToV2NilRoutesOnlyExportsDiscovery(t *testing.T) {
+	t.Parallel()
+
+	cfg := obi.DefaultConfig
+	cfg.Routes = nil
+
+	_, ext := RuntimeToV2(&cfg)
+
+	routes, ok := value(t, ext.Capture.Instrumentation, "http", "routes").(map[string]any)
+	require.True(t, ok)
+	require.Contains(t, routes, "discovery")
+	for _, key := range []string{
+		"unmatched",
+		"patterns",
+		"ignored_patterns",
+		"ignore_mode",
+		"wildcard_char",
+		"max_path_segment_cardinality",
+	} {
+		require.NotContains(t, routes, key)
+	}
+}
+
 func TestRuntimeToV2CustomConfig(t *testing.T) {
 	t.Parallel()
 
