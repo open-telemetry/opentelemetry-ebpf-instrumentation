@@ -198,37 +198,41 @@
         },
         "http": {
           "type": "object",
-          "description": "HTTP-specific per-workload overrides.\nFields here take precedence over the global `instrumentation.http` values for matched workloads.\n",
+          "description": "HTTP-specific per-workload configuration for matched workloads.\n",
           "additionalProperties": false,
           "properties": {
             "routes": {
               "type": "object",
-              "description": "Per-workload HTTP route override.\nIf omitted, global route configuration applies.\n",
+              "description": "Per-workload direction-scoped HTTP route patterns.\nIf omitted, global route configuration applies.\n",
               "additionalProperties": false,
               "properties": {
-                "unmatched": {
-                  "type": "string",
-                  "enum": [
-                    "heuristic",
-                    "wildcard",
-                    "random_hash",
-                    "disabled"
-                  ],
-                  "description": "Fallback policy when no explicit route pattern matches.\nIf omitted, global `instrumentation.http.routes.unmatched` applies.\n"
+                "incoming": {
+                  "type": "object",
+                  "description": "HTTP route patterns for requests handled by the matched workload.\nEquivalent to v1 `routes.incoming`.\n",
+                  "additionalProperties": false,
+                  "properties": {
+                    "patterns": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "description": "Explicit incoming route patterns for this workload.\n"
+                    }
+                  }
                 },
-                "patterns": {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  },
-                  "description": "Explicit route patterns for this workload.\nThese are merged with (and take precedence over) global patterns.\nIf omitted, global patterns apply.\n"
-                },
-                "ignored_patterns": {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  },
-                  "description": "Route patterns to ignore for this workload.\nIf omitted, global ignored patterns apply.\n"
+                "outgoing": {
+                  "type": "object",
+                  "description": "HTTP route patterns for requests made by the matched workload.\nEquivalent to v1 `routes.outgoing`.\n",
+                  "additionalProperties": false,
+                  "properties": {
+                    "patterns": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "description": "Explicit outgoing route patterns for this workload.\n"
+                    }
+                  }
                 }
               }
             },

@@ -296,7 +296,7 @@ This was rejected because:
 Current overridable fields in `refine`:
 
 - `exports`: override which signals (`traces`, `metrics`) are emitted for this workload.
-- `http.routes`: override HTTP route patterns and fallback policy for this workload.
+- `http.routes`: define direction-scoped custom HTTP route patterns for this workload.
 - `http.filters`: replace HTTP trace/metric filters for this workload.
 
 New fields can be added to the `refine` vocabulary deliberately as use cases emerge.
@@ -326,11 +326,17 @@ capture:
       refine:
         http:
           routes:
-            unmatched: wildcard
-            patterns:
-              - /orders/{id}
-              - /orders/{id}/items
+            incoming:
+              patterns:
+                - /orders/{id}
+                - /orders/{id}/items
+            outgoing:
+              patterns:
+                - /inventory/{id}
 ```
+
+`incoming` applies to HTTP requests handled by the matched workload, equivalent to v1 `routes.incoming`.
+`outgoing` applies to HTTP requests made by the matched workload, equivalent to v1 `routes.outgoing`.
 
 Sampling overrides are **not** part of the `refine` block.
 Per-workload sampling is handled via `tracer_provider.sampler` using the `obi_rule_based` custom sampler, which matches on resource attributes.

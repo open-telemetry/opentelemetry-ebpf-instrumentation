@@ -168,12 +168,15 @@ extensions:
         #       traces: true
         #       metrics: false
         #     http:
-        #       # Per-workload HTTP route patterns (override global patterns for this service).
+        #       # Per-workload HTTP route patterns for requests handled by or made by this workload.
         #       routes:
-        #         unmatched: wildcard
-        #         patterns:
-        #           - /cart/{id}
-        #           - /cart/{id}/items
+        #         incoming:
+        #           patterns:
+        #             - /cart/{id}
+        #             - /cart/{id}/items
+        #         outgoing:
+        #           patterns:
+        #             - /checkout/{id}
         #       # Per-workload HTTP filters (replace global filters for this service).
         #       filters:
         #         traces:

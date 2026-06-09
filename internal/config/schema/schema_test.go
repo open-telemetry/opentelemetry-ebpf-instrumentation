@@ -47,8 +47,10 @@ extensions:
               metrics: true
             http:
               routes:
-                unmatched: wildcard
-                patterns: ["/orders/{id}"]
+                incoming:
+                  patterns: ["/orders/{id}"]
+                outgoing:
+                  patterns: ["/inventory/{id}"]
               filters:
                 traces:
                   status_code: ["5*"]
@@ -70,8 +72,12 @@ extensions:
 	require.Equal(t, map[string]any{"traces": false, "metrics": true}, cfg.Capture.Rules[0].Refine.Exports)
 	require.Equal(t, map[string]any{
 		"routes": map[string]any{
-			"unmatched": "wildcard",
-			"patterns":  []any{"/orders/{id}"},
+			"incoming": map[string]any{
+				"patterns": []any{"/orders/{id}"},
+			},
+			"outgoing": map[string]any{
+				"patterns": []any{"/inventory/{id}"},
+			},
 		},
 		"filters": map[string]any{
 			"traces": map[string]any{
