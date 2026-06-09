@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/invopop/jsonschema"
-
 	"github.com/ohler55/ojg/jp"
 	"gopkg.in/yaml.v3"
 
