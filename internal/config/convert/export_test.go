@@ -45,10 +45,10 @@ func TestRuntimeToV2DefaultConfig(t *testing.T) {
 	require.Equal(t, int64(15000), value(t, doc.TracerProvider, "processors", "0", "batch", "schedule_delay"))
 	require.Equal(t, 16384, value(t, doc.TracerProvider, "processors", "0", "batch", "max_queue_size"))
 	require.Equal(t, 4096, value(t, doc.TracerProvider, "processors", "0", "batch", "max_export_batch_size"))
-	require.Equal(t, "", value(t, doc.TracerProvider, "processors", "0", "batch", "exporter", "otlp_grpc", "endpoint"))
+	require.Empty(t, value(t, doc.TracerProvider, "processors", "0", "batch", "exporter", "otlp_grpc", "endpoint"))
 	require.NotContains(t, doc.TracerProvider, "sampler")
 	require.Equal(t, int64(60000), value(t, doc.MeterProvider, "readers", "0", "periodic", "interval"))
-	require.Equal(t, "", value(t, doc.MeterProvider, "readers", "0", "periodic", "exporter", "otlp_grpc", "endpoint"))
+	require.Empty(t, value(t, doc.MeterProvider, "readers", "0", "periodic", "exporter", "otlp_grpc", "endpoint"))
 	require.Equal(t, 0, value(t, doc.MeterProvider, "readers", "1", "pull", "exporter", "prometheus/development", "port"))
 
 	require.Equal(t, "include", value(t, ext.Capture.Policy, "default_action"))
