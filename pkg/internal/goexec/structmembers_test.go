@@ -106,14 +106,16 @@ func TestGoOffsetsWithoutDwarf(t *testing.T) {
 	require.NoError(t, err)
 	// this test might fail if a future Go version updates the internal structure of the used structs.
 	mustMatch(t, FieldOffsets{
-		URLPtrPos:        uint64(16),
-		PathPtrPos:       uint64(56),
-		ConnFdPos:        uint64(0),
-		FdLaddrPos:       uint64(96),
-		MethodPtrPos:     uint64(0),
-		HchanDataqsizPos: uint64(8),
-		HchanSendxPos:    uint64(48),
-		HchanRecvxPos:    uint64(56),
+		URLPtrPos:                         uint64(16),
+		PathPtrPos:                        uint64(56),
+		ConnFdPos:                         uint64(0),
+		FdLaddrPos:                        uint64(96),
+		MethodPtrPos:                      uint64(0),
+		HchanDataqsizPos:                  uint64(8),
+		HchanSendxPos:                     uint64(48),
+		HchanRecvxPos:                     uint64(56),
+		RuntimeGCControllerMemoryLimitPos: uint64(8),
+		RuntimeGCControllerGCPercentPos:   uint64(0),
 	}, offsets)
 }
 

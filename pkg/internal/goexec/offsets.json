@@ -1318,6 +1318,18 @@
             "since": "1.17.0"
           }
         ]
+      },
+      "memoryLimit": {
+        "versions": {
+          "oldest": "1.19.0",
+          "newest": "1.26.4"
+        },
+        "offsets": [
+          {
+            "offset": 8,
+            "since": "1.19.0"
+          }
+        ]
       }
     },
     "runtime.hchan": {
