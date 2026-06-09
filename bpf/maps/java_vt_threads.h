@@ -3,13 +3,13 @@
 
 #pragma once
 
-#include "pid/types/pid_key.h"
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_helpers.h>
 
 #include <common/map_sizing.h>
 #include <common/pin_internal.h>
 #include <pid/pid_helpers.h>
+#include <pid/types/pid_key.h>
 
 // Which Java virtual thread is currently mounted on a given carrier OS
 // thread. The Java agent updates it on every VirtualThread.mount() (value =
