@@ -16,7 +16,6 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/config"
-	"go.opentelemetry.io/obi/pkg/filter"
 )
 
 // HTTPEnricher applies HTTP enrichment rules to extract headers and body
@@ -47,9 +46,9 @@ func NewHTTPEnricher(cfg config.EnrichmentConfig) *HTTPEnricher {
 	return e
 }
 
-// statusCodeMatches returns true if the span's response status code satisfies the match definition.
-// A nil definition always matches.
-func statusCodeMatches(m *filter.MatchDefinition, status int) bool {
+// statusCodeMatches returns true if the span's response status code satisfies the numeric range.
+// A nil range always matches.
+func statusCodeMatches(m *config.NumericRange, status int) bool {
 	if m == nil {
 		return true
 	}

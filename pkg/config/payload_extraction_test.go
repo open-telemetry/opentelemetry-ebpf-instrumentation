@@ -9,7 +9,6 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"go.opentelemetry.io/obi/pkg/appolly/services"
-	"go.opentelemetry.io/obi/pkg/filter"
 )
 
 // intPtr returns a pointer to the given int value
@@ -170,7 +169,7 @@ func TestEnrichmentConfig_Validate_BodyRules(t *testing.T) {
 					Type:   HTTPParsingRuleTypeBody,
 					Scope:  HTTPParsingScopeAll,
 					Match: HTTPParsingMatch{
-						ResponseStatusCode: &filter.MatchDefinition{
+						ResponseStatusCode: &NumericRange{
 							GreaterEquals: intPtr(500),
 							LessEquals:    intPtr(599),
 						},
@@ -186,7 +185,7 @@ func TestEnrichmentConfig_Validate_BodyRules(t *testing.T) {
 					Type:   HTTPParsingRuleTypeBody,
 					Scope:  HTTPParsingScopeAll,
 					Match: HTTPParsingMatch{
-						ResponseStatusCode: &filter.MatchDefinition{
+						ResponseStatusCode: &NumericRange{
 							GreaterEquals: intPtr(200),
 							LessEquals:    intPtr(200),
 						},
@@ -202,7 +201,7 @@ func TestEnrichmentConfig_Validate_BodyRules(t *testing.T) {
 					Type:   HTTPParsingRuleTypeBody,
 					Scope:  HTTPParsingScopeAll,
 					Match: HTTPParsingMatch{
-						ResponseStatusCode: &filter.MatchDefinition{
+						ResponseStatusCode: &NumericRange{
 							GreaterEquals: intPtr(599),
 							LessEquals:    intPtr(500),
 						},

@@ -9,7 +9,6 @@ import (
 
 	"github.com/invopop/jsonschema"
 
-	"go.opentelemetry.io/obi/pkg/filter"
 	"github.com/ohler55/ojg/jp"
 	"gopkg.in/yaml.v3"
 
@@ -45,6 +44,17 @@ type HTTPConfig struct {
 	JSONRPC JSONRPCConfig `yaml:"jsonrpc"`
 	// Enrichment configures HTTP header and payload extraction with policy-based rules
 	Enrichment EnrichmentConfig `yaml:"enrichment"`
+}
+
+// NumericRange defines numeric comparison criteria for a rule match condition.
+// All fields are optional; only the provided fields are evaluated.
+type NumericRange struct {
+	GreaterThan   *int `yaml:"greater_than"`
+	GreaterEquals *int `yaml:"greater_equals"`
+	Equals        *int `yaml:"equals"`
+	NotEquals     *int `yaml:"not_equals"`
+	LessEquals    *int `yaml:"less_equals"`
+	LessThan      *int `yaml:"less_than"`
 }
 
 type GraphQLConfig struct {
@@ -181,6 +191,10 @@ func validateStatusCodeRange(i int, match HTTPParsingMatch) error {
 		if sc.GreaterEquals != nil && sc.LessEquals != nil && *sc.GreaterEquals > *sc.LessEquals {
 			return fmt.Errorf("rule %d: response_status_code greater_equals (%d) must not exceed less_equals (%d)",
 				i, *sc.GreaterEquals, *sc.LessEquals)
+		}
+		if sc.GreaterThan != nil && sc.LessThan != nil && *sc.GreaterThan >= *sc.LessThan {
+			return fmt.Errorf("rule %d: response_status_code greater_than (%d) must be less than less_than (%d)",
+				i, *sc.GreaterThan, *sc.LessThan)
 		}
 	}
 	return nil
@@ -339,19 +353,19 @@ type HTTPParsingMatch struct {
 	Methods []HTTPMethod `yaml:"methods"`
 	// ResponseStatusCode filters this rule to only apply when the response status code matches the given range.
 	// If unset, the rule applies regardless of status code.
-	ResponseStatusCode *filter.MatchDefinition `yaml:"response_status_code"`
+	ResponseStatusCode *NumericRange `yaml:"response_status_code"`
 }
 
 // UnmarshalYAML deserializes the match config and compiles glob patterns
 // and JSONPath expressions from their raw string values.
 func (m *HTTPParsingMatch) UnmarshalYAML(value *yaml.Node) error {
 	var raw struct {
-		Patterns               []string                     `yaml:"patterns"`
-		CaseSensitive          bool                         `yaml:"case_sensitive"`
-		ObfuscationJSONPaths   []string                     `yaml:"obfuscation_json_paths"`
-		URLPathPatterns        []string                     `yaml:"url_path_patterns"`
-		Methods            []HTTPMethod            `yaml:"methods"`
-		ResponseStatusCode *filter.MatchDefinition `yaml:"response_status_code"`
+		Patterns             []string                `yaml:"patterns"`
+		CaseSensitive        bool                    `yaml:"case_sensitive"`
+		ObfuscationJSONPaths []string                `yaml:"obfuscation_json_paths"`
+		URLPathPatterns      []string                `yaml:"url_path_patterns"`
+		Methods              []HTTPMethod  `yaml:"methods"`
+		ResponseStatusCode   *NumericRange `yaml:"response_status_code"`
 	}
 	if err := value.Decode(&raw); err != nil {
 		return err
