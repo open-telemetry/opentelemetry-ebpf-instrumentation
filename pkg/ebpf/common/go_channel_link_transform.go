@@ -8,6 +8,7 @@ import (
 
 	"github.com/hashicorp/golang-lru/v2/expirable"
 
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/trace"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
@@ -17,7 +18,9 @@ import (
 const (
 	maxPendingSpanLinks = 1024
 	pendingSpanLinksTTL = 5 * time.Minute
-	maxLinksPerSpan     = 8
+
+	// TODO(#2283): Honor OTEL_SPAN_LINK_COUNT_LIMIT when constructing parser state.
+	maxSpanLinks = sdktrace.DefaultLinkCountLimit
 )
 
 type spanLinkKey struct {
@@ -111,7 +114,7 @@ func (p *pendingSpanLinks) recordLink(key spanLinkKey, link request.SpanLink) {
 		}
 	}
 
-	if len(links) >= maxLinksPerSpan {
+	if len(links) >= maxSpanLinks {
 		return
 	}
 
@@ -135,7 +138,7 @@ func (p *pendingSpanLinks) consume(span *request.Span) {
 	}
 
 	for _, link := range links {
-		if len(span.Links) >= maxLinksPerSpan {
+		if len(span.Links) >= maxSpanLinks {
 			break
 		}
 

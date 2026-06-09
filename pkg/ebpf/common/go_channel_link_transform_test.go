@@ -124,12 +124,12 @@ func TestPendingSpanLinksIgnoresInvalidAndSelfLinks(t *testing.T) {
 	assert.Empty(t, span.Links)
 }
 
-func TestPendingSpanLinksCapsLinksPerSpan(t *testing.T) {
+func TestPendingSpanLinksCapsLinksAtOTelDefaultLimit(t *testing.T) {
 	pending := newPendingSpanLinks()
 
 	key := spanLinkKey{traceID: testTraceID(1), spanID: testSpanID(2)}
 
-	for i := range maxLinksPerSpan + 2 {
+	for i := range maxSpanLinks + 2 {
 		pending.recordLink(key, request.SpanLink{
 			TraceID: testTraceID(100 + i),
 			SpanID:  testSpanID(100 + i),
@@ -138,16 +138,16 @@ func TestPendingSpanLinksCapsLinksPerSpan(t *testing.T) {
 
 	span := request.Span{TraceID: key.traceID, SpanID: key.spanID}
 	pending.consume(&span)
-	assert.Len(t, span.Links, maxLinksPerSpan)
+	assert.Len(t, span.Links, maxSpanLinks)
 }
 
-func TestPendingSpanLinksRespectsExistingSpanLinkCap(t *testing.T) {
+func TestPendingSpanLinksRespectsOTelDefaultLimitWithExistingLinks(t *testing.T) {
 	pending := newPendingSpanLinks()
 
 	key := spanLinkKey{traceID: testTraceID(1), spanID: testSpanID(2)}
 
-	existingLinks := make([]request.SpanLink, 0, maxLinksPerSpan-1)
-	for i := range maxLinksPerSpan - 1 {
+	existingLinks := make([]request.SpanLink, 0, maxSpanLinks-1)
+	for i := range maxSpanLinks - 1 {
 		existingLinks = append(existingLinks, request.SpanLink{
 			TraceID: testTraceID(100 + i),
 			SpanID:  testSpanID(100 + i),
@@ -156,8 +156,8 @@ func TestPendingSpanLinksRespectsExistingSpanLinkCap(t *testing.T) {
 
 	for i := range 2 {
 		pending.recordLink(key, request.SpanLink{
-			TraceID: testTraceID(200 + i),
-			SpanID:  testSpanID(200 + i),
+			TraceID: testTraceID(1000 + i),
+			SpanID:  testSpanID(1000 + i),
 		})
 	}
 
@@ -168,8 +168,8 @@ func TestPendingSpanLinksRespectsExistingSpanLinkCap(t *testing.T) {
 	}
 
 	pending.consume(&span)
-	assert.Len(t, span.Links, maxLinksPerSpan)
-	assert.Equal(t, testTraceID(200), span.Links[maxLinksPerSpan-1].TraceID)
+	assert.Len(t, span.Links, maxSpanLinks)
+	assert.Equal(t, testTraceID(1000), span.Links[maxSpanLinks-1].TraceID)
 }
 
 func TestPendingSpanLinksBoundsReceiverCache(t *testing.T) {
