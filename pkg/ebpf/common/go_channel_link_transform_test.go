@@ -141,6 +141,37 @@ func TestPendingSpanLinksCapsLinksPerSpan(t *testing.T) {
 	assert.Len(t, span.Links, maxLinksPerSpan)
 }
 
+func TestPendingSpanLinksRespectsExistingSpanLinkCap(t *testing.T) {
+	pending := newPendingSpanLinks()
+
+	key := spanLinkKey{traceID: testTraceID(1), spanID: testSpanID(2)}
+
+	existingLinks := make([]request.SpanLink, 0, maxLinksPerSpan-1)
+	for i := range maxLinksPerSpan - 1 {
+		existingLinks = append(existingLinks, request.SpanLink{
+			TraceID: testTraceID(100 + i),
+			SpanID:  testSpanID(100 + i),
+		})
+	}
+
+	for i := range 2 {
+		pending.recordLink(key, request.SpanLink{
+			TraceID: testTraceID(200 + i),
+			SpanID:  testSpanID(200 + i),
+		})
+	}
+
+	span := request.Span{
+		TraceID: key.traceID,
+		SpanID:  key.spanID,
+		Links:   existingLinks,
+	}
+
+	pending.consume(&span)
+	assert.Len(t, span.Links, maxLinksPerSpan)
+	assert.Equal(t, testTraceID(200), span.Links[maxLinksPerSpan-1].TraceID)
+}
+
 func TestPendingSpanLinksBoundsReceiverCache(t *testing.T) {
 	pending := newPendingSpanLinks()
 	link := request.SpanLink{TraceID: testTraceID(1), SpanID: testSpanID(1)}

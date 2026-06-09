@@ -135,6 +135,10 @@ func (p *pendingSpanLinks) consume(span *request.Span) {
 	}
 
 	for _, link := range links {
+		if len(span.Links) >= maxLinksPerSpan {
+			break
+		}
+
 		duplicate := false
 		for _, existing := range span.Links {
 			if existing.TraceID == link.TraceID && existing.SpanID == link.SpanID {
