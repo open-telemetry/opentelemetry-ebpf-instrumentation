@@ -742,6 +742,12 @@
         "redis_db_cache": {
           "$ref": "#/$defs/RedisDBCacheConfig"
         },
+        "stats_wakeup_data_bytes": {
+          "type": "integer",
+          "description": "Specifies the minimum number of bytes that must be available in the stats eBPF ring buffer before waking up the userspace consumer. When 0, every submission wakes up userspace immediately. Higher values reduce wakeup overhead under high traffic at the cost of delivery latency. The value should be well below ring buffer size / flushInterval to avoid event loss.",
+          "default": 4096,
+          "x-env-var": "OTEL_EBPF_STATS_WAKEUP_DATA_BYTES"
+        },
         "track_request_headers": {
           "type": "boolean",
           "description": "Enables the kprobes based HTTP request tracking to start tracking the request headers to process any 'Traceparent' fields.",
@@ -867,6 +873,7 @@
           "all",
           "application",
           "application_host",
+          "application_runtime",
           "application_service_graph",
           "application_span",
           "application_span_otel",
@@ -1264,6 +1271,11 @@
           "description": "0 (default) means disabled",
           "default": 0,
           "x-env-var": "OTEL_EBPF_HEALTH_CHECK_PORT"
+        },
+        "unix_socket_path": {
+          "type": "string",
+          "description": "when set, the health endpoint binds this unix socket (a filesystem path or a leading-'@' abstract name) instead of the TCP port",
+          "x-env-var": "OTEL_EBPF_HEALTH_CHECK_UNIX_SOCKET_PATH"
         }
       },
       "type": "object"

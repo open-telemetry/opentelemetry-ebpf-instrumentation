@@ -991,6 +991,12 @@ type RetrievalUsage struct {
 	PromptTokens int `json:"prompt_tokens,omitempty"`
 }
 
+type SpanLink struct {
+	TraceID    trace.TraceID `json:"traceID"`
+	SpanID     trace.SpanID  `json:"spanID"`
+	TraceFlags uint8         `json:"traceFlags,string"`
+}
+
 // GetInputTokens returns the input token count, preferring prompt_tokens
 // and falling back to total_tokens. Returns zero when not reported.
 func (r *VendorRetrieval) GetInputTokens() int {
@@ -1027,6 +1033,7 @@ type Span struct {
 	SpanID            trace.SpanID   `json:"spanID"`
 	ParentSpanID      trace.SpanID   `json:"parentSpanID"`
 	TraceFlags        uint8          `json:"traceFlags,string"`
+	Links             []SpanLink     `json:"links,omitempty"`
 	Pid               PidInfo        `json:"-"`
 	PeerName          string         `json:"peerName"`
 	HostName          string         `json:"hostName"`
@@ -1090,7 +1097,6 @@ func spanAttributes(s *Span) SpanAttributes {
 			"serverPort":  strconv.Itoa(s.HostPort),
 		}
 		if s.SubType == HTTPSubtypeGraphQL && s.GraphQL != nil {
-			attrs["graphqlDocument"] = s.GraphQL.Document
 			attrs["graphqlOperationName"] = s.GraphQL.OperationName
 			attrs["graphqlOperationType"] = s.GraphQL.OperationType
 		}

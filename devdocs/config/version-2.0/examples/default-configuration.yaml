@@ -47,7 +47,9 @@ tracer_provider:
   processors:
     - batch:
         # Max in-memory queue before flush.
-        max_queue_size: 4096
+        max_queue_size: 16384
+        # Max spans exported per batch.
+        max_export_batch_size: 4096
         # Delay interval between batch exports in milliseconds.
         schedule_delay: 15000
         # Trace exporter.

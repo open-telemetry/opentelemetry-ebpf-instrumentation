@@ -1,0 +1,323 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
+// Package schema parses OBI configuration documents that use the v2 schema.
+//
+// Callers choose the parser that matches the deployment target. The package does
+// not auto-detect deployment mode because standalone and receiver deployments
+// allow different sections:
+//   - a full OpenTelemetry declarative configuration document with the OBI
+//     extension at extensions.obi, parsed by ParseStandaloneYAML
+//   - a receiver-embedded OBI configuration with version and capture sections at
+//     the top level, parsed by ParseReceiverYAML
+//
+// This package validates only the version, shape, and deployment-specific
+// section boundaries needed to route the configuration. It intentionally leaves
+// nested OBI sections as map values so migration and validation layers can
+// preserve and inspect the original keys.
+package schema // import "go.opentelemetry.io/obi/internal/config/schema"
+
+import (
+	"errors"
+	"fmt"
+
+	"gopkg.in/yaml.v3"
+)
+
+// SupportedVersion is the OBI configuration schema version handled by this
+// package.
+const SupportedVersion = "2.0"
+
+const (
+	sectionEnrich      = "enrich"
+	sectionCorrelation = "correlation"
+	sectionDaemon      = "daemon"
+)
+
+// Document is the top-level OpenTelemetry declarative configuration document
+// that contains extensions.obi.
+//
+// OBI-specific settings are available through Extensions.OBI. Declarative
+// configuration sections that can influence later conversion are retained as maps
+// because this package only needs to locate and validate the OBI extension.
+type Document struct {
+	FileFormat     string         `yaml:"file_format"`
+	Resource       map[string]any `yaml:"resource"`
+	Propagator     map[string]any `yaml:"propagator"`
+	TracerProvider map[string]any `yaml:"tracer_provider"`
+	MeterProvider  map[string]any `yaml:"meter_provider"`
+	Extensions     Extensions     `yaml:"extensions"`
+}
+
+// Extensions holds declarative configuration extensions recognized by this
+// package.
+type Extensions struct {
+	OBI *Extension `yaml:"obi"`
+}
+
+// Extension is the OBI v2 extension configuration.
+//
+// Capture is valid in all deployment modes. Enrich, Correlation, and Daemon are
+// standalone-only sections and are rejected when parsing receiver-embedded
+// configuration. ParseReceiverYAML synthesizes this shape from top-level receiver
+// capture sections.
+type Extension struct {
+	Version     string         `yaml:"version"`
+	Capture     Capture        `yaml:"capture"`
+	Enrich      map[string]any `yaml:"enrich,omitempty"`
+	Correlation map[string]any `yaml:"correlation,omitempty"`
+	Daemon      map[string]any `yaml:"daemon,omitempty"`
+}
+
+// Capture contains receiver-embeddable OBI capture settings.
+//
+// Known capture sections remain map values so callers can preserve unknown fields
+// inside those sections and apply schema-specific validation or migration
+// elsewhere.
+type Capture struct {
+	Policy          map[string]any `yaml:"policy"`
+	Rules           []Rule         `yaml:"rules"`
+	Instrumentation map[string]any `yaml:"instrumentation"`
+	Runtimes        map[string]any `yaml:"runtimes"`
+	Network         map[string]any `yaml:"network"`
+	Limits          map[string]any `yaml:"limits"`
+	Engine          map[string]any `yaml:"engine"`
+	Safety          map[string]any `yaml:"safety"`
+	Channels        map[string]any `yaml:"channels"`
+	Telemetry       map[string]any `yaml:"telemetry"`
+}
+
+// Rule describes one capture policy rule.
+type Rule struct {
+	Action      string         `yaml:"action"`
+	Name        string         `yaml:"name"`
+	Description string         `yaml:"description"`
+	Match       map[string]any `yaml:"match"`
+	Refine      RuleRefinement `yaml:"refine"`
+}
+
+// RuleRefinement holds per-rule overrides that apply after a rule matches.
+type RuleRefinement struct {
+	Exports map[string]any `yaml:"exports,omitempty"`
+	HTTP    map[string]any `yaml:"http,omitempty"`
+}
+
+// receiverConfig mirrors the receiver-embedded layout, where capture sections
+// appear beside version at the top level instead of under an extension.capture
+// object.
+type receiverConfig struct {
+	Version string `yaml:"version"`
+	Capture `yaml:",inline"`
+}
+
+// ParseStandaloneYAML decodes a standalone OBI v2 declarative document.
+//
+// The document must contain extensions.obi.version equal to SupportedVersion.
+// Missing v2 markers return NotV2Error; present but unsupported markers return
+// UnsupportedVersionError.
+func ParseStandaloneYAML(data []byte) (*Document, *Extension, error) {
+	root, err := parseYAML(data)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if version, ok := nestedScalar(root, "extensions", "obi", "version"); ok {
+		if version != SupportedVersion {
+			return nil, nil, &UnsupportedVersionError{Version: version}
+		}
+		var doc Document
+		if err := decode(root, &doc); err != nil {
+			return nil, nil, err
+		}
+		if doc.Extensions.OBI == nil {
+			return nil, nil, &NotV2Error{Reason: "missing extensions.obi"}
+		}
+		if err := ValidateStandalone(doc.Extensions.OBI); err != nil {
+			return nil, nil, err
+		}
+		return &doc, doc.Extensions.OBI, nil
+	}
+
+	if version, ok := nestedVersion(root, "extensions", "obi", "version"); ok {
+		return nil, nil, &UnsupportedVersionError{Version: version}
+	}
+
+	if _, ok := nestedVersion(root, "version"); ok {
+		return nil, nil, &NotV2Error{Reason: "missing extensions.obi.version field"}
+	}
+
+	if looksLikeV1(root) {
+		return nil, nil, &NotV2Error{Reason: "detected legacy v1 config shape"}
+	}
+
+	return nil, nil, &NotV2Error{Reason: "missing extensions.obi.version field"}
+}
+
+// ParseReceiverYAML decodes a receiver-embedded OBI v2 configuration.
+//
+// Receiver capture sections are accepted at the top level and normalized into
+// Extension.Capture. Standalone-only keys are rejected by presence before decode
+// so null or malformed values still report SectionNotAllowedError.
+func ParseReceiverYAML(data []byte) (*Extension, error) {
+	root, err := parseYAML(data)
+	if err != nil {
+		return nil, err
+	}
+
+	if version, ok := nestedScalar(root, "version"); ok {
+		if version != SupportedVersion {
+			return nil, &UnsupportedVersionError{Version: version}
+		}
+		if section, ok := disallowedReceiverSection(root); ok {
+			return nil, &SectionNotAllowedError{Section: section}
+		}
+		var receiver receiverConfig
+		if err := decode(root, &receiver); err != nil {
+			return nil, err
+		}
+		cfg := Extension{
+			Version: receiver.Version,
+			Capture: receiver.Capture,
+		}
+		if err := ValidateReceiver(&cfg); err != nil {
+			return nil, err
+		}
+		return &cfg, nil
+	}
+
+	if version, ok := nestedVersion(root, "version"); ok {
+		return nil, &UnsupportedVersionError{Version: version}
+	}
+
+	if looksLikeV1(root) {
+		return nil, &NotV2Error{Reason: "detected legacy v1 config shape"}
+	}
+
+	return nil, &NotV2Error{Reason: "missing top-level OBI v2 version field"}
+}
+
+// ValidateStandalone checks version support for a standalone OBI extension.
+func ValidateStandalone(cfg *Extension) error {
+	return validateVersion(cfg)
+}
+
+// ValidateReceiver checks version support and receiver section boundaries for an
+// already decoded OBI extension.
+func ValidateReceiver(cfg *Extension) error {
+	if err := validateVersion(cfg); err != nil {
+		return err
+	}
+	if cfg.Enrich != nil {
+		return &SectionNotAllowedError{Section: sectionEnrich}
+	}
+	if cfg.Correlation != nil {
+		return &SectionNotAllowedError{Section: sectionCorrelation}
+	}
+	if cfg.Daemon != nil {
+		return &SectionNotAllowedError{Section: sectionDaemon}
+	}
+	return nil
+}
+
+func validateVersion(cfg *Extension) error {
+	if cfg == nil {
+		return errors.New("missing OBI config")
+	}
+	if cfg.Version != SupportedVersion {
+		return &UnsupportedVersionError{Version: cfg.Version}
+	}
+	return nil
+}
+
+func disallowedReceiverSection(root *yaml.Node) (string, bool) {
+	if _, ok := mappingValue(root, sectionEnrich); ok {
+		return sectionEnrich, true
+	}
+	if _, ok := mappingValue(root, sectionCorrelation); ok {
+		return sectionCorrelation, true
+	}
+	if _, ok := mappingValue(root, sectionDaemon); ok {
+		return sectionDaemon, true
+	}
+	return "", false
+}
+
+func looksLikeV1(root *yaml.Node) bool {
+	for _, key := range []string{
+		"ebpf",
+		"discovery",
+		"otel_metrics_export",
+		"otel_traces_export",
+		"prometheus_export",
+		"attributes",
+		"routes",
+		"stats",
+		"javaagent",
+	} {
+		if _, ok := mappingValue(root, key); ok {
+			return true
+		}
+	}
+	return false
+}
+
+func parseYAML(data []byte) (*yaml.Node, error) {
+	var doc yaml.Node
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return nil, fmt.Errorf("parsing config v2 YAML: %w", err)
+	}
+	if doc.Kind == yaml.DocumentNode && len(doc.Content) > 0 {
+		return doc.Content[0], nil
+	}
+	return &doc, nil
+}
+
+func decode(node *yaml.Node, dst any) error {
+	if err := node.Decode(dst); err != nil {
+		return fmt.Errorf("decoding config v2 YAML: %w", err)
+	}
+	return nil
+}
+
+func nestedScalar(root *yaml.Node, path ...string) (string, bool) {
+	value, ok := nestedNode(root, path...)
+	if !ok || value.Kind != yaml.ScalarNode || value.ShortTag() != "!!str" {
+		return "", false
+	}
+	return value.Value, true
+}
+
+func nestedVersion(root *yaml.Node, path ...string) (string, bool) {
+	value, ok := nestedNode(root, path...)
+	if !ok {
+		return "", false
+	}
+	if value.Kind == yaml.ScalarNode {
+		return value.Value, true
+	}
+	return value.ShortTag(), true
+}
+
+func nestedNode(root *yaml.Node, path ...string) (*yaml.Node, bool) {
+	cur := root
+	for _, key := range path {
+		next, ok := mappingValue(cur, key)
+		if !ok {
+			return nil, false
+		}
+		cur = next
+	}
+	return cur, true
+}
+
+func mappingValue(node *yaml.Node, key string) (*yaml.Node, bool) {
+	if node == nil || node.Kind != yaml.MappingNode {
+		return nil, false
+	}
+	for i := 0; i < len(node.Content)-1; i += 2 {
+		if node.Content[i].Value == key {
+			return node.Content[i+1], true
+		}
+	}
+	return nil, false
+}

@@ -17,6 +17,8 @@
 
 #include <bpfcore/utils.h>
 
+#include <common/ringbuf.h>
+
 #include <gotracer/go_common.h>
 
 #include <gotracer/maps/grpc.h>
@@ -31,6 +33,8 @@
 
 #include <logger/bpf_dbg.h>
 
+#include <pid/pid_helpers.h>
+
 #include <shared/obi_ctx.h>
 
 typedef struct new_func_invocation {
@@ -43,6 +47,65 @@ struct {
     __type(value, new_func_invocation_t);
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
 } newproc1 SEC(".maps");
+
+SEC("uprobe/runtime.gcMarkDone_return")
+int obi_uprobe_runtime_gc_mark_done(struct pt_regs *ctx) {
+    (void)ctx;
+
+    pid_info key = {};
+    task_pid(&key);
+
+    bpf_dbg_printk(
+        "Go GC completed, collecting runtime metrics pid=%d ns=%d", key.user_pid, key.ns);
+
+    const go_runtime_metric_target_t *target =
+        bpf_map_lookup_elem(&go_runtime_metric_targets, &key);
+    if (!target) {
+        return 0;
+    }
+
+    go_runtime_metric_event_t *event =
+        bpf_ringbuf_reserve(&events, sizeof(go_runtime_metric_event_t), 0);
+    if (!event) {
+        return 0;
+    }
+
+    event->type = EVENT_GO_RUNTIME_METRICS;
+    event->pid = key;
+    event->snapshot.num_gc = 0;
+    event->snapshot.num_forced_gc = 0;
+    event->snapshot.gomaxprocs = 0;
+    event->snapshot.gc_percent = 0;
+    event->snapshot.memory_limit = 0;
+
+    off_table_t *ot = get_offsets_table();
+    const u64 num_gc_off = go_offset_of(ot, (go_offset){.v = _runtime_memstats_numgc_pos});
+    const u64 num_forced_gc_off =
+        go_offset_of(ot, (go_offset){.v = _runtime_memstats_numforcedgc_pos});
+    const u64 memory_limit_off =
+        go_offset_of(ot, (go_offset){.v = _runtime_gc_controller_memory_limit_pos});
+    const u64 gc_percent_off =
+        go_offset_of(ot, (go_offset){.v = _runtime_gc_controller_gc_percent_pos});
+
+    bpf_probe_read_user(&event->snapshot.num_gc,
+                        sizeof(event->snapshot.num_gc),
+                        (void *)(target->memstats_addr + num_gc_off));
+    bpf_probe_read_user(&event->snapshot.num_forced_gc,
+                        sizeof(event->snapshot.num_forced_gc),
+                        (void *)(target->memstats_addr + num_forced_gc_off));
+    bpf_probe_read_user(&event->snapshot.gomaxprocs,
+                        sizeof(event->snapshot.gomaxprocs),
+                        (void *)target->gomaxprocs_addr);
+    bpf_probe_read_user(&event->snapshot.gc_percent,
+                        sizeof(event->snapshot.gc_percent),
+                        (void *)(target->gc_controller_addr + gc_percent_off));
+    bpf_probe_read_user(&event->snapshot.memory_limit,
+                        sizeof(event->snapshot.memory_limit),
+                        (void *)(target->gc_controller_addr + memory_limit_off));
+
+    bpf_ringbuf_submit(event, get_flags());
+    return 0;
+}
 
 SEC("uprobe/runtime_newproc1")
 int obi_uprobe_runtime_newproc1(struct pt_regs *ctx) {

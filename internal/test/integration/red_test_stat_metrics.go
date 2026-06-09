@@ -25,8 +25,9 @@ func testStatMetricsTCPRtt(t *testing.T, port string) {
 		// Per-series division avoids dilution from other fast connections
 		// (e.g. health checks) that share the same dst_port label. A non-empty
 		// response means at least one connection was captured with RTT >= 100ms.
+		// Threshold is 90ms rather than 100ms to absorb the +/- 1ms timestamp jitter.
 		avgQuery := `(obi_stat_tcp_rtt_seconds_sum{dst_port="` + port + `"} /` +
-			` obi_stat_tcp_rtt_seconds_count{dst_port="` + port + `"}) >= 0.1`
+			` obi_stat_tcp_rtt_seconds_count{dst_port="` + port + `"}) >= 0.09`
 		avgResults, err := pq.Query(avgQuery)
 		require.NoError(ct, err)
 		enoughPromResults(ct, avgResults)

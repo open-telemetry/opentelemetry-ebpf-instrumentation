@@ -51,6 +51,31 @@ func testJavaNestedTraces(t *testing.T, slug string) {
 	}, 2*time.Minute, 5*time.Second)
 }
 
+func testJavaNestedTracesPlainHTTP(t *testing.T, slug string) {
+	t.Log("checking server to client nesting over plain HTTP for [/api/" + slug + "]")
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		for i := 0; i < 10; i++ {
+			ti.DoHTTPGet(ct, "http://localhost:8081/api/"+slug+"?url=http://downstream:8086/rolldice/1", 200)
+		}
+
+		resp, err := http.Get(jaegerQueryURL + "?service=testserver&operation=GET%20%2Fapi%2F" + slug)
+		require.NoError(ct, err)
+		if resp == nil {
+			return
+		}
+		require.Equal(ct, http.StatusOK, resp.StatusCode)
+		var tq jaeger.TracesQuery
+		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
+		traces := tq.FindBySpan(jaeger.Tag{Key: "url.path", Type: "string", Value: "/api/" + slug})
+		require.GreaterOrEqual(ct, len(traces), 10)
+		nested := 0
+		for _, trace := range traces {
+			nested += len(trace.FindByOperationName("GET /rolldice/1", "client"))
+		}
+		require.GreaterOrEqual(ct, nested*10, len(traces)*8)
+	}, 2*time.Minute, 5*time.Second)
+}
+
 func TestJavaNestedTraces(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-java-dist.yml", path.Join(pathOutput, "test-suite-java-dist.log"))
 	require.NoError(t, err)
@@ -64,6 +89,12 @@ func TestJavaNestedTraces(t *testing.T) {
 	for _, slug := range []string{"request", "async-request", "async-request-c", "async-request-fj"} {
 		t.Run("Nested traces for "+slug, func(t *testing.T) {
 			testJavaNestedTraces(t, slug)
+		})
+	}
+
+	for _, slug := range []string{"async-request-c", "async-request-fj"} {
+		t.Run("Nested traces over plain HTTP for "+slug, func(t *testing.T) {
+			testJavaNestedTracesPlainHTTP(t, slug)
 		})
 	}
 

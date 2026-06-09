@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/internal/procs"
 )
 
@@ -123,7 +124,7 @@ func TestFindExeBaseAddr(t *testing.T) {
 	cmd := startNodeScript(t, `setTimeout(() => {}, 600000);`)
 	pid := cmd.Process.Pid
 
-	base, err := findExeBaseAddr(pid)
+	base, err := procs.FindExeBaseAddr(app.PID(pid))
 	if err != nil {
 		t.Fatalf("findExeBaseAddr failed: %v", err)
 	}
@@ -147,7 +148,7 @@ func TestFindExeBaseAddr(t *testing.T) {
 }
 
 func TestFindExeBaseAddr_InvalidPid(t *testing.T) {
-	_, err := findExeBaseAddr(99999999)
+	_, err := procs.FindExeBaseAddr(99999999)
 	if err == nil {
 		t.Error("expected error for invalid pid")
 	}

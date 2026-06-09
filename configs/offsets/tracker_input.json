@@ -27,7 +27,9 @@
       "database/sql.driverConn": ["ci"],
       "net/textproto.Reader": ["R"],
       "bufio.Reader": ["buf", "w"],
-      "runtime.moduledata": ["pcHeader", "pclntable", "minpc", "maxpc", "text", "etext"]
+      "runtime.moduledata": ["pcHeader", "pclntable", "minpc", "maxpc", "text", "etext"],
+      "runtime.mstats": ["numgc", "numforcedgc"],
+      "runtime.gcControllerState": ["[1.19.0]memoryLimit", "gcPercent"]
     }
   },
   "golang.org/x/net": {

@@ -42,6 +42,19 @@ func Run(
 	return RunWithContextInfo(ctx, cfg, ctxInfo, opts...)
 }
 
+func startHealthCheck(ctx context.Context, g *errgroup.Group, cfg obi.HealthCheckConfig) {
+	switch {
+	case cfg.UnixSocketPath != "":
+		g.Go(func() error {
+			return health.ListenAndServeUDS(ctx, cfg.UnixSocketPath)
+		})
+	case cfg.Port != 0:
+		g.Go(func() error {
+			return health.ListenAndServe(ctx, cfg.Port)
+		})
+	}
+}
+
 func RunWithContextInfo(
 	ctx context.Context, cfg *obi.Config, ctxInfo *global.ContextInfo,
 	opts ...Option,
@@ -59,11 +72,7 @@ func RunWithContextInfo(
 	// if one of nodes fail, the other should stop
 	g, ctx := errgroup.WithContext(ctx)
 
-	if cfg.HealthCheck.Port != 0 {
-		g.Go(func() error {
-			return health.ListenAndServe(ctx, cfg.HealthCheck.Port)
-		})
-	}
+	startHealthCheck(ctx, g, cfg.HealthCheck)
 
 	if app {
 		g.Go(func() error {

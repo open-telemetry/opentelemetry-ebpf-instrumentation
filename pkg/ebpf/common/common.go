@@ -29,8 +29,8 @@ import (
 	"go.opentelemetry.io/obi/pkg/config"
 	"go.opentelemetry.io/obi/pkg/ebpf/common/dnsparser"
 	ebpfhttp "go.opentelemetry.io/obi/pkg/ebpf/common/http"
+	"go.opentelemetry.io/obi/pkg/ebpf/ringbuf"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/kafkaparser"
-	"go.opentelemetry.io/obi/pkg/internal/ebpf/ringbuf"
 	"go.opentelemetry.io/obi/pkg/internal/largebuf"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )

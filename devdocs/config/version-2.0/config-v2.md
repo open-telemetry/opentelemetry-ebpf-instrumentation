@@ -609,7 +609,8 @@ Important mapping notes:
 | `otel_metrics_export.ttl` | `extensions.obi.capture.telemetry.metrics.ttl` | Move to capture telemetry tuning |
 | `otel_metrics_export.extra_span_resource_attributes` | `extensions.obi.daemon.telemetry.metrics.prometheus.extra_span_resource_attributes` | Move to daemon telemetry tuning |
 | `otel_traces_export.batch_timeout` | `tracer_provider.processors[0].batch.schedule_delay` | OTel ownership move + rename + duration(ms) representation |
-| `otel_traces_export.max_queue_size` | `tracer_provider.processors[0].batch.max_queue_size` | OTel ownership move + declarative processor list shape |
+| `otel_traces_export.queue_size` | `tracer_provider.processors[0].batch.max_queue_size` | OTel ownership move + declarative processor list shape |
+| `otel_traces_export.batch_max_size` | `tracer_provider.processors[0].batch.max_export_batch_size` | OTel ownership move + declarative processor list shape |
 | `otel_traces_export.reporters_cache_len` | `extensions.obi.capture.telemetry.traces.reporters_cache_len` | Move to capture telemetry tuning |
 | `otel_traces_export.sampler.arg` | `tracer_provider.sampler` | OTel ownership move. Map to built-in sampler arguments when possible; per-workload semantics require the `obi_rule_based` sampler plugin. |
 | `otel_traces_export.sampler.name` | `tracer_provider.sampler` | OTel ownership move. Map to built-in sampler names when possible; per-workload semantics require the `obi_rule_based` sampler plugin. |

@@ -68,6 +68,10 @@ enum {
     k_kafka_hdr_request_api_key = 2,
     k_kafka_hdr_request_api_version = 2,
     k_kafka_hdr_correlation_id = 4,
+    k_kafka_request_header_fields_without_message_size =
+        k_kafka_hdr_request_api_key + k_kafka_hdr_request_api_version + k_kafka_hdr_correlation_id,
+    k_kafka_min_request_header_size =
+        k_kafka_hdr_message_size + k_kafka_request_header_fields_without_message_size,
 
     k_kafka_min_response_message_size_value = 4, // correlation_id (4)
 
@@ -138,9 +142,13 @@ static __always_inline int kafka_store_state_data(const connection_info_t *conn_
 // the correlation_id is valid.
 // Note: we are interested in request_api_version values ​​between 10 and 13 because
 // these versions contain the topic_id while versions < 9 have directly the topic_name.
-static __always_inline int
-kafka_check_request_header_fields_without_message_size(struct kafka_request_hdr *hdr,
-                                                       const unsigned char *data) {
+static __always_inline int kafka_check_request_header_fields_without_message_size(
+    struct kafka_request_hdr *hdr, const unsigned char *data, size_t data_len) {
+
+    if (data_len < k_kafka_request_header_fields_without_message_size) {
+        bpf_dbg_printk("packet too short for kafka request header");
+        return -1;
+    }
 
     u8 offset = 0;
 
@@ -205,7 +213,7 @@ static __always_inline int kafka_parse_fixup_request_header(const connection_inf
     if (hdr->message_size == (data_len - k_kafka_hdr_message_size)) {
         // Header is valid and we have the full data, we can proceed.
         if (kafka_check_request_header_fields_without_message_size(
-                hdr, data + k_kafka_hdr_message_size) < 0) {
+                hdr, data + k_kafka_hdr_message_size, data_len - k_kafka_hdr_message_size) < 0) {
             return -1;
         }
         return 0;
@@ -216,7 +224,7 @@ static __always_inline int kafka_parse_fixup_request_header(const connection_inf
     if (state_data != NULL && state_data->message_size == data_len) {
         // Prepend the header from state data.
         hdr->message_size = state_data->message_size;
-        if (kafka_check_request_header_fields_without_message_size(hdr, data) < 0) {
+        if (kafka_check_request_header_fields_without_message_size(hdr, data, data_len) < 0) {
             return -1;
         }
         return 0;

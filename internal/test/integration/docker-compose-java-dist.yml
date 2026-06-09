@@ -9,6 +9,15 @@ services:
       LOG_LEVEL: DEBUG
       OTEL_SERVICE_NAME: testserver
 
+  downstream:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/testserver/Dockerfile
+    image: hatest-testserver
+    environment:
+      STD_PORT: "8086"
+      LOG_LEVEL: DEBUG
+
   obi:
     build:
       context: ../../..
