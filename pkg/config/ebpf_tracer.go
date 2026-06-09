@@ -30,7 +30,6 @@ const (
 	StrContextPropagationDisabled = "disabled"
 	StrContextPropagationAll      = "all"
 	StrContextPropagationHeaders  = "headers"
-	StrContextPropagationHTTP     = "http"
 	StrContextPropagationTCP      = "tcp"
 )
 
@@ -79,7 +78,7 @@ type EBPFTracer struct {
 	HTTPRequestTimeout time.Duration `yaml:"http_request_timeout" env:"OTEL_EBPF_BPF_HTTP_REQUEST_TIMEOUT" validate:"gte=0"`
 
 	// Enables distributed context propagation.
-	// Can be a combination of: headers/http, tcp (e.g., "headers,tcp" or "all")
+	// Can be a combination of: headers, tcp (e.g., "headers,tcp" or "all")
 	ContextPropagation ContextPropagationMode `yaml:"context_propagation" env:"OTEL_EBPF_BPF_CONTEXT_PROPAGATION"`
 
 	// Skips checking the kernel version for bpf_loop functionality. Some modified kernels have this
@@ -229,14 +228,14 @@ func (m *ContextPropagationMode) UnmarshalText(text []byte) error {
 	for _, part := range parts {
 		part = strings.TrimSpace(part)
 		switch part {
-		case StrContextPropagationHeaders, StrContextPropagationHTTP:
+		case StrContextPropagationHeaders:
 			result |= ContextPropagationHeaders
 		case StrContextPropagationTCP:
 			result |= ContextPropagationTCP
 		case "ip":
 			slog.Warn("context_propagation value 'ip' is deprecated and has no effect; IP options injection has been removed")
 		default:
-			return fmt.Errorf("invalid value for context_propagation: '%s' (valid: all, disabled, headers, http, tcp)", part)
+			return fmt.Errorf("invalid value for context_propagation: '%s' (valid: all, disabled, headers, tcp)", part)
 		}
 	}
 
@@ -268,7 +267,7 @@ func (m ContextPropagationMode) MarshalText() ([]byte, error) {
 }
 
 func (ContextPropagationMode) JSONSchema() *jsonschema.Schema {
-	options := []string{StrContextPropagationHeaders, StrContextPropagationHTTP, StrContextPropagationTCP}
+	options := []string{StrContextPropagationHeaders, StrContextPropagationTCP}
 	optionsStr := strings.Join(options, "|")
 	optionsRegexp := fmt.Sprintf("^(%s)(,(%s))*$", optionsStr, optionsStr)
 	return &jsonschema.Schema{
@@ -280,7 +279,7 @@ func (ContextPropagationMode) JSONSchema() *jsonschema.Schema {
 			},
 			{
 				Type:        "string",
-				Description: "Comma-separated list of propagation methods (headers/http for HTTP headers, tcp for TCP options)",
+				Description: "Comma-separated list of propagation methods (headers for HTTP headers, tcp for TCP options)",
 				Examples:    []any{"headers", "tcp", "headers,tcp"},
 				Pattern:     optionsRegexp,
 			},
@@ -292,6 +291,6 @@ func (ContextPropagationMode) JSONSchema() *jsonschema.Schema {
 			},
 		},
 		Title:       "Context Propagation Mode",
-		Description: "Configures distributed context propagation. Can be 'all' to enable all methods, 'disabled'/'' to disable, or a comma-separated list of methods: 'headers' (or 'http') for HTTP headers, 'tcp' for TCP options (e.g. \"headers,tcp\").",
+		Description: "Configures distributed context propagation. Can be 'all' to enable all methods, 'disabled'/'' to disable, or a comma-separated list of methods: 'headers' for HTTP headers, 'tcp' for TCP options (e.g. \"headers,tcp\").",
 	}
 }

@@ -261,8 +261,8 @@
         },
         {
           "type": "string",
-          "pattern": "^(headers|http|tcp)(,(headers|http|tcp))*$",
-          "description": "Comma-separated list of propagation methods (headers/http for HTTP headers, tcp for TCP options)",
+          "pattern": "^(headers|tcp)(,(headers|tcp))*$",
+          "description": "Comma-separated list of propagation methods (headers for HTTP headers, tcp for TCP options)",
           "examples": [
             "headers",
             "tcp",
@@ -279,7 +279,7 @@
         }
       ],
       "title": "Context Propagation Mode",
-      "description": "Configures distributed context propagation. Can be 'all' to enable all methods, 'disabled'/'' to disable, or a comma-separated list of methods: 'headers' (or 'http') for HTTP headers, 'tcp' for TCP options (e.g. \"headers,tcp\")."
+      "description": "Configures distributed context propagation. Can be 'all' to enable all methods, 'disabled'/'' to disable, or a comma-separated list of methods: 'headers' for HTTP headers, 'tcp' for TCP options (e.g. \"headers,tcp\")."
     },
     "CustomRoutesConfig": {
       "properties": {
@@ -613,7 +613,7 @@
         },
         "context_propagation": {
           "$ref": "#/$defs/ContextPropagationMode",
-          "description": "Enables distributed context propagation. Can be a combination of: headers/http, tcp (e.g., \"headers,tcp\" or \"all\")",
+          "description": "Enables distributed context propagation. Can be a combination of: headers, tcp (e.g., \"headers,tcp\" or \"all\")",
           "default": "disabled",
           "x-env-var": "OTEL_EBPF_BPF_CONTEXT_PROPAGATION"
         },
