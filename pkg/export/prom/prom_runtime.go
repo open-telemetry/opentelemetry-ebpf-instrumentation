@@ -12,8 +12,8 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
-	"go.opentelemetry.io/obi/pkg/internal/runtimemetrics"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm/swarms"
+	"go.opentelemetry.io/obi/pkg/runtimemetrics"
 )
 
 type goRuntimeMetricsCollector struct {

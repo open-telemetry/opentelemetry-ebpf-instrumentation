@@ -16,8 +16,8 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
+	"go.opentelemetry.io/obi/pkg/ebpf/ringbuf"
 	"go.opentelemetry.io/obi/pkg/export"
-	"go.opentelemetry.io/obi/pkg/internal/ebpf/ringbuf"
 )
 
 func TestConvertGoRuntimeMetricSnapshot(t *testing.T) {

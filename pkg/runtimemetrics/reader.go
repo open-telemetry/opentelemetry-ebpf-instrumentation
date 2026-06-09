@@ -1,7 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package runtimemetrics // import "go.opentelemetry.io/obi/pkg/internal/runtimemetrics"
+package runtimemetrics // import "go.opentelemetry.io/obi/pkg/runtimemetrics"
 
 import (
 	"errors"
@@ -11,7 +11,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
-	"go.opentelemetry.io/obi/pkg/internal/ebpf/ringbuf"
+	"go.opentelemetry.io/obi/pkg/ebpf/ringbuf"
 )
 
 const EventTypeGoRuntimeMetric = 17

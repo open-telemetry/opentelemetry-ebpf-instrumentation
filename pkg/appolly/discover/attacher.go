@@ -21,12 +21,12 @@ import (
 	"go.opentelemetry.io/obi/pkg/internal/helpers/maps"
 	javaagent "go.opentelemetry.io/obi/pkg/internal/java"
 	"go.opentelemetry.io/obi/pkg/internal/nodejs"
-	"go.opentelemetry.io/obi/pkg/internal/runtimemetrics"
 	"go.opentelemetry.io/obi/pkg/internal/transform/route/harvest"
 	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm/swarms"
+	"go.opentelemetry.io/obi/pkg/runtimemetrics"
 )
 
 // Swappable in tests so attacher tests don't depend on memlock permissions.

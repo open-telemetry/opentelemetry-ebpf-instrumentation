@@ -18,12 +18,12 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/prom"
 	"go.opentelemetry.io/obi/pkg/filter"
 	msg2 "go.opentelemetry.io/obi/pkg/internal/helpers/msg"
-	"go.opentelemetry.io/obi/pkg/internal/runtimemetrics"
 	"go.opentelemetry.io/obi/pkg/internal/traces"
 	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
+	"go.opentelemetry.io/obi/pkg/runtimemetrics"
 	"go.opentelemetry.io/obi/pkg/transform"
 )
 

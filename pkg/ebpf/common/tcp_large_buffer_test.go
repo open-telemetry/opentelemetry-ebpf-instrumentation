@@ -14,7 +14,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
-	"go.opentelemetry.io/obi/pkg/internal/ebpf/ringbuf"
+	"go.opentelemetry.io/obi/pkg/ebpf/ringbuf"
 )
 
 func TestProtocolToLargeBufferKind(t *testing.T) {
