@@ -91,7 +91,7 @@ func TestBasicPipeline(t *testing.T) {
 		Metrics:      mpConfig,
 		OTELMetrics:  cfg,
 		Attributes:   obi.Attributes{Select: allMetrics, InstanceID: config.InstanceIDConfig{OverrideHostname: "the-host"}},
-	}, gctx(0, &cfg), tracesInput, processEvents)
+	}, gctx(0, &cfg), tracesInput, processEvents, nil)
 
 	// Override eBPF tracer to send some fake data
 	tracesInput.Send(newRequest("foo-svc", "/foo/bar", 404))
@@ -173,7 +173,7 @@ func TestTracerPipeline(t *testing.T) {
 			Instrumentations:  []instrumentations.Instrumentation{instrumentations.InstrumentationALL},
 		},
 		Attributes: obi.Attributes{InstanceID: config.InstanceIDConfig{OverrideHostname: "the-host"}},
-	}, gCtx, tracesInput, processEvents)
+	}, gCtx, tracesInput, processEvents, nil)
 
 	// Override eBPF tracer to send some fake data
 	tracesInput.Send(newRequest("bar-svc", "/foo/bar", 404))
@@ -228,7 +228,7 @@ func TestMergedMetricsTracePipeline(t *testing.T) {
 			InstanceID:                     config.InstanceIDConfig{OverrideHostname: "the-host"},
 			MetricSpanNameAggregationLimit: 10,
 		},
-	}, gctx(0, &mCfg), tracesInput, processEvents)
+	}, gctx(0, &mCfg), tracesInput, processEvents, nil)
 
 	tracesInput.Send(newRequest("bar-svc", "/foo/bar", 404))
 
@@ -265,7 +265,7 @@ func TestTracerPipelineBadTimestamps(t *testing.T) {
 			ReportersCacheLen: 16,
 			Instrumentations:  []instrumentations.Instrumentation{instrumentations.InstrumentationALL},
 		},
-	}, gctx(0, nil), tracesInput, processEvents)
+	}, gctx(0, nil), tracesInput, processEvents, nil)
 	// Override eBPF tracer to send some fake data
 	tracesInput.Send(newRequestWithTiming("svc1", request.EventTypeHTTP, "GET", "/attach", 200, 60000, 59999, 70000))
 	// closing prematurely the input node would finish the whole graph processing
@@ -305,7 +305,7 @@ func TestRouteConsolidation(t *testing.T) {
 		Metrics:     mpConfig,
 		Routes:      &transform.RoutesConfig{Patterns: []string{"/user/{id}", "/products/{id}/push"}},
 		Attributes:  obi.Attributes{Select: allMetricsBut("client.address", "url.path"), InstanceID: config.InstanceIDConfig{OverrideHostname: "the-host"}},
-	}, gctx(attributes.GroupHTTPRoutes, &cfg), tracesInput, processEvents)
+	}, gctx(attributes.GroupHTTPRoutes, &cfg), tracesInput, processEvents, nil)
 	// Override eBPF tracer to send some fake data
 	tracesInput.Send(newRequest("svc-1", "/user/1234", 200))
 	tracesInput.Send(newRequest("svc-1", "/products/3210/push", 200))
@@ -446,7 +446,7 @@ func TestGRPCPipeline(t *testing.T) {
 		OTELMetrics: cfg,
 		Metrics:     mpConfig,
 		Attributes:  obi.Attributes{Select: allMetrics, InstanceID: config.InstanceIDConfig{OverrideHostname: "the-host"}},
-	}, gctx(0, &cfg), tracesInput, processEvents)
+	}, gctx(0, &cfg), tracesInput, processEvents, nil)
 	// Override eBPF tracer to send some fake data
 	tracesInput.Send(newGRPCRequest("grpc-svc", "/foo/bar", 3))
 	pipe, err := gb.buildGraph(ctx)
@@ -508,7 +508,7 @@ func TestTraceGRPCPipeline(t *testing.T) {
 			Instrumentations: []instrumentations.Instrumentation{instrumentations.InstrumentationALL},
 		},
 		Attributes: obi.Attributes{InstanceID: config.InstanceIDConfig{OverrideHostname: "the-host"}},
-	}, gctx(0, nil), tracesInput, processEvents)
+	}, gctx(0, nil), tracesInput, processEvents, nil)
 	// Override eBPF tracer to send some fake data
 	tracesInput.Send(newGRPCRequest("svc", "foo.bar", 3))
 	pipe, err := gb.buildGraph(ctx)
@@ -550,7 +550,7 @@ func TestBasicPipelineInfo(t *testing.T) {
 			Select:     allMetrics,
 			InstanceID: config.InstanceIDConfig{OverrideHostname: "the-host"},
 		},
-	}, gctx(0, &cfg), tracesInput, processEvents)
+	}, gctx(0, &cfg), tracesInput, processEvents, nil)
 	// send some fake data through the traces' input
 	tracesInput.Send(newHTTPInfo("PATCH", "/aaa/bbb", "1.1.1.1", 204))
 	pipe, err := gb.buildGraph(ctx)
@@ -609,7 +609,7 @@ func TestTracerPipelineInfo(t *testing.T) {
 	gb := newGraphBuilder(&obi.Config{
 		Traces:     otelcfg.TracesConfig{TracesEndpoint: tc.ServerEndpoint, ReportersCacheLen: 16, Instrumentations: []instrumentations.Instrumentation{instrumentations.InstrumentationALL}},
 		Attributes: obi.Attributes{InstanceID: config.InstanceIDConfig{OverrideHostname: "the-host"}},
-	}, gctx(0, nil), tracesInput, processEvents)
+	}, gctx(0, nil), tracesInput, processEvents, nil)
 	// Override eBPF tracer to send some fake data
 	tracesInput.Send(newHTTPInfo("PATCH", "/aaa/bbb", "1.1.1.1", 204))
 	pipe, err := gb.buildGraph(ctx)
@@ -647,7 +647,7 @@ func TestSpanAttributeFilterNode(t *testing.T) {
 			Application: map[string]filter.MatchDefinition{"url.path": {Match: "/user/*"}},
 		},
 		Attributes: obi.Attributes{Select: allMetrics, InstanceID: config.InstanceIDConfig{OverrideHostname: "the-host"}},
-	}, gctx(0, &cfg), tracesInput, processEvents)
+	}, gctx(0, &cfg), tracesInput, processEvents, nil)
 
 	// Override eBPF tracer to send some fake data
 	tracesInput.Send(newRequest("svc-0", "/products/3210/push", 200))

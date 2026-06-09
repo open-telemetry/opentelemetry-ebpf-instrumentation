@@ -44,11 +44,12 @@ func TestFeatureEnv_Separator(t *testing.T) {
 	doc := struct {
 		Features Features `env:"FOO" envSeparator:","`
 	}{}
-	t.Setenv("FOO", "network,application,application_span_otel")
+	t.Setenv("FOO", "network,application,application_span_otel,application_runtime")
 	require.NoError(t, env.Parse(&doc))
 
 	assert.True(t, doc.Features.has(FeatureNetwork))
 	assert.True(t, doc.Features.has(FeatureApplicationRED|FeatureSpanOTel))
+	assert.True(t, doc.Features.AppRuntime())
 	assert.False(t, doc.Features.has(FeatureSpanLegacy))
 	assert.False(t, doc.Features.has(FeatureAll))
 }

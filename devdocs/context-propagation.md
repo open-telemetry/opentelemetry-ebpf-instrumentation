@@ -41,8 +41,8 @@ Context propagation is controlled via `OTEL_EBPF_BPF_CONTEXT_PROPAGATION` which 
 
 - `headers` - Inject HTTP headers
 - `tcp` - Inject TCP options
-- `all` - Enable all methods (default)
-- `disabled` - Disable context propagation
+- `all` - Enable all methods
+- `disabled` - Disable context propagation (default)
 
 Examples:
 

@@ -490,16 +490,27 @@
               "additionalProperties": false,
               "properties": {
                 "context_propagation": {
-                  "type": "string",
-                  "enum": [
-                    "disabled",
-                    "headers",
-                    "tcp",
-                    "ip",
-                    "all"
+                  "oneOf": [
+                    {
+                      "type": "string",
+                      "enum": [
+                        "disabled",
+                        "headers",
+                        "tcp",
+                        "all"
+                      ]
+                    },
+                    {
+                      "type": "string",
+                      "enum": [
+                        "ip"
+                      ],
+                      "deprecated": true,
+                      "description": "IP options injection has been removed and has no effect"
+                    }
                   ],
                   "default": "disabled",
-                  "description": "Context propagation mode.\nValues include: `disabled`, `headers`, `tcp`, `ip`, `all`.\nIf omitted, `disabled` is used.\n"
+                  "description": "Context propagation mode.\nValues include: `disabled`, `headers`, `tcp`, `all`.\nIf omitted, `disabled` is used.\n"
                 },
                 "override_bpfloop_enabled": {
                   "type": "boolean",

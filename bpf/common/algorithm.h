@@ -55,11 +55,11 @@ static __always_inline unsigned long min_ulong(unsigned long a, unsigned long b)
         u8: min_u8,                                                                                \
         u16: min_u16,                                                                              \
         u32: min_u32,                                                                              \
-        u64: min_u64,                                                                              \
+        unsigned long long: min_u64,                                                               \
         s8: min_s8,                                                                                \
         s16: min_s16,                                                                              \
         s32: min_s32,                                                                              \
-        s64: min_s64,                                                                              \
+        long long: min_s64,                                                                        \
         long: min_long,                                                                            \
         unsigned long: min_ulong)(a, b)
 
@@ -112,10 +112,10 @@ static __always_inline unsigned long max_ulong(unsigned long a, unsigned long b)
         u8: max_u8,                                                                                \
         u16: max_u16,                                                                              \
         u32: max_u32,                                                                              \
-        u64: max_u64,                                                                              \
+        unsigned long long: max_u64,                                                               \
         s8: max_s8,                                                                                \
         s16: max_s16,                                                                              \
         s32: max_s32,                                                                              \
-        s64: max_s64,                                                                              \
+        long long: max_s64,                                                                        \
         long: max_long,                                                                            \
         unsigned long: max_ulong)(a, b)

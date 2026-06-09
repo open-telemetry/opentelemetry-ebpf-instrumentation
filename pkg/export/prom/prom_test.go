@@ -87,6 +87,7 @@ func TestAppMetricsExpiration(t *testing.T) {
 		request.UnresolvedNames{},
 		promInput,
 		processEvents,
+		nil,
 	)(ctx)
 	require.NoError(t, err)
 
@@ -848,6 +849,7 @@ func makePromExporter(
 		request.UnresolvedNames{},
 		input,
 		processEvents,
+		nil,
 	)(ctx)
 	require.NoError(t, err)
 
@@ -1378,6 +1380,7 @@ func TestOverridingCloudHostIDKey(t *testing.T) {
 		request.UnresolvedNames{},
 		promInput,
 		processEvents,
+		nil,
 	)(ctx)
 	require.NoError(t, err)
 

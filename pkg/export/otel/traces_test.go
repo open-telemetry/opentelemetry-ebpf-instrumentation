@@ -83,6 +83,109 @@ func groupFromSpanAndAttributes(span *request.Span, attrs []attribute.KeyValue) 
 	return groups
 }
 
+func TestGenerateTracesSpanLinks(t *testing.T) {
+	start := time.Now()
+	traceID, err := trace.TraceIDFromHex("eae56fbbec9505c102e8aabfc6b5c481")
+	require.NoError(t, err)
+	spanID, err := trace.SpanIDFromHex("89cbc1f60aab3b04")
+	require.NoError(t, err)
+	linkTraceID, err := trace.TraceIDFromHex("1ae56fbbec9505c102e8aabfc6b5c482")
+	require.NoError(t, err)
+	linkSpanID, err := trace.SpanIDFromHex("19cbc1f60aab3b04")
+	require.NoError(t, err)
+
+	validLink := request.SpanLink{
+		TraceID:    linkTraceID,
+		SpanID:     linkSpanID,
+		TraceFlags: 3,
+	}
+
+	t.Run("without subspans", func(t *testing.T) {
+		span := &request.Span{
+			Type:         request.EventTypeHTTP,
+			RequestStart: start.UnixNano(),
+			Start:        start.UnixNano(),
+			End:          start.Add(3 * time.Second).UnixNano(),
+			Method:       "GET",
+			Route:        "/test",
+			Status:       200,
+			TraceID:      traceID,
+			SpanID:       spanID,
+			Links:        []request.SpanLink{validLink},
+		}
+
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(span, []attribute.KeyValue{}), reporterName)
+		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+
+		require.Equal(t, 1, spans.Len())
+		require.Equal(t, 1, spans.At(0).Links().Len())
+		assert.Equal(t, spanID.String(), spans.At(0).SpanID().String())
+
+		link := spans.At(0).Links().At(0)
+		assert.Equal(t, linkTraceID.String(), link.TraceID().String())
+		assert.Equal(t, linkSpanID.String(), link.SpanID().String())
+		assert.Equal(t, uint32(validLink.TraceFlags), link.Flags())
+	})
+
+	t.Run("with subspans", func(t *testing.T) {
+		span := &request.Span{
+			Type:         request.EventTypeHTTP,
+			RequestStart: start.UnixNano(),
+			Start:        start.Add(time.Second).UnixNano(),
+			End:          start.Add(3 * time.Second).UnixNano(),
+			Method:       "GET",
+			Route:        "/test",
+			Status:       200,
+			TraceID:      traceID,
+			SpanID:       spanID,
+			Links:        []request.SpanLink{validLink},
+		}
+
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(span, []attribute.KeyValue{}), reporterName)
+		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+
+		require.Equal(t, 3, spans.Len())
+		assert.Equal(t, "in queue", spans.At(0).Name())
+		assert.Equal(t, "processing", spans.At(1).Name())
+		assert.Equal(t, "GET /test", spans.At(2).Name())
+		assert.Equal(t, 0, spans.At(0).Links().Len())
+		assert.Equal(t, 0, spans.At(2).Links().Len())
+		require.Equal(t, 1, spans.At(1).Links().Len())
+		assert.Equal(t, spanID.String(), spans.At(1).SpanID().String())
+
+		link := spans.At(1).Links().At(0)
+		assert.Equal(t, linkTraceID.String(), link.TraceID().String())
+		assert.Equal(t, linkSpanID.String(), link.SpanID().String())
+	})
+
+	t.Run("ignores invalid link ids", func(t *testing.T) {
+		span := &request.Span{
+			Type:         request.EventTypeHTTP,
+			RequestStart: start.UnixNano(),
+			Start:        start.UnixNano(),
+			End:          start.Add(3 * time.Second).UnixNano(),
+			Method:       "GET",
+			Route:        "/test",
+			Status:       200,
+			TraceID:      traceID,
+			SpanID:       spanID,
+			Links: []request.SpanLink{
+				{TraceID: linkTraceID},
+				{SpanID: linkSpanID},
+				validLink,
+			},
+		}
+
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(span, []attribute.KeyValue{}), reporterName)
+		links := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Links()
+
+		require.Equal(t, 1, links.Len())
+		assert.Equal(t, linkTraceID.String(), links.At(0).TraceID().String())
+		assert.Equal(t, linkSpanID.String(), links.At(0).SpanID().String())
+		assert.Equal(t, uint32(validLink.TraceFlags), links.At(0).Flags())
+	})
+}
+
 func TestGenerateTraces(t *testing.T) {
 	t.Run("test with subtraces - with parent spanId", func(t *testing.T) {
 		start := time.Now()
