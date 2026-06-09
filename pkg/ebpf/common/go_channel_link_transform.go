@@ -29,6 +29,7 @@ type spanLinkKey struct {
 }
 
 type pendingSpanLinks struct {
+	// Links are keyed by the receiver span that should receive them when it is parsed.
 	cache *expirable.LRU[spanLinkKey, []request.SpanLink]
 }
 
@@ -108,6 +109,10 @@ func (p *pendingSpanLinks) recordLink(key spanLinkKey, link request.SpanLink) {
 	}
 
 	links, _ := p.cache.Get(key)
+	// OpenTelemetry does not require span links to be unique. OBI deduplicates
+	// reconstructed channel links because these links currently carry only the
+	// sender SpanContext. If link attributes later carry per-handoff details,
+	// this normalization should be revisited.
 	for _, existing := range links {
 		if existing.TraceID == link.TraceID && existing.SpanID == link.SpanID {
 			return
