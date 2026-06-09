@@ -245,7 +245,7 @@ func rulesFromRuntime(cfg *obi.Config) []schema.Rule {
 	if len(cfg.Discovery.ExcludedLinuxSystemPaths) > 0 {
 		globs := make([]string, 0, len(cfg.Discovery.ExcludedLinuxSystemPaths))
 		for _, path := range cfg.Discovery.ExcludedLinuxSystemPaths {
-			globs = append(globs, path+"*")
+			globs = append(globs, strings.TrimRight(path, "/")+"/*")
 		}
 		rules = append(rules, schema.Rule{
 			Action:      "exclude",

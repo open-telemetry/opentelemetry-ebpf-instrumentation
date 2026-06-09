@@ -322,7 +322,7 @@ func TestRuntimeToV2AdvancedCaptureParity(t *testing.T) {
 	}
 	cfg.Discovery.ExcludeOTelInstrumentedServices = true
 	cfg.Discovery.DefaultOtlpGRPCPort = 14317
-	cfg.Discovery.ExcludedLinuxSystemPaths = []string{"/lib/systemd/", "/usr/sbin/"}
+	cfg.Discovery.ExcludedLinuxSystemPaths = []string{"/lib/systemd/", "/usr/sbin"}
 
 	cfg.Routes.Unmatch = "path"
 	cfg.Routes.Patterns = []string{"/products/{id}"}
@@ -676,6 +676,7 @@ func value(t *testing.T, root any, path ...string) any {
 		if items, ok := cur.([]any); ok {
 			idx, err := strconv.Atoi(key)
 			require.NoErrorf(t, err, "expected slice index at %q in %v", key, path)
+			require.GreaterOrEqualf(t, idx, 0, "slice index %q out of range in %v", key, path)
 			require.Lessf(t, idx, len(items), "slice index %q out of range in %v", key, path)
 			cur = items[idx]
 			continue
