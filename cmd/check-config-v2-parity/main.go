@@ -316,10 +316,96 @@ func mustMapNetworkFiltersPerSignal(cur map[string]any, ex map[string]any) error
 	return nil
 }
 
-func mustMapPayloadExtractionMembership(cur map[string]any, ex map[string]any, extractor string) error {
-	currentValue, ok := get(cur, "ebpf", "payload_extraction", "http", extractor, "enabled")
+func mustMapStatsFiltersPerSignal(cur map[string]any, ex map[string]any) error {
+	currentValue, ok := get(cur, "filter", "stats")
 	if !ok {
-		return fmt.Errorf("missing current key [ebpf payload_extraction http %s enabled]", extractor)
+		return errors.New("missing current key [filter stats]")
+	}
+
+	signals := []string{"traces", "metrics"}
+	for _, signal := range signals {
+		exampleValue, ok := get(ex, "obi", "capture", "network", "stats", "filters", signal)
+		if !ok {
+			return fmt.Errorf("missing example key [obi capture network stats filters %s]", signal)
+		}
+		if fmt.Sprintf("%v", currentValue) != fmt.Sprintf("%v", exampleValue) {
+			return fmt.Errorf("filter.stats mismatch for signal %s", signal)
+		}
+	}
+
+	return nil
+}
+
+func mustMapStatsFeatureDefaults(ex map[string]any) error {
+	enabledValue, ok := get(ex, "obi", "capture", "network", "stats", "enabled")
+	if !ok {
+		return errors.New("missing example key [obi capture network stats enabled]")
+	}
+	wantEnabled := obi.DefaultConfig.Enabled(obi.FeatureStatsO11y)
+	gotEnabled := fmt.Sprintf("%v", enabledValue) == "true"
+	if gotEnabled != wantEnabled {
+		return fmt.Errorf("stats enabled mismatch: current=%v example=%v", wantEnabled, gotEnabled)
+	}
+
+	featuresValue, ok := get(ex, "obi", "capture", "network", "stats", "features")
+	if !ok {
+		return errors.New("missing example key [obi capture network stats features]")
+	}
+
+	want := []string{}
+	features := obi.DefaultConfig.Metrics.Features
+	if features.StatsTCPRtt() {
+		want = append(want, "tcp_rtt")
+	}
+	if features.StatsTCPFailedConnections() {
+		want = append(want, "tcp_failed_connections")
+	}
+	if features.StatsTCPRetransmits() {
+		want = append(want, "tcp_retransmits")
+	}
+	if features.StatsTCPIo() {
+		want = append(want, "tcp_io")
+	}
+
+	got := toStringSlice(featuresValue)
+	if !sameStringSet(got, want) {
+		return fmt.Errorf("stats features mismatch: current=%v example=%v", want, got)
+	}
+
+	return nil
+}
+
+func sameStringSet(got []string, want []string) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	seen := map[string]int{}
+	for _, item := range got {
+		seen[item]++
+	}
+	for _, item := range want {
+		seen[item]--
+		if seen[item] < 0 {
+			return false
+		}
+	}
+	return true
+}
+
+func mustMapPayloadExtractionMembership(cur map[string]any, ex map[string]any, extractor string) error {
+	return mustMapPayloadExtractionMembershipAt(cur, ex,
+		[]string{"ebpf", "payload_extraction", "http", extractor, "enabled"}, extractor)
+}
+
+func mustMapPayloadExtractionMembershipAt(
+	cur map[string]any,
+	ex map[string]any,
+	curPath []string,
+	extractor string,
+) error {
+	currentValue, ok := get(cur, curPath...)
+	if !ok {
+		return fmt.Errorf("missing current key %v", curPath)
 	}
 
 	enabledValue, ok := get(ex, "obi", "capture", "instrumentation", "http", "payload_extraction", "enabled")
@@ -393,6 +479,8 @@ func parityChecks() []parityCheck {
 		{[]string{"ebpf", "mysql_prepared_statements_cache_size"}, []string{"obi", "capture", "instrumentation", "sql", "mysql", "prepared_statements_cache_size"}},
 		{[]string{"ebpf", "buffer_sizes", "postgres"}, []string{"obi", "capture", "instrumentation", "sql", "postgres", "buffer_size"}},
 		{[]string{"ebpf", "postgres_prepared_statements_cache_size"}, []string{"obi", "capture", "instrumentation", "sql", "postgres", "prepared_statements_cache_size"}},
+		{[]string{"ebpf", "buffer_sizes", "mssql"}, []string{"obi", "capture", "instrumentation", "sql", "mssql", "buffer_size"}},
+		{[]string{"ebpf", "mssql_prepared_statements_cache_size"}, []string{"obi", "capture", "instrumentation", "sql", "mssql", "prepared_statements_cache_size"}},
 		{[]string{"ebpf", "redis_db_cache", "enabled"}, []string{"obi", "capture", "instrumentation", "redis", "db_cache", "enabled"}},
 		{[]string{"ebpf", "buffer_sizes", "kafka"}, []string{"obi", "capture", "instrumentation", "kafka", "buffer_size"}},
 
@@ -406,16 +494,36 @@ func parityChecks() []parityCheck {
 		{[]string{"network", "deduper"}, []string{"obi", "capture", "network", "capture", "flow_lifecycle", "deduplication", "strategy"}},
 		{[]string{"network", "deduper_fc_ttl"}, []string{"obi", "capture", "network", "capture", "flow_lifecycle", "deduplication", "first_come_ttl"}},
 		{[]string{"network", "sampling"}, []string{"obi", "capture", "network", "capture", "flow_lifecycle", "sampling"}},
+		{[]string{"network", "guess_ports"}, []string{"obi", "capture", "network", "capture", "flow_lifecycle", "guess_ports"}},
 		{[]string{"network", "direction"}, []string{"obi", "capture", "network", "capture", "selection", "direction"}},
 		{[]string{"network", "listen_interfaces"}, []string{"obi", "capture", "network", "capture", "interface_discovery", "mode"}},
 		{[]string{"network", "listen_poll_period"}, []string{"obi", "capture", "network", "capture", "interface_discovery", "poll_interval"}},
 		{[]string{"network", "geo_ip", "cache_expiry"}, []string{"obi", "capture", "network", "capture", "enrichment", "geo_ip", "cache", "ttl"}},
+		{[]string{"network", "geo_ip", "cache_len"}, []string{"obi", "capture", "network", "capture", "enrichment", "geo_ip", "cache", "size"}},
+		{[]string{"network", "geo_ip", "ipinfo", "path"}, []string{"obi", "capture", "network", "capture", "enrichment", "geo_ip", "ipinfo", "path"}},
+		{[]string{"network", "geo_ip", "maxmind", "country_path"}, []string{"obi", "capture", "network", "capture", "enrichment", "geo_ip", "maxmind", "country_path"}},
+		{[]string{"network", "geo_ip", "maxmind", "asn_path"}, []string{"obi", "capture", "network", "capture", "enrichment", "geo_ip", "maxmind", "asn_path"}},
 		{[]string{"network", "reverse_dns", "cache_expiry"}, []string{"obi", "capture", "network", "capture", "enrichment", "reverse_dns", "cache", "ttl"}},
+		{[]string{"network", "reverse_dns", "cache_len"}, []string{"obi", "capture", "network", "capture", "enrichment", "reverse_dns", "cache", "size"}},
+		{[]string{"network", "reverse_dns", "type"}, []string{"obi", "capture", "network", "capture", "enrichment", "reverse_dns", "mode"}},
 		{[]string{"network", "print_flows"}, []string{"obi", "capture", "network", "capture", "diagnostics", "print_flows"}},
 		{[]string{"discovery", "min_process_age"}, []string{"obi", "capture", "policy", "min_process_age"}},
 		{[]string{"discovery", "route_harvester_timeout"}, []string{"obi", "capture", "instrumentation", "http", "routes", "discovery", "timeout"}},
 		{[]string{"discovery", "disabled_route_harvesters"}, []string{"obi", "capture", "instrumentation", "http", "routes", "discovery", "disabled_languages"}},
 		{[]string{"discovery", "route_harvester_advanced", "java_harvest_delay"}, []string{"obi", "capture", "instrumentation", "http", "routes", "discovery", "java", "delay"}},
+
+		{[]string{"stats", "agent_ip"}, []string{"obi", "capture", "network", "stats", "endpoint_identity", "agent_ip"}},
+		{[]string{"stats", "agent_ip_iface"}, []string{"obi", "capture", "network", "stats", "endpoint_identity", "agent_ip_interface"}},
+		{[]string{"stats", "agent_ip_type"}, []string{"obi", "capture", "network", "stats", "endpoint_identity", "agent_ip_family"}},
+		{[]string{"stats", "geo_ip", "cache_expiry"}, []string{"obi", "capture", "network", "stats", "enrichment", "geo_ip", "cache", "ttl"}},
+		{[]string{"stats", "geo_ip", "cache_len"}, []string{"obi", "capture", "network", "stats", "enrichment", "geo_ip", "cache", "size"}},
+		{[]string{"stats", "geo_ip", "ipinfo", "path"}, []string{"obi", "capture", "network", "stats", "enrichment", "geo_ip", "ipinfo", "path"}},
+		{[]string{"stats", "geo_ip", "maxmind", "country_path"}, []string{"obi", "capture", "network", "stats", "enrichment", "geo_ip", "maxmind", "country_path"}},
+		{[]string{"stats", "geo_ip", "maxmind", "asn_path"}, []string{"obi", "capture", "network", "stats", "enrichment", "geo_ip", "maxmind", "asn_path"}},
+		{[]string{"stats", "reverse_dns", "cache_expiry"}, []string{"obi", "capture", "network", "stats", "enrichment", "reverse_dns", "cache", "ttl"}},
+		{[]string{"stats", "reverse_dns", "cache_len"}, []string{"obi", "capture", "network", "stats", "enrichment", "reverse_dns", "cache", "size"}},
+		{[]string{"stats", "reverse_dns", "type"}, []string{"obi", "capture", "network", "stats", "enrichment", "reverse_dns", "mode"}},
+		{[]string{"stats", "print_stats"}, []string{"obi", "capture", "network", "stats", "diagnostics", "print_stats"}},
 
 		{[]string{"name_resolver", "cache_len"}, []string{"obi", "enrich", "service_name", "cache", "size"}},
 		{[]string{"name_resolver", "cache_expiry"}, []string{"obi", "enrich", "service_name", "cache", "ttl"}},
@@ -426,9 +534,15 @@ func parityChecks() []parityCheck {
 		{[]string{"attributes", "kubernetes", "informers_resync_period"}, []string{"obi", "enrich", "enrichers", "kubernetes", "informers", "resync_period"}},
 
 		{[]string{"routes", "unmatched"}, []string{"obi", "capture", "instrumentation", "http", "routes", "unmatched"}},
+		{[]string{"routes", "patterns"}, []string{"obi", "capture", "instrumentation", "http", "routes", "patterns"}},
+		{[]string{"routes", "ignored_patterns"}, []string{"obi", "capture", "instrumentation", "http", "routes", "ignored_patterns"}},
 		{[]string{"routes", "wildcard_char"}, []string{"obi", "capture", "instrumentation", "http", "routes", "wildcard_char"}},
 		{[]string{"routes", "max_path_segment_cardinality"}, []string{"obi", "capture", "instrumentation", "http", "routes", "max_path_segment_cardinality"}},
 		{[]string{"ebpf", "payload_extraction", "http", "sqlpp", "endpoint_patterns"}, []string{"obi", "capture", "instrumentation", "http", "payload_extraction", "sqlpp", "endpoint_patterns"}},
+		{[]string{"ebpf", "payload_extraction", "http", "enrichment", "policy", "default_action", "headers"}, []string{"obi", "capture", "instrumentation", "http", "payload_extraction", "enrichment", "policy", "default_action", "headers"}},
+		{[]string{"ebpf", "payload_extraction", "http", "enrichment", "policy", "default_action", "body"}, []string{"obi", "capture", "instrumentation", "http", "payload_extraction", "enrichment", "policy", "default_action", "body"}},
+		{[]string{"ebpf", "payload_extraction", "http", "enrichment", "policy", "obfuscation_string"}, []string{"obi", "capture", "instrumentation", "http", "payload_extraction", "enrichment", "policy", "obfuscation_string"}},
+		{[]string{"ebpf", "payload_extraction", "http", "enrichment", "rules"}, []string{"obi", "capture", "instrumentation", "http", "payload_extraction", "enrichment", "rules"}},
 
 		{[]string{"otel_metrics_export", "histogram_aggregation"}, []string{"meter_provider", "readers", "0", "periodic", "exporter", "otlp_grpc", "default_histogram_aggregation"}},
 		{[]string{"otel_metrics_export", "reporters_cache_len"}, []string{"obi", "capture", "telemetry", "metrics", "reporters_cache_len"}},
@@ -451,6 +565,8 @@ func parityChecks() []parityCheck {
 		{[]string{"shutdown_timeout"}, []string{"obi", "daemon", "shutdown", "timeout"}},
 		{[]string{"profile_port"}, []string{"obi", "daemon", "profiling", "port"}},
 		{[]string{"enforce_sys_caps"}, []string{"obi", "capture", "safety", "enforce_system_capabilities"}},
+		{[]string{"ebpf", "force_bpf_map_reader"}, []string{"obi", "capture", "engine", "traffic", "force_map_reader"}},
+		{[]string{"ebpf", "maps_config", "global_scale_factor"}, []string{"obi", "capture", "engine", "maps", "global_scale_factor"}},
 		{[]string{"channel_buffer_len"}, []string{"obi", "capture", "channels", "buffer_len"}},
 		{[]string{"channel_send_timeout"}, []string{"obi", "capture", "channels", "send_timeout"}},
 		{[]string{"channel_send_timeout_panic"}, []string{"obi", "capture", "channels", "panic_on_send_timeout"}},
@@ -475,6 +591,7 @@ func verifyDefaults(cur map[string]any, ex map[string]any) ([]error, int) {
 		}
 	}
 
+	derivedChecks := 0
 	if err := mustEqDurationToMilliseconds(
 		cur,
 		ex,
@@ -483,34 +600,69 @@ func verifyDefaults(cur map[string]any, ex map[string]any) ([]error, int) {
 	); err != nil {
 		failures = append(failures, err)
 	}
+	derivedChecks++
 
 	if err := mustMapExcludedSystemPaths(cur, ex); err != nil {
 		failures = append(failures, err)
 	}
+	derivedChecks++
 
 	if err := mustMapAlreadyInstrumentedExclusion(cur, ex); err != nil {
 		failures = append(failures, err)
 	}
+	derivedChecks++
 
 	if err := mustMapGoSpecificTracers(cur, ex); err != nil {
 		failures = append(failures, err)
 	}
+	derivedChecks++
 
 	if err := mustMapApplicationFiltersPerInstrumentation(cur, ex); err != nil {
 		failures = append(failures, err)
 	}
+	derivedChecks++
 
 	if err := mustMapNetworkFiltersPerSignal(cur, ex); err != nil {
 		failures = append(failures, err)
 	}
+	derivedChecks++
 
-	for _, extractor := range []string{"graphql", "elasticsearch", "aws", "sqlpp"} {
+	if err := mustMapStatsFiltersPerSignal(cur, ex); err != nil {
+		failures = append(failures, err)
+	}
+	derivedChecks++
+
+	if err := mustMapStatsFeatureDefaults(ex); err != nil {
+		failures = append(failures, err)
+	}
+	derivedChecks++
+
+	for _, extractor := range []string{"graphql", "elasticsearch", "aws", "sqlpp", "jsonrpc", "enrichment"} {
 		if err := mustMapPayloadExtractionMembership(cur, ex, extractor); err != nil {
 			failures = append(failures, err)
 		}
+		derivedChecks++
 	}
 
-	return failures, len(checks) + 10
+	for _, extractor := range []string{
+		"openai",
+		"anthropic",
+		"gemini",
+		"qwen",
+		"bedrock",
+		"mcp",
+		"embedding",
+		"rerank",
+		"retrieval",
+	} {
+		if err := mustMapPayloadExtractionMembershipAt(cur, ex,
+			[]string{"ebpf", "payload_extraction", "http", "genai", extractor, "enabled"}, extractor); err != nil {
+			failures = append(failures, err)
+		}
+		derivedChecks++
+	}
+
+	return failures, len(checks) + derivedChecks
 }
 
 func run(args []string) error {
