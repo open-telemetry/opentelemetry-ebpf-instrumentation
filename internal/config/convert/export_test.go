@@ -100,7 +100,7 @@ func TestRuntimeToV2DefaultConfig(t *testing.T) {
 func TestRuntimeToV2NilRoutesOnlyExportsDiscovery(t *testing.T) {
 	t.Parallel()
 
-	cfg := obi.DefaultConfig
+	cfg := defaultRuntimeConfig()
 	cfg.Routes = nil
 
 	_, ext := RuntimeToV2(&cfg)
@@ -123,7 +123,7 @@ func TestRuntimeToV2NilRoutesOnlyExportsDiscovery(t *testing.T) {
 func TestRuntimeToV2CustomConfig(t *testing.T) {
 	t.Parallel()
 
-	cfg := obi.DefaultConfig
+	cfg := defaultRuntimeConfig()
 	cfg.ChannelBufferLen = 77
 	cfg.ChannelSendTimeout = 2 * time.Second
 	cfg.ChannelSendTimeoutPanic = true
@@ -281,7 +281,7 @@ func TestRuntimeToV2CustomConfig(t *testing.T) {
 func TestRuntimeToV2AdvancedCaptureParity(t *testing.T) {
 	t.Parallel()
 
-	cfg := obi.DefaultConfig
+	cfg := defaultRuntimeConfig()
 	cfg.Discovery.DefaultExcludeInstrument = nil
 	cfg.Discovery.ExcludeOTelInstrumentedServices = false
 	cfg.Discovery.ExcludedLinuxSystemPaths = nil
@@ -556,7 +556,7 @@ func TestRuntimeToV2MetricInstrumentationsUseEnabledExporters(t *testing.T) {
 	t.Run("ignores disabled exporter defaults", func(t *testing.T) {
 		t.Parallel()
 
-		cfg := obi.DefaultConfig
+		cfg := defaultRuntimeConfig()
 		cfg.OTELMetrics.MetricsEndpoint = "http://localhost:4318"
 		cfg.OTELMetrics.Instrumentations = []instrumentations.Instrumentation{
 			instrumentations.InstrumentationHTTP,
@@ -573,7 +573,7 @@ func TestRuntimeToV2MetricInstrumentationsUseEnabledExporters(t *testing.T) {
 	t.Run("unions enabled exporters", func(t *testing.T) {
 		t.Parallel()
 
-		cfg := obi.DefaultConfig
+		cfg := defaultRuntimeConfig()
 		cfg.OTELMetrics.MetricsEndpoint = "http://localhost:4318"
 		cfg.OTELMetrics.Instrumentations = []instrumentations.Instrumentation{
 			instrumentations.InstrumentationHTTP,
@@ -597,7 +597,7 @@ func TestRuntimeToV2StatsEnablementAndFeatures(t *testing.T) {
 	t.Run("preserves features even without enabled metrics endpoint", func(t *testing.T) {
 		t.Parallel()
 
-		cfg := obi.DefaultConfig
+		cfg := defaultRuntimeConfig()
 		cfg.Metrics.Features = export.FeatureStats
 
 		_, ext := RuntimeToV2(&cfg)
@@ -614,7 +614,7 @@ func TestRuntimeToV2StatsEnablementAndFeatures(t *testing.T) {
 	t.Run("enables aggregate stats with metrics endpoint", func(t *testing.T) {
 		t.Parallel()
 
-		cfg := obi.DefaultConfig
+		cfg := defaultRuntimeConfig()
 		cfg.Prometheus.Port = 9090
 		cfg.Metrics.Features = export.FeatureStats
 
@@ -632,7 +632,7 @@ func TestRuntimeToV2StatsEnablementAndFeatures(t *testing.T) {
 	t.Run("preserves individual stat families", func(t *testing.T) {
 		t.Parallel()
 
-		cfg := obi.DefaultConfig
+		cfg := defaultRuntimeConfig()
 		cfg.OTELMetrics.MetricsEndpoint = "http://localhost:4318"
 		cfg.Metrics.Features = export.FeatureStatsTCPRtt | export.FeatureStatsTCPRetransmits
 
@@ -700,11 +700,20 @@ func regexPtr(pattern string) *services.RegexpAttr {
 }
 
 func minimalSelectionConfig() obi.Config {
-	cfg := obi.DefaultConfig
+	cfg := defaultRuntimeConfig()
 	cfg.Discovery.DefaultExcludeInstrument = nil
 	cfg.Discovery.DefaultExcludeServices = nil
 	cfg.Discovery.ExcludeOTelInstrumentedServices = false
 	cfg.Discovery.ExcludedLinuxSystemPaths = nil
+	return cfg
+}
+
+func defaultRuntimeConfig() obi.Config {
+	cfg := obi.DefaultConfig
+	if cfg.Routes != nil {
+		routes := *cfg.Routes
+		cfg.Routes = &routes
+	}
 	return cfg
 }
 
