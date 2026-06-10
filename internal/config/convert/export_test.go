@@ -870,6 +870,10 @@ func defaultRuntimeConfig() obi.Config {
 		routes := *cfg.Routes
 		cfg.Routes = &routes
 	}
+	if cfg.NameResolver != nil {
+		nameResolver := *cfg.NameResolver
+		cfg.NameResolver = &nameResolver
+	}
 	return cfg
 }
 
