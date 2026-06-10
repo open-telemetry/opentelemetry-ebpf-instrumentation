@@ -46,9 +46,13 @@ func TestRuntimeToV2DefaultConfig(t *testing.T) {
 	require.Equal(t, 16384, value(t, doc.TracerProvider, "processors", "0", "batch", "max_queue_size"))
 	require.Equal(t, 4096, value(t, doc.TracerProvider, "processors", "0", "batch", "max_export_batch_size"))
 	require.Empty(t, value(t, doc.TracerProvider, "processors", "0", "batch", "exporter", "otlp_grpc", "endpoint"))
+	require.Equal(t, false, value(t, doc.TracerProvider, "processors", "0", "batch", "exporter", "otlp_grpc", "tls", "insecure"))
+	require.Equal(t, false, value(t, doc.TracerProvider, "processors", "0", "batch", "exporter", "otlp_grpc", "tls", "insecure_skip_verify"))
 	require.NotContains(t, doc.TracerProvider, "sampler")
 	require.Equal(t, int64(60000), value(t, doc.MeterProvider, "readers", "0", "periodic", "interval"))
 	require.Empty(t, value(t, doc.MeterProvider, "readers", "0", "periodic", "exporter", "otlp_grpc", "endpoint"))
+	require.Equal(t, false, value(t, doc.MeterProvider, "readers", "0", "periodic", "exporter", "otlp_grpc", "tls", "insecure"))
+	require.Equal(t, false, value(t, doc.MeterProvider, "readers", "0", "periodic", "exporter", "otlp_grpc", "tls", "insecure_skip_verify"))
 	require.Equal(t, 0, value(t, doc.MeterProvider, "readers", "1", "pull", "exporter", "prometheus/development", "port"))
 
 	require.Equal(t, "include", value(t, ext.Capture.Policy, "default_action"))
@@ -261,7 +265,7 @@ func TestRuntimeToV2CustomConfig(t *testing.T) {
 	cfg.EBPF.LogEnricher.AsyncWriterWorkers = 905
 	cfg.EBPF.LogEnricher.AsyncWriterChannelLen = 906
 
-	cfg.Traces.TracesEndpoint = "https://traces.example:4317"
+	cfg.Traces.TracesEndpoint = "http://traces.example:4317"
 	cfg.Traces.BatchMaxSize = 907
 	cfg.Traces.QueueSize = 908
 	cfg.Traces.BatchTimeout = 909 * time.Millisecond
@@ -317,20 +321,22 @@ func TestRuntimeToV2CustomConfig(t *testing.T) {
 
 	doc, ext := RuntimeToV2(&cfg)
 
-	require.Equal(t, "host-override", value(t, doc.Resource, "host.name"))
-	require.Equal(t, "host-id-1", value(t, doc.Resource, "host.id"))
+	require.Equal(t, "host-override", value(t, doc.Resource, "attributes", "host.name"))
+	require.Equal(t, "host-id-1", value(t, doc.Resource, "attributes", "host.id"))
 	require.Equal(t, 908, value(t, doc.TracerProvider, "processors", "0", "batch", "max_queue_size"))
 	require.Equal(t, 907, value(t, doc.TracerProvider, "processors", "0", "batch", "max_export_batch_size"))
 	require.Equal(t, int64(909), value(t, doc.TracerProvider, "processors", "0", "batch", "schedule_delay"))
-	require.Equal(t, "https://traces.example:4317", value(t, doc.TracerProvider, "processors", "0", "batch", "exporter", "otlp_grpc", "endpoint"))
+	require.Equal(t, "http://traces.example:4317", value(t, doc.TracerProvider, "processors", "0", "batch", "exporter", "otlp_grpc", "endpoint"))
 	require.Equal(t, "910ms", value(t, doc.TracerProvider, "processors", "0", "batch", "exporter", "otlp_grpc", "retry", "initial_interval"))
 	require.Equal(t, "15m12s", value(t, doc.TracerProvider, "processors", "0", "batch", "exporter", "otlp_grpc", "retry", "max_elapsed_time"))
 	require.Equal(t, true, value(t, doc.TracerProvider, "processors", "0", "batch", "exporter", "otlp_grpc", "tls", "insecure"))
+	require.Equal(t, true, value(t, doc.TracerProvider, "processors", "0", "batch", "exporter", "otlp_grpc", "tls", "insecure_skip_verify"))
 	require.Equal(t, services.SamplerTraceIDRatio, value(t, doc.TracerProvider, "sampler", "name"))
 	require.Equal(t, "0.25", value(t, doc.TracerProvider, "sampler", "arg"))
 	require.Equal(t, int64(914), value(t, doc.MeterProvider, "readers", "0", "periodic", "interval"))
 	require.Equal(t, "https://metrics.example:4317", value(t, doc.MeterProvider, "readers", "0", "periodic", "exporter", "otlp_grpc", "endpoint"))
-	require.Equal(t, true, value(t, doc.MeterProvider, "readers", "0", "periodic", "exporter", "otlp_grpc", "tls", "insecure"))
+	require.Equal(t, false, value(t, doc.MeterProvider, "readers", "0", "periodic", "exporter", "otlp_grpc", "tls", "insecure"))
+	require.Equal(t, true, value(t, doc.MeterProvider, "readers", "0", "periodic", "exporter", "otlp_grpc", "tls", "insecure_skip_verify"))
 	require.Equal(t, 917, value(t, doc.MeterProvider, "readers", "1", "pull", "exporter", "prometheus/development", "port"))
 
 	require.Equal(t, 77, value(t, ext.Capture.Channels, "buffer_len"))

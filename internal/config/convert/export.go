@@ -6,6 +6,7 @@ package convert // import "go.opentelemetry.io/obi/internal/config/convert"
 import (
 	"encoding"
 	"fmt"
+	"net/url"
 
 	"go.opentelemetry.io/obi/internal/config/schema"
 	featureexport "go.opentelemetry.io/obi/pkg/export"
@@ -377,14 +378,17 @@ func captureTelemetry(cfg *obi.Config) map[string]any {
 }
 
 func resource(cfg *obi.Config) map[string]any {
-	out := map[string]any{}
+	attributes := map[string]any{}
 	if cfg.Attributes.InstanceID.OverrideHostname != "" {
-		out["host.name"] = cfg.Attributes.InstanceID.OverrideHostname
+		attributes["host.name"] = cfg.Attributes.InstanceID.OverrideHostname
 	}
 	if cfg.Attributes.HostID.Override != "" {
-		out["host.id"] = cfg.Attributes.HostID.Override
+		attributes["host.id"] = cfg.Attributes.HostID.Override
 	}
-	return out
+	if len(attributes) == 0 {
+		return map[string]any{}
+	}
+	return map[string]any{"attributes": attributes}
 }
 
 func tracerProvider(cfg *obi.Config) map[string]any {
@@ -405,7 +409,8 @@ func tracerProvider(cfg *obi.Config) map[string]any {
 								"max_elapsed_time": cfg.Traces.BackOffMaxElapsedTime.String(),
 							},
 							"tls": map[string]any{
-								"insecure": cfg.Traces.InsecureSkipVerify,
+								"insecure":             insecureOTLPTransport(endpoint),
+								"insecure_skip_verify": cfg.Traces.InsecureSkipVerify,
 							},
 						},
 					},
@@ -442,7 +447,8 @@ func meterProvider(cfg *obi.Config) map[string]any {
 							"endpoint":                      endpoint,
 							"default_histogram_aggregation": cfg.OTELMetrics.HistogramAggregation,
 							"tls": map[string]any{
-								"insecure": cfg.OTELMetrics.InsecureSkipVerify,
+								"insecure":             insecureOTLPTransport(endpoint),
+								"insecure_skip_verify": cfg.OTELMetrics.InsecureSkipVerify,
 							},
 						},
 					},
@@ -459,6 +465,11 @@ func meterProvider(cfg *obi.Config) map[string]any {
 			},
 		},
 	}
+}
+
+func insecureOTLPTransport(endpoint string) bool {
+	parsed, err := url.Parse(endpoint)
+	return err == nil && parsed.Scheme == "http"
 }
 
 func enrich(cfg *obi.Config) map[string]any {
