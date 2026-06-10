@@ -764,8 +764,8 @@ HTTPParsingMatch defines matching criteria for an HTTP parsing rule. Header rule
 | `methods` | `string`[] | `DELETE`, `GET`, `HEAD`, `OPTIONS`, `PATCH`, `POST`, `PUT` | Is a list of HTTP methods this rule applies to (shared). Empty means all methods. |
 | `obfuscation_json_paths` | `string`[] | `$.password`, `$.user.name`, `$.items[0].id`, etc | Is a list of JSONPath expressions for fields to obfuscate (body only) |
 | `patterns` | `glob`[] | `app-*`, `service-??`, `prod-*-db`, etc | Is a list of glob patterns to match header names against (headers only) |
+| `response_status_code` | [`NumericRange`](#numericrange) |  | Filters this rule to only apply when the response status code matches the given range. If unset, the rule applies regardless of status code. |
 | `url_path_patterns` | `glob`[] | `app-*`, `service-??`, `prod-*-db`, etc | Is a list of glob patterns to match the request path against (shared) |
-| `response_status_code` | [`MatchDefinition`](#matchdefinition) |  | Filters this rule to only apply when the response status code matches the given numeric criteria. If unset, the rule applies regardless of status code. (body rules only) |
 
 ### SamplerConfig
 
@@ -783,3 +783,16 @@ SvcMetricsConfig is equivalent to MetricsConfig, but avoids defining environment
 | Field | Type | Values | Description |
 |---|---|---|---|
 | `features` | `string`[] | `*`, `all`, `application`, `application_host`, `application_service_graph`, `application_span`, `application_span_otel`, `application_span_sizes`, `ebpf`, `network`, `network_inter_zone`, `stats`, `stats_tcp_failed_connections`, `stats_tcp_io`, `stats_tcp_retransmits`, `stats_tcp_rtt` | Specifies which metric features to export. Accepted values: application, network, application_span, application_service_graph, ... envDefault is provided to avoid breaking changes |
+
+### NumericRange
+
+NumericRange defines numeric comparison criteria for a rule match condition. All fields are optional; only the provided fields are evaluated.
+
+| Field | Type | Values | Description |
+|---|---|---|---|
+| `equals` | `integer` |  |  |
+| `greater_equals` | `integer` |  |  |
+| `greater_than` | `integer` |  |  |
+| `less_equals` | `integer` |  |  |
+| `less_than` | `integer` |  |  |
+| `not_equals` | `integer` |  |  |
