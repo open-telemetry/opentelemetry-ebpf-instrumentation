@@ -354,17 +354,17 @@ func getDefinitions(
 		RPCClientDuration.Section: {
 			SubGroups: []*AttrReportGroup{&appAttributes, &grpcClientInfo},
 			Attributes: map[attr.Name]Default{
-				attr.RPCMethod:         true,
-				attr.RPCSystem:         true,
-				attr.RPCGRPCStatusCode: true,
+				attr.RPCMethod:             true,
+				attr.RPCSystem:             true,
+				attr.RPCResponseStatusCode: true,
 			},
 		},
 		RPCServerDuration.Section: {
 			SubGroups: []*AttrReportGroup{&appAttributes, &serverInfo},
 			Attributes: map[attr.Name]Default{
-				attr.RPCMethod:         true,
-				attr.RPCSystem:         true,
-				attr.RPCGRPCStatusCode: true,
+				attr.RPCMethod:             true,
+				attr.RPCSystem:             true,
+				attr.RPCResponseStatusCode: true,
 			},
 		},
 		DBClientDuration.Section: {

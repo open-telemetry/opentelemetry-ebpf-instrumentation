@@ -31,5 +31,5 @@ dependencies:
   # is resolved relative to this manifest, so the same value works whether
   # weaver runs against the registry on the host or inside a container
   # bind-mount.
-  - schema_url: https://opentelemetry.io/schemas/1.38.0
-    registry_path: .deps/upstream-v1.38.0[model]
+  - schema_url: https://opentelemetry.io/schemas/1.41.0
+    registry_path: .deps/upstream-v1.41.0[model]

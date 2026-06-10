@@ -491,6 +491,15 @@ func TestSpanOTELGetters_JSONRPCAttributes(t *testing.T) {
 			},
 			expected: "",
 		},
+		{
+			name:     "response status code - gRPC server span",
+			attrName: attr.RPCResponseStatusCode,
+			span: &Span{
+				Type:   EventTypeGRPC,
+				Status: 3,
+			},
+			expected: "INVALID_ARGUMENT",
+		},
 	}
 
 	for _, tt := range tests {

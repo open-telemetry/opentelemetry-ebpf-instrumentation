@@ -7,7 +7,7 @@ input:
 interval: 500ms
 expected:
   traces:
-  - traceql: '{kind=client && name="GET /" && span.peer.service="www.google.com"}'
+  - traceql: '{kind=client && name="GET /" && span.service.peer.name="www.google.com"}'
     equals: GET /
   metrics:
   - promql: traces_service_graph_request_client_seconds_count{client="testserver", server="www.google.com"}

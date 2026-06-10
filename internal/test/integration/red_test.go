@@ -277,7 +277,7 @@ func testREDMetricsForJSONRPCHTTP(t *testing.T, url, svcName, svcNs string) {
 		var err error
 		results, err = pq.Query(`rpc_server_duration_seconds_count{` +
 			`rpc_method="` + expectedMethod + `",` +
-			`rpc_system="jsonrpc",` +
+			`rpc_system_name="jsonrpc",` +
 			`service_namespace="` + svcNs + `",` +
 			`service_name="` + svcName + `"}`)
 		require.NoError(ct, err)
@@ -474,7 +474,7 @@ func testREDMetricsForHTTPLibrary(t *testing.T, url, svcName, svcNs string) {
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
 			var err error
 			results, err = pq.Query(`rpc_client_duration_seconds_count{` +
-				`rpc_grpc_status_code="0",` +
+				`rpc_response_status_code="OK",` +
 				`service_name="` + svcName + `",` +
 				`service_namespace="` + svcNs + `",` +
 				`rpc_method="/routeguide.RouteGuide/GetFeature"}`)
@@ -571,7 +571,7 @@ func testREDMetricsGRPCInternal(t *testing.T, opts []grpcclient.PingOption, serv
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		var err error
 		results, err = pq.Query(`rpc_server_duration_seconds_count{` +
-			`rpc_grpc_status_code="0",` +
+			`rpc_response_status_code="OK",` +
 			`service_namespace="integration-test",` +
 			`client_address!="127.0.0.1",` + // discard the metrics from testREDMetricsForHTTPLibrary/GorillaURL
 			`service_name="testserver",` +
@@ -760,7 +760,7 @@ func testREDMetricsForHTTPLibraryNoRoute(t *testing.T, url, svcName string) {
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		var err error
 		results, err = pq.Query(`rpc_client_duration_seconds_count{` +
-			`rpc_grpc_status_code="0",` +
+			`rpc_response_status_code="OK",` +
 			`service_name="` + svcName + `",` +
 			`service_namespace="integration-test",` +
 			`rpc_method="/routeguide.RouteGuide/GetFeature"}`)
