@@ -109,7 +109,7 @@ func (f *Flows) buildPipeline(ctx context.Context) (*swarm.Runner, error) {
 	}, swarm.WithID("FlowDecorator"))
 
 	dynamicFilteredFlows := msgh.QueueFromConfig[[]*ebpf.Record](f.cfg, "dynamicFilteredFlows")
-	swi.Add(filter.ByDynamicPID(ctx, f.ctxInfo.DynamicPIDSelector, f.ctxInfo.K8sInformer,
+	swi.Add(filter.ByDynamicPID(f.ctxInfo.DynamicPIDSelector, f.ctxInfo.K8sInformer,
 		recordAttrs, decoratedFlows, dynamicFilteredFlows),
 		swarm.WithID("DynamicPIDFilter"))
 

@@ -71,7 +71,7 @@ func (s *Stats) buildPipeline(ctx context.Context) (*swarm.Runner, error) {
 		swarm.WithID("StatsDecorator"))
 
 	dynamicFilteredStats := msgh.QueueFromConfig[[]*ebpf.Stat](s.cfg, "dynamicFilteredStats")
-	swi.Add(filter.ByDynamicPID(ctx, s.ctxInfo.DynamicPIDSelector, s.ctxInfo.K8sInformer,
+	swi.Add(filter.ByDynamicPID(s.ctxInfo.DynamicPIDSelector, s.ctxInfo.K8sInformer,
 		statAttrs, decoratedStats, dynamicFilteredStats),
 		swarm.WithID("DynamicPIDFilter"))
 

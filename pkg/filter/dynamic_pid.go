@@ -18,20 +18,19 @@ import (
 // belongs to a dynamically selected application (via DynamicPIDSelector). When the selector is nil,
 // the node is bypassed.
 func ByDynamicPID[T any](
-	ctx context.Context,
 	selector selection.PIDSelector,
 	k8sInformer *kube.MetadataProvider,
 	attrs func(T) *pipe.CommonAttrs,
 	input, output *msg.Queue[[]T],
 ) swarm.InstanceFunc {
-	return func(_ context.Context) (swarm.RunFunc, error) {
+	return func(instantiateCtx context.Context) (swarm.RunFunc, error) {
 		if selector == nil {
 			return swarm.Bypass(input, output)
 		}
 		var store *kube.Store
 		if k8sInformer != nil && k8sInformer.IsKubeEnabled() {
 			var err error
-			store, err = k8sInformer.Get(ctx)
+			store, err = k8sInformer.Get(instantiateCtx)
 			if err != nil {
 				return nil, err
 			}
