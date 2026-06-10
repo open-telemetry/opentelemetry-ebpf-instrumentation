@@ -29,6 +29,11 @@ var (
 		Prom:    "obi_network_flow_bytes_total",
 		OTEL:    "obi.network.flow.bytes",
 	}
+	NetworkFlowPackets = Name{
+		Section: "obi.network.flow.packets",
+		Prom:    "obi_network_flow_packets_total",
+		OTEL:    "obi.network.flow.packets",
+	}
 	NetworkInterZone = Name{
 		Section: "obi.network.inter.zone",
 		Prom:    "obi_network_inter_zone_bytes_total",

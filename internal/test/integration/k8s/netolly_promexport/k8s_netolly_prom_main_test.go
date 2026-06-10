@@ -54,3 +54,7 @@ func TestMain(m *testing.M) {
 func TestNetworkFlowBytes_Prom(t *testing.T) {
 	cluster.TestEnv().Test(t, otel.FeatureNetworkFlowBytes())
 }
+
+func TestNetworkFlowPackets_Prom(t *testing.T) {
+	cluster.TestEnv().Test(t, otel.FeatureNetworkFlowPackets())
+}

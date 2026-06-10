@@ -46,6 +46,21 @@ func FeatureNetworkFlowBytes() features.Feature {
 		Feature()
 }
 
+func FeatureNetworkFlowPackets() features.Feature {
+	pinger := kube.Template[k8s.Pinger]{
+		TemplateFile: k8s.UninstrumentedPingerManifest,
+		Data: k8s.Pinger{
+			PodName:   "internal-pinger-packets",
+			TargetURL: "http://testserver:8080/iping",
+		},
+	}
+	return features.New("network flow packets").
+		Setup(pinger.Deploy()).
+		Teardown(pinger.Delete()).
+		Assess("catches network packets metrics between connected pods", testNetFlowPacketsForExistingConnections).
+		Feature()
+}
+
 func testNetFlowBytesForExistingConnections(ctx context.Context, t *testing.T, _ *envconf.Config) context.Context {
 	pq := promtest.Client{HostPort: prometheusHostPort}
 	// testing request flows (to testserver as Service)
@@ -212,6 +227,36 @@ func testNetFlowBytesForExternalTraffic(ctx context.Context, t *testing.T, _ *en
 		require.NoError(ct, err)
 		require.NotEmpty(ct, results)
 	}, testTimeout, 100*time.Millisecond)
+	return ctx
+}
+
+func testNetFlowPacketsForExistingConnections(ctx context.Context, t *testing.T, _ *envconf.Config) context.Context {
+	pq := promtest.Client{HostPort: prometheusHostPort}
+	// testing request flows (to testserver as Service)
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		results, err := pq.Query(`obi_network_flow_packets_total{src_name="internal-pinger-packets",dst_name="testserver"}`)
+		require.NoError(ct, err)
+		require.NotEmpty(ct, results)
+
+		// check that the metrics are properly decorated
+		require.GreaterOrEqual(ct, len(results), 1) // tests could establish more than one connection from different client_ports
+		metric := results[0].Metric
+		assertIsIP(ct, metric["src_address"])
+		assertIsIP(ct, metric["dst_address"])
+		assert.Equal(ct, "TCP", metric["transport"])
+		assert.Equal(ct, "default", metric["k8s_src_namespace"])
+		assert.Equal(ct, "internal-pinger-packets", metric["k8s_src_name"])
+		assert.Equal(ct, "default", metric["k8s_dst_namespace"])
+		assert.Equal(ct, "testserver", metric["k8s_dst_name"])
+	}, testTimeout, 100*time.Millisecond)
+
+	// testing response flows (from testserver as Service)
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		results, err := pq.Query(`obi_network_flow_packets_total{src_name="testserver",dst_name="internal-pinger-packets"}`)
+		require.NoError(ct, err)
+		require.NotEmpty(ct, results)
+	}, testTimeout, 100*time.Millisecond)
+
 	return ctx
 }
 

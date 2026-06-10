@@ -192,6 +192,8 @@ func TestDefault(t *testing.T) {
 		"k8s.src.owner.name",
 		"k8s.src.owner.type",
 	}, p.For(NetworkFlow))
+	// the packets metric shares the same attribute groups as the bytes metric
+	assert.Equal(t, p.For(NetworkFlow), p.For(NetworkFlowPackets))
 }
 
 func TestExtraGroupAttributes(t *testing.T) {

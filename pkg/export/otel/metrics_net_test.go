@@ -16,6 +16,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
+	metric2 "go.opentelemetry.io/obi/pkg/export/otel/metric/api/metric"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
 	"go.opentelemetry.io/obi/pkg/internal/netolly/ebpf"
@@ -55,7 +56,8 @@ func TestMetricAttributes(t *testing.T) {
 	}, &NetMetricsConfig{
 		SelectorCfg: &attributes.SelectorConfig{
 			SelectionCfg: map[attributes.Section]attributes.InclusionLists{
-				attributes.NetworkFlow.Section: {Include: []string{"*"}},
+				attributes.NetworkFlow.Section:        {Include: []string{"*"}},
+				attributes.NetworkFlowPackets.Section: {Include: []string{"*"}},
 			},
 		},
 		Metrics:   mcfg,
@@ -63,23 +65,25 @@ func TestMetricAttributes(t *testing.T) {
 	}, msg.NewQueue[[]*ebpf.Record]())
 	require.NoError(t, err)
 
-	_, reportedAttributes := me.flowBytes.ForRecord(in)
-	for _, mustContain := range []attribute.KeyValue{
-		attribute.String("src.address", "12.34.56.78"),
-		attribute.String("dst.address", "33.22.11.1"),
-		attribute.String("src.name", "srcname"),
-		attribute.String("dst.name", "dstname"),
-		attribute.Int("src.port", 12345),
-		attribute.Int("dst.port", 3210),
+	for _, expirer := range []*Expirer[*ebpf.Record, metric2.Int64Counter, float64]{me.flowBytes, me.flowPackets} {
+		_, reportedAttributes := expirer.ForRecord(in)
+		for _, mustContain := range []attribute.KeyValue{
+			attribute.String("src.address", "12.34.56.78"),
+			attribute.String("dst.address", "33.22.11.1"),
+			attribute.String("src.name", "srcname"),
+			attribute.String("dst.name", "dstname"),
+			attribute.Int("src.port", 12345),
+			attribute.Int("dst.port", 3210),
 
-		attribute.String("k8s.src.name", "srcname"),
-		attribute.String("k8s.src.namespace", "srcnamespace"),
-		attribute.String("k8s.dst.name", "dstname"),
-		attribute.String("k8s.dst.namespace", "dstnamespace"),
-	} {
-		val, ok := reportedAttributes.Value(mustContain.Key)
-		assert.Truef(t, ok, "expected %+v in %v", mustContain.Key, reportedAttributes)
-		assert.Equal(t, mustContain.Value, val)
+			attribute.String("k8s.src.name", "srcname"),
+			attribute.String("k8s.src.namespace", "srcnamespace"),
+			attribute.String("k8s.dst.name", "dstname"),
+			attribute.String("k8s.dst.namespace", "dstnamespace"),
+		} {
+			val, ok := reportedAttributes.Value(mustContain.Key)
+			assert.Truef(t, ok, "expected %+v in %v", mustContain.Key, reportedAttributes)
+			assert.Equal(t, mustContain.Value, val)
+		}
 	}
 }
 
@@ -119,6 +123,11 @@ func TestMetricAttributes_Filter(t *testing.T) {
 						"k8s.src.name",
 						"k8s.dst.name",
 					}},
+					attributes.NetworkFlowPackets.Section: {Include: []string{
+						"src.address",
+						"k8s.src.name",
+						"k8s.dst.name",
+					}},
 				},
 			},
 			Metrics:   mcfg,
@@ -126,24 +135,26 @@ func TestMetricAttributes_Filter(t *testing.T) {
 		}, msg.NewQueue[[]*ebpf.Record]())
 	require.NoError(t, err)
 
-	_, reportedAttributes := me.flowBytes.ForRecord(in)
-	for _, mustContain := range []attribute.KeyValue{
-		attribute.String("src.address", "12.34.56.78"),
-		attribute.String("k8s.src.name", "srcname"),
-		attribute.String("k8s.dst.name", "dstname"),
-	} {
-		val, ok := reportedAttributes.Value(mustContain.Key)
-		assert.True(t, ok)
-		assert.Equal(t, mustContain.Value, val)
-	}
-	for _, mustNotContain := range []attribute.Key{
-		"dst.address",
-		"src.name",
-		"dst.name",
-		"k8s.src.namespace",
-		"k8s.dst.namespace",
-	} {
-		assert.False(t, reportedAttributes.HasValue(mustNotContain))
+	for _, expirer := range []*Expirer[*ebpf.Record, metric2.Int64Counter, float64]{me.flowBytes, me.flowPackets} {
+		_, reportedAttributes := expirer.ForRecord(in)
+		for _, mustContain := range []attribute.KeyValue{
+			attribute.String("src.address", "12.34.56.78"),
+			attribute.String("k8s.src.name", "srcname"),
+			attribute.String("k8s.dst.name", "dstname"),
+		} {
+			val, ok := reportedAttributes.Value(mustContain.Key)
+			assert.True(t, ok)
+			assert.Equal(t, mustContain.Value, val)
+		}
+		for _, mustNotContain := range []attribute.Key{
+			"dst.address",
+			"src.name",
+			"dst.name",
+			"k8s.src.namespace",
+			"k8s.dst.namespace",
+		} {
+			assert.False(t, reportedAttributes.HasValue(mustNotContain))
+		}
 	}
 }
 
@@ -199,8 +210,9 @@ func TestDo(t *testing.T) {
 	}, &NetMetricsConfig{
 		SelectorCfg: &attributes.SelectorConfig{
 			SelectionCfg: map[attributes.Section]attributes.InclusionLists{
-				attributes.NetworkFlow.Section:      {Include: []string{"*"}},
-				attributes.NetworkInterZone.Section: {Include: []string{"*"}},
+				attributes.NetworkFlow.Section:        {Include: []string{"*"}},
+				attributes.NetworkFlowPackets.Section: {Include: []string{"*"}},
+				attributes.NetworkInterZone.Section:   {Include: []string{"*"}},
 			},
 		},
 		Metrics:   mcfg,
@@ -208,6 +220,7 @@ func TestDo(t *testing.T) {
 	}, input)
 	require.NoError(t, err)
 	require.NotNil(t, me.flowBytes)
+	require.NotNil(t, me.flowPackets)
 	require.NotNil(t, me.interZoneBytes)
 
 	ctx, cancel := context.WithCancel(t.Context())
@@ -215,21 +228,21 @@ func TestDo(t *testing.T) {
 	go me.Do(ctx)
 
 	input.Send([]*ebpf.Record{
-		// cross-zone record: should be tracked by both flowBytes and interZoneBytes
+		// cross-zone record: should be tracked by flowBytes, flowPackets and interZoneBytes
 		{
 			CommonAttrs: pipe.CommonAttrs{
 				SrcName: "svc-a", DstName: "svc-b",
 				SrcZone: "us-east-1a", DstZone: "us-east-1b",
 			},
-			Metrics: ebpf.NetFlowMetrics{Bytes: 100},
+			Metrics: ebpf.NetFlowMetrics{Bytes: 100, Packets: 5},
 		},
-		// same-zone record: should be tracked by flowBytes only
+		// same-zone record: should be tracked by flowBytes and flowPackets only
 		{
 			CommonAttrs: pipe.CommonAttrs{
 				SrcName: "svc-c", DstName: "svc-d",
 				SrcZone: "us-east-1a", DstZone: "us-east-1a",
 			},
-			Metrics: ebpf.NetFlowMetrics{Bytes: 200},
+			Metrics: ebpf.NetFlowMetrics{Bytes: 200, Packets: 7},
 		},
 	})
 
@@ -238,6 +251,9 @@ func TestDo(t *testing.T) {
 	}, time.Second, 10*time.Millisecond,
 		"expected 2 flow entries (all records), got %d",
 		len(me.flowBytes.entries.All()))
+
+	assert.Equal(t, 2, len(me.flowPackets.entries.All()),
+		"expected 2 flow packets entries (all records)")
 
 	assert.Equal(t, 1, len(me.interZoneBytes.entries.All()),
 		"expected 1 inter-zone entry (only cross-zone record)")

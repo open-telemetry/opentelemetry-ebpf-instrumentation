@@ -22,7 +22,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
 
-var mpConfig = &perapp.MetricsConfig{Features: export.FeatureNetwork | export.FeatureNetworkInterZone}
+var mpConfig = &perapp.MetricsConfig{Features: export.FeatureNetwork | export.FeatureNetworkInterZone | export.FeatureNetworkFlowPackets}
 
 func TestMetricsExpiration(t *testing.T) {
 	now := syncedClock{now: time.Now()}
@@ -49,6 +49,9 @@ func TestMetricsExpiration(t *testing.T) {
 					attributes.NetworkFlow.Section: attributes.InclusionLists{
 						Include: []string{"src_name", "dst_name"},
 					},
+					attributes.NetworkFlowPackets.Section: attributes.InclusionLists{
+						Include: []string{"src_name", "dst_name"},
+					},
 				},
 			},
 			CommonCfg: mpConfig,
@@ -61,11 +64,11 @@ func TestMetricsExpiration(t *testing.T) {
 	metrics.Send([]*ebpf.Record{
 		{
 			CommonAttrs: pipe.CommonAttrs{DstName: "bar", SrcName: "foo"},
-			Metrics:     ebpf.NetFlowMetrics{Bytes: 123},
+			Metrics:     ebpf.NetFlowMetrics{Bytes: 123, Packets: 11},
 		},
 		{
 			CommonAttrs: pipe.CommonAttrs{DstName: "bae", SrcName: "baz"},
-			Metrics:     ebpf.NetFlowMetrics{Bytes: 456},
+			Metrics:     ebpf.NetFlowMetrics{Bytes: 456, Packets: 33},
 		},
 	})
 
@@ -74,6 +77,8 @@ func TestMetricsExpiration(t *testing.T) {
 		exported := getMetrics(ct, promURL)
 		assert.Contains(ct, exported, `obi_network_flow_bytes_total{dst_name="bar",src_name="foo"} 123`)
 		assert.Contains(ct, exported, `obi_network_flow_bytes_total{dst_name="bae",src_name="baz"} 456`)
+		assert.Contains(ct, exported, `obi_network_flow_packets_total{dst_name="bar",src_name="foo"} 11`)
+		assert.Contains(ct, exported, `obi_network_flow_packets_total{dst_name="bae",src_name="baz"} 33`)
 	}, timeout, 100*time.Millisecond)
 
 	// AND WHEN it keeps receiving a subset of the initial metrics during the timeout
@@ -81,7 +86,7 @@ func TestMetricsExpiration(t *testing.T) {
 	metrics.Send([]*ebpf.Record{
 		{
 			CommonAttrs: pipe.CommonAttrs{DstName: "bar", SrcName: "foo"},
-			Metrics:     ebpf.NetFlowMetrics{Bytes: 123},
+			Metrics:     ebpf.NetFlowMetrics{Bytes: 123, Packets: 11},
 		},
 	})
 	now.Advance(2 * time.Minute)
@@ -90,18 +95,20 @@ func TestMetricsExpiration(t *testing.T) {
 	var exported string
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		m := getMetrics(ct, promURL)
-		assert.Contains(ct, exported, `obi_network_flow_bytes_total{dst_name="bar",src_name="foo"} 246`)
+		assert.Contains(ct, m, `obi_network_flow_bytes_total{dst_name="bar",src_name="foo"} 246`)
+		assert.Contains(ct, m, `obi_network_flow_packets_total{dst_name="bar",src_name="foo"} 22`)
 		exported = m
 	}, timeout, 100*time.Millisecond)
 	// BUT not the metrics that haven't been received during that time
 	assert.NotContains(t, exported, `obi_network_flow_bytes_total{dst_name="bae",src_name="baz"}`)
+	assert.NotContains(t, exported, `obi_network_flow_packets_total{dst_name="bae",src_name="baz"}`)
 	now.Advance(2 * time.Minute)
 
 	// AND WHEN the metrics labels that disappeared are received again
 	metrics.Send([]*ebpf.Record{
 		{
 			CommonAttrs: pipe.CommonAttrs{DstName: "bae", SrcName: "baz"},
-			Metrics:     ebpf.NetFlowMetrics{Bytes: 456},
+			Metrics:     ebpf.NetFlowMetrics{Bytes: 456, Packets: 33},
 		},
 	})
 	now.Advance(2 * time.Minute)
@@ -109,8 +116,10 @@ func TestMetricsExpiration(t *testing.T) {
 	// THEN they are reported again, starting from zero in the case of counters
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		m := getMetrics(ct, promURL)
-		assert.Contains(ct, exported, `obi_network_flow_bytes_total{dst_name="bae",src_name="baz"} 456`)
+		assert.Contains(ct, m, `obi_network_flow_bytes_total{dst_name="bae",src_name="baz"} 456`)
+		assert.Contains(ct, m, `obi_network_flow_packets_total{dst_name="bae",src_name="baz"} 33`)
 		exported = m
 	}, timeout, 100*time.Millisecond)
 	assert.NotContains(t, exported, `obi_network_flow_bytes_total{dst_name="bar",src_name="foo"}`)
+	assert.NotContains(t, exported, `obi_network_flow_packets_total{dst_name="bar",src_name="foo"}`)
 }

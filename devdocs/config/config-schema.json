@@ -888,6 +888,7 @@
           "application_span_sizes",
           "ebpf",
           "network",
+          "network_flow_packets",
           "network_inter_zone",
           "stats",
           "stats_tcp_failed_connections",
@@ -1719,7 +1720,7 @@
         "features": {
           "$ref": "#/$defs/Features",
           "description": "Specifies which metric features to export. Accepted values: application, network, application_span, application_service_graph, ... envDefault is provided to avoid breaking changes  use top-level MetricsConfig.Features instead.",
-          "default": 128,
+          "default": 256,
           "deprecated": true,
           "x-env-var": "OTEL_EBPF_METRICS_FEATURES"
         },
@@ -1965,7 +1966,7 @@
         },
         "enable": {
           "type": "boolean",
-          "description": "Network metrics. Default value is false (disabled)  add \"network\" or \"network_inter_zone\" to OTEL_EBPF_METRICS_FEATURES  TODO OBI 3.0: remove",
+          "description": "Network metrics. Default value is false (disabled)  add \"network\" or \"network_flow_packets\" or \"network_inter_zone\" to OTEL_EBPF_METRICS_FEATURES  TODO OBI 3.0: remove",
           "default": false,
           "deprecated": true,
           "x-env-var": "OTEL_EBPF_NETWORK_METRICS"

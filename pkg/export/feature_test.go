@@ -40,6 +40,20 @@ func TestFeatureEnv(t *testing.T) {
 	assert.False(t, doc.Features.has(FeatureAll))
 }
 
+func TestFeatureEnv_NetworkFlowPackets(t *testing.T) {
+	doc := struct {
+		Features Features `env:"FOO"`
+	}{}
+	t.Setenv("FOO", "network_flow_packets")
+	require.NoError(t, env.Parse(&doc))
+
+	assert.True(t, doc.Features.has(FeatureNetworkFlowPackets))
+	assert.True(t, doc.Features.NetworkFlowPackets())
+	assert.True(t, doc.Features.AnyNetwork())
+	assert.False(t, doc.Features.NetworkBytes())
+	assert.False(t, doc.Features.has(FeatureAll))
+}
+
 func TestFeatureEnv_Separator(t *testing.T) {
 	doc := struct {
 		Features Features `env:"FOO" envSeparator:","`
