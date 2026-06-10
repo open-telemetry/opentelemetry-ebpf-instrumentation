@@ -359,10 +359,10 @@ type HTTPParsingMatch struct {
 // and JSONPath expressions from their raw string values.
 func (m *HTTPParsingMatch) UnmarshalYAML(value *yaml.Node) error {
 	var raw struct {
-		Patterns             []string                `yaml:"patterns"`
-		CaseSensitive        bool                    `yaml:"case_sensitive"`
-		ObfuscationJSONPaths []string                `yaml:"obfuscation_json_paths"`
-		URLPathPatterns      []string                `yaml:"url_path_patterns"`
+		Patterns             []string      `yaml:"patterns"`
+		CaseSensitive        bool          `yaml:"case_sensitive"`
+		ObfuscationJSONPaths []string      `yaml:"obfuscation_json_paths"`
+		URLPathPatterns      []string      `yaml:"url_path_patterns"`
 		Methods              []HTTPMethod  `yaml:"methods"`
 		ResponseStatusCode   *NumericRange `yaml:"response_status_code"`
 	}
