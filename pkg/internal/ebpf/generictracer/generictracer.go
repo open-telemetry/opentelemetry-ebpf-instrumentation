@@ -7,6 +7,7 @@ package generictracer // import "go.opentelemetry.io/obi/pkg/internal/ebpf/gener
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -51,6 +52,7 @@ type Tracer struct {
 	iters            []*ebpfcommon.Iter
 	eventCtx         *ebpfcommon.EBPFEventContext
 	jvmRuntimeEvents *msg.Queue[[]jvmruntime.JVMRuntimeEvent]
+	jvmUSDTManager   ebpfcommon.USDTSpecManager
 }
 
 func tlog() *slog.Logger {
@@ -497,6 +499,32 @@ func (p *Tracer) UProbes() map[string]map[string][]*ebpfcommon.ProbeDesc {
 	return m
 }
 
+func (p *Tracer) USDTProbes() map[string][]*ebpfcommon.USDTProbeDesc {
+	if p.cfg == nil || !p.cfg.JVMRuntimeMetrics.Enabled {
+		return nil
+	}
+	return map[string][]*ebpfcommon.USDTProbeDesc{
+		"libjvm.so": {
+			{
+				Provider:    "hotspot",
+				Name:        "mem__pool__gc__begin",
+				Program:     p.bpfObjects.ObiUsdtHotspotMemPoolGcBegin,
+				SpecsMap:    p.bpfObjects.ObiUsdtSpecs,
+				IPMap:       p.bpfObjects.ObiUsdtIpToSpecId,
+				SpecManager: &p.jvmUSDTManager,
+			},
+			{
+				Provider:    "hotspot",
+				Name:        "mem__pool__gc__end",
+				Program:     p.bpfObjects.ObiUsdtHotspotMemPoolGcEnd,
+				SpecsMap:    p.bpfObjects.ObiUsdtSpecs,
+				IPMap:       p.bpfObjects.ObiUsdtIpToSpecId,
+				SpecManager: &p.jvmUSDTManager,
+			},
+		},
+	}
+}
+
 func (p *Tracer) SocketFilters() []*ebpf.Program {
 	return []*ebpf.Program{p.bpfObjects.ObiSocketHttpFilter}
 }
@@ -619,14 +647,19 @@ func (p *Tracer) Run(
 	cfg := &p.cfg.EBPF
 	if p.shouldReadJVMRuntimeEvents() {
 		p.log.Debug("starting JVM runtime events reader")
-		go ebpfcommon.ForwardRingbuf(
-			cfg,
-			p.bpfObjects.JvmGcHeapSummaryEvents,
-			p.parseJVMGCHeapSummaryRecord,
-			nil,
-			p.log,
-			p.metrics,
-		)(ctx, p.jvmRuntimeEvents)
+		if p.bpfObjects.JvmGcHeapSummaryEvents != nil {
+			go ebpfcommon.ForwardRingbuf(
+				cfg,
+				p.bpfObjects.JvmGcHeapSummaryEvents,
+				p.parseJVMGCHeapSummaryRecord,
+				nil,
+				p.log,
+				p.metrics,
+			)(ctx, p.jvmRuntimeEvents)
+		}
+		if p.bpfObjects.JvmMemPoolGcEvents != nil {
+			go p.forwardJVMMemoryPoolEvents(ctx)
+		}
 	}
 
 	ebpfcommon.SharedRingbuf(
@@ -650,7 +683,7 @@ func (p *Tracer) shouldReadJVMRuntimeEvents() bool {
 	return p.cfg != nil &&
 		p.cfg.JVMRuntimeMetrics.Enabled &&
 		p.jvmRuntimeEvents != nil &&
-		p.bpfObjects.JvmGcHeapSummaryEvents != nil
+		(p.bpfObjects.JvmGcHeapSummaryEvents != nil || p.bpfObjects.JvmMemPoolGcEvents != nil)
 }
 
 func (p *Tracer) parseJVMGCHeapSummaryRecord(record *ringbuf.Record) (jvmruntime.JVMRuntimeEvent, bool, error) {
@@ -661,25 +694,100 @@ func (p *Tracer) parseJVMGCHeapSummaryRecord(record *ringbuf.Record) (jvmruntime
 	if !p.decorateJVMRuntimeEvent(&event) {
 		return jvmruntime.JVMRuntimeEvent{}, true, nil
 	}
-	p.log.Debug("received JVM GC heap summary event",
-		"pid", event.PID,
-		"service", event.Service.UID.Name,
-		"namespace", event.Service.UID.Namespace,
-		"phase", event.GCPhase,
-		"value_bytes", event.ValueBytes,
-	)
+	if p.log != nil {
+		p.log.Debug("received JVM GC heap summary event",
+			"pid", event.PID,
+			"service", event.Service.UID.Name,
+			"namespace", event.Service.UID.Namespace,
+			"phase", event.GCPhase,
+			"value_bytes", event.ValueBytes,
+		)
+	}
 	return event, false, nil
+}
+
+func (p *Tracer) forwardJVMMemoryPoolEvents(ctx context.Context) {
+	eventsReader, err := ringbuf.NewReader(p.bpfObjects.JvmMemPoolGcEvents)
+	if err != nil {
+		p.log.Error("creating JVM memory pool ring buffer reader. Exiting", "error", err)
+		return
+	}
+	defer eventsReader.Close()
+
+	go func() {
+		<-ctx.Done()
+		eventsReader.Close()
+	}()
+
+	p.log.Debug("starting to read JVM memory pool ring buffer")
+	for {
+		record, err := eventsReader.Read()
+		if err != nil {
+			switch {
+			case errors.Is(err, ringbuf.ErrClosed):
+				p.log.Debug("JVM memory pool ring buffer is closed")
+				return
+			case errors.Is(err, ringbuf.ErrFlushed):
+				p.log.Debug("JVM memory pool ring buffer already flushed")
+				continue
+			default:
+				p.log.Debug("error reading JVM memory pool ring buffer", "error", err)
+				continue
+			}
+		}
+
+		events, ignore, err := p.parseJVMMemoryPoolRecord(&record)
+		if err != nil {
+			p.log.Debug("error parsing JVM memory pool event", "error", err)
+			continue
+		}
+		if !ignore && len(events) > 0 {
+			p.jvmRuntimeEvents.SendCtx(ctx, events)
+		}
+	}
+}
+
+func (p *Tracer) parseJVMMemoryPoolRecord(record *ringbuf.Record) ([]jvmruntime.JVMRuntimeEvent, bool, error) {
+	events, err := jvmruntime.DecodeJVMMemoryPoolEvent(record.RawSample)
+	if err != nil {
+		return nil, false, err
+	}
+
+	decorated := events[:0]
+	for i := range events {
+		if p.decorateJVMRuntimeEvent(&events[i]) {
+			decorated = append(decorated, events[i])
+		}
+	}
+	if len(decorated) == 0 {
+		return nil, true, nil
+	}
+
+	if p.log != nil {
+		p.log.Debug("received JVM memory pool event",
+			"pid", decorated[0].PID,
+			"service", decorated[0].Service.UID.Name,
+			"namespace", decorated[0].Service.UID.Namespace,
+			"pool", decorated[0].PoolName,
+			"phase", decorated[0].GCPhase,
+			"events", len(decorated),
+		)
+	}
+	return decorated, false, nil
 }
 
 func (p *Tracer) decorateJVMRuntimeEvent(event *jvmruntime.JVMRuntimeEvent) bool {
 	if p.pidsFilter == nil {
 		return false
 	}
-	for _, pids := range p.pidsFilter.CurrentPIDs(ebpfcommon.PIDTypeKProbes) {
-		if service, ok := pids[event.PID]; ok {
-			event.Service = service
-			return true
-		}
+	pids := p.pidsFilter.CurrentPIDs(ebpfcommon.PIDTypeKProbes)
+	namespacePIDs, ok := pids[event.PIDNamespaceID]
+	if !ok {
+		return false
+	}
+	if service, ok := namespacePIDs[event.PID]; ok {
+		event.Service = service
+		return true
 	}
 	return false
 }

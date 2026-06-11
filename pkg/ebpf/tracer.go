@@ -126,6 +126,10 @@ type JVMRuntimeEventTracer interface {
 	SetJVMRuntimeEvents(*msg.Queue[[]jvmruntime.JVMRuntimeEvent])
 }
 
+type USDTTracer interface {
+	USDTProbes() map[string][]*ebpfcommon.USDTProbeDesc
+}
+
 // Subset of the above interface, which supports loading eBPF programs which
 // are not tied to service monitoring
 type UtilityTracer interface {

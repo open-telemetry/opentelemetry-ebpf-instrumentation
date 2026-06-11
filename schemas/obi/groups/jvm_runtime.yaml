@@ -3,29 +3,14 @@ groups:
     type: attribute_group
     display_name: JVM Runtime Metrics
     brief: >
-      Attributes carried on OBI's JVM runtime memory metrics. Emitted when
-      the `application_jvm` metrics feature and `jvm_runtime_metrics` are
-      enabled.
+      Attributes carried on OBI-specific JVM runtime memory metrics. Emitted
+      when the `application_jvm` metrics feature and `jvm_runtime_metrics` are
+      enabled. Standard JVM memory metrics and attributes are declared by the
+      upstream OpenTelemetry semantic conventions registry pinned in
+      `manifest.yaml`.
     attributes:
-      - id: jvm.memory.type
-        type:
-          allow_custom_values: true
-          members:
-            - id: heap
-              value: heap
-              stability: development
-            - id: non_heap
-              value: non_heap
-              stability: development
-        stability: development
-        brief: JVM memory type.
-      - id: jvm.memory.pool.name
-        type: string
-        stability: development
-        brief: JVM memory pool name.
       - id: jvm.gc.phase
         type:
-          allow_custom_values: true
           members:
             - id: before
               value: before
@@ -35,50 +20,6 @@ groups:
               stability: development
         stability: development
         brief: GC phase reported by the JVM.
-
-  - id: metric.jvm.memory.used
-    type: metric
-    metric_name: jvm.memory.used
-    instrument: gauge
-    unit: "By"
-    stability: development
-    brief: Current used JVM memory in bytes.
-    attributes:
-      - ref: jvm.memory.type
-      - ref: jvm.memory.pool.name
-
-  - id: metric.jvm.memory.committed
-    type: metric
-    metric_name: jvm.memory.committed
-    instrument: gauge
-    unit: "By"
-    stability: development
-    brief: Current committed JVM memory in bytes.
-    attributes:
-      - ref: jvm.memory.type
-      - ref: jvm.memory.pool.name
-
-  - id: metric.jvm.memory.limit
-    type: metric
-    metric_name: jvm.memory.limit
-    instrument: gauge
-    unit: "By"
-    stability: development
-    brief: Current maximum JVM memory in bytes.
-    attributes:
-      - ref: jvm.memory.type
-      - ref: jvm.memory.pool.name
-
-  - id: metric.jvm.memory.used_after_last_gc
-    type: metric
-    metric_name: jvm.memory.used_after_last_gc
-    instrument: gauge
-    unit: "By"
-    stability: development
-    brief: JVM memory used after the last garbage collection in bytes.
-    attributes:
-      - ref: jvm.memory.type
-      - ref: jvm.memory.pool.name
 
   - id: metric.beyla.jvm.heap.used
     type: metric

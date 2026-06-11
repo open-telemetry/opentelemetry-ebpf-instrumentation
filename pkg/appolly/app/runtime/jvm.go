@@ -1,7 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package runtime
+package runtime // import "go.opentelemetry.io/obi/pkg/appolly/app/runtime"
 
 import (
 	"bytes"
@@ -44,14 +44,15 @@ const (
 )
 
 type JVMRuntimeEvent struct {
-	PID        app.PID
-	Service    svc.Attrs
-	Time       time.Time
-	Kind       JVMRuntimeMetricKind
-	PoolName   string
-	MemoryType JVMMemoryType
-	GCPhase    JVMGCPhase
-	ValueBytes uint64
+	PID            app.PID
+	PIDNamespaceID uint32
+	Service        svc.Attrs
+	Time           time.Time
+	Kind           JVMRuntimeMetricKind
+	PoolName       string
+	MemoryType     JVMMemoryType
+	GCPhase        JVMGCPhase
+	ValueBytes     uint64
 }
 
 type jvmRuntimeClocks struct {
@@ -70,46 +71,47 @@ const (
 )
 
 type RawJVMMemoryPoolEvent struct {
-	Timestamp uint64
-	GlobalPID uint32
-	GlobalTID uint32
-	NsPID     uint32
-	NsTID     uint32
-	InitSize  uint64
-	Used      uint64
-	Committed uint64
-	MaxSize   uint64
-	Manager   [JVMRawStringLen]byte
-	Pool      [JVMRawStringLen]byte
-	IsBegin   uint8
-	_         [7]byte
+	Timestamp      uint64
+	GlobalPID      uint32
+	GlobalTID      uint32
+	NsPID          uint32
+	NsTID          uint32
+	PIDNamespaceID uint32
+	GCWhenType     RawJVMGCWhenType
+	InitSize       uint64
+	Used           uint64
+	Committed      uint64
+	MaxSize        uint64
+	Manager        [JVMRawStringLen]byte
+	Pool           [JVMRawStringLen]byte
 }
 
 type RawJVMGCHeapSummaryEvent struct {
-	Timestamp  uint64
-	GlobalPID  uint32
-	GlobalTID  uint32
-	NsPID      uint32
-	NsTID      uint32
-	GCWhenType RawJVMGCWhenType
-	_          [4]byte
-	Used       uint64
+	Timestamp      uint64
+	GlobalPID      uint32
+	GlobalTID      uint32
+	NsPID          uint32
+	NsTID          uint32
+	PIDNamespaceID uint32
+	GCWhenType     RawJVMGCWhenType
+	Used           uint64
 }
 
 func ParseJVMMemoryPoolEvent(raw RawJVMMemoryPoolEvent) ([]JVMRuntimeEvent, error) {
-	phase := JVMGCPhaseAfter
-	if raw.IsBegin != 0 {
-		phase = JVMGCPhaseBefore
+	phase, err := parseRawJVMGCPhase(raw.GCWhenType)
+	if err != nil {
+		return nil, err
 	}
 
 	poolName := DecodeJVMRawString(raw.Pool)
 	memoryType := InferJVMMemoryType(poolName)
 	base := JVMRuntimeEvent{
-		PID:        app.PID(raw.GlobalPID),
-		Time:       jvmKernelTime(raw.Timestamp),
-		PoolName:   poolName,
-		MemoryType: memoryType,
-		GCPhase:    phase,
+		PID:            app.PID(raw.NsPID),
+		PIDNamespaceID: raw.PIDNamespaceID,
+		Time:           jvmKernelTime(raw.Timestamp),
+		PoolName:       poolName,
+		MemoryType:     memoryType,
+		GCPhase:        phase,
 	}
 
 	events := []JVMRuntimeEvent{
@@ -139,11 +141,12 @@ func ParseJVMGCHeapSummaryEvent(raw RawJVMGCHeapSummaryEvent) (JVMRuntimeEvent, 
 		return JVMRuntimeEvent{}, err
 	}
 	return JVMRuntimeEvent{
-		PID:        app.PID(raw.NsPID),
-		Time:       jvmKernelTime(raw.Timestamp),
-		Kind:       JVMMetricBeylaHeapUsed,
-		GCPhase:    phase,
-		ValueBytes: raw.Used,
+		PID:            app.PID(raw.NsPID),
+		PIDNamespaceID: raw.PIDNamespaceID,
+		Time:           jvmKernelTime(raw.Timestamp),
+		Kind:           JVMMetricBeylaHeapUsed,
+		GCPhase:        phase,
+		ValueBytes:     raw.Used,
 	}, nil
 }
 

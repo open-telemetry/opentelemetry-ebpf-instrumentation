@@ -22,13 +22,12 @@ import (
 
 func TestJVMRuntimeMetricsReporterRecordsHeapSummary(t *testing.T) {
 	registry := prometheus.NewRegistry()
-	reporter, err := newJVMRuntimeMetricsReporter(
+	reporter := newJVMRuntimeMetricsReporter(
 		&global.ContextInfo{Prometheus: &connector.PrometheusManager{}},
 		&PrometheusConfig{Registry: registry, TTL: time.Minute},
 		&perapp.MetricsConfig{Features: export.FeatureApplicationJVM},
 		&attributes.SelectorConfig{},
 	)
-	require.NoError(t, err)
 
 	reporter.observe(jvmruntime.JVMRuntimeEvent{
 		Service: svc.Attrs{
@@ -47,18 +46,17 @@ func TestJVMRuntimeMetricsReporterRecordsHeapSummary(t *testing.T) {
 		"jvm_gc_phase":        "after",
 	})
 	require.NotNil(t, metric)
-	assert.Equal(t, 42.0, metric.GetGauge().GetValue())
+	assert.InEpsilon(t, 42.0, metric.GetGauge().GetValue(), 0)
 }
 
 func TestJVMRuntimeMetricsReporterDropsServiceWithoutJVMFeature(t *testing.T) {
 	registry := prometheus.NewRegistry()
-	reporter, err := newJVMRuntimeMetricsReporter(
+	reporter := newJVMRuntimeMetricsReporter(
 		&global.ContextInfo{Prometheus: &connector.PrometheusManager{}},
 		&PrometheusConfig{Registry: registry, TTL: time.Minute},
 		&perapp.MetricsConfig{Features: export.FeatureApplicationJVM},
 		&attributes.SelectorConfig{},
 	)
-	require.NoError(t, err)
 
 	reporter.observe(jvmruntime.JVMRuntimeEvent{
 		Service: svc.Attrs{

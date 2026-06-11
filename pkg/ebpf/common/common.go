@@ -136,6 +136,43 @@ type ProbeDesc struct {
 	Skip bool
 }
 
+type USDTSpecManager struct {
+	mu    sync.Mutex
+	next  uint32
+	specs map[string]uint32
+}
+
+func (m *USDTSpecManager) ID(specKey string, maxSpecs uint32) (uint32, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.specs == nil {
+		m.specs = map[string]uint32{}
+	}
+	if id, ok := m.specs[specKey]; ok {
+		return id, nil
+	}
+	if m.next >= maxSpecs {
+		return 0, fmt.Errorf("too many USDT argument specs: max %d", maxSpecs)
+	}
+
+	id := m.next
+	m.next++
+	m.specs[specKey] = id
+	return id, nil
+}
+
+type USDTProbeDesc struct {
+	Required bool
+	Provider string
+	Name     string
+	Program  *ebpf.Program
+
+	SpecsMap    *ebpf.Map
+	IPMap       *ebpf.Map
+	SpecManager *USDTSpecManager
+}
+
 type Filter struct {
 	io.Closer
 	Fd int

@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"context"
 	"debug/elf"
+	"errors"
 	"io"
 	"log/slog"
 	"testing"
@@ -23,6 +24,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/internal/goexec"
+	"go.opentelemetry.io/obi/pkg/internal/procs"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
 
@@ -88,6 +90,16 @@ func TestGatherOffsetsResolvesSymbolSubstring(t *testing.T) {
 	assert.Equal(t, uint64(0x9c10), desc.StartOffset)
 	assert.Equal(t, []uint64{0x9c52, 0x9c6a}, desc.ReturnOffsets)
 	assert.False(t, desc.Skip)
+}
+
+func TestApplyResolvedSymbolOffsetsKeepsStartOffsetWhenReturnScanFails(t *testing.T) {
+	probe := &ebpfcommon.ProbeDesc{}
+	sym := procs.Sym{Name: "jvm", Off: 0x1234}
+
+	applyResolvedSymbolOffsets(probe, sym, nil, errors.New("decode failed"), "jvm", "libjvm.so", slog.Default())
+
+	assert.Equal(t, uint64(0x1234), probe.StartOffset)
+	assert.Empty(t, probe.ReturnOffsets)
 }
 
 func TestGatherOffsetsSkipsMissingOptionalSymbol(t *testing.T) {

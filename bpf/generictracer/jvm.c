@@ -10,6 +10,7 @@
 #include <generictracer/jvm.h>
 #include <logger/bpf_dbg.h>
 #include <pid/pid.h>
+#include <common/usdt.h>
 
 enum { k_jvm_task_comm_len = 16 };
 
@@ -23,7 +24,15 @@ static __always_inline bool jvm_current_comm_is_g1_main_marker(void) {
     return __builtin_memcmp(comm, g1_main_marker, sizeof(g1_main_marker)) == 0;
 }
 
-static __always_inline void jvm_fill_heap_pid_fields(u64 pid_tgid, struct jvm_gc_heap_summary_event *e) {
+struct jvm_pid_fields {
+    u32 global_pid;
+    u32 global_tid;
+    u32 ns_pid;
+    u32 ns_tid;
+    u32 pid_ns_id;
+};
+
+static __always_inline void jvm_current_pid_fields(u64 pid_tgid, struct jvm_pid_fields *fields) {
     struct task_struct *task = (struct task_struct *)bpf_get_current_task();
     int ns_pid = 0;
     int ns_ppid = 0;
@@ -31,10 +40,47 @@ static __always_inline void jvm_fill_heap_pid_fields(u64 pid_tgid, struct jvm_gc
 
     ns_pid_ppid(task, &ns_pid, &ns_ppid, &pid_ns_id);
 
-    e->global_pid = pid_from_pid_tgid(pid_tgid);
-    e->global_tid = tid_from_pid_tgid(pid_tgid);
-    e->ns_pid = (u32)ns_pid;
-    e->ns_tid = get_task_tid();
+    fields->global_pid = pid_from_pid_tgid(pid_tgid);
+    fields->global_tid = tid_from_pid_tgid(pid_tgid);
+    fields->ns_pid = (u32)ns_pid;
+    fields->ns_tid = get_task_tid();
+    fields->pid_ns_id = pid_ns_id;
+}
+
+static __always_inline void jvm_fill_heap_pid_fields(u64 pid_tgid,
+                                                     struct jvm_gc_heap_summary_event *e) {
+    struct jvm_pid_fields fields = {};
+    jvm_current_pid_fields(pid_tgid, &fields);
+
+    e->global_pid = fields.global_pid;
+    e->global_tid = fields.global_tid;
+    e->ns_pid = fields.ns_pid;
+    e->ns_tid = fields.ns_tid;
+    e->pid_ns_id = fields.pid_ns_id;
+}
+
+static __always_inline void jvm_fill_mem_pool_pid_fields(u64 pid_tgid,
+                                                         struct jvm_mem_pool_gc_event *e) {
+    struct jvm_pid_fields fields = {};
+    jvm_current_pid_fields(pid_tgid, &fields);
+
+    e->global_pid = fields.global_pid;
+    e->global_tid = fields.global_tid;
+    e->ns_pid = fields.ns_pid;
+    e->ns_tid = fields.ns_tid;
+    e->pid_ns_id = fields.pid_ns_id;
+}
+
+static __always_inline int
+jvm_read_usdt_string(unsigned char *dst, u32 dst_len, const unsigned char *src) {
+    __builtin_memset(dst, 0, dst_len);
+    if (!src) {
+        return -1;
+    }
+    if (bpf_probe_read_user_str(dst, dst_len, src) < 0) {
+        return -1;
+    }
+    return 0;
 }
 
 SEC("uprobe/report_gc_heap_summary")
@@ -53,6 +99,10 @@ int BPF_UPROBE(obi_uprobe_report_gc_heap_summary,
     }
 
     if (when != k_jvm_before_gc && when != k_jvm_after_gc) {
+        return 0;
+    }
+
+    if (!summary) {
         return 0;
     }
 
@@ -78,7 +128,8 @@ int BPF_UPROBE(obi_uprobe_report_gc_heap_summary,
         return 0;
     }
 
-    struct jvm_gc_heap_summary_event *e = bpf_ringbuf_reserve(&jvm_gc_heap_summary_events, sizeof(*e), 0);
+    struct jvm_gc_heap_summary_event *e =
+        bpf_ringbuf_reserve(&jvm_gc_heap_summary_events, sizeof(*e), 0);
     if (!e) {
         return 0;
     }
@@ -91,4 +142,130 @@ int BPF_UPROBE(obi_uprobe_report_gc_heap_summary,
 
     bpf_ringbuf_submit(e, 0);
     return 0;
+}
+
+static __always_inline int jvm_hotspot_mem_pool_gc(struct pt_regs *ctx,
+                                                   enum jvm_gc_when_type when,
+                                                   const unsigned char *manager,
+                                                   long manager_len,
+                                                   const unsigned char *pool,
+                                                   long pool_len,
+                                                   u64 init_size,
+                                                   u64 used,
+                                                   u64 committed,
+                                                   u64 max_size) {
+    (void)manager_len;
+    (void)pool_len;
+
+    if (!jvm_runtime_metrics_enabled) {
+        return 0;
+    }
+    if (when != k_jvm_before_gc && when != k_jvm_after_gc) {
+        return 0;
+    }
+
+    const u64 pid_tgid = bpf_get_current_pid_tgid();
+    const u32 pid = valid_pid(pid_tgid);
+    if (!pid) {
+        return 0;
+    }
+
+    struct jvm_mem_pool_key key = {
+        .pid = pid,
+        .gc_when_type = when,
+    };
+    if (jvm_read_usdt_string(key.manager, sizeof(key.manager), manager) != 0) {
+        bpf_dbg_printk("jvm: failed to read HotSpot memory manager name");
+        return 0;
+    }
+    if (jvm_read_usdt_string(key.pool, sizeof(key.pool), pool) != 0) {
+        bpf_dbg_printk("jvm: failed to read HotSpot memory pool name");
+        return 0;
+    }
+
+    const u64 ts = bpf_ktime_get_ns();
+    if (!jvm_should_sample_mem_pool(&key, ts)) {
+        return 0;
+    }
+
+    struct jvm_mem_pool_gc_event *e = bpf_ringbuf_reserve(&jvm_mem_pool_gc_events, sizeof(*e), 0);
+    if (!e) {
+        return 0;
+    }
+
+    __builtin_memset(e, 0, sizeof(*e));
+    e->timestamp = ts;
+    jvm_fill_mem_pool_pid_fields(pid_tgid, e);
+    e->gc_when_type = when;
+    e->init_size = init_size;
+    e->used = used;
+    e->committed = committed;
+    e->max_size = max_size;
+    __builtin_memcpy(e->manager, key.manager, sizeof(e->manager));
+    __builtin_memcpy(e->pool, key.pool, sizeof(e->pool));
+
+    bpf_ringbuf_submit(e, 0);
+    return 0;
+}
+
+SEC("usdt/hotspot_mem_pool_gc_begin")
+int obi_usdt_hotspot_mem_pool_gc_begin(struct pt_regs *ctx) {
+    long manager = 0;
+    long manager_len = 0;
+    long pool = 0;
+    long pool_len = 0;
+    long init_size = 0;
+    long used = 0;
+    long committed = 0;
+    long max_size = 0;
+
+    if (obi_usdt_arg(ctx, 0, &manager) != 0 || obi_usdt_arg(ctx, 1, &manager_len) != 0 ||
+        obi_usdt_arg(ctx, 2, &pool) != 0 || obi_usdt_arg(ctx, 3, &pool_len) != 0 ||
+        obi_usdt_arg(ctx, 4, &init_size) != 0 || obi_usdt_arg(ctx, 5, &used) != 0 ||
+        obi_usdt_arg(ctx, 6, &committed) != 0 || obi_usdt_arg(ctx, 7, &max_size) != 0) {
+        bpf_dbg_printk("jvm: failed to read HotSpot mem_pool_gc_begin USDT arguments");
+        return 0;
+    }
+
+    return jvm_hotspot_mem_pool_gc(ctx,
+                                   k_jvm_before_gc,
+                                   (const unsigned char *)manager,
+                                   manager_len,
+                                   (const unsigned char *)pool,
+                                   pool_len,
+                                   (u64)init_size,
+                                   (u64)used,
+                                   (u64)committed,
+                                   (u64)max_size);
+}
+
+SEC("usdt/hotspot_mem_pool_gc_end")
+int obi_usdt_hotspot_mem_pool_gc_end(struct pt_regs *ctx) {
+    long manager = 0;
+    long manager_len = 0;
+    long pool = 0;
+    long pool_len = 0;
+    long init_size = 0;
+    long used = 0;
+    long committed = 0;
+    long max_size = 0;
+
+    if (obi_usdt_arg(ctx, 0, &manager) != 0 || obi_usdt_arg(ctx, 1, &manager_len) != 0 ||
+        obi_usdt_arg(ctx, 2, &pool) != 0 || obi_usdt_arg(ctx, 3, &pool_len) != 0 ||
+        obi_usdt_arg(ctx, 4, &init_size) != 0 || obi_usdt_arg(ctx, 5, &used) != 0 ||
+        obi_usdt_arg(ctx, 6, &committed) != 0 || obi_usdt_arg(ctx, 7, &max_size) != 0) {
+        bpf_dbg_printk("jvm: failed to read HotSpot mem_pool_gc_end USDT arguments");
+        return 0;
+    }
+
+    return jvm_hotspot_mem_pool_gc(ctx,
+                                   k_jvm_after_gc,
+                                   (const unsigned char *)manager,
+                                   manager_len,
+                                   (const unsigned char *)pool,
+                                   pool_len,
+                                   (u64)init_size,
+                                   (u64)used,
+                                   (u64)committed,
+                                   (u64)max_size);
 }

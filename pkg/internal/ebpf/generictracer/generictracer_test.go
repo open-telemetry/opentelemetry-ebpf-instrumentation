@@ -22,6 +22,7 @@ import (
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/ebpf/ringbuf"
 	"go.opentelemetry.io/obi/pkg/ebpf/timing"
+	ebpfconvenience "go.opentelemetry.io/obi/pkg/internal/ebpf/convenience"
 	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
@@ -59,11 +60,12 @@ func TestParseJVMGCHeapSummaryRecordDecoratesServiceByPID(t *testing.T) {
 
 	event, ignore, err := tracer.parseJVMGCHeapSummaryRecord(&ringbuf.Record{
 		RawSample: rawHeapSummaryPayload(t, jvmruntime.RawJVMGCHeapSummaryEvent{
-			Timestamp:  100,
-			GlobalPID:  5678,
-			NsPID:      1234,
-			GCWhenType: jvmruntime.RawJVMGCWhenAfter,
-			Used:       2048,
+			Timestamp:      100,
+			GlobalPID:      5678,
+			NsPID:          1234,
+			PIDNamespaceID: 42,
+			GCWhenType:     jvmruntime.RawJVMGCWhenAfter,
+			Used:           2048,
 		}),
 	})
 
@@ -75,6 +77,66 @@ func TestParseJVMGCHeapSummaryRecordDecoratesServiceByPID(t *testing.T) {
 	assert.Equal(t, jvmruntime.JVMMetricBeylaHeapUsed, event.Kind)
 	assert.Equal(t, jvmruntime.JVMGCPhaseAfter, event.GCPhase)
 	assert.Equal(t, uint64(2048), event.ValueBytes)
+}
+
+func TestParseJVMGCHeapSummaryRecordDecoratesServiceByPIDNamespace(t *testing.T) {
+	service := svc.Attrs{UID: svc.UID{Name: "orders", Namespace: "prod"}}
+	tracer := &Tracer{
+		pidsFilter: fakeServiceFilter{
+			current: map[uint32]map[app.PID]svc.Attrs{
+				7:  {1234: {UID: svc.UID{Name: "wrong"}}},
+				42: {1234: service},
+			},
+		},
+	}
+
+	event, ignore, err := tracer.parseJVMGCHeapSummaryRecord(&ringbuf.Record{
+		RawSample: rawHeapSummaryPayload(t, jvmruntime.RawJVMGCHeapSummaryEvent{
+			NsPID:          1234,
+			PIDNamespaceID: 42,
+			GCWhenType:     jvmruntime.RawJVMGCWhenAfter,
+		}),
+	})
+
+	require.NoError(t, err)
+	require.False(t, ignore)
+	assert.Equal(t, service, event.Service)
+}
+
+func TestParseJVMMemoryPoolRecordDecoratesServiceByPIDNamespace(t *testing.T) {
+	service := svc.Attrs{UID: svc.UID{Name: "orders", Namespace: "prod"}}
+	tracer := &Tracer{
+		pidsFilter: fakeServiceFilter{
+			current: map[uint32]map[app.PID]svc.Attrs{
+				7:  {1234: {UID: svc.UID{Name: "wrong"}}},
+				42: {1234: service},
+			},
+		},
+	}
+
+	events, ignore, err := tracer.parseJVMMemoryPoolRecord(&ringbuf.Record{
+		RawSample: rawMemoryPoolPayload(t, jvmruntime.RawJVMMemoryPoolEvent{
+			Timestamp:      123,
+			NsPID:          1234,
+			PIDNamespaceID: 42,
+			GCWhenType:     jvmruntime.RawJVMGCWhenAfter,
+			Used:           100,
+			Committed:      200,
+			MaxSize:        300,
+			Pool:           rawJVMString("G1 Eden Space"),
+		}),
+	})
+
+	require.NoError(t, err)
+	require.False(t, ignore)
+	require.Len(t, events, 4)
+	for _, event := range events {
+		assert.Equal(t, service, event.Service)
+	}
+	assert.Equal(t, jvmruntime.JVMMetricMemoryUsed, events[0].Kind)
+	assert.Equal(t, jvmruntime.JVMMetricMemoryCommitted, events[1].Kind)
+	assert.Equal(t, jvmruntime.JVMMetricMemoryLimit, events[2].Kind)
+	assert.Equal(t, jvmruntime.JVMMetricMemoryUsedAfterLastGC, events[3].Kind)
 }
 
 func TestParseJVMGCHeapSummaryRecordConvertsMonotonicTimestamp(t *testing.T) {
@@ -90,11 +152,12 @@ func TestParseJVMGCHeapSummaryRecordConvertsMonotonicTimestamp(t *testing.T) {
 
 	event, ignore, err := tracer.parseJVMGCHeapSummaryRecord(&ringbuf.Record{
 		RawSample: rawHeapSummaryPayload(t, jvmruntime.RawJVMGCHeapSummaryEvent{
-			Timestamp:  monotonicTimestamp,
-			GlobalPID:  5678,
-			NsPID:      1234,
-			GCWhenType: jvmruntime.RawJVMGCWhenAfter,
-			Used:       2048,
+			Timestamp:      monotonicTimestamp,
+			GlobalPID:      5678,
+			NsPID:          1234,
+			PIDNamespaceID: 42,
+			GCWhenType:     jvmruntime.RawJVMGCWhenAfter,
+			Used:           2048,
 		}),
 	})
 
@@ -115,9 +178,10 @@ func TestParseJVMGCHeapSummaryRecordIgnoresUnknownPID(t *testing.T) {
 
 	event, ignore, err := tracer.parseJVMGCHeapSummaryRecord(&ringbuf.Record{
 		RawSample: rawHeapSummaryPayload(t, jvmruntime.RawJVMGCHeapSummaryEvent{
-			GlobalPID:  1234,
-			NsPID:      9999,
-			GCWhenType: jvmruntime.RawJVMGCWhenBefore,
+			GlobalPID:      1234,
+			NsPID:          9999,
+			PIDNamespaceID: 42,
+			GCWhenType:     jvmruntime.RawJVMGCWhenBefore,
 		}),
 	})
 
@@ -138,12 +202,58 @@ func TestShouldReadJVMRuntimeEventsRequiresEnabledConfigQueueAndMap(t *testing.T
 	assert.False(t, tracer.shouldReadJVMRuntimeEvents())
 }
 
+func TestJVMHeapSummaryBPFMapsAreInternallyPinned(t *testing.T) {
+	spec, err := LoadBpf()
+	require.NoError(t, err)
+
+	for _, name := range []string{
+		"jvm_gc_heap_summary_events",
+		"jvm_heap_summary_samples",
+		"jvm_mem_pool_gc_events",
+		"jvm_mem_pool_samples",
+		"obi_usdt_specs",
+		"obi_usdt_ip_to_spec_id",
+	} {
+		require.Contains(t, spec.Maps, name)
+		assert.Equal(t, ebpfconvenience.PinInternal, spec.Maps[name].Pinning)
+	}
+}
+
+func TestJVMRuntimeMetricsExposeHotSpotUSDTProbes(t *testing.T) {
+	tracer := Tracer{cfg: &obi.Config{}}
+	assert.Empty(t, tracer.USDTProbes())
+
+	tracer.cfg.JVMRuntimeMetrics.Enabled = true
+	probes := tracer.USDTProbes()
+
+	require.Contains(t, probes, "libjvm.so")
+	require.Len(t, probes["libjvm.so"], 2)
+	assert.Equal(t, "hotspot", probes["libjvm.so"][0].Provider)
+	assert.Equal(t, "mem__pool__gc__begin", probes["libjvm.so"][0].Name)
+	assert.Equal(t, "hotspot", probes["libjvm.so"][1].Provider)
+	assert.Equal(t, "mem__pool__gc__end", probes["libjvm.so"][1].Name)
+}
+
 func rawHeapSummaryPayload(t *testing.T, raw jvmruntime.RawJVMGCHeapSummaryEvent) []byte {
 	t.Helper()
 
 	var buf bytes.Buffer
 	require.NoError(t, binary.Write(&buf, binary.LittleEndian, raw))
 	return buf.Bytes()
+}
+
+func rawMemoryPoolPayload(t *testing.T, raw jvmruntime.RawJVMMemoryPoolEvent) []byte {
+	t.Helper()
+
+	var buf bytes.Buffer
+	require.NoError(t, binary.Write(&buf, binary.LittleEndian, raw))
+	return buf.Bytes()
+}
+
+func rawJVMString(value string) [jvmruntime.JVMRawStringLen]byte {
+	var raw [jvmruntime.JVMRawStringLen]byte
+	copy(raw[:], []byte(value))
+	return raw
 }
 
 type fakeServiceFilter struct {

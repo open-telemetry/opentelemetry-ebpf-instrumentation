@@ -5,7 +5,6 @@ package prom // import "go.opentelemetry.io/obi/pkg/export/prom"
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"time"
 
@@ -46,14 +45,11 @@ func JVMRuntimeMetricsEndpoint(
 	jointMetricsConfig *perapp.MetricsConfig,
 	input *msg.Queue[[]jvmruntime.JVMRuntimeEvent],
 ) swarm.InstanceFunc {
-	return func(ctx context.Context) (swarm.RunFunc, error) {
+	return func(_ context.Context) (swarm.RunFunc, error) {
 		if input == nil || !cfg.EndpointEnabled() || !jointMetricsConfig.Features.AppJVM() {
 			return swarm.EmptyRunFunc()
 		}
-		reporter, err := newJVMRuntimeMetricsReporter(ctxInfo, cfg, jointMetricsConfig, nil)
-		if err != nil {
-			return nil, fmt.Errorf("instantiating Prometheus JVM runtime metrics endpoint: %w", err)
-		}
+		reporter := newJVMRuntimeMetricsReporter(ctxInfo, cfg, jointMetricsConfig, nil)
 		reporter.input = input.Subscribe(msg.SubscriberName("prom.JVMRuntimeMetrics"))
 		if cfg.Registry != nil {
 			return reporter.collectMetrics, nil
@@ -67,9 +63,9 @@ func newJVMRuntimeMetricsReporter(
 	cfg *PrometheusConfig,
 	jointMetricsConfig *perapp.MetricsConfig,
 	_ any,
-) (*jvmRuntimeMetricsReporter, error) {
+) *jvmRuntimeMetricsReporter {
 	if !jointMetricsConfig.Features.AppJVM() {
-		return &jvmRuntimeMetricsReporter{}, nil
+		return &jvmRuntimeMetricsReporter{}
 	}
 
 	clock := timeNow
@@ -100,7 +96,7 @@ func newJVMRuntimeMetricsReporter(
 	} else if reporter.promConnect != nil {
 		reporter.promConnect.Register(cfg.Port, cfg.Path, collectors...)
 	}
-	return reporter, nil
+	return reporter
 }
 
 func newJVMGauge(name, help string, labels []string, clock func() time.Time, ttl time.Duration) *Expirer[prometheus.Gauge] {

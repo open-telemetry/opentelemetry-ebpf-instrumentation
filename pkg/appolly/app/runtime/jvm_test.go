@@ -18,48 +18,52 @@ import (
 func TestParseJVMMemoryPoolEventMapsPoolCounters(t *testing.T) {
 	eventTime := setJVMTestClocks(t)
 	raw := RawJVMMemoryPoolEvent{
-		Timestamp: 123456789,
-		GlobalPID: 1234,
-		GlobalTID: 1235,
-		NsPID:     4321,
-		NsTID:     4322,
-		InitSize:  1024,
-		Used:      2048,
-		Committed: 4096,
-		MaxSize:   8192,
-		Pool:      rawJVMString("G1 Eden Space"),
-		IsBegin:   1,
+		Timestamp:      123456789,
+		GlobalPID:      1234,
+		GlobalTID:      1235,
+		NsPID:          4321,
+		NsTID:          4322,
+		PIDNamespaceID: 9001,
+		GCWhenType:     RawJVMGCWhenBefore,
+		InitSize:       1024,
+		Used:           2048,
+		Committed:      4096,
+		MaxSize:        8192,
+		Pool:           rawJVMString("G1 Eden Space"),
 	}
 
 	events, err := ParseJVMMemoryPoolEvent(raw)
 	require.NoError(t, err)
 	require.Equal(t, []JVMRuntimeEvent{
 		{
-			PID:        app.PID(1234),
-			Time:       eventTime(123456789),
-			Kind:       JVMMetricMemoryUsed,
-			PoolName:   "G1 Eden Space",
-			MemoryType: JVMMemoryTypeHeap,
-			GCPhase:    JVMGCPhaseBefore,
-			ValueBytes: 2048,
+			PID:            app.PID(4321),
+			PIDNamespaceID: 9001,
+			Time:           eventTime(123456789),
+			Kind:           JVMMetricMemoryUsed,
+			PoolName:       "G1 Eden Space",
+			MemoryType:     JVMMemoryTypeHeap,
+			GCPhase:        JVMGCPhaseBefore,
+			ValueBytes:     2048,
 		},
 		{
-			PID:        app.PID(1234),
-			Time:       eventTime(123456789),
-			Kind:       JVMMetricMemoryCommitted,
-			PoolName:   "G1 Eden Space",
-			MemoryType: JVMMemoryTypeHeap,
-			GCPhase:    JVMGCPhaseBefore,
-			ValueBytes: 4096,
+			PID:            app.PID(4321),
+			PIDNamespaceID: 9001,
+			Time:           eventTime(123456789),
+			Kind:           JVMMetricMemoryCommitted,
+			PoolName:       "G1 Eden Space",
+			MemoryType:     JVMMemoryTypeHeap,
+			GCPhase:        JVMGCPhaseBefore,
+			ValueBytes:     4096,
 		},
 		{
-			PID:        app.PID(1234),
-			Time:       eventTime(123456789),
-			Kind:       JVMMetricMemoryLimit,
-			PoolName:   "G1 Eden Space",
-			MemoryType: JVMMemoryTypeHeap,
-			GCPhase:    JVMGCPhaseBefore,
-			ValueBytes: 8192,
+			PID:            app.PID(4321),
+			PIDNamespaceID: 9001,
+			Time:           eventTime(123456789),
+			Kind:           JVMMetricMemoryLimit,
+			PoolName:       "G1 Eden Space",
+			MemoryType:     JVMMemoryTypeHeap,
+			GCPhase:        JVMGCPhaseBefore,
+			ValueBytes:     8192,
 		},
 	}, events)
 }
@@ -67,44 +71,49 @@ func TestParseJVMMemoryPoolEventMapsPoolCounters(t *testing.T) {
 func TestParseJVMMemoryPoolEventAddsUsedAfterLastGCForEndEvents(t *testing.T) {
 	eventTime := setJVMTestClocks(t)
 	raw := RawJVMMemoryPoolEvent{
-		Timestamp: 500,
-		GlobalPID: 222,
-		Used:      300,
-		Committed: 400,
-		MaxSize:   math.MaxUint64,
-		Pool:      rawJVMString("Metaspace"),
-		IsBegin:   0,
+		Timestamp:      500,
+		GlobalPID:      222,
+		NsPID:          2,
+		PIDNamespaceID: 43,
+		GCWhenType:     RawJVMGCWhenAfter,
+		Used:           300,
+		Committed:      400,
+		MaxSize:        math.MaxUint64,
+		Pool:           rawJVMString("Metaspace"),
 	}
 
 	events, err := ParseJVMMemoryPoolEvent(raw)
 	require.NoError(t, err)
 	require.Equal(t, []JVMRuntimeEvent{
 		{
-			PID:        app.PID(222),
-			Time:       eventTime(500),
-			Kind:       JVMMetricMemoryUsed,
-			PoolName:   "Metaspace",
-			MemoryType: JVMMemoryTypeNonHeap,
-			GCPhase:    JVMGCPhaseAfter,
-			ValueBytes: 300,
+			PID:            app.PID(2),
+			PIDNamespaceID: 43,
+			Time:           eventTime(500),
+			Kind:           JVMMetricMemoryUsed,
+			PoolName:       "Metaspace",
+			MemoryType:     JVMMemoryTypeNonHeap,
+			GCPhase:        JVMGCPhaseAfter,
+			ValueBytes:     300,
 		},
 		{
-			PID:        app.PID(222),
-			Time:       eventTime(500),
-			Kind:       JVMMetricMemoryCommitted,
-			PoolName:   "Metaspace",
-			MemoryType: JVMMemoryTypeNonHeap,
-			GCPhase:    JVMGCPhaseAfter,
-			ValueBytes: 400,
+			PID:            app.PID(2),
+			PIDNamespaceID: 43,
+			Time:           eventTime(500),
+			Kind:           JVMMetricMemoryCommitted,
+			PoolName:       "Metaspace",
+			MemoryType:     JVMMemoryTypeNonHeap,
+			GCPhase:        JVMGCPhaseAfter,
+			ValueBytes:     400,
 		},
 		{
-			PID:        app.PID(222),
-			Time:       eventTime(500),
-			Kind:       JVMMetricMemoryUsedAfterLastGC,
-			PoolName:   "Metaspace",
-			MemoryType: JVMMemoryTypeNonHeap,
-			GCPhase:    JVMGCPhaseAfter,
-			ValueBytes: 300,
+			PID:            app.PID(2),
+			PIDNamespaceID: 43,
+			Time:           eventTime(500),
+			Kind:           JVMMetricMemoryUsedAfterLastGC,
+			PoolName:       "Metaspace",
+			MemoryType:     JVMMemoryTypeNonHeap,
+			GCPhase:        JVMGCPhaseAfter,
+			ValueBytes:     300,
 		},
 	}, events)
 }
@@ -112,21 +121,23 @@ func TestParseJVMMemoryPoolEventAddsUsedAfterLastGCForEndEvents(t *testing.T) {
 func TestParseJVMGCHeapSummaryEventMapsAggregateHeapUsed(t *testing.T) {
 	eventTime := setJVMTestClocks(t)
 	raw := RawJVMGCHeapSummaryEvent{
-		Timestamp:  900,
-		GlobalPID:  333,
-		NsPID:      1,
-		GCWhenType: RawJVMGCWhenAfter,
-		Used:       700,
+		Timestamp:      900,
+		GlobalPID:      333,
+		NsPID:          1,
+		PIDNamespaceID: 42,
+		GCWhenType:     RawJVMGCWhenAfter,
+		Used:           700,
 	}
 
 	event, err := ParseJVMGCHeapSummaryEvent(raw)
 	require.NoError(t, err)
 	require.Equal(t, JVMRuntimeEvent{
-		PID:        app.PID(1),
-		Time:       eventTime(900),
-		Kind:       JVMMetricBeylaHeapUsed,
-		GCPhase:    JVMGCPhaseAfter,
-		ValueBytes: 700,
+		PID:            app.PID(1),
+		PIDNamespaceID: 42,
+		Time:           eventTime(900),
+		Kind:           JVMMetricBeylaHeapUsed,
+		GCPhase:        JVMGCPhaseAfter,
+		ValueBytes:     700,
 	}, event)
 }
 
@@ -162,13 +173,14 @@ func TestRawJVMStringTrimsAtNULAndHonorsFixedBound(t *testing.T) {
 
 func TestDecodeRawJVMEventsFromBinaryPayloads(t *testing.T) {
 	poolPayload := binaryPayload(t, RawJVMMemoryPoolEvent{
-		Timestamp: 42,
-		GlobalPID: 44,
-		Used:      50,
-		Committed: 60,
-		MaxSize:   70,
-		Pool:      rawJVMString("Tenured Gen"),
-		IsBegin:   1,
+		Timestamp:  42,
+		GlobalPID:  44,
+		NsPID:      4,
+		GCWhenType: RawJVMGCWhenBefore,
+		Used:       50,
+		Committed:  60,
+		MaxSize:    70,
+		Pool:       rawJVMString("Tenured Gen"),
 	})
 	poolEvents, err := DecodeJVMMemoryPoolEvent(poolPayload)
 	require.NoError(t, err)
