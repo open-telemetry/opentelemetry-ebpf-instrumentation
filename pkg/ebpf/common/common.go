@@ -100,6 +100,13 @@ var IntegrityModeOverride = false
 
 type TracerCapability uint64
 
+type SymbolMatcher uint8
+
+const (
+	SymbolMatcherExact SymbolMatcher = iota
+	SymbolMatcherContains
+)
+
 // ProbeDesc holds the information of the instrumentation points of a given
 // function/symbol
 type ProbeDesc struct {
@@ -120,6 +127,13 @@ type ProbeDesc struct {
 
 	// Optional list of the offsets of every RET instruction in the symbol
 	ReturnOffsets []uint64
+
+	// SymbolMatcher controls how the map key for this probe is matched against
+	// executable symbols. The zero value preserves exact symbol matching.
+	SymbolMatcher SymbolMatcher
+
+	// Skip is set when an optional uprobe symbol was not resolved.
+	Skip bool
 }
 
 type Filter struct {

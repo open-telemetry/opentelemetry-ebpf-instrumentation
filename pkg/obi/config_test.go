@@ -211,7 +211,7 @@ discovery:
 			OTELIntervalMS:    60_000,
 			CommonEndpoint:    "localhost:3131",
 			MetricsEndpoint:   "localhost:3030",
-			Protocol:          otelcfg.ProtocolUnset,
+			Protocol:          otelcfg.ProtocolHTTPProtobuf,
 			ReportersCacheLen: ReporterLRUSize,
 			Buckets: export.Buckets{
 				DurationHistogram:            []float64{0, 1, 2},
@@ -232,7 +232,7 @@ discovery:
 			TTL: 5 * time.Minute,
 		},
 		Traces: otelcfg.TracesConfig{
-			Protocol:          otelcfg.ProtocolUnset,
+			Protocol:          otelcfg.ProtocolHTTPProtobuf,
 			CommonEndpoint:    "localhost:3131",
 			TracesEndpoint:    "localhost:3232",
 			BatchMaxSize:      4096,
@@ -357,6 +357,9 @@ discovery:
 			Enabled: true,
 			Timeout: 10 * time.Second,
 		},
+		JVMRuntimeMetrics: JVMRuntimeMetricsConfig{
+			SamplingInterval: time.Second,
+		},
 		HealthCheck: HealthCheckConfig{
 			Port: 0,
 		},
@@ -377,6 +380,52 @@ func TestConfig_ShutdownTimeout(t *testing.T) {
 	cfg, err := LoadConfig(bytes.NewReader(nil))
 	require.NoError(t, err)
 	assert.Equal(t, time.Minute, cfg.ShutdownTimeout)
+}
+
+func TestConfig_JVMRuntimeMetricsDefaults(t *testing.T) {
+	cfg, err := LoadConfig(nil)
+	require.NoError(t, err)
+
+	assert.False(t, cfg.JVMRuntimeMetrics.Enabled)
+	assert.Equal(t, time.Second, cfg.JVMRuntimeMetrics.SamplingInterval)
+}
+
+func TestConfig_JVMRuntimeMetricsFromEnv(t *testing.T) {
+	t.Setenv("BEYLA_JVM_RUNTIME_METRICS_ENABLED", "true")
+	t.Setenv("BEYLA_JVM_RUNTIME_METRICS_SAMPLING_INTERVAL", "250ms")
+
+	cfg, err := LoadConfig(nil)
+	require.NoError(t, err)
+
+	assert.True(t, cfg.JVMRuntimeMetrics.Enabled)
+	assert.Equal(t, 250*time.Millisecond, cfg.JVMRuntimeMetrics.SamplingInterval)
+}
+
+func TestConfig_JVMRuntimeMetricsFromYAML(t *testing.T) {
+	cfg, err := LoadConfig(bytes.NewBufferString(`
+jvm_runtime_metrics:
+  enabled: true
+  sampling_interval: 2s
+`))
+	require.NoError(t, err)
+
+	assert.True(t, cfg.JVMRuntimeMetrics.Enabled)
+	assert.Equal(t, 2*time.Second, cfg.JVMRuntimeMetrics.SamplingInterval)
+}
+
+func TestConfigValidate_JVMRuntimeMetricsSamplingInterval(t *testing.T) {
+	cfg, err := LoadConfig(bytes.NewBufferString(`
+trace_printer: text
+executable_path: java
+jvm_runtime_metrics:
+  enabled: true
+  sampling_interval: 0s
+`))
+	require.NoError(t, err)
+
+	err = cfg.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "jvm_runtime_metrics.sampling_interval")
 }
 
 func TestConfig_ExponentialHistogramConfigFromEnv(t *testing.T) {
@@ -983,7 +1032,17 @@ func TestConfig_SpanMetricsEnabledForTraces(t *testing.T) {
 }
 
 func loadConfig(t *testing.T, env envMap) *Config {
+	isolatedEnv := envMap{
+		"OTEL_EXPORTER_OTLP_ENDPOINT":         "",
+		"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT": "",
+		"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT":  "",
+		"OTEL_EBPF_PROMETHEUS_PORT":           "0",
+		"BEYLA_JVM_RUNTIME_METRICS_ENABLED":   "false",
+	}
 	for k, v := range env {
+		isolatedEnv[k] = v
+	}
+	for k, v := range isolatedEnv {
 		t.Setenv(k, v)
 	}
 	cfg, err := LoadConfig(nil)

@@ -4,6 +4,7 @@
 //go:build obi_bpf_ignore
 #include "iter_tcp.c"
 #include "java_tls.c"
+#include "jvm.c"
 #include "k_tracer.c"
 #include "libssl.c"
 #include "nginx.c"

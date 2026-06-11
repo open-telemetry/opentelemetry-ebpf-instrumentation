@@ -92,7 +92,11 @@ type tracerInstance struct {
 	done     atomic.Bool
 }
 
-func (pt *ProcessTracer) Run(ctx context.Context, ebpfEventContext *common.EBPFEventContext, out *msg.Queue[[]request.Span]) {
+func (pt *ProcessTracer) Run(
+	ctx context.Context,
+	ebpfEventContext *common.EBPFEventContext,
+	out *msg.Queue[[]request.Span],
+) {
 	pt.log = ptlog().With("type", pt.Type)
 
 	pt.log.Debug("starting process tracer")
@@ -103,6 +107,9 @@ func (pt *ProcessTracer) Run(ctx context.Context, ebpfEventContext *common.EBPFE
 	for i := range trcrs {
 		idx := i
 		t := trcrs[idx]
+		if jt, ok := t.(JVMRuntimeEventTracer); ok {
+			jt.SetJVMRuntimeEvents(pt.JVMRuntimeEvents)
+		}
 		wg.Add(1)
 		runningTracers = append(runningTracers, tracerInstance{
 			implType: reflect.TypeOf(t).String(),

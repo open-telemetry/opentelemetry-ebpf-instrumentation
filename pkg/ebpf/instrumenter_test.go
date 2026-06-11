@@ -67,6 +67,91 @@ func TestGatherOffsets(t *testing.T) {
 	}
 }
 
+func TestGatherOffsetsResolvesSymbolSubstring(t *testing.T) {
+	reader := bytes.NewReader(testData())
+	assert.NotNil(t, reader)
+
+	probes := probeDescMap{
+		"setprog": {{
+			SymbolMatcher: ebpfcommon.SymbolMatcherContains,
+		}},
+	}
+
+	elfFile, err := elf.NewFile(reader)
+	require.NoError(t, err)
+	defer elfFile.Close()
+
+	err = gatherOffsetsImpl(elfFile, probes, "libbsd.so", slog.Default())
+	require.NoError(t, err)
+
+	desc := probes["setprog"][0]
+	assert.Equal(t, uint64(0x9c10), desc.StartOffset)
+	assert.Equal(t, []uint64{0x9c52, 0x9c6a}, desc.ReturnOffsets)
+	assert.False(t, desc.Skip)
+}
+
+func TestGatherOffsetsSkipsMissingOptionalSymbol(t *testing.T) {
+	reader := bytes.NewReader(testData())
+	assert.NotNil(t, reader)
+
+	probes := probeDescMap{
+		"report_gc_heap_summary": {{
+			Required:      false,
+			SymbolMatcher: ebpfcommon.SymbolMatcherContains,
+		}},
+	}
+
+	elfFile, err := elf.NewFile(reader)
+	require.NoError(t, err)
+	defer elfFile.Close()
+
+	err = gatherOffsetsImpl(elfFile, probes, "libbsd.so", slog.Default())
+	require.NoError(t, err)
+
+	desc := probes["report_gc_heap_summary"][0]
+	assert.True(t, desc.Skip)
+	assert.Zero(t, desc.StartOffset)
+	assert.Empty(t, desc.ReturnOffsets)
+}
+
+func TestGatherOffsetsFailsMissingRequiredSymbol(t *testing.T) {
+	reader := bytes.NewReader(testData())
+	assert.NotNil(t, reader)
+
+	probes := probeDescMap{
+		"missing_required_symbol": {{
+			Required: true,
+		}},
+	}
+
+	elfFile, err := elf.NewFile(reader)
+	require.NoError(t, err)
+	defer elfFile.Close()
+
+	err = gatherOffsetsImpl(elfFile, probes, "libbsd.so", slog.Default())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "required symbol missing_required_symbol not found")
+
+	desc := probes["missing_required_symbol"][0]
+	assert.True(t, desc.Skip)
+	assert.Zero(t, desc.StartOffset)
+	assert.Empty(t, desc.ReturnOffsets)
+}
+
+func TestInstrumentProbesSkipsMarkedOptionalProbe(t *testing.T) {
+	i := &instrumenter{}
+	probes := probeDescMap{
+		"report_gc_heap_summary": {{
+			Skip:  true,
+			Start: &ebpf.Program{},
+		}},
+	}
+
+	closers, err := i.instrumentProbes(nil, probes)
+	require.NoError(t, err)
+	assert.Empty(t, closers)
+}
+
 func TestMatchVersionedUprobeLibrary(t *testing.T) {
 	maps := makeProcMaps(
 		"/usr/local/lib/python3.11/lib-dynload/_asyncio.cpython-311-x86_64-linux-gnu.so",

@@ -6,10 +6,13 @@
 package procs
 
 import (
+	"debug/elf"
 	"encoding/binary"
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/internal/fastelf"
@@ -42,4 +45,44 @@ func TestMatchExeSymbols_InvalidStringOffset(t *testing.T) {
 	}
 
 	assert.Equal(t, svc.InstrumentableGeneric, matchExeSymbols(ctx))
+}
+
+func TestFindExeSymbolsExactLookup(t *testing.T) {
+	f := openCurrentTestELF(t)
+	defer f.Close()
+
+	syms, err := FindExeSymbols(f, []string{"go.opentelemetry.io/obi/pkg/internal/procs.TestFindExeSymbolsExactLookup"})
+	require.NoError(t, err)
+
+	sym, ok := syms["go.opentelemetry.io/obi/pkg/internal/procs.TestFindExeSymbolsExactLookup"]
+	require.True(t, ok)
+	assert.NotZero(t, sym.Off)
+	assert.NotZero(t, sym.Len)
+	assert.NotNil(t, sym.Prog)
+}
+
+func TestFindExeSymbolsSubstringLookup(t *testing.T) {
+	f := openCurrentTestELF(t)
+	defer f.Close()
+
+	syms, err := FindExeSymbolsBySubstring(f, []string{"FindExeSymbolsSubstring"})
+	require.NoError(t, err)
+
+	sym, ok := syms["FindExeSymbolsSubstring"]
+	require.True(t, ok)
+	assert.NotZero(t, sym.Off)
+	assert.NotZero(t, sym.Len)
+	assert.NotNil(t, sym.Prog)
+}
+
+func openCurrentTestELF(t *testing.T) *elf.File {
+	t.Helper()
+
+	exe, err := os.Executable()
+	require.NoError(t, err)
+
+	f, err := elf.Open(exe)
+	require.NoError(t, err)
+
+	return f
 }

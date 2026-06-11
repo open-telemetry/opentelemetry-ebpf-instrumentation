@@ -21,6 +21,7 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
+	jvmruntime "go.opentelemetry.io/obi/pkg/appolly/app/runtime"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/ebpf/ringbuf"
@@ -49,6 +50,7 @@ type Tracer struct {
 	libsMux          sync.Mutex
 	iters            []*ebpfcommon.Iter
 	eventCtx         *ebpfcommon.EBPFEventContext
+	jvmRuntimeEvents *msg.Queue[[]jvmruntime.JVMRuntimeEvent]
 }
 
 func tlog() *slog.Logger {
@@ -129,6 +131,10 @@ func (p *Tracer) AllowPID(pid app.PID, ns uint32, fi *exec.FileInfo) {
 func (p *Tracer) BlockPID(pid app.PID, ns uint32) {
 	p.pidsFilter.BlockPID(pid, ns)
 	p.rebuildValidPids()
+}
+
+func (p *Tracer) SetJVMRuntimeEvents(events *msg.Queue[[]jvmruntime.JVMRuntimeEvent]) {
+	p.jvmRuntimeEvents = events
 }
 
 func (p *Tracer) LoadSpecs() ([]*ebpfcommon.SpecBundle, error) {
@@ -223,6 +229,12 @@ func (p *Tracer) constants() map[string]any {
 
 	m["g_bpf_debug"] = p.cfg.EBPF.BpfDebug
 	m["g_bpf_traceparent_enabled"] = p.cfg.EBPF.TrackRequestHeaders || p.cfg.EBPF.ContextPropagation.IsEnabled()
+	m["jvm_runtime_metrics_enabled"] = uint8(0)
+	m["jvm_sampling_interval_ns"] = uint64(0)
+	if p.cfg.JVMRuntimeMetrics.Enabled {
+		m["jvm_runtime_metrics_enabled"] = uint8(1)
+		m["jvm_sampling_interval_ns"] = uint64(p.cfg.JVMRuntimeMetrics.SamplingInterval.Nanoseconds())
+	}
 
 	return m
 }
@@ -473,6 +485,15 @@ func (p *Tracer) UProbes() map[string]map[string][]*ebpfcommon.ProbeDesc {
 			}},
 		},
 	}
+	if p.cfg.JVMRuntimeMetrics.Enabled {
+		m["libjvm.so"] = map[string][]*ebpfcommon.ProbeDesc{
+			"report_gc_heap_summary": {{
+				Required:      false,
+				Start:         p.bpfObjects.ObiUprobeReportGcHeapSummary,
+				SymbolMatcher: ebpfcommon.SymbolMatcherContains,
+			}},
+		}
+	}
 	return m
 }
 
@@ -571,7 +592,11 @@ func (p *Tracer) AlreadyInstrumentedLib(id uint64) bool {
 	return module != nil
 }
 
-func (p *Tracer) Run(ctx context.Context, ebpfEventContext *ebpfcommon.EBPFEventContext, eventsChan *msg.Queue[[]request.Span]) {
+func (p *Tracer) Run(
+	ctx context.Context,
+	ebpfEventContext *ebpfcommon.EBPFEventContext,
+	eventsChan *msg.Queue[[]request.Span],
+) {
 	// At this point we now have loaded the bpf objects, which means we should insert any
 	// pids that are allowed into the bpf map
 	if p.bpfObjects.ValidPids != nil {
@@ -592,6 +617,18 @@ func (p *Tracer) Run(ctx context.Context, ebpfEventContext *ebpfcommon.EBPFEvent
 	p.log.Info("Launching p.Tracer")
 
 	cfg := &p.cfg.EBPF
+	if p.shouldReadJVMRuntimeEvents() {
+		p.log.Debug("starting JVM runtime events reader")
+		go ebpfcommon.ForwardRingbuf(
+			cfg,
+			p.bpfObjects.JvmGcHeapSummaryEvents,
+			p.parseJVMGCHeapSummaryRecord,
+			nil,
+			p.log,
+			p.metrics,
+		)(ctx, p.jvmRuntimeEvents)
+	}
+
 	ebpfcommon.SharedRingbuf(
 		ebpfEventContext,
 		cfg,
@@ -607,6 +644,44 @@ func (p *Tracer) Run(ctx context.Context, ebpfEventContext *ebpfcommon.EBPFEvent
 		p.log,
 		p.metrics,
 	)(ctx, append(p.closers, &p.bpfObjects), eventsChan)
+}
+
+func (p *Tracer) shouldReadJVMRuntimeEvents() bool {
+	return p.cfg != nil &&
+		p.cfg.JVMRuntimeMetrics.Enabled &&
+		p.jvmRuntimeEvents != nil &&
+		p.bpfObjects.JvmGcHeapSummaryEvents != nil
+}
+
+func (p *Tracer) parseJVMGCHeapSummaryRecord(record *ringbuf.Record) (jvmruntime.JVMRuntimeEvent, bool, error) {
+	event, err := jvmruntime.DecodeJVMGCHeapSummaryEvent(record.RawSample)
+	if err != nil {
+		return jvmruntime.JVMRuntimeEvent{}, false, err
+	}
+	if !p.decorateJVMRuntimeEvent(&event) {
+		return jvmruntime.JVMRuntimeEvent{}, true, nil
+	}
+	p.log.Debug("received JVM GC heap summary event",
+		"pid", event.PID,
+		"service", event.Service.UID.Name,
+		"namespace", event.Service.UID.Namespace,
+		"phase", event.GCPhase,
+		"value_bytes", event.ValueBytes,
+	)
+	return event, false, nil
+}
+
+func (p *Tracer) decorateJVMRuntimeEvent(event *jvmruntime.JVMRuntimeEvent) bool {
+	if p.pidsFilter == nil {
+		return false
+	}
+	for _, pids := range p.pidsFilter.CurrentPIDs(ebpfcommon.PIDTypeKProbes) {
+		if service, ok := pids[event.PID]; ok {
+			event.Service = service
+			return true
+		}
+	}
+	return false
 }
 
 func kernelTime(ktime uint64) time.Time {

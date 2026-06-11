@@ -69,6 +69,15 @@ func (i *instrumenter) instrumentProbes(exe *link.Executable, probes map[string]
 		for _, probe := range probeArray {
 			log.Debug("going to instrument function", "function", symbolName, "programs", probe)
 
+			if probe.Skip {
+				if probe.Required {
+					closeAll(closers)
+					return nil, fmt.Errorf("required symbol %q was not resolved", symbolName)
+				}
+				log.Debug("skipping unresolved optional uprobe", "function", symbolName)
+				continue
+			}
+
 			cls, err := i.uprobe(exe, probe)
 
 			if err != nil {
@@ -633,11 +642,21 @@ func getCgroupPath() (string, error) {
 	return cgroupPath, err
 }
 
-func symbolNames(m map[string][]*ebpfcommon.ProbeDesc) []string {
+func symbolNames(m map[string][]*ebpfcommon.ProbeDesc, matcher ebpfcommon.SymbolMatcher) []string {
 	keys := make([]string, 0, len(m))
+	seen := map[string]struct{}{}
 
-	for name := range m {
-		keys = append(keys, name)
+	for name, probes := range m {
+		for _, probe := range probes {
+			if probe.SymbolMatcher != matcher {
+				continue
+			}
+			if _, ok := seen[name]; ok {
+				continue
+			}
+			seen[name] = struct{}{}
+			keys = append(keys, name)
+		}
 	}
 
 	return keys
@@ -657,19 +676,35 @@ func gatherOffsets(instrPath string, probes map[string][]*ebpfcommon.ProbeDesc, 
 func gatherOffsetsImpl(elfFile *elf.File, probes map[string][]*ebpfcommon.ProbeDesc,
 	instrPath string, log *slog.Logger,
 ) error {
-	syms, err := procs.FindExeSymbols(elfFile, symbolNames(probes))
+	exactSyms, err := procs.FindExeSymbols(elfFile, symbolNames(probes, ebpfcommon.SymbolMatcherExact))
 	if err != nil {
 		return fmt.Errorf("failed to lookup symbols for %s: %w", instrPath, err)
 	}
 
+	substringSyms, err := procs.FindExeSymbolsBySubstring(elfFile, symbolNames(probes, ebpfcommon.SymbolMatcherContains))
+	if err != nil {
+		return fmt.Errorf("failed to lookup symbols by substring for %s: %w", instrPath, err)
+	}
+
 	for symbolName, probeArray := range probes {
 		for _, probe := range probeArray {
+			syms := exactSyms
+			if probe.SymbolMatcher == ebpfcommon.SymbolMatcherContains {
+				syms = substringSyms
+			}
+
 			sym, ok := syms[symbolName]
 
 			if !ok {
+				probe.Skip = true
+				if probe.Required {
+					return fmt.Errorf("required symbol %s not found in %s", symbolName, instrPath)
+				}
+				log.Debug("skipping unresolved optional uprobe", "symbol", symbolName, "path", instrPath)
 				continue
 			}
 
+			probe.Skip = false
 			progData := readSymbolData(&sym)
 
 			if progData == nil {
@@ -684,6 +719,14 @@ func gatherOffsetsImpl(elfFile *elf.File, probes map[string][]*ebpfcommon.ProbeD
 
 			probe.StartOffset = sym.Off
 			probe.ReturnOffsets = returns
+			log.Debug("resolved uprobe symbol",
+				"requested_symbol", symbolName,
+				"matched_symbol", sym.Name,
+				"path", instrPath,
+				"offset", sym.Off,
+				"offset_hex", fmt.Sprintf("0x%x", sym.Off),
+				"size", sym.Len,
+			)
 		}
 	}
 
