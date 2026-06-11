@@ -229,14 +229,10 @@ jvm_read_hotspot_usdt_arg(struct pt_regs *ctx, enum jvm_gc_when_type when, u64 a
         const u64 pid_tgid = bpf_get_current_pid_tgid();
         struct jvm_pid_fields fields = {};
         jvm_current_pid_fields(pid_tgid, &fields);
-        bpf_dbg_printk("jvm usdt ph=%d a=%llu e=%d gp=%d up=%d ns=%d ip=%llx",
-                       when,
-                       arg_num,
-                       err,
-                       fields.global_pid,
-                       fields.ns_pid,
-                       fields.pid_ns_id,
-                       (u64)PT_REGS_IP(ctx));
+        bpf_dbg_printk("jvm usdt ph=%d a=%llu e=%d", when, arg_num, err);
+        bpf_dbg_printk(
+            "jvm usdt gp=%d up=%d ns=%d", fields.global_pid, fields.ns_pid, fields.pid_ns_id);
+        bpf_dbg_printk("jvm usdt ip=%llx", (u64)PT_REGS_IP(ctx));
     }
     return err;
 }
