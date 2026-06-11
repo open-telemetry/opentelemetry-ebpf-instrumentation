@@ -463,7 +463,7 @@ func TestGRPCPipeline(t *testing.T) {
 	delete(event.ResourceAttributes, string(semconv.TelemetryDistroVersionKey))
 
 	assert.Equal(t, collector.MetricRecord{
-		Name: "rpc.server.duration",
+		Name: "rpc.server.call.duration",
 		Unit: "s",
 		Attributes: map[string]string{
 			string(semconv.ServiceNameKey):           "grpc-svc",

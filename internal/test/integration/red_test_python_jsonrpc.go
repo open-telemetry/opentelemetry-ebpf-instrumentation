@@ -142,7 +142,7 @@ func testPythonJSONRPCMetrics(t *testing.T) {
 	var results []promtest.Result
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		var err error
-		results, err = pq.Query(`rpc_server_duration_seconds_count{` +
+		results, err = pq.Query(`rpc_server_call_duration_seconds_count{` +
 			`rpc_method="tools/list",` +
 			`rpc_system_name="jsonrpc",` +
 			`service_namespace="integration-test"}`)

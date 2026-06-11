@@ -214,8 +214,8 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 			expected: []string{
 				"http.server.request.duration",
 				"http.client.request.duration",
-				"rpc.server.duration",
-				"rpc.client.duration",
+				"rpc.server.call.duration",
+				"rpc.client.call.duration",
 				"db.client.operation.duration",        // SQL client SELECT
 				"db.client.operation.duration",        // REDIS client SET
 				"db.client.operation.duration",        // Redis server GET (TODO is this a bug?)
@@ -258,8 +258,8 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 			instr:     []instrumentations.Instrumentation{instrumentations.InstrumentationGRPC},
 			extraColl: 0,
 			expected: []string{
-				"rpc.server.duration",
-				"rpc.client.duration",
+				"rpc.server.call.duration",
+				"rpc.client.call.duration",
 			},
 		},
 		{
@@ -336,8 +336,8 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 			instr:     []instrumentations.Instrumentation{instrumentations.InstrumentationGRPC, instrumentations.InstrumentationKafka},
 			extraColl: 0,
 			expected: []string{
-				"rpc.server.duration",
-				"rpc.client.duration",
+				"rpc.server.call.duration",
+				"rpc.client.call.duration",
 				"messaging.client.operation.duration",
 				"messaging.process.duration",
 			},

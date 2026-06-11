@@ -70,14 +70,14 @@ var (
 		OTEL:    "http.client.request.duration",
 	}
 	RPCServerDuration = Name{
-		Section: "rpc.server.duration",
-		Prom:    "rpc_server_duration_seconds",
-		OTEL:    "rpc.server.duration",
+		Section: "rpc.server.call.duration",
+		Prom:    "rpc_server_call_duration_seconds",
+		OTEL:    "rpc.server.call.duration",
 	}
 	RPCClientDuration = Name{
-		Section: "rpc.client.duration",
-		Prom:    "rpc_client_duration_seconds",
-		OTEL:    "rpc.client.duration",
+		Section: "rpc.client.call.duration",
+		Prom:    "rpc_client_call_duration_seconds",
+		OTEL:    "rpc.client.call.duration",
 	}
 	DBClientDuration = Name{
 		Section: "db.client.operation.duration",
