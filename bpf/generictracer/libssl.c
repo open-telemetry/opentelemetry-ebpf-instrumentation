@@ -6,6 +6,8 @@
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_helpers.h>
 
+#include <common/algorithm.h>
+
 #include <generictracer/ssl_defs.h>
 
 #include <logger/bpf_dbg.h>
@@ -14,6 +16,10 @@
 #include <maps/active_ssl_write_args.h>
 
 #include <pid/pid.h>
+
+static __always_inline int ssl_size_to_int(size_t size) {
+    return (int)min((size_t)__INT_MAX__, size);
+}
 
 // SSL read and read_ex are more less the same, but some frameworks use one or the other.
 // SSL_read_ex sets an argument pointer with the number of bytes read, while SSL_read returns
@@ -128,7 +134,7 @@ int BPF_URETPROBE(obi_uretprobe_ssl_read_ex, int ret) {
 
     bpf_map_delete_elem(&active_ssl_read_args, &id);
     // must be last in the function, doesn't return
-    handle_ssl_buf(ctx, id, args, read_len, TCP_RECV);
+    handle_ssl_buf(ctx, id, args, ssl_size_to_int(read_len), TCP_RECV);
     return 0;
 }
 
@@ -263,7 +269,7 @@ int BPF_URETPROBE(obi_uretprobe_ssl_write_ex, int ret) {
     __builtin_memcpy(&saved, args, sizeof(ssl_args_t));
     bpf_map_delete_elem(&active_ssl_write_args, &id);
     // must be last in the function, doesn't return
-    handle_ssl_buf(ctx, id, &saved, write_len, TCP_SEND);
+    handle_ssl_buf(ctx, id, &saved, ssl_size_to_int(write_len), TCP_SEND);
 
     return 0;
 }
@@ -292,7 +298,7 @@ int BPF_URETPROBE(obi_uretprobe_ssl_write_ex2, int ret) {
     __builtin_memcpy(&saved, args, sizeof(ssl_args_t));
     bpf_map_delete_elem(&active_ssl_write_args, &id);
     // must be last in the function, doesn't return
-    handle_ssl_buf(ctx, id, &saved, write_len, TCP_SEND);
+    handle_ssl_buf(ctx, id, &saved, ssl_size_to_int(write_len), TCP_SEND);
 
     return 0;
 }
