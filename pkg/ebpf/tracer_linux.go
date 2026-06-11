@@ -100,6 +100,8 @@ func (pt *ProcessTracer) Run(
 	pt.log = ptlog().With("type", pt.Type)
 
 	pt.log.Debug("starting process tracer")
+	ebpfEventContext.JVMRuntimeEvents = pt.JVMRuntimeEvents
+
 	// Searches for traceable functions
 	trcrs := pt.Programs
 	wg := sync.WaitGroup{}
@@ -107,9 +109,6 @@ func (pt *ProcessTracer) Run(
 	for i := range trcrs {
 		idx := i
 		t := trcrs[idx]
-		if jt, ok := t.(JVMRuntimeEventTracer); ok {
-			jt.SetJVMRuntimeEvents(pt.JVMRuntimeEvents)
-		}
 		wg.Add(1)
 		runningTracers = append(runningTracers, tracerInstance{
 			implType: reflect.TypeOf(t).String(),

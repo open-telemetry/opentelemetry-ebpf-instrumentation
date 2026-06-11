@@ -120,12 +120,6 @@ type Tracer interface {
 	Run(context.Context, *ebpfcommon.EBPFEventContext, *msg.Queue[[]request.Span])
 }
 
-// JVMRuntimeEventTracer is implemented by tracers that can emit JVM runtime
-// metric events in addition to request spans.
-type JVMRuntimeEventTracer interface {
-	SetJVMRuntimeEvents(*msg.Queue[[]jvmruntime.JVMRuntimeEvent])
-}
-
 type USDTTracer interface {
 	USDTProbes() map[string][]*ebpfcommon.USDTProbeDesc
 }

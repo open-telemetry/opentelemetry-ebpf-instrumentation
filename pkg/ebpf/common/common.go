@@ -26,6 +26,7 @@ import (
 	"github.com/hashicorp/golang-lru/v2/simplelru"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
+	jvmruntime "go.opentelemetry.io/obi/pkg/appolly/app/runtime"
 	"go.opentelemetry.io/obi/pkg/config"
 	"go.opentelemetry.io/obi/pkg/ebpf/common/dnsparser"
 	ebpfhttp "go.opentelemetry.io/obi/pkg/ebpf/common/http"
@@ -270,6 +271,7 @@ type sharedForwarder interface {
 type EBPFEventContext struct {
 	CommonPIDsFilter ServiceFilter
 	SharedRingBuffer sharedForwarder
+	JVMRuntimeEvents *msg.Queue[[]jvmruntime.JVMRuntimeEvent]
 	EBPFMaps         map[string]*ebpf.Map
 	RingBufLock      sync.Mutex
 	MapsLock         sync.Mutex

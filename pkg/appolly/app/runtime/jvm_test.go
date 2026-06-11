@@ -216,9 +216,9 @@ func TestDecodeRawJVMEventsFromBinaryPayloads(t *testing.T) {
 	require.Equal(t, JVMGCPhaseBefore, heapEvent.GCPhase)
 }
 
-func TestRawJVMPayloadSizesMatchPoCShapes(t *testing.T) {
-	require.Equal(t, 192, binary.Size(RawJVMMemoryPoolEvent{}))
-	require.Equal(t, 40, binary.Size(RawJVMGCHeapSummaryEvent{}))
+func TestRawJVMPayloadSizesMatchBPFEventShapes(t *testing.T) {
+	require.Equal(t, 200, binary.Size(RawJVMMemoryPoolEvent{}))
+	require.Equal(t, 48, binary.Size(RawJVMGCHeapSummaryEvent{}))
 }
 
 func TestDecodeRawJVMPayloadRejectsShortPayload(t *testing.T) {

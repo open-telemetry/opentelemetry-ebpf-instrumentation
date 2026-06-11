@@ -71,6 +71,8 @@ const (
 )
 
 type RawJVMMemoryPoolEvent struct {
+	Type           uint8
+	Pad            [7]uint8
 	Timestamp      uint64
 	GlobalPID      uint32
 	GlobalTID      uint32
@@ -87,6 +89,8 @@ type RawJVMMemoryPoolEvent struct {
 }
 
 type RawJVMGCHeapSummaryEvent struct {
+	Type           uint8
+	Pad            [7]uint8
 	Timestamp      uint64
 	GlobalPID      uint32
 	GlobalTID      uint32

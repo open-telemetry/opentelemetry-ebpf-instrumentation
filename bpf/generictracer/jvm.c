@@ -8,6 +8,8 @@
 #include <bpfcore/bpf_tracing.h>
 
 #include <generictracer/jvm.h>
+#include <common/event_defs.h>
+#include <common/ringbuf.h>
 #include <logger/bpf_dbg.h>
 #include <pid/pid.h>
 #include <common/usdt.h>
@@ -103,6 +105,7 @@ int BPF_UPROBE(obi_uprobe_report_gc_heap_summary,
                void *clazz,
                enum jvm_gc_when_type when,
                struct jvm_gc_heap_summary *summary) {
+    (void)ctx;
     (void)clazz;
 
     if (!jvm_runtime_metrics_enabled) {
@@ -143,19 +146,19 @@ int BPF_UPROBE(obi_uprobe_report_gc_heap_summary,
         return 0;
     }
 
-    struct jvm_gc_heap_summary_event *e =
-        bpf_ringbuf_reserve(&jvm_gc_heap_summary_events, sizeof(*e), 0);
+    struct jvm_gc_heap_summary_event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
     if (!e) {
         return 0;
     }
 
     __builtin_memset(e, 0, sizeof(*e));
+    e->type = EVENT_JVM_GC_HEAP_SUMMARY;
     e->timestamp = ts;
     jvm_fill_heap_pid_fields(pid_tgid, e);
     e->gc_when_type = when;
     e->used = used;
 
-    bpf_ringbuf_submit(e, 0);
+    bpf_ringbuf_submit(e, get_flags());
     return 0;
 }
 
@@ -202,12 +205,13 @@ static __always_inline int jvm_hotspot_mem_pool_gc(struct pt_regs *ctx,
         return 0;
     }
 
-    struct jvm_mem_pool_gc_event *e = bpf_ringbuf_reserve(&jvm_mem_pool_gc_events, sizeof(*e), 0);
+    struct jvm_mem_pool_gc_event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
     if (!e) {
         return 0;
     }
 
     __builtin_memset(e, 0, sizeof(*e));
+    e->type = EVENT_JVM_MEM_POOL_GC;
     e->timestamp = ts;
     jvm_fill_mem_pool_pid_fields(pid_tgid, e);
     e->gc_when_type = when;
@@ -218,7 +222,7 @@ static __always_inline int jvm_hotspot_mem_pool_gc(struct pt_regs *ctx,
     __builtin_memcpy(e->manager, key.manager, sizeof(e->manager));
     __builtin_memcpy(e->pool, key.pool, sizeof(e->pool));
 
-    bpf_ringbuf_submit(e, 0);
+    bpf_ringbuf_submit(e, get_flags());
     return 0;
 }
 

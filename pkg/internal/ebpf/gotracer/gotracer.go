@@ -931,6 +931,9 @@ func (p *Tracer) Run(ctx context.Context, ebpfEventContext *ebpfcommon.EBPFEvent
 		p.cfg,
 		p.bpfObjects.Events,
 		func(record *ringbuf.Record) (request.Span, bool, error) {
+			if handled, err := ebpfcommon.HandleJVMRuntimeMetricRecord(ctx, ebpfEventContext, record, p.pidsFilter, p.log); handled {
+				return request.Span{}, true, err
+			}
 			if handled, err := p.handleRuntimeMetricRecord(ctx, record); handled {
 				return request.Span{}, true, err
 			}

@@ -54,21 +54,8 @@ struct obi_usdt_ip_key {
     u64 ip;
 };
 
-struct {
-    __uint(type, BPF_MAP_TYPE_ARRAY);
-    __uint(max_entries, k_obi_usdt_max_spec_cnt);
-    __type(key, u32);
-    __type(value, struct obi_usdt_spec);
-    __uint(pinning, OBI_PIN_INTERNAL);
-} obi_usdt_specs SEC(".maps");
-
-struct {
-    __uint(type, BPF_MAP_TYPE_HASH);
-    __uint(max_entries, k_obi_usdt_max_ip_cnt);
-    __type(key, struct obi_usdt_ip_key);
-    __type(value, u32);
-    __uint(pinning, OBI_PIN_INTERNAL);
-} obi_usdt_ip_to_spec_id SEC(".maps");
+#include <common/maps/obi_usdt_ip_to_spec_id.h>
+#include <common/maps/obi_usdt_specs.h>
 
 static __always_inline u8 obi_usdt_arg_bitshift_ok(u8 arg_bitshift) {
     switch (arg_bitshift) {

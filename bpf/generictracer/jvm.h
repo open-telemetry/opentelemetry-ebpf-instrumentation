@@ -5,7 +5,6 @@
 
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_helpers.h>
-#include <common/pin_internal.h>
 
 // https://github.com/openjdk/jdk/blob/jdk-21%2B35/src/hotspot/share/gc/shared/gcWhen.hpp#L32-L37
 enum jvm_gc_when_type {
@@ -17,6 +16,8 @@ enum jvm_gc_when_type {
 enum { k_jvm_raw_string_len = 64 };
 
 struct jvm_gc_heap_summary_event {
+    u8 type;
+    u8 _pad[7];
     u64 timestamp;
     u32 global_pid;
     u32 global_tid;
@@ -28,6 +29,8 @@ struct jvm_gc_heap_summary_event {
 };
 
 struct jvm_mem_pool_gc_event {
+    u8 type;
+    u8 _pad[7];
     u64 timestamp;
     u32 global_pid;
     u32 global_tid;
@@ -59,6 +62,9 @@ struct jvm_sample_value {
     u64 last_ts;
 };
 
+#include <generictracer/maps/jvm_heap_summary_samples.h>
+#include <generictracer/maps/jvm_mem_pool_samples.h>
+
 // Use https://godbolt.org/z/YcodaPhvY to understand the memory layout of `GCHeapSummary` C++ class
 // https://github.com/openjdk/jdk/blob/jdk-21%2B35/src/hotspot/share/gc/shared/gcHeapSummary.hpp#L76
 struct jvm_gc_heap_summary {
@@ -68,34 +74,6 @@ struct jvm_gc_heap_summary {
     u64 _s5;
     u64 used;
 };
-
-struct {
-    __uint(type, BPF_MAP_TYPE_RINGBUF);
-    __uint(max_entries, 1 << 20);
-    __uint(pinning, OBI_PIN_INTERNAL);
-} jvm_gc_heap_summary_events SEC(".maps");
-
-struct {
-    __uint(type, BPF_MAP_TYPE_RINGBUF);
-    __uint(max_entries, 1 << 20);
-    __uint(pinning, OBI_PIN_INTERNAL);
-} jvm_mem_pool_gc_events SEC(".maps");
-
-struct {
-    __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __uint(max_entries, 4096);
-    __type(key, struct jvm_heap_summary_key);
-    __type(value, struct jvm_sample_value);
-    __uint(pinning, OBI_PIN_INTERNAL);
-} jvm_heap_summary_samples SEC(".maps");
-
-struct {
-    __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __uint(max_entries, 4096);
-    __type(key, struct jvm_mem_pool_key);
-    __type(value, struct jvm_sample_value);
-    __uint(pinning, OBI_PIN_INTERNAL);
-} jvm_mem_pool_samples SEC(".maps");
 
 volatile const u8 jvm_runtime_metrics_enabled = 0;
 volatile const u64 jvm_sampling_interval_ns = 0;

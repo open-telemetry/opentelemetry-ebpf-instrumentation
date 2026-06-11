@@ -55,7 +55,7 @@ func TestParseUSDTArgSpecX8664(t *testing.T) {
 
 	assert.Equal(t, obiUSDTArgRegDeref, spec.Args[2].ArgType)
 	assert.Equal(t, int16(152), spec.Args[2].RegOff)
-	assert.Equal(t, uint64(^uint64(15)), spec.Args[2].ValOff)
+	assert.Equal(t, ^uint64(15), spec.Args[2].ValOff)
 
 	assert.Equal(t, obiUSDTArgConst, spec.Args[3].ArgType)
 	assert.Equal(t, uint64(7), spec.Args[3].ValOff)
