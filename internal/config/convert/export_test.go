@@ -4,7 +4,9 @@
 package convert
 
 import (
+	"reflect"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -42,41 +44,41 @@ func TestRuntimeToV2DefaultConfig(t *testing.T) {
 	require.NotNil(t, ext.Capture.Telemetry)
 
 	require.Empty(t, doc.Resource)
-	require.Equal(t, int64(15000), value(t, doc.TracerProvider, "processors", "0", "batch", "schedule_delay"))
+	require.Equal(t, schema.Milliseconds(15*time.Second), value(t, doc.TracerProvider, "processors", "0", "batch", "schedule_delay"))
 	require.Equal(t, 16384, value(t, doc.TracerProvider, "processors", "0", "batch", "max_queue_size"))
 	require.Equal(t, 4096, value(t, doc.TracerProvider, "processors", "0", "batch", "max_export_batch_size"))
 	require.Empty(t, value(t, doc.TracerProvider, "processors", "0", "batch", "exporter", "otlp_grpc", "endpoint"))
 	require.Equal(t, false, value(t, doc.TracerProvider, "processors", "0", "batch", "exporter", "otlp_grpc", "tls", "insecure"))
 	require.Equal(t, false, value(t, doc.TracerProvider, "processors", "0", "batch", "exporter", "otlp_grpc", "tls", "insecure_skip_verify"))
-	require.NotContains(t, doc.TracerProvider, "sampler")
-	require.Equal(t, int64(60000), value(t, doc.MeterProvider, "readers", "0", "periodic", "interval"))
+	require.Nil(t, doc.TracerProvider.Sampler)
+	require.Equal(t, schema.Milliseconds(time.Minute), value(t, doc.MeterProvider, "readers", "0", "periodic", "interval"))
 	require.Empty(t, value(t, doc.MeterProvider, "readers", "0", "periodic", "exporter", "otlp_grpc", "endpoint"))
 	require.Equal(t, false, value(t, doc.MeterProvider, "readers", "0", "periodic", "exporter", "otlp_grpc", "tls", "insecure"))
 	require.Equal(t, false, value(t, doc.MeterProvider, "readers", "0", "periodic", "exporter", "otlp_grpc", "tls", "insecure_skip_verify"))
 	require.Equal(t, 0, value(t, doc.MeterProvider, "readers", "1", "pull", "exporter", "prometheus/development", "port"))
 
 	require.Equal(t, "include", value(t, ext.Capture.Policy, "default_action"))
-	require.Equal(t, "first_match_wins", value(t, ext.Capture.Policy, "match_order"))
-	require.Equal(t, "0s", value(t, ext.Capture.Policy, "poll_interval"))
-	require.Equal(t, "5s", value(t, ext.Capture.Policy, "min_process_age"))
+	require.Equal(t, schema.MatchOrderFirstMatchWins, value(t, ext.Capture.Policy, "match_order"))
+	require.Equal(t, schema.Duration(0), value(t, ext.Capture.Policy, "poll_interval"))
+	require.Equal(t, schema.Duration(5*time.Second), value(t, ext.Capture.Policy, "min_process_age"))
 
 	require.Equal(t, 500, value(t, ext.Capture.Engine, "batching", "wakeup_len"))
 	require.Equal(t, 100, value(t, ext.Capture.Engine, "batching", "batch_length"))
-	require.Equal(t, "1s", value(t, ext.Capture.Engine, "batching", "batch_timeout"))
-	require.Equal(t, "auto", value(t, ext.Capture.Engine, "traffic", "control_backend"))
-	require.Equal(t, "auto", value(t, ext.Capture.Engine, "traffic", "force_map_reader"))
+	require.Equal(t, schema.Duration(time.Second), value(t, ext.Capture.Engine, "batching", "batch_timeout"))
+	require.Equal(t, config.TCBackendAuto, value(t, ext.Capture.Engine, "traffic", "control_backend"))
+	require.Equal(t, config.MapReaderAuto, value(t, ext.Capture.Engine, "traffic", "force_map_reader"))
 	require.Equal(t, 0, value(t, ext.Capture.Engine, "maps", "global_scale_factor"))
 	require.Equal(t, "/sys/fs/bpf/", value(t, ext.Capture.Engine, "bpf_filesystem", "path"))
 
 	require.Equal(t, 50, value(t, ext.Capture.Channels, "buffer_len"))
-	require.Equal(t, "1m0s", value(t, ext.Capture.Channels, "send_timeout"))
+	require.Equal(t, schema.Duration(time.Minute), value(t, ext.Capture.Channels, "send_timeout"))
 	require.Equal(t, false, value(t, ext.Capture.Safety, "enforce_system_capabilities"))
 	require.Equal(t, 100, value(t, ext.Capture.Limits, "metric_span_names"))
 
 	require.Equal(t, false, value(t, ext.Capture.Network, "capture", "enabled"))
-	require.Equal(t, obi.EbpfSourceSock, value(t, ext.Capture.Network, "capture", "source"))
+	require.Equal(t, schema.NetworkSourceSocketFilter, value(t, ext.Capture.Network, "capture", "source"))
 	require.Equal(t, []string{"lo"}, value(t, ext.Capture.Network, "capture", "selection", "interfaces", "exclude"))
-	require.Equal(t, "both", value(t, ext.Capture.Network, "capture", "selection", "direction"))
+	require.Equal(t, schema.NetworkDirectionBoth, value(t, ext.Capture.Network, "capture", "selection", "direction"))
 	require.Equal(t, false, value(t, ext.Capture.Network, "stats", "enabled"))
 	require.Empty(t, value(t, ext.Capture.Network, "stats", "features"))
 
@@ -85,15 +87,15 @@ func TestRuntimeToV2DefaultConfig(t *testing.T) {
 	require.Equal(t, false, value(t, ext.Capture.Instrumentation, "dns", "enabled", "traces"))
 	require.Equal(t, false, value(t, ext.Capture.Instrumentation, "dns", "enabled", "metrics"))
 	require.ElementsMatch(t, []string{
-		"http",
-		"grpc",
-		"sql",
-		"redis",
-		"kafka",
-		"mongo",
-		"couchbase",
-		"dns",
-		"gpu",
+		string(protocolHTTP),
+		string(protocolGRPC),
+		string(protocolSQL),
+		string(protocolRedis),
+		string(protocolKafka),
+		string(protocolMongo),
+		string(protocolCouchbase),
+		string(protocolDNS),
+		string(protocolGPU),
 	}, keys(ext.Capture.Instrumentation))
 
 	require.Equal(t, true, value(t, ext.Capture.Runtimes, "go", "enabled"))
@@ -102,24 +104,24 @@ func TestRuntimeToV2DefaultConfig(t *testing.T) {
 
 	require.Equal(t, 256, value(t, ext.Capture.Telemetry, "traces", "reporters_cache_len"))
 	require.Equal(t, 256, value(t, ext.Capture.Telemetry, "metrics", "reporters_cache_len"))
-	require.Equal(t, "5m0s", value(t, ext.Capture.Telemetry, "metrics", "ttl"))
+	require.Equal(t, schema.Duration(5*time.Minute), value(t, ext.Capture.Telemetry, "metrics", "ttl"))
 
 	require.Equal(t, kubeflags.EnabledAutodetect, value(t, ext.Enrich, "enrichers", "kubernetes", "mode"))
-	require.Equal(t, "30s", value(t, ext.Enrich, "enrichers", "kubernetes", "informers", "initial_sync_timeout"))
-	require.Equal(t, "30m0s", value(t, ext.Enrich, "enrichers", "kubernetes", "informers", "resync_period"))
+	require.Equal(t, schema.Duration(30*time.Second), value(t, ext.Enrich, "enrichers", "kubernetes", "informers", "initial_sync_timeout"))
+	require.Equal(t, schema.Duration(30*time.Minute), value(t, ext.Enrich, "enrichers", "kubernetes", "informers", "resync_period"))
 	require.Equal(t, []transform.Source{transform.SourceK8s}, value(t, ext.Enrich, "service_name", "sources"))
 	require.Equal(t, 1024, value(t, ext.Enrich, "service_name", "cache", "size"))
-	require.Equal(t, "5m0s", value(t, ext.Enrich, "service_name", "cache", "ttl"))
+	require.Equal(t, schema.Duration(5*time.Minute), value(t, ext.Enrich, "service_name", "cache", "ttl"))
 	require.Equal(t, "unresolved", value(t, ext.Enrich, "service_name", "unresolved_hosts", "names", "default"))
 
 	require.Equal(t, false, value(t, ext.Correlation, "log_trace_annotation", "enabled"))
-	require.Equal(t, "30m0s", value(t, ext.Correlation, "log_trace_annotation", "cache", "ttl"))
+	require.Equal(t, schema.Duration(30*time.Minute), value(t, ext.Correlation, "log_trace_annotation", "cache", "ttl"))
 	require.Equal(t, 128, value(t, ext.Correlation, "log_trace_annotation", "cache", "size"))
 	require.Equal(t, 8, value(t, ext.Correlation, "log_trace_annotation", "async_writer", "workers"))
 
-	require.Equal(t, obi.LogLevelInfo, value(t, ext.Daemon, "logging", "level"))
+	require.Equal(t, schema.LogLevelInfo, value(t, ext.Daemon, "logging", "level"))
 	require.Equal(t, debug.TracePrinterDisabled, value(t, ext.Daemon, "logging", "debug_trace_output"))
-	require.Equal(t, "10s", value(t, ext.Daemon, "shutdown", "timeout"))
+	require.Equal(t, schema.Duration(10*time.Second), value(t, ext.Daemon, "shutdown", "timeout"))
 	require.Equal(t, imetrics.InternalMetricsExporterDisabled, value(t, ext.Daemon, "internal_metrics", "exporter"))
 	require.Equal(t, "/internal/metrics", value(t, ext.Daemon, "internal_metrics", "prometheus", "path"))
 	require.Equal(t, false, value(t, ext.Daemon, "telemetry", "metrics", "prometheus", "allow_service_graph_self_references"))
@@ -142,9 +144,9 @@ func TestRuntimeToV2NilRoutesOnlyExportsDiscovery(t *testing.T) {
 
 	_, ext := RuntimeToV2(&cfg)
 
-	routes, ok := value(t, ext.Capture.Instrumentation, "http", "routes").(map[string]any)
+	routes, ok := value(t, ext.Capture.Instrumentation, "http", "routes").(schema.HTTPRoutes)
 	require.True(t, ok)
-	require.Contains(t, routes, "discovery")
+	require.Equal(t, schema.Duration(10*time.Second), routes.Discovery.Timeout)
 	for _, key := range []string{
 		"unmatched",
 		"patterns",
@@ -153,7 +155,7 @@ func TestRuntimeToV2NilRoutesOnlyExportsDiscovery(t *testing.T) {
 		"wildcard_char",
 		"max_path_segment_cardinality",
 	} {
-		require.NotContains(t, routes, key)
+		require.Nil(t, value(t, routes, key))
 	}
 }
 
@@ -325,34 +327,34 @@ func TestRuntimeToV2CustomConfig(t *testing.T) {
 	require.Equal(t, "host-id-1", value(t, doc.Resource, "attributes", "host.id"))
 	require.Equal(t, 908, value(t, doc.TracerProvider, "processors", "0", "batch", "max_queue_size"))
 	require.Equal(t, 907, value(t, doc.TracerProvider, "processors", "0", "batch", "max_export_batch_size"))
-	require.Equal(t, int64(909), value(t, doc.TracerProvider, "processors", "0", "batch", "schedule_delay"))
+	require.Equal(t, schema.Milliseconds(909*time.Millisecond), value(t, doc.TracerProvider, "processors", "0", "batch", "schedule_delay"))
 	require.Equal(t, "http://traces.example:4317", value(t, doc.TracerProvider, "processors", "0", "batch", "exporter", "otlp_grpc", "endpoint"))
-	require.Equal(t, "910ms", value(t, doc.TracerProvider, "processors", "0", "batch", "exporter", "otlp_grpc", "retry", "initial_interval"))
-	require.Equal(t, "15m12s", value(t, doc.TracerProvider, "processors", "0", "batch", "exporter", "otlp_grpc", "retry", "max_elapsed_time"))
+	require.Equal(t, schema.Duration(910*time.Millisecond), value(t, doc.TracerProvider, "processors", "0", "batch", "exporter", "otlp_grpc", "retry", "initial_interval"))
+	require.Equal(t, schema.Duration(912*time.Second), value(t, doc.TracerProvider, "processors", "0", "batch", "exporter", "otlp_grpc", "retry", "max_elapsed_time"))
 	require.Equal(t, true, value(t, doc.TracerProvider, "processors", "0", "batch", "exporter", "otlp_grpc", "tls", "insecure"))
 	require.Equal(t, true, value(t, doc.TracerProvider, "processors", "0", "batch", "exporter", "otlp_grpc", "tls", "insecure_skip_verify"))
 	require.Equal(t, services.SamplerTraceIDRatio, value(t, doc.TracerProvider, "sampler", "name"))
 	require.Equal(t, "0.25", value(t, doc.TracerProvider, "sampler", "arg"))
-	require.Equal(t, int64(914), value(t, doc.MeterProvider, "readers", "0", "periodic", "interval"))
+	require.Equal(t, schema.Milliseconds(914*time.Millisecond), value(t, doc.MeterProvider, "readers", "0", "periodic", "interval"))
 	require.Equal(t, "https://metrics.example:4317", value(t, doc.MeterProvider, "readers", "0", "periodic", "exporter", "otlp_grpc", "endpoint"))
 	require.Equal(t, false, value(t, doc.MeterProvider, "readers", "0", "periodic", "exporter", "otlp_grpc", "tls", "insecure"))
 	require.Equal(t, true, value(t, doc.MeterProvider, "readers", "0", "periodic", "exporter", "otlp_grpc", "tls", "insecure_skip_verify"))
 	require.Equal(t, 917, value(t, doc.MeterProvider, "readers", "1", "pull", "exporter", "prometheus/development", "port"))
 
 	require.Equal(t, 77, value(t, ext.Capture.Channels, "buffer_len"))
-	require.Equal(t, "2s", value(t, ext.Capture.Channels, "send_timeout"))
+	require.Equal(t, schema.Duration(2*time.Second), value(t, ext.Capture.Channels, "send_timeout"))
 	require.Equal(t, true, value(t, ext.Capture.Channels, "panic_on_send_timeout"))
 	require.Equal(t, true, value(t, ext.Capture.Safety, "enforce_system_capabilities"))
 	require.Equal(t, 400, value(t, ext.Capture.Limits, "metric_span_names"))
 
-	require.Equal(t, "5s", value(t, ext.Capture.Policy, "poll_interval"))
-	require.Equal(t, "6s", value(t, ext.Capture.Policy, "min_process_age"))
+	require.Equal(t, schema.Duration(5*time.Second), value(t, ext.Capture.Policy, "poll_interval"))
+	require.Equal(t, schema.Duration(6*time.Second), value(t, ext.Capture.Policy, "min_process_age"))
 	require.Equal(t, true, value(t, ext.Capture.Engine, "pid_filter", "disabled"))
 	require.Equal(t, 8, value(t, ext.Capture.Engine, "batching", "wakeup_len"))
 	require.Equal(t, 9, value(t, ext.Capture.Engine, "batching", "batch_length"))
-	require.Equal(t, "10s", value(t, ext.Capture.Engine, "batching", "batch_timeout"))
-	require.Equal(t, "all", value(t, ext.Capture.Engine, "propagation", "context_propagation"))
-	require.Equal(t, "tcx", value(t, ext.Capture.Engine, "traffic", "control_backend"))
+	require.Equal(t, schema.Duration(10*time.Second), value(t, ext.Capture.Engine, "batching", "batch_timeout"))
+	require.Equal(t, config.ContextPropagationAll, value(t, ext.Capture.Engine, "propagation", "context_propagation"))
+	require.Equal(t, config.TCBackendTCX, value(t, ext.Capture.Engine, "traffic", "control_backend"))
 	require.Equal(t, true, value(t, ext.Capture.Engine, "traffic", "high_request_volume"))
 	require.Equal(t, "/tmp/bpf", value(t, ext.Capture.Engine, "bpf_filesystem", "path"))
 
@@ -372,67 +374,67 @@ func TestRuntimeToV2CustomConfig(t *testing.T) {
 	require.Equal(t, 202, value(t, ext.Capture.Instrumentation, "sql", "mssql", "prepared_statements_cache_size"))
 	require.Equal(t, true, value(t, ext.Capture.Instrumentation, "redis", "db_cache", "enabled"))
 	require.Equal(t, 204, value(t, ext.Capture.Instrumentation, "kafka", "topic_uuid_cache_size"))
-	require.Equal(t, "on", value(t, ext.Capture.Instrumentation, "gpu", "enabled_mode"))
+	require.Equal(t, config.CudaModeOn, value(t, ext.Capture.Instrumentation, "gpu", "enabled_mode"))
 
 	require.Equal(t, false, value(t, ext.Capture.Runtimes, "go", "enabled"))
 	require.Equal(t, false, value(t, ext.Capture.Runtimes, "nodejs", "enabled"))
 	require.Equal(t, false, value(t, ext.Capture.Runtimes, "java", "enabled"))
 	require.Equal(t, true, value(t, ext.Capture.Runtimes, "java", "debug", "bytecode_instrumentation"))
-	require.Equal(t, "7s", value(t, ext.Capture.Runtimes, "java", "attach_timeout"))
+	require.Equal(t, schema.Duration(7*time.Second), value(t, ext.Capture.Runtimes, "java", "attach_timeout"))
 	require.Equal(t, 913, value(t, ext.Capture.Telemetry, "traces", "reporters_cache_len"))
 	require.Equal(t, 915, value(t, ext.Capture.Telemetry, "metrics", "reporters_cache_len"))
-	require.Equal(t, "15m16s", value(t, ext.Capture.Telemetry, "metrics", "ttl"))
+	require.Equal(t, schema.Duration(916*time.Second), value(t, ext.Capture.Telemetry, "metrics", "ttl"))
 
 	require.Equal(t, true, value(t, ext.Capture.Network, "capture", "enabled"))
-	require.Equal(t, obi.EbpfSourceTC, value(t, ext.Capture.Network, "capture", "source"))
+	require.Equal(t, schema.NetworkSourceTC, value(t, ext.Capture.Network, "capture", "source"))
 	require.Equal(t, uint32(105), value(t, ext.Capture.Network, "capture", "buffer_size"))
 	require.Equal(t, "192.0.2.1", value(t, ext.Capture.Network, "capture", "endpoint_identity", "agent_ip"))
-	require.Equal(t, obi.AgentTypeIface(obi.NetworkAgentIPIfaceLocal), value(t, ext.Capture.Network, "capture", "endpoint_identity", "agent_ip_interface"))
+	require.Equal(t, schema.AgentIPInterfaceLocal, value(t, ext.Capture.Network, "capture", "endpoint_identity", "agent_ip_interface"))
 	require.Equal(t, []string{"eth0"}, value(t, ext.Capture.Network, "capture", "selection", "interfaces", "include"))
 	require.Equal(t, []string{"udp"}, value(t, ext.Capture.Network, "capture", "selection", "protocols", "exclude"))
-	require.Equal(t, "egress", value(t, ext.Capture.Network, "capture", "selection", "direction"))
+	require.Equal(t, schema.NetworkDirectionEgress, value(t, ext.Capture.Network, "capture", "selection", "direction"))
 	require.Equal(t, 300, value(t, ext.Capture.Network, "capture", "flow_lifecycle", "max_tracked_flows"))
-	require.Equal(t, "none", value(t, ext.Capture.Network, "capture", "flow_lifecycle", "deduplication", "strategy"))
-	require.Equal(t, "15s", value(t, ext.Capture.Network, "capture", "flow_lifecycle", "deduplication", "first_come_ttl"))
+	require.Equal(t, schema.DeduplicationStrategyNone, value(t, ext.Capture.Network, "capture", "flow_lifecycle", "deduplication", "strategy"))
+	require.Equal(t, schema.Duration(15*time.Second), value(t, ext.Capture.Network, "capture", "flow_lifecycle", "deduplication", "first_come_ttl"))
 	require.Equal(t, true, value(t, ext.Capture.Network, "capture", "diagnostics", "print_flows"))
 
 	require.Equal(t, kubeflags.EnabledTrue, value(t, ext.Enrich, "enrichers", "kubernetes", "mode"))
 	require.Equal(t, "cluster-a", value(t, ext.Enrich, "enrichers", "kubernetes", "cluster_name"))
 	require.Equal(t, "/etc/kube/config", value(t, ext.Enrich, "enrichers", "kubernetes", "auth", "kubeconfig_path"))
-	require.Equal(t, "42s", value(t, ext.Enrich, "enrichers", "kubernetes", "informers", "initial_sync_timeout"))
-	require.Equal(t, "43s", value(t, ext.Enrich, "enrichers", "kubernetes", "informers", "reconnect_initial_interval"))
-	require.Equal(t, "44s", value(t, ext.Enrich, "enrichers", "kubernetes", "informers", "resync_period"))
+	require.Equal(t, schema.Duration(42*time.Second), value(t, ext.Enrich, "enrichers", "kubernetes", "informers", "initial_sync_timeout"))
+	require.Equal(t, schema.Duration(43*time.Second), value(t, ext.Enrich, "enrichers", "kubernetes", "informers", "reconnect_initial_interval"))
+	require.Equal(t, schema.Duration(44*time.Second), value(t, ext.Enrich, "enrichers", "kubernetes", "informers", "resync_period"))
 	require.Equal(t, []string{"node", "service"}, value(t, ext.Enrich, "enrichers", "kubernetes", "informers", "disabled"))
 	require.Equal(t, true, value(t, ext.Enrich, "enrichers", "kubernetes", "drop_external"))
-	require.Equal(t, cfg.Attributes.Kubernetes.ResourceLabels, value(t, ext.Enrich, "enrichers", "kubernetes", "resource_labels"))
+	require.Equal(t, schema.ResourceLabels(cfg.Attributes.Kubernetes.ResourceLabels), value(t, ext.Enrich, "enrichers", "kubernetes", "resource_labels"))
 	require.Equal(t, "kube-cache:8999", value(t, ext.Enrich, "enrichers", "kubernetes", "metadata_cache", "address"))
 	require.Equal(t, true, value(t, ext.Enrich, "enrichers", "kubernetes", "metadata_cache", "restrict_local_node"))
 	require.Equal(t, "app.kubernetes.io/name", value(t, ext.Enrich, "enrichers", "kubernetes", "metadata_cache", "source_labels", "service_name"))
 	require.Equal(t, "{{ .Meta.Name }}", value(t, ext.Enrich, "enrichers", "kubernetes", "service_name_template"))
 	require.Equal(t, []transform.Source{transform.SourceDNS, transform.SourceK8s}, value(t, ext.Enrich, "service_name", "sources"))
 	require.Equal(t, 901, value(t, ext.Enrich, "service_name", "cache", "size"))
-	require.Equal(t, "15m2s", value(t, ext.Enrich, "service_name", "cache", "ttl"))
+	require.Equal(t, schema.Duration(902*time.Second), value(t, ext.Enrich, "service_name", "cache", "ttl"))
 	require.Equal(t, "unknown-out", value(t, ext.Enrich, "service_name", "unresolved_hosts", "names", "outgoing"))
 	require.Equal(t, cfg.Attributes.Select, value(t, ext.Enrich, "attributes", "select"))
-	require.Equal(t, cfg.Attributes.ExtraGroupAttributes, value(t, ext.Enrich, "attributes", "extra_group_attributes"))
-	require.Equal(t, "45s", value(t, ext.Enrich, "attributes", "metadata_retry", "timeout"))
-	require.Equal(t, "46ms", value(t, ext.Enrich, "attributes", "metadata_retry", "start_interval"))
-	require.Equal(t, "47s", value(t, ext.Enrich, "attributes", "metadata_retry", "max_interval"))
+	require.Equal(t, schema.ExtraGroupAttributes(cfg.Attributes.ExtraGroupAttributes), value(t, ext.Enrich, "attributes", "extra_group_attributes"))
+	require.Equal(t, schema.Duration(45*time.Second), value(t, ext.Enrich, "attributes", "metadata_retry", "timeout"))
+	require.Equal(t, schema.Duration(46*time.Millisecond), value(t, ext.Enrich, "attributes", "metadata_retry", "start_interval"))
+	require.Equal(t, schema.Duration(47*time.Second), value(t, ext.Enrich, "attributes", "metadata_retry", "max_interval"))
 
 	require.Equal(t, true, value(t, ext.Correlation, "log_trace_annotation", "enabled"))
-	require.Equal(t, "15m3s", value(t, ext.Correlation, "log_trace_annotation", "cache", "ttl"))
+	require.Equal(t, schema.Duration(903*time.Second), value(t, ext.Correlation, "log_trace_annotation", "cache", "ttl"))
 	require.Equal(t, 904, value(t, ext.Correlation, "log_trace_annotation", "cache", "size"))
 	require.Equal(t, 905, value(t, ext.Correlation, "log_trace_annotation", "async_writer", "workers"))
 	require.Equal(t, 906, value(t, ext.Correlation, "log_trace_annotation", "async_writer", "channel_len"))
 
-	require.Equal(t, obi.LogLevelDebug, value(t, ext.Daemon, "logging", "level"))
-	require.Equal(t, obi.LogConfigOptionJSON, value(t, ext.Daemon, "logging", "format"))
+	require.Equal(t, schema.LogLevelDebug, value(t, ext.Daemon, "logging", "level"))
+	require.Equal(t, schema.LogFormatJSON, value(t, ext.Daemon, "logging", "format"))
 	require.Equal(t, debug.TracePrinterJSON, value(t, ext.Daemon, "logging", "debug_trace_output"))
 	require.Equal(t, 6060, value(t, ext.Daemon, "profiling", "port"))
-	require.Equal(t, "3s", value(t, ext.Daemon, "shutdown", "timeout"))
+	require.Equal(t, schema.Duration(3*time.Second), value(t, ext.Daemon, "shutdown", "timeout"))
 	require.Equal(t, imetrics.InternalMetricsExporterPrometheus, value(t, ext.Daemon, "internal_metrics", "exporter"))
 	require.Equal(t, 9090, value(t, ext.Daemon, "internal_metrics", "prometheus", "port"))
-	require.Equal(t, "4s", value(t, ext.Daemon, "internal_metrics", "bpf", "scrape_interval"))
+	require.Equal(t, schema.Duration(4*time.Second), value(t, ext.Daemon, "internal_metrics", "bpf", "scrape_interval"))
 	require.Equal(t, true, value(t, ext.Daemon, "telemetry", "metrics", "prometheus", "allow_service_graph_self_references"))
 	require.Equal(t, 918, value(t, ext.Daemon, "telemetry", "metrics", "prometheus", "span_metrics_service_cache_size"))
 	require.Equal(t, []string{"cloud.region"}, value(t, ext.Daemon, "telemetry", "metrics", "prometheus", "extra_resource_attributes"))
@@ -575,39 +577,39 @@ func TestRuntimeToV2AdvancedCaptureParity(t *testing.T) {
 	require.Equal(t, cfg.Routes.IgnoredEvents, value(t, ext.Capture.Instrumentation, "http", "routes", "ignore_mode"))
 	require.Equal(t, "#", value(t, ext.Capture.Instrumentation, "http", "routes", "wildcard_char"))
 	require.Equal(t, 22, value(t, ext.Capture.Instrumentation, "http", "routes", "max_path_segment_cardinality"))
-	require.Equal(t, "23s", value(t, ext.Capture.Instrumentation, "http", "routes", "discovery", "timeout"))
+	require.Equal(t, schema.Duration(23*time.Second), value(t, ext.Capture.Instrumentation, "http", "routes", "discovery", "timeout"))
 	require.Equal(t, []services.RouteHarvesterLanguage{services.RouteHarvesterLanguageJava}, value(t, ext.Capture.Instrumentation, "http", "routes", "discovery", "disabled_languages"))
-	require.Equal(t, "24s", value(t, ext.Capture.Instrumentation, "http", "routes", "discovery", "java", "delay"))
+	require.Equal(t, schema.Duration(24*time.Second), value(t, ext.Capture.Instrumentation, "http", "routes", "discovery", "java", "delay"))
 
-	require.Equal(t, map[string]any{"equals": 500}, value(t, ext.Capture.Instrumentation, "http", "filters", "traces", "http.status_code"))
-	require.Equal(t, map[string]any{"match": "checkout-*"}, value(t, ext.Capture.Instrumentation, "kafka", "filters", "metrics", "service.name"))
-	require.Equal(t, map[string]any{"not_match": "10.*"}, value(t, ext.Capture.Network, "capture", "filters", "traces", "src.address"))
-	require.Equal(t, map[string]any{"greater_than": 1024}, value(t, ext.Capture.Network, "stats", "filters", "metrics", "srtt"))
+	require.Equal(t, schema.AttributeFilter{Equals: intPtr(500)}, value(t, ext.Capture.Instrumentation, "http", "filters", "traces", "http.status_code"))
+	require.Equal(t, schema.AttributeFilter{Match: "checkout-*"}, value(t, ext.Capture.Instrumentation, "kafka", "filters", "metrics", "service.name"))
+	require.Equal(t, schema.AttributeFilter{NotMatch: "10.*"}, value(t, ext.Capture.Network, "capture", "filters", "traces", "src.address"))
+	require.Equal(t, schema.AttributeFilter{GreaterThan: intPtr(1024)}, value(t, ext.Capture.Network, "stats", "filters", "metrics", "srtt"))
 
 	require.ElementsMatch(t, []string{
 		"graphql", "elasticsearch", "aws", "sqlpp", "openai", "anthropic", "gemini",
 		"qwen", "bedrock", "mcp", "embedding", "rerank", "retrieval", "jsonrpc", "enrichment",
 	}, value(t, ext.Capture.Instrumentation, "http", "payload_extraction", "enabled"))
 	require.Equal(t, []string{"/query", "/analytics"}, value(t, ext.Capture.Instrumentation, "http", "payload_extraction", "sqlpp", "endpoint_patterns"))
-	require.Equal(t, "include", value(t, ext.Capture.Instrumentation, "http", "payload_extraction", "enrichment", "policy", "default_action", "headers"))
-	require.Equal(t, "obfuscate", value(t, ext.Capture.Instrumentation, "http", "payload_extraction", "enrichment", "policy", "default_action", "body"))
+	require.Equal(t, config.HTTPParsingActionInclude, value(t, ext.Capture.Instrumentation, "http", "payload_extraction", "enrichment", "policy", "default_action", "headers"))
+	require.Equal(t, config.HTTPParsingActionObfuscate, value(t, ext.Capture.Instrumentation, "http", "payload_extraction", "enrichment", "policy", "default_action", "body"))
 	require.Equal(t, "[redacted]", value(t, ext.Capture.Instrumentation, "http", "payload_extraction", "enrichment", "policy", "obfuscation_string"))
 	require.Equal(t, cfg.EBPF.PayloadExtraction.HTTP.Enrichment.Rules, value(t, ext.Capture.Instrumentation, "http", "payload_extraction", "enrichment", "rules"))
 
-	require.Equal(t, cfg.NetworkFlows.CIDRs, value(t, ext.Capture.Network, "capture", "selection", "cidrs"))
+	require.Equal(t, schema.CIDRDefinitions{{CIDR: "10.0.0.0/8", Name: "private"}}, value(t, ext.Capture.Network, "capture", "selection", "cidrs"))
 	require.Equal(t, cfg.NetworkFlows.GuessPorts, value(t, ext.Capture.Network, "capture", "flow_lifecycle", "guess_ports"))
 	require.Equal(t, "/var/lib/ipinfo.mmdb", value(t, ext.Capture.Network, "capture", "enrichment", "geo_ip", "ipinfo", "path"))
 	require.Equal(t, "/var/lib/country.mmdb", value(t, ext.Capture.Network, "capture", "enrichment", "geo_ip", "maxmind", "country_path"))
 	require.Equal(t, "/var/lib/asn.mmdb", value(t, ext.Capture.Network, "capture", "enrichment", "geo_ip", "maxmind", "asn_path"))
 	require.Equal(t, 77, value(t, ext.Capture.Network, "capture", "enrichment", "geo_ip", "cache", "size"))
-	require.Equal(t, (78 * time.Second).String(), value(t, ext.Capture.Network, "capture", "enrichment", "geo_ip", "cache", "ttl"))
-	require.Equal(t, "local", value(t, ext.Capture.Network, "capture", "enrichment", "reverse_dns", "mode"))
+	require.Equal(t, schema.Duration(78*time.Second), value(t, ext.Capture.Network, "capture", "enrichment", "geo_ip", "cache", "ttl"))
+	require.Equal(t, schema.ReverseDNSModeLocal, value(t, ext.Capture.Network, "capture", "enrichment", "reverse_dns", "mode"))
 	require.Equal(t, 79, value(t, ext.Capture.Network, "capture", "enrichment", "reverse_dns", "cache", "size"))
 
 	require.Equal(t, "198.51.100.1", value(t, ext.Capture.Network, "stats", "endpoint_identity", "agent_ip"))
-	require.Equal(t, cfg.Stats.CIDRs, value(t, ext.Capture.Network, "stats", "selection", "cidrs"))
+	require.Equal(t, schema.CIDRDefinitions{{CIDR: "192.0.2.0/24", Name: "docs"}}, value(t, ext.Capture.Network, "stats", "selection", "cidrs"))
 	require.Equal(t, "/var/lib/stats-ipinfo.mmdb", value(t, ext.Capture.Network, "stats", "enrichment", "geo_ip", "ipinfo", "path"))
-	require.Equal(t, "ebpf", value(t, ext.Capture.Network, "stats", "enrichment", "reverse_dns", "mode"))
+	require.Equal(t, schema.ReverseDNSModeEBPF, value(t, ext.Capture.Network, "stats", "enrichment", "reverse_dns", "mode"))
 	require.Equal(t, true, value(t, ext.Capture.Network, "stats", "diagnostics", "print_stats"))
 
 	require.Len(t, ext.Capture.Rules, 4)
@@ -624,7 +626,8 @@ func TestRuntimeToV2AdvancedCaptureParity(t *testing.T) {
 	require.Equal(t, []string{"checkout-*"}, value(t, ext.Capture.Rules[3].Match, "kubernetes", "metadata_glob", services.AttrDeploymentName))
 	require.Equal(t, []string{"checkout"}, value(t, ext.Capture.Rules[3].Match, "kubernetes", "pod_labels", "app"))
 	require.Equal(t, []string{"payments"}, value(t, ext.Capture.Rules[3].Match, "kubernetes", "pod_annotations", "team"))
-	require.Equal(t, map[string]any{"traces": false, "metrics": true}, ext.Capture.Rules[3].Refine.Exports)
+	require.NotNil(t, ext.Capture.Rules[3].Refine.Exports)
+	require.Equal(t, schema.ExportModeRefinement{Traces: false, Metrics: true}, *ext.Capture.Rules[3].Refine.Exports)
 	require.Nil(t, ext.Capture.Rules[3].Refine.HTTP)
 }
 
@@ -819,14 +822,13 @@ func TestRuntimeToV2DocumentParsesAsStandaloneV2(t *testing.T) {
 
 	parsedDoc, parsedExt, err := schema.ParseStandaloneYAML(data)
 	require.NoError(t, err)
-	require.NotNil(t, parsedDoc.TracerProvider)
-	require.NotNil(t, parsedDoc.MeterProvider)
+	require.NotEmpty(t, parsedDoc.TracerProvider.Processors)
+	require.NotEmpty(t, parsedDoc.MeterProvider.Readers)
 	require.NotNil(t, parsedExt.Capture.Rules)
-	require.NotNil(t, parsedExt.Capture.Telemetry)
 	require.Equal(t, "1.0", parsedDoc.FileFormat)
 	require.Equal(t, schema.SupportedVersion, parsedExt.Version)
-	require.Equal(t, "include", parsedExt.Capture.Policy["default_action"])
-	require.Equal(t, "auto", value(t, parsedExt.Capture.Engine, "traffic", "control_backend"))
+	require.Equal(t, "include", parsedExt.Capture.Policy.DefaultAction)
+	require.Equal(t, config.TCBackendAuto, value(t, parsedExt.Capture.Engine, "traffic", "control_backend"))
 }
 
 func value(t *testing.T, root any, path ...string) any {
@@ -834,21 +836,72 @@ func value(t *testing.T, root any, path ...string) any {
 
 	cur := root
 	for _, key := range path {
-		if items, ok := cur.([]any); ok {
+		value := reflect.ValueOf(cur)
+		for value.Kind() == reflect.Pointer || value.Kind() == reflect.Interface {
+			require.Falsef(t, value.IsNil(), "nil value at %q in %v", key, path)
+			value = value.Elem()
+		}
+
+		if value.Kind() == reflect.Slice || value.Kind() == reflect.Array {
 			idx, err := strconv.Atoi(key)
 			require.NoErrorf(t, err, "expected slice index at %q in %v", key, path)
 			require.GreaterOrEqualf(t, idx, 0, "slice index %q out of range in %v", key, path)
-			require.Lessf(t, idx, len(items), "slice index %q out of range in %v", key, path)
-			cur = items[idx]
+			require.Lessf(t, idx, value.Len(), "slice index %q out of range in %v", key, path)
+			cur = value.Index(idx).Interface()
 			continue
 		}
 
-		m, ok := cur.(map[string]any)
-		require.Truef(t, ok, "expected map at %q in %v", key, path)
-		cur, ok = m[key]
-		require.Truef(t, ok, "missing key %q in %v", key, path)
+		if value.Kind() == reflect.Map {
+			mapKey := reflect.ValueOf(key)
+			require.Truef(t, mapKey.Type().AssignableTo(value.Type().Key()), "expected string-keyed map at %q in %v", key, path)
+			item := value.MapIndex(mapKey)
+			require.Truef(t, item.IsValid(), "missing key %q in %v", key, path)
+			cur = item.Interface()
+			continue
+		}
+
+		require.Equalf(t, reflect.Struct, value.Kind(), "expected struct at %q in %v", key, path)
+		field, ok := fieldByYAMLName(value, key)
+		require.Truef(t, ok, "missing field %q in %v", key, path)
+		cur = field.Interface()
 	}
-	return cur
+	return plainValue(cur)
+}
+
+func plainValue(cur any) any {
+	value := reflect.ValueOf(cur)
+	for value.IsValid() && (value.Kind() == reflect.Pointer || value.Kind() == reflect.Interface) {
+		if value.IsNil() {
+			return nil
+		}
+		value = value.Elem()
+	}
+	if !value.IsValid() {
+		return nil
+	}
+	return value.Interface()
+}
+
+func fieldByYAMLName(value reflect.Value, name string) (reflect.Value, bool) {
+	valueType := value.Type()
+	for i := range value.NumField() {
+		field := valueType.Field(i)
+		if field.PkgPath != "" {
+			continue
+		}
+		if yamlName(field) == name {
+			return value.Field(i), true
+		}
+	}
+	return reflect.Value{}, false
+}
+
+func yamlName(field reflect.StructField) string {
+	name, _, _ := strings.Cut(field.Tag.Get("yaml"), ",")
+	if name == "" {
+		return field.Name
+	}
+	return name
 }
 
 func globPtr(pattern string) *services.GlobAttr {
@@ -883,10 +936,28 @@ func defaultRuntimeConfig() obi.Config {
 	return cfg
 }
 
-func keys(m map[string]any) []string {
-	out := make([]string, 0, len(m))
-	for key := range m {
-		out = append(out, key)
+func keys(root any) []string {
+	value := reflect.ValueOf(root)
+	for value.Kind() == reflect.Pointer || value.Kind() == reflect.Interface {
+		value = value.Elem()
+	}
+
+	if value.Kind() == reflect.Map {
+		out := make([]string, 0, value.Len())
+		iter := value.MapRange()
+		for iter.Next() {
+			out = append(out, iter.Key().String())
+		}
+		return out
+	}
+
+	out := make([]string, 0, value.NumField())
+	valueType := value.Type()
+	for i := range value.NumField() {
+		field := valueType.Field(i)
+		if field.PkgPath == "" {
+			out = append(out, yamlName(field))
+		}
 	}
 	return out
 }

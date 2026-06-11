@@ -12,9 +12,11 @@
 //     the top level, parsed by ParseReceiverYAML
 //
 // This package validates only the version, shape, and deployment-specific
-// section boundaries needed to route the configuration. It intentionally leaves
-// nested OBI sections as map values so migration and validation layers can
-// preserve and inspect the original keys.
+// section boundaries needed to route the configuration. Exporter-owned OBI
+// sections are modeled as structs; genuinely arbitrary dictionaries, such as
+// OpenTelemetry declarative maps, resource attributes, and selector metadata,
+// remain maps so migration and validation layers can preserve their original
+// keys.
 package schema // import "go.opentelemetry.io/obi/internal/config/schema"
 
 import (
@@ -38,14 +40,15 @@ const (
 // that contains extensions.obi.
 //
 // OBI-specific settings are available through Extensions.OBI. Declarative
-// configuration sections that can influence later conversion are retained as maps
-// because this package only needs to locate and validate the OBI extension.
+// configuration sections that are currently exported by the v1-to-v2 converter
+// are modeled as structs. Pure OpenTelemetry declarative sections stay as maps
+// where arbitrary keys must be preserved.
 type Document struct {
 	FileFormat     string         `yaml:"file_format"`
-	Resource       map[string]any `yaml:"resource"`
+	Resource       Resource       `yaml:"resource"`
 	Propagator     map[string]any `yaml:"propagator"`
-	TracerProvider map[string]any `yaml:"tracer_provider"`
-	MeterProvider  map[string]any `yaml:"meter_provider"`
+	TracerProvider TracerProvider `yaml:"tracer_provider"`
+	MeterProvider  MeterProvider  `yaml:"meter_provider"`
 	Extensions     Extensions     `yaml:"extensions"`
 }
 
@@ -62,44 +65,11 @@ type Extensions struct {
 // configuration. ParseReceiverYAML synthesizes this shape from top-level receiver
 // capture sections.
 type Extension struct {
-	Version     string         `yaml:"version"`
-	Capture     Capture        `yaml:"capture"`
-	Enrich      map[string]any `yaml:"enrich,omitempty"`
-	Correlation map[string]any `yaml:"correlation,omitempty"`
-	Daemon      map[string]any `yaml:"daemon,omitempty"`
-}
-
-// Capture contains receiver-embeddable OBI capture settings.
-//
-// Known capture sections remain map values so callers can preserve unknown fields
-// inside those sections and apply schema-specific validation or migration
-// elsewhere.
-type Capture struct {
-	Policy          map[string]any `yaml:"policy"`
-	Rules           []Rule         `yaml:"rules"`
-	Instrumentation map[string]any `yaml:"instrumentation"`
-	Runtimes        map[string]any `yaml:"runtimes"`
-	Network         map[string]any `yaml:"network"`
-	Limits          map[string]any `yaml:"limits"`
-	Engine          map[string]any `yaml:"engine"`
-	Safety          map[string]any `yaml:"safety"`
-	Channels        map[string]any `yaml:"channels"`
-	Telemetry       map[string]any `yaml:"telemetry"`
-}
-
-// Rule describes one capture policy rule.
-type Rule struct {
-	Action      string         `yaml:"action"`
-	Name        string         `yaml:"name"`
-	Description string         `yaml:"description"`
-	Match       map[string]any `yaml:"match"`
-	Refine      RuleRefinement `yaml:"refine,omitempty"`
-}
-
-// RuleRefinement holds per-rule overrides that apply after a rule matches.
-type RuleRefinement struct {
-	Exports map[string]any `yaml:"exports,omitempty"`
-	HTTP    map[string]any `yaml:"http,omitempty"`
+	Version     string       `yaml:"version"`
+	Capture     Capture      `yaml:"capture"`
+	Enrich      *Enrich      `yaml:"enrich,omitempty"`
+	Correlation *Correlation `yaml:"correlation,omitempty"`
+	Daemon      *Daemon      `yaml:"daemon,omitempty"`
 }
 
 // receiverConfig mirrors the receiver-embedded layout, where capture sections
