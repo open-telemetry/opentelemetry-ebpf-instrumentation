@@ -29,8 +29,6 @@ linters:
       - ^configs
       # this is temporarily imported code that does not rely on us
       - ^pkg/export/otel/metric
-      # copied jvmtools fork; keep upstream code changes scoped to follow-up PRs
-      - ^pkg/internal/jvmtools
     presets:
       - std-error-handling
     # Log a warning if an exclusion rule is unused.
