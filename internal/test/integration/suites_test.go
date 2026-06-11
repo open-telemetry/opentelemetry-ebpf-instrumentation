@@ -43,7 +43,10 @@ func TestSuite_Go(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			compose, err := docker.ComposeSuite("docker-compose.yml", path.Join(pathOutput, "test-suite-"+tc.name+".log"))
 			require.NoError(t, err)
-			compose.Env = append(compose.Env, `OTEL_EBPF_EXECUTABLE_PATH=(pingclient|testserver)`)
+			compose.Env = append(compose.Env,
+				`OTEL_EBPF_EXECUTABLE_PATH=(pingclient|testserver)`,
+				`OTEL_EBPF_BPF_CONTEXT_PROPAGATION=headers`,
+			)
 			compose.Env = append(compose.Env, tc.env...)
 			require.NoError(t, compose.Up())
 
@@ -89,6 +92,7 @@ func TestSuiteNestedTraces(t *testing.T) {
 	if !lockdown {
 		compose.Env = append(compose.Env, `SECURITY_CONFIG_SUFFIX=_none`)
 	}
+	compose.Env = append(compose.Env, `OTEL_EBPF_BPF_CONTEXT_PROPAGATION=headers`)
 	require.NoError(t, compose.Up())
 	if !lockdown {
 		t.Run("HTTP traces (all spans nested)", testHTTPTracesNestedClientWithContextPropagation)
@@ -133,7 +137,10 @@ func TestSuite_NoDebugInfo(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose.yml", path.Join(pathOutput, "test-suite-nodebug.log"))
 	require.NoError(t, err)
 
-	compose.Env = append(compose.Env, `TESTSERVER_DOCKERFILE_SUFFIX=_nodebug`)
+	compose.Env = append(compose.Env,
+		`TESTSERVER_DOCKERFILE_SUFFIX=_nodebug`,
+		`OTEL_EBPF_BPF_CONTEXT_PROPAGATION=headers`,
+	)
 	require.NoError(t, compose.Up())
 
 	config := ti.DefaultOBIConfig()
@@ -154,7 +161,10 @@ func TestSuite_StaticCompilation(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose.yml", path.Join(pathOutput, "test-suite-static.log"))
 	require.NoError(t, err)
 
-	compose.Env = append(compose.Env, `TESTSERVER_DOCKERFILE_SUFFIX=_static`)
+	compose.Env = append(compose.Env,
+		`TESTSERVER_DOCKERFILE_SUFFIX=_static`,
+		`OTEL_EBPF_BPF_CONTEXT_PROPAGATION=headers`,
+	)
 	require.NoError(t, compose.Up())
 
 	config := ti.DefaultOBIConfig()
@@ -173,7 +183,11 @@ func TestSuite_StaticCompilation(t *testing.T) {
 func TestSuite_OldestGoVersion(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-1.17.yml", path.Join(pathOutput, "test-suite-oldest-go.log"))
 	require.NoError(t, err)
-	compose.Env = append(compose.Env, `OTEL_GO_AUTO_TARGET_EXE=*testserver`, `PROM_CONFIG_SUFFIX=`)
+	compose.Env = append(compose.Env,
+		`OTEL_GO_AUTO_TARGET_EXE=*testserver`,
+		`PROM_CONFIG_SUFFIX=`,
+		`OTEL_EBPF_BPF_CONTEXT_PROPAGATION=headers`,
+	)
 	require.NoError(t, compose.Up())
 
 	config := ti.DefaultOBIConfig()
@@ -206,7 +220,10 @@ func TestSuite_GRPCExport(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose.yml", path.Join(pathOutput, "test-suite-grpc-export.log"))
 	require.NoError(t, err)
 
-	compose.Env = append(compose.Env, "INSTRUMENTER_CONFIG_SUFFIX=-grpc-export")
+	compose.Env = append(compose.Env,
+		"INSTRUMENTER_CONFIG_SUFFIX=-grpc-export",
+		`OTEL_EBPF_BPF_CONTEXT_PROPAGATION=headers`,
+	)
 	require.NoError(t, compose.Up())
 	t.Run("RED metrics", testREDMetricsHTTP)
 	t.Run("trace HTTP service and export as GRPC traces", testHTTPTraces)
@@ -804,6 +821,7 @@ func TestSuite_NodeJSDist(t *testing.T) {
 func TestSuite_DisableKeepAlives(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose.yml", path.Join(pathOutput, "test-suite-disablekeepalives.log"))
 	require.NoError(t, err)
+	compose.Env = append(compose.Env, `OTEL_EBPF_BPF_CONTEXT_PROPAGATION=headers`)
 	require.NoError(t, compose.Up())
 
 	config := ti.DefaultOBIConfig()
@@ -826,7 +844,10 @@ func TestSuite_OverrideServiceName(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose.yml", path.Join(pathOutput, "test-suite-override-svcname.log"))
 	require.NoError(t, err)
 
-	compose.Env = append(compose.Env, "INSTRUMENTER_CONFIG_SUFFIX=-override-svcname")
+	compose.Env = append(compose.Env,
+		"INSTRUMENTER_CONFIG_SUFFIX=-override-svcname",
+		`OTEL_EBPF_BPF_CONTEXT_PROPAGATION=headers`,
+	)
 	require.NoError(t, compose.Up())
 
 	// Just few simple test cases to verify that the tracers properly override the service name
