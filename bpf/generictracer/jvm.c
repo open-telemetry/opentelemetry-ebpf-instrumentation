@@ -72,14 +72,29 @@ static __always_inline void jvm_fill_mem_pool_pid_fields(u64 pid_tgid,
 }
 
 static __always_inline int
-jvm_read_usdt_string(unsigned char *dst, u32 dst_len, const unsigned char *src) {
-    __builtin_memset(dst, 0, dst_len);
-    if (!src) {
+jvm_read_usdt_string(unsigned char *dst, const unsigned char *src, long src_len) {
+    __builtin_memset(dst, 0, k_jvm_raw_string_len);
+    if (!src || src_len <= 0) {
         return -1;
     }
-    if (bpf_probe_read_user_str(dst, dst_len, src) < 0) {
-        return -1;
+
+    u32 max_len = k_jvm_raw_string_len - 1;
+    if (src_len < (long)max_len) {
+        max_len = (u32)src_len;
     }
+
+    for (u32 i = 0; i < k_jvm_raw_string_len - 1; i++) {
+        if (i >= max_len) {
+            continue;
+        }
+
+        unsigned char c = 0;
+        if (bpf_probe_read_user(&c, sizeof(c), src + i) != 0) {
+            return -1;
+        }
+        dst[i] = c;
+    }
+
     return 0;
 }
 
@@ -154,8 +169,7 @@ static __always_inline int jvm_hotspot_mem_pool_gc(struct pt_regs *ctx,
                                                    u64 used,
                                                    u64 committed,
                                                    u64 max_size) {
-    (void)manager_len;
-    (void)pool_len;
+    (void)ctx;
 
     if (!jvm_runtime_metrics_enabled) {
         return 0;
@@ -174,12 +188,12 @@ static __always_inline int jvm_hotspot_mem_pool_gc(struct pt_regs *ctx,
         .pid = pid,
         .gc_when_type = when,
     };
-    if (jvm_read_usdt_string(key.manager, sizeof(key.manager), manager) != 0) {
-        bpf_dbg_printk("jvm: failed to read HotSpot memory manager name");
+    if (jvm_read_usdt_string(key.manager, manager, manager_len) != 0) {
+        bpf_dbg_printk("jvm: failed to read HotSpot memory manager name len=%ld", manager_len);
         return 0;
     }
-    if (jvm_read_usdt_string(key.pool, sizeof(key.pool), pool) != 0) {
-        bpf_dbg_printk("jvm: failed to read HotSpot memory pool name");
+    if (jvm_read_usdt_string(key.pool, pool, pool_len) != 0) {
+        bpf_dbg_printk("jvm: failed to read HotSpot memory pool name len=%ld", pool_len);
         return 0;
     }
 

@@ -174,14 +174,14 @@ func DecodeJVMRawString(raw [JVMRawStringLen]byte) string {
 
 func InferJVMMemoryType(poolName string) JVMMemoryType {
 	name := strings.ToLower(poolName)
-	for _, heapName := range []string{"eden", "survivor", "old", "tenured", "young"} {
-		if strings.Contains(name, heapName) {
-			return JVMMemoryTypeHeap
-		}
-	}
 	for _, nonHeapName := range []string{"metaspace", "code", "compressed class"} {
 		if strings.Contains(name, nonHeapName) {
 			return JVMMemoryTypeNonHeap
+		}
+	}
+	for _, heapName := range []string{"eden", "survivor", "old", "tenured", "young", "zheap", "shenandoah", "epsilon", "humongous"} {
+		if strings.Contains(name, heapName) {
+			return JVMMemoryTypeHeap
 		}
 	}
 	return ""

@@ -171,6 +171,21 @@ func TestRawJVMStringTrimsAtNULAndHonorsFixedBound(t *testing.T) {
 	require.Len(t, DecodeJVMRawString(long), JVMRawStringLen)
 }
 
+func TestInferJVMMemoryTypeRecognizesModernHotSpotHeapPools(t *testing.T) {
+	for _, pool := range []string{
+		"ZHeap",
+		"Shenandoah",
+		"Epsilon Heap",
+		"G1 Humongous Space",
+	} {
+		require.Equal(t, JVMMemoryTypeHeap, InferJVMMemoryType(pool), pool)
+	}
+}
+
+func TestInferJVMMemoryTypeKeepsCodeHeapNonHeap(t *testing.T) {
+	require.Equal(t, JVMMemoryTypeNonHeap, InferJVMMemoryType("CodeHeap 'non-nmethods'"))
+}
+
 func TestDecodeRawJVMEventsFromBinaryPayloads(t *testing.T) {
 	poolPayload := binaryPayload(t, RawJVMMemoryPoolEvent{
 		Timestamp:  42,
