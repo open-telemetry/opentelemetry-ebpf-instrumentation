@@ -908,8 +908,10 @@
                   "items": {
                     "type": "string"
                   },
-                  "default": [],
-                  "description": "Languages excluded from route discovery.\nIf omitted, no languages are excluded.\n"
+                  "default": [
+                    "java"
+                  ],
+                  "description": "Languages excluded from route discovery.\nIf omitted, Java route discovery is excluded.\n"
                 },
                 "java": {
                   "type": "object",
