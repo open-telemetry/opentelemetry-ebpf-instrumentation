@@ -26,6 +26,24 @@ type protocolMapping struct {
 	metricWildcard bool
 }
 
+var runtimeInstrumentations = []instrumentations.Instrumentation{
+	instrumentations.InstrumentationHTTP,
+	instrumentations.InstrumentationGRPC,
+	instrumentations.InstrumentationSQL,
+	instrumentations.InstrumentationRedis,
+	instrumentations.InstrumentationKafka,
+	instrumentations.InstrumentationMQTT,
+	instrumentations.InstrumentationNATS,
+	instrumentations.InstrumentationAMQP,
+	instrumentations.InstrumentationGPU,
+	instrumentations.InstrumentationMongo,
+	instrumentations.InstrumentationDNS,
+	instrumentations.InstrumentationCouchbase,
+	instrumentations.InstrumentationGenAI,
+	instrumentations.InstrumentationMemcached,
+	instrumentations.InstrumentationSunRPC,
+}
+
 var protocolMappings = []protocolMapping{
 	{name: protocolHTTP, instr: instrumentations.InstrumentationHTTP, appMetrics: true, metricWildcard: true},
 	{name: protocolGRPC, instr: instrumentations.InstrumentationGRPC, appMetrics: true, metricWildcard: true},
