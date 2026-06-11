@@ -7,6 +7,7 @@
 #include <bpfcore/bpf_helpers.h>
 #include <common/pin_internal.h>
 
+// https://github.com/openjdk/jdk/blob/jdk-21%2B35/src/hotspot/share/gc/shared/gcWhen.hpp#L32-L37
 enum jvm_gc_when_type {
     k_jvm_before_gc = 0,
     k_jvm_after_gc = 1,
@@ -58,6 +59,8 @@ struct jvm_sample_value {
     u64 last_ts;
 };
 
+// Use https://godbolt.org/z/YcodaPhvY to understand the memory layout of `GCHeapSummary` C++ class
+// https://github.com/openjdk/jdk/blob/jdk-21%2B35/src/hotspot/share/gc/shared/gcHeapSummary.hpp#L76
 struct jvm_gc_heap_summary {
     u64 _s1;
     u64 _s2;
