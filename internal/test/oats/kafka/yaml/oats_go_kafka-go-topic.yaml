@@ -10,6 +10,7 @@ expected:
   - traceql: '{ .messaging.operation.type = "publish" && .messaging.destination.name="logging"}'
     equals: publish logging
     attributes:
+      span.kind: producer
       messaging.destination.name: logging
       messaging.operation.type: publish
       messaging.system: kafka
@@ -17,6 +18,7 @@ expected:
   - traceql: '{ .messaging.operation.type = "process" && .messaging.destination.name="logging"}'
     equals: process logging
     attributes:
+      span.kind: consumer
       messaging.destination.name: logging
       messaging.operation.type: process
       messaging.system: kafka
