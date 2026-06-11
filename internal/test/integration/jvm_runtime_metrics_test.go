@@ -6,7 +6,6 @@ package integration
 import (
 	"net/http"
 	"path"
-	"strings"
 	"testing"
 	"time"
 
@@ -14,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/internal/test/integration/components/docker"
+	"go.opentelemetry.io/obi/internal/test/integration/components/promtest"
 	ti "go.opentelemetry.io/obi/pkg/test/integration"
 )
 
@@ -29,11 +29,12 @@ func TestJVMRuntimeMetrics(t *testing.T) {
 	})
 
 	waitForJVMRuntimeService(t)
-	t.Run("HotSpot heap summary event", func(t *testing.T) {
-		testJVMRuntimeHeapSummaryEvent(t, compose)
+	pq := promtest.Client{HostPort: prometheusHostPort}
+	t.Run("HotSpot heap summary metric", func(t *testing.T) {
+		testJVMRuntimeHeapSummaryMetric(t, pq)
 	})
-	t.Run("HotSpot memory pool event", func(t *testing.T) {
-		testJVMRuntimeMemoryPoolEvent(t, compose)
+	t.Run("HotSpot memory pool metric", func(t *testing.T) {
+		testJVMRuntimeMemoryPoolMetric(t, pq)
 	})
 	runWeaverValidation(t)
 }
@@ -44,34 +45,31 @@ func waitForJVMRuntimeService(t *testing.T) {
 	}, testTimeout, time.Second)
 }
 
-func testJVMRuntimeHeapSummaryEvent(t *testing.T, compose *docker.Compose) {
+func testJVMRuntimeHeapSummaryMetric(t *testing.T, pq promtest.Client) {
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		ti.DoHTTPGet(ct, "http://localhost:"+jvmRuntimeMetricsHostPort+"/gc", http.StatusOK)
 
-		logs, err := compose.LogsOutput("obi")
+		results, err := pq.Query(`beyla_jvm_heap_used_bytes{service_name="jvm-runtime",service_namespace="integration-test",jvm_gc_phase=~"before|after"}`)
 		require.NoError(ct, err)
-		require.Contains(ct, logs, "received JVM GC heap summary event")
-		require.Contains(ct, logs, "service=jvm-runtime")
-		require.Contains(ct, logs, "namespace=integration-test")
-		require.True(ct,
-			strings.Contains(logs, "phase=before") || strings.Contains(logs, "phase=after"),
-			"expected at least one before/after GC phase in OBI logs",
-		)
+		require.NotEmpty(ct, results)
+		assertJVMRuntimeMetricService(ct, results)
 	}, testTimeout, 250*time.Millisecond)
 }
 
-func testJVMRuntimeMemoryPoolEvent(t *testing.T, compose *docker.Compose) {
+func testJVMRuntimeMemoryPoolMetric(t *testing.T, pq promtest.Client) {
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		ti.DoHTTPGet(ct, "http://localhost:"+jvmRuntimeMetricsHostPort+"/gc", http.StatusOK)
 
-		logs, err := compose.LogsOutput("obi")
+		results, err := pq.Query(`jvm_memory_committed_bytes{service_name="jvm-runtime",service_namespace="integration-test",jvm_memory_pool_name!=""}`)
 		require.NoError(ct, err)
-		require.Contains(ct, logs, "received JVM memory pool event")
-		require.Contains(ct, logs, "service=jvm-runtime")
-		require.Contains(ct, logs, "namespace=integration-test")
-		require.True(ct,
-			strings.Contains(logs, "phase=before") || strings.Contains(logs, "phase=after"),
-			"expected at least one before/after GC phase in OBI logs",
-		)
+		require.NotEmpty(ct, results)
+		assertJVMRuntimeMetricService(ct, results)
 	}, testTimeout, 250*time.Millisecond)
+}
+
+func assertJVMRuntimeMetricService(t require.TestingT, results []promtest.Result) {
+	for _, result := range results {
+		require.Equal(t, "jvm-runtime", result.Metric["service_name"])
+		require.Equal(t, "integration-test", result.Metric["service_namespace"])
+	}
 }

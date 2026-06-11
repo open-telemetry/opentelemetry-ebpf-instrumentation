@@ -29,9 +29,10 @@ const stopTimeout = "5"
 const waitTimeout = 30 * time.Second
 
 type Compose struct {
-	Path   string
-	Logger io.WriteCloser
-	Env    []string
+	Path     string
+	Logger   io.WriteCloser
+	Env      []string
+	skipWait bool
 }
 
 func defaultEnv() []string {
@@ -67,6 +68,16 @@ func (c *Compose) Up() error {
 		return c.command("up", "--detach", "--quiet-pull")
 	}
 	return c.command("up", "--build", "--detach", "--quiet-pull")
+}
+
+func (c *Compose) Run(service string) error {
+	c.skipWait = true
+	args := []string{"up"}
+	if os.Getenv("SKIP_DOCKER_BUILD") == "" {
+		args = append(args, "--build")
+	}
+	args = append(args, "--quiet-pull", "--abort-on-container-exit", "--exit-code-from", service)
+	return c.command(args...)
 }
 
 func (c *Compose) Logs() error {
@@ -174,11 +185,13 @@ func (c *Compose) Close() error {
 		errs = append(errs, fmt.Errorf("flushing logs: %w", err))
 	}
 
-	waitCtx, cancel := context.WithTimeout(context.Background(), waitTimeout)
-	if err := c.commandContext(waitCtx, "wait", "obi"); err != nil {
-		slog.Warn("waiting for obi to stop. Will force remove", "error", err)
+	if !c.skipWait {
+		waitCtx, cancel := context.WithTimeout(context.Background(), waitTimeout)
+		if err := c.commandContext(waitCtx, "wait", "obi"); err != nil {
+			slog.Warn("waiting for obi to stop. Will force remove", "error", err)
+		}
+		cancel()
 	}
-	cancel()
 
 	if err := c.Remove(); err != nil {
 		errs = append(errs, fmt.Errorf("removing container: %w", err))

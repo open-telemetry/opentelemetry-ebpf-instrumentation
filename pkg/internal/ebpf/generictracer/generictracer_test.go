@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cilium/ebpf"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -139,6 +140,31 @@ func TestParseJVMMemoryPoolRecordDecoratesServiceByPIDNamespace(t *testing.T) {
 	assert.Equal(t, jvmruntime.JVMMetricMemoryUsedAfterLastGC, events[3].Kind)
 }
 
+func TestParseJVMMemoryPoolRecordIgnoresUnknownPID(t *testing.T) {
+	tracer := &Tracer{
+		pidsFilter: fakeServiceFilter{
+			current: map[uint32]map[app.PID]svc.Attrs{
+				42: {1234: {UID: svc.UID{Name: "orders"}}},
+			},
+		},
+	}
+
+	events, ignore, err := tracer.parseJVMMemoryPoolRecord(&ringbuf.Record{
+		RawSample: rawMemoryPoolPayload(t, jvmruntime.RawJVMMemoryPoolEvent{
+			NsPID:          9999,
+			PIDNamespaceID: 42,
+			GCWhenType:     jvmruntime.RawJVMGCWhenAfter,
+			Used:           100,
+			Committed:      200,
+			Pool:           rawJVMString("G1 Eden Space"),
+		}),
+	})
+
+	require.NoError(t, err)
+	assert.True(t, ignore)
+	assert.Empty(t, events)
+}
+
 func TestParseJVMGCHeapSummaryRecordConvertsMonotonicTimestamp(t *testing.T) {
 	service := svc.Attrs{UID: svc.UID{Name: "orders"}}
 	tracer := &Tracer{
@@ -200,6 +226,13 @@ func TestShouldReadJVMRuntimeEventsRequiresEnabledConfigQueueAndMap(t *testing.T
 
 	tracer.SetJVMRuntimeEvents(msg.NewQueue[[]jvmruntime.JVMRuntimeEvent]())
 	assert.False(t, tracer.shouldReadJVMRuntimeEvents())
+
+	tracer.bpfObjects.JvmGcHeapSummaryEvents = &ebpf.Map{}
+	assert.True(t, tracer.shouldReadJVMRuntimeEvents())
+
+	tracer.bpfObjects.JvmGcHeapSummaryEvents = nil
+	tracer.bpfObjects.JvmMemPoolGcEvents = &ebpf.Map{}
+	assert.True(t, tracer.shouldReadJVMRuntimeEvents())
 }
 
 func TestJVMHeapSummaryBPFMapsAreInternallyPinned(t *testing.T) {
