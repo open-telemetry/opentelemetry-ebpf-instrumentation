@@ -3,8 +3,10 @@
 
 #pragma once
 
+#include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_helpers.h>
 #include <common/pin_internal.h>
+#include <common/usdt_types.h>
 
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
