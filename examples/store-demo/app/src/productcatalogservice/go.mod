@@ -1,6 +1,6 @@
 module github.com/GoogleCloudPlatform/microservices-demo/src/productcatalogservice
 
-go 1.25
+go 1.25.0
 
 toolchain go1.25.6
 
@@ -8,7 +8,7 @@ require (
 	cloud.google.com/go/alloydbconn v1.4.1
 	cloud.google.com/go/secretmanager v1.11.4
 	github.com/golang/protobuf v1.5.4
-	github.com/jackc/pgx/v5 v5.8.0
+	github.com/jackc/pgx/v5 v5.9.2
 	github.com/sirupsen/logrus v1.9.4
 	google.golang.org/grpc v1.61.2
 	google.golang.org/protobuf v1.36.11
