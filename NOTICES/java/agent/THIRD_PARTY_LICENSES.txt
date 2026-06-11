@@ -1,7 +1,7 @@
 
 Dependency License Report for agent 0.1.0
 
-1. Group: net.bytebuddy  Name: byte-buddy  Version: 1.18.8
+1. Group: net.bytebuddy  Name: byte-buddy  Version: 1.18.10
 
 POM License: Apache License, Version 2.0 - https://www.apache.org/licenses/LICENSE-2.0.txt
 
@@ -9,7 +9,7 @@ Embedded license:
 
                     ****************************************                    
 
-This product bundles ASM 9.9.1, which is available under a "3-clause BSD"
+This product bundles ASM 9.10.1, which is available under a "3-clause BSD"
 license. For details, see licenses/ASM. For more information visit https://asm.ow2.io.
 
 Apache License
@@ -208,7 +208,7 @@ limitations under the License.
 
 --------------------------------------------------------------------------------
 
-2. Group: net.bytebuddy  Name: byte-buddy-agent  Version: 1.18.8
+2. Group: net.bytebuddy  Name: byte-buddy-agent  Version: 1.18.10
 
 POM License: Apache License, Version 2.0 - https://www.apache.org/licenses/LICENSE-2.0.txt
 

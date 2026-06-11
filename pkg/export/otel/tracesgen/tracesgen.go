@@ -199,6 +199,9 @@ func GenerateTracesWithAttributes(
 		if statusMessage != "" {
 			s.Status().SetMessage(statusMessage)
 		}
+		if !hasSubSpans {
+			appendSpanLinks(s, span.Links)
+		}
 		s.SetEndTimestamp(pcommon.NewTimestampFromTime(t.End))
 	}
 	return traces
@@ -233,6 +236,20 @@ func createSubSpans(span *request.Span, parentSpanID pcommon.SpanID, traceID pco
 		spP.SetSpanID(pcommon.SpanID(idgen.RandomSpanID()))
 	}
 	spP.SetParentSpanID(parentSpanID)
+	appendSpanLinks(spP, span.Links)
+}
+
+func appendSpanLinks(dst ptrace.Span, links []request.SpanLink) {
+	for _, spanLink := range links {
+		if !spanLink.TraceID.IsValid() || !spanLink.SpanID.IsValid() {
+			continue
+		}
+
+		link := dst.Links().AppendEmpty()
+		link.SetTraceID(pcommon.TraceID(spanLink.TraceID))
+		link.SetSpanID(pcommon.SpanID(spanLink.SpanID))
+		link.SetFlags(uint32(spanLink.TraceFlags))
+	}
 }
 
 var emptyUID = svc.UID{}
@@ -467,7 +484,9 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 			attrs = append(attrs, semconv.HTTPRoute(span.Route))
 		}
 		if span.SubType == request.HTTPSubtypeGraphQL && span.GraphQL != nil {
-			attrs = append(attrs, semconv.GraphQLDocument(span.GraphQL.Document))
+			if _, ok := optionalAttrs[attr.GraphQLDocument]; ok {
+				attrs = append(attrs, semconv.GraphQLDocument(span.GraphQL.Document))
+			}
 			attrs = append(attrs, semconv.GraphQLOperationName(span.GraphQL.OperationName))
 			attrs = append(attrs, request.GraphqlOperationType(span.GraphQL.OperationType))
 		}

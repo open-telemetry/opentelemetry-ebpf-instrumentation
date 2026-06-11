@@ -689,22 +689,22 @@ func (g *DocGenerator) valuesString(original, resolved *Schema) string {
 		return ""
 	}
 
-	// Collect enum values from oneOf
+	// Collect enum values from oneOf (skip deprecated branches)
 	if len(s.OneOf) > 0 {
-		var allEnums []string
+		var allEnums, descs []string
 		for _, alt := range s.OneOf {
+			if alt.Deprecated {
+				continue
+			}
 			for _, e := range alt.Enum {
 				allEnums = append(allEnums, fmt.Sprintf("`%v`", e))
+			}
+			if alt.Description != "" {
+				descs = append(descs, alt.Description)
 			}
 		}
 		if len(allEnums) > 0 {
 			return strings.Join(unique(allEnums), ", ")
-		}
-		var descs []string
-		for _, alt := range s.OneOf {
-			if alt.Description != "" {
-				descs = append(descs, alt.Description)
-			}
 		}
 		if len(descs) > 0 {
 			return strings.Join(descs, "; ")
@@ -811,10 +811,24 @@ func (g *DocGenerator) defaultString(s *Schema) string {
 	}
 }
 
-// deprecatedString returns "Yes" if either schema is deprecated, empty otherwise.
+// deprecatedString returns "Yes" if the field is deprecated, "deprecated values: <v1>, <v2>" if
+// specific oneOf branches are deprecated, or empty otherwise.
 func (g *DocGenerator) deprecatedString(original, resolved *Schema) string {
 	if (original != nil && original.Deprecated) || (resolved != nil && resolved.Deprecated) {
 		return "Yes"
+	}
+	if resolved != nil {
+		var vals []string
+		for _, alt := range resolved.OneOf {
+			if alt.Deprecated {
+				for _, e := range alt.Enum {
+					vals = append(vals, fmt.Sprintf("`%v`", e))
+				}
+			}
+		}
+		if len(vals) > 0 {
+			return "deprecated values: " + strings.Join(vals, ", ")
+		}
 	}
 	return ""
 }

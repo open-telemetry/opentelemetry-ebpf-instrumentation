@@ -296,7 +296,7 @@ This was rejected because:
 Current overridable fields in `refine`:
 
 - `exports`: override which signals (`traces`, `metrics`) are emitted for this workload.
-- `http.routes`: override HTTP route patterns and fallback policy for this workload.
+- `http.routes`: define direction-scoped custom HTTP route patterns for this workload.
 - `http.filters`: replace HTTP trace/metric filters for this workload.
 
 New fields can be added to the `refine` vocabulary deliberately as use cases emerge.
@@ -326,11 +326,17 @@ capture:
       refine:
         http:
           routes:
-            unmatched: wildcard
-            patterns:
-              - /orders/{id}
-              - /orders/{id}/items
+            incoming:
+              patterns:
+                - /orders/{id}
+                - /orders/{id}/items
+            outgoing:
+              patterns:
+                - /inventory/{id}
 ```
+
+`incoming` applies to HTTP requests handled by the matched workload, equivalent to v1 `routes.incoming`.
+`outgoing` applies to HTTP requests made by the matched workload, equivalent to v1 `routes.outgoing`.
 
 Sampling overrides are **not** part of the `refine` block.
 Per-workload sampling is handled via `tracer_provider.sampler` using the `obi_rule_based` custom sampler, which matches on resource attributes.
@@ -609,7 +615,8 @@ Important mapping notes:
 | `otel_metrics_export.ttl` | `extensions.obi.capture.telemetry.metrics.ttl` | Move to capture telemetry tuning |
 | `otel_metrics_export.extra_span_resource_attributes` | `extensions.obi.daemon.telemetry.metrics.prometheus.extra_span_resource_attributes` | Move to daemon telemetry tuning |
 | `otel_traces_export.batch_timeout` | `tracer_provider.processors[0].batch.schedule_delay` | OTel ownership move + rename + duration(ms) representation |
-| `otel_traces_export.max_queue_size` | `tracer_provider.processors[0].batch.max_queue_size` | OTel ownership move + declarative processor list shape |
+| `otel_traces_export.queue_size` | `tracer_provider.processors[0].batch.max_queue_size` | OTel ownership move + declarative processor list shape |
+| `otel_traces_export.batch_max_size` | `tracer_provider.processors[0].batch.max_export_batch_size` | OTel ownership move + declarative processor list shape |
 | `otel_traces_export.reporters_cache_len` | `extensions.obi.capture.telemetry.traces.reporters_cache_len` | Move to capture telemetry tuning |
 | `otel_traces_export.sampler.arg` | `tracer_provider.sampler` | OTel ownership move. Map to built-in sampler arguments when possible; per-workload semantics require the `obi_rule_based` sampler plugin. |
 | `otel_traces_export.sampler.name` | `tracer_provider.sampler` | OTel ownership move. Map to built-in sampler names when possible; per-workload semantics require the `obi_rule_based` sampler plugin. |

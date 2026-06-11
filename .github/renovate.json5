@@ -30,13 +30,25 @@
       // tag is the human-readable handle; the digest is what `docker pull`
       // actually resolves against (see lvh/pull-kernel.sh). Renovate updates
       // both fields together whenever a newer tag is published on quay.io.
+      //
+      // Tags look like `<kernel-id>-<YYYYMMDD>.<HHMMSS>`, where <kernel-id> is
+      // the concrete kernel we deliberately test (`5.10`, `6.12`, `bpf-next`,
+      // `rhel8.9`, ...). We must NOT let Renovate bump that kernel version: a
+      // `6.1` pin must never roll forward to `6.18` (we use it in integration
+      // tests that want to test this concrete Kernel version). The versioning regex
+      // therefore captures <kernel-id> as the `compatibility` group, which
+      // scopes every update to tags sharing that exact prefix, and exposes
+      // only the trailing date/time build stamp (major=YYYY, minor=MM,
+      // patch=DD, build=HHMMSS) as the version that may advance. Net effect:
+      // only the rebuild date moves; the kernel version stays put.
       "customType": "regex",
       "managerFilePatterns": ["/^internal\\/test\\/vm\\/kernels\\.yaml$/"],
       "matchStrings": [
         "lvh_tag:\\s+\"(?<currentValue>[^\"]+)\"\\s*\\n\\s*digest:\\s+\"(?<currentDigest>sha256:[a-f0-9]{64})\""
       ],
       "depNameTemplate": "quay.io/lvh-images/kernel-images",
-      "datasourceTemplate": "docker"
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "regex:^(?<compatibility>.+)-(?<major>\\d{4})(?<minor>\\d{2})(?<patch>\\d{2})\\.(?<build>\\d+)$"
     },
     {
       // Keep any digest-pinned container image reference embedded in a Go

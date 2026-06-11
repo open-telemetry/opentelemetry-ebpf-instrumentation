@@ -173,6 +173,14 @@ func TestValuesString(t *testing.T) {
 		assert.Empty(t, result)
 	})
 
+	t.Run("oneOf skips deprecated branches", func(t *testing.T) {
+		s := &Schema{OneOf: []*Schema{
+			{Enum: []any{"a", "b"}},
+			{Enum: []any{"old"}, Deprecated: true},
+		}}
+		assert.Equal(t, "`a`, `b`", g.valuesString(s, s))
+	})
+
 	t.Run("nil", func(t *testing.T) {
 		assert.Empty(t, g.valuesString(nil, nil))
 	})
@@ -220,6 +228,27 @@ func TestDeprecatedString(t *testing.T) {
 	assert.Equal(t, "Yes", g.deprecatedString(nil, &Schema{Deprecated: true}))
 	assert.Empty(t, g.deprecatedString(&Schema{Deprecated: false}, nil))
 	assert.Empty(t, g.deprecatedString(nil, nil))
+
+	t.Run("deprecated oneOf branch emits values prefix", func(t *testing.T) {
+		s := &Schema{OneOf: []*Schema{
+			{Enum: []any{"a", "b"}},
+			{Enum: []any{"old"}, Deprecated: true},
+		}}
+		assert.Equal(t, "deprecated values: `old`", g.deprecatedString(nil, s))
+	})
+
+	t.Run("multiple deprecated values", func(t *testing.T) {
+		s := &Schema{OneOf: []*Schema{
+			{Enum: []any{"a"}},
+			{Enum: []any{"x", "y"}, Deprecated: true},
+		}}
+		assert.Equal(t, "deprecated values: `x`, `y`", g.deprecatedString(nil, s))
+	})
+
+	t.Run("no deprecated oneOf branch returns empty", func(t *testing.T) {
+		s := &Schema{OneOf: []*Schema{{Enum: []any{"a", "b"}}}}
+		assert.Empty(t, g.deprecatedString(nil, s))
+	})
 }
 
 func TestEnvVar(t *testing.T) {

@@ -10,6 +10,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"go.opentelemetry.io/otel/attribute"
+
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 )
@@ -498,6 +500,72 @@ func TestSpanOTELGetters_JSONRPCAttributes(t *testing.T) {
 
 			kv := getter(tt.span)
 			assert.Equal(t, string(tt.attrName), string(kv.Key))
+			assert.Equal(t, tt.expected, kv.Value.AsString())
+		})
+	}
+}
+
+func TestSpanOTELGetters_DBQueryText(t *testing.T) {
+	getter, ok := spanOTELGetters(attr.DBQueryText)
+	require.True(t, ok, "getter should be found for DBQueryText")
+
+	tests := []struct {
+		name     string
+		span     *Span
+		expected string
+	}{
+		{
+			name: "SQL++ HTTP client span uses statement",
+			span: &Span{
+				Type:      EventTypeHTTPClient,
+				SubType:   HTTPSubtypeSQLPP,
+				Statement: "SELECT * FROM bucket.scope.collection",
+			},
+			expected: "SELECT * FROM bucket.scope.collection",
+		},
+		{
+			name: "SQL++ HTTP client span without statement returns empty",
+			span: &Span{
+				Type:    EventTypeHTTPClient,
+				SubType: HTTPSubtypeSQLPP,
+			},
+			expected: "",
+		},
+		{
+			name: "Elasticsearch HTTP client span uses Elasticsearch query",
+			span: &Span{
+				Type:    EventTypeHTTPClient,
+				SubType: HTTPSubtypeElasticsearch,
+				Elasticsearch: &Elasticsearch{
+					DBQueryText: `{"query":{"match_all":{}}}`,
+				},
+			},
+			expected: `{"query":{"match_all":{}}}`,
+		},
+		{
+			name: "Elasticsearch HTTP client span without Elasticsearch state returns empty",
+			span: &Span{
+				Type:    EventTypeHTTPClient,
+				SubType: HTTPSubtypeElasticsearch,
+			},
+			expected: "",
+		},
+		{
+			name: "SQL++ subtype on non HTTP client span returns empty",
+			span: &Span{
+				Type:      EventTypeHTTP,
+				SubType:   HTTPSubtypeSQLPP,
+				Statement: "SELECT * FROM bucket",
+			},
+			expected: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var kv attribute.KeyValue
+			assert.NotPanics(t, func() { kv = getter(tt.span) })
+			assert.Equal(t, string(attr.DBQueryText), string(kv.Key))
 			assert.Equal(t, tt.expected, kv.Value.AsString())
 		})
 	}

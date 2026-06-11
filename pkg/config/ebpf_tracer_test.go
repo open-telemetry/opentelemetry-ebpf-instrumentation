@@ -32,11 +32,6 @@ func TestContextPropagationMode_UnmarshalText(t *testing.T) {
 			want:  ContextPropagationHeaders,
 		},
 		{
-			name:  "http alias",
-			input: "http",
-			want:  ContextPropagationHeaders,
-		},
-		{
 			name:  "tcp only",
 			input: "tcp",
 			want:  ContextPropagationTCP,

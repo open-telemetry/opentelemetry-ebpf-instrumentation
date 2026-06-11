@@ -252,6 +252,47 @@ func TestOpenAISpan_UsageTokenHelpers(t *testing.T) {
 	assert.Equal(t, 15, u2.GetOutputTokens())
 }
 
+func TestOpenAISpan_PartialRequestBody(t *testing.T) {
+	req, err := http.NewRequest(http.MethodPost, "http://api.openai.com/v1/chat/completions", nil)
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	req.ContentLength = int64(len(completionsRequestBody))
+
+	truncated := completionsRequestBody[:len(completionsRequestBody)-len(`,"temperature":1.0}`)]
+	req.Body = &partialReadCloser{
+		data: []byte(truncated),
+		err:  io.ErrUnexpectedEOF,
+	}
+
+	resp := makeGzipResponse(t, http.StatusOK, openAIHeaders(), completionsResponseBody)
+	base := &request.Span{ContentLength: int64(len(completionsRequestBody))}
+	span, ok := OpenAISpan(base, req, resp)
+
+	require.True(t, ok)
+	require.NotNil(t, span.GenAI.OpenAI)
+	assert.Equal(t, "gpt-4o-mini", span.GenAI.OpenAI.Request.Model)
+	assert.Equal(t, "chatcmpl-DBTg5Ms2mJhaAhZ56Wq8QSf2djw3S", span.GenAI.OpenAI.ID)
+}
+
+func TestOpenAISpan_PartialResponseBody(t *testing.T) {
+	req := makeRequest(t, http.MethodPost, "http://api.openai.com/v1/chat/completions", completionsRequestBody)
+
+	truncated := completionsResponseBody[:300]
+	h := openAIHeaders()
+	h.Del("Content-Encoding")
+	resp := makePlainResponse(http.StatusOK, h, truncated)
+
+	base := &request.Span{}
+	span, ok := OpenAISpan(base, req, resp)
+
+	require.True(t, ok)
+	require.NotNil(t, span.GenAI.OpenAI)
+	assert.Equal(t, "chatcmpl-DBTg5Ms2mJhaAhZ56Wq8QSf2djw3S", span.GenAI.OpenAI.ID)
+	assert.Equal(t, request.ChatOperationName, span.GenAI.OpenAI.OperationName)
+	assert.Equal(t, "gpt-4o-mini-2024-07-18", span.GenAI.OpenAI.ResponseModel)
+	assert.Equal(t, 0, span.GenAI.OpenAI.Usage.GetInputTokens())
+}
+
 func TestOpenAISpan_GetOutput(t *testing.T) {
 	// output field populated (responses API) - normalized to semconv schema
 	ai := &request.VendorOpenAI{Output: []byte(`[{"type":"message","status":"completed","content":[{"type":"output_text","text":"Arrr!"}],"role":"assistant"}]`)}

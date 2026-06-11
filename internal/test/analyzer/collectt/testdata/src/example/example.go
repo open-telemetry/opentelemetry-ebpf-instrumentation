@@ -23,8 +23,8 @@ func TestBuggyUsage(t *testing.T) {
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		require.Len(t, []int{1}, 1)  // want `use ct instead of t inside EventuallyWithT callback`
 		require.NotEmpty(t, "hello") // want `use ct instead of t inside EventuallyWithT callback`
-		assert.Less(t, 1, 2)        // want `use ct instead of t inside EventuallyWithT callback`
-		require.Equal(ct, 1, 1)     // this is fine
+		assert.Less(t, 1, 2)         // want `use ct instead of t inside EventuallyWithT callback`
+		require.Equal(ct, 1, 1)      // this is fine
 	}, time.Minute, time.Second)
 }
 
@@ -59,5 +59,19 @@ func TestAssertEventuallyWithT(t *testing.T) {
 	assert.EventuallyWithT(t, func(ct *assert.CollectT) {
 		require.Equal(t, 1, 1) // want `use ct instead of t inside EventuallyWithT callback`
 		assert.Equal(ct, 1, 1)
+	}, time.Minute, time.Second)
+}
+
+func TestBlankCollectTParam(t *testing.T) {
+	require.EventuallyWithT(t, func(_ *assert.CollectT) {
+		require.NoError(t, nil) // want `name and use the CollectT callback parameter instead of t inside EventuallyWithT callback`
+	}, time.Minute, time.Second)
+}
+
+func TestNestedEventuallyWithT(t *testing.T) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		require.EventuallyWithT(t, func(ctt *assert.CollectT) { // want `use ct instead of t inside EventuallyWithT callback`
+			require.Equal(t, 1, 1) // want `use ctt instead of t inside EventuallyWithT callback`
+		}, time.Minute, time.Second)
 	}, time.Minute, time.Second)
 }

@@ -47,7 +47,9 @@ tracer_provider:
   processors:
     - batch:
         # Max in-memory queue before flush.
-        max_queue_size: 4096
+        max_queue_size: 16384
+        # Max spans exported per batch.
+        max_export_batch_size: 4096
         # Delay interval between batch exports in milliseconds.
         schedule_delay: 15000
         # Trace exporter.
@@ -166,12 +168,15 @@ extensions:
         #       traces: true
         #       metrics: false
         #     http:
-        #       # Per-workload HTTP route patterns (override global patterns for this service).
+        #       # Per-workload HTTP route patterns for requests handled by or made by this workload.
         #       routes:
-        #         unmatched: wildcard
-        #         patterns:
-        #           - /cart/{id}
-        #           - /cart/{id}/items
+        #         incoming:
+        #           patterns:
+        #             - /cart/{id}
+        #             - /cart/{id}/items
+        #         outgoing:
+        #           patterns:
+        #             - /checkout/{id}
         #       # Per-workload HTTP filters (replace global filters for this service).
         #       filters:
         #         traces:
