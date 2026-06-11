@@ -348,8 +348,8 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 			name:  "sunrpc only",
 			instr: []instrumentations.Instrumentation{instrumentations.InstrumentationSunRPC},
 			expected: []string{
-				"rpc_server_duration_seconds",
-				"rpc_client_duration_seconds",
+				"rpc_server_call_duration_seconds",
+				"rpc_client_call_duration_seconds",
 			},
 			unexpected: []string{
 				"http_server_request_duration_seconds",

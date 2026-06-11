@@ -91,7 +91,7 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 	case attr.RPCSystem:
 		getter = func(s *Span) attribute.KeyValue {
 			if s.Type == EventTypeSunRPCClient || s.Type == EventTypeSunRPCServer {
-				return semconv.RPCSystemOncRPC
+				return RPCSystem("onc_rpc")
 			}
 			if s.SubType == HTTPSubtypeJSONRPC {
 				return semconv.RPCSystemNameJSONRPC
@@ -100,20 +100,6 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 				return RPCSystem("aws-api")
 			}
 			return semconv.RPCSystemNameGRPC
-		}
-	case attr.RPCService:
-		getter = func(s *Span) attribute.KeyValue {
-			if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeAWSS3 {
-				return semconv.RPCService("S3")
-			}
-			return semconv.RPCService("")
-		}
-	case attr.RPCGRPCStatusCode:
-		getter = func(s *Span) attribute.KeyValue {
-			if s.Type == EventTypeSunRPCClient || s.Type == EventTypeSunRPCServer {
-				return semconv.RPCGRPCStatusCodeKey.Int(0)
-			}
-			return semconv.RPCGRPCStatusCodeKey.Int(s.Status)
 		}
 	case attr.OncRPCProgramName:
 		getter = func(s *Span) attribute.KeyValue {
@@ -534,6 +520,9 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 		}
 	case attr.RPCResponseStatusCode:
 		getter = func(s *Span) attribute.KeyValue {
+			if s.Type == EventTypeSunRPCClient || s.Type == EventTypeSunRPCServer {
+				return semconv.RPCResponseStatusCode(SunRPCResponseStatusCode(s.Status))
+			}
 			if s.Type == EventTypeGRPC || s.Type == EventTypeGRPCClient {
 				return semconv.RPCResponseStatusCode(GRPCStatusCodeString(s.Status))
 			}

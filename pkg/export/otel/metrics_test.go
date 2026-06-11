@@ -320,8 +320,8 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 			instr:     []instrumentations.Instrumentation{instrumentations.InstrumentationSunRPC},
 			extraColl: 0,
 			expected: []string{
-				"rpc.client.duration",
-				"rpc.server.duration",
+				"rpc.client.call.duration",
+				"rpc.server.call.duration",
 			},
 		},
 		{

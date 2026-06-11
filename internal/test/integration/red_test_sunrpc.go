@@ -13,11 +13,23 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/otel/attribute"
-	semconv "go.opentelemetry.io/otel/semconv/v1.38.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 
 	"go.opentelemetry.io/obi/internal/test/integration/components/jaeger"
 	"go.opentelemetry.io/obi/internal/test/integration/components/promtest"
+	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 )
+
+// sunRPCTraceSearchAttrs returns Jaeger tag matchers for onc_rpc client spans.
+// Keep aligned with tracesgen.TraceAttributesSelector SunRPC branch.
+func sunRPCTraceSearchAttrs(prog string, proc, version int) []attribute.KeyValue {
+	return []attribute.KeyValue{
+		request.RPCSystem("onc_rpc"),
+		semconv.OncRPCProgramName(prog),
+		semconv.OncRPCProcedureNumber(proc),
+		semconv.OncRPCVersion(version),
+	}
+}
 
 func runSunRPCTestCase(t *testing.T, testCase TestCase) {
 	t.Helper()
@@ -55,12 +67,7 @@ func runSunRPCTestCase(t *testing.T, testCase TestCase) {
 }
 
 func testREDMetricsGoSunRPC(t *testing.T) {
-	commonAttrs := []attribute.KeyValue{
-		semconv.RPCSystemOncRPC,
-		semconv.OncRPCProgramName("portmapper"),
-		semconv.OncRPCProcedureNumber(0),
-		semconv.OncRPCVersion(2),
-	}
+	commonAttrs := sunRPCTraceSearchAttrs("portmapper", 0, 2)
 
 	testCases := []TestCase{
 		{
@@ -111,12 +118,12 @@ func testREDMetricsGoSunRPCPrometheus(t *testing.T) {
 
 	pq := promtest.Client{HostPort: prometheusHostPort}
 
-	// SunRPC uses the same semconv rpc.* metric names as gRPC; rpc_system distinguishes protocols.
+	// SunRPC uses the same semconv rpc.*.call.duration metrics as gRPC; rpc.system.name distinguishes protocols.
 	var clientResults []promtest.Result
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		var err error
-		clientResults, err = pq.Query(`rpc_client_duration_seconds_count{` +
-			`rpc_system="onc_rpc",` +
+		clientResults, err = pq.Query(`rpc_client_call_duration_seconds_count{` +
+			`rpc_system_name="onc_rpc",` +
 			`service_namespace="` + svcNs + `",` +
 			`service_name="` + svcName + `"}`)
 		require.NoError(ct, err)
@@ -126,8 +133,8 @@ func testREDMetricsGoSunRPCPrometheus(t *testing.T) {
 	}, 2*testTimeout, 100*time.Millisecond)
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		results, err := pq.Query(`rpc_server_duration_seconds_count{` +
-			`rpc_system="onc_rpc",` +
+		results, err := pq.Query(`rpc_server_call_duration_seconds_count{` +
+			`rpc_system_name="onc_rpc",` +
 			`service_namespace="` + svcNs + `",` +
 			`service_name="` + svcName + `"}`)
 		require.NoError(ct, err)

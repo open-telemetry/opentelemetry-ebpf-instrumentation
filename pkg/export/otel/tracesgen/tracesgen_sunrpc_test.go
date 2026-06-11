@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/otel/attribute"
-	semconv "go.opentelemetry.io/otel/semconv/v1.38.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 	trace2 "go.opentelemetry.io/otel/trace"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
@@ -34,7 +34,7 @@ func TestTraceAttributesSelector_SunRPCClient(t *testing.T) {
 
 	require.NotEmpty(t, attrs)
 	assert.Equal(t, trace2.SpanKindClient, spanKind(span))
-	assert.Contains(t, attrs, semconv.RPCSystemOncRPC)
+	assert.Contains(t, attrs, request.RPCSystem("onc_rpc"))
 	assert.Contains(t, attrs, semconv.OncRPCProgramName("nfs"))
 	assert.Contains(t, attrs, semconv.OncRPCProcedureNumber(3))
 	assert.NotContains(t, attrs, semconv.OncRPCProcedureName("3"))
@@ -71,4 +71,29 @@ func TestTraceAttributesSelector_SunRPCProcedureName(t *testing.T) {
 func TestSpanKind_SunRPCServer(t *testing.T) {
 	span := &request.Span{Type: request.EventTypeSunRPCServer}
 	assert.Equal(t, trace2.SpanKindServer, spanKind(span))
+}
+
+func TestTraceAttributesSelector_SunRPC_matchesMetricGetters(t *testing.T) {
+	span := &request.Span{
+		Type:     request.EventTypeSunRPCClient,
+		Path:     "portmapper",
+		Route:    "0",
+		Method:   "0",
+		SubType:  2,
+		HostPort: 111,
+	}
+
+	traceAttrs := TraceAttributesSelector(span, map[attr.Name]struct{}{})
+	getters := request.SpanOTELGetters(request.UnresolvedNames{})
+
+	for _, name := range []attr.Name{
+		attr.RPCSystem,
+		attr.OncRPCProgramName,
+		attr.OncRPCProcedureNumber,
+		attr.OncRPCVersion,
+	} {
+		getter, ok := getters(name)
+		require.True(t, ok, "getter should exist for %s", name)
+		assert.Contains(t, traceAttrs, getter(span), "trace attrs should include getter value for %s", name)
+	}
 }

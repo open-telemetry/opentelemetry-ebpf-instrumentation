@@ -1182,7 +1182,7 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 		attrs = []attribute.KeyValue{
 			request.ServerAddr(request.HostAsServer(span)),
 			request.ServerPort(span.HostPort),
-			semconv.RPCSystemOncRPC,
+			request.RPCSystem("onc_rpc"),
 		}
 		if span.Path != "" {
 			attrs = append(attrs, semconv.OncRPCProgramName(span.Path))
