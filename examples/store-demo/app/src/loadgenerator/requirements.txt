@@ -201,9 +201,9 @@ click==8.3.0 \
     --hash=sha256:9b9f285302c6e3064f4330c05f05b81945b2a39544279343e6e7c5f27a9baddc \
     --hash=sha256:e7b8232224eba16f4ebe410c25ced9f7875cb5f3263ffc93cc3e8da705e229c4
     # via flask
-configargparse==1.7.1 \
-    --hash=sha256:79c2ddae836a1e5914b71d58e4b9adbd9f7779d4e6351a637b7d2d9b6c46d3d9 \
-    --hash=sha256:8b586a31f9d873abd1ca527ffbe58863c99f36d896e2829779803125e83be4b6
+ConfigArgParse==1.7.5 \
+    --hash=sha256:1e63fdffedf94da9cd435fc13a1cd24777e76879dd2343912c1f871d4ac8c592 \
+    --hash=sha256:e3f9a7bb6be34d66b2e3c4a2f58e3045f8dfae47b0dc039f87bcfaa0f193fb0f
     # via locust
 faker==40.1.0 \
     --hash=sha256:a616d35818e2a2387c297de80e2288083bc915e24b7e39d2fb5bc66cce3a929f \
