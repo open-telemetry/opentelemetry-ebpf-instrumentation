@@ -445,7 +445,10 @@
               "nodejs"
             ]
           },
-          "type": "array"
+          "type": "array",
+          "default": [
+            "java"
+          ]
         },
         "exclude_instrument": {
           "$ref": "#/$defs/GlobDefinitionCriteria",
