@@ -124,8 +124,15 @@ int BPF_URETPROBE(obi_uretprobe_ssl_read_ex, int ret) {
 
     ssl_args_t *args = bpf_map_lookup_elem(&active_ssl_read_args, &id);
 
-    if (ret != 1 || !args) {
+    if (!args) {
         bpf_map_delete_elem(&active_ssl_read_args, &id);
+        return 0;
+    }
+
+    if (ret != 1) {
+        const u64 ssl = args->ssl;
+        bpf_map_delete_elem(&active_ssl_read_args, &id);
+        bpf_map_delete_elem(&ssl_to_pid_tid, &ssl);
         return 0;
     }
 
