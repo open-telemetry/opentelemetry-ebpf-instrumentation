@@ -19,6 +19,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/meta"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
+	"go.opentelemetry.io/obi/pkg/export/expire"
 	"go.opentelemetry.io/obi/pkg/export/otel/metric"
 	instrument "go.opentelemetry.io/obi/pkg/export/otel/metric/api/metric"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
@@ -43,11 +44,29 @@ type jvmRuntimeMetrics struct {
 	ctx                   context.Context
 	service               *svc.Attrs
 	provider              *metric.MeterProvider
-	memoryUsed            *Expirer[jvmruntime.JVMRuntimeEvent, instrument.Int64Gauge, int64]
-	memoryCommitted       *Expirer[jvmruntime.JVMRuntimeEvent, instrument.Int64Gauge, int64]
-	memoryLimit           *Expirer[jvmruntime.JVMRuntimeEvent, instrument.Int64Gauge, int64]
-	memoryUsedAfterLastGC *Expirer[jvmruntime.JVMRuntimeEvent, instrument.Int64Gauge, int64]
+	memoryUsed            *jvmCurrentUpDownCounter
+	memoryCommitted       *jvmCurrentUpDownCounter
+	memoryLimit           *jvmCurrentUpDownCounter
+	memoryUsedAfterLastGC *jvmCurrentUpDownCounter
 	beylaJVMHeapUsed      *Expirer[jvmruntime.JVMRuntimeEvent, instrument.Int64Gauge, int64]
+}
+
+type jvmCurrentUpDownCounter struct {
+	ctx     context.Context
+	metric  instrument.Int64UpDownCounter
+	attrs   []attributes.Field[jvmruntime.JVMRuntimeEvent, attribute.KeyValue]
+	entries *expire.ExpiryMap[*jvmCurrentUpDownCounterEntry]
+	log     *slog.Logger
+
+	clock          expire.Clock
+	lastExpiration time.Time
+	ttl            time.Duration
+}
+
+type jvmCurrentUpDownCounterEntry struct {
+	attrs       attribute.Set
+	value       int64
+	initialized bool
 }
 
 func ReportJVMRuntimeMetrics(
@@ -166,29 +185,29 @@ func setupJVMRuntimeMeters(ctx context.Context, m *jvmRuntimeMetrics, meter inst
 	heapAttrs := jvmHeapOTELAttributes()
 	var err error
 
-	memoryUsed, err := meter.Int64Gauge(attributes.JVMMemoryUsed.OTEL, instrument.WithUnit("By"))
+	memoryUsed, err := meter.Int64UpDownCounter(attributes.JVMMemoryUsed.OTEL, instrument.WithUnit("By"))
 	if err != nil {
-		return fmt.Errorf("creating JVM memory used gauge: %w", err)
+		return fmt.Errorf("creating JVM memory used up-down counter: %w", err)
 	}
-	m.memoryUsed = NewExpirer[jvmruntime.JVMRuntimeEvent, instrument.Int64Gauge, int64](ctx, memoryUsed, memoryAttrs, timeNow, ttl)
+	m.memoryUsed = newJVMCurrentUpDownCounter(ctx, memoryUsed, memoryAttrs, timeNow, ttl)
 
-	memoryCommitted, err := meter.Int64Gauge(attributes.JVMMemoryCommitted.OTEL, instrument.WithUnit("By"))
+	memoryCommitted, err := meter.Int64UpDownCounter(attributes.JVMMemoryCommitted.OTEL, instrument.WithUnit("By"))
 	if err != nil {
-		return fmt.Errorf("creating JVM memory committed gauge: %w", err)
+		return fmt.Errorf("creating JVM memory committed up-down counter: %w", err)
 	}
-	m.memoryCommitted = NewExpirer[jvmruntime.JVMRuntimeEvent, instrument.Int64Gauge, int64](ctx, memoryCommitted, memoryAttrs, timeNow, ttl)
+	m.memoryCommitted = newJVMCurrentUpDownCounter(ctx, memoryCommitted, memoryAttrs, timeNow, ttl)
 
-	memoryLimit, err := meter.Int64Gauge(attributes.JVMMemoryLimit.OTEL, instrument.WithUnit("By"))
+	memoryLimit, err := meter.Int64UpDownCounter(attributes.JVMMemoryLimit.OTEL, instrument.WithUnit("By"))
 	if err != nil {
-		return fmt.Errorf("creating JVM memory limit gauge: %w", err)
+		return fmt.Errorf("creating JVM memory limit up-down counter: %w", err)
 	}
-	m.memoryLimit = NewExpirer[jvmruntime.JVMRuntimeEvent, instrument.Int64Gauge, int64](ctx, memoryLimit, memoryAttrs, timeNow, ttl)
+	m.memoryLimit = newJVMCurrentUpDownCounter(ctx, memoryLimit, memoryAttrs, timeNow, ttl)
 
-	memoryUsedAfterLastGC, err := meter.Int64Gauge(attributes.JVMMemoryUsedAfterLastGC.OTEL, instrument.WithUnit("By"))
+	memoryUsedAfterLastGC, err := meter.Int64UpDownCounter(attributes.JVMMemoryUsedAfterLastGC.OTEL, instrument.WithUnit("By"))
 	if err != nil {
-		return fmt.Errorf("creating JVM memory used after last GC gauge: %w", err)
+		return fmt.Errorf("creating JVM memory used after last GC up-down counter: %w", err)
 	}
-	m.memoryUsedAfterLastGC = NewExpirer[jvmruntime.JVMRuntimeEvent, instrument.Int64Gauge, int64](ctx, memoryUsedAfterLastGC, memoryAttrs, timeNow, ttl)
+	m.memoryUsedAfterLastGC = newJVMCurrentUpDownCounter(ctx, memoryUsedAfterLastGC, memoryAttrs, timeNow, ttl)
 
 	heapUsed, err := meter.Int64Gauge(attributes.BeylaJVMHeapUsed.OTEL, instrument.WithUnit("By"))
 	if err != nil {
@@ -204,21 +223,80 @@ func (m *jvmRuntimeMetrics) record(event jvmruntime.JVMRuntimeEvent) {
 	value := int64(event.ValueBytes)
 	switch event.Kind {
 	case jvmruntime.JVMMetricMemoryUsed:
-		gauge, attrs := m.memoryUsed.ForRecord(event)
-		gauge.Record(ctx, value, instrument.WithAttributeSet(attrs))
+		m.memoryUsed.Record(event, value)
 	case jvmruntime.JVMMetricMemoryCommitted:
-		gauge, attrs := m.memoryCommitted.ForRecord(event)
-		gauge.Record(ctx, value, instrument.WithAttributeSet(attrs))
+		m.memoryCommitted.Record(event, value)
 	case jvmruntime.JVMMetricMemoryLimit:
-		gauge, attrs := m.memoryLimit.ForRecord(event)
-		gauge.Record(ctx, value, instrument.WithAttributeSet(attrs))
+		m.memoryLimit.Record(event, value)
 	case jvmruntime.JVMMetricMemoryUsedAfterLastGC:
-		gauge, attrs := m.memoryUsedAfterLastGC.ForRecord(event)
-		gauge.Record(ctx, value, instrument.WithAttributeSet(attrs))
+		m.memoryUsedAfterLastGC.Record(event, value)
 	case jvmruntime.JVMMetricBeylaHeapUsed:
 		gauge, attrs := m.beylaJVMHeapUsed.ForRecord(event)
 		gauge.Record(ctx, value, instrument.WithAttributeSet(attrs))
 	}
+}
+
+func newJVMCurrentUpDownCounter(
+	ctx context.Context,
+	metric instrument.Int64UpDownCounter,
+	attrs []attributes.Field[jvmruntime.JVMRuntimeEvent, attribute.KeyValue],
+	clock expire.Clock,
+	ttl time.Duration,
+) *jvmCurrentUpDownCounter {
+	return &jvmCurrentUpDownCounter{
+		ctx:            ctx,
+		metric:         metric,
+		attrs:          attrs,
+		entries:        expire.NewExpiryMap[*jvmCurrentUpDownCounterEntry](clock, ttl),
+		log:            plog().With("type", fmt.Sprintf("%T", metric)),
+		clock:          clock,
+		lastExpiration: clock(),
+		ttl:            ttl,
+	}
+}
+
+func (c *jvmCurrentUpDownCounter) Record(event jvmruntime.JVMRuntimeEvent, value int64) {
+	now := c.clock()
+	if now.Sub(c.lastExpiration) >= c.ttl {
+		c.removeOutdated(c.ctx)
+		c.lastExpiration = now
+	}
+
+	recordAttrs, attrValues := jvmRuntimeAttributeSet(c.attrs, event)
+	entry := c.entries.GetOrCreate(attrValues, func() *jvmCurrentUpDownCounterEntry {
+		c.log.Debug("storing new metric label set", "labelValues", attrValues)
+		return &jvmCurrentUpDownCounterEntry{attrs: recordAttrs}
+	})
+
+	delta := value - entry.value
+	if !entry.initialized || delta != 0 {
+		c.metric.Add(c.ctx, delta, instrument.WithAttributeSet(entry.attrs))
+	}
+	entry.value = value
+	entry.initialized = true
+}
+
+func (c *jvmCurrentUpDownCounter) removeOutdated(ctx context.Context) {
+	for _, entry := range c.entries.DeleteExpired() {
+		c.metric.Add(ctx, -entry.value, instrument.WithAttributeSet(entry.attrs))
+		c.metric.Remove(ctx, instrument.WithAttributeSet(entry.attrs))
+	}
+}
+
+func jvmRuntimeAttributeSet(
+	fields []attributes.Field[jvmruntime.JVMRuntimeEvent, attribute.KeyValue],
+	event jvmruntime.JVMRuntimeEvent,
+) (attribute.Set, []string) {
+	keyVals := make([]attribute.KeyValue, 0, len(fields))
+	vals := make([]string, 0, len(fields))
+
+	for _, field := range fields {
+		kv := field.Get(event)
+		keyVals = append(keyVals, kv)
+		vals = append(vals, kv.Value.Emit())
+	}
+
+	return attribute.NewSet(keyVals...), vals
 }
 
 func (mr *JVMRuntimeMetricsReporter) close() {

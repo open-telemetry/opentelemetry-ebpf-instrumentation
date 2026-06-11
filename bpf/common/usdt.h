@@ -7,6 +7,7 @@
 #include <bpfcore/bpf_helpers.h>
 #include <bpfcore/bpf_tracing.h>
 #include <common/pin_internal.h>
+#include <pid/pid.h>
 
 #ifndef barrier_var
 #define barrier_var(var) asm volatile("" : "+r"(var))
@@ -19,6 +20,13 @@ enum obi_usdt_arg_type {
     k_obi_usdt_arg_reg = 1,
     k_obi_usdt_arg_reg_deref = 2,
     k_obi_usdt_arg_sib = 3,
+};
+
+enum obi_usdt_arg_error {
+    k_obi_usdt_arg_err_no_spec = -2,
+    k_obi_usdt_arg_err_out_of_range = -3,
+    k_obi_usdt_arg_err_bad_type = -4,
+    k_obi_usdt_arg_err_bad_size = -5,
 };
 
 struct obi_usdt_arg_spec {
@@ -40,7 +48,7 @@ struct obi_usdt_spec {
 
 struct obi_usdt_ip_key {
     u32 pid;
-    u32 _pad;
+    u32 ns;
     u64 ip;
 };
 
@@ -61,8 +69,28 @@ struct {
 } obi_usdt_ip_to_spec_id SEC(".maps");
 
 static __always_inline struct obi_usdt_spec *obi_usdt_spec_for_ctx(struct pt_regs *ctx) {
+    const u64 pid_tgid = bpf_get_current_pid_tgid();
+    const struct task_struct *task = (struct task_struct *)bpf_get_current_task();
+
+    int ns_pid = 0;
+    int ns_ppid = 0;
+    u32 pid_ns_id = 0;
+    ns_pid_ppid(task, &ns_pid, &ns_ppid, &pid_ns_id);
+
+    u32 pid = pid_from_pid_tgid(pid_tgid);
+    if (ns_pid > 0) {
+        pid = (u32)ns_pid;
+    }
+    if (filter_pids) {
+        pid = valid_pid(pid_tgid);
+        if (!pid) {
+            return NULL;
+        }
+    }
+
     struct obi_usdt_ip_key key = {
-        .pid = (u32)(bpf_get_current_pid_tgid() >> 32),
+        .pid = pid,
+        .ns = pid_ns_id,
         .ip = PT_REGS_IP(ctx),
     };
 
@@ -99,7 +127,7 @@ static __always_inline int obi_usdt_read_user_value(u64 addr, u8 arg_bitshift, u
     case 8:
         return bpf_probe_read_user(val, sizeof(*val), (void *)addr);
     default:
-        return -1;
+        return k_obi_usdt_arg_err_bad_size;
     }
 }
 
@@ -108,15 +136,15 @@ static __always_inline int obi_usdt_arg(struct pt_regs *ctx, u64 arg_num, long *
 
     struct obi_usdt_spec *spec = obi_usdt_spec_for_ctx(ctx);
     if (!spec) {
-        return -1;
+        return k_obi_usdt_arg_err_no_spec;
     }
 
     if (arg_num >= k_obi_usdt_max_args) {
-        return -1;
+        return k_obi_usdt_arg_err_out_of_range;
     }
     barrier_var(arg_num);
     if (arg_num >= spec->arg_cnt) {
-        return -1;
+        return k_obi_usdt_arg_err_out_of_range;
     }
 
     struct obi_usdt_arg_spec *arg = &spec->args[arg_num];
@@ -160,7 +188,7 @@ static __always_inline int obi_usdt_arg(struct pt_regs *ctx, u64 arg_num, long *
         }
         break;
     default:
-        return -1;
+        return k_obi_usdt_arg_err_bad_type;
     }
 
     val <<= arg->arg_bitshift;

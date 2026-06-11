@@ -32,6 +32,9 @@ func TestJVMRuntimeMetrics(t *testing.T) {
 	t.Run("HotSpot heap summary event", func(t *testing.T) {
 		testJVMRuntimeHeapSummaryEvent(t, compose)
 	})
+	t.Run("HotSpot memory pool event", func(t *testing.T) {
+		testJVMRuntimeMemoryPoolEvent(t, compose)
+	})
 	runWeaverValidation(t)
 }
 
@@ -48,6 +51,22 @@ func testJVMRuntimeHeapSummaryEvent(t *testing.T, compose *docker.Compose) {
 		logs, err := compose.LogsOutput("obi")
 		require.NoError(ct, err)
 		require.Contains(ct, logs, "received JVM GC heap summary event")
+		require.Contains(ct, logs, "service=jvm-runtime")
+		require.Contains(ct, logs, "namespace=integration-test")
+		require.True(ct,
+			strings.Contains(logs, "phase=before") || strings.Contains(logs, "phase=after"),
+			"expected at least one before/after GC phase in OBI logs",
+		)
+	}, testTimeout, 250*time.Millisecond)
+}
+
+func testJVMRuntimeMemoryPoolEvent(t *testing.T, compose *docker.Compose) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		ti.DoHTTPGet(ct, "http://localhost:"+jvmRuntimeMetricsHostPort+"/gc", http.StatusOK)
+
+		logs, err := compose.LogsOutput("obi")
+		require.NoError(ct, err)
+		require.Contains(ct, logs, "received JVM memory pool event")
 		require.Contains(ct, logs, "service=jvm-runtime")
 		require.Contains(ct, logs, "namespace=integration-test")
 		require.True(ct,

@@ -208,6 +208,25 @@ static __always_inline int jvm_hotspot_mem_pool_gc(struct pt_regs *ctx,
     return 0;
 }
 
+static __always_inline int
+jvm_read_hotspot_usdt_arg(struct pt_regs *ctx, enum jvm_gc_when_type when, u64 arg_num, long *dst) {
+    int err = obi_usdt_arg(ctx, arg_num, dst);
+    if (err != 0) {
+        const u64 pid_tgid = bpf_get_current_pid_tgid();
+        struct jvm_pid_fields fields = {};
+        jvm_current_pid_fields(pid_tgid, &fields);
+        bpf_dbg_printk("jvm usdt ph=%d a=%llu e=%d gp=%d up=%d ns=%d ip=%llx",
+                       when,
+                       arg_num,
+                       err,
+                       fields.global_pid,
+                       fields.ns_pid,
+                       fields.pid_ns_id,
+                       (u64)PT_REGS_IP(ctx));
+    }
+    return err;
+}
+
 SEC("usdt/hotspot_mem_pool_gc_begin")
 int obi_usdt_hotspot_mem_pool_gc_begin(struct pt_regs *ctx) {
     long manager = 0;
@@ -219,11 +238,14 @@ int obi_usdt_hotspot_mem_pool_gc_begin(struct pt_regs *ctx) {
     long committed = 0;
     long max_size = 0;
 
-    if (obi_usdt_arg(ctx, 0, &manager) != 0 || obi_usdt_arg(ctx, 1, &manager_len) != 0 ||
-        obi_usdt_arg(ctx, 2, &pool) != 0 || obi_usdt_arg(ctx, 3, &pool_len) != 0 ||
-        obi_usdt_arg(ctx, 4, &init_size) != 0 || obi_usdt_arg(ctx, 5, &used) != 0 ||
-        obi_usdt_arg(ctx, 6, &committed) != 0 || obi_usdt_arg(ctx, 7, &max_size) != 0) {
-        bpf_dbg_printk("jvm: failed to read HotSpot mem_pool_gc_begin USDT arguments");
+    if (jvm_read_hotspot_usdt_arg(ctx, k_jvm_before_gc, 0, &manager) != 0 ||
+        jvm_read_hotspot_usdt_arg(ctx, k_jvm_before_gc, 1, &manager_len) != 0 ||
+        jvm_read_hotspot_usdt_arg(ctx, k_jvm_before_gc, 2, &pool) != 0 ||
+        jvm_read_hotspot_usdt_arg(ctx, k_jvm_before_gc, 3, &pool_len) != 0 ||
+        jvm_read_hotspot_usdt_arg(ctx, k_jvm_before_gc, 4, &init_size) != 0 ||
+        jvm_read_hotspot_usdt_arg(ctx, k_jvm_before_gc, 5, &used) != 0 ||
+        jvm_read_hotspot_usdt_arg(ctx, k_jvm_before_gc, 6, &committed) != 0 ||
+        jvm_read_hotspot_usdt_arg(ctx, k_jvm_before_gc, 7, &max_size) != 0) {
         return 0;
     }
 
@@ -250,11 +272,14 @@ int obi_usdt_hotspot_mem_pool_gc_end(struct pt_regs *ctx) {
     long committed = 0;
     long max_size = 0;
 
-    if (obi_usdt_arg(ctx, 0, &manager) != 0 || obi_usdt_arg(ctx, 1, &manager_len) != 0 ||
-        obi_usdt_arg(ctx, 2, &pool) != 0 || obi_usdt_arg(ctx, 3, &pool_len) != 0 ||
-        obi_usdt_arg(ctx, 4, &init_size) != 0 || obi_usdt_arg(ctx, 5, &used) != 0 ||
-        obi_usdt_arg(ctx, 6, &committed) != 0 || obi_usdt_arg(ctx, 7, &max_size) != 0) {
-        bpf_dbg_printk("jvm: failed to read HotSpot mem_pool_gc_end USDT arguments");
+    if (jvm_read_hotspot_usdt_arg(ctx, k_jvm_after_gc, 0, &manager) != 0 ||
+        jvm_read_hotspot_usdt_arg(ctx, k_jvm_after_gc, 1, &manager_len) != 0 ||
+        jvm_read_hotspot_usdt_arg(ctx, k_jvm_after_gc, 2, &pool) != 0 ||
+        jvm_read_hotspot_usdt_arg(ctx, k_jvm_after_gc, 3, &pool_len) != 0 ||
+        jvm_read_hotspot_usdt_arg(ctx, k_jvm_after_gc, 4, &init_size) != 0 ||
+        jvm_read_hotspot_usdt_arg(ctx, k_jvm_after_gc, 5, &used) != 0 ||
+        jvm_read_hotspot_usdt_arg(ctx, k_jvm_after_gc, 6, &committed) != 0 ||
+        jvm_read_hotspot_usdt_arg(ctx, k_jvm_after_gc, 7, &max_size) != 0) {
         return 0;
     }
 

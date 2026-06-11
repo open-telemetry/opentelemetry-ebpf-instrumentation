@@ -57,9 +57,9 @@ type obiUSDTSpec struct {
 }
 
 type obiUSDTIPKey struct {
-	PID uint32
-	_   uint32
-	IP  uint64
+	PID       uint32
+	Namespace uint32
+	IP        uint64
 }
 
 type usdtTarget struct {

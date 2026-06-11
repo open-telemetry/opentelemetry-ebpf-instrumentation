@@ -258,6 +258,27 @@ func TestUprobeModulesRespectsVersionedLibraryAnnotations(t *testing.T) {
 	assert.NotContains(t, selectedSymbols, "task_step")
 }
 
+func TestUSDTIPMapPIDsIncludesAllNamespacedPIDs(t *testing.T) {
+	orig := findNamespacedPids
+	findNamespacedPids = func(pid app.PID) ([]app.PID, error) {
+		assert.Equal(t, app.PID(586888), pid)
+		return []app.PID{595021, 586888, 1}, nil
+	}
+	t.Cleanup(func() { findNamespacedPids = orig })
+
+	assert.Equal(t, []app.PID{586888, 595021, 1}, usdtIPMapPIDs(586888))
+}
+
+func TestUSDTIPMapPIDsFallsBackToDiscoveredPID(t *testing.T) {
+	orig := findNamespacedPids
+	findNamespacedPids = func(app.PID) ([]app.PID, error) {
+		return nil, errors.New("status unavailable")
+	}
+	t.Cleanup(func() { findNamespacedPids = orig })
+
+	assert.Equal(t, []app.PID{123}, usdtIPMapPIDs(123))
+}
+
 func TestVersionFromPath(t *testing.T) {
 	for _, tc := range []struct {
 		path    string
