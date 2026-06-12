@@ -12,11 +12,10 @@
 //     the top level, parsed by ParseReceiverYAML
 //
 // This package validates only the version, shape, and deployment-specific
-// section boundaries needed to route the configuration. Exporter-owned OBI
-// sections are modeled as structs; genuinely arbitrary dictionaries, such as
-// OpenTelemetry declarative maps, resource attributes, and selector metadata,
-// remain maps so migration and validation layers can preserve their original
-// keys.
+// section boundaries needed to route the configuration. OBI-owned extension
+// sections are modeled locally as structs. OpenTelemetry-owned document sections
+// are modeled with otelconf/x so the parser follows the upstream declarative
+// configuration schema, including development sections.
 package schema // import "go.opentelemetry.io/obi/internal/config/schema"
 
 import (
@@ -24,6 +23,8 @@ import (
 	"fmt"
 
 	"go.yaml.in/yaml/v3"
+
+	otelconfx "go.opentelemetry.io/contrib/otelconf/x"
 )
 
 // SupportedVersion is the OBI configuration schema version handled by this
@@ -39,17 +40,62 @@ const (
 // Document is the top-level OpenTelemetry declarative configuration document
 // that contains extensions.obi.
 //
-// OBI-specific settings are available through Extensions.OBI. Declarative
-// configuration sections that are currently exported by the v1-to-v2 converter
-// are modeled as structs. Pure OpenTelemetry declarative sections stay as maps
-// where arbitrary keys must be preserved.
+// OBI-specific settings are available through Extensions.OBI. OpenTelemetry
+// declarative configuration sections are modeled by otelconf/x so OBI follows
+// the upstream schema surface instead of carrying a parallel local model.
 type Document struct {
-	FileFormat     string         `yaml:"file_format"`
-	Resource       Resource       `yaml:"resource"`
-	Propagator     map[string]any `yaml:"propagator"`
-	TracerProvider TracerProvider `yaml:"tracer_provider"`
-	MeterProvider  MeterProvider  `yaml:"meter_provider"`
-	Extensions     Extensions     `yaml:"extensions"`
+	otelconfx.OpenTelemetryConfiguration `yaml:",inline"`
+	Extensions                           Extensions `yaml:"extensions"`
+}
+
+// UnmarshalYAML decodes OpenTelemetry-owned fields with otelconf/x and the OBI
+// extension with the local schema model.
+func (d *Document) UnmarshalYAML(node *yaml.Node) error {
+	type extensionDocument struct {
+		Extensions Extensions `yaml:"extensions"`
+	}
+	var ext extensionDocument
+	if err := node.Decode(&d.OpenTelemetryConfiguration); err != nil {
+		return err
+	}
+	if err := node.Decode(&ext); err != nil {
+		return err
+	}
+	d.Extensions = ext.Extensions
+	return nil
+}
+
+// MarshalYAML emits the OpenTelemetry document fields and extensions. The
+// explicit wrapper avoids relying on yaml inline behavior for a type with custom
+// unmarshaling in the upstream otelconf/x package.
+func (d Document) MarshalYAML() (any, error) {
+	return struct {
+		AttributeLimits            *otelconfx.AttributeLimits                   `yaml:"attribute_limits,omitempty"`
+		Disabled                   otelconfx.OpenTelemetryConfigurationDisabled `yaml:"disabled,omitempty"`
+		Distribution               otelconfx.Distribution                       `yaml:"distribution,omitempty"`
+		FileFormat                 string                                       `yaml:"file_format"`
+		InstrumentationDevelopment *otelconfx.ExperimentalInstrumentation       `yaml:"instrumentation/development,omitempty"`
+		LogLevel                   *otelconfx.SeverityNumber                    `yaml:"log_level,omitempty"`
+		LoggerProvider             *otelconfx.LoggerProvider                    `yaml:"logger_provider,omitempty"`
+		MeterProvider              *otelconfx.MeterProvider                     `yaml:"meter_provider,omitempty"`
+		Propagator                 *otelconfx.Propagator                        `yaml:"propagator,omitempty"`
+		Resource                   *otelconfx.Resource                          `yaml:"resource,omitempty"`
+		TracerProvider             *otelconfx.TracerProvider                    `yaml:"tracer_provider,omitempty"`
+		Extensions                 Extensions                                   `yaml:"extensions"`
+	}{
+		AttributeLimits:            d.AttributeLimits,
+		Disabled:                   d.Disabled,
+		Distribution:               d.Distribution,
+		FileFormat:                 d.FileFormat,
+		InstrumentationDevelopment: d.InstrumentationDevelopment,
+		LogLevel:                   d.LogLevel,
+		LoggerProvider:             d.LoggerProvider,
+		MeterProvider:              d.MeterProvider,
+		Propagator:                 d.Propagator,
+		Resource:                   d.Resource,
+		TracerProvider:             d.TracerProvider,
+		Extensions:                 d.Extensions,
+	}, nil
 }
 
 // Extensions holds declarative configuration extensions recognized by this

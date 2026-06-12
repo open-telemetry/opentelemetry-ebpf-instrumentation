@@ -5,10 +5,15 @@ package convert // import "go.opentelemetry.io/obi/internal/config/convert"
 
 import (
 	"net/url"
+	"strconv"
+
+	otelconfx "go.opentelemetry.io/contrib/otelconf/x"
 
 	"go.opentelemetry.io/obi/internal/config/schema"
+	"go.opentelemetry.io/obi/pkg/appolly/services"
 	featureexport "go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
+	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/transform"
 )
@@ -41,12 +46,14 @@ func RuntimeToV2(cfg *obi.Config) (*schema.Document, *schema.Extension) {
 	}
 
 	doc := &schema.Document{
-		FileFormat:     "1.0",
-		Resource:       resource(cfg),
-		Propagator:     map[string]any{},
-		TracerProvider: tracerProvider(cfg),
-		MeterProvider:  meterProvider(cfg),
-		Extensions:     schema.Extensions{OBI: ext},
+		OpenTelemetryConfiguration: otelconfx.OpenTelemetryConfiguration{
+			FileFormat:     "1.0",
+			Resource:       resource(cfg),
+			Propagator:     &otelconfx.Propagator{},
+			TracerProvider: tracerProvider(cfg),
+			MeterProvider:  meterProvider(cfg),
+		},
+		Extensions: schema.Extensions{OBI: ext},
 	}
 
 	return doc, ext
@@ -449,40 +456,38 @@ func captureTelemetry(cfg *obi.Config) schema.CaptureTelemetry {
 	}
 }
 
-func resource(cfg *obi.Config) schema.Resource {
-	attributes := map[string]any{}
+func resource(cfg *obi.Config) *otelconfx.Resource {
+	var attributes []otelconfx.AttributeNameValue
 	if cfg.Attributes.InstanceID.OverrideHostname != "" {
-		attributes["host.name"] = cfg.Attributes.InstanceID.OverrideHostname
+		attributes = append(attributes, stringAttribute("host.name", cfg.Attributes.InstanceID.OverrideHostname))
 	}
 	if cfg.Attributes.HostID.Override != "" {
-		attributes["host.id"] = cfg.Attributes.HostID.Override
+		attributes = append(attributes, stringAttribute("host.id", cfg.Attributes.HostID.Override))
 	}
-	if len(attributes) == 0 {
-		return schema.Resource{}
-	}
-	return schema.Resource{Attributes: attributes}
+	return &otelconfx.Resource{Attributes: attributes}
 }
 
-func tracerProvider(cfg *obi.Config) schema.TracerProvider {
+func stringAttribute(name, value string) otelconfx.AttributeNameValue {
+	return otelconfx.AttributeNameValue{
+		Name:  name,
+		Value: value,
+	}
+}
+
+func tracerProvider(cfg *obi.Config) *otelconfx.TracerProvider {
 	endpoint, _ := cfg.Traces.OTLPTracesEndpoint()
-	return schema.TracerProvider{
-		Processors: []schema.TraceProcessor{
+	return &otelconfx.TracerProvider{
+		Processors: []otelconfx.SpanProcessor{
 			{
-				Batch: schema.TraceBatchProcessor{
-					MaxQueueSize:       cfg.Traces.QueueSize,
-					MaxExportBatchSize: cfg.Traces.BatchMaxSize,
-					ScheduleDelay:      schema.Milliseconds(cfg.Traces.BatchTimeout),
-					Exporter: schema.TraceBatchExporter{
-						OTLPGRPC: schema.OTLPGRPCExporter{
-							Endpoint: endpoint,
-							Retry: &schema.Retry{
-								InitialInterval: schema.Duration(cfg.Traces.BackOffInitialInterval),
-								MaxInterval:     schema.Duration(cfg.Traces.BackOffMaxInterval),
-								MaxElapsedTime:  schema.Duration(cfg.Traces.BackOffMaxElapsedTime),
-							},
-							TLS: schema.TLS{
-								Insecure:           insecureOTLPTransport(endpoint),
-								InsecureSkipVerify: cfg.Traces.InsecureSkipVerify,
+				Batch: &otelconfx.BatchSpanProcessor{
+					MaxQueueSize:       intPtr(cfg.Traces.QueueSize),
+					MaxExportBatchSize: intPtr(cfg.Traces.BatchMaxSize),
+					ScheduleDelay:      intPtr(int(cfg.Traces.BatchTimeout.Milliseconds())),
+					Exporter: otelconfx.SpanExporter{
+						OTLPGrpc: &otelconfx.OTLPGrpcExporter{
+							Endpoint: stringPtr(endpoint),
+							Tls: &otelconfx.GrpcTls{
+								Insecure: boolPtr(insecureOTLPTransport(endpoint)),
 							},
 						},
 					},
@@ -493,46 +498,97 @@ func tracerProvider(cfg *obi.Config) schema.TracerProvider {
 	}
 }
 
-func sampler(cfg *obi.Config) *schema.Sampler {
+func sampler(cfg *obi.Config) *otelconfx.Sampler {
 	if cfg.Traces.SamplerConfig.Name == "" && cfg.Traces.SamplerConfig.Arg == "" {
 		return nil
 	}
-	return &schema.Sampler{
-		Name: cfg.Traces.SamplerConfig.Name,
-		Arg:  cfg.Traces.SamplerConfig.Arg,
+	return declarativeSampler(cfg.Traces.SamplerConfig)
+}
+
+func declarativeSampler(cfg services.SamplerConfig) *otelconfx.Sampler {
+	switch cfg.Name {
+	case services.SamplerAlwaysOn:
+		return &otelconfx.Sampler{AlwaysOn: otelconfx.AlwaysOnSampler{}}
+	case services.SamplerAlwaysOff:
+		return &otelconfx.Sampler{AlwaysOff: otelconfx.AlwaysOffSampler{}}
+	case services.SamplerTraceIDRatio:
+		return traceIDRatioSampler(cfg.Arg)
+	case services.SamplerParentBasedAlwaysOff:
+		return parentBasedSampler(&otelconfx.Sampler{AlwaysOff: otelconfx.AlwaysOffSampler{}})
+	case services.SamplerParentBasedTraceIDRatio:
+		return parentBasedSampler(traceIDRatioSampler(cfg.Arg))
+	case services.SamplerParentBasedAlwaysOn, "":
+		return parentBasedSampler(&otelconfx.Sampler{AlwaysOn: otelconfx.AlwaysOnSampler{}})
+	default:
+		return nil
 	}
 }
 
-func meterProvider(cfg *obi.Config) schema.MeterProvider {
+func parentBasedSampler(root *otelconfx.Sampler) *otelconfx.Sampler {
+	return &otelconfx.Sampler{
+		ParentBased: &otelconfx.ParentBasedSampler{
+			Root: root,
+		},
+	}
+}
+
+func traceIDRatioSampler(raw string) *otelconfx.Sampler {
+	ratio, err := strconv.ParseFloat(raw, 64)
+	if err != nil {
+		return nil
+	}
+	return &otelconfx.Sampler{
+		TraceIDRatioBased: &otelconfx.TraceIDRatioBasedSampler{
+			Ratio: float64Ptr(ratio),
+		},
+	}
+}
+
+func meterProvider(cfg *obi.Config) *otelconfx.MeterProvider {
 	endpoint, _ := cfg.OTELMetrics.OTLPMetricsEndpoint()
-	return schema.MeterProvider{
-		Readers: []schema.MeterReader{
+	return &otelconfx.MeterProvider{
+		Readers: []otelconfx.MetricReader{
 			{
-				Periodic: &schema.PeriodicReader{
-					Interval: schema.Milliseconds(cfg.OTELMetrics.GetInterval()),
-					Exporter: schema.MetricExporter{
-						OTLPGRPC: schema.OTLPGRPCMetricExporter{
-							Endpoint:                    endpoint,
-							DefaultHistogramAggregation: cfg.OTELMetrics.HistogramAggregation,
-							TLS: schema.TLS{
-								Insecure:           insecureOTLPTransport(endpoint),
-								InsecureSkipVerify: cfg.OTELMetrics.InsecureSkipVerify,
+				Periodic: &otelconfx.PeriodicMetricReader{
+					Interval: intPtr(int(cfg.OTELMetrics.GetInterval().Milliseconds())),
+					Exporter: otelconfx.PushMetricExporter{
+						OTLPGrpc: &otelconfx.OTLPGrpcMetricExporter{
+							Endpoint:                    stringPtr(endpoint),
+							DefaultHistogramAggregation: defaultHistogramAggregation(cfg.OTELMetrics.HistogramAggregation),
+							Tls: &otelconfx.GrpcTls{
+								Insecure: boolPtr(insecureOTLPTransport(endpoint)),
 							},
 						},
 					},
 				},
 			},
 			{
-				Pull: &schema.PullReader{
-					Exporter: schema.PullExporter{
-						Prometheus: schema.PrometheusDevelopmentExporter{
-							Port: cfg.Prometheus.Port,
+				Pull: &otelconfx.PullMetricReader{
+					Exporter: otelconfx.PullMetricExporter{
+						PrometheusDevelopment: &otelconfx.ExperimentalPrometheusMetricExporter{
+							Port: intPtr(cfg.Prometheus.Port),
 						},
 					},
 				},
 			},
 		},
 	}
+}
+
+func defaultHistogramAggregation(aggregation otelcfg.HistogramAggregation) *otelconfx.ExporterDefaultHistogramAggregation {
+	if aggregation == "" {
+		return nil
+	}
+	out := otelconfx.ExporterDefaultHistogramAggregation(aggregation)
+	return &out
+}
+
+func boolPtr(value bool) *bool {
+	return &value
+}
+
+func float64Ptr(value float64) *float64 {
+	return &value
 }
 
 func insecureOTLPTransport(endpoint string) bool {

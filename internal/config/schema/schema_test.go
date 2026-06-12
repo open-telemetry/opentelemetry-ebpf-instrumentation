@@ -8,8 +8,6 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-
-	"go.opentelemetry.io/obi/pkg/appolly/services"
 )
 
 func TestParseStandaloneYAMLDocument(t *testing.T) {
@@ -19,12 +17,17 @@ func TestParseStandaloneYAMLDocument(t *testing.T) {
 file_format: "1.0"
 resource:
   attributes:
-    service.namespace: checkout
+    - name: service.namespace
+      value: checkout
 propagator:
-  composite: [tracecontext, baggage]
+  composite:
+    - tracecontext:
+    - baggage:
 tracer_provider:
   sampler:
-    name: parentbased_always_on
+    parent_based:
+      root:
+        always_on:
 meter_provider:
   readers:
     - periodic:
@@ -70,12 +73,21 @@ extensions:
 	require.NotNil(t, cfg)
 	require.Equal(t, "1.0", doc.FileFormat)
 	require.Equal(t, SupportedVersion, cfg.Version)
+	require.NotNil(t, doc.InstrumentationDevelopment)
+	require.Len(t, doc.Resource.Attributes, 1)
+	require.Equal(t, "service.namespace", doc.Resource.Attributes[0].Name)
+	require.Equal(t, "checkout", doc.Resource.Attributes[0].Value)
+	require.Len(t, doc.Propagator.Composite, 2)
 	require.NotNil(t, doc.TracerProvider.Sampler)
-	require.Equal(t, services.SamplerParentBasedAlwaysOn, doc.TracerProvider.Sampler.Name)
+	require.NotNil(t, doc.TracerProvider.Sampler.ParentBased)
+	require.NotNil(t, doc.TracerProvider.Sampler.ParentBased.Root)
+	require.NotNil(t, doc.TracerProvider.Sampler.ParentBased.Root.AlwaysOn)
 	require.Len(t, doc.MeterProvider.Readers, 1)
 	require.NotNil(t, doc.MeterProvider.Readers[0].Periodic)
-	require.Equal(t, Milliseconds(time.Second), doc.MeterProvider.Readers[0].Periodic.Interval)
-	require.Equal(t, "http://localhost:4317", doc.MeterProvider.Readers[0].Periodic.Exporter.OTLPGRPC.Endpoint)
+	require.NotNil(t, doc.MeterProvider.Readers[0].Periodic.Interval)
+	require.Equal(t, int((time.Second).Milliseconds()), *doc.MeterProvider.Readers[0].Periodic.Interval)
+	require.NotNil(t, doc.MeterProvider.Readers[0].Periodic.Exporter.OTLPGrpc)
+	require.Equal(t, "http://localhost:4317", *doc.MeterProvider.Readers[0].Periodic.Exporter.OTLPGrpc.Endpoint)
 	require.Equal(t, CaptureActionInclude, cfg.Capture.Policy.DefaultAction)
 	require.Equal(t, MatchOrderLastMatchWins, cfg.Capture.Policy.MatchOrder)
 	require.Len(t, cfg.Capture.Rules, 1)
@@ -185,6 +197,7 @@ meter_provider:
     - periodic:
         exporter:
           otlp_grpc:
+            endpoint: http://localhost:4317
             default_histogram_aggregation: made-up
 extensions:
   obi:
@@ -193,7 +206,8 @@ extensions:
 `))
 
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "invalid default_histogram_aggregation")
+	require.Contains(t, err.Error(), "invalid histogram aggregation")
+	require.Contains(t, err.Error(), "made-up")
 }
 
 func TestReceiverRejectsStandaloneSections(t *testing.T) {
