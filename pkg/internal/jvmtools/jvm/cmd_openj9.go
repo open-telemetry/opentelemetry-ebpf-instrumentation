@@ -32,6 +32,10 @@ type j9Attacher struct {
 }
 
 func newJ9Attacher(logger *slog.Logger) *j9Attacher {
+	if logger == nil {
+		logger = slog.Default()
+	}
+
 	j := &j9Attacher{
 		logger: logger,
 		fd:     -1,
@@ -489,7 +493,7 @@ func (j *j9Attacher) jattachOpenJ9(tmpPath string, nspid int, argv []string) (re
 	}
 	attachLock = -1
 
-	j.logger.Info("Connected to remote JVM")
+	j.logger.Info("connected to remote JVM")
 
 	cmd := translateCommand(argv)
 

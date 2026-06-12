@@ -26,6 +26,10 @@ type JAttacher struct {
 }
 
 func NewJAttacher(logger *slog.Logger) *JAttacher {
+	if logger == nil {
+		logger = slog.Default()
+	}
+
 	return &JAttacher{
 		logger:     logger,
 		j9attacher: nil,
@@ -49,18 +53,15 @@ func (j *JAttacher) Cleanup() error {
 		cleanupErr = errors.Join(cleanupErr, j.j9attacher.detach())
 	}
 	if err := syscall.Seteuid(j.myUID); err != nil {
-		j.logger.Error("failed to restore uid", "error", err)
 		cleanupErr = errors.Join(cleanupErr, err)
 	}
 	if err := syscall.Setegid(j.myGID); err != nil {
-		j.logger.Error("failed to restore gid", "error", err)
 		cleanupErr = errors.Join(cleanupErr, err)
 	}
 
 	for _, nsType := range []string{"net", "ipc", "mnt"} {
 		if util.EnterNS(j.myPID, nsType) < 0 {
 			err := fmt.Errorf("failed to restore %s namespace", nsType)
-			j.logger.Error("failed to restore namespace", "namespace", nsType)
 			cleanupErr = errors.Join(cleanupErr, err)
 		}
 	}
