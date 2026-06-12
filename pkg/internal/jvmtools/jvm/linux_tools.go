@@ -12,11 +12,6 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-const (
-	ipcCreate = unix.IPC_CREAT
-	ipcNoWait = unix.IPC_NOWAIT
-)
-
 type sembuf struct {
 	Num uint16
 	Op  int16

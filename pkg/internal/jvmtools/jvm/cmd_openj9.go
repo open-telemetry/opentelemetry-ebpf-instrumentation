@@ -19,6 +19,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 const (
@@ -255,14 +257,14 @@ func notifySemaphore(tmpPath string, value, notifyCount int) error {
 		return err
 	}
 
-	semID, err := semget(semKey, 1, ipcCreate|0o666)
+	semID, err := semget(semKey, 1, unix.IPC_CREAT|0o666)
 	if err != nil {
 		return err
 	}
 
 	flags := int16(0)
 	if value < 0 {
-		flags = ipcNoWait
+		flags = unix.IPC_NOWAIT
 	}
 
 	sb := createSembuf(0, int16(value), flags)
