@@ -164,13 +164,32 @@ func TestResolveProcessPath(t *testing.T) {
 	})
 }
 
+func TestIsProcRoot(t *testing.T) {
+	tests := []struct {
+		root string
+		want bool
+	}{
+		{root: "/proc/1/root", want: true},
+		{root: "/proc/1234/root/", want: true},
+		{root: "/proc/self/root", want: false},
+		{root: "/proc/1/cwd", want: false},
+		{root: "/tmp/proc/1/root", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.root, func(t *testing.T) {
+			assert.Equal(t, tt.want, isProcRoot(tt.root))
+		})
+	}
+}
+
 func TestFindScanRoots(t *testing.T) {
 	root := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "app", "classes"), 0o755))
 	writeFile(t, filepath.Join(root, "app", "app.jar"))
 
 	t.Run("finds jar root", func(t *testing.T) {
-		fileInfo := javaClasspathFileInfo(t, root, "/app", []string{"-jar", "app.jar"}, nil, nil, nil)
+		fileInfo := javaClasspathFileInfo(t, root, []string{"-jar", "app.jar"}, nil, nil, nil)
 
 		roots, err := NewExtractor().findScanRoots(fileInfo)
 
@@ -179,7 +198,7 @@ func TestFindScanRoots(t *testing.T) {
 	})
 
 	t.Run("finds explicit classpath root before env", func(t *testing.T) {
-		fileInfo := javaClasspathFileInfo(t, root, "/app", []string{"-cp", "classes", "com.example.Main"},
+		fileInfo := javaClasspathFileInfo(t, root, []string{"-cp", "classes", "com.example.Main"},
 			map[string]string{envClasspath: "missing"}, nil, nil)
 
 		roots, err := NewExtractor().findScanRoots(fileInfo)
@@ -189,7 +208,7 @@ func TestFindScanRoots(t *testing.T) {
 	})
 
 	t.Run("finds env classpath root", func(t *testing.T) {
-		fileInfo := javaClasspathFileInfo(t, root, "/app", []string{"com.example.Main"},
+		fileInfo := javaClasspathFileInfo(t, root, []string{"com.example.Main"},
 			map[string]string{envClasspath: "classes"}, nil, nil)
 
 		roots, err := NewExtractor().findScanRoots(fileInfo)
@@ -200,7 +219,7 @@ func TestFindScanRoots(t *testing.T) {
 
 	t.Run("errors when cmdline lookup fails", func(t *testing.T) {
 		expectedErr := errors.New("boom")
-		fileInfo := javaClasspathFileInfo(t, root, "/app", nil, nil, expectedErr, nil)
+		fileInfo := javaClasspathFileInfo(t, root, nil, nil, expectedErr, nil)
 
 		roots, err := NewExtractor().findScanRoots(fileInfo)
 
@@ -211,7 +230,7 @@ func TestFindScanRoots(t *testing.T) {
 
 	t.Run("errors when cwd lookup fails", func(t *testing.T) {
 		expectedErr := errors.New("boom")
-		fileInfo := javaClasspathFileInfo(t, root, "/app", []string{"-jar", "app.jar"}, nil, nil, expectedErr)
+		fileInfo := javaClasspathFileInfo(t, root, []string{"-jar", "app.jar"}, nil, nil, expectedErr)
 
 		roots, err := NewExtractor().findScanRoots(fileInfo)
 
@@ -230,13 +249,14 @@ func writeFile(t *testing.T, path string) {
 func javaClasspathFileInfo(
 	t *testing.T,
 	root string,
-	cwd string,
 	args []string,
 	env map[string]string,
 	cmdlineErr error,
 	cwdErr error,
 ) *exec.FileInfo {
 	t.Helper()
+
+	cwd := "/app"
 
 	pid := app.PID(4321)
 	oldRootDirForPID := rootDirForPID

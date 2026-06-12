@@ -1,7 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package java
+package java // import "go.opentelemetry.io/obi/pkg/internal/transform/route/harvest/java"
 
 import (
 	"archive/zip"

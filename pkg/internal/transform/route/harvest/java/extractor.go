@@ -5,6 +5,7 @@
 package java // import "go.opentelemetry.io/obi/pkg/internal/transform/route/harvest/java"
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"sort"
@@ -43,7 +44,7 @@ func NewExtractor() *Extractor {
 
 func (e *Extractor) ExtractRoutes(fileInfo *exec.FileInfo) ([]string, error) {
 	if fileInfo == nil {
-		return nil, fmt.Errorf("java route harvesting requires process file info")
+		return nil, errors.New("java route harvesting requires process file info")
 	}
 
 	roots, err := e.findScanRoots(fileInfo)

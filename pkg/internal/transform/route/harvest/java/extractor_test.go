@@ -38,6 +38,18 @@ var expectedRoutes = []string{
 	"/v1/users/{id}",
 }
 
+var expectedGreetingRoutes = []string{
+	"/sync-client",
+	"/json_logger",
+	"/greeting",
+	"/jtrace2",
+	"/jtraceA",
+	"/jtraceB",
+	"/jtrace",
+	"/smoke",
+	"/greeting123/{whatever}",
+}
+
 func TestExtractRoutesFromSpringBootJar(t *testing.T) {
 	fileInfo := javaFileInfo(t, []string{"-jar", "/spring-boot-app.jar"}, nil)
 
@@ -116,7 +128,7 @@ func javaFileInfo(t *testing.T, args []string, env map[string]string) *exec.File
 	t.Helper()
 
 	pid := app.PID(1234)
-	root := filepath.Join("test_files")
+	root := "test_files"
 	oldRootDirForPID := rootDirForPID
 	oldCmdlineForPID := cmdlineForPID
 	oldCwdForPID := cwdForPID

@@ -1,10 +1,11 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package java
+package java // import "go.opentelemetry.io/obi/pkg/internal/transform/route/harvest/java"
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 )
 
@@ -389,7 +390,7 @@ func (cp constantPool) stringValue(index uint16) (string, bool) {
 
 func (r *classReader) u1() (uint8, error) {
 	if r.off+1 > len(r.data) {
-		return 0, fmt.Errorf("unexpected end of class file")
+		return 0, errors.New("unexpected end of class file")
 	}
 	value := r.data[r.off]
 	r.off++
@@ -398,7 +399,7 @@ func (r *classReader) u1() (uint8, error) {
 
 func (r *classReader) u2() (uint16, error) {
 	if r.off+2 > len(r.data) {
-		return 0, fmt.Errorf("unexpected end of class file")
+		return 0, errors.New("unexpected end of class file")
 	}
 	value := binary.BigEndian.Uint16(r.data[r.off:])
 	r.off += 2
@@ -407,7 +408,7 @@ func (r *classReader) u2() (uint16, error) {
 
 func (r *classReader) u4() (uint32, error) {
 	if r.off+4 > len(r.data) {
-		return 0, fmt.Errorf("unexpected end of class file")
+		return 0, errors.New("unexpected end of class file")
 	}
 	value := binary.BigEndian.Uint32(r.data[r.off:])
 	r.off += 4
@@ -416,7 +417,7 @@ func (r *classReader) u4() (uint32, error) {
 
 func (r *classReader) bytes(n int) ([]byte, error) {
 	if n < 0 || r.off+n > len(r.data) {
-		return nil, fmt.Errorf("unexpected end of class file")
+		return nil, errors.New("unexpected end of class file")
 	}
 	value := r.data[r.off : r.off+n]
 	r.off += n

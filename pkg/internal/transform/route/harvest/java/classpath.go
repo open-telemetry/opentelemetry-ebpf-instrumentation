@@ -1,7 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package java
+package java // import "go.opentelemetry.io/obi/pkg/internal/transform/route/harvest/java"
 
 import (
 	"fmt"
@@ -53,7 +53,7 @@ func (e *Extractor) findScanRoots(fileInfo *exec.FileInfo) ([]scanRoot, error) {
 		if isRegularFile(root) {
 			return []scanRoot{{path: root}}, nil
 		}
-		return nil, fmt.Errorf("Java jar path %q is not a regular file", launch.jar)
+		return nil, fmt.Errorf("java jar path %q is not a regular file", launch.jar)
 	}
 
 	if launch.classpath == "" {
@@ -145,6 +145,13 @@ func resolveProcessPath(root, cwd, path string) (string, bool) {
 		return "", false
 	}
 
+	if isProcRoot(root) {
+		if _, err := os.Stat(hostPath); err != nil {
+			return "", false
+		}
+		return hostPath, true
+	}
+
 	rootEval, err := filepath.EvalSymlinks(root)
 	if err != nil {
 		return "", false
@@ -158,6 +165,24 @@ func resolveProcessPath(root, cwd, path string) (string, bool) {
 	}
 
 	return hostEval, true
+}
+
+func isProcRoot(root string) bool {
+	root = filepath.Clean(root)
+	if !strings.HasPrefix(root, "/proc/") || !strings.HasSuffix(root, "/root") {
+		return false
+	}
+
+	pid := strings.TrimSuffix(strings.TrimPrefix(root, "/proc/"), "/root")
+	if pid == "" {
+		return false
+	}
+	for _, r := range pid {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func pathInRoot(root, path string) bool {
