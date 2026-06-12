@@ -11,7 +11,7 @@ import (
 
 var (
 	curlyBracesRegexp = regexp.MustCompile(`\{([^}]*)\}`)
-	validURLPath      = regexp.MustCompile(`^[A-Za-z0-9\-_{}\./]+$`)
+	validURLPath      = regexp.MustCompile(`^[A-Za-z0-9\-_:{}\./*]+$`)
 	validParamName    = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 )
 
@@ -37,16 +37,23 @@ func normalizeRoute(route string) (string, bool) {
 	if route == "" {
 		return "", false
 	}
-	if strings.Contains(route, "*") ||
-		strings.Contains(route, "?") ||
-		strings.Contains(route, "#") ||
-		strings.Contains(route, "://") ||
+	if strings.Contains(route, "://") ||
 		strings.Contains(route, "${") {
+		return "", false
+	}
+	route = trimQueryOrFragment(route)
+	if route == "" {
+		return "", false
+	}
+
+	route, ok := normalizeWildcardSegments(route)
+	if !ok {
 		return "", false
 	}
 
 	route = ensureLeadingSlash(route)
 	route = sanitizeParams(route)
+	route = sanitizeAngleParams(route)
 	route = sanitizeColonParams(route)
 	if len(route) > 1 {
 		route = strings.TrimRight(route, "/")
@@ -95,17 +102,70 @@ func sanitizeParams(s string) string {
 	})
 }
 
-func sanitizeColonParams(s string) string {
+func sanitizeAngleParams(s string) string {
 	parts := strings.Split(s, "/")
 	for i, part := range parts {
-		if !strings.HasPrefix(part, ":") {
+		if !strings.HasPrefix(part, "<") || !strings.HasSuffix(part, ">") {
 			continue
 		}
-		name := strings.TrimPrefix(part, ":")
+		name := strings.TrimSuffix(strings.TrimPrefix(part, "<"), ">")
 		if !validParamName.MatchString(name) {
 			continue
 		}
 		parts[i] = "{" + name + "}"
 	}
 	return strings.Join(parts, "/")
+}
+
+func trimQueryOrFragment(route string) string {
+	cut := len(route)
+	for _, marker := range []string{"?", "#"} {
+		if i := strings.Index(route, marker); i >= 0 && i < cut {
+			cut = i
+		}
+	}
+	return route[:cut]
+}
+
+func sanitizeColonParams(s string) string {
+	parts := strings.Split(s, "/")
+	for i, part := range parts {
+		if !strings.Contains(part, ":") {
+			continue
+		}
+		if !strings.HasPrefix(part, ":") {
+			return routePrefix(parts[:i])
+		}
+
+		name := strings.TrimPrefix(part, ":")
+		if !validParamName.MatchString(name) {
+			return routePrefix(parts[:i])
+		}
+	}
+	return strings.Join(parts, "/")
+}
+
+func routePrefix(parts []string) string {
+	prefix := strings.Join(parts, "/")
+	if prefix == "" {
+		return "/"
+	}
+	return prefix
+}
+
+func normalizeWildcardSegments(route string) (string, bool) {
+	parts := strings.Split(route, "/")
+	for i, part := range parts {
+		if !strings.Contains(part, "*") {
+			continue
+		}
+		switch part {
+		case "*":
+		case "**":
+			parts[i] = "*"
+		default:
+			return "", false
+		}
+	}
+	return strings.Join(parts, "/"), true
 }

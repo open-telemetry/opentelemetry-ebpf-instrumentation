@@ -122,10 +122,7 @@ func scanRootsFromClasspath(root, cwd, classpath string) []scanRoot {
 	if len(dirs) > 0 {
 		return dirs
 	}
-	if len(jars) == 1 {
-		return jars
-	}
-	return nil
+	return jars
 }
 
 func resolveProcessPath(root, cwd, path string) (string, bool) {

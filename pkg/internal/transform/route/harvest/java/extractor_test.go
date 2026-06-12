@@ -22,15 +22,18 @@ var expectedRoutes = []string{
 	"/jax",
 	"/mn/submit",
 	"/mn/things",
+	"/v1/assets/*",
+	"/api/assets/*",
 	"/reactive/status",
+	"/reactive/files/*",
 	"/api/orders",
 	"/v1/orders",
 	"/api/orders/{orderId}",
 	"/api/users/{id}",
 	"/jax/items/{id}",
 	"/mn/things/{name}",
-	"/reactive/health/{probe}",
-	"/reactive/items/{itemId}",
+	"/reactive/health/:probe",
+	"/reactive/items/:itemId",
 	"/v1/orders/{orderId}",
 	"/v1/users/{id}",
 }
@@ -42,9 +45,10 @@ func TestExtractRoutesFromSpringBootJar(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.ElementsMatch(t, expectedRoutes, routes)
-	assert.NotContains(t, routes, "/api/assets/*")
+	assert.NotContains(t, routes, "/api/assets")
+	assert.NotContains(t, routes, "/v1/assets")
 	assert.NotContains(t, routes, "/api/${api.base}/dynamic")
-	assert.NotContains(t, routes, "/reactive/files/*")
+	assert.NotContains(t, routes, "/reactive/files")
 }
 
 func TestExtractRoutesFromWarClasses(t *testing.T) {
@@ -87,13 +91,13 @@ func TestExtractRoutesFromSingleClasspathJar(t *testing.T) {
 	assert.ElementsMatch(t, expectedRoutes, routes)
 }
 
-func TestExtractRoutesIgnoresMultipleClasspathJars(t *testing.T) {
+func TestExtractRoutesFromMultipleClasspathJars(t *testing.T) {
 	fileInfo := javaFileInfo(t, []string{"-cp", "/regular-app.jar:/spring-boot-app.jar", "com.example.Main"}, nil)
 
 	routes, err := ExtractRoutes(fileInfo)
 
-	require.Error(t, err)
-	assert.Empty(t, routes)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, expectedRoutes, routes)
 }
 
 func TestResolveProcessPathRejectsSymlinkEscape(t *testing.T) {
