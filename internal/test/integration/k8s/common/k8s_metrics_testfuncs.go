@@ -54,14 +54,14 @@ var (
 		"http_client_response_body_size_bytes_bucket",
 	}
 	grpcServerMetrics = []string{
-		"rpc_server_duration_seconds_count",
-		"rpc_server_duration_seconds_sum",
-		"rpc_server_duration_seconds_bucket",
+		"rpc_server_call_duration_seconds_count",
+		"rpc_server_call_duration_seconds_sum",
+		"rpc_server_call_duration_seconds_bucket",
 	}
 	grpcClientMetrics = []string{
-		"rpc_client_duration_seconds_count",
-		"rpc_client_duration_seconds_sum",
-		"rpc_client_duration_seconds_bucket",
+		"rpc_client_call_duration_seconds_count",
+		"rpc_client_call_duration_seconds_sum",
+		"rpc_client_call_duration_seconds_bucket",
 	}
 	spanGraphMetrics = []string{
 		"traces_service_graph_request_server_seconds_count",

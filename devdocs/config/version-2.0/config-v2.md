@@ -274,6 +274,47 @@ The extra nesting was removed for the following reasons:
 - Removing the indirection saves one nesting level on every rule users write, with no loss of meaning.
 - `capture.policy` and `capture.rules` read naturally as "the capture policy" and "the capture rules", reinforcing the parent section's meaning rather than fighting it.
 
+#### Effective discovery selector export shape
+
+The v1-to-v2 export path writes effective discovery selectors into `capture.rules`.
+It does not only copy `discovery.instrument` literally. It uses the same effective selector inputs as runtime discovery:
+
+- `target_pids` becomes a single include rule that matches `process.target_pids`.
+- Modern glob selectors from `discovery.instrument`, `discovery.exclude_instrument`, and environment auto-target fields become include/exclude rules with `*_glob` match fields.
+- Legacy regex selectors from `discovery.services`, `discovery.exclude_services`, `executable_path`, and `open_port` become include/exclude rules with `*_regex` match fields.
+- Default excludes and already-instrumented-service detection become explicit exclude rules.
+
+Known `match.process` fields exported today:
+
+| v2 field | Value shape | Source |
+|---|---|---|
+| `open_ports` | String int/range list, for example `"8080,9090-9091"` | v1 `open_ports` / `open_port` |
+| `target_pids` | Integer array | v1 `target_pids` |
+| `language_glob` | String array | v1 glob `languages` |
+| `language_regex` | String regex | legacy v1 regex `languages` |
+| `cmd_args_glob` | String array | v1 glob `cmd_args` |
+| `cmd_args_regex` | String regex | legacy v1 regex `cmd_args` |
+| `exe_path_glob` | String array | v1 glob `exe_path` and excluded system paths |
+| `exe_path_regex` | String regex | legacy v1 regex `exe_path` / `exe_path_regexp` and `executable_path` |
+| `containers_only` | Boolean | v1 `containers_only` |
+| `exports_otlp` | Object with `port` and `protocol` | v1 `exclude_otel_instrumented_services` |
+
+Known `match.kubernetes` fields exported today:
+
+| v2 field | Value shape | Source |
+|---|---|---|
+| `namespace_glob` | String array | v1 `k8s_namespace` in glob selectors |
+| `namespace_regex` | String regex | legacy v1 `k8s_namespace` in regex selectors |
+| `metadata_glob` | Map of Kubernetes metadata key to string array | Non-namespace v1 Kubernetes metadata in glob selectors |
+| `metadata_regex` | Map of Kubernetes metadata key to regex string | Non-namespace v1 Kubernetes metadata in legacy regex selectors |
+| `pod_labels` | Map of pod label key to string array | v1 `k8s_pod_labels` in glob selectors |
+| `pod_labels_regex` | Map of pod label key to regex string | legacy v1 `k8s_pod_labels` in regex selectors |
+| `pod_annotations` | Map of pod annotation key to string array | v1 `k8s_pod_annotations` in glob selectors |
+| `pod_annotations_regex` | Map of pod annotation key to regex string | legacy v1 `k8s_pod_annotations` in regex selectors |
+
+`metadata_glob` and `metadata_regex` intentionally exclude `k8s_namespace`; namespace has first-class fields because it is the most common Kubernetes selector.
+Other allowed metadata keys currently include `k8s_pod_name`, `k8s_deployment_name`, `k8s_replicaset_name`, `k8s_daemonset_name`, `k8s_statefulset_name`, `k8s_job_name`, `k8s_cronjob_name`, `k8s_owner_name`, `k8s_container_name`, and `container_name`.
+
 #### Per-workload refinement: `refine` on include rules
 
 Include rules may carry an optional `refine` block that overrides global defaults for matched workloads.
@@ -418,7 +459,7 @@ For example, SQL has `mysql` and `postgres` for driver-specific controls, HTTP h
 HTTP `payload_extraction` uses the same list-based enablement model as other instrumentation selectors:
 
 - `payload_extraction.enabled` is the only enablement surface.
-- Concrete values currently supported are `graphql`, `elasticsearch`, `aws`, and `sqlpp`.
+- Concrete values currently supported are `graphql`, `elasticsearch`, `aws`, `sqlpp`, `openai`, `anthropic`, `gemini`, `qwen`, `bedrock`, `mcp`, `embedding`, `rerank`, `retrieval`, `jsonrpc`, and `enrichment`.
 - Nested extractor blocks are for tuning, not duplicate enablement. For example, `payload_extraction.sqlpp.endpoint_patterns` refines SQL++ matching after `sqlpp` is enabled in the list.
 - If future aliases or families are needed, they should be added as values in the same `enabled` list rather than introducing parallel knobs.
 
@@ -435,6 +476,13 @@ Java also includes additional runtime-specific configuration such as debug contr
 
 The `capture.network` section defines how network observability is configured, including endpoint identity, selection criteria, flow lifecycle controls, interface discovery behavior, enrichment options, and diagnostics.
 This section is the primary user control for defining how OBI captures and processes network telemetry.
+
+The current shape separates packet/flow capture from TCP stats capture:
+
+- `capture.network.capture` controls network flow capture and flow-derived telemetry.
+- `capture.network.stats` controls TCP stats telemetry. `enabled` is the stats master switch, and `features` lists enabled stats families: `tcp_rtt`, `tcp_failed_connections`, `tcp_retransmits`, and `tcp_io`.
+
+`tcp_io` can produce substantially more events than the other stats families, so users should opt into it deliberately when they need per-send/per-receive I/O stats.
 
 ### `capture.engine` Section
 
@@ -532,7 +580,9 @@ Important mapping notes:
 - Some mappings are non-1:1:
   - `filter.application` fans out to `capture.instrumentation.<protocol>.filters.{traces,metrics}`.
   - `filter.network` fans out to `capture.network.capture.filters.{traces,metrics}`.
-  - `metrics.features` maps to `capture.instrumentation.<protocol>.enabled.metrics` + `capture.network.capture.enabled`.
+  - `filter.stats` fans out to `capture.network.stats.filters.{traces,metrics}`.
+  - `metrics.features` maps to `capture.instrumentation.<protocol>.enabled.metrics`, `capture.network.capture.enabled`, and `capture.network.stats.{enabled,features}`.
+  - Discovery selectors are exported as effective `capture.rules` after legacy/new selector precedence is resolved.
   - `discovery.skip_go_specific_tracers` maps to `capture.runtimes.go.enabled` with inverted semantics.
 
 | v1 field | v2 canonical location | Notes |
@@ -546,41 +596,70 @@ Important mapping notes:
 | `channel_send_timeout_panic` | `extensions.obi.capture.channels.panic_on_send_timeout` | Move + rename |
 | `discovery.bpf_pid_filter_off` | `extensions.obi.capture.engine.pid_filter.disabled` | Move + rename |
 | `discovery.default_otlp_grpc_port` | `extensions.obi.capture.rules[].match.process.exports_otlp.port` | Move + reshape |
+| `discovery.default_exclude_instrument` | `extensions.obi.capture.rules[]` (exclude rules with glob selectors) | Move + reshape |
+| `discovery.default_exclude_services` | `extensions.obi.capture.rules[]` (exclude rules with legacy regex selectors) | Legacy move + reshape |
 | `discovery.disabled_route_harvesters` | `extensions.obi.capture.instrumentation.http.routes.discovery.disabled_languages` | Move + rename |
+| `discovery.exclude_instrument` | `extensions.obi.capture.rules[]` (exclude rules with glob selectors) | Move + reshape |
 | `discovery.exclude_otel_instrumented_services` | `extensions.obi.capture.rules[].match.process.exports_otlp` (exclude rule) | Move + reshape |
+| `discovery.exclude_services` | `extensions.obi.capture.rules[]` (exclude rules with legacy regex selectors) | Legacy move + reshape |
 | `discovery.excluded_linux_system_paths` | `extensions.obi.capture.rules[].match.process.exe_path_glob` (exclude rule) | Move + reshape |
+| `discovery.instrument` | `extensions.obi.capture.rules[]` (include rules with glob selectors) | Move + reshape |
 | `discovery.min_process_age` | `extensions.obi.capture.policy.min_process_age` | Move |
 | `discovery.route_harvester_advanced.java_harvest_delay` | `extensions.obi.capture.instrumentation.http.routes.discovery.java.delay` | Move + rename |
 | `discovery.route_harvester_timeout` | `extensions.obi.capture.instrumentation.http.routes.discovery.timeout` | Move + rename |
+| `discovery.services` | `extensions.obi.capture.rules[]` (include rules with legacy regex selectors) | Legacy move + reshape |
 | `discovery.skip_go_specific_tracers` | `extensions.obi.capture.runtimes.go.enabled` | Inverted boolean mapping |
 | `ebpf.batch_length` | `extensions.obi.capture.engine.batching.batch_length` | Move |
 | `ebpf.batch_timeout` | `extensions.obi.capture.engine.batching.batch_timeout` | Move |
 | `ebpf.bpf_fs_path` | `extensions.obi.capture.engine.bpf_filesystem.path` | Move + rename |
 | `ebpf.buffer_sizes.http` | `extensions.obi.capture.instrumentation.http.buffer_size` | Move |
 | `ebpf.buffer_sizes.kafka` | `extensions.obi.capture.instrumentation.kafka.buffer_size` | Move |
+| `ebpf.buffer_sizes.mssql` | `extensions.obi.capture.instrumentation.sql.mssql.buffer_size` | Move |
 | `ebpf.buffer_sizes.mysql` | `extensions.obi.capture.instrumentation.sql.mysql.buffer_size` | Move |
 | `ebpf.buffer_sizes.postgres` | `extensions.obi.capture.instrumentation.sql.postgres.buffer_size` | Move |
 | `ebpf.dns_request_timeout` | `extensions.obi.capture.instrumentation.dns.request_timeout` | Move |
+| `ebpf.force_bpf_map_reader` | `extensions.obi.capture.engine.traffic.force_map_reader` | Move + rename |
 | `ebpf.heuristic_sql_detect` | `extensions.obi.capture.instrumentation.sql.heuristic_detect` | Move + rename |
 | `ebpf.kafka_topic_uuid_cache_size` | `extensions.obi.capture.instrumentation.kafka.topic_uuid_cache_size` | Move |
 | `ebpf.log_enricher.cache_size` | `extensions.obi.correlation.log_trace_annotation.cache.size` | Move + rename |
 | `ebpf.log_enricher.cache_ttl` | `extensions.obi.correlation.log_trace_annotation.cache.ttl` | Move + rename |
 | `ebpf.log_enricher.async_writer_workers` | `extensions.obi.correlation.log_trace_annotation.async_writer.workers` | Move + rename |
 | `ebpf.log_enricher.async_writer_channel_len` | `extensions.obi.correlation.log_trace_annotation.async_writer.channel_len` | Move + rename |
+| `ebpf.maps_config.global_scale_factor` | `extensions.obi.capture.engine.maps.global_scale_factor` | Move + rename |
 | `ebpf.max_transaction_time` | `extensions.obi.capture.engine.transactions.max_duration` | Move + rename |
+| `ebpf.mssql_prepared_statements_cache_size` | `extensions.obi.capture.instrumentation.sql.mssql.prepared_statements_cache_size` | Move |
 | `ebpf.mysql_prepared_statements_cache_size` | `extensions.obi.capture.instrumentation.sql.mysql.prepared_statements_cache_size` | Move |
 | `ebpf.payload_extraction.http.graphql.enabled` | `extensions.obi.capture.instrumentation.http.payload_extraction.enabled[]` contains `graphql` | Move + normalize |
 | `ebpf.payload_extraction.http.elasticsearch.enabled` | `extensions.obi.capture.instrumentation.http.payload_extraction.enabled[]` contains `elasticsearch` | Move + normalize |
 | `ebpf.payload_extraction.http.aws.enabled` | `extensions.obi.capture.instrumentation.http.payload_extraction.enabled[]` contains `aws` | Move + normalize |
 | `ebpf.payload_extraction.http.sqlpp.enabled` | `extensions.obi.capture.instrumentation.http.payload_extraction.enabled[]` contains `sqlpp` | Move + normalize |
 | `ebpf.payload_extraction.http.sqlpp.endpoint_patterns` | `extensions.obi.capture.instrumentation.http.payload_extraction.sqlpp.endpoint_patterns` | Move |
+| `ebpf.payload_extraction.http.genai.openai.enabled` | `extensions.obi.capture.instrumentation.http.payload_extraction.enabled[]` contains `openai` | Move + normalize |
+| `ebpf.payload_extraction.http.genai.anthropic.enabled` | `extensions.obi.capture.instrumentation.http.payload_extraction.enabled[]` contains `anthropic` | Move + normalize |
+| `ebpf.payload_extraction.http.genai.gemini.enabled` | `extensions.obi.capture.instrumentation.http.payload_extraction.enabled[]` contains `gemini` | Move + normalize |
+| `ebpf.payload_extraction.http.genai.qwen.enabled` | `extensions.obi.capture.instrumentation.http.payload_extraction.enabled[]` contains `qwen` | Move + normalize |
+| `ebpf.payload_extraction.http.genai.bedrock.enabled` | `extensions.obi.capture.instrumentation.http.payload_extraction.enabled[]` contains `bedrock` | Move + normalize |
+| `ebpf.payload_extraction.http.genai.mcp.enabled` | `extensions.obi.capture.instrumentation.http.payload_extraction.enabled[]` contains `mcp` | Move + normalize |
+| `ebpf.payload_extraction.http.genai.embedding.enabled` | `extensions.obi.capture.instrumentation.http.payload_extraction.enabled[]` contains `embedding` | Move + normalize |
+| `ebpf.payload_extraction.http.genai.rerank.enabled` | `extensions.obi.capture.instrumentation.http.payload_extraction.enabled[]` contains `rerank` | Move + normalize |
+| `ebpf.payload_extraction.http.genai.retrieval.enabled` | `extensions.obi.capture.instrumentation.http.payload_extraction.enabled[]` contains `retrieval` | Move + normalize |
+| `ebpf.payload_extraction.http.jsonrpc.enabled` | `extensions.obi.capture.instrumentation.http.payload_extraction.enabled[]` contains `jsonrpc` | Move + normalize |
+| `ebpf.payload_extraction.http.enrichment.enabled` | `extensions.obi.capture.instrumentation.http.payload_extraction.enabled[]` contains `enrichment` | Move + normalize |
+| `ebpf.payload_extraction.http.enrichment.policy.default_action.headers` | `extensions.obi.capture.instrumentation.http.payload_extraction.enrichment.policy.default_action.headers` | Move |
+| `ebpf.payload_extraction.http.enrichment.policy.default_action.body` | `extensions.obi.capture.instrumentation.http.payload_extraction.enrichment.policy.default_action.body` | Move |
+| `ebpf.payload_extraction.http.enrichment.policy.obfuscation_string` | `extensions.obi.capture.instrumentation.http.payload_extraction.enrichment.policy.obfuscation_string` | Move |
+| `ebpf.payload_extraction.http.enrichment.rules` | `extensions.obi.capture.instrumentation.http.payload_extraction.enrichment.rules` | Move |
 | `ebpf.postgres_prepared_statements_cache_size` | `extensions.obi.capture.instrumentation.sql.postgres.prepared_statements_cache_size` | Move |
 | `ebpf.redis_db_cache.enabled` | `extensions.obi.capture.instrumentation.redis.db_cache.enabled` | Move |
 | `ebpf.traffic_control_backend` | `extensions.obi.capture.engine.traffic.control_backend` | Move + rename |
 | `ebpf.wakeup_len` | `extensions.obi.capture.engine.batching.wakeup_len` | Move |
 | `enforce_sys_caps` | `extensions.obi.capture.safety.enforce_system_capabilities` | Move + rename |
+| `executable_path` | `extensions.obi.capture.rules[].match.process.exe_path_regex` (include rule) | Legacy fallback selector |
+| `open_port` | `extensions.obi.capture.rules[].match.process.open_ports` (include rule) | Fallback selector |
+| `target_pids` | `extensions.obi.capture.rules[].match.process.target_pids` (include rule) | Fallback selector |
 | `filter.application` | `extensions.obi.capture.instrumentation.<protocol>.filters.{traces,metrics}` | Fan-out to all protocols/signals |
 | `filter.network` | `extensions.obi.capture.network.capture.filters.{traces,metrics}` | Fan-out to both signals |
+| `filter.stats` | `extensions.obi.capture.network.stats.filters.{traces,metrics}` | Fan-out to both signals |
 | `internal_metrics.bpf_metric_scrape_interval` | `extensions.obi.daemon.internal_metrics.bpf.scrape_interval` | Move + rename |
 | `internal_metrics.exporter` | `extensions.obi.daemon.internal_metrics.exporter` | Move |
 | `internal_metrics.prometheus.path` | `extensions.obi.daemon.internal_metrics.prometheus.path` | Move |
@@ -590,7 +669,7 @@ Important mapping notes:
 | `javaagent.enabled` | `extensions.obi.capture.runtimes.java.enabled` | Simplified to boolean |
 | `log_config` | `extensions.obi.daemon.logging.format` | Move + rename |
 | `log_level` | `extensions.obi.daemon.logging.level` | Move |
-| `metrics.features` | `extensions.obi.capture.instrumentation.<protocol>.enabled.metrics` + `extensions.obi.capture.network.capture.enabled` | Split mapping |
+| `metrics.features` | `extensions.obi.capture.instrumentation.<protocol>.enabled.metrics` + `extensions.obi.capture.network.capture.enabled` + `extensions.obi.capture.network.stats.{enabled,features}` | Split mapping |
 | `name_resolver.cache_expiry` | `extensions.obi.enrich.service_name.cache.ttl` | Move + rename |
 | `name_resolver.cache_len` | `extensions.obi.enrich.service_name.cache.size` | Move + rename |
 | `network.agent_ip` | `extensions.obi.capture.network.capture.endpoint_identity.agent_ip` | Move |
@@ -598,15 +677,23 @@ Important mapping notes:
 | `network.agent_ip_type` | `extensions.obi.capture.network.capture.endpoint_identity.agent_ip_family` | Move + rename |
 | `network.cache_active_timeout` | `extensions.obi.capture.network.capture.flow_lifecycle.active_timeout` | Move + rename |
 | `network.cache_max_flows` | `extensions.obi.capture.network.capture.flow_lifecycle.max_tracked_flows` | Move + rename |
+| `network.cidrs` | `extensions.obi.capture.network.capture.selection.cidrs` | Move |
 | `network.deduper` | `extensions.obi.capture.network.capture.flow_lifecycle.deduplication.strategy` | Move + rename |
 | `network.deduper_fc_ttl` | `extensions.obi.capture.network.capture.flow_lifecycle.deduplication.first_come_ttl` | Move + rename |
 | `network.direction` | `extensions.obi.capture.network.capture.selection.direction` | Move |
 | `network.enable` | `extensions.obi.capture.network.capture.enabled` | Move + rename |
 | `network.geo_ip.cache_expiry` | `extensions.obi.capture.network.capture.enrichment.geo_ip.cache.ttl` | Move + rename |
+| `network.geo_ip.cache_len` | `extensions.obi.capture.network.capture.enrichment.geo_ip.cache.size` | Move + rename |
+| `network.geo_ip.ipinfo.path` | `extensions.obi.capture.network.capture.enrichment.geo_ip.ipinfo.path` | Move |
+| `network.geo_ip.maxmind.asn_path` | `extensions.obi.capture.network.capture.enrichment.geo_ip.maxmind.asn_path` | Move |
+| `network.geo_ip.maxmind.country_path` | `extensions.obi.capture.network.capture.enrichment.geo_ip.maxmind.country_path` | Move |
+| `network.guess_ports` | `extensions.obi.capture.network.capture.flow_lifecycle.guess_ports` | Move |
 | `network.listen_interfaces` | `extensions.obi.capture.network.capture.interface_discovery.mode` | Move + reshape |
 | `network.listen_poll_period` | `extensions.obi.capture.network.capture.interface_discovery.poll_interval` | Move + rename |
 | `network.print_flows` | `extensions.obi.capture.network.capture.diagnostics.print_flows` | Move |
 | `network.reverse_dns.cache_expiry` | `extensions.obi.capture.network.capture.enrichment.reverse_dns.cache.ttl` | Move + rename |
+| `network.reverse_dns.cache_len` | `extensions.obi.capture.network.capture.enrichment.reverse_dns.cache.size` | Move + rename |
+| `network.reverse_dns.type` | `extensions.obi.capture.network.capture.enrichment.reverse_dns.mode` | Move + rename |
 | `network.sampling` | `extensions.obi.capture.network.capture.flow_lifecycle.sampling` | Move |
 | `network.source` | `extensions.obi.capture.network.capture.source` | Move |
 | `nodejs.enabled` | `extensions.obi.capture.runtimes.nodejs.enabled` | Simplified to boolean |
@@ -631,6 +718,19 @@ Important mapping notes:
 | `routes.unmatched` | `extensions.obi.capture.instrumentation.http.routes.unmatched` | Move |
 | `routes.wildcard_char` | `extensions.obi.capture.instrumentation.http.routes.wildcard_char` | Move |
 | `shutdown_timeout` | `extensions.obi.daemon.shutdown.timeout` | Move |
+| `stats.agent_ip` | `extensions.obi.capture.network.stats.endpoint_identity.agent_ip` | Move |
+| `stats.agent_ip_iface` | `extensions.obi.capture.network.stats.endpoint_identity.agent_ip_interface` | Move + rename |
+| `stats.agent_ip_type` | `extensions.obi.capture.network.stats.endpoint_identity.agent_ip_family` | Move + rename |
+| `stats.cidrs` | `extensions.obi.capture.network.stats.selection.cidrs` | Move |
+| `stats.geo_ip.cache_expiry` | `extensions.obi.capture.network.stats.enrichment.geo_ip.cache.ttl` | Move + rename |
+| `stats.geo_ip.cache_len` | `extensions.obi.capture.network.stats.enrichment.geo_ip.cache.size` | Move + rename |
+| `stats.geo_ip.ipinfo.path` | `extensions.obi.capture.network.stats.enrichment.geo_ip.ipinfo.path` | Move |
+| `stats.geo_ip.maxmind.asn_path` | `extensions.obi.capture.network.stats.enrichment.geo_ip.maxmind.asn_path` | Move |
+| `stats.geo_ip.maxmind.country_path` | `extensions.obi.capture.network.stats.enrichment.geo_ip.maxmind.country_path` | Move |
+| `stats.print_stats` | `extensions.obi.capture.network.stats.diagnostics.print_stats` | Move |
+| `stats.reverse_dns.cache_expiry` | `extensions.obi.capture.network.stats.enrichment.reverse_dns.cache.ttl` | Move + rename |
+| `stats.reverse_dns.cache_len` | `extensions.obi.capture.network.stats.enrichment.reverse_dns.cache.size` | Move + rename |
+| `stats.reverse_dns.type` | `extensions.obi.capture.network.stats.enrichment.reverse_dns.mode` | Move + rename |
 | `trace_printer` | `extensions.obi.daemon.logging.debug_trace_output` | Move + rename |
 
 ## Related docs

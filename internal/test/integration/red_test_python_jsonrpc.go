@@ -62,7 +62,7 @@ func testPythonJSONRPCServer(t *testing.T) {
 		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
 
 		// Find traces with JSON-RPC system attribute
-		traces := tq.FindBySpan(jaeger.Tag{Key: "rpc.system", Type: "string", Value: "jsonrpc"})
+		traces := tq.FindBySpan(jaeger.Tag{Key: "rpc.system.name", Type: "string", Value: "jsonrpc"})
 		require.GreaterOrEqual(ct, len(traces), 1)
 
 		lastTrace := traces[len(traces)-1]
@@ -103,7 +103,7 @@ func testPythonJSONRPCServer(t *testing.T) {
 
 		// Find traces with the error method
 		traces := tqErr.FindBySpan(
-			jaeger.Tag{Key: "rpc.system", Type: "string", Value: "jsonrpc"},
+			jaeger.Tag{Key: "rpc.system.name", Type: "string", Value: "jsonrpc"},
 			jaeger.Tag{Key: "rpc.method", Type: "string", Value: "nonexistent/method"},
 		)
 		require.GreaterOrEqual(ct, len(traces), 1)
@@ -142,9 +142,9 @@ func testPythonJSONRPCMetrics(t *testing.T) {
 	var results []promtest.Result
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		var err error
-		results, err = pq.Query(`rpc_server_duration_seconds_count{` +
+		results, err = pq.Query(`rpc_server_call_duration_seconds_count{` +
 			`rpc_method="tools/list",` +
-			`rpc_system="jsonrpc",` +
+			`rpc_system_name="jsonrpc",` +
 			`service_namespace="integration-test"}`)
 		require.NoError(ct, err)
 		enoughPromResults(ct, results)

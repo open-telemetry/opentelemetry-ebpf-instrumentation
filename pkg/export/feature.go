@@ -23,6 +23,7 @@ const (
 	// zero value.
 	FeatureEmpty Features = 1 << iota
 	FeatureNetwork
+	FeatureNetworkFlowPackets
 	FeatureStatsTCPRtt
 	FeatureStatsTCPFailedConnections
 	FeatureStatsTCPRetransmits
@@ -55,6 +56,7 @@ var FeatureMapper = map[string]Features{
 	"stats_tcp_io":                 FeatureStatsTCPIo,
 	"network":                      FeatureNetwork,
 	"network_inter_zone":           FeatureNetworkInterZone,
+	"network_flow_packets":         FeatureNetworkFlowPackets,
 	"application":                  FeatureApplicationRED,
 	"application_span":             FeatureSpanLegacy,
 	"application_span_otel":        FeatureSpanOTel,
@@ -154,7 +156,7 @@ func (f Features) AnySpanMetrics() bool {
 }
 
 func (f Features) AnyNetwork() bool {
-	return f.any(FeatureNetwork | FeatureNetworkInterZone)
+	return f.any(FeatureNetwork | FeatureNetworkInterZone | FeatureNetworkFlowPackets)
 }
 
 func (f Features) AppOrSpan() bool {
@@ -191,6 +193,10 @@ func (f Features) SpanSizes() bool {
 
 func (f Features) NetworkBytes() bool {
 	return f.any(FeatureNetwork)
+}
+
+func (f Features) NetworkFlowPackets() bool {
+	return f.any(FeatureNetworkFlowPackets)
 }
 
 func (f Features) StatMetrics() bool {

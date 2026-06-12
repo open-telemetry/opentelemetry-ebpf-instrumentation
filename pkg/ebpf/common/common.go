@@ -86,6 +86,7 @@ const (
 	ProtocolTypeKafka
 	ProtocolTypeMQTT // placeholder for future kernel-space detection
 	ProtocolTypeMSSQL
+	ProtocolTypeSunRPC
 	ProtocolTypeNATS // placeholder for future kernel-space detection
 	ProtocolTypeAMQP // placeholder for future kernel-space detection
 )
@@ -656,7 +657,7 @@ func (connInfo *BPFConnInfo) reqHostInfo() (source, target string) {
 func isClientEvent(et uint8) bool {
 	switch request.EventType(et) {
 	case request.EventTypeGRPCClient, request.EventTypeHTTPClient, request.EventTypeRedisClient,
-		request.EventTypeKafkaClient, request.EventTypeNATSClient, request.EventTypeAMQPClient, request.EventTypeSQLClient, request.EventTypeMongoClient,
+		request.EventTypeKafkaClient, request.EventTypeNATSClient, request.EventTypeAMQPClient, request.EventTypeSunRPCClient, request.EventTypeSQLClient, request.EventTypeMongoClient,
 		request.EventTypeFailedConnect:
 		return true
 	}
