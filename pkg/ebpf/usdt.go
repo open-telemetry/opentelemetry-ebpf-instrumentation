@@ -30,8 +30,10 @@ const (
 	obiUSDTArgSIB      = uint8(3)
 )
 
-// TODO: Evaluate replacing the Go-side USDT note and argument parsing with
-// github.com/parca-dev/usdt while preserving this package's BPF map lookup.
+// TODO: Reevaluate github.com/parca-dev/usdt if it exposes target-ELF-driven
+// argument parsing for OBI's BPF ABI. v0.0.2 uses runtime.GOARCH for register
+// parsing, lacks x86 SIB args, uses a different spec layout, and its note
+// parser assumes little-endian ELF64 notes.
 
 type usdtNote struct {
 	Location  uint64
