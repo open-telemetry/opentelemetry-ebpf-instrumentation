@@ -905,7 +905,9 @@ func gatherOffsetsImpl(elfFile *elf.File, probes map[string][]*ebpfcommon.ProbeD
 			progData := readSymbolData(&sym)
 
 			if progData == nil {
-				log.Debug("error reading symbol data", "symbol", symbolName, "path", instrPath)
+				if err := handleSymbolDataReadFailure(probe, symbolName, instrPath, log); err != nil {
+					return err
+				}
 				continue
 			}
 
@@ -940,6 +942,27 @@ func applyResolvedSymbolOffsets(
 		return
 	}
 	probe.ReturnOffsets = returnOffsets
+}
+
+func handleSymbolDataReadFailure(
+	probe *ebpfcommon.ProbeDesc,
+	symbolName string,
+	instrPath string,
+	log *slog.Logger,
+) error {
+	log.Debug("error reading symbol data", "symbol", symbolName, "path", instrPath)
+	if probe.End == nil {
+		return nil
+	}
+
+	probe.ReturnOffsets = nil
+	if probe.Required {
+		return fmt.Errorf("required symbol %s needs return offsets but symbol data could not be read from %s", symbolName, instrPath)
+	}
+
+	probe.Skip = true
+	log.Debug("skipping optional uprobe because return offsets need symbol data", "symbol", symbolName, "path", instrPath)
+	return nil
 }
 
 func (i *instrumenter) gatherGoOffsets(goProbes map[string][]*ebpfcommon.ProbeDesc) {

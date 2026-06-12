@@ -30,6 +30,9 @@ const (
 	obiUSDTArgSIB      = uint8(3)
 )
 
+// TODO: Evaluate replacing the Go-side USDT note and argument parsing with
+// github.com/parca-dev/usdt while preserving this package's BPF map lookup.
+
 type usdtNote struct {
 	Location  uint64
 	Base      uint64

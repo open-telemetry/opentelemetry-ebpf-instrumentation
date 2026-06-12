@@ -102,6 +102,49 @@ func TestApplyResolvedSymbolOffsetsKeepsStartOffsetWhenReturnScanFails(t *testin
 	assert.Empty(t, probe.ReturnOffsets)
 }
 
+func TestHandleSymbolDataReadFailureSkipsOptionalReturnProbe(t *testing.T) {
+	probe := &ebpfcommon.ProbeDesc{
+		StartOffset: 0x1234,
+		End:         &ebpf.Program{},
+	}
+
+	err := handleSymbolDataReadFailure(probe, "jvm", "libjvm.so", slog.Default())
+	require.NoError(t, err)
+
+	assert.True(t, probe.Skip)
+	assert.Equal(t, uint64(0x1234), probe.StartOffset)
+	assert.Empty(t, probe.ReturnOffsets)
+}
+
+func TestHandleSymbolDataReadFailureFailsRequiredReturnProbe(t *testing.T) {
+	probe := &ebpfcommon.ProbeDesc{
+		Required:    true,
+		StartOffset: 0x1234,
+		End:         &ebpf.Program{},
+	}
+
+	err := handleSymbolDataReadFailure(probe, "jvm", "libjvm.so", slog.Default())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "required symbol jvm needs return offsets")
+
+	assert.False(t, probe.Skip)
+	assert.Equal(t, uint64(0x1234), probe.StartOffset)
+	assert.Empty(t, probe.ReturnOffsets)
+}
+
+func TestHandleSymbolDataReadFailureKeepsStartOnlyProbeResolved(t *testing.T) {
+	probe := &ebpfcommon.ProbeDesc{
+		StartOffset: 0x1234,
+	}
+
+	err := handleSymbolDataReadFailure(probe, "jvm", "libjvm.so", slog.Default())
+	require.NoError(t, err)
+
+	assert.False(t, probe.Skip)
+	assert.Equal(t, uint64(0x1234), probe.StartOffset)
+	assert.Empty(t, probe.ReturnOffsets)
+}
+
 func TestGatherOffsetsSkipsMissingOptionalSymbol(t *testing.T) {
 	reader := bytes.NewReader(testData())
 	assert.NotNil(t, reader)
