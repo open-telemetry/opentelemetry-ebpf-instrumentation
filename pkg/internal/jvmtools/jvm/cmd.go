@@ -6,6 +6,7 @@
 package jvm // import "go.opentelemetry.io/obi/pkg/internal/jvmtools/jvm"
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -70,6 +71,14 @@ func (j *JAttacher) Cleanup() error {
 }
 
 func (j *JAttacher) Attach(pid int, argv []string, ignoreOnJ9 bool) (io.ReadCloser, error) {
+	return j.AttachContext(context.Background(), pid, argv, ignoreOnJ9)
+}
+
+func (j *JAttacher) AttachContext(ctx context.Context, pid int, argv []string, ignoreOnJ9 bool) (io.ReadCloser, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
 	targetUID := j.myUID
 	targetGID := j.myGID
 	var nspid int
@@ -108,14 +117,21 @@ func (j *JAttacher) Attach(pid int, argv []string, ignoreOnJ9 bool) (io.ReadClos
 	// Make write() return EPIPE instead of abnormal process termination
 	signal.Ignore(syscall.SIGPIPE)
 
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
 	if isOpenJ9Process(tmpPath, attachPid) {
 		if ignoreOnJ9 {
 			return nil, nil
+		}
+		if err := ctx.Err(); err != nil {
+			return nil, err
 		}
 		j9attacher := newJ9Attacher(j.logger)
 		j.j9attacher = j9attacher
 		return j.j9attacher.jattachOpenJ9(tmpPath, nspid, argv)
 	}
 
-	return jattachHotspot(pid, nspid, attachPid, argv, tmpPath, j.logger)
+	return jattachHotspot(ctx, pid, nspid, attachPid, argv, tmpPath, j.logger)
 }
