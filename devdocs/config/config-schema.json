@@ -1232,16 +1232,16 @@
           "type": "array",
           "description": "Is a list of glob patterns to match header names against (headers only)"
         },
+        "response_status_code": {
+          "$ref": "#/$defs/NumericRange",
+          "description": "Filters this rule to only apply when the response status code matches the given range. If unset, the rule applies regardless of status code."
+        },
         "url_path_patterns": {
           "items": {
             "$ref": "#/$defs/GlobAttr"
           },
           "type": "array",
           "description": "Is a list of glob patterns to match the request path against (shared)"
-        },
-        "response_status_code": {
-          "$ref": "#/$defs/NumericRange",
-          "description": "Filters this rule to only apply when the response status code matches the given range. If unset, the rule applies regardless of status code."
         }
       },
       "type": "object",
@@ -1935,30 +1935,6 @@
       "type": "object",
       "description": "NativeHistogramConfig holds configuration for native histograms"
     },
-    "NumericRange": {
-      "properties": {
-        "equals": {
-          "type": "integer"
-        },
-        "greater_equals": {
-          "type": "integer"
-        },
-        "greater_than": {
-          "type": "integer"
-        },
-        "less_equals": {
-          "type": "integer"
-        },
-        "less_than": {
-          "type": "integer"
-        },
-        "not_equals": {
-          "type": "integer"
-        }
-      },
-      "type": "object",
-      "description": "NumericRange defines numeric comparison criteria for a rule match condition. All fields are optional; only the provided fields are evaluated."
-    },
     "NetworkConfig": {
       "properties": {
         "agent_ip": {
@@ -2155,6 +2131,30 @@
         }
       },
       "type": "object"
+    },
+    "NumericRange": {
+      "properties": {
+        "equals": {
+          "type": "integer"
+        },
+        "greater_equals": {
+          "type": "integer"
+        },
+        "greater_than": {
+          "type": "integer"
+        },
+        "less_equals": {
+          "type": "integer"
+        },
+        "less_than": {
+          "type": "integer"
+        },
+        "not_equals": {
+          "type": "integer"
+        }
+      },
+      "type": "object",
+      "description": "NumericRange defines numeric comparison criteria for a rule match condition. All fields are optional; only the provided fields are evaluated."
     },
     "OpenAIConfig": {
       "properties": {
