@@ -1,7 +1,7 @@
 name: "Slash: /all-vm-tests"
 
 # Listens for /all-vm-tests on PR comments. Validates commenter has write
-# access, resolves PR head SHA, then dispatches Integration tests VM with
+# access, verifies actual write permission, resolves PR head SHA, then dispatches Integration tests VM with
 # all_kernels=true. Posts a reply with the run URL.
 on:
   issue_comment:
@@ -24,9 +24,34 @@ jobs:
        github.event.comment.author_association == 'COLLABORATOR')
     runs-on: ubuntu-latest
     permissions:
-      actions: write       # dispatch the VM workflow
-      pull-requests: write # comment back with run URL
+      actions: write        # dispatch the VM workflow
+      # The collaborator permission lookup uses the token's implicit metadata read access.
+      # issues:write covers both the acknowledgement reaction and the run URL comment.
+      issues: write
+      pull-requests: read   # resolve PR metadata
     steps:
+      - name: Check commenter permission
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OWNER: ${{ github.repository_owner }}
+          REPO: ${{ github.event.repository.name }}
+          COMMENTER: ${{ github.event.comment.user.login }}
+        run: |
+          PERMISSION=$(gh api "repos/${OWNER}/${REPO}/collaborators/${COMMENTER}/permission" --jq .permission 2>/dev/null || true)
+          if [ -z "${PERMISSION}" ]; then
+            echo "could not verify ${COMMENTER}'s repository permission; /all-vm-tests requires write permission" >&2
+            exit 1
+          fi
+
+          case "${PERMISSION}" in
+            admin|maintain|write)
+              ;;
+            *)
+              echo "${COMMENTER} has ${PERMISSION:-no} permission, but /all-vm-tests requires write permission" >&2
+              exit 1
+              ;;
+          esac
+
       - name: React with eyes (acknowledge command)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
