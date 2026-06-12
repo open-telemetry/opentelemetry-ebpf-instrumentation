@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"syscall"
 	"unsafe"
 
@@ -43,6 +44,50 @@ func closeAll(closers []io.Closer) {
 	for i := range closers {
 		closers[i].Close()
 	}
+}
+
+type usdtIPMapDeleter interface {
+	Delete(key any) error
+}
+
+type usdtIPMapCleanup struct {
+	ipMap usdtIPMapDeleter
+	keys  []obiUSDTIPKey
+}
+
+func (c usdtIPMapCleanup) Close() error {
+	if c.ipMap == nil {
+		return nil
+	}
+
+	var cleanupErr error
+	for _, key := range c.keys {
+		if err := c.ipMap.Delete(key); err != nil && !errors.Is(err, ebpf.ErrKeyNotExist) {
+			cleanupErr = errors.Join(cleanupErr, err)
+		}
+	}
+
+	return cleanupErr
+}
+
+type usdtLinkCloser struct {
+	link    io.Closer
+	cleanup usdtIPMapCleanup
+	once    sync.Once
+	err     error
+}
+
+func (c *usdtLinkCloser) Close() error {
+	c.once.Do(func() {
+		var closeErr error
+		if c.link != nil {
+			closeErr = c.link.Close()
+		}
+
+		c.err = errors.Join(closeErr, c.cleanup.Close())
+	})
+
+	return c.err
 }
 
 func (i *instrumenter) goprobes(p Tracer) error {
@@ -510,6 +555,7 @@ func (i *instrumenter) instrumentUSDTProbe(
 			return nil, fmt.Errorf("updating USDT spec map: %w", err)
 		}
 		ipMapPIDs := usdtIPMapPIDs(pid)
+		insertedIPKeys := make([]obiUSDTIPKey, 0, len(ipMapPIDs))
 		for _, mapPID := range ipMapPIDs {
 			ipKey := obiUSDTIPKey{
 				PID:       uint32(mapPID),
@@ -517,10 +563,13 @@ func (i *instrumenter) instrumentUSDTProbe(
 				IP:        target.AbsIP,
 			}
 			if err := probe.IPMap.Put(ipKey, specID); err != nil {
+				_ = (usdtIPMapCleanup{ipMap: probe.IPMap, keys: insertedIPKeys}).Close()
 				closeAll(closers)
 				return nil, fmt.Errorf("updating USDT IP map: %w", err)
 			}
+			insertedIPKeys = append(insertedIPKeys, ipKey)
 		}
+		ipMapCleanup := usdtIPMapCleanup{ipMap: probe.IPMap, keys: insertedIPKeys}
 
 		ilog().Debug("instrumenting USDT probe",
 			"pid", pid,
@@ -540,10 +589,11 @@ func (i *instrumenter) instrumentUSDTProbe(
 			RefCtrOffset: target.SemaOff,
 		})
 		if err != nil {
+			_ = ipMapCleanup.Close()
 			closeAll(closers)
 			return nil, fmt.Errorf("attaching USDT probe %s:%s at %#x: %w", probe.Provider, probe.Name, target.RelIP, err)
 		}
-		closers = append(closers, up)
+		closers = append(closers, &usdtLinkCloser{link: up, cleanup: ipMapCleanup})
 	}
 
 	return closers, nil

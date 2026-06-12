@@ -12,6 +12,8 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/cilium/ebpf"
@@ -87,8 +89,9 @@ func TestGatherOffsetsResolvesSymbolSubstring(t *testing.T) {
 	require.NoError(t, err)
 
 	desc := probes["setprog"][0]
-	assert.Equal(t, uint64(0x9c10), desc.StartOffset)
-	assert.Equal(t, []uint64{0x9c52, 0x9c6a}, desc.ReturnOffsets)
+	expected := expectedValues()["setprogname"]
+	assert.Equal(t, expected.startOffset, desc.StartOffset)
+	assert.Equal(t, expected.returnOffsets, desc.ReturnOffsets)
 	assert.False(t, desc.Skip)
 }
 
@@ -320,6 +323,106 @@ func TestUSDTIPMapPIDsFallsBackToDiscoveredPID(t *testing.T) {
 	t.Cleanup(func() { findNamespacedPids = orig })
 
 	assert.Equal(t, []app.PID{123}, usdtIPMapPIDs(123))
+}
+
+func TestUSDTLinkCloserDeletesIPMapEntriesAfterClosingLink(t *testing.T) {
+	var calls []string
+	linkCloser := closerFunc(func() error {
+		calls = append(calls, "close-link")
+		return nil
+	})
+	ipMap := &recordingUSDTIPMap{calls: &calls}
+	keys := []obiUSDTIPKey{
+		{PID: 123, Namespace: 7, IP: 0xabc},
+		{PID: 1, Namespace: 7, IP: 0xabc},
+	}
+
+	closer := &usdtLinkCloser{
+		link: linkCloser,
+		cleanup: usdtIPMapCleanup{
+			ipMap: ipMap,
+			keys:  keys,
+		},
+	}
+
+	require.NoError(t, closer.Close())
+	require.NoError(t, closer.Close())
+
+	assert.Equal(t, []string{"close-link", "delete-ip", "delete-ip"}, calls)
+	assert.Equal(t, keys, ipMap.deleted)
+}
+
+func TestUSDTLinkCloserCloseIsConcurrentSafe(t *testing.T) {
+	linkCloser := &countingCloser{}
+	ipMap := &countingUSDTIPMap{}
+	keys := []obiUSDTIPKey{
+		{PID: 123, Namespace: 7, IP: 0xabc},
+		{PID: 1, Namespace: 7, IP: 0xabc},
+	}
+	closer := &usdtLinkCloser{
+		link: linkCloser,
+		cleanup: usdtIPMapCleanup{
+			ipMap: ipMap,
+			keys:  keys,
+		},
+	}
+
+	var wg sync.WaitGroup
+	errs := make(chan error, 16)
+	for range cap(errs) {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			errs <- closer.Close()
+		}()
+	}
+	wg.Wait()
+	close(errs)
+
+	for err := range errs {
+		require.NoError(t, err)
+	}
+	assert.Equal(t, int32(1), linkCloser.closes.Load())
+	assert.Equal(t, int32(len(keys)), ipMap.deletes.Load())
+}
+
+type closerFunc func() error
+
+func (f closerFunc) Close() error {
+	return f()
+}
+
+type recordingUSDTIPMap struct {
+	calls   *[]string
+	deleted []obiUSDTIPKey
+}
+
+func (m *recordingUSDTIPMap) Delete(key any) error {
+	ipKey, ok := key.(obiUSDTIPKey)
+	if !ok {
+		panic("unexpected USDT IP key type")
+	}
+	*m.calls = append(*m.calls, "delete-ip")
+	m.deleted = append(m.deleted, ipKey)
+	return nil
+}
+
+type countingCloser struct {
+	closes atomic.Int32
+}
+
+func (c *countingCloser) Close() error {
+	c.closes.Add(1)
+	return nil
+}
+
+type countingUSDTIPMap struct {
+	deletes atomic.Int32
+}
+
+func (m *countingUSDTIPMap) Delete(any) error {
+	m.deletes.Add(1)
+	return nil
 }
 
 func TestVersionFromPath(t *testing.T) {
