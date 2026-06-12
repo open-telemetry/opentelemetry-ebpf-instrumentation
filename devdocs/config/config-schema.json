@@ -445,10 +445,7 @@
               "nodejs"
             ]
           },
-          "type": "array",
-          "default": [
-            "java"
-          ]
+          "type": "array"
         },
         "exclude_instrument": {
           "$ref": "#/$defs/GlobDefinitionCriteria",
@@ -2473,7 +2470,7 @@
         "java_harvest_delay": {
           "type": "string",
           "pattern": "^[0-9]+(ms|s|m)$",
-          "default": "1m",
+          "default": "5s",
           "examples": [
             "30s",
             "5m",

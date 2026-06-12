@@ -908,9 +908,7 @@
                   "items": {
                     "type": "string"
                   },
-                  "default": [
-                    "java"
-                  ],
+                  "default": [],
                   "description": "Languages excluded from route discovery.\nIf omitted, Java route discovery is excluded.\n"
                 },
                 "java": {
@@ -919,7 +917,7 @@
                   "properties": {
                     "delay": {
                       "type": "string",
-                      "default": "1m0s",
+                      "default": "5s",
                       "description": "Delay before Java route discovery starts.\nIf omitted, `1m0s` is used.\n"
                     }
                   }

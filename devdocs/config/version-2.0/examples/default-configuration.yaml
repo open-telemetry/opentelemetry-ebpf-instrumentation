@@ -230,10 +230,10 @@ extensions:
               # Global timeout for route template discovery runs.
               timeout: 10s
               # Languages to skip for route template discovery.
-              disabled_languages: [java]
+              disabled_languages: []
               java:
                 # Delay before Java route template discovery to allow runtime readiness.
-                delay: 1m0s
+                delay: 5s
           # HTTP payload-level extraction features.
           payload_extraction:
             # List-based enablement, consistent with other instrumentation selectors.
