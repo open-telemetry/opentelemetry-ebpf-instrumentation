@@ -91,6 +91,26 @@ func TestHostIDOverride(t *testing.T) {
 	assert.Equal(t, "host_override", nm.HostID)
 }
 
+func TestHostnameFetcher_Disabled(t *testing.T) {
+	FallbackHostIDAttr = ""
+	defer func() { FallbackHostIDAttr = "" }()
+
+	nm, err := hostnameFetcher(t.Context())
+	assert.NoError(t, err)
+	assert.Empty(t, nm.Metadata)
+}
+
+func TestHostnameFetcher_Enabled(t *testing.T) {
+	FallbackHostIDAttr = "test.host.id"
+	defer func() { FallbackHostIDAttr = "" }()
+
+	nm, err := hostnameFetcher(t.Context())
+	assert.NoError(t, err)
+	require.Len(t, nm.Metadata, 1)
+	assert.Equal(t, attr.Name("test.host.id"), nm.Metadata[0].Key)
+	assert.NotEmpty(t, nm.Metadata[0].Value)
+}
+
 func makeFetcherThatFailsNTimes(failCount int, key, value string) fetcher {
 	attempts := atomic.Int32{}
 	return func(_ context.Context) (NodeMeta, error) {

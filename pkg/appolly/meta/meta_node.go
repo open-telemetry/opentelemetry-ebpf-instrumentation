@@ -26,6 +26,11 @@ func nslog() *slog.Logger {
 
 var connectionTimeout = 2 * time.Second
 
+// FallbackHostIDAttr, when non-empty, enables a hostname-based fallback
+// for resource attribution. The hostname is resolved via FQDN lookup and stored
+// under this attribute name. Empty by default — vendors activate it by setting their own key
+var FallbackHostIDAttr = ""
+
 // some attributes from the node need to be filtered out, becausee ither
 // - they are not common to all the services and is going to be specified for each service instance
 // - they are explicitly added later in the exporters and we don't want duplications
@@ -73,6 +78,7 @@ func NewNodeMeta(
 		// some fetchers will only retrieve the host name while others
 		// will retrieve also host attributes that will be merged
 		// in order of the priority below (the later the highest)
+		hostnameFetcher,
 		linuxLocalFetcher,
 		kubeNodeFetcher(kubeInformer),
 		otelNodeFetcher(azurevm.New()),
