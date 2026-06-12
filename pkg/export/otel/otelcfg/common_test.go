@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/otel/attribute"
 
@@ -35,15 +36,15 @@ func TestReporterPoolDoesNotReuseExpiredLastReporter(t *testing.T) {
 			return constructed, nil
 		},
 	)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	first, err := reporters.For(service)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, 1, first)
 
 	now = now.Add(time.Second)
 	second, err := reporters.For(service)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	assert.Equal(t, 2, second)
 	assert.Equal(t, []int{1}, evicted)
