@@ -10,6 +10,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
 	"go.opentelemetry.io/collector/consumer"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/pmetric"
@@ -17,12 +18,15 @@ import (
 	jvmruntime "go.opentelemetry.io/obi/pkg/appolly/app/runtime"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/export"
+	"go.opentelemetry.io/obi/pkg/export/attributes"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
+	"go.opentelemetry.io/obi/pkg/pipe/msg"
+	"go.opentelemetry.io/obi/pkg/runtimemetrics"
 )
 
-func TestJVMRuntimeMetricsReporterRecordsHeapSummary(t *testing.T) {
+func TestRuntimeMetricsReporterRecordsJVMHeapSummary(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
@@ -33,24 +37,28 @@ func TestJVMRuntimeMetricsReporterRecordsHeapSummary(t *testing.T) {
 		ReportersCacheLen: 10,
 		MetricsConsumer:   testJVMRuntimeMetricsConsumer(records),
 	}
-	reporter, err := newJVMRuntimeMetricsReporter(
+	reporter, err := newRuntimeMetricsReporter(
 		ctx,
 		&global.ContextInfo{OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: cfg}},
 		cfg,
 		&perapp.MetricsConfig{Features: export.FeatureApplicationJVM},
+		&attributes.SelectorConfig{},
+		msg.NewQueue[[]runtimemetrics.RuntimeMetricSnapshot](msg.ChannelBufferLen(1)),
 	)
 	require.NoError(t, err)
 	defer reporter.close()
 
-	reporter.observe(jvmruntime.JVMRuntimeEvent{
+	reporter.reportRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{{
 		Service: svc.Attrs{
 			UID:      svc.UID{Name: "orders", Namespace: "prod", Instance: "orders-1"},
 			Features: export.FeatureApplicationJVM,
 		},
-		Kind:       jvmruntime.JVMMetricBeylaHeapUsed,
-		GCPhase:    jvmruntime.JVMGCPhaseAfter,
-		ValueBytes: 42,
-	})
+		JVM: &runtimemetrics.JVMRuntimeMetricSnapshot{
+			Kind:       jvmruntime.JVMMetricBeylaHeapUsed,
+			GCPhase:    jvmruntime.JVMGCPhaseAfter,
+			ValueBytes: 42,
+		},
+	}})
 
 	record := readJVMMetricRecord(t, records, "beyla.jvm.heap.used")
 	assert.Equal(t, int64(42), record.Value)
@@ -60,7 +68,7 @@ func TestJVMRuntimeMetricsReporterRecordsHeapSummary(t *testing.T) {
 	assert.Equal(t, "after", record.Attrs["jvm.gc.phase"])
 }
 
-func TestJVMRuntimeMetricsReporterRecordsMemoryAsUpDownCounter(t *testing.T) {
+func TestRuntimeMetricsReporterRecordsJVMMemoryAsUpDownCounter(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
@@ -71,25 +79,29 @@ func TestJVMRuntimeMetricsReporterRecordsMemoryAsUpDownCounter(t *testing.T) {
 		ReportersCacheLen: 10,
 		MetricsConsumer:   testJVMRuntimeMetricsConsumer(records),
 	}
-	reporter, err := newJVMRuntimeMetricsReporter(
+	reporter, err := newRuntimeMetricsReporter(
 		ctx,
 		&global.ContextInfo{OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: cfg}},
 		cfg,
 		&perapp.MetricsConfig{Features: export.FeatureApplicationJVM},
+		&attributes.SelectorConfig{},
+		msg.NewQueue[[]runtimemetrics.RuntimeMetricSnapshot](msg.ChannelBufferLen(1)),
 	)
 	require.NoError(t, err)
 	defer reporter.close()
 
-	reporter.observe(jvmruntime.JVMRuntimeEvent{
+	reporter.reportRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{{
 		Service: svc.Attrs{
 			UID:      svc.UID{Name: "orders", Namespace: "prod", Instance: "orders-1"},
 			Features: export.FeatureApplicationJVM,
 		},
-		Kind:       jvmruntime.JVMMetricMemoryUsed,
-		MemoryType: jvmruntime.JVMMemoryTypeHeap,
-		PoolName:   "G1 Eden Space",
-		ValueBytes: 128,
-	})
+		JVM: &runtimemetrics.JVMRuntimeMetricSnapshot{
+			Kind:       jvmruntime.JVMMetricMemoryUsed,
+			MemoryType: jvmruntime.JVMMemoryTypeHeap,
+			PoolName:   "G1 Eden Space",
+			ValueBytes: 128,
+		},
+	}})
 
 	record := readJVMMetricRecord(t, records, "jvm.memory.used")
 	assert.Equal(t, pmetric.MetricTypeSum, record.Type)

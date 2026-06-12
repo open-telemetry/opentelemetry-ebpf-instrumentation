@@ -16,6 +16,10 @@ const (
 	EventTypeJVMMemoryPoolGC  = 20 // EVENT_JVM_MEM_POOL_GC
 )
 
+type JVMRuntimeMetricSender interface {
+	SendJVMRuntimeMetrics(context.Context, []jvmruntime.JVMRuntimeEvent)
+}
+
 func HandleJVMRuntimeMetricRecord(
 	ctx context.Context,
 	eventContext *EBPFEventContext,
@@ -29,24 +33,24 @@ func HandleJVMRuntimeMetricRecord(
 
 	switch record.RawSample[0] {
 	case EventTypeJVMGCHeapSummary:
-		if eventContext == nil || eventContext.JVMRuntimeEvents == nil {
+		if eventContext == nil || eventContext.RuntimeMetrics == nil {
 			return true, nil
 		}
 		event, ignore, err := DecodeAndDecorateJVMGCHeapSummaryRecord(record, filter, logger)
 		if err != nil || ignore {
 			return true, err
 		}
-		eventContext.JVMRuntimeEvents.SendCtx(ctx, []jvmruntime.JVMRuntimeEvent{event})
+		eventContext.RuntimeMetrics.SendJVMRuntimeMetrics(ctx, []jvmruntime.JVMRuntimeEvent{event})
 		return true, nil
 	case EventTypeJVMMemoryPoolGC:
-		if eventContext == nil || eventContext.JVMRuntimeEvents == nil {
+		if eventContext == nil || eventContext.RuntimeMetrics == nil {
 			return true, nil
 		}
 		events, ignore, err := DecodeAndDecorateJVMMemoryPoolRecord(record, filter, logger)
 		if err != nil || ignore || len(events) == 0 {
 			return true, err
 		}
-		eventContext.JVMRuntimeEvents.SendCtx(ctx, events)
+		eventContext.RuntimeMetrics.SendJVMRuntimeMetrics(ctx, events)
 		return true, nil
 	default:
 		return false, nil

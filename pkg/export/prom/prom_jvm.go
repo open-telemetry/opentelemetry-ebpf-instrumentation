@@ -4,8 +4,6 @@
 package prom // import "go.opentelemetry.io/obi/pkg/export/prom"
 
 import (
-	"context"
-	"log/slog"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -13,65 +11,20 @@ import (
 	jvmruntime "go.opentelemetry.io/obi/pkg/appolly/app/runtime"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
-	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
-	"go.opentelemetry.io/obi/pkg/pipe/global"
-	"go.opentelemetry.io/obi/pkg/pipe/msg"
-	"go.opentelemetry.io/obi/pkg/pipe/swarm"
-	"go.opentelemetry.io/obi/pkg/pipe/swarm/swarms"
+	"go.opentelemetry.io/obi/pkg/runtimemetrics"
 )
 
-type jvmRuntimeMetricsReporter struct {
-	cfg *PrometheusConfig
-
-	input <-chan []jvmruntime.JVMRuntimeEvent
-
+type jvmRuntimeMetricsCollector struct {
 	memoryUsed            *Expirer[prometheus.Gauge]
 	memoryCommitted       *Expirer[prometheus.Gauge]
 	memoryLimit           *Expirer[prometheus.Gauge]
 	memoryUsedAfterLastGC *Expirer[prometheus.Gauge]
 	heapUsed              *Expirer[prometheus.Gauge]
-
-	promConnect connectorPrometheusManager
 }
 
-type connectorPrometheusManager interface {
-	Register(port int, path string, collectors ...prometheus.Collector)
-	StartHTTP(ctx context.Context)
-}
-
-func JVMRuntimeMetricsEndpoint(
-	ctxInfo *global.ContextInfo,
-	cfg *PrometheusConfig,
-	jointMetricsConfig *perapp.MetricsConfig,
-	input *msg.Queue[[]jvmruntime.JVMRuntimeEvent],
-) swarm.InstanceFunc {
-	return func(_ context.Context) (swarm.RunFunc, error) {
-		if input == nil || !cfg.EndpointEnabled() || !jointMetricsConfig.Features.AppJVM() {
-			return swarm.EmptyRunFunc()
-		}
-		reporter := newJVMRuntimeMetricsReporter(ctxInfo, cfg, jointMetricsConfig, nil)
-		reporter.input = input.Subscribe(msg.SubscriberName("prom.JVMRuntimeMetrics"))
-		if cfg.Registry != nil {
-			return reporter.collectMetrics, nil
-		}
-		return reporter.reportMetrics, nil
-	}
-}
-
-func newJVMRuntimeMetricsReporter(
-	ctxInfo *global.ContextInfo,
-	cfg *PrometheusConfig,
-	jointMetricsConfig *perapp.MetricsConfig,
-	_ any,
-) *jvmRuntimeMetricsReporter {
-	if !jointMetricsConfig.Features.AppJVM() {
-		return &jvmRuntimeMetricsReporter{}
-	}
-
+func newJVMRuntimeMetricsCollector(cfg *PrometheusConfig) jvmRuntimeMetricsCollector {
 	clock := timeNow
-	reporter := &jvmRuntimeMetricsReporter{
-		cfg:         cfg,
-		promConnect: ctxInfo.Prometheus,
+	return jvmRuntimeMetricsCollector{
 		memoryUsed: newJVMGauge(attributes.JVMMemoryUsed.Prom,
 			"Current used JVM memory in bytes.", jvmMemoryLabels(), clock, cfg.TTL),
 		memoryCommitted: newJVMGauge(attributes.JVMMemoryCommitted.Prom,
@@ -83,20 +36,19 @@ func newJVMRuntimeMetricsReporter(
 		heapUsed: newJVMGauge(attributes.BeylaJVMHeapUsed.Prom,
 			"HotSpot heap used in bytes as reported by GCTracer::report_gc_heap_summary.", jvmHeapLabels(), clock, cfg.TTL),
 	}
+}
 
-	collectors := []prometheus.Collector{
-		reporter.memoryUsed,
-		reporter.memoryCommitted,
-		reporter.memoryLimit,
-		reporter.memoryUsedAfterLastGC,
-		reporter.heapUsed,
+func (c *jvmRuntimeMetricsCollector) collectors() []prometheus.Collector {
+	if c.memoryUsed == nil {
+		return nil
 	}
-	if cfg.Registry != nil {
-		cfg.Registry.MustRegister(collectors...)
-	} else if reporter.promConnect != nil {
-		reporter.promConnect.Register(cfg.Port, cfg.Path, collectors...)
+	return []prometheus.Collector{
+		c.memoryUsed,
+		c.memoryCommitted,
+		c.memoryLimit,
+		c.memoryUsedAfterLastGC,
+		c.heapUsed,
 	}
-	return reporter
 }
 
 func newJVMGauge(name, help string, labels []string, clock func() time.Time, ttl time.Duration) *Expirer[prometheus.Gauge] {
@@ -106,38 +58,25 @@ func newJVMGauge(name, help string, labels []string, clock func() time.Time, ttl
 	}, labels).MetricVec, clock, ttl)
 }
 
-func (r *jvmRuntimeMetricsReporter) reportMetrics(ctx context.Context) {
-	if r.promConnect != nil {
-		go r.promConnect.StartHTTP(ctx)
-	}
-	r.collectMetrics(ctx)
-}
-
-func (r *jvmRuntimeMetricsReporter) collectMetrics(ctx context.Context) {
-	log := slog.With("component", "prom.JVMRuntimeMetricsReporter")
-	swarms.ForEachInput(ctx, r.input, log.Debug, func(events []jvmruntime.JVMRuntimeEvent) {
-		for i := range events {
-			r.observe(events[i])
-		}
-	})
-}
-
-func (r *jvmRuntimeMetricsReporter) observe(event jvmruntime.JVMRuntimeEvent) {
-	if !event.Service.ExportModes.CanExportMetrics() || !event.Service.Features.AppJVM() {
+func (r *metricsReporter) collectJVMRuntimeMetrics(snapshot runtimemetrics.RuntimeMetricSnapshot) {
+	if r.jvmRuntimeMetrics.memoryUsed == nil ||
+		snapshot.JVM == nil ||
+		!snapshot.Service.ExportModes.CanExportMetrics() ||
+		!snapshot.Service.Features.AppJVM() {
 		return
 	}
 
-	switch event.Kind {
+	switch snapshot.JVM.Kind {
 	case jvmruntime.JVMMetricMemoryUsed:
-		r.memoryUsed.WithLabelValues(jvmMemoryLabelValues(event)...).Metric.Set(float64(event.ValueBytes))
+		r.jvmRuntimeMetrics.memoryUsed.WithLabelValues(jvmMemoryLabelValues(snapshot)...).Metric.Set(float64(snapshot.JVM.ValueBytes))
 	case jvmruntime.JVMMetricMemoryCommitted:
-		r.memoryCommitted.WithLabelValues(jvmMemoryLabelValues(event)...).Metric.Set(float64(event.ValueBytes))
+		r.jvmRuntimeMetrics.memoryCommitted.WithLabelValues(jvmMemoryLabelValues(snapshot)...).Metric.Set(float64(snapshot.JVM.ValueBytes))
 	case jvmruntime.JVMMetricMemoryLimit:
-		r.memoryLimit.WithLabelValues(jvmMemoryLabelValues(event)...).Metric.Set(float64(event.ValueBytes))
+		r.jvmRuntimeMetrics.memoryLimit.WithLabelValues(jvmMemoryLabelValues(snapshot)...).Metric.Set(float64(snapshot.JVM.ValueBytes))
 	case jvmruntime.JVMMetricMemoryUsedAfterLastGC:
-		r.memoryUsedAfterLastGC.WithLabelValues(jvmMemoryLabelValues(event)...).Metric.Set(float64(event.ValueBytes))
+		r.jvmRuntimeMetrics.memoryUsedAfterLastGC.WithLabelValues(jvmMemoryLabelValues(snapshot)...).Metric.Set(float64(snapshot.JVM.ValueBytes))
 	case jvmruntime.JVMMetricBeylaHeapUsed:
-		r.heapUsed.WithLabelValues(jvmHeapLabelValues(event)...).Metric.Set(float64(event.ValueBytes))
+		r.jvmRuntimeMetrics.heapUsed.WithLabelValues(jvmHeapLabelValues(snapshot)...).Metric.Set(float64(snapshot.JVM.ValueBytes))
 	}
 }
 
@@ -157,18 +96,18 @@ func jvmHeapLabels() []string {
 	return append(jvmServiceLabels(), attr.JVMGCPhase.Prom())
 }
 
-func jvmServiceLabelValues(event jvmruntime.JVMRuntimeEvent) []string {
+func jvmServiceLabelValues(snapshot runtimemetrics.RuntimeMetricSnapshot) []string {
 	return []string{
-		event.Service.UID.Name,
-		event.Service.UID.Namespace,
-		event.Service.UID.Instance,
+		snapshot.Service.UID.Name,
+		snapshot.Service.UID.Namespace,
+		snapshot.Service.UID.Instance,
 	}
 }
 
-func jvmMemoryLabelValues(event jvmruntime.JVMRuntimeEvent) []string {
-	return append(jvmServiceLabelValues(event), string(event.MemoryType), event.PoolName)
+func jvmMemoryLabelValues(snapshot runtimemetrics.RuntimeMetricSnapshot) []string {
+	return append(jvmServiceLabelValues(snapshot), string(snapshot.JVM.MemoryType), snapshot.JVM.PoolName)
 }
 
-func jvmHeapLabelValues(event jvmruntime.JVMRuntimeEvent) []string {
-	return append(jvmServiceLabelValues(event), string(event.GCPhase))
+func jvmHeapLabelValues(snapshot runtimemetrics.RuntimeMetricSnapshot) []string {
+	return append(jvmServiceLabelValues(snapshot), string(snapshot.JVM.GCPhase))
 }

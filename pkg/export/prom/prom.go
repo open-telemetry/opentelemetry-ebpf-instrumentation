@@ -235,7 +235,8 @@ type metricsReporter struct {
 	genAIClientDuration *Expirer[prometheus.Histogram]
 	genAITokenUsage     *Expirer[prometheus.Histogram]
 
-	goRuntimeMetrics goRuntimeMetricsCollector
+	goRuntimeMetrics  goRuntimeMetricsCollector
+	jvmRuntimeMetrics jvmRuntimeMetricsCollector
 
 	promConnect *connector.PrometheusManager
 
@@ -763,6 +764,9 @@ func newReporter(
 			labelNamesTargetInfo(kubeEnabled, dockerEnabled, &ctxInfo.NodeMeta, extraMetadataLabels, selectorCfg.SelectionCfg),
 		)
 	}
+	if jointMetricsConfig.Features.AppJVM() {
+		mr.jvmRuntimeMetrics = newJVMRuntimeMetricsCollector(cfg)
+	}
 
 	// testing aid
 	mr.deleteEventMetrics = mr.deleteMetricsForService
@@ -849,6 +853,9 @@ func newReporter(
 
 	if jointMetricsConfig.Features.AppRuntime() {
 		registeredMetrics = append(registeredMetrics, mr.goRuntimeMetrics.collectors()...)
+	}
+	if jointMetricsConfig.Features.AppJVM() {
+		registeredMetrics = append(registeredMetrics, mr.jvmRuntimeMetrics.collectors()...)
 	}
 
 	if is.GPUEnabled() {

@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
-	jvmruntime "go.opentelemetry.io/obi/pkg/appolly/app/runtime"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
@@ -43,11 +42,10 @@ func Build(
 	config *obi.Config,
 	ctxInfo *global.ContextInfo,
 	tracesCh *msg.Queue[[]request.Span],
-	jvmRuntimeEvents *msg.Queue[[]jvmruntime.JVMRuntimeEvent],
 	processEventsCh *msg.Queue[exec.ProcessEvent],
 	runtimeMetrics *msg.Queue[[]runtimemetrics.RuntimeMetricSnapshot],
 ) (*Instrumenter, error) {
-	return newGraphBuilder(config, ctxInfo, tracesCh, processEventsCh, runtimeMetrics, jvmRuntimeEvents).buildGraph(ctx)
+	return newGraphBuilder(config, ctxInfo, tracesCh, processEventsCh, runtimeMetrics).buildGraph(ctx)
 }
 
 // private constructor that can be instantiated from tests to override the node providers
@@ -58,12 +56,7 @@ func newGraphBuilder(
 	tracesCh *msg.Queue[[]request.Span],
 	processEventsCh *msg.Queue[exec.ProcessEvent],
 	runtimeMetrics *msg.Queue[[]runtimemetrics.RuntimeMetricSnapshot],
-	jvmRuntimeEventsOpt ...*msg.Queue[[]jvmruntime.JVMRuntimeEvent],
 ) *graphFunctions {
-	var jvmRuntimeEvents *msg.Queue[[]jvmruntime.JVMRuntimeEvent]
-	if len(jvmRuntimeEventsOpt) > 0 {
-		jvmRuntimeEvents = jvmRuntimeEventsOpt[0]
-	}
 	// First, we create a graph builder
 	swi := &swarm.Instancer{}
 	gb := &graphFunctions{
@@ -143,7 +136,7 @@ func newGraphBuilder(
 	exportingMetrics := jointMetricsConfig.Features.AnyAppO11yMetric() &&
 		(config.OTELMetrics.EndpointEnabled() || config.Prometheus.EndpointEnabled())
 	if exportingMetrics {
-		setupMetricsSubPipeline(config, ctxInfo, swi, exportableSpans, jvmRuntimeEvents, selectorCfg, processEventsCh, jointMetricsConfig, runtimeMetrics)
+		setupMetricsSubPipeline(config, ctxInfo, swi, exportableSpans, selectorCfg, processEventsCh, jointMetricsConfig, runtimeMetrics)
 	}
 
 	swi.Add(prom.BPFMetrics(ctxInfo, &config.Prometheus, jointMetricsConfig),
@@ -161,7 +154,6 @@ func setupMetricsSubPipeline(
 	ctxInfo *global.ContextInfo,
 	swi *swarm.Instancer,
 	exportableSpans *msg.Queue[[]request.Span],
-	jvmRuntimeEvents *msg.Queue[[]jvmruntime.JVMRuntimeEvent],
 	selectorCfg *attributes.SelectorConfig,
 	processEventsCh *msg.Queue[exec.ProcessEvent],
 	jointMetricsConfig *perapp.MetricsConfig,
@@ -205,7 +197,10 @@ func setupMetricsSubPipeline(
 		), swarm.WithID("OTELSvcGraphMetricsExport"))
 	}
 
-	if jointMetricsConfig.Features.AppOrSpan() || jointMetricsConfig.Features.ServiceGraph() || jointMetricsConfig.Features.AppRuntime() {
+	if jointMetricsConfig.Features.AppOrSpan() ||
+		jointMetricsConfig.Features.ServiceGraph() ||
+		jointMetricsConfig.Features.AppRuntime() ||
+		jointMetricsConfig.Features.AppJVM() {
 		swi.Add(prom.PrometheusEndpoint(
 			ctxInfo,
 			&config.Prometheus,
@@ -218,7 +213,7 @@ func setupMetricsSubPipeline(
 		), swarm.WithID("PrometheusEndpoint"))
 	}
 
-	if jointMetricsConfig.Features.AppRuntime() {
+	if jointMetricsConfig.Features.AppRuntime() || jointMetricsConfig.Features.AppJVM() {
 		swi.Add(otel.ReportRuntimeMetrics(
 			ctxInfo,
 			&config.OTELMetrics,
@@ -226,22 +221,6 @@ func setupMetricsSubPipeline(
 			selectorCfg,
 			runtimeMetrics,
 		), swarm.WithID("OTELRuntimeMetricsExport"))
-	}
-
-	if jointMetricsConfig.Features.AppJVM() {
-		swi.Add(otel.ReportJVMRuntimeMetrics(
-			ctxInfo,
-			&config.OTELMetrics,
-			jointMetricsConfig,
-			jvmRuntimeEvents,
-		), swarm.WithID("OTELJVMRuntimeMetricsExport"))
-
-		swi.Add(prom.JVMRuntimeMetricsEndpoint(
-			ctxInfo,
-			&config.Prometheus,
-			jointMetricsConfig,
-			jvmRuntimeEvents,
-		), swarm.WithID("PrometheusJVMRuntimeMetricsEndpoint"))
 	}
 }
 

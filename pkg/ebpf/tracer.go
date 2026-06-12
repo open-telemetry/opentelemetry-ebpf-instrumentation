@@ -13,7 +13,6 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
-	jvmruntime "go.opentelemetry.io/obi/pkg/appolly/app/runtime"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
@@ -149,10 +148,9 @@ type ProcessTracer struct {
 	shutdownTimeout time.Duration
 	bpffsPath       string
 
-	Type             ProcessTracerType
-	Instrumentables  map[uint64]*instrumenter
-	Programs         []Tracer
-	JVMRuntimeEvents *msg.Queue[[]jvmruntime.JVMRuntimeEvent]
+	Type            ProcessTracerType
+	Instrumentables map[uint64]*instrumenter
+	Programs        []Tracer
 }
 
 func (pt *ProcessTracer) AllowPID(pid app.PID, ns uint32, fi *exec.FileInfo) {

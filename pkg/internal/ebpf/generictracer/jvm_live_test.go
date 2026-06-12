@@ -36,6 +36,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/internal/procs"
 	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
+	"go.opentelemetry.io/obi/pkg/runtimemetrics"
 )
 
 const (
@@ -153,7 +154,7 @@ func waitForProcessLine(t *testing.T, lines <-chan string, want string, timeout 
 func startJVMRuntimeEventTracer(
 	t *testing.T,
 	pid app.PID,
-) <-chan []jvmruntime.JVMRuntimeEvent {
+) <-chan []runtimemetrics.RuntimeMetricSnapshot {
 	t.Helper()
 
 	cfg := obi.DefaultConfig
@@ -170,9 +171,9 @@ func startJVMRuntimeEventTracer(
 	processTracer := ebpftracer.NewProcessTracer(ebpftracer.Generic, []ebpftracer.Tracer{genericTracer}, &cfg, imetrics.NoopReporter{})
 	require.NoError(t, processTracer.Init(eventContext, &cfg))
 
-	jvmRuntimeEvents := msg.NewQueue[[]jvmruntime.JVMRuntimeEvent](msg.ChannelBufferLen(100))
-	events := jvmRuntimeEvents.Subscribe(msg.SubscriberName("jvm-live-test"))
-	processTracer.JVMRuntimeEvents = jvmRuntimeEvents
+	runtimeMetrics := msg.NewQueue[[]runtimemetrics.RuntimeMetricSnapshot](msg.ChannelBufferLen(100))
+	events := runtimeMetrics.Subscribe(msg.SubscriberName("jvm-live-test"))
+	eventContext.RuntimeMetrics = runtimemetrics.NewQueueSender(runtimeMetrics)
 
 	fileInfo := javaProcessFileInfo(t, pid)
 	executable, err := link.OpenExecutable(fileInfo.ProExeLinkPath())
@@ -200,7 +201,7 @@ func startJVMRuntimeEventTracer(
 			t.Log("timed out waiting for JVM runtime ProcessTracer to stop")
 		}
 		spans.Close()
-		jvmRuntimeEvents.Close()
+		runtimeMetrics.Close()
 	})
 
 	return events
@@ -238,13 +239,13 @@ func javaProcessFileInfo(t *testing.T, pid app.PID) *discexec.FileInfo {
 
 func waitForJVMRuntimeEvents(
 	t *testing.T,
-	events <-chan []jvmruntime.JVMRuntimeEvent,
+	events <-chan []runtimemetrics.RuntimeMetricSnapshot,
 	triggerGC func(),
 ) {
 	t.Helper()
 
 	var (
-		received       []jvmruntime.JVMRuntimeEvent
+		received       []runtimemetrics.RuntimeMetricSnapshot
 		seenHeap       bool
 		seenMemoryPool bool
 	)
@@ -258,22 +259,22 @@ func waitForJVMRuntimeEvents(
 		select {
 		case batch := <-events:
 			received = append(received, batch...)
-			for _, event := range batch {
-				assert.Equal(t, jvmLiveServiceName, event.Service.UID.Name)
-				assert.Equal(t, jvmLiveServiceNamespace, event.Service.UID.Namespace)
-				assert.NotZero(t, event.PID)
-				assert.NotZero(t, event.PIDNamespaceID)
-				assert.NotZero(t, event.Time)
+			for _, snapshot := range batch {
+				require.NotNil(t, snapshot.JVM)
+				assert.Equal(t, jvmLiveServiceName, snapshot.Service.UID.Name)
+				assert.Equal(t, jvmLiveServiceNamespace, snapshot.Service.UID.Namespace)
+				assert.NotZero(t, snapshot.PID)
+				assert.NotZero(t, snapshot.Time)
 
-				if event.Kind == jvmruntime.JVMMetricBeylaHeapUsed {
+				if snapshot.JVM.Kind == jvmruntime.JVMMetricBeylaHeapUsed {
 					seenHeap = true
-					assert.NotEmpty(t, event.GCPhase)
-					assert.Positive(t, event.ValueBytes)
+					assert.NotEmpty(t, snapshot.JVM.GCPhase)
+					assert.Positive(t, snapshot.JVM.ValueBytes)
 				}
-				if strings.HasPrefix(string(event.Kind), "jvm.memory.") && event.PoolName != "" {
+				if strings.HasPrefix(string(snapshot.JVM.Kind), "jvm.memory.") && snapshot.JVM.PoolName != "" {
 					seenMemoryPool = true
-					assert.NotEmpty(t, event.MemoryType)
-					assert.NotEmpty(t, event.GCPhase)
+					assert.NotEmpty(t, snapshot.JVM.MemoryType)
+					assert.NotEmpty(t, snapshot.JVM.GCPhase)
 				}
 			}
 			if seenHeap && seenMemoryPool {

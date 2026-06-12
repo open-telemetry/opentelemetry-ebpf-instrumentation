@@ -14,7 +14,6 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/appolly"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
-	jvmruntime "go.opentelemetry.io/obi/pkg/appolly/app/runtime"
 	"go.opentelemetry.io/obi/pkg/appolly/discover"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	"go.opentelemetry.io/obi/pkg/appolly/traces"
@@ -47,7 +46,6 @@ type Instrumenter struct {
 	// tracesInput is used to communicate the found traces between the ProcessFinder and
 	// the ProcessTracer.
 	tracesInput       *msg.Queue[[]request.Span]
-	jvmRuntimeEvents  *msg.Queue[[]jvmruntime.JVMRuntimeEvent]
 	processEventInput *msg.Queue[exec.ProcessEvent]
 	peGraphBuilder    *swarm.Instancer
 
@@ -71,10 +69,6 @@ func New(ctx context.Context, ctxInfo *global.ContextInfo, config *obi.Config) (
 	setupFeatureContextInfo(ctx, ctxInfo, config)
 
 	tracesInput := msg2.QueueFromConfig[[]request.Span](config, "tracesInput")
-	var jvmRuntimeEvents *msg.Queue[[]jvmruntime.JVMRuntimeEvent]
-	if config.JVMRuntimeMetrics.Enabled {
-		jvmRuntimeEvents = msg2.QueueFromConfig[[]jvmruntime.JVMRuntimeEvent](config, "jvmRuntimeEvents")
-	}
 
 	swi := &swarm.Instancer{}
 
@@ -103,8 +97,9 @@ func New(ctx context.Context, ctxInfo *global.ContextInfo, config *obi.Config) (
 	), swarm.WithID("DockerProcessEventDecorator"))
 
 	runtimeMetrics := newRuntimeMetricsQueue(config)
+	ebpfEventContext := ebpfcommon.NewEBPFEventContext()
 
-	bp, err := appolly.Build(ctx, config, ctxInfo, tracesInput, jvmRuntimeEvents, processEventsDockerDecorated, runtimeMetrics)
+	bp, err := appolly.Build(ctx, config, ctxInfo, tracesInput, processEventsDockerDecorated, runtimeMetrics)
 	if err != nil {
 		return nil, fmt.Errorf("can't instantiate instrumentation pipeline: %w", err)
 	}
@@ -116,11 +111,10 @@ func New(ctx context.Context, ctxInfo *global.ContextInfo, config *obi.Config) (
 		ctxInfo:            ctxInfo,
 		tracersWg:          &sync.WaitGroup{},
 		tracesInput:        tracesInput,
-		jvmRuntimeEvents:   jvmRuntimeEvents,
 		processEventInput:  processEventsInput,
 		bp:                 bp,
 		peGraphBuilder:     swi,
-		ebpfEventContext:   ebpfcommon.NewEBPFEventContext(),
+		ebpfEventContext:   ebpfEventContext,
 		runtimeMetrics:     runtimeMetrics,
 		dynamicPIDSelector: sel,
 	}
@@ -130,7 +124,8 @@ func New(ctx context.Context, ctxInfo *global.ContextInfo, config *obi.Config) (
 func newRuntimeMetricsQueue(config *obi.Config) *msg.Queue[[]runtimemetrics.RuntimeMetricSnapshot] {
 	jointMetricsConfig := appolly.JoinMetricsConfig(config)
 
-	if !jointMetricsConfig.Features.AppRuntime() ||
+	if !jointMetricsConfig.Features.AppRuntime() &&
+		!jointMetricsConfig.Features.AppJVM() ||
 		!jointMetricsConfig.Features.AnyAppO11yMetric() ||
 		(!config.OTELMetrics.EndpointEnabled() && !config.Prometheus.EndpointEnabled()) {
 		return nil
@@ -197,7 +192,6 @@ func (i *Instrumenter) instrumentedEventLoop(ctx context.Context, processEvents 
 			log.Debug("running tracer for new process",
 				"inode", pt.FileInfo.Ino(), "pid", pt.FileInfo.Pid(), "exec", pt.FileInfo.CmdExePath())
 			if pt.Tracer != nil {
-				pt.Tracer.JVMRuntimeEvents = i.jvmRuntimeEvents
 				i.tracersWg.Go(func() {
 					pt.Tracer.Run(ctx, i.ebpfEventContext, i.tracesInput)
 				})

@@ -26,6 +26,7 @@ import (
 	ebpfconvenience "go.opentelemetry.io/obi/pkg/internal/ebpf/convenience"
 	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
+	"go.opentelemetry.io/obi/pkg/runtimemetrics"
 )
 
 func TestBitPositionCalculation(t *testing.T) {
@@ -218,8 +219,8 @@ func TestParseJVMGCHeapSummaryRecordIgnoresUnknownPID(t *testing.T) {
 
 func TestProcessSharedRingbufRecordDispatchesJVMGCHeapSummaryRecord(t *testing.T) {
 	service := svc.Attrs{UID: svc.UID{Name: "orders", Namespace: "prod"}}
-	events := msg.NewQueue[[]jvmruntime.JVMRuntimeEvent](msg.ChannelBufferLen(1))
-	received := events.Subscribe(msg.SubscriberName("jvm-test"))
+	runtimeMetrics := msg.NewQueue[[]runtimemetrics.RuntimeMetricSnapshot](msg.ChannelBufferLen(1))
+	received := runtimeMetrics.Subscribe(msg.SubscriberName("jvm-test"))
 	tracer := &Tracer{
 		cfg: &obi.Config{},
 		pidsFilter: fakeServiceFilter{
@@ -227,7 +228,7 @@ func TestProcessSharedRingbufRecordDispatchesJVMGCHeapSummaryRecord(t *testing.T
 				42: {1234: service},
 			},
 		},
-		eventCtx: &ebpfcommon.EBPFEventContext{JVMRuntimeEvents: events},
+		eventCtx: &ebpfcommon.EBPFEventContext{RuntimeMetrics: runtimemetrics.NewQueueSender(runtimeMetrics)},
 	}
 	tracer.cfg.JVMRuntimeMetrics.Enabled = true
 
@@ -249,8 +250,9 @@ func TestProcessSharedRingbufRecordDispatchesJVMGCHeapSummaryRecord(t *testing.T
 	batch := readJVMTestBatch(t, received)
 	require.Len(t, batch, 1)
 	assert.Equal(t, service, batch[0].Service)
-	assert.Equal(t, jvmruntime.JVMMetricBeylaHeapUsed, batch[0].Kind)
-	assert.Equal(t, uint64(2048), batch[0].ValueBytes)
+	require.NotNil(t, batch[0].JVM)
+	assert.Equal(t, jvmruntime.JVMMetricBeylaHeapUsed, batch[0].JVM.Kind)
+	assert.Equal(t, uint64(2048), batch[0].JVM.ValueBytes)
 }
 
 func TestProcessSharedRingbufRecordConsumesJVMRuntimeMetricRecordsWithoutForwarding(t *testing.T) {
@@ -278,8 +280,8 @@ func TestProcessSharedRingbufRecordConsumesJVMRuntimeMetricRecordsWithoutForward
 
 func TestProcessSharedRingbufRecordDispatchesJVMMemoryPoolRecord(t *testing.T) {
 	service := svc.Attrs{UID: svc.UID{Name: "orders", Namespace: "prod"}}
-	events := msg.NewQueue[[]jvmruntime.JVMRuntimeEvent](msg.ChannelBufferLen(1))
-	received := events.Subscribe(msg.SubscriberName("jvm-test"))
+	runtimeMetrics := msg.NewQueue[[]runtimemetrics.RuntimeMetricSnapshot](msg.ChannelBufferLen(1))
+	received := runtimeMetrics.Subscribe(msg.SubscriberName("jvm-test"))
 	tracer := &Tracer{
 		cfg: &obi.Config{},
 		pidsFilter: fakeServiceFilter{
@@ -287,7 +289,7 @@ func TestProcessSharedRingbufRecordDispatchesJVMMemoryPoolRecord(t *testing.T) {
 				42: {1234: service},
 			},
 		},
-		eventCtx: &ebpfcommon.EBPFEventContext{JVMRuntimeEvents: events},
+		eventCtx: &ebpfcommon.EBPFEventContext{RuntimeMetrics: runtimemetrics.NewQueueSender(runtimeMetrics)},
 	}
 	tracer.cfg.JVMRuntimeMetrics.Enabled = true
 
@@ -311,13 +313,14 @@ func TestProcessSharedRingbufRecordDispatchesJVMMemoryPoolRecord(t *testing.T) {
 
 	batch := readJVMTestBatch(t, received)
 	require.Len(t, batch, 4)
-	for _, event := range batch {
-		assert.Equal(t, service, event.Service)
+	for _, snapshot := range batch {
+		assert.Equal(t, service, snapshot.Service)
+		require.NotNil(t, snapshot.JVM)
 	}
-	assert.Equal(t, jvmruntime.JVMMetricMemoryUsed, batch[0].Kind)
-	assert.Equal(t, jvmruntime.JVMMetricMemoryCommitted, batch[1].Kind)
-	assert.Equal(t, jvmruntime.JVMMetricMemoryLimit, batch[2].Kind)
-	assert.Equal(t, jvmruntime.JVMMetricMemoryUsedAfterLastGC, batch[3].Kind)
+	assert.Equal(t, jvmruntime.JVMMetricMemoryUsed, batch[0].JVM.Kind)
+	assert.Equal(t, jvmruntime.JVMMetricMemoryCommitted, batch[1].JVM.Kind)
+	assert.Equal(t, jvmruntime.JVMMetricMemoryLimit, batch[2].JVM.Kind)
+	assert.Equal(t, jvmruntime.JVMMetricMemoryUsedAfterLastGC, batch[3].JVM.Kind)
 }
 
 func TestJVMBPFMapsAreInternallyPinnedAndUseSharedEventsRingBuffer(t *testing.T) {
@@ -375,7 +378,7 @@ func rawJVMString(value string) [jvmruntime.JVMRawStringLen]byte {
 	return raw
 }
 
-func readJVMTestBatch(t *testing.T, events <-chan []jvmruntime.JVMRuntimeEvent) []jvmruntime.JVMRuntimeEvent {
+func readJVMTestBatch(t *testing.T, events <-chan []runtimemetrics.RuntimeMetricSnapshot) []runtimemetrics.RuntimeMetricSnapshot {
 	t.Helper()
 
 	select {

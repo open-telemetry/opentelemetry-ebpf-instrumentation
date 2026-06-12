@@ -643,8 +643,8 @@ func (p *Tracer) Run(
 
 	cfg := &p.cfg.EBPF
 	if p.cfg.JVMRuntimeMetrics.Enabled {
-		if p.jvmRuntimeEventQueue() == nil {
-			p.log.Debug("JVM runtime metrics enabled without event queue")
+		if p.runtimeMetricsSender() == nil {
+			p.log.Debug("JVM runtime metrics enabled without runtime metrics queue")
 		} else {
 			p.log.Debug("reading JVM runtime metrics from shared ring buffer")
 		}
@@ -680,11 +680,11 @@ func (p *Tracer) processSharedRingbufRecord(
 	return s, ignore, err
 }
 
-func (p *Tracer) jvmRuntimeEventQueue() *msg.Queue[[]jvmruntime.JVMRuntimeEvent] {
+func (p *Tracer) runtimeMetricsSender() ebpfcommon.JVMRuntimeMetricSender {
 	if p.eventCtx == nil {
 		return nil
 	}
-	return p.eventCtx.JVMRuntimeEvents
+	return p.eventCtx.RuntimeMetrics
 }
 
 func (p *Tracer) parseJVMGCHeapSummaryRecord(record *ringbuf.Record) (jvmruntime.JVMRuntimeEvent, bool, error) {

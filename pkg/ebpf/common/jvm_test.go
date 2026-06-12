@@ -8,7 +8,6 @@ import (
 	"context"
 	"encoding/binary"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -19,14 +18,12 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	"go.opentelemetry.io/obi/pkg/ebpf/ringbuf"
-	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
 
-func TestHandleJVMRuntimeMetricRecordForwardsHeapSummaryEvent(t *testing.T) {
+func TestHandleJVMRuntimeMetricRecordForwardsHeapSummaryRuntimeMetric(t *testing.T) {
 	service := svc.Attrs{UID: svc.UID{Name: "orders", Namespace: "prod"}}
-	events := msg.NewQueue[[]jvmruntime.JVMRuntimeEvent](msg.ChannelBufferLen(1))
-	received := events.Subscribe(msg.SubscriberName("jvm-common-test"))
-	ctx := &EBPFEventContext{JVMRuntimeEvents: events}
+	runtimeMetrics := &fakeRuntimeMetricsSender{}
+	ctx := &EBPFEventContext{RuntimeMetrics: runtimeMetrics}
 
 	handled, err := HandleJVMRuntimeMetricRecord(context.Background(), ctx, &ringbuf.Record{
 		RawSample: jvmBinaryPayload(t, jvmruntime.RawJVMGCHeapSummaryEvent{
@@ -46,15 +43,10 @@ func TestHandleJVMRuntimeMetricRecordForwardsHeapSummaryEvent(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, handled)
 
-	select {
-	case batch := <-received:
-		require.Len(t, batch, 1)
-		assert.Equal(t, service, batch[0].Service)
-		assert.Equal(t, jvmruntime.JVMMetricBeylaHeapUsed, batch[0].Kind)
-		assert.Equal(t, uint64(2048), batch[0].ValueBytes)
-	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for JVM runtime event")
-	}
+	require.Len(t, runtimeMetrics.events, 1)
+	assert.Equal(t, service, runtimeMetrics.events[0].Service)
+	assert.Equal(t, jvmruntime.JVMMetricBeylaHeapUsed, runtimeMetrics.events[0].Kind)
+	assert.Equal(t, uint64(2048), runtimeMetrics.events[0].ValueBytes)
 }
 
 func TestHandleJVMRuntimeMetricRecordConsumesEventsWithoutQueue(t *testing.T) {
@@ -93,4 +85,12 @@ func (f fakeJVMServiceFilter) ValidPID(app.PID, uint32, PIDType) bool           
 func (f fakeJVMServiceFilter) Filter(inputSpans []request.Span) []request.Span   { return inputSpans }
 func (f fakeJVMServiceFilter) CurrentPIDs(PIDType) map[uint32]map[app.PID]svc.Attrs {
 	return f.current
+}
+
+type fakeRuntimeMetricsSender struct {
+	events []jvmruntime.JVMRuntimeEvent
+}
+
+func (s *fakeRuntimeMetricsSender) SendJVMRuntimeMetrics(_ context.Context, events []jvmruntime.JVMRuntimeEvent) {
+	s.events = append(s.events, events...)
 }

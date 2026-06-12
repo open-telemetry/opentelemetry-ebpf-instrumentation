@@ -100,7 +100,6 @@ func (pt *ProcessTracer) Run(
 	pt.log = ptlog().With("type", pt.Type)
 
 	pt.log.Debug("starting process tracer")
-	ebpfEventContext.JVMRuntimeEvents = pt.JVMRuntimeEvents
 
 	// Searches for traceable functions
 	trcrs := pt.Programs

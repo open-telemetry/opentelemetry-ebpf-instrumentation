@@ -11,33 +11,45 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	jvmruntime "go.opentelemetry.io/obi/pkg/appolly/app/runtime"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
+	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	"go.opentelemetry.io/obi/pkg/export/connector"
 	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
+	"go.opentelemetry.io/obi/pkg/pipe/msg"
+	"go.opentelemetry.io/obi/pkg/runtimemetrics"
 )
 
-func TestJVMRuntimeMetricsReporterRecordsHeapSummary(t *testing.T) {
+func TestRuntimeMetricsReporterRecordsJVMHeapSummary(t *testing.T) {
 	registry := prometheus.NewRegistry()
-	reporter := newJVMRuntimeMetricsReporter(
+	reporter, err := newReporter(
+		t.Context(),
 		&global.ContextInfo{Prometheus: &connector.PrometheusManager{}},
 		&PrometheusConfig{Registry: registry, TTL: time.Minute},
 		&perapp.MetricsConfig{Features: export.FeatureApplicationJVM},
 		&attributes.SelectorConfig{},
+		request.UnresolvedNames{},
+		nil,
+		msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(1)),
+		nil,
 	)
+	require.NoError(t, err)
 
-	reporter.observe(jvmruntime.JVMRuntimeEvent{
+	reporter.collectRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{{
 		Service: svc.Attrs{
 			UID:      svc.UID{Name: "orders", Namespace: "prod", Instance: "orders-1"},
 			Features: export.FeatureApplicationJVM,
 		},
-		Kind:       jvmruntime.JVMMetricBeylaHeapUsed,
-		GCPhase:    jvmruntime.JVMGCPhaseAfter,
-		ValueBytes: 42,
-	})
+		JVM: &runtimemetrics.JVMRuntimeMetricSnapshot{
+			Kind:       jvmruntime.JVMMetricBeylaHeapUsed,
+			GCPhase:    jvmruntime.JVMGCPhaseAfter,
+			ValueBytes: 42,
+		},
+	}})
 
 	metric := gatheredMetric(t, registry, "beyla_jvm_heap_used_bytes", map[string]string{
 		"service_name":        "orders",
@@ -49,24 +61,32 @@ func TestJVMRuntimeMetricsReporterRecordsHeapSummary(t *testing.T) {
 	assert.InEpsilon(t, 42.0, metric.GetGauge().GetValue(), 0)
 }
 
-func TestJVMRuntimeMetricsReporterDropsServiceWithoutJVMFeature(t *testing.T) {
+func TestRuntimeMetricsReporterDropsJVMServiceWithoutJVMFeature(t *testing.T) {
 	registry := prometheus.NewRegistry()
-	reporter := newJVMRuntimeMetricsReporter(
+	reporter, err := newReporter(
+		t.Context(),
 		&global.ContextInfo{Prometheus: &connector.PrometheusManager{}},
 		&PrometheusConfig{Registry: registry, TTL: time.Minute},
 		&perapp.MetricsConfig{Features: export.FeatureApplicationJVM},
 		&attributes.SelectorConfig{},
+		request.UnresolvedNames{},
+		nil,
+		msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(1)),
+		nil,
 	)
+	require.NoError(t, err)
 
-	reporter.observe(jvmruntime.JVMRuntimeEvent{
+	reporter.collectRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{{
 		Service: svc.Attrs{
 			UID:      svc.UID{Name: "orders", Namespace: "prod", Instance: "orders-1"},
 			Features: export.FeatureApplicationRED,
 		},
-		Kind:       jvmruntime.JVMMetricBeylaHeapUsed,
-		GCPhase:    jvmruntime.JVMGCPhaseAfter,
-		ValueBytes: 42,
-	})
+		JVM: &runtimemetrics.JVMRuntimeMetricSnapshot{
+			Kind:       jvmruntime.JVMMetricBeylaHeapUsed,
+			GCPhase:    jvmruntime.JVMGCPhaseAfter,
+			ValueBytes: 42,
+		},
+	}})
 
 	assert.Nil(t, gatheredMetric(t, registry, "beyla_jvm_heap_used_bytes", map[string]string{
 		"service_name":        "orders",
