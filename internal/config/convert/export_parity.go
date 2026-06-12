@@ -11,7 +11,6 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/filter"
 	"go.opentelemetry.io/obi/pkg/obi"
-	"go.opentelemetry.io/obi/pkg/transform"
 )
 
 func httpRoutes(cfg *obi.Config) schema.HTTPRoutes {
@@ -28,33 +27,20 @@ func httpRoutes(cfg *obi.Config) schema.HTTPRoutes {
 		return out
 	}
 
-	out.Unmatched = unmatchTypePtr(cfg.Routes.Unmatch)
-	out.Patterns = stringSlicePtr(cfg.Routes.Patterns)
-	out.IgnoredPatterns = stringSlicePtr(cfg.Routes.IgnorePatterns)
-	out.IgnoreMode = ignoreModePtr(cfg.Routes.IgnoredEvents)
-	out.WildcardChar = stringPtr(cfg.Routes.WildcardChar)
-	out.MaxPathSegmentCardinality = intPtr(cfg.Routes.MaxPathSegmentCardinality)
+	unmatched := cfg.Routes.Unmatch
+	patterns := cfg.Routes.Patterns
+	ignoredPatterns := cfg.Routes.IgnorePatterns
+	ignoreMode := cfg.Routes.IgnoredEvents
+	wildcardChar := cfg.Routes.WildcardChar
+	maxPathSegmentCardinality := cfg.Routes.MaxPathSegmentCardinality
+
+	out.Unmatched = &unmatched
+	out.Patterns = &patterns
+	out.IgnoredPatterns = &ignoredPatterns
+	out.IgnoreMode = &ignoreMode
+	out.WildcardChar = &wildcardChar
+	out.MaxPathSegmentCardinality = &maxPathSegmentCardinality
 	return out
-}
-
-func unmatchTypePtr(v transform.UnmatchType) *transform.UnmatchType {
-	return &v
-}
-
-func stringSlicePtr(v []string) *[]string {
-	return &v
-}
-
-func ignoreModePtr(v transform.IgnoreMode) *transform.IgnoreMode {
-	return &v
-}
-
-func stringPtr(v string) *string {
-	return &v
-}
-
-func intPtr(v int) *int {
-	return &v
 }
 
 const (

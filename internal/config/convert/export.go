@@ -476,18 +476,22 @@ func stringAttribute(name, value string) otelconfx.AttributeNameValue {
 
 func tracerProvider(cfg *obi.Config) *otelconfx.TracerProvider {
 	endpoint, _ := cfg.Traces.OTLPTracesEndpoint()
+	insecure := insecureOTLPTransport(endpoint)
+	maxQueueSize := cfg.Traces.QueueSize
+	maxExportBatchSize := cfg.Traces.BatchMaxSize
+	scheduleDelay := int(cfg.Traces.BatchTimeout.Milliseconds())
 	return &otelconfx.TracerProvider{
 		Processors: []otelconfx.SpanProcessor{
 			{
 				Batch: &otelconfx.BatchSpanProcessor{
-					MaxQueueSize:       intPtr(cfg.Traces.QueueSize),
-					MaxExportBatchSize: intPtr(cfg.Traces.BatchMaxSize),
-					ScheduleDelay:      intPtr(int(cfg.Traces.BatchTimeout.Milliseconds())),
+					MaxQueueSize:       &maxQueueSize,
+					MaxExportBatchSize: &maxExportBatchSize,
+					ScheduleDelay:      &scheduleDelay,
 					Exporter: otelconfx.SpanExporter{
 						OTLPGrpc: &otelconfx.OTLPGrpcExporter{
-							Endpoint: stringPtr(endpoint),
+							Endpoint: &endpoint,
 							Tls: &otelconfx.GrpcTls{
-								Insecure: boolPtr(insecureOTLPTransport(endpoint)),
+								Insecure: &insecure,
 							},
 						},
 					},
@@ -539,24 +543,27 @@ func traceIDRatioSampler(raw string) *otelconfx.Sampler {
 	}
 	return &otelconfx.Sampler{
 		TraceIDRatioBased: &otelconfx.TraceIDRatioBasedSampler{
-			Ratio: float64Ptr(ratio),
+			Ratio: &ratio,
 		},
 	}
 }
 
 func meterProvider(cfg *obi.Config) *otelconfx.MeterProvider {
 	endpoint, _ := cfg.OTELMetrics.OTLPMetricsEndpoint()
+	insecure := insecureOTLPTransport(endpoint)
+	interval := int(cfg.OTELMetrics.GetInterval().Milliseconds())
+	prometheusPort := cfg.Prometheus.Port
 	return &otelconfx.MeterProvider{
 		Readers: []otelconfx.MetricReader{
 			{
 				Periodic: &otelconfx.PeriodicMetricReader{
-					Interval: intPtr(int(cfg.OTELMetrics.GetInterval().Milliseconds())),
+					Interval: &interval,
 					Exporter: otelconfx.PushMetricExporter{
 						OTLPGrpc: &otelconfx.OTLPGrpcMetricExporter{
-							Endpoint:                    stringPtr(endpoint),
+							Endpoint:                    &endpoint,
 							DefaultHistogramAggregation: defaultHistogramAggregation(cfg.OTELMetrics.HistogramAggregation),
 							Tls: &otelconfx.GrpcTls{
-								Insecure: boolPtr(insecureOTLPTransport(endpoint)),
+								Insecure: &insecure,
 							},
 						},
 					},
@@ -566,7 +573,7 @@ func meterProvider(cfg *obi.Config) *otelconfx.MeterProvider {
 				Pull: &otelconfx.PullMetricReader{
 					Exporter: otelconfx.PullMetricExporter{
 						PrometheusDevelopment: &otelconfx.ExperimentalPrometheusMetricExporter{
-							Port: intPtr(cfg.Prometheus.Port),
+							Port: &prometheusPort,
 						},
 					},
 				},
@@ -581,14 +588,6 @@ func defaultHistogramAggregation(aggregation otelcfg.HistogramAggregation) *otel
 	}
 	out := otelconfx.ExporterDefaultHistogramAggregation(aggregation)
 	return &out
-}
-
-func boolPtr(value bool) *bool {
-	return &value
-}
-
-func float64Ptr(value float64) *float64 {
-	return &value
 }
 
 func insecureOTLPTransport(endpoint string) bool {

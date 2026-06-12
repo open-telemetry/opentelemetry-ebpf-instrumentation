@@ -576,10 +576,12 @@ func TestRuntimeToV2AdvancedCaptureParity(t *testing.T) {
 	require.Equal(t, []services.RouteHarvesterLanguage{services.RouteHarvesterLanguageJava}, value(t, ext.Capture.Instrumentation, "http", "routes", "discovery", "disabled_languages"))
 	require.Equal(t, schema.Duration(24*time.Second), value(t, ext.Capture.Instrumentation, "http", "routes", "discovery", "java", "delay"))
 
-	require.Equal(t, schema.AttributeFilter{Equals: intPtr(500)}, value(t, ext.Capture.Instrumentation, "http", "filters", "traces", "http.status_code"))
+	statusCode := 500
+	require.Equal(t, schema.AttributeFilter{Equals: &statusCode}, value(t, ext.Capture.Instrumentation, "http", "filters", "traces", "http.status_code"))
 	require.Equal(t, schema.AttributeFilter{Match: "checkout-*"}, value(t, ext.Capture.Instrumentation, "kafka", "filters", "metrics", "service.name"))
 	require.Equal(t, schema.AttributeFilter{NotMatch: "10.*"}, value(t, ext.Capture.Network, "capture", "filters", "traces", "src.address"))
-	require.Equal(t, schema.AttributeFilter{GreaterThan: intPtr(1024)}, value(t, ext.Capture.Network, "stats", "filters", "metrics", "srtt"))
+	srtt := 1024
+	require.Equal(t, schema.AttributeFilter{GreaterThan: &srtt}, value(t, ext.Capture.Network, "stats", "filters", "metrics", "srtt"))
 
 	require.ElementsMatch(t, []string{
 		"graphql", "elasticsearch", "aws", "sqlpp", "openai", "anthropic", "gemini",
