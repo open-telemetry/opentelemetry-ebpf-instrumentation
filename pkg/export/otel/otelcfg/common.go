@@ -277,7 +277,7 @@ func (rp *ReporterPool[K, T]) For(service K) (T, error) {
 	// In multi-process tracing, this is likely to happen as most
 	// tracers group traces belonging to the same service in the same slice.
 	svcUID := service.GetUID()
-	if rp.lastServiceUID == emptyUID || svcUID != rp.lastService.GetUID() {
+	if rp.lastServiceUID == emptyUID || svcUID != rp.lastServiceUID {
 		lm, err := rp.get(svcUID, service)
 		if err != nil {
 			var t T
@@ -307,6 +307,11 @@ func (rp *ReporterPool[K, T]) expireOldReporters() {
 			return
 		}
 		rp.pool.RemoveOldest()
+		if rp.lastReporter == v {
+			rp.lastReporter = nil
+			rp.lastService = nil
+			rp.lastServiceUID = emptyUID
+		}
 	}
 }
 

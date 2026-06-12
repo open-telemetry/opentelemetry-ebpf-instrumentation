@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 
@@ -15,6 +16,39 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 )
+
+func TestReporterPoolDoesNotReuseExpiredLastReporter(t *testing.T) {
+	now := time.Unix(0, 0)
+	service := &svc.Attrs{UID: svc.UID{Name: "svc"}}
+	constructed := 0
+	evicted := []int{}
+
+	reporters, err := NewReporterPool[*svc.Attrs, int](
+		10,
+		time.Second,
+		func() time.Time { return now },
+		func(_ svc.UID, value int) {
+			evicted = append(evicted, value)
+		},
+		func(_ *svc.Attrs) (int, error) {
+			constructed++
+			return constructed, nil
+		},
+	)
+	assert.NoError(t, err)
+
+	first, err := reporters.For(service)
+	assert.NoError(t, err)
+	assert.Equal(t, 1, first)
+
+	now = now.Add(time.Second)
+	second, err := reporters.For(service)
+	assert.NoError(t, err)
+
+	assert.Equal(t, 2, second)
+	assert.Equal(t, []int{1}, evicted)
+	assert.Equal(t, 2, constructed)
+}
 
 func TestOtlpOptions_AsMetricHTTP(t *testing.T) {
 	type testCase struct {
