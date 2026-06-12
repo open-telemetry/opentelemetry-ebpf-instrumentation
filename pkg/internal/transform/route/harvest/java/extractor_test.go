@@ -38,18 +38,6 @@ var expectedRoutes = []string{
 	"/v1/users/{id}",
 }
 
-var expectedGreetingRoutes = []string{
-	"/sync-client",
-	"/json_logger",
-	"/greeting",
-	"/jtrace2",
-	"/jtraceA",
-	"/jtraceB",
-	"/jtrace",
-	"/smoke",
-	"/greeting123/{whatever}",
-}
-
 func TestExtractRoutesFromSpringBootJar(t *testing.T) {
 	fileInfo := javaFileInfo(t, []string{"-jar", "/spring-boot-app.jar"}, nil)
 
