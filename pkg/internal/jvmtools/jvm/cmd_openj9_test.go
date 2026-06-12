@@ -27,3 +27,16 @@ func TestWriteCommandPreservesSyscallError(t *testing.T) {
 		t.Fatalf("expected EBADF, got %v", err)
 	}
 }
+
+func TestJ9ReaderReadReturnsZeroCountOnSyscallError(t *testing.T) {
+	attacher := newJ9Attacher(slog.Default())
+	attacher.fd = 1 << 30
+
+	n, err := (&j9Reader{attacher: attacher}).Read(make([]byte, 1))
+	if n != 0 {
+		t.Fatalf("expected zero byte count, got %d", n)
+	}
+	if !errors.Is(err, syscall.EBADF) {
+		t.Fatalf("expected EBADF, got %v", err)
+	}
+}

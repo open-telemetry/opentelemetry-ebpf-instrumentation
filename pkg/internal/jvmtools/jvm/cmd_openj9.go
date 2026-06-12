@@ -364,6 +364,13 @@ func (j *j9Attacher) unlockNotificationFiles(count int) error {
 	return err
 }
 
+func (j *j9Attacher) releaseNotificationFiles(tmpPath string, count int) error {
+	return errors.Join(
+		j.unlockNotificationFiles(count),
+		notifySemaphore(tmpPath, -1, count),
+	)
+}
+
 func isOpenJ9Process(tmpPath string, pid int) bool {
 	path := filepath.Join(tmpPath, ".com_ibm_tools_attach", strconv.Itoa(pid), "attachInfo")
 	_, err := os.Stat(path)
@@ -379,12 +386,20 @@ func (r *j9Reader) Read(p []byte) (int, error) {
 		return 0, os.ErrClosed
 	}
 
-	n, err := syscall.Read(r.attacher.fd, p)
-	if n == 0 && err == nil {
-		return 0, io.EOF
-	}
+	for {
+		n, err := syscall.Read(r.attacher.fd, p)
+		if errors.Is(err, syscall.EINTR) {
+			continue
+		}
+		if err != nil {
+			return 0, err
+		}
+		if n == 0 {
+			return 0, io.EOF
+		}
 
-	return n, err
+		return n, nil
+	}
 }
 
 func (r *j9Reader) Close() error {
@@ -443,8 +458,7 @@ func (j *j9Attacher) jattachOpenJ9(tmpPath string, nspid int, argv []string) (re
 			cleanupErr = errors.Join(cleanupErr, closeAttachSocket(tmpPath, s, nspid))
 		}
 		if notifyCount > 0 {
-			cleanupErr = errors.Join(cleanupErr, j.unlockNotificationFiles(notifyCount))
-			cleanupErr = errors.Join(cleanupErr, notifySemaphore(tmpPath, -1, notifyCount))
+			cleanupErr = errors.Join(cleanupErr, j.releaseNotificationFiles(tmpPath, notifyCount))
 		}
 		if attachLock >= 0 {
 			cleanupErr = errors.Join(cleanupErr, releaseLock(attachLock))
@@ -479,21 +493,23 @@ func (j *j9Attacher) jattachOpenJ9(tmpPath string, nspid int, argv []string) (re
 
 	j.fd = fd
 
-	if err := closeAttachSocket(tmpPath, s, nspid); err != nil {
-		return nil, fmt.Errorf("could not close attach socket: %w", err)
-	}
+	closeErr := closeAttachSocket(tmpPath, s, nspid)
 	s = -1
-	if err := j.unlockNotificationFiles(notifyCount); err != nil {
-		return nil, fmt.Errorf("could not unlock OpenJ9 notification files: %w", err)
+	if closeErr != nil {
+		return nil, fmt.Errorf("could not close attach socket: %w", closeErr)
 	}
-	if err := notifySemaphore(tmpPath, -1, notifyCount); err != nil {
-		return nil, fmt.Errorf("could not release OpenJ9 notify semaphore: %w", err)
-	}
+
+	notifyErr := j.releaseNotificationFiles(tmpPath, notifyCount)
 	notifyCount = 0
-	if err := releaseLock(attachLock); err != nil {
-		return nil, fmt.Errorf("could not release OpenJ9 attach lock: %w", err)
+	if notifyErr != nil {
+		return nil, fmt.Errorf("could not release OpenJ9 notification files: %w", notifyErr)
 	}
+
+	releaseErr := releaseLock(attachLock)
 	attachLock = -1
+	if releaseErr != nil {
+		return nil, fmt.Errorf("could not release OpenJ9 attach lock: %w", releaseErr)
+	}
 
 	j.logger.Info("connected to remote JVM")
 
