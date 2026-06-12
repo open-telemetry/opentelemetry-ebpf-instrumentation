@@ -76,7 +76,7 @@ extensions:
 	require.NotNil(t, doc.MeterProvider.Readers[0].Periodic)
 	require.Equal(t, Milliseconds(time.Second), doc.MeterProvider.Readers[0].Periodic.Interval)
 	require.Equal(t, "http://localhost:4317", doc.MeterProvider.Readers[0].Periodic.Exporter.OTLPGRPC.Endpoint)
-	require.Equal(t, "include", cfg.Capture.Policy.DefaultAction)
+	require.Equal(t, CaptureActionInclude, cfg.Capture.Policy.DefaultAction)
 	require.Equal(t, MatchOrderLastMatchWins, cfg.Capture.Policy.MatchOrder)
 	require.Len(t, cfg.Capture.Rules, 1)
 	require.NotNil(t, cfg.Capture.Rules[0].Refine.Exports)
@@ -113,7 +113,7 @@ channels:
 	require.NoError(t, err)
 	require.NotNil(t, cfg)
 	require.Equal(t, SupportedVersion, cfg.Version)
-	require.Equal(t, "exclude", cfg.Capture.Policy.DefaultAction)
+	require.Equal(t, CaptureActionExclude, cfg.Capture.Policy.DefaultAction)
 	require.Len(t, cfg.Capture.Rules, 1)
 	require.NotNil(t, cfg.Capture.Rules[0].Match.Process.OpenPorts)
 	require.Equal(t, []int{8080, 8443}, cfg.Capture.Rules[0].Match.Process.OpenPorts.AllValues())
@@ -134,6 +134,45 @@ network:
 
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "invalid source")
+}
+
+func TestParseReceiverRejectsInvalidCaptureAction(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		yaml string
+	}{
+		{
+			name: "default action",
+			yaml: `
+version: "2.0"
+policy:
+  default_action: drop
+`,
+		},
+		{
+			name: "rule action",
+			yaml: `
+version: "2.0"
+rules:
+  - action: drop
+    match:
+      process:
+        exe_path_glob: ["/usr/bin/checkout"]
+`,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := ParseReceiverYAML([]byte(test.yaml))
+
+			require.Error(t, err)
+			require.Contains(t, err.Error(), "invalid action")
+		})
+	}
 }
 
 func TestParseStandaloneRejectsInvalidHistogramAggregation(t *testing.T) {

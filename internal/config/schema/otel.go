@@ -4,6 +4,7 @@
 package schema // import "go.opentelemetry.io/obi/internal/config/schema"
 
 import (
+	"errors"
 	"fmt"
 
 	"gopkg.in/yaml.v3"
@@ -45,15 +46,37 @@ type TraceBatchExporter struct {
 
 // OTLPGRPCExporter describes an OTLP/gRPC exporter.
 type OTLPGRPCExporter struct {
+	Endpoint string `yaml:"endpoint"`
+	Retry    *Retry `yaml:"retry,omitempty"`
+	TLS      TLS    `yaml:"tls"`
+}
+
+// UnmarshalYAML parses and validates OTLP/gRPC exporter settings.
+func (e *OTLPGRPCExporter) UnmarshalYAML(value *yaml.Node) error {
+	type exporter OTLPGRPCExporter
+	if _, ok := mappingValue(value, "default_histogram_aggregation"); ok {
+		return errors.New("default_histogram_aggregation is only valid for metric exporters")
+	}
+
+	var out exporter
+	if err := value.Decode(&out); err != nil {
+		return err
+	}
+	*e = OTLPGRPCExporter(out)
+	return nil
+}
+
+// OTLPGRPCMetricExporter describes an OTLP/gRPC metric exporter.
+type OTLPGRPCMetricExporter struct {
 	Endpoint                    string                       `yaml:"endpoint"`
 	DefaultHistogramAggregation otelcfg.HistogramAggregation `yaml:"default_histogram_aggregation,omitempty"`
 	Retry                       *Retry                       `yaml:"retry,omitempty"`
 	TLS                         TLS                          `yaml:"tls"`
 }
 
-// UnmarshalYAML parses and validates OTLP/gRPC exporter settings.
-func (e *OTLPGRPCExporter) UnmarshalYAML(value *yaml.Node) error {
-	type exporter OTLPGRPCExporter
+// UnmarshalYAML parses and validates OTLP/gRPC metric exporter settings.
+func (e *OTLPGRPCMetricExporter) UnmarshalYAML(value *yaml.Node) error {
+	type exporter OTLPGRPCMetricExporter
 	var out exporter
 	if err := value.Decode(&out); err != nil {
 		return err
@@ -63,7 +86,7 @@ func (e *OTLPGRPCExporter) UnmarshalYAML(value *yaml.Node) error {
 	default:
 		return fmt.Errorf("invalid default_histogram_aggregation %q", out.DefaultHistogramAggregation)
 	}
-	*e = OTLPGRPCExporter(out)
+	*e = OTLPGRPCMetricExporter(out)
 	return nil
 }
 
@@ -106,7 +129,7 @@ type PeriodicReader struct {
 
 // MetricExporter describes an exporter used by a metric reader.
 type MetricExporter struct {
-	OTLPGRPC OTLPGRPCExporter `yaml:"otlp_grpc"`
+	OTLPGRPC OTLPGRPCMetricExporter `yaml:"otlp_grpc"`
 }
 
 // PullReader describes a pull-based metric reader.

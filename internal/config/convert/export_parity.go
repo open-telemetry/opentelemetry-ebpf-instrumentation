@@ -240,16 +240,16 @@ func statsEnrichment(cfg *obi.Config) schema.NetworkEnrichment {
 func rulesFromRuntime(cfg *obi.Config) []schema.Rule {
 	rules := []schema.Rule{}
 	if discover.OnlyDefinesDeprecatedServiceSelection(cfg) {
-		rules = appendSelectorRules(rules, "exclude", discover.RegexAsSelector(cfg.Discovery.ExcludeServices), nil)
-		rules = appendSelectorRules(rules, "exclude", discover.RegexAsSelector(cfg.Discovery.DefaultExcludeServices), defaultExcludeRule)
+		rules = appendSelectorRules(rules, schema.CaptureActionExclude, discover.RegexAsSelector(cfg.Discovery.ExcludeServices), nil)
+		rules = appendSelectorRules(rules, schema.CaptureActionExclude, discover.RegexAsSelector(cfg.Discovery.DefaultExcludeServices), defaultExcludeRule)
 	} else {
-		rules = appendSelectorRules(rules, "exclude", discover.GlobsAsSelector(cfg.Discovery.ExcludeInstrument), nil)
-		rules = appendSelectorRules(rules, "exclude", discover.GlobsAsSelector(cfg.Discovery.DefaultExcludeInstrument), defaultExcludeRule)
+		rules = appendSelectorRules(rules, schema.CaptureActionExclude, discover.GlobsAsSelector(cfg.Discovery.ExcludeInstrument), nil)
+		rules = appendSelectorRules(rules, schema.CaptureActionExclude, discover.GlobsAsSelector(cfg.Discovery.DefaultExcludeInstrument), defaultExcludeRule)
 	}
 
 	if cfg.Discovery.ExcludeOTelInstrumentedServices {
 		rules = append(rules, schema.Rule{
-			Action:      "exclude",
+			Action:      schema.CaptureActionExclude,
 			Name:        "exclude-otlp-exporters",
 			Description: "Exclude services that already export OTLP to prevent duplicate telemetry pipelines.",
 			Match: schema.RuleMatch{
@@ -269,7 +269,7 @@ func rulesFromRuntime(cfg *obi.Config) []schema.Rule {
 			globs = append(globs, strings.TrimRight(path, "/")+"/*")
 		}
 		rules = append(rules, schema.Rule{
-			Action:      "exclude",
+			Action:      schema.CaptureActionExclude,
 			Name:        "exclude-linux-system-paths",
 			Description: "Exclude Linux system/service executable paths that are not typical application workloads.",
 			Match: schema.RuleMatch{
@@ -280,7 +280,7 @@ func rulesFromRuntime(cfg *obi.Config) []schema.Rule {
 		})
 	}
 
-	rules = appendSelectorRules(rules, "include", discover.FindingCriteria(cfg), nil)
+	rules = appendSelectorRules(rules, schema.CaptureActionInclude, discover.FindingCriteria(cfg), nil)
 
 	return rules
 }
@@ -289,7 +289,7 @@ type defaultRuleFunc func(int, schema.RuleMatch) (string, string)
 
 func appendSelectorRules(
 	rules []schema.Rule,
-	action string,
+	action schema.CaptureAction,
 	selectors []services.Selector,
 	defaultRule defaultRuleFunc,
 ) []schema.Rule {
@@ -400,9 +400,9 @@ func regexSelectorMatch(selector *services.RegexSelector) schema.RuleMatch {
 	return match
 }
 
-func selectorRefinement(action string, selector services.Selector) schema.RuleRefinement {
+func selectorRefinement(action schema.CaptureAction, selector services.Selector) schema.RuleRefinement {
 	refine := schema.RuleRefinement{}
-	if action != "include" {
+	if action != schema.CaptureActionInclude {
 		return refine
 	}
 	if exports := exportModeRefinement(selector.GetExportModes()); exports != nil {

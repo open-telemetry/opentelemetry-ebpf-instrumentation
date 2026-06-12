@@ -57,7 +57,7 @@ func TestRuntimeToV2DefaultConfig(t *testing.T) {
 	require.Equal(t, false, value(t, doc.MeterProvider, "readers", "0", "periodic", "exporter", "otlp_grpc", "tls", "insecure_skip_verify"))
 	require.Equal(t, 0, value(t, doc.MeterProvider, "readers", "1", "pull", "exporter", "prometheus/development", "port"))
 
-	require.Equal(t, "include", value(t, ext.Capture.Policy, "default_action"))
+	require.Equal(t, schema.CaptureActionInclude, value(t, ext.Capture.Policy, "default_action"))
 	require.Equal(t, schema.MatchOrderFirstMatchWins, value(t, ext.Capture.Policy, "match_order"))
 	require.Equal(t, schema.Duration(0), value(t, ext.Capture.Policy, "poll_interval"))
 	require.Equal(t, schema.Duration(5*time.Second), value(t, ext.Capture.Policy, "min_process_age"))
@@ -570,7 +570,7 @@ func TestRuntimeToV2AdvancedCaptureParity(t *testing.T) {
 
 	_, ext := RuntimeToV2(&cfg)
 
-	require.Equal(t, "exclude", value(t, ext.Capture.Policy, "default_action"))
+	require.Equal(t, schema.CaptureActionExclude, value(t, ext.Capture.Policy, "default_action"))
 	require.Equal(t, cfg.Routes.Unmatch, value(t, ext.Capture.Instrumentation, "http", "routes", "unmatched"))
 	require.Equal(t, []string{"/products/{id}"}, value(t, ext.Capture.Instrumentation, "http", "routes", "patterns"))
 	require.Equal(t, []string{"/health"}, value(t, ext.Capture.Instrumentation, "http", "routes", "ignored_patterns"))
@@ -613,11 +613,11 @@ func TestRuntimeToV2AdvancedCaptureParity(t *testing.T) {
 	require.Equal(t, true, value(t, ext.Capture.Network, "stats", "diagnostics", "print_stats"))
 
 	require.Len(t, ext.Capture.Rules, 4)
-	require.Equal(t, "exclude", ext.Capture.Rules[0].Action)
+	require.Equal(t, schema.CaptureActionExclude, ext.Capture.Rules[0].Action)
 	require.Equal(t, []string{"/tmp/*"}, value(t, ext.Capture.Rules[0].Match, "process", "exe_path_glob"))
 	require.Equal(t, 14317, value(t, ext.Capture.Rules[1].Match, "process", "exports_otlp", "port"))
 	require.Equal(t, []string{"/lib/systemd/*", "/usr/sbin/*"}, value(t, ext.Capture.Rules[2].Match, "process", "exe_path_glob"))
-	require.Equal(t, "include", ext.Capture.Rules[3].Action)
+	require.Equal(t, schema.CaptureActionInclude, ext.Capture.Rules[3].Action)
 	require.Equal(t, ports, value(t, ext.Capture.Rules[3].Match, "process", "open_ports"))
 	require.Equal(t, []uint32{1234, 5678}, value(t, ext.Capture.Rules[3].Match, "process", "target_pids"))
 	require.Equal(t, []string{"go", "java"}, value(t, ext.Capture.Rules[3].Match, "process", "language_glob"))
@@ -644,9 +644,9 @@ func TestRuntimeToV2EffectiveDiscoveryCriteria(t *testing.T) {
 
 		_, ext := RuntimeToV2(&cfg)
 
-		require.Equal(t, "exclude", value(t, ext.Capture.Policy, "default_action"))
+		require.Equal(t, schema.CaptureActionExclude, value(t, ext.Capture.Policy, "default_action"))
 		require.Len(t, ext.Capture.Rules, 1)
-		require.Equal(t, "include", ext.Capture.Rules[0].Action)
+		require.Equal(t, schema.CaptureActionInclude, ext.Capture.Rules[0].Action)
 		require.Equal(t, cfg.Port, value(t, ext.Capture.Rules[0].Match, "process", "open_ports"))
 		require.Equal(t, []string{"/srv/*"}, value(t, ext.Capture.Rules[0].Match, "process", "exe_path_glob"))
 		require.Equal(t, []string{"go", "java"}, value(t, ext.Capture.Rules[0].Match, "process", "language_glob"))
@@ -660,7 +660,7 @@ func TestRuntimeToV2EffectiveDiscoveryCriteria(t *testing.T) {
 
 		_, ext := RuntimeToV2(&cfg)
 
-		require.Equal(t, "exclude", value(t, ext.Capture.Policy, "default_action"))
+		require.Equal(t, schema.CaptureActionExclude, value(t, ext.Capture.Policy, "default_action"))
 		require.Len(t, ext.Capture.Rules, 1)
 		require.Equal(t, []uint32{1234, 5678}, value(t, ext.Capture.Rules[0].Match, "process", "target_pids"))
 	})
@@ -696,11 +696,11 @@ func TestRuntimeToV2EffectiveDiscoveryCriteria(t *testing.T) {
 
 		_, ext := RuntimeToV2(&cfg)
 
-		require.Equal(t, "exclude", value(t, ext.Capture.Policy, "default_action"))
+		require.Equal(t, schema.CaptureActionExclude, value(t, ext.Capture.Policy, "default_action"))
 		require.Len(t, ext.Capture.Rules, 3)
-		require.Equal(t, "exclude", ext.Capture.Rules[0].Action)
+		require.Equal(t, schema.CaptureActionExclude, ext.Capture.Rules[0].Action)
 		require.Equal(t, "^/tmp/.*$", value(t, ext.Capture.Rules[0].Match, "process", "exe_path_regex"))
-		require.Equal(t, "include", ext.Capture.Rules[1].Action)
+		require.Equal(t, schema.CaptureActionInclude, ext.Capture.Rules[1].Action)
 		require.Equal(t, "^/srv/api$", value(t, ext.Capture.Rules[1].Match, "process", "exe_path_regex"))
 		require.Equal(t, "go|java", value(t, ext.Capture.Rules[1].Match, "process", "language_regex"))
 		require.Equal(t, "--serve", value(t, ext.Capture.Rules[1].Match, "process", "cmd_args_regex"))
@@ -708,7 +708,7 @@ func TestRuntimeToV2EffectiveDiscoveryCriteria(t *testing.T) {
 		require.Equal(t, "^checkout-.+$", value(t, ext.Capture.Rules[1].Match, "kubernetes", "metadata_regex", services.AttrDeploymentName))
 		require.Equal(t, "^checkout$", value(t, ext.Capture.Rules[1].Match, "kubernetes", "pod_labels_regex", "app"))
 		require.Equal(t, "^payments$", value(t, ext.Capture.Rules[1].Match, "kubernetes", "pod_annotations_regex", "team"))
-		require.Equal(t, "include", ext.Capture.Rules[2].Action)
+		require.Equal(t, schema.CaptureActionInclude, ext.Capture.Rules[2].Action)
 		require.Equal(t, cfg.Port, value(t, ext.Capture.Rules[2].Match, "process", "open_ports"))
 		require.Equal(t, "^/srv/fallback$", value(t, ext.Capture.Rules[2].Match, "process", "exe_path_regex"))
 	})
@@ -827,7 +827,7 @@ func TestRuntimeToV2DocumentParsesAsStandaloneV2(t *testing.T) {
 	require.NotNil(t, parsedExt.Capture.Rules)
 	require.Equal(t, "1.0", parsedDoc.FileFormat)
 	require.Equal(t, schema.SupportedVersion, parsedExt.Version)
-	require.Equal(t, "include", parsedExt.Capture.Policy.DefaultAction)
+	require.Equal(t, schema.CaptureActionInclude, parsedExt.Capture.Policy.DefaultAction)
 	require.Equal(t, config.TCBackendAuto, value(t, parsedExt.Capture.Engine, "traffic", "control_backend"))
 }
 

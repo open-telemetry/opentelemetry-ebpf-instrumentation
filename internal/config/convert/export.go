@@ -61,11 +61,11 @@ func capturePolicy(cfg *obi.Config) schema.CapturePolicy {
 	}
 }
 
-func defaultPolicyAction(cfg *obi.Config) string {
+func defaultPolicyAction(cfg *obi.Config) schema.CaptureAction {
 	if cfg.Enabled(obi.FeatureAppO11y) {
-		return "exclude"
+		return schema.CaptureActionExclude
 	}
-	return "include"
+	return schema.CaptureActionInclude
 }
 
 func captureInstrumentation(cfg *obi.Config) schema.Instrumentation {
@@ -511,7 +511,7 @@ func meterProvider(cfg *obi.Config) schema.MeterProvider {
 				Periodic: &schema.PeriodicReader{
 					Interval: schema.Milliseconds(cfg.OTELMetrics.GetInterval()),
 					Exporter: schema.MetricExporter{
-						OTLPGRPC: schema.OTLPGRPCExporter{
+						OTLPGRPC: schema.OTLPGRPCMetricExporter{
 							Endpoint:                    endpoint,
 							DefaultHistogramAggregation: cfg.OTELMetrics.HistogramAggregation,
 							TLS: schema.TLS{

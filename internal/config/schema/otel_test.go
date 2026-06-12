@@ -12,10 +12,10 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 )
 
-func TestOTLPGRPCExporterDefaultHistogramAggregationYAML(t *testing.T) {
+func TestOTLPGRPCMetricExporterDefaultHistogramAggregationYAML(t *testing.T) {
 	t.Parallel()
 
-	var exporter OTLPGRPCExporter
+	var exporter OTLPGRPCMetricExporter
 	err := yaml.Unmarshal([]byte(`
 endpoint: http://localhost:4317
 default_histogram_aggregation: base2_exponential_bucket_histogram
@@ -26,6 +26,18 @@ tls:
 	require.Equal(t, "http://localhost:4317", exporter.Endpoint)
 	require.Equal(t, otelcfg.HistogramAggregationExponential, exporter.DefaultHistogramAggregation)
 	require.True(t, exporter.TLS.Insecure)
+}
+
+func TestOTLPGRPCExporterRejectsMetricHistogramAggregation(t *testing.T) {
+	t.Parallel()
+
+	var exporter OTLPGRPCExporter
+	err := yaml.Unmarshal([]byte(`
+endpoint: http://localhost:4317
+default_histogram_aggregation: explicit_bucket_histogram
+`), &exporter)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "default_histogram_aggregation is only valid for metric exporters")
 }
 
 func TestOTLPGRPCExporterRejectsInvalidNestedYAML(t *testing.T) {

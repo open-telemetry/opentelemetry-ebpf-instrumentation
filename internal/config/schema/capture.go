@@ -42,18 +42,34 @@ func (m *MatchOrder) UnmarshalYAML(value *yaml.Node) error {
 	return unmarshalEnum(value, "match_order", m, MatchOrderFirstMatchWins, MatchOrderLastMatchWins)
 }
 
+// CaptureAction describes whether a capture rule includes or excludes a
+// matched target.
+type CaptureAction string
+
+const (
+	// CaptureActionInclude enables capture for matching targets.
+	CaptureActionInclude CaptureAction = "include"
+	// CaptureActionExclude disables capture for matching targets.
+	CaptureActionExclude CaptureAction = "exclude"
+)
+
+// UnmarshalYAML parses and validates a capture action.
+func (a *CaptureAction) UnmarshalYAML(value *yaml.Node) error {
+	return unmarshalEnum(value, "action", a, CaptureActionInclude, CaptureActionExclude)
+}
+
 // CapturePolicy describes the default action and process discovery timing for
 // capture rule evaluation.
 type CapturePolicy struct {
-	DefaultAction string     `yaml:"default_action"`
-	MatchOrder    MatchOrder `yaml:"match_order"`
-	PollInterval  Duration   `yaml:"poll_interval"`
-	MinProcessAge Duration   `yaml:"min_process_age"`
+	DefaultAction CaptureAction `yaml:"default_action"`
+	MatchOrder    MatchOrder    `yaml:"match_order"`
+	PollInterval  Duration      `yaml:"poll_interval"`
+	MinProcessAge Duration      `yaml:"min_process_age"`
 }
 
 // Rule describes one capture policy rule.
 type Rule struct {
-	Action      string         `yaml:"action"`
+	Action      CaptureAction  `yaml:"action"`
 	Name        string         `yaml:"name"`
 	Description string         `yaml:"description"`
 	Match       RuleMatch      `yaml:"match"`
