@@ -29,6 +29,15 @@ func (s *stubPIDSelector) GetPIDs() ([]app.PID, bool) {
 	return out, true
 }
 
+func (s *stubPIDSelector) IncludesPID(pid app.PID) bool {
+	for _, p := range s.pids {
+		if p == pid {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *stubPIDSelector) AddedPIDsNotify() <-chan []app.PID { return s.addedCh }
 func (s *stubPIDSelector) RemovedNotify() <-chan []app.PID   { return s.removed }
 
