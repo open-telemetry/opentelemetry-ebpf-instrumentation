@@ -4,7 +4,7 @@
 package schema // import "go.opentelemetry.io/obi/internal/config/schema"
 
 import (
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v3"
 
 	"go.opentelemetry.io/obi/pkg/export/debug"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"

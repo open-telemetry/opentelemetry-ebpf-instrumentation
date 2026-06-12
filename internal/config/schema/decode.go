@@ -6,7 +6,7 @@ package schema // import "go.opentelemetry.io/obi/internal/config/schema"
 import (
 	"fmt"
 
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v3"
 )
 
 func unmarshalEnum[T ~string](value *yaml.Node, name string, dst *T, allowed ...T) error {
