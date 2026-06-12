@@ -7,8 +7,9 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"gopkg.in/yaml.v3"
+
+	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 )
 
 func TestOTLPGRPCExporterDefaultHistogramAggregationYAML(t *testing.T) {

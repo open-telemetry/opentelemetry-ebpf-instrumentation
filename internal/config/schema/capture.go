@@ -1,11 +1,12 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package schema
+package schema // import "go.opentelemetry.io/obi/internal/config/schema"
 
 import (
-	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"gopkg.in/yaml.v3"
+
+	"go.opentelemetry.io/obi/pkg/appolly/services"
 )
 
 // Capture contains receiver-embeddable OBI capture settings.

@@ -1,14 +1,15 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package schema
+package schema // import "go.opentelemetry.io/obi/internal/config/schema"
 
 import (
 	"fmt"
 
+	"gopkg.in/yaml.v3"
+
 	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
-	"gopkg.in/yaml.v3"
 )
 
 // Resource describes OpenTelemetry resource attributes exported with the

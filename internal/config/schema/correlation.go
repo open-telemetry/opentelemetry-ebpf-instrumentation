@@ -1,7 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package schema
+package schema // import "go.opentelemetry.io/obi/internal/config/schema"
 
 // Correlation describes standalone telemetry correlation settings.
 type Correlation struct {

@@ -1,12 +1,13 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package schema
+package schema // import "go.opentelemetry.io/obi/internal/config/schema"
 
 import (
+	"gopkg.in/yaml.v3"
+
 	"go.opentelemetry.io/obi/pkg/export/debug"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
-	"gopkg.in/yaml.v3"
 )
 
 // Daemon describes standalone daemon settings.
