@@ -825,7 +825,7 @@ wsproto==1.3.2 \
     --hash=sha256:61eea322cdf56e8cc904bd3ad7573359a242ba65688716b0710a5eb12beab584 \
     --hash=sha256:b86885dcf294e15204919950f666e06ffc6c7c114ca900b060d6e16293528294
     # via simple-websocket
-zope-event==6.0 \
+zope-event==6.2 \
     --hash=sha256:0ebac894fa7c5f8b7a89141c272133d8c1de6ddc75ea4b1f327f00d1f890df92 \
     --hash=sha256:6f0922593407cc673e7d8766b492c519f91bdc99f3080fe43dcec0a800d682a3
     # via gevent
@@ -904,3 +904,6 @@ zope.interface==8.5 \
     --hash=sha256:efe234a0fafb4b6b1602e9be9245b97c2bf06d67c07af5a4bc3c0438978b555c \
     --hash=sha256:f0b48ccadaa9839e09ff81e969703cecb3f402c813bfe8b958652e699bea69f5 \
     --hash=sha256:ffaecf013251a89d0de6feb49a46eba48ad8cbbf8a40aeb6045e459e7bec6784
+zope.event==6.2 \
+    --hash=sha256:5e755153ac4faf64c10a4b6dd3307680166a3edf65b38df22df592610f8fa874 \
+    --hash=sha256:b97d5d6327067ee6b9dfcbdf606ade9ade70991e19c162e808ea39e5fcf0f8d3
