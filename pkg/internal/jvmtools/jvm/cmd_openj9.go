@@ -275,7 +275,7 @@ func notifySemaphore(tmpPath string, value, notifyCount int) error {
 			// consume the posts themselves as they wake up, so the semaphore is
 			// frequently already at zero by the time we try to take our posts
 			// back. EAGAIN ("resource temporarily unavailable") is the kernel
-			// signalling there is nothing left to decrement. The original C code
+			// signaling there is nothing left to decrement. The original C code
 			// was handling this, but it was missed in translation.
 			if value < 0 && errors.Is(err, unix.EAGAIN) {
 				return nil
