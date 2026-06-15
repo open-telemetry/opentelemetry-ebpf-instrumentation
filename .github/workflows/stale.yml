@@ -12,6 +12,7 @@ permissions:
 jobs:
   stale:
     runs-on: ubuntu-latest
+    if: github.repository == 'open-telemetry/opentelemetry-ebpf-instrumentation'
     steps:
       - uses: actions/stale@eb5cf3af3ac0a1aa4c9c45633dd1ae542a27a899 # v10.3.0
         with:
@@ -20,7 +21,7 @@ jobs:
           days-before-close: -1
           stale-issue-label: 'stale'
           stale-pr-label: 'stale'
-          exempt-issue-labels: 'never stale,pinned,help wanted,good first issue'
+          exempt-issue-labels: 'never stale,pinned,help wanted,good first issue,goal: 2026,epic'
           exempt-pr-labels: 'never stale,blocked'
           stale-issue-message: |
             This issue has been inactive for 120 days and is now marked as stale.
