@@ -328,6 +328,8 @@ func acceptSpan(is instrumentations.InstrumentationSelection, span *request.Span
 		return is.NATSEnabled()
 	case request.EventTypeAMQPClient:
 		return is.AMQPEnabled()
+	case request.EventTypeSunRPCClient, request.EventTypeSunRPCServer:
+		return is.SunRPCEnabled()
 	case request.EventTypeMongoClient:
 		return is.MongoEnabled()
 	case request.EventTypeManualSpan:
@@ -1175,6 +1177,33 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 		}
 
 		attrs = append(attrs, request.PeerService(request.PeerServiceFromSpan(span)))
+	case request.EventTypeSunRPCServer, request.EventTypeSunRPCClient:
+		// https://opentelemetry.io/docs/specs/semconv/registry/attributes/onc-rpc/
+		attrs = []attribute.KeyValue{
+			request.ServerAddr(request.HostAsServer(span)),
+			request.ServerPort(span.HostPort),
+			request.RPCSystem("onc_rpc"),
+		}
+		if span.Path != "" {
+			attrs = append(attrs, semconv.OncRPCProgramName(span.Path))
+		}
+		if span.Route != "" {
+			if proc, err := strconv.Atoi(span.Route); err == nil {
+				attrs = append(attrs, semconv.OncRPCProcedureNumber(proc))
+			}
+		}
+		if procName := span.SunRPCProcedureNameForExport(); procName != "" {
+			attrs = append(attrs, semconv.OncRPCProcedureName(procName))
+		}
+		if span.SubType != 0 {
+			attrs = append(attrs, semconv.OncRPCVersion(span.SubType))
+		}
+		if span.Statement != "" {
+			attrs = append(attrs, attribute.String(string(attr.OncRPCAuthFlavor), span.Statement))
+		}
+		if span.Type == request.EventTypeSunRPCClient {
+			attrs = append(attrs, request.PeerService(request.PeerServiceFromSpan(span)))
+		}
 	case request.EventTypeMongoClient:
 		attrs = []attribute.KeyValue{
 			request.ServerAddr(request.HostAsServer(span)),
@@ -1274,9 +1303,9 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 
 func spanKind(span *request.Span) trace2.SpanKind {
 	switch span.Type {
-	case request.EventTypeHTTP, request.EventTypeGRPC, request.EventTypeRedisServer, request.EventTypeKafkaServer, request.EventTypeMQTTServer, request.EventTypeNATSServer, request.EventTypeMemcachedServer, request.EventTypeSQLServer:
+	case request.EventTypeHTTP, request.EventTypeGRPC, request.EventTypeRedisServer, request.EventTypeKafkaServer, request.EventTypeMQTTServer, request.EventTypeNATSServer, request.EventTypeSunRPCServer, request.EventTypeMemcachedServer, request.EventTypeSQLServer:
 		return trace2.SpanKindServer
-	case request.EventTypeHTTPClient, request.EventTypeGRPCClient, request.EventTypeSQLClient, request.EventTypeRedisClient, request.EventTypeMongoClient, request.EventTypeCouchbaseClient, request.EventTypeMemcachedClient, request.EventTypeFailedConnect:
+	case request.EventTypeHTTPClient, request.EventTypeGRPCClient, request.EventTypeSQLClient, request.EventTypeRedisClient, request.EventTypeMongoClient, request.EventTypeCouchbaseClient, request.EventTypeMemcachedClient, request.EventTypeSunRPCClient, request.EventTypeFailedConnect:
 		return trace2.SpanKindClient
 	case request.EventTypeKafkaClient, request.EventTypeMQTTClient, request.EventTypeNATSClient, request.EventTypeAMQPClient:
 		switch span.Method {

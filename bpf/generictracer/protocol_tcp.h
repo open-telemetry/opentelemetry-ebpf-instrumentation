@@ -220,6 +220,9 @@ static __always_inline int tcp_send_large_buffer(tcp_req_t *req,
     case k_protocol_type_http:
     case k_protocol_type_mqtt:
         break;
+    case k_protocol_type_sunrpc:
+        unknown_send_large_buffer(req, pid_conn, u_buf, bytes_len, packet_type, direction, action);
+        break;
     case k_protocol_type_unknown:
         unknown_send_large_buffer(req, pid_conn, u_buf, bytes_len, packet_type, direction, action);
         break;

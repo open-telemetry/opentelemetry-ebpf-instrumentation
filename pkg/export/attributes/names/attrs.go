@@ -261,6 +261,16 @@ const (
 	RPCResponseStatusCode  = Name(semconv.RPCResponseStatusCodeKey)
 )
 
+// ONC RPC (Sun RPC) span attributes — semconv v1.38.0+ (development stability).
+const (
+	OncRPCProgramName     = Name(semconv.OncRPCProgramNameKey)
+	OncRPCProcedureName   = Name(semconv.OncRPCProcedureNameKey)
+	OncRPCProcedureNumber = Name(semconv.OncRPCProcedureNumberKey)
+	OncRPCVersion         = Name(semconv.OncRPCVersionKey)
+	// Extension until semconv adds an official auth flavor attribute.
+	OncRPCAuthFlavor = Name("onc_rpc.auth.flavor")
+)
+
 // MCP (Model Context Protocol) attributes
 const (
 	MCPMethodName      = Name("mcp.method.name")
