@@ -54,13 +54,13 @@ func TestRuntimeMetricsReporterRecordsJVMHeapSummary(t *testing.T) {
 			Features: export.FeatureApplicationJVM,
 		},
 		JVM: &runtimemetrics.JVMRuntimeMetricSnapshot{
-			Kind:       jvmruntime.JVMMetricBeylaHeapUsed,
+			Kind:       jvmruntime.JVMMetricObiHeapUsed,
 			GCPhase:    jvmruntime.JVMGCPhaseAfter,
 			ValueBytes: 42,
 		},
 	}})
 
-	record := readJVMMetricRecord(t, records, "beyla.jvm.heap.used")
+	record := readJVMMetricRecord(t, records, "obi.jvm.heap.used")
 	assert.Equal(t, int64(42), record.Value)
 	assert.Equal(t, "orders", record.ResourceAttrs["service.name"])
 	assert.Equal(t, "prod", record.ResourceAttrs["service.namespace"])

@@ -45,7 +45,7 @@ func TestHandleJVMRuntimeMetricRecordForwardsHeapSummaryRuntimeMetric(t *testing
 
 	require.Len(t, runtimeMetrics.events, 1)
 	assert.Equal(t, service, runtimeMetrics.events[0].Service)
-	assert.Equal(t, jvmruntime.JVMMetricBeylaHeapUsed, runtimeMetrics.events[0].Kind)
+	assert.Equal(t, jvmruntime.JVMMetricObiHeapUsed, runtimeMetrics.events[0].Kind)
 	assert.Equal(t, uint64(2048), runtimeMetrics.events[0].ValueBytes)
 }
 

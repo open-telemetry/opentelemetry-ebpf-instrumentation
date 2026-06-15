@@ -6,6 +6,7 @@
 package ebpf // import "go.opentelemetry.io/obi/pkg/ebpf"
 
 import (
+	"bytes"
 	"debug/elf"
 	"encoding/binary"
 	"errors"
@@ -27,13 +28,12 @@ const (
 	obiUSDTArgConst    = uint8(0)
 	obiUSDTArgReg      = uint8(1)
 	obiUSDTArgRegDeref = uint8(2)
-	obiUSDTArgSIB      = uint8(3)
 )
 
 // TODO: Reevaluate github.com/parca-dev/usdt if it exposes target-ELF-driven
 // argument parsing for OBI's BPF ABI. v0.0.2 uses runtime.GOARCH for register
-// parsing, lacks x86 SIB args, uses a different spec layout, and its note
-// parser assumes little-endian ELF64 notes.
+// parsing, uses a different spec layout, and its note parser assumes
+// little-endian ELF64 notes.
 
 type usdtNote struct {
 	Location  uint64
@@ -44,14 +44,25 @@ type usdtNote struct {
 	Args      string
 }
 
+type usdtNoteHeader32 struct {
+	Location  uint32
+	Base      uint32
+	Semaphore uint32
+}
+
+type usdtNoteHeader64 struct {
+	Location  uint64
+	Base      uint64
+	Semaphore uint64
+}
+
 type obiUSDTArgSpec struct {
-	ValOff        uint64
-	RegOff        int16
-	IdxRegOff     int16
-	ArgType       uint8
-	ScaleBitshift uint8
-	ArgSigned     uint8
-	ArgBitshift   uint8
+	ValOff      uint64
+	RegOff      int16
+	ArgType     uint8
+	ArgSigned   uint8
+	ArgBitshift uint8
+	_           [3]byte
 }
 
 type obiUSDTSpec struct {
@@ -79,7 +90,6 @@ var (
 	errUnsupportedUSDTArch = errors.New("unsupported USDT architecture")
 
 	usdtNumberRE     = `[+-]?(?:0x[0-9A-Fa-f]+|\d+)`
-	x86SIBArgRE      = regexp.MustCompile(`^\s*([+-]?\d+)\s*@\s*(` + usdtNumberRE + `)?\s*\(\s*%([A-Za-z0-9]+)\s*,\s*%([A-Za-z0-9]+)\s*(?:,\s*(\d+)\s*)?\)\s*`)
 	x86RegDerefArgRE = regexp.MustCompile(`^\s*([+-]?\d+)\s*@\s*(` + usdtNumberRE + `)?\s*\(\s*%([A-Za-z0-9]+)\s*\)\s*`)
 	x86RegArgRE      = regexp.MustCompile(`^\s*([+-]?\d+)\s*@\s*%([A-Za-z0-9]+)\s*`)
 	x86ConstArgRE    = regexp.MustCompile(`^\s*([+-]?\d+)\s*@\s*\$(` + usdtNumberRE + `)\s*`)
@@ -90,28 +100,17 @@ var (
 )
 
 func parseUSDTNote(class elf.Class, order binary.ByteOrder, desc []byte) (usdtNote, error) {
-	addrSize := 8
-	if class == elf.ELFCLASS32 {
-		addrSize = 4
-	}
-	if class != elf.ELFCLASS32 && class != elf.ELFCLASS64 {
+	addrsLen := usdtNoteHeaderLen(class)
+	if addrsLen == 0 {
 		return usdtNote{}, fmt.Errorf("unsupported ELF class %s", class)
 	}
-
-	addrsLen := 3 * addrSize
 	if len(desc) < addrsLen+3 {
 		return usdtNote{}, fmt.Errorf("USDT note descriptor too short: %d", len(desc))
 	}
 
 	note := usdtNote{}
-	if addrSize == 8 {
-		note.Location = order.Uint64(desc[0:8])
-		note.Base = order.Uint64(desc[8:16])
-		note.Semaphore = order.Uint64(desc[16:24])
-	} else {
-		note.Location = uint64(order.Uint32(desc[0:4]))
-		note.Base = uint64(order.Uint32(desc[4:8]))
-		note.Semaphore = uint64(order.Uint32(desc[8:12]))
+	if err := readUSDTNoteHeader(class, order, desc[:addrsLen], &note); err != nil {
+		return usdtNote{}, err
 	}
 
 	fields := strings.SplitN(string(desc[addrsLen:]), "\x00", 4)
@@ -123,6 +122,41 @@ func parseUSDTNote(class elf.Class, order binary.ByteOrder, desc []byte) (usdtNo
 	note.Args = fields[2]
 
 	return note, nil
+}
+
+func usdtNoteHeaderLen(class elf.Class) int {
+	switch class {
+	case elf.ELFCLASS32:
+		return binary.Size(usdtNoteHeader32{})
+	case elf.ELFCLASS64:
+		return binary.Size(usdtNoteHeader64{})
+	default:
+		return 0
+	}
+}
+
+func readUSDTNoteHeader(class elf.Class, order binary.ByteOrder, header []byte, note *usdtNote) error {
+	switch class {
+	case elf.ELFCLASS32:
+		var raw usdtNoteHeader32
+		if err := binary.Read(bytes.NewReader(header), order, &raw); err != nil {
+			return err
+		}
+		note.Location = uint64(raw.Location)
+		note.Base = uint64(raw.Base)
+		note.Semaphore = uint64(raw.Semaphore)
+	case elf.ELFCLASS64:
+		var raw usdtNoteHeader64
+		if err := binary.Read(bytes.NewReader(header), order, &raw); err != nil {
+			return err
+		}
+		note.Location = raw.Location
+		note.Base = raw.Base
+		note.Semaphore = raw.Semaphore
+	default:
+		return fmt.Errorf("unsupported ELF class %s", class)
+	}
+	return nil
 }
 
 func collectUSDTTargets(
@@ -305,9 +339,6 @@ func parseUSDTArg(machine elf.Machine, arg string) (obiUSDTArgSpec, int, error) 
 }
 
 func parseX86USDTArg(arg string) (obiUSDTArgSpec, int, error) {
-	if match := x86SIBArgRE.FindStringSubmatchIndex(arg); match != nil {
-		return buildX86SIBArg(arg, match)
-	}
 	if match := x86RegDerefArgRE.FindStringSubmatchIndex(arg); match != nil {
 		return buildX86RegDerefArg(arg, match)
 	}
@@ -331,44 +362,6 @@ func parseArm64USDTArg(arg string) (obiUSDTArgSpec, int, error) {
 		return buildArm64RegArg(arg, match)
 	}
 	return obiUSDTArgSpec{}, 0, fmt.Errorf("unrecognized arm64 USDT argument %q", arg)
-}
-
-func buildX86SIBArg(arg string, match []int) (obiUSDTArgSpec, int, error) {
-	size, err := parseUSDTArgSize(arg[match[2]:match[3]])
-	if err != nil {
-		return obiUSDTArgSpec{}, 0, err
-	}
-	offset, err := parseOptionalInt64(arg, match[4], match[5])
-	if err != nil {
-		return obiUSDTArgSpec{}, 0, err
-	}
-	regOff, err := x86RegisterOffset(arg[match[6]:match[7]])
-	if err != nil {
-		return obiUSDTArgSpec{}, 0, err
-	}
-	idxRegOff, err := x86RegisterOffset(arg[match[8]:match[9]])
-	if err != nil {
-		return obiUSDTArgSpec{}, 0, err
-	}
-	scale := int64(1)
-	if match[10] >= 0 {
-		scale, err = strconv.ParseInt(arg[match[10]:match[11]], 10, 16)
-		if err != nil {
-			return obiUSDTArgSpec{}, 0, err
-		}
-	}
-	scaleBitshift, err := scaleToBitshift(scale)
-	if err != nil {
-		return obiUSDTArgSpec{}, 0, err
-	}
-
-	spec := sizedUSDTArg(size)
-	spec.ArgType = obiUSDTArgSIB
-	spec.ValOff = uint64(offset)
-	spec.RegOff = regOff
-	spec.IdxRegOff = idxRegOff
-	spec.ScaleBitshift = scaleBitshift
-	return spec, match[1], nil
 }
 
 func buildX86RegDerefArg(arg string, match []int) (obiUSDTArgSpec, int, error) {
@@ -493,21 +486,6 @@ func parseOptionalInt64(src string, start, end int) (int64, error) {
 		return 0, nil
 	}
 	return strconv.ParseInt(src[start:end], 0, 64)
-}
-
-func scaleToBitshift(scale int64) (uint8, error) {
-	switch scale {
-	case 1:
-		return 0, nil
-	case 2:
-		return 1, nil
-	case 4:
-		return 2, nil
-	case 8:
-		return 3, nil
-	default:
-		return 0, fmt.Errorf("unsupported USDT SIB scale %d", scale)
-	}
 }
 
 func x86RegisterOffset(reg string) (int16, error) {

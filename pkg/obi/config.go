@@ -634,8 +634,8 @@ type JavaConfig struct {
 }
 
 type JVMRuntimeMetricsConfig struct {
-	Enabled          bool          `yaml:"enabled" env:"BEYLA_JVM_RUNTIME_METRICS_ENABLED"`
-	SamplingInterval time.Duration `yaml:"sampling_interval" env:"BEYLA_JVM_RUNTIME_METRICS_SAMPLING_INTERVAL"`
+	Enabled          bool          `yaml:"enabled" env:"OBI_JVM_RUNTIME_METRICS_ENABLED"`
+	SamplingInterval time.Duration `yaml:"sampling_interval" env:"OBI_JVM_RUNTIME_METRICS_SAMPLING_INTERVAL"`
 }
 
 type ConfigError string

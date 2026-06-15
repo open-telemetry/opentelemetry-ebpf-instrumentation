@@ -184,10 +184,10 @@ var (
 		Prom:    "jvm_memory_used_after_last_gc_bytes",
 		OTEL:    "jvm.memory.used_after_last_gc",
 	}
-	BeylaJVMHeapUsed = Name{
-		Section: "beyla.jvm.heap.used",
-		Prom:    "beyla_jvm_heap_used_bytes",
-		OTEL:    "beyla.jvm.heap.used",
+	ObiJVMHeapUsed = Name{
+		Section: "obi.jvm.heap.used",
+		Prom:    "obi_jvm_heap_used_bytes",
+		OTEL:    "obi.jvm.heap.used",
 	}
 	Resource = Name{
 		Section: "resource",

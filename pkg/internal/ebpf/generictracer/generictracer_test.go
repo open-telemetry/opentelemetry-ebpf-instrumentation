@@ -11,6 +11,7 @@ import (
 	"encoding/binary"
 	"testing"
 	"time"
+	"unsafe"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -76,7 +77,7 @@ func TestParseJVMGCHeapSummaryRecordDecoratesServiceByPID(t *testing.T) {
 	assert.Equal(t, app.PID(1234), event.PID)
 	assert.Equal(t, service, event.Service)
 	assert.NotEqual(t, time.Unix(0, 100), event.Time)
-	assert.Equal(t, jvmruntime.JVMMetricBeylaHeapUsed, event.Kind)
+	assert.Equal(t, jvmruntime.JVMMetricObiHeapUsed, event.Kind)
 	assert.Equal(t, jvmruntime.JVMGCPhaseAfter, event.GCPhase)
 	assert.Equal(t, uint64(2048), event.ValueBytes)
 }
@@ -251,7 +252,7 @@ func TestProcessSharedRingbufRecordDispatchesJVMGCHeapSummaryRecord(t *testing.T
 	require.Len(t, batch, 1)
 	assert.Equal(t, service, batch[0].Service)
 	require.NotNil(t, batch[0].JVM)
-	assert.Equal(t, jvmruntime.JVMMetricBeylaHeapUsed, batch[0].JVM.Kind)
+	assert.Equal(t, jvmruntime.JVMMetricObiHeapUsed, batch[0].JVM.Kind)
 	assert.Equal(t, uint64(2048), batch[0].JVM.ValueBytes)
 }
 
@@ -354,6 +355,17 @@ func TestJVMRuntimeMetricsExposeHotSpotUSDTProbes(t *testing.T) {
 	assert.Equal(t, "mem__pool__gc__begin", probes["libjvm.so"][0].Name)
 	assert.Equal(t, "hotspot", probes["libjvm.so"][1].Provider)
 	assert.Equal(t, "mem__pool__gc__end", probes["libjvm.so"][1].Name)
+}
+
+func TestRawJVMEventLayoutsMatchGeneratedBPFStructs(t *testing.T) {
+	assert.Equal(t,
+		int(unsafe.Sizeof(BpfJvmGcHeapSummaryEvent{})),
+		binary.Size(jvmruntime.RawJVMGCHeapSummaryEvent{}),
+	)
+	assert.Equal(t,
+		int(unsafe.Sizeof(BpfJvmMemPoolGcEvent{})),
+		binary.Size(jvmruntime.RawJVMMemoryPoolEvent{}),
+	)
 }
 
 func rawHeapSummaryPayload(t *testing.T, raw jvmruntime.RawJVMGCHeapSummaryEvent) []byte {

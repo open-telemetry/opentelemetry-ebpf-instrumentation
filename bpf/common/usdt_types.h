@@ -11,7 +11,6 @@ enum obi_usdt_arg_type {
     k_obi_usdt_arg_const = 0,
     k_obi_usdt_arg_reg = 1,
     k_obi_usdt_arg_reg_deref = 2,
-    k_obi_usdt_arg_sib = 3,
 };
 
 enum obi_usdt_arg_error {
@@ -20,17 +19,15 @@ enum obi_usdt_arg_error {
     k_obi_usdt_arg_err_bad_type = -4,
     k_obi_usdt_arg_err_bad_size = -5,
     k_obi_usdt_arg_err_bad_reg = -6,
-    k_obi_usdt_arg_err_bad_scale = -7,
 };
 
 struct obi_usdt_arg_spec {
     u64 val_off;
     s16 reg_off;
-    s16 idx_reg_off;
     u8 arg_type;
-    u8 scale_bitshift;
     u8 arg_signed;
     u8 arg_bitshift;
+    u8 _pad[3];
 };
 
 struct obi_usdt_spec {

@@ -17,6 +17,7 @@
 enum { k_jvm_task_comm_len = 16 };
 
 struct jvm_gc_heap_summary_event _jvm_gc_heap_summary_event = {};
+struct jvm_mem_pool_gc_event _jvm_mem_pool_gc_event = {};
 
 static __always_inline bool jvm_current_comm_is_g1_main_marker(void) {
     char comm[k_jvm_task_comm_len] = {};

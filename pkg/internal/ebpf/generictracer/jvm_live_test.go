@@ -266,7 +266,7 @@ func waitForJVMRuntimeEvents(
 				assert.NotZero(t, snapshot.PID)
 				assert.NotZero(t, snapshot.Time)
 
-				if snapshot.JVM.Kind == jvmruntime.JVMMetricBeylaHeapUsed {
+				if snapshot.JVM.Kind == jvmruntime.JVMMetricObiHeapUsed {
 					seenHeap = true
 					assert.NotEmpty(t, snapshot.JVM.GCPhase)
 					assert.Positive(t, snapshot.JVM.ValueBytes)

@@ -33,7 +33,7 @@ func newJVMRuntimeMetricsCollector(cfg *PrometheusConfig) jvmRuntimeMetricsColle
 			"Current maximum JVM memory in bytes.", jvmMemoryLabels(), clock, cfg.TTL),
 		memoryUsedAfterLastGC: newJVMGauge(attributes.JVMMemoryUsedAfterLastGC.Prom,
 			"JVM memory used after the last garbage collection in bytes.", jvmMemoryLabels(), clock, cfg.TTL),
-		heapUsed: newJVMGauge(attributes.BeylaJVMHeapUsed.Prom,
+		heapUsed: newJVMGauge(attributes.ObiJVMHeapUsed.Prom,
 			"HotSpot heap used in bytes as reported by GCTracer::report_gc_heap_summary.", jvmHeapLabels(), clock, cfg.TTL),
 	}
 }
@@ -75,7 +75,7 @@ func (r *metricsReporter) collectJVMRuntimeMetrics(snapshot runtimemetrics.Runti
 		r.jvmRuntimeMetrics.memoryLimit.WithLabelValues(jvmMemoryLabelValues(snapshot)...).Metric.Set(float64(snapshot.JVM.ValueBytes))
 	case jvmruntime.JVMMetricMemoryUsedAfterLastGC:
 		r.jvmRuntimeMetrics.memoryUsedAfterLastGC.WithLabelValues(jvmMemoryLabelValues(snapshot)...).Metric.Set(float64(snapshot.JVM.ValueBytes))
-	case jvmruntime.JVMMetricBeylaHeapUsed:
+	case jvmruntime.JVMMetricObiHeapUsed:
 		r.jvmRuntimeMetrics.heapUsed.WithLabelValues(jvmHeapLabelValues(snapshot)...).Metric.Set(float64(snapshot.JVM.ValueBytes))
 	}
 }

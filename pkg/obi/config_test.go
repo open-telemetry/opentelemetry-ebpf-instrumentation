@@ -391,8 +391,8 @@ func TestConfig_JVMRuntimeMetricsDefaults(t *testing.T) {
 }
 
 func TestConfig_JVMRuntimeMetricsFromEnv(t *testing.T) {
-	t.Setenv("BEYLA_JVM_RUNTIME_METRICS_ENABLED", "true")
-	t.Setenv("BEYLA_JVM_RUNTIME_METRICS_SAMPLING_INTERVAL", "250ms")
+	t.Setenv("OBI_JVM_RUNTIME_METRICS_ENABLED", "true")
+	t.Setenv("OBI_JVM_RUNTIME_METRICS_SAMPLING_INTERVAL", "250ms")
 
 	cfg, err := LoadConfig(nil)
 	require.NoError(t, err)
@@ -1037,7 +1037,7 @@ func loadConfig(t *testing.T, env envMap) *Config {
 		"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT": "",
 		"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT":  "",
 		"OTEL_EBPF_PROMETHEUS_PORT":           "0",
-		"BEYLA_JVM_RUNTIME_METRICS_ENABLED":   "false",
+		"OBI_JVM_RUNTIME_METRICS_ENABLED":     "false",
 	}
 	for k, v := range env {
 		isolatedEnv[k] = v

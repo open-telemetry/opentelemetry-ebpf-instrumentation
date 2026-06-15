@@ -122,7 +122,6 @@ static __always_inline int obi_usdt_arg(struct pt_regs *ctx, u64 arg_num, long *
     }
 
     unsigned long val = 0;
-    unsigned long idx = 0;
     int err = 0;
 
     switch (arg->arg_type) {
@@ -147,27 +146,6 @@ static __always_inline int obi_usdt_arg(struct pt_regs *ctx, u64 arg_num, long *
             return err;
         }
         err = obi_usdt_read_user_value(val + arg->val_off, arg->arg_bitshift, &val);
-        if (err) {
-            return err;
-        }
-        break;
-    case k_obi_usdt_arg_sib:
-        if (!obi_usdt_reg_off_ok(arg->reg_off) || !obi_usdt_reg_off_ok(arg->idx_reg_off)) {
-            return k_obi_usdt_arg_err_bad_reg;
-        }
-        if (arg->scale_bitshift > 3) {
-            return k_obi_usdt_arg_err_bad_scale;
-        }
-        err = bpf_probe_read_kernel(&val, sizeof(val), (unsigned char *)ctx + arg->reg_off);
-        if (err) {
-            return err;
-        }
-        err = bpf_probe_read_kernel(&idx, sizeof(idx), (unsigned char *)ctx + arg->idx_reg_off);
-        if (err) {
-            return err;
-        }
-        err = obi_usdt_read_user_value(
-            val + (idx << arg->scale_bitshift) + arg->val_off, arg->arg_bitshift, &val);
         if (err) {
             return err;
         }

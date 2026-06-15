@@ -26,7 +26,7 @@ const (
 	JVMMetricMemoryCommitted       JVMRuntimeMetricKind = "jvm.memory.committed"
 	JVMMetricMemoryLimit           JVMRuntimeMetricKind = "jvm.memory.limit"
 	JVMMetricMemoryUsedAfterLastGC JVMRuntimeMetricKind = "jvm.memory.used_after_last_gc"
-	JVMMetricBeylaHeapUsed         JVMRuntimeMetricKind = "beyla.jvm.heap.used"
+	JVMMetricObiHeapUsed           JVMRuntimeMetricKind = "obi.jvm.heap.used"
 )
 
 type JVMMemoryType string
@@ -148,7 +148,7 @@ func ParseJVMGCHeapSummaryEvent(raw RawJVMGCHeapSummaryEvent) (JVMRuntimeEvent, 
 		PID:            app.PID(raw.NsPID),
 		PIDNamespaceID: raw.PIDNamespaceID,
 		Time:           jvmKernelTime(raw.Timestamp),
-		Kind:           JVMMetricBeylaHeapUsed,
+		Kind:           JVMMetricObiHeapUsed,
 		GCPhase:        phase,
 		ValueBytes:     raw.Used,
 	}, nil

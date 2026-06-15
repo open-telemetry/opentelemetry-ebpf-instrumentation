@@ -21,9 +21,9 @@ groups:
         stability: development
         brief: GC phase reported by the JVM.
 
-  - id: metric.beyla.jvm.heap.used
+  - id: metric.obi.jvm.heap.used
     type: metric
-    metric_name: beyla.jvm.heap.used
+    metric_name: obi.jvm.heap.used
     instrument: gauge
     unit: "By"
     stability: development

@@ -10,6 +10,7 @@ import (
 	"debug/elf"
 	"encoding/binary"
 	"testing"
+	"unsafe"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -37,6 +38,29 @@ func TestParseUSDTNote64(t *testing.T) {
 	assert.Equal(t, "8@%rdi 4@%esi 8@%rdx", note.Args)
 }
 
+func TestParseUSDTNote32BigEndian(t *testing.T) {
+	desc := makeUSDTDesc32(
+		t,
+		binary.BigEndian,
+		0x1020,
+		0x1000,
+		0x2008,
+		"hotspot",
+		"gc__heap__summary",
+		"4@%edi 8@%rsi",
+	)
+
+	note, err := parseUSDTNote(elf.ELFCLASS32, binary.BigEndian, desc)
+	require.NoError(t, err)
+
+	assert.Equal(t, uint64(0x1020), note.Location)
+	assert.Equal(t, uint64(0x1000), note.Base)
+	assert.Equal(t, uint64(0x2008), note.Semaphore)
+	assert.Equal(t, "hotspot", note.Provider)
+	assert.Equal(t, "gc__heap__summary", note.Name)
+	assert.Equal(t, "4@%edi 8@%rsi", note.Args)
+}
+
 func TestParseUSDTArgSpecX8664(t *testing.T) {
 	spec, err := parseUSDTArgSpec(elf.EM_X86_64, "-8@%rdi 4@%esi 8@-0x10(%rsp) 8@$0x7")
 	require.NoError(t, err)
@@ -59,6 +83,23 @@ func TestParseUSDTArgSpecX8664(t *testing.T) {
 
 	assert.Equal(t, obiUSDTArgConst, spec.Args[3].ArgType)
 	assert.Equal(t, uint64(7), spec.Args[3].ValOff)
+}
+
+func TestOBIUSDTSpecLayoutMatchesBPFABI(t *testing.T) {
+	assert.Equal(t, 16, binary.Size(obiUSDTArgSpec{}))
+	assert.Equal(t, uintptr(0), unsafe.Offsetof(obiUSDTArgSpec{}.ValOff))
+	assert.Equal(t, uintptr(8), unsafe.Offsetof(obiUSDTArgSpec{}.RegOff))
+	assert.Equal(t, uintptr(10), unsafe.Offsetof(obiUSDTArgSpec{}.ArgType))
+	assert.Equal(t, uintptr(11), unsafe.Offsetof(obiUSDTArgSpec{}.ArgSigned))
+	assert.Equal(t, uintptr(12), unsafe.Offsetof(obiUSDTArgSpec{}.ArgBitshift))
+	assert.Equal(t, 208, binary.Size(obiUSDTSpec{}))
+	assert.Equal(t, 16, binary.Size(obiUSDTIPKey{}))
+}
+
+func TestParseUSDTArgSpecX8664RejectsSIBAddressing(t *testing.T) {
+	_, err := parseUSDTArgSpec(elf.EM_X86_64, "8@0x10(%rax,%rbx,2)")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unrecognized x86_64 USDT argument")
 }
 
 func TestParseUSDTArgSpecArm64(t *testing.T) {
@@ -89,6 +130,22 @@ func makeUSDTDesc64(t *testing.T, location, base, semaphore uint64, provider, na
 	require.NoError(t, binary.Write(&buf, binary.LittleEndian, location))
 	require.NoError(t, binary.Write(&buf, binary.LittleEndian, base))
 	require.NoError(t, binary.Write(&buf, binary.LittleEndian, semaphore))
+	buf.WriteString(provider)
+	buf.WriteByte(0)
+	buf.WriteString(name)
+	buf.WriteByte(0)
+	buf.WriteString(args)
+	buf.WriteByte(0)
+	return buf.Bytes()
+}
+
+func makeUSDTDesc32(t *testing.T, order binary.ByteOrder, location, base, semaphore uint32, provider, name, args string) []byte {
+	t.Helper()
+
+	var buf bytes.Buffer
+	require.NoError(t, binary.Write(&buf, order, location))
+	require.NoError(t, binary.Write(&buf, order, base))
+	require.NoError(t, binary.Write(&buf, order, semaphore))
 	buf.WriteString(provider)
 	buf.WriteByte(0)
 	buf.WriteString(name)

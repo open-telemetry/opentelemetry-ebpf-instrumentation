@@ -37,7 +37,7 @@ func TestRuntimeMetricsReporterShouldReportSnapshot(t *testing.T) {
 			Features:    export.FeatureApplicationJVM,
 			ExportModes: exportMetrics,
 		},
-		JVM: &runtimemetrics.JVMRuntimeMetricSnapshot{Kind: jvmruntime.JVMMetricBeylaHeapUsed},
+		JVM: &runtimemetrics.JVMRuntimeMetricSnapshot{Kind: jvmruntime.JVMMetricObiHeapUsed},
 	}))
 
 	assert.False(t, (&RuntimeMetricsReporter{goRuntimeEnabled: false}).shouldReportSnapshot(runtimemetrics.RuntimeMetricSnapshot{

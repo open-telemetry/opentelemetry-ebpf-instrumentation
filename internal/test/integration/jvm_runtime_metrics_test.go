@@ -49,7 +49,7 @@ func testJVMRuntimeHeapSummaryMetric(t *testing.T, pq promtest.Client) {
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		ti.DoHTTPGet(ct, "http://localhost:"+jvmRuntimeMetricsHostPort+"/gc", http.StatusOK)
 
-		results, err := pq.Query(`beyla_jvm_heap_used_bytes{service_name="jvm-runtime",service_namespace="integration-test",jvm_gc_phase=~"before|after"}`)
+		results, err := pq.Query(`obi_jvm_heap_used_bytes{service_name="jvm-runtime",service_namespace="integration-test",jvm_gc_phase=~"before|after"}`)
 		require.NoError(ct, err)
 		require.NotEmpty(ct, results)
 		assertJVMRuntimeMetricService(ct, results)

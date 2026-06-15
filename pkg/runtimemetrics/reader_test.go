@@ -178,7 +178,7 @@ func TestQueueSenderSendsJVMRuntimeSnapshots(t *testing.T) {
 	NewQueueSender(queue).SendJVMRuntimeMetrics(t.Context(), []jvmruntime.JVMRuntimeEvent{{
 		PID:        app.PID(123),
 		Service:    service,
-		Kind:       jvmruntime.JVMMetricBeylaHeapUsed,
+		Kind:       jvmruntime.JVMMetricObiHeapUsed,
 		GCPhase:    jvmruntime.JVMGCPhaseAfter,
 		ValueBytes: 4096,
 	}})
@@ -187,7 +187,7 @@ func TestQueueSenderSendsJVMRuntimeSnapshots(t *testing.T) {
 	require.Len(t, batch, 1)
 	require.Equal(t, service, batch[0].Service)
 	require.NotNil(t, batch[0].JVM)
-	require.Equal(t, jvmruntime.JVMMetricBeylaHeapUsed, batch[0].JVM.Kind)
+	require.Equal(t, jvmruntime.JVMMetricObiHeapUsed, batch[0].JVM.Kind)
 	require.Equal(t, uint64(4096), batch[0].JVM.ValueBytes)
 }
 

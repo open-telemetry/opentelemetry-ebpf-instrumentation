@@ -500,7 +500,7 @@ func getDefinitions(
 			SubGroups:  []*AttrReportGroup{&jvmMemoryAttributes},
 			Attributes: map[attr.Name]Default{},
 		},
-		BeylaJVMHeapUsed.Section: {
+		ObiJVMHeapUsed.Section: {
 			SubGroups:  []*AttrReportGroup{&jvmHeapAttributes},
 			Attributes: map[attr.Name]Default{},
 		},

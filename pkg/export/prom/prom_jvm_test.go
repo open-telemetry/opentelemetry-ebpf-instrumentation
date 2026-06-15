@@ -45,13 +45,13 @@ func TestRuntimeMetricsReporterRecordsJVMHeapSummary(t *testing.T) {
 			Features: export.FeatureApplicationJVM,
 		},
 		JVM: &runtimemetrics.JVMRuntimeMetricSnapshot{
-			Kind:       jvmruntime.JVMMetricBeylaHeapUsed,
+			Kind:       jvmruntime.JVMMetricObiHeapUsed,
 			GCPhase:    jvmruntime.JVMGCPhaseAfter,
 			ValueBytes: 42,
 		},
 	}})
 
-	metric := gatheredMetric(t, registry, "beyla_jvm_heap_used_bytes", map[string]string{
+	metric := gatheredMetric(t, registry, "obi_jvm_heap_used_bytes", map[string]string{
 		"service_name":        "orders",
 		"service_namespace":   "prod",
 		"service_instance_id": "orders-1",
@@ -82,13 +82,13 @@ func TestRuntimeMetricsReporterDropsJVMServiceWithoutJVMFeature(t *testing.T) {
 			Features: export.FeatureApplicationRED,
 		},
 		JVM: &runtimemetrics.JVMRuntimeMetricSnapshot{
-			Kind:       jvmruntime.JVMMetricBeylaHeapUsed,
+			Kind:       jvmruntime.JVMMetricObiHeapUsed,
 			GCPhase:    jvmruntime.JVMGCPhaseAfter,
 			ValueBytes: 42,
 		},
 	}})
 
-	assert.Nil(t, gatheredMetric(t, registry, "beyla_jvm_heap_used_bytes", map[string]string{
+	assert.Nil(t, gatheredMetric(t, registry, "obi_jvm_heap_used_bytes", map[string]string{
 		"service_name":        "orders",
 		"service_namespace":   "prod",
 		"service_instance_id": "orders-1",

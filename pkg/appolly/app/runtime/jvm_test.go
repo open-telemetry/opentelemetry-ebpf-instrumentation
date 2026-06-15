@@ -135,7 +135,7 @@ func TestParseJVMGCHeapSummaryEventMapsAggregateHeapUsed(t *testing.T) {
 		PID:            app.PID(1),
 		PIDNamespaceID: 42,
 		Time:           eventTime(900),
-		Kind:           JVMMetricBeylaHeapUsed,
+		Kind:           JVMMetricObiHeapUsed,
 		GCPhase:        JVMGCPhaseAfter,
 		ValueBytes:     700,
 	}, event)
@@ -212,7 +212,7 @@ func TestDecodeRawJVMEventsFromBinaryPayloads(t *testing.T) {
 	})
 	heapEvent, err := DecodeJVMGCHeapSummaryEvent(heapPayload)
 	require.NoError(t, err)
-	require.Equal(t, JVMMetricBeylaHeapUsed, heapEvent.Kind)
+	require.Equal(t, JVMMetricObiHeapUsed, heapEvent.Kind)
 	require.Equal(t, JVMGCPhaseBefore, heapEvent.GCPhase)
 }
 
