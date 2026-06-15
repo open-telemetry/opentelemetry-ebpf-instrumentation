@@ -139,19 +139,34 @@ func (s *ContainerStore) ContainerInfo(ctx context.Context, pid app.PID) (Contai
 	}
 
 	// Reuse metadata if another PID from the same container is already cached.
-	s.cacheMu.RLock()
-	if entry, ok := s.byContainerID[ContainerID(osCntInfo.ContainerID)]; ok {
+	// We acquire the write lock directly to avoid a TOCTOU race: if the container
+	// is invalidated between the read check and the write, we must not cache stale metadata.
+	fullContainerID := ContainerID(osCntInfo.ContainerID)
+	s.cacheMu.Lock()
+	if entry, ok := s.byContainerID[fullContainerID]; ok {
+		// Re-validate that the PID still belongs to this container while holding the lock.
+		currentInfo, err := osInfoForPID(pid)
+		if err != nil || ContainerID(currentInfo.ContainerID) != fullContainerID {
+			s.cacheMu.Unlock()
+			return ContainerMeta{}, false
+		}
 		meta := entry.meta
-		s.cacheMu.RUnlock()
-		s.cacheMu.Lock()
+		seen := false
+		for _, cachedPID := range entry.pids {
+			if cachedPID == pid {
+				seen = true
+				break
+			}
+		}
+		if !seen {
+			entry.pids = append(entry.pids, pid)
+			s.byContainerID[fullContainerID] = entry
+		}
 		s.byPID[pid] = meta
-		entry = s.byContainerID[ContainerID(osCntInfo.ContainerID)]
-		entry.pids = append(entry.pids, pid)
-		s.byContainerID[ContainerID(osCntInfo.ContainerID)] = entry
 		s.cacheMu.Unlock()
 		return meta, true
 	}
-	s.cacheMu.RUnlock()
+	s.cacheMu.Unlock()
 
 	inspectResult, err := s.docker.ContainerInspect(ctx, osCntInfo.ContainerID, client.ContainerInspectOptions{})
 	if err != nil {
@@ -182,6 +197,14 @@ func (s *ContainerStore) ContainerInfo(ctx context.Context, pid app.PID) (Contai
 	}
 
 	s.cacheMu.Lock()
+	// Re-validate that the PID still belongs to the inspected container: the process
+	// may have exited while ContainerInspect was in flight, causing InvalidatePID to
+	// be a no-op (byPID entry didn't exist yet), and we would cache stale metadata.
+	currentInfo, err := osInfoForPID(pid)
+	if err != nil || ContainerID(currentInfo.ContainerID) != meta.FullID {
+		s.cacheMu.Unlock()
+		return ContainerMeta{}, false
+	}
 	if entry, ok := s.byContainerID[meta.FullID]; ok {
 		meta = entry.meta
 		seen := false

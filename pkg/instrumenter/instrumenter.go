@@ -246,7 +246,9 @@ func BuildCommonContextInfo(
 	)
 
 	ctxInfo.DockerMetadata = docker.NewStore()
-	ctxInfo.DockerMetadata.Start(ctx)
+	if !ctxInfo.K8sInformer.IsKubeEnabled() {
+		ctxInfo.DockerMetadata.Start(ctx)
+	}
 
 	attributeGroups(config, ctxInfo)
 
