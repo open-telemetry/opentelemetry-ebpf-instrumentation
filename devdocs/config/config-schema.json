@@ -899,6 +899,7 @@
           "all",
           "application",
           "application_host",
+          "application_jvm",
           "application_runtime",
           "application_service_graph",
           "application_span",
@@ -1435,6 +1436,27 @@
           "description": "Enable JSON-RPC payload extraction and parsing",
           "default": false,
           "x-env-var": "OTEL_EBPF_HTTP_JSONRPC_ENABLED"
+        }
+      },
+      "type": "object"
+    },
+    "JVMRuntimeMetricsConfig": {
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": false,
+          "x-env-var": "OBI_JVM_RUNTIME_METRICS_ENABLED"
+        },
+        "sampling_interval": {
+          "type": "string",
+          "pattern": "^[0-9]+(ms|s|m)$",
+          "default": "1s",
+          "examples": [
+            "30s",
+            "5m",
+            "1ms"
+          ],
+          "x-env-var": "OBI_JVM_RUNTIME_METRICS_SAMPLING_INTERVAL"
         }
       },
       "type": "object"
@@ -2876,6 +2898,9 @@
     },
     "javaagent": {
       "$ref": "#/$defs/JavaConfig"
+    },
+    "jvm_runtime_metrics": {
+      "$ref": "#/$defs/JVMRuntimeMetricsConfig"
     },
     "log_config": {
       "type": "string",

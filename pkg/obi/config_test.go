@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"maps"
+	"os"
 	"regexp"
 	"strings"
 	"testing"
@@ -104,6 +105,11 @@ discovery:
 	t.Setenv("OTEL_SERVICE_NAME", "svc-name")
 	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "localhost:3131")
 	t.Setenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "localhost:3232")
+	unsetEnv(t,
+		"OTEL_EXPORTER_OTLP_PROTOCOL",
+		"OTEL_EXPORTER_OTLP_METRICS_PROTOCOL",
+		"OTEL_EXPORTER_OTLP_TRACES_PROTOCOL",
+	)
 	t.Setenv("OTEL_EBPF_INTERNAL_METRICS_PROMETHEUS_PORT", "3210")
 	t.Setenv("KUBECONFIG", "/foo/bar")
 	t.Setenv("OTEL_EBPF_NAME_RESOLVER_SOURCES", "k8s,dns")
@@ -211,7 +217,7 @@ discovery:
 			OTELIntervalMS:    60_000,
 			CommonEndpoint:    "localhost:3131",
 			MetricsEndpoint:   "localhost:3030",
-			Protocol:          otelcfg.ProtocolHTTPProtobuf,
+			Protocol:          otelcfg.ProtocolUnset,
 			ReportersCacheLen: ReporterLRUSize,
 			Buckets: export.Buckets{
 				DurationHistogram:            []float64{0, 1, 2},
@@ -232,7 +238,7 @@ discovery:
 			TTL: 5 * time.Minute,
 		},
 		Traces: otelcfg.TracesConfig{
-			Protocol:          otelcfg.ProtocolHTTPProtobuf,
+			Protocol:          otelcfg.ProtocolUnset,
 			CommonEndpoint:    "localhost:3131",
 			TracesEndpoint:    "localhost:3232",
 			BatchMaxSize:      4096,
@@ -364,6 +370,23 @@ discovery:
 			Port: 0,
 		},
 	}, cfg)
+}
+
+func unsetEnv(t *testing.T, keys ...string) {
+	t.Helper()
+
+	for _, key := range keys {
+		key := key
+		value, exists := os.LookupEnv(key)
+		require.NoError(t, os.Unsetenv(key))
+		t.Cleanup(func() {
+			if exists {
+				require.NoError(t, os.Setenv(key, value))
+				return
+			}
+			require.NoError(t, os.Unsetenv(key))
+		})
+	}
 }
 
 func TestConfig_ServiceName(t *testing.T) {
