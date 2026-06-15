@@ -125,7 +125,7 @@ func (c *Controller) Start(ctx context.Context, _ component.Host) error {
 }
 
 // Shutdown stops the receiver. Only the last shutdown call actually stops OBI.
-func (c *Controller) Shutdown(_ context.Context) error {
+func (c *Controller) Shutdown(ctx context.Context) error {
 	c.shared.mu.Lock()
 	if c.shared.refCnt == 0 {
 		c.shared.mu.Unlock()
@@ -155,8 +155,15 @@ func (c *Controller) Shutdown(_ context.Context) error {
 		return nil
 	}
 
-	// Wait for OBI to finish
-	<-runDone
+	// Wait for OBI to finish, but respect the caller's shutdown deadline.
+	// If the context expires before OBI is done, return immediately so the
+	// collector is not stuck; OBI will continue cleaning up in the background.
+	select {
+	case <-runDone:
+	case <-ctx.Done():
+		c.cleanupSharedController()
+		return ctx.Err()
+	}
 
 	// Clean up the shared controller for this component ID
 	c.cleanupSharedController()
