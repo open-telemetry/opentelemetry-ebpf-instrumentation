@@ -376,16 +376,12 @@ func unsetEnv(t *testing.T, keys ...string) {
 	t.Helper()
 
 	for _, key := range keys {
-		key := key
-		value, exists := os.LookupEnv(key)
+		if value, exists := os.LookupEnv(key); exists {
+			t.Setenv(key, value)
+		} else {
+			t.Setenv(key, "")
+		}
 		require.NoError(t, os.Unsetenv(key))
-		t.Cleanup(func() {
-			if exists {
-				require.NoError(t, os.Setenv(key, value))
-				return
-			}
-			require.NoError(t, os.Unsetenv(key))
-		})
 	}
 }
 

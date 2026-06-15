@@ -6,9 +6,12 @@
 package procs
 
 import (
+	"bytes"
 	"debug/elf"
 	"encoding/binary"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -48,40 +51,71 @@ func TestMatchExeSymbols_InvalidStringOffset(t *testing.T) {
 }
 
 func TestFindExeSymbolsExactLookup(t *testing.T) {
-	f := openCurrentTestELF(t)
+	const symbolName = "main.exactLookupTarget"
+
+	f := openSymbolFixtureELF(t)
 	defer f.Close()
 
-	syms, err := FindExeSymbols(f, []string{"go.opentelemetry.io/obi/pkg/internal/procs.TestFindExeSymbolsExactLookup"})
+	syms, err := FindExeSymbols(f, []string{symbolName})
 	require.NoError(t, err)
 
-	sym, ok := syms["go.opentelemetry.io/obi/pkg/internal/procs.TestFindExeSymbolsExactLookup"]
+	sym, ok := syms[symbolName]
 	require.True(t, ok)
+	assert.Equal(t, symbolName, sym.Name)
 	assert.NotZero(t, sym.Off)
 	assert.NotZero(t, sym.Len)
 	assert.NotNil(t, sym.Prog)
 }
 
 func TestFindExeSymbolsSubstringLookup(t *testing.T) {
-	f := openCurrentTestELF(t)
+	const (
+		symbolName = "main.substringLookupTarget"
+		substring  = "substringLookup"
+	)
+
+	f := openSymbolFixtureELF(t)
 	defer f.Close()
 
-	syms, err := FindExeSymbolsBySubstring(f, []string{"FindExeSymbolsSubstring"})
+	syms, err := FindExeSymbolsBySubstring(f, []string{substring})
 	require.NoError(t, err)
 
-	sym, ok := syms["FindExeSymbolsSubstring"]
+	sym, ok := syms[substring]
 	require.True(t, ok)
+	assert.Equal(t, symbolName, sym.Name)
 	assert.NotZero(t, sym.Off)
 	assert.NotZero(t, sym.Len)
 	assert.NotNil(t, sym.Prog)
 }
 
-func openCurrentTestELF(t *testing.T) *elf.File {
+func openSymbolFixtureELF(t *testing.T) *elf.File {
 	t.Helper()
 
-	exe, err := os.Executable()
-	require.NoError(t, err)
+	dir := t.TempDir()
+	sourcePath := filepath.Join(dir, "main.go")
+	exePath := filepath.Join(dir, "symbol-fixture")
 
-	f, err := elf.Open(exe)
+	require.NoError(t, os.WriteFile(sourcePath, []byte(`package main
+
+//go:noinline
+func exactLookupTarget() {}
+
+//go:noinline
+func substringLookupTarget() {}
+
+func main() {
+	exactLookupTarget()
+	substringLookupTarget()
+}
+`), 0o600))
+
+	cmd := exec.Command("go", "build", "-gcflags=all=-l", "-o", exePath, sourcePath)
+	cmd.Env = append(os.Environ(), "GO111MODULE=off")
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+	require.NoError(t, cmd.Run(), out.String())
+
+	f, err := elf.Open(exePath)
 	require.NoError(t, err)
 
 	return f
