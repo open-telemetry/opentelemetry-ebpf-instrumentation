@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"os/signal"
 	"runtime"
+	"runtime/debug"
 	"syscall"
 
 	"go.opentelemetry.io/obi/pkg/internal/jvmtools/util"
@@ -96,6 +97,17 @@ func (j *JAttacher) Attach(pid int, argv []string, ignoreOnJ9 bool) (io.ReadClos
 	resultCh := make(chan attachResult, 1)
 
 	go func() {
+		// This goroutine runs independently of the caller's goroutine, so a
+		// panic here would escape the callers' own recover take down the whole process.
+		// Convert it into an attach error instead.
+		defer func() {
+			if r := recover(); r != nil {
+				j.logger.Error("recovered from panic during JVM attach",
+					"pid", pid, "panic", r, "stack", string(debug.Stack()))
+				resultCh <- attachResult{err: fmt.Errorf("panic during JVM attach: %v", r)}
+			}
+		}()
+
 		runtime.LockOSThread()
 		// Deliberately no runtime.UnlockOSThread: this thread is tainted by the
 		// namespace switch and CLONE_FS unshare, so we let it die with the
