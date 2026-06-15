@@ -122,13 +122,14 @@ var DefaultConfig = Config{
 	ShutdownTimeout:         10 * time.Second,
 	EnforceSysCaps:          false,
 	EBPF: config.EBPFTracer{
-		BatchLength:        100,
-		BatchTimeout:       time.Second,
-		HTTPRequestTimeout: 0,
-		WakeupLen:          500,
-		TCBackend:          config.TCBackendAuto,
-		DNSRequestTimeout:  5 * time.Second,
-		ContextPropagation: config.ContextPropagationDisabled,
+		BatchLength:          100,
+		BatchTimeout:         time.Second,
+		HTTPRequestTimeout:   0,
+		WakeupLen:            500,
+		StatsWakeupDataBytes: 4096,
+		TCBackend:            config.TCBackendAuto,
+		DNSRequestTimeout:    5 * time.Second,
+		ContextPropagation:   config.ContextPropagationDisabled,
 		RedisDBCache: config.RedisDBCacheConfig{
 			Enabled: false,
 			MaxSize: 1000,
@@ -252,6 +253,7 @@ var DefaultConfig = Config{
 			instrumentations.InstrumentationMongo,
 			instrumentations.InstrumentationCouchbase,
 			instrumentations.InstrumentationMemcached,
+			instrumentations.InstrumentationSunRPC,
 			// no traces for DNS and GPU by default
 		},
 	},
@@ -317,9 +319,10 @@ var DefaultConfig = Config{
 				Metadata: map[string]*services.GlobAttr{"k8s_namespace": &k8sDefaultNamespacesGlob},
 			},
 		},
-		MinProcessAge:         5 * time.Second,
-		DefaultOtlpGRPCPort:   4317,
-		RouteHarvesterTimeout: 10 * time.Second,
+		MinProcessAge:           5 * time.Second,
+		DefaultOtlpGRPCPort:     4317,
+		RouteHarvesterTimeout:   10 * time.Second,
+		DisabledRouteHarvesters: []services.RouteHarvesterLanguage{services.RouteHarvesterLanguageJava},
 		RouteHarvestConfig: services.RouteHarvestingConfig{
 			JavaHarvestDelay: 60 * time.Second,
 		},
@@ -431,6 +434,9 @@ type Config struct {
 type HealthCheckConfig struct {
 	// 0 (default) means disabled
 	Port int `yaml:"port" env:"OTEL_EBPF_HEALTH_CHECK_PORT" validate:"gte=0,lte=65535"`
+	// when set, the health endpoint binds this unix socket (a filesystem path or a leading-'@'
+	// abstract name) instead of the TCP port
+	UnixSocketPath string `yaml:"unix_socket_path" env:"OTEL_EBPF_HEALTH_CHECK_UNIX_SOCKET_PATH"`
 }
 
 func (c *Config) Unmarshal(component *confmap.Conf) error {

@@ -71,6 +71,39 @@ func TestServeEndToEnd(t *testing.T) {
 	require.NoError(t, <-srvErr)
 }
 
+func TestServeEndToEndUDS(t *testing.T) {
+	const addr = "@obi-health-test"
+	lis, err := net.Listen("unix", addr)
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	srvErr := make(chan error, 1)
+	go func() {
+		srvErr <- Serve(ctx, lis)
+	}()
+
+	client := &http.Client{Transport: &http.Transport{
+		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			return (&net.Dialer{}).DialContext(ctx, "unix", addr)
+		},
+	}}
+
+	resp, err := client.Get("http://localhost" + path)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var body response
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+	assert.Equal(t, schemaVersion, body.SchemaVersion)
+
+	cancel()
+	require.NoError(t, <-srvErr)
+}
+
 func snapshotFor(t *testing.T, e *endpoint) response {
 	t.Helper()
 

@@ -15,6 +15,36 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 )
 
+func writeOversizedJSFile(t *testing.T, path, tail string) {
+	t.Helper()
+	line := "const filler = 1;\n"
+	content := strings.Repeat(line, int(MaxJSFileScanBytes/int64(len(line)))+1) + tail
+	require.NoError(t, os.WriteFile(path, []byte(content), 0o644))
+}
+
+func TestScanJSFileLinesSkipsOversizedFiles(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "large.js")
+	writeOversizedJSFile(t, path, `process.on("SIGUSR1", handler);`)
+
+	called := false
+	err := ScanJSFileLines(path, func(string) bool {
+		called = true
+		return true
+	})
+
+	require.NoError(t, err)
+	assert.False(t, called, "oversized files should be ignored")
+}
+
+func TestRouteExtractorSkipsOversizedFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "large.js")
+	writeOversizedJSFile(t, path, `app.get('/too-large', handler);`)
+
+	extractor := NewRouteExtractor()
+	require.NoError(t, extractor.scanFile(path))
+	assert.Empty(t, extractor.GetRoutes())
+}
+
 func TestRouteExtractor_ExpressApp(t *testing.T) {
 	extractor := NewRouteExtractor()
 	exampleFile := filepath.Join("nodejs", "test_files", "express-app.js")

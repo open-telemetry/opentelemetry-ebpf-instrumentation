@@ -22,6 +22,7 @@
 #include <maps/fd_map.h>
 #include <maps/fd_to_connection.h>
 #include <maps/java_tasks.h>
+#include <maps/java_vt_threads.h>
 #include <maps/nginx_upstream.h>
 #include <maps/nodejs_fd_map.h>
 #include <maps/puma_tasks.h>
@@ -31,6 +32,7 @@
 
 static __always_inline void trace_key_from_pid_tid(trace_key_t *t_key) {
     task_tid(&t_key->p_key);
+    java_vt_translate_tid(&t_key->p_key);
 
     t_key->extra_id = extra_runtime_id();
 }

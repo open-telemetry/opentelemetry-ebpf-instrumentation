@@ -261,17 +261,25 @@
         },
         {
           "type": "string",
-          "pattern": "^(headers|http|tcp)(,(headers|http|tcp))*$",
-          "description": "List of propagation methods to enable (headers/http for HTTP headers, tcp for TCP options), separated by commas",
+          "pattern": "^(headers|tcp)(,(headers|tcp))*$",
+          "description": "Comma-separated list of propagation methods (headers for HTTP headers, tcp for TCP options)",
           "examples": [
             "headers",
             "tcp",
             "headers,tcp"
           ]
+        },
+        {
+          "type": "string",
+          "enum": [
+            "ip"
+          ],
+          "description": "IP options injection has been removed and has no effect",
+          "deprecated": true
         }
       ],
       "title": "Context Propagation Mode",
-      "description": "Configures distributed context propagation. Can be 'all' to enable all methods, 'disabled'/'' to disable, or a list of specific methods: 'headers' (or 'http') for HTTP headers, 'tcp' for TCP options."
+      "description": "Configures distributed context propagation. Can be 'all' to enable all methods, 'disabled'/'' to disable, or a comma-separated list of methods: 'headers' for HTTP headers, 'tcp' for TCP options (e.g. \"headers,tcp\")."
     },
     "CustomRoutesConfig": {
       "properties": {
@@ -437,7 +445,10 @@
               "nodejs"
             ]
           },
-          "type": "array"
+          "type": "array",
+          "default": [
+            "java"
+          ]
         },
         "exclude_instrument": {
           "$ref": "#/$defs/GlobDefinitionCriteria",
@@ -742,6 +753,12 @@
         "redis_db_cache": {
           "$ref": "#/$defs/RedisDBCacheConfig"
         },
+        "stats_wakeup_data_bytes": {
+          "type": "integer",
+          "description": "Specifies the minimum number of bytes that must be available in the stats eBPF ring buffer before waking up the userspace consumer. When 0, every submission wakes up userspace immediately. Higher values reduce wakeup overhead under high traffic at the cost of delivery latency. The value should be well below ring buffer size / flushInterval to avoid event loss.",
+          "default": 4096,
+          "x-env-var": "OTEL_EBPF_STATS_WAKEUP_DATA_BYTES"
+        },
         "track_request_headers": {
           "type": "boolean",
           "description": "Enables the kprobes based HTTP request tracking to start tracking the request headers to process any 'Traceparent' fields.",
@@ -867,12 +884,14 @@
           "all",
           "application",
           "application_host",
+          "application_runtime",
           "application_service_graph",
           "application_span",
           "application_span_otel",
           "application_span_sizes",
           "ebpf",
           "network",
+          "network_flow_packets",
           "network_inter_zone",
           "stats",
           "stats_tcp_failed_connections",
@@ -1264,6 +1283,11 @@
           "description": "0 (default) means disabled",
           "default": 0,
           "x-env-var": "OTEL_EBPF_HEALTH_CHECK_PORT"
+        },
+        "unix_socket_path": {
+          "type": "string",
+          "description": "when set, the health endpoint binds this unix socket (a filesystem path or a leading-'@' abstract name) instead of the TCP port",
+          "x-env-var": "OTEL_EBPF_HEALTH_CHECK_UNIX_SOCKET_PATH"
         }
       },
       "type": "object"
@@ -1699,7 +1723,7 @@
         "features": {
           "$ref": "#/$defs/Features",
           "description": "Specifies which metric features to export. Accepted values: application, network, application_span, application_service_graph, ... envDefault is provided to avoid breaking changes  use top-level MetricsConfig.Features instead.",
-          "default": 128,
+          "default": 256,
           "deprecated": true,
           "x-env-var": "OTEL_EBPF_METRICS_FEATURES"
         },
@@ -1736,7 +1760,8 @@
               "mqtt",
               "nats",
               "redis",
-              "sql"
+              "sql",
+              "sunrpc"
             ]
           },
           "type": "array",
@@ -1945,7 +1970,7 @@
         },
         "enable": {
           "type": "boolean",
-          "description": "Network metrics. Default value is false (disabled)  add \"network\" or \"network_inter_zone\" to OTEL_EBPF_METRICS_FEATURES  TODO OBI 3.0: remove",
+          "description": "Network metrics. Default value is false (disabled)  add \"network\" or \"network_flow_packets\" or \"network_inter_zone\" to OTEL_EBPF_METRICS_FEATURES  TODO OBI 3.0: remove",
           "default": false,
           "deprecated": true,
           "x-env-var": "OTEL_EBPF_NETWORK_METRICS"
@@ -2139,7 +2164,8 @@
               "mqtt",
               "nats",
               "redis",
-              "sql"
+              "sql",
+              "sunrpc"
             ]
           },
           "type": "array",
@@ -2708,7 +2734,8 @@
               "mqtt",
               "nats",
               "redis",
-              "sql"
+              "sql",
+              "sunrpc"
             ]
           },
           "type": "array",
@@ -2725,7 +2752,8 @@
             "amqp",
             "mongo",
             "couchbase",
-            "memcached"
+            "memcached",
+            "sunrpc"
           ],
           "x-env-var": "OTEL_EBPF_TRACES_INSTRUMENTATIONS"
         },

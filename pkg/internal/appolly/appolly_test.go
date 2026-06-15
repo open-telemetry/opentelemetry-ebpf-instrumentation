@@ -48,12 +48,12 @@ func TestProcessEventsLoopDoesntBlock(t *testing.T) {
 }
 
 // TestInstrumenter_WithDynamicPIDSelector verifies that when the caller passes a selector via
-// ContextInfo.AppO11y.DynamicPIDSelector, New uses it and the caller can add/remove PIDs on it directly.
+// ContextInfo.DynamicPIDSelector, New uses it and the caller can add/remove PIDs on it directly.
 func TestInstrumenter_WithDynamicPIDSelector(t *testing.T) {
 	sel := discover.NewDynamicPIDSelector()
 	ctxInfo := &global.ContextInfo{
-		Prometheus: &connector.PrometheusManager{},
-		AppO11y:    global.AppO11y{DynamicPIDSelector: sel},
+		Prometheus:         &connector.PrometheusManager{},
+		DynamicPIDSelector: sel,
 	}
 	_, err := New(
 		t.Context(),

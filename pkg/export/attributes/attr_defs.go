@@ -327,6 +327,9 @@ func getDefinitions(
 		NetworkFlow.Section: {
 			SubGroups: []*AttrReportGroup{&networkAttributes, &networkCIDR, &networkGeoIP, &networkKubeAttributes},
 		},
+		NetworkFlowPackets.Section: {
+			SubGroups: []*AttrReportGroup{&networkAttributes, &networkCIDR, &networkGeoIP, &networkKubeAttributes},
+		},
 		NetworkInterZone.Section: {
 			SubGroups: []*AttrReportGroup{&networkInterZone, &networkInterZoneCIDR, &networkGeoIP, &networkInterZoneKube},
 		},
@@ -351,17 +354,17 @@ func getDefinitions(
 		RPCClientDuration.Section: {
 			SubGroups: []*AttrReportGroup{&appAttributes, &grpcClientInfo},
 			Attributes: map[attr.Name]Default{
-				attr.RPCMethod:         true,
-				attr.RPCSystem:         true,
-				attr.RPCGRPCStatusCode: true,
+				attr.RPCMethod:             true,
+				attr.RPCSystem:             true,
+				attr.RPCResponseStatusCode: true,
 			},
 		},
 		RPCServerDuration.Section: {
 			SubGroups: []*AttrReportGroup{&appAttributes, &serverInfo},
 			Attributes: map[attr.Name]Default{
-				attr.RPCMethod:         true,
-				attr.RPCSystem:         true,
-				attr.RPCGRPCStatusCode: true,
+				attr.RPCMethod:             true,
+				attr.RPCSystem:             true,
+				attr.RPCResponseStatusCode: true,
 			},
 		},
 		DBClientDuration.Section: {
@@ -383,6 +386,7 @@ func getDefinitions(
 			Attributes: map[attr.Name]Default{
 				attr.DNSQuestionName:   true,
 				attr.DBQueryText:       false,
+				attr.GraphQLDocument:   false,
 				attr.HTTPUrlQuery:      false,
 				attr.GenAIInput:        false,
 				attr.GenAIOutput:       false,
@@ -550,4 +554,17 @@ func DBResponseErrorAttr(optionalAttrs map[attr.Name]struct{}, description strin
 		return nil
 	}
 	return []attribute.KeyValue{attribute.Key(attr.DBResponseError).String(description)}
+}
+
+func AppendUniqueNames(base []attr.Name, extra []attr.Name) []attr.Name {
+	seen := make(map[attr.Name]struct{}, len(base)+len(extra))
+	out := make([]attr.Name, 0, len(base)+len(extra))
+	for _, name := range append(base, extra...) {
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		out = append(out, name)
+	}
+	return out
 }

@@ -39,6 +39,16 @@ func TestMatchDefinition_Validate(t *testing.T) {
 	require.NoError(t, (&MatchDefinition{NotMatch: "foo"}).Validate())
 	require.Error(t, (&MatchDefinition{Match: "foo", NotMatch: "foo"}).Validate())
 	require.Error(t, (&MatchDefinition{}).Validate())
+
+	status := 200
+	require.ErrorContains(t,
+		(&MatchDefinition{Match: "2*", GreaterEquals: &status}).Validate(),
+		"attribute can't combine match/not_match clauses with numeric comparisons",
+	)
+	require.ErrorContains(t,
+		(&MatchDefinition{NotMatch: "5*", LessThan: &status}).Validate(),
+		"attribute can't combine match/not_match clauses with numeric comparisons",
+	)
 }
 
 func TestMatches_GreaterEquals(t *testing.T) {
