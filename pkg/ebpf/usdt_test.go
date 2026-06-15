@@ -61,6 +61,20 @@ func TestParseUSDTNote32BigEndian(t *testing.T) {
 	assert.Equal(t, "4@%edi 8@%rsi", note.Args)
 }
 
+func TestReadSDTHeaderUsesELFByteOrder(t *testing.T) {
+	var buf bytes.Buffer
+	require.NoError(t, binary.Write(&buf, binary.BigEndian, uint32(8)))
+	require.NoError(t, binary.Write(&buf, binary.BigEndian, uint32(16)))
+	require.NoError(t, binary.Write(&buf, binary.BigEndian, uint32(obiUSDTNoteType)))
+
+	header, err := readSDTHeader(binary.BigEndian, buf.Bytes())
+	require.NoError(t, err)
+
+	assert.Equal(t, uint32(8), header.NameSize)
+	assert.Equal(t, uint32(16), header.DescSize)
+	assert.Equal(t, uint32(obiUSDTNoteType), header.Type)
+}
+
 func TestParseUSDTArgSpecX8664(t *testing.T) {
 	spec, err := parseUSDTArgSpec(elf.EM_X86_64, "-8@%rdi 4@%esi 8@-0x10(%rsp) 8@$0x7")
 	require.NoError(t, err)

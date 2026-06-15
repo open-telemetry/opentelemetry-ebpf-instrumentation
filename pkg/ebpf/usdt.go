@@ -44,6 +44,12 @@ type usdtNote struct {
 	Args      string
 }
 
+type sdtHeader struct {
+	NameSize uint32
+	DescSize uint32
+	Type     uint32
+}
+
 type usdtNoteHeader32 struct {
 	Location  uint32
 	Base      uint32
@@ -159,6 +165,14 @@ func readUSDTNoteHeader(class elf.Class, order binary.ByteOrder, header []byte, 
 	return nil
 }
 
+func readSDTHeader(order binary.ByteOrder, data []byte) (sdtHeader, error) {
+	var header sdtHeader
+	if err := binary.Read(bytes.NewReader(data), order, &header); err != nil {
+		return sdtHeader{}, err
+	}
+	return header, nil
+}
+
 func collectUSDTTargets(
 	elfFile *elf.File,
 	pid app.PID,
@@ -186,11 +200,15 @@ func collectUSDTTargets(
 	}
 
 	targets := []usdtTarget{}
-	for offset := 0; offset+12 <= len(data); {
-		namesz := int(elfFile.ByteOrder.Uint32(data[offset:]))
-		descsz := int(elfFile.ByteOrder.Uint32(data[offset+4:]))
-		noteType := elfFile.ByteOrder.Uint32(data[offset+8:])
-		offset += 12
+	headerSize := binary.Size(sdtHeader{})
+	for offset := 0; offset+headerSize <= len(data); {
+		header, err := readSDTHeader(elfFile.ByteOrder, data[offset:offset+headerSize])
+		if err != nil {
+			return nil, err
+		}
+		namesz := int(header.NameSize)
+		descsz := int(header.DescSize)
+		offset += headerSize
 
 		nameEnd := offset + namesz
 		descStart := offset + align4(namesz)
@@ -201,7 +219,7 @@ func collectUSDTTargets(
 		}
 
 		noteName := strings.TrimRight(string(data[offset:nameEnd]), "\x00")
-		if noteType == obiUSDTNoteType && noteName == obiUSDTNoteName {
+		if header.Type == obiUSDTNoteType && noteName == obiUSDTNoteName {
 			note, err := parseUSDTNote(elfFile.Class, elfFile.ByteOrder, data[descStart:descEnd])
 			if err != nil {
 				return nil, err
