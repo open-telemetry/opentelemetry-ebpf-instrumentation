@@ -615,7 +615,12 @@ oats-test-debug: oats-prereq
 
 .PHONY: license-header-check
 license-header-check:
-	@licRes=$$(for f in $$(find . -type f \( -iname '*.go' -o -iname '*.sh' -o -iname '*.c' -o -iname '*.h' \) ! -path './.git/*' ! -path './NOTICES/*' ) ; do \
+	@# Store demo app files are vendored with upstream Apache 2.0 headers; see examples/store-demo/PROVENANCE.md.
+	@licRes=$$(for f in $$(find . -type f \( -iname '*.go' -o -iname '*.sh' -o -iname '*.c' -o -iname '*.h' \) \
+	           ! -path './.git/*' \
+	           ! -path './.tmp/*' \
+	           ! -path './NOTICES/*' \
+	           ! -path './examples/store-demo/app/*' ) ; do \
 	           awk '/Copyright The OpenTelemetry Authors|generated|GENERATED/ && NR<=4 { found=1; next } END { if (!found) print FILENAME }' $$f; \
 	   done); \
 	   if [ -n "$${licRes}" ]; then \

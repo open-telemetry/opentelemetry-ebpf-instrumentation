@@ -296,7 +296,12 @@ static __always_inline void process_http_request(http_info_t *info,
     info->len = len;
     info->event_source = event_source(lw_thread); // generic events generated from Go
     info->extra_id = extra_runtime_id();          // required for deleting the trace information
-    info->task_tid = get_task_tid();              // required for deleting the trace information
+    // also required for deleting the trace information; translated so the
+    // delete key matches the (translated) server_traces store key
+    pid_key_t self_key = {0};
+    task_tid(&self_key);
+    java_vt_translate_tid(&self_key);
+    info->task_tid = self_key.tid;
 }
 
 static __always_inline void process_http_response(http_info_t *info, const unsigned char *buf) {

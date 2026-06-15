@@ -105,6 +105,13 @@ public class JavaExecutorInst {
     @Advice.OnMethodEnter(suppress = Throwable.class)
     public static void enterJobSubmit(
         @Advice.Argument(value = 0, readOnly = false) Runnable task, @Advice.Origin String method) {
+      // Loom re-submits the SAME per-VT runContinuation lambda on every
+      // unpark, from platform threads; tracking it turns the relay emit
+      // below into a java_tasks poisoner for carrier tids. Skip Loom
+      // internals and submissions made from virtual threads entirely.
+      if (ThreadInfo.loomTaskOrVirtualThread(task)) {
+        return;
+      }
       long threadId = Agent.NativeLib.gettid();
       Long parentId = SSLStorage.parentThreadId(task);
       if (parentId != null) {
@@ -118,7 +125,7 @@ public class JavaExecutorInst {
                   + threadId);
         }
         if (parentId != threadId) {
-          ThreadInfo.sendParentThreadContext(parentId);
+          ThreadInfo.sendTaskParentThreadContext(parentId);
         }
       }
 
@@ -149,6 +156,10 @@ public class JavaExecutorInst {
     @Advice.OnMethodEnter(suppress = Throwable.class)
     public static void enterJobSubmit(
         @Advice.Argument(0) ForkJoinTask<?> task, @Advice.Origin String method) {
+      // see SetExecuteRunnableStateAdvice, same reasoning
+      if (ThreadInfo.loomTaskOrVirtualThread(task)) {
+        return;
+      }
       if (SSLStorage.bootDebugOn().equals(true)) {
         System.err.println(
             "[SetJavaForkJoinStateAdvice] ("
@@ -173,6 +184,12 @@ public class JavaExecutorInst {
   public static class SetSubmitRunnableStateAdvice {
     @Advice.OnMethodEnter(suppress = Throwable.class)
     public static void enterJobSubmit(@Advice.Argument(value = 0, readOnly = false) Runnable task) {
+      // see SetExecuteRunnableStateAdvice, same reasoning; onVirtualThread
+      // also covers the timed-park timeout lambda that a parking VT
+      // schedules on the unparker.
+      if (ThreadInfo.loomTaskOrVirtualThread(task)) {
+        return;
+      }
       if (SSLStorage.bootDebugOn().equals(true)) {
         System.err.println(
             "[SetSubmitRunnableStateAdvice] enter jobSubmit task = " + task.hashCode());
@@ -197,6 +214,10 @@ public class JavaExecutorInst {
     @Advice.OnMethodEnter(suppress = Throwable.class)
     public static void enterJobSubmit(
         @Advice.Argument(0) Callable<?> task, @Advice.Origin String method) {
+      // see SetExecuteRunnableStateAdvice, same reasoning
+      if (ThreadInfo.loomTaskOrVirtualThread(task)) {
+        return;
+      }
       long threadId = Agent.NativeLib.gettid();
       Long parentId = SSLStorage.parentThreadId(task);
       if (SSLStorage.bootDebugOn().equals(true)) {
@@ -209,7 +230,7 @@ public class JavaExecutorInst {
                 + threadId);
       }
       if (parentId != null && parentId != threadId) {
-        ThreadInfo.sendParentThreadContext(parentId);
+        ThreadInfo.sendTaskParentThreadContext(parentId);
       }
       if (SSLStorage.bootDebugOn().equals(true)) {
         System.err.println(
@@ -228,7 +249,7 @@ public class JavaExecutorInst {
       }
 
       try {
-        if (future != null) {
+        if (future != null && !ThreadInfo.loomTaskOrVirtualThread(task)) {
           long threadId = Agent.NativeLib.gettid();
           SSLStorage.trackTask(threadId, future);
           if (SSLStorage.bootDebugOn().equals(true)) {
@@ -252,7 +273,7 @@ public class JavaExecutorInst {
     @Advice.OnMethodEnter(suppress = Throwable.class)
     public static Collection<?> submitEnter(
         @Advice.Argument(0) Collection<? extends Callable<?>> tasks) {
-      if (tasks == null) {
+      if (tasks == null || ThreadInfo.onVirtualThread()) {
         return Collections.emptyList();
       }
 

@@ -582,6 +582,18 @@ func TestSuite_GoMQTT(t *testing.T) {
 	require.NoError(t, compose.Close())
 }
 
+func TestSuite_GoSunRPC(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-go-sunrpc.yml", path.Join(pathOutput, "test-suite-go-sunrpc.log"))
+	require.NoError(t, err)
+
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)
+	require.NoError(t, compose.Up())
+	t.Run("Go SunRPC tests", testREDMetricsGoSunRPC)
+	t.Run("Go SunRPC Prometheus metrics", testREDMetricsGoSunRPCPrometheus)
+	runWeaverValidation(t)
+	require.NoError(t, compose.Close())
+}
+
 func TestSuite_JavaKafka(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-java-kafka-400.yml", path.Join(pathOutput, "test-suite-java-kafka.log"))
 	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)

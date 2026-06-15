@@ -7,14 +7,14 @@ input:
 interval: 500ms
 expected:
   traces:
-  - traceql: '{ .messaging.operation.type = "publish" && .messaging.destination.name="logging"}'
+  - traceql: '{ .messaging.operation.type = "publish" && .messaging.destination.name="logging" && kind = producer }'
     equals: publish logging
     attributes:
       messaging.destination.name: logging
       messaging.operation.type: publish
       messaging.system: kafka
       server.port: '9092'
-  - traceql: '{ .messaging.operation.type = "process" && .messaging.destination.name="logging"}'
+  - traceql: '{ .messaging.operation.type = "process" && .messaging.destination.name="logging" && kind = consumer }'
     equals: process logging
     attributes:
       messaging.destination.name: logging
