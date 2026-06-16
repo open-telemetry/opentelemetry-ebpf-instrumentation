@@ -23,7 +23,7 @@ import (
 
 func removeQuery(url string) string {
 	idx := strings.IndexByte(url, '?')
-	if idx > 0 {
+	if idx >= 0 {
 		return url[:idx]
 	}
 	return url

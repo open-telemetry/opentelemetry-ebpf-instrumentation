@@ -533,7 +533,7 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 			attrs = append(attrs, request.GraphqlOperationType(span.GraphQL.OperationType))
 		}
 		if _, ok := optionalAttrs[attr.HTTPUrlQuery]; ok {
-			if idx := strings.IndexByte(span.FullPath, '?'); idx != -1 {
+			if idx := strings.IndexByte(span.FullPath, '?'); idx >= 0 {
 				if qs := scrubQuery(span.FullPath[idx+1:], redactSet); qs != "" {
 					attrs = append(attrs, request.HTTPUrlQuery(qs))
 				}

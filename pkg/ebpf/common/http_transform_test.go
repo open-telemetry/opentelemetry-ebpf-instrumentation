@@ -574,3 +574,22 @@ func TestToRequestTraceLargeBuffers(t *testing.T) {
 		})
 	}
 }
+
+func TestRemoveQuery(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"/path?key=val", "/path"},
+		{"/path", "/path"},
+		{"/?key=val", "/"},
+		// Edge case: url starts with '?' (no path prefix) — idx==0, must still strip.
+		{"?key=val", ""},
+		{"", ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.input, func(t *testing.T) {
+			require.Equal(t, tc.want, removeQuery(tc.input))
+		})
+	}
+}
