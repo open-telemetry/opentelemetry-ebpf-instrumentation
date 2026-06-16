@@ -19,7 +19,6 @@ import (
 	"time"
 
 	pb "github.com/GoogleCloudPlatform/microservices-demo/src/frontend/genproto"
-
 	"github.com/pkg/errors"
 )
 
@@ -69,7 +68,8 @@ func (fe *frontendServer) insertCart(ctx context.Context, userID, productID stri
 		UserId: userID,
 		Item: &pb.CartItem{
 			ProductId: productID,
-			Quantity:  quantity},
+			Quantity:  quantity,
+		},
 	})
 	return err
 }
@@ -81,14 +81,16 @@ func (fe *frontendServer) convertCurrency(ctx context.Context, money *pb.Money, 
 	return pb.NewCurrencyServiceClient(fe.currencySvcConn).
 		Convert(ctx, &pb.CurrencyConversionRequest{
 			From:   money,
-			ToCode: currency})
+			ToCode: currency,
+		})
 }
 
 func (fe *frontendServer) getShippingQuote(ctx context.Context, items []*pb.CartItem, currency string) (*pb.Money, error) {
 	quote, err := pb.NewShippingServiceClient(fe.shippingSvcConn).GetQuote(ctx,
 		&pb.GetQuoteRequest{
 			Address: nil,
-			Items:   items})
+			Items:   items,
+		})
 	if err != nil {
 		return nil, err
 	}
