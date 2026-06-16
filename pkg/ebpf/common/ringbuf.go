@@ -137,9 +137,15 @@ func (rbf *ringBufForwarder[T]) sharedReadAndForward(ctx context.Context, closer
 		rbf.logger.Error("creating ring buffer reader. Exiting", "error", err)
 		return
 	}
-	// If the underlying context is closed, it closes the objects we have allocated for this bpf program
-	go rbf.bgListenSharedContextCancelation(ctx, closers, eventsReader)
+	// If the underlying context is closed, it closes the objects we have allocated for this bpf program.
+	// We wait for the closer goroutine to finish before returning so that callers (e.g. Instrumenter.stop)
+	// do not signal completion while eBPF resources are still being torn down.
+	var closerDone sync.WaitGroup
+	closerDone.Go(func() {
+		rbf.bgListenSharedContextCancelation(ctx, closers, eventsReader)
+	})
 	rbf.readAndForwardInner(ctx, eventsReader, out)
+	closerDone.Wait()
 }
 
 func (rbf *ringBufForwarder[T]) readAndForward(ctx context.Context, out *msg.Queue[[]T]) {
