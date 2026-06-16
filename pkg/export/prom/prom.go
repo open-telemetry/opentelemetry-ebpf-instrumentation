@@ -945,8 +945,6 @@ func (r *metricsReporter) collectMetrics(ctx context.Context) {
 		go r.watchForRuntimeMetrics(ctx)
 	}
 	swarms.ForEachInput(ctx, r.input, nil, func(spans []request.Span) {
-		// clock needs to be updated to let the expirer
-		// remove the old metrics
 		for i := range spans {
 			r.observe(&spans[i])
 		}

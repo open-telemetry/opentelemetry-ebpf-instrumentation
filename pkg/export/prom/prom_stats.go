@@ -176,8 +176,6 @@ func (r *statMetricsReporter) reportMetrics(ctx context.Context) {
 
 func (r *statMetricsReporter) collectMetrics(_ context.Context) {
 	for stats := range r.input {
-		// clock needs to be updated to let the expirer
-		// remove the old metrics
 		for _, stat := range stats {
 			r.observeTCPRtt(stat)
 			r.observeTCPFailedConnections(stat)

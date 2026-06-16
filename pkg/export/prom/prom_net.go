@@ -156,8 +156,6 @@ func (r *netMetricsReporter) reportMetrics(ctx context.Context) {
 
 func (r *netMetricsReporter) collectMetrics(_ context.Context) {
 	for flows := range r.input {
-		// clock needs to be updated to let the expirer
-		// remove the old metrics
 		for _, flow := range flows {
 			r.observeFlowBytes(flow)
 			r.observeInterZone(flow)
