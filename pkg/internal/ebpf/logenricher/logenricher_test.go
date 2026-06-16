@@ -13,6 +13,7 @@ import (
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/rlimit"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
@@ -61,7 +62,9 @@ func TestBlockPIDClearsNamespacedPIDCache(t *testing.T) {
 		t.Skipf("ebpf map create failed: %v", err)
 	}
 	t.Cleanup(func() {
-		assert.NoError(t, m.Close())
+		if err := m.Close(); err != nil {
+			t.Errorf("close eBPF map: %v", err)
+		}
 	})
 	tr.bpfObjects.LogEnricherPids = m
 
@@ -75,8 +78,8 @@ func TestBlockPIDClearsNamespacedPIDCache(t *testing.T) {
 	nsPk := tr.pidKey(ns, nsPID)
 	tr.pids[pk] = []uint64{nsPk}
 
-	assert.NoError(t, m.Put(pk, uint8(1)))
-	assert.NoError(t, m.Put(nsPk, uint8(1)))
+	require.NoError(t, m.Put(pk, uint8(1)))
+	require.NoError(t, m.Put(nsPk, uint8(1)))
 
 	tr.BlockPID(pid, ns)
 
@@ -84,8 +87,8 @@ func TestBlockPIDClearsNamespacedPIDCache(t *testing.T) {
 	assert.False(t, ok)
 
 	var value uint8
-	assert.ErrorIs(t, m.Lookup(pk, &value), ebpf.ErrKeyNotExist)
-	assert.ErrorIs(t, m.Lookup(nsPk, &value), ebpf.ErrKeyNotExist)
+	require.ErrorIs(t, m.Lookup(pk, &value), ebpf.ErrKeyNotExist)
+	require.ErrorIs(t, m.Lookup(nsPk, &value), ebpf.ErrKeyNotExist)
 }
 
 func TestShouldOmitSpanID_FeatureDisabled(t *testing.T) {
