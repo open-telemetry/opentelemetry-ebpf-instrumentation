@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -74,13 +75,9 @@ func UserSelectedAttributes(selectorCfg *attributes.SelectorConfig) (map[attr.Na
 }
 
 // GroupSpans must remain public for collectors embedding OBI.
-// redactKeys is the merged list of query-parameter keys to scrub; within OBI
-// this is built as DefaultRedactQueryParams + ExtraRedactQueryParams by
-// instrumenter.go. Embedders calling GroupSpans directly must pass
-// attributes.DefaultRedactQueryParams explicitly to get the same behaviour,
-// otherwise no scrubbing is applied.
 func GroupSpans(ctx context.Context, spans []request.Span, traceAttrs map[attr.Name]struct{}, sampler trace.Sampler, is instrumentations.InstrumentationSelection, redactKeys ...string) map[svc.UID][]TraceSpanAndAttributes {
 	spanGroups := map[svc.UID][]TraceSpanAndAttributes{}
+	redactSet := buildRedactSet(slices.Concat(attributes.DefaultRedactQueryParams, redactKeys))
 
 	for i := range spans {
 		span := &spans[i]
@@ -91,7 +88,7 @@ func GroupSpans(ctx context.Context, spans []request.Span, traceAttrs map[attr.N
 			continue
 		}
 
-		finalAttrs := TraceAttributesSelector(span, traceAttrs, redactKeys...)
+		finalAttrs := traceAttributesSelectorInternal(span, traceAttrs, redactSet)
 
 		spanSampler := func() trace.Sampler {
 			if span.Service.Sampler != nil {
@@ -504,7 +501,7 @@ func httpEnrichmentAttributes(span *request.Span) []attribute.KeyValue {
 }
 
 //nolint:cyclop
-func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]struct{}, redactKeys ...string) []attribute.KeyValue {
+func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.Name]struct{}, redactSet map[string]struct{}) []attribute.KeyValue {
 	var attrs []attribute.KeyValue
 
 	switch span.Type {
@@ -537,7 +534,7 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 		}
 		if _, ok := optionalAttrs[attr.HTTPUrlQuery]; ok {
 			if idx := strings.IndexByte(span.FullPath, '?'); idx != -1 {
-				if qs := scrubQuery(span.FullPath[idx+1:], redactKeys); qs != "" {
+				if qs := scrubQuery(span.FullPath[idx+1:], redactSet); qs != "" {
 					attrs = append(attrs, request.HTTPUrlQuery(qs))
 				}
 			}
@@ -594,17 +591,15 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 		// Strip or scrub query parameters from url.full to avoid leaking sensitive
 		// data (tokens, PII). When url.query is opted in, known sensitive keys are
 		// redacted (REDACTED) rather than the entire string being dropped.
-		var queryString string
+		var scrubbedQS string
 		if idx := strings.IndexByte(urlPath, '?'); idx >= 0 {
-			queryString = scrubQuery(urlPath[idx+1:], redactKeys)
 			if _, ok := optionalAttrs[attr.HTTPUrlQuery]; !ok {
 				urlPath = urlPath[:idx]
+			} else if qs := scrubQuery(urlPath[idx+1:], redactSet); qs != "" {
+				urlPath = urlPath[:idx+1] + qs
+				scrubbedQS = qs
 			} else {
-				if queryString != "" {
-					urlPath = urlPath[:idx+1] + queryString
-				} else {
-					urlPath = urlPath[:idx]
-				}
+				urlPath = urlPath[:idx]
 			}
 		}
 		url := urlPath
@@ -624,8 +619,8 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 			request.HTTPResponseBodySize(span.ResponseBodyLength()),
 		}
 
-		if _, ok := optionalAttrs[attr.HTTPUrlQuery]; ok && queryString != "" {
-			attrs = append(attrs, request.HTTPUrlQuery(queryString))
+		if scrubbedQS != "" {
+			attrs = append(attrs, request.HTTPUrlQuery(scrubbedQS))
 		}
 
 		if span.SubType == request.HTTPSubtypeElasticsearch && span.Elasticsearch != nil {
@@ -1384,6 +1379,11 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 	}
 
 	return attrs
+}
+
+// TraceAttributesSelector returns the []attribute.KeyValue for a single span.
+func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]struct{}, redactKeys ...string) []attribute.KeyValue {
+	return traceAttributesSelectorInternal(span, optionalAttrs, buildRedactSet(slices.Concat(attributes.DefaultRedactQueryParams, redactKeys)))
 }
 
 func spanKind(span *request.Span) trace2.SpanKind {

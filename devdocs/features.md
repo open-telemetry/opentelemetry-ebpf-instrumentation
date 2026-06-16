@@ -99,27 +99,3 @@ OBI has support for several asynchronous frameworks that allow it to propagate c
 | Java Thread pool    |   Java    |           JDK 8+ | N/A                                               | Stable
 | Java Virtual Threads |  Java    |          JDK 21+ | Log enrichment is skipped on virtual threads      | Stable
 | Python asyncio      |  Python   |    Python >= 3.9 | Only works with uvloop event loop                 | Stable
-
-## Migration Notes
-
-### url.query now emitted by default
-
-`url.query` is now included in HTTP spans by default, aligning with the OTel semconv
-"Conditionally Required" status. Previously it was opt-in.
-
-Sensitive query-parameter values are automatically replaced with `REDACTED` for the five keys
-mandated by OTel semconv (`X-Amz-Signature`, `X-Amz-Credential`, `X-Amz-Security-Token`,
-`X-Goog-Signature`, `sig`). Additional keys can be added via `attributes.extra_redact_query_params`
-(env: `OTEL_EBPF_EXTRA_REDACT_QUERY_PARAMS`).
-
-For HTTP client spans, `url.full` now contains query parameters with sensitive values
-redacted (same key list). Previously the entire query string was stripped from `url.full`.
-
-**If you need to opt out** (e.g. high-cardinality query strings, privacy requirements):
-
-```yaml
-attributes:
-  select:
-    traces:
-      exclude: [url.query]
-```

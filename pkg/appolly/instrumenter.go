@@ -65,14 +65,10 @@ func newGraphBuilder(
 		ctxInfo: ctxInfo,
 	}
 
-	redactQueryParams := config.Attributes.RedactQueryParams
-	if redactQueryParams == nil {
-		redactQueryParams = attributes.DefaultRedactQueryParams
-	}
 	selectorCfg := &attributes.SelectorConfig{
-		SelectionCfg:            config.Attributes.Select,
-		ExtraGroupAttributesCfg: config.Attributes.ExtraGroupAttributes,
-		RedactQueryParams:       redactQueryParams,
+		SelectionCfg:              config.Attributes.Select,
+		ExtraGroupAttributesCfg:   config.Attributes.ExtraGroupAttributes,
+		ExtraRedactQueryParamsCfg: config.Attributes.ExtraRedactQueryParams,
 	}
 
 	// Second, we register instancers for each pipe node, as well as communication queues between them

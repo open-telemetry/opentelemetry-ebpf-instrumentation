@@ -60,6 +60,7 @@ Attributes configures the decoration of some extra attributes that will be added
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
 | `attributes.extra_group_attributes` | [`ExtraGroupAttributesMap`](#extragroupattributesmap) |  |  |  |  | Map of attribute group names to arrays of attribute names. Only 'k8s_app_meta' is currently supported as a key. |
+| `attributes.extra_redact_query_params` | `string`[] | `OTEL_EBPF_EXTRA_REDACT_QUERY_PARAMS` |  |  |  | Lists additional query-parameter keys whose values are replaced with REDACTED in url.full and url.query, on top of the built-in semconv-mandated set (X-Amz-Signature, X-Goog-Signature, sig, …). The built-in set is always applied. |
 | `attributes.metric_span_names_limit` | `integer` | `OTEL_EBPF_METRIC_SPAN_NAMES_LIMIT` | `100` |  |  | Works PER SERVICE and only relates to span_metrics. When the span_name cardinality surpasses this limit, the span_name will be reported as AGGREGATED. If the value <= 0, it is disabled. |
 | `attributes.rename_unresolved_hosts` | `string` | `OTEL_EBPF_RENAME_UNRESOLVED_HOSTS` | `unresolved` |  |  | Will replace HostName and PeerName attributes when they are empty or contain unresolved IP addresses to reduce cardinality. Set this value to the empty string to disable this feature. |
 | `attributes.rename_unresolved_hosts_incoming` | `string` | `OTEL_EBPF_RENAME_UNRESOLVED_HOSTS_INCOMING` | `incoming` |  |  |  |

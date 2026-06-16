@@ -117,13 +117,13 @@ func TestHTTPServerSpanURLQuery(t *testing.T) {
 	})
 
 	t.Run("sensitive key redacted in url.query", func(t *testing.T) {
-		span := &request.Span{Type: request.EventTypeHTTP, Method: "GET", Path: "/", FullPath: "/?cmd=OBIWANKENOBI&sig=abc123", Status: 200}
+		span := &request.Span{Type: request.EventTypeHTTP, Method: "GET", Path: "/", FullPath: "/?cmd=OBIWANKENOBI&signature=abc123", Status: 200}
 		optInAttrs, err := UserSelectedAttributes(optInCfg)
 		require.NoError(t, err)
-		selected := AttrsToMap(TraceAttributesSelector(span, optInAttrs, "sig", "token"))
+		selected := AttrsToMap(TraceAttributesSelector(span, optInAttrs, "signature"))
 		val, ok := selected.Get("url.query")
 		require.True(t, ok)
-		assert.Equal(t, "cmd=OBIWANKENOBI&sig=REDACTED", val.Str())
+		assert.Equal(t, "cmd=OBIWANKENOBI&signature=REDACTED", val.Str())
 	})
 
 	t.Run("sensitive key also scrubbed from url.full on client span", func(t *testing.T) {

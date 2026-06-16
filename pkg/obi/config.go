@@ -616,10 +616,10 @@ type Attributes struct {
 	// If the value <= 0, it is disabled.
 	MetricSpanNameAggregationLimit int `yaml:"metric_span_names_limit" env:"OTEL_EBPF_METRIC_SPAN_NAMES_LIMIT"`
 
-	// RedactQueryParams lists query-parameter keys whose values are replaced with REDACTED
-	// in url.full and url.query. When unset, a built-in list of well-known sensitive keys is applied.
-	// Set to an empty list to disable all redaction.
-	RedactQueryParams []string `yaml:"redact_query_params" env:"OTEL_EBPF_REDACT_QUERY_PARAMS" envSeparator:","`
+	// ExtraRedactQueryParams lists additional query-parameter keys whose values are replaced
+	// with REDACTED in url.full and url.query, on top of the built-in semconv-mandated set
+	// (X-Amz-Signature, X-Goog-Signature, sig, …). The built-in set is always applied.
+	ExtraRedactQueryParams []string `yaml:"extra_redact_query_params" env:"OTEL_EBPF_EXTRA_REDACT_QUERY_PARAMS" envSeparator:","`
 }
 
 type HostIDConfig struct {
