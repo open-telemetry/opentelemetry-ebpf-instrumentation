@@ -7,6 +7,7 @@ package internal
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
