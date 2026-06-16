@@ -304,6 +304,24 @@ func TestUprobeModulesRespectsVersionedLibraryAnnotations(t *testing.T) {
 	assert.NotContains(t, selectedSymbols, "task_step")
 }
 
+func TestResolveInstrPathFallsBackToExecutableWhenLibraryMissing(t *testing.T) {
+	instrPath, ino, mappedPath, found := resolveInstrPath(123, "libmissing.so", nil, "/proc/123/exe", 42)
+
+	assert.False(t, found)
+	assert.Equal(t, "/proc/123/exe", instrPath)
+	assert.Equal(t, uint64(42), ino)
+	assert.Empty(t, mappedPath)
+}
+
+func TestResolveInstrPathUsesMappedPathWhenLibraryIsMapped(t *testing.T) {
+	instrPath, ino, mappedPath, found := resolveInstrPath(123, "libjvm.so", makeProcMaps("/usr/lib/libjvm.so"), "/proc/123/exe", 42)
+
+	assert.True(t, found)
+	assert.Equal(t, "/usr/lib/libjvm.so", instrPath)
+	assert.Equal(t, uint64(42), ino)
+	assert.Equal(t, "/usr/lib/libjvm.so", mappedPath)
+}
+
 func TestUSDTIPMapPIDsIncludesAllNamespacedPIDs(t *testing.T) {
 	orig := findNamespacedPids
 	findNamespacedPids = func(pid app.PID) ([]app.PID, error) {
@@ -492,6 +510,7 @@ func (s *stubTracer) KProbes() map[string]ebpfcommon.ProbeDesc               { r
 func (s *stubTracer) Tracepoints() map[string]ebpfcommon.ProbeDesc           { return nil }
 func (s *stubTracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc           { return nil }
 func (s *stubTracer) UProbes() map[string]map[string][]*ebpfcommon.ProbeDesc { return s.uprobes }
+func (s *stubTracer) USDTProbes() map[string][]*ebpfcommon.USDTProbeDesc     { return nil }
 func (s *stubTracer) SocketFilters() []*ebpf.Program                         { return nil }
 func (s *stubTracer) SockMsgs() []ebpfcommon.SockMsg                         { return nil }
 func (s *stubTracer) SockOps() []ebpfcommon.SockOps                          { return nil }

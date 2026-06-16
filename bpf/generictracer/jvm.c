@@ -81,10 +81,9 @@ jvm_read_usdt_string(unsigned char *dst, const unsigned char *src, long src_len)
         return -1;
     }
 
-    u32 max_len = k_jvm_raw_string_len - 1;
-    if (src_len < (long)max_len) {
-        max_len = (u32)src_len;
-    }
+    const long bounded_src_len =
+        src_len < (long)(k_jvm_raw_string_len - 1) ? src_len : (long)(k_jvm_raw_string_len - 1);
+    const u32 max_len = (u32)bounded_src_len;
 
     for (u32 i = 0; i < k_jvm_raw_string_len - 1; i++) {
         if (i >= max_len) {

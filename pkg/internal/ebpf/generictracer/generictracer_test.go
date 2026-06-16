@@ -13,6 +13,7 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/cilium/ebpf"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -340,6 +341,7 @@ func TestJVMBPFMapsAreInternallyPinnedAndUseSharedEventsRingBuffer(t *testing.T)
 		require.Contains(t, spec.Maps, name)
 		assert.Equal(t, ebpfconvenience.PinInternal, spec.Maps[name].Pinning)
 	}
+	assert.Equal(t, ebpf.LRUHash, spec.Maps["obi_usdt_ip_to_spec_id"].Type)
 }
 
 func TestJVMRuntimeMetricsExposeHotSpotUSDTProbes(t *testing.T) {

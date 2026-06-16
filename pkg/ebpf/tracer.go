@@ -85,6 +85,8 @@ type Tracer interface {
 	// the entry to be selected only when the library's version satisfies the constraint.
 	// See matchVersionedUprobeLibrary for how selection is performed.
 	UProbes() map[string]map[string][]*ebpfcommon.ProbeDesc
+	// USDTProbes returns a map with the module name mapping to USDT probes.
+	USDTProbes() map[string][]*ebpfcommon.USDTProbeDesc
 	// SocketFilters  returns a list of programs that need to be loaded as a
 	// generic eBPF socket filter
 	SocketFilters() []*ebpf.Program
@@ -117,10 +119,6 @@ type Tracer interface {
 	// Run will do the action of listening for eBPF traces and forward them
 	// periodically to the output channel.
 	Run(context.Context, *ebpfcommon.EBPFEventContext, *msg.Queue[[]request.Span])
-}
-
-type USDTTracer interface {
-	USDTProbes() map[string][]*ebpfcommon.USDTProbeDesc
 }
 
 // Subset of the above interface, which supports loading eBPF programs which

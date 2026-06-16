@@ -17,6 +17,9 @@
 #include <common/maps/obi_usdt_ip_to_spec_id.h>
 #include <common/maps/obi_usdt_specs.h>
 
+_Static_assert(sizeof(struct pt_regs) >= sizeof(unsigned long),
+               "pt_regs must hold register-sized values");
+
 static __always_inline u8 obi_usdt_arg_bitshift_ok(u8 arg_bitshift) {
     switch (arg_bitshift) {
     case 0:
@@ -34,28 +37,21 @@ static __always_inline u8 obi_usdt_reg_off_ok(s16 reg_off) {
         return 0;
     }
 
-    return (u32)reg_off <= sizeof(struct pt_regs) - sizeof(unsigned long);
+    return (size_t)reg_off <= sizeof(struct pt_regs) - sizeof(unsigned long);
 }
 
 static __always_inline struct obi_usdt_spec *obi_usdt_spec_for_ctx(struct pt_regs *ctx) {
     const u64 pid_tgid = bpf_get_current_pid_tgid();
-    const struct task_struct *task = (struct task_struct *)bpf_get_current_task();
+    const u32 pid = valid_pid(pid_tgid);
+    if (!pid) {
+        return NULL;
+    }
 
+    const struct task_struct *task = (struct task_struct *)bpf_get_current_task();
     int ns_pid = 0;
     int ns_ppid = 0;
     u32 pid_ns_id = 0;
     ns_pid_ppid(task, &ns_pid, &ns_ppid, &pid_ns_id);
-
-    u32 pid = pid_from_pid_tgid(pid_tgid);
-    if (ns_pid > 0) {
-        pid = (u32)ns_pid;
-    }
-    if (filter_pids) {
-        pid = valid_pid(pid_tgid);
-        if (!pid) {
-            return NULL;
-        }
-    }
 
     struct obi_usdt_ip_key key = {
         .pid = pid,

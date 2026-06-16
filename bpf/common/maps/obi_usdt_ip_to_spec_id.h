@@ -9,7 +9,7 @@
 #include <common/usdt_types.h>
 
 struct {
-    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __uint(max_entries, k_obi_usdt_max_ip_cnt);
     __type(key, struct obi_usdt_ip_key);
     // Value is an index into obi_usdt_specs.

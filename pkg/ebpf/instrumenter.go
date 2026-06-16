@@ -220,31 +220,13 @@ func (i *instrumenter) uprobeModules(p Tracer, pid app.PID, maps []*procfs.ProcM
 
 		lib = baseLib
 		log.Debug("finding library", "lib", lib)
-		libMap := procs.LibPath(lib, maps)
-		instrPath := exePath
-
-		instrumentedIno := exeIno
-
-		if libMap != nil {
-			log.Debug("instrumenting library", "lib", lib, "path", libMap.Pathname)
-			// we do this to make sure instrumenting something like libssl.so works with Docker
-			libInstrPath := fmt.Sprintf("/proc/%d/map_files/%x-%x", pid, libMap.StartAddr, libMap.EndAddr)
-
-			info, err := os.Stat(libInstrPath)
-			if err == nil {
-				stat, ok := info.Sys().(*syscall.Stat_t)
-				if ok {
-					// We've already attached probes to this shared library for this executable
-					// override the instrumented path to be the shared library
-					instrPath = libInstrPath
-					instrumentedIno = stat.Ino
-					log.Debug("found inode number, recording this instrumentation if successful", "lib", lib, "path", libMap.Pathname, "ino", stat.Ino)
-				}
-			}
+		instrPath, instrumentedIno, mappedPath, found := resolveInstrPath(pid, lib, maps, exePath, exeIno)
+		if found && mappedPath != "" {
+			log.Debug("instrumenting library", "lib", lib, "path", mappedPath, "ino", instrumentedIno)
 		}
 
 		// We didn't find this library in the shared libraries, look up for the symbols in the executable directly
-		if instrumentedIno == exeIno { // default executable instrumented path
+		if !found {
 			// E.g. NodeJS uses OpenSSL but they ship it as statically linked in the node binary
 			log.Debug(lib+" not linked, attempting to instrument executable", "path", instrPath)
 		}
@@ -359,6 +341,39 @@ func resolveExePath(pid app.PID) (string, uint64, error) {
 	return exePath, stat.Ino, nil
 }
 
+func resolveInstrPath(
+	pid app.PID,
+	lib string,
+	maps []*procfs.ProcMap,
+	exePath string,
+	exeIno uint64,
+) (string, uint64, string, bool) {
+	if lib == "" {
+		return exePath, exeIno, "", true
+	}
+
+	libMap := procs.LibPath(lib, maps)
+	if libMap == nil {
+		return exePath, exeIno, "", false
+	}
+
+	mappedPath := libMap.Pathname
+	libInstrPath := fmt.Sprintf("/proc/%d/map_files/%x-%x", pid, libMap.StartAddr, libMap.EndAddr)
+	if info, err := os.Stat(libInstrPath); err == nil {
+		if stat, ok := info.Sys().(*syscall.Stat_t); ok {
+			return libInstrPath, stat.Ino, mappedPath, true
+		}
+	}
+
+	if info, err := os.Stat(mappedPath); err == nil {
+		if stat, ok := info.Sys().(*syscall.Stat_t); ok {
+			return mappedPath, stat.Ino, mappedPath, true
+		}
+	}
+
+	return mappedPath, exeIno, mappedPath, true
+}
+
 func (i *instrumenter) uprobes(pid app.PID, p Tracer) error {
 	maps, err := processMaps(pid)
 	if err != nil {
@@ -424,12 +439,7 @@ func (i *instrumenter) uprobes(pid app.PID, p Tracer) error {
 }
 
 func (i *instrumenter) usdtProbes(pid app.PID, ns uint32, p Tracer) error {
-	usdtTracer, ok := p.(USDTTracer)
-	if !ok {
-		return nil
-	}
-
-	probesByLib := usdtTracer.USDTProbes()
+	probesByLib := p.USDTProbes()
 	if len(probesByLib) == 0 {
 		return nil
 	}
@@ -460,8 +470,8 @@ func (i *instrumenter) usdtProbes(pid app.PID, ns uint32, p Tracer) error {
 			continue
 		}
 
-		instrPath, mappedPath := usdtInstrumentationPath(pid, baseLib, maps, exePath)
-		if instrPath == "" {
+		instrPath, _, mappedPath, found := resolveInstrPath(pid, baseLib, maps, exePath, 0)
+		if !found {
 			ilog().Debug("skipping USDT library not found in process maps", "pid", pid, "lib", baseLib)
 			continue
 		}
@@ -495,7 +505,6 @@ func (i *instrumenter) usdtProbes(pid app.PID, ns uint32, p Tracer) error {
 				)
 				continue
 			}
-			i.closables = append(i.closables, closers...)
 			usdtClosers = append(usdtClosers, closers...)
 		}
 
@@ -504,22 +513,6 @@ func (i *instrumenter) usdtProbes(pid app.PID, ns uint32, p Tracer) error {
 
 	p.AddCloser(usdtClosers...)
 	return nil
-}
-
-func usdtInstrumentationPath(pid app.PID, lib string, maps []*procfs.ProcMap, exePath string) (string, string) {
-	libMap := procs.LibPath(lib, maps)
-	if libMap == nil {
-		if lib == "" {
-			return exePath, ""
-		}
-		return "", ""
-	}
-
-	libInstrPath := fmt.Sprintf("/proc/%d/map_files/%x-%x", pid, libMap.StartAddr, libMap.EndAddr)
-	if _, err := os.Stat(libInstrPath); err == nil {
-		return libInstrPath, libMap.Pathname
-	}
-	return libMap.Pathname, libMap.Pathname
 }
 
 func (i *instrumenter) instrumentUSDTProbe(
@@ -550,6 +543,7 @@ func (i *instrumenter) instrumentUSDTProbe(
 			closeAll(closers)
 			return nil, err
 		}
+		// Specs are append-only for these BPF objects; IP map entries are deleted by link closers.
 		if err := probe.SpecsMap.Put(specID, target.Spec); err != nil {
 			closeAll(closers)
 			return nil, fmt.Errorf("updating USDT spec map: %w", err)

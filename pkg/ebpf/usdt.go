@@ -296,9 +296,6 @@ func elfFileOffset(elfFile *elf.File, addr uint64, requireExecutable bool) (uint
 			continue
 		}
 		if addr >= prog.Vaddr && addr < prog.Vaddr+prog.Memsz {
-			if requireExecutable && prog.Flags&elf.PF_X == 0 {
-				return 0, fmt.Errorf("USDT probe address %#x is not in an executable segment", addr)
-			}
 			return addr - prog.Vaddr + prog.Off, nil
 		}
 	}
