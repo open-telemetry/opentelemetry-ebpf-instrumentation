@@ -99,6 +99,46 @@ func GetAppResourceAttrs(nodeMeta *meta.NodeMeta, service *svc.Attrs) []attribut
 	)
 }
 
+func FilterNodeMeta(nodeMeta meta.NodeMeta, attrSelector attributes.Selection) meta.NodeMeta {
+	return FilterNodeMetaForSection(nodeMeta, attrSelector, attributes.TargetInfo.Section)
+}
+
+func FilterNodeMetaForSection(nodeMeta meta.NodeMeta, attrSelector attributes.Selection, section attributes.Section) meta.NodeMeta {
+	nodeMeta.Metadata = FilterNodeMetaEntries(nodeMeta.Metadata, attrSelector, section)
+	return nodeMeta
+}
+
+func FilterNodeMetaEntries(entries []meta.Entry, attrSelector attributes.Selection, section attributes.Section) []meta.Entry {
+	if len(entries) == 0 {
+		return nil
+	}
+
+	patterns, ok := targetInfoSelection(attrSelector, section)
+	if !ok {
+		return entries
+	}
+
+	filtered := make([]meta.Entry, 0, len(entries))
+	for _, entry := range entries {
+		normalizedAttrName := strings.ReplaceAll(string(entry.Key), ".", "_")
+		if shouldIncludeAttribute(normalizedAttrName, patterns) {
+			filtered = append(filtered, entry)
+		}
+	}
+	return filtered
+}
+
+func targetInfoSelection(attrSelector attributes.Selection, section attributes.Section) ([]attributes.InclusionLists, bool) {
+	if attrSelector == nil {
+		return nil, false
+	}
+
+	if incl, ok := attrSelector[section]; ok {
+		return []attributes.InclusionLists{incl}, true
+	}
+	return nil, false
+}
+
 func GetResourceAttrs(nodeMeta *meta.NodeMeta, service *svc.Attrs) []attribute.KeyValue {
 	attrs := []attribute.KeyValue{
 		semconv.ServiceName(service.UID.Name),

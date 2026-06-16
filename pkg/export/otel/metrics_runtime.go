@@ -64,6 +64,7 @@ func ReportRuntimeMetrics(
 	ctxInfo *global.ContextInfo,
 	cfg *otelcfg.MetricsConfig,
 	jointMetricsConfig *perapp.MetricsConfig,
+	selectorCfg *attributes.SelectorConfig,
 	input *msg.Queue[[]runtimemetrics.RuntimeMetricSnapshot],
 ) swarm.InstanceFunc {
 	return func(ctx context.Context) (swarm.RunFunc, error) {
@@ -72,7 +73,7 @@ func ReportRuntimeMetrics(
 		}
 		otelcfg.SetupInternalOTELSDKLogger(cfg.SDKLogLevel)
 
-		reporter, err := newRuntimeMetricsReporter(ctx, ctxInfo, cfg, input)
+		reporter, err := newRuntimeMetricsReporter(ctx, ctxInfo, cfg, selectorCfg, input)
 		if err != nil {
 			return nil, fmt.Errorf("instantiating OTEL runtime metrics reporter: %w", err)
 		}
@@ -85,6 +86,7 @@ func newRuntimeMetricsReporter(
 	ctx context.Context,
 	ctxInfo *global.ContextInfo,
 	cfg *otelcfg.MetricsConfig,
+	selectorCfg *attributes.SelectorConfig,
 	input *msg.Queue[[]runtimemetrics.RuntimeMetricSnapshot],
 ) (*RuntimeMetricsReporter, error) {
 	log := rmlog()
@@ -97,7 +99,7 @@ func newRuntimeMetricsReporter(
 	reporter := &RuntimeMetricsReporter{
 		ctx:      ctx,
 		cfg:      cfg,
-		nodeMeta: ctxInfo.NodeMeta,
+		nodeMeta: otelcfg.FilterNodeMetaForSection(ctxInfo.NodeMeta, selectorCfg.SelectionCfg, attributes.TargetInfo.Section),
 		exporter: instrumentMetricsExporter(ctxInfo.Metrics, exporter),
 		input:    input.Subscribe(msg.SubscriberName("otel.RuntimeMetricsReporter")),
 		log:      log,

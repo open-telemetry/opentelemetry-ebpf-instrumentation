@@ -128,7 +128,8 @@ func (tr *tracesOTELReceiver) processSpans(ctx context.Context, exp exporter.Tra
 			if tr.spanMetricsEnabled {
 				envResourceAttrs = append(envResourceAttrs, attribute.Bool(string(attr.SkipSpanMetrics.OTEL()), true))
 			}
-			traces := tracesgen.GenerateTracesWithAttributes(tr.attributeCache, &sample.Span.Service, envResourceAttrs, &tr.ctxInfo.NodeMeta, spanGroup, reporterName, tr.ctxInfo.ExtraResourceAttributes...)
+			nodeMeta := otelcfg.FilterNodeMetaForSection(tr.ctxInfo.NodeMeta, tr.selectorCfg.SelectionCfg, attributes.TracesTargetInfo.Section)
+			traces := tracesgen.GenerateTracesWithAttributes(tr.attributeCache, &sample.Span.Service, envResourceAttrs, &nodeMeta, spanGroup, reporterName, tr.ctxInfo.ExtraResourceAttributes...)
 			err := exp.ConsumeTraces(ctx, traces)
 			if err != nil {
 				// We can't do if errors.Is(err, queue.ErrQueueIsFull), since the queue package is internal

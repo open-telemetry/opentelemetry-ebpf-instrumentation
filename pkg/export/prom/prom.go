@@ -28,6 +28,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/expire"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/export/otel"
+	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
@@ -270,9 +271,10 @@ type metricsReporter struct {
 
 	shouldAddExemplar func(*request.Span) bool
 
-	kubeEnabled   bool
-	dockerEnabled bool
-	nodeMeta      meta.NodeMeta
+	kubeEnabled    bool
+	dockerEnabled  bool
+	nodeMeta       meta.NodeMeta
+	tracesNodeMeta meta.NodeMeta
 
 	serviceMap  map[svc.UID]svc.Attrs
 	pidsTracker otel.PidServiceTracker
@@ -456,6 +458,8 @@ func newReporter(
 	// executable inspector
 	extraMetadataLabels := parseExtraMetadata(cfg.ExtraResourceLabels)
 	extraSpanMetadataLabels := parseExtraMetadata(cfg.ExtraSpanResourceLabels)
+	nodeMeta := otelcfg.FilterNodeMetaForSection(ctxInfo.NodeMeta, selectorCfg.SelectionCfg, attributes.TargetInfo.Section)
+	tracesNodeMeta := otelcfg.FilterNodeMetaForSection(ctxInfo.NodeMeta, selectorCfg.SelectionCfg, attributes.TracesTargetInfo.Section)
 	var inputCh <-chan []request.Span
 	if input != nil {
 		inputCh = input.Subscribe(msg.SubscriberName("prom.InputSpans"))
@@ -477,7 +481,8 @@ func newReporter(
 		dockerEnabled:              dockerEnabled,
 		extraMetadataLabels:        extraMetadataLabels,
 		extraSpanMetadataLabels:    extraSpanMetadataLabels,
-		nodeMeta:                   ctxInfo.NodeMeta,
+		nodeMeta:                   nodeMeta,
+		tracesNodeMeta:             tracesNodeMeta,
 		clock:                      clock,
 		is:                         is,
 		promConnect:                ctxInfo.Prometheus,
@@ -659,7 +664,7 @@ func newReporter(
 			return prometheus.NewGaugeVec(prometheus.GaugeOpts{
 				Name: TracesTargetInfo,
 				Help: "target service information in trace span metric format",
-			}, labelNamesTargetInfo(kubeEnabled, dockerEnabled, &ctxInfo.NodeMeta, extraMetadataLabels))
+			}, labelNamesTargetInfo(kubeEnabled, dockerEnabled, &tracesNodeMeta, extraMetadataLabels))
 		}),
 		tracesHostInfo: optionalGaugeProvider(jointMetricsConfig.Features.AppHost(), func() *Expirer[prometheus.Gauge] {
 			return NewExpirer[prometheus.Gauge](prometheus.NewGaugeVec(prometheus.GaugeOpts{
@@ -702,7 +707,7 @@ func newReporter(
 		targetInfo: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: TargetInfo,
 			Help: "attributes associated to a given monitored entity",
-		}, labelNamesTargetInfo(kubeEnabled, dockerEnabled, &ctxInfo.NodeMeta, extraMetadataLabels)),
+		}, labelNamesTargetInfo(kubeEnabled, dockerEnabled, &nodeMeta, extraMetadataLabels)),
 		cudaKernelCallsTotal: optionalCounterProvider(is.GPUEnabled(), func() *Expirer[prometheus.Counter] {
 			return NewExpirer[prometheus.Counter](prometheus.NewCounterVec(prometheus.CounterOpts{
 				Name: attributes.GPUCudaKernelLaunchCalls.Prom,
@@ -786,7 +791,7 @@ func newReporter(
 
 	if jointMetricsConfig.Features.AppRuntime() {
 		mr.goRuntimeMetrics = newGoRuntimeMetricsCollector(
-			labelNamesTargetInfo(kubeEnabled, dockerEnabled, &ctxInfo.NodeMeta, extraMetadataLabels),
+			labelNamesTargetInfo(kubeEnabled, dockerEnabled, &nodeMeta, extraMetadataLabels),
 		)
 	}
 
@@ -1305,8 +1310,16 @@ func labelNamesTargetInfo(kubeEnabled, dockerEnabled bool, nodeMeta *meta.NodeMe
 }
 
 func (r *metricsReporter) labelValuesTargetInfo(service *svc.Attrs) []string {
+	return r.labelValuesForNodeMeta(service, &r.nodeMeta)
+}
+
+func (r *metricsReporter) labelValuesTracesTargetInfo(service *svc.Attrs) []string {
+	return r.labelValuesForNodeMeta(service, &r.tracesNodeMeta)
+}
+
+func (r *metricsReporter) labelValuesForNodeMeta(service *svc.Attrs, nodeMeta *meta.NodeMeta) []string {
 	values := []string{
-		r.nodeMeta.HostID,
+		nodeMeta.HostID,
 		service.HostName,
 		service.UID.Name,
 		service.UID.Namespace,
@@ -1329,7 +1342,7 @@ func (r *metricsReporter) labelValuesTargetInfo(service *svc.Attrs) []string {
 		values = appendDockerLabelValuesService(values, service)
 	}
 
-	for _, entry := range r.nodeMeta.Metadata {
+	for _, entry := range nodeMeta.Metadata {
 		values = append(values, entry.Value)
 	}
 
@@ -1384,7 +1397,7 @@ func (r *metricsReporter) createTracesTargetInfo(service *svc.Attrs) {
 	if !service.Features.AnySpanMetrics() {
 		return
 	}
-	targetInfoLabelValues := r.labelValuesTargetInfo(service)
+	targetInfoLabelValues := r.labelValuesTracesTargetInfo(service)
 	r.tracesTargetInfo.WithLabelValues(targetInfoLabelValues...).Set(1)
 }
 
@@ -1405,7 +1418,7 @@ func (r *metricsReporter) deleteTracesTargetInfoMetric(service *svc.Attrs) {
 	if !service.Features.AnySpanMetrics() {
 		return
 	}
-	targetInfoLabelValues := r.labelValuesTargetInfo(service)
+	targetInfoLabelValues := r.labelValuesTracesTargetInfo(service)
 	r.tracesTargetInfo.DeleteLabelValues(targetInfoLabelValues...)
 }
 

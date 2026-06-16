@@ -13,6 +13,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
+	"go.opentelemetry.io/obi/pkg/appolly/meta"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 )
 
@@ -396,6 +397,95 @@ func TestGetFilteredResourceAttrs(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestFilterNodeMeta_DefaultPreservesCloudMetadata(t *testing.T) {
+	nodeMeta := meta.NodeMeta{
+		HostID: "host-id",
+		Metadata: []meta.Entry{
+			{Key: "cloud.account.id", Value: "account-id"},
+			{Key: "cloud.availability_zone", Value: "us-east-1a"},
+			{Key: "cloud.platform", Value: "aws_ec2"},
+			{Key: "cloud.provider", Value: "aws"},
+			{Key: "cloud.region", Value: "us-east-1"},
+			{Key: "gcp.gce.instance.name", Value: "instance-name"},
+			{Key: "host.image.id", Value: "ami-id"},
+			{Key: "host.type", Value: "m4.xlarge"},
+		},
+	}
+
+	filtered := FilterNodeMeta(nodeMeta, nil)
+
+	assert.Equal(t, "host-id", filtered.HostID)
+	assert.Equal(t, nodeMeta.Metadata, filtered.Metadata)
+	assert.Len(t, nodeMeta.Metadata, 8)
+}
+
+func TestFilterNodeMeta_TargetInfoSelectionExcludesResourceAttributes(t *testing.T) {
+	nodeMeta := meta.NodeMeta{
+		HostID: "host-id",
+		Metadata: []meta.Entry{
+			{Key: "cloud.account.id", Value: "account-id"},
+			{Key: "cloud.availability_zone", Value: "us-east-1a"},
+			{Key: "cloud.platform", Value: "aws_ec2"},
+			{Key: "cloud.provider", Value: "aws"},
+			{Key: "cloud.region", Value: "us-east-1"},
+			{Key: "host.type", Value: "m4.xlarge"},
+		},
+	}
+	selection := attributes.Selection{
+		"target_info": attributes.InclusionLists{
+			Include: []string{"cloud.*"},
+			Exclude: []string{"cloud.account.id"},
+		},
+	}
+	selection.Normalize()
+
+	filtered := FilterNodeMetaForSection(nodeMeta, selection, attributes.TargetInfo.Section)
+
+	assert.Equal(t, []meta.Entry{
+		{Key: "cloud.availability_zone", Value: "us-east-1a"},
+		{Key: "cloud.platform", Value: "aws_ec2"},
+		{Key: "cloud.provider", Value: "aws"},
+		{Key: "cloud.region", Value: "us-east-1"},
+	}, filtered.Metadata)
+}
+
+func TestFilterNodeMeta_TracesTargetInfoSelectionDoesNotAffectTargetInfo(t *testing.T) {
+	nodeMeta := meta.NodeMeta{
+		HostID: "host-id",
+		Metadata: []meta.Entry{
+			{Key: "cloud.account.id", Value: "account-id"},
+			{Key: "cloud.provider", Value: "aws"},
+			{Key: "host.type", Value: "m4.xlarge"},
+		},
+	}
+
+	filtered := FilterNodeMetaForSection(nodeMeta, attributes.Selection{
+		attributes.TracesTargetInfo.Section: attributes.InclusionLists{Exclude: []string{"cloud.account.id"}},
+	}, attributes.TargetInfo.Section)
+
+	assert.Equal(t, nodeMeta.Metadata, filtered.Metadata)
+}
+
+func TestFilterNodeMeta_TracesTargetInfoSelection(t *testing.T) {
+	nodeMeta := meta.NodeMeta{
+		HostID: "host-id",
+		Metadata: []meta.Entry{
+			{Key: "cloud.account.id", Value: "account-id"},
+			{Key: "cloud.provider", Value: "aws"},
+			{Key: "host.type", Value: "m4.xlarge"},
+		},
+	}
+
+	filtered := FilterNodeMetaForSection(nodeMeta, attributes.Selection{
+		attributes.TracesTargetInfo.Section: attributes.InclusionLists{Exclude: []string{"cloud.account.id"}},
+	}, attributes.TracesTargetInfo.Section)
+
+	assert.Equal(t, []meta.Entry{
+		{Key: "cloud.provider", Value: "aws"},
+		{Key: "host.type", Value: "m4.xlarge"},
+	}, filtered.Metadata)
 }
 
 func TestResourceAttrsFromEnv(t *testing.T) {
