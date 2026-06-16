@@ -87,6 +87,9 @@ static __always_inline u8 parse_hpack_traceparent(const unsigned char *data,
         const u8 name_len_byte = data[i + 1];
 
         if (name_len_byte == k_hpack_tp_name_len) { // plaintext
+            if (i + k_h2_tp_hpack_size > data_len) {
+                continue;
+            }
             if (bpf_memcmp(
                     &data[i + k_hpack_tp_name_offset], k_hpack_tp_name, k_hpack_tp_name_len) != 0) {
                 continue;

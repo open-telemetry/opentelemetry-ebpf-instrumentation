@@ -10,8 +10,9 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"os"
 	"os/signal"
+	"runtime"
+	"runtime/debug"
 	"syscall"
 
 	"go.opentelemetry.io/obi/pkg/internal/jvmtools/util"
@@ -22,7 +23,6 @@ type JAttacher struct {
 	j9attacher *j9Attacher
 	myUID      int
 	myGID      int
-	myPID      int
 }
 
 func NewJAttacher(logger *slog.Logger) *JAttacher {
@@ -37,13 +37,8 @@ func NewJAttacher(logger *slog.Logger) *JAttacher {
 }
 
 func (j *JAttacher) Init() {
-	myUID := syscall.Geteuid()
-	myGID := syscall.Getegid()
-	myPID := os.Getpid()
-
-	j.myUID = myUID
-	j.myGID = myGID
-	j.myPID = myPID
+	j.myUID = syscall.Geteuid()
+	j.myGID = syscall.Getegid()
 }
 
 func (j *JAttacher) Cleanup() error {
@@ -52,6 +47,12 @@ func (j *JAttacher) Cleanup() error {
 	if j.j9attacher != nil {
 		cleanupErr = errors.Join(cleanupErr, j.j9attacher.detach())
 	}
+
+	// Credentials (euid/egid) are switched process-wide during Attach, so they
+	// must be restored here. Namespaces are NOT restored: the namespace switch
+	// happens only on the dedicated sacrificial thread spawned by Attach, which
+	// is destroyed once attach completes — the runtime's pool threads never
+	// leave their original namespaces, so there is nothing to roll back.
 	if err := syscall.Seteuid(j.myUID); err != nil {
 		cleanupErr = errors.Join(cleanupErr, err)
 	}
@@ -59,12 +60,9 @@ func (j *JAttacher) Cleanup() error {
 		cleanupErr = errors.Join(cleanupErr, err)
 	}
 
-	for _, nsType := range []string{"net", "ipc", "mnt"} {
-		if util.EnterNS(j.myPID, nsType) < 0 {
-			err := fmt.Errorf("failed to restore %s namespace", nsType)
-			cleanupErr = errors.Join(cleanupErr, err)
-		}
-	}
+	// No need to restore the pid namespace, since we do this on a
+	// locked thread that's never unlocked, which means the Go runtime
+	// will destroy it when the goroutine ends.
 
 	return cleanupErr
 }
@@ -74,10 +72,59 @@ func (j *JAttacher) Attach(pid int, argv []string, ignoreOnJ9 bool) (io.ReadClos
 	targetGID := j.myGID
 	var nspid int
 
+	// Resolve the target's credentials and in-namespace PID from the host
+	// namespace, before we move anywhere.
 	if err := util.GetProcessInfo(pid, &targetUID, &targetGID, &nspid); err != nil {
 		return nil, fmt.Errorf("process not found: %d: %w", pid, err)
 	}
 
+	// Entering the target's mount namespace requires setns(CLONE_NEWNS), which
+	// the kernel refuses for any thread that shares filesystem attributes with
+	// the rest of the Go runtime's thread pool (see util.EnterNS). We therefore
+	// run the entire namespace-sensitive attach sequence on a dedicated OS
+	// thread that is locked and never unlocked: when this goroutine returns,
+	// the runtime destroys the thread instead of recycling one that is stranded
+	// in the target's namespaces with an unshared, private filesystem context.
+	//
+	// The attach result is an fd-backed io.ReadCloser (a unix socket conn for
+	// HotSpot, or a raw fd reader for OpenJ9). Once established, that fd belongs
+	// to the process and can be read from any thread, so the caller is free to
+	// consume it after this sacrificial thread is gone.
+	type attachResult struct {
+		reader io.ReadCloser
+		err    error
+	}
+	resultCh := make(chan attachResult, 1)
+
+	go func() {
+		// This goroutine runs independently of the caller's goroutine, so a
+		// panic here would escape the callers' own recover take down the whole process.
+		// Convert it into an attach error instead.
+		defer func() {
+			if r := recover(); r != nil {
+				j.logger.Error("recovered from panic during JVM attach",
+					"pid", pid, "panic", r, "stack", string(debug.Stack()))
+				resultCh <- attachResult{err: fmt.Errorf("panic during JVM attach: %v", r)}
+			}
+		}()
+
+		runtime.LockOSThread()
+		// Deliberately no runtime.UnlockOSThread: this thread is tainted by the
+		// namespace switch and CLONE_FS unshare, so we let it die with the
+		// goroutine rather than return it to the pool.
+		reader, err := j.attachInNamespace(pid, nspid, targetUID, targetGID, argv, ignoreOnJ9)
+		resultCh <- attachResult{reader: reader, err: err}
+	}()
+
+	res := <-resultCh
+	return res.reader, res.err
+}
+
+// attachInNamespace performs the namespace switch, credential change and JVM
+// handshake. It MUST be called from a goroutine pinned to a dedicated,
+// never-unlocked OS thread (see Attach), because it both joins the target's
+// mount namespace and unshares CLONE_FS on the calling thread.
+func (j *JAttacher) attachInNamespace(pid, nspid, targetUID, targetGID int, argv []string, ignoreOnJ9 bool) (io.ReadCloser, error) {
 	// Container support: switch to the target namespaces.
 	// Network and IPC namespaces are essential for OpenJ9 connection.
 	if util.EnterNS(pid, "net") < 0 {
