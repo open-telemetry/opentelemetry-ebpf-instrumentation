@@ -109,6 +109,24 @@
       "type": "object",
       "description": "AttributesConfig stores the user-provided section for filtering either Application or Network records by attribute values"
     },
+    "AvoidedServicesConfig": {
+      "properties": {
+        "disabled": {
+          "type": "boolean",
+          "description": "Disables the avoided-services internal metric.",
+          "default": false,
+          "x-env-var": "OTEL_EBPF_INTERNAL_METRICS_AVOIDED_SERVICES_DISABLED"
+        },
+        "limit": {
+          "type": "integer",
+          "description": "Bounds the number of avoided-services metric series, including the overflow series. 0 uses the OpenTelemetry default metric cardinality limit.",
+          "default": 2000,
+          "x-env-var": "OTEL_EBPF_INTERNAL_METRICS_AVOIDED_SERVICES_LIMIT"
+        }
+      },
+      "type": "object",
+      "description": "AvoidedServicesConfig controls the avoided-services internal metric."
+    },
     "BedrockConfig": {
       "properties": {
         "enabled": {
@@ -1370,6 +1388,9 @@
     },
     "InternalMetricsConfig": {
       "properties": {
+        "avoided_services": {
+          "$ref": "#/$defs/AvoidedServicesConfig"
+        },
         "bpf_metric_scrape_interval": {
           "type": "string",
           "pattern": "^[0-9]+(ms|s|m)$",

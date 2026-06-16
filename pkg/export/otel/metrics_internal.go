@@ -22,6 +22,7 @@ import (
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
+	"go.opentelemetry.io/obi/pkg/internal/avoidedsvc"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 )
 
@@ -36,6 +37,7 @@ type InternalMetricsReporter struct {
 	instrumentedProcesses            instrument.Int64UpDownCounter
 	instrumentationErrors            instrument.Int64Counter
 	avoidedServices                  instrument.Int64Gauge
+	avoidedServicesLimiter           *avoidedsvc.Limiter
 	buildInfo                        instrument.Int64Gauge
 	bpfProbeExecutions               instrument.Int64Counter
 	bpfProbeLatencySum               instrument.Float64Counter
@@ -125,12 +127,17 @@ func NewInternalMetricsReporter(ctx context.Context, ctxInfo *global.ContextInfo
 		return nil, err
 	}
 
-	avoidedServices, err := meter.Int64Gauge(
-		attr.VendorPrefix+".avoided.services",
-		instrument.WithDescription("Services avoided due to existing OpenTelemetry instrumentation"),
-	)
-	if err != nil {
-		return nil, err
+	var avoidedServices instrument.Int64Gauge
+	var avoidedServicesLimiter *avoidedsvc.Limiter
+	if !internalMetrics.AvoidedServices.Disabled {
+		avoidedServices, err = meter.Int64Gauge(
+			attr.VendorPrefix+".avoided.services",
+			instrument.WithDescription("Services avoided due to existing OpenTelemetry instrumentation"),
+		)
+		if err != nil {
+			return nil, err
+		}
+		avoidedServicesLimiter = avoidedsvc.NewLimiter(internalMetrics.AvoidedServices.Limit)
 	}
 
 	buildInfo, err := meter.Int64Gauge(
@@ -220,6 +227,7 @@ func NewInternalMetricsReporter(ctx context.Context, ctxInfo *global.ContextInfo
 		instrumentedProcesses:            instrumentedProcesses,
 		instrumentationErrors:            instrumentationErrors,
 		avoidedServices:                  avoidedServices,
+		avoidedServicesLimiter:           avoidedServicesLimiter,
 		buildInfo:                        buildInfo,
 		bpfProbeExecutions:               bpfProbeExecutions,
 		bpfProbeLatencySum:               bpfProbeLatencySum,
@@ -302,11 +310,23 @@ func newResourceInternal(nodeMeta *meta.NodeMeta) *resource.Resource {
 }
 
 func (p *InternalMetricsReporter) recordAvoidedService(serviceName, serviceNamespace, serviceInstanceID, telemetryType string) {
-	attrs := []attribute.KeyValue{
-		semconv.ServiceName(serviceName),
-		semconv.ServiceNamespace(serviceNamespace),
-		semconv.ServiceInstanceID(serviceInstanceID),
-		attribute.String("telemetry.type", telemetryType),
+	if p.avoidedServices == nil {
+		return
+	}
+
+	labels := p.avoidedServicesLimiter.Labels(serviceName, serviceNamespace, serviceInstanceID, telemetryType)
+	var attrs []attribute.KeyValue
+	if labels.Overflow {
+		attrs = []attribute.KeyValue{
+			attribute.Bool(avoidedsvc.OverflowAttribute, true),
+		}
+	} else {
+		attrs = []attribute.KeyValue{
+			semconv.ServiceName(labels.ServiceName),
+			semconv.ServiceNamespace(labels.ServiceNamespace),
+			semconv.ServiceInstanceID(labels.ServiceInstanceID),
+			attribute.String("telemetry.type", labels.TelemetryType),
+		}
 	}
 
 	p.avoidedServices.Record(p.ctx, 1, instrument.WithAttributes(attrs...))

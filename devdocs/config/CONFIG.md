@@ -350,6 +350,15 @@ InternalMetricsConfig options for the different metrics exporters
 | `internal_metrics.bpf_metric_scrape_interval` | `duration` | `OTEL_EBPF_BPF_METRIC_SCRAPE_INTERVAL` | `15s` | `30s`, `5m`, `1ms`, etc |  |  |
 | `internal_metrics.exporter` | `string` | `OTEL_EBPF_INTERNAL_METRICS_EXPORTER` | `disabled` | `disabled`, `otel`, `prometheus` |  |  |
 
+### `internal_metrics.avoided_services`
+
+AvoidedServicesConfig controls the avoided-services internal metric.
+
+| YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
+|---|---|---|---|---|---|---|
+| `internal_metrics.avoided_services.disabled` | `boolean` | `OTEL_EBPF_INTERNAL_METRICS_AVOIDED_SERVICES_DISABLED` | `false` |  |  | Disables the avoided-services internal metric. |
+| `internal_metrics.avoided_services.limit` | `integer` | `OTEL_EBPF_INTERNAL_METRICS_AVOIDED_SERVICES_LIMIT` | `2000` |  |  | Bounds the number of avoided-services metric series, including the overflow series. 0 uses the OpenTelemetry default metric cardinality limit. |
+
 ### `internal_metrics.prometheus`
 
 TODO: TLS

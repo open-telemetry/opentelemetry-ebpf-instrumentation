@@ -54,6 +54,7 @@ const (
 // InternalMetricsConfig options for the different metrics exporters
 type InternalMetricsConfig struct {
 	Prometheus              PrometheusConfig        `yaml:"prometheus,omitempty"`
+	AvoidedServices         AvoidedServicesConfig   `yaml:"avoided_services,omitempty"`
 	Exporter                InternalMetricsExporter `yaml:"exporter,omitempty" env:"OTEL_EBPF_INTERNAL_METRICS_EXPORTER" validate:"omitempty,oneof=disabled prometheus otel"`
 	BpfMetricScrapeInterval time.Duration           `yaml:"bpf_metric_scrape_interval" env:"OTEL_EBPF_BPF_METRIC_SCRAPE_INTERVAL" validate:"omitempty,gt=0"`
 }

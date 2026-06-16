@@ -30,6 +30,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
 	"go.opentelemetry.io/obi/pkg/export/prom"
+	"go.opentelemetry.io/obi/pkg/internal/avoidedsvc"
 	"go.opentelemetry.io/obi/pkg/internal/pipe/cidr"
 	"go.opentelemetry.io/obi/pkg/kube"
 	"go.opentelemetry.io/obi/pkg/kube/kubeflags"
@@ -273,6 +274,9 @@ discovery:
 		},
 		InternalMetrics: imetrics.InternalMetricsConfig{
 			Exporter: imetrics.InternalMetricsExporterDisabled,
+			AvoidedServices: imetrics.AvoidedServicesConfig{
+				Limit: avoidedsvc.DefaultLimit,
+			},
 			Prometheus: imetrics.PrometheusConfig{
 				Port: 3210,
 				Path: "/internal/metrics",
