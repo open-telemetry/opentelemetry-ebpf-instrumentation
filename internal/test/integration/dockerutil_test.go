@@ -210,15 +210,17 @@ func setupContainerWeaver(t *testing.T, net dockertest.Network) {
 			"--admin-port", "4320",
 			"--format", "json",
 			"--diagnostic-format", "json",
-			"--output", "/tmp",
+			"--output", "/tmp/weaver-out",
 		}),
 		dockertest.WithMounts([]string{
 			filepath.Join(pathRoot, "schemas/obi") + ":/obi-registry:ro",
+			"/tmp/obi-weaver-out:/tmp/weaver-out",
 		}),
 		dockertest.WithPortBindings(portBindings("4320/tcp", "4320")),
 		dockertest.WithContainerConfig(func(config *container.Config) {
 			config.WorkingDir = "/obi-registry"
 			config.ExposedPorts = exposedPorts("4317/tcp", "4320/tcp")
+			config.User = "0:0"
 		}),
 		dockertest.WithoutReuse(),
 	)

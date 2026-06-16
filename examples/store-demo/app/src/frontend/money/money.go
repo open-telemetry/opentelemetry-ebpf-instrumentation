@@ -75,7 +75,8 @@ func Negate(m pb.Money) pb.Money {
 	return pb.Money{
 		Units:        -m.GetUnits(),
 		Nanos:        -m.GetNanos(),
-		CurrencyCode: m.GetCurrencyCode()}
+		CurrencyCode: m.GetCurrencyCode(),
+	}
 }
 
 // Must panics if the given error is not nil. This can be used with other
@@ -117,7 +118,8 @@ func Sum(l, r pb.Money) (pb.Money, error) {
 	return pb.Money{
 		Units:        units,
 		Nanos:        nanos,
-		CurrencyCode: l.GetCurrencyCode()}, nil
+		CurrencyCode: l.GetCurrencyCode(),
+	}, nil
 }
 
 // MultiplySlow is a slow multiplication operation done through adding the value
