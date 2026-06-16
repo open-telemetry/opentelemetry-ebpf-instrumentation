@@ -1,4 +1,4 @@
-FROM golang:1.26.4-alpine@sha256:f23e8b227fb4493eabe03bede4d5a32d04092da71962f1fb79b5f7d1e6c2a17f AS builder
+FROM golang:1.26.4-alpine@sha256:f1ddd9fe14fffc091dd98cb4bfa999f32c5fc77d2f2305ea9f0e2595c5437c14 AS builder
 
 ARG TARGETARCH
 
@@ -33,7 +33,7 @@ RUN --mount=type=cache,target=/gomod-cache --mount=type=cache,target=/go-cache \
 RUN --mount=type=cache,target=/gomod-cache --mount=type=cache,target=/go-cache \
     make debug
 
-FROM alpine:3.23.4@sha256:5b10f432ef3da1b8d4c7eb6c487f2f5a8f096bc91145e68878dd4a5019afde11
+FROM alpine:3.24.1@sha256:bec4ccd3817e7c824eb0388971a0b83fab111d586285511ba0266b77e8dc65a9
 
 WORKDIR /
 
