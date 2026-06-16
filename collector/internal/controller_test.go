@@ -91,7 +91,7 @@ func TestShutdownRespectsContextDeadline(t *testing.T) {
 
 	select {
 	case err := <-shutdownDone:
-		if err != context.Canceled {
+		if !errors.Is(err, context.Canceled) {
 			t.Fatalf("expected context.Canceled, got %v", err)
 		}
 	case <-timer.C:
