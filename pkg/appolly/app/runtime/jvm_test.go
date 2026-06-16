@@ -186,6 +186,10 @@ func TestInferJVMMemoryTypeKeepsCodeHeapNonHeap(t *testing.T) {
 	require.Equal(t, JVMMemoryTypeNonHeap, InferJVMMemoryType("CodeHeap 'non-nmethods'"))
 }
 
+func TestInferJVMMemoryTypeReturnsUnknownForUnrecognizedPool(t *testing.T) {
+	require.Equal(t, JVMMemoryTypeUnknown, InferJVMMemoryType("vendor-specific pool"))
+}
+
 func TestDecodeRawJVMEventsFromBinaryPayloads(t *testing.T) {
 	poolPayload := binaryPayload(t, RawJVMMemoryPoolEvent{
 		Timestamp:  42,

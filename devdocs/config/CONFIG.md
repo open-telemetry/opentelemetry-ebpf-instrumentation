@@ -38,7 +38,7 @@ Generated from [`config-schema.json`](config-schema.json).
 |  | `glob` | `OTEL_EBPF_AUTO_TARGET_EXE` |  | `app-*`, `service-??`, `prod-*-db`, etc |  | Selects the executable to instrument matching a Glob against the executable path. To set this value via YAML, use discovery > instrument. It also accepts OTEL_GO_AUTO_TARGET_EXE for compatibility with opentelemetry-go-instrumentation |
 |  | `glob` | `OTEL_EBPF_AUTO_TARGET_LANGUAGE` |  | `app-*`, `service-??`, `prod-*-db`, etc |  | Selects the executable to instrument matching a Glob of chosen languages. To set this value via YAML, use discovery > instrument. |
 | `channel_buffer_len` | `integer` | `OTEL_EBPF_CHANNEL_BUFFER_LEN` | `50` |  |  |  |
-| `channel_send_timeout` | `duration` | `OTEL_EBPF_CHANNEL_SEND_TIMEOUT` | `1m` | `30s`, `5m`, `1ms`, etc |  |  |
+| `channel_send_timeout` | `duration` | `OTEL_EBPF_CHANNEL_SEND_TIMEOUT` | `1m` | `30s`, `5m`, `1ms`, `500us`, `0.5s`, etc |  |  |
 | `channel_send_timeout_panic` | `boolean` | `OTEL_EBPF_CHANNEL_SEND_TIMEOUT_PANIC` | `false` |  |  |  |
 | `enforce_sys_caps` | `boolean` | `OTEL_EBPF_ENFORCE_SYS_CAPS` | `false` |  |  | Check for required system capabilities and bail if they are not present. If set to 'false', OBI will still print a list of missing capabilities, but the execution will continue |
 | `executable_path` | `regex` | `OTEL_EBPF_EXECUTABLE_PATH` |  | `^app-.*`, `^service-..$`, `^prod-.*-db$`, etc | Yes | Allows selecting the instrumented executable whose complete path contains the Exec value.  Use OTEL_EBPF_AUTO_TARGET_EXE |
@@ -49,7 +49,7 @@ Generated from [`config-schema.json`](config-schema.json).
 | `profile_port` | `integer` | `OTEL_EBPF_PROFILE_PORT` | `0` |  |  |  |
 | `service_name` | `string` | `OTEL_SERVICE_NAME` |  |  | Yes | Specifies the name of the instrumented service, taken from either OTEL_EBPF_SERVICE_NAME env var or OTEL_SERVICE_NAME (for OTEL spec compatibility). Using env and envDefault is a trick to get the value either from one of either variables.  Service name should be set in the instrumentation target (env vars, kube metadata...) as this is a reminiscence of past times when we only supported one executable per instance. |
 | `service_namespace` | `string` | `OTEL_EBPF_SERVICE_NAMESPACE` |  |  | Yes | Service namespace should be set in the instrumentation target (env vars, kube metadata...) as this is a reminiscence of past times when we only supported one executable per instance. |
-| `shutdown_timeout` | `duration` | `OTEL_EBPF_SHUTDOWN_TIMEOUT` | `10s` | `30s`, `5m`, `1ms`, etc |  | Timeout for a graceful shutdown |
+| `shutdown_timeout` | `duration` | `OTEL_EBPF_SHUTDOWN_TIMEOUT` | `10s` | `30s`, `5m`, `1ms`, `500us`, `0.5s`, etc |  | Timeout for a graceful shutdown |
 | `target_pids` | [`IntEnum`](#intenum) | `OTEL_EBPF_TARGET_PID` |  |  |  | Selects processes by PID for instrumentation. When non-empty, only these PIDs are instrumented. Accepts YAML list (target_pids: [1234, 5678]), single number, or env OTEL_EBPF_TARGET_PID=1234,5678. Alternative to Exec or AutoTargetExe when PIDs are known. |
 | `trace_printer` | `string` | `OTEL_EBPF_TRACE_PRINTER` | `disabled` | `counter`, `disabled`, `json`, `json_indent`, `text` |  |  |
 
@@ -89,12 +89,12 @@ InstanceIDConfig configures how OBI will get the Instance ID of the traces/metri
 | `attributes.kubernetes.disable_informers` | `string`[] | `OTEL_EBPF_KUBE_DISABLE_INFORMERS` |  |  |  | Allows selectively disabling some informers. Accepted value is a list that might contain node or service. Disabling any of them will cause metadata to be incomplete but will reduce the load of the Kube API. Pods informer can't be disabled. For that purpose, you should disable the whole kubernetes metadata decoration. |
 | `attributes.kubernetes.drop_external` | `boolean` | `OTEL_EBPF_NETWORK_DROP_EXTERNAL` | `false` |  |  | Will drop, in NetO11y component, any flow where the source or destination IPs are not matched to any kubernetes entity, assuming they are cluster-external |
 | `attributes.kubernetes.enable` | `string` | `OTEL_EBPF_KUBE_METADATA_ENABLE` | `autodetect` | `autodetect`, `false`, `true` |  |  |
-| `attributes.kubernetes.informers_resync_period` | `duration` | `OTEL_EBPF_KUBE_INFORMERS_RESYNC_PERIOD` | `30m` | `30s`, `5m`, `1ms`, etc |  | Defaults to 30m. Higher values will reduce the load on the Kube API. |
-| `attributes.kubernetes.informers_sync_timeout` | `duration` | `OTEL_EBPF_KUBE_INFORMERS_SYNC_TIMEOUT` | `30s` | `30s`, `5m`, `1ms`, etc |  | Specifies the timeout for waiting for informers to sync on startup. |
+| `attributes.kubernetes.informers_resync_period` | `duration` | `OTEL_EBPF_KUBE_INFORMERS_RESYNC_PERIOD` | `30m` | `30s`, `5m`, `1ms`, `500us`, `0.5s`, etc |  | Defaults to 30m. Higher values will reduce the load on the Kube API. |
+| `attributes.kubernetes.informers_sync_timeout` | `duration` | `OTEL_EBPF_KUBE_INFORMERS_SYNC_TIMEOUT` | `30s` | `30s`, `5m`, `1ms`, `500us`, `0.5s`, etc |  | Specifies the timeout for waiting for informers to sync on startup. |
 | `attributes.kubernetes.kubeconfig_path` | `string` | `KUBECONFIG` |  |  |  | Specifies the path to the kubeconfig file. If unset, it will look in the usual location. |
 | `attributes.kubernetes.meta_cache_address` | `string` | `OTEL_EBPF_KUBE_META_CACHE_ADDRESS` |  |  |  | Specifies the host:port address of the obi-k8s-cache service instance |
 | `attributes.kubernetes.meta_restrict_local_node` | `boolean` | `OTEL_EBPF_KUBE_META_RESTRICT_LOCAL_NODE` | `false` |  |  | Will download only the metadata from the Pods that are located in the same node as the OBI instance. It will also restrict the Node information to the local node. |
-| `attributes.kubernetes.reconnect_initial_interval` | `duration` | `OTEL_EBPF_KUBE_RECONNECT_INITIAL_INTERVAL` | `5s` | `30s`, `5m`, `1ms`, etc |  | Specifies the time to wait before reconnecting to the Kubernetes API after a connection loss. |
+| `attributes.kubernetes.reconnect_initial_interval` | `duration` | `OTEL_EBPF_KUBE_RECONNECT_INITIAL_INTERVAL` | `5s` | `30s`, `5m`, `1ms`, `500us`, `0.5s`, etc |  | Specifies the time to wait before reconnecting to the Kubernetes API after a connection loss. |
 | `attributes.kubernetes.resource_labels` | `map[string]string[]` |  |  |  |  | Allows OBI overriding the OTEL Resource attributes from a map of user-defined labels. |
 | `attributes.kubernetes.service_name_template` | `string` | `OTEL_EBPF_SERVICE_NAME_TEMPLATE` |  |  |  | Allows to override the service.name with a custom value. Uses the go template language. |
 
@@ -115,9 +115,9 @@ RetryConfig holds the retry policy for metadata fetch operations. It controls th
 
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
-| `attributes.metadata_retry.max_interval` | `duration` | `OTEL_EBPF_METADATA_RETRY_MAX_INTERVAL` | `5s` | `30s`, `5m`, `1ms`, etc |  | Specifies the upper bound on the wait duration between consecutive retry attempts. |
-| `attributes.metadata_retry.start_interval` | `duration` | `OTEL_EBPF_METADATA_RETRY_START_INTERVAL` | `500ms` | `30s`, `5m`, `1ms`, etc |  | Specifies the initial wait duration between the first and second retry attempt. |
-| `attributes.metadata_retry.timeout` | `duration` | `OTEL_EBPF_METADATA_RETRY_TIMEOUT` | `30s` | `30s`, `5m`, `1ms`, etc |  | Specifies the maximum total time allowed for all retry attempts before giving up. |
+| `attributes.metadata_retry.max_interval` | `duration` | `OTEL_EBPF_METADATA_RETRY_MAX_INTERVAL` | `5s` | `30s`, `5m`, `1ms`, `500us`, `0.5s`, etc |  | Specifies the upper bound on the wait duration between consecutive retry attempts. |
+| `attributes.metadata_retry.start_interval` | `duration` | `OTEL_EBPF_METADATA_RETRY_START_INTERVAL` | `500ms` | `30s`, `5m`, `1ms`, `500us`, `0.5s`, etc |  | Specifies the initial wait duration between the first and second retry attempt. |
+| `attributes.metadata_retry.timeout` | `duration` | `OTEL_EBPF_METADATA_RETRY_TIMEOUT` | `30s` | `30s`, `5m`, `1ms`, `500us`, `0.5s`, etc |  | Specifies the maximum total time allowed for all retry attempts before giving up. |
 
 ## `discovery`
 
@@ -136,9 +136,9 @@ DiscoveryConfig for the discover.ProcessFinder pipeline
 | `discovery.exclude_services` | [`RegexSelector`](#regexselector)[] |  |  |  | Yes | Works analogously to Services, but the applications matching this section won't be instrumented even if they match the Services selection.  Use ExcludeInstrument instead |
 | `discovery.excluded_linux_system_paths` | `string`[] |  | `/lib/systemd/`, `/usr/lib/systemd/`, `/usr/libexec/`, `/sbin/`, `/usr/sbin/` |  |  | Executable paths for which we don't run language detection and cannot be selected using the path or language selection criteria |
 | `discovery.instrument` | [`GlobAttributes`](#globattributes)[] |  |  |  |  | Selects the services to instrument via Globs. If this section is set, both the Services and ExcludeServices section is ignored. If the user defined the OTEL_EBPF_INSTRUMENT_COMMAND or OTEL_EBPF_INSTRUMENT_PORTS variables, they will be automatically added to the instrument criteria, with the lowest preference. |
-| `discovery.min_process_age` | `duration` | `OTEL_EBPF_MIN_PROCESS_AGE` | `5s` | `30s`, `5m`, `1ms`, etc |  | Min process age to be considered for discovery. |
-| `discovery.poll_interval` | `duration` | `OTEL_EBPF_DISCOVERY_POLL_INTERVAL` | `0s` | `30s`, `5m`, `1ms`, etc |  | Specifies, for the poll service watcher, the interval time between process inspections. 0 is treated as a default (5s) by the process watcher. |
-| `discovery.route_harvester_timeout` | `duration` | `OTEL_EBPF_ROUTE_HARVESTER_TIMEOUT` | `10s` | `30s`, `5m`, `1ms`, etc |  |  |
+| `discovery.min_process_age` | `duration` | `OTEL_EBPF_MIN_PROCESS_AGE` | `5s` | `30s`, `5m`, `1ms`, `500us`, `0.5s`, etc |  | Min process age to be considered for discovery. |
+| `discovery.poll_interval` | `duration` | `OTEL_EBPF_DISCOVERY_POLL_INTERVAL` | `0s` | `30s`, `5m`, `1ms`, `500us`, `0.5s`, etc |  | Specifies, for the poll service watcher, the interval time between process inspections. 0 is treated as a default (5s) by the process watcher. |
+| `discovery.route_harvester_timeout` | `duration` | `OTEL_EBPF_ROUTE_HARVESTER_TIMEOUT` | `10s` | `30s`, `5m`, `1ms`, `500us`, `0.5s`, etc |  |  |
 | `discovery.services` | [`RegexSelector`](#regexselector)[] |  |  |  | Yes | Selection. If the user defined the OTEL_EBPF_EXECUTABLE_PATH or OTEL_EBPF_OPEN_PORT variables, they will be automatically added to the services definition criteria, with the lowest preference.  Use Instrument instead |
 | `discovery.skip_go_specific_tracers` | `boolean` | `OTEL_EBPF_SKIP_GO_SPECIFIC_TRACERS` | `false` |  |  | This can be enabled to use generic HTTP tracers only, no Go-specifics will be used: |
 
@@ -146,7 +146,7 @@ DiscoveryConfig for the discover.ProcessFinder pipeline
 
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
-| `discovery.route_harvester_advanced.java_harvest_delay` | `duration` | `OTEL_EBPF_JAVA_ROUTE_HARVEST_DELAY` | `5s` | `30s`, `5m`, `1ms`, etc |  |  |
+| `discovery.route_harvester_advanced.java_harvest_delay` | `duration` | `OTEL_EBPF_JAVA_ROUTE_HARVEST_DELAY` | `5s` | `30s`, `5m`, `1ms`, `500us`, `0.5s`, etc |  |  |
 
 ## `ebpf`
 
@@ -155,20 +155,20 @@ EBPFTracer configuration for eBPF programs
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
 | `ebpf.batch_length` | `integer` | `OTEL_EBPF_BPF_BATCH_LENGTH` | `100` |  |  | Allows specifying how many items (traces/metrics) will be batched at the initial stage before being forwarded to the next stage Must be at least 1 |
-| `ebpf.batch_timeout` | `duration` | `OTEL_EBPF_BPF_BATCH_TIMEOUT` | `1s` | `30s`, `5m`, `1ms`, etc |  | Specifies the timeout to forward the data batch if it didn't reach the BatchLength size |
+| `ebpf.batch_timeout` | `duration` | `OTEL_EBPF_BPF_BATCH_TIMEOUT` | `1s` | `30s`, `5m`, `1ms`, `500us`, `0.5s`, etc |  | Specifies the timeout to forward the data batch if it didn't reach the BatchLength size |
 | `ebpf.bpf_debug` | `boolean` | `OTEL_EBPF_BPF_DEBUG` | `false` |  |  | Enables logging of eBPF program events |
 | `ebpf.bpf_fs_path` | `string` | `OTEL_EBPF_BPF_FS_PATH` | `/sys/fs/bpf/` |  |  | BPF path used to pin eBPF maps |
 | `ebpf.context_propagation` | `string` | `OTEL_EBPF_BPF_CONTEXT_PROPAGATION` | `disabled` | ``, `all`, `disabled` | deprecated values: `ip` | Enables distributed context propagation. Can be a combination of: headers, tcp (e.g., "headers,tcp" or "all") |
 | `ebpf.couchbase_db_cache_size` | `integer` | `OTEL_EBPF_COUCHBASE_DB_CACHE_SIZE` | `1024` |  |  |  |
 | `ebpf.disable_black_box_cp` | `boolean` | `OTEL_EBPF_BPF_DISABLE_BLACK_BOX_CP` | `false` |  |  | Disables OBI black-box context propagation. Used for testing purposes only. |
-| `ebpf.dns_request_timeout` | `duration` | `OTEL_EBPF_BPF_DNS_REQUEST_TIMEOUT` | `5s` | `30s`, `5m`, `1ms`, etc |  | DNS timeout after which we report failed event |
+| `ebpf.dns_request_timeout` | `duration` | `OTEL_EBPF_BPF_DNS_REQUEST_TIMEOUT` | `5s` | `30s`, `5m`, `1ms`, `500us`, `0.5s`, etc |  | DNS timeout after which we report failed event |
 | `ebpf.force_bpf_map_reader` | `string` | `OTEL_EBPF_FORCE_BPF_MAP_READER` | `auto` | `auto`, `batch`, `legacy` |  | Forces the PerCPU HashMap operation of the Network Flows reader. The system will always try "batch", which is more efficient, but legacy systems like RHEL8-based will fallback to "legacy" (the slowest, more resource-consuming iterate&delete approach). |
 | `ebpf.heuristic_sql_detect` | `boolean` | `OTEL_EBPF_HEURISTIC_SQL_DETECT` | `false` |  |  | Enables the heuristic based detection of SQL requests. This can be used to detect talking to databases other than the ones we recognize in OBI, like Postgres and MySQL |
 | `ebpf.high_request_volume` | `boolean` | `OTEL_EBPF_BPF_HIGH_REQUEST_VOLUME` | `false` |  |  | Optimizes for getting requests information immediately when request response is seen |
-| `ebpf.http_request_timeout` | `duration` | `OTEL_EBPF_BPF_HTTP_REQUEST_TIMEOUT` | `0s` | `30s`, `5m`, `1ms`, etc |  | Must be at least 0 |
+| `ebpf.http_request_timeout` | `duration` | `OTEL_EBPF_BPF_HTTP_REQUEST_TIMEOUT` | `0s` | `30s`, `5m`, `1ms`, `500us`, `0.5s`, etc |  | Must be at least 0 |
 | `ebpf.instrument_cuda` | `integer` | `OTEL_EBPF_INSTRUMENT_CUDA` | `auto` |  |  | Enables GPU instrumentation for CUDA kernel launches and allocations |
 | `ebpf.kafka_topic_uuid_cache_size` | `integer` | `OTEL_KAFKA_TOPIC_UUID_CACHE_SIZE` | `1024` |  |  | Kafka Topic UUID to Name cache size. |
-| `ebpf.max_transaction_time` | `duration` | `OTEL_EBPF_BPF_MAX_TRANSACTION_TIME` | `5m` | `30s`, `5m`, `1ms`, etc |  | Maximum time allowed for two requests to be correlated as parent -> child Some programs (e.g. load generators) keep on generating requests from the same thread in perpetuity, which can generate very large traces. We want to mark the parent trace as invalid if this happens. |
+| `ebpf.max_transaction_time` | `duration` | `OTEL_EBPF_BPF_MAX_TRANSACTION_TIME` | `5m` | `30s`, `5m`, `1ms`, `500us`, `0.5s`, etc |  | Maximum time allowed for two requests to be correlated as parent -> child Some programs (e.g. load generators) keep on generating requests from the same thread in perpetuity, which can generate very large traces. We want to mark the parent trace as invalid if this happens. |
 | `ebpf.mongo_requests_cache_size` | `integer` | `OTEL_EBPF_BPF_MONGO_REQUESTS_CACHE_SIZE` | `1024` |  |  | MongoDB requests cache size. |
 | `ebpf.mssql_prepared_statements_cache_size` | `integer` | `OTEL_EBPF_BPF_MSSQL_PREPARED_STATEMENTS_CACHE_SIZE` | `1024` |  |  | MSSQL prepared statements cache size. |
 | `ebpf.mysql_prepared_statements_cache_size` | `integer` | `OTEL_EBPF_BPF_MYSQL_PREPARED_STATEMENTS_CACHE_SIZE` | `1024` |  |  | MySQL prepared statements cache size. |
@@ -200,7 +200,7 @@ Per-protocol maximum bytes to capture per request per direction, sent to userspa
 | `ebpf.log_enricher.async_writer_channel_len` | `integer` | `OTEL_EBPF_BPF_LOG_ENRICHER_ASYNC_WRITER_CHANNEL_LEN` | `500` |  |  | Defines the capacity of every shard's channel for the async log writer Default: 500 |
 | `ebpf.log_enricher.async_writer_workers` | `integer` | `OTEL_EBPF_BPF_LOG_ENRICHER_ASYNC_WRITER_WORKERS` | `8` |  |  | Defines the number of shards for the async log writer Default: 8 |
 | `ebpf.log_enricher.cache_size` | `integer` | `OTEL_EBPF_BPF_LOG_ENRICHER_CACHE_SIZE` | `128` |  |  | Defines the maximum number of cached file descriptors Default: 128 |
-| `ebpf.log_enricher.cache_ttl` | `duration` | `OTEL_EBPF_BPF_LOG_ENRICHER_CACHE_TTL` | `30m` | `30s`, `5m`, `1ms`, etc |  | Defines the TTL for cached file descriptors Default: 30m |
+| `ebpf.log_enricher.cache_ttl` | `duration` | `OTEL_EBPF_BPF_LOG_ENRICHER_CACHE_TTL` | `30m` | `30s`, `5m`, `1ms`, `500us`, `0.5s`, etc |  | Defines the TTL for cached file descriptors Default: 30m |
 | `ebpf.log_enricher.services` | [`LogEnricherServiceConfig`](#logenricherserviceconfig)[] |  |  |  |  | Specifies the services to enable log enrichment for |
 
 ### `ebpf.maps_config`
@@ -348,7 +348,7 @@ InternalMetricsConfig options for the different metrics exporters
 
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
-| `internal_metrics.bpf_metric_scrape_interval` | `duration` | `OTEL_EBPF_BPF_METRIC_SCRAPE_INTERVAL` | `15s` | `30s`, `5m`, `1ms`, etc |  |  |
+| `internal_metrics.bpf_metric_scrape_interval` | `duration` | `OTEL_EBPF_BPF_METRIC_SCRAPE_INTERVAL` | `15s` | `30s`, `5m`, `1ms`, `500us`, `0.5s`, etc |  |  |
 | `internal_metrics.exporter` | `string` | `OTEL_EBPF_INTERNAL_METRICS_EXPORTER` | `disabled` | `disabled`, `otel`, `prometheus` |  |  |
 
 ### `internal_metrics.avoided_services`
@@ -377,7 +377,7 @@ TODO: TLS
 | `internal_metrics.prometheus.path` | `string` | `OTEL_EBPF_PROMETHEUS_PATH` | `/internal/metrics` |  |  |  |
 | `internal_metrics.prometheus.port` | `integer` | `OTEL_EBPF_PROMETHEUS_PORT` | `0` |  |  | 0 means disabled |
 | `internal_metrics.prometheus.service_cache_size` | `integer` |  | `10000` |  |  |  |
-| `internal_metrics.prometheus.ttl` | `duration` | `OTEL_EBPF_PROMETHEUS_TTL` | `5m` | `30s`, `5m`, `1ms`, etc |  | Specifies the time since a metric was updated for the last time until it is removed from the metrics set. |
+| `internal_metrics.prometheus.ttl` | `duration` | `OTEL_EBPF_PROMETHEUS_TTL` | `5m` | `30s`, `5m`, `1ms`, `500us`, `0.5s`, etc |  | Specifies the time since a metric was updated for the last time until it is removed from the metrics set. |
 
 #### `internal_metrics.prometheus.native_histogram`
 
@@ -387,13 +387,13 @@ NativeHistogramConfig holds configuration for native histograms
 |---|---|---|---|---|---|---|
 | `internal_metrics.prometheus.native_histogram.bucket_factor` | `number` | `OTEL_EBPF_PROMETHEUS_NATIVE_HISTOGRAM_BUCKET_FACTOR` | `1.1` |  |  |  |
 | `internal_metrics.prometheus.native_histogram.max_bucket_number` | `integer` | `OTEL_EBPF_PROMETHEUS_NATIVE_HISTOGRAM_MAX_BUCKET_NUMBER` | `100` |  |  |  |
-| `internal_metrics.prometheus.native_histogram.min_reset_duration` | `duration` | `OTEL_EBPF_PROMETHEUS_NATIVE_HISTOGRAM_MIN_RESET_DURATION` | `60m` | `30s`, `5m`, `1ms`, etc |  |  |
+| `internal_metrics.prometheus.native_histogram.min_reset_duration` | `duration` | `OTEL_EBPF_PROMETHEUS_NATIVE_HISTOGRAM_MIN_RESET_DURATION` | `60m` | `30s`, `5m`, `1ms`, `500us`, `0.5s`, etc |  |  |
 
 ## `javaagent`
 
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
-| `javaagent.attach_timeout` | `duration` | `OTEL_EBPF_JAVAAGENT_ATTACH_TIMEOUT` | `10s` | `30s`, `5m`, `1ms`, etc |  |  |
+| `javaagent.attach_timeout` | `duration` | `OTEL_EBPF_JAVAAGENT_ATTACH_TIMEOUT` | `10s` | `30s`, `5m`, `1ms`, `500us`, `0.5s`, etc |  |  |
 | `javaagent.debug` | `boolean` | `OTEL_EBPF_JAVAAGENT_DEBUG` | `false` |  |  |  |
 | `javaagent.debug_instrumentation` | `boolean` | `OTEL_EBPF_JAVAAGENT_DEBUG_INSTRUMENTATION` | `false` |  |  |  |
 | `javaagent.enabled` | `boolean` | `OTEL_EBPF_JAVAAGENT_ENABLED` | `true` |  |  |  |
@@ -403,7 +403,7 @@ NativeHistogramConfig holds configuration for native histograms
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
 | `jvm_runtime_metrics.enabled` | `boolean` | `OBI_JVM_RUNTIME_METRICS_ENABLED` | `false` |  |  |  |
-| `jvm_runtime_metrics.sampling_interval` | `duration` | `OBI_JVM_RUNTIME_METRICS_SAMPLING_INTERVAL` | `1s` | `30s`, `5m`, `1ms`, etc |  |  |
+| `jvm_runtime_metrics.sampling_interval` | `duration` | `OBI_JVM_RUNTIME_METRICS_SAMPLING_INTERVAL` | `1s` | `30s`, `5m`, `1ms`, `500us`, `0.5s`, etc |  |  |
 
 ## `metrics`
 
@@ -418,11 +418,11 @@ NativeHistogramConfig holds configuration for native histograms
 | `metrics.histogram_aggregation` | `string` | `OTEL_EXPORTER_OTLP_METRICS_DEFAULT_HISTOGRAM_AGGREGATION` | `explicit_bucket_histogram` | `base2_exponential_bucket_histogram`, `explicit_bucket_histogram` |  |  |
 | `metrics.insecure_skip_verify` | `boolean` | `OTEL_EBPF_INSECURE_SKIP_VERIFY` | `false` |  |  | Enables skipping TLS certificate verification (not standard, so we don't follow the same naming convention) |
 | `metrics.instrumentations` | `string`[] | `OTEL_EBPF_METRICS_INSTRUMENTATIONS` | `*` | `*`, `amqp`, `couchbase`, `dns`, `genai`, `gpu`, `grpc`, `http`, `kafka`, `memcached`, `mongo`, `mqtt`, `nats`, `redis`, `sql`, `sunrpc` |  | Allows configuration of which instrumentations should be enabled, e.g. http, grpc, sql... |
-| `metrics.interval` | `duration` | `OTEL_EBPF_METRICS_INTERVAL` | `0s` | `30s`, `5m`, `1ms`, etc |  |  |
+| `metrics.interval` | `duration` | `OTEL_EBPF_METRICS_INTERVAL` | `0s` | `30s`, `5m`, `1ms`, `500us`, `0.5s`, etc |  |  |
 | `metrics.otel_sdk_log_level` | `string` | `OTEL_EBPF_SDK_LOG_LEVEL` |  |  |  | Works independently from the global LogLevel because it prints GBs of logs in Debug mode and the Info messages leak internal details that are not usually valuable for the final user. Accepted values: debug, info, warn, error (case-insensitive). |
 | `metrics.protocol` | `string` | `OTEL_EXPORTER_OTLP_PROTOCOL` |  | ``, `debug`, `grpc`, `http/json`, `http/protobuf` |  |  |
 | `metrics.reporters_cache_len` | `integer` | `OTEL_EBPF_METRICS_REPORT_CACHE_LEN` | `256` |  |  |  |
-| `metrics.ttl` | `duration` | `OTEL_EBPF_METRICS_TTL` | `5m` | `30s`, `5m`, `1ms`, etc |  | Specifies the time since a metric was updated for the last time until it is removed from the metrics set. |
+| `metrics.ttl` | `duration` | `OTEL_EBPF_METRICS_TTL` | `5m` | `30s`, `5m`, `1ms`, `500us`, `0.5s`, etc |  | Specifies the time since a metric was updated for the last time until it is removed from the metrics set. |
 
 ### `metrics.exponential_histogram`
 
@@ -437,7 +437,7 @@ ExponentialHistogramConfig configures the precision and size of exponential hist
 
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
-| `name_resolver.cache_expiry` | `duration` | `OTEL_EBPF_NAME_RESOLVER_CACHE_TTL` | `5m` | `30s`, `5m`, `1ms`, etc |  | Specifies the time-to-live of a cached IP->hostname entry. After the cached entry becomes older than this time, the IP->hostname entry will be looked up again. |
+| `name_resolver.cache_expiry` | `duration` | `OTEL_EBPF_NAME_RESOLVER_CACHE_TTL` | `5m` | `30s`, `5m`, `1ms`, `500us`, `0.5s`, etc |  | Specifies the time-to-live of a cached IP->hostname entry. After the cached entry becomes older than this time, the IP->hostname entry will be looked up again. |
 | `name_resolver.cache_len` | `integer` | `OTEL_EBPF_NAME_RESOLVER_CACHE_LEN` | `1024` |  |  | Specifies the max size of the LRU cache that is checked before performing the name lookup. Default: 256 |
 | `name_resolver.sources` | `string`[] | `OTEL_EBPF_NAME_RESOLVER_SOURCES` | `k8s` | `dns`, `k8s`, `kube`, `kubernetes`, `rdns` |  | Specifies the backends used for name resolving. Accepted values: dns, k8s, rdns |
 
@@ -448,11 +448,11 @@ ExponentialHistogramConfig configures the precision and size of exponential hist
 | `network.agent_ip` | `ip` | `OTEL_EBPF_NETWORK_AGENT_IP` |  |  |  | Allows overriding the reported Agent IP address on each flow. |
 | `network.agent_ip_iface` | `string` | `OTEL_EBPF_NETWORK_AGENT_IP_IFACE` | `external` | `external`, `local` |  | Specifies which interface should the agent pick the IP address from in order to report it in the AgentIP field on each flow. Accepted values are: external (default), local, or name:<interface name> (e.g. name:eth0). If the AgentIP configuration property is set, this property has no effect. |
 | `network.agent_ip_type` | `string` | `OTEL_EBPF_NETWORK_AGENT_IP_TYPE` | `any` | `any`, `ipv4`, `ipv6` |  | Specifies which type of IP address (IPv4 or IPv6 or any) should the agent report in the AgentID field of each flow. Accepted values are: any (default), ipv4, ipv6. If the AgentIP configuration property is set, this property has no effect. |
-| `network.cache_active_timeout` | `duration` | `OTEL_EBPF_NETWORK_CACHE_ACTIVE_TIMEOUT` | `5s` | `30s`, `5m`, `1ms`, etc |  | Specifies the maximum duration that flows are kept in the accounting cache before being flushed for its later export. |
+| `network.cache_active_timeout` | `duration` | `OTEL_EBPF_NETWORK_CACHE_ACTIVE_TIMEOUT` | `5s` | `30s`, `5m`, `1ms`, `500us`, `0.5s`, etc |  | Specifies the maximum duration that flows are kept in the accounting cache before being flushed for its later export. |
 | `network.cache_max_flows` | `integer` | `OTEL_EBPF_NETWORK_CACHE_MAX_FLOWS` | `5000` |  |  | Specifies how many flows can be accumulated in the accounting cache before being flushed for its later export. Default value is 5000. Decrease it if you see the "received message larger than max" error in OBI logs. |
 | `network.cidrs` | `string`[] | `OTEL_EBPF_NETWORK_CIDRS` |  |  |  | List, to be set as the "src.cidr" and "dst.cidr" attribute as a function of the source and destination IP addresses. If an IP does not match any address here, the attributes won't be set. If an IP matches multiple CIDR definitions, the flow will be decorated with the narrowest CIDR. By this reason, you can safely add a 0.0.0.0/0 entry to group there all the traffic that does not match any of the other CIDRs. |
 | `network.deduper` | `string` | `OTEL_EBPF_NETWORK_DEDUPER` | `first_come` | `first_come`, `none` |  | Specifies the deduper type. Accepted values are "none" (disabled) and "first_come". When enabled, it will detect duplicate flows (flows that have been detected e.g. through both the physical and a virtual interface). "first_come" will forward only flows from the first interface the flows are received from. Default value: first_come |
-| `network.deduper_fc_ttl` | `duration` | `OTEL_EBPF_NETWORK_DEDUPER_FC_TTL` | `0s` | `30s`, `5m`, `1ms`, etc |  | Specifies the expiry duration of the flows "first_come" deduplicator. After a flow hasn't been received for that expiry time, the deduplicator forgets it. That means that a flow from a connection that has been inactive during that period could be forwarded again from a different interface. If the value is not set, it will default to 2 * CacheActiveTimeout |
+| `network.deduper_fc_ttl` | `duration` | `OTEL_EBPF_NETWORK_DEDUPER_FC_TTL` | `0s` | `30s`, `5m`, `1ms`, `500us`, `0.5s`, etc |  | Specifies the expiry duration of the flows "first_come" deduplicator. After a flow hasn't been received for that expiry time, the deduplicator forgets it. That means that a flow from a connection that has been inactive during that period could be forwarded again from a different interface. If the value is not set, it will default to 2 * CacheActiveTimeout |
 | `network.direction` | `string` | `OTEL_EBPF_NETWORK_DIRECTION` | `both` | `both`, `egress`, `ingress` |  | Allows selecting which flows to trace according to its direction. Accepted values are "ingress", "egress" or "both" (default). |
 | `network.enable` | `boolean` | `OTEL_EBPF_NETWORK_METRICS` | `false` |  | Yes | Network metrics. Default value is false (disabled)  add "network" or "network_flow_packets" or "network_inter_zone" to OTEL_EBPF_METRICS_FEATURES  TODO OBI 3.0: remove |
 | `network.exclude_interfaces` | `string`[] | `OTEL_EBPF_NETWORK_EXCLUDE_INTERFACES` | `lo` |  |  | Contains the interface names that will be excluded from flow tracing. Default: "lo" (loopback). If an entry is enclosed by slashes (e.g. `/br-/`), it will match as regular expression, otherwise it will be matched as a case-sensitive string. |
@@ -460,7 +460,7 @@ ExponentialHistogramConfig configures the precision and size of exponential hist
 | `network.guess_ports` | `string` | `OTEL_EBPF_NETWORK_GUESS_PORTS` | `disable` | `disable`, `ordinal` |  | Controls how OBI assigns server.port/client.port when the connection initiator is unknown. Accepted values are "ordinal" (assume highest port is client) and "disable" (default, do not guess and emit empty client/server port attributes for unknown-initiator flows). |
 | `network.interfaces` | `string`[] | `OTEL_EBPF_NETWORK_INTERFACES` |  |  |  | Contains the interface names from where flows will be collected. If empty, the agent will fetch all the interfaces in the system, excepting the ones listed in ExcludeInterfaces. If an entry is enclosed by slashes (e.g. `/br-/`), it will match as regular expression, otherwise it will be matched as a case-sensitive string. |
 | `network.listen_interfaces` | `string` | `OTEL_EBPF_NETWORK_LISTEN_INTERFACES` | `watch` | `poll`, `watch` |  | Specifies the mechanism used by the agent to listen for added or removed network interfaces. Accepted values are "watch" (default) or "poll". If the value is "watch", interfaces are traced immediately after they are created. This is the recommended setting for most configurations. "poll" value is a fallback mechanism that periodically queries the current network interfaces (frequency specified by ListenPollPeriod). |
-| `network.listen_poll_period` | `duration` | `OTEL_EBPF_NETWORK_LISTEN_POLL_PERIOD` | `10s` | `30s`, `5m`, `1ms`, etc |  | Specifies the periodicity to query the network interfaces when the ListenInterfaces value is set to "poll". |
+| `network.listen_poll_period` | `duration` | `OTEL_EBPF_NETWORK_LISTEN_POLL_PERIOD` | `10s` | `30s`, `5m`, `1ms`, `500us`, `0.5s`, etc |  | Specifies the periodicity to query the network interfaces when the ListenInterfaces value is set to "poll". |
 | `network.print_flows` | `boolean` | `OTEL_EBPF_NETWORK_PRINT_FLOWS` | `false` |  |  | Enables printing the network flows to the Standard Output |
 | `network.protocols` | `string`[] | `OTEL_EBPF_NETWORK_PROTOCOLS` |  |  |  | Causes OBI to drop flows whose transport protocol is not in this list. |
 | `network.sampling` | `integer` | `OTEL_EBPF_NETWORK_SAMPLING` | `0` |  |  | Holds the rate at which packets should be sampled and sent to the target collector. E.g. if set to 100, one out of 100 packets, on average, will be sent to the target collector. |
@@ -472,7 +472,7 @@ GeoIP is currently experimental. It is kept disabled by default and will be hidd
 
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
-| `network.geo_ip.cache_expiry` | `duration` | `OTEL_EBPF_GEOIP_CACHE_TTL` | `60m` | `30s`, `5m`, `1ms`, etc |  | It also accepts OTEL_EBPF_NETWORK_GEOIP_CACHE_TTL for backwards-compatibility |
+| `network.geo_ip.cache_expiry` | `duration` | `OTEL_EBPF_GEOIP_CACHE_TTL` | `60m` | `30s`, `5m`, `1ms`, `500us`, `0.5s`, etc |  | It also accepts OTEL_EBPF_NETWORK_GEOIP_CACHE_TTL for backwards-compatibility |
 | `network.geo_ip.cache_len` | `integer` | `OTEL_EBPF_GEOIP_CACHE_LEN` | `512` |  |  | It also accepts OTEL_EBPF_NETWORK_GEOIP_CACHE_LEN for backwards-compatibility |
 
 #### `network.geo_ip.ipinfo`
@@ -494,7 +494,7 @@ ReverseDNS is currently experimental. It is kept disabled by default and will be
 
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
-| `network.reverse_dns.cache_expiry` | `duration` | `OTEL_EBPF_REVERSE_DNS_CACHE_TTL` | `60m` | `30s`, `5m`, `1ms`, etc |  | Only applies to the "local" and "ebpf" ReverseDNS type. It specifies the time-to-live of a cached IP->hostname entry. After the cached entry becomes older than this time, the IP->hostname entry will be looked up again. It also accepts OTEL_EBPF_NETWORK_REVERSE_DNS_CACHE_TTL for backwards-compatibility |
+| `network.reverse_dns.cache_expiry` | `duration` | `OTEL_EBPF_REVERSE_DNS_CACHE_TTL` | `60m` | `30s`, `5m`, `1ms`, `500us`, `0.5s`, etc |  | Only applies to the "local" and "ebpf" ReverseDNS type. It specifies the time-to-live of a cached IP->hostname entry. After the cached entry becomes older than this time, the IP->hostname entry will be looked up again. It also accepts OTEL_EBPF_NETWORK_REVERSE_DNS_CACHE_TTL for backwards-compatibility |
 | `network.reverse_dns.cache_len` | `integer` | `OTEL_EBPF_REVERSE_DNS_CACHE_LEN` | `256` |  |  | Only applies to the "local" and "ebpf" ReverseDNS type. It specifies the max size of the LRU cache that is checked before performing the name lookup. Default: 256 It also accepts OTEL_EBPF_NETWORK_REVERSE_DNS_CACHE_LEN for backwards-compatibility |
 | `network.reverse_dns.type` | `string` | `OTEL_EBPF_REVERSE_DNS_TYPE` | `none` | `ebpf`, `local`, `none` |  | Specifies the ReverseDNS method. Values are "none" (default), "local" and "ebpf" It also accepts OTEL_EBPF_NETWORK_REVERSE_DNS_TYPE for backwards-compatibility |
 
@@ -517,11 +517,11 @@ ReverseDNS is currently experimental. It is kept disabled by default and will be
 | `otel_metrics_export.histogram_aggregation` | `string` | `OTEL_EXPORTER_OTLP_METRICS_DEFAULT_HISTOGRAM_AGGREGATION` | `explicit_bucket_histogram` | `base2_exponential_bucket_histogram`, `explicit_bucket_histogram` |  |  |
 | `otel_metrics_export.insecure_skip_verify` | `boolean` | `OTEL_EBPF_INSECURE_SKIP_VERIFY` | `false` |  |  | Enables skipping TLS certificate verification (not standard, so we don't follow the same naming convention) |
 | `otel_metrics_export.instrumentations` | `string`[] | `OTEL_EBPF_METRICS_INSTRUMENTATIONS` | `*` | `*`, `amqp`, `couchbase`, `dns`, `genai`, `gpu`, `grpc`, `http`, `kafka`, `memcached`, `mongo`, `mqtt`, `nats`, `redis`, `sql`, `sunrpc` |  | Allows configuration of which instrumentations should be enabled, e.g. http, grpc, sql... |
-| `otel_metrics_export.interval` | `duration` | `OTEL_EBPF_METRICS_INTERVAL` | `0s` | `30s`, `5m`, `1ms`, etc |  |  |
+| `otel_metrics_export.interval` | `duration` | `OTEL_EBPF_METRICS_INTERVAL` | `0s` | `30s`, `5m`, `1ms`, `500us`, `0.5s`, etc |  |  |
 | `otel_metrics_export.otel_sdk_log_level` | `string` | `OTEL_EBPF_SDK_LOG_LEVEL` |  |  |  | Works independently from the global LogLevel because it prints GBs of logs in Debug mode and the Info messages leak internal details that are not usually valuable for the final user. Accepted values: debug, info, warn, error (case-insensitive). |
 | `otel_metrics_export.protocol` | `string` | `OTEL_EXPORTER_OTLP_PROTOCOL` |  | ``, `debug`, `grpc`, `http/json`, `http/protobuf` |  |  |
 | `otel_metrics_export.reporters_cache_len` | `integer` | `OTEL_EBPF_METRICS_REPORT_CACHE_LEN` | `256` |  |  |  |
-| `otel_metrics_export.ttl` | `duration` | `OTEL_EBPF_METRICS_TTL` | `5m` | `30s`, `5m`, `1ms`, etc |  | Specifies the time since a metric was updated for the last time until it is removed from the metrics set. |
+| `otel_metrics_export.ttl` | `duration` | `OTEL_EBPF_METRICS_TTL` | `5m` | `30s`, `5m`, `1ms`, `500us`, `0.5s`, etc |  | Specifies the time since a metric was updated for the last time until it is removed from the metrics set. |
 
 ### `otel_metrics_export.exponential_histogram`
 
@@ -536,11 +536,11 @@ ExponentialHistogramConfig configures the precision and size of exponential hist
 
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
-| `otel_traces_export.backoff_initial_interval` | `duration` | `OTEL_EBPF_BACKOFF_INITIAL_INTERVAL` | `0s` | `30s`, `5m`, `1ms`, etc |  | Configuration options for BackOffConfig of the traces exporter. See <https://github.com/open-telemetry/opentelemetry-collector/blob/main/config/configretry/backoff.go> BackOffInitialInterval the time to wait after the first failure before retrying. |
-| `otel_traces_export.backoff_max_elapsed_time` | `duration` | `OTEL_EBPF_BACKOFF_MAX_ELAPSED_TIME` | `0s` | `30s`, `5m`, `1ms`, etc |  | Specifies the maximum amount of time (including retries) spent trying to send a request/batch. |
-| `otel_traces_export.backoff_max_interval` | `duration` | `OTEL_EBPF_BACKOFF_MAX_INTERVAL` | `0s` | `30s`, `5m`, `1ms`, etc |  | Specifies the upper bound on backoff interval. |
+| `otel_traces_export.backoff_initial_interval` | `duration` | `OTEL_EBPF_BACKOFF_INITIAL_INTERVAL` | `0s` | `30s`, `5m`, `1ms`, `500us`, `0.5s`, etc |  | Configuration options for BackOffConfig of the traces exporter. See <https://github.com/open-telemetry/opentelemetry-collector/blob/main/config/configretry/backoff.go> BackOffInitialInterval the time to wait after the first failure before retrying. |
+| `otel_traces_export.backoff_max_elapsed_time` | `duration` | `OTEL_EBPF_BACKOFF_MAX_ELAPSED_TIME` | `0s` | `30s`, `5m`, `1ms`, `500us`, `0.5s`, etc |  | Specifies the maximum amount of time (including retries) spent trying to send a request/batch. |
+| `otel_traces_export.backoff_max_interval` | `duration` | `OTEL_EBPF_BACKOFF_MAX_INTERVAL` | `0s` | `30s`, `5m`, `1ms`, `500us`, `0.5s`, etc |  | Specifies the upper bound on backoff interval. |
 | `otel_traces_export.batch_max_size` | `integer` | `OTEL_EBPF_OTLP_TRACES_BATCH_MAX_SIZE` | `4096` |  |  | Is the maximum number of spans that the batcher will accumulate before flushing a batch to the sending queue. |
-| `otel_traces_export.batch_timeout` | `duration` | `OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT` | `15s` | `30s`, `5m`, `1ms`, etc |  | Is the time after which a batch will be sent regardless of its size. |
+| `otel_traces_export.batch_timeout` | `duration` | `OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT` | `15s` | `30s`, `5m`, `1ms`, `500us`, `0.5s`, etc |  | Is the time after which a batch will be sent regardless of its size. |
 | `otel_traces_export.endpoint` | `uri` | `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` |  |  |  |  |
 | `otel_traces_export.insecure_skip_verify` | `boolean` | `OTEL_EBPF_INSECURE_SKIP_VERIFY` | `false` |  |  | Enables skipping TLS certificate verification (not standard, so we don't follow the same naming convention) |
 | `otel_traces_export.instrumentations` | `string`[] | `OTEL_EBPF_TRACES_INSTRUMENTATIONS` | `http`, `grpc`, `sql`, `redis`, `kafka`, `mqtt`, `nats`, `amqp`, `mongo`, `couchbase`, `memcached`, `sunrpc` | `*`, `amqp`, `couchbase`, `dns`, `genai`, `gpu`, `grpc`, `http`, `kafka`, `memcached`, `mongo`, `mqtt`, `nats`, `redis`, `sql`, `sunrpc` |  | Allows configuration of which instrumentations should be enabled, e.g. http, grpc, sql... |
@@ -575,7 +575,7 @@ TODO: TLS
 | `prometheus_export.path` | `string` | `OTEL_EBPF_PROMETHEUS_PATH` | `/internal/metrics` |  |  |  |
 | `prometheus_export.port` | `integer` | `OTEL_EBPF_PROMETHEUS_PORT` | `0` |  |  | 0 means disabled |
 | `prometheus_export.service_cache_size` | `integer` |  | `10000` |  |  |  |
-| `prometheus_export.ttl` | `duration` | `OTEL_EBPF_PROMETHEUS_TTL` | `5m` | `30s`, `5m`, `1ms`, etc |  | Specifies the time since a metric was updated for the last time until it is removed from the metrics set. |
+| `prometheus_export.ttl` | `duration` | `OTEL_EBPF_PROMETHEUS_TTL` | `5m` | `30s`, `5m`, `1ms`, `500us`, `0.5s`, etc |  | Specifies the time since a metric was updated for the last time until it is removed from the metrics set. |
 
 ### `prometheus_export.native_histogram`
 
@@ -585,7 +585,7 @@ NativeHistogramConfig holds configuration for native histograms
 |---|---|---|---|---|---|---|
 | `prometheus_export.native_histogram.bucket_factor` | `number` | `OTEL_EBPF_PROMETHEUS_NATIVE_HISTOGRAM_BUCKET_FACTOR` | `1.1` |  |  |  |
 | `prometheus_export.native_histogram.max_bucket_number` | `integer` | `OTEL_EBPF_PROMETHEUS_NATIVE_HISTOGRAM_MAX_BUCKET_NUMBER` | `100` |  |  |  |
-| `prometheus_export.native_histogram.min_reset_duration` | `duration` | `OTEL_EBPF_PROMETHEUS_NATIVE_HISTOGRAM_MIN_RESET_DURATION` | `60m` | `30s`, `5m`, `1ms`, etc |  |  |
+| `prometheus_export.native_histogram.min_reset_duration` | `duration` | `OTEL_EBPF_PROMETHEUS_NATIVE_HISTOGRAM_MIN_RESET_DURATION` | `60m` | `30s`, `5m`, `1ms`, `500us`, `0.5s`, etc |  |  |
 
 ## `routes`
 
@@ -618,7 +618,7 @@ GeoIP is currently experimental. It is kept disabled by default and will be hidd
 
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
-| `stats.geo_ip.cache_expiry` | `duration` | `OTEL_EBPF_GEOIP_CACHE_TTL` | `60m` | `30s`, `5m`, `1ms`, etc |  | It also accepts OTEL_EBPF_NETWORK_GEOIP_CACHE_TTL for backwards-compatibility |
+| `stats.geo_ip.cache_expiry` | `duration` | `OTEL_EBPF_GEOIP_CACHE_TTL` | `60m` | `30s`, `5m`, `1ms`, `500us`, `0.5s`, etc |  | It also accepts OTEL_EBPF_NETWORK_GEOIP_CACHE_TTL for backwards-compatibility |
 | `stats.geo_ip.cache_len` | `integer` | `OTEL_EBPF_GEOIP_CACHE_LEN` | `512` |  |  | It also accepts OTEL_EBPF_NETWORK_GEOIP_CACHE_LEN for backwards-compatibility |
 
 #### `stats.geo_ip.ipinfo`
@@ -640,7 +640,7 @@ ReverseDNS is currently experimental. It is kept disabled by default and will be
 
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
-| `stats.reverse_dns.cache_expiry` | `duration` | `OTEL_EBPF_REVERSE_DNS_CACHE_TTL` | `60m` | `30s`, `5m`, `1ms`, etc |  | Only applies to the "local" and "ebpf" ReverseDNS type. It specifies the time-to-live of a cached IP->hostname entry. After the cached entry becomes older than this time, the IP->hostname entry will be looked up again. It also accepts OTEL_EBPF_NETWORK_REVERSE_DNS_CACHE_TTL for backwards-compatibility |
+| `stats.reverse_dns.cache_expiry` | `duration` | `OTEL_EBPF_REVERSE_DNS_CACHE_TTL` | `60m` | `30s`, `5m`, `1ms`, `500us`, `0.5s`, etc |  | Only applies to the "local" and "ebpf" ReverseDNS type. It specifies the time-to-live of a cached IP->hostname entry. After the cached entry becomes older than this time, the IP->hostname entry will be looked up again. It also accepts OTEL_EBPF_NETWORK_REVERSE_DNS_CACHE_TTL for backwards-compatibility |
 | `stats.reverse_dns.cache_len` | `integer` | `OTEL_EBPF_REVERSE_DNS_CACHE_LEN` | `256` |  |  | Only applies to the "local" and "ebpf" ReverseDNS type. It specifies the max size of the LRU cache that is checked before performing the name lookup. Default: 256 It also accepts OTEL_EBPF_NETWORK_REVERSE_DNS_CACHE_LEN for backwards-compatibility |
 | `stats.reverse_dns.type` | `string` | `OTEL_EBPF_REVERSE_DNS_TYPE` | `none` | `ebpf`, `local`, `none` |  | Specifies the ReverseDNS method. Values are "none" (default), "local" and "ebpf" It also accepts OTEL_EBPF_NETWORK_REVERSE_DNS_TYPE for backwards-compatibility |
 

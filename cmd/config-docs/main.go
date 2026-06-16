@@ -598,7 +598,9 @@ func (g *DocGenerator) typeString(original, resolved *Schema) string {
 		if resolved.Format == "ip" {
 			return "`ip`"
 		}
-		if resolved.Pattern == "^[0-9]+(ms|s|m)$" {
+		if resolved.Format == "duration" ||
+			resolved.Pattern == "^[-+]?(([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|µs|μs|ms|s|m|h))+$" ||
+			resolved.Pattern == "^[0-9]+(ms|s|m)$" {
 			return "`duration`"
 		}
 		return "`string`"

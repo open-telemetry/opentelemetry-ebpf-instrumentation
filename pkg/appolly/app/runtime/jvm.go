@@ -34,6 +34,7 @@ type JVMMemoryType string
 const (
 	JVMMemoryTypeHeap    JVMMemoryType = "heap"
 	JVMMemoryTypeNonHeap JVMMemoryType = "non_heap"
+	JVMMemoryTypeUnknown JVMMemoryType = "unknown"
 )
 
 type JVMGCPhase string
@@ -188,7 +189,7 @@ func InferJVMMemoryType(poolName string) JVMMemoryType {
 			return JVMMemoryTypeHeap
 		}
 	}
-	return ""
+	return JVMMemoryTypeUnknown
 }
 
 func withJVMMetric(base JVMRuntimeEvent, kind JVMRuntimeMetricKind, value uint64) JVMRuntimeEvent {
