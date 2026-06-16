@@ -20,12 +20,12 @@ import (
 	"go.opentelemetry.io/obi/pkg/ebpf/ringbuf"
 )
 
-func TestHandleJVMRuntimeMetricRecordForwardsHeapSummaryRuntimeMetric(t *testing.T) {
+func TestHandleRuntimeMetricsRecordForwardsHeapSummaryRuntimeMetric(t *testing.T) {
 	service := svc.Attrs{UID: svc.UID{Name: "orders", Namespace: "prod"}}
 	runtimeMetrics := &fakeRuntimeMetricsSender{}
 	ctx := &EBPFEventContext{RuntimeMetrics: runtimeMetrics}
 
-	handled, err := HandleJVMRuntimeMetricRecord(context.Background(), ctx, &ringbuf.Record{
+	handled, err := HandleRuntimeMetricsRecord(context.Background(), ctx, &ringbuf.Record{
 		RawSample: jvmBinaryPayload(t, jvmruntime.RawJVMGCHeapSummaryEvent{
 			Type:           EventTypeJVMGCHeapSummary,
 			Timestamp:      100,
@@ -49,17 +49,34 @@ func TestHandleJVMRuntimeMetricRecordForwardsHeapSummaryRuntimeMetric(t *testing
 	assert.Equal(t, uint64(2048), runtimeMetrics.events[0].ValueBytes)
 }
 
-func TestHandleJVMRuntimeMetricRecordConsumesEventsWithoutQueue(t *testing.T) {
-	handled, err := HandleJVMRuntimeMetricRecord(context.Background(), nil, &ringbuf.Record{
-		RawSample: []byte{EventTypeJVMMemoryPoolGC},
-	}, nil, nil)
+func TestHandleRuntimeMetricsRecordForwardsGoRuntimeMetricRecord(t *testing.T) {
+	runtimeMetrics := &fakeRuntimeMetricsSender{}
+	ctx := &EBPFEventContext{RuntimeMetrics: runtimeMetrics}
+	filter := fakeJVMServiceFilter{}
+
+	handled, err := HandleRuntimeMetricsRecord(context.Background(), ctx, &ringbuf.Record{
+		RawSample: []byte{EventTypeGoRuntimeMetric},
+	}, filter, nil)
 
 	require.NoError(t, err)
 	assert.True(t, handled)
+	assert.Equal(t, 1, runtimeMetrics.goRecords)
+	assert.Equal(t, filter, runtimeMetrics.goFilter)
 }
 
-func TestHandleJVMRuntimeMetricRecordIgnoresUnknownEventTypes(t *testing.T) {
-	handled, err := HandleJVMRuntimeMetricRecord(context.Background(), nil, &ringbuf.Record{
+func TestHandleRuntimeMetricsRecordConsumesEventsWithoutQueue(t *testing.T) {
+	for _, eventType := range []byte{EventTypeGoRuntimeMetric, EventTypeJVMMemoryPoolGC} {
+		handled, err := HandleRuntimeMetricsRecord(context.Background(), nil, &ringbuf.Record{
+			RawSample: []byte{eventType},
+		}, nil, nil)
+
+		require.NoError(t, err)
+		assert.True(t, handled)
+	}
+}
+
+func TestHandleRuntimeMetricsRecordIgnoresUnknownEventTypes(t *testing.T) {
+	handled, err := HandleRuntimeMetricsRecord(context.Background(), nil, &ringbuf.Record{
 		RawSample: []byte{EventTypeDNS},
 	}, nil, nil)
 
@@ -88,7 +105,15 @@ func (f fakeJVMServiceFilter) CurrentPIDs(PIDType) map[uint32]map[app.PID]svc.At
 }
 
 type fakeRuntimeMetricsSender struct {
-	events []jvmruntime.JVMRuntimeEvent
+	events    []jvmruntime.JVMRuntimeEvent
+	goRecords int
+	goFilter  ServiceFilter
+}
+
+func (s *fakeRuntimeMetricsSender) SendGoRuntimeMetricRecord(_ context.Context, _ *ringbuf.Record, filter ServiceFilter) error {
+	s.goRecords++
+	s.goFilter = filter
+	return nil
 }
 
 func (s *fakeRuntimeMetricsSender) SendJVMRuntimeMetrics(_ context.Context, events []jvmruntime.JVMRuntimeEvent) {

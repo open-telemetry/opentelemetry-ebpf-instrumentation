@@ -270,7 +270,7 @@ type sharedForwarder interface {
 type EBPFEventContext struct {
 	CommonPIDsFilter ServiceFilter
 	SharedRingBuffer sharedForwarder
-	RuntimeMetrics   JVMRuntimeMetricSender
+	RuntimeMetrics   RuntimeMetricSender
 	EBPFMaps         map[string]*ebpf.Map
 	RingBufLock      sync.Mutex
 	MapsLock         sync.Mutex

@@ -32,16 +32,15 @@ func rmlog() *slog.Logger {
 }
 
 type RuntimeMetricsReporter struct {
-	ctx               context.Context
-	cfg               *otelcfg.MetricsConfig
-	nodeMeta          meta.NodeMeta
-	exporter          sdkmetric.Exporter
-	reporters         otelcfg.ReporterPool[*svc.Attrs, *RuntimeMetrics]
-	input             <-chan []runtimemetrics.RuntimeMetricSnapshot
-	log               *slog.Logger
-	selector          attributes.Selection
-	goRuntimeEnabled  bool
-	jvmRuntimeEnabled bool
+	ctx            context.Context
+	cfg            *otelcfg.MetricsConfig
+	nodeMeta       meta.NodeMeta
+	exporter       sdkmetric.Exporter
+	reporters      otelcfg.ReporterPool[*svc.Attrs, *RuntimeMetrics]
+	input          <-chan []runtimemetrics.RuntimeMetricSnapshot
+	log            *slog.Logger
+	selector       attributes.Selection
+	runtimeEnabled runtimemetrics.Enabled
 }
 
 type RuntimeMetrics struct {
@@ -73,8 +72,9 @@ func ReportRuntimeMetrics(
 	input *msg.Queue[[]runtimemetrics.RuntimeMetricSnapshot],
 ) swarm.InstanceFunc {
 	return func(ctx context.Context) (swarm.RunFunc, error) {
+		runtimeEnabled := runtimemetrics.EnabledFeatures(jointMetricsConfig.Features)
 		if !cfg.EndpointEnabled() ||
-			!(jointMetricsConfig.Features.AppRuntime() || jointMetricsConfig.Features.AppJVM()) ||
+			!runtimeEnabled.Any() ||
 			input == nil {
 			return swarm.EmptyRunFunc()
 		}
@@ -105,15 +105,14 @@ func newRuntimeMetricsReporter(
 	}
 
 	reporter := &RuntimeMetricsReporter{
-		ctx:               ctx,
-		cfg:               cfg,
-		nodeMeta:          ctxInfo.NodeMeta,
-		exporter:          instrumentMetricsExporter(ctxInfo.Metrics, exporter),
-		input:             input.Subscribe(msg.SubscriberName("otel.RuntimeMetricsReporter")),
-		log:               log,
-		selector:          selectorCfg.SelectionCfg,
-		goRuntimeEnabled:  jointMetricsConfig.Features.AppRuntime(),
-		jvmRuntimeEnabled: jointMetricsConfig.Features.AppJVM(),
+		ctx:            ctx,
+		cfg:            cfg,
+		nodeMeta:       ctxInfo.NodeMeta,
+		exporter:       instrumentMetricsExporter(ctxInfo.Metrics, exporter),
+		input:          input.Subscribe(msg.SubscriberName("otel.RuntimeMetricsReporter")),
+		log:            log,
+		selector:       selectorCfg.SelectionCfg,
+		runtimeEnabled: runtimemetrics.EnabledFeatures(jointMetricsConfig.Features),
 	}
 
 	reporter.reporters, err = otelcfg.NewReporterPool[*svc.Attrs, *RuntimeMetrics](cfg.ReportersCacheLen, cfg.TTL, timeNow,
@@ -161,7 +160,7 @@ func (r *RuntimeMetricsReporter) newMetricsInstance(service *svc.Attrs) RuntimeM
 func (r *RuntimeMetricsReporter) newMetricSet(service *svc.Attrs) (*RuntimeMetrics, error) {
 	metrics := r.newMetricsInstance(service)
 	meter := metrics.provider.Meter(reporterName)
-	if err := setupRuntimeMeters(&metrics, meter, r.cfg.TTL, r.goRuntimeEnabled, r.jvmRuntimeEnabled); err != nil {
+	if err := setupRuntimeMeters(&metrics, meter, r.cfg.TTL, r.runtimeEnabled); err != nil {
 		return nil, err
 	}
 	return &metrics, nil
@@ -171,15 +170,14 @@ func setupRuntimeMeters(
 	metrics *RuntimeMetrics,
 	meter instrument.Meter,
 	ttl time.Duration,
-	goRuntimeEnabled bool,
-	jvmRuntimeEnabled bool,
+	enabled runtimemetrics.Enabled,
 ) error {
-	if goRuntimeEnabled {
+	if enabled.Go {
 		if err := setupGoRuntimeMeters(&metrics.goMetrics, meter); err != nil {
 			return err
 		}
 	}
-	if jvmRuntimeEnabled {
+	if enabled.JVM {
 		if err := setupJVMRuntimeMeters(metrics.ctx, &metrics.jvmMetrics, meter, ttl); err != nil {
 			return err
 		}
@@ -242,15 +240,7 @@ func (r *RuntimeMetricsReporter) reportRuntimeMetrics(snapshots []runtimemetrics
 }
 
 func (r *RuntimeMetricsReporter) shouldReportSnapshot(snapshot runtimemetrics.RuntimeMetricSnapshot) bool {
-	if snapshot.Go != nil {
-		return r.goRuntimeEnabled && snapshot.Service.SDKLanguage == svc.InstrumentableGolang
-	}
-	if snapshot.JVM != nil {
-		return r.jvmRuntimeEnabled &&
-			snapshot.Service.ExportModes.CanExportMetrics() &&
-			snapshot.Service.Features.AppJVM()
-	}
-	return false
+	return r.runtimeEnabled.ShouldReport(snapshot)
 }
 
 func recordRuntimeMetrics(ctx context.Context, metrics *RuntimeMetrics, snapshot runtimemetrics.RuntimeMetricSnapshot) {

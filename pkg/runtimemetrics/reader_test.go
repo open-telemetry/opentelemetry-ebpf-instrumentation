@@ -191,6 +191,43 @@ func TestQueueSenderSendsJVMRuntimeSnapshots(t *testing.T) {
 	require.Equal(t, uint64(4096), batch[0].JVM.ValueBytes)
 }
 
+func TestQueueSenderSendsGoRuntimeSnapshots(t *testing.T) {
+	service := svc.Attrs{
+		SDKLanguage: svc.InstrumentableGolang,
+		Features:    export.FeatureApplicationRuntime,
+	}
+	var record bytes.Buffer
+	require.NoError(t, binary.Write(&record, binary.LittleEndian, goRuntimeMetricRawEvent{
+		Type: EventTypeGoRuntimeMetric,
+		PID: goRuntimeMetricRawKey{
+			UserPID: 123,
+			Ns:      33,
+		},
+		Snapshot: goRuntimeMetricRawSnapshot{
+			NumGC:       10,
+			GOMAXPROCS:  4,
+			GCPercent:   100,
+			MemoryLimit: 1024,
+		},
+	}))
+
+	queue := msg.NewQueue[[]RuntimeMetricSnapshot](msg.ChannelBufferLen(1))
+	received := queue.Subscribe(msg.SubscriberName("runtimemetrics-test"))
+
+	err := NewQueueSender(queue).SendGoRuntimeMetricRecord(t.Context(), &ringbuf.Record{RawSample: record.Bytes()}, runtimeMetricFilter{
+		current: map[uint32]map[app.PID]svc.Attrs{
+			33: {123: service},
+		},
+	})
+	require.NoError(t, err)
+
+	batch := <-received
+	require.Len(t, batch, 1)
+	require.Equal(t, service, batch[0].Service)
+	require.NotNil(t, batch[0].Go)
+	require.Equal(t, int64(1024), *batch[0].Go.MemoryLimit)
+}
+
 type runtimeMetricFilter struct {
 	current map[uint32]map[app.PID]svc.Attrs
 }

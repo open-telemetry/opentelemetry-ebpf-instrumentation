@@ -12,15 +12,23 @@ import (
 )
 
 const (
+	EventTypeGoRuntimeMetric  = 17 // EVENT_GO_RUNTIME_METRIC
 	EventTypeJVMGCHeapSummary = 19 // EVENT_JVM_GC_HEAP_SUMMARY
 	EventTypeJVMMemoryPoolGC  = 20 // EVENT_JVM_MEM_POOL_GC
 )
 
-type JVMRuntimeMetricSender interface {
+type RuntimeMetricSender interface {
+	SendGoRuntimeMetricRecord(context.Context, *ringbuf.Record, ServiceFilter) error
 	SendJVMRuntimeMetrics(context.Context, []jvmruntime.JVMRuntimeEvent)
 }
 
-func HandleJVMRuntimeMetricRecord(
+func IsGoRuntimeMetricRecord(record *ringbuf.Record) bool {
+	return record != nil &&
+		len(record.RawSample) > 0 &&
+		record.RawSample[0] == EventTypeGoRuntimeMetric
+}
+
+func HandleRuntimeMetricsRecord(
 	ctx context.Context,
 	eventContext *EBPFEventContext,
 	record *ringbuf.Record,
@@ -32,6 +40,11 @@ func HandleJVMRuntimeMetricRecord(
 	}
 
 	switch record.RawSample[0] {
+	case EventTypeGoRuntimeMetric:
+		if eventContext == nil || eventContext.RuntimeMetrics == nil {
+			return true, nil
+		}
+		return true, eventContext.RuntimeMetrics.SendGoRuntimeMetricRecord(ctx, record, filter)
 	case EventTypeJVMGCHeapSummary:
 		if eventContext == nil || eventContext.RuntimeMetrics == nil {
 			return true, nil

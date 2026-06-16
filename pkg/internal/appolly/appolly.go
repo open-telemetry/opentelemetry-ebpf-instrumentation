@@ -123,9 +123,9 @@ func New(ctx context.Context, ctxInfo *global.ContextInfo, config *obi.Config) (
 
 func newRuntimeMetricsQueue(config *obi.Config) *msg.Queue[[]runtimemetrics.RuntimeMetricSnapshot] {
 	jointMetricsConfig := appolly.JoinMetricsConfig(config)
+	runtimeMetricsEnabled := runtimemetrics.EnabledFeatures(jointMetricsConfig.Features)
 
-	if !jointMetricsConfig.Features.AppRuntime() &&
-		!jointMetricsConfig.Features.AppJVM() ||
+	if !runtimeMetricsEnabled.Any() ||
 		!jointMetricsConfig.Features.AnyAppO11yMetric() ||
 		(!config.OTELMetrics.EndpointEnabled() && !config.Prometheus.EndpointEnabled()) {
 		return nil

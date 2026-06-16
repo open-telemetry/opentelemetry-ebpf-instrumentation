@@ -208,7 +208,6 @@ func (ta *traceAttacher) getTracer(ie *ebpf.Instrumentable) bool {
 				ta.EbpfEventContext.CommonPIDsFilter,
 				ta.Cfg,
 				ta.Metrics,
-				ta.RuntimeMetrics,
 			))
 		}
 	case svc.InstrumentableNodejs, svc.InstrumentableJava, svc.InstrumentableJavaNative, svc.InstrumentableRuby, svc.InstrumentablePython, svc.InstrumentableDotnet, svc.InstrumentableGeneric, svc.InstrumentableRust, svc.InstrumentablePHP, svc.InstrumentableCPP:

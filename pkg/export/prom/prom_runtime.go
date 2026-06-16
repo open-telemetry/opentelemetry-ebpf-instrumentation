@@ -60,16 +60,24 @@ func (c *goRuntimeMetricsCollector) collectors() []prometheus.Collector {
 }
 
 func (r *metricsReporter) collectRuntimeMetrics(snapshots []runtimemetrics.RuntimeMetricSnapshot) {
+	enabled := r.runtimeMetricsEnabled()
 	for _, snapshot := range snapshots {
+		if !enabled.ShouldReport(snapshot) {
+			continue
+		}
 		if snapshot.Go != nil {
-			if snapshot.Service.SDKLanguage != svc.InstrumentableGolang {
-				continue
-			}
 			r.collectGoRuntimeMetrics(snapshot)
 		}
 		if snapshot.JVM != nil {
 			r.collectJVMRuntimeMetrics(snapshot)
 		}
+	}
+}
+
+func (r *metricsReporter) runtimeMetricsEnabled() runtimemetrics.Enabled {
+	return runtimemetrics.Enabled{
+		Go:  r.goRuntimeMetrics.memoryLimit != nil,
+		JVM: r.jvmRuntimeMetrics.memoryUsed != nil,
 	}
 }
 

@@ -669,7 +669,7 @@ func (p *Tracer) processSharedRingbufRecord(
 	cfg *config.EBPFTracer,
 	record *ringbuf.Record,
 ) (request.Span, bool, error) {
-	if handled, err := ebpfcommon.HandleJVMRuntimeMetricRecord(ctx, p.eventCtx, record, p.pidsFilter, p.log); handled {
+	if handled, err := ebpfcommon.HandleRuntimeMetricsRecord(ctx, p.eventCtx, record, p.pidsFilter, p.log); handled {
 		return request.Span{}, true, err
 	}
 
@@ -680,7 +680,7 @@ func (p *Tracer) processSharedRingbufRecord(
 	return s, ignore, err
 }
 
-func (p *Tracer) runtimeMetricsSender() ebpfcommon.JVMRuntimeMetricSender {
+func (p *Tracer) runtimeMetricsSender() ebpfcommon.RuntimeMetricSender {
 	if p.eventCtx == nil {
 		return nil
 	}
