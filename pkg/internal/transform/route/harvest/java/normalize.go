@@ -134,11 +134,17 @@ func sanitizeColonParams(s string) string {
 			continue
 		}
 		if !strings.HasPrefix(part, ":") {
+			if i <= 1 {
+				return ""
+			}
 			return routePrefix(parts[:i])
 		}
 
 		name := strings.TrimPrefix(part, ":")
 		if !validParamName.MatchString(name) {
+			if i <= 1 {
+				return ""
+			}
 			return routePrefix(parts[:i])
 		}
 	}

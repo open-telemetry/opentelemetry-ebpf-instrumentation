@@ -61,6 +61,18 @@ func TestNormalizeRoute(t *testing.T) {
 		ok       bool
 	}{
 		{
+			name:     "copilot review one",
+			route:    "/foo:bar",
+			expected: "",
+			ok:       false,
+		},
+		{
+			name:     "copilot review two",
+			route:    "/:123",
+			expected: "",
+			ok:       false,
+		},
+		{
 			name:     "adds leading slash",
 			route:    "api/users",
 			expected: "/api/users",

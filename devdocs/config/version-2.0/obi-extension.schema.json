@@ -1160,7 +1160,7 @@
                     "delay": {
                       "type": "string",
                       "default": "5s",
-                      "description": "Delay before Java route discovery starts.\nIf omitted, `1m0s` is used.\n"
+                      "description": "Delay before Java route discovery starts.\nIf omitted, `5s` is used.\n"
                     }
                   }
                 }
