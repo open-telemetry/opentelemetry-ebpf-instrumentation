@@ -617,8 +617,8 @@ type Attributes struct {
 	MetricSpanNameAggregationLimit int `yaml:"metric_span_names_limit" env:"OTEL_EBPF_METRIC_SPAN_NAMES_LIMIT"`
 
 	// RedactQueryParams lists query-parameter keys whose values are replaced with REDACTED
-	// in url.full and url.query. When unset, a built-in list of well-known sensitive keys
-	// (sig, token, password, …) is applied. Set to an empty list to disable all redaction.
+	// in url.full and url.query. When unset, a built-in list of well-known sensitive keys is applied.
+	// Set to an empty list to disable all redaction.
 	RedactQueryParams []string `yaml:"redact_query_params" env:"OTEL_EBPF_REDACT_QUERY_PARAMS" envSeparator:","`
 }
 

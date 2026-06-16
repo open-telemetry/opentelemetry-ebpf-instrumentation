@@ -83,11 +83,18 @@ func parseExtraAttrGroup(group string) (AttrGroups, error) {
 
 // DefaultRedactQueryParams is the built-in set of query-parameter keys whose
 // values are replaced with REDACTED when url.query or url.full is emitted.
-// Users can override this list via the redact_query_params config field;
-// set to an empty slice to disable all redaction.
+// All five entries are mandated by the OTel HTTP semconv (matching is case-sensitive):
+// https://opentelemetry.io/docs/specs/semconv/http/http-spans/
+// This list is always applied. Users can extend it via the
+// extra_redact_query_params config field (OTEL_EBPF_EXTRA_REDACT_QUERY_PARAMS);
+// the built-in set cannot be disabled or overridden.
 var DefaultRedactQueryParams = []string{
-	"sig", "Signature", "AWSAccessKeyId", "token", "key", "password",
-	"secret", "api_key", "apikey", "access_token", "auth",
+	// OTel semconv mandated — do not remove.
+	"X-Amz-Signature",
+	"X-Amz-Credential",
+	"X-Amz-Security-Token",
+	"X-Goog-Signature",
+	"sig", // Microsoft Azure SAS token
 }
 
 // SelectorConfig defines settings for filtering attributes and adding additional attributes

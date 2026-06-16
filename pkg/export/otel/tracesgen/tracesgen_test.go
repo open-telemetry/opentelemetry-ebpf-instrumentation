@@ -96,23 +96,24 @@ func TestHTTPServerSpanURLQuery(t *testing.T) {
 		},
 	}
 
-	t.Run("url.query absent by default", func(t *testing.T) {
+	t.Run("url.query present by default", func(t *testing.T) {
+		// url.query is Conditionally Required per OTel semconv, so it is on by default.
 		span := &request.Span{Type: request.EventTypeHTTP, Method: "GET", Path: "/", FullPath: "/?cmd=BLABLA", Status: 200}
+		defaultAttrs, err := UserSelectedAttributes(&attributes.SelectorConfig{})
+		require.NoError(t, err)
+		selected := AttrsToMap(TraceAttributesSelector(span, defaultAttrs))
+		val, ok := selected.Get("url.query")
+		require.True(t, ok)
+		assert.Equal(t, "cmd=BLABLA", val.Str())
+	})
+
+	t.Run("url.query absent when no query string", func(t *testing.T) {
+		span := &request.Span{Type: request.EventTypeHTTP, Method: "GET", Path: "/health", FullPath: "/health", Status: 200}
 		defaultAttrs, err := UserSelectedAttributes(&attributes.SelectorConfig{})
 		require.NoError(t, err)
 		selected := AttrsToMap(TraceAttributesSelector(span, defaultAttrs))
 		_, ok := selected.Get("url.query")
 		assert.False(t, ok)
-	})
-
-	t.Run("url.query present when opted in", func(t *testing.T) {
-		span := &request.Span{Type: request.EventTypeHTTP, Method: "GET", Path: "/", FullPath: "/?cmd=BLABLA", Status: 200}
-		optInAttrs, err := UserSelectedAttributes(optInCfg)
-		require.NoError(t, err)
-		selected := AttrsToMap(TraceAttributesSelector(span, optInAttrs))
-		val, ok := selected.Get("url.query")
-		require.True(t, ok)
-		assert.Equal(t, "cmd=BLABLA", val.Str())
 	})
 
 	t.Run("sensitive key redacted in url.query", func(t *testing.T) {

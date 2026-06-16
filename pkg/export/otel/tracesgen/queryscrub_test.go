@@ -37,10 +37,11 @@ func TestScrubQuery(t *testing.T) {
 			want: "q=hello&token=REDACTED&AWSAccessKeyId=REDACTED&page=2",
 		},
 		{
-			name: "case-insensitive key matching",
+			// OTel semconv requires case-sensitive matching — SIG != sig
+			name: "case-sensitive key matching: wrong case not redacted",
 			qs:   "SIG=abc123&cmd=test",
 			keys: sensitiveKeys,
-			want: "SIG=REDACTED&cmd=test",
+			want: "SIG=abc123&cmd=test",
 		},
 		{
 			name: "empty sensitive list passes through unchanged",
@@ -66,11 +67,17 @@ func TestScrubQuery(t *testing.T) {
 			keys: sensitiveKeys,
 			want: "z=1&a=2&sig=REDACTED&m=3",
 		},
+		{
+			name: "all params redacted produces non-empty string",
+			qs:   "sig=secret&token=abc",
+			keys: sensitiveKeys,
+			want: "sig=REDACTED&token=REDACTED",
+		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, scrubQuery(tc.qs, tc.keys))
+			assert.Equal(t, tc.want, scrubQuery(tc.qs, buildRedactSet(tc.keys)))
 		})
 	}
 }
