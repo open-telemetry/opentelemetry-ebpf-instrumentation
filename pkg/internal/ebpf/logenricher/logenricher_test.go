@@ -10,6 +10,8 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/cilium/ebpf"
+	"github.com/cilium/ebpf/rlimit"
 	"github.com/stretchr/testify/assert"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
@@ -39,6 +41,51 @@ func newTestTracer(t *testing.T, exclude bool) *Tracer {
 		pidServices: map[uint32]*exec.FileInfo{},
 		pidsMU:      sync.Mutex{},
 	}
+}
+
+func TestBlockPIDClearsNamespacedPIDCache(t *testing.T) {
+	tr := newTestTracer(t, false)
+
+	if err := rlimit.RemoveMemlock(); err != nil {
+		t.Skipf("removing memlock failed: %v", err)
+	}
+
+	m, err := ebpf.NewMap(&ebpf.MapSpec{
+		Name:       "le_pids_test",
+		Type:       ebpf.Hash,
+		KeySize:    8,
+		ValueSize:  1,
+		MaxEntries: 4,
+	})
+	if err != nil {
+		t.Skipf("ebpf map create failed: %v", err)
+	}
+	t.Cleanup(func() {
+		assert.NoError(t, m.Close())
+	})
+	tr.bpfObjects.LogEnricherPids = m
+
+	const (
+		ns    = 1
+		pid   = 12345
+		nsPID = 2345
+	)
+
+	pk := tr.pidKey(ns, pid)
+	nsPk := tr.pidKey(ns, nsPID)
+	tr.pids[pk] = []uint64{nsPk}
+
+	assert.NoError(t, m.Put(pk, uint8(1)))
+	assert.NoError(t, m.Put(nsPk, uint8(1)))
+
+	tr.BlockPID(pid, ns)
+
+	_, ok := tr.pids[pk]
+	assert.False(t, ok)
+
+	var value uint8
+	assert.ErrorIs(t, m.Lookup(pk, &value), ebpf.ErrKeyNotExist)
+	assert.ErrorIs(t, m.Lookup(nsPk, &value), ebpf.ErrKeyNotExist)
 }
 
 func TestShouldOmitSpanID_FeatureDisabled(t *testing.T) {
