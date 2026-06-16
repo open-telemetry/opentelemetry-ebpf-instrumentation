@@ -81,10 +81,23 @@ func parseExtraAttrGroup(group string) (AttrGroups, error) {
 	}
 }
 
+// DefaultRedactQueryParams is the built-in set of query-parameter keys whose
+// values are replaced with REDACTED when url.query or url.full is emitted.
+// Users can override this list via the redact_query_params config field;
+// set to an empty slice to disable all redaction.
+var DefaultRedactQueryParams = []string{
+	"sig", "Signature", "AWSAccessKeyId", "token", "key", "password",
+	"secret", "api_key", "apikey", "access_token", "auth",
+}
+
 // SelectorConfig defines settings for filtering attributes and adding additional attributes
 type SelectorConfig struct {
 	SelectionCfg            Selection
 	ExtraGroupAttributesCfg map[string][]attr.Name
+	// RedactQueryParams lists query-parameter keys whose values are replaced
+	// with REDACTED in url.full and url.query. Nil means use DefaultRedactQueryParams.
+	// Set to []string{} to disable all redaction.
+	RedactQueryParams []string
 }
 
 // AttrSelector returns, for each metric, the attributes that have to be reported

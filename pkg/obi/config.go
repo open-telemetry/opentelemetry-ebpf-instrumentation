@@ -615,6 +615,11 @@ type Attributes struct {
 	// When the span_name cardinality surpasses this limit, the span_name will be reported as AGGREGATED.
 	// If the value <= 0, it is disabled.
 	MetricSpanNameAggregationLimit int `yaml:"metric_span_names_limit" env:"OTEL_EBPF_METRIC_SPAN_NAMES_LIMIT"`
+
+	// RedactQueryParams lists query-parameter keys whose values are replaced with REDACTED
+	// in url.full and url.query. When unset, a built-in list of well-known sensitive keys
+	// (sig, token, password, …) is applied. Set to an empty list to disable all redaction.
+	RedactQueryParams []string `yaml:"redact_query_params" env:"OTEL_EBPF_REDACT_QUERY_PARAMS" envSeparator:","`
 }
 
 type HostIDConfig struct {

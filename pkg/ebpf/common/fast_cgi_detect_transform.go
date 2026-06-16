@@ -9,6 +9,7 @@ import (
 	"errors"
 	"io"
 	"strconv"
+	"strings"
 	"unsafe"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
@@ -20,6 +21,7 @@ const (
 	fastCGIRequestHeaderLen = 8
 	requestMethodKey        = "REQUEST_METHOD"
 	requestURIKey           = "REQUEST_URI"
+	queryStringKey          = "QUERY_STRING"
 	responseError           = 7 // FCGI_STDERR
 	responseStatusKey       = "Status: "
 )
@@ -185,6 +187,16 @@ func detectFastCGI(b, rb *largebuf.LargeBuffer) (string, string, int) {
 			return "", "", -1
 		}
 		uri := kv[requestURIKey]
+		if uri == "" {
+			// Default to "/" when REQUEST_URI is absent (older nginx configs) or
+			// when the buffer was truncated before REQUEST_URI could be parsed.
+			// In the truncation case this may report the wrong path, but it is
+			// the best we can do without the full packet.
+			uri = "/"
+		}
+		if qs := kv[queryStringKey]; qs != "" && strings.IndexByte(uri, '?') < 0 {
+			uri = uri + "?" + qs
+		}
 
 		// Translate the status code into HTTP, 200 OK, 500 ERR
 		status := 200
@@ -231,7 +243,8 @@ func TCPToFastCGIToSpan(trace *TCPRequestInfo, op, uri string, status int) reque
 	return request.Span{
 		Type:          reqType,
 		Method:        op,
-		Path:          uri,
+		Path:          removeQuery(uri),
+		FullPath:      uri,
 		Peer:          peer,
 		PeerPort:      int(trace.ConnInfo.S_port),
 		Host:          hostname,

@@ -1,0 +1,76 @@
+// Copyright The OpenTelemetry Authors
+// SPDX-License-Identifier: Apache-2.0
+
+package tracesgen
+
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+)
+
+func TestScrubQuery(t *testing.T) {
+	sensitiveKeys := []string{"sig", "token", "AWSAccessKeyId"}
+
+	tests := []struct {
+		name string
+		qs   string
+		keys []string
+		want string
+	}{
+		{
+			name: "sensitive key redacted",
+			qs:   "cmd=OBIWANKENOBI&sig=abc123",
+			keys: sensitiveKeys,
+			want: "cmd=OBIWANKENOBI&sig=REDACTED",
+		},
+		{
+			name: "non-sensitive keys unchanged",
+			qs:   "cmd=OBIWANKENOBI&page=1",
+			keys: sensitiveKeys,
+			want: "cmd=OBIWANKENOBI&page=1",
+		},
+		{
+			name: "multiple sensitive keys",
+			qs:   "q=hello&token=secret&AWSAccessKeyId=AKID&page=2",
+			keys: sensitiveKeys,
+			want: "q=hello&token=REDACTED&AWSAccessKeyId=REDACTED&page=2",
+		},
+		{
+			name: "case-insensitive key matching",
+			qs:   "SIG=abc123&cmd=test",
+			keys: sensitiveKeys,
+			want: "SIG=REDACTED&cmd=test",
+		},
+		{
+			name: "empty sensitive list passes through unchanged",
+			qs:   "sig=secret&cmd=test",
+			keys: nil,
+			want: "sig=secret&cmd=test",
+		},
+		{
+			name: "empty query string",
+			qs:   "",
+			keys: sensitiveKeys,
+			want: "",
+		},
+		{
+			name: "key with no value preserved",
+			qs:   "flag&cmd=test",
+			keys: sensitiveKeys,
+			want: "flag&cmd=test",
+		},
+		{
+			name: "parameter order preserved",
+			qs:   "z=1&a=2&sig=secret&m=3",
+			keys: sensitiveKeys,
+			want: "z=1&a=2&sig=REDACTED&m=3",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, scrubQuery(tc.qs, tc.keys))
+		})
+	}
+}

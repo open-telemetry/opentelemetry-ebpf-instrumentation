@@ -73,8 +73,13 @@ func UserSelectedAttributes(selectorCfg *attributes.SelectorConfig) (map[attr.Na
 	return traceAttrs, err
 }
 
-// GroupSpans must remain public for collectors embedding OBI
-func GroupSpans(ctx context.Context, spans []request.Span, traceAttrs map[attr.Name]struct{}, sampler trace.Sampler, is instrumentations.InstrumentationSelection) map[svc.UID][]TraceSpanAndAttributes {
+// GroupSpans must remain public for collectors embedding OBI.
+// redactKeys is the merged list of query-parameter keys to scrub; within OBI
+// this is built as DefaultRedactQueryParams + ExtraRedactQueryParams by
+// instrumenter.go. Embedders calling GroupSpans directly must pass
+// attributes.DefaultRedactQueryParams explicitly to get the same behaviour,
+// otherwise no scrubbing is applied.
+func GroupSpans(ctx context.Context, spans []request.Span, traceAttrs map[attr.Name]struct{}, sampler trace.Sampler, is instrumentations.InstrumentationSelection, redactKeys ...string) map[svc.UID][]TraceSpanAndAttributes {
 	spanGroups := map[svc.UID][]TraceSpanAndAttributes{}
 
 	for i := range spans {
@@ -86,7 +91,7 @@ func GroupSpans(ctx context.Context, spans []request.Span, traceAttrs map[attr.N
 			continue
 		}
 
-		finalAttrs := TraceAttributesSelector(span, traceAttrs)
+		finalAttrs := TraceAttributesSelector(span, traceAttrs, redactKeys...)
 
 		spanSampler := func() trace.Sampler {
 			if span.Service.Sampler != nil {
@@ -499,7 +504,7 @@ func httpEnrichmentAttributes(span *request.Span) []attribute.KeyValue {
 }
 
 //nolint:cyclop
-func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]struct{}) []attribute.KeyValue {
+func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]struct{}, redactKeys ...string) []attribute.KeyValue {
 	var attrs []attribute.KeyValue
 
 	switch span.Type {
@@ -507,12 +512,14 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 		attrs = []attribute.KeyValue{
 			request.HTTPRequestMethod(span.Method),
 			request.HTTPResponseStatusCode(span.Status),
-			request.HTTPUrlPath(span.Path),
 			request.ClientAddr(request.PeerAsClient(span)),
 			request.ServerAddr(request.SpanHost(span)),
 			request.ServerPort(span.HostPort),
 			request.HTTPRequestBodySize(int(span.RequestBodyLength())),
 			request.HTTPResponseBodySize(span.ResponseBodyLength()),
+		}
+		if span.Path != "" {
+			attrs = append(attrs, request.HTTPUrlPath(span.Path))
 		}
 		scheme := request.HTTPScheme(span)
 		if scheme != "" {
@@ -527,6 +534,13 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 			}
 			attrs = append(attrs, semconv.GraphQLOperationName(span.GraphQL.OperationName))
 			attrs = append(attrs, request.GraphqlOperationType(span.GraphQL.OperationType))
+		}
+		if _, ok := optionalAttrs[attr.HTTPUrlQuery]; ok {
+			if idx := strings.IndexByte(span.FullPath, '?'); idx != -1 {
+				if qs := scrubQuery(span.FullPath[idx+1:], redactKeys); qs != "" {
+					attrs = append(attrs, request.HTTPUrlQuery(qs))
+				}
+			}
 		}
 		attrs = append(attrs, mcpAttributes(span, optionalAttrs)...)
 		attrs = append(attrs, jsonRPCAttributes(span)...)
@@ -577,13 +591,20 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 		if span.FullPath != "" {
 			urlPath = span.FullPath
 		}
-		// Strip query parameters from url.full by default to avoid leaking
-		// sensitive data (tokens, PII). Include them only when explicitly opted in.
+		// Strip or scrub query parameters from url.full to avoid leaking sensitive
+		// data (tokens, PII). When url.query is opted in, known sensitive keys are
+		// redacted (REDACTED) rather than the entire string being dropped.
 		var queryString string
-		if idx := strings.IndexByte(urlPath, '?'); idx > 0 {
-			queryString = urlPath[idx+1:]
+		if idx := strings.IndexByte(urlPath, '?'); idx >= 0 {
+			queryString = scrubQuery(urlPath[idx+1:], redactKeys)
 			if _, ok := optionalAttrs[attr.HTTPUrlQuery]; !ok {
 				urlPath = urlPath[:idx]
+			} else {
+				if queryString != "" {
+					urlPath = urlPath[:idx+1] + queryString
+				} else {
+					urlPath = urlPath[:idx]
+				}
 			}
 		}
 		url := urlPath
