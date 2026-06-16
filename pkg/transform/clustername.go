@@ -146,7 +146,8 @@ func openshiftClusterNameFetcher(k8sInformer *kube.MetadataProvider) clusterName
 		}
 
 		client := &http.Client{Timeout: time.Second, Transport: transport}
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, cfg.Host+openshiftInfraPath, nil)
+		endpoint := strings.TrimRight(cfg.Host, "/") + openshiftInfraPath
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 		if err != nil {
 			return "", fmt.Errorf("creating request: %w", err)
 		}
@@ -158,12 +159,16 @@ func openshiftClusterNameFetcher(k8sInformer *kube.MetadataProvider) clusterName
 		defer resp.Body.Close()
 
 		if resp.StatusCode != http.StatusOK {
-			return "", fmt.Errorf("OpenShift API returned %d %s", resp.StatusCode, resp.Status)
+			return "", fmt.Errorf("OpenShift API returned %s", resp.Status)
 		}
 
 		var infra openshiftInfrastructureResponse
 		if err := json.NewDecoder(resp.Body).Decode(&infra); err != nil {
 			return "", fmt.Errorf("decoding infrastructure response: %w", err)
+		}
+
+		if infra.Status.InfrastructureName == "" {
+			return "", fmt.Errorf("OpenShift Infrastructure CR has empty infrastructureName")
 		}
 
 		return infra.Status.InfrastructureName, nil

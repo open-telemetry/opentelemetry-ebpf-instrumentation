@@ -74,4 +74,20 @@ func TestOpenshiftClusterNameFetcher(t *testing.T) {
 		_, err := fetcher(t.Context())
 		assert.ErrorContains(t, err, "OpenShift API returned 404")
 	})
+
+	t.Run("returns error on empty infrastructureName", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"status":{"infrastructureName":""}}`))
+		}))
+		defer srv.Close()
+
+		mp := kube.NewMetadataProvider(kube.MetadataConfig{
+			KubeConfigPath: newTestKubeConfig(t, srv.URL),
+		}, imetrics.NoopReporter{})
+
+		fetcher := openshiftClusterNameFetcher(mp)
+		_, err := fetcher(t.Context())
+		assert.ErrorContains(t, err, "empty infrastructureName")
+	})
 }
