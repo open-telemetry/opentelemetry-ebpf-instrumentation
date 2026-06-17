@@ -408,24 +408,27 @@ func TestBlockingPanics(t *testing.T) {
 	})
 }
 
-func TestNodeString(t *testing.T) {
+func TestSendPath(t *testing.T) {
 	type tc struct {
 		expect string
-		start  node
+		route  []string
 	}
 	testCases := []tc{{
-		expect: "name-only",
-		start:  node{name: "name-only"},
+		expect: "subscriber",
+		route:  nil,
 	}, {
-		expect: "src->dst",
-		start:  node{name: "dst", source: &node{name: "src"}},
+		expect: "src->subscriber",
+		route:  []string{"src"},
 	}, {
-		expect: "src->middle->dst",
-		start:  node{name: "dst", source: &node{name: "middle", source: &node{name: "src"}}},
+		expect: "src->dst->subscriber",
+		route:  []string{"src", "dst"},
+	}, {
+		expect: "src->middle->dst->subscriber",
+		route:  []string{"src", "middle", "dst"},
 	}}
 	for _, tc := range testCases {
 		t.Run(tc.expect, func(t *testing.T) {
-			assert.Equal(t, tc.expect, tc.start.String())
+			assert.Equal(t, tc.expect, sendPath(tc.route, "subscriber"))
 		})
 	}
 }
