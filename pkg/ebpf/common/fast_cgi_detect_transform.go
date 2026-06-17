@@ -187,14 +187,10 @@ func detectFastCGI(b, rb *largebuf.LargeBuffer) (string, string, int) {
 			return "", "", -1
 		}
 		uri := kv[requestURIKey]
-		if uri == "" {
-			// Default to "/" when REQUEST_URI is absent (older nginx configs) or
-			// when the buffer was truncated before REQUEST_URI could be parsed.
-			// In the truncation case this may report the wrong path, but it is
-			// the best we can do without the full packet.
-			uri = "/"
-		}
 		if qs := kv[queryStringKey]; qs != "" && strings.IndexByte(uri, '?') < 0 {
+			if uri == "" {
+				uri = "/"
+			}
 			uri = uri + "?" + qs
 		}
 

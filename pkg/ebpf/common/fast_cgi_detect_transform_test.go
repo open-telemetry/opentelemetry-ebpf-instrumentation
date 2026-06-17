@@ -190,6 +190,7 @@ func TestDetectFastCGI(t *testing.T) {
 		expectedMethod string
 		expectedPath   string
 		expectedResult int
+		extraCheck     func(t *testing.T, path string)
 	}{
 		{
 			name:           "Older PHP, small frame",
@@ -198,7 +199,7 @@ func TestDetectFastCGI(t *testing.T) {
 			inputLen:       152,
 			outputLen:      20,
 			expectedMethod: "GET",
-			expectedPath:   "/",
+			expectedPath:   "",
 			expectedResult: 200,
 		},
 		{
@@ -278,17 +279,21 @@ func TestDetectFastCGI(t *testing.T) {
 			expectedMethod: "GET",
 			expectedPath:   "/?existing=1",
 			expectedResult: 200,
+			// Confirm QUERY_STRING=other=2 was not appended to the path.
+			extraCheck: func(t *testing.T, path string) {
+				assert.NotContains(t, path, "other=2")
+			},
 		},
 		{
 			// REQUEST_URI=/ping is in the packet but truncated at inputLen=100.
-			// OBI defaults to "/" when REQUEST_URI is absent from the parsed portion.
+			// Path stays empty when REQUEST_URI is absent and there is no QUERY_STRING.
 			name:           "Not enough data",
 			input:          []byte{1, 1, 0, 1, 0, 8, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 4, 0, 1, 1, 217, 7, 0, 12, 0, 81, 85, 69, 82, 89, 95, 83, 84, 82, 73, 78, 71, 14, 3, 82, 69, 81, 85, 69, 83, 84, 95, 77, 69, 84, 72, 79, 68, 71, 69, 84, 12, 0, 67, 79, 78, 84, 69, 78, 84, 95, 84, 89, 80, 69, 14, 0, 67, 79, 78, 84, 69, 78, 84, 95, 76, 69, 78, 71, 84, 72, 11, 5, 83, 67, 82, 73, 80, 84, 95, 78, 65, 77, 69, 47, 112, 105, 110, 103, 11, 5, 82, 69, 81, 85, 69, 83, 84, 95, 85, 82, 73, 47, 112, 105, 110, 103, 12, 5, 68, 79, 67, 85, 77, 69, 78, 84, 95, 85, 82, 73, 47, 112, 105, 110, 103, 13, 13, 68, 79, 67, 85, 77, 69, 78, 84, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
 			output:         []byte{1, 7, 1, 0, 0},
 			inputLen:       100,
 			outputLen:      1,
 			expectedMethod: "GET",
-			expectedPath:   "/",
+			expectedPath:   "",
 			expectedResult: 200,
 		},
 		{
@@ -311,6 +316,9 @@ func TestDetectFastCGI(t *testing.T) {
 			assert.Equal(t, tt.expectedMethod, method)
 			assert.Equal(t, tt.expectedPath, path)
 			assert.Equal(t, tt.expectedResult, status)
+			if tt.extraCheck != nil {
+				tt.extraCheck(t, path)
+			}
 		})
 	}
 }
@@ -342,6 +350,14 @@ func TestTCPToFastCGIToSpanPathSplit(t *testing.T) {
 			uri:          "/ping",
 			expectedPath: "/ping",
 			expectedFull: "/ping",
+		},
+		{
+			// When REQUEST_URI is absent from FastCGI params and QUERY_STRING is also
+			// absent, detectFastCGI returns "" and the span carries no path at all.
+			name:         "empty uri when REQUEST_URI and QUERY_STRING both absent",
+			uri:          "",
+			expectedPath: "",
+			expectedFull: "",
 		},
 	}
 
