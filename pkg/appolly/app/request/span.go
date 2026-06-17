@@ -983,6 +983,22 @@ type RetrievalRequest struct {
 	CollectionName  string `json:"collectionName,omitempty"`
 	CollectionSnake string `json:"collection_name,omitempty"`
 	Namespace       string `json:"namespace,omitempty"`
+	// TopK / limit for similarity search results.
+	// Pinecone/Qdrant use "topK"/"top_k", Milvus/Chroma use "limit".
+	TopK      int `json:"topK,omitempty"`
+	TopKSnake int `json:"top_k,omitempty"`
+	Limit     int `json:"limit,omitempty"`
+}
+
+// GetTopK returns the top-k value from whichever field was populated.
+func (r *RetrievalRequest) GetTopK() int {
+	if r.TopK > 0 {
+		return r.TopK
+	}
+	if r.TopKSnake > 0 {
+		return r.TopKSnake
+	}
+	return r.Limit
 }
 
 // RetrievalResponse captures the common fields from vector search response

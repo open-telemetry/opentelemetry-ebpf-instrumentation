@@ -1053,6 +1053,9 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 			if collection := ai.GetCollection(); collection != "" {
 				attrs = append(attrs, semconv.GenAIDataSourceID(collection))
 			}
+			if topK := ai.Input.GetTopK(); topK > 0 {
+				attrs = append(attrs, attribute.Int("gen_ai.retrieval.top_k", topK))
+			}
 		}
 
 		attrs = append(attrs, jsonRPCAttributes(span)...)
