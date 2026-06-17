@@ -100,6 +100,15 @@ func TestExtractRoutesFromMultipleClasspathJars(t *testing.T) {
 	assert.ElementsMatch(t, expectedRoutes, routes)
 }
 
+func TestExtractRoutesFromWildcardClasspathJars(t *testing.T) {
+	fileInfo := javaFileInfo(t, []string{"-cp", "/*", "com.example.Main"}, nil)
+
+	routes, err := ExtractRoutes(fileInfo)
+
+	require.NoError(t, err)
+	assert.ElementsMatch(t, expectedRoutes, routes)
+}
+
 func TestResolveProcessPathRejectsSymlinkEscape(t *testing.T) {
 	root := t.TempDir()
 	outside := filepath.Join(t.TempDir(), "outside.jar")

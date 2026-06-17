@@ -85,8 +85,12 @@ func TestParseJavaLaunch(t *testing.T) {
 func TestScanRootsFromClasspath(t *testing.T) {
 	root := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "app", "classes"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "app", "lib"), 0o755))
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "lib"), 0o755))
 	writeFile(t, filepath.Join(root, "app", "app.jar"))
+	writeFile(t, filepath.Join(root, "app", "lib", "dep.jar"))
+	writeFile(t, filepath.Join(root, "app", "lib", "plugin.war"))
+	writeFile(t, filepath.Join(root, "app", "lib", "notes.txt"))
 	writeFile(t, filepath.Join(root, "lib", "dep.jar"))
 	writeFile(t, filepath.Join(root, "app", "notes.txt"))
 
@@ -119,10 +123,42 @@ func TestScanRootsFromClasspath(t *testing.T) {
 		}, roots)
 	})
 
-	t.Run("skips wildcards missing paths and non archives", func(t *testing.T) {
-		classpath := strings.Join([]string{"/app/*", "/missing", "notes.txt"}, string(filepath.ListSeparator))
+	t.Run("expands wildcard archive entries", func(t *testing.T) {
+		classpath := strings.Join([]string{"app.jar", "lib/*"}, string(filepath.ListSeparator))
+
+		roots := scanRootsFromClasspath(root, "/app", classpath)
+
+		assert.Equal(t, []scanRoot{
+			{path: filepath.Join(root, "app", "app.jar")},
+			{path: filepath.Join(root, "app", "lib", "dep.jar")},
+			{path: filepath.Join(root, "app", "lib", "plugin.war")},
+		}, roots)
+	})
+
+	t.Run("skips wildcard archives escaping root", func(t *testing.T) {
+		outside := filepath.Join(t.TempDir(), "outside.jar")
+		writeFile(t, outside)
+		require.NoError(t, os.Symlink(outside, filepath.Join(root, "app", "lib", "escape.jar")))
+
+		roots := scanRootsFromClasspath(root, "/app", "lib/*")
+
+		assert.Equal(t, []scanRoot{
+			{path: filepath.Join(root, "app", "lib", "dep.jar")},
+			{path: filepath.Join(root, "app", "lib", "plugin.war")},
+		}, roots)
+	})
+
+	t.Run("skips unsupported wildcards missing paths and non archives", func(t *testing.T) {
+		classpath := strings.Join([]string{"/app/l*b", "/missing", "notes.txt"}, string(filepath.ListSeparator))
 
 		assert.Empty(t, scanRootsFromClasspath(root, "/app", classpath))
+	})
+
+	// no shell semantics expansion, mimics what Java class path expansion supports
+	t.Run("does not expand directory prefix wildcard", func(t *testing.T) {
+		require.NoError(t, os.MkdirAll(filepath.Join(root, "application"), 0o755))
+
+		assert.Empty(t, scanRootsFromClasspath(root, "/app", "/app*"))
 	})
 }
 
@@ -215,6 +251,23 @@ func TestFindScanRoots(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.Equal(t, []scanRoot{{path: filepath.Join(root, "app", "classes"), dir: true}}, roots)
+	})
+
+	t.Run("finds wildcard classpath archives", func(t *testing.T) {
+		require.NoError(t, os.MkdirAll(filepath.Join(root, "app", "lib"), 0o755))
+		writeFile(t, filepath.Join(root, "app", "lib", "dep.jar"))
+		writeFile(t, filepath.Join(root, "app", "lib", "plugin.war"))
+		classpath := strings.Join([]string{"app.jar", "lib/*"}, string(filepath.ListSeparator))
+		fileInfo := javaClasspathFileInfo(t, root, []string{"-cp", classpath, "com.example.Main"}, nil, nil, nil)
+
+		roots, err := NewExtractor().findScanRoots(fileInfo)
+
+		require.NoError(t, err)
+		assert.Equal(t, []scanRoot{
+			{path: filepath.Join(root, "app", "app.jar")},
+			{path: filepath.Join(root, "app", "lib", "dep.jar")},
+			{path: filepath.Join(root, "app", "lib", "plugin.war")},
+		}, roots)
 	})
 
 	t.Run("uses cwd when classpath is empty", func(t *testing.T) {

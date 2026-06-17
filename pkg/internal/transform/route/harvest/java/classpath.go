@@ -97,32 +97,93 @@ func scanRootsFromClasspath(root, cwd, classpath string) []scanRoot {
 	var dirs []scanRoot
 	var jars []scanRoot
 	for _, entry := range filepath.SplitList(classpath) {
-		if entry == "" || strings.Contains(entry, "*") {
+		if entry == "" {
 			continue
 		}
 
-		path, ok := resolveProcessPath(root, cwd, entry)
+		if strings.Contains(entry, "*") {
+			jars = append(jars, scanArchiveRootsFromWildcard(root, cwd, entry)...)
+			continue
+		}
+
+		scanRoot, ok := scanRootFromClasspathEntry(root, cwd, entry)
 		if !ok {
 			continue
 		}
 
-		info, err := os.Stat(path)
-		if err != nil {
+		if scanRoot.dir {
+			dirs = append(dirs, scanRoot)
 			continue
 		}
-		if info.IsDir() {
-			dirs = append(dirs, scanRoot{path: path, dir: true})
-			continue
-		}
-		if info.Mode().IsRegular() && isJavaArchive(path) {
-			jars = append(jars, scanRoot{path: path})
-		}
+		jars = append(jars, scanRoot)
 	}
 
 	if len(dirs) > 0 {
 		return dirs
 	}
 	return jars
+}
+
+func scanRootFromClasspathEntry(root, cwd, entry string) (scanRoot, bool) {
+	path, ok := resolveProcessPath(root, cwd, entry)
+	if !ok {
+		return scanRoot{}, false
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		return scanRoot{}, false
+	}
+	if info.IsDir() {
+		return scanRoot{path: path, dir: true}, true
+	}
+	if info.Mode().IsRegular() && isJavaArchive(path) {
+		return scanRoot{path: path}, true
+	}
+	return scanRoot{}, false
+}
+
+func scanArchiveRootsFromWildcard(root, cwd, entry string) []scanRoot {
+	dirEntry, ok := classpathWildcardDir(entry)
+	if !ok {
+		return nil
+	}
+
+	dir, ok := resolveProcessPath(root, cwd, dirEntry)
+	if !ok {
+		return nil
+	}
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+
+	var roots []scanRoot
+	for _, file := range entries {
+		if file.IsDir() || !isJavaArchive(file.Name()) {
+			continue
+		}
+
+		childEntry := filepath.Join(dirEntry, file.Name())
+		scanRoot, ok := scanRootFromClasspathEntry(root, cwd, childEntry)
+		if ok && !scanRoot.dir {
+			roots = append(roots, scanRoot)
+		}
+	}
+	return roots
+}
+
+func classpathWildcardDir(entry string) (string, bool) {
+	if filepath.Base(entry) != "*" {
+		return "", false
+	}
+
+	dir := filepath.Dir(entry)
+	if strings.Contains(dir, "*") {
+		return "", false
+	}
+	return dir, true
 }
 
 func resolveProcessPath(root, cwd, path string) (string, bool) {
