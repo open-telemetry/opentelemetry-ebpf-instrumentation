@@ -12,22 +12,28 @@ import (
 )
 
 func hostnameFetcher(_ context.Context) (NodeMeta, error) {
-	if FallbackHostIDAttr == "" {
+	if VendorHostnameAttr == "" {
 		return NodeMeta{}, nil
 	}
 	resolver := hostname.CreateResolver("", "", true)
 	fullHostName, _, err := resolver.Query()
-	if err != nil || fullHostName == "" {
-		slog.Warn("can't resolve hostname for fallback",
+	if err != nil {
+		slog.Warn("can't resolve hostname for fallback attribute",
 			"component", "meta.hostnameFetcher",
-			"attribute", FallbackHostIDAttr,
+			"attribute", VendorHostnameAttr,
 			"error", err)
+		return NodeMeta{}, nil
+	}
+	if fullHostName == "" {
+		slog.Warn("resolved empty hostname for fallback attribute",
+			"component", "meta.hostnameFetcher",
+			"attribute", VendorHostnameAttr)
 		return NodeMeta{}, nil
 	}
 	return NodeMeta{
 		Metadata: []Entry{
 			{
-				Key:   attr.Name(FallbackHostIDAttr),
+				Key:   attr.Name(VendorHostnameAttr),
 				Value: fullHostName,
 			},
 		},

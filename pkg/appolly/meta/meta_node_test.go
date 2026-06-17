@@ -92,8 +92,8 @@ func TestHostIDOverride(t *testing.T) {
 }
 
 func TestHostnameFetcher_Disabled(t *testing.T) {
-	FallbackHostIDAttr = ""
-	defer func() { FallbackHostIDAttr = "" }()
+	VendorHostnameAttr = ""
+	defer func() { VendorHostnameAttr = "" }()
 
 	nm, err := hostnameFetcher(t.Context())
 	assert.NoError(t, err)
@@ -101,8 +101,8 @@ func TestHostnameFetcher_Disabled(t *testing.T) {
 }
 
 func TestHostnameFetcher_Enabled(t *testing.T) {
-	FallbackHostIDAttr = "test.host.id"
-	defer func() { FallbackHostIDAttr = "" }()
+	VendorHostnameAttr = "test.host.id"
+	defer func() { VendorHostnameAttr = "" }()
 
 	nm, err := hostnameFetcher(t.Context())
 	assert.NoError(t, err)

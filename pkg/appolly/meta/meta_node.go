@@ -26,10 +26,11 @@ func nslog() *slog.Logger {
 
 var connectionTimeout = 2 * time.Second
 
-// FallbackHostIDAttr, when non-empty, enables a hostname-based fallback
+// VendorHostnameAttr, when non-empty, enables a hostname-based fallback
 // for resource attribution. The hostname is resolved via FQDN lookup and stored
-// under this attribute name. Empty by default — vendors activate it by setting their own key
-var FallbackHostIDAttr = ""
+// as a Metadata entry under this attribute name, not in the HostID field.
+// Empty by default — vendors activate it by setting their own key.
+var VendorHostnameAttr = ""
 
 // some attributes from the node need to be filtered out, becausee ither
 // - they are not common to all the services and is going to be specified for each service instance
