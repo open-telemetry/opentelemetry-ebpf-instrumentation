@@ -318,7 +318,50 @@ func HTTPInfoEventToSpan(parseCtx *EBPFParseContext, event *BPFHTTPInfo) (reques
 		return httpRequestToSpan(event, requestBuffer), false, nil
 	}
 
+	// When the body is empty but Content-Length indicates data should be
+	// present, the body bytes may be at a different offset in the raw
+	// buffer (e.g. SSL connections where headers and body arrive in
+	// separate writes that get interleaved). Scan the raw buffer for a
+	// JSON body and replace req.Body so downstream detectors can parse it.
+	if req.ContentLength > 0 {
+		body, readErr := io.ReadAll(req.Body)
+		if readErr == nil && len(body) == 0 {
+			if recovered := recoverJSONBodyFromBuffer(requestBuffer); len(recovered) > 0 {
+				if int64(len(recovered)) > req.ContentLength {
+					recovered = recovered[:req.ContentLength]
+				}
+				body = append([]byte(nil), recovered...)
+			}
+		}
+		req.Body = io.NopCloser(bytes.NewBuffer(body))
+	}
+
 	return httpRequestResponseToSpan(parseCtx, event, req, resp), false, nil
+}
+
+// recoverJSONBodyFromBuffer scans the raw request buffer for a JSON object
+// that appears after the HTTP headers. This handles SSL connections where
+// the body may be at an unexpected offset due to interleaved writes.
+func recoverJSONBodyFromBuffer(buf *largebuf.LargeBuffer) []byte {
+	raw := buf.UnsafeView()
+	if len(raw) == 0 {
+		return nil
+	}
+
+	// Find end of HTTP headers.
+	headerEnd := bytes.Index(raw, []byte("\r\n\r\n"))
+	if headerEnd < 0 {
+		return nil
+	}
+	bodyStart := headerEnd + 4
+
+	// Scan forward from header end to find a JSON object or array.
+	for i := bodyStart; i < len(raw); i++ {
+		if raw[i] == '{' || raw[i] == '[' {
+			return raw[i:]
+		}
+	}
+	return nil
 }
 
 // HTTP response buffers might have been sent incomplete, before the full body.
