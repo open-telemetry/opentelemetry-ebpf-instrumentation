@@ -849,18 +849,13 @@ func getCgroupPath() (string, error) {
 
 func symbolNames(m map[string][]*ebpfcommon.ProbeDesc, matcher ebpfcommon.SymbolMatcher) []string {
 	keys := make([]string, 0, len(m))
-	seen := map[string]struct{}{}
 
 	for name, probes := range m {
 		for _, probe := range probes {
-			if probe.SymbolMatcher != matcher {
-				continue
+			if probe.SymbolMatcher == matcher {
+				keys = append(keys, name)
+				break
 			}
-			if _, ok := seen[name]; ok {
-				continue
-			}
-			seen[name] = struct{}{}
-			keys = append(keys, name)
 		}
 	}
 
