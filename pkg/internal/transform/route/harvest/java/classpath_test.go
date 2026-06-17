@@ -217,6 +217,15 @@ func TestFindScanRoots(t *testing.T) {
 		assert.Equal(t, []scanRoot{{path: filepath.Join(root, "app", "classes"), dir: true}}, roots)
 	})
 
+	t.Run("uses cwd when classpath is empty", func(t *testing.T) {
+		fileInfo := javaClasspathFileInfo(t, root, []string{"com.example.Main"}, nil, nil, nil)
+
+		roots, err := NewExtractor().findScanRoots(fileInfo)
+
+		require.NoError(t, err)
+		assert.Equal(t, []scanRoot{{path: filepath.Join(root, "app"), dir: true}}, roots)
+	})
+
 	t.Run("errors when cmdline lookup fails", func(t *testing.T) {
 		expectedErr := errors.New("boom")
 		fileInfo := javaClasspathFileInfo(t, root, nil, nil, expectedErr, nil)

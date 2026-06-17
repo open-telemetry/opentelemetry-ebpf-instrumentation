@@ -57,7 +57,7 @@ func (e *Extractor) findScanRoots(fileInfo *exec.FileInfo) ([]scanRoot, error) {
 	}
 
 	if launch.classpath == "" {
-		return nil, fmt.Errorf("no Java jar or classpath found for pid %d", pid)
+		launch.classpath = cwd
 	}
 
 	return scanRootsFromClasspath(root, cwd, launch.classpath), nil
