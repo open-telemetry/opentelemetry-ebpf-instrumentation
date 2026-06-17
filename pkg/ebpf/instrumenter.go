@@ -540,7 +540,7 @@ func (i *instrumenter) instrumentUSDTProbe(
 			closeAll(closers)
 			return nil, err
 		}
-		// Specs are append-only for these BPF objects; IP map entries are deleted by link closers.
+		// USDT specs and manager IDs are append-only; link closers only delete IP map entries.
 		if err := probe.SpecsMap.Put(specID, target.Spec); err != nil {
 			closeAll(closers)
 			return nil, fmt.Errorf("updating USDT spec map: %w", err)
