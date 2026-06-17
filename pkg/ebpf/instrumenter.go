@@ -881,14 +881,13 @@ func gatherOffsets(instrPath string, probes map[string][]*ebpfcommon.ProbeDesc, 
 func gatherOffsetsImpl(elfFile *elf.File, probes map[string][]*ebpfcommon.ProbeDesc,
 	instrPath string, log *slog.Logger,
 ) error {
-	exactSyms, err := procs.FindExeSymbols(elfFile, symbolNames(probes, ebpfcommon.SymbolMatcherExact))
+	exactSyms, substringSyms, err := procs.FindExeSymbolsByNameAndSubstring(
+		elfFile,
+		symbolNames(probes, ebpfcommon.SymbolMatcherExact),
+		symbolNames(probes, ebpfcommon.SymbolMatcherContains),
+	)
 	if err != nil {
 		return fmt.Errorf("failed to lookup symbols for %s: %w", instrPath, err)
-	}
-
-	substringSyms, err := procs.FindExeSymbolsBySubstring(elfFile, symbolNames(probes, ebpfcommon.SymbolMatcherContains))
-	if err != nil {
-		return fmt.Errorf("failed to lookup symbols by substring for %s: %w", instrPath, err)
 	}
 
 	for symbolName, probeArray := range probes {
