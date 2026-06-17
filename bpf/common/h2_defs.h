@@ -28,9 +28,9 @@ enum {
     // --- W3C traceparent value layout: "00-<trace_id>-<span_id>-01" ---
     k_tp_val_dash1 = 2,
     k_tp_val_trace_id_start = k_tp_val_dash1 + 1,
-    k_tp_val_dash2 = k_tp_val_trace_id_start + (TRACE_ID_SIZE_BYTES * 2),
+    k_tp_val_dash2 = k_tp_val_trace_id_start + TRACE_ID_SIZE_BYTES * 2,
     k_tp_val_span_id_start = k_tp_val_dash2 + 1,
-    k_tp_val_dash3 = k_tp_val_span_id_start + (SPAN_ID_SIZE_BYTES * 2),
+    k_tp_val_dash3 = k_tp_val_span_id_start + SPAN_ID_SIZE_BYTES * 2,
 
     // --- HPACK encoding ---
     k_hpack_literal_no_index = 0,
