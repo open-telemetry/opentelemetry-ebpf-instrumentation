@@ -8,6 +8,7 @@
 #include <bpfcore/bpf_tracing.h>
 
 #include <generictracer/jvm.h>
+#include <common/algorithm.h>
 #include <common/event_defs.h>
 #include <common/ringbuf.h>
 #include <logger/bpf_dbg.h>
@@ -82,17 +83,8 @@ jvm_read_usdt_string(unsigned char *dst, const unsigned char *src, long src_len)
     }
 
     const u32 max_len = (u32)min((long)(k_jvm_raw_string_len - 1), src_len);
-
-    for (u32 i = 0; i < k_jvm_raw_string_len - 1; i++) {
-        if (i >= max_len) {
-            break;
-        }
-
-        unsigned char c = 0;
-        if (bpf_probe_read_user(&c, sizeof(c), src + i) != 0) {
-            return -1;
-        }
-        dst[i] = c;
+    if (bpf_probe_read_user(dst, max_len, src) != 0) {
+        return -1;
     }
 
     return 0;
