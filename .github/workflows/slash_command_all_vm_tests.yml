@@ -24,11 +24,12 @@ jobs:
        github.event.comment.author_association == 'COLLABORATOR')
     runs-on: ubuntu-latest
     permissions:
-      actions: write        # dispatch the VM workflow
-      # The collaborator permission lookup uses the token's implicit metadata read access.
-      # issues:write covers both the acknowledgement reaction and the run URL comment.
+      actions: write          # dispatch the VM workflow
+      # PR-comment reactions + reply posts go through /issues/comments/...
+      # but GitHub scopes them under pull-requests when the event originates
+      # from a PR. issues:write alone returns HTTP 403; both are needed.
       issues: write
-      pull-requests: read   # resolve PR metadata
+      pull-requests: write    # PR-comment reactions + reply
     steps:
       - name: Check commenter permission
         env:
