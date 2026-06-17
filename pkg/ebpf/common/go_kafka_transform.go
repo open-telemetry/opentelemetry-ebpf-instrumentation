@@ -14,6 +14,12 @@ import (
 	"go.opentelemetry.io/obi/pkg/internal/largebuf"
 )
 
+const (
+	// Keep these values aligned with k_kafka_api_* in bpf/gotracer/types/kafka.h.
+	kafkaGoAPIFetch uint8 = iota
+	kafkaGoAPIProduce
+)
+
 func ReadGoSaramaRequestIntoSpan(record *ringbuf.Record) (request.Span, bool, error) {
 	event, err := ReinterpretCast[GoSaramaClientInfo](record.RawSample)
 	if err != nil {
@@ -75,10 +81,7 @@ func ReadGoKafkaGoRequestIntoSpan(record *ringbuf.Record) (request.Span, bool, e
 		hostPort = int(event.Conn.D_port)
 	}
 
-	op := Produce
-	if event.Op == 1 {
-		op = Fetch
-	}
+	op := kafkaGoOperation(event.Op)
 
 	return request.Span{
 		Type:          request.EventTypeKafkaClient,
@@ -103,4 +106,12 @@ func ReadGoKafkaGoRequestIntoSpan(record *ringbuf.Record) (request.Span, bool, e
 			Namespace: event.Pid.Ns,
 		},
 	}, false, nil
+}
+
+func kafkaGoOperation(apiKey uint8) Operation {
+	if apiKey == kafkaGoAPIProduce {
+		return Produce
+	}
+
+	return Fetch
 }

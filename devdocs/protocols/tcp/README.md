@@ -10,4 +10,5 @@ This directory contains documentation for the supported protocol parsers that OB
 - [MQTT](mqtt.md): MQTT protocol parser.
 - [NATS](nats.md): NATS protocol parser.
 - [AMQP](amqp.md): AMQP 1.0 protocol parser.
+- [SunRPC](sunrpc.md): ONC RPC (Sun RPC) protocol parser.
 - [New Tracer](new-tcp-tracer.md): how to add a new TCP protocol based BPF tracer to OBI.

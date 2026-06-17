@@ -14,6 +14,7 @@
 #include <generictracer/protocol_kafka.h>
 #include <generictracer/protocol_mysql.h>
 #include <generictracer/protocol_postgres.h>
+#include <generictracer/protocol_sunrpc.h>
 #include <generictracer/protocol_tcp.h>
 
 #include <logger/bpf_dbg.h>
@@ -49,10 +50,7 @@ int obi_handle_buf_with_args(void *ctx) {
             data.flags |= http2_conn_flag_ssl;
         }
         bpf_map_update_elem(&ongoing_http2_connections, &args->pid_conn, &data, BPF_ANY);
-        // if we detected the preface, parse any grpc past the preface
-        if (has_preface(args->small_buf, args->bytes_len) && args->bytes_len > MIN_HTTP2_SIZE) {
-            args->u_buf = args->u_buf + MIN_HTTP2_SIZE;
-        }
+        skip_http2_preface(args);
     }
 
     http2_conn_info_data_t *h2g = bpf_map_lookup_elem(&ongoing_http2_connections, &args->pid_conn);
@@ -86,6 +84,12 @@ int obi_handle_buf_with_args(void *ctx) {
                                                &args->protocol_type,
                                                args->direction)) {
         bpf_dbg_printk("Found kafka connection");
+        bpf_tail_call(ctx, &jump_table, k_tail_protocol_tcp);
+    } else if (args->protocols.tcp && is_sunrpc(&args->pid_conn.conn,
+                                                (const unsigned char *)args->u_buf,
+                                                args->bytes_len,
+                                                &args->protocol_type)) {
+        bpf_dbg_printk("Found SunRPC connection");
         bpf_tail_call(ctx, &jump_table, k_tail_protocol_tcp);
     } else { // large request tracking and generic TCP
         http_info_t *info = bpf_map_lookup_elem(&ongoing_http, &args->pid_conn);

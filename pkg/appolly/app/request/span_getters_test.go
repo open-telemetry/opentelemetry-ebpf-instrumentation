@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/otel/attribute"
+	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
@@ -426,6 +427,51 @@ func TestSpanOTELGetters_HTTPURLScheme(t *testing.T) {
 	}
 }
 
+func TestSpanOTELGetters_SunRPC(t *testing.T) {
+	span := &Span{
+		Type:    EventTypeSunRPCClient,
+		Path:    "portmapper",
+		Route:   "0",
+		Method:  "0",
+		SubType: 2,
+		Status:  0,
+	}
+
+	stringTests := []struct {
+		name     string
+		attrName attr.Name
+		expected string
+	}{
+		{name: "rpc system", attrName: attr.RPCSystem, expected: "onc_rpc"},
+		{name: "rpc method", attrName: attr.RPCMethod, expected: "0"},
+		{name: "program name", attrName: attr.OncRPCProgramName, expected: "portmapper"},
+		{name: "response status code", attrName: attr.RPCResponseStatusCode, expected: "0"},
+	}
+
+	for _, tt := range stringTests {
+		t.Run(tt.name, func(t *testing.T) {
+			getter, ok := spanOTELGetters(tt.attrName)
+			require.True(t, ok, "getter should be found for %s", tt.attrName)
+
+			kv := getter(span)
+			assert.Equal(t, string(tt.attrName), string(kv.Key))
+			assert.Equal(t, tt.expected, kv.Value.AsString())
+		})
+	}
+
+	t.Run("procedure number", func(t *testing.T) {
+		getter, ok := spanOTELGetters(attr.OncRPCProcedureNumber)
+		require.True(t, ok)
+		assert.Equal(t, semconv.OncRPCProcedureNumber(0), getter(span))
+	})
+
+	t.Run("version", func(t *testing.T) {
+		getter, ok := spanOTELGetters(attr.OncRPCVersion)
+		require.True(t, ok)
+		assert.Equal(t, semconv.OncRPCVersion(2), getter(span))
+	})
+}
+
 func TestSpanOTELGetters_JSONRPCAttributes(t *testing.T) {
 	jsonrpcSpan := &Span{
 		SubType: HTTPSubtypeJSONRPC,
@@ -499,6 +545,33 @@ func TestSpanOTELGetters_JSONRPCAttributes(t *testing.T) {
 				Status: 3,
 			},
 			expected: "INVALID_ARGUMENT",
+		},
+		{
+			name:     "response status code - SunRPC success",
+			attrName: attr.RPCResponseStatusCode,
+			span: &Span{
+				Type:   EventTypeSunRPCClient,
+				Status: 0,
+			},
+			expected: "0",
+		},
+		{
+			name:     "response status code - SunRPC denied",
+			attrName: attr.RPCResponseStatusCode,
+			span: &Span{
+				Type:   EventTypeSunRPCServer,
+				Status: 1,
+			},
+			expected: "denied",
+		},
+		{
+			name:     "response status code - SunRPC proc unavail",
+			attrName: attr.RPCResponseStatusCode,
+			span: &Span{
+				Type:   EventTypeSunRPCClient,
+				Status: 4,
+			},
+			expected: "3",
 		},
 	}
 

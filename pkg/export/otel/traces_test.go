@@ -2462,7 +2462,7 @@ func TestTracesInstrumentations(t *testing.T) {
 		{
 			name:     "all instrumentations",
 			instr:    []instrumentations.Instrumentation{instrumentations.InstrumentationALL},
-			expected: []string{"GET /foo", "PUT /bar", "/grpcFoo", "/grpcGoo", "SELECT credentials", "SET", "GET", "publish important-topic", "process important-topic", "publish sensors/temperature", "process sensors/#", "publish updates.orders", "process updates.orders", "insert mycollection", "GET couchbase-collection", "GET", "DELETE"},
+			expected: []string{"GET /foo", "PUT /bar", "/grpcFoo", "/grpcGoo", "SELECT credentials", "SET", "GET", "publish important-topic", "process important-topic", "publish sensors/temperature", "process sensors/#", "publish updates.orders", "process updates.orders", "portmapper/0", "insert mycollection", "GET couchbase-collection", "GET", "DELETE"},
 		},
 		{
 			name:     "http only",
@@ -2498,6 +2498,11 @@ func TestTracesInstrumentations(t *testing.T) {
 			name:     "nats only",
 			instr:    []instrumentations.Instrumentation{instrumentations.InstrumentationNATS},
 			expected: []string{"publish updates.orders", "process updates.orders"},
+		},
+		{
+			name:     "sunrpc only",
+			instr:    []instrumentations.Instrumentation{instrumentations.InstrumentationSunRPC},
+			expected: []string{"portmapper/0"},
 		},
 		{
 			name:     "none",
@@ -2545,6 +2550,7 @@ func TestTracesInstrumentations(t *testing.T) {
 		{Type: request.EventTypeMQTTServer, Method: "process", Path: "sensors/#", Statement: "mqtt-server"},
 		{Type: request.EventTypeNATSClient, Method: "publish", Path: "updates.orders"},
 		{Type: request.EventTypeNATSServer, Method: "process", Path: "updates.orders"},
+		{Type: request.EventTypeSunRPCClient, Path: "portmapper", Route: "0", Method: "0", SubType: 2, HostPort: 111},
 		{Type: request.EventTypeMongoClient, Method: "insert", Path: "mycollection", DBNamespace: "mydatabase"},
 		{Type: request.EventTypeCouchbaseClient, Method: "GET", Path: "couchbase-collection", DBNamespace: "mybucket.myscope"},
 		{Type: request.EventTypeMemcachedClient, Method: "GET", Path: "session-key"},

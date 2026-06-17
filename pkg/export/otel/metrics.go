@@ -253,7 +253,7 @@ func newMetricsReporter(
 			mr.attrGetters, mr.attributes.For(attributes.HTTPClientResponseSize))
 	}
 
-	if is.GRPCEnabled() {
+	if is.GRPCEnabled() || is.SunRPCEnabled() {
 		mr.attrGRPCServer = attributes.OpenTelemetryGetters(
 			mr.attrGetters, mr.attributes.For(attributes.RPCServerDuration))
 		mr.attrGRPCClient = attributes.OpenTelemetryGetters(
@@ -363,7 +363,7 @@ func (mr *MetricsReporter) otelMetricOptions() []metric.Option {
 		)
 	}
 
-	if mr.is.GRPCEnabled() {
+	if mr.is.GRPCEnabled() || mr.is.SunRPCEnabled() {
 		opts = append(opts,
 			metric.WithView(mr.otelHistogramConfig(attributes.RPCServerDuration.OTEL, mr.cfg.Buckets.DurationHistogram)),
 			metric.WithView(mr.otelHistogramConfig(attributes.RPCClientDuration.OTEL, mr.cfg.Buckets.DurationHistogram)),
@@ -475,7 +475,7 @@ func (mr *MetricsReporter) setupOtelMeters(m *Metrics, meter instrument.Meter) e
 			m.ctx, httpClientResponseSize, mr.attrHTTPClientResponseSize, timeNow, mr.cfg.TTL)
 	}
 
-	if mr.is.GRPCEnabled() {
+	if mr.is.GRPCEnabled() || mr.is.SunRPCEnabled() {
 		grpcDuration, err := meter.Float64Histogram(attributes.RPCServerDuration.OTEL, instrument.WithUnit("s"))
 		if err != nil {
 			return fmt.Errorf("creating grpc duration histogram metric: %w", err)
@@ -930,6 +930,16 @@ func (r *Metrics) record(span *request.Span, mr *MetricsReporter) {
 			if mr.is.GRPCEnabled() {
 				grpcClientDuration, attrs := r.grpcClientDuration.ForRecord(span)
 				grpcClientDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
+			}
+		case request.EventTypeSunRPCClient:
+			if mr.is.SunRPCEnabled() {
+				grpcClientDuration, attrs := r.grpcClientDuration.ForRecord(span)
+				grpcClientDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
+			}
+		case request.EventTypeSunRPCServer:
+			if mr.is.SunRPCEnabled() {
+				grpcDuration, attrs := r.grpcDuration.ForRecord(span)
+				grpcDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
 			}
 		case request.EventTypeHTTPClient:
 			// HTTP client subtypes that are database calls get recorded as db client metrics
