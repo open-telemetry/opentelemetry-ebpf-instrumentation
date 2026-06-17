@@ -27,9 +27,7 @@ As part of an optional store demo, you can run an additional "packaging" microse
 This file contains code related to the frontend and the "packaging" microservice.
 */
 
-var (
-	packagingServiceUrl string
-)
+var packagingServiceUrl string
 
 type PackagingInfo struct {
 	Weight float32 `json:"weight"`

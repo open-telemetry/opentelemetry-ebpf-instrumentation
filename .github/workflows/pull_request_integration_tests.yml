@@ -69,9 +69,38 @@ jobs:
           echo -n "matrix=" >> $GITHUB_OUTPUT
           make integration-test-matrix-json >> $GITHUB_OUTPUT
 
+  prep-images:
+    name: "Pre-pull base images"
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      cache-key: ${{ steps.cache-key.outputs.key }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
+
+      - name: Compute base-image cache key
+        id: cache-key
+        env:
+          ARCH: ${{ runner.arch }}
+        run: echo "key=base-images-${ARCH}-$(bash scripts/discover-integration-images.sh --base-images | sha256sum | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache base images
+        id: base-images-cache
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5 # zizmor: ignore[cache-poisoning] key derives from the digest-pinned base-image list; images are content-addressable
+        with:
+          path: /tmp/base-images.tar
+          key: ${{ steps.cache-key.outputs.key }}
+
+      - name: Pull and save base images
+        if: steps.base-images-cache.outputs.cache-hit != 'true'
+        run: bash scripts/pull-base-images.sh /tmp/base-images.tar
+
   test:
     name: ${{ matrix.description }}
-    needs: [test-matrix, generate-bpf]
+    needs: [test-matrix, generate-bpf, prep-images]
     permissions:
       # Required for codecov
       checks: write
@@ -128,6 +157,20 @@ jobs:
 
       - name: Build test tools
         run: make prereqs
+
+      - name: Restore base images
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5 # zizmor: ignore[cache-poisoning] key derives from the digest-pinned base-image list; images are content-addressable
+        with:
+          path: /tmp/base-images.tar
+          key: ${{ needs.prep-images.outputs.cache-key }}
+
+      - name: Load base images
+        run: |
+          if [ -f /tmp/base-images.tar ]; then
+            docker load -i /tmp/base-images.tar
+          else
+            echo "::warning::base image cache miss; builds may pull from the upstream registry and risk HTTP 429"
+          fi
 
       - name: Check disk usage before tests
         run: df -h

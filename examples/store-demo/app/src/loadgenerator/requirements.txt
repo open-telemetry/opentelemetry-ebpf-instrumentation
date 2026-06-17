@@ -717,9 +717,9 @@ python-engineio==4.13.2 \
     # via
     #   locust
     #   python-socketio
-python-socketio==5.16.2 \
-    --hash=sha256:ad88c228d921646efa436c0a0df217e364ef30ec072df4041484e54d49c15989 \
-    --hash=sha256:bef2da3374fd533aed4297f57b4f6512b52aa51604cb0da2165f401291c5ca20
+python-socketio==5.16.3 \
+    --hash=sha256:89b136f677ae65607a84cecda9b4d6c5377b40a97582c504c25df89af16d520e \
+    --hash=sha256:e7ad14202a5e6448824c7c2f86161d04e13dec05992257df5c709e6a2798c041
     # via locust
 pyzmq==27.1.0 \
     --hash=sha256:01c0e07d558b06a60773744ea6251f769cd79a41a97d11b8bf4ab8f034b0424d \

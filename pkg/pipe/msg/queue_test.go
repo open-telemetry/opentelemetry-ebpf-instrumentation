@@ -384,7 +384,7 @@ func TestDeathPathNotBlocking(t *testing.T) {
 
 func TestBlockingPanics(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		assert.Panics(t, func() {
+		assert.PanicsWithValue(t, "sending through queue path q1->q2->q2a1->q2a2->test. Subscriber channel test is blocked", func() {
 			// tests the deadlock verifier. It should panic if a message is sent
 			// and nobody reads it
 
@@ -406,4 +406,26 @@ func TestBlockingPanics(t *testing.T) {
 			time.Sleep(2 * defaultSendTimeout)
 		}, "a deadlock should have been detected")
 	})
+}
+
+func TestNodeString(t *testing.T) {
+	type tc struct {
+		expect string
+		start  node
+	}
+	testCases := []tc{{
+		expect: "name-only",
+		start:  node{name: "name-only"},
+	}, {
+		expect: "src->dst",
+		start:  node{name: "dst", source: &node{name: "src"}},
+	}, {
+		expect: "src->middle->dst",
+		start:  node{name: "dst", source: &node{name: "middle", source: &node{name: "src"}}},
+	}}
+	for _, tc := range testCases {
+		t.Run(tc.expect, func(t *testing.T) {
+			assert.Equal(t, tc.expect, tc.start.String())
+		})
+	}
 }

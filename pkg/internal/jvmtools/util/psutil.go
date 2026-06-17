@@ -183,6 +183,20 @@ func EnterNS(pid int, nsType string) int {
 	}
 	defer newns.Close()
 
+	// Joining a mount namespace via setns(CLONE_NEWNS) is rejected by the
+	// kernel with EINVAL whenever the calling thread shares its filesystem
+	// attributes (CLONE_FS: root dir, cwd, umask) with another thread. That is
+	// always true on the Go runtime's thread pool, so give this thread a
+	// private copy of those attributes first. The caller MUST have pinned the
+	// goroutine to a dedicated, never-unlocked OS thread (see jvm.Attach):
+	// once unshared and moved into a foreign namespace, the thread cannot be
+	// safely recycled.
+	if nsFlag == unix.CLONE_NEWNS {
+		if err := unix.Unshare(unix.CLONE_FS); err != nil {
+			return -1
+		}
+	}
+
 	// Some ancient Linux distributions do not have setns() function
 	if err := unix.Setns(int(newns.Fd()), nsFlag); err != nil {
 		return -1
