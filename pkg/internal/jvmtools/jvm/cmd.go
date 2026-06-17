@@ -121,7 +121,7 @@ func (j *JAttacher) AttachContext(ctx context.Context, pid int, argv []string, i
 		// Deliberately no runtime.UnlockOSThread: this thread is tainted by the
 		// namespace switch and CLONE_FS unshare, so we let it die with the
 		// goroutine rather than return it to the pool.
-		reader, err := j.attachInNamespace(pid, nspid, targetUID, targetGID, argv, ignoreOnJ9)
+		reader, err := j.attachInNamespace(ctx, pid, nspid, targetUID, targetGID, argv, ignoreOnJ9)
 		resultCh <- attachResult{reader: reader, err: err}
 	}()
 
@@ -133,7 +133,7 @@ func (j *JAttacher) AttachContext(ctx context.Context, pid int, argv []string, i
 // handshake. It MUST be called from a goroutine pinned to a dedicated,
 // never-unlocked OS thread (see Attach), because it both joins the target's
 // mount namespace and unshares CLONE_FS on the calling thread.
-func (j *JAttacher) attachInNamespace(pid, nspid, targetUID, targetGID int, argv []string, ignoreOnJ9 bool) (io.ReadCloser, error) {
+func (j *JAttacher) attachInNamespace(ctx context.Context, pid, nspid, targetUID, targetGID int, argv []string, ignoreOnJ9 bool) (io.ReadCloser, error) {
 	// Container support: switch to the target namespaces.
 	// Network and IPC namespaces are essential for OpenJ9 connection.
 	if util.EnterNS(pid, "net") < 0 {
