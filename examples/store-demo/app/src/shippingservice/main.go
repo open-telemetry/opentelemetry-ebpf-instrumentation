@@ -20,16 +20,15 @@ import (
 	"os"
 	"time"
 
+	pb "github.com/GoogleCloudPlatform/microservices-demo/src/shippingservice/genproto"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/health"
+	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/reflection"
 	"google.golang.org/grpc/status"
-
-	pb "github.com/\x47oogleCloudPlatform/microservices-demo/src/shippingservice/genproto"
-	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 )
 
 const (
@@ -119,9 +118,9 @@ func (s *server) GetQuote(ctx context.Context, in *pb.GetQuoteRequest) (*pb.GetQ
 		CostUsd: &pb.Money{
 			CurrencyCode: "USD",
 			Units:        int64(quote.Dollars),
-			Nanos:        int32(quote.Cents * 10000000)},
+			Nanos:        int32(quote.Cents * 10000000),
+		},
 	}, nil
-
 }
 
 // ShipOrder mocks that the requested items will be shipped.
@@ -140,7 +139,7 @@ func (s *server) ShipOrder(ctx context.Context, in *pb.ShipOrderRequest) (*pb.Sh
 }
 
 func initStats() {
-	//TODO(arbrown) Implement OpenTelemetry stats
+	// TODO(arbrown) Implement OpenTelemetry stats
 }
 
 func initTracing() {

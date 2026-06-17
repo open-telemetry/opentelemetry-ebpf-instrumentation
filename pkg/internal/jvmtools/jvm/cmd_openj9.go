@@ -271,6 +271,15 @@ func notifySemaphore(tmpPath string, value, notifyCount int) error {
 
 	for range notifyCount {
 		if err := semop(semID, []sembuf{sb}); err != nil {
+			// The restore path decrements with IPC_NOWAIT. The JVMs we notified
+			// consume the posts themselves as they wake up, so the semaphore is
+			// frequently already at zero by the time we try to take our posts
+			// back. EAGAIN ("resource temporarily unavailable") is the kernel
+			// signaling there is nothing left to decrement. The original C code
+			// was handling this, but it was missed in translation.
+			if value < 0 && errors.Is(err, unix.EAGAIN) {
+				return nil
+			}
 			return fmt.Errorf("semop failed: %w", err)
 		}
 	}

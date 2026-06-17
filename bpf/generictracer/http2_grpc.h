@@ -71,6 +71,19 @@ static __always_inline u8 is_http2_or_grpc(unsigned char *p, u32 len) {
     return has_preface(p, len);
 }
 
+static __always_inline void skip_http2_preface(call_protocol_args_t *args) {
+    if (args->bytes_len < MIN_HTTP2_SIZE) {
+        return;
+    }
+
+    if (!has_preface(args->small_buf, MIN_HTTP2_SIZE)) {
+        return;
+    }
+
+    args->u_buf += MIN_HTTP2_SIZE;
+    args->bytes_len -= MIN_HTTP2_SIZE;
+}
+
 static __always_inline u8 http_grpc_stream_ended(const frame_header_t *frame) {
     return is_headers_frame(frame) &&
            ((frame->flags & k_flag_data_end_stream) == k_flag_data_end_stream);

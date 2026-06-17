@@ -28,13 +28,12 @@ import (
 	"strings"
 	"time"
 
+	pb "github.com/GoogleCloudPlatform/microservices-demo/src/frontend/genproto"
+	"github.com/GoogleCloudPlatform/microservices-demo/src/frontend/money"
+	"github.com/GoogleCloudPlatform/microservices-demo/src/frontend/validator"
 	"github.com/gorilla/mux"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-
-	pb "github.com/\x47oogleCloudPlatform/microservices-demo/src/frontend/genproto"
-	"github.com/\x47oogleCloudPlatform/microservices-demo/src/frontend/money"
-	"github.com/\x47oogleCloudPlatform/microservices-demo/src/frontend/validator"
 )
 
 type platformDetails struct {
@@ -89,7 +88,7 @@ func (fe *frontendServer) homeHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Set ENV_PLATFORM from env var when valid, otherwise detect the cloud runtime.
-	var env = os.Getenv("ENV_PLATFORM")
+	env := os.Getenv("ENV_PLATFORM")
 	// Only override from env variable if set + valid env
 	if env == "" || stringinSlice(validEnvs, env) == false {
 		fmt.Println("env platform is either empty or invalid")
@@ -231,7 +230,7 @@ func (fe *frontendServer) addToCartHandler(w http.ResponseWriter, r *http.Reques
 		renderHTTPError(log, r, w, errors.Wrap(err, "failed to add to cart"), http.StatusInternalServerError)
 		return
 	}
-	w.Header().Set("location", baseUrl + "/cart")
+	w.Header().Set("location", baseUrl+"/cart")
 	w.WriteHeader(http.StatusFound)
 }
 
@@ -243,7 +242,7 @@ func (fe *frontendServer) emptyCartHandler(w http.ResponseWriter, r *http.Reques
 		renderHTTPError(log, r, w, errors.Wrap(err, "failed to empty cart"), http.StatusInternalServerError)
 		return
 	}
-	w.Header().Set("location", baseUrl + "/")
+	w.Header().Set("location", baseUrl+"/")
 	w.WriteHeader(http.StatusFound)
 }
 
@@ -296,7 +295,8 @@ func (fe *frontendServer) viewCartHandler(w http.ResponseWriter, r *http.Request
 		items[i] = cartItemView{
 			Item:     p,
 			Quantity: item.GetQuantity(),
-			Price:    &multPrice}
+			Price:    &multPrice,
+		}
 		totalPrice = money.Must(money.Sum(totalPrice, multPrice))
 	}
 	totalPrice = money.Must(money.Sum(totalPrice, *shippingCost))
@@ -357,7 +357,8 @@ func (fe *frontendServer) placeOrderHandler(w http.ResponseWriter, r *http.Reque
 				CreditCardNumber:          payload.CcNumber,
 				CreditCardExpirationMonth: int32(payload.CcMonth),
 				CreditCardExpirationYear:  int32(payload.CcYear),
-				CreditCardCvv:             int32(payload.CcCVV)},
+				CreditCardCvv:             int32(payload.CcCVV),
+			},
 			UserId:       sessionID(r),
 			UserCurrency: currentCurrency(r),
 			Address: &pb.Address{
@@ -365,7 +366,8 @@ func (fe *frontendServer) placeOrderHandler(w http.ResponseWriter, r *http.Reque
 				City:          payload.City,
 				State:         payload.State,
 				ZipCode:       int32(payload.ZipCode),
-				Country:       payload.Country},
+				Country:       payload.Country,
+			},
 		})
 	if err != nil {
 		renderHTTPError(log, r, w, errors.Wrap(err, "failed to complete the order"), http.StatusInternalServerError)
@@ -427,7 +429,7 @@ func (fe *frontendServer) logoutHandler(w http.ResponseWriter, r *http.Request) 
 		c.MaxAge = -1
 		http.SetCookie(w, c)
 	}
-	w.Header().Set("Location", baseUrl + "/")
+	w.Header().Set("Location", baseUrl+"/")
 	w.WriteHeader(http.StatusFound)
 }
 
@@ -637,7 +639,7 @@ func renderCurrencyLogo(currencyCode string) string {
 		"GBP": "£",
 	}
 
-	logo := "$" //default
+	logo := "$" // default
 	if val, ok := logos[currencyCode]; ok {
 		logo = val
 	}

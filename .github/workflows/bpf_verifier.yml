@@ -109,6 +109,48 @@ jobs:
         with:
           artifact-name: bpf-generated-arm-${{ github.run_id }}
 
+  al2023:
+    name: Kernel al2023-${{ matrix.nvr }}
+    needs: generate-bpf
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - nvr: "6.1.172-216.329.amzn2023"
+            pkg: "kernel"
+          - nvr: "6.12.88-119.157.amzn2023"
+            pkg: "kernel6.12"
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
+
+      - uses: ./.github/actions/free-disk
+        with:
+          docker-prune: 'false'
+
+      - name: Download generated BPF files
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bpf-generated-${{ github.run_id }}
+
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0 # zizmor: ignore[cache-poisoning] go.sum verifies module integrity
+        with:
+          go-version-file: "go.mod"
+          cache: true
+
+      - name: Install QEMU
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends qemu-utils qemu-system-x86 cpio
+
+      - name: Run BPF verifier on AL2023 kernel
+        env:
+          GOTOOLCHAIN: auto
+        run: sudo -E bash internal/test/vm/lvh/al2023/run.sh "${{ matrix.nvr }}" "${{ matrix.pkg }}"
+
   host-arm64:
     name: Host kernel (arm64)
     # Runs verifier suite directly on the runner's own kernel — no VM, no
