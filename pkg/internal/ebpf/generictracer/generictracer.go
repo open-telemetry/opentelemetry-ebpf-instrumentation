@@ -692,7 +692,8 @@ func (p *Tracer) handleJVMRuntimeMetricsRecord(
 		return false, nil
 	}
 
-	switch record.RawSample[0] {
+	eventType := record.RawSample[0]
+	switch eventType {
 	case ebpfcommon.EventTypeJVMGCHeapSummary:
 		if p.eventCtx == nil || p.eventCtx.RuntimeMetrics == nil {
 			return true, nil

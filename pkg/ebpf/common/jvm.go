@@ -39,7 +39,8 @@ func HandleRuntimeMetricsRecord(
 		return false, nil
 	}
 
-	switch record.RawSample[0] {
+	eventType := record.RawSample[0]
+	switch eventType {
 	case EventTypeGoRuntimeMetric:
 		if eventContext == nil || eventContext.RuntimeMetrics == nil {
 			return true, nil
