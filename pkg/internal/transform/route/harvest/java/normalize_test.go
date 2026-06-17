@@ -115,10 +115,16 @@ func TestNormalizeRoute(t *testing.T) {
 			ok:       true,
 		},
 		{
-			name:     "trims invalid colon parameter",
+			name:     "rejects invalid colon parameter",
 			route:    "/items/:123",
-			expected: "/items",
-			ok:       true,
+			expected: "",
+			ok:       false,
+		},
+		{
+			name:     "rejects colon in static segment",
+			route:    "/api/foo:bar/details",
+			expected: "",
+			ok:       false,
 		},
 		{
 			name:     "keeps trailing wildcard",

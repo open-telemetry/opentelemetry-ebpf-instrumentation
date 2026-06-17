@@ -129,34 +129,20 @@ func trimQueryOrFragment(route string) string {
 
 func sanitizeColonParams(s string) string {
 	parts := strings.Split(s, "/")
-	for i, part := range parts {
+	for _, part := range parts {
 		if !strings.Contains(part, ":") {
 			continue
 		}
 		if !strings.HasPrefix(part, ":") {
-			if i <= 1 {
-				return ""
-			}
-			return routePrefix(parts[:i])
+			return ""
 		}
 
 		name := strings.TrimPrefix(part, ":")
 		if !validParamName.MatchString(name) {
-			if i <= 1 {
-				return ""
-			}
-			return routePrefix(parts[:i])
+			return ""
 		}
 	}
 	return strings.Join(parts, "/")
-}
-
-func routePrefix(parts []string) string {
-	prefix := strings.Join(parts, "/")
-	if prefix == "" {
-		return "/"
-	}
-	return prefix
 }
 
 func normalizeWildcardSegments(route string) (string, bool) {
