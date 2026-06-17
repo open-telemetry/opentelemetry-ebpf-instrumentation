@@ -997,10 +997,23 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 			} else {
 				attrs = append(attrs, semconv.GenAIResponseModel(ai.Input.Model))
 			}
-			if ai.Output.ID != "" {
-				attrs = append(attrs, semconv.GenAIResponseID(ai.Output.ID))
+			if id := ai.Output.GetID(); id != "" {
+				attrs = append(attrs, semconv.GenAIResponseID(id))
 			}
 			attrs = append(attrs, semconv.GenAIUsageInputTokens(ai.Output.GetTotalTokens()))
+			if _, ok := optionalAttrs[attr.GenAIInput]; ok {
+				if input := ai.GetInput(); input != "" {
+					attrs = append(attrs, semconv.GenAIInputMessagesKey.String(input))
+				}
+			}
+			if _, ok := optionalAttrs[attr.GenAIOutput]; ok {
+				if output := ai.GetOutput(); output != "" {
+					attrs = append(attrs, semconv.GenAIOutputMessagesKey.String(output))
+				}
+			}
+			if ai.Input.GetTopN() > 0 {
+				attrs = append(attrs, attribute.Int("gen_ai.rerank.top_n", ai.Input.GetTopN()))
+			}
 			if ai.Output.Error != nil && ai.Output.Error.Type != "" {
 				attrs = append(attrs, semconv.ErrorTypeKey.String(ai.Output.Error.Type))
 			}

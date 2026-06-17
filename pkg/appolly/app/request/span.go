@@ -873,6 +873,44 @@ type RerankRequest struct {
 	Query     string          `json:"query"`
 	TopN      int             `json:"top_n"`
 	Documents json.RawMessage `json:"documents"`
+	// Some providers nest query/documents under "input" and top_n under "parameters".
+	NestedInput *struct {
+		Query     string          `json:"query"`
+		Documents json.RawMessage `json:"documents"`
+	} `json:"input,omitempty"`
+	NestedParams *struct {
+		TopN int `json:"top_n"`
+	} `json:"parameters,omitempty"`
+}
+
+func (r *RerankRequest) GetQuery() string {
+	if r.Query != "" {
+		return r.Query
+	}
+	if r.NestedInput != nil {
+		return r.NestedInput.Query
+	}
+	return ""
+}
+
+func (r *RerankRequest) GetDocuments() json.RawMessage {
+	if len(r.Documents) > 0 {
+		return r.Documents
+	}
+	if r.NestedInput != nil {
+		return r.NestedInput.Documents
+	}
+	return nil
+}
+
+func (r *RerankRequest) GetTopN() int {
+	if r.TopN > 0 {
+		return r.TopN
+	}
+	if r.NestedParams != nil && r.NestedParams.TopN > 0 {
+		return r.NestedParams.TopN
+	}
+	return 0
 }
 
 type RerankResponse struct {
@@ -882,6 +920,28 @@ type RerankResponse struct {
 	Usage   RerankUsage     `json:"usage"`
 	Meta    *RerankMeta     `json:"meta,omitempty"`
 	Error   *RerankError    `json:"error,omitempty"`
+	// Some providers nest results under "output".
+	NestedOutput *struct {
+		Results json.RawMessage `json:"results"`
+	} `json:"output,omitempty"`
+	RequestID string `json:"request_id,omitempty"`
+}
+
+func (r *RerankResponse) GetResults() json.RawMessage {
+	if len(r.Results) > 0 {
+		return r.Results
+	}
+	if r.NestedOutput != nil {
+		return r.NestedOutput.Results
+	}
+	return nil
+}
+
+func (r *RerankResponse) GetID() string {
+	if r.ID != "" {
+		return r.ID
+	}
+	return r.RequestID
 }
 
 // RerankMeta represents Cohere-style metadata in the rerank response.
@@ -931,6 +991,36 @@ func (r *RerankResponse) GetTotalTokens() int {
 type RerankError struct {
 	Type    string `json:"type"`
 	Message string `json:"message"`
+}
+
+// GetInput returns a JSON representation of the rerank input (query + documents).
+func (v *VendorRerank) GetInput() string {
+	query := v.Input.GetQuery()
+	docs := v.Input.GetDocuments()
+	if query == "" && len(docs) == 0 {
+		return ""
+	}
+	obj := struct {
+		Query     string          `json:"query,omitempty"`
+		Documents json.RawMessage `json:"documents,omitempty"`
+	}{
+		Query:     query,
+		Documents: docs,
+	}
+	b, err := json.Marshal(obj)
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
+// GetOutput returns a JSON representation of the rerank output (results).
+func (v *VendorRerank) GetOutput() string {
+	results := v.Output.GetResults()
+	if len(results) == 0 {
+		return ""
+	}
+	return string(results)
 }
 
 // Vector retrieval provider types (Pinecone, Qdrant, Milvus, Chroma, Weaviate, etc.)
