@@ -105,10 +105,105 @@
       "enabled": false
     },
     {
-      "groupName": "Go",
       "matchManagers": ["gomod"],
       "matchUpdateTypes": ["patch", "digest", "minor"],
       "schedule": ["before 6am on Monday"]
+    },
+    {
+      "groupName": "OpenTelemetry Collector Go packages",
+      "matchManagers": ["gomod"],
+      "matchPackageNames": ["go.opentelemetry.io/collector{/,}**"],
+      "matchUpdateTypes": ["patch", "digest", "minor"]
+    },
+    {
+      "groupName": "OpenTelemetry Go packages",
+      "matchManagers": ["gomod"],
+      "matchPackageNames": ["go.opentelemetry.io/otel{/,}**"],
+      "matchUpdateTypes": ["patch", "digest", "minor"]
+    },
+    {
+      "groupName": "OpenTelemetry Go contrib packages",
+      "matchManagers": ["gomod"],
+      "matchPackageNames": ["go.opentelemetry.io/contrib{/,}**"],
+      "matchUpdateTypes": ["patch", "digest", "minor"]
+    },
+    {
+      "groupName": "golang.org/x packages",
+      "matchManagers": ["gomod"],
+      "matchPackageNames": ["golang.org/x{/,}**"],
+      "matchUpdateTypes": ["patch", "digest", "minor"]
+    },
+    {
+      "groupName": "google.golang.org packages",
+      "matchManagers": ["gomod"],
+      "matchPackageNames": ["google.golang.org{/,}**"],
+      "matchUpdateTypes": ["patch", "digest", "minor"]
+    },
+    {
+      "groupName": "Google Cloud Go packages",
+      "matchManagers": ["gomod"],
+      "matchPackageNames": [
+        "cloud.google.com/go{/,}**",
+        "github.com/GoogleCloudPlatform{/,}**"
+      ],
+      "matchUpdateTypes": ["patch", "digest", "minor"]
+    },
+    {
+      "groupName": "Prometheus Go packages",
+      "matchManagers": ["gomod"],
+      "matchPackageNames": ["github.com/prometheus{/,}**"],
+      "matchUpdateTypes": ["patch", "digest", "minor"]
+    },
+    {
+      "groupName": "AWS Go packages",
+      "matchManagers": ["gomod"],
+      "matchPackageNames": ["github.com/aws{/,}**"],
+      "matchUpdateTypes": ["patch", "digest", "minor"]
+    },
+    {
+      "groupName": "Docker Go packages",
+      "matchManagers": ["gomod"],
+      "matchPackageNames": [
+        "github.com/containers{/,}**",
+        "github.com/containerd{/,}**",
+        "github.com/distribution{/,}**",
+        "github.com/docker{/,}**",
+        "github.com/moby{/,}**",
+        "github.com/opencontainers{/,}**"
+      ],
+      "matchUpdateTypes": ["patch", "digest", "minor"]
+    },
+    {
+      "groupName": "Kubernetes Go packages",
+      "matchManagers": ["gomod"],
+      "matchPackageNames": [
+        "k8s.io{/,}**",
+        "sigs.k8s.io{/,}**"
+      ],
+      "matchUpdateTypes": ["patch", "digest", "minor"]
+    },
+    {
+      "groupName": "go-openapi packages",
+      "matchManagers": ["gomod"],
+      "matchPackageNames": ["github.com/go-openapi{/,}**"],
+      "matchUpdateTypes": ["patch", "digest", "minor"]
+    },
+    {
+      "description": "Group validator and translation packages from go-playground",
+      "groupName": "go-playground validator packages",
+      "matchManagers": ["gomod"],
+      "matchPackageNames": [
+        "github.com/go-playground/locales{/,}**",
+        "github.com/go-playground/universal-translator{/,}**",
+        "github.com/go-playground/validator{/,}**"
+      ],
+      "matchUpdateTypes": ["patch", "digest", "minor"]
+    },
+    {
+      "groupName": "Uber Go packages",
+      "matchManagers": ["gomod"],
+      "matchPackageNames": ["go.uber.org{/,}**"],
+      "matchUpdateTypes": ["patch", "digest", "minor"]
     },
     {
       "description": "Block Go language major upgrades in go.mod files (these require coordinated manual changes)",
