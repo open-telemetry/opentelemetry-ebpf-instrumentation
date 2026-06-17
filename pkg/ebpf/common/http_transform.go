@@ -323,17 +323,25 @@ func HTTPInfoEventToSpan(parseCtx *EBPFParseContext, event *BPFHTTPInfo) (reques
 	// buffer (e.g. SSL connections where headers and body arrive in
 	// separate writes that get interleaved). Scan the raw buffer for a
 	// JSON body and replace req.Body so downstream detectors can parse it.
+	//
+	// We probe a single byte instead of ReadAll to avoid allocating and
+	// copying the entire body on the happy path.
 	if req.ContentLength > 0 {
-		body, readErr := io.ReadAll(req.Body)
-		if readErr == nil && len(body) == 0 {
+		var probe [1]byte
+		n, _ := req.Body.Read(probe[:])
+		if n == 0 {
+			// Body is empty despite Content-Length > 0; attempt recovery
+			// from the raw buffer.
 			if recovered := recoverJSONBodyFromBuffer(requestBuffer); len(recovered) > 0 {
 				if int64(len(recovered)) > req.ContentLength {
 					recovered = recovered[:req.ContentLength]
 				}
-				body = append([]byte(nil), recovered...)
+				req.Body = io.NopCloser(bytes.NewBuffer(recovered))
 			}
+		} else {
+			// Body is present (happy path); prepend the consumed byte.
+			req.Body = io.NopCloser(io.MultiReader(bytes.NewReader(probe[:1]), req.Body))
 		}
-		req.Body = io.NopCloser(bytes.NewBuffer(body))
 	}
 
 	return httpRequestResponseToSpan(parseCtx, event, req, resp), false, nil
