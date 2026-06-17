@@ -3,7 +3,10 @@
 
 package tracesgen // import "go.opentelemetry.io/obi/pkg/export/otel/tracesgen"
 
-import "strings"
+import (
+	"net/url"
+	"strings"
+)
 
 // Returns nil when keys is empty so callers can short-circuit cheaply.
 func buildRedactSet(keys []string) map[string]struct{} {
@@ -22,33 +25,44 @@ func scrubQuery(qs string, redactSet map[string]struct{}) string {
 	if len(redactSet) == 0 || qs == "" {
 		return qs
 	}
+
 	var b strings.Builder
 	b.Grow(len(qs))
+
 	rest := qs
-	first := true
 	for rest != "" {
-		var part string
+		part := rest
 		if i := strings.IndexByte(rest, '&'); i >= 0 {
 			part, rest = rest[:i], rest[i+1:]
 		} else {
-			part, rest = rest, ""
+			rest = ""
 		}
-		if !first {
-			b.WriteByte('&')
-		}
-		first = false
+
 		key, val, hasVal := strings.Cut(part, "=")
 		if !hasVal {
 			b.WriteString(part)
-			continue
-		}
-		b.WriteString(key)
-		b.WriteByte('=')
-		if _, isSensitive := redactSet[key]; isSensitive {
-			b.WriteString("REDACTED")
 		} else {
-			b.WriteString(val)
+			b.WriteString(key)
+			b.WriteByte('=')
+			// Percent-decode the key so ?X-Amz-Signatur%65=v is caught alongside
+			// ?X-Amz-Signature=v. The raw key is preserved in the output; only the value
+			// is replaced. url.QueryUnescape returns the input string unchanged (no
+			// allocation) when no percent-sequences are present.
+			lookupKey := key
+			if decoded, err := url.QueryUnescape(key); err == nil {
+				lookupKey = decoded
+			}
+			if _, isSensitive := redactSet[lookupKey]; isSensitive {
+				b.WriteString("REDACTED")
+			} else {
+				b.WriteString(val)
+			}
+		}
+
+		if rest != "" {
+			b.WriteByte('&')
 		}
 	}
+
 	return b.String()
 }

@@ -73,6 +73,21 @@ func TestScrubQuery(t *testing.T) {
 			keys: sensitiveKeys,
 			want: "sig=REDACTED&token=REDACTED",
 		},
+		{
+			// Percent-encoded key name must still be redacted; raw key preserved in output.
+			// e.g. ?si%67=secret where %67 decodes to 'g', making the key "sig".
+			name: "percent-encoded key name matched and redacted",
+			qs:   "cmd=test&si%67=secret",
+			keys: sensitiveKeys,
+			want: "cmd=test&si%67=REDACTED",
+		},
+		{
+			// Invalid percent-encoding falls back to raw key comparison (no match here).
+			name: "invalid percent-encoding falls back to raw key — no false redaction",
+			qs:   "si%ZZg=value&cmd=test",
+			keys: sensitiveKeys,
+			want: "si%ZZg=value&cmd=test",
+		},
 	}
 
 	for _, tc := range tests {
