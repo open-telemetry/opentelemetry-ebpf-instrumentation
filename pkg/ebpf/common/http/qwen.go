@@ -88,10 +88,13 @@ func QwenSpan(baseSpan *request.Span, req *http.Request, resp *http.Response) (r
 	return *baseSpan, true
 }
 
-// isQwenCompatibleURL checks if the request targets a standard
-// OpenAI-compatible endpoint that might serve Qwen models.
+// isQwenCompatibleURL checks if the request targets a Qwen/DashScope
+// endpoint that serves Qwen models.
 func isQwenCompatibleURL(req *http.Request) bool {
 	if req == nil {
+		return false
+	}
+	if !isQwenHost(req) {
 		return false
 	}
 	path := requestPath(req)
@@ -99,6 +102,19 @@ func isQwenCompatibleURL(req *http.Request) bool {
 		strings.Contains(path, "/completions") ||
 		strings.Contains(path, "/embeddings") ||
 		strings.Contains(path, "/generation")
+}
+
+func isQwenHost(req *http.Request) bool {
+	var host string
+	if req.URL != nil {
+		host = req.URL.Host
+	}
+	if host == "" {
+		host = req.Host
+	}
+	host = strings.ToLower(host)
+	return strings.Contains(host, "dashscope.aliyuncs.com") ||
+		strings.Contains(host, "dashscope.aliyun.com")
 }
 
 func extractQwenOperation(req *http.Request) string {
