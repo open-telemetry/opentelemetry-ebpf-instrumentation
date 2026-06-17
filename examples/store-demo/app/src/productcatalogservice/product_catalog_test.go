@@ -24,9 +24,7 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-var (
-	mockProductCatalog *productCatalog
-)
+var mockProductCatalog *productCatalog
 
 func TestMain(m *testing.M) {
 	mockProductCatalog = &productCatalog{

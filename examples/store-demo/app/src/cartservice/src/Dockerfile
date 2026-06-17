@@ -13,7 +13,7 @@
 # limitations under the License.
 
 # https://mcr.microsoft.com/product/dotnet/sdk
-FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:10.0.100-noble@sha256:c7445f141c04f1a6b454181bd098dcfa606c61ba0bd213d0a702489e5bd4cd71 AS builder
+FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:10.0.301-noble@sha256:548d93f8a18a1acbe6cc127bc4f47281430d34a9e35c18afa80a8d6741c2adc3 AS builder
 ARG TARGETARCH
 WORKDIR /app
 COPY cartservice.csproj .
@@ -30,7 +30,7 @@ RUN dotnet publish cartservice.csproj \
     -o /cartservice
 
 # https://mcr.microsoft.com/product/dotnet/runtime-deps
-FROM mcr.microsoft.com/dotnet/runtime-deps:10.0.0-noble-chiseled@sha256:b857c8cb8d929183cfe4c6dd9994abba92a2639dd2dbaf06005379f815991604
+FROM mcr.microsoft.com/dotnet/runtime-deps:10.0.9-noble-chiseled@sha256:9cae0b131d058693c8d7496fed4a188380f05f27f34c98dd9a516b4d0331b0c4
 
 WORKDIR /app
 COPY --from=builder /cartservice .

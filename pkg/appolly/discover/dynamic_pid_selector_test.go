@@ -73,6 +73,85 @@ func TestDynamicPIDSelector_AddPIDs_RemovePIDs_GetPIDs(t *testing.T) {
 	assert.Nil(t, pids)
 }
 
+func TestDynamicPIDSelector_Subviews(t *testing.T) {
+	d := NewDynamicPIDSelector()
+
+	d.Traces().AddPIDs(1, 2)
+	d.AppMetrics().AddPIDs(2, 3)
+	d.NetworkMetrics().AddPIDs(4)
+	d.StatsMetrics().AddPIDs(5)
+
+	rootPIDs, ok := d.GetPIDs()
+	require.True(t, ok)
+	assert.Equal(t, []app.PID{1, 2, 3, 4, 5}, rootPIDs)
+
+	tracesPIDs, ok := d.Traces().GetPIDs()
+	require.True(t, ok)
+	assert.Equal(t, []app.PID{1, 2}, tracesPIDs)
+
+	appMetricPIDs, ok := d.AppMetrics().GetPIDs()
+	require.True(t, ok)
+	assert.Equal(t, []app.PID{2, 3}, appMetricPIDs)
+
+	appSignalPIDs, ok := d.appSignals().GetPIDs()
+	require.True(t, ok)
+	assert.Equal(t, []app.PID{1, 2, 3}, appSignalPIDs)
+
+	assert.True(t, d.Traces().IncludesPID(1))
+	assert.False(t, d.Traces().IncludesPID(3))
+	assert.True(t, d.AppMetrics().IncludesPID(3))
+	assert.False(t, d.NetworkMetrics().IncludesPID(3))
+}
+
+func TestDynamicPIDSelector_AppUnionNotifications(t *testing.T) {
+	d := NewDynamicPIDSelector()
+	tracesAdded := d.Traces().AddedPIDsNotify()
+	metricsAdded := d.AppMetrics().AddedPIDsNotify()
+	appAdded := d.appSignals().AddedPIDsNotify()
+	rootAdded := d.AddedPIDsNotify()
+
+	d.Traces().AddPIDs(42)
+	assert.Equal(t, []app.PID{42}, <-tracesAdded)
+	assert.Equal(t, []app.PID{42}, <-appAdded)
+	assert.Equal(t, []app.PID{42}, <-rootAdded)
+
+	d.AppMetrics().AddPIDs(42)
+	assert.Equal(t, []app.PID{42}, <-metricsAdded)
+	select {
+	case <-appAdded:
+		t.Fatal("expected no app-union add when PID already selected for traces")
+	default:
+	}
+	select {
+	case <-rootAdded:
+		t.Fatal("expected no root add when PID already selected by another signal")
+	default:
+	}
+
+	tracesRemoved := d.Traces().RemovedNotify()
+	metricsRemoved := d.AppMetrics().RemovedNotify()
+	appRemoved := d.appSignals().RemovedNotify()
+	rootRemoved := d.RemovedNotify()
+
+	d.Traces().RemovePIDs(42)
+	assert.Equal(t, []app.PID{42}, <-tracesRemoved)
+	select {
+	case <-appRemoved:
+		t.Fatal("expected no app-union remove while metrics still selected")
+	default:
+	}
+	select {
+	case <-rootRemoved:
+		t.Fatal("expected no root remove while another signal still selected")
+	default:
+	}
+
+	d.AppMetrics().RemovePIDs(42)
+	assert.Equal(t, []app.PID{42}, <-metricsRemoved)
+	assert.Equal(t, []app.PID{42}, <-appRemoved)
+	assert.Equal(t, []app.PID{42}, <-rootRemoved)
+}
+
 func TestDynamicPIDSelector_RemovePIDs_Notify(t *testing.T) {
 	d := NewDynamicPIDSelector()
 	d.AddPIDs(42, 100)

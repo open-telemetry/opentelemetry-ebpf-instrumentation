@@ -883,7 +883,7 @@ int obi_uprobe_grpcFramerWriteHeaders_returns(struct pt_regs *ctx) {
                 &cap,
                 sizeof(cap),
                 (void *)(w_ptr +
-                         go_offset_of(ot, (go_offset){.v = _grpc_transport_buf_writer_offset_pos}) +
+                         go_offset_of(ot, (go_offset){.v = _grpc_transport_buf_writer_buf_pos}) +
                          16)); // the offset of the capacity is 2 * 8 bytes from the buf
 
             bpf_clamp_umax(off, MAX_W_PTR_OFFSET);

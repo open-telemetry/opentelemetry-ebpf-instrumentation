@@ -25,7 +25,6 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/connector"
-	"go.opentelemetry.io/obi/pkg/export/expire"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/export/otel"
 	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
@@ -263,7 +262,6 @@ type metricsReporter struct {
 
 	promConnect *connector.PrometheusManager
 
-	clock   *expire.CachedClock
 	ctxInfo *global.ContextInfo
 
 	is instrumentations.InstrumentationSelection
@@ -450,8 +448,6 @@ func newReporter(
 		attrSvcGraph = attributes.PrometheusGetters(attributeGetters, attrs)
 	}
 
-	clock := expire.NewCachedClock(timeNow)
-
 	// If service name is not explicitly set, we take the service name as set by the
 	// executable inspector
 	extraMetadataLabels := parseExtraMetadata(cfg.ExtraResourceLabels)
@@ -478,7 +474,6 @@ func newReporter(
 		extraMetadataLabels:        extraMetadataLabels,
 		extraSpanMetadataLabels:    extraSpanMetadataLabels,
 		nodeMeta:                   ctxInfo.NodeMeta,
-		clock:                      clock,
 		is:                         is,
 		promConnect:                ctxInfo.Prometheus,
 		shouldAddExemplar:          exemplarFilter(cfg.ExemplarFilter),
@@ -516,7 +511,7 @@ func newReporter(
 				"version":   buildinfo.Version,
 				"revision":  buildinfo.Revision,
 			},
-		}, obiInfoLabelNames).MetricVec, clock.Time, cfg.TTL),
+		}, obiInfoLabelNames).MetricVec, timeNow, cfg.TTL),
 		httpDuration: optionalHistogramProvider(is.HTTPEnabled(), func() *Expirer[prometheus.Histogram] {
 			return NewExpirer[prometheus.Histogram](prometheus.NewHistogramVec(prometheus.HistogramOpts{
 				Name:                            attributes.HTTPServerDuration.Prom,
@@ -525,7 +520,7 @@ func newReporter(
 				NativeHistogramBucketFactor:     cfg.NativeHistogram.BucketFactor,
 				NativeHistogramMaxBucketNumber:  cfg.NativeHistogram.MaxBucketNumber,
 				NativeHistogramMinResetDuration: cfg.NativeHistogram.MinResetDuration,
-			}, labelNames(attrHTTPDuration)).MetricVec, clock.Time, cfg.TTL)
+			}, labelNames(attrHTTPDuration)).MetricVec, timeNow, cfg.TTL)
 		}),
 		httpClientDuration: optionalHistogramProvider(is.HTTPEnabled(), func() *Expirer[prometheus.Histogram] {
 			return NewExpirer[prometheus.Histogram](prometheus.NewHistogramVec(prometheus.HistogramOpts{
@@ -535,7 +530,7 @@ func newReporter(
 				NativeHistogramBucketFactor:     cfg.NativeHistogram.BucketFactor,
 				NativeHistogramMaxBucketNumber:  cfg.NativeHistogram.MaxBucketNumber,
 				NativeHistogramMinResetDuration: cfg.NativeHistogram.MinResetDuration,
-			}, labelNames(attrHTTPClientDuration)).MetricVec, clock.Time, cfg.TTL)
+			}, labelNames(attrHTTPClientDuration)).MetricVec, timeNow, cfg.TTL)
 		}),
 		grpcDuration: optionalHistogramProvider(is.GRPCEnabled() || is.SunRPCEnabled(), func() *Expirer[prometheus.Histogram] {
 			return NewExpirer[prometheus.Histogram](prometheus.NewHistogramVec(prometheus.HistogramOpts{
@@ -545,7 +540,7 @@ func newReporter(
 				NativeHistogramBucketFactor:     cfg.NativeHistogram.BucketFactor,
 				NativeHistogramMaxBucketNumber:  cfg.NativeHistogram.MaxBucketNumber,
 				NativeHistogramMinResetDuration: cfg.NativeHistogram.MinResetDuration,
-			}, labelNames(attrGRPCDuration)).MetricVec, clock.Time, cfg.TTL)
+			}, labelNames(attrGRPCDuration)).MetricVec, timeNow, cfg.TTL)
 		}),
 		grpcClientDuration: optionalHistogramProvider(is.GRPCEnabled() || is.SunRPCEnabled(), func() *Expirer[prometheus.Histogram] {
 			return NewExpirer[prometheus.Histogram](prometheus.NewHistogramVec(prometheus.HistogramOpts{
@@ -555,7 +550,7 @@ func newReporter(
 				NativeHistogramBucketFactor:     cfg.NativeHistogram.BucketFactor,
 				NativeHistogramMaxBucketNumber:  cfg.NativeHistogram.MaxBucketNumber,
 				NativeHistogramMinResetDuration: cfg.NativeHistogram.MinResetDuration,
-			}, labelNames(attrGRPCClientDuration)).MetricVec, clock.Time, cfg.TTL)
+			}, labelNames(attrGRPCClientDuration)).MetricVec, timeNow, cfg.TTL)
 		}),
 		dbClientDuration: optionalHistogramProvider(is.DBEnabled(), func() *Expirer[prometheus.Histogram] {
 			return NewExpirer[prometheus.Histogram](prometheus.NewHistogramVec(prometheus.HistogramOpts{
@@ -565,7 +560,7 @@ func newReporter(
 				NativeHistogramBucketFactor:     cfg.NativeHistogram.BucketFactor,
 				NativeHistogramMaxBucketNumber:  cfg.NativeHistogram.MaxBucketNumber,
 				NativeHistogramMinResetDuration: cfg.NativeHistogram.MinResetDuration,
-			}, labelNames(attrDBClientDuration)).MetricVec, clock.Time, cfg.TTL)
+			}, labelNames(attrDBClientDuration)).MetricVec, timeNow, cfg.TTL)
 		}),
 		msgPublishDuration: optionalHistogramProvider(is.MQEnabled(), func() *Expirer[prometheus.Histogram] {
 			return NewExpirer[prometheus.Histogram](prometheus.NewHistogramVec(prometheus.HistogramOpts{
@@ -575,7 +570,7 @@ func newReporter(
 				NativeHistogramBucketFactor:     cfg.NativeHistogram.BucketFactor,
 				NativeHistogramMaxBucketNumber:  cfg.NativeHistogram.MaxBucketNumber,
 				NativeHistogramMinResetDuration: cfg.NativeHistogram.MinResetDuration,
-			}, labelNames(attrMessagingPublishDuration)).MetricVec, clock.Time, cfg.TTL)
+			}, labelNames(attrMessagingPublishDuration)).MetricVec, timeNow, cfg.TTL)
 		}),
 		msgProcessDuration: optionalHistogramProvider(is.MQEnabled(), func() *Expirer[prometheus.Histogram] {
 			return NewExpirer[prometheus.Histogram](prometheus.NewHistogramVec(prometheus.HistogramOpts{
@@ -585,7 +580,7 @@ func newReporter(
 				NativeHistogramBucketFactor:     cfg.NativeHistogram.BucketFactor,
 				NativeHistogramMaxBucketNumber:  cfg.NativeHistogram.MaxBucketNumber,
 				NativeHistogramMinResetDuration: cfg.NativeHistogram.MinResetDuration,
-			}, labelNames(attrMessagingProcessDuration)).MetricVec, clock.Time, cfg.TTL)
+			}, labelNames(attrMessagingProcessDuration)).MetricVec, timeNow, cfg.TTL)
 		}),
 		httpRequestSize: optionalHistogramProvider(is.HTTPEnabled(), func() *Expirer[prometheus.Histogram] {
 			return NewExpirer[prometheus.Histogram](prometheus.NewHistogramVec(prometheus.HistogramOpts{
@@ -595,7 +590,7 @@ func newReporter(
 				NativeHistogramBucketFactor:     cfg.NativeHistogram.BucketFactor,
 				NativeHistogramMaxBucketNumber:  cfg.NativeHistogram.MaxBucketNumber,
 				NativeHistogramMinResetDuration: cfg.NativeHistogram.MinResetDuration,
-			}, labelNames(attrHTTPRequestSize)).MetricVec, clock.Time, cfg.TTL)
+			}, labelNames(attrHTTPRequestSize)).MetricVec, timeNow, cfg.TTL)
 		}),
 		httpResponseSize: optionalHistogramProvider(is.HTTPEnabled(), func() *Expirer[prometheus.Histogram] {
 			return NewExpirer[prometheus.Histogram](prometheus.NewHistogramVec(prometheus.HistogramOpts{
@@ -605,7 +600,7 @@ func newReporter(
 				NativeHistogramBucketFactor:     cfg.NativeHistogram.BucketFactor,
 				NativeHistogramMaxBucketNumber:  cfg.NativeHistogram.MaxBucketNumber,
 				NativeHistogramMinResetDuration: cfg.NativeHistogram.MinResetDuration,
-			}, labelNames(attrHTTPResponseSize)).MetricVec, clock.Time, cfg.TTL)
+			}, labelNames(attrHTTPResponseSize)).MetricVec, timeNow, cfg.TTL)
 		}),
 		httpClientRequestSize: optionalHistogramProvider(is.HTTPEnabled(), func() *Expirer[prometheus.Histogram] {
 			return NewExpirer[prometheus.Histogram](prometheus.NewHistogramVec(prometheus.HistogramOpts{
@@ -615,7 +610,7 @@ func newReporter(
 				NativeHistogramBucketFactor:     cfg.NativeHistogram.BucketFactor,
 				NativeHistogramMaxBucketNumber:  cfg.NativeHistogram.MaxBucketNumber,
 				NativeHistogramMinResetDuration: cfg.NativeHistogram.MinResetDuration,
-			}, labelNames(attrHTTPClientRequestSize)).MetricVec, clock.Time, cfg.TTL)
+			}, labelNames(attrHTTPClientRequestSize)).MetricVec, timeNow, cfg.TTL)
 		}),
 		httpClientResponseSize: optionalHistogramProvider(is.HTTPEnabled(), func() *Expirer[prometheus.Histogram] {
 			return NewExpirer[prometheus.Histogram](prometheus.NewHistogramVec(prometheus.HistogramOpts{
@@ -625,7 +620,7 @@ func newReporter(
 				NativeHistogramBucketFactor:     cfg.NativeHistogram.BucketFactor,
 				NativeHistogramMaxBucketNumber:  cfg.NativeHistogram.MaxBucketNumber,
 				NativeHistogramMinResetDuration: cfg.NativeHistogram.MinResetDuration,
-			}, labelNames(attrHTTPClientResponseSize)).MetricVec, clock.Time, cfg.TTL)
+			}, labelNames(attrHTTPClientResponseSize)).MetricVec, timeNow, cfg.TTL)
 		}),
 		spanMetricsLatency: optionalHistogramProvider(jointMetricsConfig.Features.SpanMetrics(), func() *Expirer[prometheus.Histogram] {
 			return NewExpirer[prometheus.Histogram](prometheus.NewHistogramVec(prometheus.HistogramOpts{
@@ -635,25 +630,25 @@ func newReporter(
 				NativeHistogramBucketFactor:     cfg.NativeHistogram.BucketFactor,
 				NativeHistogramMaxBucketNumber:  cfg.NativeHistogram.MaxBucketNumber,
 				NativeHistogramMinResetDuration: cfg.NativeHistogram.MinResetDuration,
-			}, labelNamesSpans(extraSpanMetadataLabels)).MetricVec, clock.Time, cfg.TTL)
+			}, labelNamesSpans(extraSpanMetadataLabels)).MetricVec, timeNow, cfg.TTL)
 		}),
 		spanMetricsCallsTotal: optionalCounterProvider(jointMetricsConfig.Features.SpanMetrics(), func() *Expirer[prometheus.Counter] {
 			return NewExpirer[prometheus.Counter](prometheus.NewCounterVec(prometheus.CounterOpts{
 				Name: spanMetricsCallsName(jointMetricsConfig),
 				Help: "number of service calls in trace span metrics format",
-			}, labelNamesSpans(extraSpanMetadataLabels)).MetricVec, clock.Time, cfg.TTL)
+			}, labelNamesSpans(extraSpanMetadataLabels)).MetricVec, timeNow, cfg.TTL)
 		}),
 		spanMetricsRequestSizeTotal: optionalCounterProvider(jointMetricsConfig.Features.SpanSizes(), func() *Expirer[prometheus.Counter] {
 			return NewExpirer[prometheus.Counter](prometheus.NewCounterVec(prometheus.CounterOpts{
 				Name: SpanMetricsRequestSizes,
 				Help: "size of service calls, in bytes, in trace span metrics format",
-			}, labelNamesSpans(extraSpanMetadataLabels)).MetricVec, clock.Time, cfg.TTL)
+			}, labelNamesSpans(extraSpanMetadataLabels)).MetricVec, timeNow, cfg.TTL)
 		}),
 		spanMetricsResponseSizeTotal: optionalCounterProvider(jointMetricsConfig.Features.SpanSizes(), func() *Expirer[prometheus.Counter] {
 			return NewExpirer[prometheus.Counter](prometheus.NewCounterVec(prometheus.CounterOpts{
 				Name: SpanMetricsResponseSizes,
 				Help: "size of service responses, in bytes, in trace span metrics format",
-			}, labelNamesSpans(extraSpanMetadataLabels)).MetricVec, clock.Time, cfg.TTL)
+			}, labelNamesSpans(extraSpanMetadataLabels)).MetricVec, timeNow, cfg.TTL)
 		}),
 		tracesTargetInfo: optionalDirectGaugeProvider(jointMetricsConfig.Features.AnySpanMetrics(), func() *prometheus.GaugeVec {
 			return prometheus.NewGaugeVec(prometheus.GaugeOpts{
@@ -665,7 +660,7 @@ func newReporter(
 			return NewExpirer[prometheus.Gauge](prometheus.NewGaugeVec(prometheus.GaugeOpts{
 				Name: TracesHostInfo,
 				Help: "A metric with a constant '1' value labeled by the host id ",
-			}, []string{CloudHostIDKey}).MetricVec, clock.Time, cfg.TTL)
+			}, []string{CloudHostIDKey}).MetricVec, timeNow, cfg.TTL)
 		}),
 		serviceGraphClient: optionalHistogramProvider(jointMetricsConfig.Features.ServiceGraph(), func() *Expirer[prometheus.Histogram] {
 			return NewExpirer[prometheus.Histogram](prometheus.NewHistogramVec(prometheus.HistogramOpts{
@@ -675,7 +670,7 @@ func newReporter(
 				NativeHistogramBucketFactor:     cfg.NativeHistogram.BucketFactor,
 				NativeHistogramMaxBucketNumber:  cfg.NativeHistogram.MaxBucketNumber,
 				NativeHistogramMinResetDuration: cfg.NativeHistogram.MinResetDuration,
-			}, labelNamesSvcGraph(attrSvcGraph)).MetricVec, clock.Time, cfg.TTL)
+			}, labelNamesSvcGraph(attrSvcGraph)).MetricVec, timeNow, cfg.TTL)
 		}),
 		serviceGraphServer: optionalHistogramProvider(jointMetricsConfig.Features.ServiceGraph(), func() *Expirer[prometheus.Histogram] {
 			return NewExpirer[prometheus.Histogram](prometheus.NewHistogramVec(prometheus.HistogramOpts{
@@ -685,19 +680,19 @@ func newReporter(
 				NativeHistogramBucketFactor:     cfg.NativeHistogram.BucketFactor,
 				NativeHistogramMaxBucketNumber:  cfg.NativeHistogram.MaxBucketNumber,
 				NativeHistogramMinResetDuration: cfg.NativeHistogram.MinResetDuration,
-			}, labelNamesSvcGraph(attrSvcGraph)).MetricVec, clock.Time, cfg.TTL)
+			}, labelNamesSvcGraph(attrSvcGraph)).MetricVec, timeNow, cfg.TTL)
 		}),
 		serviceGraphFailed: optionalCounterProvider(jointMetricsConfig.Features.ServiceGraph(), func() *Expirer[prometheus.Counter] {
 			return NewExpirer[prometheus.Counter](prometheus.NewCounterVec(prometheus.CounterOpts{
 				Name: ServiceGraphFailed,
 				Help: "number of failed service calls in trace service graph metrics format",
-			}, labelNamesSvcGraph(attrSvcGraph)).MetricVec, clock.Time, cfg.TTL)
+			}, labelNamesSvcGraph(attrSvcGraph)).MetricVec, timeNow, cfg.TTL)
 		}),
 		serviceGraphTotal: optionalCounterProvider(jointMetricsConfig.Features.ServiceGraph(), func() *Expirer[prometheus.Counter] {
 			return NewExpirer[prometheus.Counter](prometheus.NewCounterVec(prometheus.CounterOpts{
 				Name: ServiceGraphTotal,
 				Help: "number of service calls in trace service graph metrics format",
-			}, labelNamesSvcGraph(attrSvcGraph)).MetricVec, clock.Time, cfg.TTL)
+			}, labelNamesSvcGraph(attrSvcGraph)).MetricVec, timeNow, cfg.TTL)
 		}),
 		targetInfo: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: TargetInfo,
@@ -707,19 +702,19 @@ func newReporter(
 			return NewExpirer[prometheus.Counter](prometheus.NewCounterVec(prometheus.CounterOpts{
 				Name: attributes.GPUCudaKernelLaunchCalls.Prom,
 				Help: "number of NVIDIA GPU cuda kernel launches",
-			}, labelNames(attrCudaKernelLaunchCalls)).MetricVec, clock.Time, cfg.TTL)
+			}, labelNames(attrCudaKernelLaunchCalls)).MetricVec, timeNow, cfg.TTL)
 		}),
 		cudaGraphCallsTotal: optionalCounterProvider(is.GPUEnabled(), func() *Expirer[prometheus.Counter] {
 			return NewExpirer[prometheus.Counter](prometheus.NewCounterVec(prometheus.CounterOpts{
 				Name: attributes.GPUCudaGraphLaunchCalls.Prom,
 				Help: "number of NVIDIA GPU cuda graph launches",
-			}, labelNames(attrCudaGraphLaunchCalls)).MetricVec, clock.Time, cfg.TTL)
+			}, labelNames(attrCudaGraphLaunchCalls)).MetricVec, timeNow, cfg.TTL)
 		}),
 		cudaMemoryAllocsTotal: optionalCounterProvider(is.GPUEnabled(), func() *Expirer[prometheus.Counter] {
 			return NewExpirer[prometheus.Counter](prometheus.NewCounterVec(prometheus.CounterOpts{
 				Name: attributes.GPUCudaMemoryAllocations.Prom,
 				Help: "amount of NVIDIA GPU cuda allocated memory in bytes",
-			}, labelNames(attrCudaMemoryAllocations)).MetricVec, clock.Time, cfg.TTL)
+			}, labelNames(attrCudaMemoryAllocations)).MetricVec, timeNow, cfg.TTL)
 		}),
 		cudaKernelGridSize: optionalHistogramProvider(is.GPUEnabled(), func() *Expirer[prometheus.Histogram] {
 			return NewExpirer[prometheus.Histogram](prometheus.NewHistogramVec(prometheus.HistogramOpts{
@@ -729,7 +724,7 @@ func newReporter(
 				NativeHistogramBucketFactor:     cfg.NativeHistogram.BucketFactor,
 				NativeHistogramMaxBucketNumber:  cfg.NativeHistogram.MaxBucketNumber,
 				NativeHistogramMinResetDuration: cfg.NativeHistogram.MinResetDuration,
-			}, labelNames(attrCudaKernelGridSize)).MetricVec, clock.Time, cfg.TTL)
+			}, labelNames(attrCudaKernelGridSize)).MetricVec, timeNow, cfg.TTL)
 		}),
 		cudaKernelBlockSize: optionalHistogramProvider(is.GPUEnabled(), func() *Expirer[prometheus.Histogram] {
 			return NewExpirer[prometheus.Histogram](prometheus.NewHistogramVec(prometheus.HistogramOpts{
@@ -739,7 +734,7 @@ func newReporter(
 				NativeHistogramBucketFactor:     cfg.NativeHistogram.BucketFactor,
 				NativeHistogramMaxBucketNumber:  cfg.NativeHistogram.MaxBucketNumber,
 				NativeHistogramMinResetDuration: cfg.NativeHistogram.MinResetDuration,
-			}, labelNames(attrCudaKernelBlockSize)).MetricVec, clock.Time, cfg.TTL)
+			}, labelNames(attrCudaKernelBlockSize)).MetricVec, timeNow, cfg.TTL)
 		}),
 		cudaMemoryCopySize: optionalHistogramProvider(is.GPUEnabled(), func() *Expirer[prometheus.Histogram] {
 			return NewExpirer[prometheus.Histogram](prometheus.NewHistogramVec(prometheus.HistogramOpts{
@@ -749,7 +744,7 @@ func newReporter(
 				NativeHistogramBucketFactor:     cfg.NativeHistogram.BucketFactor,
 				NativeHistogramMaxBucketNumber:  cfg.NativeHistogram.MaxBucketNumber,
 				NativeHistogramMinResetDuration: cfg.NativeHistogram.MinResetDuration,
-			}, labelNames(attrCudaMemoryCopies)).MetricVec, clock.Time, cfg.TTL)
+			}, labelNames(attrCudaMemoryCopies)).MetricVec, timeNow, cfg.TTL)
 		}),
 		dnsLookupDuration: optionalHistogramProvider(is.DNSEnabled(), func() *Expirer[prometheus.Histogram] {
 			return NewExpirer[prometheus.Histogram](prometheus.NewHistogramVec(prometheus.HistogramOpts{
@@ -759,7 +754,7 @@ func newReporter(
 				NativeHistogramBucketFactor:     cfg.NativeHistogram.BucketFactor,
 				NativeHistogramMaxBucketNumber:  cfg.NativeHistogram.MaxBucketNumber,
 				NativeHistogramMinResetDuration: cfg.NativeHistogram.MinResetDuration,
-			}, labelNames(attrDNSLookupDuration)).MetricVec, clock.Time, cfg.TTL)
+			}, labelNames(attrDNSLookupDuration)).MetricVec, timeNow, cfg.TTL)
 		}),
 		genAIClientDuration: optionalHistogramProvider(is.GenAIEnabled(), func() *Expirer[prometheus.Histogram] {
 			return NewExpirer[prometheus.Histogram](prometheus.NewHistogramVec(prometheus.HistogramOpts{
@@ -769,7 +764,7 @@ func newReporter(
 				NativeHistogramBucketFactor:     cfg.NativeHistogram.BucketFactor,
 				NativeHistogramMaxBucketNumber:  cfg.NativeHistogram.MaxBucketNumber,
 				NativeHistogramMinResetDuration: cfg.NativeHistogram.MinResetDuration,
-			}, labelNames(attrGenAIClientDuration)).MetricVec, clock.Time, cfg.TTL)
+			}, labelNames(attrGenAIClientDuration)).MetricVec, timeNow, cfg.TTL)
 		}),
 		// We make only one metric series, the input and output have the same name and attribute keys
 		genAITokenUsage: optionalHistogramProvider(is.GenAIEnabled(), func() *Expirer[prometheus.Histogram] {
@@ -780,7 +775,7 @@ func newReporter(
 				NativeHistogramBucketFactor:     cfg.NativeHistogram.BucketFactor,
 				NativeHistogramMaxBucketNumber:  cfg.NativeHistogram.MaxBucketNumber,
 				NativeHistogramMinResetDuration: cfg.NativeHistogram.MinResetDuration,
-			}, labelNames(attrGenAIInputTokenUsage)).MetricVec, clock.Time, cfg.TTL)
+			}, labelNames(attrGenAIInputTokenUsage)).MetricVec, timeNow, cfg.TTL)
 		}),
 	}
 
@@ -950,9 +945,6 @@ func (r *metricsReporter) collectMetrics(ctx context.Context) {
 		go r.watchForRuntimeMetrics(ctx)
 	}
 	swarms.ForEachInput(ctx, r.input, nil, func(spans []request.Span) {
-		// clock needs to be updated to let the expirer
-		// remove the old metrics
-		r.clock.Update()
 		for i := range spans {
 			r.observe(&spans[i])
 		}
