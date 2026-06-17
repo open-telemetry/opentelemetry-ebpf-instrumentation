@@ -115,13 +115,13 @@ func mapKeys(m map[string]struct{}) []string {
 
 func sortRoutes(routes []string) []string {
 	sort.Slice(routes, func(i, j int) bool {
-		hasParamsI := strings.Contains(routes[i], "{")
-		hasParamsJ := strings.Contains(routes[j], "{")
+		hasWildcardI := routeHasWildcardSegment(routes[i])
+		hasWildcardJ := routeHasWildcardSegment(routes[j])
 
-		if hasParamsI && !hasParamsJ {
+		if hasWildcardI && !hasWildcardJ {
 			return false
 		}
-		if !hasParamsI && hasParamsJ {
+		if !hasWildcardI && hasWildcardJ {
 			return true
 		}
 
@@ -129,4 +129,36 @@ func sortRoutes(routes []string) []string {
 	})
 
 	return routes
+}
+
+func routeHasWildcardSegment(route string) bool {
+	for _, segment := range strings.Split(route, "/") {
+		if segment == "" {
+			continue
+		}
+		if segment == "*" || routeSegmentIsParameter(segment) {
+			return true
+		}
+	}
+	return false
+}
+
+func routeSegmentIsParameter(segment string) bool {
+	if strings.HasPrefix(segment, ":") {
+		return routeParameterName(segment[1:])
+	}
+	if strings.HasPrefix(segment, "{") && strings.HasSuffix(segment, "}") {
+		return routeParameterName(strings.TrimSuffix(strings.TrimPrefix(segment, "{"), "}"))
+	}
+	return false
+}
+
+func routeParameterName(name string) bool {
+	for _, r := range name {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' {
+			continue
+		}
+		return false
+	}
+	return true
 }

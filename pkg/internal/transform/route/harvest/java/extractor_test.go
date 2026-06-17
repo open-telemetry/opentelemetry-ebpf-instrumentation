@@ -14,6 +14,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
+	"go.opentelemetry.io/obi/pkg/internal/transform/route"
 )
 
 var expectedRoutes = []string{
@@ -107,6 +108,31 @@ func TestExtractRoutesFromWildcardClasspathJars(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.ElementsMatch(t, expectedRoutes, routes)
+}
+
+func TestSortRoutesPrefersStaticRoutesBeforeWildcardRoutes(t *testing.T) {
+	routes := sortRoutes([]string{
+		"/api/:version",
+		"/api/v1",
+		"/api/{id}",
+		"/api/*",
+		"/api/v1/users",
+	})
+
+	assert.Equal(t, []string{
+		"/api/v1/users",
+		"/api/v1",
+		"/api/:version",
+		"/api/{id}",
+		"/api/*",
+	}, routes)
+}
+
+func TestSortRoutesLetsPartialMatcherPreferStaticRoute(t *testing.T) {
+	routes := sortRoutes([]string{"/api/:version", "/api/v1"})
+	matcher := route.NewPartialRouteMatcher(routes)
+
+	assert.Equal(t, "/api/v1", matcher.Find("/api/v1"))
 }
 
 func TestResolveProcessPathRejectsSymlinkEscape(t *testing.T) {
