@@ -4,9 +4,7 @@
 set -euo pipefail
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-repo_root="$(cd -- "${script_dir}/.." && pwd)"
-
-test_dir=.
+test_dir="${script_dir}"
 src_dir="${test_dir}/src"
 classes_dir="${test_dir}/classes"
 build_dir="${test_dir}/build"
