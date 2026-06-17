@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/trace"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
@@ -23,6 +24,8 @@ func TestGoChannelLinkEventTypeDoesNotConflictWithRuntimeMetrics(t *testing.T) {
 }
 
 func TestReadBPFTraceAsSpanGoChannelLinkEvent(t *testing.T) {
+	t.Setenv("OTEL_SPAN_LINK_COUNT_LIMIT", "")
+
 	parseCtx := NewEBPFParseContext(nil, nil, nil)
 
 	senderTraceID := testTraceID(1)
@@ -71,7 +74,7 @@ func TestReadGoChannelLinkEventRejectsMalformedRecord(t *testing.T) {
 }
 
 func TestPendingSpanLinksDeduplicates(t *testing.T) {
-	pending := newPendingSpanLinks()
+	pending := newTestPendingSpanLinks()
 
 	key := spanLinkKey{traceID: testTraceID(1), spanID: testSpanID(2)}
 	link := request.SpanLink{TraceID: testTraceID(3), SpanID: testSpanID(4), TraceFlags: TPFlagSampled}
@@ -86,7 +89,7 @@ func TestPendingSpanLinksDeduplicates(t *testing.T) {
 }
 
 func TestPendingSpanLinksDoesNotDuplicateExistingSpanLinks(t *testing.T) {
-	pending := newPendingSpanLinks()
+	pending := newTestPendingSpanLinks()
 
 	key := spanLinkKey{traceID: testTraceID(1), spanID: testSpanID(2)}
 	link := request.SpanLink{TraceID: testTraceID(3), SpanID: testSpanID(4), TraceFlags: TPFlagSampled}
@@ -108,7 +111,7 @@ func TestPendingSpanLinksDoesNotDuplicateExistingSpanLinks(t *testing.T) {
 }
 
 func TestPendingSpanLinksIgnoresInvalidAndSelfLinks(t *testing.T) {
-	pending := newPendingSpanLinks()
+	pending := newTestPendingSpanLinks()
 
 	traceID := testTraceID(1)
 	spanID := testSpanID(2)
@@ -125,11 +128,11 @@ func TestPendingSpanLinksIgnoresInvalidAndSelfLinks(t *testing.T) {
 }
 
 func TestPendingSpanLinksCapsLinksAtOTelDefaultLimit(t *testing.T) {
-	pending := newPendingSpanLinks()
+	pending := newTestPendingSpanLinks()
 
 	key := spanLinkKey{traceID: testTraceID(1), spanID: testSpanID(2)}
 
-	for i := range maxSpanLinks + 2 {
+	for i := range sdktrace.DefaultLinkCountLimit + 2 {
 		pending.recordLink(key, request.SpanLink{
 			TraceID: testTraceID(100 + i),
 			SpanID:  testSpanID(100 + i),
@@ -138,16 +141,16 @@ func TestPendingSpanLinksCapsLinksAtOTelDefaultLimit(t *testing.T) {
 
 	span := request.Span{TraceID: key.traceID, SpanID: key.spanID}
 	pending.consume(&span)
-	assert.Len(t, span.Links, maxSpanLinks)
+	assert.Len(t, span.Links, sdktrace.DefaultLinkCountLimit)
 }
 
 func TestPendingSpanLinksRespectsOTelDefaultLimitWithExistingLinks(t *testing.T) {
-	pending := newPendingSpanLinks()
+	pending := newTestPendingSpanLinks()
 
 	key := spanLinkKey{traceID: testTraceID(1), spanID: testSpanID(2)}
 
-	existingLinks := make([]request.SpanLink, 0, maxSpanLinks-1)
-	for i := range maxSpanLinks - 1 {
+	existingLinks := make([]request.SpanLink, 0, sdktrace.DefaultLinkCountLimit-1)
+	for i := range sdktrace.DefaultLinkCountLimit - 1 {
 		existingLinks = append(existingLinks, request.SpanLink{
 			TraceID: testTraceID(100 + i),
 			SpanID:  testSpanID(100 + i),
@@ -168,12 +171,86 @@ func TestPendingSpanLinksRespectsOTelDefaultLimitWithExistingLinks(t *testing.T)
 	}
 
 	pending.consume(&span)
-	assert.Len(t, span.Links, maxSpanLinks)
-	assert.Equal(t, testTraceID(1000), span.Links[maxSpanLinks-1].TraceID)
+	assert.Len(t, span.Links, sdktrace.DefaultLinkCountLimit)
+	assert.Equal(t, testTraceID(1000), span.Links[sdktrace.DefaultLinkCountLimit-1].TraceID)
+}
+
+func TestPendingSpanLinksHonorsSpanLinkCountLimitEnv(t *testing.T) {
+	tests := []struct {
+		name  string
+		value string
+		want  int
+	}{
+		{
+			name:  "unset",
+			value: "",
+			want:  sdktrace.DefaultLinkCountLimit,
+		},
+		{
+			name:  "invalid",
+			value: "invalid",
+			want:  sdktrace.DefaultLinkCountLimit,
+		},
+		{
+			name:  "positive",
+			value: "2",
+			want:  2,
+		},
+		{
+			name:  "zero",
+			value: "0",
+			want:  0,
+		},
+		{
+			name:  "negative",
+			value: "-1",
+			want:  sdktrace.DefaultLinkCountLimit + 2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("OTEL_SPAN_LINK_COUNT_LIMIT", tt.value)
+
+			pending := newPendingSpanLinks()
+			key := spanLinkKey{traceID: testTraceID(1), spanID: testSpanID(2)}
+
+			for i := range sdktrace.DefaultLinkCountLimit + 2 {
+				pending.recordLink(key, request.SpanLink{
+					TraceID: testTraceID(100 + i),
+					SpanID:  testSpanID(100 + i),
+				})
+			}
+
+			span := request.Span{TraceID: key.traceID, SpanID: key.spanID}
+			pending.consume(&span)
+			assert.Len(t, span.Links, tt.want)
+		})
+	}
+}
+
+func TestPendingSpanLinksHonorsConfiguredLimitWithExistingLinks(t *testing.T) {
+	pending := newPendingSpanLinksWith(maxPendingSpanLinks, pendingSpanLinksTTL, 2)
+
+	key := spanLinkKey{traceID: testTraceID(1), spanID: testSpanID(2)}
+	existingLink := request.SpanLink{TraceID: testTraceID(3), SpanID: testSpanID(4)}
+	pending.recordLink(key, request.SpanLink{TraceID: testTraceID(5), SpanID: testSpanID(6)})
+	pending.recordLink(key, request.SpanLink{TraceID: testTraceID(7), SpanID: testSpanID(8)})
+
+	span := request.Span{
+		TraceID: key.traceID,
+		SpanID:  key.spanID,
+		Links:   []request.SpanLink{existingLink},
+	}
+	pending.consume(&span)
+
+	require.Len(t, span.Links, 2)
+	assert.Equal(t, existingLink, span.Links[0])
+	assert.Equal(t, testTraceID(5), span.Links[1].TraceID)
 }
 
 func TestPendingSpanLinksBoundsReceiverCache(t *testing.T) {
-	pending := newPendingSpanLinks()
+	pending := newTestPendingSpanLinks()
 	link := request.SpanLink{TraceID: testTraceID(1), SpanID: testSpanID(1)}
 
 	for i := range maxPendingSpanLinks + 1 {
@@ -195,7 +272,7 @@ func TestPendingSpanLinksBoundsReceiverCache(t *testing.T) {
 }
 
 func TestPendingSpanLinksExpire(t *testing.T) {
-	pending := newPendingSpanLinksWith(8, time.Millisecond)
+	pending := newPendingSpanLinksWith(8, time.Millisecond, sdktrace.DefaultLinkCountLimit)
 
 	key := spanLinkKey{traceID: testTraceID(1), spanID: testSpanID(2)}
 	pending.recordLink(key, request.SpanLink{TraceID: testTraceID(3), SpanID: testSpanID(4)})
@@ -208,7 +285,7 @@ func TestPendingSpanLinksExpire(t *testing.T) {
 }
 
 func TestFinalizeParsedSpanConsumesPendingSpanLinks(t *testing.T) {
-	parseCtx := &EBPFParseContext{pendingSpanLinks: newPendingSpanLinks()}
+	parseCtx := &EBPFParseContext{pendingSpanLinks: newTestPendingSpanLinks()}
 
 	key := spanLinkKey{traceID: testTraceID(1), spanID: testSpanID(2)}
 	link := request.SpanLink{TraceID: testTraceID(3), SpanID: testSpanID(4), TraceFlags: TPFlagSampled}
@@ -230,7 +307,7 @@ func TestFinalizeParsedSpanConsumesPendingSpanLinks(t *testing.T) {
 func TestEmitExtraSpansConsumesPendingSpanLinks(t *testing.T) {
 	var emitted []request.Span
 	parseCtx := &EBPFParseContext{
-		pendingSpanLinks: newPendingSpanLinks(),
+		pendingSpanLinks: newTestPendingSpanLinks(),
 		emitSpans: func(spans []request.Span) {
 			emitted = append([]request.Span(nil), spans...)
 		},
@@ -280,4 +357,8 @@ func testSpanID(n int) trace.SpanID {
 	id[6] = byte(n >> 8)
 	id[7] = byte(n)
 	return id
+}
+
+func newTestPendingSpanLinks() *pendingSpanLinks {
+	return newPendingSpanLinksWith(maxPendingSpanLinks, pendingSpanLinksTTL, sdktrace.DefaultLinkCountLimit)
 }
