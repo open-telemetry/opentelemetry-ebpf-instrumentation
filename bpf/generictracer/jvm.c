@@ -152,8 +152,9 @@ int BPF_UPROBE(obi_uprobe_report_gc_heap_summary,
     return 0;
 }
 
-static __always_inline int jvm_hotspot_mem_pool_gc(struct pt_regs *ctx,
-                                                   enum jvm_gc_when_type when,
+static __always_inline int jvm_hotspot_mem_pool_gc(enum jvm_gc_when_type when,
+                                                   u64 pid_tgid,
+                                                   u32 pid,
                                                    const unsigned char *manager,
                                                    long manager_len,
                                                    const unsigned char *pool,
@@ -162,18 +163,7 @@ static __always_inline int jvm_hotspot_mem_pool_gc(struct pt_regs *ctx,
                                                    u64 used,
                                                    u64 committed,
                                                    u64 max_size) {
-    (void)ctx;
-
-    if (!jvm_runtime_metrics_enabled) {
-        return 0;
-    }
     if (when != k_jvm_before_gc && when != k_jvm_after_gc) {
-        return 0;
-    }
-
-    const u64 pid_tgid = bpf_get_current_pid_tgid();
-    const u32 pid = valid_pid(pid_tgid);
-    if (!pid) {
         return 0;
     }
 
@@ -234,6 +224,16 @@ jvm_read_hotspot_usdt_arg(struct pt_regs *ctx, enum jvm_gc_when_type when, u64 a
 // https://github.com/openjdk/jdk/blob/jdk-21%2B35/src/hotspot/share/services/memoryManager.cpp#L230
 SEC("usdt/hotspot_mem_pool_gc_begin")
 int obi_usdt_hotspot_mem_pool_gc_begin(struct pt_regs *ctx) {
+    if (!jvm_runtime_metrics_enabled) {
+        return 0;
+    }
+
+    const u64 pid_tgid = bpf_get_current_pid_tgid();
+    const u32 pid = valid_pid(pid_tgid);
+    if (!pid) {
+        return 0;
+    }
+
     long manager = 0;
     long manager_len = 0;
     long pool = 0;
@@ -254,8 +254,9 @@ int obi_usdt_hotspot_mem_pool_gc_begin(struct pt_regs *ctx) {
         return 0;
     }
 
-    return jvm_hotspot_mem_pool_gc(ctx,
-                                   k_jvm_before_gc,
+    return jvm_hotspot_mem_pool_gc(k_jvm_before_gc,
+                                   pid_tgid,
+                                   pid,
                                    (const unsigned char *)manager,
                                    manager_len,
                                    (const unsigned char *)pool,
@@ -269,6 +270,16 @@ int obi_usdt_hotspot_mem_pool_gc_begin(struct pt_regs *ctx) {
 // https://github.com/openjdk/jdk/blob/jdk-21%2B35/src/hotspot/share/services/memoryManager.cpp#L263
 SEC("usdt/hotspot_mem_pool_gc_end")
 int obi_usdt_hotspot_mem_pool_gc_end(struct pt_regs *ctx) {
+    if (!jvm_runtime_metrics_enabled) {
+        return 0;
+    }
+
+    const u64 pid_tgid = bpf_get_current_pid_tgid();
+    const u32 pid = valid_pid(pid_tgid);
+    if (!pid) {
+        return 0;
+    }
+
     long manager = 0;
     long manager_len = 0;
     long pool = 0;
@@ -289,8 +300,9 @@ int obi_usdt_hotspot_mem_pool_gc_end(struct pt_regs *ctx) {
         return 0;
     }
 
-    return jvm_hotspot_mem_pool_gc(ctx,
-                                   k_jvm_after_gc,
+    return jvm_hotspot_mem_pool_gc(k_jvm_after_gc,
+                                   pid_tgid,
+                                   pid,
                                    (const unsigned char *)manager,
                                    manager_len,
                                    (const unsigned char *)pool,
