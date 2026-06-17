@@ -172,6 +172,10 @@ func (e *EBPFTracer) CudaInstrumentationEnabled() bool {
 	return false
 }
 
+// MaxCapturedPayloadBytes is the maximum number of bytes that can be captured
+// per protocol request direction via large buffer events.
+const MaxCapturedPayloadBytes = 1 << 18
+
 // Per-protocol maximum bytes to capture per request per direction, sent to userspace via large buffer events.
 //
 // Default: 0 (disabled).

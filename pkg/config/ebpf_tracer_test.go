@@ -262,7 +262,7 @@ func TestEBPFBufferSizesValidateTagsMatchMaxCapturedPayloadBytes(t *testing.T) {
 		got := field.Tag.Get("validate")
 		var expected string
 		if field.Name == "HTTP" {
-			expected = "lte=262144"
+			expected = fmt.Sprintf("lte=%d", MaxCapturedPayloadBytes)
 		} else {
 			expected = "lte=65536"
 		}
@@ -271,7 +271,7 @@ func TestEBPFBufferSizesValidateTagsMatchMaxCapturedPayloadBytes(t *testing.T) {
 				"EBPFBufferSizes.%s validate tag drifted: got %q, want %q.\n"+
 					"To resolve this, update all of the following together:\n"+
 					"1. %s validate tag in pkg/config/ebpf_tracer.go\n"+
-					"2. HTTP validate tag upper bound (HTTP only)\n"+
+					"2. MaxCapturedPayloadBytes in pkg/config/ebpf_tracer.go (HTTP only)\n"+
 					"3. matching k_large_buf_max_*_captured_bytes constant in bpf/common/large_buffers.h",
 				field.Name,
 				got,

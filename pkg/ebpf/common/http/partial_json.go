@@ -268,6 +268,7 @@ func extractJSONRawField(body []byte, field string) json.RawMessage {
 			return raw
 		}
 	}
+
 	return nil
 }
 
