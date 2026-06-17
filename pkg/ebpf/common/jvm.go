@@ -33,7 +33,7 @@ func HandleRuntimeMetricsRecord(
 	eventContext *EBPFEventContext,
 	record *ringbuf.Record,
 	filter ServiceFilter,
-	logger *slog.Logger,
+	_ *slog.Logger,
 ) (bool, error) {
 	if record == nil || len(record.RawSample) == 0 {
 		return false, nil

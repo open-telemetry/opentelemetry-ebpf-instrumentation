@@ -777,27 +777,29 @@ func (p *Tracer) parseJVMMemoryPoolRecord(record *ringbuf.Record) ([]jvmruntime.
 		return nil, false, err
 	}
 
-	decorated := events[:0]
-	for i := range events {
-		if ebpfcommon.DecorateJVMRuntimeEvent(p.pidsFilter, &events[i]) {
-			decorated = append(decorated, events[i])
-		}
-	}
-	if len(decorated) == 0 {
+	if len(events) == 0 {
 		return nil, true, nil
+	}
+
+	// All events are fanned out from one raw sample and share PID identity.
+	if !ebpfcommon.DecorateJVMRuntimeEvent(p.pidsFilter, &events[0]) {
+		return nil, true, nil
+	}
+	for i := 1; i < len(events); i++ {
+		events[i].Service = events[0].Service
 	}
 
 	if p.log != nil {
 		p.log.Debug("received JVM memory pool event",
-			"pid", decorated[0].PID,
-			"service", decorated[0].Service.UID.Name,
-			"namespace", decorated[0].Service.UID.Namespace,
-			"pool", decorated[0].PoolName,
-			"phase", decorated[0].GCPhase,
-			"events", len(decorated),
+			"pid", events[0].PID,
+			"service", events[0].Service.UID.Name,
+			"namespace", events[0].Service.UID.Namespace,
+			"pool", events[0].PoolName,
+			"phase", events[0].GCPhase,
+			"events", len(events),
 		)
 	}
-	return decorated, false, nil
+	return events, false, nil
 }
 
 func kernelTime(ktime uint64) time.Time {

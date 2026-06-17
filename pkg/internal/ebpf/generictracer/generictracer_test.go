@@ -107,12 +107,14 @@ func TestParseJVMGCHeapSummaryRecordDecoratesServiceByPIDNamespace(t *testing.T)
 
 func TestParseJVMMemoryPoolRecordDecoratesServiceByPIDNamespace(t *testing.T) {
 	service := svc.Attrs{UID: svc.UID{Name: "orders", Namespace: "prod"}}
+	currentPIDsCalls := 0
 	tracer := &Tracer{
 		pidsFilter: fakeServiceFilter{
 			current: map[uint32]map[app.PID]svc.Attrs{
 				7:  {1234: {UID: svc.UID{Name: "wrong"}}},
 				42: {1234: service},
 			},
+			currentPIDsCalls: &currentPIDsCalls,
 		},
 	}
 
@@ -135,6 +137,7 @@ func TestParseJVMMemoryPoolRecordDecoratesServiceByPIDNamespace(t *testing.T) {
 	for _, event := range events {
 		assert.Equal(t, service, event.Service)
 	}
+	assert.Equal(t, 1, currentPIDsCalls)
 	assert.Equal(t, jvmruntime.JVMMetricMemoryUsed, events[0].Kind)
 	assert.Equal(t, jvmruntime.JVMMetricMemoryCommitted, events[1].Kind)
 	assert.Equal(t, jvmruntime.JVMMetricMemoryLimit, events[2].Kind)
@@ -400,7 +403,8 @@ func readJVMTestBatch(t *testing.T, events <-chan []runtimemetrics.RuntimeMetric
 }
 
 type fakeServiceFilter struct {
-	current map[uint32]map[app.PID]svc.Attrs
+	current          map[uint32]map[app.PID]svc.Attrs
+	currentPIDsCalls *int
 }
 
 func (f fakeServiceFilter) AllowPID(app.PID, uint32, *exec.FileInfo, ebpfcommon.PIDType) {}
@@ -408,5 +412,8 @@ func (f fakeServiceFilter) BlockPID(app.PID, uint32)                            
 func (f fakeServiceFilter) ValidPID(app.PID, uint32, ebpfcommon.PIDType) bool            { return false }
 func (f fakeServiceFilter) Filter(inputSpans []request.Span) []request.Span              { return inputSpans }
 func (f fakeServiceFilter) CurrentPIDs(ebpfcommon.PIDType) map[uint32]map[app.PID]svc.Attrs {
+	if f.currentPIDsCalls != nil {
+		*f.currentPIDsCalls += 1
+	}
 	return f.current
 }

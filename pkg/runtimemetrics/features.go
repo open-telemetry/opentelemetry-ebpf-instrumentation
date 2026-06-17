@@ -1,7 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package runtimemetrics
+package runtimemetrics // import "go.opentelemetry.io/obi/pkg/runtimemetrics"
 
 import "go.opentelemetry.io/obi/pkg/appolly/app/svc"
 
