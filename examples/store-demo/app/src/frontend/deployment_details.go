@@ -9,8 +9,10 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-var deploymentDetailsMap map[string]string
-var log *logrus.Logger
+var (
+	deploymentDetailsMap map[string]string
+	log                  *logrus.Logger
+)
 
 func init() {
 	initializeLogger()
@@ -35,7 +37,7 @@ func initializeLogger() {
 
 func loadDeploymentDetails() {
 	deploymentDetailsMap = make(map[string]string)
-	var metaServerClient = metadata.NewClient(&http.Client{})
+	metaServerClient := metadata.NewClient(&http.Client{})
 
 	podHostname, err := os.Hostname()
 	if err != nil {
