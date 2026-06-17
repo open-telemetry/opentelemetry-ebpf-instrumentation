@@ -66,7 +66,7 @@ Large payloads are streamed to userspace across multiple ring-buffer events and 
 
 | Environment variable               | Protocol   | Maximum | Default      |
 |:-----------------------------------|:----------:|--------:|:------------:|
-| `OTEL_EBPF_BPF_BUFFER_SIZE_HTTP`   | HTTP       | 65535   | 0 (disabled) |
+| `OTEL_EBPF_BPF_BUFFER_SIZE_HTTP`   | HTTP       | 262144  | 0 (disabled) |
 | `OTEL_EBPF_BPF_BUFFER_SIZE_MYSQL`  | MySQL      | 65535   | 0 (disabled) |
 | `OTEL_EBPF_BPF_BUFFER_SIZE_KAFKA`  | Kafka      | 65535   | 0 (disabled) |
 | `OTEL_EBPF_BPF_BUFFER_SIZE_POSTGRES` | PostgreSQL | 65535 | 0 (disabled) |

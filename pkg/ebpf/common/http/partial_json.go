@@ -18,6 +18,23 @@ import (
 
 var jsonBestEffort = jsoniter.ConfigCompatibleWithStandardLibrary
 
+// looksLikeJSON returns true if the data starts with '{' or '[' after
+// stripping leading ASCII whitespace. This avoids misclassifying plain
+// JSON responses (which may have leading newlines/spaces) as SSE streams.
+func looksLikeJSON(data []byte) bool {
+	for _, b := range data {
+		switch b {
+		case ' ', '\t', '\n', '\r':
+			continue
+		case '{', '[':
+			return true
+		default:
+			return false
+		}
+	}
+	return false
+}
+
 const (
 	// modelSearchWindow limits extraction for top-level request model
 	// fields to the start of the request payload.
@@ -218,7 +235,123 @@ func parseOpenAIInput(body []byte) request.OpenAIInput {
 	if parsed.Model == "" {
 		parsed.Model = extractModelField(body)
 	}
+	if len(parsed.Messages) == 0 && len(body) > 0 {
+		parsed.Messages = extractJSONRawField(body, "messages")
+	}
 	return parsed
+}
+
+// extractJSONRawField extracts a top-level JSON array or object value for
+// the given field name using bracket matching. This is a fallback for when
+// json.Unmarshal fails on truncated JSON but the target field's value is
+// complete within the captured bytes.
+//
+// The scan is depth-aware: the key is only matched when we are at the
+// top-level object (depth == 1) and not currently inside a JSON string,
+// which avoids false positives from occurrences nested in strings or
+// inner objects.
+func extractJSONRawField(body []byte, field string) json.RawMessage {
+	keyBytes := []byte(`"` + field + `"`)
+
+	depth := 0
+	inString := false
+	escaped := false
+
+	for i := 0; i < len(body); i++ {
+		ch := body[i]
+		if escaped {
+			escaped = false
+			continue
+		}
+		if inString {
+			if ch == '\\' {
+				escaped = true
+				continue
+			}
+			if ch == '"' {
+				inString = false
+			}
+			continue
+		}
+
+		if ch == '"' {
+			if depth == 1 && i+len(keyBytes) <= len(body) && bytes.Equal(body[i:i+len(keyBytes)], keyBytes) {
+				return extractJSONRawValue(body, i+len(keyBytes))
+			}
+			inString = true
+			continue
+		}
+
+		switch ch {
+		case '{', '[':
+			depth++
+		case '}', ']':
+			if depth > 0 {
+				depth--
+			}
+		}
+	}
+
+	return nil
+}
+
+// extractJSONRawValue extracts the JSON object or array value starting after
+// the position of a matched key. It skips whitespace and the colon
+// separator, then uses bracket matching (with string/escape awareness) to
+// find the matching closing bracket. Returns nil for scalar values or when
+// the value is truncated.
+func extractJSONRawValue(body []byte, start int) json.RawMessage {
+	pos := start
+	for pos < len(body) && (body[pos] == ' ' || body[pos] == '\t' || body[pos] == '\n' || body[pos] == '\r' || body[pos] == ':') {
+		pos++
+	}
+	if pos >= len(body) {
+		return nil
+	}
+
+	open := body[pos]
+	var closeBracket byte
+	switch open {
+	case '[':
+		closeBracket = ']'
+	case '{':
+		closeBracket = '}'
+	default:
+		return nil
+	}
+
+	depth := 0
+	inString := false
+	escaped := false
+	for j := pos; j < len(body); j++ {
+		ch := body[j]
+		if escaped {
+			escaped = false
+			continue
+		}
+		if ch == '\\' && inString {
+			escaped = true
+			continue
+		}
+		if ch == '"' {
+			inString = !inString
+			continue
+		}
+		if inString {
+			continue
+		}
+		switch ch {
+		case open:
+			depth++
+		case closeBracket:
+			depth--
+			if depth == 0 {
+				return json.RawMessage(body[pos : j+1])
+			}
+		}
+	}
+
+	return nil
 }
 
 func parseVendorOpenAI(body []byte) request.VendorOpenAI {
