@@ -320,7 +320,7 @@ func (pt *ProcessTracer) NewExecutableInstance(ie *Instrumentable) error {
 				printVerifierErrorInfo(err)
 				return err
 			}
-			if err := i.usdtProbes(ie.FileInfo.Pid(), ie.FileInfo.Ns(), p); err != nil {
+			if err := i.usdtProbes(ie.FileInfo.Pid(), p); err != nil {
 				printVerifierErrorInfo(err)
 				return err
 			}
@@ -356,7 +356,7 @@ func (pt *ProcessTracer) NewExecutable(exe *link.Executable, ie *Instrumentable)
 			return err
 		}
 
-		if err := i.usdtProbes(ie.FileInfo.Pid(), ie.FileInfo.Ns(), p); err != nil {
+		if err := i.usdtProbes(ie.FileInfo.Pid(), p); err != nil {
 			printVerifierErrorInfo(err)
 			return err
 		}

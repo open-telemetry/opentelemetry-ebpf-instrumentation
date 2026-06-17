@@ -42,20 +42,12 @@ static __always_inline u8 obi_usdt_reg_off_ok(s16 reg_off) {
 
 static __always_inline struct obi_usdt_spec *obi_usdt_spec_for_ctx(struct pt_regs *ctx) {
     const u64 pid_tgid = bpf_get_current_pid_tgid();
-    const u32 pid = valid_pid(pid_tgid);
-    if (!pid) {
+    if (!valid_pid(pid_tgid)) {
         return NULL;
     }
 
-    const struct task_struct *task = (struct task_struct *)bpf_get_current_task();
-    int ns_pid = 0;
-    int ns_ppid = 0;
-    u32 pid_ns_id = 0;
-    ns_pid_ppid(task, &ns_pid, &ns_ppid, &pid_ns_id);
-
     struct obi_usdt_ip_key key = {
-        .pid = pid,
-        .ns = pid_ns_id,
+        .pid = pid_from_pid_tgid(pid_tgid),
         .ip = PT_REGS_IP(ctx),
     };
 

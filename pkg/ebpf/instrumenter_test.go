@@ -322,27 +322,6 @@ func TestResolveInstrPathUsesMappedPathWhenLibraryIsMapped(t *testing.T) {
 	assert.Equal(t, "/usr/lib/libjvm.so", mappedPath)
 }
 
-func TestUSDTIPMapPIDsIncludesAllNamespacedPIDs(t *testing.T) {
-	orig := findNamespacedPids
-	findNamespacedPids = func(pid app.PID) ([]app.PID, error) {
-		assert.Equal(t, app.PID(586888), pid)
-		return []app.PID{595021, 586888, 1}, nil
-	}
-	t.Cleanup(func() { findNamespacedPids = orig })
-
-	assert.Equal(t, []app.PID{586888, 595021, 1}, usdtIPMapPIDs(586888))
-}
-
-func TestUSDTIPMapPIDsFallsBackToDiscoveredPID(t *testing.T) {
-	orig := findNamespacedPids
-	findNamespacedPids = func(app.PID) ([]app.PID, error) {
-		return nil, errors.New("status unavailable")
-	}
-	t.Cleanup(func() { findNamespacedPids = orig })
-
-	assert.Equal(t, []app.PID{123}, usdtIPMapPIDs(123))
-}
-
 func TestUSDTLinkCloserDeletesIPMapEntriesAfterClosingLink(t *testing.T) {
 	var calls []string
 	linkCloser := closerFunc(func() error {
@@ -351,8 +330,8 @@ func TestUSDTLinkCloserDeletesIPMapEntriesAfterClosingLink(t *testing.T) {
 	})
 	ipMap := &recordingUSDTIPMap{calls: &calls}
 	keys := []obiUSDTIPKey{
-		{PID: 123, Namespace: 7, IP: 0xabc},
-		{PID: 1, Namespace: 7, IP: 0xabc},
+		{PID: 123, IP: 0xabc},
+		{PID: 1, IP: 0xabc},
 	}
 
 	closer := &usdtLinkCloser{
@@ -374,8 +353,8 @@ func TestUSDTLinkCloserCloseIsConcurrentSafe(t *testing.T) {
 	linkCloser := &countingCloser{}
 	ipMap := &countingUSDTIPMap{}
 	keys := []obiUSDTIPKey{
-		{PID: 123, Namespace: 7, IP: 0xabc},
-		{PID: 1, Namespace: 7, IP: 0xabc},
+		{PID: 123, IP: 0xabc},
+		{PID: 1, IP: 0xabc},
 	}
 	closer := &usdtLinkCloser{
 		link: linkCloser,
