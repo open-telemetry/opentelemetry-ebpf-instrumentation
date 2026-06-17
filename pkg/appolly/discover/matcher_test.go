@@ -49,7 +49,7 @@ func TestMatchersMutuallyExclusive(t *testing.T) {
 
 		swi := swarm.Instancer{}
 		swi.Add(criteriaMatcherProvider(&pipeConfig, inQ, outQ, cfgCriteria, sel), swarm.WithID("CriteriaMatcher"))
-		swi.Add(dynamicMatcherProvider(inQ, outQ, sel), swarm.WithID("DynamicMatcher"))
+		swi.Add(dynamicMatcherProvider(inQ, outQ, sel.appSignals()), swarm.WithID("DynamicMatcher"))
 		runner, err := swi.Instance(t.Context())
 		require.NoError(t, err)
 		runner.Start(t.Context())
@@ -729,7 +729,7 @@ func TestCriteriaMatcher_DynamicTargetPIDs(t *testing.T) {
 	processInfo = func(pp ProcessAttrs) (*services.ProcessInfo, error) {
 		return &services.ProcessInfo{Pid: pp.pid, ExePath: "/any/exe", OpenPorts: pp.openPorts}, nil
 	}
-	runFn, err := dynamicMatcherProvider(discoveredProcesses, filteredProcessesQu, dynamicSelector)(t.Context())
+	runFn, err := dynamicMatcherProvider(discoveredProcesses, filteredProcessesQu, dynamicSelector.appSignals())(t.Context())
 	require.NoError(t, err)
 	go runFn(t.Context())
 	time.Sleep(50 * time.Millisecond)
@@ -742,6 +742,7 @@ func TestCriteriaMatcher_DynamicTargetPIDs(t *testing.T) {
 	matches := testutil.ReadChannel(t, filteredProcesses, testTimeout)
 	require.Len(t, matches, 1)
 	assert.Equal(t, app.PID(42), matches[0].Obj.Process.Pid)
+	assert.Equal(t, app.PID(42), matches[0].Obj.DynamicSelectorPID)
 
 	dynamicSelector.AddPIDs(100)
 	discoveredProcesses.Send([]Event[ProcessAttrs]{
@@ -778,7 +779,7 @@ func TestCriteriaMatcher_DynamicTargetPIDs_RemoveNotification(t *testing.T) {
 	processInfo = func(pp ProcessAttrs) (*services.ProcessInfo, error) {
 		return &services.ProcessInfo{Pid: pp.pid, ExePath: "/any/exe", OpenPorts: pp.openPorts}, nil
 	}
-	runFn, err := dynamicMatcherProvider(discoveredProcesses, filteredProcessesQu, dynamicSelector)(t.Context())
+	runFn, err := dynamicMatcherProvider(discoveredProcesses, filteredProcessesQu, dynamicSelector.appSignals())(t.Context())
 	require.NoError(t, err)
 	go runFn(t.Context())
 	time.Sleep(50 * time.Millisecond)

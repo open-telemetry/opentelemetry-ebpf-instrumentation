@@ -81,6 +81,7 @@ type ProcessMatch struct {
 	Criteria            []services.Selector
 	LogEnricherCriteria []services.Selector
 	Process             *services.ProcessInfo
+	DynamicSelectorPID  app.PID
 }
 
 func (pm ProcessMatch) LogEnricherEnabled() bool {
