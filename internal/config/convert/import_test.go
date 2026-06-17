@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"go.yaml.in/yaml/v3"
 
 	"go.opentelemetry.io/obi/internal/config/schema"
 	"go.opentelemetry.io/obi/pkg/appolly/services"
@@ -16,6 +17,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/debug"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
+	"go.opentelemetry.io/obi/pkg/filter"
 	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/transform"
 )
@@ -112,6 +114,7 @@ func TestV2ToRuntimeCustomFoundation(t *testing.T) {
 		instrumentations.InstrumentationKafka,
 	}
 	cfg.OTELMetrics.ReportersCacheLen = 302
+	cfg.OTELMetrics.MetricsEndpoint = "http://localhost:4318"
 	cfg.OTELMetrics.TTL = 303 * time.Second
 	cfg.OTELMetrics.Instrumentations = []instrumentations.Instrumentation{
 		instrumentations.InstrumentationHTTP,
@@ -120,7 +123,11 @@ func TestV2ToRuntimeCustomFoundation(t *testing.T) {
 		instrumentations.InstrumentationRedis,
 		instrumentations.InstrumentationDNS,
 	}
-	cfg.Metrics.Features = export.FeatureApplicationRED | export.FeatureNetwork
+	cfg.Prometheus.Port = 9090
+	cfg.Metrics.Features = export.FeatureApplicationRED |
+		export.FeatureNetwork |
+		export.FeatureStatsTCPRtt |
+		export.FeatureStatsTCPRetransmits
 
 	cfg.NetworkFlows.Enable = true
 	cfg.NetworkFlows.Source = obi.EbpfSourceTC
@@ -141,6 +148,24 @@ func TestV2ToRuntimeCustomFoundation(t *testing.T) {
 	cfg.NetworkFlows.ListenPollPeriod = 17 * time.Second
 	cfg.NetworkFlows.Print = true
 	cfg.Attributes.MetricSpanNameAggregationLimit = 400
+
+	require.NoError(t, yaml.Unmarshal([]byte("- cidr: 192.0.2.0/24\n  name: docs\n"), &cfg.Stats.CIDRs))
+	cfg.Stats.AgentIP = "198.51.100.1"
+	cfg.Stats.AgentIPIface = obi.NetworkAgentIPIfaceLocal
+	cfg.Stats.AgentIPType = "ipv4"
+	cfg.Stats.GeoIP.IPInfo.Path = "/var/lib/stats-ipinfo.mmdb"
+	cfg.Stats.GeoIP.MaxMindInfo.CountryPath = "/var/lib/stats-country.mmdb"
+	cfg.Stats.GeoIP.MaxMindInfo.ASNPath = "/var/lib/stats-asn.mmdb"
+	cfg.Stats.GeoIP.CacheLen = 81
+	cfg.Stats.GeoIP.CacheTTL = 82 * time.Second
+	cfg.Stats.ReverseDNS.Type = "ebpf"
+	cfg.Stats.ReverseDNS.CacheLen = 83
+	cfg.Stats.ReverseDNS.CacheTTL = 84 * time.Second
+	cfg.Stats.Print = true
+	srtt := 1024
+	cfg.Filters.Stats = filter.AttributeFamilyConfig{
+		"srtt": {GreaterThan: &srtt},
+	}
 
 	cfg.NameResolver.Sources = []transform.Source{transform.SourceDNS, transform.SourceK8s}
 	cfg.NameResolver.CacheLen = 501
@@ -203,7 +228,13 @@ func TestV2ToRuntimeCustomFoundation(t *testing.T) {
 	require.Contains(t, got.OTELMetrics.Instrumentations, instrumentations.InstrumentationHTTP)
 	require.NotContains(t, got.OTELMetrics.Instrumentations, instrumentations.InstrumentationKafka)
 	require.Contains(t, got.Prometheus.Instrumentations, instrumentations.InstrumentationDNS)
-	require.Equal(t, export.FeatureApplicationRED|export.FeatureNetwork, got.Metrics.Features)
+	require.Equal(t,
+		export.FeatureApplicationRED|
+			export.FeatureNetwork|
+			export.FeatureStatsTCPRtt|
+			export.FeatureStatsTCPRetransmits,
+		got.Metrics.Features,
+	)
 
 	require.True(t, got.NetworkFlows.Enable)
 	require.Equal(t, obi.EbpfSourceTC, got.NetworkFlows.Source)
@@ -222,6 +253,23 @@ func TestV2ToRuntimeCustomFoundation(t *testing.T) {
 	require.Equal(t, 301, got.Traces.ReportersCacheLen)
 	require.Equal(t, 302, got.OTELMetrics.ReportersCacheLen)
 	require.Equal(t, 303*time.Second, got.OTELMetrics.TTL)
+
+	require.Equal(t, "198.51.100.1", got.Stats.AgentIP)
+	require.Equal(t, obi.AgentTypeIface(obi.NetworkAgentIPIfaceLocal), got.Stats.AgentIPIface)
+	require.Equal(t, "ipv4", got.Stats.AgentIPType)
+	require.Len(t, got.Stats.CIDRs, 1)
+	require.Equal(t, "192.0.2.0/24", got.Stats.CIDRs[0].CIDR)
+	require.Equal(t, "docs", got.Stats.CIDRs[0].Name)
+	require.Equal(t, filter.MatchDefinition{GreaterThan: &srtt}, got.Filters.Stats["srtt"])
+	require.Equal(t, "/var/lib/stats-ipinfo.mmdb", got.Stats.GeoIP.IPInfo.Path)
+	require.Equal(t, "/var/lib/stats-country.mmdb", got.Stats.GeoIP.MaxMindInfo.CountryPath)
+	require.Equal(t, "/var/lib/stats-asn.mmdb", got.Stats.GeoIP.MaxMindInfo.ASNPath)
+	require.Equal(t, 81, got.Stats.GeoIP.CacheLen)
+	require.Equal(t, 82*time.Second, got.Stats.GeoIP.CacheTTL)
+	require.Equal(t, "ebpf", got.Stats.ReverseDNS.Type)
+	require.Equal(t, 83, got.Stats.ReverseDNS.CacheLen)
+	require.Equal(t, 84*time.Second, got.Stats.ReverseDNS.CacheTTL)
+	require.True(t, got.Stats.Print)
 
 	require.Equal(t, []transform.Source{transform.SourceDNS, transform.SourceK8s}, got.NameResolver.Sources)
 	require.Equal(t, 501, got.NameResolver.CacheLen)
@@ -311,6 +359,14 @@ func TestV2ToRuntimePartialCaptureSectionsPreserveDefaults(t *testing.T) {
 				Capture: schema.NetworkCapture{
 					Enabled: true,
 				},
+				Stats: schema.NetworkStats{
+					EndpointIdentity: schema.EndpointIdentity{
+						AgentIP: "198.51.100.1",
+					},
+					Diagnostics: schema.StatsDiagnostics{
+						PrintStats: true,
+					},
+				},
 			},
 			Runtimes: schema.CaptureRuntimes{
 				Java: schema.JavaRuntime{
@@ -352,6 +408,11 @@ func TestV2ToRuntimePartialCaptureSectionsPreserveDefaults(t *testing.T) {
 	require.Equal(t, obi.DefaultConfig.NetworkFlows.Deduper, got.NetworkFlows.Deduper)
 	require.Equal(t, obi.DefaultConfig.NetworkFlows.ListenInterfaces, got.NetworkFlows.ListenInterfaces)
 	require.Equal(t, export.FeatureApplicationRED|export.FeatureNetwork, got.Metrics.Features)
+	require.Equal(t, "198.51.100.1", got.Stats.AgentIP)
+	require.Equal(t, obi.DefaultConfig.Stats.AgentIPIface, got.Stats.AgentIPIface)
+	require.Equal(t, obi.DefaultConfig.Stats.AgentIPType, got.Stats.AgentIPType)
+	require.True(t, got.Stats.Print)
+	require.Equal(t, obi.DefaultConfig.Stats.ReverseDNS.CacheTTL, got.Stats.ReverseDNS.CacheTTL)
 
 	require.True(t, got.Java.Debug)
 	require.Equal(t, obi.DefaultConfig.Discovery.SkipGoSpecificTracers, got.Discovery.SkipGoSpecificTracers)

@@ -12,6 +12,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/debug"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
+	"go.opentelemetry.io/obi/pkg/filter"
 	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/transform"
 )
@@ -22,6 +23,8 @@ var v2AppMetricsFeatureMask = export.AppO11yFeatures |
 var v2NetworkMetricsFeatureMask = export.FeatureNetwork |
 	export.FeatureNetworkInterZone |
 	export.FeatureNetworkFlowPackets
+
+var v2StatsMetricsFeatureMask = export.FeatureStats
 
 // V2ToRuntime converts a hidden config v2 extension shape into an OBI runtime
 // configuration. It is an internal conversion foundation and is not wired into
@@ -60,7 +63,8 @@ func applyV2Capture(cfg *obi.Config, src *schema.Extension) {
 	applyV2Channels(cfg, src.Capture.Channels, completeChannels(src.Capture.Channels))
 	applyV2Engine(cfg, src.Capture.Engine, completeEngine(src.Capture.Engine))
 	applyV2Instrumentation(cfg, src.Capture.Instrumentation)
-	applyV2NetworkCapture(cfg, src.Capture.Network, completeNetworkCapture(src.Capture.Network.Capture))
+	applyV2NetworkCapture(cfg, src.Capture.Network.Capture, completeNetworkCapture(src.Capture.Network.Capture))
+	applyV2NetworkStats(cfg, src.Capture.Network.Stats, completeNetworkStats(src.Capture.Network.Stats))
 	applyV2Runtimes(cfg, src.Capture.Runtimes, completeRuntimes(src.Capture.Runtimes))
 	applyV2CaptureTelemetry(cfg, src.Capture.Telemetry, completeCaptureTelemetry(src.Capture.Telemetry))
 }
@@ -381,8 +385,7 @@ func applySignalEnablement(
 	return out
 }
 
-func applyV2NetworkCapture(cfg *obi.Config, networkCfg schema.CaptureNetwork, complete bool) {
-	capture := networkCfg.Capture
+func applyV2NetworkCapture(cfg *obi.Config, capture schema.NetworkCapture, complete bool) {
 	if zeroValue(capture) && !complete {
 		return
 	}
@@ -478,6 +481,91 @@ func applyPartialV2NetworkCapture(cfg *obi.Config, capture schema.NetworkCapture
 	}
 	if capture.Diagnostics.PrintFlows {
 		cfg.NetworkFlows.Print = true
+	}
+}
+
+func applyV2NetworkStats(cfg *obi.Config, stats schema.NetworkStats, complete bool) {
+	if zeroValue(stats) && !complete {
+		return
+	}
+
+	if complete || completeNetworkStats(stats) {
+		applyFullV2NetworkStats(cfg, stats)
+		return
+	}
+
+	applyPartialV2NetworkStats(cfg, stats)
+}
+
+func applyFullV2NetworkStats(cfg *obi.Config, stats schema.NetworkStats) {
+	cfg.Stats.AgentIP = stats.EndpointIdentity.AgentIP
+	cfg.Stats.AgentIPIface = obi.AgentTypeIface(stats.EndpointIdentity.AgentIPInterface)
+	cfg.Stats.AgentIPType = string(stats.EndpointIdentity.AgentIPFamily)
+	cfg.Stats.CIDRs = cloneRuntimeCIDRDefinitions(cfg.Stats.CIDRs, stats.Selection.CIDRs)
+	cfg.Filters.Stats = attributeFilterMap(stats.Filters.Metrics)
+	applyFullV2StatsEnrichment(cfg, stats.Enrichment)
+	cfg.Stats.Print = stats.Diagnostics.PrintStats
+}
+
+func applyPartialV2NetworkStats(cfg *obi.Config, stats schema.NetworkStats) {
+	if stats.EndpointIdentity.AgentIP != "" {
+		cfg.Stats.AgentIP = stats.EndpointIdentity.AgentIP
+	}
+	if stats.EndpointIdentity.AgentIPInterface != "" {
+		cfg.Stats.AgentIPIface = obi.AgentTypeIface(stats.EndpointIdentity.AgentIPInterface)
+	}
+	if stats.EndpointIdentity.AgentIPFamily != "" {
+		cfg.Stats.AgentIPType = string(stats.EndpointIdentity.AgentIPFamily)
+	}
+	if stats.Selection.CIDRs != nil {
+		cfg.Stats.CIDRs = cloneRuntimeCIDRDefinitions(cfg.Stats.CIDRs, stats.Selection.CIDRs)
+	}
+	if stats.Filters.Metrics != nil {
+		cfg.Filters.Stats = attributeFilterMap(stats.Filters.Metrics)
+	}
+	if !zeroValue(stats.Enrichment) {
+		applyPartialV2StatsEnrichment(cfg, stats.Enrichment)
+	}
+	if stats.Diagnostics.PrintStats {
+		cfg.Stats.Print = true
+	}
+}
+
+func applyFullV2StatsEnrichment(cfg *obi.Config, enrichment schema.NetworkEnrichment) {
+	cfg.Stats.GeoIP.IPInfo.Path = enrichment.GeoIP.IPInfo.Path
+	cfg.Stats.GeoIP.MaxMindInfo.CountryPath = enrichment.GeoIP.MaxMind.CountryPath
+	cfg.Stats.GeoIP.MaxMindInfo.ASNPath = enrichment.GeoIP.MaxMind.ASNPath
+	cfg.Stats.GeoIP.CacheLen = enrichment.GeoIP.Cache.Size
+	cfg.Stats.GeoIP.CacheTTL = enrichment.GeoIP.Cache.TTL.TimeDuration()
+	cfg.Stats.ReverseDNS.Type = string(enrichment.ReverseDNS.Mode)
+	cfg.Stats.ReverseDNS.CacheLen = enrichment.ReverseDNS.Cache.Size
+	cfg.Stats.ReverseDNS.CacheTTL = enrichment.ReverseDNS.Cache.TTL.TimeDuration()
+}
+
+func applyPartialV2StatsEnrichment(cfg *obi.Config, enrichment schema.NetworkEnrichment) {
+	if enrichment.GeoIP.IPInfo.Path != "" {
+		cfg.Stats.GeoIP.IPInfo.Path = enrichment.GeoIP.IPInfo.Path
+	}
+	if enrichment.GeoIP.MaxMind.CountryPath != "" {
+		cfg.Stats.GeoIP.MaxMindInfo.CountryPath = enrichment.GeoIP.MaxMind.CountryPath
+	}
+	if enrichment.GeoIP.MaxMind.ASNPath != "" {
+		cfg.Stats.GeoIP.MaxMindInfo.ASNPath = enrichment.GeoIP.MaxMind.ASNPath
+	}
+	if enrichment.GeoIP.Cache.Size != 0 {
+		cfg.Stats.GeoIP.CacheLen = enrichment.GeoIP.Cache.Size
+	}
+	if !zeroValue(enrichment.GeoIP.Cache.TTL) {
+		cfg.Stats.GeoIP.CacheTTL = enrichment.GeoIP.Cache.TTL.TimeDuration()
+	}
+	if enrichment.ReverseDNS.Mode != "" {
+		cfg.Stats.ReverseDNS.Type = string(enrichment.ReverseDNS.Mode)
+	}
+	if enrichment.ReverseDNS.Cache.Size != 0 {
+		cfg.Stats.ReverseDNS.CacheLen = enrichment.ReverseDNS.Cache.Size
+	}
+	if !zeroValue(enrichment.ReverseDNS.Cache.TTL) {
+		cfg.Stats.ReverseDNS.CacheTTL = enrichment.ReverseDNS.Cache.TTL.TimeDuration()
 	}
 }
 
@@ -729,6 +817,7 @@ func applyV2MetricsEnablement(cfg *obi.Config, src *schema.Extension) {
 	)
 	networkConfigured := !zeroValue(src.Capture.Network.Capture)
 	networkMetricsEnabled := src.Capture.Network.Capture.Enabled
+	statsFeatures, statsConfigured := statsMetricsEnablement(src.Capture.Network.Stats)
 	if appConfigured {
 		cfg.Metrics.Features &^= v2AppMetricsFeatureMask
 		if appMetricsEnabled {
@@ -740,6 +829,10 @@ func applyV2MetricsEnablement(cfg *obi.Config, src *schema.Extension) {
 		if networkMetricsEnabled {
 			cfg.Metrics.Features |= export.FeatureNetwork
 		}
+	}
+	if statsConfigured {
+		cfg.Metrics.Features &^= v2StatsMetricsFeatureMask
+		cfg.Metrics.Features |= statsFeatures
 	}
 }
 
@@ -806,6 +899,13 @@ func completeNetworkCapture(capture schema.NetworkCapture) bool {
 		!zeroValue(capture.InterfaceDiscovery)
 }
 
+func completeNetworkStats(stats schema.NetworkStats) bool {
+	return stats.Features != nil &&
+		!zeroValue(stats.EndpointIdentity) &&
+		stats.Selection.CIDRs != nil &&
+		!zeroValue(stats.Enrichment)
+}
+
 func completeRuntimes(runtimes schema.CaptureRuntimes) bool {
 	return !zeroValue(runtimes.Java.AttachTimeout) &&
 		(runtimes.Go.Enabled ||
@@ -844,6 +944,33 @@ func protocolEnablement(instrumentation schema.Instrumentation, name protocolNam
 	}
 }
 
+func statsMetricsEnablement(stats schema.NetworkStats) (export.Features, bool) {
+	if stats.Features != nil {
+		return statsFeatureMask(stats.Features), true
+	}
+	if stats.Enabled {
+		return export.FeatureStats, true
+	}
+	return 0, false
+}
+
+func statsFeatureMask(features []string) export.Features {
+	out := export.Features(0)
+	for _, feature := range features {
+		switch feature {
+		case statsFeatureTCPRtt:
+			out |= export.FeatureStatsTCPRtt
+		case statsFeatureTCPFailedConnections:
+			out |= export.FeatureStatsTCPFailedConnections
+		case statsFeatureTCPRetransmits:
+			out |= export.FeatureStatsTCPRetransmits
+		case statsFeatureTCPIo:
+			out |= export.FeatureStatsTCPIo
+		}
+	}
+	return out
+}
+
 func signalEnabled(enablement schema.ProtocolEnablement, signal string) bool {
 	switch signal {
 	case "traces":
@@ -867,6 +994,52 @@ func cloneStrings(values []string) []string {
 		return nil
 	}
 	return append([]string(nil), values...)
+}
+
+type runtimeCIDRDefinition interface {
+	~struct {
+		CIDR string `yaml:"cidr" json:"cidr"`
+		Name string `yaml:"name" json:"name"`
+	}
+}
+
+type runtimeCIDRDefinitionValue struct {
+	CIDR string `yaml:"cidr" json:"cidr"`
+	Name string `yaml:"name" json:"name"`
+}
+
+func cloneRuntimeCIDRDefinitions[T runtimeCIDRDefinition](_ []T, definitions schema.CIDRDefinitions) []T {
+	if definitions == nil {
+		return nil
+	}
+	out := make([]T, 0, len(definitions))
+	for _, definition := range definitions {
+		out = append(out, T(runtimeCIDRDefinitionValue{
+			CIDR: definition.CIDR,
+			Name: definition.Name,
+		}))
+	}
+	return out
+}
+
+func attributeFilterMap(in schema.AttributeFilters) filter.AttributeFamilyConfig {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(filter.AttributeFamilyConfig, len(in))
+	for key, def := range in {
+		out[key] = filter.MatchDefinition{
+			Match:         def.Match,
+			NotMatch:      def.NotMatch,
+			Equals:        def.Equals,
+			NotEquals:     def.NotEquals,
+			GreaterEquals: def.GreaterEquals,
+			GreaterThan:   def.GreaterThan,
+			LessEquals:    def.LessEquals,
+			LessThan:      def.LessThan,
+		}
+	}
+	return out
 }
 
 func cloneSources(values []transform.Source) []transform.Source {
