@@ -370,8 +370,8 @@ func (p *Tracer) UProbes() map[string]map[string][]*ebpfcommon.ProbeDesc {
 			}},
 			"SSL_write_ex2": {{
 				Required: false,
-				Start:    p.bpfObjects.ObiUprobeSslWriteEx,
-				End:      p.bpfObjects.ObiUretprobeSslWriteEx,
+				Start:    p.bpfObjects.ObiUprobeSslWriteEx2,
+				End:      p.bpfObjects.ObiUretprobeSslWriteEx2,
 			}},
 			"SSL_write_ex": {{
 				Required: false,

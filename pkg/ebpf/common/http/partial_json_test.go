@@ -4,6 +4,7 @@
 package ebpfcommon
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -20,8 +21,24 @@ func TestExtractModelField(t *testing.T) {
 
 func TestExtractJSONStringField_respectsWindow(t *testing.T) {
 	body := []byte(`{"nested":{"id":"inner"},"id":"outer"}`)
-	assert.Equal(t, "inner", extractJSONStringField(body, "id", 0))
-	assert.NotEmpty(t, extractJSONStringField(body, "id", 50))
+	assert.Equal(t, "outer", extractJSONStringField(body, "id", 0))
+	assert.Empty(t, extractJSONStringField(body, "id", 30))
+}
+
+func TestExtractJSONStringField_ignoresNestedField(t *testing.T) {
+	body := []byte(`{"nested":{"id":"inner","model":"attacker"},"id":"outer","model":"gpt-5-mini"}`)
+	assert.Equal(t, "outer", extractJSONStringField(body, "id", 0))
+	assert.Equal(t, "gpt-5-mini", extractModelField(body))
+}
+
+func TestExtractModelField_ignoresNestedModelWithoutTopLevel(t *testing.T) {
+	body := []byte(`{"messages":[{"role":"user","content":{"model":"attacker"}}]}`)
+	assert.Empty(t, extractModelField(body))
+}
+
+func TestExtractModelField_ignoresNestedModelAfterSearchWindow(t *testing.T) {
+	body := []byte(`{"messages":[{"role":"user","content":"` + strings.Repeat("x", 220) + `","metadata":{"model":"attacker"}}]}`)
+	assert.Empty(t, extractModelField(body))
 }
 
 func TestParseOpenAIInput_truncated(t *testing.T) {

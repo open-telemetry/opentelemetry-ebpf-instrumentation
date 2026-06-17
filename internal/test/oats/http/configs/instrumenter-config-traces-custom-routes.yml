@@ -1,4 +1,5 @@
 discovery:
+  disabled_route_harvesters: []
   services:
     - namespace: integration-test
       name: java-serv

@@ -214,8 +214,8 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 			expected: []string{
 				"http.server.request.duration",
 				"http.client.request.duration",
-				"rpc.server.duration",
-				"rpc.client.duration",
+				"rpc.server.call.duration",
+				"rpc.client.call.duration",
 				"db.client.operation.duration",        // SQL client SELECT
 				"db.client.operation.duration",        // REDIS client SET
 				"db.client.operation.duration",        // Redis server GET (TODO is this a bug?)
@@ -258,8 +258,8 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 			instr:     []instrumentations.Instrumentation{instrumentations.InstrumentationGRPC},
 			extraColl: 0,
 			expected: []string{
-				"rpc.server.duration",
-				"rpc.client.duration",
+				"rpc.server.call.duration",
+				"rpc.client.call.duration",
 			},
 		},
 		{
@@ -316,6 +316,15 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 			},
 		},
 		{
+			name:      "sunrpc only",
+			instr:     []instrumentations.Instrumentation{instrumentations.InstrumentationSunRPC},
+			extraColl: 0,
+			expected: []string{
+				"rpc.client.call.duration",
+				"rpc.server.call.duration",
+			},
+		},
+		{
 			name:      "none",
 			instr:     nil,
 			extraColl: 0,
@@ -336,8 +345,8 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 			instr:     []instrumentations.Instrumentation{instrumentations.InstrumentationGRPC, instrumentations.InstrumentationKafka},
 			extraColl: 0,
 			expected: []string{
-				"rpc.server.duration",
-				"rpc.client.duration",
+				"rpc.server.call.duration",
+				"rpc.client.call.duration",
 				"messaging.client.operation.duration",
 				"messaging.process.duration",
 			},
@@ -389,6 +398,8 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeNATSServer, Method: "process", RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeAMQPClient, Method: "publish", RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeAMQPClient, Method: "process", RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeSunRPCClient, Path: "portmapper", Route: "0", Method: "0", SubType: 2, HostPort: 111, RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeSunRPCServer, Path: "portmapper", Route: "0", Method: "0", SubType: 2, HostPort: 111, RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeGPUCudaKernelLaunch, ContentLength: 100, SubType: 200},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeGPUCudaMemcpy, ContentLength: 100, SubType: 1},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeGPUCudaMalloc, ContentLength: 100},

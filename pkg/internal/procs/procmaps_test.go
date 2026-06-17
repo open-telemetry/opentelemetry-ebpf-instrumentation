@@ -1,6 +1,9 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
+// some tests here rely on concrete values for os.GetPageSize() that might differ in non-Linux environments
+//go:build linux
+
 package procs
 
 import (

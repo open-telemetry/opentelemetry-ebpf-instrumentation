@@ -445,7 +445,10 @@
               "nodejs"
             ]
           },
-          "type": "array"
+          "type": "array",
+          "default": [
+            "java"
+          ]
         },
         "exclude_instrument": {
           "$ref": "#/$defs/GlobDefinitionCriteria",
@@ -888,6 +891,7 @@
           "application_span_sizes",
           "ebpf",
           "network",
+          "network_flow_packets",
           "network_inter_zone",
           "stats",
           "stats_tcp_failed_connections",
@@ -1456,7 +1460,7 @@
       "properties": {
         "cluster_name": {
           "type": "string",
-          "description": "Overrides cluster name. If empty, the NetO11y module will try to retrieve it from the Cloud Provider Metadata (EC2, GCP and Azure), and leave it empty if it fails to.",
+          "description": "Overrides cluster name. If empty, OBI will try to retrieve it from node labels, the OpenShift Infrastructure CR, or cloud provider metadata (EC2, GCP, Azure), and leave it empty if all fail.",
           "x-env-var": "OTEL_EBPF_KUBE_CLUSTER_NAME"
         },
         "disable_informers": {
@@ -1723,7 +1727,7 @@
         "features": {
           "$ref": "#/$defs/Features",
           "description": "Specifies which metric features to export. Accepted values: application, network, application_span, application_service_graph, ... envDefault is provided to avoid breaking changes  use top-level MetricsConfig.Features instead.",
-          "default": 128,
+          "default": 256,
           "deprecated": true,
           "x-env-var": "OTEL_EBPF_METRICS_FEATURES"
         },
@@ -1760,7 +1764,8 @@
               "mqtt",
               "nats",
               "redis",
-              "sql"
+              "sql",
+              "sunrpc"
             ]
           },
           "type": "array",
@@ -1993,7 +1998,7 @@
         },
         "enable": {
           "type": "boolean",
-          "description": "Network metrics. Default value is false (disabled)  add \"network\" or \"network_inter_zone\" to OTEL_EBPF_METRICS_FEATURES  TODO OBI 3.0: remove",
+          "description": "Network metrics. Default value is false (disabled)  add \"network\" or \"network_flow_packets\" or \"network_inter_zone\" to OTEL_EBPF_METRICS_FEATURES  TODO OBI 3.0: remove",
           "default": false,
           "deprecated": true,
           "x-env-var": "OTEL_EBPF_NETWORK_METRICS"
@@ -2187,7 +2192,8 @@
               "mqtt",
               "nats",
               "redis",
-              "sql"
+              "sql",
+              "sunrpc"
             ]
           },
           "type": "array",
@@ -2756,7 +2762,8 @@
               "mqtt",
               "nats",
               "redis",
-              "sql"
+              "sql",
+              "sunrpc"
             ]
           },
           "type": "array",
@@ -2773,7 +2780,8 @@
             "amqp",
             "mongo",
             "couchbase",
-            "memcached"
+            "memcached",
+            "sunrpc"
           ],
           "x-env-var": "OTEL_EBPF_TRACES_INSTRUMENTATIONS"
         },

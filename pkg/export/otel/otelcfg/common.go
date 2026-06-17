@@ -25,7 +25,7 @@ import (
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
-	semconv "go.opentelemetry.io/otel/semconv/v1.38.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/meta"
@@ -277,7 +277,7 @@ func (rp *ReporterPool[K, T]) For(service K) (T, error) {
 	// In multi-process tracing, this is likely to happen as most
 	// tracers group traces belonging to the same service in the same slice.
 	svcUID := service.GetUID()
-	if rp.lastServiceUID == emptyUID || svcUID != rp.lastService.GetUID() {
+	if rp.lastServiceUID == emptyUID || svcUID != rp.lastServiceUID {
 		lm, err := rp.get(svcUID, service)
 		if err != nil {
 			var t T
@@ -307,6 +307,11 @@ func (rp *ReporterPool[K, T]) expireOldReporters() {
 			return
 		}
 		rp.pool.RemoveOldest()
+		if rp.lastReporter == v {
+			rp.lastReporter = nil
+			rp.lastService = nil
+			rp.lastServiceUID = emptyUID
+		}
 	}
 }
 

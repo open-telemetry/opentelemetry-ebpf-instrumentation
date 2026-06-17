@@ -244,6 +244,12 @@ if [ -n "$target" ]; then
         export SKIP_DOCKER_BUILD=1
     fi
 
+    # Pre-pulled base images for services that still auto-build in the VM.
+    if [ -f "/precompiled-tests/base-images.tar" ]; then
+        echo "Loading pre-pulled base images..."
+        docker load -i /precompiled-tests/base-images.tar
+    fi
+
     cd /build && make $target TEST_PATTERN="$test_pattern" RUN_NUMBER="$run_number" && touch /build/testoutput/success
     poweroff
 else

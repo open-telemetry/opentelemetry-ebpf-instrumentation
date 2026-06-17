@@ -6,6 +6,7 @@ package convert // import "go.opentelemetry.io/obi/internal/config/convert"
 import (
 	"encoding"
 	"fmt"
+	"net/url"
 
 	"go.opentelemetry.io/obi/internal/config/schema"
 	featureexport "go.opentelemetry.io/obi/pkg/export"
@@ -21,9 +22,6 @@ func RuntimeToV2(cfg *obi.Config) (*schema.Document, *schema.Extension) {
 		cfg = &defaultConfig
 	}
 
-	// TODO(#2251): Fill the standalone resource/provider, capture telemetry,
-	// enrich, correlation, and daemon telemetry sections in the follow-up export
-	// parity slice.
 	ext := &schema.Extension{
 		Version: schema.SupportedVersion,
 		Capture: schema.Capture{
@@ -36,17 +34,19 @@ func RuntimeToV2(cfg *obi.Config) (*schema.Document, *schema.Extension) {
 			Safety:          captureSafety(cfg),
 			Channels:        captureChannels(cfg),
 			Rules:           rulesFromRuntime(cfg),
-			Telemetry:       map[string]any{},
+			Telemetry:       captureTelemetry(cfg),
 		},
-		Daemon: daemon(cfg),
+		Enrich:      enrich(cfg),
+		Correlation: correlation(cfg),
+		Daemon:      daemon(cfg),
 	}
 
 	doc := &schema.Document{
 		FileFormat:     "1.0",
-		Resource:       map[string]any{},
+		Resource:       resource(cfg),
 		Propagator:     map[string]any{},
-		TracerProvider: map[string]any{},
-		MeterProvider:  map[string]any{},
+		TracerProvider: tracerProvider(cfg),
+		MeterProvider:  meterProvider(cfg),
 		Extensions:     schema.Extensions{OBI: ext},
 	}
 
@@ -365,6 +365,198 @@ func captureChannels(cfg *obi.Config) map[string]any {
 	}
 }
 
+func captureTelemetry(cfg *obi.Config) map[string]any {
+	return map[string]any{
+		"traces": map[string]any{
+			"reporters_cache_len": cfg.Traces.ReportersCacheLen,
+		},
+		"metrics": map[string]any{
+			"reporters_cache_len": cfg.OTELMetrics.ReportersCacheLen,
+			"ttl":                 cfg.OTELMetrics.TTL.String(),
+		},
+	}
+}
+
+func resource(cfg *obi.Config) map[string]any {
+	attributes := map[string]any{}
+	if cfg.Attributes.InstanceID.OverrideHostname != "" {
+		attributes["host.name"] = cfg.Attributes.InstanceID.OverrideHostname
+	}
+	if cfg.Attributes.HostID.Override != "" {
+		attributes["host.id"] = cfg.Attributes.HostID.Override
+	}
+	if len(attributes) == 0 {
+		return map[string]any{}
+	}
+	return map[string]any{"attributes": attributes}
+}
+
+func tracerProvider(cfg *obi.Config) map[string]any {
+	endpoint, _ := cfg.Traces.OTLPTracesEndpoint()
+	out := map[string]any{
+		"processors": []any{
+			map[string]any{
+				"batch": map[string]any{
+					"max_queue_size":        cfg.Traces.QueueSize,
+					"max_export_batch_size": cfg.Traces.BatchMaxSize,
+					"schedule_delay":        cfg.Traces.BatchTimeout.Milliseconds(),
+					"exporter": map[string]any{
+						"otlp_grpc": map[string]any{
+							"endpoint": endpoint,
+							"retry": map[string]any{
+								"initial_interval": cfg.Traces.BackOffInitialInterval.String(),
+								"max_interval":     cfg.Traces.BackOffMaxInterval.String(),
+								"max_elapsed_time": cfg.Traces.BackOffMaxElapsedTime.String(),
+							},
+							"tls": map[string]any{
+								"insecure":             insecureOTLPTransport(endpoint),
+								"insecure_skip_verify": cfg.Traces.InsecureSkipVerify,
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	if sampler := sampler(cfg); len(sampler) > 0 {
+		out["sampler"] = sampler
+	}
+	return out
+}
+
+func sampler(cfg *obi.Config) map[string]any {
+	out := map[string]any{}
+	if cfg.Traces.SamplerConfig.Name != "" {
+		out["name"] = cfg.Traces.SamplerConfig.Name
+	}
+	if cfg.Traces.SamplerConfig.Arg != "" {
+		out["arg"] = cfg.Traces.SamplerConfig.Arg
+	}
+	return out
+}
+
+func meterProvider(cfg *obi.Config) map[string]any {
+	endpoint, _ := cfg.OTELMetrics.OTLPMetricsEndpoint()
+	return map[string]any{
+		"readers": []any{
+			map[string]any{
+				"periodic": map[string]any{
+					"interval": cfg.OTELMetrics.GetInterval().Milliseconds(),
+					"exporter": map[string]any{
+						"otlp_grpc": map[string]any{
+							"endpoint":                      endpoint,
+							"default_histogram_aggregation": cfg.OTELMetrics.HistogramAggregation,
+							"tls": map[string]any{
+								"insecure":             insecureOTLPTransport(endpoint),
+								"insecure_skip_verify": cfg.OTELMetrics.InsecureSkipVerify,
+							},
+						},
+					},
+				},
+			},
+			map[string]any{
+				"pull": map[string]any{
+					"exporter": map[string]any{
+						"prometheus/development": map[string]any{
+							"port": cfg.Prometheus.Port,
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
+func insecureOTLPTransport(endpoint string) bool {
+	parsed, err := url.Parse(endpoint)
+	return err == nil && parsed.Scheme == "http"
+}
+
+func enrich(cfg *obi.Config) map[string]any {
+	return map[string]any{
+		"enrichers": map[string]any{
+			"kubernetes": map[string]any{
+				"mode":                  cfg.Attributes.Kubernetes.Enable,
+				"cluster_name":          cfg.Attributes.Kubernetes.ClusterName,
+				"service_name_template": cfg.Attributes.Kubernetes.ServiceNameTemplate,
+				"auth": map[string]any{
+					"kubeconfig_path": cfg.Attributes.Kubernetes.KubeconfigPath,
+				},
+				"informers": map[string]any{
+					"initial_sync_timeout":       cfg.Attributes.Kubernetes.InformersSyncTimeout.String(),
+					"reconnect_initial_interval": cfg.Attributes.Kubernetes.ReconnectInitialInterval.String(),
+					"resync_period":              cfg.Attributes.Kubernetes.InformersResyncPeriod.String(),
+					"disabled":                   cfg.Attributes.Kubernetes.DisableInformers,
+				},
+				"drop_external":   cfg.Attributes.Kubernetes.DropExternal,
+				"resource_labels": cfg.Attributes.Kubernetes.ResourceLabels,
+				"metadata_cache": map[string]any{
+					"address":             cfg.Attributes.Kubernetes.MetaCacheAddress,
+					"restrict_local_node": cfg.Attributes.Kubernetes.MetaRestrictLocalNode,
+					"source_labels": map[string]any{
+						"service_name":      cfg.Attributes.Kubernetes.MetaSourceLabels.ServiceName,
+						"service_namespace": cfg.Attributes.Kubernetes.MetaSourceLabels.ServiceNamespace,
+					},
+				},
+			},
+		},
+		"service_name": serviceNameEnrichment(cfg),
+		"attributes": map[string]any{
+			"select":                 cfg.Attributes.Select,
+			"extra_group_attributes": cfg.Attributes.ExtraGroupAttributes,
+			"metadata_retry": map[string]any{
+				"timeout":        cfg.Attributes.MetadataRetry.Timeout.String(),
+				"start_interval": cfg.Attributes.MetadataRetry.StartInterval.String(),
+				"max_interval":   cfg.Attributes.MetadataRetry.MaxInterval.String(),
+			},
+		},
+	}
+}
+
+func serviceNameEnrichment(cfg *obi.Config) map[string]any {
+	out := map[string]any{
+		"unresolved_hosts": map[string]any{
+			"names": map[string]any{
+				"default":  cfg.Attributes.RenameUnresolvedHosts,
+				"outgoing": cfg.Attributes.RenameUnresolvedHostsOutgoing,
+				"incoming": cfg.Attributes.RenameUnresolvedHostsIncoming,
+			},
+		},
+	}
+	if cfg.NameResolver == nil {
+		out["sources"] = []any{}
+		out["cache"] = map[string]any{
+			"size": 0,
+			"ttl":  "0s",
+		}
+		return out
+	}
+
+	out["sources"] = cfg.NameResolver.Sources
+	out["cache"] = map[string]any{
+		"size": cfg.NameResolver.CacheLen,
+		"ttl":  cfg.NameResolver.CacheTTL.String(),
+	}
+	return out
+}
+
+func correlation(cfg *obi.Config) map[string]any {
+	return map[string]any{
+		"log_trace_annotation": map[string]any{
+			"enabled": cfg.EBPF.LogEnricher.Enabled(),
+			"filter":  map[string]any{},
+			"cache": map[string]any{
+				"ttl":  cfg.EBPF.LogEnricher.CacheTTL.String(),
+				"size": cfg.EBPF.LogEnricher.CacheSize,
+			},
+			"async_writer": map[string]any{
+				"workers":     cfg.EBPF.LogEnricher.AsyncWriterWorkers,
+				"channel_len": cfg.EBPF.LogEnricher.AsyncWriterChannelLen,
+			},
+		},
+	}
+}
+
 func daemon(cfg *obi.Config) map[string]any {
 	return map[string]any{
 		"logging": map[string]any{
@@ -388,7 +580,32 @@ func daemon(cfg *obi.Config) map[string]any {
 				"scrape_interval": cfg.InternalMetrics.BpfMetricScrapeInterval.String(),
 			},
 		},
+		"telemetry": map[string]any{
+			"metrics": map[string]any{
+				"prometheus": map[string]any{
+					"allow_service_graph_self_references": cfg.Prometheus.AllowServiceGraphSelfReferences,
+					"span_metrics_service_cache_size":     cfg.Prometheus.SpanMetricsServiceCacheSize,
+					"extra_resource_attributes":           cfg.Prometheus.ExtraResourceLabels,
+					"extra_span_resource_attributes":      mergedStrings(cfg.Prometheus.ExtraSpanResourceLabels, cfg.OTELMetrics.ExtraSpanResourceLabels),
+				},
+			},
+		},
 	}
+}
+
+func mergedStrings(values ...[]string) []string {
+	var out []string
+	seen := map[string]struct{}{}
+	for _, list := range values {
+		for _, value := range list {
+			if _, ok := seen[value]; ok {
+				continue
+			}
+			seen[value] = struct{}{}
+			out = append(out, value)
+		}
+	}
+	return out
 }
 
 func textValue(v encoding.TextMarshaler) any {

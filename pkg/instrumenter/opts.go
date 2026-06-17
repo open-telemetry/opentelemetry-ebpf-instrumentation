@@ -13,9 +13,12 @@ import (
 // Option that override the instantiation of the instrumenter
 type Option func(info *global.ContextInfo)
 
-// WithDynamicPIDSelector passes the given dynamic PID selector into the shared runtime context.
-// The caller creates it with discover.NewDynamicPIDSelector(), passes it here, and then calls
-// AddPIDs/RemovePIDs/GetPIDs on the concrete selector directly.
+// WithDynamicPIDSelector passes the given dynamic PID selector into OBI. The caller creates it with
+// discover.NewDynamicPIDSelector(), passes it here, and then calls AddPIDs/RemovePIDs/GetPIDs on it
+// directly, or targets specific signals via subviews such as Traces(), AppMetrics(),
+// NetworkMetrics(), and StatsMetrics().
+//
+// Root AddPIDs/RemovePIDs preserve the legacy behavior and apply to all supported signals.
 func WithDynamicPIDSelector(sel *discover.DynamicPIDSelector) Option {
 	return func(info *global.ContextInfo) {
 		info.DynamicPIDSelector = sel

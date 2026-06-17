@@ -15,11 +15,15 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/config"
 	"go.opentelemetry.io/obi/pkg/export"
+	"go.opentelemetry.io/obi/pkg/export/attributes"
+	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/debug"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/filter"
+	"go.opentelemetry.io/obi/pkg/kube/kubeflags"
 	"go.opentelemetry.io/obi/pkg/obi"
+	"go.opentelemetry.io/obi/pkg/transform"
 )
 
 func TestRuntimeToV2DefaultConfig(t *testing.T) {
@@ -36,6 +40,20 @@ func TestRuntimeToV2DefaultConfig(t *testing.T) {
 	require.Equal(t, schema.SupportedVersion, ext.Version)
 	require.NotNil(t, ext.Capture.Rules)
 	require.NotNil(t, ext.Capture.Telemetry)
+
+	require.Empty(t, doc.Resource)
+	require.Equal(t, int64(15000), value(t, doc.TracerProvider, "processors", "0", "batch", "schedule_delay"))
+	require.Equal(t, 16384, value(t, doc.TracerProvider, "processors", "0", "batch", "max_queue_size"))
+	require.Equal(t, 4096, value(t, doc.TracerProvider, "processors", "0", "batch", "max_export_batch_size"))
+	require.Empty(t, value(t, doc.TracerProvider, "processors", "0", "batch", "exporter", "otlp_grpc", "endpoint"))
+	require.Equal(t, false, value(t, doc.TracerProvider, "processors", "0", "batch", "exporter", "otlp_grpc", "tls", "insecure"))
+	require.Equal(t, false, value(t, doc.TracerProvider, "processors", "0", "batch", "exporter", "otlp_grpc", "tls", "insecure_skip_verify"))
+	require.NotContains(t, doc.TracerProvider, "sampler")
+	require.Equal(t, int64(60000), value(t, doc.MeterProvider, "readers", "0", "periodic", "interval"))
+	require.Empty(t, value(t, doc.MeterProvider, "readers", "0", "periodic", "exporter", "otlp_grpc", "endpoint"))
+	require.Equal(t, false, value(t, doc.MeterProvider, "readers", "0", "periodic", "exporter", "otlp_grpc", "tls", "insecure"))
+	require.Equal(t, false, value(t, doc.MeterProvider, "readers", "0", "periodic", "exporter", "otlp_grpc", "tls", "insecure_skip_verify"))
+	require.Equal(t, 0, value(t, doc.MeterProvider, "readers", "1", "pull", "exporter", "prometheus/development", "port"))
 
 	require.Equal(t, "include", value(t, ext.Capture.Policy, "default_action"))
 	require.Equal(t, "first_match_wins", value(t, ext.Capture.Policy, "match_order"))
@@ -82,11 +100,30 @@ func TestRuntimeToV2DefaultConfig(t *testing.T) {
 	require.Equal(t, true, value(t, ext.Capture.Runtimes, "nodejs", "enabled"))
 	require.Equal(t, true, value(t, ext.Capture.Runtimes, "java", "enabled"))
 
+	require.Equal(t, 256, value(t, ext.Capture.Telemetry, "traces", "reporters_cache_len"))
+	require.Equal(t, 256, value(t, ext.Capture.Telemetry, "metrics", "reporters_cache_len"))
+	require.Equal(t, "5m0s", value(t, ext.Capture.Telemetry, "metrics", "ttl"))
+
+	require.Equal(t, kubeflags.EnabledAutodetect, value(t, ext.Enrich, "enrichers", "kubernetes", "mode"))
+	require.Equal(t, "30s", value(t, ext.Enrich, "enrichers", "kubernetes", "informers", "initial_sync_timeout"))
+	require.Equal(t, "30m0s", value(t, ext.Enrich, "enrichers", "kubernetes", "informers", "resync_period"))
+	require.Equal(t, []transform.Source{transform.SourceK8s}, value(t, ext.Enrich, "service_name", "sources"))
+	require.Equal(t, 1024, value(t, ext.Enrich, "service_name", "cache", "size"))
+	require.Equal(t, "5m0s", value(t, ext.Enrich, "service_name", "cache", "ttl"))
+	require.Equal(t, "unresolved", value(t, ext.Enrich, "service_name", "unresolved_hosts", "names", "default"))
+
+	require.Equal(t, false, value(t, ext.Correlation, "log_trace_annotation", "enabled"))
+	require.Equal(t, "30m0s", value(t, ext.Correlation, "log_trace_annotation", "cache", "ttl"))
+	require.Equal(t, 128, value(t, ext.Correlation, "log_trace_annotation", "cache", "size"))
+	require.Equal(t, 8, value(t, ext.Correlation, "log_trace_annotation", "async_writer", "workers"))
+
 	require.Equal(t, obi.LogLevelInfo, value(t, ext.Daemon, "logging", "level"))
 	require.Equal(t, debug.TracePrinterDisabled, value(t, ext.Daemon, "logging", "debug_trace_output"))
 	require.Equal(t, "10s", value(t, ext.Daemon, "shutdown", "timeout"))
 	require.Equal(t, imetrics.InternalMetricsExporterDisabled, value(t, ext.Daemon, "internal_metrics", "exporter"))
 	require.Equal(t, "/internal/metrics", value(t, ext.Daemon, "internal_metrics", "prometheus", "path"))
+	require.Equal(t, false, value(t, ext.Daemon, "telemetry", "metrics", "prometheus", "allow_service_graph_self_references"))
+	require.Equal(t, 10000, value(t, ext.Daemon, "telemetry", "metrics", "prometheus", "span_metrics_service_cache_size"))
 
 	require.Len(t, ext.Capture.Rules, 4)
 	require.Equal(t, "exclude-obi-and-collectors", ext.Capture.Rules[0].Name)
@@ -138,6 +175,43 @@ func TestRuntimeToV2CustomConfig(t *testing.T) {
 	cfg.InternalMetrics.Prometheus.Path = "/debug/metrics"
 	cfg.InternalMetrics.BpfMetricScrapeInterval = 4 * time.Second
 
+	cfg.Attributes.InstanceID.OverrideHostname = "host-override"
+	cfg.Attributes.HostID.Override = "host-id-1"
+	cfg.Attributes.Kubernetes.Enable = "true"
+	cfg.Attributes.Kubernetes.ClusterName = "cluster-a"
+	cfg.Attributes.Kubernetes.KubeconfigPath = "/etc/kube/config"
+	cfg.Attributes.Kubernetes.InformersSyncTimeout = 42 * time.Second
+	cfg.Attributes.Kubernetes.ReconnectInitialInterval = 43 * time.Second
+	cfg.Attributes.Kubernetes.InformersResyncPeriod = 44 * time.Second
+	cfg.Attributes.Kubernetes.DropExternal = true
+	cfg.Attributes.Kubernetes.DisableInformers = []string{"node", "service"}
+	cfg.Attributes.Kubernetes.MetaCacheAddress = "kube-cache:8999"
+	cfg.Attributes.Kubernetes.MetaRestrictLocalNode = true
+	cfg.Attributes.Kubernetes.MetaSourceLabels.ServiceName = "app.kubernetes.io/name"
+	cfg.Attributes.Kubernetes.MetaSourceLabels.ServiceNamespace = "app.kubernetes.io/part-of"
+	cfg.Attributes.Kubernetes.ResourceLabels = map[string][]string{
+		"service.name":    {"app"},
+		"service.version": {"version"},
+	}
+	cfg.Attributes.Kubernetes.ServiceNameTemplate = "{{ .Meta.Name }}"
+	cfg.Attributes.RenameUnresolvedHosts = "unknown"
+	cfg.Attributes.RenameUnresolvedHostsOutgoing = "unknown-out"
+	cfg.Attributes.RenameUnresolvedHostsIncoming = "unknown-in"
+	cfg.Attributes.MetadataRetry.Timeout = 45 * time.Second
+	cfg.Attributes.MetadataRetry.StartInterval = 46 * time.Millisecond
+	cfg.Attributes.MetadataRetry.MaxInterval = 47 * time.Second
+	cfg.Attributes.Select = attributes.Selection{
+		"traces": attributes.InclusionLists{
+			Include: []string{"http.route"},
+		},
+	}
+	cfg.Attributes.ExtraGroupAttributes = obi.ExtraGroupAttributesMap{
+		"k8s_app_meta": []attr.Name{attr.K8sPodName},
+	}
+	cfg.NameResolver.Sources = []transform.Source{transform.SourceDNS, transform.SourceK8s}
+	cfg.NameResolver.CacheLen = 901
+	cfg.NameResolver.CacheTTL = 902 * time.Second
+
 	cfg.Discovery.PollInterval = 5 * time.Second
 	cfg.Discovery.MinProcessAge = 6 * time.Second
 	cfg.Discovery.BPFPidFilterOff = true
@@ -179,14 +253,47 @@ func TestRuntimeToV2CustomConfig(t *testing.T) {
 	cfg.EBPF.CouchbaseDBCacheSize = 206
 	cfg.EBPF.DNSRequestTimeout = 13 * time.Second
 	cfg.EBPF.InstrumentCuda = config.CudaModeOn
+	cfg.EBPF.LogEnricher.Services = []config.LogEnricherServiceConfig{
+		{
+			Service: services.GlobDefinitionCriteria{
+				{Path: services.NewGlob("/srv/*")},
+			},
+		},
+	}
+	cfg.EBPF.LogEnricher.CacheTTL = 903 * time.Second
+	cfg.EBPF.LogEnricher.CacheSize = 904
+	cfg.EBPF.LogEnricher.AsyncWriterWorkers = 905
+	cfg.EBPF.LogEnricher.AsyncWriterChannelLen = 906
 
+	cfg.Traces.TracesEndpoint = "http://traces.example:4317"
+	cfg.Traces.BatchMaxSize = 907
+	cfg.Traces.QueueSize = 908
+	cfg.Traces.BatchTimeout = 909 * time.Millisecond
+	cfg.Traces.BackOffInitialInterval = 910 * time.Millisecond
+	cfg.Traces.BackOffMaxInterval = 911 * time.Second
+	cfg.Traces.BackOffMaxElapsedTime = 912 * time.Second
+	cfg.Traces.InsecureSkipVerify = true
+	cfg.Traces.ReportersCacheLen = 913
+	cfg.Traces.SamplerConfig.Name = services.SamplerTraceIDRatio
+	cfg.Traces.SamplerConfig.Arg = "0.25"
 	cfg.Traces.Instrumentations = []instrumentations.Instrumentation{
 		instrumentations.InstrumentationHTTP,
 		instrumentations.InstrumentationKafka,
 	}
+	cfg.OTELMetrics.MetricsEndpoint = "https://metrics.example:4317"
+	cfg.OTELMetrics.Interval = 914 * time.Millisecond
+	cfg.OTELMetrics.ReportersCacheLen = 915
+	cfg.OTELMetrics.TTL = 916 * time.Second
+	cfg.OTELMetrics.InsecureSkipVerify = true
+	cfg.OTELMetrics.ExtraSpanResourceLabels = []string{"deployment.environment", "service.version"}
 	cfg.OTELMetrics.Instrumentations = []instrumentations.Instrumentation{
 		instrumentations.InstrumentationHTTP,
 	}
+	cfg.Prometheus.Port = 917
+	cfg.Prometheus.AllowServiceGraphSelfReferences = true
+	cfg.Prometheus.SpanMetricsServiceCacheSize = 918
+	cfg.Prometheus.ExtraResourceLabels = []string{"cloud.region"}
+	cfg.Prometheus.ExtraSpanResourceLabels = []string{"service.version", "k8s.cluster.name"}
 	cfg.Prometheus.Instrumentations = []instrumentations.Instrumentation{
 		instrumentations.InstrumentationRedis,
 		instrumentations.InstrumentationDNS,
@@ -212,7 +319,25 @@ func TestRuntimeToV2CustomConfig(t *testing.T) {
 	cfg.NetworkFlows.Print = true
 	cfg.Attributes.MetricSpanNameAggregationLimit = 400
 
-	_, ext := RuntimeToV2(&cfg)
+	doc, ext := RuntimeToV2(&cfg)
+
+	require.Equal(t, "host-override", value(t, doc.Resource, "attributes", "host.name"))
+	require.Equal(t, "host-id-1", value(t, doc.Resource, "attributes", "host.id"))
+	require.Equal(t, 908, value(t, doc.TracerProvider, "processors", "0", "batch", "max_queue_size"))
+	require.Equal(t, 907, value(t, doc.TracerProvider, "processors", "0", "batch", "max_export_batch_size"))
+	require.Equal(t, int64(909), value(t, doc.TracerProvider, "processors", "0", "batch", "schedule_delay"))
+	require.Equal(t, "http://traces.example:4317", value(t, doc.TracerProvider, "processors", "0", "batch", "exporter", "otlp_grpc", "endpoint"))
+	require.Equal(t, "910ms", value(t, doc.TracerProvider, "processors", "0", "batch", "exporter", "otlp_grpc", "retry", "initial_interval"))
+	require.Equal(t, "15m12s", value(t, doc.TracerProvider, "processors", "0", "batch", "exporter", "otlp_grpc", "retry", "max_elapsed_time"))
+	require.Equal(t, true, value(t, doc.TracerProvider, "processors", "0", "batch", "exporter", "otlp_grpc", "tls", "insecure"))
+	require.Equal(t, true, value(t, doc.TracerProvider, "processors", "0", "batch", "exporter", "otlp_grpc", "tls", "insecure_skip_verify"))
+	require.Equal(t, services.SamplerTraceIDRatio, value(t, doc.TracerProvider, "sampler", "name"))
+	require.Equal(t, "0.25", value(t, doc.TracerProvider, "sampler", "arg"))
+	require.Equal(t, int64(914), value(t, doc.MeterProvider, "readers", "0", "periodic", "interval"))
+	require.Equal(t, "https://metrics.example:4317", value(t, doc.MeterProvider, "readers", "0", "periodic", "exporter", "otlp_grpc", "endpoint"))
+	require.Equal(t, false, value(t, doc.MeterProvider, "readers", "0", "periodic", "exporter", "otlp_grpc", "tls", "insecure"))
+	require.Equal(t, true, value(t, doc.MeterProvider, "readers", "0", "periodic", "exporter", "otlp_grpc", "tls", "insecure_skip_verify"))
+	require.Equal(t, 917, value(t, doc.MeterProvider, "readers", "1", "pull", "exporter", "prometheus/development", "port"))
 
 	require.Equal(t, 77, value(t, ext.Capture.Channels, "buffer_len"))
 	require.Equal(t, "2s", value(t, ext.Capture.Channels, "send_timeout"))
@@ -254,6 +379,9 @@ func TestRuntimeToV2CustomConfig(t *testing.T) {
 	require.Equal(t, false, value(t, ext.Capture.Runtimes, "java", "enabled"))
 	require.Equal(t, true, value(t, ext.Capture.Runtimes, "java", "debug", "bytecode_instrumentation"))
 	require.Equal(t, "7s", value(t, ext.Capture.Runtimes, "java", "attach_timeout"))
+	require.Equal(t, 913, value(t, ext.Capture.Telemetry, "traces", "reporters_cache_len"))
+	require.Equal(t, 915, value(t, ext.Capture.Telemetry, "metrics", "reporters_cache_len"))
+	require.Equal(t, "15m16s", value(t, ext.Capture.Telemetry, "metrics", "ttl"))
 
 	require.Equal(t, true, value(t, ext.Capture.Network, "capture", "enabled"))
 	require.Equal(t, obi.EbpfSourceTC, value(t, ext.Capture.Network, "capture", "source"))
@@ -268,6 +396,35 @@ func TestRuntimeToV2CustomConfig(t *testing.T) {
 	require.Equal(t, "15s", value(t, ext.Capture.Network, "capture", "flow_lifecycle", "deduplication", "first_come_ttl"))
 	require.Equal(t, true, value(t, ext.Capture.Network, "capture", "diagnostics", "print_flows"))
 
+	require.Equal(t, kubeflags.EnabledTrue, value(t, ext.Enrich, "enrichers", "kubernetes", "mode"))
+	require.Equal(t, "cluster-a", value(t, ext.Enrich, "enrichers", "kubernetes", "cluster_name"))
+	require.Equal(t, "/etc/kube/config", value(t, ext.Enrich, "enrichers", "kubernetes", "auth", "kubeconfig_path"))
+	require.Equal(t, "42s", value(t, ext.Enrich, "enrichers", "kubernetes", "informers", "initial_sync_timeout"))
+	require.Equal(t, "43s", value(t, ext.Enrich, "enrichers", "kubernetes", "informers", "reconnect_initial_interval"))
+	require.Equal(t, "44s", value(t, ext.Enrich, "enrichers", "kubernetes", "informers", "resync_period"))
+	require.Equal(t, []string{"node", "service"}, value(t, ext.Enrich, "enrichers", "kubernetes", "informers", "disabled"))
+	require.Equal(t, true, value(t, ext.Enrich, "enrichers", "kubernetes", "drop_external"))
+	require.Equal(t, cfg.Attributes.Kubernetes.ResourceLabels, value(t, ext.Enrich, "enrichers", "kubernetes", "resource_labels"))
+	require.Equal(t, "kube-cache:8999", value(t, ext.Enrich, "enrichers", "kubernetes", "metadata_cache", "address"))
+	require.Equal(t, true, value(t, ext.Enrich, "enrichers", "kubernetes", "metadata_cache", "restrict_local_node"))
+	require.Equal(t, "app.kubernetes.io/name", value(t, ext.Enrich, "enrichers", "kubernetes", "metadata_cache", "source_labels", "service_name"))
+	require.Equal(t, "{{ .Meta.Name }}", value(t, ext.Enrich, "enrichers", "kubernetes", "service_name_template"))
+	require.Equal(t, []transform.Source{transform.SourceDNS, transform.SourceK8s}, value(t, ext.Enrich, "service_name", "sources"))
+	require.Equal(t, 901, value(t, ext.Enrich, "service_name", "cache", "size"))
+	require.Equal(t, "15m2s", value(t, ext.Enrich, "service_name", "cache", "ttl"))
+	require.Equal(t, "unknown-out", value(t, ext.Enrich, "service_name", "unresolved_hosts", "names", "outgoing"))
+	require.Equal(t, cfg.Attributes.Select, value(t, ext.Enrich, "attributes", "select"))
+	require.Equal(t, cfg.Attributes.ExtraGroupAttributes, value(t, ext.Enrich, "attributes", "extra_group_attributes"))
+	require.Equal(t, "45s", value(t, ext.Enrich, "attributes", "metadata_retry", "timeout"))
+	require.Equal(t, "46ms", value(t, ext.Enrich, "attributes", "metadata_retry", "start_interval"))
+	require.Equal(t, "47s", value(t, ext.Enrich, "attributes", "metadata_retry", "max_interval"))
+
+	require.Equal(t, true, value(t, ext.Correlation, "log_trace_annotation", "enabled"))
+	require.Equal(t, "15m3s", value(t, ext.Correlation, "log_trace_annotation", "cache", "ttl"))
+	require.Equal(t, 904, value(t, ext.Correlation, "log_trace_annotation", "cache", "size"))
+	require.Equal(t, 905, value(t, ext.Correlation, "log_trace_annotation", "async_writer", "workers"))
+	require.Equal(t, 906, value(t, ext.Correlation, "log_trace_annotation", "async_writer", "channel_len"))
+
 	require.Equal(t, obi.LogLevelDebug, value(t, ext.Daemon, "logging", "level"))
 	require.Equal(t, obi.LogConfigOptionJSON, value(t, ext.Daemon, "logging", "format"))
 	require.Equal(t, debug.TracePrinterJSON, value(t, ext.Daemon, "logging", "debug_trace_output"))
@@ -276,6 +433,10 @@ func TestRuntimeToV2CustomConfig(t *testing.T) {
 	require.Equal(t, imetrics.InternalMetricsExporterPrometheus, value(t, ext.Daemon, "internal_metrics", "exporter"))
 	require.Equal(t, 9090, value(t, ext.Daemon, "internal_metrics", "prometheus", "port"))
 	require.Equal(t, "4s", value(t, ext.Daemon, "internal_metrics", "bpf", "scrape_interval"))
+	require.Equal(t, true, value(t, ext.Daemon, "telemetry", "metrics", "prometheus", "allow_service_graph_self_references"))
+	require.Equal(t, 918, value(t, ext.Daemon, "telemetry", "metrics", "prometheus", "span_metrics_service_cache_size"))
+	require.Equal(t, []string{"cloud.region"}, value(t, ext.Daemon, "telemetry", "metrics", "prometheus", "extra_resource_attributes"))
+	require.Equal(t, []string{"service.version", "k8s.cluster.name", "deployment.environment"}, value(t, ext.Daemon, "telemetry", "metrics", "prometheus", "extra_span_resource_attributes"))
 }
 
 func TestRuntimeToV2AdvancedCaptureParity(t *testing.T) {
@@ -714,6 +875,10 @@ func defaultRuntimeConfig() obi.Config {
 	if cfg.Routes != nil {
 		routes := *cfg.Routes
 		cfg.Routes = &routes
+	}
+	if cfg.NameResolver != nil {
+		nameResolver := *cfg.NameResolver
+		cfg.NameResolver = &nameResolver
 	}
 	return cfg
 }

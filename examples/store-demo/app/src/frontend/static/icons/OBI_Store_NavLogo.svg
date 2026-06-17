@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 230 50" role="img" aria-labelledby="title">
+  <title id="title">OBI Store</title>
+  <rect x="1" y="1" width="48" height="48" rx="8" fill="#853B5C"/>
+  <path d="M15 15h20v20H15z" fill="none" stroke="#FFFFFF" stroke-width="4"/>
+  <path d="M23 15v20M15 25h20" stroke="#FFFFFF" stroke-width="4"/>
+  <text x="63" y="33" fill="#570D2D" font-family="DM Sans, Arial, sans-serif" font-size="28" font-weight="700">OBI Store</text>
+</svg>
