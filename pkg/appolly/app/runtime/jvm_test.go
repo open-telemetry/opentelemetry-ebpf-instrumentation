@@ -4,8 +4,6 @@
 package runtime
 
 import (
-	"bytes"
-	"encoding/binary"
 	"math"
 	"testing"
 	"time"
@@ -17,22 +15,17 @@ import (
 
 func TestParseJVMMemoryPoolEventMapsPoolCounters(t *testing.T) {
 	eventTime := setJVMTestClocks(t)
-	raw := RawJVMMemoryPoolEvent{
-		Timestamp:      123456789,
-		GlobalPID:      1234,
-		GlobalTID:      1235,
-		NsPID:          4321,
-		NsTID:          4322,
-		PIDNamespaceID: 9001,
-		GCWhenType:     RawJVMGCWhenBefore,
-		InitSize:       1024,
-		Used:           2048,
-		Committed:      4096,
-		MaxSize:        8192,
-		Pool:           rawJVMString("G1 Eden Space"),
-	}
 
-	events, err := ParseJVMMemoryPoolEvent(raw)
+	events, err := ParseJVMMemoryPoolEvent(
+		123456789,
+		4321,
+		9001,
+		RawJVMGCWhenBefore,
+		2048,
+		4096,
+		8192,
+		rawJVMString("G1 Eden Space"),
+	)
 	require.NoError(t, err)
 	require.Equal(t, []JVMRuntimeEvent{
 		{
@@ -70,19 +63,17 @@ func TestParseJVMMemoryPoolEventMapsPoolCounters(t *testing.T) {
 
 func TestParseJVMMemoryPoolEventAddsUsedAfterLastGCForEndEvents(t *testing.T) {
 	eventTime := setJVMTestClocks(t)
-	raw := RawJVMMemoryPoolEvent{
-		Timestamp:      500,
-		GlobalPID:      222,
-		NsPID:          2,
-		PIDNamespaceID: 43,
-		GCWhenType:     RawJVMGCWhenAfter,
-		Used:           300,
-		Committed:      400,
-		MaxSize:        math.MaxUint64,
-		Pool:           rawJVMString("Metaspace"),
-	}
 
-	events, err := ParseJVMMemoryPoolEvent(raw)
+	events, err := ParseJVMMemoryPoolEvent(
+		500,
+		2,
+		43,
+		RawJVMGCWhenAfter,
+		300,
+		400,
+		math.MaxUint64,
+		rawJVMString("Metaspace"),
+	)
 	require.NoError(t, err)
 	require.Equal(t, []JVMRuntimeEvent{
 		{
@@ -120,16 +111,8 @@ func TestParseJVMMemoryPoolEventAddsUsedAfterLastGCForEndEvents(t *testing.T) {
 
 func TestParseJVMGCHeapSummaryEventMapsAggregateHeapUsed(t *testing.T) {
 	eventTime := setJVMTestClocks(t)
-	raw := RawJVMGCHeapSummaryEvent{
-		Timestamp:      900,
-		GlobalPID:      333,
-		NsPID:          1,
-		PIDNamespaceID: 42,
-		GCWhenType:     RawJVMGCWhenAfter,
-		Used:           700,
-	}
 
-	event, err := ParseJVMGCHeapSummaryEvent(raw)
+	event, err := ParseJVMGCHeapSummaryEvent(900, 1, 42, RawJVMGCWhenAfter, 700)
 	require.NoError(t, err)
 	require.Equal(t, JVMRuntimeEvent{
 		PID:            app.PID(1),
@@ -143,19 +126,13 @@ func TestParseJVMGCHeapSummaryEventMapsAggregateHeapUsed(t *testing.T) {
 
 func TestParseJVMGCHeapSummaryEventConvertsMonotonicTimestamp(t *testing.T) {
 	eventTime := setJVMTestClocks(t)
-	raw := RawJVMGCHeapSummaryEvent{
-		Timestamp:  uint64(8 * time.Second),
-		GlobalPID:  333,
-		NsPID:      1,
-		GCWhenType: RawJVMGCWhenAfter,
-		Used:       700,
-	}
+	timestamp := uint64(8 * time.Second)
 
-	event, err := ParseJVMGCHeapSummaryEvent(raw)
+	event, err := ParseJVMGCHeapSummaryEvent(timestamp, 1, 0, RawJVMGCWhenAfter, 700)
 	require.NoError(t, err)
 
-	require.Equal(t, eventTime(raw.Timestamp), event.Time)
-	require.NotEqual(t, time.Unix(0, int64(raw.Timestamp)), event.Time)
+	require.Equal(t, eventTime(timestamp), event.Time)
+	require.NotEqual(t, time.Unix(0, int64(timestamp)), event.Time)
 }
 
 func TestRawJVMStringTrimsAtNULAndHonorsFixedBound(t *testing.T) {
@@ -190,53 +167,8 @@ func TestInferJVMMemoryTypeReturnsUnknownForUnrecognizedPool(t *testing.T) {
 	require.Equal(t, JVMMemoryTypeUnknown, InferJVMMemoryType("vendor-specific pool"))
 }
 
-func TestDecodeRawJVMEventsFromBinaryPayloads(t *testing.T) {
-	poolPayload := binaryPayload(t, RawJVMMemoryPoolEvent{
-		Timestamp:  42,
-		GlobalPID:  44,
-		NsPID:      4,
-		GCWhenType: RawJVMGCWhenBefore,
-		Used:       50,
-		Committed:  60,
-		MaxSize:    70,
-		Pool:       rawJVMString("Tenured Gen"),
-	})
-	poolEvents, err := DecodeJVMMemoryPoolEvent(poolPayload)
-	require.NoError(t, err)
-	require.Equal(t, JVMMetricMemoryUsed, poolEvents[0].Kind)
-	require.Equal(t, "Tenured Gen", poolEvents[0].PoolName)
-	require.Equal(t, JVMMemoryTypeHeap, poolEvents[0].MemoryType)
-
-	heapPayload := binaryPayload(t, RawJVMGCHeapSummaryEvent{
-		Timestamp:  52,
-		GlobalPID:  54,
-		NsPID:      1,
-		GCWhenType: RawJVMGCWhenBefore,
-		Used:       80,
-	})
-	heapEvent, err := DecodeJVMGCHeapSummaryEvent(heapPayload)
-	require.NoError(t, err)
-	require.Equal(t, JVMMetricObiHeapUsed, heapEvent.Kind)
-	require.Equal(t, JVMGCPhaseBefore, heapEvent.GCPhase)
-}
-
-func TestRawJVMPayloadSizesMatchBPFEventShapes(t *testing.T) {
-	require.Equal(t, 200, binary.Size(RawJVMMemoryPoolEvent{}))
-	require.Equal(t, 48, binary.Size(RawJVMGCHeapSummaryEvent{}))
-}
-
-func TestDecodeRawJVMPayloadRejectsShortPayload(t *testing.T) {
-	_, err := DecodeJVMMemoryPoolEvent(make([]byte, binary.Size(RawJVMMemoryPoolEvent{})-1))
-	require.ErrorContains(t, err, "raw JVM payload too short")
-
-	_, err = DecodeJVMGCHeapSummaryEvent(make([]byte, binary.Size(RawJVMGCHeapSummaryEvent{})-1))
-	require.ErrorContains(t, err, "raw JVM payload too short")
-}
-
 func TestParseJVMGCHeapSummaryEventRejectsUnsupportedPhase(t *testing.T) {
-	_, err := ParseJVMGCHeapSummaryEvent(RawJVMGCHeapSummaryEvent{
-		GCWhenType: RawJVMGCWhenEndSentinel,
-	})
+	_, err := ParseJVMGCHeapSummaryEvent(0, 0, 0, RawJVMGCWhenEndSentinel, 0)
 	require.ErrorContains(t, err, "unsupported JVM GC phase")
 }
 
@@ -244,14 +176,6 @@ func rawJVMString(value string) [JVMRawStringLen]byte {
 	var raw [JVMRawStringLen]byte
 	copy(raw[:], []byte(value))
 	return raw
-}
-
-func binaryPayload(t *testing.T, value any) []byte {
-	t.Helper()
-
-	var buf bytes.Buffer
-	require.NoError(t, binary.Write(&buf, binary.LittleEndian, value))
-	return buf.Bytes()
 }
 
 func setJVMTestClocks(t *testing.T) func(uint64) time.Time {

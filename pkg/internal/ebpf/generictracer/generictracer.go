@@ -669,6 +669,10 @@ func (p *Tracer) processSharedRingbufRecord(
 	cfg *config.EBPFTracer,
 	record *ringbuf.Record,
 ) (request.Span, bool, error) {
+	if handled, err := p.handleJVMRuntimeMetricsRecord(ctx, record); handled {
+		return request.Span{}, true, err
+	}
+
 	if handled, err := ebpfcommon.HandleRuntimeMetricsRecord(ctx, p.eventCtx, record, p.pidsFilter, p.log); handled {
 		return request.Span{}, true, err
 	}
@@ -680,6 +684,40 @@ func (p *Tracer) processSharedRingbufRecord(
 	return s, ignore, err
 }
 
+func (p *Tracer) handleJVMRuntimeMetricsRecord(
+	ctx context.Context,
+	record *ringbuf.Record,
+) (bool, error) {
+	if record == nil || len(record.RawSample) == 0 {
+		return false, nil
+	}
+
+	switch record.RawSample[0] {
+	case ebpfcommon.EventTypeJVMGCHeapSummary:
+		if p.eventCtx == nil || p.eventCtx.RuntimeMetrics == nil {
+			return true, nil
+		}
+		event, ignore, err := p.parseJVMGCHeapSummaryRecord(record)
+		if err != nil || ignore {
+			return true, err
+		}
+		p.eventCtx.RuntimeMetrics.SendJVMRuntimeMetrics(ctx, []jvmruntime.JVMRuntimeEvent{event})
+		return true, nil
+	case ebpfcommon.EventTypeJVMMemoryPoolGC:
+		if p.eventCtx == nil || p.eventCtx.RuntimeMetrics == nil {
+			return true, nil
+		}
+		events, ignore, err := p.parseJVMMemoryPoolRecord(record)
+		if err != nil || ignore || len(events) == 0 {
+			return true, err
+		}
+		p.eventCtx.RuntimeMetrics.SendJVMRuntimeMetrics(ctx, events)
+		return true, nil
+	default:
+		return false, nil
+	}
+}
+
 func (p *Tracer) runtimeMetricsSender() ebpfcommon.RuntimeMetricSender {
 	if p.eventCtx == nil {
 		return nil
@@ -688,11 +726,77 @@ func (p *Tracer) runtimeMetricsSender() ebpfcommon.RuntimeMetricSender {
 }
 
 func (p *Tracer) parseJVMGCHeapSummaryRecord(record *ringbuf.Record) (jvmruntime.JVMRuntimeEvent, bool, error) {
-	return ebpfcommon.DecodeAndDecorateJVMGCHeapSummaryRecord(record, p.pidsFilter, p.log)
+	raw, err := ebpfcommon.ReinterpretCast[BpfJvmGcHeapSummaryEvent](record.RawSample)
+	if err != nil {
+		return jvmruntime.JVMRuntimeEvent{}, false, err
+	}
+
+	event, err := jvmruntime.ParseJVMGCHeapSummaryEvent(
+		raw.Timestamp,
+		raw.NsPid,
+		raw.PidNsId,
+		jvmruntime.RawJVMGCWhenType(raw.GcWhenType),
+		raw.Used,
+	)
+	if err != nil {
+		return jvmruntime.JVMRuntimeEvent{}, false, err
+	}
+	if !ebpfcommon.DecorateJVMRuntimeEvent(p.pidsFilter, &event) {
+		return jvmruntime.JVMRuntimeEvent{}, true, nil
+	}
+	if p.log != nil {
+		p.log.Debug("received JVM GC heap summary event",
+			"pid", event.PID,
+			"service", event.Service.UID.Name,
+			"namespace", event.Service.UID.Namespace,
+			"phase", event.GCPhase,
+			"value_bytes", event.ValueBytes,
+		)
+	}
+	return event, false, nil
 }
 
 func (p *Tracer) parseJVMMemoryPoolRecord(record *ringbuf.Record) ([]jvmruntime.JVMRuntimeEvent, bool, error) {
-	return ebpfcommon.DecodeAndDecorateJVMMemoryPoolRecord(record, p.pidsFilter, p.log)
+	raw, err := ebpfcommon.ReinterpretCast[BpfJvmMemPoolGcEvent](record.RawSample)
+	if err != nil {
+		return nil, false, err
+	}
+
+	events, err := jvmruntime.ParseJVMMemoryPoolEvent(
+		raw.Timestamp,
+		raw.NsPid,
+		raw.PidNsId,
+		jvmruntime.RawJVMGCWhenType(raw.GcWhenType),
+		raw.Used,
+		raw.Committed,
+		raw.MaxSize,
+		raw.Pool,
+	)
+	if err != nil {
+		return nil, false, err
+	}
+
+	decorated := events[:0]
+	for i := range events {
+		if ebpfcommon.DecorateJVMRuntimeEvent(p.pidsFilter, &events[i]) {
+			decorated = append(decorated, events[i])
+		}
+	}
+	if len(decorated) == 0 {
+		return nil, true, nil
+	}
+
+	if p.log != nil {
+		p.log.Debug("received JVM memory pool event",
+			"pid", decorated[0].PID,
+			"service", decorated[0].Service.UID.Name,
+			"namespace", decorated[0].Service.UID.Namespace,
+			"pool", decorated[0].PoolName,
+			"phase", decorated[0].GCPhase,
+			"events", len(decorated),
+		)
+	}
+	return decorated, false, nil
 }
 
 func kernelTime(ktime uint64) time.Time {

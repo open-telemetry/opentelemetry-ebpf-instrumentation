@@ -6,9 +6,7 @@
 package generictracer
 
 import (
-	"bytes"
 	"context"
-	"encoding/binary"
 	"testing"
 	"time"
 	"unsafe"
@@ -63,13 +61,13 @@ func TestParseJVMGCHeapSummaryRecordDecoratesServiceByPID(t *testing.T) {
 	}
 
 	event, ignore, err := tracer.parseJVMGCHeapSummaryRecord(&ringbuf.Record{
-		RawSample: rawHeapSummaryPayload(t, jvmruntime.RawJVMGCHeapSummaryEvent{
-			Timestamp:      100,
-			GlobalPID:      5678,
-			NsPID:          1234,
-			PIDNamespaceID: 42,
-			GCWhenType:     jvmruntime.RawJVMGCWhenAfter,
-			Used:           2048,
+		RawSample: rawHeapSummaryPayload(t, BpfJvmGcHeapSummaryEvent{
+			Timestamp:  100,
+			GlobalPid:  5678,
+			NsPid:      1234,
+			PidNsId:    42,
+			GcWhenType: uint32(jvmruntime.RawJVMGCWhenAfter),
+			Used:       2048,
 		}),
 	})
 
@@ -95,10 +93,10 @@ func TestParseJVMGCHeapSummaryRecordDecoratesServiceByPIDNamespace(t *testing.T)
 	}
 
 	event, ignore, err := tracer.parseJVMGCHeapSummaryRecord(&ringbuf.Record{
-		RawSample: rawHeapSummaryPayload(t, jvmruntime.RawJVMGCHeapSummaryEvent{
-			NsPID:          1234,
-			PIDNamespaceID: 42,
-			GCWhenType:     jvmruntime.RawJVMGCWhenAfter,
+		RawSample: rawHeapSummaryPayload(t, BpfJvmGcHeapSummaryEvent{
+			NsPid:      1234,
+			PidNsId:    42,
+			GcWhenType: uint32(jvmruntime.RawJVMGCWhenAfter),
 		}),
 	})
 
@@ -119,15 +117,15 @@ func TestParseJVMMemoryPoolRecordDecoratesServiceByPIDNamespace(t *testing.T) {
 	}
 
 	events, ignore, err := tracer.parseJVMMemoryPoolRecord(&ringbuf.Record{
-		RawSample: rawMemoryPoolPayload(t, jvmruntime.RawJVMMemoryPoolEvent{
-			Timestamp:      123,
-			NsPID:          1234,
-			PIDNamespaceID: 42,
-			GCWhenType:     jvmruntime.RawJVMGCWhenAfter,
-			Used:           100,
-			Committed:      200,
-			MaxSize:        300,
-			Pool:           rawJVMString("G1 Eden Space"),
+		RawSample: rawMemoryPoolPayload(t, BpfJvmMemPoolGcEvent{
+			Timestamp:  123,
+			NsPid:      1234,
+			PidNsId:    42,
+			GcWhenType: uint32(jvmruntime.RawJVMGCWhenAfter),
+			Used:       100,
+			Committed:  200,
+			MaxSize:    300,
+			Pool:       rawJVMString("G1 Eden Space"),
 		}),
 	})
 
@@ -153,13 +151,13 @@ func TestParseJVMMemoryPoolRecordIgnoresUnknownPID(t *testing.T) {
 	}
 
 	events, ignore, err := tracer.parseJVMMemoryPoolRecord(&ringbuf.Record{
-		RawSample: rawMemoryPoolPayload(t, jvmruntime.RawJVMMemoryPoolEvent{
-			NsPID:          9999,
-			PIDNamespaceID: 42,
-			GCWhenType:     jvmruntime.RawJVMGCWhenAfter,
-			Used:           100,
-			Committed:      200,
-			Pool:           rawJVMString("G1 Eden Space"),
+		RawSample: rawMemoryPoolPayload(t, BpfJvmMemPoolGcEvent{
+			NsPid:      9999,
+			PidNsId:    42,
+			GcWhenType: uint32(jvmruntime.RawJVMGCWhenAfter),
+			Used:       100,
+			Committed:  200,
+			Pool:       rawJVMString("G1 Eden Space"),
 		}),
 	})
 
@@ -180,13 +178,13 @@ func TestParseJVMGCHeapSummaryRecordConvertsMonotonicTimestamp(t *testing.T) {
 	monotonicTimestamp := uint64(timing.MonoTimeNow() - 2*time.Second)
 
 	event, ignore, err := tracer.parseJVMGCHeapSummaryRecord(&ringbuf.Record{
-		RawSample: rawHeapSummaryPayload(t, jvmruntime.RawJVMGCHeapSummaryEvent{
-			Timestamp:      monotonicTimestamp,
-			GlobalPID:      5678,
-			NsPID:          1234,
-			PIDNamespaceID: 42,
-			GCWhenType:     jvmruntime.RawJVMGCWhenAfter,
-			Used:           2048,
+		RawSample: rawHeapSummaryPayload(t, BpfJvmGcHeapSummaryEvent{
+			Timestamp:  monotonicTimestamp,
+			GlobalPid:  5678,
+			NsPid:      1234,
+			PidNsId:    42,
+			GcWhenType: uint32(jvmruntime.RawJVMGCWhenAfter),
+			Used:       2048,
 		}),
 	})
 
@@ -206,11 +204,11 @@ func TestParseJVMGCHeapSummaryRecordIgnoresUnknownPID(t *testing.T) {
 	}
 
 	event, ignore, err := tracer.parseJVMGCHeapSummaryRecord(&ringbuf.Record{
-		RawSample: rawHeapSummaryPayload(t, jvmruntime.RawJVMGCHeapSummaryEvent{
-			GlobalPID:      1234,
-			NsPID:          9999,
-			PIDNamespaceID: 42,
-			GCWhenType:     jvmruntime.RawJVMGCWhenBefore,
+		RawSample: rawHeapSummaryPayload(t, BpfJvmGcHeapSummaryEvent{
+			GlobalPid:  1234,
+			NsPid:      9999,
+			PidNsId:    42,
+			GcWhenType: uint32(jvmruntime.RawJVMGCWhenBefore),
 		}),
 	})
 
@@ -235,13 +233,13 @@ func TestProcessSharedRingbufRecordDispatchesJVMGCHeapSummaryRecord(t *testing.T
 	tracer.cfg.JVMRuntimeMetrics.Enabled = true
 
 	span, ignore, err := tracer.processSharedRingbufRecord(context.Background(), nil, &tracer.cfg.EBPF, &ringbuf.Record{
-		RawSample: rawHeapSummaryPayload(t, jvmruntime.RawJVMGCHeapSummaryEvent{
-			Type:           ebpfcommon.EventTypeJVMGCHeapSummary,
-			Timestamp:      100,
-			NsPID:          1234,
-			PIDNamespaceID: 42,
-			GCWhenType:     jvmruntime.RawJVMGCWhenAfter,
-			Used:           2048,
+		RawSample: rawHeapSummaryPayload(t, BpfJvmGcHeapSummaryEvent{
+			Type:       ebpfcommon.EventTypeJVMGCHeapSummary,
+			Timestamp:  100,
+			NsPid:      1234,
+			PidNsId:    42,
+			GcWhenType: uint32(jvmruntime.RawJVMGCWhenAfter),
+			Used:       2048,
 		}),
 	})
 
@@ -296,16 +294,16 @@ func TestProcessSharedRingbufRecordDispatchesJVMMemoryPoolRecord(t *testing.T) {
 	tracer.cfg.JVMRuntimeMetrics.Enabled = true
 
 	span, ignore, err := tracer.processSharedRingbufRecord(context.Background(), nil, &tracer.cfg.EBPF, &ringbuf.Record{
-		RawSample: rawMemoryPoolPayload(t, jvmruntime.RawJVMMemoryPoolEvent{
-			Type:           ebpfcommon.EventTypeJVMMemoryPoolGC,
-			Timestamp:      100,
-			NsPID:          1234,
-			PIDNamespaceID: 42,
-			GCWhenType:     jvmruntime.RawJVMGCWhenAfter,
-			Used:           100,
-			Committed:      200,
-			MaxSize:        300,
-			Pool:           rawJVMString("G1 Eden Space"),
+		RawSample: rawMemoryPoolPayload(t, BpfJvmMemPoolGcEvent{
+			Type:       ebpfcommon.EventTypeJVMMemoryPoolGC,
+			Timestamp:  100,
+			NsPid:      1234,
+			PidNsId:    42,
+			GcWhenType: uint32(jvmruntime.RawJVMGCWhenAfter),
+			Used:       100,
+			Committed:  200,
+			MaxSize:    300,
+			Pool:       rawJVMString("G1 Eden Space"),
 		}),
 	})
 
@@ -359,31 +357,28 @@ func TestJVMRuntimeMetricsExposeHotSpotUSDTProbes(t *testing.T) {
 	assert.Equal(t, "mem__pool__gc__end", probes["libjvm.so"][1].Name)
 }
 
-func TestRawJVMEventLayoutsMatchGeneratedBPFStructs(t *testing.T) {
-	assert.Equal(t,
-		int(unsafe.Sizeof(BpfJvmGcHeapSummaryEvent{})),
-		binary.Size(jvmruntime.RawJVMGCHeapSummaryEvent{}),
-	)
-	assert.Equal(t,
-		int(unsafe.Sizeof(BpfJvmMemPoolGcEvent{})),
-		binary.Size(jvmruntime.RawJVMMemoryPoolEvent{}),
-	)
+func TestRawJVMEventLayoutsUseGeneratedBPFStructs(t *testing.T) {
+	assert.Equal(t, 48, int(unsafe.Sizeof(BpfJvmGcHeapSummaryEvent{})))
+	assert.Equal(t, 200, int(unsafe.Sizeof(BpfJvmMemPoolGcEvent{})))
 }
 
-func rawHeapSummaryPayload(t *testing.T, raw jvmruntime.RawJVMGCHeapSummaryEvent) []byte {
+func rawHeapSummaryPayload(t *testing.T, raw BpfJvmGcHeapSummaryEvent) []byte {
 	t.Helper()
 
-	var buf bytes.Buffer
-	require.NoError(t, binary.Write(&buf, binary.LittleEndian, raw))
-	return buf.Bytes()
+	return rawPayload(raw)
 }
 
-func rawMemoryPoolPayload(t *testing.T, raw jvmruntime.RawJVMMemoryPoolEvent) []byte {
+func rawMemoryPoolPayload(t *testing.T, raw BpfJvmMemPoolGcEvent) []byte {
 	t.Helper()
 
-	var buf bytes.Buffer
-	require.NoError(t, binary.Write(&buf, binary.LittleEndian, raw))
-	return buf.Bytes()
+	return rawPayload(raw)
+}
+
+func rawPayload[T any](raw T) []byte {
+	size := int(unsafe.Sizeof(raw))
+	out := make([]byte, size)
+	copy(out, unsafe.Slice((*byte)(unsafe.Pointer(&raw)), size))
+	return out
 }
 
 func rawJVMString(value string) [jvmruntime.JVMRawStringLen]byte {

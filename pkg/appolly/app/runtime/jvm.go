@@ -5,8 +5,6 @@ package runtime // import "go.opentelemetry.io/obi/pkg/appolly/app/runtime"
 
 import (
 	"bytes"
-	"encoding/binary"
-	"errors"
 	"fmt"
 	"math"
 	"strings"
@@ -71,87 +69,63 @@ const (
 	RawJVMGCWhenEndSentinel
 )
 
-type RawJVMMemoryPoolEvent struct {
-	Type           uint8
-	Pad            [7]uint8
-	Timestamp      uint64
-	GlobalPID      uint32
-	GlobalTID      uint32
-	NsPID          uint32
-	NsTID          uint32
-	PIDNamespaceID uint32
-	GCWhenType     RawJVMGCWhenType
-	InitSize       uint64
-	Used           uint64
-	Committed      uint64
-	MaxSize        uint64
-	Manager        [JVMRawStringLen]byte
-	Pool           [JVMRawStringLen]byte
-}
-
-type RawJVMGCHeapSummaryEvent struct {
-	Type           uint8
-	Pad            [7]uint8
-	Timestamp      uint64
-	GlobalPID      uint32
-	GlobalTID      uint32
-	NsPID          uint32
-	NsTID          uint32
-	PIDNamespaceID uint32
-	GCWhenType     RawJVMGCWhenType
-	Used           uint64
-}
-
-func ParseJVMMemoryPoolEvent(raw RawJVMMemoryPoolEvent) ([]JVMRuntimeEvent, error) {
-	phase, err := parseRawJVMGCPhase(raw.GCWhenType)
+func ParseJVMMemoryPoolEvent(
+	timestamp uint64,
+	nsPID uint32,
+	pidNamespaceID uint32,
+	gcWhenType RawJVMGCWhenType,
+	used uint64,
+	committed uint64,
+	maxSize uint64,
+	pool [JVMRawStringLen]byte,
+) ([]JVMRuntimeEvent, error) {
+	phase, err := parseRawJVMGCPhase(gcWhenType)
 	if err != nil {
 		return nil, err
 	}
 
-	poolName := DecodeJVMRawString(raw.Pool)
+	poolName := DecodeJVMRawString(pool)
 	memoryType := InferJVMMemoryType(poolName)
 	base := JVMRuntimeEvent{
-		PID:            app.PID(raw.NsPID),
-		PIDNamespaceID: raw.PIDNamespaceID,
-		Time:           jvmKernelTime(raw.Timestamp),
+		PID:            app.PID(nsPID),
+		PIDNamespaceID: pidNamespaceID,
+		Time:           jvmKernelTime(timestamp),
 		PoolName:       poolName,
 		MemoryType:     memoryType,
 		GCPhase:        phase,
 	}
 
 	events := []JVMRuntimeEvent{
-		withJVMMetric(base, JVMMetricMemoryUsed, raw.Used),
-		withJVMMetric(base, JVMMetricMemoryCommitted, raw.Committed),
+		withJVMMetric(base, JVMMetricMemoryUsed, used),
+		withJVMMetric(base, JVMMetricMemoryCommitted, committed),
 	}
-	if raw.MaxSize != math.MaxUint64 {
-		events = append(events, withJVMMetric(base, JVMMetricMemoryLimit, raw.MaxSize))
+	if maxSize != math.MaxUint64 {
+		events = append(events, withJVMMetric(base, JVMMetricMemoryLimit, maxSize))
 	}
 	if phase == JVMGCPhaseAfter {
-		events = append(events, withJVMMetric(base, JVMMetricMemoryUsedAfterLastGC, raw.Used))
+		events = append(events, withJVMMetric(base, JVMMetricMemoryUsedAfterLastGC, used))
 	}
 	return events, nil
 }
 
-func DecodeJVMMemoryPoolEvent(payload []byte) ([]JVMRuntimeEvent, error) {
-	var raw RawJVMMemoryPoolEvent
-	if err := readRawPayload(payload, &raw); err != nil {
-		return nil, err
-	}
-	return ParseJVMMemoryPoolEvent(raw)
-}
-
-func ParseJVMGCHeapSummaryEvent(raw RawJVMGCHeapSummaryEvent) (JVMRuntimeEvent, error) {
-	phase, err := parseRawJVMGCPhase(raw.GCWhenType)
+func ParseJVMGCHeapSummaryEvent(
+	timestamp uint64,
+	nsPID uint32,
+	pidNamespaceID uint32,
+	gcWhenType RawJVMGCWhenType,
+	used uint64,
+) (JVMRuntimeEvent, error) {
+	phase, err := parseRawJVMGCPhase(gcWhenType)
 	if err != nil {
 		return JVMRuntimeEvent{}, err
 	}
 	return JVMRuntimeEvent{
-		PID:            app.PID(raw.NsPID),
-		PIDNamespaceID: raw.PIDNamespaceID,
-		Time:           jvmKernelTime(raw.Timestamp),
+		PID:            app.PID(nsPID),
+		PIDNamespaceID: pidNamespaceID,
+		Time:           jvmKernelTime(timestamp),
 		Kind:           JVMMetricObiHeapUsed,
 		GCPhase:        phase,
-		ValueBytes:     raw.Used,
+		ValueBytes:     used,
 	}, nil
 }
 
@@ -159,14 +133,6 @@ func jvmKernelTime(ktime uint64) time.Time {
 	now := jvmClocks.clock()
 	delta := jvmClocks.monoClock() - time.Duration(int64(ktime))
 	return now.Add(-delta)
-}
-
-func DecodeJVMGCHeapSummaryEvent(payload []byte) (JVMRuntimeEvent, error) {
-	var raw RawJVMGCHeapSummaryEvent
-	if err := readRawPayload(payload, &raw); err != nil {
-		return JVMRuntimeEvent{}, err
-	}
-	return ParseJVMGCHeapSummaryEvent(raw)
 }
 
 func DecodeJVMRawString(raw [JVMRawStringLen]byte) string {
@@ -207,15 +173,4 @@ func parseRawJVMGCPhase(raw RawJVMGCWhenType) (JVMGCPhase, error) {
 	default:
 		return "", fmt.Errorf("unsupported JVM GC phase: %d", raw)
 	}
-}
-
-func readRawPayload[T any](payload []byte, dst *T) error {
-	size := binary.Size(*dst)
-	if size < 0 {
-		return errors.New("raw JVM payload has unsupported variable size")
-	}
-	if len(payload) < size {
-		return fmt.Errorf("raw JVM payload too short: got %d bytes, need %d", len(payload), size)
-	}
-	return binary.Read(bytes.NewReader(payload[:size]), binary.LittleEndian, dst)
 }

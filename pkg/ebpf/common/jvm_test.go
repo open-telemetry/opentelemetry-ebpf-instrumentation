@@ -4,9 +4,7 @@
 package ebpfcommon
 
 import (
-	"bytes"
 	"context"
-	"encoding/binary"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -19,35 +17,6 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	"go.opentelemetry.io/obi/pkg/ebpf/ringbuf"
 )
-
-func TestHandleRuntimeMetricsRecordForwardsHeapSummaryRuntimeMetric(t *testing.T) {
-	service := svc.Attrs{UID: svc.UID{Name: "orders", Namespace: "prod"}}
-	runtimeMetrics := &fakeRuntimeMetricsSender{}
-	ctx := &EBPFEventContext{RuntimeMetrics: runtimeMetrics}
-
-	handled, err := HandleRuntimeMetricsRecord(context.Background(), ctx, &ringbuf.Record{
-		RawSample: jvmBinaryPayload(t, jvmruntime.RawJVMGCHeapSummaryEvent{
-			Type:           EventTypeJVMGCHeapSummary,
-			Timestamp:      100,
-			NsPID:          1234,
-			PIDNamespaceID: 42,
-			GCWhenType:     jvmruntime.RawJVMGCWhenAfter,
-			Used:           2048,
-		}),
-	}, fakeJVMServiceFilter{
-		current: map[uint32]map[app.PID]svc.Attrs{
-			42: {1234: service},
-		},
-	}, nil)
-
-	require.NoError(t, err)
-	assert.True(t, handled)
-
-	require.Len(t, runtimeMetrics.events, 1)
-	assert.Equal(t, service, runtimeMetrics.events[0].Service)
-	assert.Equal(t, jvmruntime.JVMMetricObiHeapUsed, runtimeMetrics.events[0].Kind)
-	assert.Equal(t, uint64(2048), runtimeMetrics.events[0].ValueBytes)
-}
 
 func TestHandleRuntimeMetricsRecordForwardsGoRuntimeMetricRecord(t *testing.T) {
 	runtimeMetrics := &fakeRuntimeMetricsSender{}
@@ -64,14 +33,34 @@ func TestHandleRuntimeMetricsRecordForwardsGoRuntimeMetricRecord(t *testing.T) {
 	assert.Equal(t, filter, runtimeMetrics.goFilter)
 }
 
-func TestHandleRuntimeMetricsRecordConsumesEventsWithoutQueue(t *testing.T) {
-	for _, eventType := range []byte{EventTypeGoRuntimeMetric, EventTypeJVMMemoryPoolGC} {
+func TestHandleRuntimeMetricsRecordConsumesKnownRuntimeMetricRecords(t *testing.T) {
+	for _, eventType := range []byte{
+		EventTypeGoRuntimeMetric,
+		EventTypeJVMGCHeapSummary,
+		EventTypeJVMMemoryPoolGC,
+	} {
+		runtimeMetrics := &fakeRuntimeMetricsSender{}
+		ctx := &EBPFEventContext{RuntimeMetrics: runtimeMetrics}
+
 		handled, err := HandleRuntimeMetricsRecord(context.Background(), nil, &ringbuf.Record{
 			RawSample: []byte{eventType},
 		}, nil, nil)
 
 		require.NoError(t, err)
 		assert.True(t, handled)
+
+		handled, err = HandleRuntimeMetricsRecord(context.Background(), ctx, &ringbuf.Record{
+			RawSample: []byte{eventType},
+		}, nil, nil)
+		require.NoError(t, err)
+		assert.True(t, handled)
+
+		if eventType == EventTypeGoRuntimeMetric {
+			assert.Equal(t, 1, runtimeMetrics.goRecords)
+		} else {
+			assert.Zero(t, runtimeMetrics.goRecords)
+		}
+		assert.Empty(t, runtimeMetrics.events)
 	}
 }
 
@@ -82,14 +71,6 @@ func TestHandleRuntimeMetricsRecordIgnoresUnknownEventTypes(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.False(t, handled)
-}
-
-func jvmBinaryPayload(t *testing.T, raw any) []byte {
-	t.Helper()
-
-	var buf bytes.Buffer
-	require.NoError(t, binary.Write(&buf, binary.LittleEndian, raw))
-	return buf.Bytes()
 }
 
 type fakeJVMServiceFilter struct {
