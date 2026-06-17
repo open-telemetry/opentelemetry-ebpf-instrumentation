@@ -94,15 +94,14 @@ func parseJavaLaunch(args []string, env map[string]string) javaLaunch {
 }
 
 func scanRootsFromClasspath(root, cwd, classpath string) []scanRoot {
-	var dirs []scanRoot
-	var jars []scanRoot
+	var roots []scanRoot
 	for _, entry := range filepath.SplitList(classpath) {
 		if entry == "" {
 			continue
 		}
 
 		if strings.Contains(entry, "*") {
-			jars = append(jars, scanArchiveRootsFromWildcard(root, cwd, entry)...)
+			roots = append(roots, scanArchiveRootsFromWildcard(root, cwd, entry)...)
 			continue
 		}
 
@@ -111,17 +110,10 @@ func scanRootsFromClasspath(root, cwd, classpath string) []scanRoot {
 			continue
 		}
 
-		if scanRoot.dir {
-			dirs = append(dirs, scanRoot)
-			continue
-		}
-		jars = append(jars, scanRoot)
+		roots = append(roots, scanRoot)
 	}
 
-	if len(dirs) > 0 {
-		return dirs
-	}
-	return jars
+	return roots
 }
 
 func scanRootFromClasspathEntry(root, cwd, entry string) (scanRoot, bool) {

@@ -94,14 +94,17 @@ func TestScanRootsFromClasspath(t *testing.T) {
 	writeFile(t, filepath.Join(root, "lib", "dep.jar"))
 	writeFile(t, filepath.Join(root, "app", "notes.txt"))
 
-	t.Run("prefers directories over jars", func(t *testing.T) {
-		classpath := strings.Join([]string{"classes", "/lib/dep.jar"}, string(filepath.ListSeparator))
+	t.Run("returns directories and archives in classpath order", func(t *testing.T) {
+		classpath := strings.Join([]string{"classes", "app.jar", "lib/*"}, string(filepath.ListSeparator))
 
 		roots := scanRootsFromClasspath(root, "/app", classpath)
 
-		require.Len(t, roots, 1)
-		assert.True(t, roots[0].dir)
-		assert.Equal(t, filepath.Join(root, "app", "classes"), roots[0].path)
+		assert.Equal(t, []scanRoot{
+			{path: filepath.Join(root, "app", "classes"), dir: true},
+			{path: filepath.Join(root, "app", "app.jar")},
+			{path: filepath.Join(root, "app", "lib", "dep.jar")},
+			{path: filepath.Join(root, "app", "lib", "plugin.war")},
+		}, roots)
 	})
 
 	t.Run("returns a single archive", func(t *testing.T) {
