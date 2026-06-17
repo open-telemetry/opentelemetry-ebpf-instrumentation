@@ -155,9 +155,6 @@ func (c *Controller) Shutdown(ctx context.Context) error {
 		return nil
 	}
 
-	// Wait for OBI to finish, but respect the caller's shutdown deadline.
-	// If the context expires before OBI is done, return immediately so the
-	// collector is not stuck; OBI will continue cleaning up in the background.
 	select {
 	case <-runDone:
 	case <-ctx.Done():
