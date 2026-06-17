@@ -6,9 +6,9 @@
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_helpers.h>
 
+#include <common/event_defs.h>
 #include <common/go_addr_key.h>
 #include <common/map_sizing.h>
-#include <common/event_defs.h>
 #include <common/pin_internal.h>
 #include <common/tp_info.h>
 #include <gotracer/go_constants.h>
@@ -24,7 +24,7 @@ typedef struct chan_handoff {
 
 typedef struct direct_chan_handoff {
     chan_handoff_t handoff;
-    u8 ambiguous;
+    bool ambiguous;
     u8 _pad[7];
 } direct_chan_handoff_t;
 

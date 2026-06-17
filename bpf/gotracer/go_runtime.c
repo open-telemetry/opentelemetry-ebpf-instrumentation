@@ -30,12 +30,12 @@
 #include <gotracer/maps/redis.h>
 #include <gotracer/maps/runtime.h>
 
-#include <maps/go_ongoing_http_client_requests.h>
-
 #include <gotracer/types/grpc.h>
 #include <gotracer/types/nethttp.h>
 
 #include <logger/bpf_dbg.h>
+
+#include <maps/go_ongoing_http_client_requests.h>
 
 #include <pid/pid_helpers.h>
 
@@ -291,7 +291,7 @@ static __always_inline void emit_channel_handoff(chan_handoff_t *sender, chan_ha
     bpf_ringbuf_submit(trace, get_flags());
 }
 
-static __always_inline bool read_channel_dataqsiz(void *chan_ptr, u64 *dataqsiz) {
+static __always_inline bool read_channel_dataqsiz(const void *chan_ptr, u64 *dataqsiz) {
     if (!chan_ptr || !dataqsiz) {
         return false;
     }
@@ -312,9 +312,9 @@ static __always_inline void record_direct_channel_sender(const go_addr_key_t *ch
 
     // More than one waiter on the same channel cannot be paired safely by channel pointer alone.
     if (existing || !handoff) {
-        value.ambiguous = 1;
+        value.ambiguous = true;
     } else {
-        __builtin_memcpy(&value.handoff, handoff, sizeof(value.handoff));
+        value.handoff = *handoff;
     }
 
     bpf_map_update_elem(&direct_channel_senders, chan_key, &value, BPF_ANY);
@@ -326,9 +326,9 @@ static __always_inline void record_direct_channel_receiver(const go_addr_key_t *
     direct_chan_handoff_t value = {};
 
     if (existing || !handoff) {
-        value.ambiguous = 1;
+        value.ambiguous = true;
     } else {
-        __builtin_memcpy(&value.handoff, handoff, sizeof(value.handoff));
+        value.handoff = *handoff;
     }
 
     bpf_map_update_elem(&direct_channel_receivers, chan_key, &value, BPF_ANY);
