@@ -11,6 +11,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -168,7 +169,7 @@ func openshiftClusterNameFetcher(k8sInformer *kube.MetadataProvider) clusterName
 		}
 
 		if infra.Status.InfrastructureName == "" {
-			return "", fmt.Errorf("OpenShift Infrastructure CR has empty infrastructureName")
+			return "", errors.New("OpenShift Infrastructure CR has empty infrastructureName")
 		}
 
 		return infra.Status.InfrastructureName, nil
