@@ -22,6 +22,10 @@ type RuntimeMetricSender interface {
 	SendJVMRuntimeMetrics(context.Context, []jvmruntime.JVMRuntimeEvent)
 }
 
+// RuntimeMetricRecordHandler lets tracers decode runtime metric records whose
+// generated payload types live outside this package.
+type RuntimeMetricRecordHandler func(context.Context, *ringbuf.Record) (bool, error)
+
 func IsGoRuntimeMetricRecord(record *ringbuf.Record) bool {
 	return record != nil &&
 		len(record.RawSample) > 0 &&
@@ -34,6 +38,7 @@ func HandleRuntimeMetricsRecord(
 	record *ringbuf.Record,
 	filter ServiceFilter,
 	_ *slog.Logger,
+	handlers ...RuntimeMetricRecordHandler,
 ) (bool, error) {
 	if record == nil || len(record.RawSample) == 0 {
 		return false, nil
@@ -47,6 +52,18 @@ func HandleRuntimeMetricsRecord(
 		}
 		return true, eventContext.RuntimeMetrics.SendGoRuntimeMetricRecord(ctx, record, filter)
 	case EventTypeJVMGCHeapSummary, EventTypeJVMMemoryPoolGC:
+		for _, handler := range handlers {
+			if handler == nil {
+				continue
+			}
+			handled, err := handler(ctx, record)
+			if err != nil {
+				return true, err
+			}
+			if handled {
+				return true, nil
+			}
+		}
 		return true, nil
 	default:
 		return false, nil

@@ -5,6 +5,7 @@ package ebpfcommon
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -62,6 +63,23 @@ func TestHandleRuntimeMetricsRecordConsumesKnownRuntimeMetricRecords(t *testing.
 		}
 		assert.Empty(t, runtimeMetrics.events)
 	}
+}
+
+func TestHandleRuntimeMetricsRecordUsesCustomRuntimeMetricHandler(t *testing.T) {
+	expectedErr := errors.New("handler failed")
+	called := 0
+
+	handled, err := HandleRuntimeMetricsRecord(context.Background(), nil, &ringbuf.Record{
+		RawSample: []byte{EventTypeJVMGCHeapSummary},
+	}, nil, nil, func(_ context.Context, record *ringbuf.Record) (bool, error) {
+		called++
+		assert.Equal(t, byte(EventTypeJVMGCHeapSummary), record.RawSample[0])
+		return true, expectedErr
+	})
+
+	require.ErrorIs(t, err, expectedErr)
+	assert.True(t, handled)
+	assert.Equal(t, 1, called)
 }
 
 func TestHandleRuntimeMetricsRecordIgnoresUnknownEventTypes(t *testing.T) {
