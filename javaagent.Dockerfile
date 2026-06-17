@@ -1,5 +1,5 @@
 # Build JNI native library using Go image (has gcc, no apt install needed)
-FROM golang:1.26.4@sha256:68cb6d68bed024785b69195b89af7ac7a444f27791435f98647edff595aa0479 AS jni-builder
+FROM golang:1.26.4@sha256:792443b89f65105abba56b9bd5e97f680a80074ac62fc844a584212f8c8102c3 AS jni-builder
 ARG BUILDARCH=amd64
 COPY --from=gradle:9.5.1-jdk21-noble@sha256:4702c9be8d6c3cfb45f3ea2a08ad8a51563b2851694ba00ef44259f1f70ea040 /opt/java/openjdk/include /opt/java/include
 WORKDIR /build
