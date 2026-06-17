@@ -395,6 +395,22 @@ func (ai *VendorOpenAI) GetOutput() string {
 	return normalizeOpenAIOutput(ai)
 }
 
+func (ai *VendorOpenAI) GetEmbeddingDimensions() int {
+	if ai.Request.Dimensions > 0 {
+		return ai.Request.Dimensions
+	}
+	if len(ai.Data) == 0 {
+		return 0
+	}
+	var data []struct {
+		Embedding []json.Number `json:"embedding"`
+	}
+	if err := json.Unmarshal(ai.Data, &data); err != nil || len(data) == 0 {
+		return 0
+	}
+	return len(data[0].Embedding)
+}
+
 type OpenAIInput struct {
 	Input           string          `json:"input"`
 	Prompt          string          `json:"prompt"`
