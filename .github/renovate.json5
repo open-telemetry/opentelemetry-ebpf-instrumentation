@@ -311,6 +311,13 @@
       "enabled": false
     },
     {
+      "description": "Disable Docker updates for obi-generator",
+      "matchFileNames": ["generator.Dockerfile"],
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["golang"],
+      "enabled": false
+    },
+    {
       "description": "Block Spring Boot major upgrades for JDK8 example (Spring Boot 3+ requires JDK 17+)",
       "matchFileNames": ["internal/test/integration/components/java_tls/jdk8/pom.xml"],
       "matchManagers": ["maven"],
