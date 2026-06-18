@@ -18,33 +18,30 @@ const (
 
 // Labels contains the bounded label values for one avoided-services metric point.
 type Labels struct {
-	ServiceName       string
-	ServiceNamespace  string
-	ServiceInstanceID string
-	TelemetryType     string
-	Overflow          bool
+	ServiceName      string
+	ServiceNamespace string
+	TelemetryType    string
+	Overflow         bool
 }
 
 // PrometheusValues returns values ordered for the Prometheus avoided-services GaugeVec.
 func (l Labels) PrometheusValues() []string {
 	if l.Overflow {
-		return []string{"", "", "", "", prometheusOverflowTrue}
+		return []string{"", "", "", prometheusOverflowTrue}
 	}
 
 	return []string{
 		l.ServiceName,
 		l.ServiceNamespace,
-		l.ServiceInstanceID,
 		l.TelemetryType,
 		prometheusOverflowFalse,
 	}
 }
 
 type identity struct {
-	serviceName       string
-	serviceNamespace  string
-	serviceInstanceID string
-	telemetryType     string
+	serviceName      string
+	serviceNamespace string
+	telemetryType    string
 }
 
 type Limiter struct {
@@ -70,22 +67,20 @@ func LimitOrDefault(limit int) int {
 }
 
 // Labels returns either the original labels or the OpenTelemetry overflow label set.
-func (l *Limiter) Labels(serviceName, serviceNamespace, serviceInstanceID, telemetryType string) Labels {
+func (l *Limiter) Labels(serviceName, serviceNamespace, _ string, telemetryType string) Labels {
 	labels := Labels{
-		ServiceName:       serviceName,
-		ServiceNamespace:  serviceNamespace,
-		ServiceInstanceID: serviceInstanceID,
-		TelemetryType:     telemetryType,
+		ServiceName:      serviceName,
+		ServiceNamespace: serviceNamespace,
+		TelemetryType:    telemetryType,
 	}
 	if l == nil {
 		return labels
 	}
 
 	id := identity{
-		serviceName:       serviceName,
-		serviceNamespace:  serviceNamespace,
-		serviceInstanceID: serviceInstanceID,
-		telemetryType:     telemetryType,
+		serviceName:      serviceName,
+		serviceNamespace: serviceNamespace,
+		telemetryType:    telemetryType,
 	}
 
 	l.mux.Lock()

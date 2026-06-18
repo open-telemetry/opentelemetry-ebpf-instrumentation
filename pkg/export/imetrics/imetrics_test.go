@@ -87,7 +87,6 @@ func TestPrometheusReporterAvoidedServicesBounded(t *testing.T) {
 			overflowRecords++
 			assert.Empty(t, labels["service_name"])
 			assert.Empty(t, labels["service_namespace"])
-			assert.Empty(t, labels["service_instance_id"])
 			assert.Empty(t, labels["telemetry_type"])
 			continue
 		}
@@ -95,12 +94,11 @@ func TestPrometheusReporterAvoidedServicesBounded(t *testing.T) {
 		assert.Equal(t, "false", labels[avoidedsvc.PrometheusOverflowLabel])
 		labelSets[labels["service_name"]+"/"+
 			labels["service_namespace"]+"/"+
-			labels["service_instance_id"]+"/"+
 			labels["telemetry_type"]] = struct{}{}
 	}
 
-	assert.Contains(t, labelSets, "svc-0/ns-0/inst-0/metrics")
-	assert.Contains(t, labelSets, "svc-0/ns-0/inst-0/traces")
+	assert.Contains(t, labelSets, "svc-0/ns-0/metrics")
+	assert.Contains(t, labelSets, "svc-0/ns-0/traces")
 	assert.Equal(t, 1, overflowRecords)
 }
 

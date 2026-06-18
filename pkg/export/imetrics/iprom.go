@@ -154,7 +154,6 @@ func NewPrometheusReporter(cfg *InternalMetricsConfig, manager *connector.Promet
 		}, []string{
 			"service_name",
 			"service_namespace",
-			"service_instance_id",
 			"telemetry_type",
 			avoidedsvc.PrometheusOverflowLabel,
 		})

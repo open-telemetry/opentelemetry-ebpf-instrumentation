@@ -146,14 +146,14 @@ func TestInternalMetricsReporterAvoidedServicesBounded(t *testing.T) {
 		}
 
 		assert.NotContains(t, record.Attributes, avoidedsvc.OverflowAttribute)
+		assert.NotContains(t, record.Attributes, string(attr.ServiceInstanceID))
 		labelSets[record.Attributes[string(attr.ServiceName)]+"/"+
 			record.Attributes[string(attr.ServiceNamespace)]+"/"+
-			record.Attributes[string(attr.ServiceInstanceID)]+"/"+
 			record.Attributes["telemetry.type"]] = struct{}{}
 	}
 
-	assert.Contains(t, labelSets, "svc-0/ns-0/inst-0/metrics")
-	assert.Contains(t, labelSets, "svc-0/ns-0/inst-0/traces")
+	assert.Contains(t, labelSets, "svc-0/ns-0/metrics")
+	assert.Contains(t, labelSets, "svc-0/ns-0/traces")
 	assert.Equal(t, 1, overflowRecords)
 }
 

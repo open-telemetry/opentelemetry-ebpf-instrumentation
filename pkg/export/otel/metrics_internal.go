@@ -324,7 +324,6 @@ func (p *InternalMetricsReporter) recordAvoidedService(serviceName, serviceNames
 		attrs = []attribute.KeyValue{
 			semconv.ServiceName(labels.ServiceName),
 			semconv.ServiceNamespace(labels.ServiceNamespace),
-			semconv.ServiceInstanceID(labels.ServiceInstanceID),
 			attribute.String("telemetry.type", labels.TelemetryType),
 		}
 	}

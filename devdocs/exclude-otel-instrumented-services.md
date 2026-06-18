@@ -99,10 +99,12 @@ Once a service has its `ExportsOTelMetrics` / `ExportsOTelTraces` /
 
 Each detection event increments the `obi.avoided.services` internal metric
 (Prometheus name: `obi_avoided_services`). Normal series are labeled with the
-service identity and the telemetry type that was avoided (`metrics` or
-`traces`). When the configured cardinality limit is reached, additional
-detections are reported through the OpenTelemetry overflow attribute
-`otel.metric.overflow=true` (Prometheus label:
+logical service name, service namespace, and the telemetry type that was
+avoided (`metrics` or `traces`). The service instance ID is intentionally not
+reported because it is unique per service instance and would churn backend
+time series. When the configured cardinality limit is reached, additional
+detections are collapsed before export and reported through the OpenTelemetry
+overflow attribute `otel.metric.overflow=true` (Prometheus label:
 `otel_metric_overflow="true"`). Span-metrics suppression is reported under the
 `metrics` label, not a separate one — the `metrics_span` detection path in
 `reportAvoidedService` routes through `AvoidInstrumentationMetrics`, which
