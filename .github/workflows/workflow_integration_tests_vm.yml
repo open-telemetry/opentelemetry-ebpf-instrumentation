@@ -194,11 +194,13 @@ jobs:
         if: steps.base-images-cache.outputs.cache-hit != 'true'
         run: bash scripts/pull-base-images.sh compiled-tests/base-images.tar
 
-      - name: Cache rootfs.qcow2
+      - name: Cache rootfs images
         id: rootfs-cache
         uses: actions/cache@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6.0.0 # zizmor: ignore[cache-poisoning] keyed on hash of VM Dockerfile
         with:
-          path: compiled-tests/rootfs.qcow2
+          path: |
+            compiled-tests/rootfs.qcow2
+            compiled-tests/rootfs-legacy.qcow2
           key: vm-rootfs-${{ hashFiles('internal/test/vm/Dockerfile') }}
 
       - name: Install qemu-utils
@@ -207,13 +209,16 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends qemu-utils
 
-      - name: Build rootfs.qcow2
+      - name: Build rootfs images
         if: steps.rootfs-cache.outputs.cache-hit != 'true'
         run: |
           sudo make -C internal/test/vm WORKDIR="$(pwd)" build-rootfs
           sudo chown "$(id -u):$(id -g)" rootfs.qcow2
           mv rootfs.qcow2 compiled-tests/rootfs.qcow2
-          ls -lh compiled-tests/rootfs.qcow2
+          sudo make -C internal/test/vm WORKDIR="$(pwd)" CGROUP_MODE=legacy build-rootfs
+          sudo chown "$(id -u):$(id -g)" rootfs-legacy.qcow2
+          mv rootfs-legacy.qcow2 compiled-tests/rootfs-legacy.qcow2
+          ls -lh compiled-tests/rootfs*.qcow2
 
       - name: Stage schemas/obi/.deps for weaver
         run: |
@@ -271,8 +276,15 @@ jobs:
           cp -a compiled-tests/schemas-deps/. schemas/obi/.deps/
 
       - name: Stage rootfs.qcow2
+        env:
+          CGROUP_MODE: ${{ matrix.kernel.cgroup_mode }}
         run: |
-          mv compiled-tests/rootfs.qcow2 ./rootfs.qcow2
+          if [ "$CGROUP_MODE" = "legacy" ]; then
+            mv compiled-tests/rootfs-legacy.qcow2 ./rootfs.qcow2
+          else
+            mv compiled-tests/rootfs.qcow2 ./rootfs.qcow2
+          fi
+          ls -lh ./rootfs.qcow2
 
       - id: kernel
         uses: ./.github/actions/setup-lvh-kernel
@@ -289,8 +301,9 @@ jobs:
           KERNEL_ID: ${{ matrix.kernel.id }}
           KERNEL: ${{ steps.kernel.outputs.kernel }}
           MODULES_DIR: ${{ steps.kernel.outputs.modules-dir }}
+          CGROUP_MODE: ${{ matrix.kernel.cgroup_mode }}
         run: |
-          echo "VM Partition for kernel ${KERNEL_ID}"
+          echo "VM Partition for kernel ${KERNEL_ID} cgroup_mode=${CGROUP_MODE:-hybrid}"
           echo "${MATRIX_JSON}"
 
           if [ -z "${MATRIX_TEST_PATTERN}" ]; then

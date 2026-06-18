@@ -27,6 +27,13 @@ RUN for t in iptables ip6tables; do \
         ln -sf "$(command -v ${t}-legacy)" "$(command -v ${t})"; \
     done
 
+# CGROUP_MODE=legacy forces OpenRC to mount cgroupv1 only.
+ARG CGROUP_MODE=
+RUN if [ "$CGROUP_MODE" = "legacy" ]; then \
+        sed -i 's|^#\?rc_cgroup_mode=.*|rc_cgroup_mode="legacy"|' /etc/rc.conf; \
+        grep -E '^rc_cgroup_mode' /etc/rc.conf; \
+    fi
+
 # Module-load service: LVH kernels ship loadable modules for overlayfs,
 # br_netfilter, nf_tables, etc. Runs before localmount because /etc/fstab
 # mounts /build (overlay) and Docker needs br_netfilter.
