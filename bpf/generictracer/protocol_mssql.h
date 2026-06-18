@@ -207,7 +207,8 @@ static __always_inline void mssql_send_large_buffer(tcp_req_t *req,
         bpf_clamp_umax(max_available_bytes, k_large_buf_max_mssql_captured_bytes);
 
         const u32 available_bytes = min(bytes_len, max_available_bytes);
-        const u32 consumed_bytes = large_buf_emit_chunks(large_buf, u_buf, available_bytes);
+        const u32 consumed_bytes =
+            large_buf_emit_chunks(large_buf, u_buf, available_bytes, k_large_buf_read_kernel);
 
         if (packet_type == PACKET_TYPE_REQUEST) {
             req->lb_req_bytes += consumed_bytes;

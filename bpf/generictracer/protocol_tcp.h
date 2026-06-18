@@ -181,7 +181,7 @@ static __always_inline void unknown_send_large_buffer(tcp_req_t *req,
     bpf_clamp_umax(max_available_bytes, k_large_buf_max_tcp_captured_bytes);
 
     const u32 available_bytes = min(bytes_len, max_available_bytes);
-    consumed_bytes += large_buf_emit_chunks(lb, u_buf, available_bytes);
+    consumed_bytes += large_buf_emit_chunks(lb, u_buf, available_bytes, k_large_buf_read_kernel);
 
     if (packet_type == PACKET_TYPE_REQUEST) {
         req->lb_req_bytes += consumed_bytes;

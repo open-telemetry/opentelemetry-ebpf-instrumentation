@@ -470,8 +470,7 @@ func ReadBPFTraceAsSpan(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, reco
 			return request.Span{}, true, err
 		}
 
-		span := HTTPRequestTraceToSpan(event)
-		enrichGoHTTPServerSpan(parseCtx, event, &span)
+		span := HTTPRequestTraceToSpan(parseCtx, event)
 		return finalizeParsedSpan(parseCtx, span, false, nil)
 	default:
 		return request.Span{}, true, fmt.Errorf("unknown event type %d", eventType)

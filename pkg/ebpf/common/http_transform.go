@@ -21,25 +21,25 @@ import (
 	"go.opentelemetry.io/obi/pkg/internal/largebuf"
 )
 
-func enrichGoHTTPServerSpan(parseCtx *EBPFParseContext, trace *HTTPRequestTrace, span *request.Span) {
-	if parseCtx == nil || parseCtx.httpEnricher == nil || span == nil || span.Type != request.EventTypeHTTP {
-		return
-	}
-
-	buffer, ok := extractTCPLargeBuffer(parseCtx, trace.Tp.TraceId, packetTypeRequest,
-		directionByPacketType(packetTypeRequest, false), trace.Conn, ProtocolTypeHTTP)
+func parseRequestLargeBuffer(
+	parseCtx *EBPFParseContext,
+	traceID [16]uint8,
+	conn BpfConnectionInfoT,
+	isClient bool,
+) (*http.Request, bool) {
+	buffer, ok := extractTCPLargeBuffer(parseCtx, traceID, packetTypeRequest,
+		directionByPacketType(packetTypeRequest, isClient), conn, ProtocolTypeHTTP)
 	if !ok {
-		return
+		return nil, false
 	}
 
 	reqReader := buffer.NewReader()
 	req, err := http.ReadRequest(bufio.NewReader(&reqReader))
 	if err != nil {
-		slog.Debug("error parsing Go HTTP server request for enrichment", "error", err)
-		return
+		slog.Debug("error parsing HTTP request from large buffer for enrichment", "error", err)
+		return nil, false
 	}
-
-	parseCtx.httpEnricher.Enrich(span, req, &http.Response{Header: http.Header{}})
+	return req, true
 }
 
 func removeQuery(url string) string {

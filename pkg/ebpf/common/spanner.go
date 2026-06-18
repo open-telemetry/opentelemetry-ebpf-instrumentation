@@ -5,6 +5,7 @@ package ebpfcommon // import "go.opentelemetry.io/obi/pkg/ebpf/common"
 
 import (
 	"log/slog"
+	"net/http"
 	"strings"
 	"unsafe"
 
@@ -14,7 +15,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/internal/sqlprune"
 )
 
-func HTTPRequestTraceToSpan(trace *HTTPRequestTrace) request.Span {
+func HTTPRequestTraceToSpan(parseCtx *EBPFParseContext, trace *HTTPRequestTrace) request.Span {
 	// From C, assuming 0-ended strings
 	method := cstr(trace.Method[:])
 	path := cstr(trace.Path[:])
@@ -55,7 +56,7 @@ func HTTPRequestTraceToSpan(trace *HTTPRequestTrace) request.Span {
 		schemeHost = strings.Join([]string{scheme, origHost}, request.SchemeHostSeparator)
 	}
 
-	return request.Span{
+	span := request.Span{
 		Type:           request.EventType(trace.Type),
 		Method:         method,
 		Path:           path,
@@ -84,6 +85,15 @@ func HTTPRequestTraceToSpan(trace *HTTPRequestTrace) request.Span {
 		JSONRPC:   jsonRPC,
 		SubType:   subType,
 	}
+
+	// TODO(@skl): Implement HTTP response handling
+	if parseCtx != nil && parseCtx.httpEnricher != nil && span.Type == request.EventTypeHTTP {
+		if req, ok := parseRequestLargeBuffer(parseCtx, trace.Tp.TraceId, trace.Conn, false); ok {
+			parseCtx.httpEnricher.Enrich(&span, req, &http.Response{Header: http.Header{}})
+		}
+	}
+
+	return span
 }
 
 func stripPattern(p string) string {

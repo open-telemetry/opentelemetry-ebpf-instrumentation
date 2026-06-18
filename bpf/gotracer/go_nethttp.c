@@ -23,6 +23,7 @@
 #include <common/connection_info.h>
 #include <common/globals.h>
 #include <common/http_types.h>
+#include <common/large_buf_emit.h>
 #include <common/large_buffers.h>
 #include <common/protocol_defs.h>
 #include <common/ringbuf.h>
@@ -545,7 +546,6 @@ static __always_inline void ship_server_request_body(const go_addr_key_t *g_key,
     u32 cfg_max = http_max_captured_bytes;
     bpf_clamp_umax(cfg_max, k_large_buf_max_http_captured_bytes);
     u32 avail = min((u32)blen, cfg_max);
-    bpf_clamp_umax(avail, k_large_buf_payload_max_size);
     if (avail == 0) {
         return;
     }
@@ -558,16 +558,7 @@ static __always_inline void ship_server_request_body(const go_addr_key_t *g_key,
     large_buf->conn_info = *conn;
     large_buf->tp = *tp;
 
-    if (bpf_probe_read_user(large_buf->buf, avail, arr) != 0) {
-        return;
-    }
-    large_buf->len = avail;
-
-    u32 payload_size = avail < sizeof(void *) ? sizeof(void *) : avail;
-    bpf_clamp_umax(payload_size, k_large_buf_payload_max_size);
-    u32 total_size = sizeof(tcp_large_buffer_t) + payload_size;
-    bpf_clamp_umax(total_size, k_large_buf_max_size);
-    bpf_ringbuf_output(&events, large_buf, total_size, get_flags());
+    large_buf_emit_chunks(large_buf, arr, avail, k_large_buf_read_user);
 }
 
 static __always_inline int serve_http_returns(struct pt_regs *ctx) {
