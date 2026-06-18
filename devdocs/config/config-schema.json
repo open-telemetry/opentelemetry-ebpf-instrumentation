@@ -53,24 +53,6 @@
         "extra_group_attributes": {
           "$ref": "#/$defs/ExtraGroupAttributesMap"
         },
-        "sensitive_query_params": {
-          "type": "object",
-          "description": "Controls which query-parameter keys are redacted in url.full and url.query. The effective list is the OBI built-in list plus 'add' minus 'remove'.",
-          "properties": {
-            "add": {
-              "type": "array",
-              "items": {"type": "string"},
-              "description": "Extra keys to redact on top of the built-in list.",
-              "x-env-var": "OTEL_EBPF_SENSITIVE_QUERY_PARAMS_ADD"
-            },
-            "remove": {
-              "type": "array",
-              "items": {"type": "string"},
-              "description": "Keys to remove from the built-in list (e.g. to clear false positives).",
-              "x-env-var": "OTEL_EBPF_SENSITIVE_QUERY_PARAMS_REMOVE"
-            }
-          }
-        },
         "host_id": {
           "$ref": "#/$defs/HostIDConfig"
         },
@@ -107,6 +89,10 @@
         },
         "select": {
           "$ref": "#/$defs/Selection"
+        },
+        "sensitive_query_params": {
+          "$ref": "#/$defs/SensitiveQueryParamsConfig",
+          "description": "Controls which query-parameter keys are redacted in url.full and url.query."
         }
       },
       "type": "object",
@@ -2649,6 +2635,24 @@
       },
       "type": "object",
       "description": "Selection specifies which attributes are allowed for each signal. The key is usually the metric name (either in Prometheus or OpenTelemetry format); the key \"traces\" selects optional attributes for exported OTLP traces. The key \"resource\" selects exported resource attributes. The value is the enumeration of included/excluded attribute globs"
+    },
+    "SensitiveQueryParamsConfig": {
+      "properties": {
+        "add": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "remove": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object",
+      "description": "SensitiveQueryParamsConfig controls which query-parameter keys are redacted. The effective list is DefaultSensitiveQueryParams + Add - Remove. When both Add and Remove are empty, DefaultSensitiveQueryParams is used unchanged."
     },
     "StatsConfig": {
       "properties": {

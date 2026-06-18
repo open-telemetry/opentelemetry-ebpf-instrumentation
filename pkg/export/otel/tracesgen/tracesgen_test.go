@@ -142,16 +142,17 @@ func TestHTTPServerSpanURLQuery(t *testing.T) {
 		assert.NotContains(t, val.Str(), "abc123")
 	})
 
-	t.Run("DefaultRedactQueryParams applied even without explicit redactKeys", func(t *testing.T) {
-		// TraceAttributesSelector always merges DefaultRedactQueryParams so callers
-		// cannot accidentally emit sensitive values by omitting redactKeys.
+	t.Run("no redaction when no sensitive params passed to TraceAttributesSelector", func(t *testing.T) {
+		// TraceAttributesSelector is the single-span public API; callers must pass
+		// sensitive params explicitly. The default list flows through GroupSpans via
+		// SensitiveQueryParams in DefaultConfig.
 		span := &request.Span{Type: request.EventTypeHTTP, Method: "GET", Path: "/", FullPath: "/?sig=abc123", Status: 200}
 		optInAttrs, err := UserSelectedAttributes(optInCfg)
 		require.NoError(t, err)
 		selected := AttrsToMap(TraceAttributesSelector(span, optInAttrs))
 		val, ok := selected.Get("url.query")
 		require.True(t, ok)
-		assert.Equal(t, "sig=REDACTED", val.Str())
+		assert.Equal(t, "sig=abc123", val.Str())
 	})
 
 	t.Run("url.query suppressed when explicitly excluded", func(t *testing.T) {

@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -77,7 +76,7 @@ func UserSelectedAttributes(selectorCfg *attributes.SelectorConfig) (map[attr.Na
 // GroupSpans must remain public for collectors embedding OBI.
 func GroupSpans(ctx context.Context, spans []request.Span, traceAttrs map[attr.Name]struct{}, sampler trace.Sampler, is instrumentations.InstrumentationSelection, redactKeys ...string) map[svc.UID][]TraceSpanAndAttributes {
 	spanGroups := map[svc.UID][]TraceSpanAndAttributes{}
-	redactSet := buildRedactSet(slices.Concat(attributes.DefaultRedactQueryParams, redactKeys))
+	redactSet := buildRedactSet(redactKeys)
 
 	for i := range spans {
 		span := &spans[i]
@@ -588,14 +587,11 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 		if span.FullPath != "" {
 			urlPath = span.FullPath
 		}
-		// Strip or scrub query parameters from url.full to avoid leaking sensitive
-		// data (tokens, PII). When url.query is opted in, known sensitive keys are
-		// redacted (REDACTED) rather than the entire string being dropped.
+		// Scrub sensitive query parameters from url.full. The scrubbed query is always
+		// included in url.full when present; the selector only gates the separate url.query attribute.
 		var scrubbedQS string
 		if idx := strings.IndexByte(urlPath, '?'); idx >= 0 {
-			if _, ok := optionalAttrs[attr.HTTPUrlQuery]; !ok {
-				urlPath = urlPath[:idx]
-			} else if qs := scrubQuery(urlPath[idx+1:], redactSet); qs != "" {
+			if qs := scrubQuery(urlPath[idx+1:], redactSet); qs != "" {
 				urlPath = urlPath[:idx+1] + qs
 				scrubbedQS = qs
 			} else {
@@ -620,7 +616,9 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 		}
 
 		if scrubbedQS != "" {
-			attrs = append(attrs, request.HTTPUrlQuery(scrubbedQS))
+			if _, ok := optionalAttrs[attr.HTTPUrlQuery]; ok {
+				attrs = append(attrs, request.HTTPUrlQuery(scrubbedQS))
+			}
 		}
 
 		if span.SubType == request.HTTPSubtypeElasticsearch && span.Elasticsearch != nil {
@@ -1383,7 +1381,7 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 
 // TraceAttributesSelector returns the []attribute.KeyValue for a single span.
 func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]struct{}, redactKeys ...string) []attribute.KeyValue {
-	return traceAttributesSelectorInternal(span, optionalAttrs, buildRedactSet(slices.Concat(attributes.DefaultRedactQueryParams, redactKeys)))
+	return traceAttributesSelectorInternal(span, optionalAttrs, buildRedactSet(redactKeys))
 }
 
 func spanKind(span *request.Span) trace2.SpanKind {

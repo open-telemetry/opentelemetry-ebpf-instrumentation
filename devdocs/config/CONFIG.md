@@ -60,12 +60,12 @@ Attributes configures the decoration of some extra attributes that will be added
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
 | `attributes.extra_group_attributes` | [`ExtraGroupAttributesMap`](#extragroupattributesmap) |  |  |  |  | Map of attribute group names to arrays of attribute names. Only 'k8s_app_meta' is currently supported as a key. |
-| `attributes.extra_redact_query_params` | `string`[] | `OTEL_EBPF_EXTRA_REDACT_QUERY_PARAMS` |  |  |  | Lists additional query-parameter keys whose values are replaced with REDACTED in url.full and url.query, on top of the built-in semconv-mandated set (X-Amz-Signature, X-Goog-Signature, sig, …). The built-in set is always applied. |
 | `attributes.metric_span_names_limit` | `integer` | `OTEL_EBPF_METRIC_SPAN_NAMES_LIMIT` | `100` |  |  | Works PER SERVICE and only relates to span_metrics. When the span_name cardinality surpasses this limit, the span_name will be reported as AGGREGATED. If the value <= 0, it is disabled. |
 | `attributes.rename_unresolved_hosts` | `string` | `OTEL_EBPF_RENAME_UNRESOLVED_HOSTS` | `unresolved` |  |  | Will replace HostName and PeerName attributes when they are empty or contain unresolved IP addresses to reduce cardinality. Set this value to the empty string to disable this feature. |
 | `attributes.rename_unresolved_hosts_incoming` | `string` | `OTEL_EBPF_RENAME_UNRESOLVED_HOSTS_INCOMING` | `incoming` |  |  |  |
 | `attributes.rename_unresolved_hosts_outgoing` | `string` | `OTEL_EBPF_RENAME_UNRESOLVED_HOSTS_OUTGOING` | `outgoing` |  |  |  |
 | `attributes.select` | `map[string]object` |  |  |  |  | Selection specifies which attributes are allowed for each signal. The key is usually the metric name (either in Prometheus or OpenTelemetry format); the key "traces" selects optional attributes for exported OTLP traces. The key "resource" selects exported resource attributes. The value is the enumeration of included/excluded attribute globs |
+| `attributes.sensitive_query_params` | [`SensitiveQueryParamsConfig`](#sensitivequeryparamsconfig) |  |  |  |  | Controls which query-parameter keys are redacted in url.full and url.query. |
 
 ### `attributes.host_id`
 
@@ -766,6 +766,15 @@ RegexSelector that specify a given instrumented service. Each instance has to de
 | `routes` | [`CustomRoutesConfig`](#customroutesconfig) |  |  |
 | `sampler` | [`SamplerConfig`](#samplerconfig) |  | Sampler standard configuration <https://opentelemetry.io/docs/concepts/sdk-configuration/general-sdk-configuration/#otel_traces_sampler> We don't support, yet, the jaeger and xray samplers. |
 | `target_pids` | `integer`[] |  | Allows selecting processes by PID. When non-empty, the process PID must be in this list (in addition to any path/port criteria). |
+
+### SensitiveQueryParamsConfig
+
+SensitiveQueryParamsConfig controls which query-parameter keys are redacted. The effective list is DefaultSensitiveQueryParams + Add - Remove. When both Add and Remove are empty, DefaultSensitiveQueryParams is used unchanged.
+
+| Field | Type | Values | Description |
+|---|---|---|---|
+| `add` | `string`[] |  |  |
+| `remove` | `string`[] |  |  |
 
 ### CustomRoutesConfig
 
