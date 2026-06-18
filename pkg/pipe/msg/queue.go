@@ -12,6 +12,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"go.opentelemetry.io/obi/pkg/export/imetrics"
 )
 
 // if a Send operation takes more than this time, we panic informing about a deadlock
@@ -32,7 +34,8 @@ type queueConfig struct {
 	name             string
 	sendTimeout      time.Duration
 	panicOnTimeout   bool
-	gaugeProvisioner gaugeProvisioner
+	// maps any implementation of imetrics.Reporter's QueueBufferUtilization(subscriber string, ratio float64)
+	utilizationGauge func(string, float64)
 }
 
 var defaultQueueConfig = queueConfig{
@@ -41,10 +44,9 @@ var defaultQueueConfig = queueConfig{
 	name:             unnamed,
 	sendTimeout:      defaultSendTimeout,
 	panicOnTimeout:   false,
-	gaugeProvisioner: noopGaugeProvisioner,
+	// default to noop
+	utilizationGauge: func(string, float64) {},
 }
-
-func noopGaugeProvisioner(string) gauge { return func(float64) {} }
 
 // QueueOpts allow configuring some operation of a queue
 type QueueOpts func(*queueConfig)
@@ -91,20 +93,16 @@ func ClosingAttempts(attempts int) QueueOpts {
 	}
 }
 
-func MetricProvisioner(p gaugeProvisioner) QueueOpts {
+func InternalMetrics(p imetrics.Reporter) QueueOpts {
 	return func(c *queueConfig) {
-		c.gaugeProvisioner = p
+		c.utilizationGauge = p.QueueBufferUtilization
 	}
 }
 
-type gauge func(float64)
-
-type gaugeProvisioner func(subscriberName string) gauge
-
 type dst[T any] struct {
-	name       string
-	ch         chan T
-	chCapRatio gauge
+	name  string
+	ch    chan T
+	gauge func(string, float64)
 }
 
 // sink holds the mutable, shared delivery state of a group of queues connected through Bypass.
@@ -159,7 +157,7 @@ func NewQueue[T any](opts ...QueueOpts) *Queue[T] {
 	}
 	// if channel capacity is set to zero, disable capacity ratio metrics to avoid divisions by zero
 	if cfg.channelBufferLen <= 0 {
-		cfg.gaugeProvisioner = noopGaugeProvisioner
+		cfg.utilizationGauge = func(string, float64) {}
 	}
 
 	q := &Queue[T]{
@@ -226,7 +224,7 @@ func (s *sink[T]) send(ctx context.Context, o T, route []string) {
 	var blocked []dst[T]
 	for _, d := range dsts {
 		// report channel len/capacity ratio metrics
-		d.chCapRatio(float64(len(d.ch)+1) / float64(cap(d.ch)))
+		d.gauge(d.name, float64(len(d.ch)+1)/float64(cap(d.ch)))
 		select {
 		case <-ctx.Done():
 			return
@@ -313,9 +311,9 @@ func (q *Queue[T]) Subscribe(options ...SubscribeOpt) <-chan T {
 	defer s.mt.Unlock()
 	ch := make(chan T, s.cfg.channelBufferLen)
 	s.dsts = append(s.dsts, dst[T]{
-		ch:         ch,
-		name:       opts.subscriber,
-		chCapRatio: q.cfg.gaugeProvisioner(opts.subscriber),
+		ch:    ch,
+		name:  opts.subscriber,
+		gauge: s.cfg.utilizationGauge,
 	})
 	return ch
 }
@@ -354,10 +352,6 @@ func (q *Queue[T]) Bypass(to *Queue[T]) {
 	for _, m := range srcSink.members {
 		m.sink = dstSink
 		m.routeNames = append(m.routeNames, to.routeNames...)
-	}
-	// rename all the source->dest attribute in the source sinks' metrics
-	for i := range srcSink.dsts {
-		srcSink.dsts[i].chCapRatio = q.cfg.gaugeProvisioner(srcSink.dsts[i].name)
 	}
 
 	// move all the subscribers of the source group into the destination group

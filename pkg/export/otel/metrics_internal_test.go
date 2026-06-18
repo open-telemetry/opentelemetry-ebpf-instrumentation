@@ -71,3 +71,32 @@ func TestInternalMetricsReporterBpfProbeStats(t *testing.T) {
 
 	assert.Empty(t, expected)
 }
+
+func TestInternalMetricsReporterQueueBufferUtilization(t *testing.T) {
+	metricRecords := make(chan collector.MetricRecord, 16)
+	mcfg := &otelcfg.MetricsConfig{
+		Interval:        10 * time.Millisecond,
+		MetricsConsumer: testMetricsConsumer(metricRecords),
+	}
+	ctxInfo := &global.ContextInfo{
+		NodeMeta:            meta.NodeMeta{HostID: "test-host"},
+		OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: mcfg},
+	}
+
+	reporter, err := NewInternalMetricsReporter(
+		t.Context(),
+		ctxInfo,
+		mcfg,
+		&imetrics.InternalMetricsConfig{BpfMetricScrapeInterval: time.Millisecond},
+	)
+	require.NoError(t, err)
+
+	reporter.QueueBufferUtilization("traces", 0.42)
+
+	records := readMetricsByName(t, metricRecords, time.Second,
+		attr.VendorPrefix+".queue.capacity.ratio",
+	)
+	require.Len(t, records, 1)
+	assert.Equal(t, "traces", records[0].Attributes["subscriber"])
+	assert.InDelta(t, 0.42, records[0].FloatVal, 0.001)
+}

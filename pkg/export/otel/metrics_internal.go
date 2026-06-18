@@ -48,6 +48,8 @@ type InternalMetricsReporter struct {
 	totalIgnoredPackets   uint64
 	bpfPacketCount        instrument.Int64Counter
 	bpfIgnoredPacketCount instrument.Int64Counter
+
+	queueCapacityRatio instrument.Float64Gauge
 }
 
 func imlog() *slog.Logger {
@@ -201,6 +203,13 @@ func NewInternalMetricsReporter(ctx context.Context, ctxInfo *global.ContextInfo
 		return nil, err
 	}
 
+	queueCapacityRatio, err := meter.Float64Gauge(
+		attr.VendorPrefix+".queue.capacity.ratio",
+		instrument.WithUnit("Ratio [0-1] between the unread messages of an internal Go channel and its total capacity"))
+	if err != nil {
+		return nil, err
+	}
+
 	return &InternalMetricsReporter{
 		ctx:                              ctx,
 		tracerFlushes:                    tracerFlushes,
@@ -220,6 +229,7 @@ func NewInternalMetricsReporter(ctx context.Context, ctxInfo *global.ContextInfo
 		informerLag:                      informerLag,
 		bpfPacketCount:                   bpfPacketCount,
 		bpfIgnoredPacketCount:            bpfIgnoredPacketCount,
+		queueCapacityRatio:               queueCapacityRatio,
 	}, nil
 }
 
@@ -351,4 +361,8 @@ func (p *InternalMetricsReporter) BPFPacketStats(count, ignored uint64) {
 	p.bpfPacketCount.Add(p.ctx, int64(count-p.totalPackets))
 	p.bpfIgnoredPacketCount.Add(p.ctx, int64(ignored-p.totalIgnoredPackets))
 	p.totalPackets, p.totalIgnoredPackets = count, ignored
+}
+
+func (p *InternalMetricsReporter) QueueBufferUtilization(subscriber string, ratio float64) {
+	p.queueCapacityRatio.Record(p.ctx, ratio, instrument.WithAttributes(attribute.String("subscriber", subscriber)))
 }

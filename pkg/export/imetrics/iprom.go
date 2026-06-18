@@ -50,6 +50,8 @@ type PrometheusReporter struct {
 	totalIgnoredPackets   uint64
 	bpfPacketCount        prometheus.Counter
 	bpfIgnoredPacketCount prometheus.Counter
+
+	queueCapacityRatio *prometheus.GaugeVec
 }
 
 func NewPrometheusReporter(cfg *InternalMetricsConfig, manager *connector.PrometheusManager, registry *prometheus.Registry) *PrometheusReporter {
@@ -141,6 +143,10 @@ func NewPrometheusReporter(cfg *InternalMetricsConfig, manager *connector.Promet
 			Name: attr.VendorPrefix + "_bpf_network_packets_total",
 			Help: "How many network packets have been internally accounted",
 		}),
+		queueCapacityRatio: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: attr.VendorPrefix + "_queue_capacity_ratio",
+			Help: "Ratio [0-1] between the unread messages of an internal Go channel and its total capacity",
+		}, []string{"subscriber"}),
 	}
 	metrics := []prometheus.Collector{
 		pr.tracerFlushes,
@@ -160,6 +166,7 @@ func NewPrometheusReporter(cfg *InternalMetricsConfig, manager *connector.Promet
 		pr.informerLag,
 		pr.bpfPacketCount,
 		pr.bpfIgnoredPacketCount,
+		pr.queueCapacityRatio,
 	}
 	if registry != nil {
 		registry.MustRegister(metrics...)
@@ -250,4 +257,8 @@ func (p *PrometheusReporter) BPFPacketStats(count, ignored uint64) {
 	p.bpfPacketCount.Add(float64(count - p.totalPackets))
 	p.bpfIgnoredPacketCount.Add(float64(ignored - p.totalIgnoredPackets))
 	p.totalPackets, p.totalIgnoredPackets = count, ignored
+}
+
+func (p *PrometheusReporter) QueueBufferUtilization(subscriber string, ratio float64) {
+	p.queueCapacityRatio.WithLabelValues(subscriber).Set(ratio)
 }

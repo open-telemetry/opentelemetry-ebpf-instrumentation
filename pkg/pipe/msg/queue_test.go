@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"go.opentelemetry.io/obi/pkg/export/imetrics"
 	"go.opentelemetry.io/obi/pkg/internal/testutil"
 )
 
@@ -434,11 +435,11 @@ func TestSendPath(t *testing.T) {
 }
 
 func TestMetrics_CapacityGauge(t *testing.T) {
-	fp := &fakeProvisioner{gauges: map[string]*float64{}}
+	fp := &fakeProvisioner{gauges: map[string]float64{}}
 	q := NewQueue[int](
 		Name("head"),
 		ChannelBufferLen(100),
-		MetricProvisioner(fp.provide))
+		InternalMetrics(fp))
 
 	// Two subscribers: one that works normally and another that is blocked
 	working := q.Subscribe(SubscriberName("working"))
@@ -475,22 +476,22 @@ func TestMetrics_CapacityGauge(t *testing.T) {
 
 func TestMetrics_Labels(t *testing.T) {
 	t.Run("direct subscription", func(t *testing.T) {
-		fp := &fakeProvisioner{gauges: map[string]*float64{}}
+		fp := &fakeProvisioner{gauges: map[string]float64{}}
 		q := NewQueue[int](
 			Name("head"),
 			ChannelBufferLen(5),
-			MetricProvisioner(fp.provide))
+			InternalMetrics(fp))
 		q.Subscribe(SubscriberName("subs"))
 		q.SendCtx(t.Context(), 1)
 		assert.InDelta(t, 0.2, fp.GaugeFor("subs"), 0.001)
 	})
 	t.Run("bypasses subscription", func(t *testing.T) {
-		fp := &fakeProvisioner{gauges: map[string]*float64{}}
-		h1 := NewQueue[int](Name("head1"), ChannelBufferLen(5), MetricProvisioner(fp.provide))
-		h2 := NewQueue[int](Name("head2"), ChannelBufferLen(5), MetricProvisioner(fp.provide))
-		m1 := NewQueue[int](Name("mid1"), ChannelBufferLen(5), MetricProvisioner(fp.provide))
-		m2 := NewQueue[int](Name("mid2"), ChannelBufferLen(5), MetricProvisioner(fp.provide))
-		ta := NewQueue[int](Name("tail"), ChannelBufferLen(5), MetricProvisioner(fp.provide))
+		fp := &fakeProvisioner{gauges: map[string]float64{}}
+		h1 := NewQueue[int](Name("head1"), ChannelBufferLen(5), InternalMetrics(fp))
+		h2 := NewQueue[int](Name("head2"), ChannelBufferLen(5), InternalMetrics(fp))
+		m1 := NewQueue[int](Name("mid1"), ChannelBufferLen(5), InternalMetrics(fp))
+		m2 := NewQueue[int](Name("mid2"), ChannelBufferLen(5), InternalMetrics(fp))
+		ta := NewQueue[int](Name("tail"), ChannelBufferLen(5), InternalMetrics(fp))
 		// interleaving subscriptions and bypasses. All the gauges
 		// should be labeled as src="head", dst="subsX"
 		h1.Bypass(m1)
@@ -516,20 +517,19 @@ func TestMetrics_Labels(t *testing.T) {
 
 // implementation of fake gauge metrics for testing
 type fakeProvisioner struct {
-	gauges map[string]*float64
+	imetrics.NoopReporter
+	mt     sync.RWMutex
+	gauges map[string]float64
 }
 
 func (fp *fakeProvisioner) GaugeFor(subscriber string) float64 {
-	if v, ok := fp.gauges[subscriber]; ok {
-		return *v
-	}
-	return 0
+	fp.mt.RLock()
+	defer fp.mt.RUnlock()
+	return fp.gauges[subscriber]
 }
 
-func (fp *fakeProvisioner) provide(subscriber string) gauge {
-	value := float64(0)
-	fp.gauges[subscriber] = &value
-	return func(v float64) {
-		value = v
-	}
+func (fp *fakeProvisioner) QueueBufferUtilization(name string, val float64) {
+	fp.mt.Lock()
+	defer fp.mt.Unlock()
+	fp.gauges[name] = val
 }
