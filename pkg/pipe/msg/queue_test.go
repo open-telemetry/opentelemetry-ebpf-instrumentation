@@ -432,3 +432,104 @@ func TestSendPath(t *testing.T) {
 		})
 	}
 }
+
+func TestMetrics_CapacityGauge(t *testing.T) {
+	fp := &fakeProvisioner{gauges: map[string]*float64{}}
+	q := NewQueue[int](
+		Name("head"),
+		ChannelBufferLen(100),
+		MetricProvisioner(fp.provide))
+
+	// Two subscribers: one that works normally and another that is blocked
+	working := q.Subscribe(SubscriberName("working"))
+	blocked := q.Subscribe(SubscriberName("blocked"))
+
+	for i := 0; i < 50; i++ {
+		q.SendCtx(t.Context(), i)
+		// working channel reads values as long as they arrive
+		testutil.ReadChannel(t, working, timeout)
+	}
+	// working gauge will stay in 0.01 (metric is not cleaned up after last read)
+	assert.InDelta(t, 0.01, fp.GaugeFor("working"), 0.0001)
+	// blocked gauge reaches 0.5
+	assert.InDelta(t, 0.5, fp.GaugeFor("blocked"), 0.0001)
+
+	// send another batch
+	for i := 0; i < 50; i++ {
+		q.SendCtx(t.Context(), i)
+		testutil.ReadChannel(t, working, timeout)
+	}
+	assert.InDelta(t, 0.01, fp.GaugeFor("working"), 0.0001)
+	// blocked gauge reaches 1 (max)
+	assert.InDelta(t, 1.0, fp.GaugeFor("blocked"), 0.0001)
+
+	// unblock blocked subscriber --> metrics should go to lowest value
+	for i := 0; i < 100; i++ {
+		testutil.ReadChannel(t, blocked, timeout)
+	}
+	// send a last message to force update of metrics
+	q.SendCtx(t.Context(), 0)
+	assert.InDelta(t, 0.01, fp.GaugeFor("blocked"), 0.0001)
+	assert.InDelta(t, 0.01, fp.GaugeFor("working"), 0.0001)
+}
+
+func TestMetrics_Labels(t *testing.T) {
+	t.Run("direct subscription", func(t *testing.T) {
+		fp := &fakeProvisioner{gauges: map[string]*float64{}}
+		q := NewQueue[int](
+			Name("head"),
+			ChannelBufferLen(5),
+			MetricProvisioner(fp.provide))
+		q.Subscribe(SubscriberName("subs"))
+		q.SendCtx(t.Context(), 1)
+		assert.InDelta(t, 0.2, fp.GaugeFor("subs"), 0.001)
+	})
+	t.Run("bypasses subscription", func(t *testing.T) {
+		fp := &fakeProvisioner{gauges: map[string]*float64{}}
+		h1 := NewQueue[int](Name("head1"), ChannelBufferLen(5), MetricProvisioner(fp.provide))
+		h2 := NewQueue[int](Name("head2"), ChannelBufferLen(5), MetricProvisioner(fp.provide))
+		m1 := NewQueue[int](Name("mid1"), ChannelBufferLen(5), MetricProvisioner(fp.provide))
+		m2 := NewQueue[int](Name("mid2"), ChannelBufferLen(5), MetricProvisioner(fp.provide))
+		ta := NewQueue[int](Name("tail"), ChannelBufferLen(5), MetricProvisioner(fp.provide))
+		// interleaving subscriptions and bypasses. All the gauges
+		// should be labeled as src="head", dst="subsX"
+		h1.Bypass(m1)
+		m1.Bypass(ta)
+		// invert bypassing order
+		m2.Bypass(ta)
+		h2.Bypass(m2)
+		h1.Subscribe(SubscriberName("subs1"))
+		h2.Subscribe(SubscriberName("subs2"))
+		m1.Subscribe(SubscriberName("subs3"))
+		m2.Subscribe(SubscriberName("subs4"))
+		ta.Subscribe(SubscriberName("subs5"))
+
+		h1.SendCtx(t.Context(), 1)
+		h1.SendCtx(t.Context(), 2)
+		assert.InDelta(t, 0.4, fp.GaugeFor("subs1"), 0.001)
+		assert.InDelta(t, 0.4, fp.GaugeFor("subs2"), 0.001)
+		assert.InDelta(t, 0.4, fp.GaugeFor("subs3"), 0.001)
+		assert.InDelta(t, 0.4, fp.GaugeFor("subs4"), 0.001)
+		assert.InDelta(t, 0.4, fp.GaugeFor("subs5"), 0.001)
+	})
+}
+
+// implementation of fake gauge metrics for testing
+type fakeProvisioner struct {
+	gauges map[string]*float64
+}
+
+func (fp *fakeProvisioner) GaugeFor(subscriber string) float64 {
+	if v, ok := fp.gauges[subscriber]; ok {
+		return *v
+	}
+	return 0
+}
+
+func (fp *fakeProvisioner) provide(subscriber string) gauge {
+	value := float64(0)
+	fp.gauges[subscriber] = &value
+	return func(v float64) {
+		value = v
+	}
+}

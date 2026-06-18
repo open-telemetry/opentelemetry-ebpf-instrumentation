@@ -32,6 +32,7 @@ type queueConfig struct {
 	name             string
 	sendTimeout      time.Duration
 	panicOnTimeout   bool
+	gaugeProvisioner gaugeProvisioner
 }
 
 var defaultQueueConfig = queueConfig{
@@ -40,7 +41,10 @@ var defaultQueueConfig = queueConfig{
 	name:             unnamed,
 	sendTimeout:      defaultSendTimeout,
 	panicOnTimeout:   false,
+	gaugeProvisioner: noopGaugeProvisioner,
 }
+
+func noopGaugeProvisioner(string) gauge { return func(float64) {} }
 
 // QueueOpts allow configuring some operation of a queue
 type QueueOpts func(*queueConfig)
@@ -87,9 +91,20 @@ func ClosingAttempts(attempts int) QueueOpts {
 	}
 }
 
+func MetricProvisioner(p gaugeProvisioner) QueueOpts {
+	return func(c *queueConfig) {
+		c.gaugeProvisioner = p
+	}
+}
+
+type gauge func(float64)
+
+type gaugeProvisioner func(subscriberName string) gauge
+
 type dst[T any] struct {
-	name string
-	ch   chan T
+	name       string
+	ch         chan T
+	chCapRatio gauge
 }
 
 // sink holds the mutable, shared delivery state of a group of queues connected through Bypass.
@@ -142,6 +157,11 @@ func NewQueue[T any](opts ...QueueOpts) *Queue[T] {
 	for _, opt := range opts {
 		opt(&cfg)
 	}
+	// if channel capacity is set to zero, disable capacity ratio metrics to avoid divisions by zero
+	if cfg.channelBufferLen <= 0 {
+		cfg.gaugeProvisioner = noopGaugeProvisioner
+	}
+
 	q := &Queue[T]{
 		cfg:              &cfg,
 		routeNames:       []string{cfg.name},
@@ -205,6 +225,8 @@ func (s *sink[T]) send(ctx context.Context, o T, route []string) {
 	}
 	var blocked []dst[T]
 	for _, d := range dsts {
+		// report channel len/capacity ratio metrics
+		d.chCapRatio(float64(len(d.ch)+1) / float64(cap(d.ch)))
 		select {
 		case <-ctx.Done():
 			return
@@ -290,7 +312,11 @@ func (q *Queue[T]) Subscribe(options ...SubscribeOpt) <-chan T {
 	s.mt.Lock()
 	defer s.mt.Unlock()
 	ch := make(chan T, s.cfg.channelBufferLen)
-	s.dsts = append(s.dsts, dst[T]{ch: ch, name: opts.subscriber})
+	s.dsts = append(s.dsts, dst[T]{
+		ch:         ch,
+		name:       opts.subscriber,
+		chCapRatio: q.cfg.gaugeProvisioner(opts.subscriber),
+	})
 	return ch
 }
 
@@ -323,16 +349,21 @@ func (q *Queue[T]) Bypass(to *Queue[T]) {
 	dstSink.mt.Lock()
 	defer dstSink.mt.Unlock()
 
-	// move all the subscribers of the source group into the destination group
-	dstSink.dsts = append(dstSink.dsts, srcSink.dsts...)
-	srcSink.dsts = nil
-
 	// re-point every queue of the source group to the destination sink, so future Sends and
 	// Subscribes reach the destination directly, and extend their diagnostic route with to's route
 	for _, m := range srcSink.members {
 		m.sink = dstSink
 		m.routeNames = append(m.routeNames, to.routeNames...)
 	}
+	// rename all the source->dest attribute in the source sinks' metrics
+	for i := range srcSink.dsts {
+		srcSink.dsts[i].chCapRatio = q.cfg.gaugeProvisioner(srcSink.dsts[i].name)
+	}
+
+	// move all the subscribers of the source group into the destination group
+	dstSink.dsts = append(dstSink.dsts, srcSink.dsts...)
+	srcSink.dsts = nil
+
 	dstSink.members = append(dstSink.members, srcSink.members...)
 	srcSink.members = nil
 
