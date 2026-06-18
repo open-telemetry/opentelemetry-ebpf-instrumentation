@@ -4,6 +4,7 @@
 //go:build obi_bpf_ignore
 
 #include <bpfcore/vmlinux.h>
+#include <bpfcore/bpf_builtins.h>
 #include <bpfcore/bpf_helpers.h>
 #include <bpfcore/bpf_tracing.h>
 
@@ -25,7 +26,7 @@ static __always_inline bool jvm_current_comm_is_g1_main_marker(void) {
     bpf_get_current_comm(comm, sizeof(comm));
 
     const char g1_main_marker[] = "G1 Main Marker";
-    return __builtin_memcmp(comm, g1_main_marker, sizeof(g1_main_marker)) == 0;
+    return bpf_memcmp(comm, g1_main_marker, sizeof(g1_main_marker)) == 0;
 }
 
 struct jvm_pid_fields {
@@ -77,7 +78,7 @@ static __always_inline void jvm_fill_mem_pool_pid_fields(u64 pid_tgid,
 
 static __always_inline int
 jvm_read_usdt_string(unsigned char *dst, const unsigned char *src, long src_len) {
-    __builtin_memset(dst, 0, k_jvm_raw_string_len);
+    bpf_memset(dst, 0, k_jvm_raw_string_len);
     if (!src || src_len <= 0) {
         return -1;
     }
@@ -141,7 +142,7 @@ int BPF_UPROBE(obi_uprobe_report_gc_heap_summary,
         return 0;
     }
 
-    __builtin_memset(e, 0, sizeof(*e));
+    bpf_memset(e, 0, sizeof(*e));
     e->type = EVENT_JVM_GC_HEAP_SUMMARY;
     e->timestamp = ts;
     jvm_fill_heap_pid_fields(pid_tgid, e);
@@ -190,7 +191,7 @@ static __always_inline int jvm_hotspot_mem_pool_gc(enum jvm_gc_when_type when,
         return 0;
     }
 
-    __builtin_memset(e, 0, sizeof(*e));
+    bpf_memset(e, 0, sizeof(*e));
     e->type = EVENT_JVM_MEM_POOL_GC;
     e->timestamp = ts;
     jvm_fill_mem_pool_pid_fields(pid_tgid, e);
@@ -199,8 +200,8 @@ static __always_inline int jvm_hotspot_mem_pool_gc(enum jvm_gc_when_type when,
     e->used = used;
     e->committed = committed;
     e->max_size = max_size;
-    __builtin_memcpy(e->manager, key.manager, sizeof(e->manager));
-    __builtin_memcpy(e->pool, key.pool, sizeof(e->pool));
+    bpf_memcpy(e->manager, key.manager, sizeof(e->manager));
+    bpf_memcpy(e->pool, key.pool, sizeof(e->pool));
 
     bpf_ringbuf_submit(e, get_flags());
     return 0;
