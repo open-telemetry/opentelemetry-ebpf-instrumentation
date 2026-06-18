@@ -1269,7 +1269,9 @@ func (r *metricsReporter) labelValuesSpans(span *request.Span) []string {
 	return values
 }
 
-func labelNamesTargetInfo(kubeEnabled, dockerEnabled bool, nodeMeta *meta.NodeMeta, extraMetadataLabelNames []attr.Name) []string {
+// baseTargetInfoNames is the shared source of truth for labelNamesTargetInfo and
+// labelValuesTargetInfo, ensuring both apply identical deduplication against nodeMeta.Metadata.
+func baseTargetInfoNames(kubeEnabled, dockerEnabled bool) []string {
 	names := []string{
 		hostIDKey,
 		hostNameKey,
@@ -1285,16 +1287,28 @@ func labelNamesTargetInfo(kubeEnabled, dockerEnabled bool, nodeMeta *meta.NodeMe
 		sourceKey,
 		osTypeKey,
 	}
-
 	if kubeEnabled {
 		names = appendK8sLabelNames(names)
 	}
 	if dockerEnabled {
 		names = appendDockerLabelNames(names)
 	}
+	return names
+}
 
+func labelNamesTargetInfo(kubeEnabled, dockerEnabled bool, nodeMeta *meta.NodeMeta, extraMetadataLabelNames []attr.Name) []string {
+	names := baseTargetInfoNames(kubeEnabled, dockerEnabled)
+
+	existing := make(map[string]struct{}, len(names))
+	for _, n := range names {
+		existing[n] = struct{}{}
+	}
 	for _, entry := range nodeMeta.Metadata {
-		names = append(names, entry.Key.Prom())
+		prom := entry.Key.Prom()
+		if _, ok := existing[prom]; !ok {
+			names = append(names, prom)
+			existing[prom] = struct{}{}
+		}
 	}
 
 	for _, mdn := range extraMetadataLabelNames {
@@ -1329,8 +1343,16 @@ func (r *metricsReporter) labelValuesTargetInfo(service *svc.Attrs) []string {
 		values = appendDockerLabelValuesService(values, service)
 	}
 
+	existing := make(map[string]struct{})
+	for _, n := range baseTargetInfoNames(r.kubeEnabled, r.dockerEnabled) {
+		existing[n] = struct{}{}
+	}
 	for _, entry := range r.nodeMeta.Metadata {
-		values = append(values, entry.Value)
+		prom := entry.Key.Prom()
+		if _, ok := existing[prom]; !ok {
+			values = append(values, entry.Value)
+			existing[prom] = struct{}{}
+		}
 	}
 
 	for _, k := range r.extraMetadataLabels {
