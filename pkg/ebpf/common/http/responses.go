@@ -21,8 +21,10 @@ import (
 // Keep the decompressed response cap aligned with the maximum captured payload size
 // so body enrichment cannot expand a compressed payload beyond the configured
 // userspace budget.
-const maxCapturedPayloadBytes = 1 << 18
-const maxDecompressedResponseBodyBytes = maxCapturedPayloadBytes
+const (
+	maxCapturedPayloadBytes          = 1 << 18
+	maxDecompressedResponseBodyBytes = maxCapturedPayloadBytes
+)
 
 var errResponseBodyTooLarge = fmt.Errorf(
 	"response body exceeds decompression limit of %d bytes",
