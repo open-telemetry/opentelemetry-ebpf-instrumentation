@@ -435,7 +435,7 @@ func (f fakeServiceFilter) ValidPID(app.PID, uint32, ebpfcommon.PIDType) bool   
 func (f fakeServiceFilter) Filter(inputSpans []request.Span) []request.Span              { return inputSpans }
 func (f fakeServiceFilter) CurrentPIDs(ebpfcommon.PIDType) map[uint32]map[app.PID]svc.Attrs {
 	if f.currentPIDsCalls != nil {
-		*f.currentPIDsCalls += 1
+		(*f.currentPIDsCalls)++
 	}
 	return f.current
 }
