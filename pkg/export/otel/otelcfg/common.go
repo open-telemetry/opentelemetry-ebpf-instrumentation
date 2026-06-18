@@ -93,53 +93,50 @@ func omitFieldsForYAML(input any, omitFields map[string]struct{}) map[string]any
 	return result
 }
 
-func GetAppResourceAttrs(nodeMeta *meta.NodeMeta, service *svc.Attrs) []attribute.KeyValue {
-	return append(GetResourceAttrs(nodeMeta, service),
-		semconv.ServiceInstanceID(service.UID.Instance),
-	)
+func GetAppResourceAttrs(nodeMeta *meta.NodeMeta, service *svc.Attrs, attrSelector ...attributes.Selection) []attribute.KeyValue {
+	attrs := resourceAttrs(nodeMeta, service)
+	attrs = append(attrs, semconv.ServiceInstanceID(service.UID.Instance))
+	return FilterResourceAttrs(attrs, attrSelector...)
 }
 
-func FilterNodeMeta(nodeMeta meta.NodeMeta, attrSelector attributes.Selection) meta.NodeMeta {
-	return FilterNodeMetaForSection(nodeMeta, attrSelector, attributes.TargetInfo.Section)
-}
-
-func FilterNodeMetaForSection(nodeMeta meta.NodeMeta, attrSelector attributes.Selection, section attributes.Section) meta.NodeMeta {
-	nodeMeta.Metadata = FilterNodeMetaEntries(nodeMeta.Metadata, attrSelector, section)
-	return nodeMeta
-}
-
-func FilterNodeMetaEntries(entries []meta.Entry, attrSelector attributes.Selection, section attributes.Section) []meta.Entry {
-	if len(entries) == 0 {
-		return nil
-	}
-
-	patterns, ok := targetInfoSelection(attrSelector, section)
-	if !ok {
-		return entries
-	}
-
-	filtered := make([]meta.Entry, 0, len(entries))
-	for _, entry := range entries {
-		normalizedAttrName := strings.ReplaceAll(string(entry.Key), ".", "_")
-		if shouldIncludeAttribute(normalizedAttrName, patterns) {
-			filtered = append(filtered, entry)
-		}
-	}
-	return filtered
-}
-
-func targetInfoSelection(attrSelector attributes.Selection, section attributes.Section) ([]attributes.InclusionLists, bool) {
+func resourceSelection(attrSelector attributes.Selection) ([]attributes.InclusionLists, bool) {
 	if attrSelector == nil {
 		return nil, false
 	}
 
-	if incl, ok := attrSelector[section]; ok {
+	if incl, ok := attrSelector[attributes.Resource.Section]; ok {
 		return []attributes.InclusionLists{incl}, true
 	}
 	return nil, false
 }
 
-func GetResourceAttrs(nodeMeta *meta.NodeMeta, service *svc.Attrs) []attribute.KeyValue {
+func ResourceAttributeSelected(name string, attrSelector attributes.Selection) bool {
+	patterns, ok := resourceSelection(attrSelector)
+	if !ok {
+		return true
+	}
+
+	normalizedAttrName := strings.ReplaceAll(name, ".", "_")
+	return shouldIncludeAttribute(normalizedAttrName, patterns)
+}
+
+func FilterResourceAttrs(attrs []attribute.KeyValue, attrSelector ...attributes.Selection) []attribute.KeyValue {
+	if len(attrs) == 0 || len(attrSelector) == 0 {
+		return attrs
+	}
+
+	patterns, ok := resourceSelection(attrSelector[0])
+	if !ok {
+		return attrs
+	}
+	return filterAttributes(attrs, patterns)
+}
+
+func GetResourceAttrs(nodeMeta *meta.NodeMeta, service *svc.Attrs, attrSelector ...attributes.Selection) []attribute.KeyValue {
+	return FilterResourceAttrs(resourceAttrs(nodeMeta, service), attrSelector...)
+}
+
+func resourceAttrs(nodeMeta *meta.NodeMeta, service *svc.Attrs) []attribute.KeyValue {
 	attrs := []attribute.KeyValue{
 		semconv.ServiceName(service.UID.Name),
 		// SpanMetrics requires an extra attribute besides service name
@@ -543,14 +540,14 @@ func parseOTELEnvVar(svc *svc.Attrs, varName string, handler attributes.VarHandl
 	attributes.ParseOTELResourceVariable(expandedValue, handler)
 }
 
-func ResourceAttrsFromEnv(svc *svc.Attrs) []attribute.KeyValue {
+func ResourceAttrsFromEnv(svc *svc.Attrs, attrSelector ...attributes.Selection) []attribute.KeyValue {
 	var otelResourceAttrs []attribute.KeyValue
 	apply := func(k string, v string) {
 		otelResourceAttrs = append(otelResourceAttrs, attribute.String(k, v))
 	}
 
 	parseOTELEnvVar(svc, envResourceAttrs, apply)
-	return otelResourceAttrs
+	return FilterResourceAttrs(otelResourceAttrs, attrSelector...)
 }
 
 func ResolveOTLPEndpoint(endpoint, common string) (string, bool) {

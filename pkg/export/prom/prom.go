@@ -269,10 +269,10 @@ type metricsReporter struct {
 
 	shouldAddExemplar func(*request.Span) bool
 
-	kubeEnabled    bool
-	dockerEnabled  bool
-	nodeMeta       meta.NodeMeta
-	tracesNodeMeta meta.NodeMeta
+	kubeEnabled         bool
+	dockerEnabled       bool
+	nodeMeta            meta.NodeMeta
+	userAttribSelection attributes.Selection
 
 	serviceMap  map[svc.UID]svc.Attrs
 	pidsTracker otel.PidServiceTracker
@@ -454,8 +454,6 @@ func newReporter(
 	// executable inspector
 	extraMetadataLabels := parseExtraMetadata(cfg.ExtraResourceLabels)
 	extraSpanMetadataLabels := parseExtraMetadata(cfg.ExtraSpanResourceLabels)
-	nodeMeta := otelcfg.FilterNodeMetaForSection(ctxInfo.NodeMeta, selectorCfg.SelectionCfg, attributes.TargetInfo.Section)
-	tracesNodeMeta := otelcfg.FilterNodeMetaForSection(ctxInfo.NodeMeta, selectorCfg.SelectionCfg, attributes.TracesTargetInfo.Section)
 	var inputCh <-chan []request.Span
 	if input != nil {
 		inputCh = input.Subscribe(msg.SubscriberName("prom.InputSpans"))
@@ -477,8 +475,8 @@ func newReporter(
 		dockerEnabled:              dockerEnabled,
 		extraMetadataLabels:        extraMetadataLabels,
 		extraSpanMetadataLabels:    extraSpanMetadataLabels,
-		nodeMeta:                   nodeMeta,
-		tracesNodeMeta:             tracesNodeMeta,
+		nodeMeta:                   ctxInfo.NodeMeta,
+		userAttribSelection:        selectorCfg.SelectionCfg,
 		is:                         is,
 		promConnect:                ctxInfo.Prometheus,
 		shouldAddExemplar:          exemplarFilter(cfg.ExemplarFilter),
@@ -659,7 +657,7 @@ func newReporter(
 			return prometheus.NewGaugeVec(prometheus.GaugeOpts{
 				Name: TracesTargetInfo,
 				Help: "target service information in trace span metric format",
-			}, labelNamesTargetInfo(kubeEnabled, dockerEnabled, &tracesNodeMeta, extraMetadataLabels))
+			}, labelNamesTargetInfo(kubeEnabled, dockerEnabled, &ctxInfo.NodeMeta, extraMetadataLabels, selectorCfg.SelectionCfg))
 		}),
 		tracesHostInfo: optionalGaugeProvider(jointMetricsConfig.Features.AppHost(), func() *Expirer[prometheus.Gauge] {
 			return NewExpirer[prometheus.Gauge](prometheus.NewGaugeVec(prometheus.GaugeOpts{
@@ -702,7 +700,7 @@ func newReporter(
 		targetInfo: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: TargetInfo,
 			Help: "attributes associated to a given monitored entity",
-		}, labelNamesTargetInfo(kubeEnabled, dockerEnabled, &nodeMeta, extraMetadataLabels)),
+		}, labelNamesTargetInfo(kubeEnabled, dockerEnabled, &ctxInfo.NodeMeta, extraMetadataLabels, selectorCfg.SelectionCfg)),
 		cudaKernelCallsTotal: optionalCounterProvider(is.GPUEnabled(), func() *Expirer[prometheus.Counter] {
 			return NewExpirer[prometheus.Counter](prometheus.NewCounterVec(prometheus.CounterOpts{
 				Name: attributes.GPUCudaKernelLaunchCalls.Prom,
@@ -786,7 +784,7 @@ func newReporter(
 
 	if jointMetricsConfig.Features.AppRuntime() {
 		mr.goRuntimeMetrics = newGoRuntimeMetricsCollector(
-			labelNamesTargetInfo(kubeEnabled, dockerEnabled, &nodeMeta, extraMetadataLabels),
+			labelNamesTargetInfo(kubeEnabled, dockerEnabled, &ctxInfo.NodeMeta, extraMetadataLabels, selectorCfg.SelectionCfg),
 		)
 	}
 
@@ -1187,45 +1185,6 @@ func (r *metricsReporter) observe(span *request.Span) {
 	}
 }
 
-func appendK8sLabelNames(names []string) []string {
-	names = append(names, k8sNamespaceName, k8sPodName, k8sContainerName, k8sNodeName, k8sPodUID, k8sPodStartTime,
-		k8sDeploymentName, k8sReplicaSetName, k8sStatefulSetName, k8sJobName, k8sCronJobName, k8sDaemonSetName, k8sClusterName, k8sKind, k8sOwnerName)
-	return names
-}
-
-func appendK8sLabelValuesService(values []string, service *svc.Attrs) []string {
-	// must follow the order in appendK8sLabelNames
-	values = append(values,
-		service.Metadata[attr.K8sNamespaceName],
-		service.Metadata[attr.K8sPodName],
-		service.Metadata[attr.K8sContainerName],
-		service.Metadata[attr.K8sNodeName],
-		service.Metadata[attr.K8sPodUID],
-		service.Metadata[attr.K8sPodStartTime],
-		service.Metadata[attr.K8sDeploymentName],
-		service.Metadata[attr.K8sReplicaSetName],
-		service.Metadata[attr.K8sStatefulSetName],
-		service.Metadata[attr.K8sJobName],
-		service.Metadata[attr.K8sCronJobName],
-		service.Metadata[attr.K8sDaemonSetName],
-		service.Metadata[attr.K8sClusterName],
-		service.Metadata[attr.K8sKind],
-		service.Metadata[attr.K8sOwnerName],
-	)
-	return values
-}
-
-func appendDockerLabelNames(names []string) []string {
-	return append(names, attr.ContainerID.Prom(), attr.ContainerName.Prom())
-}
-
-func appendDockerLabelValuesService(values []string, service *svc.Attrs) []string {
-	return append(values,
-		service.Metadata[attr.ContainerID],
-		service.Metadata[attr.ContainerName],
-	)
-}
-
 func labelNamesSpans(extraMetadataLabelNames []attr.Name) []string {
 	names := []string{
 		serviceNameKey,
@@ -1266,36 +1225,82 @@ func (r *metricsReporter) labelValuesSpans(span *request.Span) []string {
 	return values
 }
 
-func labelNamesTargetInfo(kubeEnabled, dockerEnabled bool, nodeMeta *meta.NodeMeta, extraMetadataLabelNames []attr.Name) []string {
-	names := []string{
-		hostIDKey,
-		hostNameKey,
-		serviceNameKey,
-		serviceNamespaceKey,
-		serviceInstanceKey,
-		serviceJobKey,
-		telemetryLanguageKey,
-		telemetrySDKKey,
-		telemetrySDKVersion,
-		telemetryDistroNameKey,
-		telemetryDistroVersion,
-		sourceKey,
-		osTypeKey,
+type targetInfoResourceLabel struct {
+	name  attr.Name
+	value string
+}
+
+func baseTargetInfoLabelNames() []attr.Name {
+	return []attr.Name{
+		attr.HostID,
+		attr.HostName,
+		attr.ServiceName,
+		attr.ServiceNamespace,
+		attr.Instance,
+		attr.Job,
+		attr.TelemetrySDKLanguage,
+		attr.Name("telemetry.sdk.name"),
+		attr.Name("telemetry.sdk.version"),
+		attr.Name("telemetry.distro.name"),
+		attr.Name("telemetry.distro.version"),
+		attr.Source,
+		attr.Name("os.type"),
 	}
+}
+
+func k8sTargetInfoLabelNames() []attr.Name {
+	return []attr.Name{
+		attr.K8sNamespaceName,
+		attr.K8sPodName,
+		attr.K8sContainerName,
+		attr.K8sNodeName,
+		attr.K8sPodUID,
+		attr.K8sPodStartTime,
+		attr.K8sDeploymentName,
+		attr.K8sReplicaSetName,
+		attr.K8sStatefulSetName,
+		attr.K8sJobName,
+		attr.K8sCronJobName,
+		attr.K8sDaemonSetName,
+		attr.K8sClusterName,
+		attr.K8sKind,
+		attr.K8sOwnerName,
+	}
+}
+
+func targetInfoLabelNames(kubeEnabled, dockerEnabled bool, nodeMeta *meta.NodeMeta, extraMetadataLabelNames []attr.Name) []attr.Name {
+	names := baseTargetInfoLabelNames()
 
 	if kubeEnabled {
-		names = appendK8sLabelNames(names)
+		names = append(names, k8sTargetInfoLabelNames()...)
 	}
 	if dockerEnabled {
-		names = appendDockerLabelNames(names)
+		names = append(names, attr.ContainerID, attr.ContainerName)
 	}
 
 	for _, entry := range nodeMeta.Metadata {
-		names = append(names, entry.Key.Prom())
+		names = append(names, entry.Key)
 	}
 
 	for _, mdn := range extraMetadataLabelNames {
-		names = append(names, mdn.Prom())
+		names = append(names, mdn)
+	}
+
+	return names
+}
+
+func labelNamesTargetInfo(
+	kubeEnabled, dockerEnabled bool,
+	nodeMeta *meta.NodeMeta,
+	extraMetadataLabelNames []attr.Name,
+	attrSelector attributes.Selection,
+) []string {
+	labelNames := targetInfoLabelNames(kubeEnabled, dockerEnabled, nodeMeta, extraMetadataLabelNames)
+	names := make([]string, 0, len(labelNames))
+	for _, name := range labelNames {
+		if otelcfg.ResourceAttributeSelected(string(name), attrSelector) {
+			names = append(names, name.Prom())
+		}
 	}
 
 	return names
@@ -1305,41 +1310,49 @@ func (r *metricsReporter) labelValuesTargetInfo(service *svc.Attrs) []string {
 	return r.labelValuesForNodeMeta(service, &r.nodeMeta)
 }
 
-func (r *metricsReporter) labelValuesTracesTargetInfo(service *svc.Attrs) []string {
-	return r.labelValuesForNodeMeta(service, &r.tracesNodeMeta)
-}
-
 func (r *metricsReporter) labelValuesForNodeMeta(service *svc.Attrs, nodeMeta *meta.NodeMeta) []string {
-	values := []string{
-		nodeMeta.HostID,
-		service.HostName,
-		service.UID.Name,
-		service.UID.Namespace,
-		service.UID.Instance, // app instance ID
-		service.Job(),
-		service.SDKLanguage.String(),
-		attr.VendorSDKName,
-		attr.VendorSDKVersion,
-		attr.TelemetryDistroName,
-		attr.TelemetryDistroVersion,
-		attr.VendorPrefix,
-		"linux",
+	labels := []targetInfoResourceLabel{
+		{name: attr.HostID, value: nodeMeta.HostID},
+		{name: attr.HostName, value: service.HostName},
+		{name: attr.ServiceName, value: service.UID.Name},
+		{name: attr.ServiceNamespace, value: service.UID.Namespace},
+		{name: attr.Instance, value: service.UID.Instance}, // app instance ID
+		{name: attr.Job, value: service.Job()},
+		{name: attr.TelemetrySDKLanguage, value: service.SDKLanguage.String()},
+		{name: attr.Name("telemetry.sdk.name"), value: attr.VendorSDKName},
+		{name: attr.Name("telemetry.sdk.version"), value: attr.VendorSDKVersion},
+		{name: attr.Name("telemetry.distro.name"), value: attr.TelemetryDistroName},
+		{name: attr.Name("telemetry.distro.version"), value: attr.TelemetryDistroVersion},
+		{name: attr.Source, value: attr.VendorPrefix},
+		{name: attr.Name("os.type"), value: "linux"},
 	}
 
 	if r.kubeEnabled {
-		values = appendK8sLabelValuesService(values, service)
+		for _, name := range k8sTargetInfoLabelNames() {
+			labels = append(labels, targetInfoResourceLabel{name: name, value: service.Metadata[name]})
+		}
 	}
 
 	if r.dockerEnabled {
-		values = appendDockerLabelValuesService(values, service)
+		labels = append(labels,
+			targetInfoResourceLabel{name: attr.ContainerID, value: service.Metadata[attr.ContainerID]},
+			targetInfoResourceLabel{name: attr.ContainerName, value: service.Metadata[attr.ContainerName]},
+		)
 	}
 
 	for _, entry := range nodeMeta.Metadata {
-		values = append(values, entry.Value)
+		labels = append(labels, targetInfoResourceLabel{name: entry.Key, value: entry.Value})
 	}
 
 	for _, k := range r.extraMetadataLabels {
-		values = append(values, service.Metadata[k])
+		labels = append(labels, targetInfoResourceLabel{name: k, value: service.Metadata[k]})
+	}
+
+	values := make([]string, 0, len(labels))
+	for _, label := range labels {
+		if otelcfg.ResourceAttributeSelected(string(label.name), r.userAttribSelection) {
+			values = append(values, label.value)
+		}
 	}
 
 	return values
@@ -1389,7 +1402,7 @@ func (r *metricsReporter) createTracesTargetInfo(service *svc.Attrs) {
 	if !service.Features.AnySpanMetrics() {
 		return
 	}
-	targetInfoLabelValues := r.labelValuesTracesTargetInfo(service)
+	targetInfoLabelValues := r.labelValuesTargetInfo(service)
 	r.tracesTargetInfo.WithLabelValues(targetInfoLabelValues...).Set(1)
 }
 
@@ -1410,7 +1423,7 @@ func (r *metricsReporter) deleteTracesTargetInfoMetric(service *svc.Attrs) {
 	if !service.Features.AnySpanMetrics() {
 		return
 	}
-	targetInfoLabelValues := r.labelValuesTracesTargetInfo(service)
+	targetInfoLabelValues := r.labelValuesTargetInfo(service)
 	r.tracesTargetInfo.DeleteLabelValues(targetInfoLabelValues...)
 }
 

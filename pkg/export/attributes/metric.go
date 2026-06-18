@@ -164,15 +164,10 @@ var (
 		Prom:    "go_config_gogc_percent",
 		OTEL:    "go.config.gogc",
 	}
-	TargetInfo = Name{
-		Section: "target.info",
-		Prom:    "target_info",
-		OTEL:    "target_info",
-	}
-	TracesTargetInfo = Name{
-		Section: "traces.target.info",
-		Prom:    "traces_target_info",
-		OTEL:    "traces_target_info",
+	Resource = Name{
+		Section: "resource",
+		Prom:    "resource",
+		OTEL:    "resource",
 	}
 	StatTCPRtt = Name{
 		Section: "obi.stat.tcp.rtt",

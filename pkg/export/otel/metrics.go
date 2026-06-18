@@ -72,7 +72,6 @@ type MetricsReporter struct {
 	cfg              *otelcfg.MetricsConfig
 	jointMetricsCfg  *perapp.MetricsConfig
 	nodeMeta         meta.NodeMeta
-	tracesNodeMeta   meta.NodeMeta
 	attributes       *attributes.AttrSelector
 	exporter         sdkmetric.Exporter
 	reporters        otelcfg.ReporterPool[*svc.Attrs, *Metrics]
@@ -222,8 +221,7 @@ func newMetricsReporter(
 		is:                  is,
 		targetMetrics:       map[svc.UID]*TargetMetrics{},
 		attributes:          attribProvider,
-		nodeMeta:            otelcfg.FilterNodeMetaForSection(ctxInfo.NodeMeta, selectorCfg.SelectionCfg, attributes.TargetInfo.Section),
-		tracesNodeMeta:      otelcfg.FilterNodeMetaForSection(ctxInfo.NodeMeta, selectorCfg.SelectionCfg, attributes.TracesTargetInfo.Section),
+		nodeMeta:            ctxInfo.NodeMeta,
 		input:               input.Subscribe(msg.SubscriberName("otelMetrics.InputSpans")),
 		processEvents:       processEventCh.Subscribe(msg.SubscriberName("otelMetrics.ProcessEvents")),
 		userAttribSelection: selectorCfg.SelectionCfg,
@@ -695,6 +693,7 @@ func (mr *MetricsReporter) newMetricsInstance(service *svc.Attrs) Metrics {
 	if service != nil {
 		mlog = mlog.With("service", service)
 		resourceAttributes = append(otelcfg.GetAppResourceAttrs(&mr.nodeMeta, service), otelcfg.ResourceAttrsFromEnv(service)...)
+		resourceAttributes = otelcfg.FilterResourceAttrs(resourceAttributes, mr.userAttribSelection)
 	}
 	mlog.Debug("creating new Metrics reporter")
 	resources := resource.NewWithAttributes(semconv.SchemaURL, resourceAttributes...)
@@ -851,17 +850,18 @@ func (mr *MetricsReporter) tracesResourceAttributes(service *svc.Attrs) attribut
 		semconv.OSTypeKey.String("linux"),
 	}
 
-	extraAttrs := make([]attribute.KeyValue, 0, len(service.Metadata)+len(mr.tracesNodeMeta.Metadata)+1)
-	extraAttrs = append(extraAttrs, semconv.HostID(mr.tracesNodeMeta.HostID))
+	extraAttrs := make([]attribute.KeyValue, 0, len(service.Metadata)+len(mr.nodeMeta.Metadata)+1)
+	extraAttrs = append(extraAttrs, semconv.HostID(mr.nodeMeta.HostID))
 	for k, v := range service.Metadata {
 		extraAttrs = append(extraAttrs, k.OTEL().String(v))
 	}
 
-	for _, entry := range mr.tracesNodeMeta.Metadata {
+	for _, entry := range mr.nodeMeta.Metadata {
 		extraAttrs = append(extraAttrs, entry.Key.OTEL().String(entry.Value))
 	}
 
 	filteredAttrs := otelcfg.GetFilteredAttributesByPrefix(baseAttrs, mr.userAttribSelection, extraAttrs, MetricTypes)
+	filteredAttrs = otelcfg.FilterResourceAttrs(filteredAttrs, mr.userAttribSelection)
 	return attribute.NewSet(filteredAttrs...)
 }
 
@@ -1156,7 +1156,8 @@ func (mr *MetricsReporter) resourceAttrsForService(service *svc.Attrs) []attribu
 	}
 
 	attrs = append(attrs, otelcfg.GetAppResourceAttrs(&mr.nodeMeta, service)...)
-	return append(attrs, otelcfg.ResourceAttrsFromEnv(service)...)
+	attrs = append(attrs, otelcfg.ResourceAttrsFromEnv(service)...)
+	return otelcfg.FilterResourceAttrs(attrs, mr.userAttribSelection)
 }
 
 func (mr *MetricsReporter) ensureTargetMetrics(service *svc.Attrs) *TargetMetrics {

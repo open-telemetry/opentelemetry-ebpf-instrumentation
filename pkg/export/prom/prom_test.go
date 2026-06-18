@@ -85,8 +85,8 @@ func TestAppMetricsExpiration(t *testing.T) {
 				attributes.HTTPServerDuration.Section: attributes.InclusionLists{
 					Include: []string{"url_path", "k8s.app.version"},
 				},
-				attributes.TargetInfo.Section: attributes.InclusionLists{
-					Exclude: []string{"cloud.account.id"},
+				attributes.Resource.Section: attributes.InclusionLists{
+					Exclude: []string{"cloud.account.id", "k8s.pod.name"},
 				},
 			},
 			ExtraGroupAttributesCfg: map[string][]attr.Name{
@@ -109,7 +109,10 @@ func TestAppMetricsExpiration(t *testing.T) {
 	svcAttrs001 := svc.Attrs{
 		Features: svcAttrs.Features,
 		UID:      svcAttrs.UID,
-		Metadata: map[attr.Name]string{"k8s.app.version": "v0.0.1"},
+		Metadata: map[attr.Name]string{
+			attr.K8sPodName:   "pod-1",
+			"k8s.app.version": "v0.0.1",
+		},
 	}
 
 	app := exec.New(exec.Init{
@@ -134,6 +137,7 @@ func TestAppMetricsExpiration(t *testing.T) {
 	containsTargetInfo := regexp.MustCompile(`\ntarget_info\{.*host_id="my-host"`)
 	containsTargetInfoCloudRegion := regexp.MustCompile(`\ntarget_info\{.*cloud_region="us-east-1"`)
 	containsTargetInfoCloudAccount := regexp.MustCompile(`\ntarget_info\{[^\n]*cloud_account_id=`)
+	containsTargetInfoK8sPod := regexp.MustCompile(`\ntarget_info\{[^\n]*k8s_pod_name=`)
 	containsTargetInfoSDKVersion := regexp.MustCompile(`\ntarget_info\{.*telemetry_sdk_version=.*`)
 	containsTracesHostInfo := regexp.MustCompile(`\ntraces_host_info\{.*cloud_host_id="my-host"`)
 	containsJob := regexp.MustCompile(`http_server_response_body_size_bytes_count\{.*job="default/test-app".*`)
@@ -147,6 +151,7 @@ func TestAppMetricsExpiration(t *testing.T) {
 		assert.Regexp(ct, containsTargetInfo, exported)
 		assert.Regexp(ct, containsTargetInfoCloudRegion, exported)
 		assert.NotRegexp(ct, containsTargetInfoCloudAccount, exported)
+		assert.NotRegexp(ct, containsTargetInfoK8sPod, exported)
 		assert.Regexp(ct, containsTargetInfoSDKVersion, exported)
 		assert.Regexp(ct, containsTracesHostInfo, exported)
 		assert.Regexp(ct, containsJob, exported)

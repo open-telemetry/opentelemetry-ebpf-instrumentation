@@ -38,6 +38,7 @@ type RuntimeMetricsReporter struct {
 	reporters otelcfg.ReporterPool[*svc.Attrs, *RuntimeMetrics]
 	input     <-chan []runtimemetrics.RuntimeMetricSnapshot
 	log       *slog.Logger
+	selector  attributes.Selection
 }
 
 type RuntimeMetrics struct {
@@ -99,10 +100,11 @@ func newRuntimeMetricsReporter(
 	reporter := &RuntimeMetricsReporter{
 		ctx:      ctx,
 		cfg:      cfg,
-		nodeMeta: otelcfg.FilterNodeMetaForSection(ctxInfo.NodeMeta, selectorCfg.SelectionCfg, attributes.TargetInfo.Section),
+		nodeMeta: ctxInfo.NodeMeta,
 		exporter: instrumentMetricsExporter(ctxInfo.Metrics, exporter),
 		input:    input.Subscribe(msg.SubscriberName("otel.RuntimeMetricsReporter")),
 		log:      log,
+		selector: selectorCfg.SelectionCfg,
 	}
 
 	reporter.reporters, err = otelcfg.NewReporterPool[*svc.Attrs, *RuntimeMetrics](cfg.ReportersCacheLen, cfg.TTL, timeNow,
@@ -129,6 +131,7 @@ func (r *RuntimeMetricsReporter) newMetricsInstance(service *svc.Attrs) RuntimeM
 	if service != nil {
 		log = log.With("service", service)
 		resourceAttributes = append(otelcfg.GetAppResourceAttrs(&r.nodeMeta, service), otelcfg.ResourceAttrsFromEnv(service)...)
+		resourceAttributes = otelcfg.FilterResourceAttrs(resourceAttributes, r.selector)
 	}
 	log.Debug("creating new runtime metrics reporter")
 

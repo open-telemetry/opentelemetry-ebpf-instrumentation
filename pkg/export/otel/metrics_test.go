@@ -1099,7 +1099,6 @@ func TestMetricResourceAttributes(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			mr := &MetricsReporter{
 				nodeMeta:            meta.NodeMeta{HostID: "test-host-id"},
-				tracesNodeMeta:      meta.NodeMeta{HostID: "test-host-id"},
 				userAttribSelection: tc.attributeSelect,
 			}
 
