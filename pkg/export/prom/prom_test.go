@@ -110,7 +110,6 @@ func TestAppMetricsExpiration(t *testing.T) {
 		Features: svcAttrs.Features,
 		UID:      svcAttrs.UID,
 		Metadata: map[attr.Name]string{
-			attr.K8sPodName:   "pod-1",
 			"k8s.app.version": "v0.0.1",
 		},
 	}

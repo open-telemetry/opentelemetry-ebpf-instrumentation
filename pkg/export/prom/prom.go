@@ -65,37 +65,13 @@ const (
 	serviceNameKey      = "service_name"
 	serviceNamespaceKey = "service_namespace"
 
-	hostIDKey   = "host_id"
-	hostNameKey = "host_name"
-	osTypeKey   = "os_type"
-
-	k8sNamespaceName   = "k8s_namespace_name"
-	k8sPodName         = "k8s_pod_name"
-	k8sContainerName   = "k8s_container_name"
-	k8sDeploymentName  = "k8s_deployment_name"
-	k8sStatefulSetName = "k8s_statefulset_name"
-	k8sReplicaSetName  = "k8s_replicaset_name"
-	k8sDaemonSetName   = "k8s_daemonset_name"
-	k8sJobName         = "k8s_job_name"
-	k8sCronJobName     = "k8s_cronjob_name"
-	k8sNodeName        = "k8s_node_name"
-	k8sPodUID          = "k8s_pod_uid"
-	k8sPodStartTime    = "k8s_pod_start_time"
-	k8sClusterName     = "k8s_cluster_name"
-	k8sKind            = "k8s_kind"
-	k8sOwnerName       = "k8s_owner_name"
-
-	spanNameKey            = "span_name"
-	statusCodeKey          = "status_code"
-	spanKindKey            = "span_kind"
-	serviceInstanceKey     = "instance"
-	serviceJobKey          = "job"
-	sourceKey              = "source"
-	telemetryLanguageKey   = "telemetry_sdk_language"
-	telemetrySDKKey        = "telemetry_sdk_name"
-	telemetrySDKVersion    = "telemetry_sdk_version"
-	telemetryDistroNameKey = "telemetry_distro_name"
-	telemetryDistroVersion = "telemetry_distro_version"
+	spanNameKey          = "span_name"
+	statusCodeKey        = "status_code"
+	spanKindKey          = "span_kind"
+	serviceInstanceKey   = "instance"
+	serviceJobKey        = "job"
+	sourceKey            = "source"
+	telemetryLanguageKey = "telemetry_sdk_language"
 )
 
 // metrics for OBI statistics
@@ -1282,9 +1258,7 @@ func targetInfoLabelNames(kubeEnabled, dockerEnabled bool, nodeMeta *meta.NodeMe
 		names = append(names, entry.Key)
 	}
 
-	for _, mdn := range extraMetadataLabelNames {
-		names = append(names, mdn)
-	}
+	names = append(names, extraMetadataLabelNames...)
 
 	return names
 }
