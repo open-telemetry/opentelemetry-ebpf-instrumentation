@@ -29,6 +29,7 @@ func TestGoChannelLinkProbesRequireChannelOffsets(t *testing.T) {
 	tracer.recordGoChannelOffsetAvailability(
 		exec.New(exec.Init{Ino: 1}),
 		&goexec.Offsets{Field: goexec.FieldOffsets{
+			goexec.HchanQcountPos:   uint64(0),
 			goexec.HchanDataqsizPos: uint64(8),
 			goexec.HchanSendxPos:    uint64(48),
 		}},
@@ -62,6 +63,7 @@ func TestProcessBinarySelectsRecordedChannelOffsetState(t *testing.T) {
 
 func goChannelOffsets() *goexec.Offsets {
 	return &goexec.Offsets{Field: goexec.FieldOffsets{
+		goexec.HchanQcountPos:   uint64(0),
 		goexec.HchanDataqsizPos: uint64(8),
 		goexec.HchanSendxPos:    uint64(48),
 		goexec.HchanRecvxPos:    uint64(56),

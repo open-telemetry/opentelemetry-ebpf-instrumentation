@@ -14,13 +14,21 @@
 #include <gotracer/go_constants.h>
 #include <pid/types/pid_info.h>
 
-typedef struct chan_func_invocation {
-    u64 chan_ptr;
-} chan_func_invocation_t;
-
 typedef struct chan_handoff {
     tp_info_t tp;
 } chan_handoff_t;
+
+typedef struct chan_func_invocation {
+    u64 chan_ptr;
+    chan_handoff_t handoff;
+    bool has_handoff;
+    u8 _pad[7];
+} chan_func_invocation_t;
+
+typedef struct chan_handoff_key {
+    go_addr_key_t chan;
+    u64 slot;
+} chan_handoff_key_t;
 
 typedef struct direct_chan_handoff {
     chan_handoff_t handoff;
@@ -50,6 +58,14 @@ struct {
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
     __uint(pinning, OBI_PIN_INTERNAL);
 } chanrecv_invocations SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __type(key, chan_handoff_key_t);
+    __type(value, chan_handoff_t);
+    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
+    __uint(pinning, OBI_PIN_INTERNAL);
+} buffered_channel_senders SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);

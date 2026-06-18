@@ -283,6 +283,7 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 		// go manual spans
 		goexec.GoTracerDelegatePos,
 		// go runtime channels
+		goexec.HchanQcountPos,
 		goexec.HchanDataqsizPos,
 		goexec.HchanSendxPos,
 		goexec.HchanRecvxPos,
