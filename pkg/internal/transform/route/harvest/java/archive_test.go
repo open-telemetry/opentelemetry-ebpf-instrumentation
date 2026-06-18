@@ -5,6 +5,7 @@ package java
 
 import (
 	"archive/zip"
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -83,7 +84,7 @@ func TestScanDir(t *testing.T) {
 	writeClassFixture(t, filepath.Join(root, "com", "example", "ignored.txt"), "com/example/JaxController.class")
 
 	extractor := NewExtractor()
-	extractor.scanDir(root)
+	require.NoError(t, extractor.scanDir(context.Background(), root))
 
 	assert.ElementsMatch(t, springControllerRoutes, mapKeys(extractor.routes))
 	assert.Equal(t, 1, extractor.classesScanned)
@@ -94,8 +95,20 @@ func TestScanDirSkipsOversizedClassFiles(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(root, "Large.class"), make([]byte, MaxJavaClassScanBytes+1), 0o644))
 
 	extractor := NewExtractor()
-	extractor.scanDir(root)
+	require.NoError(t, extractor.scanDir(context.Background(), root))
 
+	assert.Empty(t, extractor.routes)
+	assert.Zero(t, extractor.classesScanned)
+}
+
+func TestScanDirReturnsContextErrorWhenCanceled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	extractor := NewExtractor()
+	err := extractor.scanDir(ctx, t.TempDir())
+
+	require.ErrorIs(t, err, context.Canceled)
 	assert.Empty(t, extractor.routes)
 	assert.Zero(t, extractor.classesScanned)
 }
@@ -110,7 +123,7 @@ func TestScanArchive(t *testing.T) {
 	})
 
 	extractor := NewExtractor()
-	extractor.scanArchive(path)
+	require.NoError(t, extractor.scanArchive(context.Background(), path))
 
 	assert.ElementsMatch(t, springControllerRoutes, mapKeys(extractor.routes))
 	assert.Equal(t, 1, extractor.classesScanned)
@@ -123,8 +136,25 @@ func TestScanArchiveSkipsOversizedClassEntries(t *testing.T) {
 	})
 
 	extractor := NewExtractor()
-	extractor.scanArchive(path)
+	require.NoError(t, extractor.scanArchive(context.Background(), path))
 
+	assert.Empty(t, extractor.routes)
+	assert.Zero(t, extractor.classesScanned)
+}
+
+func TestScanArchiveReturnsContextErrorWhenCanceled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	path := filepath.Join(t.TempDir(), "app.jar")
+	writeZip(t, path, []zipEntry{
+		{name: "com/example/SpringController.class", data: classFixture(t, "com/example/SpringController.class")},
+	})
+
+	extractor := NewExtractor()
+	err := extractor.scanArchive(ctx, path)
+
+	require.ErrorIs(t, err, context.Canceled)
 	assert.Empty(t, extractor.routes)
 	assert.Zero(t, extractor.classesScanned)
 }

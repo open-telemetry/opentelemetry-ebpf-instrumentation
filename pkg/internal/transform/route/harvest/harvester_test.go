@@ -4,6 +4,7 @@
 package harvest
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -21,7 +22,7 @@ import (
 )
 
 // successfulExtractRoutes simulates a successful route extraction
-func successfulExtractRoutes(app.PID) (*RouteHarvesterResult, error) {
+func successfulExtractRoutes(context.Context, app.PID) (*RouteHarvesterResult, error) {
 	return &RouteHarvesterResult{
 		Routes: []string{"/api/users", "/api/orders"},
 		Kind:   CompleteRoutes,
@@ -29,28 +30,28 @@ func successfulExtractRoutes(app.PID) (*RouteHarvesterResult, error) {
 }
 
 // errorExtractRoutes simulates an error during route extraction
-func errorExtractRoutes(app.PID) (*RouteHarvesterResult, error) {
+func errorExtractRoutes(context.Context, app.PID) (*RouteHarvesterResult, error) {
 	return nil, errors.New("failed to connect to Java process")
 }
 
 // timeoutExtractRoutes simulates a slow operation that will timeout
-func timeoutExtractRoutes(app.PID) (*RouteHarvesterResult, error) {
-	// Sleep longer than any reasonable timeout
-	time.Sleep(5 * time.Second)
-	return &RouteHarvesterResult{
-		Routes: []string{"/api/delayed"},
-		Kind:   CompleteRoutes,
-	}, nil
+func timeoutExtractRoutes(ctx context.Context, _ app.PID) (*RouteHarvesterResult, error) {
+	<-ctx.Done()
+	return nil, ctx.Err()
 }
 
 // panicExtractRoutes simulates a panic during route extraction
-func panicExtractRoutes(app.PID) (*RouteHarvesterResult, error) {
+func panicExtractRoutes(context.Context, app.PID) (*RouteHarvesterResult, error) {
 	panic("unexpected error in java route extraction")
 }
 
 // slowButSuccessfulExtractRoutes simulates a slow but successful operation
-func slowButSuccessfulExtractRoutes(app.PID) (*RouteHarvesterResult, error) {
-	time.Sleep(50 * time.Millisecond) // Slow but within timeout
+func slowButSuccessfulExtractRoutes(ctx context.Context, _ app.PID) (*RouteHarvesterResult, error) {
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-time.After(50 * time.Millisecond): // Slow but within timeout
+	}
 	return &RouteHarvesterResult{
 		Routes: []string{"/api/slow"},
 		Kind:   PartialRoutes,
@@ -58,17 +59,25 @@ func slowButSuccessfulExtractRoutes(app.PID) (*RouteHarvesterResult, error) {
 }
 
 // emptyResultExtractRoutes simulates successful extraction with no routes
-func emptyResultExtractRoutes(app.PID) (*RouteHarvesterResult, error) {
+func emptyResultExtractRoutes(context.Context, app.PID) (*RouteHarvesterResult, error) {
 	return &RouteHarvesterResult{
 		Routes: []string{},
 		Kind:   CompleteRoutes,
 	}, nil
 }
 
-func javaExtract(fn func(app.PID) (*RouteHarvesterResult, error)) func(*exec.FileInfo) (*RouteHarvesterResult, error) {
-	return func(fileInfo *exec.FileInfo) (*RouteHarvesterResult, error) {
-		return fn(fileInfo.Pid())
+func javaExtract(fn func(context.Context, app.PID) (*RouteHarvesterResult, error)) func(context.Context, *exec.FileInfo) (*RouteHarvesterResult, error) {
+	return func(ctx context.Context, fileInfo *exec.FileInfo) (*RouteHarvesterResult, error) {
+		return fn(ctx, fileInfo.Pid())
 	}
+}
+
+func successfulNodeExtractRoutes(pid app.PID) (*RouteHarvesterResult, error) {
+	return successfulExtractRoutes(context.Background(), pid)
+}
+
+func errorNodeExtractRoutes(pid app.PID) (*RouteHarvesterResult, error) {
+	return errorExtractRoutes(context.Background(), pid)
 }
 
 func createTestFileInfo(language svc.InstrumentableType) *exec.FileInfo {
@@ -130,6 +139,24 @@ func TestHarvestRoutes_Timeout(t *testing.T) {
 	assert.Greater(t, elapsed, 90*time.Millisecond)
 }
 
+func TestHarvestRoutes_ContextDeadlineResultReturnsTimeout(t *testing.T) {
+	harvester := NewRouteHarvester(&services.RouteHarvestingConfig{}, []services.RouteHarvesterLanguage{}, 1*time.Second)
+	harvester.javaExtractRoutes = func(context.Context, *exec.FileInfo) (*RouteHarvesterResult, error) {
+		return nil, context.DeadlineExceeded
+	}
+
+	fileInfo := createTestFileInfo(svc.InstrumentableJava)
+
+	result, err := harvester.HarvestRoutes(fileInfo)
+
+	require.Error(t, err)
+	assert.Nil(t, result)
+
+	var harvestErr *HarvestError
+	require.ErrorAs(t, err, &harvestErr)
+	assert.Equal(t, "route harvesting timed out", harvestErr.Message)
+}
+
 func TestHarvestRoutes_Panic(t *testing.T) {
 	harvester := NewRouteHarvester(&services.RouteHarvestingConfig{}, []services.RouteHarvesterLanguage{}, 1*time.Second)
 	harvester.javaExtractRoutes = javaExtract(panicExtractRoutes)
@@ -178,7 +205,7 @@ func TestHarvestRoutes_EmptyResult(t *testing.T) {
 func TestHarvestRoutes_NonJavaLanguage(t *testing.T) {
 	harvester := NewRouteHarvester(&services.RouteHarvestingConfig{}, []services.RouteHarvesterLanguage{}, 1*time.Second)
 	// javaExtractRoutes should not be called for non-Java languages
-	harvester.javaExtractRoutes = func(_ *exec.FileInfo) (*RouteHarvesterResult, error) {
+	harvester.javaExtractRoutes = func(context.Context, *exec.FileInfo) (*RouteHarvesterResult, error) {
 		t.Fatal("javaExtractRoutes should not be called for non-Java languages")
 		return nil, nil
 	}
@@ -193,7 +220,14 @@ func TestHarvestRoutes_NonJavaLanguage(t *testing.T) {
 
 func TestHarvestRoutes_MultipleTimeouts(t *testing.T) {
 	harvester := NewRouteHarvester(&services.RouteHarvestingConfig{}, []services.RouteHarvesterLanguage{}, 50*time.Millisecond)
-	harvester.javaExtractRoutes = javaExtract(timeoutExtractRoutes)
+
+	exited := make(chan struct{}, 3)
+	harvester.javaExtractRoutes = func(ctx context.Context, fileInfo *exec.FileInfo) (*RouteHarvesterResult, error) {
+		defer func() {
+			exited <- struct{}{}
+		}()
+		return timeoutExtractRoutes(ctx, fileInfo.Pid())
+	}
 
 	fileInfo := createTestFileInfo(svc.InstrumentableJava)
 
@@ -208,11 +242,15 @@ func TestHarvestRoutes_MultipleTimeouts(t *testing.T) {
 		require.ErrorAs(t, err, &harvestErr, "iteration %d should return HarvestError", i)
 		assert.Equal(t, "route harvesting timed out", harvestErr.Message, "iteration %d should have timeout message", i)
 	}
+
+	require.Eventually(t, func() bool {
+		return len(exited) == 3
+	}, time.Second, time.Millisecond)
 }
 
 func TestHarvestNodejsRoutes_Successful(t *testing.T) {
 	harvester := NewRouteHarvester(&services.RouteHarvestingConfig{}, []services.RouteHarvesterLanguage{}, 1*time.Second)
-	harvester.nodeExtractRoutes = successfulExtractRoutes
+	harvester.nodeExtractRoutes = successfulNodeExtractRoutes
 
 	fileInfo := createTestFileInfo(svc.InstrumentableNodejs)
 
@@ -226,7 +264,7 @@ func TestHarvestNodejsRoutes_Successful(t *testing.T) {
 
 func TestHarvestNodejsRoutes_Error(t *testing.T) {
 	harvester := NewRouteHarvester(&services.RouteHarvestingConfig{}, []services.RouteHarvesterLanguage{}, 1*time.Second)
-	harvester.nodeExtractRoutes = errorExtractRoutes
+	harvester.nodeExtractRoutes = errorNodeExtractRoutes
 
 	fileInfo := createTestFileInfo(svc.InstrumentableNodejs)
 

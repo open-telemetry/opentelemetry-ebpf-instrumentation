@@ -4,6 +4,7 @@
 package java
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -42,7 +43,7 @@ var expectedRoutes = []string{
 func TestExtractRoutesFromSpringBootJar(t *testing.T) {
 	fileInfo := javaFileInfo(t, []string{"-jar", "/spring-boot-app.jar"}, nil)
 
-	routes, err := ExtractRoutes(fileInfo)
+	routes, err := ExtractRoutes(context.Background(), fileInfo)
 
 	require.NoError(t, err)
 	assert.ElementsMatch(t, expectedRoutes, routes)
@@ -55,7 +56,7 @@ func TestExtractRoutesFromSpringBootJar(t *testing.T) {
 func TestExtractRoutesFromWarClasses(t *testing.T) {
 	fileInfo := javaFileInfo(t, []string{"-jar", "/war-app.jar"}, nil)
 
-	routes, err := ExtractRoutes(fileInfo)
+	routes, err := ExtractRoutes(context.Background(), fileInfo)
 
 	require.NoError(t, err)
 	assert.ElementsMatch(t, expectedRoutes, routes)
@@ -66,7 +67,7 @@ func TestExtractRoutesFromExplicitClasspathDirectory(t *testing.T) {
 		envClasspath: "/does-not-exist",
 	})
 
-	routes, err := ExtractRoutes(fileInfo)
+	routes, err := ExtractRoutes(context.Background(), fileInfo)
 
 	require.NoError(t, err)
 	assert.ElementsMatch(t, expectedRoutes, routes)
@@ -77,7 +78,7 @@ func TestExtractRoutesFromEnvClasspath(t *testing.T) {
 		envClasspath: "/classes",
 	})
 
-	routes, err := ExtractRoutes(fileInfo)
+	routes, err := ExtractRoutes(context.Background(), fileInfo)
 
 	require.NoError(t, err)
 	assert.ElementsMatch(t, expectedRoutes, routes)
@@ -86,7 +87,7 @@ func TestExtractRoutesFromEnvClasspath(t *testing.T) {
 func TestExtractRoutesFromSingleClasspathJar(t *testing.T) {
 	fileInfo := javaFileInfo(t, []string{"-cp", "/regular-app.jar", "com.example.Main"}, nil)
 
-	routes, err := ExtractRoutes(fileInfo)
+	routes, err := ExtractRoutes(context.Background(), fileInfo)
 
 	require.NoError(t, err)
 	assert.ElementsMatch(t, expectedRoutes, routes)
@@ -95,7 +96,7 @@ func TestExtractRoutesFromSingleClasspathJar(t *testing.T) {
 func TestExtractRoutesFromMultipleClasspathJars(t *testing.T) {
 	fileInfo := javaFileInfo(t, []string{"-cp", "/regular-app.jar:/spring-boot-app.jar", "com.example.Main"}, nil)
 
-	routes, err := ExtractRoutes(fileInfo)
+	routes, err := ExtractRoutes(context.Background(), fileInfo)
 
 	require.NoError(t, err)
 	assert.ElementsMatch(t, expectedRoutes, routes)
@@ -104,10 +105,20 @@ func TestExtractRoutesFromMultipleClasspathJars(t *testing.T) {
 func TestExtractRoutesFromWildcardClasspathJars(t *testing.T) {
 	fileInfo := javaFileInfo(t, []string{"-cp", "/*", "com.example.Main"}, nil)
 
-	routes, err := ExtractRoutes(fileInfo)
+	routes, err := ExtractRoutes(context.Background(), fileInfo)
 
 	require.NoError(t, err)
 	assert.ElementsMatch(t, expectedRoutes, routes)
+}
+
+func TestExtractRoutesReturnsContextErrorWhenCanceled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	routes, err := ExtractRoutes(ctx, javaFileInfo(t, []string{"-jar", "/spring-boot-app.jar"}, nil))
+
+	require.ErrorIs(t, err, context.Canceled)
+	assert.Nil(t, routes)
 }
 
 func TestSortRoutesPrefersStaticRoutesBeforeWildcardRoutes(t *testing.T) {
