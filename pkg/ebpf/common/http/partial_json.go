@@ -241,116 +241,33 @@ func parseOpenAIInput(body []byte) request.OpenAIInput {
 	return parsed
 }
 
-// extractJSONRawField extracts a top-level JSON array or object value for
-// the given field name using bracket matching. This is a fallback for when
-// json.Unmarshal fails on truncated JSON but the target field's value is
-// complete within the captured bytes.
-//
-// The scan is depth-aware: the key is only matched when we are at the
-// top-level object (depth == 1) and not currently inside a JSON string,
-// which avoids false positives from occurrences nested in strings or
-// inner objects.
+// extractJSONRawField returns the raw value of a top-level field. It works on
+// truncated JSON as long as the target field's value is complete in body.
+// Returns nil if the body isn't a JSON object, the field is absent, or its
+// value is cut off.
 func extractJSONRawField(body []byte, field string) json.RawMessage {
-	keyBytes := []byte(`"` + field + `"`)
+	dec := json.NewDecoder(bytes.NewReader(body))
 
-	depth := 0
-	inString := false
-	escaped := false
-
-	for i := 0; i < len(body); i++ {
-		ch := body[i]
-		if escaped {
-			escaped = false
-			continue
-		}
-		if inString {
-			if ch == '\\' {
-				escaped = true
-				continue
-			}
-			if ch == '"' {
-				inString = false
-			}
-			continue
-		}
-
-		if ch == '"' {
-			if depth == 1 && i+len(keyBytes) <= len(body) && bytes.Equal(body[i:i+len(keyBytes)], keyBytes) {
-				return extractJSONRawValue(body, i+len(keyBytes))
-			}
-			inString = true
-			continue
-		}
-
-		switch ch {
-		case '{', '[':
-			depth++
-		case '}', ']':
-			if depth > 0 {
-				depth--
-			}
-		}
-	}
-
-	return nil
-}
-
-// extractJSONRawValue extracts the JSON object or array value starting after
-// the position of a matched key. It skips whitespace and the colon
-// separator, then uses bracket matching (with string/escape awareness) to
-// find the matching closing bracket. Returns nil for scalar values or when
-// the value is truncated.
-func extractJSONRawValue(body []byte, start int) json.RawMessage {
-	pos := start
-	for pos < len(body) && (body[pos] == ' ' || body[pos] == '\t' || body[pos] == '\n' || body[pos] == '\r' || body[pos] == ':') {
-		pos++
-	}
-	if pos >= len(body) {
+	// Consume the opening '{'.
+	if t, err := dec.Token(); err != nil {
+		return nil
+	} else if d, ok := t.(json.Delim); !ok || d != '{' {
 		return nil
 	}
 
-	open := body[pos]
-	var closeBracket byte
-	switch open {
-	case '[':
-		closeBracket = ']'
-	case '{':
-		closeBracket = '}'
-	default:
-		return nil
-	}
-
-	depth := 0
-	inString := false
-	escaped := false
-	for j := pos; j < len(body); j++ {
-		ch := body[j]
-		if escaped {
-			escaped = false
-			continue
+	for dec.More() {
+		keyTok, err := dec.Token() // object key
+		if err != nil {
+			return nil
 		}
-		if ch == '\\' && inString {
-			escaped = true
-			continue
+		var raw json.RawMessage
+		if err := dec.Decode(&raw); err != nil { // exactly one value
+			return nil
 		}
-		if ch == '"' {
-			inString = !inString
-			continue
-		}
-		if inString {
-			continue
-		}
-		switch ch {
-		case open:
-			depth++
-		case closeBracket:
-			depth--
-			if depth == 0 {
-				return json.RawMessage(body[pos : j+1])
-			}
+		if key, _ := keyTok.(string); key == field {
+			return raw
 		}
 	}
-
 	return nil
 }
 

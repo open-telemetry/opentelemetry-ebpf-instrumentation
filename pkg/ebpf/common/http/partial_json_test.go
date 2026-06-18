@@ -108,10 +108,16 @@ func TestExtractJSONRawField(t *testing.T) {
 		assert.Nil(t, extractJSONRawField(nil, "messages"))
 	})
 
-	t.Run("scalar value returns nil", func(t *testing.T) {
+	t.Run("scalar value", func(t *testing.T) {
 		body := []byte(`{"model":"gpt-4","count":5}`)
 		raw := extractJSONRawField(body, "count")
-		assert.Nil(t, raw)
+		assert.Equal(t, "5", string(raw))
+	})
+
+	t.Run("does not match value as key", func(t *testing.T) {
+		body := []byte(`{"label":"field","field":99}`)
+		raw := extractJSONRawField(body, "field")
+		assert.Equal(t, "99", string(raw))
 	})
 }
 
