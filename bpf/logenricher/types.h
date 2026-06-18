@@ -53,8 +53,13 @@ enum tty_driver_type___new {
 };
 
 enum tty_driver_subtype___new {
+    SYSTEM_TYPE_TTY = 1,
+    SYSTEM_TYPE_CONSOLE,
+    SYSTEM_TYPE_SYSCONS,
+    SYSTEM_TYPE_SYSPTMX,
+
     PTY_TYPE_MASTER = 1,
-    PTY_TYPE_SLAVE = 2,
+    PTY_TYPE_SLAVE,
 
     SERIAL_TYPE_NORMAL = 1,
 };
