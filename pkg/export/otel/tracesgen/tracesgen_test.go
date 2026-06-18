@@ -172,6 +172,30 @@ func TestHTTPServerSpanURLQuery(t *testing.T) {
 		assert.False(t, ok, "url.query should be absent when explicitly excluded")
 	})
 
+	t.Run("url.full keeps scrubbed query even when url.query is excluded", func(t *testing.T) {
+		excludeCfg := &attributes.SelectorConfig{
+			SelectionCfg: attributes.Selection{
+				attributes.Traces.Section: attributes.InclusionLists{
+					Exclude: []string{string(attr.HTTPUrlQuery)},
+				},
+			},
+		}
+		span := &request.Span{
+			Type: request.EventTypeHTTPClient, Method: "GET", Path: "/", FullPath: "/?cmd=BLABLA&sig=secret",
+			Host: "example.com", HostPort: 80, Status: 200,
+		}
+		excludeAttrs, err := UserSelectedAttributes(excludeCfg)
+		require.NoError(t, err)
+		selected := AttrsToMap(TraceAttributesSelector(span, excludeAttrs, "sig"))
+		_, ok := selected.Get("url.query")
+		assert.False(t, ok, "url.query should be absent when excluded")
+		urlFull, ok := selected.Get("url.full")
+		require.True(t, ok, "url.full should be present")
+		assert.Contains(t, urlFull.Str(), "cmd=BLABLA")
+		assert.Contains(t, urlFull.Str(), "sig=REDACTED")
+		assert.NotContains(t, urlFull.Str(), "secret")
+	})
+
 	t.Run("url.path omitted when path is unobservable", func(t *testing.T) {
 		// FastCGI spans with no REQUEST_URI (truncated buffer or older nginx config)
 		// produce Path="". OTel semconv says omit the attribute rather than emit "".

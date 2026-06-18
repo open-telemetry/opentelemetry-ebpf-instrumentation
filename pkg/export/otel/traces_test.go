@@ -1877,7 +1877,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
 
 		attrs := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
-		ensureTraceStrAttr(t, attrs, semconv.URLFullKey, "https://api.example.com/external/api")
+		ensureTraceStrAttr(t, attrs, semconv.URLFullKey, "https://api.example.com/external/api?foo=bar")
 	})
 	t.Run("test HTTP client url.full includes query with opt-in", func(t *testing.T) {
 		span := request.Span{
@@ -1956,7 +1956,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
 
 		attrs := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
-		ensureTraceStrAttr(t, attrs, semconv.URLFullKey, "https://upstream.example.com/external/api")
+		ensureTraceStrAttr(t, attrs, semconv.URLFullKey, "https://upstream.example.com/external/api?foo=bar")
 	})
 	t.Run("test JSON-RPC server span with error", func(t *testing.T) {
 		span := request.Span{
