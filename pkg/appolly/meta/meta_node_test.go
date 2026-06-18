@@ -96,7 +96,7 @@ func TestHostnameFetcher_Disabled(t *testing.T) {
 	defer func() { VendorHostnameAttr = "" }()
 
 	nm, err := hostnameFetcher(t.Context())
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Empty(t, nm.Metadata)
 }
 
@@ -105,7 +105,7 @@ func TestHostnameFetcher_Enabled(t *testing.T) {
 	defer func() { VendorHostnameAttr = "" }()
 
 	nm, err := hostnameFetcher(t.Context())
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	require.Len(t, nm.Metadata, 1)
 	assert.Equal(t, attr.Name("test.host.id"), nm.Metadata[0].Key)
 	assert.NotEmpty(t, nm.Metadata[0].Value)
