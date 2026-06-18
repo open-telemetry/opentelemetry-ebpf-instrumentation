@@ -20,14 +20,13 @@ struct jvm_gc_heap_summary {
     u64 used;
 };
 
-volatile const u8 jvm_runtime_metrics_enabled = 0;
 volatile const u64 jvm_sampling_interval_ns = 0;
 
-static __always_inline bool jvm_should_report(u64 ts, u64 reference_ts) {
-    if (jvm_sampling_interval_ns == 0) {
-        return true;
-    }
+static __always_inline bool jvm_runtime_metrics_are_enabled(void) {
+    return jvm_sampling_interval_ns > 0;
+}
 
+static __always_inline bool jvm_should_report(u64 ts, u64 reference_ts) {
     return ts - reference_ts >= jvm_sampling_interval_ns;
 }
 

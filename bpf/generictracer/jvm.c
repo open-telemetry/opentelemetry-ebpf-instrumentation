@@ -99,7 +99,7 @@ int BPF_UPROBE(obi_uprobe_report_gc_heap_summary,
     (void)ctx;
     (void)clazz;
 
-    if (!jvm_runtime_metrics_enabled) {
+    if (!jvm_runtime_metrics_are_enabled()) {
         return 0;
     }
 
@@ -225,7 +225,7 @@ jvm_read_hotspot_usdt_arg(struct pt_regs *ctx, enum jvm_gc_when_type when, u64 a
 // https://github.com/openjdk/jdk/blob/jdk-21%2B35/src/hotspot/share/services/memoryManager.cpp#L230
 SEC("usdt/hotspot_mem_pool_gc_begin")
 int obi_usdt_hotspot_mem_pool_gc_begin(struct pt_regs *ctx) {
-    if (!jvm_runtime_metrics_enabled) {
+    if (!jvm_runtime_metrics_are_enabled()) {
         return 0;
     }
 
@@ -271,7 +271,7 @@ int obi_usdt_hotspot_mem_pool_gc_begin(struct pt_regs *ctx) {
 // https://github.com/openjdk/jdk/blob/jdk-21%2B35/src/hotspot/share/services/memoryManager.cpp#L263
 SEC("usdt/hotspot_mem_pool_gc_end")
 int obi_usdt_hotspot_mem_pool_gc_end(struct pt_regs *ctx) {
-    if (!jvm_runtime_metrics_enabled) {
+    if (!jvm_runtime_metrics_are_enabled()) {
         return 0;
     }
 

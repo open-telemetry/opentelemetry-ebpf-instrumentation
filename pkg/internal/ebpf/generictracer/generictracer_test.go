@@ -360,6 +360,28 @@ func TestJVMRuntimeMetricsExposeHotSpotUSDTProbes(t *testing.T) {
 	assert.Equal(t, "mem__pool__gc__end", probes["libjvm.so"][1].Name)
 }
 
+func TestJVMRuntimeMetricsConstantOverridesUseSamplingIntervalAsFeatureGate(t *testing.T) {
+	for _, tt := range []struct {
+		name             string
+		enabled          bool
+		samplingInterval time.Duration
+		expectedInterval uint64
+	}{
+		{name: "disabled", samplingInterval: time.Second},
+		{name: "enabled", enabled: true, samplingInterval: 250 * time.Millisecond, expectedInterval: uint64((250 * time.Millisecond).Nanoseconds())},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			tracer := Tracer{cfg: &obi.Config{}}
+			tracer.cfg.JVMRuntimeMetrics.Enabled = tt.enabled
+			tracer.cfg.JVMRuntimeMetrics.SamplingInterval = tt.samplingInterval
+
+			overrides := tracer.constants()
+
+			assert.Equal(t, tt.expectedInterval, overrides["jvm_sampling_interval_ns"])
+		})
+	}
+}
+
 func TestRawJVMEventLayoutsUseGeneratedBPFStructs(t *testing.T) {
 	assert.Equal(t, 48, int(unsafe.Sizeof(BpfJvmGcHeapSummaryEvent{})))
 	assert.Equal(t, 200, int(unsafe.Sizeof(BpfJvmMemPoolGcEvent{})))
