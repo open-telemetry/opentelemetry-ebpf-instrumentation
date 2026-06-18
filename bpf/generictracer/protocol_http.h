@@ -349,10 +349,6 @@ static __always_inline int http_send_large_buffer(http_info_t *req,
                                                   u8 packet_type,
                                                   u8 direction,
                                                   enum large_buf_action action) {
-    if (http_max_captured_bytes > k_large_buf_max_http_captured_bytes) {
-        bpf_dbg_printk("BUG: http_max_captured_bytes exceeds maximum allowed value.");
-    }
-
     const u32 bytes_sent =
         packet_type == PACKET_TYPE_REQUEST ? req->lb_req_bytes : req->lb_res_bytes;
 
