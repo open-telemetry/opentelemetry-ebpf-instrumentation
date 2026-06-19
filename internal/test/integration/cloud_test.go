@@ -183,7 +183,8 @@ func waitUntilReadyToServe(metaURL string) error {
 	startTime := time.Now()
 	// Wait until the container is ready to serve requests
 	for time.Since(startTime) < 30*time.Second {
-		resp, err := http.Get(metaURL)
+		client := &http.Client{Timeout: time.Second}
+		resp, err := client.Get(metaURL)
 		if resp != nil {
 			// avoid leaking connections/fds on multiple iterations
 			_ = resp.Body.Close()
