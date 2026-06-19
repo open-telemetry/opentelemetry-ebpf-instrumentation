@@ -62,7 +62,7 @@ jobs:
             echo "Fetching latest version from ${{ env.REGISTRY }}/${{ env.IMAGE }}..."
           
             # Get authentication token for GHCR
-            TOKEN=$(echo ${{ secrets.GITHUB_TOKEN }} | base64)
+            TOKEN=$(echo ${{ secrets.GITHUB_TOKEN }} | base64 --wrap=0)
           
             # Fetch tags from GHCR API
             TAGS=$(curl -s -H "Authorization: Bearer $TOKEN" \
