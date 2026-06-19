@@ -50,7 +50,10 @@ enum protocol_type {
 };
 
 #define BPF_ANY 0
+
+#ifndef __always_inline
 #define __always_inline inline
+#endif
 
 static void bpf_probe_read(void *dst, u32 size, const void *src) {
     memcpy(dst, src, size);
