@@ -1,6 +1,14 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
+// The way Darwin manages symlinks on temporary folders make tests fail
+// We expect:
+//   /var/folders/nw/...etc...
+// We get:
+//   /private/var/folders/nw/...etc...
+
+//go:build linux
+
 package java
 
 import (
