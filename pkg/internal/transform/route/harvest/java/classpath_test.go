@@ -1,14 +1,6 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-// The way Darwin manages symlinks on temporary folders make tests fail
-// We expect:
-//   /var/folders/nw/...etc...
-// We get:
-//   /private/var/folders/nw/...etc...
-
-//go:build linux
-
 package java
 
 import (
@@ -90,8 +82,19 @@ func TestParseJavaLaunch(t *testing.T) {
 	}
 }
 
-func TestScanRootsFromClasspath(t *testing.T) {
+// The tested logic internally resolves symlinks so in Darwin, we need to check
+// results towards the actual symlinked folder instead of the input folder
+func tmpDir(t *testing.T) (string, string) {
 	root := t.TempDir()
+	if actualRoot, err := filepath.EvalSymlinks(root); err == nil {
+		return root, actualRoot
+	}
+	return root, root
+}
+
+func TestScanRootsFromClasspath(t *testing.T) {
+	root, actualRoot := tmpDir(t)
+
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "app", "classes"), 0o755))
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "app", "lib"), 0o755))
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "lib"), 0o755))
@@ -108,10 +111,10 @@ func TestScanRootsFromClasspath(t *testing.T) {
 		roots := scanRootsFromClasspath(root, "/app", classpath)
 
 		assert.Equal(t, []scanRoot{
-			{path: filepath.Join(root, "app", "classes"), dir: true},
-			{path: filepath.Join(root, "app", "app.jar")},
-			{path: filepath.Join(root, "app", "lib", "dep.jar")},
-			{path: filepath.Join(root, "app", "lib", "plugin.war")},
+			{path: filepath.Join(actualRoot, "app", "classes"), dir: true},
+			{path: filepath.Join(actualRoot, "app", "app.jar")},
+			{path: filepath.Join(actualRoot, "app", "lib", "dep.jar")},
+			{path: filepath.Join(actualRoot, "app", "lib", "plugin.war")},
 		}, roots)
 	})
 
@@ -120,7 +123,7 @@ func TestScanRootsFromClasspath(t *testing.T) {
 
 		require.Len(t, roots, 1)
 		assert.False(t, roots[0].dir)
-		assert.Equal(t, filepath.Join(root, "app", "app.jar"), roots[0].path)
+		assert.Equal(t, filepath.Join(actualRoot, "app", "app.jar"), roots[0].path)
 	})
 
 	t.Run("returns multiple archives", func(t *testing.T) {
@@ -129,8 +132,8 @@ func TestScanRootsFromClasspath(t *testing.T) {
 		roots := scanRootsFromClasspath(root, "/app", classpath)
 
 		assert.Equal(t, []scanRoot{
-			{path: filepath.Join(root, "app", "app.jar")},
-			{path: filepath.Join(root, "lib", "dep.jar")},
+			{path: filepath.Join(actualRoot, "app", "app.jar")},
+			{path: filepath.Join(actualRoot, "lib", "dep.jar")},
 		}, roots)
 	})
 
@@ -140,9 +143,9 @@ func TestScanRootsFromClasspath(t *testing.T) {
 		roots := scanRootsFromClasspath(root, "/app", classpath)
 
 		assert.Equal(t, []scanRoot{
-			{path: filepath.Join(root, "app", "app.jar")},
-			{path: filepath.Join(root, "app", "lib", "dep.jar")},
-			{path: filepath.Join(root, "app", "lib", "plugin.war")},
+			{path: filepath.Join(actualRoot, "app", "app.jar")},
+			{path: filepath.Join(actualRoot, "app", "lib", "dep.jar")},
+			{path: filepath.Join(actualRoot, "app", "lib", "plugin.war")},
 		}, roots)
 	})
 
@@ -154,8 +157,8 @@ func TestScanRootsFromClasspath(t *testing.T) {
 		roots := scanRootsFromClasspath(root, "/app", "lib/*")
 
 		assert.Equal(t, []scanRoot{
-			{path: filepath.Join(root, "app", "lib", "dep.jar")},
-			{path: filepath.Join(root, "app", "lib", "plugin.war")},
+			{path: filepath.Join(actualRoot, "app", "lib", "dep.jar")},
+			{path: filepath.Join(actualRoot, "app", "lib", "plugin.war")},
 		}, roots)
 	})
 
@@ -174,7 +177,7 @@ func TestScanRootsFromClasspath(t *testing.T) {
 }
 
 func TestResolveProcessPath(t *testing.T) {
-	root := t.TempDir()
+	root, actualRoot := tmpDir(t)
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "app"), 0o755))
 	writeFile(t, filepath.Join(root, "app", "app.jar"))
 
@@ -182,14 +185,14 @@ func TestResolveProcessPath(t *testing.T) {
 		path, ok := resolveProcessPath(root, "/app", "app.jar")
 
 		assert.True(t, ok)
-		assert.Equal(t, filepath.Join(root, "app", "app.jar"), path)
+		assert.Equal(t, filepath.Join(actualRoot, "app", "app.jar"), path)
 	})
 
 	t.Run("resolves absolute container paths under root", func(t *testing.T) {
 		path, ok := resolveProcessPath(root, "/ignored", "/app/app.jar")
 
 		assert.True(t, ok)
-		assert.Equal(t, filepath.Join(root, "app", "app.jar"), path)
+		assert.Equal(t, filepath.Join(actualRoot, "app", "app.jar"), path)
 	})
 
 	t.Run("rejects missing resolved paths", func(t *testing.T) {
@@ -231,7 +234,7 @@ func TestIsProcRoot(t *testing.T) {
 }
 
 func TestFindScanRoots(t *testing.T) {
-	root := t.TempDir()
+	root, actualRoot := tmpDir(t)
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "app", "classes"), 0o755))
 	writeFile(t, filepath.Join(root, "app", "app.jar"))
 
@@ -241,7 +244,7 @@ func TestFindScanRoots(t *testing.T) {
 		roots, err := NewExtractor().findScanRoots(fileInfo)
 
 		require.NoError(t, err)
-		assert.Equal(t, []scanRoot{{path: filepath.Join(root, "app", "app.jar")}}, roots)
+		assert.Equal(t, []scanRoot{{path: filepath.Join(actualRoot, "app", "app.jar")}}, roots)
 	})
 
 	t.Run("finds explicit classpath root before env", func(t *testing.T) {
@@ -251,7 +254,7 @@ func TestFindScanRoots(t *testing.T) {
 		roots, err := NewExtractor().findScanRoots(fileInfo)
 
 		require.NoError(t, err)
-		assert.Equal(t, []scanRoot{{path: filepath.Join(root, "app", "classes"), dir: true}}, roots)
+		assert.Equal(t, []scanRoot{{path: filepath.Join(actualRoot, "app", "classes"), dir: true}}, roots)
 	})
 
 	t.Run("finds env classpath root", func(t *testing.T) {
@@ -261,7 +264,7 @@ func TestFindScanRoots(t *testing.T) {
 		roots, err := NewExtractor().findScanRoots(fileInfo)
 
 		require.NoError(t, err)
-		assert.Equal(t, []scanRoot{{path: filepath.Join(root, "app", "classes"), dir: true}}, roots)
+		assert.Equal(t, []scanRoot{{path: filepath.Join(actualRoot, "app", "classes"), dir: true}}, roots)
 	})
 
 	t.Run("finds wildcard classpath archives", func(t *testing.T) {
@@ -275,9 +278,9 @@ func TestFindScanRoots(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.Equal(t, []scanRoot{
-			{path: filepath.Join(root, "app", "app.jar")},
-			{path: filepath.Join(root, "app", "lib", "dep.jar")},
-			{path: filepath.Join(root, "app", "lib", "plugin.war")},
+			{path: filepath.Join(actualRoot, "app", "app.jar")},
+			{path: filepath.Join(actualRoot, "app", "lib", "dep.jar")},
+			{path: filepath.Join(actualRoot, "app", "lib", "plugin.war")},
 		}, roots)
 	})
 
@@ -287,7 +290,7 @@ func TestFindScanRoots(t *testing.T) {
 		roots, err := NewExtractor().findScanRoots(fileInfo)
 
 		require.NoError(t, err)
-		assert.Equal(t, []scanRoot{{path: filepath.Join(root, "app"), dir: true}}, roots)
+		assert.Equal(t, []scanRoot{{path: filepath.Join(actualRoot, "app"), dir: true}}, roots)
 	})
 
 	t.Run("errors when cmdline lookup fails", func(t *testing.T) {
