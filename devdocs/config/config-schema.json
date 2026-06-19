@@ -506,7 +506,6 @@
         },
         "min_process_age": {
           "type": "string",
-          "pattern": "^[-+]?(([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|µs|μs|ms|s|m|h))+$",
           "format": "duration",
           "description": "Min process age to be considered for discovery.",
           "default": "5s",
@@ -521,7 +520,6 @@
         },
         "poll_interval": {
           "type": "string",
-          "pattern": "^[-+]?(([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|µs|μs|ms|s|m|h))+$",
           "format": "duration",
           "description": "Specifies, for the poll service watcher, the interval time between process inspections. 0 is treated as a default (5s) by the process watcher.",
           "default": "0s",
@@ -539,7 +537,6 @@
         },
         "route_harvester_timeout": {
           "type": "string",
-          "pattern": "^[-+]?(([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|µs|μs|ms|s|m|h))+$",
           "format": "duration",
           "default": "10s",
           "examples": [
@@ -612,7 +609,6 @@
         },
         "batch_timeout": {
           "type": "string",
-          "pattern": "^[-+]?(([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|µs|μs|ms|s|m|h))+$",
           "format": "duration",
           "description": "Specifies the timeout to forward the data batch if it didn't reach the BatchLength size",
           "default": "1s",
@@ -660,7 +656,6 @@
         },
         "dns_request_timeout": {
           "type": "string",
-          "pattern": "^[-+]?(([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|µs|μs|ms|s|m|h))+$",
           "format": "duration",
           "description": "DNS timeout after which we report failed event",
           "default": "5s",
@@ -698,7 +693,6 @@
         },
         "http_request_timeout": {
           "type": "string",
-          "pattern": "^[-+]?(([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|µs|μs|ms|s|m|h))+$",
           "format": "duration",
           "description": "Must be at least 0",
           "default": "0s",
@@ -733,7 +727,6 @@
         },
         "max_transaction_time": {
           "type": "string",
-          "pattern": "^[-+]?(([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|µs|μs|ms|s|m|h))+$",
           "format": "duration",
           "description": "Maximum time allowed for two requests to be correlated as parent -> child Some programs (e.g. load generators) keep on generating requests from the same thread in perpetuity, which can generate very large traces. We want to mark the parent trace as invalid if this happens.",
           "default": "5m",
@@ -996,7 +989,6 @@
       "properties": {
         "cache_expiry": {
           "type": "string",
-          "pattern": "^[-+]?(([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|µs|μs|ms|s|m|h))+$",
           "format": "duration",
           "description": "It also accepts OTEL_EBPF_NETWORK_GEOIP_CACHE_TTL for backwards-compatibility",
           "default": "60m",
@@ -1418,7 +1410,6 @@
         },
         "bpf_metric_scrape_interval": {
           "type": "string",
-          "pattern": "^[-+]?(([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|µs|μs|ms|s|m|h))+$",
           "format": "duration",
           "default": "15s",
           "examples": [
@@ -1476,7 +1467,6 @@
         },
         "sampling_interval": {
           "type": "string",
-          "pattern": "^[-+]?(([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|µs|μs|ms|s|m|h))+$",
           "format": "duration",
           "default": "1s",
           "examples": [
@@ -1495,7 +1485,6 @@
       "properties": {
         "attach_timeout": {
           "type": "string",
-          "pattern": "^[-+]?(([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|µs|μs|ms|s|m|h))+$",
           "format": "duration",
           "default": "10s",
           "examples": [
@@ -1558,7 +1547,6 @@
         },
         "informers_resync_period": {
           "type": "string",
-          "pattern": "^[-+]?(([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|µs|μs|ms|s|m|h))+$",
           "format": "duration",
           "description": "Defaults to 30m. Higher values will reduce the load on the Kube API.",
           "default": "30m",
@@ -1573,7 +1561,6 @@
         },
         "informers_sync_timeout": {
           "type": "string",
-          "pattern": "^[-+]?(([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|µs|μs|ms|s|m|h))+$",
           "format": "duration",
           "description": "Specifies the timeout for waiting for informers to sync on startup.",
           "default": "30s",
@@ -1609,7 +1596,6 @@
         },
         "reconnect_initial_interval": {
           "type": "string",
-          "pattern": "^[-+]?(([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|µs|μs|ms|s|m|h))+$",
           "format": "duration",
           "description": "Specifies the time to wait before reconnecting to the Kubernetes API after a connection loss.",
           "default": "5s",
@@ -1656,7 +1642,6 @@
         },
         "cache_ttl": {
           "type": "string",
-          "pattern": "^[-+]?(([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|µs|μs|ms|s|m|h))+$",
           "format": "duration",
           "description": "Defines the TTL for cached file descriptors Default: 30m",
           "default": "30m",
@@ -1859,7 +1844,6 @@
         },
         "interval": {
           "type": "string",
-          "pattern": "^[-+]?(([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|µs|μs|ms|s|m|h))+$",
           "format": "duration",
           "default": "0s",
           "examples": [
@@ -1894,7 +1878,6 @@
         },
         "ttl": {
           "type": "string",
-          "pattern": "^[-+]?(([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|µs|μs|ms|s|m|h))+$",
           "format": "duration",
           "description": "Specifies the time since a metric was updated for the last time until it is removed from the metrics set.",
           "default": "5m",
@@ -1914,7 +1897,6 @@
       "properties": {
         "cache_expiry": {
           "type": "string",
-          "pattern": "^[-+]?(([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|µs|μs|ms|s|m|h))+$",
           "format": "duration",
           "description": "Specifies the time-to-live of a cached IP->hostname entry. After the cached entry becomes older than this time, the IP->hostname entry will be looked up again.",
           "default": "5m",
@@ -1968,7 +1950,6 @@
         },
         "min_reset_duration": {
           "type": "string",
-          "pattern": "^[-+]?(([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|µs|μs|ms|s|m|h))+$",
           "format": "duration",
           "default": "60m",
           "examples": [
@@ -2011,7 +1992,6 @@
         },
         "cache_active_timeout": {
           "type": "string",
-          "pattern": "^[-+]?(([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|µs|μs|ms|s|m|h))+$",
           "format": "duration",
           "description": "Specifies the maximum duration that flows are kept in the accounting cache before being flushed for its later export.",
           "default": "5s",
@@ -2047,7 +2027,6 @@
         },
         "deduper_fc_ttl": {
           "type": "string",
-          "pattern": "^[-+]?(([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|µs|μs|ms|s|m|h))+$",
           "format": "duration",
           "description": "Specifies the expiry duration of the flows \"first_come\" deduplicator. After a flow hasn't been received for that expiry time, the deduplicator forgets it. That means that a flow from a connection that has been inactive during that period could be forwarded again from a different interface. If the value is not set, it will default to 2 * CacheActiveTimeout",
           "default": "0s",
@@ -2130,7 +2109,6 @@
         },
         "listen_poll_period": {
           "type": "string",
-          "pattern": "^[-+]?(([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|µs|μs|ms|s|m|h))+$",
           "format": "duration",
           "description": "Specifies the periodicity to query the network interfaces when the ListenInterfaces value is set to \"poll\".",
           "default": "10s",
@@ -2302,7 +2280,6 @@
         },
         "ttl": {
           "type": "string",
-          "pattern": "^[-+]?(([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|µs|μs|ms|s|m|h))+$",
           "format": "duration",
           "description": "Specifies the time since a metric was updated for the last time until it is removed from the metrics set.",
           "default": "5m",
@@ -2507,7 +2484,6 @@
       "properties": {
         "max_interval": {
           "type": "string",
-          "pattern": "^[-+]?(([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|µs|μs|ms|s|m|h))+$",
           "format": "duration",
           "description": "Specifies the upper bound on the wait duration between consecutive retry attempts.",
           "default": "5s",
@@ -2522,7 +2498,6 @@
         },
         "start_interval": {
           "type": "string",
-          "pattern": "^[-+]?(([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|µs|μs|ms|s|m|h))+$",
           "format": "duration",
           "description": "Specifies the initial wait duration between the first and second retry attempt.",
           "default": "500ms",
@@ -2537,7 +2512,6 @@
         },
         "timeout": {
           "type": "string",
-          "pattern": "^[-+]?(([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|µs|μs|ms|s|m|h))+$",
           "format": "duration",
           "description": "Specifies the maximum total time allowed for all retry attempts before giving up.",
           "default": "30s",
@@ -2558,7 +2532,6 @@
       "properties": {
         "cache_expiry": {
           "type": "string",
-          "pattern": "^[-+]?(([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|µs|μs|ms|s|m|h))+$",
           "format": "duration",
           "description": "Only applies to the \"local\" and \"ebpf\" ReverseDNS type. It specifies the time-to-live of a cached IP->hostname entry. After the cached entry becomes older than this time, the IP->hostname entry will be looked up again. It also accepts OTEL_EBPF_NETWORK_REVERSE_DNS_CACHE_TTL for backwards-compatibility",
           "default": "60m",
@@ -2596,7 +2569,6 @@
       "properties": {
         "java_harvest_delay": {
           "type": "string",
-          "pattern": "^[-+]?(([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|µs|μs|ms|s|m|h))+$",
           "format": "duration",
           "default": "5s",
           "examples": [
@@ -2777,7 +2749,6 @@
       "properties": {
         "backoff_initial_interval": {
           "type": "string",
-          "pattern": "^[-+]?(([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|µs|μs|ms|s|m|h))+$",
           "format": "duration",
           "description": "Configuration options for BackOffConfig of the traces exporter. See https://github.com/open-telemetry/opentelemetry-collector/blob/main/config/configretry/backoff.go BackOffInitialInterval the time to wait after the first failure before retrying.",
           "default": "0s",
@@ -2792,7 +2763,6 @@
         },
         "backoff_max_elapsed_time": {
           "type": "string",
-          "pattern": "^[-+]?(([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|µs|μs|ms|s|m|h))+$",
           "format": "duration",
           "description": "Specifies the maximum amount of time (including retries) spent trying to send a request/batch.",
           "default": "0s",
@@ -2807,7 +2777,6 @@
         },
         "backoff_max_interval": {
           "type": "string",
-          "pattern": "^[-+]?(([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|µs|μs|ms|s|m|h))+$",
           "format": "duration",
           "description": "Specifies the upper bound on backoff interval.",
           "default": "0s",
@@ -2828,7 +2797,6 @@
         },
         "batch_timeout": {
           "type": "string",
-          "pattern": "^[-+]?(([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|µs|μs|ms|s|m|h))+$",
           "format": "duration",
           "description": "Is the time after which a batch will be sent regardless of its size.",
           "default": "15s",
@@ -2950,7 +2918,6 @@
     },
     "channel_send_timeout": {
       "type": "string",
-      "pattern": "^[-+]?(([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|µs|μs|ms|s|m|h))+$",
       "format": "duration",
       "default": "1m",
       "examples": [
@@ -3081,7 +3048,6 @@
     },
     "shutdown_timeout": {
       "type": "string",
-      "pattern": "^[-+]?(([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|µs|μs|ms|s|m|h))+$",
       "format": "duration",
       "description": "Timeout for a graceful shutdown",
       "default": "10s",

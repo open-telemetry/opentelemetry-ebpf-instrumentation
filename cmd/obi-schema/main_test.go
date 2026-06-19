@@ -275,9 +275,6 @@ func TestCustomMapper(t *testing.T) {
 		require.NotNil(t, schema)
 		assert.Equal(t, "string", schema.Type)
 		assert.Equal(t, "duration", schema.Format)
-		for _, valid := range []string{"1h", "500us", "100µs", "100μs", "0.5s", "1h30m"} {
-			assert.Regexp(t, schema.Pattern, valid)
-		}
 		assert.NotEmpty(t, schema.Examples)
 	})
 
