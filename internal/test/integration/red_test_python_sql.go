@@ -57,6 +57,7 @@ func assertHTTPRequests(t *testing.T, comm, urlPath string) {
 	require.Empty(t, traces, "expected no HTTP traces, got %d", len(traces))
 }
 
+//nolint:unparam // reason: reserve the posibility to use op != "SELECT" in future tests
 func assertSQLOperation(t *testing.T, comm, op, table, db string) {
 	t.Helper()
 
