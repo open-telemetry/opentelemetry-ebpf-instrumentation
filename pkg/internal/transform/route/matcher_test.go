@@ -40,3 +40,39 @@ func TestFind(t *testing.T) {
 	assert.Equal(t, "/snow/mobile/*", m.Find("/snow/mobile"))
 	assert.Equal(t, "/snow/mobile/*", m.Find("/snow/mobile/long"))
 }
+
+func TestFindPartialSegmentWildcard(t *testing.T) {
+	m := NewMatcher([]string{
+		"/@:username/lists/:id",
+		"/@:username/followers",
+	})
+
+	// the motivating case: prefix before a colon placeholder
+	assert.Equal(t, "/@:username/lists/:id", m.Find("/@gouthamve/lists/my-list"))
+	assert.Equal(t, "/@:username/lists/:id", m.Find("/@alice/lists/42"))
+	assert.Equal(t, "/@:username/followers", m.Find("/@bob/followers"))
+
+	// the literal prefix is still required, and the placeholder needs at least one char
+	assert.Empty(t, m.Find("/gouthamve/lists/my-list"))
+	assert.Empty(t, m.Find("/@/followers"))
+}
+
+// TestFindPatternsInDefinitionOrder documents that patterns sharing a path
+// position are evaluated in definition order: it is up to the user to declare the
+// more specific pattern before a catch-all that would otherwise shadow it.
+func TestFindPatternsInDefinitionOrder(t *testing.T) {
+	// specific pattern declared first: it takes precedence over the catch-all
+	specificFirst := NewMatcher([]string{
+		"/@:username/profile",
+		"/:section/profile",
+	})
+	assert.Equal(t, "/@:username/profile", specificFirst.Find("/@carol/profile"))
+	assert.Equal(t, "/:section/profile", specificFirst.Find("/settings/profile"))
+
+	// catch-all declared first: it shadows the more specific pattern that follows
+	catchAllFirst := NewMatcher([]string{
+		"/:section/profile",
+		"/@:username/profile",
+	})
+	assert.Equal(t, "/:section/profile", catchAllFirst.Find("/@carol/profile"))
+}
