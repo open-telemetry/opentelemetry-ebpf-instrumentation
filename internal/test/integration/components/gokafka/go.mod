@@ -1,6 +1,6 @@
 module go.opentelemetry.io/obi/internal/test/integration/components/gokafka
 
-go 1.25.10
+go 1.25.11
 
 require github.com/IBM/sarama v1.48.0
 
