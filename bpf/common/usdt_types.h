@@ -39,6 +39,6 @@ struct obi_usdt_spec {
 
 struct obi_usdt_ip_key {
     u32 pid;
-    u32 _pad;
+    u32 ns;
     u64 ip;
 };

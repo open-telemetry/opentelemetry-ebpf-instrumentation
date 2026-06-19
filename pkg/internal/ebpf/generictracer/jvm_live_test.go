@@ -176,14 +176,15 @@ func startJVMRuntimeEventTracer(
 	eventContext.RuntimeMetrics = runtimemetrics.NewQueueSender(runtimeMetrics)
 
 	fileInfo := javaProcessFileInfo(t, pid)
+	requireLibJVMMap(t, pid)
+	processTracer.AllowPID(pid, fileInfo.Ns(), fileInfo)
+
 	executable, err := link.OpenExecutable(fileInfo.ProExeLinkPath())
 	require.NoError(t, err)
 	require.NoError(t, processTracer.NewExecutable(executable, &ebpftracer.Instrumentable{
 		Type:     svc.InstrumentableJava,
 		FileInfo: fileInfo,
 	}))
-
-	processTracer.AllowPID(pid, fileInfo.Ns(), fileInfo)
 
 	spans := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(1))
 	runCtx, cancel := context.WithCancel(context.Background())
@@ -205,6 +206,15 @@ func startJVMRuntimeEventTracer(
 	})
 
 	return events
+}
+
+func requireLibJVMMap(t *testing.T, pid app.PID) {
+	t.Helper()
+
+	maps, err := procs.FindLibMaps(pid)
+	require.NoError(t, err)
+	libjvm := procs.LibPath("libjvm.so", maps)
+	require.NotNil(t, libjvm, "libjvm.so must be mapped before attaching JVM runtime probes")
 }
 
 func javaProcessFileInfo(t *testing.T, pid app.PID) *discexec.FileInfo {

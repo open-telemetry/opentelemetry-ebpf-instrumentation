@@ -38,6 +38,8 @@ func ilog() *slog.Logger {
 	return slog.With("component", "ebpf.Instrumenter")
 }
 
+var findNamespacedPids = procs.FindNamespacedPids
+
 func closeAll(closers []io.Closer) {
 	for i := range closers {
 		closers[i].Close()
@@ -436,7 +438,7 @@ func (i *instrumenter) uprobes(pid app.PID, p Tracer) error {
 	return nil
 }
 
-func (i *instrumenter) usdtProbes(pid app.PID, p Tracer) error {
+func (i *instrumenter) usdtProbes(pid app.PID, ns uint32, p Tracer) error {
 	probesByLib := p.USDTProbes()
 	if len(probesByLib) == 0 {
 		return nil
@@ -487,7 +489,7 @@ func (i *instrumenter) usdtProbes(pid app.PID, p Tracer) error {
 		}
 
 		for _, probe := range probes {
-			closers, err := i.instrumentUSDTProbe(exe, elfFile, pid, maps, mappedPath, probe)
+			closers, err := i.instrumentUSDTProbe(exe, elfFile, pid, ns, maps, mappedPath, probe)
 			if err != nil {
 				if probe.Required {
 					elfFile.Close()
@@ -517,6 +519,7 @@ func (i *instrumenter) instrumentUSDTProbe(
 	exe *link.Executable,
 	elfFile *elf.File,
 	pid app.PID,
+	ns uint32,
 	maps []*procfs.ProcMap,
 	mappedPath string,
 	probe *ebpfcommon.USDTProbeDesc,
@@ -545,18 +548,27 @@ func (i *instrumenter) instrumentUSDTProbe(
 			closeAll(closers)
 			return nil, fmt.Errorf("updating USDT spec map: %w", err)
 		}
-		ipKey := obiUSDTIPKey{
-			PID: uint32(pid),
-			IP:  target.AbsIP,
+		ipMapPIDs := usdtIPMapPIDs(pid)
+		insertedIPKeys := make([]obiUSDTIPKey, 0, len(ipMapPIDs))
+		for _, mapPID := range ipMapPIDs {
+			ipKey := obiUSDTIPKey{
+				PID:       uint32(mapPID),
+				Namespace: ns,
+				IP:        target.AbsIP,
+			}
+			if err := probe.IPMap.Put(ipKey, specID); err != nil {
+				_ = (usdtIPMapCleanup{ipMap: probe.IPMap, keys: insertedIPKeys}).Close()
+				closeAll(closers)
+				return nil, fmt.Errorf("updating USDT IP map: %w", err)
+			}
+			insertedIPKeys = append(insertedIPKeys, ipKey)
 		}
-		if err := probe.IPMap.Put(ipKey, specID); err != nil {
-			closeAll(closers)
-			return nil, fmt.Errorf("updating USDT IP map: %w", err)
-		}
-		ipMapCleanup := usdtIPMapCleanup{ipMap: probe.IPMap, keys: []obiUSDTIPKey{ipKey}}
+		ipMapCleanup := usdtIPMapCleanup{ipMap: probe.IPMap, keys: insertedIPKeys}
 
 		ilog().Debug("instrumenting USDT probe",
 			"pid", pid,
+			"namespace", ns,
+			"ip_map_pids", ipMapPIDs,
 			"provider", probe.Provider,
 			"name", probe.Name,
 			"spec_id", specID,
@@ -579,6 +591,29 @@ func (i *instrumenter) instrumentUSDTProbe(
 	}
 
 	return closers, nil
+}
+
+func usdtIPMapPIDs(pid app.PID) []app.PID {
+	pids := []app.PID{pid}
+	seen := map[app.PID]struct{}{
+		pid: {},
+	}
+
+	namespacedPIDs, err := findNamespacedPids(pid)
+	if err != nil {
+		ilog().Debug("can't read namespaced PIDs for USDT IP map", "pid", pid, "error", err)
+		return pids
+	}
+
+	for _, nsPID := range namespacedPIDs {
+		if _, ok := seen[nsPID]; ok {
+			continue
+		}
+		seen[nsPID] = struct{}{}
+		pids = append(pids, nsPID)
+	}
+
+	return pids
 }
 
 func (i *instrumenter) uprobe(exe *link.Executable, probe *ebpfcommon.ProbeDesc) ([]io.Closer, error) {

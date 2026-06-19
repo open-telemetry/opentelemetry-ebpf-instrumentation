@@ -108,6 +108,9 @@ func TestOBIUSDTSpecLayoutMatchesBPFABI(t *testing.T) {
 	assert.Equal(t, uintptr(12), unsafe.Offsetof(obiUSDTArgSpec{}.ArgBitshift))
 	assert.Equal(t, 208, binary.Size(obiUSDTSpec{}))
 	assert.Equal(t, 16, binary.Size(obiUSDTIPKey{}))
+	assert.Equal(t, uintptr(0), unsafe.Offsetof(obiUSDTIPKey{}.PID))
+	assert.Equal(t, uintptr(4), unsafe.Offsetof(obiUSDTIPKey{}.Namespace))
+	assert.Equal(t, uintptr(8), unsafe.Offsetof(obiUSDTIPKey{}.IP))
 }
 
 func TestParseUSDTArgSpecX8664RejectsSIBAddressing(t *testing.T) {
@@ -135,6 +138,29 @@ func TestParseUSDTArgSpecArm64(t *testing.T) {
 
 	assert.Equal(t, obiUSDTArgConst, spec.Args[3].ArgType)
 	assert.Equal(t, uint64(7), spec.Args[3].ValOff)
+}
+
+func TestParseUSDTArgSpecHotSpotArm64MemoryPoolGC(t *testing.T) {
+	spec, err := parseUSDTArgSpec(elf.EM_AARCH64, "8@x22 8@x20 8@x23 8@x0 8@x26 8@x27 8@[sp, 112] 8@[sp, 120]")
+	require.NoError(t, err)
+
+	require.Equal(t, uint16(8), spec.ArgCount)
+	for i := 0; i < 6; i++ {
+		assert.Equal(t, obiUSDTArgReg, spec.Args[i].ArgType)
+	}
+	assert.Equal(t, int16(22*8), spec.Args[0].RegOff)
+	assert.Equal(t, int16(20*8), spec.Args[1].RegOff)
+	assert.Equal(t, int16(23*8), spec.Args[2].RegOff)
+	assert.Equal(t, int16(0), spec.Args[3].RegOff)
+	assert.Equal(t, int16(26*8), spec.Args[4].RegOff)
+	assert.Equal(t, int16(27*8), spec.Args[5].RegOff)
+
+	assert.Equal(t, obiUSDTArgRegDeref, spec.Args[6].ArgType)
+	assert.Equal(t, int16(248), spec.Args[6].RegOff)
+	assert.Equal(t, uint64(112), spec.Args[6].ValOff)
+	assert.Equal(t, obiUSDTArgRegDeref, spec.Args[7].ArgType)
+	assert.Equal(t, int16(248), spec.Args[7].RegOff)
+	assert.Equal(t, uint64(120), spec.Args[7].ValOff)
 }
 
 func makeUSDTDesc64(t *testing.T, location, base, semaphore uint64, provider, name, args string) []byte {

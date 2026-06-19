@@ -322,6 +322,30 @@ func TestResolveInstrPathUsesMappedPathWhenLibraryIsMapped(t *testing.T) {
 	assert.Equal(t, "/usr/lib/libjvm.so", mappedPath)
 }
 
+func TestUSDTIPMapPIDsIncludesNamespacedAliases(t *testing.T) {
+	original := findNamespacedPids
+	defer func() { findNamespacedPids = original }()
+
+	findNamespacedPids = func(pid app.PID) ([]app.PID, error) {
+		assert.Equal(t, app.PID(123), pid)
+		return []app.PID{123, 1, 17}, nil
+	}
+
+	assert.Equal(t, []app.PID{123, 1, 17}, usdtIPMapPIDs(123))
+}
+
+func TestUSDTIPMapPIDsFallsBackToHostPID(t *testing.T) {
+	original := findNamespacedPids
+	defer func() { findNamespacedPids = original }()
+
+	findNamespacedPids = func(pid app.PID) ([]app.PID, error) {
+		assert.Equal(t, app.PID(123), pid)
+		return nil, errors.New("can't read status")
+	}
+
+	assert.Equal(t, []app.PID{123}, usdtIPMapPIDs(123))
+}
+
 func TestUSDTLinkCloserDeletesIPMapEntriesAfterClosingLink(t *testing.T) {
 	var calls []string
 	linkCloser := closerFunc(func() error {
