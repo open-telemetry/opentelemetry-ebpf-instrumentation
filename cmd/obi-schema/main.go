@@ -799,7 +799,7 @@ func (g *SchemaGenerator) customMapper() func(reflect.Type) *jsonschema.Schema {
 			return &jsonschema.Schema{
 				Type:     "string",
 				Format:   "duration",
-				Examples: []any{"30s", "5m", "1ms", "500us", "0.5s"},
+				Examples: []any{"30s", "5m", "1ms"},
 			}
 		}
 

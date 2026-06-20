@@ -512,9 +512,7 @@
           "examples": [
             "30s",
             "5m",
-            "1ms",
-            "500us",
-            "0.5s"
+            "1ms"
           ],
           "x-env-var": "OTEL_EBPF_MIN_PROCESS_AGE"
         },
@@ -526,9 +524,7 @@
           "examples": [
             "30s",
             "5m",
-            "1ms",
-            "500us",
-            "0.5s"
+            "1ms"
           ],
           "x-env-var": "OTEL_EBPF_DISCOVERY_POLL_INTERVAL"
         },
@@ -542,9 +538,7 @@
           "examples": [
             "30s",
             "5m",
-            "1ms",
-            "500us",
-            "0.5s"
+            "1ms"
           ],
           "x-env-var": "OTEL_EBPF_ROUTE_HARVESTER_TIMEOUT"
         },
@@ -615,9 +609,7 @@
           "examples": [
             "30s",
             "5m",
-            "1ms",
-            "500us",
-            "0.5s"
+            "1ms"
           ],
           "x-env-var": "OTEL_EBPF_BPF_BATCH_TIMEOUT"
         },
@@ -662,9 +654,7 @@
           "examples": [
             "30s",
             "5m",
-            "1ms",
-            "500us",
-            "0.5s"
+            "1ms"
           ],
           "x-env-var": "OTEL_EBPF_BPF_DNS_REQUEST_TIMEOUT"
         },
@@ -699,9 +689,7 @@
           "examples": [
             "30s",
             "5m",
-            "1ms",
-            "500us",
-            "0.5s"
+            "1ms"
           ],
           "x-env-var": "OTEL_EBPF_BPF_HTTP_REQUEST_TIMEOUT"
         },
@@ -733,9 +721,7 @@
           "examples": [
             "30s",
             "5m",
-            "1ms",
-            "500us",
-            "0.5s"
+            "1ms"
           ],
           "x-env-var": "OTEL_EBPF_BPF_MAX_TRANSACTION_TIME"
         },
@@ -995,9 +981,7 @@
           "examples": [
             "30s",
             "5m",
-            "1ms",
-            "500us",
-            "0.5s"
+            "1ms"
           ],
           "x-env-var": "OTEL_EBPF_GEOIP_CACHE_TTL"
         },
@@ -1415,9 +1399,7 @@
           "examples": [
             "30s",
             "5m",
-            "1ms",
-            "500us",
-            "0.5s"
+            "1ms"
           ],
           "x-env-var": "OTEL_EBPF_BPF_METRIC_SCRAPE_INTERVAL"
         },
@@ -1472,9 +1454,7 @@
           "examples": [
             "30s",
             "5m",
-            "1ms",
-            "500us",
-            "0.5s"
+            "1ms"
           ],
           "x-env-var": "OBI_JVM_RUNTIME_METRICS_SAMPLING_INTERVAL"
         }
@@ -1490,9 +1470,7 @@
           "examples": [
             "30s",
             "5m",
-            "1ms",
-            "500us",
-            "0.5s"
+            "1ms"
           ],
           "x-env-var": "OTEL_EBPF_JAVAAGENT_ATTACH_TIMEOUT"
         },
@@ -1553,9 +1531,7 @@
           "examples": [
             "30s",
             "5m",
-            "1ms",
-            "500us",
-            "0.5s"
+            "1ms"
           ],
           "x-env-var": "OTEL_EBPF_KUBE_INFORMERS_RESYNC_PERIOD"
         },
@@ -1567,9 +1543,7 @@
           "examples": [
             "30s",
             "5m",
-            "1ms",
-            "500us",
-            "0.5s"
+            "1ms"
           ],
           "x-env-var": "OTEL_EBPF_KUBE_INFORMERS_SYNC_TIMEOUT"
         },
@@ -1602,9 +1576,7 @@
           "examples": [
             "30s",
             "5m",
-            "1ms",
-            "500us",
-            "0.5s"
+            "1ms"
           ],
           "x-env-var": "OTEL_EBPF_KUBE_RECONNECT_INITIAL_INTERVAL"
         },
@@ -1648,9 +1620,7 @@
           "examples": [
             "30s",
             "5m",
-            "1ms",
-            "500us",
-            "0.5s"
+            "1ms"
           ],
           "x-env-var": "OTEL_EBPF_BPF_LOG_ENRICHER_CACHE_TTL"
         },
@@ -1849,9 +1819,7 @@
           "examples": [
             "30s",
             "5m",
-            "1ms",
-            "500us",
-            "0.5s"
+            "1ms"
           ],
           "x-env-var": "OTEL_EBPF_METRICS_INTERVAL"
         },
@@ -1884,9 +1852,7 @@
           "examples": [
             "30s",
             "5m",
-            "1ms",
-            "500us",
-            "0.5s"
+            "1ms"
           ],
           "x-env-var": "OTEL_EBPF_METRICS_TTL"
         }
@@ -1903,9 +1869,7 @@
           "examples": [
             "30s",
             "5m",
-            "1ms",
-            "500us",
-            "0.5s"
+            "1ms"
           ],
           "x-env-var": "OTEL_EBPF_NAME_RESOLVER_CACHE_TTL"
         },
@@ -1955,9 +1919,7 @@
           "examples": [
             "30s",
             "5m",
-            "1ms",
-            "500us",
-            "0.5s"
+            "1ms"
           ],
           "x-env-var": "OTEL_EBPF_PROMETHEUS_NATIVE_HISTOGRAM_MIN_RESET_DURATION"
         }
@@ -1998,9 +1960,7 @@
           "examples": [
             "30s",
             "5m",
-            "1ms",
-            "500us",
-            "0.5s"
+            "1ms"
           ],
           "x-env-var": "OTEL_EBPF_NETWORK_CACHE_ACTIVE_TIMEOUT"
         },
@@ -2033,9 +1993,7 @@
           "examples": [
             "30s",
             "5m",
-            "1ms",
-            "500us",
-            "0.5s"
+            "1ms"
           ],
           "x-env-var": "OTEL_EBPF_NETWORK_DEDUPER_FC_TTL"
         },
@@ -2115,9 +2073,7 @@
           "examples": [
             "30s",
             "5m",
-            "1ms",
-            "500us",
-            "0.5s"
+            "1ms"
           ],
           "x-env-var": "OTEL_EBPF_NETWORK_LISTEN_POLL_PERIOD"
         },
@@ -2286,9 +2242,7 @@
           "examples": [
             "30s",
             "5m",
-            "1ms",
-            "500us",
-            "0.5s"
+            "1ms"
           ],
           "x-env-var": "OTEL_EBPF_PROMETHEUS_TTL"
         }
@@ -2490,9 +2444,7 @@
           "examples": [
             "30s",
             "5m",
-            "1ms",
-            "500us",
-            "0.5s"
+            "1ms"
           ],
           "x-env-var": "OTEL_EBPF_METADATA_RETRY_MAX_INTERVAL"
         },
@@ -2504,9 +2456,7 @@
           "examples": [
             "30s",
             "5m",
-            "1ms",
-            "500us",
-            "0.5s"
+            "1ms"
           ],
           "x-env-var": "OTEL_EBPF_METADATA_RETRY_START_INTERVAL"
         },
@@ -2518,9 +2468,7 @@
           "examples": [
             "30s",
             "5m",
-            "1ms",
-            "500us",
-            "0.5s"
+            "1ms"
           ],
           "x-env-var": "OTEL_EBPF_METADATA_RETRY_TIMEOUT"
         }
@@ -2538,9 +2486,7 @@
           "examples": [
             "30s",
             "5m",
-            "1ms",
-            "500us",
-            "0.5s"
+            "1ms"
           ],
           "x-env-var": "OTEL_EBPF_REVERSE_DNS_CACHE_TTL"
         },
@@ -2574,9 +2520,7 @@
           "examples": [
             "30s",
             "5m",
-            "1ms",
-            "500us",
-            "0.5s"
+            "1ms"
           ],
           "x-env-var": "OTEL_EBPF_JAVA_ROUTE_HARVEST_DELAY"
         }
@@ -2755,9 +2699,7 @@
           "examples": [
             "30s",
             "5m",
-            "1ms",
-            "500us",
-            "0.5s"
+            "1ms"
           ],
           "x-env-var": "OTEL_EBPF_BACKOFF_INITIAL_INTERVAL"
         },
@@ -2769,9 +2711,7 @@
           "examples": [
             "30s",
             "5m",
-            "1ms",
-            "500us",
-            "0.5s"
+            "1ms"
           ],
           "x-env-var": "OTEL_EBPF_BACKOFF_MAX_ELAPSED_TIME"
         },
@@ -2783,9 +2723,7 @@
           "examples": [
             "30s",
             "5m",
-            "1ms",
-            "500us",
-            "0.5s"
+            "1ms"
           ],
           "x-env-var": "OTEL_EBPF_BACKOFF_MAX_INTERVAL"
         },
@@ -2803,9 +2741,7 @@
           "examples": [
             "30s",
             "5m",
-            "1ms",
-            "500us",
-            "0.5s"
+            "1ms"
           ],
           "x-env-var": "OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT"
         },
@@ -2923,9 +2859,7 @@
       "examples": [
         "30s",
         "5m",
-        "1ms",
-        "500us",
-        "0.5s"
+        "1ms"
       ],
       "x-env-var": "OTEL_EBPF_CHANNEL_SEND_TIMEOUT"
     },
@@ -3054,9 +2988,7 @@
       "examples": [
         "30s",
         "5m",
-        "1ms",
-        "500us",
-        "0.5s"
+        "1ms"
       ],
       "x-env-var": "OTEL_EBPF_SHUTDOWN_TIMEOUT"
     },
