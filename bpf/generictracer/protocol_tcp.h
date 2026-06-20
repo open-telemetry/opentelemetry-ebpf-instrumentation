@@ -143,7 +143,8 @@ static __always_inline void finish_ongoing_tcp_req(pid_connection_info_t *pid_co
         existing_tcp->resp_len = 0;
 
         bpf_dbg_printk("Sending pending TCP trace on close: len=%d", existing_tcp->len);
-        bpf_ringbuf_output(&events, existing_tcp, sizeof(*existing_tcp), get_flags());
+        account_ringbuf_write(
+            bpf_ringbuf_output(&events, existing_tcp, sizeof(*existing_tcp), get_flags()) != 0);
     }
 
     cleanup_trace_info(existing_tcp, pid_conn);
@@ -236,6 +237,7 @@ static __always_inline void failed_to_connect_event(pid_connection_info_t *pid_c
                                                     u16 orig_dport,
                                                     u64 connect_ts) {
     tcp_req_t *req = bpf_ringbuf_reserve(&events, sizeof(tcp_req_t), 0);
+    account_ringbuf_write(req == NULL);
     if (req) {
         pid_info pid = {};
         task_pid(&pid);
@@ -367,6 +369,7 @@ static __always_inline void handle_unknown_tcp_connection(pid_connection_info_t 
             existing->end_monotime_ns = bpf_ktime_get_ns();
             existing->resp_len = bytes_len;
             tcp_req_t *trace = bpf_ringbuf_reserve(&events, sizeof(tcp_req_t), 0);
+            account_ringbuf_write(trace == NULL);
             if (trace) {
                 bpf_dbg_printk("Sending TCP trace: existing=%lx, resp_length=%d",
                                existing,

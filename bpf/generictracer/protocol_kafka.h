@@ -400,7 +400,7 @@ static __always_inline int kafka_send_large_buffer(tcp_req_t *req,
         lb->len = k_kafka_hdr_message_size;
 
         const u32 total_size = sizeof(tcp_large_buffer_t) + sizeof(void *);
-        bpf_ringbuf_output(&events, lb, total_size, get_flags());
+        account_ringbuf_write(bpf_ringbuf_output(&events, lb, total_size, get_flags()) != 0);
 
         max_available_bytes -= k_kafka_hdr_message_size;
         consumed_bytes += k_kafka_hdr_message_size;

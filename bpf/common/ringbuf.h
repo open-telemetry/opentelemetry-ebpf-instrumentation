@@ -22,6 +22,21 @@ struct {
     __uint(pinning, OBI_PIN_INTERNAL);
 } events SEC(".maps");
 
+typedef struct ringbuf_write_count_t {
+    u64 total;
+    u64 failed;
+} ringbuf_write_count;
+
+// Per-CPU counters of attempted and failed writes to the events ringbuffer.
+// OBI_PIN_INTERNAL, like events itself, so all tracers share one instance.
+struct {
+    __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+    __type(key, u32);
+    __type(value, ringbuf_write_count);
+    __uint(max_entries, 1);
+    __uint(pinning, OBI_PIN_INTERNAL);
+} rb_write_stats SEC(".maps");
+
 // To be Injected from the user space during the eBPF program load & initialization
 volatile const u32 wakeup_data_bytes;
 
@@ -36,4 +51,19 @@ static __always_inline long get_flags() {
 
     const u64 sz = bpf_ringbuf_query(&events, BPF_RB_AVAIL_DATA);
     return sz >= wakeup_data_bytes ? BPF_RB_FORCE_WAKEUP : BPF_RB_NO_WAKEUP;
+}
+
+// Records one events-ringbuffer write attempt, flagged failed when the
+// reserve/output did not reach userspace. Call after each write on &events.
+static __always_inline void account_ringbuf_write(bool failed) {
+    const u32 key = 0;
+    ringbuf_write_count *stats = bpf_map_lookup_elem(&rb_write_stats, &key);
+    if (!stats) {
+        return;
+    }
+
+    stats->total++;
+    if (failed) {
+        stats->failed++;
+    }
 }

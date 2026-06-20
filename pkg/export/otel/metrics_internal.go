@@ -52,6 +52,11 @@ type InternalMetricsReporter struct {
 	bpfIgnoredPacketCount instrument.Int64Counter
 
 	queueCapacityRatio instrument.Float64Gauge
+
+	totalRingbufWrites        uint64
+	totalRingbufWriteFailures uint64
+	bpfRingbufWriteCount      instrument.Int64Counter
+	bpfRingbufWriteFailures   instrument.Int64Counter
 }
 
 func imlog() *slog.Logger {
@@ -217,6 +222,24 @@ func NewInternalMetricsReporter(ctx context.Context, ctxInfo *global.ContextInfo
 		return nil, err
 	}
 
+	bpfRingbufWriteCount, err := meter.Int64Counter(
+		attr.VendorPrefix+".bpf.ringbuf.writes.total",
+		instrument.WithDescription("How many writes to the events ringbuffer from the generic tracer have been attempted"),
+		instrument.WithUnit("{write}"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	bpfRingbufWriteFailures, err := meter.Int64Counter(
+		attr.VendorPrefix+".bpf.ringbuf.write.failures.total",
+		instrument.WithDescription("How many writes to the events ringbuffer from the generic tracer failed because the buffer was full"),
+		instrument.WithUnit("{write}"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	return &InternalMetricsReporter{
 		ctx:                              ctx,
 		tracerFlushes:                    tracerFlushes,
@@ -238,6 +261,8 @@ func NewInternalMetricsReporter(ctx context.Context, ctxInfo *global.ContextInfo
 		bpfPacketCount:                   bpfPacketCount,
 		bpfIgnoredPacketCount:            bpfIgnoredPacketCount,
 		queueCapacityRatio:               queueCapacityRatio,
+		bpfRingbufWriteCount:             bpfRingbufWriteCount,
+		bpfRingbufWriteFailures:          bpfRingbufWriteFailures,
 	}, nil
 }
 
@@ -384,4 +409,10 @@ func (p *InternalMetricsReporter) BPFPacketStats(count, ignored uint64) {
 
 func (p *InternalMetricsReporter) QueueBufferUtilization(subscriber string, ratio float64) {
 	p.queueCapacityRatio.Record(p.ctx, ratio, instrument.WithAttributes(attribute.String("subscriber", subscriber)))
+}
+
+func (p *InternalMetricsReporter) BPFRingbufWriteStats(total, failed uint64) {
+	p.bpfRingbufWriteCount.Add(p.ctx, int64(total-p.totalRingbufWrites))
+	p.bpfRingbufWriteFailures.Add(p.ctx, int64(failed-p.totalRingbufWriteFailures))
+	p.totalRingbufWrites, p.totalRingbufWriteFailures = total, failed
 }

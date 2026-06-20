@@ -181,7 +181,7 @@ static __always_inline int mysql_send_large_buffer(tcp_req_t *req,
 
         const u32 total_size = sizeof(tcp_large_buffer_t) + sizeof(void *);
 
-        bpf_ringbuf_output(&events, lb, total_size, get_flags());
+        account_ringbuf_write(bpf_ringbuf_output(&events, lb, total_size, get_flags()) != 0);
 
         lb->action = k_large_buf_action_append;
     }

@@ -36,6 +36,10 @@ type BPFCollector struct {
 	probeMetrics     func() []ProbeMetrics
 	mapMetrics       func() []BpfMapMetrics
 	mu               sync.Mutex
+
+	// populated by getMapMetrics under mu, as a side effect of the map scan
+	ringbufWrites   ringbufWriteCount
+	ringbufWritesOK bool
 }
 
 type BPFProgram struct {
@@ -177,7 +181,7 @@ func (bc *BPFCollector) collectInternalMetrics(ctx context.Context) {
 			return
 
 		case <-ticker.C:
-			probeMetrics, mapMetrics := bc.collectMetrics()
+			probeMetrics, mapMetrics, ringbufWrites, ringbufWritesOK := bc.collectMetrics()
 			for _, metric := range probeMetrics {
 				if metric.count == 0 {
 					continue
@@ -196,8 +200,39 @@ func (bc *BPFCollector) collectInternalMetrics(ctx context.Context) {
 				bc.ctxInfo.Metrics.BpfMapEntries(metric.mapID, metric.mapName, metric.mapType, int(metric.entries))
 				bc.ctxInfo.Metrics.BpfMapMaxEntries(metric.mapID, metric.mapName, metric.mapType, metric.maxEntries)
 			}
+
+			if ringbufWritesOK {
+				bc.ctxInfo.Metrics.BPFRingbufWriteStats(ringbufWrites.Total, ringbufWrites.Failed)
+			}
 		}
 	}
+}
+
+// BPF map names are truncated to 15 chars in the kernel; keep within that.
+const ringbufWriteStatsMapName = "rb_write_stats"
+
+type ringbufWriteCount struct {
+	Total  uint64
+	Failed uint64
+}
+
+// sumRingbufWriteStats sums the shared rb_write_stats per-CPU map onto the
+// collector. Called from getMapMetrics so it reuses the existing map scan.
+func (bc *BPFCollector) sumRingbufWriteStats(m *ebpf.Map) {
+	var perCPU []ringbufWriteCount
+	if err := m.Lookup(uint32(0), &perCPU); err != nil {
+		bc.log.Debug("failed to read ringbuf write stats", "error", err)
+		return
+	}
+
+	var sum ringbufWriteCount
+	for _, c := range perCPU {
+		sum.Total += c.Total
+		sum.Failed += c.Failed
+	}
+
+	bc.ringbufWrites = sum
+	bc.ringbufWritesOK = true
 }
 
 func (bc *BPFCollector) Describe(ch chan<- *prometheus.Desc) {
@@ -238,11 +273,15 @@ func (bc *BPFCollector) Collect(ch chan<- prometheus.Metric) {
 	}
 }
 
-func (bc *BPFCollector) collectMetrics() ([]ProbeMetrics, []BpfMapMetrics) {
+func (bc *BPFCollector) collectMetrics() ([]ProbeMetrics, []BpfMapMetrics, ringbufWriteCount, bool) {
 	bc.mu.Lock()
 	defer bc.mu.Unlock()
 
-	return bc.probeMetrics(), bc.mapMetrics()
+	// mapMetrics() populates ringbufWrites/ringbufWritesOK as a side effect.
+	probeMetrics := bc.probeMetrics()
+	mapMetrics := bc.mapMetrics()
+
+	return probeMetrics, mapMetrics, bc.ringbufWrites, bc.ringbufWritesOK
 }
 
 func (bc *BPFCollector) getProbeMetrics() []ProbeMetrics {
@@ -332,6 +371,7 @@ func getFuncName(info *ebpf.ProgramInfo, id ebpf.ProgramID, log *slog.Logger) st
 }
 
 func (bc *BPFCollector) getMapMetrics() []BpfMapMetrics {
+	bc.ringbufWritesOK = false
 	mapMetrics := make([]BpfMapMetrics, 0)
 	for id := ebpf.MapID(0); ; {
 		nextID, err := ebpf.MapGetNextID(id)
@@ -350,6 +390,11 @@ func (bc *BPFCollector) getMapMetrics() []BpfMapMetrics {
 		info, err := m.Info()
 		if err != nil {
 			bc.log.Debug("failed to get map info", "ID", id, "error", err)
+			continue
+		}
+
+		if info.Name == ringbufWriteStatsMapName {
+			bc.sumRingbufWriteStats(m)
 			continue
 		}
 

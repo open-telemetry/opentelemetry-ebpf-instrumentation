@@ -287,6 +287,7 @@ http2_grpc_end(http2_conn_stream_t *stream, http2_grpc_request_t *prev_info, voi
         //dbg_print_http_connection_info(&stream->pid_conn.conn); // commented out since GitHub CI doesn't like this call
 
         http2_grpc_request_t *trace = bpf_ringbuf_reserve(&events, sizeof(http2_grpc_request_t), 0);
+        account_ringbuf_write(trace == NULL);
         if (trace) {
             bpf_probe_read(prev_info->ret_data, k_kprobes_http2_ret_buf_size, u_buf);
             __builtin_memcpy(trace, prev_info, sizeof(http2_grpc_request_t));

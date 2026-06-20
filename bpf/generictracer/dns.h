@@ -189,6 +189,7 @@ static __always_inline u8 handle_dns(struct __sk_buff *skb,
         };
 
         dns_req_t *req = bpf_ringbuf_reserve(&events, sizeof(dns_req_t), 0);
+        account_ringbuf_write(req == NULL);
 
         if (req) {
             u32 len = skb->len - dns_off;
@@ -232,6 +233,7 @@ static __always_inline u8 handle_dns_buf(const unsigned char *buf,
         }
 
         dns_req_t *req = bpf_ringbuf_reserve(&events, sizeof(dns_req_t), 0);
+        account_ringbuf_write(req == NULL);
         if (req) {
             populate_dns_record(req, p_conn, orig_dport, size, qr, hdr.id, conn_pid);
 

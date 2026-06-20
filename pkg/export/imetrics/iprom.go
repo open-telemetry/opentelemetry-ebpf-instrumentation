@@ -54,6 +54,11 @@ type PrometheusReporter struct {
 	bpfIgnoredPacketCount prometheus.Counter
 
 	queueCapacityRatio *prometheus.GaugeVec
+
+	totalRingbufWrites        uint64
+	totalRingbufWriteFailures uint64
+	bpfRingbufWriteCount      prometheus.Counter
+	bpfRingbufWriteFailures   prometheus.Counter
 }
 
 func NewPrometheusReporter(cfg *InternalMetricsConfig, manager *connector.PrometheusManager, registry *prometheus.Registry) *PrometheusReporter {
@@ -145,6 +150,14 @@ func NewPrometheusReporter(cfg *InternalMetricsConfig, manager *connector.Promet
 			Name: attr.VendorPrefix + "_queue_capacity_ratio",
 			Help: "Ratio [0-1] between the unread messages of an internal Go channel and its total capacity",
 		}, []string{"subscriber"}),
+		bpfRingbufWriteCount: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: attr.VendorPrefix + "_bpf_ringbuf_writes_total",
+			Help: "How many writes to the events ringbuffer from the generic tracer have been attempted",
+		}),
+		bpfRingbufWriteFailures: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: attr.VendorPrefix + "_bpf_ringbuf_write_failures_total",
+			Help: "How many writes to the events ringbuffer from the generic tracer failed because the buffer was full",
+		}),
 	}
 	if !cfg.AvoidedServices.Disabled {
 		pr.avoidedServicesLimiter = avoidedsvc.NewLimiter(cfg.AvoidedServices.Limit)
@@ -176,6 +189,8 @@ func NewPrometheusReporter(cfg *InternalMetricsConfig, manager *connector.Promet
 		pr.bpfPacketCount,
 		pr.bpfIgnoredPacketCount,
 		pr.queueCapacityRatio,
+		pr.bpfRingbufWriteCount,
+		pr.bpfRingbufWriteFailures,
 	}
 	if pr.avoidedServices != nil {
 		metrics = append(metrics, pr.avoidedServices)
@@ -278,4 +293,10 @@ func (p *PrometheusReporter) BPFPacketStats(count, ignored uint64) {
 
 func (p *PrometheusReporter) QueueBufferUtilization(subscriber string, ratio float64) {
 	p.queueCapacityRatio.WithLabelValues(subscriber).Set(ratio)
+}
+
+func (p *PrometheusReporter) BPFRingbufWriteStats(total, failed uint64) {
+	p.bpfRingbufWriteCount.Add(float64(total - p.totalRingbufWrites))
+	p.bpfRingbufWriteFailures.Add(float64(failed - p.totalRingbufWriteFailures))
+	p.totalRingbufWrites, p.totalRingbufWriteFailures = total, failed
 }

@@ -210,3 +210,43 @@ func readNMetricsByName(
 
 	return records
 }
+
+func TestInternalMetricsReporterBPFRingbufWriteStats(t *testing.T) {
+	metricRecords := make(chan collector.MetricRecord, 16)
+	mcfg := &otelcfg.MetricsConfig{
+		Interval:        10 * time.Millisecond,
+		MetricsConsumer: testMetricsConsumer(metricRecords),
+	}
+	ctxInfo := &global.ContextInfo{
+		NodeMeta:            meta.NodeMeta{HostID: "test-host"},
+		OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: mcfg},
+	}
+
+	reporter, err := NewInternalMetricsReporter(
+		t.Context(),
+		ctxInfo,
+		mcfg,
+		&imetrics.InternalMetricsConfig{BpfMetricScrapeInterval: time.Millisecond},
+	)
+	require.NoError(t, err)
+
+	reporter.BPFRingbufWriteStats(10, 2)
+
+	records := readMetricsByName(t, metricRecords, time.Second,
+		attr.VendorPrefix+".bpf.ringbuf.writes.total",
+		attr.VendorPrefix+".bpf.ringbuf.write.failures.total",
+	)
+	assert.Len(t, records, 2)
+
+	expected := map[string]int64{
+		attr.VendorPrefix + ".bpf.ringbuf.writes.total":         10,
+		attr.VendorPrefix + ".bpf.ringbuf.write.failures.total": 2,
+	}
+	for _, record := range records {
+		want, ok := expected[record.Name]
+		require.True(t, ok, "unexpected metric %q", record.Name)
+		assert.Equal(t, want, record.IntVal)
+		delete(expected, record.Name)
+	}
+	assert.Empty(t, expected)
+}
