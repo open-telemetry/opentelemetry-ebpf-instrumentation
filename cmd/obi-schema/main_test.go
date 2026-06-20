@@ -274,7 +274,8 @@ func TestCustomMapper(t *testing.T) {
 
 		require.NotNil(t, schema)
 		assert.Equal(t, "string", schema.Type)
-		assert.Equal(t, "duration", schema.Format)
+		assert.Contains(t, schema.Description, "Duration")
+		assert.NotEmpty(t, schema.Pattern)
 		assert.NotEmpty(t, schema.Examples)
 	})
 

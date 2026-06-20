@@ -797,9 +797,10 @@ func (g *SchemaGenerator) customMapper() func(reflect.Type) *jsonschema.Schema {
 		// Handle time.Duration as a string (Go duration format)
 		if t == reflect.TypeFor[time.Duration]() {
 			return &jsonschema.Schema{
-				Type:     "string",
-				Format:   "duration",
-				Examples: []any{"30s", "5m", "1ms"},
+				Type:        "string",
+				Description: "Duration in Go format (e.g., '30s', '5m', '1ms')",
+				Pattern:     "^[0-9]+(ms|s|m)$",
+				Examples:    []any{"30s", "5m", "1ms"},
 			}
 		}
 
