@@ -819,6 +819,14 @@ __obi_protocol_http(struct pt_regs *ctx, unsigned char *(*tp_loop_fn)(unsigned c
     } else if (still_responding(info)) {
         info->end_monotime_ns = bpf_ktime_get_ns();
         info->resp_len += args->bytes_len;
+        http_send_large_buffer(ctx,
+                               info,
+                               &args->pid_conn,
+                               (void *)args->u_buf,
+                               args->bytes_len,
+                               PACKET_TYPE_RESPONSE,
+                               args->direction,
+                               k_large_buf_action_append);
     }
 
     return 0;

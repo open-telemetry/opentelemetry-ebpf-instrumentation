@@ -100,6 +100,10 @@ int obi_handle_buf_with_args(void *ctx) {
                      (info) ? still_reading(info) : 0);
 
         if (args->protocols.http && info && !info->submitted) {
+            if (info->ssl && !args->ssl) {
+                return 0;
+            }
+
             const u8 reading = still_reading(info);
             const u8 responding = still_responding(info);
             // Still reading checks if we are processing buffers of a HTTP request
