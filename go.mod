@@ -34,7 +34,7 @@ require (
 	github.com/prometheus/client_model v0.6.2
 	github.com/prometheus/common v0.67.5
 	github.com/prometheus/procfs v0.20.1
-	github.com/shirou/gopsutil/v4 v4.26.4
+	github.com/shirou/gopsutil/v4 v4.26.5
 	github.com/stretchr/testify v1.11.1
 	github.com/vektah/gqlparser/v2 v2.5.35
 	github.com/vishvananda/netlink v1.3.1
