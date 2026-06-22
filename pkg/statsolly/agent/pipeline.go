@@ -21,6 +21,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/internal/statsolly/export"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
+	"go.opentelemetry.io/obi/pkg/selection"
 )
 
 func statAttrs(s *ebpf.Stat) *pipe.CommonAttrs { return &s.CommonAttrs }
@@ -70,11 +71,20 @@ func (s *Stats) buildPipeline(ctx context.Context) (*swarm.Runner, error) {
 	swi.Add(decorate.Decorate(s.agentIP, statAttrs, cidrDecoratedStats, decoratedStats),
 		swarm.WithID("StatsDecorator"))
 
+	dynamicFilteredStats := msgh.QueueFromConfig[[]*ebpf.Stat](s.cfg, "dynamicFilteredStats")
+	var dynamicSelector selection.PIDSelector
+	if s.ctxInfo.DynamicPIDSelector != nil {
+		dynamicSelector = s.ctxInfo.DynamicPIDSelector.StatsMetrics()
+	}
+	swi.Add(filter.ByDynamicPID(dynamicSelector, s.ctxInfo.K8sInformer,
+		statAttrs, decoratedStats, dynamicFilteredStats),
+		swarm.WithID("DynamicPIDFilter"))
+
 	filteredStats := s.ctxInfo.OverrideStatsExportQueue
 	if filteredStats == nil {
 		filteredStats = msgh.QueueFromConfig[[]*ebpf.Stat](s.cfg, "filteredStats")
 	}
-	swi.Add(filter.ByAttribute(s.cfg.Filters.Stats, nil, selectorCfg.ExtraGroupAttributesCfg, ebpf.StatStringGetters, decoratedStats, filteredStats),
+	swi.Add(filter.ByAttribute(s.cfg.Filters.Stats, nil, selectorCfg.ExtraGroupAttributesCfg, ebpf.StatStringGetters, dynamicFilteredStats, filteredStats),
 		swarm.WithID("AttributeFilter"))
 
 	// Terminal nodes export the stats record information out of the pipeline: OTEL, Prom and printer.

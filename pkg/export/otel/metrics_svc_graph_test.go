@@ -18,6 +18,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	"go.opentelemetry.io/obi/pkg/export"
+	"go.opentelemetry.io/obi/pkg/export/attributes"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
@@ -146,7 +147,7 @@ func makeSvcGraphExporter(
 	}
 	otelExporter, err := ReportSvcGraphMetrics(
 		&global.ContextInfo{OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: mcfg}},
-		mcfg, &mpConfig, request.UnresolvedNames{}, input, processEvents)(ctx)
+		mcfg, &mpConfig, &attributes.SelectorConfig{}, request.UnresolvedNames{}, input, processEvents)(ctx)
 	require.NoError(t, err)
 
 	return otelExporter

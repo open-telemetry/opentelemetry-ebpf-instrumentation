@@ -65,6 +65,12 @@ func emptyResultExtractRoutes(app.PID) (*RouteHarvesterResult, error) {
 	}, nil
 }
 
+func javaExtract(fn func(app.PID) (*RouteHarvesterResult, error)) func(*exec.FileInfo) (*RouteHarvesterResult, error) {
+	return func(fileInfo *exec.FileInfo) (*RouteHarvesterResult, error) {
+		return fn(fileInfo.Pid())
+	}
+}
+
 func createTestFileInfo(language svc.InstrumentableType) *exec.FileInfo {
 	return exec.New(exec.Init{
 		Pid: 12345,
@@ -76,7 +82,7 @@ func createTestFileInfo(language svc.InstrumentableType) *exec.FileInfo {
 
 func TestHarvestRoutes_Successful(t *testing.T) {
 	harvester := NewRouteHarvester(&services.RouteHarvestingConfig{}, []services.RouteHarvesterLanguage{}, 1*time.Second)
-	harvester.javaExtractRoutes = successfulExtractRoutes
+	harvester.javaExtractRoutes = javaExtract(successfulExtractRoutes)
 
 	fileInfo := createTestFileInfo(svc.InstrumentableJava)
 
@@ -90,7 +96,7 @@ func TestHarvestRoutes_Successful(t *testing.T) {
 
 func TestHarvestRoutes_Error(t *testing.T) {
 	harvester := NewRouteHarvester(&services.RouteHarvestingConfig{}, []services.RouteHarvesterLanguage{}, 1*time.Second)
-	harvester.javaExtractRoutes = errorExtractRoutes
+	harvester.javaExtractRoutes = javaExtract(errorExtractRoutes)
 
 	fileInfo := createTestFileInfo(svc.InstrumentableJava)
 
@@ -103,7 +109,7 @@ func TestHarvestRoutes_Error(t *testing.T) {
 
 func TestHarvestRoutes_Timeout(t *testing.T) {
 	harvester := NewRouteHarvester(&services.RouteHarvestingConfig{}, []services.RouteHarvesterLanguage{}, 100*time.Millisecond) // Short timeout
-	harvester.javaExtractRoutes = timeoutExtractRoutes
+	harvester.javaExtractRoutes = javaExtract(timeoutExtractRoutes)
 
 	fileInfo := createTestFileInfo(svc.InstrumentableJava)
 
@@ -126,7 +132,7 @@ func TestHarvestRoutes_Timeout(t *testing.T) {
 
 func TestHarvestRoutes_Panic(t *testing.T) {
 	harvester := NewRouteHarvester(&services.RouteHarvestingConfig{}, []services.RouteHarvesterLanguage{}, 1*time.Second)
-	harvester.javaExtractRoutes = panicExtractRoutes
+	harvester.javaExtractRoutes = javaExtract(panicExtractRoutes)
 
 	fileInfo := createTestFileInfo(svc.InstrumentableJava)
 
@@ -143,7 +149,7 @@ func TestHarvestRoutes_Panic(t *testing.T) {
 
 func TestHarvestRoutes_SlowButSuccessful(t *testing.T) {
 	harvester := NewRouteHarvester(&services.RouteHarvestingConfig{}, []services.RouteHarvesterLanguage{}, 200*time.Millisecond) // Enough time for slow operation
-	harvester.javaExtractRoutes = slowButSuccessfulExtractRoutes
+	harvester.javaExtractRoutes = javaExtract(slowButSuccessfulExtractRoutes)
 
 	fileInfo := createTestFileInfo(svc.InstrumentableJava)
 
@@ -157,7 +163,7 @@ func TestHarvestRoutes_SlowButSuccessful(t *testing.T) {
 
 func TestHarvestRoutes_EmptyResult(t *testing.T) {
 	harvester := NewRouteHarvester(&services.RouteHarvestingConfig{}, []services.RouteHarvesterLanguage{}, 1*time.Second)
-	harvester.javaExtractRoutes = emptyResultExtractRoutes
+	harvester.javaExtractRoutes = javaExtract(emptyResultExtractRoutes)
 
 	fileInfo := createTestFileInfo(svc.InstrumentableJava)
 
@@ -172,7 +178,7 @@ func TestHarvestRoutes_EmptyResult(t *testing.T) {
 func TestHarvestRoutes_NonJavaLanguage(t *testing.T) {
 	harvester := NewRouteHarvester(&services.RouteHarvestingConfig{}, []services.RouteHarvesterLanguage{}, 1*time.Second)
 	// javaExtractRoutes should not be called for non-Java languages
-	harvester.javaExtractRoutes = func(_ app.PID) (*RouteHarvesterResult, error) {
+	harvester.javaExtractRoutes = func(_ *exec.FileInfo) (*RouteHarvesterResult, error) {
 		t.Fatal("javaExtractRoutes should not be called for non-Java languages")
 		return nil, nil
 	}
@@ -187,7 +193,7 @@ func TestHarvestRoutes_NonJavaLanguage(t *testing.T) {
 
 func TestHarvestRoutes_MultipleTimeouts(t *testing.T) {
 	harvester := NewRouteHarvester(&services.RouteHarvestingConfig{}, []services.RouteHarvesterLanguage{}, 50*time.Millisecond)
-	harvester.javaExtractRoutes = timeoutExtractRoutes
+	harvester.javaExtractRoutes = javaExtract(timeoutExtractRoutes)
 
 	fileInfo := createTestFileInfo(svc.InstrumentableJava)
 

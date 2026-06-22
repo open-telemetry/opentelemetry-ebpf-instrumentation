@@ -12,7 +12,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/instrumentation"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
-	semconv "go.opentelemetry.io/otel/semconv/v1.38.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 	"go.opentelemetry.io/otel/trace"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
@@ -253,7 +253,7 @@ func newMetricsReporter(
 			mr.attrGetters, mr.attributes.For(attributes.HTTPClientResponseSize))
 	}
 
-	if is.GRPCEnabled() {
+	if is.GRPCEnabled() || is.SunRPCEnabled() {
 		mr.attrGRPCServer = attributes.OpenTelemetryGetters(
 			mr.attrGetters, mr.attributes.For(attributes.RPCServerDuration))
 		mr.attrGRPCClient = attributes.OpenTelemetryGetters(
@@ -363,7 +363,7 @@ func (mr *MetricsReporter) otelMetricOptions() []metric.Option {
 		)
 	}
 
-	if mr.is.GRPCEnabled() {
+	if mr.is.GRPCEnabled() || mr.is.SunRPCEnabled() {
 		opts = append(opts,
 			metric.WithView(mr.otelHistogramConfig(attributes.RPCServerDuration.OTEL, mr.cfg.Buckets.DurationHistogram)),
 			metric.WithView(mr.otelHistogramConfig(attributes.RPCClientDuration.OTEL, mr.cfg.Buckets.DurationHistogram)),
@@ -475,7 +475,7 @@ func (mr *MetricsReporter) setupOtelMeters(m *Metrics, meter instrument.Meter) e
 			m.ctx, httpClientResponseSize, mr.attrHTTPClientResponseSize, timeNow, mr.cfg.TTL)
 	}
 
-	if mr.is.GRPCEnabled() {
+	if mr.is.GRPCEnabled() || mr.is.SunRPCEnabled() {
 		grpcDuration, err := meter.Float64Histogram(attributes.RPCServerDuration.OTEL, instrument.WithUnit("s"))
 		if err != nil {
 			return fmt.Errorf("creating grpc duration histogram metric: %w", err)
@@ -693,6 +693,7 @@ func (mr *MetricsReporter) newMetricsInstance(service *svc.Attrs) Metrics {
 	if service != nil {
 		mlog = mlog.With("service", service)
 		resourceAttributes = append(otelcfg.GetAppResourceAttrs(&mr.nodeMeta, service), otelcfg.ResourceAttrsFromEnv(service)...)
+		resourceAttributes = otelcfg.FilterResourceAttrs(resourceAttributes, mr.userAttribSelection)
 	}
 	mlog.Debug("creating new Metrics reporter")
 	resources := resource.NewWithAttributes(semconv.SchemaURL, resourceAttributes...)
@@ -860,6 +861,7 @@ func (mr *MetricsReporter) tracesResourceAttributes(service *svc.Attrs) attribut
 	}
 
 	filteredAttrs := otelcfg.GetFilteredAttributesByPrefix(baseAttrs, mr.userAttribSelection, extraAttrs, MetricTypes)
+	filteredAttrs = otelcfg.FilterResourceAttrs(filteredAttrs, mr.userAttribSelection)
 	return attribute.NewSet(filteredAttrs...)
 }
 
@@ -930,6 +932,16 @@ func (r *Metrics) record(span *request.Span, mr *MetricsReporter) {
 			if mr.is.GRPCEnabled() {
 				grpcClientDuration, attrs := r.grpcClientDuration.ForRecord(span)
 				grpcClientDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
+			}
+		case request.EventTypeSunRPCClient:
+			if mr.is.SunRPCEnabled() {
+				grpcClientDuration, attrs := r.grpcClientDuration.ForRecord(span)
+				grpcClientDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
+			}
+		case request.EventTypeSunRPCServer:
+			if mr.is.SunRPCEnabled() {
+				grpcDuration, attrs := r.grpcDuration.ForRecord(span)
+				grpcDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
 			}
 		case request.EventTypeHTTPClient:
 			// HTTP client subtypes that are database calls get recorded as db client metrics
@@ -1144,7 +1156,8 @@ func (mr *MetricsReporter) resourceAttrsForService(service *svc.Attrs) []attribu
 	}
 
 	attrs = append(attrs, otelcfg.GetAppResourceAttrs(&mr.nodeMeta, service)...)
-	return append(attrs, otelcfg.ResourceAttrsFromEnv(service)...)
+	attrs = append(attrs, otelcfg.ResourceAttrsFromEnv(service)...)
+	return otelcfg.FilterResourceAttrs(attrs, mr.userAttribSelection)
 }
 
 func (mr *MetricsReporter) ensureTargetMetrics(service *svc.Attrs) *TargetMetrics {

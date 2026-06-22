@@ -184,6 +184,10 @@ func (p *Tracer) UProbes() map[string]map[string][]*ebpfcommon.ProbeDesc {
 	return nil
 }
 
+func (p *Tracer) USDTProbes() map[string][]*ebpfcommon.USDTProbeDesc {
+	return nil
+}
+
 func (p *Tracer) SocketFilters() []*ebpf.Program {
 	return nil
 }
@@ -310,6 +314,7 @@ func (p *Tracer) BlockPID(pid app.PID, ns uint32) {
 				p.log.Error(err.Error())
 			}
 		}
+		delete(p.pids, pk)
 		return
 	}
 

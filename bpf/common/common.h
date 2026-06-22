@@ -153,6 +153,8 @@ typedef struct tcp_req {
     u64 start_monotime_ns;
     u64 end_monotime_ns;
     u64 extra_id;
+    u32 task_tid;
+    u8 _pad3[4];
     u32 req_len;
     u32 resp_len;
     u32 lb_req_bytes;
@@ -251,6 +253,13 @@ typedef struct otel_span {
     otel_attributes_t span_attrs;
     u8 _epad[6];
 } otel_span_t;
+
+typedef struct channel_link_trace {
+    u8 type; // Must be first
+    u8 _pad[7];
+    tp_info_t sender_tp;
+    tp_info_t receiver_tp;
+} channel_link_trace_t;
 
 typedef struct mongo_go_client_req {
     u8 type; // Must be first

@@ -13,13 +13,13 @@ import (
 	"go.opentelemetry.io/obi/pkg/obi"
 )
 
-func httpRoutes(cfg *obi.Config) map[string]any {
-	out := map[string]any{
-		"discovery": map[string]any{
-			"timeout":            cfg.Discovery.RouteHarvesterTimeout.String(),
-			"disabled_languages": cfg.Discovery.DisabledRouteHarvesters,
-			"java": map[string]any{
-				"delay": cfg.Discovery.RouteHarvestConfig.JavaHarvestDelay.String(),
+func httpRoutes(cfg *obi.Config) schema.HTTPRoutes {
+	out := schema.HTTPRoutes{
+		Discovery: schema.HTTPRouteDiscovery{
+			Timeout:           schema.Duration(cfg.Discovery.RouteHarvesterTimeout),
+			DisabledLanguages: cfg.Discovery.DisabledRouteHarvesters,
+			Java: schema.HTTPRouteJavaDiscovery{
+				Delay: schema.Duration(cfg.Discovery.RouteHarvestConfig.JavaHarvestDelay),
 			},
 		},
 	}
@@ -27,12 +27,19 @@ func httpRoutes(cfg *obi.Config) map[string]any {
 		return out
 	}
 
-	out["unmatched"] = cfg.Routes.Unmatch
-	out["patterns"] = cfg.Routes.Patterns
-	out["ignored_patterns"] = cfg.Routes.IgnorePatterns
-	out["ignore_mode"] = cfg.Routes.IgnoredEvents
-	out["wildcard_char"] = cfg.Routes.WildcardChar
-	out["max_path_segment_cardinality"] = cfg.Routes.MaxPathSegmentCardinality
+	unmatched := cfg.Routes.Unmatch
+	patterns := cfg.Routes.Patterns
+	ignoredPatterns := cfg.Routes.IgnorePatterns
+	ignoreMode := cfg.Routes.IgnoredEvents
+	wildcardChar := cfg.Routes.WildcardChar
+	maxPathSegmentCardinality := cfg.Routes.MaxPathSegmentCardinality
+
+	out.Unmatched = &unmatched
+	out.Patterns = &patterns
+	out.IgnoredPatterns = &ignoredPatterns
+	out.IgnoreMode = &ignoreMode
+	out.WildcardChar = &wildcardChar
+	out.MaxPathSegmentCardinality = &maxPathSegmentCardinality
 	return out
 }
 
@@ -54,7 +61,7 @@ const (
 	payloadExtractorEnrichment    = "enrichment"
 )
 
-func payloadExtraction(cfg *obi.Config) map[string]any {
+func payloadExtraction(cfg *obi.Config) schema.PayloadExtraction {
 	http := cfg.EBPF.PayloadExtraction.HTTP
 	enabled := []string{}
 	if http.GraphQL.Enabled {
@@ -103,114 +110,114 @@ func payloadExtraction(cfg *obi.Config) map[string]any {
 		enabled = append(enabled, payloadExtractorEnrichment)
 	}
 
-	return map[string]any{
-		"enabled": enabled,
-		"sqlpp": map[string]any{
-			"endpoint_patterns": http.SQLPP.EndpointPatterns,
+	return schema.PayloadExtraction{
+		Enabled: enabled,
+		SQLPP: schema.SQLPPPayload{
+			EndpointPatterns: http.SQLPP.EndpointPatterns,
 		},
-		"enrichment": httpEnrichment(cfg),
+		Enrichment: httpEnrichment(cfg),
 	}
 }
 
-func httpEnrichment(cfg *obi.Config) map[string]any {
+func httpEnrichment(cfg *obi.Config) schema.HTTPEnrichment {
 	enrichment := cfg.EBPF.PayloadExtraction.HTTP.Enrichment
-	return map[string]any{
-		"policy": map[string]any{
-			"default_action": map[string]any{
-				"headers": textValue(enrichment.Policy.DefaultAction.Headers),
-				"body":    textValue(enrichment.Policy.DefaultAction.Body),
+	return schema.HTTPEnrichment{
+		Policy: schema.HTTPEnrichmentPolicy{
+			DefaultAction: schema.HTTPEnrichmentDefaultAction{
+				Headers: enrichment.Policy.DefaultAction.Headers,
+				Body:    enrichment.Policy.DefaultAction.Body,
 			},
-			"obfuscation_string": enrichment.Policy.ObfuscationString,
+			ObfuscationString: enrichment.Policy.ObfuscationString,
 		},
-		"rules": enrichment.Rules,
+		Rules: enrichment.Rules,
 	}
 }
 
-func signalFilters(in filter.AttributeFamilyConfig) map[string]any {
-	return map[string]any{
-		"traces":  filterMap(in),
-		"metrics": filterMap(in),
+func signalFilters(in filter.AttributeFamilyConfig) schema.SignalFilters {
+	return schema.SignalFilters{
+		Traces:  filterMap(in),
+		Metrics: filterMap(in),
 	}
 }
 
-func filterMap(in filter.AttributeFamilyConfig) map[string]any {
-	out := map[string]any{}
+func filterMap(in filter.AttributeFamilyConfig) schema.AttributeFilters {
+	out := schema.AttributeFilters{}
 	for key, def := range in {
-		entry := map[string]any{}
+		entry := schema.AttributeFilter{}
 		if def.Match != "" {
-			entry["match"] = def.Match
+			entry.Match = def.Match
 		}
 		if def.NotMatch != "" {
-			entry["not_match"] = def.NotMatch
+			entry.NotMatch = def.NotMatch
 		}
 		if def.Equals != nil {
-			entry["equals"] = *def.Equals
+			entry.Equals = def.Equals
 		}
 		if def.NotEquals != nil {
-			entry["not_equals"] = *def.NotEquals
+			entry.NotEquals = def.NotEquals
 		}
 		if def.GreaterEquals != nil {
-			entry["greater_equals"] = *def.GreaterEquals
+			entry.GreaterEquals = def.GreaterEquals
 		}
 		if def.GreaterThan != nil {
-			entry["greater_than"] = *def.GreaterThan
+			entry.GreaterThan = def.GreaterThan
 		}
 		if def.LessEquals != nil {
-			entry["less_equals"] = *def.LessEquals
+			entry.LessEquals = def.LessEquals
 		}
 		if def.LessThan != nil {
-			entry["less_than"] = *def.LessThan
+			entry.LessThan = def.LessThan
 		}
 		out[key] = entry
 	}
 	return out
 }
 
-func networkFlowEnrichment(cfg *obi.Config) map[string]any {
-	return map[string]any{
-		"geo_ip": map[string]any{
-			"ipinfo": map[string]any{
-				"path": cfg.NetworkFlows.GeoIP.IPInfo.Path,
+func networkFlowEnrichment(cfg *obi.Config) schema.NetworkEnrichment {
+	return schema.NetworkEnrichment{
+		GeoIP: schema.GeoIPEnrichment{
+			IPInfo: schema.Path{
+				Path: cfg.NetworkFlows.GeoIP.IPInfo.Path,
 			},
-			"maxmind": map[string]any{
-				"country_path": cfg.NetworkFlows.GeoIP.MaxMindInfo.CountryPath,
-				"asn_path":     cfg.NetworkFlows.GeoIP.MaxMindInfo.ASNPath,
+			MaxMind: schema.MaxMind{
+				CountryPath: cfg.NetworkFlows.GeoIP.MaxMindInfo.CountryPath,
+				ASNPath:     cfg.NetworkFlows.GeoIP.MaxMindInfo.ASNPath,
 			},
-			"cache": map[string]any{
-				"size": cfg.NetworkFlows.GeoIP.CacheLen,
-				"ttl":  cfg.NetworkFlows.GeoIP.CacheTTL.String(),
+			Cache: schema.Cache{
+				Size: cfg.NetworkFlows.GeoIP.CacheLen,
+				TTL:  schema.Duration(cfg.NetworkFlows.GeoIP.CacheTTL),
 			},
 		},
-		"reverse_dns": map[string]any{
-			"mode": cfg.NetworkFlows.ReverseDNS.Type,
-			"cache": map[string]any{
-				"size": cfg.NetworkFlows.ReverseDNS.CacheLen,
-				"ttl":  cfg.NetworkFlows.ReverseDNS.CacheTTL.String(),
+		ReverseDNS: schema.ReverseDNSEnrichment{
+			Mode: schema.ReverseDNSMode(cfg.NetworkFlows.ReverseDNS.Type),
+			Cache: schema.Cache{
+				Size: cfg.NetworkFlows.ReverseDNS.CacheLen,
+				TTL:  schema.Duration(cfg.NetworkFlows.ReverseDNS.CacheTTL),
 			},
 		},
 	}
 }
 
-func statsEnrichment(cfg *obi.Config) map[string]any {
-	return map[string]any{
-		"geo_ip": map[string]any{
-			"ipinfo": map[string]any{
-				"path": cfg.Stats.GeoIP.IPInfo.Path,
+func statsEnrichment(cfg *obi.Config) schema.NetworkEnrichment {
+	return schema.NetworkEnrichment{
+		GeoIP: schema.GeoIPEnrichment{
+			IPInfo: schema.Path{
+				Path: cfg.Stats.GeoIP.IPInfo.Path,
 			},
-			"maxmind": map[string]any{
-				"country_path": cfg.Stats.GeoIP.MaxMindInfo.CountryPath,
-				"asn_path":     cfg.Stats.GeoIP.MaxMindInfo.ASNPath,
+			MaxMind: schema.MaxMind{
+				CountryPath: cfg.Stats.GeoIP.MaxMindInfo.CountryPath,
+				ASNPath:     cfg.Stats.GeoIP.MaxMindInfo.ASNPath,
 			},
-			"cache": map[string]any{
-				"size": cfg.Stats.GeoIP.CacheLen,
-				"ttl":  cfg.Stats.GeoIP.CacheTTL.String(),
+			Cache: schema.Cache{
+				Size: cfg.Stats.GeoIP.CacheLen,
+				TTL:  schema.Duration(cfg.Stats.GeoIP.CacheTTL),
 			},
 		},
-		"reverse_dns": map[string]any{
-			"mode": cfg.Stats.ReverseDNS.Type,
-			"cache": map[string]any{
-				"size": cfg.Stats.ReverseDNS.CacheLen,
-				"ttl":  cfg.Stats.ReverseDNS.CacheTTL.String(),
+		ReverseDNS: schema.ReverseDNSEnrichment{
+			Mode: schema.ReverseDNSMode(cfg.Stats.ReverseDNS.Type),
+			Cache: schema.Cache{
+				Size: cfg.Stats.ReverseDNS.CacheLen,
+				TTL:  schema.Duration(cfg.Stats.ReverseDNS.CacheTTL),
 			},
 		},
 	}
@@ -219,23 +226,23 @@ func statsEnrichment(cfg *obi.Config) map[string]any {
 func rulesFromRuntime(cfg *obi.Config) []schema.Rule {
 	rules := []schema.Rule{}
 	if discover.OnlyDefinesDeprecatedServiceSelection(cfg) {
-		rules = appendSelectorRules(rules, "exclude", discover.RegexAsSelector(cfg.Discovery.ExcludeServices), nil)
-		rules = appendSelectorRules(rules, "exclude", discover.RegexAsSelector(cfg.Discovery.DefaultExcludeServices), defaultExcludeRule)
+		rules = appendSelectorRules(rules, schema.CaptureActionExclude, discover.RegexAsSelector(cfg.Discovery.ExcludeServices), nil)
+		rules = appendSelectorRules(rules, schema.CaptureActionExclude, discover.RegexAsSelector(cfg.Discovery.DefaultExcludeServices), defaultExcludeRule)
 	} else {
-		rules = appendSelectorRules(rules, "exclude", discover.GlobsAsSelector(cfg.Discovery.ExcludeInstrument), nil)
-		rules = appendSelectorRules(rules, "exclude", discover.GlobsAsSelector(cfg.Discovery.DefaultExcludeInstrument), defaultExcludeRule)
+		rules = appendSelectorRules(rules, schema.CaptureActionExclude, discover.GlobsAsSelector(cfg.Discovery.ExcludeInstrument), nil)
+		rules = appendSelectorRules(rules, schema.CaptureActionExclude, discover.GlobsAsSelector(cfg.Discovery.DefaultExcludeInstrument), defaultExcludeRule)
 	}
 
 	if cfg.Discovery.ExcludeOTelInstrumentedServices {
 		rules = append(rules, schema.Rule{
-			Action:      "exclude",
+			Action:      schema.CaptureActionExclude,
 			Name:        "exclude-otlp-exporters",
 			Description: "Exclude services that already export OTLP to prevent duplicate telemetry pipelines.",
-			Match: map[string]any{
-				"process": map[string]any{
-					"exports_otlp": map[string]any{
-						"port":     cfg.Discovery.DefaultOtlpGRPCPort,
-						"protocol": "protobuf",
+			Match: schema.RuleMatch{
+				Process: schema.RuleProcessMatch{
+					ExportsOTLP: &schema.RuleExportsOTLP{
+						Port:     cfg.Discovery.DefaultOtlpGRPCPort,
+						Protocol: "protobuf",
 					},
 				},
 			},
@@ -248,33 +255,33 @@ func rulesFromRuntime(cfg *obi.Config) []schema.Rule {
 			globs = append(globs, strings.TrimRight(path, "/")+"/*")
 		}
 		rules = append(rules, schema.Rule{
-			Action:      "exclude",
+			Action:      schema.CaptureActionExclude,
 			Name:        "exclude-linux-system-paths",
 			Description: "Exclude Linux system/service executable paths that are not typical application workloads.",
-			Match: map[string]any{
-				"process": map[string]any{
-					"exe_path_glob": globs,
+			Match: schema.RuleMatch{
+				Process: schema.RuleProcessMatch{
+					ExePathGlob: globs,
 				},
 			},
 		})
 	}
 
-	rules = appendSelectorRules(rules, "include", discover.FindingCriteria(cfg), nil)
+	rules = appendSelectorRules(rules, schema.CaptureActionInclude, discover.FindingCriteria(cfg), nil)
 
 	return rules
 }
 
-type defaultRuleFunc func(int, map[string]any) (string, string)
+type defaultRuleFunc func(int, schema.RuleMatch) (string, string)
 
 func appendSelectorRules(
 	rules []schema.Rule,
-	action string,
+	action schema.CaptureAction,
 	selectors []services.Selector,
 	defaultRule defaultRuleFunc,
 ) []schema.Rule {
 	for i, selector := range selectors {
 		match := selectorMatch(selector)
-		if len(match) == 0 {
+		if ruleMatchEmpty(match) {
 			continue
 		}
 
@@ -291,115 +298,97 @@ func appendSelectorRules(
 	return rules
 }
 
-func selectorMatch(selector services.Selector) map[string]any {
+func selectorMatch(selector services.Selector) schema.RuleMatch {
 	switch selector := selector.(type) {
 	case *services.GlobAttributes:
 		return globSelectorMatch(selector)
 	case *services.RegexSelector:
 		return regexSelectorMatch(selector)
 	default:
-		return nil
+		return schema.RuleMatch{}
 	}
 }
 
-func globSelectorMatch(selector *services.GlobAttributes) map[string]any {
-	match := map[string]any{}
-	process := map[string]any{}
-	kubernetes := map[string]any{}
+func globSelectorMatch(selector *services.GlobAttributes) schema.RuleMatch {
+	match := schema.RuleMatch{}
 
 	if selector.OpenPorts.Len() > 0 {
-		process["open_ports"] = selector.OpenPorts
+		match.Process.OpenPorts = &selector.OpenPorts
 	}
 	if len(selector.PIDs) > 0 {
-		process["target_pids"] = selector.PIDs
+		match.Process.TargetPIDs = selector.PIDs
 	}
 	if selector.Languages.IsSet() {
-		process["language_glob"] = globList(selector.Languages)
+		match.Process.LanguageGlob = globList(selector.Languages)
 	}
 	if selector.CmdArgs.IsSet() {
-		process["cmd_args_glob"] = globList(selector.CmdArgs)
+		match.Process.CmdArgsGlob = globList(selector.CmdArgs)
 	}
 	if selector.Path.IsSet() {
-		process["exe_path_glob"] = globList(selector.Path)
+		match.Process.ExePathGlob = globList(selector.Path)
 	}
 	if selector.ContainersOnly {
-		process["containers_only"] = true
+		match.Process.ContainersOnly = true
 	}
 
 	if namespace := selector.Metadata[services.AttrNamespace]; namespace != nil && namespace.IsSet() {
-		kubernetes["namespace_glob"] = globList(*namespace)
+		match.Kubernetes.NamespaceGlob = globList(*namespace)
 	}
 	if metadata := globMetadataMap(selector.Metadata); len(metadata) > 0 {
-		kubernetes["metadata_glob"] = metadata
+		match.Kubernetes.MetadataGlob = metadata
 	}
 	if labels := globMap(selector.PodLabels); len(labels) > 0 {
-		kubernetes["pod_labels"] = labels
+		match.Kubernetes.PodLabels = labels
 	}
 	if annotations := globMap(selector.PodAnnotations); len(annotations) > 0 {
-		kubernetes["pod_annotations"] = annotations
-	}
-
-	if len(process) > 0 {
-		match["process"] = process
-	}
-	if len(kubernetes) > 0 {
-		match["kubernetes"] = kubernetes
+		match.Kubernetes.PodAnnotations = annotations
 	}
 	return match
 }
 
-func regexSelectorMatch(selector *services.RegexSelector) map[string]any {
-	match := map[string]any{}
-	process := map[string]any{}
-	kubernetes := map[string]any{}
+func regexSelectorMatch(selector *services.RegexSelector) schema.RuleMatch {
+	match := schema.RuleMatch{}
 
 	if selector.OpenPorts.Len() > 0 {
-		process["open_ports"] = selector.OpenPorts
+		match.Process.OpenPorts = &selector.OpenPorts
 	}
 	if len(selector.PIDs) > 0 {
-		process["target_pids"] = selector.PIDs
+		match.Process.TargetPIDs = selector.PIDs
 	}
 	if selector.Languages.IsSet() {
-		process["language_regex"] = regexString(selector.Languages)
+		match.Process.LanguageRegex = regexString(selector.Languages)
 	}
 	if selector.CmdArgs.IsSet() {
-		process["cmd_args_regex"] = regexString(selector.CmdArgs)
+		match.Process.CmdArgsRegex = regexString(selector.CmdArgs)
 	}
 	switch {
 	case selector.Path.IsSet():
-		process["exe_path_regex"] = regexString(selector.Path)
+		match.Process.ExePathRegex = regexString(selector.Path)
 	case selector.PathRegexp.IsSet():
-		process["exe_path_regex"] = regexString(selector.PathRegexp)
+		match.Process.ExePathRegex = regexString(selector.PathRegexp)
 	}
 	if selector.ContainersOnly {
-		process["containers_only"] = true
+		match.Process.ContainersOnly = true
 	}
 
 	if namespace := selector.Metadata[services.AttrNamespace]; namespace != nil && namespace.IsSet() {
-		kubernetes["namespace_regex"] = regexString(*namespace)
+		match.Kubernetes.NamespaceRegex = regexString(*namespace)
 	}
 	if metadata := regexMetadataMap(selector.Metadata); len(metadata) > 0 {
-		kubernetes["metadata_regex"] = metadata
+		match.Kubernetes.MetadataRegex = metadata
 	}
 	if labels := regexMap(selector.PodLabels); len(labels) > 0 {
-		kubernetes["pod_labels_regex"] = labels
+		match.Kubernetes.PodLabelsRegex = labels
 	}
 	if annotations := regexMap(selector.PodAnnotations); len(annotations) > 0 {
-		kubernetes["pod_annotations_regex"] = annotations
-	}
-
-	if len(process) > 0 {
-		match["process"] = process
-	}
-	if len(kubernetes) > 0 {
-		match["kubernetes"] = kubernetes
+		match.Kubernetes.PodAnnotationsRegex = annotations
 	}
 	return match
 }
 
-func selectorRefinement(action string, selector services.Selector) schema.RuleRefinement {
+func selectorRefinement(action schema.CaptureAction, selector services.Selector) schema.RuleRefinement {
 	refine := schema.RuleRefinement{}
-	if action != "include" {
+	if action != schema.CaptureActionInclude {
 		return refine
 	}
 	if exports := exportModeRefinement(selector.GetExportModes()); exports != nil {
@@ -409,17 +398,17 @@ func selectorRefinement(action string, selector services.Selector) schema.RuleRe
 	return refine
 }
 
-func exportModeRefinement(modes services.ExportModes) map[string]any {
+func exportModeRefinement(modes services.ExportModes) *schema.ExportModeRefinement {
 	if modes == services.ExportModeUnset {
 		return nil
 	}
-	return map[string]any{
-		"traces":  modes.CanExportTraces(),
-		"metrics": modes.CanExportMetrics(),
+	return &schema.ExportModeRefinement{
+		Traces:  modes.CanExportTraces(),
+		Metrics: modes.CanExportMetrics(),
 	}
 }
 
-func defaultExcludeRule(index int, match map[string]any) (string, string) {
+func defaultExcludeRule(index int, match schema.RuleMatch) (string, string) {
 	if index == 0 {
 		return "exclude-obi-and-collectors",
 			"Exclude OBI and collector binaries to avoid self-instrumentation and collector recursion."
@@ -428,7 +417,7 @@ func defaultExcludeRule(index int, match map[string]any) (string, string) {
 		return "exclude-system-namespaces",
 			"Exclude common platform/system Kubernetes namespaces from instrumentation by default."
 	}
-	if _, ok := match["kubernetes"]; ok {
+	if !ruleKubernetesMatchEmpty(match.Kubernetes) {
 		return "exclude-system-namespaces",
 			"Exclude common platform/system Kubernetes namespaces from instrumentation by default."
 	}
@@ -436,8 +425,36 @@ func defaultExcludeRule(index int, match map[string]any) (string, string) {
 		"Exclude OBI and collector binaries to avoid self-instrumentation and collector recursion."
 }
 
-func globMap(values map[string]*services.GlobAttr) map[string]any {
-	out := make(map[string]any, len(values))
+func ruleMatchEmpty(match schema.RuleMatch) bool {
+	return ruleProcessMatchEmpty(match.Process) && ruleKubernetesMatchEmpty(match.Kubernetes)
+}
+
+func ruleProcessMatchEmpty(match schema.RuleProcessMatch) bool {
+	return match.OpenPorts == nil &&
+		len(match.TargetPIDs) == 0 &&
+		len(match.LanguageGlob) == 0 &&
+		match.LanguageRegex == "" &&
+		len(match.CmdArgsGlob) == 0 &&
+		match.CmdArgsRegex == "" &&
+		len(match.ExePathGlob) == 0 &&
+		match.ExePathRegex == "" &&
+		!match.ContainersOnly &&
+		match.ExportsOTLP == nil
+}
+
+func ruleKubernetesMatchEmpty(match schema.RuleKubernetesMatch) bool {
+	return len(match.NamespaceGlob) == 0 &&
+		match.NamespaceRegex == "" &&
+		len(match.MetadataGlob) == 0 &&
+		len(match.MetadataRegex) == 0 &&
+		len(match.PodLabels) == 0 &&
+		len(match.PodLabelsRegex) == 0 &&
+		len(match.PodAnnotations) == 0 &&
+		len(match.PodAnnotationsRegex) == 0
+}
+
+func globMap(values map[string]*services.GlobAttr) map[string][]string {
+	out := make(map[string][]string, len(values))
 	for key, value := range values {
 		if value == nil || !value.IsSet() {
 			continue
@@ -447,8 +464,8 @@ func globMap(values map[string]*services.GlobAttr) map[string]any {
 	return out
 }
 
-func globMetadataMap(values services.MetadataGlobMap) map[string]any {
-	out := make(map[string]any, len(values))
+func globMetadataMap(values services.MetadataGlobMap) map[string][]string {
+	out := make(map[string][]string, len(values))
 	for key, value := range values {
 		if key == services.AttrNamespace || value == nil || !value.IsSet() {
 			continue
@@ -483,8 +500,8 @@ func globString(g services.GlobAttr) string {
 	return ""
 }
 
-func regexMap(values map[string]*services.RegexpAttr) map[string]any {
-	out := make(map[string]any, len(values))
+func regexMap(values map[string]*services.RegexpAttr) map[string]string {
+	out := make(map[string]string, len(values))
 	for key, value := range values {
 		if value == nil || !value.IsSet() {
 			continue
@@ -494,8 +511,8 @@ func regexMap(values map[string]*services.RegexpAttr) map[string]any {
 	return out
 }
 
-func regexMetadataMap(values services.MetadataRegexMap) map[string]any {
-	out := make(map[string]any, len(values))
+func regexMetadataMap(values services.MetadataRegexMap) map[string]string {
+	out := make(map[string]string, len(values))
 	for key, value := range values {
 		if key == services.AttrNamespace || value == nil || !value.IsSet() {
 			continue

@@ -148,6 +148,8 @@ public class Agent {
         .transform(RunnableInst.transformer())
         .type(JavaForkJoinTaskInst.type())
         .transform(JavaForkJoinTaskInst.transformer())
+        .type(VirtualThreadInst.type())
+        .transform(VirtualThreadInst.transformer())
         .installOn(inst);
   }
 
@@ -176,7 +178,8 @@ public class Agent {
           || CallableInst.matches(clazz)
           || RunnableInst.matches(clazz)
           || JavaForkJoinTaskInst.matches(clazz)
-          || NettySSLHandlerInst.matches(clazz)) {
+          || NettySSLHandlerInst.matches(clazz)
+          || VirtualThreadInst.matches(clazz)) {
         if (Agent.debugOn) {
           logger.info("Retransforming " + clazz);
         }
@@ -261,6 +264,34 @@ public class Agent {
 
       if (Agent.debugOn) {
         logger.info("Successfully loaded native library in bootstrap classloader");
+      }
+
+      // Force-initialize the BOOTSTRAP copies of every class on the
+      // VirtualThread mount-advice emit path NOW: lazy classloading on the
+      // mount path (JarFile synchronized I/O) can pin carriers and deadlock.
+      for (String name :
+          new String[] {
+            io.opentelemetry.obi.java.ebpf.ThreadInfo.class.getName(),
+            io.opentelemetry.obi.java.ebpf.IOCTLPacket.class.getName(),
+            io.opentelemetry.obi.java.ebpf.OperationType.class.getName(),
+            io.opentelemetry.obi.java.ebpf.NativeMemory.class.getName(),
+          }) {
+        Class.forName(name, true, null);
+      }
+
+      // Arm ThreadInfo's preallocated VT emit buffers on the BOOTSTRAP copy
+      // (the one the VirtualThread advices resolve), now that its native
+      // library binding is in place: the mount path must never allocate
+      // direct memory (Bits.reserveMemory can System.gc/sleep).
+      // A failed warmup (e.g. direct-memory pressure throwing an Error) must
+      // not disable the whole agent: emitVtOp drops VT emits while the pool is
+      // unarmed (degrading to carrier-tid keying), so catch Throwable and continue.
+      try {
+        Class<?> bootstrapThreadInfo =
+            Class.forName(io.opentelemetry.obi.java.ebpf.ThreadInfo.class.getName(), true, null);
+        bootstrapThreadInfo.getDeclaredMethod("initVtEmitPool").invoke(null);
+      } catch (Throwable t) {
+        logger.severe("Failed to arm VT emit buffers, VT correlation disabled: " + t);
       }
     } catch (Exception e) {
       if (Agent.debugOn) {

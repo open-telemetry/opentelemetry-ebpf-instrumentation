@@ -144,6 +144,7 @@ func (t *typer) makeServiceAttrs(processMatch *ProcessMatch) svc.Attrs {
 			Namespace: namespace,
 		},
 		ProcPID:            processMatch.Process.Pid,
+		DynamicSelectorPID: processMatch.DynamicSelectorPID,
 		ExportModes:        exportModes,
 		Sampler:            samplerFromConfig(samplerConfig),
 		PathTrie:           clusterurl.NewPathTrie(routesCfg.MaxPathSegmentCardinality, wildcard),
@@ -304,7 +305,7 @@ func isGoProxy(offsets *goexec.Offsets) bool {
 func (t *typer) loadAllGoFunctionNames() {
 	uniqueFunctions := map[string]struct{}{}
 	t.allGoFunctions = nil
-	for _, p := range newGoTracersGroup(nil, t.cfg, t.metrics, nil) {
+	for _, p := range newGoTracersGroup(nil, t.cfg, t.metrics) {
 		for symbolName := range p.GoProbes() {
 			// avoid duplicating function names
 			if _, ok := uniqueFunctions[symbolName]; !ok {

@@ -190,13 +190,18 @@ func setupMetricsSubPipeline(
 			ctxInfo,
 			&config.OTELMetrics,
 			jointMetricsConfig,
+			selectorCfg,
 			unresolvedCfg,
 			spanNameAggregatedMetrics,
 			processEventsCh,
 		), swarm.WithID("OTELSvcGraphMetricsExport"))
 	}
 
-	if jointMetricsConfig.Features.AppOrSpan() || jointMetricsConfig.Features.ServiceGraph() || jointMetricsConfig.Features.AppRuntime() {
+	runtimeMetricsEnabled := runtimemetrics.EnabledFeatures(jointMetricsConfig.Features)
+
+	if jointMetricsConfig.Features.AppOrSpan() ||
+		jointMetricsConfig.Features.ServiceGraph() ||
+		runtimeMetricsEnabled.Any() {
 		swi.Add(prom.PrometheusEndpoint(
 			ctxInfo,
 			&config.Prometheus,
@@ -209,11 +214,12 @@ func setupMetricsSubPipeline(
 		), swarm.WithID("PrometheusEndpoint"))
 	}
 
-	if jointMetricsConfig.Features.AppRuntime() {
+	if runtimeMetricsEnabled.Any() {
 		swi.Add(otel.ReportRuntimeMetrics(
 			ctxInfo,
 			&config.OTELMetrics,
 			jointMetricsConfig,
+			selectorCfg,
 			runtimeMetrics,
 		), swarm.WithID("OTELRuntimeMetricsExport"))
 	}

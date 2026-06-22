@@ -35,7 +35,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
 
-//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -target amd64,arm64 -type http_request_trace_t -type sql_request_trace_t -type http_info_t -type connection_info_t -type http2_grpc_request_t -type tcp_req_t -type kafka_client_req_t -type kafka_go_req_t -type redis_client_req_t -type tcp_large_buffer_t -type otel_span_t -type mongo_go_client_req_t -type dns_req_t Bpf ../../../bpf/common/common.c -- -I../../../bpf
+//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -target amd64,arm64 -type http_request_trace_t -type sql_request_trace_t -type http_info_t -type connection_info_t -type http2_grpc_request_t -type tcp_req_t -type kafka_client_req_t -type kafka_go_req_t -type redis_client_req_t -type tcp_large_buffer_t -type otel_span_t -type channel_link_trace_t -type mongo_go_client_req_t -type dns_req_t Bpf ../../../bpf/common/common.c -- -I../../../bpf
 
 // HTTPRequestTrace contains information from an HTTP request as directly received from the
 // eBPF layer. This contains low-level C structures for accurate binary read from ring buffer.
@@ -48,6 +48,7 @@ type (
 	GoSaramaClientInfo   BpfKafkaClientReqT
 	GoRedisClientInfo    BpfRedisClientReqT
 	GoKafkaGoClientInfo  BpfKafkaGoReqT
+	GoChannelLinkTrace   BpfChannelLinkTraceT
 	TCPLargeBufferHeader BpfTcpLargeBufferT
 	GoOTelSpanTrace      BpfOtelSpanT
 	GoMongoClientInfo    BpfMongoGoClientReqT
@@ -73,6 +74,7 @@ const (
 	EventTypeGoMongo        = 14 // EVENT_GO_MONGO - Go MongoDB spans
 	EventTypeFailedConnect  = 15 // EVENT_FAILED_CONNECT - Failed Connections
 	EventTypeDNS            = 16 // EVENT_DNS_REQUEST - DNS events
+	EventTypeGoChannelLink  = 18 // EVENT_GO_CHANNEL_LINK - Go channel handoff span links
 )
 
 // Kernel-side classification
@@ -84,6 +86,7 @@ const (
 	ProtocolTypeKafka
 	ProtocolTypeMQTT // placeholder for future kernel-space detection
 	ProtocolTypeMSSQL
+	ProtocolTypeSunRPC
 	ProtocolTypeNATS // placeholder for future kernel-space detection
 	ProtocolTypeAMQP // placeholder for future kernel-space detection
 )
@@ -96,6 +99,13 @@ const (
 var IntegrityModeOverride = false
 
 type TracerCapability uint64
+
+type SymbolMatcher uint8
+
+const (
+	SymbolMatcherExact SymbolMatcher = iota
+	SymbolMatcherContains
+)
 
 // ProbeDesc holds the information of the instrumentation points of a given
 // function/symbol
@@ -117,6 +127,50 @@ type ProbeDesc struct {
 
 	// Optional list of the offsets of every RET instruction in the symbol
 	ReturnOffsets []uint64
+
+	// SymbolMatcher controls how the map key for this probe is matched against
+	// executable symbols. The zero value preserves exact symbol matching.
+	SymbolMatcher SymbolMatcher
+
+	// Skip is set when an optional uprobe symbol was not resolved.
+	Skip bool
+}
+
+type USDTSpecManager struct {
+	mu    sync.Mutex
+	next  uint32
+	specs map[string]uint32
+}
+
+func (m *USDTSpecManager) ID(specKey string, maxSpecs uint32) (uint32, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.specs == nil {
+		m.specs = map[string]uint32{}
+	}
+	if id, ok := m.specs[specKey]; ok {
+		return id, nil
+	}
+	if m.next >= maxSpecs {
+		return 0, fmt.Errorf("too many USDT argument specs: max %d", maxSpecs)
+	}
+
+	id := m.next
+	m.next++
+	m.specs[specKey] = id
+	return id, nil
+}
+
+type USDTProbeDesc struct {
+	Required bool
+	Provider string
+	Name     string
+	Program  *ebpf.Program
+
+	SpecsMap    *ebpf.Map
+	IPMap       *ebpf.Map
+	SpecManager *USDTSpecManager
 }
 
 type Filter struct {
@@ -201,6 +255,7 @@ type EBPFParseContext struct {
 	payloadExtraction          config.PayloadExtraction
 	httpEnricher               *ebpfhttp.HTTPEnricher
 	dnsEvents                  *expirable.LRU[dnsparser.DNSId, *request.Span]
+	pendingSpanLinks           *pendingSpanLinks
 	emitSpans                  func([]request.Span)
 }
 
@@ -215,6 +270,7 @@ type sharedForwarder interface {
 type EBPFEventContext struct {
 	CommonPIDsFilter ServiceFilter
 	SharedRingBuffer sharedForwarder
+	RuntimeMetrics   RuntimeMetricSender
 	EBPFMaps         map[string]*ebpf.Map
 	RingBufLock      sync.Mutex
 	MapsLock         sync.Mutex
@@ -380,7 +436,27 @@ func (ctx *EBPFParseContext) emitExtraSpans(spans ...request.Span) {
 		return
 	}
 
+	ctx.finalizeSpans(spans)
 	ctx.emitSpans(spans)
+}
+
+func finalizeParsedSpan(parseCtx *EBPFParseContext, span request.Span, ignore bool, err error) (request.Span, bool, error) {
+	if err != nil || ignore || parseCtx == nil {
+		return span, ignore, err
+	}
+
+	parseCtx.consumePendingSpanLinks(&span)
+	return span, false, nil
+}
+
+func (ctx *EBPFParseContext) finalizeSpans(spans []request.Span) {
+	if ctx == nil {
+		return
+	}
+
+	for i := range spans {
+		ctx.consumePendingSpanLinks(&spans[i])
+	}
 }
 
 func NewEBPFEventContext() *EBPFEventContext {
@@ -401,29 +477,42 @@ func ReadBPFTraceAsSpan(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, reco
 
 	switch eventType {
 	case EventTypeSQL:
-		return ReadSQLRequestTraceAsSpan(record)
+		span, ignore, err := ReadSQLRequestTraceAsSpan(record)
+		return finalizeParsedSpan(parseCtx, span, ignore, err)
 	case EventTypeKHTTP:
-		return ReadHTTPInfoIntoSpan(parseCtx, record, filter)
+		span, ignore, err := ReadHTTPInfoIntoSpan(parseCtx, record, filter)
+		return finalizeParsedSpan(parseCtx, span, ignore, err)
 	case EventTypeKHTTP2:
-		return ReadHTTP2InfoIntoSpan(parseCtx, record, filter)
+		span, ignore, err := ReadHTTP2InfoIntoSpan(parseCtx, record, filter)
+		return finalizeParsedSpan(parseCtx, span, ignore, err)
 	case EventTypeTCP:
-		return ReadTCPRequestIntoSpan(parseCtx, cfg, record, filter)
+		span, ignore, err := ReadTCPRequestIntoSpan(parseCtx, cfg, record, filter)
+		return finalizeParsedSpan(parseCtx, span, ignore, err)
 	case EventTypeGoSarama:
-		return ReadGoSaramaRequestIntoSpan(record)
+		span, ignore, err := ReadGoSaramaRequestIntoSpan(record)
+		return finalizeParsedSpan(parseCtx, span, ignore, err)
 	case EventTypeGoRedis:
-		return ReadGoRedisRequestIntoSpan(record)
+		span, ignore, err := ReadGoRedisRequestIntoSpan(record)
+		return finalizeParsedSpan(parseCtx, span, ignore, err)
 	case EventTypeGoMongo:
-		return ReadGoMongoRequestIntoSpan(record)
+		span, ignore, err := ReadGoMongoRequestIntoSpan(record)
+		return finalizeParsedSpan(parseCtx, span, ignore, err)
 	case EventTypeGoKafkaGo:
-		return ReadGoKafkaGoRequestIntoSpan(record)
+		span, ignore, err := ReadGoKafkaGoRequestIntoSpan(record)
+		return finalizeParsedSpan(parseCtx, span, ignore, err)
 	case EventTypeTCPLargeBuffer:
 		return appendTCPLargeBuffer(parseCtx, record)
 	case EventOTelSDKGo:
-		return ReadGoOTelEventIntoSpan(record)
+		span, ignore, err := ReadGoOTelEventIntoSpan(record)
+		return finalizeParsedSpan(parseCtx, span, ignore, err)
 	case EventTypeFailedConnect:
-		return ReadFailedConnectIntoSpan(record, filter)
+		span, ignore, err := ReadFailedConnectIntoSpan(record, filter)
+		return finalizeParsedSpan(parseCtx, span, ignore, err)
 	case EventTypeDNS:
-		return readDNSEventIntoSpan(parseCtx, record)
+		span, ignore, err := readDNSEventIntoSpan(parseCtx, record)
+		return finalizeParsedSpan(parseCtx, span, ignore, err)
+	case EventTypeGoChannelLink:
+		return readGoChannelLinkEvent(parseCtx, record)
 	}
 
 	event, err := ReinterpretCast[HTTPRequestTrace](record.RawSample)
@@ -431,7 +520,7 @@ func ReadBPFTraceAsSpan(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, reco
 		return request.Span{}, true, err
 	}
 
-	return HTTPRequestTraceToSpan(event), false, nil
+	return finalizeParsedSpan(parseCtx, HTTPRequestTraceToSpan(event), false, nil)
 }
 
 func ReinterpretCast[T any](b []byte) (*T, error) {
@@ -620,7 +709,7 @@ func (connInfo *BPFConnInfo) reqHostInfo() (source, target string) {
 func isClientEvent(et uint8) bool {
 	switch request.EventType(et) {
 	case request.EventTypeGRPCClient, request.EventTypeHTTPClient, request.EventTypeRedisClient,
-		request.EventTypeKafkaClient, request.EventTypeNATSClient, request.EventTypeAMQPClient, request.EventTypeSQLClient, request.EventTypeMongoClient,
+		request.EventTypeKafkaClient, request.EventTypeNATSClient, request.EventTypeAMQPClient, request.EventTypeSunRPCClient, request.EventTypeSQLClient, request.EventTypeMongoClient,
 		request.EventTypeFailedConnect:
 		return true
 	}

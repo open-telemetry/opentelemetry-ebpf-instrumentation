@@ -49,7 +49,7 @@ func TestMatchersMutuallyExclusive(t *testing.T) {
 
 		swi := swarm.Instancer{}
 		swi.Add(criteriaMatcherProvider(&pipeConfig, inQ, outQ, cfgCriteria, sel), swarm.WithID("CriteriaMatcher"))
-		swi.Add(dynamicMatcherProvider(inQ, outQ, sel), swarm.WithID("DynamicMatcher"))
+		swi.Add(dynamicMatcherProvider(inQ, outQ, sel.appSignals()), swarm.WithID("DynamicMatcher"))
 		runner, err := swi.Instance(t.Context())
 		require.NoError(t, err)
 		runner.Start(t.Context())
@@ -442,6 +442,48 @@ func TestCriteriaMatcherMissingPort(t *testing.T) {
 	require.Len(t, matches, 2)
 	testMatch(t, matches[0], "port-only", "foo", services.ProcessInfo{Pid: 1, ExePath: "/bin/weird33", OpenPorts: []uint32{80}, PPid: 0})
 	testMatch(t, matches[1], "port-only", "foo", services.ProcessInfo{Pid: 3, ExePath: "/bin/weird33", OpenPorts: []uint32{}, PPid: 1})
+	assert.Zero(t, matches[0].Obj.DynamicSelectorPID)
+	assert.Zero(t, matches[1].Obj.DynamicSelectorPID)
+}
+
+func TestDynamicMatcher_ChildInheritsDynamicSelectorPID(t *testing.T) {
+	dynamicSelector := NewDynamicPIDSelector()
+	dynamicSelector.AddPIDs(100)
+
+	discoveredProcesses := msg.NewQueue[[]Event[ProcessAttrs]](msg.ChannelBufferLen(10))
+	filteredProcessesQu := msg.NewQueue[[]Event[ProcessMatch]](msg.ChannelBufferLen(10))
+	filteredProcesses := filteredProcessesQu.Subscribe()
+	processInfo = func(pp ProcessAttrs) (*services.ProcessInfo, error) {
+		proc := map[app.PID]struct {
+			Exe  string
+			PPid app.PID
+		}{
+			100: {Exe: "/bin/parent", PPid: 0},
+			101: {Exe: "/bin/child", PPid: 100},
+		}[pp.pid]
+		return &services.ProcessInfo{Pid: pp.pid, ExePath: proc.Exe, PPid: proc.PPid, OpenPorts: pp.openPorts}, nil
+	}
+	runFn, err := dynamicMatcherProvider(discoveredProcesses, filteredProcessesQu, dynamicSelector.appSignals())(t.Context())
+	require.NoError(t, err)
+	go runFn(t.Context())
+	time.Sleep(50 * time.Millisecond)
+	defer filteredProcessesQu.Close()
+
+	discoveredProcesses.Send([]Event[ProcessAttrs]{
+		{Type: EventCreated, Obj: ProcessAttrs{pid: 100}},
+		{Type: EventCreated, Obj: ProcessAttrs{pid: 101}},
+	})
+	matches := testutil.ReadChannel(t, filteredProcesses, testTimeout)
+	require.Len(t, matches, 2)
+
+	assert.Equal(t, app.PID(100), matches[0].Obj.Process.Pid)
+	assert.Equal(t, app.PID(100), matches[0].Obj.DynamicSelectorPID)
+
+	assert.Equal(t, app.PID(101), matches[1].Obj.Process.Pid)
+	assert.Equal(t, app.PID(100), matches[1].Obj.DynamicSelectorPID)
+
+	discoveredProcesses.Close()
+	testutil.DrainUntilClosed(filteredProcesses)
 }
 
 func TestCriteriaMatcherContainersOnly(t *testing.T) {
@@ -729,7 +771,7 @@ func TestCriteriaMatcher_DynamicTargetPIDs(t *testing.T) {
 	processInfo = func(pp ProcessAttrs) (*services.ProcessInfo, error) {
 		return &services.ProcessInfo{Pid: pp.pid, ExePath: "/any/exe", OpenPorts: pp.openPorts}, nil
 	}
-	runFn, err := dynamicMatcherProvider(discoveredProcesses, filteredProcessesQu, dynamicSelector)(t.Context())
+	runFn, err := dynamicMatcherProvider(discoveredProcesses, filteredProcessesQu, dynamicSelector.appSignals())(t.Context())
 	require.NoError(t, err)
 	go runFn(t.Context())
 	time.Sleep(50 * time.Millisecond)
@@ -742,6 +784,7 @@ func TestCriteriaMatcher_DynamicTargetPIDs(t *testing.T) {
 	matches := testutil.ReadChannel(t, filteredProcesses, testTimeout)
 	require.Len(t, matches, 1)
 	assert.Equal(t, app.PID(42), matches[0].Obj.Process.Pid)
+	assert.Equal(t, app.PID(42), matches[0].Obj.DynamicSelectorPID)
 
 	dynamicSelector.AddPIDs(100)
 	discoveredProcesses.Send([]Event[ProcessAttrs]{
@@ -778,7 +821,7 @@ func TestCriteriaMatcher_DynamicTargetPIDs_RemoveNotification(t *testing.T) {
 	processInfo = func(pp ProcessAttrs) (*services.ProcessInfo, error) {
 		return &services.ProcessInfo{Pid: pp.pid, ExePath: "/any/exe", OpenPorts: pp.openPorts}, nil
 	}
-	runFn, err := dynamicMatcherProvider(discoveredProcesses, filteredProcessesQu, dynamicSelector)(t.Context())
+	runFn, err := dynamicMatcherProvider(discoveredProcesses, filteredProcessesQu, dynamicSelector.appSignals())(t.Context())
 	require.NoError(t, err)
 	go runFn(t.Context())
 	time.Sleep(50 * time.Millisecond)

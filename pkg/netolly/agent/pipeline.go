@@ -23,6 +23,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/netolly/flowdef"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
+	"go.opentelemetry.io/obi/pkg/selection"
 )
 
 func recordAttrs(r *ebpf.Record) *pipe.CommonAttrs { return &r.CommonAttrs }
@@ -108,6 +109,15 @@ func (f *Flows) buildPipeline(ctx context.Context) (*swarm.Runner, error) {
 		return flow.Decorate(ifaceNamer, commonDecoratedFlows, decoratedFlows), nil
 	}, swarm.WithID("FlowDecorator"))
 
+	dynamicFilteredFlows := msgh.QueueFromConfig[[]*ebpf.Record](f.cfg, "dynamicFilteredFlows")
+	var dynamicSelector selection.PIDSelector
+	if f.ctxInfo.DynamicPIDSelector != nil {
+		dynamicSelector = f.ctxInfo.DynamicPIDSelector.NetworkMetrics()
+	}
+	swi.Add(filter.ByDynamicPID(dynamicSelector, f.ctxInfo.K8sInformer,
+		recordAttrs, decoratedFlows, dynamicFilteredFlows),
+		swarm.WithID("DynamicPIDFilter"))
+
 	filteredFlows := f.ctxInfo.OverrideNetExportQueue
 	if filteredFlows == nil {
 		filteredFlows = msgh.QueueFromConfig[[]*ebpf.Record](f.cfg, "filteredFlows")
@@ -119,7 +129,7 @@ func (f *Flows) buildPipeline(ctx context.Context) (*swarm.Runner, error) {
 		ebpf.RecordStringGetters(ebpf.RecordGettersConfig{
 			PortGuessPolicy: f.cfg.NetworkFlows.GuessPorts,
 		}),
-		decoratedFlows,
+		dynamicFilteredFlows,
 		filteredFlows,
 	), swarm.WithID("AttributeFilter"))
 

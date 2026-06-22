@@ -57,6 +57,7 @@ func assertHTTPRequests(t *testing.T, comm, urlPath string) {
 	require.Empty(t, traces, "expected no HTTP traces, got %d", len(traces))
 }
 
+//nolint:unparam // reason: reserve the posibility to use op != "SELECT" in future tests
 func assertSQLOperation(t *testing.T, comm, op, table, db string) {
 	t.Helper()
 
@@ -196,6 +197,21 @@ func testPythonSQLError(t *testing.T, comm, url, db string) {
 	assertSQLOperationErrored(t, comm, "SELECT", "obi.nonexisting", db)
 }
 
+// testPythonSQLPipeline exercises the regression from issue #1464: the
+// /pipeline endpoint batches several extended-protocol statements into one TCP
+// segment (more than k_pg_messages_in_packet_max Postgres messages), which the
+// eBPF classifier used to reject. accounting.invoices is only queried by this
+// endpoint, so finding its span proves the multi-message connection was
+// classified as Postgres.
+func testPythonSQLPipeline(t *testing.T, comm, url, db string) {
+	t.Helper()
+
+	urlPath := "/pipeline"
+	ti.DoHTTPGet(t, url+urlPath, 200)
+
+	assertSQLOperation(t, comm, "SELECT", "accounting.invoices", db)
+}
+
 func testPythonPostgres(t *testing.T) {
 	testCaseURL := "http://localhost:8381"
 	comm := "python3.14"
@@ -207,6 +223,7 @@ func testPythonPostgres(t *testing.T) {
 	assertHTTPRequests(t, comm, "/query")
 	testPythonSQLQuery(t, comm, testCaseURL, table, db)
 	testPythonSQLPreparedStatements(t, comm, testCaseURL, table, db)
+	testPythonSQLPipeline(t, comm, testCaseURL, db)
 	testPythonSQLError(t, comm, testCaseURL, db)
 }
 

@@ -1,0 +1,34 @@
+groups:
+  - id: registry.obi.jvm_runtime
+    type: attribute_group
+    display_name: JVM Runtime Metrics
+    brief: >
+      Attributes carried on OBI-specific JVM runtime memory metrics. Emitted
+      when the `application_jvm` metrics feature and `jvm_runtime_metrics` are
+      enabled. Standard JVM memory metrics and attributes are declared by the
+      upstream OpenTelemetry semantic conventions registry pinned in
+      `manifest.yaml`.
+    attributes:
+      - id: jvm.gc.phase
+        type:
+          members:
+            - id: before
+              value: before
+              stability: development
+            - id: after
+              value: after
+              stability: development
+        stability: development
+        brief: GC phase reported by the JVM.
+
+  - id: metric.obi.jvm.heap.used
+    type: metric
+    metric_name: obi.jvm.heap.used
+    instrument: gauge
+    unit: "By"
+    stability: development
+    brief: >
+      HotSpot heap used in bytes as reported by
+      `GCTracer::report_gc_heap_summary`.
+    attributes:
+      - ref: jvm.gc.phase

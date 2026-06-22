@@ -157,6 +157,7 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 		{"capture_header_buffer", []any{int32(0), int32(1)}},
 		{"high_request_volume", []any{uint32(0), uint32(1)}},
 		{"disable_black_box_cp", []any{uint32(0), uint32(1)}},
+		{"jvm_sampling_interval_ns", []any{uint64(0), uint64(1_000_000_000)}},
 	})
 
 	// gotracer

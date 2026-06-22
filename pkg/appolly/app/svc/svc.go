@@ -5,7 +5,7 @@ package svc // import "go.opentelemetry.io/obi/pkg/appolly/app/svc"
 
 import (
 	"go.opentelemetry.io/otel/sdk/trace"
-	semconv "go.opentelemetry.io/otel/semconv/v1.38.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/services"
@@ -108,6 +108,11 @@ type Attrs struct {
 	// It is stored here at process discovery time, because it might differ form the
 	// UserPID and HostPID fields of the request.PidInfo struct.
 	ProcPID app.PID
+
+	// DynamicSelectorPID is the PID whose dynamic signal selection controls this process.
+	// It usually matches ProcPID, but children discovered through a selected parent can inherit
+	// the parent's runtime signal selection.
+	DynamicSelectorPID app.PID
 
 	// HostName running the process. It will default to the OBI host and will be overridden
 	// by other metadata if available (e.g., Pod Name, Node Name, etc...)

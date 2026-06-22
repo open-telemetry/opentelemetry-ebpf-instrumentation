@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 	"time"
 
@@ -72,9 +73,19 @@ func TestServeEndToEnd(t *testing.T) {
 }
 
 func TestServeEndToEndUDS(t *testing.T) {
-	const addr = "@obi-health-test"
-	lis, err := net.Listen("unix", addr)
+	// On Linux "@"-prefixed names are abstract sockets (no filesystem entry,
+	// cleaned up by the kernel). macOS doesn't support abstract sockets, so this
+	// becomes a regular socket file in the working directory; remove any leftover
+	// from an interrupted previous run before listening.
+	const sockAddr = "@obi-health-test"
+	_ = os.Remove(sockAddr)
+
+	lis, err := net.Listen("unix", sockAddr)
 	require.NoError(t, err)
+	t.Cleanup(func() {
+		_ = lis.Close()
+		_ = os.Remove(sockAddr)
+	})
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -86,7 +97,7 @@ func TestServeEndToEndUDS(t *testing.T) {
 
 	client := &http.Client{Transport: &http.Transport{
 		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-			return (&net.Dialer{}).DialContext(ctx, "unix", addr)
+			return (&net.Dialer{}).DialContext(ctx, "unix", sockAddr)
 		},
 	}}
 

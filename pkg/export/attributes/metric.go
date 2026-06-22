@@ -29,6 +29,11 @@ var (
 		Prom:    "obi_network_flow_bytes_total",
 		OTEL:    "obi.network.flow.bytes",
 	}
+	NetworkFlowPackets = Name{
+		Section: "obi.network.flow.packets",
+		Prom:    "obi_network_flow_packets_total",
+		OTEL:    "obi.network.flow.packets",
+	}
 	NetworkInterZone = Name{
 		Section: "obi.network.inter.zone",
 		Prom:    "obi_network_inter_zone_bytes_total",
@@ -65,14 +70,14 @@ var (
 		OTEL:    "http.client.request.duration",
 	}
 	RPCServerDuration = Name{
-		Section: "rpc.server.duration",
-		Prom:    "rpc_server_duration_seconds",
-		OTEL:    "rpc.server.duration",
+		Section: "rpc.server.call.duration",
+		Prom:    "rpc_server_call_duration_seconds",
+		OTEL:    "rpc.server.call.duration",
 	}
 	RPCClientDuration = Name{
-		Section: "rpc.client.duration",
-		Prom:    "rpc_client_duration_seconds",
-		OTEL:    "rpc.client.duration",
+		Section: "rpc.client.call.duration",
+		Prom:    "rpc_client_call_duration_seconds",
+		OTEL:    "rpc.client.call.duration",
 	}
 	DBClientDuration = Name{
 		Section: "db.client.operation.duration",
@@ -158,6 +163,36 @@ var (
 		Section: "go.config.gogc",
 		Prom:    "go_config_gogc_percent",
 		OTEL:    "go.config.gogc",
+	}
+	JVMMemoryUsed = Name{
+		Section: "jvm.memory.used",
+		Prom:    "jvm_memory_used_bytes",
+		OTEL:    "jvm.memory.used",
+	}
+	JVMMemoryCommitted = Name{
+		Section: "jvm.memory.committed",
+		Prom:    "jvm_memory_committed_bytes",
+		OTEL:    "jvm.memory.committed",
+	}
+	JVMMemoryLimit = Name{
+		Section: "jvm.memory.limit",
+		Prom:    "jvm_memory_limit_bytes",
+		OTEL:    "jvm.memory.limit",
+	}
+	JVMMemoryUsedAfterLastGC = Name{
+		Section: "jvm.memory.used_after_last_gc",
+		Prom:    "jvm_memory_used_after_last_gc_bytes",
+		OTEL:    "jvm.memory.used_after_last_gc",
+	}
+	ObiJVMHeapUsed = Name{
+		Section: "obi.jvm.heap.used",
+		Prom:    "obi_jvm_heap_used_bytes",
+		OTEL:    "obi.jvm.heap.used",
+	}
+	Resource = Name{
+		Section: "resource",
+		Prom:    "resource",
+		OTEL:    "resource",
 	}
 	StatTCPRtt = Name{
 		Section: "obi.stat.tcp.rtt",

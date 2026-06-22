@@ -16,7 +16,7 @@ import (
 	"go.opentelemetry.io/collector/pdata/pmetric"
 	"go.opentelemetry.io/collector/pdata/ptrace"
 	"go.opentelemetry.io/otel/attribute"
-	semconv "go.opentelemetry.io/otel/semconv/v1.38.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 
 	"go.opentelemetry.io/obi/internal/test/collector"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
@@ -463,17 +463,17 @@ func TestGRPCPipeline(t *testing.T) {
 	delete(event.ResourceAttributes, string(semconv.TelemetryDistroVersionKey))
 
 	assert.Equal(t, collector.MetricRecord{
-		Name: "rpc.server.duration",
+		Name: "rpc.server.call.duration",
 		Unit: "s",
 		Attributes: map[string]string{
-			string(semconv.ServiceNameKey):       "grpc-svc",
-			string(semconv.ServiceNamespaceKey):  "",
-			string(semconv.RPCSystemKey):         "grpc",
-			string(semconv.RPCGRPCStatusCodeKey): "3",
-			string(semconv.RPCMethodKey):         "/foo/bar",
-			string(attr.ClientAddr):              "1.1.1.1",
-			string(attr.ServerPort):              "8080",
-			string(attr.ServerAddr):              event.Attributes["server.address"],
+			string(semconv.ServiceNameKey):           "grpc-svc",
+			string(semconv.ServiceNamespaceKey):      "",
+			string(semconv.RPCSystemNameKey):         "grpc",
+			string(semconv.RPCResponseStatusCodeKey): "INVALID_ARGUMENT",
+			string(semconv.RPCMethodKey):             "/foo/bar",
+			string(attr.ClientAddr):                  "1.1.1.1",
+			string(attr.ServerPort):                  "8080",
+			string(attr.ServerAddr):                  event.Attributes["server.address"],
 		},
 		ResourceAttributes: map[string]string{
 			string(semconv.HostIDKey):               "host-id",
@@ -832,14 +832,14 @@ func matchGRPCTraceEvent(t *testing.T, name string, event collector.TraceRecord)
 	assert.Equal(t, collector.TraceRecord{
 		Name: name,
 		Attributes: map[string]string{
-			string(semconv.RPCSystemKey):         "grpc",
-			string(semconv.RPCGRPCStatusCodeKey): "3",
-			string(semconv.RPCMethodKey):         "foo.bar",
-			string(attr.ClientAddr):              "1.1.1.1",
-			string(attr.ServerAddr):              "127.0.0.1",
-			string(attr.ServerPort):              "8080",
-			"span_id":                            event.Attributes["span_id"],
-			"parent_span_id":                     event.Attributes["parent_span_id"],
+			string(semconv.RPCSystemNameKey):         "grpc",
+			string(semconv.RPCResponseStatusCodeKey): "INVALID_ARGUMENT",
+			string(semconv.RPCMethodKey):             "foo.bar",
+			string(attr.ClientAddr):                  "1.1.1.1",
+			string(attr.ServerAddr):                  "127.0.0.1",
+			string(attr.ServerPort):                  "8080",
+			"span_id":                                event.Attributes["span_id"],
+			"parent_span_id":                         event.Attributes["parent_span_id"],
 		},
 		ResourceAttributes: map[string]string{
 			string(semconv.HostIDKey):               "host-id",

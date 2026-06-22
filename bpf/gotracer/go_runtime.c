@@ -17,7 +17,9 @@
 
 #include <bpfcore/utils.h>
 
+#include <common/common.h>
 #include <common/ringbuf.h>
+#include <common/trace_helpers.h>
 
 #include <gotracer/go_common.h>
 
@@ -32,6 +34,8 @@
 #include <gotracer/types/nethttp.h>
 
 #include <logger/bpf_dbg.h>
+
+#include <maps/go_ongoing_http_client_requests.h>
 
 #include <pid/pid_helpers.h>
 
@@ -178,6 +182,312 @@ done:
     bpf_map_delete_elem(&newproc1, &c_key);
 
     return 0;
+}
+
+static __always_inline bool valid_tp_info(const tp_info_t *tp) {
+    return tp && valid_trace(tp->trace_id) && valid_span(tp->span_id);
+}
+
+static __always_inline bool current_obi_handoff(struct pt_regs *ctx, chan_handoff_t *handoff) {
+    if (!handoff) {
+        return false;
+    }
+
+    void *goroutine_addr = (void *)GOROUTINE_PTR(ctx);
+    go_addr_key_t g_key = {};
+    go_addr_key_from_id(&g_key, goroutine_addr);
+
+    grpc_srv_func_invocation_t *grpc_server_inv =
+        bpf_map_lookup_elem(&ongoing_grpc_server_requests, &g_key);
+    if (grpc_server_inv && valid_tp_info(&grpc_server_inv->tp)) {
+        tp_clone(&handoff->tp, &grpc_server_inv->tp);
+        return true;
+    }
+
+    grpc_client_func_invocation_t *grpc_client_inv =
+        bpf_map_lookup_elem(&ongoing_grpc_client_requests, &g_key);
+    if (grpc_client_inv && valid_tp_info(&grpc_client_inv->tp)) {
+        tp_clone(&handoff->tp, &grpc_client_inv->tp);
+        return true;
+    }
+
+    server_http_func_invocation_t *http_server_inv =
+        bpf_map_lookup_elem(&ongoing_http_server_requests, &g_key);
+    if (http_server_inv && valid_tp_info(&http_server_inv->tp)) {
+        tp_clone(&handoff->tp, &http_server_inv->tp);
+        return true;
+    }
+
+    http_func_invocation_t *http_client_inv =
+        bpf_map_lookup_elem(&go_ongoing_http_client_requests, &g_key);
+    if (http_client_inv && valid_tp_info(&http_client_inv->tp)) {
+        tp_clone(&handoff->tp, &http_client_inv->tp);
+        return true;
+    }
+
+    tp_info_t *kafka_go_tp = bpf_map_lookup_elem(&produce_traceparents_by_goroutine, &g_key);
+    if (valid_tp_info(kafka_go_tp)) {
+        tp_clone(&handoff->tp, kafka_go_tp);
+        return true;
+    }
+
+    mongo_go_client_req_t *mongo = bpf_map_lookup_elem(&ongoing_mongo_requests, &g_key);
+    if (mongo && valid_tp_info(&mongo->tp)) {
+        tp_clone(&handoff->tp, &mongo->tp);
+        return true;
+    }
+
+    redis_client_req_t *redis = bpf_map_lookup_elem(&ongoing_redis_requests, &g_key);
+    if (redis && valid_tp_info(&redis->tp)) {
+        tp_clone(&handoff->tp, &redis->tp);
+        return true;
+    }
+
+    sql_func_invocation_t *sql = bpf_map_lookup_elem(&ongoing_sql_queries, &g_key);
+    if (sql && valid_tp_info(&sql->tp)) {
+        tp_clone(&handoff->tp, &sql->tp);
+        return true;
+    }
+
+    obi_ctx_info_t *obi_ctx = obi_ctx__get(bpf_get_current_pid_tgid());
+    if (obi_ctx && valid_trace(obi_ctx->trace_id) && valid_span(obi_ctx->span_id)) {
+        __builtin_memcpy(handoff->tp.trace_id, obi_ctx->trace_id, sizeof(handoff->tp.trace_id));
+        __builtin_memcpy(handoff->tp.span_id, obi_ctx->span_id, sizeof(handoff->tp.span_id));
+        *((u64 *)handoff->tp.parent_id) = 0;
+        handoff->tp.flags = 0;
+        return true;
+    }
+
+    return false;
+}
+
+static __always_inline bool same_span_context(const tp_info_t *a, const tp_info_t *b) {
+    if (!a || !b) {
+        return false;
+    }
+
+    return *((u64 *)a->span_id) == *((u64 *)b->span_id) &&
+           *((u64 *)a->trace_id) == *((u64 *)b->trace_id) &&
+           *((u64 *)(a->trace_id + 8)) == *((u64 *)(b->trace_id + 8));
+}
+
+static __always_inline void emit_channel_handoff(chan_handoff_t *sender, chan_handoff_t *receiver) {
+    if (!sender || !receiver || !valid_tp_info(&sender->tp) || !valid_tp_info(&receiver->tp)) {
+        return;
+    }
+
+    if (same_span_context(&sender->tp, &receiver->tp)) {
+        return;
+    }
+
+    channel_link_trace_t *trace = bpf_ringbuf_reserve(&events, sizeof(*trace), 0);
+    if (!trace) {
+        return;
+    }
+
+    trace->type = EVENT_GO_CHANNEL_LINK;
+    tp_clone(&trace->sender_tp, &sender->tp);
+    tp_clone(&trace->receiver_tp, &receiver->tp);
+    bpf_ringbuf_submit(trace, get_flags());
+}
+
+static __always_inline bool read_channel_dataqsiz(const void *chan_ptr, u64 *dataqsiz) {
+    if (!chan_ptr || !dataqsiz) {
+        return false;
+    }
+
+    off_table_t *ot = get_offsets_table();
+    const u64 dataqsiz_off = go_offset_of(ot, (go_offset){.v = _hchan_dataqsiz_pos});
+    if (dataqsiz_off == (u64)-1) {
+        return false;
+    }
+
+    return bpf_probe_read_user(dataqsiz, sizeof(*dataqsiz), chan_ptr + dataqsiz_off) == 0;
+}
+
+static __always_inline void record_direct_channel_sender(const go_addr_key_t *chan_key,
+                                                         const chan_handoff_t *handoff) {
+    direct_chan_handoff_t *existing = bpf_map_lookup_elem(&direct_channel_senders, chan_key);
+    direct_chan_handoff_t value = {};
+
+    // More than one waiter on the same channel cannot be paired safely by channel pointer alone.
+    if (existing || !handoff) {
+        value.ambiguous = true;
+    } else {
+        value.handoff = *handoff;
+    }
+
+    bpf_map_update_elem(&direct_channel_senders, chan_key, &value, BPF_ANY);
+}
+
+static __always_inline void record_direct_channel_receiver(const go_addr_key_t *chan_key,
+                                                           const chan_handoff_t *handoff) {
+    direct_chan_handoff_t *existing = bpf_map_lookup_elem(&direct_channel_receivers, chan_key);
+    direct_chan_handoff_t value = {};
+
+    if (existing || !handoff) {
+        value.ambiguous = true;
+    } else {
+        value.handoff = *handoff;
+    }
+
+    bpf_map_update_elem(&direct_channel_receivers, chan_key, &value, BPF_ANY);
+}
+
+static __always_inline void emit_direct_channel_handoff(const go_addr_key_t *chan_key) {
+    direct_chan_handoff_t *sender = bpf_map_lookup_elem(&direct_channel_senders, chan_key);
+    direct_chan_handoff_t *receiver = bpf_map_lookup_elem(&direct_channel_receivers, chan_key);
+    if (sender && receiver && !sender->ambiguous && !receiver->ambiguous) {
+        emit_channel_handoff(&sender->handoff, &receiver->handoff);
+    }
+
+    bpf_map_delete_elem(&direct_channel_senders, chan_key);
+    bpf_map_delete_elem(&direct_channel_receivers, chan_key);
+}
+
+static __always_inline int channel_send_start(struct pt_regs *ctx) {
+    const u64 chan_ptr = (u64)GO_PARAM1(ctx);
+    if (!chan_ptr) {
+        return 0;
+    }
+
+    void *goroutine_addr = (void *)GOROUTINE_PTR(ctx);
+    go_addr_key_t g_key = {};
+    go_addr_key_from_id(&g_key, goroutine_addr);
+
+    chan_func_invocation_t invocation = {.chan_ptr = chan_ptr};
+    if (bpf_map_update_elem(&chansend_invocations, &g_key, &invocation, BPF_ANY)) {
+        return 0;
+    }
+
+    u64 dataqsiz = 0;
+    if (!read_channel_dataqsiz((void *)chan_ptr, &dataqsiz) || dataqsiz != 0) {
+        return 0;
+    }
+
+    go_addr_key_t chan_key = {};
+    go_addr_key_from_id(&chan_key, (void *)chan_ptr);
+
+    chan_handoff_t sender = {};
+    if (current_obi_handoff(ctx, &sender)) {
+        record_direct_channel_sender(&chan_key, &sender);
+    } else {
+        record_direct_channel_sender(&chan_key, NULL);
+    }
+
+    return 0;
+}
+
+static __always_inline int channel_send_return(struct pt_regs *ctx) {
+    void *goroutine_addr = (void *)GOROUTINE_PTR(ctx);
+    go_addr_key_t g_key = {};
+    go_addr_key_from_id(&g_key, goroutine_addr);
+
+    chan_func_invocation_t *invocation = bpf_map_lookup_elem(&chansend_invocations, &g_key);
+    if (!invocation) {
+        return 0;
+    }
+
+    u64 dataqsiz = 0;
+    go_addr_key_t chan_key = {};
+    go_addr_key_from_id(&chan_key, (void *)invocation->chan_ptr);
+
+    if (read_channel_dataqsiz((void *)invocation->chan_ptr, &dataqsiz) && dataqsiz == 0) {
+        emit_direct_channel_handoff(&chan_key);
+    }
+
+    bpf_map_delete_elem(&direct_channel_senders, &chan_key);
+    bpf_map_delete_elem(&chansend_invocations, &g_key);
+    return 0;
+}
+
+static __always_inline int channel_recv_start(struct pt_regs *ctx) {
+    const u64 chan_ptr = (u64)GO_PARAM1(ctx);
+    if (!chan_ptr) {
+        return 0;
+    }
+
+    u64 dataqsiz = 0;
+    if (!read_channel_dataqsiz((void *)chan_ptr, &dataqsiz)) {
+        return 0;
+    }
+
+    chan_func_invocation_t invocation = {.chan_ptr = chan_ptr};
+    chan_handoff_t receiver = {};
+    bool have_receiver = current_obi_handoff(ctx, &receiver);
+
+    void *goroutine_addr = (void *)GOROUTINE_PTR(ctx);
+    go_addr_key_t g_key = {};
+    go_addr_key_from_id(&g_key, goroutine_addr);
+    if (bpf_map_update_elem(&chanrecv_invocations, &g_key, &invocation, BPF_ANY)) {
+        return 0;
+    }
+
+    if (dataqsiz == 0) {
+        go_addr_key_t chan_key = {};
+        go_addr_key_from_id(&chan_key, (void *)chan_ptr);
+
+        if (have_receiver) {
+            record_direct_channel_receiver(&chan_key, &receiver);
+        } else {
+            record_direct_channel_receiver(&chan_key, NULL);
+        }
+    }
+
+    return 0;
+}
+
+static __always_inline int channel_recv_return(struct pt_regs *ctx) {
+    void *goroutine_addr = (void *)GOROUTINE_PTR(ctx);
+    go_addr_key_t g_key = {};
+    go_addr_key_from_id(&g_key, goroutine_addr);
+
+    chan_func_invocation_t *invocation = bpf_map_lookup_elem(&chanrecv_invocations, &g_key);
+    if (!invocation) {
+        return 0;
+    }
+
+    u64 dataqsiz = 0;
+    go_addr_key_t chan_key = {};
+    go_addr_key_from_id(&chan_key, (void *)invocation->chan_ptr);
+
+    if (read_channel_dataqsiz((void *)invocation->chan_ptr, &dataqsiz) && dataqsiz == 0) {
+        emit_direct_channel_handoff(&chan_key);
+    }
+
+    bpf_map_delete_elem(&direct_channel_receivers, &chan_key);
+    bpf_map_delete_elem(&chanrecv_invocations, &g_key);
+    return 0;
+}
+
+SEC("uprobe/runtime_chansend1")
+int obi_uprobe_runtime_chansend1(struct pt_regs *ctx) {
+    return channel_send_start(ctx);
+}
+
+SEC("uprobe/runtime_chansend1_return")
+int obi_uprobe_runtime_chansend1_return(struct pt_regs *ctx) {
+    return channel_send_return(ctx);
+}
+
+SEC("uprobe/runtime_chanrecv1")
+int obi_uprobe_runtime_chanrecv1(struct pt_regs *ctx) {
+    return channel_recv_start(ctx);
+}
+
+SEC("uprobe/runtime_chanrecv1_return")
+int obi_uprobe_runtime_chanrecv1_return(struct pt_regs *ctx) {
+    return channel_recv_return(ctx);
+}
+
+SEC("uprobe/runtime_chanrecv2")
+int obi_uprobe_runtime_chanrecv2(struct pt_regs *ctx) {
+    return channel_recv_start(ctx);
+}
+
+SEC("uprobe/runtime_chanrecv2_return")
+int obi_uprobe_runtime_chanrecv2_return(struct pt_regs *ctx) {
+    return channel_recv_return(ctx);
 }
 
 enum gstatus {

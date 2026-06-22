@@ -106,20 +106,21 @@ jobs:
       - name: Check for Docker Hub token
         id: check-docker-token
         run: |
-          if [ -n "${DOCKER_TOKEN}" ]; then
+          if [ "${ALLOW_DOCKER_TOKEN}" = "true" ] && [ -n "${DOCKER_TOKEN}" ]; then
             echo "has_token=true" >> "$GITHUB_OUTPUT"
           else
             echo "has_token=false" >> "$GITHUB_OUTPUT"
           fi
         env:
-          DOCKER_TOKEN: ${{ secrets.DOCKER_TOKEN_EBPF_INSTRUMENTATION }}
+          DOCKER_TOKEN: ${{ (github.event_name != 'workflow_dispatch' || !inputs.ref) && secrets.DOCKER_TOKEN_EBPF_INSTRUMENTATION || '' }}
+          ALLOW_DOCKER_TOKEN: ${{ github.event_name != 'workflow_dispatch' || !inputs.ref }}
 
       - name: Log in to Docker Hub
         if: steps.check-docker-token.outputs.has_token == 'true'
         uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
         with:
           username: ${{ vars.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_TOKEN_EBPF_INSTRUMENTATION }}
+          password: ${{ (github.event_name != 'workflow_dispatch' || !inputs.ref) && secrets.DOCKER_TOKEN_EBPF_INSTRUMENTATION || '' }}
 
       - name: Set up Go
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0 # zizmor: ignore[cache-poisoning] go.sum verifies module integrity
@@ -156,7 +157,7 @@ jobs:
       - name: Pre-build Docker images
         if: steps.docker-images-cache.outputs.cache-hit != 'true'
         run: |
-          mapfile -t ENTRIES < <(bash scripts/discover-vm-docker-images.sh)
+          mapfile -t ENTRIES < <(bash scripts/discover-integration-images.sh --build-targets)
           echo "Discovered ${#ENTRIES[@]} Docker images to pre-build"
           # -P 4 keeps disk + buildkit pressure manageable on a 4-core runner.
           printf '%s\n' "${ENTRIES[@]}" | xargs -P 4 -I {} bash -c '
@@ -169,11 +170,29 @@ jobs:
           for entry in "${ENTRIES[@]}"; do
             IMAGE_TAGS+=("${entry%%=*}")
           done
+
           if [ ${#IMAGE_TAGS[@]} -gt 0 ]; then
             docker save "${IMAGE_TAGS[@]}" -o compiled-tests/docker-images.tar
             echo "Docker images saved ($(du -h compiled-tests/docker-images.tar | cut -f1))"
             docker builder prune -af
           fi
+
+      - name: Compute base-image cache key
+        id: cache-key
+        env:
+          ARCH: ${{ runner.arch }}
+        run: echo "key=base-images-${ARCH}-$(bash scripts/discover-integration-images.sh --base-images | sha256sum | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache base images
+        id: base-images-cache
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5 # zizmor: ignore[cache-poisoning] key derives from the digest-pinned base-image list; images are content-addressable
+        with:
+          path: compiled-tests/base-images.tar
+          key: ${{ steps.cache-key.outputs.key }}
+
+      - name: Pull and save base images
+        if: steps.base-images-cache.outputs.cache-hit != 'true'
+        run: bash scripts/pull-base-images.sh compiled-tests/base-images.tar
 
       - name: Cache rootfs.qcow2
         id: rootfs-cache

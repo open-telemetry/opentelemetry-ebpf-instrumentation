@@ -1,0 +1,25 @@
+services:
+  obi:
+    build:
+      context: ../../..
+      dockerfile: ./internal/test/integration/components/jvm-runtime-event-test/Dockerfile
+    image: hatest-jvm-runtime-event-test
+    privileged: true
+    volumes:
+      - ../../..:/src
+      - ./system/sys/kernel/security:/sys/kernel/security
+      - /sys/kernel/tracing:/sys/kernel/tracing:rw
+    working_dir: /src
+    environment:
+      GOCACHE: /tmp/go-build-cache
+      GOMODCACHE: /tmp/go-mod-cache
+    command:
+      - go
+      - test
+      - -tags=jvm_live
+      - ./pkg/internal/ebpf/generictracer
+      - -run
+      - ^TestJVMRuntimeEventsLiveFromHotSpotProbes$
+      - -count=1
+      - -v
+      - -timeout=2m

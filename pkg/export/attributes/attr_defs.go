@@ -260,6 +260,25 @@ func getDefinitions(
 		extraGroupAttributes[GroupApp],
 	)
 
+	jvmMemoryAttributes := NewAttrReportGroup(
+		false,
+		[]*AttrReportGroup{&appAttributes},
+		map[attr.Name]Default{
+			attr.JVMMemoryType:     true,
+			attr.JVMMemoryPoolName: true,
+		},
+		nil,
+	)
+
+	jvmHeapAttributes := NewAttrReportGroup(
+		false,
+		[]*AttrReportGroup{&appAttributes},
+		map[attr.Name]Default{
+			attr.JVMGCPhase: true,
+		},
+		nil,
+	)
+
 	httpRoutes := NewAttrReportGroup(
 		!groups.Has(GroupHTTPRoutes),
 		nil,
@@ -327,6 +346,9 @@ func getDefinitions(
 		NetworkFlow.Section: {
 			SubGroups: []*AttrReportGroup{&networkAttributes, &networkCIDR, &networkGeoIP, &networkKubeAttributes},
 		},
+		NetworkFlowPackets.Section: {
+			SubGroups: []*AttrReportGroup{&networkAttributes, &networkCIDR, &networkGeoIP, &networkKubeAttributes},
+		},
 		NetworkInterZone.Section: {
 			SubGroups: []*AttrReportGroup{&networkInterZone, &networkInterZoneCIDR, &networkGeoIP, &networkInterZoneKube},
 		},
@@ -351,17 +373,17 @@ func getDefinitions(
 		RPCClientDuration.Section: {
 			SubGroups: []*AttrReportGroup{&appAttributes, &grpcClientInfo},
 			Attributes: map[attr.Name]Default{
-				attr.RPCMethod:         true,
-				attr.RPCSystem:         true,
-				attr.RPCGRPCStatusCode: true,
+				attr.RPCMethod:             true,
+				attr.RPCSystem:             true,
+				attr.RPCResponseStatusCode: true,
 			},
 		},
 		RPCServerDuration.Section: {
 			SubGroups: []*AttrReportGroup{&appAttributes, &serverInfo},
 			Attributes: map[attr.Name]Default{
-				attr.RPCMethod:         true,
-				attr.RPCSystem:         true,
-				attr.RPCGRPCStatusCode: true,
+				attr.RPCMethod:             true,
+				attr.RPCSystem:             true,
+				attr.RPCResponseStatusCode: true,
 			},
 		},
 		DBClientDuration.Section: {
@@ -462,6 +484,26 @@ func getDefinitions(
 				attr.ServerAddr:         true,
 			},
 		},
+		JVMMemoryUsed.Section: {
+			SubGroups:  []*AttrReportGroup{&jvmMemoryAttributes},
+			Attributes: map[attr.Name]Default{},
+		},
+		JVMMemoryCommitted.Section: {
+			SubGroups:  []*AttrReportGroup{&jvmMemoryAttributes},
+			Attributes: map[attr.Name]Default{},
+		},
+		JVMMemoryLimit.Section: {
+			SubGroups:  []*AttrReportGroup{&jvmMemoryAttributes},
+			Attributes: map[attr.Name]Default{},
+		},
+		JVMMemoryUsedAfterLastGC.Section: {
+			SubGroups:  []*AttrReportGroup{&jvmMemoryAttributes},
+			Attributes: map[attr.Name]Default{},
+		},
+		ObiJVMHeapUsed.Section: {
+			SubGroups:  []*AttrReportGroup{&jvmHeapAttributes},
+			Attributes: map[attr.Name]Default{},
+		},
 		StatTCPRtt.Section: {
 			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes},
 			Attributes: map[attr.Name]Default{
@@ -551,4 +593,17 @@ func DBResponseErrorAttr(optionalAttrs map[attr.Name]struct{}, description strin
 		return nil
 	}
 	return []attribute.KeyValue{attribute.Key(attr.DBResponseError).String(description)}
+}
+
+func AppendUniqueNames(base []attr.Name, extra []attr.Name) []attr.Name {
+	seen := make(map[attr.Name]struct{}, len(base)+len(extra))
+	out := make([]attr.Name, 0, len(base)+len(extra))
+	for _, name := range append(base, extra...) {
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		out = append(out, name)
+	}
+	return out
 }
