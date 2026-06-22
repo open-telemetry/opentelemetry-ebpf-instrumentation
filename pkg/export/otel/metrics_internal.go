@@ -233,7 +233,7 @@ func NewInternalMetricsReporter(ctx context.Context, ctxInfo *global.ContextInfo
 
 	bpfRingbufWriteFailures, err := meter.Int64Counter(
 		attr.VendorPrefix+".bpf.ringbuf.write.failures.total",
-		instrument.WithDescription("How many writes to the ringbuffer from the generic tracer failed because the buffer was full"),
+		instrument.WithDescription("How many writes to the named ringbuffer failed because the buffer was full"),
 		instrument.WithUnit("{write}"),
 	)
 	if err != nil {
