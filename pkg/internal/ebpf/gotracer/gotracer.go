@@ -104,7 +104,7 @@ func (p *Tracer) supportsContextPropagation() bool {
 }
 
 func (p *Tracer) headerPropagationEnabled() bool {
-	return p.supportsContextPropagation() && p.cfg.ContextPropagation.HasHeaders()
+	return p.cfg.ContextPropagation.HasHeaders() && p.supportsContextPropagation()
 }
 
 func (p *Tracer) LoadSpecs() ([]*ebpfcommon.SpecBundle, error) {
