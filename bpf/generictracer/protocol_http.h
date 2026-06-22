@@ -379,6 +379,7 @@ static __always_inline int http_send_large_buffer(void *ctx,
     state->action = action;
 
     bpf_tail_call_static(ctx, &jump_table, k_tail_large_buf_emit_continue);
+
     return 0;
 }
 
@@ -775,7 +776,6 @@ __obi_protocol_http(struct pt_regs *ctx, unsigned char *(*tp_loop_fn)(unsigned c
                                args->direction,
                                k_large_buf_action_init);
     } else if (still_reading(info)) {
-        // print here
         info->len += args->bytes_len;
         http_send_large_buffer(ctx,
                                info,

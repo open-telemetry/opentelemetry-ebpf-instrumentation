@@ -246,6 +246,7 @@ type EBPFParseContext struct {
 	redisDBCache               *simplelru.LRU[BpfConnectionInfoT, int]
 	couchbaseBucketCache       *simplelru.LRU[BpfConnectionInfoT, CouchbaseBucketInfo]
 	largeBuffers               *expirable.LRU[largeBufferKey, *largebuf.LargeBuffer]
+	sealedLargeBuffers         *expirable.LRU[largeBufferKey, struct{}]
 	mongoRequestCache          PendingMongoDBRequests
 	mysqlPreparedStatements    *simplelru.LRU[mysqlPreparedStatementsKey, string]
 	postgresPreparedStatements *simplelru.LRU[postgresPreparedStatementsKey, string]
@@ -345,6 +346,7 @@ func NewEBPFParseContext(cfg *config.EBPFTracer, spansChan *msg.Queue[[]request.
 
 	h2c, _ := lru.New[uint64, h2Connection](1024 * 10)
 	largeBuffers := expirable.NewLRU[largeBufferKey, *largebuf.LargeBuffer](1024, nil, 5*time.Minute)
+	sealedLargeBuffers := expirable.NewLRU[largeBufferKey, struct{}](1024, nil, 5*time.Minute)
 
 	if spansChan != nil {
 		emitSpans = func(spans []request.Span) {
@@ -418,6 +420,7 @@ func NewEBPFParseContext(cfg *config.EBPFTracer, spansChan *msg.Queue[[]request.
 		redisDBCache:               redisDBCache,
 		couchbaseBucketCache:       couchbaseBucketCache,
 		largeBuffers:               largeBuffers,
+		sealedLargeBuffers:         sealedLargeBuffers,
 		mongoRequestCache:          mongoRequestCache,
 		mysqlPreparedStatements:    mysqlPreparedStatements,
 		postgresPreparedStatements: postgresPreparedStatements,
