@@ -13,6 +13,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
+	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
+	"go.opentelemetry.io/obi/pkg/selection"
 )
 
 // pidMultisetEqual reports whether a and b contain the same PIDs with the same multiplicity.
@@ -205,4 +207,73 @@ func TestDynamicPIDSelector_QueueNoDrop(t *testing.T) {
 	d.AddPIDs(10, 20)
 	d.AddPIDs(30)
 	readPIDNotifyBatchesUntil(t, addedCh, []app.PID{10, 20, 30})
+}
+
+func TestDynamicPIDSelector_AddPID_WithOptions(t *testing.T) {
+	d := NewDynamicPIDSelector()
+	d.Traces().AddPID(42, selection.DynamicPIDOptions{
+		ServiceName:      "custom-svc",
+		ServiceNamespace: "custom-ns",
+		ResourceAttributes: map[string]string{
+			"deployment.environment": "staging",
+		},
+	})
+
+	entry, ok := d.GetPID(42)
+	require.True(t, ok)
+	assert.Equal(t, app.PID(42), entry.PID)
+	assert.Equal(t, "custom-svc", entry.ServiceName)
+	assert.Equal(t, "custom-ns", entry.ServiceNamespace)
+	assert.Equal(t, "staging", entry.ResourceAttributes["deployment.environment"])
+	assert.True(t, d.Traces().IncludesPID(42))
+	assert.False(t, d.AppMetrics().IncludesPID(42))
+
+	selector := d.appSignals().SelectorForPID(42)
+	require.NotNil(t, selector)
+	assert.Equal(t, "custom-svc", selector.GetName())
+	attrs := ResourceAttributesFromSelector(selector)
+	assert.Equal(t, "staging", attrs[attr.Name("deployment.environment")])
+}
+
+func TestDynamicPIDSelector_GetPID_SetPID(t *testing.T) {
+	d := NewDynamicPIDSelector()
+	d.AddPIDs(42)
+
+	entry, ok := d.GetPID(42)
+	require.True(t, ok)
+	assert.Equal(t, app.PID(42), entry.PID)
+	assert.Empty(t, entry.ServiceName)
+
+	entry.ServiceName = "my app"
+	entry.ResourceAttributes = map[string]string{"team": "platform"}
+	require.True(t, d.SetPID(entry))
+
+	updated, ok := d.GetPID(42)
+	require.True(t, ok)
+	assert.Equal(t, "my app", updated.ServiceName)
+	assert.Equal(t, "platform", updated.ResourceAttributes["team"])
+
+	assert.False(t, d.SetPID(selection.DynamicPIDEntry{PID: 99, ServiceName: "missing"}))
+}
+
+func TestDynamicPIDSelector_AddPID_UpdatesExistingAttributes(t *testing.T) {
+	d := NewDynamicPIDSelector()
+	d.Traces().AddPID(42, selection.DynamicPIDOptions{ServiceName: "first"})
+	d.Traces().AddPID(42, selection.DynamicPIDOptions{ServiceName: "updated"})
+
+	entry, ok := d.GetPID(42)
+	require.True(t, ok)
+	assert.Equal(t, "updated", entry.ServiceName)
+}
+
+func TestDynamicPIDSelector_AttributesSharedAcrossSignals(t *testing.T) {
+	d := NewDynamicPIDSelector()
+	d.Traces().AddPID(42, selection.DynamicPIDOptions{ServiceName: "shared-svc"})
+
+	d.AppMetrics().AddPIDs(42)
+	entry, ok := d.GetPID(42)
+	require.True(t, ok)
+	assert.Equal(t, "shared-svc", entry.ServiceName)
+	assert.True(t, d.Traces().IncludesPID(42))
+	assert.True(t, d.AppMetrics().IncludesPID(42))
 }

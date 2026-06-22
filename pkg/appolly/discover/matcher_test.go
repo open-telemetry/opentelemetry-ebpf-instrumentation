@@ -15,10 +15,12 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/services"
+	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/internal/testutil"
 	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
+	"go.opentelemetry.io/obi/pkg/selection"
 	"go.opentelemetry.io/obi/pkg/transform"
 )
 
@@ -847,6 +849,43 @@ func TestCriteriaMatcher_DynamicTargetPIDs_RemoveNotification(t *testing.T) {
 	assert.Equal(t, app.PID(42), matches[0].Obj.Process.Pid)
 
 	// Stop matcher so next test does not race on global processInfo (close input, drain output).
+	discoveredProcesses.Close()
+	testutil.DrainUntilClosed(filteredProcesses)
+}
+
+func TestCriteriaMatcher_DynamicTargetPIDs_WithOptions(t *testing.T) {
+	dynamicSelector := NewDynamicPIDSelector()
+	dynamicSelector.Traces().AddPID(42, selection.DynamicPIDOptions{
+		ServiceName:      "runtime-svc",
+		ServiceNamespace: "runtime-ns",
+		ResourceAttributes: map[string]string{
+			"custom.attr": "value",
+		},
+	})
+
+	discoveredProcesses := msg.NewQueue[[]Event[ProcessAttrs]](msg.ChannelBufferLen(10))
+	filteredProcessesQu := msg.NewQueue[[]Event[ProcessMatch]](msg.ChannelBufferLen(10))
+	filteredProcesses := filteredProcessesQu.Subscribe()
+	processInfo = func(pp ProcessAttrs) (*services.ProcessInfo, error) {
+		return &services.ProcessInfo{Pid: pp.pid, ExePath: "/any/exe", OpenPorts: pp.openPorts}, nil
+	}
+	runFn, err := dynamicMatcherProvider(discoveredProcesses, filteredProcessesQu, dynamicSelector.appSignals())(t.Context())
+	require.NoError(t, err)
+	go runFn(t.Context())
+	time.Sleep(50 * time.Millisecond)
+	defer filteredProcessesQu.Close()
+
+	discoveredProcesses.Send([]Event[ProcessAttrs]{
+		{Type: EventCreated, Obj: ProcessAttrs{pid: 42, openPorts: []uint32{}}},
+	})
+	matches := testutil.ReadChannel(t, filteredProcesses, testTimeout)
+	require.Len(t, matches, 1)
+	require.Len(t, matches[0].Obj.Criteria, 1)
+	assert.Equal(t, "runtime-svc", matches[0].Obj.Criteria[0].GetName())
+	assert.Equal(t, "runtime-ns", matches[0].Obj.Criteria[0].GetNamespace())
+	attrs := ResourceAttributesFromSelector(matches[0].Obj.Criteria[0])
+	assert.Equal(t, "value", attrs[attr.Name("custom.attr")])
+
 	discoveredProcesses.Close()
 	testutil.DrainUntilClosed(filteredProcesses)
 }
