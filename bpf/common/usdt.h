@@ -70,26 +70,26 @@ static __always_inline struct obi_usdt_spec *obi_usdt_spec_for_ctx(struct pt_reg
 static __always_inline int obi_usdt_read_user_value(u64 addr, u8 arg_bitshift, unsigned long *val) {
     *val = 0;
 
-    switch ((64 - arg_bitshift) / 8) {
-    case 1: {
+    switch (arg_bitshift) {
+    case 56: {
         u8 tmp = 0;
         int err = bpf_probe_read_user(&tmp, sizeof(tmp), (void *)addr);
         *val = tmp;
         return err;
     }
-    case 2: {
+    case 48: {
         u16 tmp = 0;
         int err = bpf_probe_read_user(&tmp, sizeof(tmp), (void *)addr);
         *val = tmp;
         return err;
     }
-    case 4: {
+    case 32: {
         u32 tmp = 0;
         int err = bpf_probe_read_user(&tmp, sizeof(tmp), (void *)addr);
         *val = tmp;
         return err;
     }
-    case 8:
+    case 0:
         return bpf_probe_read_user(val, sizeof(*val), (void *)addr);
     default:
         return k_obi_usdt_arg_err_bad_size;
