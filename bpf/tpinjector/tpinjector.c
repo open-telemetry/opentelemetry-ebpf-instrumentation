@@ -840,13 +840,14 @@ static __always_inline void wrap_http2_traceparent(struct sk_msg_md *msg,
         bpf_tail_call_static(msg, &extender_jump_table, k_tail_detect_h2);
         return;
     }
-    if (msg->size < k_h2_preface_check_len) {
+    if (msg->size >= k_h2_preface_check_len &&
+        bpf_msg_pull_data(msg, 0, k_h2_preface_check_len, 0) == 0 &&
+        is_http2_preface(msg->data, msg->data_end)) {
+        bpf_tail_call_static(msg, &extender_jump_table, k_tail_detect_h2);
         return;
     }
-    if (bpf_msg_pull_data(msg, 0, k_h2_preface_check_len, 0) != 0) {
-        return;
-    }
-    if (is_http2_preface(msg->data, msg->data_end)) {
+    h2_frame_info_t f;
+    if (parse_h2_frame_at(msg, 0, msg->size, &f) && f.is_headers_end) {
         bpf_tail_call_static(msg, &extender_jump_table, k_tail_detect_h2);
     }
 }

@@ -40,17 +40,19 @@ int obi_handle_buf_with_args(void *ctx) {
         if (!args->protocols.http2) {
             return 0;
         }
-        bpf_dbg_printk("Found HTTP2 or gRPC connection");
-        http2_conn_info_data_t data = {
-            .id = 0,
-            .flags = http2_conn_flag_new,
-        };
-        data.id = uniqueHTTP2ConnId(&args->pid_conn);
-        if (args->ssl) {
-            data.flags |= http2_conn_flag_ssl;
+        if (!bpf_map_lookup_elem(&ongoing_http2_connections, &args->pid_conn)) {
+            bpf_dbg_printk("Found HTTP2 or gRPC connection");
+            http2_conn_info_data_t data = {
+                .id = 0,
+                .flags = http2_conn_flag_new,
+            };
+            data.id = uniqueHTTP2ConnId(&args->pid_conn);
+            if (args->ssl) {
+                data.flags |= http2_conn_flag_ssl;
+            }
+            bpf_map_update_elem(&ongoing_http2_connections, &args->pid_conn, &data, BPF_ANY);
+            skip_http2_preface(args);
         }
-        bpf_map_update_elem(&ongoing_http2_connections, &args->pid_conn, &data, BPF_ANY);
-        skip_http2_preface(args);
     }
 
     http2_conn_info_data_t *h2g = bpf_map_lookup_elem(&ongoing_http2_connections, &args->pid_conn);

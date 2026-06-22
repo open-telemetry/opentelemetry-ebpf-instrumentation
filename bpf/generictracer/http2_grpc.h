@@ -33,7 +33,11 @@ typedef struct frame_header {
     u32 stream_id : 31;
 } __attribute__((packed)) frame_header_t;
 
-enum { k_flag_data_end_stream = 0x1, k_frame_header_len = 9 };
+enum {
+    k_flag_data_end_stream = 0x1,
+    k_frame_header_len = 9,
+    k_max_plausible_h2_frame_len = 1 << 14, // (RFC 7540 6.5.2)
+};
 
 _Static_assert(sizeof(frame_header_t) == k_frame_header_len, "frame_header_t size mismatch");
 
@@ -59,6 +63,14 @@ static __always_inline u8 is_headers_frame(const frame_header_t *frame) {
     return frame->type == FrameHeaders && frame->stream_id;
 }
 
+static __always_inline u8 is_http2_headers_start(const unsigned char *p, u32 len) {
+    frame_header_t frame;
+    if (!read_http2_grpc_frame_header(&frame, p, len)) {
+        return 0;
+    }
+    return is_headers_frame(&frame) && frame.length <= k_max_plausible_h2_frame_len;
+}
+
 static __always_inline u8 has_preface(unsigned char *p, u32 len) {
     if (len < MIN_HTTP2_SIZE) {
         return 0;
@@ -68,7 +80,7 @@ static __always_inline u8 has_preface(unsigned char *p, u32 len) {
 }
 
 static __always_inline u8 is_http2_or_grpc(unsigned char *p, u32 len) {
-    return has_preface(p, len);
+    return has_preface(p, len) || is_http2_headers_start(p, len);
 }
 
 static __always_inline void skip_http2_preface(call_protocol_args_t *args) {
