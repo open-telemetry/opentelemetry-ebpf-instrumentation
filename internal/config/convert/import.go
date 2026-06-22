@@ -13,6 +13,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/services"
 	obiconfig "go.opentelemetry.io/obi/pkg/config"
 	"go.opentelemetry.io/obi/pkg/export"
+	"go.opentelemetry.io/obi/pkg/export/attributes"
 	"go.opentelemetry.io/obi/pkg/export/debug"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/filter"
@@ -1026,9 +1027,127 @@ func applyPartialV2CaptureTelemetry(cfg *obi.Config, telemetry schema.CaptureTel
 }
 
 func applyV2Standalone(cfg *obi.Config, src *schema.Extension) {
+	applyV2EnrichAttributes(cfg, src.Enrich)
+	applyV2KubernetesEnricher(cfg, src.Enrich)
 	applyV2EnrichServiceName(cfg, src.Enrich)
 	applyV2Correlation(cfg, src.Correlation)
 	applyV2Daemon(cfg, src.Daemon)
+}
+
+func applyV2EnrichAttributes(cfg *obi.Config, enrich *schema.Enrich) {
+	if enrich == nil || zeroValue(enrich.Attributes) {
+		return
+	}
+
+	attrs := enrich.Attributes
+	if completeEnrichmentAttributes(attrs) {
+		applyFullV2EnrichAttributes(cfg, attrs)
+		return
+	}
+
+	applyPartialV2EnrichAttributes(cfg, attrs)
+}
+
+func applyFullV2EnrichAttributes(cfg *obi.Config, attrs schema.EnrichmentAttributes) {
+	cfg.Attributes.Select = cloneAttributeSelection(attrs.Select)
+	cfg.Attributes.ExtraGroupAttributes = cloneExtraGroupAttributes(attrs.ExtraGroupAttributes)
+	cfg.Attributes.MetadataRetry.Timeout = attrs.MetadataRetry.Timeout.TimeDuration()
+	cfg.Attributes.MetadataRetry.StartInterval = attrs.MetadataRetry.StartInterval.TimeDuration()
+	cfg.Attributes.MetadataRetry.MaxInterval = attrs.MetadataRetry.MaxInterval.TimeDuration()
+}
+
+func applyPartialV2EnrichAttributes(cfg *obi.Config, attrs schema.EnrichmentAttributes) {
+	if attrs.Select != nil {
+		cfg.Attributes.Select = cloneAttributeSelection(attrs.Select)
+	}
+	if attrs.ExtraGroupAttributes != nil {
+		cfg.Attributes.ExtraGroupAttributes = cloneExtraGroupAttributes(attrs.ExtraGroupAttributes)
+	}
+	if !zeroValue(attrs.MetadataRetry.Timeout) {
+		cfg.Attributes.MetadataRetry.Timeout = attrs.MetadataRetry.Timeout.TimeDuration()
+	}
+	if !zeroValue(attrs.MetadataRetry.StartInterval) {
+		cfg.Attributes.MetadataRetry.StartInterval = attrs.MetadataRetry.StartInterval.TimeDuration()
+	}
+	if !zeroValue(attrs.MetadataRetry.MaxInterval) {
+		cfg.Attributes.MetadataRetry.MaxInterval = attrs.MetadataRetry.MaxInterval.TimeDuration()
+	}
+}
+
+func applyV2KubernetesEnricher(cfg *obi.Config, enrich *schema.Enrich) {
+	if enrich == nil || zeroValue(enrich.Enrichers.Kubernetes) {
+		return
+	}
+
+	kubernetes := enrich.Enrichers.Kubernetes
+	if completeKubernetesEnricher(kubernetes) {
+		applyFullV2KubernetesEnricher(cfg, kubernetes)
+		return
+	}
+
+	applyPartialV2KubernetesEnricher(cfg, kubernetes)
+}
+
+func applyFullV2KubernetesEnricher(cfg *obi.Config, kubernetes schema.KubernetesEnricher) {
+	cfg.Attributes.Kubernetes.Enable = kubernetes.Mode
+	cfg.Attributes.Kubernetes.ClusterName = kubernetes.ClusterName
+	cfg.Attributes.Kubernetes.KubeconfigPath = kubernetes.Auth.KubeconfigPath
+	cfg.Attributes.Kubernetes.InformersSyncTimeout = kubernetes.Informers.InitialSyncTimeout.TimeDuration()
+	cfg.Attributes.Kubernetes.ReconnectInitialInterval = kubernetes.Informers.ReconnectInitialInterval.TimeDuration()
+	cfg.Attributes.Kubernetes.InformersResyncPeriod = kubernetes.Informers.ResyncPeriod.TimeDuration()
+	cfg.Attributes.Kubernetes.DropExternal = kubernetes.DropExternal
+	cfg.Attributes.Kubernetes.DisableInformers = cloneStrings(kubernetes.Informers.Disabled)
+	cfg.Attributes.Kubernetes.MetaCacheAddress = kubernetes.MetadataCache.Address
+	cfg.Attributes.Kubernetes.MetaRestrictLocalNode = kubernetes.MetadataCache.RestrictLocalNode
+	cfg.Attributes.Kubernetes.MetaSourceLabels.ServiceName = kubernetes.MetadataCache.SourceLabels.ServiceName
+	cfg.Attributes.Kubernetes.MetaSourceLabels.ServiceNamespace = kubernetes.MetadataCache.SourceLabels.ServiceNamespace
+	cfg.Attributes.Kubernetes.ResourceLabels = cloneStringMap(kubernetes.ResourceLabels)
+	cfg.Attributes.Kubernetes.ServiceNameTemplate = kubernetes.ServiceNameTemplate
+}
+
+func applyPartialV2KubernetesEnricher(cfg *obi.Config, kubernetes schema.KubernetesEnricher) {
+	if kubernetes.Mode != "" {
+		cfg.Attributes.Kubernetes.Enable = kubernetes.Mode
+	}
+	if kubernetes.ClusterName != "" {
+		cfg.Attributes.Kubernetes.ClusterName = kubernetes.ClusterName
+	}
+	if kubernetes.ServiceNameTemplate != "" {
+		cfg.Attributes.Kubernetes.ServiceNameTemplate = kubernetes.ServiceNameTemplate
+	}
+	if kubernetes.Auth.KubeconfigPath != "" {
+		cfg.Attributes.Kubernetes.KubeconfigPath = kubernetes.Auth.KubeconfigPath
+	}
+	if !zeroValue(kubernetes.Informers.InitialSyncTimeout) {
+		cfg.Attributes.Kubernetes.InformersSyncTimeout = kubernetes.Informers.InitialSyncTimeout.TimeDuration()
+	}
+	if !zeroValue(kubernetes.Informers.ReconnectInitialInterval) {
+		cfg.Attributes.Kubernetes.ReconnectInitialInterval = kubernetes.Informers.ReconnectInitialInterval.TimeDuration()
+	}
+	if !zeroValue(kubernetes.Informers.ResyncPeriod) {
+		cfg.Attributes.Kubernetes.InformersResyncPeriod = kubernetes.Informers.ResyncPeriod.TimeDuration()
+	}
+	if kubernetes.Informers.Disabled != nil {
+		cfg.Attributes.Kubernetes.DisableInformers = cloneStrings(kubernetes.Informers.Disabled)
+	}
+	if kubernetes.DropExternal {
+		cfg.Attributes.Kubernetes.DropExternal = kubernetes.DropExternal
+	}
+	if kubernetes.ResourceLabels != nil {
+		cfg.Attributes.Kubernetes.ResourceLabels = cloneStringMap(kubernetes.ResourceLabels)
+	}
+	if kubernetes.MetadataCache.Address != "" {
+		cfg.Attributes.Kubernetes.MetaCacheAddress = kubernetes.MetadataCache.Address
+	}
+	if kubernetes.MetadataCache.RestrictLocalNode {
+		cfg.Attributes.Kubernetes.MetaRestrictLocalNode = kubernetes.MetadataCache.RestrictLocalNode
+	}
+	if kubernetes.MetadataCache.SourceLabels.ServiceName != "" {
+		cfg.Attributes.Kubernetes.MetaSourceLabels.ServiceName = kubernetes.MetadataCache.SourceLabels.ServiceName
+	}
+	if kubernetes.MetadataCache.SourceLabels.ServiceNamespace != "" {
+		cfg.Attributes.Kubernetes.MetaSourceLabels.ServiceNamespace = kubernetes.MetadataCache.SourceLabels.ServiceNamespace
+	}
 }
 
 func applyV2EnrichServiceName(cfg *obi.Config, enrich *schema.Enrich) {
@@ -1299,6 +1418,56 @@ func completeRuntimes(runtimes schema.CaptureRuntimes) bool {
 func completeCaptureTelemetry(telemetry schema.CaptureTelemetry) bool {
 	return !zeroValue(telemetry.Traces) &&
 		!zeroValue(telemetry.Metrics)
+}
+
+func completeEnrichmentAttributes(attrs schema.EnrichmentAttributes) bool {
+	return !zeroValue(attrs.MetadataRetry.Timeout) &&
+		!zeroValue(attrs.MetadataRetry.StartInterval) &&
+		!zeroValue(attrs.MetadataRetry.MaxInterval)
+}
+
+func completeKubernetesEnricher(kubernetes schema.KubernetesEnricher) bool {
+	return kubernetes.Mode != "" &&
+		!zeroValue(kubernetes.Informers.InitialSyncTimeout) &&
+		!zeroValue(kubernetes.Informers.ReconnectInitialInterval) &&
+		!zeroValue(kubernetes.Informers.ResyncPeriod) &&
+		kubernetes.ResourceLabels != nil
+}
+
+func cloneStringMap(values map[string][]string) map[string][]string {
+	if values == nil {
+		return nil
+	}
+	out := make(map[string][]string, len(values))
+	for key, value := range values {
+		out[key] = cloneStrings(value)
+	}
+	return out
+}
+
+func cloneAttributeSelection(values attributes.Selection) attributes.Selection {
+	if values == nil {
+		return nil
+	}
+	out := make(attributes.Selection, len(values))
+	for section, inclusionLists := range values {
+		out[section] = attributes.InclusionLists{
+			Include: cloneStrings(inclusionLists.Include),
+			Exclude: cloneStrings(inclusionLists.Exclude),
+		}
+	}
+	return out
+}
+
+func cloneExtraGroupAttributes(values schema.ExtraGroupAttributes) obi.ExtraGroupAttributesMap {
+	if values == nil {
+		return nil
+	}
+	out := make(obi.ExtraGroupAttributesMap, len(values))
+	for group, names := range values {
+		out[group] = append(out[group], names...)
+	}
+	return out
 }
 
 func protocolEnablement(instrumentation schema.Instrumentation, name protocolName) schema.ProtocolEnablement {
