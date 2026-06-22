@@ -20,6 +20,15 @@ const (
 	KindLayerApp  largeBufferKind = 1
 )
 
+// BPF per-syscall capture limits. These must match the constants in
+// bpf/common/large_buffers.h.
+const (
+	// Maximum bytes emitted by a single large_buf_emit_chunks call.
+	largeBufferPerSyscallCap = 1 << 18 // 256 KB (per-syscall total, matches k_large_buf_max_http_captured_bytes)
+	// Maximum payload carried by a single chunk event.
+	largeBufferMaxChunkPayload = 1 << 14 // 16 KB per chunk
+)
+
 type largeBufferKey struct {
 	traceID               [16]uint8
 	packetType, direction uint8
@@ -60,12 +69,20 @@ func appendTCPLargeBuffer(parseCtx *EBPFParseContext, record *ringbuf.Record) (r
 		lb := largebuf.NewLargeBuffer()
 		lb.AppendChunk(b)
 		parseCtx.largeBuffers.Add(key, lb)
+		// A fresh init always clears any previous seal for this key.
+		parseCtx.sealedLargeBuffers.Remove(key)
 	}
 
 	switch event.Action {
 	case largeBufferActionInit:
 		initFunc(chunk)
 	case largeBufferActionAppend:
+		// If the buffer was sealed (previous emission was truncated), drop
+		// subsequent chunks to avoid holes in the reassembled data.
+		if _, sealed := parseCtx.sealedLargeBuffers.Get(key); sealed {
+			return request.Span{}, true, nil
+		}
+
 		lb, ok := parseCtx.largeBuffers.Get(key)
 		if !ok {
 			initFunc(chunk)
@@ -74,6 +91,20 @@ func appendTCPLargeBuffer(parseCtx *EBPFParseContext, record *ringbuf.Record) (r
 		}
 	default:
 		return request.Span{}, true, fmt.Errorf("invalid large buffer action: %d", event.Action)
+	}
+
+	// Truncation detection: when the accumulated buffer length is an exact
+	// multiple of the BPF per-syscall cap (256 KB) and the chunk just appended
+	// is full-sized (16 KB), the BPF emission hit its cap — meaning the
+	// underlying syscall had more data that was discarded. Seal the buffer so
+	// that subsequent chunks (from the next syscall) are not appended,
+	// preserving a contiguous prefix with no holes.
+	if lb, ok := parseCtx.largeBuffers.Get(key); ok {
+		if len(chunk) == largeBufferMaxChunkPayload &&
+			lb.Len() > 0 &&
+			lb.Len()%largeBufferPerSyscallCap == 0 {
+			parseCtx.sealedLargeBuffers.Add(key, struct{}{})
+		}
 	}
 
 	return request.Span{}, true, nil
@@ -114,6 +145,7 @@ func extractLargeBuffer(
 	}
 
 	parseCtx.largeBuffers.Remove(key)
+	parseCtx.sealedLargeBuffers.Remove(key)
 
 	return lb, true
 }

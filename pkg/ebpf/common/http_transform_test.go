@@ -6,6 +6,7 @@ package ebpfcommon
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -21,6 +22,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/config"
 	"go.opentelemetry.io/obi/pkg/ebpf/ringbuf"
+	"go.opentelemetry.io/obi/pkg/internal/largebuf"
 )
 
 const bufSize = 256
@@ -592,4 +594,125 @@ func TestRemoveQuery(t *testing.T) {
 			require.Equal(t, tc.want, removeQuery(tc.input))
 		})
 	}
+}
+
+func TestDechunkBody(t *testing.T) {
+	t.Run("complete chunked body", func(t *testing.T) {
+		chunked := "5\r\nHello\r\n6\r\n World\r\n0\r\n\r\n"
+		got := dechunkBody([]byte(chunked))
+		assert.Equal(t, "Hello World", string(got))
+	})
+
+	t.Run("truncated mid-chunk data", func(t *testing.T) {
+		chunked := "a\r\nHelloWorld\r\n10\r\nOnly part of"
+		got := dechunkBody([]byte(chunked))
+		assert.Equal(t, "HelloWorldOnly part of", string(got))
+	})
+
+	t.Run("truncated mid-size-line", func(t *testing.T) {
+		chunked := "5\r\nHello\r\nf"
+		got := dechunkBody([]byte(chunked))
+		assert.Equal(t, "Hello", string(got))
+	})
+
+	t.Run("empty input", func(t *testing.T) {
+		got := dechunkBody([]byte{})
+		assert.Empty(t, got)
+	})
+
+	t.Run("single complete chunk", func(t *testing.T) {
+		chunked := "11\r\n{\"hello\":\"world\"}\r\n0\r\n\r\n"
+		got := dechunkBody([]byte(chunked))
+		assert.JSONEq(t, `{"hello":"world"}`, string(got))
+	})
+
+	t.Run("chunk with extension", func(t *testing.T) {
+		chunked := "5;ext=val\r\nHello\r\n0\r\n\r\n"
+		got := dechunkBody([]byte(chunked))
+		assert.Equal(t, "Hello", string(got))
+	})
+
+	t.Run("SSE chunked stream truncated", func(t *testing.T) {
+		event1 := `data: {"choices":[{"delta":{"content":"Hi"}}]}` + "\n\n"
+		event2 := `data: {"choices":[{"delta":{"content":" there"}}]}` + "\n\n"
+		event3 := `data: {"choices":[{"delta":{"content":"!"}}]}` + "\n\n"
+
+		chunked := fmt.Sprintf("%x\r\n%s\r\n%x\r\n%s\r\n%x\r\n%s",
+			len(event1), event1,
+			len(event2), event2,
+			len(event3), event3[:len(event3)/2]) // truncate the third event
+		got := dechunkBody([]byte(chunked))
+		expected := event1 + event2 + event3[:len(event3)/2]
+		assert.Equal(t, expected, string(got))
+	})
+}
+
+func TestHttpSafeParseResponseChunked(t *testing.T) {
+	body := `data: {"id":"1","choices":[{"delta":{"content":"Hello"}}]}` + "\n\n"
+	body += `data: {"id":"1","choices":[{"delta":{"content":" World"}}]}` + "\n\n"
+
+	chunkedBody := fmt.Sprintf("%x\r\n%s\r\n%x\r\n%s\r\n0\r\n\r\n",
+		len(body[:len(body)/2]), body[:len(body)/2],
+		len(body[len(body)/2:]), body[len(body)/2:])
+
+	raw := "HTTP/1.1 200 OK\r\n" +
+		"Transfer-Encoding: chunked\r\n" +
+		"Content-Type: text/event-stream\r\n" +
+		"\r\n" +
+		chunkedBody
+
+	buf := largebuf.NewLargeBufferFrom([]byte(raw))
+	req, _ := http.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	resp, err := httpSafeParseResponse(buf, req)
+	require.NoError(t, err)
+
+	got, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	assert.Equal(t, body, string(got))
+	assert.Empty(t, resp.TransferEncoding)
+}
+
+func TestHttpSafeParseResponseChunkedTruncated(t *testing.T) {
+	event1 := `data: {"id":"1","choices":[{"delta":{"content":"Hello"}}]}` + "\n\n"
+	event2 := `data: {"id":"1","choices":[{"delta":{"content":" World"}}]}` + "\n\n"
+
+	// Build chunked body but truncate in the middle of the second chunk
+	truncatedChunkedBody := fmt.Sprintf("%x\r\n%s\r\n%x\r\n%s",
+		len(event1), event1,
+		len(event2), event2[:20])
+
+	raw := "HTTP/1.1 200 OK\r\n" +
+		"Transfer-Encoding: chunked\r\n" +
+		"Content-Type: text/event-stream\r\n" +
+		"\r\n" +
+		truncatedChunkedBody
+
+	buf := largebuf.NewLargeBufferFrom([]byte(raw))
+	req, _ := http.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+
+	resp, err := httpSafeParseResponse(buf, req)
+	require.NoError(t, err)
+
+	got, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	// Should recover both the full first event and the truncated part of the second
+	assert.Equal(t, event1+event2[:20], string(got))
+}
+
+func TestHttpSafeParseResponseNonChunked(t *testing.T) {
+	body := `{"result":"ok"}`
+	raw := "HTTP/1.1 200 OK\r\n" +
+		"Content-Type: application/json\r\n" +
+		fmt.Sprintf("Content-Length: %d\r\n", len(body)) +
+		"\r\n" +
+		body
+
+	buf := largebuf.NewLargeBufferFrom([]byte(raw))
+	req, _ := http.NewRequest(http.MethodGet, "/api/test", nil)
+	resp, err := httpSafeParseResponse(buf, req)
+	require.NoError(t, err)
+
+	got, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	assert.Equal(t, body, string(got))
 }

@@ -30,7 +30,7 @@ static __always_inline u32 large_buf_emit_chunks(tcp_large_buffer_t *large_buf,
                                                  u32 available_bytes) {
     const unsigned char *p = (const unsigned char *)u_buf;
 
-    bpf_clamp_umax(available_bytes, k_large_buf_max_http_captured_bytes);
+    bpf_clamp_umax(available_bytes, k_large_buf_per_emit_max);
 
     const u32 niter = (available_bytes / k_large_buf_payload_max_size) +
                       ((available_bytes % k_large_buf_payload_max_size) > 0);
