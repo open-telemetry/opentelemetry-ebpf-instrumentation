@@ -2,7 +2,7 @@ module github.com/GoogleCloudPlatform/microservices-demo/src/shippingservice
 
 go 1.25
 
-toolchain go1.25.6
+toolchain go1.26.4
 
 require (
 	github.com/sirupsen/logrus v1.9.4
