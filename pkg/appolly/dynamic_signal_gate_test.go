@@ -106,6 +106,43 @@ func TestDynamicSignalProcessEventGate(t *testing.T) {
 	assert.Equal(t, app.PID(200), got.File.Pid())
 }
 
+func TestDynamicSignalProcessEventGate_DuplicateCreateBeforeRemoveNotify(t *testing.T) {
+	sel := discover.NewDynamicPIDSelector()
+	sel.AppMetrics().AddPIDs(1)
+
+	output := msg.NewQueue[execpkg.ProcessEvent](msg.ChannelBufferLen(4))
+	outCh := output.Subscribe()
+
+	gate := &dynamicSignalProcessEventGate{
+		output:    output,
+		selector:  sel.AppMetrics(),
+		current:   map[app.PID]*execpkg.FileInfo{},
+		forwarded: map[app.PID]bool{},
+	}
+
+	file := execpkg.New(execpkg.Init{
+		Service: svc.Attrs{ProcPID: 100, DynamicSelectorPID: 1},
+		Pid:     100,
+	})
+
+	gate.handleProcessEvent(execpkg.ProcessEvent{Type: execpkg.ProcessEventCreated, File: file})
+	got := testutil.ReadChannel(t, outCh, gateTestTimeout)
+	assert.Equal(t, execpkg.ProcessEventCreated, got.Type)
+
+	sel.AppMetrics().RemovePIDs(1)
+
+	// Duplicate create (e.g. K8s re-enrichment) before RemovedNotify is processed.
+	gate.handleProcessEvent(execpkg.ProcessEvent{Type: execpkg.ProcessEventCreated, File: file})
+
+	assert.True(t, gate.forwarded[100], "duplicate create must not clear forwarded state")
+
+	gate.handleSelectorRemove([]app.PID{1})
+
+	got = testutil.ReadChannel(t, outCh, gateTestTimeout)
+	assert.Equal(t, execpkg.ProcessEventTerminated, got.Type)
+	assert.Equal(t, app.PID(100), got.File.Pid())
+}
+
 func TestDynamicSignalSpanGate_BypassWhenSelectorNil(t *testing.T) {
 	input := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(2))
 	output := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(2))

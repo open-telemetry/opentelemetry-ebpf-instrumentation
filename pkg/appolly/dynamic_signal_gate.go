@@ -116,12 +116,13 @@ func (g *dynamicSignalProcessEventGate) handleProcessEvent(pe exec.ProcessEvent)
 	switch pe.Type {
 	case exec.ProcessEventCreated:
 		g.current[pid] = pe.File
+		if g.forwarded[pid] {
+			return
+		}
 		if g.selector.IncludesPID(processEventSignalPID(pe.File)) {
 			g.forwarded[pid] = true
 			g.output.Send(pe)
-			return
 		}
-		g.forwarded[pid] = false
 	case exec.ProcessEventTerminated:
 		if g.forwarded[pid] {
 			g.output.Send(pe)
