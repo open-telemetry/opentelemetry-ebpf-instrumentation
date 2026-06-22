@@ -18,6 +18,7 @@ import (
 	execpkg "go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	"go.opentelemetry.io/obi/pkg/internal/testutil"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
+	"go.opentelemetry.io/obi/pkg/runtimemetrics"
 )
 
 const gateTestTimeout = time.Second
@@ -141,6 +142,50 @@ func TestDynamicSignalProcessEventGate_DuplicateCreateBeforeRemoveNotify(t *test
 	got = testutil.ReadChannel(t, outCh, gateTestTimeout)
 	assert.Equal(t, execpkg.ProcessEventTerminated, got.Type)
 	assert.Equal(t, app.PID(100), got.File.Pid())
+}
+
+func TestDynamicSignalRuntimeMetricsGate(t *testing.T) {
+	sel := discover.NewDynamicPIDSelector()
+	sel.AppMetrics().AddPIDs(1)
+	sel.Traces().AddPIDs(2)
+
+	input := msg.NewQueue[[]runtimemetrics.RuntimeMetricSnapshot](msg.ChannelBufferLen(4))
+	output := msg.NewQueue[[]runtimemetrics.RuntimeMetricSnapshot](msg.ChannelBufferLen(4))
+	outCh := output.Subscribe()
+
+	runFn, err := DynamicSignalRuntimeMetricsGate(sel, input, output)(t.Context())
+	require.NoError(t, err)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	go runFn(ctx)
+
+	input.Send([]runtimemetrics.RuntimeMetricSnapshot{
+		{Service: svc.Attrs{ProcPID: 10, DynamicSelectorPID: 1}, PID: 10},
+		{Service: svc.Attrs{ProcPID: 20, DynamicSelectorPID: 2}, PID: 20},
+		{Service: svc.Attrs{ProcPID: 30}, PID: 30},
+	})
+
+	got := testutil.ReadChannel(t, outCh, gateTestTimeout)
+	require.Len(t, got, 1)
+	assert.Equal(t, app.PID(10), got[0].PID)
+	assert.Equal(t, app.PID(1), runtimeMetricSignalPID(got[0]))
+}
+
+func TestDynamicSignalRuntimeMetricsGate_BypassWhenSelectorNil(t *testing.T) {
+	input := msg.NewQueue[[]runtimemetrics.RuntimeMetricSnapshot](msg.ChannelBufferLen(2))
+	output := msg.NewQueue[[]runtimemetrics.RuntimeMetricSnapshot](msg.ChannelBufferLen(2))
+	outCh := output.Subscribe()
+
+	runFn, err := DynamicSignalRuntimeMetricsGate(nil, input, output)(t.Context())
+	require.NoError(t, err)
+	go runFn(t.Context())
+
+	input.Send([]runtimemetrics.RuntimeMetricSnapshot{
+		{Service: svc.Attrs{ProcPID: 10}, PID: 10},
+	})
+	got := testutil.ReadChannel(t, outCh, gateTestTimeout)
+	require.Len(t, got, 1)
+	assert.Equal(t, app.PID(10), got[0].PID)
 }
 
 func TestDynamicSignalSpanGate_BypassWhenSelectorNil(t *testing.T) {
