@@ -37,7 +37,6 @@ type BPFCollector struct {
 	mapMetrics       func() []BpfMapMetrics
 	mu               sync.Mutex
 
-	// populated by getMapMetrics under mu, as a side effect of the map scan
 	ringbufWrites   ringbufWriteCount
 	ringbufWritesOK bool
 }

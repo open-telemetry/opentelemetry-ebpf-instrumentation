@@ -27,7 +27,6 @@ typedef struct ringbuf_write_count_t {
     u64 failed;
 } ringbuf_write_count;
 
-// Per-CPU counters of attempted and failed writes to the events ringbuffer.
 struct {
     __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
     __type(key, u32);
