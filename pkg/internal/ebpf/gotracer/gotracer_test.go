@@ -27,9 +27,9 @@ import (
 type noopServiceFilter struct{}
 
 func (noopServiceFilter) AllowPID(app.PID, uint32, *exec.FileInfo, ebpfcommon.PIDType) {}
-func (noopServiceFilter) BlockPID(app.PID, uint32)                                      {}
-func (noopServiceFilter) ValidPID(app.PID, uint32, ebpfcommon.PIDType) bool             { return false }
-func (noopServiceFilter) Filter(spans []request.Span) []request.Span                     { return spans }
+func (noopServiceFilter) BlockPID(app.PID, uint32)                                     {}
+func (noopServiceFilter) ValidPID(app.PID, uint32, ebpfcommon.PIDType) bool            { return false }
+func (noopServiceFilter) Filter(spans []request.Span) []request.Span                   { return spans }
 func (noopServiceFilter) CurrentPIDs(ebpfcommon.PIDType) map[uint32]map[app.PID]svc.Attrs {
 	return nil
 }
