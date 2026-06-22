@@ -222,8 +222,52 @@
     {
       "groupName": "Docker",
       "matchManagers": ["dockerfile"],
-      "matchUpdateTypes": ["patch", "digest", "minor", "major"],
+      "matchUpdateTypes": ["patch", "digest", "minor"],
       "schedule": ["before 6am on Tuesday"]
+    },
+    {
+      "description": "Require manual approval for remaining Docker image major upgrades because Dockerfile versions define runtime compatibility test coverage",
+      "groupName": "Docker major updates",
+      "matchManagers": ["dockerfile"],
+      "matchDatasources": ["docker"],
+      "matchUpdateTypes": ["major"],
+      "dependencyDashboardApproval": true,
+      "schedule": ["before 6am on Tuesday"]
+    },
+    {
+      "description": "Block high-risk Docker image major upgrades for runtime and service compatibility fixtures",
+      "matchManagers": ["dockerfile"],
+      "matchDatasources": ["docker"],
+      "matchPackageNames": [
+        "debian",
+        "docker.io/library/debian",
+        "docker.io/library/eclipse-temurin",
+        "docker.io/library/gcc",
+        "docker.io/library/gradle",
+        "docker.io/library/mysql",
+        "docker.io/library/node",
+        "docker.io/library/redis",
+        "docker.io/library/ruby",
+        "eclipse-temurin",
+        "gcc",
+        "gradle",
+        "library/debian",
+        "library/eclipse-temurin",
+        "library/gcc",
+        "library/gradle",
+        "library/mysql",
+        "library/node",
+        "library/redis",
+        "library/ruby",
+        "mcr.microsoft.com/dotnet/aspnet",
+        "mcr.microsoft.com/dotnet/sdk",
+        "mysql",
+        "node",
+        "redis",
+        "ruby"
+      ],
+      "matchUpdateTypes": ["major"],
+      "enabled": false
     },
     {
       "groupName": "Github Actions",
