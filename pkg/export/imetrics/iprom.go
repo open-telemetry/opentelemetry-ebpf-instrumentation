@@ -156,7 +156,7 @@ func NewPrometheusReporter(cfg *InternalMetricsConfig, manager *connector.Promet
 		}, []string{"ringbuf"}),
 		bpfRingbufWriteFailures: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: attr.VendorPrefix + "_bpf_ringbuf_write_failures_total",
-			Help: "How many writes to the ringbuffer from the generic tracer failed because the buffer was full",
+			Help: "How many writes to the named ringbuffer failed because the buffer was full",
 		}, []string{"ringbuf"}),
 		totalRingbufWrites:        map[string]uint64{},
 		totalRingbufWriteFailures: map[string]uint64{},
