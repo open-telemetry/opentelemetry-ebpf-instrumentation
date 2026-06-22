@@ -792,6 +792,10 @@ func applyFullV2NetworkCapture(cfg *obi.Config, capture schema.NetworkCapture) {
 	cfg.NetworkFlows.Protocols = cloneStrings(capture.Selection.Protocols.Include)
 	cfg.NetworkFlows.ExcludeProtocols = cloneStrings(capture.Selection.Protocols.Exclude)
 	cfg.NetworkFlows.Direction = string(capture.Selection.Direction)
+	cfg.NetworkFlows.CIDRs = cloneRuntimeCIDRDefinitions(cfg.NetworkFlows.CIDRs, capture.Selection.CIDRs)
+	if filters, ok := networkFilterMap(capture.Filters); ok {
+		cfg.Filters.Network = filters
+	}
 	cfg.NetworkFlows.CacheMaxFlows = capture.FlowLifecycle.MaxTrackedFlows
 	cfg.NetworkFlows.CacheActiveTimeout = capture.FlowLifecycle.ActiveTimeout.TimeDuration()
 	cfg.NetworkFlows.Deduper = string(capture.FlowLifecycle.Deduplication.Strategy)
@@ -800,6 +804,7 @@ func applyFullV2NetworkCapture(cfg *obi.Config, capture schema.NetworkCapture) {
 	cfg.NetworkFlows.GuessPorts = capture.FlowLifecycle.GuessPorts
 	cfg.NetworkFlows.ListenInterfaces = string(capture.InterfaceDiscovery.Mode)
 	cfg.NetworkFlows.ListenPollPeriod = capture.InterfaceDiscovery.PollInterval.TimeDuration()
+	applyFullV2NetworkEnrichment(cfg, capture.Enrichment)
 	cfg.NetworkFlows.Print = capture.Diagnostics.PrintFlows
 }
 
@@ -837,6 +842,14 @@ func applyPartialV2NetworkCapture(cfg *obi.Config, capture schema.NetworkCapture
 	if capture.Selection.Direction != "" {
 		cfg.NetworkFlows.Direction = string(capture.Selection.Direction)
 	}
+	if capture.Selection.CIDRs != nil {
+		cfg.NetworkFlows.CIDRs = cloneRuntimeCIDRDefinitions(cfg.NetworkFlows.CIDRs, capture.Selection.CIDRs)
+	}
+	if !zeroValue(capture.Filters) {
+		if filters, ok := networkFilterMap(capture.Filters); ok {
+			cfg.Filters.Network = filters
+		}
+	}
 	if capture.FlowLifecycle.MaxTrackedFlows != 0 {
 		cfg.NetworkFlows.CacheMaxFlows = capture.FlowLifecycle.MaxTrackedFlows
 	}
@@ -861,8 +874,49 @@ func applyPartialV2NetworkCapture(cfg *obi.Config, capture schema.NetworkCapture
 	if !zeroValue(capture.InterfaceDiscovery.PollInterval) {
 		cfg.NetworkFlows.ListenPollPeriod = capture.InterfaceDiscovery.PollInterval.TimeDuration()
 	}
+	if !zeroValue(capture.Enrichment) {
+		applyPartialV2NetworkEnrichment(cfg, capture.Enrichment)
+	}
 	if capture.Diagnostics.PrintFlows {
 		cfg.NetworkFlows.Print = true
+	}
+}
+
+func applyFullV2NetworkEnrichment(cfg *obi.Config, enrichment schema.NetworkEnrichment) {
+	cfg.NetworkFlows.GeoIP.IPInfo.Path = enrichment.GeoIP.IPInfo.Path
+	cfg.NetworkFlows.GeoIP.MaxMindInfo.CountryPath = enrichment.GeoIP.MaxMind.CountryPath
+	cfg.NetworkFlows.GeoIP.MaxMindInfo.ASNPath = enrichment.GeoIP.MaxMind.ASNPath
+	cfg.NetworkFlows.GeoIP.CacheLen = enrichment.GeoIP.Cache.Size
+	cfg.NetworkFlows.GeoIP.CacheTTL = enrichment.GeoIP.Cache.TTL.TimeDuration()
+	cfg.NetworkFlows.ReverseDNS.Type = string(enrichment.ReverseDNS.Mode)
+	cfg.NetworkFlows.ReverseDNS.CacheLen = enrichment.ReverseDNS.Cache.Size
+	cfg.NetworkFlows.ReverseDNS.CacheTTL = enrichment.ReverseDNS.Cache.TTL.TimeDuration()
+}
+
+func applyPartialV2NetworkEnrichment(cfg *obi.Config, enrichment schema.NetworkEnrichment) {
+	if enrichment.GeoIP.IPInfo.Path != "" {
+		cfg.NetworkFlows.GeoIP.IPInfo.Path = enrichment.GeoIP.IPInfo.Path
+	}
+	if enrichment.GeoIP.MaxMind.CountryPath != "" {
+		cfg.NetworkFlows.GeoIP.MaxMindInfo.CountryPath = enrichment.GeoIP.MaxMind.CountryPath
+	}
+	if enrichment.GeoIP.MaxMind.ASNPath != "" {
+		cfg.NetworkFlows.GeoIP.MaxMindInfo.ASNPath = enrichment.GeoIP.MaxMind.ASNPath
+	}
+	if enrichment.GeoIP.Cache.Size != 0 {
+		cfg.NetworkFlows.GeoIP.CacheLen = enrichment.GeoIP.Cache.Size
+	}
+	if !zeroValue(enrichment.GeoIP.Cache.TTL) {
+		cfg.NetworkFlows.GeoIP.CacheTTL = enrichment.GeoIP.Cache.TTL.TimeDuration()
+	}
+	if enrichment.ReverseDNS.Mode != "" {
+		cfg.NetworkFlows.ReverseDNS.Type = string(enrichment.ReverseDNS.Mode)
+	}
+	if enrichment.ReverseDNS.Cache.Size != 0 {
+		cfg.NetworkFlows.ReverseDNS.CacheLen = enrichment.ReverseDNS.Cache.Size
+	}
+	if !zeroValue(enrichment.ReverseDNS.Cache.TTL) {
+		cfg.NetworkFlows.ReverseDNS.CacheTTL = enrichment.ReverseDNS.Cache.TTL.TimeDuration()
 	}
 }
 
@@ -1274,17 +1328,22 @@ func completeEngine(engine schema.CaptureEngine) bool {
 }
 
 func completeNetworkCapture(capture schema.NetworkCapture) bool {
+	_, filtersOK := networkFilterMap(capture.Filters)
 	return !zeroValue(capture.Source) &&
 		!zeroValue(capture.EndpointIdentity) &&
 		!zeroValue(capture.Selection) &&
+		capture.Selection.CIDRs != nil &&
+		filtersOK &&
 		!zeroValue(capture.FlowLifecycle) &&
-		!zeroValue(capture.InterfaceDiscovery)
+		!zeroValue(capture.InterfaceDiscovery) &&
+		!zeroValue(capture.Enrichment)
 }
 
 func completeNetworkStats(stats schema.NetworkStats) bool {
 	return stats.Features != nil &&
 		!zeroValue(stats.EndpointIdentity) &&
 		stats.Selection.CIDRs != nil &&
+		stats.Filters.Metrics != nil &&
 		!zeroValue(stats.Enrichment)
 }
 
@@ -1402,6 +1461,16 @@ func cloneRuntimeCIDRDefinitions[T runtimeCIDRDefinition](_ []T, definitions sch
 		}))
 	}
 	return out
+}
+
+func networkFilterMap(filters schema.SignalFilters) (filter.AttributeFamilyConfig, bool) {
+	if filters.Traces == nil || filters.Metrics == nil {
+		return nil, false
+	}
+	if !reflect.DeepEqual(filters.Traces, filters.Metrics) {
+		return nil, false
+	}
+	return attributeFilterMap(filters.Traces), true
 }
 
 func attributeFilterMap(in schema.AttributeFilters) filter.AttributeFamilyConfig {
