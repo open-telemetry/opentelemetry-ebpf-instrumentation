@@ -202,13 +202,12 @@ func (bc *BPFCollector) collectInternalMetrics(ctx context.Context) {
 			}
 
 			if ringbufWritesOK {
-				bc.ctxInfo.Metrics.BPFRingbufWriteStats(ringbufWrites.Total, ringbufWrites.Failed)
+				bc.ctxInfo.Metrics.BPFRingbufWriteStats("events", ringbufWrites.Total, ringbufWrites.Failed)
 			}
 		}
 	}
 }
 
-// BPF map names are truncated to 15 chars in the kernel; keep within that.
 const ringbufWriteStatsMapName = "rb_write_stats"
 
 type ringbufWriteCount struct {

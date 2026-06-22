@@ -23,13 +23,13 @@ func TestPrometheusReporterBPFRingbufWriteStats(t *testing.T) {
 	reg := prometheus.NewRegistry()
 	reporter := NewPrometheusReporter(&InternalMetricsConfig{}, nil, reg)
 
-	reporter.BPFRingbufWriteStats(10, 2)
-	assert.InDelta(t, 10, counterValue(t, reporter.bpfRingbufWriteCount), 0)
-	assert.InDelta(t, 2, counterValue(t, reporter.bpfRingbufWriteFailures), 0)
+	reporter.BPFRingbufWriteStats("events", 10, 2)
+	assert.InDelta(t, 10, counterValue(t, reporter.bpfRingbufWriteCount.WithLabelValues("events")), 0)
+	assert.InDelta(t, 2, counterValue(t, reporter.bpfRingbufWriteFailures.WithLabelValues("events")), 0)
 
 	// The BPF counters are absolute running totals, so the reporter must record
 	// only the delta since the previous scrape, not the absolute value again.
-	reporter.BPFRingbufWriteStats(15, 5)
-	assert.InDelta(t, 15, counterValue(t, reporter.bpfRingbufWriteCount), 0)
-	assert.InDelta(t, 5, counterValue(t, reporter.bpfRingbufWriteFailures), 0)
+	reporter.BPFRingbufWriteStats("events", 15, 5)
+	assert.InDelta(t, 15, counterValue(t, reporter.bpfRingbufWriteCount.WithLabelValues("events")), 0)
+	assert.InDelta(t, 5, counterValue(t, reporter.bpfRingbufWriteFailures.WithLabelValues("events")), 0)
 }

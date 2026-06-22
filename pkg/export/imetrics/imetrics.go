@@ -103,9 +103,9 @@ type Reporter interface {
 	// QueueBufferUtilization shows the ratio [0-1] between the unread messages of an internal Go channel
 	// and its total capacity
 	QueueBufferUtilization(subscriber string, ratio float64)
-	// BPFRingbufWriteStats sets the counters of how many writes to the events ringbuffer have been attempted
+	// BPFRingbufWriteStats sets the counters of how many writes to the given ringbuffer have been attempted
 	// vs how many of them failed because the buffer was full (the userspace reader couldn't keep up)
-	BPFRingbufWriteStats(total, failed uint64)
+	BPFRingbufWriteStats(ringbuf string, total, failed uint64)
 }
 
 func IsBuiltinNoopReporter(reporter Reporter) bool {
@@ -143,4 +143,4 @@ func (n NoopReporter) BpfInternalMetricsScrapeInterval() time.Duration   { retur
 func (n NoopReporter) InformerLag(_ float64)                             {}
 func (n NoopReporter) BPFPacketStats(_, _ uint64)                        {}
 func (n NoopReporter) QueueBufferUtilization(_ string, _ float64)        {}
-func (n NoopReporter) BPFRingbufWriteStats(_, _ uint64)                  {}
+func (n NoopReporter) BPFRingbufWriteStats(_ string, _, _ uint64)        {}

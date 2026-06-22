@@ -28,7 +28,6 @@ typedef struct ringbuf_write_count_t {
 } ringbuf_write_count;
 
 // Per-CPU counters of attempted and failed writes to the events ringbuffer.
-// OBI_PIN_INTERNAL, like events itself, so all tracers share one instance.
 struct {
     __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
     __type(key, u32);

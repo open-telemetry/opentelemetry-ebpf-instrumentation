@@ -53,8 +53,8 @@ type InternalMetricsReporter struct {
 
 	queueCapacityRatio instrument.Float64Gauge
 
-	totalRingbufWrites        uint64
-	totalRingbufWriteFailures uint64
+	totalRingbufWrites        map[string]uint64
+	totalRingbufWriteFailures map[string]uint64
 	bpfRingbufWriteCount      instrument.Int64Counter
 	bpfRingbufWriteFailures   instrument.Int64Counter
 }
@@ -224,7 +224,7 @@ func NewInternalMetricsReporter(ctx context.Context, ctxInfo *global.ContextInfo
 
 	bpfRingbufWriteCount, err := meter.Int64Counter(
 		attr.VendorPrefix+".bpf.ringbuf.writes.total",
-		instrument.WithDescription("How many writes to the events ringbuffer from the generic tracer have been attempted"),
+		instrument.WithDescription("How many writes to the ringbuffer from the generic tracer have been attempted"),
 		instrument.WithUnit("{write}"),
 	)
 	if err != nil {
@@ -233,7 +233,7 @@ func NewInternalMetricsReporter(ctx context.Context, ctxInfo *global.ContextInfo
 
 	bpfRingbufWriteFailures, err := meter.Int64Counter(
 		attr.VendorPrefix+".bpf.ringbuf.write.failures.total",
-		instrument.WithDescription("How many writes to the events ringbuffer from the generic tracer failed because the buffer was full"),
+		instrument.WithDescription("How many writes to the ringbuffer from the generic tracer failed because the buffer was full"),
 		instrument.WithUnit("{write}"),
 	)
 	if err != nil {
@@ -263,6 +263,8 @@ func NewInternalMetricsReporter(ctx context.Context, ctxInfo *global.ContextInfo
 		queueCapacityRatio:               queueCapacityRatio,
 		bpfRingbufWriteCount:             bpfRingbufWriteCount,
 		bpfRingbufWriteFailures:          bpfRingbufWriteFailures,
+		totalRingbufWrites:               map[string]uint64{},
+		totalRingbufWriteFailures:        map[string]uint64{},
 	}, nil
 }
 
@@ -411,8 +413,10 @@ func (p *InternalMetricsReporter) QueueBufferUtilization(subscriber string, rati
 	p.queueCapacityRatio.Record(p.ctx, ratio, instrument.WithAttributes(attribute.String("subscriber", subscriber)))
 }
 
-func (p *InternalMetricsReporter) BPFRingbufWriteStats(total, failed uint64) {
-	p.bpfRingbufWriteCount.Add(p.ctx, int64(total-p.totalRingbufWrites))
-	p.bpfRingbufWriteFailures.Add(p.ctx, int64(failed-p.totalRingbufWriteFailures))
-	p.totalRingbufWrites, p.totalRingbufWriteFailures = total, failed
+func (p *InternalMetricsReporter) BPFRingbufWriteStats(ringbuf string, total, failed uint64) {
+	attrs := instrument.WithAttributes(attribute.String("ringbuf", ringbuf))
+	p.bpfRingbufWriteCount.Add(p.ctx, int64(total-p.totalRingbufWrites[ringbuf]), attrs)
+	p.bpfRingbufWriteFailures.Add(p.ctx, int64(failed-p.totalRingbufWriteFailures[ringbuf]), attrs)
+	p.totalRingbufWrites[ringbuf] = total
+	p.totalRingbufWriteFailures[ringbuf] = failed
 }

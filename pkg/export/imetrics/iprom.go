@@ -55,10 +55,10 @@ type PrometheusReporter struct {
 
 	queueCapacityRatio *prometheus.GaugeVec
 
-	totalRingbufWrites        uint64
-	totalRingbufWriteFailures uint64
-	bpfRingbufWriteCount      prometheus.Counter
-	bpfRingbufWriteFailures   prometheus.Counter
+	totalRingbufWrites        map[string]uint64
+	totalRingbufWriteFailures map[string]uint64
+	bpfRingbufWriteCount      *prometheus.CounterVec
+	bpfRingbufWriteFailures   *prometheus.CounterVec
 }
 
 func NewPrometheusReporter(cfg *InternalMetricsConfig, manager *connector.PrometheusManager, registry *prometheus.Registry) *PrometheusReporter {
@@ -150,14 +150,16 @@ func NewPrometheusReporter(cfg *InternalMetricsConfig, manager *connector.Promet
 			Name: attr.VendorPrefix + "_queue_capacity_ratio",
 			Help: "Ratio [0-1] between the unread messages of an internal Go channel and its total capacity",
 		}, []string{"subscriber"}),
-		bpfRingbufWriteCount: prometheus.NewCounter(prometheus.CounterOpts{
+		bpfRingbufWriteCount: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: attr.VendorPrefix + "_bpf_ringbuf_writes_total",
-			Help: "How many writes to the events ringbuffer from the generic tracer have been attempted",
-		}),
-		bpfRingbufWriteFailures: prometheus.NewCounter(prometheus.CounterOpts{
+			Help: "How many writes to the ringbuffer from the generic tracer have been attempted",
+		}, []string{"ringbuf"}),
+		bpfRingbufWriteFailures: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: attr.VendorPrefix + "_bpf_ringbuf_write_failures_total",
-			Help: "How many writes to the events ringbuffer from the generic tracer failed because the buffer was full",
-		}),
+			Help: "How many writes to the ringbuffer from the generic tracer failed because the buffer was full",
+		}, []string{"ringbuf"}),
+		totalRingbufWrites:        map[string]uint64{},
+		totalRingbufWriteFailures: map[string]uint64{},
 	}
 	if !cfg.AvoidedServices.Disabled {
 		pr.avoidedServicesLimiter = avoidedsvc.NewLimiter(cfg.AvoidedServices.Limit)
@@ -295,8 +297,9 @@ func (p *PrometheusReporter) QueueBufferUtilization(subscriber string, ratio flo
 	p.queueCapacityRatio.WithLabelValues(subscriber).Set(ratio)
 }
 
-func (p *PrometheusReporter) BPFRingbufWriteStats(total, failed uint64) {
-	p.bpfRingbufWriteCount.Add(float64(total - p.totalRingbufWrites))
-	p.bpfRingbufWriteFailures.Add(float64(failed - p.totalRingbufWriteFailures))
-	p.totalRingbufWrites, p.totalRingbufWriteFailures = total, failed
+func (p *PrometheusReporter) BPFRingbufWriteStats(ringbuf string, total, failed uint64) {
+	p.bpfRingbufWriteCount.WithLabelValues(ringbuf).Add(float64(total - p.totalRingbufWrites[ringbuf]))
+	p.bpfRingbufWriteFailures.WithLabelValues(ringbuf).Add(float64(failed - p.totalRingbufWriteFailures[ringbuf]))
+	p.totalRingbufWrites[ringbuf] = total
+	p.totalRingbufWriteFailures[ringbuf] = failed
 }

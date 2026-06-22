@@ -230,7 +230,7 @@ func TestInternalMetricsReporterBPFRingbufWriteStats(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	reporter.BPFRingbufWriteStats(10, 2)
+	reporter.BPFRingbufWriteStats("events", 10, 2)
 
 	records := readMetricsByName(t, metricRecords, time.Second,
 		attr.VendorPrefix+".bpf.ringbuf.writes.total",
@@ -246,6 +246,7 @@ func TestInternalMetricsReporterBPFRingbufWriteStats(t *testing.T) {
 		want, ok := expected[record.Name]
 		require.True(t, ok, "unexpected metric %q", record.Name)
 		assert.Equal(t, want, record.IntVal)
+		assert.Equal(t, "events", record.Attributes["ringbuf"])
 		delete(expected, record.Name)
 	}
 	assert.Empty(t, expected)
