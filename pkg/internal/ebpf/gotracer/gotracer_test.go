@@ -43,6 +43,17 @@ func TestGoChannelLinkProbesRequireChannelOffsets(t *testing.T) {
 	}
 }
 
+func TestMissingGoChannelOffsetsUseSentinel(t *testing.T) {
+	var offTable BpfOffTableT
+
+	initMissingGoChannelOffsets(&offTable)
+
+	for _, field := range goChannelOffsetFields {
+		assert.Equal(t, missingGoOffset, offTable.Table[field])
+	}
+	assert.Zero(t, offTable.Table[goexec.ConnFdPos])
+}
+
 func TestProcessBinarySelectsRecordedChannelOffsetState(t *testing.T) {
 	tracer := &Tracer{
 		goChannelOffsetsByIno: map[uint64]bool{

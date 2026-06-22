@@ -22,7 +22,8 @@ typedef struct chan_func_invocation {
     u64 chan_ptr;
     chan_handoff_t handoff;
     bool has_handoff;
-    u8 _pad[7];
+    bool direct_handoff;
+    u8 _pad[6];
 } chan_func_invocation_t;
 
 typedef struct chan_handoff_key {
