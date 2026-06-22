@@ -152,7 +152,7 @@ func NewPrometheusReporter(cfg *InternalMetricsConfig, manager *connector.Promet
 		}, []string{"subscriber"}),
 		bpfRingbufWriteCount: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: attr.VendorPrefix + "_bpf_ringbuf_writes_total",
-			Help: "How many writes to the ringbuffer from the generic tracer have been attempted",
+			Help: "How many writes to the named ringbuffer have been attempted",
 		}, []string{"ringbuf"}),
 		bpfRingbufWriteFailures: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: attr.VendorPrefix + "_bpf_ringbuf_write_failures_total",
