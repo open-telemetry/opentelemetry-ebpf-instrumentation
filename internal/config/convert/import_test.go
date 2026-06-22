@@ -297,6 +297,192 @@ func TestV2ToRuntimeCustomFoundation(t *testing.T) {
 	require.Equal(t, []string{"service.version"}, got.Prometheus.ExtraSpanResourceLabels)
 }
 
+func TestV2ToRuntimeImportsRules(t *testing.T) {
+	t.Parallel()
+
+	openPorts := services.IntEnum{Ranges: []services.IntRange{{Start: 8080}}}
+	got, err := V2ToRuntime(&schema.Extension{
+		Version: schema.SupportedVersion,
+		Capture: schema.Capture{
+			Rules: []schema.Rule{
+				{
+					Action: schema.CaptureActionInclude,
+					Match: schema.RuleMatch{
+						Process: schema.RuleProcessMatch{
+							OpenPorts:      &openPorts,
+							TargetPIDs:     []uint32{1234},
+							LanguageGlob:   []string{"go", "python"},
+							CmdArgsGlob:    []string{"serve"},
+							ExePathGlob:    []string{"/srv/*"},
+							ContainersOnly: true,
+						},
+						Kubernetes: schema.RuleKubernetesMatch{
+							NamespaceGlob:  []string{"prod"},
+							MetadataGlob:   map[string][]string{"k8s.deployment.name": {"checkout*"}},
+							PodLabels:      map[string][]string{"app": {"checkout"}},
+							PodAnnotations: map[string][]string{"team": {"payments"}},
+						},
+					},
+					Refine: schema.RuleRefinement{
+						Exports: &schema.ExportModeRefinement{Traces: true, Metrics: false},
+						HTTP: &schema.HTTPRefinement{
+							Routes: schema.HTTPRefinementRoutes{
+								Incoming: schema.HTTPRefinementRoute{Patterns: []string{"/orders/{id}"}},
+								Outgoing: schema.HTTPRefinementRoute{Patterns: []string{"/inventory/{id}"}},
+							},
+						},
+					},
+				},
+				{
+					Action: schema.CaptureActionExclude,
+					Match: schema.RuleMatch{
+						Process: schema.RuleProcessMatch{
+							ExportsOTLP: &schema.RuleExportsOTLP{Port: 4317, Protocol: "protobuf"},
+						},
+					},
+				},
+				{
+					Action: schema.CaptureActionExclude,
+					Match: schema.RuleMatch{
+						Process: schema.RuleProcessMatch{
+							ExePathRegex: "^/usr/bin/.*",
+						},
+						Kubernetes: schema.RuleKubernetesMatch{
+							NamespaceRegex: "kube-.*",
+						},
+					},
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	require.Len(t, got.Discovery.Instrument, 1)
+	include := got.Discovery.Instrument[0]
+	require.Equal(t, []uint32{1234}, include.PIDs)
+	require.True(t, include.OpenPorts.Matches(8080))
+	require.Equal(t, "{go,python}", globString(include.Languages))
+	require.Equal(t, "serve", globString(include.CmdArgs))
+	require.Equal(t, "/srv/*", globString(include.Path))
+	require.True(t, include.ContainersOnly)
+	require.Equal(t, "prod", globString(*include.Metadata[services.AttrNamespace]))
+	require.Equal(t, "checkout*", globString(*include.Metadata["k8s.deployment.name"]))
+	require.Equal(t, "checkout", globString(*include.PodLabels["app"]))
+	require.True(t, include.ExportModes.CanExportTraces())
+	require.False(t, include.ExportModes.CanExportMetrics())
+	require.Equal(t, []string{"/orders/{id}"}, include.Routes.Incoming)
+	require.Equal(t, []string{"/inventory/{id}"}, include.Routes.Outgoing)
+
+	require.True(t, got.Discovery.ExcludeOTelInstrumentedServices)
+	require.Equal(t, 4317, got.Discovery.DefaultOtlpGRPCPort)
+	require.Len(t, got.Discovery.ExcludeServices, 1)
+	exclude := got.Discovery.ExcludeServices[0]
+	require.Equal(t, "^/usr/bin/.*", regexString(exclude.Path))
+	require.Equal(t, "kube-.*", regexString(*exclude.Metadata[services.AttrNamespace]))
+}
+
+func TestV2ToRuntimeSkipsUnsupportedExportsOTLPRules(t *testing.T) {
+	t.Parallel()
+
+	got, err := V2ToRuntime(&schema.Extension{
+		Version: schema.SupportedVersion,
+		Capture: schema.Capture{
+			Rules: []schema.Rule{
+				{
+					Action: schema.CaptureActionInclude,
+					Match: schema.RuleMatch{
+						Process: schema.RuleProcessMatch{
+							ExportsOTLP: &schema.RuleExportsOTLP{Port: 4317, Protocol: "protobuf"},
+						},
+					},
+				},
+				{
+					Action: schema.CaptureActionExclude,
+					Match: schema.RuleMatch{
+						Process: schema.RuleProcessMatch{
+							ExePathGlob: []string{"/srv/*"},
+							ExportsOTLP: &schema.RuleExportsOTLP{Port: 4317, Protocol: "protobuf"},
+						},
+					},
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	require.Empty(t, got.Discovery.Instrument)
+	require.Empty(t, got.Discovery.ExcludeInstrument)
+	require.False(t, got.Discovery.ExcludeOTelInstrumentedServices)
+}
+
+func TestV2ToRuntimeSkipsMixedGlobRegexRules(t *testing.T) {
+	t.Parallel()
+
+	got, err := V2ToRuntime(&schema.Extension{
+		Version: schema.SupportedVersion,
+		Capture: schema.Capture{
+			Rules: []schema.Rule{
+				{
+					Action: schema.CaptureActionInclude,
+					Match: schema.RuleMatch{
+						Process: schema.RuleProcessMatch{
+							ExePathGlob: []string{"/srv/*"},
+						},
+						Kubernetes: schema.RuleKubernetesMatch{
+							NamespaceRegex: "prod-.*",
+						},
+					},
+				},
+				{
+					Action: schema.CaptureActionExclude,
+					Match: schema.RuleMatch{
+						Process: schema.RuleProcessMatch{
+							LanguageRegex: "go|java",
+						},
+						Kubernetes: schema.RuleKubernetesMatch{
+							PodLabels: map[string][]string{"app": {"checkout"}},
+						},
+					},
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	require.Empty(t, got.Discovery.Instrument)
+	require.Empty(t, got.Discovery.Services)
+	require.Empty(t, got.Discovery.ExcludeInstrument)
+	require.Empty(t, got.Discovery.ExcludeServices)
+}
+
+func TestV2ToRuntimeRulesPresenceControlsSelectorReplacement(t *testing.T) {
+	t.Parallel()
+
+	missing, err := V2ToRuntime(&schema.Extension{Version: schema.SupportedVersion})
+	require.NoError(t, err)
+	require.Equal(t, obi.DefaultConfig.Discovery.DefaultExcludeInstrument, missing.Discovery.DefaultExcludeInstrument)
+	require.Equal(t, obi.DefaultConfig.Discovery.DefaultExcludeServices, missing.Discovery.DefaultExcludeServices)
+	require.Equal(t,
+		obi.DefaultConfig.Discovery.ExcludeOTelInstrumentedServices,
+		missing.Discovery.ExcludeOTelInstrumentedServices,
+	)
+
+	empty, err := V2ToRuntime(&schema.Extension{
+		Version: schema.SupportedVersion,
+		Capture: schema.Capture{
+			Rules: []schema.Rule{},
+		},
+	})
+	require.NoError(t, err)
+	require.Empty(t, empty.Discovery.Instrument)
+	require.Empty(t, empty.Discovery.ExcludeInstrument)
+	require.Empty(t, empty.Discovery.DefaultExcludeInstrument)
+	require.Empty(t, empty.Discovery.Services)
+	require.Empty(t, empty.Discovery.ExcludeServices)
+	require.Empty(t, empty.Discovery.DefaultExcludeServices)
+	require.False(t, empty.Discovery.ExcludeOTelInstrumentedServices)
+}
+
 func TestV2ToRuntimePreservesDefaultsForMissingSections(t *testing.T) {
 	t.Parallel()
 
