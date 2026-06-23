@@ -21,7 +21,7 @@ enum {
     // for the struct overhead.
     k_large_buf_max_size = 1 << 15, // 32K
 
-    // Maximum size per single ring buffer emission.
+    // Maximum size per single ring buffer emission (verifier safe).
     k_large_buf_per_emit_max = 1 << 16, // 64K
 
     // Maximum valid value for each protocol's *_max_captured_bytes volatile variable.
