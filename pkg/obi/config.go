@@ -330,6 +330,12 @@ var DefaultConfig = Config{
 			JavaHarvestDelay: 5 * time.Second,
 		},
 		ExcludedLinuxSystemPaths: []string{"/lib/systemd/", "/usr/lib/systemd/", "/usr/libexec/", "/sbin/", "/usr/sbin/"},
+		HotReload: services.HotReloadConfig{
+			Enabled:      true,
+			Namespace:    "obi-system",
+			ConfigMaps:   []string{"arms-obi-discovery", "arms-obi-discovery-default"},
+			PollInterval: 15 * time.Second,
+		},
 	},
 	NodeJS: NodeJSConfig{
 		Enabled: true,
@@ -866,5 +872,18 @@ func (c *Config) normalize() {
 	// Deprecated: to be removed together with OTEL_EBPF_NETWORK_METRICS bool flag
 	if c.NetworkFlows.Enable {
 		c.Metrics.Features |= export.FeatureNetwork
+	}
+	c.normalizeHotReload()
+}
+
+func (c *Config) normalizeHotReload() {
+	hr := &c.Discovery.HotReload
+	if len(hr.ConfigMaps) == 0 {
+		hr.Enabled = true
+		hr.Namespace = "obi-system"
+		hr.ConfigMaps = []string{"arms-obi-discovery", "arms-obi-discovery-default"}
+	}
+	if hr.PollInterval <= 0 {
+		hr.PollInterval = 15 * time.Second
 	}
 }

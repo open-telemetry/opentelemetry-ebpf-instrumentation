@@ -79,7 +79,7 @@ func wplog() *slog.Logger {
 // When addedPIDsNotify is non-nil, the watcher receives PIDs that were added to the dynamic selector and
 // forgets them from its tracked state so they are re-emitted as new on the next poll (supporting adding
 // an already-seen process).
-func ProcessWatcherFunc(cfg *obi.Config, ebpfContext *ebpfcommon.EBPFEventContext, output *msg.Queue[[]Event[ProcessAttrs]], findingCriteria []services.Selector, addedPIDsNotify <-chan []app.PID) swarm.RunFunc {
+func ProcessWatcherFunc(cfg *obi.Config, ebpfContext *ebpfcommon.EBPFEventContext, output *msg.Queue[[]Event[ProcessAttrs]], findingCriteria []services.Selector, addedPIDsNotify <-chan []app.PID, rescanNotify <-chan struct{}) swarm.RunFunc {
 	acc := pollAccounter{
 		cfg:               cfg,
 		output:            output,
@@ -96,6 +96,7 @@ func ProcessWatcherFunc(cfg *obi.Config, ebpfContext *ebpfcommon.EBPFEventContex
 		findingCriteria:   findingCriteria,
 		ebpfContext:       ebpfContext,
 		addedPIDsNotify:   addedPIDsNotify,
+		rescanNotify:      rescanNotify,
 	}
 	if acc.interval == 0 {
 		acc.interval = defaultPollInterval
@@ -135,6 +136,8 @@ type pollAccounter struct {
 	ebpfContext       *ebpfcommon.EBPFEventContext
 	// when non-nil, PIDs received here are removed from pids/pidPorts so they are re-emitted as new on next poll
 	addedPIDsNotify <-chan []app.PID
+	// rescanNotify, when signaled, clears all tracked state so all processes are re-emitted on next poll
+	rescanNotify <-chan struct{}
 	// pidsMu protects pids and pidPorts so the addedPIDsNotify goroutine can call forgetPIDs while snapshot runs
 	pidsMu sync.Mutex
 }
@@ -162,6 +165,10 @@ func (pa *pollAccounter) run(ctx context.Context) {
 
 	if pa.addedPIDsNotify != nil {
 		go pa.runAddedPIDsNotify(ctx, log)
+	}
+
+	if pa.rescanNotify != nil {
+		go pa.runRescanNotify(ctx, log)
 	}
 
 	for {
@@ -217,6 +224,30 @@ func (pa *pollAccounter) forgetPIDs(pids []app.PID) {
 			}
 		}
 	}
+}
+
+// runRescanNotify listens for rescan signals (e.g. from ConfigMap hot-reload) and clears
+// all tracked state so every process is re-emitted on the next poll.
+func (pa *pollAccounter) runRescanNotify(ctx context.Context, log *slog.Logger) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case _, ok := <-pa.rescanNotify:
+			if !ok {
+				return
+			}
+			pa.forgetAllPIDs()
+			log.Info("rescan triggered: cleared tracked processes for full re-discovery")
+		}
+	}
+}
+
+func (pa *pollAccounter) forgetAllPIDs() {
+	pa.pidsMu.Lock()
+	defer pa.pidsMu.Unlock()
+	pa.pids = map[app.PID]ProcessAttrs{}
+	pa.pidPorts = map[pidPort]ProcessAttrs{}
 }
 
 func (pa *pollAccounter) bpfWatcherIsReady() {

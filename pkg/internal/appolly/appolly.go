@@ -153,6 +153,9 @@ func (i *Instrumenter) FindAndInstrument(ctx context.Context) error {
 		return fmt.Errorf("couldn't start Process Finder: %w", err)
 	}
 
+	// Start ConfigMap hot-reload watcher if enabled
+	i.startConfigMapWatcher(ctx, finder)
+
 	// In the background process any process found events and annotate them with
 	// the Host or Kubernetes metadata
 	graph, err := i.peGraphBuilder.Instance(ctx)
@@ -171,6 +174,40 @@ func (i *Instrumenter) FindAndInstrument(ctx context.Context) error {
 	go i.instrumentedEventLoop(ctx, processEvents)
 
 	return nil
+}
+
+func (i *Instrumenter) startConfigMapWatcher(ctx context.Context, finder *discover.ProcessFinder) {
+	hrCfg := i.config.Discovery.HotReload
+	slog.Info("discovery hot-reload config",
+		"enabled", hrCfg.Enabled,
+		"namespace", hrCfg.Namespace,
+		"configmaps", hrCfg.ConfigMaps,
+		"poll_interval", hrCfg.PollInterval)
+	if !hrCfg.Enabled {
+		return
+	}
+	if len(hrCfg.ConfigMaps) == 0 {
+		slog.Warn("discovery hot-reload enabled but no configmaps specified")
+		return
+	}
+	if !i.ctxInfo.K8sInformer.IsKubeEnabled() {
+		slog.Warn("discovery hot-reload requires Kubernetes, but Kubernetes is not enabled")
+		return
+	}
+	kubeClient, err := i.ctxInfo.K8sInformer.KubeClient()
+	if err != nil {
+		slog.Error("discovery hot-reload: failed to get Kubernetes client", "error", err)
+		return
+	}
+	watcher := discover.NewConfigMapWatcher(
+		kubeClient,
+		hrCfg.Namespace,
+		hrCfg.ConfigMaps,
+		hrCfg.PollInterval,
+		finder.DynamicCriteriaPointer(),
+		finder.RescanChannel(),
+	)
+	go watcher.Start(ctx)
 }
 
 func (i *Instrumenter) WaitUntilFinished() error {

@@ -135,6 +135,17 @@ type DiscoveryConfig struct {
 	// Executable paths for which we don't run language detection and cannot be
 	// selected using the path or language selection criteria
 	ExcludedLinuxSystemPaths []string `yaml:"excluded_linux_system_paths"`
+
+	// HotReload enables watching ConfigMaps for dynamic discovery criteria updates
+	HotReload HotReloadConfig `yaml:"hot_reload"`
+}
+
+// HotReloadConfig configures dynamic reloading of discovery instrument criteria from ConfigMaps
+type HotReloadConfig struct {
+	Enabled      bool          `yaml:"enabled" env:"OTEL_EBPF_DISCOVERY_HOT_RELOAD"`
+	ConfigMaps   []string      `yaml:"configmaps" env:"OTEL_EBPF_DISCOVERY_HOT_RELOAD_CONFIGMAPS" envSeparator:","`
+	Namespace    string        `yaml:"namespace" env:"OTEL_EBPF_DISCOVERY_HOT_RELOAD_NAMESPACE"`
+	PollInterval time.Duration `yaml:"poll_interval" env:"OTEL_EBPF_DISCOVERY_HOT_RELOAD_POLL_INTERVAL"`
 }
 
 type RouteHarvestingConfig struct {
