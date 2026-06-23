@@ -41,9 +41,8 @@ volatile const u32 high_request_volume;
 
 SCRATCH_MEM_SIZED(http_previous_trace_id, TRACE_ID_SIZE_BYTES);
 
-// empty_http_info zeroes and return the unique percpu copy in the map
-// this function assumes that a given thread is not trying to use many
-// instances at the same time
+// This function assumes that a given thread is not trying to use many
+// instances at the same time.
 static __always_inline http_info_t *empty_http_info() {
     int zero = 0;
     http_info_t *value = bpf_map_lookup_elem(&http_info_mem, &zero);
@@ -128,8 +127,6 @@ static __always_inline void finish_http(http_info_t *info, pid_connection_info_t
             bpf_dbg_printk("failed to reserve space in the ringbuf");
         }
 
-        // bpf_dbg_printk("Terminating trace for pid=%d", pid_from_pid_tgid(pid_tid));
-        // dbg_print_http_connection_info(&info->conn_info); // commented out since GitHub CI doesn't like this call
         // Don't delete requests that weren't delayed, we might be receiving still more packets, for
         // example SSL.
         if (info->delayed) {
@@ -176,7 +173,6 @@ static __always_inline http_info_t *get_or_set_http_info(http_info_t *info,
                     return 0;
                 }
             }
-            // this will delete ongoing_http for this connection info if there's full stale request
             finish_http(old_info, pid_conn);
         }
 
@@ -330,10 +326,10 @@ static __always_inline void handle_http_response(unsigned char *small_buf,
     process_http_response(info, small_buf);
     cleanup_http_request_data(pid_conn, info);
 
-    // Generic Go events cannot be delayed for now since we don't probe on net_close.
+    // Generic Go events cannot be delayed since we don't probe on net_close.
     // SSL connections must always be delayed: subsequent SSL_read calls deliver
-    // the response body (e.g. SSE streaming) and the data-accumulation path in
-    // protocol_handler requires !info->submitted.
+    // the response body (e.g. SSE streaming) and require the request to remain
+    // active in ongoing_http.
     if ((high_request_volume && !info->ssl) || (lw_thread != k_lw_thread_none)) {
         finish_http(info, pid_conn);
         // If we are terminating because of a light weight thread, e.g. Go we must clean
@@ -395,8 +391,6 @@ static __always_inline int http_send_large_buffer(void *ctx,
         req->lb_res_bytes += consumed_bytes;
     }
 
-    // If there are remaining bytes beyond the first batch, initiate tail call
-    // chain to emit additional batches (up to k_large_buf_max_batches total).
     const u32 remaining = available_bytes - consumed_bytes;
     if (remaining > 0 && consumed_bytes > 0) {
         large_buf_emit_state_t *state = (large_buf_emit_state_t *)large_buf_emit_state_mem();
@@ -514,7 +508,6 @@ __obi_continue_protocol_http_tp(struct pt_regs *ctx,
             bpf_clamp_umax(buf_len, TRACE_BUF_SIZE - 1);
 
             bpf_probe_read(buf, buf_len, (void *)args->u_buf);
-            // null terminate to make proper string
             buf[buf_len] = '\0';
 
             unsigned char *res = tp_loop_fn(buf, buf_len);
@@ -622,8 +615,6 @@ __obi_continue_protocol_http(struct pt_regs *ctx,
     if (tp_p && tp_p->req_type == EVENT_HTTP_CLIENT && tp_p->written &&
         tp_p->pid == args->pid_conn.pid) {
         bpf_dbg_printk("found tp info previously set by sock msg");
-        // we've already got a tp_info_pid_t setup by the sockmsg program, use
-        // that instead
         set_trace_info_for_connection(&args->pid_conn.conn, TRACE_TYPE_CLIENT, tp_p);
         // clean up so that TC does not pick it up
         bpf_map_delete_elem(&outgoing_trace_map, &e_key);
@@ -655,9 +646,6 @@ __obi_continue_protocol_http(struct pt_regs *ctx,
             found_tp = find_trace_for_client_request(
                 &p_conn, args->orig_dport, args->lw_thread, &tp_p->tp);
         } else {
-            //bpf_dbg_printk("Looking up existing trace for connection");
-            //dbg_print_http_connection_info(conn);
-
             // For server requests, we first look for TCP info (setup by TC ingress) and then we fall back to black-box info.
             found_tp =
                 find_trace_for_server_request(&args->pid_conn.conn, &tp_p->tp, EVENT_HTTP_REQUEST);
@@ -845,10 +833,6 @@ int obi_protocol_http_legacy(struct pt_regs *ctx) {
 }
 
 // k_tail_large_buf_emit_continue
-// Continuation program for multi-batch large buffer emission. Reads per-CPU
-// state left by http_send_large_buffer (or a prior invocation of itself),
-// emits the next 64 KB batch, and tail-calls back into itself until all
-// bytes are sent or the batch limit is reached.
 SEC("kprobe/http")
 int obi_large_buf_emit_continue(struct pt_regs *ctx) {
     large_buf_emit_state_t *state = (large_buf_emit_state_t *)large_buf_emit_state_mem();
@@ -856,7 +840,6 @@ int obi_large_buf_emit_continue(struct pt_regs *ctx) {
         return 0;
     }
 
-    // Look up the ongoing HTTP info to update byte counters.
     http_info_t *info = bpf_map_lookup_elem(&ongoing_http, &state->pid_conn);
     if (!info) {
         return 0;
