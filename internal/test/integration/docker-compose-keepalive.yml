@@ -1,11 +1,11 @@
 version: "3.8"
 
 services:
-  tpinjector-server:
+  socktracer-server:
     build:
       context: ../../..
-      dockerfile: internal/test/integration/components/tpinjector-server/Dockerfile
-    image: hatest-tpinjector-server
+      dockerfile: internal/test/integration/components/socktracer-server/Dockerfile
+    image: hatest-socktracer-server
     ports:
       - "8080:8080"
 
@@ -17,7 +17,7 @@ services:
     ports:
       - "9091:9091"
     depends_on:
-      tpinjector-server:
+      socktracer-server:
         condition: service_started
     healthcheck:
       test: ["CMD", "test", "-f", "/tmp/connected"]
@@ -38,7 +38,6 @@ services:
     image: hatest-obi
     privileged: true
     pid: "host"
-    network_mode: "service:keepaliveclient"
     environment:
       GOCOVERDIR: "/coverage"
     depends_on:

@@ -42,6 +42,7 @@ services:
       - ./system/sys/kernel/security:/sys/kernel/security
       - ../../../testoutput:/coverage
       - ../../../testoutput/run-mqtt:/var/run/obi
+      - /sys/fs/cgroup:/sys/fs/cgroup
     image: hatest-obi
     privileged: true # in some environments (not GH Pull Requests) you can set it to false and then cap_add: [ SYS_ADMIN ]
     network_mode: "service:testserver"
@@ -65,6 +66,7 @@ services:
       OTEL_EBPF_METRICS_INSTRUMENTATIONS: "*"
       OTEL_EBPF_METRICS_FEATURES: "application"
       OTEL_EBPF_PROTOCOL_DEBUG_PRINT: "true"
+      OTEL_EBPF_BPF_SOCKET_TRACER: "${OTEL_EBPF_BPF_SOCKET_TRACER}"
     depends_on:
       testserver:
         condition: service_started

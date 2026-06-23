@@ -3,6 +3,8 @@ import os
 import uvicorn
 import mysql.connector
 
+_ssl_disabled = os.environ.get("MYSQL_SSL_DISABLED", "false").lower() == "true"
+
 app = FastAPI()
 
 conn = None
@@ -16,7 +18,8 @@ async def root():
             user="sakila",
             password="p_ssW0rd",
             host="sqlserver",
-            port="3306"
+            port="3306",
+            ssl_disabled=_ssl_disabled,
         )
 
     cur = conn.cursor()
@@ -35,7 +38,8 @@ async def root():
             user="sakila",
             password="p_ssW0rd",
             host="sqlserver",
-            port="3306"
+            port="3306",
+            ssl_disabled=_ssl_disabled,
         )
 
     cur = conn.cursor()
@@ -57,7 +61,8 @@ async def root():
             user="sakila",
             password="p_ssW0rd",
             host="sqlserver",
-            port="3306"
+            port="3306",
+            ssl_disabled=_ssl_disabled,
         )
 
     if gCurr is None:
@@ -81,7 +86,8 @@ async def bigquery():
             user="sakila",
             password="p_ssW0rd",
             host="sqlserver",
-            port="3306"
+            port="3306",
+            ssl_disabled=_ssl_disabled,
         )
 
     # Build a SELECT query that is exactly 5000 bytes.
@@ -104,7 +110,8 @@ async def root():
             user="sakila",
             password="p_ssW0rd",
             host="sqlserver",
-            port="3306"
+            port="3306",
+            ssl_disabled=_ssl_disabled,
         )
 
     cur = conn.cursor()

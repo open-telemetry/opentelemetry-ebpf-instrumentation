@@ -57,7 +57,7 @@ static __always_inline u32 find_first_pos_of(unsigned char *begin, unsigned char
     return memchar_pos(begin, ch, end, MAX_INLINE_LEN);
 }
 
-static __always_inline void *ctx_data(struct __sk_buff *ctx) {
+static __always_inline void *ctx_skb_data(struct __sk_buff *ctx) {
     void *data;
 
     asm("%[res] = *(u32 *)(%[base] + %[offset])"
@@ -67,7 +67,7 @@ static __always_inline void *ctx_data(struct __sk_buff *ctx) {
     return data;
 }
 
-static __always_inline void *ctx_data_end(struct __sk_buff *ctx) {
+static __always_inline void *ctx_skb_data_end(struct __sk_buff *ctx) {
     void *data_end;
 
     asm("%[res] = *(u32 *)(%[base] + %[offset])"

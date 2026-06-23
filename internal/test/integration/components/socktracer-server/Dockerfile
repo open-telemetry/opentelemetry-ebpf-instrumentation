@@ -10,13 +10,13 @@ COPY internal/test/ internal/test/
 COPY go.mod go.mod
 COPY go.sum go.sum
 
-RUN go build -o tpinjector-server ./internal/test/integration/components/tpinjector-server/
+RUN go build -o socktracer-server ./internal/test/integration/components/socktracer-server/
 
 FROM debian:bookworm-slim@sha256:74d56e3931e0d5a1dd51f8c8a2466d21de84a271cd3b5a733b803aa91abf4421
 
 WORKDIR /
 
-COPY --from=builder /src/tpinjector-server .
+COPY --from=builder /src/socktracer-server .
 USER 0:0
 
-CMD [ "/tpinjector-server" ]
+CMD [ "/socktracer-server" ]

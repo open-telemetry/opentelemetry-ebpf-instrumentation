@@ -25,3 +25,4 @@
 #define EVENT_GO_CHANNEL_LINK 18
 #define EVENT_JVM_GC_HEAP_SUMMARY 19
 #define EVENT_JVM_MEM_POOL_GC 20
+#define EVENT_K_HTTP2_BUFFER 21 // raw HTTP/2 frames from socktracer

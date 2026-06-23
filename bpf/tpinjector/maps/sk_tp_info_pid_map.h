@@ -1,6 +1,9 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
+// FIXME: remove this file together with bpf/tpinjector/ once socktracer is the default
+// and tpinjector is retired.
+
 #pragma once
 
 #include <bpfcore/vmlinux.h>

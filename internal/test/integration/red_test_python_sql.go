@@ -354,14 +354,9 @@ func testREDMetricsForPythonSQLSSL(t *testing.T, url, comm, namespace string) {
 }
 
 func testREDMetricsPythonSQLSSL(t *testing.T) {
-	for _, testCaseURL := range []string{
-		"https://localhost:8381",
-	} {
-		t.Run(testCaseURL, func(t *testing.T) {
-			waitForTestComponentsSub(t, testCaseURL, "/query")
-			testREDMetricsForPythonSQLSSL(t, testCaseURL, "python3.14", "integration-test")
-		})
-	}
+	const testCaseURL = "https://localhost:8381"
+	waitForTestComponentsSub(t, testCaseURL, "/query")
+	testREDMetricsForPythonSQLSSL(t, testCaseURL, "python3.14", "integration-test")
 }
 
 func testPythonSQLMultiPacketResponse(t *testing.T, comm, url, table, db string) {

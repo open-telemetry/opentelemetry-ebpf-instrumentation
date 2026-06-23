@@ -5,6 +5,9 @@
 
 // this file is emptied on purpose to allow OBI compiling in non-linux environments
 
+// FIXME: remove this file together with the tpinjector package once socktracer is the
+// default and tpinjector is retired.
+
 package tpinjector // import "go.opentelemetry.io/obi/pkg/internal/ebpf/tpinjector"
 
 import (

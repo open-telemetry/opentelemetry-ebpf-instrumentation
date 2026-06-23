@@ -15,10 +15,18 @@ import (
 	"go.opentelemetry.io/obi/internal/test/integration/components/docker"
 )
 
-func TestExistingSocketsDetection(t *testing.T) {
+// TestEstablishedSocketBackfill verifies that socktracer detects TCP connections that were
+// established before OBI started. The keepaliveclient connects to socktracer-server and
+// writes /tmp/connected; OBI starts only after that flag appears. On AllowPID, OBI scans
+// /proc/<pid>/fd via pidfd_getfd and registers pre-existing ESTABLISHED sockets into
+// sk_data_map + sock_dir from userspace (no BPF iter/tcp required). The test passes when
+// the keepaliveclient receives a Traceparent header echoed back by the server, proving that
+// OBI injected it on the pre-existing connection.
+func TestEstablishedSocketBackfill(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-keepalive.yml", path.Join(pathOutput, "test-suite-keepalive.log"))
 	require.NoError(t, err)
 	require.NoError(t, compose.Up())
+	t.Cleanup(func() { _ = compose.Close() })
 
 	waitForTestComponentsNoMetrics(t, "http://localhost:8080/smoke")
 
@@ -28,6 +36,4 @@ func TestExistingSocketsDetection(t *testing.T) {
 		resp.Body.Close()
 		require.Equal(ct, http.StatusOK, resp.StatusCode)
 	}, testTimeout, time.Second)
-
-	require.NoError(t, compose.Close())
 }

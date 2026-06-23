@@ -23,15 +23,32 @@ const (
 	forwardedSpanID = "1111111111111111"                 // Span ID used in forwarded traceparent
 )
 
-// TestTraceparentExtraction validates that the eBPF tpinjector correctly:
+// TestTraceparentExtraction validates that the eBPF socktracer correctly:
 // 1. Extracts existing Traceparent headers from HTTP requests
 // 2. Uses the extracted trace ID instead of generating a new one
 // 3. Only injects Traceparent when one doesn't already exist
 func TestTraceparentExtraction(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-tpclient.yml", path.Join(pathOutput, "test-suite-traceparent.log"))
 	require.NoError(t, err)
-	compose.Env = append(compose.Env, `OTEL_EBPF_EXECUTABLE_PATH=`, `OTEL_EBPF_OPEN_PORT=`)
+	compose.Env = append(compose.Env, `OTEL_EBPF_EXECUTABLE_PATH=`, `OTEL_EBPF_OPEN_PORT=`,
+		`OTEL_EBPF_BPF_CONTEXT_PROPAGATION=headers`)
 	require.NoError(t, compose.Up())
+	runTraceparentExtractionSuite(t)
+	require.NoError(t, compose.Close())
+}
+
+func TestTraceparentExtraction_Socktracer(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-tpclient.yml", path.Join(pathOutput, "test-suite-traceparent-socktracer.log"))
+	require.NoError(t, err)
+	compose.Env = append(compose.Env, `OTEL_EBPF_EXECUTABLE_PATH=`, `OTEL_EBPF_OPEN_PORT=`,
+		`OTEL_EBPF_BPF_CONTEXT_PROPAGATION=headers`, `OTEL_EBPF_BPF_SOCKET_TRACER=true`)
+	require.NoError(t, compose.Up())
+	runTraceparentExtractionSuite(t)
+	require.NoError(t, compose.Close())
+}
+
+func runTraceparentExtractionSuite(t *testing.T) {
+	t.Helper()
 
 	// Wait for service to be ready
 	waitForTestComponents(t, "http://localhost:6000")
@@ -59,8 +76,6 @@ func TestTraceparentExtraction(t *testing.T) {
 	t.Run("with_forwarded_traceparent", testWithForwardedTraceparent)
 
 	runWeaverValidation(t)
-
-	require.NoError(t, compose.Close())
 }
 
 // testWithoutTraceparent validates that when NO Traceparent header is present,

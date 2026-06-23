@@ -7,13 +7,17 @@
 #include <bpfcore/bpf_helpers.h>
 #include <bpfcore/bpf_tracing.h>
 
+// FIXME: msg_buffer.h and maps/msg_buffers.h are part of the tpinjector backward-compat
+// shim. Remove these includes (and the msg_buffers lookup paths below in
+// obi_kprobe_tcp_sendmsg and obi_kprobe_tcp_rate_check_app_limited) once socktracer is
+// the default and tpinjector is retired.
+#include <common/msg_buffer.h>
 #include <common/backup_buffer.h>
 #include <common/common.h>
 #include <common/connection_info.h>
 #include <common/http_types.h>
 #include <common/iov_iter.h>
 #include <common/lw_thread.h>
-#include <common/msg_buffer.h>
 #include <common/protocol_defs.h>
 #include <common/sock_port_ns.h>
 #include <common/sockaddr.h>
@@ -41,6 +45,7 @@
 #include <generictracer/protocol_tcp.h>
 #include <generictracer/ssl_defs.h>
 
+#include <maps/msg_buffers.h> // FIXME: tpinjector shim, remove with tpinjector
 #include <maps/ongoing_http2_connections.h>
 
 #include <logger/bpf_dbg.h>
@@ -49,7 +54,6 @@
 #include <maps/fd_map.h>
 #include <maps/filter_ports.h>
 #include <maps/fd_to_connection.h>
-#include <maps/msg_buffers.h>
 #include <maps/sock_pids.h>
 #include <maps/unreadable_buffer_ports.h>
 #include <pid/pid.h>
@@ -438,7 +442,7 @@ int BPF_KPROBE(obi_kprobe_tcp_sendmsg, struct sock *sk, struct msghdr *msg, size
         dbg_print_http_connection_info(
             &s_args.p_conn.conn); // commented out since GitHub CI doesn't like this call
         // Create the egress key before we sort the connection info.
-        egress_key_t e_key = make_egress_key(&s_args.p_conn.conn);
+        egress_key_t e_key = make_egress_key(&s_args.p_conn.conn); // FIXME: tpinjector shim
         sort_connection_info(&s_args.p_conn.conn);
         s_args.p_conn.pid = pid_from_pid_tgid(id);
         s_args.orig_dport = orig_dport;
@@ -454,11 +458,10 @@ int BPF_KPROBE(obi_kprobe_tcp_sendmsg, struct sock *sk, struct msghdr *msg, size
                 if (buf) {
                     size = read_msghdr_buf(msg, buf, size);
 
-                    // If a sock_msg program is installed, this kprobe will fail to
-                    // read anything, because the data is in bvec physical pages. However,
-                    // the sock_msg will setup a buffer for us if this is the case. We
-                    // look up this buffer and use it instead of what we'd get from
-                    // calling read_msghdr_buf.
+                    // FIXME: tpinjector shim — when tpinjector's sk_msg is installed it
+                    // disables bvec reads; tpinjector pre-copies the buffer into msg_buffers
+                    // so this kprobe can still access the pre-injection data.
+                    // Remove this block together with tpinjector.
                     if (!size) {
                         msg_buffer_t *m_buf = bpf_map_lookup_elem(&msg_buffers, &e_key);
                         bpf_dbg_printk("No size, m_buf=%llx", m_buf);
@@ -520,12 +523,12 @@ int BPF_KPROBE(obi_kprobe_tcp_sendmsg, struct sock *sk, struct msghdr *msg, size
                     bpf_map_update_elem(&active_send_args, &id, &s_args, BPF_ANY);
                     bpf_map_update_elem(&active_send_sock_args, &sock_p, &s_args, BPF_ANY);
 
-                    bpf_map_delete_elem(&msg_buffers, &e_key);
+                    bpf_map_delete_elem(&msg_buffers, &e_key); // FIXME: tpinjector shim
                     // Logically last for !ssl.
                     handle_buf_with_connection(
                         ctx, &s_args.p_conn, buf, size, NO_SSL, TCP_SEND, orig_dport);
                 }
-                bpf_map_delete_elem(&msg_buffers, &e_key);
+                bpf_map_delete_elem(&msg_buffers, &e_key); // FIXME: tpinjector shim
             } else {
                 bpf_dbg_printk("identified SSL connection, ignoring...");
             }
@@ -546,6 +549,8 @@ int BPF_KPROBE(obi_kprobe_tcp_sendmsg, struct sock *sk, struct msghdr *msg, size
 // happens on certain kernels if sk_msg is attached.
 SEC("kprobe/tcp_rate_check_app_limited")
 int BPF_KPROBE(obi_kprobe_tcp_rate_check_app_limited, struct sock *sk) {
+    (void)ctx;
+
     const u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {
@@ -561,7 +566,7 @@ int BPF_KPROBE(obi_kprobe_tcp_rate_check_app_limited, struct sock *sk) {
     if (parse_sock_info(sk, &s_args.p_conn.conn)) {
         const u16 orig_dport = s_args.p_conn.conn.d_port;
         dbg_print_http_connection_info(&s_args.p_conn.conn);
-        egress_key_t e_key = make_egress_key(&s_args.p_conn.conn);
+        egress_key_t e_key = make_egress_key(&s_args.p_conn.conn); // FIXME: tpinjector shim
 
         sort_connection_info(&s_args.p_conn.conn);
         s_args.p_conn.pid = pid_from_pid_tgid(id);
@@ -573,6 +578,8 @@ int BPF_KPROBE(obi_kprobe_tcp_rate_check_app_limited, struct sock *sk) {
 
         u64 *ssl = is_ssl_connection(&s_args.p_conn);
         if (!ssl) {
+            // FIXME: tpinjector shim — read pre-injection buffer written by tpinjector's
+            // sk_msg. Remove this block together with tpinjector.
             msg_buffer_t *m_buf = bpf_map_lookup_elem(&msg_buffers, &e_key);
             if (m_buf) {
                 unsigned char *buf = NULL;
@@ -609,12 +616,12 @@ int BPF_KPROBE(obi_kprobe_tcp_rate_check_app_limited, struct sock *sk) {
                     bpf_map_update_elem(&active_send_args, &id, &s_args, BPF_ANY);
                     bpf_map_update_elem(&active_send_sock_args, &sock_p, &s_args, BPF_ANY);
 
-                    bpf_map_delete_elem(&msg_buffers, &e_key);
+                    bpf_map_delete_elem(&msg_buffers, &e_key); // FIXME: tpinjector shim
                     // Logically last for !ssl.
                     handle_buf_with_connection(
                         ctx, &s_args.p_conn, buf, size, NO_SSL, TCP_SEND, orig_dport);
                 }
-                bpf_map_delete_elem(&msg_buffers, &e_key);
+                bpf_map_delete_elem(&msg_buffers, &e_key); // FIXME: tpinjector shim
             }
         } else {
             tcp_send_ssl_check(id, (void *)(*ssl), &s_args.p_conn, orig_dport);

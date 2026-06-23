@@ -1,6 +1,11 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
+// FIXME: this map is part of the tpinjector backward-compatibility shim. tpinjector
+// writes here so that generictracer kprobes can read the pre-injection packet data.
+// Remove together with bpf/tpinjector/ and bpf/common/msg_buffer.h once socktracer is
+// the default and tpinjector is retired.
+
 #pragma once
 
 #include <bpfcore/vmlinux.h>

@@ -120,7 +120,6 @@ func TestMultiProcessAppCP(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-multiexec-host.yml", path.Join(pathOutput, "test-suite-multiexec-app-cp.log"))
 	require.NoError(t, err)
 
-	// we are going to setup discovery directly in the configuration file
 	compose.Env = append(compose.Env, `OTEL_EBPF_BPF_DISABLE_BLACK_BOX_CP=1`, `OTEL_EBPF_BPF_CONTEXT_PROPAGATION=all`, `OTEL_EBPF_BPF_TRACK_REQUEST_HEADERS=1`)
 	require.NoError(t, compose.Up())
 
@@ -131,21 +130,43 @@ func TestMultiProcessAppCP(t *testing.T) {
 	require.NoError(t, compose.Close())
 }
 
+func TestMultiProcessAppCP_Socktracer(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-multiexec-host.yml", path.Join(pathOutput, "test-suite-multiexec-app-cp-socktracer.log"))
+	require.NoError(t, err)
+
+	compose.Env = append(compose.Env, `OTEL_EBPF_BPF_DISABLE_BLACK_BOX_CP=1`, `OTEL_EBPF_BPF_CONTEXT_PROPAGATION=all`, `OTEL_EBPF_BPF_TRACK_REQUEST_HEADERS=1`, `OTEL_EBPF_BPF_SOCKET_TRACER=true`)
+	require.NoError(t, compose.Up())
+
+	t.Run("Nested traces with socktracer: rust -> java -> node -> go -> go jsonrpc -> python -> rails", func(t *testing.T) {
+		testNestedHTTPTracesKProbes(t)
+	})
+	require.NoError(t, compose.Close())
+}
+
 func TestMultiProcessAppCPHeadersOnly(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-multiexec-host.yml", path.Join(pathOutput, "test-suite-multiexec-app-cp-no-ip.log"))
 	require.NoError(t, err)
 
-	// we are going to setup discovery directly in the configuration file
 	compose.Env = append(compose.Env, `OTEL_EBPF_BPF_DISABLE_BLACK_BOX_CP=1`, `OTEL_EBPF_BPF_CONTEXT_PROPAGATION=headers`, `OTEL_EBPF_BPF_TRACK_REQUEST_HEADERS=1`)
-
 	require.NoError(t, compose.Up())
 
 	t.Run("Nested traces with kprobes: rust -> java -> node -> go -> go jsonrpc -> python -> rails", func(t *testing.T) {
 		testNestedHTTPTracesKProbes(t)
 	})
-
 	runWeaverValidation(t)
+	require.NoError(t, compose.Close())
+}
 
+func TestMultiProcessAppCPHeadersOnly_Socktracer(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-multiexec-host.yml", path.Join(pathOutput, "test-suite-multiexec-app-cp-no-ip-socktracer.log"))
+	require.NoError(t, err)
+
+	compose.Env = append(compose.Env, `OTEL_EBPF_BPF_DISABLE_BLACK_BOX_CP=1`, `OTEL_EBPF_BPF_CONTEXT_PROPAGATION=headers`, `OTEL_EBPF_BPF_TRACK_REQUEST_HEADERS=1`, `OTEL_EBPF_BPF_SOCKET_TRACER=true`)
+	require.NoError(t, compose.Up())
+
+	t.Run("Nested traces with socktracer: rust -> java -> node -> go -> go jsonrpc -> python -> rails", func(t *testing.T) {
+		testNestedHTTPTracesKProbes(t)
+	})
 	require.NoError(t, compose.Close())
 }
 
@@ -153,18 +174,26 @@ func TestMultiProcessAppCPTCPOnly(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-multiexec-host.yml", path.Join(pathOutput, "test-suite-multiexec-app-cp-tcp-only.log"))
 	require.NoError(t, err)
 
-	// Test TCP-only context propagation (no HTTP headers, only TCP options)
-	// Explicitly disable request header tracking since we're not injecting HTTP headers
 	compose.Env = append(compose.Env, `OTEL_EBPF_BPF_DISABLE_BLACK_BOX_CP=1`, `OTEL_EBPF_BPF_CONTEXT_PROPAGATION=tcp`, `OTEL_EBPF_BPF_TRACK_REQUEST_HEADERS=false`)
-
 	require.NoError(t, compose.Up())
 
 	t.Run("Nested traces with TCP-only propagation", func(t *testing.T) {
 		testNestedHTTPTracesKProbes(t)
 	})
-
 	runWeaverValidation(t)
+	require.NoError(t, compose.Close())
+}
 
+func TestMultiProcessAppCPTCPOnly_Socktracer(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-multiexec-host.yml", path.Join(pathOutput, "test-suite-multiexec-app-cp-tcp-only-socktracer.log"))
+	require.NoError(t, err)
+
+	compose.Env = append(compose.Env, `OTEL_EBPF_BPF_DISABLE_BLACK_BOX_CP=1`, `OTEL_EBPF_BPF_CONTEXT_PROPAGATION=tcp`, `OTEL_EBPF_BPF_TRACK_REQUEST_HEADERS=false`, `OTEL_EBPF_BPF_SOCKET_TRACER=true`)
+	require.NoError(t, compose.Up())
+
+	t.Run("Nested traces with TCP-only propagation via socktracer", func(t *testing.T) {
+		testNestedHTTPTracesKProbes(t)
+	})
 	require.NoError(t, compose.Close())
 }
 

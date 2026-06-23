@@ -1,0 +1,15 @@
+trace_printer: text
+log_level: debug
+routes:
+  unmatched: path
+ebpf:
+  bpf_debug: true
+  socket_tracer: true
+otel_traces_export:
+  endpoint: http://jaeger:4318
+discovery:
+  services:
+    - name: h2cclient
+      exe_path: h2cclient
+    - name: h2cserver
+      exe_path: h2cserver

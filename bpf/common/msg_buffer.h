@@ -1,6 +1,10 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
+// FIXME: this file exists solely to support the tpinjector backward-compatibility shim.
+// Remove together with bpf/tpinjector/ and the msg_buffers paths in k_tracer.c once
+// socktracer is the default and tpinjector is retired.
+
 #pragma once
 
 #include <bpfcore/vmlinux.h>

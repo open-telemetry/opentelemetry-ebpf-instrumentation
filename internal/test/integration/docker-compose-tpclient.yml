@@ -27,6 +27,7 @@ services:
     volumes:
       - ./configs/:/configs
       - ./system/sys/kernel/security:/sys/kernel/security
+      - /sys/fs/cgroup:/sys/fs/cgroup
       - ../../../testoutput:/coverage
       - ../../../testoutput/run-tpclient:/var/run/obi
     image: hatest-obi
@@ -45,7 +46,8 @@ services:
       OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT: "1ms"
       OTEL_EBPF_BPF_HIGH_REQUEST_VOLUME: 1
       OTEL_EBPF_OPEN_PORT: "6000,6001,6002"
-      OTEL_EBPF_BPF_CONTEXT_PROPAGATION: "headers"
+      OTEL_EBPF_BPF_CONTEXT_PROPAGATION: "${OTEL_EBPF_BPF_CONTEXT_PROPAGATION}"
+      OTEL_EBPF_BPF_SOCKET_TRACER: "${OTEL_EBPF_BPF_SOCKET_TRACER}"
       OTEL_EBPF_EXECUTABLE_PATH: "${OTEL_EBPF_EXECUTABLE_PATH}"
     ports:
       - "8999:8999"

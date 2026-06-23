@@ -1,0 +1,62 @@
+version: "3.8"
+
+services:
+  h2cclient:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/gohttp2/h2cclient/Dockerfile
+    image: hatest-h2cclient
+    environment:
+      TARGET_URL: "http://h2cserver:7373"
+    depends_on:
+      h2cserver:
+        condition: service_started
+
+  h2cserver:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/gohttp2/h2cserver/Dockerfile
+    image: hatest-h2cserver
+    ports:
+      - "7373:7373"
+    depends_on:
+      jaeger:
+        condition: service_started
+
+  obi:
+    build:
+      context: ../../..
+      dockerfile: ./internal/test/integration/components/obi/Dockerfile
+    command:
+      - --config=/configs/obi-config-http2-socktracer.yml
+    volumes:
+      - ./configs/:/configs
+      - ./system/sys/kernel/security:/sys/kernel/security
+      - ../../../testoutput:/coverage
+      - ../../../testoutput/run-http2-socktracer:/var/run/obi
+      - /sys/fs/cgroup:/sys/fs/cgroup
+    image: hatest-obi
+    privileged: true
+    pid: "host"
+    environment:
+      GOCOVERDIR: "/coverage"
+      OTEL_EBPF_TRACE_PRINTER: "text"
+      OTEL_EBPF_METRICS_INTERVAL: "10ms"
+      OTEL_EBPF_BPF_BATCH_TIMEOUT: "10ms"
+      OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT: "1ms"
+      OTEL_EBPF_LOG_LEVEL: "DEBUG"
+      OTEL_EBPF_BPF_DEBUG: "TRUE"
+      OTEL_EBPF_SKIP_GO_SPECIFIC_TRACERS: "true"
+    depends_on:
+      h2cclient:
+        condition: service_started
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.60@sha256:4fd2d70fa347d6a47e79fcb06b1c177e6079f92cba88b083153d56263082135e
+    ports:
+      - "16686:16686"
+      - "4317:4317"
+      - "4318:4318"
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+      - LOG_LEVEL=debug

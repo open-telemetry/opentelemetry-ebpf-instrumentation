@@ -177,6 +177,16 @@ func dispatchMSSQL(parseCtx *EBPFParseContext, event *TCPRequestInfo, requestBuf
 // detectGenericProtocol runs deterministic protocol detection for unclassified events:
 // SQL, FastCGI, MongoDB, Couchbase, and Memcached noreply.
 func detectGenericProtocol(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, event *TCPRequestInfo, requestBuffer, responseBuffer *largebuf.LargeBuffer) (request.Span, bool, bool, error) {
+	// Try the full MySQL handler first so that error responses (error code, SQL state,
+	// message) are parsed correctly. This matters for socktracer events, which always
+	// arrive with ProtocolTypeUnknown and would otherwise fall through to matchSQL which
+	// passes sqlError=nil. If handleMySQL returns errFallback, fall through to matchSQL.
+	if isMySQL(requestBuffer) {
+		if span, ignore, matched, err := dispatchMySQL(parseCtx, event, requestBuffer, responseBuffer); matched {
+			return span, ignore, matched, err
+		}
+	}
+
 	if span, ignore, matched, err := matchSQL(cfg, event, requestBuffer, responseBuffer); matched {
 		return span, ignore, matched, err
 	}
@@ -277,11 +287,9 @@ func detectHeuristicProtocol(parseCtx *EBPFParseContext, event *TCPRequestInfo, 
 	}
 
 	// must come before MQTT: the MQTT heuristic can match the HTTP/2 connection preface,
-	// silently dropping packets that should be re-routed as HTTP/2
-	// We also must check for the event source here, since now generic TCP events can come from
-	// the Go tracer. The backup path for HTTP2 should only run for generic kprobe events.
-	if event.EventSource == GenericEventSourceTypeKProbes {
-		if span, ignore, matched, err := matchHTTP2(event, requestBuffer, responseBuffer); matched {
+	// silently dropping packets that should be re-routed as HTTP/2.
+	if canMatchHTTP2(event) {
+		if span, ignore, matched, err := matchHTTP2(parseCtx, event, requestBuffer, responseBuffer); matched {
 			return span, ignore, matched, err
 		}
 	}
@@ -362,11 +370,34 @@ func matchMemcached(parseCtx *EBPFParseContext, event *TCPRequestInfo, requestBu
 	return span, false, true, nil
 }
 
-func matchHTTP2(event *TCPRequestInfo, requestBuffer, responseBuffer *largebuf.LargeBuffer) (request.Span, bool, bool, error) { //nolint:unparam
+// canMatchHTTP2 returns true for event sources that should attempt HTTP/2 heuristic detection.
+// Go-tracer events (lw_thread) are excluded because they go through dedicated HTTP/2 kprobes
+// and routing them here would cause double-tracking.
+func canMatchHTTP2(event *TCPRequestInfo) bool {
+	return event.EventSource == GenericEventSourceTypeKProbes ||
+		event.EventSource == GenericEventSourceTypeSocktracer
+}
+
+func matchHTTP2(parseCtx *EBPFParseContext, event *TCPRequestInfo, requestBuffer, responseBuffer *largebuf.LargeBuffer) (request.Span, bool, bool, error) {
 	if !isHTTP2(requestBuffer, int(event.Len)) && !isHTTP2(responseBuffer, int(event.RespLen)) {
 		return request.Span{}, false, false, nil
 	}
 
+	// Socktracer TCP events always carry both request and response buffers (RespLen > 0).
+	// Parse them directly via http2SpanFromTCPEvent instead of routing through
+	// MisclassifiedEvents, which would activate kHTTP2 kprobes unnecessarily.
+	if event.RespLen > 0 {
+		span, ignore, err := http2SpanFromTCPEvent(parseCtx, event, requestBuffer, responseBuffer)
+		return span, ignore, true, err
+	}
+
+	if event.EventSource == GenericEventSourceTypeSocktracer {
+		// Socktracer emits request and response as separate events; the response
+		// event (RespLen > 0) is the one we parse. Silently ignore request-only events.
+		return request.Span{}, true, true, nil
+	}
+
+	// kprobe first-sighting (response not yet captured): activate kHTTP2 kprobes.
 	evCopy := *event
 	MisclassifiedEvents <- MisclassifiedEvent{EventType: EventTypeKHTTP2, TCPInfo: &evCopy}
 

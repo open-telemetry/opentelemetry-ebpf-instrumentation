@@ -75,6 +75,7 @@ const (
 	EventTypeFailedConnect  = 15 // EVENT_FAILED_CONNECT - Failed Connections
 	EventTypeDNS            = 16 // EVENT_DNS_REQUEST - DNS events
 	EventTypeGoChannelLink  = 18 // EVENT_GO_CHANNEL_LINK - Go channel handoff span links
+	EventTypeHTTP2Buffer    = 21 // EVENT_K_HTTP2_BUFFER - Raw HTTP/2 frames from socktracer
 )
 
 // Kernel-side classification
@@ -92,8 +93,9 @@ const (
 )
 
 const (
-	GenericEventSourceTypeKProbes  uint8 = 0
-	GenericEventSourceTypeLWThread uint8 = 1
+	GenericEventSourceTypeKProbes    uint8 = 0
+	GenericEventSourceTypeLWThread   uint8 = 1
+	GenericEventSourceTypeSocktracer uint8 = 2
 )
 
 var IntegrityModeOverride = false
@@ -105,6 +107,10 @@ type SymbolMatcher uint8
 const (
 	SymbolMatcherExact SymbolMatcher = iota
 	SymbolMatcherContains
+)
+
+const (
+	CapSocketTracing TracerCapability = 1 << iota
 )
 
 // ProbeDesc holds the information of the instrumentation points of a given
@@ -243,6 +249,7 @@ type CouchbaseBucketInfo struct {
 type EBPFParseContext struct {
 	protocolDebug              bool
 	h2c                        *lru.Cache[uint64, h2Connection]
+	pendingHTTP2               *lru.Cache[http2StreamKey, pendingHTTP2Span]
 	redisDBCache               *simplelru.LRU[BpfConnectionInfoT, int]
 	couchbaseBucketCache       *simplelru.LRU[BpfConnectionInfoT, CouchbaseBucketInfo]
 	largeBuffers               *expirable.LRU[largeBufferKey, *largebuf.LargeBuffer]
@@ -344,6 +351,7 @@ func NewEBPFParseContext(cfg *config.EBPFTracer, spansChan *msg.Queue[[]request.
 	)
 
 	h2c, _ := lru.New[uint64, h2Connection](1024 * 10)
+	pendingHTTP2, _ := lru.New[http2StreamKey, pendingHTTP2Span](1024)
 	largeBuffers := expirable.NewLRU[largeBufferKey, *largebuf.LargeBuffer](1024, nil, 5*time.Minute)
 
 	if spansChan != nil {
@@ -415,6 +423,7 @@ func NewEBPFParseContext(cfg *config.EBPFTracer, spansChan *msg.Queue[[]request.
 	return &EBPFParseContext{
 		protocolDebug:              protocolDebug,
 		h2c:                        h2c,
+		pendingHTTP2:               pendingHTTP2,
 		redisDBCache:               redisDBCache,
 		couchbaseBucketCache:       couchbaseBucketCache,
 		largeBuffers:               largeBuffers,
@@ -513,6 +522,8 @@ func ReadBPFTraceAsSpan(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, reco
 		return finalizeParsedSpan(parseCtx, span, ignore, err)
 	case EventTypeGoChannelLink:
 		return readGoChannelLinkEvent(parseCtx, record)
+	case EventTypeHTTP2Buffer:
+		return ReadHTTP2BufferIntoSpan(parseCtx, record, filter)
 	}
 
 	event, err := ReinterpretCast[HTTPRequestTrace](record.RawSample)

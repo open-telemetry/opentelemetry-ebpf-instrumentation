@@ -80,10 +80,28 @@ func TestJavaNestedTraces(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-java-dist.yml", path.Join(pathOutput, "test-suite-java-dist.log"))
 	require.NoError(t, err)
 
-	// we are going to setup discovery directly in the configuration file
-	compose.Env = append(compose.Env, `OTEL_EBPF_EXECUTABLE_PATH=`, `OTEL_EBPF_OPEN_PORT=`)
+	compose.Env = append(compose.Env, `OTEL_EBPF_EXECUTABLE_PATH=`, `OTEL_EBPF_OPEN_PORT=`,
+		`OTEL_EBPF_BPF_CONTEXT_PROPAGATION=all`)
 	require.NoError(t, compose.Up())
 
+	runJavaNestedTracesSuite(t)
+	require.NoError(t, compose.Close())
+}
+
+func TestJavaNestedTraces_Socktracer(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-java-dist.yml", path.Join(pathOutput, "test-suite-java-dist-socktracer.log"))
+	require.NoError(t, err)
+
+	compose.Env = append(compose.Env, `OTEL_EBPF_EXECUTABLE_PATH=`, `OTEL_EBPF_OPEN_PORT=`,
+		`OTEL_EBPF_BPF_CONTEXT_PROPAGATION=all`, `OTEL_EBPF_BPF_SOCKET_TRACER=true`)
+	require.NoError(t, compose.Up())
+
+	runJavaNestedTracesSuite(t)
+	require.NoError(t, compose.Close())
+}
+
+func runJavaNestedTracesSuite(t *testing.T) {
+	t.Helper()
 	waitForTestComponentsRoute(t, "http://localhost:8081", "/api/health")
 
 	for _, slug := range []string{"request", "async-request", "async-request-c", "async-request-fj"} {
@@ -99,8 +117,6 @@ func TestJavaNestedTraces(t *testing.T) {
 	}
 
 	runWeaverValidation(t)
-
-	require.NoError(t, compose.Close())
 }
 
 func TestJavaMalformedIoctlFailsClosed(t *testing.T) {

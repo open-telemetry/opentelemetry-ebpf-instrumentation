@@ -16,6 +16,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/gotracer"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/gpuevent"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/logenricher"
+	"go.opentelemetry.io/obi/pkg/internal/ebpf/socktracer"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/tpinjector"
 	msgh "go.opentelemetry.io/obi/pkg/internal/helpers/msg"
 	"go.opentelemetry.io/obi/pkg/obi"
@@ -175,10 +176,14 @@ func (pf *ProcessFinder) Done() <-chan error {
 func newCommonTracersGroup(cfg *obi.Config, metrics imetrics.Reporter, pidFilter ebpfcommon.ServiceFilter) []ebpf.Tracer {
 	var tracers []ebpf.Tracer
 
-	// Add tracers based on configuration
-
-	// Enables tpinjector which handles context propagation via both HTTP headers (sk_msg) and TCP options (BPF_SOCK_OPS)
-	if cfg.EBPF.ContextPropagation.HasHeaders() || cfg.EBPF.ContextPropagation.HasTCP() {
+	if cfg.EBPF.SocketTracer {
+		tracers = append(tracers, socktracer.New(cfg))
+	} else if cfg.EBPF.ContextPropagation.IsEnabled() {
+		// FIXME: tpinjector is a backward-compatibility shim: when context_propagation is
+		// enabled but socket_tracer is not, load the legacy tpinjector so that existing
+		// deployments keep working without silently losing header/TCP-option injection.
+		// Remove this block (and the tpinjector import) once socktracer is the default and
+		// context_propagation implies socket_tracer.
 		tracers = append(tracers, tpinjector.New(cfg))
 	}
 

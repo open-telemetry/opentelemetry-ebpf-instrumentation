@@ -538,6 +538,26 @@ func TestSuite_PythonMSSQL(t *testing.T) {
 	require.NoError(t, compose.Close())
 }
 
+func TestSuite_SocktracerMySQL(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-python-mysql.yml", path.Join(pathOutput, "test-suite-python-mysql-socktracer.log"))
+	require.NoError(t, err)
+
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`, `OTEL_EBPF_BPF_SOCKET_TRACER=true`)
+	require.NoError(t, compose.Up())
+	t.Run("Python MySQL tests (socktracer)", testPythonMySQL)
+	require.NoError(t, compose.Close())
+}
+
+func TestSuite_SocktracerMySQLPlain(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-python-mysql.yml", path.Join(pathOutput, "test-suite-python-mysql-socktracer-plain.log"))
+	require.NoError(t, err)
+
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`, `OTEL_EBPF_BPF_SOCKET_TRACER=true`, `MYSQL_SSL_DISABLED=true`)
+	require.NoError(t, compose.Up())
+	t.Run("Python MySQL tests (socktracer, plaintext)", testPythonMySQL)
+	require.NoError(t, compose.Close())
+}
+
 func TestSuite_PythonKafka(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-python-kafka.yml", path.Join(pathOutput, "test-suite-python-kafka.log"))
 	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)
@@ -557,6 +577,15 @@ func TestSuite_GoKafkaTraceparent(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, compose.Up())
 	t.Run("Go Kafka stale traceparent contamination (#2046)", testGoKafkaTraceparent)
+	require.NoError(t, compose.Close())
+}
+
+func TestSuite_SocktracerKafka(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-python-kafka.yml", path.Join(pathOutput, "test-suite-python-kafka-socktracer.log"))
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`, `OTEL_EBPF_BPF_SOCKET_TRACER=true`)
+	require.NoError(t, err)
+	require.NoError(t, compose.Up())
+	t.Run("Python Kafka tests (socktracer)", testREDMetricsPythonKafkaOnly)
 	require.NoError(t, compose.Close())
 }
 
@@ -594,6 +623,17 @@ func TestSuite_GoSunRPC(t *testing.T) {
 	require.NoError(t, compose.Close())
 }
 
+func TestSuite_SocktracerMQTT(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-python-mqtt.yml", path.Join(pathOutput, "test-suite-python-mqtt-socktracer.log"))
+	require.NoError(t, err)
+
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`, `OTEL_EBPF_BPF_SOCKET_TRACER=true`)
+	require.NoError(t, compose.Up())
+	t.Run("Python MQTT publish tests (socktracer)", testREDMetricsPythonMQTT)
+	t.Run("Python MQTT subscribe tests (socktracer)", testREDMetricsPythonMQTTSubscribe)
+	require.NoError(t, compose.Close())
+}
+
 func TestSuite_JavaKafka(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-java-kafka-400.yml", path.Join(pathOutput, "test-suite-java-kafka.log"))
 	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)
@@ -601,6 +641,15 @@ func TestSuite_JavaKafka(t *testing.T) {
 	require.NoError(t, compose.Up())
 	t.Run("Java Kafka 4.0.0 tests", func(t *testing.T) { testJavaKafka(t, 9092, "javakafka") })
 	runWeaverValidation(t)
+	require.NoError(t, compose.Close())
+}
+
+func TestSuite_SocktracerJavaKafka(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-java-kafka-400.yml", path.Join(pathOutput, "test-suite-java-kafka-socktracer.log"))
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`, `OTEL_EBPF_BPF_SOCKET_TRACER=true`)
+	require.NoError(t, err)
+	require.NoError(t, compose.Up())
+	t.Run("Java Kafka 4.0.0 tests (socktracer)", func(t *testing.T) { testJavaKafka(t, 9092, "javakafka") })
 	require.NoError(t, compose.Close())
 }
 
@@ -621,6 +670,15 @@ func TestSuite_JavaKafkaLargeBuffer(t *testing.T) {
 	require.NoError(t, compose.Up())
 	t.Run("Java Kafka 4.0.0 large buffer tests", testJavaKafkaLargeBuffer)
 	runWeaverValidation(t)
+	require.NoError(t, compose.Close())
+}
+
+func TestSuite_SocktracerJavaKafkaLargeBuffer(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-java-kafka-400-lb.yml", path.Join(pathOutput, "test-suite-java-kafka-lb-socktracer.log"))
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`, `OTEL_EBPF_BPF_SOCKET_TRACER=true`)
+	require.NoError(t, err)
+	require.NoError(t, compose.Up())
+	t.Run("Java Kafka 4.0.0 large buffer tests (socktracer)", testJavaKafkaLargeBuffer)
 	require.NoError(t, compose.Close())
 }
 
@@ -658,6 +716,17 @@ func TestSuite_PythonRedis(t *testing.T) {
 	require.NoError(t, compose.Up())
 	t.Run("Python Redis metrics", testREDMetricsPythonRedisOnly)
 	runWeaverValidation(t)
+	require.NoError(t, compose.Close())
+}
+
+func TestSuite_SocktracerRedis(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-python-redis.yml", path.Join(pathOutput, "test-suite-python-redis-socktracer.log"))
+	require.NoError(t, err)
+
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`,
+		`SEMCONV_VERSION=`+SemconvVersion(), `OTEL_EBPF_BPF_SOCKET_TRACER=true`)
+	require.NoError(t, compose.Up())
+	t.Run("Python Redis metrics (socktracer)", testREDMetricsPythonRedisOnly)
 	require.NoError(t, compose.Close())
 }
 
@@ -699,6 +768,16 @@ func TestSuite_PythonSQLSSL(t *testing.T) {
 	require.NoError(t, compose.Close())
 }
 
+func TestSuite_SocktracerPostgresSSL(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-python-sql-ssl.yml", path.Join(pathOutput, "test-suite-python-sql-ssl-socktracer.log"))
+	require.NoError(t, err)
+
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`, `OTEL_EBPF_BPF_SOCKET_TRACER=true`)
+	require.NoError(t, compose.Up())
+	t.Run("Python SQL SSL metrics (socktracer)", testREDMetricsPythonSQLSSL)
+	require.NoError(t, compose.Close())
+}
+
 func TestSuite_PythonTLS(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-python.yml", path.Join(pathOutput, "test-suite-python-tls.log"))
 	require.NoError(t, err)
@@ -721,7 +800,21 @@ func TestSuite_PythonSelfReference(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-python-self.yml", path.Join(pathOutput, "test-suite-python-self.log"))
 	require.NoError(t, err)
 
-	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=7771`, `OTEL_EBPF_EXECUTABLE_PATH=`)
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=7771`, `OTEL_EBPF_EXECUTABLE_PATH=`,
+		`OTEL_EBPF_BPF_CONTEXT_PROPAGATION=all`)
+	require.NoError(t, compose.Up())
+	t.Run("Python Traces with self-references", testHTTPTracesNestedSelfCalls)
+	t.Run("Python Traces transaction too long", testHTTPTracesNestedCallsTooLong)
+	require.NoError(t, compose.Close())
+}
+
+func TestSuite_PythonSelfReference_Socktracer(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-python-self.yml", path.Join(pathOutput, "test-suite-python-self-socktracer.log"))
+	require.NoError(t, err)
+
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=7771`, `OTEL_EBPF_EXECUTABLE_PATH=`,
+		`OTEL_EBPF_BPF_CONTEXT_PROPAGATION=all`, `OTEL_EBPF_BPF_SOCKET_TRACER=true`,
+		`OBI_PID_MODE=host`)
 	require.NoError(t, compose.Up())
 	t.Run("Python Traces with self-references", testHTTPTracesNestedSelfCalls)
 	t.Run("Python Traces transaction too long", testHTTPTracesNestedCallsTooLong)
@@ -806,7 +899,19 @@ func TestSuite_NodeJSDist(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-nodejs-dist.yml", path.Join(pathOutput, "test-suite-nodejs-dist.log"))
 	require.NoError(t, err)
 
-	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=`, `OTEL_EBPF_EXECUTABLE_PATH=`)
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=`, `OTEL_EBPF_EXECUTABLE_PATH=`,
+		`OTEL_EBPF_BPF_CONTEXT_PROPAGATION=all`)
+	require.NoError(t, compose.Up())
+	t.Run("NodeJS Distributed Traces with multiple chained calls", testHTTPTracesNestedNodeJSDistCalls)
+	require.NoError(t, compose.Close())
+}
+
+func TestSuite_NodeJSDist_Socktracer(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-nodejs-dist.yml", path.Join(pathOutput, "test-suite-nodejs-dist-socktracer.log"))
+	require.NoError(t, err)
+
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=`, `OTEL_EBPF_EXECUTABLE_PATH=`,
+		`OTEL_EBPF_BPF_CONTEXT_PROPAGATION=all`, `OTEL_EBPF_BPF_SOCKET_TRACER=true`)
 	require.NoError(t, compose.Up())
 	t.Run("NodeJS Distributed Traces with multiple chained calls", testHTTPTracesNestedNodeJSDistCalls)
 	runWeaverValidation(t)
@@ -879,6 +984,18 @@ func TestSuiteNodeClientTLS(t *testing.T) {
 		testNodeClientWithMethodAndStatusCode(t, "GET", 200, 443, "0000000000000001")
 	})
 	runWeaverValidation(t)
+	require.NoError(t, compose.Close())
+}
+
+func TestSuiteNodeClientTLSSocktracer(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-nodeclient.yml", path.Join(pathOutput, "test-suite-nodeclient-tls-socktracer.log"))
+	require.NoError(t, err)
+
+	compose.Env = append(compose.Env, `OTEL_EBPF_EXECUTABLE_PATH=node`, `NODE_APP=client_tls`, `PROM_CONFIG_SUFFIX=`, `OTEL_EBPF_BPF_SOCKET_TRACER=true`)
+	require.NoError(t, compose.Up())
+	t.Run("Node Client TLS RED metrics (socktracer)", func(t *testing.T) {
+		testNodeClientWithMethodAndStatusCode(t, "GET", 200, 443, "0000000000000001")
+	})
 	require.NoError(t, compose.Close())
 }
 

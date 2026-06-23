@@ -4,9 +4,11 @@ ENV MYSQL_DATABASE=sakila
 ENV MYSQL_USER=sakila
 ENV MYSQL_PASSWORD=p_ssW0rd
 
+COPY ./my.cnf /etc/mysql/conf.d/my.cnf
 COPY ./1-sakila-schema.sql /docker-entrypoint-initdb.d/step_1.sql
 COPY ./2-sakila-data.sql /docker-entrypoint-initdb.d/step_2.sql
 COPY ./3-sakila-complete.sql /docker-entrypoint-initdb.d/step_3.sql
+COPY ./4-plain-auth.sql /docker-entrypoint-initdb.d/step_4.sql
 
 # https://serverfault.com/questions/930141/creating-a-mysql-image-with-the-db-preloaded
 # https://serverfault.com/questions/796762/creating-a-docker-mysql-container-with-a-prepared-database-scheme
@@ -21,6 +23,7 @@ ENV MYSQL_DATABASE=sakila
 ENV MYSQL_USER=sakila
 ENV MYSQL_PASSWORD=p_ssW0rd
 
+COPY ./my.cnf /etc/mysql/conf.d/my.cnf
 COPY --from=builder /var/lib/mysql /data
 RUN rm -rf /var/lib/mysql/*
 RUN mv /data/* /var/lib/mysql/

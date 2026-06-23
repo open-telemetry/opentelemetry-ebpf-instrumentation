@@ -34,6 +34,7 @@ func runMQTTTestCase(t *testing.T, testCase TestCase) {
 		require.NoError(ct, err, "failed to create HTTP request")
 		resp, err := testHTTPClient.Do(req)
 		require.NoError(ct, err, "failed to execute HTTP request")
+		resp.Body.Close()
 		require.Equal(ct, http.StatusOK, resp.StatusCode, "unexpected status code")
 
 		for _, span := range testCase.Spans {
@@ -45,6 +46,7 @@ func runMQTTTestCase(t *testing.T, testCase TestCase) {
 			require.Equal(ct, http.StatusOK, resp.StatusCode, "unexpected status code for jaeger query")
 			var tq jaeger.TracesQuery
 			require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq), "failed to decode jaeger response")
+			resp.Body.Close()
 			var tags []jaeger.Tag
 			for _, attr := range span.Attributes {
 				tags = append(tags, otelAttributeToJaegerTag(attr))
@@ -149,6 +151,7 @@ func waitForMQTTTestComponents(t *testing.T, url string, subpath string) {
 		require.NoError(ct, err)
 		r, err := testHTTPClient.Do(req)
 		require.NoError(ct, err)
+		r.Body.Close()
 		require.Equal(ct, http.StatusOK, r.StatusCode)
 	}, time.Minute, time.Second)
 }

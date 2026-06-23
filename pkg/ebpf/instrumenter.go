@@ -733,8 +733,7 @@ func (i *instrumenter) sockops(p Tracer) error {
 			if i.metrics != nil {
 				i.metrics.InstrumentationError(i.processName, imetrics.InstrumentationErrorAttachingCgroup)
 			}
-			slog.Warn("could not attach sockops program, using best-effort TC tracking", "error", err)
-			return nil
+			return fmt.Errorf("could not attach sockops program: %w", err)
 		}
 
 		sockops.SockopsCgroup = l

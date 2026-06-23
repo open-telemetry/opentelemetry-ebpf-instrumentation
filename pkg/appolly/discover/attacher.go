@@ -283,7 +283,8 @@ func (ta *traceAttacher) withCommonTracersGroup(tracers []ebpf.Tracer) []ebpf.Tr
 	ta.commonTracersLoaded = true
 	ta.commonTracers = newCommonTracersGroup(ta.Cfg, ta.Metrics, ta.EbpfEventContext.CommonPIDsFilter)
 
-	return append(tracers, ta.commonTracers...)
+	// common tracers load first so their capabilities are visible to later tracers
+	return append(ta.commonTracers, tracers...)
 }
 
 func (ta *traceAttacher) harvestRoutesProcessor(ie *ebpf.Instrumentable, reused bool) {

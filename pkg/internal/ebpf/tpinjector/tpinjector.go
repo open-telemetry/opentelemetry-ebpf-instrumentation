@@ -3,6 +3,14 @@
 
 //go:build linux
 
+// FIXME: tpinjector is a backward-compatibility shim loaded when context_propagation is
+// enabled but socket_tracer is disabled. It preserves pre-socktracer injection behavior
+// so that existing deployments are not silently broken during the socktracer experimental
+// phase. Remove this package (and bpf/tpinjector/, bpf/common/msg_buffer.h,
+// bpf/maps/msg_buffers.h, and the msg_buffers paths in k_tracer.c, and the tpinjector
+// loading in finder.go) once socktracer is the default and context_propagation implies
+// socket_tracer.
+
 package tpinjector // import "go.opentelemetry.io/obi/pkg/internal/ebpf/tpinjector"
 
 import (

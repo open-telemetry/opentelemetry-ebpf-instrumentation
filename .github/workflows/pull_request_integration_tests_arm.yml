@@ -65,12 +65,8 @@ jobs:
       - name: Build test matrix
         id: build-matrix
         env:
-          # 5 partitions, one for each of:
-          #  1. TestMultiProcess
-          #  2. TestMultiProcessAppCP
-          #  3. TestMultiProcessAppCPHeadersOnly
-          #  4. TestMultiProcessAppCPTCPOnly
-          #  5. TestMultiProcessAppCPIPOnly
+          # 5 partitions for TestMultiProcess* tests (LPT bin-packing distributes
+          # across shards; some shards may run 2 tests when count > partitions)
           PARTITIONS: 5
         run: |
           echo -n "matrix=" >> $GITHUB_OUTPUT

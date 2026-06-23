@@ -1,6 +1,13 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
+// FIXME: tpinjector is a backward-compatibility shim loaded when context_propagation is
+// enabled but socket_tracer is disabled. It preserves pre-socktracer injection behaviour
+// so that existing deployments are not silently broken during the experimental phase.
+// Remove this entire file (and bpf/tpinjector/, bpf/common/msg_buffer.h,
+// bpf/maps/msg_buffers.h, and the msg_buffers paths in k_tracer.c) once socktracer is
+// the default and context_propagation implies socket_tracer.
+
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_builtins.h>
 #include <bpfcore/bpf_helpers.h>

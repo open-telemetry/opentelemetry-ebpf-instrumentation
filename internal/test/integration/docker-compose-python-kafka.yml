@@ -8,7 +8,7 @@ services:
     ports:
       - "2181:2181"
     volumes:
-      - "zookeeper-volume:/bitnami"
+      - /bitnami
     environment:
       - ALLOW_ANONYMOUS_LOGIN=yes
 
@@ -19,7 +19,7 @@ services:
     ports:
       - "9093:9093"
     volumes:
-      - "kafka-volume:/bitnami"
+      - /bitnami
     environment:
       - KAFKA_BROKER_ID=1
       - KAFKA_CFG_ZOOKEEPER_CONNECT=zookeeper:2181
@@ -43,6 +43,12 @@ services:
         condition: service_started
       kafka:
         condition: service_started
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import socket; s=socket.socket(); s.connect(('', 8080)); s.close()"]
+      interval: 1s
+      timeout: 5s
+      retries: 60
+      start_period: 10s
 
   obi:
     build:
@@ -53,10 +59,11 @@ services:
       - ./system/sys/kernel/security:/sys/kernel/security
       - ../../../testoutput:/coverage
       - ../../../testoutput/run-python:/var/run/obi
+      - /sys/fs/cgroup:/sys/fs/cgroup
     image: hatest-obi
     privileged: true # in some environments (not GH Pull Requests) you can set it to false and then cap_add: [ SYS_ADMIN ]
     network_mode: "service:testserver"
-    pid: "service:testserver"
+    pid: "host"
     environment:
       OTEL_EBPF_CONFIG_PATH: "/configs/obi-config.yml"
       GOCOVERDIR: "/coverage"
@@ -77,9 +84,10 @@ services:
       OTEL_EBPF_METRICS_INSTRUMENTATIONS: "kafka"
       OTEL_EBPF_METRICS_FEATURES: "application"
       OTEL_KAFKA_TOPIC_UUID_CACHE_SIZE: "1000"
+      OTEL_EBPF_BPF_SOCKET_TRACER: "${OTEL_EBPF_BPF_SOCKET_TRACER}"
     depends_on:
       testserver:
-        condition: service_started
+        condition: service_healthy
 
   # OpenTelemetry Collector
   otelcol:
@@ -136,6 +144,3 @@ services:
       - COLLECTOR_OTLP_ENABLED=true
       - LOG_LEVEL=debug
 
-volumes:
-  kafka-volume:
-  zookeeper-volume:

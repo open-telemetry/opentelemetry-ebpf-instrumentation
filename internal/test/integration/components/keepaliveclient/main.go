@@ -54,7 +54,7 @@ func main() {
 	}()
 
 	for {
-		resp, err := client.Get("http://tpinjector-server:8080/smoke-echo")
+		resp, err := client.Get("http://socktracer-server:8080/smoke-echo")
 		if err != nil {
 			log.Printf("request failed: %v", err)
 			time.Sleep(time.Second)
