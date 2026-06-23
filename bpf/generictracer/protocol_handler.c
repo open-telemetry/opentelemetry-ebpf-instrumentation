@@ -106,18 +106,9 @@ int obi_handle_buf_with_args(void *ctx) {
 
             const u8 reading = still_reading(info);
             const u8 responding = still_responding(info);
-            // Still reading checks if we are processing buffers of a HTTP request
-            // that has started, but we haven't seen a response yet.
             if (reading || responding) {
-                // Packets are split into chunks if OBI injected the Traceparent
-                // Make sure you look for split packets containing the real Traceparent.
-                // Essentially, when a packet is extended by our sock_msg program and
-                // passed down another service, the receiving side may reassemble the
-                // packets into one buffer or not. If they are reassembled, then the
-                // call to bpf_tail_call(ctx, &jump_table, k_tail_protocol_http); will
-                // scan for the incoming 'Traceparent' header. If they are not reassembled
-                // we'll see something like this:
-                // [before the injected header],[70 bytes for 'Traceparent...'],[the rest].
+                // Traceparent may arrive in a separate buffer when sock_msg
+                // extends the packet and the receiver does not reassemble.
                 if (reading && is_traceparent(args->small_buf)) {
                     unsigned char *buf = (unsigned char *)tp_char_buf_mem();
                     if (buf) {
@@ -168,8 +159,6 @@ int obi_handle_buf_with_args(void *ctx) {
                                        k_large_buf_action_append);
             }
         } else if (args->protocols.tcp && !info) {
-            // SSL requests will see both TCP traffic and text traffic, ignore the TCP if
-            // we are processing SSL request. HTTP2 is already checked in handle_buf_with_connection.
             bpf_tail_call(ctx, &jump_table, k_tail_protocol_tcp);
         }
     }
