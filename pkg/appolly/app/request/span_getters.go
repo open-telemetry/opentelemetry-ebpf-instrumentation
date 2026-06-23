@@ -484,6 +484,10 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 		getter = func(s *Span) attribute.KeyValue {
 			return semconv.GenAIOperationNameKey.String(s.GenAIOperationName())
 		}
+	case attr.GenAISpanKind:
+		getter = func(s *Span) attribute.KeyValue {
+			return attribute.Key(attr.GenAISpanKind).String(s.GenAISpanKind())
+		}
 	case attr.GenAIProviderName:
 		getter = func(s *Span) attribute.KeyValue {
 			return semconv.GenAIProviderNameKey.String(s.GenAIProviderName())
