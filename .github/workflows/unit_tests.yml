@@ -5,6 +5,17 @@ on:
     branches: [main, release-*]
   pull_request:
     branches: [main, release-*]
+    paths:
+      - ".github/workflows/unit_tests.yml"
+      - "**.go"
+      - "go.mod"
+      - "go.sum"
+      - "bpf/**"
+      - "cmd/**"
+      - "configs/**"
+      - "internal/**"
+      - "pkg/**"
+      - "scripts/**"
   workflow_call:
     inputs:
       ref:

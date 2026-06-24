@@ -5,6 +5,22 @@ on:
     branches: [main, release-*]
   pull_request:
     branches: [main, release-*]
+    paths:
+      - ".github/workflows/pull_request.yml"
+      - "**.go"
+      - "go.mod"
+      - "go.sum"
+      - "bpf/**"
+      - "cmd/**"
+      - "collector/**"
+      - "configs/**"
+      - "internal/**"
+      - "pkg/**"
+      - "schemas/**"
+      - "scripts/**"
+      - "Makefile"
+      - "Dockerfile"
+      - "**/*Dockerfile*"
   workflow_call:
     inputs:
       ref:

@@ -3,6 +3,15 @@ name: Build test
 on:
   pull_request:
     branches: [main, release-*]
+    paths:
+      - ".github/workflows/pull_request_docker_build_test.yml"
+      - "Dockerfile"
+      - "k8scache.Dockerfile"
+      - "**.go"
+      - "go.mod"
+      - "go.sum"
+      - "bpf/**"
+      - "pkg/internal/java/**"
   workflow_call:
     inputs:
       ref:
