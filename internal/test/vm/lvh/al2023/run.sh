@@ -73,10 +73,10 @@ cat > "${IRD}/init" <<'INIT'
 /bin/busybox mount -t devtmpfs devtmpfs /dev 2>/dev/null
 ulimit -l unlimited 2>/dev/null
 echo "OBI-VERIFIER-BEGIN"
-/verifier.test -test.v -test.timeout=20m -test.parallel=4
+/verifier.test -test.timeout=20m -test.parallel=8
 RESULT=$?
 /bin/busybox sync
-echo "OBI-VERIFIER-RESULT: ${RESULT}"
+printf '%s\n' "${RESULT}" > /dev/ttyS1 2>/dev/null
 # Halt deterministically; /init returning would cause kernel panic.
 echo 1 > /proc/sys/kernel/sysrq 2>/dev/null
 echo o > /proc/sysrq-trigger 2>/dev/null
@@ -95,17 +95,23 @@ else
     ACCEL="-accel tcg,thread=multi -cpu Skylake-Client"  # x86-64-v2 for AL2023 glibc
 fi
 QEMU_LOG="${WORKDIR}/qemu.log"
+RESULT_FILE="${WORKDIR}/obi-result"
+rm -f "${RESULT_FILE}"
 echo "run.sh: launching qemu" >&2
+# ttyS0: console + kernel printk + test stdout.
+# ttyS1: dedicated result channel — only init writes to it, never the kernel.
 timeout 1500 qemu-system-x86_64 ${ACCEL} -m 4G -smp 2 \
     -kernel "${VMLINUZ}" \
     -initrd "${IRD_IMG}" \
-    -append "earlyprintk=ttyS0 console=ttyS0 panic=3 rdinit=/init" \
+    -append "earlyprintk=ttyS0 console=ttyS0 loglevel=0 quiet panic=3 rdinit=/init" \
+    -serial mon:stdio \
+    -serial "file:${RESULT_FILE}" \
     -no-reboot -nographic 2>&1 | tee "${QEMU_LOG}"
 
-RESULT="$(grep -oE 'OBI-VERIFIER-RESULT: [0-9]+' "${QEMU_LOG}" | tail -1 | awk '{print $NF}')"
-if [ -z "$RESULT" ]; then
-    echo "run.sh: no result line found in qemu output" >&2
+RESULT="$(tr -d '\r\n\t ' < "${RESULT_FILE}" 2>/dev/null)"
+if [ -z "$RESULT" ] || ! printf '%s' "$RESULT" | grep -qE '^[0-9]+$'; then
+    echo "run.sh: no valid result in ${RESULT_FILE} (got: '$(cat "${RESULT_FILE}" 2>/dev/null)')" >&2
     exit 1
 fi
-echo "run.sh: OBI-VERIFIER-RESULT=${RESULT}" >&2
+echo "run.sh: result=${RESULT}" >&2
 exit "${RESULT}"
