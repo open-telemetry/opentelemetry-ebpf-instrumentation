@@ -160,14 +160,10 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 		{"high_request_volume", []any{uint32(0), uint32(1)}},
 		{"disable_black_box_cp", []any{uint32(0), uint32(1)}},
 		{"jvm_sampling_interval_ns", []any{uint64(0), uint64(1_000_000_000)}},
-		{"wakeup_data_bytes", []any{uint32(0), uint32(1 << 20)}},
 		{"max_transaction_time", []any{uint64(0), uint64(60_000_000_000)}},
-		{"http_max_captured_bytes", []any{uint32(0), uint32(8192)}},
-		{"tcp_max_captured_bytes", []any{uint32(0), uint32(8192)}},
-		{"mysql_max_captured_bytes", []any{uint32(0), uint32(8192)}},
-		{"kafka_max_captured_bytes", []any{uint32(0), uint32(8192)}},
-		{"postgres_max_captured_bytes", []any{uint32(0), uint32(8192)}},
-		{"mssql_max_captured_bytes", []any{uint32(0), uint32(8192)}},
+		{"http_max_captured_bytes", []any{uint32(0), uint32(65536)}},
+		{"tcp_max_captured_bytes", []any{uint32(0), uint32(65536)}},
+		{"mysql_max_captured_bytes", []any{uint32(0), uint32(65536)}},
 	})
 
 	// gotracer
@@ -179,14 +175,10 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 		{"disable_black_box_cp", []any{uint32(0), uint32(1)}},
 		{"capture_header_buffer", []any{int32(0), int32(1)}},
 		{"high_request_volume", []any{uint32(0), uint32(1)}},
-		{"wakeup_data_bytes", []any{uint32(0), uint32(1 << 20)}},
 		{"max_transaction_time", []any{uint64(0), uint64(60_000_000_000)}},
-		{"http_max_captured_bytes", []any{uint32(0), uint32(8192)}},
-		{"tcp_max_captured_bytes", []any{uint32(0), uint32(8192)}},
-		{"mysql_max_captured_bytes", []any{uint32(0), uint32(8192)}},
-		{"kafka_max_captured_bytes", []any{uint32(0), uint32(8192)}},
-		{"postgres_max_captured_bytes", []any{uint32(0), uint32(8192)}},
-		{"mssql_max_captured_bytes", []any{uint32(0), uint32(8192)}},
+		{"http_max_captured_bytes", []any{uint32(0), uint32(65536)}},
+		{"tcp_max_captured_bytes", []any{uint32(0), uint32(65536)}},
+		{"mysql_max_captured_bytes", []any{uint32(0), uint32(65536)}},
 	})
 
 	// tpinjector

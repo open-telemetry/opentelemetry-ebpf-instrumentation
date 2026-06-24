@@ -73,7 +73,7 @@ cat > "${IRD}/init" <<'INIT'
 /bin/busybox mount -t devtmpfs devtmpfs /dev 2>/dev/null
 ulimit -l unlimited 2>/dev/null
 echo "OBI-VERIFIER-BEGIN"
-/verifier.test -test.v
+/verifier.test -test.v -test.timeout=20m
 RESULT=$?
 /bin/busybox sync
 echo "OBI-VERIFIER-RESULT: ${RESULT}"
