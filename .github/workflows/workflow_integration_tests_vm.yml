@@ -65,7 +65,7 @@ jobs:
       matrix: ${{ steps.build-matrix.outputs.matrix }}
       kernels: ${{ steps.build-kernel-matrix.outputs.kernels }}
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
@@ -96,7 +96,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
@@ -129,7 +129,7 @@ jobs:
           cache: true
 
       - name: Go build cache
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5 # zizmor: ignore[cache-poisoning] go build cache is content-addressable and self-verifying
+        uses: actions/cache@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6.0.0 # zizmor: ignore[cache-poisoning] go build cache is content-addressable and self-verifying
         with:
           path: ~/.cache/go-build
           key: go-build-vm-integration-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.go', 'go.sum') }}
@@ -148,7 +148,7 @@ jobs:
 
       - name: Cache Docker images
         id: docker-images-cache
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5 # zizmor: ignore[cache-poisoning] keyed on hash of compose+Dockerfile+source inputs
+        uses: actions/cache@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6.0.0 # zizmor: ignore[cache-poisoning] keyed on hash of compose+Dockerfile+source inputs
         with:
           path: compiled-tests/docker-images.tar
           # OBI binary bakes bpf/cmd/pkg sources; hash them too or source changes reuse stale images.
@@ -185,7 +185,7 @@ jobs:
 
       - name: Cache base images
         id: base-images-cache
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5 # zizmor: ignore[cache-poisoning] key derives from the digest-pinned base-image list; images are content-addressable
+        uses: actions/cache@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6.0.0 # zizmor: ignore[cache-poisoning] key derives from the digest-pinned base-image list; images are content-addressable
         with:
           path: compiled-tests/base-images.tar
           key: ${{ steps.cache-key.outputs.key }}
@@ -196,7 +196,7 @@ jobs:
 
       - name: Cache rootfs.qcow2
         id: rootfs-cache
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5 # zizmor: ignore[cache-poisoning] keyed on hash of VM Dockerfile
+        uses: actions/cache@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6.0.0 # zizmor: ignore[cache-poisoning] keyed on hash of VM Dockerfile
         with:
           path: compiled-tests/rootfs.qcow2
           key: vm-rootfs-${{ hashFiles('internal/test/vm/Dockerfile') }}
@@ -245,7 +245,7 @@ jobs:
         kernel: ${{ fromJson(needs.vm-test-matrix.outputs.kernels).include }}
         test: ${{ fromJson(needs.vm-test-matrix.outputs.matrix).include }}
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
