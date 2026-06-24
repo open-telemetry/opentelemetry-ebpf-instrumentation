@@ -53,10 +53,10 @@ static __always_inline void grpc_server_conn_info(void *tr, connection_info_t *c
 
     off_table_t *ot = get_offsets_table();
     void *conn_ptr = NULL;
-    bpf_probe_read(&conn_ptr,
-                   sizeof(conn_ptr),
-                   (void *)(tr + go_offset_of(ot, (go_offset){.v = _grpc_st_conn_pos}) +
-                            k_go_iface_data_offset));
+    bpf_probe_read_user(&conn_ptr,
+                        sizeof(conn_ptr),
+                        (void *)(tr + go_offset_of(ot, (go_offset){.v = _grpc_st_conn_pos}) +
+                                 k_go_iface_data_offset));
     if (conn_ptr) {
         get_conn_info(conn_ptr, conn);
     }
