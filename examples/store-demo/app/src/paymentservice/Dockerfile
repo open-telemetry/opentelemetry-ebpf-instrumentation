@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-FROM --platform=$BUILDPLATFORM node:20.20.2-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293 AS builder
+FROM --platform=$BUILDPLATFORM node:24.18.0-alpine@sha256:212c773d9847f13f4b59640a4c8ac65c088d37668a4f81e3b832e3eff0297bb3 AS builder
 
 WORKDIR /usr/src/app
 

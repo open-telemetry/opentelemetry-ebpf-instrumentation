@@ -19,7 +19,7 @@ RUN go build -tags -a -ldflags '-linkmode external -extldflags "-static"' -o tes
 
 # Create final image from minimal + built binary
 #TODO: use minimal image
-FROM debian:12@sha256:0a5bf4ecacfc050bad0131c8e1401063fd1e8343a418723f6dbd3cd13a7b9e33
+FROM debian:trixie-20260623@sha256:d07d1b51c39f51188e60be9b64e6bf769fa94e187f092bc32b91305cfa34ba5a
 
 WORKDIR /
 RUN mkdir -p x509

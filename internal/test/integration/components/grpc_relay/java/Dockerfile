@@ -5,7 +5,7 @@ RUN mvn dependency:go-offline -B
 COPY internal/test/integration/components/grpc_relay/java/src src
 RUN mvn package -DskipTests -B
 
-FROM eclipse-temurin:17-jre@sha256:ff692acf872589e72ca71b416b3e949ec19f35ebe8abb5365d2f31bce298e762
+FROM eclipse-temurin:25.0.3_9-jre@sha256:7ea65de6187ad8fbcc0ad155950c38664a7371148bb3ccf1ec1e1b286b44ad08
 WORKDIR /app
 COPY --from=builder /app/target/grpc-relay-java-1.0-SNAPSHOT.jar relay.jar
 ENTRYPOINT ["java", "-jar", "relay.jar"]
