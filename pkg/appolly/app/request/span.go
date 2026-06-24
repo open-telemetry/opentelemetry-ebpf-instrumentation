@@ -1162,6 +1162,7 @@ type Span struct {
 	RequestStart      int64          `json:"-"`
 	Start             int64          `json:"-"`
 	End               int64          `json:"-"`
+	FirstByteTime     int64          `json:"-"`
 	Service           svc.Attrs      `json:"-"`
 	TraceID           trace.TraceID  `json:"traceID"`
 	SpanID            trace.SpanID   `json:"spanID"`

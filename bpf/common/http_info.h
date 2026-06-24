@@ -21,6 +21,7 @@ typedef struct http_info {
     u64 start_monotime_ns;
     u64 end_monotime_ns;
     u64 req_monotime_ns;
+    u64 first_byte_monotime_ns;
     u64 extra_id;
     tp_info_t tp;
     pid_info pid;
