@@ -79,9 +79,9 @@ Each release includes:
 #### Download and Verify
 
 Install [Cosign](https://docs.sigstore.dev/cosign/installation/) if you do not already have it.
-OBI release blobs are signed by the GitHub Actions release workflow with the
-GitHub Actions OIDC issuer. The identity regexp below matches the same
-repository identity used for container image verification.
+OBI release blobs are signed with GitHub Actions OIDC. The identity regexp
+below matches the same repository-level identity used for container image
+verification.
 
 ```bash
 # Set your desired version (find latest at https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/releases)
@@ -126,9 +126,10 @@ cosign verify-blob "${CHECKSUMS}" \
 ```
 
 Successful Cosign verification confirms that the local file matches the signed
-payload, the signing certificate identity matches the OBI release workflow, the
-certificate was issued by GitHub Actions OIDC, and the Sigstore bundle includes
-the transparency log material needed for offline verification.
+payload, the signing certificate identity matches this repository's GitHub
+Actions identity, the certificate was issued by GitHub Actions OIDC, and the
+Sigstore bundle includes the transparency log material needed for offline
+verification.
 
 Then verify the downloaded files against the signed checksum manifest:
 
@@ -145,8 +146,9 @@ obi-v${VERSION}-linux-${ARCH}.tar.gz: OK
 If Cosign or checksum verification fails, stop and do not run or compile the
 artifact. Confirm the version, artifact name, bundle name, and architecture,
 then re-download the artifact and bundle from the same release. If verification
-still fails, open a security-sensitive report with the release version and
-failed verification output.
+still fails, use the GitHub Security tab's "Report a vulnerability" flow for
+this repository with the release version and failed verification output. Do not
+open a public issue with potentially sensitive details.
 
 Extract the archive:
 
