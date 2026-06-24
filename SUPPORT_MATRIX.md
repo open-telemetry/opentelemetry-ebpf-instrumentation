@@ -143,6 +143,7 @@ OBI currently documents the following asynchronous or runtime-specific context p
 | Framework | Runtime | Baseline | Limitations | Status |
 |:----------|:--------|:---------|:------------|:-------|
 | Go goroutines | Go | Go `1.18+` | Up to 3 nested levels of goroutines | Stable |
+| Go channel span links | Go | Go `1.17+` | Receiver-side links only; supports `runtime.chansend1`, `runtime.chanrecv1`, and `runtime.chanrecv2`; `select` paths are not supported; requires `runtime.hchan` offsets | Experimental |
 | Node.js async hooks | Node.js | Node.js `8.0+` | Custom handling of `SIGUSR1` might interfere | Stable |
 | Ruby Puma server | Ruby | Ruby applications served by Puma | Only works with Puma server | Stable |
 | Java thread pool | Java | JDK `8+` | None documented | Stable |

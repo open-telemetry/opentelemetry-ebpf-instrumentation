@@ -54,6 +54,23 @@ To turn this off and fallback to the normal network based instrumentation for Go
 | github.com/IBM/sarama          |   Kafka    |               >= 1.37 | All     |  Yes   |                 No |         N/A
 | go.mongodb.org/mongo-driver    |  MongoDB   | >= v1.10.1, >= v2.0.1 | All     |  Yes   |                 No |         N/A
 
+### Go Channel Span Links
+
+OBI can emit experimental receiver-side span links for work handed off between
+goroutines through Go channels. When both sides of a supported channel handoff
+have active OBI-generated spans, the receiver span gets an OpenTelemetry span
+link to the sender span. OBI does not add a reciprocal link to the sender span,
+does not rewrite trace IDs, and does not change parent-child relationships.
+
+The channel-link probes are registered only when Go-specific tracers are active
+and OBI can resolve the `runtime.hchan` offsets required for the target binary.
+If those offsets are unavailable, OBI skips the channel-link probes for that
+binary instead of failing instrumentation. There is no separate user-facing
+configuration flag for this feature; it is enabled by default.
+
+For implementation details, supported runtime functions, and current
+limitations, see [Go channel span links](go-channel-span-links.md).
+
 ## Payload Capture
 
 OBI can capture full request and response payloads for some protocols and forward them to userspace for richer analysis
@@ -94,6 +111,7 @@ OBI has support for several asynchronous frameworks that allow it to propagate c
 | Framework           | Languages |         Versions | Limitations                                       | Status
 |:--------------------|:---------:|-----------------:|:--------------------------------------------------|:-------------
 | Go Routines         |    Go     |       Go >= 1.18 | up to 3 nested levels of goroutines               | Stable
+| Go channel span links |  Go     |       Go >= 1.17 | `select` paths are not supported                  | Experimental
 | Node.js Async Hooks |  Node.js  |   Node.js >= 8.0 | Custom handling of SIGUSR1 signal might interfere | Stable
 | Ruby Puma Server    |   Ruby    |              N/A | Only works with Puma server                       | Stable
 | Java Thread pool    |   Java    |           JDK 8+ | N/A                                               | Stable
