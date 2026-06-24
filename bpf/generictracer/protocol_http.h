@@ -41,8 +41,9 @@ volatile const u32 high_request_volume;
 
 SCRATCH_MEM_SIZED(http_previous_trace_id, TRACE_ID_SIZE_BYTES);
 
-// This function assumes that a given thread is not trying to use many
-// instances at the same time.
+// empty_http_info zeroes and return the unique percpu copy in the map
+// this function assumes that a given thread is not trying to use many
+// instances at the same time
 static __always_inline http_info_t *empty_http_info() {
     int zero = 0;
     http_info_t *value = bpf_map_lookup_elem(&http_info_mem, &zero);
@@ -127,6 +128,8 @@ static __always_inline void finish_http(http_info_t *info, pid_connection_info_t
             bpf_dbg_printk("failed to reserve space in the ringbuf");
         }
 
+        // bpf_dbg_printk("Terminating trace for pid=%d", pid_from_pid_tgid(pid_tid));
+        // dbg_print_http_connection_info(&info->conn_info); // commented out since GitHub CI doesn't like this call
         // Don't delete requests that weren't delayed, we might be receiving still more packets, for
         // example SSL.
         if (info->delayed) {
@@ -173,6 +176,7 @@ static __always_inline http_info_t *get_or_set_http_info(http_info_t *info,
                     return 0;
                 }
             }
+            // this will delete ongoing_http for this connection info if there's full stale request
             finish_http(old_info, pid_conn);
         }
 
@@ -358,53 +362,23 @@ static __always_inline int http_send_large_buffer(void *ctx,
         return 0;
     }
 
-    tcp_large_buffer_t *large_buf = (tcp_large_buffer_t *)tcp_large_buffers_mem();
-
-    if (!large_buf) {
-        bpf_dbg_printk("failed to reserve space for HTTP large buffer");
-        return -1;
-    }
-
-    large_buf->type = EVENT_TCP_LARGE_BUFFER;
-    large_buf->packet_type = packet_type;
-    large_buf->direction = direction;
-    large_buf->conn_info = req->conn_info;
-    large_buf->action = action;
-    large_buf->kind = k_large_buf_layer_app;
-    large_buf->tp = req->tp;
-
     u32 max_available_bytes = http_max_captured_bytes - bytes_sent;
     bpf_clamp_umax(max_available_bytes, k_large_buf_max_http_captured_bytes);
 
-    const u32 available_bytes = min(bytes_len, max_available_bytes);
-    const u32 consumed_bytes = large_buf_emit_chunks(large_buf, u_buf, available_bytes);
-
-    if (consumed_bytes > 0) {
-        req->has_large_buffers = true;
+    large_buf_emit_state_t *state = (large_buf_emit_state_t *)large_buf_emit_state_mem();
+    if (!state) {
+        return -1;
     }
 
-    bpf_dbg_printk("large buffer consumed %u bytes", consumed_bytes);
+    state->u_buf = (u64)u_buf;
+    state->remaining_bytes = min(bytes_len, max_available_bytes);
+    state->pid_conn = *pid_conn;
+    state->batch_iter = 0;
+    state->packet_type = packet_type;
+    state->direction = direction;
+    state->action = (u8)action;
 
-    if (packet_type == PACKET_TYPE_REQUEST) {
-        req->lb_req_bytes += consumed_bytes;
-    } else {
-        req->lb_res_bytes += consumed_bytes;
-    }
-
-    const u32 remaining = available_bytes - consumed_bytes;
-    if (remaining > 0 && consumed_bytes > 0) {
-        large_buf_emit_state_t *state = (large_buf_emit_state_t *)large_buf_emit_state_mem();
-        if (state) {
-            state->u_buf = (u64)u_buf + consumed_bytes;
-            state->remaining_bytes = remaining;
-            state->pid_conn = *pid_conn;
-            state->batch_iter = 1;
-            state->packet_type = packet_type;
-            state->direction = direction;
-            bpf_tail_call_static(ctx, &jump_table, k_tail_large_buf_emit_continue);
-        }
-    }
-
+    bpf_tail_call_static(ctx, &jump_table, k_tail_large_buf_emit_continue);
     return 0;
 }
 
@@ -508,6 +482,7 @@ __obi_continue_protocol_http_tp(struct pt_regs *ctx,
             bpf_clamp_umax(buf_len, TRACE_BUF_SIZE - 1);
 
             bpf_probe_read(buf, buf_len, (void *)args->u_buf);
+            // null terminate to make proper string
             buf[buf_len] = '\0';
 
             unsigned char *res = tp_loop_fn(buf, buf_len);
@@ -615,6 +590,8 @@ __obi_continue_protocol_http(struct pt_regs *ctx,
     if (tp_p && tp_p->req_type == EVENT_HTTP_CLIENT && tp_p->written &&
         tp_p->pid == args->pid_conn.pid) {
         bpf_dbg_printk("found tp info previously set by sock msg");
+        // we've already got a tp_info_pid_t setup by the sockmsg program, use
+        // that instead
         set_trace_info_for_connection(&args->pid_conn.conn, TRACE_TYPE_CLIENT, tp_p);
         // clean up so that TC does not pick it up
         bpf_map_delete_elem(&outgoing_trace_map, &e_key);
@@ -646,6 +623,9 @@ __obi_continue_protocol_http(struct pt_regs *ctx,
             found_tp = find_trace_for_client_request(
                 &p_conn, args->orig_dport, args->lw_thread, &tp_p->tp);
         } else {
+            //bpf_dbg_printk("Looking up existing trace for connection");
+            //dbg_print_http_connection_info(conn);
+
             // For server requests, we first look for TCP info (setup by TC ingress) and then we fall back to black-box info.
             found_tp =
                 find_trace_for_server_request(&args->pid_conn.conn, &tp_p->tp, EVENT_HTTP_REQUEST);
@@ -795,6 +775,7 @@ __obi_protocol_http(struct pt_regs *ctx, unsigned char *(*tp_loop_fn)(unsigned c
                                args->direction,
                                k_large_buf_action_init);
     } else if (still_reading(info)) {
+        // print here
         info->len += args->bytes_len;
         http_send_large_buffer(ctx,
                                info,
@@ -854,7 +835,8 @@ int obi_large_buf_emit_continue(struct pt_regs *ctx) {
     large_buf->packet_type = state->packet_type;
     large_buf->direction = state->direction;
     large_buf->conn_info = info->conn_info;
-    large_buf->action = k_large_buf_action_append;
+    large_buf->action =
+        state->batch_iter == 0 ? (enum large_buf_action)state->action : k_large_buf_action_append;
     large_buf->kind = k_large_buf_layer_app;
     large_buf->tp = info->tp;
 
@@ -862,6 +844,7 @@ int obi_large_buf_emit_continue(struct pt_regs *ctx) {
         large_buf_emit_chunks(large_buf, (const void *)state->u_buf, state->remaining_bytes);
 
     if (consumed_bytes > 0) {
+        info->has_large_buffers = true;
         if (state->packet_type == PACKET_TYPE_REQUEST) {
             info->lb_req_bytes += consumed_bytes;
         } else {
