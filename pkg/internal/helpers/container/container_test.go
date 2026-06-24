@@ -96,9 +96,11 @@ func TestContainerID(t *testing.T) {
 		t.Run(fmt.Sprintf("must not find container. PID %d", pid), func(t *testing.T) {
 			_, err := InfoForPID(pid)
 			require.Error(t, err)
+			assert.ErrorIs(t, err, ErrContainerNotFound)
 		})
 	}
 
 	_, err := InfoForPID(12345)
 	require.Error(t, err)
+	assert.NotErrorIs(t, err, ErrContainerNotFound)
 }
