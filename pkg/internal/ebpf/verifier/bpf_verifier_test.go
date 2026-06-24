@@ -153,11 +153,21 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 	forEachCombination(t, "generictracer/Bpf", generictracerbpf.LoadBpf, []constOption{
 		{"g_bpf_debug", []any{true, false}},
 		{"g_bpf_traceparent_enabled", []any{true, false}},
+		{"g_bpf_header_propagation", []any{true, false}},
+		{"g_bpf_loop_enabled", []any{ebpfcommon.SupportsEBPFLoops(slog.Default(), false)}},
 		{"filter_pids", []any{int32(0), int32(1)}},
 		{"capture_header_buffer", []any{int32(0), int32(1)}},
 		{"high_request_volume", []any{uint32(0), uint32(1)}},
 		{"disable_black_box_cp", []any{uint32(0), uint32(1)}},
 		{"jvm_sampling_interval_ns", []any{uint64(0), uint64(1_000_000_000)}},
+		{"wakeup_data_bytes", []any{uint32(0), uint32(1 << 20)}},
+		{"max_transaction_time", []any{uint64(0), uint64(60_000_000_000)}},
+		{"http_max_captured_bytes", []any{uint32(0), uint32(8192)}},
+		{"tcp_max_captured_bytes", []any{uint32(0), uint32(8192)}},
+		{"mysql_max_captured_bytes", []any{uint32(0), uint32(8192)}},
+		{"kafka_max_captured_bytes", []any{uint32(0), uint32(8192)}},
+		{"postgres_max_captured_bytes", []any{uint32(0), uint32(8192)}},
+		{"mssql_max_captured_bytes", []any{uint32(0), uint32(8192)}},
 	})
 
 	// gotracer
@@ -167,6 +177,16 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 		{"g_bpf_header_propagation", []any{true, false}},
 		{"g_bpf_loop_enabled", []any{ebpfcommon.SupportsEBPFLoops(slog.Default(), false)}},
 		{"disable_black_box_cp", []any{uint32(0), uint32(1)}},
+		{"capture_header_buffer", []any{int32(0), int32(1)}},
+		{"high_request_volume", []any{uint32(0), uint32(1)}},
+		{"wakeup_data_bytes", []any{uint32(0), uint32(1 << 20)}},
+		{"max_transaction_time", []any{uint64(0), uint64(60_000_000_000)}},
+		{"http_max_captured_bytes", []any{uint32(0), uint32(8192)}},
+		{"tcp_max_captured_bytes", []any{uint32(0), uint32(8192)}},
+		{"mysql_max_captured_bytes", []any{uint32(0), uint32(8192)}},
+		{"kafka_max_captured_bytes", []any{uint32(0), uint32(8192)}},
+		{"postgres_max_captured_bytes", []any{uint32(0), uint32(8192)}},
+		{"mssql_max_captured_bytes", []any{uint32(0), uint32(8192)}},
 	})
 
 	// tpinjector
@@ -175,6 +195,7 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 		{"g_bpf_debug", []any{true, false}},
 		{"filter_pids", []any{int32(0), int32(1)}},
 		{"inject_flags", []any{uint32(0), uint32(1), uint32(2), uint32(3)}},
+		{"max_transaction_time", []any{uint64(0), uint64(60_000_000_000)}},
 	})
 	// tpinjector/BpfIter needs bpf_iter_tcp_get_func_proto (kernel >= 5.11)
 	// for the verifier to recognize the sock_iter ctx type. Runtime loader
@@ -216,5 +237,6 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 	// statsolly
 	forEachCombination(t, "statsolly/Stats", statsolly.LoadStats, []constOption{
 		{"g_bpf_debug", []any{true, false}},
+		{"stats_wakeup_data_bytes", []any{uint32(0), uint32(1 << 20)}},
 	})
 }
