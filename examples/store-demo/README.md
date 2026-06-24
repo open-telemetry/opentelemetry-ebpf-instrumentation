@@ -13,6 +13,10 @@ The vendored application comes from
 - a Grafana LGTM backend for OTLP traces and metrics
 - Helm values for the `opentelemetry-ebpf-instrumentation` chart
 
+See [ARCHITECTURE.md](./ARCHITECTURE.md) for the service topology (a Mermaid
+service graph and a connection table derived from the manifests). Keep it in
+sync when you change a service connection, port, or add/remove a service.
+
 ## Prerequisites
 
 Install these tools before running the demo:
