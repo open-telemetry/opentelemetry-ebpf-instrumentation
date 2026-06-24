@@ -73,7 +73,7 @@ cat > "${IRD}/init" <<'INIT'
 /bin/busybox mount -t devtmpfs devtmpfs /dev 2>/dev/null
 ulimit -l unlimited 2>/dev/null
 echo "OBI-VERIFIER-BEGIN"
-/verifier.test -test.v -test.timeout=20m
+/verifier.test -test.v -test.timeout=20m -test.parallel=4
 RESULT=$?
 /bin/busybox sync
 echo "OBI-VERIFIER-RESULT: ${RESULT}"
@@ -96,7 +96,7 @@ else
 fi
 QEMU_LOG="${WORKDIR}/qemu.log"
 echo "run.sh: launching qemu" >&2
-timeout 1500 qemu-system-x86_64 ${ACCEL} -m 2G -smp 2 \
+timeout 1500 qemu-system-x86_64 ${ACCEL} -m 4G -smp 2 \
     -kernel "${VMLINUZ}" \
     -initrd "${IRD_IMG}" \
     -append "earlyprintk=ttyS0 console=ttyS0 panic=3 rdinit=/init" \

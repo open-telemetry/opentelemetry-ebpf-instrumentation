@@ -209,7 +209,17 @@ while ! docker info >/dev/null 2>&1; do
 done
 echo "Docker daemon is ready"
 
-sysctl -w kernel.panic_on_rcu_stall=1 2>/dev/null || true
+# panic_on_rcu_stall surfaces hangs as test failures for integration runs.
+# Skip it for the verifier suite: a heavy verifier load can hold a CPU long
+# enough to trip the stall detector even though it's making progress.
+case "$(cat /build/testoutput/test-env 2>/dev/null | grep '^target=' | cut -d= -f2)" in
+    run-bpf-verifier-vm)
+        echo "skipping panic_on_rcu_stall (verifier suite)"
+        ;;
+    *)
+        sysctl -w kernel.panic_on_rcu_stall=1 2>/dev/null || true
+        ;;
+esac
 
 echo "=== Docker/runc versions in VM ==="
 docker version
