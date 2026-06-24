@@ -452,28 +452,10 @@ jobs:
         run: make release-checksums RELEASE_VERSION="${RELEASE_VERSION}"
 
       - name: Sign release artifacts
-        env:
-          RELEASE_VERSION: ${{ inputs.tag || github.ref_name }}
         run: |
           set -euo pipefail
 
-          artifacts=(
-            "dist/obi-${RELEASE_VERSION}-linux-amd64.tar.gz"
-            "dist/obi-${RELEASE_VERSION}-linux-arm64.tar.gz"
-            "dist/obi-${RELEASE_VERSION}-source-generated.tar.gz"
-            "dist/obi-${RELEASE_VERSION}-linux-amd64.cyclonedx.json"
-            "dist/obi-${RELEASE_VERSION}-linux-arm64.cyclonedx.json"
-            "dist/obi-${RELEASE_VERSION}-source-generated.cyclonedx.json"
-            "dist/obi-java-agent-${RELEASE_VERSION}.cyclonedx.json"
-            "dist/SHA256SUMS"
-          )
-
-          for artifact in "${artifacts[@]}"; do
-            if [ ! -f "${artifact}" ]; then
-              echo "ERROR: expected release artifact missing: ${artifact}"
-              exit 1
-            fi
-
+          for artifact in dist/*; do
             cosign sign-blob --yes --bundle "${artifact}.bundle.json" "${artifact}"
           done
 
