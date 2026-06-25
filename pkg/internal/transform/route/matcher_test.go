@@ -76,3 +76,14 @@ func TestFindPatternsInDefinitionOrder(t *testing.T) {
 	})
 	assert.Equal(t, "/:section/profile", catchAllFirst.Find("/@carol/profile"))
 }
+
+func TestFindPatternFallsBackToAnyPath(t *testing.T) {
+	m := NewMatcher([]string{
+		"/admin/*",
+		"/admin/:id/settings",
+	})
+
+	assert.Equal(t, "/admin/*", m.Find("/admin"))
+	assert.Equal(t, "/admin/*", m.Find("/admin/token"))
+	assert.Equal(t, "/admin/:id/settings", m.Find("/admin/token/settings"))
+}
