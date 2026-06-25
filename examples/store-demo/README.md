@@ -14,8 +14,10 @@ The vendored application comes from
 - Helm values for the `opentelemetry-ebpf-instrumentation` chart
 
 See [ARCHITECTURE.md](./ARCHITECTURE.md) for the service topology (a Mermaid
-service graph and a connection table derived from the manifests). Keep it in
-sync when you change a service connection, port, or add/remove a service.
+service graph and a connection table). It is generated from the manifests by
+[fix_architecture.py](./fix_architecture.py); after changing a manifest, run
+`python3 examples/store-demo/fix_architecture.py` to regenerate it (CI checks
+it with `--check`).
 
 ## Prerequisites
 

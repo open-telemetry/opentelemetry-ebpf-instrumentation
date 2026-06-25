@@ -4,13 +4,15 @@ on:
   push:
     paths:
       - "examples/store-demo/k8s/**"
+      - "examples/store-demo/app/src/**"
       - "examples/store-demo/ARCHITECTURE.md"
-      - "examples/store-demo/check_architecture.py"
+      - "examples/store-demo/fix_architecture.py"
   pull_request:
     paths:
       - "examples/store-demo/k8s/**"
+      - "examples/store-demo/app/src/**"
       - "examples/store-demo/ARCHITECTURE.md"
-      - "examples/store-demo/check_architecture.py"
+      - "examples/store-demo/fix_architecture.py"
 
 concurrency:
   group: store-demo-architecture-${{ github.head_ref || github.run_id }}
@@ -28,5 +30,5 @@ jobs:
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           persist-credentials: false
-      - name: Verify store-demo architecture
-        run: python3 examples/store-demo/check_architecture.py
+      - name: Verify store-demo architecture is in sync
+        run: python3 examples/store-demo/fix_architecture.py --check
