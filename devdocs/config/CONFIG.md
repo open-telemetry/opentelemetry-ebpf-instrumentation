@@ -136,17 +136,23 @@ DiscoveryConfig for the discover.ProcessFinder pipeline
 | `discovery.exclude_otel_instrumented_services_span_metrics` | `boolean` | `OTEL_EBPF_EXCLUDE_OTEL_INSTRUMENTED_SERVICES_SPAN_METRICS` | `false` |  |  | Disables generation of span metrics of services which are already instrumented |
 | `discovery.exclude_services` | [`RegexSelector`](#regexselector)[] |  |  |  | Yes | Works analogously to Services, but the applications matching this section won't be instrumented even if they match the Services selection.  Use ExcludeInstrument instead |
 | `discovery.excluded_linux_system_paths` | `string`[] |  | `/lib/systemd/`, `/usr/lib/systemd/`, `/usr/libexec/`, `/sbin/`, `/usr/sbin/` |  |  | Executable paths for which we don't run language detection and cannot be selected using the path or language selection criteria |
-| `discovery.hot_reload` | [`HotReloadConfig`](#hotreloadconfig) |  |  |  |  | Enables watching ConfigMaps for dynamic discovery criteria updates |
-| `discovery.hot_reload.configmaps` | `string`[] | `OTEL_EBPF_DISCOVERY_HOT_RELOAD_CONFIGMAPS` | `arms-obi-discovery`, `arms-obi-discovery-default` |  |  |  |
-| `discovery.hot_reload.enabled` | `boolean` | `OTEL_EBPF_DISCOVERY_HOT_RELOAD` | `true` |  |  |  |
-| `discovery.hot_reload.namespace` | `string` | `OTEL_EBPF_DISCOVERY_HOT_RELOAD_NAMESPACE` | `obi-system` |  |  |  |
-| `discovery.hot_reload.poll_interval` | `duration` | `OTEL_EBPF_DISCOVERY_HOT_RELOAD_POLL_INTERVAL` | `15s` | `30s`, `5m`, `1ms`, etc |  |  |
 | `discovery.instrument` | [`GlobAttributes`](#globattributes)[] |  |  |  |  | Selects the services to instrument via Globs. If this section is set, both the Services and ExcludeServices section is ignored. If the user defined the OTEL_EBPF_INSTRUMENT_COMMAND or OTEL_EBPF_INSTRUMENT_PORTS variables, they will be automatically added to the instrument criteria, with the lowest preference. |
 | `discovery.min_process_age` | `duration` | `OTEL_EBPF_MIN_PROCESS_AGE` | `5s` | `30s`, `5m`, `1ms`, etc |  | Min process age to be considered for discovery. |
 | `discovery.poll_interval` | `duration` | `OTEL_EBPF_DISCOVERY_POLL_INTERVAL` | `0s` | `30s`, `5m`, `1ms`, etc |  | Specifies, for the poll service watcher, the interval time between process inspections. 0 is treated as a default (5s) by the process watcher. |
 | `discovery.route_harvester_timeout` | `duration` | `OTEL_EBPF_ROUTE_HARVESTER_TIMEOUT` | `10s` | `30s`, `5m`, `1ms`, etc |  |  |
 | `discovery.services` | [`RegexSelector`](#regexselector)[] |  |  |  | Yes | Selection. If the user defined the OTEL_EBPF_EXECUTABLE_PATH or OTEL_EBPF_OPEN_PORT variables, they will be automatically added to the services definition criteria, with the lowest preference.  Use Instrument instead |
 | `discovery.skip_go_specific_tracers` | `boolean` | `OTEL_EBPF_SKIP_GO_SPECIFIC_TRACERS` | `false` |  |  | This can be enabled to use generic HTTP tracers only, no Go-specifics will be used: |
+
+### `discovery.hot_reload`
+
+HotReloadConfig configures dynamic reloading of discovery instrument criteria from ConfigMaps
+
+| YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
+|---|---|---|---|---|---|---|
+| `discovery.hot_reload.configmaps` | `string`[] | `OTEL_EBPF_DISCOVERY_HOT_RELOAD_CONFIGMAPS` | `arms-obi-discovery`, `arms-obi-discovery-default` |  |  |  |
+| `discovery.hot_reload.enabled` | `boolean` | `OTEL_EBPF_DISCOVERY_HOT_RELOAD` | `true` |  |  |  |
+| `discovery.hot_reload.namespace` | `string` | `OTEL_EBPF_DISCOVERY_HOT_RELOAD_NAMESPACE` | `obi-system` |  |  |  |
+| `discovery.hot_reload.poll_interval` | `duration` | `OTEL_EBPF_DISCOVERY_HOT_RELOAD_POLL_INTERVAL` | `15s` | `30s`, `5m`, `1ms`, etc |  |  |
 
 ### `discovery.route_harvester_advanced`
 
@@ -704,17 +710,6 @@ Map of attribute group names to arrays of attribute names. Only 'k8s_app_meta' i
 | `routes` | [`CustomRoutesConfig`](#customroutesconfig) |  |  |
 | `sampler` | [`SamplerConfig`](#samplerconfig) |  | Sampler standard configuration <https://opentelemetry.io/docs/concepts/sdk-configuration/general-sdk-configuration/#otel_traces_sampler> We don't support, yet, the jaeger and xray samplers. |
 | `target_pids` | `integer`[] |  | Allows selecting processes by PID (static from config). When non-empty, the process PID must be in this list. |
-
-### HotReloadConfig
-
-HotReloadConfig configures dynamic reloading of discovery instrument criteria from ConfigMaps
-
-| Field | Type | Values | Description |
-|---|---|---|---|
-| `configmaps` | `string`[] |  |  |
-| `enabled` | `boolean` |  |  |
-| `namespace` | `string` |  |  |
-| `poll_interval` | `duration` | `30s`, `5m`, `1ms`, etc |  |
 
 ### HTTPParsingDefaultAction
 
