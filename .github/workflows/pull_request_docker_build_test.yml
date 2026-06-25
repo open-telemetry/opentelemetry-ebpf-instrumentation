@@ -7,11 +7,14 @@ on:
       - ".github/workflows/pull_request_docker_build_test.yml"
       - "Dockerfile"
       - "k8scache.Dockerfile"
+      - "dependencies.Dockerfile"
+      - ".dockerignore"
       - "**.go"
       - "go.mod"
       - "go.sum"
       - "bpf/**"
       - "pkg/internal/java/**"
+      - "Makefile"
   workflow_call:
     inputs:
       ref:

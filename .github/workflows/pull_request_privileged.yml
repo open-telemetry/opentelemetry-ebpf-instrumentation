@@ -16,6 +16,7 @@ on:
       - "internal/**"
       - "pkg/**"
       - "scripts/**"
+      - "Makefile"
   workflow_call:
     inputs:
       ref:
