@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
+	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	"go.opentelemetry.io/obi/pkg/appolly/services"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
@@ -168,6 +169,11 @@ type DynamicPIDSelector struct {
 	mu    sync.RWMutex
 	byPID map[app.PID]dynamicPIDRecord
 
+	fileInfoMu        sync.RWMutex
+	fileInfoByPID     map[app.PID]*exec.FileInfo
+	onFileInfoUpdated func(*exec.FileInfo)
+	attrsUpdatedCh    chan app.PID
+
 	rootView           dynamicPIDSignalView
 	tracesView         dynamicPIDSignalView
 	appMetricsView     dynamicPIDSignalView
@@ -189,7 +195,9 @@ func newDynamicPIDSignalView(parent *DynamicPIDSelector, mask dynamicPIDSignal) 
 // NewDynamicPIDSelector creates a new selector whose root Add/Remove methods apply to all signals.
 func NewDynamicPIDSelector() *DynamicPIDSelector {
 	d := &DynamicPIDSelector{
-		byPID: map[app.PID]dynamicPIDRecord{},
+		byPID:          map[app.PID]dynamicPIDRecord{},
+		fileInfoByPID:  map[app.PID]*exec.FileInfo{},
+		attrsUpdatedCh: make(chan app.PID, 64),
 	}
 	d.rootView = newDynamicPIDSignalView(d, allSignalMask)
 	d.tracesView = newDynamicPIDSignalView(d, signalTraces)
@@ -198,6 +206,51 @@ func NewDynamicPIDSelector() *DynamicPIDSelector {
 	d.statsMetricsView = newDynamicPIDSignalView(d, signalStatsMetrics)
 	d.appSignalsView = newDynamicPIDSignalView(d, appSignalMask)
 	return d
+}
+
+// SetOnFileInfoUpdated registers a hook invoked after SetPID updates a live FileInfo. OBI uses this
+// to re-send process events so metrics exporters refresh target_info and related series.
+func (d *DynamicPIDSelector) SetOnFileInfoUpdated(fn func(*exec.FileInfo)) {
+	d.fileInfoMu.Lock()
+	d.onFileInfoUpdated = fn
+	d.fileInfoMu.Unlock()
+}
+
+// AttrsUpdatedNotify reports PIDs whose shared attributes changed.
+func (d *DynamicPIDSelector) AttrsUpdatedNotify() <-chan app.PID {
+	return d.attrsUpdatedCh
+}
+
+func (d *DynamicPIDSelector) notifyAttrsUpdated(pid app.PID) {
+	select {
+	case d.attrsUpdatedCh <- pid:
+	default:
+	}
+}
+
+// RegisterFileInfo records the live FileInfo for a dynamically selected PID after instrumentation.
+func (d *DynamicPIDSelector) RegisterFileInfo(pid app.PID, fi *exec.FileInfo) {
+	if fi == nil {
+		return
+	}
+	d.fileInfoMu.Lock()
+	d.fileInfoByPID[pid] = fi
+	if owner := fi.ServiceAttrs().DynamicSelectorPID; owner != 0 && owner != pid {
+		d.fileInfoByPID[owner] = fi
+	}
+	d.fileInfoMu.Unlock()
+}
+
+// UnregisterFileInfo drops FileInfo references for pid and its dynamic selector owner PID.
+func (d *DynamicPIDSelector) UnregisterFileInfo(pid app.PID, fi *exec.FileInfo) {
+	d.fileInfoMu.Lock()
+	delete(d.fileInfoByPID, pid)
+	if fi != nil {
+		if owner := fi.ServiceAttrs().DynamicSelectorPID; owner != 0 {
+			delete(d.fileInfoByPID, owner)
+		}
+	}
+	d.fileInfoMu.Unlock()
 }
 
 func (d *DynamicPIDSelector) views() []*dynamicPIDSignalView {
@@ -216,6 +269,7 @@ func (d *DynamicPIDSelector) addSignals(mask dynamicPIDSignal, opts *selection.D
 		return
 	}
 	addedByView := map[*dynamicPIDSignalView][]app.PID{}
+	var attrsUpdated []app.PID
 
 	d.mu.Lock()
 	for _, rawPID := range pids {
@@ -231,6 +285,7 @@ func (d *DynamicPIDSelector) addSignals(mask dynamicPIDSignal, opts *selection.D
 		if newMask == oldMask {
 			if opts != nil {
 				d.byPID[pid] = rec
+				attrsUpdated = append(attrsUpdated, pid)
 			}
 			continue
 		}
@@ -247,6 +302,9 @@ func (d *DynamicPIDSelector) addSignals(mask dynamicPIDSignal, opts *selection.D
 
 	for view, batch := range addedByView {
 		view.notifier.notifyAdded(batch)
+	}
+	for _, pid := range attrsUpdated {
+		d.notifyAttrsUpdated(pid)
 	}
 }
 
@@ -333,18 +391,65 @@ func (d *DynamicPIDSelector) GetPID(pid uint32) (selection.DynamicPIDEntry, bool
 	return entryFromRecord(app.PID(pid), rec.attrs), true
 }
 
-// SetPID updates shared attributes for a PID that is already tracked by the selector.
+// SetPID updates shared attributes for a PID that is already tracked by the selector and, when
+// the process is instrumented, applies them to its live FileInfo.
 func (d *DynamicPIDSelector) SetPID(entry selection.DynamicPIDEntry) bool {
+	attrs := attrsFromEntry(entry)
+
 	d.mu.Lock()
-	defer d.mu.Unlock()
-	if _, ok := d.byPID[entry.PID]; !ok {
+	rec, ok := d.byPID[entry.PID]
+	if !ok {
+		d.mu.Unlock()
 		return false
 	}
 	d.byPID[entry.PID] = dynamicPIDRecord{
-		signals: d.byPID[entry.PID].signals,
-		attrs:   attrsFromEntry(entry),
+		signals: rec.signals,
+		attrs:   attrs,
 	}
+	d.mu.Unlock()
+
+	d.applyAttrsToInstrumented(entry.PID, attrs)
+	d.notifyAttrsUpdated(entry.PID)
 	return true
+}
+
+func (d *DynamicPIDSelector) applyAttrsToInstrumented(pid app.PID, attrs dynamicPIDAttributes) {
+	d.fileInfoMu.RLock()
+	fi := d.fileInfoByPID[pid]
+	cb := d.onFileInfoUpdated
+	d.fileInfoMu.RUnlock()
+	if fi == nil {
+		return
+	}
+	updated := false
+	if attrs.serviceName != "" || attrs.serviceNamespace != "" {
+		uid := fi.ServiceAttrs().UID
+		if attrs.serviceName != "" {
+			uid.Name = attrs.serviceName
+		}
+		if attrs.serviceNamespace != "" {
+			uid.Namespace = attrs.serviceNamespace
+		}
+		fi.SetUID(uid)
+		updated = true
+	}
+	if len(attrs.resourceAttributes) > 0 {
+		snap := fi.ServiceAttrs()
+		metadata := snap.Metadata
+		if metadata == nil {
+			metadata = map[attr.Name]string{}
+		} else {
+			metadata = maps.Clone(metadata)
+		}
+		for k, v := range attrs.resourceAttributes {
+			metadata[attr.Name(k)] = v
+		}
+		fi.SetMetadata(metadata)
+		updated = true
+	}
+	if updated && cb != nil {
+		cb(fi)
+	}
 }
 
 func (v *dynamicPIDSignalView) contains(mask dynamicPIDSignal) bool {

@@ -13,6 +13,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
+	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
+	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/selection"
 )
@@ -276,4 +278,63 @@ func TestDynamicPIDSelector_AttributesSharedAcrossSignals(t *testing.T) {
 	assert.Equal(t, "shared-svc", entry.ServiceName)
 	assert.True(t, d.Traces().IncludesPID(42))
 	assert.True(t, d.AppMetrics().IncludesPID(42))
+}
+
+func TestDynamicPIDSelector_SetPID_UpdatesFileInfo(t *testing.T) {
+	d := NewDynamicPIDSelector()
+	d.AddPIDs(42)
+
+	fi := exec.New(exec.Init{
+		Pid: 42,
+		Service: svc.Attrs{
+			UID:                svc.UID{Name: "old"},
+			DynamicSelectorPID: 42,
+		},
+	})
+	d.RegisterFileInfo(42, fi)
+
+	entry := selection.DynamicPIDEntry{
+		PID:         42,
+		ServiceName: "live-svc",
+		ResourceAttributes: map[string]string{
+			"team": "payments",
+		},
+	}
+	require.True(t, d.SetPID(entry))
+
+	snap := fi.ServiceAttrs()
+	assert.Equal(t, "live-svc", snap.UID.Name)
+	assert.Equal(t, "payments", snap.Metadata["team"])
+}
+
+func TestDynamicPIDSelector_SetPID_NotifiesFileInfoUpdate(t *testing.T) {
+	d := NewDynamicPIDSelector()
+	d.AddPIDs(42)
+
+	fi := exec.New(exec.Init{Pid: 42, Service: svc.Attrs{DynamicSelectorPID: 42}})
+	d.RegisterFileInfo(42, fi)
+
+	var notified *exec.FileInfo
+	d.SetOnFileInfoUpdated(func(updated *exec.FileInfo) { notified = updated })
+
+	require.True(t, d.SetPID(selection.DynamicPIDEntry{
+		PID:         42,
+		ServiceName: "metrics-svc",
+	}))
+	assert.Same(t, fi, notified)
+}
+
+func TestDynamicPIDSelector_SetPID_NotifiesAttrsUpdated(t *testing.T) {
+	d := NewDynamicPIDSelector()
+	d.AddPIDs(7)
+
+	ch := d.AttrsUpdatedNotify()
+	require.True(t, d.SetPID(selection.DynamicPIDEntry{PID: 7, ServiceName: "net-svc"}))
+
+	select {
+	case pid := <-ch:
+		assert.Equal(t, app.PID(7), pid)
+	default:
+		t.Fatal("expected attrs updated notification")
+	}
 }

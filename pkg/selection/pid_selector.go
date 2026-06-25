@@ -34,4 +34,6 @@ type MultiSignalPIDSelector interface {
 	StatsMetrics() MutablePIDSelector
 	GetPID(pid uint32) (DynamicPIDEntry, bool)
 	SetPID(entry DynamicPIDEntry) bool
+	// AttrsUpdatedNotify reports PIDs whose shared attributes changed via SetPID or AddPID with options.
+	AttrsUpdatedNotify() <-chan app.PID
 }
