@@ -71,7 +71,9 @@ static __always_inline void init_http_request_common(struct socket_data *sk_data
     info->conn_info = sk_data->sorted_conn;
     info->start_monotime_ns = curr_time;
     info->end_monotime_ns = curr_time;
-    info->req_monotime_ns = sk_data->accept_time;
+    // accept_time is unset for socktracer sockets; use request-init time (0 would
+    // make userspace stamp the span start at ~boot, yielding bogus durations).
+    info->req_monotime_ns = sk_data->accept_time ? sk_data->accept_time : curr_time;
     info->extra_id = 0;
     info->pid = sk_data->pid_info;
     info->len = len;

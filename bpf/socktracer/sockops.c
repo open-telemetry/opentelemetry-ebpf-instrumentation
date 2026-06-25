@@ -20,6 +20,7 @@
 #include <socktracer/http_core.h>
 #include <socktracer/tcp_core.h>
 #include <socktracer/maps/listener_pid_map.h>
+#include <socktracer/maps/monitored_pids.h>
 #include <socktracer/maps/sk_data_map.h>
 #include <socktracer/maps/sk_storage_map.h>
 #include <socktracer/maps/sk_tp_info_pid_map.h>
@@ -173,7 +174,7 @@ static __always_inline void bpf_sock_ops_tcp_connect_cb(struct bpf_sock_ops *sko
 
     dbg_print_sockops_conn("TCP_CONNECT_CB", skops);
 
-    if (!valid_pid(id)) {
+    if (filter_pids && !socktracer_pid_monitored(id)) {
         return;
     }
 
@@ -478,7 +479,7 @@ static __always_inline void post_bind(struct bpf_sock *sk, u32 local_port) {
 
     const u64 id = bpf_get_current_pid_tgid();
 
-    if (!valid_pid(id)) {
+    if (filter_pids && !socktracer_pid_monitored(id)) {
         return;
     }
 

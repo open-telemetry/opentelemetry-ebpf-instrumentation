@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
 	"sync"
 	"unsafe"
 
@@ -37,6 +38,7 @@ type Tracer struct {
 	log         *slog.Logger
 	pidsMu      sync.Mutex
 	pids        map[app.PID]struct{}
+	ownPID      app.PID
 }
 
 func setConstant[T int32 | uint32](m map[string]any, name string, value bool) {
@@ -51,24 +53,42 @@ func New(cfg *obi.Config) *Tracer {
 	log := slog.With("component", "socktracer")
 
 	return &Tracer{
-		log:  log,
-		cfg:  cfg,
-		pids: make(map[app.PID]struct{}),
+		log:    log,
+		cfg:    cfg,
+		pids:   make(map[app.PID]struct{}),
+		ownPID: app.PID(os.Getpid()),
 	}
 }
 
 func (p *Tracer) AllowPID(pid app.PID, _ uint32, _ *exec.FileInfo) {
+	// don't trace OBI itself — socktracer would inject into its own OTLP export.
+	if pid == p.ownPID {
+		return
+	}
+
 	p.pidsMu.Lock()
 	p.pids[pid] = struct{}{}
 	p.pidsMu.Unlock()
+
+	// sockops/egress gate on this map (not valid_pids) so Go/uprobe pids are tracked too.
+	if p.sockopsObjs.SocktracerMonitoredPids != nil {
+		if err := p.sockopsObjs.SocktracerMonitoredPids.Update(uint32(pid), uint8(1), ebpf.UpdateAny); err != nil {
+			p.log.Debug("failed to register monitored pid", "pid", pid, "error", err)
+		}
+	}
 
 	p.backfillPidForSockets(pid)
 }
 
 func (p *Tracer) BlockPID(pid app.PID, _ uint32) {
 	p.pidsMu.Lock()
-	defer p.pidsMu.Unlock()
 	delete(p.pids, pid)
+	p.pidsMu.Unlock()
+
+	if p.sockopsObjs.SocktracerMonitoredPids != nil {
+		// best-effort removal; a missing key is fine (pid may never have connected)
+		_ = p.sockopsObjs.SocktracerMonitoredPids.Delete(uint32(pid))
+	}
 }
 
 func (p *Tracer) LoadSpecs() ([]*ebpfcommon.SpecBundle, error) {

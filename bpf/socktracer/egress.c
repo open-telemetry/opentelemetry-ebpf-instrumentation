@@ -32,6 +32,7 @@
 #include <socktracer/helpers.h>
 #include <socktracer/http.h>
 #include <socktracer/http2.h>
+#include <socktracer/maps/monitored_pids.h>
 #include <socktracer/maps/sk_data_map.h>
 #include <socktracer/maps/sk_storage_map.h>
 #include <socktracer/maps/sk_tp_info_pid_map.h>
@@ -290,7 +291,7 @@ static __always_inline bool backfill_pid_from_current(struct socket_data *sk_dat
 
     const u64 id = bpf_get_current_pid_tgid();
 
-    if (!valid_pid(id)) {
+    if (filter_pids && !socktracer_pid_monitored(id)) {
         return false;
     }
 
@@ -308,10 +309,7 @@ static __always_inline bool backfill_pid(struct sk_msg_md *msg,
     (void)msg;
     (void)sk_storage;
 
-    // If valid_pid() fails here it means generictracer hasn't yet populated valid_pids
-    // (socktracer.AllowPID runs before generictracer.AllowPID because socktracer is a
-    // common tracer prepended to the pipeline). Leave the socket registered with
-    // pid_tgid=0 so the next egress call retries — by then valid_pids will be set.
+    // pid not registered yet; leave pid_tgid=0 so a later egress call retries.
     return backfill_pid_from_current(sk_data);
 }
 
@@ -370,6 +368,15 @@ static __always_inline void obi_client_egress(struct sk_msg_md *msg, struct sock
 
     if (is_ssl || uprobe_handled) {
         return;
+    }
+
+    // Generic (non-uprobe) injection is only for kprobe-tracked pids; Go/SSL
+    // clients already injected above via handle_uprobe_tp.
+    if (filter_pids) {
+        pid_data_t owner = {.pid = sk_data->pid_key.pid, .ns = sk_data->pid_key.ns};
+        if (!pid_matches(&owner)) {
+            return;
+        }
     }
 
     if (handle_http2(msg, sk_data)) {

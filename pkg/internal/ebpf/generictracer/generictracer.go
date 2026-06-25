@@ -184,7 +184,7 @@ func (p *Tracer) SetupTailCalls() {
 }
 
 func (p *Tracer) constants() map[string]any {
-	m := make(map[string]any, 12)
+	m := make(map[string]any, 13)
 
 	m["wakeup_data_bytes"] = uint32(p.cfg.EBPF.WakeupLen) * uint32(unsafe.Sizeof(ebpfcommon.HTTPRequestTrace{}))
 
@@ -228,6 +228,7 @@ func (p *Tracer) constants() map[string]any {
 
 	m["g_bpf_debug"] = p.cfg.EBPF.BpfDebug
 	m["g_bpf_traceparent_enabled"] = p.cfg.EBPF.TrackRequestHeaders || p.cfg.EBPF.ContextPropagation.IsEnabled()
+	m["g_socktracer_mode"] = p.eventCtx != nil && p.eventCtx.Capabilities&ebpfcommon.CapSocketTracing != 0
 	m["jvm_sampling_interval_ns"] = uint64(0)
 	if p.cfg.JVMRuntimeMetrics.Enabled {
 		m["jvm_sampling_interval_ns"] = uint64(p.cfg.JVMRuntimeMetrics.SamplingInterval.Nanoseconds())
@@ -349,6 +350,12 @@ func (p *Tracer) KProbes() map[string]ebpfcommon.ProbeDesc {
 				Required: false,
 				Start:    p.bpfObjects.ObiKprobeTcpRateCheckAppLimited,
 			}
+		}
+	} else {
+		// under socktracer, per-packet kprobes stay off; attach only the re-file hook.
+		kp["tcp_cleanup_rbuf"] = ebpfcommon.ProbeDesc{
+			Required: true,
+			Start:    p.bpfObjects.ObiKprobeTcpCleanupRbufTp,
 		}
 	}
 

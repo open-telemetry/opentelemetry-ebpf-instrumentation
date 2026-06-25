@@ -1086,6 +1086,51 @@ int BPF_KPROBE(obi_kprobe_tcp_cleanup_rbuf, struct sock *sk, int copied) {
     return return_recvmsg(ctx, sk, id, copied);
 }
 
+// Re-files socktracer's server trace (it keys by the listener) under the worker-thread
+// key so the sk_msg egress parent lookup resolves it. Emits no span.
+SEC("kprobe/tcp_cleanup_rbuf")
+int BPF_KPROBE(obi_kprobe_tcp_cleanup_rbuf_tp, struct sock *sk, int copied) {
+    if (!g_socktracer_mode) {
+        return 0;
+    }
+
+    if (copied <= 0) {
+        return 0;
+    }
+
+    const u64 id = bpf_get_current_pid_tgid();
+
+    if (!valid_pid(id)) {
+        return 0;
+    }
+
+    pid_connection_info_t p_conn = {};
+
+    if (!parse_sock_info(sk, &p_conn.conn)) {
+        return 0;
+    }
+
+    const u16 orig_dport = p_conn.conn.d_port;
+    sort_connection_info(&p_conn.conn);
+    p_conn.pid = pid_from_pid_tgid(id);
+
+    // restore pid->conn mapping for generictracer's cross-thread SSL_read resolution.
+    setup_connection_to_pid_mapping(id, &p_conn, orig_dport);
+
+    tp_info_pid_t *server_tp = trace_info_for_connection(&p_conn.conn, TRACE_TYPE_SERVER);
+
+    if (!server_tp || !server_tp->valid || !valid_trace(server_tp->tp.trace_id)) {
+        return 0;
+    }
+
+    trace_key_t t_key = {0};
+    trace_key_from_pid_tid(&t_key);
+
+    bpf_map_update_elem(&server_traces, &t_key, server_tp, BPF_ANY);
+
+    return 0;
+}
+
 SEC("kretprobe/tcp_recvmsg")
 int BPF_KRETPROBE(obi_kretprobe_tcp_recvmsg, int copied_len) {
     const u64 id = bpf_get_current_pid_tgid();

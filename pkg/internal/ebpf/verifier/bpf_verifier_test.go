@@ -184,6 +184,7 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 		{"max_transaction_time", []any{uint64(0), uint64(60_000_000_000)}},
 		{"http_max_captured_bytes", []any{uint32(0), uint32(262144)}},
 		{"tcp_max_captured_bytes", []any{uint32(0), uint32(65536)}},
+		{"g_socktracer_mode", []any{true, false}},
 	})
 
 	// gotracer
