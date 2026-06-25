@@ -295,7 +295,6 @@ const (
 const (
 	GenAIOperationName        = Name(semconv.GenAIOperationNameKey)
 	GenAISpanKind             = Name("gen_ai.span.kind")
-	GenAIUserTimeToFirstToken = Name("gen_ai.user.time_to_first_token")
 	GenAIProviderName  = Name(semconv.GenAIProviderNameKey)
 	QwenProviderName   = "qwen"
 	// With GenAI events, it's the first time we have a single event produce two separate metrics: input->tokens, output->tokens.

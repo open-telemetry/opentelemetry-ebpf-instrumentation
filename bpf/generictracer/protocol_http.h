@@ -308,7 +308,6 @@ static __always_inline void process_http_request(http_info_t *info,
 static __always_inline void process_http_response(http_info_t *info, const unsigned char *buf) {
     info->resp_len = 0;
     info->end_monotime_ns = bpf_ktime_get_ns();
-    info->first_byte_monotime_ns = info->end_monotime_ns;
 
     u16 status = 0;
 

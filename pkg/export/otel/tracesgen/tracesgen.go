@@ -761,9 +761,6 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 				}
 			}
 			attrs = append(attrs, genAIToolCallAttributes(ai.ToolCalls)...)
-			if ttft := genAITimeToFirstToken(span); ttft > 0 {
-				attrs = append(attrs, genAIUserTimeToFirstTokenKey.Int64(ttft))
-			}
 		}
 
 		if span.SubType == request.HTTPSubtypeAnthropic && span.GenAI != nil && span.GenAI.Anthropic != nil {
@@ -836,9 +833,6 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 				attrs = append(attrs, semconv.ErrorTypeKey.String(ai.Output.Error.Type))
 			}
 			attrs = append(attrs, genAIToolCallAttributes(ai.ToolCalls)...)
-			if ttft := genAITimeToFirstToken(span); ttft > 0 {
-				attrs = append(attrs, genAIUserTimeToFirstTokenKey.Int64(ttft))
-			}
 		}
 
 		if span.SubType == request.HTTPSubtypeGemini && span.GenAI != nil && span.GenAI.Gemini != nil {
@@ -918,9 +912,6 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 				attrs = append(attrs, semconv.ErrorTypeKey.String(ai.Output.Error.Status))
 			}
 			attrs = append(attrs, genAIToolCallAttributes(ai.ToolCalls)...)
-			if ttft := genAITimeToFirstToken(span); ttft > 0 {
-				attrs = append(attrs, genAIUserTimeToFirstTokenKey.Int64(ttft))
-			}
 		}
 
 		if span.SubType == request.HTTPSubtypeQwen && span.GenAI != nil && span.GenAI.Qwen != nil {
@@ -1007,9 +998,6 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 				attrs = append(attrs, semconv.ErrorTypeKey.String(ai.Error.Type))
 			}
 			attrs = append(attrs, genAIToolCallAttributes(ai.ToolCalls)...)
-			if ttft := genAITimeToFirstToken(span); ttft > 0 {
-				attrs = append(attrs, genAIUserTimeToFirstTokenKey.Int64(ttft))
-			}
 		}
 
 		if span.SubType == request.HTTPSubtypeAWSBedrock && span.GenAI != nil && span.GenAI.Bedrock != nil {
@@ -1065,9 +1053,6 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 			}
 			if ai.Output.ErrorType != "" {
 				attrs = append(attrs, semconv.ErrorTypeKey.String(ai.Output.ErrorType))
-			}
-			if ttft := genAITimeToFirstToken(span); ttft > 0 {
-				attrs = append(attrs, genAIUserTimeToFirstTokenKey.Int64(ttft))
 			}
 		}
 
@@ -1408,14 +1393,6 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]struct{}, redactKeys ...string) []attribute.KeyValue {
 	return traceAttributesSelectorInternal(span, optionalAttrs, buildRedactSet(redactKeys))
 }
-
-func genAITimeToFirstToken(span *request.Span) int64 {
-	if span.FirstByteTime > 0 && span.RequestStart > 0 && span.FirstByteTime > span.RequestStart {
-		return span.FirstByteTime - span.RequestStart
-	}
-	return 0
-}
-
 func genAISpanKind(operationName string) string {
 	switch operationName {
 	case "chat", "text_completion", "generate_content", "generation",
