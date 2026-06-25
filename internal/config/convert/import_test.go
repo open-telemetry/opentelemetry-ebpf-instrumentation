@@ -455,6 +455,80 @@ func TestV2ToRuntimeSkipsMixedGlobRegexRules(t *testing.T) {
 	require.Empty(t, got.Discovery.ExcludeServices)
 }
 
+func TestV2ToRuntimeRejectsMalformedRulePatterns(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name    string
+		match   schema.RuleMatch
+		wantErr string
+	}{
+		{
+			name: "glob",
+			match: schema.RuleMatch{
+				Process: schema.RuleProcessMatch{ExePathGlob: []string{"["}},
+			},
+			wantErr: "capture.rules[0].match.process.exe_path_glob",
+		},
+		{
+			name: "regex",
+			match: schema.RuleMatch{
+				Process: schema.RuleProcessMatch{ExePathRegex: "["},
+			},
+			wantErr: "capture.rules[0].match.process.exe_path_regex",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := V2ToRuntime(&schema.Extension{
+				Version: schema.SupportedVersion,
+				Capture: schema.Capture{
+					Rules: []schema.Rule{
+						{
+							Action: schema.CaptureActionInclude,
+							Match:  tc.match,
+						},
+					},
+				},
+			})
+			require.Error(t, err)
+			require.Contains(t, err.Error(), tc.wantErr)
+		})
+	}
+}
+
+func TestV2ToRuntimeDefaultIncludeUsesOnlyExclusions(t *testing.T) {
+	t.Parallel()
+
+	got, err := V2ToRuntime(&schema.Extension{
+		Version: schema.SupportedVersion,
+		Capture: schema.Capture{
+			Policy: schema.CapturePolicy{
+				DefaultAction: schema.CaptureActionInclude,
+				MatchOrder:    schema.MatchOrderFirstMatchWins,
+			},
+			Rules: []schema.Rule{
+				{
+					Action: schema.CaptureActionExclude,
+					Match: schema.RuleMatch{
+						Process: schema.RuleProcessMatch{
+							ExePathGlob: []string{"*/obi", "obi"},
+						},
+					},
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	require.Empty(t, got.Discovery.Instrument)
+	require.Empty(t, got.Discovery.Services)
+	require.Len(t, got.Discovery.ExcludeInstrument, 1)
+	require.Equal(t, "{*/obi,obi}", globString(got.Discovery.ExcludeInstrument[0].Path))
+	require.Empty(t, got.Discovery.ExcludeServices)
+}
+
 func TestV2ToRuntimeRulesPresenceControlsSelectorReplacement(t *testing.T) {
 	t.Parallel()
 

@@ -4,6 +4,7 @@
 package convert // import "go.opentelemetry.io/obi/internal/config/convert"
 
 import (
+	"fmt"
 	"reflect"
 	"slices"
 	"strings"
@@ -33,6 +34,9 @@ var v2StatsMetricsFeatureMask = export.FeatureStats
 // runtime loading.
 func V2ToRuntime(src *schema.Extension) (*obi.Config, error) {
 	if err := schema.ValidateStandalone(src); err != nil {
+		return nil, err
+	}
+	if err := validateV2RulePatterns(src.Capture.Rules); err != nil {
 		return nil, err
 	}
 
@@ -164,6 +168,112 @@ func collectV2ExportsOTLPExclusionRule(rules *runtimeDiscoveryRules, rule schema
 	return true
 }
 
+func validateV2RulePatterns(rules []schema.Rule) error {
+	for i, rule := range rules {
+		path := fmt.Sprintf("capture.rules[%d].match", i)
+		if err := validateV2RuleProcessGlobPatterns(path+".process", rule.Match.Process); err != nil {
+			return err
+		}
+		if err := validateV2RuleProcessRegexPatterns(path+".process", rule.Match.Process); err != nil {
+			return err
+		}
+		if err := validateV2RuleKubernetesGlobPatterns(path+".kubernetes", rule.Match.Kubernetes); err != nil {
+			return err
+		}
+		if err := validateV2RuleKubernetesRegexPatterns(path+".kubernetes", rule.Match.Kubernetes); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateV2RuleProcessGlobPatterns(path string, match schema.RuleProcessMatch) error {
+	if err := validateGlobAttr(path+".language_glob", match.LanguageGlob); err != nil {
+		return err
+	}
+	if err := validateGlobAttr(path+".cmd_args_glob", match.CmdArgsGlob); err != nil {
+		return err
+	}
+	return validateGlobAttr(path+".exe_path_glob", match.ExePathGlob)
+}
+
+func validateV2RuleProcessRegexPatterns(path string, match schema.RuleProcessMatch) error {
+	if err := validateRegexpAttr(path+".language_regex", match.LanguageRegex); err != nil {
+		return err
+	}
+	if err := validateRegexpAttr(path+".cmd_args_regex", match.CmdArgsRegex); err != nil {
+		return err
+	}
+	return validateRegexpAttr(path+".exe_path_regex", match.ExePathRegex)
+}
+
+func validateV2RuleKubernetesGlobPatterns(path string, match schema.RuleKubernetesMatch) error {
+	if err := validateGlobAttr(path+".namespace_glob", match.NamespaceGlob); err != nil {
+		return err
+	}
+	if err := validateGlobAttrMap(path+".metadata_glob", match.MetadataGlob); err != nil {
+		return err
+	}
+	if err := validateGlobAttrMap(path+".pod_labels", match.PodLabels); err != nil {
+		return err
+	}
+	return validateGlobAttrMap(path+".pod_annotations", match.PodAnnotations)
+}
+
+func validateV2RuleKubernetesRegexPatterns(path string, match schema.RuleKubernetesMatch) error {
+	if err := validateRegexpAttr(path+".namespace_regex", match.NamespaceRegex); err != nil {
+		return err
+	}
+	if err := validateRegexpAttrMap(path+".metadata_regex", match.MetadataRegex); err != nil {
+		return err
+	}
+	if err := validateRegexpAttrMap(path+".pod_labels_regex", match.PodLabelsRegex); err != nil {
+		return err
+	}
+	return validateRegexpAttrMap(path+".pod_annotations_regex", match.PodAnnotationsRegex)
+}
+
+func validateGlobAttr(path string, values []string) error {
+	if len(values) == 0 {
+		return nil
+	}
+	var attr services.GlobAttr
+	pattern := globPattern(values)
+	if err := attr.UnmarshalText([]byte(pattern)); err != nil {
+		return fmt.Errorf("%s: %w", path, err)
+	}
+	return nil
+}
+
+func validateGlobAttrMap(path string, values map[string][]string) error {
+	for key, value := range values {
+		if err := validateGlobAttr(fmt.Sprintf("%s[%q]", path, key), value); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateRegexpAttr(path, value string) error {
+	if value == "" {
+		return nil
+	}
+	var attr services.RegexpAttr
+	if err := attr.UnmarshalText([]byte(value)); err != nil {
+		return fmt.Errorf("%s: %w", path, err)
+	}
+	return nil
+}
+
+func validateRegexpAttrMap(path string, values map[string]string) error {
+	for key, value := range values {
+		if err := validateRegexpAttr(fmt.Sprintf("%s[%q]", path, key), value); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func selectorFromRule(rule schema.Rule) (*services.GlobAttributes, *services.RegexSelector, bool) {
 	if rule.Match.Process.ExportsOTLP != nil || ruleMatchEmpty(rule.Match) {
 		return nil, nil, false
@@ -287,11 +397,16 @@ func globAttr(values []string) services.GlobAttr {
 	switch len(values) {
 	case 0:
 		return services.GlobAttr{}
-	case 1:
-		return services.NewGlob(values[0])
 	default:
-		return services.NewGlob("{" + strings.Join(values, ",") + "}")
+		return services.NewGlob(globPattern(values))
 	}
+}
+
+func globPattern(values []string) string {
+	if len(values) == 1 {
+		return values[0]
+	}
+	return "{" + strings.Join(values, ",") + "}"
 }
 
 func globAttrMap(values map[string][]string) map[string]*services.GlobAttr {
