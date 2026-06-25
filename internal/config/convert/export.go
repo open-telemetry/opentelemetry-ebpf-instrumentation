@@ -599,7 +599,7 @@ func enrich(cfg *obi.Config) *schema.Enrich {
 	return &schema.Enrich{
 		Enrichers: schema.Enrichers{
 			Kubernetes: schema.KubernetesEnricher{
-				Mode:                cfg.Attributes.Kubernetes.Enable,
+				Mode:                v2KubernetesMode(cfg.Attributes.Kubernetes.Enable),
 				ClusterName:         cfg.Attributes.Kubernetes.ClusterName,
 				ServiceNameTemplate: cfg.Attributes.Kubernetes.ServiceNameTemplate,
 				Auth: schema.KubernetesAuth{

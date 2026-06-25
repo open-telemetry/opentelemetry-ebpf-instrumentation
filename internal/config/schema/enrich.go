@@ -4,9 +4,10 @@
 package schema // import "go.opentelemetry.io/obi/internal/config/schema"
 
 import (
+	"go.yaml.in/yaml/v3"
+
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
-	"go.opentelemetry.io/obi/pkg/kube/kubeflags"
 	"go.opentelemetry.io/obi/pkg/transform"
 )
 
@@ -22,9 +23,26 @@ type Enrichers struct {
 	Kubernetes KubernetesEnricher `yaml:"kubernetes"`
 }
 
+// KubernetesMode describes Kubernetes metadata enricher activation.
+type KubernetesMode string
+
+const (
+	// KubernetesModeAutodetect enables the enricher when Kubernetes is detected.
+	KubernetesModeAutodetect KubernetesMode = "autodetect"
+	// KubernetesModeEnabled always enables the Kubernetes enricher.
+	KubernetesModeEnabled KubernetesMode = "enabled"
+	// KubernetesModeDisabled disables the Kubernetes enricher.
+	KubernetesModeDisabled KubernetesMode = "disabled"
+)
+
+// UnmarshalYAML parses and validates a Kubernetes enricher mode.
+func (m *KubernetesMode) UnmarshalYAML(value *yaml.Node) error {
+	return unmarshalEnum(value, "mode", m, KubernetesModeAutodetect, KubernetesModeEnabled, KubernetesModeDisabled)
+}
+
 // KubernetesEnricher describes Kubernetes metadata enrichment settings.
 type KubernetesEnricher struct {
-	Mode                kubeflags.EnableFlag    `yaml:"mode"`
+	Mode                KubernetesMode          `yaml:"mode"`
 	ClusterName         string                  `yaml:"cluster_name"`
 	ServiceNameTemplate string                  `yaml:"service_name_template"`
 	Auth                KubernetesAuth          `yaml:"auth"`

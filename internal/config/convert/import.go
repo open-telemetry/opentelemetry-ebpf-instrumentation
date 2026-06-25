@@ -1089,7 +1089,7 @@ func applyV2KubernetesEnricher(cfg *obi.Config, enrich *schema.Enrich) {
 }
 
 func applyFullV2KubernetesEnricher(cfg *obi.Config, kubernetes schema.KubernetesEnricher) {
-	cfg.Attributes.Kubernetes.Enable = kubernetes.Mode
+	cfg.Attributes.Kubernetes.Enable = runtimeKubernetesMode(kubernetes.Mode)
 	cfg.Attributes.Kubernetes.ClusterName = kubernetes.ClusterName
 	cfg.Attributes.Kubernetes.KubeconfigPath = kubernetes.Auth.KubeconfigPath
 	cfg.Attributes.Kubernetes.InformersSyncTimeout = kubernetes.Informers.InitialSyncTimeout.TimeDuration()
@@ -1107,7 +1107,7 @@ func applyFullV2KubernetesEnricher(cfg *obi.Config, kubernetes schema.Kubernetes
 
 func applyPartialV2KubernetesEnricher(cfg *obi.Config, kubernetes schema.KubernetesEnricher) {
 	if kubernetes.Mode != "" {
-		cfg.Attributes.Kubernetes.Enable = kubernetes.Mode
+		cfg.Attributes.Kubernetes.Enable = runtimeKubernetesMode(kubernetes.Mode)
 	}
 	if kubernetes.ClusterName != "" {
 		cfg.Attributes.Kubernetes.ClusterName = kubernetes.ClusterName
@@ -1421,8 +1421,7 @@ func completeCaptureTelemetry(telemetry schema.CaptureTelemetry) bool {
 }
 
 func completeEnrichmentAttributes(attrs schema.EnrichmentAttributes) bool {
-	return !zeroValue(attrs.MetadataRetry.Timeout) &&
-		!zeroValue(attrs.MetadataRetry.StartInterval) &&
+	return !zeroValue(attrs.MetadataRetry.StartInterval) &&
 		!zeroValue(attrs.MetadataRetry.MaxInterval)
 }
 
@@ -1430,7 +1429,6 @@ func completeKubernetesEnricher(kubernetes schema.KubernetesEnricher) bool {
 	return kubernetes.Mode != "" &&
 		!zeroValue(kubernetes.Informers.InitialSyncTimeout) &&
 		!zeroValue(kubernetes.Informers.ReconnectInitialInterval) &&
-		!zeroValue(kubernetes.Informers.ResyncPeriod) &&
 		kubernetes.ResourceLabels != nil
 }
 
