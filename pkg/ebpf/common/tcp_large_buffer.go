@@ -76,6 +76,7 @@ func appendTCPLargeBuffer(parseCtx *EBPFParseContext, record *ringbuf.Record) (r
 		return request.Span{}, true, fmt.Errorf("invalid large buffer action: %d", event.Action)
 	}
 
+	return request.Span{}, true, nil
 }
 
 func extractLargeBuffer(
