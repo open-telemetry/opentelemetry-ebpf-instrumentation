@@ -327,24 +327,46 @@ func HTTPInfoEventToSpan(parseCtx *EBPFParseContext, event *BPFHTTPInfo) (reques
 	// We probe a single byte instead of ReadAll to avoid allocating and
 	// copying the entire body on the happy path.
 	if req.ContentLength > 0 {
-		var probe [1]byte
-		n, _ := req.Body.Read(probe[:])
-		if n == 0 {
-			// Body is empty despite Content-Length > 0; attempt recovery
-			// from the raw buffer.
-			if recovered := recoverJSONBodyFromBuffer(requestBuffer); len(recovered) > 0 {
-				if int64(len(recovered)) > req.ContentLength {
-					recovered = recovered[:req.ContentLength]
-				}
-				req.Body = io.NopCloser(bytes.NewBuffer(recovered))
-			}
-		} else {
-			// Body is present (happy path); prepend the consumed byte.
-			req.Body = io.NopCloser(io.MultiReader(bytes.NewReader(probe[:1]), req.Body))
-		}
+		recoverRequestBody(req, requestBuffer)
 	}
 
 	return httpRequestResponseToSpan(parseCtx, event, req, resp), false, nil
+}
+
+func recoverRequestBody(req *http.Request, requestBuffer *largebuf.LargeBuffer) {
+	var probe [1]byte
+	n, err := req.Body.Read(probe[:])
+	if n > 0 {
+		// Body is present (happy path); prepend the consumed byte.
+		req.Body = io.NopCloser(io.MultiReader(bytes.NewReader(probe[:1]), req.Body))
+		return
+	}
+
+	// Body is empty despite Content-Length > 0; attempt recovery
+	// from the raw buffer.
+	if recovered := recoverJSONBodyFromBuffer(requestBuffer); len(recovered) > 0 {
+		if int64(len(recovered)) > req.ContentLength {
+			recovered = recovered[:req.ContentLength]
+		}
+		req.Body = io.NopCloser(bytes.NewBuffer(recovered))
+		return
+	}
+
+	if err != nil {
+		req.Body = readErrorCloser{err: err}
+	}
+}
+
+type readErrorCloser struct {
+	err error
+}
+
+func (r readErrorCloser) Read([]byte) (int, error) {
+	return 0, r.err
+}
+
+func (r readErrorCloser) Close() error {
+	return nil
 }
 
 // recoverJSONBodyFromBuffer scans the raw request buffer for a JSON object
