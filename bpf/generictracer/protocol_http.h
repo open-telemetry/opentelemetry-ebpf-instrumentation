@@ -376,7 +376,7 @@ static __always_inline int http_send_large_buffer(void *ctx,
     state->batch_iter = 0;
     state->packet_type = packet_type;
     state->direction = direction;
-    state->action = (u8)action;
+    state->action = action;
 
     bpf_tail_call_static(ctx, &jump_table, k_tail_large_buf_emit_continue);
     return 0;
@@ -835,8 +835,7 @@ int obi_large_buf_emit_continue(struct pt_regs *ctx) {
     large_buf->packet_type = state->packet_type;
     large_buf->direction = state->direction;
     large_buf->conn_info = info->conn_info;
-    large_buf->action =
-        state->batch_iter == 0 ? (enum large_buf_action)state->action : k_large_buf_action_append;
+    large_buf->action = state->batch_iter == 0 ? state->action : k_large_buf_action_append;
     large_buf->kind = k_large_buf_layer_app;
     large_buf->tp = info->tp;
 
