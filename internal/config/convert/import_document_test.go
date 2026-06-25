@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	otelconfx "go.opentelemetry.io/contrib/otelconf/x"
 
 	"go.opentelemetry.io/obi/internal/config/schema"
 	"go.opentelemetry.io/obi/pkg/appolly/services"
@@ -105,5 +106,201 @@ func TestDocumentToRuntimeSkipsUnsupportedMetricReaderShapes(t *testing.T) {
 	require.Equal(t, obi.DefaultConfig.OTELMetrics.MetricsEndpoint, got.OTELMetrics.MetricsEndpoint)
 	require.Equal(t, obi.DefaultConfig.OTELMetrics.MetricsProtocol, got.OTELMetrics.MetricsProtocol)
 	require.Equal(t, obi.DefaultConfig.OTELMetrics.GetInterval(), got.OTELMetrics.GetInterval())
+	require.Equal(t, obi.DefaultConfig.Prometheus.Port, got.Prometheus.Port)
+}
+
+func TestDocumentToRuntimeSkipsUnsupportedTracerProviderShapes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		mutate func(*otelconfx.TracerProvider)
+	}{
+		{
+			name: "span limits",
+			mutate: func(provider *otelconfx.TracerProvider) {
+				limit := 12
+				provider.Limits = &otelconfx.SpanLimits{
+					AttributeCountLimit: &limit,
+				}
+			},
+		},
+		{
+			name: "tracer configurator",
+			mutate: func(provider *otelconfx.TracerProvider) {
+				provider.TracerConfiguratorDevelopment = &otelconfx.ExperimentalTracerConfigurator{}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			doc := documentWithRuntimeTelemetry()
+			tt.mutate(doc.TracerProvider)
+
+			got, err := DocumentToRuntime(doc)
+			require.NoError(t, err)
+
+			requireDefaultTraceProvider(t, got)
+		})
+	}
+}
+
+func TestDocumentToRuntimeSkipsUnsupportedMeterProviderShapes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		mutate func(*otelconfx.MeterProvider)
+	}{
+		{
+			name: "exemplar filter",
+			mutate: func(provider *otelconfx.MeterProvider) {
+				filter := otelconfx.ExemplarFilterAlwaysOn
+				provider.ExemplarFilter = &filter
+			},
+		},
+		{
+			name: "meter configurator",
+			mutate: func(provider *otelconfx.MeterProvider) {
+				provider.MeterConfiguratorDevelopment = &otelconfx.ExperimentalMeterConfigurator{}
+			},
+		},
+		{
+			name: "views",
+			mutate: func(provider *otelconfx.MeterProvider) {
+				provider.Views = []otelconfx.View{{}}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			doc := documentWithRuntimeTelemetry()
+			tt.mutate(doc.MeterProvider)
+
+			got, err := DocumentToRuntime(doc)
+			require.NoError(t, err)
+
+			requireDefaultMeterProvider(t, got)
+		})
+	}
+}
+
+func TestDocumentToRuntimeSkipsUnsupportedTraceOTLPGrpcTLS(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range unsupportedTLSFields() {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			doc := documentWithRuntimeTelemetry()
+			tt.mutate(doc.TracerProvider.Processors[0].Batch.Exporter.OTLPGrpc.Tls)
+
+			got, err := DocumentToRuntime(doc)
+			require.NoError(t, err)
+
+			requireDefaultTraceExporter(t, got)
+		})
+	}
+}
+
+func TestDocumentToRuntimeSkipsUnsupportedMetricOTLPGrpcTLS(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range unsupportedTLSFields() {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			doc := documentWithRuntimeTelemetry()
+			tt.mutate(doc.MeterProvider.Readers[0].Periodic.Exporter.OTLPGrpc.Tls)
+
+			got, err := DocumentToRuntime(doc)
+			require.NoError(t, err)
+
+			requireDefaultMeterProvider(t, got)
+		})
+	}
+}
+
+func documentWithRuntimeTelemetry() *schema.Document {
+	cfg := defaultRuntimeConfig()
+	cfg.Traces.TracesEndpoint = "http://traces.example:4317"
+	cfg.Traces.BatchMaxSize = 907
+	cfg.Traces.QueueSize = 908
+	cfg.Traces.BatchTimeout = 909 * time.Millisecond
+	cfg.Traces.SamplerConfig.Name = services.SamplerTraceIDRatio
+	cfg.Traces.SamplerConfig.Arg = "0.25"
+
+	cfg.OTELMetrics.MetricsEndpoint = "https://metrics.example:4317"
+	cfg.OTELMetrics.Interval = 914 * time.Millisecond
+	cfg.OTELMetrics.HistogramAggregation = otelcfg.HistogramAggregationExponential
+
+	cfg.Prometheus.Port = 917
+
+	doc, _ := RuntimeToV2(&cfg)
+	return doc
+}
+
+func unsupportedTLSFields() []struct {
+	name   string
+	mutate func(*otelconfx.GrpcTls)
+} {
+	return []struct {
+		name   string
+		mutate func(*otelconfx.GrpcTls)
+	}{
+		{
+			name: "CA file",
+			mutate: func(tls *otelconfx.GrpcTls) {
+				caFile := "/tmp/ca.pem"
+				tls.CaFile = &caFile
+			},
+		},
+		{
+			name: "cert file",
+			mutate: func(tls *otelconfx.GrpcTls) {
+				certFile := "/tmp/cert.pem"
+				tls.CertFile = &certFile
+			},
+		},
+		{
+			name: "key file",
+			mutate: func(tls *otelconfx.GrpcTls) {
+				keyFile := "/tmp/key.pem"
+				tls.KeyFile = &keyFile
+			},
+		},
+	}
+}
+
+func requireDefaultTraceProvider(t *testing.T, got *obi.Config) {
+	t.Helper()
+
+	requireDefaultTraceExporter(t, got)
+	require.Equal(t, obi.DefaultConfig.Traces.SamplerConfig, got.Traces.SamplerConfig)
+}
+
+func requireDefaultTraceExporter(t *testing.T, got *obi.Config) {
+	t.Helper()
+
+	require.Equal(t, obi.DefaultConfig.Traces.TracesEndpoint, got.Traces.TracesEndpoint)
+	require.Equal(t, obi.DefaultConfig.Traces.TracesProtocol, got.Traces.TracesProtocol)
+	require.Equal(t, obi.DefaultConfig.Traces.QueueSize, got.Traces.QueueSize)
+	require.Equal(t, obi.DefaultConfig.Traces.BatchMaxSize, got.Traces.BatchMaxSize)
+	require.Equal(t, obi.DefaultConfig.Traces.BatchTimeout, got.Traces.BatchTimeout)
+}
+
+func requireDefaultMeterProvider(t *testing.T, got *obi.Config) {
+	t.Helper()
+
+	require.Equal(t, obi.DefaultConfig.OTELMetrics.MetricsEndpoint, got.OTELMetrics.MetricsEndpoint)
+	require.Equal(t, obi.DefaultConfig.OTELMetrics.MetricsProtocol, got.OTELMetrics.MetricsProtocol)
+	require.Equal(t, obi.DefaultConfig.OTELMetrics.GetInterval(), got.OTELMetrics.GetInterval())
+	require.Equal(t, obi.DefaultConfig.OTELMetrics.HistogramAggregation, got.OTELMetrics.HistogramAggregation)
 	require.Equal(t, obi.DefaultConfig.Prometheus.Port, got.Prometheus.Port)
 }

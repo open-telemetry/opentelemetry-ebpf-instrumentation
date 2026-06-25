@@ -72,7 +72,7 @@ func stringResourceAttribute(attr otelconfx.AttributeNameValue) (string, bool) {
 }
 
 func applyV2TracerProvider(cfg *obi.Config, provider *otelconfx.TracerProvider) {
-	if provider == nil {
+	if provider == nil || !exportedTracerProvider(provider) {
 		return
 	}
 
@@ -98,6 +98,11 @@ func applyV2TracerProvider(cfg *obi.Config, provider *otelconfx.TracerProvider) 
 		cfg.Traces.TracesEndpoint = *batch.Exporter.OTLPGrpc.Endpoint
 	}
 	cfg.Traces.TracesProtocol = otelcfg.ProtocolGRPC
+}
+
+func exportedTracerProvider(provider *otelconfx.TracerProvider) bool {
+	return provider.Limits == nil &&
+		provider.TracerConfiguratorDevelopment == nil
 }
 
 func exportedBatchSpanProcessor(provider *otelconfx.TracerProvider) (*otelconfx.BatchSpanProcessor, bool) {
@@ -128,7 +133,8 @@ func exportedOTLPGrpcExporter(exporter *otelconfx.OTLPGrpcExporter) bool {
 	return exporter.Compression == nil &&
 		exporter.Headers == nil &&
 		exporter.HeadersList == nil &&
-		exporter.Timeout == nil
+		exporter.Timeout == nil &&
+		exportedGrpcTLS(exporter.Tls)
 }
 
 func samplerConfigFromV2(sampler *otelconfx.Sampler) (services.SamplerConfig, bool) {
@@ -206,7 +212,7 @@ func traceIDRatioSamplerConfig(
 }
 
 func applyV2MeterProvider(cfg *obi.Config, provider *otelconfx.MeterProvider) {
-	if provider == nil {
+	if provider == nil || !exportedMeterProvider(provider) {
 		return
 	}
 
@@ -221,6 +227,12 @@ func applyV2MeterProvider(cfg *obi.Config, provider *otelconfx.MeterProvider) {
 	if pull != nil {
 		applyV2PullMetricReader(cfg, pull)
 	}
+}
+
+func exportedMeterProvider(provider *otelconfx.MeterProvider) bool {
+	return provider.ExemplarFilter == nil &&
+		provider.MeterConfiguratorDevelopment == nil &&
+		len(provider.Views) == 0
 }
 
 func exportedMetricReaders(
@@ -270,7 +282,8 @@ func exportedOTLPGrpcMetricExporter(exporter *otelconfx.OTLPGrpcMetricExporter) 
 		exporter.Headers == nil &&
 		exporter.HeadersList == nil &&
 		exporter.TemporalityPreference == nil &&
-		exporter.Timeout == nil
+		exporter.Timeout == nil &&
+		exportedGrpcTLS(exporter.Tls)
 }
 
 func exportedPullMetricReader(reader *otelconfx.PullMetricReader) bool {
@@ -310,6 +323,16 @@ func applyV2PullMetricReader(cfg *obi.Config, reader *otelconfx.PullMetricReader
 	if exporter.Port != nil {
 		cfg.Prometheus.Port = *exporter.Port
 	}
+}
+
+func exportedGrpcTLS(tls *otelconfx.GrpcTls) bool {
+	if tls == nil {
+		return true
+	}
+
+	return tls.CaFile == nil &&
+		tls.CertFile == nil &&
+		tls.KeyFile == nil
 }
 
 func countTrue(values ...bool) int {
