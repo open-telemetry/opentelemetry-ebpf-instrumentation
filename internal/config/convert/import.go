@@ -39,6 +39,12 @@ func V2ToRuntime(src *schema.Extension) (*obi.Config, error) {
 	if err := validateV2RulePatterns(src.Capture.Rules); err != nil {
 		return nil, err
 	}
+	if err := validateV2HTTPFilters(src.Capture.Instrumentation.HTTP.Filters); err != nil {
+		return nil, err
+	}
+	if err := validateV2HTTPPayloadExtraction(src.Capture.Instrumentation.HTTP.PayloadExtraction); err != nil {
+		return nil, err
+	}
 
 	cfg := runtimeConfigDefaults()
 	applyV2Capture(&cfg, src)
@@ -185,6 +191,52 @@ func validateV2RulePatterns(rules []schema.Rule) error {
 		}
 	}
 	return nil
+}
+
+func validateV2HTTPFilters(filters schema.SignalFilters) error {
+	if len(filters.Traces) == 0 || len(filters.Metrics) == 0 {
+		return nil
+	}
+	if reflect.DeepEqual(filters.Traces, filters.Metrics) {
+		return nil
+	}
+	return fmt.Errorf("capture.instrumentation.http.filters: trace and metric filters cannot differ")
+}
+
+func validateV2HTTPPayloadExtraction(payload schema.PayloadExtraction) error {
+	for i, extractor := range payload.Enabled {
+		if !validV2HTTPPayloadExtractor(extractor) {
+			return fmt.Errorf(
+				"capture.instrumentation.http.payload_extraction.enabled[%d]: unknown payload extractor %q",
+				i,
+				extractor,
+			)
+		}
+	}
+	return nil
+}
+
+func validV2HTTPPayloadExtractor(extractor string) bool {
+	switch extractor {
+	case payloadExtractorGraphQL,
+		payloadExtractorElasticsearch,
+		payloadExtractorAWS,
+		payloadExtractorSQLPP,
+		payloadExtractorOpenAI,
+		payloadExtractorAnthropic,
+		payloadExtractorGemini,
+		payloadExtractorQwen,
+		payloadExtractorBedrock,
+		payloadExtractorMCP,
+		payloadExtractorEmbedding,
+		payloadExtractorRerank,
+		payloadExtractorRetrieval,
+		payloadExtractorJSONRPC,
+		payloadExtractorEnrichment:
+		return true
+	default:
+		return false
+	}
 }
 
 func validateV2RuleProcessGlobPatterns(path string, match schema.RuleProcessMatch) error {
@@ -732,10 +784,14 @@ func applyV2HTTPFilters(cfg *obi.Config, filters schema.SignalFilters, complete 
 	if zeroValue(filters) && !complete {
 		return
 	}
-	if !reflect.DeepEqual(filters.Traces, filters.Metrics) {
-		return
+	cfg.Filters.Application = attributeFilterMap(v2HTTPFilterMap(filters))
+}
+
+func v2HTTPFilterMap(filters schema.SignalFilters) schema.AttributeFilters {
+	if len(filters.Traces) != 0 {
+		return filters.Traces
 	}
-	cfg.Filters.Application = attributeFilterMap(filters.Traces)
+	return filters.Metrics
 }
 
 func applyFullV2HTTPRoutes(cfg *obi.Config, routes schema.HTTPRoutes) {

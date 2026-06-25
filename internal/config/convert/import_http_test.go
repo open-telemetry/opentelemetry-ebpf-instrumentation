@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"go.opentelemetry.io/obi/internal/config/schema"
 	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/config"
 	"go.opentelemetry.io/obi/pkg/filter"
@@ -146,4 +147,80 @@ func TestV2ToRuntimeHTTPApplicationFiltersRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, cfg.Filters.Application, got.Filters.Application)
+}
+
+func TestV2ToRuntimeHTTPApplicationFiltersImportsOneSignal(t *testing.T) {
+	t.Parallel()
+
+	statusCode := 500
+	filters := schema.AttributeFilters{
+		"http.status_code": {Equals: &statusCode},
+		"service.name":     {Match: "checkout-*"},
+	}
+
+	got, err := V2ToRuntime(&schema.Extension{
+		Version: schema.SupportedVersion,
+		Capture: schema.Capture{
+			Instrumentation: schema.Instrumentation{
+				HTTP: schema.HTTPInstrumentation{
+					Filters: schema.SignalFilters{
+						Traces: filters,
+					},
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	require.Equal(t, filter.AttributeFamilyConfig{
+		"http.status_code": {Equals: &statusCode},
+		"service.name":     {Match: "checkout-*"},
+	}, got.Filters.Application)
+}
+
+func TestV2ToRuntimeHTTPApplicationFiltersRejectsConflictingSignals(t *testing.T) {
+	t.Parallel()
+
+	statusCode := 500
+	_, err := V2ToRuntime(&schema.Extension{
+		Version: schema.SupportedVersion,
+		Capture: schema.Capture{
+			Instrumentation: schema.Instrumentation{
+				HTTP: schema.HTTPInstrumentation{
+					Filters: schema.SignalFilters{
+						Traces: schema.AttributeFilters{
+							"service.name": {Match: "checkout-*"},
+						},
+						Metrics: schema.AttributeFilters{
+							"http.status_code": {Equals: &statusCode},
+						},
+					},
+				},
+			},
+		},
+	})
+
+	require.ErrorContains(t, err, "capture.instrumentation.http.filters")
+}
+
+func TestV2ToRuntimeHTTPPayloadExtractionRejectsUnknownEnabled(t *testing.T) {
+	t.Parallel()
+
+	_, err := V2ToRuntime(&schema.Extension{
+		Version: schema.SupportedVersion,
+		Capture: schema.Capture{
+			Instrumentation: schema.Instrumentation{
+				HTTP: schema.HTTPInstrumentation{
+					PayloadExtraction: schema.PayloadExtraction{
+						Enabled: []string{
+							payloadExtractorGraphQL,
+							"unknown",
+						},
+					},
+				},
+			},
+		},
+	})
+
+	require.ErrorContains(t, err, `capture.instrumentation.http.payload_extraction.enabled[1]: unknown payload extractor "unknown"`)
 }
