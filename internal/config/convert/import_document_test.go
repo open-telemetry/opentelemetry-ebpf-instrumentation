@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+
 	otelconfx "go.opentelemetry.io/contrib/otelconf/x"
 
 	"go.opentelemetry.io/obi/internal/config/schema"
