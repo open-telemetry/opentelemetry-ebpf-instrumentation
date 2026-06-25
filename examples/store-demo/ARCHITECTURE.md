@@ -123,8 +123,25 @@ detected from each service's source tree under [`app/src`](./app/src).
 | shippingservice | Go | `go.mod` |
 <!-- /generated:languages -->
 
-## Notes For OBI
+## Adding A New Service
 
-- All service-to-service calls except the `loadgenerator->frontend` hop and the `cartservice->redis` hop use gRPC. This is why OBI's visibility into this demo is dominated by gRPC spans and `rpc_server_duration_seconds` metrics.
-- `redis-cart` is an unmodified upstream `redis:alpine` image deployed alongside `cartservice` in [cartservice.yaml](./k8s/cartservice.yaml); every other workload runs a locally built `obi-store-demo-*:local` image.
-- See [README.md](./README.md) for the current OBI visibility expectations and known gRPC propagation gaps.
+Adding a service to the demo touches several places. Only the last step is automated — everything else is maintained by hand. `fix_architecture.py` derives the graph and tables from the manifests, but it does **not** create manifests, wire callers, or edit the README, so keep this checklist in mind:
+
+1. **Source code** — add the service under [`app/src/<service>/`](./app/src) with a recognizable build marker so the language is detected: `go.mod`, `*.csproj`, `build.gradle`, `package.json`, `requirements.txt`, or `*.py` (see `detect_language` in [fix_architecture.py](./fix_architecture.py) for the priority order).
+
+2. **Kubernetes manifest** — add `k8s/<service>.yaml`. Three rules matter for the generated topology:
+   - the filename must **not** start with a digit (numbered `NN-` files are treated as infra and filtered out);
+   - the workload must be `kind: Deployment` (other kinds are not picked up);
+   - the Service port must declare `appProtocol: <grpc|http|redis|...>` — this is the source of truth for the protocol shown in the graph and table. A missing `appProtocol` on a called service is a hard error.
+
+3. **Register the manifest** — add `k8s/<service>.yaml` to the `resources:` list in [k8s/kustomization.yaml](./k8s/kustomization.yaml), otherwise `kubectl apply -k` will not deploy it. (This is not checked by the generator.)
+
+4. **Wire the callers** — add a `<NAME>_ADDR` env var (value `"<service>:<port>"`) to every service that calls the new one. Edges in the graph are derived from these env vars, so a service with no caller and no callees will not appear connected.
+
+5. **Build & load the image** — add the service to the `services=(...)` array in the [README "Build And Load Images"](./README.md) step so its image is built and loaded into the cluster.
+
+6. **Regenerate the doc** — run `make fix-store-demo-architecture`. CI enforces it with `make check-store-demo-architecture`.
+
+Extend `fix_architecture.py` only when introducing something new to the model: a **new protocol** value needs an entry in `PROTOCOL_DISPLAY`; a **new language** needs an entry in `LANGUAGES` (and possibly a new marker in `detect_language`); a **non-Deployment workload** needs `manifest_services` widened.
+
+The telemetry validation checks in the [README](./README.md) hard-code service name sets; update them too if the new service should be asserted on.

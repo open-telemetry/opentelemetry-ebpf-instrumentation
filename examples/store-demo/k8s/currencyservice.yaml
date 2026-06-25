@@ -78,6 +78,7 @@ spec:
   - name: grpc
     port: 7000
     targetPort: 7000
+    appProtocol: grpc
 ---
 apiVersion: v1
 kind: ServiceAccount

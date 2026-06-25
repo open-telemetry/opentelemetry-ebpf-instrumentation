@@ -12,17 +12,12 @@ Ground truth:
   * SERVICES = every `kind: Deployment` in the per-service manifests (k8s/).
   * EDGES    = every `*_ADDR` env var, as (caller, callee, port); the owning
                manifest is the caller, the value is "callee:port" it dials.
+  * PROTOCOL = each Service's `spec.ports[].appProtocol` field (grpc/http/redis).
   * LANGUAGE = detected from the source tree under app/src/<service>/.
-
-The only fact not in the manifests is the wire protocol, which is a function of
-the callee: the frontend is reached over HTTP, redis-cart over Redis, and every
-other service over gRPC (see PROTOCOL_BY_CALLEE).
 
 Usage:
   python3 fix_architecture.py            # rewrite the generated regions in place
   python3 fix_architecture.py --check    # fail (exit 1) if the doc is stale; CI mode
-
-stdlib only — no PyYAML — so it cannot fail on a missing dependency.
 """
 
 import difflib
@@ -41,11 +36,8 @@ ADDR_RE = re.compile(
     re.MULTILINE,
 )
 
-# Protocol is the one thing not encoded in the manifests. In this demo it is a
-# property of the callee: everything is gRPC except the HTTP frontend and the
-# Redis datastore. New non-gRPC callees must be added here.
-PROTOCOL_BY_CALLEE = {"frontend": "HTTP", "redis-cart": "Redis"}
-DEFAULT_PROTOCOL = "gRPC"
+# Kubernetes `appProtocol` value -> the label shown in the doc.
+PROTOCOL_DISPLAY = {"grpc": "gRPC", "http": "HTTP", "redis": "Redis"}
 
 # Language -> (mermaid classDef name, fill, stroke, text) in legend/classDef order.
 LANGUAGES = [
@@ -59,7 +51,21 @@ LANGUAGES = [
 
 
 def app_manifests() -> list[Path]:
-    """Per-service manifests only: skip numbered infra files and kustomization."""
+    """Per-service manifests only; infra manifests are excluded.
+
+    Infra/support manifests are identified by the `NN-` numbered-prefix naming
+    convention (`00-namespace.yaml`, `01-observability.yaml`,
+    `03-obi-values.yaml`) plus `kustomization.yaml`. This matters: for example
+    `01-observability.yaml` deploys the LGTM backend as a `kind: Deployment`,
+    which must NOT appear as a demo service node.
+
+    Conventions for future contributors:
+      * a new application service manifest must NOT start with a digit;
+      * a new infra/support manifest should keep the `NN-` prefix so it is
+        filtered out here.
+    A hardcoded blacklist was considered, but the prefix convention auto-handles
+    future infra files without needing edits to this script.
+    """
     return [
         y for y in sorted(K8S.glob("*.yaml"))
         if not y.name[0].isdigit() and y.name != "kustomization.yaml"
@@ -67,7 +73,12 @@ def app_manifests() -> list[Path]:
 
 
 def manifest_services() -> set[str]:
-    """Names of every Deployment declared in the per-service manifests."""
+    """Names of every `kind: Deployment` in the per-service manifests.
+
+    Only `Deployment` is recognised. A new service must be deployed as a
+    Deployment to appear in the graph; DaemonSets, StatefulSets, bare Pods, etc.
+    are intentionally not matched and would be silently omitted.
+    """
     services = set()
     for yaml in app_manifests():
         expect_name = False
@@ -93,8 +104,43 @@ def manifest_edges() -> set[tuple[str, str, str]]:
     return edges
 
 
+def manifest_protocols() -> dict[str, str]:
+    """{service: appProtocol} from each Service's port `appProtocol` field.
+
+    Protocol is the one fact not derivable from the wiring (the *_ADDR env vars
+    only carry host:port), so each Service declares it with the standard
+    Kubernetes `spec.ports[].appProtocol` field (grpc/http/redis). The first
+    `name:` after `kind: Service` is the Service name; its port `appProtocol` is
+    captured.
+    """
+    protocols: dict[str, str] = {}
+    for yaml in app_manifests():
+        kind = svc = None
+        for line in yaml.read_text().splitlines():
+            if m := re.match(r"kind:\s*(\S+)", line):
+                kind, svc = m.group(1), None
+            elif kind == "Service" and svc is None and (m := re.match(r"\s+name:\s*(\S+)", line)):
+                svc = m.group(1)
+            elif kind == "Service" and svc and (m := re.search(r"\bappProtocol:\s*(\S+)", line)):
+                protocols.setdefault(svc, m.group(1))
+    return protocols
+
+
 def detect_language(service: str) -> tuple[str, str]:
-    """(language, source-marker) for a service, from its app/src/ source tree."""
+    """(language, source-marker) for a service, detected from app/src/<service>/.
+
+    Heuristic: the source tree is searched for build/manifest markers in priority
+    order and the FIRST match wins, so a service shipping more than one marker
+    (e.g. a Go service that also has a `package.json` for assets) is classified
+    by the highest-priority one. Priority:
+
+        go.mod (Go) > *.csproj (C#/.NET) > build.gradle (Java) >
+        package.json (Node.js) > requirements.txt (Python) > *.py (Python)
+
+    A service with no `app/src/<service>/` directory falls back to the Redis
+    datastore label (redis-cart runs the upstream redis:alpine image, so it has
+    no vendored source).
+    """
     base = APP_SRC / service
     if not base.is_dir():
         if "redis" in service:
@@ -126,22 +172,18 @@ def _node_id(service: str) -> str:
     return service.replace("-", "_")
 
 
-def _protocol(callee: str) -> str:
-    return PROTOCOL_BY_CALLEE.get(callee, DEFAULT_PROTOCOL)
-
-
-def render_graph(services, edges, lang_of) -> str:
-    callee_port = {callee: port for _caller, callee, port in edges}
+def render_graph(services, edges, lang_of, proto_of) -> str:
+    callee_port = {callee: port for _caller, callee, port in sorted(edges)}
     present = [lang for lang in LANGUAGES if lang[0] in set(lang_of.values())]
 
     lines = ["```mermaid", "graph TD"]
     for svc in sorted(services):
         port = callee_port.get(svc)
-        label = f"{svc}<br/>:{port} {_protocol(svc)}" if port else svc
+        label = f"{svc}<br/>:{port} {proto_of[svc]}" if port else svc
         lines.append(f'    {_node_id(svc)}["{label}"]')
     lines.append("")
     for caller, callee, _port in sorted(edges):
-        lines.append(f"    {_node_id(caller)} -->|{_protocol(callee)}| {_node_id(callee)}")
+        lines.append(f"    {_node_id(caller)} -->|{proto_of[callee]}| {_node_id(callee)}")
     lines.append("")
     for name, cls, fill, stroke, text in present:
         lines.append(f"    classDef {cls} fill:{fill},stroke:{stroke},color:{text};")
@@ -160,10 +202,10 @@ def render_legend(lang_of) -> str:
     return "**Language legend:** " + " &nbsp;\n".join(parts)
 
 
-def render_connections(edges) -> str:
+def render_connections(edges, proto_of) -> str:
     lines = ["| Caller | Callee | Address | Protocol |", "| --- | --- | --- | --- |"]
     for caller, callee, port in sorted(edges):
-        lines.append(f"| {caller} | {callee} | `{callee}:{port}` | {_protocol(callee)} |")
+        lines.append(f"| {caller} | {callee} | `{callee}:{port}` | {proto_of[callee]} |")
     return "\n".join(lines)
 
 
@@ -180,14 +222,24 @@ def render_regions() -> dict[str, str]:
     if not services or not edges:
         sys.exit("ERROR: no services/edges found in manifests; check k8s/ path.")
 
+    raw_proto = manifest_protocols()
+    callees = {callee for _caller, callee, _port in edges}
+    missing = sorted(c for c in callees if c not in raw_proto)
+    if missing:
+        sys.exit(
+            f"ERROR: Service(s) missing 'appProtocol': {', '.join(missing)}. "
+            "Add 'appProtocol: <grpc|http|redis>' to the Service port in k8s/."
+        )
+    proto_of = {svc: PROTOCOL_DISPLAY.get(p, p) for svc, p in raw_proto.items()}
+
     detected = {svc: detect_language(svc) for svc in services}
     lang_of = {svc: lang for svc, (lang, _marker) in detected.items()}
     marker_of = {svc: marker for svc, (_lang, marker) in detected.items()}
 
     return {
-        "graph": render_graph(services, edges, lang_of),
+        "graph": render_graph(services, edges, lang_of, proto_of),
         "legend": render_legend(lang_of),
-        "connections": render_connections(edges),
+        "connections": render_connections(edges, proto_of),
         "languages": render_languages(services, lang_of, marker_of),
     }
 

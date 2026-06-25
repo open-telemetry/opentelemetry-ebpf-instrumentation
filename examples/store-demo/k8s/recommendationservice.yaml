@@ -81,6 +81,7 @@ spec:
   - name: grpc
     port: 8080
     targetPort: 8080
+    appProtocol: grpc
 ---
 apiVersion: v1
 kind: ServiceAccount
