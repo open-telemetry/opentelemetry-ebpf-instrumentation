@@ -47,7 +47,7 @@
 #include <maps/sock_dir.h>
 #include <maps/tp_info_mem.h>
 
-#include <tpinjector/h2_parse.h>
+#include <common/h2_parse.h>
 #include <tpinjector/maps/sk_h2_conn_flag.h>
 #include <tpinjector/maps/sk_tp_info_pid_map.h>
 

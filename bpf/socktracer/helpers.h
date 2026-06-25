@@ -5,6 +5,7 @@
 
 #include <bpfcore/vmlinux.h>
 
+#include <common/pkt_access.h>
 #include <common/ringbuf.h>
 #include <common/tc_common.h>
 #include <common/tp_info.h>
@@ -33,26 +34,6 @@ static __always_inline void print_tp(const char *msg, const tp_info_t *tp) {
 
 static __always_inline u8 request_type(const struct socket_data *sk_data) {
     return sk_data->sk_type == sk_type_client ? EVENT_HTTP_CLIENT : EVENT_HTTP_REQUEST;
-}
-
-static __always_inline unsigned char *
-check_pkt_access(unsigned char *buf, //NOLINT(readability-non-const-parameter)
-                 u32 offset,
-                 const unsigned char *end) {
-    unsigned char *ret;
-
-    asm goto("r4 = %[buf]\n"
-             "r4 += %[offset]\n"
-             "if r4 > %[end] goto %l[error]\n"
-             "%[ret] = %[buf]"
-             : [ret] "=r"(ret)
-             : [buf] "r"(buf), [end] "r"(end), [offset] "i"(offset)
-             : "r4"
-             : error);
-
-    return ret;
-error:
-    return NULL;
 }
 
 static __always_inline void

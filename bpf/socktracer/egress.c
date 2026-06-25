@@ -9,6 +9,7 @@
 #include <common/connection_info.h>
 #include <common/egress_key.h>
 #include <common/event_defs.h>
+#include <common/go_grpc_client_conn.h>
 #include <common/http_buf_size.h>
 #include <common/http_types.h>
 #include <common/scratch_mem.h>
@@ -63,7 +64,12 @@ static __always_inline void *ctx_data_end(void *ctx) {
 
 static __always_inline pid_connection_info_t
 pid_connection_info(const struct socket_data *sk_data) {
-    const pid_connection_info_t p_conn = {.conn = sk_data->sorted_conn, .pid = sk_data->pid_tgid};
+    // .pid is the u32 TGID; the raw u64 pid_tgid would truncate to the TID and
+    // miss cross-tracer maps keyed by TGID (e.g. go_grpc_client_conns).
+    const pid_connection_info_t p_conn = {
+        .conn = sk_data->sorted_conn,
+        .pid = pid_from_pid_tgid(sk_data->pid_tgid),
+    };
 
     return p_conn;
 }
@@ -94,6 +100,7 @@ enum {
     k_tail_egress_http_create_tp,
     k_tail_egress_http_found_tp,
     k_tail_egress_http2,
+    k_tail_egress_h2_detect,
     k_tail_egress_h2_find_existing_tp,
     k_tail_egress_h2_validate_tp,
     k_tail_egress_h2_create_tp,
@@ -106,6 +113,7 @@ int obi_egress_http_req(struct sk_msg_md *msg);
 int obi_egress_http_create_tp(struct sk_msg_md *msg);
 int obi_egress_http_found_tp(struct sk_msg_md *msg);
 int obi_egress_http2(struct sk_msg_md *msg);
+int obi_egress_h2_detect(struct sk_msg_md *msg);
 int obi_egress_h2_find_existing_tp(struct sk_msg_md *msg);
 int obi_egress_h2_validate_tp(struct sk_msg_md *msg);
 int obi_egress_h2_create_tp(struct sk_msg_md *msg);
@@ -113,7 +121,7 @@ int obi_egress_h2_write_tp(struct sk_msg_md *msg);
 
 struct {
     __uint(type, BPF_MAP_TYPE_PROG_ARRAY);
-    __uint(max_entries, 10);
+    __uint(max_entries, 11);
     __uint(key_size, sizeof(u32));
     __array(values, int(void *));
 } obi_egress_progs SEC(".maps") = {
@@ -125,6 +133,7 @@ struct {
             [k_tail_egress_http_create_tp] = (void *)&obi_egress_http_create_tp,
             [k_tail_egress_http_found_tp] = (void *)&obi_egress_http_found_tp,
             [k_tail_egress_http2] = (void *)&obi_egress_http2,
+            [k_tail_egress_h2_detect] = (void *)&obi_egress_h2_detect,
             [k_tail_egress_h2_find_existing_tp] = (void *)&obi_egress_h2_find_existing_tp,
             [k_tail_egress_h2_validate_tp] = (void *)&obi_egress_h2_validate_tp,
             [k_tail_egress_h2_create_tp] = (void *)&obi_egress_h2_create_tp,
@@ -357,11 +366,15 @@ static __always_inline bool handle_uprobe_tp(struct sk_msg_md *msg, struct socke
         return true;
     }
 
-    // go plaintext (valid==1): the go uprobe already generated the span; just inject
-    // the Traceparent header directly using the Go TP and skip protocol handling.
+    // go (valid==1): the go uprobe already generated the span. For Go gRPC it also
+    // wrote the traceparent into the HTTP/2 HPACK headers in the user buffer, so
+    // writing an HTTP/1 Traceparent header here would corrupt the frame — inject
+    // only the TCP option for those. Plain HTTP/1 still gets the header.
     schedule_write_tcp_option(msg, tp_pid);
 
-    if (inject_flags & k_inject_http_headers) {
+    const pid_connection_info_t p_conn = pid_connection_info(sk_data);
+
+    if (!is_go_grpc_client_conn(&p_conn) && (inject_flags & k_inject_http_headers)) {
         write_http_traceparent(msg, tp_pid);
     }
 
@@ -553,6 +566,11 @@ static __always_inline void write_tp_http_header(void *ctx, tailcall_ctx *t_ctx)
     bpf_d_printk("tailcall failed [%s]", __FUNCTION__);
 }
 
+// Included here (not at the top): the HTTP/2 injection chain calls init_tp,
+// init_span_id, get_tp_info_pid and schedule_write_tcp_option, which are defined
+// above as __always_inline statics and so must be visible before use.
+#include <socktracer/http2_inject.h>
+
 //k_tail_egress_http_create_tp
 SEC("sk_msg")
 int obi_egress_http_create_tp(struct sk_msg_md *msg) {
@@ -589,27 +607,70 @@ int obi_egress_http2(struct sk_msg_md *msg) {
 
     emit_http2_buffer(msg, sk_data, k_packet_direction_egress);
 
+    // Inject HPACK on the client side only; responses/server push must not be rewritten.
+    if (sk_data->sk_type != sk_type_client) {
+        return SK_PASS;
+    }
+
+    t_ctx->p_conn = pid_connection_info(sk_data);
+
+    // Go gRPC clients inject HPACK via the gotracer uprobe; don't double-inject.
+    if (is_go_grpc_client_conn(&t_ctx->p_conn)) {
+        return SK_PASS;
+    }
+
+    t_ctx->e_key = make_egress_key(&sk_data->conn);
+    t_ctx->h2_frames = 0;
+    t_ctx->h2_scan_pos = 0;
+
+    bpf_tail_call_static(msg, &obi_egress_progs, k_tail_egress_h2_detect);
+
     return SK_PASS;
 }
 
-// HTTP/2 HPACK traceparent injection chain (client egress only). Stubs for now;
-// the detect/find/validate/create/write logic lands in socktracer/http2_inject.h.
+// HTTP/2 HPACK traceparent injection chain (client egress only); logic in
+// socktracer/http2_inject.h. Kept as separate tail-call stages for the verifier.
+SEC("sk_msg")
+int obi_egress_h2_detect(struct sk_msg_md *msg) {
+    tailcall_ctx *t_ctx = tailcall_ctx_mem();
+    if (!t_ctx) {
+        return SK_PASS;
+    }
+    return obi_egress_h2_detect_step(msg, t_ctx);
+}
+
 SEC("sk_msg")
 int obi_egress_h2_find_existing_tp(struct sk_msg_md *msg) {
-    return SK_PASS;
+    tailcall_ctx *t_ctx = tailcall_ctx_mem();
+    if (!t_ctx) {
+        return SK_PASS;
+    }
+    return obi_egress_h2_find_existing_step(msg, t_ctx);
 }
 
 SEC("sk_msg")
 int obi_egress_h2_validate_tp(struct sk_msg_md *msg) {
-    return SK_PASS;
+    tailcall_ctx *t_ctx = tailcall_ctx_mem();
+    if (!t_ctx) {
+        return SK_PASS;
+    }
+    return obi_egress_h2_validate_step(msg, t_ctx);
 }
 
 SEC("sk_msg")
 int obi_egress_h2_create_tp(struct sk_msg_md *msg) {
-    return SK_PASS;
+    tailcall_ctx *t_ctx = tailcall_ctx_mem();
+    if (!t_ctx) {
+        return SK_PASS;
+    }
+    return obi_egress_h2_create_step(msg, t_ctx);
 }
 
 SEC("sk_msg")
 int obi_egress_h2_write_tp(struct sk_msg_md *msg) {
-    return SK_PASS;
+    tailcall_ctx *t_ctx = tailcall_ctx_mem();
+    if (!t_ctx) {
+        return SK_PASS;
+    }
+    return obi_egress_h2_write_step(msg, t_ctx);
 }

@@ -23,6 +23,7 @@
 #include <socktracer/helpers.h>
 #include <socktracer/http.h>
 #include <socktracer/http2.h>
+#include <socktracer/http2_extract.h>
 #include <socktracer/maps/listener_pid_map.h>
 #include <socktracer/maps/sk_data_map.h>
 #include <socktracer/socket_data.h>
@@ -309,6 +310,7 @@ enum {
     k_tail_ingress_http2,
     k_tail_ingress_tcp,
     k_tail_ingress_tcp_req,
+    k_tail_ingress_h2_extract,
 };
 
 int obi_ingress_http_req(struct __sk_buff *skb);
@@ -317,10 +319,11 @@ int obi_ingress_http_found_tp(struct __sk_buff *skb);
 int obi_ingress_http2(struct __sk_buff *skb);
 int obi_ingress_tcp(struct __sk_buff *skb);
 int obi_ingress_tcp_req(struct __sk_buff *skb);
+int obi_ingress_h2_extract(struct __sk_buff *skb);
 
 struct {
     __uint(type, BPF_MAP_TYPE_PROG_ARRAY);
-    __uint(max_entries, 6);
+    __uint(max_entries, 7);
     __uint(key_size, sizeof(u32));
     __array(values, int(void *));
 } obi_ingress_progs SEC(".maps") = {
@@ -329,7 +332,8 @@ struct {
                [k_tail_ingress_http_found_tp] = (void *)&obi_ingress_http_found_tp,
                [k_tail_ingress_http2] = (void *)&obi_ingress_http2,
                [k_tail_ingress_tcp] = (void *)&obi_ingress_tcp,
-               [k_tail_ingress_tcp_req] = (void *)&obi_ingress_tcp_req},
+               [k_tail_ingress_tcp_req] = (void *)&obi_ingress_tcp_req,
+               [k_tail_ingress_h2_extract] = (void *)&obi_ingress_h2_extract},
 };
 
 static __always_inline void *prog_map() {
@@ -349,7 +353,10 @@ static __always_inline u32 tail_http_found_tp() {
 }
 
 static __always_inline u32 tail_http2() {
-    return k_tail_ingress_http2;
+    // Extract any incoming traceparent (HPACK) before emitting the buffer, so the
+    // server span adopts the client's trace; obi_ingress_h2_extract tail-calls on
+    // to k_tail_ingress_http2.
+    return k_tail_ingress_h2_extract;
 }
 
 static __always_inline unsigned char *tp_span_id_field(tp_info_t *tp) {
@@ -502,6 +509,50 @@ int obi_ingress_http2(struct __sk_buff *skb) {
     }
 
     emit_http2_buffer(skb, sk_data, k_packet_direction_ingress);
+
+    return SK_PASS;
+}
+
+// k_tail_ingress_h2_extract: reads an incoming traceparent from the HTTP/2 HPACK
+// headers and registers it as this connection's parent trace, so the server span
+// emitted by obi_ingress_http2 adopts the client's trace. Non-Go servers have no
+// uprobe to do this; on client-side ingress (a response) the scan finds nothing.
+SEC("cgroup_skb/ingress")
+int obi_ingress_h2_extract(struct __sk_buff *skb) {
+    bpf_dbg_enter();
+
+    tailcall_ctx *t_ctx = tailcall_ctx_mem();
+
+    if (!t_ctx) {
+        return SK_PASS;
+    }
+
+    const u64 cookie = t_ctx->sock_cookie;
+
+    struct socket_data *sk_data = bpf_map_lookup_elem(&sk_data_map, &cookie);
+
+    if (!sk_data) {
+        return SK_PASS;
+    }
+
+    tp_info_t parent_tp = {0};
+
+    if (scan_h2_ingress_tp(skb, &parent_tp)) {
+        tp_info_pid_t tp_p = {0};
+        tp_p.tp = parent_tp;
+        tp_p.tp.ts = bpf_ktime_get_ns();
+        tp_p.valid = 1;
+        tp_p.written = 1;
+        tp_p.pid = sk_data->pid_tgid;
+        tp_p.req_type = request_type(sk_data);
+
+        print_tp("h2: extracted ingress TP", &tp_p.tp);
+
+        bpf_map_update_elem(&incoming_trace_map, &sk_data->sorted_conn, &tp_p, BPF_ANY);
+        set_trace(sk_data, &tp_p);
+    }
+
+    bpf_tail_call_static(skb, &obi_ingress_progs, k_tail_ingress_http2);
 
     return SK_PASS;
 }

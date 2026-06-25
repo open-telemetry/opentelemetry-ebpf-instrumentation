@@ -1,0 +1,12 @@
+trace_printer: text
+log_level: debug
+routes:
+  unmatched: path
+otel_traces_export:
+  endpoint: http://jaeger:4318
+discovery:
+  services:
+    - name: pygrpcclient
+      open_ports: 8080
+    - name: grpcsrv
+      open_ports: 50051
