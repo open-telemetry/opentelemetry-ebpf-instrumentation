@@ -42,8 +42,7 @@ var (
 	genAIUsageCacheReadInputTokens     = attribute.Key("gen_ai.usage.cache_read.input_tokens")
 	genAIUsageReasoningOutputTokens    = attribute.Key("gen_ai.usage.reasoning.output_tokens")
 	openAIAPITypeKey                   = attribute.Key("openai.api.type")
-	awsBedrockGuardrailIDKey           = attribute.Key("aws.bedrock.guardrail.id")
-	genAIUserTimeToFirstTokenKey       = attribute.Key("gen_ai.user.time_to_first_token")
+	awsBedrockGuardrailIDKey = attribute.Key("aws.bedrock.guardrail.id")
 )
 
 type TraceSpanAndAttributes struct {
@@ -1393,6 +1392,7 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]struct{}, redactKeys ...string) []attribute.KeyValue {
 	return traceAttributesSelectorInternal(span, optionalAttrs, buildRedactSet(redactKeys))
 }
+
 func genAISpanKind(operationName string) string {
 	switch operationName {
 	case "chat", "text_completion", "generate_content", "generation",

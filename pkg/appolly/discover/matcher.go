@@ -160,16 +160,6 @@ func (m *Matcher) watchCriteriaChanges(ctx context.Context) {
 	}
 }
 
-func countByType(events []Event[ProcessMatch], t WatchEventType) int {
-	n := 0
-	for _, e := range events {
-		if e.Type == t {
-			n++
-		}
-	}
-	return n
-}
-
 func (m *Matcher) filter(events []Event[ProcessAttrs]) []Event[ProcessMatch] {
 	m.historyMu.Lock()
 	defer m.historyMu.Unlock()

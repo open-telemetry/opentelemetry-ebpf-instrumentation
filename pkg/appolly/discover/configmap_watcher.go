@@ -14,9 +14,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	"gopkg.in/yaml.v3"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
-	"gopkg.in/yaml.v3"
 
 	"go.opentelemetry.io/obi/pkg/appolly/services"
 )

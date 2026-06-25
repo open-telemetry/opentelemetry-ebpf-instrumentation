@@ -504,13 +504,13 @@
             "/usr/sbin/"
           ]
         },
-        "instrument": {
-          "$ref": "#/$defs/GlobDefinitionCriteria",
-          "description": "Selects the services to instrument via Globs. If this section is set, both the Services and ExcludeServices section is ignored. If the user defined the OTEL_EBPF_INSTRUMENT_COMMAND or OTEL_EBPF_INSTRUMENT_PORTS variables, they will be automatically added to the instrument criteria, with the lowest preference."
-        },
         "hot_reload": {
           "$ref": "#/$defs/HotReloadConfig",
           "description": "Enables watching ConfigMaps for dynamic discovery criteria updates"
+        },
+        "instrument": {
+          "$ref": "#/$defs/GlobDefinitionCriteria",
+          "description": "Selects the services to instrument via Globs. If this section is set, both the Services and ExcludeServices section is ignored. If the user defined the OTEL_EBPF_INSTRUMENT_COMMAND or OTEL_EBPF_INSTRUMENT_PORTS variables, they will be automatically added to the instrument criteria, with the lowest preference."
         },
         "min_process_age": {
           "type": "string",
