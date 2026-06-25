@@ -366,7 +366,7 @@ func recoverJSONBodyFromBuffer(buf *largebuf.LargeBuffer) []byte {
 	// Scan forward from header end to find a JSON object or array.
 	for i := bodyStart; i < len(raw); i++ {
 		if raw[i] == '{' || raw[i] == '[' {
-			return raw[i:]
+			return append([]byte(nil), raw[i:]...)
 		}
 	}
 	return nil
