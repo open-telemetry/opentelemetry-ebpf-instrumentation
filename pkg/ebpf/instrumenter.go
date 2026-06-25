@@ -725,22 +725,9 @@ func (i *instrumenter) sockmsgs(p Tracer) error {
 
 func (i *instrumenter) sockops(p Tracer) error {
 	for _, sockops := range p.SockOps() {
-		cgroupPath, err := CgroupV2Path()
-		if err != nil {
-			if i.metrics != nil {
-				i.metrics.InstrumentationError(i.processName, imetrics.InstrumentationErrorCgroupNotFound)
-			}
-			slog.Warn("could not get cgroup path (missing cgroup v2?), using best-effort TC tracking", "error", err)
-			return nil
-		}
+		slog.Info("Attaching sock ops")
 
-		slog.Info("Attaching sock ops", "path", cgroupPath)
-
-		sockops.SockopsCgroup, err = link.AttachCgroup(link.CgroupOptions{
-			Path:    cgroupPath,
-			Attach:  sockops.AttachAs,
-			Program: sockops.Program,
-		})
+		l, err := AttachCgroupSockOps(sockops.Program, sockops.AttachAs)
 		if err != nil {
 			if i.metrics != nil {
 				i.metrics.InstrumentationError(i.processName, imetrics.InstrumentationErrorAttachingCgroup)
@@ -749,6 +736,7 @@ func (i *instrumenter) sockops(p Tracer) error {
 			return nil
 		}
 
+		sockops.SockopsCgroup = l
 		p.AddCloser(&sockops)
 	}
 
