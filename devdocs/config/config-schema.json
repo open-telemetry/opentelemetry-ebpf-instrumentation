@@ -508,6 +508,10 @@
           "$ref": "#/$defs/GlobDefinitionCriteria",
           "description": "Selects the services to instrument via Globs. If this section is set, both the Services and ExcludeServices section is ignored. If the user defined the OTEL_EBPF_INSTRUMENT_COMMAND or OTEL_EBPF_INSTRUMENT_PORTS variables, they will be automatically added to the instrument criteria, with the lowest preference."
         },
+        "hot_reload": {
+          "$ref": "#/$defs/HotReloadConfig",
+          "description": "Enables watching ConfigMaps for dynamic discovery criteria updates"
+        },
         "min_process_age": {
           "type": "string",
           "pattern": "^[0-9]+(ms|s|m)$",
@@ -1325,6 +1329,44 @@
         }
       },
       "type": "object"
+    },
+    "HotReloadConfig": {
+      "properties": {
+        "configmaps": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "default": [
+            "arms-obi-discovery",
+            "arms-obi-discovery-default"
+          ],
+          "x-env-var": "OTEL_EBPF_DISCOVERY_HOT_RELOAD_CONFIGMAPS"
+        },
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "x-env-var": "OTEL_EBPF_DISCOVERY_HOT_RELOAD"
+        },
+        "namespace": {
+          "type": "string",
+          "default": "obi-system",
+          "x-env-var": "OTEL_EBPF_DISCOVERY_HOT_RELOAD_NAMESPACE"
+        },
+        "poll_interval": {
+          "type": "string",
+          "pattern": "^[0-9]+(ms|s|m)$",
+          "default": "15s",
+          "examples": [
+            "30s",
+            "5m",
+            "1ms"
+          ],
+          "x-env-var": "OTEL_EBPF_DISCOVERY_HOT_RELOAD_POLL_INTERVAL"
+        }
+      },
+      "type": "object",
+      "description": "HotReloadConfig configures dynamic reloading of discovery instrument criteria from ConfigMaps"
     },
     "IPInfoConfig": {
       "properties": {

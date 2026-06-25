@@ -355,6 +355,12 @@ discovery:
 				JavaHarvestDelay: 5 * time.Second,
 			},
 			ExcludedLinuxSystemPaths: []string{"/lib/systemd/", "/usr/lib/systemd/", "/usr/libexec/", "/sbin/", "/usr/sbin/"},
+			HotReload: services.HotReloadConfig{
+				Enabled:      true,
+				ConfigMaps:   []string{"arms-obi-discovery", "arms-obi-discovery-default"},
+				Namespace:    "obi-system",
+				PollInterval: 15 * time.Second,
+			},
 		},
 		NodeJS: NodeJSConfig{
 			Enabled: true,

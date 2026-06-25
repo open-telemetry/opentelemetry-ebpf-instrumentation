@@ -79,7 +79,7 @@ func TestWatcher_Poll(t *testing.T) {
 		{Type: EventCreated, Obj: p1_1},
 		{Type: EventCreated, Obj: p2},
 		{Type: EventCreated, Obj: p3},
-	}, sort(out))
+	}, sortEvents(out))
 
 	// WHEN it polls the process for the successive times
 	// THEN it returns the creation of the new processes/connections
@@ -89,12 +89,12 @@ func TestWatcher_Poll(t *testing.T) {
 		{Type: EventCreated, Obj: p1_2},
 		{Type: EventDeleted, Obj: p2},
 		{Type: EventCreated, Obj: p4},
-	}, sort(out))
+	}, sortEvents(out))
 	out = testutil.ReadChannel(t, accounterOutput, testTimeout)
 	assert.Equal(t, []Event[ProcessAttrs]{
 		{Type: EventDeleted, Obj: p1_2},
 		{Type: EventCreated, Obj: p2},
-	}, sort(out))
+	}, sortEvents(out))
 
 	// WHEN a new process with no connections is created
 	// THEN it should be also reported
@@ -102,7 +102,7 @@ func TestWatcher_Poll(t *testing.T) {
 	out = testutil.ReadChannel(t, accounterOutput, testTimeout)
 	assert.Equal(t, []Event[ProcessAttrs]{
 		{Type: EventCreated, Obj: p5},
-	}, sort(out))
+	}, sortEvents(out))
 
 	// WHEN no changes in the process, it doesn't send anything
 	select {
@@ -251,7 +251,7 @@ func TestPortsFetchRequired(t *testing.T) {
 }
 
 // auxiliary function just to allow comparing slices whose order is not deterministic
-func sort(events []Event[ProcessAttrs]) []Event[ProcessAttrs] {
+func sortEvents(events []Event[ProcessAttrs]) []Event[ProcessAttrs] {
 	slices.SortFunc(events, func(a, b Event[ProcessAttrs]) int {
 		return int(a.Obj.pid) - int(b.Obj.pid)
 	})
@@ -359,8 +359,8 @@ func TestForgetPIDs_ReemitsExistingProcess(t *testing.T) {
 	require.NoError(t, err)
 	events := acc.snapshot(procs)
 	require.Len(t, events, 2)
-	assert.Equal(t, EventCreated, sort(events)[0].Type)
-	assert.Equal(t, EventCreated, sort(events)[1].Type)
+	assert.Equal(t, EventCreated, sortEvents(events)[0].Type)
+	assert.Equal(t, EventCreated, sortEvents(events)[1].Type)
 	// Second snapshot: no new events (already seen)
 	events2 := acc.snapshot(procs)
 	assert.Empty(t, events2)
