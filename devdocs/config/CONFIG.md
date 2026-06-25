@@ -705,6 +705,17 @@ Map of attribute group names to arrays of attribute names. Only 'k8s_app_meta' i
 | `sampler` | [`SamplerConfig`](#samplerconfig) |  | Sampler standard configuration <https://opentelemetry.io/docs/concepts/sdk-configuration/general-sdk-configuration/#otel_traces_sampler> We don't support, yet, the jaeger and xray samplers. |
 | `target_pids` | `integer`[] |  | Allows selecting processes by PID (static from config). When non-empty, the process PID must be in this list. |
 
+### HotReloadConfig
+
+HotReloadConfig configures dynamic reloading of discovery instrument criteria from ConfigMaps
+
+| Field | Type | Values | Description |
+|---|---|---|---|
+| `configmaps` | `string`[] |  |  |
+| `enabled` | `boolean` |  |  |
+| `namespace` | `string` |  |  |
+| `poll_interval` | `duration` | `30s`, `5m`, `1ms`, etc |  |
+
 ### HTTPParsingDefaultAction
 
 HTTPParsingDefaultAction specifies the default action per rule type.
