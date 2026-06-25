@@ -8,6 +8,7 @@ require (
 	github.com/caarlos0/env/v11 v11.4.1
 	github.com/cilium/ebpf v0.20.0
 	github.com/containers/common v0.64.2
+	github.com/dop251/goja v0.0.0-20260618133527-c9b2ea77db59
 	github.com/gin-gonic/gin v1.12.0
 	github.com/go-logr/logr v1.4.3
 	github.com/go-logr/stdr v1.2.2
@@ -159,6 +160,7 @@ require (
 	github.com/go-openapi/swag/yamlutils v0.25.5 // indirect
 	github.com/go-playground/locales v0.14.1 // indirect
 	github.com/go-playground/universal-translator v0.18.1 // indirect
+	github.com/go-sourcemap/sourcemap v2.1.3+incompatible // indirect
 	github.com/goccy/go-yaml v1.19.2 // indirect
 	github.com/golang/snappy v1.0.0 // indirect
 	github.com/google/btree v1.1.3 // indirect

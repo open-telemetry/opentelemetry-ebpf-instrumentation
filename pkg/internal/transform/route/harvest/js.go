@@ -473,6 +473,16 @@ func (e *RouteExtractor) scanFile(filePath string) error {
 		return err
 	}
 
+	// Fallback pass: resolve routes whose path comes from a variable or a
+	// template literal, which the line-based regex harvesters cannot match.
+	src, ok, err := readJSFileForScan(filePath)
+	if err != nil {
+		return err
+	}
+	if ok {
+		e.routes = append(e.routes, e.resolveASTRoutes(filePath, src)...)
+	}
+
 	return nil
 }
 
