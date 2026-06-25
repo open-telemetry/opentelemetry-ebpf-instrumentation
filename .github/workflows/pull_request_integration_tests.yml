@@ -85,7 +85,16 @@ jobs:
         id: cache-key
         env:
           ARCH: ${{ runner.arch }}
-        run: echo "key=base-images-${ARCH}-$(bash scripts/discover-integration-images.sh --base-images | sha256sum | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+          INPUT_REF: ${{ inputs.ref || '' }}
+        run: |
+          if [ -n "${INPUT_REF}" ]; then
+            REF_SCOPE="input-ref-$(printf '%s' "${INPUT_REF}" | sha256sum | cut -d' ' -f1)"
+          else
+            REF_SCOPE="event-ref"
+          fi
+
+          IMAGE_SCOPE="$(bash scripts/discover-integration-images.sh --base-images | sha256sum | cut -d' ' -f1)"
+          echo "key=base-images-${ARCH}-${REF_SCOPE}-${IMAGE_SCOPE}" >> "$GITHUB_OUTPUT"
 
       - name: Cache base images
         id: base-images-cache
