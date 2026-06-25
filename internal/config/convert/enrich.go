@@ -1,7 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package convert
+package convert // import "go.opentelemetry.io/obi/internal/config/convert"
 
 import (
 	"go.opentelemetry.io/obi/internal/config/schema"
