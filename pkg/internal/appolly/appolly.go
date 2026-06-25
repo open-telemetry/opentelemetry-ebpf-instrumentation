@@ -108,7 +108,7 @@ func New(ctx context.Context, ctxInfo *global.ContextInfo, config *obi.Config) (
 	// When sel is nil, finder gets nil: config target_pids are used as static criteria (FindingCriteria(cfg, false)).
 	if sel != nil {
 		sel.SetOnFileInfoUpdated(func(fi *exec.FileInfo) {
-			processEventsInput.Send(exec.ProcessEvent{Type: exec.ProcessEventCreated, File: fi})
+			processEventsInput.SendCtx(ctx, exec.ProcessEvent{Type: exec.ProcessEventCreated, File: fi})
 		})
 	}
 	instr := &Instrumenter{

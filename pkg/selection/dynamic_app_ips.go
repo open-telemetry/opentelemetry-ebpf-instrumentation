@@ -124,6 +124,8 @@ func (d *DynamicAppIPs) decrementIPsLocked(ips []string) {
 }
 
 // ResolveContainerIPs returns pod IPs for a PID when a Kubernetes store is available.
+// It registers the PID in store via AddProcess; callers that invoke it outside
+// DynamicAppIPs must call store.DeleteProcess when the PID is no longer needed.
 func ResolveContainerIPs(store *kube.Store, pid app.PID) []string {
 	if store == nil {
 		return nil

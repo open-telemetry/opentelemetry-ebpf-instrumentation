@@ -62,9 +62,6 @@ func TestDynamicFlowAttrs_Apply_srcAndDst(t *testing.T) {
 				PID:              42,
 				ServiceName:      "payments",
 				ServiceNamespace: "prod",
-				ResourceAttributes: map[string]string{
-					"team": "checkout",
-				},
 			},
 		},
 	}
@@ -81,7 +78,6 @@ func TestDynamicFlowAttrs_Apply_srcAndDst(t *testing.T) {
 	require.NotNil(t, srcFlow.Metadata)
 	assert.Equal(t, "payments", srcFlow.Metadata[attr.ServiceName])
 	assert.Equal(t, "prod", srcFlow.Metadata[attr.ServiceNamespace])
-	assert.Equal(t, "checkout", srcFlow.Metadata[attr.Name("team")])
 
 	dstFlow := &pipe.CommonAttrs{
 		SrcAddr: pipe.IPAddr(net.ParseIP("10.0.0.9")),
@@ -94,15 +90,41 @@ func TestDynamicFlowAttrs_Apply_srcAndDst(t *testing.T) {
 }
 
 func TestDynamicFlowAttrs_rebuild_clearsWhenEmpty(t *testing.T) {
-	sel := &stubMultiPIDSelector{stubPIDSelector: stubPIDSelector{}}
+	sel := &stubMultiPIDSelector{stubPIDSelector: stubPIDSelector{pids: []app.PID{1}}}
 	tracker := NewDynamicFlowAttrs(sel, sel, nil)
 	tracker.mu.Lock()
 	tracker.ipDecor["10.0.0.1"] = flowIPDecoration{serviceName: "old"}
+	tracker.registeredPIDs[1] = struct{}{}
 	tracker.mu.Unlock()
 
+	sel.pids = nil
 	tracker.rebuild()
 
 	tracker.mu.RLock()
 	assert.Empty(t, tracker.ipDecor)
+	assert.Empty(t, tracker.registeredPIDs)
+	tracker.mu.RUnlock()
+}
+
+func TestDynamicFlowAttrs_rebuild_unregistersRemovedPIDs(t *testing.T) {
+	sel := &stubMultiPIDSelector{
+		stubPIDSelector: stubPIDSelector{pids: []app.PID{1, 2}},
+		entries: map[app.PID]DynamicPIDEntry{
+			1: {PID: 1, ServiceName: "a"},
+			2: {PID: 2, ServiceName: "b"},
+		},
+	}
+	tracker := NewDynamicFlowAttrs(sel, sel, nil)
+	tracker.rebuild()
+	tracker.mu.RLock()
+	assert.Len(t, tracker.registeredPIDs, 2)
+	tracker.mu.RUnlock()
+
+	sel.pids = []app.PID{2}
+	tracker.rebuild()
+	tracker.mu.RLock()
+	assert.Len(t, tracker.registeredPIDs, 1)
+	_, ok := tracker.registeredPIDs[2]
+	assert.True(t, ok)
 	tracker.mu.RUnlock()
 }

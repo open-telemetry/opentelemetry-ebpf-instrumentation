@@ -21,7 +21,7 @@ type Option func(info *global.ContextInfo)
 // Root AddPIDs/RemovePIDs preserve the legacy behavior and apply to all supported signals.
 // Service name and resource attributes set via AddPID or SetPID are shared across all signals.
 // SetPID updates live FileInfo for instrumented PIDs; traces and app metrics read it at export time.
-// Network and stats metrics decorate flow records by pod IP when the PID is in that signal view.
+// Network and stats metrics decorate flow records with service name/namespace by pod IP.
 func WithDynamicPIDSelector(sel *discover.DynamicPIDSelector) Option {
 	return func(info *global.ContextInfo) {
 		info.DynamicPIDSelector = sel
