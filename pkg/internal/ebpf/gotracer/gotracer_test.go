@@ -38,7 +38,7 @@ func TestGoChannelLinkProbesRequireChannelOffsets(t *testing.T) {
 
 	tracer.recordGoChannelOffsetAvailability(exec.New(exec.Init{Ino: 2}), goChannelOffsets())
 	probes := tracer.GoProbes()
-	for _, symbol := range goChannelLinkProbeSymbols() {
+	for _, symbol := range GoChannelLinkProbeSymbols() {
 		require.Contains(t, probes, symbol)
 	}
 }
@@ -81,18 +81,10 @@ func goChannelOffsets() *goexec.Offsets {
 	}}
 }
 
-func goChannelLinkProbeSymbols() []string {
-	return []string{
-		"runtime.chansend1",
-		"runtime.chanrecv1",
-		"runtime.chanrecv2",
-	}
-}
-
 func assertNoGoChannelLinkProbes(t *testing.T, probes map[string][]*ebpfcommon.ProbeDesc) {
 	t.Helper()
 
-	for _, symbol := range goChannelLinkProbeSymbols() {
+	for _, symbol := range GoChannelLinkProbeSymbols() {
 		assert.NotContains(t, probes, symbol)
 	}
 }

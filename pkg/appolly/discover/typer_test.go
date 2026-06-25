@@ -19,6 +19,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/export"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
+	"go.opentelemetry.io/obi/pkg/internal/ebpf/gotracer"
 	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/selection"
 	"go.opentelemetry.io/obi/pkg/transform"
@@ -51,6 +52,15 @@ func (d dummyCriterion) GetRoutesConfig() *services.CustomRoutesConfig          
 
 func (d dummyCriterion) MetricsConfig() perapp.SvcMetricsConfig {
 	return perapp.SvcMetricsConfig{Features: d.features}
+}
+
+func TestLoadAllGoFunctionNamesIncludesChannelLinkSymbols(t *testing.T) {
+	ty := typer{cfg: &obi.Config{Routes: &transform.RoutesConfig{}}}
+	ty.loadAllGoFunctionNames()
+
+	for _, symbol := range gotracer.GoChannelLinkProbeSymbols() {
+		assert.Contains(t, ty.allGoFunctions, symbol)
+	}
 }
 
 func TestMakeServiceAttrs(t *testing.T) {
