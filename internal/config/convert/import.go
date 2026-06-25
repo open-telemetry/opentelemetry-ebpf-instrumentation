@@ -4,6 +4,7 @@
 package convert // import "go.opentelemetry.io/obi/internal/config/convert"
 
 import (
+	"errors"
 	"fmt"
 	"reflect"
 	"slices"
@@ -200,7 +201,7 @@ func validateV2HTTPFilters(filters schema.SignalFilters) error {
 	if reflect.DeepEqual(filters.Traces, filters.Metrics) {
 		return nil
 	}
-	return fmt.Errorf("capture.instrumentation.http.filters: trace and metric filters cannot differ")
+	return errors.New("capture.instrumentation.http.filters: trace and metric filters cannot differ")
 }
 
 func validateV2HTTPPayloadExtraction(payload schema.PayloadExtraction) error {
