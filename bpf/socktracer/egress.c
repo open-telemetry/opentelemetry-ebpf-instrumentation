@@ -94,6 +94,10 @@ enum {
     k_tail_egress_http_create_tp,
     k_tail_egress_http_found_tp,
     k_tail_egress_http2,
+    k_tail_egress_h2_find_existing_tp,
+    k_tail_egress_h2_validate_tp,
+    k_tail_egress_h2_create_tp,
+    k_tail_egress_h2_write_tp,
 };
 
 int obi_packet_extender(struct sk_msg_md *msg);
@@ -102,10 +106,14 @@ int obi_egress_http_req(struct sk_msg_md *msg);
 int obi_egress_http_create_tp(struct sk_msg_md *msg);
 int obi_egress_http_found_tp(struct sk_msg_md *msg);
 int obi_egress_http2(struct sk_msg_md *msg);
+int obi_egress_h2_find_existing_tp(struct sk_msg_md *msg);
+int obi_egress_h2_validate_tp(struct sk_msg_md *msg);
+int obi_egress_h2_create_tp(struct sk_msg_md *msg);
+int obi_egress_h2_write_tp(struct sk_msg_md *msg);
 
 struct {
     __uint(type, BPF_MAP_TYPE_PROG_ARRAY);
-    __uint(max_entries, 6);
+    __uint(max_entries, 10);
     __uint(key_size, sizeof(u32));
     __array(values, int(void *));
 } obi_egress_progs SEC(".maps") = {
@@ -117,6 +125,10 @@ struct {
             [k_tail_egress_http_create_tp] = (void *)&obi_egress_http_create_tp,
             [k_tail_egress_http_found_tp] = (void *)&obi_egress_http_found_tp,
             [k_tail_egress_http2] = (void *)&obi_egress_http2,
+            [k_tail_egress_h2_find_existing_tp] = (void *)&obi_egress_h2_find_existing_tp,
+            [k_tail_egress_h2_validate_tp] = (void *)&obi_egress_h2_validate_tp,
+            [k_tail_egress_h2_create_tp] = (void *)&obi_egress_h2_create_tp,
+            [k_tail_egress_h2_write_tp] = (void *)&obi_egress_h2_write_tp,
         },
 };
 
@@ -577,5 +589,27 @@ int obi_egress_http2(struct sk_msg_md *msg) {
 
     emit_http2_buffer(msg, sk_data, k_packet_direction_egress);
 
+    return SK_PASS;
+}
+
+// HTTP/2 HPACK traceparent injection chain (client egress only). Stubs for now;
+// the detect/find/validate/create/write logic lands in socktracer/http2_inject.h.
+SEC("sk_msg")
+int obi_egress_h2_find_existing_tp(struct sk_msg_md *msg) {
+    return SK_PASS;
+}
+
+SEC("sk_msg")
+int obi_egress_h2_validate_tp(struct sk_msg_md *msg) {
+    return SK_PASS;
+}
+
+SEC("sk_msg")
+int obi_egress_h2_create_tp(struct sk_msg_md *msg) {
+    return SK_PASS;
+}
+
+SEC("sk_msg")
+int obi_egress_h2_write_tp(struct sk_msg_md *msg) {
     return SK_PASS;
 }
