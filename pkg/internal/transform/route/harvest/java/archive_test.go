@@ -101,6 +101,19 @@ func TestScanDirSkipsOversizedClassFiles(t *testing.T) {
 	assert.Zero(t, extractor.classesScanned)
 }
 
+func TestScanDirSkipsSymlinkedClassFiles(t *testing.T) {
+	root := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "SpringController.class")
+	writeClassFixture(t, outside, "com/example/SpringController.class")
+	require.NoError(t, os.Symlink(outside, filepath.Join(root, "SpringController.class")))
+
+	extractor := NewExtractor()
+	require.NoError(t, extractor.scanDir(context.Background(), root))
+
+	assert.Empty(t, extractor.routes)
+	assert.Zero(t, extractor.classesScanned)
+}
+
 func TestScanDirReturnsContextErrorWhenCanceled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

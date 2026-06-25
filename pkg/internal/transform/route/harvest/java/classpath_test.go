@@ -212,6 +212,22 @@ func TestResolveProcessPath(t *testing.T) {
 		assert.False(t, ok)
 		assert.Empty(t, path)
 	})
+
+	t.Run("rejects symlink components for proc roots", func(t *testing.T) {
+		outside := filepath.Join(t.TempDir(), "outside")
+		require.NoError(t, os.MkdirAll(outside, 0o755))
+		writeFile(t, filepath.Join(outside, "app.jar"))
+		require.NoError(t, os.Symlink(outside, filepath.Join(root, "app", "escape")))
+
+		oldProcRootPath := procRootPath
+		procRootPath = func(string) bool { return true }
+		t.Cleanup(func() { procRootPath = oldProcRootPath })
+
+		path, ok := resolveProcessPath(root, "/app", "escape/app.jar")
+
+		assert.False(t, ok)
+		assert.Empty(t, path)
+	})
 }
 
 func TestIsProcRoot(t *testing.T) {
