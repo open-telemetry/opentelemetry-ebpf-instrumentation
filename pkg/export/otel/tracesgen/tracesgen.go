@@ -42,7 +42,7 @@ var (
 	genAIUsageCacheReadInputTokens     = attribute.Key("gen_ai.usage.cache_read.input_tokens")
 	genAIUsageReasoningOutputTokens    = attribute.Key("gen_ai.usage.reasoning.output_tokens")
 	openAIAPITypeKey                   = attribute.Key("openai.api.type")
-	awsBedrockGuardrailIDKey = attribute.Key("aws.bedrock.guardrail.id")
+	awsBedrockGuardrailIDKey           = attribute.Key("aws.bedrock.guardrail.id")
 )
 
 type TraceSpanAndAttributes struct {
