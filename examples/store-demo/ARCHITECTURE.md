@@ -5,6 +5,10 @@ This describes the service topology of the vendored Online Boutique app (`Google
 > Keep this file in sync with the manifests. When you change a `*_SERVICE_ADDR`
 > env var, add or remove a service manifest, or change a listen port, update the
 > diagram and the table below in the same change.
+>
+> CI enforces the connection table against the manifests via
+> [check_architecture.py](./check_architecture.py). Run it locally with
+> `python3 examples/store-demo/check_architecture.py`.
 
 ## Service Graph
 

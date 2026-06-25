@@ -25,3 +25,9 @@ include upstream CI configuration, `.deploystack/`, `docs/`, `helm-chart/`,
 `istio-manifests/`, `kubernetes-manifests/`, `kustomize/`, `release/`,
 `terraform/`, and any source service or generated artifact that is not
 explicitly present under `examples/store-demo/app/`.
+
+Of the twelve `src/` services in the upstream release, eleven are vendored here.
+`shoppingassistantservice` is intentionally excluded: it requires external
+Google Vertex AI / Gemini credentials and an AlloyDB vector store, and is not
+part of the upstream default deployment, so it adds cloud dependencies without
+helping demonstrate OBI's eBPF instrumentation.
