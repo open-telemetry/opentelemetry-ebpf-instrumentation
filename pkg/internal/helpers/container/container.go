@@ -73,7 +73,7 @@ func InfoForPID(pid app.PID) (Info, error) {
 			return Info{PIDNamespace: ns, ContainerID: cgroupID}, nil
 		}
 	}
-	return Info{}, fmt.Errorf("%s: couldn't find any docker entry for process with PID %d: %w", cgroupFile, pid, ErrContainerNotFound)
+	return Info{}, ErrContainerNotFound
 }
 
 // look for a cgroup ID on all the possible formats
