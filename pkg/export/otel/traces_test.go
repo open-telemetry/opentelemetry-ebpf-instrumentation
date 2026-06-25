@@ -1223,7 +1223,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		topSpan := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0)
 		spanAttrs := topSpan.Attributes()
 		ensureTraceStrAttr(t, spanAttrs, semconv.ErrorTypeKey, "insufficient_quota")
-		assert.Equal(t, "You exceeded your current quota, please check your plan and billing details.", topSpan.Status().Message())
+		assert.Empty(t, topSpan.Status().Message())
 		ensureTraceAttrNotExists(t, spanAttrs, attribute.Key("error.message"))
 	})
 
@@ -1447,7 +1447,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		ensureTraceStrAttr(t, spanAttrs, semconv.GenAISystemInstructionsKey, `[{"type":"text","content":"Be concise."}]`)
 		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIToolDefinitionsKey, `[{"type":"function","name":"calculator","description":"Performs arithmetic"}]`)
 		ensureTraceStrAttr(t, spanAttrs, semconv.ErrorTypeKey, "authentication_error")
-		assert.Equal(t, "invalid x-api-key", topSpan.Status().Message())
+		assert.Empty(t, topSpan.Status().Message())
 		ensureTraceAttrNotExists(t, spanAttrs, attribute.Key("error.message"))
 	})
 
@@ -1590,7 +1590,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		ensureTraceStrAttr(t, spanAttrs, semconv.GenAISystemInstructionsKey, `[{"type":"text","content":"Be concise."}]`)
 		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIToolDefinitionsKey, `[{"type":"function","name":"get_weather"}]`)
 		ensureTraceStrAttr(t, spanAttrs, semconv.ErrorTypeKey, "NOT_FOUND")
-		assert.Equal(t, "model not found", topSpan.Status().Message())
+		assert.Empty(t, topSpan.Status().Message())
 		ensureTraceAttrNotExists(t, spanAttrs, attribute.Key("error.message"))
 	})
 
@@ -1781,7 +1781,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		ensureTraceStrAttr(t, spanAttrs, semconv.GenAISystemInstructionsKey, `[{"type":"text","content":"Be concise."}]`)
 		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIToolDefinitionsKey, `[{"type":"function","name":"get_weather","description":"Get weather"}]`)
 		ensureTraceStrAttr(t, spanAttrs, semconv.ErrorTypeKey, "ValidationException")
-		assert.Equal(t, "The provided model identifier is invalid.", topSpan.Status().Message())
+		assert.Empty(t, topSpan.Status().Message())
 		ensureTraceAttrNotExists(t, spanAttrs, attribute.Key("error.message"))
 	})
 
