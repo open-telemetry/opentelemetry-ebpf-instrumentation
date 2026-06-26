@@ -172,6 +172,178 @@ func TestDynamicPIDSelector_NotifyBroadcastsToAllSubscribers(t *testing.T) {
 	assert.Equal(t, []app.PID{42}, <-removedTwo)
 }
 
+func waitNotifyBufferLen(t *testing.T, ch <-chan []app.PID, want int) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		return len(ch) == want
+	}, 2*time.Second, 10*time.Millisecond)
+}
+
+func readPIDNotifyBatch(t *testing.T, ch <-chan []app.PID) []app.PID {
+	t.Helper()
+	select {
+	case batch := <-ch:
+		return batch
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout reading notify batch")
+	}
+	return nil
+}
+
+func TestDynamicPIDSelector_AddedNotifyDoesNotBlockBehindFullSubscriber(t *testing.T) {
+	d := NewDynamicPIDSelector()
+	stale := d.AddedPIDsNotify()
+
+	for pid := uint32(1); pid <= dynamicPIDNotifyBufferSize; pid++ {
+		d.AddPIDs(pid)
+		waitNotifyBufferLen(t, stale, int(pid))
+	}
+
+	active := d.AddedPIDsNotify()
+	d.AddPIDs(dynamicPIDNotifyBufferSize + 1)
+	assert.Equal(t, []app.PID{dynamicPIDNotifyBufferSize + 1}, readPIDNotifyBatch(t, active))
+
+	for pid := app.PID(1); pid <= dynamicPIDNotifyBufferSize; pid++ {
+		assert.Equal(t, []app.PID{pid}, readPIDNotifyBatch(t, stale))
+	}
+	assert.Equal(t, []app.PID{dynamicPIDNotifyBufferSize + 1}, readPIDNotifyBatch(t, stale))
+}
+
+func TestDynamicPIDSelector_RemovedNotifyDoesNotBlockBehindFullSubscriber(t *testing.T) {
+	d := NewDynamicPIDSelector()
+	for pid := uint32(1); pid <= dynamicPIDNotifyBufferSize+1; pid++ {
+		d.AddPIDs(pid)
+	}
+	stale := d.RemovedNotify()
+
+	for pid := uint32(1); pid <= dynamicPIDNotifyBufferSize; pid++ {
+		d.RemovePIDs(pid)
+		waitNotifyBufferLen(t, stale, int(pid))
+	}
+
+	active := d.RemovedNotify()
+	d.RemovePIDs(dynamicPIDNotifyBufferSize + 1)
+	assert.Equal(t, []app.PID{dynamicPIDNotifyBufferSize + 1}, readPIDNotifyBatch(t, active))
+
+	for pid := app.PID(1); pid <= dynamicPIDNotifyBufferSize; pid++ {
+		assert.Equal(t, []app.PID{pid}, readPIDNotifyBatch(t, stale))
+	}
+	assert.Equal(t, []app.PID{dynamicPIDNotifyBufferSize + 1}, readPIDNotifyBatch(t, stale))
+}
+
+func TestDynamicPIDSubscriber_BoundsLegacyFullSubscriberBacklog(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	subscriber := newDynamicPIDSubscriber(ctx, dynamicPIDNotifyPendingMax)
+
+	for pid := app.PID(1); pid <= dynamicPIDNotifyBufferSize; pid++ {
+		subscriber.ch <- []app.PID{pid}
+	}
+	subscriber.notify([]app.PID{dynamicPIDNotifyBufferSize + 1})
+
+	require.Eventually(t, func() bool {
+		subscriber.mu.Lock()
+		defer subscriber.mu.Unlock()
+		return len(subscriber.pending) == 0
+	}, 2*time.Second, 10*time.Millisecond)
+
+	var batch []app.PID
+	for pid := app.PID(dynamicPIDNotifyBufferSize + 2); pid <= dynamicPIDNotifyBufferSize+dynamicPIDNotifyPendingMax+20; pid++ {
+		batch = append(batch, pid)
+	}
+	subscriber.notify(batch)
+
+	subscriber.mu.Lock()
+	assert.Equal(t, dynamicPIDNotifyPendingMax, len(subscriber.pending))
+	subscriber.mu.Unlock()
+
+	cancel()
+	<-subscriber.done
+}
+
+func TestDynamicPIDSubscriber_ContextSubscriberQueuesBeyondLegacyLimit(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	subscriber := newDynamicPIDSubscriber(ctx, 0)
+
+	for pid := app.PID(1); pid <= dynamicPIDNotifyBufferSize; pid++ {
+		subscriber.ch <- []app.PID{pid}
+	}
+	subscriber.notify([]app.PID{dynamicPIDNotifyBufferSize + 1})
+
+	require.Eventually(t, func() bool {
+		subscriber.mu.Lock()
+		defer subscriber.mu.Unlock()
+		return len(subscriber.pending) == 0
+	}, 2*time.Second, 10*time.Millisecond)
+
+	var batch []app.PID
+	for pid := app.PID(dynamicPIDNotifyBufferSize + 2); pid <= dynamicPIDNotifyBufferSize+dynamicPIDNotifyPendingMax+20; pid++ {
+		batch = append(batch, pid)
+	}
+	subscriber.notify(batch)
+
+	subscriber.mu.Lock()
+	assert.Equal(t, batch, subscriber.pending)
+	subscriber.mu.Unlock()
+
+	cancel()
+	<-subscriber.done
+}
+
+func TestDynamicPIDSubscriber_PreservesDuplicatePendingPIDEdges(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	subscriber := newDynamicPIDSubscriber(ctx, 0)
+
+	for pid := app.PID(1); pid <= dynamicPIDNotifyBufferSize; pid++ {
+		subscriber.ch <- []app.PID{pid}
+	}
+	subscriber.notify([]app.PID{dynamicPIDNotifyBufferSize + 1})
+
+	require.Eventually(t, func() bool {
+		subscriber.mu.Lock()
+		defer subscriber.mu.Unlock()
+		return len(subscriber.pending) == 0
+	}, 2*time.Second, 10*time.Millisecond)
+
+	batch := []app.PID{
+		dynamicPIDNotifyBufferSize + 2,
+		dynamicPIDNotifyBufferSize + 2,
+		dynamicPIDNotifyBufferSize + 3,
+	}
+	subscriber.notify(batch)
+
+	subscriber.mu.Lock()
+	assert.Equal(t, batch, subscriber.pending)
+	subscriber.mu.Unlock()
+
+	cancel()
+	<-subscriber.done
+}
+
+func TestDynamicPIDSelector_NotifyContextRemovesSubscriberOnCancel(t *testing.T) {
+	d := NewDynamicPIDSelector()
+	ctx, cancel := context.WithCancel(t.Context())
+	added := d.AddedPIDsNotifyContext(ctx)
+	removed := d.RemovedNotifyContext(ctx)
+
+	cancel()
+
+	require.Eventually(t, func() bool {
+		d.rootView.notifier.addedMu.Lock()
+		defer d.rootView.notifier.addedMu.Unlock()
+		return len(d.rootView.notifier.addedSubscribers) == 0
+	}, 2*time.Second, 10*time.Millisecond)
+	require.Eventually(t, func() bool {
+		d.rootView.notifier.removedMu.Lock()
+		defer d.rootView.notifier.removedMu.Unlock()
+		return len(d.rootView.notifier.removedSubscribers) == 0
+	}, 2*time.Second, 10*time.Millisecond)
+
+	_, ok := <-added
+	assert.False(t, ok)
+	_, ok = <-removed
+	assert.False(t, ok)
+}
+
 func TestDynamicPIDSelector_RemovePIDs_Notify(t *testing.T) {
 	d := NewDynamicPIDSelector()
 	d.AddPIDs(42, 100)

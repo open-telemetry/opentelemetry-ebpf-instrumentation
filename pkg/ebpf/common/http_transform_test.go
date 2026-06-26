@@ -746,3 +746,32 @@ func TestHttpSafeParseResponseNonChunked(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, body, string(got))
 }
+
+func TestRecoverRequestBodyPreservesProbeErrorWhenRecoveryFails(t *testing.T) {
+	readErr := errors.New("truncated request body")
+	req := &http.Request{
+		ContentLength: 10,
+		Body:          readErrorCloser{err: readErr},
+	}
+	requestBuffer := largebuf.NewLargeBufferFrom([]byte("POST /v1/chat/completions HTTP/1.1\r\nContent-Length: 10\r\n\r\n"))
+
+	recoverRequestBody(req, requestBuffer)
+
+	body, err := io.ReadAll(req.Body)
+	require.ErrorIs(t, err, readErr)
+	require.Empty(t, body)
+}
+
+func TestRecoverRequestBodyPrependsProbeByte(t *testing.T) {
+	req := &http.Request{
+		ContentLength: 4,
+		Body:          io.NopCloser(strings.NewReader("body")),
+	}
+	requestBuffer := largebuf.NewLargeBufferFrom([]byte("POST /v1/chat/completions HTTP/1.1\r\nContent-Length: 4\r\n\r\nbody"))
+
+	recoverRequestBody(req, requestBuffer)
+
+	body, err := io.ReadAll(req.Body)
+	require.NoError(t, err)
+	require.Equal(t, "body", string(body))
+}

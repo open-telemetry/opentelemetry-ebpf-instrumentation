@@ -140,8 +140,8 @@ func DynamicSignalProcessEventGate(
 func (g *dynamicSignalProcessEventGate) run(ctx context.Context) {
 	defer g.output.Close()
 
-	addedPIDsNotify := g.selector.AddedPIDsNotify()
-	removedPIDsNotify := g.selector.RemovedNotify()
+	addedPIDsNotify := selection.AddedPIDsNotifyContext(ctx, g.selector)
+	removedPIDsNotify := selection.RemovedNotifyContext(ctx, g.selector)
 
 	for {
 		select {
@@ -152,9 +152,15 @@ func (g *dynamicSignalProcessEventGate) run(ctx context.Context) {
 				return
 			}
 			g.handleProcessEvent(pe)
-		case added := <-addedPIDsNotify:
+		case added, ok := <-addedPIDsNotify:
+			if !ok {
+				return
+			}
 			g.handleSelectorAdd(added)
-		case removed := <-removedPIDsNotify:
+		case removed, ok := <-removedPIDsNotify:
+			if !ok {
+				return
+			}
 			g.handleSelectorRemove(removed)
 		}
 	}

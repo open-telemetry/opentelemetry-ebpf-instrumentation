@@ -47,8 +47,8 @@ func (d *DynamicFlowAttrs) Run(ctx context.Context) {
 	}
 	d.rebuild()
 
-	go d.loop(ctx, d.signalSel.AddedPIDsNotify(), d.rebuild)
-	go d.loop(ctx, d.signalSel.RemovedNotify(), d.rebuild)
+	go d.loop(ctx, AddedPIDsNotifyContext(ctx, d.signalSel), d.rebuild)
+	go d.loop(ctx, RemovedNotifyContext(ctx, d.signalSel), d.rebuild)
 	go d.loopAttrs(ctx)
 }
 

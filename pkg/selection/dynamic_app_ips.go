@@ -47,8 +47,8 @@ func (d *DynamicAppIPs) Run(ctx context.Context) {
 	}
 	d.refreshAll()
 
-	go d.loop(ctx, d.selector.AddedPIDsNotify(), d.addBatch)
-	go d.loop(ctx, d.selector.RemovedNotify(), d.removeBatch)
+	go d.loop(ctx, AddedPIDsNotifyContext(ctx, d.selector), d.addBatch)
+	go d.loop(ctx, RemovedNotifyContext(ctx, d.selector), d.removeBatch)
 }
 
 func (d *DynamicAppIPs) loop(ctx context.Context, ch <-chan []app.PID, fn func([]app.PID)) {
