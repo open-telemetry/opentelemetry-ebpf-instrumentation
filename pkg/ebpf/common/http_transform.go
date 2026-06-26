@@ -466,8 +466,8 @@ func dechunkBody(data []byte) []byte {
 			break
 		}
 
-		chunkSize, err := strconv.ParseInt(sizeLine, 16, 64)
-		if err != nil || chunkSize < 0 {
+		chunkSize, err := strconv.ParseUint(sizeLine, 16, 64)
+		if err != nil {
 			break
 		}
 		if chunkSize == 0 {
@@ -475,13 +475,14 @@ func dechunkBody(data []byte) []byte {
 		}
 
 		chunkStart := pos + lineEnd + 2 // skip past \r\n
-		chunkEnd := chunkStart + int(chunkSize)
-
-		if chunkEnd > len(data) {
+		available := len(data) - chunkStart
+		if chunkSize > uint64(available) {
 			// Truncated chunk: take whatever is available.
 			result = append(result, data[chunkStart:]...)
 			break
 		}
+
+		chunkEnd := chunkStart + int(chunkSize)
 
 		result = append(result, data[chunkStart:chunkEnd]...)
 

@@ -675,6 +675,12 @@ func TestDechunkBody(t *testing.T) {
 		expected := event1 + event2 + event3[:len(event3)/2]
 		assert.Equal(t, expected, string(got))
 	})
+
+	t.Run("oversized chunk size is treated as truncated", func(t *testing.T) {
+		chunked := "7fffffffffffffff\r\nA"
+		got := dechunkBody([]byte(chunked))
+		assert.Equal(t, "A", string(got))
+	})
 }
 
 func TestHttpSafeParseResponseChunked(t *testing.T) {
