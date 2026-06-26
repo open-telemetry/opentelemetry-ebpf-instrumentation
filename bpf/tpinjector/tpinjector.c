@@ -1316,11 +1316,11 @@ static __always_inline bool match_h2_tp_huffman(const unsigned char *p) {
            p[k_hpack_tp_name_offset + k_hpack_tp_name_huffman_len] == k_hpack_value_len_tp;
 }
 
-// Returns offset of the next traceparent name in HPACK, or k_h2_max_hpack_scan if not found.
-static __always_inline u32 find_next_h2_tp_candidate(struct sk_msg_md *msg,
-                                                     const u32 hpack_start,
-                                                     const u32 hpack_len,
-                                                     const u32 scan_start) {
+// Returns offset of the traceparent name in the pulled HPACK window, or k_h2_max_hpack_scan if
+// not found.
+static __always_inline u32 find_first_h2_tp_candidate(struct sk_msg_md *msg,
+                                                      const u32 hpack_start,
+                                                      const u32 hpack_len) {
     enum { k_min_entry_huffman = k_h2_tp_hpack_huffman_size };
 
     if (!pull_hpack_window(msg, hpack_start, hpack_len)) {
@@ -1333,9 +1333,6 @@ static __always_inline u32 find_next_h2_tp_candidate(struct sk_msg_md *msg,
     }
 
     for (u32 i = 0; i < k_h2_max_hpack_scan; i++) {
-        if (i < scan_start) {
-            continue;
-        }
         if (i + k_min_entry_huffman > hpack_len) {
             break;
         }
@@ -1365,13 +1362,36 @@ int obi_packet_extender_find_existing_h2_tp(struct sk_msg_md *msg) {
     if (!t_ctx) {
         return SK_PASS;
     }
-    t_ctx->h2_tp_candidate_pos = find_next_h2_tp_candidate(
-        msg, t_ctx->h2_hpack_offset, t_ctx->h2_hpack_len, t_ctx->h2_tp_candidate_pos);
+    const u32 scan_start = t_ctx->h2_tp_candidate_pos;
+    if (scan_start >= k_h2_max_hpack_scan || scan_start >= t_ctx->h2_hpack_len) {
+        t_ctx->h2_tp_candidate_pos = k_h2_max_hpack_scan;
+        bpf_tail_call_static(msg, &extender_jump_table, k_tail_validate_h2_tp);
+        return SK_PASS;
+    }
+
+    u32 search_len = t_ctx->h2_hpack_len - scan_start;
+    const u32 max_search_len = k_h2_max_hpack_scan - scan_start + k_h2_tp_hpack_huffman_size - 1;
+    if (search_len > max_search_len) {
+        search_len = max_search_len;
+    }
+
+    const u32 candidate =
+        find_first_h2_tp_candidate(msg, t_ctx->h2_hpack_offset + scan_start, search_len);
+    if (candidate < k_h2_max_hpack_scan) {
+        const u32 candidate_pos = scan_start + candidate;
+        if (candidate_pos < k_h2_max_hpack_scan) {
+            t_ctx->h2_tp_candidate_pos = candidate_pos;
+            bpf_tail_call_static(msg, &extender_jump_table, k_tail_validate_h2_tp);
+            return SK_PASS;
+        }
+    }
+
+    t_ctx->h2_tp_candidate_pos = k_h2_max_hpack_scan;
     bpf_tail_call_static(msg, &extender_jump_table, k_tail_validate_h2_tp);
     return SK_PASS;
 }
 
-// Walk with a loop counter — pkt pointer offset by a stack-loaded scalar loses its verified range.
+// Pull the candidate window directly so packet access stays at fixed offsets.
 SEC("sk_msg")
 int obi_packet_extender_validate_h2_tp(struct sk_msg_md *msg) {
     bpf_dbg_printk("=== sk_msg validate h2 tp ===");
@@ -1390,42 +1410,31 @@ int obi_packet_extender_validate_h2_tp(struct sk_msg_md *msg) {
     }
     const u32 hpack_start = t_ctx->h2_hpack_offset;
     const u32 hpack_len = t_ctx->h2_hpack_len;
-    if (!pull_hpack_window(msg, hpack_start, hpack_len)) {
+    if (target >= hpack_len) {
+        bpf_tail_call_static(msg, &extender_jump_table, k_tail_create_h2_tp);
+        return SK_PASS;
+    }
+
+    if (!pull_hpack_window(msg, hpack_start + target, hpack_len - target)) {
         bpf_tail_call_static(msg, &extender_jump_table, k_tail_create_h2_tp);
         return SK_PASS;
     }
     const unsigned char *data = msg->data;
     const unsigned char *end = msg->data_end;
-    if (!data) {
+    if (!data || (void *)(data + k_h2_tp_hpack_huffman_size) > (void *)end) {
         bpf_tail_call_static(msg, &extender_jump_table, k_tail_create_h2_tp);
         return SK_PASS;
     }
 
     u32 off = 0;
     u32 next_candidate_pos = target + 1;
-    for (u32 i = 0; i < k_h2_max_hpack_scan; i++) {
-        if (i + k_h2_tp_hpack_huffman_size > hpack_len) {
-            break;
-        }
-        const unsigned char *p = data + i;
-        if ((void *)(p + k_h2_tp_hpack_huffman_size) > (void *)end) {
-            break;
-        }
-        if (i > target) {
-            break;
-        }
-        if (i != target) {
-            continue;
-        }
-        const u8 nlb = p[1];
-        if (nlb == k_hpack_tp_name_len) {
-            next_candidate_pos = target + k_h2_tp_hpack_size;
-            off = validate_h2_tp_plain(p, end, &tp_p->tp);
-        } else if (nlb == (k_hpack_tp_name_huffman_len | 0x80)) {
-            next_candidate_pos = target + k_h2_tp_hpack_huffman_size;
-            off = validate_h2_tp_huffman(p, end, &tp_p->tp);
-        }
-        break;
+    const u8 nlb = data[1];
+    if (nlb == k_hpack_tp_name_len) {
+        next_candidate_pos = target + k_h2_tp_hpack_size;
+        off = validate_h2_tp_plain(data, end, &tp_p->tp);
+    } else if (nlb == (k_hpack_tp_name_huffman_len | 0x80)) {
+        next_candidate_pos = target + k_h2_tp_hpack_huffman_size;
+        off = validate_h2_tp_huffman(data, end, &tp_p->tp);
     }
 
     if (off) {
