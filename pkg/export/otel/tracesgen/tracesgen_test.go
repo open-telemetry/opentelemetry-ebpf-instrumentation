@@ -116,10 +116,10 @@ func TestTraceAttributesSelector_MCPToolCallPayloadSelection(t *testing.T) {
 	}))
 	arguments, ok := toolCallAttrs.Get(string(attr.GenAIToolCallArguments))
 	require.True(t, ok)
-	assert.Equal(t, `{"path":"/etc/secrets/api_key"}`, arguments.Str())
+	assert.JSONEq(t, `{"path":"/etc/secrets/api_key"}`, arguments.Str())
 	result, ok := toolCallAttrs.Get(string(attr.GenAIToolCallResult))
 	require.True(t, ok)
-	assert.Equal(t, `[{"type":"text","text":"api_key=SECRET123"}]`, result.Str())
+	assert.JSONEq(t, `[{"type":"text","text":"api_key=SECRET123"}]`, result.Str())
 }
 
 func TestHTTPServerSpanURLQuery(t *testing.T) {
