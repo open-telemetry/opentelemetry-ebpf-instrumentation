@@ -189,3 +189,67 @@ static __always_inline u32 find_first_h2_tp_candidate(struct sk_msg_md *msg,
     }
     return k_h2_max_hpack_scan;
 }
+
+// Decode a W3C "00-<trace_id>-<span_id>-flags" value, placing the decoded span
+// into tp->parent_id (the incoming span becomes the local span's parent). Used
+// when ADOPTING an incoming traceparent on a server request — contrast
+// decode_tp_value(), which targets tp->span_id for the egress find-existing path.
+static __always_inline u8 try_parse_tp_value(const unsigned char *val, tp_info_t *tp) {
+    if (val[k_tp_val_dash1] != '-' || val[k_tp_val_dash2] != '-' || val[k_tp_val_dash3] != '-') {
+        return 0;
+    }
+    decode_hex(tp->trace_id, &val[k_tp_val_trace_id_start], TRACE_ID_CHAR_LEN);
+    decode_hex(tp->parent_id, &val[k_tp_val_span_id_start], SPAN_ID_CHAR_LEN);
+    tp->flags = 1;
+    return 1;
+}
+
+// Scan a copied HPACK header block for a "traceparent" entry and decode it into
+// tp (trace_id + parent_id). Handles plaintext (sk_msg-style) and huffman (Go
+// uprobe) name encodings. Operates over a bounded in-BPF buffer (no data_end
+// checks), so callers must pass a copy of the header bytes, not live packet data.
+static __always_inline u8
+parse_hpack_traceparent(const unsigned char *data, u32 data_len, tp_info_t *tp) {
+    if (data_len < k_h2_tp_hpack_huffman_size) {
+        return 0;
+    }
+
+    const u32 max_pos = data_len - k_h2_tp_hpack_huffman_size;
+
+    for (u16 i = 0; i < k_hpack_tp_max_scan && i <= max_pos; i++) {
+        if (data[i] != k_hpack_literal_no_index) {
+            continue;
+        }
+
+        const u8 name_len_byte = data[i + 1];
+
+        if (name_len_byte == k_hpack_tp_name_len) { // plaintext
+            if (i + k_h2_tp_hpack_size > data_len) {
+                continue;
+            }
+            if (bpf_memcmp(
+                    &data[i + k_hpack_tp_name_offset], k_hpack_tp_name, k_hpack_tp_name_len) != 0) {
+                continue;
+            }
+            if (data[i + k_hpack_tp_name_offset + k_hpack_tp_name_len] != k_hpack_value_len_tp) {
+                continue;
+            }
+            return try_parse_tp_value(&data[i + k_hpack_tp_val_offset], tp);
+        }
+
+        if (name_len_byte == (k_hpack_tp_name_huffman_len | 0x80)) { // huffman
+            if (bpf_memcmp(&data[i + k_hpack_tp_name_offset],
+                           k_hpack_tp_huffman,
+                           k_hpack_tp_name_huffman_len) != 0) {
+                continue;
+            }
+            if (data[i + k_hpack_tp_name_offset + k_hpack_tp_name_huffman_len] !=
+                k_hpack_value_len_tp) {
+                continue;
+            }
+            return try_parse_tp_value(&data[i + k_hpack_tp_val_offset_huffman], tp);
+        }
+    }
+
+    return 0;
+}

@@ -7,6 +7,7 @@
 #include <bpfcore/bpf_helpers.h>
 
 #include <common/h2_defs.h>
+#include <common/h2_hpack.h>
 #include <common/iov_iter.h>
 #include <common/http_buf_size.h>
 #include <common/ringbuf.h>
@@ -59,63 +60,8 @@ static __always_inline u64 uniqueHTTP2ConnId(pid_connection_info_t *p_conn) {
     return random_id;
 }
 
-static __always_inline u8 try_parse_tp_value(const unsigned char *val, tp_info_t *tp) {
-    if (val[k_tp_val_dash1] != '-' || val[k_tp_val_dash2] != '-' || val[k_tp_val_dash3] != '-') {
-        return 0;
-    }
-    decode_hex(tp->trace_id, &val[k_tp_val_trace_id_start], TRACE_ID_CHAR_LEN);
-    decode_hex(tp->parent_id, &val[k_tp_val_span_id_start], SPAN_ID_CHAR_LEN);
-    tp->flags = 1;
-    return 1;
-}
-
-// Look for traceparent in HPACK bytes. Handles plaintext (sk_msg) and huffman (Go uprobe) encodings.
-static __always_inline u8 parse_hpack_traceparent(const unsigned char *data,
-                                                  u32 data_len,
-                                                  tp_info_t *tp) {
-    if (data_len < k_h2_tp_hpack_huffman_size) {
-        return 0;
-    }
-
-    const u32 max_pos = data_len - k_h2_tp_hpack_huffman_size;
-
-    for (u16 i = 0; i < k_hpack_tp_max_scan && i <= max_pos; i++) {
-        if (data[i] != k_hpack_literal_no_index) {
-            continue;
-        }
-
-        const u8 name_len_byte = data[i + 1];
-
-        if (name_len_byte == k_hpack_tp_name_len) { // plaintext
-            if (i + k_h2_tp_hpack_size > data_len) {
-                continue;
-            }
-            if (bpf_memcmp(
-                    &data[i + k_hpack_tp_name_offset], k_hpack_tp_name, k_hpack_tp_name_len) != 0) {
-                continue;
-            }
-            if (data[i + k_hpack_tp_name_offset + k_hpack_tp_name_len] != k_hpack_value_len_tp) {
-                continue;
-            }
-            return try_parse_tp_value(&data[i + k_hpack_tp_val_offset], tp);
-        }
-
-        if (name_len_byte == (k_hpack_tp_name_huffman_len | 0x80)) { // huffman
-            if (bpf_memcmp(&data[i + k_hpack_tp_name_offset],
-                           k_hpack_tp_huffman,
-                           k_hpack_tp_name_huffman_len) != 0) {
-                continue;
-            }
-            if (data[i + k_hpack_tp_name_offset + k_hpack_tp_name_huffman_len] !=
-                k_hpack_value_len_tp) {
-                continue;
-            }
-            return try_parse_tp_value(&data[i + k_hpack_tp_val_offset_huffman], tp);
-        }
-    }
-
-    return 0;
-}
+// try_parse_tp_value() and parse_hpack_traceparent() now live in common/h2_hpack.h
+// so socktracer's ingress path can share the exact same HPACK adoption logic.
 
 // Use the trace the Go uprobe wrote to outgoing_trace_map (replaces what find_trace_for_client_request returned).
 static __always_inline void adopt_injected_trace(http2_conn_stream_t *s_key, tp_info_t *tp) {
