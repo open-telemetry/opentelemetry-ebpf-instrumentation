@@ -253,7 +253,7 @@ func TestDynamicPIDSubscriber_BoundsLegacyFullSubscriberBacklog(t *testing.T) {
 	subscriber.notify(batch)
 
 	subscriber.mu.Lock()
-	assert.Equal(t, dynamicPIDNotifyPendingMax, len(subscriber.pending))
+	assert.Len(t, subscriber.pending, dynamicPIDNotifyPendingMax)
 	subscriber.mu.Unlock()
 
 	cancel()
