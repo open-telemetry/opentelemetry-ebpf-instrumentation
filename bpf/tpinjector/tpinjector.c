@@ -150,7 +150,7 @@ typedef struct tailcall_ctx {
     u32 h2_hpack_offset;          // start of HPACK bytes (after PADDED/PRIORITY prefix)
     u32 h2_hpack_len;             // HPACK length (frame payload minus prefix and trailing pad)
     u32 h2_scan_pos;              // resume offset for detect_h2 across tail calls
-    u32 h2_tp_candidate_pos;      // HPACK candidate scan offset (>= k_h2_max_hpack_scan = none)
+    u32 h2_tp_candidate_pos;      // HPACK scan start or found candidate offset (>= max = none)
     u8 niter;                     // HTTP/1 find-existing scan iteration counter
     u8 h2_frames;                 // H2 frames already injected this packet (capped)
     u8 h2_tp_retries;             // malformed HPACK traceparent candidates retried this packet
