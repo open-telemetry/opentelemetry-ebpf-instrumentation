@@ -24,6 +24,11 @@ KERNEL_PKG="${2:-kernel}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../../../../.." && pwd)"
+BUSYBOX_IMAGE="$(awk '$1=="FROM" && $4=="busybox-musl" {print $2}' "${REPO_ROOT}/dependencies.Dockerfile")"
+if [ -z "${BUSYBOX_IMAGE}" ]; then
+    echo "Unable to find busybox-musl image in dependencies.Dockerfile" >&2
+    exit 1
+fi
 WORKDIR="$(mktemp -d)"
 trap 'rm -rf "$WORKDIR"' EXIT
 
@@ -58,7 +63,7 @@ mkdir -p "${IRD}/sys/fs/bpf" "${IRD}/sys/kernel/debug" "${IRD}/sys/kernel/tracin
 
 # Static (musl) busybox so it runs without any libc.
 docker run --rm --platform linux/amd64 -v "${IRD}/bin":/out \
-    busybox:musl sh -c 'cp /bin/busybox /out/busybox' >&2
+    "${BUSYBOX_IMAGE}" sh -c 'cp /bin/busybox /out/busybox' >&2
 
 cp "${TEST_BIN}" "${IRD}/verifier.test"
 chmod +x "${IRD}/verifier.test"
