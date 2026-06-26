@@ -270,6 +270,21 @@ func TestProcessPossibleMQTTEvent(t *testing.T) {
 			},
 		},
 		{
+			name: "PUBLISH in request buffer without response buffer",
+			request: []byte{
+				0x30,       // PUBLISH, QoS 0
+				0x0c,       // Remaining length: 12
+				0x00, 0x0a, // Topic length: 10
+				't', 'e', 's', 't', '/', 't', 'o', 'p', 'i', 'c',
+			},
+			expected: &MQTTInfo{
+				PacketType: mqttparser.PacketTypePUBLISH,
+				Topic:      "test/topic",
+				QoS:        mqttparser.QoSAtMostOnce,
+				PacketID:   0,
+			},
+		},
+		{
 			name:    "PUBLISH in response buffer (reversed)",
 			request: []byte{},
 			response: []byte{
@@ -291,12 +306,21 @@ func TestProcessPossibleMQTTEvent(t *testing.T) {
 			response: []byte{0x00, 0x00, 0x00},
 			err:      true,
 		},
+		{
+			name:    "Invalid request without response buffer",
+			request: []byte{0x00, 0x00, 0x00},
+			err:     true,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			event := &TCPRequestInfo{}
-			res, _, err := ProcessPossibleMQTTEvent(event, largebuf.NewLargeBufferFrom(tt.request), largebuf.NewLargeBufferFrom(tt.response))
+			var response *largebuf.LargeBuffer
+			if tt.response != nil {
+				response = largebuf.NewLargeBufferFrom(tt.response)
+			}
+			res, _, err := ProcessPossibleMQTTEvent(event, largebuf.NewLargeBufferFrom(tt.request), response)
 			if tt.err {
 				assert.Error(t, err)
 				return
