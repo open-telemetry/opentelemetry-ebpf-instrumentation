@@ -197,6 +197,62 @@ func TestIsLikelySunRPC_acceptsValidCall(t *testing.T) {
 	assert.True(t, IsLikelySunRPC(&reader))
 }
 
+func TestParse_fragmentedCALL(t *testing.T) {
+	record := buildCallRecord(t, callParams{
+		xid:        1,
+		prog:       ProgramPortmapper,
+		vers:       2,
+		proc:       0,
+		authFlavor: authNull,
+	})
+	payload := wrapTCPRecordFragments(record[:8], record[8:])
+	buf := largebuf.NewLargeBufferFrom(payload)
+	reader := buf.NewReader()
+
+	res, err := Parse(&reader)
+	require.NoError(t, err)
+	require.NotNil(t, res.Call)
+	assert.Equal(t, uint32(ProgramPortmapper), res.Call.Program)
+}
+
+func TestParse_rejectsTooManyRecordFragments(t *testing.T) {
+	record := buildCallRecord(t, callParams{
+		xid:        1,
+		prog:       ProgramPortmapper,
+		vers:       2,
+		proc:       0,
+		authFlavor: authNull,
+	})
+	fragments := make([][]byte, 0, maxRecordFragments+1)
+	for range maxRecordFragments {
+		fragments = append(fragments, nil)
+	}
+	fragments = append(fragments, record)
+
+	buf := largebuf.NewLargeBufferFrom(wrapTCPRecordFragments(fragments...))
+	reader := buf.NewReader()
+
+	_, err := Parse(&reader)
+	assert.ErrorIs(t, err, ErrNotSunRPC)
+}
+
+func TestParse_acceptsEmptyNonFinalRecordFragment(t *testing.T) {
+	record := buildCallRecord(t, callParams{
+		xid:        1,
+		prog:       ProgramPortmapper,
+		vers:       2,
+		proc:       0,
+		authFlavor: authNull,
+	})
+	buf := largebuf.NewLargeBufferFrom(wrapTCPRecordFragments(nil, record))
+	reader := buf.NewReader()
+
+	res, err := Parse(&reader)
+	require.NoError(t, err)
+	require.NotNil(t, res.Call)
+	assert.Equal(t, uint32(ProgramPortmapper), res.Call.Program)
+}
+
 func buildReplyRecord(t *testing.T, xid uint32, body []byte) []byte {
 	t.Helper()
 
@@ -263,9 +319,30 @@ func buildAcceptedReplyRecord(t *testing.T, xid uint32, acceptStat uint32) []byt
 }
 
 func wrapTCPRecord(record []byte) []byte {
-	hdr := make([]byte, 4)
-	binary.BigEndian.PutUint32(hdr, rmLastFrag|uint32(len(record)))
-	return append(hdr, record...)
+	return wrapTCPRecordFragments(record)
+}
+
+// wrapTCPRecordFragments encodes one RPC-over-TCP record using RFC 5531
+// record marking. Each fragment is prefixed with a 32-bit header whose high bit
+// marks the final fragment and whose low 31 bits hold the fragment length.
+// Empty non-final fragments are legal and are useful for exercising parser
+// behavior around fragmented records without changing the reassembled payload.
+func wrapTCPRecordFragments(fragments ...[]byte) []byte {
+	var out []byte
+	for i, fragment := range fragments {
+		// Record marking has 31 length bits. Guard before converting so an
+		// oversized test fixture cannot wrap, truncate, or set the final bit.
+		if len(fragment) > rmFragLen {
+			panic("SunRPC test fragment exceeds record-marking length")
+		}
+		hdr := uint32(len(fragment))
+		if i == len(fragments)-1 {
+			hdr |= rmLastFrag
+		}
+		out = appendU32(out, hdr)
+		out = append(out, fragment...)
+	}
+	return out
 }
 
 func appendU32(b []byte, v uint32) []byte {
