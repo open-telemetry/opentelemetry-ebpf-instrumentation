@@ -374,6 +374,31 @@ static __always_inline void read_ip_and_port(u8 *dst_ip, u16 *dst_port, void *sr
     }
 }
 
+static __always_inline void read_user_ip_and_port(u8 *dst_ip, u16 *dst_port, void *src) {
+    s64 addr_len = 0;
+    void *addr_ip = 0;
+    off_table_t *ot = get_offsets_table();
+
+    bpf_probe_read_user(dst_port,
+                        sizeof(u16),
+                        (void *)(src + go_offset_of(ot, (go_offset){.v = _tcp_addr_port_ptr_pos})));
+    bpf_probe_read_user(&addr_ip,
+                        sizeof(addr_ip),
+                        (void *)(src + go_offset_of(ot, (go_offset){.v = _tcp_addr_ip_ptr_pos})));
+    if (addr_ip) {
+        bpf_probe_read_user(
+            &addr_len,
+            sizeof(addr_len),
+            (void *)(src + go_offset_of(ot, (go_offset){.v = _tcp_addr_ip_ptr_pos}) + 8));
+        if (addr_len == 4) {
+            __builtin_memcpy(dst_ip, ip4ip6_prefix, sizeof(ip4ip6_prefix));
+            bpf_probe_read_user(dst_ip + sizeof(ip4ip6_prefix), 4, addr_ip);
+        } else if (addr_len == 16) {
+            bpf_probe_read_user(dst_ip, 16, addr_ip);
+        }
+    }
+}
+
 static __always_inline u8 get_conn_info_from_fd(void *fd_ptr,
                                                 connection_info_t *info,
                                                 const bool mark_handled) {
@@ -420,6 +445,40 @@ static __always_inline u8 get_conn_info_from_fd(void *fd_ptr,
     return 0;
 }
 
+static __always_inline u8 get_conn_info_from_user_fd(void *fd_ptr,
+                                                     connection_info_t *info,
+                                                     const bool mark_handled) {
+    if (fd_ptr) {
+        void *laddr_ptr = 0;
+        void *raddr_ptr = 0;
+        off_table_t *ot = get_offsets_table();
+        const u64 fd_laddr_pos = go_offset_of(ot, (go_offset){.v = _fd_laddr_pos});
+
+        bpf_probe_read_user(&laddr_ptr, sizeof(laddr_ptr), (void *)(fd_ptr + fd_laddr_pos + 8));
+        bpf_probe_read_user(
+            &raddr_ptr,
+            sizeof(raddr_ptr),
+            (void *)(fd_ptr + go_offset_of(ot, (go_offset){.v = _fd_raddr_pos}) + 8));
+
+        bpf_dbg_printk("laddr_field_ptr=%llx, laddr_ptr=%llx, raddr_ptr=%llx",
+                       fd_ptr + fd_laddr_pos + 8,
+                       laddr_ptr,
+                       raddr_ptr);
+        if (laddr_ptr && raddr_ptr) {
+            read_user_ip_and_port(info->s_addr, &info->s_port, laddr_ptr);
+            read_user_ip_and_port(info->d_addr, &info->d_port, raddr_ptr);
+
+            if (mark_handled) {
+                store_go_handled_connection_info(info);
+            }
+
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
 static __always_inline void *fd_ptr_from_conn(void *conn_ptr) {
     if (conn_ptr) {
         void *fd_ptr = 0;
@@ -436,6 +495,21 @@ static __always_inline void *fd_ptr_from_conn(void *conn_ptr) {
     return 0;
 }
 
+static __always_inline void *fd_ptr_from_user_conn(void *conn_ptr) {
+    if (conn_ptr) {
+        void *fd_ptr = 0;
+        off_table_t *ot = get_offsets_table();
+
+        bpf_probe_read_user(&fd_ptr,
+                            sizeof(fd_ptr),
+                            (void *)(conn_ptr + go_offset_of(ot, (go_offset){.v = _conn_fd_pos})));
+
+        return fd_ptr;
+    }
+
+    return 0;
+}
+
 // HTTP black-box context propagation
 static __always_inline u8 get_conn_info(void *conn_ptr, connection_info_t *info) {
     if (conn_ptr) {
@@ -444,6 +518,19 @@ static __always_inline u8 get_conn_info(void *conn_ptr, connection_info_t *info)
 
         if (fd_ptr) {
             return get_conn_info_from_fd(fd_ptr, info, true);
+        }
+    }
+
+    return 0;
+}
+
+static __always_inline u8 get_conn_info_from_user_conn(void *conn_ptr, connection_info_t *info) {
+    if (conn_ptr) {
+        void *fd_ptr = fd_ptr_from_user_conn(conn_ptr);
+        bpf_dbg_printk("Found user fd, fd_ptr=%llx", fd_ptr);
+
+        if (fd_ptr) {
+            return get_conn_info_from_user_fd(fd_ptr, info, true);
         }
     }
 
