@@ -72,24 +72,45 @@ func testPyGRPCWirePropagation(t *testing.T) {
 		require.NoError(ct, json.NewDecoder(r.Body).Decode(&tq))
 		require.NotEmpty(ct, tq.Data, "no grpcsrv traces yet")
 
-		// Find a trace that holds BOTH a grpcsrv GetFeature server span and a
-		// pygrpcclient span. With black-box CP off and no gotracer, the only way
-		// the two non-Go processes share a trace is a traceparent socktracer
-		// injected into the client's HPACK and extracted on the server's ingress.
-		// (We assert shared trace_id, not exact span nesting: the egress emit and
-		// inject paths currently mint different span_ids — see span-id follow-up.)
+		// Assert true span nesting: a grpcsrv GetFeature server span must be a
+		// direct CHILD_OF a pygrpcclient GetFeature client span. With black-box CP
+		// off and no gotracer, that only holds if socktracer (1) injected a wire
+		// traceparent whose span_id equals the emitted client span's, and (2)
+		// reliably emitted that client span — which the in-BPF h2 request/response
+		// pairing (h2_pending map) guarantees. Shared trace_id alone is no longer
+		// sufficient proof.
 		found := false
-		for _, trace := range tq.Data {
+		for i := range tq.Data {
+			trace := tq.Data[i]
 			serverSpans := trace.FindByOperationNameServiceAndKind(
 				pygrpcGetFeatureOp, "grpcsrv", "server")
-			if len(serverSpans) > 0 && traceServices(trace)["pygrpcclient"] {
-				found = true
+			clientSpans := trace.FindByOperationNameServiceAndKind(
+				pygrpcGetFeatureOp, "pygrpcclient", "client")
+			if len(serverSpans) == 0 || len(clientSpans) == 0 {
+				continue
+			}
+
+			clientIDs := make(map[string]struct{}, len(clientSpans))
+			for _, c := range clientSpans {
+				clientIDs[c.SpanID] = struct{}{}
+			}
+
+			for j := range serverSpans {
+				if parent, ok := trace.ParentOf(&serverSpans[j]); ok {
+					if _, isClient := clientIDs[parent.SpanID]; isClient {
+						found = true
+						break
+					}
+				}
+			}
+			if found {
 				break
 			}
 		}
 		require.True(ct, found,
-			"no trace shared between pygrpcclient and grpcsrv — wire-level "+
-				"traceparent did not propagate (black-box CP is off)")
+			"no grpcsrv GetFeature server span is a child of a pygrpcclient "+
+				"GetFeature client span — socktracer must inject a wire traceparent "+
+				"whose span_id matches the (reliably emitted) client span; black-box CP is off")
 		matched = true
 	}, 3*time.Minute, time.Second)
 

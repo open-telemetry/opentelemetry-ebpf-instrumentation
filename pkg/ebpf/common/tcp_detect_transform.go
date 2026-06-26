@@ -383,11 +383,11 @@ func matchHTTP2(parseCtx *EBPFParseContext, event *TCPRequestInfo, requestBuffer
 		return request.Span{}, false, false, nil
 	}
 
-	// Socktracer TCP events always carry both request and response buffers (RespLen > 0).
-	// Parse them directly via http2SpanFromTCPEvent instead of routing through
+	// A finished exchange carries both request and response buffers (RespLen > 0).
+	// Parse them directly as one combined event instead of routing through
 	// MisclassifiedEvents, which would activate kHTTP2 kprobes unnecessarily.
 	if event.RespLen > 0 {
-		span, ignore, err := http2SpanFromTCPEvent(parseCtx, event, requestBuffer, responseBuffer)
+		span, ignore, err := http2CombinedFromTCPEvent(parseCtx, event, requestBuffer.UnsafeView(), responseBuffer.UnsafeView())
 		return span, ignore, true, err
 	}
 

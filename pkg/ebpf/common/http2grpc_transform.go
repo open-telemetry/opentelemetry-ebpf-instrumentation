@@ -476,25 +476,6 @@ func http2FromBuffers(parseContext *EBPFParseContext, event *BPFHTTP2Info) (requ
 	return http2InfoToSpan(event, method, path, path, peer, host, status, protocol), false, nil
 }
 
-// http2StreamKey identifies a single HTTP/2 stream for pending span correlation.
-// Stream IDs are per-connection and odd for client-initiated streams, so keying
-// on both connID and streamID is required to handle concurrent streams correctly.
-type http2StreamKey struct {
-	connID   uint64
-	streamID uint32
-}
-
-// pendingHTTP2Span holds partial HTTP/2 span state when the request HEADERS and
-// response HEADERS arrive in separate TCP events (the common socktracer case).
-type pendingHTTP2Span struct {
-	method string
-	path   string
-	proto  Protocol
-	peer   string
-	host   string
-	event  TCPRequestInfo
-}
-
 // http2PrefaceLen is the byte length of the HTTP/2 client connection preface.
 const http2PrefaceLen = 24
 
@@ -546,23 +527,24 @@ func http2TCPToSpan(event *TCPRequestInfo, method, path, peer, host string, stat
 	}
 }
 
-// http2SpanFromTCPEvent parses HTTP/2 from a socktracer tcp_req_t event.
-// The client connection preface (if present) is stripped before frame parsing.
-func http2SpanFromTCPEvent(parseCtx *EBPFParseContext, event *TCPRequestInfo, reqBuf, respBuf *largebuf.LargeBuffer) (request.Span, bool, error) {
+// http2CombinedFromTCPEvent builds a span from a socktracer/TCP event that
+// already carries both the request (reqData) and response (respData) HEADERS in
+// one record. Socktracer pairs the two halves in BPF (the h2_pending map, keyed
+// by {socket cookie, stream id}) and the heuristic TCP path sees both buffers on
+// a finished exchange, so no userspace stream correlation is needed.
+func http2CombinedFromTCPEvent(parseCtx *EBPFParseContext, event *TCPRequestInfo, reqData, respData []byte) (request.Span, bool, error) {
 	connID := tcpConnInfoID(&event.ConnInfo)
 
-	reqData := reqBuf.UnsafeView()
-
 	// Strip the 24-byte HTTP/2 client connection preface when present — the
-	// http2.Framer cannot read it since it is unframed raw bytes.
-	// The preface appears in buf regardless of whether we instrument the client or server side.
+	// http2.Framer cannot read it since it is unframed raw bytes. The preface
+	// appears in the request buffer regardless of which side we instrument.
 	if len(reqData) >= http2PrefaceLen &&
 		bytes.Equal(reqData[:http2PrefaceLen], []byte("PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n")) {
 		reqData = reqData[http2PrefaceLen:]
 	}
 
-	method, path, status, proto, streamID, ok, responseFound := parseHTTP2Frames(
-		parseCtx, reqData, len(reqData), respBuf.UnsafeView(), connID)
+	method, path, status, proto, _, ok, _ := parseHTTP2Frames(
+		parseCtx, reqData, len(reqData), respData, connID)
 	if !ok {
 		return request.Span{}, true, nil
 	}
@@ -575,37 +557,6 @@ func http2SpanFromTCPEvent(parseCtx *EBPFParseContext, event *TCPRequestInfo, re
 		peer = source
 	}
 
-	skey := http2StreamKey{connID: connID, streamID: streamID}
-
-	if method != "" && !responseFound {
-		// Request HEADERS found but no response yet — defer until the response arrives.
-		parseCtx.pendingHTTP2.Add(skey, pendingHTTP2Span{
-			method: method,
-			path:   path,
-			proto:  proto,
-			peer:   peer,
-			host:   host,
-			event:  *event,
-		})
-		return request.Span{}, true, nil
-	}
-
-	if method == "" && responseFound {
-		// Response HEADERS found but no request — look up a deferred span for this stream.
-		if pending, found := parseCtx.pendingHTTP2.Get(skey); found {
-			parseCtx.pendingHTTP2.Remove(skey)
-			pendingEvent := pending.event
-			pendingEvent.EndMonotimeNs = event.EndMonotimeNs
-			if proto == GRPC {
-				pending.proto = GRPC
-			}
-			return http2TCPToSpan(&pendingEvent, pending.method, pending.path, pending.peer, pending.host, status, pending.proto), false, nil
-		}
-		return request.Span{}, true, nil
-	}
-
-	// Both request and response HEADERS in the same event.
-	parseCtx.pendingHTTP2.Remove(skey)
 	return http2TCPToSpan(event, method, path, peer, host, status, proto), false, nil
 }
 
@@ -619,18 +570,18 @@ func ReadHTTP2BufferIntoSpan(parseCtx *EBPFParseContext, record *ringbuf.Record,
 		return request.Span{}, true, nil
 	}
 
-	l := int(event.Len)
-	if l < 0 || len(event.Buf) < l {
-		l = len(event.Buf)
+	// Socktracer emits one combined event: buf = request HEADERS, rbuf = response
+	// HEADERS, paired in BPF by stream. No per-direction correlation needed.
+	reqLen := int(event.ReqLen)
+	if reqLen < 0 || reqLen > len(event.Buf) {
+		reqLen = len(event.Buf)
 	}
-	pkt := largebuf.NewLargeBufferFrom(event.Buf[:l])
-	empty := largebuf.NewLargeBufferFrom(event.Buf[:0])
+	respLen := int(event.RespLen)
+	if respLen < 0 || respLen > len(event.Rbuf) {
+		respLen = len(event.Rbuf)
+	}
 
-	// TCP_SEND (directionSend=1) = request direction; TCP_RECV (directionRecv=0) = response direction.
-	if event.Direction == directionSend {
-		return http2SpanFromTCPEvent(parseCtx, event, pkt, empty)
-	}
-	return http2SpanFromTCPEvent(parseCtx, event, empty, pkt)
+	return http2CombinedFromTCPEvent(parseCtx, event, event.Buf[:reqLen], event.Rbuf[:respLen])
 }
 
 func ReadHTTP2InfoIntoSpan(parseContext *EBPFParseContext, record *ringbuf.Record, filter ServiceFilter) (request.Span, bool, error) {

@@ -249,7 +249,6 @@ type CouchbaseBucketInfo struct {
 type EBPFParseContext struct {
 	protocolDebug              bool
 	h2c                        *lru.Cache[uint64, h2Connection]
-	pendingHTTP2               *lru.Cache[http2StreamKey, pendingHTTP2Span]
 	redisDBCache               *simplelru.LRU[BpfConnectionInfoT, int]
 	couchbaseBucketCache       *simplelru.LRU[BpfConnectionInfoT, CouchbaseBucketInfo]
 	largeBuffers               *expirable.LRU[largeBufferKey, *largebuf.LargeBuffer]
@@ -351,7 +350,6 @@ func NewEBPFParseContext(cfg *config.EBPFTracer, spansChan *msg.Queue[[]request.
 	)
 
 	h2c, _ := lru.New[uint64, h2Connection](1024 * 10)
-	pendingHTTP2, _ := lru.New[http2StreamKey, pendingHTTP2Span](1024)
 	largeBuffers := expirable.NewLRU[largeBufferKey, *largebuf.LargeBuffer](1024, nil, 5*time.Minute)
 
 	if spansChan != nil {
@@ -423,7 +421,6 @@ func NewEBPFParseContext(cfg *config.EBPFTracer, spansChan *msg.Queue[[]request.
 	return &EBPFParseContext{
 		protocolDebug:              protocolDebug,
 		h2c:                        h2c,
-		pendingHTTP2:               pendingHTTP2,
 		redisDBCache:               redisDBCache,
 		couchbaseBucketCache:       couchbaseBucketCache,
 		largeBuffers:               largeBuffers,
