@@ -508,7 +508,7 @@ int obi_ingress_http2(struct __sk_buff *skb) {
         return SK_PASS;
     }
 
-    emit_http2_buffer(skb, sk_data, k_packet_direction_ingress);
+    emit_http2_buffer(skb, sk_data, k_packet_direction_ingress, NULL);
 
     return SK_PASS;
 }

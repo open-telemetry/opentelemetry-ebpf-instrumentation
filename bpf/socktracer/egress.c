@@ -605,7 +605,8 @@ int obi_egress_http2(struct sk_msg_md *msg) {
         return SK_PASS;
     }
 
-    emit_http2_buffer(msg, sk_data, k_packet_direction_egress);
+    tp_info_t emitted_tp = {0};
+    emit_http2_buffer(msg, sk_data, k_packet_direction_egress, &emitted_tp);
 
     // Inject HPACK on the client side only; responses/server push must not be rewritten.
     if (sk_data->sk_type != sk_type_client) {
@@ -618,6 +619,11 @@ int obi_egress_http2(struct sk_msg_md *msg) {
     if (is_go_grpc_client_conn(&t_ctx->p_conn)) {
         return SK_PASS;
     }
+
+    // Carry the emitted client span's tp so the inject chain reuses it (one tp per
+    // stream for both the span and the wire, like the generictracer).
+    __builtin_memcpy(t_ctx->emit_trace_id, emitted_tp.trace_id, TRACE_ID_SIZE_BYTES);
+    __builtin_memcpy(t_ctx->emit_span_id, emitted_tp.span_id, SPAN_ID_SIZE_BYTES);
 
     t_ctx->e_key = make_egress_key(&sk_data->conn);
     t_ctx->h2_frames = 0;

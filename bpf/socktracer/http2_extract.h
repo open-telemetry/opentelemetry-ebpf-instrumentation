@@ -17,6 +17,10 @@
 enum { k_h2_ingress_pull = 512 };
 
 // Decode the traceparent at position p (already fingerprint-matched) into *out.
+// Uses decode_tp_value (incoming span -> out->span_id), not try_parse_tp_value
+// (-> parent_id): socktracer routes this tp through init_tp, which derives the
+// server span's parent from parent_tp->span_id. (The generictracer applies its tp
+// directly, so it wants parent_id — same bytes, different target field.)
 static __always_inline bool
 h2_decode_plain_at(const unsigned char *p, const unsigned char *end, tp_info_t *out) {
     if ((void *)(p + k_h2_tp_hpack_size) > (void *)end) {
@@ -25,7 +29,7 @@ h2_decode_plain_at(const unsigned char *p, const unsigned char *end, tp_info_t *
     if (p[0] != k_hpack_literal_no_index || p[1] != k_h2_nlb_plain || !match_h2_tp_plain(p)) {
         return false;
     }
-    return try_parse_tp_value(&p[k_hpack_tp_val_offset], out) != 0;
+    return decode_tp_value(&p[k_hpack_tp_val_offset], out);
 }
 
 static __always_inline bool
@@ -36,7 +40,7 @@ h2_decode_huffman_at(const unsigned char *p, const unsigned char *end, tp_info_t
     if (p[0] != k_hpack_literal_no_index || p[1] != k_h2_nlb_huffman || !match_h2_tp_huffman(p)) {
         return false;
     }
-    return try_parse_tp_value(&p[k_hpack_tp_val_offset_huffman], out) != 0;
+    return decode_tp_value(&p[k_hpack_tp_val_offset_huffman], out);
 }
 
 // Adopt an incoming HTTP/2 request's traceparent by reading the packet DIRECTLY

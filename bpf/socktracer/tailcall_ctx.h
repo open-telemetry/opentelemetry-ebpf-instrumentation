@@ -25,6 +25,11 @@ typedef struct tailcall_ctx {
     u8 niter;
     u8 h2_frames; // H2 HEADERS frames already processed this packet (capped)
     u8 _pad[8];
+    // The tp emit_http2_buffer assigned to the client span this packet; the h2
+    // inject chain reuses it so the wire traceparent matches the emitted span
+    // (otherwise the chain mints a fresh one and the server nests on a phantom).
+    unsigned char emit_trace_id[TRACE_ID_SIZE_BYTES];
+    unsigned char emit_span_id[SPAN_ID_SIZE_BYTES];
 } tailcall_ctx;
 
 SCRATCH_MEM(tailcall_ctx);

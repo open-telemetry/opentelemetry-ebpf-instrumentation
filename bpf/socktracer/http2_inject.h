@@ -208,7 +208,11 @@ static __always_inline int obi_egress_h2_create_step(struct sk_msg_md *msg, tail
         h2_set_outgoing(&t_ctx->e_key, tp_p);
     } else {
         init_tp(sk_data, &tp_p->tp);
-        urand_bytes(tp_p->tp.span_id, sizeof(tp_p->tp.span_id));
+        // Reuse the emitted client span's trace+span id (carried via t_ctx) so the
+        // injected wire traceparent matches the span userspace builds, rather than
+        // minting a fresh one that leaves the downstream server on a phantom parent.
+        __builtin_memcpy(tp_p->tp.trace_id, t_ctx->emit_trace_id, sizeof(tp_p->tp.trace_id));
+        __builtin_memcpy(tp_p->tp.span_id, t_ctx->emit_span_id, sizeof(tp_p->tp.span_id));
         tp_p->tp.ts = bpf_ktime_get_ns();
         tp_p->tp.flags = 1;
         tp_p->valid = 1;
