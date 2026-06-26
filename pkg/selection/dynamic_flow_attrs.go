@@ -86,10 +86,9 @@ func (d *DynamicFlowAttrs) rebuild() {
 	pids, ok := d.signalSel.GetPIDs()
 
 	next := map[string]flowIPDecoration{}
-	currentPIDs := map[app.PID]struct{}{}
-	if ok {
+	storeRegisteredPIDs := map[app.PID]struct{}{}
+	if ok && d.store != nil {
 		for _, pid := range pids {
-			currentPIDs[pid] = struct{}{}
 			entry, found := d.multiSel.GetPID(uint32(pid))
 			if !found {
 				continue
@@ -101,20 +100,21 @@ func (d *DynamicFlowAttrs) rebuild() {
 			for _, ip := range ResolveContainerIPs(d.store, pid) {
 				next[ip] = dec
 			}
+			storeRegisteredPIDs[pid] = struct{}{}
 		}
 	}
 
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	for pid := range d.registeredPIDs {
-		if _, still := currentPIDs[pid]; !still {
+		if _, still := storeRegisteredPIDs[pid]; !still {
 			if d.store != nil {
 				d.store.DeleteProcess(pid)
 			}
 			delete(d.registeredPIDs, pid)
 		}
 	}
-	for pid := range currentPIDs {
+	for pid := range storeRegisteredPIDs {
 		d.registeredPIDs[pid] = struct{}{}
 	}
 	d.ipDecor = next

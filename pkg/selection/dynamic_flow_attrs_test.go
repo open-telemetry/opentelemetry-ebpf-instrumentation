@@ -90,7 +90,12 @@ func TestDynamicFlowAttrs_Apply_srcAndDst(t *testing.T) {
 }
 
 func TestDynamicFlowAttrs_rebuild_clearsWhenEmpty(t *testing.T) {
-	sel := &stubMultiPIDSelector{stubPIDSelector: stubPIDSelector{pids: []app.PID{1}}}
+	sel := &stubMultiPIDSelector{
+		stubPIDSelector: stubPIDSelector{pids: []app.PID{1}},
+		entries: map[app.PID]DynamicPIDEntry{
+			1: {PID: 1, ServiceName: "a"},
+		},
+	}
 	tracker := NewDynamicFlowAttrs(sel, sel, nil)
 	tracker.mu.Lock()
 	tracker.ipDecor["10.0.0.1"] = flowIPDecoration{serviceName: "old"}
@@ -106,25 +111,22 @@ func TestDynamicFlowAttrs_rebuild_clearsWhenEmpty(t *testing.T) {
 	tracker.mu.RUnlock()
 }
 
-func TestDynamicFlowAttrs_rebuild_unregistersRemovedPIDs(t *testing.T) {
+func TestDynamicFlowAttrs_rebuild_doesNotTrackPIDWithoutDecoration(t *testing.T) {
 	sel := &stubMultiPIDSelector{
 		stubPIDSelector: stubPIDSelector{pids: []app.PID{1, 2}},
 		entries: map[app.PID]DynamicPIDEntry{
 			1: {PID: 1, ServiceName: "a"},
-			2: {PID: 2, ServiceName: "b"},
+			2: {PID: 2},
 		},
 	}
 	tracker := NewDynamicFlowAttrs(sel, sel, nil)
-	tracker.rebuild()
-	tracker.mu.RLock()
-	assert.Len(t, tracker.registeredPIDs, 2)
-	tracker.mu.RUnlock()
+	tracker.mu.Lock()
+	tracker.registeredPIDs[2] = struct{}{}
+	tracker.mu.Unlock()
 
-	sel.pids = []app.PID{2}
 	tracker.rebuild()
+
 	tracker.mu.RLock()
-	assert.Len(t, tracker.registeredPIDs, 1)
-	_, ok := tracker.registeredPIDs[2]
-	assert.True(t, ok)
+	assert.Empty(t, tracker.registeredPIDs)
 	tracker.mu.RUnlock()
 }
