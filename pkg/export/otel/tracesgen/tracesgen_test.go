@@ -87,6 +87,41 @@ func TestTraceAttributesSelector_GraphQLDocumentSelection(t *testing.T) {
 	assert.Equal(t, document, selectedDocument.Str())
 }
 
+func TestTraceAttributesSelector_MCPToolCallPayloadSelection(t *testing.T) {
+	span := &request.Span{
+		Type:    request.EventTypeHTTP,
+		SubType: request.HTTPSubtypeMCP,
+		GenAI: &request.GenAI{
+			MCP: &request.MCPCall{
+				Method:            "tools/call",
+				ToolName:          "read_secret",
+				ToolCallArguments: `{"path":"/etc/secrets/api_key"}`,
+				ToolCallResult:    `[{"type":"text","text":"api_key=SECRET123"}]`,
+			},
+		},
+	}
+
+	inputOutputAttrs := AttrsToMap(TraceAttributesSelector(span, map[attr.Name]struct{}{
+		attr.GenAIInput:  {},
+		attr.GenAIOutput: {},
+	}))
+	_, ok := inputOutputAttrs.Get(string(attr.GenAIToolCallArguments))
+	assert.False(t, ok)
+	_, ok = inputOutputAttrs.Get(string(attr.GenAIToolCallResult))
+	assert.False(t, ok)
+
+	toolCallAttrs := AttrsToMap(TraceAttributesSelector(span, map[attr.Name]struct{}{
+		attr.GenAIToolCallArguments: {},
+		attr.GenAIToolCallResult:    {},
+	}))
+	arguments, ok := toolCallAttrs.Get(string(attr.GenAIToolCallArguments))
+	require.True(t, ok)
+	assert.Equal(t, `{"path":"/etc/secrets/api_key"}`, arguments.Str())
+	result, ok := toolCallAttrs.Get(string(attr.GenAIToolCallResult))
+	require.True(t, ok)
+	assert.Equal(t, `[{"type":"text","text":"api_key=SECRET123"}]`, result.Str())
+}
+
 func TestHTTPServerSpanURLQuery(t *testing.T) {
 	optInCfg := &attributes.SelectorConfig{
 		SelectionCfg: attributes.Selection{
