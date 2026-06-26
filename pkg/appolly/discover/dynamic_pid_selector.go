@@ -45,8 +45,8 @@ type dynamicPIDRecord struct {
 }
 
 type dynamicPIDNotifier struct {
-	addedCh   chan []app.PID
-	removedCh chan []app.PID
+	addedSubscribers   []chan []app.PID
+	removedSubscribers []chan []app.PID
 
 	addedPending []app.PID
 	addedMu      sync.Mutex
@@ -58,10 +58,7 @@ type dynamicPIDNotifier struct {
 }
 
 func newDynamicPIDNotifier() *dynamicPIDNotifier {
-	n := &dynamicPIDNotifier{
-		addedCh:   make(chan []app.PID, 1),
-		removedCh: make(chan []app.PID, 1),
-	}
+	n := &dynamicPIDNotifier{}
 	n.addedCond = sync.NewCond(&n.addedMu)
 	n.removedCond = sync.NewCond(&n.removedMu)
 	go n.drainAdded()
@@ -92,27 +89,53 @@ func (n *dynamicPIDNotifier) notifyRemoved(pids []app.PID) {
 func (n *dynamicPIDNotifier) drainAdded() {
 	for {
 		n.addedMu.Lock()
-		for len(n.addedPending) == 0 {
+		for len(n.addedPending) == 0 || len(n.addedSubscribers) == 0 {
 			n.addedCond.Wait()
 		}
 		batch := append([]app.PID(nil), n.addedPending...)
 		n.addedPending = n.addedPending[:0]
+		subscribers := slices.Clone(n.addedSubscribers)
 		n.addedMu.Unlock()
-		n.addedCh <- batch
+
+		for _, subscriber := range subscribers {
+			subscriber <- batch
+		}
 	}
 }
 
 func (n *dynamicPIDNotifier) drainRemoved() {
 	for {
 		n.removedMu.Lock()
-		for len(n.removedPending) == 0 {
+		for len(n.removedPending) == 0 || len(n.removedSubscribers) == 0 {
 			n.removedCond.Wait()
 		}
 		batch := append([]app.PID(nil), n.removedPending...)
 		n.removedPending = n.removedPending[:0]
+		subscribers := slices.Clone(n.removedSubscribers)
 		n.removedMu.Unlock()
-		n.removedCh <- batch
+
+		for _, subscriber := range subscribers {
+			subscriber <- batch
+		}
 	}
+}
+
+func (n *dynamicPIDNotifier) addedNotify() <-chan []app.PID {
+	ch := make(chan []app.PID, 1)
+	n.addedMu.Lock()
+	n.addedSubscribers = append(n.addedSubscribers, ch)
+	n.addedCond.Signal()
+	n.addedMu.Unlock()
+	return ch
+}
+
+func (n *dynamicPIDNotifier) removedNotify() <-chan []app.PID {
+	ch := make(chan []app.PID, 1)
+	n.removedMu.Lock()
+	n.removedSubscribers = append(n.removedSubscribers, ch)
+	n.removedCond.Signal()
+	n.removedMu.Unlock()
+	return ch
 }
 
 type dynamicPIDSignalView struct {
@@ -142,11 +165,11 @@ func (v *dynamicPIDSignalView) IncludesPID(pid app.PID) bool {
 }
 
 func (v *dynamicPIDSignalView) AddedPIDsNotify() <-chan []app.PID {
-	return v.notifier.addedCh
+	return v.notifier.addedNotify()
 }
 
 func (v *dynamicPIDSignalView) RemovedNotify() <-chan []app.PID {
-	return v.notifier.removedCh
+	return v.notifier.removedNotify()
 }
 
 // SelectorForPID returns a services.Selector for pid when it is in this view, carrying the

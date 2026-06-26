@@ -5,6 +5,7 @@ package appolly
 
 import (
 	"context"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -22,6 +23,41 @@ import (
 )
 
 const gateTestTimeout = time.Second
+
+type countingPIDSelector struct {
+	selected app.PID
+	addedCh  chan []app.PID
+	removed  chan []app.PID
+
+	addedCalls   atomic.Int64
+	removedCalls atomic.Int64
+}
+
+func newCountingPIDSelector(pid app.PID) *countingPIDSelector {
+	return &countingPIDSelector{
+		selected: pid,
+		addedCh:  make(chan []app.PID),
+		removed:  make(chan []app.PID),
+	}
+}
+
+func (s *countingPIDSelector) GetPIDs() ([]app.PID, bool) {
+	return []app.PID{s.selected}, true
+}
+
+func (s *countingPIDSelector) IncludesPID(pid app.PID) bool {
+	return s.selected == pid
+}
+
+func (s *countingPIDSelector) AddedPIDsNotify() <-chan []app.PID {
+	s.addedCalls.Add(1)
+	return s.addedCh
+}
+
+func (s *countingPIDSelector) RemovedNotify() <-chan []app.PID {
+	s.removedCalls.Add(1)
+	return s.removed
+}
 
 func TestDynamicSignalSpanGate(t *testing.T) {
 	sel := discover.NewDynamicPIDSelector()
@@ -105,6 +141,44 @@ func TestDynamicSignalProcessEventGate(t *testing.T) {
 	got = testutil.ReadChannel(t, outCh, gateTestTimeout)
 	assert.Equal(t, execpkg.ProcessEventTerminated, got.Type)
 	assert.Equal(t, app.PID(200), got.File.Pid())
+}
+
+func TestDynamicSignalProcessEventGate_SubscribesToSelectorNotificationsOnce(t *testing.T) {
+	selector := newCountingPIDSelector(1)
+	input := msg.NewQueue[execpkg.ProcessEvent](msg.ChannelBufferLen(8))
+	output := msg.NewQueue[execpkg.ProcessEvent](msg.ChannelBufferLen(8))
+	outCh := output.Subscribe()
+
+	gate := &dynamicSignalProcessEventGate{
+		input:     input.Subscribe(msg.SubscriberName("appolly.DynamicSignalProcessEventGate")),
+		output:    output,
+		selector:  selector,
+		current:   map[app.PID]*execpkg.FileInfo{},
+		forwarded: map[app.PID]bool{},
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	go gate.run(ctx)
+
+	require.Eventually(t, func() bool {
+		return selector.addedCalls.Load() == 1 && selector.removedCalls.Load() == 1
+	}, gateTestTimeout, 10*time.Millisecond)
+
+	file := execpkg.New(execpkg.Init{
+		Service: svc.Attrs{ProcPID: 100, DynamicSelectorPID: 1},
+		Pid:     100,
+	})
+
+	input.Send(execpkg.ProcessEvent{Type: execpkg.ProcessEventCreated, File: file})
+	got := testutil.ReadChannel(t, outCh, gateTestTimeout)
+	assert.Equal(t, execpkg.ProcessEventCreated, got.Type)
+
+	input.Send(execpkg.ProcessEvent{Type: execpkg.ProcessEventTerminated, File: file})
+	got = testutil.ReadChannel(t, outCh, gateTestTimeout)
+	assert.Equal(t, execpkg.ProcessEventTerminated, got.Type)
+
+	assert.Equal(t, int64(1), selector.addedCalls.Load())
+	assert.Equal(t, int64(1), selector.removedCalls.Load())
 }
 
 func TestDynamicSignalProcessEventGate_DuplicateCreateBeforeRemoveNotify(t *testing.T) {

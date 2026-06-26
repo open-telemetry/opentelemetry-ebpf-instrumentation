@@ -156,6 +156,22 @@ func TestDynamicPIDSelector_AppUnionNotifications(t *testing.T) {
 	assert.Equal(t, []app.PID{42}, <-rootRemoved)
 }
 
+func TestDynamicPIDSelector_NotifyBroadcastsToAllSubscribers(t *testing.T) {
+	d := NewDynamicPIDSelector()
+	addedOne := d.AddedPIDsNotify()
+	addedTwo := d.AddedPIDsNotify()
+	removedOne := d.RemovedNotify()
+	removedTwo := d.RemovedNotify()
+
+	d.AddPIDs(42)
+	assert.Equal(t, []app.PID{42}, <-addedOne)
+	assert.Equal(t, []app.PID{42}, <-addedTwo)
+
+	d.RemovePIDs(42)
+	assert.Equal(t, []app.PID{42}, <-removedOne)
+	assert.Equal(t, []app.PID{42}, <-removedTwo)
+}
+
 func TestDynamicPIDSelector_RemovePIDs_Notify(t *testing.T) {
 	d := NewDynamicPIDSelector()
 	d.AddPIDs(42, 100)
