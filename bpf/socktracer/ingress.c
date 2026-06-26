@@ -269,7 +269,7 @@ static __always_inline void set_server_trace(const struct socket_data *sk_data,
     populate_ephemeral_info(&scratch->conn_part,
                             &sk_data->sorted_conn,
                             sk_data->conn.d_port,
-                            sk_data->pid_tgid,
+                            pid_from_pid_tgid(sk_data->pid_tgid),
                             FD_SERVER);
 
     bpf_dbg_printk("Saving connection server span for pid=%u, tid=%u, ephemeral_port=%u",
