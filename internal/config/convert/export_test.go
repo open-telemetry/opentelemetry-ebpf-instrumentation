@@ -649,6 +649,22 @@ func TestRuntimeToV2EffectiveDiscoveryCriteria(t *testing.T) {
 		require.Equal(t, []string{"go", "java"}, value(t, ext.Capture.Rules[0].Match, "process", "language_glob"))
 	})
 
+	t.Run("env-backed top-level glob selectors", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := minimalSelectionConfig()
+		require.NoError(t, cfg.AutoTargetExe.UnmarshalText([]byte("/srv/*")))
+		require.NoError(t, cfg.AutoTargetLanguage.UnmarshalText([]byte("{go,java}")))
+
+		_, ext := RuntimeToV2(&cfg)
+
+		require.Equal(t, schema.CaptureActionExclude, value(t, ext.Capture.Policy, "default_action"))
+		require.Len(t, ext.Capture.Rules, 1)
+		require.Equal(t, schema.CaptureActionInclude, ext.Capture.Rules[0].Action)
+		require.Equal(t, []string{"/srv/*"}, value(t, ext.Capture.Rules[0].Match, "process", "exe_path_glob"))
+		require.Equal(t, []string{"go", "java"}, value(t, ext.Capture.Rules[0].Match, "process", "language_glob"))
+	})
+
 	t.Run("target pids selector", func(t *testing.T) {
 		t.Parallel()
 
