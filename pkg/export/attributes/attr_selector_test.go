@@ -196,6 +196,12 @@ func TestDefault(t *testing.T) {
 	assert.Equal(t, p.For(NetworkFlow), p.For(NetworkFlowPackets))
 }
 
+func TestDefaultSensitiveQueryParamsIncludesLegacyAWSSignedURLKeys(t *testing.T) {
+	assert.Contains(t, DefaultSensitiveQueryParams, "AWSAccessKeyId")
+	assert.Contains(t, DefaultSensitiveQueryParams, "Signature")
+	assert.Contains(t, DefaultSensitiveQueryParams, "SecurityToken")
+}
+
 func TestExtraGroupAttributes(t *testing.T) {
 	var g AttrGroups
 	g.Add(GroupKubernetes)

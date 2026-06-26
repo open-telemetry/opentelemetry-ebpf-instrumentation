@@ -142,6 +142,16 @@ func TestHTTPServerSpanURLQuery(t *testing.T) {
 		assert.NotContains(t, val.Str(), "abc123")
 	})
 
+	t.Run("legacy AWS signed URL keys redacted by default list", func(t *testing.T) {
+		span := &request.Span{Type: request.EventTypeHTTP, Method: "GET", Path: "/", FullPath: "/?AWSAccessKeyId=AKID&Signature=secret&SecurityToken=session&cmd=ok", Status: 200}
+		optInAttrs, err := UserSelectedAttributes(optInCfg)
+		require.NoError(t, err)
+		selected := AttrsToMap(TraceAttributesSelector(span, optInAttrs, attributes.DefaultSensitiveQueryParams...))
+		val, ok := selected.Get("url.query")
+		require.True(t, ok)
+		assert.Equal(t, "AWSAccessKeyId=REDACTED&Signature=REDACTED&SecurityToken=REDACTED&cmd=ok", val.Str())
+	})
+
 	t.Run("no redaction when no sensitive params passed to TraceAttributesSelector", func(t *testing.T) {
 		// TraceAttributesSelector is the single-span public API; callers must pass
 		// sensitive params explicitly. The default list flows through GroupSpans via
