@@ -394,7 +394,14 @@ func selectorRefinement(action schema.CaptureAction, selector services.Selector)
 	if exports := exportModeRefinement(selector.GetExportModes()); exports != nil {
 		refine.Exports = exports
 	}
-	// TODO(#2251): add a direction-aware v2 route refinement shape for selector routes.
+	if routes := selector.GetRoutesConfig(); routes != nil && (len(routes.Incoming) > 0 || len(routes.Outgoing) > 0) {
+		refine.HTTP = &schema.HTTPRefinement{
+			Routes: schema.HTTPRefinementRoutes{
+				Incoming: schema.HTTPRefinementRoute{Patterns: cloneStrings(routes.Incoming)},
+				Outgoing: schema.HTTPRefinementRoute{Patterns: cloneStrings(routes.Outgoing)},
+			},
+		}
+	}
 	return refine
 }
 

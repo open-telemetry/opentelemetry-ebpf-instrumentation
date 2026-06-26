@@ -624,7 +624,9 @@ func TestRuntimeToV2AdvancedCaptureParity(t *testing.T) {
 	require.Equal(t, []string{"payments"}, value(t, ext.Capture.Rules[3].Match, "kubernetes", "pod_annotations", "team"))
 	require.NotNil(t, ext.Capture.Rules[3].Refine.Exports)
 	require.Equal(t, schema.ExportModeRefinement{Traces: false, Metrics: true}, *ext.Capture.Rules[3].Refine.Exports)
-	require.Nil(t, ext.Capture.Rules[3].Refine.HTTP)
+	require.NotNil(t, ext.Capture.Rules[3].Refine.HTTP)
+	require.Equal(t, []string{"/orders/{id}"}, ext.Capture.Rules[3].Refine.HTTP.Routes.Incoming.Patterns)
+	require.Equal(t, []string{"/inventory/{id}"}, ext.Capture.Rules[3].Refine.HTTP.Routes.Outgoing.Patterns)
 }
 
 func TestRuntimeToV2EffectiveDiscoveryCriteria(t *testing.T) {
