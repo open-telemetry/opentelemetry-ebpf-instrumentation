@@ -15,6 +15,7 @@ on:
       - "cmd/**"
       - "collector/**"
       - "configs/**"
+      - "devdocs/config/version-2.0/**"
       - "internal/**"
       - "pkg/**"
       - "schemas/**"
@@ -83,7 +84,7 @@ jobs:
         run: make prereqs
 
       - name: Run checks
-        run: make go-mod-tidy license-header-check notices-update check-go-mod check-ebpf-ver-synced check-config-schema check-config-v2-parity check-clean-work-tree
+        run: make go-mod-tidy license-header-check notices-update check-go-mod check-ebpf-ver-synced check-config-schema check-config-v2-artifacts check-clean-work-tree
 
   clang-format:
     name: Clang format

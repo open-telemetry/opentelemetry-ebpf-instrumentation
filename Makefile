@@ -902,6 +902,12 @@ regenerate-port-lookup:
 CONFIG_SCHEMA_FILE ?= devdocs/config/config-schema.json
 CONFIG_DOCS_FILE ?= devdocs/config/CONFIG.md
 
+# Hidden pre-release config v2 artifacts. Keep generated/artifact-only updates
+# separate from conversion logic so reviewers can inspect drift intentionally.
+CONFIG_V2_DIR ?= devdocs/config/version-2.0
+CONFIG_V2_SCHEMA_FILE ?= $(CONFIG_V2_DIR)/obi-extension.schema.json
+CONFIG_V2_EXAMPLE_FILE ?= $(CONFIG_V2_DIR)/examples/default-configuration.yaml
+
 .PHONY: generate-config-schema
 generate-config-schema:
 	@echo "### Generating JSON schema for OBI configuration"
@@ -939,4 +945,9 @@ check-config-schema:
 .PHONY: check-config-v2-parity
 check-config-v2-parity:
 	@echo "### Checking config v2 default parity"
-	go run ./cmd/check-config-v2-parity
+	go run ./cmd/check-config-v2-parity -v2-default $(CONFIG_V2_EXAMPLE_FILE)
+
+.PHONY: check-config-v2-artifacts
+check-config-v2-artifacts: check-config-v2-parity
+	@echo "### Checking hidden config v2 artifacts"
+	go run ./cmd/check-config-v2-artifacts -schema $(CONFIG_V2_SCHEMA_FILE) -example $(CONFIG_V2_EXAMPLE_FILE)
