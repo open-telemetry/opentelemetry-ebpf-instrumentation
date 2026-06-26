@@ -357,7 +357,7 @@ func parseHTTP2Frames(
 	requestLen int,
 	responseData []byte,
 	connID uint64,
-) (method, path string, status int, protocol Protocol, streamID uint32, ok, responseFound bool) {
+) (method, path string, status int, protocol Protocol, ok bool) {
 	protocol = HTTP2
 
 	bLen := min(requestLen, len(requestData))
@@ -389,7 +389,6 @@ func parseHTTP2Frames(
 
 		if ff, ffOK := f.(*http2.HeadersFrame); ffOK {
 			rok := false
-			streamID = ff.StreamID
 			var contentType string
 			method, path, contentType, ok = readMetaFrame(parseCtx, connID, framer, ff)
 			if pos := strings.Index(path, "?"); pos >= 0 {
@@ -415,8 +414,6 @@ func parseHTTP2Frames(
 				return
 			}
 
-			responseFound = rok
-
 			if protocol != GRPC && (grpcInStatus || contentType == "application/grpc") {
 				protocol = GRPC
 				status = http2grpcStatus(status)
@@ -436,11 +433,9 @@ func parseHTTP2Frames(
 			break
 		}
 		if rff, rfOK := retF.(*http2.HeadersFrame); rfOK {
-			streamID = rff.StreamID
 			var grpcInStatus bool
 			status, grpcInStatus, ok = readRetMetaFrame(parseCtx, connID, retFramer, rff)
 			if ok {
-				responseFound = true
 				if grpcInStatus {
 					protocol = GRPC
 					status = http2grpcStatus(status)
@@ -459,7 +454,7 @@ func http2FromBuffers(parseContext *EBPFParseContext, event *BPFHTTP2Info) (requ
 		bLen = int(event.Len)
 	}
 
-	method, path, status, protocol, _, ok, _ := parseHTTP2Frames(
+	method, path, status, protocol, ok := parseHTTP2Frames(
 		parseContext, event.Data[:], bLen, event.RetData[:], event.NewConnId)
 	if !ok {
 		return request.Span{}, true, nil
@@ -543,7 +538,7 @@ func http2CombinedFromTCPEvent(parseCtx *EBPFParseContext, event *TCPRequestInfo
 		reqData = reqData[http2PrefaceLen:]
 	}
 
-	method, path, status, proto, _, ok, _ := parseHTTP2Frames(
+	method, path, status, proto, ok := parseHTTP2Frames(
 		parseCtx, reqData, len(reqData), respData, connID)
 	if !ok {
 		return request.Span{}, true, nil
