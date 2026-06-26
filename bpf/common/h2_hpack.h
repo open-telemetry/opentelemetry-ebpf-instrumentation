@@ -208,8 +208,9 @@ static __always_inline u8 try_parse_tp_value(const unsigned char *val, tp_info_t
 // tp (trace_id + parent_id). Handles plaintext (sk_msg-style) and huffman (Go
 // uprobe) name encodings. Operates over a bounded in-BPF buffer (no data_end
 // checks), so callers must pass a copy of the header bytes, not live packet data.
-static __always_inline u8
-parse_hpack_traceparent(const unsigned char *data, u32 data_len, tp_info_t *tp) {
+static __always_inline u8 parse_hpack_traceparent(const unsigned char *data,
+                                                  u32 data_len,
+                                                  tp_info_t *tp) {
     if (data_len < k_h2_tp_hpack_huffman_size) {
         return 0;
     }

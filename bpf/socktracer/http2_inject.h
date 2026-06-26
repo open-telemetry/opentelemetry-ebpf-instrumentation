@@ -91,8 +91,8 @@ static __always_inline int obi_egress_h2_detect_step(struct sk_msg_md *msg, tail
     return SK_PASS;
 }
 
-static __always_inline int
-obi_egress_h2_find_existing_step(struct sk_msg_md *msg, tailcall_ctx *t_ctx) {
+static __always_inline int obi_egress_h2_find_existing_step(struct sk_msg_md *msg,
+                                                            tailcall_ctx *t_ctx) {
     t_ctx->h2_tp_candidate_pos =
         find_first_h2_tp_candidate(msg, t_ctx->h2_hpack_offset, t_ctx->h2_hpack_len);
     bpf_tail_call_static(msg, &obi_egress_progs, k_tail_egress_h2_validate_tp);

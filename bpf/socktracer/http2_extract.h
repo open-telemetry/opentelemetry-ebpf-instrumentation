@@ -60,8 +60,7 @@ h2_probe_headers_at(const unsigned char *data, u32 off, const unsigned char *end
         return false;
     }
 
-    const u32 payload_len =
-        ((u32)data[off] << 16) | ((u32)data[off + 1] << 8) | (u32)data[off + 2];
+    const u32 payload_len = ((u32)data[off] << 16) | ((u32)data[off + 1] << 8) | (u32)data[off + 2];
 
     if (payload_len > k_h2_ingress_pull) {
         return false;

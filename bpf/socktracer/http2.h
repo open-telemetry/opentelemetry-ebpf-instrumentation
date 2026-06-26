@@ -36,8 +36,7 @@ static __always_inline bool is_http2_preface(const unsigned char *buf, const uns
 // captured bytes — the caller then treats the packet as a non-boundary frame
 // (DATA/SETTINGS/...) and ignores it. Reads a fixed map-backed array, so there
 // are no data_end concerns; the offset is clamped to keep the verifier happy.
-static __always_inline bool
-h2_buf_stream_id(const unsigned char *buf, u32 buf_len, u32 *out_sid) {
+static __always_inline bool h2_buf_stream_id(const unsigned char *buf, u32 buf_len, u32 *out_sid) {
     if (buf_len > (u32)k_tcp_max_len) {
         buf_len = k_tcp_max_len;
     }
