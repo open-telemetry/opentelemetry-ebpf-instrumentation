@@ -18,7 +18,7 @@ typedef struct large_buf_emit_state {
     u8 batch_iter;
     u8 packet_type;
     u8 direction;
-    u8 action;
+    enum large_buf_action action;
 } large_buf_emit_state_t;
 
 SCRATCH_MEM_TYPED(large_buf_emit_state, large_buf_emit_state_t)
