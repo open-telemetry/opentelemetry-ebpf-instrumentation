@@ -6,6 +6,7 @@ package convert // import "go.opentelemetry.io/obi/internal/config/convert"
 import (
 	"net/url"
 	"strconv"
+	"strings"
 
 	otelconfx "go.opentelemetry.io/contrib/otelconf/x"
 
@@ -680,7 +681,8 @@ func daemon(cfg *obi.Config) *schema.Daemon {
 	return &schema.Daemon{
 		Logging: schema.Logging{
 			Level:            schema.LogLevel(cfg.LogLevel),
-			Format:           schema.LogFormat(cfg.LogConfig),
+			Format:           logFormat(cfg.LogFormat),
+			ConfigFormat:     configFormat(cfg.LogConfig),
 			DebugTraceOutput: cfg.TracePrinter,
 		},
 		Profiling: schema.Profiling{
@@ -709,6 +711,28 @@ func daemon(cfg *obi.Config) *schema.Daemon {
 				},
 			},
 		},
+	}
+}
+
+func logFormat(format obi.LogFormat) schema.LogFormat {
+	switch strings.ToLower(string(format)) {
+	case string(schema.LogFormatJSON):
+		return schema.LogFormatJSON
+	case string(schema.LogFormatText):
+		return schema.LogFormatText
+	default:
+		return schema.LogFormatText
+	}
+}
+
+func configFormat(format obi.LogConfigOption) schema.ConfigFormat {
+	switch format {
+	case obi.LogConfigOptionJSON:
+		return schema.ConfigFormatJSON
+	case obi.LogConfigOptionYAML:
+		return schema.ConfigFormatYAML
+	default:
+		return schema.ConfigFormatUnset
 	}
 }
 

@@ -117,6 +117,8 @@ func TestRuntimeToV2DefaultConfig(t *testing.T) {
 	require.Equal(t, 8, value(t, ext.Correlation, "log_trace_annotation", "async_writer", "workers"))
 
 	require.Equal(t, schema.LogLevelInfo, value(t, ext.Daemon, "logging", "level"))
+	require.Equal(t, schema.LogFormatText, value(t, ext.Daemon, "logging", "format"))
+	require.Equal(t, schema.ConfigFormatUnset, value(t, ext.Daemon, "logging", "config_format"))
 	require.Equal(t, debug.TracePrinterDisabled, value(t, ext.Daemon, "logging", "debug_trace_output"))
 	require.Equal(t, schema.Duration(10*time.Second), value(t, ext.Daemon, "shutdown", "timeout"))
 	require.Equal(t, imetrics.InternalMetricsExporterDisabled, value(t, ext.Daemon, "internal_metrics", "exporter"))
@@ -165,7 +167,8 @@ func TestRuntimeToV2CustomConfig(t *testing.T) {
 	cfg.ChannelSendTimeoutPanic = true
 	cfg.EnforceSysCaps = true
 	cfg.LogLevel = obi.LogLevelDebug
-	cfg.LogConfig = obi.LogConfigOptionJSON
+	cfg.LogFormat = obi.LogFormatJSON
+	cfg.LogConfig = obi.LogConfigOptionYAML
 	cfg.TracePrinter = debug.TracePrinterJSON
 	cfg.ShutdownTimeout = 3 * time.Second
 	cfg.ProfilePort = 6060
@@ -423,6 +426,7 @@ func TestRuntimeToV2CustomConfig(t *testing.T) {
 
 	require.Equal(t, schema.LogLevelDebug, value(t, ext.Daemon, "logging", "level"))
 	require.Equal(t, schema.LogFormatJSON, value(t, ext.Daemon, "logging", "format"))
+	require.Equal(t, schema.ConfigFormatYAML, value(t, ext.Daemon, "logging", "config_format"))
 	require.Equal(t, debug.TracePrinterJSON, value(t, ext.Daemon, "logging", "debug_trace_output"))
 	require.Equal(t, 6060, value(t, ext.Daemon, "profiling", "port"))
 	require.Equal(t, schema.Duration(3*time.Second), value(t, ext.Daemon, "shutdown", "timeout"))
@@ -433,6 +437,30 @@ func TestRuntimeToV2CustomConfig(t *testing.T) {
 	require.Equal(t, 918, value(t, ext.Daemon, "telemetry", "metrics", "prometheus", "span_metrics_service_cache_size"))
 	require.Equal(t, []string{"cloud.region"}, value(t, ext.Daemon, "telemetry", "metrics", "prometheus", "extra_resource_attributes"))
 	require.Equal(t, []string{"service.version", "k8s.cluster.name", "deployment.environment"}, value(t, ext.Daemon, "telemetry", "metrics", "prometheus", "extra_span_resource_attributes"))
+}
+
+func TestRuntimeToV2NormalizesLogFormat(t *testing.T) {
+	t.Parallel()
+
+	cfg := defaultRuntimeConfig()
+	cfg.LogFormat = obi.LogFormat("JSON")
+
+	_, ext := RuntimeToV2(&cfg)
+
+	require.Equal(t, schema.LogFormatJSON, value(t, ext.Daemon, "logging", "format"))
+}
+
+func TestRuntimeToV2FallsBackOnUnsupportedLogFormats(t *testing.T) {
+	t.Parallel()
+
+	cfg := defaultRuntimeConfig()
+	cfg.LogFormat = obi.LogFormat("console")
+	cfg.LogConfig = obi.LogConfigOption("text")
+
+	_, ext := RuntimeToV2(&cfg)
+
+	require.Equal(t, schema.LogFormatText, value(t, ext.Daemon, "logging", "format"))
+	require.Equal(t, schema.ConfigFormatUnset, value(t, ext.Daemon, "logging", "config_format"))
 }
 
 func TestRuntimeToV2AdvancedCaptureParity(t *testing.T) {

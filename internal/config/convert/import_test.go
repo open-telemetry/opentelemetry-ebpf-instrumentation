@@ -46,6 +46,8 @@ func TestV2ToRuntimeDefaultExportFoundation(t *testing.T) {
 	require.Equal(t, obi.DefaultConfig.NodeJS.Enabled, got.NodeJS.Enabled)
 	require.Equal(t, obi.DefaultConfig.Java.Enabled, got.Java.Enabled)
 	require.Equal(t, obi.DefaultConfig.LogLevel, got.LogLevel)
+	require.Equal(t, obi.DefaultConfig.LogFormat, got.LogFormat)
+	require.Equal(t, obi.DefaultConfig.LogConfig, got.LogConfig)
 	require.Equal(t, obi.DefaultConfig.InternalMetrics, got.InternalMetrics)
 	require.Equal(t, export.FeatureApplicationRED, got.Metrics.Features)
 	require.Contains(t, got.Traces.Instrumentations, instrumentations.InstrumentationHTTP)
@@ -183,7 +185,8 @@ func TestV2ToRuntimeCustomFoundation(t *testing.T) {
 	cfg.EBPF.LogEnricher.AsyncWriterChannelLen = 604
 
 	cfg.LogLevel = obi.LogLevelDebug
-	cfg.LogConfig = obi.LogConfigOptionJSON
+	cfg.LogFormat = obi.LogFormatJSON
+	cfg.LogConfig = obi.LogConfigOptionYAML
 	cfg.TracePrinter = debug.TracePrinterJSON
 	cfg.ProfilePort = 6060
 	cfg.ShutdownTimeout = 18 * time.Second
@@ -283,7 +286,8 @@ func TestV2ToRuntimeCustomFoundation(t *testing.T) {
 	require.Equal(t, 604, got.EBPF.LogEnricher.AsyncWriterChannelLen)
 
 	require.Equal(t, obi.LogLevelDebug, got.LogLevel)
-	require.Equal(t, obi.LogConfigOptionJSON, got.LogConfig)
+	require.Equal(t, obi.LogFormatJSON, got.LogFormat)
+	require.Equal(t, obi.LogConfigOptionYAML, got.LogConfig)
 	require.Equal(t, debug.TracePrinterJSON, got.TracePrinter)
 	require.Equal(t, 6060, got.ProfilePort)
 	require.Equal(t, 18*time.Second, got.ShutdownTimeout)
@@ -709,6 +713,27 @@ func TestV2ToRuntimeOmittedCaptureSiblingsPreserveDefaults(t *testing.T) {
 	require.Equal(t, obi.DefaultConfig.Traces.ReportersCacheLen, got.Traces.ReportersCacheLen)
 	require.Equal(t, obi.DefaultConfig.OTELMetrics.ReportersCacheLen, got.OTELMetrics.ReportersCacheLen)
 	require.Equal(t, obi.DefaultConfig.OTELMetrics.TTL, got.OTELMetrics.TTL)
+}
+
+func TestV2ToRuntimeCompleteDaemonOmittedLoggingFieldsPreserveDefaults(t *testing.T) {
+	t.Parallel()
+
+	_, ext := RuntimeToV2(nil)
+	ext.Daemon.Logging = schema.Logging{
+		ConfigFormat: schema.ConfigFormatYAML,
+	}
+	ext.Daemon.Telemetry.Metrics.Prometheus.AllowServiceGraphSelfReferences = true
+	ext.Daemon.Telemetry.Metrics.Prometheus.SpanMetricsServiceCacheSize = 0
+
+	got, err := V2ToRuntime(ext)
+	require.NoError(t, err)
+
+	require.Equal(t, obi.DefaultConfig.LogLevel, got.LogLevel)
+	require.Equal(t, obi.DefaultConfig.LogFormat, got.LogFormat)
+	require.Equal(t, obi.LogConfigOptionYAML, got.LogConfig)
+	require.Equal(t, obi.DefaultConfig.TracePrinter, got.TracePrinter)
+	require.True(t, got.Prometheus.AllowServiceGraphSelfReferences)
+	require.Equal(t, obi.DefaultConfig.Prometheus.SpanMetricsServiceCacheSize, got.Prometheus.SpanMetricsServiceCacheSize)
 }
 
 func TestV2ToRuntimePartialStandaloneSectionsPreserveDefaults(t *testing.T) {

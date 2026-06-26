@@ -678,10 +678,11 @@ extensions:
     # Standalone-mode only: not valid in Collector receiver deployments.
     # In receiver mode the Collector manages these concerns.
     daemon:
-      # Logging behavior and startup config dump.
+      # Logging behavior and startup configuration output.
       logging:
         level: INFO
-        format: ""
+        format: text
+        config_format: ""
         debug_trace_output: disabled
       # Optional profiling endpoint.
       profiling:

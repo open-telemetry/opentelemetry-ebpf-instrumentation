@@ -894,7 +894,7 @@
       "properties": {
         "logging": {
           "type": "object",
-          "description": "Logging behavior and debug-output controls.",
+          "description": "Logging behavior, startup configuration output, and debug-output controls.",
           "additionalProperties": false,
           "properties": {
             "level": {
@@ -912,11 +912,21 @@
               "type": "string",
               "enum": [
                 "",
+                "text",
+                "json"
+              ],
+              "default": "text",
+              "description": "OBI log output format.\nValues include: `text`, `json`.\nIf omitted, `text` is used.\n"
+            },
+            "config_format": {
+              "type": "string",
+              "enum": [
+                "",
                 "yaml",
                 "json"
               ],
               "default": "",
-              "description": "Startup configuration log format. Empty string disables startup config logging.\nValues include: `yaml`, `json`.\nIf omitted, empty string is used.\n"
+              "description": "Format used when writing startup configuration to logs. Empty string disables startup configuration logging.\nValues include: `yaml`, `json`.\nIf omitted, empty string is used.\n"
             },
             "debug_trace_output": {
               "type": "string",

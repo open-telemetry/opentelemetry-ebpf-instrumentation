@@ -557,7 +557,7 @@ The name `daemon` was chosen over `process` (too generic), `agent` (overloaded i
 
 `daemon` contains:
 
-- `logging`: OBI process log level, format, and debug trace output mode.
+- `logging`: OBI process log level, format, startup configuration output format, and debug trace output mode.
 - `profiling`: optional pprof endpoint for the OBI process.
 - `shutdown`: graceful shutdown timeout.
 - `internal_metrics`: OBI daemon's own metrics export (Prometheus or OTLP).
@@ -667,7 +667,8 @@ Important mapping notes:
 | `javaagent.debug` | `extensions.obi.capture.runtimes.java.debug.enabled` | Move + rename |
 | `javaagent.debug_instrumentation` | `extensions.obi.capture.runtimes.java.debug.bytecode_instrumentation` | Move + rename |
 | `javaagent.enabled` | `extensions.obi.capture.runtimes.java.enabled` | Simplified to boolean |
-| `log_config` | `extensions.obi.daemon.logging.format` | Move + rename |
+| `log_config` | `extensions.obi.daemon.logging.config_format` | Move + rename |
+| `log_format` | `extensions.obi.daemon.logging.format` | Move + rename |
 | `log_level` | `extensions.obi.daemon.logging.level` | Move |
 | `metrics.features` | `extensions.obi.capture.instrumentation.<protocol>.enabled.metrics` + `extensions.obi.capture.network.capture.enabled` + `extensions.obi.capture.network.stats.{enabled,features}` | Split mapping |
 | `name_resolver.cache_expiry` | `extensions.obi.enrich.service_name.cache.ttl` | Move + rename |

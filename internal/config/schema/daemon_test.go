@@ -53,7 +53,7 @@ func TestDaemonEnumsYAML(t *testing.T) {
 			name:    "empty log format",
 			valid:   "format: \"\"\n",
 			want:    string(LogFormatUnset),
-			invalid: "format: text\n",
+			invalid: "format: yaml\n",
 			err:     "invalid format",
 			parse: func(data []byte) (string, error) {
 				var doc struct {
@@ -61,6 +61,34 @@ func TestDaemonEnumsYAML(t *testing.T) {
 				}
 				err := yaml.Unmarshal(data, &doc)
 				return string(doc.Format), err
+			},
+		},
+		{
+			name:    "text log format",
+			valid:   "format: text\n",
+			want:    string(LogFormatText),
+			invalid: "format: yaml\n",
+			err:     "invalid format",
+			parse: func(data []byte) (string, error) {
+				var doc struct {
+					Format LogFormat `yaml:"format"`
+				}
+				err := yaml.Unmarshal(data, &doc)
+				return string(doc.Format), err
+			},
+		},
+		{
+			name:    "config format",
+			valid:   "config_format: yaml\n",
+			want:    string(ConfigFormatYAML),
+			invalid: "config_format: text\n",
+			err:     "invalid config_format",
+			parse: func(data []byte) (string, error) {
+				var doc struct {
+					ConfigFormat ConfigFormat `yaml:"config_format"`
+				}
+				err := yaml.Unmarshal(data, &doc)
+				return string(doc.ConfigFormat), err
 			},
 		},
 	}

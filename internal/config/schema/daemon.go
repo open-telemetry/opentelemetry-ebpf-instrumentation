@@ -44,21 +44,39 @@ type LogFormat string
 const (
 	// LogFormatUnset leaves the default logging format unchanged.
 	LogFormatUnset LogFormat = ""
-	// LogFormatYAML emits YAML-like text logs.
-	LogFormatYAML LogFormat = "yaml"
+	// LogFormatText emits plain text logs.
+	LogFormatText LogFormat = "text"
 	// LogFormatJSON emits JSON logs.
 	LogFormatJSON LogFormat = "json"
 )
 
 // UnmarshalYAML parses and validates a daemon log format.
 func (f *LogFormat) UnmarshalYAML(value *yaml.Node) error {
-	return unmarshalEnum(value, "format", f, LogFormatUnset, LogFormatYAML, LogFormatJSON)
+	return unmarshalEnum(value, "format", f, LogFormatUnset, LogFormatText, LogFormatJSON)
+}
+
+// ConfigFormat describes startup configuration log encoding.
+type ConfigFormat string
+
+const (
+	// ConfigFormatUnset disables startup configuration logging.
+	ConfigFormatUnset ConfigFormat = ""
+	// ConfigFormatYAML emits the startup configuration as YAML.
+	ConfigFormatYAML ConfigFormat = "yaml"
+	// ConfigFormatJSON emits the startup configuration as JSON.
+	ConfigFormatJSON ConfigFormat = "json"
+)
+
+// UnmarshalYAML parses and validates a startup configuration log format.
+func (f *ConfigFormat) UnmarshalYAML(value *yaml.Node) error {
+	return unmarshalEnum(value, "config_format", f, ConfigFormatUnset, ConfigFormatYAML, ConfigFormatJSON)
 }
 
 // Logging describes daemon logging settings.
 type Logging struct {
 	Level            LogLevel           `yaml:"level"`
 	Format           LogFormat          `yaml:"format"`
+	ConfigFormat     ConfigFormat       `yaml:"config_format"`
 	DebugTraceOutput debug.TracePrinter `yaml:"debug_trace_output"`
 }
 

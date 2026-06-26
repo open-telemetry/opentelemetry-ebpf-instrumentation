@@ -559,7 +559,8 @@ func parityChecks() []parityCheck {
 		{[]string{"prometheus_export", "extra_resource_attributes"}, []string{"obi", "daemon", "telemetry", "metrics", "prometheus", "extra_resource_attributes"}},
 		{[]string{"prometheus_export", "extra_span_resource_attributes"}, []string{"obi", "daemon", "telemetry", "metrics", "prometheus", "extra_span_resource_attributes"}},
 
-		{[]string{"log_config"}, []string{"obi", "daemon", "logging", "format"}},
+		{[]string{"log_config"}, []string{"obi", "daemon", "logging", "config_format"}},
+		{[]string{"log_format"}, []string{"obi", "daemon", "logging", "format"}},
 		{[]string{"log_level"}, []string{"obi", "daemon", "logging", "level"}},
 		{[]string{"trace_printer"}, []string{"obi", "daemon", "logging", "debug_trace_output"}},
 		{[]string{"shutdown_timeout"}, []string{"obi", "daemon", "shutdown", "timeout"}},

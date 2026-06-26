@@ -1539,9 +1539,18 @@ func applyV2Daemon(cfg *obi.Config, daemon *schema.Daemon) {
 
 func applyFullV2Daemon(cfg *obi.Config, daemon schema.Daemon) {
 	if !zeroValue(daemon.Logging) {
-		cfg.LogLevel = obi.LogLevel(daemon.Logging.Level)
-		cfg.LogConfig = obi.LogConfigOption(daemon.Logging.Format)
-		cfg.TracePrinter = daemon.Logging.DebugTraceOutput
+		if daemon.Logging.Level != "" {
+			cfg.LogLevel = obi.LogLevel(daemon.Logging.Level)
+		}
+		if daemon.Logging.Format != "" {
+			cfg.LogFormat = obi.LogFormat(daemon.Logging.Format)
+		}
+		if daemon.Logging.ConfigFormat != "" {
+			cfg.LogConfig = obi.LogConfigOption(daemon.Logging.ConfigFormat)
+		}
+		if daemon.Logging.DebugTraceOutput != "" {
+			cfg.TracePrinter = daemon.Logging.DebugTraceOutput
+		}
 	}
 	if cfg.TracePrinter == "" {
 		cfg.TracePrinter = debug.TracePrinterDisabled
@@ -1567,7 +1576,10 @@ func applyPartialV2Daemon(cfg *obi.Config, daemon schema.Daemon) {
 			cfg.LogLevel = obi.LogLevel(daemon.Logging.Level)
 		}
 		if daemon.Logging.Format != "" {
-			cfg.LogConfig = obi.LogConfigOption(daemon.Logging.Format)
+			cfg.LogFormat = obi.LogFormat(daemon.Logging.Format)
+		}
+		if daemon.Logging.ConfigFormat != "" {
+			cfg.LogConfig = obi.LogConfigOption(daemon.Logging.ConfigFormat)
 		}
 		if daemon.Logging.DebugTraceOutput != "" {
 			cfg.TracePrinter = daemon.Logging.DebugTraceOutput
@@ -1610,10 +1622,26 @@ func applyPartialV2Daemon(cfg *obi.Config, daemon schema.Daemon) {
 }
 
 func completeDaemon(daemon schema.Daemon) bool {
-	return !zeroValue(daemon.Logging) &&
-		!zeroValue(daemon.Shutdown) &&
-		!zeroValue(daemon.InternalMetrics) &&
-		!zeroValue(daemon.Telemetry)
+	return completeDaemonLogging(daemon.Logging) &&
+		!zeroValue(daemon.Shutdown.Timeout) &&
+		completeInternalMetrics(daemon.InternalMetrics) &&
+		completeDaemonTelemetry(daemon.Telemetry)
+}
+
+func completeDaemonLogging(logging schema.Logging) bool {
+	return logging.Level != "" &&
+		logging.Format != "" &&
+		logging.DebugTraceOutput != ""
+}
+
+func completeInternalMetrics(metrics schema.InternalMetrics) bool {
+	return metrics.Exporter != "" &&
+		metrics.Prometheus.Path != "" &&
+		!zeroValue(metrics.BPF.ScrapeInterval)
+}
+
+func completeDaemonTelemetry(telemetry schema.DaemonTelemetry) bool {
+	return telemetry.Metrics.Prometheus.SpanMetricsServiceCacheSize != 0
 }
 
 func applyV2MetricsEnablement(cfg *obi.Config, src *schema.Extension) {
