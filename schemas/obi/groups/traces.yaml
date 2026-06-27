@@ -1,0 +1,35 @@
+groups:
+  - id: registry.obi.traces
+    type: attribute_group
+    display_name: OBI Application Span Attributes
+    brief: >
+      Attributes OBI emits on application spans that are not part of upstream
+      OpenTelemetry semantic conventions — captured HTTP request/response
+      bodies and ONC/Sun RPC auth flavor. Attributes already defined by
+      upstream semconv (`http.*`, …) are not redeclared here.
+    attributes:
+      - id: http.request.body.content
+        type: string
+        stability: development
+        brief: >
+          Captured HTTP request body content. Only populated when OBI's body
+          capture is enabled and subject to OBI's body-extraction rules
+          (size limits, content-type filtering, obfuscation).
+        examples: ['{"user":"alice"}']
+      - id: http.response.body.content
+        type: string
+        stability: development
+        brief: >
+          Captured HTTP response body content. Only populated when OBI's body
+          capture is enabled and subject to OBI's body-extraction rules
+          (size limits, content-type filtering, obfuscation).
+        examples: ['{"status":"ok"}']
+      - id: onc_rpc.auth.flavor
+        type: string
+        stability: development
+        brief: ONC/Sun RPC authentication flavor observed on the call.
+        note: >
+          OBI extension attribute, emitted on Sun RPC spans until upstream
+          semconv adds an official ONC RPC auth flavor attribute, at which
+          point this key will be migrated to the semconv name.
+        examples: ["AUTH_NONE", "AUTH_SYS"]
