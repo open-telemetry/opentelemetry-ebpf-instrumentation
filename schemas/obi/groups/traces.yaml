@@ -15,6 +15,12 @@ groups:
           Captured HTTP request body content. Only populated when OBI's body
           capture is enabled and subject to OBI's body-extraction rules
           (size limits, content-type filtering, obfuscation).
+        note: >
+          Tracks the upstream semantic-conventions proposal
+          https://github.com/open-telemetry/semantic-conventions/pull/3521
+          ("add http.{request,response}.body.content"). Declared in the OBI
+          registry until that proposal is merged and released, at which point
+          this attribute moves to upstream semconv.
         examples: ['{"user":"alice"}']
       - id: http.response.body.content
         type: string
@@ -23,6 +29,12 @@ groups:
           Captured HTTP response body content. Only populated when OBI's body
           capture is enabled and subject to OBI's body-extraction rules
           (size limits, content-type filtering, obfuscation).
+        note: >
+          Tracks the upstream semantic-conventions proposal
+          https://github.com/open-telemetry/semantic-conventions/pull/3521
+          ("add http.{request,response}.body.content"). Declared in the OBI
+          registry until that proposal is merged and released, at which point
+          this attribute moves to upstream semconv.
         examples: ['{"status":"ok"}']
       - id: onc_rpc.auth.flavor
         type: string
