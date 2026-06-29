@@ -58,7 +58,7 @@ static __always_inline void grpc_server_conn_info(void *tr, connection_info_t *c
                         (void *)(tr + go_offset_of(ot, (go_offset){.v = _grpc_st_conn_pos}) +
                                  k_go_iface_data_offset));
     if (conn_ptr) {
-        get_conn_info_from_user_conn(conn_ptr, conn);
+        get_conn_info(conn_ptr, conn);
     }
 }
 
