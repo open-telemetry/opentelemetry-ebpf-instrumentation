@@ -54,7 +54,7 @@ func testREDMetricsTracesForOldGRPCLibrary(t *testing.T, svcNs string) {
 	// Eventually, Prometheus would make this query visible
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		var err error
-		results, err = pq.Query(`rpc_server_duration_seconds_count{` +
+		results, err = pq.Query(`rpc_server_call_duration_seconds_count{` +
 			`service_namespace="integration-test",` +
 			`service_name="worker",` +
 			`rpc_method="/fib.Multiplier/Loop"}`)
@@ -112,10 +112,10 @@ func testGRPCGoClientFailsToConnect(t *testing.T) {
 	// Eventually, Prometheus would make this query visible
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		var err error
-		results, err = pq.Query(`rpc_client_duration_seconds_count{` +
+		results, err = pq.Query(`rpc_client_call_duration_seconds_count{` +
 			`service_namespace="integration-test",` +
 			`service_name="grpcpinger",` +
-			`rpc_grpc_status_code="2",` +
+			`rpc_response_status_code="UNKNOWN",` +
 			`rpc_method="/routeguide.RouteGuide/GetFeature"}`)
 		require.NoError(ct, err)
 		enoughPromResults(ct, results)

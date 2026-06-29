@@ -13,6 +13,7 @@
 
 #include <maps/cp_support_connect_info.h>
 #include <maps/incoming_trace_map.h>
+#include <maps/java_vt_threads.h>
 #include <maps/outgoing_trace_map.h>
 #include <maps/server_traces.h>
 
@@ -29,7 +30,9 @@ static __always_inline void delete_server_trace(pid_connection_info_t *pid_conn,
                    t_key->p_key.pid,
                    t_key->p_key.ns);
     bpf_dbg_printk("Deleting server span for res=%d", res);
-    obi_ctx__del(bpf_get_current_pid_tgid());
+    if (!(t_key->p_key.tid & JAVA_VT_TID_FLAG)) {
+        obi_ctx__del(bpf_get_current_pid_tgid());
+    }
 }
 
 static __always_inline void delete_client_trace_info(pid_connection_info_t *pid_conn) {
@@ -113,6 +116,10 @@ static __always_inline void server_or_client_trace(const u8 type,
     if (type == EVENT_HTTP_REQUEST) {
         trace_key_t t_key = {0};
         task_tid(&t_key.p_key);
+        // Key the server trace by the mounted virtual thread's logical id,
+        // if any: concurrent requests whose VTs read on the same carrier tid
+        // would otherwise collide in the conflict branch below.
+        const u8 vt_keyed = java_vt_translate_tid(&t_key.p_key);
         t_key.extra_id = extra_runtime_id();
 
         connection_info_part_t conn_part = {};
@@ -136,7 +143,12 @@ static __always_inline void server_or_client_trace(const u8 type,
         bpf_dbg_printk(
             "Saving thread server span for ns=%x, extra_id=%llx", t_key.p_key.ns, t_key.extra_id);
         bpf_map_update_elem(&server_traces, &t_key, tp_p, BPF_ANY);
-        obi_ctx__set(id, &tp_p->tp);
+        // traces_ctx_v1 stays keyed by the raw pid_tgid (external surface):
+        // skip it for VT-handled requests, where a carrier-keyed entry would
+        // attribute this context to whatever runs on the carrier next.
+        if (!vt_keyed) {
+            obi_ctx__set(id, &tp_p->tp);
+        }
 
         // If we have lightweight passed on (e.g. goroutine), store the traceparent information on it
         if (lw_thread != k_lw_thread_none) {
@@ -168,7 +180,9 @@ static __always_inline void server_or_client_trace(const u8 type,
             bpf_map_update_elem(&outgoing_trace_map, &e_key, &tp_p_invalid, map_update_flags);
         } else {
             bpf_map_update_elem(&outgoing_trace_map, &e_key, tp_p, map_update_flags);
-            obi_ctx__set(id, &tp_p->tp);
+            if (!java_vt_mounted()) {
+                obi_ctx__set(id, &tp_p->tp);
+            }
         }
     }
 }

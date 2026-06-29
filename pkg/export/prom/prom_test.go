@@ -29,6 +29,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	"go.opentelemetry.io/obi/pkg/appolly/meta"
+	"go.opentelemetry.io/obi/pkg/appolly/services"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
@@ -61,8 +62,14 @@ func TestAppMetricsExpiration(t *testing.T) {
 	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
 	exporter, err := PrometheusEndpoint(
 		&global.ContextInfo{
-			Prometheus:            &connector.PrometheusManager{},
-			NodeMeta:              meta.NodeMeta{HostID: "my-host"},
+			Prometheus: &connector.PrometheusManager{},
+			NodeMeta: meta.NodeMeta{
+				HostID: "my-host",
+				Metadata: []meta.Entry{
+					{Key: "cloud.account.id", Value: "0123456789"},
+					{Key: "cloud.region", Value: "us-east-1"},
+				},
+			},
 			MetricAttributeGroups: g,
 		},
 		&PrometheusConfig{
@@ -78,6 +85,9 @@ func TestAppMetricsExpiration(t *testing.T) {
 				attributes.HTTPServerDuration.Section: attributes.InclusionLists{
 					Include: []string{"url_path", "k8s.app.version"},
 				},
+				attributes.Resource.Section: attributes.InclusionLists{
+					Exclude: []string{"cloud.account.id", "k8s.pod.name"},
+				},
 			},
 			ExtraGroupAttributesCfg: map[string][]attr.Name{
 				"k8s_app_meta": {"k8s.app.version"},
@@ -86,6 +96,7 @@ func TestAppMetricsExpiration(t *testing.T) {
 		request.UnresolvedNames{},
 		promInput,
 		processEvents,
+		nil,
 	)(ctx)
 	require.NoError(t, err)
 
@@ -98,7 +109,9 @@ func TestAppMetricsExpiration(t *testing.T) {
 	svcAttrs001 := svc.Attrs{
 		Features: svcAttrs.Features,
 		UID:      svcAttrs.UID,
-		Metadata: map[attr.Name]string{"k8s.app.version": "v0.0.1"},
+		Metadata: map[attr.Name]string{
+			"k8s.app.version": "v0.0.1",
+		},
 	}
 
 	app := exec.New(exec.Init{
@@ -121,6 +134,9 @@ func TestAppMetricsExpiration(t *testing.T) {
 	})
 
 	containsTargetInfo := regexp.MustCompile(`\ntarget_info\{.*host_id="my-host"`)
+	containsTargetInfoCloudRegion := regexp.MustCompile(`\ntarget_info\{.*cloud_region="us-east-1"`)
+	containsTargetInfoCloudAccount := regexp.MustCompile(`\ntarget_info\{[^\n]*cloud_account_id=`)
+	containsTargetInfoK8sPod := regexp.MustCompile(`\ntarget_info\{[^\n]*k8s_pod_name=`)
 	containsTargetInfoSDKVersion := regexp.MustCompile(`\ntarget_info\{.*telemetry_sdk_version=.*`)
 	containsTracesHostInfo := regexp.MustCompile(`\ntraces_host_info\{.*cloud_host_id="my-host"`)
 	containsJob := regexp.MustCompile(`http_server_response_body_size_bytes_count\{.*job="default/test-app".*`)
@@ -132,6 +148,9 @@ func TestAppMetricsExpiration(t *testing.T) {
 		assert.Contains(ct, exported, `http_server_request_duration_seconds_sum{k8s_app_version="v0.0.1",url_path="/foo"} 123`)
 		assert.Contains(ct, exported, `http_server_request_duration_seconds_sum{k8s_app_version="",url_path="/baz"} 456`)
 		assert.Regexp(ct, containsTargetInfo, exported)
+		assert.Regexp(ct, containsTargetInfoCloudRegion, exported)
+		assert.NotRegexp(ct, containsTargetInfoCloudAccount, exported)
+		assert.NotRegexp(ct, containsTargetInfoK8sPod, exported)
 		assert.Regexp(ct, containsTargetInfoSDKVersion, exported)
 		assert.Regexp(ct, containsTracesHostInfo, exported)
 		assert.Regexp(ct, containsJob, exported)
@@ -205,8 +224,8 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 			expected: []string{
 				"http_server_request_duration_seconds",
 				"http_client_request_duration_seconds",
-				"rpc_server_duration_seconds",
-				"rpc_client_duration_seconds",
+				"rpc_server_call_duration_seconds",
+				"rpc_client_call_duration_seconds",
 				"db_client_operation_duration_seconds",
 				"messaging_client_operation_duration_seconds",
 				"messaging_process_duration_seconds",
@@ -227,8 +246,8 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 				"http_client_request_duration_seconds",
 			},
 			unexpected: []string{
-				"rpc_server_duration_seconds",
-				"rpc_client_duration_seconds",
+				"rpc_server_call_duration_seconds",
+				"rpc_client_call_duration_seconds",
 				"db_client_operation_duration_seconds",
 				"messaging_client_operation_duration_seconds",
 				"messaging_process_duration_seconds",
@@ -240,8 +259,8 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 			name:  "grpc only",
 			instr: []instrumentations.Instrumentation{instrumentations.InstrumentationGRPC},
 			expected: []string{
-				"rpc_server_duration_seconds",
-				"rpc_client_duration_seconds",
+				"rpc_server_call_duration_seconds",
+				"rpc_client_call_duration_seconds",
 			},
 			unexpected: []string{
 				"http_server_request_duration_seconds",
@@ -261,8 +280,8 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 			unexpected: []string{
 				"http_server_request_duration_seconds",
 				"http_client_request_duration_seconds",
-				"rpc_server_duration_seconds",
-				"rpc_client_duration_seconds",
+				"rpc_server_call_duration_seconds",
+				"rpc_client_call_duration_seconds",
 				"messaging_client_operation_duration_seconds",
 				"messaging_process_duration_seconds",
 			},
@@ -276,8 +295,8 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 			unexpected: []string{
 				"http_server_request_duration_seconds",
 				"http_client_request_duration_seconds",
-				"rpc_server_duration_seconds",
-				"rpc_client_duration_seconds",
+				"rpc_server_call_duration_seconds",
+				"rpc_client_call_duration_seconds",
 				"messaging_client_operation_duration_seconds",
 				"messaging_process_duration_seconds",
 			},
@@ -292,8 +311,8 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 			unexpected: []string{
 				"http_server_request_duration_seconds",
 				"http_client_request_duration_seconds",
-				"rpc_server_duration_seconds",
-				"rpc_client_duration_seconds",
+				"rpc_server_call_duration_seconds",
+				"rpc_client_call_duration_seconds",
 				"db_client_operation_duration_seconds",
 			},
 		},
@@ -307,8 +326,8 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 			unexpected: []string{
 				"http_server_request_duration_seconds",
 				"http_client_request_duration_seconds",
-				"rpc_server_duration_seconds",
-				"rpc_client_duration_seconds",
+				"rpc_server_call_duration_seconds",
+				"rpc_client_call_duration_seconds",
 				"db_client_operation_duration_seconds",
 			},
 		},
@@ -322,8 +341,8 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 			unexpected: []string{
 				"http_server_request_duration_seconds",
 				"http_client_request_duration_seconds",
-				"rpc_server_duration_seconds",
-				"rpc_client_duration_seconds",
+				"rpc_server_call_duration_seconds",
+				"rpc_client_call_duration_seconds",
 				"db_client_operation_duration_seconds",
 			},
 		},
@@ -337,8 +356,22 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 			unexpected: []string{
 				"http_server_request_duration_seconds",
 				"http_client_request_duration_seconds",
-				"rpc_server_duration_seconds",
-				"rpc_client_duration_seconds",
+				"rpc_server_call_duration_seconds",
+				"rpc_client_call_duration_seconds",
+				"db_client_operation_duration_seconds",
+			},
+		},
+		{
+			name:  "sunrpc only",
+			instr: []instrumentations.Instrumentation{instrumentations.InstrumentationSunRPC},
+			expected: []string{
+				"rpc_server_call_duration_seconds",
+				"rpc_client_call_duration_seconds",
+			},
+			unexpected: []string{
+				"http_server_request_duration_seconds",
+				"http_client_request_duration_seconds",
+				"messaging_client_operation_duration_seconds",
 				"db_client_operation_duration_seconds",
 			},
 		},
@@ -349,8 +382,8 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 			unexpected: []string{
 				"http_server_request_duration_seconds",
 				"http_client_request_duration_seconds",
-				"rpc_server_duration_seconds",
-				"rpc_client_duration_seconds",
+				"rpc_server_call_duration_seconds",
+				"rpc_client_call_duration_seconds",
 				"db_client_operation_duration_seconds",
 				"messaging_client_operation_duration_seconds",
 				"messaging_process_duration_seconds",
@@ -365,8 +398,8 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 			unexpected: []string{
 				"http_server_request_duration_seconds",
 				"http_client_request_duration_seconds",
-				"rpc_server_duration_seconds",
-				"rpc_client_duration_seconds",
+				"rpc_server_call_duration_seconds",
+				"rpc_client_call_duration_seconds",
 				"messaging_client_operation_duration_seconds",
 				"messaging_process_duration_seconds",
 			},
@@ -375,8 +408,8 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 			name:  "kafka and grpc",
 			instr: []instrumentations.Instrumentation{instrumentations.InstrumentationGRPC, instrumentations.InstrumentationKafka},
 			expected: []string{
-				"rpc_server_duration_seconds",
-				"rpc_client_duration_seconds",
+				"rpc_server_call_duration_seconds",
+				"rpc_client_call_duration_seconds",
 				"messaging_client_operation_duration_seconds",
 				"messaging_process_duration_seconds",
 			},
@@ -395,8 +428,8 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 			unexpected: []string{
 				"http_server_request_duration_seconds",
 				"http_client_request_duration_seconds",
-				"rpc_server_duration_seconds",
-				"rpc_client_duration_seconds",
+				"rpc_server_call_duration_seconds",
+				"rpc_client_call_duration_seconds",
 				"messaging_client_operation_duration_seconds",
 				"messaging_process_duration_seconds",
 			},
@@ -432,6 +465,8 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeNATSServer, Method: "process", RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeAMQPClient, Method: "publish", RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeAMQPClient, Method: "process", RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeSunRPCClient, Path: "portmapper", Route: "0", SubType: 2, HostPort: 111, RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeSunRPCServer, Path: "portmapper", Route: "0", SubType: 2, HostPort: 111, RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeMongoClient, Method: "find", RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeGPUCudaKernelLaunch, ContentLength: 100, SubType: 200},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeGPUCudaMemcpy, ContentLength: 100, SubType: 1},
@@ -847,6 +882,7 @@ func makePromExporter(
 		request.UnresolvedNames{},
 		input,
 		processEvents,
+		nil,
 	)(ctx)
 	require.NoError(t, err)
 
@@ -1166,6 +1202,107 @@ func TestHandleProcessEventCreated(t *testing.T) {
 	}
 }
 
+func TestHandleProcessEventCreatedMetricsExportDisabled(t *testing.T) {
+	exportsEmpty := services.NewExportModes()
+	tracesOnly := services.NewExportModes()
+	tracesOnly.AllowTraces()
+
+	for _, tt := range []struct {
+		name        string
+		exportModes services.ExportModes
+	}{
+		{
+			name:        "exports empty",
+			exportModes: exportsEmpty,
+		},
+		{
+			name:        "traces only",
+			exportModes: tracesOnly,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			reporter := &metricsReporter{
+				serviceMap:  make(map[svc.UID]svc.Attrs),
+				pidsTracker: otel.NewPidServiceTracker(),
+			}
+			reporter.createEventMetrics = reporter.createTargetInfos
+			reporter.deleteEventMetrics = reporter.deleteTargetInfoMetrics
+
+			uid := svc.UID{Name: "metrics-disabled-service-" + tt.name, Namespace: "default", Instance: "instance-1"}
+			service := svc.Attrs{
+				ExportModes: tt.exportModes,
+				UID:         uid,
+				HostName:    "test-host",
+			}
+			event := exec.ProcessEvent{
+				Type: exec.ProcessEventCreated,
+				File: exec.New(exec.Init{
+					Pid:     1234,
+					Service: service,
+				}),
+			}
+
+			reporter.handleProcessEvent(event, slog.Default())
+
+			assert.Equal(t, map[svc.UID]svc.Attrs{uid: service}, reporter.serviceMap)
+			assert.True(t, reporter.pidsTracker.ServiceLive(uid))
+
+			reporter.handleProcessEvent(exec.ProcessEvent{
+				Type: exec.ProcessEventTerminated,
+				File: event.File,
+			}, slog.Default())
+
+			assert.Empty(t, reporter.serviceMap)
+			assert.False(t, reporter.pidsTracker.ServiceLive(uid))
+		})
+	}
+}
+
+func TestTargetInfoHelpersSkipMetricsExportDisabled(t *testing.T) {
+	exportsEmpty := services.NewExportModes()
+	tracesOnly := services.NewExportModes()
+	tracesOnly.AllowTraces()
+
+	for _, tt := range []struct {
+		name        string
+		exportModes services.ExportModes
+	}{
+		{
+			name:        "exports empty",
+			exportModes: exportsEmpty,
+		},
+		{
+			name:        "traces only",
+			exportModes: tracesOnly,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			uid := svc.UID{Name: "metrics-disabled-service-" + tt.name, Namespace: "default", Instance: "instance-1"}
+			service := svc.Attrs{
+				ExportModes: tt.exportModes,
+				UID:         uid,
+				HostName:    "test-host",
+			}
+			mockEventsStore := newMockEventMetrics()
+			reporter := &metricsReporter{
+				serviceMap:         map[svc.UID]svc.Attrs{uid: service},
+				deleteEventMetrics: mockEventsStore.deleteEventMetrics,
+			}
+
+			assert.NotPanics(t, func() {
+				reporter.createTargetInfos(&service)
+			})
+			assert.NotPanics(t, func() {
+				reporter.deleteTargetInfoMetrics(&service)
+			})
+
+			reporter.deleteTargetInfos(uid, &service)
+
+			assert.Empty(t, mockEventsStore.deleteCalls)
+		})
+	}
+}
+
 func TestHandleProcessEventCreated_EdgeCases(t *testing.T) {
 	t.Run("multiple PIDs for same service", func(t *testing.T) {
 		mockEventsStore := newMockEventMetrics()
@@ -1276,6 +1413,7 @@ func TestOverridingCloudHostIDKey(t *testing.T) {
 		request.UnresolvedNames{},
 		promInput,
 		processEvents,
+		nil,
 	)(ctx)
 	require.NoError(t, err)
 

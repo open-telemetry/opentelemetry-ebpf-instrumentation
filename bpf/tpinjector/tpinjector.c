@@ -1084,6 +1084,7 @@ int obi_packet_extender_find_existing_tp(struct sk_msg_md *msg) {
             // if we got to this point, we managed to parse a valid
             // 'Traceparent: ...' header that we can utilise
 
+            bpf_memset(tp_p->tp.parent_id, 0, sizeof(tp_p->tp.parent_id));
             assign_parent_tp(t_ctx, &tp_p->tp, span_id);
 
             tp_p->tp.ts = bpf_ktime_get_ns();

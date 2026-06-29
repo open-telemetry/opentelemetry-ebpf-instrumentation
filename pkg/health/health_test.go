@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 	"time"
 
@@ -58,6 +59,49 @@ func TestServeEndToEnd(t *testing.T) {
 	url := "http://" + lis.Addr().String() + path
 
 	resp, err := http.Get(url)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var body response
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+	assert.Equal(t, schemaVersion, body.SchemaVersion)
+
+	cancel()
+	require.NoError(t, <-srvErr)
+}
+
+func TestServeEndToEndUDS(t *testing.T) {
+	// On Linux "@"-prefixed names are abstract sockets (no filesystem entry,
+	// cleaned up by the kernel). macOS doesn't support abstract sockets, so this
+	// becomes a regular socket file in the working directory; remove any leftover
+	// from an interrupted previous run before listening.
+	const sockAddr = "@obi-health-test"
+	_ = os.Remove(sockAddr)
+
+	lis, err := net.Listen("unix", sockAddr)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_ = lis.Close()
+		_ = os.Remove(sockAddr)
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	srvErr := make(chan error, 1)
+	go func() {
+		srvErr <- Serve(ctx, lis)
+	}()
+
+	client := &http.Client{Transport: &http.Transport{
+		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			return (&net.Dialer{}).DialContext(ctx, "unix", sockAddr)
+		},
+	}}
+
+	resp, err := client.Get("http://localhost" + path)
 	require.NoError(t, err)
 	defer resp.Body.Close()
 

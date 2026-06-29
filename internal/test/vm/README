@@ -121,8 +121,8 @@ TECHNICAL NOTES
     mount tag is supplied) and modprobes overlay/br_netfilter/iptable_*/
     nf_*/veth/vxlan/macvlan before localmount runs. This is required for
     LVH kernels (modular) and is a harmless no-op for monolithic ones.
-  - /sbin/iptables is symlinked to iptables-legacy at image build time.
-    All LVH kernels enable CONFIG_IP_NF_IPTABLES_LEGACY but disable
+  - iptables is symlinked to iptables-legacy at image build time. All LVH
+    kernels enable CONFIG_IP_NF_IPTABLES_LEGACY but disable
     CONFIG_NFT_NAT/COMPAT, so the nft backend fails on "TABLE_ADD nat" and
     legacy is the only one Docker can use.
   - 'GOCACHE' and 'TMPDIR' are pointed at /build (overlay over qcow2 ~20GB)

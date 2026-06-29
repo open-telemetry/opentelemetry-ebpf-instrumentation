@@ -12,12 +12,11 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
-	semconv "go.opentelemetry.io/otel/semconv/v1.38.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 
 	"go.opentelemetry.io/obi/pkg/buildinfo"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
-	"go.opentelemetry.io/obi/pkg/export/expire"
 	"go.opentelemetry.io/obi/pkg/export/otel/metric"
 	metric2 "go.opentelemetry.io/obi/pkg/export/otel/metric/api/metric"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
@@ -75,8 +74,8 @@ func newMeterProvider(res *resource.Resource, exporter *sdkmetric.Exporter, inte
 
 type netMetricsExporter struct {
 	flowBytes      *Expirer[*ebpf.Record, metric2.Int64Counter, float64]
+	flowPackets    *Expirer[*ebpf.Record, metric2.Int64Counter, float64]
 	interZoneBytes *Expirer[*ebpf.Record, metric2.Int64Counter, float64]
-	clock          *expire.CachedClock
 	expireTTL      time.Duration
 	in             <-chan []*ebpf.Record
 }
@@ -125,12 +124,9 @@ func newMetricsExporter(
 		return nil, fmt.Errorf("network OTEL exporter attributes enable: %w", err)
 	}
 
-	clock := expire.NewCachedClock(timeNow)
-
 	ebpfEvents := provider.Meter("network_ebpf_events")
 
 	nme := &netMetricsExporter{
-		clock:     clock,
 		expireTTL: cfg.Metrics.TTL,
 	}
 	recordGettersConfig := ebpf.RecordGettersConfig{
@@ -152,7 +148,26 @@ func newMetricsExporter(
 			ebpf.RecordGetters(recordGettersConfig),
 			attrProv.For(attributes.NetworkFlow))
 
-		nme.flowBytes = NewExpirer[*ebpf.Record, metric2.Int64Counter, float64](ctx, bytesMetric, attrs, clock.Time, cfg.Metrics.TTL)
+		nme.flowBytes = NewExpirer[*ebpf.Record, metric2.Int64Counter, float64](ctx, bytesMetric, attrs, timeNow, cfg.Metrics.TTL)
+	}
+
+	if cfg.CommonCfg.Features.NetworkFlowPackets() {
+		log := log.With("metricFamily", "FlowPackets")
+		packetsMetric, err := ebpfEvents.Int64Counter(attributes.NetworkFlowPackets.OTEL,
+			metric2.WithDescription("packets sent from a source network endpoint to a destination network endpoint"),
+			metric2.WithUnit("{packets}"),
+		)
+		if err != nil {
+			log.Error("creating observable counter", "error", err)
+			return nil, err
+		}
+
+		log.Debug("restricting attributes not in this list", "attributes", cfg.SelectorCfg.SelectionCfg)
+		attrs := attributes.OpenTelemetryGetters(
+			ebpf.RecordGetters(recordGettersConfig),
+			attrProv.For(attributes.NetworkFlowPackets))
+
+		nme.flowPackets = NewExpirer[*ebpf.Record, metric2.Int64Counter, float64](ctx, packetsMetric, attrs, timeNow, cfg.Metrics.TTL)
 	}
 
 	if cfg.CommonCfg.Features.NetworkInterZone() {
@@ -170,7 +185,7 @@ func newMetricsExporter(
 			ebpf.RecordGetters(recordGettersConfig),
 			attrProv.For(attributes.NetworkInterZone))
 
-		nme.interZoneBytes = NewExpirer[*ebpf.Record, metric2.Int64Counter, float64](ctx, bytesMetric, attrs, clock.Time, cfg.Metrics.TTL)
+		nme.interZoneBytes = NewExpirer[*ebpf.Record, metric2.Int64Counter, float64](ctx, bytesMetric, attrs, timeNow, cfg.Metrics.TTL)
 	}
 
 	nme.in = input.Subscribe(msg.SubscriberName("otel.NetMetricsExporter"))
@@ -179,7 +194,6 @@ func newMetricsExporter(
 
 func (me *netMetricsExporter) Do(ctx context.Context) {
 	for i := range me.in {
-		me.clock.Update()
 		for _, v := range i {
 			if me.flowBytes != nil {
 				flowBytes, attrs := me.flowBytes.ForRecord(v)
@@ -188,6 +202,10 @@ func (me *netMetricsExporter) Do(ctx context.Context) {
 			if me.interZoneBytes != nil && v.CommonAttrs.SrcZone != v.CommonAttrs.DstZone {
 				izBytes, attrs := me.interZoneBytes.ForRecord(v)
 				izBytes.Add(ctx, int64(v.Metrics.Bytes), metric2.WithAttributeSet(attrs))
+			}
+			if me.flowPackets != nil {
+				flowPackets, attrs := me.flowPackets.ForRecord(v)
+				flowPackets.Add(ctx, int64(v.Metrics.Packets), metric2.WithAttributeSet(attrs))
 			}
 		}
 	}

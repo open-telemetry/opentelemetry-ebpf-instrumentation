@@ -35,6 +35,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
 	"go.opentelemetry.io/obi/pkg/export/prom"
 	"go.opentelemetry.io/obi/pkg/filter"
+	"go.opentelemetry.io/obi/pkg/internal/avoidedsvc"
 	"go.opentelemetry.io/obi/pkg/kube"
 	"go.opentelemetry.io/obi/pkg/kube/kubeflags"
 	"go.opentelemetry.io/obi/pkg/transform"
@@ -122,13 +123,14 @@ var DefaultConfig = Config{
 	ShutdownTimeout:         10 * time.Second,
 	EnforceSysCaps:          false,
 	EBPF: config.EBPFTracer{
-		BatchLength:        100,
-		BatchTimeout:       time.Second,
-		HTTPRequestTimeout: 0,
-		WakeupLen:          500,
-		TCBackend:          config.TCBackendAuto,
-		DNSRequestTimeout:  5 * time.Second,
-		ContextPropagation: config.ContextPropagationDisabled,
+		BatchLength:          100,
+		BatchTimeout:         time.Second,
+		HTTPRequestTimeout:   0,
+		WakeupLen:            500,
+		StatsWakeupDataBytes: 4096,
+		TCBackend:            config.TCBackendAuto,
+		DNSRequestTimeout:    5 * time.Second,
+		ContextPropagation:   config.ContextPropagationDisabled,
 		RedisDBCache: config.RedisDBCacheConfig{
 			Enabled: false,
 			MaxSize: 1000,
@@ -252,6 +254,7 @@ var DefaultConfig = Config{
 			instrumentations.InstrumentationMongo,
 			instrumentations.InstrumentationCouchbase,
 			instrumentations.InstrumentationMemcached,
+			instrumentations.InstrumentationSunRPC,
 			// no traces for DNS and GPU by default
 		},
 	},
@@ -268,6 +271,9 @@ var DefaultConfig = Config{
 	TracePrinter: debug.TracePrinterDisabled,
 	InternalMetrics: imetrics.InternalMetricsConfig{
 		Exporter: imetrics.InternalMetricsExporterDisabled,
+		AvoidedServices: imetrics.AvoidedServicesConfig{
+			Limit: avoidedsvc.DefaultLimit,
+		},
 		Prometheus: imetrics.PrometheusConfig{
 			Port: 0, // disabled by default
 			Path: "/internal/metrics",
@@ -321,7 +327,7 @@ var DefaultConfig = Config{
 		DefaultOtlpGRPCPort:   4317,
 		RouteHarvesterTimeout: 10 * time.Second,
 		RouteHarvestConfig: services.RouteHarvestingConfig{
-			JavaHarvestDelay: 60 * time.Second,
+			JavaHarvestDelay: 5 * time.Second,
 		},
 		ExcludedLinuxSystemPaths: []string{"/lib/systemd/", "/usr/lib/systemd/", "/usr/libexec/", "/sbin/", "/usr/sbin/"},
 	},
@@ -331,6 +337,9 @@ var DefaultConfig = Config{
 	Java: JavaConfig{
 		Enabled: true,
 		Timeout: 10 * time.Second,
+	},
+	JVMRuntimeMetrics: JVMRuntimeMetricsConfig{
+		SamplingInterval: time.Second,
 	},
 	HealthCheck: HealthCheckConfig{
 		Port: 0,
@@ -425,12 +434,17 @@ type Config struct {
 	NodeJS NodeJSConfig `yaml:"nodejs"`
 	Java   JavaConfig   `yaml:"javaagent"`
 
+	JVMRuntimeMetrics JVMRuntimeMetricsConfig `yaml:"jvm_runtime_metrics"`
+
 	HealthCheck HealthCheckConfig `yaml:"health_check"`
 }
 
 type HealthCheckConfig struct {
 	// 0 (default) means disabled
 	Port int `yaml:"port" env:"OTEL_EBPF_HEALTH_CHECK_PORT" validate:"gte=0,lte=65535"`
+	// when set, the health endpoint binds this unix socket (a filesystem path or a leading-'@'
+	// abstract name) instead of the TCP port
+	UnixSocketPath string `yaml:"unix_socket_path" env:"OTEL_EBPF_HEALTH_CHECK_UNIX_SOCKET_PATH"`
 }
 
 func (c *Config) Unmarshal(component *confmap.Conf) error {
@@ -601,6 +615,9 @@ type Attributes struct {
 	// When the span_name cardinality surpasses this limit, the span_name will be reported as AGGREGATED.
 	// If the value <= 0, it is disabled.
 	MetricSpanNameAggregationLimit int `yaml:"metric_span_names_limit" env:"OTEL_EBPF_METRIC_SPAN_NAMES_LIMIT"`
+
+	// SensitiveQueryParams controls which query-parameter keys are redacted in url.full and url.query.
+	SensitiveQueryParams attributes.SensitiveQueryParamsConfig `yaml:"sensitive_query_params"`
 }
 
 type HostIDConfig struct {
@@ -617,6 +634,11 @@ type JavaConfig struct {
 	Debug                bool          `yaml:"debug" env:"OTEL_EBPF_JAVAAGENT_DEBUG"`
 	DebugInstrumentation bool          `yaml:"debug_instrumentation" env:"OTEL_EBPF_JAVAAGENT_DEBUG_INSTRUMENTATION"`
 	Timeout              time.Duration `yaml:"attach_timeout" env:"OTEL_EBPF_JAVAAGENT_ATTACH_TIMEOUT" validate:"gte=0"`
+}
+
+type JVMRuntimeMetricsConfig struct {
+	Enabled          bool          `yaml:"enabled" env:"OBI_JVM_RUNTIME_METRICS_ENABLED"`
+	SamplingInterval time.Duration `yaml:"sampling_interval" env:"OBI_JVM_RUNTIME_METRICS_SAMPLING_INTERVAL"`
 }
 
 type ConfigError string
@@ -642,6 +664,10 @@ func (c *Config) Validate() error {
 
 	if err := validate.Struct(c); err != nil {
 		return ConfigError(err.Error())
+	}
+
+	if c.JVMRuntimeMetrics.Enabled && c.JVMRuntimeMetrics.SamplingInterval <= 0 {
+		return ConfigError("jvm_runtime_metrics.sampling_interval must be greater than 0 when jvm_runtime_metrics.enabled is true")
 	}
 
 	if err := c.Discovery.Validate(); err != nil {

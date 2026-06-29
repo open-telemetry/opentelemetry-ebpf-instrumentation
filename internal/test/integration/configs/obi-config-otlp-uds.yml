@@ -1,0 +1,8 @@
+routes:
+  unmatched: path
+otel_metrics_export:
+  endpoint: unix:///var/run/obi-otlp/metrics.sock
+attributes:
+  select:
+    "*":
+      include: ["*"]

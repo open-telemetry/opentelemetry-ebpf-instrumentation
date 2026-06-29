@@ -24,24 +24,24 @@ public class ProxyOutputStream extends OutputStream {
     delegate.write(b);
   }
 
-  private void writeWrapper(byte[] b) {
-    if (b.length > 0) {
-      NativeMemory p = new NativeMemory(IOCTLPacket.packetPrefixSize + b.length);
-      int wOff = IOCTLPacket.writePacketPrefix(p, 0, OperationType.SEND, socket, b.length);
-      IOCTLPacket.writePacketBuffer(p, wOff, b);
+  void forwardWrite(byte[] b, int off, int len) {
+    if (len > 0) {
+      NativeMemory p = new NativeMemory(IOCTLPacket.packetPrefixSize + len);
+      int wOff = IOCTLPacket.writePacketPrefix(p, 0, OperationType.SEND, socket, len);
+      IOCTLPacket.writePacketBuffer(p, wOff, b, off, len);
       Agent.NativeLib.ioctl(0, Agent.IOCTL_CMD, p.getAddress());
     }
   }
 
   @Override
   public void write(byte[] b) throws IOException {
-    writeWrapper(b);
+    forwardWrite(b, 0, b.length);
     delegate.write(b);
   }
 
   @Override
   public void write(byte[] b, int off, int len) throws IOException {
-    writeWrapper(b);
+    forwardWrite(b, off, len);
     delegate.write(b, off, len);
   }
 

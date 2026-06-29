@@ -43,17 +43,40 @@ GOTESTSUM_WORKFLOWS=(
   "Integration tests"
   "Integration tests ARM"
   "Integration tests K8S"
-  "Integration tests VM"
-  "PR checks"
+  "Unit tests"
 )
 
 # Workflows tracked at job level only (no gotestsum JSON artifacts).
 # OATS uses Ginkgo, so test-level parsing is not supported yet.
 JOB_ONLY_WORKFLOWS=(
+  "Integration tests VM"
   "OATS tests"
+  "PR checks"
 )
 
 ALL_WORKFLOWS=("${GOTESTSUM_WORKFLOWS[@]}" "${JOB_ONLY_WORKFLOWS[@]}")
+
+# Artifact name patterns by workflow.
+report_pattern_for() {
+  case "$1" in
+    "Integration tests")     echo "integration-reports-*" ;;
+    "Integration tests ARM") echo "integration-arm-reports-*" ;;
+    "Integration tests K8S") echo "integration-k8s-reports-*" ;;
+    "Unit tests")            echo "unit-reports-*" ;;
+    *)                       echo "" ;;
+  esac
+}
+
+logs_pattern_for() {
+  case "$1" in
+    "Integration tests")     echo "integration-logs-*" ;;
+    "Integration tests ARM") echo "integration-arm-logs-*" ;;
+    "Integration tests K8S") echo "integration-k8s-logs-*" ;;
+    "Integration tests VM")  echo "vm-logs-*" ;;
+    "OATS tests")            echo "oats-logs-*" ;;
+    *)                       echo "" ;;
+  esac
+}
 
 echo "[" > "$META_FILE"
 FIRST_META=true
@@ -101,37 +124,25 @@ METAEOF
     mkdir -p "$RUN_REPORTS_DIR"
 
     # Download gotestsum report artifacts (skip for job-only workflows)
+    REPORT_PATTERN=$(report_pattern_for "$WORKFLOW_NAME")
     REPORT_COUNT=0
-    for gw in "${GOTESTSUM_WORKFLOWS[@]}"; do
-      if [ "$WORKFLOW_NAME" = "$gw" ]; then
-        for pattern in "go-integration-test-reports-*" "go-k8s-integration-test-reports-*" "go-integration-test-arm-reports-*" "vm-integration-test-*"; do
-          gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" \
-            --pattern "$pattern" \
-            -D "$RUN_REPORTS_DIR" 2>/dev/null || true
-        done
-
-        REPORT_COUNT=$(find "$RUN_REPORTS_DIR" -name "*.log" -type f 2>/dev/null | wc -l)
-        if [ "$REPORT_COUNT" -eq 0 ]; then
-          gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" \
-            --pattern "unit-test-*" \
-            -D "$RUN_REPORTS_DIR" 2>/dev/null || true
-          REPORT_COUNT=$(find "$RUN_REPORTS_DIR" -name "*.log" -type f 2>/dev/null | wc -l)
-        fi
-        break
-      fi
-    done
+    if [ -n "$REPORT_PATTERN" ]; then
+      gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" \
+        --pattern "$REPORT_PATTERN" \
+        -D "$RUN_REPORTS_DIR" 2>/dev/null || true
+      REPORT_COUNT=$(find "$RUN_REPORTS_DIR" -name "*.log" -type f 2>/dev/null | wc -l)
+    fi
 
     echo "    Downloaded $REPORT_COUNT report files" >&2
 
     # For failed runs, also download Docker log artifacts
-    if [ "$CONCLUSION" = "failure" ] || [ "$CONCLUSION" = "timed_out" ] || [ "$CONCLUSION" = "cancelled" ]; then
+    LOGS_PATTERN=$(logs_pattern_for "$WORKFLOW_NAME")
+    if [ -n "$LOGS_PATTERN" ] && { [ "$CONCLUSION" = "failure" ] || [ "$CONCLUSION" = "timed_out" ] || [ "$CONCLUSION" = "cancelled" ]; }; then
       RUN_LOGS_DIR="$LOGS_DIR/$RUN_ID"
       mkdir -p "$RUN_LOGS_DIR"
-      for pattern in "go-integration-test-logs-*" "go-k8s-integration-test-logs-*" "go-integration-test-arm-logs-*" "vm-integration-test-logs-*" "oats-test-logs-*"; do
-        gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" \
-          --pattern "$pattern" \
-          -D "$RUN_LOGS_DIR" 2>/dev/null || true
-      done
+      gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" \
+        --pattern "$LOGS_PATTERN" \
+        -D "$RUN_LOGS_DIR" 2>/dev/null || true
       LOG_COUNT=$(find "$RUN_LOGS_DIR" -name "*.log" -type f 2>/dev/null | wc -l)
       echo "    Downloaded $LOG_COUNT Docker log files" >&2
     fi

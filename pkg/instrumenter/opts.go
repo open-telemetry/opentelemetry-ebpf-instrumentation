@@ -13,12 +13,18 @@ import (
 // Option that override the instantiation of the instrumenter
 type Option func(info *global.ContextInfo)
 
-// WithDynamicPIDSelector passes the given dynamic PID selector into the App O11y pipeline. The caller
-// creates it with discover.NewDynamicPIDSelector(), passes it here, and then calls AddPIDs/RemovePIDs/GetPIDs
-// on it directly—no callback or reference to the instrumenter is needed.
+// WithDynamicPIDSelector passes the given dynamic PID selector into OBI. The caller creates it with
+// discover.NewDynamicPIDSelector(), passes it here, and then calls AddPIDs, AddPID, GetPID, SetPID,
+// RemovePIDs, or GetPIDs on it directly, or targets specific signals via subviews such as Traces(),
+// AppMetrics(), NetworkMetrics(), and StatsMetrics().
+//
+// Root AddPIDs/RemovePIDs preserve the legacy behavior and apply to all supported signals.
+// Service name and resource attributes set via AddPID or SetPID are shared across all signals.
+// SetPID updates live FileInfo for instrumented PIDs; traces and app metrics read it at export time.
+// Network and stats metrics decorate flow records by pod IP when the PID is in that signal view.
 func WithDynamicPIDSelector(sel *discover.DynamicPIDSelector) Option {
 	return func(info *global.ContextInfo) {
-		info.AppO11y.DynamicPIDSelector = sel
+		info.DynamicPIDSelector = sel
 	}
 }
 

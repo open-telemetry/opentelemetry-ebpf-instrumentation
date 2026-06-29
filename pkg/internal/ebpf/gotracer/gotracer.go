@@ -16,6 +16,7 @@ package gotracer // import "go.opentelemetry.io/obi/pkg/internal/ebpf/gotracer"
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
 	"unsafe"
@@ -30,14 +31,29 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/config"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
+	"go.opentelemetry.io/obi/pkg/ebpf/ringbuf"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
-	"go.opentelemetry.io/obi/pkg/internal/ebpf/ringbuf"
 	"go.opentelemetry.io/obi/pkg/internal/goexec"
+	"go.opentelemetry.io/obi/pkg/internal/procs"
 	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
 
 //go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -target amd64,arm64 Bpf ../../../../bpf/gotracer/gotracer.c -- -I../../../../bpf
+
+type runtimeMetricTargetKey struct {
+	pid app.PID
+	ns  uint32
+}
+
+const missingGoOffset = ^uint64(0)
+
+var goChannelOffsetFields = [...]goexec.GoOffset{
+	goexec.HchanQcountPos,
+	goexec.HchanDataqsizPos,
+	goexec.HchanSendxPos,
+	goexec.HchanRecvxPos,
+}
 
 type Tracer struct {
 	log                     *slog.Logger
@@ -48,9 +64,16 @@ type Tracer struct {
 	closers                 []io.Closer
 	disabledRouteHarvesting bool
 	supportsBPFLoop         bool
+	runtimeMetricTargetKeys map[runtimeMetricTargetKey]BpfPidInfo
+	goChannelOffsetsByIno   map[uint64]bool
+	currentBinaryIno        uint64
 }
 
-func New(pidFilter ebpfcommon.ServiceFilter, cfg *obi.Config, metrics imetrics.Reporter) *Tracer {
+func New(
+	pidFilter ebpfcommon.ServiceFilter,
+	cfg *obi.Config,
+	metrics imetrics.Reporter,
+) *Tracer {
 	log := slog.With("component", "go.Tracer")
 
 	disabledRouteHarvesting := false
@@ -69,14 +92,18 @@ func New(pidFilter ebpfcommon.ServiceFilter, cfg *obi.Config, metrics imetrics.R
 		metrics:                 metrics,
 		disabledRouteHarvesting: disabledRouteHarvesting,
 		supportsBPFLoop:         ebpfcommon.SupportsEBPFLoops(log, cfg.EBPF.OverrideBPFLoopEnabled),
+		runtimeMetricTargetKeys: map[runtimeMetricTargetKey]BpfPidInfo{},
+		goChannelOffsetsByIno:   map[uint64]bool{},
 	}
 }
 
 func (p *Tracer) AllowPID(pid app.PID, ns uint32, fi *exec.FileInfo) {
 	p.pidsFilter.AllowPID(pid, ns, fi, ebpfcommon.PIDTypeGo)
+	p.registerRuntimeMetricTarget(pid, ns, fi)
 }
 
 func (p *Tracer) BlockPID(pid app.PID, ns uint32) {
+	p.deleteRuntimeMetricTarget(pid, ns)
 	p.pidsFilter.BlockPID(pid, ns)
 }
 
@@ -175,6 +202,8 @@ func (p *Tracer) SetupTailCalls() {
 		p.bpfObjects.ObiProtocolHttp2GrpcHandleEndFrame,                 // 10
 		p.bpfObjects.ObiProtocolHttp2GrpcHandleStartFrameServer,         // 11
 		p.bpfObjects.ObiProtocolHttp2GrpcHandleStartFrameServerFinalize, // 12
+		// Large buffer multi-batch emission
+		p.bpfObjects.ObiLargeBufEmitContinue, // 13  k_tail_large_buf_emit_continue
 	} {
 		p.log.Debug("loading program into tail call jump table", "index", i, "program", prog.String())
 		if err := p.bpfObjects.JumpTable.Update(uint32(i), uint32(prog.FD()), ebpf.UpdateAny); err != nil {
@@ -184,7 +213,10 @@ func (p *Tracer) SetupTailCalls() {
 }
 
 func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offsets) {
+	p.recordGoChannelOffsetAvailability(fileInfo, offsets)
+
 	offTable := BpfOffTableT{}
+	initMissingGoChannelOffsets(&offTable)
 	// Set the field offsets and the logLevel for the Go BPF program in a map
 	for _, field := range []goexec.GoOffset{
 		goexec.ConnFdPos,
@@ -258,6 +290,11 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 		goexec.GrpcClientStreamStream,
 		// go manual spans
 		goexec.GoTracerDelegatePos,
+		// go runtime channels
+		goexec.HchanQcountPos,
+		goexec.HchanDataqsizPos,
+		goexec.HchanSendxPos,
+		goexec.HchanRecvxPos,
 		// go jsonrpc
 		goexec.GoJsonrpcRequestHeaderServiceMethodPos,
 		// go mongodb
@@ -279,6 +316,11 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 		goexec.PgxConfigHostPos,
 		goexec.MuxTemplatePos,
 		goexec.GinFullpathPos,
+		// Go runtime metrics
+		goexec.RuntimeMemstatsNumGCPos,
+		goexec.RuntimeMemstatsNumForcedGCPos,
+		goexec.RuntimeGCControllerMemoryLimitPos,
+		goexec.RuntimeGCControllerGCPercentPos,
 	} {
 		if val, ok := offsets.Field[field].(uint64); ok {
 			offTable.Table[field] = val
@@ -316,10 +358,138 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 	}
 }
 
-func (p *Tracer) ProcessBinary(_ *exec.FileInfo) {}
+func initMissingGoChannelOffsets(offTable *BpfOffTableT) {
+	if offTable == nil {
+		return
+	}
+
+	for _, field := range goChannelOffsetFields {
+		offTable.Table[field] = missingGoOffset
+	}
+}
+
+func (p *Tracer) recordGoChannelOffsetAvailability(fileInfo *exec.FileInfo, offsets *goexec.Offsets) {
+	if p == nil || fileInfo == nil {
+		return
+	}
+
+	if p.goChannelOffsetsByIno == nil {
+		p.goChannelOffsetsByIno = map[uint64]bool{}
+	}
+
+	ino := fileInfo.Ino()
+	hasOffsets := offsets.HasGoChannelOffsets()
+	p.goChannelOffsetsByIno[ino] = hasOffsets
+	p.currentBinaryIno = ino
+
+	if !hasOffsets && p.log != nil {
+		p.log.Debug("skipping Go channel link probes for binary with missing runtime.hchan offsets",
+			"pid", fileInfo.Pid(), "ino", ino, "cmd", fileInfo.CmdExePath())
+	}
+}
+
+// registerRuntimeMetricTarget writes per-process Go runtime global addresses
+// into BPF. Offsets stay inode-scoped in go_offsets_map, but these addresses
+// are process-scoped for PIE/ASLR and must follow the PID allow lifecycle.
+func (p *Tracer) registerRuntimeMetricTarget(pid app.PID, ns uint32, fileInfo *exec.FileInfo) {
+	if fileInfo == nil || p.bpfObjects.GoRuntimeMetricTargets == nil {
+		return
+	}
+
+	pidInfo, err := runtimeMetricPIDInfo(pid, ns)
+	if err != nil {
+		p.log.Debug("runtime metrics PID key lookup failed", "pid", pid, "ns", ns, "error", err)
+		return
+	}
+
+	symbols, err := goexec.ResolveRuntimeMetricSymbols(fileInfo, pid)
+	if err != nil {
+		p.log.Debug("runtime metrics disabled for executable", "pid", pid, "ino", fileInfo.Ino(), "error", err)
+		return
+	}
+
+	value := BpfGoRuntimeMetricTargetT{
+		MemstatsAddr:     symbols.MemstatsAddr,
+		GcControllerAddr: symbols.GCControllerAddr,
+		GomaxprocsAddr:   symbols.GOMAXPROCSAddr,
+	}
+
+	if err := p.bpfObjects.GoRuntimeMetricTargets.Put(pidInfo, value); err != nil {
+		p.log.Debug("setting runtime metric target failed", "pid", pid, "ino", fileInfo.Ino(), "error", err)
+		return
+	}
+
+	if p.runtimeMetricTargetKeys == nil {
+		p.runtimeMetricTargetKeys = map[runtimeMetricTargetKey]BpfPidInfo{}
+	}
+	p.runtimeMetricTargetKeys[runtimeMetricTargetKey{pid: pid, ns: ns}] = pidInfo
+}
+
+// deleteRuntimeMetricTarget removes the userspace-provided address metadata for
+// a process when that PID is blocked, so stale runtime metrics cannot survive
+// PID reuse.
+func (p *Tracer) deleteRuntimeMetricTarget(pid app.PID, ns uint32) {
+	pidInfo, ok := p.runtimeMetricTargetKeys[runtimeMetricTargetKey{pid: pid, ns: ns}]
+	if !ok {
+		var err error
+		pidInfo, err = runtimeMetricPIDInfo(pid, ns)
+		if err != nil {
+			p.log.Debug("runtime metrics PID key lookup failed", "pid", pid, "ns", ns, "error", err)
+			return
+		}
+	}
+
+	if p.bpfObjects.GoRuntimeMetricTargets != nil {
+		_ = p.bpfObjects.GoRuntimeMetricTargets.Delete(pidInfo)
+	}
+	delete(p.runtimeMetricTargetKeys, runtimeMetricTargetKey{pid: pid, ns: ns})
+}
+
+func runtimeMetricPIDInfo(pid app.PID, ns uint32) (BpfPidInfo, error) {
+	pidInfo := BpfPidInfo{
+		HostPid: uint32(pid),
+		UserPid: uint32(pid),
+		Ns:      ns,
+	}
+
+	pids, err := procs.FindNamespacedPids(pid)
+	if err != nil {
+		return BpfPidInfo{}, fmt.Errorf("reading namespaced PIDs: %w", err)
+	}
+	if len(pids) == 0 {
+		return pidInfo, nil
+	}
+
+	pidInfo.HostPid = uint32(pids[0])
+	pidInfo.UserPid = uint32(pids[len(pids)-1])
+	return pidInfo, nil
+}
+
+func (p *Tracer) ProcessBinary(fileInfo *exec.FileInfo) {
+	if p == nil {
+		return
+	}
+	if fileInfo == nil {
+		p.currentBinaryIno = 0
+		return
+	}
+
+	p.currentBinaryIno = fileInfo.Ino()
+}
 
 func (p *Tracer) AddCloser(c ...io.Closer) {
 	p.closers = append(p.closers, c...)
+}
+
+var goChannelLinkProbeSymbols = []string{
+	"runtime.chansend1",
+	"runtime.chanrecv1",
+	"runtime.chanrecv2",
+}
+
+// GoChannelLinkProbeSymbols returns the Go runtime symbols used to correlate direct channel handoffs.
+func GoChannelLinkProbeSymbols() []string {
+	return append([]string(nil), goChannelLinkProbeSymbols...)
 }
 
 func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
@@ -337,6 +507,9 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 		}},
 		"runtime.mexit": {{
 			Start: p.bpfObjects.ObiUprobeRuntimeMexit,
+		}},
+		"runtime.gcMarkDone": {{
+			End: p.bpfObjects.ObiUprobeRuntimeGcMarkDone,
 		}},
 		// Go net/http
 		"net/http.serverHandler.ServeHTTP": {{
@@ -510,6 +683,7 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 		// Kafka Go
 		"github.com/segmentio/kafka-go.(*Writer).WriteMessages": {{ // runs on the same gorountine as other requests, finds traceparent info
 			Start: p.bpfObjects.ObiUprobeWriterWriteMessages,
+			End:   p.bpfObjects.ObiUprobeWriterWriteMessagesRet,
 		}},
 		"github.com/segmentio/kafka-go.(*Writer).produce": {{ // stores the current topic
 			Start: p.bpfObjects.ObiUprobeWriterProduce,
@@ -664,6 +838,21 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 		}},
 	}
 
+	if p.goChannelLinkProbesEnabled() {
+		m[goChannelLinkProbeSymbols[0]] = []*ebpfcommon.ProbeDesc{{
+			Start: p.bpfObjects.ObiUprobeRuntimeChansend1,
+			End:   p.bpfObjects.ObiUprobeRuntimeChansend1Return,
+		}}
+		m[goChannelLinkProbeSymbols[1]] = []*ebpfcommon.ProbeDesc{{
+			Start: p.bpfObjects.ObiUprobeRuntimeChanrecv1,
+			End:   p.bpfObjects.ObiUprobeRuntimeChanrecv1Return,
+		}}
+		m[goChannelLinkProbeSymbols[2]] = []*ebpfcommon.ProbeDesc{{
+			Start: p.bpfObjects.ObiUprobeRuntimeChanrecv2,
+			End:   p.bpfObjects.ObiUprobeRuntimeChanrecv2Return,
+		}}
+	}
+
 	// HTTP Header extraction
 	// with bpf_loop we scan the buffer with a single uprobe - this is less overhead
 	// otherwise we have a probe per header net/textproto.(*Reader).readContinuedLineSlice
@@ -723,11 +912,23 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 	return m
 }
 
+func (p *Tracer) goChannelLinkProbesEnabled() bool {
+	if p == nil || p.currentBinaryIno == 0 {
+		return false
+	}
+
+	return p.goChannelOffsetsByIno[p.currentBinaryIno]
+}
+
 func (p *Tracer) KProbes() map[string]ebpfcommon.ProbeDesc {
 	return nil
 }
 
 func (p *Tracer) UProbes() map[string]map[string][]*ebpfcommon.ProbeDesc {
+	return nil
+}
+
+func (p *Tracer) USDTProbes() map[string][]*ebpfcommon.USDTProbeDesc {
 	return nil
 }
 
@@ -764,6 +965,9 @@ func (p *Tracer) Run(ctx context.Context, ebpfEventContext *ebpfcommon.EBPFEvent
 		p.cfg,
 		p.bpfObjects.Events,
 		func(record *ringbuf.Record) (request.Span, bool, error) {
+			if handled, err := ebpfcommon.HandleRuntimeMetricsRecord(ctx, ebpfEventContext, record, p.pidsFilter, p.log); handled {
+				return request.Span{}, true, err
+			}
 			s, ignore, err := ebpfcommon.ReadBPFTraceAsSpan(parseContext, p.cfg, record, p.pidsFilter)
 			if !ignore && err == nil && !s.IsValid() {
 				return s, true, nil

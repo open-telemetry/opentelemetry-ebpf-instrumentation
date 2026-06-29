@@ -1,6 +1,6 @@
 module go.opentelemetry.io/obi/internal/test/oats/memcached
 
-go 1.25.10
+go 1.25.11
 
 require go.opentelemetry.io/obi/internal/test/oats/harness v0.0.0
 

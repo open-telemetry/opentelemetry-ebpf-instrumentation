@@ -446,7 +446,10 @@ int obi_uprobe_readMimeHeader(struct pt_regs *ctx) {
 
     bpf_clamp_umax(len, TRACE_BUF_SIZE);
 
-    bpf_probe_read_user(buf, len, arr);
+    if (bpf_probe_read_user(buf, len, arr) != 0) {
+        bpf_dbg_printk("failed to read MIME header buffer");
+        return 0;
+    }
 
     bpf_dbg_printk("buf=%s", buf);
 

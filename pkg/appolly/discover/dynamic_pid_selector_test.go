@@ -13,6 +13,10 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
+	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
+	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
+	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
+	"go.opentelemetry.io/obi/pkg/selection"
 )
 
 // pidMultisetEqual reports whether a and b contain the same PIDs with the same multiplicity.
@@ -73,6 +77,85 @@ func TestDynamicPIDSelector_AddPIDs_RemovePIDs_GetPIDs(t *testing.T) {
 	assert.Nil(t, pids)
 }
 
+func TestDynamicPIDSelector_Subviews(t *testing.T) {
+	d := NewDynamicPIDSelector()
+
+	d.Traces().AddPIDs(1, 2)
+	d.AppMetrics().AddPIDs(2, 3)
+	d.NetworkMetrics().AddPIDs(4)
+	d.StatsMetrics().AddPIDs(5)
+
+	rootPIDs, ok := d.GetPIDs()
+	require.True(t, ok)
+	assert.Equal(t, []app.PID{1, 2, 3, 4, 5}, rootPIDs)
+
+	tracesPIDs, ok := d.Traces().GetPIDs()
+	require.True(t, ok)
+	assert.Equal(t, []app.PID{1, 2}, tracesPIDs)
+
+	appMetricPIDs, ok := d.AppMetrics().GetPIDs()
+	require.True(t, ok)
+	assert.Equal(t, []app.PID{2, 3}, appMetricPIDs)
+
+	appSignalPIDs, ok := d.appSignals().GetPIDs()
+	require.True(t, ok)
+	assert.Equal(t, []app.PID{1, 2, 3}, appSignalPIDs)
+
+	assert.True(t, d.Traces().IncludesPID(1))
+	assert.False(t, d.Traces().IncludesPID(3))
+	assert.True(t, d.AppMetrics().IncludesPID(3))
+	assert.False(t, d.NetworkMetrics().IncludesPID(3))
+}
+
+func TestDynamicPIDSelector_AppUnionNotifications(t *testing.T) {
+	d := NewDynamicPIDSelector()
+	tracesAdded := d.Traces().AddedPIDsNotify()
+	metricsAdded := d.AppMetrics().AddedPIDsNotify()
+	appAdded := d.appSignals().AddedPIDsNotify()
+	rootAdded := d.AddedPIDsNotify()
+
+	d.Traces().AddPIDs(42)
+	assert.Equal(t, []app.PID{42}, <-tracesAdded)
+	assert.Equal(t, []app.PID{42}, <-appAdded)
+	assert.Equal(t, []app.PID{42}, <-rootAdded)
+
+	d.AppMetrics().AddPIDs(42)
+	assert.Equal(t, []app.PID{42}, <-metricsAdded)
+	select {
+	case <-appAdded:
+		t.Fatal("expected no app-union add when PID already selected for traces")
+	default:
+	}
+	select {
+	case <-rootAdded:
+		t.Fatal("expected no root add when PID already selected by another signal")
+	default:
+	}
+
+	tracesRemoved := d.Traces().RemovedNotify()
+	metricsRemoved := d.AppMetrics().RemovedNotify()
+	appRemoved := d.appSignals().RemovedNotify()
+	rootRemoved := d.RemovedNotify()
+
+	d.Traces().RemovePIDs(42)
+	assert.Equal(t, []app.PID{42}, <-tracesRemoved)
+	select {
+	case <-appRemoved:
+		t.Fatal("expected no app-union remove while metrics still selected")
+	default:
+	}
+	select {
+	case <-rootRemoved:
+		t.Fatal("expected no root remove while another signal still selected")
+	default:
+	}
+
+	d.AppMetrics().RemovePIDs(42)
+	assert.Equal(t, []app.PID{42}, <-metricsRemoved)
+	assert.Equal(t, []app.PID{42}, <-appRemoved)
+	assert.Equal(t, []app.PID{42}, <-rootRemoved)
+}
+
 func TestDynamicPIDSelector_RemovePIDs_Notify(t *testing.T) {
 	d := NewDynamicPIDSelector()
 	d.AddPIDs(42, 100)
@@ -126,4 +209,132 @@ func TestDynamicPIDSelector_QueueNoDrop(t *testing.T) {
 	d.AddPIDs(10, 20)
 	d.AddPIDs(30)
 	readPIDNotifyBatchesUntil(t, addedCh, []app.PID{10, 20, 30})
+}
+
+func TestDynamicPIDSelector_AddPID_WithOptions(t *testing.T) {
+	d := NewDynamicPIDSelector()
+	d.Traces().AddPID(42, selection.DynamicPIDOptions{
+		ServiceName:      "custom-svc",
+		ServiceNamespace: "custom-ns",
+		ResourceAttributes: map[string]string{
+			"deployment.environment": "staging",
+		},
+	})
+
+	entry, ok := d.GetPID(42)
+	require.True(t, ok)
+	assert.Equal(t, app.PID(42), entry.PID)
+	assert.Equal(t, "custom-svc", entry.ServiceName)
+	assert.Equal(t, "custom-ns", entry.ServiceNamespace)
+	assert.Equal(t, "staging", entry.ResourceAttributes["deployment.environment"])
+	assert.True(t, d.Traces().IncludesPID(42))
+	assert.False(t, d.AppMetrics().IncludesPID(42))
+
+	selector := d.appSignals().SelectorForPID(42)
+	require.NotNil(t, selector)
+	assert.Equal(t, "custom-svc", selector.GetName())
+	attrs := ResourceAttributesFromSelector(selector)
+	assert.Equal(t, "staging", attrs[attr.Name("deployment.environment")])
+}
+
+func TestDynamicPIDSelector_GetPID_SetPID(t *testing.T) {
+	d := NewDynamicPIDSelector()
+	d.AddPIDs(42)
+
+	entry, ok := d.GetPID(42)
+	require.True(t, ok)
+	assert.Equal(t, app.PID(42), entry.PID)
+	assert.Empty(t, entry.ServiceName)
+
+	entry.ServiceName = "my app"
+	entry.ResourceAttributes = map[string]string{"team": "platform"}
+	require.True(t, d.SetPID(entry))
+
+	updated, ok := d.GetPID(42)
+	require.True(t, ok)
+	assert.Equal(t, "my app", updated.ServiceName)
+	assert.Equal(t, "platform", updated.ResourceAttributes["team"])
+
+	assert.False(t, d.SetPID(selection.DynamicPIDEntry{PID: 99, ServiceName: "missing"}))
+}
+
+func TestDynamicPIDSelector_AddPID_UpdatesExistingAttributes(t *testing.T) {
+	d := NewDynamicPIDSelector()
+	d.Traces().AddPID(42, selection.DynamicPIDOptions{ServiceName: "first"})
+	d.Traces().AddPID(42, selection.DynamicPIDOptions{ServiceName: "updated"})
+
+	entry, ok := d.GetPID(42)
+	require.True(t, ok)
+	assert.Equal(t, "updated", entry.ServiceName)
+}
+
+func TestDynamicPIDSelector_AttributesSharedAcrossSignals(t *testing.T) {
+	d := NewDynamicPIDSelector()
+	d.Traces().AddPID(42, selection.DynamicPIDOptions{ServiceName: "shared-svc"})
+
+	d.AppMetrics().AddPIDs(42)
+	entry, ok := d.GetPID(42)
+	require.True(t, ok)
+	assert.Equal(t, "shared-svc", entry.ServiceName)
+	assert.True(t, d.Traces().IncludesPID(42))
+	assert.True(t, d.AppMetrics().IncludesPID(42))
+}
+
+func TestDynamicPIDSelector_SetPID_UpdatesFileInfo(t *testing.T) {
+	d := NewDynamicPIDSelector()
+	d.AddPIDs(42)
+
+	fi := exec.New(exec.Init{
+		Pid: 42,
+		Service: svc.Attrs{
+			UID:                svc.UID{Name: "old"},
+			DynamicSelectorPID: 42,
+		},
+	})
+	d.RegisterFileInfo(42, fi)
+
+	entry := selection.DynamicPIDEntry{
+		PID:         42,
+		ServiceName: "live-svc",
+		ResourceAttributes: map[string]string{
+			"team": "payments",
+		},
+	}
+	require.True(t, d.SetPID(entry))
+
+	snap := fi.ServiceAttrs()
+	assert.Equal(t, "live-svc", snap.UID.Name)
+	assert.Equal(t, "payments", snap.Metadata["team"])
+}
+
+func TestDynamicPIDSelector_SetPID_NotifiesFileInfoUpdate(t *testing.T) {
+	d := NewDynamicPIDSelector()
+	d.AddPIDs(42)
+
+	fi := exec.New(exec.Init{Pid: 42, Service: svc.Attrs{DynamicSelectorPID: 42}})
+	d.RegisterFileInfo(42, fi)
+
+	var notified *exec.FileInfo
+	d.SetOnFileInfoUpdated(func(updated *exec.FileInfo) { notified = updated })
+
+	require.True(t, d.SetPID(selection.DynamicPIDEntry{
+		PID:         42,
+		ServiceName: "metrics-svc",
+	}))
+	assert.Same(t, fi, notified)
+}
+
+func TestDynamicPIDSelector_SetPID_NotifiesAttrsUpdated(t *testing.T) {
+	d := NewDynamicPIDSelector()
+	d.AddPIDs(7)
+
+	ch := d.AttrsUpdatedNotify()
+	require.True(t, d.SetPID(selection.DynamicPIDEntry{PID: 7, ServiceName: "net-svc"}))
+
+	select {
+	case pid := <-ch:
+		assert.Equal(t, app.PID(7), pid)
+	default:
+		t.Fatal("expected attrs updated notification")
+	}
 }

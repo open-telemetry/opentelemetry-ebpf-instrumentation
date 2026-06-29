@@ -30,8 +30,7 @@ func run(pass *analysis.Pass) (any, error) {
 		call := n.(*ast.CallExpr)
 
 		// Match *.EventuallyWithT(t, func(ct *assert.CollectT) { ... }, ...)
-		sel, ok := call.Fun.(*ast.SelectorExpr)
-		if !ok || sel.Sel.Name != "EventuallyWithT" {
+		if !isEventuallyWithTCall(call) {
 			return
 		}
 
@@ -42,6 +41,10 @@ func run(pass *analysis.Pass) (any, error) {
 
 		// The first argument should be the outer *testing.T.
 		outerT := call.Args[0]
+		outerTIdent, ok := outerT.(*ast.Ident)
+		if !ok {
+			return
+		}
 		outerTObj := resolveIdentFromInfo(pass, outerT)
 		if outerTObj == nil {
 			return
@@ -65,6 +68,7 @@ func run(pass *analysis.Pass) (any, error) {
 		if collectTObj == nil {
 			return
 		}
+		collectTName := collectTParam.Names[0].Name
 
 		// Walk the callback body looking for assert/require calls whose
 		// first argument is the outer *testing.T instead of the CollectT param.
@@ -78,37 +82,59 @@ func run(pass *analysis.Pass) (any, error) {
 			if !ok {
 				return true
 			}
+			nestedEventuallyWithT := isEventuallyWithTCall(innerCall)
 
 			// Check the receiver is an assert or require package.
 			if !isAssertOrRequire(pass, innerSel) {
-				return true
+				return !nestedEventuallyWithT
 			}
 
 			// The first argument to assert/require methods is the TestingT.
 			if len(innerCall.Args) == 0 {
-				return true
+				return !nestedEventuallyWithT
 			}
 
 			argObj := resolveIdentFromInfo(pass, innerCall.Args[0])
 			if argObj == nil {
-				return true
+				return !nestedEventuallyWithT
 			}
 
 			// Flag if the first arg resolves to the outer *testing.T
 			// rather than the callback's *assert.CollectT parameter.
 			if argObj == outerTObj && argObj != collectTObj {
-				pass.Reportf(innerCall.Args[0].Pos(),
-					"use %s instead of %s inside EventuallyWithT callback",
-					collectTParam.Names[0].Name,
-					outerT.(*ast.Ident).Name,
-				)
+				reportCollectTDiagnostic(pass, innerCall.Args[0], outerTIdent.Name, collectTName)
 			}
 
-			return true
+			return !nestedEventuallyWithT
 		})
 	})
 
 	return nil, nil
+}
+
+func reportCollectTDiagnostic(pass *analysis.Pass, arg ast.Expr, outerTName, collectTName string) {
+	diagnostic := analysis.Diagnostic{
+		Pos: arg.Pos(),
+		End: arg.End(),
+	}
+
+	if collectTName == "_" {
+		diagnostic.Message = "name and use the CollectT callback parameter instead of " + outerTName +
+			" inside EventuallyWithT callback"
+	} else {
+		diagnostic.Message = "use " + collectTName + " instead of " + outerTName +
+			" inside EventuallyWithT callback"
+		diagnostic.SuggestedFixes = []analysis.SuggestedFix{{
+			Message: "Use CollectT callback parameter",
+			TextEdits: []analysis.TextEdit{{
+				Pos:     arg.Pos(),
+				End:     arg.End(),
+				NewText: []byte(collectTName),
+			}},
+		}}
+	}
+
+	pass.Report(diagnostic)
 }
 
 // resolveIdentFromInfo looks up the types.Object for an expression via TypesInfo.
@@ -118,6 +144,11 @@ func resolveIdentFromInfo(pass *analysis.Pass, expr ast.Expr) types.Object {
 		return nil
 	}
 	return pass.TypesInfo.ObjectOf(ident)
+}
+
+func isEventuallyWithTCall(call *ast.CallExpr) bool {
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	return ok && sel.Sel.Name == "EventuallyWithT"
 }
 
 // isAssertOrRequire checks whether a selector expression refers to a

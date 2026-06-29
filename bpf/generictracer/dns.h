@@ -156,16 +156,19 @@ static __always_inline u8 handle_dns(struct __sk_buff *skb,
         // Skip if we don't have any data to avoid handling control segments
         dns_off = l4_off + tcp_header_len + size_bytes_len;
 
-        if (skb->len <= (dns_off + sizeof(struct dnshdr))) {
-            return 0;
-        }
         break;
     default:
         return 0;
     }
 
+    if (skb->len < (dns_off + sizeof(struct dnshdr))) {
+        return 0;
+    }
+
     struct dnshdr hdr;
-    bpf_skb_load_bytes(skb, dns_off, &hdr, sizeof(hdr));
+    if (bpf_skb_load_bytes(skb, dns_off, &hdr, sizeof(hdr)) != 0) {
+        return 0;
+    }
 
     const u16 flags = bpf_ntohs(hdr.flags);
     const u8 qr = dns_qr(flags);

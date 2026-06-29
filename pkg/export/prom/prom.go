@@ -25,14 +25,15 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/connector"
-	"go.opentelemetry.io/obi/pkg/export/expire"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/export/otel"
+	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm/swarms"
+	"go.opentelemetry.io/obi/pkg/runtimemetrics"
 )
 
 // injectable function reference for testing
@@ -64,37 +65,13 @@ const (
 	serviceNameKey      = "service_name"
 	serviceNamespaceKey = "service_namespace"
 
-	hostIDKey   = "host_id"
-	hostNameKey = "host_name"
-	osTypeKey   = "os_type"
-
-	k8sNamespaceName   = "k8s_namespace_name"
-	k8sPodName         = "k8s_pod_name"
-	k8sContainerName   = "k8s_container_name"
-	k8sDeploymentName  = "k8s_deployment_name"
-	k8sStatefulSetName = "k8s_statefulset_name"
-	k8sReplicaSetName  = "k8s_replicaset_name"
-	k8sDaemonSetName   = "k8s_daemonset_name"
-	k8sJobName         = "k8s_job_name"
-	k8sCronJobName     = "k8s_cronjob_name"
-	k8sNodeName        = "k8s_node_name"
-	k8sPodUID          = "k8s_pod_uid"
-	k8sPodStartTime    = "k8s_pod_start_time"
-	k8sClusterName     = "k8s_cluster_name"
-	k8sKind            = "k8s_kind"
-	k8sOwnerName       = "k8s_owner_name"
-
-	spanNameKey            = "span_name"
-	statusCodeKey          = "status_code"
-	spanKindKey            = "span_kind"
-	serviceInstanceKey     = "instance"
-	serviceJobKey          = "job"
-	sourceKey              = "source"
-	telemetryLanguageKey   = "telemetry_sdk_language"
-	telemetrySDKKey        = "telemetry_sdk_name"
-	telemetrySDKVersion    = "telemetry_sdk_version"
-	telemetryDistroNameKey = "telemetry_distro_name"
-	telemetryDistroVersion = "telemetry_distro_version"
+	spanNameKey          = "span_name"
+	statusCodeKey        = "status_code"
+	spanKindKey          = "span_kind"
+	serviceInstanceKey   = "instance"
+	serviceJobKey        = "job"
+	sourceKey            = "source"
+	telemetryLanguageKey = "telemetry_sdk_language"
 )
 
 // metrics for OBI statistics
@@ -189,6 +166,7 @@ type metricsReporter struct {
 
 	input         <-chan []request.Span
 	processEvents <-chan exec.ProcessEvent
+	runtimeInput  <-chan []runtimemetrics.RuntimeMetricSnapshot
 
 	obiInfo                *Expirer[prometheus.Gauge]
 	httpDuration           *Expirer[prometheus.Histogram]
@@ -257,18 +235,21 @@ type metricsReporter struct {
 	genAIClientDuration *Expirer[prometheus.Histogram]
 	genAITokenUsage     *Expirer[prometheus.Histogram]
 
+	goRuntimeMetrics  goRuntimeMetricsCollector
+	jvmRuntimeMetrics jvmRuntimeMetricsCollector
+
 	promConnect *connector.PrometheusManager
 
-	clock   *expire.CachedClock
 	ctxInfo *global.ContextInfo
 
 	is instrumentations.InstrumentationSelection
 
 	shouldAddExemplar func(*request.Span) bool
 
-	kubeEnabled   bool
-	dockerEnabled bool
-	nodeMeta      meta.NodeMeta
+	kubeEnabled         bool
+	dockerEnabled       bool
+	nodeMeta            meta.NodeMeta
+	userAttribSelection attributes.Selection
 
 	serviceMap  map[svc.UID]svc.Attrs
 	pidsTracker otel.PidServiceTracker
@@ -286,12 +267,23 @@ func PrometheusEndpoint(
 	unresolved request.UnresolvedNames,
 	input *msg.Queue[[]request.Span],
 	processEventCh *msg.Queue[exec.ProcessEvent],
+	runtimeMetricCh *msg.Queue[[]runtimemetrics.RuntimeMetricSnapshot],
 ) swarm.InstanceFunc {
 	return func(ctx context.Context) (swarm.RunFunc, error) {
-		if !cfg.EndpointEnabled() || !jointMetricsConfig.Features.AppOrSpan() {
+		if !cfg.EndpointEnabled() || !jointMetricsConfig.Features.AnyAppO11yMetric() {
 			return swarm.EmptyRunFunc()
 		}
-		reporter, err := newReporter(ctx, ctxInfo, cfg, jointMetricsConfig, selectorCfg, unresolved, input, processEventCh)
+		reporter, err := newReporter(
+			ctx,
+			ctxInfo,
+			cfg,
+			jointMetricsConfig,
+			selectorCfg,
+			unresolved,
+			input,
+			processEventCh,
+			runtimeMetricCh,
+		)
 		if err != nil {
 			return nil, fmt.Errorf("instantiating Prometheus endpoint: %w", err)
 		}
@@ -326,6 +318,7 @@ func newReporter(
 	unresolved request.UnresolvedNames,
 	input *msg.Queue[[]request.Span],
 	processEventCh *msg.Queue[exec.ProcessEvent],
+	runtimeMetricCh *msg.Queue[[]runtimemetrics.RuntimeMetricSnapshot],
 ) (*metricsReporter, error) {
 	groups := ctxInfo.MetricAttributeGroups
 	groups.Add(attributes.GroupPrometheus)
@@ -358,11 +351,11 @@ func newReporter(
 
 	var attrGRPCDuration, attrGRPCClientDuration []attributes.Field[*request.Span, string]
 
-	if is.GRPCEnabled() {
-		attrGRPCDuration = attributes.PrometheusGetters(attributeGetters,
-			attrsProvider.For(attributes.RPCServerDuration))
-		attrGRPCClientDuration = attributes.PrometheusGetters(attributeGetters,
-			attrsProvider.For(attributes.RPCClientDuration))
+	if is.GRPCEnabled() || is.SunRPCEnabled() {
+		rpcServerAttrs := attrsProvider.For(attributes.RPCServerDuration)
+		rpcClientAttrs := attrsProvider.For(attributes.RPCClientDuration)
+		attrGRPCDuration = attributes.PrometheusGetters(attributeGetters, rpcServerAttrs)
+		attrGRPCClientDuration = attributes.PrometheusGetters(attributeGetters, rpcClientAttrs)
 	}
 
 	var attrDBClientDuration []attributes.Field[*request.Span, string]
@@ -434,15 +427,24 @@ func newReporter(
 		attrSvcGraph = attributes.PrometheusGetters(attributeGetters, attrs)
 	}
 
-	clock := expire.NewCachedClock(timeNow)
-
 	// If service name is not explicitly set, we take the service name as set by the
 	// executable inspector
 	extraMetadataLabels := parseExtraMetadata(cfg.ExtraResourceLabels)
 	extraSpanMetadataLabels := parseExtraMetadata(cfg.ExtraSpanResourceLabels)
+	var inputCh <-chan []request.Span
+	if input != nil {
+		inputCh = input.Subscribe(msg.SubscriberName("prom.InputSpans"))
+	}
+	runtimeMetricsEnabled := runtimemetrics.EnabledFeatures(jointMetricsConfig.Features)
+	var runtimeInputCh <-chan []runtimemetrics.RuntimeMetricSnapshot
+	if runtimeMetricCh != nil {
+		runtimeInputCh = runtimeMetricCh.Subscribe(msg.SubscriberName("prom.RuntimeMetrics"))
+	}
+
 	mr := &metricsReporter{
-		input:                      input.Subscribe(msg.SubscriberName("prom.InputSpans")),
+		input:                      inputCh,
 		processEvents:              processEventCh.Subscribe(msg.SubscriberName("prom.ProcessEvents")),
+		runtimeInput:               runtimeInputCh,
 		serviceMap:                 map[svc.UID]svc.Attrs{},
 		pidsTracker:                otel.NewPidServiceTracker(),
 		ctxInfo:                    ctxInfo,
@@ -452,7 +454,7 @@ func newReporter(
 		extraMetadataLabels:        extraMetadataLabels,
 		extraSpanMetadataLabels:    extraSpanMetadataLabels,
 		nodeMeta:                   ctxInfo.NodeMeta,
-		clock:                      clock,
+		userAttribSelection:        selectorCfg.SelectionCfg,
 		is:                         is,
 		promConnect:                ctxInfo.Prometheus,
 		shouldAddExemplar:          exemplarFilter(cfg.ExemplarFilter),
@@ -490,7 +492,7 @@ func newReporter(
 				"version":   buildinfo.Version,
 				"revision":  buildinfo.Revision,
 			},
-		}, obiInfoLabelNames).MetricVec, clock.Time, cfg.TTL),
+		}, obiInfoLabelNames).MetricVec, timeNow, cfg.TTL),
 		httpDuration: optionalHistogramProvider(is.HTTPEnabled(), func() *Expirer[prometheus.Histogram] {
 			return NewExpirer[prometheus.Histogram](prometheus.NewHistogramVec(prometheus.HistogramOpts{
 				Name:                            attributes.HTTPServerDuration.Prom,
@@ -499,7 +501,7 @@ func newReporter(
 				NativeHistogramBucketFactor:     cfg.NativeHistogram.BucketFactor,
 				NativeHistogramMaxBucketNumber:  cfg.NativeHistogram.MaxBucketNumber,
 				NativeHistogramMinResetDuration: cfg.NativeHistogram.MinResetDuration,
-			}, labelNames(attrHTTPDuration)).MetricVec, clock.Time, cfg.TTL)
+			}, labelNames(attrHTTPDuration)).MetricVec, timeNow, cfg.TTL)
 		}),
 		httpClientDuration: optionalHistogramProvider(is.HTTPEnabled(), func() *Expirer[prometheus.Histogram] {
 			return NewExpirer[prometheus.Histogram](prometheus.NewHistogramVec(prometheus.HistogramOpts{
@@ -509,27 +511,27 @@ func newReporter(
 				NativeHistogramBucketFactor:     cfg.NativeHistogram.BucketFactor,
 				NativeHistogramMaxBucketNumber:  cfg.NativeHistogram.MaxBucketNumber,
 				NativeHistogramMinResetDuration: cfg.NativeHistogram.MinResetDuration,
-			}, labelNames(attrHTTPClientDuration)).MetricVec, clock.Time, cfg.TTL)
+			}, labelNames(attrHTTPClientDuration)).MetricVec, timeNow, cfg.TTL)
 		}),
-		grpcDuration: optionalHistogramProvider(is.GRPCEnabled(), func() *Expirer[prometheus.Histogram] {
+		grpcDuration: optionalHistogramProvider(is.GRPCEnabled() || is.SunRPCEnabled(), func() *Expirer[prometheus.Histogram] {
 			return NewExpirer[prometheus.Histogram](prometheus.NewHistogramVec(prometheus.HistogramOpts{
 				Name:                            attributes.RPCServerDuration.Prom,
-				Help:                            "duration of RCP service calls from the server side, in seconds",
+				Help:                            "duration of RPC service calls from the server side, in seconds",
 				Buckets:                         cfg.Buckets.DurationHistogram,
 				NativeHistogramBucketFactor:     cfg.NativeHistogram.BucketFactor,
 				NativeHistogramMaxBucketNumber:  cfg.NativeHistogram.MaxBucketNumber,
 				NativeHistogramMinResetDuration: cfg.NativeHistogram.MinResetDuration,
-			}, labelNames(attrGRPCDuration)).MetricVec, clock.Time, cfg.TTL)
+			}, labelNames(attrGRPCDuration)).MetricVec, timeNow, cfg.TTL)
 		}),
-		grpcClientDuration: optionalHistogramProvider(is.GRPCEnabled(), func() *Expirer[prometheus.Histogram] {
+		grpcClientDuration: optionalHistogramProvider(is.GRPCEnabled() || is.SunRPCEnabled(), func() *Expirer[prometheus.Histogram] {
 			return NewExpirer[prometheus.Histogram](prometheus.NewHistogramVec(prometheus.HistogramOpts{
 				Name:                            attributes.RPCClientDuration.Prom,
-				Help:                            "duration of GRPC service calls from the client side, in seconds",
+				Help:                            "duration of RPC service calls from the client side, in seconds",
 				Buckets:                         cfg.Buckets.DurationHistogram,
 				NativeHistogramBucketFactor:     cfg.NativeHistogram.BucketFactor,
 				NativeHistogramMaxBucketNumber:  cfg.NativeHistogram.MaxBucketNumber,
 				NativeHistogramMinResetDuration: cfg.NativeHistogram.MinResetDuration,
-			}, labelNames(attrGRPCClientDuration)).MetricVec, clock.Time, cfg.TTL)
+			}, labelNames(attrGRPCClientDuration)).MetricVec, timeNow, cfg.TTL)
 		}),
 		dbClientDuration: optionalHistogramProvider(is.DBEnabled(), func() *Expirer[prometheus.Histogram] {
 			return NewExpirer[prometheus.Histogram](prometheus.NewHistogramVec(prometheus.HistogramOpts{
@@ -539,7 +541,7 @@ func newReporter(
 				NativeHistogramBucketFactor:     cfg.NativeHistogram.BucketFactor,
 				NativeHistogramMaxBucketNumber:  cfg.NativeHistogram.MaxBucketNumber,
 				NativeHistogramMinResetDuration: cfg.NativeHistogram.MinResetDuration,
-			}, labelNames(attrDBClientDuration)).MetricVec, clock.Time, cfg.TTL)
+			}, labelNames(attrDBClientDuration)).MetricVec, timeNow, cfg.TTL)
 		}),
 		msgPublishDuration: optionalHistogramProvider(is.MQEnabled(), func() *Expirer[prometheus.Histogram] {
 			return NewExpirer[prometheus.Histogram](prometheus.NewHistogramVec(prometheus.HistogramOpts{
@@ -549,7 +551,7 @@ func newReporter(
 				NativeHistogramBucketFactor:     cfg.NativeHistogram.BucketFactor,
 				NativeHistogramMaxBucketNumber:  cfg.NativeHistogram.MaxBucketNumber,
 				NativeHistogramMinResetDuration: cfg.NativeHistogram.MinResetDuration,
-			}, labelNames(attrMessagingPublishDuration)).MetricVec, clock.Time, cfg.TTL)
+			}, labelNames(attrMessagingPublishDuration)).MetricVec, timeNow, cfg.TTL)
 		}),
 		msgProcessDuration: optionalHistogramProvider(is.MQEnabled(), func() *Expirer[prometheus.Histogram] {
 			return NewExpirer[prometheus.Histogram](prometheus.NewHistogramVec(prometheus.HistogramOpts{
@@ -559,7 +561,7 @@ func newReporter(
 				NativeHistogramBucketFactor:     cfg.NativeHistogram.BucketFactor,
 				NativeHistogramMaxBucketNumber:  cfg.NativeHistogram.MaxBucketNumber,
 				NativeHistogramMinResetDuration: cfg.NativeHistogram.MinResetDuration,
-			}, labelNames(attrMessagingProcessDuration)).MetricVec, clock.Time, cfg.TTL)
+			}, labelNames(attrMessagingProcessDuration)).MetricVec, timeNow, cfg.TTL)
 		}),
 		httpRequestSize: optionalHistogramProvider(is.HTTPEnabled(), func() *Expirer[prometheus.Histogram] {
 			return NewExpirer[prometheus.Histogram](prometheus.NewHistogramVec(prometheus.HistogramOpts{
@@ -569,7 +571,7 @@ func newReporter(
 				NativeHistogramBucketFactor:     cfg.NativeHistogram.BucketFactor,
 				NativeHistogramMaxBucketNumber:  cfg.NativeHistogram.MaxBucketNumber,
 				NativeHistogramMinResetDuration: cfg.NativeHistogram.MinResetDuration,
-			}, labelNames(attrHTTPRequestSize)).MetricVec, clock.Time, cfg.TTL)
+			}, labelNames(attrHTTPRequestSize)).MetricVec, timeNow, cfg.TTL)
 		}),
 		httpResponseSize: optionalHistogramProvider(is.HTTPEnabled(), func() *Expirer[prometheus.Histogram] {
 			return NewExpirer[prometheus.Histogram](prometheus.NewHistogramVec(prometheus.HistogramOpts{
@@ -579,7 +581,7 @@ func newReporter(
 				NativeHistogramBucketFactor:     cfg.NativeHistogram.BucketFactor,
 				NativeHistogramMaxBucketNumber:  cfg.NativeHistogram.MaxBucketNumber,
 				NativeHistogramMinResetDuration: cfg.NativeHistogram.MinResetDuration,
-			}, labelNames(attrHTTPResponseSize)).MetricVec, clock.Time, cfg.TTL)
+			}, labelNames(attrHTTPResponseSize)).MetricVec, timeNow, cfg.TTL)
 		}),
 		httpClientRequestSize: optionalHistogramProvider(is.HTTPEnabled(), func() *Expirer[prometheus.Histogram] {
 			return NewExpirer[prometheus.Histogram](prometheus.NewHistogramVec(prometheus.HistogramOpts{
@@ -589,7 +591,7 @@ func newReporter(
 				NativeHistogramBucketFactor:     cfg.NativeHistogram.BucketFactor,
 				NativeHistogramMaxBucketNumber:  cfg.NativeHistogram.MaxBucketNumber,
 				NativeHistogramMinResetDuration: cfg.NativeHistogram.MinResetDuration,
-			}, labelNames(attrHTTPClientRequestSize)).MetricVec, clock.Time, cfg.TTL)
+			}, labelNames(attrHTTPClientRequestSize)).MetricVec, timeNow, cfg.TTL)
 		}),
 		httpClientResponseSize: optionalHistogramProvider(is.HTTPEnabled(), func() *Expirer[prometheus.Histogram] {
 			return NewExpirer[prometheus.Histogram](prometheus.NewHistogramVec(prometheus.HistogramOpts{
@@ -599,7 +601,7 @@ func newReporter(
 				NativeHistogramBucketFactor:     cfg.NativeHistogram.BucketFactor,
 				NativeHistogramMaxBucketNumber:  cfg.NativeHistogram.MaxBucketNumber,
 				NativeHistogramMinResetDuration: cfg.NativeHistogram.MinResetDuration,
-			}, labelNames(attrHTTPClientResponseSize)).MetricVec, clock.Time, cfg.TTL)
+			}, labelNames(attrHTTPClientResponseSize)).MetricVec, timeNow, cfg.TTL)
 		}),
 		spanMetricsLatency: optionalHistogramProvider(jointMetricsConfig.Features.SpanMetrics(), func() *Expirer[prometheus.Histogram] {
 			return NewExpirer[prometheus.Histogram](prometheus.NewHistogramVec(prometheus.HistogramOpts{
@@ -609,37 +611,37 @@ func newReporter(
 				NativeHistogramBucketFactor:     cfg.NativeHistogram.BucketFactor,
 				NativeHistogramMaxBucketNumber:  cfg.NativeHistogram.MaxBucketNumber,
 				NativeHistogramMinResetDuration: cfg.NativeHistogram.MinResetDuration,
-			}, labelNamesSpans(extraSpanMetadataLabels)).MetricVec, clock.Time, cfg.TTL)
+			}, labelNamesSpans(extraSpanMetadataLabels)).MetricVec, timeNow, cfg.TTL)
 		}),
 		spanMetricsCallsTotal: optionalCounterProvider(jointMetricsConfig.Features.SpanMetrics(), func() *Expirer[prometheus.Counter] {
 			return NewExpirer[prometheus.Counter](prometheus.NewCounterVec(prometheus.CounterOpts{
 				Name: spanMetricsCallsName(jointMetricsConfig),
 				Help: "number of service calls in trace span metrics format",
-			}, labelNamesSpans(extraSpanMetadataLabels)).MetricVec, clock.Time, cfg.TTL)
+			}, labelNamesSpans(extraSpanMetadataLabels)).MetricVec, timeNow, cfg.TTL)
 		}),
 		spanMetricsRequestSizeTotal: optionalCounterProvider(jointMetricsConfig.Features.SpanSizes(), func() *Expirer[prometheus.Counter] {
 			return NewExpirer[prometheus.Counter](prometheus.NewCounterVec(prometheus.CounterOpts{
 				Name: SpanMetricsRequestSizes,
 				Help: "size of service calls, in bytes, in trace span metrics format",
-			}, labelNamesSpans(extraSpanMetadataLabels)).MetricVec, clock.Time, cfg.TTL)
+			}, labelNamesSpans(extraSpanMetadataLabels)).MetricVec, timeNow, cfg.TTL)
 		}),
 		spanMetricsResponseSizeTotal: optionalCounterProvider(jointMetricsConfig.Features.SpanSizes(), func() *Expirer[prometheus.Counter] {
 			return NewExpirer[prometheus.Counter](prometheus.NewCounterVec(prometheus.CounterOpts{
 				Name: SpanMetricsResponseSizes,
 				Help: "size of service responses, in bytes, in trace span metrics format",
-			}, labelNamesSpans(extraSpanMetadataLabels)).MetricVec, clock.Time, cfg.TTL)
+			}, labelNamesSpans(extraSpanMetadataLabels)).MetricVec, timeNow, cfg.TTL)
 		}),
 		tracesTargetInfo: optionalDirectGaugeProvider(jointMetricsConfig.Features.AnySpanMetrics(), func() *prometheus.GaugeVec {
 			return prometheus.NewGaugeVec(prometheus.GaugeOpts{
 				Name: TracesTargetInfo,
 				Help: "target service information in trace span metric format",
-			}, labelNamesTargetInfo(kubeEnabled, dockerEnabled, &ctxInfo.NodeMeta, extraMetadataLabels))
+			}, labelNamesTargetInfo(kubeEnabled, dockerEnabled, &ctxInfo.NodeMeta, extraMetadataLabels, selectorCfg.SelectionCfg))
 		}),
 		tracesHostInfo: optionalGaugeProvider(jointMetricsConfig.Features.AppHost(), func() *Expirer[prometheus.Gauge] {
 			return NewExpirer[prometheus.Gauge](prometheus.NewGaugeVec(prometheus.GaugeOpts{
 				Name: TracesHostInfo,
 				Help: "A metric with a constant '1' value labeled by the host id ",
-			}, []string{CloudHostIDKey}).MetricVec, clock.Time, cfg.TTL)
+			}, []string{CloudHostIDKey}).MetricVec, timeNow, cfg.TTL)
 		}),
 		serviceGraphClient: optionalHistogramProvider(jointMetricsConfig.Features.ServiceGraph(), func() *Expirer[prometheus.Histogram] {
 			return NewExpirer[prometheus.Histogram](prometheus.NewHistogramVec(prometheus.HistogramOpts{
@@ -649,7 +651,7 @@ func newReporter(
 				NativeHistogramBucketFactor:     cfg.NativeHistogram.BucketFactor,
 				NativeHistogramMaxBucketNumber:  cfg.NativeHistogram.MaxBucketNumber,
 				NativeHistogramMinResetDuration: cfg.NativeHistogram.MinResetDuration,
-			}, labelNamesSvcGraph(attrSvcGraph)).MetricVec, clock.Time, cfg.TTL)
+			}, labelNamesSvcGraph(attrSvcGraph)).MetricVec, timeNow, cfg.TTL)
 		}),
 		serviceGraphServer: optionalHistogramProvider(jointMetricsConfig.Features.ServiceGraph(), func() *Expirer[prometheus.Histogram] {
 			return NewExpirer[prometheus.Histogram](prometheus.NewHistogramVec(prometheus.HistogramOpts{
@@ -659,41 +661,41 @@ func newReporter(
 				NativeHistogramBucketFactor:     cfg.NativeHistogram.BucketFactor,
 				NativeHistogramMaxBucketNumber:  cfg.NativeHistogram.MaxBucketNumber,
 				NativeHistogramMinResetDuration: cfg.NativeHistogram.MinResetDuration,
-			}, labelNamesSvcGraph(attrSvcGraph)).MetricVec, clock.Time, cfg.TTL)
+			}, labelNamesSvcGraph(attrSvcGraph)).MetricVec, timeNow, cfg.TTL)
 		}),
 		serviceGraphFailed: optionalCounterProvider(jointMetricsConfig.Features.ServiceGraph(), func() *Expirer[prometheus.Counter] {
 			return NewExpirer[prometheus.Counter](prometheus.NewCounterVec(prometheus.CounterOpts{
 				Name: ServiceGraphFailed,
 				Help: "number of failed service calls in trace service graph metrics format",
-			}, labelNamesSvcGraph(attrSvcGraph)).MetricVec, clock.Time, cfg.TTL)
+			}, labelNamesSvcGraph(attrSvcGraph)).MetricVec, timeNow, cfg.TTL)
 		}),
 		serviceGraphTotal: optionalCounterProvider(jointMetricsConfig.Features.ServiceGraph(), func() *Expirer[prometheus.Counter] {
 			return NewExpirer[prometheus.Counter](prometheus.NewCounterVec(prometheus.CounterOpts{
 				Name: ServiceGraphTotal,
 				Help: "number of service calls in trace service graph metrics format",
-			}, labelNamesSvcGraph(attrSvcGraph)).MetricVec, clock.Time, cfg.TTL)
+			}, labelNamesSvcGraph(attrSvcGraph)).MetricVec, timeNow, cfg.TTL)
 		}),
 		targetInfo: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: TargetInfo,
 			Help: "attributes associated to a given monitored entity",
-		}, labelNamesTargetInfo(kubeEnabled, dockerEnabled, &ctxInfo.NodeMeta, extraMetadataLabels)),
+		}, labelNamesTargetInfo(kubeEnabled, dockerEnabled, &ctxInfo.NodeMeta, extraMetadataLabels, selectorCfg.SelectionCfg)),
 		cudaKernelCallsTotal: optionalCounterProvider(is.GPUEnabled(), func() *Expirer[prometheus.Counter] {
 			return NewExpirer[prometheus.Counter](prometheus.NewCounterVec(prometheus.CounterOpts{
 				Name: attributes.GPUCudaKernelLaunchCalls.Prom,
 				Help: "number of NVIDIA GPU cuda kernel launches",
-			}, labelNames(attrCudaKernelLaunchCalls)).MetricVec, clock.Time, cfg.TTL)
+			}, labelNames(attrCudaKernelLaunchCalls)).MetricVec, timeNow, cfg.TTL)
 		}),
 		cudaGraphCallsTotal: optionalCounterProvider(is.GPUEnabled(), func() *Expirer[prometheus.Counter] {
 			return NewExpirer[prometheus.Counter](prometheus.NewCounterVec(prometheus.CounterOpts{
 				Name: attributes.GPUCudaGraphLaunchCalls.Prom,
 				Help: "number of NVIDIA GPU cuda graph launches",
-			}, labelNames(attrCudaGraphLaunchCalls)).MetricVec, clock.Time, cfg.TTL)
+			}, labelNames(attrCudaGraphLaunchCalls)).MetricVec, timeNow, cfg.TTL)
 		}),
 		cudaMemoryAllocsTotal: optionalCounterProvider(is.GPUEnabled(), func() *Expirer[prometheus.Counter] {
 			return NewExpirer[prometheus.Counter](prometheus.NewCounterVec(prometheus.CounterOpts{
 				Name: attributes.GPUCudaMemoryAllocations.Prom,
 				Help: "amount of NVIDIA GPU cuda allocated memory in bytes",
-			}, labelNames(attrCudaMemoryAllocations)).MetricVec, clock.Time, cfg.TTL)
+			}, labelNames(attrCudaMemoryAllocations)).MetricVec, timeNow, cfg.TTL)
 		}),
 		cudaKernelGridSize: optionalHistogramProvider(is.GPUEnabled(), func() *Expirer[prometheus.Histogram] {
 			return NewExpirer[prometheus.Histogram](prometheus.NewHistogramVec(prometheus.HistogramOpts{
@@ -703,7 +705,7 @@ func newReporter(
 				NativeHistogramBucketFactor:     cfg.NativeHistogram.BucketFactor,
 				NativeHistogramMaxBucketNumber:  cfg.NativeHistogram.MaxBucketNumber,
 				NativeHistogramMinResetDuration: cfg.NativeHistogram.MinResetDuration,
-			}, labelNames(attrCudaKernelGridSize)).MetricVec, clock.Time, cfg.TTL)
+			}, labelNames(attrCudaKernelGridSize)).MetricVec, timeNow, cfg.TTL)
 		}),
 		cudaKernelBlockSize: optionalHistogramProvider(is.GPUEnabled(), func() *Expirer[prometheus.Histogram] {
 			return NewExpirer[prometheus.Histogram](prometheus.NewHistogramVec(prometheus.HistogramOpts{
@@ -713,7 +715,7 @@ func newReporter(
 				NativeHistogramBucketFactor:     cfg.NativeHistogram.BucketFactor,
 				NativeHistogramMaxBucketNumber:  cfg.NativeHistogram.MaxBucketNumber,
 				NativeHistogramMinResetDuration: cfg.NativeHistogram.MinResetDuration,
-			}, labelNames(attrCudaKernelBlockSize)).MetricVec, clock.Time, cfg.TTL)
+			}, labelNames(attrCudaKernelBlockSize)).MetricVec, timeNow, cfg.TTL)
 		}),
 		cudaMemoryCopySize: optionalHistogramProvider(is.GPUEnabled(), func() *Expirer[prometheus.Histogram] {
 			return NewExpirer[prometheus.Histogram](prometheus.NewHistogramVec(prometheus.HistogramOpts{
@@ -723,7 +725,7 @@ func newReporter(
 				NativeHistogramBucketFactor:     cfg.NativeHistogram.BucketFactor,
 				NativeHistogramMaxBucketNumber:  cfg.NativeHistogram.MaxBucketNumber,
 				NativeHistogramMinResetDuration: cfg.NativeHistogram.MinResetDuration,
-			}, labelNames(attrCudaMemoryCopies)).MetricVec, clock.Time, cfg.TTL)
+			}, labelNames(attrCudaMemoryCopies)).MetricVec, timeNow, cfg.TTL)
 		}),
 		dnsLookupDuration: optionalHistogramProvider(is.DNSEnabled(), func() *Expirer[prometheus.Histogram] {
 			return NewExpirer[prometheus.Histogram](prometheus.NewHistogramVec(prometheus.HistogramOpts{
@@ -733,7 +735,7 @@ func newReporter(
 				NativeHistogramBucketFactor:     cfg.NativeHistogram.BucketFactor,
 				NativeHistogramMaxBucketNumber:  cfg.NativeHistogram.MaxBucketNumber,
 				NativeHistogramMinResetDuration: cfg.NativeHistogram.MinResetDuration,
-			}, labelNames(attrDNSLookupDuration)).MetricVec, clock.Time, cfg.TTL)
+			}, labelNames(attrDNSLookupDuration)).MetricVec, timeNow, cfg.TTL)
 		}),
 		genAIClientDuration: optionalHistogramProvider(is.GenAIEnabled(), func() *Expirer[prometheus.Histogram] {
 			return NewExpirer[prometheus.Histogram](prometheus.NewHistogramVec(prometheus.HistogramOpts{
@@ -743,7 +745,7 @@ func newReporter(
 				NativeHistogramBucketFactor:     cfg.NativeHistogram.BucketFactor,
 				NativeHistogramMaxBucketNumber:  cfg.NativeHistogram.MaxBucketNumber,
 				NativeHistogramMinResetDuration: cfg.NativeHistogram.MinResetDuration,
-			}, labelNames(attrGenAIClientDuration)).MetricVec, clock.Time, cfg.TTL)
+			}, labelNames(attrGenAIClientDuration)).MetricVec, timeNow, cfg.TTL)
 		}),
 		// We make only one metric series, the input and output have the same name and attribute keys
 		genAITokenUsage: optionalHistogramProvider(is.GenAIEnabled(), func() *Expirer[prometheus.Histogram] {
@@ -754,12 +756,21 @@ func newReporter(
 				NativeHistogramBucketFactor:     cfg.NativeHistogram.BucketFactor,
 				NativeHistogramMaxBucketNumber:  cfg.NativeHistogram.MaxBucketNumber,
 				NativeHistogramMinResetDuration: cfg.NativeHistogram.MinResetDuration,
-			}, labelNames(attrGenAIInputTokenUsage)).MetricVec, clock.Time, cfg.TTL)
+			}, labelNames(attrGenAIInputTokenUsage)).MetricVec, timeNow, cfg.TTL)
 		}),
 	}
 
+	if runtimeMetricsEnabled.Go {
+		mr.goRuntimeMetrics = newGoRuntimeMetricsCollector(
+			labelNamesTargetInfo(kubeEnabled, dockerEnabled, &ctxInfo.NodeMeta, extraMetadataLabels, selectorCfg.SelectionCfg),
+		)
+	}
+	if runtimeMetricsEnabled.JVM {
+		mr.jvmRuntimeMetrics = newJVMRuntimeMetricsCollector(cfg)
+	}
+
 	// testing aid
-	mr.deleteEventMetrics = mr.deleteTargetInfoMetrics
+	mr.deleteEventMetrics = mr.deleteMetricsForService
 	mr.createEventMetrics = mr.createTargetInfos
 
 	registeredMetrics := []prometheus.Collector{mr.targetInfo}
@@ -780,7 +791,7 @@ func newReporter(
 			)
 		}
 
-		if is.GRPCEnabled() {
+		if is.GRPCEnabled() || is.SunRPCEnabled() {
 			registeredMetrics = append(registeredMetrics,
 				mr.grpcClientDuration,
 				mr.grpcDuration,
@@ -839,6 +850,13 @@ func newReporter(
 
 	if jointMetricsConfig.Features.AppHost() {
 		registeredMetrics = append(registeredMetrics, mr.tracesHostInfo)
+	}
+
+	if runtimeMetricsEnabled.Go {
+		registeredMetrics = append(registeredMetrics, mr.goRuntimeMetrics.collectors()...)
+	}
+	if runtimeMetricsEnabled.JVM {
+		registeredMetrics = append(registeredMetrics, mr.jvmRuntimeMetrics.collectors()...)
 	}
 
 	if is.GPUEnabled() {
@@ -910,10 +928,10 @@ func (r *metricsReporter) reportMetrics(ctx context.Context) {
 
 func (r *metricsReporter) collectMetrics(ctx context.Context) {
 	go r.watchForProcessEvents(ctx)
+	if r.runtimeInput != nil {
+		go r.watchForRuntimeMetrics(ctx)
+	}
 	swarms.ForEachInput(ctx, r.input, nil, func(spans []request.Span) {
-		// clock needs to be updated to let the expirer
-		// remove the old metrics
-		r.clock.Update()
 		for i := range spans {
 			r.observe(&spans[i])
 		}
@@ -1037,6 +1055,14 @@ func (r *metricsReporter) observe(span *request.Span) {
 			if r.is.GRPCEnabled() {
 				r.observeHistogram(r.grpcClientDuration.WithLabelValues(labelValues(span, r.attrGRPCClientDuration)...).Metric, duration, span)
 			}
+		case request.EventTypeSunRPCClient:
+			if r.is.SunRPCEnabled() {
+				r.observeHistogram(r.grpcClientDuration.WithLabelValues(labelValues(span, r.attrGRPCClientDuration)...).Metric, duration, span)
+			}
+		case request.EventTypeSunRPCServer:
+			if r.is.SunRPCEnabled() {
+				r.observeHistogram(r.grpcDuration.WithLabelValues(labelValues(span, r.attrGRPCDuration)...).Metric, duration, span)
+			}
 		case request.EventTypeRedisClient, request.EventTypeSQLClient, request.EventTypeRedisServer, request.EventTypeMongoClient, request.EventTypeCouchbaseClient, request.EventTypeMemcachedClient, request.EventTypeMemcachedServer:
 			if r.is.DBEnabled() {
 				r.observeHistogram(r.dbClientDuration.WithLabelValues(labelValues(span, r.attrDBClientDuration)...).Metric, duration, span)
@@ -1143,45 +1169,6 @@ func (r *metricsReporter) observe(span *request.Span) {
 	}
 }
 
-func appendK8sLabelNames(names []string) []string {
-	names = append(names, k8sNamespaceName, k8sPodName, k8sContainerName, k8sNodeName, k8sPodUID, k8sPodStartTime,
-		k8sDeploymentName, k8sReplicaSetName, k8sStatefulSetName, k8sJobName, k8sCronJobName, k8sDaemonSetName, k8sClusterName, k8sKind, k8sOwnerName)
-	return names
-}
-
-func appendK8sLabelValuesService(values []string, service *svc.Attrs) []string {
-	// must follow the order in appendK8sLabelNames
-	values = append(values,
-		service.Metadata[attr.K8sNamespaceName],
-		service.Metadata[attr.K8sPodName],
-		service.Metadata[attr.K8sContainerName],
-		service.Metadata[attr.K8sNodeName],
-		service.Metadata[attr.K8sPodUID],
-		service.Metadata[attr.K8sPodStartTime],
-		service.Metadata[attr.K8sDeploymentName],
-		service.Metadata[attr.K8sReplicaSetName],
-		service.Metadata[attr.K8sStatefulSetName],
-		service.Metadata[attr.K8sJobName],
-		service.Metadata[attr.K8sCronJobName],
-		service.Metadata[attr.K8sDaemonSetName],
-		service.Metadata[attr.K8sClusterName],
-		service.Metadata[attr.K8sKind],
-		service.Metadata[attr.K8sOwnerName],
-	)
-	return values
-}
-
-func appendDockerLabelNames(names []string) []string {
-	return append(names, attr.ContainerID.Prom(), attr.ContainerName.Prom())
-}
-
-func appendDockerLabelValuesService(values []string, service *svc.Attrs) []string {
-	return append(values,
-		service.Metadata[attr.ContainerID],
-		service.Metadata[attr.ContainerName],
-	)
-}
-
 func labelNamesSpans(extraMetadataLabelNames []attr.Name) []string {
 	names := []string{
 		serviceNameKey,
@@ -1222,72 +1209,132 @@ func (r *metricsReporter) labelValuesSpans(span *request.Span) []string {
 	return values
 }
 
-func labelNamesTargetInfo(kubeEnabled, dockerEnabled bool, nodeMeta *meta.NodeMeta, extraMetadataLabelNames []attr.Name) []string {
-	names := []string{
-		hostIDKey,
-		hostNameKey,
-		serviceNameKey,
-		serviceNamespaceKey,
-		serviceInstanceKey,
-		serviceJobKey,
-		telemetryLanguageKey,
-		telemetrySDKKey,
-		telemetrySDKVersion,
-		telemetryDistroNameKey,
-		telemetryDistroVersion,
-		sourceKey,
-		osTypeKey,
+type targetInfoResourceLabel struct {
+	name  attr.Name
+	value string
+}
+
+func baseTargetInfoLabelNames() []attr.Name {
+	return []attr.Name{
+		attr.HostID,
+		attr.HostName,
+		attr.ServiceName,
+		attr.ServiceNamespace,
+		attr.Instance,
+		attr.Job,
+		attr.TelemetrySDKLanguage,
+		attr.Name("telemetry.sdk.name"),
+		attr.Name("telemetry.sdk.version"),
+		attr.Name("telemetry.distro.name"),
+		attr.Name("telemetry.distro.version"),
+		attr.Source,
+		attr.Name("os.type"),
 	}
+}
+
+func k8sTargetInfoLabelNames() []attr.Name {
+	return []attr.Name{
+		attr.K8sNamespaceName,
+		attr.K8sPodName,
+		attr.K8sContainerName,
+		attr.K8sNodeName,
+		attr.K8sPodUID,
+		attr.K8sPodStartTime,
+		attr.K8sDeploymentName,
+		attr.K8sReplicaSetName,
+		attr.K8sStatefulSetName,
+		attr.K8sJobName,
+		attr.K8sCronJobName,
+		attr.K8sDaemonSetName,
+		attr.K8sClusterName,
+		attr.K8sKind,
+		attr.K8sOwnerName,
+	}
+}
+
+func targetInfoLabelNames(kubeEnabled, dockerEnabled bool, nodeMeta *meta.NodeMeta, extraMetadataLabelNames []attr.Name) []attr.Name {
+	names := baseTargetInfoLabelNames()
 
 	if kubeEnabled {
-		names = appendK8sLabelNames(names)
+		names = append(names, k8sTargetInfoLabelNames()...)
 	}
 	if dockerEnabled {
-		names = appendDockerLabelNames(names)
+		names = append(names, attr.ContainerID, attr.ContainerName)
 	}
 
 	for _, entry := range nodeMeta.Metadata {
-		names = append(names, entry.Key.Prom())
+		names = append(names, entry.Key)
 	}
 
-	for _, mdn := range extraMetadataLabelNames {
-		names = append(names, mdn.Prom())
+	names = append(names, extraMetadataLabelNames...)
+
+	return names
+}
+
+func labelNamesTargetInfo(
+	kubeEnabled, dockerEnabled bool,
+	nodeMeta *meta.NodeMeta,
+	extraMetadataLabelNames []attr.Name,
+	attrSelector attributes.Selection,
+) []string {
+	labelNames := targetInfoLabelNames(kubeEnabled, dockerEnabled, nodeMeta, extraMetadataLabelNames)
+	names := make([]string, 0, len(labelNames))
+	for _, name := range labelNames {
+		if otelcfg.ResourceAttributeSelected(string(name), attrSelector) {
+			names = append(names, name.Prom())
+		}
 	}
 
 	return names
 }
 
 func (r *metricsReporter) labelValuesTargetInfo(service *svc.Attrs) []string {
-	values := []string{
-		r.nodeMeta.HostID,
-		service.HostName,
-		service.UID.Name,
-		service.UID.Namespace,
-		service.UID.Instance, // app instance ID
-		service.Job(),
-		service.SDKLanguage.String(),
-		attr.VendorSDKName,
-		attr.VendorSDKVersion,
-		attr.TelemetryDistroName,
-		attr.TelemetryDistroVersion,
-		attr.VendorPrefix,
-		"linux",
+	return r.labelValuesForNodeMeta(service, &r.nodeMeta)
+}
+
+func (r *metricsReporter) labelValuesForNodeMeta(service *svc.Attrs, nodeMeta *meta.NodeMeta) []string {
+	labels := []targetInfoResourceLabel{
+		{name: attr.HostID, value: nodeMeta.HostID},
+		{name: attr.HostName, value: service.HostName},
+		{name: attr.ServiceName, value: service.UID.Name},
+		{name: attr.ServiceNamespace, value: service.UID.Namespace},
+		{name: attr.Instance, value: service.UID.Instance}, // app instance ID
+		{name: attr.Job, value: service.Job()},
+		{name: attr.TelemetrySDKLanguage, value: service.SDKLanguage.String()},
+		{name: attr.Name("telemetry.sdk.name"), value: attr.VendorSDKName},
+		{name: attr.Name("telemetry.sdk.version"), value: attr.VendorSDKVersion},
+		{name: attr.Name("telemetry.distro.name"), value: attr.TelemetryDistroName},
+		{name: attr.Name("telemetry.distro.version"), value: attr.TelemetryDistroVersion},
+		{name: attr.Source, value: attr.VendorPrefix},
+		{name: attr.Name("os.type"), value: "linux"},
 	}
 
 	if r.kubeEnabled {
-		values = appendK8sLabelValuesService(values, service)
+		for _, name := range k8sTargetInfoLabelNames() {
+			labels = append(labels, targetInfoResourceLabel{name: name, value: service.Metadata[name]})
+		}
 	}
 
 	if r.dockerEnabled {
-		values = appendDockerLabelValuesService(values, service)
+		labels = append(labels,
+			targetInfoResourceLabel{name: attr.ContainerID, value: service.Metadata[attr.ContainerID]},
+			targetInfoResourceLabel{name: attr.ContainerName, value: service.Metadata[attr.ContainerName]},
+		)
 	}
 
-	for _, entry := range r.nodeMeta.Metadata {
-		values = append(values, entry.Value)
+	for _, entry := range nodeMeta.Metadata {
+		labels = append(labels, targetInfoResourceLabel{name: entry.Key, value: entry.Value})
 	}
 
 	for _, k := range r.extraMetadataLabels {
-		values = append(values, service.Metadata[k])
+		labels = append(labels, targetInfoResourceLabel{name: k, value: service.Metadata[k]})
+	}
+
+	values := make([]string, 0, len(labels))
+	for _, label := range labels {
+		if otelcfg.ResourceAttributeSelected(string(label.name), r.userAttribSelection) {
+			values = append(values, label.value)
+		}
 	}
 
 	return values
@@ -1371,17 +1418,35 @@ func (r *metricsReporter) disassociatePIDFromService(pid app.PID) (bool, svc.UID
 }
 
 func (r *metricsReporter) createTargetInfos(service *svc.Attrs) {
+	if service == nil || !service.ExportModes.CanExportMetrics() {
+		return
+	}
+
 	r.createTargetInfo(service)
 	r.createTracesTargetInfo(service)
 }
 
 func (r *metricsReporter) deleteTargetInfoMetrics(service *svc.Attrs) {
+	if service == nil || !service.ExportModes.CanExportMetrics() {
+		return
+	}
+
 	r.deleteTargetInfoMetric(service)
 	r.deleteTracesTargetInfoMetric(service)
 }
 
+func (r *metricsReporter) deleteMetricsForService(service *svc.Attrs) {
+	r.deleteTargetInfoMetrics(service)
+	r.deleteRuntimeMetrics(service)
+}
+
 func (r *metricsReporter) deleteTargetInfos(uid svc.UID, service *svc.Attrs) {
-	r.deleteEventMetrics(r.origService(uid, service))
+	orig := r.origService(uid, service)
+	if orig == nil || !orig.ExportModes.CanExportMetrics() {
+		return
+	}
+
+	r.deleteEventMetrics(orig)
 }
 
 func (r *metricsReporter) handleProcessEvent(pe exec.ProcessEvent, log *slog.Logger) {

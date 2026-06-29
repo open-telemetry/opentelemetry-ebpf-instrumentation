@@ -192,6 +192,14 @@ func TestDefault(t *testing.T) {
 		"k8s.src.owner.name",
 		"k8s.src.owner.type",
 	}, p.For(NetworkFlow))
+	// the packets metric shares the same attribute groups as the bytes metric
+	assert.Equal(t, p.For(NetworkFlow), p.For(NetworkFlowPackets))
+}
+
+func TestDefaultSensitiveQueryParamsIncludesLegacyAWSSignedURLKeys(t *testing.T) {
+	assert.Contains(t, DefaultSensitiveQueryParams, "AWSAccessKeyId")
+	assert.Contains(t, DefaultSensitiveQueryParams, "Signature")
+	assert.Contains(t, DefaultSensitiveQueryParams, "SecurityToken")
 }
 
 func TestExtraGroupAttributes(t *testing.T) {
