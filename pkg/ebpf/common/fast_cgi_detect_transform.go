@@ -32,10 +32,7 @@ const (
 	fcgiFrameTypeParams   = 4
 )
 
-var (
-	errFastCGIPayloadTooShort  = errors.New("payload too short")
-	errFastCGIHeaderReadFailed = errors.New("failed to read FastCGI header")
-)
+var errFastCGIPayloadTooShort = errors.New("payload too short")
 
 // fastCGIHeader represents the structure of a FastCGI header
 type fastCGIHeader struct {
@@ -48,7 +45,7 @@ type fastCGIHeader struct {
 }
 
 // readFastCGIHeader parses a FastCGI record header from the first 8 bytes of b.
-func readFastCGIHeader(b []byte) (*fastCGIHeader, error) {
+func readFastCGIHeader(b []byte) *fastCGIHeader {
 	return &fastCGIHeader{
 		Version:       b[0],
 		Type:          b[1],
@@ -56,7 +53,7 @@ func readFastCGIHeader(b []byte) (*fastCGIHeader, error) {
 		ContentLength: binary.BigEndian.Uint16(b[4:6]),
 		PaddingLength: b[6],
 		Reserved:      b[7],
-	}, nil
+	}
 }
 
 func parseCGITable(b []byte) map[string]string {
@@ -124,10 +121,7 @@ func parseHeader(b *largebuf.LargeBuffer) ([]byte, error) {
 		if err != nil {
 			return nil, errFastCGIPayloadTooShort
 		}
-		hdr, err := readFastCGIHeader(hdrBytes)
-		if err != nil {
-			return nil, errFastCGIPayloadTooShort
-		}
+		hdr := readFastCGIHeader(hdrBytes)
 
 		if hdr.Type == fcgiFrameTypeParams {
 			if r.Remaining() == 0 {
