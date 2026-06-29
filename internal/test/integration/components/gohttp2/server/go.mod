@@ -2,6 +2,6 @@ module go.opentelemetry.io/obi/internal/test/integration/components/go_http2/ser
 
 go 1.25.11
 
-require golang.org/x/net v0.53.0
+require golang.org/x/net v0.56.0
 
-require golang.org/x/text v0.36.0 // indirect
+require golang.org/x/text v0.38.0 // indirect
