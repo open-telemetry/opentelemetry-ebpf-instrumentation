@@ -93,6 +93,7 @@ func (s *dynamicPIDSubscriber) notify(batch []app.PID) {
 	default:
 	}
 
+	// Queue on the subscriber so a full subscriber channel cannot block notifier fan-out.
 	s.mu.Lock()
 	for _, pid := range batch {
 		if s.maxPending > 0 && len(s.pending) == s.maxPending {
@@ -139,6 +140,7 @@ func (s *dynamicPIDSubscriber) takePending() []app.PID {
 		return nil
 	}
 
+	// Send a stable batch while later notify calls append to a fresh pending queue.
 	batch := slices.Clone(s.pending)
 	s.pending = nil
 	return batch
