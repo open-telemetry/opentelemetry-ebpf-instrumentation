@@ -190,6 +190,7 @@ func TestDetectFastCGI(t *testing.T) {
 		expectedMethod string
 		expectedPath   string
 		expectedResult int
+		extraCheck     func(t *testing.T, path string)
 	}{
 		{
 			name:           "Older PHP, small frame",
@@ -252,6 +253,40 @@ func TestDetectFastCGI(t *testing.T) {
 			expectedResult: 404,
 		},
 		{
+			// FastCGI passes REQUEST_URI and QUERY_STRING as independent CGI parameters.
+			// OBI must reconstruct the full URI so the server span carries url.query.
+			name: "REQUEST_URI and QUERY_STRING combined",
+			// Packet: BEGIN_REQUEST (16 bytes) + PARAMS header (8 bytes) + params (57 bytes)
+			// Params: REQUEST_METHOD=GET, REQUEST_URI=/, QUERY_STRING=cmd=BLABLA
+			input:          []byte{1, 1, 0, 1, 0, 8, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 4, 0, 1, 0, 57, 0, 0, 14, 3, 82, 69, 81, 85, 69, 83, 84, 95, 77, 69, 84, 72, 79, 68, 71, 69, 84, 11, 1, 82, 69, 81, 85, 69, 83, 84, 95, 85, 82, 73, 47, 12, 10, 81, 85, 69, 82, 89, 95, 83, 84, 82, 73, 78, 71, 99, 109, 100, 61, 66, 76, 65, 66, 76, 65},
+			output:         []byte{1, 0, 1, 0, 0},
+			inputLen:       200,
+			outputLen:      20,
+			expectedMethod: "GET",
+			expectedPath:   "/?cmd=BLABLA",
+			expectedResult: 200,
+		},
+		{
+			// When REQUEST_URI already contains '?', QUERY_STRING must not be appended
+			// again — the dedup guard prevents double query strings.
+			name: "REQUEST_URI already contains query string, QUERY_STRING ignored",
+			// Packet: BEGIN_REQUEST (16 bytes) + PARAMS header (8 bytes) + params (65 bytes)
+			// Params: REQUEST_METHOD=GET, REQUEST_URI=/?existing=1, QUERY_STRING=other=2
+			input:          []byte{1, 1, 0, 1, 0, 8, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 4, 0, 1, 0, 65, 0, 0, 14, 3, 82, 69, 81, 85, 69, 83, 84, 95, 77, 69, 84, 72, 79, 68, 71, 69, 84, 11, 12, 82, 69, 81, 85, 69, 83, 84, 95, 85, 82, 73, 47, 63, 101, 120, 105, 115, 116, 105, 110, 103, 61, 49, 12, 7, 81, 85, 69, 82, 89, 95, 83, 84, 82, 73, 78, 71, 111, 116, 104, 101, 114, 61, 50},
+			output:         []byte{1, 0, 1, 0, 0},
+			inputLen:       200,
+			outputLen:      20,
+			expectedMethod: "GET",
+			expectedPath:   "/?existing=1",
+			expectedResult: 200,
+			// Confirm QUERY_STRING=other=2 was not appended to the path.
+			extraCheck: func(t *testing.T, path string) {
+				assert.NotContains(t, path, "other=2")
+			},
+		},
+		{
+			// REQUEST_URI=/ping is in the packet but truncated at inputLen=100.
+			// Path stays empty when REQUEST_URI is absent and there is no QUERY_STRING.
 			name:           "Not enough data",
 			input:          []byte{1, 1, 0, 1, 0, 8, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 4, 0, 1, 1, 217, 7, 0, 12, 0, 81, 85, 69, 82, 89, 95, 83, 84, 82, 73, 78, 71, 14, 3, 82, 69, 81, 85, 69, 83, 84, 95, 77, 69, 84, 72, 79, 68, 71, 69, 84, 12, 0, 67, 79, 78, 84, 69, 78, 84, 95, 84, 89, 80, 69, 14, 0, 67, 79, 78, 84, 69, 78, 84, 95, 76, 69, 78, 71, 84, 72, 11, 5, 83, 67, 82, 73, 80, 84, 95, 78, 65, 77, 69, 47, 112, 105, 110, 103, 11, 5, 82, 69, 81, 85, 69, 83, 84, 95, 85, 82, 73, 47, 112, 105, 110, 103, 12, 5, 68, 79, 67, 85, 77, 69, 78, 84, 95, 85, 82, 73, 47, 112, 105, 110, 103, 13, 13, 68, 79, 67, 85, 77, 69, 78, 84, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
 			output:         []byte{1, 7, 1, 0, 0},
@@ -281,6 +316,56 @@ func TestDetectFastCGI(t *testing.T) {
 			assert.Equal(t, tt.expectedMethod, method)
 			assert.Equal(t, tt.expectedPath, path)
 			assert.Equal(t, tt.expectedResult, status)
+			if tt.extraCheck != nil {
+				tt.extraCheck(t, path)
+			}
+		})
+	}
+}
+
+func TestTCPToFastCGIToSpanPathSplit(t *testing.T) {
+	tests := []struct {
+		name         string
+		uri          string
+		expectedPath string
+		expectedFull string
+	}{
+		{
+			name:         "query stripped from Path, preserved in FullPath",
+			uri:          "/?cmd=BLABLA",
+			expectedPath: "/",
+			expectedFull: "/?cmd=BLABLA",
+		},
+		{
+			// When REQUEST_URI is absent, detectFastCGI defaults to "/", so
+			// TCPToFastCGIToSpan never receives a URI starting with "?".
+			// This case documents what would happen if the default is bypassed.
+			name:         "path defaults to / when uri is root-less",
+			uri:          "/",
+			expectedPath: "/",
+			expectedFull: "/",
+		},
+		{
+			name:         "no query string unchanged",
+			uri:          "/ping",
+			expectedPath: "/ping",
+			expectedFull: "/ping",
+		},
+		{
+			// When REQUEST_URI is absent from FastCGI params and QUERY_STRING is also
+			// absent, detectFastCGI returns "" and the span carries no path at all.
+			name:         "empty uri when REQUEST_URI and QUERY_STRING both absent",
+			uri:          "",
+			expectedPath: "",
+			expectedFull: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			span := TCPToFastCGIToSpan(&TCPRequestInfo{}, "GET", tt.uri, 200)
+			assert.Equal(t, tt.expectedPath, span.Path)
+			assert.Equal(t, tt.expectedFull, span.FullPath)
 		})
 	}
 }

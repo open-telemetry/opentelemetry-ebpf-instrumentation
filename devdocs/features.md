@@ -19,6 +19,7 @@ through language-specific library instrumentation documented later in this file.
 | MQTT          |    All    |   3.1.1/5.0 | publish, subscribe                                                                       |   No   |                 No |                                                            For subscribe, only first topic filter is used; payload not captured
 | NATS          |    All    |         All | publish, process                                                                         |   No   |                 No |                                  Only `PUB`/`HPUB` and delivered `MSG`/`HMSG` frames are traced; control traffic is ignored
 | AMQP          |    All    |       1.0   | publish, process                                                                         |   No   |                 No |                  Userspace heuristic only; transfer frames are traced while handshake and flow-control performatives are ignored
+| SunRPC (ONC RPC) | All    |         All | CALL procedures on known TCP programs (for example portmapper, mount, nfs)               |  Yes   |                 No | TCP only; kernel + userspace fallback; RPCSEC_GSS hides arguments; procedure names not mapped yet
 | GraphQL       |    All    |         All | All                                                                                      |  Yes   |                 No |                                                                                                                             N/A
 | JSON-RPC      |    All    |         2.0 | All                                                                                      |  Yes   |                 No |                          Requires HTTP payload capture enabled (`OTEL_EBPF_BPF_BUFFER_SIZE_HTTP`) and `OTEL_EBPF_HTTP_JSONRPC_ENABLED=true`
 | Elasticsearch |    All    |       7.14+ | /_search, /_msearch, /_bulk, /_doc                                                       |  Yes   |                 No |                                                                                                                             N/A
@@ -53,6 +54,23 @@ To turn this off and fallback to the normal network based instrumentation for Go
 | github.com/IBM/sarama          |   Kafka    |               >= 1.37 | All     |  Yes   |                 No |         N/A
 | go.mongodb.org/mongo-driver    |  MongoDB   | >= v1.10.1, >= v2.0.1 | All     |  Yes   |                 No |         N/A
 
+### Go Channel Span Links
+
+OBI can emit experimental receiver-side span links for work handed off between
+goroutines through Go channels. When both sides of a supported channel handoff
+have active OBI-generated spans, the receiver span gets an OpenTelemetry span
+link to the sender span. OBI does not add a reciprocal link to the sender span,
+does not rewrite trace IDs, and does not change parent-child relationships.
+
+The channel-link probes are registered only when Go-specific tracers are active
+and OBI can resolve the `runtime.hchan` offsets required for the target binary.
+If those offsets are unavailable, OBI skips the channel-link probes for that
+binary instead of failing instrumentation. There is no separate user-facing
+configuration flag for this feature; it is enabled by default.
+
+For implementation details, supported runtime functions, and current
+limitations, see [Go channel span links](go-channel-span-links.md).
+
 ## Payload Capture
 
 OBI can capture full request and response payloads for some protocols and forward them to userspace for richer analysis
@@ -65,7 +83,7 @@ Large payloads are streamed to userspace across multiple ring-buffer events and 
 
 | Environment variable               | Protocol   | Maximum | Default      |
 |:-----------------------------------|:----------:|--------:|:------------:|
-| `OTEL_EBPF_BPF_BUFFER_SIZE_HTTP`   | HTTP       | 65535   | 0 (disabled) |
+| `OTEL_EBPF_BPF_BUFFER_SIZE_HTTP`   | HTTP       | 262144  | 0 (disabled) |
 | `OTEL_EBPF_BPF_BUFFER_SIZE_MYSQL`  | MySQL      | 65535   | 0 (disabled) |
 | `OTEL_EBPF_BPF_BUFFER_SIZE_KAFKA`  | Kafka      | 65535   | 0 (disabled) |
 | `OTEL_EBPF_BPF_BUFFER_SIZE_POSTGRES` | PostgreSQL | 65535 | 0 (disabled) |
@@ -93,7 +111,9 @@ OBI has support for several asynchronous frameworks that allow it to propagate c
 | Framework           | Languages |         Versions | Limitations                                       | Status
 |:--------------------|:---------:|-----------------:|:--------------------------------------------------|:-------------
 | Go Routines         |    Go     |       Go >= 1.18 | up to 3 nested levels of goroutines               | Stable
+| Go channel span links |  Go     |       Go >= 1.17 | `select` paths are not supported                  | Experimental
 | Node.js Async Hooks |  Node.js  |   Node.js >= 8.0 | Custom handling of SIGUSR1 signal might interfere | Stable
 | Ruby Puma Server    |   Ruby    |              N/A | Only works with Puma server                       | Stable
 | Java Thread pool    |   Java    |           JDK 8+ | N/A                                               | Stable
+| Java Virtual Threads |  Java    |          JDK 21+ | Log enrichment is skipped on virtual threads      | Stable
 | Python asyncio      |  Python   |    Python >= 3.9 | Only works with uvloop event loop                 | Stable

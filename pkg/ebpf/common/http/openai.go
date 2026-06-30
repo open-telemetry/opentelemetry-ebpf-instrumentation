@@ -6,7 +6,6 @@ package ebpfcommon // import "go.opentelemetry.io/obi/pkg/ebpf/common/http"
 import (
 	"bytes"
 	"encoding/json"
-	"io"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -52,6 +51,18 @@ func extractToolCalls(choices json.RawMessage) []request.ToolCall {
 	return result
 }
 
+// parseOpenAICompatibleResponse parses an OpenAI-compatible response body,
+// handling both JSON and SSE streaming formats. It returns the parsed response
+// and any tool calls extracted from the response.
+func parseOpenAICompatibleResponse(respB []byte) (*request.VendorOpenAI, []request.ToolCall) {
+	if looksLikeJSON(respB) {
+		resp := parseVendorOpenAI(respB)
+		return &resp, extractToolCalls(resp.Choices)
+	}
+	reader := bytes.NewReader(respB)
+	return parseOpenAIStream(reader)
+}
+
 func OpenAISpan(baseSpan *request.Span, req *http.Request, resp *http.Response) (request.Span, bool) {
 	// Check any of the well known response headers that OpenAI would use
 	isOpenAI := false
@@ -66,31 +77,30 @@ func OpenAISpan(baseSpan *request.Span, req *http.Request, resp *http.Response) 
 		return *baseSpan, false
 	}
 
-	reqB, err := io.ReadAll(req.Body)
-	if err != nil {
+	reqB, ok := readHTTPRequestBody("OpenAISpan", req, baseSpan, "headers", resp.Header)
+	if !ok {
 		return *baseSpan, false
 	}
-	req.Body = io.NopCloser(bytes.NewBuffer(reqB))
 
-	respB, err := getResponseBody(resp)
-	if err != nil && len(respB) == 0 {
+	respB, ok := readHTTPResponseBody("OpenAISpan", resp, baseSpan, "headers", resp.Header)
+	if !ok {
 		return *baseSpan, false
 	}
 
 	slog.Debug("OpenAI", "request", string(reqB), "response", string(respB))
 
-	var parsedRequest request.OpenAIInput
-	if err := json.Unmarshal(reqB, &parsedRequest); err != nil {
-		slog.Debug("failed to parse OpenAI request", "error", err)
-	}
+	parsedRequest := parseOpenAIInput(reqB)
+	parsedResponse, toolCalls := parseOpenAICompatibleResponse(respB)
 
-	var parsedResponse request.VendorOpenAI
-	if err := json.Unmarshal(respB, &parsedResponse); err != nil {
-		slog.Debug("failed to parse OpenAI response", "error", err)
+	if parsedResponse.ResponseModel == "" {
+		parsedResponse.ResponseModel = parsedRequest.Model
+	}
+	if parsedRequest.Model == "" {
+		parsedRequest.Model = parsedResponse.ResponseModel
 	}
 
 	parsedResponse.Request = parsedRequest
-	parsedResponse.ToolCalls = extractToolCalls(parsedResponse.Choices)
+	parsedResponse.ToolCalls = toolCalls
 
 	// Override operation name and derive API type from URL path.
 	if req.URL != nil {
@@ -109,7 +119,7 @@ func OpenAISpan(baseSpan *request.Span, req *http.Request, resp *http.Response) 
 
 	baseSpan.SubType = request.HTTPSubtypeOpenAI
 	baseSpan.GenAI = &request.GenAI{
-		OpenAI: &parsedResponse,
+		OpenAI: parsedResponse,
 	}
 
 	return *baseSpan, true

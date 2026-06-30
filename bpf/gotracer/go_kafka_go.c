@@ -57,6 +57,23 @@ int obi_uprobe_writer_write_messages(struct pt_regs *ctx) {
     return 0;
 }
 
+SEC("uprobe/writer_write_messages_ret")
+int obi_uprobe_writer_write_messages_ret(struct pt_regs *ctx) {
+    void *goroutine_addr = (void *)GOROUTINE_PTR(ctx);
+    bpf_dbg_printk("=== uprobe/writer_write_messages_ret ===");
+    bpf_dbg_printk("goroutine_addr=%llx", goroutine_addr);
+
+    go_addr_key_t g_key = {};
+    go_addr_key_from_id(&g_key, goroutine_addr);
+
+    // Drop the goroutine-keyed traceparent so casgstatus can't re-install this
+    // produce's context after the request ends (issue #2046).
+    bpf_map_delete_elem(&produce_traceparents_by_goroutine, &g_key);
+    obi_ctx__del(bpf_get_current_pid_tgid());
+
+    return 0;
+}
+
 SEC("uprobe/writer_produce")
 int obi_uprobe_writer_produce(struct pt_regs *ctx) {
     void *goroutine_addr = (void *)GOROUTINE_PTR(ctx);

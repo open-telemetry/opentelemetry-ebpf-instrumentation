@@ -7,7 +7,7 @@
 #include <bpfcore/bpf_helpers.h>
 #include <bpfcore/bpf_core_read.h>
 
-#define MAX_GO_PROGRAMS 10000 // Max 10,000 go programs tracked
+#include <gotracer/go_constants.h>
 
 // To be Injected from the user space during the eBPF program load & initialization
 typedef enum {
@@ -85,6 +85,11 @@ typedef enum {
     _tracer_delegate_pos,
     _tracer_attribute_opt_off,
     _error_string_off,
+    // go runtime channels
+    _hchan_qcount_pos,
+    _hchan_dataqsiz_pos,
+    _hchan_sendx_pos,
+    _hchan_recvx_pos,
     // go jsonrpc
     _jsonrpc_request_header_service_method_pos,
     // go mongodb
@@ -109,6 +114,11 @@ typedef enum {
     // route resolution
     _mux_template_pos,
     _gin_fullpath_pos,
+    // Go runtime metrics
+    _runtime_memstats_numgc_pos,
+    _runtime_memstats_numforcedgc_pos,
+    _runtime_gc_controller_memory_limit_pos,
+    _runtime_gc_controller_gc_percent_pos,
     _last_go_offset,
 } go_offset_const;
 

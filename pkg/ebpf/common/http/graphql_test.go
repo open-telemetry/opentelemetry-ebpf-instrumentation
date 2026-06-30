@@ -4,7 +4,13 @@
 package ebpfcommon
 
 import (
+	"bytes"
+	"encoding/json"
+	"io"
+	"net/http"
 	"testing"
+
+	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 )
 
 func TestParseGraphQLRequest(t *testing.T) {
@@ -131,5 +137,44 @@ func TestParseGraphQLRequest(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestGraphQLSpanExtractsOperationMetadata(t *testing.T) {
+	const document = `mutation ChangeEmail { updateUser(email: "secret@example.com") { id } }`
+
+	body, err := json.Marshal(graphQLRequest{Query: document})
+	if err != nil {
+		t.Fatalf("failed to marshal request: %v", err)
+	}
+
+	req, err := http.NewRequest(http.MethodPost, "http://example.com/graphql", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("failed to create request: %v", err)
+	}
+
+	span, ok := GraphQLSpan(&request.Span{Type: request.EventTypeHTTP}, req, nil)
+	if !ok {
+		t.Fatal("expected GraphQL span")
+	}
+	if span.SubType != request.HTTPSubtypeGraphQL {
+		t.Fatalf("SubType = %d, want %d", span.SubType, request.HTTPSubtypeGraphQL)
+	}
+	if span.GraphQL == nil {
+		t.Fatal("GraphQL metadata is nil")
+	}
+	if span.GraphQL.OperationType != "mutation" {
+		t.Errorf("OperationType = %q, want mutation", span.GraphQL.OperationType)
+	}
+	if span.GraphQL.OperationName != "ChangeEmail" {
+		t.Errorf("OperationName = %q, want ChangeEmail", span.GraphQL.OperationName)
+	}
+
+	restoredBody, err := io.ReadAll(req.Body)
+	if err != nil {
+		t.Fatalf("failed to read restored body: %v", err)
+	}
+	if string(restoredBody) != string(body) {
+		t.Errorf("restored body = %q, want %q", restoredBody, body)
 	}
 }

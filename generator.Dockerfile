@@ -1,4 +1,4 @@
-FROM golang:1.26.3-alpine@sha256:91eda9776261207ea25fd06b5b7fed8d397dd2c0a283e77f2ab6e91bfa71079d AS base
+FROM golang:1.25.11-alpine@sha256:523c3effe300580ed375e43f43b1c9b091b68e935a7c3a92bfcc4e7ed55b18c2 AS base
 FROM base AS dist
 
 WORKDIR /src
@@ -9,7 +9,10 @@ ENV PROTOC_AARCH_64_SHA256="56af3fc2e43a0230802e6fadb621d890ba506c5c17a1ae1070f6
 
 ARG TARGETARCH
 
-RUN apk add clang llvm20 wget unzip curl make bash git
+RUN echo "https://dl-cdn.alpinelinux.org/alpine/edge/main" >> /etc/apk/repositories
+RUN echo "https://dl-cdn.alpinelinux.org/alpine/edge/community" >> /etc/apk/repositories
+
+RUN apk add clang22 llvm22 wget unzip curl make bash git
 RUN apk cache purge
 
 COPY internal/tools/generator/ internal/tools/generator/
@@ -39,9 +42,9 @@ RUN --mount=type=cache,target=/go/pkg \
 
 RUN cat <<EOF > /generate.sh
 #!/bin/sh
-export PATH="/usr/lib/llvm20/bin:\$PATH"
+export PATH="/usr/lib/llvm22/bin:\$PATH"
 export BPF2GO=/go/bin/bpf2go
-export BPF_CLANG=clang
+export BPF_CLANG=clang-22
 export BPF_CFLAGS="-O2 -g -Wall -Werror"
 export GOCACHE=/tmp/go-build
 make generate

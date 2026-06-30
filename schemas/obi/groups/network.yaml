@@ -4,7 +4,8 @@ groups:
     display_name: OBI Network Flow Metrics
     brief: >
       Attributes carried on OBI's network-flow metrics. Emitted when the
-      `network` or `network_inter_zone` metrics feature is enabled. The
+      `network`, `network_flow_packets`, or `network_inter_zone` metrics feature
+      is enabled. The
       attribute set per data point is configurable via `attributes.select`;
       the listing here is the universe of keys OBI may produce, not a
       mandatory minimum.
@@ -112,6 +113,37 @@ groups:
     brief: >
       Total bytes observed per network flow, grouped by the configured
       attribute selection.
+    attributes:
+      - ref: obi.ip
+      - ref: transport
+      - ref: network.type
+      - ref: network.protocol.name
+      - ref: src.address
+      - ref: dst.address
+      - ref: src.port
+      - ref: dst.port
+      - ref: src.name
+      - ref: dst.name
+      - ref: iface
+      - ref: iface.direction
+      - ref: direction
+      - ref: client.port
+      - ref: server.port
+      - ref: src.zone
+      - ref: dst.zone
+      - ref: src.cidr
+      - ref: dst.cidr
+
+  - id: metric.obi_network_flow_packets
+    type: metric
+    metric_name: obi.network.flow.packets
+    instrument: counter
+    unit: "{packets}"
+    stability: development
+    brief: >
+      Total packets observed per network flow, grouped by the configured
+      attribute selection. Emitted when the `network_flow_packets` feature is
+      enabled.
     attributes:
       - ref: obi.ip
       - ref: transport

@@ -29,7 +29,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
-	"go.opentelemetry.io/obi/pkg/internal/ebpf/ringbuf"
+	"go.opentelemetry.io/obi/pkg/ebpf/ringbuf"
 	"go.opentelemetry.io/obi/pkg/internal/goexec"
 	"go.opentelemetry.io/obi/pkg/internal/procs"
 	"go.opentelemetry.io/obi/pkg/internal/shardedqueue"
@@ -184,6 +184,10 @@ func (p *Tracer) UProbes() map[string]map[string][]*ebpfcommon.ProbeDesc {
 	return nil
 }
 
+func (p *Tracer) USDTProbes() map[string][]*ebpfcommon.USDTProbeDesc {
+	return nil
+}
+
 func (p *Tracer) SocketFilters() []*ebpf.Program {
 	return nil
 }
@@ -310,6 +314,7 @@ func (p *Tracer) BlockPID(pid app.PID, ns uint32) {
 				p.log.Error(err.Error())
 			}
 		}
+		delete(p.pids, pk)
 		return
 	}
 

@@ -28,7 +28,7 @@ IMG ?= $(IMG_REGISTRY)/$(IMG_ORG)/$(IMG_NAME):$(VERSION)
 
 # The generator is a container image that provides a reproducible environment for
 # building eBPF binaries
-GEN_IMG ?= ghcr.io/open-telemetry/obi-generator:0.2.13
+GEN_IMG ?= ghcr.io/open-telemetry/obi-generator:0.2.15
 
 OCI_BIN ?= docker
 
@@ -140,11 +140,14 @@ lint: LINT_EXTRA_ARGS =
 lint: lint-run
 
 .PHONY: lint-fix
-lint-fix: LINT_EXTRA_ARGS = --fix
-lint-fix: lint-run
+lint-fix: lint-fix-run
 
-.PHONY: lint-run
+.PHONY: lint-run lint-fix-run
 lint-run: vanity-import-check lint-dependency-policy lint-collectt
+lint-fix-run: LINT_EXTRA_ARGS = --fix
+lint-fix-run: vanity-import-fix-check lint-dependency-policy lint-collectt-fix
+.NOTPARALLEL: lint-fix-run
+lint-run lint-fix-run:
 	@echo "### Linting code"
 	go tool $(TOOLS_MODFILE) golangci-lint run ./... --timeout=6m $(LINT_EXTRA_ARGS)
 
@@ -166,6 +169,13 @@ lint-dependency-policy:
 
 .PHONY: lint-collectt
 lint-collectt:
+	@echo "### Checking EventuallyWithT callbacks use CollectT"
+	go run ./internal/test/analyzer/collectt/cmd/collecttlint ./...
+
+.PHONY: lint-collectt-fix
+lint-collectt-fix:
+	@echo "### Fixing EventuallyWithT callbacks to use CollectT"
+	go run ./internal/test/analyzer/collectt/cmd/collecttlint -fix ./...
 	@echo "### Checking EventuallyWithT callbacks use CollectT"
 	go run ./internal/test/analyzer/collectt/cmd/collecttlint ./...
 
@@ -319,7 +329,7 @@ test-privileged: $(ENVTEST)
 .PHONY: run-bpf-verifier-vm
 run-bpf-verifier-vm:
 	@echo "### Running BPF verifier tests"
-	go test -v -count=1 -tags=bpf_verifier_tests ./pkg/internal/ebpf/verifier/...
+	go test -count=1 -timeout 20m -parallel 8 -tags=bpf_verifier_tests ./pkg/internal/ebpf/verifier/...
 
 .PHONY: cov-exclude-generated
 cov-exclude-generated:
@@ -605,7 +615,12 @@ oats-test-debug: oats-prereq
 
 .PHONY: license-header-check
 license-header-check:
-	@licRes=$$(for f in $$(find . -type f \( -iname '*.go' -o -iname '*.sh' -o -iname '*.c' -o -iname '*.h' \) ! -path './.git/*' ! -path './NOTICES/*' ) ; do \
+	@# Store demo app files are vendored with upstream Apache 2.0 headers; see examples/store-demo/PROVENANCE.md.
+	@licRes=$$(for f in $$(find . -type f \( -iname '*.go' -o -iname '*.sh' -o -iname '*.c' -o -iname '*.h' \) \
+	           ! -path './.git/*' \
+	           ! -path './.tmp/*' \
+	           ! -path './NOTICES/*' \
+	           ! -path './examples/store-demo/app/*' ) ; do \
 	           awk '/Copyright The OpenTelemetry Authors|generated|GENERATED/ && NR<=4 { found=1; next } END { if (!found) print FILENAME }' $$f; \
 	   done); \
 	   if [ -n "$${licRes}" ]; then \
@@ -870,8 +885,9 @@ check-ebpf-ver-synced:
 		exit 1; \
 	fi
 
-.PHONY: vanity-import-check
-vanity-import-check:
+.PHONY: vanity-import-check vanity-import-fix-check
+vanity-import-fix-check: vanity-import-fix
+vanity-import-check vanity-import-fix-check:
 	go tool $(TOOLS_MODFILE) porto --include-internal --skip-dirs "^NOTICES$$" -l . || ( echo "(run: make vanity-import-fix)"; exit 1 )
 
 .PHONY: vanity-import-fix
@@ -919,3 +935,8 @@ check-config-schema:
 	fi
 	@rm -f $(CONFIG_DOCS_FILE).tmp
 	@echo "Configuration docs are up-to-date"
+
+.PHONY: check-config-v2-parity
+check-config-v2-parity:
+	@echo "### Checking config v2 default parity"
+	go run ./cmd/check-config-v2-parity

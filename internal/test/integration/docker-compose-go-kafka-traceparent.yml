@@ -1,0 +1,94 @@
+services:
+  zookeeper:
+    restart: always
+    container_name: kafka-tp-zookeeper
+    image: docker.io/bitnamilegacy/zookeeper:3.9@sha256:46d5bcbdf4434f40b7a453a7f53e6ea436a770981433c173ab782c0b13a5fb87
+    networks:
+      - shared
+    ports:
+      - "2181:2181"
+    volumes:
+      - "zookeeper-tp-volume:/bitnami"
+    environment:
+      - ALLOW_ANONYMOUS_LOGIN=yes
+
+  kafka:
+    restart: always
+    container_name: kafka-tp
+    image: docker.io/bitnamilegacy/kafka:3.9@sha256:55df55bfc7ed5980447387620afa3498eab3985a4d8c731013d82b3fa8b43bff
+    networks:
+      - shared
+    ports:
+      - "9093:9093"
+    volumes:
+      - "kafka-tp-volume:/bitnami"
+    environment:
+      - KAFKA_BROKER_ID=1
+      - KAFKA_CFG_ZOOKEEPER_CONNECT=zookeeper:2181
+      - ALLOW_PLAINTEXT_LISTENER=yes
+      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CLIENT:PLAINTEXT,EXTERNAL:PLAINTEXT
+      - KAFKA_CFG_LISTENERS=CLIENT://:9092,EXTERNAL://:9093
+      - KAFKA_CFG_ADVERTISED_LISTENERS=CLIENT://kafka:9092,EXTERNAL://localhost:9093
+      - KAFKA_CFG_INTER_BROKER_LISTENER_NAME=CLIENT
+    depends_on:
+      - zookeeper
+
+  testserver:
+    build:
+      context: ../../..
+      dockerfile: ./internal/test/integration/components/gokafka-seg/Dockerfile
+    image: hatest-testserver-go-kafka-traceparent
+    networks:
+      - shared
+    environment:
+      kafkaURL: "kafka:9092"
+      topic: "my-topic"
+      groupID: "1"
+    ports:
+      - "${TEST_SERVICE_PORTS}"
+    depends_on:
+      kafka:
+        condition: service_started
+
+  obi:
+    build:
+      context: ../../..
+      dockerfile: ./internal/test/integration/components/obi/Dockerfile
+    volumes:
+      - ./configs/:/configs
+      - /sys/kernel/security:/sys/kernel/security:ro
+      - ../../../testoutput:/coverage
+      - ../../../testoutput/run-go-kafka-traceparent:/var/run/obi
+      - /sys/fs/bpf:/sys/fs/bpf
+    image: hatest-obi
+    privileged: true # in some environments (not GH Pull Requests) you can set it to false and then cap_add: [ SYS_ADMIN ]
+    networks:
+      - shared
+    pid: "host"
+    environment:
+      OTEL_EBPF_CONFIG_PATH: "/configs/obi-config-go-kafka-traceparent.yml"
+      GOCOVERDIR: "/coverage"
+      OTEL_EBPF_TRACE_PRINTER: "text"
+      OTEL_EBPF_OPEN_PORT: "${OTEL_EBPF_OPEN_PORT}"
+      OTEL_EBPF_DISCOVERY_POLL_INTERVAL: 500ms
+      OTEL_EBPF_EXECUTABLE_PATH: "${OTEL_EBPF_EXECUTABLE_PATH}"
+      OTEL_EBPF_SERVICE_NAMESPACE: "integration-test"
+      OTEL_EBPF_BPF_BATCH_TIMEOUT: "10ms"
+      OTEL_EBPF_LOG_LEVEL: "DEBUG"
+      OTEL_EBPF_BPF_DEBUG: "TRUE"
+      OTEL_EBPF_HOSTNAME: "obi"
+      OTEL_EBPF_BPF_HTTP_REQUEST_TIMEOUT: "5s"
+      OTEL_EBPF_PROCESSES_INTERVAL: "100ms"
+      OTEL_EBPF_BPF_TRACK_REQUEST_HEADERS: "true"
+      OTEL_EBPF_METRICS_FEATURES: "application,application_process"
+      OTEL_EBPF_PROMETHEUS_FEATURES: "application,application_process"
+    depends_on:
+      testserver:
+        condition: service_started
+
+networks:
+  shared:
+
+volumes:
+  kafka-tp-volume:
+  zookeeper-tp-volume:

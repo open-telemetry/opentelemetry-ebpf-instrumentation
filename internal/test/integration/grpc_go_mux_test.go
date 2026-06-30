@@ -21,8 +21,8 @@ func testREDMetricsForGRPCMuxLibrary(t *testing.T, route, svcNs, serverPort stri
 	var results []promtest.Result
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		var err error
-		results, err = pq.Query(`rpc_server_duration_seconds_count{` +
-			`rpc_grpc_status_code="0",` +
+		results, err = pq.Query(`rpc_server_call_duration_seconds_count{` +
+			`rpc_response_status_code="OK",` +
 			`service_namespace="` + svcNs + `",` +
 			`service_name="server",` +
 			`rpc_method="` + route + `",` +

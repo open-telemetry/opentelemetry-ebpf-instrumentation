@@ -1,4 +1,4 @@
-module grpc-relay
+module go.opentelemetry.io/obi/internal/test/integration/components/grpc-relay/go
 
 go 1.25.8
 

@@ -81,6 +81,10 @@ type ProcessMatch struct {
 	Criteria            []services.Selector
 	LogEnricherCriteria []services.Selector
 	Process             *services.ProcessInfo
+	// DynamicSelectorPID is the runtime dynamic-selection owner PID. It is set by DynamicMatcher
+	// on direct matches and inherited unchanged by child processes matched via PPid. CriteriaMatcher
+	// leaves it zero so static discovery continues to use ProcPID downstream.
+	DynamicSelectorPID app.PID
 }
 
 func (pm ProcessMatch) LogEnricherEnabled() bool {
@@ -357,7 +361,7 @@ func normalizeRegexCriteria(finderCriteria services.RegexDefinitionCriteria) []s
 	criteria := make([]services.Selector, 0, len(finderCriteria))
 	for i := range finderCriteria {
 		fc := &finderCriteria[i]
-		if !fc.Path.IsSet() && fc.OpenPorts.Len() == 0 && (len(fc.Metadata) > 0 || len(fc.PodLabels) > 0 || len(fc.PodAnnotations) > 0) {
+		if !fc.Path.IsSet() && !fc.PathRegexp.IsSet() && fc.OpenPorts.Len() == 0 && (len(fc.Metadata) > 0 || len(fc.PodLabels) > 0 || len(fc.PodAnnotations) > 0) {
 			// match any executable path
 			if err := fc.Path.UnmarshalText([]byte(".")); err != nil {
 				panic("bug! " + err.Error())

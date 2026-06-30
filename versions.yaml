@@ -3,10 +3,14 @@
 
 module-sets:
   obi:
-    version: v0.9.0
+    version: v0.10.0
     modules:
       - go.opentelemetry.io/obi
 excluded-modules:
+  - github.com/GoogleCloudPlatform/microservices-demo/src/checkoutservice
+  - github.com/GoogleCloudPlatform/microservices-demo/src/frontend
+  - github.com/GoogleCloudPlatform/microservices-demo/src/productcatalogservice
+  - github.com/GoogleCloudPlatform/microservices-demo/src/shippingservice
   - github.com/hashicorp/go-version
   - github.com/hashicorp/golang-lru/v2
   - go.opentelemetry.io/collector/cmd/builder
@@ -24,6 +28,7 @@ excluded-modules:
   - go.opentelemetry.io/obi/examples/http-header-enrichment-demo/app
   - go.opentelemetry.io/obi/internal/test/benchmarks/goshorturl
   - go.opentelemetry.io/obi/internal/test/benchmarks/goshorturl/memsql
+  - go.opentelemetry.io/obi/internal/test/integration/components/go-runtime-metrics-server
   - go.opentelemetry.io/obi/internal/test/integration/components/go-stat-metrics-client
   - go.opentelemetry.io/obi/internal/test/integration/components/go-stat-metrics-server
   - go.opentelemetry.io/obi/internal/test/integration/components/go_grpc_server_mux
@@ -45,6 +50,8 @@ excluded-modules:
   - go.opentelemetry.io/obi/internal/test/integration/components/gopgx-stdlib
   - go.opentelemetry.io/obi/internal/test/integration/components/goredis
   - go.opentelemetry.io/obi/internal/test/integration/components/gosql
+  - go.opentelemetry.io/obi/internal/test/integration/components/gosunrpc
+  - go.opentelemetry.io/obi/internal/test/integration/components/grpc-relay/go
   - go.opentelemetry.io/obi/internal/test/integration/components/old_grpc/backend
   - go.opentelemetry.io/obi/internal/test/integration/components/old_grpc/worker
   - go.opentelemetry.io/obi/internal/test/integration/components/sqlclient

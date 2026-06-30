@@ -65,11 +65,26 @@ func TestApplyEnvVariables(t *testing.T) {
 			envVars:    map[string]string{"OTEL_RESOURCE_ATTRIBUTES": "service.namespace=${test-ns},service.name=$(otel-ns)"},
 			expectMeta: map[attr.Name]string{},
 		},
+		{
+			name: "Pre-set metadata is preserved over env resource attributes",
+			envVars: map[string]string{
+				"OTEL_RESOURCE_ATTRIBUTES": "deployment.environment=prod,custom.attr=from-env",
+			},
+			expectMeta: map[attr.Name]string{
+				"deployment.environment": "staging",
+				"custom.attr":            "from-env",
+			},
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			fi := New(Init{})
+			if tt.name == "Pre-set metadata is preserved over env resource attributes" {
+				fi.SetMetadata(map[attr.Name]string{
+					"deployment.environment": "staging",
+				})
+			}
 			fi.ApplyEnvVariables(tt.envVars)
 			snap := fi.ServiceAttrs()
 			if got := snap.UID.Name; got != tt.expectName {

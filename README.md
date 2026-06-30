@@ -68,13 +68,20 @@ Each release includes:
 
 - `obi-v<version>-linux-amd64.tar.gz` - Linux AMD64/x86_64 archive
 - `obi-v<version>-linux-arm64.tar.gz` - Linux ARM64 archive
+- `obi-v<version>-source-generated.tar.gz` - generated source archive
 - `obi-v<version>-linux-amd64.cyclonedx.json` - CycloneDX SBOM for the AMD64 archive
 - `obi-v<version>-linux-arm64.cyclonedx.json` - CycloneDX SBOM for the ARM64 archive
 - `obi-v<version>-source-generated.cyclonedx.json` - CycloneDX SBOM for the source-generated archive
 - `obi-java-agent-v<version>.cyclonedx.json` - CycloneDX SBOM for the embedded Java agent and its Java dependencies
 - `SHA256SUMS` - Checksums for verification of the release archives and SBOM assets
+- `<asset>.bundle.json` - Sigstore bundle for each signed archive, SBOM, and `SHA256SUMS`
 
 #### Download and Verify
+
+Install [Cosign](https://docs.sigstore.dev/cosign/installation/) if you do not already have it.
+OBI release blobs are signed with GitHub Actions OIDC. The identity regexp
+below matches the same repository-level identity used for container image
+verification.
 
 ```bash
 # Set your desired version (find latest at https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/releases)
@@ -84,23 +91,50 @@ export VERSION=1.0.0
 # For Intel/AMD 64-bit: amd64
 # For ARM 64-bit: arm64
 export ARCH=amd64  # Change to arm64 for ARM systems
+
+export RELEASE_TAG=v${VERSION}
+export BASE_URL="https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/releases/download/${RELEASE_TAG}"
+export ARTIFACT="obi-${RELEASE_TAG}-linux-${ARCH}.tar.gz"
+export BUNDLE="${ARTIFACT}.bundle.json"
+export CHECKSUMS=SHA256SUMS
+export CHECKSUMS_BUNDLE="${CHECKSUMS}.bundle.json"
+export CERTIFICATE_IDENTITY_REGEXP="https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/"
+export CERTIFICATE_OIDC_ISSUER="https://token.actions.githubusercontent.com"
 ```
 
-Download the archive and checksum manifest:
+Download the archive, checksum manifest, and their Sigstore bundles:
 
 ```bash
-# Download the archive for your architecture
-wget https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/releases/download/v${VERSION}/obi-v${VERSION}-linux-${ARCH}.tar.gz
-
-# Download checksums
-wget https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/releases/download/v${VERSION}/SHA256SUMS
+wget "${BASE_URL}/${ARTIFACT}"
+wget "${BASE_URL}/${BUNDLE}"
+wget "${BASE_URL}/${CHECKSUMS}"
+wget "${BASE_URL}/${CHECKSUMS_BUNDLE}"
 ```
 
-Verify the downloaded release assets:
+Verify the signatures before using the downloaded files:
 
 ```bash
-# Verify the archive you downloaded
-sha256sum -c SHA256SUMS --ignore-missing
+cosign verify-blob "${ARTIFACT}" \
+  --bundle "${BUNDLE}" \
+  --certificate-identity-regexp "${CERTIFICATE_IDENTITY_REGEXP}" \
+  --certificate-oidc-issuer "${CERTIFICATE_OIDC_ISSUER}"
+
+cosign verify-blob "${CHECKSUMS}" \
+  --bundle "${CHECKSUMS_BUNDLE}" \
+  --certificate-identity-regexp "${CERTIFICATE_IDENTITY_REGEXP}" \
+  --certificate-oidc-issuer "${CERTIFICATE_OIDC_ISSUER}"
+```
+
+Successful Cosign verification confirms that the local file matches the signed
+payload, the signing certificate identity matches this repository's GitHub
+Actions identity, the certificate was issued by GitHub Actions OIDC, and the
+Sigstore bundle includes the transparency log material needed for offline
+verification.
+
+Then verify the downloaded files against the signed checksum manifest:
+
+```bash
+sha256sum -c "${CHECKSUMS}" --ignore-missing
 ```
 
 Successful verification prints an `OK` result for each file you downloaded:
@@ -109,9 +143,12 @@ Successful verification prints an `OK` result for each file you downloaded:
 obi-v${VERSION}-linux-${ARCH}.tar.gz: OK
 ```
 
-If verification fails, `sha256sum` reports `FAILED` instead. Re-download the
-affected files and make sure you are verifying assets from the same release
-version before proceeding.
+If Cosign or checksum verification fails, stop and do not run or compile the
+artifact. Confirm the version, artifact name, bundle name, and architecture,
+then re-download the artifact and bundle from the same release. If verification
+still fails, use the GitHub Security tab's "Report a vulnerability" flow for
+this repository with the release version and failed verification output. Do not
+open a public issue with potentially sensitive details.
 
 Extract the archive:
 
@@ -140,14 +177,17 @@ Download the SBOMs you want to inspect:
 
 ```bash
 # SBOM for the binary archive you downloaded
-wget https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/releases/download/v${VERSION}/obi-v${VERSION}-linux-${ARCH}.cyclonedx.json
+wget "${BASE_URL}/obi-${RELEASE_TAG}-linux-${ARCH}.cyclonedx.json"
 
 # SBOM for the embedded Java agent and its Java dependencies
-wget https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/releases/download/v${VERSION}/obi-java-agent-v${VERSION}.cyclonedx.json
+wget "${BASE_URL}/obi-java-agent-${RELEASE_TAG}.cyclonedx.json"
 
 # Optional: verify the downloaded SBOM files against SHA256SUMS too
-sha256sum -c SHA256SUMS --ignore-missing
+sha256sum -c "${CHECKSUMS}" --ignore-missing
 ```
+
+Release SBOMs also have matching `.bundle.json` files and can be verified with
+the same `cosign verify-blob` command pattern shown above.
 
 Inspect the SBOM contents with common tools:
 

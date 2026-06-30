@@ -3,6 +3,18 @@ name: Build test
 on:
   pull_request:
     branches: [main, release-*]
+    paths:
+      - ".github/workflows/pull_request_docker_build_test.yml"
+      - "Dockerfile"
+      - "k8scache.Dockerfile"
+      - "dependencies.Dockerfile"
+      - ".dockerignore"
+      - "**.go"
+      - "go.mod"
+      - "go.sum"
+      - "bpf/**"
+      - "pkg/internal/java/**"
+      - "Makefile"
   workflow_call:
     inputs:
       ref:
@@ -38,7 +50,7 @@ jobs:
             platform: linux/arm64
             runner: ubuntu-24.04-arm
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false

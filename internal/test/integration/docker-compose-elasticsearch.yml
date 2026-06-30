@@ -17,7 +17,7 @@ services:
           memory: 1G   
   
   opensearchserver:
-    image: opensearchproject/opensearch:3.6.0@sha256:508d340a2fdf8b9707d4f03435fd41b15f617d8b1495120665186f9912853e32
+    image: opensearchproject/opensearch:3.7.0@sha256:123e6591a47b1d54686890551bdb35739c85193ecded381219fc9e059e18128f
     container_name: opensearch-server
     ports:
       - "9201:9200"
@@ -90,7 +90,7 @@ services:
 
   # OpenTelemetry Collector
   otelcol:
-    image: otel/opentelemetry-collector-contrib:0.153.0@sha256:93aad750175cbf1a973ae1c5886c3371f4d800f61be25cdd26870b8441ffe9fa
+    image: otel/opentelemetry-collector-contrib:0.155.0@sha256:4935caa35e9a4cb387e35732e8fb22b2b5759af8d12e7043357f03837f6e8df5
     container_name: otel-col
     deploy:
       resources:
