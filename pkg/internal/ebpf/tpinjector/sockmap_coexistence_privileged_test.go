@@ -94,10 +94,11 @@ func currentCgroupV2Path(t *testing.T) string {
 	return ""
 }
 
-// loadTPInjector loads the real tpinjector collection with PID filtering ON and
-// HTTP-header injection enabled (the "headers" mode the reporter saw stall),
-// stripping map pinning so it can load outside the OBI bpffs layout.
-func loadTPInjector(t *testing.T) *BpfObjects {
+// loadTPInjector loads the real tpinjector collection with HTTP-header
+// injection enabled (the "headers" mode the reporter saw stall) and the given
+// filterPids value, stripping map pinning so it can load outside the OBI bpffs
+// layout.
+func loadTPInjector(t *testing.T, filterPids int32) *BpfObjects {
 	t.Helper()
 	require.NoError(t, rlimit.RemoveMemlock())
 
@@ -110,8 +111,8 @@ func loadTPInjector(t *testing.T) *BpfObjects {
 		m.Pinning = ebpf.PinNone
 	}
 
-	// Mirror tpinjector.constants(): filtering ON, headers injection ON.
-	setVar(t, spec, "filter_pids", int32(1))
+	// Mirror tpinjector.constants(): headers injection ON.
+	setVar(t, spec, "filter_pids", filterPids)
 	setVar(t, spec, "inject_flags", uint32(1)) // k_inject_http_headers
 	setVar(t, spec, "max_transaction_time", uint64((10 * time.Second).Nanoseconds()))
 	_ = trySetVar(spec, "g_bpf_debug", int32(0)) // best-effort; name may vary
@@ -236,7 +237,7 @@ func countSockhashEntries(t *testing.T, m *ebpf.Map) int {
 func TestSockmap_DoesNotClaimBystanderSockets(t *testing.T) {
 	requireCgroupV2(t)
 
-	objs := loadTPInjector(t)
+	objs := loadTPInjector(t, 1) // PID filtering ON
 	cgPath := currentCgroupV2Path(t)
 	attachSockmap(t, objs, cgPath)
 
@@ -259,4 +260,30 @@ func TestSockmap_DoesNotClaimBystanderSockets(t *testing.T) {
 			"socket into sock_dir even with filter_pids=1. Every cgroup socket "+
 			"is captured into OBI's sockhash and run through its sk_msg verdict, "+
 			"which collides with Cilium's socket-LB sockmap and stalls connections.")
+}
+
+// TestSockmap_CapturesWhenPidFilterOff is the positive control for the fix: with
+// PID filtering OFF (the legacy "track everything" mode) the sockops MUST still
+// capture sockets into sock_dir. It guards against a regression where the
+// monitored-only gating accidentally disables capture altogether — which would
+// silently break context propagation. The faithful "monitored process IS
+// captured" path (sock_pids populated by kprobe/tcp_connect) is exercised by the
+// end-to-end traceparent integration tests.
+func TestSockmap_CapturesWhenPidFilterOff(t *testing.T) {
+	requireCgroupV2(t)
+
+	objs := loadTPInjector(t, 0) // PID filtering OFF -> track everything
+	cgPath := currentCgroupV2Path(t)
+	attachSockmap(t, objs, cgPath)
+
+	before := countSockhashEntries(t, objs.SockDir)
+
+	closeConn := openLoopbackConn(t)
+	defer closeConn()
+
+	assert.Eventually(t, func() bool {
+		return countSockhashEntries(t, objs.SockDir) > before
+	}, time.Second, 50*time.Millisecond,
+		"with filter_pids=0 the sockops must still capture sockets into sock_dir; "+
+			"if this fails the capture machinery (or the fix's gate) is broken")
 }

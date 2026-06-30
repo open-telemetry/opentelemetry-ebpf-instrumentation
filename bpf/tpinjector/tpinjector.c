@@ -36,6 +36,7 @@
 #include <maps/msg_buffers.h>
 #include <maps/outgoing_trace_map.h>
 #include <maps/sock_dir.h>
+#include <maps/sock_pids.h>
 #include <maps/tp_info_mem.h>
 
 #include <tpinjector/h2_parse.h>
@@ -388,8 +389,38 @@ static __always_inline void bpf_sock_ops_set_flags(struct bpf_sock_ops *skops, u
     bpf_sock_ops_cb_flags_set(skops, skops->bpf_sock_ops_cb_flags | flags);
 }
 
+// Only sockets belonging to a process we monitor should be claimed into our
+// sockhash and routed through the sk_msg verdict. Claiming every socket in the
+// cgroup (the previous behaviour) puts unrelated sockets — including those
+// managed by another sockmap user such as Cilium's socket-LB / L7 proxy — under
+// our sk_msg verdict, corrupting and stalling those connections (beyla#2691).
+//
+// The owning PID is not reliably available here: ACTIVE_ESTABLISHED runs in
+// softirq for non-loopback sockets, so bpf_get_current_pid_tgid()/valid_pid()
+// would read an unrelated task. Instead we consult sock_pids, which is keyed by
+// the (sorted) connection tuple and populated in process context, gated by
+// valid_pid(), from kprobe/tcp_connect (see store_sock_pid in k_tracer.c). That
+// kprobe runs before the connection establishes, so the entry is present by the
+// time this callback fires.
+static __always_inline bool sock_belongs_to_monitored_pid(struct bpf_sock_ops *skops) {
+    // PID filtering disabled (OTEL_EBPF_BPF_PID_FILTER_OFF) keeps the legacy
+    // behaviour of tracking every socket.
+    if (!filter_pids) {
+        return true;
+    }
+
+    connection_info_t conn = get_connection_info_ops(skops);
+    sort_connection_info(&conn);
+
+    return bpf_map_lookup_elem(&sock_pids, &conn) != NULL;
+}
+
 // Helper that writes in the sock map for a sock_ops program
 static __always_inline void bpf_sock_ops_active_est_cb(struct bpf_sock_ops *skops) {
+    if (!sock_belongs_to_monitored_pid(skops)) {
+        return;
+    }
+
     const u64 cookie = bpf_get_socket_cookie(skops);
 
     bpf_sock_hash_update(skops, &sock_dir, (void *)&cookie, BPF_ANY);
