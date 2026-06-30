@@ -65,7 +65,7 @@ var weaverIgnoredAdviceMessages = map[string]struct{}{
 	"Namespace 'iface' collides with existing attribute 'iface.direction'": {},
 }
 
-// actionableAdviceTypes lists the weaver `advice_type` values OBI treats as
+// actionableAdviceTypes lists the weaver finding-type values OBI treats as
 // failures in addition to `violation`-level advice. Hoisted here (rather than
 // matched as an inline string literal) so the coupling to weaver's advice-type
 // vocabulary lives in one documented place and is easy to extend.
@@ -114,7 +114,7 @@ type weaverStatistics struct {
 type weaverAdvice struct {
 	Message    string `json:"message"`
 	Level      string `json:"level"`
-	AdviceType string `json:"advice_type"`
+	AdviceType string `json:"id"`
 	SignalType string `json:"signal_type"`
 	SignalName string `json:"signal_name"`
 }
