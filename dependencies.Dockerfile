@@ -1,8 +1,8 @@
 # This is a renovate-friendly source of Docker images.
-FROM busybox:musl@sha256:19b646668802469d968a05342a601e78da4322a414a7c09b1c9ee25165042138 AS busybox-musl
+FROM busybox:musl@sha256:8635836765b0c4c43970660219739baa58b0883c2e429e4b8918f7dd1519455c AS busybox-musl
 FROM davidanson/markdownlint-cli2:v0.22.1@sha256:0ed9a5f4c77ef447da2a2ac6e67caf74b214a7f80288819565e8b7d2ac148fe5 AS markdown
-FROM gradle:9.6.0-jdk21-noble@sha256:9cb63c2ebb4121e92aa7ed9b781a0ee154bd7ea3e45f97dbeabf7b1d3f910667 AS gradle-java
-FROM ghcr.io/astral-sh/uv:python3.9-trixie-slim@sha256:b0c547dc901317540957794bf099c1cc2229edd1a8610d672388d035eb815c5b AS python39
-FROM ghcr.io/astral-sh/uv:python3.14-trixie-slim@sha256:ac6a11294d8d964632c4000cba0f81a508befd7d4cdaf6022cde9e4655bc641e AS python314
-FROM golang:1.26.4@sha256:792443b89f65105abba56b9bd5e97f680a80074ac62fc844a584212f8c8102c3 AS golang
-FROM otel/weaver:v0.24.1@sha256:263964a7d444e77812f7a2d654e17683c4760a968c91278acdb7a44c20ccd572 AS weaver
+FROM gradle:9.6.1-jdk21-noble@sha256:79b27b5ea2d30a9e2d044098b7bd83bc15d22611166cb88eecf11a6501484c82 AS gradle-java
+FROM ghcr.io/astral-sh/uv:python3.9-trixie-slim@sha256:e798214b3d48bf7be9d207bb4f8cea18b54812cf5122e39178a194c6535cbfff AS python39
+FROM ghcr.io/astral-sh/uv:python3.14-trixie-slim@sha256:d21c2dd538d409d050027f67cd09f0b84882cf59072cf77720b15e21f3fe6af5 AS python314
+FROM golang:1.26.4@sha256:f96cc555eb8db430159a3aa6797cd5bae561945b7b0fe7d0e284c63a3b291609 AS golang
+FROM otel/weaver:v0.24.2@sha256:d1fb16d279f39810c340fbbf1cf9e5e995a3a9cefa531938e9012437e3bc00c1 AS weaver

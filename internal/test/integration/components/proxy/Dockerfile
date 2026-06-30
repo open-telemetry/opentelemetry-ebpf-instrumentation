@@ -1,4 +1,4 @@
-FROM gcc:14.3.0-trixie@sha256:15923fde7cc441594a4daad0e4b33027c8a53174ffd1b6e38d36789db5ef50d4 AS builder
+FROM gcc:14.4.0-trixie@sha256:df8990c2f53aa9ef57808e755aa8f580dd86b9b34c6233715de23e89f7e06b65 AS builder
 
 COPY splice_proxy_t.c .
 
