@@ -216,4 +216,7 @@ The manual trigger will validate the tag format, run the full test suite, and cr
 
 ## Post-Release
 
-**TODO**: bump versions in Helm charts and other places.
+The Helm chart version is automatically updated by CI.
+
+The releaser must update the OBI version references in the
+[OpenTelemetry documentation](https://opentelemetry.io/docs/zero-code/obi/).
