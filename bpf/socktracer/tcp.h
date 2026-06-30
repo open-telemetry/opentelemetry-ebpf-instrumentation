@@ -196,7 +196,6 @@ handle_tcp(void *ctx, struct socket_data *sk_data, packet_direction_t pkt_dir) {
             return handle_tcp_res(ctx, sk_data);
         }
 
-        // ongoing TCP session
         const u32 len = ctx_len(ctx);
 
         tcp->len += len;

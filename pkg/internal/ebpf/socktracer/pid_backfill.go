@@ -239,7 +239,7 @@ func buildListenerPidVal(pid app.PID) SocktracerSockopsListenerPidVal {
 		val.PidKey.Pid = userPid
 		val.PidKey.Tid = userPid
 	} else {
-		// namespace info, assume root namespace
+		// no namespaced PIDs found; assume root namespace
 		val.PidKey.Pid = uint32(pid)
 		val.PidKey.Tid = uint32(pid)
 	}

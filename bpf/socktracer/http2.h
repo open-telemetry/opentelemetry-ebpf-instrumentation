@@ -106,7 +106,6 @@ static __always_inline void emit_http2_buffer(void *ctx,
     init_tp(sk_data, &tcp->tp);
     urand_bytes(tcp->tp.span_id, sizeof(tcp->tp.span_id));
 
-    // Hand the request span's tp to the caller so the inject chain reuses it.
     if (out_tp) {
         *out_tp = tcp->tp;
     }

@@ -60,8 +60,7 @@ static __always_inline u64 uniqueHTTP2ConnId(pid_connection_info_t *p_conn) {
     return random_id;
 }
 
-// try_parse_tp_value() and parse_hpack_traceparent() now live in common/h2_hpack.h
-// so socktracer's ingress path can share the exact same HPACK adoption logic.
+// HPACK traceparent parsing moved to common/h2_hpack.h so socktracer ingress shares it.
 
 // Use the trace the Go uprobe wrote to outgoing_trace_map (replaces what find_trace_for_client_request returned).
 static __always_inline void adopt_injected_trace(http2_conn_stream_t *s_key, tp_info_t *tp) {

@@ -20,7 +20,6 @@ import (
 
 const expectedSpecCount = 3
 
-// findConstant searches all bundles for a constant by name, returning its value and whether it was found.
 func findConstant(bundles []*ebpfcommon.SpecBundle, name string) (any, bool) {
 	for _, b := range bundles {
 		if v, ok := b.Constants[name]; ok {

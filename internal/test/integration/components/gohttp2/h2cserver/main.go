@@ -23,8 +23,7 @@ func main() {
 		fmt.Fprintln(w, "ok")
 	})
 
-	// h2c.NewHandler transparently upgrades HTTP/2 prior-knowledge connections
-	// while still serving HTTP/1.1 requests (e.g. health checks) unchanged.
+	// h2c handler so HTTP/1.1 health checks keep working on the same mux as h2c traffic
 	srv := &http.Server{
 		Addr:    "0.0.0.0:7373",
 		Handler: h2c.NewHandler(mux, &http2.Server{}),

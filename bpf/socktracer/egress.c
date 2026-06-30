@@ -435,9 +435,7 @@ int obi_socket_egress(struct sk_msg_md *msg) {
         return SK_PASS;
     }
 
-    // if we haven't resolved the pid for this socket yet, backfill_pid will
-    // check if this is a valid (tracked) pid and set it up, or we stop tracking
-    // this socket
+    // pid not resolved yet; if backfill cannot claim it for a tracked pid, stop tracking
     if (sk_data->pid_tgid == 0 && !backfill_pid(msg, sk_data, sk_storage)) {
         return SK_PASS;
     }
@@ -502,8 +500,7 @@ init_span_id(const struct socket_data *sk_data, tp_info_t *tp, unsigned char *sp
         return;
     }
 
-    // test if the trace ids are equal - if they aren't, we don't
-    // assign a parent
+    // trace ids differ: not the parent of this outgoing span
     if (__bpf_memcmp(tp->trace_id, parent_tp.trace_id, TRACE_ID_SIZE_BYTES) != 0) {
         return;
     }

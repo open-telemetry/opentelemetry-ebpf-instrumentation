@@ -15,8 +15,7 @@
 
 #include <socktracer/common_defs.h>
 
-// emit_large_buffer_chunks sends data in k_large_buf_payload_max_size chunks.
-// Used by egress where ctx_data() may span more than one chunk.
+// egress ctx_data() may span more than one k_large_buf_payload_max_size chunk
 static __always_inline u32 emit_large_buffer_chunks(tcp_large_buffer_t *buf,
                                                     const unsigned char *data,
                                                     const unsigned char *data_end,
@@ -50,7 +49,6 @@ static __always_inline u32 emit_large_buffer_chunks(tcp_large_buffer_t *buf,
     return offset;
 }
 
-// prepare_large_buffer_header fills the common header fields into *buf.
 static __always_inline tcp_large_buffer_t *prepare_large_buffer_header(
     u8 packet_type, u8 direction, connection_info_t conn_info, tp_info_t tp, u8 action) {
     tcp_large_buffer_t *buf = (tcp_large_buffer_t *)tcp_large_buffers_mem();

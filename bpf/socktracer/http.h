@@ -96,8 +96,7 @@ static __always_inline void init_http_request(void *ctx, struct socket_data *sk_
 static __always_inline bool handle_http_req(void *ctx, struct socket_data *sk_data) {
     bpf_dbg_enter();
 
-    // check if this is an ongoing request of if we have anything stale to
-    // flush
+    // may flush a stale unsent request before processing a new one
     const u32 len = ctx_len(ctx);
 
     if (handle_pending_http_req(sk_data, len)) {
@@ -105,7 +104,6 @@ static __always_inline bool handle_http_req(void *ctx, struct socket_data *sk_da
         return true;
     }
 
-    // now begin trying to process a new HTTP request
     if (len < MIN_HTTP_REQ_SIZE) {
         return false;
     }
@@ -151,7 +149,6 @@ static __always_inline bool handle_http_res(void *ctx, struct socket_data *data)
 
     struct http_info *info = &data->request.http;
 
-    // have we just begun processing this response?
     const bool response_beginning = info->resp_len == 0;
 
     info->end_monotime_ns = bpf_ktime_get_ns();
@@ -181,20 +178,18 @@ static __always_inline bool handle_http_res(void *ctx, struct socket_data *data)
     if (ptr[0] != HTTP_RES[0] || ptr[1] != HTTP_RES[1] || ptr[2] != HTTP_RES[2] ||
         ptr[3] != HTTP_RES[3] || ptr[4] != HTTP_RES[4] || ptr[5] != HTTP_RES[5] ||
         ptr[6] != HTTP_RES[6]) {
-        // not an HTTP response, flush with status=0 and reset
+        // not an HTTP response; flush the pending request
         finish_http_req(data);
         return false;
     }
 
     ptr += k_status_code_off;
 
-    // parse status
     info->status = (*ptr++ - '0') * 100;
     info->status += (*ptr++ - '0') * 10;
     info->status += *ptr - '0';
 
     if (info->status > MAX_HTTP_STATUS) {
-        // we read something invalid
         info->status = 0;
     }
 
@@ -287,9 +282,7 @@ static __always_inline int http_found_tp(void *ctx) {
         return SK_PASS;
     }
 
-    // if we got to this point, we managed to parse a valid
-    // 'Traceparent: ...' header that we can utilise
-
+    // valid Traceparent header parsed; adopt it
     init_span_id(sk_data, &tp_p->tp, span_id);
 
     tp_p->tp.ts = bpf_ktime_get_ns();

@@ -34,7 +34,6 @@ static __always_inline bool handle_pending_http_req(struct socket_data *sk_data,
     http_info_t *info = &sk_data->request.http;
 
     if (info->flags != EVENT_K_HTTP_REQUEST) {
-        // not a HTTP request
         return false;
     }
 

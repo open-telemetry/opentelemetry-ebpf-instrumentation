@@ -248,10 +248,8 @@ static __always_inline void bpf_sock_ops_passive_est_cb(struct bpf_sock_ops *sko
         return;
     }
 
-    // check if this socket's local port belongs to a tracked process
     const struct listener_pid_val *pid_val = listener_pid(skops);
 
-    // we are not tracking this socket
     if (!pid_val) {
         return;
     }
