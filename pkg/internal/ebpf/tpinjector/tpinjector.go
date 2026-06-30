@@ -101,7 +101,13 @@ func (p *Tracer) constants() map[string]any {
 }
 
 func (p *Tracer) iterConstants() map[string]any {
+	filterPids := int32(1)
+	if p.cfg.Discovery.BPFPidFilterOff {
+		filterPids = 0
+	}
+
 	return map[string]any{
+		"filter_pids": filterPids,
 		"g_bpf_debug": p.cfg.EBPF.BpfDebug,
 	}
 }

@@ -6,13 +6,44 @@
 #include <bpfcore/bpf_helpers.h>
 #include <bpfcore/bpf_endian.h>
 
+#include <common/connection_info.h>
 #include <common/protocol_defs.h>
+#include <common/sockaddr.h>
 
 #include <logger/bpf_dbg.h>
 
 #include <maps/sock_dir.h>
+#include <maps/sock_pids.h>
 
 char __license[] SEC("license") = "Dual MIT/GPL";
+
+// Mirrors pid.h's filter_pids. Set for this (separate) collection via
+// tpinjector.iterConstants(). When PID filtering is off we keep the legacy
+// behaviour of tracking every existing socket.
+volatile const s32 filter_pids = 0;
+
+// Whether a pre-existing socket belongs to a monitored process. See
+// sock_belongs_to_monitored_pid() in tpinjector.c for the full rationale:
+// claiming unrelated sockets collides with other sockmap users such as Cilium
+// (https://github.com/grafana/beyla/issues/2691). sock_pids is populated in process context by kprobe/tcp_connect,
+// so at startup it only holds connections OBI has already seen connect; truly
+// pre-existing connections are intentionally left untracked rather than risk
+// capturing foreign sockets.
+static __always_inline bool iter_sock_is_monitored(struct sock_common *skc) {
+    if (!filter_pids) {
+        return true;
+    }
+
+    connection_info_t conn = {};
+    // struct sock starts with struct sock_common (__sk_common at offset 0), so
+    // skc can be read as a struct sock * by parse_sock_info.
+    if (!parse_sock_info((struct sock *)skc, &conn)) {
+        return false;
+    }
+    sort_connection_info(&conn);
+
+    return bpf_map_lookup_elem(&sock_pids, &conn) != NULL;
+}
 
 // max IPv6+port: "[ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff]:65535" = 48 chars
 enum { k_addr_buf_len = 48 };
@@ -96,6 +127,10 @@ int obi_sk_iter_tcp(struct bpf_iter__tcp *ctx) {
     char dst_buf[k_addr_buf_len] = {};
 
     format_sock_addrs(skc, src_buf, dst_buf);
+
+    if (!iter_sock_is_monitored(skc)) {
+        return 0;
+    }
 
     struct seq_file *seq = ctx->meta->seq;
 

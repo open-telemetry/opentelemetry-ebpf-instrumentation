@@ -393,7 +393,7 @@ static __always_inline void bpf_sock_ops_set_flags(struct bpf_sock_ops *skops, u
 // sockhash and routed through the sk_msg verdict. Claiming every socket in the
 // cgroup (the previous behaviour) puts unrelated sockets — including those
 // managed by another sockmap user such as Cilium's socket-LB / L7 proxy — under
-// our sk_msg verdict, corrupting and stalling those connections (beyla#2691).
+// our sk_msg verdict, corrupting and stalling those connections (https://github.com/grafana/beyla/issues/2691).
 //
 // The owning PID is not reliably available here: ACTIVE_ESTABLISHED runs in
 // softirq for non-loopback sockets, so bpf_get_current_pid_tgid()/valid_pid()

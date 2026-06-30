@@ -113,11 +113,15 @@ func TestTracer_Constants(t *testing.T) {
 			_, ok = c["g_bpf_debug"]
 			assert.True(t, ok, "g_bpf_debug should be present")
 
-			// Spec 1 (sock_iter) carries only the debug flag.
+			// Spec 1 (sock_iter) carries the debug flag and filter_pids, the
+			// latter gating which pre-existing sockets the iterator tracks.
 			iterC := bundles[1].Constants
 			_, ok = iterC["g_bpf_debug"]
 			assert.True(t, ok, "iter g_bpf_debug should be present")
-			assert.Len(t, iterC, 1, "iter spec should have only g_bpf_debug")
+			iterFilterPids, ok := iterC["filter_pids"]
+			assert.True(t, ok, "iter filter_pids should be present")
+			assert.Equal(t, tt.expectedFilterPids, iterFilterPids)
+			assert.Len(t, iterC, 2, "iter spec should have g_bpf_debug and filter_pids")
 		})
 	}
 }

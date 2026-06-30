@@ -3,48 +3,22 @@
 
 //go:build linux && privileged_tests
 
-// Reproducer for grafana/beyla#2691 ("Beyla sock_ops/sk_msg programs
-// conflicting with Cilium L7 LB generating stalled connections").
+// Privileged reproducer and regression guard for https://github.com/grafana/beyla/issues/2691
 //
-// Root cause being demonstrated
-// -----------------------------
-// tpinjector's `obi_sockmap_tracker` (SEC("sockops"), attached to the *root*
-// cgroup in production) inserts EVERY outgoing established socket into the
-// `sock_dir` SOCKHASH (bpf/tpinjector/tpinjector.c, BPF_SOCK_OPS_ACTIVE_-
-// ESTABLISHED_CB -> bpf_sock_hash_update), and `obi_packet_extender`
-// (SEC("sk_msg")) is attached as the verdict program over that sockhash.
+// OBI propagates trace context by claiming TCP sockets into the sock_dir
+// sockhash and running an sk_msg verdict over them. Claiming sockets it does not
+// own collides with another sockmap user on the same host (e.g. Cilium's
+// socket-LB) and stalls those connections. These tests assert OBI only claims
+// sockets of monitored processes — for both the live sockops path and the
+// startup iterator — with PID-filter-off positive controls.
 //
-// Crucially, the sockops callback has NO PID/process gate: the socket is
-// claimed regardless of whether it belongs to a monitored process. The
-// `filter_pids` / valid_pid() check only runs *later*, inside the sk_msg
-// program, to decide whether to inject — by then the socket is already a
-// member of OBI's sockhash and is being routed through OBI's sk_msg verdict.
-//
-// That indiscriminate capture is the surface that collides with another
-// sockmap consumer on the same host/cgroup — e.g. Cilium's socket-LB / L7 LB,
-// which also redirects sockets via sockhash + an sk_msg/sk_skb verdict. Two
-// verdict programs fighting over the same socket's psock (and OBI rewriting
-// bytes with bpf_msg_push_data on streams Cilium has spliced) is what stalls
-// connections. The reporter confirmed: context_propagation=disabled => no
-// stall; context_propagation=headers => stall.
-//
-// What this test asserts
-// ----------------------
-// With PID filtering ON (filter_pids=1) and NO monitored process registered,
-// a plain loopback TCP connection opened by an UNRELATED (bystander) process
-// must NOT be claimed into OBI's sock_dir sockhash. Today it IS claimed, so
-// this test FAILS on current code — that failure is the reproduction. Once the
-// sockops program is scoped to monitored sockets only, the test passes and
-// becomes the regression guard.
-//
-// NOTE: authored from static analysis; it must be run on Linux via
-//   make test-privileged
-// (e.g. `go test -tags=linux,privileged_tests ./pkg/internal/ebpf/tpinjector/`).
+// Linux + root only: run with `make test-privileged`.
 
 package tpinjector
 
 import (
 	"errors"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -74,12 +48,9 @@ func requireCgroupV2(t *testing.T) {
 	}
 }
 
-// currentCgroupV2Path returns the cgroup v2 (unified) directory the test
-// process already belongs to. Attaching the sockops program here exercises the
-// exact production attach type (AttachCGroupSockOps) without creating or moving
-// cgroups — robust inside a (privileged) container as well as on a bare host.
-// In production OBI attaches at the root cgroup; the bug is identical at any
-// level of the hierarchy because the sockops callback has no PID gate.
+// currentCgroupV2Path returns the cgroup v2 dir the test process already lives
+// in. Attaching the sockops here uses the real production attach type without
+// creating/moving cgroups, so it works inside a privileged container too.
 func currentCgroupV2Path(t *testing.T) string {
 	t.Helper()
 	data, err := os.ReadFile("/proc/self/cgroup")
@@ -165,14 +136,9 @@ func attachSockmap(t *testing.T, objs *BpfObjects, cgPath string) {
 	})
 }
 
-// loopbackRoundTrip opens a loopback TCP connection from THIS process (the
-// bystander) and exchanges a small non-HTTP payload, so the client socket goes
-// through BPF_SOCK_OPS_ACTIVE_ESTABLISHED_CB while it lives in the cgroup.
-// openLoopbackConn establishes a loopback TCP connection from THIS process (the
-// bystander), exchanges a byte so both ends reach ESTABLISHED (firing
-// BPF_SOCK_OPS_ACTIVE_ESTABLISHED_CB on the client socket), and returns it still
-// OPEN. The caller must keep it open while measuring: a socket is auto-removed
-// from the sockhash on close, so measuring after close would miss the capture.
+// openLoopbackConn opens a loopback TCP connection from THIS (bystander) process
+// and returns it still OPEN. Keep it open while measuring: the kernel removes a
+// socket from the sockhash on close, so measuring after close misses the capture.
 func openLoopbackConn(t *testing.T) func() {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -226,14 +192,9 @@ func countSockhashEntries(t *testing.T, m *ebpf.Map) int {
 	return count
 }
 
-// TestSockmap_DoesNotClaimBystanderSockets reproduces grafana/beyla#2691.
-//
-// EXPECTED ON CURRENT CODE: FAIL — the bystander socket is found in sock_dir,
-// proving tpinjector claims sockets of non-monitored processes into its
-// sockmap and routes them through its sk_msg verdict program. That is the
-// precondition for the Cilium socket-LB / sk_msg conflict that stalls
-// connections. Fixing the sockops program to only track monitored sockets
-// makes this pass.
+// TestSockmap_DoesNotClaimBystanderSockets is the core reproducer/guard: with
+// PID filtering on and no monitored process, a bystander connection must not be
+// claimed into sock_dir. Fails pre-fix (socket captured), passes post-fix.
 func TestSockmap_DoesNotClaimBystanderSockets(t *testing.T) {
 	requireCgroupV2(t)
 
@@ -241,34 +202,27 @@ func TestSockmap_DoesNotClaimBystanderSockets(t *testing.T) {
 	cgPath := currentCgroupV2Path(t)
 	attachSockmap(t, objs, cgPath)
 
-	// Baseline before generating any traffic of our own.
 	before := countSockhashEntries(t, objs.SockDir)
 
-	// Open a bystander connection and KEEP it open while we measure.
 	closeConn := openLoopbackConn(t)
 	defer closeConn()
 
-	// Desired (post-fix) behaviour: a bystander, non-monitored connection is
-	// NOT pulled into OBI's sockhash, so the count does not grow. On current
-	// code the count DOES grow (the active-established socket is captured while
-	// the connection is open), so this assertion FAILS — which is the
-	// reproduction of beyla#2691.
+	// The bystander connection must not grow sock_dir. Pre-fix it does (the
+	// socket is captured while open), which is the beyla#2691 reproduction.
 	assert.Never(t, func() bool {
 		return countSockhashEntries(t, objs.SockDir) > before
 	}, time.Second, 50*time.Millisecond,
-		"BUG (beyla#2691): tpinjector claimed a bystander (non-monitored) "+
+		"BUG: tpinjector claimed a bystander (non-monitored) "+
 			"socket into sock_dir even with filter_pids=1. Every cgroup socket "+
 			"is captured into OBI's sockhash and run through its sk_msg verdict, "+
 			"which collides with Cilium's socket-LB sockmap and stalls connections.")
 }
 
-// TestSockmap_CapturesWhenPidFilterOff is the positive control for the fix: with
-// PID filtering OFF (the legacy "track everything" mode) the sockops MUST still
-// capture sockets into sock_dir. It guards against a regression where the
-// monitored-only gating accidentally disables capture altogether — which would
-// silently break context propagation. The faithful "monitored process IS
-// captured" path (sock_pids populated by kprobe/tcp_connect) is exercised by the
-// end-to-end traceparent integration tests.
+// TestSockmap_CapturesWhenPidFilterOff is the positive control: with PID
+// filtering off ("track everything"), the sockops must still capture sockets,
+// so a green TestSockmap_DoesNotClaimBystanderSockets can't just mean capture is
+// broken. The monitored-process-IS-captured path is covered by the end-to-end
+// traceparent integration tests.
 func TestSockmap_CapturesWhenPidFilterOff(t *testing.T) {
 	requireCgroupV2(t)
 
@@ -286,4 +240,77 @@ func TestSockmap_CapturesWhenPidFilterOff(t *testing.T) {
 	}, time.Second, 50*time.Millisecond,
 		"with filter_pids=0 the sockops must still capture sockets into sock_dir; "+
 			"if this fails the capture machinery (or the fix's gate) is broken")
+}
+
+// --- startup iterator (sock_iter.c) -----------------------------------------
+
+// loadTPInjectorIter loads the sock_iter collection (the startup TCP iterator)
+// with the given filterPids value, pinning stripped so it loads standalone.
+func loadTPInjectorIter(t *testing.T, filterPids int32) *BpfIterObjects {
+	t.Helper()
+	require.NoError(t, rlimit.RemoveMemlock())
+
+	spec, err := LoadBpfIter()
+	require.NoError(t, err)
+
+	for _, m := range spec.Maps {
+		m.Pinning = ebpf.PinNone
+	}
+	setVar(t, spec, "filter_pids", filterPids)
+	_ = trySetVar(spec, "g_bpf_debug", int32(0))
+
+	objs := &BpfIterObjects{}
+	require.NoError(t, spec.LoadAndAssign(objs, nil))
+	t.Cleanup(func() { objs.Close() })
+	return objs
+}
+
+// driveIter attaches the iter/tcp program and reads it to completion, which
+// makes the kernel invoke the program once per existing TCP socket. Skips on
+// kernels too old to attach iter/tcp + sockhash (< 6.4).
+func driveIter(t *testing.T, prog *ebpf.Program) {
+	t.Helper()
+	it, err := link.AttachIter(link.IterOptions{Program: prog})
+	if err != nil {
+		t.Skipf("cannot attach iter/tcp (needs kernel >= 6.4): %v", err)
+	}
+	defer it.Close()
+
+	r, err := it.Open()
+	require.NoError(t, err)
+	defer r.Close()
+	_, err = io.ReadAll(r)
+	require.NoError(t, err)
+}
+
+// TestSockmapIter_DoesNotTrackBystanderSockets is the iterator counterpart: the
+// startup iterator must not pull pre-existing, non-monitored sockets into
+// sock_dir. Filter on + empty sock_pids => driving it adds nothing (pre-fix it
+// added every existing socket).
+func TestSockmapIter_DoesNotTrackBystanderSockets(t *testing.T) {
+	objs := loadTPInjectorIter(t, 1) // PID filtering ON
+
+	closeConn := openLoopbackConn(t)
+	defer closeConn()
+
+	driveIter(t, objs.ObiSkIterTcp)
+
+	assert.Equal(t, 0, countSockhashEntries(t, objs.SockDir),
+		"BUG: the startup iterator tracked pre-existing bystander "+
+			"sockets into sock_dir despite filter_pids=1 and an empty sock_pids.")
+}
+
+// TestSockmapIter_TracksWhenPidFilterOff is the positive control: with PID
+// filtering OFF the iterator must still track existing sockets, guarding
+// against the gate disabling startup tracking entirely.
+func TestSockmapIter_TracksWhenPidFilterOff(t *testing.T) {
+	objs := loadTPInjectorIter(t, 0) // PID filtering OFF -> track everything
+
+	closeConn := openLoopbackConn(t)
+	defer closeConn()
+
+	driveIter(t, objs.ObiSkIterTcp)
+
+	assert.Positive(t, countSockhashEntries(t, objs.SockDir),
+		"with filter_pids=0 the iterator must track existing sockets into sock_dir")
 }
