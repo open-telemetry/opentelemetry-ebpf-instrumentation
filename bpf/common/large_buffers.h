@@ -21,10 +21,13 @@ enum {
     // for the struct overhead.
     k_large_buf_max_size = 1 << 15, // 32K
 
+    // Maximum size per single ring buffer emission.
+    k_large_buf_per_emit_max = 1 << 16, // 64K
+
     // Maximum valid value for each protocol's *_max_captured_bytes volatile variable.
     // These must equal the lte= validation values in EBPFBufferSizes (pkg/config/ebpf_tracer.go),
     // which enforces the same ceiling at configuration time.
-    k_large_buf_max_http_captured_bytes = 1 << 16,
+    k_large_buf_max_http_captured_bytes = 1 << 18,
     k_large_buf_max_mysql_captured_bytes = 1 << 16,
     k_large_buf_max_postgres_captured_bytes = 1 << 16,
     k_large_buf_max_kafka_captured_bytes = 1 << 16,

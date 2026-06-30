@@ -31,13 +31,21 @@ func TestOffsets_HasGoChannelOffsets(t *testing.T) {
 	assert.False(t, (&Offsets{Field: FieldOffsets{
 		HchanDataqsizPos: uint64(8),
 		HchanSendxPos:    uint64(48),
+		HchanRecvxPos:    uint64(56),
 	}}).HasGoChannelOffsets())
 	assert.False(t, (&Offsets{Field: FieldOffsets{
+		HchanQcountPos:   uint64(0),
+		HchanDataqsizPos: uint64(8),
+		HchanSendxPos:    uint64(48),
+	}}).HasGoChannelOffsets())
+	assert.False(t, (&Offsets{Field: FieldOffsets{
+		HchanQcountPos:   uint64(0),
 		HchanDataqsizPos: uint64(8),
 		HchanSendxPos:    uint64(48),
 		HchanRecvxPos:    int64(56),
 	}}).HasGoChannelOffsets())
 	assert.True(t, (&Offsets{Field: FieldOffsets{
+		HchanQcountPos:   uint64(0),
 		HchanDataqsizPos: uint64(8),
 		HchanSendxPos:    uint64(48),
 		HchanRecvxPos:    uint64(56),

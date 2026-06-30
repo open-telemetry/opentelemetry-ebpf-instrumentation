@@ -4,14 +4,19 @@
 package convert // import "go.opentelemetry.io/obi/internal/config/convert"
 
 import (
-	"encoding"
-	"fmt"
 	"net/url"
+	"strconv"
+	"strings"
+
+	otelconfx "go.opentelemetry.io/contrib/otelconf/x"
 
 	"go.opentelemetry.io/obi/internal/config/schema"
+	"go.opentelemetry.io/obi/pkg/appolly/services"
 	featureexport "go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
+	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/obi"
+	"go.opentelemetry.io/obi/pkg/transform"
 )
 
 // RuntimeToV2 converts an already-loaded v1 runtime configuration into the
@@ -42,95 +47,151 @@ func RuntimeToV2(cfg *obi.Config) (*schema.Document, *schema.Extension) {
 	}
 
 	doc := &schema.Document{
-		FileFormat:     "1.0",
-		Resource:       resource(cfg),
-		Propagator:     map[string]any{},
-		TracerProvider: tracerProvider(cfg),
-		MeterProvider:  meterProvider(cfg),
-		Extensions:     schema.Extensions{OBI: ext},
+		OpenTelemetryConfiguration: otelconfx.OpenTelemetryConfiguration{
+			FileFormat:     "1.0",
+			Resource:       resource(cfg),
+			Propagator:     &otelconfx.Propagator{},
+			TracerProvider: tracerProvider(cfg),
+			MeterProvider:  meterProvider(cfg),
+		},
+		Extensions: schema.Extensions{OBI: ext},
 	}
 
 	return doc, ext
 }
 
-func capturePolicy(cfg *obi.Config) map[string]any {
-	return map[string]any{
-		"default_action":  defaultPolicyAction(cfg),
-		"match_order":     "first_match_wins",
-		"poll_interval":   cfg.Discovery.PollInterval.String(),
-		"min_process_age": cfg.Discovery.MinProcessAge.String(),
+func capturePolicy(cfg *obi.Config) schema.CapturePolicy {
+	return schema.CapturePolicy{
+		DefaultAction: defaultPolicyAction(cfg),
+		MatchOrder:    schema.MatchOrderFirstMatchWins,
+		PollInterval:  schema.Duration(cfg.Discovery.PollInterval),
+		MinProcessAge: schema.Duration(cfg.Discovery.MinProcessAge),
 	}
 }
 
-func defaultPolicyAction(cfg *obi.Config) string {
+func defaultPolicyAction(cfg *obi.Config) schema.CaptureAction {
 	if cfg.Enabled(obi.FeatureAppO11y) {
-		return "exclude"
+		return schema.CaptureActionExclude
 	}
-	return "include"
+	return schema.CaptureActionInclude
 }
 
-func captureInstrumentation(cfg *obi.Config) map[string]any {
+func captureInstrumentation(cfg *obi.Config) schema.Instrumentation {
 	tracesInstrumentations := cfg.Traces.Instrumentations
 	metricsInstrs := metricsInstrumentations(cfg)
 	appMetricsEnabled := cfg.Metrics.Features.AnyAppO11yMetric()
 
-	instrumentation := make(map[string]any, len(protocolMappings))
+	protocols := make(map[protocolName]schema.ProtocolInstrumentation, len(protocolMappings))
 	for _, mapping := range protocolMappings {
-		instrumentation[mapping.name] = map[string]any{
-			"enabled": protocolEnabled(tracesInstrumentations, metricsInstrs, appMetricsEnabled, mapping),
-		}
+		protocols[mapping.name] = protocolInstrumentation(
+			tracesInstrumentations,
+			metricsInstrs,
+			appMetricsEnabled,
+			mapping,
+			cfg,
+		)
 	}
 
-	for _, mapping := range protocolMappings {
-		protocolCfg := instrumentation[mapping.name].(map[string]any)
-		protocolCfg["filters"] = signalFilters(cfg.Filters.Application)
+	http := protocols[protocolHTTP]
+	httpInstrumentation := schema.HTTPInstrumentation{
+		Enabled:             http.Enabled,
+		Filters:             http.Filters,
+		TrackRequestHeaders: cfg.EBPF.TrackRequestHeaders,
+		RequestTimeout:      schema.Duration(cfg.EBPF.HTTPRequestTimeout),
+		BufferSize:          cfg.EBPF.BufferSizes.HTTP,
+		Routes:              httpRoutes(cfg),
+		PayloadExtraction:   payloadExtraction(cfg),
 	}
 
-	http := instrumentation["http"].(map[string]any)
-	http["track_request_headers"] = cfg.EBPF.TrackRequestHeaders
-	http["request_timeout"] = cfg.EBPF.HTTPRequestTimeout.String()
-	http["buffer_size"] = cfg.EBPF.BufferSizes.HTTP
-	http["routes"] = httpRoutes(cfg)
-	http["payload_extraction"] = payloadExtraction(cfg)
-
-	sql := instrumentation["sql"].(map[string]any)
-	sql["heuristic_detect"] = cfg.EBPF.HeuristicSQLDetect
-	sql["mysql"] = map[string]any{
-		"buffer_size":                    cfg.EBPF.BufferSizes.MySQL,
-		"prepared_statements_cache_size": cfg.EBPF.MySQLPreparedStatementsCacheSize,
-	}
-	sql["postgres"] = map[string]any{
-		"buffer_size":                    cfg.EBPF.BufferSizes.Postgres,
-		"prepared_statements_cache_size": cfg.EBPF.PostgresPreparedStatementsCacheSize,
-	}
-	sql["mssql"] = map[string]any{
-		"buffer_size":                    cfg.EBPF.BufferSizes.MSSQL,
-		"prepared_statements_cache_size": cfg.EBPF.MSSQLPreparedStatementsCacheSize,
+	sql := protocols[protocolSQL]
+	sqlInstrumentation := schema.SQLInstrumentation{
+		Enabled:         sql.Enabled,
+		Filters:         sql.Filters,
+		HeuristicDetect: cfg.EBPF.HeuristicSQLDetect,
+		MySQL: schema.SQLDatabaseInstrumentation{
+			BufferSize:                  cfg.EBPF.BufferSizes.MySQL,
+			PreparedStatementsCacheSize: cfg.EBPF.MySQLPreparedStatementsCacheSize,
+		},
+		Postgres: schema.SQLDatabaseInstrumentation{
+			BufferSize:                  cfg.EBPF.BufferSizes.Postgres,
+			PreparedStatementsCacheSize: cfg.EBPF.PostgresPreparedStatementsCacheSize,
+		},
+		MSSQL: schema.SQLDatabaseInstrumentation{
+			BufferSize:                  cfg.EBPF.BufferSizes.MSSQL,
+			PreparedStatementsCacheSize: cfg.EBPF.MSSQLPreparedStatementsCacheSize,
+		},
 	}
 
-	redis := instrumentation["redis"].(map[string]any)
-	redis["db_cache"] = map[string]any{
-		"enabled":  cfg.EBPF.RedisDBCache.Enabled,
-		"max_size": cfg.EBPF.RedisDBCache.MaxSize,
+	redis := protocols[protocolRedis]
+	redisInstrumentation := schema.RedisInstrumentation{
+		Enabled: redis.Enabled,
+		Filters: redis.Filters,
+		DBCache: schema.RedisDBCache{
+			Enabled: cfg.EBPF.RedisDBCache.Enabled,
+			MaxSize: cfg.EBPF.RedisDBCache.MaxSize,
+		},
 	}
 
-	kafka := instrumentation["kafka"].(map[string]any)
-	kafka["buffer_size"] = cfg.EBPF.BufferSizes.Kafka
-	kafka["topic_uuid_cache_size"] = cfg.EBPF.KafkaTopicUUIDCacheSize
+	kafka := protocols[protocolKafka]
+	kafkaInstrumentation := schema.KafkaInstrumentation{
+		Enabled:            kafka.Enabled,
+		Filters:            kafka.Filters,
+		BufferSize:         cfg.EBPF.BufferSizes.Kafka,
+		TopicUUIDCacheSize: cfg.EBPF.KafkaTopicUUIDCacheSize,
+	}
 
-	mongo := instrumentation["mongo"].(map[string]any)
-	mongo["requests_cache_size"] = cfg.EBPF.MongoRequestsCacheSize
+	mongo := protocols[protocolMongo]
+	mongoInstrumentation := schema.MongoInstrumentation{
+		Enabled:           mongo.Enabled,
+		Filters:           mongo.Filters,
+		RequestsCacheSize: cfg.EBPF.MongoRequestsCacheSize,
+	}
 
-	couchbase := instrumentation["couchbase"].(map[string]any)
-	couchbase["db_cache_size"] = cfg.EBPF.CouchbaseDBCacheSize
+	couchbase := protocols[protocolCouchbase]
+	couchbaseInstrumentation := schema.CouchbaseInstrumentation{
+		Enabled:     couchbase.Enabled,
+		Filters:     couchbase.Filters,
+		DBCacheSize: cfg.EBPF.CouchbaseDBCacheSize,
+	}
 
-	dns := instrumentation["dns"].(map[string]any)
-	dns["request_timeout"] = cfg.EBPF.DNSRequestTimeout.String()
+	dns := protocols[protocolDNS]
+	dnsInstrumentation := schema.DNSInstrumentation{
+		Enabled:        dns.Enabled,
+		Filters:        dns.Filters,
+		RequestTimeout: schema.Duration(cfg.EBPF.DNSRequestTimeout),
+	}
 
-	gpu := instrumentation["gpu"].(map[string]any)
-	gpu["enabled_mode"] = textValue(cfg.EBPF.InstrumentCuda)
+	gpu := protocols[protocolGPU]
+	gpuInstrumentation := schema.GPUInstrumentation{
+		Enabled:     gpu.Enabled,
+		Filters:     gpu.Filters,
+		EnabledMode: cfg.EBPF.InstrumentCuda,
+	}
 
-	return instrumentation
+	return schema.Instrumentation{
+		HTTP:      httpInstrumentation,
+		GRPC:      protocols[protocolGRPC],
+		SQL:       sqlInstrumentation,
+		Redis:     redisInstrumentation,
+		Kafka:     kafkaInstrumentation,
+		Mongo:     mongoInstrumentation,
+		Couchbase: couchbaseInstrumentation,
+		DNS:       dnsInstrumentation,
+		GPU:       gpuInstrumentation,
+	}
+}
+
+func protocolInstrumentation(
+	tracesInstrumentations []instrumentations.Instrumentation,
+	metricsInstrumentations []instrumentations.Instrumentation,
+	appMetricsEnabled bool,
+	mapping protocolMapping,
+	cfg *obi.Config,
+) schema.ProtocolInstrumentation {
+	return schema.ProtocolInstrumentation{
+		Enabled: protocolEnabled(tracesInstrumentations, metricsInstrumentations, appMetricsEnabled, mapping),
+		Filters: signalFilters(cfg.Filters.Application),
+	}
 }
 
 func metricsInstrumentations(cfg *obi.Config) []instrumentations.Instrumentation {
@@ -175,15 +236,15 @@ func protocolEnabled(
 	metricsInstrumentations []instrumentations.Instrumentation,
 	appMetricsEnabled bool,
 	mapping protocolMapping,
-) map[string]any {
+) schema.ProtocolEnablement {
 	metricsEnabled := protocolSelected(metricsInstrumentations, mapping, mapping.metricWildcard)
 	if mapping.appMetrics {
 		metricsEnabled = metricsEnabled && appMetricsEnabled
 	}
 
-	return map[string]any{
-		"traces":  protocolSelected(tracesInstrumentations, mapping, true),
-		"metrics": metricsEnabled,
+	return schema.ProtocolEnablement{
+		Traces:  protocolSelected(tracesInstrumentations, mapping, true),
+		Metrics: metricsEnabled,
 	}
 }
 
@@ -199,89 +260,108 @@ func protocolSelected(list []instrumentations.Instrumentation, mapping protocolM
 	return false
 }
 
-func captureRuntimes(cfg *obi.Config) map[string]any {
-	return map[string]any{
-		"go": map[string]any{
-			"enabled": !cfg.Discovery.SkipGoSpecificTracers,
-			"filter":  map[string]any{},
+func captureRuntimes(cfg *obi.Config) schema.CaptureRuntimes {
+	return schema.CaptureRuntimes{
+		Go: schema.Runtime{
+			Enabled: !cfg.Discovery.SkipGoSpecificTracers,
 		},
-		"nodejs": map[string]any{
-			"enabled": cfg.NodeJS.Enabled,
-			"filter":  map[string]any{},
+		NodeJS: schema.Runtime{
+			Enabled: cfg.NodeJS.Enabled,
 		},
-		"java": map[string]any{
-			"enabled": cfg.Java.Enabled,
-			"filter":  map[string]any{},
-			"debug": map[string]any{
-				"enabled":                  cfg.Java.Debug,
-				"bytecode_instrumentation": cfg.Java.DebugInstrumentation,
+		Java: schema.JavaRuntime{
+			Enabled: cfg.Java.Enabled,
+			Debug: schema.JavaDebug{
+				Enabled:                 cfg.Java.Debug,
+				BytecodeInstrumentation: cfg.Java.DebugInstrumentation,
 			},
-			"attach_timeout": cfg.Java.Timeout.String(),
+			AttachTimeout: schema.Duration(cfg.Java.Timeout),
 		},
 	}
 }
 
-func captureNetwork(cfg *obi.Config) map[string]any {
-	return map[string]any{
-		"capture": map[string]any{
-			"enabled":     cfg.NetworkFlows.Enable || cfg.Metrics.Features.AnyNetwork(),
-			"source":      cfg.NetworkFlows.Source,
-			"buffer_size": cfg.EBPF.BufferSizes.TCP,
-			"endpoint_identity": map[string]any{
-				"agent_ip":           cfg.NetworkFlows.AgentIP,
-				"agent_ip_interface": cfg.NetworkFlows.AgentIPIface,
-				"agent_ip_family":    cfg.NetworkFlows.AgentIPType,
+func captureNetwork(cfg *obi.Config) schema.CaptureNetwork {
+	return schema.CaptureNetwork{
+		Capture: schema.NetworkCapture{
+			Enabled:    cfg.NetworkFlows.Enable || cfg.Metrics.Features.AnyNetwork(),
+			Source:     schema.NetworkSource(cfg.NetworkFlows.Source),
+			BufferSize: cfg.EBPF.BufferSizes.TCP,
+			EndpointIdentity: schema.EndpointIdentity{
+				AgentIP:          cfg.NetworkFlows.AgentIP,
+				AgentIPInterface: schema.AgentIPInterface(cfg.NetworkFlows.AgentIPIface),
+				AgentIPFamily:    schema.AgentIPFamily(cfg.NetworkFlows.AgentIPType),
 			},
-			"selection": map[string]any{
-				"interfaces": map[string]any{
-					"include": cfg.NetworkFlows.Interfaces,
-					"exclude": cfg.NetworkFlows.ExcludeInterfaces,
+			Selection: schema.NetworkSelection{
+				Interfaces: schema.IncludeExclude{
+					Include: cfg.NetworkFlows.Interfaces,
+					Exclude: cfg.NetworkFlows.ExcludeInterfaces,
 				},
-				"protocols": map[string]any{
-					"include": cfg.NetworkFlows.Protocols,
-					"exclude": cfg.NetworkFlows.ExcludeProtocols,
+				Protocols: schema.IncludeExclude{
+					Include: cfg.NetworkFlows.Protocols,
+					Exclude: cfg.NetworkFlows.ExcludeProtocols,
 				},
-				"direction": cfg.NetworkFlows.Direction,
-				"cidrs":     cfg.NetworkFlows.CIDRs,
+				Direction: schema.NetworkDirection(cfg.NetworkFlows.Direction),
+				CIDRs:     networkCIDRDefinitions(cfg),
 			},
-			"filters": signalFilters(cfg.Filters.Network),
-			"flow_lifecycle": map[string]any{
-				"max_tracked_flows": cfg.NetworkFlows.CacheMaxFlows,
-				"active_timeout":    cfg.NetworkFlows.CacheActiveTimeout.String(),
-				"deduplication": map[string]any{
-					"strategy":       cfg.NetworkFlows.Deduper,
-					"first_come_ttl": cfg.NetworkFlows.DeduperFCTTL.String(),
+			Filters: signalFilters(cfg.Filters.Network),
+			FlowLifecycle: schema.FlowLifecycle{
+				MaxTrackedFlows: cfg.NetworkFlows.CacheMaxFlows,
+				ActiveTimeout:   schema.Duration(cfg.NetworkFlows.CacheActiveTimeout),
+				Deduplication: schema.Deduplication{
+					Strategy:     schema.DeduplicationStrategy(cfg.NetworkFlows.Deduper),
+					FirstComeTTL: schema.Duration(cfg.NetworkFlows.DeduperFCTTL),
 				},
-				"sampling":    cfg.NetworkFlows.Sampling,
-				"guess_ports": cfg.NetworkFlows.GuessPorts,
+				Sampling:   cfg.NetworkFlows.Sampling,
+				GuessPorts: cfg.NetworkFlows.GuessPorts,
 			},
-			"interface_discovery": map[string]any{
-				"mode":          cfg.NetworkFlows.ListenInterfaces,
-				"poll_interval": cfg.NetworkFlows.ListenPollPeriod.String(),
+			InterfaceDiscovery: schema.InterfaceDiscovery{
+				Mode:         schema.InterfaceDiscoveryMode(cfg.NetworkFlows.ListenInterfaces),
+				PollInterval: schema.Duration(cfg.NetworkFlows.ListenPollPeriod),
 			},
-			"enrichment": networkFlowEnrichment(cfg),
-			"diagnostics": map[string]any{
-				"print_flows": cfg.NetworkFlows.Print,
+			Enrichment: networkFlowEnrichment(cfg),
+			Diagnostics: schema.FlowDiagnostics{
+				PrintFlows: cfg.NetworkFlows.Print,
 			},
 		},
-		"stats": map[string]any{
-			"enabled":  cfg.Enabled(obi.FeatureStatsO11y),
-			"features": statsFeatures(cfg.Metrics.Features),
-			"endpoint_identity": map[string]any{
-				"agent_ip":           cfg.Stats.AgentIP,
-				"agent_ip_interface": cfg.Stats.AgentIPIface,
-				"agent_ip_family":    cfg.Stats.AgentIPType,
+		Stats: schema.NetworkStats{
+			Enabled:  cfg.Enabled(obi.FeatureStatsO11y),
+			Features: statsFeatures(cfg.Metrics.Features),
+			EndpointIdentity: schema.EndpointIdentity{
+				AgentIP:          cfg.Stats.AgentIP,
+				AgentIPInterface: schema.AgentIPInterface(cfg.Stats.AgentIPIface),
+				AgentIPFamily:    schema.AgentIPFamily(cfg.Stats.AgentIPType),
 			},
-			"selection": map[string]any{
-				"cidrs": cfg.Stats.CIDRs,
+			Selection: schema.StatsSelection{
+				CIDRs: statsCIDRDefinitions(cfg),
 			},
-			"filters":    signalFilters(cfg.Filters.Stats),
-			"enrichment": statsEnrichment(cfg),
-			"diagnostics": map[string]any{
-				"print_stats": cfg.Stats.Print,
+			Filters:    signalFilters(cfg.Filters.Stats),
+			Enrichment: statsEnrichment(cfg),
+			Diagnostics: schema.StatsDiagnostics{
+				PrintStats: cfg.Stats.Print,
 			},
 		},
 	}
+}
+
+func networkCIDRDefinitions(cfg *obi.Config) schema.CIDRDefinitions {
+	definitions := make(schema.CIDRDefinitions, 0, len(cfg.NetworkFlows.CIDRs))
+	for _, definition := range cfg.NetworkFlows.CIDRs {
+		definitions = append(definitions, schema.CIDRDefinition{
+			CIDR: definition.CIDR,
+			Name: definition.Name,
+		})
+	}
+	return definitions
+}
+
+func statsCIDRDefinitions(cfg *obi.Config) schema.CIDRDefinitions {
+	definitions := make(schema.CIDRDefinitions, 0, len(cfg.Stats.CIDRs))
+	for _, definition := range cfg.Stats.CIDRs {
+		definitions = append(definitions, schema.CIDRDefinition{
+			CIDR: definition.CIDR,
+			Name: definition.Name,
+		})
+	}
+	return definitions
 }
 
 const (
@@ -308,163 +388,207 @@ func statsFeatures(features featureexport.Features) []string {
 	return out
 }
 
-func captureLimits(cfg *obi.Config) map[string]any {
-	return map[string]any{
-		"network_packets":   cfg.NetworkFlows.CacheMaxFlows,
-		"metric_span_names": cfg.Attributes.MetricSpanNameAggregationLimit,
+func captureLimits(cfg *obi.Config) schema.CaptureLimits {
+	return schema.CaptureLimits{
+		NetworkPackets:  cfg.NetworkFlows.CacheMaxFlows,
+		MetricSpanNames: cfg.Attributes.MetricSpanNameAggregationLimit,
 	}
 }
 
-func captureEngine(cfg *obi.Config) map[string]any {
-	return map[string]any{
-		"debug": map[string]any{
-			"bpf":            cfg.EBPF.BpfDebug,
-			"protocol_print": cfg.EBPF.ProtocolDebug,
+func captureEngine(cfg *obi.Config) schema.CaptureEngine {
+	return schema.CaptureEngine{
+		Debug: schema.EngineDebug{
+			BPF:           cfg.EBPF.BpfDebug,
+			ProtocolPrint: cfg.EBPF.ProtocolDebug,
 		},
-		"pid_filter": map[string]any{
-			"disabled": cfg.Discovery.BPFPidFilterOff,
+		PIDFilter: schema.PIDFilter{
+			Disabled: cfg.Discovery.BPFPidFilterOff,
 		},
-		"batching": map[string]any{
-			"wakeup_len":    cfg.EBPF.WakeupLen,
-			"batch_length":  cfg.EBPF.BatchLength,
-			"batch_timeout": cfg.EBPF.BatchTimeout.String(),
+		Batching: schema.Batching{
+			WakeupLen:    cfg.EBPF.WakeupLen,
+			BatchLength:  cfg.EBPF.BatchLength,
+			BatchTimeout: schema.Duration(cfg.EBPF.BatchTimeout),
 		},
-		"propagation": map[string]any{
-			"context_propagation":      textValue(cfg.EBPF.ContextPropagation),
-			"override_bpfloop_enabled": cfg.EBPF.OverrideBPFLoopEnabled,
-			"disable_black_box_cp":     cfg.EBPF.DisableBlackBoxCP,
+		Propagation: schema.Propagation{
+			ContextPropagation:     cfg.EBPF.ContextPropagation,
+			OverrideBPFLoopEnabled: cfg.EBPF.OverrideBPFLoopEnabled,
+			DisableBlackBoxCP:      cfg.EBPF.DisableBlackBoxCP,
 		},
-		"traffic": map[string]any{
-			"control_backend":     textValue(cfg.EBPF.TCBackend),
-			"high_request_volume": cfg.EBPF.HighRequestVolume,
-			"force_map_reader":    textValue(cfg.EBPF.ForceBPFMapReader),
+		Traffic: schema.Traffic{
+			ControlBackend:    cfg.EBPF.TCBackend,
+			HighRequestVolume: cfg.EBPF.HighRequestVolume,
+			ForceMapReader:    cfg.EBPF.ForceBPFMapReader,
 		},
-		"transactions": map[string]any{
-			"max_duration": cfg.EBPF.MaxTransactionTime.String(),
+		Transactions: schema.Transactions{
+			MaxDuration: schema.Duration(cfg.EBPF.MaxTransactionTime),
 		},
-		"maps": map[string]any{
-			"global_scale_factor": cfg.EBPF.MapsConfig.GlobalScaleFactor,
+		Maps: schema.Maps{
+			GlobalScaleFactor: cfg.EBPF.MapsConfig.GlobalScaleFactor,
 		},
-		"bpf_filesystem": map[string]any{
-			"path": cfg.EBPF.BPFFSPath,
-		},
-	}
-}
-
-func captureSafety(cfg *obi.Config) map[string]any {
-	return map[string]any{
-		"enforce_system_capabilities": cfg.EnforceSysCaps,
-	}
-}
-
-func captureChannels(cfg *obi.Config) map[string]any {
-	return map[string]any{
-		"buffer_len":            cfg.ChannelBufferLen,
-		"send_timeout":          cfg.ChannelSendTimeout.String(),
-		"panic_on_send_timeout": cfg.ChannelSendTimeoutPanic,
-	}
-}
-
-func captureTelemetry(cfg *obi.Config) map[string]any {
-	return map[string]any{
-		"traces": map[string]any{
-			"reporters_cache_len": cfg.Traces.ReportersCacheLen,
-		},
-		"metrics": map[string]any{
-			"reporters_cache_len": cfg.OTELMetrics.ReportersCacheLen,
-			"ttl":                 cfg.OTELMetrics.TTL.String(),
+		BPFFileSystem: schema.BPFFileSystem{
+			Path: cfg.EBPF.BPFFSPath,
 		},
 	}
 }
 
-func resource(cfg *obi.Config) map[string]any {
-	attributes := map[string]any{}
+func captureSafety(cfg *obi.Config) schema.CaptureSafety {
+	return schema.CaptureSafety{
+		EnforceSystemCapabilities: cfg.EnforceSysCaps,
+	}
+}
+
+func captureChannels(cfg *obi.Config) schema.CaptureChannels {
+	return schema.CaptureChannels{
+		BufferLen:          cfg.ChannelBufferLen,
+		SendTimeout:        schema.Duration(cfg.ChannelSendTimeout),
+		PanicOnSendTimeout: cfg.ChannelSendTimeoutPanic,
+	}
+}
+
+func captureTelemetry(cfg *obi.Config) schema.CaptureTelemetry {
+	return schema.CaptureTelemetry{
+		Traces: schema.TracesTelemetry{
+			ReportersCacheLen: cfg.Traces.ReportersCacheLen,
+		},
+		Metrics: schema.MetricsTelemetry{
+			ReportersCacheLen: cfg.OTELMetrics.ReportersCacheLen,
+			TTL:               schema.Duration(cfg.OTELMetrics.TTL),
+		},
+	}
+}
+
+func resource(cfg *obi.Config) *otelconfx.Resource {
+	var attributes []otelconfx.AttributeNameValue
 	if cfg.Attributes.InstanceID.OverrideHostname != "" {
-		attributes["host.name"] = cfg.Attributes.InstanceID.OverrideHostname
+		attributes = append(attributes, stringAttribute("host.name", cfg.Attributes.InstanceID.OverrideHostname))
 	}
 	if cfg.Attributes.HostID.Override != "" {
-		attributes["host.id"] = cfg.Attributes.HostID.Override
+		attributes = append(attributes, stringAttribute("host.id", cfg.Attributes.HostID.Override))
 	}
-	if len(attributes) == 0 {
-		return map[string]any{}
-	}
-	return map[string]any{"attributes": attributes}
+	return &otelconfx.Resource{Attributes: attributes}
 }
 
-func tracerProvider(cfg *obi.Config) map[string]any {
+func stringAttribute(name, value string) otelconfx.AttributeNameValue {
+	return otelconfx.AttributeNameValue{
+		Name:  name,
+		Value: value,
+	}
+}
+
+func tracerProvider(cfg *obi.Config) *otelconfx.TracerProvider {
 	endpoint, _ := cfg.Traces.OTLPTracesEndpoint()
-	out := map[string]any{
-		"processors": []any{
-			map[string]any{
-				"batch": map[string]any{
-					"max_queue_size":        cfg.Traces.QueueSize,
-					"max_export_batch_size": cfg.Traces.BatchMaxSize,
-					"schedule_delay":        cfg.Traces.BatchTimeout.Milliseconds(),
-					"exporter": map[string]any{
-						"otlp_grpc": map[string]any{
-							"endpoint": endpoint,
-							"retry": map[string]any{
-								"initial_interval": cfg.Traces.BackOffInitialInterval.String(),
-								"max_interval":     cfg.Traces.BackOffMaxInterval.String(),
-								"max_elapsed_time": cfg.Traces.BackOffMaxElapsedTime.String(),
-							},
-							"tls": map[string]any{
-								"insecure":             insecureOTLPTransport(endpoint),
-								"insecure_skip_verify": cfg.Traces.InsecureSkipVerify,
+	insecure := insecureOTLPTransport(endpoint)
+	maxQueueSize := cfg.Traces.QueueSize
+	maxExportBatchSize := cfg.Traces.BatchMaxSize
+	scheduleDelay := int(cfg.Traces.BatchTimeout.Milliseconds())
+	return &otelconfx.TracerProvider{
+		Processors: []otelconfx.SpanProcessor{
+			{
+				Batch: &otelconfx.BatchSpanProcessor{
+					MaxQueueSize:       &maxQueueSize,
+					MaxExportBatchSize: &maxExportBatchSize,
+					ScheduleDelay:      &scheduleDelay,
+					Exporter: otelconfx.SpanExporter{
+						OTLPGrpc: &otelconfx.OTLPGrpcExporter{
+							Endpoint: &endpoint,
+							Tls: &otelconfx.GrpcTls{
+								Insecure: &insecure,
 							},
 						},
 					},
 				},
 			},
 		},
+		Sampler: sampler(cfg),
 	}
-	if sampler := sampler(cfg); len(sampler) > 0 {
-		out["sampler"] = sampler
-	}
-	return out
 }
 
-func sampler(cfg *obi.Config) map[string]any {
-	out := map[string]any{}
-	if cfg.Traces.SamplerConfig.Name != "" {
-		out["name"] = cfg.Traces.SamplerConfig.Name
+func sampler(cfg *obi.Config) *otelconfx.Sampler {
+	if cfg.Traces.SamplerConfig.Name == "" && cfg.Traces.SamplerConfig.Arg == "" {
+		return nil
 	}
-	if cfg.Traces.SamplerConfig.Arg != "" {
-		out["arg"] = cfg.Traces.SamplerConfig.Arg
-	}
-	return out
+	return declarativeSampler(cfg.Traces.SamplerConfig)
 }
 
-func meterProvider(cfg *obi.Config) map[string]any {
+func declarativeSampler(cfg services.SamplerConfig) *otelconfx.Sampler {
+	switch cfg.Name {
+	case services.SamplerAlwaysOn:
+		return &otelconfx.Sampler{AlwaysOn: otelconfx.AlwaysOnSampler{}}
+	case services.SamplerAlwaysOff:
+		return &otelconfx.Sampler{AlwaysOff: otelconfx.AlwaysOffSampler{}}
+	case services.SamplerTraceIDRatio:
+		return traceIDRatioSampler(cfg.Arg)
+	case services.SamplerParentBasedAlwaysOff:
+		return parentBasedSampler(&otelconfx.Sampler{AlwaysOff: otelconfx.AlwaysOffSampler{}})
+	case services.SamplerParentBasedTraceIDRatio:
+		return parentBasedSampler(traceIDRatioSampler(cfg.Arg))
+	case services.SamplerParentBasedAlwaysOn, "":
+		return parentBasedSampler(&otelconfx.Sampler{AlwaysOn: otelconfx.AlwaysOnSampler{}})
+	default:
+		return nil
+	}
+}
+
+func parentBasedSampler(root *otelconfx.Sampler) *otelconfx.Sampler {
+	return &otelconfx.Sampler{
+		ParentBased: &otelconfx.ParentBasedSampler{
+			Root: root,
+		},
+	}
+}
+
+func traceIDRatioSampler(raw string) *otelconfx.Sampler {
+	ratio, err := strconv.ParseFloat(raw, 64)
+	if err != nil {
+		return nil
+	}
+	return &otelconfx.Sampler{
+		TraceIDRatioBased: &otelconfx.TraceIDRatioBasedSampler{
+			Ratio: &ratio,
+		},
+	}
+}
+
+func meterProvider(cfg *obi.Config) *otelconfx.MeterProvider {
 	endpoint, _ := cfg.OTELMetrics.OTLPMetricsEndpoint()
-	return map[string]any{
-		"readers": []any{
-			map[string]any{
-				"periodic": map[string]any{
-					"interval": cfg.OTELMetrics.GetInterval().Milliseconds(),
-					"exporter": map[string]any{
-						"otlp_grpc": map[string]any{
-							"endpoint":                      endpoint,
-							"default_histogram_aggregation": cfg.OTELMetrics.HistogramAggregation,
-							"tls": map[string]any{
-								"insecure":             insecureOTLPTransport(endpoint),
-								"insecure_skip_verify": cfg.OTELMetrics.InsecureSkipVerify,
+	insecure := insecureOTLPTransport(endpoint)
+	interval := int(cfg.OTELMetrics.GetInterval().Milliseconds())
+	prometheusPort := cfg.Prometheus.Port
+	return &otelconfx.MeterProvider{
+		Readers: []otelconfx.MetricReader{
+			{
+				Periodic: &otelconfx.PeriodicMetricReader{
+					Interval: &interval,
+					Exporter: otelconfx.PushMetricExporter{
+						OTLPGrpc: &otelconfx.OTLPGrpcMetricExporter{
+							Endpoint:                    &endpoint,
+							DefaultHistogramAggregation: defaultHistogramAggregation(cfg.OTELMetrics.HistogramAggregation),
+							Tls: &otelconfx.GrpcTls{
+								Insecure: &insecure,
 							},
 						},
 					},
 				},
 			},
-			map[string]any{
-				"pull": map[string]any{
-					"exporter": map[string]any{
-						"prometheus/development": map[string]any{
-							"port": cfg.Prometheus.Port,
+			{
+				Pull: &otelconfx.PullMetricReader{
+					Exporter: otelconfx.PullMetricExporter{
+						PrometheusDevelopment: &otelconfx.ExperimentalPrometheusMetricExporter{
+							Port: &prometheusPort,
 						},
 					},
 				},
 			},
 		},
 	}
+}
+
+func defaultHistogramAggregation(aggregation otelcfg.HistogramAggregation) *otelconfx.ExporterDefaultHistogramAggregation {
+	if aggregation == "" {
+		return nil
+	}
+	out := otelconfx.ExporterDefaultHistogramAggregation(aggregation)
+	return &out
 }
 
 func insecureOTLPTransport(endpoint string) bool {
@@ -472,124 +596,143 @@ func insecureOTLPTransport(endpoint string) bool {
 	return err == nil && parsed.Scheme == "http"
 }
 
-func enrich(cfg *obi.Config) map[string]any {
-	return map[string]any{
-		"enrichers": map[string]any{
-			"kubernetes": map[string]any{
-				"mode":                  cfg.Attributes.Kubernetes.Enable,
-				"cluster_name":          cfg.Attributes.Kubernetes.ClusterName,
-				"service_name_template": cfg.Attributes.Kubernetes.ServiceNameTemplate,
-				"auth": map[string]any{
-					"kubeconfig_path": cfg.Attributes.Kubernetes.KubeconfigPath,
+func enrich(cfg *obi.Config) *schema.Enrich {
+	return &schema.Enrich{
+		Enrichers: schema.Enrichers{
+			Kubernetes: schema.KubernetesEnricher{
+				Mode:                v2KubernetesMode(cfg.Attributes.Kubernetes.Enable),
+				ClusterName:         cfg.Attributes.Kubernetes.ClusterName,
+				ServiceNameTemplate: cfg.Attributes.Kubernetes.ServiceNameTemplate,
+				Auth: schema.KubernetesAuth{
+					KubeconfigPath: cfg.Attributes.Kubernetes.KubeconfigPath,
 				},
-				"informers": map[string]any{
-					"initial_sync_timeout":       cfg.Attributes.Kubernetes.InformersSyncTimeout.String(),
-					"reconnect_initial_interval": cfg.Attributes.Kubernetes.ReconnectInitialInterval.String(),
-					"resync_period":              cfg.Attributes.Kubernetes.InformersResyncPeriod.String(),
-					"disabled":                   cfg.Attributes.Kubernetes.DisableInformers,
+				Informers: schema.KubernetesInformers{
+					InitialSyncTimeout:       schema.Duration(cfg.Attributes.Kubernetes.InformersSyncTimeout),
+					ReconnectInitialInterval: schema.Duration(cfg.Attributes.Kubernetes.ReconnectInitialInterval),
+					ResyncPeriod:             schema.Duration(cfg.Attributes.Kubernetes.InformersResyncPeriod),
+					Disabled:                 cfg.Attributes.Kubernetes.DisableInformers,
 				},
-				"drop_external":   cfg.Attributes.Kubernetes.DropExternal,
-				"resource_labels": cfg.Attributes.Kubernetes.ResourceLabels,
-				"metadata_cache": map[string]any{
-					"address":             cfg.Attributes.Kubernetes.MetaCacheAddress,
-					"restrict_local_node": cfg.Attributes.Kubernetes.MetaRestrictLocalNode,
-					"source_labels": map[string]any{
-						"service_name":      cfg.Attributes.Kubernetes.MetaSourceLabels.ServiceName,
-						"service_namespace": cfg.Attributes.Kubernetes.MetaSourceLabels.ServiceNamespace,
+				DropExternal:   cfg.Attributes.Kubernetes.DropExternal,
+				ResourceLabels: schema.ResourceLabels(cfg.Attributes.Kubernetes.ResourceLabels),
+				MetadataCache: schema.KubernetesMetadataCache{
+					Address:           cfg.Attributes.Kubernetes.MetaCacheAddress,
+					RestrictLocalNode: cfg.Attributes.Kubernetes.MetaRestrictLocalNode,
+					SourceLabels: schema.KubernetesSourceLabels{
+						ServiceName:      cfg.Attributes.Kubernetes.MetaSourceLabels.ServiceName,
+						ServiceNamespace: cfg.Attributes.Kubernetes.MetaSourceLabels.ServiceNamespace,
 					},
 				},
 			},
 		},
-		"service_name": serviceNameEnrichment(cfg),
-		"attributes": map[string]any{
-			"select":                 cfg.Attributes.Select,
-			"extra_group_attributes": cfg.Attributes.ExtraGroupAttributes,
-			"metadata_retry": map[string]any{
-				"timeout":        cfg.Attributes.MetadataRetry.Timeout.String(),
-				"start_interval": cfg.Attributes.MetadataRetry.StartInterval.String(),
-				"max_interval":   cfg.Attributes.MetadataRetry.MaxInterval.String(),
+		ServiceName: serviceNameEnrichment(cfg),
+		Attributes: schema.EnrichmentAttributes{
+			Select:               cfg.Attributes.Select,
+			ExtraGroupAttributes: schema.ExtraGroupAttributes(cfg.Attributes.ExtraGroupAttributes),
+			MetadataRetry: schema.MetadataRetry{
+				Timeout:       schema.Duration(cfg.Attributes.MetadataRetry.Timeout),
+				StartInterval: schema.Duration(cfg.Attributes.MetadataRetry.StartInterval),
+				MaxInterval:   schema.Duration(cfg.Attributes.MetadataRetry.MaxInterval),
 			},
 		},
 	}
 }
 
-func serviceNameEnrichment(cfg *obi.Config) map[string]any {
-	out := map[string]any{
-		"unresolved_hosts": map[string]any{
-			"names": map[string]any{
-				"default":  cfg.Attributes.RenameUnresolvedHosts,
-				"outgoing": cfg.Attributes.RenameUnresolvedHostsOutgoing,
-				"incoming": cfg.Attributes.RenameUnresolvedHostsIncoming,
+func serviceNameEnrichment(cfg *obi.Config) schema.ServiceName {
+	out := schema.ServiceName{
+		UnresolvedHosts: schema.UnresolvedHosts{
+			Names: schema.UnresolvedHostNames{
+				Default:  cfg.Attributes.RenameUnresolvedHosts,
+				Outgoing: cfg.Attributes.RenameUnresolvedHostsOutgoing,
+				Incoming: cfg.Attributes.RenameUnresolvedHostsIncoming,
 			},
 		},
 	}
 	if cfg.NameResolver == nil {
-		out["sources"] = []any{}
-		out["cache"] = map[string]any{
-			"size": 0,
-			"ttl":  "0s",
-		}
+		out.Sources = []transform.Source{}
+		out.Cache = schema.Cache{TTL: schema.Duration(0)}
 		return out
 	}
 
-	out["sources"] = cfg.NameResolver.Sources
-	out["cache"] = map[string]any{
-		"size": cfg.NameResolver.CacheLen,
-		"ttl":  cfg.NameResolver.CacheTTL.String(),
+	out.Sources = cfg.NameResolver.Sources
+	out.Cache = schema.Cache{
+		Size: cfg.NameResolver.CacheLen,
+		TTL:  schema.Duration(cfg.NameResolver.CacheTTL),
 	}
 	return out
 }
 
-func correlation(cfg *obi.Config) map[string]any {
-	return map[string]any{
-		"log_trace_annotation": map[string]any{
-			"enabled": cfg.EBPF.LogEnricher.Enabled(),
-			"filter":  map[string]any{},
-			"cache": map[string]any{
-				"ttl":  cfg.EBPF.LogEnricher.CacheTTL.String(),
-				"size": cfg.EBPF.LogEnricher.CacheSize,
+func correlation(cfg *obi.Config) *schema.Correlation {
+	return &schema.Correlation{
+		LogTraceAnnotation: schema.LogTraceAnnotation{
+			Enabled: cfg.EBPF.LogEnricher.Enabled(),
+			Cache: schema.Cache{
+				TTL:  schema.Duration(cfg.EBPF.LogEnricher.CacheTTL),
+				Size: cfg.EBPF.LogEnricher.CacheSize,
 			},
-			"async_writer": map[string]any{
-				"workers":     cfg.EBPF.LogEnricher.AsyncWriterWorkers,
-				"channel_len": cfg.EBPF.LogEnricher.AsyncWriterChannelLen,
+			AsyncWriter: schema.AsyncWriter{
+				Workers:    cfg.EBPF.LogEnricher.AsyncWriterWorkers,
+				ChannelLen: cfg.EBPF.LogEnricher.AsyncWriterChannelLen,
 			},
 		},
 	}
 }
 
-func daemon(cfg *obi.Config) map[string]any {
-	return map[string]any{
-		"logging": map[string]any{
-			"level":              cfg.LogLevel,
-			"format":             cfg.LogConfig,
-			"debug_trace_output": cfg.TracePrinter,
+func daemon(cfg *obi.Config) *schema.Daemon {
+	return &schema.Daemon{
+		Logging: schema.Logging{
+			Level:            schema.LogLevel(cfg.LogLevel),
+			Format:           logFormat(cfg.LogFormat),
+			ConfigFormat:     configFormat(cfg.LogConfig),
+			DebugTraceOutput: cfg.TracePrinter,
 		},
-		"profiling": map[string]any{
-			"port": cfg.ProfilePort,
+		Profiling: schema.Profiling{
+			Port: cfg.ProfilePort,
 		},
-		"shutdown": map[string]any{
-			"timeout": cfg.ShutdownTimeout.String(),
+		Shutdown: schema.Shutdown{
+			Timeout: schema.Duration(cfg.ShutdownTimeout),
 		},
-		"internal_metrics": map[string]any{
-			"exporter": cfg.InternalMetrics.Exporter,
-			"prometheus": map[string]any{
-				"port": cfg.InternalMetrics.Prometheus.Port,
-				"path": cfg.InternalMetrics.Prometheus.Path,
+		InternalMetrics: schema.InternalMetrics{
+			Exporter: cfg.InternalMetrics.Exporter,
+			Prometheus: schema.InternalPrometheus{
+				Port: cfg.InternalMetrics.Prometheus.Port,
+				Path: cfg.InternalMetrics.Prometheus.Path,
 			},
-			"bpf": map[string]any{
-				"scrape_interval": cfg.InternalMetrics.BpfMetricScrapeInterval.String(),
+			BPF: schema.BPFInternalMetrics{
+				ScrapeInterval: schema.Duration(cfg.InternalMetrics.BpfMetricScrapeInterval),
 			},
 		},
-		"telemetry": map[string]any{
-			"metrics": map[string]any{
-				"prometheus": map[string]any{
-					"allow_service_graph_self_references": cfg.Prometheus.AllowServiceGraphSelfReferences,
-					"span_metrics_service_cache_size":     cfg.Prometheus.SpanMetricsServiceCacheSize,
-					"extra_resource_attributes":           cfg.Prometheus.ExtraResourceLabels,
-					"extra_span_resource_attributes":      mergedStrings(cfg.Prometheus.ExtraSpanResourceLabels, cfg.OTELMetrics.ExtraSpanResourceLabels),
+		Telemetry: schema.DaemonTelemetry{
+			Metrics: schema.DaemonTelemetryMetrics{
+				Prometheus: schema.DaemonPrometheusTelemetry{
+					AllowServiceGraphSelfReferences: cfg.Prometheus.AllowServiceGraphSelfReferences,
+					SpanMetricsServiceCacheSize:     cfg.Prometheus.SpanMetricsServiceCacheSize,
+					ExtraResourceAttributes:         cfg.Prometheus.ExtraResourceLabels,
+					ExtraSpanResourceAttributes:     mergedStrings(cfg.Prometheus.ExtraSpanResourceLabels, cfg.OTELMetrics.ExtraSpanResourceLabels),
 				},
 			},
 		},
+	}
+}
+
+func logFormat(format obi.LogFormat) schema.LogFormat {
+	switch strings.ToLower(string(format)) {
+	case string(schema.LogFormatJSON):
+		return schema.LogFormatJSON
+	case string(schema.LogFormatText):
+		return schema.LogFormatText
+	default:
+		return schema.LogFormatText
+	}
+}
+
+func configFormat(format obi.LogConfigOption) schema.ConfigFormat {
+	switch format {
+	case obi.LogConfigOptionJSON:
+		return schema.ConfigFormatJSON
+	case obi.LogConfigOptionYAML:
+		return schema.ConfigFormatYAML
+	default:
+		return schema.ConfigFormatUnset
 	}
 }
 
@@ -606,12 +749,4 @@ func mergedStrings(values ...[]string) []string {
 		}
 	}
 	return out
-}
-
-func textValue(v encoding.TextMarshaler) any {
-	raw, err := v.MarshalText()
-	if err != nil {
-		return fmt.Sprint(v)
-	}
-	return string(raw)
 }

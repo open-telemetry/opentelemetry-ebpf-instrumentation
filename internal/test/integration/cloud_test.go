@@ -5,7 +5,6 @@ package integration
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/netip"
@@ -181,23 +180,19 @@ func setupMockGCPIMDS(t *testing.T, net dockertest.Network) {
 }
 
 func waitUntilReadyToServe(metaURL string) error {
-	done := make(chan struct{})
+	startTime := time.Now()
 	// Wait until the container is ready to serve requests
-	go func() {
-		for {
-			resp, err := http.Get(metaURL)
-			if err != nil || resp.StatusCode != http.StatusOK {
-				time.Sleep(500 * time.Millisecond)
-				continue
-			}
-			close(done)
-			return
+	for time.Since(startTime) < 30*time.Second {
+		client := &http.Client{Timeout: time.Second}
+		resp, err := client.Get(metaURL)
+		if resp != nil {
+			// avoid leaking connections/fds on multiple iterations
+			_ = resp.Body.Close()
 		}
-	}()
-	select {
-	case <-done:
-		return nil
-	case <-time.After(30 * time.Second):
-		return errors.New("timeout")
+		if err == nil && resp.StatusCode == http.StatusOK {
+			return nil
+		}
+		time.Sleep(500 * time.Millisecond)
 	}
+	return fmt.Errorf("timed out waiting for %s to become ready", metaURL)
 }

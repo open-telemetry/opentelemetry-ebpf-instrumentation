@@ -26,6 +26,7 @@
 #include <generictracer/maps/http_info_mem.h>
 
 #include <generictracer/k_tracer_tailcall.h>
+#include <generictracer/large_buf_tailcall.h>
 #include <generictracer/protocol_common.h>
 
 #include <logger/bpf_dbg.h>
@@ -329,8 +330,11 @@ static __always_inline void handle_http_response(unsigned char *small_buf,
     process_http_response(info, small_buf);
     cleanup_http_request_data(pid_conn, info);
 
-    // Generic Go events cannot be delayed for now since we don't probe on net_close
-    if (high_request_volume || (lw_thread != k_lw_thread_none)) {
+    // Generic Go events cannot be delayed since we don't probe on net_close.
+    // SSL connections must always be delayed: subsequent SSL_read calls deliver
+    // the response body (e.g. SSE streaming) and require the request to remain
+    // active in ongoing_http.
+    if ((high_request_volume && !info->ssl) || (lw_thread != k_lw_thread_none)) {
         finish_http(info, pid_conn);
         // If we are terminating because of a light weight thread, e.g. Go we must clean
         // the server information we have encoded in the Go structs.
@@ -343,16 +347,14 @@ static __always_inline void handle_http_response(unsigned char *small_buf,
     }
 }
 
-static __always_inline int http_send_large_buffer(http_info_t *req,
+static __always_inline int http_send_large_buffer(void *ctx,
+                                                  http_info_t *req,
+                                                  const pid_connection_info_t *pid_conn,
                                                   const void *u_buf,
                                                   u32 bytes_len,
                                                   u8 packet_type,
                                                   u8 direction,
                                                   enum large_buf_action action) {
-    if (http_max_captured_bytes > k_large_buf_max_http_captured_bytes) {
-        bpf_dbg_printk("BUG: http_max_captured_bytes exceeds maximum allowed value.");
-    }
-
     const u32 bytes_sent =
         packet_type == PACKET_TYPE_REQUEST ? req->lb_req_bytes : req->lb_res_bytes;
 
@@ -360,39 +362,23 @@ static __always_inline int http_send_large_buffer(http_info_t *req,
         return 0;
     }
 
-    tcp_large_buffer_t *large_buf = (tcp_large_buffer_t *)tcp_large_buffers_mem();
-
-    if (!large_buf) {
-        bpf_dbg_printk("failed to reserve space for HTTP large buffer");
-        return -1;
-    }
-
-    large_buf->type = EVENT_TCP_LARGE_BUFFER;
-    large_buf->packet_type = packet_type;
-    large_buf->direction = direction;
-    large_buf->conn_info = req->conn_info;
-    large_buf->action = action;
-    large_buf->kind = k_large_buf_layer_app;
-    large_buf->tp = req->tp;
-
     u32 max_available_bytes = http_max_captured_bytes - bytes_sent;
     bpf_clamp_umax(max_available_bytes, k_large_buf_max_http_captured_bytes);
 
-    const u32 available_bytes = min(bytes_len, max_available_bytes);
-    const u32 consumed_bytes = large_buf_emit_chunks(large_buf, u_buf, available_bytes);
-
-    if (consumed_bytes > 0) {
-        req->has_large_buffers = true;
+    large_buf_emit_state_t *state = (large_buf_emit_state_t *)large_buf_emit_state_mem();
+    if (!state) {
+        return -1;
     }
 
-    bpf_dbg_printk("large buffer consumed %u bytes", consumed_bytes);
+    state->u_buf = (u64)u_buf;
+    state->remaining_bytes = min(bytes_len, max_available_bytes);
+    state->pid_conn = *pid_conn;
+    state->batch_iter = 0;
+    state->packet_type = packet_type;
+    state->direction = direction;
+    state->action = action;
 
-    if (packet_type == PACKET_TYPE_REQUEST) {
-        req->lb_req_bytes += consumed_bytes;
-    } else {
-        req->lb_res_bytes += consumed_bytes;
-    }
-
+    bpf_tail_call_static(ctx, &jump_table, k_tail_large_buf_emit_continue);
     return 0;
 }
 
@@ -400,8 +386,6 @@ static __always_inline int __obi_continue2_protocol_http(struct pt_regs *ctx,
                                                          call_protocol_args_t *args,
                                                          http_info_t *info,
                                                          http_connection_metadata_t *meta) {
-    (void)ctx;
-
     if (meta) {
         const u32 type = trace_type_from_meta(meta);
         tp_info_pid_t *tp_p = trace_info_for_connection(&args->pid_conn.conn, type);
@@ -418,18 +402,22 @@ static __always_inline int __obi_continue2_protocol_http(struct pt_regs *ctx,
         bpf_dbg_printk("No META!");
     }
 
-    http_send_large_buffer(info,
-                           (void *)args->u_buf,
-                           args->bytes_len,
-                           args->packet_type,
-                           args->direction,
-                           k_large_buf_action_init);
-
     // we copy some small part of the buffer to the info trace event, so that we can process an event even with
     // incomplete trace info in user space.
     bpf_probe_read(info->buf, FULL_BUF_SIZE, (void *)args->u_buf);
     process_http_request(
         info, args->bytes_len, meta, args->direction, args->orig_dport, args->lw_thread);
+
+    // Emit large buffer last: may tail call for continuation batches, so all
+    // critical state updates must precede this call.
+    http_send_large_buffer(ctx,
+                           info,
+                           &args->pid_conn,
+                           (void *)args->u_buf,
+                           args->bytes_len,
+                           args->packet_type,
+                           args->direction,
+                           k_large_buf_action_init);
 
     return 0;
 }
@@ -776,27 +764,38 @@ __obi_protocol_http(struct pt_regs *ctx, unsigned char *(*tp_loop_fn)(unsigned c
 
         return 0;
     } else if ((args->packet_type == PACKET_TYPE_RESPONSE) && (info->status == 0)) {
-        http_send_large_buffer(info,
+        handle_http_response(
+            args->small_buf, &args->pid_conn, info, args->bytes_len, args->lw_thread);
+        http_send_large_buffer(ctx,
+                               info,
+                               &args->pid_conn,
                                (void *)args->u_buf,
                                args->bytes_len,
                                args->packet_type,
                                args->direction,
                                k_large_buf_action_init);
-        handle_http_response(
-            args->small_buf, &args->pid_conn, info, args->bytes_len, args->lw_thread);
     } else if (still_reading(info)) {
         // print here
-        http_send_large_buffer(info,
+        info->len += args->bytes_len;
+        http_send_large_buffer(ctx,
+                               info,
+                               &args->pid_conn,
                                (void *)args->u_buf,
                                args->bytes_len,
                                args->packet_type,
                                args->direction,
                                k_large_buf_action_append);
-
-        info->len += args->bytes_len;
     } else if (still_responding(info)) {
         info->end_monotime_ns = bpf_ktime_get_ns();
         info->resp_len += args->bytes_len;
+        http_send_large_buffer(ctx,
+                               info,
+                               &args->pid_conn,
+                               (void *)args->u_buf,
+                               args->bytes_len,
+                               PACKET_TYPE_RESPONSE,
+                               args->direction,
+                               k_large_buf_action_append);
     }
 
     return 0;
@@ -812,4 +811,54 @@ int obi_protocol_http(struct pt_regs *ctx) {
 SEC("kprobe/http")
 int obi_protocol_http_legacy(struct pt_regs *ctx) {
     return __obi_protocol_http(ctx, bpf_strstr_tp_loop__legacy);
+}
+
+// k_tail_large_buf_emit_continue
+SEC("kprobe/http")
+int obi_large_buf_emit_continue(struct pt_regs *ctx) {
+    large_buf_emit_state_t *state = (large_buf_emit_state_t *)large_buf_emit_state_mem();
+    if (!state || state->remaining_bytes == 0) {
+        return 0;
+    }
+
+    http_info_t *info = bpf_map_lookup_elem(&ongoing_http, &state->pid_conn);
+    if (!info) {
+        return 0;
+    }
+
+    tcp_large_buffer_t *large_buf = (tcp_large_buffer_t *)tcp_large_buffers_mem();
+    if (!large_buf) {
+        return 0;
+    }
+
+    large_buf->type = EVENT_TCP_LARGE_BUFFER;
+    large_buf->packet_type = state->packet_type;
+    large_buf->direction = state->direction;
+    large_buf->conn_info = info->conn_info;
+    large_buf->action = state->batch_iter == 0 ? state->action : k_large_buf_action_append;
+    large_buf->kind = k_large_buf_layer_app;
+    large_buf->tp = info->tp;
+
+    const u32 consumed_bytes =
+        large_buf_emit_chunks(large_buf, (const void *)state->u_buf, state->remaining_bytes);
+
+    if (consumed_bytes > 0) {
+        info->has_large_buffers = true;
+        if (state->packet_type == PACKET_TYPE_REQUEST) {
+            info->lb_req_bytes += consumed_bytes;
+        } else {
+            info->lb_res_bytes += consumed_bytes;
+        }
+    }
+
+    state->u_buf += consumed_bytes;
+    state->remaining_bytes -= consumed_bytes;
+    state->batch_iter++;
+
+    if (state->remaining_bytes > 0 && consumed_bytes > 0 &&
+        state->batch_iter < k_large_buf_max_batches) {
+        bpf_tail_call_static(ctx, &jump_table, k_tail_large_buf_emit_continue);
+    }
+
+    return 0;
 }

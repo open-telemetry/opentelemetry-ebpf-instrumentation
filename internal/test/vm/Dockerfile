@@ -27,6 +27,13 @@ RUN for t in iptables ip6tables; do \
         ln -sf "$(command -v ${t}-legacy)" "$(command -v ${t})"; \
     done
 
+# CGROUP_MODE=legacy forces OpenRC to mount cgroupv1 only.
+ARG CGROUP_MODE=
+RUN if [ "$CGROUP_MODE" = "legacy" ]; then \
+        sed -i 's|^#\?rc_cgroup_mode=.*|rc_cgroup_mode="legacy"|' /etc/rc.conf; \
+        grep -E '^rc_cgroup_mode' /etc/rc.conf; \
+    fi
+
 # Module-load service: LVH kernels ship loadable modules for overlayfs,
 # br_netfilter, nf_tables, etc. Runs before localmount because /etc/fstab
 # mounts /build (overlay) and Docker needs br_netfilter.
@@ -209,7 +216,17 @@ while ! docker info >/dev/null 2>&1; do
 done
 echo "Docker daemon is ready"
 
-sysctl -w kernel.panic_on_rcu_stall=1 2>/dev/null || true
+# panic_on_rcu_stall surfaces hangs as test failures for integration runs.
+# Skip it for the verifier suite: a heavy verifier load can hold a CPU long
+# enough to trip the stall detector even though it's making progress.
+case "$(cat /build/testoutput/test-env 2>/dev/null | grep '^target=' | cut -d= -f2)" in
+    run-bpf-verifier-vm)
+        echo "skipping panic_on_rcu_stall (verifier suite)"
+        ;;
+    *)
+        sysctl -w kernel.panic_on_rcu_stall=1 2>/dev/null || true
+        ;;
+esac
 
 echo "=== Docker/runc versions in VM ==="
 docker version

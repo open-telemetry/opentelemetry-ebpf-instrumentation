@@ -86,6 +86,7 @@ typedef enum {
     _tracer_attribute_opt_off,
     _error_string_off,
     // go runtime channels
+    _hchan_qcount_pos,
     _hchan_dataqsiz_pos,
     _hchan_sendx_pos,
     _hchan_recvx_pos,

@@ -15,6 +15,7 @@ import (
 // Selection specifies which attributes are allowed for each signal.
 // The key is usually the metric name (either in Prometheus or OpenTelemetry format);
 // the key "traces" selects optional attributes for exported OTLP traces.
+// The key "resource" selects exported resource attributes.
 // The value is the enumeration of included/excluded attribute globs
 type Selection map[Section]InclusionLists
 
@@ -37,6 +38,15 @@ func (i *InclusionLists) includes(name attr.Name) bool {
 		// to ignore user-input format (dots or underscores) we transform the patterns
 		// and the metric names to underscores
 		if ok, _ := path.Match(asProm(incl), name.Prom()); ok {
+			return true
+		}
+	}
+	return false
+}
+
+func (i *InclusionLists) includesExact(name attr.Name) bool {
+	for _, incl := range i.Include {
+		if asProm(incl) == name.Prom() {
 			return true
 		}
 	}

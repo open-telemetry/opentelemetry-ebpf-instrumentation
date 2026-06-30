@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"go.opentelemetry.io/obi/pkg/export/imetrics"
 	"go.opentelemetry.io/obi/pkg/internal/testutil"
 )
 
@@ -408,24 +409,127 @@ func TestBlockingPanics(t *testing.T) {
 	})
 }
 
-func TestNodeString(t *testing.T) {
+func TestSendPath(t *testing.T) {
 	type tc struct {
 		expect string
-		start  node
+		route  []string
 	}
 	testCases := []tc{{
-		expect: "name-only",
-		start:  node{name: "name-only"},
+		expect: "subscriber",
+		route:  nil,
 	}, {
-		expect: "src->dst",
-		start:  node{name: "dst", source: &node{name: "src"}},
+		expect: "src->subscriber",
+		route:  []string{"src"},
 	}, {
-		expect: "src->middle->dst",
-		start:  node{name: "dst", source: &node{name: "middle", source: &node{name: "src"}}},
+		expect: "src->dst->subscriber",
+		route:  []string{"src", "dst"},
+	}, {
+		expect: "src->middle->dst->subscriber",
+		route:  []string{"src", "middle", "dst"},
 	}}
 	for _, tc := range testCases {
 		t.Run(tc.expect, func(t *testing.T) {
-			assert.Equal(t, tc.expect, tc.start.String())
+			assert.Equal(t, tc.expect, sendPath(tc.route, "subscriber"))
 		})
 	}
+}
+
+func TestMetrics_CapacityGauge(t *testing.T) {
+	fp := &fakeProvisioner{gauges: map[string]float64{}}
+	q := NewQueue[int](
+		Name("head"),
+		ChannelBufferLen(100),
+		InternalMetrics(fp))
+
+	// Two subscribers: one that works normally and another that is blocked
+	working := q.Subscribe(SubscriberName("working"))
+	blocked := q.Subscribe(SubscriberName("blocked"))
+
+	for i := 0; i < 50; i++ {
+		q.SendCtx(t.Context(), i)
+		// working channel reads values as long as they arrive
+		testutil.ReadChannel(t, working, timeout)
+	}
+	// working gauge will stay in 0.01 (metric is not cleaned up after last read)
+	assert.InDelta(t, 0.01, fp.GaugeFor("working"), 0.0001)
+	// blocked gauge reaches 0.5
+	assert.InDelta(t, 0.5, fp.GaugeFor("blocked"), 0.0001)
+
+	// send another batch
+	for i := 0; i < 50; i++ {
+		q.SendCtx(t.Context(), i)
+		testutil.ReadChannel(t, working, timeout)
+	}
+	assert.InDelta(t, 0.01, fp.GaugeFor("working"), 0.0001)
+	// blocked gauge reaches 1 (max)
+	assert.InDelta(t, 1.0, fp.GaugeFor("blocked"), 0.0001)
+
+	// unblock blocked subscriber --> metrics should go to lowest value
+	for i := 0; i < 100; i++ {
+		testutil.ReadChannel(t, blocked, timeout)
+	}
+	// send a last message to force update of metrics
+	q.SendCtx(t.Context(), 0)
+	assert.InDelta(t, 0.01, fp.GaugeFor("blocked"), 0.0001)
+	assert.InDelta(t, 0.01, fp.GaugeFor("working"), 0.0001)
+}
+
+func TestMetrics_Labels(t *testing.T) {
+	t.Run("direct subscription", func(t *testing.T) {
+		fp := &fakeProvisioner{gauges: map[string]float64{}}
+		q := NewQueue[int](
+			Name("head"),
+			ChannelBufferLen(5),
+			InternalMetrics(fp))
+		q.Subscribe(SubscriberName("subs"))
+		q.SendCtx(t.Context(), 1)
+		assert.InDelta(t, 0.2, fp.GaugeFor("subs"), 0.001)
+	})
+	t.Run("bypasses subscription", func(t *testing.T) {
+		fp := &fakeProvisioner{gauges: map[string]float64{}}
+		h1 := NewQueue[int](Name("head1"), ChannelBufferLen(5), InternalMetrics(fp))
+		h2 := NewQueue[int](Name("head2"), ChannelBufferLen(5), InternalMetrics(fp))
+		m1 := NewQueue[int](Name("mid1"), ChannelBufferLen(5), InternalMetrics(fp))
+		m2 := NewQueue[int](Name("mid2"), ChannelBufferLen(5), InternalMetrics(fp))
+		ta := NewQueue[int](Name("tail"), ChannelBufferLen(5), InternalMetrics(fp))
+		// interleaving subscriptions and bypasses. All the gauges
+		// should be labeled as src="head", dst="subsX"
+		h1.Bypass(m1)
+		m1.Bypass(ta)
+		// invert bypassing order
+		m2.Bypass(ta)
+		h2.Bypass(m2)
+		h1.Subscribe(SubscriberName("subs1"))
+		h2.Subscribe(SubscriberName("subs2"))
+		m1.Subscribe(SubscriberName("subs3"))
+		m2.Subscribe(SubscriberName("subs4"))
+		ta.Subscribe(SubscriberName("subs5"))
+
+		h1.SendCtx(t.Context(), 1)
+		h1.SendCtx(t.Context(), 2)
+		assert.InDelta(t, 0.4, fp.GaugeFor("subs1"), 0.001)
+		assert.InDelta(t, 0.4, fp.GaugeFor("subs2"), 0.001)
+		assert.InDelta(t, 0.4, fp.GaugeFor("subs3"), 0.001)
+		assert.InDelta(t, 0.4, fp.GaugeFor("subs4"), 0.001)
+		assert.InDelta(t, 0.4, fp.GaugeFor("subs5"), 0.001)
+	})
+}
+
+// implementation of fake gauge metrics for testing
+type fakeProvisioner struct {
+	imetrics.NoopReporter
+	mt     sync.RWMutex
+	gauges map[string]float64
+}
+
+func (fp *fakeProvisioner) GaugeFor(subscriber string) float64 {
+	fp.mt.RLock()
+	defer fp.mt.RUnlock()
+	return fp.gauges[subscriber]
+}
+
+func (fp *fakeProvisioner) QueueBufferUtilization(name string, val float64) {
+	fp.mt.Lock()
+	defer fp.mt.Unlock()
+	fp.gauges[name] = val
 }

@@ -44,8 +44,9 @@ fi
 yq -o=json -I=0 "
   {\"include\": [
     .kernels[] | select(${FILTER}) | {
-      \"id\":      .id,
-      \"lvh_tag\": .lvh_tag
+      \"id\":           .id,
+      \"lvh_tag\":      .lvh_tag,
+      \"cgroup_mode\":  (.cgroup_mode // \"hybrid\")
     }
   ]}
 " "$YAML"

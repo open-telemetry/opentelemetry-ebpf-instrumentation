@@ -5,6 +5,7 @@ package schema
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -16,17 +17,26 @@ func TestParseStandaloneYAMLDocument(t *testing.T) {
 file_format: "1.0"
 resource:
   attributes:
-    service.namespace: checkout
+    - name: service.namespace
+      value: checkout
 propagator:
-  composite: [tracecontext, baggage]
+  composite:
+    - tracecontext:
+    - baggage:
 tracer_provider:
   sampler:
     parent_based:
       root:
-        always_on: {}
+        always_on:
 meter_provider:
   readers:
-    - periodic: {}
+    - periodic:
+        interval: 1000
+        exporter:
+          otlp_grpc:
+            endpoint: http://localhost:4317
+            tls:
+              insecure: true
 instrumentation/development:
   ignored: true
 extensions:
@@ -35,6 +45,7 @@ extensions:
     capture:
       policy:
         default_action: include
+        match_order: last_match_wins
       rules:
         - action: include
           name: checkout
@@ -53,7 +64,8 @@ extensions:
                   patterns: ["/inventory/{id}"]
               filters:
                 traces:
-                  status_code: ["5*"]
+                  status_code:
+                    match: "5*"
 `))
 
 	require.NoError(t, err)
@@ -61,30 +73,32 @@ extensions:
 	require.NotNil(t, cfg)
 	require.Equal(t, "1.0", doc.FileFormat)
 	require.Equal(t, SupportedVersion, cfg.Version)
-	require.Equal(t, map[string]any{
-		"root": map[string]any{
-			"always_on": map[string]any{},
-		},
-	}, nestedMap(doc.TracerProvider, "sampler", "parent_based"))
-	require.Equal(t, []any{map[string]any{"periodic": map[string]any{}}}, doc.MeterProvider["readers"])
-	require.Equal(t, "include", cfg.Capture.Policy["default_action"])
+	require.NotNil(t, doc.InstrumentationDevelopment)
+	require.Len(t, doc.Resource.Attributes, 1)
+	require.Equal(t, "service.namespace", doc.Resource.Attributes[0].Name)
+	require.Equal(t, "checkout", doc.Resource.Attributes[0].Value)
+	require.Len(t, doc.Propagator.Composite, 2)
+	require.NotNil(t, doc.TracerProvider.Sampler)
+	require.NotNil(t, doc.TracerProvider.Sampler.ParentBased)
+	require.NotNil(t, doc.TracerProvider.Sampler.ParentBased.Root)
+	require.NotNil(t, doc.TracerProvider.Sampler.ParentBased.Root.AlwaysOn)
+	require.Len(t, doc.MeterProvider.Readers, 1)
+	require.NotNil(t, doc.MeterProvider.Readers[0].Periodic)
+	require.NotNil(t, doc.MeterProvider.Readers[0].Periodic.Interval)
+	require.Equal(t, int((time.Second).Milliseconds()), *doc.MeterProvider.Readers[0].Periodic.Interval)
+	require.NotNil(t, doc.MeterProvider.Readers[0].Periodic.Exporter.OTLPGrpc)
+	require.Equal(t, "http://localhost:4317", *doc.MeterProvider.Readers[0].Periodic.Exporter.OTLPGrpc.Endpoint)
+	require.Equal(t, CaptureActionInclude, cfg.Capture.Policy.DefaultAction)
+	require.Equal(t, MatchOrderLastMatchWins, cfg.Capture.Policy.MatchOrder)
 	require.Len(t, cfg.Capture.Rules, 1)
-	require.Equal(t, map[string]any{"traces": false, "metrics": true}, cfg.Capture.Rules[0].Refine.Exports)
-	require.Equal(t, map[string]any{
-		"routes": map[string]any{
-			"incoming": map[string]any{
-				"patterns": []any{"/orders/{id}"},
-			},
-			"outgoing": map[string]any{
-				"patterns": []any{"/inventory/{id}"},
-			},
-		},
-		"filters": map[string]any{
-			"traces": map[string]any{
-				"status_code": []any{"5*"},
-			},
-		},
-	}, cfg.Capture.Rules[0].Refine.HTTP)
+	require.NotNil(t, cfg.Capture.Rules[0].Refine.Exports)
+	require.Equal(t, ExportModeRefinement{Traces: false, Metrics: true}, *cfg.Capture.Rules[0].Refine.Exports)
+	require.NotNil(t, cfg.Capture.Rules[0].Refine.HTTP)
+	require.Equal(t, HTTPRefinementRoutes{
+		Incoming: HTTPRefinementRoute{Patterns: []string{"/orders/{id}"}},
+		Outgoing: HTTPRefinementRoute{Patterns: []string{"/inventory/{id}"}},
+	}, cfg.Capture.Rules[0].Refine.HTTP.Routes)
+	require.Equal(t, AttributeFilter{Match: "5*"}, cfg.Capture.Rules[0].Refine.HTTP.Filters.Traces["status_code"])
 }
 
 func TestParseReceiverYAMLEmbedded(t *testing.T) {
@@ -111,12 +125,89 @@ channels:
 	require.NoError(t, err)
 	require.NotNil(t, cfg)
 	require.Equal(t, SupportedVersion, cfg.Version)
-	require.Equal(t, "exclude", cfg.Capture.Policy["default_action"])
+	require.Equal(t, CaptureActionExclude, cfg.Capture.Policy.DefaultAction)
 	require.Len(t, cfg.Capture.Rules, 1)
-	require.Equal(t, "8080,8443", nestedMap(cfg.Capture.Rules[0].Match, "process")["open_ports"])
-	require.Equal(t, map[string]any{"buffer_len": 123}, cfg.Capture.Channels)
-	require.True(t, nestedMap(cfg.Capture.Instrumentation, "http", "enabled")["traces"].(bool))
-	require.False(t, nestedMap(cfg.Capture.Instrumentation, "http", "enabled")["metrics"].(bool))
+	require.NotNil(t, cfg.Capture.Rules[0].Match.Process.OpenPorts)
+	require.Equal(t, []int{8080, 8443}, cfg.Capture.Rules[0].Match.Process.OpenPorts.AllValues())
+	require.Equal(t, 123, cfg.Capture.Channels.BufferLen)
+	require.True(t, cfg.Capture.Instrumentation.HTTP.Enabled.Traces)
+	require.False(t, cfg.Capture.Instrumentation.HTTP.Enabled.Metrics)
+}
+
+func TestParseReceiverRejectsInvalidTypedEnum(t *testing.T) {
+	t.Parallel()
+
+	_, err := ParseReceiverYAML([]byte(`
+version: "2.0"
+network:
+  capture:
+    source: made-up
+`))
+
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "invalid source")
+}
+
+func TestParseReceiverRejectsInvalidCaptureAction(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		yaml string
+	}{
+		{
+			name: "default action",
+			yaml: `
+version: "2.0"
+policy:
+  default_action: drop
+`,
+		},
+		{
+			name: "rule action",
+			yaml: `
+version: "2.0"
+rules:
+  - action: drop
+    match:
+      process:
+        exe_path_glob: ["/usr/bin/checkout"]
+`,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := ParseReceiverYAML([]byte(test.yaml))
+
+			require.Error(t, err)
+			require.Contains(t, err.Error(), "invalid action")
+		})
+	}
+}
+
+func TestParseStandaloneRejectsInvalidHistogramAggregation(t *testing.T) {
+	t.Parallel()
+
+	_, _, err := ParseStandaloneYAML([]byte(`
+file_format: "1.0"
+meter_provider:
+  readers:
+    - periodic:
+        exporter:
+          otlp_grpc:
+            endpoint: http://localhost:4317
+            default_histogram_aggregation: made-up
+extensions:
+  obi:
+    version: "2.0"
+    capture: {}
+`))
+
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "invalid histogram aggregation")
+	require.Contains(t, err.Error(), "made-up")
 }
 
 func TestReceiverRejectsStandaloneSections(t *testing.T) {
@@ -182,17 +273,17 @@ func TestValidateReceiverRejectsDecodedStandaloneSections(t *testing.T) {
 	}{
 		{
 			name:    sectionEnrich,
-			cfg:     Extension{Version: SupportedVersion, Enrich: map[string]any{}},
+			cfg:     Extension{Version: SupportedVersion, Enrich: &Enrich{}},
 			section: sectionEnrich,
 		},
 		{
 			name:    sectionCorrelation,
-			cfg:     Extension{Version: SupportedVersion, Correlation: map[string]any{}},
+			cfg:     Extension{Version: SupportedVersion, Correlation: &Correlation{}},
 			section: sectionCorrelation,
 		},
 		{
 			name:    sectionDaemon,
-			cfg:     Extension{Version: SupportedVersion, Daemon: map[string]any{}},
+			cfg:     Extension{Version: SupportedVersion, Daemon: &Daemon{}},
 			section: sectionDaemon,
 		},
 	}
@@ -394,13 +485,4 @@ extensions:
 	var receiverNotV2 *NotV2Error
 	require.ErrorAs(t, err, &receiverNotV2)
 	require.Contains(t, err.Error(), "missing top-level OBI v2 version field")
-}
-
-func nestedMap(raw map[string]any, path ...string) map[string]any {
-	cur := raw
-	for _, key := range path {
-		next, _ := cur[key].(map[string]any)
-		cur = next
-	}
-	return cur
 }

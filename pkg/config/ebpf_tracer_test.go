@@ -4,7 +4,6 @@
 package config
 
 import (
-	"fmt"
 	"reflect"
 	"testing"
 )
@@ -256,17 +255,23 @@ func TestEBPFTracer_CudaInstrumentationEnabled(t *testing.T) {
 }
 
 func TestEBPFBufferSizesValidateTagsMatchMaxCapturedPayloadBytes(t *testing.T) {
-	expected := fmt.Sprintf("lte=%d", MaxCapturedPayloadBytes)
 	typ := reflect.TypeOf(EBPFBufferSizes{})
 
 	for i := 0; i < typ.NumField(); i++ {
 		field := typ.Field(i)
-		if got := field.Tag.Get("validate"); got != expected {
+		got := field.Tag.Get("validate")
+		var expected string
+		if field.Name == "HTTP" {
+			expected = "lte=262144"
+		} else {
+			expected = "lte=65536"
+		}
+		if got != expected {
 			t.Fatalf(
 				"EBPFBufferSizes.%s validate tag drifted: got %q, want %q.\n"+
 					"To resolve this, update all of the following together:\n"+
 					"1. %s validate tag in pkg/config/ebpf_tracer.go\n"+
-					"2. MaxCapturedPayloadBytes in pkg/config/ebpf_tracer.go\n"+
+					"2. HTTP validate tag upper bound (HTTP only)\n"+
 					"3. matching k_large_buf_max_*_captured_bytes constant in bpf/common/large_buffers.h",
 				field.Name,
 				got,

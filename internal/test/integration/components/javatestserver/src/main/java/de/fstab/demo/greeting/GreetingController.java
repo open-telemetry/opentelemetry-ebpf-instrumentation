@@ -41,6 +41,17 @@ public class GreetingController {
 		return ResponseEntity.ok("OK");
 	}
 
+	@GetMapping("/gc")
+	public ResponseEntity<String> gc() throws InterruptedException {
+		byte[][] allocations = new byte[64][];
+		for (int i = 0; i < allocations.length; i++) {
+			allocations[i] = new byte[1024 * 1024];
+		}
+		System.gc();
+		Thread.sleep(100);
+		return ResponseEntity.ok("OK");
+	}
+
 	@GetMapping("/json_logger")
 	public ResponseEntity<String> jsonLogger() {
 		String message = "this is a json log from java";

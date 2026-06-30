@@ -15,7 +15,9 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
+	"go.opentelemetry.io/obi/pkg/appolly/meta"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
+	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 )
 
 func TestReporterPoolDoesNotReuseExpiredLastReporter(t *testing.T) {
@@ -431,6 +433,123 @@ func TestGetFilteredResourceAttrs(t *testing.T) {
 			}
 		})
 	}
+}
+
+func resourceAttrsMap(attrs []attribute.KeyValue) map[string]string {
+	attrMap := make(map[string]string, len(attrs))
+	for _, attr := range attrs {
+		attrMap[string(attr.Key)] = attr.Value.Emit()
+	}
+	return attrMap
+}
+
+func TestFilterResourceAttrs_DefaultPreservesResourceAttributes(t *testing.T) {
+	nodeMeta := meta.NodeMeta{
+		HostID: "host-id",
+		Metadata: []meta.Entry{
+			{Key: "cloud.account.id", Value: "account-id"},
+			{Key: "cloud.availability_zone", Value: "us-east-1a"},
+			{Key: "cloud.platform", Value: "aws_ec2"},
+			{Key: "cloud.provider", Value: "aws"},
+			{Key: "cloud.region", Value: "us-east-1"},
+			{Key: "gcp.gce.instance.name", Value: "instance-name"},
+			{Key: "host.image.id", Value: "ami-id"},
+			{Key: "host.type", Value: "m4.xlarge"},
+		},
+	}
+	service := svc.Attrs{
+		UID:      svc.UID{Name: "test-app", Namespace: "default", Instance: "test-app-1"},
+		HostName: "test-host",
+		Metadata: map[attr.Name]string{
+			attr.K8sPodName: "pod-1",
+		},
+	}
+
+	attrs := resourceAttrsMap(GetAppResourceAttrs(&nodeMeta, &service))
+
+	assert.Equal(t, "host-id", attrs["host.id"])
+	assert.Equal(t, "test-host", attrs["host.name"])
+	assert.Equal(t, "account-id", attrs["cloud.account.id"])
+	assert.Equal(t, "us-east-1", attrs["cloud.region"])
+	assert.Equal(t, "ami-id", attrs["host.image.id"])
+	assert.Equal(t, "pod-1", attrs["k8s.pod.name"])
+	assert.Equal(t, "test-app-1", attrs["service.instance.id"])
+}
+
+func TestFilterResourceAttrs_ResourceSelectionExcludesResourceAttributes(t *testing.T) {
+	nodeMeta := meta.NodeMeta{
+		HostID: "host-id",
+		Metadata: []meta.Entry{
+			{Key: "cloud.account.id", Value: "account-id"},
+			{Key: "cloud.availability_zone", Value: "us-east-1a"},
+			{Key: "cloud.platform", Value: "aws_ec2"},
+			{Key: "cloud.provider", Value: "aws"},
+			{Key: "cloud.region", Value: "us-east-1"},
+			{Key: "host.type", Value: "m4.xlarge"},
+		},
+	}
+	service := svc.Attrs{
+		UID:      svc.UID{Name: "test-app", Namespace: "default", Instance: "test-app-1"},
+		HostName: "test-host",
+		Metadata: map[attr.Name]string{
+			attr.K8sNamespaceName: "default",
+			attr.K8sPodName:       "pod-1",
+		},
+	}
+	selection := attributes.Selection{
+		"resource": attributes.InclusionLists{
+			Exclude: []string{"cloud.account.id", "k8s.pod.name", "service.instance.id"},
+		},
+	}
+	selection.Normalize()
+
+	attrs := resourceAttrsMap(GetAppResourceAttrs(&nodeMeta, &service, selection))
+
+	assert.Equal(t, "host-id", attrs["host.id"])
+	assert.Equal(t, "us-east-1", attrs["cloud.region"])
+	assert.Equal(t, "default", attrs["k8s.namespace.name"])
+	assert.NotContains(t, attrs, "cloud.account.id")
+	assert.NotContains(t, attrs, "k8s.pod.name")
+	assert.NotContains(t, attrs, "service.instance.id")
+}
+
+func TestFilterResourceAttrs_ResourceSelectionIncludesResourceAttributes(t *testing.T) {
+	attrs := []attribute.KeyValue{
+		attribute.String("cloud.account.id", "account-id"),
+		attribute.String("cloud.region", "us-east-1"),
+		attribute.String("host.type", "m4.xlarge"),
+		attribute.String("k8s.pod.name", "pod-1"),
+	}
+	selection := attributes.Selection{
+		attributes.Resource.Section: attributes.InclusionLists{
+			Include: []string{"cloud.*", "k8s.pod.name"},
+			Exclude: []string{"cloud.account.id"},
+		},
+	}
+
+	filtered := resourceAttrsMap(FilterResourceAttrs(attrs, selection))
+
+	assert.Equal(t, map[string]string{
+		"cloud.region": "us-east-1",
+		"k8s.pod.name": "pod-1",
+	}, filtered)
+}
+
+func TestResourceAttrsFromEnv_ResourceSelection(t *testing.T) {
+	service := svc.Attrs{
+		EnvVars: map[string]string{
+			envResourceAttrs: "deployment.environment=prod,cloud.account.id=account-id",
+		},
+	}
+	selection := attributes.Selection{
+		attributes.Resource.Section: attributes.InclusionLists{
+			Exclude: []string{"cloud.account.id"},
+		},
+	}
+
+	attrs := resourceAttrsMap(ResourceAttrsFromEnv(&service, selection))
+
+	assert.Equal(t, map[string]string{"deployment.environment": "prod"}, attrs)
 }
 
 func TestResourceAttrsFromEnv(t *testing.T) {

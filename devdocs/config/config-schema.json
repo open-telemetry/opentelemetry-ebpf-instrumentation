@@ -89,6 +89,10 @@
         },
         "select": {
           "$ref": "#/$defs/Selection"
+        },
+        "sensitive_query_params": {
+          "$ref": "#/$defs/SensitiveQueryParamsConfig",
+          "description": "Controls which query-parameter keys are redacted in url.full and url.query."
         }
       },
       "type": "object",
@@ -108,6 +112,24 @@
       },
       "type": "object",
       "description": "AttributesConfig stores the user-provided section for filtering either Application or Network records by attribute values"
+    },
+    "AvoidedServicesConfig": {
+      "properties": {
+        "disabled": {
+          "type": "boolean",
+          "description": "Disables the avoided-services internal metric.",
+          "default": false,
+          "x-env-var": "OTEL_EBPF_INTERNAL_METRICS_AVOIDED_SERVICES_DISABLED"
+        },
+        "limit": {
+          "type": "integer",
+          "description": "Bounds the number of avoided-services metric series, including the overflow series. 0 uses the OpenTelemetry default metric cardinality limit.",
+          "default": 2000,
+          "x-env-var": "OTEL_EBPF_INTERNAL_METRICS_AVOIDED_SERVICES_LIMIT"
+        }
+      },
+      "type": "object",
+      "description": "AvoidedServicesConfig controls the avoided-services internal metric."
     },
     "BedrockConfig": {
       "properties": {
@@ -445,10 +467,7 @@
               "nodejs"
             ]
           },
-          "type": "array",
-          "default": [
-            "java"
-          ]
+          "type": "array"
         },
         "exclude_instrument": {
           "$ref": "#/$defs/GlobDefinitionCriteria",
@@ -576,7 +595,7 @@
         }
       },
       "type": "object",
-      "description": "Per-protocol maximum bytes to capture per request per direction, sent to userspace via large buffer events. Values must stay aligned with MaxCapturedPayloadBytes and the k_large_buf_max_*_captured_bytes constants in bpf/common/large_buffers.h.  Default: 0 (disabled)."
+      "description": "Per-protocol maximum bytes to capture per request per direction, sent to userspace via large buffer events.  Default: 0 (disabled)."
     },
     "EBPFTracer": {
       "properties": {
@@ -884,6 +903,7 @@
           "all",
           "application",
           "application_host",
+          "application_jvm",
           "application_runtime",
           "application_service_graph",
           "application_span",
@@ -1377,6 +1397,9 @@
     },
     "InternalMetricsConfig": {
       "properties": {
+        "avoided_services": {
+          "$ref": "#/$defs/AvoidedServicesConfig"
+        },
         "bpf_metric_scrape_interval": {
           "type": "string",
           "pattern": "^[0-9]+(ms|s|m)$",
@@ -1421,6 +1444,27 @@
           "description": "Enable JSON-RPC payload extraction and parsing",
           "default": false,
           "x-env-var": "OTEL_EBPF_HTTP_JSONRPC_ENABLED"
+        }
+      },
+      "type": "object"
+    },
+    "JVMRuntimeMetricsConfig": {
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": false,
+          "x-env-var": "OBI_JVM_RUNTIME_METRICS_ENABLED"
+        },
+        "sampling_interval": {
+          "type": "string",
+          "pattern": "^[0-9]+(ms|s|m)$",
+          "default": "1s",
+          "examples": [
+            "30s",
+            "5m",
+            "1ms"
+          ],
+          "x-env-var": "OBI_JVM_RUNTIME_METRICS_SAMPLING_INTERVAL"
         }
       },
       "type": "object"
@@ -2504,7 +2548,7 @@
         "java_harvest_delay": {
           "type": "string",
           "pattern": "^[0-9]+(ms|s|m)$",
-          "default": "1m",
+          "default": "5s",
           "examples": [
             "30s",
             "5m",
@@ -2618,7 +2662,25 @@
         "$ref": "#/$defs/InclusionLists"
       },
       "type": "object",
-      "description": "Selection specifies which attributes are allowed for each signal. The key is usually the metric name (either in Prometheus or OpenTelemetry format); the key \"traces\" selects optional attributes for exported OTLP traces. The value is the enumeration of included/excluded attribute globs"
+      "description": "Selection specifies which attributes are allowed for each signal. The key is usually the metric name (either in Prometheus or OpenTelemetry format); the key \"traces\" selects optional attributes for exported OTLP traces. The key \"resource\" selects exported resource attributes. The value is the enumeration of included/excluded attribute globs"
+    },
+    "SensitiveQueryParamsConfig": {
+      "properties": {
+        "add": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "remove": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object",
+      "description": "SensitiveQueryParamsConfig controls which query-parameter keys are redacted. The effective list is DefaultSensitiveQueryParams + Add - Remove. When both Add and Remove are empty, DefaultSensitiveQueryParams is used unchanged."
     },
     "StatsConfig": {
       "properties": {
@@ -2886,6 +2948,9 @@
     },
     "javaagent": {
       "$ref": "#/$defs/JavaConfig"
+    },
+    "jvm_runtime_metrics": {
+      "$ref": "#/$defs/JVMRuntimeMetricsConfig"
     },
     "log_config": {
       "type": "string",

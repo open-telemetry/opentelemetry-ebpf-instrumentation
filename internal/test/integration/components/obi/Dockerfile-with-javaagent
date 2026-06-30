@@ -1,7 +1,7 @@
 # Build JNI native library using Go image (has gcc, no apt install needed)
 FROM golang:1.26.3@sha256:efaccb5b497e90df3ebe5216cc25cd9f98e73874e2d638b56e38d4a3f098c41c AS jni-builder
 ARG BUILDARCH=amd64
-COPY --from=gradle:9.5.0-jdk21-noble@sha256:a7647686fbef2a7f2f84b25192433c83642a9e0b2d1bbe48bc5f489a589560db /opt/java/openjdk/include /opt/java/include
+COPY --from=gradle:9.6.0-jdk21-noble@sha256:9cb63c2ebb4121e92aa7ed9b781a0ee154bd7ea3e45f97dbeabf7b1d3f910667 /opt/java/openjdk/include /opt/java/include
 WORKDIR /build
 COPY pkg/internal/java/agent/src/main/c/ src/main/c/
 COPY pkg/internal/java/agent/Makefile.jni Makefile.jni
@@ -34,7 +34,7 @@ RUN case "$BUILDARCH" in \
     make -f Makefile.jni CC=$CC JAVA_HOME=/opt/java JNI_HEADERS_DIR=src/main/c BUILD_DIR=build/jni/$SLUG TARGET_DIR=target/classes/native/$SLUG
 
 # Build the Java OBI agent
-FROM gradle:9.5.0-jdk21-noble@sha256:a7647686fbef2a7f2f84b25192433c83642a9e0b2d1bbe48bc5f489a589560db AS javaagent-builder
+FROM gradle:9.6.0-jdk21-noble@sha256:9cb63c2ebb4121e92aa7ed9b781a0ee154bd7ea3e45f97dbeabf7b1d3f910667 AS javaagent-builder
 
 WORKDIR /build
 

@@ -1,0 +1,14 @@
+prometheus_export:
+  port: 8999
+otel_metrics_export:
+  endpoint: http://otelcol:4318
+metrics:
+  features:
+    - application_jvm
+jvm_runtime_metrics:
+  enabled: true
+  sampling_interval: 10ms
+attributes:
+  select:
+    "*":
+      include: ["*"]

@@ -260,6 +260,25 @@ func getDefinitions(
 		extraGroupAttributes[GroupApp],
 	)
 
+	jvmMemoryAttributes := NewAttrReportGroup(
+		false,
+		[]*AttrReportGroup{&appAttributes},
+		map[attr.Name]Default{
+			attr.JVMMemoryType:     true,
+			attr.JVMMemoryPoolName: true,
+		},
+		nil,
+	)
+
+	jvmHeapAttributes := NewAttrReportGroup(
+		false,
+		[]*AttrReportGroup{&appAttributes},
+		map[attr.Name]Default{
+			attr.JVMGCPhase: true,
+		},
+		nil,
+	)
+
 	httpRoutes := NewAttrReportGroup(
 		!groups.Has(GroupHTTPRoutes),
 		nil,
@@ -384,16 +403,20 @@ func getDefinitions(
 		},
 		Traces.Section: {
 			Attributes: map[attr.Name]Default{
-				attr.DNSQuestionName:   true,
-				attr.DBQueryText:       false,
-				attr.GraphQLDocument:   false,
-				attr.HTTPUrlQuery:      false,
-				attr.GenAIInput:        false,
-				attr.GenAIOutput:       false,
-				attr.GenAIInstructions: false,
-				attr.GenAIMetadata:     false,
-				attr.GenAITools:        false,
-				attr.DBResponseError:   false,
+				attr.DNSQuestionName: true,
+				attr.DBQueryText:     false,
+				attr.GraphQLDocument: false,
+				// url.query is Conditionally Required by OTel semconv (emitted when a query string is present).
+				// You can opt out via attributes.select.traces.exclude: [url.query].
+				attr.HTTPUrlQuery:           true,
+				attr.GenAIInput:             false,
+				attr.GenAIOutput:            false,
+				attr.GenAIInstructions:      false,
+				attr.GenAIMetadata:          false,
+				attr.GenAITools:             false,
+				attr.GenAIToolCallArguments: false,
+				attr.GenAIToolCallResult:    false,
+				attr.DBResponseError:        false,
 			},
 		},
 		GPUCudaKernelLaunchCalls.Section: {
@@ -464,6 +487,26 @@ func getDefinitions(
 				attr.ServerPort:         true,
 				attr.ServerAddr:         true,
 			},
+		},
+		JVMMemoryUsed.Section: {
+			SubGroups:  []*AttrReportGroup{&jvmMemoryAttributes},
+			Attributes: map[attr.Name]Default{},
+		},
+		JVMMemoryCommitted.Section: {
+			SubGroups:  []*AttrReportGroup{&jvmMemoryAttributes},
+			Attributes: map[attr.Name]Default{},
+		},
+		JVMMemoryLimit.Section: {
+			SubGroups:  []*AttrReportGroup{&jvmMemoryAttributes},
+			Attributes: map[attr.Name]Default{},
+		},
+		JVMMemoryUsedAfterLastGC.Section: {
+			SubGroups:  []*AttrReportGroup{&jvmMemoryAttributes},
+			Attributes: map[attr.Name]Default{},
+		},
+		ObiJVMHeapUsed.Section: {
+			SubGroups:  []*AttrReportGroup{&jvmHeapAttributes},
+			Attributes: map[attr.Name]Default{},
 		},
 		StatTCPRtt.Section: {
 			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes},

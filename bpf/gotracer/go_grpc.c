@@ -46,6 +46,22 @@
 #define OPTIMISTIC_GRPC_ENCODED_HEADER_LEN                                                         \
     49 // 1 + 1 + 8 + 1 +~ 38 = type byte + hpack_len_as_byte("traceparent") + strlen(hpack("traceparent")) + len_as_byte(38) + hpack(generated tracepanent id)
 
+static __always_inline void grpc_server_conn_info(void *tr, connection_info_t *conn) {
+    if (!tr || !conn) {
+        return;
+    }
+
+    off_table_t *ot = get_offsets_table();
+    void *conn_ptr = NULL;
+    bpf_probe_read_user(&conn_ptr,
+                        sizeof(conn_ptr),
+                        (void *)(tr + go_offset_of(ot, (go_offset){.v = _grpc_st_conn_pos}) +
+                                 k_go_iface_data_offset));
+    if (conn_ptr) {
+        get_conn_info(conn_ptr, conn);
+    }
+}
+
 SEC("uprobe/server_handleStream")
 int obi_uprobe_server_handleStream(struct pt_regs *ctx) {
     bpf_dbg_printk("=== uprobe/server_handleStream ===");
@@ -153,6 +169,7 @@ int obi_uprobe_http2Server_operateHeaders(struct pt_regs *ctx) {
         .tp = {0},
     };
 
+    grpc_server_conn_info(tr, &t.conn);
     process_meta_frame_headers(frame, &t.tp);
 
     bpf_map_update_elem(&ongoing_grpc_operate_headers, &g_key, &tr, BPF_ANY);

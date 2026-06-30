@@ -24,6 +24,11 @@ KERNEL_PKG="${2:-kernel}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../../../../.." && pwd)"
+BUSYBOX_IMAGE="$(awk '$1=="FROM" && $4=="busybox-musl" {print $2}' "${REPO_ROOT}/dependencies.Dockerfile")"
+if [ -z "${BUSYBOX_IMAGE}" ]; then
+    echo "Unable to find busybox-musl image in dependencies.Dockerfile" >&2
+    exit 1
+fi
 WORKDIR="$(mktemp -d)"
 trap 'rm -rf "$WORKDIR"' EXIT
 
@@ -58,7 +63,7 @@ mkdir -p "${IRD}/sys/fs/bpf" "${IRD}/sys/kernel/debug" "${IRD}/sys/kernel/tracin
 
 # Static (musl) busybox so it runs without any libc.
 docker run --rm --platform linux/amd64 -v "${IRD}/bin":/out \
-    busybox:musl sh -c 'cp /bin/busybox /out/busybox' >&2
+    "${BUSYBOX_IMAGE}" sh -c 'cp /bin/busybox /out/busybox' >&2
 
 cp "${TEST_BIN}" "${IRD}/verifier.test"
 chmod +x "${IRD}/verifier.test"
@@ -73,10 +78,10 @@ cat > "${IRD}/init" <<'INIT'
 /bin/busybox mount -t devtmpfs devtmpfs /dev 2>/dev/null
 ulimit -l unlimited 2>/dev/null
 echo "OBI-VERIFIER-BEGIN"
-/verifier.test -test.v
+/verifier.test -test.timeout=20m -test.parallel=8
 RESULT=$?
 /bin/busybox sync
-echo "OBI-VERIFIER-RESULT: ${RESULT}"
+printf '%s\n' "${RESULT}" > /dev/ttyS1 2>/dev/null
 # Halt deterministically; /init returning would cause kernel panic.
 echo 1 > /proc/sys/kernel/sysrq 2>/dev/null
 echo o > /proc/sysrq-trigger 2>/dev/null
@@ -95,17 +100,23 @@ else
     ACCEL="-accel tcg,thread=multi -cpu Skylake-Client"  # x86-64-v2 for AL2023 glibc
 fi
 QEMU_LOG="${WORKDIR}/qemu.log"
+RESULT_FILE="${WORKDIR}/obi-result"
+rm -f "${RESULT_FILE}"
 echo "run.sh: launching qemu" >&2
-timeout 1500 qemu-system-x86_64 ${ACCEL} -m 2G -smp 2 \
+# ttyS0: console + kernel printk + test stdout.
+# ttyS1: dedicated result channel — only init writes to it, never the kernel.
+timeout 1500 qemu-system-x86_64 ${ACCEL} -m 4G -smp 2 \
     -kernel "${VMLINUZ}" \
     -initrd "${IRD_IMG}" \
-    -append "earlyprintk=ttyS0 console=ttyS0 panic=3 rdinit=/init" \
+    -append "earlyprintk=ttyS0 console=ttyS0 loglevel=0 quiet panic=3 rdinit=/init" \
+    -serial mon:stdio \
+    -serial "file:${RESULT_FILE}" \
     -no-reboot -nographic 2>&1 | tee "${QEMU_LOG}"
 
-RESULT="$(grep -oE 'OBI-VERIFIER-RESULT: [0-9]+' "${QEMU_LOG}" | tail -1 | awk '{print $NF}')"
-if [ -z "$RESULT" ]; then
-    echo "run.sh: no result line found in qemu output" >&2
+RESULT="$(tr -d '\r\n\t ' < "${RESULT_FILE}" 2>/dev/null)"
+if [ -z "$RESULT" ] || ! printf '%s' "$RESULT" | grep -qE '^[0-9]+$'; then
+    echo "run.sh: no valid result in ${RESULT_FILE} (got: '$(cat "${RESULT_FILE}" 2>/dev/null)')" >&2
     exit 1
 fi
-echo "run.sh: OBI-VERIFIER-RESULT=${RESULT}" >&2
+echo "run.sh: result=${RESULT}" >&2
 exit "${RESULT}"
