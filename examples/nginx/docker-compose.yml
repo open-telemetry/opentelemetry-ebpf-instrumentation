@@ -41,7 +41,7 @@ services:
       - edge-nginx
 
   obi:
-    image: ${OBI_IMAGE:-otel/ebpf-instrument:v0.9.0@sha256:26f82b148dfe8cb0530561ab72a3cb5490b3ae5df556a33c27984af2e28542cf}
+    image: ${OBI_IMAGE:-otel/ebpf-instrument:v0.10.0@sha256:9c66cdb920202b9502e6f1b8e9b238757848eded40a0aad262976d6ebea23b02}
     container_name: obi-nginx-example
     command:
       - --config=/config/obi-config.yaml
