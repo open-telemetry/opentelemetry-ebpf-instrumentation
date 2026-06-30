@@ -138,6 +138,37 @@ Once the workflow completes successfully, a draft release is automatically creat
 3. Review the artifacts:
    - Download and verify checksums for the release artifacts you fetched: `sha256sum -c --ignore-missing SHA256SUMS`
    - Confirm checksum verification reports `OK` for every downloaded asset that was checked before publication
+   - Verify the Cosign signatures for every release archive, SBOM, and the checksum file. Replace `vX.Y.Z` with the release tag:
+
+     ```console
+     set -e
+
+     release_tag=vX.Y.Z
+     repository=open-telemetry/opentelemetry-ebpf-instrumentation
+     release_dir="$(mktemp -d)"
+
+     gh release download "${release_tag}" \
+       --repo "${repository}" \
+       --dir "${release_dir}" \
+       --pattern '*.tar.gz' \
+       --pattern '*.cyclonedx.json' \
+       --pattern SHA256SUMS \
+       --pattern '*.bundle.json'
+
+     for artifact in \
+       "${release_dir}"/*.tar.gz \
+       "${release_dir}"/*.cyclonedx.json \
+       "${release_dir}"/SHA256SUMS; do
+       cosign verify-blob "${artifact}" \
+         --bundle "${artifact}.bundle.json" \
+         --certificate-identity-regexp 'https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/' \
+         --certificate-oidc-issuer 'https://token.actions.githubusercontent.com'
+     done
+
+     rm -rf "${release_dir}"
+     ```
+
+     Every `cosign verify-blob` command must report `Verified OK`.
    - Extract archives and test binaries if needed
    - Open the published CycloneDX SBOMs with your preferred SBOM tooling if you want to inspect release dependencies
    - Use the dedicated Java agent SBOM when you need the full Java dependency graph for the JAR embedded inside `obi`
