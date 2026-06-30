@@ -222,6 +222,7 @@ const (
 	DBResponseStatusCode = Name(semconv.DBResponseStatusCodeKey)
 	DBNamespace          = Name(semconv.DBNamespaceKey)
 	DBResponseError      = Name("db.response.error")
+	DBOperationBatchSize = Name("db.operation.batch.size")
 
 	// Messaging
 	MessagingPartition   = Name(semconv.MessagingDestinationPartitionIDKey)
