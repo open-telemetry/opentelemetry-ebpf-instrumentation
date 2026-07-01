@@ -1,0 +1,157 @@
+version: "3.8"
+
+services:
+  custom_span_c:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/custom_span_c/Dockerfile
+    image: hatest-custom-span-c
+    networks:
+      - shared
+    ports:
+      - "8390:8390"
+    environment:
+      PORT: "8390"
+
+  custom_span_python:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/custom_span_python/Dockerfile
+    image: hatest-custom-span-python
+    networks:
+      - shared
+    ports:
+      - "8392:8392"
+    environment:
+      PORT: "8392"
+
+  custom_span_ruby:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/custom_span_ruby/Dockerfile
+    image: hatest-custom-span-ruby
+    networks:
+      - shared
+    ports:
+      - "8393:8393"
+    environment:
+      PORT: "8393"
+
+  custom_span_go:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/custom_span_go/Dockerfile
+    image: hatest-custom-span-go
+    networks:
+      - shared
+    ports:
+      - "8394:8394"
+    environment:
+      PORT: "8394"
+
+  custom_span_java:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/custom_span_java/Dockerfile
+    image: hatest-custom-span-java
+    networks:
+      - shared
+    ports:
+      - "8395:8395"
+    environment:
+      PORT: "8395"
+
+  custom_span_nodejs:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/custom_span_nodejs/Dockerfile
+    image: hatest-custom-span-nodejs
+    networks:
+      - shared
+    ports:
+      - "8396:8396"
+    environment:
+      PORT: "8396"
+
+  custom_span_cpp_folly:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/custom_span_cpp_folly/Dockerfile
+    image: hatest-custom-span-cpp-folly
+    networks:
+      - shared
+    ports:
+      - "8397:8397"
+    environment:
+      PORT: "8397"
+
+  custom_span_rust:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/custom_span_rust/Dockerfile
+    image: hatest-custom-span-rust
+    networks:
+      - shared
+    ports:
+      - "8398:8398"
+    environment:
+      PORT: "8398"
+
+  otelcol:
+    image: otel/opentelemetry-collector-contrib:0.155.0
+    user: "0:0"
+    volumes:
+      - ./configs/otelcol-custom-span.yaml:/etc/otelcol-contrib/config.yaml:ro
+      - ../../../testoutput:/output
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    networks:
+      - shared
+    ports:
+      - "4318:4318"
+
+  obi:
+    build:
+      context: ../../..
+      dockerfile: ./internal/test/integration/components/obi/Dockerfile
+    volumes:
+      - ./configs/:/configs
+      - /sys/kernel/security:/sys/kernel/security:ro
+      - ../../../testoutput:/coverage
+      - /sys/fs/bpf:/sys/fs/bpf
+    image: hatest-obi
+    privileged: true
+    networks:
+      - shared
+    pid: "host"
+    environment:
+      OTEL_EBPF_CONFIG_PATH: "/configs/obi-config-custom-span.yml"
+      GOCOVERDIR: "/coverage"
+      OTEL_EBPF_LOG_LEVEL: "DEBUG"
+      OTEL_EBPF_BPF_DEBUG: "TRUE"
+      OTEL_EBPF_DISCOVERY_POLL_INTERVAL: 500ms
+      OTEL_EBPF_HOSTNAME: "obi"
+      OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT: "10ms"
+      OTEL_EBPF_TRACE_PRINTER: "text"
+      OTEL_EBPF_SERVICE_NAMESPACE: "integration-test"
+    depends_on:
+      custom_span_c:
+        condition: service_started
+      custom_span_python:
+        condition: service_started
+      custom_span_ruby:
+        condition: service_started
+      custom_span_go:
+        condition: service_started
+      custom_span_java:
+        condition: service_started
+      custom_span_nodejs:
+        condition: service_started
+      custom_span_cpp_folly:
+        condition: service_started
+      custom_span_rust:
+        condition: service_started
+      otelcol:
+        condition: service_started
+
+networks:
+  shared:

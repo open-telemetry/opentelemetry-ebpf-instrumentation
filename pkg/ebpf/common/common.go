@@ -152,6 +152,13 @@ func (m *USDTSpecManager) ID(specKey string, maxSpecs uint32) (uint32, error) {
 	if id, ok := m.specs[specKey]; ok {
 		return id, nil
 	}
+	// IDs start at 1 — BPF custom_span treats attach_cookie==0 as "kernel
+	// lacks bpf_get_attach_cookie" and falls back to IP-map resolution.
+	// Reserving 0 prevents the first registered spec from triggering that
+	// fallback path on kernels ≥5.15.
+	if m.next == 0 {
+		m.next = 1
+	}
 	if m.next >= maxSpecs {
 		return 0, fmt.Errorf("too many USDT argument specs: max %d", maxSpecs)
 	}
@@ -162,6 +169,16 @@ func (m *USDTSpecManager) ID(specKey string, maxSpecs uint32) (uint32, error) {
 	return id, nil
 }
 
+// USDTAutoDiscoverLib, used as a USDTProbes() map key, makes the instrumenter
+// scan every executable mapping in /proc/<pid>/maps. Required for libstapsdt-
+// backed runtime probes whose .so path isn't known until registration.
+const USDTAutoDiscoverLib = "*"
+
+// USDTSpecRewriter mutates the parsed-from-ELF USDT spec before insertion
+// into the BPF specs map. Used by custom_span to coerce pointer args into
+// string-deref args.
+type USDTSpecRewriter func(spec any) (any, error)
+
 type USDTProbeDesc struct {
 	Required bool
 	Provider string
@@ -171,6 +188,27 @@ type USDTProbeDesc struct {
 	SpecsMap    *ebpf.Map
 	IPMap       *ebpf.Map
 	SpecManager *USDTSpecManager
+
+	// Cookie is written into the BPF spec's cookie field so userspace can
+	// resolve emitted events back to the originating descriptor.
+	Cookie uint64
+	// RewriteSpec optionally mutates the parsed-from-ELF spec before it is
+	// stored in the BPF specs map.
+	RewriteSpec USDTSpecRewriter
+
+	// Function, when set, attaches the probe at the named symbol's entry
+	// (uprobe by symbol). Mutually exclusive with Provider/Name (stapsdt).
+	// Used by custom_span function-mode.
+	Function string
+	// BuildFunctionSpec is called at attach time with the opened ELF file
+	// of the target binary; the returned obiUSDTSpec is stored in the
+	// specs map. Allows late-binding decisions (e.g. Go vs C ABI for
+	// string args) based on the actual binary.
+	BuildFunctionSpec func(elfFile any) (any, error)
+	// ReturnProgram, when non-nil with Function set, attaches a uretprobe
+	// at the same symbol so paired (start+end) function spans can pair up.
+	// The attach cookie carries the spec id.
+	ReturnProgram *ebpf.Program
 }
 
 type Filter struct {
@@ -276,6 +314,44 @@ type EBPFEventContext struct {
 	MapsLock         sync.Mutex
 	LoadLock         sync.Mutex
 	Capabilities     TracerCapability
+
+	// CustomSpanHandler is registered by whichever tracer owns the
+	// custom_span runtime (generictracer today). All tracers that read
+	// the shared ringbuf check this hook before falling back to their
+	// own parse — needed because gotracer and generictracer race for the
+	// SharedRingBuffer slot and the winner's parse must still dispatch
+	// EVENT_CUSTOM_SPAN records correctly.
+	CustomSpanHandler CustomSpanRecordHandler
+
+	// CustomSpanSpecMgr is shared across every generictracer instance so
+	// spec IDs allocated against the global obi_usdt_specs BPF map don't
+	// collide when more than one tracer holds the custom_span runtime
+	// (e.g. one generictracer per non-Go executable and a piggy-backed
+	// generictracer for Go processes from newGoTracersGroup).
+	CustomSpanSpecMgr USDTSpecManager
+}
+
+// CustomSpanRecordHandler dispatches a single EVENT_CUSTOM_SPAN ringbuf
+// record. (span, ready, handled, err) — handled=true when the record was a
+// custom_span event; ready=true when span is a completed result to emit.
+type CustomSpanRecordHandler func(record *ringbuf.Record) (request.Span, bool, bool, error)
+
+// DispatchCustomSpan runs ctx.CustomSpanHandler against record when the
+// record is an EVENT_CUSTOM_SPAN. Returns (span, skip, ok, err) where
+// ok=true means the record was a custom_span event and the caller
+// should stop further parsing.
+func DispatchCustomSpan(ctx *EBPFEventContext, record *ringbuf.Record) (span request.Span, skip, ok bool, err error) {
+	if ctx == nil || ctx.CustomSpanHandler == nil || len(record.RawSample) == 0 || record.RawSample[0] != EventTypeCustomSpan {
+		return request.Span{}, false, false, nil
+	}
+	s, ready, handled, herr := ctx.CustomSpanHandler(record)
+	if !handled {
+		return request.Span{}, false, false, nil
+	}
+	if !ready {
+		return request.Span{}, true, true, herr
+	}
+	return s, false, true, herr
 }
 
 var MisclassifiedEvents = make(chan MisclassifiedEvent)
@@ -513,6 +589,12 @@ func ReadBPFTraceAsSpan(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, reco
 		return finalizeParsedSpan(parseCtx, span, ignore, err)
 	case EventTypeGoChannelLink:
 		return readGoChannelLinkEvent(parseCtx, record)
+	case EventTypeCustomSpan:
+		// custom_span events are dispatched out-of-band via the shared
+		// EBPFEventContext.CustomSpanHandler; the caller (tracer-specific
+		// parse) must have already routed this record. Ignore here so we
+		// never misinterpret the bytes as an HTTP/Memcached span.
+		return request.Span{}, true, nil
 	}
 
 	event, err := ReinterpretCast[HTTPRequestTrace](record.RawSample)

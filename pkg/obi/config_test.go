@@ -206,6 +206,9 @@ discovery:
 			},
 			BPFFSPath:      "/sys/fs/bpf/",
 			InstrumentCuda: config.CudaModeAuto,
+			CustomSpans: config.CustomSpanConfig{
+				TTL: config.CustomSpanDefaultTTL,
+			},
 		},
 		NetworkFlows: nc,
 		Stats:        sc,

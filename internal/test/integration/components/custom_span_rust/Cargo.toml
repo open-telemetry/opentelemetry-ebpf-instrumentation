@@ -1,0 +1,13 @@
+[package]
+name = "custom_span_rust"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+usdt = "0.6"
+
+[profile.release]
+opt-level = 3
+lto = false
+strip = false

@@ -363,6 +363,8 @@ func acceptSpan(is instrumentations.InstrumentationSelection, span *request.Span
 		return is.MongoEnabled()
 	case request.EventTypeManualSpan:
 		return true
+	case request.EventTypeCustomSpan:
+		return true
 	case request.EventTypeFailedConnect:
 		return true
 	case request.EventTypeDNS:
@@ -1351,6 +1353,8 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 		}
 	case request.EventTypeManualSpan:
 		attrs = manualSpanAttributes(span)
+	case request.EventTypeCustomSpan:
+		attrs = customSpanAttributes(span)
 	case request.EventTypeFailedConnect:
 		attrs = []attribute.KeyValue{
 			request.ClientAddr(request.PeerAsClient(span)),
@@ -1406,6 +1410,19 @@ func spanStartTime(t request.Timings) time.Time {
 		realStart = t.Start
 	}
 	return realStart
+}
+
+// customSpanAttributes emits Span.CustomSpan.Attrs as string-typed OTel
+// attributes; numeric coercion is the user's concern past the wire.
+func customSpanAttributes(span *request.Span) []attribute.KeyValue {
+	if span.CustomSpan == nil {
+		return nil
+	}
+	attrs := make([]attribute.KeyValue, 0, len(span.CustomSpan.Attrs))
+	for k, v := range span.CustomSpan.Attrs {
+		attrs = append(attrs, attribute.String(k, v))
+	}
+	return attrs
 }
 
 func manualSpanAttributes(span *request.Span) []attribute.KeyValue {

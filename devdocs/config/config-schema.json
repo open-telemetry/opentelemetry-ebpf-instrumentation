@@ -320,6 +320,108 @@
       },
       "type": "object"
     },
+    "CustomSpanAttr": {
+      "properties": {
+        "arg": {
+          "type": "integer"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "i16",
+            "i32",
+            "i64",
+            "i8",
+            "string",
+            "u16",
+            "u32",
+            "u64",
+            "u8"
+          ]
+        }
+      },
+      "type": "object",
+      "description": "CustomSpanAttr declares one attribute extracted from a probe arg. For USDT specs, Type may be omitted on integer attrs — sign and width are derived from the .note.stapsdt record. Strings always require `type: string`. Function-mode (no ELF note) requires Type on every attr."
+    },
+    "CustomSpanConfig": {
+      "properties": {
+        "spans": {
+          "items": {
+            "$ref": "#/$defs/CustomSpanSpec"
+          },
+          "type": "array"
+        },
+        "ttl": {
+          "type": "string",
+          "pattern": "^[0-9]+(ms|s|m)$",
+          "default": "5m",
+          "examples": [
+            "30s",
+            "5m",
+            "1ms"
+          ],
+          "x-env-var": "OTEL_EBPF_CUSTOM_SPAN_TTL"
+        }
+      },
+      "type": "object",
+      "description": "CustomSpanConfig declares user-driven spans backed by USDT or uprobes. The feature is enabled when Spans is non-empty."
+    },
+    "CustomSpanMatch": {
+      "properties": {
+        "arg": {
+          "type": "integer"
+        },
+        "value": {
+          "type": "string"
+        }
+      },
+      "type": "object",
+      "description": "CustomSpanMatch filters events against a string-valued probe argument."
+    },
+    "CustomSpanSpec": {
+      "properties": {
+        "attrs": {
+          "additionalProperties": {
+            "$ref": "#/$defs/CustomSpanAttr"
+          },
+          "type": "object"
+        },
+        "name": {
+          "type": "string"
+        },
+        "on": {
+          "$ref": "#/$defs/CustomSpanTarget"
+        }
+      },
+      "type": "object",
+      "description": "CustomSpanSpec defines one span. Exactly one target key inside `on:` is required; modifiers (Paired, Match) apply only where noted."
+    },
+    "CustomSpanTarget": {
+      "properties": {
+        "function_noret": {
+          "type": "string",
+          "description": "Attaches an entry uprobe only — zero-duration marker. Use for functions that never return (event loops, noreturn)."
+        },
+        "function_span": {
+          "type": "string",
+          "description": "Attaches an entry uprobe + uretprobe; emits a span whose duration is entry-to-return."
+        },
+        "match": {
+          "$ref": "#/$defs/CustomSpanMatch",
+          "description": "Drops events whose probe arg at Match.Arg does not equal Match.Value (byte-for-byte). In-BPF filter; valid on any USDT shape."
+        },
+        "usdt_noret": {
+          "type": "string",
+          "description": "Attaches a uprobe at a single stapsdt probe \"<provider>:<name>\"; each fire emits a zero-duration marker event."
+        },
+        "usdt_span": {
+          "type": "string",
+          "description": "Is \"<provider>:<base>\"; OBI attaches at \"<base>_start\" and \"<base>_end\" and emits a span whose duration spans the two probes. Pairing correlates on arg_int[0]."
+        }
+      },
+      "type": "object",
+      "description": "CustomSpanTarget enumerates probe-target options. Exactly one of {USDTNoRet, USDTSpan, FunctionNoRet, FunctionSpan} must be non-empty."
+    },
     "Definitions": {
       "items": {
         "oneOf": [
@@ -643,6 +745,10 @@
           "type": "integer",
           "default": 1024,
           "x-env-var": "OTEL_EBPF_COUCHBASE_DB_CACHE_SIZE"
+        },
+        "custom_spans": {
+          "$ref": "#/$defs/CustomSpanConfig",
+          "description": "Declares USDT- and uprobe-driven user-defined spans."
         },
         "disable_black_box_cp": {
           "type": "boolean",

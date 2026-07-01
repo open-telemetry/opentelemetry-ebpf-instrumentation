@@ -1,0 +1,16 @@
+{
+  "name": "custom_span_nodejs",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Integration sample: Node.js wrapper over libstapsdt for custom_span tests.",
+  "main": "app.js",
+  "scripts": {
+    "build": "node-gyp configure build"
+  },
+  "dependencies": {
+    "node-addon-api": "8.5.0"
+  },
+  "devDependencies": {
+    "node-gyp": "11.5.0"
+  }
+}

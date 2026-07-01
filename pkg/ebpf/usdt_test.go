@@ -106,7 +106,7 @@ func TestOBIUSDTSpecLayoutMatchesBPFABI(t *testing.T) {
 	assert.Equal(t, uintptr(10), unsafe.Offsetof(obiUSDTArgSpec{}.ArgType))
 	assert.Equal(t, uintptr(11), unsafe.Offsetof(obiUSDTArgSpec{}.ArgSigned))
 	assert.Equal(t, uintptr(12), unsafe.Offsetof(obiUSDTArgSpec{}.ArgBitshift))
-	assert.Equal(t, 208, binary.Size(obiUSDTSpec{}))
+	assert.Equal(t, 272, binary.Size(obiUSDTSpec{}))
 	assert.Equal(t, 16, binary.Size(obiUSDTIPKey{}))
 	assert.Equal(t, uintptr(0), unsafe.Offsetof(obiUSDTIPKey{}.PID))
 	assert.Equal(t, uintptr(4), unsafe.Offsetof(obiUSDTIPKey{}.Namespace))

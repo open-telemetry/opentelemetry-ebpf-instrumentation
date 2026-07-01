@@ -171,6 +171,12 @@ func findFuncOffset(f *gosym.Func, elfF *elf.File) (FuncOffsets, bool, error) {
 	return FuncOffsets{}, false, nil
 }
 
+// GoSymbolTable exposes the .gopclntab-backed gosym.Table for resolving
+// Go function names in stripped binaries.
+func GoSymbolTable(elfF *elf.File) (*gosym.Table, error) {
+	return findGoSymbolTable(elfF)
+}
+
 func findGoSymbolTable(elfF *elf.File) (*gosym.Table, error) {
 	var err error
 	var pclndat []byte

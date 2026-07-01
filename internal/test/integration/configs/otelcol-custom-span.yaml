@@ -1,0 +1,22 @@
+# Captures OTLP/HTTP traces emitted by OBI for the custom_span integration test
+# and writes them as JSON to /output/custom-span-traces.json. The integration
+# driver tails that file and asserts on emitted spans.
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+
+exporters:
+  file:
+    path: /output/custom-span-traces.json
+    flush_interval: 100ms
+
+service:
+  telemetry:
+    logs:
+      level: warn
+  pipelines:
+    traces:
+      receivers: [otlp]
+      exporters: [file]

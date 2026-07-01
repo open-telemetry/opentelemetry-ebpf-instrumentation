@@ -968,6 +968,12 @@ func (p *Tracer) Run(ctx context.Context, ebpfEventContext *ebpfcommon.EBPFEvent
 			if handled, err := ebpfcommon.HandleRuntimeMetricsRecord(ctx, ebpfEventContext, record, p.pidsFilter, p.log); handled {
 				return request.Span{}, true, err
 			}
+			if span, skip, ok, err := ebpfcommon.DispatchCustomSpan(ebpfEventContext, record); ok {
+				if skip {
+					return request.Span{}, true, err
+				}
+				return span, false, err
+			}
 			s, ignore, err := ebpfcommon.ReadBPFTraceAsSpan(parseContext, p.cfg, record, p.pidsFilter)
 			if !ignore && err == nil && !s.IsValid() {
 				return s, true, nil

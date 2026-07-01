@@ -150,6 +150,9 @@ type EBPFTracer struct {
 
 	// eBPF map configurations
 	MapsConfig MapsConfig `yaml:"maps_config"`
+
+	// CustomSpans declares USDT- and uprobe-driven user-defined spans.
+	CustomSpans CustomSpanConfig `yaml:"custom_spans"`
 }
 
 var nvidiaSMIExistsFunc = nvidiaSMIExists

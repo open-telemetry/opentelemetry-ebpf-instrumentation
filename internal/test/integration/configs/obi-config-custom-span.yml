@@ -1,0 +1,133 @@
+otel_traces_export:
+  endpoint: http://otelcol:4318
+discovery:
+  instrument:
+    - exe_path: "*/custom_span_c"
+    - exe_path: "*/python3*"
+    - exe_path: "*/ruby*"
+    - exe_path: "*/custom_span_go"
+    - exe_path: "*/java"
+    - exe_path: "*/node"
+    - exe_path: "*/custom_span_cpp"
+    - exe_path: "*/custom_span_rust"
+ebpf:
+  custom_spans:
+    ttl: 1m
+    spans:
+      - name: "order.process"
+        on: { usdt_span: "custom_span_c:order" }
+        attrs:
+          order_id: { arg: 0 }
+          customer: { arg: 1, type: string }
+      - name: "cache.hit"
+        on: { usdt_noret: "custom_span_c:cache_hit" }
+        attrs:
+          key: { arg: 0, type: string }
+      - name: "order.process.py"
+        on: { usdt_span: "custom_span_py:order" }
+        attrs:
+          order_id: { arg: 0 }
+          customer: { arg: 1, type: string }
+      - name: "cache.hit.py"
+        on: { usdt_noret: "custom_span_py:cache_hit" }
+        attrs:
+          key: { arg: 0, type: string }
+      - name: "order.process.rb"
+        on: { usdt_span: "custom_span_rb:order" }
+        attrs:
+          order_id: { arg: 0 }
+          customer: { arg: 1, type: string }
+      - name: "cache.hit.rb"
+        on: { usdt_noret: "custom_span_rb:cache_hit" }
+        attrs:
+          key: { arg: 0, type: string }
+      - name: "order.process.go"
+        on: { usdt_span: "custom_span_go:order" }
+        attrs:
+          order_id: { arg: 0 }
+          customer: { arg: 1, type: string }
+      - name: "cache.hit.go"
+        on: { usdt_noret: "custom_span_go:cache_hit" }
+        attrs:
+          key: { arg: 0, type: string }
+      - name: "order.func.c"
+        on: { function_noret: "process_order" }
+        attrs:
+          order_id: { arg: 0, type: u64 }
+          customer: { arg: 1, type: string }
+      - name: "cache.func.c"
+        on: { function_span: "cache_lookup" }
+        attrs:
+          key: { arg: 0, type: string }
+      # exercises the match-filter path end-to-end: same probe as cache.hit
+      # fires for every /cache request, but only `key="user:3"` survives the
+      # in-BPF byte compare.
+      - name: "cache.match.c"
+        on:
+          usdt_noret: "custom_span_c:cache_hit"
+          match: { arg: 0, value: "user:3" }
+        attrs:
+          key: { arg: 0, type: string }
+      - name: "order.process.java"
+        on: { usdt_span: "custom_span_java:order" }
+        attrs:
+          order_id: { arg: 0 }
+          customer: { arg: 1, type: string }
+      - name: "cache.hit.java"
+        on: { usdt_noret: "custom_span_java:cache_hit" }
+        attrs:
+          key: { arg: 0, type: string }
+      - name: "order.process.nodejs"
+        on: { usdt_span: "custom_span_nodejs:order" }
+        attrs:
+          order_id: { arg: 0 }
+          customer: { arg: 1, type: string }
+      - name: "cache.hit.nodejs"
+        on: { usdt_noret: "custom_span_nodejs:cache_hit" }
+        attrs:
+          key: { arg: 0, type: string }
+      - name: "order.process.cpp"
+        on: { usdt_span: "custom_span_cpp:order" }
+        attrs:
+          order_id: { arg: 0 }
+          customer: { arg: 1, type: string }
+      - name: "cache.hit.cpp"
+        on: { usdt_noret: "custom_span_cpp:cache_hit" }
+        attrs:
+          key: { arg: 0, type: string }
+      - name: "order.process.rust"
+        on: { usdt_span: "custom_span_rust:order" }
+        attrs:
+          order_id: { arg: 0 }
+          customer: { arg: 1, type: string }
+      - name: "cache.hit.rust"
+        on: { usdt_noret: "custom_span_rust:cache_hit" }
+        attrs:
+          key: { arg: 0, type: string }
+      # Go function-mode coverage: per-RET-site uprobes (kernel uretprobe is
+      # unsafe on Go — corrupts the on-stack return address). See
+      # lookupFunctionTarget in pkg/ebpf/usdt.go.
+      - name: "order.func.go"
+        on: { function_span: "main.processOrder" }
+        attrs:
+          order_id: { arg: 0, type: u64 }
+          customer: { arg: 1, type: string }
+      # Match-filter coverage for Go: same probe as cache.hit.go fires for
+      # every /cache request, but only key="sku:3" survives.
+      - name: "cache.match.go"
+        on:
+          usdt_noret: "custom_span_go:cache_hit"
+          match: { arg: 0, value: "sku:3" }
+        attrs:
+          key: { arg: 0, type: string }
+      # Match-filter coverage for Python: only cart:3 survives.
+      - name: "cache.match.py"
+        on:
+          usdt_noret: "custom_span_py:cache_hit"
+          match: { arg: 0, value: "cart:3" }
+        attrs:
+          key: { arg: 0, type: string }
+attributes:
+  select:
+    "*":
+      include: ["*"]

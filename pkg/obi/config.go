@@ -209,6 +209,9 @@ var DefaultConfig = Config{
 		},
 		BPFFSPath:      "/sys/fs/bpf/",
 		InstrumentCuda: config.CudaModeAuto,
+		CustomSpans: config.CustomSpanConfig{
+			TTL: config.CustomSpanDefaultTTL,
+		},
 	},
 	NameResolver: &transform.NameResolverConfig{
 		Sources:  []transform.Source{transform.SourceK8s},
@@ -675,6 +678,10 @@ func (c *Config) Validate() error {
 	}
 
 	if err := c.EBPF.PayloadExtraction.HTTP.Enrichment.Validate(); err != nil {
+		return ConfigError(err.Error())
+	}
+
+	if err := c.EBPF.CustomSpans.Validate(); err != nil {
 		return ConfigError(err.Error())
 	}
 

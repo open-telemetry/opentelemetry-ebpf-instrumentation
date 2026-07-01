@@ -15,6 +15,7 @@ const (
 	EventTypeGoRuntimeMetric  = 17 // EVENT_GO_RUNTIME_METRIC
 	EventTypeJVMGCHeapSummary = 19 // EVENT_JVM_GC_HEAP_SUMMARY
 	EventTypeJVMMemoryPoolGC  = 20 // EVENT_JVM_MEM_POOL_GC
+	EventTypeCustomSpan       = 21 // EVENT_CUSTOM_SPAN
 )
 
 type RuntimeMetricSender interface {

@@ -514,10 +514,11 @@ integration-test-matrix-json:
 
 # Shared matrix for workflows that run the VM-side test suite. Pattern
 # covers multiprocess context propagation, gRPC relay, the HTTP
-# logenricher pipeline, and the large HTTP request body path.
+# logenricher pipeline, the large HTTP request body path, and the
+# user-declared custom_span suite.
 .PHONY: multiprocess-integration-test-matrix-json
 multiprocess-integration-test-matrix-json:
-	@./scripts/generate-integration-matrix.sh internal/test/integration "$${PARTITIONS:-5}" "(TestMultiProcess|TestSuite_LogEnricherHTTP|TestSuite_LargeHTTPRequest)"
+	@./scripts/generate-integration-matrix.sh internal/test/integration "$${PARTITIONS:-5}" "(TestMultiProcess|TestSuite_LogEnricherHTTP|TestSuite_LargeHTTPRequest|TestCustomSpan)"
 
 .PHONY: k8s-integration-test-matrix-json
 k8s-integration-test-matrix-json:
@@ -616,11 +617,15 @@ oats-test-debug: oats-prereq
 .PHONY: license-header-check
 license-header-check:
 	@# Store demo app files are vendored with upstream Apache 2.0 headers; see examples/store-demo/PROVENANCE.md.
+	@# libstapsdt-arm64/ is a third-party fork (MIT-licensed upstream); keep its original headers intact.
+	@# custom_span_cpp_folly/include/folly/tracing/ is vendored from facebook/folly (Apache-2.0).
 	@licRes=$$(for f in $$(find . -type f \( -iname '*.go' -o -iname '*.sh' -o -iname '*.c' -o -iname '*.h' \) \
 	           ! -path './.git/*' \
 	           ! -path './.tmp/*' \
 	           ! -path './NOTICES/*' \
-	           ! -path './examples/store-demo/app/*' ) ; do \
+	           ! -path './examples/store-demo/app/*' \
+	           ! -path './internal/test/integration/components/libstapsdt-arm64/*' \
+	           ! -path './internal/test/integration/components/custom_span_cpp_folly/include/folly/tracing/*' ) ; do \
 	           awk '/Copyright The OpenTelemetry Authors|generated|GENERATED/ && NR<=4 { found=1; next } END { if (!found) print FILENAME }' $$f; \
 	   done); \
 	   if [ -n "$${licRes}" ]; then \

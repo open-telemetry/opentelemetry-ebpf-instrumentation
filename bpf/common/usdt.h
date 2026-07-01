@@ -160,3 +160,78 @@ static __always_inline int obi_usdt_arg(struct pt_regs *ctx, u64 arg_num, long *
     *res = (long)val;
     return 0;
 }
+
+// obi_usdt_str_arg reads a NUL-terminated string from a user pointer carried
+// in a USDT arg. The arg must be declared as k_obi_usdt_arg_reg_deref_str on
+// the userspace side. dst_max must be a compile-time constant the verifier can
+// see; returns the byte count written (including terminator) on success, or a
+// negative error code.
+static __always_inline int
+obi_usdt_str_arg(struct pt_regs *ctx, u64 arg_num, void *dst, u32 dst_max, u32 *out_len) {
+    *out_len = 0;
+
+    struct obi_usdt_spec *spec = obi_usdt_spec_for_ctx(ctx);
+    if (!spec) {
+        return k_obi_usdt_arg_err_no_spec;
+    }
+    if (arg_num >= k_obi_usdt_max_args) {
+        return k_obi_usdt_arg_err_out_of_range;
+    }
+    barrier_var(arg_num);
+    if (arg_num >= spec->arg_cnt) {
+        return k_obi_usdt_arg_err_out_of_range;
+    }
+
+    struct obi_usdt_arg_spec *arg = &spec->args[arg_num];
+    if (!obi_usdt_reg_off_ok(arg->reg_off)) {
+        return k_obi_usdt_arg_err_bad_reg;
+    }
+
+    unsigned long ptr = 0;
+    int err = bpf_probe_read_kernel(&ptr, sizeof(ptr), (unsigned char *)ctx + arg->reg_off);
+    if (err) {
+        return err;
+    }
+    if (!ptr) {
+        return 0;
+    }
+
+    if (arg->arg_type == k_obi_usdt_arg_go_string) {
+        // Go string {ptr, len}: ptr at reg_off, len at val_off (an explicit
+        // pt_regs offset, NOT reg_off+8). On amd64 Go regabi the {ptr,len}
+        // pair sits in non-consecutive registers (BX/CX, etc.), so the
+        // second register's offset is encoded out-of-band by userspace.
+        s16 len_reg_off = (s16)(arg->val_off & 0xFFFF);
+        if (!obi_usdt_reg_off_ok(len_reg_off)) {
+            return k_obi_usdt_arg_err_bad_reg;
+        }
+        unsigned long slen = 0;
+        if ((err =
+                 bpf_probe_read_kernel(&slen, sizeof(slen), (unsigned char *)ctx + len_reg_off))) {
+            return err;
+        }
+        u32 n = (u32)slen;
+        if (n >= dst_max) {
+            n = dst_max - 1;
+        }
+        if (n == 0) {
+            return 0;
+        }
+        if ((err = bpf_probe_read_user(dst, n, (const void *)ptr))) {
+            return err;
+        }
+        ((u8 *)dst)[n] = 0;
+        *out_len = n + 1;
+        return 0;
+    }
+    if (arg->arg_type != k_obi_usdt_arg_reg_deref_str) {
+        return k_obi_usdt_arg_err_bad_type;
+    }
+
+    long n = bpf_probe_read_user_str(dst, dst_max, (const void *)ptr);
+    if (n < 0) {
+        return (int)n;
+    }
+    *out_len = (u32)n;
+    return 0;
+}

@@ -1,6 +1,6 @@
 {
-  "_default": 20,
   "TestAvoidedServicesMetrics": 38,
+  "TestCustomSpan": 180,
   "TestCloudResourceMetadata_AWS": 76,
   "TestCloudResourceMetadata_Azure": 82,
   "TestCloudResourceMetadata_GCP": 84,
@@ -111,5 +111,6 @@
   "TestSuite_RustHTTP2": 25,
   "TestSuite_RustSSL": 49,
   "TestSuite_StaticCompilation": 154,
-  "TestTraceparentExtraction": 43
+  "TestTraceparentExtraction": 43,
+  "_default": 20
 }
