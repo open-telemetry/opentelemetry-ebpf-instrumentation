@@ -198,7 +198,12 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 }
 
 func (p *Tracer) KProbes() map[string]ebpfcommon.ProbeDesc {
-	return nil
+	return map[string]ebpfcommon.ProbeDesc{
+		"tcp_cleanup_rbuf": {
+			Required: false,
+			Start:    p.ingressObjs.ObiSocktracerTcpCleanupRbuf,
+		},
+	}
 }
 
 func (p *Tracer) Tracepoints() map[string]ebpfcommon.ProbeDesc {

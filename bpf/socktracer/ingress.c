@@ -4,12 +4,15 @@
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_endian.h>
 #include <bpfcore/bpf_helpers.h>
+#include <bpfcore/bpf_tracing.h>
 
 #include <common/connection_info.h>
 #include <common/runtime.h>
 #include <common/scratch_mem.h>
+#include <common/sockaddr.h>
 #include <common/tp_info.h>
 #include <common/trace_key.h>
+#include <common/trace_parent.h>
 #include <common/tracing.h>
 
 #include <logger/bpf_dbg.h>
@@ -117,7 +120,6 @@ static __always_inline u32 ctx_compute_payload_offset_v6(struct __sk_buff *skb) 
     const void *ptr = (const void *)(ip6 + 1);
     u8 curr_hdr = ip6->nexthdr;
 
-    // iterate at most 4 extension headers
     for (u8 i = 0; i < 4; i++) {
         if (curr_hdr == IPPROTO_TCP) {
             break;
@@ -715,6 +717,34 @@ int obi_socket_ingress(struct __sk_buff *skb) {
     return SK_PASS;
 }
 
+SEC("kprobe/tcp_cleanup_rbuf")
+int BPF_KPROBE(obi_socktracer_tcp_cleanup_rbuf, struct sock *sk, int copied) {
+    if (copied <= 0) {
+        return 0;
+    }
+
+    pid_connection_info_t p_conn = {};
+
+    if (!parse_sock_info(sk, &p_conn.conn)) {
+        return 0;
+    }
+
+    sort_connection_info(&p_conn.conn);
+
+    tp_info_pid_t *server_tp = trace_info_for_connection(&p_conn.conn, TRACE_TYPE_SERVER);
+
+    if (!server_tp || !server_tp->valid || !valid_trace(server_tp->tp.trace_id)) {
+        return 0;
+    }
+
+    trace_key_t t_key = {0};
+    trace_key_from_pid_tid(&t_key);
+
+    bpf_map_update_elem(&server_traces, &t_key, server_tp, BPF_ANY);
+
+    return 0;
+}
+
 // obi_ingress_tcp handles the ongoing and response paths inline (lightweight),
 // and tail-calls obi_ingress_tcp_req for new requests to avoid exceeding the
 // 512-byte BPF stack limit (handle_tcp_req inlines init_tp + set_trace which
@@ -752,7 +782,6 @@ int obi_ingress_tcp(struct __sk_buff *skb) {
             return SK_PASS;
         }
 
-        // Ongoing TCP session.
         const u32 len = ctx_len(skb);
         tcp->len += len;
         tcp->end_monotime_ns = bpf_ktime_get_ns();
