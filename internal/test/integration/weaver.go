@@ -251,11 +251,7 @@ func validateWeaverReport(t *testing.T, report *weaverReport) {
 	// Build message → {level, signals} lookup from the sample data.
 	adviceByMsg := collectAdviceInfo(report.Samples)
 
-	// Log all advisory messages grouped by level, and count actionable
-	// advisories: advice that is `violation`-level OR whose advice_type is in
-	// actionableAdviceTypes (e.g. extends_namespace), after applying the ignore
-	// lists.
-	var actionableAdvisories int
+	// Log all advisory messages grouped by level.
 	t.Logf("  advisory details:")
 	for _, level := range []string{"violation", "improvement", "information"} {
 		for msg, count := range stats.AdviceMessageCounts {
@@ -271,9 +267,6 @@ func validateWeaverReport(t *testing.T, report *weaverReport) {
 					suffix = " [ignored]"
 				}
 				t.Logf("    [%s] [%dx] %s (signals: unknown)%s", level, count, msg, suffix)
-				if !msgIgnored {
-					actionableAdvisories += count
-				}
 				continue
 			}
 			if info.Level != level {
@@ -281,24 +274,57 @@ func validateWeaverReport(t *testing.T, report *weaverReport) {
 			}
 			signals := sortedSignals(info.Signals)
 			ignored := msgIgnored || allSignalsIgnored(info.Signals)
-			_, typeActionable := actionableAdviceTypes[info.AdviceType]
 			suffix := ""
 			if ignored {
 				suffix = " [ignored]"
 			}
 			t.Logf("    [%s] [%dx] %s (signals: %s)%s", level, count, msg, strings.Join(signals, ", "), suffix)
-			if (level == "violation" || typeActionable) && !ignored {
-				actionableAdvisories += count
-			}
 		}
 	}
 
+	actionableAdvisories := countActionableAdvisories(stats, adviceByMsg)
 	t.Logf("  advisories: %d violation(s), %d actionable (after ignoring %v)",
 		violations, actionableAdvisories, sortedSignals(weaverIgnoredSignals))
 
 	assert.Zero(t, actionableAdvisories,
 		"weaver found %d actionable semantic convention advisory(ies) "+
 			"(violations or undeclared attributes under existing semconv namespaces)", actionableAdvisories)
+}
+
+func isActionableAdvice(level, adviceType string) bool {
+	if level == "violation" {
+		return true
+	}
+
+	_, actionable := actionableAdviceTypes[adviceType]
+	return actionable
+}
+
+func countActionableAdvisories(stats *weaverStatistics, adviceByMsg map[string]*adviceInfo) int {
+	var count int
+	for _, level := range []string{"violation", "improvement", "information"} {
+		for msg, occurrences := range stats.AdviceMessageCounts {
+			_, messageIgnored := weaverIgnoredAdviceMessages[msg]
+			info := adviceByMsg[msg]
+			if info == nil {
+				if level == "violation" && !messageIgnored {
+					count += occurrences
+				}
+				continue
+			}
+			if info.Level != level {
+				continue
+			}
+			if messageIgnored || allSignalsIgnored(info.Signals) {
+				continue
+			}
+			if isActionableAdvice(level, info.AdviceType) {
+				count += occurrences
+			}
+		}
+	}
+
+	return count
 }
 
 // collectAdviceInfo scans all weaver samples to build a complete map from

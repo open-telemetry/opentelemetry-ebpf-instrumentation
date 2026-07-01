@@ -4,6 +4,7 @@
 package integration
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,6 +17,32 @@ import (
 // upstreamSemconvSchemaURLPrefix uniquely identifies the upstream OpenTelemetry
 // semantic conventions registry among `schemas/obi/manifest.yaml` dependencies.
 const upstreamSemconvSchemaURLPrefix = "https://opentelemetry.io/schemas/"
+
+func TestExtendsNamespaceAdviceIsActionable(t *testing.T) {
+	const message = "Attribute 'http.custom' extends an existing namespace"
+
+	report := weaverReport{
+		Samples: []json.RawMessage{json.RawMessage(`{
+			"span": {
+				"live_check_result": {
+					"all_advice": [{
+						"id": "extends_namespace",
+						"message": "Attribute 'http.custom' extends an existing namespace",
+						"level": "information",
+						"signal_type": "span",
+						"signal_name": "GET /test"
+					}]
+				}
+			}
+		}`)},
+		Statistics: weaverStatistics{
+			AdviceMessageCounts: map[string]int{message: 1},
+		},
+	}
+
+	adviceByMsg := collectAdviceInfo(report.Samples)
+	require.Equal(t, 1, countActionableAdvisories(&report.Statistics, adviceByMsg))
+}
 
 // TestSemconvVersionMatchesManifest guards against drift between the Go-side
 // semconv import and the upstream-semconv dependency pinned in the OBI
