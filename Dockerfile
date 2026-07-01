@@ -53,9 +53,9 @@ RUN gradle build -x buildNativeLib-amd64 -x buildNativeLib-aarch64 --no-daemon
 # Build the autoinstrumenter binary
 FROM ghcr.io/open-telemetry/obi-generator:${TAG} AS builder
 
-# TODO: embed software version in executable
-
 ARG TARGETARCH
+ARG RELEASE_VERSION=unset
+ARG RELEASE_REVISION=unset
 
 ENV GOARCH=$TARGETARCH
 
@@ -67,7 +67,6 @@ COPY go.mod go.sum ./
 # Cache module cache.
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
 
-COPY .git/ .git/
 COPY bpf/ bpf/
 COPY cmd/ cmd/
 COPY pkg/ pkg/
@@ -78,7 +77,7 @@ COPY --from=javaagent-builder /build/build/obi-java-agent.jar /src/pkg/internal/
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg \
 	/generate.sh \
-	&& make compile
+	&& make compile RELEASE_VERSION=${RELEASE_VERSION} RELEASE_REVISION=${RELEASE_REVISION}
 
 # Create final image from minimal + built binary
 FROM scratch

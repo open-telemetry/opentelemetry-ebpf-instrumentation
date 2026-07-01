@@ -11,8 +11,8 @@ GOOS ?= linux
 GOARCH ?= $(shell go env GOARCH || echo amd64)
 
 # RELEASE_VERSION will contain the tag name, or the branch name if current commit is not a tag
-RELEASE_VERSION := $(shell git describe --all | cut -d/ -f2)
-RELEASE_REVISION := $(shell git rev-parse --short HEAD )
+RELEASE_VERSION ?= $(shell git describe --all | cut -d/ -f2-)
+RELEASE_REVISION ?= $(shell git rev-parse --short HEAD )
 BUILDINFO_PKG ?= go.opentelemetry.io/obi/pkg/buildinfo
 TEST_OUTPUT ?= ./testoutput
 RELEASE_DIR ?= ./dist
@@ -412,7 +412,10 @@ java-verify: java-spotless-check java-test java-build
 image-build:
 	@echo "### Building the auto-instrumenter image"
 	$(call check_defined, IMG_ORG, Your Docker repository user name)
-	$(OCI_BIN) buildx build --load -t ${IMG} .
+	$(OCI_BIN) buildx build --load -t ${IMG} \
+		--build-arg RELEASE_VERSION=${RELEASE_VERSION} \
+		--build-arg RELEASE_REVISION=${RELEASE_REVISION} \
+		.
 
 # generator-image-build is only used for local development. GH actions that build and publish the image don't make use of it
 .PHONY: generator-image-build

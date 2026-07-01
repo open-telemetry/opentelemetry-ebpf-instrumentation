@@ -48,6 +48,10 @@ jobs:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
 
+      - name: Compute short SHA
+        id: short_sha
+        run: echo "sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
       - name: Log in to Docker Hub
         uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
         with:
@@ -87,6 +91,9 @@ jobs:
           file: ./k8scache.Dockerfile
           platforms: ${{ matrix.platform }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            RELEASE_VERSION=${{ inputs.ref || steps.short_sha.outputs.sha }}
+            RELEASE_REVISION=${{ steps.short_sha.outputs.sha }}
           outputs: type=image,"name=ghcr.io/${{ github.repository }}/${{ env.IMAGE_NAME }},docker.io/otel/${{ env.IMAGE_NAME }}",push-by-digest=true,name-canonical=true,push=true
 
       - name: Export digest
