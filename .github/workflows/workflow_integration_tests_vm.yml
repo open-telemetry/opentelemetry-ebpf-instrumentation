@@ -129,7 +129,7 @@ jobs:
           cache: true
 
       - name: Go build cache
-        uses: actions/cache@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6.0.0 # zizmor: ignore[cache-poisoning] go build cache is content-addressable and self-verifying
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] go build cache is content-addressable and self-verifying
         with:
           path: ~/.cache/go-build
           key: go-build-vm-integration-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.go', 'go.sum') }}
@@ -148,7 +148,7 @@ jobs:
 
       - name: Cache Docker images
         id: docker-images-cache
-        uses: actions/cache@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6.0.0 # zizmor: ignore[cache-poisoning] keyed on hash of compose+Dockerfile+source inputs
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] keyed on hash of compose+Dockerfile+source inputs
         with:
           path: compiled-tests/docker-images.tar
           # OBI binary bakes bpf/cmd/pkg sources; hash them too or source changes reuse stale images.
@@ -194,7 +194,7 @@ jobs:
 
       - name: Cache base images
         id: base-images-cache
-        uses: actions/cache@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6.0.0 # zizmor: ignore[cache-poisoning] key derives from the digest-pinned base-image list; images are content-addressable
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] key derives from the digest-pinned base-image list; images are content-addressable
         with:
           path: compiled-tests/base-images.tar
           key: ${{ steps.cache-key.outputs.key }}
@@ -205,7 +205,7 @@ jobs:
 
       - name: Cache rootfs images
         id: rootfs-cache
-        uses: actions/cache@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6.0.0 # zizmor: ignore[cache-poisoning] keyed on hash of VM Dockerfile
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] keyed on hash of VM Dockerfile
         with:
           path: |
             compiled-tests/rootfs.qcow2

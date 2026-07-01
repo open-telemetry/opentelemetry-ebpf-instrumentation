@@ -105,7 +105,7 @@ jobs:
 
       - name: Cache base images
         id: base-images-cache
-        uses: actions/cache@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6.0.0 # zizmor: ignore[cache-poisoning] key derives from the digest-pinned base-image list; images are content-addressable
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] key derives from the digest-pinned base-image list; images are content-addressable
         with:
           path: /tmp/base-images.tar
           key: ${{ steps.cache-key.outputs.key }}
@@ -158,7 +158,7 @@ jobs:
           cache: true
 
       - name: Go build cache
-        uses: actions/cache@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6.0.0 # zizmor: ignore[cache-poisoning] go build cache is content-addressable and self-verifying
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] go build cache is content-addressable and self-verifying
         with:
           path: ~/.cache/go-build
           key: go-build-integration-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.go', 'go.sum') }}
@@ -174,7 +174,7 @@ jobs:
         run: make prereqs
 
       - name: Restore base images
-        uses: actions/cache/restore@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6.0.0 # zizmor: ignore[cache-poisoning] key derives from the digest-pinned base-image list; images are content-addressable
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] key derives from the digest-pinned base-image list; images are content-addressable
         with:
           path: /tmp/base-images.tar
           key: ${{ needs.prep-images.outputs.cache-key }}
