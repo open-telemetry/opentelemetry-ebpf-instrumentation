@@ -20,6 +20,7 @@ typedef struct chan_handoff {
 
 typedef struct chan_func_invocation {
     u64 chan_ptr;
+    u64 recvx;
     chan_handoff_t handoff;
     bool has_handoff;
     bool direct_handoff;
