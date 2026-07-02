@@ -145,6 +145,8 @@ Once the workflow completes successfully, a draft release is automatically creat
 
      release_tag=vX.Y.Z
      repository=open-telemetry/opentelemetry-ebpf-instrumentation
+     certificate_identity="https://github.com/${repository}/.github/workflows/release.yml"
+     certificate_identity="${certificate_identity}@refs/tags/${release_tag}"
      release_dir="$(mktemp -d)"
 
      gh release download "${release_tag}" \
@@ -161,7 +163,7 @@ Once the workflow completes successfully, a draft release is automatically creat
        "${release_dir}"/SHA256SUMS; do
        cosign verify-blob "${artifact}" \
          --bundle "${artifact}.bundle.json" \
-         --certificate-identity-regexp 'https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/' \
+         --certificate-identity "${certificate_identity}" \
          --certificate-oidc-issuer 'https://token.actions.githubusercontent.com'
      done
 
@@ -236,12 +238,17 @@ The `dist/` directory will contain:
 
 ### Manual Release Trigger
 
-If you need to re-trigger the release workflow (for example, if the workflow previously failed due to a temporary issue), you can use the manual trigger:
+If you need to re-trigger the release workflow (for example, if the workflow previously failed due to a temporary issue), dispatch it from the release tag:
 
-1. Go to the [Release workflow](https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/actions/workflows/release.yml)
-2. Click "Run workflow"
-3. Enter the tag name (e.g., `v1.2.3`) in the required input field
-4. Click "Run workflow"
+```console
+release_tag=vX.Y.Z
+gh workflow run release.yml \
+  --repo open-telemetry/opentelemetry-ebpf-instrumentation \
+  --ref "${release_tag}" \
+  --raw-field tag="${release_tag}"
+```
+
+Using the release tag for `--ref` is required. Dispatching from the default branch would give the signed artifacts a `refs/heads/main` certificate identity instead of the `refs/tags/${release_tag}` identity required by the verification command above.
 
 The manual trigger will validate the tag format, run the full test suite, and create a draft release with the same requirements as the automatic trigger.
 
