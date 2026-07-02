@@ -103,11 +103,18 @@ you just have to provide a non-zero value for the
 
 ### Kubernetes
 
-The canonical deployment pattern is a low replica `Deployment` plus a
-`Service` exposing gRPC, consumed by the OBI `DaemonSet`. A working reference
-is the integration test manifest at
-[internal/test/integration/k8s/manifests/06-obi-external-informer.yml](../internal/test/integration/k8s/manifests/06-obi-external-informer.yml).
-The shape of it is:
+The recommended deployment pattern is a low replica `Deployment`, a `Service`
+for the OBI `DaemonSet`, and a `NetworkPolicy` that limits which pods can
+connect to the gRPC port. The example below assumes OBI pods have the
+`instrumentation: obi` label in the same namespace. Adjust the selectors and
+namespace scoping to match your OBI deployment.
+
+Do not use this `podSelector` policy unchanged when OBI runs with
+`hostNetwork: true`: network policy implementations commonly treat those
+clients as node traffic instead of matching their pod labels. Use a
+CNI-specific host policy, firewall rule, service-mesh mTLS policy, or another
+authenticated proxy that permits OBI's node traffic before applying ingress
+isolation to k8s-cache.
 
 ```yaml
 kind: Deployment
@@ -131,13 +138,9 @@ spec:
           env:
             - name: OTEL_EBPF_K8S_CACHE_PORT
               value: "50055"
-            - name: OTEL_EBPF_K8S_CACHE_INTERNAL_METRICS_PROMETHEUS_PORT
-              value: "8999"
           ports:
             - containerPort: 50055
               name: grpc
-            - containerPort: 8999
-              name: internalprom
 ---
 kind: Service
 apiVersion: v1
@@ -150,7 +153,30 @@ spec:
     - port: 50055
       name: grpc
       protocol: TCP
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: k8s-cache-grpc-from-obi
+spec:
+  podSelector:
+    matchLabels:
+      app: k8s-cache
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              instrumentation: obi
+      ports:
+        - protocol: TCP
+          port: 50055
 ```
+
+This secured example leaves the optional internal Prometheus metrics endpoint
+disabled. If you enable it on port `8999`, add a separate ingress rule that
+allows only your metrics scraper to reach that port.
 
 Then point OBI at it, either via YAML:
 
@@ -176,6 +202,16 @@ perspective and the bottleneck on large clusters is the Kube API watch, not
 the fan-out to OBI clients. If you need HA, run multiple replicas behind the
 same `Service` — each OBI instance connects to one of them and will reconnect
 to another on failure.
+
+The k8s-cache gRPC endpoint currently uses plaintext gRPC without built-in
+authentication or authorization. A subscriber receives the current Kubernetes
+metadata snapshot and future updates, including pod, service, and node metadata
+used by OBI for enrichment. Do not expose this `Service` to pods or namespaces
+that are not trusted to read that metadata.
+
+If your CNI does not enforce `NetworkPolicy` for the selected source pods, use
+an equivalent CNI-specific host policy, firewall rule, service-mesh mTLS
+policy, or another authenticated proxy in front of k8s-cache.
 
 ### Running locally for development
 
@@ -218,8 +254,7 @@ Also worth knowing:
 ## Minimum RBAC permissions
 
 The cache needs `list` and `watch` on the same resources OBI would otherwise
-watch itself. The integration tests use the service account in
-[internal/test/integration/k8s/manifests/01-serviceaccount.yml](../internal/test/integration/k8s/manifests/01-serviceaccount.yml):
+watch itself:
 
 ```yaml
 rules:
