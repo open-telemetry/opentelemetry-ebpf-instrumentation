@@ -24,6 +24,13 @@ import (
 )
 
 func main() {
+	if handled, exitCode := runConfigCommand(os.Args[1:], os.Stdout, os.Stderr); handled {
+		if exitCode != configCommandExitSuccess {
+			os.Exit(exitCode)
+		}
+		return
+	}
+
 	lvl := slog.LevelVar{}
 	lvl.Set(slog.LevelInfo)
 

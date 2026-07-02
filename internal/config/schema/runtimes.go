@@ -13,11 +13,13 @@ type CaptureRuntimes struct {
 // Runtime describes generic language runtime capture settings.
 type Runtime struct {
 	Enabled bool `yaml:"enabled"`
+	Filter  any  `yaml:"filter,omitempty"`
 }
 
 // JavaRuntime describes Java runtime capture and debug settings.
 type JavaRuntime struct {
 	Enabled       bool      `yaml:"enabled"`
+	Filter        any       `yaml:"filter,omitempty"`
 	Debug         JavaDebug `yaml:"debug"`
 	AttachTimeout Duration  `yaml:"attach_timeout"`
 }

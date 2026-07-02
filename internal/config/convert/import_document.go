@@ -5,6 +5,7 @@ package convert // import "go.opentelemetry.io/obi/internal/config/convert"
 
 import (
 	"errors"
+	"fmt"
 	"strconv"
 	"time"
 
@@ -32,6 +33,9 @@ func DocumentToRuntime(src *schema.Document) (*obi.Config, error) {
 	applyV2Resource(cfg, src.Resource)
 	applyV2TracerProvider(cfg, src.TracerProvider)
 	applyV2MeterProvider(cfg, src.MeterProvider)
+	if err := cfg.ValidateValues(); err != nil {
+		return nil, fmt.Errorf("validate converted config v2 values: %w", err)
+	}
 
 	return cfg, nil
 }

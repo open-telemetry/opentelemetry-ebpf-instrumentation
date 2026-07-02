@@ -78,14 +78,29 @@ The `obi` command needs to have a configuration migration tool added to it.
 It needs to support semantics like the following.
 
 ```shell
-obi config migrate --from v1 --to v2
+obi config migrate --from=v1 --to=v2 ./path/to/config.yml
 ```
 
-- Read v1 or mixed legacy input.
+- Read supported v1 file-based input.
 - Produce canonical v2 output.
-- Emit a mapping report (moved, renamed, split/fan-out, inverted semantics).
-- Emit warnings for deprecated aliases.
-- Fail only when rewrite is non-deterministic.
+- Emit a mapping report for non-trivial structural rewrites (split/fan-out,
+  selector shape changes, inverted semantics, and applied feature aliases).
+- Include applied deprecated feature aliases in the mapping report.
+- Fail when a configured field cannot be preserved by the current v2 contract.
+
+The command writes only the migrated YAML document to standard output. It
+writes the mapping report to standard error, so the output can be redirected
+directly into source control:
+
+```shell
+obi config migrate ./obi-v1.yml > ./obi-v2.yml
+```
+
+Migration is file-only and deterministic. It does not apply ambient OBI or
+OpenTelemetry environment variables. Resolve `${...}` and `$(...)`
+interpolation before running the command. Unknown v1 fields and fields outside
+the supported migration contract fail with their source paths instead of being
+dropped.
 
 ### What non-deterministic means
 
@@ -97,7 +112,8 @@ A small set of mappings are structurally non-trivial:
 - **Inverted boolean**: `discovery.skip_go_specific_tracers: true` maps to `capture.runtimes.go.enabled: false`. The migration tool applies the inversion and emits a note.
 - **Sampler**: `otel_traces_export.sampler.name` and `.arg` migrate to `tracer_provider.sampler`. Simple cases (e.g., `always_on`, `trace_id_ratio_based`) map directly to built-in OTel declarative sampler types. Custom or workload-specific sampler configs may require operator intervention and use of the `obi_rule_based` sampler plugin.
 
-Only mappings that cannot be resolved without operator input cause migration to fail with a non-deterministic error.
+Mappings that cannot be resolved without operator input and source settings
+outside the supported migration contract cause migration to fail.
 
 ## Validation CLI
 
@@ -108,11 +124,34 @@ It needs to support semantics like the following.
 obi config validate ./path/to/config
 ```
 
-- Read v1 or later configuration as input via an argument
-- Parse and validate the configuration
-- Emit warnings for invalid configuration detected
-- Emit warnings for deprecated configuration versions
-- In receiver context (detected via flag or auto-detection), reject standalone-only sections (`enrich`, `correlation`, `daemon`) with an explicit error identifying the section and remediation steps
+- Read Config v2 from the path argument.
+- Parse and validate the supported typed configuration.
+- Return actionable errors for invalid configuration.
+- In receiver mode, reject standalone-only sections (`enrich`, `correlation`, `daemon`) with an explicit error identifying the section and remediation steps.
+
+Validation accepts Config v2 only. Use `--mode=receiver` for a
+receiver-embedded OBI fragment; the default mode validates a standalone
+declarative document:
+
+```shell
+obi config validate ./obi-v2.yml
+obi config validate --mode=receiver ./obi-receiver-v2.yml
+```
+
+The receiver input is the OBI receiver fragment beginning with `version`, not
+an entire Collector service configuration. Validation rejects malformed typed
+fields, unsupported versions, trailing YAML documents, and standalone-only
+sections in receiver mode. It parses and converts configuration without
+starting OBI. The supported declarative subset and handling of fields outside
+that subset remain part of the Config v2 release gate.
+
+Both commands use stable exit codes:
+
+| Exit code | Meaning |
+|---|---|
+| `0` | The command succeeded, or help was requested. |
+| `1` | Input, validation, migration, or file I/O failed. |
+| `2` | Command usage or flags were invalid. |
 
 ## Rollout strategy
 

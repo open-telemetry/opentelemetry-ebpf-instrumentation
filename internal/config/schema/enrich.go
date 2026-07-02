@@ -21,6 +21,7 @@ type Enrich struct {
 // Enrichers groups metadata enricher settings.
 type Enrichers struct {
 	Kubernetes KubernetesEnricher `yaml:"kubernetes"`
+	DNS        any                `yaml:"dns,omitempty"`
 }
 
 // KubernetesMode describes Kubernetes metadata enricher activation.
@@ -89,6 +90,7 @@ type ServiceName struct {
 	UnresolvedHosts UnresolvedHosts    `yaml:"unresolved_hosts"`
 	Sources         []transform.Source `yaml:"sources"`
 	Cache           Cache              `yaml:"cache"`
+	Rules           any                `yaml:"rules,omitempty"`
 }
 
 // UnresolvedHosts describes names assigned to unresolved hosts.
@@ -109,6 +111,7 @@ type EnrichmentAttributes struct {
 	Select               attributes.Selection `yaml:"select"`
 	ExtraGroupAttributes ExtraGroupAttributes `yaml:"extra_group_attributes"`
 	MetadataRetry        MetadataRetry        `yaml:"metadata_retry"`
+	Rules                any                  `yaml:"rules,omitempty"`
 }
 
 // ExtraGroupAttributes maps OBI attribute group names to extra attribute names.

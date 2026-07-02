@@ -28,7 +28,7 @@ func TestDocumentToRuntimeImportsExportedDocumentSections(t *testing.T) {
 
 	cfg.Traces.TracesEndpoint = "http://traces.example:4317"
 	cfg.Traces.BatchMaxSize = 907
-	cfg.Traces.QueueSize = 908
+	cfg.Traces.QueueSize = 1908
 	cfg.Traces.BatchTimeout = 909 * time.Millisecond
 	cfg.Traces.SamplerConfig.Name = services.SamplerTraceIDRatio
 	cfg.Traces.SamplerConfig.Arg = "0.25"
@@ -50,7 +50,7 @@ func TestDocumentToRuntimeImportsExportedDocumentSections(t *testing.T) {
 
 	require.Equal(t, "http://traces.example:4317", got.Traces.TracesEndpoint)
 	require.Equal(t, otelcfg.ProtocolGRPC, got.Traces.TracesProtocol)
-	require.Equal(t, 908, got.Traces.QueueSize)
+	require.Equal(t, 1908, got.Traces.QueueSize)
 	require.Equal(t, 907, got.Traces.BatchMaxSize)
 	require.Equal(t, 909*time.Millisecond, got.Traces.BatchTimeout)
 	require.Equal(t, services.SamplerConfig{
@@ -232,7 +232,7 @@ func documentWithRuntimeTelemetry() *schema.Document {
 	cfg := defaultRuntimeConfig()
 	cfg.Traces.TracesEndpoint = "http://traces.example:4317"
 	cfg.Traces.BatchMaxSize = 907
-	cfg.Traces.QueueSize = 908
+	cfg.Traces.QueueSize = 1908
 	cfg.Traces.BatchTimeout = 909 * time.Millisecond
 	cfg.Traces.SamplerConfig.Name = services.SamplerTraceIDRatio
 	cfg.Traces.SamplerConfig.Arg = "0.25"

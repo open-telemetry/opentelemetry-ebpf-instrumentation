@@ -322,7 +322,7 @@ func TestV2ToRuntimeImportsRules(t *testing.T) {
 						},
 						Kubernetes: schema.RuleKubernetesMatch{
 							NamespaceGlob:  []string{"prod"},
-							MetadataGlob:   map[string][]string{"k8s.deployment.name": {"checkout*"}},
+							MetadataGlob:   map[string][]string{services.AttrDeploymentName: {"checkout*"}},
 							PodLabels:      map[string][]string{"app": {"checkout"}},
 							PodAnnotations: map[string][]string{"team": {"payments"}},
 						},
@@ -370,7 +370,7 @@ func TestV2ToRuntimeImportsRules(t *testing.T) {
 	require.Equal(t, "/srv/*", globString(include.Path))
 	require.True(t, include.ContainersOnly)
 	require.Equal(t, "prod", globString(*include.Metadata[services.AttrNamespace]))
-	require.Equal(t, "checkout*", globString(*include.Metadata["k8s.deployment.name"]))
+	require.Equal(t, "checkout*", globString(*include.Metadata[services.AttrDeploymentName]))
 	require.Equal(t, "checkout", globString(*include.PodLabels["app"]))
 	require.True(t, include.ExportModes.CanExportTraces())
 	require.False(t, include.ExportModes.CanExportMetrics())
@@ -385,10 +385,10 @@ func TestV2ToRuntimeImportsRules(t *testing.T) {
 	require.Equal(t, "kube-.*", regexString(*exclude.Metadata[services.AttrNamespace]))
 }
 
-func TestV2ToRuntimeSkipsUnsupportedExportsOTLPRules(t *testing.T) {
+func TestV2ToRuntimeRejectsUnsupportedExportsOTLPRules(t *testing.T) {
 	t.Parallel()
 
-	got, err := V2ToRuntime(&schema.Extension{
+	_, err := V2ToRuntime(&schema.Extension{
 		Version: schema.SupportedVersion,
 		Capture: schema.Capture{
 			Rules: []schema.Rule{
@@ -412,17 +412,14 @@ func TestV2ToRuntimeSkipsUnsupportedExportsOTLPRules(t *testing.T) {
 			},
 		},
 	})
-	require.NoError(t, err)
-
-	require.Empty(t, got.Discovery.Instrument)
-	require.Empty(t, got.Discovery.ExcludeInstrument)
-	require.False(t, got.Discovery.ExcludeOTelInstrumentedServices)
+	require.EqualError(t, err,
+		"capture.rules[0].match.process.exports_otlp: only a dedicated exclude rule is supported")
 }
 
-func TestV2ToRuntimeSkipsMixedGlobRegexRules(t *testing.T) {
+func TestV2ToRuntimeRejectsMixedGlobRegexRules(t *testing.T) {
 	t.Parallel()
 
-	got, err := V2ToRuntime(&schema.Extension{
+	_, err := V2ToRuntime(&schema.Extension{
 		Version: schema.SupportedVersion,
 		Capture: schema.Capture{
 			Rules: []schema.Rule{
@@ -451,12 +448,7 @@ func TestV2ToRuntimeSkipsMixedGlobRegexRules(t *testing.T) {
 			},
 		},
 	})
-	require.NoError(t, err)
-
-	require.Empty(t, got.Discovery.Instrument)
-	require.Empty(t, got.Discovery.Services)
-	require.Empty(t, got.Discovery.ExcludeInstrument)
-	require.Empty(t, got.Discovery.ExcludeServices)
+	require.EqualError(t, err, "capture.rules[0].match: glob and regex selectors cannot be combined")
 }
 
 func TestV2ToRuntimeRejectsMalformedRulePatterns(t *testing.T) {

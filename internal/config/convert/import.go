@@ -53,6 +53,9 @@ func V2ToRuntime(src *schema.Extension) (*obi.Config, error) {
 	applyV2Standalone(&cfg, src)
 	applyV2MetricsEnablement(&cfg, src)
 	cfg.Attributes.Select.Normalize()
+	if err := cfg.ValidateValues(); err != nil {
+		return nil, fmt.Errorf("validate converted config v2 values: %w", err)
+	}
 
 	return &cfg, nil
 }
@@ -179,6 +182,13 @@ func collectV2ExportsOTLPExclusionRule(rules *runtimeDiscoveryRules, rule schema
 func validateV2RulePatterns(rules []schema.Rule) error {
 	for i, rule := range rules {
 		path := fmt.Sprintf("capture.rules[%d].match", i)
+		if rule.Match.Process.ExportsOTLP != nil &&
+			(rule.Action != schema.CaptureActionExclude || !ruleMatchOnlyExportsOTLP(rule.Match)) {
+			return fmt.Errorf("%s.process.exports_otlp: only a dedicated exclude rule is supported", path)
+		}
+		if ruleUsesRegex(rule.Match) && ruleUsesGlob(rule.Match) {
+			return fmt.Errorf("%s: glob and regex selectors cannot be combined", path)
+		}
 		if err := validateV2RuleProcessGlobPatterns(path+".process", rule.Match.Process); err != nil {
 			return err
 		}

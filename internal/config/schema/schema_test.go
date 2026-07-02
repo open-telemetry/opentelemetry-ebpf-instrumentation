@@ -243,6 +243,40 @@ func TestReceiverRejectsStandaloneSections(t *testing.T) {
 	}
 }
 
+func TestParsersRejectUnknownOBIFields(t *testing.T) {
+	t.Parallel()
+
+	_, _, err := ParseStandaloneYAML([]byte(`
+file_format: "1.0"
+extensions:
+  obi:
+    version: "2.0"
+    caputre: {}
+`))
+	require.ErrorContains(t, err, "field caputre not found")
+
+	_, err = ParseReceiverYAML([]byte(`
+version: "2.0"
+policy:
+  default_actoin: include
+`))
+	require.ErrorContains(t, err, "field default_actoin not found")
+}
+
+func TestParsersRejectMultipleDocuments(t *testing.T) {
+	t.Parallel()
+
+	data := []byte(`
+version: "2.0"
+---
+version: "2.0"
+`)
+
+	_, err := ParseReceiverYAML(data)
+
+	require.ErrorContains(t, err, "multiple YAML documents are not supported")
+}
+
 func TestStandaloneAllowsStandaloneSections(t *testing.T) {
 	t.Parallel()
 

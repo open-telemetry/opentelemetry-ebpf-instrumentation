@@ -19,8 +19,10 @@
 package schema // import "go.opentelemetry.io/obi/internal/config/schema"
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"io"
 
 	"go.yaml.in/yaml/v3"
 
@@ -141,17 +143,23 @@ func ParseStandaloneYAML(data []byte) (*Document, *Extension, error) {
 		if version != SupportedVersion {
 			return nil, nil, &UnsupportedVersionError{Version: version}
 		}
+		obiNode, ok := nestedNode(root, "extensions", "obi")
+		if !ok {
+			return nil, nil, &NotV2Error{Reason: "missing extensions.obi"}
+		}
+		var ext Extension
+		if err := decodeStrict(obiNode, &ext); err != nil {
+			return nil, nil, err
+		}
 		var doc Document
 		if err := decode(root, &doc); err != nil {
 			return nil, nil, err
 		}
-		if doc.Extensions.OBI == nil {
-			return nil, nil, &NotV2Error{Reason: "missing extensions.obi"}
-		}
-		if err := ValidateStandalone(doc.Extensions.OBI); err != nil {
+		doc.Extensions.OBI = &ext
+		if err := ValidateStandalone(&ext); err != nil {
 			return nil, nil, err
 		}
-		return &doc, doc.Extensions.OBI, nil
+		return &doc, &ext, nil
 	}
 
 	if version, ok := nestedVersion(root, "extensions", "obi", "version"); ok {
@@ -188,7 +196,7 @@ func ParseReceiverYAML(data []byte) (*Extension, error) {
 			return nil, &SectionNotAllowedError{Section: section}
 		}
 		var receiver receiverConfig
-		if err := decode(root, &receiver); err != nil {
+		if err := decodeStrict(root, &receiver); err != nil {
 			return nil, err
 		}
 		cfg := Extension{
@@ -278,8 +286,19 @@ func looksLikeV1(root *yaml.Node) bool {
 }
 
 func parseYAML(data []byte) (*yaml.Node, error) {
+	decoder := yaml.NewDecoder(bytes.NewReader(data))
 	var doc yaml.Node
-	if err := yaml.Unmarshal(data, &doc); err != nil {
+	if err := decoder.Decode(&doc); err != nil {
+		if errors.Is(err, io.EOF) {
+			return &doc, nil
+		}
+		return nil, fmt.Errorf("parsing config v2 YAML: %w", err)
+	}
+	var trailing yaml.Node
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return nil, errors.New("parsing config v2 YAML: multiple YAML documents are not supported")
+		}
 		return nil, fmt.Errorf("parsing config v2 YAML: %w", err)
 	}
 	if doc.Kind == yaml.DocumentNode && len(doc.Content) > 0 {
@@ -290,6 +309,19 @@ func parseYAML(data []byte) (*yaml.Node, error) {
 
 func decode(node *yaml.Node, dst any) error {
 	if err := node.Decode(dst); err != nil {
+		return fmt.Errorf("decoding config v2 YAML: %w", err)
+	}
+	return nil
+}
+
+func decodeStrict(node *yaml.Node, dst any) error {
+	data, err := yaml.Marshal(node)
+	if err != nil {
+		return fmt.Errorf("encoding config v2 YAML for strict decoding: %w", err)
+	}
+	decoder := yaml.NewDecoder(bytes.NewReader(data))
+	decoder.KnownFields(true)
+	if err := decoder.Decode(dst); err != nil {
 		return fmt.Errorf("decoding config v2 YAML: %w", err)
 	}
 	return nil

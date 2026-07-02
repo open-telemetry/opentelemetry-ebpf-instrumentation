@@ -647,10 +647,9 @@ func (e ConfigError) Error() string {
 	return string(e)
 }
 
-// Validate configuration
-//
-//nolint:cyclop
-func (c *Config) Validate() error {
+// ValidateValues checks configuration invariants that do not depend on the
+// runtime environment or on a complete export pipeline.
+func (c *Config) ValidateValues() error {
 	validate := validator.New(validator.WithRequiredStructEnabled())
 
 	// for future custom validations
@@ -688,6 +687,17 @@ func (c *Config) Validate() error {
 
 	if err := c.Traces.NormalizeQueueConfig(); err != nil {
 		return ConfigError(err.Error())
+	}
+
+	return nil
+}
+
+// Validate configuration
+//
+//nolint:cyclop
+func (c *Config) Validate() error {
+	if err := c.ValidateValues(); err != nil {
+		return err
 	}
 
 	if !c.Enabled(FeatureNetO11y) && !c.Enabled(FeatureAppO11y) && !c.Enabled(FeatureStatsO11y) {

@@ -11,6 +11,7 @@ type Correlation struct {
 // LogTraceAnnotation describes log trace annotation settings.
 type LogTraceAnnotation struct {
 	Enabled     bool        `yaml:"enabled"`
+	Filter      any         `yaml:"filter,omitempty"`
 	Cache       Cache       `yaml:"cache"`
 	AsyncWriter AsyncWriter `yaml:"async_writer"`
 }
