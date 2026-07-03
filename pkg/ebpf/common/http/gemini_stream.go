@@ -13,6 +13,10 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 )
 
+// maxGeminiStreamCandidates bounds allocations derived from response-provided
+// candidate indices, consistent with the openai_stream.go guard.
+const maxGeminiStreamCandidates = 256
+
 type geminiStreamChunk struct {
 	Candidates    []geminiStreamCandidate `json:"candidates"`
 	UsageMetadata *request.GeminiUsage    `json:"usageMetadata"`
@@ -44,11 +48,17 @@ type geminiFunctionCallData struct {
 	Args json.RawMessage `json:"args,omitempty"`
 }
 
-// candidateAggregator accumulates streamed text and function-call parts
-// for a single candidate index.
+// candidatePart is a single ordered part in a candidate's content.
+// Either text is non-empty (text part) or fcRaw is non-nil (function-call part).
+type candidatePart struct {
+	text  string
+	fcRaw json.RawMessage
+}
+
+// candidateAggregator accumulates streamed parts for a single candidate
+// index, preserving the original part ordering.
 type candidateAggregator struct {
-	content      strings.Builder
-	fcParts      []json.RawMessage
+	parts        []candidatePart
 	finishReason string
 }
 
@@ -95,6 +105,9 @@ func parseGeminiStream(reader io.Reader) (*request.GeminiResponse, []request.Too
 
 		for i := range chunk.Candidates {
 			c := &chunk.Candidates[i]
+			if c.Index < 0 || c.Index >= maxGeminiStreamCandidates {
+				continue
+			}
 			agg := candidates[c.Index]
 			if agg == nil {
 				agg = &candidateAggregator{}
@@ -111,7 +124,11 @@ func parseGeminiStream(reader io.Reader) (*request.GeminiResponse, []request.Too
 			for _, rawPart := range c.Content.Parts {
 				var textPart geminiTextPart
 				if err := json.Unmarshal(rawPart, &textPart); err == nil && textPart.Text != "" {
-					agg.content.WriteString(textPart.Text)
+					if n := len(agg.parts); n > 0 && agg.parts[n-1].fcRaw == nil {
+						agg.parts[n-1].text += textPart.Text
+					} else {
+						agg.parts = append(agg.parts, candidatePart{text: textPart.Text})
+					}
 					continue
 				}
 
@@ -120,7 +137,7 @@ func parseGeminiStream(reader io.Reader) (*request.GeminiResponse, []request.Too
 					toolCalls = append(toolCalls, request.ToolCall{
 						Name: fcPart.FunctionCall.Name,
 					})
-					agg.fcParts = append(agg.fcParts, rawPart)
+					agg.parts = append(agg.parts, candidatePart{fcRaw: rawPart})
 				}
 			}
 		}
@@ -178,7 +195,7 @@ func buildGeminiCandidates(aggs map[int]*candidateAggregator) []request.GeminiCa
 
 	result := make([]request.GeminiCandidate, maxIdx+1)
 	for idx, agg := range aggs {
-		parts := buildGeminiStreamParts(agg.content.String(), agg.fcParts)
+		parts := buildGeminiStreamParts(agg.parts)
 		result[idx] = request.GeminiCandidate{
 			Content: &request.GeminiContent{
 				Parts: parts,
@@ -190,10 +207,11 @@ func buildGeminiCandidates(aggs map[int]*candidateAggregator) []request.GeminiCa
 	return result
 }
 
-// buildGeminiStreamParts constructs the parts JSON from aggregated text
-// and raw function-call parts (preserving arguments).
-func buildGeminiStreamParts(text string, fcParts []json.RawMessage) json.RawMessage {
-	if text == "" && len(fcParts) == 0 {
+// buildGeminiStreamParts constructs the parts JSON from ordered candidate
+// parts, preserving the original text/function-call ordering and coalescing
+// only adjacent text fragments.
+func buildGeminiStreamParts(parts []candidatePart) json.RawMessage {
+	if len(parts) == 0 {
 		return nil
 	}
 
@@ -201,16 +219,25 @@ func buildGeminiStreamParts(text string, fcParts []json.RawMessage) json.RawMess
 		Text string `json:"text"`
 	}
 
-	var parts []json.RawMessage
-	if text != "" {
-		raw, err := json.Marshal(textPartJSON{Text: text})
-		if err == nil {
-			parts = append(parts, raw)
+	var rawParts []json.RawMessage
+	for _, p := range parts {
+		if p.fcRaw != nil {
+			rawParts = append(rawParts, p.fcRaw)
+			continue
+		}
+		if p.text != "" {
+			raw, err := json.Marshal(textPartJSON{Text: p.text})
+			if err == nil {
+				rawParts = append(rawParts, raw)
+			}
 		}
 	}
-	parts = append(parts, fcParts...)
 
-	raw, err := json.Marshal(parts)
+	if len(rawParts) == 0 {
+		return nil
+	}
+
+	raw, err := json.Marshal(rawParts)
 	if err != nil {
 		return nil
 	}

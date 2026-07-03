@@ -189,3 +189,63 @@ func TestParseGeminiStream_DataPrefixWithoutSpace(t *testing.T) {
 	require.Len(t, parts, 1)
 	assert.Equal(t, "no space", parts[0].Text)
 }
+
+func TestParseGeminiStream_NegativeCandidateIndex(t *testing.T) {
+	// A malformed response with a negative candidate index must not panic.
+	stream := "data: {\"candidates\":[{\"index\":-1,\"content\":{\"parts\":[{\"text\":\"bad\"}],\"role\":\"model\"}}],\"modelVersion\":\"gemini-2.0-flash\"}\n\n"
+
+	resp, _ := parseGeminiStream(strings.NewReader(stream))
+
+	require.NotNil(t, resp)
+	assert.Empty(t, resp.Candidates)
+}
+
+func TestParseGeminiStream_OversizedCandidateIndex(t *testing.T) {
+	// A malformed response with an oversized candidate index must not cause
+	// excessive allocation.
+	stream := "data: {\"candidates\":[{\"index\":99999,\"content\":{\"parts\":[{\"text\":\"bad\"}],\"role\":\"model\"}}],\"modelVersion\":\"gemini-2.0-flash\"}\n\n"
+
+	resp, _ := parseGeminiStream(strings.NewReader(stream))
+
+	require.NotNil(t, resp)
+	assert.Empty(t, resp.Candidates)
+}
+
+func TestParseGeminiStream_InterleavedTextAndFunctionCall(t *testing.T) {
+	// Parts arrive across chunks in order: text, functionCall, text.
+	// The parser must preserve this ordering rather than emitting all
+	// text first.
+	stream := "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"Before call \"}],\"role\":\"model\"}}],\"modelVersion\":\"gemini-2.0-flash\"}\n\n" +
+		"data: {\"candidates\":[{\"content\":{\"parts\":[{\"functionCall\":{\"name\":\"get_weather\",\"args\":{\"location\":\"NYC\"}}}],\"role\":\"model\"}}],\"modelVersion\":\"gemini-2.0-flash\"}\n\n" +
+		"data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"after call.\"}],\"role\":\"model\"},\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"promptTokenCount\":10,\"candidatesTokenCount\":8,\"totalTokenCount\":18},\"modelVersion\":\"gemini-2.0-flash\",\"responseId\":\"resp_interleave\"}\n\n"
+
+	resp, toolCalls := parseGeminiStream(strings.NewReader(stream))
+
+	require.NotNil(t, resp)
+	require.Len(t, toolCalls, 1)
+	assert.Equal(t, "get_weather", toolCalls[0].Name)
+
+	require.Len(t, resp.Candidates, 1)
+	var parts []struct {
+		Text         string `json:"text"`
+		FunctionCall *struct {
+			Name string          `json:"name"`
+			Args json.RawMessage `json:"args"`
+		} `json:"functionCall"`
+	}
+	require.NoError(t, json.Unmarshal(resp.Candidates[0].Content.Parts, &parts))
+	require.Len(t, parts, 3)
+
+	// Part 0: text "Before call "
+	assert.Equal(t, "Before call ", parts[0].Text)
+	assert.Nil(t, parts[0].FunctionCall)
+
+	// Part 1: function call
+	assert.NotNil(t, parts[1].FunctionCall)
+	assert.Equal(t, "get_weather", parts[1].FunctionCall.Name)
+	assert.Empty(t, parts[1].Text)
+
+	// Part 2: text "after call."
+	assert.Equal(t, "after call.", parts[2].Text)
+	assert.Nil(t, parts[2].FunctionCall)
+}
