@@ -218,6 +218,12 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 		t.Logf("skipping tpinjector/BpfIter: kernel %d.%d < 5.11", major, minor)
 	}
 
+	// tpinjector/BpfFionreadFixup uses bpf_probe_write_user, rejected at load time
+	// under kernel lockdown - none of the CI kernels run locked down
+	forEachCombination(t, "tpinjector/BpfFionreadFixup", tpinjectorbpf.LoadBpfFionreadFixup, []constOption{
+		{"g_bpf_debug", []any{true, false}},
+	})
+
 	// watcher
 	forEachCombination(t, "watcher/Bpf", watcherbpf.LoadBpf, []constOption{
 		{"g_bpf_debug", []any{true, false}},

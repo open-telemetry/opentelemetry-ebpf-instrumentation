@@ -11,6 +11,7 @@
 #include <logger/bpf_dbg.h>
 
 #include <maps/sock_dir.h>
+#include <maps/tracked_sock_cookies.h>
 
 char __license[] SEC("license") = "Dual MIT/GPL";
 
@@ -105,6 +106,8 @@ int obi_sk_iter_tcp(struct bpf_iter__tcp *ctx) {
 
     if (bpf_map_update_elem(&sock_dir, &cookie, skc, BPF_NOEXIST) != 0) {
         bpf_dbg_printk("Failed to track sock cookie=%llu", cookie);
+    } else {
+        bpf_map_update_elem(&tracked_sock_cookies, &cookie, &(u8){1}, BPF_ANY);
     }
 
     return 0;

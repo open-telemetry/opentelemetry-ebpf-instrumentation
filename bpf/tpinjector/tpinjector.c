@@ -37,6 +37,7 @@
 #include <maps/outgoing_trace_map.h>
 #include <maps/sock_dir.h>
 #include <maps/tp_info_mem.h>
+#include <maps/tracked_sock_cookies.h>
 
 #include <tpinjector/h2_parse.h>
 #include <tpinjector/maps/sk_h2_conn_flag.h>
@@ -393,7 +394,9 @@ static __always_inline void bpf_sock_ops_set_flags(struct bpf_sock_ops *skops, u
 static __always_inline void bpf_sock_ops_active_est_cb(struct bpf_sock_ops *skops) {
     const u64 cookie = bpf_get_socket_cookie(skops);
 
-    bpf_sock_hash_update(skops, &sock_dir, (void *)&cookie, BPF_ANY);
+    if (bpf_sock_hash_update(skops, &sock_dir, (void *)&cookie, BPF_ANY) == 0) {
+        bpf_map_update_elem(&tracked_sock_cookies, &cookie, &(u8){1}, BPF_ANY);
+    }
     bpf_sock_ops_set_flags(skops, BPF_SOCK_OPS_WRITE_HDR_OPT_CB_FLAG);
 }
 
