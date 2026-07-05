@@ -76,10 +76,6 @@ var IgnoredAdviceMessages = map[string]struct{}{
 	// OBI deliberately disables dns.question.name by default to bound metric
 	// cardinality (attr.DNSQuestionName in pkg/export/attributes/attr_defs.go),
 	// while upstream semconv marks it `required` on dns.lookup.duration.
-	// schemas/obi/groups/dns.yaml redeclares the metric with the attribute as
-	// `opt_in`, but weaver v0.24.1 gives the unreferenced upstream group
-	// precedence over the local override when `--include-unreferenced` is set
-	// (which OBI needs, or upstream-only signals aren't validated at all).
 	// Suppress the message until weaver resolves local-registry precedence;
 	// the attribute is still type/value-validated whenever a user opts in.
 	"Required attribute 'dns.question.name' is not present.": {},
