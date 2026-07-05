@@ -93,7 +93,7 @@ func testREDMetricsPythonKafkaOnly(t *testing.T) {
 						attribute.String("messaging.operation.type", "publish"),
 						attribute.String("messaging.destination.name", "my-topic"),
 						attribute.String("messaging.client.id", "kafka-python-producer-1"),
-						attribute.Int64("messaging.destination.partition.id", 0),
+						attribute.String("messaging.destination.partition.id", "0"),
 					},
 				},
 				{
@@ -102,7 +102,7 @@ func testREDMetricsPythonKafkaOnly(t *testing.T) {
 						attribute.String("span.kind", "consumer"),
 						attribute.String("messaging.operation.type", "process"),
 						attribute.String("messaging.destination.name", "my-topic"),
-						attribute.Int64("messaging.destination.partition.id", 0),
+						attribute.String("messaging.destination.partition.id", "0"),
 					},
 				},
 			},
@@ -140,7 +140,7 @@ func testJavaKafka(t *testing.T, port int, comm string) {
 						attribute.String("messaging.operation.type", "publish"),
 						attribute.String("messaging.destination.name", "my-topic"),
 						attribute.String("messaging.client.id", "producer-1"),
-						attribute.Int64("messaging.destination.partition.id", 0),
+						attribute.String("messaging.destination.partition.id", "0"),
 					},
 				},
 				{
@@ -154,7 +154,7 @@ func testJavaKafka(t *testing.T, port int, comm string) {
 						// Sometimes we find my-topic (with TLS), sometimes we cannot we get *
 						// attribute.String("messaging.destination.name", "*"),
 						attribute.String("messaging.client.id", "consumer-1-1"),
-						attribute.Int64("messaging.destination.partition.id", 0),
+						attribute.String("messaging.destination.partition.id", "0"),
 					},
 				},
 			},
@@ -192,7 +192,7 @@ func testJavaKafkaLargeBuffer(t *testing.T) {
 						attribute.String("messaging.operation.type", "publish"),
 						attribute.String("messaging.destination.name", "theotelebpfagentisperfectlyimpatientitskipsthecodethesdkandfindsthekernelssecretkeyitwatcheshttpandgrpctogiveyoumetricsforfreeapowerfulkernellevelspree"),
 						attribute.String("messaging.client.id", "producer-1"),
-						attribute.Int64("messaging.destination.partition.id", 0),
+						attribute.String("messaging.destination.partition.id", "0"),
 					},
 				},
 				{
@@ -202,7 +202,7 @@ func testJavaKafkaLargeBuffer(t *testing.T) {
 						attribute.String("messaging.operation.type", "process"),
 						attribute.String("messaging.destination.name", "theotelebpfagentisperfectlyimpatientitskipsthecodethesdkandfindsthekernelssecretkeyitwatcheshttpandgrpctogiveyoumetricsforfreeapowerfulkernellevelspree"),
 						attribute.String("messaging.client.id", "consumer-1-1"),
-						attribute.Int64("messaging.destination.partition.id", 0),
+						attribute.String("messaging.destination.partition.id", "0"),
 					},
 				},
 			},

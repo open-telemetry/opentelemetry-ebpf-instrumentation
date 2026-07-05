@@ -298,8 +298,8 @@ func isActionableAdvice(level, adviceType string) bool {
 // countActionableAdvisories counts advisories that must fail validation,
 // excluding signals listed in IgnoredSignals and messages listed in
 // IgnoredAdviceMessages. Messages present in the statistics but absent from
-// the sample data (no per-signal attribution) are counted when they are
-// violation-level, as they cannot be signal-ignored.
+// the sample data carry no level/type/signal attribution, so they are
+// conservatively counted as actionable unless message-ignored.
 func countActionableAdvisories(stats *Statistics, adviceByMsg map[string]*adviceInfo) int {
 	var count int
 	for msg, occurrences := range stats.AdviceMessageCounts {
