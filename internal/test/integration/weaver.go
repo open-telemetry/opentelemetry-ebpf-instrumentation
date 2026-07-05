@@ -19,7 +19,7 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 
 	"go.opentelemetry.io/obi/internal/test/integration/components/docker"
-	"go.opentelemetry.io/obi/internal/test/integration/components/weaver/weavercheck"
+	"go.opentelemetry.io/obi/internal/test/weavercheck"
 )
 
 const (
@@ -55,7 +55,7 @@ func runWeaverValidation(t *testing.T) {
 	if !ok {
 		return
 	}
-	weavercheck.Validate(t, report, false /* observeOnly */)
+	weavercheck.Validate(t, report)
 }
 
 // fetchWeaverReportDocker stops the weaver container (which runs as a service

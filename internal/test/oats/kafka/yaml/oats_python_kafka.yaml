@@ -2,6 +2,7 @@ oats-schema-version: 2
 docker-compose:
   files:
   - ../docker-compose-obi-python-kafka.yml
+  - ../../weaver/docker-compose-weaver.yml
 input:
 - path: /message
 interval: 500ms

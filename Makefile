@@ -560,7 +560,7 @@ itest-coverage-data:
 	grep -vE $(EXCLUDE_COVERAGE_FILES) $(TEST_OUTPUT)/itest-covdata.all.txt > $(TEST_OUTPUT)/itest-covdata.txt || true
 
 .PHONY: oats-prereq
-oats-prereq: docker-generate
+oats-prereq: docker-generate fetch-upstream-semconv
 	mkdir -p $(TEST_OUTPUT)/run
 
 .PHONY: oats-test-sql

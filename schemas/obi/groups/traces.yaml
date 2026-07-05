@@ -45,3 +45,15 @@ groups:
           semconv adds an official ONC RPC auth flavor attribute, at which
           point this key will be migrated to the semconv name.
         examples: ["AUTH_NONE", "AUTH_SYS"]
+      - id: gen_ai.metadata
+        type: string
+        stability: development
+        brief: >
+          Provider-specific request/response metadata captured on GenAI
+          spans, JSON-encoded.
+        note: >
+          only emitted when selected via `attributes.select`
+          (`gen_ai.metadata`), alongside the upstream
+          `gen_ai.input.messages` / `gen_ai.output.messages` capture
+          attributes.
+        examples: ['{"conversation_id":"conv_abc123"}']

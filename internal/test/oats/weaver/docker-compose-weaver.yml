@@ -1,0 +1,56 @@
+# Shared weaver semantic-convention validation fragment for the OATS groups.
+# Each test case appends this file to its docker-compose file list; the OBI
+# service in the group's main compose file exports OTLP to `collector`
+# instead of straight to lgtm.
+#
+# NOTE on relative paths: the OATS generator merges compose files with
+# `docker compose --project-directory <dir of the group's main compose file>`,
+# so every relative path below resolves against the GROUP directory
+# (internal/test/oats/<group>/), not against this file's location. All groups
+# sit at the same depth, so one fragment serves them all.
+services:
+  # Collector in front of the lgtm all-in-one: fans OBI's OTLP stream out to
+  # both lgtm (for the existing Prometheus/Tempo checks) and weaver.
+  collector:
+    image: otel/opentelemetry-collector-contrib:0.155.0@sha256:4935caa35e9a4cb387e35732e8fb22b2b5759af8d12e7043357f03837f6e8df5
+    volumes:
+      - ../weaver:/weaver-configs:ro
+    command: ["--config=/weaver-configs/otelcol-weaver.yaml"]
+    depends_on:
+      weaver:
+        condition: service_healthy
+
+  # Weaver semantic-convention live-check. The OATS harness stops it via the
+  # admin port after the per-test checks and fails the test on any actionable
+  # advisory.
+  weaver:
+    image: otel/weaver:v0.24.1@sha256:263964a7d444e77812f7a2d654e17683c4760a968c91278acdb7a44c20ccd572
+    user: "0:0"
+    working_dir: /obi-registry
+    command:
+      - registry
+      - live-check
+      - --registry
+      - /obi-registry
+      - --include-unreferenced
+      - --inactivity-timeout
+      - "300"
+      - --admin-port
+      - "4320"
+      - --format
+      - json
+      - --diagnostic-format
+      - json
+      - --output
+      - /tmp/weaver-out
+    volumes:
+      - ../../../../schemas/obi:/obi-registry:ro
+      - /tmp/obi-weaver-out:/tmp/weaver-out
+    ports:
+      - "4320:4320" # admin port (for /stop from the test host)
+    healthcheck:
+      test: ["CMD-SHELL", "wget --timeout=1 -q -O /dev/null http://127.0.0.1:4317/ 2>&1 | grep -qv refused"]
+      interval: 5s
+      timeout: 2s
+      retries: 60
+      start_period: 90s

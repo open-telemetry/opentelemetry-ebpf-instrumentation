@@ -13,19 +13,33 @@
 // report bytes (docker exec + host bind mount vs. HTTP /stop on a kind host
 // port + the shared testoutput mount); everything from "parse the bytes" on
 // is here.
-package weavercheck // import "go.opentelemetry.io/obi/internal/test/integration/components/weaver/weavercheck"
+package weavercheck // import "go.opentelemetry.io/obi/internal/test/weavercheck"
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
+	"os"
 	"sort"
 	"strings"
-	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// TestingT is the minimal test-reporter interface Validate needs. Both
+// *testing.T (the Docker and Kubernetes suites) and ginkgo.GinkgoT() (the OATS
+// suites) satisfy it, so the exact same enforce logic runs across every
+// transport rather than being reimplemented per suite.
+type TestingT interface {
+	Helper()
+	Logf(format string, args ...any)
+	Errorf(format string, args ...any)
+	FailNow()
+}
 
 // IgnoredSignals is an escape hatch for advice we explicitly suppress without
 // declaring the underlying signal in the OBI registry. The harness fails on
@@ -59,6 +73,26 @@ var IgnoredAdviceMessages = map[string]struct{}{
 	// exporter convention, and is not negotiable for backward compatibility —
 	// accept the structural warning.
 	"Namespace 'iface' collides with existing attribute 'iface.direction'": {},
+	// OBI deliberately disables dns.question.name by default to bound metric
+	// cardinality (attr.DNSQuestionName in pkg/export/attributes/attr_defs.go),
+	// while upstream semconv marks it `required` on dns.lookup.duration.
+	// schemas/obi/groups/dns.yaml redeclares the metric with the attribute as
+	// `opt_in`, but weaver v0.24.1 gives the unreferenced upstream group
+	// precedence over the local override when `--include-unreferenced` is set
+	// (which OBI needs, or upstream-only signals aren't validated at all).
+	// Suppress the message until weaver resolves local-registry precedence;
+	// the attribute is still type/value-validated whenever a user opts in.
+	"Required attribute 'dns.question.name' is not present.": {},
+	// On LLM inference spans OBI aggregates the tool names of ALL tool calls
+	// in the response into a single string[] attribute (tracesgen.go
+	// toolCallAttributes), while upstream semconv types gen_ai.tool.name as a
+	// singular string carried by per-execution `execute_tool` spans. Fixing
+	// this means changing the emitted telemetry shape (rename to an
+	// OBI-namespaced list attribute, or drop the aggregate) — a user-visible
+	// contract change that needs an upstream decision. Suppressed until that
+	// decision lands; note OBI's MCP path already emits a conformant single
+	// string.
+	"Attribute 'gen_ai.tool.name' has type 'string[]'. Type should be 'string'.": {},
 }
 
 // actionableAdviceTypes lists the weaver finding-type values OBI treats as
@@ -126,14 +160,68 @@ func Parse(rawReport []byte) (*Report, error) {
 	return &report, nil
 }
 
-// Validate logs the full advisory breakdown and accounts the actionable
-// advisories (violations OR `extends_namespace`, after applying the ignore
-// lists). When observeOnly is false it asserts that zero actionable
-// advisories remain (enforce mode). When observeOnly is true it only logs
-// which advisories WOULD fail under enforce mode and never fails the test —
-// used to bring new suites online observe-first before their emitted-attribute
-// set is declared in `schemas/obi/`.
-func Validate(t *testing.T, report *Report, observeOnly bool) {
+// FetchReport stops the weaver live-check container via its admin /stop
+// endpoint and returns the parsed report once weaver has flushed it to
+// reportPath. It is transport-agnostic and logging-agnostic (returns an error
+// rather than failing a test), so any transport that publishes weaver's admin
+// port to the host and mounts its report file can reuse it.
+func FetchReport(ctx context.Context, adminURL, reportPath string) (*Report, error) {
+	// A previous test in the same process may have left an older report at
+	// reportPath (weaver writes it as root, so we can't delete it here).
+	// Snapshot its mtime so waitForReport only accepts a report written
+	// after this /stop.
+	var prevMod time.Time
+	if fi, err := os.Stat(reportPath); err == nil {
+		prevMod = fi.ModTime()
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, adminURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("building weaver /stop request: %w", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("stopping weaver (is it running and the admin port mapped?): %w", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("weaver /stop returned HTTP %d", resp.StatusCode)
+	}
+	raw, err := waitForReport(ctx, reportPath, prevMod)
+	if err != nil {
+		return nil, err
+	}
+	return Parse(raw)
+}
+
+// waitForReport polls reportPath until it holds a report newer than prevMod,
+// is non-empty, and its size is stable across two ticks — so neither a stale
+// report from an earlier test nor a still-flushing one is read — or ctx
+// expires.
+func waitForReport(ctx context.Context, reportPath string, prevMod time.Time) ([]byte, error) {
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+	var lastSize int64 = -1
+	for {
+		if fi, err := os.Stat(reportPath); err == nil && fi.Size() > 0 && fi.ModTime().After(prevMod) {
+			if fi.Size() == lastSize {
+				return os.ReadFile(reportPath)
+			}
+			lastSize = fi.Size()
+		}
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("weaver report %s not ready: %w", reportPath, ctx.Err())
+		case <-ticker.C:
+		}
+	}
+}
+
+// Validate logs the full advisory breakdown and asserts that zero actionable
+// advisories remain. An advisory is actionable when it is `violation`-level OR
+// its advice_type is in actionableAdviceTypes, after applying the ignore lists.
+// It always enforces: if weaver found actionable advisories, the test fails.
+func Validate(t TestingT, report *Report) {
 	t.Helper()
 
 	stats := &report.Statistics
@@ -164,7 +252,6 @@ func Validate(t *testing.T, report *Report, observeOnly bool) {
 	// level is `violation` OR its advice_type is in actionableAdviceTypes
 	// (see that var for why undeclared-but-namespaced attributes must fail).
 	var actionableAdvisories int
-	var actionableMessages []string
 	t.Logf("  advisory details:")
 	for _, level := range []string{"violation", "improvement", "information"} {
 		for msg, count := range stats.AdviceMessageCounts {
@@ -182,7 +269,6 @@ func Validate(t *testing.T, report *Report, observeOnly bool) {
 				t.Logf("    [%s] [%dx] %s (signals: unknown)%s", level, count, msg, suffix)
 				if !msgIgnored {
 					actionableAdvisories += count
-					actionableMessages = append(actionableMessages, fmt.Sprintf("%s (%dx)", msg, count))
 				}
 				continue
 			}
@@ -200,20 +286,12 @@ func Validate(t *testing.T, report *Report, observeOnly bool) {
 			t.Logf("    [%s] [%dx] %s (signals: %s)%s", level, count, msg, strings.Join(signals, ", "), suffix)
 			if actionable {
 				actionableAdvisories += count
-				actionableMessages = append(actionableMessages, fmt.Sprintf("%s (%dx)", msg, count))
 			}
 		}
 	}
 
 	t.Logf("  advisories: %d violation(s), %d actionable (violations + actionableAdviceTypes, after ignoring %v)",
 		violations, actionableAdvisories, sortedSignals(IgnoredSignals))
-
-	if observeOnly {
-		sort.Strings(actionableMessages)
-		t.Logf("weaver: OBSERVE mode — %d actionable advisory(ies) would fail under enforce: %s",
-			actionableAdvisories, strings.Join(actionableMessages, "; "))
-		return
-	}
 
 	assert.Zero(t, actionableAdvisories,
 		"weaver found %d actionable semantic convention advisory(ies) "+
