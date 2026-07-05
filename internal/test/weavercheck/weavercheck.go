@@ -246,12 +246,7 @@ func Validate(t TestingT, report *Report) {
 	// Build message → {level, type, signals} lookup from the sample data.
 	adviceByMsg := collectAdviceInfo(report.Samples)
 
-	// Log all advisory messages grouped by level, and count actionable
-	// advisories (excluding signals listed in IgnoredSignals and messages
-	// listed in IgnoredAdviceMessages). An advisory is actionable when its
-	// level is `violation` OR its advice_type is in actionableAdviceTypes
-	// (see that var for why undeclared-but-namespaced attributes must fail).
-	var actionableAdvisories int
+	// Log all advisory messages grouped by level.
 	t.Logf("  advisory details:")
 	for _, level := range []string{"violation", "improvement", "information"} {
 		for msg, count := range stats.AdviceMessageCounts {
@@ -267,9 +262,6 @@ func Validate(t TestingT, report *Report) {
 					suffix = " [ignored]"
 				}
 				t.Logf("    [%s] [%dx] %s (signals: unknown)%s", level, count, msg, suffix)
-				if !msgIgnored {
-					actionableAdvisories += count
-				}
 				continue
 			}
 			if info.Level != level {
@@ -277,25 +269,58 @@ func Validate(t TestingT, report *Report) {
 			}
 			signals := sortedSignals(info.Signals)
 			ignored := msgIgnored || allSignalsIgnored(info.Signals)
-			_, typeActionable := actionableAdviceTypes[info.AdviceType]
-			actionable := (level == "violation" || typeActionable) && !ignored
 			suffix := ""
 			if ignored {
 				suffix = " [ignored]"
 			}
 			t.Logf("    [%s] [%dx] %s (signals: %s)%s", level, count, msg, strings.Join(signals, ", "), suffix)
-			if actionable {
-				actionableAdvisories += count
-			}
 		}
 	}
 
+	actionableAdvisories := countActionableAdvisories(stats, adviceByMsg)
 	t.Logf("  advisories: %d violation(s), %d actionable (violations + actionableAdviceTypes, after ignoring %v)",
 		violations, actionableAdvisories, sortedSignals(IgnoredSignals))
 
 	assert.Zero(t, actionableAdvisories,
 		"weaver found %d actionable semantic convention advisory(ies) "+
 			"(violations or undeclared attributes under existing semconv namespaces)", actionableAdvisories)
+}
+
+// isActionableAdvice reports whether an advisory at the given level and
+// advice type must fail validation: `violation`-level advice always is, and
+// so is any advice type listed in actionableAdviceTypes (e.g.
+// `extends_namespace`, which weaver classifies as information-level).
+func isActionableAdvice(level, adviceType string) bool {
+	if level == "violation" {
+		return true
+	}
+
+	_, actionable := actionableAdviceTypes[adviceType]
+	return actionable
+}
+
+// countActionableAdvisories counts advisories that must fail validation,
+// excluding signals listed in IgnoredSignals and messages listed in
+// IgnoredAdviceMessages. Messages present in the statistics but absent from
+// the sample data (no per-signal attribution) are counted when they are
+// violation-level, as they cannot be signal-ignored.
+func countActionableAdvisories(stats *Statistics, adviceByMsg map[string]*adviceInfo) int {
+	var count int
+	for msg, occurrences := range stats.AdviceMessageCounts {
+		_, messageIgnored := IgnoredAdviceMessages[msg]
+		info := adviceByMsg[msg]
+		if info == nil {
+			if !messageIgnored {
+				count += occurrences
+			}
+			continue
+		}
+		ignored := messageIgnored || allSignalsIgnored(info.Signals)
+		if isActionableAdvice(info.Level, info.AdviceType) && !ignored {
+			count += occurrences
+		}
+	}
+	return count
 }
 
 // collectAdviceInfo scans all weaver samples to build a complete map from
