@@ -80,14 +80,6 @@
       "postUpdateOptions": ["gomodTidy", "gomodUpdateImportPaths"]
     },
     {
-      "description": "Block the known-bad github.com/cilium/ebpf v0.21.0 update while allowing later releases through",
-      "matchManagers": ["gomod"],
-      "matchPackageNames": [
-        "github.com/cilium/ebpf"
-      ],
-      "allowedVersions": "!/^v?0\\.21\\.0$/"
-    },
-    {
       "description": "Block Go dependency updates that outpace the generator toolchain (currently Go 1.25.x) until the generator image is upgraded",
       "matchManagers": ["gomod"],
       "matchPackageNames": [
