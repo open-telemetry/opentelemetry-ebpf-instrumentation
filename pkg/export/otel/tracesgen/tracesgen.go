@@ -231,6 +231,11 @@ func generateTracesWithAttributes(
 			appendSpanLinks(s, span.Links)
 		}
 		s.SetEndTimestamp(pcommon.NewTimestampFromTime(t.End))
+
+		// Create individual execute_tool child spans per tool call (OTel GenAI semconv compliance)
+		if toolCalls := getSpanToolCalls(span); len(toolCalls) > 0 {
+			createToolCallSpans(toolCalls, spanID, traceID, &ss, start, t.End)
+		}
 	}
 	return traces
 }
@@ -383,36 +388,49 @@ var (
 	spanMetricsSkip     = attribute.Bool(string(attr.SkipSpanMetrics), true)
 )
 
-// genAIToolCallAttributes returns trace attributes for LLM tool calls.
-// Only tool calls with non-empty names are included. Names and IDs are kept
-// aligned so that the same index refers to the same tool call.
-func genAIToolCallAttributes(toolCalls []request.ToolCall) []attribute.KeyValue {
-	if len(toolCalls) == 0 {
+// getSpanToolCalls extracts tool calls from a GenAI span regardless of vendor.
+func getSpanToolCalls(span *request.Span) []request.ToolCall {
+	if span.GenAI == nil {
 		return nil
 	}
+	switch {
+	case span.GenAI.OpenAI != nil:
+		return span.GenAI.OpenAI.ToolCalls
+	case span.GenAI.Anthropic != nil:
+		return span.GenAI.Anthropic.ToolCalls
+	case span.GenAI.Gemini != nil:
+		return span.GenAI.Gemini.ToolCalls
+	case span.GenAI.Qwen != nil:
+		return span.GenAI.Qwen.ToolCalls
+	default:
+		return nil
+	}
+}
 
-	var names []string
-	var ids []string
-	hasIDs := false
+// createToolCallSpans creates individual execute_tool child spans for each tool call,
+// following the OTel GenAI semantic conventions where gen_ai.tool.name is a single string
+// per span rather than an aggregated string array.
+func createToolCallSpans(toolCalls []request.ToolCall, parentSpanID pcommon.SpanID, traceID pcommon.TraceID, ss *ptrace.ScopeSpans, start, end time.Time) {
 	for _, tc := range toolCalls {
 		if tc.Name == "" {
 			continue
 		}
-		names = append(names, tc.Name)
-		ids = append(ids, tc.ID)
+		sp := ss.Spans().AppendEmpty()
+		sp.SetName("execute_tool " + tc.Name)
+		sp.SetKind(ptrace.SpanKindInternal)
+		sp.SetTraceID(traceID)
+		sp.SetSpanID(pcommon.SpanID(idgen.RandomSpanID()))
+		sp.SetParentSpanID(parentSpanID)
+		sp.SetStartTimestamp(pcommon.NewTimestampFromTime(start))
+		sp.SetEndTimestamp(pcommon.NewTimestampFromTime(end))
+
+		attrs := sp.Attributes()
+		attrs.PutStr(string(semconv.GenAIOperationNameKey), "execute_tool")
+		attrs.PutStr(string(attr.GenAIToolName), tc.Name)
 		if tc.ID != "" {
-			hasIDs = true
+			attrs.PutStr(string(attr.GenAIToolCallID), tc.ID)
 		}
 	}
-
-	var attrs []attribute.KeyValue
-	if len(names) > 0 {
-		attrs = append(attrs, attribute.StringSlice(string(attr.GenAIToolName), names))
-	}
-	if hasIDs {
-		attrs = append(attrs, attribute.StringSlice(string(attr.GenAIToolCallID), ids))
-	}
-	return attrs
 }
 
 // mcpAttributes returns MCP span attributes following the OTEL MCP semantic conventions.
@@ -756,9 +774,8 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 					attrs = append(attrs, semconv.GenAIRequestEncodingFormats(ai.Request.EncodingFormat))
 				}
 			}
-			attrs = append(attrs, genAIToolCallAttributes(ai.ToolCalls)...)
 		}
-
+		
 		if span.SubType == request.HTTPSubtypeAnthropic && span.GenAI != nil && span.GenAI.Anthropic != nil {
 			ai := span.GenAI.Anthropic
 			attrs = append(attrs, semconv.GenAIProviderNameAnthropic)
@@ -827,9 +844,8 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 			if ai.Output.Error != nil && ai.Output.Error.Type != "" {
 				attrs = append(attrs, semconv.ErrorTypeKey.String(ai.Output.Error.Type))
 			}
-			attrs = append(attrs, genAIToolCallAttributes(ai.ToolCalls)...)
 		}
-
+		
 		if span.SubType == request.HTTPSubtypeGemini && span.GenAI != nil && span.GenAI.Gemini != nil {
 			ai := span.GenAI.Gemini
 			attrs = append(attrs, semconv.GenAIProviderNameGCPGemini)
@@ -905,9 +921,8 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 			if ai.Output.Error != nil && ai.Output.Error.Status != "" {
 				attrs = append(attrs, semconv.ErrorTypeKey.String(ai.Output.Error.Status))
 			}
-			attrs = append(attrs, genAIToolCallAttributes(ai.ToolCalls)...)
 		}
-
+		
 		if span.SubType == request.HTTPSubtypeQwen && span.GenAI != nil && span.GenAI.Qwen != nil {
 			ai := span.GenAI.Qwen
 			attrs = append(attrs, semconv.GenAIProviderNameKey.String(attr.QwenProviderName))
@@ -990,9 +1005,8 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 			if ai.Error.Type != "" {
 				attrs = append(attrs, semconv.ErrorTypeKey.String(ai.Error.Type))
 			}
-			attrs = append(attrs, genAIToolCallAttributes(ai.ToolCalls)...)
 		}
-
+		
 		if span.SubType == request.HTTPSubtypeAWSBedrock && span.GenAI != nil && span.GenAI.Bedrock != nil {
 			ai := span.GenAI.Bedrock
 			attrs = append(attrs, semconv.GenAIProviderNameAWSBedrock)
