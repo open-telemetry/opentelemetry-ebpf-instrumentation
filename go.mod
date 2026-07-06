@@ -27,7 +27,7 @@ require (
 	github.com/lib/pq v1.12.3
 	github.com/moby/moby/api v1.55.0
 	github.com/moby/moby/client v0.5.0
-	github.com/ohler55/ojg v1.28.1
+	github.com/ohler55/ojg v1.28.2
 	github.com/ory/dockertest/v4 v4.0.0
 	github.com/oschwald/maxminddb-golang/v2 v2.2.0
 	github.com/prometheus/client_golang v1.23.2
