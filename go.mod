@@ -4,7 +4,7 @@ go 1.25.11
 
 require (
 	github.com/AlessandroPomponio/go-gibberish v0.0.0-20191004143433-a2d4156f0396
-	github.com/andybalholm/brotli v1.2.1
+	github.com/andybalholm/brotli v1.2.2
 	github.com/caarlos0/env/v11 v11.4.1
 	github.com/cilium/ebpf v0.20.0
 	github.com/containers/common v0.64.2
