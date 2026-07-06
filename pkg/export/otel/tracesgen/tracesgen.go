@@ -775,7 +775,7 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 				}
 			}
 		}
-		
+
 		if span.SubType == request.HTTPSubtypeAnthropic && span.GenAI != nil && span.GenAI.Anthropic != nil {
 			ai := span.GenAI.Anthropic
 			attrs = append(attrs, semconv.GenAIProviderNameAnthropic)
@@ -845,7 +845,7 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 				attrs = append(attrs, semconv.ErrorTypeKey.String(ai.Output.Error.Type))
 			}
 		}
-		
+
 		if span.SubType == request.HTTPSubtypeGemini && span.GenAI != nil && span.GenAI.Gemini != nil {
 			ai := span.GenAI.Gemini
 			attrs = append(attrs, semconv.GenAIProviderNameGCPGemini)
@@ -922,7 +922,7 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 				attrs = append(attrs, semconv.ErrorTypeKey.String(ai.Output.Error.Status))
 			}
 		}
-		
+
 		if span.SubType == request.HTTPSubtypeQwen && span.GenAI != nil && span.GenAI.Qwen != nil {
 			ai := span.GenAI.Qwen
 			attrs = append(attrs, semconv.GenAIProviderNameKey.String(attr.QwenProviderName))
@@ -1006,7 +1006,7 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 				attrs = append(attrs, semconv.ErrorTypeKey.String(ai.Error.Type))
 			}
 		}
-		
+
 		if span.SubType == request.HTTPSubtypeAWSBedrock && span.GenAI != nil && span.GenAI.Bedrock != nil {
 			ai := span.GenAI.Bedrock
 			attrs = append(attrs, semconv.GenAIProviderNameAWSBedrock)
