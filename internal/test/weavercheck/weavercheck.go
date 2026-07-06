@@ -79,16 +79,6 @@ var IgnoredAdviceMessages = map[string]struct{}{
 	// Suppress the message until weaver resolves local-registry precedence;
 	// the attribute is still type/value-validated whenever a user opts in.
 	"Required attribute 'dns.question.name' is not present.": {},
-	// On LLM inference spans OBI aggregates the tool names of ALL tool calls
-	// in the response into a single string[] attribute (tracesgen.go
-	// toolCallAttributes), while upstream semconv types gen_ai.tool.name as a
-	// singular string carried by per-execution `execute_tool` spans. Fixing
-	// this means changing the emitted telemetry shape (rename to an
-	// OBI-namespaced list attribute, or drop the aggregate) — a user-visible
-	// contract change that needs an upstream decision. Suppressed until that
-	// decision lands; note OBI's MCP path already emits a conformant single
-	// string.
-	"Attribute 'gen_ai.tool.name' has type 'string[]'. Type should be 'string'.": {},
 }
 
 // actionableAdviceTypes lists the weaver finding-type values OBI treats as
