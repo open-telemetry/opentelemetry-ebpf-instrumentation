@@ -147,6 +147,11 @@ func (p *Tracer) SockMsgs() []ebpfcommon.SockMsg {
 			MapFD:    p.bpfObjects.SockDir.FD(),
 			AttachAs: ebpf.AttachSkMsgVerdict,
 		},
+		{
+			Program:  p.bpfObjects.ObiSkSkbVerdict,
+			MapFD:    p.bpfObjects.SockDir.FD(),
+			AttachAs: ebpf.AttachSkSKBVerdict,
+		},
 	}
 }
 
