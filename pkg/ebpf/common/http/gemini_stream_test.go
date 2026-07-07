@@ -249,3 +249,137 @@ func TestParseGeminiStream_InterleavedTextAndFunctionCall(t *testing.T) {
 	assert.Equal(t, "after call.", parts[2].Text)
 	assert.Nil(t, parts[2].FunctionCall)
 }
+
+func TestParseGeminiStream_StringsBuilderPerformance(t *testing.T) {
+	// Verify that large text accumulation works without error (strings.Builder).
+	var sb strings.Builder
+	sb.WriteString("data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"")
+	// 1000 chunks of text to exercise Builder path.
+	for i := 0; i < 1000; i++ {
+		sb.WriteString("chunk ")
+	}
+	sb.WriteString("\"}],\"role\":\"model\"},\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"promptTokenCount\":1,\"candidatesTokenCount\":1,\"totalTokenCount\":2},\"modelVersion\":\"gemini-2.0-flash\"}\n\n")
+	stream := sb.String()
+
+	resp, _ := parseGeminiStream(strings.NewReader(stream))
+
+	require.NotNil(t, resp)
+	require.Len(t, resp.Candidates, 1)
+	var parts []struct {
+		Text string `json:"text"`
+	}
+	require.NoError(t, json.Unmarshal(resp.Candidates[0].Content.Parts, &parts))
+	require.Len(t, parts, 1)
+	assert.True(t, len(parts[0].Text) > 5000) // 1000 * "chunk " = 6000 chars
+}
+
+func TestParseGeminiStream_ErrorEnvelopeBare(t *testing.T) {
+	// Bare error JSON record (not wrapped in "data:" prefix) after valid data.
+	stream := "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"partial\"}],\"role\":\"model\"}}],\"modelVersion\":\"gemini-2.0-flash\"}\n\n" +
+		"{\"error\":{\"code\":429,\"message\":\"Resource exhausted\",\"status\":\"RESOURCE_EXHAUSTED\"}}\n"
+
+	resp, _ := parseGeminiStream(strings.NewReader(stream))
+
+	require.NotNil(t, resp)
+	require.NotNil(t, resp.Error)
+	assert.Equal(t, 429, resp.Error.Code)
+	assert.Equal(t, "RESOURCE_EXHAUSTED", resp.Error.Status)
+	assert.Equal(t, "Resource exhausted", resp.Error.Message)
+
+	// The valid data chunk before the error should still be captured.
+	require.Len(t, resp.Candidates, 1)
+}
+
+func TestParseGeminiStream_ErrorEnvelopeInDataLine(t *testing.T) {
+	// Error envelope arriving inside a "data:" SSE line (no candidates).
+	stream := "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"hello\"}],\"role\":\"model\"}}],\"modelVersion\":\"gemini-2.0-flash\"}\n\n" +
+		"data: {\"error\":{\"code\":500,\"message\":\"Internal error\",\"status\":\"INTERNAL\"}}\n\n"
+
+	resp, _ := parseGeminiStream(strings.NewReader(stream))
+
+	require.NotNil(t, resp)
+	require.NotNil(t, resp.Error)
+	assert.Equal(t, 500, resp.Error.Code)
+	assert.Equal(t, "INTERNAL", resp.Error.Status)
+}
+
+func TestParseGeminiStream_StreamingFunctionCallArguments(t *testing.T) {
+	// Vertex AI streamFunctionCallArguments: name arrives first, then
+	// partialArgs in subsequent chunks, last chunk without willContinue.
+	chunk1 := `data: {"candidates":[{"content":{"parts":[{"functionCall":{"name":"get_weather","partialArgs":"{\"loc","willContinue":true}}],"role":"model"}}],"modelVersion":"gemini-2.0-flash"}` + "\n\n"
+	chunk2 := `data: {"candidates":[{"content":{"parts":[{"functionCall":{"partialArgs":"ation\": \"NYC","willContinue":true}}],"role":"model"}}],"modelVersion":"gemini-2.0-flash"}` + "\n\n"
+	chunk3 := `data: {"candidates":[{"content":{"parts":[{"functionCall":{"partialArgs":"\"}"}}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":5,"candidatesTokenCount":3,"totalTokenCount":8},"modelVersion":"gemini-2.0-flash","responseId":"resp_sfc"}` + "\n\n"
+	stream := chunk1 + chunk2 + chunk3
+
+	resp, toolCalls := parseGeminiStream(strings.NewReader(stream))
+
+	require.NotNil(t, resp)
+	require.Len(t, toolCalls, 1)
+	assert.Equal(t, "get_weather", toolCalls[0].Name)
+
+	// The aggregated function call should contain the full args.
+	require.Len(t, resp.Candidates, 1)
+	var parts []struct {
+		FunctionCall *struct {
+			Name string          `json:"name"`
+			Args json.RawMessage `json:"args"`
+		} `json:"functionCall"`
+	}
+	require.NoError(t, json.Unmarshal(resp.Candidates[0].Content.Parts, &parts))
+	require.Len(t, parts, 1)
+	require.NotNil(t, parts[0].FunctionCall)
+	assert.Equal(t, "get_weather", parts[0].FunctionCall.Name)
+	assert.Contains(t, string(parts[0].FunctionCall.Args), "location")
+	assert.Contains(t, string(parts[0].FunctionCall.Args), "NYC")
+}
+
+func TestParseGeminiStream_ThoughtToAnswerBoundary(t *testing.T) {
+	// Gemini thinking model: thought parts (thought:true) followed by
+	// answer parts (no thought flag). They must NOT be coalesced.
+	stream := "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"Let me think...\",\"thought\":true}],\"role\":\"model\"}}],\"modelVersion\":\"gemini-2.0-flash\"}\n\n" +
+		"data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\" reasoning step.\",\"thought\":true}],\"role\":\"model\"}}],\"modelVersion\":\"gemini-2.0-flash\"}\n\n" +
+		"data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"The answer is 42.\"}],\"role\":\"model\"},\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"promptTokenCount\":5,\"candidatesTokenCount\":10,\"totalTokenCount\":15},\"modelVersion\":\"gemini-2.0-flash\",\"responseId\":\"resp_think\"}\n\n"
+
+	resp, _ := parseGeminiStream(strings.NewReader(stream))
+
+	require.NotNil(t, resp)
+	require.Len(t, resp.Candidates, 1)
+
+	var parts []struct {
+		Text    string `json:"text"`
+		Thought bool   `json:"thought"`
+	}
+	require.NoError(t, json.Unmarshal(resp.Candidates[0].Content.Parts, &parts))
+	// Should have 2 parts: thought (coalesced) and answer (separate).
+	require.Len(t, parts, 2)
+
+	// Part 0: coalesced thought
+	assert.Equal(t, "Let me think... reasoning step.", parts[0].Text)
+	assert.True(t, parts[0].Thought)
+
+	// Part 1: answer (no thought flag)
+	assert.Equal(t, "The answer is 42.", parts[1].Text)
+	assert.False(t, parts[1].Thought)
+}
+
+func TestParseGeminiStream_StreamingFCNameOnly(t *testing.T) {
+	// A function call with only name (no args at all) should still be captured.
+	stream := "data: {\"candidates\":[{\"content\":{\"parts\":[{\"functionCall\":{\"name\":\"list_items\"}}],\"role\":\"model\"},\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"promptTokenCount\":5,\"candidatesTokenCount\":2,\"totalTokenCount\":7},\"modelVersion\":\"gemini-2.0-flash\",\"responseId\":\"resp_noarg\"}\n\n"
+
+	resp, toolCalls := parseGeminiStream(strings.NewReader(stream))
+
+	require.NotNil(t, resp)
+	require.Len(t, toolCalls, 1)
+	assert.Equal(t, "list_items", toolCalls[0].Name)
+
+	require.Len(t, resp.Candidates, 1)
+	var parts []struct {
+		FunctionCall *struct {
+			Name string `json:"name"`
+		} `json:"functionCall"`
+	}
+	require.NoError(t, json.Unmarshal(resp.Candidates[0].Content.Parts, &parts))
+	require.Len(t, parts, 1)
+	require.NotNil(t, parts[0].FunctionCall)
+	assert.Equal(t, "list_items", parts[0].FunctionCall.Name)
+}
