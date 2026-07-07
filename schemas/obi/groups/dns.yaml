@@ -17,9 +17,16 @@ groups:
   # lexicographically (resolved registry is sorted by id; live-check's
   # metric_name lookup is last-insert-wins). This id is deliberately chosen to
   # sort after the upstream `metric.dns.lookup.duration` so the override wins.
-  # Do not rename it to something that sorts earlier. Tracked upstream in the
-  # weaver precedence issue (see the PR description); once weaver defines
-  # local-wins precedence, this comment block can be dropped.
+  # Do not rename it to something that sorts earlier, and do not reuse the
+  # upstream group id (a same-id redefinition loses the live-check tie to the
+  # dependency AND trips `DuplicateGroupId` in `registry check`). Tracked
+  # upstream in https://github.com/open-telemetry/weaver/issues/1578; once
+  # weaver defines local-wins precedence, this comment block can be dropped.
+  #
+  # `weaver registry check` (v0.24.2+) flags this same-metric_name duplicate
+  # as a DuplicateMetricName error even though live-check resolves it; that
+  # diagnostic type is ignored in scripts/lint-schema.sh with the same
+  # rationale.
   - id: metric.dns.lookup.duration.obi
     type: metric
     extends: metric.dns.lookup.duration
