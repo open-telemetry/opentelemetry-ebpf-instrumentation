@@ -270,7 +270,7 @@ func TestParseGeminiStream_StringsBuilderPerformance(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(resp.Candidates[0].Content.Parts, &parts))
 	require.Len(t, parts, 1)
-	assert.True(t, len(parts[0].Text) > 5000) // 1000 * "chunk " = 6000 chars
+	assert.Greater(t, len(parts[0].Text), 5000) // 1000 * "chunk " = 6000 chars
 }
 
 func TestParseGeminiStream_ErrorEnvelopeBare(t *testing.T) {

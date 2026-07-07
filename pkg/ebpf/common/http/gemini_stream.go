@@ -100,13 +100,14 @@ func (ca *candidateAggregator) flushActiveFC() string {
 	}
 
 	var raw json.RawMessage
-	if fc.hasFullArg {
+	switch {
+	case fc.hasFullArg:
 		// Complete args arrived as a JSON object.
 		raw = buildFunctionCallRaw(fc.name, fc.fullArg)
-	} else if fc.argsAccum.Len() > 0 {
+	case fc.argsAccum.Len() > 0:
 		// Partial args were accumulated as string fragments.
 		raw = buildFunctionCallRaw(fc.name, json.RawMessage(fc.argsAccum.String()))
-	} else {
+	default:
 		// Name-only function call with no args.
 		raw = buildFunctionCallRaw(fc.name, nil)
 	}
