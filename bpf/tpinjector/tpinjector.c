@@ -55,9 +55,9 @@ char __license[] SEC("license") = "Dual MIT/GPL";
 //   │     └── handle_existing_tp_pid   │  SSL. Pulls+fills internally after
 //   │                                  │  passing valid check, then injects
 //   │                                  │
-//   ├── is_go_grpc_client_conn?        │  Go gRPC: uprobe wrote HPACK in
-//   │     └── pull+fill, SK_PASS       │  user buffer; sk_msg bails (kprobe
-//   │                                  │  needs fill for correlation)
+//   ├── is_go_grpc_client_conn?        │  Go gRPC: pull+fill, then detect_h2
+//   │     └── pull+fill, detect_h2     │  injects only streams whose stored
+//   │                                  │  tp has written=0 (uprobe miss)
 //   │                                  │
 //   ├── !valid_pid → SK_PASS           │  Unmonitored process — no pull
 //   │                                  │
@@ -70,7 +70,11 @@ char __license[] SEC("license") = "Dual MIT/GPL";
 //   │                                 │     write_msg_traceparent
 //   │                                 │
 //   └── fall through ─────────────────┴─▶ wrap_http2_traceparent
-//                                           │
+//                                           │ preface at pos 0, or (for conns
+//                                           │ whose preface predates attach)
+//                                           │ strict mid-stream frame sniff
+//                                           │ confirms; known-SSL conns are
+//                                           │ never sniffed
 //                                           ▼
 //                                        detect_h2 ◀──────────────┐
 //                                           │                     │
@@ -160,7 +164,8 @@ typedef struct tailcall_ctx {
     u8 h2_frames;                 // H2 frames already injected this packet (capped)
     u8 h2_tp_retries;             // malformed HPACK traceparent candidates retried this packet
     bool has_parent_tp;           // true if parent_tp holds a valid context
-    u8 _pad[4];
+    bool go_grpc_conn;            // Go gRPC egress: use uprobe-stored tps, never create
+    u8 _pad[3];
 } tailcall_ctx;
 
 SCRATCH_MEM(tailcall_ctx);
@@ -866,6 +871,35 @@ static __always_inline bool is_http2_preface(const unsigned char *d, const unsig
            d[2] == 'I' && d[3] == ' ';
 }
 
+// Mid-stream H2 recognition for sockets whose preface predates attachment
+static __always_inline bool sniff_http2_frames(struct sk_msg_md *msg) {
+    const u32 msg_size = msg->size;
+    u32 pos = 0;
+    h2_sniff_state_t st = {0};
+
+    for (u8 i = 0; i < k_h2_sniff_max_frames && pos < msg_size; i++) {
+        if (pos + k_h2_frame_header_len > msg_size) {
+            return false;
+        }
+        if (bpf_msg_pull_data(msg, pos, pos + k_h2_frame_header_len, 0) != 0) {
+            return false;
+        }
+        const unsigned char *d = msg->data;
+        if (!d || (void *)d + k_h2_frame_header_len > msg->data_end) {
+            return false;
+        }
+
+        u32 frame_len;
+        if (!h2_sniff_frame_header(&st, d, &frame_len)) {
+            return false;
+        }
+
+        pos += k_h2_frame_header_len + frame_len;
+    }
+
+    return h2_sniff_accept(&st, pos, msg_size);
+}
+
 // Skip SSL sockets — payload is encrypted, can't inject HPACK
 static __always_inline void wrap_http2_traceparent(struct sk_msg_md *msg,
                                                    const pid_connection_info_t *p_conn) {
@@ -878,7 +912,7 @@ static __always_inline void wrap_http2_traceparent(struct sk_msg_md *msg,
     if (h2_sock_state(msg) == k_h2_sock_rejected) {
         return;
     }
-    if (is_h2_socket(msg) || already_tracked_plain_http2(p_conn)) {
+    if (is_h2_socket(msg)) {
         bpf_tail_call_static(msg, &extender_jump_table, k_tail_detect_h2);
         return;
     }
@@ -889,6 +923,16 @@ static __always_inline void wrap_http2_traceparent(struct sk_msg_md *msg,
         return;
     }
     if (is_http2_preface(msg->data, msg->data_end)) {
+        bpf_tail_call_static(msg, &extender_jump_table, k_tail_detect_h2);
+        return;
+    }
+    // known-SSL conns carry ciphertext here, a sniff false positive would corrupt TLS
+    if (already_tracked_ssl_http2(p_conn)) {
+        return;
+    }
+    // only route to confirmed for conns whose preface predates attach, tracked or not
+    if (sniff_http2_frames(msg)) {
+        set_h2_sock_state(msg, k_h2_sock_confirmed);
         bpf_tail_call_static(msg, &extender_jump_table, k_tail_detect_h2);
     }
 }
@@ -955,6 +999,7 @@ int obi_packet_extender(struct sk_msg_md *msg) {
     t_ctx->h2_scan_pos = 0;
     t_ctx->h2_frames = 0;
     t_ctx->h2_tp_retries = 0;
+    t_ctx->go_grpc_conn = false;
 
     // skip H2 here — it uses HPACK for per-stream traceparents
     tp_info_pid_t *tp_pid = get_tp_info_pid(&e_key);
@@ -966,6 +1011,9 @@ int obi_packet_extender(struct sk_msg_md *msg) {
     if (is_go_grpc_client_conn(&t_ctx->p_conn)) {
         bpf_msg_pull_data(msg, 0, msg->size, 0);
         fill_msg_buffers(msg, &t_ctx->p_conn, &e_key);
+        // per-stream decision in the h2 chain: inject only streams the uprobe left written=0
+        t_ctx->go_grpc_conn = true;
+        bpf_tail_call_static(msg, &extender_jump_table, k_tail_detect_h2);
         return SK_PASS;
     }
 
@@ -1574,6 +1622,13 @@ int obi_packet_extender_create_h2_tp(struct sk_msg_md *msg) {
     const bool have_existing = existing && existing->valid && valid_trace(existing->tp.trace_id);
 
     if (have_existing && existing->written) {
+        h2_resume_after(
+            msg, t_ctx, t_ctx->h2_frame_offset + k_h2_frame_header_len + t_ctx->h2_payload_len);
+        return SK_PASS;
+    }
+
+    // Go gRPC egress: uprobes own trace creation — no stored tp, don't touch (could be TLS)
+    if (!have_existing && t_ctx->go_grpc_conn) {
         h2_resume_after(
             msg, t_ctx, t_ctx->h2_frame_offset + k_h2_frame_header_len + t_ctx->h2_payload_len);
         return SK_PASS;

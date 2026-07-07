@@ -7,9 +7,12 @@ package tpinjector // import "go.opentelemetry.io/obi/pkg/internal/ebpf/tpinject
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
+	"os"
 	"sync"
+	"syscall"
 
 	"github.com/cilium/ebpf"
 
@@ -18,6 +21,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/internal/goexec"
+	"go.opentelemetry.io/obi/pkg/internal/netns"
 	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
@@ -37,18 +41,52 @@ type Tracer struct {
 	fionreadOnce            sync.Once
 	fionreadBroken          bool
 	fionreadFixupEnabled    bool
+	iterMu                  sync.Mutex
+	itersOnce               sync.Once
+	seenNetns               map[uint64]struct{}
 }
 
 func New(cfg *obi.Config) *Tracer {
 	log := slog.With("component", "tpinjector")
 
 	return &Tracer{
-		log: log,
-		cfg: cfg,
+		log:       log,
+		cfg:       cfg,
+		seenNetns: map[uint64]struct{}{},
 	}
 }
 
-func (p *Tracer) AllowPID(app.PID, uint32, *exec.FileInfo) {}
+// AllowPID backfills sock_dir with pre-existing sockets: iter/tcp only walks the opener's netns
+func (p *Tracer) AllowPID(pid app.PID, _ uint32, _ *exec.FileInfo) {
+	p.iterMu.Lock()
+	defer p.iterMu.Unlock()
+
+	info, err := os.Stat(fmt.Sprintf("/proc/%d/ns/net", pid))
+	if err != nil {
+		p.log.Debug("netns stat failed", "pid", pid, "error", err)
+		return
+	}
+
+	inode := info.Sys().(*syscall.Stat_t).Ino
+	if _, ok := p.seenNetns[inode]; ok {
+		return
+	}
+
+	ok := true
+	for _, it := range p.Iters() {
+		if err := netns.WithNetNS(int(pid), func() error {
+			return it.Run(p.log)
+		}); err != nil {
+			p.log.Error("error running iterator in netns", "pid", pid, "error", err)
+			ok = false
+		}
+	}
+
+	// only remember fully backfilled namespaces so a later pid retries
+	if ok {
+		p.seenNetns[inode] = struct{}{}
+	}
+}
 
 func (p *Tracer) BlockPID(app.PID, uint32) {}
 
@@ -192,28 +230,25 @@ func (p *Tracer) SockOps() []ebpfcommon.SockOps {
 	}
 }
 
+// Iters is called from both AllowPID (discovery) and Run (pipeline) goroutines
 func (p *Tracer) Iters() []*ebpfcommon.Iter {
-	if p.iters != nil {
-		return p.iters
-	}
+	p.itersOnce.Do(func() {
+		major, minor := ebpfcommon.KernelVersion()
 
-	major, minor := ebpfcommon.KernelVersion()
+		if major < 6 || (major == 6 && minor < 4) {
+			p.log.Warn("TCP socket iterator disabled: kernel versions < 6.4 have a locking bug " +
+				"in iter/tcp + sockhash that can cause an RCU stall and kernel panic. " +
+				"Existing connections at startup will not be tracked for context propagation.")
+			p.iters = []*ebpfcommon.Iter{}
+			return
+		}
 
-	if major < 6 || (major == 6 && minor < 4) {
-		p.log.Warn("TCP socket iterator disabled: kernel versions < 6.4 have a locking bug " +
-			"in iter/tcp + sockhash that can cause an RCU stall and kernel panic. " +
-			"Existing connections at startup will not be tracked for context propagation.")
-		p.iters = []*ebpfcommon.Iter{}
-		return p.iters
-	}
-
-	// The ordering matters, we don't want to add passive listeners to
-	// the map, so we first find the listening ports and then we discard
-	// the established with those listening ports.
-	p.iters = []*ebpfcommon.Iter{
-		{Program: p.bpfIterObjects.ObiSkIterTcpListen},
-		{Program: p.bpfIterObjects.ObiSkIterTcp},
-	}
+		// listening ports first, so the second pass can discard passive established sockets
+		p.iters = []*ebpfcommon.Iter{
+			{Program: p.bpfIterObjects.ObiSkIterTcpListen},
+			{Program: p.bpfIterObjects.ObiSkIterTcp},
+		}
+	})
 
 	return p.iters
 }
