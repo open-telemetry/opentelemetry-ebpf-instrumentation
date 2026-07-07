@@ -537,19 +537,6 @@ int obi_sockmap_tracker(struct bpf_sock_ops *skops) {
     return 1;
 }
 
-// We only use the sockhash for the egress sk_msg injection path and never
-// inspect ingress traffic. However, kernels with commit 929e30f93125 report
-// FIONREAD=0 for a socket that lives in a sockhash. but has no verdict program
-// attached. Applications that poll FIONREAD before
-// read() then see zero bytes and stop reading.
-//
-// Attaching this no-op verdict works around the kernel bug until it's fixed.
-SEC("sk_skb/verdict")
-int obi_sk_skb_verdict(struct __sk_buff *skb) {
-    (void)skb;
-    return SK_PASS;
-}
-
 // This code is copied from the kprobe on tcp_sendmsg and it's called from
 // the sock_msg program, which does the packet extension for injecting the
 // Traceparent. Since the sock_msg runs before the kprobe on tcp_sendmsg, we
