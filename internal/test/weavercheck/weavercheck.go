@@ -73,12 +73,6 @@ var IgnoredAdviceMessages = map[string]struct{}{
 	// exporter convention, and is not negotiable for backward compatibility —
 	// accept the structural warning.
 	"Namespace 'iface' collides with existing attribute 'iface.direction'": {},
-	// OBI deliberately disables dns.question.name by default to bound metric
-	// cardinality (attr.DNSQuestionName in pkg/export/attributes/attr_defs.go),
-	// while upstream semconv marks it `required` on dns.lookup.duration.
-	// Suppress the message until weaver resolves local-registry precedence;
-	// the attribute is still type/value-validated whenever a user opts in.
-	"Required attribute 'dns.question.name' is not present.": {},
 }
 
 // actionableAdviceTypes lists the weaver finding-type values OBI treats as
