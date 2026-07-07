@@ -42,6 +42,7 @@ const (
 	progObiStatsKprobeTCPSendmsg                      = "obi_stats_kprobe_tcp_sendmsg"
 	progObiStatsKretprobeTCPSendmsg                   = "obi_stats_kretprobe_tcp_sendmsg"
 	progObiStatsKprobeTCPCleanupRbuf                  = "obi_stats_kprobe_tcp_cleanup_rbuf"
+	progObiStatsKprobeTCPCloseSummary                 = "obi_stats_kprobe_tcp_close_summary"
 )
 
 // Hook point names, grouped by attach type.
@@ -59,7 +60,7 @@ const (
 )
 
 // $BPF_CLANG and $BPF_CFLAGS are set by the Makefile.
-//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -type tcp_io_t -type tcp_rtt_t -type tcp_failed_connection_t -type tcp_retransmit_t -target amd64,arm64 Stats ../../../../bpf/statsolly/stats.c -- -I../../../../bpf
+//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -type tcp_io_t -type tcp_rtt_t -type tcp_failed_connection_t -type tcp_retransmit_t -type tcp_connection_summary_t -target amd64,arm64 Stats ../../../../bpf/statsolly/stats.c -- -I../../../../bpf
 
 type StatsFetcher struct {
 	log       *slog.Logger
@@ -91,11 +92,12 @@ func NewStatsFetcher(cfg *config.EBPFTracer, features *export.Features, selector
 		return nil, fmt.Errorf("creating attr selector: %w", err)
 	}
 
-	// OR across both metrics: a single shared probe writes sock_role for both consumers,
-	// so the probe is needed if either metric has the attribute enabled.
+	// OR across metrics that use the handshake role attribute: a single shared probe writes
+	// sock_role for all consumers, so the probe is needed if any metric has the attribute enabled.
 	connRoleAttrSelected := slices.Contains(attrSel.For(attributes.StatTCPRtt), attr.NetworkTCPHandshakeRole) ||
-		slices.Contains(attrSel.For(attributes.StatTCPFailedConnections), attr.NetworkTCPHandshakeRole)
-	connRoleUsed := (features.StatsTCPFailedConnections() || features.StatsTCPRtt()) && connRoleAttrSelected
+		slices.Contains(attrSel.For(attributes.StatTCPFailedConnections), attr.NetworkTCPHandshakeRole) ||
+		slices.Contains(attrSel.For(attributes.StatTCPConnectionSummary), attr.NetworkTCPHandshakeRole)
+	connRoleUsed := (features.StatsTCPFailedConnections() || features.StatsTCPRtt() || features.StatsTCPConnectionSummary()) && connRoleAttrSelected
 
 	var toDisable []string
 	if !features.StatsTCPFailedConnections() {
@@ -112,6 +114,9 @@ func NewStatsFetcher(cfg *config.EBPFTracer, features *export.Features, selector
 	}
 	if !features.StatsTCPIo() {
 		toDisable = append(toDisable, progObiStatsKprobeTCPSendmsg, progObiStatsKretprobeTCPSendmsg, progObiStatsKprobeTCPCleanupRbuf, progObiStatsKprobeTCPCloseIoFlush)
+	}
+	if !features.StatsTCPConnectionSummary() {
+		toDisable = append(toDisable, progObiStatsKprobeTCPCloseSummary)
 	}
 
 	if err := fixupSpec(spec, toDisable); err != nil {
@@ -152,6 +157,11 @@ func NewStatsFetcher(cfg *config.EBPFTracer, features *export.Features, selector
 			name:    KprobeTCPCleanupRbuf,
 			program: objects.ObiStatsKprobeTcpCleanupRbuf,
 			enabled: features.StatsTCPIo(),
+		},
+		{
+			name:    KprobeTCPClose,
+			program: objects.ObiStatsKprobeTcpCloseSummary,
+			enabled: features.StatsTCPConnectionSummary(),
 		},
 	} {
 		if !k.enabled {

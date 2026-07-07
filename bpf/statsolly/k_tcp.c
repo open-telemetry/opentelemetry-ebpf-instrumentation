@@ -41,9 +41,23 @@ typedef struct tcp_io {
     connection_info_t conn;
 } tcp_io_t;
 
+typedef struct tcp_connection_summary {
+    u8 flags; // Must be first, we use it to tell what kind of event we have on the ring buffer
+    enum tcp_handshake_role role;
+    u8 _pad[2];
+    u32 srtt_us;
+    u32 mdev_us;
+    u32 total_retrans;
+    u32 segs_out;
+    u32 segs_in;
+    u32 rcv_ooopack;
+    connection_info_t conn;
+} tcp_connection_summary_t;
+
 // Force structs into the ELF for automatic creation of Golang struct
 const tcp_rtt_t *unused_tcp_rtt __attribute__((unused));
 const tcp_io_t *unused_tcp_io __attribute__((unused));
+const tcp_connection_summary_t *unused_tcp_connection_summary __attribute__((unused));
 
 static __always_inline void flush_tcp_io_accum(struct sock *sk,
                                                enum network_io_direction direction,
@@ -193,5 +207,54 @@ int BPF_KPROBE(obi_stats_kprobe_tcp_cleanup_rbuf, struct sock *sk, int copied) {
     }
 
     accumulate_tcp_io(sk, direction_receive, (u32)copied);
+    return 0;
+}
+
+SEC("kprobe/tcp_close")
+int BPF_KPROBE(obi_stats_kprobe_tcp_close_summary, struct sock *sk) {
+    (void)ctx;
+
+    if (is_tcp_socket_never_connected(sk)) {
+        return 0;
+    }
+
+    connection_info_t conn;
+    if (!parse_sock_info(sk, &conn)) {
+        return 0;
+    }
+
+    const struct tcp_sock *tp = (const struct tcp_sock *)sk;
+
+    u32 srtt_us = BPF_CORE_READ(tp, srtt_us) >> 3;
+    u32 mdev_us = BPF_CORE_READ(tp, mdev_us) >> 2;
+
+    if (srtt_us == 0 || srtt_us > k_max_srtt_allowed) {
+        return 0;
+    }
+
+    u32 total_retrans = BPF_CORE_READ(tp, total_retrans);
+    u32 segs_out = BPF_CORE_READ(tp, segs_out);
+    u32 segs_in = BPF_CORE_READ(tp, segs_in);
+    u32 rcv_ooopack = BPF_CORE_READ(tp, rcv_ooopack);
+
+    tcp_connection_summary_t *se = bpf_ringbuf_reserve(&stats_events, sizeof(*se), 0);
+    if (!se) {
+        return 0;
+    }
+
+    se->flags = k_event_stat_tcp_connection_summary;
+    se->srtt_us = srtt_us;
+    se->mdev_us = mdev_us;
+    se->total_retrans = total_retrans;
+    se->segs_out = segs_out;
+    se->segs_in = segs_in;
+    se->rcv_ooopack = rcv_ooopack;
+    se->conn = conn;
+
+    const u8 *role_ptr = bpf_map_lookup_elem(&sock_role, &sk);
+    se->role = role_ptr ? *role_ptr : role_unknown;
+
+    bpf_ringbuf_submit(se, stats_events_flags());
+
     return 0;
 }

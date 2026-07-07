@@ -16,6 +16,9 @@ const (
 	StatTypeTCPFailedConnection
 	StatTypeTCPRetransmit
 	StatTypeTCPIo
+	_ // 5 reserved
+	_ // 6 reserved
+	StatTypeTCPConnectionSummary
 )
 
 type TCPFailReasonType string
@@ -81,11 +84,12 @@ const (
 // in pkg/internal/statsolly/ebpf/stat_getters.go and getDefinitions in
 // pkg/export/attributes/attr_defs.go
 type Stat struct {
-	Type                StatType             `json:"type"`
-	TCPRtt              *TCPRtt              `json:"-"`
-	TCPFailedConnection *TCPFailedConnection `json:"-"`
-	TCPRetransmit       bool                 `json:"-"`
-	TCPIo               *TCPIo               `json:"-"`
+	Type                 StatType              `json:"type"`
+	TCPRtt               *TCPRtt               `json:"-"`
+	TCPFailedConnection  *TCPFailedConnection  `json:"-"`
+	TCPRetransmit        bool                  `json:"-"`
+	TCPIo                *TCPIo                `json:"-"`
+	TCPConnectionSummary *TCPConnectionSummary `json:"-"`
 
 	// Attrs of the flow record: source/destination, OBI IP, etc...
 	CommonAttrs pipe.CommonAttrs
@@ -104,6 +108,17 @@ type TCPFailedConnection struct {
 type TCPIo struct {
 	Direction uint8  `json:"direction"`
 	Bytes     uint32 `json:"bytes"`
+}
+
+// TCPConnectionSummary holds lifetime stats for a closed TCP connection.
+type TCPConnectionSummary struct {
+	Role         uint8  `json:"role"`
+	SrttUs       uint32 `json:"srtt_us"`
+	MdevUs       uint32 `json:"mdev_us"`
+	TotalRetrans uint32 `json:"total_retrans"`
+	SegsOut      uint32 `json:"segs_out"`
+	SegsIn       uint32 `json:"segs_in"`
+	RcvOoopack   uint32 `json:"rcv_ooopack"`
 }
 
 // Conn mirrors connection_info_t from bpf/common/connection_info.h.
@@ -152,3 +167,18 @@ type StatsTCPIo struct {
 
 // TCPIoBatchSize mirrors k_tcp_io_batch_size in bpf/statsolly/types.h.
 const TCPIoBatchSize = 10
+
+// StatsTCPConnectionSummary mirrors tcp_connection_summary_t from bpf/statsolly/k_tcp.c.
+type StatsTCPConnectionSummary struct {
+	_            structs.HostLayout
+	Flags        uint8
+	Role         uint8
+	Pad          [2]uint8
+	SrttUs       uint32
+	MdevUs       uint32
+	TotalRetrans uint32
+	SegsOut      uint32
+	SegsIn       uint32
+	RcvOoopack   uint32
+	Conn
+}

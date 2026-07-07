@@ -11,6 +11,8 @@ enum {
     k_event_stat_tcp_failed_connection = 2, // StatTypeTCPFailedConnection
     k_event_stat_tcp_retransmit = 3,        // StatTypeTCPRetransmit
     k_event_stat_tcp_io = 4,                // StatTypeTCPIo
+    // 5, 6 reserved for future stat types
+    k_event_stat_tcp_connection_summary = 7, // StatTypeTCPConnectionSummary
 };
 
 // batch size used in tcp io metric

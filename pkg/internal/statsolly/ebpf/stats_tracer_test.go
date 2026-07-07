@@ -22,6 +22,7 @@ func TestFixupSpec(t *testing.T) {
 	const origCleanupRbufName = "real_cleanup_rbuf"
 	const origCloseIoFlushName = "real_close_io_flush"
 	const origRetransmitName = "real_retransmit"
+	const origCloseSummaryName = "real_close_summary"
 
 	makeSpec := func() *ebpf.CollectionSpec {
 		return &ebpf.CollectionSpec{
@@ -34,6 +35,7 @@ func TestFixupSpec(t *testing.T) {
 				progObiStatsKprobeTCPCleanupRbuf:                  {Name: origCleanupRbufName, Type: ebpf.Kprobe},
 				progObiStatsKprobeTCPCloseIoFlush:                 {Name: origCloseIoFlushName, Type: ebpf.Kprobe},
 				progObiStatsRawTpTCPRetransmitSkb:                 {Name: origRetransmitName, Type: ebpf.RawTracepoint},
+				progObiStatsKprobeTCPCloseSummary:                 {Name: origCloseSummaryName, Type: ebpf.Kprobe},
 			},
 		}
 	}
@@ -55,6 +57,7 @@ func TestFixupSpec(t *testing.T) {
 				progObiStatsKprobeTCPCleanupRbuf:                  origCleanupRbufName,
 				progObiStatsKprobeTCPCloseIoFlush:                 origCloseIoFlushName,
 				progObiStatsRawTpTCPRetransmitSkb:                 origRetransmitName,
+				progObiStatsKprobeTCPCloseSummary:                 origCloseSummaryName,
 			},
 		},
 		{
@@ -71,6 +74,7 @@ func TestFixupSpec(t *testing.T) {
 				progObiStatsKretprobeTCPSendmsg:                   origRetprobeSendmsgName,
 				progObiStatsKprobeTCPCleanupRbuf:                  origCleanupRbufName,
 				progObiStatsRawTpTCPRetransmitSkb:                 origRetransmitName,
+				progObiStatsKprobeTCPCloseSummary:                 origCloseSummaryName,
 			},
 		},
 		{
@@ -123,6 +127,7 @@ func TestFixupSpec(t *testing.T) {
 				progObiStatsKprobeTCPCleanupRbuf,
 				progObiStatsKprobeTCPCloseIoFlush,
 				progObiStatsRawTpTCPRetransmitSkb,
+				progObiStatsKprobeTCPCloseSummary,
 			},
 			want: map[string]string{
 				progObiStatsKprobeTCPCloseSrtt:                    "stats_dummy",
@@ -133,6 +138,7 @@ func TestFixupSpec(t *testing.T) {
 				progObiStatsKprobeTCPCleanupRbuf:                  "stats_dummy",
 				progObiStatsKprobeTCPCloseIoFlush:                 "stats_dummy",
 				progObiStatsRawTpTCPRetransmitSkb:                 "stats_dummy",
+				progObiStatsKprobeTCPCloseSummary:                 "stats_dummy",
 			},
 		},
 	}

@@ -142,3 +142,123 @@ groups:
       - ref: dst.zone
       - ref: reason
       - ref: network.tcp.handshake.role
+
+  - id: metric.obi_stat_tcp_connection_summary.srtt
+    type: metric
+    metric_name: obi.stat.tcp.connection.summary.srtt
+    instrument: histogram
+    unit: "s"
+    stability: development
+    brief: >
+      Smoothed round-trip time observed at TCP connection close.
+    attributes:
+      - ref: obi.ip
+      - ref: src.address
+      - ref: dst.address
+      - ref: src.port
+      - ref: dst.port
+      - ref: src.name
+      - ref: dst.name
+      - ref: src.zone
+      - ref: dst.zone
+      - ref: network.tcp.handshake.role
+
+  - id: metric.obi_stat_tcp_connection_summary.mdev
+    type: metric
+    metric_name: obi.stat.tcp.connection.summary.mdev
+    instrument: histogram
+    unit: "s"
+    stability: development
+    brief: >
+      RTT mean deviation observed at TCP connection close.
+    attributes:
+      - ref: obi.ip
+      - ref: src.address
+      - ref: dst.address
+      - ref: src.port
+      - ref: dst.port
+      - ref: src.name
+      - ref: dst.name
+      - ref: src.zone
+      - ref: dst.zone
+      - ref: network.tcp.handshake.role
+
+  - id: metric.obi_stat_tcp_connection_summary.retransmits
+    type: metric
+    metric_name: obi.stat.tcp.connection.summary.retransmits
+    instrument: histogram
+    unit: ""
+    stability: development
+    brief: >
+      Total retransmissions observed over the lifetime of a TCP connection.
+    attributes:
+      - ref: obi.ip
+      - ref: src.address
+      - ref: dst.address
+      - ref: src.port
+      - ref: dst.port
+      - ref: src.name
+      - ref: dst.name
+      - ref: src.zone
+      - ref: dst.zone
+      - ref: network.tcp.handshake.role
+
+  - id: metric.obi_stat_tcp_connection_summary.ooo_packets
+    type: metric
+    metric_name: obi.stat.tcp.connection.summary.ooo_packets
+    instrument: histogram
+    unit: ""
+    stability: development
+    brief: >
+      Out-of-order packets received over the lifetime of a TCP connection.
+    attributes:
+      - ref: obi.ip
+      - ref: src.address
+      - ref: dst.address
+      - ref: src.port
+      - ref: dst.port
+      - ref: src.name
+      - ref: dst.name
+      - ref: src.zone
+      - ref: dst.zone
+      - ref: network.tcp.handshake.role
+
+  - id: metric.obi_stat_tcp_connection_summary.segs_out
+    type: metric
+    metric_name: obi.stat.tcp.connection.summary.segs_out
+    instrument: histogram
+    unit: ""
+    stability: development
+    brief: >
+      Total segments sent over the lifetime of a TCP connection.
+    attributes:
+      - ref: obi.ip
+      - ref: src.address
+      - ref: dst.address
+      - ref: src.port
+      - ref: dst.port
+      - ref: src.name
+      - ref: dst.name
+      - ref: src.zone
+      - ref: dst.zone
+      - ref: network.tcp.handshake.role
+
+  - id: metric.obi_stat_tcp_connection_summary.segs_in
+    type: metric
+    metric_name: obi.stat.tcp.connection.summary.segs_in
+    instrument: histogram
+    unit: ""
+    stability: development
+    brief: >
+      Total segments received over the lifetime of a TCP connection.
+    attributes:
+      - ref: obi.ip
+      - ref: src.address
+      - ref: dst.address
+      - ref: src.port
+      - ref: dst.port
+      - ref: src.name
+      - ref: dst.name
+      - ref: src.zone
+      - ref: dst.zone
+      - ref: network.tcp.handshake.role
