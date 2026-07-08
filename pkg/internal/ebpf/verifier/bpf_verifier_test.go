@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/cilium/ebpf"
+	"github.com/cilium/ebpf/btf"
 	"github.com/cilium/ebpf/rlimit"
 	"github.com/stretchr/testify/require"
 
@@ -37,6 +38,7 @@ import (
 var (
 	specCache   sync.Map // map[uintptr]*ebpf.CollectionSpec keyed by loadFn pointer
 	specCacheMu sync.Mutex
+	btfCache    = btf.NewCache()
 )
 
 func cachedSpec(t *testing.T, loadFn func() (*ebpf.CollectionSpec, error)) *ebpf.CollectionSpec {
@@ -99,6 +101,7 @@ func loadAndVerify(t *testing.T, name string, loadFn func() (*ebpf.CollectionSpe
 				// Increase log buffer so verifier rejections are not truncated.
 				LogSizeStart: 10 * 1024 * 1024,
 			},
+			Cache: btfCache,
 		})
 		if err != nil {
 			var ve *ebpf.VerifierError
@@ -217,6 +220,12 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 	} else {
 		t.Logf("skipping tpinjector/BpfIter: kernel %d.%d < 5.11", major, minor)
 	}
+
+	// tpinjector/BpfFionreadFixup uses bpf_probe_write_user, rejected at load time
+	// under kernel lockdown - none of the CI kernels run locked down
+	forEachCombination(t, "tpinjector/BpfFionreadFixup", tpinjectorbpf.LoadBpfFionreadFixup, []constOption{
+		{"g_bpf_debug", []any{true, false}},
+	})
 
 	// watcher
 	forEachCombination(t, "watcher/Bpf", watcherbpf.LoadBpf, []constOption{

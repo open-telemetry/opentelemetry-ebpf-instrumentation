@@ -70,6 +70,7 @@ through language-specific library instrumentation documented later in this file.
 | MongoDB | `5.0+` | `insert`, `update`, `find`, `delete`, `findAndModify`, `aggregate`, `count`, `distinct`, `mapReduce` | Yes | No | No support for compressed payloads |
 | Couchbase | All | All | Yes | No | Bucket or collection may be unknown if negotiation happened before OBI started |
 | Memcached | All | ASCII text subset excluding `quit` and meta commands | Yes | No | Only the first key is recorded for multi-key retrieval; payload bytes are not captured |
+| Aerospike | All | `GET`, `EXISTS`, `PUT`, `TOUCH`, `OPERATE`, `DELETE`, `SCAN`, `QUERY`, `BATCH`, `UDF` | No | No | compressed (type-4) payloads are not parsed; only operation metadata (namespace, set, key) is captured, not record/bin values; scan/query duration measured to the first response frame |
 | Kafka | All | `produce`, `fetch` | Yes | No | Topic name lookup may fail for newer fetch API versions (`>= 13`) |
 | MQTT | `3.1.1/5.0` | `publish`, `subscribe` | No | No | Only the first topic filter is used for subscribe; payload not captured |
 | AMQP | `1.0` | `publish`, `process` | No | No | Userspace heuristic only; only transfer performatives create spans |

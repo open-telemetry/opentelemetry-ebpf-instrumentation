@@ -42,6 +42,7 @@ var runtimeInstrumentations = []instrumentations.Instrumentation{
 	instrumentations.InstrumentationGenAI,
 	instrumentations.InstrumentationMemcached,
 	instrumentations.InstrumentationSunRPC,
+	instrumentations.InstrumentationAerospike,
 }
 
 var protocolMappings = []protocolMapping{

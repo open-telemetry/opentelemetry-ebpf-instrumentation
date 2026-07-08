@@ -50,6 +50,28 @@ func TestMatchExeSymbols_InvalidStringOffset(t *testing.T) {
 	assert.Equal(t, svc.InstrumentableGeneric, matchExeSymbols(ctx))
 }
 
+func TestMatchExeSymbols_InvalidStringTableOffset(t *testing.T) {
+	const symSize = 24
+
+	ctx := &fastelf.ElfContext{
+		Data: make([]byte, symSize),
+		Sections: []*fastelf.Elf64_Shdr{
+			{
+				Type:    fastelf.SHT_SYMTAB,
+				Link:    1,
+				Size:    symSize,
+				Entsize: symSize,
+			},
+			{
+				Offset: ^uint64(0),
+				Size:   1,
+			},
+		},
+	}
+
+	assert.Equal(t, svc.InstrumentableGeneric, matchExeSymbols(ctx))
+}
+
 func TestFindExeSymbolsExactLookup(t *testing.T) {
 	const symbolName = "main.exactLookupTarget"
 

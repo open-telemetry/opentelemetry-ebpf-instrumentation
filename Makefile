@@ -46,7 +46,7 @@ CFLAGS := -std=gnu17 -O2 -g -Wunaligned-access -Wpacked -Wpadded -Wall -Werror $
 
 CLANG_TIDY ?= clang-tidy
 
-CILIUM_EBPF_VER ?= v0.20.0
+CILIUM_EBPF_VER ?= v0.22.0
 CILIUM_EBPF_PKG := github.com/cilium/ebpf
 
 # regular expressions for excluded file patterns
@@ -237,7 +237,7 @@ update-offsets:
 BPF_ROOT = pkg/
 
 # Find all generated Go and object files (used as Make targets)
-BPF_GEN_GO := $(shell find $(BPF_ROOT) -type f \( -name 'bpf_*_bpfe[lb].go' -o -name 'net_*_bpfe[lb].go' -o -name 'netsk_*_bpfe[lb].go' -o -name 'stats_*_bpfe[lb].go' \))
+BPF_GEN_GO := $(shell find $(BPF_ROOT) -type f \( -name 'bpf*_bpfe[lb].go' -o -name 'net_*_bpfe[lb].go' -o -name 'netsk_*_bpfe[lb].go' -o -name 'stats_*_bpfe[lb].go' \))
 BPF_GEN_OBJ := $(BPF_GEN_GO:.go=.o)
 BPF_GEN_ALL := $(if $(BPF_GEN_GO),$(BPF_GEN_GO) $(BPF_GEN_OBJ))
 

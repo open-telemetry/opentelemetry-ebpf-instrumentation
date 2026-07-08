@@ -4,6 +4,7 @@ This directory contains documentation for the supported protocol parsers that OB
 
 ## Table Of Contents
 
+- [Aerospike](aerospike.md): Aerospike native client protocol parser.
 - [Couchbase](couchbase.md): Couchbase (Memcached Binary Protocol) parser.
 - [Kafka](kafka.md): Kafka protocol parser.
 - [Memcached](memcached.md): Memcached text protocol parser.

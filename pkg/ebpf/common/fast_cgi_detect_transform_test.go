@@ -369,3 +369,59 @@ func TestTCPToFastCGIToSpanPathSplit(t *testing.T) {
 		})
 	}
 }
+
+func appendFastCGINameValue(dst []byte, name, value string) []byte {
+	dst = append(dst, byte(len(name)), byte(len(value)))
+	dst = append(dst, name...)
+	dst = append(dst, value...)
+	return dst
+}
+
+func appendFastCGIRecord(dst []byte, recordType byte, requestID uint16, content []byte) []byte {
+	paddingLength := byte((8 - (len(content) % 8)) % 8)
+	dst = append(dst,
+		1,
+		recordType,
+		byte(requestID>>8), byte(requestID),
+		byte(len(content)>>8), byte(len(content)),
+		paddingLength,
+		0,
+	)
+	dst = append(dst, content...)
+	return append(dst, make([]byte, paddingLength)...)
+}
+
+// BenchmarkDetectFastCGI measures the cost of parsing a complete FastCGI request+response pair.
+//
+//	go test -bench=BenchmarkDetectFastCGI -benchmem ./pkg/ebpf/common/...
+func BenchmarkDetectFastCGI(b *testing.B) {
+	params := make([]byte, 0, 160)
+	params = appendFastCGINameValue(params, "QUERY_STRING", "")
+	params = appendFastCGINameValue(params, "REQUEST_METHOD", "GET")
+	params = appendFastCGINameValue(params, "CONTENT_TYPE", "")
+	params = appendFastCGINameValue(params, "CONTENT_LENGTH", "")
+	params = appendFastCGINameValue(params, "SCRIPT_NAME", "/ping")
+	params = appendFastCGINameValue(params, "REQUEST_URI", "/ping")
+	params = appendFastCGINameValue(params, "DOCUMENT_URI", "/ping")
+	params = appendFastCGINameValue(params, "DOCUMENT_ROOT", "/var/www/html/public")
+
+	request := make([]byte, 0, 192)
+	request = appendFastCGIRecord(request, 1, 1, []byte{0, 1, 0, 0, 0, 0, 0, 0})
+	request = appendFastCGIRecord(request, 4, 1, params)
+
+	responsePayload := []byte("Status: 404 Not Found\r\nContent-type: text/html; charset=UTF-8\r\n\r\nFile not found.\n")
+	response := appendFastCGIRecord(nil, 6, 1, responsePayload)
+
+	reqBuf := largebuf.NewLargeBufferFrom(request)
+	respBuf := largebuf.NewLargeBufferFrom(response)
+	method, path, status := detectFastCGI(reqBuf, respBuf)
+	if method != "GET" || path != "/ping" || status != 404 {
+		b.Fatalf("unexpected benchmark fixture result: method=%q path=%q status=%d", method, path, status)
+	}
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	for range b.N {
+		detectFastCGI(reqBuf, respBuf)
+	}
+}

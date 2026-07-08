@@ -1795,6 +1795,7 @@
             "type": "string",
             "enum": [
               "*",
+              "aerospike",
               "amqp",
               "couchbase",
               "dns",
@@ -2223,6 +2224,7 @@
             "type": "string",
             "enum": [
               "*",
+              "aerospike",
               "amqp",
               "couchbase",
               "dns",
@@ -2811,6 +2813,7 @@
             "type": "string",
             "enum": [
               "*",
+              "aerospike",
               "amqp",
               "couchbase",
               "dns",
@@ -2843,7 +2846,8 @@
             "mongo",
             "couchbase",
             "memcached",
-            "sunrpc"
+            "sunrpc",
+            "aerospike"
           ],
           "x-env-var": "OTEL_EBPF_TRACES_INSTRUMENTATIONS"
         },
