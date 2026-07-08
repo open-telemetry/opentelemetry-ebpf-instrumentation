@@ -19,6 +19,9 @@ import (
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
 )
 
+// connSummaryMdevBuckets covers sub-millisecond jitter range (mdev is typically smaller than RTT).
+var connSummaryMdevBuckets = []float64{0.0001, 0.0002, 0.0005, 0.001, 0.002, 0.005, 0.010, 0.025, 0.050, 0.100}
+
 // injectable function reference for testing
 
 // StatsPrometheusConfig for stat metrics just wraps the global prom.StatsPrometheusConfig as provided by the user
@@ -186,7 +189,7 @@ func newStatsReporter(
 		mr.tcpConnSummaryMdev = NewExpirer[prometheus.Histogram](prometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Name:                            attributes.StatTCPConnectionSummary.Prom + "_mdev_seconds",
 			Help:                            "RTT mean deviation at connection close, in seconds",
-			Buckets:                         cfg.Config.Buckets.StatTCPRttHistogram,
+			Buckets:                         connSummaryMdevBuckets,
 			NativeHistogramBucketFactor:     cfg.Config.NativeHistogram.BucketFactor,
 			NativeHistogramMaxBucketNumber:  cfg.Config.NativeHistogram.MaxBucketNumber,
 			NativeHistogramMinResetDuration: cfg.Config.NativeHistogram.MinResetDuration,
