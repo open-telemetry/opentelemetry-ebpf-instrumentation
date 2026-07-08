@@ -15,6 +15,11 @@ on:
         required: false
         type: boolean
         default: false
+      nightly_version:
+        description: "When set, publish nightly tags '<nightly_version>' and 'nightly' instead of release tags (e.g. 0.11.0-nightly.abc1234)"
+        required: false
+        type: string
+        default: ""
     secrets:
       DOCKER_TOKEN_EBPF_INSTRUMENTATION:
         description: "Docker Hub access token for otel"
@@ -80,6 +85,8 @@ jobs:
           tags: |
             type=semver,pattern=v{{version}},value=${{ inputs.ref }}
             type=raw,value=latest,enable=${{ inputs.latest == true }}
+            type=raw,value=${{ inputs.nightly_version }},enable=${{ inputs.nightly_version != '' }}
+            type=raw,value=nightly,enable=${{ inputs.nightly_version != '' }}
             type=ref,event=branch
             type=ref,event=tag
 
@@ -159,6 +166,8 @@ jobs:
           tags: |
             type=semver,pattern=v{{version}},value=${{ inputs.ref }}
             type=raw,value=latest,enable=${{ inputs.latest == true }}
+            type=raw,value=${{ inputs.nightly_version }},enable=${{ inputs.nightly_version != '' }}
+            type=raw,value=nightly,enable=${{ inputs.nightly_version != '' }}
             type=ref,event=branch
             type=ref,event=tag
 
