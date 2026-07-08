@@ -1853,6 +1853,8 @@ func statsFeatureMask(features []string) export.Features {
 			out |= export.FeatureStatsTCPRetransmits
 		case statsFeatureTCPIo:
 			out |= export.FeatureStatsTCPIo
+		case statsFeatureTCPConnectionSummary:
+			out |= export.FeatureStatsTCPConnectionSummary
 		}
 	}
 	return out

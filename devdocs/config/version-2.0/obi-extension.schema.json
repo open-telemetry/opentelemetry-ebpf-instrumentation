@@ -1989,7 +1989,8 @@
                   "tcp_rtt",
                   "tcp_failed_connections",
                   "tcp_retransmits",
-                  "tcp_io"
+                  "tcp_io",
+                  "tcp_connection_summary"
                 ]
               },
               "default": [],
