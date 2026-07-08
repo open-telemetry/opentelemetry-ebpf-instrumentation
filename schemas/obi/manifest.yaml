@@ -8,9 +8,10 @@ description: |
 
   - Prometheus / OpenMetrics conventions (`target_info`, `instance`, `job`)
   - Span metrics matching the OTel collector-contrib `spanmetricsconnector`
-    output (emitted when the `application_span_otel` metrics feature is
-    enabled — this registry pins the OTel-canonical names; the legacy
-    `application_span` underscored variants are not declared here)
+    output, in both naming schemes: the OTel-canonical
+    `traces_span_metrics_*` names (emitted when the `application_span_otel`
+    metrics feature is enabled) and the legacy Grafana-style
+    `traces_spanmetrics_*` names (OBI's default `application_span` feature)
   - Service-graph metrics matching the OTel collector-contrib
     `servicegraphconnector` output (emitted when the
     `application_service_graph` metrics feature is enabled)

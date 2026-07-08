@@ -24,9 +24,9 @@ groups:
   # weaver defines local-wins precedence, this comment block can be dropped.
   #
   # `weaver registry check` (v0.24.2+) flags this same-metric_name duplicate
-  # as a DuplicateMetricName error even though live-check resolves it; that
-  # diagnostic type is ignored in scripts/lint-schema.sh with the same
-  # rationale.
+  # as a DuplicateMetricName error even though live-check resolves it; this
+  # specific expected duplicate is allowlisted in
+  # scripts/lint-schema-filter.jq with the same rationale.
   - id: metric.dns.lookup.duration.obi
     type: metric
     extends: metric.dns.lookup.duration
