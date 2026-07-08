@@ -109,6 +109,11 @@ type pidPort struct {
 	Port uint32
 }
 
+// TODO: don't report twice the same process (unless a new port is created)
+// TODO: keep listprocesses but run it only once
+// TODO: maybe an "process cleaner"
+// TODO: use executableready
+
 // TODO: combine the poller with an eBPF listener (poll at start and e.g. every 30 seconds, and keep listening eBPF in background)
 // ^ This is partially done, although it's not fully async, we only use the info to reduce the overhead of port scanning.
 type pollAccounter struct {
@@ -254,16 +259,33 @@ func portOfInterest(criteria []services.Selector, port int) bool {
 	return false
 }
 
-func (pa *pollAccounter) watchForProcessEvents(ctx context.Context, log *slog.Logger, events <-chan watcher.Event) {
+func (pa *pollAccounter) watchForProcessEvents(
+	ctx context.Context,
+	log *slog.Logger,
+	events <-chan watcher.Event,
+	out *msg.Queue[[]Event[ProcessAttrs]],
+) {
 	swarms.ForEachInput(ctx, events, log.Debug, func(e watcher.Event) {
 		switch e.Type {
 		case watcher.Ready:
 			pa.bpfWatcherIsReady()
 		case watcher.NewPort:
-			port := int(e.Payload)
+			port := int(e.Port)
 			if pa.cfg.Port.Matches(port) || portOfInterest(pa.findingCriteria, port) {
 				pa.refetchPorts()
+				// TODO: check if pid is already being instrumented
+				// TODO: send signal to criteria decorators
+				// TODO: update internal maps
+				out.SendCtx(ctx, []Event[ProcessAttrs]{{
+					Type: EventCreated,
+				}})
 			}
+		case watcher.NewProcess:
+			// TODO: update internal maps
+			// is really needed or can we just rely on port opening?
+			out.SendCtx(ctx, []Event[ProcessAttrs]{{
+				Type: EventCreated,
+			}})
 		default:
 			log.Warn("Unknown ebpf process watch event", "type", e.Type)
 		}

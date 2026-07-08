@@ -10,7 +10,6 @@ import (
 	"io"
 	"log/slog"
 
-	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/ebpf/ringbuf"
 	"go.opentelemetry.io/obi/pkg/obi"
@@ -33,11 +32,13 @@ type EventType int
 const (
 	Ready = EventType(iota)
 	NewPort
+	NewProcess
 )
 
 type Event struct {
-	Type    EventType
-	Payload uint32 // this will be either port or pid
+	Type EventType
+	Port uint16
+	Pid  uint32
 }
 
 func New(cfg *obi.Config, events chan<- Event) *Watcher {
@@ -99,23 +100,22 @@ func (p *Watcher) Run(ctx context.Context) {
 	)(ctx, nil)
 }
 
-func (p *Watcher) processWatchEvent(record *ringbuf.Record) (request.Span, bool, error) {
-	var flags uint64
+func (p *Watcher) processWatchEvent(record *ringbuf.Record) (struct{}, bool, error) {
 	var event BPFWatchInfo
 
-	err := binary.Read(bytes.NewBuffer(record.RawSample), binary.LittleEndian, &flags)
+	err := binary.Read(bytes.NewBuffer(record.RawSample), binary.LittleEndian, &event)
 	if err != nil {
-		return request.Span{}, true, err
+		return struct{}{}, true, err
 	}
-
-	if flags == 1 { // socket bind
-		err = binary.Read(bytes.NewBuffer(record.RawSample), binary.LittleEndian, &event)
-
-		if err == nil {
-			p.log.Debug("New port bind event", "port", event.Payload)
-			p.events <- Event{Type: NewPort, Payload: uint32(event.Payload)}
-		}
+	switch {
+	case event.Pid == 0:
+		// Can't happen. just ignore
+	case event.Port != 0:
+		p.log.Debug("New port bind event", "pid", event.Pid, "port", event.Port)
+		p.events <- Event{Type: NewPort, Pid: event.Pid, Port: event.Port}
+	default:
+		p.log.Debug("New process creation event", "pid", event.Pid)
+		p.events <- Event{Type: NewProcess, Pid: event.Pid}
 	}
-
-	return request.Span{}, true, nil
+	return struct{}{}, true, nil
 }
