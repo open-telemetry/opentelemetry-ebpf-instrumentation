@@ -110,7 +110,6 @@ type TCPIo struct {
 	Bytes     uint32 `json:"bytes"`
 }
 
-// TCPConnectionSummary holds lifetime stats for a closed TCP connection.
 type TCPConnectionSummary struct {
 	Role         uint8  `json:"role"`
 	SrttUs       uint32 `json:"srtt_us"`
@@ -168,7 +167,6 @@ type StatsTCPIo struct {
 // TCPIoBatchSize mirrors k_tcp_io_batch_size in bpf/statsolly/types.h.
 const TCPIoBatchSize = 10
 
-// StatsTCPConnectionSummary mirrors tcp_connection_summary_t from bpf/statsolly/k_tcp.c.
 type StatsTCPConnectionSummary struct {
 	_            structs.HostLayout
 	Flags        uint8
