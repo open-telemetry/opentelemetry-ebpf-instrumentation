@@ -10,9 +10,24 @@ require (
 )
 
 // The oats harness reuses the shared weaver-validation logic
-// (internal/test/weavercheck) from the main obi
-// module. weavercheck only depends on the stdlib + testify, so this pulls in no
-// eBPF/heavy deps.
+// (internal/test/weavercheck) from the root obi module, so the Docker,
+// Kubernetes, and OATS suites enforce identical semantic-convention rules.
+//
+// This is an INTENTIONAL module coupling with known costs beyond the imported
+// package itself (which only uses stdlib + testify): requiring the root
+// module puts its full requirement set into MVS, raising the minimum versions
+// of shared dependencies (collector pdata, the OTel SDK, gRPC, …) for the
+// harness and every OATS group module — so an unrelated root dependency bump
+// can ripple into these go.sum files. And because `replace` directives are
+// not transitive, every OATS group module must repeat this same
+// require/replace pair.
+//
+// The alternatives all have worse trade-offs today: a nested weavercheck
+// module would need an unpublishable v0.0.0 require in the ROOT go.mod
+// (breaking downstream consumers of go.opentelemetry.io/obi unless the
+// nested module is tagged on every release), and moving the integration
+// tests out of the root module is a much larger layout change. The broader
+// module-layout cleanup is tracked as follow-up work.
 replace go.opentelemetry.io/obi => ../../../..
 
 require (
