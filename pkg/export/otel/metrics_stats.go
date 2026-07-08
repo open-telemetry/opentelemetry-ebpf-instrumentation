@@ -72,12 +72,25 @@ func newStatMeterProvider(res *resource.Resource, exporter *sdkmetric.Exporter, 
 			string(otelcfg.HistogramAggregationExponential)+", "+string(otelcfg.HistogramAggregationExplicit)+" (default). Using default",
 			"value", cfg.HistogramAggregation)
 	}
+	summaryPrefix := attributes.StatTCPConnectionSummary.OTEL
 	return metric.NewMeterProvider(
 		metric.WithResource(res),
 		metric.WithReader(metric.NewPeriodicReader(*exporter, metric.WithInterval(interval))),
 		metric.WithView(statHistogramView(attributes.StatTCPRtt.OTEL, cfg.Buckets.StatTCPRttHistogram, isExponential, cfg.ExponentialHistogram)),
+		metric.WithView(statHistogramView(summaryPrefix+".srtt", cfg.Buckets.StatTCPRttHistogram, isExponential, cfg.ExponentialHistogram)),
+		metric.WithView(statHistogramView(summaryPrefix+".mdev", connSummaryMdevBuckets, isExponential, cfg.ExponentialHistogram)),
+		metric.WithView(statHistogramView(summaryPrefix+".retransmits", connSummaryCountBuckets, isExponential, cfg.ExponentialHistogram)),
+		metric.WithView(statHistogramView(summaryPrefix+".ooo_packets", connSummaryCountBuckets, isExponential, cfg.ExponentialHistogram)),
+		metric.WithView(statHistogramView(summaryPrefix+".segs_out", connSummaryCountBuckets, isExponential, cfg.ExponentialHistogram)),
+		metric.WithView(statHistogramView(summaryPrefix+".segs_in", connSummaryCountBuckets, isExponential, cfg.ExponentialHistogram)),
 	)
 }
+
+// connSummaryMdevBuckets covers sub-millisecond jitter range (mdev is typically smaller than RTT).
+var connSummaryMdevBuckets = []float64{0.0001, 0.0002, 0.0005, 0.001, 0.002, 0.005, 0.010, 0.025, 0.050, 0.100}
+
+// connSummaryCountBuckets covers count-based metrics (retransmits, ooo_packets, segs_out, segs_in).
+var connSummaryCountBuckets = []float64{0, 1, 2, 5, 10, 25, 50, 100, 250, 500, 1000}
 
 func statHistogramView(metricName string, buckets []float64, isExponential bool, expCfg otelcfg.ExponentialHistogramConfig) metric.View {
 	return newHistogramView(metricName, statScopeName, buckets, isExponential, expCfg)
