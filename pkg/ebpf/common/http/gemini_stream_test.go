@@ -250,27 +250,25 @@ func TestParseGeminiStream_InterleavedTextAndFunctionCall(t *testing.T) {
 	assert.Nil(t, parts[2].FunctionCall)
 }
 
-func TestParseGeminiStream_StringsBuilderPerformance(t *testing.T) {
-	// Verify that large text accumulation works without error (strings.Builder).
-	var sb strings.Builder
-	sb.WriteString("data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"")
-	// 1000 chunks of text to exercise Builder path.
-	for i := 0; i < 1000; i++ {
-		sb.WriteString("chunk ")
-	}
-	sb.WriteString("\"}],\"role\":\"model\"},\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"promptTokenCount\":1,\"candidatesTokenCount\":1,\"totalTokenCount\":2},\"modelVersion\":\"gemini-2.0-flash\"}\n\n")
-	stream := sb.String()
+func TestParseGeminiStream_ManyTextChunks(t *testing.T) {
+	const chunk = `data: {"candidates":[{"content":{"parts":[{"text":"chunk "}],"role":"model"}}]}` + "\n\n"
 
-	resp, _ := parseGeminiStream(strings.NewReader(stream))
+	var stream strings.Builder
+	for range 1000 {
+		stream.WriteString(chunk)
+	}
+
+	resp, _ := parseGeminiStream(strings.NewReader(stream.String()))
 
 	require.NotNil(t, resp)
 	require.Len(t, resp.Candidates, 1)
+
 	var parts []struct {
 		Text string `json:"text"`
 	}
 	require.NoError(t, json.Unmarshal(resp.Candidates[0].Content.Parts, &parts))
 	require.Len(t, parts, 1)
-	assert.Greater(t, len(parts[0].Text), 5000) // 1000 * "chunk " = 6000 chars
+	assert.Equal(t, strings.Repeat("chunk ", 1000), parts[0].Text)
 }
 
 func TestParseGeminiStream_ErrorEnvelopeBare(t *testing.T) {
@@ -304,11 +302,12 @@ func TestParseGeminiStream_ErrorEnvelopeInDataLine(t *testing.T) {
 }
 
 func TestParseGeminiStream_StreamingFunctionCallArguments(t *testing.T) {
-	// Vertex AI streamFunctionCallArguments: name arrives first, then
-	// partialArgs in subsequent chunks, last chunk without willContinue.
-	chunk1 := `data: {"candidates":[{"content":{"parts":[{"functionCall":{"name":"get_weather","partialArgs":"{\"loc","willContinue":true}}],"role":"model"}}],"modelVersion":"gemini-2.0-flash"}` + "\n\n"
-	chunk2 := `data: {"candidates":[{"content":{"parts":[{"functionCall":{"partialArgs":"ation\": \"NYC","willContinue":true}}],"role":"model"}}],"modelVersion":"gemini-2.0-flash"}` + "\n\n"
-	chunk3 := `data: {"candidates":[{"content":{"parts":[{"functionCall":{"partialArgs":"\"}"}}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":5,"candidatesTokenCount":3,"totalTokenCount":8},"modelVersion":"gemini-2.0-flash","responseId":"resp_sfc"}` + "\n\n"
+	// Vertex AI streamFunctionCallArguments: the name arrives first, then
+	// partialArgs arrive as arrays of {jsonPath, <typed value>} objects in
+	// subsequent chunks, with willContinue absent on the final fragment.
+	chunk1 := `data: {"candidates":[{"content":{"parts":[{"functionCall":{"name":"get_weather","partialArgs":[{"jsonPath":"$.location","stringValue":"NYC"}],"willContinue":true}}],"role":"model"}}],"modelVersion":"gemini-2.0-flash"}` + "\n\n"
+	chunk2 := `data: {"candidates":[{"content":{"parts":[{"functionCall":{"partialArgs":[{"jsonPath":"$.unit","stringValue":"celsius"}],"willContinue":true}}],"role":"model"}}],"modelVersion":"gemini-2.0-flash"}` + "\n\n"
+	chunk3 := `data: {"candidates":[{"content":{"parts":[{"functionCall":{"partialArgs":[{"jsonPath":"$.days","numberValue":3}]}}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":5,"candidatesTokenCount":3,"totalTokenCount":8},"modelVersion":"gemini-2.0-flash","responseId":"resp_sfc"}` + "\n\n"
 	stream := chunk1 + chunk2 + chunk3
 
 	resp, toolCalls := parseGeminiStream(strings.NewReader(stream))
@@ -317,7 +316,8 @@ func TestParseGeminiStream_StreamingFunctionCallArguments(t *testing.T) {
 	require.Len(t, toolCalls, 1)
 	assert.Equal(t, "get_weather", toolCalls[0].Name)
 
-	// The aggregated function call should contain the full args.
+	// The aggregated function call should reconstruct args from the paths and
+	// typed values across all fragments.
 	require.Len(t, resp.Candidates, 1)
 	var parts []struct {
 		FunctionCall *struct {
@@ -329,8 +329,12 @@ func TestParseGeminiStream_StreamingFunctionCallArguments(t *testing.T) {
 	require.Len(t, parts, 1)
 	require.NotNil(t, parts[0].FunctionCall)
 	assert.Equal(t, "get_weather", parts[0].FunctionCall.Name)
-	assert.Contains(t, string(parts[0].FunctionCall.Args), "location")
-	assert.Contains(t, string(parts[0].FunctionCall.Args), "NYC")
+
+	var args map[string]any
+	require.NoError(t, json.Unmarshal(parts[0].FunctionCall.Args, &args))
+	assert.Equal(t, "NYC", args["location"])
+	assert.Equal(t, "celsius", args["unit"])
+	assert.InEpsilon(t, float64(3), args["days"], 0.0001)
 }
 
 func TestParseGeminiStream_ThoughtToAnswerBoundary(t *testing.T) {
@@ -382,4 +386,83 @@ func TestParseGeminiStream_StreamingFCNameOnly(t *testing.T) {
 	require.Len(t, parts, 1)
 	require.NotNil(t, parts[0].FunctionCall)
 	assert.Equal(t, "list_items", parts[0].FunctionCall.Name)
+}
+
+func TestParseGeminiStream_ThoughtSignaturePreserved(t *testing.T) {
+	// Two thought parts with distinct thoughtSignatures must NOT be merged,
+	// and each signature must be carried through to the output.
+	stream := `data: {"candidates":[{"content":{"parts":[{"text":"step one","thought":true,"thoughtSignature":"sigA"}],"role":"model"}}],"modelVersion":"gemini-2.0-flash"}` + "\n\n" +
+		`data: {"candidates":[{"content":{"parts":[{"text":"step two","thought":true,"thoughtSignature":"sigB"}],"role":"model"},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":3,"candidatesTokenCount":4,"totalTokenCount":7},"modelVersion":"gemini-2.0-flash"}` + "\n\n"
+
+	resp, _ := parseGeminiStream(strings.NewReader(stream))
+	require.NotNil(t, resp)
+	require.Len(t, resp.Candidates, 1)
+
+	var parts []struct {
+		Text             string `json:"text"`
+		Thought          bool   `json:"thought"`
+		ThoughtSignature string `json:"thoughtSignature"`
+	}
+	require.NoError(t, json.Unmarshal(resp.Candidates[0].Content.Parts, &parts))
+	require.Len(t, parts, 2)
+	assert.Equal(t, "step one", parts[0].Text)
+	assert.Equal(t, "sigA", parts[0].ThoughtSignature)
+	assert.Equal(t, "step two", parts[1].Text)
+	assert.Equal(t, "sigB", parts[1].ThoughtSignature)
+}
+
+func TestParseGeminiStream_SignatureOnlyPart(t *testing.T) {
+	// A part with empty text but a thoughtSignature must be preserved (not
+	// dropped by the empty-text guard) and kept distinct from adjacent text.
+	stream := `data: {"candidates":[{"content":{"parts":[{"text":"answer"},{"text":"","thoughtSignature":"sigOnly"}],"role":"model"},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":1,"candidatesTokenCount":1,"totalTokenCount":2},"modelVersion":"gemini-2.0-flash"}` + "\n\n"
+
+	resp, _ := parseGeminiStream(strings.NewReader(stream))
+	require.NotNil(t, resp)
+	require.Len(t, resp.Candidates, 1)
+
+	var parts []struct {
+		Text             string `json:"text"`
+		ThoughtSignature string `json:"thoughtSignature"`
+	}
+	require.NoError(t, json.Unmarshal(resp.Candidates[0].Content.Parts, &parts))
+	require.Len(t, parts, 2)
+	assert.Equal(t, "answer", parts[0].Text)
+	assert.Empty(t, parts[0].ThoughtSignature)
+	assert.Empty(t, parts[1].Text)
+	assert.Equal(t, "sigOnly", parts[1].ThoughtSignature)
+}
+
+func TestParseGeminiStream_FunctionCallSignaturePreserved(t *testing.T) {
+	// A function-call part carrying an outer thoughtSignature must retain it
+	// when the response is rebuilt.
+	stream := `data: {"candidates":[{"content":{"parts":[{"functionCall":{"name":"get_weather","args":{"location":"NYC"}},"thoughtSignature":"fcSig"}],"role":"model"},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":2,"candidatesTokenCount":2,"totalTokenCount":4},"modelVersion":"gemini-2.0-flash"}` + "\n\n"
+
+	resp, toolCalls := parseGeminiStream(strings.NewReader(stream))
+	require.NotNil(t, resp)
+	require.Len(t, toolCalls, 1)
+	require.Len(t, resp.Candidates, 1)
+
+	var parts []struct {
+		ThoughtSignature string `json:"thoughtSignature"`
+		FunctionCall     *struct {
+			Name string `json:"name"`
+		} `json:"functionCall"`
+	}
+	require.NoError(t, json.Unmarshal(resp.Candidates[0].Content.Parts, &parts))
+	require.Len(t, parts, 1)
+	require.NotNil(t, parts[0].FunctionCall)
+	assert.Equal(t, "get_weather", parts[0].FunctionCall.Name)
+	assert.Equal(t, "fcSig", parts[0].ThoughtSignature)
+}
+
+func TestParseGeminiStream_SafetyRatingsPreserved(t *testing.T) {
+	// safetyRatings present on a streamed candidate must be preserved in the
+	// rebuilt response, matching the non-streaming path.
+	stream := `data: {"candidates":[{"content":{"parts":[{"text":"hi"}],"role":"model"},"finishReason":"STOP","safetyRatings":[{"category":"HARM_CATEGORY_HATE_SPEECH","probability":"NEGLIGIBLE"}]}],"usageMetadata":{"promptTokenCount":1,"candidatesTokenCount":1,"totalTokenCount":2},"modelVersion":"gemini-2.0-flash"}` + "\n\n"
+
+	resp, _ := parseGeminiStream(strings.NewReader(stream))
+	require.NotNil(t, resp)
+	require.Len(t, resp.Candidates, 1)
+	require.NotNil(t, resp.Candidates[0].SafetyRatings)
+	assert.Contains(t, string(resp.Candidates[0].SafetyRatings), "HARM_CATEGORY_HATE_SPEECH")
 }

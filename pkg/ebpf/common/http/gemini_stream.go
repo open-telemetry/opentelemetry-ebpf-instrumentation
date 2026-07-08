@@ -25,9 +25,10 @@ type geminiStreamChunk struct {
 }
 
 type geminiStreamCandidate struct {
-	Index        int                  `json:"index"`
-	Content      *geminiStreamContent `json:"content"`
-	FinishReason string               `json:"finishReason"`
+	Index         int                  `json:"index"`
+	Content       *geminiStreamContent `json:"content"`
+	FinishReason  string               `json:"finishReason"`
+	SafetyRatings json.RawMessage      `json:"safetyRatings,omitempty"`
 }
 
 type geminiStreamContent struct {
@@ -35,20 +36,27 @@ type geminiStreamContent struct {
 	Role  string            `json:"role"`
 }
 
-type geminiTextPart struct {
-	Text             string `json:"text"`
-	Thought          bool   `json:"thought,omitempty"`
-	ThoughtSignature string `json:"thoughtSignature,omitempty"`
-}
-
-type geminiFunctionCallPart struct {
-	FunctionCall *geminiFunctionCallData `json:"functionCall"`
+// geminiStreamPart is a unified view of a single streamed content part. A part
+// is either a text part (optionally a thought summary, optionally carrying a
+// thoughtSignature) or a function-call part. The outer thoughtSignature applies
+// to whichever kind the part is.
+type geminiStreamPart struct {
+	Text             string                  `json:"text"`
+	Thought          bool                    `json:"thought"`
+	ThoughtSignature string                  `json:"thoughtSignature"`
+	FunctionCall     *geminiFunctionCallData `json:"functionCall"`
 }
 
 type geminiFunctionCallData struct {
-	Name         string          `json:"name"`
-	Args         json.RawMessage `json:"args,omitempty"`
-	PartialArgs  string          `json:"partialArgs,omitempty"`
+	Name string          `json:"name"`
+	Args json.RawMessage `json:"args,omitempty"`
+	// PartialArgs is intentionally a RawMessage because Vertex AI's
+	// streamFunctionCallArguments feature sends it as an array of
+	// {jsonPath, <typed value>} objects, while some observations use a plain
+	// string fragment. Decoding into a concrete type would fail on the array
+	// shape and drop the whole part, so we keep it raw and interpret it in
+	// addPartialArgs.
+	PartialArgs  json.RawMessage `json:"partialArgs,omitempty"`
 	WillContinue *bool           `json:"willContinue,omitempty"`
 }
 
@@ -63,16 +71,103 @@ type geminiStreamError struct {
 type candidatePart struct {
 	textBuilder *strings.Builder
 	thought     bool
-	fcRaw       json.RawMessage
+	// signature holds the part's thoughtSignature. Signed parts must remain
+	// distinct (Gemini requires signatures to stay on their exact parts and
+	// says signed parts must not be merged).
+	signature string
+	fcRaw     json.RawMessage
 }
 
 // fcAggregator accumulates streaming function call arguments for Vertex AI's
 // streamFunctionCallArguments feature where args arrive across multiple chunks.
 type fcAggregator struct {
-	name       string
-	argsAccum  strings.Builder
+	name      string
+	signature string
+	// argsAccum accumulates string-fragment style partial args (legacy shape).
+	argsAccum strings.Builder
+	// argsObj reconstructs args from Vertex AI's {jsonPath, value} partialArgs
+	// array elements.
+	argsObj    map[string]any
 	hasFullArg bool            // true if args came as a complete JSON object
 	fullArg    json.RawMessage // stored when args is a complete JSON object
+}
+
+// addPartialArgs interprets a raw partialArgs value, supporting both the
+// Vertex AI array-of-objects shape ([{jsonPath, <typed value>}, ...]) and the
+// plain string-fragment shape. Unknown shapes are ignored rather than fatal.
+func (fc *fcAggregator) addPartialArgs(raw json.RawMessage) {
+	trimmed := strings.TrimSpace(string(raw))
+	if trimmed == "" {
+		return
+	}
+	switch trimmed[0] {
+	case '"':
+		// String-fragment shape: concatenate the decoded fragment.
+		var frag string
+		if err := json.Unmarshal(raw, &frag); err == nil {
+			fc.argsAccum.WriteString(frag)
+		}
+	case '[':
+		// Vertex AI array shape: each element carries a jsonPath and a typed
+		// value. Reconstruct the args object from paths and values.
+		var elems []map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &elems); err != nil {
+			return
+		}
+		if fc.argsObj == nil {
+			fc.argsObj = map[string]any{}
+		}
+		for _, elem := range elems {
+			pathRaw, ok := elem["jsonPath"]
+			if !ok {
+				continue
+			}
+			var path string
+			if err := json.Unmarshal(pathRaw, &path); err != nil {
+				continue
+			}
+			// The value is carried in the first non-jsonPath field. This is
+			// robust to the exact typed-value key (stringValue, numberValue,
+			// value, ...) since we keep the raw JSON value verbatim.
+			var value any
+			for k, v := range elem {
+				if k == "jsonPath" {
+					continue
+				}
+				_ = json.Unmarshal(v, &value)
+				break
+			}
+			setByJSONPath(fc.argsObj, path, value)
+		}
+	}
+}
+
+// setByJSONPath assigns value at a simple dotted JSON path (e.g. "$.a.b") into
+// the target map, creating intermediate objects as needed. Array indices and
+// complex expressions are not supported and are skipped.
+func setByJSONPath(m map[string]any, path string, value any) {
+	path = strings.TrimPrefix(path, "$")
+	path = strings.TrimPrefix(path, ".")
+	if path == "" {
+		return
+	}
+	keys := strings.Split(path, ".")
+	cur := m
+	for i, k := range keys {
+		if k == "" {
+			return
+		}
+		if i == len(keys)-1 {
+			cur[k] = value
+			return
+		}
+		next, ok := cur[k].(map[string]any)
+		if !ok {
+			next = map[string]any{}
+			cur[k] = next
+		}
+		cur = next
+	}
 }
 
 // candidateAggregator accumulates streamed parts for a single candidate
@@ -80,6 +175,9 @@ type fcAggregator struct {
 type candidateAggregator struct {
 	parts        []candidatePart
 	finishReason string
+	// safetyRatings preserves the raw safetyRatings block from the stream,
+	// consistent with the non-streaming GeminiCandidate.SafetyRatings field.
+	safetyRatings json.RawMessage
 	// activeFC tracks a function call being built across multiple stream chunks
 	// (Vertex AI streamFunctionCallArguments).
 	activeFC *fcAggregator
@@ -103,29 +201,38 @@ func (ca *candidateAggregator) flushActiveFC() string {
 	switch {
 	case fc.hasFullArg:
 		// Complete args arrived as a JSON object.
-		raw = buildFunctionCallRaw(fc.name, fc.fullArg)
+		raw = buildFunctionCallRaw(fc.name, fc.fullArg, fc.signature)
+	case len(fc.argsObj) > 0:
+		// Args reconstructed from Vertex AI partialArgs array elements.
+		if b, err := json.Marshal(fc.argsObj); err == nil {
+			raw = buildFunctionCallRaw(fc.name, b, fc.signature)
+		} else {
+			raw = buildFunctionCallRaw(fc.name, nil, fc.signature)
+		}
 	case fc.argsAccum.Len() > 0:
 		// Partial args were accumulated as string fragments.
-		raw = buildFunctionCallRaw(fc.name, json.RawMessage(fc.argsAccum.String()))
+		raw = buildFunctionCallRaw(fc.name, json.RawMessage(fc.argsAccum.String()), fc.signature)
 	default:
 		// Name-only function call with no args.
-		raw = buildFunctionCallRaw(fc.name, nil)
+		raw = buildFunctionCallRaw(fc.name, nil, fc.signature)
 	}
 
 	ca.parts = append(ca.parts, candidatePart{fcRaw: raw})
 	return fc.name
 }
 
-// buildFunctionCallRaw constructs the raw JSON for a function call part.
-func buildFunctionCallRaw(name string, args json.RawMessage) json.RawMessage {
+// buildFunctionCallRaw constructs the raw JSON for a function call part,
+// preserving the outer thoughtSignature when present.
+func buildFunctionCallRaw(name string, args json.RawMessage, signature string) json.RawMessage {
 	type fcData struct {
 		Name string          `json:"name"`
 		Args json.RawMessage `json:"args,omitempty"`
 	}
 	type fcWrapper struct {
-		FunctionCall fcData `json:"functionCall"`
+		FunctionCall     fcData `json:"functionCall"`
+		ThoughtSignature string `json:"thoughtSignature,omitempty"`
 	}
-	w := fcWrapper{FunctionCall: fcData{Name: name, Args: args}}
+	w := fcWrapper{FunctionCall: fcData{Name: name, Args: args}, ThoughtSignature: signature}
 	raw, err := json.Marshal(w)
 	if err != nil {
 		return nil
@@ -205,24 +312,33 @@ func parseGeminiStream(reader io.Reader) (*request.GeminiResponse, []request.Too
 			if c.FinishReason != "" {
 				agg.finishReason = c.FinishReason
 			}
+			if len(c.SafetyRatings) > 0 {
+				agg.safetyRatings = c.SafetyRatings
+			}
 			if c.Content == nil {
 				continue
 			}
 
 			for _, rawPart := range c.Content.Parts {
-				var textPart geminiTextPart
-				if err := json.Unmarshal(rawPart, &textPart); err == nil && textPart.Text != "" {
+				var part geminiStreamPart
+				if err := json.Unmarshal(rawPart, &part); err != nil {
+					slog.Debug("parseGeminiStream: failed to parse part", "error", err)
+					continue
+				}
+
+				if part.FunctionCall != nil {
+					processFunctionCallPart(agg, part.FunctionCall, part.ThoughtSignature, &toolCalls)
+					continue
+				}
+
+				// Text part, including signature-only parts (empty text with a
+				// thoughtSignature) that must be preserved.
+				if part.Text != "" || part.ThoughtSignature != "" {
 					// Flush any active function call before appending text.
 					if name := agg.flushActiveFC(); name != "" {
 						toolCalls = append(toolCalls, request.ToolCall{Name: name})
 					}
-					appendTextPart(agg, textPart)
-					continue
-				}
-
-				var fcPart geminiFunctionCallPart
-				if err := json.Unmarshal(rawPart, &fcPart); err == nil && fcPart.FunctionCall != nil {
-					processFunctionCallPart(agg, fcPart.FunctionCall, &toolCalls)
+					appendTextPart(agg, part)
 				}
 			}
 		}
@@ -258,11 +374,15 @@ func parseGeminiStream(reader io.Reader) (*request.GeminiResponse, []request.Too
 
 // appendTextPart adds a text fragment to the candidate aggregator, coalescing
 // only with the previous part when both are text parts with equivalent metadata
-// (thought flag). Uses strings.Builder for efficient concatenation.
-func appendTextPart(agg *candidateAggregator, tp geminiTextPart) {
+// (thought flag) and neither carries a thoughtSignature. Signed parts stay
+// distinct. Uses strings.Builder for efficient concatenation.
+func appendTextPart(agg *candidateAggregator, tp geminiStreamPart) {
 	n := len(agg.parts)
-	// Coalesce with previous text part only if metadata (thought) matches.
-	if n > 0 && agg.parts[n-1].textBuilder != nil && agg.parts[n-1].thought == tp.Thought {
+	// Coalesce with the previous text part only when metadata matches and
+	// neither the previous nor the current part is signed.
+	if n > 0 && agg.parts[n-1].textBuilder != nil &&
+		agg.parts[n-1].thought == tp.Thought &&
+		agg.parts[n-1].signature == "" && tp.ThoughtSignature == "" {
 		agg.parts[n-1].textBuilder.WriteString(tp.Text)
 		return
 	}
@@ -271,13 +391,15 @@ func appendTextPart(agg *candidateAggregator, tp geminiTextPart) {
 	agg.parts = append(agg.parts, candidatePart{
 		textBuilder: b,
 		thought:     tp.Thought,
+		signature:   tp.ThoughtSignature,
 	})
 }
 
 // processFunctionCallPart handles a function call part, supporting both
 // complete single-chunk calls and Vertex AI's streaming function call
 // arguments where the name arrives first and args follow in subsequent chunks.
-func processFunctionCallPart(agg *candidateAggregator, fc *geminiFunctionCallData, toolCalls *[]request.ToolCall) {
+// signature is the part's outer thoughtSignature (if any).
+func processFunctionCallPart(agg *candidateAggregator, fc *geminiFunctionCallData, signature string, toolCalls *[]request.ToolCall) {
 	if fc.Name != "" {
 		// New named function call: flush any previous active FC.
 		if name := agg.flushActiveFC(); name != "" {
@@ -285,9 +407,10 @@ func processFunctionCallPart(agg *candidateAggregator, fc *geminiFunctionCallDat
 		}
 
 		// If the call has complete args and no continuation, store directly.
-		if len(fc.Args) > 0 && fc.PartialArgs == "" {
+		if len(fc.Args) > 0 && len(fc.PartialArgs) == 0 {
 			agg.activeFC = &fcAggregator{
 				name:       fc.Name,
+				signature:  signature,
 				hasFullArg: true,
 				fullArg:    fc.Args,
 			}
@@ -301,13 +424,11 @@ func processFunctionCallPart(agg *candidateAggregator, fc *geminiFunctionCallDat
 		}
 
 		// Start aggregation (name only, or name with partial args).
-		agg.activeFC = &fcAggregator{name: fc.Name}
-		if fc.PartialArgs != "" {
-			agg.activeFC.argsAccum.WriteString(fc.PartialArgs)
-		}
+		agg.activeFC = &fcAggregator{name: fc.Name, signature: signature}
+		agg.activeFC.addPartialArgs(fc.PartialArgs)
 
 		// If no continuation expected and no partial args, flush immediately.
-		if fc.WillContinue == nil && fc.PartialArgs == "" && len(fc.Args) == 0 {
+		if fc.WillContinue == nil && len(fc.PartialArgs) == 0 && len(fc.Args) == 0 {
 			if name := agg.flushActiveFC(); name != "" {
 				*toolCalls = append(*toolCalls, request.ToolCall{Name: name})
 			}
@@ -319,8 +440,8 @@ func processFunctionCallPart(agg *candidateAggregator, fc *geminiFunctionCallDat
 	if agg.activeFC == nil {
 		return
 	}
-	if fc.PartialArgs != "" {
-		agg.activeFC.argsAccum.WriteString(fc.PartialArgs)
+	if len(fc.PartialArgs) > 0 {
+		agg.activeFC.addPartialArgs(fc.PartialArgs)
 	} else if len(fc.Args) > 0 {
 		// Args as JSON in continuation.
 		agg.activeFC.argsAccum.Write(fc.Args)
@@ -391,7 +512,8 @@ func buildGeminiCandidates(aggs map[int]*candidateAggregator) []request.GeminiCa
 				Parts: parts,
 				Role:  "model",
 			},
-			FinishReason: agg.finishReason,
+			FinishReason:  agg.finishReason,
+			SafetyRatings: agg.safetyRatings,
 		}
 	}
 	return result
@@ -411,8 +533,10 @@ func buildGeminiStreamParts(parts []candidatePart) json.RawMessage {
 			rawParts = append(rawParts, p.fcRaw)
 			continue
 		}
-		if p.textBuilder != nil && p.textBuilder.Len() > 0 {
-			raw := marshalTextPart(p.textBuilder.String(), p.thought)
+		// Emit a text part when it has content or a signature to preserve
+		// (signature-only parts must not be dropped).
+		if p.textBuilder != nil && (p.textBuilder.Len() > 0 || p.signature != "") {
+			raw := marshalTextPart(p.textBuilder.String(), p.thought, p.signature)
 			if raw != nil {
 				rawParts = append(rawParts, raw)
 			}
@@ -430,23 +554,15 @@ func buildGeminiStreamParts(parts []candidatePart) json.RawMessage {
 	return raw
 }
 
-// marshalTextPart marshals a text part, including thought metadata if present.
-func marshalTextPart(text string, thought bool) json.RawMessage {
-	if thought {
-		type thoughtPartJSON struct {
-			Text    string `json:"text"`
-			Thought bool   `json:"thought"`
-		}
-		raw, err := json.Marshal(thoughtPartJSON{Text: text, Thought: true})
-		if err != nil {
-			return nil
-		}
-		return raw
-	}
+// marshalTextPart marshals a text part, including thought and thoughtSignature
+// metadata when present.
+func marshalTextPart(text string, thought bool, signature string) json.RawMessage {
 	type textPartJSON struct {
-		Text string `json:"text"`
+		Text             string `json:"text,omitempty"`
+		Thought          bool   `json:"thought,omitempty"`
+		ThoughtSignature string `json:"thoughtSignature,omitempty"`
 	}
-	raw, err := json.Marshal(textPartJSON{Text: text})
+	raw, err := json.Marshal(textPartJSON{Text: text, Thought: thought, ThoughtSignature: signature})
 	if err != nil {
 		return nil
 	}
