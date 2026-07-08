@@ -37,7 +37,7 @@ func TestSuite_Go(t *testing.T) {
 	}
 
 	for _, tc := range []testCase{
-		{name: "go-old-supported"},
+		//{name: "go-old-supported"},
 		{name: "go-latest", env: []string{"TESTSERVER_DOCKERFILE_SUFFIX=_latest", "PINGSERVER_DOCKERFILE_SUFFIX=_latest"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

@@ -150,12 +150,15 @@ func (pa *pollAccounter) run(ctx context.Context) {
 		log.Error("can't get system processes", "error", err)
 	} else {
 		var events []Event[ProcessAttrs]
+		pa.pidsMu.Lock()
 		for _, proc := range procs {
+			pa.pids[proc.pid] = &proc
 			events = append(events, Event[ProcessAttrs]{
 				Type: EventCreated,
 				Obj:  proc,
 			})
 		}
+		pa.pidsMu.Unlock()
 		pa.output.SendCtx(ctx, events)
 	}
 
