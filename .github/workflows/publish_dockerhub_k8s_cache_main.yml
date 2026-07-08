@@ -16,7 +16,7 @@ on:
         type: boolean
         default: false
       nightly_version:
-        description: "When set, publish nightly tags '<nightly_version>' and 'nightly' instead of release tags (e.g. 0.11.0-nightly.abc1234)"
+        description: "When set, publish nightly tags '<nightly_version>' and 'nightly' instead of release tags (e.g. nightly-20260708)"
         required: false
         type: string
         default: ""
@@ -89,6 +89,7 @@ jobs:
             type=raw,value=nightly,enable=${{ inputs.nightly_version != '' }}
             type=ref,event=branch
             type=ref,event=tag
+            type=sha,prefix=,format=short
 
       - name: Build and push by digest
         id: build
@@ -170,6 +171,7 @@ jobs:
             type=raw,value=nightly,enable=${{ inputs.nightly_version != '' }}
             type=ref,event=branch
             type=ref,event=tag
+            type=sha,prefix=,format=short
 
       - name: Create manifest list and push
         env:
