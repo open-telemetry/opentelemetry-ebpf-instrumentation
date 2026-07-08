@@ -638,7 +638,6 @@ type JavaConfig struct {
 }
 
 type JVMRuntimeMetricsConfig struct {
-	Enabled          bool          `yaml:"enabled" env:"OBI_JVM_RUNTIME_METRICS_ENABLED"`
 	SamplingInterval time.Duration `yaml:"sampling_interval" env:"OBI_JVM_RUNTIME_METRICS_SAMPLING_INTERVAL"`
 }
 
@@ -667,8 +666,8 @@ func (c *Config) Validate() error {
 		return ConfigError(err.Error())
 	}
 
-	if c.JVMRuntimeMetrics.Enabled && c.JVMRuntimeMetrics.SamplingInterval <= 0 {
-		return ConfigError("jvm_runtime_metrics.sampling_interval must be greater than 0 when jvm_runtime_metrics.enabled is true")
+	if c.JVMRuntimeMetrics.SamplingInterval <= 0 {
+		return ConfigError("jvm_runtime_metrics.sampling_interval must be greater than 0")
 	}
 
 	if err := c.Discovery.Validate(); err != nil {

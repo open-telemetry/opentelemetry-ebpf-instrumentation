@@ -23,6 +23,7 @@ import (
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/ebpf/ringbuf"
 	"go.opentelemetry.io/obi/pkg/ebpf/timing"
+	"go.opentelemetry.io/obi/pkg/export"
 	ebpfconvenience "go.opentelemetry.io/obi/pkg/internal/ebpf/convenience"
 	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
@@ -76,7 +77,7 @@ func TestParseJVMGCHeapSummaryRecordDecoratesServiceByPID(t *testing.T) {
 	assert.Equal(t, app.PID(1234), event.PID)
 	assert.Equal(t, service, event.Service)
 	assert.NotEqual(t, time.Unix(0, 100), event.Time)
-	assert.Equal(t, jvmruntime.JVMMetricObiHeapUsed, event.Kind)
+	assert.Equal(t, jvmruntime.JVMMetricMemoryUsed, event.Kind)
 	assert.Equal(t, jvmruntime.JVMGCPhaseAfter, event.GCPhase)
 	assert.Equal(t, uint64(2048), event.ValueBytes)
 }
@@ -233,7 +234,7 @@ func TestProcessSharedRingbufRecordDispatchesJVMGCHeapSummaryRecord(t *testing.T
 		},
 		eventCtx: &ebpfcommon.EBPFEventContext{RuntimeMetrics: runtimemetrics.NewQueueSender(runtimeMetrics)},
 	}
-	tracer.cfg.JVMRuntimeMetrics.Enabled = true
+	tracer.cfg.Metrics.Features = export.FeatureApplicationRuntime
 
 	span, ignore, err := tracer.processSharedRingbufRecord(context.Background(), nil, &tracer.cfg.EBPF, &ringbuf.Record{
 		RawSample: rawHeapSummaryPayload(t, BpfJvmGcHeapSummaryEvent{
@@ -254,7 +255,7 @@ func TestProcessSharedRingbufRecordDispatchesJVMGCHeapSummaryRecord(t *testing.T
 	require.Len(t, batch, 1)
 	assert.Equal(t, service, batch[0].Service)
 	require.NotNil(t, batch[0].JVM)
-	assert.Equal(t, jvmruntime.JVMMetricObiHeapUsed, batch[0].JVM.Kind)
+	assert.Equal(t, jvmruntime.JVMMetricMemoryUsed, batch[0].JVM.Kind)
 	assert.Equal(t, uint64(2048), batch[0].JVM.ValueBytes)
 }
 
@@ -268,7 +269,9 @@ func TestProcessSharedRingbufRecordConsumesJVMRuntimeMetricRecordsWithoutForward
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			tracer := &Tracer{cfg: &obi.Config{}}
-			tracer.cfg.JVMRuntimeMetrics.Enabled = tt.enabled
+			if tt.enabled {
+				tracer.cfg.Metrics.Features = export.FeatureApplicationRuntime
+			}
 
 			span, ignore, err := tracer.processSharedRingbufRecord(context.Background(), nil, &tracer.cfg.EBPF, &ringbuf.Record{
 				RawSample: []byte{ebpfcommon.EventTypeJVMGCHeapSummary},
@@ -294,7 +297,7 @@ func TestProcessSharedRingbufRecordDispatchesJVMMemoryPoolRecord(t *testing.T) {
 		},
 		eventCtx: &ebpfcommon.EBPFEventContext{RuntimeMetrics: runtimemetrics.NewQueueSender(runtimeMetrics)},
 	}
-	tracer.cfg.JVMRuntimeMetrics.Enabled = true
+	tracer.cfg.Metrics.Features = export.FeatureApplicationRuntime
 
 	span, ignore, err := tracer.processSharedRingbufRecord(context.Background(), nil, &tracer.cfg.EBPF, &ringbuf.Record{
 		RawSample: rawMemoryPoolPayload(t, BpfJvmMemPoolGcEvent{
@@ -349,7 +352,7 @@ func TestJVMRuntimeMetricsExposeHotSpotUSDTProbes(t *testing.T) {
 	tracer := Tracer{cfg: &obi.Config{}}
 	assert.Empty(t, tracer.USDTProbes())
 
-	tracer.cfg.JVMRuntimeMetrics.Enabled = true
+	tracer.cfg.Metrics.Features = export.FeatureApplicationRuntime
 	probes := tracer.USDTProbes()
 
 	require.Contains(t, probes, "libjvm.so")
@@ -360,7 +363,7 @@ func TestJVMRuntimeMetricsExposeHotSpotUSDTProbes(t *testing.T) {
 	assert.Equal(t, "mem__pool__gc__end", probes["libjvm.so"][1].Name)
 }
 
-func TestJVMRuntimeMetricsConstantOverridesUseSamplingIntervalAsFeatureGate(t *testing.T) {
+func TestJVMRuntimeMetricsConstantOverridesUseApplicationRuntimeAsFeatureGate(t *testing.T) {
 	for _, tt := range []struct {
 		name             string
 		enabled          bool
@@ -372,7 +375,9 @@ func TestJVMRuntimeMetricsConstantOverridesUseSamplingIntervalAsFeatureGate(t *t
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			tracer := Tracer{cfg: &obi.Config{}}
-			tracer.cfg.JVMRuntimeMetrics.Enabled = tt.enabled
+			if tt.enabled {
+				tracer.cfg.Metrics.Features = export.FeatureApplicationRuntime
+			}
 			tracer.cfg.JVMRuntimeMetrics.SamplingInterval = tt.samplingInterval
 
 			overrides := tracer.constants()

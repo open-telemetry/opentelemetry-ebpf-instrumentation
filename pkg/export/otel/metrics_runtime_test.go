@@ -24,7 +24,7 @@ func TestRuntimeMetricsReporterShouldReportSnapshot(t *testing.T) {
 	blockMetrics := services.NewExportModes()
 
 	reporter := &RuntimeMetricsReporter{
-		runtimeEnabled: runtimemetrics.Enabled{Go: true, JVM: true},
+		runtimeEnabled: runtimemetrics.Enabled{Runtime: true},
 	}
 
 	require.True(t, reporter.shouldReportSnapshot(runtimemetrics.RuntimeMetricSnapshot{
@@ -33,13 +33,13 @@ func TestRuntimeMetricsReporterShouldReportSnapshot(t *testing.T) {
 	}))
 	require.True(t, reporter.shouldReportSnapshot(runtimemetrics.RuntimeMetricSnapshot{
 		Service: svc.Attrs{
-			Features:    export.FeatureApplicationJVM,
+			Features:    export.FeatureApplicationRuntime,
 			ExportModes: exportMetrics,
 		},
-		JVM: &runtimemetrics.JVMRuntimeMetricSnapshot{Kind: jvmruntime.JVMMetricObiHeapUsed},
+		JVM: &runtimemetrics.JVMRuntimeMetricSnapshot{Kind: jvmruntime.JVMMetricMemoryUsed},
 	}))
 
-	assert.False(t, (&RuntimeMetricsReporter{runtimeEnabled: runtimemetrics.Enabled{Go: false}}).shouldReportSnapshot(runtimemetrics.RuntimeMetricSnapshot{
+	assert.False(t, (&RuntimeMetricsReporter{runtimeEnabled: runtimemetrics.Enabled{Runtime: false}}).shouldReportSnapshot(runtimemetrics.RuntimeMetricSnapshot{
 		Service: svc.Attrs{SDKLanguage: svc.InstrumentableGolang},
 		Go:      &runtimemetrics.GoRuntimeMetricSnapshot{},
 	}))
@@ -47,14 +47,7 @@ func TestRuntimeMetricsReporterShouldReportSnapshot(t *testing.T) {
 		Service: svc.Attrs{SDKLanguage: svc.InstrumentableJava},
 		Go:      &runtimemetrics.GoRuntimeMetricSnapshot{},
 	}))
-	assert.False(t, (&RuntimeMetricsReporter{runtimeEnabled: runtimemetrics.Enabled{JVM: false}}).shouldReportSnapshot(runtimemetrics.RuntimeMetricSnapshot{
-		Service: svc.Attrs{
-			Features:    export.FeatureApplicationJVM,
-			ExportModes: exportMetrics,
-		},
-		JVM: &runtimemetrics.JVMRuntimeMetricSnapshot{},
-	}))
-	assert.False(t, reporter.shouldReportSnapshot(runtimemetrics.RuntimeMetricSnapshot{
+	assert.False(t, (&RuntimeMetricsReporter{runtimeEnabled: runtimemetrics.Enabled{Runtime: false}}).shouldReportSnapshot(runtimemetrics.RuntimeMetricSnapshot{
 		Service: svc.Attrs{
 			Features:    export.FeatureApplicationRuntime,
 			ExportModes: exportMetrics,
@@ -63,7 +56,14 @@ func TestRuntimeMetricsReporterShouldReportSnapshot(t *testing.T) {
 	}))
 	assert.False(t, reporter.shouldReportSnapshot(runtimemetrics.RuntimeMetricSnapshot{
 		Service: svc.Attrs{
-			Features:    export.FeatureApplicationJVM,
+			Features:    export.FeatureApplicationRED,
+			ExportModes: exportMetrics,
+		},
+		JVM: &runtimemetrics.JVMRuntimeMetricSnapshot{},
+	}))
+	assert.False(t, reporter.shouldReportSnapshot(runtimemetrics.RuntimeMetricSnapshot{
+		Service: svc.Attrs{
+			Features:    export.FeatureApplicationRuntime,
 			ExportModes: blockMetrics,
 		},
 		JVM: &runtimemetrics.JVMRuntimeMetricSnapshot{},
@@ -71,20 +71,20 @@ func TestRuntimeMetricsReporterShouldReportSnapshot(t *testing.T) {
 	assert.False(t, reporter.shouldReportSnapshot(runtimemetrics.RuntimeMetricSnapshot{}))
 }
 
-func TestSetupRuntimeMetersRespectsEnabledSections(t *testing.T) {
+func TestSetupRuntimeMetersUsesSharedRuntimeGate(t *testing.T) {
 	provider := metric.NewMeterProvider()
 	defer func() {
 		require.NoError(t, provider.Shutdown(t.Context()))
 	}()
 	meter := provider.Meter(reporterName)
 
-	goOnly := RuntimeMetrics{ctx: t.Context()}
-	require.NoError(t, setupRuntimeMeters(&goOnly, meter, time.Minute, runtimemetrics.Enabled{Go: true}))
-	assert.NotNil(t, goOnly.goMetrics.memoryLimit)
-	assert.Nil(t, goOnly.jvmMetrics.memoryUsed)
+	disabled := RuntimeMetrics{ctx: t.Context()}
+	require.NoError(t, setupRuntimeMeters(&disabled, meter, time.Minute, runtimemetrics.Enabled{}))
+	assert.Nil(t, disabled.goMetrics.memoryLimit)
+	assert.Nil(t, disabled.jvmMetrics.memoryUsed)
 
-	jvmOnly := RuntimeMetrics{ctx: t.Context()}
-	require.NoError(t, setupRuntimeMeters(&jvmOnly, meter, time.Minute, runtimemetrics.Enabled{JVM: true}))
-	assert.Nil(t, jvmOnly.goMetrics.memoryLimit)
-	assert.NotNil(t, jvmOnly.jvmMetrics.memoryUsed)
+	enabled := RuntimeMetrics{ctx: t.Context()}
+	require.NoError(t, setupRuntimeMeters(&enabled, meter, time.Minute, runtimemetrics.Enabled{Runtime: true}))
+	assert.NotNil(t, enabled.goMetrics.memoryLimit)
+	assert.NotNil(t, enabled.jvmMetrics.memoryUsed)
 }

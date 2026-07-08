@@ -41,7 +41,7 @@ func TestRuntimeMetricsReporterRecordsJVMHeapSummary(t *testing.T) {
 		ctx,
 		&global.ContextInfo{OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: cfg}},
 		cfg,
-		&perapp.MetricsConfig{Features: export.FeatureApplicationJVM},
+		&perapp.MetricsConfig{Features: export.FeatureApplicationRuntime},
 		&attributes.SelectorConfig{},
 		msg.NewQueue[[]runtimemetrics.RuntimeMetricSnapshot](msg.ChannelBufferLen(1)),
 	)
@@ -51,21 +51,25 @@ func TestRuntimeMetricsReporterRecordsJVMHeapSummary(t *testing.T) {
 	reporter.reportRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{{
 		Service: svc.Attrs{
 			UID:      svc.UID{Name: "orders", Namespace: "prod", Instance: "orders-1"},
-			Features: export.FeatureApplicationJVM,
+			Features: export.FeatureApplicationRuntime,
 		},
 		JVM: &runtimemetrics.JVMRuntimeMetricSnapshot{
-			Kind:       jvmruntime.JVMMetricObiHeapUsed,
+			Kind:       jvmruntime.JVMMetricMemoryUsed,
+			MemoryType: jvmruntime.JVMMemoryTypeHeap,
 			GCPhase:    jvmruntime.JVMGCPhaseAfter,
 			ValueBytes: 42,
 		},
 	}})
 
-	record := readJVMMetricRecord(t, records, "obi.jvm.heap.used")
+	record := readJVMMetricRecord(t, records, "jvm.memory.used")
+	assert.Equal(t, pmetric.MetricTypeSum, record.Type)
+	assert.False(t, record.IsMonotonic)
 	assert.Equal(t, int64(42), record.Value)
 	assert.Equal(t, "orders", record.ResourceAttrs["service.name"])
 	assert.Equal(t, "prod", record.ResourceAttrs["service.namespace"])
 	assert.Equal(t, "orders-1", record.ResourceAttrs["service.instance.id"])
-	assert.Equal(t, "after", record.Attrs["jvm.gc.phase"])
+	assert.Equal(t, "heap", record.Attrs["jvm.memory.type"])
+	assert.Empty(t, record.Attrs["jvm.memory.pool.name"])
 }
 
 func TestRuntimeMetricsReporterRecordsJVMMemoryAsUpDownCounter(t *testing.T) {
@@ -83,7 +87,7 @@ func TestRuntimeMetricsReporterRecordsJVMMemoryAsUpDownCounter(t *testing.T) {
 		ctx,
 		&global.ContextInfo{OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: cfg}},
 		cfg,
-		&perapp.MetricsConfig{Features: export.FeatureApplicationJVM},
+		&perapp.MetricsConfig{Features: export.FeatureApplicationRuntime},
 		&attributes.SelectorConfig{},
 		msg.NewQueue[[]runtimemetrics.RuntimeMetricSnapshot](msg.ChannelBufferLen(1)),
 	)
@@ -93,7 +97,7 @@ func TestRuntimeMetricsReporterRecordsJVMMemoryAsUpDownCounter(t *testing.T) {
 	reporter.reportRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{{
 		Service: svc.Attrs{
 			UID:      svc.UID{Name: "orders", Namespace: "prod", Instance: "orders-1"},
-			Features: export.FeatureApplicationJVM,
+			Features: export.FeatureApplicationRuntime,
 		},
 		JVM: &runtimemetrics.JVMRuntimeMetricSnapshot{
 			Kind:       jvmruntime.JVMMetricMemoryUsed,

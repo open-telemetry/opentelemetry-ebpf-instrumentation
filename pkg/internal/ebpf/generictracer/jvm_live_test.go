@@ -160,7 +160,7 @@ func startJVMRuntimeEventTracer(
 	cfg := obi.DefaultConfig
 	cfg.LogLevel = obi.LogLevelDebug
 	cfg.EBPF.BpfDebug = true
-	cfg.JVMRuntimeMetrics.Enabled = true
+	cfg.Metrics.Features = export.FeatureApplicationRuntime
 	cfg.JVMRuntimeMetrics.SamplingInterval = 10 * time.Millisecond
 
 	pidsFilter := ebpfcommon.NewPIDsFilter(&cfg.Discovery, slog.With("component", "jvm-live-pids"), imetrics.NoopReporter{})
@@ -236,7 +236,7 @@ func javaProcessFileInfo(t *testing.T, pid app.PID) *discexec.FileInfo {
 		Service: svc.Attrs{
 			UID:         svc.UID{Name: jvmLiveServiceName, Namespace: jvmLiveServiceNamespace},
 			SDKLanguage: svc.InstrumentableJava,
-			Features:    export.FeatureApplicationJVM,
+			Features:    export.FeatureApplicationRuntime,
 		},
 		CmdExePath:     cmdExePath,
 		ProExeLinkPath: procExeLinkPath,
@@ -276,9 +276,9 @@ func waitForJVMRuntimeEvents(
 				assert.NotZero(t, snapshot.PID)
 				assert.NotZero(t, snapshot.Time)
 
-				if snapshot.JVM.Kind == jvmruntime.JVMMetricObiHeapUsed {
+				if snapshot.JVM.Kind == jvmruntime.JVMMetricMemoryUsed && snapshot.JVM.PoolName == "" {
 					seenHeap = true
-					assert.NotEmpty(t, snapshot.JVM.GCPhase)
+					assert.Equal(t, jvmruntime.JVMMemoryTypeHeap, snapshot.JVM.MemoryType)
 					assert.Positive(t, snapshot.JVM.ValueBytes)
 				}
 				if strings.HasPrefix(string(snapshot.JVM.Kind), "jvm.memory.") && snapshot.JVM.PoolName != "" {

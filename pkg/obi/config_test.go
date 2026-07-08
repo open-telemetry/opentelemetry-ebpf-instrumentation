@@ -406,30 +406,25 @@ func TestConfig_JVMRuntimeMetricsDefaults(t *testing.T) {
 	cfg, err := LoadConfig(nil)
 	require.NoError(t, err)
 
-	assert.False(t, cfg.JVMRuntimeMetrics.Enabled)
 	assert.Equal(t, time.Second, cfg.JVMRuntimeMetrics.SamplingInterval)
 }
 
 func TestConfig_JVMRuntimeMetricsFromEnv(t *testing.T) {
-	t.Setenv("OBI_JVM_RUNTIME_METRICS_ENABLED", "true")
 	t.Setenv("OBI_JVM_RUNTIME_METRICS_SAMPLING_INTERVAL", "250ms")
 
 	cfg, err := LoadConfig(nil)
 	require.NoError(t, err)
 
-	assert.True(t, cfg.JVMRuntimeMetrics.Enabled)
 	assert.Equal(t, 250*time.Millisecond, cfg.JVMRuntimeMetrics.SamplingInterval)
 }
 
 func TestConfig_JVMRuntimeMetricsFromYAML(t *testing.T) {
 	cfg, err := LoadConfig(bytes.NewBufferString(`
 jvm_runtime_metrics:
-  enabled: true
   sampling_interval: 2s
 `))
 	require.NoError(t, err)
 
-	assert.True(t, cfg.JVMRuntimeMetrics.Enabled)
 	assert.Equal(t, 2*time.Second, cfg.JVMRuntimeMetrics.SamplingInterval)
 }
 
@@ -438,7 +433,6 @@ func TestConfigValidate_JVMRuntimeMetricsSamplingInterval(t *testing.T) {
 trace_printer: text
 executable_path: java
 jvm_runtime_metrics:
-  enabled: true
   sampling_interval: 0s
 `))
 	require.NoError(t, err)
@@ -1057,7 +1051,6 @@ func loadConfig(t *testing.T, env envMap) *Config {
 		"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT": "",
 		"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT":  "",
 		"OTEL_EBPF_PROMETHEUS_PORT":           "0",
-		"OBI_JVM_RUNTIME_METRICS_ENABLED":     "false",
 	}
 	for k, v := range env {
 		isolatedEnv[k] = v

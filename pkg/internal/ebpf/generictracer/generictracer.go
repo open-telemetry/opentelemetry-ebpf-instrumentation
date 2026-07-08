@@ -229,7 +229,7 @@ func (p *Tracer) constants() map[string]any {
 	m["g_bpf_debug"] = p.cfg.EBPF.BpfDebug
 	m["g_bpf_traceparent_enabled"] = p.cfg.EBPF.TrackRequestHeaders || p.cfg.EBPF.ContextPropagation.IsEnabled()
 	m["jvm_sampling_interval_ns"] = uint64(0)
-	if p.cfg.JVMRuntimeMetrics.Enabled {
+	if p.jvmRuntimeMetricsEnabled() {
 		m["jvm_sampling_interval_ns"] = uint64(p.cfg.JVMRuntimeMetrics.SamplingInterval.Nanoseconds())
 	}
 
@@ -482,7 +482,7 @@ func (p *Tracer) UProbes() map[string]map[string][]*ebpfcommon.ProbeDesc {
 			}},
 		},
 	}
-	if p.cfg.JVMRuntimeMetrics.Enabled {
+	if p.jvmRuntimeMetricsEnabled() {
 		m["libjvm.so"] = map[string][]*ebpfcommon.ProbeDesc{
 			"report_gc_heap_summary": {{
 				Required:      false,
@@ -495,7 +495,7 @@ func (p *Tracer) UProbes() map[string]map[string][]*ebpfcommon.ProbeDesc {
 }
 
 func (p *Tracer) USDTProbes() map[string][]*ebpfcommon.USDTProbeDesc {
-	if p.cfg == nil || !p.cfg.JVMRuntimeMetrics.Enabled {
+	if !p.jvmRuntimeMetricsEnabled() {
 		return nil
 	}
 	return map[string][]*ebpfcommon.USDTProbeDesc{
@@ -642,7 +642,7 @@ func (p *Tracer) Run(
 	p.log.Info("Launching p.Tracer")
 
 	cfg := &p.cfg.EBPF
-	if p.cfg.JVMRuntimeMetrics.Enabled {
+	if p.jvmRuntimeMetricsEnabled() {
 		if p.runtimeMetricsSender() == nil {
 			p.log.Warn("JVM runtime metrics enabled without runtime metrics queue")
 		} else {
@@ -661,6 +661,10 @@ func (p *Tracer) Run(
 		p.log,
 		p.metrics,
 	)(ctx, append(p.closers, &p.bpfObjects), eventsChan)
+}
+
+func (p *Tracer) jvmRuntimeMetricsEnabled() bool {
+	return p.cfg != nil && p.cfg.Metrics.Features.AppRuntime()
 }
 
 func (p *Tracer) processSharedRingbufRecord(

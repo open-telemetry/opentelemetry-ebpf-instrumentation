@@ -118,7 +118,8 @@ func TestParseJVMGCHeapSummaryEventMapsAggregateHeapUsed(t *testing.T) {
 		PID:            app.PID(1),
 		PIDNamespaceID: 42,
 		Time:           eventTime(900),
-		Kind:           JVMMetricObiHeapUsed,
+		Kind:           JVMMetricMemoryUsed,
+		MemoryType:     JVMMemoryTypeHeap,
 		GCPhase:        JVMGCPhaseAfter,
 		ValueBytes:     700,
 	}, event)

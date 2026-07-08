@@ -13,11 +13,10 @@ import (
 )
 
 func TestEnabledFeaturesGroupsRuntimeMetrics(t *testing.T) {
-	enabled := EnabledFeatures(export.FeatureApplicationRuntime | export.FeatureApplicationJVM)
+	enabled := EnabledFeatures(export.FeatureApplicationRuntime)
 
 	require.True(t, enabled.Any())
-	require.True(t, enabled.Go)
-	require.True(t, enabled.JVM)
+	require.True(t, enabled.Runtime)
 }
 
 func TestEnabledShouldReportGoRuntimeMetrics(t *testing.T) {
@@ -26,24 +25,24 @@ func TestEnabledShouldReportGoRuntimeMetrics(t *testing.T) {
 		Go:      &GoRuntimeMetricSnapshot{},
 	}
 
-	require.True(t, Enabled{Go: true}.ShouldReport(snapshot))
-	require.False(t, Enabled{Go: false}.ShouldReport(snapshot))
+	require.True(t, Enabled{Runtime: true}.ShouldReport(snapshot))
+	require.False(t, Enabled{Runtime: false}.ShouldReport(snapshot))
 
 	snapshot.Service.SDKLanguage = svc.InstrumentableJava
-	require.False(t, Enabled{Go: true}.ShouldReport(snapshot))
+	require.False(t, Enabled{Runtime: true}.ShouldReport(snapshot))
 }
 
 func TestEnabledShouldReportJVMRuntimeMetrics(t *testing.T) {
 	snapshot := RuntimeMetricSnapshot{
 		Service: svc.Attrs{
-			Features: export.FeatureApplicationJVM,
+			Features: export.FeatureApplicationRuntime,
 		},
 		JVM: &JVMRuntimeMetricSnapshot{},
 	}
 
-	require.True(t, Enabled{JVM: true}.ShouldReport(snapshot))
-	require.False(t, Enabled{JVM: false}.ShouldReport(snapshot))
+	require.True(t, Enabled{Runtime: true}.ShouldReport(snapshot))
+	require.False(t, Enabled{Runtime: false}.ShouldReport(snapshot))
 
-	snapshot.Service.Features = export.FeatureApplicationRuntime
-	require.False(t, Enabled{JVM: true}.ShouldReport(snapshot))
+	snapshot.Service.Features = export.FeatureApplicationRED
+	require.False(t, Enabled{Runtime: true}.ShouldReport(snapshot))
 }
