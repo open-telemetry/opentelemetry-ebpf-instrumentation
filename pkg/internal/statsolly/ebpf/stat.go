@@ -16,8 +16,8 @@ const (
 	StatTypeTCPFailedConnection
 	StatTypeTCPRetransmit
 	StatTypeTCPIo
-	_ // 5 reserved
-	_ // 6 reserved
+	_ // 5 reserved for TCPZeroWindow (see #2453)
+	_ // 6 reserved for TCPOoo (see #2453)
 	StatTypeTCPConnectionSummary
 )
 
