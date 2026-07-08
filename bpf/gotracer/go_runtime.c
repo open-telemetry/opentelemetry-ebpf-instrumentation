@@ -565,7 +565,8 @@ static __always_inline int channel_recv_return(struct pt_regs *ctx) {
     bool consumed_buffered_sender = false;
     const bool recvx_read = read_channel_recvx((void *)invocation->chan_ptr, &recvx);
     const bool recvx_changed = recvx_read && recvx != invocation->recvx;
-    if (recvx_changed) {
+    const bool single_slot_buffered_receive = dataqsiz == 1 && !invocation->direct_handoff;
+    if (recvx_changed || single_slot_buffered_receive) {
         const u64 slot = previous_channel_slot(recvx, dataqsiz);
         if (invocation->has_handoff) {
             consumed_buffered_sender =
