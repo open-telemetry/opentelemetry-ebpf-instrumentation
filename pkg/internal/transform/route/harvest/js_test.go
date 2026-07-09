@@ -1688,3 +1688,69 @@ func TestExtractNodejsRoutes_CompiledDistOnly(t *testing.T) {
 		})
 	}
 }
+
+func TestExtractNestJSVersionedApp(t *testing.T) {
+	extractor := NewRouteExtractor()
+	appDir := filepath.Join("nodejs", "test_files_nest_versioned")
+	require.NoError(t, extractor.ScanDirectory(appDir))
+
+	// setGlobalPrefix('api') and URI versioning with defaultVersion '1' apply to
+	// every Nest route; @Controller({version: '2'}) overrides the default and
+	// @Version('3') overrides the controller.
+	assert.ElementsMatch(t, []string{
+		"/api/v2/catalog/featured",
+		"/api/v2/catalog/:sku",
+		"/api/v3/catalog/preview",
+		"/api/v1/ledger/summary",
+		"/api/v1/books/summary",
+		"/api/v1/ledger",
+		"/api/v1/books",
+	}, extractor.GetHarvestedRoutes())
+}
+
+func TestCompiledNestJSVersionedFragments(t *testing.T) {
+	extractor := NewCompiledRouteExtractor()
+	appDir := filepath.Join("nodejs", "test_files_dist_versioned")
+	require.NoError(t, extractor.ScanDirectory(appDir))
+
+	// In compiled mode, association is lost: global prefix, versions, and
+	// controller paths all become standalone fragments.
+	assert.ElementsMatch(t, []string{
+		"/edge",
+		"/catalog",
+		"/v2",
+		"/v3",
+		"/featured",
+		"/preview",
+	}, extractor.GetHarvestedRoutes())
+}
+
+func TestExtractNodejsRoutes_CompiledVersionedDist(t *testing.T) {
+	origRootDir := rootDirForPID
+	origCmdline := cmdlineForPID
+	origCwd := cwdForPID
+	defer func() {
+		rootDirForPID = origRootDir
+		cmdlineForPID = origCmdline
+		cwdForPID = origCwd
+	}()
+
+	distApp, err := filepath.Abs(filepath.Join("nodejs", "test_files_dist_versioned"))
+	require.NoError(t, err)
+
+	rootDirForPID = func(_ app.PID) string { return distApp }
+	cmdlineForPID = func(_ app.PID) (string, []string, error) {
+		return "node", []string{"node", "dist/main.js"}, nil
+	}
+	cwdForPID = func(_ app.PID) (string, error) { return "/", nil }
+
+	result, err := ExtractNodejsRoutes(4243)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, PartialRoutes, result.Kind)
+
+	matcher := RouteMatcherFromResult(*result)
+	require.NotNil(t, matcher)
+	assert.Equal(t, "/edge/v2/catalog/featured", matcher.Find("/edge/v2/catalog/featured"))
+	assert.Equal(t, "/edge/v3/catalog/preview", matcher.Find("/edge/v3/catalog/preview"))
+}

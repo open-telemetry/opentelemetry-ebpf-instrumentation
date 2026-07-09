@@ -68,6 +68,13 @@ type RoutePattern struct {
 	File    string
 	Line    int
 	Handler string
+
+	// Nest marks routes declared through NestJS decorators; the app-level
+	// global prefix and URI version apply to them at harvest time.
+	Nest bool
+	// Version is the NestJS URI version of the route ('2' in /v2/...): from
+	// @Version() on the method, or the version of its @Controller().
+	Version string
 }
 
 // FrameworkPatterns holds regex patterns for different Node.js frameworks
@@ -89,10 +96,32 @@ type FrameworkPatterns struct {
 	NestJS *regexp.Regexp
 	// NestJS controller decorator: @Controller('prefix'), @Controller()
 	NestJSController *regexp.Regexp
+	// NestJS controller decorator, object form: @Controller({ path: 'x', version: '1' })
+	NestJSControllerObject *regexp.Regexp
+	// NestJS controller decorator, array form: @Controller(['x', 'y'])
+	NestJSControllerArray *regexp.Regexp
+	// NestJS version decorator: @Version('1'), @Version(['1', '2'])
+	NestJSVersion *regexp.Regexp
 	// NestJS decorators in compiled output: (0, common_1.Get)('store')
 	CompiledNestMethod *regexp.Regexp
 	// NestJS controller decorator in compiled output: (0, common_1.Controller)('invoice')
 	CompiledNestController *regexp.Regexp
+	// Compiled controller decorator, object/array forms
+	CompiledNestControllerObject *regexp.Regexp
+	CompiledNestControllerArray  *regexp.Regexp
+	// Compiled version decorator: (0, common_1.Version)('2')
+	CompiledNestVersion *regexp.Regexp
+	// NestJS global prefix: app.setGlobalPrefix('api')
+	SetGlobalPrefix *regexp.Regexp
+	// defaultVersion option of app.enableVersioning()
+	DefaultVersion *regexp.Regexp
+
+	// 'path'/'version' values inside a @Controller() object argument; the value
+	// may be a single quoted string or an array of them
+	ObjectPathValue    *regexp.Regexp
+	ObjectVersionValue *regexp.Regexp
+	// a single quoted string; applied with FindAll to collect list values
+	QuotedString *regexp.Regexp
 	// HTTPDispatcher: dispatcher.onGet('/path', ...), dispatcher.onPost(/^\/ratings\/[0-9]*/, ...)
 	HTTPDispatcher *regexp.Regexp
 	// Fallback
@@ -141,6 +170,15 @@ func newFrameworkPatterns() *FrameworkPatterns {
 		// Matches: @Controller('users'), @Controller("api/v1/posts"), @Controller()
 		NestJSController: regexp.MustCompile(`@Controller\s*\(\s*(?:['"\x60]([^'"\x60]*)['"\x60])?\s*\)`),
 
+		// Matches: @Controller({ path: 'catalog', version: '2' })
+		NestJSControllerObject: regexp.MustCompile(`@Controller\s*\(\s*\{([^}]*)\}`),
+
+		// Matches: @Controller(['ledger', 'books'])
+		NestJSControllerArray: regexp.MustCompile(`@Controller\s*\(\s*\[([^\]]*)\]`),
+
+		// Matches: @Version('3'), @Version(['1', '2']), @Version(VERSION_NEUTRAL)
+		NestJSVersion: regexp.MustCompile(`@Version\s*\(([^)]*)\)`),
+
 		// TypeScript compilers lower decorators to helper calls referencing the
 		// decorator factory through the imported module object:
 		//   (0, common_1.Get)('store')   tsc
@@ -149,8 +187,21 @@ func newFrameworkPatterns() *FrameworkPatterns {
 		// The class association ("which @Controller() prefixes this @Get()?") is
 		// scattered across __decorate() blocks, so compiled matches are harvested
 		// as route fragments and matched partially instead of joined.
-		CompiledNestMethod:     regexp.MustCompile(`[\w$]+\.(Get|Post|Put|Patch|Delete|Options|Head|All)\)?\s*\(\s*(?:['"\x60]([^'"\x60]*)['"\x60]\s*)?\)`),
-		CompiledNestController: regexp.MustCompile(`[\w$]+\.Controller\)?\s*\(\s*(?:['"\x60]([^'"\x60]*)['"\x60]\s*)?\)`),
+		CompiledNestMethod:           regexp.MustCompile(`[\w$]+\.(Get|Post|Put|Patch|Delete|Options|Head|All)\)?\s*\(\s*(?:['"\x60]([^'"\x60]*)['"\x60]\s*)?\)`),
+		CompiledNestController:       regexp.MustCompile(`[\w$]+\.Controller\)?\s*\(\s*(?:['"\x60]([^'"\x60]*)['"\x60]\s*)?\)`),
+		CompiledNestControllerObject: regexp.MustCompile(`[\w$]+\.Controller\)?\s*\(\s*\{([^}]*)\}`),
+		CompiledNestControllerArray:  regexp.MustCompile(`[\w$]+\.Controller\)?\s*\(\s*\[([^\]]*)\]`),
+		CompiledNestVersion:          regexp.MustCompile(`[\w$]+\.Version\)?\s*\(([^)]*)\)`),
+
+		// Matches: app.setGlobalPrefix('api')
+		SetGlobalPrefix: regexp.MustCompile(`\.setGlobalPrefix\s*\(\s*['"\x60]([^'"\x60]+)['"\x60]`),
+
+		// Matches: defaultVersion: '1' inside app.enableVersioning({...})
+		DefaultVersion: regexp.MustCompile(`defaultVersion\s*:\s*['"\x60]([^'"\x60]+)['"\x60]`),
+
+		ObjectPathValue:    regexp.MustCompile(`path\s*:\s*(\[[^\]]*\]|['"\x60][^'"\x60]*['"\x60])`),
+		ObjectVersionValue: regexp.MustCompile(`version\s*:\s*(\[[^\]]*\]|['"\x60][^'"\x60]*['"\x60])`),
+		QuotedString:       regexp.MustCompile(`['"\x60]([^'"\x60]*)['"\x60]`),
 
 		// Matches: dispatcher.onGet('/path', ...), dispatcher.onPost(/^\/ratings\/[0-9]*/, ...)
 		// Supports both string literals and regex literals
@@ -172,12 +223,25 @@ type RouteExtractor struct {
 	patterns *FrameworkPatterns
 	routes   []RoutePattern
 
-	// nestPrefix is the path prefix of the NestJS @Controller() decorator most
-	// recently seen in the file being scanned. TypeScript decorators always live
+	// nestPrefixes holds the path prefix(es) of the NestJS @Controller()
+	// decorator most recently seen in the file being scanned (plural for the
+	// array form, @Controller(['a', 'b'])). TypeScript decorators always live
 	// in the same file as the class they decorate, with @Controller() preceding
-	// the method decorators, so tracking the last seen prefix per file is enough
-	// to resolve the full route of each method decorator.
-	nestPrefix string
+	// the method decorators, so tracking the last seen prefixes per file is
+	// enough to resolve the full route of each method decorator.
+	nestPrefixes []string
+	// nestCtrlVersions holds the version(s) declared by the current
+	// @Controller({ version: ... }), applying to its methods unless overridden
+	nestCtrlVersions []string
+	// pendingNestVersions holds the version(s) of a @Version() decorator seen
+	// above a method decorator, consumed by the next method decorator
+	pendingNestVersions []string
+
+	// application-level NestJS settings, harvested from any scanned file
+	// (typically main.ts) and applied to Nest routes after the scan
+	globalPrefix   string
+	uriVersioning  bool
+	defaultVersion string
 
 	// compiled switches the scan to compiled-output mode: decorators lowered by
 	// tsc/swc are recognized and harvested as route fragments (prefix/path
@@ -185,6 +249,10 @@ type RouteExtractor struct {
 	// disabled because compiled code is full of path-like string literals.
 	compiled bool
 }
+
+// nestVersionNeutral marks routes explicitly declared version-neutral
+// (@Version(VERSION_NEUTRAL)): no version segment, even with a default version.
+const nestVersionNeutral = "\x00neutral"
 
 func NewRouteExtractor() *RouteExtractor {
 	return &RouteExtractor{
@@ -277,15 +345,106 @@ func (e *RouteExtractor) handleRestify(filePath, line string, lineNum int) bool 
 	return false
 }
 
-// handleNestJSController tracks the route prefix of the current NestJS
-// @Controller() decorator, which applies to every method decorator that
-// follows it in the same file.
+// quotedStrings returns the contents of every quoted string in s: the single
+// value of 'x' as well as every element of ['x', 'y'].
+func (e *RouteExtractor) quotedStrings(s string) []string {
+	matches := e.patterns.QuotedString.FindAllStringSubmatch(s, -1)
+	result := make([]string, 0, len(matches))
+	for _, m := range matches {
+		result = append(result, m[1])
+	}
+	return result
+}
+
+// setNestController tracks the prefixes and versions of the current NestJS
+// @Controller() decorator, which apply to every method decorator that follows
+// it in the same file.
+func (e *RouteExtractor) setNestController(prefixes, versions []string) {
+	if len(prefixes) == 0 {
+		prefixes = []string{""}
+	}
+	e.nestPrefixes = prefixes
+	e.nestCtrlVersions = versions
+	e.pendingNestVersions = nil
+}
+
 func (e *RouteExtractor) handleNestJSController(line string) bool {
+	// object form: @Controller({ path: 'x' | ['x', 'y'], version: '1' | ['1', '2'] })
+	if matches := e.patterns.NestJSControllerObject.FindStringSubmatch(line); matches != nil {
+		var prefixes, versions []string
+		if pm := e.patterns.ObjectPathValue.FindStringSubmatch(matches[1]); pm != nil {
+			prefixes = e.quotedStrings(pm[1])
+		}
+		if vm := e.patterns.ObjectVersionValue.FindStringSubmatch(matches[1]); vm != nil {
+			versions = e.quotedStrings(vm[1])
+		}
+		e.setNestController(prefixes, versions)
+		return true
+	}
+	// array form: @Controller(['ledger', 'books'])
+	if matches := e.patterns.NestJSControllerArray.FindStringSubmatch(line); matches != nil {
+		e.setNestController(e.quotedStrings(matches[1]), nil)
+		return true
+	}
+	// string form: @Controller('invoice'), @Controller()
 	if matches := e.patterns.NestJSController.FindStringSubmatch(line); matches != nil {
-		e.nestPrefix = matches[1]
+		e.setNestController([]string{matches[1]}, nil)
 		return true
 	}
 	return false
+}
+
+// handleNestJSVersion tracks a @Version() decorator; it applies to the next
+// method decorator in the file. Non-string arguments (VERSION_NEUTRAL) declare
+// the route version-neutral.
+func (e *RouteExtractor) handleNestJSVersion(line string) bool {
+	matches := e.patterns.NestJSVersion.FindStringSubmatch(line)
+	if matches == nil {
+		return false
+	}
+	versions := e.quotedStrings(matches[1])
+	if len(versions) == 0 {
+		versions = []string{nestVersionNeutral}
+	}
+	e.pendingNestVersions = versions
+	return true
+}
+
+// handleSetGlobalPrefix harvests app.setGlobalPrefix('api'). In source mode the
+// prefix is applied to every Nest route after the scan; in compiled mode routes
+// are fragments, so the prefix becomes a fragment of its own.
+func (e *RouteExtractor) handleSetGlobalPrefix(filePath, line string, lineNum int) bool {
+	matches := e.patterns.SetGlobalPrefix.FindStringSubmatch(line)
+	if matches == nil {
+		return false
+	}
+	if e.compiled {
+		e.routes = append(e.routes, RoutePattern{
+			Method: "ALL",
+			Path:   ensureLeadingSlash(matches[1]),
+			File:   filePath,
+			Line:   lineNum,
+		})
+	} else {
+		e.globalPrefix = matches[1]
+	}
+	return true
+}
+
+// handleEnableVersioning detects app.enableVersioning(...). URI versioning is
+// NestJS's default type, so any call not naming a different VersioningType
+// enables it.
+func (e *RouteExtractor) handleEnableVersioning(line string) bool {
+	if !strings.Contains(line, ".enableVersioning") {
+		return false
+	}
+	if !strings.Contains(line, "VersioningType.") || strings.Contains(line, "VersioningType.URI") {
+		e.uriVersioning = true
+	}
+	if matches := e.patterns.DefaultVersion.FindStringSubmatch(line); matches != nil {
+		e.defaultVersion = matches[1]
+	}
+	return true
 }
 
 // joinNestPaths combines a NestJS controller prefix with a method decorator
@@ -305,30 +464,91 @@ func joinNestPaths(prefix, path string) string {
 }
 
 func (e *RouteExtractor) handleNestJS(filePath, line string, lineNum int) bool {
-	if matches := e.patterns.NestJS.FindStringSubmatch(line); len(matches) > 2 {
+	matches := e.patterns.NestJS.FindStringSubmatch(line)
+	if len(matches) <= 2 {
+		return false
+	}
+
+	versions := e.pendingNestVersions
+	if len(versions) == 0 {
+		versions = e.nestCtrlVersions
+	}
+	if len(versions) == 0 {
+		versions = []string{""}
+	}
+	prefixes := e.nestPrefixes
+	if len(prefixes) == 0 {
+		prefixes = []string{""}
+	}
+
+	for _, prefix := range prefixes {
+		for _, version := range versions {
+			e.routes = append(e.routes, RoutePattern{
+				Method:  strings.ToUpper(matches[1]),
+				Path:    joinNestPaths(prefix, matches[2]),
+				File:    filePath,
+				Line:    lineNum,
+				Nest:    true,
+				Version: version,
+			})
+		}
+	}
+	e.pendingNestVersions = nil
+	return true
+}
+
+// handleCompiledNestController harvests the prefix(es) of a compiled
+// @Controller() decorator as standalone route fragments. For the object form,
+// declared versions become fragments too (/v2).
+func (e *RouteExtractor) handleCompiledNestController(filePath, line string, lineNum int) bool {
+	addFragment := func(path string) {
 		e.routes = append(e.routes, RoutePattern{
-			Method: strings.ToUpper(matches[1]),
-			Path:   joinNestPaths(e.nestPrefix, matches[2]),
+			Method: "ALL",
+			Path:   ensureLeadingSlash(path),
 			File:   filePath,
 			Line:   lineNum,
 		})
+	}
+	if matches := e.patterns.CompiledNestControllerObject.FindStringSubmatch(line); matches != nil {
+		if pm := e.patterns.ObjectPathValue.FindStringSubmatch(matches[1]); pm != nil {
+			for _, prefix := range e.quotedStrings(pm[1]) {
+				addFragment(prefix)
+			}
+		}
+		if vm := e.patterns.ObjectVersionValue.FindStringSubmatch(matches[1]); vm != nil {
+			for _, version := range e.quotedStrings(vm[1]) {
+				addFragment("v" + version)
+			}
+		}
 		return true
 	}
-
-	return false
-}
-
-// handleCompiledNestController harvests the prefix of a compiled @Controller()
-// decorator as a standalone route fragment.
-func (e *RouteExtractor) handleCompiledNestController(filePath, line string, lineNum int) bool {
+	if matches := e.patterns.CompiledNestControllerArray.FindStringSubmatch(line); matches != nil {
+		for _, prefix := range e.quotedStrings(matches[1]) {
+			addFragment(prefix)
+		}
+		return true
+	}
 	matches := e.patterns.CompiledNestController.FindStringSubmatch(line)
 	if matches == nil {
 		return false
 	}
 	if matches[1] != "" {
+		addFragment(matches[1])
+	}
+	return true
+}
+
+// handleCompiledNestVersion harvests a compiled @Version() decorator as /vN
+// route fragments.
+func (e *RouteExtractor) handleCompiledNestVersion(filePath, line string, lineNum int) bool {
+	matches := e.patterns.CompiledNestVersion.FindStringSubmatch(line)
+	if matches == nil {
+		return false
+	}
+	for _, version := range e.quotedStrings(matches[1]) {
 		e.routes = append(e.routes, RoutePattern{
 			Method: "ALL",
-			Path:   ensureLeadingSlash(matches[1]),
+			Path:   "/v" + version,
 			File:   filePath,
 			Line:   lineNum,
 		})
@@ -562,8 +782,10 @@ func (e *RouteExtractor) scanFile(filePath string) error {
 	var line string
 	var save string
 
-	// the NestJS controller prefix never spans files
-	e.nestPrefix = ""
+	// NestJS controller prefixes and versions never span files
+	e.nestPrefixes = nil
+	e.nestCtrlVersions = nil
+	e.pendingNestVersions = nil
 
 	for scanner.Scan() {
 		lineNum++
@@ -610,9 +832,20 @@ func (e *RouteExtractor) scanFile(filePath string) error {
 			continue
 		}
 
+		// NestJS application-level settings (typically in main.ts)
+		if e.handleSetGlobalPrefix(filePath, line, lineNum) {
+			continue
+		}
+		if e.handleEnableVersioning(line) {
+			continue
+		}
+
 		if e.compiled {
 			// NestJS decorators as lowered by tsc/swc, harvested as fragments
 			if e.handleCompiledNestController(filePath, line, lineNum) {
+				continue
+			}
+			if e.handleCompiledNestVersion(filePath, line, lineNum) {
 				continue
 			}
 			if e.handleCompiledNestMethod(filePath, line, lineNum) {
@@ -621,6 +854,11 @@ func (e *RouteExtractor) scanFile(filePath string) error {
 		} else {
 			// NestJS @Controller() prefix, applied to the method decorators below it
 			if e.handleNestJSController(line) {
+				continue
+			}
+
+			// NestJS @Version(), applied to the next method decorator
+			if e.handleNestJSVersion(line) {
 				continue
 			}
 
@@ -746,7 +984,26 @@ func (e *RouteExtractor) GetHarvestedRoutes() []string {
 
 	for _, r := range e.routes {
 		route := e.CleanupRegexPath(r.Path)
-		if route != "" && route != "/" {
+		if route == "" {
+			continue
+		}
+		if r.Nest {
+			// URI-versioned apps serve Nest routes under /v<version>/
+			if e.uriVersioning && r.Version != nestVersionNeutral {
+				version := r.Version
+				if version == "" {
+					version = e.defaultVersion
+				}
+				if version != "" {
+					route = joinNestPaths("v"+version, route)
+				}
+			}
+			// the app-level global prefix goes in front of everything
+			if e.globalPrefix != "" {
+				route = joinNestPaths(e.globalPrefix, route)
+			}
+		}
+		if route != "/" {
 			dedup[route] = struct{}{}
 		}
 	}
