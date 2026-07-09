@@ -1586,3 +1586,35 @@ func TestExtractNextJSRoutesFromManifest(t *testing.T) {
 		})
 	}
 }
+
+func TestExtractNestJSFastifyApp(t *testing.T) {
+	extractor := NewRouteExtractor()
+	appDir := filepath.Join("nodejs", "test_files_nest")
+	require.NoError(t, extractor.ScanDirectory(appDir))
+
+	routes := extractor.GetHarvestedRoutes()
+
+	assert.ElementsMatch(t, []string{
+		"/uptime",
+		"/ping",
+		"/invoice/catalog",
+		"/invoice/start",
+		"/invoice/:id",
+		"/invoice/:id/receipt",
+	}, routes)
+}
+
+func TestNestJSControllerPrefixSwitchesPerClass(t *testing.T) {
+	extractor := NewRouteExtractor()
+	exampleFile := filepath.Join("nodejs", "test_files", "nestjs-controller.ts")
+	require.NoError(t, extractor.scanFile(exampleFile))
+
+	routes := extractor.GetHarvestedRoutes()
+
+	// The fixture declares three controllers ('users', 'api/v1/posts', 'health');
+	// each method decorator resolves against the prefix of its own controller.
+	assert.ElementsMatch(t, []string{
+		"/users/:id",
+		"/api/v1/posts/:postId/comments",
+	}, routes)
+}

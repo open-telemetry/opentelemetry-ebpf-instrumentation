@@ -86,6 +86,8 @@ type FrameworkPatterns struct {
 	Restify *regexp.Regexp
 	// NestJS decorators: @Get('/path'), @Post('/path')
 	NestJS *regexp.Regexp
+	// NestJS controller decorator: @Controller('prefix'), @Controller()
+	NestJSController *regexp.Regexp
 	// HTTPDispatcher: dispatcher.onGet('/path', ...), dispatcher.onPost(/^\/ratings\/[0-9]*/, ...)
 	HTTPDispatcher *regexp.Regexp
 	// Fallback
@@ -130,6 +132,9 @@ func newFrameworkPatterns() *FrameworkPatterns {
 		// Matches: @Get('/users/:id'), @Post('/items')
 		NestJS: regexp.MustCompile(`@(Get|Post|Put|Patch|Delete|Options|Head|All)\s*\(\s*['"\x60]([^'"\x60]*?)['"\x60]\s*\)`),
 
+		// Matches: @Controller('users'), @Controller("api/v1/posts"), @Controller()
+		NestJSController: regexp.MustCompile(`@Controller\s*\(\s*(?:['"\x60]([^'"\x60]*)['"\x60])?\s*\)`),
+
 		// Matches: dispatcher.onGet('/path', ...), dispatcher.onPost(/^\/ratings\/[0-9]*/, ...)
 		// Supports both string literals and regex literals
 		HTTPDispatcher: regexp.MustCompile(`\.on(Get|Post|Put|Patch|Delete|Head|Options|All)\s*\(\s*(?:['"\x60]([^'"\x60]+)['"\x60]|/((?:[^\\,]|\\.)+))`),
@@ -149,6 +154,13 @@ type RouteExtractor struct {
 	log      *slog.Logger
 	patterns *FrameworkPatterns
 	routes   []RoutePattern
+
+	// nestPrefix is the path prefix of the NestJS @Controller() decorator most
+	// recently seen in the file being scanned. TypeScript decorators always live
+	// in the same file as the class they decorate, with @Controller() preceding
+	// the method decorators, so tracking the last seen prefix per file is enough
+	// to resolve the full route of each method decorator.
+	nestPrefix string
 }
 
 func NewRouteExtractor() *RouteExtractor {
@@ -233,16 +245,38 @@ func (e *RouteExtractor) handleRestify(filePath, line string, lineNum int) bool 
 	return false
 }
 
+// handleNestJSController tracks the route prefix of the current NestJS
+// @Controller() decorator, which applies to every method decorator that
+// follows it in the same file.
+func (e *RouteExtractor) handleNestJSController(line string) bool {
+	if matches := e.patterns.NestJSController.FindStringSubmatch(line); matches != nil {
+		e.nestPrefix = matches[1]
+		return true
+	}
+	return false
+}
+
+// joinNestPaths combines a NestJS controller prefix with a method decorator
+// path into a single absolute route, normalizing slashes. NestJS treats both
+// parts as relative regardless of leading/trailing slashes.
+func joinNestPaths(prefix, path string) string {
+	prefix = strings.Trim(prefix, "/")
+	path = strings.Trim(path, "/")
+	switch {
+	case prefix == "":
+		return "/" + path
+	case path == "":
+		return "/" + prefix
+	default:
+		return "/" + prefix + "/" + path
+	}
+}
+
 func (e *RouteExtractor) handleNestJS(filePath, line string, lineNum int) bool {
 	if matches := e.patterns.NestJS.FindStringSubmatch(line); len(matches) > 2 {
-		path := matches[2]
-		// NestJS defaults to '/' if no path specified
-		if path == "" {
-			path = "/"
-		}
 		e.routes = append(e.routes, RoutePattern{
 			Method: strings.ToUpper(matches[1]),
-			Path:   path,
+			Path:   joinNestPaths(e.nestPrefix, matches[2]),
 			File:   filePath,
 			Line:   lineNum,
 		})
@@ -406,6 +440,9 @@ func (e *RouteExtractor) scanFile(filePath string) error {
 	var line string
 	var save string
 
+	// the NestJS controller prefix never spans files
+	e.nestPrefix = ""
+
 	for scanner.Scan() {
 		lineNum++
 		line = scanner.Text()
@@ -448,6 +485,11 @@ func (e *RouteExtractor) scanFile(filePath string) error {
 
 		// Restify
 		if e.handleRestify(filePath, line, lineNum) {
+			continue
+		}
+
+		// NestJS @Controller() prefix, applied to the method decorators below it
+		if e.handleNestJSController(line) {
 			continue
 		}
 
