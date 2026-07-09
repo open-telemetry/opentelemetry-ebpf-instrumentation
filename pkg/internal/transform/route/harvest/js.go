@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
@@ -88,6 +89,10 @@ type FrameworkPatterns struct {
 	NestJS *regexp.Regexp
 	// NestJS controller decorator: @Controller('prefix'), @Controller()
 	NestJSController *regexp.Regexp
+	// NestJS decorators in compiled output: (0, common_1.Get)('store')
+	CompiledNestMethod *regexp.Regexp
+	// NestJS controller decorator in compiled output: (0, common_1.Controller)('invoice')
+	CompiledNestController *regexp.Regexp
 	// HTTPDispatcher: dispatcher.onGet('/path', ...), dispatcher.onPost(/^\/ratings\/[0-9]*/, ...)
 	HTTPDispatcher *regexp.Regexp
 	// Fallback
@@ -136,6 +141,17 @@ func newFrameworkPatterns() *FrameworkPatterns {
 		// Matches: @Controller('users'), @Controller("api/v1/posts"), @Controller()
 		NestJSController: regexp.MustCompile(`@Controller\s*\(\s*(?:['"\x60]([^'"\x60]*)['"\x60])?\s*\)`),
 
+		// TypeScript compilers lower decorators to helper calls referencing the
+		// decorator factory through the imported module object:
+		//   (0, common_1.Get)('store')   tsc
+		//   (0, _common.Get)(':id')      swc
+		//   common_1.Get('store')        direct emit
+		// The class association ("which @Controller() prefixes this @Get()?") is
+		// scattered across __decorate() blocks, so compiled matches are harvested
+		// as route fragments and matched partially instead of joined.
+		CompiledNestMethod:     regexp.MustCompile(`[\w$]+\.(Get|Post|Put|Patch|Delete|Options|Head|All)\)?\s*\(\s*(?:['"\x60]([^'"\x60]*)['"\x60]\s*)?\)`),
+		CompiledNestController: regexp.MustCompile(`[\w$]+\.Controller\)?\s*\(\s*(?:['"\x60]([^'"\x60]*)['"\x60]\s*)?\)`),
+
 		// Matches: dispatcher.onGet('/path', ...), dispatcher.onPost(/^\/ratings\/[0-9]*/, ...)
 		// Supports both string literals and regex literals
 		HTTPDispatcher: regexp.MustCompile(`\.on(Get|Post|Put|Patch|Delete|Head|Options|All)\s*\(\s*(?:['"\x60]([^'"\x60]+)['"\x60]|/((?:[^\\,]|\\.)+))`),
@@ -162,6 +178,12 @@ type RouteExtractor struct {
 	// the method decorators, so tracking the last seen prefix per file is enough
 	// to resolve the full route of each method decorator.
 	nestPrefix string
+
+	// compiled switches the scan to compiled-output mode: decorators lowered by
+	// tsc/swc are recognized and harvested as route fragments (prefix/path
+	// association is lost in compiled code), and the fallback pattern is
+	// disabled because compiled code is full of path-like string literals.
+	compiled bool
 }
 
 func NewRouteExtractor() *RouteExtractor {
@@ -170,6 +192,15 @@ func NewRouteExtractor() *RouteExtractor {
 		routes:   []RoutePattern{},
 		log:      slog.With("component", "route.harvester.js"),
 	}
+}
+
+// NewCompiledRouteExtractor returns an extractor for compiled/transpiled output
+// (e.g. a NestJS app shipping only dist/). Its routes are fragments meant for
+// partial matching.
+func NewCompiledRouteExtractor() *RouteExtractor {
+	e := NewRouteExtractor()
+	e.compiled = true
+	return e
 }
 
 func (e *RouteExtractor) expressPendingRoute(filePath, line string, lineNum int) bool {
@@ -287,6 +318,79 @@ func (e *RouteExtractor) handleNestJS(filePath, line string, lineNum int) bool {
 	return false
 }
 
+// handleCompiledNestController harvests the prefix of a compiled @Controller()
+// decorator as a standalone route fragment.
+func (e *RouteExtractor) handleCompiledNestController(filePath, line string, lineNum int) bool {
+	matches := e.patterns.CompiledNestController.FindStringSubmatch(line)
+	if matches == nil {
+		return false
+	}
+	if matches[1] != "" {
+		e.routes = append(e.routes, RoutePattern{
+			Method: "ALL",
+			Path:   ensureLeadingSlash(matches[1]),
+			File:   filePath,
+			Line:   lineNum,
+		})
+	}
+	return true
+}
+
+// handleCompiledNestMethod harvests the path of a compiled method decorator
+// ((0, common_1.Get)(':id')) as a standalone route fragment. Bare decorators
+// carry no path: the request is routed at the controller prefix, which is
+// already harvested as its own fragment.
+func (e *RouteExtractor) handleCompiledNestMethod(filePath, line string, lineNum int) bool {
+	matches := e.patterns.CompiledNestMethod.FindStringSubmatch(line)
+	if matches == nil {
+		return false
+	}
+	if matches[2] != "" {
+		e.routes = append(e.routes, RoutePattern{
+			Method: strings.ToUpper(matches[1]),
+			Path:   ensureLeadingSlash(matches[2]),
+			File:   filePath,
+			Line:   lineNum,
+		})
+	}
+	return true
+}
+
+func ensureLeadingSlash(path string) string {
+	if strings.HasPrefix(path, "/") {
+		return path
+	}
+	return "/" + path
+}
+
+// sortRouteFragments orders route fragments for the PartialRouteMatcher, which
+// tries fragments in definition order: fewer parameter segments first (literal
+// fragments must win over catch-alls), longer fragments next (more specific),
+// then lexicographic for determinism.
+func sortRouteFragments(fragments []string) {
+	segments := func(f string) []string { return strings.Split(strings.Trim(f, "/"), "/") }
+	params := func(f string) int {
+		n := 0
+		for _, s := range segments(f) {
+			if strings.HasPrefix(s, ":") || (strings.HasPrefix(s, "{") && strings.HasSuffix(s, "}")) {
+				n++
+			}
+		}
+		return n
+	}
+	sort.Slice(fragments, func(i, j int) bool {
+		pi, pj := params(fragments[i]), params(fragments[j])
+		if pi != pj {
+			return pi < pj
+		}
+		si, sj := len(segments(fragments[i])), len(segments(fragments[j]))
+		if si != sj {
+			return si > sj
+		}
+		return fragments[i] < fragments[j]
+	})
+}
+
 func (e *RouteExtractor) handleHTTPDispatcher(filePath, line string, lineNum int) bool {
 	if matches := e.patterns.HTTPDispatcher.FindStringSubmatch(line); len(matches) > 2 {
 		method := strings.ToUpper(matches[1])
@@ -311,15 +415,32 @@ func (e *RouteExtractor) handleHTTPDispatcher(filePath, line string, lineNum int
 func (e *RouteExtractor) handleFallback(filePath, line string, lineNum int) bool {
 	if matches := e.patterns.Fallback.FindStringSubmatch(line); len(matches) > 0 {
 		e.routes = append(e.routes, RoutePattern{
-			Method: "ALL",
-			Path:   matches[0],
-			File:   filePath,
-			Line:   lineNum,
+			Method:  "ALL",
+			Path:    matches[0],
+			File:    filePath,
+			Line:    lineNum,
+			Handler: fallbackHandler,
 		})
 		return true
 	}
 
 	return false
+}
+
+// fallbackHandler marks routes guessed from arbitrary path-like string
+// literals, as opposed to routes declared through a recognized framework API.
+const fallbackHandler = "fallback"
+
+// FrameworkRoutes returns the number of harvested routes that were declared
+// through a recognized framework API (i.e. everything but fallback guesses).
+func (e *RouteExtractor) FrameworkRoutes() int {
+	n := 0
+	for i := range e.routes {
+		if e.routes[i].Handler != fallbackHandler {
+			n++
+		}
+	}
+	return n
 }
 
 // extractNextJSRoutesFromManifest tries to read a Next.js routes-manifest.json
@@ -489,14 +610,24 @@ func (e *RouteExtractor) scanFile(filePath string) error {
 			continue
 		}
 
-		// NestJS @Controller() prefix, applied to the method decorators below it
-		if e.handleNestJSController(line) {
-			continue
-		}
+		if e.compiled {
+			// NestJS decorators as lowered by tsc/swc, harvested as fragments
+			if e.handleCompiledNestController(filePath, line, lineNum) {
+				continue
+			}
+			if e.handleCompiledNestMethod(filePath, line, lineNum) {
+				continue
+			}
+		} else {
+			// NestJS @Controller() prefix, applied to the method decorators below it
+			if e.handleNestJSController(line) {
+				continue
+			}
 
-		// NestJS decorators
-		if e.handleNestJS(filePath, line, lineNum) {
-			continue
+			// NestJS decorators
+			if e.handleNestJS(filePath, line, lineNum) {
+				continue
+			}
 		}
 
 		// HttpDispatcher
@@ -504,8 +635,9 @@ func (e *RouteExtractor) scanFile(filePath string) error {
 			continue
 		}
 
-		// Fallback when none matches
-		if e.handleFallback(filePath, line, lineNum) {
+		// Fallback when none matches. Compiled code is full of path-like string
+		// literals, so no fallback guesses are harvested from it.
+		if !e.compiled && e.handleFallback(filePath, line, lineNum) {
 			continue
 		}
 
@@ -520,7 +652,11 @@ func (e *RouteExtractor) scanFile(filePath string) error {
 }
 
 func (e *RouteExtractor) ScanDirectory(root string) error {
-	return WalkJSFiles(root, func(path string) error {
+	walk := WalkJSFiles
+	if e.compiled {
+		walk = WalkCompiledJSFiles
+	}
+	return walk(root, func(path string) error {
 		if err := e.scanFile(path); err != nil {
 			e.log.Debug("error processing file", "file", path, "error", err)
 		}
@@ -668,27 +804,50 @@ func FindNodeJSAppDir(pid app.PID) (string, error) {
 	return dir, nil
 }
 
+// compiledSkipDirs is the skip list of the compiled-output scan: compiled
+// JavaScript lives precisely in the directories the source scan skips.
+var compiledSkipDirs = func() map[string]string {
+	m := make(map[string]string, len(skipDirs))
+	for k, v := range skipDirs {
+		m[k] = v
+	}
+	delete(m, "dist")
+	delete(m, "build")
+	return m
+}()
+
 // WalkJSFiles walks a directory tree, skipping known non-application directories
 // (node_modules, .git, system dirs, etc.), and calls fn for each regular JS/TS
 // source file found (.js, .ts, .mjs, .cjs) that is not larger than
 // MaxJSFileScanBytes. The callback can return filepath.SkipAll to stop the walk
 // early.
 func WalkJSFiles(root string, fn func(path string) error) error {
-	return filepath.Walk(root, newJSFileWalker(root, fn))
+	return filepath.Walk(root, newJSFileWalker(root, skipDirs, false, fn))
 }
 
-func newJSFileWalker(root string, fn func(path string) error) filepath.WalkFunc {
+// WalkCompiledJSFiles is WalkJSFiles for compiled output: it descends into
+// compiled-output directories (dist, build) — including when root itself is
+// one, as happens when the process entrypoint is an absolute path like
+// /app/dist/main.js — so apps shipping only compiled code can be scanned.
+func WalkCompiledJSFiles(root string, fn func(path string) error) error {
+	return filepath.Walk(root, newJSFileWalker(root, compiledSkipDirs, true, fn))
+}
+
+func newJSFileWalker(root string, skip map[string]string, scanRoot bool, fn func(path string) error) filepath.WalkFunc {
 	return func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
 
 		if info.IsDir() {
+			if scanRoot && path == root {
+				return nil
+			}
 			name := info.Name()
 			if name == "root" && path != root {
 				return filepath.SkipDir
 			}
-			if _, ok := skipDirs[name]; ok {
+			if _, ok := skip[name]; ok {
 				return filepath.SkipDir
 			}
 			return nil
@@ -726,12 +885,35 @@ func ExtractNodejsRoutes(pid app.PID) (*RouteHarvesterResult, error) {
 		return nil, fmt.Errorf("error scanning directory, error %w", err)
 	}
 
-	routes := jsExtractor.GetHarvestedRoutes()
-
-	r := RouteHarvesterResult{
-		Routes: routes,
-		Kind:   CompleteRoutes,
+	// Routes declared through a recognized framework API are complete: prefix
+	// and path are joined at harvest time and can be matched exactly.
+	if jsExtractor.FrameworkRoutes() > 0 {
+		return &RouteHarvesterResult{
+			Routes: jsExtractor.GetHarvestedRoutes(),
+			Kind:   CompleteRoutes,
+		}, nil
 	}
 
-	return &r, nil
+	// No framework routes in the sources: the app may ship only compiled
+	// output (dist/, build/), which the source scan skips. Compiled decorators
+	// lose the controller/method association, so their paths are harvested as
+	// fragments and matched partially.
+	compiledExtractor := NewCompiledRouteExtractor()
+	if err := compiledExtractor.ScanDirectory(dir); err != nil {
+		compiledExtractor.log.Debug("error scanning compiled output", "dir", dir, "error", err)
+	}
+	if fragments := compiledExtractor.GetHarvestedRoutes(); len(fragments) > 0 {
+		sortRouteFragments(fragments)
+		return &RouteHarvesterResult{
+			Routes: fragments,
+			Kind:   PartialRoutes,
+		}, nil
+	}
+
+	// Neither sources nor compiled output declared routes: keep whatever the
+	// fallback pattern guessed from the sources.
+	return &RouteHarvesterResult{
+		Routes: jsExtractor.GetHarvestedRoutes(),
+		Kind:   CompleteRoutes,
+	}, nil
 }

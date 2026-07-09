@@ -1627,3 +1627,64 @@ func TestNestJSControllerPrefixSwitchesPerClass(t *testing.T) {
 		"/health",
 	}, routes)
 }
+
+func TestCompiledNestJSFragmentExtraction(t *testing.T) {
+	extractor := NewCompiledRouteExtractor()
+	appDir := filepath.Join("nodejs", "test_files_dist")
+	require.NoError(t, extractor.ScanDirectory(appDir))
+
+	// Compiled decorators lose the controller/method association, so prefixes
+	// and method paths are harvested as separate fragments.
+	assert.ElementsMatch(t, []string{
+		"/invoice",
+		"/catalog",
+		"/start",
+		"/:id",
+		"/:id/receipt",
+		"/callbacks/acme",
+	}, extractor.GetHarvestedRoutes())
+}
+
+func TestExtractNodejsRoutes_CompiledDistOnly(t *testing.T) {
+	origRootDir := rootDirForPID
+	origCmdline := cmdlineForPID
+	origCwd := cwdForPID
+	defer func() {
+		rootDirForPID = origRootDir
+		cmdlineForPID = origCmdline
+		cwdForPID = origCwd
+	}()
+
+	distApp, err := filepath.Abs(filepath.Join("nodejs", "test_files_dist"))
+	require.NoError(t, err)
+
+	tests := []struct {
+		name    string
+		cmdline []string
+	}{
+		// cwd-anchored scan: the source walk skips dist/, finds nothing, and the
+		// compiled walk descends into it
+		{name: "relative entrypoint", cmdline: []string{"node", "dist/main.js"}},
+		// script-anchored scan: the scan root itself is the dist directory
+		{name: "absolute entrypoint inside dist", cmdline: []string{"node", "/dist/main.js"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rootDirForPID = func(_ app.PID) string { return distApp }
+			cmdlineForPID = func(_ app.PID) (string, []string, error) { return tt.cmdline[0], tt.cmdline, nil }
+			cwdForPID = func(_ app.PID) (string, error) { return "/", nil }
+
+			result, err := ExtractNodejsRoutes(4242)
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			assert.Equal(t, PartialRoutes, result.Kind)
+
+			matcher := RouteMatcherFromResult(*result)
+			require.NotNil(t, matcher)
+			assert.Equal(t, "/invoice/:id/receipt", matcher.Find("/invoice/8f31ac/receipt"))
+			assert.Equal(t, "/invoice/catalog", matcher.Find("/invoice/catalog"))
+			assert.Equal(t, "/callbacks/acme", matcher.Find("/callbacks/acme"))
+		})
+	}
+}
