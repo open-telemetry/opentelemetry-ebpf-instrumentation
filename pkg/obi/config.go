@@ -440,6 +440,25 @@ type Config struct {
 	HealthCheck HealthCheckConfig `yaml:"health_check"`
 }
 
+// JoinMetricsConfig returns a combination of the base and per-application metrics config.
+// It is used to initialize resources that should be available if they are enabled
+// for any possible service match. Per-service features still decide whether each
+// service emits the corresponding metrics.
+func (c *Config) JoinMetricsConfig() *perapp.MetricsConfig {
+	if c == nil {
+		return &perapp.MetricsConfig{}
+	}
+
+	mc := c.Metrics
+	for _, d := range c.Discovery.Instrument {
+		mc.Features |= d.Metrics.Features
+	}
+	for _, d := range c.Discovery.Services {
+		mc.Features |= d.Metrics.Features
+	}
+	return &mc
+}
+
 type HealthCheckConfig struct {
 	// 0 (default) means disabled
 	Port int `yaml:"port" env:"OTEL_EBPF_HEALTH_CHECK_PORT" validate:"gte=0,lte=65535"`

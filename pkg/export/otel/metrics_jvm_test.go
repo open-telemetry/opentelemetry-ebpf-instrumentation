@@ -26,7 +26,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/runtimemetrics"
 )
 
-func TestRuntimeMetricsReporterRecordsJVMHeapSummary(t *testing.T) {
+func TestRuntimeMetricsReporterRecordsJVMMemoryPoolUsed(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
@@ -56,6 +56,7 @@ func TestRuntimeMetricsReporterRecordsJVMHeapSummary(t *testing.T) {
 		JVM: &runtimemetrics.JVMRuntimeMetricSnapshot{
 			Kind:       jvmruntime.JVMMetricMemoryUsed,
 			MemoryType: jvmruntime.JVMMemoryTypeHeap,
+			PoolName:   "G1 Old Gen",
 			GCPhase:    jvmruntime.JVMGCPhaseAfter,
 			ValueBytes: 42,
 		},
@@ -69,7 +70,7 @@ func TestRuntimeMetricsReporterRecordsJVMHeapSummary(t *testing.T) {
 	assert.Equal(t, "prod", record.ResourceAttrs["service.namespace"])
 	assert.Equal(t, "orders-1", record.ResourceAttrs["service.instance.id"])
 	assert.Equal(t, "heap", record.Attrs["jvm.memory.type"])
-	assert.Empty(t, record.Attrs["jvm.memory.pool.name"])
+	assert.Equal(t, "G1 Old Gen", record.Attrs["jvm.memory.pool.name"])
 }
 
 func TestRuntimeMetricsReporterRecordsJVMMemoryAsUpDownCounter(t *testing.T) {

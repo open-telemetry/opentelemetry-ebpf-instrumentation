@@ -18,16 +18,7 @@
 
 enum { k_jvm_task_comm_len = 16 };
 
-struct jvm_gc_heap_summary_event _jvm_gc_heap_summary_event = {};
 struct jvm_mem_pool_gc_event _jvm_mem_pool_gc_event = {};
-
-static __always_inline bool jvm_current_comm_is_g1_main_marker(void) {
-    char comm[k_jvm_task_comm_len] = {};
-    bpf_get_current_comm(comm, sizeof(comm));
-
-    const char g1_main_marker[] = "G1 Main Marker";
-    return bpf_memcmp(comm, g1_main_marker, sizeof(g1_main_marker)) == 0;
-}
 
 struct jvm_pid_fields {
     u32 global_pid;
@@ -50,18 +41,6 @@ static __always_inline void jvm_current_pid_fields(u64 pid_tgid, struct jvm_pid_
     fields->ns_pid = (u32)ns_pid;
     fields->ns_tid = get_task_tid();
     fields->pid_ns_id = pid_ns_id;
-}
-
-static __always_inline void jvm_fill_heap_pid_fields(u64 pid_tgid,
-                                                     struct jvm_gc_heap_summary_event *e) {
-    struct jvm_pid_fields fields = {};
-    jvm_current_pid_fields(pid_tgid, &fields);
-
-    e->global_pid = fields.global_pid;
-    e->global_tid = fields.global_tid;
-    e->ns_pid = fields.ns_pid;
-    e->ns_tid = fields.ns_tid;
-    e->pid_ns_id = fields.pid_ns_id;
 }
 
 static __always_inline void jvm_fill_mem_pool_pid_fields(u64 pid_tgid,
@@ -88,68 +67,6 @@ jvm_read_usdt_string(unsigned char *dst, const unsigned char *src, long src_len)
         return -1;
     }
 
-    return 0;
-}
-
-SEC("uprobe/report_gc_heap_summary")
-int BPF_UPROBE(obi_uprobe_report_gc_heap_summary,
-               void *clazz,
-               enum jvm_gc_when_type when,
-               struct jvm_gc_heap_summary *summary) {
-    (void)ctx;
-    (void)clazz;
-
-    if (!jvm_runtime_metrics_are_enabled()) {
-        return 0;
-    }
-
-    if (jvm_current_comm_is_g1_main_marker()) {
-        return 0;
-    }
-
-    if (when != k_jvm_before_gc && when != k_jvm_after_gc) {
-        return 0;
-    }
-
-    if (!summary) {
-        return 0;
-    }
-
-    const u64 pid_tgid = bpf_get_current_pid_tgid();
-    const u32 pid = valid_pid(pid_tgid);
-    if (!pid) {
-        return 0;
-    }
-
-    const u64 ts = bpf_ktime_get_ns();
-    struct jvm_heap_summary_key key = {
-        .pid = pid,
-        .gc_when_type = when,
-    };
-
-    if (!jvm_should_sample_heap_summary(&key, ts)) {
-        return 0;
-    }
-
-    u64 used = 0;
-    if (bpf_probe_read_user(&used, sizeof(used), &summary->used) != 0) {
-        bpf_dbg_printk("jvm: failed to read GCHeapSummary.used");
-        return 0;
-    }
-
-    struct jvm_gc_heap_summary_event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
-    if (!e) {
-        return 0;
-    }
-
-    bpf_memset(e, 0, sizeof(*e));
-    e->type = EVENT_JVM_GC_HEAP_SUMMARY;
-    e->timestamp = ts;
-    jvm_fill_heap_pid_fields(pid_tgid, e);
-    e->gc_when_type = when;
-    e->used = used;
-
-    bpf_ringbuf_submit(e, get_flags());
     return 0;
 }
 

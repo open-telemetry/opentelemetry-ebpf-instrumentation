@@ -107,28 +107,6 @@ func ParseJVMMemoryPoolEvent(
 	return events, nil
 }
 
-func ParseJVMGCHeapSummaryEvent(
-	timestamp uint64,
-	nsPID uint32,
-	pidNamespaceID uint32,
-	gcWhenType RawJVMGCWhenType,
-	used uint64,
-) (JVMRuntimeEvent, error) {
-	phase, err := parseRawJVMGCPhase(gcWhenType)
-	if err != nil {
-		return JVMRuntimeEvent{}, err
-	}
-	return JVMRuntimeEvent{
-		PID:            app.PID(nsPID),
-		PIDNamespaceID: pidNamespaceID,
-		Time:           jvmKernelTime(timestamp),
-		Kind:           JVMMetricMemoryUsed,
-		MemoryType:     JVMMemoryTypeHeap,
-		GCPhase:        phase,
-		ValueBytes:     used,
-	}, nil
-}
-
 func jvmKernelTime(ktime uint64) time.Time {
 	now := jvmClocks.clock()
 	delta := jvmClocks.monoClock() - time.Duration(int64(ktime))

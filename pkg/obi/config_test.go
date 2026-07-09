@@ -41,6 +41,26 @@ import (
 
 type envMap map[string]string
 
+func TestJoinMetricsConfigIncludesPerServiceFeatures(t *testing.T) {
+	cfg := Config{
+		Metrics: perapp.MetricsConfig{
+			Features: export.FeatureApplicationRED,
+		},
+		Discovery: services.DiscoveryConfig{
+			Instrument: services.GlobDefinitionCriteria{
+				{Metrics: perapp.SvcMetricsConfig{Features: export.FeatureApplicationRuntime}},
+			},
+			Services: services.RegexDefinitionCriteria{
+				{Metrics: perapp.SvcMetricsConfig{Features: export.FeatureNetwork}},
+			},
+		},
+	}
+
+	joint := cfg.JoinMetricsConfig()
+
+	assert.Equal(t, export.FeatureApplicationRED|export.FeatureApplicationRuntime|export.FeatureNetwork, joint.Features)
+}
+
 func TestConfig_Overrides(t *testing.T) {
 	userConfig := bytes.NewBufferString(`
 log_format: json

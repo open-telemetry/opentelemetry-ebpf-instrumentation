@@ -24,7 +24,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/runtimemetrics"
 )
 
-func TestRuntimeMetricsReporterRecordsJVMHeapSummary(t *testing.T) {
+func TestRuntimeMetricsReporterRecordsJVMMemoryPoolUsed(t *testing.T) {
 	registry := prometheus.NewRegistry()
 	reporter, err := newReporter(
 		t.Context(),
@@ -47,6 +47,7 @@ func TestRuntimeMetricsReporterRecordsJVMHeapSummary(t *testing.T) {
 		JVM: &runtimemetrics.JVMRuntimeMetricSnapshot{
 			Kind:       jvmruntime.JVMMetricMemoryUsed,
 			MemoryType: jvmruntime.JVMMemoryTypeHeap,
+			PoolName:   "G1 Old Gen",
 			GCPhase:    jvmruntime.JVMGCPhaseAfter,
 			ValueBytes: 42,
 		},
@@ -57,7 +58,7 @@ func TestRuntimeMetricsReporterRecordsJVMHeapSummary(t *testing.T) {
 		"service_namespace":    "prod",
 		"service_instance_id":  "orders-1",
 		"jvm_memory_type":      "heap",
-		"jvm_memory_pool_name": "",
+		"jvm_memory_pool_name": "G1 Old Gen",
 	})
 	require.NotNil(t, metric)
 	assert.InEpsilon(t, 42.0, metric.GetGauge().GetValue(), 0)
@@ -86,6 +87,7 @@ func TestRuntimeMetricsReporterDropsJVMServiceWithoutRuntimeFeature(t *testing.T
 		JVM: &runtimemetrics.JVMRuntimeMetricSnapshot{
 			Kind:       jvmruntime.JVMMetricMemoryUsed,
 			MemoryType: jvmruntime.JVMMemoryTypeHeap,
+			PoolName:   "G1 Old Gen",
 			GCPhase:    jvmruntime.JVMGCPhaseAfter,
 			ValueBytes: 42,
 		},
@@ -96,6 +98,6 @@ func TestRuntimeMetricsReporterDropsJVMServiceWithoutRuntimeFeature(t *testing.T
 		"service_namespace":    "prod",
 		"service_instance_id":  "orders-1",
 		"jvm_memory_type":      "heap",
-		"jvm_memory_pool_name": "",
+		"jvm_memory_pool_name": "G1 Old Gen",
 	}))
 }
