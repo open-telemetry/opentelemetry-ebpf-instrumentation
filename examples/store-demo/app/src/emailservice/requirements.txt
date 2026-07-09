@@ -170,9 +170,9 @@ grpcio==1.82.0 \
     # via
     #   -r examples/store-demo/app/src/emailservice/requirements.in
     #   grpcio-health-checking
-grpcio-health-checking==1.82.0 \
-    --hash=sha256:0c78ede1bb324b1967a1e79d18b1a45908634896d1ca56b790fa87c25109d43b \
-    --hash=sha256:c4daa80b6b28caad1bb1a45cb124b1f8861b00524e39276026937e1af9bc5002
+grpcio-health-checking==1.82.1 \
+    --hash=sha256:622ed6663daf0b8c9dedb4e95a48f6db080a8129922742b5141c63cfab373219 \
+    --hash=sha256:86255e04e1d39f1c97a6632d41b63249351408de5c58e85eede87afd7d9828dd
     # via -r examples/store-demo/app/src/emailservice/requirements.in
 idna==3.18 \
     --hash=sha256:7f952cbe720b688055e3f87de14f5c3e5fdaa8bc3928985c4077ca689de849a2 \
