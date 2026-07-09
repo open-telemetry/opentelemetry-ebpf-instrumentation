@@ -111,7 +111,10 @@ func (r *fallbackResolver) Query() (string, error) {
 			}
 		}
 	}
-	return full, nil
+if full == "" {
+	return "", errors.New("can't resolve either full or short hostname")
+}
+return full, nil
 }
 
 func isLocalhost(name string) bool {
