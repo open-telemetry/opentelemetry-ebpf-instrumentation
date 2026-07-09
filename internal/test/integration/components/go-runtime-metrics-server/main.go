@@ -65,6 +65,20 @@ func runtimeMetricValues() map[string]float64 {
 		"/gc/cycles/automatic:gc-cycles",
 		"/gc/cycles/forced:gc-cycles",
 		"/gc/cycles/total:gc-cycles",
+		"/gc/heap/allocs:bytes",
+		"/gc/heap/allocs:objects",
+		"/cpu/classes/gc/mark/assist:cpu-seconds",
+		"/cpu/classes/gc/mark/dedicated:cpu-seconds",
+		"/cpu/classes/gc/mark/idle:cpu-seconds",
+		"/cpu/classes/gc/pause:cpu-seconds",
+		"/cpu/classes/idle:cpu-seconds",
+		"/cpu/classes/scavenge/assist:cpu-seconds",
+		"/cpu/classes/scavenge/background:cpu-seconds",
+		"/cpu/classes/user:cpu-seconds",
+		"/sched/goroutines:goroutines",
+		"/memory/classes/heap/released:bytes",
+		"/memory/classes/heap/stacks:bytes",
+		"/memory/classes/total:bytes",
 		"/sched/gomaxprocs:threads",
 	}
 	samples := make([]runtimemetrics.Sample, len(names))
@@ -82,5 +96,9 @@ func runtimeMetricValues() map[string]float64 {
 			values[sample.Name] = sample.Value.Float64()
 		}
 	}
+	values["go.memory.used/stack"] = values["/memory/classes/heap/stacks:bytes"]
+	values["go.memory.used/other"] = values["/memory/classes/total:bytes"] -
+		values["/memory/classes/heap/released:bytes"] -
+		values["/memory/classes/heap/stacks:bytes"]
 	return values
 }

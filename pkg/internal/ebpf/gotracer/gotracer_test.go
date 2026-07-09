@@ -54,6 +54,18 @@ func TestMissingGoChannelOffsetsUseSentinel(t *testing.T) {
 	assert.Zero(t, offTable.Table[goexec.ConnFdPos])
 }
 
+func TestGoRuntimeMetricOffsetsRequireAllFields(t *testing.T) {
+	offsets := &goexec.Offsets{Field: goexec.FieldOffsets{}}
+	for _, field := range goRuntimeMetricOffsetFields {
+		offsets.Field[field] = uint64(field)
+	}
+
+	assert.True(t, hasGoRuntimeMetricOffsets(offsets))
+
+	delete(offsets.Field, goRuntimeMetricOffsetFields[0])
+	assert.False(t, hasGoRuntimeMetricOffsets(offsets))
+}
+
 func TestProcessBinarySelectsRecordedChannelOffsetState(t *testing.T) {
 	tracer := &Tracer{
 		goChannelOffsetsByIno: map[uint64]bool{

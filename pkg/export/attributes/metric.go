@@ -154,6 +154,31 @@ var (
 		Prom:    "go_memory_gc_cycles_total",
 		OTEL:    "go.memory.gc.cycles",
 	}
+	GoRuntimeMemoryUsed = Name{
+		Section: "go.memory.used",
+		Prom:    "go_memory_used_bytes",
+		OTEL:    "go.memory.used",
+	}
+	GoRuntimeMemoryAllocated = Name{
+		Section: "go.memory.allocated",
+		Prom:    "go_memory_allocated_bytes_total",
+		OTEL:    "go.memory.allocated",
+	}
+	GoRuntimeMemoryAllocations = Name{
+		Section: "go.memory.allocations",
+		Prom:    "go_memory_allocations_total",
+		OTEL:    "go.memory.allocations",
+	}
+	GoRuntimeCPUTime = Name{
+		Section: "go.cpu.time",
+		Prom:    "go_cpu_time_seconds_total",
+		OTEL:    "go.cpu.time",
+	}
+	GoRuntimeGoroutineCount = Name{
+		Section: "go.goroutine.count",
+		Prom:    "go_goroutine_count",
+		OTEL:    "go.goroutine.count",
+	}
 	GoRuntimeProcessorLimit = Name{
 		Section: "go.processor.limit",
 		Prom:    "go_processor_limit",

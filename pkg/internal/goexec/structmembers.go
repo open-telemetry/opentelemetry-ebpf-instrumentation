@@ -141,6 +141,34 @@ const (
 	RuntimeMemstatsNumForcedGCPos
 	RuntimeGCControllerMemoryLimitPos
 	RuntimeGCControllerGCPercentPos
+	RuntimeMemstatsHeapStatsPos
+	RuntimeMemstatsStacksSysPos
+	RuntimeMemstatsMspanSysPos
+	RuntimeMemstatsMcacheSysPos
+	RuntimeMemstatsBuckhashSysPos
+	RuntimeMemstatsGCMiscSysPos
+	RuntimeMemstatsOtherSysPos
+	RuntimeConsistentHeapStatsStatsPos
+	RuntimeHeapStatsDeltaCommittedPos
+	RuntimeHeapStatsDeltaInStacksPos
+	RuntimeHeapStatsDeltaLargeAllocPos
+	RuntimeHeapStatsDeltaLargeAllocCountPos
+	RuntimeHeapStatsDeltaSmallAllocCountPos
+	RuntimeHeapStatsDeltaSmallFreeCountPos
+	RuntimeWorkCPUStatsPos
+	RuntimeCPUStatsGCAssistTimePos
+	RuntimeCPUStatsGCDedicatedTimePos
+	RuntimeCPUStatsGCIdleTimePos
+	RuntimeCPUStatsGCPauseTimePos
+	RuntimeCPUStatsScavengeAssistTimePos
+	RuntimeCPUStatsScavengeBgTimePos
+	RuntimeCPUStatsIdleTimePos
+	RuntimeCPUStatsUserTimePos
+	RuntimeSchedNgSysPos
+	RuntimeSchedGFreeStackPos
+	RuntimeSchedGFreeNoStackPos
+	RuntimePFreeGPos
+	RuntimeGListSizePos
 )
 
 //go:embed offsets.json
@@ -152,6 +180,33 @@ type structInfo struct {
 	lib string
 	// fields of the struct as key, and the name of the constant defined in the eBPF code as value
 	fields map[string]GoOffset
+}
+
+type nestedStructField struct {
+	parentType  string
+	parentField string
+	childField  string
+	offset      GoOffset
+}
+
+const (
+	runtimePointerSize = 8
+	runtimeInt32Size   = 4
+)
+
+var nestedRuntimeFields = []nestedStructField{
+	{
+		parentType:  "runtime.schedt",
+		parentField: "gFree",
+		childField:  "stack",
+		offset:      RuntimeSchedGFreeStackPos,
+	},
+	{
+		parentType:  "runtime.schedt",
+		parentField: "gFree",
+		childField:  "noStack",
+		offset:      RuntimeSchedGFreeNoStackPos,
+	},
 }
 
 // level-1 key = Struct type name and its containing library
@@ -523,8 +578,15 @@ var structMembers = map[string]structInfo{
 	"runtime.mstats": {
 		lib: "go",
 		fields: map[string]GoOffset{
-			"numgc":       RuntimeMemstatsNumGCPos,
-			"numforcedgc": RuntimeMemstatsNumForcedGCPos,
+			"heapStats":    RuntimeMemstatsHeapStatsPos,
+			"stacks_sys":   RuntimeMemstatsStacksSysPos,
+			"mspan_sys":    RuntimeMemstatsMspanSysPos,
+			"mcache_sys":   RuntimeMemstatsMcacheSysPos,
+			"buckhash_sys": RuntimeMemstatsBuckhashSysPos,
+			"gcMiscSys":    RuntimeMemstatsGCMiscSysPos,
+			"other_sys":    RuntimeMemstatsOtherSysPos,
+			"numgc":        RuntimeMemstatsNumGCPos,
+			"numforcedgc":  RuntimeMemstatsNumForcedGCPos,
 		},
 	},
 	"runtime.gcControllerState": {
@@ -532,6 +594,60 @@ var structMembers = map[string]structInfo{
 		fields: map[string]GoOffset{
 			"memoryLimit": RuntimeGCControllerMemoryLimitPos,
 			"gcPercent":   RuntimeGCControllerGCPercentPos,
+		},
+	},
+	"runtime.consistentHeapStats": {
+		lib: "go",
+		fields: map[string]GoOffset{
+			"stats": RuntimeConsistentHeapStatsStatsPos,
+		},
+	},
+	"runtime.heapStatsDelta": {
+		lib: "go",
+		fields: map[string]GoOffset{
+			"committed":       RuntimeHeapStatsDeltaCommittedPos,
+			"inStacks":        RuntimeHeapStatsDeltaInStacksPos,
+			"largeAlloc":      RuntimeHeapStatsDeltaLargeAllocPos,
+			"largeAllocCount": RuntimeHeapStatsDeltaLargeAllocCountPos,
+			"smallAllocCount": RuntimeHeapStatsDeltaSmallAllocCountPos,
+			"smallFreeCount":  RuntimeHeapStatsDeltaSmallFreeCountPos,
+		},
+	},
+	"runtime.workType": {
+		lib: "go",
+		fields: map[string]GoOffset{
+			"cpuStats": RuntimeWorkCPUStatsPos,
+		},
+	},
+	"runtime.cpuStats": {
+		lib: "go",
+		fields: map[string]GoOffset{
+			"GCAssistTime":       RuntimeCPUStatsGCAssistTimePos,
+			"GCDedicatedTime":    RuntimeCPUStatsGCDedicatedTimePos,
+			"GCIdleTime":         RuntimeCPUStatsGCIdleTimePos,
+			"GCPauseTime":        RuntimeCPUStatsGCPauseTimePos,
+			"ScavengeAssistTime": RuntimeCPUStatsScavengeAssistTimePos,
+			"ScavengeBgTime":     RuntimeCPUStatsScavengeBgTimePos,
+			"IdleTime":           RuntimeCPUStatsIdleTimePos,
+			"UserTime":           RuntimeCPUStatsUserTimePos,
+		},
+	},
+	"runtime.schedt": {
+		lib: "go",
+		fields: map[string]GoOffset{
+			"ngsys": RuntimeSchedNgSysPos,
+		},
+	},
+	"runtime.p": {
+		lib: "go",
+		fields: map[string]GoOffset{
+			"gFree": RuntimePFreeGPos,
+		},
+	},
+	"runtime.gList": {
+		lib: "go",
+		fields: map[string]GoOffset{
+			"size": RuntimeGListSizePos,
 		},
 	},
 }
@@ -672,7 +788,66 @@ func structMemberPreFetchedOffsets(elfFile *elf.File, fieldOffsets FieldOffsets)
 			fieldOffsets[constantName] = offset
 		}
 	}
+	version, ok := libVersions["go"]
+	resolveNestedStructPreFetchedOffsets(offs, fieldOffsets, cleanLibVersion(version, ok, "go", log), log)
 	return fieldOffsets, nil
+}
+
+func resolveNestedStructPreFetchedOffsets(
+	offs *offsets.Track,
+	fieldOffsets FieldOffsets,
+	goVersion string,
+	log *slog.Logger,
+) {
+	// offsets.json stores direct fields only. Derive schedt.gFree.stack/noStack
+	// from schedt.gFree plus the runtime mutex and gList layouts for stripped binaries.
+	if _, ok := fieldOffsets[RuntimeSchedGFreeStackPos]; ok {
+		if _, ok := fieldOffsets[RuntimeSchedGFreeNoStackPos]; ok {
+			return
+		}
+	}
+
+	gFreeOff, ok := offs.Find("runtime.schedt", "gFree", goVersion)
+	if !ok {
+		log.Debug("can't find offsets for nested field parent",
+			"lib", "go", "name", "runtime.schedt", "field", "gFree", "version", goVersion)
+		return
+	}
+	mutexKeyOff, ok := offs.Find("runtime.mutex", "key", goVersion)
+	if !ok {
+		log.Debug("can't find offsets for nested field parent member",
+			"lib", "go", "name", "runtime.mutex", "field", "key", "version", goVersion)
+		return
+	}
+	gListSizeOff, ok := offs.Find("runtime.gList", "size", goVersion)
+	if !ok {
+		log.Debug("can't find offsets for nested field child layout",
+			"lib", "go", "name", "runtime.gList", "field", "size", "version", goVersion)
+		return
+	}
+
+	mutexSize := alignRuntimeOffset(mutexKeyOff+runtimePointerSize, runtimePointerSize)
+	gListSize := alignRuntimeOffset(gListSizeOff+runtimeInt32Size, runtimePointerSize)
+	stackOff := gFreeOff + mutexSize
+	noStackOff := stackOff + gListSize
+
+	if _, ok := fieldOffsets[RuntimeSchedGFreeStackPos]; !ok {
+		log.Debug("found nested offset",
+			"fieldName", "gFree.stack", "constantOffset", RuntimeSchedGFreeStackPos, "offset", stackOff)
+		fieldOffsets[RuntimeSchedGFreeStackPos] = stackOff
+	}
+	if _, ok := fieldOffsets[RuntimeSchedGFreeNoStackPos]; !ok {
+		log.Debug("found nested offset",
+			"fieldName", "gFree.noStack", "constantOffset", RuntimeSchedGFreeNoStackPos, "offset", noStackOff)
+		fieldOffsets[RuntimeSchedGFreeNoStackPos] = noStackOff
+	}
+}
+
+func alignRuntimeOffset(offset, alignment uint64) uint64 {
+	if alignment == 0 || offset%alignment == 0 {
+		return offset
+	}
+	return offset + alignment - offset%alignment
 }
 
 // structMemberOffsetsFromDwarf reads the executable dwarf information to get
@@ -685,6 +860,9 @@ func structMemberOffsetsFromDwarf(data *dwarf.Data) (FieldOffsets, map[GoOffset]
 			expectedReturns[ctName] = struct{}{}
 		}
 	}
+	for _, field := range nestedRuntimeFields {
+		expectedReturns[field.offset] = struct{}{}
+	}
 	log.Debug("searching offests for field constants", "constants", expectedReturns)
 
 	fieldOffsets := FieldOffsets{}
@@ -693,9 +871,11 @@ func structMemberOffsetsFromDwarf(data *dwarf.Data) (FieldOffsets, map[GoOffset]
 		entry, err := reader.Next()
 		if err != nil {
 			log.Debug("error reading DWARF info", "data", err)
+			resolveNestedStructOffsets(data, expectedReturns, fieldOffsets)
 			return fieldOffsets, expectedReturns
 		}
 		if entry == nil { // END of dwarf data
+			resolveNestedStructOffsets(data, expectedReturns, fieldOffsets)
 			return fieldOffsets, expectedReturns
 		}
 		if entry.Tag != dwarf.TagStructType {
@@ -715,8 +895,123 @@ func structMemberOffsetsFromDwarf(data *dwarf.Data) (FieldOffsets, map[GoOffset]
 		log.Debug("inspecting fields for struct type", "type", typeName)
 		if err := readMembers(reader, structMember.fields, expectedReturns, fieldOffsets); err != nil {
 			log.Debug("error reading DWARF info", "type", typeName, "error", err)
+			resolveNestedStructOffsets(data, expectedReturns, fieldOffsets)
 			return fieldOffsets, expectedReturns
 		}
+	}
+}
+
+// resolveNestedStructOffsets resolves nested fields that the normal DWARF scan
+// cannot resolve directly, such as runtime.schedt.gFree.stack, by following the
+// parent field type and adding the child field offset.
+func resolveNestedStructOffsets(
+	data *dwarf.Data,
+	expectedReturns map[GoOffset]struct{},
+	offsets FieldOffsets,
+) {
+	if len(nestedRuntimeFields) == 0 {
+		return
+	}
+
+	fieldsByParent := map[string][]nestedStructField{}
+	for _, field := range nestedRuntimeFields {
+		if _, ok := expectedReturns[field.offset]; ok {
+			fieldsByParent[field.parentType] = append(fieldsByParent[field.parentType], field)
+		}
+	}
+	if len(fieldsByParent) == 0 {
+		return
+	}
+
+	reader := data.Reader()
+	for {
+		entry, err := reader.Next()
+		if err != nil || entry == nil {
+			return
+		}
+		if entry.Tag != dwarf.TagStructType {
+			continue
+		}
+		attrs := getAttrs(entry)
+		typeName, ok := attrs[dwarf.AttrName].(string)
+		if !ok {
+			reader.SkipChildren()
+			continue
+		}
+		fields, ok := fieldsByParent[typeName]
+		if !ok {
+			reader.SkipChildren()
+			continue
+		}
+
+		resolveNestedStructOffsetsForType(data, reader, fields, expectedReturns, offsets)
+	}
+}
+
+func resolveNestedStructOffsetsForType(
+	data *dwarf.Data,
+	reader dwarfReader,
+	fields []nestedStructField,
+	expectedReturns map[GoOffset]struct{},
+	offsets FieldOffsets,
+) {
+	for {
+		entry, err := reader.Next()
+		if err != nil || entry == nil || entry.Tag == 0 {
+			return
+		}
+		attrs := getAttrs(entry)
+		name, ok := attrs[dwarf.AttrName].(string)
+		if !ok {
+			continue
+		}
+
+		for _, field := range fields {
+			if name != field.parentField {
+				continue
+			}
+			parentLoc, ok := attrs[dwarf.AttrDataMemberLoc].(int64)
+			if !ok {
+				continue
+			}
+			childType, ok := attrs[dwarf.AttrType].(dwarf.Offset)
+			if !ok {
+				continue
+			}
+			childLoc, ok := structFieldOffset(data, childType, field.childField)
+			if !ok {
+				continue
+			}
+
+			offsets[field.offset] = uint64(parentLoc) + childLoc
+			delete(expectedReturns, field.offset)
+		}
+	}
+}
+
+func structFieldOffset(data *dwarf.Data, structType dwarf.Offset, fieldName string) (uint64, bool) {
+	reader := data.Reader()
+	reader.Seek(structType)
+	entry, err := reader.Next()
+	if err != nil || entry == nil || entry.Tag != dwarf.TagStructType {
+		return 0, false
+	}
+
+	for {
+		entry, err := reader.Next()
+		if err != nil || entry == nil || entry.Tag == 0 {
+			return 0, false
+		}
+		attrs := getAttrs(entry)
+		name, ok := attrs[dwarf.AttrName].(string)
+		if !ok || name != fieldName {
+			continue
+		}
+		location, ok := attrs[dwarf.AttrDataMemberLoc].(int64)
+		if !ok {
+			return 0, false
+		}
+		return uint64(location), true
 	}
 }
 

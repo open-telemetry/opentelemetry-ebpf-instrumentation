@@ -88,14 +88,50 @@ typedef struct go_runtime_metric_target {
     u64 memstats_addr;
     u64 gc_controller_addr;
     u64 gomaxprocs_addr;
+    u64 work_addr;
+    u64 sched_addr;
+    u64 allglen_addr;
+    u64 allp_addr;
+    u64 size_class_to_sizes_addr;
+    bool goroutine_count_includes_system;
+    u8 _pad[7];
 } go_runtime_metric_target_t;
 
+// Bits for go_runtime_metric_snapshot.valid_mask. A set bit means the
+// corresponding metric group was populated; zero values may still be valid.
+// Keep in sync with pkg/runtimemetrics/reader.go.
+typedef enum go_runtime_metric_valid {
+    go_runtime_metric_valid_gc_cycles = 1 << 0,
+    go_runtime_metric_valid_memory_limit = 1 << 1,
+    go_runtime_metric_valid_processor_limit = 1 << 2,
+    go_runtime_metric_valid_gogc = 1 << 3,
+    go_runtime_metric_valid_memory_used = 1 << 4,
+    go_runtime_metric_valid_memory_allocations = 1 << 5,
+    go_runtime_metric_valid_cpu_time = 1 << 6,
+    go_runtime_metric_valid_goroutine_count = 1 << 7,
+} go_runtime_metric_valid_t;
+
 typedef struct go_runtime_metric_snapshot {
+    // Presence bits for the zero-initialized fields below.
+    u64 valid_mask;
     u32 num_gc;
-    u32 num_forced_gc;
     s32 gomaxprocs;
     s32 gc_percent;
+    u32 _pad;
     s64 memory_limit;
+    s64 memory_used_stack;
+    s64 memory_used_other;
+    u64 memory_allocated;
+    u64 memory_allocations;
+    s64 cpu_gc_assist_time;
+    s64 cpu_gc_dedicated_time;
+    s64 cpu_gc_idle_time;
+    s64 cpu_gc_pause_time;
+    s64 cpu_scavenge_assist_time;
+    s64 cpu_scavenge_bg_time;
+    s64 cpu_idle_time;
+    s64 cpu_user_time;
+    s64 goroutine_count;
 } go_runtime_metric_snapshot_t;
 
 typedef struct go_runtime_metric_event {

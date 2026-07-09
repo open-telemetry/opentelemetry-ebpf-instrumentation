@@ -27,8 +27,8 @@ func TestConvertGoRuntimeMetricSnapshot(t *testing.T) {
 	service := svc.Attrs{UID: svc.UID{Name: "svc"}}
 
 	snapshot := convertGoRuntimeMetricSnapshot(service, app.PID(123), goRuntimeMetricRawSnapshot{
+		ValidMask:   goRuntimeMetricValidGCCycles | goRuntimeMetricValidMemoryLimit | goRuntimeMetricValidProcessorLimit | goRuntimeMetricValidGOGC,
 		NumGC:       10,
-		NumForcedGC: 3,
 		GOMAXPROCS:  4,
 		GCPercent:   100,
 		MemoryLimit: 1024,
@@ -43,8 +43,8 @@ func TestConvertGoRuntimeMetricSnapshot(t *testing.T) {
 
 func TestConvertGoRuntimeMetricSnapshotSuppressesUnavailableValues(t *testing.T) {
 	snapshot := convertGoRuntimeMetricSnapshot(svc.Attrs{}, app.PID(123), goRuntimeMetricRawSnapshot{
+		ValidMask:   goRuntimeMetricValidGCCycles | goRuntimeMetricValidMemoryLimit | goRuntimeMetricValidGOGC,
 		NumGC:       1,
-		NumForcedGC: 1,
 		GCPercent:   -1,
 		MemoryLimit: math.MaxInt64,
 	})
@@ -53,11 +53,11 @@ func TestConvertGoRuntimeMetricSnapshotSuppressesUnavailableValues(t *testing.T)
 	require.Nil(t, snapshot.Go.MemoryLimit)
 }
 
-func TestConvertGoRuntimeMetricSnapshotUsesTotalGCCycles(t *testing.T) {
+func TestConvertGoRuntimeMetricSnapshotUsesNumGCForGCCycles(t *testing.T) {
 	snapshot := convertGoRuntimeMetricSnapshot(svc.Attrs{}, app.PID(123), goRuntimeMetricRawSnapshot{
-		NumGC:       1,
-		NumForcedGC: 2,
-		GOMAXPROCS:  4,
+		ValidMask:  goRuntimeMetricValidGCCycles | goRuntimeMetricValidProcessorLimit,
+		NumGC:      1,
+		GOMAXPROCS: 4,
 	})
 	require.NotNil(t, snapshot.Go)
 	require.Equal(t, uint64(1), *snapshot.Go.GCCycles)
@@ -66,12 +66,41 @@ func TestConvertGoRuntimeMetricSnapshotUsesTotalGCCycles(t *testing.T) {
 
 func TestConvertGoRuntimeMetricSnapshotSuppressesInvalidProcessorLimit(t *testing.T) {
 	snapshot := convertGoRuntimeMetricSnapshot(svc.Attrs{}, app.PID(123), goRuntimeMetricRawSnapshot{
-		NumGC:       1,
-		NumForcedGC: 1,
-		GOMAXPROCS:  0,
+		ValidMask:  goRuntimeMetricValidGCCycles | goRuntimeMetricValidProcessorLimit,
+		NumGC:      1,
+		GOMAXPROCS: 0,
 	})
 	require.NotNil(t, snapshot.Go)
 	require.Nil(t, snapshot.Go.ProcessorLimit)
+}
+
+func TestConvertGoRuntimeMetricSnapshotIncludesValidZeroValues(t *testing.T) {
+	snapshot := convertGoRuntimeMetricSnapshot(svc.Attrs{}, app.PID(123), goRuntimeMetricRawSnapshot{
+		ValidMask:             goRuntimeMetricValidGCCycles | goRuntimeMetricValidMemoryUsed | goRuntimeMetricValidMemoryAllocations | goRuntimeMetricValidCPUTime | goRuntimeMetricValidGoroutineCount,
+		MemoryUsedStack:       0,
+		MemoryUsedOther:       2048,
+		MemoryAllocated:       0,
+		MemoryAllocations:     0,
+		CPUGCAssistTime:       0,
+		CPUGCDedicatedTime:    1,
+		CPUGCIdleTime:         2,
+		CPUGCPauseTime:        3,
+		CPUScavengeAssistTime: 4,
+		CPUScavengeBgTime:     5,
+		CPUIdleTime:           6,
+		CPUUserTime:           7,
+		GoroutineCount:        1,
+	})
+
+	require.NotNil(t, snapshot.Go)
+	require.Equal(t, uint64(0), *snapshot.Go.GCCycles)
+	require.Equal(t, int64(0), *snapshot.Go.MemoryUsedStack)
+	require.Equal(t, int64(2048), *snapshot.Go.MemoryUsedOther)
+	require.Equal(t, uint64(0), *snapshot.Go.MemoryAllocated)
+	require.Equal(t, uint64(0), *snapshot.Go.MemoryAllocations)
+	require.NotNil(t, snapshot.Go.CPUTime)
+	require.Equal(t, int64(7), snapshot.Go.CPUTime.UserTime)
+	require.Equal(t, int64(1), *snapshot.Go.GoroutineCount)
 }
 
 func TestRuntimeMetricServiceRequiresRuntimeMetricsFeature(t *testing.T) {
@@ -110,8 +139,8 @@ func TestSnapshotFromRingbuf(t *testing.T) {
 			Ns:      33,
 		},
 		Snapshot: goRuntimeMetricRawSnapshot{
+			ValidMask:   goRuntimeMetricValidGCCycles | goRuntimeMetricValidMemoryLimit | goRuntimeMetricValidProcessorLimit | goRuntimeMetricValidGOGC,
 			NumGC:       10,
-			NumForcedGC: 3,
 			GOMAXPROCS:  4,
 			GCPercent:   100,
 			MemoryLimit: 1024,
@@ -204,6 +233,7 @@ func TestQueueSenderSendsGoRuntimeSnapshots(t *testing.T) {
 			Ns:      33,
 		},
 		Snapshot: goRuntimeMetricRawSnapshot{
+			ValidMask:   goRuntimeMetricValidGCCycles | goRuntimeMetricValidMemoryLimit | goRuntimeMetricValidProcessorLimit | goRuntimeMetricValidGOGC,
 			NumGC:       10,
 			GOMAXPROCS:  4,
 			GCPercent:   100,
