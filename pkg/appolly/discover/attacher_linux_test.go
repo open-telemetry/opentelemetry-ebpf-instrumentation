@@ -39,6 +39,7 @@ func TestCommonTracersPrunedAfterLoadFailure(t *testing.T) {
 	failedTracer := &failingLoadTracer{}
 
 	cfg := &obi.Config{}
+	cfg.EBPF.BPFFSPath = t.TempDir()
 	tracer := ebpf.NewProcessTracer(ebpf.Generic, []ebpf.Tracer{okTracer, failedTracer}, cfg, imetrics.NoopReporter{})
 	require.NoError(t, tracer.Init(&ebpfcommon.EBPFEventContext{}, cfg))
 	require.Equal(t, []ebpf.Tracer{okTracer}, tracer.Programs)
