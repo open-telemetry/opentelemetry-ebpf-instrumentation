@@ -24,7 +24,7 @@ type Resolver interface {
 }
 
 // CreateResolver creates a HostnameResolver.
-// If overrideFull or overrideShort are not empty strings, the hostname won't resolve automatically but will use
+// If overrideFull is not an empty string, the hostname won't resolve automatically but will use
 // the passed values.
 // If dnsResolution is true, returns a HostnameResolver that attempts to resolve the Fully Qualified Domain Name
 // as the full hostname.
@@ -32,23 +32,14 @@ type Resolver interface {
 // If the full hostname resolution process fails (e.g. due to a temporary DNS failure), it
 // returns the previous successful resolution (or the short hostname if it has never worked
 // previously).
-func CreateResolver(overrideFull, overrideShort string, dnsResolution bool) Resolver {
+func CreateResolver(overrideFull string, dnsResolution bool) Resolver {
 	var resolver *fallbackResolver
 	if dnsResolution {
 		resolver = newDNSResolver(overrideFull)
 	} else {
 		resolver = newInternalResolver(overrideFull)
 	}
-
 	resolver.short = os.Hostname
-
-	if overrideShort != "" {
-		resolver.short = func() (string, error) {
-			logger().Debug("using overriding short host name",
-				"value", overrideShort)
-			return overrideShort, nil
-		}
-	}
 	return resolver
 }
 

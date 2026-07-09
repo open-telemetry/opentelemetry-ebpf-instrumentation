@@ -68,7 +68,7 @@ type HostInstance struct {
 }
 
 func NewHostInstance(cfg *config.InstanceIDConfig) HostInstance {
-	resolver := hostname.CreateResolver(cfg.OverrideHostname, "", cfg.HostnameDNSResolution)
+	resolver := hostname.CreateResolver(cfg.OverrideHostname, cfg.HostnameDNSResolution)
 	fullHostName, err := resolver.Query()
 	log := rlog().With("function", "instance_ID_hostNamePIDDecorator")
 	if err != nil {

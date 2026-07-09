@@ -147,7 +147,7 @@ func TestHostnameResolver_FullAndInternalAreLocalhost(t *testing.T) {
 
 func TestDNSResolver(t *testing.T) {
 	// invoking a New Hostname Resolver without any overriding configuration
-	resolver := CreateResolver("", "", true)
+	resolver := CreateResolver("", true)
 
 	// resolves host names to some non-null hostnames
 	full, err := resolver.Query()
@@ -157,7 +157,7 @@ func TestDNSResolver(t *testing.T) {
 
 func TestDNSResolver_Override(t *testing.T) {
 	// invoking a New Hostname Resolver without any overriding configuration
-	resolver := CreateResolver("my-hostname.host.com", "my-hostname", true)
+	resolver := CreateResolver("my-hostname.host.com", true)
 
 	// resolves host names to the overridden hostnames
 	full, err := resolver.Query()
@@ -167,7 +167,7 @@ func TestDNSResolver_Override(t *testing.T) {
 
 func TestDNSResolver_OverrideLocalhost(t *testing.T) {
 	// invoking a New Hostname Resolver overridden with a non-recommended host name
-	resolver := CreateResolver("localhost", "", true)
+	resolver := CreateResolver("localhost", true)
 
 	// anyway resolves host names to the overridden hostname
 	full, err := resolver.Query()
@@ -177,7 +177,7 @@ func TestDNSResolver_OverrideLocalhost(t *testing.T) {
 
 func TestInternalResolver(t *testing.T) {
 	// invoking a New Hostname Resolver without any overriding configuration
-	resolver := CreateResolver("", "", false)
+	resolver := CreateResolver("", false)
 
 	// resolves host names to some non-null hostnames
 	full, err := resolver.Query()
@@ -187,7 +187,7 @@ func TestInternalResolver(t *testing.T) {
 
 func TestInternalResolver_Override(t *testing.T) {
 	// invoking a New Hostname Resolver without any overriding configuration
-	resolver := CreateResolver("my-hostname.host.com", "my-hostname", false)
+	resolver := CreateResolver("my-hostname.host.com", false)
 
 	// resolves host names to the overridden hostnames
 	full, err := resolver.Query()
@@ -197,7 +197,7 @@ func TestInternalResolver_Override(t *testing.T) {
 
 func TestInternalResolver_OverrideLocalhost(t *testing.T) {
 	// invoking a New Hostname Resolver overridden with a non-recommended host name
-	resolver := CreateResolver("localhost", "", false)
+	resolver := CreateResolver("localhost", false)
 
 	// anyway resolves host names to the overridden hostname
 	full, err := resolver.Query()
