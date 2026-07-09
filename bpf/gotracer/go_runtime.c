@@ -509,7 +509,9 @@ static __always_inline int channel_recv_start(struct pt_regs *ctx) {
     }
 
     if (dataqsiz != 0) {
-        read_channel_recvx((void *)chan_ptr, &invocation.recvx);
+        if (!read_channel_recvx((void *)chan_ptr, &invocation.recvx)) {
+            return 0;
+        }
 
         u64 qcount = 0;
         invocation.direct_handoff = read_channel_qcount((void *)chan_ptr, &qcount) && qcount == 0;
