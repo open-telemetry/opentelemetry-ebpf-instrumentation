@@ -142,8 +142,6 @@ int obi_sk_iter_tcp(struct bpf_iter__tcp *ctx) {
 
     BPF_SEQ_PRINTF(seq, "Tracking socket cookie=%llu src=%s dst=%s\n", cookie, src_buf, dst_buf);
 
-    bpf_d_printk("Tracking socket cookie=%llu src=%s dst=%s", cookie, src_buf, dst_buf);
-
     if (bpf_map_update_elem(&sock_dir, &cookie, skc, BPF_NOEXIST) != 0) {
         bpf_dbg_printk("Failed to track sock cookie=%llu", cookie);
     }
