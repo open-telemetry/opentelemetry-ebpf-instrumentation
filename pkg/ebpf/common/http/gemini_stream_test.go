@@ -466,3 +466,76 @@ func TestParseGeminiStream_SafetyRatingsPreserved(t *testing.T) {
 	require.NotNil(t, resp.Candidates[0].SafetyRatings)
 	assert.Contains(t, string(resp.Candidates[0].SafetyRatings), "HARM_CATEGORY_HATE_SPEECH")
 }
+
+func TestParseGeminiStream_StreamingFunctionCallArrayPath(t *testing.T) {
+	// Vertex AI streamFunctionCallArguments with array segments in the
+	// jsonPath. Array indices are part of the PartialArg contract (the schema
+	// example uses $.foo.bar[0].data), so the reconstructed arguments must
+	// place values inside real JSON arrays rather than under bracket-suffixed
+	// object keys like "items[0]".
+	chunk1 := `data: {"candidates":[{"content":{"parts":[{"functionCall":{"name":"create_order","partialArgs":[{"jsonPath":"$.items[0].id","numberValue":7}],"willContinue":true}}],"role":"model"}}],"modelVersion":"gemini-2.0-flash"}` + "\n\n"
+	chunk2 := `data: {"candidates":[{"content":{"parts":[{"functionCall":{"partialArgs":[{"jsonPath":"$.items[0].name","stringValue":"widget"}],"willContinue":true}}],"role":"model"}}],"modelVersion":"gemini-2.0-flash"}` + "\n\n"
+	chunk3 := `data: {"candidates":[{"content":{"parts":[{"functionCall":{"partialArgs":[{"jsonPath":"$.items[1].id","numberValue":9}]}}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":5,"candidatesTokenCount":3,"totalTokenCount":8},"modelVersion":"gemini-2.0-flash"}` + "\n\n"
+	stream := chunk1 + chunk2 + chunk3
+
+	resp, toolCalls := parseGeminiStream(strings.NewReader(stream))
+	require.NotNil(t, resp)
+	require.Len(t, toolCalls, 1)
+	assert.Equal(t, "create_order", toolCalls[0].Name)
+	require.Len(t, resp.Candidates, 1)
+
+	var parts []struct {
+		FunctionCall *struct {
+			Name string          `json:"name"`
+			Args json.RawMessage `json:"args"`
+		} `json:"functionCall"`
+	}
+	require.NoError(t, json.Unmarshal(resp.Candidates[0].Content.Parts, &parts))
+	require.Len(t, parts, 1)
+	require.NotNil(t, parts[0].FunctionCall)
+
+	// items must be reconstructed as a JSON array of objects, not as
+	// bracket-suffixed keys.
+	var args struct {
+		Items []struct {
+			ID   float64 `json:"id"`
+			Name string  `json:"name"`
+		} `json:"items"`
+	}
+	require.NoError(t, json.Unmarshal(parts[0].FunctionCall.Args, &args))
+	require.Len(t, args.Items, 2)
+	assert.InEpsilon(t, float64(7), args.Items[0].ID, 0.0001)
+	assert.Equal(t, "widget", args.Items[0].Name)
+	assert.InEpsilon(t, float64(9), args.Items[1].ID, 0.0001)
+}
+
+func TestParseGeminiStream_StreamingFunctionCallStringFragments(t *testing.T) {
+	// Vertex AI splits a single string argument across multiple PartialArg
+	// elements sharing a jsonPath, each with willContinue=true until the final
+	// terminator (willContinue=false). The fragments must be concatenated, and
+	// the trailing empty terminator must not clobber the accumulated value.
+	chunk1 := `data: {"candidates":[{"content":{"parts":[{"functionCall":{"name":"set_country","partialArgs":[{"jsonPath":"$.country","stringValue":"US","willContinue":true}],"willContinue":true}}],"role":"model"}}],"modelVersion":"gemini-2.0-flash"}` + "\n\n"
+	chunk2 := `data: {"candidates":[{"content":{"parts":[{"functionCall":{"partialArgs":[{"jsonPath":"$.country","stringValue":"A","willContinue":true}],"willContinue":true}}],"role":"model"}}],"modelVersion":"gemini-2.0-flash"}` + "\n\n"
+	chunk3 := `data: {"candidates":[{"content":{"parts":[{"functionCall":{"partialArgs":[{"jsonPath":"$.country","stringValue":"","willContinue":false}]}}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":5,"candidatesTokenCount":3,"totalTokenCount":8},"modelVersion":"gemini-2.0-flash"}` + "\n\n"
+	stream := chunk1 + chunk2 + chunk3
+
+	resp, toolCalls := parseGeminiStream(strings.NewReader(stream))
+	require.NotNil(t, resp)
+	require.Len(t, toolCalls, 1)
+	assert.Equal(t, "set_country", toolCalls[0].Name)
+	require.Len(t, resp.Candidates, 1)
+
+	var parts []struct {
+		FunctionCall *struct {
+			Name string          `json:"name"`
+			Args json.RawMessage `json:"args"`
+		} `json:"functionCall"`
+	}
+	require.NoError(t, json.Unmarshal(resp.Candidates[0].Content.Parts, &parts))
+	require.Len(t, parts, 1)
+	require.NotNil(t, parts[0].FunctionCall)
+
+	var args map[string]any
+	require.NoError(t, json.Unmarshal(parts[0].FunctionCall.Args, &args))
+	assert.Equal(t, "USA", args["country"])
+}

@@ -10,6 +10,8 @@ import (
 	"log/slog"
 	"strings"
 
+	jsonpath "github.com/ohler55/ojg/jp"
+
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 )
 
@@ -85,11 +87,32 @@ type fcAggregator struct {
 	signature string
 	// argsAccum accumulates string-fragment style partial args (legacy shape).
 	argsAccum strings.Builder
-	// argsObj reconstructs args from Vertex AI's {jsonPath, value} partialArgs
-	// array elements.
-	argsObj    map[string]any
+	// argsObj reconstructs args from Vertex AI's {jsonPath, <typed value>}
+	// partialArgs array elements.
+	argsObj map[string]any
+	// strFrags accumulates streamed string fragments per jsonPath. Vertex AI
+	// splits a single string argument across multiple PartialArg elements that
+	// share a jsonPath and set willContinue=true until the final fragment, so
+	// the fragments must be concatenated rather than overwritten.
+	strFrags   map[string]string
 	hasFullArg bool            // true if args came as a complete JSON object
 	fullArg    json.RawMessage // stored when args is a complete JSON object
+}
+
+// geminiPartialArg mirrors a single Vertex AI PartialArg element from the
+// streamFunctionCallArguments feature. Each element targets a JSONPath within
+// the reconstructed arguments object and carries exactly one typed value from
+// the value union (stringValue / numberValue / boolValue / nullValue). A string
+// value may be split across multiple elements sharing a jsonPath, with
+// willContinue=true on every fragment except the last.
+// See https://docs.cloud.google.com/vertex-ai/generative-ai/docs/reference/rpc/google.cloud.aiplatform.v1#partialarg
+type geminiPartialArg struct {
+	JSONPath     string          `json:"jsonPath"`
+	StringValue  *string         `json:"stringValue"`
+	NumberValue  *float64        `json:"numberValue"`
+	BoolValue    *bool           `json:"boolValue"`
+	NullValue    json.RawMessage `json:"nullValue"`
+	WillContinue *bool           `json:"willContinue"`
 }
 
 // addPartialArgs interprets a raw partialArgs value, supporting both the
@@ -108,65 +131,116 @@ func (fc *fcAggregator) addPartialArgs(raw json.RawMessage) {
 			fc.argsAccum.WriteString(frag)
 		}
 	case '[':
-		// Vertex AI array shape: each element carries a jsonPath and a typed
-		// value. Reconstruct the args object from paths and values.
-		var elems []map[string]json.RawMessage
+		// Vertex AI array shape: each element carries a jsonPath and exactly
+		// one typed value from the value union.
+		var elems []geminiPartialArg
 		if err := json.Unmarshal(raw, &elems); err != nil {
 			return
 		}
-		if fc.argsObj == nil {
-			fc.argsObj = map[string]any{}
-		}
-		for _, elem := range elems {
-			pathRaw, ok := elem["jsonPath"]
-			if !ok {
-				continue
-			}
-			var path string
-			if err := json.Unmarshal(pathRaw, &path); err != nil {
-				continue
-			}
-			// The value is carried in the first non-jsonPath field. This is
-			// robust to the exact typed-value key (stringValue, numberValue,
-			// value, ...) since we keep the raw JSON value verbatim.
-			var value any
-			for k, v := range elem {
-				if k == "jsonPath" {
-					continue
-				}
-				_ = json.Unmarshal(v, &value)
-				break
-			}
-			setByJSONPath(fc.argsObj, path, value)
+		for i := range elems {
+			fc.applyPartialArg(&elems[i])
 		}
 	}
 }
 
-// setByJSONPath assigns value at a simple dotted JSON path (e.g. "$.a.b") into
-// the target map, creating intermediate objects as needed. Array indices and
-// complex expressions are not supported and are skipped.
-func setByJSONPath(m map[string]any, path string, value any) {
-	path = strings.TrimPrefix(path, "$")
-	path = strings.TrimPrefix(path, ".")
-	if path == "" {
+// applyPartialArg decodes one PartialArg's typed value and assigns it at the
+// element's jsonPath. String values are accumulated per path across fragments
+// (Vertex AI streams them with willContinue=true until the final fragment) so
+// that a trailing empty terminator does not clobber the accumulated text; other
+// typed values are assigned directly.
+func (fc *fcAggregator) applyPartialArg(arg *geminiPartialArg) {
+	if arg.JSONPath == "" {
 		return
 	}
-	keys := strings.Split(path, ".")
-	cur := m
-	for i, k := range keys {
-		if k == "" {
-			return
+	if fc.argsObj == nil {
+		fc.argsObj = map[string]any{}
+	}
+	switch {
+	case arg.StringValue != nil:
+		if fc.strFrags == nil {
+			fc.strFrags = map[string]string{}
 		}
-		if i == len(keys)-1 {
-			cur[k] = value
-			return
+		acc := fc.strFrags[arg.JSONPath] + *arg.StringValue
+		fc.strFrags[arg.JSONPath] = acc
+		setByJSONPath(fc.argsObj, arg.JSONPath, acc)
+		// Once the provider signals the fragment sequence is complete, drop
+		// the per-path accumulator so a later argument at the same path starts
+		// fresh.
+		if arg.WillContinue == nil || !*arg.WillContinue {
+			delete(fc.strFrags, arg.JSONPath)
 		}
-		next, ok := cur[k].(map[string]any)
-		if !ok {
-			next = map[string]any{}
-			cur[k] = next
+	case arg.NumberValue != nil:
+		setByJSONPath(fc.argsObj, arg.JSONPath, *arg.NumberValue)
+	case arg.BoolValue != nil:
+		setByJSONPath(fc.argsObj, arg.JSONPath, *arg.BoolValue)
+	case arg.NullValue != nil:
+		setByJSONPath(fc.argsObj, arg.JSONPath, nil)
+	}
+}
+
+// setByJSONPath assigns value at the given JSONPath within the target map,
+// creating intermediate objects and arrays as needed. It reuses the shared
+// github.com/ohler55/ojg/jp parser so array segments (e.g. "$.items[0].id")
+// are handled per the Vertex AI contract instead of a hand-rolled dotted-key
+// parser. Invalid paths are skipped rather than fatal.
+func setByJSONPath(m map[string]any, path string, value any) {
+	expr, err := jsonpath.ParseString(path)
+	if err != nil {
+		return
+	}
+	frags := stripRootFrags([]jsonpath.Frag(expr))
+	if len(frags) == 0 {
+		return
+	}
+	setAtFrags(m, frags, value)
+}
+
+// stripRootFrags drops the leading root ("$") or current-node ("@") markers
+// from a parsed JSONPath so the remaining fragments describe the location
+// relative to the target map.
+func stripRootFrags(frags []jsonpath.Frag) []jsonpath.Frag {
+	for len(frags) > 0 {
+		switch frags[0].(type) {
+		case jsonpath.Root, jsonpath.At:
+			frags = frags[1:]
+		default:
+			return frags
 		}
-		cur = next
+	}
+	return frags
+}
+
+// setAtFrags recursively assigns value at the location described by frags
+// within container, creating intermediate maps and arrays (including nested
+// array elements) as needed. It returns the possibly reallocated container so
+// callers can reattach a grown slice. Only plain object-key (Child) and array
+// index (Nth) fragments are supported; other fragment kinds stop the descent.
+func setAtFrags(container any, frags []jsonpath.Frag, value any) any {
+	if len(frags) == 0 {
+		return value
+	}
+	switch f := frags[0].(type) {
+	case jsonpath.Child:
+		m, ok := container.(map[string]any)
+		if !ok || m == nil {
+			m = map[string]any{}
+		}
+		key := string(f)
+		m[key] = setAtFrags(m[key], frags[1:], value)
+		return m
+	case jsonpath.Nth:
+		idx := int(f)
+		if idx < 0 {
+			return container
+		}
+		s, _ := container.([]any)
+		for len(s) <= idx {
+			s = append(s, nil)
+		}
+		s[idx] = setAtFrags(s[idx], frags[1:], value)
+		return s
+	default:
+		return container
 	}
 }
 
