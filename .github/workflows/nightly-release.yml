@@ -14,8 +14,7 @@ on:
     - cron: "0 2 * * *"
   workflow_dispatch:
 
-permissions:
-  contents: read
+permissions: {}
 
 jobs:
   # Derive the dated nightly version string (nightly-<YYYYMMDD>).

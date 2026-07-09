@@ -83,13 +83,13 @@ jobs:
           flavor: |
             latest=false
           tags: |
-            type=semver,pattern=v{{version}},value=${{ inputs.ref }}
+            type=semver,pattern=v{{version}},value=${{ inputs.ref }},enable=${{ inputs.ref != '' }}
             type=raw,value=latest,enable=${{ inputs.latest == true }}
             type=raw,value=${{ inputs.nightly_version }},enable=${{ inputs.nightly_version != '' }}
             type=raw,value=nightly,enable=${{ inputs.nightly_version != '' }}
-            type=ref,event=branch
+            type=ref,event=branch,enable=${{ inputs.nightly_version == '' }}
             type=ref,event=tag
-            type=sha,prefix=,format=short
+            type=sha,prefix=,format=short,enable=${{ inputs.nightly_version == '' && inputs.ref == '' }}
 
       - name: Build and push by digest
         id: build
@@ -165,13 +165,13 @@ jobs:
           flavor: |
             latest=false
           tags: |
-            type=semver,pattern=v{{version}},value=${{ inputs.ref }}
+            type=semver,pattern=v{{version}},value=${{ inputs.ref }},enable=${{ inputs.ref != '' }}
             type=raw,value=latest,enable=${{ inputs.latest == true }}
             type=raw,value=${{ inputs.nightly_version }},enable=${{ inputs.nightly_version != '' }}
             type=raw,value=nightly,enable=${{ inputs.nightly_version != '' }}
-            type=ref,event=branch
+            type=ref,event=branch,enable=${{ inputs.nightly_version == '' }}
             type=ref,event=tag
-            type=sha,prefix=,format=short
+            type=sha,prefix=,format=short,enable=${{ inputs.nightly_version == '' && inputs.ref == '' }}
 
       - name: Create manifest list and push
         env:
