@@ -23,18 +23,14 @@ const (
 
 // Fake functions for testing
 
-func workingFull(_ string) (string, error)     { return fullName, nil }
-func workingFull2(_ string) (string, error)    { return fullName2, nil }
-func failingFull(_ string) (string, error)     { return "", errors.New("catapun") }
-func misbehavingFull(_ string) (string, error) { return "", nil } // Doesn't fail but returns empty hostname
-func workingShort() (string, error)            { return shortName, nil }
-func workingShort2() (string, error)           { return shortName2, nil }
-func failingShort() (string, error)            { return "", errors.New("patapam") }
-func misbehavingShort() (string, error)        { return "", nil } // Doesn't fail but returns empty hostname
-func localhostFull(_ string) (string, error)   { return "localhost", nil }
-func localhostShort() (string, error)          { return "localhost", nil }
-func internalFull() (string, error)            { return fullName, nil }
-func internal() (string, error)                { return internalName, nil }
+func workingFull(_ string) (string, error)   { return fullName, nil }
+func failingFull(_ string) (string, error)   { return "", errors.New("catapun") }
+func workingShort() (string, error)          { return shortName, nil }
+func failingShort() (string, error)          { return "", errors.New("patapam") }
+func localhostFull(_ string) (string, error) { return "localhost", nil }
+func localhostShort() (string, error)        { return "localhost", nil }
+func internalFull() (string, error)          { return fullName, nil }
+func internal() (string, error)              { return internalName, nil }
 
 // Actual tests
 
