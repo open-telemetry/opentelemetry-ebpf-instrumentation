@@ -79,11 +79,9 @@ type fallbackResolver struct {
 
 // Query returns the full and the short host name, or error if none of both can't be returned.
 // This implementation assumes the full host name may fail since it can depend on an external
-// service (e.g. a DNS server). If the full name resolution fails, it considers the following
-// fallback actions (in priority):
-// 1 - return the previous successful full name resolution
-// 2 - ask for the full hostname to the OS (and consider the returned value as successful)
-// 3 - The short host name if it has never been successfully resolved.
+// Query returns the full hostname, or an error if no hostname can be resolved.
+// If full hostname resolution fails or returns a localhost name, it falls back
+// to the internal hostname and then the short hostname.
 func (r *fallbackResolver) Query() (string, error) {
 	if r.overriddenFull != "" {
 		return r.overriddenFull, nil
