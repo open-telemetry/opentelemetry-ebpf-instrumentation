@@ -129,8 +129,9 @@ func newFrameworkPatterns() *FrameworkPatterns {
 		// Matches: server.get('/path', ...), server.post('/users/:id', ...)
 		Restify: regexp.MustCompile(`\.(get|post|put|patch|del|head|opts)\s*\(\s*['"\x60]([^'"\x60]+)['"\x60]`),
 
-		// Matches: @Get('/users/:id'), @Post('/items')
-		NestJS: regexp.MustCompile(`@(Get|Post|Put|Patch|Delete|Options|Head|All)\s*\(\s*['"\x60]([^'"\x60]*?)['"\x60]\s*\)`),
+		// Matches: @Get('/users/:id'), @Post('/items'), and bare decorators such
+		// as @Post(), which NestJS routes at the controller prefix
+		NestJS: regexp.MustCompile(`@(Get|Post|Put|Patch|Delete|Options|Head|All)\s*\(\s*(?:['"\x60]([^'"\x60]*?)['"\x60]\s*)?\)`),
 
 		// Matches: @Controller('users'), @Controller("api/v1/posts"), @Controller()
 		NestJSController: regexp.MustCompile(`@Controller\s*\(\s*(?:['"\x60]([^'"\x60]*)['"\x60])?\s*\)`),

@@ -740,9 +740,13 @@ func TestHandleNestJS(t *testing.T) {
 			},
 		},
 		{
-			name:  "NestJS decorator with empty path (defaults to /)",
+			name:  "NestJS bare decorator (routes at the controller prefix)",
 			line:  "  @Get()",
-			found: false,
+			found: true,
+			expected: &RoutePattern{
+				Method: "GET",
+				Path:   "/",
+			},
 		},
 		{
 			name:  "NestJS @Get with empty string (defaults to /)",
@@ -1601,6 +1605,7 @@ func TestExtractNestJSFastifyApp(t *testing.T) {
 		"/invoice/start",
 		"/invoice/:id",
 		"/invoice/:id/receipt",
+		"/callbacks/acme",
 	}, routes)
 }
 
@@ -1612,9 +1617,13 @@ func TestNestJSControllerPrefixSwitchesPerClass(t *testing.T) {
 	routes := extractor.GetHarvestedRoutes()
 
 	// The fixture declares three controllers ('users', 'api/v1/posts', 'health');
-	// each method decorator resolves against the prefix of its own controller.
+	// each method decorator resolves against the prefix of its own controller,
+	// and bare decorators (@Get(), @Post()) route at the prefix itself.
 	assert.ElementsMatch(t, []string{
+		"/users",
 		"/users/:id",
+		"/api/v1/posts",
 		"/api/v1/posts/:postId/comments",
+		"/health",
 	}, routes)
 }
