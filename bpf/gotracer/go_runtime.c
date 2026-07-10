@@ -385,10 +385,10 @@ static __always_inline void record_buffered_channel_sender(const go_addr_key_t *
     bpf_map_update_elem(&buffered_channel_senders, &key, sender, BPF_ANY);
 }
 
-static __always_inline void
+static __always_inline bool
 consume_buffered_channel_sender(const go_addr_key_t *chan_key, u64 slot, chan_handoff_t *receiver) {
     if (!chan_key) {
-        return;
+        return false;
     }
 
     chan_handoff_key_t key = {
@@ -397,13 +397,14 @@ consume_buffered_channel_sender(const go_addr_key_t *chan_key, u64 slot, chan_ha
     };
     chan_handoff_t *sender = bpf_map_lookup_elem(&buffered_channel_senders, &key);
     if (!sender) {
-        return;
+        return false;
     }
 
     if (receiver) {
         emit_channel_handoff(sender, receiver);
     }
     bpf_map_delete_elem(&buffered_channel_senders, &key);
+    return true;
 }
 
 static __always_inline int channel_send_start(struct pt_regs *ctx) {
@@ -507,11 +508,15 @@ static __always_inline int channel_recv_start(struct pt_regs *ctx) {
         invocation.has_handoff = true;
     }
 
-    if (dataqsiz == 0) {
-        invocation.direct_handoff = true;
-    } else {
+    if (dataqsiz != 0) {
+        if (!read_channel_recvx((void *)chan_ptr, &invocation.recvx)) {
+            return 0;
+        }
+
         u64 qcount = 0;
         invocation.direct_handoff = read_channel_qcount((void *)chan_ptr, &qcount) && qcount == 0;
+    } else {
+        invocation.direct_handoff = true;
     }
 
     void *goroutine_addr = (void *)GOROUTINE_PTR(ctx);
@@ -553,18 +558,37 @@ static __always_inline int channel_recv_return(struct pt_regs *ctx) {
         goto done;
     }
 
-    if (dataqsiz == 0 || invocation->direct_handoff) {
+    if (dataqsiz == 0) {
         emit_direct_channel_handoff(&chan_key);
         goto done;
     }
 
     u64 recvx = 0;
-    if (read_channel_recvx((void *)invocation->chan_ptr, &recvx)) {
+    bool consumed_buffered_sender = false;
+    const bool recvx_read = read_channel_recvx((void *)invocation->chan_ptr, &recvx);
+    const bool recvx_changed = recvx_read && recvx != invocation->recvx;
+    const bool single_slot_buffered_receive = dataqsiz == 1 && !invocation->direct_handoff;
+    if (recvx_changed || single_slot_buffered_receive) {
         const u64 slot = previous_channel_slot(recvx, dataqsiz);
         if (invocation->has_handoff) {
-            consume_buffered_channel_sender(&chan_key, slot, &invocation->handoff);
+            consumed_buffered_sender =
+                consume_buffered_channel_sender(&chan_key, slot, &invocation->handoff);
         } else {
-            consume_buffered_channel_sender(&chan_key, slot, NULL);
+            consumed_buffered_sender = consume_buffered_channel_sender(&chan_key, slot, NULL);
+        }
+    }
+
+    if (recvx_read && !consumed_buffered_sender && !recvx_changed && dataqsiz != 1) {
+        u64 qcount = 0;
+        if (read_channel_qcount((void *)invocation->chan_ptr, &qcount) && qcount == 0) {
+            if (!invocation->direct_handoff) {
+                if (invocation->has_handoff) {
+                    record_direct_channel_receiver(&chan_key, &invocation->handoff);
+                } else {
+                    record_direct_channel_receiver(&chan_key, NULL);
+                }
+            }
+            emit_direct_channel_handoff(&chan_key);
         }
     }
 

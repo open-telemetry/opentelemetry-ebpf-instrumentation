@@ -52,13 +52,63 @@ services:
       OTEL_EBPF_TRACE_PRINTER: "text"
       OTEL_EBPF_OPEN_PORT: "8080"
       OTEL_EBPF_SERVICE_NAMESPACE: "integration-test"
-      OTEL_EBPF_METRICS_INTERVAL: "10ms"
+      OTEL_EBPF_METRICS_INTERVAL: "1s"
       OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT: "1ms"
       OTEL_EBPF_BPF_BATCH_TIMEOUT: "10ms"
       OTEL_EBPF_BPF_CONTEXT_PROPAGATION: "disabled"
       OTEL_EBPF_LOG_LEVEL: "DEBUG"
       OTEL_EBPF_BPF_DEBUG: "true"
-      OTEL_EXPORTER_OTLP_ENDPOINT: "http://127.0.0.1:4318"
+      # Export through the weaver-tapping collector (host port 4319) instead of
+      # straight to lgtm (4318), so weaver validates the emitted telemetry.
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://127.0.0.1:4319"
     depends_on:
       testserver:
         condition: service_started
+
+  # Collector in front of lgtm (host networking): receives OBI's OTLP on 4319
+  # and fans out to lgtm (127.0.0.1:4317) and weaver (127.0.0.1:4327).
+  collector:
+    image: otel/opentelemetry-collector-contrib:0.155.0@sha256:4935caa35e9a4cb387e35732e8fb22b2b5759af8d12e7043357f03837f6e8df5
+    network_mode: host
+    volumes:
+      - ./configs:/configs
+    command: ["--config=/configs/otelcol-weaver-host.yaml"]
+    depends_on:
+      weaver:
+        condition: service_healthy
+
+  # Weaver semantic-convention live-check (host networking). lgtm owns 4317, so
+  # weaver's OTLP listener is moved to 4327; admin /stop stays on 4320. The OATS
+  # harness stops it after the checks and fails the test on any actionable advisory.
+  weaver:
+    image: otel/weaver:v0.24.1@sha256:263964a7d444e77812f7a2d654e17683c4760a968c91278acdb7a44c20ccd572
+    network_mode: host
+    user: "0:0"
+    working_dir: /obi-registry
+    command:
+      - registry
+      - live-check
+      - --registry
+      - /obi-registry
+      - --include-unreferenced
+      - --inactivity-timeout
+      - "300"
+      - --otlp-grpc-port
+      - "4327"
+      - --admin-port
+      - "4320"
+      - --format
+      - json
+      - --diagnostic-format
+      - json
+      - --output
+      - /tmp/weaver-out
+    volumes:
+      - ../../../../schemas/obi:/obi-registry:ro
+      - /tmp/obi-weaver-out:/tmp/weaver-out
+    healthcheck:
+      test: ["CMD-SHELL", "wget --timeout=1 -q -O /dev/null http://127.0.0.1:4327/ 2>&1 | grep -qv refused"]
+      interval: 5s
+      timeout: 2s
+      retries: 60
+      start_period: 90s

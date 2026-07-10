@@ -91,6 +91,13 @@ func TestBlockPIDClearsNamespacedPIDCache(t *testing.T) {
 	require.ErrorIs(t, m.Lookup(nsPk, &value), ebpf.ErrKeyNotExist)
 }
 
+func TestPIDOpsWithoutLoadedObjectsDoNotPanic(t *testing.T) {
+	tr := newTestTracer(t, false)
+
+	require.Error(t, tr.addPID(tr.pidKey(1, 42)))
+	require.Error(t, tr.removePID(tr.pidKey(1, 42)))
+}
+
 func TestShouldOmitSpanID_FeatureDisabled(t *testing.T) {
 	tr := newTestTracer(t, false)
 

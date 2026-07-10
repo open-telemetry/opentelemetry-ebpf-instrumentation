@@ -2,6 +2,7 @@ oats-schema-version: 2
 docker-compose:
   files:
   - ../docker-compose-obi-python-nats.yml
+  - ../../weaver/docker-compose-weaver.yml
 input:
 - path: /publish
 interval: 500ms

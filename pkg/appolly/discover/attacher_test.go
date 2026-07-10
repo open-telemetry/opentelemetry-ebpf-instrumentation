@@ -32,10 +32,14 @@ type blockedPID struct {
 }
 
 type recordingTracer struct {
+	allowed []blockedPID
 	blocked []blockedPID
 }
 
-func (r *recordingTracer) AllowPID(app.PID, uint32, *execpkg.FileInfo) {}
+func (r *recordingTracer) AllowPID(pid app.PID, ns uint32, _ *execpkg.FileInfo) {
+	r.allowed = append(r.allowed, blockedPID{pid: pid, ns: ns})
+}
+
 func (r *recordingTracer) BlockPID(pid app.PID, ns uint32) {
 	r.blocked = append(r.blocked, blockedPID{pid: pid, ns: ns})
 }

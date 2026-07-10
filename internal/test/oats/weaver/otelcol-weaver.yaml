@@ -1,0 +1,37 @@
+# Collector placed in front of the grafana/otel-lgtm all-in-one so weaver can
+# validate OBI's emitted telemetry in the OATS suites. OBI exports OTLP here
+# (OTEL_EXPORTER_OTLP_ENDPOINT=http://collector:4318); this collector fans the
+# stream out to BOTH the lgtm stack (so the existing Prometheus/Tempo checks
+# keep working) AND the weaver live-check container. The OATS harness enforces
+# weaver's report after the per-test checks.
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+exporters:
+  otlp/lgtm:
+    endpoint: lgtm:4317
+    tls:
+      insecure: true
+  otlp/weaver:
+    endpoint: weaver:4317
+    # weaver's OTLP receiver rejects gzip-compressed payloads (Unimplemented).
+    compression: none
+    tls:
+      insecure: true
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      exporters: [otlp/lgtm, otlp/weaver]
+    metrics:
+      receivers: [otlp]
+      exporters: [otlp/lgtm, otlp/weaver]
+    logs:
+      receivers: [otlp]
+      exporters: [otlp/lgtm]

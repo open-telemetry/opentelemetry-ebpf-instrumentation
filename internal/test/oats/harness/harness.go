@@ -73,17 +73,20 @@ func runTestCase(c *model.TestCase, settings model.Settings) {
 	logFile := filepath.Join(c.OutputDir, fmt.Sprintf("output-%s.log", c.Name))
 	endpoint, err := startEndpoint(c, settings, logFile)
 	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "expected no error creating an observability endpoint")
-	err = endpoint.Start(context.Background())
-	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "expected no error starting an observability endpoint")
 
 	defer func() {
 		stopErr := endpoint.Stop(context.Background())
 		gomega.Expect(stopErr).ToNot(gomega.HaveOccurred(), "expected no error stopping the local observability endpoint")
 	}()
 
+	err = endpoint.Start(context.Background())
+	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "expected no error starting an observability endpoint")
+
 	runner := oatsyaml.NewRunner(c, settings)
 	setRunnerEndpoint(runner, endpoint)
 	runner.ExecuteChecks()
+
+	validateWeaver()
 }
 
 func setRunnerEndpoint(runner *oatsyaml.Runner, endpoint *remote.Endpoint) {
