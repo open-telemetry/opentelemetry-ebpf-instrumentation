@@ -64,15 +64,21 @@ var FeatureMapper = map[string]Features{
 	"application_service_graph":    FeatureGraph,
 	"application_host":             FeatureApplicationHost,
 	"application_runtime":          FeatureApplicationRuntime,
-	"ebpf":                         FeatureEBPF,
-	"all":                          FeatureAll,
-	"*":                            FeatureAll,
+	// Deprecated alias kept for v0.10 config compatibility.
+	"application_jvm": FeatureApplicationRuntime,
+	"ebpf":            FeatureEBPF,
+	"all":             FeatureAll,
+	"*":               FeatureAll,
 }
 
 func (Features) JSONSchema() *jsonschema.Schema {
 	features := make([]any, 0, len(FeatureMapper))
 
 	for k := range FeatureMapper {
+		// Keep application_jvm accepted for v0.10 config compatibility, but do not advertise it in generated docs.
+		if k == "application_jvm" {
+			continue
+		}
 		features = append(features, k)
 	}
 	return &jsonschema.Schema{

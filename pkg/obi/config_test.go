@@ -448,6 +448,21 @@ jvm_runtime_metrics:
 	assert.Equal(t, 2*time.Second, cfg.JVMRuntimeMetrics.SamplingInterval)
 }
 
+func TestConfig_JVMRuntimeMetricsV010ConfigCompatibility(t *testing.T) {
+	cfg, err := LoadConfig(bytes.NewBufferString(`
+metrics:
+  features:
+    - application_jvm
+jvm_runtime_metrics:
+  enabled: true
+  sampling_interval: 2s
+`))
+	require.NoError(t, err)
+
+	assert.True(t, cfg.Metrics.Features.AppRuntime())
+	assert.Equal(t, 2*time.Second, cfg.JVMRuntimeMetrics.SamplingInterval)
+}
+
 func TestConfigValidate_JVMRuntimeMetricsSamplingInterval(t *testing.T) {
 	cfg, err := LoadConfig(bytes.NewBufferString(`
 trace_printer: text

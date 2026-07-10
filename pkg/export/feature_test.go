@@ -79,6 +79,13 @@ func TestFeatureApplicationAliasDoesNotIncludeRuntime(t *testing.T) {
 	assert.True(t, LoadFeatures([]string{"application_runtime"}).AppOrSpan())
 }
 
+func TestFeatureApplicationJVMAliasMapsToRuntime(t *testing.T) {
+	features := LoadFeatures([]string{"application_jvm"})
+
+	assert.True(t, features.AppRuntime())
+	assert.True(t, features.AnyAppO11yMetric())
+}
+
 func TestFeatureEnv_All(t *testing.T) {
 	doc := struct {
 		Features Features `env:"FOO" envSeparator:","`
