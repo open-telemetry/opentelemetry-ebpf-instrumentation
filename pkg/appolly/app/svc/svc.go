@@ -142,7 +142,8 @@ func (i *Attrs) GetUID() UID {
 	return i.UID
 }
 
-func (i *Attrs) String() string {
+// value receiver so nested Attrs values (e.g. Span.Service) never reflection-dump EnvVars
+func (i Attrs) String() string {
 	return i.Job()
 }
 
