@@ -127,11 +127,21 @@ func (p *Tracer) rebuildValidPids() {
 func (p *Tracer) AllowPID(pid app.PID, ns uint32, fi *exec.FileInfo) {
 	p.pidsFilter.AllowPID(pid, ns, fi, ebpfcommon.PIDTypeKProbes)
 	p.rebuildValidPids()
+	// Override potential negative cache entry for this PID
+	if p.bpfObjects.PidCache != nil {
+		pidU32 := uint32(pid)
+		_ = p.bpfObjects.PidCache.Put(pidU32, pidU32)
+	}
 }
 
 func (p *Tracer) BlockPID(pid app.PID, ns uint32) {
 	p.pidsFilter.BlockPID(pid, ns)
 	p.rebuildValidPids()
+	// Remove from cache so next access re-evaluates
+	if p.bpfObjects.PidCache != nil {
+		pidU32 := uint32(pid)
+		_ = p.bpfObjects.PidCache.Delete(pidU32)
+	}
 }
 
 func (p *Tracer) LoadSpecs() ([]*ebpfcommon.SpecBundle, error) {
