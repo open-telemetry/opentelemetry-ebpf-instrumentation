@@ -15,6 +15,7 @@ func TestParseStandaloneYAMLDocument(t *testing.T) {
 
 	doc, cfg, err := ParseStandaloneYAML([]byte(`
 file_format: "1.0"
+log_level: debug
 resource:
   attributes:
     - name: service.namespace
@@ -72,6 +73,9 @@ extensions:
 	require.NotNil(t, doc)
 	require.NotNil(t, cfg)
 	require.Equal(t, "1.0", doc.FileFormat)
+	require.True(t, doc.HasLogLevel())
+	require.NotNil(t, doc.LogLevel)
+	require.Equal(t, "debug", string(*doc.LogLevel))
 	require.Equal(t, SupportedVersion, cfg.Version)
 	require.NotNil(t, doc.InstrumentationDevelopment)
 	require.Len(t, doc.Resource.Attributes, 1)
@@ -99,6 +103,23 @@ extensions:
 		Outgoing: HTTPRefinementRoute{Patterns: []string{"/inventory/{id}"}},
 	}, cfg.Capture.Rules[0].Refine.HTTP.Routes)
 	require.Equal(t, AttributeFilter{Match: "5*"}, cfg.Capture.Rules[0].Refine.HTTP.Filters.Traces["status_code"])
+}
+
+func TestParseStandaloneYAMLRejectsDaemonLoggingLevel(t *testing.T) {
+	t.Parallel()
+
+	_, _, err := ParseStandaloneYAML([]byte(`
+file_format: "1.0"
+extensions:
+  obi:
+    version: "2.0"
+    daemon:
+      logging:
+        level: INFO
+`))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), `unsupported daemon logging field "level"`)
+	require.Contains(t, err.Error(), "top-level log_level")
 }
 
 func TestParseReceiverYAMLEmbedded(t *testing.T) {
@@ -208,6 +229,23 @@ extensions:
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "invalid histogram aggregation")
 	require.Contains(t, err.Error(), "made-up")
+}
+
+func TestParseStandaloneRejectsUnsupportedFileFormat(t *testing.T) {
+	t.Parallel()
+
+	_, _, err := ParseStandaloneYAML([]byte(`
+file_format: "1.1"
+extensions:
+  obi:
+    version: "2.0"
+    capture: {}
+`))
+
+	var unsupported *UnsupportedFileFormatError
+	require.ErrorAs(t, err, &unsupported)
+	require.Equal(t, "1.1", unsupported.FileFormat)
+	require.Contains(t, err.Error(), "file_format")
 }
 
 func TestReceiverRejectsStandaloneSections(t *testing.T) {

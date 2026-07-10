@@ -5,7 +5,9 @@ package convert // import "go.opentelemetry.io/obi/internal/config/convert"
 
 import (
 	"errors"
+	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	otelconfx "go.opentelemetry.io/contrib/otelconf/x"
@@ -32,8 +34,41 @@ func DocumentToRuntime(src *schema.Document) (*obi.Config, error) {
 	applyV2Resource(cfg, src.Resource)
 	applyV2TracerProvider(cfg, src.TracerProvider)
 	applyV2MeterProvider(cfg, src.MeterProvider)
+	if err := applyV2LogLevel(cfg, src); err != nil {
+		return nil, err
+	}
 
 	return cfg, nil
+}
+
+func applyV2LogLevel(cfg *obi.Config, src *schema.Document) error {
+	if !src.HasLogLevel() || src.LogLevel == nil {
+		return nil
+	}
+
+	level, err := logLevelFromSeverityNumber(*src.LogLevel)
+	if err != nil {
+		return err
+	}
+	cfg.LogLevel = level
+	return nil
+}
+
+func logLevelFromSeverityNumber(severity otelconfx.SeverityNumber) (obi.LogLevel, error) {
+	switch strings.ToLower(string(severity)) {
+	case "trace", "trace2", "trace3", "trace4",
+		"debug", "debug2", "debug3", "debug4":
+		return obi.LogLevelDebug, nil
+	case "info", "info2", "info3", "info4":
+		return obi.LogLevelInfo, nil
+	case "warn", "warn2", "warn3", "warn4":
+		return obi.LogLevelWarn, nil
+	case "error", "error2", "error3", "error4",
+		"fatal", "fatal2", "fatal3", "fatal4":
+		return obi.LogLevelError, nil
+	default:
+		return "", fmt.Errorf("unsupported log_level %q", severity)
+	}
 }
 
 func applyV2Resource(cfg *obi.Config, resource *otelconfx.Resource) {

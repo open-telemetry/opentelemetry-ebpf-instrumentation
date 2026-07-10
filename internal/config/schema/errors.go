@@ -36,6 +36,16 @@ func (e *UnsupportedVersionError) Error() string {
 	return fmt.Sprintf("unsupported OBI config version %q", e.Version)
 }
 
+// UnsupportedFileFormatError reports an OpenTelemetry declarative file_format
+// value whose version is present but not handled by this package.
+type UnsupportedFileFormatError struct {
+	FileFormat string
+}
+
+func (e *UnsupportedFileFormatError) Error() string {
+	return fmt.Sprintf("unsupported OpenTelemetry config file_format %q", e.FileFormat)
+}
+
 // SectionNotAllowedError reports a standalone-only configuration section in a
 // receiver-embedded OBI config.
 type SectionNotAllowedError struct {

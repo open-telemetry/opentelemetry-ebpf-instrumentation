@@ -4,6 +4,8 @@
 package schema // import "go.opentelemetry.io/obi/internal/config/schema"
 
 import (
+	"fmt"
+
 	"go.yaml.in/yaml/v3"
 
 	"go.opentelemetry.io/obi/pkg/export/debug"
@@ -17,25 +19,6 @@ type Daemon struct {
 	Shutdown        Shutdown        `yaml:"shutdown"`
 	InternalMetrics InternalMetrics `yaml:"internal_metrics"`
 	Telemetry       DaemonTelemetry `yaml:"telemetry"`
-}
-
-// LogLevel describes daemon log verbosity.
-type LogLevel string
-
-const (
-	// LogLevelDebug enables debug logging.
-	LogLevelDebug LogLevel = "DEBUG"
-	// LogLevelInfo enables info logging.
-	LogLevelInfo LogLevel = "INFO"
-	// LogLevelWarn enables warning logging.
-	LogLevelWarn LogLevel = "WARN"
-	// LogLevelError enables error logging.
-	LogLevelError LogLevel = "ERROR"
-)
-
-// UnmarshalYAML parses and validates a daemon log level.
-func (l *LogLevel) UnmarshalYAML(value *yaml.Node) error {
-	return unmarshalEnum(value, "level", l, LogLevelDebug, LogLevelInfo, LogLevelWarn, LogLevelError)
 }
 
 // LogFormat describes daemon log encoding.
@@ -74,10 +57,18 @@ func (f *ConfigFormat) UnmarshalYAML(value *yaml.Node) error {
 
 // Logging describes daemon logging settings.
 type Logging struct {
-	Level            LogLevel           `yaml:"level"`
 	Format           LogFormat          `yaml:"format"`
 	ConfigFormat     ConfigFormat       `yaml:"config_format"`
 	DebugTraceOutput debug.TracePrinter `yaml:"debug_trace_output"`
+}
+
+// UnmarshalYAML validates daemon logging settings.
+func (l *Logging) UnmarshalYAML(value *yaml.Node) error {
+	if _, ok := mappingValue(value, "level"); ok {
+		return fmt.Errorf("unsupported daemon logging field %q; use top-level log_level", "level")
+	}
+	type plain Logging
+	return value.Decode((*plain)(l))
 }
 
 // Profiling describes daemon profiling settings.

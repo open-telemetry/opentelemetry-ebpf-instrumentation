@@ -22,20 +22,6 @@ func TestDaemonEnumsYAML(t *testing.T) {
 		parse   func([]byte) (string, error)
 	}{
 		{
-			name:    "log level",
-			valid:   "level: WARN\n",
-			want:    string(LogLevelWarn),
-			invalid: "level: TRACE\n",
-			err:     "invalid level",
-			parse: func(data []byte) (string, error) {
-				var doc struct {
-					Level LogLevel `yaml:"level"`
-				}
-				err := yaml.Unmarshal(data, &doc)
-				return string(doc.Level), err
-			},
-		},
-		{
 			name:    "log format",
 			valid:   "format: json\n",
 			want:    string(LogFormatJSON),
