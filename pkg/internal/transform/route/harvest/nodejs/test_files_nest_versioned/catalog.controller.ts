@@ -18,4 +18,16 @@ export class CatalogController {
   getPreview() {
     return this.catalog.preview();
   }
+
+  // decorator order within a stack is arbitrary: @Version() below @Get()
+  @Get('history')
+  @Version('4')
+  getHistory() {
+    return this.catalog.history();
+  }
+
+  @Get('archive')
+  getArchive() {
+    return this.catalog.archive();
+  }
 }

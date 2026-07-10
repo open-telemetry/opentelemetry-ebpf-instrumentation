@@ -7,7 +7,7 @@ const app_module_1 = require("./app.module");
 async function bootstrap() {
     const app = await core_1.NestFactory.create(app_module_1.AppModule, new platform_fastify_1.FastifyAdapter());
     app.setGlobalPrefix('edge');
-    app.enableVersioning({ type: common_1.VersioningType.URI });
+    app.enableVersioning({ type: common_1.VersioningType.URI, defaultVersion: '1' });
     await app.listen(8080, '0.0.0.0');
 }
 bootstrap();

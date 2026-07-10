@@ -768,6 +768,8 @@ func TestHandleNestJS(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			extractor := NewRouteExtractor()
 			found := extractor.handleNestJS("test.ts", tt.line, 35)
+			// routes are buffered until the method's decorator stack ends
+			extractor.flushNestMethod()
 
 			assert.Equal(t, tt.found, found)
 
@@ -1696,15 +1698,20 @@ func TestExtractNestJSVersionedApp(t *testing.T) {
 
 	// setGlobalPrefix('api') and URI versioning with defaultVersion '1' apply to
 	// every Nest route; @Controller({version: '2'}) overrides the default and
-	// @Version('3') overrides the controller.
+	// @Version('3') overrides the controller. @Version() applies whether it
+	// appears above or below the method decorator in the stack, and a bare
+	// @Get() on a prefix-less controller still yields the /api/v1 root route.
 	assert.ElementsMatch(t, []string{
 		"/api/v2/catalog/featured",
 		"/api/v2/catalog/:sku",
 		"/api/v3/catalog/preview",
+		"/api/v4/catalog/history",
+		"/api/v2/catalog/archive",
 		"/api/v1/ledger/summary",
 		"/api/v1/books/summary",
 		"/api/v1/ledger",
 		"/api/v1/books",
+		"/api/v1",
 	}, extractor.GetHarvestedRoutes())
 }
 
@@ -1713,11 +1720,13 @@ func TestCompiledNestJSVersionedFragments(t *testing.T) {
 	appDir := filepath.Join("nodejs", "test_files_dist_versioned")
 	require.NoError(t, extractor.ScanDirectory(appDir))
 
-	// In compiled mode, association is lost: global prefix, versions, and
-	// controller paths all become standalone fragments.
+	// In compiled mode, association is lost: global prefix, versions
+	// (including the enableVersioning defaultVersion), and controller paths
+	// all become standalone fragments.
 	assert.ElementsMatch(t, []string{
 		"/edge",
 		"/catalog",
+		"/v1",
 		"/v2",
 		"/v3",
 		"/featured",
@@ -1753,4 +1762,72 @@ func TestExtractNodejsRoutes_CompiledVersionedDist(t *testing.T) {
 	require.NotNil(t, matcher)
 	assert.Equal(t, "/edge/v2/catalog/featured", matcher.Find("/edge/v2/catalog/featured"))
 	assert.Equal(t, "/edge/v3/catalog/preview", matcher.Find("/edge/v3/catalog/preview"))
+	// URLs versioned by the enableVersioning defaultVersion are matchable too
+	assert.Equal(t, "/edge/v1/catalog/featured", matcher.Find("/edge/v1/catalog/featured"))
+}
+
+func TestEnableVersioningMultiLine(t *testing.T) {
+	writeAndScan := func(t *testing.T, content string) *RouteExtractor {
+		t.Helper()
+		dir := t.TempDir()
+		path := filepath.Join(dir, "main.ts")
+		require.NoError(t, os.WriteFile(path, []byte(content), 0o644))
+		extractor := NewRouteExtractor()
+		require.NoError(t, extractor.scanFile(path))
+		return extractor
+	}
+
+	t.Run("multi-line HEADER versioning is not URI", func(t *testing.T) {
+		extractor := writeAndScan(t, `
+app.enableVersioning({
+  type: VersioningType.HEADER,
+  defaultVersion: '9'
+});
+`)
+		assert.False(t, extractor.uriVersioning)
+		assert.Equal(t, "9", extractor.defaultVersion)
+	})
+
+	t.Run("multi-line URI versioning with defaultVersion on later line", func(t *testing.T) {
+		extractor := writeAndScan(t, `
+app.enableVersioning({
+  type: VersioningType.URI,
+  defaultVersion: '5'
+});
+`)
+		assert.True(t, extractor.uriVersioning)
+		assert.Equal(t, "5", extractor.defaultVersion)
+	})
+
+	t.Run("no-arg call defaults to URI", func(t *testing.T) {
+		extractor := writeAndScan(t, "app.enableVersioning();\n")
+		assert.True(t, extractor.uriVersioning)
+	})
+}
+
+func TestNestJSControllerNonLiteralPrefixResets(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "controllers.ts")
+	content := `
+import { Controller, Get } from '@nestjs/common';
+
+@Controller('first')
+export class FirstController {
+  @Get('alpha')
+  getAlpha() {}
+}
+
+@Controller(ROUTE_PREFIX)
+export class SecondController {
+  @Get('beta')
+  getBeta() {}
+}
+`
+	require.NoError(t, os.WriteFile(path, []byte(content), 0o644))
+	extractor := NewRouteExtractor()
+	require.NoError(t, extractor.scanFile(path))
+
+	// the unresolvable prefix must not inherit the previous controller's
+	// prefix: /beta, not /first/beta
+	assert.ElementsMatch(t, []string{"/first/alpha", "/beta"}, extractor.GetHarvestedRoutes())
 }

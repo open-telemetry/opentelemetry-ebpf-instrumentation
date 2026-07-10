@@ -102,6 +102,9 @@ type FrameworkPatterns struct {
 	NestJSControllerArray *regexp.Regexp
 	// NestJS version decorator: @Version('1'), @Version(['1', '2'])
 	NestJSVersion *regexp.Regexp
+	// NestJS controller decorator with any argument shape, used as a fail-safe
+	// reset when the argument is not statically resolvable
+	NestJSControllerAny *regexp.Regexp
 	// NestJS decorators in compiled output: (0, common_1.Get)('store')
 	CompiledNestMethod *regexp.Regexp
 	// NestJS controller decorator in compiled output: (0, common_1.Controller)('invoice')
@@ -179,6 +182,9 @@ func newFrameworkPatterns() *FrameworkPatterns {
 		// Matches: @Version('3'), @Version(['1', '2']), @Version(VERSION_NEUTRAL)
 		NestJSVersion: regexp.MustCompile(`@Version\s*\(([^)]*)\)`),
 
+		// Matches any remaining @Controller(...) shape, e.g. @Controller(SOME_CONST)
+		NestJSControllerAny: regexp.MustCompile(`@Controller\s*\(`),
+
 		// TypeScript compilers lower decorators to helper calls referencing the
 		// decorator factory through the imported module object:
 		//   (0, common_1.Get)('store')   tsc
@@ -234,8 +240,20 @@ type RouteExtractor struct {
 	// @Controller({ version: ... }), applying to its methods unless overridden
 	nestCtrlVersions []string
 	// pendingNestVersions holds the version(s) of a @Version() decorator seen
-	// above a method decorator, consumed by the next method decorator
+	// in the decorator stack of the currently buffered method
 	pendingNestVersions []string
+	// pendingNestMethod buffers the method decorator of the decorator stack
+	// currently being scanned. Decorator order within a stack is arbitrary
+	// (@Version() may appear above or below @Get()), so the route is emitted
+	// only when the stack ends: at the first non-decorator line, the next
+	// method or controller decorator, or the end of the file.
+	pendingNestMethod *RoutePattern
+	// inEnableVersioning tracks a multi-line app.enableVersioning({...}) call
+	// until its closing parenthesis
+	inEnableVersioning bool
+	// enableVersioningTypeSeen tracks whether the current enableVersioning call
+	// named an explicit VersioningType (URI is NestJS's default when it didn't)
+	enableVersioningTypeSeen bool
 
 	// application-level NestJS settings, harvested from any scanned file
 	// (typically main.ts) and applied to Nest routes after the scan
@@ -358,14 +376,53 @@ func (e *RouteExtractor) quotedStrings(s string) []string {
 
 // setNestController tracks the prefixes and versions of the current NestJS
 // @Controller() decorator, which apply to every method decorator that follows
-// it in the same file.
+// it in the same file. A method still buffered for the previous controller is
+// flushed first, against that controller's prefixes.
 func (e *RouteExtractor) setNestController(prefixes, versions []string) {
+	e.flushNestMethod()
 	if len(prefixes) == 0 {
 		prefixes = []string{""}
 	}
 	e.nestPrefixes = prefixes
 	e.nestCtrlVersions = versions
 	e.pendingNestVersions = nil
+}
+
+// flushNestMethod emits the buffered method decorator, resolving its versions
+// (from @Version() anywhere in its decorator stack, the controller's version,
+// or none) and joining its path with every controller prefix.
+func (e *RouteExtractor) flushNestMethod() {
+	m := e.pendingNestMethod
+	if m == nil {
+		return
+	}
+	e.pendingNestMethod = nil
+
+	versions := e.pendingNestVersions
+	e.pendingNestVersions = nil
+	if len(versions) == 0 {
+		versions = e.nestCtrlVersions
+	}
+	if len(versions) == 0 {
+		versions = []string{""}
+	}
+	prefixes := e.nestPrefixes
+	if len(prefixes) == 0 {
+		prefixes = []string{""}
+	}
+
+	for _, prefix := range prefixes {
+		for _, version := range versions {
+			e.routes = append(e.routes, RoutePattern{
+				Method:  m.Method,
+				Path:    joinNestPaths(prefix, m.Path),
+				File:    m.File,
+				Line:    m.Line,
+				Nest:    true,
+				Version: version,
+			})
+		}
+	}
 }
 
 func (e *RouteExtractor) handleNestJSController(line string) bool {
@@ -389,6 +446,13 @@ func (e *RouteExtractor) handleNestJSController(line string) bool {
 	// string form: @Controller('invoice'), @Controller()
 	if matches := e.patterns.NestJSController.FindStringSubmatch(line); matches != nil {
 		e.setNestController([]string{matches[1]}, nil)
+		return true
+	}
+	// non-literal argument (@Controller(SOME_CONST)): the prefix cannot be
+	// resolved statically; reset the state so the previous controller's prefix
+	// does not leak into this controller's methods
+	if e.patterns.NestJSControllerAny.MatchString(line) {
+		e.setNestController(nil, nil)
 		return true
 	}
 	return false
@@ -431,18 +495,42 @@ func (e *RouteExtractor) handleSetGlobalPrefix(filePath, line string, lineNum in
 	return true
 }
 
-// handleEnableVersioning detects app.enableVersioning(...). URI versioning is
-// NestJS's default type, so any call not naming a different VersioningType
-// enables it.
-func (e *RouteExtractor) handleEnableVersioning(line string) bool {
-	if !strings.Contains(line, ".enableVersioning") {
+// handleEnableVersioning detects app.enableVersioning(...), tracking the call
+// across lines until its closing parenthesis. URI versioning is NestJS's
+// default type, so a call that names no VersioningType enables it. In compiled
+// mode the defaultVersion becomes a /v<version> route fragment (fragments are
+// not Nest-marked, so the source-mode version prefixing does not reach them).
+func (e *RouteExtractor) handleEnableVersioning(filePath, line string, lineNum int) bool {
+	entered := strings.Contains(line, ".enableVersioning")
+	if !entered && !e.inEnableVersioning {
 		return false
 	}
-	if !strings.Contains(line, "VersioningType.") || strings.Contains(line, "VersioningType.URI") {
-		e.uriVersioning = true
+	if entered {
+		e.inEnableVersioning = true
+		e.enableVersioningTypeSeen = false
+	}
+	if strings.Contains(line, "VersioningType.") {
+		e.enableVersioningTypeSeen = true
+		if strings.Contains(line, "VersioningType.URI") {
+			e.uriVersioning = true
+		}
 	}
 	if matches := e.patterns.DefaultVersion.FindStringSubmatch(line); matches != nil {
 		e.defaultVersion = matches[1]
+		if e.compiled {
+			e.routes = append(e.routes, RoutePattern{
+				Method: "ALL",
+				Path:   "/v" + matches[1],
+				File:   filePath,
+				Line:   lineNum,
+			})
+		}
+	}
+	if strings.Contains(line, ")") {
+		e.inEnableVersioning = false
+		if !e.enableVersioningTypeSeen {
+			e.uriVersioning = true
+		}
 	}
 	return true
 }
@@ -469,31 +557,14 @@ func (e *RouteExtractor) handleNestJS(filePath, line string, lineNum int) bool {
 		return false
 	}
 
-	versions := e.pendingNestVersions
-	if len(versions) == 0 {
-		versions = e.nestCtrlVersions
+	// a previously buffered method's decorator stack ends here
+	e.flushNestMethod()
+	e.pendingNestMethod = &RoutePattern{
+		Method: strings.ToUpper(matches[1]),
+		Path:   matches[2],
+		File:   filePath,
+		Line:   lineNum,
 	}
-	if len(versions) == 0 {
-		versions = []string{""}
-	}
-	prefixes := e.nestPrefixes
-	if len(prefixes) == 0 {
-		prefixes = []string{""}
-	}
-
-	for _, prefix := range prefixes {
-		for _, version := range versions {
-			e.routes = append(e.routes, RoutePattern{
-				Method:  strings.ToUpper(matches[1]),
-				Path:    joinNestPaths(prefix, matches[2]),
-				File:    filePath,
-				Line:    lineNum,
-				Nest:    true,
-				Version: version,
-			})
-		}
-	}
-	e.pendingNestVersions = nil
 	return true
 }
 
@@ -782,10 +853,13 @@ func (e *RouteExtractor) scanFile(filePath string) error {
 	var line string
 	var save string
 
-	// NestJS controller prefixes and versions never span files
+	// NestJS controller prefixes, versions, and buffered decorator stacks
+	// never span files
 	e.nestPrefixes = nil
 	e.nestCtrlVersions = nil
 	e.pendingNestVersions = nil
+	e.pendingNestMethod = nil
+	e.inEnableVersioning = false
 
 	for scanner.Scan() {
 		lineNum++
@@ -805,6 +879,12 @@ func (e *RouteExtractor) scanFile(filePath string) error {
 		// Skip comments and empty lines
 		if strings.HasPrefix(trimmed, "//") || strings.HasPrefix(trimmed, "/*") || trimmed == "" {
 			continue
+		}
+
+		// a non-decorator line (typically the method signature) ends the
+		// decorator stack of a buffered NestJS method
+		if e.pendingNestMethod != nil && !strings.HasPrefix(trimmed, "@") {
+			e.flushNestMethod()
 		}
 
 		// Check for .route() pattern for chained handlers
@@ -836,11 +916,17 @@ func (e *RouteExtractor) scanFile(filePath string) error {
 		if e.handleSetGlobalPrefix(filePath, line, lineNum) {
 			continue
 		}
-		if e.handleEnableVersioning(line) {
+		if e.handleEnableVersioning(filePath, line, lineNum) {
 			continue
 		}
 
 		if e.compiled {
+			// Note: the generic patterns above still run in compiled mode; they
+			// match compiled Express-style calls but also unrelated ones like
+			// configService.get('X'). The path cleanup's leading-slash
+			// requirement filters out nearly all of that, and surviving literal
+			// fragments are benign for partial matching.
+
 			// NestJS decorators as lowered by tsc/swc, harvested as fragments
 			if e.handleCompiledNestController(filePath, line, lineNum) {
 				continue
@@ -881,6 +967,9 @@ func (e *RouteExtractor) scanFile(filePath string) error {
 
 		save = line
 	}
+
+	// the file may end while a method decorator stack is still buffered
+	e.flushNestMethod()
 
 	if err := scanner.Err(); err != nil {
 		return err
@@ -983,7 +1072,15 @@ func (e *RouteExtractor) GetHarvestedRoutes() []string {
 	dedup := map[string]struct{}{}
 
 	for _, r := range e.routes {
-		route := e.CleanupRegexPath(r.Path)
+		var route string
+		if r.Path == "/" {
+			// the root route survives cleanup so that the version and global
+			// prefix can still apply (a bare @Get() under setGlobalPrefix('api')
+			// serves /api); a plain "/" is filtered below as before
+			route = "/"
+		} else {
+			route = e.CleanupRegexPath(r.Path)
+		}
 		if route == "" {
 			continue
 		}
