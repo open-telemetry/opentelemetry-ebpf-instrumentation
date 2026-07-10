@@ -539,6 +539,7 @@ func TestParseGeminiStream_StreamingFunctionCallStringFragments(t *testing.T) {
 	require.NoError(t, json.Unmarshal(parts[0].FunctionCall.Args, &args))
 	assert.Equal(t, "USA", args["country"])
 }
+
 func TestParseGeminiStream_OversizedArrayIndex(t *testing.T) {
 	// A malformed partialArgs path with an oversized array index must not
 	// cause excessive allocation. The path is silently skipped while other
