@@ -19,6 +19,10 @@ import (
 // candidate indices, consistent with the openai_stream.go guard.
 const maxGeminiStreamCandidates = 256
 
+// maxPartialArgArrayIndex bounds array indices in JSONPath expressions from
+// partialArgs to prevent unbounded memory allocation from malformed paths.
+const maxPartialArgArrayIndex = 1024
+
 type geminiStreamChunk struct {
 	Candidates    []geminiStreamCandidate `json:"candidates"`
 	UsageMetadata *request.GeminiUsage    `json:"usageMetadata"`
@@ -230,7 +234,7 @@ func setAtFrags(container any, frags []jsonpath.Frag, value any) any {
 		return m
 	case jsonpath.Nth:
 		idx := int(f)
-		if idx < 0 {
+		if idx < 0 || idx >= maxPartialArgArrayIndex {
 			return container
 		}
 		s, _ := container.([]any)

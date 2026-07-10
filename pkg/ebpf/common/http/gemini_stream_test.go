@@ -539,3 +539,38 @@ func TestParseGeminiStream_StreamingFunctionCallStringFragments(t *testing.T) {
 	require.NoError(t, json.Unmarshal(parts[0].FunctionCall.Args, &args))
 	assert.Equal(t, "USA", args["country"])
 }
+func TestParseGeminiStream_OversizedArrayIndex(t *testing.T) {
+	// A malformed partialArgs path with an oversized array index must not
+	// cause excessive allocation. The path is silently skipped while other
+	// valid data in the same stream is still processed correctly.
+	chunk1 := `data: {"candidates":[{"content":{"parts":[{"functionCall":{"name":"bad_func","partialArgs":[{"jsonPath":"$.items[1000000000].id","numberValue":1}],"willContinue":true}}],"role":"model"}}],"modelVersion":"gemini-2.0-flash"}` + "\n\n"
+	// A valid second argument at a normal path.
+	chunk2 := `data: {"candidates":[{"content":{"parts":[{"functionCall":{"partialArgs":[{"jsonPath":"$.name","stringValue":"ok"}]}}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":5,"candidatesTokenCount":3,"totalTokenCount":8},"modelVersion":"gemini-2.0-flash","responseId":"resp_oai"}` + "\n\n"
+	stream := chunk1 + chunk2
+
+	resp, toolCalls := parseGeminiStream(strings.NewReader(stream))
+
+	require.NotNil(t, resp)
+	require.Len(t, toolCalls, 1)
+	assert.Equal(t, "bad_func", toolCalls[0].Name)
+	require.Len(t, resp.Candidates, 1)
+
+	var parts []struct {
+		FunctionCall *struct {
+			Name string          `json:"name"`
+			Args json.RawMessage `json:"args"`
+		} `json:"functionCall"`
+	}
+	require.NoError(t, json.Unmarshal(resp.Candidates[0].Content.Parts, &parts))
+	require.Len(t, parts, 1)
+	require.NotNil(t, parts[0].FunctionCall)
+	assert.Equal(t, "bad_func", parts[0].FunctionCall.Name)
+
+	// The oversized array index path is skipped, but the valid "name" path
+	// should still be present in the reconstructed args.
+	var args map[string]any
+	require.NoError(t, json.Unmarshal(parts[0].FunctionCall.Args, &args))
+	assert.Equal(t, "ok", args["name"])
+	// "items" should not be present (oversized index was skipped).
+	assert.Nil(t, args["items"])
+}
