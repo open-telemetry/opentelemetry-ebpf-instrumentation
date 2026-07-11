@@ -88,7 +88,7 @@ jobs:
             type=raw,value=${{ inputs.nightly_version }},enable=${{ inputs.nightly_version != '' }}
             type=raw,value=nightly,enable=${{ inputs.nightly_version != '' }}
             type=ref,event=branch,enable=${{ inputs.nightly_version == '' }}
-            type=ref,event=tag
+            type=ref,event=tag,enable=${{ inputs.nightly_version == '' }}
             type=sha,prefix=,format=short,enable=${{ inputs.nightly_version == '' && inputs.ref == '' }}
 
       - name: Build and push by digest
@@ -170,7 +170,7 @@ jobs:
             type=raw,value=${{ inputs.nightly_version }},enable=${{ inputs.nightly_version != '' }}
             type=raw,value=nightly,enable=${{ inputs.nightly_version != '' }}
             type=ref,event=branch,enable=${{ inputs.nightly_version == '' }}
-            type=ref,event=tag
+            type=ref,event=tag,enable=${{ inputs.nightly_version == '' }}
             type=sha,prefix=,format=short,enable=${{ inputs.nightly_version == '' && inputs.ref == '' }}
 
       - name: Create manifest list and push
