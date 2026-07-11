@@ -4,7 +4,10 @@
 package svc
 
 import (
+	"bytes"
 	"fmt"
+	"io"
+	"log/slog"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -29,5 +32,30 @@ func TestFormattingExcludesEnvVars(t *testing.T) {
 	} {
 		assert.NotContains(t, out, "some-value", name)
 		assert.NotContains(t, out, "SOME_VAR", name)
+	}
+}
+
+// the JSON handler does not use String(): without LogValue it marshals every exported field
+func TestSlogExcludesEnvVars(t *testing.T) {
+	a := Attrs{
+		UID:     UID{Namespace: "ns", Name: "svc"},
+		EnvVars: map[string]string{"SOME_VAR": "some-value"},
+	}
+
+	for name, newHandler := range map[string]func(io.Writer) slog.Handler{
+		"text": func(w io.Writer) slog.Handler { return slog.NewTextHandler(w, nil) },
+		"json": func(w io.Writer) slog.Handler { return slog.NewJSONHandler(w, nil) },
+	} {
+		var buf bytes.Buffer
+		log := slog.New(newHandler(&buf))
+
+		log.Info("value", "service", a)
+		log.Info("pointer", "service", &a)
+		log.With("service", &a).Info("with")
+
+		out := buf.String()
+		assert.NotContains(t, out, "some-value", name)
+		assert.NotContains(t, out, "SOME_VAR", name)
+		assert.Contains(t, out, "ns/svc", name)
 	}
 }
