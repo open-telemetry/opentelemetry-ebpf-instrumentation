@@ -268,6 +268,23 @@ func TestParsePostgresStartup(t *testing.T) {
 			buf:  []byte{0, 0, 0, 20, 0, 3, 0, 0},
 		},
 		{
+			// cut mid-"database" pair: the explicit db name is lost, user alone must not be trusted
+			name: "truncated capture does not fall back to user",
+			buf: func() []byte {
+				m := pgStartupMessage("user", "postgres", "database", "mydb")
+				return m[:len(m)-10]
+			}(),
+		},
+		{
+			name: "truncated capture with database already captured",
+			buf: func() []byte {
+				m := pgStartupMessage("database", "mydb", "application_name", "psql")
+				return m[:len(m)-8]
+			}(),
+			wantDB: "mydb",
+			wantOK: true,
+		},
+		{
 			name: "regular typed message",
 			buf:  append([]byte{'Q', 0, 0, 0, 11}, append([]byte("SELECT"), 0)...),
 		},
@@ -282,6 +299,50 @@ func TestParsePostgresStartup(t *testing.T) {
 			db, ok := parsePostgresStartup(largebuf.NewLargeBufferFrom(tt.buf))
 			assert.Equal(t, tt.wantOK, ok)
 			assert.Equal(t, tt.wantDB, db)
+		})
+	}
+}
+
+func chunkedLargeBuffer(buf []byte, chunkSize int) *largebuf.LargeBuffer {
+	lb := largebuf.NewLargeBuffer()
+	for len(buf) > 0 {
+		n := min(chunkSize, len(buf))
+		lb.AppendChunk(buf[:n])
+		buf = buf[n:]
+	}
+	return lb
+}
+
+// BPF captures can cut the StartupMessage at any byte; the parser must never
+// panic and must never invent a namespace it didn't fully read
+func TestParsePostgresStartupTruncationSafety(t *testing.T) {
+	buffers := map[string][]byte{
+		"plain":      pgStartupMessage("user", "postgres", "database", "mydb", "application_name", "psql"),
+		"ssl glued":  append([]byte{0, 0, 0, 8, 0x04, 0xd2, 0x16, 0x2f}, pgStartupMessage("user", "postgres", "database", "mydb")...),
+		"gssenc+ssl": append([]byte{0, 0, 0, 8, 0x04, 0xd2, 0x16, 0x30, 0, 0, 0, 8, 0x04, 0xd2, 0x16, 0x2f}, pgStartupMessage("database", "mydb")...),
+		"proto 3.2":  append([]byte{0, 0, 0, 23, 0, 3, 0, 2}, "database\x00mydb\x00\x00"...),
+	}
+
+	for name, full := range buffers {
+		t.Run(name, func(t *testing.T) {
+			for i := range len(full) + 1 {
+				prefix := full[:i]
+
+				db, ok := parsePostgresStartup(largebuf.NewLargeBufferFrom(prefix))
+				if ok {
+					// only the explicitly captured name is acceptable, never a user fallback
+					assert.Equal(t, "mydb", db, "prefix of %d bytes", i)
+				}
+
+				// same prefix split into tiny chunks exercises every cross-chunk read path
+				cdb, cok := parsePostgresStartup(chunkedLargeBuffer(prefix, 3))
+				assert.Equal(t, ok, cok, "chunked parse diverges at prefix %d", i)
+				assert.Equal(t, db, cdb, "chunked parse diverges at prefix %d", i)
+			}
+
+			db, ok := parsePostgresStartup(largebuf.NewLargeBufferFrom(full))
+			assert.True(t, ok)
+			assert.Equal(t, "mydb", db)
 		})
 	}
 }

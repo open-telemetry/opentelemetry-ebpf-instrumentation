@@ -244,31 +244,33 @@ func parsePostgresStartup(b *largebuf.LargeBuffer) (string, bool) {
 			int(msgLen)-8 < r.Remaining() {
 			return "", false
 		}
-		return parsePostgresStartupParams(&r)
+		return parsePostgresStartupParams(&r, r.Remaining() == int(msgLen)-8)
 	}
 	return "", false
 }
 
-func parsePostgresStartupParams(r *largebuf.LargeBufferReader) (string, bool) {
+func parsePostgresStartupParams(r *largebuf.LargeBufferReader, complete bool) (string, bool) {
 	var db, user string
 	for {
 		key, err := r.ReadCStr()
 		if err != nil || len(key) == 0 {
 			break
 		}
+		// ReadCStr may return the reader's scratch buffer, which the next read reuses
+		k := string(key)
 		val, err := r.ReadCStr()
 		if err != nil {
 			break
 		}
-		switch string(key) {
+		switch k {
 		case "database":
 			db = string(val)
 		case "user":
 			user = string(val)
 		}
 	}
-	if db == "" {
-		// the database name defaults to the user name in the Postgres protocol
+	if db == "" && complete {
+		// the database name defaults to the user name, but a truncated capture may hide an explicit database param
 		db = user
 	}
 	return db, db != ""

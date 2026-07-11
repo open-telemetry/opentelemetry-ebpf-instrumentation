@@ -177,10 +177,6 @@ func dispatchMSSQL(parseCtx *EBPFParseContext, event *TCPRequestInfo, requestBuf
 // detectGenericProtocol runs deterministic protocol detection for unclassified events:
 // SQL, FastCGI, MongoDB, Couchbase, and Memcached noreply.
 func detectGenericProtocol(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, event *TCPRequestInfo, requestBuffer, responseBuffer *largebuf.LargeBuffer) (request.Span, bool, bool, error) {
-	if span, ignore, matched, err := matchPostgresStartup(parseCtx, event, requestBuffer, responseBuffer); matched {
-		return span, ignore, matched, err
-	}
-
 	if span, ignore, matched, err := matchSQL(parseCtx, cfg, event, requestBuffer, responseBuffer); matched {
 		return span, ignore, matched, err
 	}
@@ -225,6 +221,10 @@ func matchPostgresStartup(parseCtx *EBPFParseContext, event *TCPRequestInfo, req
 }
 
 func matchSQL(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, event *TCPRequestInfo, requestBuffer, responseBuffer *largebuf.LargeBuffer) (request.Span, bool, bool, error) { //nolint:unparam
+	if span, ignore, matched, err := matchPostgresStartup(parseCtx, event, requestBuffer, responseBuffer); matched {
+		return span, ignore, matched, err
+	}
+
 	op, table, sql, kind := detectSQLPayload(cfg.HeuristicSQLDetect, requestBuffer)
 
 	if validSQL(op, table, kind) {
