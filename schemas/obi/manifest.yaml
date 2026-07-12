@@ -6,7 +6,9 @@ description: |
   metrics and attributes that OBI emits in addition to (or as overrides of)
   the standard semconv set:
 
-  - Prometheus / OpenMetrics conventions (`target_info`, `instance`, `job`)
+  - The `target.info` meta-metric family (Prometheus / OpenMetrics
+    `target_info` heritage, emitted in OTel dot notation over OTLP) and the
+    `instance` / `job` scrape-convention attributes
   - Span metrics matching the OTel collector-contrib `spanmetricsconnector`
     output, in both naming schemes: the OTel-canonical
     `traces_span_metrics_*` names (emitted when the `application_span_otel`
