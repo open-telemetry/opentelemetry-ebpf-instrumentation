@@ -1,0 +1,177 @@
+groups:
+  # Overrides two `gen_ai.*` attributes:
+  #
+  # - `gen_ai.provider.name`: extends the upstream enum with the GenAI,
+  #   embedding, rerank, and vector-retrieval providers OBI detects that
+  #   upstream semconv has no member for. The extension members mirror the
+  #   provider-detection tables in
+  #   pkg/ebpf/common/http/{embedding,rerank,retrieval}.go and the
+  #   Qwen/DashScope parser; adding a provider to those tables requires adding
+  #   its member here (the weaver-validated suites fail otherwise).
+  # - `gen_ai.operation.name`: re-typed as a plain string. Upstream's note
+  #   explicitly recommends system-specific operation names, and OBI emits the
+  #   provider's own vocabulary ('invoke_model' for Bedrock, 'message' for
+  #   Anthropic, 'conversation'/'response' for the OpenAI APIs, 'rerank', ...)
+  #   plus MCP JSON-RPC method names verbatim — custom MCP servers make the
+  #   value space unbounded, so it cannot be enumerated.
+  #
+  # See ../README.md for the override mechanics (x.obi.* group id, full
+  # upstream member list, lint allowlist).
+  - id: x.obi.gen_ai
+    type: attribute_group
+    display_name: OBI GenAI Attribute Overrides
+    brief: >
+      OBI overrides of `gen_ai.provider.name` (upstream enum extended with
+      the providers OBI detects that upstream semconv has no member for) and
+      `gen_ai.operation.name` (re-typed as an open-ended string).
+    attributes:
+      - id: gen_ai.provider.name
+        stability: development
+        type:
+          members:
+            - id: openai
+              stability: development
+              value: "openai"
+              brief: '[OpenAI](https://openai.com/)'
+            - id: gcp.gen_ai
+              stability: development
+              value: "gcp.gen_ai"
+              brief: "Any Google generative AI endpoint"
+              note: >
+                May be used when specific backend is unknown.
+            - id: gcp.vertex_ai
+              stability: development
+              value: "gcp.vertex_ai"
+              brief: "[Vertex AI](https://cloud.google.com/vertex-ai)"
+              note: >
+                Used when accessing the 'aiplatform.googleapis.com' endpoint.
+            - id: gcp.gemini
+              stability: development
+              value: "gcp.gemini"
+              brief: '[Gemini](https://cloud.google.com/products/gemini)'
+              note: >
+                Used when accessing the 'generativelanguage.googleapis.com' endpoint.
+                Also known as the AI Studio API.
+            - id: anthropic
+              stability: development
+              value: "anthropic"
+              brief: '[Anthropic](https://www.anthropic.com/)'
+            - id: cohere
+              stability: development
+              value: "cohere"
+              brief: '[Cohere](https://cohere.com/)'
+            - id: azure.ai.inference
+              stability: development
+              value: "azure.ai.inference"
+              brief: 'Azure AI Inference'
+            - id: azure.ai.openai
+              stability: development
+              value: "azure.ai.openai"
+              brief: '[Azure OpenAI](https://learn.microsoft.com/en-us/azure/ai-services/openai/overview)'
+            - id: ibm.watsonx.ai
+              stability: development
+              value: "ibm.watsonx.ai"
+              brief: '[IBM Watsonx AI](https://www.ibm.com/products/watsonx-ai)'
+            - id: aws.bedrock
+              stability: development
+              value: "aws.bedrock"
+              brief: '[AWS Bedrock](https://aws.amazon.com/bedrock)'
+            - id: perplexity
+              stability: development
+              value: "perplexity"
+              brief: '[Perplexity](https://www.perplexity.ai/)'
+            - id: x_ai
+              stability: development
+              value: "x_ai"
+              brief: '[xAI](https://x.ai/)'
+            - id: deepseek
+              stability: development
+              value: "deepseek"
+              brief: '[DeepSeek](https://www.deepseek.com/)'
+            - id: groq
+              stability: development
+              value: "groq"
+              brief: '[Groq](https://groq.com/)'
+            - id: mistral_ai
+              stability: development
+              value: "mistral_ai"
+              brief: '[Mistral AI](https://mistral.ai/)'
+            # --- OBI extensions (not in upstream semconv v1.41) ---
+            - id: qwen
+              stability: development
+              value: "qwen"
+              brief: '[Alibaba Qwen / DashScope](https://www.alibabacloud.com/en/product/modelstudio)'
+            - id: voyage
+              stability: development
+              value: "voyage"
+              brief: '[Voyage AI](https://www.voyageai.com/) embedding and rerank APIs'
+            - id: jina
+              stability: development
+              value: "jina"
+              brief: '[Jina AI](https://jina.ai/) embedding and rerank APIs'
+            - id: pinecone
+              stability: development
+              value: "pinecone"
+              brief: '[Pinecone](https://www.pinecone.io/) vector retrieval'
+            - id: qdrant
+              stability: development
+              value: "qdrant"
+              brief: '[Qdrant](https://qdrant.tech/) vector retrieval'
+            - id: milvus
+              stability: development
+              value: "milvus"
+              brief: '[Milvus](https://milvus.io/) vector retrieval'
+            - id: zilliz
+              stability: development
+              value: "zilliz"
+              brief: '[Zilliz Cloud](https://zilliz.com/) vector retrieval'
+            - id: chroma
+              stability: development
+              value: "chroma"
+              brief: '[Chroma](https://www.trychroma.com/) vector retrieval'
+            - id: weaviate
+              stability: development
+              value: "weaviate"
+              brief: '[Weaviate](https://weaviate.io/) vector retrieval'
+            - id: generic
+              stability: development
+              value: "generic"
+              brief: >
+                A vector-retrieval provider OBI identified from the request
+                shape without recognizing the vendor.
+        brief: The Generative AI provider as identified by the client
+          or server instrumentation.
+        note: |
+          The attribute SHOULD be set based on the instrumentation's best
+          knowledge and may differ from the actual model provider.
+
+          Multiple providers, including Azure OpenAI, Gemini, and AI hosting platforms
+          are accessible using the OpenAI REST API and corresponding client libraries,
+          but may proxy or host models from different providers.
+
+          The `gen_ai.request.model`, `gen_ai.response.model`, and `server.address`
+          attributes may help identify the actual system in use.
+
+          The `gen_ai.provider.name` attribute acts as a discriminator that
+          identifies the GenAI telemetry format flavor specific to that provider
+          within GenAI semantic conventions.
+          It SHOULD be set consistently with provider-specific attributes and signals.
+          For example, GenAI spans, metrics, and events related to AWS Bedrock
+          should have the `gen_ai.provider.name` set to `aws.bedrock` and include
+          applicable `aws.bedrock.*` attributes and are not expected to include
+          `openai.*` attributes.
+      # Re-typed as string (upstream: enum): OBI emits provider-specific
+      # operation vocabularies and MCP JSON-RPC method names verbatim, so the
+      # value space is open-ended. Emitters must omit the attribute when no
+      # operation name is available (never send an empty string); pinned by
+      # pkg/appolly/app/request/span_getters_test.go.
+      - id: gen_ai.operation.name
+        stability: development
+        type: string
+        brief: The name of the operation being performed.
+        note: >
+          OBI reports the provider's own operation vocabulary (e.g.
+          'invoke_model' for Bedrock, 'message' for Anthropic, 'generation'
+          for Qwen/DashScope, 'conversation'/'response' for the OpenAI APIs,
+          'rerank') and passes MCP JSON-RPC method names through verbatim.
+        examples: ['chat', 'embeddings', 'response', 'conversation', 'invoke_model', 'rerank', 'tools/call']

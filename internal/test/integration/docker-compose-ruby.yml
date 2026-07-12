@@ -7,7 +7,7 @@ services:
       - "${TEST_SERVICE_PORTS}"
     environment:
       OTEL_SERVICE_NAME: "my-ruby-app"
-      OTEL_RESOURCE_ATTRIBUTES: "cloud.region=ca,deployment.environment.name=to"
+      OTEL_RESOURCE_ATTRIBUTES: "cloud.region=ca,deployment.environment.name=staging"
     depends_on:
       otelcol:
         condition: service_started
