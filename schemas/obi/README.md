@@ -3,21 +3,18 @@
 This registry (see `manifest.yaml`) extends the upstream OpenTelemetry
 semantic-conventions registry with the signals and attributes OBI emits in
 addition to — or as overrides of — the standard semconv set. Together with the
-upstream dependency it forms the complete contract of what OBI emits, and the
-weaver-validated integration suites enforce it
-(`internal/test/weavercheck`).
+upstream dependency it forms the complete contract of what OBI emits
 
 ## Overriding an upstream definition
 
 Weaver (v0.24.x) has **no precedence or merge semantics** between a local
 group and the groups a dependency contributes to the resolved registry
 (`--include-unreferenced`, which OBI needs). When the same attribute id or
-metric name is declared by more than one group, live-check silently resolves
+signal name is declared by more than one group, live-check silently resolves
 the duplicate in favor of the group whose id sorts **last lexicographically** —
 including the upstream `span.*` / `metric.*` groups that `ref` an attribute
 and therefore carry an embedded copy of its upstream definition. Tracked
-upstream in <https://github.com/open-telemetry/weaver/issues/1578>; verified
-still unfixed on weaver `main` as of 2026-07.
+upstream in <https://github.com/open-telemetry/weaver/issues/1578>.
 
 Until weaver defines local-wins override semantics, every override in
 `groups/` must follow these rules:
