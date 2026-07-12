@@ -9,7 +9,7 @@
 
 #include <gotracer/go_constants.h>
 
-// To be Injected from the user space during the eBPF program load & initialization
+// To be injected from the user space during the eBPF program load & initialization
 typedef enum {
     // go common
     _conn_fd_pos = 1, // start at 1, must match what's in structmembers.go
@@ -144,7 +144,7 @@ typedef struct off_table {
 
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __type(key, u64);           // key: upper 32 bit is PID, lower 32 bit is the offset
+    __type(key, u64);           // key: inode
     __type(value, off_table_t); // the offset table
     __uint(max_entries, MAX_GO_PROGRAMS);
 } go_offsets_map SEC(".maps");
