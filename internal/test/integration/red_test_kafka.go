@@ -221,6 +221,56 @@ func testJavaKafkaLargeBuffer(t *testing.T) {
 	}
 }
 
+// testNodeRdkafka exercises a librdkafka (confluent-kafka-javascript) client,
+// which negotiates Fetch/Produce v13+ (topic-by-UUID). The client uses a single
+// topic with many partitions so the broker's metadata response is large enough
+// to arrive across multiple recv() chunks. Asserts the real topic name resolves
+// (not "*"): fails without the eBPF multi-chunk capture because the response body
+// was dropped, so the topic UUID->name mapping was never learned.
+func testNodeRdkafka(t *testing.T) {
+	commonAttrs := []attribute.KeyValue{
+		attribute.String("messaging.system", "kafka"),
+		attribute.Int("server.port", 9092),
+	}
+
+	testCases := []TestCase{
+		{
+			Route:   "http://localhost:8381",
+			Subpath: "health",
+			Comm:    "node",
+			Spans: []TestCaseSpan{
+				{
+					Name: "publish obi-node-rdkafka-topic",
+					Attributes: []attribute.KeyValue{
+						attribute.String("span.kind", "producer"),
+						attribute.String("messaging.operation.type", "publish"),
+						attribute.String("messaging.destination.name", "obi-node-rdkafka-topic"),
+					},
+				},
+				{
+					Name: "process obi-node-rdkafka-topic",
+					Attributes: []attribute.KeyValue{
+						attribute.String("span.kind", "consumer"),
+						attribute.String("messaging.operation.type", "process"),
+						attribute.String("messaging.destination.name", "obi-node-rdkafka-topic"),
+					},
+				},
+			},
+		},
+	}
+
+	for _, testCase := range testCases {
+		for i := range testCase.Spans {
+			testCase.Spans[i].Attributes = append(testCase.Spans[i].Attributes, commonAttrs...)
+		}
+
+		t.Run(testCase.Route, func(t *testing.T) {
+			waitForKafkaTestComponents(t, testCase.Route, "/"+testCase.Subpath)
+			runKafkaTestCase(t, testCase)
+		})
+	}
+}
+
 func waitForKafkaTestComponents(t *testing.T, url string, subpath string) {
 	t.Helper()
 
