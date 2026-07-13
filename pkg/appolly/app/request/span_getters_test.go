@@ -86,6 +86,63 @@ func TestSpanOTELGetters_K8SClientNamespace(t *testing.T) {
 	}
 }
 
+func TestSpanOTELGetters_DBCollectionName(t *testing.T) {
+	tests := []struct {
+		name     string
+		span     *Span
+		expected string
+	}{
+		{
+			name: "Elasticsearch collection",
+			span: &Span{
+				Type:          EventTypeHTTPClient,
+				SubType:       HTTPSubtypeElasticsearch,
+				Elasticsearch: &Elasticsearch{DBCollectionName: "products"},
+			},
+			expected: "products",
+		},
+		{
+			name:     "SQLPP collection",
+			span:     &Span{Type: EventTypeHTTPClient, SubType: HTTPSubtypeSQLPP, Route: "inventory"},
+			expected: "inventory",
+		},
+		{
+			name:     "SQL client collection",
+			span:     &Span{Type: EventTypeSQLClient, Path: "customers"},
+			expected: "customers",
+		},
+		{
+			name:     "SQL server collection",
+			span:     &Span{Type: EventTypeSQLServer, Path: "orders"},
+			expected: "orders",
+		},
+		{
+			name:     "Aerospike collection",
+			span:     &Span{Type: EventTypeAerospikeClient, Path: "sessions"},
+			expected: "sessions",
+		},
+		{
+			name: "nil Elasticsearch metadata",
+			span: &Span{Type: EventTypeHTTPClient, SubType: HTTPSubtypeElasticsearch},
+		},
+		{
+			name: "unsupported span type",
+			span: &Span{Type: EventTypeHTTP, Path: "ignored"},
+		},
+	}
+
+	getter, ok := spanOTELGetters(attr.DBCollectionName)
+	require.True(t, ok)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			kv := getter(tt.span)
+			assert.Equal(t, attribute.Key(attr.DBCollectionName), kv.Key)
+			assert.Equal(t, tt.expected, kv.Value.AsString())
+		})
+	}
+}
+
 func TestSpanOTELGetters_K8SServerNamespace(t *testing.T) {
 	tests := []struct {
 		name              string

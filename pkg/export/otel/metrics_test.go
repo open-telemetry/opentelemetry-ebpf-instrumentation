@@ -458,6 +458,52 @@ func TestAppMetrics_ResourceAttributes(t *testing.T) {
 	assert.Equal(t, "upstream.obi", attributes["source"])
 }
 
+func TestAppMetrics_DBCollectionName(t *testing.T) {
+	ctx := t.Context()
+	metricRecords := make(chan collector.MetricRecord, 10)
+	metrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
+	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(10))
+	mcfg := &otelcfg.MetricsConfig{
+		Interval:          50 * time.Millisecond,
+		TTL:               30 * time.Minute,
+		ReportersCacheLen: 10,
+		Instrumentations:  []instrumentations.Instrumentation{instrumentations.InstrumentationSQL},
+		MetricsConsumer:   testMetricsConsumer(metricRecords),
+	}
+
+	reporter, err := newMetricsReporter(
+		ctx,
+		&global.ContextInfo{OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: mcfg}},
+		mcfg,
+		&perapp.MetricsConfig{Features: export.FeatureApplicationRED},
+		&attributes.SelectorConfig{
+			SelectionCfg: attributes.Selection{
+				attributes.DBClientDuration.Section: attributes.InclusionLists{
+					Include: []string{string(attr.DBCollectionName)},
+				},
+			},
+		},
+		request.UnresolvedNames{},
+		metrics,
+		processEvents,
+	)
+	require.NoError(t, err)
+	go reporter.reportMetrics(ctx)
+
+	metrics.Send([]request.Span{{
+		Service:      svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}},
+		Type:         request.EventTypeSQLClient,
+		Path:         "customers",
+		Method:       "SELECT",
+		RequestStart: 100,
+		End:          200,
+	}})
+
+	records := readMetricsByName(t, metricRecords, timeout, attributes.DBClientDuration.OTEL)
+	require.Len(t, records, 1)
+	assert.Equal(t, "customers", records[0].Attributes[string(attr.DBCollectionName)])
+}
+
 func TestSpanMetrics_ExtraResourceAttributes(t *testing.T) {
 	defer otelcfg.RestoreEnvAfterExecution()()
 
