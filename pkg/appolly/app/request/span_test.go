@@ -572,7 +572,13 @@ func TestSerializeJSONSpans(t *testing.T) {
 		},
 		{
 			eventType: EventTypeRedisClient,
-			attribs:   map[string]any{},
+			attribs: map[string]any{
+				"serverAddr": "hostname",
+				"serverPort": "5678",
+				"operation":  "method",
+				"statement":  "statement",
+				"query":      "path",
+			},
 		},
 		{
 			eventType: EventTypeKafkaClient,
