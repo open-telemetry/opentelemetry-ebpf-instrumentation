@@ -5,7 +5,7 @@ This example demonstrates how to build and run the OpenTelemetry Collector with 
 ## Prerequisites
 
 - Go 1.25 or later
-- [OTel Collector Builder (`ocb`)](https://opentelemetry.io/docs/collector/extend/ocb/) installed
+- [OTel Collector Builder (`ocb`)](https://opentelemetry.io/docs/collector/extend/ocb/) installed. The `.github/workflows/pull_request.yml` workflow installs the version matching the OpenTelemetry Collector version in `go.mod`.
 - Docker (for generating eBPF files) or a C compiler, clang, and eBPF headers
 - Linux system with elevated privileges (sudo) to run the collector
 

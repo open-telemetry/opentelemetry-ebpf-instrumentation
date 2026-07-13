@@ -4,6 +4,8 @@
 package svc // import "go.opentelemetry.io/obi/pkg/appolly/app/svc"
 
 import (
+	"log/slog"
+
 	"go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 
@@ -109,6 +111,11 @@ type Attrs struct {
 	// UserPID and HostPID fields of the request.PidInfo struct.
 	ProcPID app.PID
 
+	// DynamicSelectorPID is the PID whose dynamic signal selection controls this process.
+	// It usually matches ProcPID, but children discovered through a selected parent can inherit
+	// the parent's runtime signal selection.
+	DynamicSelectorPID app.PID
+
 	// HostName running the process. It will default to the OBI host and will be overridden
 	// by other metadata if available (e.g., Pod Name, Node Name, etc...)
 	HostName string
@@ -137,8 +144,15 @@ func (i *Attrs) GetUID() UID {
 	return i.UID
 }
 
-func (i *Attrs) String() string {
+// String uses a value receiver so nested Attrs values (e.g. Span.Service) never reflection-dump EnvVars
+func (i Attrs) String() string {
 	return i.Job()
+}
+
+// LogValue implements slog.LogValuer: JSON handlers marshal exported fields
+// instead of calling String, so without it they would emit EnvVars
+func (i Attrs) LogValue() slog.Value {
+	return slog.StringValue(i.Job())
 }
 
 func (i *Attrs) Job() string {

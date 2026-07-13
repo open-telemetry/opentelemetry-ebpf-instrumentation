@@ -80,6 +80,18 @@ func TestFastElf_FileNoSections(t *testing.T) {
 	require.NoError(t, ctx.Close())
 }
 
+func TestFastElf_HasSectionMalformedStringTable(t *testing.T) {
+	ctx := &ElfContext{
+		Hdr:  &Elf64_Ehdr{},
+		Data: []byte{0},
+		Sections: []*Elf64_Shdr{
+			{Offset: ^uint64(0), Size: 1},
+		},
+	}
+
+	require.False(t, ctx.HasSection(".text"))
+}
+
 func TestGetCString_OutOfRangeOffset(t *testing.T) {
 	require.Empty(t, GetCString([]byte("abc\x00"), 100))
 }
@@ -144,11 +156,50 @@ func TestFastElf_HasSymbol_StrtabOffsetBeyondData(t *testing.T) {
 		Data: []byte("strtab\x00"),
 		Sections: []*Elf64_Shdr{
 			{Type: SHT_SYMTAB, Link: 1, Size: 64, Entsize: 24},
-			{Offset: 9999},
+			{Offset: ^uint64(0), Size: 1},
 		},
 	}
 
 	require.False(t, ctx.HasSymbol("setprogname"))
+}
+
+func TestFastElf_SymbolTableBounds(t *testing.T) {
+	symbolSize := uint64(unsafe.Sizeof(Elf64_Sym{}))
+	ctx := &ElfContext{Data: make([]byte, symbolSize)}
+
+	tests := []struct {
+		name      string
+		section   *Elf64_Shdr
+		wantCount int
+		wantOK    bool
+	}{
+		{
+			name:      "valid table",
+			section:   &Elf64_Shdr{Size: symbolSize, Entsize: symbolSize},
+			wantCount: 1,
+			wantOK:    true,
+		},
+		{
+			name:    "offset overflows int",
+			section: &Elf64_Shdr{Offset: ^uint64(0), Size: symbolSize, Entsize: symbolSize},
+		},
+		{
+			name:    "size exceeds data",
+			section: &Elf64_Shdr{Size: ^uint64(0), Entsize: symbolSize},
+		},
+		{
+			name:    "entry smaller than symbol",
+			section: &Elf64_Shdr{Size: symbolSize, Entsize: symbolSize - 1},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, _, count, ok := ctx.SymbolTableBounds(tt.section)
+			require.Equal(t, tt.wantOK, ok)
+			require.Equal(t, tt.wantCount, count)
+		})
+	}
 }
 
 /* ---- minimal.S

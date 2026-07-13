@@ -114,3 +114,11 @@ internal/test/benchmarks/goshorturl/shorturl
 # by weaver. Populated by `make fetch-upstream-semconv` (a prereqs dep).
 schemas/obi/.deps/
 internal/test/vm/lvh/out/
+
+# Route-harvester test fixture emulating a NestJS app that ships only compiled
+# output; the directory must literally be named "dist" (the scan behavior under
+# test keys on that name), so carve it out of the global dist/ ignore.
+!pkg/internal/transform/route/harvest/nodejs/test_files_dist/dist/
+!pkg/internal/transform/route/harvest/nodejs/test_files_dist/dist/**
+!pkg/internal/transform/route/harvest/nodejs/test_files_dist_versioned/dist/
+!pkg/internal/transform/route/harvest/nodejs/test_files_dist_versioned/dist/**

@@ -2,6 +2,7 @@ oats-schema-version: 2
 docker-compose:
   files:
   - ../docker-compose-obi-mysql.yml
+  - ../../weaver/docker-compose-weaver.yml
 input:
 - path: /argquery
 interval: 500ms

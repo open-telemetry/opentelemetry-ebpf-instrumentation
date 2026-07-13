@@ -11,6 +11,9 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/services"
 )
 
+// intPtr returns a pointer to the given int value
+func intPtr(v int) *int { return &v }
+
 func TestEnrichmentConfig_Validate_HeaderRules(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -157,6 +160,55 @@ func TestEnrichmentConfig_Validate_BodyRules(t *testing.T) {
 				},
 			},
 			wantErr: "rule 0: obfuscation_json_paths can only be used with action \"obfuscate\"",
+		},
+		{
+			name: "happy status code range",
+			rules: []HTTPParsingRule{
+				{
+					Action: HTTPParsingActionInclude,
+					Type:   HTTPParsingRuleTypeBody,
+					Scope:  HTTPParsingScopeAll,
+					Match: HTTPParsingMatch{
+						ResponseStatusCode: &NumericRange{
+							GreaterEquals: intPtr(500),
+							LessEquals:    intPtr(599),
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "valid status code exact match",
+			rules: []HTTPParsingRule{
+				{
+					Action: HTTPParsingActionInclude,
+					Type:   HTTPParsingRuleTypeBody,
+					Scope:  HTTPParsingScopeAll,
+					Match: HTTPParsingMatch{
+						ResponseStatusCode: &NumericRange{
+							GreaterEquals: intPtr(200),
+							LessEquals:    intPtr(200),
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "inverted status code range",
+			rules: []HTTPParsingRule{
+				{
+					Action: HTTPParsingActionInclude,
+					Type:   HTTPParsingRuleTypeBody,
+					Scope:  HTTPParsingScopeAll,
+					Match: HTTPParsingMatch{
+						ResponseStatusCode: &NumericRange{
+							GreaterEquals: intPtr(599),
+							LessEquals:    intPtr(500),
+						},
+					},
+				},
+			},
+			wantErr: "rule 0: response_status_code greater_equals (599) must not exceed less_equals (500)",
 		},
 	}
 

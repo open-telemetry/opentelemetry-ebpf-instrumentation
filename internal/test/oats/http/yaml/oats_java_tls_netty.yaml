@@ -2,6 +2,7 @@ oats-schema-version: 2
 docker-compose:
   files:
   - ../docker-compose-java-tls-netty.yml
+  - ../../weaver/docker-compose-weaver.yml
 input:
 - path: /api/request?url=https://httpbin.org/get
 interval: 500ms

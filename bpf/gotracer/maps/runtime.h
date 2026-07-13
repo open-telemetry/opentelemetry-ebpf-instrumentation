@@ -7,9 +7,36 @@
 #include <bpfcore/bpf_helpers.h>
 
 #include <common/event_defs.h>
+#include <common/go_addr_key.h>
+#include <common/map_sizing.h>
 #include <common/pin_internal.h>
+#include <common/tp_info.h>
 #include <gotracer/go_constants.h>
 #include <pid/types/pid_info.h>
+
+typedef struct chan_handoff {
+    tp_info_t tp;
+} chan_handoff_t;
+
+typedef struct chan_func_invocation {
+    u64 chan_ptr;
+    u64 recvx;
+    chan_handoff_t handoff;
+    bool has_handoff;
+    bool direct_handoff;
+    u8 _pad[6];
+} chan_func_invocation_t;
+
+typedef struct chan_handoff_key {
+    go_addr_key_t chan;
+    u64 slot;
+} chan_handoff_key_t;
+
+typedef struct direct_chan_handoff {
+    chan_handoff_t handoff;
+    bool ambiguous;
+    u8 _pad[7];
+} direct_chan_handoff_t;
 
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
@@ -17,6 +44,46 @@ struct {
     __type(value, u32);
     __uint(max_entries, 5000);
 } mptr_to_root_tid SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __type(key, go_addr_key_t);
+    __type(value, chan_func_invocation_t);
+    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
+    __uint(pinning, OBI_PIN_INTERNAL);
+} chansend_invocations SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __type(key, go_addr_key_t);
+    __type(value, chan_func_invocation_t);
+    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
+    __uint(pinning, OBI_PIN_INTERNAL);
+} chanrecv_invocations SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __type(key, chan_handoff_key_t);
+    __type(value, chan_handoff_t);
+    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
+    __uint(pinning, OBI_PIN_INTERNAL);
+} buffered_channel_senders SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __type(key, go_addr_key_t);
+    __type(value, direct_chan_handoff_t);
+    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
+    __uint(pinning, OBI_PIN_INTERNAL);
+} direct_channel_senders SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __type(key, go_addr_key_t);
+    __type(value, direct_chan_handoff_t);
+    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
+    __uint(pinning, OBI_PIN_INTERNAL);
+} direct_channel_receivers SEC(".maps");
 
 typedef struct go_runtime_metric_target {
     u64 memstats_addr;

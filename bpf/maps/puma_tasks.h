@@ -8,6 +8,7 @@
 
 #include <common/connection_info.h>
 #include <common/map_sizing.h>
+#include <common/pin_internal.h>
 #include <common/puma_task_id.h>
 
 struct {
@@ -15,6 +16,7 @@ struct {
     __type(key, puma_task_id_t); // the array and item pair
     __type(value, connection_info_part_t);
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
+    __uint(pinning, OBI_PIN_INTERNAL);
 } puma_task_connections SEC(".maps");
 
 struct {
@@ -22,4 +24,5 @@ struct {
     __type(key, u64);              // the pid:tgid
     __type(value, puma_task_id_t); // the array and item pair
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
+    __uint(pinning, OBI_PIN_INTERNAL);
 } puma_worker_tasks SEC(".maps");

@@ -177,7 +177,7 @@ func dispatchMSSQL(parseCtx *EBPFParseContext, event *TCPRequestInfo, requestBuf
 // detectGenericProtocol runs deterministic protocol detection for unclassified events:
 // SQL, FastCGI, MongoDB, Couchbase, and Memcached noreply.
 func detectGenericProtocol(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, event *TCPRequestInfo, requestBuffer, responseBuffer *largebuf.LargeBuffer) (request.Span, bool, bool, error) {
-	if span, ignore, matched, err := matchSQL(cfg, event, requestBuffer, responseBuffer); matched {
+	if span, ignore, matched, err := matchSQL(parseCtx, cfg, event, requestBuffer, responseBuffer); matched {
 		return span, ignore, matched, err
 	}
 
@@ -200,18 +200,50 @@ func detectGenericProtocol(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, e
 	return request.Span{}, false, false, nil
 }
 
-func matchSQL(cfg *config.EBPFTracer, event *TCPRequestInfo, requestBuffer, responseBuffer *largebuf.LargeBuffer) (request.Span, bool, bool, error) { //nolint:unparam
+// caches the connection's database name for the SQL spans that follow
+func matchPostgresStartup(parseCtx *EBPFParseContext, event *TCPRequestInfo, requestBuffer, responseBuffer *largebuf.LargeBuffer) (request.Span, bool, bool, error) { //nolint:unparam
+	if parseCtx.postgresDBNames == nil {
+		return request.Span{}, false, false, nil
+	}
+
+	if db, ok := parsePostgresStartup(requestBuffer); ok {
+		parseCtx.postgresDBNames.Add(event.ConnInfo, db)
+		return request.Span{}, true, true, nil
+	}
+
+	// caught reversed in the middle of communication
+	if db, ok := parsePostgresStartup(responseBuffer); ok {
+		parseCtx.postgresDBNames.Add(reverseTCPConnInfo(event.ConnInfo), db)
+		return request.Span{}, true, true, nil
+	}
+
+	return request.Span{}, false, false, nil
+}
+
+func matchSQL(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, event *TCPRequestInfo, requestBuffer, responseBuffer *largebuf.LargeBuffer) (request.Span, bool, bool, error) {
+	if span, ignore, matched, err := matchPostgresStartup(parseCtx, event, requestBuffer, responseBuffer); matched {
+		return span, ignore, matched, err
+	}
+
 	op, table, sql, kind := detectSQLPayload(cfg.HeuristicSQLDetect, requestBuffer)
 
 	if validSQL(op, table, kind) {
-		return TCPToSQLToSpan(event, op, table, sql, kind, "", nil), false, true, nil
+		span := TCPToSQLToSpan(event, op, table, sql, kind, "", nil)
+		if kind == request.DBPostgres {
+			span.DBNamespace = postgresDBForConn(parseCtx, event.ConnInfo)
+		}
+		return span, false, true, nil
 	}
 
 	op, table, sql, kind = detectSQLPayload(cfg.HeuristicSQLDetect, responseBuffer)
 
 	if validSQL(op, table, kind) {
 		reverseTCPEvent(event)
-		return TCPToSQLToSpan(event, op, table, sql, kind, "", nil), false, true, nil
+		span := TCPToSQLToSpan(event, op, table, sql, kind, "", nil)
+		if kind == request.DBPostgres {
+			span.DBNamespace = postgresDBForConn(parseCtx, event.ConnInfo)
+		}
+		return span, false, true, nil
 	}
 
 	return request.Span{}, false, false, nil
@@ -303,6 +335,39 @@ func detectHeuristicProtocol(parseCtx *EBPFParseContext, event *TCPRequestInfo, 
 	// SunRPC can arrive here when the kernel missed the connection start (e.g. OBI attached mid-connection).
 	if span, ignore, matched, err := matchSunRPC(parseCtx, event, requestBuffer, responseBuffer); matched {
 		return span, ignore, matched, err
+	}
+
+	if span, ignore, matched, err := matchAerospike(event, requestBuffer, responseBuffer); matched {
+		return span, ignore, matched, err
+	}
+
+	return request.Span{}, false, false, nil
+}
+
+// matchAerospike detects the Aerospike native client protocol (proto v2) from the
+// captured request/response buffers and builds a client span. Only type-3 AS_MSG
+// data requests produce a span; info/auth/compressed frames are left for the
+// generic ignore path. Correlation is the generic per-connection direction flip.
+func matchAerospike(event *TCPRequestInfo, requestBuffer, responseBuffer *largebuf.LargeBuffer) (request.Span, bool, bool, error) { //nolint:unparam
+	// Aerospike instrumentation is client-side only. When OBI also instruments the
+	// Aerospike server process it sees the same exchange from the server side; skip
+	// it so a single operation isn't reported twice (once per peer).
+	if event.IsServer {
+		return request.Span{}, false, false, nil
+	}
+
+	// parseAerospikeRequest validates the proto/as_msg header itself and returns
+	// nil for non-Aerospike or response frames, so it doubles as the detector.
+	if info := parseAerospikeRequest(requestBuffer); info != nil {
+		status, dbError := aerospikeStatus(responseBuffer)
+		return TCPToAerospikeToSpan(event, info, status, dbError), false, true, nil
+	}
+
+	// We may have caught the connection mid-flight with the buffers reversed.
+	if info := parseAerospikeRequest(responseBuffer); info != nil {
+		reverseTCPEvent(event)
+		status, dbError := aerospikeStatus(requestBuffer)
+		return TCPToAerospikeToSpan(event, info, status, dbError), false, true, nil
 	}
 
 	return request.Span{}, false, false, nil

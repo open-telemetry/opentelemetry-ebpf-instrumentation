@@ -9,8 +9,11 @@ import (
 	"bytes"
 	"context"
 	"debug/elf"
+	"errors"
 	"io"
 	"log/slog"
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/cilium/ebpf"
@@ -23,6 +26,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/internal/goexec"
+	"go.opentelemetry.io/obi/pkg/internal/procs"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
 
@@ -65,6 +69,145 @@ func TestGatherOffsets(t *testing.T) {
 		assert.Equal(t, expected.startOffset, desc.StartOffset)
 		assert.Equal(t, expected.returnOffsets, desc.ReturnOffsets)
 	}
+}
+
+func TestGatherOffsetsResolvesSymbolSubstring(t *testing.T) {
+	reader := bytes.NewReader(testData())
+	assert.NotNil(t, reader)
+
+	probes := probeDescMap{
+		"setprog": {{
+			SymbolMatcher: ebpfcommon.SymbolMatcherContains,
+		}},
+	}
+
+	elfFile, err := elf.NewFile(reader)
+	require.NoError(t, err)
+	defer elfFile.Close()
+
+	err = gatherOffsetsImpl(elfFile, probes, "libbsd.so", slog.Default())
+	require.NoError(t, err)
+
+	desc := probes["setprog"][0]
+	expected := expectedValues()["setprogname"]
+	assert.Equal(t, expected.startOffset, desc.StartOffset)
+	assert.Equal(t, expected.returnOffsets, desc.ReturnOffsets)
+	assert.False(t, desc.Skip)
+}
+
+func TestApplyResolvedSymbolOffsetsKeepsStartOffsetWhenReturnScanFails(t *testing.T) {
+	probe := &ebpfcommon.ProbeDesc{}
+	sym := procs.Sym{Name: "jvm", Off: 0x1234}
+
+	applyResolvedSymbolOffsets(probe, sym, nil, errors.New("decode failed"), "jvm", "libjvm.so", slog.Default())
+
+	assert.Equal(t, uint64(0x1234), probe.StartOffset)
+	assert.Empty(t, probe.ReturnOffsets)
+}
+
+func TestHandleSymbolDataReadFailureSkipsOptionalReturnProbe(t *testing.T) {
+	probe := &ebpfcommon.ProbeDesc{
+		StartOffset: 0x1234,
+		End:         &ebpf.Program{},
+	}
+
+	err := handleSymbolDataReadFailure(probe, "jvm", "libjvm.so", slog.Default())
+	require.NoError(t, err)
+
+	assert.True(t, probe.Skip)
+	assert.Equal(t, uint64(0x1234), probe.StartOffset)
+	assert.Empty(t, probe.ReturnOffsets)
+}
+
+func TestHandleSymbolDataReadFailureFailsRequiredReturnProbe(t *testing.T) {
+	probe := &ebpfcommon.ProbeDesc{
+		Required:    true,
+		StartOffset: 0x1234,
+		End:         &ebpf.Program{},
+	}
+
+	err := handleSymbolDataReadFailure(probe, "jvm", "libjvm.so", slog.Default())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "required symbol jvm needs return offsets")
+
+	assert.False(t, probe.Skip)
+	assert.Equal(t, uint64(0x1234), probe.StartOffset)
+	assert.Empty(t, probe.ReturnOffsets)
+}
+
+func TestHandleSymbolDataReadFailureKeepsStartOnlyProbeResolved(t *testing.T) {
+	probe := &ebpfcommon.ProbeDesc{
+		StartOffset: 0x1234,
+	}
+
+	err := handleSymbolDataReadFailure(probe, "jvm", "libjvm.so", slog.Default())
+	require.NoError(t, err)
+
+	assert.False(t, probe.Skip)
+	assert.Equal(t, uint64(0x1234), probe.StartOffset)
+	assert.Empty(t, probe.ReturnOffsets)
+}
+
+func TestGatherOffsetsSkipsMissingOptionalSymbol(t *testing.T) {
+	reader := bytes.NewReader(testData())
+	assert.NotNil(t, reader)
+
+	probes := probeDescMap{
+		"report_gc_heap_summary": {{
+			Required:      false,
+			SymbolMatcher: ebpfcommon.SymbolMatcherContains,
+		}},
+	}
+
+	elfFile, err := elf.NewFile(reader)
+	require.NoError(t, err)
+	defer elfFile.Close()
+
+	err = gatherOffsetsImpl(elfFile, probes, "libbsd.so", slog.Default())
+	require.NoError(t, err)
+
+	desc := probes["report_gc_heap_summary"][0]
+	assert.True(t, desc.Skip)
+	assert.Zero(t, desc.StartOffset)
+	assert.Empty(t, desc.ReturnOffsets)
+}
+
+func TestGatherOffsetsFailsMissingRequiredSymbol(t *testing.T) {
+	reader := bytes.NewReader(testData())
+	assert.NotNil(t, reader)
+
+	probes := probeDescMap{
+		"missing_required_symbol": {{
+			Required: true,
+		}},
+	}
+
+	elfFile, err := elf.NewFile(reader)
+	require.NoError(t, err)
+	defer elfFile.Close()
+
+	err = gatherOffsetsImpl(elfFile, probes, "libbsd.so", slog.Default())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "required symbol missing_required_symbol not found")
+
+	desc := probes["missing_required_symbol"][0]
+	assert.True(t, desc.Skip)
+	assert.Zero(t, desc.StartOffset)
+	assert.Empty(t, desc.ReturnOffsets)
+}
+
+func TestInstrumentProbesSkipsMarkedOptionalProbe(t *testing.T) {
+	i := &instrumenter{}
+	probes := probeDescMap{
+		"report_gc_heap_summary": {{
+			Skip:  true,
+			Start: &ebpf.Program{},
+		}},
+	}
+
+	closers, err := i.instrumentProbes(nil, probes)
+	require.NoError(t, err)
+	assert.Empty(t, closers)
 }
 
 func TestMatchVersionedUprobeLibrary(t *testing.T) {
@@ -161,6 +304,148 @@ func TestUprobeModulesRespectsVersionedLibraryAnnotations(t *testing.T) {
 	assert.NotContains(t, selectedSymbols, "task_step")
 }
 
+func TestResolveInstrPathFallsBackToExecutableWhenLibraryMissing(t *testing.T) {
+	instrPath, ino, mappedPath, found := resolveInstrPath(123, "libmissing.so", nil, "/proc/123/exe", 42)
+
+	assert.False(t, found)
+	assert.Equal(t, "/proc/123/exe", instrPath)
+	assert.Equal(t, uint64(42), ino)
+	assert.Empty(t, mappedPath)
+}
+
+func TestResolveInstrPathUsesMappedPathWhenLibraryIsMapped(t *testing.T) {
+	instrPath, ino, mappedPath, found := resolveInstrPath(123, "libjvm.so", makeProcMaps("/usr/lib/libjvm.so"), "/proc/123/exe", 42)
+
+	assert.True(t, found)
+	assert.Equal(t, "/usr/lib/libjvm.so", instrPath)
+	assert.Equal(t, uint64(42), ino)
+	assert.Equal(t, "/usr/lib/libjvm.so", mappedPath)
+}
+
+func TestUSDTIPMapPIDsIncludesNamespacedAliases(t *testing.T) {
+	original := findNamespacedPids
+	defer func() { findNamespacedPids = original }()
+
+	findNamespacedPids = func(pid app.PID) ([]app.PID, error) {
+		assert.Equal(t, app.PID(123), pid)
+		return []app.PID{123, 1, 17}, nil
+	}
+
+	assert.Equal(t, []app.PID{123, 1, 17}, usdtIPMapPIDs(123))
+}
+
+func TestUSDTIPMapPIDsFallsBackToHostPID(t *testing.T) {
+	original := findNamespacedPids
+	defer func() { findNamespacedPids = original }()
+
+	findNamespacedPids = func(pid app.PID) ([]app.PID, error) {
+		assert.Equal(t, app.PID(123), pid)
+		return nil, errors.New("can't read status")
+	}
+
+	assert.Equal(t, []app.PID{123}, usdtIPMapPIDs(123))
+}
+
+func TestUSDTLinkCloserDeletesIPMapEntriesAfterClosingLink(t *testing.T) {
+	var calls []string
+	linkCloser := closerFunc(func() error {
+		calls = append(calls, "close-link")
+		return nil
+	})
+	ipMap := &recordingUSDTIPMap{calls: &calls}
+	keys := []obiUSDTIPKey{
+		{PID: 123, IP: 0xabc},
+		{PID: 1, IP: 0xabc},
+	}
+
+	closer := &usdtLinkCloser{
+		link: linkCloser,
+		cleanup: usdtIPMapCleanup{
+			ipMap: ipMap,
+			keys:  keys,
+		},
+	}
+
+	require.NoError(t, closer.Close())
+	require.NoError(t, closer.Close())
+
+	assert.Equal(t, []string{"close-link", "delete-ip", "delete-ip"}, calls)
+	assert.Equal(t, keys, ipMap.deleted)
+}
+
+func TestUSDTLinkCloserCloseIsConcurrentSafe(t *testing.T) {
+	linkCloser := &countingCloser{}
+	ipMap := &countingUSDTIPMap{}
+	keys := []obiUSDTIPKey{
+		{PID: 123, IP: 0xabc},
+		{PID: 1, IP: 0xabc},
+	}
+	closer := &usdtLinkCloser{
+		link: linkCloser,
+		cleanup: usdtIPMapCleanup{
+			ipMap: ipMap,
+			keys:  keys,
+		},
+	}
+
+	var wg sync.WaitGroup
+	errs := make(chan error, 16)
+	for range cap(errs) {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			errs <- closer.Close()
+		}()
+	}
+	wg.Wait()
+	close(errs)
+
+	for err := range errs {
+		require.NoError(t, err)
+	}
+	assert.Equal(t, int32(1), linkCloser.closes.Load())
+	assert.Equal(t, int32(len(keys)), ipMap.deletes.Load())
+}
+
+type closerFunc func() error
+
+func (f closerFunc) Close() error {
+	return f()
+}
+
+type recordingUSDTIPMap struct {
+	calls   *[]string
+	deleted []obiUSDTIPKey
+}
+
+func (m *recordingUSDTIPMap) Delete(key any) error {
+	ipKey, ok := key.(obiUSDTIPKey)
+	if !ok {
+		panic("unexpected USDT IP key type")
+	}
+	*m.calls = append(*m.calls, "delete-ip")
+	m.deleted = append(m.deleted, ipKey)
+	return nil
+}
+
+type countingCloser struct {
+	closes atomic.Int32
+}
+
+func (c *countingCloser) Close() error {
+	c.closes.Add(1)
+	return nil
+}
+
+type countingUSDTIPMap struct {
+	deletes atomic.Int32
+}
+
+func (m *countingUSDTIPMap) Delete(any) error {
+	m.deletes.Add(1)
+	return nil
+}
+
 func TestVersionFromPath(t *testing.T) {
 	for _, tc := range []struct {
 		path    string
@@ -228,6 +513,7 @@ func (s *stubTracer) KProbes() map[string]ebpfcommon.ProbeDesc               { r
 func (s *stubTracer) Tracepoints() map[string]ebpfcommon.ProbeDesc           { return nil }
 func (s *stubTracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc           { return nil }
 func (s *stubTracer) UProbes() map[string]map[string][]*ebpfcommon.ProbeDesc { return s.uprobes }
+func (s *stubTracer) USDTProbes() map[string][]*ebpfcommon.USDTProbeDesc     { return nil }
 func (s *stubTracer) SocketFilters() []*ebpf.Program                         { return nil }
 func (s *stubTracer) SockMsgs() []ebpfcommon.SockMsg                         { return nil }
 func (s *stubTracer) SockOps() []ebpfcommon.SockOps                          { return nil }

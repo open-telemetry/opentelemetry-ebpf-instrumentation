@@ -1,4 +1,4 @@
-FROM golang:1.26.4-alpine@sha256:f1ddd9fe14fffc091dd98cb4bfa999f32c5fc77d2f2305ea9f0e2595c5437c14 AS builder
+FROM golang:1.26.4-alpine@sha256:3ad57304ad93bbec8548a0437ad9e06a455660655d9af011d58b993f6f615648 AS builder
 
 # Install build dependencies
 RUN apk add --no-cache git gcc musl-dev linux-headers
@@ -13,7 +13,7 @@ WORKDIR /app/examples/otel-collector/otelcol-dev
 RUN go build -o otelcol-dev .
 
 # Final stage
-FROM alpine:3.24@sha256:f5064d3e5f88c467c714509f491853ab2d951932c5cad699c0cb969dcec6f3b4
+FROM alpine:3.24@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b
 RUN apk add --no-cache ca-certificates
 # Note: libc6-compat is not needed since the binary is statically linked
 

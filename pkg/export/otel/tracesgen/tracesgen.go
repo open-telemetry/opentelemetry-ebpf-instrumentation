@@ -73,9 +73,10 @@ func UserSelectedAttributes(selectorCfg *attributes.SelectorConfig) (map[attr.Na
 	return traceAttrs, err
 }
 
-// GroupSpans must remain public for collectors embedding OBI
-func GroupSpans(ctx context.Context, spans []request.Span, traceAttrs map[attr.Name]struct{}, sampler trace.Sampler, is instrumentations.InstrumentationSelection) map[svc.UID][]TraceSpanAndAttributes {
+// GroupSpans must remain public for collectors embedding OBI.
+func GroupSpans(ctx context.Context, spans []request.Span, traceAttrs map[attr.Name]struct{}, sampler trace.Sampler, is instrumentations.InstrumentationSelection, redactKeys ...string) map[svc.UID][]TraceSpanAndAttributes {
 	spanGroups := map[svc.UID][]TraceSpanAndAttributes{}
+	redactSet := buildRedactSet(redactKeys)
 
 	for i := range spans {
 		span := &spans[i]
@@ -86,7 +87,7 @@ func GroupSpans(ctx context.Context, spans []request.Span, traceAttrs map[attr.N
 			continue
 		}
 
-		finalAttrs := TraceAttributesSelector(span, traceAttrs)
+		finalAttrs := traceAttributesSelectorInternal(span, traceAttrs, redactSet)
 
 		spanSampler := func() trace.Sampler {
 			if span.Service.Sampler != nil {
@@ -129,12 +130,40 @@ func GenerateTracesWithAttributes(
 	reporterName string,
 	extraResAttrs ...attribute.KeyValue,
 ) ptrace.Traces {
+	return generateTracesWithAttributes(cache, svc, envResourceAttrs, nodeMeta, spans, reporterName, nil, extraResAttrs...)
+}
+
+func GenerateTracesWithSelectedResourceAttributes(
+	cache *expirable2.LRU[svc.UID, []attribute.KeyValue],
+	svc *svc.Attrs,
+	envResourceAttrs []attribute.KeyValue,
+	nodeMeta *meta.NodeMeta,
+	spans []TraceSpanAndAttributes,
+	reporterName string,
+	attrSelector attributes.Selection,
+	extraResAttrs ...attribute.KeyValue,
+) ptrace.Traces {
+	return generateTracesWithAttributes(cache, svc, envResourceAttrs, nodeMeta, spans, reporterName, attrSelector, extraResAttrs...)
+}
+
+func generateTracesWithAttributes(
+	cache *expirable2.LRU[svc.UID, []attribute.KeyValue],
+	svc *svc.Attrs,
+	envResourceAttrs []attribute.KeyValue,
+	nodeMeta *meta.NodeMeta,
+	spans []TraceSpanAndAttributes,
+	reporterName string,
+	attrSelector attributes.Selection,
+	extraResAttrs ...attribute.KeyValue,
+) ptrace.Traces {
 	traces := ptrace.NewTraces()
 	rs := traces.ResourceSpans().AppendEmpty()
 	resourceAttrs := TraceAppResourceAttrs(cache, nodeMeta, svc)
 	resourceAttrs = append(resourceAttrs, envResourceAttrs...)
+	resourceAttrs = otelcfg.FilterResourceAttrs(resourceAttrs, attrSelector)
 	resourceAttrsMap := AttrsToMap(resourceAttrs)
 	resourceAttrsMap.PutStr(string(semconv.OTelScopeNameKey), reporterName)
+	extraResAttrs = otelcfg.FilterResourceAttrs(extraResAttrs, attrSelector)
 	addAttrsToMap(extraResAttrs, resourceAttrsMap)
 	resourceAttrsMap.MoveTo(rs.Resource().Attributes())
 
@@ -202,6 +231,11 @@ func GenerateTracesWithAttributes(
 			appendSpanLinks(s, span.Links)
 		}
 		s.SetEndTimestamp(pcommon.NewTimestampFromTime(t.End))
+
+		// Create individual execute_tool child spans per tool call (OTel GenAI semconv compliance)
+		if toolCalls := getSpanToolCalls(span); len(toolCalls) > 0 {
+			createToolCallSpans(toolCalls, spanID, traceID, &ss, start, t.End)
+		}
 	}
 	return traces
 }
@@ -342,6 +376,8 @@ func acceptSpan(is instrumentations.InstrumentationSelection, span *request.Span
 		return is.CouchbaseEnabled()
 	case request.EventTypeMemcachedClient, request.EventTypeMemcachedServer:
 		return is.MemcachedEnabled()
+	case request.EventTypeAerospikeClient:
+		return is.AerospikeEnabled()
 	}
 
 	return false
@@ -354,40 +390,53 @@ var (
 	spanMetricsSkip     = attribute.Bool(string(attr.SkipSpanMetrics), true)
 )
 
-// genAIToolCallAttributes returns trace attributes for LLM tool calls.
-// Only tool calls with non-empty names are included. Names and IDs are kept
-// aligned so that the same index refers to the same tool call.
-func genAIToolCallAttributes(toolCalls []request.ToolCall) []attribute.KeyValue {
-	if len(toolCalls) == 0 {
+// getSpanToolCalls extracts tool calls from a GenAI span regardless of vendor.
+func getSpanToolCalls(span *request.Span) []request.ToolCall {
+	if span.GenAI == nil {
 		return nil
 	}
+	switch {
+	case span.GenAI.OpenAI != nil:
+		return span.GenAI.OpenAI.ToolCalls
+	case span.GenAI.Anthropic != nil:
+		return span.GenAI.Anthropic.ToolCalls
+	case span.GenAI.Gemini != nil:
+		return span.GenAI.Gemini.ToolCalls
+	case span.GenAI.Qwen != nil:
+		return span.GenAI.Qwen.ToolCalls
+	default:
+		return nil
+	}
+}
 
-	var names []string
-	var ids []string
-	hasIDs := false
+// createToolCallSpans creates individual execute_tool child spans for each tool call,
+// following the OTel GenAI semantic conventions where gen_ai.tool.name is a single string
+// per span rather than an aggregated string array.
+func createToolCallSpans(toolCalls []request.ToolCall, parentSpanID pcommon.SpanID, traceID pcommon.TraceID, ss *ptrace.ScopeSpans, start, end time.Time) {
 	for _, tc := range toolCalls {
 		if tc.Name == "" {
 			continue
 		}
-		names = append(names, tc.Name)
-		ids = append(ids, tc.ID)
+		sp := ss.Spans().AppendEmpty()
+		sp.SetName("execute_tool " + tc.Name)
+		sp.SetKind(ptrace.SpanKindInternal)
+		sp.SetTraceID(traceID)
+		sp.SetSpanID(pcommon.SpanID(idgen.RandomSpanID()))
+		sp.SetParentSpanID(parentSpanID)
+		sp.SetStartTimestamp(pcommon.NewTimestampFromTime(start))
+		sp.SetEndTimestamp(pcommon.NewTimestampFromTime(end))
+
+		attrs := sp.Attributes()
+		attrs.PutStr(string(semconv.GenAIOperationNameKey), "execute_tool")
+		attrs.PutStr(string(attr.GenAIToolName), tc.Name)
 		if tc.ID != "" {
-			hasIDs = true
+			attrs.PutStr(string(attr.GenAIToolCallID), tc.ID)
 		}
 	}
-
-	var attrs []attribute.KeyValue
-	if len(names) > 0 {
-		attrs = append(attrs, attribute.StringSlice(string(attr.GenAIToolName), names))
-	}
-	if hasIDs {
-		attrs = append(attrs, attribute.StringSlice(string(attr.GenAIToolCallID), ids))
-	}
-	return attrs
 }
 
 // mcpAttributes returns MCP span attributes following the OTEL MCP semantic conventions.
-// Tool call arguments and results are gated behind optionalAttrs (GenAIInput/GenAIOutput)
+// Tool call arguments and results are gated behind their own optionalAttrs
 // because they may be large or contain sensitive data.
 func mcpAttributes(span *request.Span, optionalAttrs map[attr.Name]struct{}) []attribute.KeyValue {
 	if span.SubType != request.HTTPSubtypeMCP || span.GenAI == nil || span.GenAI.MCP == nil {
@@ -404,11 +453,10 @@ func mcpAttributes(span *request.Span, optionalAttrs map[attr.Name]struct{}) []a
 	if mcp.ToolType != "" {
 		attrs = append(attrs, attribute.String(string(attr.GenAIToolType), mcp.ToolType))
 	}
-	// Gate potentially large/sensitive tool call data behind optionalAttrs
-	if _, ok := optionalAttrs[attr.GenAIInput]; ok && mcp.ToolCallArguments != "" {
+	if _, ok := optionalAttrs[attr.GenAIToolCallArguments]; ok && mcp.ToolCallArguments != "" {
 		attrs = append(attrs, attribute.String(string(attr.GenAIToolCallArguments), mcp.ToolCallArguments))
 	}
-	if _, ok := optionalAttrs[attr.GenAIOutput]; ok && mcp.ToolCallResult != "" {
+	if _, ok := optionalAttrs[attr.GenAIToolCallResult]; ok && mcp.ToolCallResult != "" {
 		attrs = append(attrs, attribute.String(string(attr.GenAIToolCallResult), mcp.ToolCallResult))
 	}
 	if mcp.ResourceURI != "" {
@@ -471,7 +519,7 @@ func httpEnrichmentAttributes(span *request.Span) []attribute.KeyValue {
 }
 
 //nolint:cyclop
-func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]struct{}) []attribute.KeyValue {
+func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.Name]struct{}, redactSet map[string]struct{}) []attribute.KeyValue {
 	var attrs []attribute.KeyValue
 
 	switch span.Type {
@@ -479,12 +527,14 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 		attrs = []attribute.KeyValue{
 			request.HTTPRequestMethod(span.Method),
 			request.HTTPResponseStatusCode(span.Status),
-			request.HTTPUrlPath(span.Path),
 			request.ClientAddr(request.PeerAsClient(span)),
 			request.ServerAddr(request.SpanHost(span)),
 			request.ServerPort(span.HostPort),
 			request.HTTPRequestBodySize(int(span.RequestBodyLength())),
 			request.HTTPResponseBodySize(span.ResponseBodyLength()),
+		}
+		if span.Path != "" {
+			attrs = append(attrs, request.HTTPUrlPath(span.Path))
 		}
 		scheme := request.HTTPScheme(span)
 		if scheme != "" {
@@ -499,6 +549,13 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 			}
 			attrs = append(attrs, semconv.GraphQLOperationName(span.GraphQL.OperationName))
 			attrs = append(attrs, request.GraphqlOperationType(span.GraphQL.OperationType))
+		}
+		if _, ok := optionalAttrs[attr.HTTPUrlQuery]; ok {
+			if idx := strings.IndexByte(span.FullPath, '?'); idx >= 0 {
+				if qs := scrubQuery(span.FullPath[idx+1:], redactSet); qs != "" {
+					attrs = append(attrs, request.HTTPUrlQuery(qs))
+				}
+			}
 		}
 		attrs = append(attrs, mcpAttributes(span, optionalAttrs)...)
 		attrs = append(attrs, jsonRPCAttributes(span)...)
@@ -549,12 +606,14 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 		if span.FullPath != "" {
 			urlPath = span.FullPath
 		}
-		// Strip query parameters from url.full by default to avoid leaking
-		// sensitive data (tokens, PII). Include them only when explicitly opted in.
-		var queryString string
-		if idx := strings.IndexByte(urlPath, '?'); idx > 0 {
-			queryString = urlPath[idx+1:]
-			if _, ok := optionalAttrs[attr.HTTPUrlQuery]; !ok {
+		// Scrub sensitive query parameters from url.full. The scrubbed query is always
+		// included in url.full when present; the selector only gates the separate url.query attribute.
+		var scrubbedQS string
+		if idx := strings.IndexByte(urlPath, '?'); idx >= 0 {
+			if qs := scrubQuery(urlPath[idx+1:], redactSet); qs != "" {
+				urlPath = urlPath[:idx+1] + qs
+				scrubbedQS = qs
+			} else {
 				urlPath = urlPath[:idx]
 			}
 		}
@@ -575,8 +634,10 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 			request.HTTPResponseBodySize(span.ResponseBodyLength()),
 		}
 
-		if _, ok := optionalAttrs[attr.HTTPUrlQuery]; ok && queryString != "" {
-			attrs = append(attrs, request.HTTPUrlQuery(queryString))
+		if scrubbedQS != "" {
+			if _, ok := optionalAttrs[attr.HTTPUrlQuery]; ok {
+				attrs = append(attrs, request.HTTPUrlQuery(scrubbedQS))
+			}
 		}
 
 		if span.SubType == request.HTTPSubtypeElasticsearch && span.Elasticsearch != nil {
@@ -715,7 +776,6 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 					attrs = append(attrs, semconv.GenAIRequestEncodingFormats(ai.Request.EncodingFormat))
 				}
 			}
-			attrs = append(attrs, genAIToolCallAttributes(ai.ToolCalls)...)
 		}
 
 		if span.SubType == request.HTTPSubtypeAnthropic && span.GenAI != nil && span.GenAI.Anthropic != nil {
@@ -786,7 +846,6 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 			if ai.Output.Error != nil && ai.Output.Error.Type != "" {
 				attrs = append(attrs, semconv.ErrorTypeKey.String(ai.Output.Error.Type))
 			}
-			attrs = append(attrs, genAIToolCallAttributes(ai.ToolCalls)...)
 		}
 
 		if span.SubType == request.HTTPSubtypeGemini && span.GenAI != nil && span.GenAI.Gemini != nil {
@@ -864,7 +923,6 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 			if ai.Output.Error != nil && ai.Output.Error.Status != "" {
 				attrs = append(attrs, semconv.ErrorTypeKey.String(ai.Output.Error.Status))
 			}
-			attrs = append(attrs, genAIToolCallAttributes(ai.ToolCalls)...)
 		}
 
 		if span.SubType == request.HTTPSubtypeQwen && span.GenAI != nil && span.GenAI.Qwen != nil {
@@ -949,7 +1007,6 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 			if ai.Error.Type != "" {
 				attrs = append(attrs, semconv.ErrorTypeKey.String(ai.Error.Type))
 			}
-			attrs = append(attrs, genAIToolCallAttributes(ai.ToolCalls)...)
 		}
 
 		if span.SubType == request.HTTPSubtypeAWSBedrock && span.GenAI != nil && span.GenAI.Bedrock != nil {
@@ -1127,6 +1184,9 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 			attrs = append(attrs, request.ErrorType(span.SQLError.SQLState))
 			attrs = append(attrs, attributes.DBResponseErrorAttr(optionalAttrs, span.SQLErrorDescription())...)
 		}
+		if span.DBNamespace != "" {
+			attrs = append(attrs, request.DBNamespace(span.DBNamespace))
+		}
 	case request.EventTypeRedisServer, request.EventTypeRedisClient:
 		attrs = []attribute.KeyValue{
 			request.ServerAddr(request.HostAsServer(span)),
@@ -1287,6 +1347,34 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 		if span.DBNamespace != "" {
 			attrs = append(attrs, request.DBNamespace(span.DBNamespace))
 		}
+	case request.EventTypeAerospikeClient:
+		attrs = []attribute.KeyValue{
+			request.ServerAddr(request.HostAsServer(span)),
+			request.ServerPort(span.HostPort),
+			request.PeerService(request.PeerServiceFromSpan(span)),
+			request.DBSystemName("aerospike"),
+		}
+		if span.Method != "" {
+			attrs = append(attrs, request.DBOperationName(span.Method))
+		}
+		if span.Path != "" {
+			attrs = append(attrs, request.DBCollectionName(span.Path))
+		}
+		if span.DBNamespace != "" {
+			attrs = append(attrs, request.DBNamespace(span.DBNamespace))
+		}
+		if span.DBBatchSize > 0 {
+			attrs = append(attrs, request.DBOperationBatchSize(span.DBBatchSize))
+		}
+		if _, ok := optionalAttrs[attr.DBQueryText]; ok {
+			if span.Statement != "" {
+				attrs = append(attrs, request.DBQueryText(span.Statement))
+			}
+		}
+		if span.Status != 0 {
+			attrs = append(attrs, request.DBResponseStatusCode(span.DBError.ErrorCode))
+			attrs = append(attrs, attributes.DBResponseErrorAttr(optionalAttrs, span.DBError.Description)...)
+		}
 	case request.EventTypeMemcachedClient, request.EventTypeMemcachedServer:
 		attrs = []attribute.KeyValue{
 			request.ServerAddr(request.HostAsServer(span)),
@@ -1337,11 +1425,16 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 	return attrs
 }
 
+// TraceAttributesSelector returns the []attribute.KeyValue for a single span.
+func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]struct{}, redactKeys ...string) []attribute.KeyValue {
+	return traceAttributesSelectorInternal(span, optionalAttrs, buildRedactSet(redactKeys))
+}
+
 func spanKind(span *request.Span) trace2.SpanKind {
 	switch span.Type {
 	case request.EventTypeHTTP, request.EventTypeGRPC, request.EventTypeRedisServer, request.EventTypeKafkaServer, request.EventTypeMQTTServer, request.EventTypeNATSServer, request.EventTypeSunRPCServer, request.EventTypeMemcachedServer, request.EventTypeSQLServer:
 		return trace2.SpanKindServer
-	case request.EventTypeHTTPClient, request.EventTypeGRPCClient, request.EventTypeSQLClient, request.EventTypeRedisClient, request.EventTypeMongoClient, request.EventTypeCouchbaseClient, request.EventTypeMemcachedClient, request.EventTypeSunRPCClient, request.EventTypeFailedConnect:
+	case request.EventTypeHTTPClient, request.EventTypeGRPCClient, request.EventTypeSQLClient, request.EventTypeRedisClient, request.EventTypeMongoClient, request.EventTypeCouchbaseClient, request.EventTypeMemcachedClient, request.EventTypeSunRPCClient, request.EventTypeAerospikeClient, request.EventTypeFailedConnect:
 		return trace2.SpanKindClient
 	case request.EventTypeKafkaClient, request.EventTypeMQTTClient, request.EventTypeNATSClient, request.EventTypeAMQPClient:
 		switch span.Method {

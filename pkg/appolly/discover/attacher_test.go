@@ -32,10 +32,14 @@ type blockedPID struct {
 }
 
 type recordingTracer struct {
+	allowed []blockedPID
 	blocked []blockedPID
 }
 
-func (r *recordingTracer) AllowPID(app.PID, uint32, *execpkg.FileInfo) {}
+func (r *recordingTracer) AllowPID(pid app.PID, ns uint32, _ *execpkg.FileInfo) {
+	r.allowed = append(r.allowed, blockedPID{pid: pid, ns: ns})
+}
+
 func (r *recordingTracer) BlockPID(pid app.PID, ns uint32) {
 	r.blocked = append(r.blocked, blockedPID{pid: pid, ns: ns})
 }
@@ -46,6 +50,7 @@ func (r *recordingTracer) KProbes() map[string]ebpfcommon.ProbeDesc             
 func (r *recordingTracer) Tracepoints() map[string]ebpfcommon.ProbeDesc           { return nil }
 func (r *recordingTracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc           { return nil }
 func (r *recordingTracer) UProbes() map[string]map[string][]*ebpfcommon.ProbeDesc { return nil }
+func (r *recordingTracer) USDTProbes() map[string][]*ebpfcommon.USDTProbeDesc     { return nil }
 func (r *recordingTracer) SocketFilters() []*cebpf.Program                        { return nil }
 func (r *recordingTracer) SockMsgs() []ebpfcommon.SockMsg                         { return nil }
 func (r *recordingTracer) SockOps() []ebpfcommon.SockOps                          { return nil }

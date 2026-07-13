@@ -77,6 +77,7 @@ spec:
   - name: grpc
     port: 3550
     targetPort: 3550
+    appProtocol: grpc
 ---
 apiVersion: v1
 kind: ServiceAccount

@@ -65,7 +65,7 @@ jobs:
       matrix: ${{ steps.build-matrix.outputs.matrix }}
       kernels: ${{ steps.build-kernel-matrix.outputs.kernels }}
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
@@ -96,7 +96,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
@@ -117,19 +117,19 @@ jobs:
 
       - name: Log in to Docker Hub
         if: steps.check-docker-token.outputs.has_token == 'true'
-        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
+        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
         with:
           username: ${{ vars.DOCKER_USERNAME }}
           password: ${{ (github.event_name != 'workflow_dispatch' || !inputs.ref) && secrets.DOCKER_TOKEN_EBPF_INSTRUMENTATION || '' }}
 
       - name: Set up Go
-        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0 # zizmor: ignore[cache-poisoning] go.sum verifies module integrity
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0 # zizmor: ignore[cache-poisoning] go.sum verifies module integrity
         with:
           go-version-file: "go.mod"
           cache: true
 
       - name: Go build cache
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5 # zizmor: ignore[cache-poisoning] go build cache is content-addressable and self-verifying
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] go build cache is content-addressable and self-verifying
         with:
           path: ~/.cache/go-build
           key: go-build-vm-integration-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.go', 'go.sum') }}
@@ -148,7 +148,7 @@ jobs:
 
       - name: Cache Docker images
         id: docker-images-cache
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5 # zizmor: ignore[cache-poisoning] keyed on hash of compose+Dockerfile+source inputs
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] keyed on hash of compose+Dockerfile+source inputs
         with:
           path: compiled-tests/docker-images.tar
           # OBI binary bakes bpf/cmd/pkg sources; hash them too or source changes reuse stale images.
@@ -181,11 +181,20 @@ jobs:
         id: cache-key
         env:
           ARCH: ${{ runner.arch }}
-        run: echo "key=base-images-${ARCH}-$(bash scripts/discover-integration-images.sh --base-images | sha256sum | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+          INPUT_REF: ${{ inputs.ref || '' }}
+        run: |
+          if [ -n "${INPUT_REF}" ]; then
+            REF_SCOPE="input-ref-$(printf '%s' "${INPUT_REF}" | sha256sum | cut -d' ' -f1)"
+          else
+            REF_SCOPE="event-ref"
+          fi
+
+          IMAGE_SCOPE="$(bash scripts/discover-integration-images.sh --base-images | sha256sum | cut -d' ' -f1)"
+          echo "key=base-images-${ARCH}-${REF_SCOPE}-${IMAGE_SCOPE}" >> "$GITHUB_OUTPUT"
 
       - name: Cache base images
         id: base-images-cache
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5 # zizmor: ignore[cache-poisoning] key derives from the digest-pinned base-image list; images are content-addressable
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] key derives from the digest-pinned base-image list; images are content-addressable
         with:
           path: compiled-tests/base-images.tar
           key: ${{ steps.cache-key.outputs.key }}
@@ -194,11 +203,13 @@ jobs:
         if: steps.base-images-cache.outputs.cache-hit != 'true'
         run: bash scripts/pull-base-images.sh compiled-tests/base-images.tar
 
-      - name: Cache rootfs.qcow2
+      - name: Cache rootfs images
         id: rootfs-cache
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5 # zizmor: ignore[cache-poisoning] keyed on hash of VM Dockerfile
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] keyed on hash of VM Dockerfile
         with:
-          path: compiled-tests/rootfs.qcow2
+          path: |
+            compiled-tests/rootfs.qcow2
+            compiled-tests/rootfs-legacy.qcow2
           key: vm-rootfs-${{ hashFiles('internal/test/vm/Dockerfile') }}
 
       - name: Install qemu-utils
@@ -207,13 +218,16 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends qemu-utils
 
-      - name: Build rootfs.qcow2
+      - name: Build rootfs images
         if: steps.rootfs-cache.outputs.cache-hit != 'true'
         run: |
           sudo make -C internal/test/vm WORKDIR="$(pwd)" build-rootfs
           sudo chown "$(id -u):$(id -g)" rootfs.qcow2
           mv rootfs.qcow2 compiled-tests/rootfs.qcow2
-          ls -lh compiled-tests/rootfs.qcow2
+          sudo make -C internal/test/vm WORKDIR="$(pwd)" CGROUP_MODE=legacy build-rootfs
+          sudo chown "$(id -u):$(id -g)" rootfs-legacy.qcow2
+          mv rootfs-legacy.qcow2 compiled-tests/rootfs-legacy.qcow2
+          ls -lh compiled-tests/rootfs*.qcow2
 
       - name: Stage schemas/obi/.deps for weaver
         run: |
@@ -245,7 +259,7 @@ jobs:
         kernel: ${{ fromJson(needs.vm-test-matrix.outputs.kernels).include }}
         test: ${{ fromJson(needs.vm-test-matrix.outputs.matrix).include }}
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
@@ -271,8 +285,15 @@ jobs:
           cp -a compiled-tests/schemas-deps/. schemas/obi/.deps/
 
       - name: Stage rootfs.qcow2
+        env:
+          CGROUP_MODE: ${{ matrix.kernel.cgroup_mode }}
         run: |
-          mv compiled-tests/rootfs.qcow2 ./rootfs.qcow2
+          if [ "$CGROUP_MODE" = "legacy" ]; then
+            mv compiled-tests/rootfs-legacy.qcow2 ./rootfs.qcow2
+          else
+            mv compiled-tests/rootfs.qcow2 ./rootfs.qcow2
+          fi
+          ls -lh ./rootfs.qcow2
 
       - id: kernel
         uses: ./.github/actions/setup-lvh-kernel
@@ -289,8 +310,9 @@ jobs:
           KERNEL_ID: ${{ matrix.kernel.id }}
           KERNEL: ${{ steps.kernel.outputs.kernel }}
           MODULES_DIR: ${{ steps.kernel.outputs.modules-dir }}
+          CGROUP_MODE: ${{ matrix.kernel.cgroup_mode }}
         run: |
-          echo "VM Partition for kernel ${KERNEL_ID}"
+          echo "VM Partition for kernel ${KERNEL_ID} cgroup_mode=${CGROUP_MODE:-hybrid}"
           echo "${MATRIX_JSON}"
 
           if [ -z "${MATRIX_TEST_PATTERN}" ]; then

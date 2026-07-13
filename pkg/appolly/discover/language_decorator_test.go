@@ -95,6 +95,17 @@ func TestIsIgnoredPathEmptyList(t *testing.T) {
 func TestDecorateEventIgnoredPath(t *testing.T) {
 	ld := newTestDecorator([]string{"/sbin/", "/usr/sbin/"})
 
+	_executableReady = func(pid app.PID) (string, bool) {
+		if pid == 1 {
+			return "/sbin/init", true
+		}
+
+		return "", false
+	}
+	defer func() {
+		_executableReady = ExecutableReady
+	}()
+
 	ev := Event[ProcessAttrs]{
 		Type: EventCreated,
 		Obj:  ProcessAttrs{pid: 1, detectedType: svc.InstrumentableUnknown},

@@ -578,7 +578,7 @@ func (mr *MetricsReporter) setupOtelMeters(m *Metrics, meter instrument.Meter) e
 			m.ctx, genAIClientDuration, mr.attrGenAIClientDuration, timeNow, mr.cfg.TTL)
 
 		// the input tokens and output tokens are the same metric, we just need to distinguish the attributes, so we can write the token type
-		genAITokenUsage, err := meter.Float64Histogram(attributes.GenAIClientInputTokenUsage.OTEL, instrument.WithUnit("1"))
+		genAITokenUsage, err := meter.Float64Histogram(attributes.GenAIClientInputTokenUsage.OTEL, instrument.WithUnit("{token}"))
 		if err != nil {
 			return fmt.Errorf("creating genai client token usage histogram: %w", err)
 		}
@@ -693,6 +693,7 @@ func (mr *MetricsReporter) newMetricsInstance(service *svc.Attrs) Metrics {
 	if service != nil {
 		mlog = mlog.With("service", service)
 		resourceAttributes = append(otelcfg.GetAppResourceAttrs(&mr.nodeMeta, service), otelcfg.ResourceAttrsFromEnv(service)...)
+		resourceAttributes = otelcfg.FilterResourceAttrs(resourceAttributes, mr.userAttribSelection)
 	}
 	mlog.Debug("creating new Metrics reporter")
 	resources := resource.NewWithAttributes(semconv.SchemaURL, resourceAttributes...)
@@ -860,6 +861,7 @@ func (mr *MetricsReporter) tracesResourceAttributes(service *svc.Attrs) attribut
 	}
 
 	filteredAttrs := otelcfg.GetFilteredAttributesByPrefix(baseAttrs, mr.userAttribSelection, extraAttrs, MetricTypes)
+	filteredAttrs = otelcfg.FilterResourceAttrs(filteredAttrs, mr.userAttribSelection)
 	return attribute.NewSet(filteredAttrs...)
 }
 
@@ -965,7 +967,7 @@ func (r *Metrics) record(span *request.Span, mr *MetricsReporter) {
 				httpClientResponseSize, attrs := r.httpClientResponseSize.ForRecord(span)
 				httpClientResponseSize.Record(ctx, float64(span.ResponseBodyLength()), instrument.WithAttributeSet(attrs))
 			}
-		case request.EventTypeRedisServer, request.EventTypeRedisClient, request.EventTypeSQLClient, request.EventTypeMongoClient, request.EventTypeCouchbaseClient, request.EventTypeMemcachedClient, request.EventTypeMemcachedServer:
+		case request.EventTypeRedisServer, request.EventTypeRedisClient, request.EventTypeSQLClient, request.EventTypeMongoClient, request.EventTypeCouchbaseClient, request.EventTypeMemcachedClient, request.EventTypeMemcachedServer, request.EventTypeAerospikeClient:
 			if mr.is.DBEnabled() {
 				dbClientDuration, attrs := r.dbClientDuration.ForRecord(span)
 				dbClientDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
@@ -1154,7 +1156,8 @@ func (mr *MetricsReporter) resourceAttrsForService(service *svc.Attrs) []attribu
 	}
 
 	attrs = append(attrs, otelcfg.GetAppResourceAttrs(&mr.nodeMeta, service)...)
-	return append(attrs, otelcfg.ResourceAttrsFromEnv(service)...)
+	attrs = append(attrs, otelcfg.ResourceAttrsFromEnv(service)...)
+	return otelcfg.FilterResourceAttrs(attrs, mr.userAttribSelection)
 }
 
 func (mr *MetricsReporter) ensureTargetMetrics(service *svc.Attrs) *TargetMetrics {
@@ -1286,7 +1289,7 @@ func (mr *MetricsReporter) onSpan(spans []request.Span) {
 		reporter, err := mr.reporters.For(&s.Service)
 		if err != nil {
 			mlog().Error("unexpected error creating OTEL resource. Ignoring metric",
-				"error", err, "service", s.Service)
+				"error", err, "service", s.Service.UID)
 			continue
 		}
 		reporter.record(s, mr)

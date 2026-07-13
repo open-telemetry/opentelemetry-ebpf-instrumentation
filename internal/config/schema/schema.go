@@ -12,16 +12,19 @@
 //     the top level, parsed by ParseReceiverYAML
 //
 // This package validates only the version, shape, and deployment-specific
-// section boundaries needed to route the configuration. It intentionally leaves
-// nested OBI sections as map values so migration and validation layers can
-// preserve and inspect the original keys.
+// section boundaries needed to route the configuration. OBI-owned extension
+// sections are modeled locally as structs. OpenTelemetry-owned document sections
+// are modeled with otelconf/x so the parser follows the upstream declarative
+// configuration schema, including development sections.
 package schema // import "go.opentelemetry.io/obi/internal/config/schema"
 
 import (
 	"errors"
 	"fmt"
 
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v3"
+
+	otelconfx "go.opentelemetry.io/contrib/otelconf/x"
 )
 
 // SupportedVersion is the OBI configuration schema version handled by this
@@ -37,16 +40,62 @@ const (
 // Document is the top-level OpenTelemetry declarative configuration document
 // that contains extensions.obi.
 //
-// OBI-specific settings are available through Extensions.OBI. Declarative
-// configuration sections that can influence later conversion are retained as maps
-// because this package only needs to locate and validate the OBI extension.
+// OBI-specific settings are available through Extensions.OBI. OpenTelemetry
+// declarative configuration sections are modeled by otelconf/x so OBI follows
+// the upstream schema surface instead of carrying a parallel local model.
 type Document struct {
-	FileFormat     string         `yaml:"file_format"`
-	Resource       map[string]any `yaml:"resource"`
-	Propagator     map[string]any `yaml:"propagator"`
-	TracerProvider map[string]any `yaml:"tracer_provider"`
-	MeterProvider  map[string]any `yaml:"meter_provider"`
-	Extensions     Extensions     `yaml:"extensions"`
+	otelconfx.OpenTelemetryConfiguration `yaml:",inline"`
+	Extensions                           Extensions `yaml:"extensions"`
+}
+
+// UnmarshalYAML decodes OpenTelemetry-owned fields with otelconf/x and the OBI
+// extension with the local schema model.
+func (d *Document) UnmarshalYAML(node *yaml.Node) error {
+	type extensionDocument struct {
+		Extensions Extensions `yaml:"extensions"`
+	}
+	var ext extensionDocument
+	if err := node.Decode(&d.OpenTelemetryConfiguration); err != nil {
+		return err
+	}
+	if err := node.Decode(&ext); err != nil {
+		return err
+	}
+	d.Extensions = ext.Extensions
+	return nil
+}
+
+// MarshalYAML emits the OpenTelemetry document fields and extensions. The
+// explicit wrapper avoids relying on yaml inline behavior for a type with custom
+// unmarshaling in the upstream otelconf/x package.
+func (d Document) MarshalYAML() (any, error) {
+	return struct {
+		AttributeLimits            *otelconfx.AttributeLimits                   `yaml:"attribute_limits,omitempty"`
+		Disabled                   otelconfx.OpenTelemetryConfigurationDisabled `yaml:"disabled,omitempty"`
+		Distribution               otelconfx.Distribution                       `yaml:"distribution,omitempty"`
+		FileFormat                 string                                       `yaml:"file_format"`
+		InstrumentationDevelopment *otelconfx.ExperimentalInstrumentation       `yaml:"instrumentation/development,omitempty"`
+		LogLevel                   *otelconfx.SeverityNumber                    `yaml:"log_level,omitempty"`
+		LoggerProvider             *otelconfx.LoggerProvider                    `yaml:"logger_provider,omitempty"`
+		MeterProvider              *otelconfx.MeterProvider                     `yaml:"meter_provider,omitempty"`
+		Propagator                 *otelconfx.Propagator                        `yaml:"propagator,omitempty"`
+		Resource                   *otelconfx.Resource                          `yaml:"resource,omitempty"`
+		TracerProvider             *otelconfx.TracerProvider                    `yaml:"tracer_provider,omitempty"`
+		Extensions                 Extensions                                   `yaml:"extensions"`
+	}{
+		AttributeLimits:            d.AttributeLimits,
+		Disabled:                   d.Disabled,
+		Distribution:               d.Distribution,
+		FileFormat:                 d.FileFormat,
+		InstrumentationDevelopment: d.InstrumentationDevelopment,
+		LogLevel:                   d.LogLevel,
+		LoggerProvider:             d.LoggerProvider,
+		MeterProvider:              d.MeterProvider,
+		Propagator:                 d.Propagator,
+		Resource:                   d.Resource,
+		TracerProvider:             d.TracerProvider,
+		Extensions:                 d.Extensions,
+	}, nil
 }
 
 // Extensions holds declarative configuration extensions recognized by this
@@ -62,44 +111,11 @@ type Extensions struct {
 // configuration. ParseReceiverYAML synthesizes this shape from top-level receiver
 // capture sections.
 type Extension struct {
-	Version     string         `yaml:"version"`
-	Capture     Capture        `yaml:"capture"`
-	Enrich      map[string]any `yaml:"enrich,omitempty"`
-	Correlation map[string]any `yaml:"correlation,omitempty"`
-	Daemon      map[string]any `yaml:"daemon,omitempty"`
-}
-
-// Capture contains receiver-embeddable OBI capture settings.
-//
-// Known capture sections remain map values so callers can preserve unknown fields
-// inside those sections and apply schema-specific validation or migration
-// elsewhere.
-type Capture struct {
-	Policy          map[string]any `yaml:"policy"`
-	Rules           []Rule         `yaml:"rules"`
-	Instrumentation map[string]any `yaml:"instrumentation"`
-	Runtimes        map[string]any `yaml:"runtimes"`
-	Network         map[string]any `yaml:"network"`
-	Limits          map[string]any `yaml:"limits"`
-	Engine          map[string]any `yaml:"engine"`
-	Safety          map[string]any `yaml:"safety"`
-	Channels        map[string]any `yaml:"channels"`
-	Telemetry       map[string]any `yaml:"telemetry"`
-}
-
-// Rule describes one capture policy rule.
-type Rule struct {
-	Action      string         `yaml:"action"`
-	Name        string         `yaml:"name"`
-	Description string         `yaml:"description"`
-	Match       map[string]any `yaml:"match"`
-	Refine      RuleRefinement `yaml:"refine,omitempty"`
-}
-
-// RuleRefinement holds per-rule overrides that apply after a rule matches.
-type RuleRefinement struct {
-	Exports map[string]any `yaml:"exports,omitempty"`
-	HTTP    map[string]any `yaml:"http,omitempty"`
+	Version     string       `yaml:"version"`
+	Capture     Capture      `yaml:"capture"`
+	Enrich      *Enrich      `yaml:"enrich,omitempty"`
+	Correlation *Correlation `yaml:"correlation,omitempty"`
+	Daemon      *Daemon      `yaml:"daemon,omitempty"`
 }
 
 // receiverConfig mirrors the receiver-embedded layout, where capture sections

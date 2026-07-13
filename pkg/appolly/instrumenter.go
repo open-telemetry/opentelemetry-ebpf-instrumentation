@@ -68,6 +68,7 @@ func newGraphBuilder(
 	selectorCfg := &attributes.SelectorConfig{
 		SelectionCfg:            config.Attributes.Select,
 		ExtraGroupAttributesCfg: config.Attributes.ExtraGroupAttributes,
+		SensitiveQueryParamsCfg: config.Attributes.SensitiveQueryParams,
 	}
 
 	// Second, we register instancers for each pipe node, as well as communication queues between them
@@ -115,13 +116,16 @@ func newGraphBuilder(
 	if exportableSpans == nil {
 		exportableSpans = msg2.QueueFromConfig[[]request.Span](config, "exportableSpans")
 	}
+	attrFilteredSpans := msg2.QueueFromConfig[[]request.Span](config, "attrFilteredSpans")
 	swi.Add(filter.ByAttribute(config.Filters.Application,
 		nil,
 		selectorCfg.ExtraGroupAttributesCfg,
 		spanPtrPromGetters(config),
 		nameResolverToAttrFilter,
-		exportableSpans),
+		attrFilteredSpans),
 		swarm.WithID("AttributesFilter"))
+	swi.Add(DynamicSignalSpanGate(ctxInfo.DynamicPIDSelector, attrFilteredSpans, exportableSpans),
+		swarm.WithID("DynamicSignalSpanGate"))
 
 	swi.Add(otel.TracesReceiver(
 		ctxInfo, config.Traces, config.SpanMetricsEnabledForTraces(), selectorCfg, exportableSpans,
@@ -130,7 +134,7 @@ func newGraphBuilder(
 		swarm.WithID("PrinterNode"))
 
 	// some nodes (ipNodesFilter, span name limiter...) are only passed to the metrics export nodes.
-	// Nodes directly handling raw traces will still get the unfiltered exportableSpans queue.
+	// The exportableSpans queue already carries any dynamic per-signal trace/metrics gating.
 	// If no metrics exporter is configured, we will not start the metrics subpipeline to save resources.
 	jointMetricsConfig := JoinMetricsConfig(config)
 	exportingMetrics := jointMetricsConfig.Features.AnyAppO11yMetric() &&
@@ -159,6 +163,10 @@ func setupMetricsSubPipeline(
 	jointMetricsConfig *perapp.MetricsConfig,
 	runtimeMetrics *msg.Queue[[]runtimemetrics.RuntimeMetricSnapshot],
 ) {
+	metricsProcessEvents := msg2.QueueFromConfig[exec.ProcessEvent](config, "metricsProcessEvents")
+	swi.Add(DynamicSignalProcessEventGate(ctxInfo.DynamicPIDSelector, processEventsCh, metricsProcessEvents),
+		swarm.WithID("DynamicSignalProcessEventGate"))
+
 	unresolvedCfg := request.UnresolvedNames{
 		Generic:  config.Attributes.RenameUnresolvedHosts,
 		Outgoing: config.Attributes.RenameUnresolvedHostsOutgoing,
@@ -183,20 +191,33 @@ func setupMetricsSubPipeline(
 			selectorCfg,
 			unresolvedCfg,
 			spanNameAggregatedMetrics,
-			processEventsCh,
+			metricsProcessEvents,
 		), swarm.WithID("OTELMetricsExport"))
 
 		swi.Add(otel.ReportSvcGraphMetrics(
 			ctxInfo,
 			&config.OTELMetrics,
 			jointMetricsConfig,
+			selectorCfg,
 			unresolvedCfg,
 			spanNameAggregatedMetrics,
-			processEventsCh,
+			metricsProcessEvents,
 		), swarm.WithID("OTELSvcGraphMetricsExport"))
 	}
 
-	if jointMetricsConfig.Features.AppOrSpan() || jointMetricsConfig.Features.ServiceGraph() || jointMetricsConfig.Features.AppRuntime() {
+	runtimeMetricsEnabled := runtimemetrics.EnabledFeatures(jointMetricsConfig.Features)
+
+	runtimeMetricsInput := runtimeMetrics
+	if runtimeMetrics != nil {
+		gatedRuntimeMetrics := msg2.QueueFromConfig[[]runtimemetrics.RuntimeMetricSnapshot](config, "gatedRuntimeMetrics")
+		swi.Add(DynamicSignalRuntimeMetricsGate(ctxInfo.DynamicPIDSelector, runtimeMetrics, gatedRuntimeMetrics),
+			swarm.WithID("DynamicSignalRuntimeMetricsGate"))
+		runtimeMetricsInput = gatedRuntimeMetrics
+	}
+
+	if jointMetricsConfig.Features.AppOrSpan() ||
+		jointMetricsConfig.Features.ServiceGraph() ||
+		runtimeMetricsEnabled.Any() {
 		swi.Add(prom.PrometheusEndpoint(
 			ctxInfo,
 			&config.Prometheus,
@@ -204,17 +225,18 @@ func setupMetricsSubPipeline(
 			selectorCfg,
 			unresolvedCfg,
 			spanNameAggregatedMetrics,
-			processEventsCh,
-			runtimeMetrics,
+			metricsProcessEvents,
+			runtimeMetricsInput,
 		), swarm.WithID("PrometheusEndpoint"))
 	}
 
-	if jointMetricsConfig.Features.AppRuntime() {
+	if runtimeMetricsEnabled.Any() {
 		swi.Add(otel.ReportRuntimeMetrics(
 			ctxInfo,
 			&config.OTELMetrics,
 			jointMetricsConfig,
-			runtimeMetrics,
+			selectorCfg,
+			runtimeMetricsInput,
 		), swarm.WithID("OTELRuntimeMetricsExport"))
 	}
 }

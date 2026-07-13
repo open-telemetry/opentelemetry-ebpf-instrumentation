@@ -36,6 +36,14 @@ const (
 	// pgHeaderLen is the size of the Postgres message header:
 	// 1 byte type + 4 bytes length field.
 	pgHeaderLen = 5
+
+	// StartupMessage major protocol version (3.x: 3.0 since PG 7.4, 3.2 since PG 18)
+	pgStartupProtocolMajor = 3
+	// pgStartupMinLen: 4 bytes length + 4 bytes protocol + 1 byte terminator
+	pgStartupMinLen     = 9
+	pgStartupMaxLen     = 10000
+	pgSSLRequestCode    = 80877103
+	pgGSSENCRequestCode = 80877104
 )
 
 var (
@@ -213,6 +221,69 @@ func postgresPreparedStatements(b *largebuf.LargeBuffer) (string, string, string
 	}
 
 	return op, table, sql
+}
+
+// StartupMessage: Int32 length, Int32 protocol, then null-terminated key/value pairs
+func parsePostgresStartup(b *largebuf.LargeBuffer) (string, bool) {
+	r := b.NewReader()
+	// BPF drops 1-byte reads, so a refused SSL/GSSENC negotiation ('N') glues its request to the startup
+	for range 3 {
+		msgLen, err := r.ReadI32BE()
+		if err != nil || msgLen < 8 || msgLen > pgStartupMaxLen {
+			return "", false
+		}
+		code, err := r.ReadI32BE()
+		if err != nil {
+			return "", false
+		}
+		if (code == pgSSLRequestCode || code == pgGSSENCRequestCode) && msgLen == 8 {
+			continue
+		}
+		// trailing bytes past the startup's own length = some other length-prefixed protocol
+		if code>>16 != pgStartupProtocolMajor || msgLen < pgStartupMinLen ||
+			int(msgLen)-8 < r.Remaining() {
+			return "", false
+		}
+		return parsePostgresStartupParams(&r, r.Remaining() == int(msgLen)-8)
+	}
+	return "", false
+}
+
+func parsePostgresStartupParams(r *largebuf.LargeBufferReader, complete bool) (string, bool) {
+	var db, user string
+	for {
+		key, err := r.ReadCStr()
+		if err != nil || len(key) == 0 {
+			break
+		}
+		// ReadCStr may return the reader's scratch buffer, which the next read reuses
+		k := string(key)
+		val, err := r.ReadCStr()
+		if err != nil {
+			break
+		}
+		switch k {
+		case "database":
+			db = string(val)
+		case "user":
+			user = string(val)
+		}
+	}
+	if db == "" && complete {
+		// the database name defaults to the user name, but a truncated capture may hide an explicit database param
+		db = user
+	}
+	return db, db != ""
+}
+
+func postgresDBForConn(parseCtx *EBPFParseContext, connInfo BpfConnectionInfoT) string {
+	if parseCtx.postgresDBNames == nil {
+		return ""
+	}
+	if db, ok := parseCtx.postgresDBNames.Get(connInfo); ok {
+		return db
+	}
+	return ""
 }
 
 type postgresMessage struct {
@@ -402,5 +473,7 @@ Loop:
 		return span, errFallback
 	}
 
-	return TCPToSQLToSpan(event, op, table, stmt, request.DBPostgres, msg.typ, sqlError), nil
+	span = TCPToSQLToSpan(event, op, table, stmt, request.DBPostgres, msg.typ, sqlError)
+	span.DBNamespace = postgresDBForConn(parseCtx, event.ConnInfo)
+	return span, nil
 }

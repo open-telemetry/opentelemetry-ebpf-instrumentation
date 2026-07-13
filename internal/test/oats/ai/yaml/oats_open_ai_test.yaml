@@ -2,6 +2,7 @@ oats-schema-version: 2
 docker-compose:
   files:
   - ../docker-compose-open-ai.yml
+  - ../../weaver/docker-compose-weaver.yml
 input:
 - path: /messages
 - path: /error
