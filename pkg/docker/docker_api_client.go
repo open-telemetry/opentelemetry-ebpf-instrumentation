@@ -11,6 +11,7 @@ import (
 	"maps"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/moby/moby/api/types/events"
@@ -72,6 +73,7 @@ type ContainerStore struct {
 	docker         dockerClient
 	log            *slog.Logger
 	watcherStarted sync.Once
+	watcherRunning atomic.Bool
 
 	cacheMu       sync.RWMutex
 	byPID         map[app.PID]ContainerMeta
@@ -273,12 +275,25 @@ func ContainerMetadata[T ~string](dst map[T]string, ci *ContainerMeta, stringer 
 // Start begins the event watcher goroutine to invalidate and remove
 // metadata of destroyed containers.
 func (s *ContainerStore) Start(ctx context.Context) {
+	if s == nil {
+		return
+	}
 	s.watcherStarted.Do(func() {
 		s.initMutex.Lock()
 		s.initialize(ctx)
 		s.initMutex.Unlock()
+		s.watcherRunning.Store(true)
 		go s.watchContainerEvents(ctx)
 	})
+}
+
+// WatcherRunning reports whether the die/destroy event watcher goroutine
+// has been launched via Start.
+func (s *ContainerStore) WatcherRunning() bool {
+	if s == nil {
+		return false
+	}
+	return s.watcherRunning.Load()
 }
 
 func (s *ContainerStore) watchContainerEvents(ctx context.Context) {
