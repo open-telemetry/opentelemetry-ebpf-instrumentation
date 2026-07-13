@@ -86,6 +86,12 @@ func TestFeatureApplicationJVMAliasMapsToRuntime(t *testing.T) {
 	assert.True(t, features.AnyAppO11yMetric())
 }
 
+func TestFeatureJSONSchemaIncludesApplicationJVMAlias(t *testing.T) {
+	schema := Features(0).JSONSchema()
+
+	assert.Contains(t, schema.Items.Enum, "application_jvm")
+}
+
 func TestFeatureEnv_All(t *testing.T) {
 	doc := struct {
 		Features Features `env:"FOO" envSeparator:","`

@@ -75,10 +75,6 @@ func (Features) JSONSchema() *jsonschema.Schema {
 	features := make([]any, 0, len(FeatureMapper))
 
 	for k := range FeatureMapper {
-		// Keep application_jvm accepted for v0.10 config compatibility, but do not advertise it in generated docs.
-		if k == "application_jvm" {
-			continue
-		}
 		features = append(features, k)
 	}
 	return &jsonschema.Schema{
