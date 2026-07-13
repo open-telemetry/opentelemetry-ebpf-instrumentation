@@ -68,6 +68,59 @@ func TestReadTCPRequestIntoSpan_SQLServerTrafficIsServerSpan(t *testing.T) {
 	assert.Equal(t, "accounts", span.Path)
 }
 
+func pgWireMsg(typ byte, body string) []byte {
+	msg := binary.BigEndian.AppendUint32([]byte{typ}, uint32(4+len(body)+1))
+	msg = append(msg, body...)
+	return append(msg, 0)
+}
+
+func TestReadTCPRequestIntoSpan_PostgresStartupSetsDBNamespace(t *testing.T) {
+	cfg := config.EBPFTracer{HeuristicSQLDetect: true, PostgresPreparedStatementsCacheSize: 16}
+	ctx := NewEBPFParseContext(&cfg, nil, nil)
+	fltr := TestPidsFilter{services: map[app.PID]svc.Attrs{}}
+
+	readSpan := func(t *testing.T, r TCPRequestInfo) (request.Span, bool) {
+		binaryRecord := bytes.Buffer{}
+		require.NoError(t, binary.Write(&binaryRecord, binary.LittleEndian, r))
+		span, ignore, err := ReadTCPRequestIntoSpan(ctx, &cfg, &ringbuf.Record{RawSample: binaryRecord.Bytes()}, &fltr)
+		require.NoError(t, err)
+		return span, ignore
+	}
+
+	startup := makeTCPReq(string(pgStartupMessage("user", "postgres", "database", "mydb")), 5432)
+	_, ignore := readSpan(t, startup)
+	assert.True(t, ignore, "startup message should not produce a span")
+
+	t.Run("heuristic SQL path", func(t *testing.T) {
+		query := makeTCPReq(string(pgWireMsg(kPostgresQuery, "SELECT * FROM accounts")), 5432)
+		span, ignore := readSpan(t, query)
+		assert.False(t, ignore)
+		assert.Equal(t, request.EventTypeSQLClient, span.Type)
+		assert.Equal(t, "SELECT", span.Method)
+		assert.Equal(t, "mydb", span.DBNamespace)
+	})
+
+	t.Run("kernel-assigned Postgres path", func(t *testing.T) {
+		query := makeTCPReq(string(pgWireMsg(kPostgresQuery, "SELECT * FROM accounts")), 5432)
+		query.ProtocolType = ProtocolTypePostgres
+		resp := pgWireMsg(kPostgresCommand, "SELECT 1")
+		query.RespLen = uint32(len(resp))
+		copy(query.Rbuf[:], resp)
+		span, ignore := readSpan(t, query)
+		assert.False(t, ignore)
+		assert.Equal(t, request.EventTypeSQLClient, span.Type)
+		assert.Equal(t, "SELECT", span.Method)
+		assert.Equal(t, "mydb", span.DBNamespace)
+	})
+
+	t.Run("unknown connection has no namespace", func(t *testing.T) {
+		query := makeTCPReq(string(pgWireMsg(kPostgresQuery, "SELECT * FROM accounts")), 5433)
+		span, ignore := readSpan(t, query)
+		assert.False(t, ignore)
+		assert.Empty(t, span.DBNamespace)
+	})
+}
+
 func TestTCPReqParsing(t *testing.T) {
 	sql := "Not a sql or any known protocol"
 	r := makeTCPReq(sql, 343534)

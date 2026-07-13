@@ -2,6 +2,7 @@ oats-schema-version: 2
 docker-compose:
   files:
   - ../docker-compose-python-unknown.yml
+  - ../../weaver/docker-compose-weaver.yml
 input:
 - path: /unknown
 interval: 500ms

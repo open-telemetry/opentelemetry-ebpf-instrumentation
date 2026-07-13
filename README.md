@@ -79,9 +79,8 @@ Each release includes:
 #### Download and Verify
 
 Install [Cosign](https://docs.sigstore.dev/cosign/installation/) if you do not already have it.
-OBI release blobs are signed with GitHub Actions OIDC. The identity regexp
-below matches the same repository-level identity used for container image
-verification.
+OBI release blobs are signed with GitHub Actions OIDC. The certificate identity
+below matches the release workflow at the release tag.
 
 ```bash
 # Set your desired version (find latest at https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/releases)
@@ -98,7 +97,8 @@ export ARTIFACT="obi-${RELEASE_TAG}-linux-${ARCH}.tar.gz"
 export BUNDLE="${ARTIFACT}.bundle.json"
 export CHECKSUMS=SHA256SUMS
 export CHECKSUMS_BUNDLE="${CHECKSUMS}.bundle.json"
-export CERTIFICATE_IDENTITY_REGEXP="https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/"
+export REPOSITORY=open-telemetry/opentelemetry-ebpf-instrumentation
+export CERTIFICATE_IDENTITY="https://github.com/${REPOSITORY}/.github/workflows/release.yml@refs/tags/${RELEASE_TAG}"
 export CERTIFICATE_OIDC_ISSUER="https://token.actions.githubusercontent.com"
 ```
 
@@ -116,20 +116,20 @@ Verify the signatures before using the downloaded files:
 ```bash
 cosign verify-blob "${ARTIFACT}" \
   --bundle "${BUNDLE}" \
-  --certificate-identity-regexp "${CERTIFICATE_IDENTITY_REGEXP}" \
+  --certificate-identity "${CERTIFICATE_IDENTITY}" \
   --certificate-oidc-issuer "${CERTIFICATE_OIDC_ISSUER}"
 
 cosign verify-blob "${CHECKSUMS}" \
   --bundle "${CHECKSUMS_BUNDLE}" \
-  --certificate-identity-regexp "${CERTIFICATE_IDENTITY_REGEXP}" \
+  --certificate-identity "${CERTIFICATE_IDENTITY}" \
   --certificate-oidc-issuer "${CERTIFICATE_OIDC_ISSUER}"
 ```
 
 Successful Cosign verification confirms that the local file matches the signed
 payload, the signing certificate identity matches this repository's GitHub
-Actions identity, the certificate was issued by GitHub Actions OIDC, and the
-Sigstore bundle includes the transparency log material needed for offline
-verification.
+Actions release workflow and tag, the certificate was issued by GitHub Actions
+OIDC, and the Sigstore bundle includes the transparency log material needed for
+offline verification.
 
 Then verify the downloaded files against the signed checksum manifest:
 
@@ -227,12 +227,13 @@ OBI is also available as container images:
 ```bash
 # Set your desired version.
 export VERSION=v0.7.0
+export CERTIFICATE_IDENTITY="https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/.github/workflows/publish_dockerhub_main.yml@refs/tags/${VERSION}"
 
 # (Optional) Verify the signature of the container image
-cosign verify --certificate-identity-regexp 'https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/' --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' otel/ebpf-instrument:${VERSION}
+cosign verify --certificate-identity "${CERTIFICATE_IDENTITY}" --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' otel/ebpf-instrument:${VERSION}
 
 # (Optional) Verify the same release from GHCR
-cosign verify --certificate-identity-regexp 'https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/' --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' ghcr.io/open-telemetry/opentelemetry-ebpf-instrumentation/ebpf-instrument:${VERSION}
+cosign verify --certificate-identity "${CERTIFICATE_IDENTITY}" --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' ghcr.io/open-telemetry/opentelemetry-ebpf-instrumentation/ebpf-instrument:${VERSION}
 
 # Pull the image
 docker pull otel/ebpf-instrument:${VERSION}
@@ -249,7 +250,7 @@ docker run --privileged otel/ebpf-instrument:${VERSION}
 Successful `cosign verify` output states that the claims were validated and
 returns the signed image digest. If verification fails, confirm that the image
 tag exists in the registry you queried and that you are using the GitHub OIDC
-issuer and identity regexp shown above.
+issuer and certificate identity shown above.
 
 ## Examples
 

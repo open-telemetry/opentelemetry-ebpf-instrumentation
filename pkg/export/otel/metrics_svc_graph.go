@@ -441,16 +441,13 @@ func (mr *SvcGraphMetricsReporter) reportMetrics(ctx context.Context) {
 func (mr *SvcGraphMetricsReporter) onProcessEvent(pe *exec.ProcessEvent) {
 	snap := pe.File.ServiceAttrs()
 	pid := pe.File.Pid()
-	mr.log.Debug("Received new process event", "event type", pe.Type, "pid", pid, "attrs", snap.UID)
+	mr.log.Debug("Received new process event", "event type", pe.Type, "pid", pid, "uid", snap.UID)
 
 	if pe.Type == exec.ProcessEventCreated {
 		mr.setupPIDToServiceRelationship(pid, snap.UID)
 	} else {
 		if deleted, origUID := mr.disassociatePIDFromService(pid); deleted {
-			mr.log.Debug("deleting infos for",
-				"pid", pid,
-				"uid", origUID,
-				"attrs", snap)
+			mr.log.Debug("deleting infos for", "pid", pid, "uid", origUID)
 		}
 	}
 }
@@ -471,7 +468,7 @@ func (mr *SvcGraphMetricsReporter) onSpan(spans []request.Span) {
 		reporter, err := mr.reporters.For(&s.Service)
 		if err != nil {
 			mr.log.Error("unexpected error creating OTEL resource. Ignoring metric",
-				"error", err, "service", s.Service)
+				"error", err, "service", s.Service.UID)
 			continue
 		}
 		reporter.record(s, mr)

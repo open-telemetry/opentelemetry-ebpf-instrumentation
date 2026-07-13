@@ -2,6 +2,7 @@ oats-schema-version: 2
 docker-compose:
   files:
   - ../docker-compose-obi-gopgx-pool.yml
+  - ../../weaver/docker-compose-weaver.yml
 input:
 - path: /pgxpooltest
 interval: 500ms

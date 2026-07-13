@@ -578,7 +578,7 @@ func (mr *MetricsReporter) setupOtelMeters(m *Metrics, meter instrument.Meter) e
 			m.ctx, genAIClientDuration, mr.attrGenAIClientDuration, timeNow, mr.cfg.TTL)
 
 		// the input tokens and output tokens are the same metric, we just need to distinguish the attributes, so we can write the token type
-		genAITokenUsage, err := meter.Float64Histogram(attributes.GenAIClientInputTokenUsage.OTEL, instrument.WithUnit("1"))
+		genAITokenUsage, err := meter.Float64Histogram(attributes.GenAIClientInputTokenUsage.OTEL, instrument.WithUnit("{token}"))
 		if err != nil {
 			return fmt.Errorf("creating genai client token usage histogram: %w", err)
 		}
@@ -1289,7 +1289,7 @@ func (mr *MetricsReporter) onSpan(spans []request.Span) {
 		reporter, err := mr.reporters.For(&s.Service)
 		if err != nil {
 			mlog().Error("unexpected error creating OTEL resource. Ignoring metric",
-				"error", err, "service", s.Service)
+				"error", err, "service", s.Service.UID)
 			continue
 		}
 		reporter.record(s, mr)

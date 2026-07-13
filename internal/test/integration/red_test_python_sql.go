@@ -97,6 +97,15 @@ func assertSQLOperation(t *testing.T, comm, op, table, db string) {
 		tag, found = jaeger.FindIn(span.Tags, "db.collection.name")
 		assert.True(ct, found)
 		assert.Equal(ct, table, tag.Value)
+
+		// "sqltest" is the dbname in the test server's StartupMessage
+		tag, found = jaeger.FindIn(span.Tags, "db.namespace")
+		if db == "postgresql" {
+			assert.True(ct, found)
+			assert.Equal(ct, "sqltest", tag.Value)
+		} else {
+			assert.False(ct, found)
+		}
 	}, testTimeout, 100*time.Millisecond)
 }
 
@@ -167,6 +176,14 @@ func assertSQLOperationErrored(t *testing.T, comm, op, table, db string) {
 		tag, found = jaeger.FindIn(span.Tags, "otel.status_description")
 		assert.True(ct, found)
 		assert.Equal(ct, expectedData[db]["otel.status_description"], tag.Value)
+
+		tag, found = jaeger.FindIn(span.Tags, "db.namespace")
+		if db == "postgresql" {
+			assert.True(ct, found)
+			assert.Equal(ct, "sqltest", tag.Value)
+		} else {
+			assert.False(ct, found)
+		}
 	}, testTimeout, 100*time.Millisecond)
 }
 

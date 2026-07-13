@@ -13,6 +13,12 @@ The vendored application comes from
 - a Grafana LGTM backend for OTLP traces and metrics
 - Helm values for the `opentelemetry-ebpf-instrumentation` chart
 
+See [ARCHITECTURE.md](./ARCHITECTURE.md) for the service topology (a Mermaid
+service graph and a connection table). It is generated from the manifests by
+[fix_architecture.py](./fix_architecture.py); after changing a manifest, run
+`python3 examples/store-demo/fix_architecture.py` to regenerate it (CI checks
+it with `--check`).
+
 ## Prerequisites
 
 Install these tools before running the demo:

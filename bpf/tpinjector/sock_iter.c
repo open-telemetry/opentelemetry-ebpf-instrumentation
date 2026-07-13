@@ -7,11 +7,14 @@
 #include <bpfcore/bpf_endian.h>
 
 #include <common/protocol_defs.h>
+#include <common/sock_port_ns.h>
 
 #include <logger/bpf_dbg.h>
 
 #include <maps/sock_dir.h>
 #include <maps/tracked_sock_cookies.h>
+
+#include <tpinjector/maps/iter_listening_ports.h>
 
 char __license[] SEC("license") = "Dual MIT/GPL";
 
@@ -83,11 +86,49 @@ static __always_inline void format_sock_addrs(struct sock_common *skc,
     }
 }
 
+// First pass, we record every local listening port into iter_listening_ports.
+SEC("iter/tcp")
+int obi_sk_iter_tcp_listen(struct bpf_iter__tcp *ctx) {
+    struct sock_common *skc = ctx->sk_common;
+
+    if (!skc) {
+        return 0;
+    }
+
+    u8 skc_state = BPF_CORE_READ(skc, skc_state);
+
+    if (skc_state != TCP_LISTEN) {
+        return 0;
+    }
+
+    struct sock_port_ns pn = sock_port_ns_from_skc(skc);
+    bpf_map_update_elem(&iter_listening_ports, &pn, &(bool){true}, BPF_ANY);
+
+    struct seq_file *seq = ctx->meta->seq;
+    BPF_SEQ_PRINTF(seq, "Listening port=%u netns=%u\n", pn.port, pn.netns);
+
+    return 0;
+}
+
+// Second pass, track only active client connections in sock_dir.
 SEC("iter/tcp")
 int obi_sk_iter_tcp(struct bpf_iter__tcp *ctx) {
     struct sock_common *skc = ctx->sk_common;
 
     if (!skc) {
+        return 0;
+    }
+
+    // don't look at sockets that aren't established
+    u8 skc_state = BPF_CORE_READ(skc, skc_state);
+    if (skc_state != TCP_ESTABLISHED) {
+        return 0;
+    }
+
+    // skip passive sockets, their local port is a listening port we
+    // found in the prior pass
+    struct sock_port_ns pn = sock_port_ns_from_skc(skc);
+    if (bpf_map_lookup_elem(&iter_listening_ports, &pn) != 0) {
         return 0;
     }
 
@@ -101,8 +142,6 @@ int obi_sk_iter_tcp(struct bpf_iter__tcp *ctx) {
     struct seq_file *seq = ctx->meta->seq;
 
     BPF_SEQ_PRINTF(seq, "Tracking socket cookie=%llu src=%s dst=%s\n", cookie, src_buf, dst_buf);
-
-    bpf_d_printk("Tracking socket cookie=%llu src=%s dst=%s", cookie, src_buf, dst_buf);
 
     if (bpf_map_update_elem(&sock_dir, &cookie, skc, BPF_NOEXIST) != 0) {
         bpf_dbg_printk("Failed to track sock cookie=%llu", cookie);

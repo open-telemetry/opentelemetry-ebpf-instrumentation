@@ -740,9 +740,13 @@ func TestHandleNestJS(t *testing.T) {
 			},
 		},
 		{
-			name:  "NestJS decorator with empty path (defaults to /)",
+			name:  "NestJS bare decorator (routes at the controller prefix)",
 			line:  "  @Get()",
-			found: false,
+			found: true,
+			expected: &RoutePattern{
+				Method: "GET",
+				Path:   "/",
+			},
 		},
 		{
 			name:  "NestJS @Get with empty string (defaults to /)",
@@ -764,6 +768,8 @@ func TestHandleNestJS(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			extractor := NewRouteExtractor()
 			found := extractor.handleNestJS("test.ts", tt.line, 35)
+			// routes are buffered until the method's decorator stack ends
+			extractor.flushNestMethod()
 
 			assert.Equal(t, tt.found, found)
 
@@ -1585,4 +1591,243 @@ func TestExtractNextJSRoutesFromManifest(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestExtractNestJSFastifyApp(t *testing.T) {
+	extractor := NewRouteExtractor()
+	appDir := filepath.Join("nodejs", "test_files_nest")
+	require.NoError(t, extractor.ScanDirectory(appDir))
+
+	routes := extractor.GetHarvestedRoutes()
+
+	assert.ElementsMatch(t, []string{
+		"/uptime",
+		"/ping",
+		"/invoice/catalog",
+		"/invoice/start",
+		"/invoice/:id",
+		"/invoice/:id/receipt",
+		"/callbacks/acme",
+	}, routes)
+}
+
+func TestNestJSControllerPrefixSwitchesPerClass(t *testing.T) {
+	extractor := NewRouteExtractor()
+	exampleFile := filepath.Join("nodejs", "test_files", "nestjs-controller.ts")
+	require.NoError(t, extractor.scanFile(exampleFile))
+
+	routes := extractor.GetHarvestedRoutes()
+
+	// The fixture declares three controllers ('users', 'api/v1/posts', 'health');
+	// each method decorator resolves against the prefix of its own controller,
+	// and bare decorators (@Get(), @Post()) route at the prefix itself.
+	assert.ElementsMatch(t, []string{
+		"/users",
+		"/users/:id",
+		"/api/v1/posts",
+		"/api/v1/posts/:postId/comments",
+		"/health",
+	}, routes)
+}
+
+func TestCompiledNestJSFragmentExtraction(t *testing.T) {
+	extractor := NewCompiledRouteExtractor()
+	appDir := filepath.Join("nodejs", "test_files_dist")
+	require.NoError(t, extractor.ScanDirectory(appDir))
+
+	// Compiled decorators lose the controller/method association, so prefixes
+	// and method paths are harvested as separate fragments.
+	assert.ElementsMatch(t, []string{
+		"/invoice",
+		"/catalog",
+		"/start",
+		"/:id",
+		"/:id/receipt",
+		"/callbacks/acme",
+	}, extractor.GetHarvestedRoutes())
+}
+
+func TestExtractNodejsRoutes_CompiledDistOnly(t *testing.T) {
+	origRootDir := rootDirForPID
+	origCmdline := cmdlineForPID
+	origCwd := cwdForPID
+	defer func() {
+		rootDirForPID = origRootDir
+		cmdlineForPID = origCmdline
+		cwdForPID = origCwd
+	}()
+
+	distApp, err := filepath.Abs(filepath.Join("nodejs", "test_files_dist"))
+	require.NoError(t, err)
+
+	tests := []struct {
+		name    string
+		cmdline []string
+	}{
+		// cwd-anchored scan: the source walk skips dist/, finds nothing, and the
+		// compiled walk descends into it
+		{name: "relative entrypoint", cmdline: []string{"node", "dist/main.js"}},
+		// script-anchored scan: the scan root itself is the dist directory
+		{name: "absolute entrypoint inside dist", cmdline: []string{"node", "/dist/main.js"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rootDirForPID = func(_ app.PID) string { return distApp }
+			cmdlineForPID = func(_ app.PID) (string, []string, error) { return tt.cmdline[0], tt.cmdline, nil }
+			cwdForPID = func(_ app.PID) (string, error) { return "/", nil }
+
+			result, err := ExtractNodejsRoutes(4242)
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			assert.Equal(t, PartialRoutes, result.Kind)
+
+			matcher := RouteMatcherFromResult(*result)
+			require.NotNil(t, matcher)
+			assert.Equal(t, "/invoice/:id/receipt", matcher.Find("/invoice/8f31ac/receipt"))
+			assert.Equal(t, "/invoice/catalog", matcher.Find("/invoice/catalog"))
+			assert.Equal(t, "/callbacks/acme", matcher.Find("/callbacks/acme"))
+		})
+	}
+}
+
+func TestExtractNestJSVersionedApp(t *testing.T) {
+	extractor := NewRouteExtractor()
+	appDir := filepath.Join("nodejs", "test_files_nest_versioned")
+	require.NoError(t, extractor.ScanDirectory(appDir))
+
+	// setGlobalPrefix('api') and URI versioning with defaultVersion '1' apply to
+	// every Nest route; @Controller({version: '2'}) overrides the default and
+	// @Version('3') overrides the controller. @Version() applies whether it
+	// appears above or below the method decorator in the stack, and a bare
+	// @Get() on a prefix-less controller still yields the /api/v1 root route.
+	assert.ElementsMatch(t, []string{
+		"/api/v2/catalog/featured",
+		"/api/v2/catalog/:sku",
+		"/api/v3/catalog/preview",
+		"/api/v4/catalog/history",
+		"/api/v2/catalog/archive",
+		"/api/v1/ledger/summary",
+		"/api/v1/books/summary",
+		"/api/v1/ledger",
+		"/api/v1/books",
+		"/api/v1",
+	}, extractor.GetHarvestedRoutes())
+}
+
+func TestCompiledNestJSVersionedFragments(t *testing.T) {
+	extractor := NewCompiledRouteExtractor()
+	appDir := filepath.Join("nodejs", "test_files_dist_versioned")
+	require.NoError(t, extractor.ScanDirectory(appDir))
+
+	// In compiled mode, association is lost: global prefix, versions
+	// (including the enableVersioning defaultVersion), and controller paths
+	// all become standalone fragments.
+	assert.ElementsMatch(t, []string{
+		"/edge",
+		"/catalog",
+		"/v1",
+		"/v2",
+		"/v3",
+		"/featured",
+		"/preview",
+	}, extractor.GetHarvestedRoutes())
+}
+
+func TestExtractNodejsRoutes_CompiledVersionedDist(t *testing.T) {
+	origRootDir := rootDirForPID
+	origCmdline := cmdlineForPID
+	origCwd := cwdForPID
+	defer func() {
+		rootDirForPID = origRootDir
+		cmdlineForPID = origCmdline
+		cwdForPID = origCwd
+	}()
+
+	distApp, err := filepath.Abs(filepath.Join("nodejs", "test_files_dist_versioned"))
+	require.NoError(t, err)
+
+	rootDirForPID = func(_ app.PID) string { return distApp }
+	cmdlineForPID = func(_ app.PID) (string, []string, error) {
+		return "node", []string{"node", "dist/main.js"}, nil
+	}
+	cwdForPID = func(_ app.PID) (string, error) { return "/", nil }
+
+	result, err := ExtractNodejsRoutes(4243)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, PartialRoutes, result.Kind)
+
+	matcher := RouteMatcherFromResult(*result)
+	require.NotNil(t, matcher)
+	assert.Equal(t, "/edge/v2/catalog/featured", matcher.Find("/edge/v2/catalog/featured"))
+	assert.Equal(t, "/edge/v3/catalog/preview", matcher.Find("/edge/v3/catalog/preview"))
+	// URLs versioned by the enableVersioning defaultVersion are matchable too
+	assert.Equal(t, "/edge/v1/catalog/featured", matcher.Find("/edge/v1/catalog/featured"))
+}
+
+func TestEnableVersioningMultiLine(t *testing.T) {
+	writeAndScan := func(t *testing.T, content string) *RouteExtractor {
+		t.Helper()
+		dir := t.TempDir()
+		path := filepath.Join(dir, "main.ts")
+		require.NoError(t, os.WriteFile(path, []byte(content), 0o644))
+		extractor := NewRouteExtractor()
+		require.NoError(t, extractor.scanFile(path))
+		return extractor
+	}
+
+	t.Run("multi-line HEADER versioning is not URI", func(t *testing.T) {
+		extractor := writeAndScan(t, `
+app.enableVersioning({
+  type: VersioningType.HEADER,
+  defaultVersion: '9'
+});
+`)
+		assert.False(t, extractor.uriVersioning)
+		assert.Equal(t, "9", extractor.defaultVersion)
+	})
+
+	t.Run("multi-line URI versioning with defaultVersion on later line", func(t *testing.T) {
+		extractor := writeAndScan(t, `
+app.enableVersioning({
+  type: VersioningType.URI,
+  defaultVersion: '5'
+});
+`)
+		assert.True(t, extractor.uriVersioning)
+		assert.Equal(t, "5", extractor.defaultVersion)
+	})
+
+	t.Run("no-arg call defaults to URI", func(t *testing.T) {
+		extractor := writeAndScan(t, "app.enableVersioning();\n")
+		assert.True(t, extractor.uriVersioning)
+	})
+}
+
+func TestNestJSControllerNonLiteralPrefixResets(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "controllers.ts")
+	content := `
+import { Controller, Get } from '@nestjs/common';
+
+@Controller('first')
+export class FirstController {
+  @Get('alpha')
+  getAlpha() {}
+}
+
+@Controller(ROUTE_PREFIX)
+export class SecondController {
+  @Get('beta')
+  getBeta() {}
+}
+`
+	require.NoError(t, os.WriteFile(path, []byte(content), 0o644))
+	extractor := NewRouteExtractor()
+	require.NoError(t, extractor.scanFile(path))
+
+	// the unresolvable prefix must not inherit the previous controller's
+	// prefix: /beta, not /first/beta
+	assert.ElementsMatch(t, []string{"/first/alpha", "/beta"}, extractor.GetHarvestedRoutes())
 }

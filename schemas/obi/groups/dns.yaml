@@ -1,0 +1,42 @@
+groups:
+  # OBI override of the upstream metric.dns.lookup.duration definition.
+  #
+  # Upstream (semconv v1.41.0) marks dns.question.name as `required`, but OBI
+  # deliberately disables it by default to bound metric cardinality (raw DNS
+  # question names are unbounded / attacker-controlled — see
+  # attr.DNSQuestionName in pkg/export/attributes/attr_defs.go; users can opt
+  # in via `attributes.select`). This group re-declares the attribute as
+  # `opt_in` so weaver live-check accepts its absence while still validating
+  # its type/value whenever a user opts in. All other parent attributes
+  # (error.type, …) are inherited unchanged via `extends`.
+  #
+  # NOTE on the group id: weaver v0.24.1 has no precedence semantics between a
+  # local group and a dependency group sharing the same metric_name when the
+  # dependency's copy is in the resolved registry (`--include-unreferenced`,
+  # which OBI needs). The winner is the group whose id sorts LAST
+  # lexicographically (resolved registry is sorted by id; live-check's
+  # metric_name lookup is last-insert-wins). This id is deliberately chosen to
+  # sort after the upstream `metric.dns.lookup.duration` so the override wins.
+  # Do not rename it to something that sorts earlier, and do not reuse the
+  # upstream group id (a same-id redefinition loses the live-check tie to the
+  # dependency AND trips `DuplicateGroupId` in `registry check`). Tracked
+  # upstream in https://github.com/open-telemetry/weaver/issues/1578; once
+  # weaver defines local-wins precedence, this comment block can be dropped.
+  #
+  # `weaver registry check` (v0.24.2+) flags this same-metric_name duplicate
+  # as a DuplicateMetricName error even though live-check resolves it; this
+  # specific expected duplicate is allowlisted in
+  # scripts/lint-schema-filter.jq with the same rationale.
+  - id: metric.dns.lookup.duration.obi
+    type: metric
+    extends: metric.dns.lookup.duration
+    metric_name: dns.lookup.duration
+    stability: development
+    brief: >
+      Measures the time taken to perform a DNS lookup. OBI variant of the
+      upstream metric with dns.question.name opt-in instead of required.
+    instrument: histogram
+    unit: "s"
+    attributes:
+      - ref: dns.question.name
+        requirement_level: opt_in

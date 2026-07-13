@@ -2,6 +2,7 @@ oats-schema-version: 2
 docker-compose:
   files:
   - ../docker-compose-obi-mysqlserver.yml
+  - ../../weaver/docker-compose-weaver.yml
 input:
 - path: /mysqltest
 interval: 500ms

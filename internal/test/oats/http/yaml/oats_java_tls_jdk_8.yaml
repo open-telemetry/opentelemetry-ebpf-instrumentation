@@ -2,6 +2,7 @@ oats-schema-version: 2
 docker-compose:
   files:
   - ../docker-compose-java-tls-jdk8.yml
+  - ../../weaver/docker-compose-weaver.yml
 input:
 - path: /request
 interval: 500ms

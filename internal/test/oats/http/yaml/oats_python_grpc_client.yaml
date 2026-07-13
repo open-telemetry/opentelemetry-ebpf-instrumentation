@@ -2,6 +2,7 @@ oats-schema-version: 2
 docker-compose:
   files:
   - ../docker-compose-python-grpc-client.yml
+  - ../../weaver/docker-compose-weaver.yml
 input:
 - path: /query
 interval: 500ms

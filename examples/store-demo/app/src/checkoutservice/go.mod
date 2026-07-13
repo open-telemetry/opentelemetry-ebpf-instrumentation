@@ -2,7 +2,7 @@ module github.com/GoogleCloudPlatform/microservices-demo/src/checkoutservice
 
 go 1.25
 
-toolchain go1.26.4
+toolchain go1.26.5
 
 require (
 	github.com/google/uuid v1.6.0

@@ -560,7 +560,7 @@ itest-coverage-data:
 	grep -vE $(EXCLUDE_COVERAGE_FILES) $(TEST_OUTPUT)/itest-covdata.all.txt > $(TEST_OUTPUT)/itest-covdata.txt || true
 
 .PHONY: oats-prereq
-oats-prereq: docker-generate
+oats-prereq: docker-generate fetch-upstream-semconv
 	mkdir -p $(TEST_OUTPUT)/run
 
 .PHONY: oats-test-sql
@@ -954,3 +954,15 @@ check-config-v2-parity:
 check-config-v2-artifacts: check-config-v2-parity
 	@echo "### Checking hidden config v2 artifacts"
 	go run ./cmd/check-config-v2-artifacts -schema $(CONFIG_V2_SCHEMA_FILE) -example $(CONFIG_V2_EXAMPLE_FILE)
+
+.PHONY: fix-store-demo-architecture
+fix-store-demo-architecture:
+	python3 examples/store-demo/fix_architecture.py
+
+.PHONY: check-store-demo-architecture
+check-store-demo-architecture:
+	python3 examples/store-demo/fix_architecture.py --check
+
+.PHONY: test-store-demo-architecture
+test-store-demo-architecture:
+	python3 examples/store-demo/test_fix_architecture.py

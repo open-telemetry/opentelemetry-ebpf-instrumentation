@@ -2,6 +2,7 @@ oats-schema-version: 2
 docker-compose:
   files:
   - ../docker-compose-proxy.yml
+  - ../../weaver/docker-compose-weaver.yml
 input:
 - path: /smoke
 interval: 500ms
