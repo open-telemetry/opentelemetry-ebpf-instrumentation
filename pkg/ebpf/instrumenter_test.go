@@ -196,6 +196,54 @@ func TestGatherOffsetsFailsMissingRequiredSymbol(t *testing.T) {
 	assert.Empty(t, desc.ReturnOffsets)
 }
 
+func TestGatherGoOffsetsMarksMissingSymbolAsSkip(t *testing.T) {
+	// Regression for the retention bug fixed alongside this test: when
+	// gatherGoOffsets does not find an offset for a probe symbol it must
+	// mark the probe as Skip. Otherwise instrumentProbes attaches with
+	// probe.StartOffset == 0, which reaches cilium/ebpf as
+	// UprobeOptions{Address: 0} and forces a full ELF symbol table parse
+	// retained on Executable.cachedSymbols for the tracer's lifetime.
+	i := &instrumenter{
+		offsets: &goexec.Offsets{
+			Funcs: map[string]goexec.FuncOffsets{},
+		},
+	}
+	probes := probeDescMap{
+		"net/rpc/jsonrpc.(*serverCodec).ReadRequestHeader": {{}},
+	}
+
+	i.gatherGoOffsets(probes)
+
+	desc := probes["net/rpc/jsonrpc.(*serverCodec).ReadRequestHeader"][0]
+	assert.True(t, desc.Skip)
+	assert.Zero(t, desc.StartOffset)
+	assert.Empty(t, desc.ReturnOffsets)
+}
+
+func TestGatherGoOffsetsAppliesResolvedOffsetsAndClearsSkip(t *testing.T) {
+	i := &instrumenter{
+		offsets: &goexec.Offsets{
+			Funcs: map[string]goexec.FuncOffsets{
+				"net/http.serverHandler.ServeHTTP": {
+					Start:   0x1234,
+					Returns: []uint64{0x1250, 0x1260},
+				},
+			},
+		},
+	}
+	// Seed Skip = true to ensure the resolved branch clears stale state on reuse.
+	probes := probeDescMap{
+		"net/http.serverHandler.ServeHTTP": {{Skip: true}},
+	}
+
+	i.gatherGoOffsets(probes)
+
+	desc := probes["net/http.serverHandler.ServeHTTP"][0]
+	assert.False(t, desc.Skip)
+	assert.Equal(t, uint64(0x1234), desc.StartOffset)
+	assert.Equal(t, []uint64{0x1250, 0x1260}, desc.ReturnOffsets)
+}
+
 func TestInstrumentProbesSkipsMarkedOptionalProbe(t *testing.T) {
 	i := &instrumenter{}
 	probes := probeDescMap{
