@@ -556,7 +556,7 @@ func TestRuntimeToV2AdvancedCaptureParity(t *testing.T) {
 	cfg.EBPF.PayloadExtraction.HTTP.Enrichment.Enabled = true
 	cfg.EBPF.PayloadExtraction.HTTP.Enrichment.Policy.DefaultAction.Headers = config.HTTPParsingActionInclude
 	cfg.EBPF.PayloadExtraction.HTTP.Enrichment.Policy.DefaultAction.Body = config.HTTPParsingActionObfuscate
-	cfg.EBPF.PayloadExtraction.HTTP.Enrichment.Policy.ObfuscationString = "[redacted]"
+	cfg.EBPF.PayloadExtraction.HTTP.Enrichment.Policy.DefaultObfuscationString = "[redacted]"
 	jsonPath, err := config.NewJSONPathExpr("$.secret")
 	require.NoError(t, err)
 	cfg.EBPF.PayloadExtraction.HTTP.Enrichment.Rules = []config.HTTPParsingRule{

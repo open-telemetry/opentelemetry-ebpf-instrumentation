@@ -171,6 +171,10 @@ type EnrichmentConfig struct {
 // Required fields (action, type, scope) are enforced by validate:"required" tags.
 func (c EnrichmentConfig) Validate() error {
 	for i, rule := range c.Rules {
+		if rule.ObfuscationString != nil && rule.Action != HTTPParsingActionObfuscate {
+			return fmt.Errorf("rule %d: obfuscation_string can only be used with action \"obfuscate\"", i)
+		}
+
 		switch rule.Type {
 		case HTTPParsingRuleTypeHeaders:
 			if err := validateHeaderRule(i, rule); err != nil {
@@ -229,8 +233,9 @@ func validateBodyRule(i int, rule HTTPParsingRule) error {
 type HTTPParsingPolicy struct {
 	// DefaultAction specifies what to do when no rule matches, per type.
 	DefaultAction HTTPParsingDefaultAction `yaml:"default_action"`
-	// ObfuscationString is the replacement string used when a rule's action is "obfuscate"
-	ObfuscationString string `yaml:"obfuscation_string" env:"OTEL_EBPF_HTTP_ENRICHMENT_OBFUSCATION_STRING"`
+	// DefaultObfuscationString is the replacement string used when a rule's action is "obfuscate" and
+	// the rule doesn't define it's own obfuscation_string.
+	DefaultObfuscationString string `yaml:"obfuscation_string" env:"OTEL_EBPF_HTTP_ENRICHMENT_OBFUSCATION_STRING"`
 }
 
 // HTTPParsingDefaultAction specifies the default action per rule type.
@@ -249,6 +254,8 @@ type HTTPParsingRule struct {
 	Scope HTTPParsingScope `yaml:"scope" validate:"required"`
 	// Match defines the matching criteria for this rule
 	Match HTTPParsingMatch `yaml:"match"`
+	// ObfuscationString is the replacement string used when a rule's action is "obfuscate"
+	ObfuscationString *string `yaml:"obfuscation_string"`
 }
 
 // HTTPParsingRuleType specifies the target of a parsing rule.

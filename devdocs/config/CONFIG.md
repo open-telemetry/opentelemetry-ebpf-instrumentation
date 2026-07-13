@@ -242,7 +242,7 @@ HTTPParsingPolicy defines the default action for http enrichment rules.
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
 | `ebpf.payload_extraction.http.enrichment.policy.default_action` | [`HTTPParsingDefaultAction`](#httpparsingdefaultaction) |  |  |  |  | Specifies what to do when no rule matches, per type. |
-| `ebpf.payload_extraction.http.enrichment.policy.obfuscation_string` | `string` | `OTEL_EBPF_HTTP_ENRICHMENT_OBFUSCATION_STRING` | `***` |  |  | Is the replacement string used when a rule's action is "obfuscate" |
+| `ebpf.payload_extraction.http.enrichment.policy.obfuscation_string` | `string` | `OTEL_EBPF_HTTP_ENRICHMENT_OBFUSCATION_STRING` | `***` |  |  | Is the replacement string used when a rule's action is "obfuscate" and the rule doesn't define it's own obfuscation_string. |
 
 #### `ebpf.payload_extraction.http.genai`
 
@@ -716,6 +716,7 @@ HTTPParsingRule defines a single include/exclude/obfuscate rule for HTTP header 
 |---|---|---|---|
 | `action` | `string` | `exclude`, `include`, `obfuscate` | Of the rule: "include", "exclude", or "obfuscate" |
 | `match` | [`HTTPParsingMatch`](#httpparsingmatch) |  | Defines the matching criteria for this rule |
+| `obfuscation_string` | `string` |  | Is the replacement string used when a rule's action is "obfuscate" |
 | `scope` | `string` | `all`, `request`, `response` | Of the rule: "request", "response", or "all" |
 | `type` | `string` | `body`, `headers` | Specifies what this rule matches against: "headers" or "body" |
 

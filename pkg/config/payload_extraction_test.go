@@ -14,6 +14,8 @@ import (
 // intPtr returns a pointer to the given int value
 func intPtr(v int) *int { return &v }
 
+func stringPtr(v string) *string { return &v }
+
 func TestEnrichmentConfig_Validate_HeaderRules(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -60,6 +62,21 @@ func TestEnrichmentConfig_Validate_HeaderRules(t *testing.T) {
 			},
 			wantErr: "rule 0: header rules cannot use obfuscation_json_paths",
 		},
+		{
+			name: "header include rule with obfuscation string",
+			rules: []HTTPParsingRule{
+				{
+					Action:            HTTPParsingActionInclude,
+					Type:              HTTPParsingRuleTypeHeaders,
+					Scope:             HTTPParsingScopeAll,
+					ObfuscationString: stringPtr("[REDACTED]"),
+					Match: HTTPParsingMatch{
+						Patterns: []services.GlobAttr{services.NewGlob("Authorization")},
+					},
+				},
+			},
+			wantErr: "rule 0: obfuscation_string can only be used with action \"obfuscate\"",
+		},
 	}
 
 	for _, tt := range tests {
@@ -98,9 +115,10 @@ func TestEnrichmentConfig_Validate_BodyRules(t *testing.T) {
 			name: "valid body obfuscate rule",
 			rules: []HTTPParsingRule{
 				{
-					Action: HTTPParsingActionObfuscate,
-					Type:   HTTPParsingRuleTypeBody,
-					Scope:  HTTPParsingScopeAll,
+					Action:            HTTPParsingActionObfuscate,
+					Type:              HTTPParsingRuleTypeBody,
+					Scope:             HTTPParsingScopeAll,
+					ObfuscationString: stringPtr("[REDACTED]"),
 					Match: HTTPParsingMatch{
 						ObfuscationJSONPaths: []JSONPathExpr{jsonPath},
 					},
@@ -160,6 +178,19 @@ func TestEnrichmentConfig_Validate_BodyRules(t *testing.T) {
 				},
 			},
 			wantErr: "rule 0: obfuscation_json_paths can only be used with action \"obfuscate\"",
+		},
+		{
+			name: "body exclude rule with obfuscation string",
+			rules: []HTTPParsingRule{
+				{
+					Action:            HTTPParsingActionExclude,
+					Type:              HTTPParsingRuleTypeBody,
+					Scope:             HTTPParsingScopeAll,
+					ObfuscationString: stringPtr("[REDACTED]"),
+					Match:             HTTPParsingMatch{},
+				},
+			},
+			wantErr: "rule 0: obfuscation_string can only be used with action \"obfuscate\"",
 		},
 		{
 			name: "happy status code range",

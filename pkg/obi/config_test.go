@@ -212,7 +212,7 @@ discovery:
 								Headers: config.HTTPParsingActionExclude,
 								Body:    config.HTTPParsingActionExclude,
 							},
-							ObfuscationString: "***",
+							DefaultObfuscationString: "***",
 						},
 						Rules: []config.HTTPParsingRule{},
 					},
