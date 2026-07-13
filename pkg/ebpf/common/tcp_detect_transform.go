@@ -220,7 +220,7 @@ func matchPostgresStartup(parseCtx *EBPFParseContext, event *TCPRequestInfo, req
 	return request.Span{}, false, false, nil
 }
 
-func matchSQL(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, event *TCPRequestInfo, requestBuffer, responseBuffer *largebuf.LargeBuffer) (request.Span, bool, bool, error) { //nolint:unparam
+func matchSQL(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, event *TCPRequestInfo, requestBuffer, responseBuffer *largebuf.LargeBuffer) (request.Span, bool, bool, error) {
 	if span, ignore, matched, err := matchPostgresStartup(parseCtx, event, requestBuffer, responseBuffer); matched {
 		return span, ignore, matched, err
 	}
