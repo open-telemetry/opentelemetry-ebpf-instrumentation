@@ -146,7 +146,8 @@ func (e *HTTPEnricher) resolveHeaderAction(
 ) (config.HTTPParsingAction, *config.HTTPParsingRule) {
 	var lowerName string
 
-	for _, rule := range e.headerRules {
+	for i := range e.headerRules {
+		rule := &e.headerRules[i]
 		if !ruleApplies(rule, scope, span) {
 			continue
 		}
@@ -159,7 +160,7 @@ func (e *HTTPEnricher) resolveHeaderAction(
 		}
 		for i := range rule.Match.Patterns {
 			if rule.Match.Patterns[i].MatchString(matchName) {
-				return rule.Action, &rule
+				return rule.Action, rule
 			}
 		}
 	}
@@ -216,7 +217,8 @@ func (e *HTTPEnricher) processBody(
 	matched := false
 	var obfuscations []bodyObfuscation
 
-	for _, rule := range e.bodyRules {
+	for i := range e.bodyRules {
+		rule := &e.bodyRules[i]
 		if !ruleApplies(rule, scope, span) {
 			continue
 		}
@@ -228,7 +230,7 @@ func (e *HTTPEnricher) processBody(
 		case config.HTTPParsingActionInclude:
 			hasInclude = true
 		case config.HTTPParsingActionObfuscate:
-			obf := e.preferredObfuscationString(&rule)
+			obf := e.preferredObfuscationString(rule)
 			for _, p := range rule.Match.ObfuscationJSONPaths {
 				obfuscations = append(obfuscations, bodyObfuscation{path: p, obfuscationString: obf})
 			}
@@ -284,7 +286,7 @@ func (e *HTTPEnricher) processBody(
 }
 
 // ruleApplies returns true if the rule matches the given scope, path, and method.
-func ruleApplies(rule config.HTTPParsingRule, scope config.HTTPParsingScope, span *request.Span) bool {
+func ruleApplies(rule *config.HTTPParsingRule, scope config.HTTPParsingScope, span *request.Span) bool {
 	return scopeApplies(rule.Scope, scope) &&
 		urlPathMatches(rule.Match.URLPathPatterns, span.Path) &&
 		methodMatches(rule.Match.Methods, span.Method) &&
