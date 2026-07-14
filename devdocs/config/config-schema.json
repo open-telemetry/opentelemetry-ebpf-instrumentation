@@ -2123,6 +2123,12 @@
           "type": "boolean",
           "default": true,
           "x-env-var": "OTEL_EBPF_NODEJS_ENABLED"
+        },
+        "manual_spans": {
+          "type": "boolean",
+          "description": "Injects the span bridge (spanbridge.js) into Node.js processes, capturing spans the application creates through the OpenTelemetry API when no OpenTelemetry SDK is registered.",
+          "default": false,
+          "x-env-var": "OTEL_EBPF_NODEJS_MANUAL_SPANS"
         }
       },
       "type": "object"

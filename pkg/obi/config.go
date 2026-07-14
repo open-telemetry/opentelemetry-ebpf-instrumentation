@@ -647,6 +647,10 @@ type HostIDConfig struct {
 
 type NodeJSConfig struct {
 	Enabled bool `yaml:"enabled" env:"OTEL_EBPF_NODEJS_ENABLED"`
+	// ManualSpans injects the span bridge (spanbridge.js) into Node.js
+	// processes, capturing spans the application creates through the
+	// OpenTelemetry API when no OpenTelemetry SDK is registered.
+	ManualSpans bool `yaml:"manual_spans" env:"OTEL_EBPF_NODEJS_MANUAL_SPANS"`
 }
 
 type JavaConfig struct {

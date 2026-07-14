@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strings"
 	"syscall"
 	"time"
 
@@ -184,6 +185,12 @@ func upgradeConnWithTimeout(conn net.Conn, wsURL string, timeout time.Duration) 
 		NetDial: func(_, _ string) (net.Conn, error) {
 			return conn, nil
 		},
+		// Messages larger than the write buffer are sent as fragmented
+		// websocket frames, which the Node.js inspector does not support
+		// (it abruptly closes the connection). Keep the buffer larger than
+		// any script we evaluate so every message is a single frame.
+		WriteBufferSize: 256 * 1024,
+		ReadBufferSize:  64 * 1024,
 	}
 
 	wsConn, resp, err := dialer.Dial(wsURL, nil)
@@ -262,15 +269,25 @@ func (i *NodeInjector) injectFileWS(wsConn *websocket.Conn) error {
 		_ = sendEvaluate(wsConn, "process._debugEnd();", 2)
 	}()
 
-	script := string(_extractorBytes)
+	// All agent scripts are evaluated as a single expression, each isolated
+	// in its own IIFE.
+	scripts := []string{string(_extractorBytes)}
 
-	wrapped := fmt.Sprintf("(()=>{\n%s\n})()", script)
+	if i.cfg.NodeJS.ManualSpans {
+		scripts = append(scripts, string(_spanBridgeBytes))
+	}
 
-	if err := sendEvaluate(wsConn, wrapped, 1); err != nil {
+	wrapped := make([]string, 0, len(scripts))
+
+	for _, script := range scripts {
+		wrapped = append(wrapped, fmt.Sprintf("(()=>{\n%s\n})();", script))
+	}
+
+	if err := sendEvaluate(wsConn, strings.Join(wrapped, "\n"), 1); err != nil {
 		return err
 	}
 
-	i.log.Info("Script successfully injected")
+	i.log.Info("Script successfully injected", "scripts", len(scripts))
 
 	return nil
 }

@@ -358,6 +358,7 @@ func TestSuite_NodeJS(t *testing.T) {
 	t.Run("NodeJS RED metrics", testREDMetricsNodeJSHTTP)
 	t.Run("HTTP traces (kprobes)", testHTTPTracesKProbes)
 	t.Run("HTTP nested traces large HTTPS (kprobes)", testHTTPTracesNestedNodeJSLargeHTTPS)
+	t.Run("HTTP manual spans (OTel API bridge)", testHTTPTracesNodeManualSpans)
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }

@@ -254,6 +254,26 @@ typedef struct otel_span {
     u8 _epad[6];
 } otel_span_t;
 
+// Manual span emitted by the Node.js span bridge (spanbridge.js): the span
+// itself travels as a JSON document smuggled through a sentinel uv_fs_access
+// path (see bpf/generictracer/nodejs.c); BPF only adds timing, pid and the
+// current request trace context so user space can parent the span under
+// OBI's automatic server span.
+#define NODE_SPAN_PAYLOAD_MAX_LEN (2048)
+
+typedef struct node_span_event {
+    u8 type; // Must be first, EVENT_NODE_SPAN
+    u8 has_parent_ctx;
+    u8 _pad[2];
+    u32 payload_len; // bytes of payload actually written (excluding NUL)
+    u64 end_ktime;   // bpf_ktime_get_ns() when the sentinel fired (~span end)
+    unsigned char parent_trace_id[TRACE_ID_SIZE_BYTES];
+    unsigned char parent_span_id[SPAN_ID_SIZE_BYTES];
+    pid_info pid;
+    unsigned char payload[NODE_SPAN_PAYLOAD_MAX_LEN]; // JSON, see spanbridge.js
+    u8 _epad[4];
+} node_span_event_t;
+
 typedef struct channel_link_trace {
     u8 type; // Must be first
     u8 _pad[7];
