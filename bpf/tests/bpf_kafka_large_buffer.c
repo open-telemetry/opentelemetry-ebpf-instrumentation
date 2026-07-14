@@ -578,16 +578,8 @@ int is_kafka(connection_info_t *conn_info, const unsigned char *data, u32 data_l
 }
 
 // NOTES
-// The following tests aim to test different use cases for the kafka processing:
-// test1: a complete metadata request and a complete metadata response related
-// to the request test2: a metadata request split in two and a complete metadata
-// response relating to the request test3: a split metadata request and a split
-// metadata response related to the request test4: metadata request divided in 2
-// and a metadata NOT related response test5: short metadata requests without a
-// full correlation_id are rejected test6: a complete metadata request and a
-// metadata response split as an 8-byte header (message_size + correlation_id)
-// then a separate body chunk (the librdkafka read pattern) — the capture must
-// span both chunks and only finalize once the body arrives
+// The following tests exercise different use cases for kafka processing; each
+// test's specific scenario is documented in the comment above its function.
 
 // A note on the connection passed to the is_kafka() function: it might seem
 // strange to see the connection used to save the request in the

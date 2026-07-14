@@ -458,6 +458,9 @@ static __always_inline int kafka_send_large_buffer(tcp_req_t *req,
     if (!capture_in_progress) {
         remaining = response_total_bytes - (s32)req->lb_res_bytes;
     } else {
+        // If the entry was LRU-evicted mid-capture, correlation_data is NULL and
+        // remaining goes negative -> we finalize below (possibly truncated) rather
+        // than never completing the response.
         remaining = (correlation_data ? correlation_data->response_bytes_remaining : 0) -
                     (s32)consumed_bytes;
     }

@@ -626,8 +626,8 @@ func TestSuite_JavaKafkaLargeBuffer(t *testing.T) {
 
 func TestSuite_NodeRdkafka(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-node-rdkafka.yml", path.Join(pathOutput, "test-suite-node-rdkafka.log"))
-	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)
 	require.NoError(t, err)
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)
 	require.NoError(t, compose.Up())
 	t.Run("Node librdkafka topic resolution", testNodeRdkafka)
 	runWeaverValidation(t)
