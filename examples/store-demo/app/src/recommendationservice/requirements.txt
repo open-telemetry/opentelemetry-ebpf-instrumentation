@@ -107,9 +107,9 @@ google-api-core==2.31.0 \
     --hash=sha256:2be84ee0f584c48e6bde1b36766e23348b361fb7e55e56135fc76ce1c397f9c2 \
     --hash=sha256:ef79fb3784c71cbac89cbd03301ba0c8fb8ad2aa95d7f9204dd9628f7adf59ab
     # via -r examples/store-demo/app/src/recommendationservice/requirements.in
-google-auth==2.55.2 \
-    --hash=sha256:97ae7790ff740f2bc9db60eb864a7804f4ac19f5f02c38b3d942f2fea6e9b9ae \
-    --hash=sha256:d715f265f2cafc6a5f1bf0dc19870d20e3119f6f6682785a250bce3d03d38a3b
+google-auth==2.56.0 \
+    --hash=sha256:6e88c10217e07a92bfd01cac8ee99e32ccfb08414c3102e6c5b8d58f37a0d1e0 \
+    --hash=sha256:f90fa030b569a92654b9d690665a073841df33d57487be53db583a9a0867a553
     # via google-api-core
 googleapis-common-protos==1.75.0 \
     --hash=sha256:53a062ff3c32552fbd62c11fe23768b78e4ddf0494d5e5fd97d3f4689c75fbbd \

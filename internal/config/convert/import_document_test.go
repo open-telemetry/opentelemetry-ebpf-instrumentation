@@ -33,6 +33,8 @@ func TestDocumentToRuntimeImportsExportedDocumentSections(t *testing.T) {
 	cfg.Traces.SamplerConfig.Name = services.SamplerTraceIDRatio
 	cfg.Traces.SamplerConfig.Arg = "0.25"
 
+	cfg.LogLevel = obi.LogLevelDebug
+
 	cfg.OTELMetrics.MetricsEndpoint = "https://metrics.example:4317"
 	cfg.OTELMetrics.Interval = 914 * time.Millisecond
 	cfg.OTELMetrics.HistogramAggregation = otelcfg.HistogramAggregationExponential
@@ -57,6 +59,7 @@ func TestDocumentToRuntimeImportsExportedDocumentSections(t *testing.T) {
 		Name: services.SamplerTraceIDRatio,
 		Arg:  "0.25",
 	}, got.Traces.SamplerConfig)
+	require.Equal(t, obi.LogLevelDebug, got.LogLevel)
 
 	require.Equal(t, "https://metrics.example:4317", got.OTELMetrics.MetricsEndpoint)
 	require.Equal(t, otelcfg.ProtocolGRPC, got.OTELMetrics.MetricsProtocol)
@@ -88,6 +91,88 @@ func TestDocumentToRuntimePreservesDefaultsForMissingDocumentSections(t *testing
 	require.Equal(t, obi.DefaultConfig.OTELMetrics.GetInterval(), got.OTELMetrics.GetInterval())
 	require.Equal(t, obi.DefaultConfig.OTELMetrics.HistogramAggregation, got.OTELMetrics.HistogramAggregation)
 	require.Equal(t, obi.DefaultConfig.Prometheus.Port, got.Prometheus.Port)
+}
+
+func TestDocumentToRuntimeImportsTopLevelLogLevel(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		level string
+		want  obi.LogLevel
+	}{
+		{name: "trace", level: "trace4", want: obi.LogLevelDebug},
+		{name: "debug", level: "debug", want: obi.LogLevelDebug},
+		{name: "info", level: "info", want: obi.LogLevelInfo},
+		{name: "warn", level: "warn3", want: obi.LogLevelWarn},
+		{name: "error", level: "error2", want: obi.LogLevelError},
+		{name: "fatal", level: "fatal", want: obi.LogLevelError},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			doc, _, err := schema.ParseStandaloneYAML([]byte(`
+file_format: "1.0"
+log_level: ` + tt.level + `
+extensions:
+  obi:
+    version: "2.0"
+    daemon:
+      logging:
+        format: json
+`))
+			require.NoError(t, err)
+
+			got, err := DocumentToRuntime(doc)
+			require.NoError(t, err)
+
+			require.Equal(t, tt.want, got.LogLevel)
+			require.Equal(t, obi.LogFormatJSON, got.LogFormat)
+		})
+	}
+}
+
+func TestDocumentToRuntimeUsesDefaultLogLevelWhenTopLevelLogLevelOmitted(t *testing.T) {
+	t.Parallel()
+
+	doc, _, err := schema.ParseStandaloneYAML([]byte(`
+file_format: "1.0"
+extensions:
+  obi:
+    version: "2.0"
+    daemon:
+      logging:
+        format: json
+`))
+	require.NoError(t, err)
+	require.False(t, doc.HasLogLevel())
+	require.NotNil(t, doc.LogLevel)
+
+	got, err := DocumentToRuntime(doc)
+	require.NoError(t, err)
+
+	require.Equal(t, obi.DefaultConfig.LogLevel, got.LogLevel)
+	require.Equal(t, obi.LogFormatJSON, got.LogFormat)
+}
+
+func TestDocumentToRuntimeRejectsUnsupportedTopLevelLogLevel(t *testing.T) {
+	t.Parallel()
+
+	doc, _, err := schema.ParseStandaloneYAML([]byte(`
+file_format: "1.0"
+log_level: verbose
+extensions:
+  obi:
+    version: "2.0"
+`))
+	require.NoError(t, err)
+
+	_, err = DocumentToRuntime(doc)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "unsupported log_level")
+	require.Contains(t, err.Error(), "verbose")
 }
 
 func TestDocumentToRuntimeSkipsUnsupportedMetricReaderShapes(t *testing.T) {

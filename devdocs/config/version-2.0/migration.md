@@ -27,10 +27,20 @@ It will be up to these callers to determine:
 
 ### Integration with `otelconf`
 
-It is assumed that users that need SDK will use the `go.opentelemetry.io/contrib/otelconf` package to parse top-level objects of the declarative config accordingly.
-SDK object construction is outside the v2 configuration package scope and configuration for that portion of the configuration will be ignored.
-The OBI v2 configuration package only parses and validates `extensions.obi`.
-It does not merge or translate `instrumentation/development` into OBI-owned settings.
+The OBI v2 configuration package models top-level OpenTelemetry declarative sections with `go.opentelemetry.io/contrib/otelconf/x` and imports the narrow subset OBI supports directly:
+
+- `file_format` is validated and currently restricted to `"1.0"`.
+- `resource` imports string `host.name` and `host.id`.
+- `tracer_provider` imports the supported sampler subset and one batch OTLP/gRPC span exporter.
+- `meter_provider` imports one periodic OTLP/gRPC reader and one Prometheus development pull reader.
+- Top-level `log_level` configures OBI daemon logging.
+
+The v2 extension does not define `extensions.obi.daemon.logging.level`; OBI log
+verbosity is sourced only from the standard top-level `log_level` field.
+
+SDK object construction is outside the v2 configuration package scope. Unsupported declarative sections and fields are parsed when `otelconf/x` models them, but they are not merged into OBI-owned runtime settings. OBI also does not merge or translate `instrumentation/development` into OBI-owned settings.
+
+Environment-variable substitution is loader-specific. `otelconf/x.ParseYAML` expands `${VAR}`, `${env:VAR}`, and `${VAR:-fallback}` before decoding. The internal OBI `schema.ParseStandaloneYAML` parser decodes the bytes it is given directly, so callers using that parser must perform any desired substitution first.
 
 ### Deployment-mode validation
 
@@ -49,7 +59,7 @@ The presence of `enrich`, `correlation`, and `daemon` is not required — these 
 
 Based on the structure of the configuration, the version of that configuration can be determined from:
 
-- Root `version` identifies OTel declarative document contract.
+- Root `file_format` identifies the OTel declarative document contract.
 - `extensions.obi.version` identifies OBI extension contract.
 
 From this, the v2 configuration package will behave as follows:
