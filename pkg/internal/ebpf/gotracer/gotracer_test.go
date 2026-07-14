@@ -54,6 +54,43 @@ func TestMissingGoChannelOffsetsUseSentinel(t *testing.T) {
 	assert.Zero(t, offTable.Table[goexec.ConnFdPos])
 }
 
+func TestGoRuntimeMetricAvailability(t *testing.T) {
+	baseOffsets := &goexec.Offsets{Field: goexec.FieldOffsets{
+		goexec.RuntimeMemstatsNumGCPos:         uint64(0),
+		goexec.RuntimeGCControllerGCPercentPos: uint64(8),
+	}}
+
+	mask := goRuntimeMetricMask(baseOffsets)
+	assert.True(t, hasBaseGoRuntimeMetrics(mask))
+	assert.NotZero(t, mask&goRuntimeMetricGCCyclesMask)
+	assert.Zero(t, mask&goRuntimeMetricMemoryLimitMask)
+	assert.NotZero(t, mask&goRuntimeMetricProcessorLimitMask)
+	assert.NotZero(t, mask&goRuntimeMetricGOGCMask)
+	assert.Zero(t, mask&goRuntimeMetricCPUTimeMask)
+
+	baseOffsets.Field[goexec.RuntimeGCControllerMemoryLimitPos] = uint64(16)
+	assert.NotZero(t, goRuntimeMetricMask(baseOffsets)&goRuntimeMetricMemoryLimitMask)
+
+	for _, field := range goRuntimeCPUTimeOffsetFields {
+		baseOffsets.Field[field] = uint64(field)
+	}
+	assert.NotZero(t, goRuntimeMetricMask(baseOffsets)&goRuntimeMetricCPUTimeMask)
+
+	delete(baseOffsets.Field, goRuntimeCPUTimeOffsetFields[0])
+	assert.Zero(t, goRuntimeMetricMask(baseOffsets)&goRuntimeMetricCPUTimeMask)
+
+	delete(baseOffsets.Field, goexec.RuntimeMemstatsNumGCPos)
+	assert.False(t, hasBaseGoRuntimeMetrics(goRuntimeMetricMask(baseOffsets)))
+}
+
+func TestGoRuntimeMetricMaskABI(t *testing.T) {
+	assert.Equal(t, goRuntimeMetricGCCyclesMask, uint64(1<<0))
+	assert.Equal(t, goRuntimeMetricMemoryLimitMask, uint64(1<<1))
+	assert.Equal(t, goRuntimeMetricProcessorLimitMask, uint64(1<<2))
+	assert.Equal(t, goRuntimeMetricGOGCMask, uint64(1<<3))
+	assert.Equal(t, goRuntimeMetricCPUTimeMask, uint64(1<<4))
+}
+
 func TestProcessBinarySelectsRecordedChannelOffsetState(t *testing.T) {
 	tracer := &Tracer{
 		goChannelOffsetsByIno: map[uint64]bool{

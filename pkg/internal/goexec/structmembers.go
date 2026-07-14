@@ -138,9 +138,17 @@ const (
 	GinFullpathPos
 	// Go runtime metrics
 	RuntimeMemstatsNumGCPos
-	RuntimeMemstatsNumForcedGCPos
 	RuntimeGCControllerMemoryLimitPos
 	RuntimeGCControllerGCPercentPos
+	RuntimeWorkCPUStatsPos
+	RuntimeCPUStatsGCAssistTimePos
+	RuntimeCPUStatsGCDedicatedTimePos
+	RuntimeCPUStatsGCIdleTimePos
+	RuntimeCPUStatsGCPauseTimePos
+	RuntimeCPUStatsScavengeAssistTimePos
+	RuntimeCPUStatsScavengeBgTimePos
+	RuntimeCPUStatsIdleTimePos
+	RuntimeCPUStatsUserTimePos
 )
 
 //go:embed offsets.json
@@ -523,8 +531,7 @@ var structMembers = map[string]structInfo{
 	"runtime.mstats": {
 		lib: "go",
 		fields: map[string]GoOffset{
-			"numgc":       RuntimeMemstatsNumGCPos,
-			"numforcedgc": RuntimeMemstatsNumForcedGCPos,
+			"numgc": RuntimeMemstatsNumGCPos,
 		},
 	},
 	"runtime.gcControllerState": {
@@ -532,6 +539,25 @@ var structMembers = map[string]structInfo{
 		fields: map[string]GoOffset{
 			"memoryLimit": RuntimeGCControllerMemoryLimitPos,
 			"gcPercent":   RuntimeGCControllerGCPercentPos,
+		},
+	},
+	"runtime.workType": {
+		lib: "go",
+		fields: map[string]GoOffset{
+			"cpuStats": RuntimeWorkCPUStatsPos,
+		},
+	},
+	"runtime.cpuStats": {
+		lib: "go",
+		fields: map[string]GoOffset{
+			"GCAssistTime":       RuntimeCPUStatsGCAssistTimePos,
+			"GCDedicatedTime":    RuntimeCPUStatsGCDedicatedTimePos,
+			"GCIdleTime":         RuntimeCPUStatsGCIdleTimePos,
+			"GCPauseTime":        RuntimeCPUStatsGCPauseTimePos,
+			"ScavengeAssistTime": RuntimeCPUStatsScavengeAssistTimePos,
+			"ScavengeBgTime":     RuntimeCPUStatsScavengeBgTimePos,
+			"IdleTime":           RuntimeCPUStatsIdleTimePos,
+			"UserTime":           RuntimeCPUStatsUserTimePos,
 		},
 	},
 }

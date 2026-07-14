@@ -116,9 +116,17 @@ typedef enum {
     _gin_fullpath_pos,
     // Go runtime metrics
     _runtime_memstats_numgc_pos,
-    _runtime_memstats_numforcedgc_pos,
     _runtime_gc_controller_memory_limit_pos,
     _runtime_gc_controller_gc_percent_pos,
+    _runtime_work_cpu_stats_pos,
+    _runtime_cpu_stats_gc_assist_time_pos,
+    _runtime_cpu_stats_gc_dedicated_time_pos,
+    _runtime_cpu_stats_gc_idle_time_pos,
+    _runtime_cpu_stats_gc_pause_time_pos,
+    _runtime_cpu_stats_scavenge_assist_time_pos,
+    _runtime_cpu_stats_scavenge_bg_time_pos,
+    _runtime_cpu_stats_idle_time_pos,
+    _runtime_cpu_stats_user_time_pos,
     _last_go_offset,
 } go_offset_const;
 

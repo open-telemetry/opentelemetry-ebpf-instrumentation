@@ -55,11 +55,13 @@ type RuntimeMetrics struct {
 type goRuntimeMetrics struct {
 	memoryLimit    instrument.Int64UpDownCounter
 	memoryGCCycles instrument.Int64Counter
+	cpuTime        instrument.Float64Counter
 	processorLimit instrument.Int64UpDownCounter
 	configGOGC     instrument.Int64UpDownCounter
 
 	memoryLimitValue    *int64
 	memoryGCCyclesValue *uint64
+	cpuTimeValues       map[string]int64
 	processorLimitValue *int64
 	configGOGCValue     *int64
 }
@@ -194,6 +196,10 @@ func setupGoRuntimeMeters(metrics *goRuntimeMetrics, meter instrument.Meter) err
 	if err != nil {
 		return fmt.Errorf("creating go memory gc cycles: %w", err)
 	}
+	metrics.cpuTime, err = meter.Float64Counter(attributes.GoRuntimeCPUTime.OTEL, instrument.WithUnit("s"))
+	if err != nil {
+		return fmt.Errorf("creating go cpu time: %w", err)
+	}
 	metrics.processorLimit, err = meter.Int64UpDownCounter(attributes.GoRuntimeProcessorLimit.OTEL, instrument.WithUnit("{thread}"))
 	if err != nil {
 		return fmt.Errorf("creating go processor limit: %w", err)
@@ -268,6 +274,7 @@ func recordGoRuntimeMetrics(ctx context.Context, metrics *goRuntimeMetrics, snap
 
 	recordCurrentRuntimeMetric(ctx, metrics.memoryLimit, &metrics.memoryLimitValue, snapshot.Go.MemoryLimit)
 	recordRuntimeCounter(ctx, metrics.memoryGCCycles, &metrics.memoryGCCyclesValue, snapshot.Go.GCCycles)
+	recordGoRuntimeCPUTime(ctx, metrics, snapshot.Go.CPUTime)
 	recordCurrentRuntimeMetric(ctx, metrics.processorLimit, &metrics.processorLimitValue, snapshot.Go.ProcessorLimit)
 	recordCurrentRuntimeMetric(ctx, metrics.configGOGC, &metrics.configGOGCValue, snapshot.Go.GOGC)
 }
@@ -316,6 +323,97 @@ func recordRuntimeCounter(
 	}
 	value := *current
 	*previous = &value
+}
+
+func recordGoRuntimeCPUTime(
+	ctx context.Context,
+	metrics *goRuntimeMetrics,
+	cpu *runtimemetrics.GoRuntimeCPUTimeSnapshot,
+) {
+	if cpu == nil {
+		removeGoRuntimeCPUTime(ctx, metrics)
+		return
+	}
+
+	recordFloatRuntimeCounterWithAttributes(ctx, metrics.cpuTime, &metrics.cpuTimeValues,
+		"user", cpu.UserTime, semconv.GoCPUStateUser)
+	recordFloatRuntimeCounterWithAttributes(ctx, metrics.cpuTime, &metrics.cpuTimeValues,
+		"gc/mark/assist", cpu.GCAssistTime,
+		semconv.GoCPUStateGC, semconv.GoCPUDetailedState("gc/mark/assist"))
+	recordFloatRuntimeCounterWithAttributes(ctx, metrics.cpuTime, &metrics.cpuTimeValues,
+		"gc/mark/dedicated", cpu.GCDedicatedTime,
+		semconv.GoCPUStateGC, semconv.GoCPUDetailedState("gc/mark/dedicated"))
+	recordFloatRuntimeCounterWithAttributes(ctx, metrics.cpuTime, &metrics.cpuTimeValues,
+		"gc/mark/idle", cpu.GCIdleTime,
+		semconv.GoCPUStateGC, semconv.GoCPUDetailedState("gc/mark/idle"))
+	recordFloatRuntimeCounterWithAttributes(ctx, metrics.cpuTime, &metrics.cpuTimeValues,
+		"gc/pause", cpu.GCPauseTime,
+		semconv.GoCPUStateGC, semconv.GoCPUDetailedState("gc/pause"))
+	recordFloatRuntimeCounterWithAttributes(ctx, metrics.cpuTime, &metrics.cpuTimeValues,
+		"scavenge/assist", cpu.ScavengeAssistTime,
+		semconv.GoCPUStateScavenge, semconv.GoCPUDetailedState("scavenge/assist"))
+	recordFloatRuntimeCounterWithAttributes(ctx, metrics.cpuTime, &metrics.cpuTimeValues,
+		"scavenge/background", cpu.ScavengeBgTime,
+		semconv.GoCPUStateScavenge, semconv.GoCPUDetailedState("scavenge/background"))
+	recordFloatRuntimeCounterWithAttributes(ctx, metrics.cpuTime, &metrics.cpuTimeValues,
+		"idle", cpu.IdleTime, semconv.GoCPUStateIdle)
+}
+
+func removeGoRuntimeCPUTime(ctx context.Context, metrics *goRuntimeMetrics) {
+	removeFloatRuntimeCounterWithAttributes(ctx, metrics.cpuTime, &metrics.cpuTimeValues,
+		"user", semconv.GoCPUStateUser)
+	removeFloatRuntimeCounterWithAttributes(ctx, metrics.cpuTime, &metrics.cpuTimeValues,
+		"gc/mark/assist", semconv.GoCPUStateGC, semconv.GoCPUDetailedState("gc/mark/assist"))
+	removeFloatRuntimeCounterWithAttributes(ctx, metrics.cpuTime, &metrics.cpuTimeValues,
+		"gc/mark/dedicated", semconv.GoCPUStateGC, semconv.GoCPUDetailedState("gc/mark/dedicated"))
+	removeFloatRuntimeCounterWithAttributes(ctx, metrics.cpuTime, &metrics.cpuTimeValues,
+		"gc/mark/idle", semconv.GoCPUStateGC, semconv.GoCPUDetailedState("gc/mark/idle"))
+	removeFloatRuntimeCounterWithAttributes(ctx, metrics.cpuTime, &metrics.cpuTimeValues,
+		"gc/pause", semconv.GoCPUStateGC, semconv.GoCPUDetailedState("gc/pause"))
+	removeFloatRuntimeCounterWithAttributes(ctx, metrics.cpuTime, &metrics.cpuTimeValues,
+		"scavenge/assist", semconv.GoCPUStateScavenge, semconv.GoCPUDetailedState("scavenge/assist"))
+	removeFloatRuntimeCounterWithAttributes(ctx, metrics.cpuTime, &metrics.cpuTimeValues,
+		"scavenge/background", semconv.GoCPUStateScavenge, semconv.GoCPUDetailedState("scavenge/background"))
+	removeFloatRuntimeCounterWithAttributes(ctx, metrics.cpuTime, &metrics.cpuTimeValues,
+		"idle", semconv.GoCPUStateIdle)
+}
+
+func recordFloatRuntimeCounterWithAttributes(
+	ctx context.Context,
+	metric instrument.Float64Counter,
+	previous *map[string]int64,
+	key string,
+	current int64,
+	attrs ...attribute.KeyValue,
+) {
+	if *previous == nil {
+		*previous = map[string]int64{}
+	}
+	options := []instrument.AddOption{instrument.WithAttributes(attrs...)}
+	removeOptions := []instrument.RemoveOption{instrument.WithAttributes(attrs...)}
+
+	prev, ok := (*previous)[key]
+	currentSeconds := float64(current) / float64(time.Second)
+	if !ok || current < prev {
+		metric.Remove(ctx, removeOptions...)
+		metric.Add(ctx, currentSeconds, options...)
+	} else if delta := current - prev; delta > 0 {
+		metric.Add(ctx, float64(delta)/float64(time.Second), options...)
+	}
+	(*previous)[key] = current
+}
+
+func removeFloatRuntimeCounterWithAttributes(
+	ctx context.Context,
+	metric instrument.Float64Counter,
+	previous *map[string]int64,
+	key string,
+	attrs ...attribute.KeyValue,
+) {
+	if *previous != nil {
+		delete(*previous, key)
+	}
+	metric.Remove(ctx, instrument.WithAttributes(attrs...))
 }
 
 func (r *RuntimeMetricsReporter) close() {

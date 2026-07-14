@@ -9,11 +9,14 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	metricdata "go.opentelemetry.io/otel/sdk/metric/metricdata"
+	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 
 	jvmruntime "go.opentelemetry.io/obi/pkg/appolly/app/runtime"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/export"
+	"go.opentelemetry.io/obi/pkg/export/attributes"
 	"go.opentelemetry.io/obi/pkg/export/otel/metric"
 	"go.opentelemetry.io/obi/pkg/runtimemetrics"
 )
@@ -87,4 +90,78 @@ func TestSetupRuntimeMetersUsesSharedRuntimeGate(t *testing.T) {
 	require.NoError(t, setupRuntimeMeters(&enabled, meter, time.Minute, runtimemetrics.Enabled{Runtime: true}))
 	assert.NotNil(t, enabled.goMetrics.memoryLimit)
 	assert.NotNil(t, enabled.jvmMetrics.memoryUsed)
+}
+
+func TestGoRuntimeCPUTimeCounterDeltaResetAndRemoval(t *testing.T) {
+	reader := metric.NewManualReader()
+	provider := metric.NewMeterProvider(metric.WithReader(reader))
+	t.Cleanup(func() {
+		require.NoError(t, provider.Shutdown(t.Context()))
+	})
+
+	var metrics goRuntimeMetrics
+	require.NoError(t, setupGoRuntimeMeters(&metrics, provider.Meter(reporterName)))
+
+	cpu := &runtimemetrics.GoRuntimeCPUTimeSnapshot{UserTime: 100}
+	recordGoRuntimeCPUTime(t.Context(), &metrics, cpu)
+	points := collectGoRuntimeCPUTimePoints(t, reader)
+	user := points[goCPUTimePointKey{state: "user"}]
+	assert.InDelta(t, float64(100*time.Nanosecond)/float64(time.Second), user.Value, 1e-12)
+	assert.False(t, user.Attributes.HasValue(semconv.GoCPUDetailedStateKey))
+	gcAssist := points[goCPUTimePointKey{state: "gc", detailedState: "gc/mark/assist"}]
+	assert.True(t, gcAssist.Attributes.HasValue(semconv.GoCPUDetailedStateKey))
+
+	cpu.UserTime = 250
+	recordGoRuntimeCPUTime(t.Context(), &metrics, cpu)
+	points = collectGoRuntimeCPUTimePoints(t, reader)
+	assert.InDelta(t, float64(250*time.Nanosecond)/float64(time.Second),
+		points[goCPUTimePointKey{state: "user"}].Value, 1e-12)
+
+	cpu.UserTime = 50
+	recordGoRuntimeCPUTime(t.Context(), &metrics, cpu)
+	points = collectGoRuntimeCPUTimePoints(t, reader)
+	assert.InDelta(t, float64(50*time.Nanosecond)/float64(time.Second),
+		points[goCPUTimePointKey{state: "user"}].Value, 1e-12)
+
+	recordGoRuntimeCPUTime(t.Context(), &metrics, nil)
+	assert.Empty(t, collectGoRuntimeCPUTimePoints(t, reader))
+	assert.Empty(t, metrics.cpuTimeValues)
+}
+
+type goCPUTimePointKey struct {
+	state         string
+	detailedState string
+}
+
+func collectGoRuntimeCPUTimePoints(
+	t *testing.T,
+	reader *metric.ManualReader,
+) map[goCPUTimePointKey]metricdata.DataPoint[float64] {
+	t.Helper()
+
+	var resourceMetrics metricdata.ResourceMetrics
+	require.NoError(t, reader.Collect(t.Context(), &resourceMetrics))
+
+	points := map[goCPUTimePointKey]metricdata.DataPoint[float64]{}
+	for _, scopeMetrics := range resourceMetrics.ScopeMetrics {
+		for _, collected := range scopeMetrics.Metrics {
+			if collected.Name != attributes.GoRuntimeCPUTime.OTEL {
+				continue
+			}
+
+			sum, ok := collected.Data.(metricdata.Sum[float64])
+			require.True(t, ok)
+			for _, point := range sum.DataPoints {
+				state, ok := point.Attributes.Value(semconv.GoCPUStateKey)
+				require.True(t, ok)
+				key := goCPUTimePointKey{state: state.AsString()}
+				if detailedState, ok := point.Attributes.Value(semconv.GoCPUDetailedStateKey); ok {
+					key.detailedState = detailedState.AsString()
+				}
+				points[key] = point
+			}
+		}
+	}
+
+	return points
 }

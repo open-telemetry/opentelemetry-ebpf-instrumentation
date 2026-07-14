@@ -2,8 +2,8 @@ services:
   testserver:
     build:
       context: ../../..
-      dockerfile: ./internal/test/integration/components/go-runtime-metrics-server/Dockerfile
-    image: hatest-testserver-go-runtime-metrics
+      dockerfile: ${RUNTIME_METRICS_TESTSERVER_DOCKERFILE:-./internal/test/integration/components/go-runtime-metrics-server/Dockerfile}
+    image: ${RUNTIME_METRICS_TESTSERVER_IMAGE:-hatest-testserver-go-runtime-metrics}
     ports:
       - "${TEST_SERVICE_PORTS}"
     environment:

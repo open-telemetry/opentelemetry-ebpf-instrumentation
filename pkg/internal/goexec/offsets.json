@@ -1306,6 +1306,104 @@
         ]
       }
     },
+    "runtime.cpuStats": {
+      "GCAssistTime": {
+        "versions": {
+          "oldest": "1.23.0",
+          "newest": "1.26.5"
+        },
+        "offsets": [
+          {
+            "offset": 0,
+            "since": "1.23.0"
+          }
+        ]
+      },
+      "GCDedicatedTime": {
+        "versions": {
+          "oldest": "1.23.0",
+          "newest": "1.26.5"
+        },
+        "offsets": [
+          {
+            "offset": 8,
+            "since": "1.23.0"
+          }
+        ]
+      },
+      "GCIdleTime": {
+        "versions": {
+          "oldest": "1.23.0",
+          "newest": "1.26.5"
+        },
+        "offsets": [
+          {
+            "offset": 16,
+            "since": "1.23.0"
+          }
+        ]
+      },
+      "GCPauseTime": {
+        "versions": {
+          "oldest": "1.23.0",
+          "newest": "1.26.5"
+        },
+        "offsets": [
+          {
+            "offset": 24,
+            "since": "1.23.0"
+          }
+        ]
+      },
+      "IdleTime": {
+        "versions": {
+          "oldest": "1.23.0",
+          "newest": "1.26.5"
+        },
+        "offsets": [
+          {
+            "offset": 64,
+            "since": "1.23.0"
+          }
+        ]
+      },
+      "ScavengeAssistTime": {
+        "versions": {
+          "oldest": "1.23.0",
+          "newest": "1.26.5"
+        },
+        "offsets": [
+          {
+            "offset": 40,
+            "since": "1.23.0"
+          }
+        ]
+      },
+      "ScavengeBgTime": {
+        "versions": {
+          "oldest": "1.23.0",
+          "newest": "1.26.5"
+        },
+        "offsets": [
+          {
+            "offset": 48,
+            "since": "1.23.0"
+          }
+        ]
+      },
+      "UserTime": {
+        "versions": {
+          "oldest": "1.23.0",
+          "newest": "1.26.5"
+        },
+        "offsets": [
+          {
+            "offset": 72,
+            "since": "1.23.0"
+          }
+        ]
+      }
+    },
     "runtime.gcControllerState": {
       "gcPercent": {
         "versions": {
@@ -1465,26 +1563,6 @@
       }
     },
     "runtime.mstats": {
-      "numforcedgc": {
-        "versions": {
-          "oldest": "1.17.0",
-          "newest": "1.26.4"
-        },
-        "offsets": [
-          {
-            "offset": 4284,
-            "since": "1.17.0"
-          },
-          {
-            "offset": 7708,
-            "since": "1.19.0"
-          },
-          {
-            "offset": 7684,
-            "since": "1.25.0"
-          }
-        ]
-      },
       "numgc": {
         "versions": {
           "oldest": "1.17.0",
@@ -1502,6 +1580,32 @@
           {
             "offset": 7680,
             "since": "1.25.0"
+          }
+        ]
+      }
+    },
+    "runtime.workType": {
+      "cpuStats": {
+        "versions": {
+          "oldest": "1.23.0",
+          "newest": "1.26.5"
+        },
+        "offsets": [
+          {
+            "offset": 472,
+            "since": "1.23.0"
+          },
+          {
+            "offset": 504,
+            "since": "1.23.4"
+          },
+          {
+            "offset": 592,
+            "since": "1.25.0"
+          },
+          {
+            "offset": 728,
+            "since": "1.26.0"
           }
         ]
       }
