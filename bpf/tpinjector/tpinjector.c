@@ -517,6 +517,12 @@ int obi_sockmap_tracker(struct bpf_sock_ops *skops) {
         return 1;
     }
 
+    // if the process is not being monitored, there is no need for tracking this socket
+    const u64 id = bpf_get_current_pid_tgid();
+    if (!valid_pid(id)) {
+        return 1;
+    }
+
     switch (skops->op) {
     case BPF_SOCK_OPS_ACTIVE_ESTABLISHED_CB:
         bpf_sock_ops_active_est_cb(skops);
