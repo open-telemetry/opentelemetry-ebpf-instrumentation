@@ -5,6 +5,7 @@ package request // import "go.opentelemetry.io/obi/pkg/appolly/app/request"
 
 import (
 	"strconv"
+	"strings"
 
 	"go.opentelemetry.io/otel/attribute"
 	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
@@ -13,6 +14,8 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 )
+
+const MultiTableSeparator = ","
 
 // spanOTELGetters returns the attributes.Getter function that returns the
 // OTEL attribute.KeyValue of a given attribute name.
@@ -334,8 +337,14 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 				} else if s.SubType == HTTPSubtypeSQLPP {
 					return DBCollectionName(s.Route)
 				}
-			case EventTypeSQLClient, EventTypeSQLServer, EventTypeMongoClient,
-				EventTypeCouchbaseClient, EventTypeAerospikeClient:
+			case EventTypeSQLClient, EventTypeSQLServer:
+				// Rule [3] from the db metrics says don't put the collection name if there is more
+				// than one table mentioned in the SQL statement.
+				// https://opentelemetry.io/docs/specs/semconv/db/database-metrics/#metric-dbclientoperationduration
+				if !strings.Contains(s.Path, MultiTableSeparator) {
+					return DBCollectionName(s.Path)
+				}
+			case EventTypeMongoClient, EventTypeCouchbaseClient, EventTypeAerospikeClient:
 				return DBCollectionName(s.Path)
 			}
 			return DBCollectionName("")

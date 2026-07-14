@@ -90,7 +90,7 @@ func SQLParseOperationAndTable(query string) (string, string) {
 		tables = tables[:1]
 	}
 
-	return operation, strings.Join(tables, ",")
+	return operation, strings.Join(tables, request.MultiTableSeparator)
 }
 
 func SQLParseError(kind request.SQLKind, buf []uint8) *request.SQLError {
