@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -30,6 +31,8 @@ type mockDockerClient struct {
 	errsChan       chan error
 	inspectCallsMu sync.Mutex
 	inspectCalls   int
+	eventsOptsMu   sync.Mutex
+	eventsOpts     []client.EventsListOptions
 }
 
 func (m *mockDockerClient) ContainerInspect(_ context.Context, _ string, _ client.ContainerInspectOptions) (client.ContainerInspectResult, error) {
@@ -39,11 +42,26 @@ func (m *mockDockerClient) ContainerInspect(_ context.Context, _ string, _ clien
 	return m.inspectResult, m.inspectErr
 }
 
-func (m *mockDockerClient) Events(_ context.Context, _ client.EventsListOptions) client.EventsResult {
+func (m *mockDockerClient) Events(_ context.Context, opts client.EventsListOptions) client.EventsResult {
+	m.eventsOptsMu.Lock()
+	m.eventsOpts = append(m.eventsOpts, opts)
+	m.eventsOptsMu.Unlock()
 	return client.EventsResult{
 		Messages: m.eventsChan,
 		Err:      m.errsChan,
 	}
+}
+
+func (m *mockDockerClient) eventsCallCount() int {
+	m.eventsOptsMu.Lock()
+	defer m.eventsOptsMu.Unlock()
+	return len(m.eventsOpts)
+}
+
+func (m *mockDockerClient) eventsCallOpts(i int) client.EventsListOptions {
+	m.eventsOptsMu.Lock()
+	defer m.eventsOptsMu.Unlock()
+	return m.eventsOpts[i]
 }
 
 // requireConsistency verifies the bidirectional invariants between byPID and byContainerID:
@@ -342,6 +360,75 @@ func TestStart(t *testing.T) {
 			s.cacheMu.RUnlock()
 			return !found
 		}, 500*time.Millisecond, 5*time.Millisecond)
+	})
+}
+
+// TestStartSinceCheckpoint verifies that the event watcher seeds Since on initial
+// connect and carries the checkpoint across reconnects so die/destroy events that
+// arrive during the 1-second backoff gap are not silently dropped.
+func TestStartSinceCheckpoint(t *testing.T) {
+	t.Run("initial_since_covers_gap_between_start_and_first_events_call", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		before := time.Now().Unix()
+
+		errsChan := make(chan error, 1)
+		errsChan <- io.EOF
+		mock := &mockDockerClient{
+			eventsChan: make(chan events.Message),
+			errsChan:   errsChan,
+		}
+		s := NewStore()
+		s.docker = mock
+
+		s.Start(ctx)
+		after := time.Now().Unix()
+
+		// Wait until Events has been called at least once.
+		assert.Eventually(t, func() bool {
+			return mock.eventsCallCount() >= 1
+		}, 500*time.Millisecond, 5*time.Millisecond)
+
+		opts := mock.eventsCallOpts(0)
+		require.NotEmpty(t, opts.Since, "Since must be set on the initial Events call")
+
+		since, err := strconv.ParseInt(opts.Since, 10, 64)
+		require.NoError(t, err)
+		// since = lastEventAt-1; lastEventAt is seeded inside Start before the goroutine
+		// is launched, so since must be >= before-1.
+		assert.GreaterOrEqual(t, since, before-1,
+			"Since must be anchored to before Start returned, not to when the goroutine ran")
+		assert.LessOrEqual(t, since, after)
+	})
+
+	t.Run("eventsloop_advances_checkpoint_and_reconnect_since_reflects_it", func(t *testing.T) {
+		const fullID = "abc123def456789abc123def456789abc123def456789abc123def456789abcdef"
+
+		fltrs := make(client.Filters).
+			Add("type", string(events.ContainerEventType)).
+			Add("event", string(events.ActionDie), string(events.ActionDestroy))
+
+		ec := make(chan events.Message, 1)
+		erc := make(chan error, 1)
+		ec <- events.Message{Action: events.ActionDestroy, Actor: events.Actor{ID: fullID}}
+		erc <- io.EOF
+
+		s := NewStore()
+		s.docker = &mockDockerClient{eventsChan: ec, errsChan: erc}
+		s.lastEventAt.Store(time.Now().Unix())
+		beforeEvent := s.lastEventAt.Load()
+
+		_ = s.eventsLoop(context.Background(), fltrs, s.lastEventAt.Load()-1)
+
+		// lastEventAt must advance when an event is processed.
+		assert.GreaterOrEqual(t, s.lastEventAt.Load(), beforeEvent,
+			"lastEventAt must be updated when a Docker event is processed")
+
+		// The Since value for the next reconnect must not predate the event.
+		reconnectSince := s.lastEventAt.Load() - 1
+		assert.GreaterOrEqual(t, reconnectSince, beforeEvent-1,
+			"reconnect Since must not regress to before the last processed event")
 	})
 }
 

@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"maps"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -78,6 +79,12 @@ type ContainerStore struct {
 	cacheMu       sync.RWMutex
 	byPID         map[app.PID]ContainerMeta
 	byContainerID map[ContainerID]containerEntry // metadata + PIDs keyed by full container ID
+
+	// lastEventAt is the Unix timestamp (seconds) of the last processed Docker event.
+	// It is seeded to the start time of watchContainerEvents and updated on each event,
+	// so that eventsLoop can set EventsListOptions.Since on reconnects to avoid missing
+	// die/destroy events that arrived during the 1-second backoff gap.
+	lastEventAt atomic.Int64
 }
 
 func NewStore() *ContainerStore {
@@ -282,6 +289,7 @@ func (s *ContainerStore) Start(ctx context.Context) {
 		s.initMutex.Lock()
 		s.initialize(ctx)
 		s.initMutex.Unlock()
+		s.lastEventAt.Store(time.Now().Unix())
 		s.watcherRunning.Store(true)
 		go s.watchContainerEvents(ctx)
 	})
@@ -316,7 +324,10 @@ func (s *ContainerStore) watchContainerEvents(ctx context.Context) {
 			Add("type", string(events.ContainerEventType)).
 			Add("event", string(events.ActionDie), string(events.ActionDestroy))
 
-		if err := s.eventsLoop(ctx, fltrs); err != nil && !errors.Is(err, context.Canceled) {
+		// Subtract one second from the checkpoint so reconnects overlap slightly.
+		// Invalidation is idempotent, so processing an event twice is safe.
+		since := s.lastEventAt.Load() - 1
+		if err := s.eventsLoop(ctx, fltrs, since); err != nil && !errors.Is(err, context.Canceled) {
 			s.log.Debug("docker event stream error", "error", err)
 		}
 
@@ -328,14 +339,18 @@ func (s *ContainerStore) watchContainerEvents(ctx context.Context) {
 	}
 }
 
-func (s *ContainerStore) eventsLoop(ctx context.Context, fltrs client.Filters) error {
-	result := s.docker.Events(ctx, client.EventsListOptions{Filters: fltrs})
+func (s *ContainerStore) eventsLoop(ctx context.Context, fltrs client.Filters, since int64) error {
+	result := s.docker.Events(ctx, client.EventsListOptions{
+		Filters: fltrs,
+		Since:   strconv.FormatInt(since, 10),
+	})
 	for {
 		select {
 		case msg, ok := <-result.Messages:
 			if !ok {
 				return nil
 			}
+			s.lastEventAt.Store(time.Now().Unix())
 			if msg.Actor.ID != "" {
 				s.invalidateContainer(msg.Actor.ID)
 			}
