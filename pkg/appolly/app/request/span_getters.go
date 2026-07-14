@@ -417,6 +417,9 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 			if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeAWSBedrock && s.GenAI != nil && s.GenAI.Bedrock != nil {
 				return semconv.GenAIInputMessagesKey.String(s.GenAI.Bedrock.GetInput())
 			}
+			if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeOpenAICompatible && s.GenAI != nil && s.GenAI.OpenAICompatible != nil {
+				return semconv.GenAIInputMessagesKey.String(s.GenAI.OpenAICompatible.Request.GetInput())
+			}
 			return semconv.GenAIInputMessagesKey.String("")
 		}
 	case attr.GenAIOutput:
@@ -438,6 +441,12 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 					return semconv.GenAIOutputMessagesKey.String("")
 				}
 				return semconv.GenAIOutputMessagesKey.String(s.GenAI.Qwen.GetOutput())
+			}
+			if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeOpenAICompatible && s.GenAI != nil && s.GenAI.OpenAICompatible != nil {
+				if s.GenAI.OpenAICompatible.OperationName == EmbeddingOperationName {
+					return semconv.GenAIOutputMessagesKey.String("")
+				}
+				return semconv.GenAIOutputMessagesKey.String(s.GenAI.OpenAICompatible.GetOutput())
 			}
 			if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeAWSBedrock && s.GenAI != nil && s.GenAI.Bedrock != nil {
 				if len(s.GenAI.Bedrock.Output.Content) > 0 {
@@ -461,6 +470,9 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 			if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeQwen && s.GenAI != nil && s.GenAI.Qwen != nil {
 				return semconv.GenAISystemInstructionsKey.String(NormalizeSystemInstructions(s.GenAI.Qwen.Request.Instructions))
 			}
+			if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeOpenAICompatible && s.GenAI != nil && s.GenAI.OpenAICompatible != nil {
+				return semconv.GenAISystemInstructionsKey.String(NormalizeSystemInstructions(s.GenAI.OpenAICompatible.Request.Instructions))
+			}
 			if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeAWSBedrock && s.GenAI != nil && s.GenAI.Bedrock != nil {
 				return semconv.GenAISystemInstructionsKey.String(s.GenAI.Bedrock.GetSystemInstruction())
 			}
@@ -479,6 +491,9 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 			}
 			if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeQwen && s.GenAI != nil && s.GenAI.Qwen != nil {
 				return semconv.GenAIToolDefinitionsKey.String(NormalizeToolDefinitions(s.GenAI.Qwen.Request.Tools))
+			}
+			if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeOpenAICompatible && s.GenAI != nil && s.GenAI.OpenAICompatible != nil {
+				return semconv.GenAIToolDefinitionsKey.String(NormalizeToolDefinitions(s.GenAI.OpenAICompatible.Request.Tools))
 			}
 			if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeAWSBedrock && s.GenAI != nil && s.GenAI.Bedrock != nil {
 				return semconv.GenAIToolDefinitionsKey.String(NormalizeToolDefinitions(s.GenAI.Bedrock.Input.Tools))

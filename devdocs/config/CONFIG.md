@@ -282,6 +282,13 @@ HTTPParsingPolicy defines the default action for http enrichment rules.
 |---|---|---|---|---|---|---|
 | `ebpf.payload_extraction.http.genai.openai.enabled` | `boolean` | `OTEL_EBPF_HTTP_OPENAI_ENABLED` | `false` |  |  | Enable OpenAI payload extraction and parsing |
 
+#### `ebpf.payload_extraction.http.genai.openai_compatible`
+
+| YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
+|---|---|---|---|---|---|---|
+| `ebpf.payload_extraction.http.genai.openai_compatible.enabled` | `boolean` | `OTEL_EBPF_HTTP_OPENAI_COMPATIBLE_ENABLED` | `false` |  |  | Enable OpenAI-compatible gateway payload extraction and parsing |
+| `ebpf.payload_extraction.http.genai.openai_compatible.gateways` | [`OpenAICompatibleGateway`](#openaicompatiblegateway)[] |  |  |  |  |  |
+
 #### `ebpf.payload_extraction.http.genai.qwen`
 
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
@@ -824,3 +831,11 @@ NumericRange defines numeric comparison criteria for a rule match condition. All
 | `less_equals` | `integer` |  |  |
 | `less_than` | `integer` |  |  |
 | `not_equals` | `integer` |  |  |
+
+### OpenAICompatibleGateway
+
+| Field | Type | Values | Description |
+|---|---|---|---|
+| `host` | `string` |  |  |
+| `port` | `integer` |  |  |
+| `provider` | `string` |  |  |

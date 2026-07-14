@@ -98,13 +98,16 @@ type GenAIConfig struct {
 	Rerank RerankConfig `yaml:"rerank"`
 	// Vector retrieval payload extraction and parsing (Pinecone, Qdrant, Milvus, Chroma, Weaviate, etc.)
 	Retrieval RetrievalConfig `yaml:"retrieval"`
+	// OpenAI-compatible gateway payload extraction and parsing
+	OpenAICompatible OpenAICompatibleConfig `yaml:"openai_compatible"`
 }
 
 func (g *GenAIConfig) Enabled() bool {
 	return g.Anthropic.Enabled || g.OpenAI.Enabled ||
 		g.Gemini.Enabled || g.Qwen.Enabled || g.Bedrock.Enabled ||
 		g.MCP.Enabled ||
-		g.Embedding.Enabled || g.Rerank.Enabled || g.Retrieval.Enabled
+		g.Embedding.Enabled || g.Rerank.Enabled || g.Retrieval.Enabled ||
+		g.OpenAICompatible.Enabled
 }
 
 type OpenAIConfig struct {
@@ -150,6 +153,18 @@ type RerankConfig struct {
 type RetrievalConfig struct {
 	// Enable vector retrieval (Pinecone, Qdrant, Milvus, Chroma, Weaviate, etc.) payload extraction and parsing
 	Enabled bool `yaml:"enabled" env:"OTEL_EBPF_HTTP_RETRIEVAL_ENABLED" validate:"boolean"`
+}
+
+type OpenAICompatibleConfig struct {
+	// Enable OpenAI-compatible gateway payload extraction and parsing
+	Enabled  bool                      `yaml:"enabled" env:"OTEL_EBPF_HTTP_OPENAI_COMPATIBLE_ENABLED" validate:"boolean"`
+	Gateways []OpenAICompatibleGateway `yaml:"gateways"`
+}
+
+type OpenAICompatibleGateway struct {
+	Host     string `yaml:"host" validate:"required"`
+	Port     int    `yaml:"port"`
+	Provider string `yaml:"provider"`
 }
 
 type JSONRPCConfig struct {

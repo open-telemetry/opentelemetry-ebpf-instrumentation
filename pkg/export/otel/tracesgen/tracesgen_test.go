@@ -363,3 +363,145 @@ func TestCreateToolCallSpans(t *testing.T) {
 		assert.False(t, ok, "gen_ai.tool.call.id should not be present when ID is empty")
 	})
 }
+
+func TestTraceAttributesSelector_OpenAICompatible(t *testing.T) {
+	defaultAttrs, err := UserSelectedAttributes(&attributes.SelectorConfig{})
+	require.NoError(t, err)
+
+	t.Run("chat completions with configured provider", func(t *testing.T) {
+		span := &request.Span{
+			Type:    request.EventTypeHTTPClient,
+			SubType: request.HTTPSubtypeOpenAICompatible,
+			GenAI: &request.GenAI{
+				OpenAICompatible: &request.VendorOpenAI{
+					ID:            "chatcmpl-gw-001",
+					OperationName: request.ChatOperationName,
+					ResponseModel: "gpt-4o-mini-2024-07-18",
+					ProviderName:  "litellm",
+					Request: request.OpenAIInput{
+						Model: "gpt-4o-mini",
+					},
+					Usage: request.OpenAIUsage{
+						PromptTokens:     10,
+						CompletionTokens: 8,
+						TotalTokens:      18,
+					},
+					Choices: []byte(`[{"index":0,"message":{"role":"assistant","content":"Hello!"},"finish_reason":"stop"}]`),
+				},
+			},
+		}
+
+		selected := AttrsToMap(TraceAttributesSelector(span, defaultAttrs))
+
+		provider, ok := selected.Get("gen_ai.provider.name")
+		require.True(t, ok)
+		assert.Equal(t, "litellm", provider.Str())
+
+		opName, ok := selected.Get("gen_ai.operation.name")
+		require.True(t, ok)
+		assert.Equal(t, request.ChatOperationName, opName.Str())
+
+		respModel, ok := selected.Get("gen_ai.response.model")
+		require.True(t, ok)
+		assert.Equal(t, "gpt-4o-mini-2024-07-18", respModel.Str())
+
+		inputTokens, ok := selected.Get("gen_ai.usage.input_tokens")
+		require.True(t, ok)
+		assert.Equal(t, int64(10), inputTokens.Int())
+
+		outputTokens, ok := selected.Get("gen_ai.usage.output_tokens")
+		require.True(t, ok)
+		assert.Equal(t, int64(8), outputTokens.Int())
+
+		// openai.* attributes must NOT be present for OpenAI-compatible spans
+		_, ok = selected.Get("openai.request.service_tier")
+		assert.False(t, ok, "openai.request.service_tier should not be present")
+		_, ok = selected.Get("openai.response.service_tier")
+		assert.False(t, ok, "openai.response.service_tier should not be present")
+		_, ok = selected.Get("openai.response.system_fingerprint")
+		assert.False(t, ok, "openai.response.system_fingerprint should not be present")
+		_, ok = selected.Get("openai.api.type")
+		assert.False(t, ok, "openai.api.type should not be present")
+	})
+
+	t.Run("empty provider falls back to custom", func(t *testing.T) {
+		span := &request.Span{
+			Type:    request.EventTypeHTTPClient,
+			SubType: request.HTTPSubtypeOpenAICompatible,
+			GenAI: &request.GenAI{
+				OpenAICompatible: &request.VendorOpenAI{
+					OperationName: request.ChatOperationName,
+					Request: request.OpenAIInput{
+						Model: "gpt-4o-mini",
+					},
+				},
+			},
+		}
+
+		selected := AttrsToMap(TraceAttributesSelector(span, defaultAttrs))
+
+		provider, ok := selected.Get("gen_ai.provider.name")
+		require.True(t, ok)
+		assert.Equal(t, "custom", provider.Str())
+	})
+
+	t.Run("embeddings with dimensions", func(t *testing.T) {
+		// NOTE: OperationName is set manually here because this test verifies
+		// the tracesgen attribute emission logic (gen_ai.embeddings.dimension.count,
+		// gen_ai.operation.name, etc.), not the HTTP response parsing path.
+		// In production, OpenAICompatibleSpan derives OperationName from the URL
+		// path (/v1/embeddings -> request.EmbeddingOperationName).
+		span := &request.Span{
+			Type:    request.EventTypeHTTPClient,
+			SubType: request.HTTPSubtypeOpenAICompatible,
+			GenAI: &request.GenAI{
+				OpenAICompatible: &request.VendorOpenAI{
+					OperationName: request.EmbeddingOperationName,
+					ResponseModel: "text-embedding-3-small",
+					ProviderName:  "litellm",
+					Request: request.OpenAIInput{
+						Model:      "text-embedding-3-small",
+						Dimensions: 256,
+					},
+					Usage: request.OpenAIUsage{
+						PromptTokens: 5,
+						TotalTokens:  5,
+					},
+					Data: []byte(`[{"object":"embedding","embedding":[0.1,0.2],"index":0}]`),
+				},
+			},
+		}
+
+		selected := AttrsToMap(TraceAttributesSelector(span, defaultAttrs))
+
+		dims, ok := selected.Get("gen_ai.embeddings.dimension.count")
+		require.True(t, ok)
+		assert.Equal(t, int64(256), dims.Int())
+
+		opName, ok := selected.Get("gen_ai.operation.name")
+		require.True(t, ok)
+		assert.Equal(t, request.EmbeddingOperationName, opName.Str())
+	})
+
+	t.Run("text completions operation name", func(t *testing.T) {
+		span := &request.Span{
+			Type:    request.EventTypeHTTPClient,
+			SubType: request.HTTPSubtypeOpenAICompatible,
+			GenAI: &request.GenAI{
+				OpenAICompatible: &request.VendorOpenAI{
+					OperationName: request.CompletionOperationName,
+					ProviderName:  "litellm",
+					Request: request.OpenAIInput{
+						Model: "gpt-3.5-turbo-instruct",
+					},
+				},
+			},
+		}
+
+		selected := AttrsToMap(TraceAttributesSelector(span, defaultAttrs))
+
+		opName, ok := selected.Get("gen_ai.operation.name")
+		require.True(t, ok)
+		assert.Equal(t, request.CompletionOperationName, opName.Str())
+	})
+}

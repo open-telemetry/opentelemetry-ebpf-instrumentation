@@ -230,6 +230,7 @@ func validV2HTTPPayloadExtractor(extractor string) bool {
 		payloadExtractorQwen,
 		payloadExtractorBedrock,
 		payloadExtractorMCP,
+		payloadExtractorOpenAICompatible,
 		payloadExtractorEmbedding,
 		payloadExtractorRerank,
 		payloadExtractorRetrieval,
@@ -904,6 +905,7 @@ func applyV2HTTPPayloadExtractorMembership(http *obiconfig.HTTPConfig, enabled [
 	http.GenAI.Embedding.Enabled = false
 	http.GenAI.Rerank.Enabled = false
 	http.GenAI.Retrieval.Enabled = false
+	http.GenAI.OpenAICompatible.Enabled = false
 	http.JSONRPC.Enabled = false
 	http.Enrichment.Enabled = false
 
@@ -935,6 +937,8 @@ func applyV2HTTPPayloadExtractorMembership(http *obiconfig.HTTPConfig, enabled [
 			http.GenAI.Rerank.Enabled = true
 		case payloadExtractorRetrieval:
 			http.GenAI.Retrieval.Enabled = true
+		case payloadExtractorOpenAICompatible:
+			http.GenAI.OpenAICompatible.Enabled = true
 		case payloadExtractorJSONRPC:
 			http.JSONRPC.Enabled = true
 		case payloadExtractorEnrichment:
