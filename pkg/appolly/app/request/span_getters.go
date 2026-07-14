@@ -334,7 +334,8 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 				} else if s.SubType == HTTPSubtypeSQLPP {
 					return DBCollectionName(s.Route)
 				}
-			case EventTypeSQLClient, EventTypeSQLServer, EventTypeAerospikeClient:
+			case EventTypeSQLClient, EventTypeSQLServer, EventTypeMongoClient,
+				EventTypeCouchbaseClient, EventTypeAerospikeClient:
 				return DBCollectionName(s.Path)
 			}
 			return DBCollectionName("")
