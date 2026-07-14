@@ -58,11 +58,11 @@ data: [DONE]
 
 const htmlResponseBody = `<html><body><h1>Welcome</h1></body></html>`
 
-func makeCompatibleResponse(statusCode int, body string) *http.Response {
+func makeCompatibleResponse(body string) *http.Response {
 	h := http.Header{}
 	h.Set("Content-Type", "application/json")
 	return &http.Response{
-		StatusCode: statusCode,
+		StatusCode: http.StatusOK,
 		Header:     h,
 		Body:       io.NopCloser(strings.NewReader(body)),
 	}
@@ -73,7 +73,7 @@ func TestOpenAICompatibleSpan_HostMatchWithoutPort(t *testing.T) {
 		{Host: "litellm.local", Provider: "litellm"},
 	}
 	req := makeRequest(t, http.MethodPost, "http://litellm.local:443/v1/chat/completions", compatibleChatRequestBody)
-	resp := makeCompatibleResponse(http.StatusOK, compatibleChatResponseBody)
+	resp := makeCompatibleResponse(compatibleChatResponseBody)
 
 	base := &request.Span{}
 	span, ok := OpenAICompatibleSpan(base, req, resp, gateways)
@@ -87,7 +87,7 @@ func TestOpenAICompatibleSpan_HostMatchWithPort(t *testing.T) {
 		{Host: "localhost", Port: 8080, Provider: "litellm"},
 	}
 	req := makeRequest(t, http.MethodPost, "http://localhost:8080/v1/chat/completions", compatibleChatRequestBody)
-	resp := makeCompatibleResponse(http.StatusOK, compatibleChatResponseBody)
+	resp := makeCompatibleResponse(compatibleChatResponseBody)
 
 	base := &request.Span{}
 	span, ok := OpenAICompatibleSpan(base, req, resp, gateways)
@@ -101,7 +101,7 @@ func TestOpenAICompatibleSpan_PortMismatch(t *testing.T) {
 		{Host: "localhost", Port: 8080},
 	}
 	req := makeRequest(t, http.MethodPost, "http://localhost:9090/v1/chat/completions", compatibleChatRequestBody)
-	resp := makeCompatibleResponse(http.StatusOK, compatibleChatResponseBody)
+	resp := makeCompatibleResponse(compatibleChatResponseBody)
 
 	base := &request.Span{}
 	_, ok := OpenAICompatibleSpan(base, req, resp, gateways)
@@ -114,7 +114,7 @@ func TestOpenAICompatibleSpan_HostMismatch(t *testing.T) {
 		{Host: "litellm.local"},
 	}
 	req := makeRequest(t, http.MethodPost, "http://api.openai.com/v1/chat/completions", compatibleChatRequestBody)
-	resp := makeCompatibleResponse(http.StatusOK, compatibleChatResponseBody)
+	resp := makeCompatibleResponse(compatibleChatResponseBody)
 
 	base := &request.Span{}
 	_, ok := OpenAICompatibleSpan(base, req, resp, gateways)
@@ -127,7 +127,7 @@ func TestOpenAICompatibleSpan_MatchedButInvalidBody(t *testing.T) {
 		{Host: "litellm.local", Provider: "litellm"},
 	}
 	req := makeRequest(t, http.MethodPost, "http://litellm.local/v1/chat/completions", `{}`)
-	resp := makeCompatibleResponse(http.StatusOK, htmlResponseBody)
+	resp := makeCompatibleResponse(htmlResponseBody)
 
 	base := &request.Span{}
 	_, ok := OpenAICompatibleSpan(base, req, resp, gateways)
@@ -140,7 +140,7 @@ func TestOpenAICompatibleSpan_ChatCompletions(t *testing.T) {
 		{Host: "litellm.local", Provider: "litellm"},
 	}
 	req := makeRequest(t, http.MethodPost, "http://litellm.local/v1/chat/completions", compatibleChatRequestBody)
-	resp := makeCompatibleResponse(http.StatusOK, compatibleChatResponseBody)
+	resp := makeCompatibleResponse(compatibleChatResponseBody)
 
 	base := &request.Span{}
 	span, ok := OpenAICompatibleSpan(base, req, resp, gateways)
@@ -165,7 +165,7 @@ func TestOpenAICompatibleSpan_Embeddings(t *testing.T) {
 		{Host: "litellm.local", Provider: "litellm"},
 	}
 	req := makeRequest(t, http.MethodPost, "http://litellm.local/v1/embeddings", compatibleEmbeddingsRequestBody)
-	resp := makeCompatibleResponse(http.StatusOK, compatibleEmbeddingsResponseBody)
+	resp := makeCompatibleResponse(compatibleEmbeddingsResponseBody)
 
 	base := &request.Span{}
 	span, ok := OpenAICompatibleSpan(base, req, resp, gateways)
@@ -187,7 +187,7 @@ func TestOpenAICompatibleSpan_SSEStream(t *testing.T) {
 		{Host: "litellm.local", Provider: "litellm"},
 	}
 	req := makeRequest(t, http.MethodPost, "http://litellm.local/v1/chat/completions", compatibleChatRequestBody)
-	resp := makeCompatibleResponse(http.StatusOK, compatibleSSEResponseBody)
+	resp := makeCompatibleResponse(compatibleSSEResponseBody)
 
 	base := &request.Span{}
 	span, ok := OpenAICompatibleSpan(base, req, resp, gateways)
@@ -217,7 +217,7 @@ func TestOpenAICompatibleSpan_ProviderNameSet(t *testing.T) {
 		{Host: "litellm.local", Provider: "litellm"},
 	}
 	req := makeRequest(t, http.MethodPost, "http://litellm.local/v1/chat/completions", compatibleChatRequestBody)
-	resp := makeCompatibleResponse(http.StatusOK, compatibleChatResponseBody)
+	resp := makeCompatibleResponse(compatibleChatResponseBody)
 
 	base := &request.Span{}
 	span, ok := OpenAICompatibleSpan(base, req, resp, gateways)
@@ -232,7 +232,7 @@ func TestOpenAICompatibleSpan_ProviderNameEmptyFallback(t *testing.T) {
 		{Host: "litellm.local"},
 	}
 	req := makeRequest(t, http.MethodPost, "http://litellm.local/v1/chat/completions", compatibleChatRequestBody)
-	resp := makeCompatibleResponse(http.StatusOK, compatibleChatResponseBody)
+	resp := makeCompatibleResponse(compatibleChatResponseBody)
 
 	base := &request.Span{}
 	span, ok := OpenAICompatibleSpan(base, req, resp, gateways)
@@ -250,7 +250,7 @@ func TestOpenAICompatibleSpan_CaseInsensitiveHost(t *testing.T) {
 		{Host: "LiteLLM.Local", Provider: "litellm"},
 	}
 	req := makeRequest(t, http.MethodPost, "http://litellm.local/v1/chat/completions", compatibleChatRequestBody)
-	resp := makeCompatibleResponse(http.StatusOK, compatibleChatResponseBody)
+	resp := makeCompatibleResponse(compatibleChatResponseBody)
 
 	base := &request.Span{}
 	span, ok := OpenAICompatibleSpan(base, req, resp, gateways)
@@ -262,7 +262,7 @@ func TestOpenAICompatibleSpan_CaseInsensitiveHost(t *testing.T) {
 
 func TestOpenAICompatibleSpan_EmptyGateways(t *testing.T) {
 	req := makeRequest(t, http.MethodPost, "http://litellm.local/v1/chat/completions", compatibleChatRequestBody)
-	resp := makeCompatibleResponse(http.StatusOK, compatibleChatResponseBody)
+	resp := makeCompatibleResponse(compatibleChatResponseBody)
 
 	base := &request.Span{}
 	_, ok := OpenAICompatibleSpan(base, req, resp, nil)
@@ -277,7 +277,7 @@ func TestOpenAICompatibleSpan_TextCompletions(t *testing.T) {
 	reqBody := `{"model":"gpt-3.5-turbo-instruct","prompt":"Say hello"}`
 	respBody := `{"id":"cmpl-001","object":"text_completion","model":"gpt-3.5-turbo-instruct","choices":[{"text":"Hello!","finish_reason":"stop"}],"usage":{"prompt_tokens":2,"completion_tokens":2,"total_tokens":4}}`
 	req := makeRequest(t, http.MethodPost, "http://litellm.local/v1/completions", reqBody)
-	resp := makeCompatibleResponse(http.StatusOK, respBody)
+	resp := makeCompatibleResponse(respBody)
 
 	base := &request.Span{}
 	span, ok := OpenAICompatibleSpan(base, req, resp, gateways)
@@ -313,7 +313,7 @@ func TestOpenAICompatibleSpan_NamedProviderWins(t *testing.T) {
 	// Additionally verify that OpenAICompatibleSpan would also match the host,
 	// confirming the priority is what makes the difference (not host exclusion).
 	base2 := &request.Span{}
-	_, okCompat := OpenAICompatibleSpan(base2, req, makeCompatibleResponse(http.StatusOK, compatibleChatResponseBody), gateways)
+	_, okCompat := OpenAICompatibleSpan(base2, req, makeCompatibleResponse(compatibleChatResponseBody), gateways)
 	assert.True(t, okCompat, "host should also match the OpenAI-compatible gateway")
 }
 
@@ -334,7 +334,7 @@ func TestOpenAICompatibleSpan_ResponsesAPI(t *testing.T) {
 		{Host: "litellm.local", Provider: "litellm"},
 	}
 	req := makeRequest(t, http.MethodPost, "http://litellm.local/v1/responses", compatibleResponsesRequestBody)
-	resp := makeCompatibleResponse(http.StatusOK, compatibleResponsesResponseBody)
+	resp := makeCompatibleResponse(compatibleResponsesResponseBody)
 
 	base := &request.Span{}
 	span, ok := OpenAICompatibleSpan(base, req, resp, gateways)
@@ -365,7 +365,7 @@ func TestOpenAICompatibleSpan_SSEToolCalls(t *testing.T) {
 		{Host: "litellm.local", Provider: "litellm"},
 	}
 	req := makeRequest(t, http.MethodPost, "http://litellm.local/v1/chat/completions", compatibleChatRequestBody)
-	resp := makeCompatibleResponse(http.StatusOK, compatibleSSEToolCallsResponseBody)
+	resp := makeCompatibleResponse(compatibleSSEToolCallsResponseBody)
 
 	base := &request.Span{}
 	span, ok := OpenAICompatibleSpan(base, req, resp, gateways)
