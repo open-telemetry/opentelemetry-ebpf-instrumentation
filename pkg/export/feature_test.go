@@ -17,11 +17,11 @@ func TestFeatureYAML(t *testing.T) {
 		Features Features
 	}{}
 	require.NoError(t,
-		yaml.Unmarshal([]byte(`features: [application, application_span_otel, application_jvm]`), &doc))
+		yaml.Unmarshal([]byte(`features: [application, application_span_otel, application_runtime]`), &doc))
 
 	assert.True(t, doc.Features.has(FeatureApplicationRED))
 	assert.True(t, doc.Features.has(FeatureSpanOTel))
-	assert.True(t, doc.Features.has(FeatureApplicationJVM))
+	assert.True(t, doc.Features.has(FeatureApplicationRuntime))
 	assert.True(t, doc.Features.has(FeatureApplicationRED|FeatureSpanOTel))
 	assert.False(t, doc.Features.has(FeatureSpanLegacy))
 	assert.False(t, doc.Features.has(FeatureApplicationRED|FeatureSpanLegacy))
@@ -59,25 +59,31 @@ func TestFeatureEnv_Separator(t *testing.T) {
 	doc := struct {
 		Features Features `env:"FOO" envSeparator:","`
 	}{}
-	t.Setenv("FOO", "network,application,application_span_otel,application_runtime,application_jvm")
+	t.Setenv("FOO", "network,application,application_span_otel,application_runtime")
 	require.NoError(t, env.Parse(&doc))
 
 	assert.True(t, doc.Features.has(FeatureNetwork))
 	assert.True(t, doc.Features.has(FeatureApplicationRED|FeatureSpanOTel))
 	assert.True(t, doc.Features.AppRuntime())
-	assert.True(t, doc.Features.AppJVM())
 	assert.False(t, doc.Features.has(FeatureSpanLegacy))
 	assert.False(t, doc.Features.has(FeatureAll))
 }
 
-func TestFeatureApplicationAliasDoesNotIncludeJVM(t *testing.T) {
+func TestFeatureApplicationAliasDoesNotIncludeRuntime(t *testing.T) {
 	features := LoadFeatures([]string{"application"})
 
 	assert.True(t, features.has(FeatureApplicationRED))
-	assert.False(t, features.has(FeatureApplicationJVM))
-	assert.False(t, AppO11yFeatures.has(FeatureApplicationJVM))
-	assert.True(t, LoadFeatures([]string{"application_jvm"}).AnyAppO11yMetric())
-	assert.True(t, LoadFeatures([]string{"application_jvm"}).AppOrSpan())
+	assert.False(t, features.has(FeatureApplicationRuntime))
+	assert.False(t, AppO11yFeatures.has(FeatureApplicationRuntime))
+	assert.True(t, LoadFeatures([]string{"application_runtime"}).AnyAppO11yMetric())
+	assert.True(t, LoadFeatures([]string{"application_runtime"}).AppOrSpan())
+}
+
+func TestFeatureApplicationJVMAliasMapsToRuntime(t *testing.T) {
+	features := LoadFeatures([]string{"application_jvm"})
+
+	assert.True(t, features.AppRuntime())
+	assert.True(t, features.AnyAppO11yMetric())
 }
 
 func TestFeatureEnv_All(t *testing.T) {

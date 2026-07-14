@@ -79,7 +79,14 @@ func mustEq(cur map[string]any, ex map[string]any, curPath []string, exPath []st
 		return fmt.Errorf("missing example key %v", exPath)
 	}
 
-	if fmt.Sprintf("%v", cv) != fmt.Sprintf("%v", ev) {
+	current := fmt.Sprintf("%v", cv)
+	example := fmt.Sprintf("%v", ev)
+	if len(curPath) == 1 && curPath[0] == "log_level" && len(exPath) == 1 && exPath[0] == "log_level" {
+		if strings.EqualFold(current, example) {
+			return nil
+		}
+	}
+	if current != example {
 		return fmt.Errorf("mismatch current %v=%v example %v=%v", curPath, cv, exPath, ev)
 	}
 	return nil
@@ -561,7 +568,7 @@ func parityChecks() []parityCheck {
 
 		{[]string{"log_config"}, []string{"obi", "daemon", "logging", "config_format"}},
 		{[]string{"log_format"}, []string{"obi", "daemon", "logging", "format"}},
-		{[]string{"log_level"}, []string{"obi", "daemon", "logging", "level"}},
+		{[]string{"log_level"}, []string{"log_level"}},
 		{[]string{"trace_printer"}, []string{"obi", "daemon", "logging", "debug_trace_output"}},
 		{[]string{"shutdown_timeout"}, []string{"obi", "daemon", "shutdown", "timeout"}},
 		{[]string{"profile_port"}, []string{"obi", "daemon", "profiling", "port"}},

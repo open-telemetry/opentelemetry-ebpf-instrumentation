@@ -109,32 +109,6 @@ func TestParseJVMMemoryPoolEventAddsUsedAfterLastGCForEndEvents(t *testing.T) {
 	}, events)
 }
 
-func TestParseJVMGCHeapSummaryEventMapsAggregateHeapUsed(t *testing.T) {
-	eventTime := setJVMTestClocks(t)
-
-	event, err := ParseJVMGCHeapSummaryEvent(900, 1, 42, RawJVMGCWhenAfter, 700)
-	require.NoError(t, err)
-	require.Equal(t, JVMRuntimeEvent{
-		PID:            app.PID(1),
-		PIDNamespaceID: 42,
-		Time:           eventTime(900),
-		Kind:           JVMMetricObiHeapUsed,
-		GCPhase:        JVMGCPhaseAfter,
-		ValueBytes:     700,
-	}, event)
-}
-
-func TestParseJVMGCHeapSummaryEventConvertsMonotonicTimestamp(t *testing.T) {
-	eventTime := setJVMTestClocks(t)
-	timestamp := uint64(8 * time.Second)
-
-	event, err := ParseJVMGCHeapSummaryEvent(timestamp, 1, 0, RawJVMGCWhenAfter, 700)
-	require.NoError(t, err)
-
-	require.Equal(t, eventTime(timestamp), event.Time)
-	require.NotEqual(t, time.Unix(0, int64(timestamp)), event.Time)
-}
-
 func TestRawJVMStringTrimsAtNULAndHonorsFixedBound(t *testing.T) {
 	var raw [JVMRawStringLen]byte
 	copy(raw[:], []byte("abc\x00ignored"))
@@ -167,8 +141,8 @@ func TestInferJVMMemoryTypeReturnsUnknownForUnrecognizedPool(t *testing.T) {
 	require.Equal(t, JVMMemoryTypeUnknown, InferJVMMemoryType("vendor-specific pool"))
 }
 
-func TestParseJVMGCHeapSummaryEventRejectsUnsupportedPhase(t *testing.T) {
-	_, err := ParseJVMGCHeapSummaryEvent(0, 0, 0, RawJVMGCWhenEndSentinel, 0)
+func TestParseJVMMemoryPoolEventRejectsUnsupportedPhase(t *testing.T) {
+	_, err := ParseJVMMemoryPoolEvent(0, 0, 0, RawJVMGCWhenEndSentinel, 0, 0, 0, rawJVMString("G1 Eden Space"))
 	require.ErrorContains(t, err, "unsupported JVM GC phase")
 }
 

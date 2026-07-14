@@ -1539,9 +1539,6 @@ func applyV2Daemon(cfg *obi.Config, daemon *schema.Daemon) {
 
 func applyFullV2Daemon(cfg *obi.Config, daemon schema.Daemon) {
 	if !zeroValue(daemon.Logging) {
-		if daemon.Logging.Level != "" {
-			cfg.LogLevel = obi.LogLevel(daemon.Logging.Level)
-		}
 		if daemon.Logging.Format != "" {
 			cfg.LogFormat = obi.LogFormat(daemon.Logging.Format)
 		}
@@ -1572,9 +1569,6 @@ func applyFullV2Daemon(cfg *obi.Config, daemon schema.Daemon) {
 
 func applyPartialV2Daemon(cfg *obi.Config, daemon schema.Daemon) {
 	if !zeroValue(daemon.Logging) {
-		if daemon.Logging.Level != "" {
-			cfg.LogLevel = obi.LogLevel(daemon.Logging.Level)
-		}
 		if daemon.Logging.Format != "" {
 			cfg.LogFormat = obi.LogFormat(daemon.Logging.Format)
 		}
@@ -1629,8 +1623,7 @@ func completeDaemon(daemon schema.Daemon) bool {
 }
 
 func completeDaemonLogging(logging schema.Logging) bool {
-	return logging.Level != "" &&
-		logging.Format != "" &&
+	return logging.Format != "" &&
 		logging.DebugTraceOutput != ""
 }
 

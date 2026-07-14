@@ -5,6 +5,9 @@
 # This tracks the declarative schema major.minor, not an upstream release tag.
 file_format: '1.0'
 
+# Standard OTel declarative log level for OBI daemon logging.
+log_level: info
+
 # Standard OTel resource attributes (service.name, service.namespace, etc.).
 resource: {}
 # Global propagation format configuration (tracecontext, baggage, b3, etc.).
@@ -674,13 +677,12 @@ extensions:
           workers: 8
           channel_len: 500
 
-    # daemon controls the OBI process itself: logging, profiling, shutdown, and internal metrics.
+    # daemon controls the OBI process itself: log formatting, profiling, shutdown, and internal metrics.
     # Standalone-mode only: not valid in Collector receiver deployments.
     # In receiver mode the Collector manages these concerns.
     daemon:
-      # Logging behavior and startup configuration output.
+      # Logging output behavior. Use top-level log_level for verbosity.
       logging:
-        level: INFO
         format: text
         config_format: ""
         debug_trace_output: disabled

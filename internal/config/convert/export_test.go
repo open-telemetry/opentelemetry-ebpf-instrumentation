@@ -13,6 +13,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.yaml.in/yaml/v3"
 
+	otelconfx "go.opentelemetry.io/contrib/otelconf/x"
+
 	"go.opentelemetry.io/obi/internal/config/schema"
 	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/config"
@@ -33,6 +35,8 @@ func TestRuntimeToV2DefaultConfig(t *testing.T) {
 	doc, ext := RuntimeToV2(nil)
 
 	require.Equal(t, "1.0", doc.FileFormat)
+	require.NotNil(t, doc.LogLevel)
+	require.Equal(t, otelconfx.SeverityNumberInfo, *doc.LogLevel)
 	require.Same(t, ext, doc.Extensions.OBI)
 	require.NotNil(t, doc.Resource)
 	require.NotNil(t, doc.Propagator)
@@ -116,7 +120,6 @@ func TestRuntimeToV2DefaultConfig(t *testing.T) {
 	require.Equal(t, 128, value(t, ext.Correlation, "log_trace_annotation", "cache", "size"))
 	require.Equal(t, 8, value(t, ext.Correlation, "log_trace_annotation", "async_writer", "workers"))
 
-	require.Equal(t, schema.LogLevelInfo, value(t, ext.Daemon, "logging", "level"))
 	require.Equal(t, schema.LogFormatText, value(t, ext.Daemon, "logging", "format"))
 	require.Equal(t, schema.ConfigFormatUnset, value(t, ext.Daemon, "logging", "config_format"))
 	require.Equal(t, debug.TracePrinterDisabled, value(t, ext.Daemon, "logging", "debug_trace_output"))
@@ -424,7 +427,8 @@ func TestRuntimeToV2CustomConfig(t *testing.T) {
 	require.Equal(t, 905, value(t, ext.Correlation, "log_trace_annotation", "async_writer", "workers"))
 	require.Equal(t, 906, value(t, ext.Correlation, "log_trace_annotation", "async_writer", "channel_len"))
 
-	require.Equal(t, schema.LogLevelDebug, value(t, ext.Daemon, "logging", "level"))
+	require.NotNil(t, doc.LogLevel)
+	require.Equal(t, otelconfx.SeverityNumberDebug, *doc.LogLevel)
 	require.Equal(t, schema.LogFormatJSON, value(t, ext.Daemon, "logging", "format"))
 	require.Equal(t, schema.ConfigFormatYAML, value(t, ext.Daemon, "logging", "config_format"))
 	require.Equal(t, debug.TracePrinterJSON, value(t, ext.Daemon, "logging", "debug_trace_output"))
@@ -866,6 +870,9 @@ func TestRuntimeToV2DocumentParsesAsStandaloneV2(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, parsedDoc.TracerProvider.Processors)
 	require.NotEmpty(t, parsedDoc.MeterProvider.Readers)
+	require.True(t, parsedDoc.HasLogLevel())
+	require.NotNil(t, parsedDoc.LogLevel)
+	require.Equal(t, otelconfx.SeverityNumberInfo, *parsedDoc.LogLevel)
 	require.NotNil(t, parsedExt.Capture.Rules)
 	require.Equal(t, "1.0", parsedDoc.FileFormat)
 	require.Equal(t, schema.SupportedVersion, parsedExt.Version)

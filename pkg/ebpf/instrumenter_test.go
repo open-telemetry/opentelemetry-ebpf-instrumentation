@@ -153,7 +153,7 @@ func TestGatherOffsetsSkipsMissingOptionalSymbol(t *testing.T) {
 	assert.NotNil(t, reader)
 
 	probes := probeDescMap{
-		"report_gc_heap_summary": {{
+		"missing_optional_symbol": {{
 			Required:      false,
 			SymbolMatcher: ebpfcommon.SymbolMatcherContains,
 		}},
@@ -166,7 +166,7 @@ func TestGatherOffsetsSkipsMissingOptionalSymbol(t *testing.T) {
 	err = gatherOffsetsImpl(elfFile, probes, "libbsd.so", slog.Default())
 	require.NoError(t, err)
 
-	desc := probes["report_gc_heap_summary"][0]
+	desc := probes["missing_optional_symbol"][0]
 	assert.True(t, desc.Skip)
 	assert.Zero(t, desc.StartOffset)
 	assert.Empty(t, desc.ReturnOffsets)
@@ -199,7 +199,7 @@ func TestGatherOffsetsFailsMissingRequiredSymbol(t *testing.T) {
 func TestInstrumentProbesSkipsMarkedOptionalProbe(t *testing.T) {
 	i := &instrumenter{}
 	probes := probeDescMap{
-		"report_gc_heap_summary": {{
+		"skipped_optional_symbol": {{
 			Skip:  true,
 			Start: &ebpf.Program{},
 		}},

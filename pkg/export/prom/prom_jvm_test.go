@@ -24,13 +24,13 @@ import (
 	"go.opentelemetry.io/obi/pkg/runtimemetrics"
 )
 
-func TestRuntimeMetricsReporterRecordsJVMHeapSummary(t *testing.T) {
+func TestRuntimeMetricsReporterRecordsJVMMemoryPoolUsed(t *testing.T) {
 	registry := prometheus.NewRegistry()
 	reporter, err := newReporter(
 		t.Context(),
 		&global.ContextInfo{Prometheus: &connector.PrometheusManager{}},
 		&PrometheusConfig{Registry: registry, TTL: time.Minute},
-		&perapp.MetricsConfig{Features: export.FeatureApplicationJVM},
+		&perapp.MetricsConfig{Features: export.FeatureApplicationRuntime},
 		&attributes.SelectorConfig{},
 		request.UnresolvedNames{},
 		nil,
@@ -42,32 +42,35 @@ func TestRuntimeMetricsReporterRecordsJVMHeapSummary(t *testing.T) {
 	reporter.collectRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{{
 		Service: svc.Attrs{
 			UID:      svc.UID{Name: "orders", Namespace: "prod", Instance: "orders-1"},
-			Features: export.FeatureApplicationJVM,
+			Features: export.FeatureApplicationRuntime,
 		},
 		JVM: &runtimemetrics.JVMRuntimeMetricSnapshot{
-			Kind:       jvmruntime.JVMMetricObiHeapUsed,
+			Kind:       jvmruntime.JVMMetricMemoryUsed,
+			MemoryType: jvmruntime.JVMMemoryTypeHeap,
+			PoolName:   "G1 Old Gen",
 			GCPhase:    jvmruntime.JVMGCPhaseAfter,
 			ValueBytes: 42,
 		},
 	}})
 
-	metric := gatheredMetric(t, registry, "obi_jvm_heap_used_bytes", map[string]string{
-		"service_name":        "orders",
-		"service_namespace":   "prod",
-		"service_instance_id": "orders-1",
-		"jvm_gc_phase":        "after",
+	metric := gatheredMetric(t, registry, "jvm_memory_used_bytes", map[string]string{
+		"service_name":         "orders",
+		"service_namespace":    "prod",
+		"service_instance_id":  "orders-1",
+		"jvm_memory_type":      "heap",
+		"jvm_memory_pool_name": "G1 Old Gen",
 	})
 	require.NotNil(t, metric)
 	assert.InEpsilon(t, 42.0, metric.GetGauge().GetValue(), 0)
 }
 
-func TestRuntimeMetricsReporterDropsJVMServiceWithoutJVMFeature(t *testing.T) {
+func TestRuntimeMetricsReporterDropsJVMServiceWithoutRuntimeFeature(t *testing.T) {
 	registry := prometheus.NewRegistry()
 	reporter, err := newReporter(
 		t.Context(),
 		&global.ContextInfo{Prometheus: &connector.PrometheusManager{}},
 		&PrometheusConfig{Registry: registry, TTL: time.Minute},
-		&perapp.MetricsConfig{Features: export.FeatureApplicationJVM},
+		&perapp.MetricsConfig{Features: export.FeatureApplicationRuntime},
 		&attributes.SelectorConfig{},
 		request.UnresolvedNames{},
 		nil,
@@ -82,16 +85,19 @@ func TestRuntimeMetricsReporterDropsJVMServiceWithoutJVMFeature(t *testing.T) {
 			Features: export.FeatureApplicationRED,
 		},
 		JVM: &runtimemetrics.JVMRuntimeMetricSnapshot{
-			Kind:       jvmruntime.JVMMetricObiHeapUsed,
+			Kind:       jvmruntime.JVMMetricMemoryUsed,
+			MemoryType: jvmruntime.JVMMemoryTypeHeap,
+			PoolName:   "G1 Old Gen",
 			GCPhase:    jvmruntime.JVMGCPhaseAfter,
 			ValueBytes: 42,
 		},
 	}})
 
-	assert.Nil(t, gatheredMetric(t, registry, "obi_jvm_heap_used_bytes", map[string]string{
-		"service_name":        "orders",
-		"service_namespace":   "prod",
-		"service_instance_id": "orders-1",
-		"jvm_gc_phase":        "after",
+	assert.Nil(t, gatheredMetric(t, registry, "jvm_memory_used_bytes", map[string]string{
+		"service_name":         "orders",
+		"service_namespace":    "prod",
+		"service_instance_id":  "orders-1",
+		"jvm_memory_type":      "heap",
+		"jvm_memory_pool_name": "G1 Old Gen",
 	}))
 }

@@ -285,7 +285,7 @@ func TestV2ToRuntimeCustomFoundation(t *testing.T) {
 	require.Equal(t, 603, got.EBPF.LogEnricher.AsyncWriterWorkers)
 	require.Equal(t, 604, got.EBPF.LogEnricher.AsyncWriterChannelLen)
 
-	require.Equal(t, obi.LogLevelDebug, got.LogLevel)
+	require.Equal(t, obi.DefaultConfig.LogLevel, got.LogLevel)
 	require.Equal(t, obi.LogFormatJSON, got.LogFormat)
 	require.Equal(t, obi.LogConfigOptionYAML, got.LogConfig)
 	require.Equal(t, debug.TracePrinterJSON, got.TracePrinter)
@@ -748,13 +748,14 @@ func TestV2ToRuntimePartialStandaloneSectionsPreserveDefaults(t *testing.T) {
 		},
 		Daemon: &schema.Daemon{
 			Logging: schema.Logging{
-				Level: schema.LogLevelDebug,
+				Format: schema.LogFormatJSON,
 			},
 		},
 	})
 	require.NoError(t, err)
 
-	require.Equal(t, obi.LogLevelDebug, got.LogLevel)
+	require.Equal(t, obi.DefaultConfig.LogLevel, got.LogLevel)
+	require.Equal(t, obi.LogFormatJSON, got.LogFormat)
 	require.Equal(t, obi.DefaultConfig.ShutdownTimeout, got.ShutdownTimeout)
 	require.Equal(t, obi.DefaultConfig.InternalMetrics, got.InternalMetrics)
 	require.Equal(t, obi.DefaultConfig.Prometheus.SpanMetricsServiceCacheSize, got.Prometheus.SpanMetricsServiceCacheSize)

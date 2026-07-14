@@ -127,10 +127,27 @@ To ground this redesign in user needs, we start with the top user journeys and e
 
 ### High-level shape
 
-At a high level, the target configuration shape is a standard [OpenTelemetry declarative configuration](https://github.com/open-telemetry/opentelemetry-configuration) document with a root `file_format` field and top-level sections for `resource`, `propagator`, `tracer_provider`, and `meter_provider`.
+At a high level, the target configuration shape is a standard [OpenTelemetry declarative configuration](https://github.com/open-telemetry/opentelemetry-configuration) document with a root `file_format` field and top-level sections for `resource`, `propagator`, `tracer_provider`, `meter_provider`, and `log_level`.
 All OBI-specific configuration lives under `extensions.obi`.
 
 The root `file_format` follows the declarative schema version (`major.minor`), not the upstream release tag. For the current stable declarative shape, the correct value is `file_format: "1.0"` rather than `1.0.0`, `1.0.0-rc.3`, or `1.0.0-rc.1`.
+OBI validates this value and rejects unsupported declarative file-format versions.
+
+### Stable declarative support scope
+
+OBI adopts the standard declarative fields incrementally. For the first stable v2 configuration milestone, OBI supports:
+
+| Declarative section | Stable v2 behavior |
+| --- | --- |
+| `file_format` | Required and restricted to `"1.0"`. |
+| `resource` | Partial: string `host.name` overrides OBI hostname and string `host.id` overrides OBI host ID. Other attributes are currently ignored. |
+| `tracer_provider.sampler` | Partial: `always_on`, `always_off`, `trace_id_ratio_based`, and simple `parent_based` roots that use those samplers. |
+| `tracer_provider.processors` | Partial: one batch processor with one OTLP/gRPC exporter. |
+| `meter_provider.readers` | Partial: at most one periodic OTLP/gRPC reader and one Prometheus development pull reader. |
+| `log_level` | Supported for OBI daemon logging. OTel `trace*` and `debug*` severities map to `DEBUG`; `info*` to `INFO`; `warn*` to `WARN`; `error*` and `fatal*` to `ERROR`. `extensions.obi.daemon.logging.level` is not part of v2; use the top-level field. |
+| `propagator`, `attribute_limits`, `disabled`, `distribution`, `instrumentation/development`, `logger_provider` | Parsed by the declarative model but not applied to OBI runtime behavior in the stable milestone. |
+
+Environment-variable substitution depends on the loader. The upstream `otelconf/x.ParseYAML` path expands `${VAR}`, `${env:VAR}`, and `${VAR:-fallback}` before decoding. OBI's internal `schema.ParseStandaloneYAML` parser decodes the supplied bytes directly, so callers using that parser must perform any desired substitution before calling it.
 
 The `extensions.obi` block is divided by deployment scope:
 
@@ -139,6 +156,7 @@ The `extensions.obi` block is divided by deployment scope:
 
 ```yaml
 file_format: '1.0'
+log_level: info
 
 resource: {}
 propagator: {}
@@ -557,7 +575,7 @@ The name `daemon` was chosen over `process` (too generic), `agent` (overloaded i
 
 `daemon` contains:
 
-- `logging`: OBI process log level, format, startup configuration output format, and debug trace output mode.
+- `logging`: OBI process log format, startup configuration output format, and debug trace output mode. Use top-level `log_level` for OBI process log verbosity.
 - `profiling`: optional pprof endpoint for the OBI process.
 - `shutdown`: graceful shutdown timeout.
 - `internal_metrics`: OBI daemon's own metrics export (Prometheus or OTLP).
@@ -669,7 +687,7 @@ Important mapping notes:
 | `javaagent.enabled` | `extensions.obi.capture.runtimes.java.enabled` | Simplified to boolean |
 | `log_config` | `extensions.obi.daemon.logging.config_format` | Move + rename |
 | `log_format` | `extensions.obi.daemon.logging.format` | Move + rename |
-| `log_level` | `extensions.obi.daemon.logging.level` | Move |
+| `log_level` | Top-level `log_level` | Move to standard field |
 | `metrics.features` | `extensions.obi.capture.instrumentation.<protocol>.enabled.metrics` + `extensions.obi.capture.network.capture.enabled` + `extensions.obi.capture.network.stats.{enabled,features}` | Split mapping |
 | `name_resolver.cache_expiry` | `extensions.obi.enrich.service_name.cache.ttl` | Move + rename |
 | `name_resolver.cache_len` | `extensions.obi.enrich.service_name.cache.size` | Move + rename |

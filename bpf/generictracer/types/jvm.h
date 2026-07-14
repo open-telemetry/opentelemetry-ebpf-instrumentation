@@ -14,19 +14,6 @@ enum jvm_gc_when_type {
 
 enum { k_jvm_raw_string_len = 64 };
 
-struct jvm_gc_heap_summary_event {
-    u8 type;
-    u8 _pad[7];
-    u64 timestamp;
-    u32 global_pid;
-    u32 global_tid;
-    u32 ns_pid;
-    u32 ns_tid;
-    u32 pid_ns_id;
-    u32 gc_when_type;
-    u64 used;
-};
-
 struct jvm_mem_pool_gc_event {
     u8 type;
     u8 _pad[7];
@@ -43,11 +30,6 @@ struct jvm_mem_pool_gc_event {
     u64 max_size;
     unsigned char manager[k_jvm_raw_string_len];
     unsigned char pool[k_jvm_raw_string_len];
-};
-
-struct jvm_heap_summary_key {
-    u32 pid;
-    u32 gc_when_type;
 };
 
 struct jvm_mem_pool_key {

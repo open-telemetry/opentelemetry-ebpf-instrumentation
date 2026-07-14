@@ -140,7 +140,7 @@ func TestSnapshotFromJVMRuntimeEvent(t *testing.T) {
 	service := svc.Attrs{
 		UID:         svc.UID{Name: "orders", Namespace: "prod"},
 		SDKLanguage: svc.InstrumentableJava,
-		Features:    export.FeatureApplicationJVM,
+		Features:    export.FeatureApplicationRuntime,
 	}
 
 	snapshot := SnapshotFromJVMRuntimeEvent(jvmruntime.JVMRuntimeEvent{
@@ -170,7 +170,7 @@ func TestQueueSenderSendsJVMRuntimeSnapshots(t *testing.T) {
 	service := svc.Attrs{
 		UID:         svc.UID{Name: "orders", Namespace: "prod"},
 		SDKLanguage: svc.InstrumentableJava,
-		Features:    export.FeatureApplicationJVM,
+		Features:    export.FeatureApplicationRuntime,
 	}
 	queue := msg.NewQueue[[]RuntimeMetricSnapshot](msg.ChannelBufferLen(1))
 	received := queue.Subscribe(msg.SubscriberName("runtimemetrics-test"))
@@ -178,7 +178,7 @@ func TestQueueSenderSendsJVMRuntimeSnapshots(t *testing.T) {
 	NewQueueSender(queue).SendJVMRuntimeMetrics(t.Context(), []jvmruntime.JVMRuntimeEvent{{
 		PID:        app.PID(123),
 		Service:    service,
-		Kind:       jvmruntime.JVMMetricObiHeapUsed,
+		Kind:       jvmruntime.JVMMetricMemoryUsed,
 		GCPhase:    jvmruntime.JVMGCPhaseAfter,
 		ValueBytes: 4096,
 	}})
@@ -187,7 +187,7 @@ func TestQueueSenderSendsJVMRuntimeSnapshots(t *testing.T) {
 	require.Len(t, batch, 1)
 	require.Equal(t, service, batch[0].Service)
 	require.NotNil(t, batch[0].JVM)
-	require.Equal(t, jvmruntime.JVMMetricObiHeapUsed, batch[0].JVM.Kind)
+	require.Equal(t, jvmruntime.JVMMetricMemoryUsed, batch[0].JVM.Kind)
 	require.Equal(t, uint64(4096), batch[0].JVM.ValueBytes)
 }
 

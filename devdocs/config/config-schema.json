@@ -903,7 +903,6 @@
           "all",
           "application",
           "application_host",
-          "application_jvm",
           "application_runtime",
           "application_service_graph",
           "application_span",
@@ -1450,11 +1449,6 @@
     },
     "JVMRuntimeMetricsConfig": {
       "properties": {
-        "enabled": {
-          "type": "boolean",
-          "default": false,
-          "x-env-var": "OBI_JVM_RUNTIME_METRICS_ENABLED"
-        },
         "sampling_interval": {
           "type": "string",
           "pattern": "^[0-9]+(ms|s|m)$",

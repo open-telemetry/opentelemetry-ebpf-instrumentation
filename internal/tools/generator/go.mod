@@ -4,7 +4,7 @@ go 1.25.11
 
 require (
 	github.com/cilium/ebpf v0.22.0
-	google.golang.org/grpc/cmd/protoc-gen-go-grpc v1.6.1
+	google.golang.org/grpc/cmd/protoc-gen-go-grpc v1.6.2
 	google.golang.org/protobuf v1.36.11
 )
 

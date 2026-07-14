@@ -27,9 +27,15 @@ import (
 	otelconfx "go.opentelemetry.io/contrib/otelconf/x"
 )
 
-// SupportedVersion is the OBI configuration schema version handled by this
-// package.
-const SupportedVersion = "2.0"
+const (
+	// SupportedFileFormat is the OpenTelemetry declarative configuration file
+	// format version handled by this package.
+	SupportedFileFormat = "1.0"
+
+	// SupportedVersion is the OBI configuration schema version handled by this
+	// package.
+	SupportedVersion = "2.0"
+)
 
 const (
 	sectionEnrich      = "enrich"
@@ -46,6 +52,7 @@ const (
 type Document struct {
 	otelconfx.OpenTelemetryConfiguration `yaml:",inline"`
 	Extensions                           Extensions `yaml:"extensions"`
+	logLevelSet                          bool
 }
 
 // UnmarshalYAML decodes OpenTelemetry-owned fields with otelconf/x and the OBI
@@ -55,6 +62,7 @@ func (d *Document) UnmarshalYAML(node *yaml.Node) error {
 		Extensions Extensions `yaml:"extensions"`
 	}
 	var ext extensionDocument
+	_, logLevelSet := mappingValue(node, "log_level")
 	if err := node.Decode(&d.OpenTelemetryConfiguration); err != nil {
 		return err
 	}
@@ -62,7 +70,21 @@ func (d *Document) UnmarshalYAML(node *yaml.Node) error {
 		return err
 	}
 	d.Extensions = ext.Extensions
+	d.logLevelSet = logLevelSet
 	return nil
+}
+
+// HasLogLevel reports whether the document explicitly declared top-level
+// log_level. otelconf/x defaults omitted log_level to info, so callers need this
+// signal to avoid treating the default as user intent.
+func (d *Document) HasLogLevel() bool {
+	return d != nil && d.logLevelSet
+}
+
+// SetLogLevel assigns a top-level log_level value and marks it as explicit.
+func (d *Document) SetLogLevel(level otelconfx.SeverityNumber) {
+	d.LogLevel = &level
+	d.logLevelSet = true
 }
 
 // MarshalYAML emits the OpenTelemetry document fields and extensions. The
@@ -143,6 +165,9 @@ func ParseStandaloneYAML(data []byte) (*Document, *Extension, error) {
 		}
 		var doc Document
 		if err := decode(root, &doc); err != nil {
+			return nil, nil, err
+		}
+		if err := validateFileFormat(doc.FileFormat); err != nil {
 			return nil, nil, err
 		}
 		if doc.Extensions.OBI == nil {
@@ -241,6 +266,13 @@ func validateVersion(cfg *Extension) error {
 	}
 	if cfg.Version != SupportedVersion {
 		return &UnsupportedVersionError{Version: cfg.Version}
+	}
+	return nil
+}
+
+func validateFileFormat(fileFormat string) error {
+	if fileFormat != SupportedFileFormat {
+		return &UnsupportedFileFormatError{FileFormat: fileFormat}
 	}
 	return nil
 }

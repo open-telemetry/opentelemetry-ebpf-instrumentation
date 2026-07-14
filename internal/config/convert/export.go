@@ -56,6 +56,7 @@ func RuntimeToV2(cfg *obi.Config) (*schema.Document, *schema.Extension) {
 		},
 		Extensions: schema.Extensions{OBI: ext},
 	}
+	doc.SetLogLevel(logLevel(cfg.LogLevel))
 
 	return doc, ext
 }
@@ -680,7 +681,6 @@ func correlation(cfg *obi.Config) *schema.Correlation {
 func daemon(cfg *obi.Config) *schema.Daemon {
 	return &schema.Daemon{
 		Logging: schema.Logging{
-			Level:            schema.LogLevel(cfg.LogLevel),
 			Format:           logFormat(cfg.LogFormat),
 			ConfigFormat:     configFormat(cfg.LogConfig),
 			DebugTraceOutput: cfg.TracePrinter,
@@ -711,6 +711,19 @@ func daemon(cfg *obi.Config) *schema.Daemon {
 				},
 			},
 		},
+	}
+}
+
+func logLevel(level obi.LogLevel) otelconfx.SeverityNumber {
+	switch level {
+	case obi.LogLevelDebug:
+		return otelconfx.SeverityNumberDebug
+	case obi.LogLevelWarn:
+		return otelconfx.SeverityNumberWarn
+	case obi.LogLevelError:
+		return otelconfx.SeverityNumberError
+	default:
+		return otelconfx.SeverityNumberInfo
 	}
 }
 

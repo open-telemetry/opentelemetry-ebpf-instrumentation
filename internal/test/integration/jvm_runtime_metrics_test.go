@@ -30,8 +30,8 @@ func TestJVMRuntimeMetrics(t *testing.T) {
 
 	waitForJVMRuntimeService(t)
 	pq := promtest.Client{HostPort: prometheusHostPort}
-	t.Run("HotSpot heap summary metric", func(t *testing.T) {
-		testJVMRuntimeHeapSummaryMetric(t, pq)
+	t.Run("HotSpot memory used pool metric", func(t *testing.T) {
+		testJVMRuntimeMemoryUsedPoolMetric(t, pq)
 	})
 	t.Run("HotSpot memory pool metric", func(t *testing.T) {
 		testJVMRuntimeMemoryPoolMetric(t, pq)
@@ -45,14 +45,15 @@ func waitForJVMRuntimeService(t *testing.T) {
 	}, testTimeout, time.Second)
 }
 
-func testJVMRuntimeHeapSummaryMetric(t *testing.T, pq promtest.Client) {
+func testJVMRuntimeMemoryUsedPoolMetric(t *testing.T, pq promtest.Client) {
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		ti.DoHTTPGet(ct, "http://localhost:"+jvmRuntimeMetricsHostPort+"/gc", http.StatusOK)
 
-		results, err := pq.Query(`obi_jvm_heap_used_bytes{service_name="jvm-runtime",service_namespace="integration-test",jvm_gc_phase=~"before|after"}`)
+		results, err := pq.Query(`jvm_memory_used_bytes{service_name="jvm-runtime",service_namespace="integration-test",jvm_memory_type="heap",jvm_memory_pool_name!=""}`)
 		require.NoError(ct, err)
 		require.NotEmpty(ct, results)
 		assertJVMRuntimeMetricService(ct, results)
+		assertJVMRuntimeMemoryPoolNames(ct, results, "Eden Space", "Survivor Space", "Tenured Gen")
 	}, testTimeout, 250*time.Millisecond)
 }
 
@@ -71,5 +72,16 @@ func assertJVMRuntimeMetricService(t require.TestingT, results []promtest.Result
 	for _, result := range results {
 		require.Equal(t, "jvm-runtime", result.Metric["service_name"])
 		require.Equal(t, "integration-test", result.Metric["service_namespace"])
+	}
+}
+
+func assertJVMRuntimeMemoryPoolNames(t require.TestingT, results []promtest.Result, expected ...string) {
+	pools := make(map[string]struct{}, len(results))
+	for _, result := range results {
+		pools[result.Metric["jvm_memory_pool_name"]] = struct{}{}
+	}
+
+	for _, pool := range expected {
+		require.Contains(t, pools, pool)
 	}
 }

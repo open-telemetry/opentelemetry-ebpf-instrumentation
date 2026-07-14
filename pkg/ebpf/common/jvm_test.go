@@ -37,7 +37,6 @@ func TestHandleRuntimeMetricsRecordForwardsGoRuntimeMetricRecord(t *testing.T) {
 func TestHandleRuntimeMetricsRecordConsumesKnownRuntimeMetricRecords(t *testing.T) {
 	for _, eventType := range []byte{
 		EventTypeGoRuntimeMetric,
-		EventTypeJVMGCHeapSummary,
 		EventTypeJVMMemoryPoolGC,
 	} {
 		runtimeMetrics := &fakeRuntimeMetricsSender{}
@@ -70,10 +69,10 @@ func TestHandleRuntimeMetricsRecordUsesCustomRuntimeMetricHandler(t *testing.T) 
 	called := 0
 
 	handled, err := HandleRuntimeMetricsRecord(context.Background(), nil, &ringbuf.Record{
-		RawSample: []byte{EventTypeJVMGCHeapSummary},
+		RawSample: []byte{EventTypeJVMMemoryPoolGC},
 	}, nil, nil, func(_ context.Context, record *ringbuf.Record) (bool, error) {
 		called++
-		assert.Equal(t, byte(EventTypeJVMGCHeapSummary), record.RawSample[0])
+		assert.Equal(t, byte(EventTypeJVMMemoryPoolGC), record.RawSample[0])
 		return true, expectedErr
 	})
 

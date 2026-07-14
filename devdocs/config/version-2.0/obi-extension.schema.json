@@ -894,20 +894,9 @@
       "properties": {
         "logging": {
           "type": "object",
-          "description": "Logging behavior, startup configuration output, and debug-output controls.",
+          "description": "Log output formatting, startup configuration output, and debug-output controls.",
           "additionalProperties": false,
           "properties": {
-            "level": {
-              "type": "string",
-              "enum": [
-                "DEBUG",
-                "INFO",
-                "WARN",
-                "ERROR"
-              ],
-              "default": "INFO",
-              "description": "OBI log level.\nValues include: `DEBUG`, `INFO`, `WARN`, `ERROR`.\nIf omitted, `INFO` is used.\n"
-            },
             "format": {
               "type": "string",
               "enum": [

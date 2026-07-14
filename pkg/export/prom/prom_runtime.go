@@ -76,8 +76,7 @@ func (r *metricsReporter) collectRuntimeMetrics(snapshots []runtimemetrics.Runti
 
 func (r *metricsReporter) runtimeMetricsEnabled() runtimemetrics.Enabled {
 	return runtimemetrics.Enabled{
-		Go:  r.goRuntimeMetrics.memoryLimit != nil,
-		JVM: r.jvmRuntimeMetrics.memoryUsed != nil,
+		Runtime: r.goRuntimeMetrics.memoryLimit != nil && r.jvmRuntimeMetrics.memoryUsed != nil,
 	}
 }
 

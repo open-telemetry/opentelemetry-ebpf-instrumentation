@@ -172,15 +172,14 @@ func setupRuntimeMeters(
 	ttl time.Duration,
 	enabled runtimemetrics.Enabled,
 ) error {
-	if enabled.Go {
-		if err := setupGoRuntimeMeters(&metrics.goMetrics, meter); err != nil {
-			return err
-		}
+	if !enabled.Runtime {
+		return nil
 	}
-	if enabled.JVM {
-		if err := setupJVMRuntimeMeters(metrics.ctx, &metrics.jvmMetrics, meter, ttl); err != nil {
-			return err
-		}
+	if err := setupGoRuntimeMeters(&metrics.goMetrics, meter); err != nil {
+		return err
+	}
+	if err := setupJVMRuntimeMeters(metrics.ctx, &metrics.jvmMetrics, meter, ttl); err != nil {
+		return err
 	}
 	return nil
 }
@@ -255,7 +254,7 @@ func recordRuntimeMetrics(ctx context.Context, metrics *RuntimeMetrics, snapshot
 		recordGoRuntimeMetrics(ctx, &metrics.goMetrics, snapshot)
 	}
 	if snapshot.JVM != nil {
-		if !snapshot.Service.ExportModes.CanExportMetrics() || !snapshot.Service.Features.AppJVM() {
+		if !snapshot.Service.ExportModes.CanExportMetrics() || !snapshot.Service.Features.AppRuntime() {
 			return
 		}
 		metrics.jvmMetrics.record(snapshot)
