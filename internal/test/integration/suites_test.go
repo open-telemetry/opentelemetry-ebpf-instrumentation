@@ -540,8 +540,8 @@ func TestSuite_PythonMSSQL(t *testing.T) {
 
 func TestSuite_PythonKafka(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-python-kafka.yml", path.Join(pathOutput, "test-suite-python-kafka.log"))
-	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)
 	require.NoError(t, err)
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)
 	require.NoError(t, compose.Up())
 	t.Run("Python Kafka tests", testREDMetricsPythonKafkaOnly)
 	runWeaverValidation(t)
@@ -550,11 +550,11 @@ func TestSuite_PythonKafka(t *testing.T) {
 
 func TestSuite_GoKafkaTraceparent(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-go-kafka-traceparent.yml", path.Join(pathOutput, "test-suite-go-kafka-traceparent.log"))
+	require.NoError(t, err)
 	// Discover by executable name: the Kafka broker and Zookeeper are Java processes
 	// (Zookeeper's admin server also listens on 8080), so port-based discovery is
 	// ambiguous under pid:host. Match only the Go "testserver" binary.
 	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=`, `OTEL_EBPF_EXECUTABLE_PATH=testserver`, `TEST_SERVICE_PORTS=8389:8080`)
-	require.NoError(t, err)
 	require.NoError(t, compose.Up())
 	t.Run("Go Kafka stale traceparent contamination (#2046)", testGoKafkaTraceparent)
 	require.NoError(t, compose.Close())
@@ -596,8 +596,8 @@ func TestSuite_GoSunRPC(t *testing.T) {
 
 func TestSuite_JavaKafka(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-java-kafka-400.yml", path.Join(pathOutput, "test-suite-java-kafka.log"))
-	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)
 	require.NoError(t, err)
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)
 	require.NoError(t, compose.Up())
 	t.Run("Java Kafka 4.0.0 tests", func(t *testing.T) { testJavaKafka(t, 9092, "javakafka") })
 	runWeaverValidation(t)
@@ -606,8 +606,8 @@ func TestSuite_JavaKafka(t *testing.T) {
 
 func TestSuite_JavaKafkaTLS(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-java-kafka-400-tls.yml", path.Join(pathOutput, "test-suite-java-kafka.log"))
-	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)
 	require.NoError(t, err)
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)
 	require.NoError(t, compose.Up())
 	t.Run("Java Kafka 4.0.0 tests", func(t *testing.T) { testJavaKafka(t, 9094, "java") })
 	runWeaverValidation(t)
@@ -616,8 +616,8 @@ func TestSuite_JavaKafkaTLS(t *testing.T) {
 
 func TestSuite_JavaKafkaLargeBuffer(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-java-kafka-400-lb.yml", path.Join(pathOutput, "test-suite-java-kafka-lb.log"))
-	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)
 	require.NoError(t, err)
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)
 	require.NoError(t, compose.Up())
 	t.Run("Java Kafka 4.0.0 large buffer tests", testJavaKafkaLargeBuffer)
 	runWeaverValidation(t)
