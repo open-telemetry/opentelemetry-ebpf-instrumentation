@@ -1764,7 +1764,7 @@
         },
         "features": {
           "$ref": "#/$defs/Features",
-          "description": "Specifies which metric features to export. Accepted values: application, network, application_span, application_service_graph, ... envDefault is provided to avoid breaking changes  use top-level MetricsConfig.Features instead.",
+          "description": "Specifies which metric features to export. Accepted values: application, network, application_span, application_service_graph, ...  use top-level MetricsConfig.Features instead.",
           "default": 256,
           "deprecated": true,
           "x-env-var": "OTEL_EBPF_METRICS_FEATURES"
@@ -2729,7 +2729,7 @@
       "properties": {
         "features": {
           "$ref": "#/$defs/Features",
-          "description": "Specifies which metric features to export. Accepted values: application, network, application_span, application_service_graph, ... envDefault is provided to avoid breaking changes"
+          "description": "Specifies which metric features to export. Accepted values: application, network, application_span, application_service_graph, ..."
         }
       },
       "type": "object",

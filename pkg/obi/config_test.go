@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"maps"
 	"os"
+	"reflect"
 	"regexp"
 	"strings"
 	"testing"
@@ -413,6 +414,54 @@ func TestConfig_ServiceName(t *testing.T) {
 	cfg, err := LoadConfig(bytes.NewReader(nil))
 	require.NoError(t, err)
 	assert.Equal(t, "some-svc-name", cfg.ServiceName)
+}
+
+// a literal envDefault on a yaml-configurable field is applied by env.Parse
+// after the YAML layer, silently overwriting yaml values whenever the env var
+// is unset; defaults for such fields belong in DefaultConfig. The ${VAR}
+// indirection form is exempt: it expands to nothing when the var is unset.
+func TestConfig_NoLiteralEnvDefaultOnYamlFields(t *testing.T) {
+	var violations []string
+	seen := map[reflect.Type]bool{}
+	var walk func(typ reflect.Type, path string)
+	walk = func(typ reflect.Type, path string) {
+		for typ.Kind() == reflect.Pointer {
+			typ = typ.Elem()
+		}
+		if typ.Kind() != reflect.Struct || seen[typ] {
+			return
+		}
+		seen[typ] = true
+		for i := 0; i < typ.NumField(); i++ {
+			f := typ.Field(i)
+			yamlTag := strings.Split(f.Tag.Get("yaml"), ",")[0]
+			envDefault := f.Tag.Get("envDefault")
+			if yamlTag != "" && yamlTag != "-" && envDefault != "" && !strings.HasPrefix(envDefault, "${") {
+				violations = append(violations, path+"."+f.Name)
+			}
+			walk(f.Type, path+"."+f.Name)
+		}
+	}
+	walk(reflect.TypeOf(Config{}), "Config")
+	assert.Empty(t, violations, "literal envDefault on yaml-configurable fields; move the default to DefaultConfig")
+}
+
+func TestConfig_NameResolverSources(t *testing.T) {
+	// no yaml, no env: DefaultConfig value
+	cfg, err := LoadConfig(bytes.NewReader(nil))
+	require.NoError(t, err)
+	assert.Equal(t, []transform.Source{transform.SourceK8s}, cfg.NameResolver.Sources)
+
+	// yaml must survive env.Parse when the env var is unset
+	cfg, err = LoadConfig(bytes.NewBufferString("name_resolver:\n  sources: [k8s, dns, rdns]\n"))
+	require.NoError(t, err)
+	assert.Equal(t, []transform.Source{transform.SourceK8s, transform.SourceDNS, transform.SourceRDNS}, cfg.NameResolver.Sources)
+
+	// env var wins over yaml
+	t.Setenv("OTEL_EBPF_NAME_RESOLVER_SOURCES", "rdns")
+	cfg, err = LoadConfig(bytes.NewBufferString("name_resolver:\n  sources: [k8s, dns]\n"))
+	require.NoError(t, err)
+	assert.Equal(t, []transform.Source{transform.SourceRDNS}, cfg.NameResolver.Sources)
 }
 
 func TestConfig_ShutdownTimeout(t *testing.T) {
