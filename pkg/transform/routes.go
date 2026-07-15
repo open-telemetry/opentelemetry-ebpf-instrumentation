@@ -309,8 +309,10 @@ func (rn *routerNode) applyDirectionalPolicy(span *request.Span) {
 			return
 		}
 		span.Route = classifier.ClusterURL(span.Path)
-		if policy.Config.Unmatch == services.UnmatchLowCardinality && policy.PathTrie != nil {
-			span.Route = policy.PathTrie.Insert(span.Route)
+		if policy.Config.Unmatch == services.UnmatchLowCardinality {
+			if pathTrie := rn.pathTrie(span); pathTrie != nil {
+				span.Route = pathTrie.Insert(span.Route)
+			}
 		}
 	case services.UnmatchWildcard, "":
 		span.Route = wildCard
@@ -344,6 +346,26 @@ func (rn *routerNode) routePolicy(span *request.Span) *svc.RoutePolicy {
 		return nil
 	}
 	return globalPolicy
+}
+
+func (rn *routerNode) pathTrie(span *request.Span) *clusterurl.PathTrie {
+	if span.IsClientSpan() {
+		if span.Service.OutgoingRoutePolicy != nil {
+			return span.Service.OutgoingRoutePolicy.PathTrie
+		}
+		if span.Service.OutgoingPathTrie != nil {
+			return span.Service.OutgoingPathTrie
+		}
+		return rn.outgoingRoutePolicy.PathTrie
+	}
+
+	if span.Service.IncomingRoutePolicy != nil {
+		return span.Service.IncomingRoutePolicy.PathTrie
+	}
+	if span.Service.IncomingPathTrie != nil {
+		return span.Service.IncomingPathTrie
+	}
+	return rn.incomingRoutePolicy.PathTrie
 }
 
 func (rn *routerNode) classifierFor(policy services.RoutePolicy) (*clusterurl.ClusterURLClassifier, error) {

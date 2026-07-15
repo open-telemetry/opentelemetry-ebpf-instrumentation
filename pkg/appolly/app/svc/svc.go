@@ -138,6 +138,8 @@ type Attrs struct {
 	CustomOutRouteMatcher route.Matcher
 	IncomingRoutePolicy   *RoutePolicy
 	OutgoingRoutePolicy   *RoutePolicy
+	IncomingPathTrie      *clusterurl.PathTrie
+	OutgoingPathTrie      *clusterurl.PathTrie
 	HarvestedRouteMatcher route.Matcher
 	PathTrie              *clusterurl.PathTrie
 }
@@ -224,14 +226,24 @@ func (i *Attrs) SetDirectionalRoutes(config services.DirectionalRoutePolicies) {
 }
 
 func NewRoutePolicy(config services.RoutePolicy) *RoutePolicy {
-	wildcard := byte('*')
-	if config.WildcardChar != "" {
-		wildcard = config.WildcardChar[0]
-	}
 	return &RoutePolicy{
 		Config:        config.Clone(),
 		Matcher:       route.NewMatcher(config.Patterns),
 		IgnoreMatcher: route.NewMatcher(config.IgnorePatterns),
-		PathTrie:      clusterurl.NewPathTrie(config.MaxPathSegmentCardinality, wildcard),
+		PathTrie:      NewRoutePathTrie(config),
 	}
+}
+
+// NewRoutePathTrie creates the mutable per-service state required by a
+// low-cardinality route policy.
+func NewRoutePathTrie(config services.RoutePolicy) *clusterurl.PathTrie {
+	if config.Unmatch != services.UnmatchLowCardinality || config.MaxPathSegmentCardinality <= 0 {
+		return nil
+	}
+
+	wildcard := byte('*')
+	if config.WildcardChar != "" {
+		wildcard = config.WildcardChar[0]
+	}
+	return clusterurl.NewPathTrie(config.MaxPathSegmentCardinality, wildcard)
 }

@@ -154,12 +154,10 @@ func TestMakeServiceAttrsDirectionalRouteOverrides(t *testing.T) {
 	})
 
 	require.NotNil(t, attrs.IncomingRoutePolicy)
-	require.NotNil(t, attrs.OutgoingRoutePolicy)
+	require.Nil(t, attrs.OutgoingRoutePolicy)
 	assert.Equal(t, services.UnmatchPath, attrs.IncomingRoutePolicy.Config.Unmatch)
 	assert.Equal(t, "/service/{id}", attrs.IncomingRoutePolicy.Matcher.Find("/service/123"))
 	assert.Equal(t, "/health", attrs.IncomingRoutePolicy.IgnoreMatcher.Find("/health"))
-	assert.Equal(t, services.UnmatchWildcard, attrs.OutgoingRoutePolicy.Config.Unmatch)
-	assert.Equal(t, "/outgoing/{id}", attrs.OutgoingRoutePolicy.Matcher.Find("/outgoing/123"))
 }
 
 func TestMakeServiceAttrsPreservesAbsentGlobalRouteDirection(t *testing.T) {
@@ -177,7 +175,7 @@ func TestMakeServiceAttrsPreservesAbsentGlobalRouteDirection(t *testing.T) {
 		Process:  &services.ProcessInfo{Pid: 1234},
 		Criteria: []services.Selector{dummyCriterion{}},
 	})
-	require.NotNil(t, globalOnly.IncomingRoutePolicy)
+	require.Nil(t, globalOnly.IncomingRoutePolicy)
 	require.Nil(t, globalOnly.OutgoingRoutePolicy)
 
 	outgoingPatterns := []string{"/inventory/{id}"}
@@ -189,9 +187,36 @@ func TestMakeServiceAttrsPreservesAbsentGlobalRouteDirection(t *testing.T) {
 			},
 		}}},
 	})
-	require.NotNil(t, withOverride.IncomingRoutePolicy)
+	require.Nil(t, withOverride.IncomingRoutePolicy)
 	require.NotNil(t, withOverride.OutgoingRoutePolicy)
 	assert.Equal(t, "/inventory/{id}", withOverride.OutgoingRoutePolicy.Matcher.Find("/inventory/123"))
+}
+
+func TestMakeServiceAttrsKeepsGlobalCardinalityPerService(t *testing.T) {
+	global := services.DirectionalRoutePolicies{
+		Incoming: services.RoutePolicy{
+			Unmatch:                   services.UnmatchLowCardinality,
+			MaxPathSegmentCardinality: 2,
+		},
+		Outgoing: services.RoutePolicy{Unmatch: services.UnmatchPath},
+	}
+	ty := typer{cfg: &obi.Config{Routes: &transform.RoutesConfig{Directional: &global}}}
+
+	first := ty.makeServiceAttrs(&ProcessMatch{
+		Process:  &services.ProcessInfo{Pid: 1234},
+		Criteria: []services.Selector{dummyCriterion{}},
+	})
+	second := ty.makeServiceAttrs(&ProcessMatch{
+		Process:  &services.ProcessInfo{Pid: 5678},
+		Criteria: []services.Selector{dummyCriterion{}},
+	})
+
+	assert.Nil(t, first.IncomingRoutePolicy)
+	assert.Nil(t, first.OutgoingRoutePolicy)
+	require.NotNil(t, first.IncomingPathTrie)
+	require.NotNil(t, second.IncomingPathTrie)
+	assert.NotSame(t, first.IncomingPathTrie, second.IncomingPathTrie)
+	assert.Nil(t, first.OutgoingPathTrie)
 }
 
 func TestMakeServiceAttrsRuleOnlyDirectionalRoutes(t *testing.T) {

@@ -428,6 +428,43 @@ func TestDirectionalRoutesDisableLowCardinality(t *testing.T) {
 	assert.Equal(t, "/customers/profile", spans[1].Route)
 }
 
+func TestDirectionalRoutesKeepCardinalityPerService(t *testing.T) {
+	policy := services.RoutePolicy{
+		Unmatch:                   services.UnmatchLowCardinality,
+		MaxPathSegmentCardinality: 1,
+	}
+	input := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
+	output := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
+	router, err := RoutesProvider(&RoutesConfig{Directional: &services.DirectionalRoutePolicies{
+		Incoming: policy,
+	}}, input, output)(t.Context())
+	require.NoError(t, err)
+	out := output.Subscribe()
+	defer input.Close()
+	go router(t.Context())
+
+	input.Send([]request.Span{
+		{
+			Type: request.EventTypeHTTP,
+			Path: "/orders/checkout",
+			Service: svc.Attrs{
+				IncomingPathTrie: svc.NewRoutePathTrie(policy),
+			},
+		},
+		{
+			Type: request.EventTypeHTTP,
+			Path: "/customers/profile",
+			Service: svc.Attrs{
+				IncomingPathTrie: svc.NewRoutePathTrie(policy),
+			},
+		},
+	})
+	spans := testutil.ReadChannel(t, out, testTimeout)
+	require.Len(t, spans, 2)
+	assert.Equal(t, "/orders/checkout", spans[0].Route)
+	assert.Equal(t, "/customers/profile", spans[1].Route)
+}
+
 func BenchmarkRoutesProvider_Wildcard(b *testing.B) {
 	benchProvider(b, UnmatchWildcard)
 }

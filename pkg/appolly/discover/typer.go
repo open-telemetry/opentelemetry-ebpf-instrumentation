@@ -160,33 +160,33 @@ func (t *typer) makeServiceAttrs(processMatch *ProcessMatch) svc.Attrs {
 	routesCfg := t.cfg.Routes
 	if routesCfg != nil && routesCfg.Directional != nil {
 		policies := routesCfg.DirectionalPolicies()
+		var overrides *services.DirectionalRoutePolicyOverrides
+		if routesConfig != nil {
+			overrides = routesConfig.PolicyOverrides
+		}
 		if routesCfg.DirectionalRuleOnly {
-			if routesConfig == nil || routesConfig.PolicyOverrides == nil {
+			if overrides == nil {
 				return s
 			}
-			if routesConfig.PolicyOverrides.Incoming != nil {
+			if overrides.Incoming != nil {
 				s.IncomingRoutePolicy = svc.NewRoutePolicy(
-					routesConfig.PolicyOverrides.Incoming.Apply(policies.Incoming))
+					overrides.Incoming.Apply(policies.Incoming))
 			}
-			if routesConfig.PolicyOverrides.Outgoing != nil {
+			if overrides.Outgoing != nil {
 				s.OutgoingRoutePolicy = svc.NewRoutePolicy(
-					routesConfig.PolicyOverrides.Outgoing.Apply(policies.Outgoing))
+					overrides.Outgoing.Apply(policies.Outgoing))
 			}
 			return s
 		}
-		if routesConfig != nil && routesConfig.PolicyOverrides != nil {
-			policies = routesConfig.PolicyOverrides.Apply(policies)
+		if overrides != nil && overrides.Incoming != nil {
+			s.IncomingRoutePolicy = svc.NewRoutePolicy(overrides.Incoming.Apply(policies.Incoming))
+		} else if routesCfg.HasIncomingPolicy() {
+			s.IncomingPathTrie = svc.NewRoutePathTrie(policies.Incoming)
 		}
-		var incomingOverride, outgoingOverride bool
-		if routesConfig != nil && routesConfig.PolicyOverrides != nil {
-			incomingOverride = routesConfig.PolicyOverrides.Incoming != nil
-			outgoingOverride = routesConfig.PolicyOverrides.Outgoing != nil
-		}
-		if routesCfg.HasIncomingPolicy() || incomingOverride {
-			s.IncomingRoutePolicy = svc.NewRoutePolicy(policies.Incoming)
-		}
-		if routesCfg.HasOutgoingPolicy() || outgoingOverride {
-			s.OutgoingRoutePolicy = svc.NewRoutePolicy(policies.Outgoing)
+		if overrides != nil && overrides.Outgoing != nil {
+			s.OutgoingRoutePolicy = svc.NewRoutePolicy(overrides.Outgoing.Apply(policies.Outgoing))
+		} else if routesCfg.HasOutgoingPolicy() {
+			s.OutgoingPathTrie = svc.NewRoutePathTrie(policies.Outgoing)
 		}
 		return s
 	}
