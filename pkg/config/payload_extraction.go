@@ -163,7 +163,7 @@ type OpenAICompatibleConfig struct {
 
 type OpenAICompatibleGateway struct {
 	Host     string `yaml:"host" validate:"required"`
-	Port     int    `yaml:"port"`
+	Port     int    `yaml:"port" validate:"gte=0,lte=65535"`
 	Provider string `yaml:"provider"`
 }
 

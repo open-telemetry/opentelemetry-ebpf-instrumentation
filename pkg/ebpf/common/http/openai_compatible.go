@@ -37,7 +37,7 @@ func OpenAICompatibleSpan(baseSpan *request.Span, req *http.Request, resp *http.
 		if !strings.EqualFold(hostOnly, gw.Host) {
 			continue
 		}
-		if gw.Port > 0 && gw.Port != port {
+		if gw.Port > 0 && port > 0 && gw.Port != port {
 			continue
 		}
 		matchedGateway = gw
@@ -63,7 +63,7 @@ func OpenAICompatibleSpan(baseSpan *request.Span, req *http.Request, resp *http.
 
 	if parsedResponse.ResponseModel == "" && len(parsedResponse.Choices) == 0 &&
 		parsedResponse.Usage.TotalTokens == 0 && len(parsedResponse.Data) == 0 &&
-		parsedRequest.Model == "" {
+		len(parsedResponse.Output) == 0 && parsedRequest.Model == "" {
 		return *baseSpan, false
 	}
 

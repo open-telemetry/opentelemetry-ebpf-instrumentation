@@ -387,3 +387,48 @@ func TestOpenAICompatibleSpan_SSEToolCalls(t *testing.T) {
 	require.Len(t, reasons, 1)
 	assert.Equal(t, "tool_calls", reasons[0])
 }
+
+func TestOpenAICompatibleSpan_GatewayPortWithUnknownRequestPort(t *testing.T) {
+	gateways := []config.OpenAICompatibleGateway{
+		{Host: "gateway.example.com", Port: 443, Provider: "custom"},
+	}
+	// URL without explicit port — port will be 0 (unknown)
+	req := makeRequest(t, http.MethodPost, "http://gateway.example.com/v1/chat/completions", compatibleChatRequestBody)
+	resp := makeCompatibleResponse(compatibleChatResponseBody)
+
+	base := &request.Span{}
+	span, ok := OpenAICompatibleSpan(base, req, resp, gateways)
+
+	require.True(t, ok, "gateway should match when request port is unknown (0)")
+	assert.Equal(t, request.HTTPSubtypeOpenAICompatible, span.SubType)
+	assert.Equal(t, "custom", span.GenAI.OpenAICompatible.ProviderName)
+}
+
+func TestOpenAICompatibleSpan_ResponsesAPIWithoutTotalTokens(t *testing.T) {
+	gateways := []config.OpenAICompatibleGateway{
+		{Host: "litellm.local", Provider: "litellm"},
+	}
+	// /v1/responses response with output but no total_tokens — should not be rejected
+	respBody := `{
+  "id":"resp-gw-002",
+  "object":"response",
+  "model":"gpt-4o-mini",
+  "output":[
+    {"type":"message","status":"completed","content":[{"type":"output_text","text":"Hello!"}],"role":"assistant"}
+  ]
+}`
+	req := makeRequest(t, http.MethodPost, "http://litellm.local/v1/responses", compatibleResponsesRequestBody)
+	resp := makeCompatibleResponse(respBody)
+
+	base := &request.Span{}
+	span, ok := OpenAICompatibleSpan(base, req, resp, gateways)
+
+	require.True(t, ok, "response with output but no total_tokens should not be rejected")
+	require.NotNil(t, span.GenAI)
+	require.NotNil(t, span.GenAI.OpenAICompatible)
+
+	ai := span.GenAI.OpenAICompatible
+	assert.Equal(t, "responses", ai.APIType)
+	assert.Equal(t, "resp-gw-002", ai.ID)
+	assert.NotEmpty(t, ai.Output)
+}
