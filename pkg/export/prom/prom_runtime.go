@@ -176,14 +176,9 @@ func (c *goRuntimeMetricsCollector) collectCPUTime(
 		return
 	}
 
-	c.collectCPUTimeValue(labels, "user", "", cpu.UserTime)
-	c.collectCPUTimeValue(labels, "gc", "gc/mark/assist", cpu.GCAssistTime)
-	c.collectCPUTimeValue(labels, "gc", "gc/mark/dedicated", cpu.GCDedicatedTime)
-	c.collectCPUTimeValue(labels, "gc", "gc/mark/idle", cpu.GCIdleTime)
-	c.collectCPUTimeValue(labels, "gc", "gc/pause", cpu.GCPauseTime)
-	c.collectCPUTimeValue(labels, "scavenge", "scavenge/assist", cpu.ScavengeAssistTime)
-	c.collectCPUTimeValue(labels, "scavenge", "scavenge/background", cpu.ScavengeBgTime)
-	c.collectCPUTimeValue(labels, "idle", "", cpu.IdleTime)
+	for _, value := range runtimemetrics.GoRuntimeCPUTimeValues(cpu) {
+		c.collectCPUTimeValue(labels, value.State, value.DetailedState, value.Nanoseconds)
+	}
 }
 
 func (c *goRuntimeMetricsCollector) collectCPUTimeValue(
@@ -197,14 +192,9 @@ func (c *goRuntimeMetricsCollector) collectCPUTimeValue(
 }
 
 func (c *goRuntimeMetricsCollector) deleteCPUTime(labels []string) {
-	c.deleteCPUTimeValue(labels, "user", "")
-	c.deleteCPUTimeValue(labels, "gc", "gc/mark/assist")
-	c.deleteCPUTimeValue(labels, "gc", "gc/mark/dedicated")
-	c.deleteCPUTimeValue(labels, "gc", "gc/mark/idle")
-	c.deleteCPUTimeValue(labels, "gc", "gc/pause")
-	c.deleteCPUTimeValue(labels, "scavenge", "scavenge/assist")
-	c.deleteCPUTimeValue(labels, "scavenge", "scavenge/background")
-	c.deleteCPUTimeValue(labels, "idle", "")
+	for _, value := range runtimemetrics.GoRuntimeCPUTimeValues(nil) {
+		c.deleteCPUTimeValue(labels, value.State, value.DetailedState)
+	}
 }
 
 func (c *goRuntimeMetricsCollector) deleteCPUTimeValue(labels []string, state string, detailedState string) {

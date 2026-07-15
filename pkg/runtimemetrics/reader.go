@@ -51,6 +51,34 @@ type GoRuntimeCPUTimeSnapshot struct {
 	UserTime           int64
 }
 
+const goRuntimeCPUTimeValueCount = 8
+
+type GoRuntimeCPUTimeValue struct {
+	State         string
+	DetailedState string
+	Nanoseconds   int64
+}
+
+// GoRuntimeCPUTimeValues returns every CPU time series. A nil snapshot returns
+// the same series with zero values so exporters can remove them consistently.
+func GoRuntimeCPUTimeValues(cpu *GoRuntimeCPUTimeSnapshot) [goRuntimeCPUTimeValueCount]GoRuntimeCPUTimeValue {
+	var snapshot GoRuntimeCPUTimeSnapshot
+	if cpu != nil {
+		snapshot = *cpu
+	}
+
+	return [...]GoRuntimeCPUTimeValue{
+		{State: "user", Nanoseconds: snapshot.UserTime},
+		{State: "gc", DetailedState: "gc/mark/assist", Nanoseconds: snapshot.GCAssistTime},
+		{State: "gc", DetailedState: "gc/mark/dedicated", Nanoseconds: snapshot.GCDedicatedTime},
+		{State: "gc", DetailedState: "gc/mark/idle", Nanoseconds: snapshot.GCIdleTime},
+		{State: "gc", DetailedState: "gc/pause", Nanoseconds: snapshot.GCPauseTime},
+		{State: "scavenge", DetailedState: "scavenge/assist", Nanoseconds: snapshot.ScavengeAssistTime},
+		{State: "scavenge", DetailedState: "scavenge/background", Nanoseconds: snapshot.ScavengeBgTime},
+		{State: "idle", Nanoseconds: snapshot.IdleTime},
+	}
+}
+
 type JVMRuntimeMetricSnapshot struct {
 	Kind       jvmruntime.JVMRuntimeMetricKind
 	PoolName   string

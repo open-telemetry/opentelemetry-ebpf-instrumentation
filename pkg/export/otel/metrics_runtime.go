@@ -330,52 +330,23 @@ func recordGoRuntimeCPUTime(
 	metrics *goRuntimeMetrics,
 	cpu *runtimemetrics.GoRuntimeCPUTimeSnapshot,
 ) {
-	if cpu == nil {
-		removeGoRuntimeCPUTime(ctx, metrics)
-		return
+	for _, value := range runtimemetrics.GoRuntimeCPUTimeValues(cpu) {
+		key := value.State
+		attrs := []attribute.KeyValue{semconv.GoCPUStateKey.String(value.State)}
+		if value.DetailedState != "" {
+			key = value.DetailedState
+			attrs = append(attrs, semconv.GoCPUDetailedState(value.DetailedState))
+		}
+
+		if cpu == nil {
+			removeFloatRuntimeCounterWithAttributes(ctx, metrics.cpuTime, &metrics.cpuTimeValues,
+				key, attrs...)
+			continue
+		}
+
+		recordFloatRuntimeCounterWithAttributes(ctx, metrics.cpuTime, &metrics.cpuTimeValues,
+			key, value.Nanoseconds, attrs...)
 	}
-
-	recordFloatRuntimeCounterWithAttributes(ctx, metrics.cpuTime, &metrics.cpuTimeValues,
-		"user", cpu.UserTime, semconv.GoCPUStateUser)
-	recordFloatRuntimeCounterWithAttributes(ctx, metrics.cpuTime, &metrics.cpuTimeValues,
-		"gc/mark/assist", cpu.GCAssistTime,
-		semconv.GoCPUStateGC, semconv.GoCPUDetailedState("gc/mark/assist"))
-	recordFloatRuntimeCounterWithAttributes(ctx, metrics.cpuTime, &metrics.cpuTimeValues,
-		"gc/mark/dedicated", cpu.GCDedicatedTime,
-		semconv.GoCPUStateGC, semconv.GoCPUDetailedState("gc/mark/dedicated"))
-	recordFloatRuntimeCounterWithAttributes(ctx, metrics.cpuTime, &metrics.cpuTimeValues,
-		"gc/mark/idle", cpu.GCIdleTime,
-		semconv.GoCPUStateGC, semconv.GoCPUDetailedState("gc/mark/idle"))
-	recordFloatRuntimeCounterWithAttributes(ctx, metrics.cpuTime, &metrics.cpuTimeValues,
-		"gc/pause", cpu.GCPauseTime,
-		semconv.GoCPUStateGC, semconv.GoCPUDetailedState("gc/pause"))
-	recordFloatRuntimeCounterWithAttributes(ctx, metrics.cpuTime, &metrics.cpuTimeValues,
-		"scavenge/assist", cpu.ScavengeAssistTime,
-		semconv.GoCPUStateScavenge, semconv.GoCPUDetailedState("scavenge/assist"))
-	recordFloatRuntimeCounterWithAttributes(ctx, metrics.cpuTime, &metrics.cpuTimeValues,
-		"scavenge/background", cpu.ScavengeBgTime,
-		semconv.GoCPUStateScavenge, semconv.GoCPUDetailedState("scavenge/background"))
-	recordFloatRuntimeCounterWithAttributes(ctx, metrics.cpuTime, &metrics.cpuTimeValues,
-		"idle", cpu.IdleTime, semconv.GoCPUStateIdle)
-}
-
-func removeGoRuntimeCPUTime(ctx context.Context, metrics *goRuntimeMetrics) {
-	removeFloatRuntimeCounterWithAttributes(ctx, metrics.cpuTime, &metrics.cpuTimeValues,
-		"user", semconv.GoCPUStateUser)
-	removeFloatRuntimeCounterWithAttributes(ctx, metrics.cpuTime, &metrics.cpuTimeValues,
-		"gc/mark/assist", semconv.GoCPUStateGC, semconv.GoCPUDetailedState("gc/mark/assist"))
-	removeFloatRuntimeCounterWithAttributes(ctx, metrics.cpuTime, &metrics.cpuTimeValues,
-		"gc/mark/dedicated", semconv.GoCPUStateGC, semconv.GoCPUDetailedState("gc/mark/dedicated"))
-	removeFloatRuntimeCounterWithAttributes(ctx, metrics.cpuTime, &metrics.cpuTimeValues,
-		"gc/mark/idle", semconv.GoCPUStateGC, semconv.GoCPUDetailedState("gc/mark/idle"))
-	removeFloatRuntimeCounterWithAttributes(ctx, metrics.cpuTime, &metrics.cpuTimeValues,
-		"gc/pause", semconv.GoCPUStateGC, semconv.GoCPUDetailedState("gc/pause"))
-	removeFloatRuntimeCounterWithAttributes(ctx, metrics.cpuTime, &metrics.cpuTimeValues,
-		"scavenge/assist", semconv.GoCPUStateScavenge, semconv.GoCPUDetailedState("scavenge/assist"))
-	removeFloatRuntimeCounterWithAttributes(ctx, metrics.cpuTime, &metrics.cpuTimeValues,
-		"scavenge/background", semconv.GoCPUStateScavenge, semconv.GoCPUDetailedState("scavenge/background"))
-	removeFloatRuntimeCounterWithAttributes(ctx, metrics.cpuTime, &metrics.cpuTimeValues,
-		"idle", semconv.GoCPUStateIdle)
 }
 
 func recordFloatRuntimeCounterWithAttributes(
@@ -393,8 +364,8 @@ func recordFloatRuntimeCounterWithAttributes(
 	removeOptions := []instrument.RemoveOption{instrument.WithAttributes(attrs...)}
 
 	prev, ok := (*previous)[key]
-	currentSeconds := float64(current) / float64(time.Second)
 	if !ok || current < prev {
+		currentSeconds := float64(current) / float64(time.Second)
 		metric.Remove(ctx, removeOptions...)
 		metric.Add(ctx, currentSeconds, options...)
 	} else if delta := current - prev; delta > 0 {
