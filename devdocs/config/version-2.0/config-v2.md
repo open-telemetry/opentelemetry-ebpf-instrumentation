@@ -483,6 +483,7 @@ For example, SQL has `mysql` and `postgres` for driver-specific controls, HTTP h
 
 HTTP route normalization is directional. `http.routes.incoming` applies to requests handled by an instrumented workload and `http.routes.outgoing` applies to requests made by it.
 Each direction has the same route-policy fields: `patterns`, `ignored_patterns`, `ignore_mode`, `unmatched`, `wildcard_char`, and `max_path_segment_cardinality`.
+`wildcard_char` may be empty or contain one nonzero ASCII character so the value remains compatible with the byte-based route classifier.
 Global route discovery remains under `http.routes.discovery` because harvesting is configured for the capture engine rather than for an individual traffic direction.
 
 HTTP `payload_extraction` uses the same list-based enablement model as other instrumentation selectors:

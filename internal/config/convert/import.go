@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"unicode/utf8"
 
 	"go.opentelemetry.io/obi/internal/config/schema"
 	"go.opentelemetry.io/obi/pkg/appolly/services"
@@ -122,8 +123,11 @@ func validateV2HTTPRoutePolicy(path string, policy *schema.HTTPRoutePolicy) erro
 			return fmt.Errorf("%s.ignore_mode has invalid value %q", path, *policy.IgnoreMode)
 		}
 	}
-	if policy.WildcardChar != nil && len(*policy.WildcardChar) > 1 {
-		return fmt.Errorf("%s.wildcard_char must contain at most one byte", path)
+	if policy.WildcardChar != nil {
+		wildcard := *policy.WildcardChar
+		if wildcard != "" && (len(wildcard) != 1 || wildcard[0] == 0 || wildcard[0] >= utf8.RuneSelf) {
+			return fmt.Errorf("%s.wildcard_char must be empty or contain one nonzero ASCII byte", path)
+		}
 	}
 	if policy.MaxPathSegmentCardinality != nil && *policy.MaxPathSegmentCardinality < 0 {
 		return fmt.Errorf("%s.max_path_segment_cardinality must be greater than or equal to zero", path)

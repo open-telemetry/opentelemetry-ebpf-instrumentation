@@ -147,7 +147,8 @@
         "wildcard_char": {
           "type": "string",
           "maxLength": 1,
-          "description": "Wildcard replacement character for heuristic route templates."
+          "pattern": "^[\\u0001-\\u007F]?$",
+          "description": "Empty or one nonzero ASCII wildcard replacement character for heuristic route templates."
         },
         "max_path_segment_cardinality": {
           "type": "integer",

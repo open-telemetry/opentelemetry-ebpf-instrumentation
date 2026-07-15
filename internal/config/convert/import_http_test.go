@@ -255,6 +255,53 @@ func TestV2ToRuntimeRejectsInvalidDirectionalHTTPRoutes(t *testing.T) {
 	require.EqualError(t, err, `capture.instrumentation.http.routes.incoming.unmatched has invalid value "invalid"`)
 }
 
+func TestV2ToRuntimeValidatesDirectionalHTTPWildcard(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name     string
+		wildcard string
+		wantErr  string
+	}{
+		{name: "empty"},
+		{name: "ASCII", wildcard: "#"},
+		{
+			name:     "NUL",
+			wildcard: "\x00",
+			wantErr: "capture.instrumentation.http.routes.incoming.wildcard_char " +
+				"must be empty or contain one nonzero ASCII byte",
+		},
+		{
+			name:     "Unicode",
+			wildcard: "•",
+			wantErr: "capture.instrumentation.http.routes.incoming.wildcard_char " +
+				"must be empty or contain one nonzero ASCII byte",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := V2ToRuntime(&schema.Extension{
+				Version: schema.SupportedVersion,
+				Capture: schema.Capture{
+					Instrumentation: schema.Instrumentation{
+						HTTP: schema.HTTPInstrumentation{
+							Routes: schema.HTTPRoutes{
+								Incoming: &schema.HTTPRoutePolicy{WildcardChar: &tc.wildcard},
+							},
+						},
+					},
+				},
+			})
+			if tc.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.EqualError(t, err, tc.wantErr)
+		})
+	}
+}
+
 func TestV2ToRuntimeHTTPPayloadExtractionRoundTrip(t *testing.T) {
 	t.Parallel()
 
