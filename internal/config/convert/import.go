@@ -196,12 +196,15 @@ func runtimeConfigDefaults() obi.Config {
 
 func applyV2Capture(cfg *obi.Config, src *schema.Extension) {
 	applyV2Policy(cfg, src.Capture.Policy, completePolicy(src.Capture.Policy))
-	applyV2Rules(cfg, src.Capture.Rules, src.Capture.Policy.DefaultAction)
+	hasRuleRoutePolicies := applyV2Rules(cfg, src.Capture.Rules, src.Capture.Policy.DefaultAction)
 	applyV2Limits(cfg, src.Capture.Limits, completeLimits(src.Capture.Limits))
 	applyV2Safety(cfg, src.Capture.Safety, !zeroValue(src.Capture.Safety))
 	applyV2Channels(cfg, src.Capture.Channels, completeChannels(src.Capture.Channels))
 	applyV2Engine(cfg, src.Capture.Engine, completeEngine(src.Capture.Engine))
 	applyV2Instrumentation(cfg, src.Capture.Instrumentation)
+	if hasRuleRoutePolicies {
+		activateV2RuleRoutePolicies(cfg)
+	}
 	applyV2NetworkCapture(cfg, src.Capture.Network.Capture, completeNetworkCapture(src.Capture.Network.Capture))
 	applyV2NetworkStats(cfg, src.Capture.Network.Stats, completeNetworkStats(src.Capture.Network.Stats))
 	applyV2Runtimes(cfg, src.Capture.Runtimes, completeRuntimes(src.Capture.Runtimes))
@@ -232,11 +235,12 @@ type runtimeDiscoveryRules struct {
 	excludeGlobs                    services.GlobDefinitionCriteria
 	includeRegex                    services.RegexDefinitionCriteria
 	excludeRegex                    services.RegexDefinitionCriteria
+	hasRoutePolicies                bool
 	excludeOTelInstrumentedServices bool
 	defaultOTLPGRPCPort             int
 }
 
-func applyV2Rules(cfg *obi.Config, rules []schema.Rule, defaultAction schema.CaptureAction) {
+func applyV2Rules(cfg *obi.Config, rules []schema.Rule, defaultAction schema.CaptureAction) bool {
 	includeByDefault := defaultAction != schema.CaptureActionExclude
 	if rules == nil {
 		if includeByDefault {
@@ -244,7 +248,7 @@ func applyV2Rules(cfg *obi.Config, rules []schema.Rule, defaultAction schema.Cap
 				{Path: services.NewGlob("*")},
 			}
 		}
-		return
+		return false
 	}
 
 	converted := runtimeDiscoveryRulesFromV2(rules)
@@ -260,6 +264,7 @@ func applyV2Rules(cfg *obi.Config, rules []schema.Rule, defaultAction schema.Cap
 		}
 	}
 	applyRuntimeDiscoveryRules(cfg, converted)
+	return converted.hasRoutePolicies
 }
 
 func runtimeDiscoveryRulesFromV2(rules []schema.Rule) runtimeDiscoveryRules {
@@ -277,8 +282,12 @@ func runtimeDiscoveryRulesFromV2(rules []schema.Rule) runtimeDiscoveryRules {
 		case schema.CaptureActionInclude:
 			if regexSelector != nil {
 				converted.includeRegex = append(converted.includeRegex, *regexSelector)
+				converted.hasRoutePolicies = converted.hasRoutePolicies ||
+					regexSelector.Routes != nil && regexSelector.Routes.PolicyOverrides != nil
 			} else {
 				converted.includeGlobs = append(converted.includeGlobs, *globSelector)
+				converted.hasRoutePolicies = converted.hasRoutePolicies ||
+					globSelector.Routes != nil && globSelector.Routes.PolicyOverrides != nil
 			}
 		case schema.CaptureActionExclude:
 			if regexSelector != nil {
@@ -1023,7 +1032,7 @@ func v2HTTPFilterMap(filters schema.SignalFilters) schema.AttributeFilters {
 
 func applyFullV2HTTPRoutes(cfg *obi.Config, routes schema.HTTPRoutes) {
 	applyV2HTTPRouteDiscovery(cfg, routes.Discovery, true)
-	if !hasV2HTTPRouteConfig(routes) {
+	if !hasV2HTTPGlobalRouteConfig(routes) {
 		cfg.Routes = nil
 		return
 	}
@@ -1038,7 +1047,7 @@ func applyPartialV2HTTPRoutes(cfg *obi.Config, routes schema.HTTPRoutes) {
 		return
 	}
 	applyV2HTTPRouteDiscovery(cfg, routes.Discovery, false)
-	if !hasV2HTTPRouteConfig(routes) {
+	if !hasV2HTTPGlobalRouteConfig(routes) {
 		return
 	}
 	policies := cfg.Routes.DirectionalPolicies()
@@ -1061,8 +1070,19 @@ func applyV2HTTPRouteDiscovery(cfg *obi.Config, discovery schema.HTTPRouteDiscov
 	}
 }
 
-func hasV2HTTPRouteConfig(routes schema.HTTPRoutes) bool {
+func hasV2HTTPGlobalRouteConfig(routes schema.HTTPRoutes) bool {
 	return routes.Incoming != nil || routes.Outgoing != nil
+}
+
+func activateV2RuleRoutePolicies(cfg *obi.Config) {
+	policies := cfg.Routes.DirectionalPolicies()
+	if cfg.Routes == nil {
+		// A complete v2 config can omit global policies. Keep its baseline
+		// inactive so only matching rule overrides enable route handling.
+		policies.Incoming.Unmatch = services.UnmatchUnset
+		policies.Outgoing.Unmatch = services.UnmatchUnset
+	}
+	cfg.Routes = &transform.RoutesConfig{Directional: &policies}
 }
 
 func applyV2HTTPRouteConfig(dst *services.DirectionalRoutePolicies, routes schema.HTTPRoutes) {

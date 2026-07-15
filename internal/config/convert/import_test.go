@@ -369,6 +369,10 @@ func TestV2ToRuntimeImportsRules(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
+	require.NotNil(t, got.Routes)
+	require.NotNil(t, got.Routes.Directional)
+	require.Equal(t, services.UnmatchDefault, got.Routes.Directional.Incoming.Unmatch)
+	require.Equal(t, services.UnmatchDefault, got.Routes.Directional.Outgoing.Unmatch)
 
 	require.Len(t, got.Discovery.Instrument, 1)
 	include := got.Discovery.Instrument[0]

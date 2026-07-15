@@ -68,6 +68,52 @@ func TestV2ToRuntimeHTTPNilRoutesRoundTrip(t *testing.T) {
 	require.Equal(t, cfg.Discovery.RouteHarvestConfig.JavaHarvestDelay, got.Discovery.RouteHarvestConfig.JavaHarvestDelay)
 }
 
+func TestV2ToRuntimeHTTPRuleRoutesWithoutGlobalRoutes(t *testing.T) {
+	t.Parallel()
+
+	cfg := defaultRuntimeConfig()
+	cfg.Routes = nil
+	_, ext := RuntimeToV2(&cfg)
+
+	incomingPatterns := []string{"/orders/{id}"}
+	incomingIgnored := []string{"/health"}
+	ext.Capture.Rules = append(ext.Capture.Rules, schema.Rule{
+		Action: schema.CaptureActionInclude,
+		Match: schema.RuleMatch{
+			Process: schema.RuleProcessMatch{ExePathGlob: []string{"/srv/*"}},
+		},
+		Refine: schema.RuleRefinement{
+			HTTP: &schema.HTTPRefinement{
+				Routes: schema.HTTPRefinementRoutes{
+					Incoming: &schema.HTTPRoutePolicy{
+						Patterns:        &incomingPatterns,
+						IgnoredPatterns: &incomingIgnored,
+					},
+				},
+			},
+		},
+	})
+
+	got, err := V2ToRuntime(ext)
+	require.NoError(t, err)
+	require.NotNil(t, got.Routes)
+	require.NotNil(t, got.Routes.Directional)
+	require.Equal(t, services.UnmatchUnset, got.Routes.Directional.Incoming.Unmatch)
+	require.Equal(t, services.UnmatchUnset, got.Routes.Directional.Outgoing.Unmatch)
+
+	var ruleRoutes *services.CustomRoutesConfig
+	for i := range got.Discovery.Instrument {
+		if got.Discovery.Instrument[i].Routes != nil {
+			ruleRoutes = got.Discovery.Instrument[i].Routes
+			break
+		}
+	}
+	require.NotNil(t, ruleRoutes)
+	require.NotNil(t, ruleRoutes.PolicyOverrides)
+	require.Equal(t, incomingPatterns, *ruleRoutes.PolicyOverrides.Incoming.Patterns)
+	require.Equal(t, incomingIgnored, *ruleRoutes.PolicyOverrides.Incoming.IgnorePatterns)
+}
+
 func TestV2ToRuntimeImportsDirectionalHTTPRoutes(t *testing.T) {
 	t.Parallel()
 
