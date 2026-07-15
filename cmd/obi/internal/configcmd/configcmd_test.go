@@ -101,6 +101,21 @@ rules:
 	require.Equal(t, "configuration is valid\n", stdout.String())
 }
 
+func TestRunValidateReceiverStatsOnly(t *testing.T) {
+	path := writeConfig(t, "receiver.yaml", `
+version: "2.0"
+network:
+  stats:
+    enabled: true
+`)
+	var stdout, stderr bytes.Buffer
+
+	exitCode := run([]string{"validate", "--mode=receiver", path}, &stdout, &stderr)
+
+	require.Equal(t, ExitSuccess, exitCode, stderr.String())
+	require.Equal(t, "configuration is valid\n", stdout.String())
+}
+
 func TestValidateConfigDefaultIncludeWithoutSelector(t *testing.T) {
 	tests := []struct {
 		name string
