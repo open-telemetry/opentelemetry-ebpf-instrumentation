@@ -87,10 +87,10 @@ This separation was a conscious design choice:
 Migrate a v1 file to a standalone v2 document with:
 
 ```shell
-obi config migrate --from=v1 --to=v2 ./obi-v1.yaml > ./obi-v2.yaml
+obi config migrate ./obi-v1.yaml > ./obi-v2.yaml
 ```
 
-`--from=v1` and `--to=v2` are the defaults and may be omitted. The migrated YAML is written to standard output so it can be reviewed or redirected to a file. A deterministic mapping report for non-1:1 rewrites is written to standard error.
+The command performs v1-to-v2 migration. The migrated YAML is written to standard output so it can be reviewed or redirected to a file. A deterministic mapping report for non-1:1 rewrites is written to standard error.
 
 Migration uses the v1 runtime configuration type and the same internal v1-to-v2 converter used by OBI. It rejects malformed input, unknown v1 fields, and fields whose effective value cannot survive a v2 round trip. The command also validates the generated document before writing it.
 
@@ -132,7 +132,7 @@ Both commands use stable exit codes:
 |---|---|
 | `0` | Validation or migration succeeded, or command help was requested. |
 | `1` | The file could not be read, the configuration was invalid, or migration could not preserve a field. |
-| `2` | Command usage, a flag, a mode, or a requested version was unsupported. |
+| `2` | Command usage, a flag, or a mode was unsupported. |
 
 ## Rollout strategy
 

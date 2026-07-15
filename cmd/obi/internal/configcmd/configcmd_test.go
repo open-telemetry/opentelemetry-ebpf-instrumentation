@@ -218,7 +218,7 @@ func TestRunExitCodes(t *testing.T) {
 		{name: "missing subcommand", want: ExitUsage},
 		{name: "unknown subcommand", args: []string{"unknown"}, want: ExitUsage},
 		{name: "invalid mode", args: []string{"validate", "--mode=other", "missing"}, want: ExitUsage},
-		{name: "unsupported versions", args: []string{"migrate", "--from=v2", "missing"}, want: ExitUsage},
+		{name: "unsupported migrate flag", args: []string{"migrate", "--from=v1", "missing"}, want: ExitUsage},
 		{name: "validate read error", args: []string{"validate", "missing"}, want: ExitError},
 		{name: "migrate read error", args: []string{"migrate", "missing"}, want: ExitError},
 		{name: "validate help", args: []string{"validate", "--help"}, want: ExitSuccess},

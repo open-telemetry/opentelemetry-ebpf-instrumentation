@@ -142,19 +142,13 @@ func runMigrate(args []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("obi config migrate", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	flags.Usage = func() {
-		fmt.Fprintln(flags.Output(), "usage: obi config migrate [--from=v1] [--to=v2] <path>")
+		fmt.Fprintln(flags.Output(), "usage: obi config migrate <path>")
 		flags.PrintDefaults()
 	}
-	from := flags.String("from", "v1", "source config version")
-	to := flags.String("to", "v2", "destination config version")
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return ExitSuccess
 		}
-		return ExitUsage
-	}
-	if *from != "v1" || *to != "v2" {
-		fmt.Fprintln(stderr, "only --from=v1 --to=v2 is supported")
 		return ExitUsage
 	}
 	if flags.NArg() != 1 {
