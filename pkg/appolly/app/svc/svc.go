@@ -136,8 +136,19 @@ type Attrs struct {
 
 	CustomInRouteMatcher  route.Matcher
 	CustomOutRouteMatcher route.Matcher
+	IncomingRoutePolicy   *RoutePolicy
+	OutgoingRoutePolicy   *RoutePolicy
 	HarvestedRouteMatcher route.Matcher
 	PathTrie              *clusterurl.PathTrie
+}
+
+// RoutePolicy contains the compiled, direction-specific route state attached
+// to a service discovered from config v2.
+type RoutePolicy struct {
+	Config        services.RoutePolicy
+	Matcher       route.Matcher
+	IgnoreMatcher route.Matcher
+	PathTrie      *clusterurl.PathTrie
 }
 
 func (i *Attrs) GetUID() UID {
@@ -205,4 +216,22 @@ func (i *Attrs) ExportsOTelTraces() bool {
 func (i *Attrs) SetCustomRoutes(config *services.CustomRoutesConfig) {
 	i.CustomInRouteMatcher = route.NewMatcher(config.Incoming)
 	i.CustomOutRouteMatcher = route.NewMatcher(config.Outgoing)
+}
+
+func (i *Attrs) SetDirectionalRoutes(config services.DirectionalRoutePolicies) {
+	i.IncomingRoutePolicy = NewRoutePolicy(config.Incoming)
+	i.OutgoingRoutePolicy = NewRoutePolicy(config.Outgoing)
+}
+
+func NewRoutePolicy(config services.RoutePolicy) *RoutePolicy {
+	wildcard := byte('*')
+	if config.WildcardChar != "" {
+		wildcard = config.WildcardChar[0]
+	}
+	return &RoutePolicy{
+		Config:        config.Clone(),
+		Matcher:       route.NewMatcher(config.Patterns),
+		IgnoreMatcher: route.NewMatcher(config.IgnorePatterns),
+		PathTrie:      clusterurl.NewPathTrie(config.MaxPathSegmentCardinality, wildcard),
+	}
 }

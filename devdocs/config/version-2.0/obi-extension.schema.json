@@ -105,6 +105,57 @@
         }
       }
     },
+    "HTTPRoutePolicy": {
+      "type": "object",
+      "description": "Direction-specific HTTP route normalization policy. In per-workload refinements, omitted fields inherit the corresponding global direction and explicit arrays replace global arrays.",
+      "additionalProperties": false,
+      "properties": {
+        "unmatched": {
+          "type": "string",
+          "enum": [
+            "unset",
+            "path",
+            "wildcard",
+            "heuristic",
+            "low-cardinality"
+          ],
+          "description": "Fallback route policy when no explicit or harvested route matches."
+        },
+        "patterns": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "User-supplied route patterns for this direction."
+        },
+        "ignored_patterns": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Route patterns to ignore for this direction."
+        },
+        "ignore_mode": {
+          "type": "string",
+          "enum": [
+            "metrics",
+            "traces",
+            "all"
+          ],
+          "description": "Signal mode for ignored patterns."
+        },
+        "wildcard_char": {
+          "type": "string",
+          "maxLength": 1,
+          "description": "Wildcard replacement character for heuristic route templates."
+        },
+        "max_path_segment_cardinality": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Maximum per-segment path cardinality in low-cardinality mode."
+        }
+      }
+    },
     "StringList": {
       "type": "array",
       "minItems": 1,
@@ -422,36 +473,16 @@
           "properties": {
             "routes": {
               "type": "object",
-              "description": "Per-workload direction-scoped HTTP route patterns.\nIf omitted, global route configuration applies.\n",
+              "description": "Per-workload direction-scoped HTTP route policies.\nIf omitted, global route configuration applies.\n",
               "additionalProperties": false,
               "properties": {
                 "incoming": {
-                  "type": "object",
-                  "description": "HTTP route patterns for requests handled by the matched workload.\nEquivalent to v1 `routes.incoming`.\n",
-                  "additionalProperties": false,
-                  "properties": {
-                    "patterns": {
-                      "type": "array",
-                      "items": {
-                        "type": "string"
-                      },
-                      "description": "Explicit incoming route patterns for this workload.\n"
-                    }
-                  }
+                  "$ref": "#/$defs/HTTPRoutePolicy",
+                  "description": "HTTP route policy for requests handled by the matched workload. Omitted fields inherit the global incoming policy."
                 },
                 "outgoing": {
-                  "type": "object",
-                  "description": "HTTP route patterns for requests made by the matched workload.\nEquivalent to v1 `routes.outgoing`.\n",
-                  "additionalProperties": false,
-                  "properties": {
-                    "patterns": {
-                      "type": "array",
-                      "items": {
-                        "type": "string"
-                      },
-                      "description": "Explicit outgoing route patterns for this workload.\n"
-                    }
-                  }
+                  "$ref": "#/$defs/HTTPRoutePolicy",
+                  "description": "HTTP route policy for requests made by the matched workload. Omitted fields inherit the global outgoing policy."
                 }
               }
             },
@@ -1097,42 +1128,13 @@
           "description": "HTTP route normalization and discovery controls.",
           "additionalProperties": false,
           "properties": {
-            "unmatched": {
-              "type": "string",
-              "default": "heuristic",
-              "description": "Fallback route policy when no explicit pattern matches.\nIf omitted, `heuristic` is used.\n"
+            "incoming": {
+              "$ref": "#/$defs/HTTPRoutePolicy",
+              "description": "Global route policy for requests handled by instrumented workloads."
             },
-            "patterns": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              },
-              "default": [],
-              "description": "User-supplied route patterns.\nIf omitted, no explicit patterns are used.\n"
-            },
-            "ignored_patterns": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              },
-              "default": [],
-              "description": "Route patterns to ignore.\nIf omitted, no patterns are ignored.\n"
-            },
-            "ignore_mode": {
-              "type": "string",
-              "default": "all",
-              "description": "Signal mode for ignored patterns.\nIf omitted, `all` is used.\n"
-            },
-            "wildcard_char": {
-              "type": "string",
-              "default": "*",
-              "description": "Wildcard replacement character for route templates.\nIf omitted, `*` is used.\n"
-            },
-            "max_path_segment_cardinality": {
-              "type": "integer",
-              "minimum": 0,
-              "default": 10,
-              "description": "Maximum per-segment path cardinality in heuristic mode.\nIf omitted, `10` is used.\n"
+            "outgoing": {
+              "$ref": "#/$defs/HTTPRoutePolicy",
+              "description": "Global route policy for requests made by instrumented workloads."
             },
             "discovery": {
               "type": "object",

@@ -39,7 +39,8 @@ func TestV2ToRuntimeHTTPRoutesRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NotNil(t, got.Routes)
-	require.Equal(t, cfg.Routes, got.Routes)
+	require.NotNil(t, got.Routes.Directional)
+	require.Equal(t, cfg.Routes.DirectionalPolicies(), got.Routes.DirectionalPolicies())
 	require.Equal(t, cfg.Discovery.RouteHarvesterTimeout, got.Discovery.RouteHarvesterTimeout)
 	require.Equal(t, cfg.Discovery.DisabledRouteHarvesters, got.Discovery.DisabledRouteHarvesters)
 	require.Equal(t, cfg.Discovery.RouteHarvestConfig.JavaHarvestDelay, got.Discovery.RouteHarvestConfig.JavaHarvestDelay)
@@ -65,6 +66,75 @@ func TestV2ToRuntimeHTTPNilRoutesRoundTrip(t *testing.T) {
 	require.Equal(t, cfg.Discovery.RouteHarvesterTimeout, got.Discovery.RouteHarvesterTimeout)
 	require.Equal(t, cfg.Discovery.DisabledRouteHarvesters, got.Discovery.DisabledRouteHarvesters)
 	require.Equal(t, cfg.Discovery.RouteHarvestConfig.JavaHarvestDelay, got.Discovery.RouteHarvestConfig.JavaHarvestDelay)
+}
+
+func TestV2ToRuntimeImportsDirectionalHTTPRoutes(t *testing.T) {
+	t.Parallel()
+
+	incomingUnmatched := services.UnmatchPath
+	incomingPatterns := []string{"/orders/{id}"}
+	incomingIgnored := []string{"/health"}
+	incomingIgnoreMode := services.IgnoreTraces
+	incomingWildcard := "#"
+	incomingCardinality := 7
+	outgoingUnmatched := services.UnmatchWildcard
+	outgoingPatterns := []string{"/inventory/{id}"}
+
+	got, err := V2ToRuntime(&schema.Extension{
+		Version: schema.SupportedVersion,
+		Capture: schema.Capture{
+			Instrumentation: schema.Instrumentation{
+				HTTP: schema.HTTPInstrumentation{
+					Routes: schema.HTTPRoutes{
+						Incoming: &schema.HTTPRoutePolicy{
+							Unmatched:                 &incomingUnmatched,
+							Patterns:                  &incomingPatterns,
+							IgnoredPatterns:           &incomingIgnored,
+							IgnoreMode:                &incomingIgnoreMode,
+							WildcardChar:              &incomingWildcard,
+							MaxPathSegmentCardinality: &incomingCardinality,
+						},
+						Outgoing: &schema.HTTPRoutePolicy{
+							Unmatched: &outgoingUnmatched,
+							Patterns:  &outgoingPatterns,
+						},
+					},
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, got.Routes)
+	require.NotNil(t, got.Routes.Directional)
+
+	policies := got.Routes.DirectionalPolicies()
+	require.Equal(t, incomingUnmatched, policies.Incoming.Unmatch)
+	require.Equal(t, incomingPatterns, policies.Incoming.Patterns)
+	require.Equal(t, incomingIgnored, policies.Incoming.IgnorePatterns)
+	require.Equal(t, incomingIgnoreMode, policies.Incoming.IgnoredEvents)
+	require.Equal(t, incomingWildcard, policies.Incoming.WildcardChar)
+	require.Equal(t, incomingCardinality, policies.Incoming.MaxPathSegmentCardinality)
+	require.Equal(t, outgoingUnmatched, policies.Outgoing.Unmatch)
+	require.Equal(t, outgoingPatterns, policies.Outgoing.Patterns)
+}
+
+func TestV2ToRuntimeRejectsInvalidDirectionalHTTPRoutes(t *testing.T) {
+	t.Parallel()
+
+	invalidUnmatched := services.RouteUnmatch("invalid")
+	_, err := V2ToRuntime(&schema.Extension{
+		Version: schema.SupportedVersion,
+		Capture: schema.Capture{
+			Instrumentation: schema.Instrumentation{
+				HTTP: schema.HTTPInstrumentation{
+					Routes: schema.HTTPRoutes{
+						Incoming: &schema.HTTPRoutePolicy{Unmatched: &invalidUnmatched},
+					},
+				},
+			},
+		},
+	})
+	require.EqualError(t, err, `capture.instrumentation.http.routes.incoming.unmatched has invalid value "invalid"`)
 }
 
 func TestV2ToRuntimeHTTPPayloadExtractionRoundTrip(t *testing.T) {

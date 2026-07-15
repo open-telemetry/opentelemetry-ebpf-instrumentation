@@ -305,6 +305,10 @@ func TestV2ToRuntimeImportsRules(t *testing.T) {
 	t.Parallel()
 
 	openPorts := services.IntEnum{Ranges: []services.IntRange{{Start: 8080}}}
+	incomingPatterns := []string{"/orders/{id}"}
+	outgoingPatterns := []string{"/inventory/{id}"}
+	incomingIgnoredPatterns := []string{"/health"}
+	incomingUnmatched := services.UnmatchPath
 	got, err := V2ToRuntime(&schema.Extension{
 		Version: schema.SupportedVersion,
 		Capture: schema.Capture{
@@ -343,8 +347,12 @@ func TestV2ToRuntimeImportsRules(t *testing.T) {
 						Exports: &schema.ExportModeRefinement{Traces: true, Metrics: false},
 						HTTP: &schema.HTTPRefinement{
 							Routes: schema.HTTPRefinementRoutes{
-								Incoming: schema.HTTPRefinementRoute{Patterns: []string{"/orders/{id}"}},
-								Outgoing: schema.HTTPRefinementRoute{Patterns: []string{"/inventory/{id}"}},
+								Incoming: &schema.HTTPRoutePolicy{
+									Patterns:        &incomingPatterns,
+									IgnoredPatterns: &incomingIgnoredPatterns,
+									Unmatched:       &incomingUnmatched,
+								},
+								Outgoing: &schema.HTTPRoutePolicy{Patterns: &outgoingPatterns},
 							},
 						},
 					},
@@ -375,8 +383,11 @@ func TestV2ToRuntimeImportsRules(t *testing.T) {
 	require.Equal(t, "checkout", globString(*include.PodLabels["app"]))
 	require.True(t, include.ExportModes.CanExportTraces())
 	require.False(t, include.ExportModes.CanExportMetrics())
-	require.Equal(t, []string{"/orders/{id}"}, include.Routes.Incoming)
-	require.Equal(t, []string{"/inventory/{id}"}, include.Routes.Outgoing)
+	require.NotNil(t, include.Routes.PolicyOverrides)
+	require.Equal(t, []string{"/orders/{id}"}, *include.Routes.PolicyOverrides.Incoming.Patterns)
+	require.Equal(t, []string{"/health"}, *include.Routes.PolicyOverrides.Incoming.IgnorePatterns)
+	require.Equal(t, services.UnmatchPath, *include.Routes.PolicyOverrides.Incoming.Unmatch)
+	require.Equal(t, []string{"/inventory/{id}"}, *include.Routes.PolicyOverrides.Outgoing.Patterns)
 
 	require.True(t, got.Discovery.ExcludeOTelInstrumentedServices)
 	require.Equal(t, 4317, got.Discovery.DefaultOtlpGRPCPort)

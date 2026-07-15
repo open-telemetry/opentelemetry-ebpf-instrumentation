@@ -27,20 +27,36 @@ func httpRoutes(cfg *obi.Config) schema.HTTPRoutes {
 		return out
 	}
 
-	unmatched := cfg.Routes.Unmatch
-	patterns := cfg.Routes.Patterns
-	ignoredPatterns := cfg.Routes.IgnorePatterns
-	ignoreMode := cfg.Routes.IgnoredEvents
-	wildcardChar := cfg.Routes.WildcardChar
-	maxPathSegmentCardinality := cfg.Routes.MaxPathSegmentCardinality
-
-	out.Unmatched = &unmatched
-	out.Patterns = &patterns
-	out.IgnoredPatterns = &ignoredPatterns
-	out.IgnoreMode = &ignoreMode
-	out.WildcardChar = &wildcardChar
-	out.MaxPathSegmentCardinality = &maxPathSegmentCardinality
+	policies := cfg.Routes.DirectionalPolicies()
+	out.Incoming = httpRoutePolicy(policies.Incoming)
+	out.Outgoing = httpRoutePolicy(policies.Outgoing)
 	return out
+}
+
+func httpRoutePolicy(policy services.RoutePolicy) *schema.HTTPRoutePolicy {
+	unmatched := policy.Unmatch
+	if unmatched == "" {
+		unmatched = services.UnmatchWildcard
+	}
+	patterns := cloneStrings(policy.Patterns)
+	ignoredPatterns := cloneStrings(policy.IgnorePatterns)
+	ignoreMode := policy.IgnoredEvents
+	if ignoreMode == "" {
+		ignoreMode = services.IgnoreDefault
+	}
+	wildcardChar := policy.WildcardChar
+	if wildcardChar == "" {
+		wildcardChar = "*"
+	}
+	maxPathSegmentCardinality := policy.MaxPathSegmentCardinality
+	return &schema.HTTPRoutePolicy{
+		Unmatched:                 &unmatched,
+		Patterns:                  &patterns,
+		IgnoredPatterns:           &ignoredPatterns,
+		IgnoreMode:                &ignoreMode,
+		WildcardChar:              &wildcardChar,
+		MaxPathSegmentCardinality: &maxPathSegmentCardinality,
+	}
 }
 
 const (
@@ -401,15 +417,41 @@ func selectorRefinement(action schema.CaptureAction, selector services.Selector)
 	if exports := exportModeRefinement(selector.GetExportModes()); exports != nil {
 		refine.Exports = exports
 	}
-	if routes := selector.GetRoutesConfig(); routes != nil && (len(routes.Incoming) > 0 || len(routes.Outgoing) > 0) {
+	if routes := selector.GetRoutesConfig(); routes != nil &&
+		(routes.PolicyOverrides != nil || len(routes.Incoming) > 0 || len(routes.Outgoing) > 0) {
+		refinementRoutes := schema.HTTPRefinementRoutes{}
+		if routes.PolicyOverrides != nil {
+			refinementRoutes.Incoming = httpRoutePolicyOverride(routes.PolicyOverrides.Incoming)
+			refinementRoutes.Outgoing = httpRoutePolicyOverride(routes.PolicyOverrides.Outgoing)
+		} else {
+			if len(routes.Incoming) > 0 {
+				patterns := cloneStrings(routes.Incoming)
+				refinementRoutes.Incoming = &schema.HTTPRoutePolicy{Patterns: &patterns}
+			}
+			if len(routes.Outgoing) > 0 {
+				patterns := cloneStrings(routes.Outgoing)
+				refinementRoutes.Outgoing = &schema.HTTPRoutePolicy{Patterns: &patterns}
+			}
+		}
 		refine.HTTP = &schema.HTTPRefinement{
-			Routes: schema.HTTPRefinementRoutes{
-				Incoming: schema.HTTPRefinementRoute{Patterns: cloneStrings(routes.Incoming)},
-				Outgoing: schema.HTTPRefinementRoute{Patterns: cloneStrings(routes.Outgoing)},
-			},
+			Routes: refinementRoutes,
 		}
 	}
 	return refine
+}
+
+func httpRoutePolicyOverride(policy *services.RoutePolicyOverride) *schema.HTTPRoutePolicy {
+	if policy == nil {
+		return nil
+	}
+	return &schema.HTTPRoutePolicy{
+		Unmatched:                 cloneValue(policy.Unmatch),
+		Patterns:                  cloneStringsPointer(policy.Patterns),
+		IgnoredPatterns:           cloneStringsPointer(policy.IgnorePatterns),
+		IgnoreMode:                cloneValue(policy.IgnoredEvents),
+		WildcardChar:              cloneValue(policy.WildcardChar),
+		MaxPathSegmentCardinality: cloneValue(policy.MaxPathSegmentCardinality),
+	}
 }
 
 func exportModeRefinement(modes services.ExportModes) *schema.ExportModeRefinement {

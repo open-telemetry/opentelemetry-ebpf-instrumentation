@@ -123,6 +123,45 @@ func TestMakeServiceAttrs_DynamicPIDOptions(t *testing.T) {
 	assert.Equal(t, "prod", attrs.Metadata[attr.Name("deployment.environment")])
 }
 
+func TestMakeServiceAttrsDirectionalRouteOverrides(t *testing.T) {
+	global := services.DirectionalRoutePolicies{
+		Incoming: services.RoutePolicy{
+			Unmatch:        services.UnmatchHeuristic,
+			Patterns:       []string{"/global/{id}"},
+			IgnorePatterns: []string{"/health"},
+		},
+		Outgoing: services.RoutePolicy{
+			Unmatch:  services.UnmatchWildcard,
+			Patterns: []string{"/outgoing/{id}"},
+		},
+	}
+	patterns := []string{"/service/{id}"}
+	unmatched := services.UnmatchPath
+	routes := &services.CustomRoutesConfig{
+		PolicyOverrides: &services.DirectionalRoutePolicyOverrides{
+			Incoming: &services.RoutePolicyOverride{
+				Patterns: &patterns,
+				Unmatch:  &unmatched,
+			},
+		},
+	}
+	ty := typer{cfg: &obi.Config{Routes: &transform.RoutesConfig{Directional: &global}}}
+	attrs := ty.makeServiceAttrs(&ProcessMatch{
+		Process: &services.ProcessInfo{Pid: 1234},
+		Criteria: []services.Selector{
+			dummyCriterion{routes: routes},
+		},
+	})
+
+	require.NotNil(t, attrs.IncomingRoutePolicy)
+	require.NotNil(t, attrs.OutgoingRoutePolicy)
+	assert.Equal(t, services.UnmatchPath, attrs.IncomingRoutePolicy.Config.Unmatch)
+	assert.Equal(t, "/service/{id}", attrs.IncomingRoutePolicy.Matcher.Find("/service/123"))
+	assert.Equal(t, "/health", attrs.IncomingRoutePolicy.IgnoreMatcher.Find("/health"))
+	assert.Equal(t, services.UnmatchWildcard, attrs.OutgoingRoutePolicy.Config.Unmatch)
+	assert.Equal(t, "/outgoing/{id}", attrs.OutgoingRoutePolicy.Matcher.Find("/outgoing/123"))
+}
+
 func TestMakeServiceAttrs_FeaturesMatchingMultipleCriteria(t *testing.T) {
 	exTra := services.ExportModes{}
 	exTra.AllowTraces()

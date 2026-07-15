@@ -143,12 +143,6 @@ func (t *typer) makeServiceAttrs(processMatch *ProcessMatch) svc.Attrs {
 		}
 	}
 
-	routesCfg := t.cfg.Routes
-	wildcard := byte('*')
-	if routesCfg.WildcardChar != "" {
-		wildcard = routesCfg.WildcardChar[0]
-	}
-
 	s := svc.Attrs{
 		UID: svc.UID{
 			Name:      name,
@@ -159,11 +153,29 @@ func (t *typer) makeServiceAttrs(processMatch *ProcessMatch) svc.Attrs {
 		DynamicSelectorPID: processMatch.DynamicSelectorPID,
 		ExportModes:        exportModes,
 		Sampler:            samplerFromConfig(samplerConfig),
-		PathTrie:           clusterurl.NewPathTrie(routesCfg.MaxPathSegmentCardinality, wildcard),
 		Features:           svcFeatures,
 		LogEnricherEnabled: processMatch.LogEnricherEnabled(),
 	}
 
+	routesCfg := t.cfg.Routes
+	if routesCfg != nil && routesCfg.Directional != nil {
+		policies := routesCfg.DirectionalPolicies()
+		if routesConfig != nil {
+			policies = routesConfig.PolicyOverrides.Apply(policies)
+		}
+		s.SetDirectionalRoutes(policies)
+		return s
+	}
+
+	wildcard := byte('*')
+	maxPathSegmentCardinality := 0
+	if routesCfg != nil {
+		maxPathSegmentCardinality = routesCfg.MaxPathSegmentCardinality
+		if routesCfg.WildcardChar != "" {
+			wildcard = routesCfg.WildcardChar[0]
+		}
+	}
+	s.PathTrie = clusterurl.NewPathTrie(maxPathSegmentCardinality, wildcard)
 	if routesConfig != nil {
 		s.SetCustomRoutes(routesConfig)
 	}

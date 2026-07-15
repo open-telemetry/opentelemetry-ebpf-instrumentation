@@ -50,6 +50,9 @@ func V2ToRuntime(src *schema.Extension) (*obi.Config, error) {
 	if err := validateV2HTTPFilters(src.Capture.Instrumentation.HTTP.Filters); err != nil {
 		return nil, err
 	}
+	if err := validateV2HTTPRoutes(src.Capture.Instrumentation.HTTP.Routes, src.Capture.Rules); err != nil {
+		return nil, err
+	}
 	if err := validateV2HTTPPayloadExtraction(src.Capture.Instrumentation.HTTP.PayloadExtraction); err != nil {
 		return nil, err
 	}
@@ -64,6 +67,68 @@ func V2ToRuntime(src *schema.Extension) (*obi.Config, error) {
 	cfg.Attributes.Select.Normalize()
 
 	return &cfg, nil
+}
+
+func validateV2HTTPRoutes(routes schema.HTTPRoutes, rules []schema.Rule) error {
+	globalPolicies := []struct {
+		path   string
+		policy *schema.HTTPRoutePolicy
+	}{
+		{path: "capture.instrumentation.http.routes.incoming", policy: routes.Incoming},
+		{path: "capture.instrumentation.http.routes.outgoing", policy: routes.Outgoing},
+	}
+	for _, routePolicy := range globalPolicies {
+		if err := validateV2HTTPRoutePolicy(routePolicy.path, routePolicy.policy); err != nil {
+			return err
+		}
+	}
+	for i := range rules {
+		if rules[i].Refine.HTTP == nil {
+			continue
+		}
+		refinementPolicies := []struct {
+			direction string
+			policy    *schema.HTTPRoutePolicy
+		}{
+			{direction: "incoming", policy: rules[i].Refine.HTTP.Routes.Incoming},
+			{direction: "outgoing", policy: rules[i].Refine.HTTP.Routes.Outgoing},
+		}
+		for _, routePolicy := range refinementPolicies {
+			path := fmt.Sprintf("capture.rules[%d].refine.http.routes.%s", i, routePolicy.direction)
+			if err := validateV2HTTPRoutePolicy(path, routePolicy.policy); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func validateV2HTTPRoutePolicy(path string, policy *schema.HTTPRoutePolicy) error {
+	if policy == nil {
+		return nil
+	}
+	if policy.Unmatched != nil {
+		switch *policy.Unmatched {
+		case services.UnmatchUnset, services.UnmatchPath, services.UnmatchWildcard,
+			services.UnmatchHeuristic, services.UnmatchLowCardinality:
+		default:
+			return fmt.Errorf("%s.unmatched has invalid value %q", path, *policy.Unmatched)
+		}
+	}
+	if policy.IgnoreMode != nil {
+		switch *policy.IgnoreMode {
+		case services.IgnoreMetrics, services.IgnoreTraces, services.IgnoreAll:
+		default:
+			return fmt.Errorf("%s.ignore_mode has invalid value %q", path, *policy.IgnoreMode)
+		}
+	}
+	if policy.WildcardChar != nil && len(*policy.WildcardChar) > 1 {
+		return fmt.Errorf("%s.wildcard_char must contain at most one byte", path)
+	}
+	if policy.MaxPathSegmentCardinality != nil && *policy.MaxPathSegmentCardinality < 0 {
+		return fmt.Errorf("%s.max_path_segment_cardinality must be greater than or equal to zero", path)
+	}
+	return nil
 }
 
 func validateUnsupportedV2Fields(src *schema.Extension) error {
@@ -120,8 +185,7 @@ func rejectUnsupportedProperties(path string, properties map[string]any) error {
 func runtimeConfigDefaults() obi.Config {
 	cfg := obi.DefaultConfig
 	if cfg.Routes != nil {
-		routes := *cfg.Routes
-		cfg.Routes = &routes
+		cfg.Routes = cfg.Routes.Clone()
 	}
 	if cfg.NameResolver != nil {
 		nameResolver := *cfg.NameResolver
@@ -553,8 +617,7 @@ func applyV2GlobRuleRefinement(selector *services.GlobAttributes, refine schema.
 	}
 	if refine.HTTP != nil && !zeroValue(refine.HTTP.Routes) {
 		selector.Routes = &services.CustomRoutesConfig{
-			Incoming: cloneStrings(refine.HTTP.Routes.Incoming.Patterns),
-			Outgoing: cloneStrings(refine.HTTP.Routes.Outgoing.Patterns),
+			PolicyOverrides: v2DirectionalRoutePolicyOverrides(refine.HTTP.Routes),
 		}
 	}
 }
@@ -565,9 +628,29 @@ func applyV2RegexRuleRefinement(selector *services.RegexSelector, refine schema.
 	}
 	if refine.HTTP != nil && !zeroValue(refine.HTTP.Routes) {
 		selector.Routes = &services.CustomRoutesConfig{
-			Incoming: cloneStrings(refine.HTTP.Routes.Incoming.Patterns),
-			Outgoing: cloneStrings(refine.HTTP.Routes.Outgoing.Patterns),
+			PolicyOverrides: v2DirectionalRoutePolicyOverrides(refine.HTTP.Routes),
 		}
+	}
+}
+
+func v2DirectionalRoutePolicyOverrides(routes schema.HTTPRefinementRoutes) *services.DirectionalRoutePolicyOverrides {
+	return &services.DirectionalRoutePolicyOverrides{
+		Incoming: v2RoutePolicyOverride(routes.Incoming),
+		Outgoing: v2RoutePolicyOverride(routes.Outgoing),
+	}
+}
+
+func v2RoutePolicyOverride(policy *schema.HTTPRoutePolicy) *services.RoutePolicyOverride {
+	if policy == nil {
+		return nil
+	}
+	return &services.RoutePolicyOverride{
+		Unmatch:                   cloneValue(policy.Unmatched),
+		Patterns:                  cloneStringsPointer(policy.Patterns),
+		IgnorePatterns:            cloneStringsPointer(policy.IgnoredPatterns),
+		IgnoredEvents:             cloneValue(policy.IgnoreMode),
+		WildcardChar:              cloneValue(policy.WildcardChar),
+		MaxPathSegmentCardinality: cloneValue(policy.MaxPathSegmentCardinality),
 	}
 }
 
@@ -945,8 +1028,9 @@ func applyFullV2HTTPRoutes(cfg *obi.Config, routes schema.HTTPRoutes) {
 		return
 	}
 
-	cfg.Routes = &transform.RoutesConfig{}
-	applyV2HTTPRouteConfig(cfg.Routes, routes)
+	policies := cfg.Routes.DirectionalPolicies()
+	applyV2HTTPRouteConfig(&policies, routes)
+	cfg.Routes = &transform.RoutesConfig{Directional: &policies}
 }
 
 func applyPartialV2HTTPRoutes(cfg *obi.Config, routes schema.HTTPRoutes) {
@@ -957,10 +1041,9 @@ func applyPartialV2HTTPRoutes(cfg *obi.Config, routes schema.HTTPRoutes) {
 	if !hasV2HTTPRouteConfig(routes) {
 		return
 	}
-	if cfg.Routes == nil {
-		cfg.Routes = &transform.RoutesConfig{}
-	}
-	applyV2HTTPRouteConfig(cfg.Routes, routes)
+	policies := cfg.Routes.DirectionalPolicies()
+	applyV2HTTPRouteConfig(&policies, routes)
+	cfg.Routes = &transform.RoutesConfig{Directional: &policies}
 }
 
 func applyV2HTTPRouteDiscovery(cfg *obi.Config, discovery schema.HTTPRouteDiscovery, complete bool) {
@@ -979,33 +1062,12 @@ func applyV2HTTPRouteDiscovery(cfg *obi.Config, discovery schema.HTTPRouteDiscov
 }
 
 func hasV2HTTPRouteConfig(routes schema.HTTPRoutes) bool {
-	return routes.Unmatched != nil ||
-		routes.Patterns != nil ||
-		routes.IgnoredPatterns != nil ||
-		routes.IgnoreMode != nil ||
-		routes.WildcardChar != nil ||
-		routes.MaxPathSegmentCardinality != nil
+	return routes.Incoming != nil || routes.Outgoing != nil
 }
 
-func applyV2HTTPRouteConfig(dst *transform.RoutesConfig, routes schema.HTTPRoutes) {
-	if routes.Unmatched != nil {
-		dst.Unmatch = *routes.Unmatched
-	}
-	if routes.Patterns != nil {
-		dst.Patterns = cloneStrings(*routes.Patterns)
-	}
-	if routes.IgnoredPatterns != nil {
-		dst.IgnorePatterns = cloneStrings(*routes.IgnoredPatterns)
-	}
-	if routes.IgnoreMode != nil {
-		dst.IgnoredEvents = *routes.IgnoreMode
-	}
-	if routes.WildcardChar != nil {
-		dst.WildcardChar = *routes.WildcardChar
-	}
-	if routes.MaxPathSegmentCardinality != nil {
-		dst.MaxPathSegmentCardinality = *routes.MaxPathSegmentCardinality
-	}
+func applyV2HTTPRouteConfig(dst *services.DirectionalRoutePolicies, routes schema.HTTPRoutes) {
+	dst.Incoming = v2RoutePolicyOverride(routes.Incoming).Apply(dst.Incoming)
+	dst.Outgoing = v2RoutePolicyOverride(routes.Outgoing).Apply(dst.Outgoing)
 }
 
 func applyFullV2HTTPPayloadExtraction(cfg *obi.Config, payload schema.PayloadExtraction) {
@@ -2023,6 +2085,22 @@ func cloneStrings(values []string) []string {
 		return nil
 	}
 	return append([]string(nil), values...)
+}
+
+func cloneStringsPointer(values *[]string) *[]string {
+	if values == nil {
+		return nil
+	}
+	cloned := cloneStrings(*values)
+	return &cloned
+}
+
+func cloneValue[T any](value *T) *T {
+	if value == nil {
+		return nil
+	}
+	cloned := *value
+	return &cloned
 }
 
 func cloneRouteHarvesterLanguages(values []services.RouteHarvesterLanguage) []services.RouteHarvesterLanguage {
