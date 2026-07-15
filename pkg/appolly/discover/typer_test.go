@@ -162,6 +162,38 @@ func TestMakeServiceAttrsDirectionalRouteOverrides(t *testing.T) {
 	assert.Equal(t, "/outgoing/{id}", attrs.OutgoingRoutePolicy.Matcher.Find("/outgoing/123"))
 }
 
+func TestMakeServiceAttrsPreservesAbsentGlobalRouteDirection(t *testing.T) {
+	global := services.DirectionalRoutePolicies{
+		Incoming: services.RoutePolicy{Unmatch: services.UnmatchPath},
+	}
+	ty := typer{cfg: &obi.Config{Routes: &transform.RoutesConfig{
+		Directional: &global,
+		DirectionalPolicyPresence: &transform.DirectionalRoutePolicyPresence{
+			Incoming: true,
+		},
+	}}}
+
+	globalOnly := ty.makeServiceAttrs(&ProcessMatch{
+		Process:  &services.ProcessInfo{Pid: 1234},
+		Criteria: []services.Selector{dummyCriterion{}},
+	})
+	require.NotNil(t, globalOnly.IncomingRoutePolicy)
+	require.Nil(t, globalOnly.OutgoingRoutePolicy)
+
+	outgoingPatterns := []string{"/inventory/{id}"}
+	withOverride := ty.makeServiceAttrs(&ProcessMatch{
+		Process: &services.ProcessInfo{Pid: 5678},
+		Criteria: []services.Selector{dummyCriterion{routes: &services.CustomRoutesConfig{
+			PolicyOverrides: &services.DirectionalRoutePolicyOverrides{
+				Outgoing: &services.RoutePolicyOverride{Patterns: &outgoingPatterns},
+			},
+		}}},
+	})
+	require.NotNil(t, withOverride.IncomingRoutePolicy)
+	require.NotNil(t, withOverride.OutgoingRoutePolicy)
+	assert.Equal(t, "/inventory/{id}", withOverride.OutgoingRoutePolicy.Matcher.Find("/inventory/123"))
+}
+
 func TestMakeServiceAttrsRuleOnlyDirectionalRoutes(t *testing.T) {
 	baseline := services.DirectionalRoutePolicies{
 		Incoming: services.RoutePolicy{Unmatch: services.UnmatchUnset},

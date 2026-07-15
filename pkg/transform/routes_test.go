@@ -356,6 +356,35 @@ func TestDirectionalRoutesRuleOnlyPolicyScope(t *testing.T) {
 	assert.Empty(t, spans[2].Route)
 }
 
+func TestDirectionalRoutesSkipAbsentGlobalDirection(t *testing.T) {
+	policies := services.DirectionalRoutePolicies{
+		Incoming: services.RoutePolicy{Unmatch: services.UnmatchPath},
+		Outgoing: services.RoutePolicy{Unmatch: services.UnmatchHeuristic},
+	}
+	input := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
+	output := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
+	router, err := RoutesProvider(&RoutesConfig{
+		Directional: &policies,
+		DirectionalPolicyPresence: &DirectionalRoutePolicyPresence{
+			Incoming: true,
+		},
+	}, input, output)(t.Context())
+	require.NoError(t, err)
+	out := output.Subscribe()
+	defer input.Close()
+	go router(t.Context())
+
+	service := svc.Attrs{HarvestedRouteMatcher: route.NewMatcher([]string{"/harvested/{id}"})}
+	input.Send([]request.Span{
+		{Type: request.EventTypeHTTP, Path: "/incoming/123", Service: service},
+		{Type: request.EventTypeHTTPClient, Path: "/harvested/123", Service: service},
+	})
+	spans := testutil.ReadChannel(t, out, testTimeout)
+	require.Len(t, spans, 2)
+	assert.Equal(t, "/incoming/123", spans[0].Route)
+	assert.Empty(t, spans[1].Route)
+}
+
 func TestDirectionalRoutesUseDirectionalWildcards(t *testing.T) {
 	input := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
 	output := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))

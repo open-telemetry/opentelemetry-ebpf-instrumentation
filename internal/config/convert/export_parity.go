@@ -28,8 +28,12 @@ func httpRoutes(cfg *obi.Config) schema.HTTPRoutes {
 	}
 
 	policies := cfg.Routes.DirectionalPolicies()
-	out.Incoming = httpRoutePolicy(policies.Incoming)
-	out.Outgoing = httpRoutePolicy(policies.Outgoing)
+	if cfg.Routes.HasIncomingPolicy() {
+		out.Incoming = httpRoutePolicy(policies.Incoming)
+	}
+	if cfg.Routes.HasOutgoingPolicy() {
+		out.Outgoing = httpRoutePolicy(policies.Outgoing)
+	}
 	return out
 }
 

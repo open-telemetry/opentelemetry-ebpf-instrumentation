@@ -1037,9 +1037,15 @@ func applyFullV2HTTPRoutes(cfg *obi.Config, routes schema.HTTPRoutes) {
 		return
 	}
 
-	policies := cfg.Routes.DirectionalPolicies()
+	policies := services.DirectionalRoutePolicies{}
 	applyV2HTTPRouteConfig(&policies, routes)
-	cfg.Routes = &transform.RoutesConfig{Directional: &policies}
+	cfg.Routes = &transform.RoutesConfig{
+		Directional: &policies,
+		DirectionalPolicyPresence: &transform.DirectionalRoutePolicyPresence{
+			Incoming: routes.Incoming != nil,
+			Outgoing: routes.Outgoing != nil,
+		},
+	}
 }
 
 func applyPartialV2HTTPRoutes(cfg *obi.Config, routes schema.HTTPRoutes) {

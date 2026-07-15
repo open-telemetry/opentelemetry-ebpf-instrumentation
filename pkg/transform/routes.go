@@ -53,6 +53,11 @@ const (
 
 const wildCard = "/**"
 
+type DirectionalRoutePolicyPresence struct {
+	Incoming bool
+	Outgoing bool
+}
+
 // RoutesConfig allows grouping URLs sharing a given pattern.
 type RoutesConfig struct {
 	// Unmatch specifies what to do when a route pattern is not matched.
@@ -73,6 +78,9 @@ type RoutesConfig struct {
 	// Directional is populated only by config v2 conversion. The fields above
 	// remain the complete v1 YAML surface.
 	Directional *services.DirectionalRoutePolicies `yaml:"-" json:"-"`
+	// DirectionalPolicyPresence preserves which global directions were present
+	// in a complete v2 config. Nil means both directions are configured.
+	DirectionalPolicyPresence *DirectionalRoutePolicyPresence `yaml:"-" json:"-"`
 	// DirectionalRuleOnly indicates that Directional provides an inheritance
 	// baseline for per-service rules but does not apply globally.
 	DirectionalRuleOnly bool `yaml:"-" json:"-"`
@@ -89,7 +97,19 @@ func (rc *RoutesConfig) Clone() *RoutesConfig {
 		policies := rc.Directional.Clone()
 		cloned.Directional = &policies
 	}
+	if rc.DirectionalPolicyPresence != nil {
+		presence := *rc.DirectionalPolicyPresence
+		cloned.DirectionalPolicyPresence = &presence
+	}
 	return &cloned
+}
+
+func (rc *RoutesConfig) HasIncomingPolicy() bool {
+	return rc != nil && (rc.DirectionalPolicyPresence == nil || rc.DirectionalPolicyPresence.Incoming)
+}
+
+func (rc *RoutesConfig) HasOutgoingPolicy() bool {
+	return rc != nil && (rc.DirectionalPolicyPresence == nil || rc.DirectionalPolicyPresence.Outgoing)
 }
 
 func (rc *RoutesConfig) DirectionalPolicies() services.DirectionalRoutePolicies {
@@ -207,7 +227,18 @@ func (rn *routerNode) provideDirectionalRoutes() (swarm.RunFunc, error) {
 	rn.outgoingRoutePolicy = svc.NewRoutePolicy(policies.Outgoing)
 	rn.classifiers = map[byte]*clusterurl.ClusterURLClassifier{}
 
-	for _, policy := range []*svc.RoutePolicy{rn.incomingRoutePolicy, rn.outgoingRoutePolicy} {
+	directionalPolicies := []struct {
+		configured bool
+		policy     *svc.RoutePolicy
+	}{
+		{configured: rn.config.HasIncomingPolicy(), policy: rn.incomingRoutePolicy},
+		{configured: rn.config.HasOutgoingPolicy(), policy: rn.outgoingRoutePolicy},
+	}
+	for _, directionalPolicy := range directionalPolicies {
+		if !directionalPolicy.configured {
+			continue
+		}
+		policy := directionalPolicy.policy
 		if !usesHeuristic(policy.Config.Unmatch) {
 			continue
 		}
@@ -304,6 +335,12 @@ func (rn *routerNode) routePolicy(span *request.Span) *svc.RoutePolicy {
 		return servicePolicy
 	}
 	if rn.config.DirectionalRuleOnly {
+		return nil
+	}
+	if span.IsClientSpan() && !rn.config.HasOutgoingPolicy() {
+		return nil
+	}
+	if !span.IsClientSpan() && !rn.config.HasIncomingPolicy() {
 		return nil
 	}
 	return globalPolicy

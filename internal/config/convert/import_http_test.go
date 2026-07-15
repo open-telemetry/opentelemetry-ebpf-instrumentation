@@ -170,6 +170,34 @@ func TestV2ToRuntimeImportsDirectionalHTTPRoutes(t *testing.T) {
 	require.Equal(t, outgoingPatterns, policies.Outgoing.Patterns)
 }
 
+func TestV2ToRuntimePreservesAbsentGlobalHTTPDirection(t *testing.T) {
+	t.Parallel()
+
+	cfg := defaultRuntimeConfig()
+	_, ext := RuntimeToV2(&cfg)
+	incomingPatterns := []string{"/orders/{id}"}
+	ext.Capture.Instrumentation.HTTP.Routes.Incoming = &schema.HTTPRoutePolicy{
+		Patterns: &incomingPatterns,
+	}
+	ext.Capture.Instrumentation.HTTP.Routes.Outgoing = nil
+
+	got, err := V2ToRuntime(ext)
+	require.NoError(t, err)
+	require.NotNil(t, got.Routes)
+	require.True(t, got.Routes.HasIncomingPolicy())
+	require.False(t, got.Routes.HasOutgoingPolicy())
+
+	policies := got.Routes.DirectionalPolicies()
+	require.Equal(t, incomingPatterns, policies.Incoming.Patterns)
+	require.Empty(t, policies.Incoming.Unmatch)
+	require.Empty(t, policies.Incoming.WildcardChar)
+	require.Zero(t, policies.Incoming.MaxPathSegmentCardinality)
+
+	_, roundTrip := RuntimeToV2(got)
+	require.NotNil(t, roundTrip.Capture.Instrumentation.HTTP.Routes.Incoming)
+	require.Nil(t, roundTrip.Capture.Instrumentation.HTTP.Routes.Outgoing)
+}
+
 func TestV2ToRuntimeRejectsInvalidDirectionalHTTPRoutes(t *testing.T) {
 	t.Parallel()
 
