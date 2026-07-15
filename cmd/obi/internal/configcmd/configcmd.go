@@ -130,9 +130,9 @@ func validateConfig(data []byte, mode validationMode) error {
 	}
 	enableDefaultCaptureForValidation(cfg, ext)
 	if mode == validationModeReceiver {
-		err = cfg.ValidateForReceiver()
+		err = cfg.ValidateStaticForReceiver()
 	} else {
-		err = cfg.Validate()
+		err = cfg.ValidateStatic()
 	}
 	if err != nil {
 		return fmt.Errorf("runtime configuration: %w", err)
@@ -202,7 +202,7 @@ func migrateConfig(data []byte) ([]byte, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
-	if err := cfg.Validate(); err != nil {
+	if err := cfg.ValidateStatic(); err != nil {
 		return nil, "", fmt.Errorf("v1 runtime configuration: %w", err)
 	}
 
