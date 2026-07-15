@@ -513,14 +513,27 @@ network: {}
 	require.ErrorAs(t, err, &standaloneNotV2)
 	require.Contains(t, err.Error(), "missing extensions.obi.version field")
 
-	_, err = ParseReceiverYAML([]byte(`
+	for _, yaml := range []string{
+		`
 file_format: "1.0"
 extensions:
   obi:
     version: "2.0"
     capture: {}
-`))
-	var receiverNotV2 *NotV2Error
-	require.ErrorAs(t, err, &receiverNotV2)
-	require.Contains(t, err.Error(), "missing top-level OBI v2 version field")
+`,
+		`
+file_format: "1.0"
+extensions:
+  obi:
+    capture: {}
+`,
+	} {
+		_, err = ParseReceiverYAML([]byte(yaml))
+		var wrongLayout *ReceiverLayoutError
+		require.ErrorAs(t, err, &wrongLayout)
+		var receiverNotV2 *NotV2Error
+		require.NotErrorAs(t, err, &receiverNotV2)
+		require.Contains(t, err.Error(), "extensions.obi.capture")
+		require.Contains(t, err.Error(), "receiver top level")
+	}
 }

@@ -205,6 +205,10 @@ func ParseReceiverYAML(data []byte) (*Extension, error) {
 		return nil, err
 	}
 
+	if _, ok := nestedNode(root, "extensions", "obi"); ok {
+		return nil, &ReceiverLayoutError{}
+	}
+
 	if version, ok := nestedScalar(root, "version"); ok {
 		if version != SupportedVersion {
 			return nil, &UnsupportedVersionError{Version: version}

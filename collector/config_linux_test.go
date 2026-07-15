@@ -113,6 +113,26 @@ func TestReceiverConfigDoesNotFallbackFromInvalidV2(t *testing.T) {
 				require.NotErrorAs(t, err, &notV2)
 			},
 		},
+		{
+			name: "standalone v2 layout with legacy selector",
+			component: map[string]any{
+				"file_format": "1.0",
+				"extensions": map[string]any{
+					"obi": map[string]any{
+						"version": "2.0",
+						"capture": map[string]any{},
+					},
+				},
+				"open_port":          "8080",
+				"channel_buffer_len": 123,
+			},
+			check: func(t *testing.T, err error) {
+				var wrongLayout *schema.ReceiverLayoutError
+				require.ErrorAs(t, err, &wrongLayout)
+				var notV2 *schema.NotV2Error
+				require.NotErrorAs(t, err, &notV2)
+			},
+		},
 	}
 
 	for _, test := range tests {
