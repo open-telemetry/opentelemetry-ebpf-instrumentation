@@ -355,6 +355,101 @@ func TestParseFetchRequest(t *testing.T) {
 	}
 }
 
+// TestParseFetchRequestMultiTopicWithPartitions parses a v13 (flexible) request
+// with multiple topics, each with a fully-populated partition, and asserts
+// topics[1] (UUID + partition) parses correctly, i.e. the reader stayed aligned
+// across topics.
+func TestParseFetchRequestMultiTopicWithPartitions(t *testing.T) {
+	uuid1 := UUID{
+		0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+		0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10,
+	}
+	uuid2 := UUID{
+		0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28,
+		0x29, 0x2A, 0x2B, 0x2C, 0x2D, 0x2E, 0x2F, 0x30,
+	}
+
+	// Writes one full v12+ partition entry: partition_index, current_leader_epoch,
+	// fetch_offset, last_fetched_epoch, log_start_offset, partition_max_bytes,
+	// and the per-partition _tagged_fields.
+	writePartition := func(pkt []byte, offset int, idx int32, fetchOffset int64) int {
+		binary.BigEndian.PutUint32(pkt[offset:], uint32(idx)) // partition_index
+		offset += 4
+		binary.BigEndian.PutUint32(pkt[offset:], 5) // current_leader_epoch
+		offset += 4
+		binary.BigEndian.PutUint64(pkt[offset:], uint64(fetchOffset)) // fetch_offset
+		offset += 8
+		binary.BigEndian.PutUint32(pkt[offset:], 0xFFFFFFFF) // last_fetched_epoch (-1)
+		offset += 4
+		binary.BigEndian.PutUint64(pkt[offset:], 0) // log_start_offset
+		offset += 8
+		binary.BigEndian.PutUint32(pkt[offset:], 1048576) // partition_max_bytes
+		offset += 4
+		pkt[offset] = 0x00 // partition _tagged_fields (empty)
+		offset++
+		return offset
+	}
+
+	pkt := make([]byte, 300)
+	offset := 0
+
+	// v13 header fields (v7-14 branch): replica_id, max_wait_ms, min_bytes,
+	// max_bytes, isolation_level, session_id, session_epoch.
+	binary.BigEndian.PutUint32(pkt[offset:], 1) // replica_id
+	offset += 4
+	binary.BigEndian.PutUint32(pkt[offset:], 1000) // max_wait_ms
+	offset += 4
+	binary.BigEndian.PutUint32(pkt[offset:], 1) // min_bytes
+	offset += 4
+	binary.BigEndian.PutUint32(pkt[offset:], 1024) // max_bytes
+	offset += 4
+	pkt[offset] = 0 // isolation_level
+	offset++
+	binary.BigEndian.PutUint32(pkt[offset:], 1) // session_id
+	offset += 4
+	binary.BigEndian.PutUint32(pkt[offset:], 1) // session_epoch
+	offset += 4
+
+	// Topics COMPACT_ARRAY: 2 topics => varint 3 (N+1).
+	pkt[offset] = 0x03
+	offset++
+
+	// Topic 1: UUID, 1 partition, topic tagged fields.
+	copy(pkt[offset:], uuid1[:])
+	offset += UUIDLen
+	pkt[offset] = 0x02 // partitions COMPACT_ARRAY: 1 => varint 2
+	offset++
+	offset = writePartition(pkt, offset, 0, 100)
+	pkt[offset] = 0x00 // topic _tagged_fields (empty)
+	offset++
+
+	// Topic 2: only parsed correctly if topic 1's partition was fully consumed.
+	copy(pkt[offset:], uuid2[:])
+	offset += UUIDLen
+	pkt[offset] = 0x02 // 1 partition
+	offset++
+	offset = writePartition(pkt, offset, 3, 200)
+	pkt[offset] = 0x00 // topic _tagged_fields (empty)
+	offset++
+
+	r := largebuf.NewLargeBufferFrom(pkt[:offset]).NewReader()
+	req, err := ParseFetchRequest(&r, newTestHeader(APIKeyFetch, 13))
+	require.NoError(t, err)
+	require.Len(t, req.Topics, 2)
+
+	assert.Equal(t, &uuid1, req.Topics[0].UUID)
+	require.NotNil(t, req.Topics[0].Partition)
+	assert.Equal(t, 0, req.Topics[0].Partition.Partition)
+	assert.Equal(t, int64(100), req.Topics[0].Partition.FetchOffset)
+
+	// The regression assertion: without fully consuming topic 1's partition,
+	// this UUID (and partition) would be read from the wrong offset.
+	assert.Equal(t, &uuid2, req.Topics[1].UUID)
+	require.NotNil(t, req.Topics[1].Partition)
+	assert.Equal(t, 3, req.Topics[1].Partition.Partition)
+	assert.Equal(t, int64(200), req.Topics[1].Partition.FetchOffset)
+}
+
 // Comprehensive truncation tests for fetch requests
 func TestParseFetchRequestTruncation(t *testing.T) {
 	// Create a valid fetch request packet for each version
