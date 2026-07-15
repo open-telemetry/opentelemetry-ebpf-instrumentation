@@ -32,14 +32,15 @@
   // Same Symbol.for key the api uses internally (createContextKey).
   const SPAN_KEY = Symbol.for('OpenTelemetry Context Key SPAN');
   const SENTINEL_PREFIX = '/dev/null/obi-span/';
-  // Field size budgets. These mirror the fixed key/value/name buffers of the
-  // BPF-side otel_attribute_t / node_span_event_t layout the reader decodes
-  // into, so anything longer would be truncated there anyway.
+  // Field size budgets. Attribute key/value budgets must match the fixed
+  // BPF/Go otel_attribute_t buffers on the reader side (key[32], value[128]),
+  // minus one byte for the NUL terminator the decoder relies on — otherwise
+  // the userspace decoder silently re-truncates and we waste payload space.
   const MAX_PAYLOAD = 1900; // whole serialized span; keeps the sentinel path under the BPF buffer
   const MAX_ATTRS = 16;
   const MAX_NAME_LEN = 128;
-  const MAX_ATTR_KEY_LEN = 64;
-  const MAX_ATTR_VALUE_LEN = 256;
+  const MAX_ATTR_KEY_LEN = 31; // otel_attribute_t key[32] - 1 (NUL)
+  const MAX_ATTR_VALUE_LEN = 127; // otel_attribute_t value[128] - 1 (NUL)
   const MAX_STATUS_MSG_LEN = 128;
 
   const g = globalThis;
@@ -52,9 +53,9 @@
 
   // Diagnostics are OFF by default: this code runs inside the customer's
   // process, so it must never write to their stdout/stderr in normal
-  // operation. Set OTEL_EBPF_NODEJS_SPAN_BRIDGE_DEBUG=1 to surface why the
+  // operation. Set OTEL_EBPF_NODEJS_DEBUG=1 to surface why the
   // bridge failed to activate when troubleshooting an injection.
-  const DEBUG = !!process.env.OTEL_EBPF_NODEJS_SPAN_BRIDGE_DEBUG;
+  const DEBUG = !!process.env.OTEL_EBPF_NODEJS_DEBUG;
   const debug = (msg, err) => {
     if (!DEBUG) return;
     try {
@@ -66,6 +67,20 @@
   };
 
   const truncate = (s, max) => (s.length > max ? s.slice(0, max) : s);
+
+  // App-provided values (span names, attribute values, status messages) may be
+  // objects whose toString()/Symbol.toPrimitive throws. This code runs inside
+  // the customer's process on the hot path (span.end() is often in a finally
+  // block), so a raw String(value) that throws would surface as an app-level
+  // exception where an unregistered SDK would have been a silent no-op. Coerce
+  // defensively and never let stringification escape.
+  const safeStr = (v) => {
+    try {
+      return String(v);
+    } catch (_) {
+      return '';
+    }
+  };
 
   // IMPORTANT: do not create or modify the registry until every guard has
   // passed — a registry object we create carries a version string, and any
@@ -79,20 +94,28 @@
     debug('staying inert: a tracer provider/context manager is already registered');
     return;
   }
-  // An OTel SDK is loaded but has not registered yet (e.g. it initializes
-  // lazily, after we were injected). Registering ours first would make the
-  // app's later registration fail and starve its exporters — stay inert and
-  // let the app's SDK own the API surface.
-  const sdkLoaded = Object.keys(require.cache ?? {}).some(
-    (p) => p.includes('@opentelemetry/sdk-trace') || p.includes('@opentelemetry/sdk-node')
-  );
-  if (sdkLoaded) {
-    debug('staying inert: the application loads its own @opentelemetry SDK');
-    return;
-  }
+  // NOTE: Our reliable signals to skip the bridge are:
+  //   1. the registry guard above (SDK already registered by injection time);
+  //   2. the step-aside below (SDK registers AFTER we did) — we yield.
   // If some api copy already initialized the registry (e.g. via diag), keep
   // its version and only add our entries; otherwise create it with ours.
   const registry = (g[API_KEY] = existing ?? { version: API_VERSION });
+
+  // Step-aside state: once the application registers its own provider, we
+  // unregister ourselves and stop emitting so its SDK owns the API surface.
+  let yielded = false;
+  const yieldToApp = (why) => {
+    if (yielded) return;
+    yielded = true;
+    // Remove our registration entirely so the app's registerGlobal succeeds.
+    // We must drop the WHOLE registry object, not just .trace/.context: the
+    // registry also carries a `version`, and registerGlobal requires an exact
+    // version match — leaving our version behind would block an app whose api
+    // is even a patch different. Deleting the key lets the app recreate the
+    // registry with its own version.
+    delete g[API_KEY];
+    debug('yielded to application-registered SDK: ' + why);
+  };
 
   // --- transport -----------------------------------------------------------
 
@@ -107,6 +130,7 @@
   // unexpected error (e.g. a malformed payload rejected before the syscall)
   // is worth surfacing, and only under the debug flag.
   const emit = (payload) => {
+    if (yielded) return; // the app's own SDK owns telemetry now
     try {
       fs.accessSync(SENTINEL_PREFIX + payload);
     } catch (err) {
@@ -174,7 +198,7 @@
 
   class Span {
     constructor(name, kind, parentSpanContext) {
-      this.name = String(name);
+      this.name = safeStr(name);
       this.kind = kind ?? 0;
       this._parent = parentSpanContext;
       this._spanContext = {
@@ -204,7 +228,7 @@
       return this;
     }
     addEvent(name) {
-      if (!this._ended && this._events.length < 8) this._events.push(String(name));
+      if (!this._ended && this._events.length < 8) this._events.push(safeStr(name));
       return this;
     }
     addLink() {
@@ -220,12 +244,12 @@
       return this;
     }
     updateName(name) {
-      if (!this._ended) this.name = String(name);
+      if (!this._ended) this.name = safeStr(name);
       return this;
     }
     recordException(err) {
-      const msg = err && (err.message ?? String(err));
-      if (msg !== undefined) this.setAttribute('exception.message', String(msg));
+      const msg = err && (err.message ?? safeStr(err));
+      if (msg !== undefined) this.setAttribute('exception.message', safeStr(msg));
       return this;
     }
     isRecording() {
@@ -235,7 +259,16 @@
       if (this._ended) return;
       this._ended = true;
       const durNs = hrNs() - this._startHrNs;
-      this._emit(durNs);
+      // span.end() is idiomatically called from a finally block. It must never
+      // throw into the app: with no SDK registered the alternative is a silent
+      // NoopSpan, so any escape here is a regression. safeStr guards the field
+      // coercions; this catch is the last line of defense (e.g. an exotic
+      // JSON.stringify failure).
+      try {
+        this._emit(durNs);
+      } catch (err) {
+        debug('failed to emit span (dropped)', err);
+      }
     }
     // Serialize at most MAX_ATTRS attributes into a plain object, truncating
     // keys/values and coercing unsupported value types to strings, to match
@@ -252,7 +285,7 @@
         } else if (typeof value === 'number' || typeof value === 'boolean') {
           out[key] = value;
         } else {
-          out[key] = truncate(String(value), MAX_ATTR_VALUE_LEN);
+          out[key] = truncate(safeStr(value), MAX_ATTR_VALUE_LEN);
         }
       }
       return out;
@@ -268,13 +301,16 @@
         startNs: this._startWallNs.toString(),
         durNs: durNs.toString(),
         status: this.status.code,
-        statusMsg: this.status.message ? truncate(String(this.status.message), MAX_STATUS_MSG_LEN) : undefined,
+        statusMsg: this.status.message ? truncate(safeStr(this.status.message), MAX_STATUS_MSG_LEN) : undefined,
         attrs: this._serializeAttributes(),
         events: this._events.length ? this._events : undefined,
         scope: this._scope,
       };
       let payload = JSON.stringify(rec);
-      if (payload.length > MAX_PAYLOAD) {
+      // Measure UTF-8 bytes, not String#length (UTF-16 code units): the BPF
+      // side reads the sentinel path as bytes into a fixed buffer, so a
+      // multi-byte payload that looks short by .length could still overflow.
+      if (Buffer.byteLength(payload, 'utf8') > MAX_PAYLOAD) {
         // The BPF payload buffer is fixed-size. If a span with many/large
         // attributes overflows it, drop the variable-length parts (attributes
         // and events) so the core span still reaches OBI rather than being
@@ -289,11 +325,25 @@
 
   // --- tracer / provider ----------------------------------------------------
 
+  // After we have yielded, the application's own provider owns the global.
+  // Tracers the app acquired-and-used before injection cached OUR tracer
+  // (OTel ProxyTracer caches the first real delegate), so route them through
+  // to the app's current tracer instead of producing dead bridge spans.
+  const activeAppTracer = (scope, version) => {
+    if (!yielded) return null;
+    const reg = g[API_KEY];
+    const prov = reg && reg.trace;
+    if (prov && typeof prov.getTracer === 'function') return prov.getTracer(scope, version);
+    return null;
+  };
+
   class Tracer {
     constructor(scopeName) {
       this._scope = scopeName;
     }
     startSpan(name, options, context) {
+      const at = activeAppTracer(this._scope);
+      if (at) return at.startSpan(name, options, context);
       const ctx = context ?? contextManager.active();
       const opts = options ?? {};
       let parent;
@@ -312,6 +362,8 @@
       return span;
     }
     startActiveSpan(name, arg2, arg3, arg4) {
+      const at = activeAppTracer(this._scope);
+      if (at) return at.startActiveSpan(name, arg2, arg3, arg4);
       let options, context, fn;
       if (typeof arg2 === 'function') {
         fn = arg2;
@@ -345,16 +397,37 @@
   // consult the global registry. Point each loaded copy's proxy at our
   // provider (getTracerProvider() returns the copy's own proxy as long as
   // nothing is registered globally yet, which the guards above ensured).
+  // Wrap a global setter on an api namespace so that, if the application ever
+  // registers its own provider/manager, we yield first (removing our registry
+  // entry) and then let the real registration proceed — so the app's SDK wins
+  // instead of hitting the API's "duplicate registration" refusal.
+  const wrapSetter = (apiObj, method, why) => {
+    if (!apiObj || typeof apiObj[method] !== 'function' || apiObj[method].__obiWrapped) {
+      return;
+    }
+    const orig = apiObj[method].bind(apiObj);
+    const wrapped = function (...args) {
+      yieldToApp(why);
+      return orig(...args);
+    };
+    wrapped.__obiWrapped = true;
+    apiObj[method] = wrapped;
+  };
+
   for (const key of Object.keys(require.cache ?? {})) {
     if (!/[\\/]@opentelemetry[\\/]api[\\/]/.test(key)) continue;
     try {
       const exp = require.cache[key] && require.cache[key].exports;
       const traceApi = exp && exp.trace;
+      const contextApi = exp && exp.context;
       if (traceApi && typeof traceApi.getTracerProvider === 'function') {
         const proxy = traceApi.getTracerProvider();
         if (proxy && typeof proxy.setDelegate === 'function') {
           proxy.setDelegate(tracerProvider);
         }
+        // Yield when the app registers its own tracer provider / context mgr.
+        wrapSetter(traceApi, 'setGlobalTracerProvider', 'setGlobalTracerProvider');
+        wrapSetter(contextApi, 'setGlobalContextManager', 'setGlobalContextManager');
       }
     } catch (err) {
       // never let bridge wiring break the app; surface only under debug

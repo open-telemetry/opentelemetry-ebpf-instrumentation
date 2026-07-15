@@ -319,6 +319,11 @@ test:
 	@echo "### Testing code"
 	KUBEBUILDER_ASSETS="$(shell go tool $(TOOLS_MODFILE) setup-envtest use $(ENVTEST_K8S_VERSION) -p path)" go test -short -race -a ./... -coverpkg=./... -coverprofile $(TEST_OUTPUT)/cover.all.txt
 
+.PHONY: test-nodejs
+test-nodejs:
+	@echo "### Testing the Node.js manual-span bridge (spanbridge.js)"
+	cd pkg/internal/nodejs/spanbridge_test && npm ci && node --test
+
 .PHONY: test-privileged
 test-privileged: $(ENVTEST)
 	@echo "### Testing only privileged-tagged tests"

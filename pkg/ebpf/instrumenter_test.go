@@ -530,3 +530,63 @@ func (s *stubTracer) SetEventContext(*ebpfcommon.EBPFEventContext)           {}
 func (s *stubTracer) Capabilities() ebpfcommon.TracerCapability              { return 0 }
 func (s *stubTracer) Run(context.Context, *ebpfcommon.EBPFEventContext, *msg.Queue[[]request.Span]) {
 }
+
+func TestDedupModuleProbes(t *testing.T) {
+	// Distinct programs act as identities; dedup compares pointer equality.
+	pA := &ebpf.Program{}
+	pB := &ebpf.Program{}
+	pC := &ebpf.Program{}
+
+	descA := &ebpfcommon.ProbeDesc{Start: pA}
+	descB := &ebpfcommon.ProbeDesc{Start: pB}
+	descC := &ebpfcommon.ProbeDesc{Start: pC}
+
+	t.Run("no existing modules keeps everything", func(t *testing.T) {
+		pMap := map[string][]*ebpfcommon.ProbeDesc{"uv_fs_access": {descA}}
+		got := dedupModuleProbes(nil, pMap)
+		require.Len(t, got, 1)
+		assert.Equal(t, []*ebpfcommon.ProbeDesc{descA}, got["uv_fs_access"])
+	})
+
+	t.Run("same symbol and program is dropped", func(t *testing.T) {
+		// "node" and "libuv.so" both resolve to the executable and carry the
+		// same probe on the same symbol: the second must be filtered out.
+		existing := []map[string][]*ebpfcommon.ProbeDesc{
+			{"uv_fs_access": {descA}},
+		}
+		pMap := map[string][]*ebpfcommon.ProbeDesc{"uv_fs_access": {descA}}
+		got := dedupModuleProbes(existing, pMap)
+		assert.Empty(t, got)
+	})
+
+	t.Run("same symbol but different program is kept", func(t *testing.T) {
+		existing := []map[string][]*ebpfcommon.ProbeDesc{
+			{"uv_fs_access": {descA}},
+		}
+		pMap := map[string][]*ebpfcommon.ProbeDesc{"uv_fs_access": {descB}}
+		got := dedupModuleProbes(existing, pMap)
+		require.Len(t, got, 1)
+		assert.Equal(t, []*ebpfcommon.ProbeDesc{descB}, got["uv_fs_access"])
+	})
+
+	t.Run("different symbol is kept", func(t *testing.T) {
+		existing := []map[string][]*ebpfcommon.ProbeDesc{
+			{"uv_fs_access": {descA}},
+		}
+		pMap := map[string][]*ebpfcommon.ProbeDesc{"SSL_read": {descA}}
+		got := dedupModuleProbes(existing, pMap)
+		require.Len(t, got, 1)
+		assert.Equal(t, []*ebpfcommon.ProbeDesc{descA}, got["SSL_read"])
+	})
+
+	t.Run("partial overlap keeps only the new descriptors", func(t *testing.T) {
+		existing := []map[string][]*ebpfcommon.ProbeDesc{
+			{"uv_fs_access": {descA}},
+		}
+		// descA is a duplicate, descC is new for the same symbol.
+		pMap := map[string][]*ebpfcommon.ProbeDesc{"uv_fs_access": {descA, descC}}
+		got := dedupModuleProbes(existing, pMap)
+		require.Len(t, got, 1)
+		assert.Equal(t, []*ebpfcommon.ProbeDesc{descC}, got["uv_fs_access"])
+	})
+}

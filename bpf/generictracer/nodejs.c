@@ -73,9 +73,13 @@ static __always_inline int handle_node_span(const char *path, const u64 pid_tgid
         return 0;
     }
 
+    // Only explicitly-read fields need initializing. We don't zero the whole
+    // event: a memset over the ~2KB struct compiles to an out-of-line memset
+    // call the BPF loader rejects ("unknown func"). The payload bytes past
+    // payload_len are never read by user space, and the _pad bytes are never
+    // read at all, so both are fine left uninitialized. has_parent_ctx MUST be
+    // set though — user space reads the parent ids only when it is non-zero.
     ev->type = EVENT_NODE_SPAN;
-    ev->_pad[0] = 0;
-    ev->_pad[1] = 0;
     ev->end_ktime = bpf_ktime_get_ns();
     task_pid(&ev->pid);
 
@@ -86,8 +90,6 @@ static __always_inline int handle_node_span(const char *path, const u64 pid_tgid
         bpf_memcpy(ev->parent_span_id, (void *)octx->span_id, SPAN_ID_SIZE_BYTES);
     } else {
         ev->has_parent_ctx = 0;
-        bpf_memset(ev->parent_trace_id, 0, TRACE_ID_SIZE_BYTES);
-        bpf_memset(ev->parent_span_id, 0, SPAN_ID_SIZE_BYTES);
     }
 
     const long len = bpf_probe_read_user_str(
@@ -168,12 +170,17 @@ int BPF_KPROBE(obi_uv_fs_access, void *loop, void *req, const char *path) {
 
     const u64 pid_tgid = bpf_get_current_pid_tgid();
 
+    // Only act on processes we are actually instrumenting. The sentinel path
+    // is otherwise trivial for any co-located code to forge (mimicking our
+    // injected agent), so gate every handler up front — same class of concern
+    // as the Java TLS path.
+    if (!valid_pid(pid_tgid)) {
+        return 0;
+    }
+
     if (buf[k_delim_offset] == '-') {
         // Manual span: /dev/null/obi-span/<json>
         if (buf[k_variant_offset] == 's') {
-            if (!valid_pid(pid_tgid)) {
-                return 0;
-            }
             return handle_node_span(path, pid_tgid);
         }
         // Async context switch: /dev/null/obi-ctx/XXXX

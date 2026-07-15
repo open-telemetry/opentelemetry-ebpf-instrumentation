@@ -115,23 +115,36 @@ the in-flight request being processed by the current async context:
 ## Guards: never fight an application SDK
 
 The bridge must never duplicate or break telemetry the customer configured
-themselves. On load it stays completely inert — it does not even create the
-API registry object — when any of the following holds:
+themselves. It handles this with two signals keyed on *actual provider
+registration* — so we also handle cases where instrumentation is depended
+upon and imported, but never registered (lets say its disabled via via 
+`OTEL_SDK_DISABLED`/feature flags, and those apps' manual spans
+should still be captured)
 
-1. A provider or context manager is already registered in the global
-   registry (an SDK or another vendor agent got there first).
-2. Any `@opentelemetry/sdk-trace*` / `@opentelemetry/sdk-node` module is
-   present in `require.cache` (SDK loaded but not yet registered, e.g. a
-   lazily-initializing app; registering ours first would make the app's own
-   registration fail and starve its exporters).
+1. **Inert if an SDK already owns the API.** If a provider or context manager
+   is already registered in the global registry when the bridge loads, it
+   stays completely inert — it does not even create the API registry object.
+   (Not creating it matters: the registry carries an exact API version, and
+   `registerGlobal` requires an exact version match, so a leftover registry
+   would break the app SDK's later registration.)
 
-Not creating the registry when inert matters: the registry carries an exact
-API version string, and `registerGlobal` requires an exact version match
-between registrants — a leftover registry object would break the app SDK's
-later registration.
+2. **Step aside if an SDK registers later.** If the app registers its own
+   provider *after* the bridge is active (a lazily-initialized SDK), the
+   bridge yields: it wraps `trace.setGlobalTracerProvider` /
+   `context.setGlobalContextManager` on the loaded `@opentelemetry/api`
+   copies, and on the app's registration it deletes the whole registry object
+   (so the app's `registerGlobal` recreates it with the app's version and
+   succeeds), stops emitting, and forwards any tracer it had already handed
+   out to the app's now-registered provider. The application's SDK ends up
+   owning the API surface exactly as if the bridge had never been there.
 
 The behavioral SDK detection (`exclude_otel_instrumented_services`, which
 observes OTLP exports) applies on top of this as usual.
+
+These behaviors are covered by `pkg/internal/nodejs/spanbridge_test/`
+(`make test-nodejs`): api-only capture, SDK-loaded-but-not-
+registered (still captured), SDK-registered-before-injection (inert), and
+SDK-registered-after-injection (step-aside handover).
 
 ### Late attachment / pre-acquired tracers
 
@@ -147,6 +160,13 @@ resolve through the registry. Because the registry is a `Symbol.for` global,
 this works across duplicated api copies in `node_modules` and inside
 bundled applications.
 
+A `ProxyTracer` caches the first real delegate it resolves, so a tracer that
+was acquired **and used** before injection caches the bridge's tracer and
+would not follow a later step-aside handover on its own. The bridge's tracer
+therefore checks, on each `startSpan`/`startActiveSpan`, whether it has
+yielded, and if so forwards to the application-registered provider — so even
+those pre-acquired tracers route to the app's SDK after handover.
+
 ## Constraints and limitations
 
 - **Opt-in only.** Existing Node.js support (fd extraction, context
@@ -157,12 +177,13 @@ bundled applications.
   sending the signal), and the inspector must be reachable. Injection
   happens once per process; apps started after OBI are picked up by
   discovery as usual.
-- **Late-loading SDKs.** An app that *loads* an OTel SDK only after
-  injection is not protected by the `require.cache` guard: its later
-  provider registration will fail (the api logs a duplicate-registration
-  diag error) and its exporters will not receive spans, while the bridge
-  keeps capturing. Apps that load (even without registering) the SDK before
-  injection are handled by guard 2.
+- **Late-registering SDKs** are handled by the step-aside (see Guards): the
+  bridge yields and the app's SDK takes over. The residual gap is an
+  `@opentelemetry/api` copy that is itself first loaded *after* injection —
+  its `setGlobalTracerProvider` is not wrapped, so a provider registered
+  through that fresh copy would not trigger the yield. In practice the api is
+  loaded early (it is a tiny package imported at startup), so this is rare;
+  require-in-the-middle on the SDK packages would close it fully.
 - **Dormant auto-instrumentation wakes up.** If the app has
   `@opentelemetry/instrumentation-*` packages *registered* but no SDK
   (today they emit nothing), the bridge's provider makes them record: their
@@ -216,7 +237,7 @@ bundled applications.
   The per-span sentinel emit is *expected* to fail (the path does not exist;
   the uprobe reads it on syscall entry), and that failure is indistinguishable
   from "OBI not attached", so it is never logged per span. Set
-  `OTEL_EBPF_NODEJS_SPAN_BRIDGE_DEBUG=1` in the target process to log, to
+  `OTEL_EBPF_NODEJS_DEBUG=1` in the target process to log, to
   stderr, why the bridge stayed inert (SDK present, already registered),
   when it activated, and any genuinely unexpected emit/wiring error — for
   troubleshooting an injection. A hard exception during activation is
