@@ -31,9 +31,8 @@ var v2NetworkMetricsFeatureMask = export.FeatureNetwork |
 
 var v2StatsMetricsFeatureMask = export.FeatureStats
 
-// V2ToRuntime converts a hidden config v2 extension shape into an OBI runtime
-// configuration. It is an internal conversion foundation and is not wired into
-// runtime loading.
+// V2ToRuntime converts a config v2 extension shape into an OBI runtime
+// configuration.
 func V2ToRuntime(src *schema.Extension) (*obi.Config, error) {
 	if err := schema.ValidateStandalone(src); err != nil {
 		return nil, err
