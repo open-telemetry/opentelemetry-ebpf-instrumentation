@@ -687,7 +687,7 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 			}
 			attrs = append(attrs, semconv.GenAIRequestModel(ai.Request.Model))
 			attrs = append(attrs, semconv.GenAIResponseModel(ai.ResponseModel))
-			if ai.FrequencyPenalty > 0.0 {
+			if ai.FrequencyPenalty != 0.0 {
 				attrs = append(attrs, semconv.GenAIRequestFrequencyPenalty(ai.FrequencyPenalty))
 			}
 			if ai.Temperature > 0.0 {
@@ -938,7 +938,7 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 			} else {
 				attrs = append(attrs, semconv.GenAIResponseModel(ai.Request.Model))
 			}
-			if ai.FrequencyPenalty > 0.0 {
+			if ai.FrequencyPenalty != 0.0 {
 				attrs = append(attrs, semconv.GenAIRequestFrequencyPenalty(ai.FrequencyPenalty))
 			}
 			if ai.Temperature > 0.0 {
@@ -1022,7 +1022,7 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 			} else {
 				attrs = append(attrs, semconv.GenAIResponseModel(ai.Request.Model))
 			}
-			if ai.FrequencyPenalty > 0.0 {
+			if ai.FrequencyPenalty != 0.0 {
 				attrs = append(attrs, semconv.GenAIRequestFrequencyPenalty(ai.FrequencyPenalty))
 			}
 			if ai.Temperature > 0.0 {

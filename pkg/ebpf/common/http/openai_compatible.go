@@ -77,6 +77,8 @@ func OpenAICompatibleSpan(baseSpan *request.Span, req *http.Request, resp *http.
 	parsedResponse.Request = parsedRequest
 	parsedResponse.ToolCalls = toolCalls
 
+	// Use strings.Contains instead of exact path matching to support
+	// gateways mounted under a path prefix (e.g. /litellm/v1/chat/completions).
 	if req.URL != nil {
 		switch {
 		case strings.Contains(req.URL.Path, "/v1/chat/completions"):
