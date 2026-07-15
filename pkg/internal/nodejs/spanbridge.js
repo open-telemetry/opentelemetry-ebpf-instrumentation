@@ -303,21 +303,18 @@
         status: this.status.code,
         statusMsg: this.status.message ? truncate(safeStr(this.status.message), MAX_STATUS_MSG_LEN) : undefined,
         attrs: this._serializeAttributes(),
-        events: this._events.length ? this._events : undefined,
-        scope: this._scope,
       };
       let payload = JSON.stringify(rec);
       // Measure UTF-8 bytes, not String#length (UTF-16 code units): the BPF
       // side reads the sentinel path as bytes into a fixed buffer, so a
       // multi-byte payload that looks short by .length could still overflow.
       if (Buffer.byteLength(payload, 'utf8') > MAX_PAYLOAD) {
-        // The BPF payload buffer is fixed-size. If a span with many/large
-        // attributes overflows it, drop the variable-length parts (attributes
-        // and events) so the core span still reaches OBI rather than being
-        // dropped entirely.
         rec.attrs = {};
-        rec.events = undefined;
         payload = JSON.stringify(rec);
+      }
+      if (Buffer.byteLength(payload, 'utf8') > MAX_PAYLOAD) {
+        debug('dropping span: core payload exceeds transport limit');
+        return;
       }
       emit(payload);
     }
