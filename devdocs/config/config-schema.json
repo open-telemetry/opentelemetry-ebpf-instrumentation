@@ -2178,8 +2178,7 @@
           "type": "string"
         },
         "port": {
-          "type": "integer",
-          "default": 0
+          "type": "integer"
         },
         "provider": {
           "type": "string"
