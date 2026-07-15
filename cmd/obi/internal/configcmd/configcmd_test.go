@@ -165,6 +165,7 @@ func TestRunMigrateRepresentativeV1(t *testing.T) {
 	require.Contains(t, first.String(), "file_format: \"1.0\"")
 	require.Contains(t, first.String(), "version: \"2.0\"")
 	require.Contains(t, first.String(), "wakeup_len: 64")
+	require.NotContains(t, first.String(), "additionalproperties")
 	require.Contains(t, firstReport.String(), "fanned out")
 	require.Contains(t, firstReport.String(), "capture.rules")
 	require.Contains(t, firstReport.String(), "inverted")
