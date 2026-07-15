@@ -106,9 +106,19 @@ func isRedisOp(buf []uint8) bool {
 	case '-':
 		_, isError := getRedisError(buf[1:])
 		return isError
-	case ':', '$', '*':
+	case ':', '$', '*', '(', '!', '=', '%', '~', '>', '|':
 		return crlfTerminatedMatch(buf[1:], func(c uint8) bool {
 			return (c >= '0' && c <= '9') || c == '-'
+		})
+	case '#':
+		return len(buf) >= 4 && (buf[1] == 't' || buf[1] == 'f') && buf[2] == '\r' && buf[3] == '\n'
+	case '_':
+		return len(buf) >= 3 && buf[1] == '\r' && buf[2] == '\n'
+	case ',':
+		// RESP3 double: numbers plus inf/nan and exponent notation
+		return crlfTerminatedMatch(buf[1:], func(c uint8) bool {
+			return (c >= '0' && c <= '9') || c == '-' || c == '+' || c == '.' ||
+				c == 'e' || c == 'E' || c == 'i' || c == 'n' || c == 'f' || c == 'a'
 		})
 	}
 
@@ -323,7 +333,7 @@ func skipRESPValue(buf []byte, pos, depth int) (int, bool) {
 	switch t {
 	case '+', '-', ':', ',', '(', '#', '_':
 		return next, true
-	case '$', '=':
+	case '$', '=', '!':
 		l, ok := parseRESPInt(line[1:])
 		if !ok {
 			return 0, false
@@ -336,7 +346,7 @@ func skipRESPValue(buf []byte, pos, depth int) (int, bool) {
 			return 0, false
 		}
 		return end, true
-	case '*', '~', '>', '%':
+	case '*', '~', '>', '%', '|':
 		n, ok := parseRESPInt(line[1:])
 		if !ok {
 			return 0, false
@@ -344,7 +354,7 @@ func skipRESPValue(buf []byte, pos, depth int) (int, bool) {
 		if n < 0 {
 			return next, true
 		}
-		if t == '%' {
+		if t == '%' || t == '|' {
 			n *= 2
 		}
 		for i := 0; i < n; i++ {
@@ -359,25 +369,37 @@ func skipRESPValue(buf []byte, pos, depth int) (int, bool) {
 }
 
 // parseRedisReplies splits the response stream into per-command results; RESP3
-// push frames are skipped since they aren't positional replies
+// push frames aren't positional replies and attributes decorate the next value,
+// so both are skipped
 func parseRedisReplies(buf []byte, maxReplies int) []redisReply {
 	replies := make([]redisReply, 0, min(maxReplies, 8))
 	pos := 0
 	for pos < len(buf) && len(replies) < maxReplies {
-		isPush := buf[pos] == '>'
-		isErr := buf[pos] == '-'
+		t := buf[pos]
 		next, ok := skipRESPValue(buf, pos, 0)
 		if !ok {
 			break
 		}
-		if !isPush {
+		if t != '>' && t != '|' {
 			r := redisReply{}
-			if isErr {
+			switch t {
+			case '-':
 				line, _, _ := readRESPLine(buf, pos)
 				dbError, known := getRedisError(line[1:])
 				r.dbError = dbError
 				if known {
 					r.status = 1
+				}
+			case '!':
+				// RESP3 bulk error: text is on the line after the length header
+				if _, tstart, ok := readRESPLine(buf, pos); ok {
+					if line, _, ok := readRESPLine(buf, tstart); ok {
+						dbError, known := getRedisError(line)
+						r.dbError = dbError
+						if known {
+							r.status = 1
+						}
+					}
 				}
 			}
 			replies = append(replies, r)

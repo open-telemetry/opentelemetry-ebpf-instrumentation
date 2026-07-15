@@ -501,7 +501,7 @@ func TestRedisParsingTruncationSweep(t *testing.T) {
 		}
 	}
 
-	replies := []byte("+OK\r\n-ERR boom\r\n$5\r\nhello\r\n*2\r\n$1\r\na\r\n:1\r\n%1\r\n+k\r\n_\r\n>2\r\n+p\r\n+q\r\n,3.14\r\n#t\r\n(42\r\n=5\r\ntxt:x\r\n$-1\r\n*-1\r\n")
+	replies := []byte("+OK\r\n-ERR boom\r\n$5\r\nhello\r\n*2\r\n$1\r\na\r\n:1\r\n%1\r\n+k\r\n_\r\n>2\r\n+p\r\n+q\r\n,3.14\r\n#t\r\n(42\r\n=5\r\ntxt:x\r\n!8\r\nERR boom\r\n|1\r\n+k\r\n,90\r\n$-1\r\n*-1\r\n")
 	for i := 0; i <= len(replies); i++ {
 		parseRedisReplies(replies[:i], 32)
 	}
@@ -534,6 +534,113 @@ func FuzzMatchRedis(f *testing.F) {
 		ctx := NewEBPFParseContext(nil, nil, nil)
 		event := makeRedisTCPEvent(directionSend)
 		_, _, _, _ = matchRedis(ctx, event, largebuf.NewLargeBufferFrom(req), largebuf.NewLargeBufferFrom(resp))
+	})
+}
+
+// RESP3 servers (go-redis v9, redis-py protocol=3) reply with map/set/push/
+// boolean/double/null/big-number/verbatim/bulk-error/attribute frames; the
+// detector and the reply splitter must accept all of them
+func TestRedisRESP3(t *testing.T) {
+	t.Run("resp3 reply frames pass detection", func(t *testing.T) {
+		for _, reply := range []string{
+			"%2\r\n$4\r\nrole\r\n$6\r\nmaster\r\n$4\r\nmode\r\n$10\r\nstandalone\r\n",
+			"~2\r\n$1\r\na\r\n$1\r\nb\r\n",
+			">2\r\n$7\r\nmessage\r\n$5\r\nhello\r\n",
+			"#t\r\n",
+			"#f\r\n",
+			"_\r\n",
+			",3.14\r\n",
+			",-inf\r\n",
+			"(123456789012345678901234567890\r\n",
+			"=15\r\ntxt:Some string\r\n",
+			"!21\r\nSYNTAX invalid syntax\r\n",
+			"|1\r\n+key-popularity\r\n,90.0\r\n",
+		} {
+			assert.True(t, isRedis(largebuf.NewLargeBufferFrom([]byte(reply))),
+				"reply %q must be detected as redis", reply)
+		}
+	})
+
+	t.Run("garbage after resp3 markers is still rejected", func(t *testing.T) {
+		for _, buf := range []string{
+			"%abc\r\n",
+			"#x\r\n",
+			",abc\r\n",
+			"_x\r\n",
+			"~foo\r\n",
+		} {
+			assert.False(t, isRedisOp([]byte(buf)), "%q must not be detected as redis", buf)
+		}
+	})
+
+	t.Run("hello with map reply matches", func(t *testing.T) {
+		span, _, ignore, matched := runMatchRedis(t, directionSend,
+			respArray("hello", "3"),
+			[]byte("%2\r\n$4\r\nrole\r\n$6\r\nmaster\r\n$4\r\nmode\r\n$10\r\nstandalone\r\n"))
+		assert.True(t, matched)
+		assert.False(t, ignore)
+		assert.Equal(t, "hello", span.Method)
+		assert.Equal(t, 0, span.Status)
+	})
+
+	t.Run("boolean double and null replies pair positionally", func(t *testing.T) {
+		req := respPipeline(
+			respArray("SISMEMBER", "s", "m"),
+			respArray("ZSCORE", "z", "m"),
+			respArray("GET", "missing"),
+		)
+		resp := []byte("#t\r\n,3.14\r\n_\r\n")
+
+		first, extra, _, matched := runMatchRedis(t, directionSend, req, resp)
+		require.True(t, matched)
+		spans := append([]request.Span{first}, extra...)
+		require.Len(t, spans, 3)
+		for i, s := range spans {
+			assert.Equal(t, 0, s.Status, "span %d", i)
+		}
+	})
+
+	t.Run("resp3 bulk error sets status and db error", func(t *testing.T) {
+		span, _, _, matched := runMatchRedis(t, directionSend,
+			respArray("GET", "k"), []byte("!13\r\nERR bad thing\r\n"))
+		assert.True(t, matched)
+		assert.Equal(t, 1, span.Status)
+		assert.Equal(t, "ERR", span.DBError.ErrorCode)
+		assert.Equal(t, "ERR bad thing", span.DBError.Description)
+	})
+
+	t.Run("push frame between replies does not shift pairing", func(t *testing.T) {
+		req := respPipeline(respArray("GET", "k1"), respArray("GET", "k2"))
+		resp := []byte("$2\r\nv1\r\n>3\r\n$7\r\nmessage\r\n$2\r\nch\r\n$2\r\nhi\r\n-ERR boom\r\n")
+
+		first, extra, _, matched := runMatchRedis(t, directionSend, req, resp)
+		require.True(t, matched)
+		spans := append([]request.Span{first}, extra...)
+		require.Len(t, spans, 2)
+		assert.Equal(t, 0, spans[0].Status)
+		assert.Equal(t, 1, spans[1].Status)
+		assert.Equal(t, "ERR", spans[1].DBError.ErrorCode)
+	})
+
+	t.Run("attribute frame decorates the next reply without shifting pairing", func(t *testing.T) {
+		req := respPipeline(respArray("GET", "k1"), respArray("GET", "k2"))
+		resp := []byte("|1\r\n$14\r\nkey-popularity\r\n%1\r\n$7\r\nkey:123\r\n,90.0\r\n:1\r\n-ERR boom\r\n")
+
+		first, extra, _, matched := runMatchRedis(t, directionSend, req, resp)
+		require.True(t, matched)
+		spans := append([]request.Span{first}, extra...)
+		require.Len(t, spans, 2)
+		assert.Equal(t, 0, spans[0].Status)
+		assert.Equal(t, 1, spans[1].Status)
+	})
+
+	t.Run("reversed event with resp3 map reply as request", func(t *testing.T) {
+		span, _, ignore, matched := runMatchRedis(t, directionRecv,
+			[]byte("%1\r\n$4\r\nmode\r\n$10\r\nstandalone\r\n"), respArray("hello", "3"))
+		assert.True(t, matched)
+		assert.False(t, ignore)
+		assert.Equal(t, request.EventTypeRedisClient, span.Type)
+		assert.Equal(t, "hello", span.Method)
 	})
 }
 
