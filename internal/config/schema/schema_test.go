@@ -251,6 +251,13 @@ extensions:
 func TestReceiverRejectsStandaloneSections(t *testing.T) {
 	t.Parallel()
 
+	layouts := []struct {
+		name   string
+		prefix string
+	}{
+		{name: "v2", prefix: "version: \"2.0\"\n"},
+		{name: "legacy selector", prefix: "open_port: \"8080\"\n"},
+	}
 	tests := []struct {
 		name  string
 		value string
@@ -264,17 +271,23 @@ func TestReceiverRejectsStandaloneSections(t *testing.T) {
 		t.Run(section, func(t *testing.T) {
 			t.Parallel()
 
-			for _, test := range tests {
-				t.Run(test.name, func(t *testing.T) {
+			for _, layout := range layouts {
+				t.Run(layout.name, func(t *testing.T) {
 					t.Parallel()
 
-					_, err := ParseReceiverYAML([]byte("version: \"2.0\"\n" + section + ": " + test.value + "\n"))
+					for _, test := range tests {
+						t.Run(test.name, func(t *testing.T) {
+							t.Parallel()
 
-					var notAllowed *SectionNotAllowedError
-					require.ErrorAs(t, err, &notAllowed)
-					require.Equal(t, section, notAllowed.Section)
-					require.Contains(t, err.Error(), "receiver config")
-					require.Contains(t, err.Error(), "standalone mode")
+							_, err := ParseReceiverYAML([]byte(layout.prefix + section + ": " + test.value + "\n"))
+
+							var notAllowed *SectionNotAllowedError
+							require.ErrorAs(t, err, &notAllowed)
+							require.Equal(t, section, notAllowed.Section)
+							require.Contains(t, err.Error(), "receiver config")
+							require.Contains(t, err.Error(), "standalone mode")
+						})
+					}
 				})
 			}
 		})

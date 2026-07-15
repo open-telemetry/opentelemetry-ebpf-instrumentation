@@ -61,21 +61,33 @@ func TestReceiverConfigUnmarshalLegacy(t *testing.T) {
 }
 
 func TestReceiverConfigRejectsStandaloneSections(t *testing.T) {
-	for _, section := range []string{"enrich", "correlation", "daemon"} {
-		t.Run(section, func(t *testing.T) {
-			cfg := newTestReceiverConfig(t)
-			component := confmap.NewFromStringMap(map[string]any{
-				"version": "2.0",
-				section:   map[string]any{},
-			})
+	layouts := []struct {
+		name  string
+		key   string
+		value any
+	}{
+		{name: "v2", key: "version", value: "2.0"},
+		{name: "legacy selector", key: "open_port", value: "8080"},
+	}
+	for _, layout := range layouts {
+		t.Run(layout.name, func(t *testing.T) {
+			for _, section := range []string{"enrich", "correlation", "daemon"} {
+				t.Run(section, func(t *testing.T) {
+					cfg := newTestReceiverConfig(t)
+					component := confmap.NewFromStringMap(map[string]any{
+						layout.key: layout.value,
+						section:    map[string]any{},
+					})
 
-			err := component.Unmarshal(cfg)
+					err := component.Unmarshal(cfg)
 
-			var notAllowed *schema.SectionNotAllowedError
-			require.ErrorAs(t, err, &notAllowed)
-			require.Equal(t, section, notAllowed.Section)
-			require.Contains(t, err.Error(), "receiver config")
-			require.Contains(t, err.Error(), "standalone mode")
+					var notAllowed *schema.SectionNotAllowedError
+					require.ErrorAs(t, err, &notAllowed)
+					require.Equal(t, section, notAllowed.Section)
+					require.Contains(t, err.Error(), "receiver config")
+					require.Contains(t, err.Error(), "standalone mode")
+				})
+			}
 		})
 	}
 }

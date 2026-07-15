@@ -209,12 +209,14 @@ func ParseReceiverYAML(data []byte) (*Extension, error) {
 		return nil, &ReceiverLayoutError{}
 	}
 
+	disallowedSection, hasDisallowedSection := disallowedReceiverSection(root)
+
 	if version, ok := nestedScalar(root, "version"); ok {
 		if version != SupportedVersion {
 			return nil, &UnsupportedVersionError{Version: version}
 		}
-		if section, ok := disallowedReceiverSection(root); ok {
-			return nil, &SectionNotAllowedError{Section: section}
+		if hasDisallowedSection {
+			return nil, &SectionNotAllowedError{Section: disallowedSection}
 		}
 		var receiver receiverConfig
 		if err := decode(root, &receiver); err != nil {
@@ -232,6 +234,10 @@ func ParseReceiverYAML(data []byte) (*Extension, error) {
 
 	if version, ok := nestedVersion(root, "version"); ok {
 		return nil, &UnsupportedVersionError{Version: version}
+	}
+
+	if hasDisallowedSection {
+		return nil, &SectionNotAllowedError{Section: disallowedSection}
 	}
 
 	if looksLikeV1(root) {
