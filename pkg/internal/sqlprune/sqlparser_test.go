@@ -173,6 +173,9 @@ func TestSQLQuerySummary(t *testing.T) {
 	summary := SQLQuerySummary("SELECT", longTables)
 	assert.LessOrEqual(t, len(summary), 255)
 	assert.NotContains(t, summary+" ", "ttttttttttt") // no truncated 11-char run
+
+	// a single oversized target fits nothing: empty, not a bare operation
+	assert.Empty(t, SQLQuerySummary("SELECT", []string{strings.Repeat("t", 300)}))
 }
 
 func TestSQLParseError(t *testing.T) {

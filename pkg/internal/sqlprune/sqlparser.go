@@ -63,12 +63,17 @@ func SQLQuerySummary(op string, tables []string) string {
 	}
 	var sb strings.Builder
 	sb.WriteString(op)
+	appended := false
 	for _, t := range tables {
 		if sb.Len()+1+len(t) > maxQuerySummaryLen {
 			break
 		}
 		sb.WriteByte(' ')
 		sb.WriteString(t)
+		appended = true
+	}
+	if !appended {
+		return ""
 	}
 	return sb.String()
 }
