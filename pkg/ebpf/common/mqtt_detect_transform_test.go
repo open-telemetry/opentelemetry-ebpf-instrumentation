@@ -43,8 +43,8 @@ func TestIsValidMQTTPacket(t *testing.T) {
 			expected: false,
 		},
 		{
-			name: "invalid packet - nil info",
-			info: nil,
+			name:     "invalid packet - nil info",
+			info:     nil,
 			expected: false,
 		},
 	}
