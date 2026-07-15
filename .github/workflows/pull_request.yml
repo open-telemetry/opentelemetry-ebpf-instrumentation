@@ -241,3 +241,7 @@ jobs:
       - name: Build collector distribution
         working-directory: examples/otel-collector
         run: "$(go env GOPATH)/bin/builder --config ./builder-config.yaml"
+
+      - name: Validate Config v2 collector configuration
+        working-directory: examples/otel-collector
+        run: ./otelcol-dev/otelcol-dev validate --config ./config.yaml

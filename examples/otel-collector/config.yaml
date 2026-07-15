@@ -1,9 +1,11 @@
 receivers:
   obi:
-    open_port: "8000"
-    # Uncomment to enable service discovery
-    # discovery:
-    #   poll_interval: 30s
+    version: "2.0"
+    rules:
+      - action: include
+        match:
+          process:
+            open_ports: "8000"
   otlp:
     protocols:
       grpc:
@@ -28,6 +30,10 @@ service:
       receivers: [otlp, obi]
       processors: [batch]
       exporters: [otlp/jaeger, debug]
+    metrics:
+      receivers: [obi]
+      processors: [batch]
+      exporters: [debug]
   telemetry:
     logs:
       level: debug

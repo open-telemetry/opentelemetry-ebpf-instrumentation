@@ -130,11 +130,12 @@ Once the collector is running, you can generate some test traces:
 
 The `config.yaml` file defines:
 
-- **OBI receiver**: Listens on port 8000 for HTTP traffic and automatically instruments services
+- **OBI receiver**: Uses Config v2 to capture services listening on port 8000
 - **OTLP receiver**: Accepts spans from manually instrumented applications
 - **Batch processor**: Groups spans for efficient export
 - **Debug exporter**: Prints spans to logs (useful for debugging)
 - **OTLP exporter**: Sends spans to a Jaeger backend (requires Jaeger to be running)
+- **Trace and metric pipelines**: Share one OBI receiver instance
 
 You can modify `config.yaml` to:
 
