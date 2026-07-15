@@ -1181,6 +1181,7 @@ type Span struct {
 	SubType           int            `json:"-"`
 	DBError           DBError        `json:"-"`
 	DBNamespace       string         `json:"-"`
+	DBQuerySummary    string         `json:"-"`
 	DBSystem          string         `json:"-"`
 	SQLCommand        string         `json:"-"`
 	SQLError          *SQLError      `json:"-"`
@@ -1927,9 +1928,15 @@ func (s *Span) TraceName() string {
 		if operation == "" {
 			return "SQL"
 		}
-		table := s.Path
-		if table != "" {
-			operation += " " + table
+		// semconv: db.query.summary when available, else
+		// {db.operation.name} {target} with target = collection then namespace
+		switch {
+		case s.DBQuerySummary != "":
+			return s.DBQuerySummary
+		case s.Path != "":
+			return operation + " " + s.Path
+		case s.DBNamespace != "":
+			return operation + " " + s.DBNamespace
 		}
 		return operation
 	case EventTypeRedisClient, EventTypeRedisServer:

@@ -225,21 +225,21 @@ func matchSQL(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, event *TCPRequ
 		return span, ignore, matched, err
 	}
 
-	op, table, sql, kind := detectSQLPayload(cfg.HeuristicSQLDetect, requestBuffer)
+	op, tables, sql, kind := detectSQLPayload(cfg.HeuristicSQLDetect, requestBuffer)
 
-	if validSQL(op, table, kind) {
-		span := TCPToSQLToSpan(event, op, table, sql, kind, "", nil)
+	if validSQL(op, len(tables) > 0, kind) {
+		span := TCPToSQLToSpan(event, op, tables, sql, kind, "", nil)
 		if kind == request.DBPostgres {
 			span.DBNamespace = postgresDBForConn(parseCtx, event.ConnInfo)
 		}
 		return span, false, true, nil
 	}
 
-	op, table, sql, kind = detectSQLPayload(cfg.HeuristicSQLDetect, responseBuffer)
+	op, tables, sql, kind = detectSQLPayload(cfg.HeuristicSQLDetect, responseBuffer)
 
-	if validSQL(op, table, kind) {
+	if validSQL(op, len(tables) > 0, kind) {
 		reverseTCPEvent(event)
-		span := TCPToSQLToSpan(event, op, table, sql, kind, "", nil)
+		span := TCPToSQLToSpan(event, op, tables, sql, kind, "", nil)
 		if kind == request.DBPostgres {
 			span.DBNamespace = postgresDBForConn(parseCtx, event.ConnInfo)
 		}
