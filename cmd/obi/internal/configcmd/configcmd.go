@@ -211,6 +211,7 @@ func migrateConfig(data []byte) ([]byte, string, error) {
 	if err != nil {
 		return nil, "", fmt.Errorf("encode config v2 YAML: %w", err)
 	}
+	output = obiconfig.EscapeEnv(output)
 	if err := validateConfig(output, validationModeStandalone); err != nil {
 		return nil, "", fmt.Errorf("migrated config v2 did not validate: %w", err)
 	}

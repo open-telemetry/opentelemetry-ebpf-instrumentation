@@ -11,6 +11,10 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"go.opentelemetry.io/obi/internal/config/convert"
+	"go.opentelemetry.io/obi/internal/config/schema"
+	obiconfig "go.opentelemetry.io/obi/pkg/config"
 )
 
 const validStandaloneV2 = `
@@ -221,6 +225,26 @@ func TestRunMigrateRepresentativeV1(t *testing.T) {
 	require.Contains(t, firstReport.String(), "inverted")
 	require.Contains(t, firstReport.String(), "OpenTelemetry providers")
 	require.NoError(t, validateConfig(first.Bytes(), validationModeStandalone))
+}
+
+func TestMigrateConfigPreservesEscapedEnvironmentVariable(t *testing.T) {
+	t.Setenv("MIGRATION_LITERAL", "expanded")
+	contents := strings.Replace(
+		representativeV1,
+		"attributes:\n",
+		"attributes:\n  kubernetes:\n    cluster_name: \"$${MIGRATION_LITERAL}\"\n",
+		1,
+	)
+
+	output, _, err := migrateConfig([]byte(contents))
+	require.NoError(t, err)
+	require.Contains(t, string(output), "cluster_name: $${MIGRATION_LITERAL}")
+
+	doc, _, err := schema.ParseStandaloneYAML(obiconfig.ReplaceEnv(output))
+	require.NoError(t, err)
+	runtimeConfig, err := convert.DocumentToRuntime(doc)
+	require.NoError(t, err)
+	require.Equal(t, "${MIGRATION_LITERAL}", runtimeConfig.Attributes.Kubernetes.ClusterName)
 }
 
 func TestRunMigrateRejectsUnsupportedInput(t *testing.T) {
