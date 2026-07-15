@@ -17,8 +17,6 @@ import (
 	"go.yaml.in/yaml/v3"
 	legacyyaml "gopkg.in/yaml.v3"
 
-	"go.opentelemetry.io/collector/consumer/consumertest"
-
 	"go.opentelemetry.io/obi/internal/config/convert"
 	"go.opentelemetry.io/obi/internal/config/schema"
 	obiconfig "go.opentelemetry.io/obi/pkg/config"
@@ -122,10 +120,6 @@ func validateConfig(data []byte, mode validationMode) error {
 		ext, err = schema.ParseReceiverYAML(data)
 		if err == nil {
 			cfg, err = convert.V2ToRuntime(ext)
-			if cfg != nil {
-				cfg.Traces.TracesConsumer = consumertest.NewNop()
-				cfg.OTELMetrics.MetricsConsumer = consumertest.NewNop()
-			}
 		}
 	default:
 		return fmt.Errorf("%w %q; expected standalone or receiver", errInvalidMode, mode)
@@ -133,7 +127,12 @@ func validateConfig(data []byte, mode validationMode) error {
 	if err != nil {
 		return err
 	}
-	if err := cfg.Validate(); err != nil {
+	if mode == validationModeReceiver {
+		err = cfg.ValidateForReceiver()
+	} else {
+		err = cfg.Validate()
+	}
+	if err != nil {
 		return fmt.Errorf("runtime configuration: %w", err)
 	}
 	return nil
