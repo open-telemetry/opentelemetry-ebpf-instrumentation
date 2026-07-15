@@ -214,6 +214,80 @@ func testPythonSQLError(t *testing.T, comm, url, db string) {
 	assertSQLOperationErrored(t, comm, "SELECT", "obi.nonexisting", db)
 }
 
+func testPythonSQLQueryAfterHeaders(t *testing.T, comm, url, table string) {
+	t.Helper()
+
+	const requestCount = 4
+
+	urlPath := "/query_after_headers"
+	queryText := "SELECT * FROM " + table + " WHERE id = 2"
+	for range requestCount {
+		ti.DoHTTPGet(t, url+urlPath, 200)
+	}
+
+	sqlParams := neturl.Values{}
+	sqlParams.Add("service", comm)
+	sqlParams.Add("operation", "SELECT "+table)
+	sqlParams.Add("limit", "1000")
+	sqlURL := fmt.Sprintf("%s?%s", jaegerQueryURL, sqlParams.Encode())
+
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		sqlResp, err := http.Get(sqlURL)
+		require.NoError(ct, err)
+		require.NotNil(ct, sqlResp)
+		defer sqlResp.Body.Close()
+		require.Equal(ct, http.StatusOK, sqlResp.StatusCode)
+
+		var sqlQuery jaeger.TracesQuery
+		require.NoError(ct, json.NewDecoder(sqlResp.Body).Decode(&sqlQuery))
+
+		totalSQL := 0
+		sqlPerHTTPSpan := map[string]int{}
+		var orphaned []string
+		for _, trace := range sqlQuery.FindBySpan(jaeger.Tag{Key: "db.operation.name", Type: "string", Value: "SELECT"}) {
+			for _, span := range trace.FindByOperationName("SELECT "+table, "") {
+				tag, ok := jaeger.FindIn(span.Tags, "db.query.text")
+				if !ok || tag.Value != queryText {
+					continue
+				}
+
+				totalSQL++
+				httpSpanID := ""
+				current := span
+				// walk up the parent chain, bounded by the span count to
+				// guard against malformed reference cycles
+				for range trace.Spans {
+					parent, ok := trace.ParentOf(&current)
+					if !ok {
+						break
+					}
+
+					pathTag, ok := jaeger.FindIn(parent.Tags, "url.path")
+					if parent.OperationName == "GET "+urlPath && ok && pathTag.Value == urlPath {
+						httpSpanID = parent.SpanID
+						break
+					}
+					current = parent
+				}
+				if httpSpanID == "" {
+					orphaned = append(orphaned, fmt.Sprintf(
+						"SQL span %s in trace %s (references %+v)", span.SpanID, trace.TraceID, span.References))
+					continue
+				}
+				sqlPerHTTPSpan[httpSpanID]++
+			}
+		}
+
+		require.GreaterOrEqual(ct, totalSQL, requestCount, "expected at least %d SQL spans for %q", requestCount, queryText)
+		assert.Empty(ct, orphaned, "expected every SQL span to descend from an HTTP span GET %s", urlPath)
+		for httpSpanID, count := range sqlPerHTTPSpan {
+			assert.Equal(ct, 1, count,
+				"HTTP span %s has %d SQL descendants: a stale server thread trace mis-parents SQL from later requests",
+				httpSpanID, count)
+		}
+	}, testTimeout, 100*time.Millisecond)
+}
+
 // testPythonSQLPipeline exercises the regression from issue #1464: the
 // /pipeline endpoint batches several extended-protocol statements into one TCP
 // segment (more than k_pg_messages_in_packet_max Postgres messages), which the
@@ -242,6 +316,16 @@ func testPythonPostgres(t *testing.T) {
 	testPythonSQLPreparedStatements(t, comm, testCaseURL, table, db)
 	testPythonSQLPipeline(t, comm, testCaseURL, db)
 	testPythonSQLError(t, comm, testCaseURL, db)
+}
+
+func testPythonPostgresAfterHeaders(t *testing.T) {
+	testCaseURL := "http://localhost:8381"
+	comm := "python3.14"
+	table := "accounting.contacts"
+	db := "postgresql"
+
+	waitForSQLTestComponentsWithDB(t, testCaseURL, "/query", db)
+	testPythonSQLQueryAfterHeaders(t, comm, testCaseURL, table)
 }
 
 func testPythonSQLBigQuery(t *testing.T, comm, url, table, db string) {

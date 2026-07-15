@@ -549,6 +549,17 @@ func TestSuite_PythonPostgres(t *testing.T) {
 	require.NoError(t, compose.Close())
 }
 
+func TestSuite_PythonPostgresAfterHeaders(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-python-postgresql-after-headers.yml", path.Join(pathOutput, "test-suite-python-postgresql-after-headers.log"))
+	require.NoError(t, err)
+
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)
+	require.NoError(t, compose.Up())
+	t.Run("Python Postgres after headers", testPythonPostgresAfterHeaders)
+	runWeaverValidation(t)
+	require.NoError(t, compose.Close())
+}
+
 func TestSuite_PythonMySQL(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-python-mysql.yml", path.Join(pathOutput, "test-suite-python-mysql.log"))
 	require.NoError(t, err)

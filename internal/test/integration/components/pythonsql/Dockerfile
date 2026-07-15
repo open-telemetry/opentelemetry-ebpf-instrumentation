@@ -6,4 +6,5 @@ RUN apt install -y libpq-dev
 COPY requirements.txt /requirements.txt
 RUN pip install --require-hashes -r /requirements.txt
 COPY main.py /main.py
+COPY main_sync.py /main_sync.py
 CMD ["uvicorn", "--port", "8080", "--host", "0.0.0.0", "main:app"]

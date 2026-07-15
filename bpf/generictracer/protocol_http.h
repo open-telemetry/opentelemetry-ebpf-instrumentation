@@ -113,6 +113,69 @@ static __always_inline void cleanup_http_info(pid_connection_info_t *pid_conn) {
     bpf_map_delete_elem(&ongoing_http, pid_conn);
 }
 
+static __always_inline void cleanup_http_server_response_data(pid_connection_info_t *pid_conn,
+                                                              http_info_t *info) {
+    delete_trace_info_for_connection(&pid_conn->conn, TRACE_TYPE_SERVER);
+    // Virtual-thread requests do not own the carrier thread's obi_ctx.
+    if (!(info->task_tid & JAVA_VT_TID_FLAG)) {
+        obi_ctx__del(bpf_get_current_pid_tgid());
+    }
+}
+
+// Returns the thread trace only if it still belongs to this request.
+static __always_inline tp_info_pid_t *http_server_thread_trace(http_info_t *info,
+                                                               trace_key_t *t_key) {
+    t_key->extra_id = info->extra_id;
+    t_key->p_key.ns = info->pid.ns;
+    t_key->p_key.tid = info->task_tid;
+    t_key->p_key.pid = info->pid.user_pid;
+
+    tp_info_pid_t *existing = bpf_map_lookup_elem(&server_traces, t_key);
+    if (!existing) {
+        return NULL;
+    }
+
+    if (bpf_memcmp(existing->tp.trace_id, info->tp.trace_id, TRACE_ID_SIZE_BYTES) != 0 ||
+        bpf_memcmp(existing->tp.span_id, info->tp.span_id, SPAN_ID_SIZE_BYTES) != 0) {
+        bpf_dbg_printk("server thread trace for tid=%d replaced by a newer request",
+                       t_key->p_key.tid);
+        return NULL;
+    }
+
+    return existing;
+}
+
+static __always_inline void cleanup_http_server_thread_trace(http_info_t *info) {
+    trace_key_t t_key = {0};
+    if (!http_server_thread_trace(info, &t_key)) {
+        return;
+    }
+
+    int res = bpf_map_delete_elem(&server_traces, &t_key);
+    bpf_dbg_printk("Deleting server thread trace for tid=%d, res=%d", t_key.p_key.tid, res);
+}
+
+static __always_inline void cleanup_incomplete_http_server_thread_trace(http_info_t *info) {
+    if (info->type == EVENT_HTTP_REQUEST && !http_info_complete(info)) {
+        cleanup_http_server_thread_trace(info);
+    }
+}
+
+static __always_inline void mark_http_server_thread_trace_response_sent(http_info_t *info) {
+    trace_key_t t_key = {0};
+    tp_info_pid_t *existing = http_server_thread_trace(info, &t_key);
+    if (!existing) {
+        return;
+    }
+
+    if (existing->valid) {
+        existing->response_sent = 1;
+    } else {
+        // Invalid traces cannot parent late children.
+        bpf_map_delete_elem(&server_traces, &t_key);
+    }
+}
+
 static __always_inline void finish_http(http_info_t *info, pid_connection_info_t *pid_conn) {
     if (http_info_complete(info) && !info->submitted) {
         info->submitted = 1;
@@ -130,8 +193,11 @@ static __always_inline void finish_http(http_info_t *info, pid_connection_info_t
 
         // bpf_dbg_printk("Terminating trace for pid=%d", pid_from_pid_tgid(pid_tid));
         // dbg_print_http_connection_info(&info->conn_info); // commented out since GitHub CI doesn't like this call
-        // Don't delete requests that weren't delayed, we might be receiving still more packets, for
-        // example SSL.
+        if (info->type == EVENT_HTTP_REQUEST) {
+            cleanup_http_server_thread_trace(info);
+        }
+        // Don't delete the ongoing_http entry for requests that weren't delayed, we might be
+        // receiving still more packets, for example SSL.
         if (info->delayed) {
             bpf_map_delete_elem(&ongoing_http, pid_conn);
         }
@@ -175,6 +241,7 @@ static __always_inline http_info_t *get_or_set_http_info(http_info_t *info,
                 if (old_info->type == req_type && is_duplicate_info(old_info)) {
                     return 0;
                 }
+                cleanup_incomplete_http_server_thread_trace(old_info);
             }
             // this will delete ongoing_http for this connection info if there's full stale request
             finish_http(old_info, pid_conn);
@@ -213,6 +280,7 @@ static __always_inline void
 force_finish_possible_delayed_http_request(pid_connection_info_t *pid_conn) {
     http_info_t *info = bpf_map_lookup_elem(&ongoing_http, pid_conn);
     if (info) {
+        cleanup_incomplete_http_server_thread_trace(info);
         if (info->delayed) {
             finish_http(info, pid_conn);
         } else {
@@ -223,25 +291,16 @@ force_finish_possible_delayed_http_request(pid_connection_info_t *pid_conn) {
     cleanup_http_info(pid_conn);
 }
 
-static __always_inline void cleanup_http_request_data(pid_connection_info_t *pid_conn,
-                                                      http_info_t *info) {
+static __always_inline void terminate_http_request_if_needed(pid_connection_info_t *pid_conn) {
+    http_info_t *info = bpf_map_lookup_elem(&ongoing_http, pid_conn);
     if (info) {
         if (info->type == EVENT_HTTP_REQUEST) {
-            trace_key_t t_key = {0};
-            t_key.extra_id = info->extra_id;
-            t_key.p_key.ns = info->pid.ns;
-            t_key.p_key.tid = info->task_tid;
-            t_key.p_key.pid = info->pid.user_pid;
-            delete_server_trace(pid_conn, &t_key);
+            cleanup_http_server_response_data(pid_conn, info);
+            cleanup_http_server_thread_trace(info);
         } else {
             delete_client_trace_info(pid_conn);
         }
     }
-}
-
-static __always_inline void terminate_http_request_if_needed(pid_connection_info_t *pid_conn) {
-    http_info_t *info = bpf_map_lookup_elem(&ongoing_http, pid_conn);
-    cleanup_http_request_data(pid_conn, info);
     bpf_map_delete_elem(&active_ssl_connections, pid_conn);
 }
 
@@ -328,7 +387,11 @@ static __always_inline void handle_http_response(unsigned char *small_buf,
                                                  int orig_len,
                                                  lw_thread_t lw_thread) {
     process_http_response(info, small_buf);
-    cleanup_http_request_data(pid_conn, info);
+    if (info->type == EVENT_HTTP_REQUEST) {
+        cleanup_http_server_response_data(pid_conn, info);
+    } else {
+        delete_client_trace_info(pid_conn);
+    }
 
     // Generic Go events cannot be delayed since we don't probe on net_close.
     // SSL connections must always be delayed: subsequent SSL_read calls deliver
@@ -344,6 +407,9 @@ static __always_inline void handle_http_response(unsigned char *small_buf,
     } else {
         bpf_dbg_printk("Delaying finish http for large request, orig_len=%d", orig_len);
         info->delayed = 1;
+        if (info->type == EVENT_HTTP_REQUEST) {
+            mark_http_server_thread_trace_response_sent(info);
+        }
     }
 }
 

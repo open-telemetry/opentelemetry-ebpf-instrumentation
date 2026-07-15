@@ -7,11 +7,13 @@ package generictracer
 
 import (
 	"context"
+	"log/slog"
 	"testing"
 	"time"
 	"unsafe"
 
 	"github.com/cilium/ebpf"
+	"github.com/cilium/ebpf/rlimit"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -321,4 +323,111 @@ func (f fakeServiceFilter) CurrentPIDs(ebpfcommon.PIDType) map[uint32]map[app.PI
 		(*f.currentPIDsCalls)++
 	}
 	return f.current
+}
+
+func newServerTracesTestTracer(t *testing.T) *Tracer {
+	t.Helper()
+
+	if err := rlimit.RemoveMemlock(); err != nil {
+		t.Skipf("removing memlock failed: %v", err)
+	}
+
+	m, err := ebpf.NewMap(&ebpf.MapSpec{
+		Name:       "server_traces",
+		Type:       ebpf.LRUHash,
+		KeySize:    uint32(unsafe.Sizeof(BpfTraceKeyT{})),
+		ValueSize:  uint32(unsafe.Sizeof(BpfTpInfoPidT{})),
+		MaxEntries: 64,
+	})
+	if err != nil {
+		t.Skipf("ebpf map create failed: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := m.Close(); err != nil {
+			t.Errorf("close eBPF map: %v", err)
+		}
+	})
+
+	tracer := &Tracer{log: slog.With("component", "generictracer-test")}
+	tracer.bpfObjects.ServerTraces = m
+	return tracer
+}
+
+func serverThreadTraceHTTPInfo() BpfHttpInfoT {
+	var info BpfHttpInfoT
+	info.Type = uint8(request.EventTypeHTTP)
+	info.ExtraId = 0xcafe
+	info.TaskTid = 5678
+	info.Pid.UserPid = 1234
+	info.Pid.Ns = 42
+	info.Tp.TraceId = [16]uint8{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}
+	info.Tp.SpanId = [8]uint8{1, 2, 3, 4, 5, 6, 7, 8}
+	return info
+}
+
+func serverThreadTraceKey(info *BpfHttpInfoT) BpfTraceKeyT {
+	key := BpfTraceKeyT{ExtraId: info.ExtraId}
+	key.P_key.Ns = info.Pid.Ns
+	key.P_key.Tid = info.TaskTid
+	key.P_key.Pid = info.Pid.UserPid
+	return key
+}
+
+func TestCleanupHTTPServerThreadTraceDeletesMatchingEntry(t *testing.T) {
+	tracer := newServerTracesTestTracer(t)
+	m := tracer.bpfObjects.ServerTraces
+
+	info := serverThreadTraceHTTPInfo()
+	key := serverThreadTraceKey(&info)
+	stored := BpfTpInfoPidT{Tp: info.Tp, Pid: info.Pid.UserPid, Valid: 1}
+	require.NoError(t, m.Put(&key, &stored))
+
+	tracer.cleanupHTTPServerThreadTrace(&info)
+
+	var out BpfTpInfoPidT
+	require.ErrorIs(t, m.Lookup(&key, &out), ebpf.ErrKeyNotExist)
+}
+
+func TestCleanupHTTPServerThreadTracePreservesEntryOfNewerRequest(t *testing.T) {
+	tracer := newServerTracesTestTracer(t)
+	m := tracer.bpfObjects.ServerTraces
+
+	// same thread key, but the map entry already belongs to a newer request
+	info := serverThreadTraceHTTPInfo()
+	key := serverThreadTraceKey(&info)
+	newer := BpfTpInfoPidT{Tp: info.Tp, Pid: info.Pid.UserPid, Valid: 1}
+	newer.Tp.SpanId = [8]uint8{9, 9, 9, 9, 9, 9, 9, 9}
+	require.NoError(t, m.Put(&key, &newer))
+
+	tracer.cleanupHTTPServerThreadTrace(&info)
+
+	var out BpfTpInfoPidT
+	require.NoError(t, m.Lookup(&key, &out))
+	assert.Equal(t, newer.Tp.SpanId, out.Tp.SpanId)
+}
+
+func TestCleanupHTTPServerThreadTraceIgnoresClientRequestsAndMissingEntries(t *testing.T) {
+	tracer := newServerTracesTestTracer(t)
+	m := tracer.bpfObjects.ServerTraces
+
+	// missing entry must be a no-op
+	info := serverThreadTraceHTTPInfo()
+	tracer.cleanupHTTPServerThreadTrace(&info)
+
+	// a client request must not delete the entry, even when it matches
+	key := serverThreadTraceKey(&info)
+	stored := BpfTpInfoPidT{Tp: info.Tp, Pid: info.Pid.UserPid, Valid: 1}
+	require.NoError(t, m.Put(&key, &stored))
+	info.Type = uint8(request.EventTypeHTTPClient)
+
+	tracer.cleanupHTTPServerThreadTrace(&info)
+
+	var out BpfTpInfoPidT
+	require.NoError(t, m.Lookup(&key, &out))
+}
+
+func TestCleanupHTTPServerThreadTraceWithoutLoadedObjectsDoesNotPanic(_ *testing.T) {
+	tracer := &Tracer{log: slog.With("component", "generictracer-test")}
+	info := serverThreadTraceHTTPInfo()
+	tracer.cleanupHTTPServerThreadTrace(&info)
 }
