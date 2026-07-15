@@ -41,6 +41,17 @@ The collector requires `sudo` to attach eBPF probes to processes.
 
 ## Testing the Collector
 
+After building the collector, run the same end-to-end smoke test used by the
+pull request workflow:
+
+```bash
+sudo ./smoke-test.sh
+```
+
+The smoke test starts an HTTP server and the Collector with `smoke-config.yaml`,
+then verifies that the Config v2 OBI receiver exports the server's trace through
+the debug exporter.
+
 Once the collector is running, you can generate some test traces:
 
 1. In a new terminal, start a simple HTTP server:

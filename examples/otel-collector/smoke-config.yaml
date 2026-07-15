@@ -1,0 +1,24 @@
+receivers:
+  obi:
+    version: "2.0"
+    policy:
+      poll_interval: 1s
+      min_process_age: 1s
+    rules:
+      - action: include
+        match:
+          process:
+            open_ports: "18080"
+
+exporters:
+  debug:
+    verbosity: detailed
+
+service:
+  pipelines:
+    traces:
+      receivers: [obi]
+      exporters: [debug]
+    metrics:
+      receivers: [obi]
+      exporters: [debug]
