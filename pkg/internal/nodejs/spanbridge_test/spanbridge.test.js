@@ -17,6 +17,11 @@ function runScenario(name) {
   return JSON.parse(out);
 }
 
+function runScript(file) {
+  const out = execFileSync(process.execPath, [path.join(__dirname, file)], { encoding: 'utf8' });
+  return JSON.parse(out);
+}
+
 test('api-only app: bridge captures manual spans', () => {
   const r = runScenario('api-only');
   assert.deepStrictEqual(r.bridge, ['s1']);
@@ -44,6 +49,17 @@ test('hostile attribute/name: span.end() never throws into the app', () => {
   const r = runScenario('hostile-attribute');
   assert.strictEqual(r.threw, null, 'span.end() must not throw on a hostile attribute/name');
   assert.deepStrictEqual(r.bridge, ['s1'], 'the span is still captured despite the bad value');
+});
+
+test('api loaded AFTER injection: late copy is still wired, app SDK wins handoff', () => {
+  // The bridge injects before @opentelemetry/api is ever required. A copy
+  // loaded afterwards must have its global setters wrapped (module-load hook),
+  // so the app's late SDK registration yields the bridge instead of being
+  // refused as a duplicate. Without the hook, 'after' would land in the bridge.
+  const r = runScript('scenario_late_load.js');
+  assert.deepStrictEqual(r.bridge, ['before'], 'bridge captures only the pre-registration span');
+  assert.ok(r.app.includes('after'), 'the app SDK captures spans once it registers');
+  assert.ok(!r.bridge.includes('after'), 'bridge must stop capturing after the late SDK registers');
 });
 
 test('SDK registers after injection: bridge yields and the app SDK takes over', () => {

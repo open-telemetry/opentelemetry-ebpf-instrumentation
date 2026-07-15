@@ -108,6 +108,16 @@ static __always_inline int handle_node_span(const char *path, const u64 pid_tgid
     return 0;
 }
 
+// Explicit "no request context" signal emitted by fdextractor.js when an async
+// callback fires outside any tracked request (e.g. a background timer). Drop the
+// stale request context so a manual span ending in that callback
+// (handle_node_span) is not mis-parented into the previous request's trace.
+static __always_inline int handle_ctx_clear(const u64 pid_tgid) {
+    bpf_dbg_printk("nodejs_ctx_clear: pid_tgid = %llx", pid_tgid);
+    obi_ctx__del(pid_tgid);
+    return 0;
+}
+
 static __always_inline int handle_fd_correlation(char *buf, const u64 pid_tgid) {
     u32 fd1 = 0;
     u32 fd2 = 0;
@@ -135,7 +145,7 @@ int BPF_KPROBE(obi_uv_fs_access, void *loop, void *req, const char *path) {
     (void)req;
 
     // the obi nodejs agents (fdextractor.js, spanbridge.js) pass signals to
-    // the ebpf layer by invoking uv_fs_access() with a fake path. Three
+    // the ebpf layer by invoking uv_fs_access() with a fake path. Four
     // formats are used:
     //
     // 1. fd pair correlation (outgoing -> incoming):
@@ -147,11 +157,15 @@ int BPF_KPROBE(obi_uv_fs_access, void *loop, void *req, const char *path) {
     // 3. manual span end (spanbridge.js):
     //    /dev/null/obi-span/<json> — serialized manual span, variable length
     //
+    // 4. no request context (before-hook, callback outside any request):
+    //    /dev/null/obi-noreqctx    — clears the stale traces_ctx_v1 entry
+    //
     // All paths share the prefix "/dev/null/obi" (13 chars). The characters at
     // positions 13-14 distinguish the formats:
     //   '/'       -> format 1 (fd pair)
     //   '-', 'c'  -> format 2 (context switch, "-ctx/" follows)
     //   '-', 's'  -> format 3 (manual span, "-span/" follows)
+    //   '-', 'n'  -> format 4 (no request context, "-noreqctx")
     static const char prefix[] = "/dev/null/obi";
     static const u8 prefix_size = sizeof(prefix) - 1;
 
@@ -182,6 +196,12 @@ int BPF_KPROBE(obi_uv_fs_access, void *loop, void *req, const char *path) {
         // Manual span: /dev/null/obi-span/<json>
         if (buf[k_variant_offset] == 's') {
             return handle_node_span(path, pid_tgid);
+        }
+        // No request context: /dev/null/obi-noreqctx
+        // Fires from the async_hooks 'before' callback in fdextractor.js when a
+        // callback runs outside any request; clears the stale traces_ctx_v1 entry.
+        if (buf[k_variant_offset] == 'n') {
+            return handle_ctx_clear(pid_tgid);
         }
         // Async context switch: /dev/null/obi-ctx/XXXX
         // Fires from the async_hooks 'before' callback in fdextractor.js to

@@ -35,7 +35,6 @@ type nodeSpanRecord struct {
 	Status    int            `json:"status"`
 	StatusMsg string         `json:"statusMsg"`
 	Attrs     map[string]any `json:"attrs"`
-	Scope     string         `json:"scope"`
 }
 
 // nodeSpanAttr mirrors tracesgen.SpanAttr (itself the Go mirror of the BPF

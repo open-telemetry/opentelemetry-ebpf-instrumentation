@@ -388,12 +388,6 @@
 
   // --- register into the shared api global registry -------------------------
 
-  // Wire up @opentelemetry/api copies that were loaded BEFORE this bridge:
-  // tracers the app already acquired are ProxyTracers that resolve through
-  // their api copy's singleton ProxyTracerProvider._delegate — they never
-  // consult the global registry. Point each loaded copy's proxy at our
-  // provider (getTracerProvider() returns the copy's own proxy as long as
-  // nothing is registered globally yet, which the guards above ensured).
   // Wrap a global setter on an api namespace so that, if the application ever
   // registers its own provider/manager, we yield first (removing our registry
   // entry) and then let the real registration proceed — so the app's SDK wins
@@ -411,21 +405,37 @@
     apiObj[method] = wrapped;
   };
 
+  // Wire a single @opentelemetry/api copy to the bridge:
+  //   - point its ProxyTracerProvider at our provider, so tracers already
+  //     acquired through this copy (a ProxyTracer caches the first delegate and
+  //     never re-consults the registry) resolve to us; and
+  //   - wrap its global setters so the app's own SDK registration makes us
+  //     yield instead of being refused as a duplicate.
+  // A copy whose version is compatible with our registration resolves its
+  // provider straight from the global registry (registry.trace, set below), so
+  // getTracerProvider() returns our provider and setDelegate is skipped — for
+  // those copies the setter-wrapping is the part that matters.
+  const wiredApis = new WeakSet();
+  const wireApiCopy = (exp) => {
+    if (yielded || !exp || wiredApis.has(exp)) return;
+    const traceApi = exp.trace;
+    const contextApi = exp.context;
+    if (!traceApi || typeof traceApi.getTracerProvider !== 'function') return;
+    wiredApis.add(exp);
+    const proxy = traceApi.getTracerProvider();
+    if (proxy && proxy !== tracerProvider && typeof proxy.setDelegate === 'function') {
+      proxy.setDelegate(tracerProvider);
+    }
+    // Yield when the app registers its own tracer provider / context manager.
+    wrapSetter(traceApi, 'setGlobalTracerProvider', 'setGlobalTracerProvider');
+    wrapSetter(contextApi, 'setGlobalContextManager', 'setGlobalContextManager');
+  };
+
+  // Copies already loaded before us (present in require.cache).
   for (const key of Object.keys(require.cache ?? {})) {
     if (!/[\\/]@opentelemetry[\\/]api[\\/]/.test(key)) continue;
     try {
-      const exp = require.cache[key] && require.cache[key].exports;
-      const traceApi = exp && exp.trace;
-      const contextApi = exp && exp.context;
-      if (traceApi && typeof traceApi.getTracerProvider === 'function') {
-        const proxy = traceApi.getTracerProvider();
-        if (proxy && typeof proxy.setDelegate === 'function') {
-          proxy.setDelegate(tracerProvider);
-        }
-        // Yield when the app registers its own tracer provider / context mgr.
-        wrapSetter(traceApi, 'setGlobalTracerProvider', 'setGlobalTracerProvider');
-        wrapSetter(contextApi, 'setGlobalContextManager', 'setGlobalContextManager');
-      }
+      wireApiCopy(require.cache[key] && require.cache[key].exports);
     } catch (err) {
       // never let bridge wiring break the app; surface only under debug
       debug('failed to wire pre-loaded @opentelemetry/api copy ' + key, err);
@@ -435,6 +445,38 @@
   // Copies of the api loaded after this point resolve through the registry.
   registry.trace = tracerProvider;
   registry.context = contextManager;
+
+  // Cover @opentelemetry/api copies loaded AFTER injection. Without this, an
+  // app that lazily requires the api (and its SDK) only after we injected would
+  // call an unwrapped setGlobalTracerProvider: it would see our registry.trace,
+  // be refused as a duplicate registration, and the app's exporter would never
+  // take over — spans would keep flowing through OBI. Hook the CommonJS module
+  // loader and wire each api copy as it loads. We call the original loader
+  // first and guard everything, so this composes with other loader patches
+  // (e.g. import-in-the-middle) and can never break a require. NOTE: this
+  // covers CommonJS require() only; an api pulled in purely through the native
+  // ESM loader is not intercepted here.
+  try {
+    const Module = require('module');
+    const origLoad = Module._load;
+    if (typeof origLoad === 'function' && !origLoad.__obiWrapped) {
+      const patchedLoad = function (request) {
+        const exported = origLoad.apply(this, arguments);
+        try {
+          if (!yielded && /(?:^|[\\/])@opentelemetry[\\/]api(?:[\\/]|$)/.test(String(request))) {
+            wireApiCopy(exported);
+          }
+        } catch (err) {
+          debug('module-load api wiring failed', err);
+        }
+        return exported;
+      };
+      patchedLoad.__obiWrapped = true;
+      Module._load = patchedLoad;
+    }
+  } catch (err) {
+    debug('failed to install module-load hook', err);
+  }
 
   g.__obiSpanBridge = { version: 1 };
   debug('span bridge activated (pid ' + process.pid + ')');
