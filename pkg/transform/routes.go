@@ -228,6 +228,10 @@ func (rn *routerNode) provideDirectionalRoutes() (swarm.RunFunc, error) {
 }
 
 func (rn *routerNode) applyDirectionalPolicy(span *request.Span) {
+	if !span.IsHTTPSpan() {
+		return
+	}
+
 	policy := rn.routePolicy(span)
 	ignoreMode := policy.Config.IgnoredEvents
 	if ignoreMode == "" {

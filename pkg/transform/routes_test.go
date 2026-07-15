@@ -251,9 +251,11 @@ func TestDirectionalRoutes(t *testing.T) {
 		{Type: request.EventTypeHTTPClient, Path: "/other"},
 		{Type: request.EventTypeHTTP, Path: "/incoming/ignore"},
 		{Type: request.EventTypeHTTPClient, Path: "/outgoing/ignore"},
+		{Type: request.EventTypeGRPC, Path: "/incoming/ignore"},
+		{Type: request.EventTypeSQLClient, Path: "/outgoing/ignore"},
 	})
 	spans := testutil.ReadChannel(t, out, testTimeout)
-	require.Len(t, spans, 6)
+	require.Len(t, spans, 8)
 	assert.Equal(t, "/incoming/{id}", spans[0].Route)
 	assert.Equal(t, "/outgoing/{id}", spans[1].Route)
 	assert.Equal(t, "/other", spans[2].Route)
@@ -262,6 +264,12 @@ func TestDirectionalRoutes(t *testing.T) {
 	assert.False(t, request.IgnoreMetrics(&spans[4]))
 	assert.True(t, request.IgnoreMetrics(&spans[5]))
 	assert.False(t, request.IgnoreTraces(&spans[5]))
+	assert.Empty(t, spans[6].Route)
+	assert.False(t, request.IgnoreMetrics(&spans[6]))
+	assert.False(t, request.IgnoreTraces(&spans[6]))
+	assert.Empty(t, spans[7].Route)
+	assert.False(t, request.IgnoreMetrics(&spans[7]))
+	assert.False(t, request.IgnoreTraces(&spans[7]))
 }
 
 func TestDirectionalRoutesPerServiceOverrides(t *testing.T) {
