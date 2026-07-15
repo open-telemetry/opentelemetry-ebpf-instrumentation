@@ -760,6 +760,24 @@ func TestV2ToRuntimeRejectsUnsupportedEnrichmentFields(t *testing.T) {
 	}
 }
 
+func TestV2ToRuntimeRejectsCorrelationFilter(t *testing.T) {
+	t.Parallel()
+
+	_, err := V2ToRuntime(&schema.Extension{
+		Version: schema.SupportedVersion,
+		Correlation: &schema.Correlation{
+			LogTraceAnnotation: schema.LogTraceAnnotation{
+				Enabled: true,
+				Filter: schema.AttributeFilters{
+					"service.name": {Match: "checkout"},
+				},
+			},
+		},
+	})
+
+	require.ErrorContains(t, err, "correlation.log_trace_annotation.filter is not supported")
+}
+
 func TestV2ToRuntimeRulesPresenceControlsSelectorReplacement(t *testing.T) {
 	t.Parallel()
 

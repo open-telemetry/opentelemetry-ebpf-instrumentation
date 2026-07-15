@@ -97,6 +97,56 @@ rules:
 	require.Equal(t, "configuration is valid\n", stdout.String())
 }
 
+func TestValidateConfigDefaultIncludeWithoutSelector(t *testing.T) {
+	tests := []struct {
+		name string
+		mode validationMode
+		yaml string
+	}{
+		{
+			name: "standalone",
+			mode: validationModeStandalone,
+			yaml: `
+file_format: "1.0"
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      policy:
+        default_action: include
+      rules:
+        - action: exclude
+          match:
+            process:
+              exe_path_glob: ["*/obi"]
+    daemon:
+      logging:
+        debug_trace_output: text
+`,
+		},
+		{
+			name: "receiver",
+			mode: validationModeReceiver,
+			yaml: `
+version: "2.0"
+policy:
+  default_action: include
+rules:
+  - action: exclude
+    match:
+      process:
+        exe_path_glob: ["*/obi"]
+`,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			require.NoError(t, validateConfig([]byte(test.yaml), test.mode))
+		})
+	}
+}
+
 func TestRunValidateRejectsInvalidInput(t *testing.T) {
 	tests := []struct {
 		name string
