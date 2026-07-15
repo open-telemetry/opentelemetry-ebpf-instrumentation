@@ -462,7 +462,7 @@ func ReadGoRedisRequestIntoSpan(parseCtx *EBPFParseContext, record *ringbuf.Reco
 		return request.Span{}, true, err
 	}
 
-	cmds := parseRedisCommands(event.Buf[:])
+	cmds := parseRedisCommands(event.Buf[:min(int(event.BufLen), len(event.Buf))])
 	if len(cmds) == 0 {
 		// We know it's redis request here, it just didn't complete correctly
 		event.Err = 1
