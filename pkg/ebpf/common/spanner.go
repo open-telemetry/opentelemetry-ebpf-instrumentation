@@ -127,8 +127,20 @@ func SQLRequestTraceToSpan(trace *SQLRequestTrace) request.Span {
 		hostname = hostname[:idx]
 	}
 
+	subType := request.DBGeneric
+
+	switch hostPort {
+	case 5432:
+		subType = request.DBPostgres
+	case 3306:
+		subType = request.DBMySQL
+	case 1434:
+		subType = request.DBMSSQL
+	}
+
 	return request.Span{
 		Type:          request.EventType(trace.Type),
+		SubType:       int(subType),
 		Method:        method,
 		Path:          path,
 		Peer:          peer,

@@ -143,6 +143,108 @@ func Test_EmptyHostInfo(t *testing.T) {
 	assert.Empty(t, dest)
 }
 
+func makeSQLRequestTrace(sql string, dPort uint16, hostname string) SQLRequestTrace {
+	s := [500]uint8{}
+	copy(s[:], tocstr(sql))
+	h := [96]uint8{}
+	copy(h[:], tocstr(hostname))
+
+	return SQLRequestTrace{
+		Type: 5, // EventTypeSQLClient
+		Sql:  s,
+		Hostname: h,
+		Conn: BpfConnectionInfoT{
+			D_port: dPort,
+		},
+	}
+}
+
+func TestSQLRequestTraceToSpan(t *testing.T) {
+	t.Run("returns empty span for wrong event type", func(t *testing.T) {
+		tr := makeSQLRequestTrace("SELECT 1", 5432, "db:5432")
+		tr.Type = 1
+		span := SQLRequestTraceToSpan(&tr)
+		assert.Equal(t, request.Span{}, span)
+	})
+
+	t.Run("postgres subtype for port 5432", func(t *testing.T) {
+		tr := makeSQLRequestTrace("SELECT id FROM users", 5432, "pg-server:5432")
+		span := SQLRequestTraceToSpan(&tr)
+		assert.Equal(t, int(request.DBPostgres), span.SubType)
+		assert.Equal(t, 5432, span.HostPort)
+	})
+
+	t.Run("mysql subtype for port 3306", func(t *testing.T) {
+		tr := makeSQLRequestTrace("SELECT id FROM users", 3306, "mysql-server:3306")
+		span := SQLRequestTraceToSpan(&tr)
+		assert.Equal(t, int(request.DBMySQL), span.SubType)
+		assert.Equal(t, 3306, span.HostPort)
+	})
+
+	t.Run("mssql subtype for port 1434", func(t *testing.T) {
+		tr := makeSQLRequestTrace("SELECT id FROM users", 1434, "mssql-server:1434")
+		span := SQLRequestTraceToSpan(&tr)
+		assert.Equal(t, int(request.DBMSSQL), span.SubType)
+		assert.Equal(t, 1434, span.HostPort)
+	})
+
+	t.Run("generic subtype for unknown port", func(t *testing.T) {
+		tr := makeSQLRequestTrace("SELECT id FROM users", 9999, "db:9999")
+		span := SQLRequestTraceToSpan(&tr)
+		assert.Equal(t, int(request.DBGeneric), span.SubType)
+	})
+
+	t.Run("generic subtype for zero ports", func(t *testing.T) {
+		tr := makeSQLRequestTrace("SELECT id FROM users", 0, "")
+		span := SQLRequestTraceToSpan(&tr)
+		assert.Equal(t, int(request.DBGeneric), span.SubType)
+		assert.Equal(t, 0, span.HostPort)
+	})
+
+	t.Run("strips port from hostname", func(t *testing.T) {
+		tr := makeSQLRequestTrace("SELECT 1", 5432, "db-host:5432")
+		span := SQLRequestTraceToSpan(&tr)
+		assert.Equal(t, "db-host", span.HostName)
+	})
+
+	t.Run("hostname without colon is kept as-is", func(t *testing.T) {
+		tr := makeSQLRequestTrace("SELECT 1", 5432, "db-host")
+		span := SQLRequestTraceToSpan(&tr)
+		assert.Equal(t, "db-host", span.HostName)
+	})
+
+	t.Run("sets type from trace", func(t *testing.T) {
+		tr := makeSQLRequestTrace("SELECT 1", 5432, "")
+		span := SQLRequestTraceToSpan(&tr)
+		assert.Equal(t, request.EventTypeSQLClient, span.Type)
+	})
+
+	t.Run("sets timing fields", func(t *testing.T) {
+		tr := makeSQLRequestTrace("SELECT 1", 5432, "")
+		tr.StartMonotimeNs = 100
+		tr.EndMonotimeNs = 200
+		span := SQLRequestTraceToSpan(&tr)
+		assert.Equal(t, int64(100), span.RequestStart)
+		assert.Equal(t, int64(100), span.Start)
+		assert.Equal(t, int64(200), span.End)
+	})
+
+	t.Run("sets connection peer and host", func(t *testing.T) {
+		tr := makeSQLRequestTrace("SELECT 1", 5432, "")
+		tr.Conn.S_port = 45678
+		tr.Conn.D_port = 5432
+		span := SQLRequestTraceToSpan(&tr)
+		assert.Equal(t, 45678, span.PeerPort)
+		assert.Equal(t, 5432, span.HostPort)
+	})
+
+	t.Run("sets statement from sql", func(t *testing.T) {
+		tr := makeSQLRequestTrace("INSERT INTO t VALUES (1)", 5432, "")
+		span := SQLRequestTraceToSpan(&tr)
+		assert.Equal(t, "INSERT INTO t VALUES (1)", span.Statement)
+	})
+}
+
 func TestStripPattern(t *testing.T) {
 	tests := []struct {
 		name     string
