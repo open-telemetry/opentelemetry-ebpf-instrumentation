@@ -198,6 +198,44 @@ func TestV2ToRuntimePreservesAbsentGlobalHTTPDirection(t *testing.T) {
 	require.Nil(t, roundTrip.Capture.Instrumentation.HTTP.Routes.Outgoing)
 }
 
+func TestV2ToRuntimePreservesAbsentGlobalHTTPDirectionWithRule(t *testing.T) {
+	t.Parallel()
+
+	cfg := defaultRuntimeConfig()
+	_, ext := RuntimeToV2(&cfg)
+	incomingPatterns := []string{"/orders/{id}"}
+	ext.Capture.Instrumentation.HTTP.Routes.Incoming = &schema.HTTPRoutePolicy{
+		Patterns: &incomingPatterns,
+	}
+	ext.Capture.Instrumentation.HTTP.Routes.Outgoing = nil
+
+	rulePatterns := []string{"/inventory/{id}"}
+	ext.Capture.Rules = append(ext.Capture.Rules, schema.Rule{
+		Action: schema.CaptureActionInclude,
+		Match: schema.RuleMatch{
+			Process: schema.RuleProcessMatch{ExePathGlob: []string{"/srv/*"}},
+		},
+		Refine: schema.RuleRefinement{
+			HTTP: &schema.HTTPRefinement{
+				Routes: schema.HTTPRefinementRoutes{
+					Outgoing: &schema.HTTPRoutePolicy{Patterns: &rulePatterns},
+				},
+			},
+		},
+	})
+
+	got, err := V2ToRuntime(ext)
+	require.NoError(t, err)
+	require.NotNil(t, got.Routes)
+	require.False(t, got.Routes.DirectionalRuleOnly)
+	require.True(t, got.Routes.HasIncomingPolicy())
+	require.False(t, got.Routes.HasOutgoingPolicy())
+
+	_, roundTrip := RuntimeToV2(got)
+	require.NotNil(t, roundTrip.Capture.Instrumentation.HTTP.Routes.Incoming)
+	require.Nil(t, roundTrip.Capture.Instrumentation.HTTP.Routes.Outgoing)
+}
+
 func TestV2ToRuntimeRejectsInvalidDirectionalHTTPRoutes(t *testing.T) {
 	t.Parallel()
 

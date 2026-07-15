@@ -1088,11 +1088,10 @@ func activateV2RuleRoutePolicies(cfg *obi.Config) {
 		// inactive so only matching rule overrides enable route handling.
 		policies.Incoming.Unmatch = services.UnmatchUnset
 		policies.Outgoing.Unmatch = services.UnmatchUnset
+		cfg.Routes = &transform.RoutesConfig{}
 	}
-	cfg.Routes = &transform.RoutesConfig{
-		Directional:         &policies,
-		DirectionalRuleOnly: ruleOnly,
-	}
+	cfg.Routes.Directional = &policies
+	cfg.Routes.DirectionalRuleOnly = ruleOnly
 }
 
 func applyV2HTTPRouteConfig(dst *services.DirectionalRoutePolicies, routes schema.HTTPRoutes) {
