@@ -1075,14 +1075,18 @@ func hasV2HTTPGlobalRouteConfig(routes schema.HTTPRoutes) bool {
 }
 
 func activateV2RuleRoutePolicies(cfg *obi.Config) {
+	ruleOnly := cfg.Routes == nil
 	policies := cfg.Routes.DirectionalPolicies()
-	if cfg.Routes == nil {
+	if ruleOnly {
 		// A complete v2 config can omit global policies. Keep its baseline
 		// inactive so only matching rule overrides enable route handling.
 		policies.Incoming.Unmatch = services.UnmatchUnset
 		policies.Outgoing.Unmatch = services.UnmatchUnset
 	}
-	cfg.Routes = &transform.RoutesConfig{Directional: &policies}
+	cfg.Routes = &transform.RoutesConfig{
+		Directional:         &policies,
+		DirectionalRuleOnly: ruleOnly,
+	}
 }
 
 func applyV2HTTPRouteConfig(dst *services.DirectionalRoutePolicies, routes schema.HTTPRoutes) {

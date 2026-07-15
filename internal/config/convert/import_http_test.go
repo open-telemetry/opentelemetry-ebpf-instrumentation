@@ -98,6 +98,7 @@ func TestV2ToRuntimeHTTPRuleRoutesWithoutGlobalRoutes(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, got.Routes)
 	require.NotNil(t, got.Routes.Directional)
+	require.True(t, got.Routes.DirectionalRuleOnly)
 	require.Equal(t, services.UnmatchUnset, got.Routes.Directional.Incoming.Unmatch)
 	require.Equal(t, services.UnmatchUnset, got.Routes.Directional.Outgoing.Unmatch)
 
@@ -112,6 +113,10 @@ func TestV2ToRuntimeHTTPRuleRoutesWithoutGlobalRoutes(t *testing.T) {
 	require.NotNil(t, ruleRoutes.PolicyOverrides)
 	require.Equal(t, incomingPatterns, *ruleRoutes.PolicyOverrides.Incoming.Patterns)
 	require.Equal(t, incomingIgnored, *ruleRoutes.PolicyOverrides.Incoming.IgnorePatterns)
+
+	_, roundTrip := RuntimeToV2(got)
+	require.Nil(t, roundTrip.Capture.Instrumentation.HTTP.Routes.Incoming)
+	require.Nil(t, roundTrip.Capture.Instrumentation.HTTP.Routes.Outgoing)
 }
 
 func TestV2ToRuntimeImportsDirectionalHTTPRoutes(t *testing.T) {
@@ -152,6 +157,7 @@ func TestV2ToRuntimeImportsDirectionalHTTPRoutes(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, got.Routes)
 	require.NotNil(t, got.Routes.Directional)
+	require.False(t, got.Routes.DirectionalRuleOnly)
 
 	policies := got.Routes.DirectionalPolicies()
 	require.Equal(t, incomingUnmatched, policies.Incoming.Unmatch)

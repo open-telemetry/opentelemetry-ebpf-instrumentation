@@ -73,6 +73,9 @@ type RoutesConfig struct {
 	// Directional is populated only by config v2 conversion. The fields above
 	// remain the complete v1 YAML surface.
 	Directional *services.DirectionalRoutePolicies `yaml:"-" json:"-"`
+	// DirectionalRuleOnly indicates that Directional provides an inheritance
+	// baseline for per-service rules but does not apply globally.
+	DirectionalRuleOnly bool `yaml:"-" json:"-"`
 }
 
 func (rc *RoutesConfig) Clone() *RoutesConfig {
@@ -233,6 +236,10 @@ func (rn *routerNode) applyDirectionalPolicy(span *request.Span) {
 	}
 
 	policy := rn.routePolicy(span)
+	if policy == nil {
+		return
+	}
+
 	ignoreMode := policy.Config.IgnoredEvents
 	if ignoreMode == "" {
 		ignoreMode = services.IgnoreDefault
@@ -285,16 +292,21 @@ func (rn *routerNode) applyDirectionalPolicy(span *request.Span) {
 }
 
 func (rn *routerNode) routePolicy(span *request.Span) *svc.RoutePolicy {
+	var servicePolicy, globalPolicy *svc.RoutePolicy
 	if span.IsClientSpan() {
-		if span.Service.OutgoingRoutePolicy != nil {
-			return span.Service.OutgoingRoutePolicy
-		}
-		return rn.outgoingRoutePolicy
+		servicePolicy = span.Service.OutgoingRoutePolicy
+		globalPolicy = rn.outgoingRoutePolicy
+	} else {
+		servicePolicy = span.Service.IncomingRoutePolicy
+		globalPolicy = rn.incomingRoutePolicy
 	}
-	if span.Service.IncomingRoutePolicy != nil {
-		return span.Service.IncomingRoutePolicy
+	if servicePolicy != nil {
+		return servicePolicy
 	}
-	return rn.incomingRoutePolicy
+	if rn.config.DirectionalRuleOnly {
+		return nil
+	}
+	return globalPolicy
 }
 
 func (rn *routerNode) classifierFor(policy services.RoutePolicy) (*clusterurl.ClusterURLClassifier, error) {

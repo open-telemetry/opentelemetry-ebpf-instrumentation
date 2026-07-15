@@ -160,7 +160,21 @@ func (t *typer) makeServiceAttrs(processMatch *ProcessMatch) svc.Attrs {
 	routesCfg := t.cfg.Routes
 	if routesCfg != nil && routesCfg.Directional != nil {
 		policies := routesCfg.DirectionalPolicies()
-		if routesConfig != nil {
+		if routesCfg.DirectionalRuleOnly {
+			if routesConfig == nil || routesConfig.PolicyOverrides == nil {
+				return s
+			}
+			if routesConfig.PolicyOverrides.Incoming != nil {
+				s.IncomingRoutePolicy = svc.NewRoutePolicy(
+					routesConfig.PolicyOverrides.Incoming.Apply(policies.Incoming))
+			}
+			if routesConfig.PolicyOverrides.Outgoing != nil {
+				s.OutgoingRoutePolicy = svc.NewRoutePolicy(
+					routesConfig.PolicyOverrides.Outgoing.Apply(policies.Outgoing))
+			}
+			return s
+		}
+		if routesConfig != nil && routesConfig.PolicyOverrides != nil {
 			policies = routesConfig.PolicyOverrides.Apply(policies)
 		}
 		s.SetDirectionalRoutes(policies)

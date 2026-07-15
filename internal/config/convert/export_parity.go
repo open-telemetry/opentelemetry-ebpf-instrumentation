@@ -23,7 +23,7 @@ func httpRoutes(cfg *obi.Config) schema.HTTPRoutes {
 			},
 		},
 	}
-	if cfg.Routes == nil {
+	if cfg.Routes == nil || cfg.Routes.DirectionalRuleOnly {
 		return out
 	}
 

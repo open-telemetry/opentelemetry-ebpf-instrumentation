@@ -322,6 +322,40 @@ func TestDirectionalRoutesPerServiceOverrides(t *testing.T) {
 	assert.Equal(t, "/harvested/{id}", spans[3].Route)
 }
 
+func TestDirectionalRoutesRuleOnlyPolicyScope(t *testing.T) {
+	baseline := services.DirectionalRoutePolicies{
+		Incoming: services.RoutePolicy{Unmatch: services.UnmatchUnset},
+		Outgoing: services.RoutePolicy{Unmatch: services.UnmatchUnset},
+	}
+	patterns := []string{"/service/{id}"}
+	matchedService := svc.Attrs{HarvestedRouteMatcher: route.NewMatcher([]string{"/harvested/{id}"})}
+	matchedService.IncomingRoutePolicy = svc.NewRoutePolicy(
+		(&services.RoutePolicyOverride{Patterns: &patterns}).Apply(baseline.Incoming))
+	unmatchedService := svc.Attrs{HarvestedRouteMatcher: route.NewMatcher([]string{"/harvested/{id}"})}
+
+	input := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
+	output := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
+	router, err := RoutesProvider(&RoutesConfig{
+		Directional:         &baseline,
+		DirectionalRuleOnly: true,
+	}, input, output)(t.Context())
+	require.NoError(t, err)
+	out := output.Subscribe()
+	defer input.Close()
+	go router(t.Context())
+
+	input.Send([]request.Span{
+		{Type: request.EventTypeHTTP, Path: "/service/123", Service: matchedService},
+		{Type: request.EventTypeHTTP, Path: "/harvested/123", Service: unmatchedService},
+		{Type: request.EventTypeHTTPClient, Path: "/harvested/123", Service: matchedService},
+	})
+	spans := testutil.ReadChannel(t, out, testTimeout)
+	require.Len(t, spans, 3)
+	assert.Equal(t, "/service/{id}", spans[0].Route)
+	assert.Empty(t, spans[1].Route)
+	assert.Empty(t, spans[2].Route)
+}
+
 func TestDirectionalRoutesUseDirectionalWildcards(t *testing.T) {
 	input := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
 	output := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
