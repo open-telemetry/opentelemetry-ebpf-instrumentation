@@ -18,12 +18,20 @@ import (
 
 	otelsdk "go.opentelemetry.io/otel/sdk"
 
+	"go.opentelemetry.io/obi/cmd/obi/internal/configcmd"
 	"go.opentelemetry.io/obi/pkg/buildinfo"
 	"go.opentelemetry.io/obi/pkg/instrumenter"
 	"go.opentelemetry.io/obi/pkg/obi"
 )
 
 func main() {
+	if handled, exitCode := configcmd.MaybeRun(os.Args[1:], os.Stdout, os.Stderr); handled {
+		if exitCode != configcmd.ExitSuccess {
+			os.Exit(exitCode)
+		}
+		return
+	}
+
 	lvl := slog.LevelVar{}
 	lvl.Set(slog.LevelInfo)
 
