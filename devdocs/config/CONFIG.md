@@ -740,6 +740,14 @@ IntEnum defines an enumeration of integers (e.g. ports or PIDs). It allows a set
 |---|---|---|---|
 | `service` | [`GlobAttributes`](#globattributes)[] |  | Should also be contained in 'services' in the Discovery section |
 
+### OpenAICompatibleGateway
+
+| Field | Type | Values | Description |
+|---|---|---|---|
+| `host` | `string` |  |  |
+| `port` | `integer` |  |  |
+| `provider` | `string` |  |  |
+
 ### RegexSelector
 
 RegexSelector that specify a given instrumented service. Each instance has to define either the OpenPorts or Path property, or both. These are used to match a given executable. If both OpenPorts and Path are defined, the inspected executable must fulfill both properties.
@@ -831,11 +839,3 @@ NumericRange defines numeric comparison criteria for a rule match condition. All
 | `less_equals` | `integer` |  |  |
 | `less_than` | `integer` |  |  |
 | `not_equals` | `integer` |  |  |
-
-### OpenAICompatibleGateway
-
-| Field | Type | Values | Description |
-|---|---|---|---|
-| `host` | `string` |  |  |
-| `port` | `integer` |  |  |
-| `provider` | `string` |  |  |
