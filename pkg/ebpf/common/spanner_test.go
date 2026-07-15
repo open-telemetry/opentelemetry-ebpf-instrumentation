@@ -150,8 +150,8 @@ func makeSQLRequestTrace(sql string, dPort uint16, hostname string) SQLRequestTr
 	copy(h[:], tocstr(hostname))
 
 	return SQLRequestTrace{
-		Type: 5, // EventTypeSQLClient
-		Sql:  s,
+		Type:     5, // EventTypeSQLClient
+		Sql:      s,
 		Hostname: h,
 		Conn: BpfConnectionInfoT{
 			D_port: dPort,
