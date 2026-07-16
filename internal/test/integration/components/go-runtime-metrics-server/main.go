@@ -65,6 +65,14 @@ func runtimeMetricValues() map[string]float64 {
 		"/gc/cycles/automatic:gc-cycles",
 		"/gc/cycles/forced:gc-cycles",
 		"/gc/cycles/total:gc-cycles",
+		"/cpu/classes/gc/mark/assist:cpu-seconds",
+		"/cpu/classes/gc/mark/dedicated:cpu-seconds",
+		"/cpu/classes/gc/mark/idle:cpu-seconds",
+		"/cpu/classes/gc/pause:cpu-seconds",
+		"/cpu/classes/idle:cpu-seconds",
+		"/cpu/classes/scavenge/assist:cpu-seconds",
+		"/cpu/classes/scavenge/background:cpu-seconds",
+		"/cpu/classes/user:cpu-seconds",
 		"/sched/gomaxprocs:threads",
 	}
 	samples := make([]runtimemetrics.Sample, len(names))

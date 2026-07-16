@@ -127,7 +127,7 @@ func httpEnrichment(cfg *obi.Config) schema.HTTPEnrichment {
 				Headers: enrichment.Policy.DefaultAction.Headers,
 				Body:    enrichment.Policy.DefaultAction.Body,
 			},
-			ObfuscationString: enrichment.Policy.ObfuscationString,
+			DefaultObfuscationString: enrichment.Policy.DefaultObfuscationString,
 		},
 		Rules: enrichment.Rules,
 	}

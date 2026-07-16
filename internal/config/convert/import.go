@@ -946,7 +946,7 @@ func applyV2HTTPPayloadExtractorMembership(http *obiconfig.HTTPConfig, enabled [
 func applyFullV2HTTPEnrichment(http *obiconfig.HTTPConfig, enrichment schema.HTTPEnrichment) {
 	http.Enrichment.Policy.DefaultAction.Headers = enrichment.Policy.DefaultAction.Headers
 	http.Enrichment.Policy.DefaultAction.Body = enrichment.Policy.DefaultAction.Body
-	http.Enrichment.Policy.ObfuscationString = enrichment.Policy.ObfuscationString
+	http.Enrichment.Policy.DefaultObfuscationString = enrichment.Policy.DefaultObfuscationString
 	http.Enrichment.Rules = cloneHTTPParsingRules(enrichment.Rules)
 }
 
@@ -957,8 +957,8 @@ func applyPartialV2HTTPEnrichment(http *obiconfig.HTTPConfig, enrichment schema.
 	if !zeroValue(enrichment.Policy.DefaultAction.Body) {
 		http.Enrichment.Policy.DefaultAction.Body = enrichment.Policy.DefaultAction.Body
 	}
-	if enrichment.Policy.ObfuscationString != "" {
-		http.Enrichment.Policy.ObfuscationString = enrichment.Policy.ObfuscationString
+	if enrichment.Policy.DefaultObfuscationString != "" {
+		http.Enrichment.Policy.DefaultObfuscationString = enrichment.Policy.DefaultObfuscationString
 	}
 	if enrichment.Rules != nil {
 		http.Enrichment.Rules = cloneHTTPParsingRules(enrichment.Rules)

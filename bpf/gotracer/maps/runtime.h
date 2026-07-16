@@ -89,14 +89,39 @@ typedef struct go_runtime_metric_target {
     u64 memstats_addr;
     u64 gc_controller_addr;
     u64 gomaxprocs_addr;
+    u64 work_addr;
+    u64 available_mask;
 } go_runtime_metric_target_t;
 
+// Metric group bits shared by go_runtime_metric_target.available_mask and
+// go_runtime_metric_snapshot.valid_mask. A snapshot bit is set only when the
+// corresponding available metric group was populated successfully.
+// Keep in sync with pkg/internal/ebpf/gotracer/gotracer.go and
+// pkg/runtimemetrics/reader.go.
+typedef enum go_runtime_metric_valid {
+    go_runtime_metric_valid_gc_cycles = 1 << 0,
+    go_runtime_metric_valid_memory_limit = 1 << 1,
+    go_runtime_metric_valid_processor_limit = 1 << 2,
+    go_runtime_metric_valid_gogc = 1 << 3,
+    go_runtime_metric_valid_cpu_time = 1 << 4,
+} go_runtime_metric_valid_t;
+
 typedef struct go_runtime_metric_snapshot {
+    // Presence bits for the zero-initialized fields below.
+    u64 valid_mask;
     u32 num_gc;
-    u32 num_forced_gc;
+    u32 _pad;
     s32 gomaxprocs;
     s32 gc_percent;
     s64 memory_limit;
+    s64 cpu_gc_assist_time;
+    s64 cpu_gc_dedicated_time;
+    s64 cpu_gc_idle_time;
+    s64 cpu_gc_pause_time;
+    s64 cpu_scavenge_assist_time;
+    s64 cpu_scavenge_bg_time;
+    s64 cpu_idle_time;
+    s64 cpu_user_time;
 } go_runtime_metric_snapshot_t;
 
 typedef struct go_runtime_metric_event {

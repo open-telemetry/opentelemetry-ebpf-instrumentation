@@ -495,7 +495,7 @@ func ReadBPFTraceAsSpan(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, reco
 		span, ignore, err := ReadGoSaramaRequestIntoSpan(record)
 		return finalizeParsedSpan(parseCtx, span, ignore, err)
 	case EventTypeGoRedis:
-		span, ignore, err := ReadGoRedisRequestIntoSpan(record)
+		span, ignore, err := ReadGoRedisRequestIntoSpan(parseCtx, record)
 		return finalizeParsedSpan(parseCtx, span, ignore, err)
 	case EventTypeGoMongo:
 		span, ignore, err := ReadGoMongoRequestIntoSpan(record)

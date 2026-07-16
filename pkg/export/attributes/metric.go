@@ -154,6 +154,11 @@ var (
 		Prom:    "go_memory_gc_cycles_total",
 		OTEL:    "go.memory.gc.cycles",
 	}
+	GoRuntimeCPUTime = Name{
+		Section: "go.cpu.time",
+		Prom:    "go_cpu_time_seconds_total",
+		OTEL:    "go.cpu.time",
+	}
 	GoRuntimeProcessorLimit = Name{
 		Section: "go.processor.limit",
 		Prom:    "go_processor_limit",

@@ -28,9 +28,20 @@
       "net/textproto.Reader": ["R"],
       "bufio.Reader": ["buf", "w"],
       "runtime.moduledata": ["pcHeader", "pclntable", "minpc", "maxpc", "text", "etext"],
-      "runtime.mstats": ["numgc", "numforcedgc"],
+      "runtime.mstats": ["numgc"],
       "runtime.gcControllerState": ["[1.19.0]memoryLimit", "gcPercent"],
-      "runtime.hchan": ["qcount", "dataqsiz", "sendx", "recvx"]
+      "runtime.hchan": ["qcount", "dataqsiz", "sendx", "recvx"],
+      "runtime.workType": ["[1.23.0]cpuStats"],
+      "runtime.cpuStats": [
+        "[1.23.0]GCAssistTime",
+        "[1.23.0]GCDedicatedTime",
+        "[1.23.0]GCIdleTime",
+        "[1.23.0]GCPauseTime",
+        "[1.23.0]ScavengeAssistTime",
+        "[1.23.0]ScavengeBgTime",
+        "[1.23.0]IdleTime",
+        "[1.23.0]UserTime"
+      ]
     }
   },
   "golang.org/x/net": {

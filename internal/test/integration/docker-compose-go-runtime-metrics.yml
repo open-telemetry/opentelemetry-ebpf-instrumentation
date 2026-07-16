@@ -2,8 +2,8 @@ services:
   testserver:
     build:
       context: ../../..
-      dockerfile: ./internal/test/integration/components/go-runtime-metrics-server/Dockerfile
-    image: hatest-testserver-go-runtime-metrics
+      dockerfile: ${RUNTIME_METRICS_TESTSERVER_DOCKERFILE:-./internal/test/integration/components/go-runtime-metrics-server/Dockerfile}
+    image: ${RUNTIME_METRICS_TESTSERVER_IMAGE:-hatest-testserver-go-runtime-metrics}
     ports:
       - "${TEST_SERVICE_PORTS}"
     environment:
@@ -26,7 +26,7 @@ services:
     privileged: true
     pid: "host"
     environment:
-      OTEL_EBPF_CONFIG_PATH: /configs/obi-config-go-runtime-metrics.yml
+      OTEL_EBPF_CONFIG_PATH: /configs/obi-config-go-runtime-metrics${INSTRUMENTER_CONFIG_SUFFIX}.yml
       GOCOVERDIR: "/coverage"
       OTEL_EBPF_DISCOVERY_POLL_INTERVAL: 500ms
       OTEL_EBPF_SERVICE_NAMESPACE: "integration-test"
@@ -37,7 +37,6 @@ services:
       OTEL_EBPF_PROCESSES_INTERVAL: "100ms"
       OTEL_EBPF_OPEN_PORT: "8080"
       OTEL_EBPF_METRICS_FEATURES: "application_runtime"
-      OTEL_EBPF_PROMETHEUS_PORT: "8999"
       OTEL_EBPF_PROMETHEUS_TTL: "250ms"
     depends_on:
       testserver:
@@ -49,7 +48,7 @@ services:
     image: quay.io/prometheus/prometheus:v3.13.0@sha256:c6b27ea434f8389bfe233fbc7be381cf50587c286e871bc842008f5a1b1908a7
     container_name: prometheus
     command:
-      - --config.file=/etc/prometheus/prometheus-config-promscrape.yml
+      - --config.file=/etc/prometheus/prometheus-config-promscrape${PROM_CONFIG_SUFFIX}.yml
       - --web.enable-lifecycle
       - --web.route-prefix=/
     volumes:

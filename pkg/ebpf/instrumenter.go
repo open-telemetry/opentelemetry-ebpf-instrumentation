@@ -987,12 +987,26 @@ func (i *instrumenter) gatherGoOffsets(goProbes map[string][]*ebpfcommon.ProbeDe
 		offs, ok := i.offsets.Funcs[symbolName]
 
 		if !ok {
-			// the program function is not in the detected offsets. Ignoring
+			// The program function is not in the detected offsets. Mark the
+			// probes as Skip so instrumentProbes does not attempt to attach
+			// them with Address=0, which would force cilium/ebpf to parse the
+			// full ELF symbol table via lazyLoadSymbols and retain it on
+			// Executable.cachedSymbols for the tracer's lifetime. Emit an
+			// InstrumentationError with a symbol_not_found label to preserve
+			// observability of missing symbols where they might've been
+			// expected.
 			log.Debug("ignoring function", "function", symbolName)
+			for _, probe := range descs {
+				probe.Skip = true
+			}
+			if i.metrics != nil {
+				i.metrics.InstrumentationError(i.processName, imetrics.InstrumentationErrorSymbolNotFound)
+			}
 			continue
 		}
 
 		for _, probe := range descs {
+			probe.Skip = false
 			probe.StartOffset = offs.Start
 			probe.ReturnOffsets = offs.Returns
 		}

@@ -17,6 +17,7 @@ type RuntimeMetricSymbols struct {
 	MemstatsAddr     uint64
 	GCControllerAddr uint64
 	GOMAXPROCSAddr   uint64
+	WorkAddr         uint64
 }
 
 // ResolveRuntimeMetricSymbols resolves Go runtime global variables to absolute
@@ -40,12 +41,14 @@ func resolveRuntimeMetricSymbols(f *elf.File, loadBias uint64) (RuntimeMetricSym
 		memstatsSymbol     = "runtime.memstats"
 		gcControllerSymbol = "runtime.gcController"
 		gomaxprocsSymbol   = "runtime.gomaxprocs"
+		workSymbol         = "runtime.work"
 	)
 
 	symbols, err := procs.FindExeSymbols(f, []string{
 		memstatsSymbol,
 		gcControllerSymbol,
 		gomaxprocsSymbol,
+		workSymbol,
 	}, elf.STT_OBJECT)
 	if err != nil {
 		return RuntimeMetricSymbols{}, err
@@ -68,5 +71,13 @@ func resolveRuntimeMetricSymbols(f *elf.File, loadBias uint64) (RuntimeMetricSym
 		MemstatsAddr:     loadBias + memstats.Off,
 		GCControllerAddr: loadBias + gcController.Off,
 		GOMAXPROCSAddr:   loadBias + gomaxprocs.Off,
+		WorkAddr:         runtimeMetricSymbolAddr(symbols, workSymbol, loadBias),
 	}, nil
+}
+
+func runtimeMetricSymbolAddr(symbols map[string]procs.Sym, name string, loadBias uint64) uint64 {
+	if sym, ok := symbols[name]; ok {
+		return loadBias + sym.Off
+	}
+	return 0
 }

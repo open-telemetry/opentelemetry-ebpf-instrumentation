@@ -45,6 +45,149 @@ typedef struct new_func_invocation {
     u64 parent;
 } new_func_invocation_t;
 
+static __always_inline bool go_runtime_read(void *dst, u32 size, u64 addr) {
+    if (!addr) {
+        return false;
+    }
+
+    return bpf_probe_read_user(dst, size, (void *)addr) == 0;
+}
+
+static __always_inline bool go_runtime_read_offset(void *dst, u32 size, u64 base, u64 offset) {
+    if (!base) {
+        return false;
+    }
+
+    return go_runtime_read(dst, size, base + offset);
+}
+
+static __always_inline void go_runtime_collect_gc(const go_runtime_metric_target_t *target,
+                                                  off_table_t *ot,
+                                                  go_runtime_metric_snapshot_t *snapshot) {
+    if (!(target->available_mask & go_runtime_metric_valid_gc_cycles)) {
+        return;
+    }
+
+    const u64 num_gc_pos = go_offset_of(ot, (go_offset){.v = _runtime_memstats_numgc_pos});
+
+    if (go_runtime_read_offset(
+            &snapshot->num_gc, sizeof(snapshot->num_gc), target->memstats_addr, num_gc_pos)) {
+        snapshot->valid_mask |= go_runtime_metric_valid_gc_cycles;
+    }
+}
+
+static __always_inline void
+go_runtime_collect_memory_config(const go_runtime_metric_target_t *target,
+                                 off_table_t *ot,
+                                 go_runtime_metric_snapshot_t *snapshot) {
+    if (target->available_mask & go_runtime_metric_valid_gogc) {
+        const u64 gc_percent_pos =
+            go_offset_of(ot, (go_offset){.v = _runtime_gc_controller_gc_percent_pos});
+
+        if (go_runtime_read_offset(&snapshot->gc_percent,
+                                   sizeof(snapshot->gc_percent),
+                                   target->gc_controller_addr,
+                                   gc_percent_pos)) {
+            snapshot->valid_mask |= go_runtime_metric_valid_gogc;
+        }
+    }
+
+    if (target->available_mask & go_runtime_metric_valid_memory_limit) {
+        const u64 memory_limit_pos =
+            go_offset_of(ot, (go_offset){.v = _runtime_gc_controller_memory_limit_pos});
+
+        if (go_runtime_read_offset(&snapshot->memory_limit,
+                                   sizeof(snapshot->memory_limit),
+                                   target->gc_controller_addr,
+                                   memory_limit_pos)) {
+            snapshot->valid_mask |= go_runtime_metric_valid_memory_limit;
+        }
+    }
+}
+
+static __always_inline void
+go_runtime_collect_scheduler_config(const go_runtime_metric_target_t *target,
+                                    go_runtime_metric_snapshot_t *snapshot) {
+    if (!(target->available_mask & go_runtime_metric_valid_processor_limit)) {
+        return;
+    }
+
+    if (go_runtime_read(
+            &snapshot->gomaxprocs, sizeof(snapshot->gomaxprocs), target->gomaxprocs_addr)) {
+        snapshot->valid_mask |= go_runtime_metric_valid_processor_limit;
+    }
+}
+
+static __always_inline void go_runtime_collect_cpu_time(const go_runtime_metric_target_t *target,
+                                                        off_table_t *ot,
+                                                        go_runtime_metric_snapshot_t *snapshot) {
+    if (!(target->available_mask & go_runtime_metric_valid_cpu_time) || !target->work_addr) {
+        return;
+    }
+
+    const u64 cpu_stats_addr =
+        target->work_addr + go_offset_of(ot, (go_offset){.v = _runtime_work_cpu_stats_pos});
+
+    if (!go_runtime_read_offset(
+            &snapshot->cpu_gc_assist_time,
+            sizeof(snapshot->cpu_gc_assist_time),
+            cpu_stats_addr,
+            go_offset_of(ot, (go_offset){.v = _runtime_cpu_stats_gc_assist_time_pos}))) {
+        return;
+    }
+    if (!go_runtime_read_offset(
+            &snapshot->cpu_gc_dedicated_time,
+            sizeof(snapshot->cpu_gc_dedicated_time),
+            cpu_stats_addr,
+            go_offset_of(ot, (go_offset){.v = _runtime_cpu_stats_gc_dedicated_time_pos}))) {
+        return;
+    }
+    if (!go_runtime_read_offset(
+            &snapshot->cpu_gc_idle_time,
+            sizeof(snapshot->cpu_gc_idle_time),
+            cpu_stats_addr,
+            go_offset_of(ot, (go_offset){.v = _runtime_cpu_stats_gc_idle_time_pos}))) {
+        return;
+    }
+    if (!go_runtime_read_offset(
+            &snapshot->cpu_gc_pause_time,
+            sizeof(snapshot->cpu_gc_pause_time),
+            cpu_stats_addr,
+            go_offset_of(ot, (go_offset){.v = _runtime_cpu_stats_gc_pause_time_pos}))) {
+        return;
+    }
+    if (!go_runtime_read_offset(
+            &snapshot->cpu_scavenge_assist_time,
+            sizeof(snapshot->cpu_scavenge_assist_time),
+            cpu_stats_addr,
+            go_offset_of(ot, (go_offset){.v = _runtime_cpu_stats_scavenge_assist_time_pos}))) {
+        return;
+    }
+    if (!go_runtime_read_offset(
+            &snapshot->cpu_scavenge_bg_time,
+            sizeof(snapshot->cpu_scavenge_bg_time),
+            cpu_stats_addr,
+            go_offset_of(ot, (go_offset){.v = _runtime_cpu_stats_scavenge_bg_time_pos}))) {
+        return;
+    }
+    if (!go_runtime_read_offset(
+            &snapshot->cpu_idle_time,
+            sizeof(snapshot->cpu_idle_time),
+            cpu_stats_addr,
+            go_offset_of(ot, (go_offset){.v = _runtime_cpu_stats_idle_time_pos}))) {
+        return;
+    }
+    if (!go_runtime_read_offset(
+            &snapshot->cpu_user_time,
+            sizeof(snapshot->cpu_user_time),
+            cpu_stats_addr,
+            go_offset_of(ot, (go_offset){.v = _runtime_cpu_stats_user_time_pos}))) {
+        return;
+    }
+
+    snapshot->valid_mask |= go_runtime_metric_valid_cpu_time;
+}
+
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __type(key, go_addr_key_t); // key: pointer to the request goroutine
@@ -76,36 +219,14 @@ int obi_uprobe_runtime_gc_mark_done(struct pt_regs *ctx) {
 
     event->type = EVENT_GO_RUNTIME_METRICS;
     event->pid = key;
-    event->snapshot.num_gc = 0;
-    event->snapshot.num_forced_gc = 0;
-    event->snapshot.gomaxprocs = 0;
-    event->snapshot.gc_percent = 0;
-    event->snapshot.memory_limit = 0;
+    // Collectors set valid_mask bits for metric groups populated in this snapshot.
+    __builtin_memset(&event->snapshot, 0, sizeof(event->snapshot));
 
     off_table_t *ot = get_offsets_table();
-    const u64 num_gc_off = go_offset_of(ot, (go_offset){.v = _runtime_memstats_numgc_pos});
-    const u64 num_forced_gc_off =
-        go_offset_of(ot, (go_offset){.v = _runtime_memstats_numforcedgc_pos});
-    const u64 memory_limit_off =
-        go_offset_of(ot, (go_offset){.v = _runtime_gc_controller_memory_limit_pos});
-    const u64 gc_percent_off =
-        go_offset_of(ot, (go_offset){.v = _runtime_gc_controller_gc_percent_pos});
-
-    bpf_probe_read_user(&event->snapshot.num_gc,
-                        sizeof(event->snapshot.num_gc),
-                        (void *)(target->memstats_addr + num_gc_off));
-    bpf_probe_read_user(&event->snapshot.num_forced_gc,
-                        sizeof(event->snapshot.num_forced_gc),
-                        (void *)(target->memstats_addr + num_forced_gc_off));
-    bpf_probe_read_user(&event->snapshot.gomaxprocs,
-                        sizeof(event->snapshot.gomaxprocs),
-                        (void *)target->gomaxprocs_addr);
-    bpf_probe_read_user(&event->snapshot.gc_percent,
-                        sizeof(event->snapshot.gc_percent),
-                        (void *)(target->gc_controller_addr + gc_percent_off));
-    bpf_probe_read_user(&event->snapshot.memory_limit,
-                        sizeof(event->snapshot.memory_limit),
-                        (void *)(target->gc_controller_addr + memory_limit_off));
+    go_runtime_collect_gc(target, ot, &event->snapshot);
+    go_runtime_collect_memory_config(target, ot, &event->snapshot);
+    go_runtime_collect_scheduler_config(target, &event->snapshot);
+    go_runtime_collect_cpu_time(target, ot, &event->snapshot);
 
     bpf_ringbuf_submit(event, get_flags());
     return 0;

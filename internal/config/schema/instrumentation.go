@@ -180,8 +180,8 @@ type HTTPEnrichment struct {
 
 // HTTPEnrichmentPolicy describes default HTTP payload enrichment actions.
 type HTTPEnrichmentPolicy struct {
-	DefaultAction     HTTPEnrichmentDefaultAction `yaml:"default_action"`
-	ObfuscationString string                      `yaml:"obfuscation_string"`
+	DefaultAction            HTTPEnrichmentDefaultAction `yaml:"default_action"`
+	DefaultObfuscationString string                      `yaml:"obfuscation_string"`
 }
 
 // HTTPEnrichmentDefaultAction describes default enrichment actions for headers

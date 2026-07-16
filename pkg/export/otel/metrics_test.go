@@ -954,7 +954,7 @@ func TestAppMetrics_TracesHostInfo(t *testing.T) {
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		assert.NotEmpty(ct, mr.hostInfo.entries.All(),
-			"traces_host_info metric has not been created yet")
+			"traces.host.info metric has not been created yet")
 	}, timeout, 100*time.Millisecond)
 
 	// Check expiration logic
@@ -972,7 +972,7 @@ func TestAppMetrics_TracesHostInfo(t *testing.T) {
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		assert.Empty(ct, mr.hostInfo.entries.All(),
-			"traces_host_info metric has not expired yet") // The entry should be expired
+			"traces.host.info metric has not expired yet") // The entry should be expired
 	}, timeout, 100*time.Millisecond)
 }
 

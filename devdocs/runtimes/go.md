@@ -9,6 +9,7 @@ instrumented Go services and exports the following metric set.
 | --- | --- | --- | --- |
 | `go.memory.limit` | `go_memory_limit_bytes` | `runtime.gcController.memoryLimit` | Emits positive runtime memory limits; treats `math.MaxInt64` as the runtime's unset sentinel. |
 | `go.memory.gc.cycles` | `go_memory_gc_cycles_total` | `runtime.memstats.numgc` | Emits the total completed GC cycle count. |
+| `go.cpu.time` | `go_cpu_time_seconds_total` | `runtime.work.cpuStats` | For Go 1.23 and newer, emits cumulative CPU seconds with `go.cpu.state` and, where applicable, `go.cpu.detailed_state`; omitted for older versions. |
 | `go.processor.limit` | `go_processor_limit` | `runtime.gomaxprocs` | Emits the current `GOMAXPROCS` value. |
 | `go.config.gogc` | `go_config_gogc_percent` | `runtime.gcController.gcPercent` | Emits non-negative `GOGC` percentages; a negative runtime value represents `GOGC=off`. |
 
@@ -38,5 +39,6 @@ ring buffer, and the runtime metrics export queue:
 
 Snapshots update when the GC-completion probe fires. A newly started process
 emits runtime metrics after it completes a GC cycle. Changes to `GOGC`,
-`GOMEMLIMIT`, or `GOMAXPROCS` appear in exported metrics after the next completed
-GC.
+`GOMEMLIMIT`, `GOMAXPROCS`, and CPU counters appear in exported metrics after
+the next completed GC. CPU counters are available only for services built with
+Go 1.23 or newer.
