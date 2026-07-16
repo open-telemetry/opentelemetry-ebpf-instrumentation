@@ -32,13 +32,13 @@
 
 // Sets the driver type based on the Go enum:
 // const (
-//	DBGeneric SQLKind = iota + 1
+//	DBGeneric SQLKind = iota
 //	DBPostgres
 //	DBMySQL
 //	DBMSSQL
 // )
 
-enum db_sub_type { k_db_generic = 1, k_db_postgres = 2, k_db_mysql = 3, k_db_mssql = 4 };
+enum db_sub_type { k_db_generic = 0, k_db_postgres = 1, k_db_mysql = 2, k_db_mssql = 3 };
 
 // Validates that driverConn.ci points to the expected database/sql driver
 // connection type and returns the concrete connection pointer.
@@ -235,7 +235,7 @@ static __always_inline bool supports_pq_conn_cfg_hostname() {
 // attempts to extract hostname by trying supported database drivers
 // Sets the driver type based on the Go enum:
 // const (
-//	DBGeneric SQLKind = iota + 1
+//	DBGeneric SQLKind = iota
 //	DBPostgres
 //	DBMySQL
 //	DBMSSQL

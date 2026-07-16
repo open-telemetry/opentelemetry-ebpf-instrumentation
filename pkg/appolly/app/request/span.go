@@ -88,7 +88,7 @@ const (
 type SQLKind uint8
 
 const (
-	DBGeneric SQLKind = iota + 1
+	DBGeneric SQLKind = iota
 	DBPostgres
 	DBMySQL
 	DBMSSQL
