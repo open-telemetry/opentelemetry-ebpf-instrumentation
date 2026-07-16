@@ -2167,7 +2167,8 @@
           "items": {
             "$ref": "#/$defs/OpenAICompatibleGateway"
           },
-          "type": "array"
+          "type": "array",
+          "description": "Opt-in allowlist of gateway destinations to match by host (case-insensitive) with optional port and provider name"
         }
       },
       "type": "object"
@@ -2175,13 +2176,16 @@
     "OpenAICompatibleGateway": {
       "properties": {
         "host": {
-          "type": "string"
+          "type": "string",
+          "description": "Gateway hostname to match (case-insensitive)"
         },
         "port": {
-          "type": "integer"
+          "type": "integer",
+          "description": "Destination port; when 0 or omitted, matches any port"
         },
         "provider": {
-          "type": "string"
+          "type": "string",
+          "description": "Name reported in the gen_ai.system span attribute"
         }
       },
       "type": "object"
