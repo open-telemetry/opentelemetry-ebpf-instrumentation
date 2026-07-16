@@ -56,9 +56,14 @@ const (
 	goRuntimeMetricProcessorLimitMask uint64 = 1 << 2
 	goRuntimeMetricGOGCMask           uint64 = 1 << 3
 	goRuntimeMetricCPUTimeMask        uint64 = 1 << 4
+	goRuntimeMetricMemoryUsedMask     uint64 = 1 << 5
+	goRuntimeMetricMemoryAllocsMask   uint64 = 1 << 6
 )
 
 const goRuntimeMetricBaseMask = goRuntimeMetricGCCyclesMask | goRuntimeMetricGOGCMask
+
+const goRuntimeMetricHeapSnapshotMask = goRuntimeMetricMemoryUsedMask |
+	goRuntimeMetricMemoryAllocsMask
 
 var goChannelOffsetFields = [...]goexec.GoOffset{
 	goexec.HchanQcountPos,
@@ -80,6 +85,20 @@ var goRuntimeMetricOffsetFields = [...]goexec.GoOffset{
 	goexec.RuntimeCPUStatsScavengeBgTimePos,
 	goexec.RuntimeCPUStatsIdleTimePos,
 	goexec.RuntimeCPUStatsUserTimePos,
+	goexec.RuntimeMemstatsHeapStatsPos,
+	goexec.RuntimeMemstatsStacksSysPos,
+	goexec.RuntimeMemstatsMspanSysPos,
+	goexec.RuntimeMemstatsMcacheSysPos,
+	goexec.RuntimeMemstatsBuckhashSysPos,
+	goexec.RuntimeMemstatsGCMiscSysPos,
+	goexec.RuntimeMemstatsOtherSysPos,
+	goexec.RuntimeConsistentHeapStatsStatsPos,
+	goexec.RuntimeHeapStatsDeltaCommittedPos,
+	goexec.RuntimeHeapStatsDeltaInStacksPos,
+	goexec.RuntimeHeapStatsDeltaLargeAllocPos,
+	goexec.RuntimeHeapStatsDeltaLargeAllocCountPos,
+	goexec.RuntimeHeapStatsDeltaSmallAllocCountPos,
+	goexec.RuntimeHeapStatsDeltaSmallFreeCountPos,
 }
 
 var goRuntimeCPUTimeOffsetFields = [...]goexec.GoOffset{
@@ -94,6 +113,23 @@ var goRuntimeCPUTimeOffsetFields = [...]goexec.GoOffset{
 	goexec.RuntimeCPUStatsUserTimePos,
 }
 
+var goRuntimeMemoryOffsetFields = [...]goexec.GoOffset{
+	goexec.RuntimeMemstatsHeapStatsPos,
+	goexec.RuntimeMemstatsStacksSysPos,
+	goexec.RuntimeMemstatsMspanSysPos,
+	goexec.RuntimeMemstatsMcacheSysPos,
+	goexec.RuntimeMemstatsBuckhashSysPos,
+	goexec.RuntimeMemstatsGCMiscSysPos,
+	goexec.RuntimeMemstatsOtherSysPos,
+	goexec.RuntimeConsistentHeapStatsStatsPos,
+	goexec.RuntimeHeapStatsDeltaCommittedPos,
+	goexec.RuntimeHeapStatsDeltaInStacksPos,
+	goexec.RuntimeHeapStatsDeltaLargeAllocPos,
+	goexec.RuntimeHeapStatsDeltaLargeAllocCountPos,
+	goexec.RuntimeHeapStatsDeltaSmallAllocCountPos,
+	goexec.RuntimeHeapStatsDeltaSmallFreeCountPos,
+}
+
 var goRuntimeMetricOffsetGroups = [...]struct {
 	mask   uint64
 	fields []goexec.GoOffset
@@ -102,6 +138,7 @@ var goRuntimeMetricOffsetGroups = [...]struct {
 	{goRuntimeMetricMemoryLimitMask, []goexec.GoOffset{goexec.RuntimeGCControllerMemoryLimitPos}},
 	{goRuntimeMetricGOGCMask, []goexec.GoOffset{goexec.RuntimeGCControllerGCPercentPos}},
 	{goRuntimeMetricCPUTimeMask, goRuntimeCPUTimeOffsetFields[:]},
+	{goRuntimeMetricMemoryUsedMask | goRuntimeMetricMemoryAllocsMask, goRuntimeMemoryOffsetFields[:]},
 }
 
 type Tracer struct {
@@ -461,6 +498,34 @@ func (p *Tracer) recordGoRuntimeMetricAvailability(fileInfo *exec.FileInfo, offs
 
 	ino := fileInfo.Ino()
 	mask := goRuntimeMetricMask(offsets)
+	supportsStableHeapSnapshotVersion, err := goexec.SupportsGoRuntimeMemoryMetrics(fileInfo.ELF())
+	if err != nil && p.log != nil {
+		p.log.Debug("Go runtime memory metric version detection failed",
+			"pid", fileInfo.Pid(),
+			"ino", ino,
+			"cmd", fileInfo.CmdExePath(),
+			"error", err)
+	}
+
+	heapMetricsEnabled := mask&goRuntimeMetricHeapSnapshotMask != 0
+	nextGenResolved := false
+	if offsets != nil {
+		_, nextGenResolved = offsets.Funcs[goRuntimeMetricProbeSymbols[1]]
+	}
+
+	if !supportsStableHeapSnapshotVersion {
+		mask &^= goRuntimeMetricHeapSnapshotMask
+	} else if heapMetricsEnabled && !nextGenResolved {
+		mask &^= goRuntimeMetricHeapSnapshotMask
+		if p.log != nil {
+			p.log.Warn("Go runtime heap metric symbol unresolved; using scalar fallback",
+				"pid", fileInfo.Pid(),
+				"ino", ino,
+				"cmd", fileInfo.CmdExePath(),
+				"missing_probe", goRuntimeMetricProbeSymbols[1],
+				"fallback_probe", goRuntimeMetricProbeSymbols[0])
+		}
+	}
 	p.goRuntimeMetricMaskByIno[ino] = mask
 
 	if p.log != nil {
@@ -470,7 +535,8 @@ func (p *Tracer) recordGoRuntimeMetricAvailability(fileInfo *exec.FileInfo, offs
 			"cmd", fileInfo.CmdExePath(),
 			"available_mask", mask,
 			"base_available", hasBaseGoRuntimeMetrics(mask),
-			"cpu_time_available", mask&goRuntimeMetricCPUTimeMask != 0)
+			"cpu_time_available", mask&goRuntimeMetricCPUTimeMask != 0,
+			"memory_available", mask&goRuntimeMetricMemoryUsedMask != 0)
 	}
 }
 
@@ -528,13 +594,16 @@ func (p *Tracer) registerRuntimeMetricTarget(pid app.PID, ns uint32, fileInfo *e
 		p.log.Debug("runtime metrics disabled for executable", "pid", pid, "ino", fileInfo.Ino(), "error", err)
 		return
 	}
+	availableMask = p.goRuntimeMetricMaskForSymbols(fileInfo, availableMask, symbols)
+	p.goRuntimeMetricMaskByIno[fileInfo.Ino()] = availableMask
 
 	value := BpfGoRuntimeMetricTargetT{
-		MemstatsAddr:     symbols.MemstatsAddr,
-		GcControllerAddr: symbols.GCControllerAddr,
-		GomaxprocsAddr:   symbols.GOMAXPROCSAddr,
-		WorkAddr:         symbols.WorkAddr,
-		AvailableMask:    availableMask,
+		MemstatsAddr:         symbols.MemstatsAddr,
+		GcControllerAddr:     symbols.GCControllerAddr,
+		GomaxprocsAddr:       symbols.GOMAXPROCSAddr,
+		WorkAddr:             symbols.WorkAddr,
+		AvailableMask:        availableMask,
+		SizeClassToSizesAddr: symbols.SizeClassToSizesAddr,
 	}
 
 	if err := p.bpfObjects.GoRuntimeMetricTargets.Put(pidInfo, value); err != nil {
@@ -546,6 +615,25 @@ func (p *Tracer) registerRuntimeMetricTarget(pid app.PID, ns uint32, fileInfo *e
 		p.runtimeMetricTargetKeys = map[runtimeMetricTargetKey]BpfPidInfo{}
 	}
 	p.runtimeMetricTargetKeys[runtimeMetricTargetKey{pid: pid, ns: ns}] = pidInfo
+}
+
+func (p *Tracer) goRuntimeMetricMaskForSymbols(
+	fileInfo *exec.FileInfo,
+	mask uint64,
+	symbols goexec.RuntimeMetricSymbols,
+) uint64 {
+	if mask&goRuntimeMetricMemoryAllocsMask == 0 || symbols.SizeClassToSizesAddr != 0 {
+		return mask
+	}
+
+	mask &^= goRuntimeMetricMemoryAllocsMask
+	if p.log != nil {
+		p.log.Warn("Go runtime size-class table symbol unresolved; disabling allocation metrics",
+			"pid", fileInfo.Pid(),
+			"ino", fileInfo.Ino(),
+			"cmd", fileInfo.CmdExePath())
+	}
+	return mask
 }
 
 // deleteRuntimeMetricTarget removes process-scoped runtime metadata whenever
@@ -609,9 +697,19 @@ var goChannelLinkProbeSymbols = []string{
 	"runtime.chanrecv2",
 }
 
+var goRuntimeMetricProbeSymbols = []string{
+	"runtime.gcMarkDone",
+	"runtime.(*scavengeIndex).nextGen",
+}
+
 // GoChannelLinkProbeSymbols returns the Go runtime symbols used to correlate direct channel handoffs.
 func GoChannelLinkProbeSymbols() []string {
 	return append([]string(nil), goChannelLinkProbeSymbols...)
+}
+
+// GoRuntimeMetricProbeSymbols returns every candidate used for per-binary runtime metric probes.
+func GoRuntimeMetricProbeSymbols() []string {
+	return append([]string(nil), goRuntimeMetricProbeSymbols...)
 }
 
 func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
@@ -629,9 +727,6 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 		}},
 		"runtime.mexit": {{
 			Start: p.bpfObjects.ObiUprobeRuntimeMexit,
-		}},
-		"runtime.gcMarkDone": {{
-			End: p.bpfObjects.ObiUprobeRuntimeGcMarkDone,
 		}},
 		// Go net/http
 		"net/http.serverHandler.ServeHTTP": {{
@@ -960,6 +1055,20 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 		}},
 	}
 
+	if p.goRuntimeHeapSnapshotProbeEnabled() {
+		// Go 1.23+ heap statistics use a rotating ring. Collect at nextGen after GC
+		// accounting and before the world restarts so the ring cannot rotate mid-read.
+		m[goRuntimeMetricProbeSymbols[1]] = []*ebpfcommon.ProbeDesc{{
+			Start: p.bpfObjects.ObiUprobeGoRuntimeMetrics,
+		}}
+	} else {
+		// Older Go versions expose only the scalar metric set and may not contain
+		// nextGen. Keep the gcMarkDone return probe for backward compatibility.
+		m[goRuntimeMetricProbeSymbols[0]] = []*ebpfcommon.ProbeDesc{{
+			End: p.bpfObjects.ObiUprobeGoRuntimeMetrics,
+		}}
+	}
+
 	if p.goChannelLinkProbesEnabled() {
 		m[goChannelLinkProbeSymbols[0]] = []*ebpfcommon.ProbeDesc{{
 			Start: p.bpfObjects.ObiUprobeRuntimeChansend1,
@@ -1040,6 +1149,14 @@ func (p *Tracer) goChannelLinkProbesEnabled() bool {
 	}
 
 	return p.goChannelOffsetsByIno[p.currentBinaryIno]
+}
+
+func (p *Tracer) goRuntimeHeapSnapshotProbeEnabled() bool {
+	if p == nil || p.currentBinaryIno == 0 {
+		return false
+	}
+
+	return p.goRuntimeMetricMaskByIno[p.currentBinaryIno]&goRuntimeMetricHeapSnapshotMask != 0
 }
 
 func (p *Tracer) KProbes() map[string]ebpfcommon.ProbeDesc {

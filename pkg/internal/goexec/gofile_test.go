@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
+	"go.opentelemetry.io/obi/pkg/internal/procs"
 )
 
 func TestSupportedGoVersion(t *testing.T) {
@@ -50,4 +52,33 @@ func TestSupportedGoVersion(t *testing.T) {
 		got := supportedGoVersion(tt.input)
 		assert.Equal(t, tt.want, got, "input: %v", tt.input)
 	}
+}
+
+func TestGoRuntimeMemoryMetricVersion(t *testing.T) {
+	tests := []struct {
+		version string
+		want    bool
+	}{
+		{version: "go1.20.14"},
+		{version: "go1.21.13"},
+		{version: "go1.22.12"},
+		{version: "go1.23", want: true},
+		{version: "go1.26.3", want: true},
+		{version: "devel go1.27-abcdef", want: true},
+		{version: "unknown"},
+	}
+
+	for _, tt := range tests {
+		assert.Equal(t, tt.want, goVersionAtLeast(tt.version, minGoRuntimeMemoryMetricVersion))
+	}
+}
+
+func TestRuntimeMetricSymbolAddrFallsBackToInternalSizeClassTable(t *testing.T) {
+	symbols := map[string]procs.Sym{
+		runtimeMetricInternalSizeClassToSizesSymbol: {Off: 0x20},
+	}
+
+	got := runtimeMetricSymbolAddr(symbols, runtimeMetricSizeClassToSizesSymbol, 0x1000)
+
+	assert.Equal(t, uint64(0x1020), got)
 }
