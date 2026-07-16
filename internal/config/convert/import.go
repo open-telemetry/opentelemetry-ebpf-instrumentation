@@ -871,6 +871,7 @@ func applyFullV2HTTPPayloadExtraction(cfg *obi.Config, payload schema.PayloadExt
 	http := &cfg.EBPF.PayloadExtraction.HTTP
 	applyV2HTTPPayloadExtractorMembership(http, payload.Enabled)
 	http.SQLPP.EndpointPatterns = cloneStrings(payload.SQLPP.EndpointPatterns)
+	http.GenAI.OpenAICompatible.Gateways = payload.OpenAICompatible.Gateways
 	applyFullV2HTTPEnrichment(http, payload.Enrichment)
 }
 
@@ -885,6 +886,9 @@ func applyPartialV2HTTPPayloadExtraction(cfg *obi.Config, payload schema.Payload
 	}
 	if payload.SQLPP.EndpointPatterns != nil {
 		http.SQLPP.EndpointPatterns = cloneStrings(payload.SQLPP.EndpointPatterns)
+	}
+	if payload.OpenAICompatible.Gateways != nil {
+		http.GenAI.OpenAICompatible.Gateways = payload.OpenAICompatible.Gateways
 	}
 	if !zeroValue(payload.Enrichment) {
 		applyPartialV2HTTPEnrichment(http, payload.Enrichment)

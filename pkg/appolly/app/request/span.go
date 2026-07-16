@@ -419,23 +419,24 @@ func (ai *VendorOpenAI) GetEmbeddingDimensions() int {
 }
 
 type OpenAIInput struct {
-	Input           string          `json:"input"`
-	Prompt          string          `json:"prompt"`
-	Model           string          `json:"model"`
-	Instructions    string          `json:"instructions"`
-	Messages        json.RawMessage `json:"messages"`
-	Items           json.RawMessage `json:"items"`
-	Temperature     float64         `json:"temperature"`
-	Dimensions      int             `json:"dimensions,omitempty"`
-	MaxTokens       int             `json:"max_tokens,omitempty"`
-	N               int             `json:"n,omitempty"`
-	Stop            json.RawMessage `json:"stop,omitempty"`
-	PresencePenalty float64         `json:"presence_penalty,omitempty"`
-	Stream          bool            `json:"stream,omitempty"`
-	EncodingFormat  string          `json:"encoding_format,omitempty"`
-	Seed            *int            `json:"seed,omitempty"`
-	Tools           json.RawMessage `json:"tools,omitempty"`
-	ServiceTier     string          `json:"service_tier,omitempty"`
+	Input            string          `json:"input"`
+	Prompt           string          `json:"prompt"`
+	Model            string          `json:"model"`
+	Instructions     string          `json:"instructions"`
+	Messages         json.RawMessage `json:"messages"`
+	Items            json.RawMessage `json:"items"`
+	Temperature      float64         `json:"temperature"`
+	Dimensions       int             `json:"dimensions,omitempty"`
+	MaxTokens        int             `json:"max_tokens,omitempty"`
+	N                int             `json:"n,omitempty"`
+	Stop             json.RawMessage `json:"stop,omitempty"`
+	FrequencyPenalty float64         `json:"frequency_penalty,omitempty"`
+	PresencePenalty  float64         `json:"presence_penalty,omitempty"`
+	Stream           bool            `json:"stream,omitempty"`
+	EncodingFormat   string          `json:"encoding_format,omitempty"`
+	Seed             *int            `json:"seed,omitempty"`
+	Tools            json.RawMessage `json:"tools,omitempty"`
+	ServiceTier      string          `json:"service_tier,omitempty"`
 }
 
 func (air *OpenAIInput) GetStopSequences() []string {

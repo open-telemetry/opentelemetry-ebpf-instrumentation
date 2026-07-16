@@ -157,13 +157,17 @@ type RetrievalConfig struct {
 
 type OpenAICompatibleConfig struct {
 	// Enable OpenAI-compatible gateway payload extraction and parsing
-	Enabled  bool                      `yaml:"enabled" env:"OTEL_EBPF_HTTP_OPENAI_COMPATIBLE_ENABLED" validate:"boolean"`
-	Gateways []OpenAICompatibleGateway `yaml:"gateways"`
+	Enabled bool `yaml:"enabled" env:"OTEL_EBPF_HTTP_OPENAI_COMPATIBLE_ENABLED" validate:"boolean"`
+	// Opt-in allowlist of gateway destinations to match by host (case-insensitive) with optional port and provider name
+	Gateways []OpenAICompatibleGateway `yaml:"gateways" validate:"dive"`
 }
 
 type OpenAICompatibleGateway struct {
-	Host     string `yaml:"host" validate:"required"`
-	Port     int    `yaml:"port" validate:"gte=0,lte=65535"`
+	// Gateway hostname to match (case-insensitive)
+	Host string `yaml:"host" validate:"required"`
+	// Destination port; when 0 or omitted, matches any port
+	Port int `yaml:"port" validate:"gte=0,lte=65535"`
+	// Provider name reported in the gen_ai.system span attribute
 	Provider string `yaml:"provider"`
 }
 

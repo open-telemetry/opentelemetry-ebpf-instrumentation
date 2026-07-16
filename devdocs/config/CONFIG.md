@@ -287,7 +287,7 @@ HTTPParsingPolicy defines the default action for http enrichment rules.
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
 | `ebpf.payload_extraction.http.genai.openai_compatible.enabled` | `boolean` | `OTEL_EBPF_HTTP_OPENAI_COMPATIBLE_ENABLED` | `false` |  |  | Enable OpenAI-compatible gateway payload extraction and parsing |
-| `ebpf.payload_extraction.http.genai.openai_compatible.gateways` | [`OpenAICompatibleGateway`](#openaicompatiblegateway)[] |  |  |  |  |  |
+| `ebpf.payload_extraction.http.genai.openai_compatible.gateways` | [`OpenAICompatibleGateway`](#openaicompatiblegateway)[] |  |  |  |  | Opt-in allowlist of gateway destinations to match by host (case-insensitive) with optional port and provider name |
 
 #### `ebpf.payload_extraction.http.genai.qwen`
 
@@ -744,9 +744,9 @@ IntEnum defines an enumeration of integers (e.g. ports or PIDs). It allows a set
 
 | Field | Type | Values | Description |
 |---|---|---|---|
-| `host` | `string` |  |  |
-| `port` | `integer` |  |  |
-| `provider` | `string` |  |  |
+| `host` | `string` |  | Required. Gateway hostname to match (case-insensitive) |
+| `port` | `integer` | 0–65535 | Optional destination port. When 0 or omitted, matches any port |
+| `provider` | `string` |  | Provider name reported in the `gen_ai.system` span attribute |
 
 ### RegexSelector
 

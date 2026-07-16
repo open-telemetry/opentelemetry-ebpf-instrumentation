@@ -119,6 +119,9 @@ func payloadExtraction(cfg *obi.Config) schema.PayloadExtraction {
 		SQLPP: schema.SQLPPPayload{
 			EndpointPatterns: http.SQLPP.EndpointPatterns,
 		},
+		OpenAICompatible: schema.OpenAICompatiblePayload{
+			Gateways: http.GenAI.OpenAICompatible.Gateways,
+		},
 		Enrichment: httpEnrichment(cfg),
 	}
 }
