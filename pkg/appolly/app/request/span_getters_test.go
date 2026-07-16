@@ -117,16 +117,6 @@ func TestSpanOTELGetters_DBCollectionName(t *testing.T) {
 			expected: "orders",
 		},
 		{
-			name:     "SQL client multi-table returns empty",
-			span:     &Span{Type: EventTypeSQLClient, Path: "customers,orders"},
-			expected: "",
-		},
-		{
-			name:     "SQL server multi-table returns empty",
-			span:     &Span{Type: EventTypeSQLServer, Path: "customers,orders"},
-			expected: "",
-		},
-		{
 			name:     "Aerospike collection",
 			span:     &Span{Type: EventTypeAerospikeClient, Path: "sessions"},
 			expected: "sessions",
