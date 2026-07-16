@@ -37,6 +37,13 @@ func V2ToRuntime(src *schema.Extension) (*obi.Config, error) {
 	if err := schema.ValidateStandalone(src); err != nil {
 		return nil, err
 	}
+	_, defaults := RuntimeToV2(nil)
+	var complete bool
+	var err error
+	src, complete, err = src.WithDefaults(defaults)
+	if err != nil {
+		return nil, fmt.Errorf("applying config v2 defaults: %w", err)
+	}
 	if err := validateV2MatchOrder(src.Capture.Policy.MatchOrder, src.Capture.Rules); err != nil {
 		return nil, err
 	}
@@ -57,9 +64,9 @@ func V2ToRuntime(src *schema.Extension) (*obi.Config, error) {
 	}
 
 	cfg := runtimeConfigDefaults()
-	applyV2Capture(&cfg, src)
-	applyV2Standalone(&cfg, src)
-	applyV2MetricsEnablement(&cfg, src)
+	applyV2Capture(&cfg, src, complete)
+	applyV2Standalone(&cfg, src, complete)
+	applyV2MetricsEnablement(&cfg, src, complete)
 	cfg.Attributes.Select.Normalize()
 
 	return &cfg, nil
@@ -129,18 +136,18 @@ func runtimeConfigDefaults() obi.Config {
 	return cfg
 }
 
-func applyV2Capture(cfg *obi.Config, src *schema.Extension) {
-	applyV2Policy(cfg, src.Capture.Policy, completePolicy(src.Capture.Policy))
+func applyV2Capture(cfg *obi.Config, src *schema.Extension, complete bool) {
+	applyV2Policy(cfg, src.Capture.Policy, complete || completePolicy(src.Capture.Policy))
 	applyV2Rules(cfg, src.Capture.Rules, src.Capture.Policy.DefaultAction)
-	applyV2Limits(cfg, src.Capture.Limits, completeLimits(src.Capture.Limits))
-	applyV2Safety(cfg, src.Capture.Safety, !zeroValue(src.Capture.Safety))
-	applyV2Channels(cfg, src.Capture.Channels, completeChannels(src.Capture.Channels))
-	applyV2Engine(cfg, src.Capture.Engine, completeEngine(src.Capture.Engine))
-	applyV2Instrumentation(cfg, src.Capture.Instrumentation)
-	applyV2NetworkCapture(cfg, src.Capture.Network.Capture, completeNetworkCapture(src.Capture.Network.Capture))
-	applyV2NetworkStats(cfg, src.Capture.Network.Stats, completeNetworkStats(src.Capture.Network.Stats))
-	applyV2Runtimes(cfg, src.Capture.Runtimes, completeRuntimes(src.Capture.Runtimes))
-	applyV2CaptureTelemetry(cfg, src.Capture.Telemetry, completeCaptureTelemetry(src.Capture.Telemetry))
+	applyV2Limits(cfg, src.Capture.Limits, complete || completeLimits(src.Capture.Limits))
+	applyV2Safety(cfg, src.Capture.Safety, complete || !zeroValue(src.Capture.Safety))
+	applyV2Channels(cfg, src.Capture.Channels, complete || completeChannels(src.Capture.Channels))
+	applyV2Engine(cfg, src.Capture.Engine, complete || completeEngine(src.Capture.Engine))
+	applyV2Instrumentation(cfg, src.Capture.Instrumentation, complete)
+	applyV2NetworkCapture(cfg, src.Capture.Network.Capture, complete || completeNetworkCapture(src.Capture.Network.Capture))
+	applyV2NetworkStats(cfg, src.Capture.Network.Stats, complete || completeNetworkStats(src.Capture.Network.Stats))
+	applyV2Runtimes(cfg, src.Capture.Runtimes, complete || completeRuntimes(src.Capture.Runtimes))
+	applyV2CaptureTelemetry(cfg, src.Capture.Telemetry, complete || completeCaptureTelemetry(src.Capture.Telemetry))
 }
 
 func applyV2Policy(cfg *obi.Config, policy schema.CapturePolicy, complete bool) {
@@ -801,12 +808,12 @@ func applyPartialV2Engine(cfg *obi.Config, engine schema.CaptureEngine) {
 	}
 }
 
-func applyV2Instrumentation(cfg *obi.Config, instrumentation schema.Instrumentation) {
-	if zeroValue(instrumentation) {
+func applyV2Instrumentation(cfg *obi.Config, instrumentation schema.Instrumentation, complete bool) {
+	if zeroValue(instrumentation) && !complete {
 		return
 	}
 
-	complete := completeInstrumentation(instrumentation)
+	complete = complete || completeInstrumentation(instrumentation)
 	if !complete {
 		applyPartialV2Instrumentation(cfg, instrumentation)
 		applyProtocolEnablement(cfg, instrumentation, complete)
@@ -1479,21 +1486,21 @@ func applyPartialV2CaptureTelemetry(cfg *obi.Config, telemetry schema.CaptureTel
 	}
 }
 
-func applyV2Standalone(cfg *obi.Config, src *schema.Extension) {
-	applyV2EnrichAttributes(cfg, src.Enrich)
-	applyV2KubernetesEnricher(cfg, src.Enrich)
+func applyV2Standalone(cfg *obi.Config, src *schema.Extension, complete bool) {
+	applyV2EnrichAttributes(cfg, src.Enrich, complete)
+	applyV2KubernetesEnricher(cfg, src.Enrich, complete)
 	applyV2EnrichServiceName(cfg, src.Enrich)
-	applyV2Correlation(cfg, src.Correlation)
-	applyV2Daemon(cfg, src.Daemon)
+	applyV2Correlation(cfg, src.Correlation, complete)
+	applyV2Daemon(cfg, src.Daemon, complete)
 }
 
-func applyV2EnrichAttributes(cfg *obi.Config, enrich *schema.Enrich) {
-	if enrich == nil || zeroValue(enrich.Attributes) {
+func applyV2EnrichAttributes(cfg *obi.Config, enrich *schema.Enrich, complete bool) {
+	if enrich == nil || zeroValue(enrich.Attributes) && !complete {
 		return
 	}
 
 	attrs := enrich.Attributes
-	if completeEnrichmentAttributes(attrs) {
+	if complete || completeEnrichmentAttributes(attrs) {
 		applyFullV2EnrichAttributes(cfg, attrs)
 		return
 	}
@@ -1527,13 +1534,13 @@ func applyPartialV2EnrichAttributes(cfg *obi.Config, attrs schema.EnrichmentAttr
 	}
 }
 
-func applyV2KubernetesEnricher(cfg *obi.Config, enrich *schema.Enrich) {
-	if enrich == nil || zeroValue(enrich.Enrichers.Kubernetes) {
+func applyV2KubernetesEnricher(cfg *obi.Config, enrich *schema.Enrich, complete bool) {
+	if enrich == nil || zeroValue(enrich.Enrichers.Kubernetes) && !complete {
 		return
 	}
 
 	kubernetes := enrich.Enrichers.Kubernetes
-	if completeKubernetesEnricher(kubernetes) {
+	if complete || completeKubernetesEnricher(kubernetes) {
 		applyFullV2KubernetesEnricher(cfg, kubernetes)
 		return
 	}
@@ -1621,12 +1628,12 @@ func applyV2EnrichServiceName(cfg *obi.Config, enrich *schema.Enrich) {
 	cfg.Attributes.RenameUnresolvedHostsIncoming = serviceName.UnresolvedHosts.Names.Incoming
 }
 
-func applyV2Correlation(cfg *obi.Config, correlation *schema.Correlation) {
-	if correlation == nil || zeroValue(correlation.LogTraceAnnotation) {
+func applyV2Correlation(cfg *obi.Config, correlation *schema.Correlation, complete bool) {
+	if correlation == nil || zeroValue(correlation.LogTraceAnnotation) && !complete {
 		return
 	}
 
-	if !completeLogTraceAnnotation(correlation.LogTraceAnnotation) {
+	if !complete && !completeLogTraceAnnotation(correlation.LogTraceAnnotation) {
 		applyPartialV2Correlation(cfg, correlation.LogTraceAnnotation)
 		return
 	}
@@ -1672,12 +1679,12 @@ func completeLogTraceAnnotation(logTrace schema.LogTraceAnnotation) bool {
 	return !zeroValue(logTrace.Cache) && !zeroValue(logTrace.AsyncWriter)
 }
 
-func applyV2Daemon(cfg *obi.Config, daemon *schema.Daemon) {
-	if daemon == nil || zeroValue(*daemon) {
+func applyV2Daemon(cfg *obi.Config, daemon *schema.Daemon, complete bool) {
+	if daemon == nil || zeroValue(*daemon) && !complete {
 		return
 	}
 
-	if !completeDaemon(*daemon) {
+	if !complete && !completeDaemon(*daemon) {
 		applyPartialV2Daemon(cfg, *daemon)
 		return
 	}
@@ -1785,14 +1792,15 @@ func completeDaemonTelemetry(telemetry schema.DaemonTelemetry) bool {
 	return telemetry.Metrics.Prometheus.SpanMetricsServiceCacheSize != 0
 }
 
-func applyV2MetricsEnablement(cfg *obi.Config, src *schema.Extension) {
+func applyV2MetricsEnablement(cfg *obi.Config, src *schema.Extension, complete bool) {
 	appMetricsEnabled, appConfigured := appMetricsEnablement(
 		src.Capture.Instrumentation,
-		completeInstrumentation(src.Capture.Instrumentation),
+		complete || completeInstrumentation(src.Capture.Instrumentation),
 	)
-	networkConfigured := !zeroValue(src.Capture.Network.Capture)
+	networkConfigured := complete || !zeroValue(src.Capture.Network.Capture)
 	networkMetricsEnabled := src.Capture.Network.Capture.Enabled
 	statsFeatures, statsConfigured := statsMetricsEnablement(src.Capture.Network.Stats)
+	statsConfigured = complete || statsConfigured
 	if appConfigured {
 		cfg.Metrics.Features &^= v2AppMetricsFeatureMask
 		if appMetricsEnabled {

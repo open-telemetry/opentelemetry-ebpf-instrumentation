@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/internal/config/schema"
+	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/obi"
 )
 
@@ -169,6 +170,41 @@ extensions:
 	require.Equal(t, obi.DefaultConfig.ShutdownTimeout, defaults.ShutdownTimeout)
 	require.Equal(t, obi.DefaultConfig.InternalMetrics, defaults.InternalMetrics)
 	require.Equal(t, obi.DefaultConfig.Prometheus.SpanMetricsServiceCacheSize, defaults.Prometheus.SpanMetricsServiceCacheSize)
+}
+
+func TestLoadConfigV2PreservesExplicitZeroValues(t *testing.T) {
+	cfg, version, err := loadConfigReader(bytes.NewBufferString(`
+file_format: "1.0"
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      instrumentation:
+        http:
+          enabled:
+            metrics: false
+      runtimes:
+        go:
+          enabled: false
+        nodejs:
+          enabled: false
+        java:
+          enabled: false
+      limits:
+        metric_span_names: 0
+      channels:
+        buffer_len: 0
+`))
+
+	require.NoError(t, err)
+	require.Equal(t, configVersionV2, version)
+	require.True(t, cfg.Discovery.SkipGoSpecificTracers)
+	require.False(t, cfg.NodeJS.Enabled)
+	require.False(t, cfg.Java.Enabled)
+	require.Zero(t, cfg.Attributes.MetricSpanNameAggregationLimit)
+	require.Zero(t, cfg.ChannelBufferLen)
+	require.NotContains(t, cfg.OTELMetrics.Instrumentations, instrumentations.InstrumentationHTTP)
+	require.NotContains(t, cfg.Prometheus.Instrumentations, instrumentations.InstrumentationHTTP)
 }
 
 func TestLoadConfigReaderError(t *testing.T) {

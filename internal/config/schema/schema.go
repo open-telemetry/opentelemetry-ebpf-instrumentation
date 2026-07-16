@@ -295,6 +295,27 @@ type Extension struct {
 	Enrich      *Enrich      `yaml:"enrich,omitempty"`
 	Correlation *Correlation `yaml:"correlation,omitempty"`
 	Daemon      *Daemon      `yaml:"daemon,omitempty"`
+	source      *yaml.Node
+}
+
+type extensionData Extension
+
+// WithDefaults overlays a parsed extension onto defaults. Programmatically
+// constructed extensions do not have source data and retain their existing
+// partial-conversion behavior.
+func (e *Extension) WithDefaults(defaults *Extension) (*Extension, bool, error) {
+	if e == nil || e.source == nil {
+		return e, false, nil
+	}
+
+	merged := extensionData(*defaults)
+	if err := decode(e.source, &merged); err != nil {
+		return nil, false, err
+	}
+
+	result := Extension(merged)
+	result.source = e.source
+	return &result, true, nil
 }
 
 // receiverConfig mirrors the receiver-embedded layout, where capture sections
@@ -324,16 +345,22 @@ func ParseStandaloneYAML(data []byte) (*Document, *Extension, error) {
 		if err := decode(root, &doc); err != nil {
 			return nil, nil, err
 		}
+		extensionNode, _ := nestedNode(root, "extensions", "obi")
+		extension, err := decodeExtension(extensionNode)
+		if err != nil {
+			return nil, nil, err
+		}
+		doc.Extensions.OBI = extension
 		if err := validateFileFormat(doc.FileFormat); err != nil {
 			return nil, nil, err
 		}
 		if doc.Extensions.OBI == nil {
 			return nil, nil, &NotV2Error{Reason: "missing extensions.obi"}
 		}
-		if err := ValidateStandalone(doc.Extensions.OBI); err != nil {
+		if err := ValidateStandalone(extension); err != nil {
 			return nil, nil, err
 		}
-		return &doc, doc.Extensions.OBI, nil
+		return &doc, extension, nil
 	}
 
 	if version, ok := nestedVersion(root, "extensions", "obi", "version"); ok {
@@ -382,6 +409,7 @@ func ParseReceiverYAML(data []byte) (*Extension, error) {
 		cfg := Extension{
 			Version: receiver.Version,
 			Capture: receiver.Capture,
+			source:  receiverExtensionNode(root),
 		}
 		if err := ValidateReceiver(&cfg); err != nil {
 			return nil, err
@@ -516,6 +544,40 @@ func decodeKnownFields(node *yaml.Node, dst any) error {
 		return fmt.Errorf("decoding config v2 YAML: %w", err)
 	}
 	return nil
+}
+
+func decodeExtension(node *yaml.Node) (*Extension, error) {
+	var decoded extensionData
+	if err := decode(node, &decoded); err != nil {
+		return nil, err
+	}
+
+	extension := Extension(decoded)
+	extension.source = node
+	return &extension, nil
+}
+
+func receiverExtensionNode(root *yaml.Node) *yaml.Node {
+	capture := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+	var version *yaml.Node
+	for i := 0; i < len(root.Content)-1; i += 2 {
+		key := root.Content[i]
+		value := root.Content[i+1]
+		if key.Value == "version" {
+			version = value
+			continue
+		}
+		capture.Content = append(capture.Content, key, value)
+	}
+
+	return &yaml.Node{
+		Kind: yaml.MappingNode,
+		Tag:  "!!map",
+		Content: []*yaml.Node{
+			{Kind: yaml.ScalarNode, Tag: "!!str", Value: "version"}, version,
+			{Kind: yaml.ScalarNode, Tag: "!!str", Value: "capture"}, capture,
+		},
+	}
 }
 
 func nestedScalar(root *yaml.Node, path ...string) (string, bool) {
