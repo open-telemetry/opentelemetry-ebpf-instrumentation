@@ -16,31 +16,31 @@ expected:
     attributes:
       db.operation.name: SELECT
       db.collection.name: students
-      db.system.name: other_sql
+      db.system.name: mysql
   - traceql: '{ name = "UPDATE students" && status = unset}'
     equals: UPDATE students
     attributes:
       db.operation.name: UPDATE
       db.collection.name: students
-      db.system.name: other_sql
+      db.system.name: mysql
   - traceql: '{ name = "UPDATE nonexistent_table" && status = error}'
     equals: UPDATE nonexistent_table
     attributes:
       db.operation.name: UPDATE
       db.collection.name: nonexistent_table
-      db.system.name: other_sql
+      db.system.name: mysql
   - traceql: '{ .db.operation.name = "SELECT" && status = error }'
     equals: SELECT nonexistent_table
     attributes:
       db.operation.name: SELECT
       db.collection.name: nonexistent_table
-      db.system.name: other_sql
+      db.system.name: mysql
   metrics:
-  - promql: db_client_operation_duration_seconds_sum{db_operation_name="SELECT", db_system_name="other_sql", server_address="mysqlserver"}
+  - promql: db_client_operation_duration_seconds_sum{db_operation_name="SELECT", db_system_name="mysql", server_address="mysqlserver"}
     value: '> 0'
-  - promql: db_client_operation_duration_seconds_bucket{le="0",db_operation_name="SELECT", db_system_name="other_sql", server_address="mysqlserver"}
+  - promql: db_client_operation_duration_seconds_bucket{le="0",db_operation_name="SELECT", db_system_name="mysql", server_address="mysqlserver"}
     value: == 0
-  - promql: db_client_operation_duration_seconds_bucket{le="10",db_operation_name="SELECT", db_system_name="other_sql", server_address="mysqlserver"}
+  - promql: db_client_operation_duration_seconds_bucket{le="10",db_operation_name="SELECT", db_system_name="mysql", server_address="mysqlserver"}
     value: '> 0'
-  - promql: db_client_operation_duration_seconds_count{db_operation_name="SELECT", db_system_name="other_sql", server_address="mysqlserver"}
+  - promql: db_client_operation_duration_seconds_count{db_operation_name="SELECT", db_system_name="mysql", server_address="mysqlserver"}
     value: '> 0'
