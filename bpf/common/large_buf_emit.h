@@ -23,7 +23,7 @@ static __always_inline u32 large_buf_emit_chunks(tcp_large_buffer_t *large_buf,
                                                  enum large_buf_read_mode mode) {
     const unsigned char *p = (const unsigned char *)u_buf;
 
-    bpf_clamp_umax(available_bytes, k_large_buf_max_http_captured_bytes);
+    bpf_clamp_umax(available_bytes, k_large_buf_per_emit_max);
 
     const u32 niter = (available_bytes / k_large_buf_payload_max_size) +
                       ((available_bytes % k_large_buf_payload_max_size) > 0);
@@ -39,6 +39,7 @@ static __always_inline u32 large_buf_emit_chunks(tcp_large_buffer_t *large_buf,
         const long read_err = (mode == k_large_buf_read_user)
                                   ? bpf_probe_read_user(large_buf->buf, read_size, p + offset)
                                   : bpf_probe_read(large_buf->buf, read_size, p + offset);
+
         if (read_err != 0) {
             break;
         }
