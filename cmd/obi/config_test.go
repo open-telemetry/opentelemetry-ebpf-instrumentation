@@ -207,6 +207,23 @@ extensions:
 	require.NotContains(t, cfg.Prometheus.Instrumentations, instrumentations.InstrumentationHTTP)
 }
 
+func TestLoadConfigV2RejectsUnknownFields(t *testing.T) {
+	_, version, err := loadConfigReader(bytes.NewBufferString(`
+file_format: "1.0"
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      channels:
+        buffer_length: 123
+`))
+
+	require.Error(t, err)
+	require.Empty(t, version)
+	require.Contains(t, err.Error(), "loading config v2")
+	require.Contains(t, err.Error(), "buffer_length")
+}
+
 func TestLoadConfigReaderError(t *testing.T) {
 	wantErr := errors.New("read failed")
 

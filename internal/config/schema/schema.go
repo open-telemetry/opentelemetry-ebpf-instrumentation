@@ -548,7 +548,7 @@ func decodeKnownFields(node *yaml.Node, dst any) error {
 
 func decodeExtension(node *yaml.Node) (*Extension, error) {
 	var decoded extensionData
-	if err := decode(node, &decoded); err != nil {
+	if err := decodeKnownFields(node, &decoded); err != nil {
 		return nil, err
 	}
 
@@ -574,8 +574,18 @@ func receiverExtensionNode(root *yaml.Node) *yaml.Node {
 		Kind: yaml.MappingNode,
 		Tag:  "!!map",
 		Content: []*yaml.Node{
-			{Kind: yaml.ScalarNode, Tag: "!!str", Value: "version"}, version,
-			{Kind: yaml.ScalarNode, Tag: "!!str", Value: "capture"}, capture,
+			{
+				Kind:  yaml.ScalarNode,
+				Tag:   "!!str",
+				Value: "version",
+			},
+			version,
+			{
+				Kind:  yaml.ScalarNode,
+				Tag:   "!!str",
+				Value: "capture",
+			},
+			capture,
 		},
 	}
 }

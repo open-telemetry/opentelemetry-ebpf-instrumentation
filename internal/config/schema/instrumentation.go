@@ -4,6 +4,8 @@
 package schema // import "go.opentelemetry.io/obi/internal/config/schema"
 
 import (
+	"go.yaml.in/yaml/v3"
+
 	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/config"
 	"go.opentelemetry.io/obi/pkg/transform"
@@ -177,6 +179,28 @@ type SQLPPPayload struct {
 type HTTPEnrichment struct {
 	Policy HTTPEnrichmentPolicy     `yaml:"policy"`
 	Rules  []config.HTTPParsingRule `yaml:"rules"`
+}
+
+// UnmarshalYAML keeps the enrichment object strict while accepting the
+// implementation-specific properties allowed inside each rule.
+func (e *HTTPEnrichment) UnmarshalYAML(value *yaml.Node) error {
+	var decoded struct {
+		Policy HTTPEnrichmentPolicy `yaml:"policy"`
+		Rules  yaml.Node            `yaml:"rules"`
+	}
+	if err := decodeKnownFields(value, &decoded); err != nil {
+		return err
+	}
+
+	var rules []config.HTTPParsingRule
+	if decoded.Rules.Kind != 0 {
+		if err := decode(&decoded.Rules, &rules); err != nil {
+			return err
+		}
+	}
+	e.Policy = decoded.Policy
+	e.Rules = rules
+	return nil
 }
 
 // HTTPEnrichmentPolicy describes default HTTP payload enrichment actions.

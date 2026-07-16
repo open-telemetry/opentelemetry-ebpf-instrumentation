@@ -69,11 +69,12 @@ type CapturePolicy struct {
 
 // Rule describes one capture policy rule.
 type Rule struct {
-	Action      CaptureAction  `yaml:"action"`
-	Name        string         `yaml:"name"`
-	Description string         `yaml:"description"`
-	Match       RuleMatch      `yaml:"match"`
-	Refine      RuleRefinement `yaml:"refine,omitempty"`
+	Action               CaptureAction  `yaml:"action"`
+	Name                 string         `yaml:"name"`
+	Description          string         `yaml:"description"`
+	Match                RuleMatch      `yaml:"match"`
+	Refine               RuleRefinement `yaml:"refine,omitempty"`
+	AdditionalProperties map[string]any `yaml:",inline"`
 }
 
 // RuleRefinement holds per-rule overrides that apply after a rule matches.
@@ -90,22 +91,24 @@ type ExportModeRefinement struct {
 
 // RuleMatch contains process and Kubernetes selectors for a capture rule.
 type RuleMatch struct {
-	Process    RuleProcessMatch    `yaml:"process,omitempty"`
-	Kubernetes RuleKubernetesMatch `yaml:"kubernetes,omitempty"`
+	Process              RuleProcessMatch    `yaml:"process,omitempty"`
+	Kubernetes           RuleKubernetesMatch `yaml:"kubernetes,omitempty"`
+	AdditionalProperties map[string]any      `yaml:",inline"`
 }
 
 // RuleProcessMatch describes process-level predicates for a capture rule.
 type RuleProcessMatch struct {
-	OpenPorts      *services.IntEnum `yaml:"open_ports,omitempty"`
-	TargetPIDs     []uint32          `yaml:"target_pids,omitempty"`
-	LanguageGlob   []string          `yaml:"language_glob,omitempty"`
-	LanguageRegex  string            `yaml:"language_regex,omitempty"`
-	CmdArgsGlob    []string          `yaml:"cmd_args_glob,omitempty"`
-	CmdArgsRegex   string            `yaml:"cmd_args_regex,omitempty"`
-	ExePathGlob    []string          `yaml:"exe_path_glob,omitempty"`
-	ExePathRegex   string            `yaml:"exe_path_regex,omitempty"`
-	ContainersOnly bool              `yaml:"containers_only,omitempty"`
-	ExportsOTLP    *RuleExportsOTLP  `yaml:"exports_otlp,omitempty"`
+	OpenPorts            *services.IntEnum `yaml:"open_ports,omitempty"`
+	TargetPIDs           []uint32          `yaml:"target_pids,omitempty"`
+	LanguageGlob         []string          `yaml:"language_glob,omitempty"`
+	LanguageRegex        string            `yaml:"language_regex,omitempty"`
+	CmdArgsGlob          []string          `yaml:"cmd_args_glob,omitempty"`
+	CmdArgsRegex         string            `yaml:"cmd_args_regex,omitempty"`
+	ExePathGlob          []string          `yaml:"exe_path_glob,omitempty"`
+	ExePathRegex         string            `yaml:"exe_path_regex,omitempty"`
+	ContainersOnly       bool              `yaml:"containers_only,omitempty"`
+	ExportsOTLP          *RuleExportsOTLP  `yaml:"exports_otlp,omitempty"`
+	AdditionalProperties map[string]any    `yaml:",inline"`
 }
 
 // RuleExportsOTLP matches processes exporting OTLP on a known port and
@@ -118,14 +121,15 @@ type RuleExportsOTLP struct {
 // RuleKubernetesMatch describes Kubernetes metadata predicates for a capture
 // rule.
 type RuleKubernetesMatch struct {
-	NamespaceGlob       []string            `yaml:"namespace_glob,omitempty"`
-	NamespaceRegex      string              `yaml:"namespace_regex,omitempty"`
-	MetadataGlob        map[string][]string `yaml:"metadata_glob,omitempty"`
-	MetadataRegex       map[string]string   `yaml:"metadata_regex,omitempty"`
-	PodLabels           map[string][]string `yaml:"pod_labels,omitempty"`
-	PodLabelsRegex      map[string]string   `yaml:"pod_labels_regex,omitempty"`
-	PodAnnotations      map[string][]string `yaml:"pod_annotations,omitempty"`
-	PodAnnotationsRegex map[string]string   `yaml:"pod_annotations_regex,omitempty"`
+	NamespaceGlob        []string            `yaml:"namespace_glob,omitempty"`
+	NamespaceRegex       string              `yaml:"namespace_regex,omitempty"`
+	MetadataGlob         map[string][]string `yaml:"metadata_glob,omitempty"`
+	MetadataRegex        map[string]string   `yaml:"metadata_regex,omitempty"`
+	PodLabels            map[string][]string `yaml:"pod_labels,omitempty"`
+	PodLabelsRegex       map[string]string   `yaml:"pod_labels_regex,omitempty"`
+	PodAnnotations       map[string][]string `yaml:"pod_annotations,omitempty"`
+	PodAnnotationsRegex  map[string]string   `yaml:"pod_annotations_regex,omitempty"`
+	AdditionalProperties map[string]any      `yaml:",inline"`
 }
 
 // HTTPRefinement contains per-rule HTTP route and filter overrides.

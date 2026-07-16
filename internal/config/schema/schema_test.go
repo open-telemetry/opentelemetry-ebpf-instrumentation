@@ -291,6 +291,79 @@ extensions:
 	require.Contains(t, err.Error(), "top-level log_level")
 }
 
+func TestParseStandaloneYAMLRejectsUnknownExtensionField(t *testing.T) {
+	t.Parallel()
+
+	_, _, err := ParseStandaloneYAML([]byte(`
+file_format: "1.0"
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      channels:
+        buffer_length: 123
+`))
+
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "buffer_length")
+}
+
+func TestParseStandaloneYAMLAllowsUnknownDeclarativeField(t *testing.T) {
+	t.Parallel()
+
+	_, cfg, err := ParseStandaloneYAML([]byte(`
+file_format: "1.0"
+vendor_extension:
+  enabled: true
+extensions:
+  obi:
+    version: "2.0"
+`))
+
+	require.NoError(t, err)
+	require.NotNil(t, cfg)
+}
+
+func TestParseStandaloneYAMLAllowsExtensibleFields(t *testing.T) {
+	t.Parallel()
+
+	_, cfg, err := ParseStandaloneYAML([]byte(`
+file_format: "1.0"
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      rules:
+        - action: include
+          match:
+            custom_selector: true
+            process:
+              custom_process_selector: value
+      network:
+        capture:
+          custom_capture_option: true
+        stats:
+          custom_stats_option: true
+    enrich:
+      enrichers:
+        custom_enricher:
+          enabled: true
+      service_name:
+        rules: []
+      attributes:
+        rules: []
+`))
+
+	require.NoError(t, err)
+	require.Contains(t, cfg.Capture.Rules[0].Match.AdditionalProperties, "custom_selector")
+	require.Contains(t, cfg.Capture.Rules[0].Match.Process.AdditionalProperties, "custom_process_selector")
+	require.Contains(t, cfg.Capture.Network.Capture.AdditionalProperties, "custom_capture_option")
+	require.Contains(t, cfg.Capture.Network.Stats.AdditionalProperties, "custom_stats_option")
+	require.Contains(t, cfg.Enrich.Enrichers.AdditionalProperties, "custom_enricher")
+	require.Contains(t, cfg.Enrich.ServiceName.AdditionalProperties, "rules")
+	require.Contains(t, cfg.Enrich.Attributes.AdditionalProperties, "rules")
+}
+
 func TestParseReceiverYAMLEmbedded(t *testing.T) {
 	t.Parallel()
 
@@ -369,6 +442,19 @@ unknown_field: true
 			require.ErrorContains(t, err, "field unknown_field not found")
 		})
 	}
+}
+
+func TestParseReceiverYAMLRejectsUnknownField(t *testing.T) {
+	t.Parallel()
+
+	_, err := ParseReceiverYAML([]byte(`
+version: "2.0"
+channels:
+  buffer_length: 123
+`))
+
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "buffer_length")
 }
 
 func TestParseReceiverRejectsInvalidTypedEnum(t *testing.T) {
