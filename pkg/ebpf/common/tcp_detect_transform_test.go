@@ -32,10 +32,10 @@ import (
 func TestTCPReqSQLParsing(t *testing.T) {
 	sql := randomStringWithSub("SELECT * FROM accounts ")
 	r := makeTCPReq(sql, 343534)
-	op, table, sql := detectSQL([]byte(sql))
+	op, tables, sql := detectSQL([]byte(sql))
 	assert.Equal(t, "SELECT", op)
-	assert.Equal(t, "accounts", table)
-	s := TCPToSQLToSpan(&r, op, table, sql, request.DBGeneric, "", nil)
+	assert.Equal(t, []string{"accounts"}, tables)
+	s := TCPToSQLToSpan(&r, op, tables, sql, request.DBGeneric, "", nil)
 	assert.NotNil(t, s)
 	assert.NotEmpty(t, s.Host)
 	assert.NotEmpty(t, s.Peer)
@@ -68,12 +68,65 @@ func TestReadTCPRequestIntoSpan_SQLServerTrafficIsServerSpan(t *testing.T) {
 	assert.Equal(t, "accounts", span.Path)
 }
 
+func pgWireMsg(typ byte, body string) []byte {
+	msg := binary.BigEndian.AppendUint32([]byte{typ}, uint32(4+len(body)+1))
+	msg = append(msg, body...)
+	return append(msg, 0)
+}
+
+func TestReadTCPRequestIntoSpan_PostgresStartupSetsDBNamespace(t *testing.T) {
+	cfg := config.EBPFTracer{HeuristicSQLDetect: true, PostgresPreparedStatementsCacheSize: 16}
+	ctx := NewEBPFParseContext(&cfg, nil, nil)
+	fltr := TestPidsFilter{services: map[app.PID]svc.Attrs{}}
+
+	readSpan := func(t *testing.T, r TCPRequestInfo) (request.Span, bool) {
+		binaryRecord := bytes.Buffer{}
+		require.NoError(t, binary.Write(&binaryRecord, binary.LittleEndian, r))
+		span, ignore, err := ReadTCPRequestIntoSpan(ctx, &cfg, &ringbuf.Record{RawSample: binaryRecord.Bytes()}, &fltr)
+		require.NoError(t, err)
+		return span, ignore
+	}
+
+	startup := makeTCPReq(string(pgStartupMessage("user", "postgres", "database", "mydb")), 5432)
+	_, ignore := readSpan(t, startup)
+	assert.True(t, ignore, "startup message should not produce a span")
+
+	t.Run("heuristic SQL path", func(t *testing.T) {
+		query := makeTCPReq(string(pgWireMsg(kPostgresQuery, "SELECT * FROM accounts")), 5432)
+		span, ignore := readSpan(t, query)
+		assert.False(t, ignore)
+		assert.Equal(t, request.EventTypeSQLClient, span.Type)
+		assert.Equal(t, "SELECT", span.Method)
+		assert.Equal(t, "mydb", span.DBNamespace)
+	})
+
+	t.Run("kernel-assigned Postgres path", func(t *testing.T) {
+		query := makeTCPReq(string(pgWireMsg(kPostgresQuery, "SELECT * FROM accounts")), 5432)
+		query.ProtocolType = ProtocolTypePostgres
+		resp := pgWireMsg(kPostgresCommand, "SELECT 1")
+		query.RespLen = uint32(len(resp))
+		copy(query.Rbuf[:], resp)
+		span, ignore := readSpan(t, query)
+		assert.False(t, ignore)
+		assert.Equal(t, request.EventTypeSQLClient, span.Type)
+		assert.Equal(t, "SELECT", span.Method)
+		assert.Equal(t, "mydb", span.DBNamespace)
+	})
+
+	t.Run("unknown connection has no namespace", func(t *testing.T) {
+		query := makeTCPReq(string(pgWireMsg(kPostgresQuery, "SELECT * FROM accounts")), 5433)
+		span, ignore := readSpan(t, query)
+		assert.False(t, ignore)
+		assert.Empty(t, span.DBNamespace)
+	})
+}
+
 func TestTCPReqParsing(t *testing.T) {
 	sql := "Not a sql or any known protocol"
 	r := makeTCPReq(sql, 343534)
-	op, table, _ := detectSQL([]byte(sql))
+	op, tables, _ := detectSQL([]byte(sql))
 	assert.Empty(t, op)
-	assert.Empty(t, table)
+	assert.Empty(t, tables)
 	assert.NotNil(t, r)
 
 	// Verify fallback debug logs appear when no protocol matches
@@ -174,12 +227,12 @@ func TestSQLDetection(t *testing.T) {
 		[]byte("DROP table accounts "), []byte("ALTER table accounts"),
 	} {
 		surrounded := []byte(randomStringWithSub(string(s)))
-		op, table, _ := detectSQL(s)
+		op, tables, _ := detectSQL(s)
 		assert.NotEmpty(t, op)
-		assert.NotEmpty(t, table)
-		op, table, _ = detectSQL(surrounded)
+		assert.NotEmpty(t, tables)
+		op, tables, _ = detectSQL(surrounded)
 		assert.NotEmpty(t, op)
-		assert.NotEmpty(t, table)
+		assert.NotEmpty(t, tables)
 	}
 }
 
@@ -187,18 +240,18 @@ func TestSQLDetectionFails(t *testing.T) {
 	for _, s := range [][]byte{
 		[]byte("SELECT"), []byte("UPDATES{}"), []byte("DELETE {} "), []byte("INSERT// into accounts "),
 	} {
-		op, table, _ := detectSQL(s)
-		assert.False(t, validSQL(op, table, request.DBGeneric))
+		op, tables, _ := detectSQL(s)
+		assert.False(t, validSQL(op, len(tables) > 0, request.DBGeneric))
 		surrounded := []byte(randomStringWithSub(string(s)))
-		op, table, _ = detectSQL(surrounded)
-		assert.False(t, validSQL(op, table, request.DBGeneric))
+		op, tables, _ = detectSQL(surrounded)
+		assert.False(t, validSQL(op, len(tables) > 0, request.DBGeneric))
 	}
 }
 
 func TestSQLDetectionDoesntFailForDetectedKind(t *testing.T) {
 	for _, s := range [][]byte{[]byte("SELECT 1"), []byte("DELETE {}")} {
-		op, table, _ := detectSQL(s)
-		assert.True(t, validSQL(op, table, request.DBPostgres))
+		op, tables, _ := detectSQL(s)
+		assert.True(t, validSQL(op, len(tables) > 0, request.DBPostgres))
 	}
 }
 

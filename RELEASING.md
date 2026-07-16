@@ -138,13 +138,46 @@ Once the workflow completes successfully, a draft release is automatically creat
 3. Review the artifacts:
    - Download and verify checksums for the release artifacts you fetched: `sha256sum -c --ignore-missing SHA256SUMS`
    - Confirm checksum verification reports `OK` for every downloaded asset that was checked before publication
+   - Verify the Cosign signatures for every release archive, SBOM, and the checksum file. Replace `vX.Y.Z` with the release tag:
+
+     ```console
+     set -e
+
+     release_tag=vX.Y.Z
+     repository=open-telemetry/opentelemetry-ebpf-instrumentation
+     certificate_identity="https://github.com/${repository}/.github/workflows/release.yml"
+     certificate_identity="${certificate_identity}@refs/tags/${release_tag}"
+     release_dir="$(mktemp -d)"
+
+     gh release download "${release_tag}" \
+       --repo "${repository}" \
+       --dir "${release_dir}" \
+       --pattern '*.tar.gz' \
+       --pattern '*.cyclonedx.json' \
+       --pattern SHA256SUMS \
+       --pattern '*.bundle.json'
+
+     for artifact in \
+       "${release_dir}"/*.tar.gz \
+       "${release_dir}"/*.cyclonedx.json \
+       "${release_dir}"/SHA256SUMS; do
+       cosign verify-blob "${artifact}" \
+         --bundle "${artifact}.bundle.json" \
+         --certificate-identity "${certificate_identity}" \
+         --certificate-oidc-issuer 'https://token.actions.githubusercontent.com'
+     done
+
+     rm -rf "${release_dir}"
+     ```
+
+     Every `cosign verify-blob` command must report `Verified OK`.
    - Extract archives and test binaries if needed
    - Open the published CycloneDX SBOMs with your preferred SBOM tooling if you want to inspect release dependencies
    - Use the dedicated Java agent SBOM when you need the full Java dependency graph for the JAR embedded inside `obi`
    - Verify signed container images from both registries before publication:
-     `cosign verify --certificate-identity-regexp 'https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/' --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' otel/ebpf-instrument:<tag>`
+     `cosign verify --certificate-identity 'https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/.github/workflows/publish_dockerhub_main.yml@refs/tags/<tag>' --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' otel/ebpf-instrument:<tag>`
    - Verify the matching GHCR image as well:
-     `cosign verify --certificate-identity-regexp 'https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/' --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' ghcr.io/open-telemetry/opentelemetry-ebpf-instrumentation/ebpf-instrument:<tag>`
+     `cosign verify --certificate-identity 'https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/.github/workflows/publish_dockerhub_main.yml@refs/tags/<tag>' --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' ghcr.io/open-telemetry/opentelemetry-ebpf-instrumentation/ebpf-instrument:<tag>`
    - Review auto-generated release notes for accuracy
 4. Edit release notes if necessary to add context, highlight important changes, or improve clarity
 5. Once satisfied with artifacts and release notes, click "Publish release" to make it immutable and publicly available
@@ -205,15 +238,24 @@ The `dist/` directory will contain:
 
 ### Manual Release Trigger
 
-If you need to re-trigger the release workflow (for example, if the workflow previously failed due to a temporary issue), you can use the manual trigger:
+If you need to re-trigger the release workflow (for example, if the workflow previously failed due to a temporary issue), dispatch it from the release tag:
 
-1. Go to the [Release workflow](https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/actions/workflows/release.yml)
-2. Click "Run workflow"
-3. Enter the tag name (e.g., `v1.2.3`) in the required input field
-4. Click "Run workflow"
+```console
+release_tag=vX.Y.Z
+gh workflow run release.yml \
+  --repo open-telemetry/opentelemetry-ebpf-instrumentation \
+  --ref "${release_tag}" \
+  --raw-field tag="${release_tag}" \
+  --raw-field latest=false
+```
+
+Using the release tag for `--ref` is required. Dispatching from the default branch would give the signed artifacts a `refs/heads/main` certificate identity instead of the `refs/tags/${release_tag}` identity required by the verification command above.
 
 The manual trigger will validate the tag format, run the full test suite, and create a draft release with the same requirements as the automatic trigger.
 
 ## Post-Release
 
-**TODO**: bump versions in Helm charts and other places.
+The Helm chart version is automatically updated by CI.
+
+The releaser must update the OBI version references in the
+[OpenTelemetry documentation](https://opentelemetry.io/docs/zero-code/obi/).

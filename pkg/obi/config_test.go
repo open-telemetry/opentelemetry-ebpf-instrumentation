@@ -9,6 +9,8 @@ import (
 	"io"
 	"log/slog"
 	"maps"
+	"os"
+	"reflect"
 	"regexp"
 	"strings"
 	"testing"
@@ -30,6 +32,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
 	"go.opentelemetry.io/obi/pkg/export/prom"
+	"go.opentelemetry.io/obi/pkg/internal/avoidedsvc"
 	"go.opentelemetry.io/obi/pkg/internal/pipe/cidr"
 	"go.opentelemetry.io/obi/pkg/kube"
 	"go.opentelemetry.io/obi/pkg/kube/kubeflags"
@@ -38,6 +41,26 @@ import (
 )
 
 type envMap map[string]string
+
+func TestJoinMetricsConfigIncludesPerServiceFeatures(t *testing.T) {
+	cfg := Config{
+		Metrics: perapp.MetricsConfig{
+			Features: export.FeatureApplicationRED,
+		},
+		Discovery: services.DiscoveryConfig{
+			Instrument: services.GlobDefinitionCriteria{
+				{Metrics: perapp.SvcMetricsConfig{Features: export.FeatureApplicationRuntime}},
+			},
+			Services: services.RegexDefinitionCriteria{
+				{Metrics: perapp.SvcMetricsConfig{Features: export.FeatureNetwork}},
+			},
+		},
+	}
+
+	joint := cfg.JoinMetricsConfig()
+
+	assert.Equal(t, export.FeatureApplicationRED|export.FeatureApplicationRuntime|export.FeatureNetwork, joint.Features)
+}
 
 func TestConfig_Overrides(t *testing.T) {
 	userConfig := bytes.NewBufferString(`
@@ -103,6 +126,11 @@ discovery:
 	t.Setenv("OTEL_SERVICE_NAME", "svc-name")
 	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "localhost:3131")
 	t.Setenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "localhost:3232")
+	unsetEnv(t,
+		"OTEL_EXPORTER_OTLP_PROTOCOL",
+		"OTEL_EXPORTER_OTLP_METRICS_PROTOCOL",
+		"OTEL_EXPORTER_OTLP_TRACES_PROTOCOL",
+	)
 	t.Setenv("OTEL_EBPF_INTERNAL_METRICS_PROMETHEUS_PORT", "3210")
 	t.Setenv("KUBECONFIG", "/foo/bar")
 	t.Setenv("OTEL_EBPF_NAME_RESOLVER_SOURCES", "k8s,dns")
@@ -185,7 +213,7 @@ discovery:
 								Headers: config.HTTPParsingActionExclude,
 								Body:    config.HTTPParsingActionExclude,
 							},
-							ObfuscationString: "***",
+							DefaultObfuscationString: "***",
 						},
 						Rules: []config.HTTPParsingRule{},
 					},
@@ -250,6 +278,8 @@ discovery:
 				instrumentations.InstrumentationMongo,
 				instrumentations.InstrumentationCouchbase,
 				instrumentations.InstrumentationMemcached,
+				instrumentations.InstrumentationSunRPC,
+				instrumentations.InstrumentationAerospike,
 				// no traces for DNS and GPU by default
 			},
 		},
@@ -272,6 +302,9 @@ discovery:
 		},
 		InternalMetrics: imetrics.InternalMetricsConfig{
 			Exporter: imetrics.InternalMetricsExporterDisabled,
+			AvoidedServices: imetrics.AvoidedServicesConfig{
+				Limit: avoidedsvc.DefaultLimit,
+			},
 			Prometheus: imetrics.PrometheusConfig{
 				Port: 3210,
 				Path: "/internal/metrics",
@@ -341,7 +374,7 @@ discovery:
 			DefaultOtlpGRPCPort:   4317,
 			RouteHarvesterTimeout: 10 * time.Second,
 			RouteHarvestConfig: services.RouteHarvestingConfig{
-				JavaHarvestDelay: 60 * time.Second,
+				JavaHarvestDelay: 5 * time.Second,
 			},
 			ExcludedLinuxSystemPaths: []string{"/lib/systemd/", "/usr/lib/systemd/", "/usr/libexec/", "/sbin/", "/usr/sbin/"},
 		},
@@ -352,10 +385,26 @@ discovery:
 			Enabled: true,
 			Timeout: 10 * time.Second,
 		},
+		JVMRuntimeMetrics: JVMRuntimeMetricsConfig{
+			SamplingInterval: time.Second,
+		},
 		HealthCheck: HealthCheckConfig{
 			Port: 0,
 		},
 	}, cfg)
+}
+
+func unsetEnv(t *testing.T, keys ...string) {
+	t.Helper()
+
+	for _, key := range keys {
+		if value, exists := os.LookupEnv(key); exists {
+			t.Setenv(key, value)
+		} else {
+			t.Setenv(key, "")
+		}
+		require.NoError(t, os.Unsetenv(key))
+	}
 }
 
 func TestConfig_ServiceName(t *testing.T) {
@@ -367,11 +416,114 @@ func TestConfig_ServiceName(t *testing.T) {
 	assert.Equal(t, "some-svc-name", cfg.ServiceName)
 }
 
+// a literal envDefault on a yaml-configurable field is applied by env.Parse
+// after the YAML layer, silently overwriting yaml values whenever the env var
+// is unset; defaults for such fields belong in DefaultConfig. The ${VAR}
+// indirection form is exempt: it expands to nothing when the var is unset.
+func TestConfig_NoLiteralEnvDefaultOnYamlFields(t *testing.T) {
+	var violations []string
+	seen := map[reflect.Type]bool{}
+	var walk func(typ reflect.Type, path string)
+	walk = func(typ reflect.Type, path string) {
+		for typ.Kind() == reflect.Pointer {
+			typ = typ.Elem()
+		}
+		if typ.Kind() != reflect.Struct || seen[typ] {
+			return
+		}
+		seen[typ] = true
+		for i := 0; i < typ.NumField(); i++ {
+			f := typ.Field(i)
+			yamlTag := strings.Split(f.Tag.Get("yaml"), ",")[0]
+			envDefault := f.Tag.Get("envDefault")
+			if yamlTag != "" && yamlTag != "-" && envDefault != "" && !strings.HasPrefix(envDefault, "${") {
+				violations = append(violations, path+"."+f.Name)
+			}
+			walk(f.Type, path+"."+f.Name)
+		}
+	}
+	walk(reflect.TypeOf(Config{}), "Config")
+	assert.Empty(t, violations, "literal envDefault on yaml-configurable fields; move the default to DefaultConfig")
+}
+
+func TestConfig_NameResolverSources(t *testing.T) {
+	// no yaml, no env: DefaultConfig value
+	cfg, err := LoadConfig(bytes.NewReader(nil))
+	require.NoError(t, err)
+	assert.Equal(t, []transform.Source{transform.SourceK8s}, cfg.NameResolver.Sources)
+
+	// yaml must survive env.Parse when the env var is unset
+	cfg, err = LoadConfig(bytes.NewBufferString("name_resolver:\n  sources: [k8s, dns, rdns]\n"))
+	require.NoError(t, err)
+	assert.Equal(t, []transform.Source{transform.SourceK8s, transform.SourceDNS, transform.SourceRDNS}, cfg.NameResolver.Sources)
+
+	// env var wins over yaml
+	t.Setenv("OTEL_EBPF_NAME_RESOLVER_SOURCES", "rdns")
+	cfg, err = LoadConfig(bytes.NewBufferString("name_resolver:\n  sources: [k8s, dns]\n"))
+	require.NoError(t, err)
+	assert.Equal(t, []transform.Source{transform.SourceRDNS}, cfg.NameResolver.Sources)
+}
+
 func TestConfig_ShutdownTimeout(t *testing.T) {
 	t.Setenv("OTEL_EBPF_SHUTDOWN_TIMEOUT", "1m")
 	cfg, err := LoadConfig(bytes.NewReader(nil))
 	require.NoError(t, err)
 	assert.Equal(t, time.Minute, cfg.ShutdownTimeout)
+}
+
+func TestConfig_JVMRuntimeMetricsDefaults(t *testing.T) {
+	cfg, err := LoadConfig(nil)
+	require.NoError(t, err)
+
+	assert.Equal(t, time.Second, cfg.JVMRuntimeMetrics.SamplingInterval)
+}
+
+func TestConfig_JVMRuntimeMetricsFromEnv(t *testing.T) {
+	t.Setenv("OBI_JVM_RUNTIME_METRICS_SAMPLING_INTERVAL", "250ms")
+
+	cfg, err := LoadConfig(nil)
+	require.NoError(t, err)
+
+	assert.Equal(t, 250*time.Millisecond, cfg.JVMRuntimeMetrics.SamplingInterval)
+}
+
+func TestConfig_JVMRuntimeMetricsFromYAML(t *testing.T) {
+	cfg, err := LoadConfig(bytes.NewBufferString(`
+jvm_runtime_metrics:
+  sampling_interval: 2s
+`))
+	require.NoError(t, err)
+
+	assert.Equal(t, 2*time.Second, cfg.JVMRuntimeMetrics.SamplingInterval)
+}
+
+func TestConfig_JVMRuntimeMetricsV010ConfigCompatibility(t *testing.T) {
+	cfg, err := LoadConfig(bytes.NewBufferString(`
+metrics:
+  features:
+    - application_jvm
+jvm_runtime_metrics:
+  enabled: true
+  sampling_interval: 2s
+`))
+	require.NoError(t, err)
+
+	assert.True(t, cfg.Metrics.Features.AppRuntime())
+	assert.Equal(t, 2*time.Second, cfg.JVMRuntimeMetrics.SamplingInterval)
+}
+
+func TestConfigValidate_JVMRuntimeMetricsSamplingInterval(t *testing.T) {
+	cfg, err := LoadConfig(bytes.NewBufferString(`
+trace_printer: text
+executable_path: java
+jvm_runtime_metrics:
+  sampling_interval: 0s
+`))
+	require.NoError(t, err)
+
+	err = cfg.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "jvm_runtime_metrics.sampling_interval")
 }
 
 func TestConfig_ExponentialHistogramConfigFromEnv(t *testing.T) {
@@ -978,7 +1130,16 @@ func TestConfig_SpanMetricsEnabledForTraces(t *testing.T) {
 }
 
 func loadConfig(t *testing.T, env envMap) *Config {
+	isolatedEnv := envMap{
+		"OTEL_EXPORTER_OTLP_ENDPOINT":         "",
+		"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT": "",
+		"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT":  "",
+		"OTEL_EBPF_PROMETHEUS_PORT":           "0",
+	}
 	for k, v := range env {
+		isolatedEnv[k] = v
+	}
+	for k, v := range isolatedEnv {
 		t.Setenv(k, v)
 	}
 	cfg, err := LoadConfig(nil)

@@ -9,11 +9,13 @@ import (
 
 	"github.com/hashicorp/golang-lru/v2/expirable"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
+	memorystore "go.opentelemetry.io/obi/pkg/internal/rdns/store"
 	"go.opentelemetry.io/obi/pkg/kube"
 	"go.opentelemetry.io/obi/pkg/kube/kubecache/informer"
 )
@@ -584,4 +586,27 @@ func TestResolver(t *testing.T) {
 			assert.Equal(t, tt.expectedNamespace, ns)
 		})
 	}
+}
+
+func TestRDNSMissFallsThroughToDNS(t *testing.T) {
+	dnsCache, err := memorystore.NewInMemory(10)
+	require.NoError(t, err)
+	dnsCache.StorePair("10.0.0.1", "redis.example.internal")
+
+	nr := NameResolver{
+		dnsCache: dnsCache,
+		cache:    expirable.NewLRU[string, string](10, nil, 5*time.Hour),
+		sources:  resolverSources([]Source{SourceRDNS, SourceDNS}),
+		logger:   nrlog(),
+	}
+	svcAttrs := svc.Attrs{UID: svc.UID{Name: "test-service", Namespace: "default"}}
+
+	name, ns, _ := nr.dnsResolve(&svcAttrs, "10.0.0.1")
+	assert.Equal(t, "redis.example.internal", name)
+	assert.Equal(t, "default", ns)
+
+	// rdns cache miss must reach the dns source, which returns the IP on PTR failure
+	name, ns, _ = nr.dnsResolve(&svcAttrs, "10.0.0.99")
+	assert.Equal(t, "10.0.0.99", name)
+	assert.Equal(t, "default", ns)
 }

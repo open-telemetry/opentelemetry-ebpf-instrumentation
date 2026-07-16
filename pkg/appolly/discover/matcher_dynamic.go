@@ -15,7 +15,7 @@ import (
 
 type DynamicMatcher struct {
 	Log                *slog.Logger
-	DynamicPIDSelector services.Selector
+	DynamicPIDSelector *dynamicPIDSignalView
 	Input              <-chan []Event[ProcessAttrs]
 	Output             *msg.Queue[[]Event[ProcessMatch]]
 	ProcessHistory     map[app.PID]ProcessMatch
@@ -27,7 +27,7 @@ type DynamicMatcher struct {
 func dynamicMatcherProvider(
 	input *msg.Queue[[]Event[ProcessAttrs]],
 	output *msg.Queue[[]Event[ProcessMatch]],
-	dynamicPIDs *DynamicPIDSelector,
+	dynamicPIDs *dynamicPIDSignalView,
 ) swarm.InstanceFunc {
 	if dynamicPIDs == nil {
 		emptyFunc, _ := swarm.EmptyRunFunc()
@@ -36,11 +36,10 @@ func dynamicMatcherProvider(
 
 	dynamicMatcher := &DynamicMatcher{
 		Log:                slog.With("component", "discover.DynamicMatcher"),
-		DynamicPIDSelector: dynamicPIDs.AsSelector(),
+		DynamicPIDSelector: dynamicPIDs,
 		Input:              input.Subscribe(msg.SubscriberName("discover.DynamicMatcher")),
 		Output:             output,
 		ProcessHistory:     map[app.PID]ProcessMatch{},
-		RemovedPIDsNotify:  dynamicPIDs.RemovedNotify(),
 	}
 	return swarm.DirectInstance(dynamicMatcher.Run)
 }
@@ -48,6 +47,11 @@ func dynamicMatcherProvider(
 func (m *DynamicMatcher) Run(ctx context.Context) {
 	defer m.Output.Close()
 	m.Log.Debug("starting dynamic matcher node")
+
+	removedPIDsNotify := m.RemovedPIDsNotify
+	if removedPIDsNotify == nil && m.DynamicPIDSelector != nil {
+		removedPIDsNotify = m.DynamicPIDSelector.RemovedNotifyContext(ctx)
+	}
 
 	for {
 		select {
@@ -65,7 +69,10 @@ func (m *DynamicMatcher) Run(ctx context.Context) {
 			if len(o) > 0 {
 				m.Output.SendCtx(ctx, o)
 			}
-		case removedPIDs := <-m.RemovedPIDsNotify:
+		case removedPIDs, ok := <-removedPIDsNotify:
+			if !ok {
+				return
+			}
 			o := m.syntheticDeletesForRemovedPIDs(removedPIDs)
 			if len(o) > 0 {
 				m.Log.Debug("synthetic deletes for removed PIDs", "len", len(o))
@@ -129,24 +136,23 @@ func (m *DynamicMatcher) filterCreated(obj ProcessAttrs) (Event[ProcessMatch], b
 }
 
 func (m *DynamicMatcher) matchDynamicCriteria(obj ProcessAttrs, proc *services.ProcessInfo) *ProcessMatch {
-	criteria := make([]services.Selector, 0, 1)
-	if pids, ok := m.DynamicPIDSelector.GetPIDs(); ok && len(pids) > 0 {
-		for _, p := range pids {
-			if p == proc.Pid {
-				criteria = append(criteria, m.DynamicPIDSelector)
-				break
-			}
-		}
+	if !m.DynamicPIDSelector.IncludesPID(proc.Pid) {
+		return nil
 	}
 
-	if len(criteria) > 0 {
-		m.Log.Debug("found process", "pid", proc.Pid, "comm", proc.ExePath, "metadata",
-			obj.metadata, "podLabels", obj.podLabels, "criteria", criteria)
-
-		return &ProcessMatch{Criteria: criteria, Process: proc}
+	selector := m.DynamicPIDSelector.SelectorForPID(proc.Pid)
+	if selector == nil {
+		return nil
 	}
 
-	return nil
+	m.Log.Debug("found process", "pid", proc.Pid, "comm", proc.ExePath, "metadata",
+		obj.metadata, "podLabels", obj.podLabels, "criteria", []services.Selector{selector})
+
+	return &ProcessMatch{
+		Criteria:           []services.Selector{selector},
+		Process:            proc,
+		DynamicSelectorPID: proc.Pid,
+	}
 }
 
 func (m *DynamicMatcher) filterDeleted(obj ProcessAttrs) (Event[ProcessMatch], bool) {

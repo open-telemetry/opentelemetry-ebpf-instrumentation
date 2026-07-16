@@ -130,7 +130,8 @@ typedef struct kafka_go_req {
 typedef struct redis_client_req {
     u8 type; // Must be first
     u8 err;
-    u8 _pad[6];
+    u16 buf_len;
+    u8 _pad[4];
     u64 start_monotime_ns;
     u64 end_monotime_ns;
     pid_info pid;

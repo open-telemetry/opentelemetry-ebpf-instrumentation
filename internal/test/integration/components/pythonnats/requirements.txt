@@ -4,7 +4,7 @@
 #
 #    pip-compile --generate-hashes --output-file=requirements.txt --strip-extras requirements.in
 #
-nats-py==2.14.0 \
-    --hash=sha256:4116f5d2233ce16e63c3d5538fa40a5e207f75fcf42a741773929ddf1e29d19d \
-    --hash=sha256:4ed02cb8e3b55c68074a063aa2687087115d805d1513297da90cb2068fb07bed
+nats-py==2.15.0 \
+    --hash=sha256:6622c547d9a7d2313d9c147d46c386188f4ec2c7b5c9f9a0438a4d1b55f54a93 \
+    --hash=sha256:9f8d36aa52a9926a88b8f1d70cf1fdce0ad387941479b500ee9ab3e51073cefd
     # via -r requirements.in

@@ -4,10 +4,11 @@
 package request // import "go.opentelemetry.io/obi/pkg/appolly/app/request"
 
 import (
+	"strconv"
 	"strings"
 
 	"go.opentelemetry.io/otel/attribute"
-	semconv "go.opentelemetry.io/otel/semconv/v1.38.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 )
@@ -121,7 +122,7 @@ func DBResponseStatusCode(val string) attribute.KeyValue {
 }
 
 func MessagingPartition(val int) attribute.KeyValue {
-	return attribute.Key(attr.MessagingPartition).Int(val)
+	return attribute.Key(attr.MessagingPartition).String(strconv.Itoa(val))
 }
 
 func MessagingKafkaOffset(val int64) attribute.KeyValue {
@@ -134,6 +135,10 @@ func DBCollectionName(val string) attribute.KeyValue {
 
 func DBOperationName(val string) attribute.KeyValue {
 	return attribute.Key(attr.DBOperation).String(val)
+}
+
+func DBOperationBatchSize(val int) attribute.KeyValue {
+	return attribute.Key(attr.DBOperationBatchSize).Int(val)
 }
 
 func DBSystemName(val string) attribute.KeyValue {
@@ -176,6 +181,14 @@ func RPCMethod(val string) attribute.KeyValue {
 	return attribute.Key(attr.RPCMethod).String(val)
 }
 
+// S3RPCMethod returns the fully-qualified rpc.method value for AWS S3 operations.
+func S3RPCMethod(method string) string {
+	if method == "" {
+		return ""
+	}
+	return "S3/" + method
+}
+
 func AWSRequestID(val string) attribute.KeyValue {
 	return attribute.Key(attr.AWSRequestID).String(val)
 }
@@ -201,7 +214,7 @@ func CloudRegion(val string) attribute.KeyValue {
 }
 
 func PeerService(val string) attribute.KeyValue {
-	return semconv.PeerService(val)
+	return semconv.ServicePeerName(val)
 }
 
 func SpanHost(span *Span) string {
@@ -340,10 +353,6 @@ func Instance(val string) attribute.KeyValue {
 
 func DNSAnswers(val string) attribute.KeyValue {
 	return attribute.Key(attr.DNSAnswers).String(val)
-}
-
-func ErrorMessage(val string) attribute.KeyValue {
-	return attribute.Key(attr.ErrorMessage).String(val)
 }
 
 func DBResponseError(val string) attribute.KeyValue {

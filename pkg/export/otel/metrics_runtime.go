@@ -7,11 +7,12 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"go.opentelemetry.io/otel/attribute"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
-	semconv "go.opentelemetry.io/otel/semconv/v1.38.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/meta"
@@ -31,13 +32,15 @@ func rmlog() *slog.Logger {
 }
 
 type RuntimeMetricsReporter struct {
-	ctx       context.Context
-	cfg       *otelcfg.MetricsConfig
-	nodeMeta  meta.NodeMeta
-	exporter  sdkmetric.Exporter
-	reporters otelcfg.ReporterPool[*svc.Attrs, *RuntimeMetrics]
-	input     <-chan []runtimemetrics.RuntimeMetricSnapshot
-	log       *slog.Logger
+	ctx            context.Context
+	cfg            *otelcfg.MetricsConfig
+	nodeMeta       meta.NodeMeta
+	exporter       sdkmetric.Exporter
+	reporters      otelcfg.ReporterPool[*svc.Attrs, *RuntimeMetrics]
+	input          <-chan []runtimemetrics.RuntimeMetricSnapshot
+	log            *slog.Logger
+	selector       attributes.Selection
+	runtimeEnabled runtimemetrics.Enabled
 }
 
 type RuntimeMetrics struct {
@@ -45,17 +48,20 @@ type RuntimeMetrics struct {
 	service  *svc.Attrs
 	provider *metric.MeterProvider
 
-	goMetrics goRuntimeMetrics
+	goMetrics  goRuntimeMetrics
+	jvmMetrics jvmRuntimeMetrics
 }
 
 type goRuntimeMetrics struct {
 	memoryLimit    instrument.Int64UpDownCounter
 	memoryGCCycles instrument.Int64Counter
+	cpuTime        instrument.Float64Counter
 	processorLimit instrument.Int64UpDownCounter
 	configGOGC     instrument.Int64UpDownCounter
 
 	memoryLimitValue    *int64
 	memoryGCCyclesValue *uint64
+	cpuTimeValues       map[string]int64
 	processorLimitValue *int64
 	configGOGCValue     *int64
 }
@@ -64,15 +70,19 @@ func ReportRuntimeMetrics(
 	ctxInfo *global.ContextInfo,
 	cfg *otelcfg.MetricsConfig,
 	jointMetricsConfig *perapp.MetricsConfig,
+	selectorCfg *attributes.SelectorConfig,
 	input *msg.Queue[[]runtimemetrics.RuntimeMetricSnapshot],
 ) swarm.InstanceFunc {
 	return func(ctx context.Context) (swarm.RunFunc, error) {
-		if !cfg.EndpointEnabled() || !jointMetricsConfig.Features.AppRuntime() || input == nil {
+		runtimeEnabled := runtimemetrics.EnabledFeatures(jointMetricsConfig.Features)
+		if !cfg.EndpointEnabled() ||
+			!runtimeEnabled.Any() ||
+			input == nil {
 			return swarm.EmptyRunFunc()
 		}
 		otelcfg.SetupInternalOTELSDKLogger(cfg.SDKLogLevel)
 
-		reporter, err := newRuntimeMetricsReporter(ctx, ctxInfo, cfg, input)
+		reporter, err := newRuntimeMetricsReporter(ctx, ctxInfo, cfg, jointMetricsConfig, selectorCfg, input)
 		if err != nil {
 			return nil, fmt.Errorf("instantiating OTEL runtime metrics reporter: %w", err)
 		}
@@ -85,6 +95,8 @@ func newRuntimeMetricsReporter(
 	ctx context.Context,
 	ctxInfo *global.ContextInfo,
 	cfg *otelcfg.MetricsConfig,
+	jointMetricsConfig *perapp.MetricsConfig,
+	selectorCfg *attributes.SelectorConfig,
 	input *msg.Queue[[]runtimemetrics.RuntimeMetricSnapshot],
 ) (*RuntimeMetricsReporter, error) {
 	log := rmlog()
@@ -95,12 +107,14 @@ func newRuntimeMetricsReporter(
 	}
 
 	reporter := &RuntimeMetricsReporter{
-		ctx:      ctx,
-		cfg:      cfg,
-		nodeMeta: ctxInfo.NodeMeta,
-		exporter: instrumentMetricsExporter(ctxInfo.Metrics, exporter),
-		input:    input.Subscribe(msg.SubscriberName("otel.RuntimeMetricsReporter")),
-		log:      log,
+		ctx:            ctx,
+		cfg:            cfg,
+		nodeMeta:       ctxInfo.NodeMeta,
+		exporter:       instrumentMetricsExporter(ctxInfo.Metrics, exporter),
+		input:          input.Subscribe(msg.SubscriberName("otel.RuntimeMetricsReporter")),
+		log:            log,
+		selector:       selectorCfg.SelectionCfg,
+		runtimeEnabled: runtimemetrics.EnabledFeatures(jointMetricsConfig.Features),
 	}
 
 	reporter.reporters, err = otelcfg.NewReporterPool[*svc.Attrs, *RuntimeMetrics](cfg.ReportersCacheLen, cfg.TTL, timeNow,
@@ -109,8 +123,8 @@ func newRuntimeMetricsReporter(
 			llog.Debug("evicting runtime metrics reporter from cache")
 
 			go func() {
-				if err := v.provider.ForceFlush(ctx); err != nil {
-					llog.Warn("error flushing evicted runtime metrics provider", "error", err)
+				if err := v.provider.Shutdown(ctx); err != nil {
+					llog.Warn("error shutting down evicted runtime metrics provider", "error", err)
 				}
 			}()
 		}, reporter.newMetricSet)
@@ -127,13 +141,14 @@ func (r *RuntimeMetricsReporter) newMetricsInstance(service *svc.Attrs) RuntimeM
 	if service != nil {
 		log = log.With("service", service)
 		resourceAttributes = append(otelcfg.GetAppResourceAttrs(&r.nodeMeta, service), otelcfg.ResourceAttrsFromEnv(service)...)
+		resourceAttributes = otelcfg.FilterResourceAttrs(resourceAttributes, r.selector)
 	}
 	log.Debug("creating new runtime metrics reporter")
 
 	resources := resource.NewWithAttributes(semconv.SchemaURL, resourceAttributes...)
 	provider := metric.NewMeterProvider(
 		metric.WithResource(resources),
-		metric.WithReader(metric.NewPeriodicReader(r.exporter,
+		metric.WithReader(metric.NewPeriodicReader(sharedExporter{r.exporter},
 			metric.WithInterval(r.cfg.Interval))),
 	)
 
@@ -147,14 +162,28 @@ func (r *RuntimeMetricsReporter) newMetricsInstance(service *svc.Attrs) RuntimeM
 func (r *RuntimeMetricsReporter) newMetricSet(service *svc.Attrs) (*RuntimeMetrics, error) {
 	metrics := r.newMetricsInstance(service)
 	meter := metrics.provider.Meter(reporterName)
-	if err := setupRuntimeMeters(&metrics, meter); err != nil {
+	if err := setupRuntimeMeters(&metrics, meter, r.cfg.TTL, r.runtimeEnabled); err != nil {
 		return nil, err
 	}
 	return &metrics, nil
 }
 
-func setupRuntimeMeters(metrics *RuntimeMetrics, meter instrument.Meter) error {
-	return setupGoRuntimeMeters(&metrics.goMetrics, meter)
+func setupRuntimeMeters(
+	metrics *RuntimeMetrics,
+	meter instrument.Meter,
+	ttl time.Duration,
+	enabled runtimemetrics.Enabled,
+) error {
+	if !enabled.Runtime {
+		return nil
+	}
+	if err := setupGoRuntimeMeters(&metrics.goMetrics, meter); err != nil {
+		return err
+	}
+	if err := setupJVMRuntimeMeters(metrics.ctx, &metrics.jvmMetrics, meter, ttl); err != nil {
+		return err
+	}
+	return nil
 }
 
 func setupGoRuntimeMeters(metrics *goRuntimeMetrics, meter instrument.Meter) error {
@@ -166,6 +195,10 @@ func setupGoRuntimeMeters(metrics *goRuntimeMetrics, meter instrument.Meter) err
 	metrics.memoryGCCycles, err = meter.Int64Counter(attributes.GoRuntimeMemoryGCCycles.OTEL, instrument.WithUnit("{gc_cycle}"))
 	if err != nil {
 		return fmt.Errorf("creating go memory gc cycles: %w", err)
+	}
+	metrics.cpuTime, err = meter.Float64Counter(attributes.GoRuntimeCPUTime.OTEL, instrument.WithUnit("s"))
+	if err != nil {
+		return fmt.Errorf("creating go cpu time: %w", err)
 	}
 	metrics.processorLimit, err = meter.Int64UpDownCounter(attributes.GoRuntimeProcessorLimit.OTEL, instrument.WithUnit("{thread}"))
 	if err != nil {
@@ -199,6 +232,9 @@ func (r *RuntimeMetricsReporter) reportMetrics(ctx context.Context) {
 
 func (r *RuntimeMetricsReporter) reportRuntimeMetrics(snapshots []runtimemetrics.RuntimeMetricSnapshot) {
 	for _, snapshot := range snapshots {
+		if !r.shouldReportSnapshot(snapshot) {
+			continue
+		}
 		metrics, err := r.reporters.For(&snapshot.Service)
 		if err != nil {
 			r.log.Debug("creating runtime metric set failed", "pid", snapshot.PID, "error", err)
@@ -208,22 +244,39 @@ func (r *RuntimeMetricsReporter) reportRuntimeMetrics(snapshots []runtimemetrics
 	}
 }
 
+func (r *RuntimeMetricsReporter) shouldReportSnapshot(snapshot runtimemetrics.RuntimeMetricSnapshot) bool {
+	return r.runtimeEnabled.ShouldReport(snapshot)
+}
+
 func recordRuntimeMetrics(ctx context.Context, metrics *RuntimeMetrics, snapshot runtimemetrics.RuntimeMetricSnapshot) {
 	if metrics == nil {
 		return
 	}
 
-	if snapshot.Service.SDKLanguage != svc.InstrumentableGolang {
-		return
+	if snapshot.Go != nil {
+		if snapshot.Service.SDKLanguage != svc.InstrumentableGolang {
+			return
+		}
+		recordGoRuntimeMetrics(ctx, &metrics.goMetrics, snapshot)
 	}
-	recordGoRuntimeMetrics(ctx, &metrics.goMetrics, snapshot)
+	if snapshot.JVM != nil {
+		if !snapshot.Service.ExportModes.CanExportMetrics() || !snapshot.Service.Features.AppRuntime() {
+			return
+		}
+		metrics.jvmMetrics.record(snapshot)
+	}
 }
 
 func recordGoRuntimeMetrics(ctx context.Context, metrics *goRuntimeMetrics, snapshot runtimemetrics.RuntimeMetricSnapshot) {
-	recordCurrentRuntimeMetric(ctx, metrics.memoryLimit, &metrics.memoryLimitValue, snapshot.MemoryLimit)
-	recordRuntimeCounter(ctx, metrics.memoryGCCycles, &metrics.memoryGCCyclesValue, snapshot.GCCycles)
-	recordCurrentRuntimeMetric(ctx, metrics.processorLimit, &metrics.processorLimitValue, snapshot.ProcessorLimit)
-	recordCurrentRuntimeMetric(ctx, metrics.configGOGC, &metrics.configGOGCValue, snapshot.GOGC)
+	if snapshot.Go == nil || metrics.memoryLimit == nil {
+		return
+	}
+
+	recordCurrentRuntimeMetric(ctx, metrics.memoryLimit, &metrics.memoryLimitValue, snapshot.Go.MemoryLimit)
+	recordRuntimeCounter(ctx, metrics.memoryGCCycles, &metrics.memoryGCCyclesValue, snapshot.Go.GCCycles)
+	recordGoRuntimeCPUTime(ctx, metrics, snapshot.Go.CPUTime)
+	recordCurrentRuntimeMetric(ctx, metrics.processorLimit, &metrics.processorLimitValue, snapshot.Go.ProcessorLimit)
+	recordCurrentRuntimeMetric(ctx, metrics.configGOGC, &metrics.configGOGCValue, snapshot.Go.GOGC)
 }
 
 func recordCurrentRuntimeMetric(
@@ -270,6 +323,68 @@ func recordRuntimeCounter(
 	}
 	value := *current
 	*previous = &value
+}
+
+func recordGoRuntimeCPUTime(
+	ctx context.Context,
+	metrics *goRuntimeMetrics,
+	cpu *runtimemetrics.GoRuntimeCPUTimeSnapshot,
+) {
+	for _, value := range runtimemetrics.GoRuntimeCPUTimeValues(cpu) {
+		key := value.State
+		attrs := []attribute.KeyValue{semconv.GoCPUStateKey.String(value.State)}
+		if value.DetailedState != "" {
+			key = value.DetailedState
+			attrs = append(attrs, semconv.GoCPUDetailedState(value.DetailedState))
+		}
+
+		if cpu == nil {
+			removeFloatRuntimeCounterWithAttributes(ctx, metrics.cpuTime, &metrics.cpuTimeValues,
+				key, attrs...)
+			continue
+		}
+
+		recordFloatRuntimeCounterWithAttributes(ctx, metrics.cpuTime, &metrics.cpuTimeValues,
+			key, value.Nanoseconds, attrs...)
+	}
+}
+
+func recordFloatRuntimeCounterWithAttributes(
+	ctx context.Context,
+	metric instrument.Float64Counter,
+	previous *map[string]int64,
+	key string,
+	current int64,
+	attrs ...attribute.KeyValue,
+) {
+	if *previous == nil {
+		*previous = map[string]int64{}
+	}
+	options := []instrument.AddOption{instrument.WithAttributes(attrs...)}
+	removeOptions := []instrument.RemoveOption{instrument.WithAttributes(attrs...)}
+
+	prev, ok := (*previous)[key]
+	if !ok || current < prev {
+		currentSeconds := float64(current) / float64(time.Second)
+		metric.Remove(ctx, removeOptions...)
+		metric.Add(ctx, currentSeconds, options...)
+	} else if delta := current - prev; delta > 0 {
+		metric.Add(ctx, float64(delta)/float64(time.Second), options...)
+	}
+	(*previous)[key] = current
+}
+
+func removeFloatRuntimeCounterWithAttributes(
+	ctx context.Context,
+	metric instrument.Float64Counter,
+	previous *map[string]int64,
+	key string,
+	attrs ...attribute.KeyValue,
+) {
+	if *previous != nil {
+		delete(*previous, key)
+	}
+	metric.Remove(ctx, instrument.WithAttributes(attrs...))
 }
 
 func (r *RuntimeMetricsReporter) close() {

@@ -1,0 +1,30 @@
+name: Store Demo Architecture
+
+on:
+  push:
+    paths:
+      - "examples/store-demo/**"
+  pull_request:
+    paths:
+      - "examples/store-demo/**"
+
+concurrency:
+  group: store-demo-architecture-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: ARCHITECTURE.md matches manifests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Test the generator
+        run: python3 examples/store-demo/test_fix_architecture.py
+      - name: Verify store-demo architecture is in sync
+        run: python3 examples/store-demo/fix_architecture.py --check

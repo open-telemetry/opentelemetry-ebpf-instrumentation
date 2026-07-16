@@ -2,6 +2,7 @@ oats-schema-version: 2
 docker-compose:
   files:
   - ../docker-compose-obi-gopgx-stdlib.yml
+  - ../../weaver/docker-compose-weaver.yml
 input:
 - path: /pgxstdlibtest
 interval: 500ms

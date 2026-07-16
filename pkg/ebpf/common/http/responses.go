@@ -12,19 +12,19 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"regexp"
 	"strings"
 
 	"github.com/andybalholm/brotli"
 	"github.com/klauspost/compress/zstd"
-
-	"go.opentelemetry.io/obi/pkg/config"
 )
 
 // Keep the decompressed response cap aligned with the maximum captured payload size
 // so body enrichment cannot expand a compressed payload beyond the configured
 // userspace budget.
-const maxDecompressedResponseBodyBytes = config.MaxCapturedPayloadBytes
+const (
+	maxCapturedPayloadBytes          = 1 << 18
+	maxDecompressedResponseBodyBytes = maxCapturedPayloadBytes
+)
 
 var errResponseBodyTooLarge = fmt.Errorf(
 	"response body exceeds decompression limit of %d bytes",
@@ -59,13 +59,6 @@ func requestPath(req *http.Request) string {
 	}
 	return req.RequestURI
 }
-
-// modelFieldRegexp extracts the top-level "model" value from a (possibly
-// truncated) JSON request body.  It is a best-effort fallback used only when
-// json.Unmarshal cannot parse the body.  We limit the search window to
-// modelSearchWindow bytes so that we don't accidentally match a "model"
-// key buried inside a user prompt, message content, or document text.
-var modelFieldRegexp = regexp.MustCompile(`"model"\s*:\s*"([^"]+)"`)
 
 // getResponseBody tries to read the body as plain text and then
 // if it's encoded in compressed format, it tries to decompress

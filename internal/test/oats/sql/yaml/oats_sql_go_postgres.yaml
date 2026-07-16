@@ -2,6 +2,7 @@ oats-schema-version: 2
 docker-compose:
   files:
   - ../docker-compose-obi-gosqlclient-postgres.yml
+  - ../../weaver/docker-compose-weaver.yml
 input:
 - path: /psqltest
 interval: 500ms

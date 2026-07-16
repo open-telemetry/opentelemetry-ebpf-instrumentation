@@ -47,17 +47,13 @@ func assertS3Operation(t require.TestingT, op, expectedKey string) {
 
 	tag, found := jaeger.FindIn(span.Tags, "rpc.method")
 	require.True(t, found)
-	require.Equal(t, op, tag.Value)
+	require.Equal(t, "S3/"+op, tag.Value)
 
 	tag, found = jaeger.FindIn(span.Tags, "aws.s3.key")
 	require.True(t, found)
 	require.Equal(t, expectedKey, tag.Value)
 
-	tag, found = jaeger.FindIn(span.Tags, "rpc.service")
-	require.True(t, found)
-	require.Equal(t, "S3", tag.Value)
-
-	tag, found = jaeger.FindIn(span.Tags, "rpc.system")
+	tag, found = jaeger.FindIn(span.Tags, "rpc.system.name")
 	require.True(t, found)
 	require.Equal(t, "aws-api", tag.Value)
 

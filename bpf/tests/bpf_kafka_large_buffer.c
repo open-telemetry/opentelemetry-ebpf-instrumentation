@@ -79,6 +79,7 @@ typedef struct kafka_state_key {
 
 typedef struct kafka_correlation_data {
     s32 correlation_id;
+    s32 response_bytes_remaining;
 } kafka_correlation_data_t;
 
 typedef struct kafka_state_entry_t {
@@ -98,6 +99,14 @@ typedef struct kafka_correlation_entry {
 
 // It simulates the kafka_ongoing_requests ebpf map
 static kafka_correlation_entry_t kafka_ongoing_requests[MAX_ENTRIES];
+
+typedef struct res_bytes_entry {
+    connection_info_t key;
+    u32 lb_res_bytes;
+    int used;
+} res_bytes_entry_t;
+
+static res_bytes_entry_t res_bytes_state[MAX_ENTRIES];
 
 enum {
     k_kafka_hdr_message_size = 4,
@@ -187,6 +196,55 @@ static void correlation_delete(const connection_info_t *key) {
             return;
         }
     }
+}
+
+// Returns a pointer to the response-bytes counter for this connection, creating
+// a zero-initialized entry on first use (mirrors the fresh tcp_req_t per request).
+static u32 *res_bytes_get(const connection_info_t *key) {
+    for (int i = 0; i < MAX_ENTRIES; i++) {
+        if (res_bytes_state[i].used && memcmp(&res_bytes_state[i].key, key, sizeof(*key)) == 0) {
+            return &res_bytes_state[i].lb_res_bytes;
+        }
+    }
+    for (int i = 0; i < MAX_ENTRIES; i++) {
+        if (!res_bytes_state[i].used) {
+            res_bytes_state[i].used = 1;
+            res_bytes_state[i].key = *key;
+            res_bytes_state[i].lb_res_bytes = 0;
+            return &res_bytes_state[i].lb_res_bytes;
+        }
+    }
+    return NULL;
+}
+
+static void res_bytes_reset(const connection_info_t *key) {
+    for (int i = 0; i < MAX_ENTRIES; i++) {
+        if (res_bytes_state[i].used && memcmp(&res_bytes_state[i].key, key, sizeof(*key)) == 0) {
+            res_bytes_state[i].used = 0;
+            return;
+        }
+    }
+}
+
+// Mirrors kafka_read_response_correlation_id() from protocol_kafk
+s32 kafka_read_response_correlation_id(const kafka_state_data_t *state_data,
+                                       const void *u_buf,
+                                       u32 bytes_len) {
+    s32 correlation_id = 0;
+    if (state_data && state_data->message_size > 0 && (u32)state_data->message_size == bytes_len) {
+        if (bytes_len < k_kafka_hdr_correlation_id) {
+            return -1;
+        }
+        memcpy(&correlation_id, u_buf, k_kafka_hdr_correlation_id);
+    } else {
+        if (bytes_len < k_kafka_hdr_message_size + k_kafka_hdr_correlation_id) {
+            return -1;
+        }
+        memcpy(&correlation_id,
+               (const unsigned char *)u_buf + k_kafka_hdr_message_size,
+               k_kafka_hdr_correlation_id);
+    }
+    return ntohl(correlation_id);
 }
 
 void assert_equal(int expected, int actual, const char *message) {
@@ -398,9 +456,10 @@ int kafka_parse_fixup_response_header(const connection_info_t *conn_info,
     return -1;
 }
 
-// Emit a large buffer event for Kafka protocol.
-// The return value is used to control the flow for this specific protocol.
-// -1: wait additional data; 0: continue, regardless of errors.
+// Mirrors kafka_send_large_buffer() from protocol_kafka.h (correlation lifecycle
+// only; byte emission elided). Returns -1 while the response is incomplete
+// (correlation kept), 0 if it does not match a request, 1 once fully captured
+// (correlation deleted).
 int kafka_send_large_buffer(connection_info_t *conn,
                             const void *u_buf,
                             u32 bytes_len,
@@ -410,29 +469,70 @@ int kafka_send_large_buffer(connection_info_t *conn,
         return -1;
     }
 
-    // check if this event matches an ongoing request
     kafka_correlation_data_t *correlation_data = kafka_correlation_lookup(conn);
-    if (!correlation_data) {
-        return 0;
-    }
-    struct kafka_response_hdr hdr = {};
-    if (kafka_parse_fixup_response_header(conn, &hdr, u_buf, bytes_len, direction) != 0) {
+    u32 *lb_res_bytes = res_bytes_get(conn);
+
+    // lb_res_bytes > 0 means the first chunk of this response was already captured
+    // and we are mid-capture, so keep appending even if the correlation entry was
+    // evicted meanwhile.
+    const int capture_in_progress = (*lb_res_bytes > 0);
+
+    if (!correlation_data && !capture_in_progress) {
         return 0;
     }
 
-    if (hdr.correlation_id != correlation_data->correlation_id) {
-        return 0;
+    kafka_state_key_t state_key = {.conn = *conn, .direction = direction};
+    kafka_state_data_t *state_data = kafka_state_lookup(&state_key);
+    const int msg_size_from_state =
+        state_data && state_data->message_size > 0 && (u32)state_data->message_size == bytes_len;
+
+    if (!capture_in_progress) {
+        // First chunk of the response: validate it against the pending request.
+        const s32 correlation_id = kafka_read_response_correlation_id(state_data, u_buf, bytes_len);
+        if (correlation_id != correlation_data->correlation_id) {
+            return 0;
+        }
     }
 
-    // remove all the large buffer code because
-    // if we are here it means that the packet is for sure a good response because
-    // we populated the hdr with message_size and correlation_id
-    // we checked also in the map of ongoing requests if there was a related
-    // ongoing request so we can hardcode the packet_type as response
-    // **NOTE**: we only send the response as a large buffer event in userspace
-    // because the topic_id and name are in the response.
+    // Total wire bytes to capture (message_size field + its value), read once on
+    // the first chunk; later chunks rely on the stored remaining counter.
+    s32 response_total_bytes = 0;
+    if (!capture_in_progress) {
+        s32 message_size = 0;
+        if (msg_size_from_state) {
+            message_size = state_data->message_size;
+        } else if (bytes_len >= k_kafka_hdr_message_size) {
+            memcpy(&message_size, u_buf, k_kafka_hdr_message_size);
+            message_size = ntohl(message_size);
+        }
+        if (message_size > 0) {
+            response_total_bytes = message_size + k_kafka_hdr_message_size;
+        }
+    }
+
+    // When the message_size arrived split (kafka_state), the synthesized 4-byte
+    // prefix is captured in addition to this chunk's bytes.
+    const u32 consumed_bytes =
+        msg_size_from_state ? (k_kafka_hdr_message_size + bytes_len) : bytes_len;
+    *lb_res_bytes += consumed_bytes;
+
+    s32 remaining;
+    if (!capture_in_progress) {
+        remaining = response_total_bytes - (s32)*lb_res_bytes;
+    } else {
+        remaining = (correlation_data ? correlation_data->response_bytes_remaining : 0) -
+                    (s32)consumed_bytes;
+    }
+
+    if (remaining > 0) {
+        if (correlation_data) {
+            correlation_data->response_bytes_remaining = remaining;
+        }
+        return -1;
+    }
+
+    res_bytes_reset(conn);
     correlation_delete(conn);
-    // modified version used only here in order to assert the result
     return 1;
 }
 
@@ -478,12 +578,8 @@ int is_kafka(connection_info_t *conn_info, const unsigned char *data, u32 data_l
 }
 
 // NOTES
-// The following tests aim to test different use cases for the kafka processing:
-// test1: a complete metadata request and a complete metadata response related
-// to the request test2: a metadata request split in two and a complete metadata
-// response relating to the request test3: a split metadata request and a split
-// metadata response related to the request test4: metadata request divided in 2
-// and a metadata NOT related response
+// The following tests exercise different use cases for kafka processing; each
+// test's specific scenario is documented in the comment above its function.
 
 // A note on the connection passed to the is_kafka() function: it might seem
 // strange to see the connection used to save the request in the
@@ -822,12 +918,85 @@ void test5() {
     assert_equal(0, result, "A short split request without correlation_id must not be Kafka");
 }
 
+// test6
+// a complete metadata request and a metadata response split as an 8-byte header
+// (message_size + correlation_id) followed by a separate body chunk. This is the
+// librdkafka read pattern (header read, then body read). The capture must span
+// both chunks: the first chunk must not finalize (correlation kept, wait), and
+// only the second chunk completes the response and is sent to userspace.
+void test6() {
+    int result = 0;
+    printf("Test 6\n");
+
+    connection_info_t conn = {
+        .src_ip = 0x0a00000b,
+        .dst_ip = 0x0a00000c,
+        .src_port = 12345,
+        .dst_port = 9092,
+    };
+
+    // complete metadata request (sets the ongoing correlation)
+    unsigned char req[DATA_LEN];
+    s32 message_size = htonl(14); // key(2), version(2), correlation id(4), fake_payload(6)
+    s16 request_api_key = htons(k_kafka_api_key_metadata);
+    s16 request_api_version = htons(k_kafka_max_metadata_api_version);
+    s32 correlation_id = htonl(6); // for both request and response
+    char fake_payload[] = "Hello";
+
+    int offset = 0;
+    memcpy(req + offset, &message_size, k_kafka_hdr_message_size);
+    offset += k_kafka_hdr_message_size;
+    memcpy(req + offset, &request_api_key, k_kafka_hdr_request_api_key);
+    offset += k_kafka_hdr_request_api_key;
+    memcpy(req + offset, &request_api_version, k_kafka_hdr_request_api_version);
+    offset += k_kafka_hdr_request_api_version;
+    memcpy(req + offset, &correlation_id, k_kafka_hdr_correlation_id);
+    offset += k_kafka_hdr_correlation_id;
+    memcpy(req + offset, fake_payload, sizeof(fake_payload));
+    offset += sizeof(fake_payload);
+
+    result = is_kafka(&conn, req, offset, TCP_RECV);
+    assert_equal(1, result, "The event should be classified as a Kafka metadata request");
+    result = kafka_send_large_buffer(&conn, req, offset, TCP_RECV);
+    assert_equal(0, result, "The request event should NOT be sent to userspace");
+
+    // first response chunk: 8-byte header only (message_size + correlation_id),
+    // body arrives separately. The connection is already classified as Kafka, so
+    // it goes straight to kafka_send_large_buffer without is_kafka.
+    unsigned char res_hdr[DATA_LEN];
+    message_size = htonl(10); // correlation id(4) + fake_payload(6)
+    offset = 0;
+    memcpy(res_hdr + offset, &message_size, k_kafka_hdr_message_size);
+    offset += k_kafka_hdr_message_size;
+    memcpy(res_hdr + offset, &correlation_id, k_kafka_hdr_correlation_id);
+    offset += k_kafka_hdr_correlation_id;
+
+    result = kafka_send_large_buffer(&conn, res_hdr, offset, TCP_SEND);
+    assert_equal(-1, result, "The header-only chunk must wait for the response body");
+    assert_equal(1,
+                 kafka_correlation_lookup(&conn) != NULL,
+                 "The correlation entry must be kept while the body is pending");
+
+    // second response chunk: the body. This completes the response.
+    unsigned char res_body[DATA_LEN];
+    offset = 0;
+    memcpy(res_body + offset, fake_payload, sizeof(fake_payload));
+    offset += sizeof(fake_payload);
+
+    result = kafka_send_large_buffer(&conn, res_body, offset, TCP_SEND);
+    assert_equal(1, result, "The completed response should be sent to userspace");
+    assert_equal(0,
+                 kafka_correlation_lookup(&conn) != NULL,
+                 "The correlation entry must be deleted once the response is complete");
+}
+
 int main(int argc, char **argv) {
     test1();
     test2();
     test3();
     test4();
     test5();
+    test6();
 
     printf("\nAll tests PASSED!\n");
     return 0;

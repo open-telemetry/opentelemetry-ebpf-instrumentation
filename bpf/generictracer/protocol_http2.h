@@ -87,6 +87,9 @@ static __always_inline u8 parse_hpack_traceparent(const unsigned char *data,
         const u8 name_len_byte = data[i + 1];
 
         if (name_len_byte == k_hpack_tp_name_len) { // plaintext
+            if (i + k_h2_tp_hpack_size > data_len) {
+                continue;
+            }
             if (bpf_memcmp(
                     &data[i + k_hpack_tp_name_offset], k_hpack_tp_name, k_hpack_tp_name_len) != 0) {
                 continue;
@@ -432,7 +435,7 @@ int obi_protocol_http2_grpc_handle_start_frame_server(void *ctx) {
     const u32 frame_len =
         ((u32)h2g_info->data[0] << 16) | ((u32)h2g_info->data[1] << 8) | (u32)h2g_info->data[2];
     const u32 raw_len = frame_len < k_h2_max_payload ? frame_len : k_h2_max_payload;
-    const u32 skip = prefix + padded * h2g_info->data[k_h2_frame_header_len];
+    const u32 skip = prefix + (padded * h2g_info->data[k_h2_frame_header_len]);
     const u32 hpack_len = raw_len > skip ? raw_len - skip : 0;
     if (!parse_hpack_traceparent(
             h2g_info->data + k_h2_frame_header_len + prefix, hpack_len, &tp_p->tp)) {

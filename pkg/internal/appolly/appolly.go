@@ -97,19 +97,20 @@ func New(ctx context.Context, ctxInfo *global.ContextInfo, config *obi.Config) (
 	), swarm.WithID("DockerProcessEventDecorator"))
 
 	runtimeMetrics := newRuntimeMetricsQueue(config)
+	ebpfEventContext := ebpfcommon.NewEBPFEventContext()
 
 	bp, err := appolly.Build(ctx, config, ctxInfo, tracesInput, processEventsDockerDecorated, runtimeMetrics)
 	if err != nil {
 		return nil, fmt.Errorf("can't instantiate instrumentation pipeline: %w", err)
 	}
 
-	var sel *discover.DynamicPIDSelector
-	if v := ctxInfo.DynamicPIDSelector; v != nil {
-		if s, ok := v.(*discover.DynamicPIDSelector); ok {
-			sel = s
-		}
-	}
+	sel, _ := ctxInfo.DynamicPIDSelector.(*discover.DynamicPIDSelector)
 	// When sel is nil, finder gets nil: config target_pids are used as static criteria (FindingCriteria(cfg, false)).
+	if sel != nil {
+		sel.SetOnFileInfoUpdated(func(fi *exec.FileInfo) {
+			processEventsInput.SendCtx(ctx, exec.ProcessEvent{Type: exec.ProcessEventCreated, File: fi})
+		})
+	}
 	instr := &Instrumenter{
 		config:             config,
 		ctxInfo:            ctxInfo,
@@ -118,7 +119,7 @@ func New(ctx context.Context, ctxInfo *global.ContextInfo, config *obi.Config) (
 		processEventInput:  processEventsInput,
 		bp:                 bp,
 		peGraphBuilder:     swi,
-		ebpfEventContext:   ebpfcommon.NewEBPFEventContext(),
+		ebpfEventContext:   ebpfEventContext,
 		runtimeMetrics:     runtimeMetrics,
 		dynamicPIDSelector: sel,
 	}
@@ -127,8 +128,9 @@ func New(ctx context.Context, ctxInfo *global.ContextInfo, config *obi.Config) (
 
 func newRuntimeMetricsQueue(config *obi.Config) *msg.Queue[[]runtimemetrics.RuntimeMetricSnapshot] {
 	jointMetricsConfig := appolly.JoinMetricsConfig(config)
+	runtimeMetricsEnabled := runtimemetrics.EnabledFeatures(jointMetricsConfig.Features)
 
-	if !jointMetricsConfig.Features.AppRuntime() ||
+	if !runtimeMetricsEnabled.Any() ||
 		!jointMetricsConfig.Features.AnyAppO11yMetric() ||
 		(!config.OTELMetrics.EndpointEnabled() && !config.Prometheus.EndpointEnabled()) {
 		return nil

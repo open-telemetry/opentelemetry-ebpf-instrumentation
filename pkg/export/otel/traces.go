@@ -114,7 +114,7 @@ func (tr *tracesOTELReceiver) getConstantAttributes() (map[attr.Name]struct{}, e
 }
 
 func (tr *tracesOTELReceiver) processSpans(ctx context.Context, exp exporter.Traces, spans []request.Span, traceAttrs map[attr.Name]struct{}, sampler trace.Sampler) {
-	spanGroups := tracesgen.GroupSpans(ctx, spans, traceAttrs, sampler, tr.is)
+	spanGroups := tracesgen.GroupSpans(ctx, spans, traceAttrs, sampler, tr.is, tr.selectorCfg.SensitiveQueryParamsCfg.Effective()...)
 
 	for _, spanGroup := range spanGroups {
 		if len(spanGroup) > 0 {
@@ -128,7 +128,15 @@ func (tr *tracesOTELReceiver) processSpans(ctx context.Context, exp exporter.Tra
 			if tr.spanMetricsEnabled {
 				envResourceAttrs = append(envResourceAttrs, attribute.Bool(string(attr.SkipSpanMetrics.OTEL()), true))
 			}
-			traces := tracesgen.GenerateTracesWithAttributes(tr.attributeCache, &sample.Span.Service, envResourceAttrs, &tr.ctxInfo.NodeMeta, spanGroup, reporterName, tr.ctxInfo.ExtraResourceAttributes...)
+			traces := tracesgen.GenerateTracesWithSelectedResourceAttributes(
+				tr.attributeCache,
+				&sample.Span.Service,
+				envResourceAttrs,
+				&tr.ctxInfo.NodeMeta,
+				spanGroup,
+				reporterName,
+				tr.selectorCfg.SelectionCfg,
+				tr.ctxInfo.ExtraResourceAttributes...)
 			err := exp.ConsumeTraces(ctx, traces)
 			if err != nil {
 				// We can't do if errors.Is(err, queue.ErrQueueIsFull), since the queue package is internal

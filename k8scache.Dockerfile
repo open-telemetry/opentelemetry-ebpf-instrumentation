@@ -1,7 +1,9 @@
 # Build the binary for the k8s-cache service
-FROM golang:1.26.4@sha256:68cb6d68bed024785b69195b89af7ac7a444f27791435f98647edff595aa0479 AS builder
+FROM golang:1.26.5@sha256:0f70d7d828acd8456022127f31975364e58d792999a7e92af6fc972e124bb6b0 AS builder
 
 ARG TARGETARCH
+ARG RELEASE_VERSION=unset
+ARG RELEASE_REVISION=unset
 ENV GOARCH=$TARGETARCH
 
 WORKDIR /opt/app-root
@@ -14,10 +16,9 @@ COPY NOTICE NOTICE
 COPY Makefile Makefile
 COPY cmd/ cmd/
 COPY pkg/ pkg/
-COPY .git/ .git/
 
 # Build
-RUN make compile-cache
+RUN make compile-cache RELEASE_VERSION=${RELEASE_VERSION} RELEASE_REVISION=${RELEASE_REVISION}
 
 # Create final image from minimal + built binary
 FROM scratch

@@ -15,10 +15,12 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/services"
+	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/internal/testutil"
 	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
+	"go.opentelemetry.io/obi/pkg/selection"
 	"go.opentelemetry.io/obi/pkg/transform"
 )
 
@@ -49,7 +51,7 @@ func TestMatchersMutuallyExclusive(t *testing.T) {
 
 		swi := swarm.Instancer{}
 		swi.Add(criteriaMatcherProvider(&pipeConfig, inQ, outQ, cfgCriteria, sel), swarm.WithID("CriteriaMatcher"))
-		swi.Add(dynamicMatcherProvider(inQ, outQ, sel), swarm.WithID("DynamicMatcher"))
+		swi.Add(dynamicMatcherProvider(inQ, outQ, sel.appSignals()), swarm.WithID("DynamicMatcher"))
 		runner, err := swi.Instance(t.Context())
 		require.NoError(t, err)
 		runner.Start(t.Context())
@@ -442,6 +444,91 @@ func TestCriteriaMatcherMissingPort(t *testing.T) {
 	require.Len(t, matches, 2)
 	testMatch(t, matches[0], "port-only", "foo", services.ProcessInfo{Pid: 1, ExePath: "/bin/weird33", OpenPorts: []uint32{80}, PPid: 0})
 	testMatch(t, matches[1], "port-only", "foo", services.ProcessInfo{Pid: 3, ExePath: "/bin/weird33", OpenPorts: []uint32{}, PPid: 1})
+	assert.Zero(t, matches[0].Obj.DynamicSelectorPID)
+	assert.Zero(t, matches[1].Obj.DynamicSelectorPID)
+}
+
+func TestCriteriaMatcherExcludedChildDoesNotInheritParentMatch(t *testing.T) {
+	pipeConfig := obi.Config{}
+	require.NoError(t, yaml.Unmarshal([]byte(`discovery:
+  instrument:
+  - name: port-only
+    open_ports: 80
+  exclude_instrument:
+  - exe_path: /tmp/provjob*
+`), &pipeConfig))
+
+	discoveredProcesses := msg.NewQueue[[]Event[ProcessAttrs]](msg.ChannelBufferLen(10))
+	filteredProcessesQu := msg.NewQueue[[]Event[ProcessMatch]](msg.ChannelBufferLen(10))
+	filteredProcesses := filteredProcessesQu.Subscribe()
+	matcherFunc, err := criteriaMatcherProvider(&pipeConfig, discoveredProcesses, filteredProcessesQu, FindingCriteria(&pipeConfig), nil)(t.Context())
+	require.NoError(t, err)
+	go matcherFunc(t.Context())
+	defer filteredProcessesQu.Close()
+
+	processInfo = func(pp ProcessAttrs) (*services.ProcessInfo, error) {
+		proc := map[app.PID]struct {
+			Exe  string
+			PPid app.PID
+		}{
+			1: {Exe: "/bin/parent"},
+			2: {Exe: "/bin/allowed", PPid: 1},
+			3: {Exe: "/tmp/provjob123 (deleted)", PPid: 1},
+		}[pp.pid]
+		return &services.ProcessInfo{Pid: pp.pid, ExePath: proc.Exe, PPid: proc.PPid, OpenPorts: pp.openPorts}, nil
+	}
+
+	discoveredProcesses.Send([]Event[ProcessAttrs]{
+		{Type: EventCreated, Obj: ProcessAttrs{pid: 1, openPorts: []uint32{80}}},
+		{Type: EventCreated, Obj: ProcessAttrs{pid: 2}},
+		{Type: EventCreated, Obj: ProcessAttrs{pid: 3}},
+	})
+
+	matches := testutil.ReadChannel(t, filteredProcesses, testTimeout)
+	require.Len(t, matches, 2)
+	assert.Equal(t, app.PID(1), matches[0].Obj.Process.Pid)
+	assert.Equal(t, app.PID(2), matches[1].Obj.Process.Pid)
+	assert.NotContains(t, matches[1].Obj.Process.ExePath, "provjob")
+}
+
+func TestDynamicMatcher_ChildInheritsDynamicSelectorPID(t *testing.T) {
+	dynamicSelector := NewDynamicPIDSelector()
+	dynamicSelector.AddPIDs(100)
+
+	discoveredProcesses := msg.NewQueue[[]Event[ProcessAttrs]](msg.ChannelBufferLen(10))
+	filteredProcessesQu := msg.NewQueue[[]Event[ProcessMatch]](msg.ChannelBufferLen(10))
+	filteredProcesses := filteredProcessesQu.Subscribe()
+	processInfo = func(pp ProcessAttrs) (*services.ProcessInfo, error) {
+		proc := map[app.PID]struct {
+			Exe  string
+			PPid app.PID
+		}{
+			100: {Exe: "/bin/parent", PPid: 0},
+			101: {Exe: "/bin/child", PPid: 100},
+		}[pp.pid]
+		return &services.ProcessInfo{Pid: pp.pid, ExePath: proc.Exe, PPid: proc.PPid, OpenPorts: pp.openPorts}, nil
+	}
+	runFn, err := dynamicMatcherProvider(discoveredProcesses, filteredProcessesQu, dynamicSelector.appSignals())(t.Context())
+	require.NoError(t, err)
+	go runFn(t.Context())
+	time.Sleep(50 * time.Millisecond)
+	defer filteredProcessesQu.Close()
+
+	discoveredProcesses.Send([]Event[ProcessAttrs]{
+		{Type: EventCreated, Obj: ProcessAttrs{pid: 100}},
+		{Type: EventCreated, Obj: ProcessAttrs{pid: 101}},
+	})
+	matches := testutil.ReadChannel(t, filteredProcesses, testTimeout)
+	require.Len(t, matches, 2)
+
+	assert.Equal(t, app.PID(100), matches[0].Obj.Process.Pid)
+	assert.Equal(t, app.PID(100), matches[0].Obj.DynamicSelectorPID)
+
+	assert.Equal(t, app.PID(101), matches[1].Obj.Process.Pid)
+	assert.Equal(t, app.PID(100), matches[1].Obj.DynamicSelectorPID)
+
+	discoveredProcesses.Close()
+	testutil.DrainUntilClosed(filteredProcesses)
 }
 
 func TestCriteriaMatcherContainersOnly(t *testing.T) {
@@ -729,7 +816,7 @@ func TestCriteriaMatcher_DynamicTargetPIDs(t *testing.T) {
 	processInfo = func(pp ProcessAttrs) (*services.ProcessInfo, error) {
 		return &services.ProcessInfo{Pid: pp.pid, ExePath: "/any/exe", OpenPorts: pp.openPorts}, nil
 	}
-	runFn, err := dynamicMatcherProvider(discoveredProcesses, filteredProcessesQu, dynamicSelector)(t.Context())
+	runFn, err := dynamicMatcherProvider(discoveredProcesses, filteredProcessesQu, dynamicSelector.appSignals())(t.Context())
 	require.NoError(t, err)
 	go runFn(t.Context())
 	time.Sleep(50 * time.Millisecond)
@@ -742,6 +829,7 @@ func TestCriteriaMatcher_DynamicTargetPIDs(t *testing.T) {
 	matches := testutil.ReadChannel(t, filteredProcesses, testTimeout)
 	require.Len(t, matches, 1)
 	assert.Equal(t, app.PID(42), matches[0].Obj.Process.Pid)
+	assert.Equal(t, app.PID(42), matches[0].Obj.DynamicSelectorPID)
 
 	dynamicSelector.AddPIDs(100)
 	discoveredProcesses.Send([]Event[ProcessAttrs]{
@@ -778,7 +866,7 @@ func TestCriteriaMatcher_DynamicTargetPIDs_RemoveNotification(t *testing.T) {
 	processInfo = func(pp ProcessAttrs) (*services.ProcessInfo, error) {
 		return &services.ProcessInfo{Pid: pp.pid, ExePath: "/any/exe", OpenPorts: pp.openPorts}, nil
 	}
-	runFn, err := dynamicMatcherProvider(discoveredProcesses, filteredProcessesQu, dynamicSelector)(t.Context())
+	runFn, err := dynamicMatcherProvider(discoveredProcesses, filteredProcessesQu, dynamicSelector.appSignals())(t.Context())
 	require.NoError(t, err)
 	go runFn(t.Context())
 	time.Sleep(50 * time.Millisecond)
@@ -804,6 +892,43 @@ func TestCriteriaMatcher_DynamicTargetPIDs_RemoveNotification(t *testing.T) {
 	assert.Equal(t, app.PID(42), matches[0].Obj.Process.Pid)
 
 	// Stop matcher so next test does not race on global processInfo (close input, drain output).
+	discoveredProcesses.Close()
+	testutil.DrainUntilClosed(filteredProcesses)
+}
+
+func TestCriteriaMatcher_DynamicTargetPIDs_WithOptions(t *testing.T) {
+	dynamicSelector := NewDynamicPIDSelector()
+	dynamicSelector.Traces().AddPID(42, selection.DynamicPIDOptions{
+		ServiceName:      "runtime-svc",
+		ServiceNamespace: "runtime-ns",
+		ResourceAttributes: map[string]string{
+			"custom.attr": "value",
+		},
+	})
+
+	discoveredProcesses := msg.NewQueue[[]Event[ProcessAttrs]](msg.ChannelBufferLen(10))
+	filteredProcessesQu := msg.NewQueue[[]Event[ProcessMatch]](msg.ChannelBufferLen(10))
+	filteredProcesses := filteredProcessesQu.Subscribe()
+	processInfo = func(pp ProcessAttrs) (*services.ProcessInfo, error) {
+		return &services.ProcessInfo{Pid: pp.pid, ExePath: "/any/exe", OpenPorts: pp.openPorts}, nil
+	}
+	runFn, err := dynamicMatcherProvider(discoveredProcesses, filteredProcessesQu, dynamicSelector.appSignals())(t.Context())
+	require.NoError(t, err)
+	go runFn(t.Context())
+	time.Sleep(50 * time.Millisecond)
+	defer filteredProcessesQu.Close()
+
+	discoveredProcesses.Send([]Event[ProcessAttrs]{
+		{Type: EventCreated, Obj: ProcessAttrs{pid: 42, openPorts: []uint32{}}},
+	})
+	matches := testutil.ReadChannel(t, filteredProcesses, testTimeout)
+	require.Len(t, matches, 1)
+	require.Len(t, matches[0].Obj.Criteria, 1)
+	assert.Equal(t, "runtime-svc", matches[0].Obj.Criteria[0].GetName())
+	assert.Equal(t, "runtime-ns", matches[0].Obj.Criteria[0].GetNamespace())
+	attrs := ResourceAttributesFromSelector(matches[0].Obj.Criteria[0])
+	assert.Equal(t, "value", attrs[attr.Name("custom.attr")])
+
 	discoveredProcesses.Close()
 	testutil.DrainUntilClosed(filteredProcesses)
 }

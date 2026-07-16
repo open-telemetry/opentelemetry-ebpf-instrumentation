@@ -209,6 +209,7 @@ var capTests = []capTestData{
 
 	// net o11y
 	{osCap: unix.CAP_NET_RAW, class: capNet, kernMaj: 6, kernMin: 10},
+	{osCap: unix.CAP_PERFMON, class: capNet, kernMaj: 6, kernMin: 10},
 	{osCap: unix.CAP_PERFMON, class: capNet, kernMaj: 6, kernMin: 10, tcSource: true},
 	{osCap: unix.CAP_NET_ADMIN, class: capNet, kernMaj: 6, kernMin: 10, tcSource: true},
 }

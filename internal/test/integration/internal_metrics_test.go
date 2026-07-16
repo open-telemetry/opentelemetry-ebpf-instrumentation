@@ -134,9 +134,6 @@ func checkAvoidedServicesMetrics(t *testing.T) {
 		assert.Condition(ct, func() bool {
 			return labelMap["telemetry_type"] == "metrics" || labelMap["telemetry_type"] == "traces"
 		}, "telemetry_type label should be either 'metrics' or 'traces'")
-		// service_instance_id can be empty, but should be present
-		_, ok = labelMap["service_instance_id"]
-		assert.True(ct, ok, "service_instance_id label should be present")
 
 		if metric.Gauge != nil {
 			assert.Greater(ct, metric.Gauge.GetValue(), float64(0), "Expected avoided service metric value to be > 0")

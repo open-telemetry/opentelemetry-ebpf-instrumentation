@@ -33,16 +33,16 @@ import (
 )
 
 const (
-	imgPrometheus  = img.Docker("quay.io/prometheus/prometheus:v3.12.0@sha256:69f5241418838263316593f7274a304b095c40bcf22e57272865da91bd60a8ac")
+	imgPrometheus  = img.Docker("quay.io/prometheus/prometheus:v3.13.1@sha256:3c42b892cf723fa54d2f262c37a0e1f80aa8c8ddb1da7b9b0df9455a35a7f893")
 	imgJaeger      = img.Docker("jaegertracing/all-in-one:1.60@sha256:4fd2d70fa347d6a47e79fcb06b1c177e6079f92cba88b083153d56263082135e")
-	imgCollector   = img.Docker("otel/opentelemetry-collector-contrib:0.153.0@sha256:93aad750175cbf1a973ae1c5886c3371f4d800f61be25cdd26870b8441ffe9fa")
+	imgCollector   = img.Docker("otel/opentelemetry-collector-contrib:0.156.0@sha256:125bdbeb7590cc1952c5b3430ecf14063568980c2c93d5b38676cc0446ed8108")
 	imgAWSMetaMock = img.Docker("amazon/amazon-ec2-metadata-mock:v1.9.2@sha256:55cc3b9fb46d7e30aec202fc8ccab5391f7f9fc7169ae7dc726aae82562d61c4")
-	imgNginx       = img.Docker("library/nginx:1.31.1@sha256:5aca99593157f4ae539a5dec1092a0ad8762f8e2eb1789085a13a0f5622369f6")
+	imgNginx       = img.Docker("library/nginx:1.31.2@sha256:c90e4ea5905ee69515d84cd5520e11d204df06cce71a312666cebbc4b9b68267")
 	// imgWeaver MUST match the digest pinned in
 	// `internal/test/integration/components/weaver/service.yml` so the
 	// programmatic-setup tests run weaver with the same image as the
 	// compose-driven ones.
-	imgWeaver = img.Docker("otel/weaver:v0.23.0@sha256:7984ecb55b859eb3034ae9d836c4eeda137e2bdd0873b7ba2bb6c3d24d6ff457")
+	imgWeaver = img.Docker("otel/weaver:v0.24.2@sha256:d1fb16d279f39810c340fbbf1cf9e5e995a3a9cefa531938e9012437e3bc00c1")
 )
 
 // setupDockerNetwork initializes a custom network for the test.
@@ -210,15 +210,17 @@ func setupContainerWeaver(t *testing.T, net dockertest.Network) {
 			"--admin-port", "4320",
 			"--format", "json",
 			"--diagnostic-format", "json",
-			"--output", "/tmp",
+			"--output", "/tmp/weaver-out",
 		}),
 		dockertest.WithMounts([]string{
 			filepath.Join(pathRoot, "schemas/obi") + ":/obi-registry:ro",
+			"/tmp/obi-weaver-out:/tmp/weaver-out",
 		}),
 		dockertest.WithPortBindings(portBindings("4320/tcp", "4320")),
 		dockertest.WithContainerConfig(func(config *container.Config) {
 			config.WorkingDir = "/obi-registry"
 			config.ExposedPorts = exposedPorts("4317/tcp", "4320/tcp")
+			config.User = "0:0"
 		}),
 		dockertest.WithoutReuse(),
 	)

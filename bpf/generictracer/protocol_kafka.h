@@ -54,6 +54,11 @@ struct {
 
 typedef struct kafka_correlation_data {
     s32 correlation_id;
+    // A single Kafka response can span multiple recv() chunks, so we need to keep
+    // the correlation entry alive and append every chunk until the whole response
+    // (message_size + 4) has been captured, instead of finalizing on the first chunk.
+    // 0 means no capture in progress.
+    s32 response_bytes_remaining;
 } kafka_correlation_data_t;
 
 struct {
@@ -343,27 +348,58 @@ static __always_inline int kafka_send_large_buffer(tcp_req_t *req,
         return -1;
     }
 
-    const kafka_correlation_data_t *correlation_data =
+    kafka_correlation_data_t *correlation_data =
         bpf_map_lookup_elem(&kafka_ongoing_requests, &pid_conn->conn);
 
-    if (!correlation_data) {
+    // lb_res_bytes > 0 means we already captured the first chunk of this response
+    // and are mid-capture, so keep appending even if the correlation entry was
+    // evicted from the LRU map in the meantime.
+    const bool capture_in_progress = req->lb_res_bytes > 0;
+
+    if (!correlation_data && !capture_in_progress) {
         bpf_dbg_printk("no ongoing request found for this response");
         return 0;
     }
 
     const kafka_state_key_t state_key = {.conn = pid_conn->conn, .direction = direction};
     const kafka_state_data_t *state_data = bpf_map_lookup_elem(&kafka_state, &state_key);
-    const s32 correlation_id = kafka_read_response_correlation_id(state_data, u_buf, bytes_len);
 
-    if (correlation_id != correlation_data->correlation_id) {
-        bpf_dbg_printk("request correlation_id != response "
-                       "correlation_id, %d != %d. Ignoring...",
-                       correlation_data->correlation_id,
-                       correlation_id);
-        return 0;
+    // message_size arrived split from the rest of the response and was stashed in
+    // kafka_state: u_buf starts at the correlation_id and we synthesize the
+    // message_size prefix below.
+    const bool msg_size_from_state =
+        state_data && state_data->message_size > 0 && (u32)state_data->message_size == bytes_len;
+
+    if (!capture_in_progress) {
+        // First chunk of the response: validate it against the pending request.
+        const s32 correlation_id = kafka_read_response_correlation_id(state_data, u_buf, bytes_len);
+        if (correlation_id != correlation_data->correlation_id) {
+            bpf_dbg_printk("request correlation_id != response "
+                           "correlation_id, %d != %d. Ignoring...",
+                           correlation_data->correlation_id,
+                           correlation_id);
+            return 0;
+        }
     }
 
-    bpf_map_delete_elem(&kafka_ongoing_requests, &pid_conn->conn);
+    // Total wire bytes to capture (message_size field + its value), read once on
+    // the first chunk; later chunks rely on the stored remaining counter.
+    s32 response_total_bytes = 0;
+    if (!capture_in_progress) {
+        s32 message_size = 0;
+        if (msg_size_from_state) {
+            message_size = state_data->message_size;
+        } else if (bytes_len >= k_kafka_hdr_message_size) {
+            bpf_probe_read(&message_size, k_kafka_hdr_message_size, u_buf);
+            message_size = bpf_ntohl(message_size);
+        }
+        if (message_size > 0) {
+            response_total_bytes = message_size + k_kafka_hdr_message_size;
+        }
+        bpf_dbg_printk("kafka response capture start, target=%d bytes_len=%d",
+                       response_total_bytes,
+                       bytes_len);
+    }
 
     tcp_large_buffer_t *lb = (tcp_large_buffer_t *)tcp_large_buffers_mem();
 
@@ -383,7 +419,7 @@ static __always_inline int kafka_send_large_buffer(tcp_req_t *req,
     u32 max_available_bytes = kafka_max_captured_bytes - req->lb_res_bytes;
     u32 consumed_bytes = 0;
 
-    if (state_data && state_data->message_size > 0 && (u32)state_data->message_size == bytes_len) {
+    if (msg_size_from_state) {
         bpf_map_delete_elem(&kafka_state, &state_key);
 
         if (max_available_bytes < k_kafka_hdr_message_size) {
@@ -418,6 +454,33 @@ static __always_inline int kafka_send_large_buffer(tcp_req_t *req,
         req->has_large_buffers = true;
     }
 
+    s32 remaining;
+    if (!capture_in_progress) {
+        remaining = response_total_bytes - (s32)req->lb_res_bytes;
+    } else {
+        // If the entry was LRU-evicted mid-capture, correlation_data is NULL and
+        // remaining goes negative -> we finalize below (possibly truncated) rather
+        // than never completing the response.
+        remaining = (correlation_data ? correlation_data->response_bytes_remaining : 0) -
+                    (s32)consumed_bytes;
+    }
+
+    if (req->lb_res_bytes >= kafka_max_captured_bytes) {
+        remaining = 0;
+    }
+
+    if (remaining > 0) {
+        if (correlation_data) {
+            correlation_data->response_bytes_remaining = remaining;
+        }
+        bpf_dbg_printk("kafka response incomplete, captured=%d remaining=%d, waiting for more",
+                       req->lb_res_bytes,
+                       remaining);
+        return -1;
+    }
+
+    bpf_dbg_printk("kafka response fully captured, res_bytes=%d", req->lb_res_bytes);
+    bpf_map_delete_elem(&kafka_ongoing_requests, &pid_conn->conn);
     return 0;
 }
 

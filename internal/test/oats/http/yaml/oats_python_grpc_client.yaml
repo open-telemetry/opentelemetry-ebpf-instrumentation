@@ -2,10 +2,11 @@ oats-schema-version: 2
 docker-compose:
   files:
   - ../docker-compose-python-grpc-client.yml
+  - ../../weaver/docker-compose-weaver.yml
 input:
 - path: /query
 interval: 500ms
 expected:
   metrics:
-  - promql: rpc_client_duration_seconds_count{rpc_method="/routeguide.RouteGuide/GetFeature"}
+  - promql: rpc_client_call_duration_seconds_count{rpc_method="/routeguide.RouteGuide/GetFeature"}
     value: '> 5'

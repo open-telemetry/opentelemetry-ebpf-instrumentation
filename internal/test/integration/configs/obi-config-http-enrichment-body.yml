@@ -44,6 +44,27 @@ ebpf:
               obfuscation_json_paths:
                 - "$.password"
                 - "$.secret"
+          # Obfuscate credit-card with a different obfuscation
+          - action: obfuscate
+            type: body
+            scope: request
+            obfuscation_string: "PCI"
+            match:
+              methods: ["POST"]
+              obfuscation_json_paths:
+                - "$['credit-card']"
+                - "$.creditcard"
+                - "$.cc"
+          # Obfuscate social insurance numbers
+          - action: obfuscate
+            type: body
+            scope: request
+            obfuscation_string: "PII"
+            match:
+              methods: ["POST"]
+              obfuscation_json_paths:
+                - "$.sin"
+                - "$.ssn"
           # Exclude body on /smoke endpoint
           - action: exclude
             type: body

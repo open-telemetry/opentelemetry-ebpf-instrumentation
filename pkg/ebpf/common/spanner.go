@@ -119,7 +119,8 @@ func SQLRequestTraceToSpan(trace *SQLRequestTrace) request.Span {
 	// From C, assuming 0-ended strings
 	sql := cstr(trace.Sql[:])
 
-	method, path := sqlprune.SQLParseOperationAndTable(sql)
+	method, tables := sqlprune.SQLParseOperationAndTables(sql)
+	path := sqlprune.SQLTargetCollection(method, tables)
 
 	peer := ""
 	peerPort := 0
@@ -160,6 +161,7 @@ func SQLRequestTraceToSpan(trace *SQLRequestTrace) request.Span {
 			UserPID:   app.PID(trace.Pid.UserPid),
 			Namespace: trace.Pid.Ns,
 		},
-		Statement: sql,
+		Statement:      sql,
+		DBQuerySummary: sqlprune.SQLQuerySummary(method, tables),
 	}
 }

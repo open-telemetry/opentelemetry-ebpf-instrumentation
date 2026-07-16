@@ -4,22 +4,23 @@
 package runtimemetrics // import "go.opentelemetry.io/obi/pkg/runtimemetrics"
 
 import (
+	"context"
 	"errors"
 	"math"
 	"time"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
+	jvmruntime "go.opentelemetry.io/obi/pkg/appolly/app/runtime"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/ebpf/ringbuf"
+	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
 
-const EventTypeGoRuntimeMetric = 17
+const EventTypeGoRuntimeMetric = ebpfcommon.EventTypeGoRuntimeMetric
 
 func IsGoRuntimeMetricRecord(record *ringbuf.Record) bool {
-	return record != nil &&
-		len(record.RawSample) > 0 &&
-		record.RawSample[0] == EventTypeGoRuntimeMetric
+	return ebpfcommon.IsGoRuntimeMetricRecord(record)
 }
 
 type RuntimeMetricSnapshot struct {
@@ -27,10 +28,100 @@ type RuntimeMetricSnapshot struct {
 	PID     app.PID
 	Time    time.Time
 
+	Go  *GoRuntimeMetricSnapshot
+	JVM *JVMRuntimeMetricSnapshot
+}
+
+type GoRuntimeMetricSnapshot struct {
 	MemoryLimit    *int64
 	GCCycles       *uint64
 	ProcessorLimit *int64
 	GOGC           *int64
+	CPUTime        *GoRuntimeCPUTimeSnapshot
+}
+
+type GoRuntimeCPUTimeSnapshot struct {
+	GCAssistTime       int64
+	GCDedicatedTime    int64
+	GCIdleTime         int64
+	GCPauseTime        int64
+	ScavengeAssistTime int64
+	ScavengeBgTime     int64
+	IdleTime           int64
+	UserTime           int64
+}
+
+const goRuntimeCPUTimeValueCount = 8
+
+type GoRuntimeCPUTimeValue struct {
+	State         string
+	DetailedState string
+	Nanoseconds   int64
+}
+
+// GoRuntimeCPUTimeValues returns every CPU time series. A nil snapshot returns
+// the same series with zero values so exporters can remove them consistently.
+func GoRuntimeCPUTimeValues(cpu *GoRuntimeCPUTimeSnapshot) [goRuntimeCPUTimeValueCount]GoRuntimeCPUTimeValue {
+	var snapshot GoRuntimeCPUTimeSnapshot
+	if cpu != nil {
+		snapshot = *cpu
+	}
+
+	return [...]GoRuntimeCPUTimeValue{
+		{State: "user", Nanoseconds: snapshot.UserTime},
+		{State: "gc", DetailedState: "gc/mark/assist", Nanoseconds: snapshot.GCAssistTime},
+		{State: "gc", DetailedState: "gc/mark/dedicated", Nanoseconds: snapshot.GCDedicatedTime},
+		{State: "gc", DetailedState: "gc/mark/idle", Nanoseconds: snapshot.GCIdleTime},
+		{State: "gc", DetailedState: "gc/pause", Nanoseconds: snapshot.GCPauseTime},
+		{State: "scavenge", DetailedState: "scavenge/assist", Nanoseconds: snapshot.ScavengeAssistTime},
+		{State: "scavenge", DetailedState: "scavenge/background", Nanoseconds: snapshot.ScavengeBgTime},
+		{State: "idle", Nanoseconds: snapshot.IdleTime},
+	}
+}
+
+type JVMRuntimeMetricSnapshot struct {
+	Kind       jvmruntime.JVMRuntimeMetricKind
+	PoolName   string
+	MemoryType jvmruntime.JVMMemoryType
+	GCPhase    jvmruntime.JVMGCPhase
+	ValueBytes uint64
+}
+
+type QueueSender struct {
+	queue *msg.Queue[[]RuntimeMetricSnapshot]
+}
+
+func NewQueueSender(queue *msg.Queue[[]RuntimeMetricSnapshot]) *QueueSender {
+	return &QueueSender{queue: queue}
+}
+
+func (s *QueueSender) SendGoRuntimeMetricRecord(
+	ctx context.Context,
+	record *ringbuf.Record,
+	filter ebpfcommon.ServiceFilter,
+) error {
+	if s == nil || s.queue == nil {
+		return nil
+	}
+
+	snapshot, ignore, err := SnapshotFromRingbuf(record, filter)
+	if err != nil || ignore {
+		return err
+	}
+	s.queue.SendCtx(ctx, []RuntimeMetricSnapshot{snapshot})
+	return nil
+}
+
+func (s *QueueSender) SendJVMRuntimeMetrics(ctx context.Context, events []jvmruntime.JVMRuntimeEvent) {
+	if s == nil || s.queue == nil || len(events) == 0 {
+		return
+	}
+
+	snapshots := make([]RuntimeMetricSnapshot, 0, len(events))
+	for i := range events {
+		snapshots = append(snapshots, SnapshotFromJVMRuntimeEvent(events[i]))
+	}
+	s.queue.SendCtx(ctx, snapshots)
 }
 
 type goRuntimeMetricRawKey struct {
@@ -47,12 +138,31 @@ type goRuntimeMetricRawEvent struct {
 }
 
 type goRuntimeMetricRawSnapshot struct {
-	NumGC       uint32
-	NumForcedGC uint32
-	GOMAXPROCS  int32
-	GCPercent   int32
-	MemoryLimit int64
+	ValidMask             uint64
+	NumGC                 uint32
+	Pad                   uint32
+	GOMAXPROCS            int32
+	GCPercent             int32
+	MemoryLimit           int64
+	CPUGCAssistTime       int64
+	CPUGCDedicatedTime    int64
+	CPUGCIdleTime         int64
+	CPUGCPauseTime        int64
+	CPUScavengeAssistTime int64
+	CPUScavengeBgTime     int64
+	CPUIdleTime           int64
+	CPUUserTime           int64
 }
+
+// Mirrors go_runtime_metric_valid_t in bpf/gotracer/maps/runtime.h.
+// Check these bits before using raw values; zero can be a valid value.
+const (
+	goRuntimeMetricValidGCCycles       uint64 = 1 << 0
+	goRuntimeMetricValidMemoryLimit    uint64 = 1 << 1
+	goRuntimeMetricValidProcessorLimit uint64 = 1 << 2
+	goRuntimeMetricValidGOGC           uint64 = 1 << 3
+	goRuntimeMetricValidCPUTime        uint64 = 1 << 4
+)
 
 func SnapshotFromRingbuf(
 	record *ringbuf.Record,
@@ -103,33 +213,72 @@ func convertGoRuntimeMetricSnapshot(
 ) RuntimeMetricSnapshot {
 	total := uint64(raw.NumGC)
 	var totalPtr *uint64
-	if total > 0 {
+	if raw.ValidMask&goRuntimeMetricValidGCCycles != 0 {
 		totalPtr = &total
 	}
 
 	var limit *int64
-	if raw.MemoryLimit > 0 && raw.MemoryLimit < math.MaxInt64 {
+	if raw.ValidMask&goRuntimeMetricValidMemoryLimit != 0 && raw.MemoryLimit > 0 && raw.MemoryLimit < math.MaxInt64 {
 		limit = &raw.MemoryLimit
 	}
 
 	var processorLimit *int64
-	if raw.GOMAXPROCS > 0 {
+	if raw.ValidMask&goRuntimeMetricValidProcessorLimit != 0 && raw.GOMAXPROCS > 0 {
 		v := int64(raw.GOMAXPROCS)
 		processorLimit = &v
 	}
 	var gogc *int64
-	if raw.GCPercent >= 0 {
+	if raw.ValidMask&goRuntimeMetricValidGOGC != 0 && raw.GCPercent >= 0 {
 		v := int64(raw.GCPercent)
 		gogc = &v
 	}
+	var cpuTime *GoRuntimeCPUTimeSnapshot
+	if raw.ValidMask&goRuntimeMetricValidCPUTime != 0 &&
+		raw.CPUGCAssistTime >= 0 &&
+		raw.CPUGCDedicatedTime >= 0 &&
+		raw.CPUGCIdleTime >= 0 &&
+		raw.CPUGCPauseTime >= 0 &&
+		raw.CPUScavengeAssistTime >= 0 &&
+		raw.CPUScavengeBgTime >= 0 &&
+		raw.CPUIdleTime >= 0 &&
+		raw.CPUUserTime >= 0 {
+		cpuTime = &GoRuntimeCPUTimeSnapshot{
+			GCAssistTime:       raw.CPUGCAssistTime,
+			GCDedicatedTime:    raw.CPUGCDedicatedTime,
+			GCIdleTime:         raw.CPUGCIdleTime,
+			GCPauseTime:        raw.CPUGCPauseTime,
+			ScavengeAssistTime: raw.CPUScavengeAssistTime,
+			ScavengeBgTime:     raw.CPUScavengeBgTime,
+			IdleTime:           raw.CPUIdleTime,
+			UserTime:           raw.CPUUserTime,
+		}
+	}
 
 	return RuntimeMetricSnapshot{
-		Service:        service,
-		PID:            pid,
-		Time:           time.Now(),
-		MemoryLimit:    limit,
-		GCCycles:       totalPtr,
-		ProcessorLimit: processorLimit,
-		GOGC:           gogc,
+		Service: service,
+		PID:     pid,
+		Time:    time.Now(),
+		Go: &GoRuntimeMetricSnapshot{
+			MemoryLimit:    limit,
+			GCCycles:       totalPtr,
+			ProcessorLimit: processorLimit,
+			GOGC:           gogc,
+			CPUTime:        cpuTime,
+		},
+	}
+}
+
+func SnapshotFromJVMRuntimeEvent(event jvmruntime.JVMRuntimeEvent) RuntimeMetricSnapshot {
+	return RuntimeMetricSnapshot{
+		Service: event.Service,
+		PID:     event.PID,
+		Time:    event.Time,
+		JVM: &JVMRuntimeMetricSnapshot{
+			Kind:       event.Kind,
+			PoolName:   event.PoolName,
+			MemoryType: event.MemoryType,
+			GCPhase:    event.GCPhase,
+			ValueBytes: event.ValueBytes,
+		},
 	}
 }

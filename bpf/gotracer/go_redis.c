@@ -35,6 +35,7 @@ static __always_inline void setup_request(void *goroutine_addr) {
 
     if (req) {
         req->type = EVENT_GO_REDIS;
+        req->buf_len = 0;
         req->start_monotime_ns = bpf_ktime_get_ns();
 
         go_addr_key_t g_key = {};
@@ -171,7 +172,12 @@ int obi_uprobe_redis_with_writer_ret(struct pt_regs *ctx) {
                 bpf_dbg_printk("buf=%llx, buf=[%s], len=%ld", buf, buf, len);
 
                 if (len > 0) {
-                    bpf_probe_read(&req->buf, k_redis_max_len, buf);
+                    if (len > k_redis_max_len) {
+                        len = k_redis_max_len;
+                    }
+                    if (bpf_probe_read(&req->buf, len, buf) == 0) {
+                        req->buf_len = len;
+                    }
                 }
             }
         }

@@ -23,6 +23,7 @@ const (
 	// zero value.
 	FeatureEmpty Features = 1 << iota
 	FeatureNetwork
+	FeatureNetworkFlowPackets
 	FeatureStatsTCPRtt
 	FeatureStatsTCPFailedConnections
 	FeatureStatsTCPRetransmits
@@ -55,6 +56,7 @@ var FeatureMapper = map[string]Features{
 	"stats_tcp_io":                 FeatureStatsTCPIo,
 	"network":                      FeatureNetwork,
 	"network_inter_zone":           FeatureNetworkInterZone,
+	"network_flow_packets":         FeatureNetworkFlowPackets,
 	"application":                  FeatureApplicationRED,
 	"application_span":             FeatureSpanLegacy,
 	"application_span_otel":        FeatureSpanOTel,
@@ -62,15 +64,21 @@ var FeatureMapper = map[string]Features{
 	"application_service_graph":    FeatureGraph,
 	"application_host":             FeatureApplicationHost,
 	"application_runtime":          FeatureApplicationRuntime,
-	"ebpf":                         FeatureEBPF,
-	"all":                          FeatureAll,
-	"*":                            FeatureAll,
+	// Deprecated alias kept for v0.10 config compatibility.
+	"application_jvm": FeatureApplicationRuntime,
+	"ebpf":            FeatureEBPF,
+	"all":             FeatureAll,
+	"*":               FeatureAll,
 }
 
 func (Features) JSONSchema() *jsonschema.Schema {
 	features := make([]any, 0, len(FeatureMapper))
 
 	for k := range FeatureMapper {
+		// Keep application_jvm accepted for v0.10 config compatibility, but do not advertise it in generated docs.
+		if k == "application_jvm" {
+			continue
+		}
 		features = append(features, k)
 	}
 	return &jsonschema.Schema{
@@ -154,13 +162,14 @@ func (f Features) AnySpanMetrics() bool {
 }
 
 func (f Features) AnyNetwork() bool {
-	return f.any(FeatureNetwork | FeatureNetworkInterZone)
+	return f.any(FeatureNetwork | FeatureNetworkInterZone | FeatureNetworkFlowPackets)
 }
 
 func (f Features) AppOrSpan() bool {
 	return f.any(FeatureApplicationRED |
 		FeatureSpanSizes |
 		FeatureApplicationHost |
+		FeatureApplicationRuntime |
 		FeatureSpanLegacy |
 		FeatureSpanOTel)
 }
@@ -191,6 +200,10 @@ func (f Features) SpanSizes() bool {
 
 func (f Features) NetworkBytes() bool {
 	return f.any(FeatureNetwork)
+}
+
+func (f Features) NetworkFlowPackets() bool {
+	return f.any(FeatureNetworkFlowPackets)
 }
 
 func (f Features) StatMetrics() bool {
