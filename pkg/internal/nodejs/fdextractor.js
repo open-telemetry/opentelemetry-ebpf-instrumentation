@@ -18,6 +18,7 @@
   net.Socket.prototype.write = orig.socketWrite;
 
   const { AsyncLocalStorage, createHook } = require('async_hooks');
+  const { monitorEventLoopDelay, performance } = require('perf_hooks');
 
   const debug_enabled = false;
 
@@ -119,4 +120,59 @@
       }
     },
   }).enable();
+
+  // Runtime metrics (nodejs.eventloop.*): sample the in-process ground truth
+  // (eventLoopUtilization + monitorEventLoopDelay) and pass it to the eBPF
+  // layer through the same fs.access side channel. The payload is fixed-width:
+  // 10 fields x 16 lowercase hex chars, decoded by bpf/generictracer/nodejs.c.
+  // Field order: elu_idle_ns, elu_active_ns, delay min/max/mean/stddev/p50/p90/
+  // p99 (ns), delay sample count. The histogram is reset after each read so the
+  // delay fields are per-interval; ELU values are cumulative since loop start.
+  // Fixed, unlike the JVM sampling interval: this script is embedded verbatim,
+  // so making it configurable means templating it at injection time.
+  const RT_SAMPLING_INTERVAL_MS = 1000;
+
+  if (orig.rtTimer) {
+    clearInterval(orig.rtTimer);
+  }
+
+  // eventLoopUtilization needs Node 14.10+. Without this guard the interval
+  // callback below would throw an uncaught TypeError, which by default
+  // terminates the application. Older runtimes simply report no runtime
+  // metrics.
+  if (typeof performance.eventLoopUtilization === 'function' &&
+      typeof monitorEventLoopDelay === 'function') {
+    if (!orig.rtHistogram) {
+      orig.rtHistogram = monitorEventLoopDelay({ resolution: 10 });
+      orig.rtHistogram.enable();
+    }
+
+    const rtHex = (v) => {
+      const n = Number.isFinite(v) && v > 0 ? Math.round(v) : 0;
+      return n.toString(16).padStart(16, '0');
+    };
+
+    orig.rtTimer = setInterval(() => {
+      const h = orig.rtHistogram;
+      const elu = performance.eventLoopUtilization();
+      const empty = h.count === 0;
+      const fields = [
+        elu.idle * 1e6, // eventLoopUtilization reports milliseconds
+        elu.active * 1e6,
+        empty ? 0 : h.min,
+        empty ? 0 : h.max,
+        empty ? 0 : h.mean,
+        empty ? 0 : h.stddev,
+        empty ? 0 : h.percentile(50),
+        empty ? 0 : h.percentile(90),
+        empty ? 0 : h.percentile(99),
+        h.count,
+      ];
+      h.reset();
+      try {
+        fs.accessSync(`/dev/null/obi-rt/${fields.map(rtHex).join('')}`);
+      } catch (_) {}
+    }, RT_SAMPLING_INTERVAL_MS);
+    orig.rtTimer.unref();
+  }
 })()

@@ -236,9 +236,10 @@ type metricsReporter struct {
 	genAIClientDuration *Expirer[prometheus.Histogram]
 	genAITokenUsage     *Expirer[prometheus.Histogram]
 
-	goRuntimeMetrics    goRuntimeMetricsCollector
-	goRuntimeHistograms *goRuntimeHistogramCollector
-	jvmRuntimeMetrics   jvmRuntimeMetricsCollector
+	goRuntimeMetrics     goRuntimeMetricsCollector
+	goRuntimeHistograms  *goRuntimeHistogramCollector
+	jvmRuntimeMetrics    jvmRuntimeMetricsCollector
+	nodejsRuntimeMetrics nodejsRuntimeMetricsCollector
 
 	promConnect *connector.PrometheusManager
 
@@ -775,6 +776,7 @@ func newReporter(
 		mr.goRuntimeMetrics = newGoRuntimeMetricsCollector(runtimeLabelNames)
 		mr.goRuntimeHistograms = newGoRuntimeHistogramCollector(runtimeLabelNames)
 		mr.jvmRuntimeMetrics = newJVMRuntimeMetricsCollector(cfg)
+		mr.nodejsRuntimeMetrics = newNodejsRuntimeMetricsCollector(cfg)
 	}
 
 	// testing aid
@@ -865,6 +867,7 @@ func newReporter(
 		registeredMetrics = append(registeredMetrics, mr.goRuntimeMetrics.collectors()...)
 		registeredMetrics = append(registeredMetrics, mr.goRuntimeHistograms)
 		registeredMetrics = append(registeredMetrics, mr.jvmRuntimeMetrics.collectors()...)
+		registeredMetrics = append(registeredMetrics, mr.nodejsRuntimeMetrics.collectors()...)
 	}
 
 	if is.GPUEnabled() {

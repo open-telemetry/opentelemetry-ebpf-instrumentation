@@ -13,7 +13,7 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
-	jvmruntime "go.opentelemetry.io/obi/pkg/appolly/app/runtime"
+	appruntime "go.opentelemetry.io/obi/pkg/appolly/app/runtime"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	"go.opentelemetry.io/obi/pkg/ebpf/ringbuf"
@@ -139,9 +139,14 @@ func (f fakeRuntimeServiceFilter) CurrentPIDs(PIDType) map[uint32]map[app.PID]sv
 }
 
 type fakeRuntimeMetricsSender struct {
-	events    []jvmruntime.JVMRuntimeEvent
-	goRecords int
-	goFilter  ServiceFilter
+	events       []appruntime.JVMRuntimeEvent
+	nodejsEvents []appruntime.NodejsRuntimeEvent
+	goRecords    int
+	goFilter     ServiceFilter
+}
+
+func (s *fakeRuntimeMetricsSender) SendNodejsRuntimeMetrics(_ context.Context, events []appruntime.NodejsRuntimeEvent) {
+	s.nodejsEvents = append(s.nodejsEvents, events...)
 }
 
 func (s *fakeRuntimeMetricsSender) SendGoRuntimeMetricRecord(_ context.Context, _ *ringbuf.Record, filter ServiceFilter) error {
@@ -150,6 +155,6 @@ func (s *fakeRuntimeMetricsSender) SendGoRuntimeMetricRecord(_ context.Context, 
 	return nil
 }
 
-func (s *fakeRuntimeMetricsSender) SendJVMRuntimeMetrics(_ context.Context, events []jvmruntime.JVMRuntimeEvent) {
+func (s *fakeRuntimeMetricsSender) SendJVMRuntimeMetrics(_ context.Context, events []appruntime.JVMRuntimeEvent) {
 	s.events = append(s.events, events...)
 }

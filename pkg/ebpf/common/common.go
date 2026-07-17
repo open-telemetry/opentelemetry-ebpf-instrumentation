@@ -88,6 +88,7 @@ const (
 	EventTypeGoAutoSpan         = 20 // EVENT_GO_AUTO_SPAN - Go Auto SDK OTLP JSON span
 	EventTypeGoRuntimeHistogram = 21 // EVENT_GO_RUNTIME_HISTOGRAM - Go runtime histogram metrics
 	EventTypeGoAutoActivated    = 22 // EVENT_GO_AUTO_ACTIVATED - internal Auto SDK activation control event
+	EventTypeNodejsEventLoop    = 23 // EVENT_NODEJS_EVENTLOOP - Node.js event-loop runtime metrics
 )
 
 // Kernel-side classification

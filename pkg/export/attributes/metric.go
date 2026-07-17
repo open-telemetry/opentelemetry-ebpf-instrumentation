@@ -314,6 +314,60 @@ var (
 		Unit:    "By",
 		Type:    InstrumentUpDownCounter,
 	})
+	NodejsEventLoopTime = metric(Name{
+		Section: "nodejs.eventloop.time",
+		OTEL:    "nodejs.eventloop.time",
+		Unit:    "s",
+		Type:    InstrumentCounter,
+	})
+	NodejsEventLoopUtilization = metric(Name{
+		Section: "nodejs.eventloop.utilization",
+		OTEL:    "nodejs.eventloop.utilization",
+		Unit:    "1",
+		Type:    InstrumentGauge,
+	})
+	NodejsEventLoopDelayMin = metric(Name{
+		Section: "nodejs.eventloop.delay.min",
+		OTEL:    "nodejs.eventloop.delay.min",
+		Unit:    "s",
+		Type:    InstrumentGauge,
+	})
+	NodejsEventLoopDelayMax = metric(Name{
+		Section: "nodejs.eventloop.delay.max",
+		OTEL:    "nodejs.eventloop.delay.max",
+		Unit:    "s",
+		Type:    InstrumentGauge,
+	})
+	NodejsEventLoopDelayMean = metric(Name{
+		Section: "nodejs.eventloop.delay.mean",
+		OTEL:    "nodejs.eventloop.delay.mean",
+		Unit:    "s",
+		Type:    InstrumentGauge,
+	})
+	NodejsEventLoopDelayStddev = metric(Name{
+		Section: "nodejs.eventloop.delay.stddev",
+		OTEL:    "nodejs.eventloop.delay.stddev",
+		Unit:    "s",
+		Type:    InstrumentGauge,
+	})
+	NodejsEventLoopDelayP50 = metric(Name{
+		Section: "nodejs.eventloop.delay.p50",
+		OTEL:    "nodejs.eventloop.delay.p50",
+		Unit:    "s",
+		Type:    InstrumentGauge,
+	})
+	NodejsEventLoopDelayP90 = metric(Name{
+		Section: "nodejs.eventloop.delay.p90",
+		OTEL:    "nodejs.eventloop.delay.p90",
+		Unit:    "s",
+		Type:    InstrumentGauge,
+	})
+	NodejsEventLoopDelayP99 = metric(Name{
+		Section: "nodejs.eventloop.delay.p99",
+		OTEL:    "nodejs.eventloop.delay.p99",
+		Unit:    "s",
+		Type:    InstrumentGauge,
+	})
 	// Resource is not an instrument: it only names the attributes.select section
 	// that selects resource attributes. It still goes through metric() so its
 	// Prom and OTEL forms stay populated like every other entry.
