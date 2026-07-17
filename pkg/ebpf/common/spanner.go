@@ -86,7 +86,7 @@ func HTTPRequestTraceToSpan(parseCtx *EBPFParseContext, trace *HTTPRequestTrace)
 		SubType:   subType,
 	}
 
-	if parseCtx != nil && parseCtx.httpEnricher != nil && span.Type == request.EventTypeHTTP {
+	if parseCtx != nil && parseCtx.httpEnricher != nil {
 		if req, ok := parseGoRequestLargeBuffer(parseCtx, trace.Tp.TraceId, trace.Conn, false); ok {
 			resp := &http.Response{Header: http.Header{}}
 
@@ -99,7 +99,7 @@ func HTTPRequestTraceToSpan(parseCtx *EBPFParseContext, trace *HTTPRequestTrace)
 				}
 			}
 
-			parseCtx.httpEnricher.Enrich(&span, req, resp)
+			return postProcessHTTPSpan(parseCtx, &span, req, resp)
 		}
 	}
 
