@@ -238,6 +238,8 @@ func loadV1Config(data []byte) (*obi.Config, error) {
 	if len(bytes.TrimSpace(data)) == 0 {
 		return &cfg, nil
 	}
+	// V1 custom unmarshallers use gopkg.in/yaml.v3.Node, so decoding through
+	// go.yaml.in/yaml/v3 would bypass their compatibility behavior.
 	decoder := legacyyaml.NewDecoder(bytes.NewReader(data))
 	decoder.KnownFields(true)
 	if err := decoder.Decode(&cfg); err != nil {
