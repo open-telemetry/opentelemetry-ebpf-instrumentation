@@ -65,6 +65,25 @@ func TestLogFormatterPlainTextPlacement(t *testing.T) {
 	}
 }
 
+func TestLogFormatterUsesSuppliedContext(t *testing.T) {
+	t.Parallel()
+
+	const (
+		traceID = "ffeeddccbbaa99887766554433221100"
+		spanID  = "ffeeddccbbaa9988"
+	)
+
+	formatter := newLogFormatter(obi.DefaultConfig.EBPF.LogEnricher)
+
+	withSpan, err := formatter.format([]byte("with span\n"), traceID, spanID, true)
+	require.NoError(t, err)
+	require.Equal(t, "with span trace_id="+traceID+" span_id="+spanID+"\n", string(withSpan))
+
+	withoutSpan, err := formatter.format([]byte("without span\n"), traceID, spanID, false)
+	require.NoError(t, err)
+	require.Equal(t, "without span trace_id="+traceID+"\n", string(withoutSpan))
+}
+
 func TestLogFormatterPlainTextMultiline(t *testing.T) {
 	t.Parallel()
 
