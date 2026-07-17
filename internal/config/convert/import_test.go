@@ -760,22 +760,89 @@ func TestV2ToRuntimeRejectsUnsupportedEnrichmentFields(t *testing.T) {
 	}
 }
 
-func TestV2ToRuntimeRejectsCorrelationFilter(t *testing.T) {
+func TestV2ToRuntimeRejectsUnsupportedFields(t *testing.T) {
 	t.Parallel()
 
-	_, err := V2ToRuntime(&schema.Extension{
-		Version: schema.SupportedVersion,
-		Correlation: &schema.Correlation{
-			LogTraceAnnotation: schema.LogTraceAnnotation{
-				Enabled: true,
-				Filter: schema.AttributeFilters{
-					"service.name": {Match: "checkout"},
-				},
+	filters := schema.AttributeFilters{
+		"service.name": {Match: "checkout"},
+	}
+	tests := []struct {
+		name   string
+		path   string
+		mutate func(*schema.Extension)
+	}{
+		{
+			name: "Go runtime filter",
+			path: "capture.runtimes.go.filter",
+			mutate: func(ext *schema.Extension) {
+				ext.Capture.Runtimes.Go.Filter = filters
 			},
 		},
-	})
+		{
+			name: "Node.js runtime filter",
+			path: "capture.runtimes.nodejs.filter",
+			mutate: func(ext *schema.Extension) {
+				ext.Capture.Runtimes.NodeJS.Filter = filters
+			},
+		},
+		{
+			name: "Java runtime filter",
+			path: "capture.runtimes.java.filter",
+			mutate: func(ext *schema.Extension) {
+				ext.Capture.Runtimes.Java.Filter = filters
+			},
+		},
+		{
+			name: "DNS enricher",
+			path: "enrich.enrichers.dns",
+			mutate: func(ext *schema.Extension) {
+				ext.Enrich = &schema.Enrich{
+					Enrichers: schema.Enrichers{DNS: &schema.DNSEnricher{Enabled: true}},
+				}
+			},
+		},
+		{
+			name: "service name rules",
+			path: "enrich.service_name.rules",
+			mutate: func(ext *schema.Extension) {
+				ext.Enrich = &schema.Enrich{
+					ServiceName: schema.ServiceName{Rules: []schema.ServiceNameRule{{ID: "service-name"}}},
+				}
+			},
+		},
+		{
+			name: "attribute rules",
+			path: "enrich.attributes.rules",
+			mutate: func(ext *schema.Extension) {
+				ext.Enrich = &schema.Enrich{
+					Attributes: schema.EnrichmentAttributes{
+						Rules: []schema.EnrichmentAttributeRule{{ID: "resource-attributes"}},
+					},
+				}
+			},
+		},
+		{
+			name: "correlation filter",
+			path: "correlation.log_trace_annotation.filter",
+			mutate: func(ext *schema.Extension) {
+				ext.Correlation = &schema.Correlation{
+					LogTraceAnnotation: schema.LogTraceAnnotation{Enabled: true, Filter: filters},
+				}
+			},
+		},
+	}
 
-	require.ErrorContains(t, err, "correlation.log_trace_annotation.filter is not supported")
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			ext := &schema.Extension{Version: schema.SupportedVersion}
+			test.mutate(ext)
+			_, err := V2ToRuntime(ext)
+
+			require.ErrorContains(t, err, test.path+" is not supported")
+		})
+	}
 }
 
 func TestV2ToRuntimeRulesPresenceControlsSelectorReplacement(t *testing.T) {
