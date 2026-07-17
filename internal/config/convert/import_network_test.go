@@ -201,3 +201,46 @@ func TestV2ToRuntimeNetworkStatsRejectsDivergentSignalFilters(t *testing.T) {
 	})
 	require.ErrorContains(t, err, "capture.network.stats.filters.metrics")
 }
+
+func TestV2ToRuntimeRejectsUnsupportedNetworkProperties(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name   string
+		path   string
+		mutate func(*schema.CaptureNetwork)
+	}{
+		{
+			name: "capture",
+			path: "capture.network.capture.custom_capture_option",
+			mutate: func(network *schema.CaptureNetwork) {
+				network.Capture.AdditionalProperties = map[string]any{
+					"custom_capture_option": true,
+				}
+			},
+		},
+		{
+			name: "stats",
+			path: "capture.network.stats.custom_stats_option",
+			mutate: func(network *schema.CaptureNetwork) {
+				network.Stats.AdditionalProperties = map[string]any{
+					"custom_stats_option": true,
+				}
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			network := schema.CaptureNetwork{}
+			tc.mutate(&network)
+			_, err := V2ToRuntime(&schema.Extension{
+				Version: schema.SupportedVersion,
+				Capture: schema.Capture{
+					Network: network,
+				},
+			})
+			require.ErrorContains(t, err, tc.path)
+		})
+	}
+}

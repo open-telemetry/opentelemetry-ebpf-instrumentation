@@ -59,6 +59,9 @@ func V2ToRuntime(src *schema.Extension) (*obi.Config, error) {
 	if err := validateUnsupportedV2Fields(src); err != nil {
 		return nil, err
 	}
+	if err := validateUnsupportedV2Network(src); err != nil {
+		return nil, err
+	}
 	if err := validateUnsupportedV2Enrichment(src); err != nil {
 		return nil, err
 	}
@@ -106,6 +109,26 @@ func rejectAdditionalProperties(path string, values map[string]any) error {
 	return fmt.Errorf("%s.%s is not supported by the runtime converter", path, keys[0])
 }
 
+func validateUnsupportedV2Network(src *schema.Extension) error {
+	for _, properties := range []struct {
+		path   string
+		values map[string]any
+	}{
+		{
+			path:   "capture.network.capture",
+			values: src.Capture.Network.Capture.AdditionalProperties,
+		},
+		{
+			path:   "capture.network.stats",
+			values: src.Capture.Network.Stats.AdditionalProperties,
+		},
+	} {
+		if err := rejectAdditionalProperties(properties.path, properties.values); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 func runtimeConfigDefaults() obi.Config {
 	cfg := obi.DefaultConfig
 	if cfg.Routes != nil {
