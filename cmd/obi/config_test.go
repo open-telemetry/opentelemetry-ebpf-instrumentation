@@ -15,6 +15,7 @@ import (
 
 	"go.opentelemetry.io/obi/internal/config/schema"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
+	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/obi"
 )
 
@@ -82,6 +83,43 @@ extensions:
 	require.Equal(t, 321, cfg.ChannelBufferLen)
 }
 
+func TestLoadConfigV2ImportsOTLPHTTP(t *testing.T) {
+	cfg, version, err := loadConfigReader(bytes.NewBufferString(`
+file_format: "1.0"
+tracer_provider:
+  processors:
+    - batch:
+        exporter:
+          otlp_http:
+            endpoint: https://traces.example/v1/traces
+            encoding: json
+            headers:
+              - name: authorization
+                value: trace-token
+meter_provider:
+  readers:
+    - periodic:
+        exporter:
+          otlp_http:
+            endpoint: https://metrics.example/v1/metrics
+            encoding: protobuf
+extensions:
+  obi:
+    version: "2.0"
+`))
+
+	require.NoError(t, err)
+	require.Equal(t, configVersionV2, version)
+	require.Equal(t, otelcfg.ProtocolHTTPJSON, cfg.Traces.TracesProtocol)
+	require.Equal(t, "https://traces.example/v1/traces", cfg.Traces.TracesEndpoint)
+	traceHeaders := map[string]string{}
+	require.NotNil(t, cfg.Traces.InjectHeaders)
+	cfg.Traces.InjectHeaders(traceHeaders)
+	require.Equal(t, "trace-token", traceHeaders["authorization"])
+	require.Equal(t, otelcfg.ProtocolHTTPProtobuf, cfg.OTELMetrics.MetricsProtocol)
+	require.Equal(t, "https://metrics.example/v1/metrics", cfg.OTELMetrics.MetricsEndpoint)
+}
+
 func TestLoadConfigV1PreservesLegacyEnvironmentPrecedence(t *testing.T) {
 	t.Setenv("OTEL_EBPF_CHANNEL_BUFFER_LEN", "222")
 	t.Setenv("OBI_ESCAPED_SERVICE_NAME", "expanded-twice")
@@ -143,6 +181,28 @@ extensions:
 	require.Empty(t, version)
 	require.Equal(t, "3.0", unsupported.Version)
 	require.ErrorContains(t, err, `unsupported OBI config version "3.0"`)
+}
+
+func TestLoadConfigV2RejectsUnsupportedRuntimeTelemetry(t *testing.T) {
+	_, version, err := loadConfigReader(bytes.NewBufferString(`
+file_format: "1.0"
+tracer_provider:
+  limits:
+    attribute_count_limit: 12
+  processors:
+    - batch:
+        exporter:
+          otlp_grpc:
+            endpoint: http://localhost:4317
+extensions:
+  obi:
+    version: "2.0"
+`))
+
+	require.Error(t, err)
+	require.Empty(t, version)
+	require.ErrorContains(t, err, "loading config v2")
+	require.ErrorContains(t, err, "tracer_provider.limits")
 }
 
 func TestLoadConfigV2PreservesOmittedDefaults(t *testing.T) {

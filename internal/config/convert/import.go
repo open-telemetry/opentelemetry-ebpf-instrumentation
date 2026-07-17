@@ -4,6 +4,7 @@
 package convert // import "go.opentelemetry.io/obi/internal/config/convert"
 
 import (
+	"errors"
 	"fmt"
 	"reflect"
 	"slices"
