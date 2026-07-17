@@ -4,7 +4,6 @@
 package convert // import "go.opentelemetry.io/obi/internal/config/convert"
 
 import (
-	"errors"
 	"fmt"
 	"reflect"
 	"slices"
@@ -51,7 +50,7 @@ func V2ToRuntime(src *schema.Extension) (*obi.Config, error) {
 	if err := validateV2RulePatterns(src.Capture.Rules); err != nil {
 		return nil, err
 	}
-	if err := validateV2HTTPFilters(src.Capture.Instrumentation.HTTP.Filters); err != nil {
+	if err := validateV2SignalFilters(src); err != nil {
 		return nil, err
 	}
 	if err := validateV2HTTPPayloadExtraction(src.Capture.Instrumentation.HTTP.PayloadExtraction); err != nil {
@@ -389,77 +388,67 @@ func validateV2RulePatterns(rules []schema.Rule) error {
 	return nil
 }
 
-func validateV2RuleSelectorFamilies(rules []schema.Rule) error {
-	selectorFamily := ""
-	for i, rule := range rules {
-		if rule.Match.Process.ExportsOTLP != nil || ruleMatchEmpty(rule.Match) {
-			continue
+func validateV2SignalFilters(src *schema.Extension) error {
+	canonicalPath := "capture.instrumentation.http.filters.traces"
+	canonical := src.Capture.Instrumentation.HTTP.Filters.Traces
+	for _, mapping := range protocolMappings {
+		path := fmt.Sprintf("capture.instrumentation.%s.filters", mapping.name)
+		filters := protocolFilters(src.Capture.Instrumentation, mapping.name)
+		if err := validateSharedAttributeFilters(path+".traces", canonicalPath, "application", filters.Traces, canonical); err != nil {
+			return err
 		}
-
-		ruleSelectorFamily := "glob"
-		if ruleUsesRegex(rule.Match) {
-			if ruleUsesGlob(rule.Match) {
-				return fmt.Errorf(
-					"capture.rules[%d].match: mixing glob and regex selectors is not supported",
-					i,
-				)
-			}
-			ruleSelectorFamily = "regex"
+		if err := validateSharedAttributeFilters(path+".metrics", canonicalPath, "application", filters.Metrics, canonical); err != nil {
+			return err
 		}
-
-		if selectorFamily != "" && selectorFamily != ruleSelectorFamily {
-			return fmt.Errorf(
-				"capture.rules[%d].match: mixing glob and regex selectors is not supported",
-				i,
-			)
-		}
-		selectorFamily = ruleSelectorFamily
 	}
-	return nil
+
+	if err := validateSharedSignalFilters(
+		"capture.network.capture.filters",
+		"network",
+		src.Capture.Network.Capture.Filters,
+	); err != nil {
+		return err
+	}
+	return validateSharedSignalFilters(
+		"capture.network.stats.filters",
+		"network stats",
+		src.Capture.Network.Stats.Filters,
+	)
 }
 
-func validateV2MatchOrder(matchOrder schema.MatchOrder, rules []schema.Rule) error {
-	if matchOrder == schema.MatchOrderLastMatchWins {
-		return errors.New("capture.policy.match_order: last_match_wins is not supported")
-	}
-
-	includeSeen := false
-	for i, rule := range rules {
-		if !ruleAffectsV2Selection(rule) {
-			continue
-		}
-
-		switch rule.Action {
-		case schema.CaptureActionInclude:
-			includeSeen = true
-		case schema.CaptureActionExclude:
-			if includeSeen {
-				return fmt.Errorf(
-					"capture.rules[%d]: exclude rules must precede include rules for first_match_wins",
-					i,
-				)
-			}
-		}
-	}
-
-	return nil
+func validateSharedSignalFilters(path, runtimeFilter string, filters schema.SignalFilters) error {
+	return validateSharedAttributeFilters(
+		path+".metrics",
+		path+".traces",
+		runtimeFilter,
+		filters.Metrics,
+		filters.Traces,
+	)
 }
 
-func ruleAffectsV2Selection(rule schema.Rule) bool {
-	if rule.Match.Process.ExportsOTLP != nil || ruleMatchEmpty(rule.Match) {
-		return false
-	}
-	return !ruleUsesRegex(rule.Match) || !ruleUsesGlob(rule.Match)
-}
-
-func validateV2HTTPFilters(filters schema.SignalFilters) error {
-	if len(filters.Traces) == 0 || len(filters.Metrics) == 0 {
+func validateSharedAttributeFilters(
+	path string,
+	canonicalPath string,
+	runtimeFilter string,
+	filters schema.AttributeFilters,
+	canonical schema.AttributeFilters,
+) error {
+	if attributeFiltersEqual(filters, canonical) {
 		return nil
 	}
-	if reflect.DeepEqual(filters.Traces, filters.Metrics) {
-		return nil
+	return fmt.Errorf(
+		"%s cannot differ from %s because the runtime uses one %s filter",
+		path,
+		canonicalPath,
+		runtimeFilter,
+	)
+}
+
+func attributeFiltersEqual(left, right schema.AttributeFilters) bool {
+	if len(left) == 0 && len(right) == 0 {
+		return true
 	}
-	return errors.New("capture.instrumentation.http.filters: trace and metric filters cannot differ")
+	return reflect.DeepEqual(left, right)
 }
 
 func validateV2HTTPPayloadExtraction(payload schema.PayloadExtraction) error {
@@ -1074,14 +1063,7 @@ func applyV2HTTPFilters(cfg *obi.Config, filters schema.SignalFilters, complete 
 	if zeroValue(filters) && !complete {
 		return
 	}
-	cfg.Filters.Application = attributeFilterMap(v2HTTPFilterMap(filters))
-}
-
-func v2HTTPFilterMap(filters schema.SignalFilters) schema.AttributeFilters {
-	if len(filters.Traces) != 0 {
-		return filters.Traces
-	}
-	return filters.Metrics
+	cfg.Filters.Application = attributeFilterMap(filters.Traces)
 }
 
 func applyFullV2HTTPRoutes(cfg *obi.Config, routes schema.HTTPRoutes) {
@@ -1340,9 +1322,7 @@ func applyFullV2NetworkCapture(cfg *obi.Config, capture schema.NetworkCapture) {
 	cfg.NetworkFlows.ExcludeProtocols = cloneStrings(capture.Selection.Protocols.Exclude)
 	cfg.NetworkFlows.Direction = string(capture.Selection.Direction)
 	cfg.NetworkFlows.CIDRs = cloneRuntimeCIDRDefinitions(cfg.NetworkFlows.CIDRs, capture.Selection.CIDRs)
-	if filters, ok := networkFilterMap(capture.Filters); ok {
-		cfg.Filters.Network = filters
-	}
+	cfg.Filters.Network = attributeFilterMap(capture.Filters.Traces)
 	cfg.NetworkFlows.CacheMaxFlows = capture.FlowLifecycle.MaxTrackedFlows
 	cfg.NetworkFlows.CacheActiveTimeout = capture.FlowLifecycle.ActiveTimeout.TimeDuration()
 	cfg.NetworkFlows.Deduper = string(capture.FlowLifecycle.Deduplication.Strategy)
@@ -1393,9 +1373,7 @@ func applyPartialV2NetworkCapture(cfg *obi.Config, capture schema.NetworkCapture
 		cfg.NetworkFlows.CIDRs = cloneRuntimeCIDRDefinitions(cfg.NetworkFlows.CIDRs, capture.Selection.CIDRs)
 	}
 	if !zeroValue(capture.Filters) {
-		if filters, ok := networkFilterMap(capture.Filters); ok {
-			cfg.Filters.Network = filters
-		}
+		cfg.Filters.Network = attributeFilterMap(capture.Filters.Traces)
 	}
 	if capture.FlowLifecycle.MaxTrackedFlows != 0 {
 		cfg.NetworkFlows.CacheMaxFlows = capture.FlowLifecycle.MaxTrackedFlows
@@ -1485,7 +1463,7 @@ func applyFullV2NetworkStats(cfg *obi.Config, stats schema.NetworkStats) {
 	cfg.Stats.AgentIPIface = obi.AgentTypeIface(stats.EndpointIdentity.AgentIPInterface)
 	cfg.Stats.AgentIPType = string(stats.EndpointIdentity.AgentIPFamily)
 	cfg.Stats.CIDRs = cloneRuntimeCIDRDefinitions(cfg.Stats.CIDRs, stats.Selection.CIDRs)
-	cfg.Filters.Stats = attributeFilterMap(stats.Filters.Metrics)
+	cfg.Filters.Stats = attributeFilterMap(stats.Filters.Traces)
 	applyFullV2StatsEnrichment(cfg, stats.Enrichment)
 	cfg.Stats.Print = stats.Diagnostics.PrintStats
 }
@@ -1503,8 +1481,8 @@ func applyPartialV2NetworkStats(cfg *obi.Config, stats schema.NetworkStats) {
 	if stats.Selection.CIDRs != nil {
 		cfg.Stats.CIDRs = cloneRuntimeCIDRDefinitions(cfg.Stats.CIDRs, stats.Selection.CIDRs)
 	}
-	if stats.Filters.Metrics != nil {
-		cfg.Filters.Stats = attributeFilterMap(stats.Filters.Metrics)
+	if !zeroValue(stats.Filters) {
+		cfg.Filters.Stats = attributeFilterMap(stats.Filters.Traces)
 	}
 	if !zeroValue(stats.Enrichment) {
 		applyPartialV2StatsEnrichment(cfg, stats.Enrichment)
@@ -2015,12 +1993,12 @@ func completeEngine(engine schema.CaptureEngine) bool {
 }
 
 func completeNetworkCapture(capture schema.NetworkCapture) bool {
-	_, filtersOK := networkFilterMap(capture.Filters)
 	return !zeroValue(capture.Source) &&
 		!zeroValue(capture.EndpointIdentity) &&
 		!zeroValue(capture.Selection) &&
 		capture.Selection.CIDRs != nil &&
-		filtersOK &&
+		capture.Filters.Traces != nil &&
+		capture.Filters.Metrics != nil &&
 		!zeroValue(capture.FlowLifecycle) &&
 		!zeroValue(capture.InterfaceDiscovery) &&
 		!zeroValue(capture.Enrichment)
@@ -2030,6 +2008,7 @@ func completeNetworkStats(stats schema.NetworkStats) bool {
 	return stats.Features != nil &&
 		!zeroValue(stats.EndpointIdentity) &&
 		stats.Selection.CIDRs != nil &&
+		stats.Filters.Traces != nil &&
 		stats.Filters.Metrics != nil &&
 		!zeroValue(stats.Enrichment)
 }
@@ -2117,6 +2096,31 @@ func protocolEnablement(instrumentation schema.Instrumentation, name protocolNam
 		return instrumentation.GPU.Enabled
 	default:
 		return schema.ProtocolEnablement{}
+	}
+}
+
+func protocolFilters(instrumentation schema.Instrumentation, name protocolName) schema.SignalFilters {
+	switch name {
+	case protocolHTTP:
+		return instrumentation.HTTP.Filters
+	case protocolGRPC:
+		return instrumentation.GRPC.Filters
+	case protocolSQL:
+		return instrumentation.SQL.Filters
+	case protocolRedis:
+		return instrumentation.Redis.Filters
+	case protocolKafka:
+		return instrumentation.Kafka.Filters
+	case protocolMongo:
+		return instrumentation.Mongo.Filters
+	case protocolCouchbase:
+		return instrumentation.Couchbase.Filters
+	case protocolDNS:
+		return instrumentation.DNS.Filters
+	case protocolGPU:
+		return instrumentation.GPU.Filters
+	default:
+		return schema.SignalFilters{}
 	}
 }
 
@@ -2210,16 +2214,6 @@ func cloneRuntimeCIDRDefinitions[T runtimeCIDRDefinition](_ []T, definitions sch
 		}))
 	}
 	return out
-}
-
-func networkFilterMap(filters schema.SignalFilters) (filter.AttributeFamilyConfig, bool) {
-	if filters.Traces == nil || filters.Metrics == nil {
-		return nil, false
-	}
-	if !reflect.DeepEqual(filters.Traces, filters.Metrics) {
-		return nil, false
-	}
-	return attributeFilterMap(filters.Traces), true
 }
 
 func attributeFilterMap(in schema.AttributeFilters) filter.AttributeFamilyConfig {
