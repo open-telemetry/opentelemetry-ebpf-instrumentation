@@ -152,6 +152,7 @@ static __always_inline int mysql_send_large_buffer(tcp_req_t *req,
     lb->direction = direction;
     lb->conn_info = pid_conn->conn;
     lb->tp = req->tp;
+    lb->source = k_large_buffer_source_kprobes;
 
     u32 max_available_bytes = mysql_max_captured_bytes - bytes_sent;
 

@@ -32,6 +32,11 @@ const (
 	largeBufferActionAppend
 )
 
+const (
+	largeBufferSourceKProbes = iota
+	largeBufferSourceGo
+)
+
 func appendTCPLargeBuffer(parseCtx *EBPFParseContext, record *ringbuf.Record) (request.Span, bool, error) {
 	hdrSize := uint32(unsafe.Sizeof(TCPLargeBufferHeader{})) - uint32(unsafe.Sizeof(uintptr(0))) // Remove `buf` placeholder
 
@@ -68,7 +73,24 @@ func appendTCPLargeBuffer(parseCtx *EBPFParseContext, record *ringbuf.Record) (r
 	case largeBufferActionAppend:
 		lb, ok := parseCtx.largeBuffers.Get(key)
 		if !ok {
-			initFunc(chunk)
+			// For server events we do not have trace info
+			// until the server handler runs in Go. So we register
+			// the first event on the connection with 0 traceID.
+			// This code remedies the inconsistency.
+			if event.Source == largeBufferSourceGo {
+				emptyKey := key
+				emptyKey.traceID = [16]uint8{}
+				lb, ok := parseCtx.largeBuffers.Get(emptyKey)
+				if ok {
+					parseCtx.largeBuffers.Remove(emptyKey)
+					parseCtx.largeBuffers.Add(key, lb)
+					lb.AppendChunk(chunk)
+				} else {
+					initFunc(chunk)
+				}
+			} else {
+				initFunc(chunk)
+			}
 		} else {
 			lb.AppendChunk(chunk)
 		}

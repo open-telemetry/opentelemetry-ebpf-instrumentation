@@ -70,6 +70,7 @@ static __always_inline int postgres_send_large_buffer(tcp_req_t *req,
     large_buf->direction = direction;
     large_buf->conn_info = req->conn_info;
     large_buf->tp = req->tp;
+    large_buf->source = k_large_buffer_source_kprobes;
 
     u32 max_available_bytes = postgres_max_captured_bytes - bytes_sent;
 

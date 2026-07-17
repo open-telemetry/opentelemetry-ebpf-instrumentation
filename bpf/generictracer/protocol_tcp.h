@@ -171,6 +171,7 @@ static __always_inline void unknown_send_large_buffer(tcp_req_t *req,
     lb->direction = direction;
     lb->conn_info = pid_conn->conn;
     lb->tp = req->tp;
+    lb->source = k_large_buffer_source_kprobes;
 
     const u32 bytes_sent =
         packet_type == PACKET_TYPE_REQUEST ? req->lb_req_bytes : req->lb_res_bytes;

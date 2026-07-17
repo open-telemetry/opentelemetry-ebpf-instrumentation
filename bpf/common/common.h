@@ -178,7 +178,8 @@ typedef struct tcp_large_buffer {
     u32 len;
     connection_info_t conn_info;
     enum large_buf_kind kind;
-    u8 _pad[3];
+    u8 source;
+    u8 _pad[2];
     tp_info_t tp;
     u8 buf[];
 } tcp_large_buffer_t;

@@ -86,10 +86,20 @@ func HTTPRequestTraceToSpan(parseCtx *EBPFParseContext, trace *HTTPRequestTrace)
 		SubType:   subType,
 	}
 
-	// TODO(@skl): Implement HTTP response handling
 	if parseCtx != nil && parseCtx.httpEnricher != nil && span.Type == request.EventTypeHTTP {
-		if req, ok := parseRequestLargeBuffer(parseCtx, trace.Tp.TraceId, trace.Conn, false); ok {
-			parseCtx.httpEnricher.Enrich(&span, req, &http.Response{Header: http.Header{}})
+		if req, ok := parseGoRequestLargeBuffer(parseCtx, trace.Tp.TraceId, trace.Conn, false); ok {
+			resp := &http.Response{Header: http.Header{}}
+
+			b, ok := extractTCPLargeBuffer(parseCtx, trace.Tp.TraceId, packetTypeResponse, directionByPacketType(packetTypeResponse, false), trace.Conn, ProtocolTypeHTTP)
+			if ok {
+				var err error
+				resp, err = httpSafeParseResponse(b, req)
+				if err != nil {
+					slog.Debug("error while parsing http request or response, falling back to manual HTTP info parsing", "respErr", err)
+				}
+			}
+
+			parseCtx.httpEnricher.Enrich(&span, req, resp)
 		}
 	}
 

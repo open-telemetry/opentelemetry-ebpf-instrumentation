@@ -23,8 +23,6 @@
 #include <common/connection_info.h>
 #include <common/globals.h>
 #include <common/http_types.h>
-#include <common/large_buf_emit.h>
-#include <common/large_buffers.h>
 #include <common/protocol_defs.h>
 #include <common/ringbuf.h>
 #include <common/strings.h>
@@ -509,58 +507,6 @@ int obi_uprobe_readContinuedLineSliceReturns(struct pt_regs *ctx) {
     return 0;
 }
 
-static __always_inline void ship_server_request_body(const go_addr_key_t *g_key,
-                                                     const tp_info_t *tp,
-                                                     const connection_info_t *conn) {
-    if (http_max_captured_bytes == 0) {
-        return;
-    }
-
-    u64 *bufr_ptr = bpf_map_lookup_elem(&ongoing_server_bufr, g_key);
-    if (!bufr_ptr || !*bufr_ptr) {
-        return;
-    }
-    void *r = (void *)*bufr_ptr;
-
-    off_table_t *ot = get_offsets_table();
-
-    u64 blen = 0;
-    bpf_probe_read_user(
-        &blen, sizeof(blen), r + go_offset_of(ot, (go_offset){.v = _buf_reader_w_pos}));
-    if (blen == 0) {
-        return;
-    }
-
-    void *arr = 0;
-    bpf_probe_read_user(
-        &arr, sizeof(arr), r + go_offset_of(ot, (go_offset){.v = _buf_reader_buf_pos}));
-    if (!arr) {
-        return;
-    }
-
-    tcp_large_buffer_t *large_buf = (tcp_large_buffer_t *)tcp_large_buffers_mem();
-    if (!large_buf) {
-        return;
-    }
-
-    u32 cfg_max = http_max_captured_bytes;
-    bpf_clamp_umax(cfg_max, k_large_buf_max_http_captured_bytes);
-    u32 avail = min((u32)blen, cfg_max);
-    if (avail == 0) {
-        return;
-    }
-
-    large_buf->type = EVENT_TCP_LARGE_BUFFER;
-    large_buf->packet_type = PACKET_TYPE_REQUEST;
-    large_buf->direction = TCP_RECV;
-    large_buf->action = k_large_buf_action_init;
-    large_buf->kind = k_large_buf_layer_app;
-    large_buf->conn_info = *conn;
-    large_buf->tp = *tp;
-
-    large_buf_emit_chunks(large_buf, arr, avail, k_large_buf_read_user);
-}
-
 static __always_inline int serve_http_returns(struct pt_regs *ctx) {
     void *goroutine_addr = GOROUTINE_PTR(ctx);
     bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
@@ -606,8 +552,6 @@ static __always_inline int serve_http_returns(struct pt_regs *ctx) {
     }
     // Server connections have opposite order, source port is the server port
     swap_connection_info_order(&conn);
-
-    ship_server_request_body(&g_key, &invocation->tp, &conn);
 
     http_request_trace_t *trace = bpf_ringbuf_reserve(&events, sizeof(http_request_trace_t), 0);
     if (!trace) {

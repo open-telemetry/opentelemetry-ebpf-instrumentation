@@ -21,16 +21,45 @@ import (
 	"go.opentelemetry.io/obi/pkg/internal/largebuf"
 )
 
-func parseRequestLargeBuffer(
+const ephemeralPortMin = 32768
+
+func likelyEphemeralPort(port uint16) bool {
+	return port >= ephemeralPortMin
+}
+
+func swapConnectionInfoOrder(info *BpfConnectionInfoT) {
+	info.S_port, info.D_port = info.D_port, info.S_port
+	info.S_addr, info.D_addr = info.D_addr, info.S_addr
+}
+
+func sortConnectionInfo(info *BpfConnectionInfoT) {
+	if likelyEphemeralPort(info.S_port) && !likelyEphemeralPort(info.D_port) {
+		return
+	}
+
+	if (likelyEphemeralPort(info.D_port) && !likelyEphemeralPort(info.S_port)) ||
+		info.D_port > info.S_port {
+		swapConnectionInfoOrder(info)
+	}
+}
+
+func parseGoRequestLargeBuffer(
 	parseCtx *EBPFParseContext,
 	traceID [16]uint8,
 	conn BpfConnectionInfoT,
 	isClient bool,
 ) (*http.Request, bool) {
+	sortConnectionInfo(&conn)
+
 	buffer, ok := extractTCPLargeBuffer(parseCtx, traceID, packetTypeRequest,
 		directionByPacketType(packetTypeRequest, isClient), conn, ProtocolTypeHTTP)
 	if !ok {
-		return nil, false
+		empty_trace_id := [16]uint8{}
+		buffer, ok = extractTCPLargeBuffer(parseCtx, empty_trace_id, packetTypeRequest,
+			directionByPacketType(packetTypeRequest, isClient), conn, ProtocolTypeHTTP)
+		if !ok {
+			return nil, false
+		}
 	}
 
 	reqReader := buffer.NewReader()

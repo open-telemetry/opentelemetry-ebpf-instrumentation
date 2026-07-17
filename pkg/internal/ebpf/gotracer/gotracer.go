@@ -636,7 +636,9 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 		// Go net/http
 		"net/http.serverHandler.ServeHTTP": {{
 			Start: p.bpfObjects.ObiUprobeServeHTTP,
-			End:   p.bpfObjects.ObiUprobeServeHTTPReturns,
+		}},
+		"net/http.(*response).finishRequest": {{
+			End: p.bpfObjects.ObiUprobeServeHTTPReturns,
 		}},
 		"net/http.(*conn).readRequest": {{
 			Start: p.bpfObjects.ObiUprobeReadRequestStart,
