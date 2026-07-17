@@ -8,7 +8,31 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"go.yaml.in/yaml/v3"
+
+	otelconfx "go.opentelemetry.io/contrib/otelconf/x"
 )
+
+func TestDocumentMarshalYAMLOmitsNullAdditionalProperties(t *testing.T) {
+	t.Parallel()
+
+	doc := Document{
+		OpenTelemetryConfiguration: otelconfx.OpenTelemetryConfiguration{
+			FileFormat: "1.0",
+			MeterProvider: &otelconfx.MeterProvider{
+				Readers: []otelconfx.MetricReader{{
+					Periodic: &otelconfx.PeriodicMetricReader{
+						Exporter: otelconfx.PushMetricExporter{},
+					},
+				}},
+			},
+		},
+	}
+
+	data, err := yaml.Marshal(doc)
+	require.NoError(t, err)
+	require.NotContains(t, string(data), "additionalproperties")
+}
 
 func TestParseStandaloneYAMLDocument(t *testing.T) {
 	t.Parallel()
@@ -39,7 +63,8 @@ meter_provider:
             tls:
               insecure: true
 instrumentation/development:
-  ignored: true
+  go:
+    go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp: {}
 extensions:
   obi:
     version: "2.0"
@@ -105,6 +130,150 @@ extensions:
 	require.Equal(t, AttributeFilter{Match: "5*"}, cfg.Capture.Rules[0].Refine.HTTP.Filters.Traces["status_code"])
 }
 
+func TestParseStandaloneYAMLRejectsUnknownOpenTelemetryFields(t *testing.T) {
+	t.Parallel()
+
+	_, _, err := ParseStandaloneYAML([]byte(`
+file_format: "1.0"
+tracer_provider:
+  typoo: true
+extensions:
+  obi:
+    version: "2.0"
+`))
+
+	require.ErrorContains(t, err, "field tracer_provider.typoo not found")
+}
+
+func TestParseStandaloneYAMLAcceptsPublishedExtensionFields(t *testing.T) {
+	t.Parallel()
+
+	_, cfg, err := ParseStandaloneYAML([]byte(`
+file_format: "1.0"
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      runtimes:
+        go:
+          filter: {}
+        nodejs:
+          filter: {}
+        java:
+          filter: {}
+    enrich:
+      enrichers:
+        dns:
+          enabled: true
+      service_name:
+        rules:
+          - id: k8s-default
+            from: kubernetes
+            description: Default Kubernetes mapping.
+            map:
+              service.name: [app.kubernetes.io/name]
+      attributes:
+        rules:
+          - id: k8s-default-attributes
+            from: kubernetes
+            description: Default Kubernetes attributes.
+            add:
+              map:
+                k8s.pod.name: [kubernetes.pod.name]
+    correlation:
+      log_trace_annotation:
+        filter: {}
+`))
+
+	require.NoError(t, err)
+	require.NotNil(t, cfg)
+	require.NotNil(t, cfg.Capture.Runtimes.Go.Filter)
+	require.NotNil(t, cfg.Capture.Runtimes.NodeJS.Filter)
+	require.NotNil(t, cfg.Capture.Runtimes.Java.Filter)
+	require.Contains(t, cfg.Enrich.Enrichers.AdditionalProperties, "dns")
+	require.Contains(t, cfg.Enrich.ServiceName.AdditionalProperties, "rules")
+	require.Contains(t, cfg.Enrich.Attributes.AdditionalProperties, "rules")
+	require.NotNil(t, cfg.Correlation.LogTraceAnnotation.Filter)
+}
+
+func TestParseStandaloneYAMLRecordsOpenTelemetryExtensionFields(t *testing.T) {
+	t.Parallel()
+
+	doc, _, err := ParseStandaloneYAML([]byte(`
+file_format: "1.0"
+vendor_extension:
+  enabled: true
+tracer_provider:
+  sampler:
+    vendor_sampler: {}
+meter_provider:
+  readers:
+    - periodic:
+        exporter:
+          console: {}
+        producers:
+          - prometheus: {}
+extensions:
+  obi:
+    version: "2.0"
+`))
+
+	require.NoError(t, err)
+	require.Equal(t, []string{
+		"vendor_extension",
+		"tracer_provider.sampler.vendor_sampler",
+		"meter_provider.readers[0].periodic.producers[0].prometheus",
+	}, doc.OpenTelemetryExtensionFields())
+}
+
+func TestParsersRejectMultipleYAMLDocuments(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		yaml  string
+		parse func([]byte) error
+	}{
+		{
+			name: "standalone",
+			yaml: `
+file_format: "1.0"
+extensions:
+  obi:
+    version: "2.0"
+---
+file_format: "1.0"
+extensions:
+  obi:
+    version: "3.0"
+`,
+			parse: func(data []byte) error {
+				_, _, err := ParseStandaloneYAML(data)
+				return err
+			},
+		},
+		{
+			name: "receiver",
+			yaml: `
+version: "2.0"
+---
+version: "3.0"
+`,
+			parse: func(data []byte) error {
+				_, err := ParseReceiverYAML(data)
+				return err
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := test.parse([]byte(test.yaml))
+			require.ErrorContains(t, err, "must contain exactly one document")
+		})
+	}
+}
+
 func TestParseStandaloneYAMLRejectsDaemonLoggingLevel(t *testing.T) {
 	t.Parallel()
 
@@ -153,6 +322,53 @@ channels:
 	require.Equal(t, 123, cfg.Capture.Channels.BufferLen)
 	require.True(t, cfg.Capture.Instrumentation.HTTP.Enabled.Traces)
 	require.False(t, cfg.Capture.Instrumentation.HTTP.Enabled.Metrics)
+}
+
+func TestParsersRejectUnknownOBIFields(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		yaml  string
+		parse func([]byte) error
+	}{
+		{
+			name: "standalone",
+			yaml: `
+file_format: "1.0"
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      unknown_field: true
+`,
+			parse: func(data []byte) error {
+				_, _, err := ParseStandaloneYAML(data)
+				return err
+			},
+		},
+		{
+			name: "receiver",
+			yaml: `
+version: "2.0"
+unknown_field: true
+`,
+			parse: func(data []byte) error {
+				_, err := ParseReceiverYAML(data)
+				return err
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := test.parse([]byte(test.yaml))
+
+			require.ErrorContains(t, err, "field unknown_field not found")
+		})
+	}
 }
 
 func TestParseReceiverRejectsInvalidTypedEnum(t *testing.T) {
