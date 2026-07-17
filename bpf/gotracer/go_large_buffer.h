@@ -54,9 +54,9 @@ static __always_inline u8 go_is_http(const unsigned char *buf, u32 len) {
     //HTTP/1.x
     if ((p[0] == 'H') && (p[1] == 'T') && (p[2] == 'T') && (p[3] == 'P') && (p[4] == '/') &&
         (p[5] == '1') && (p[6] == '.')) {
-        return k_http_request;
-    } else if (is_http_request_buf(p)) {
         return k_http_response;
+    } else if (is_http_request_buf(p)) {
+        return k_http_request;
     }
 
     return k_http_not;
@@ -97,6 +97,8 @@ static __always_inline void ship_large_request(void *buf,
             packet_type = PACKET_TYPE_RESPONSE;
         }
     }
+
+    bpf_d_printk("event_type %d, packet_type %d, is_http %d", event_type, packet_type, is_http);
 
     large_buf->type = EVENT_TCP_LARGE_BUFFER;
     large_buf->packet_type = packet_type;
@@ -140,8 +142,6 @@ static __always_inline void send_http_large_buffers_if_needed(
     if (!conn) {
         conn = bpf_map_lookup_elem(&ongoing_client_connections, &g_key);
     }
-
-    bpf_d_printk("conn %llx", conn);
 
     if (conn) {
         u8 event_type = k_lb_event_type_unknown;

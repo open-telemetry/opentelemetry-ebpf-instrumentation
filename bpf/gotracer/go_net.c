@@ -65,7 +65,6 @@ int obi_uprobe_netFdRead(struct pt_regs *ctx) {
     connection_info_t *conn = already_handled_goroutine(&g_key, fd_ptr);
     if (conn) {
         if (!http_large_buffers_enabled()) {
-            bpf_dbg_printk("no large buffers");
             return 0;
         }
 
@@ -122,7 +121,6 @@ int obi_continue_netfd_read(struct pt_regs *ctx) {
     if (already_handled_request_sorted(&p_conn.conn)) {
         cleanup_duplicate_generic_events_sorted(&p_conn);
         if (!http_large_buffers_enabled()) {
-            bpf_dbg_printk("no large buffers");
             return 0;
         }
         // mark the event as skipped, rather than returning 0 here,
@@ -146,14 +144,9 @@ int obi_uprobe_netFdReadRet(struct pt_regs *ctx) {
     s64 len = (s64)GO_PARAM1(ctx);
 
     net_args_t *net_ptr = bpf_map_lookup_elem(&ongoing_fd_reads, &g_key);
-    bpf_d_printk("net_ptr %llx", net_ptr);
 
-    if (net_ptr) {
-        bpf_d_printk("net_ptr->byte_ptr %llx skip %d", net_ptr->byte_ptr, net_ptr->skip);
-    }
     if (!net_ptr || !net_ptr->byte_ptr || net_ptr->skip) {
         if (http_large_buffer_skip(len)) {
-            bpf_dbg_printk("skip large buffers %d", len);
             return 0;
         } else if (net_ptr && net_ptr->byte_ptr) {
             send_http_large_buffers_if_needed(
@@ -234,7 +227,6 @@ int obi_uprobe_netFdWrite(struct pt_regs *ctx) {
             cleanup_duplicate_generic_events_sorted(&p_conn);
 
             if (http_large_buffer_skip(len)) {
-                bpf_dbg_printk("skip large buffers %d", len);
                 return 0;
             } else {
                 send_http_large_buffers_if_needed(&p_conn.conn, &g_key, (void *)buf, len, TCP_SEND);
