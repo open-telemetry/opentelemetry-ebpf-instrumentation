@@ -19,7 +19,6 @@ import (
 
 	"go.opentelemetry.io/obi/internal/config/convert"
 	"go.opentelemetry.io/obi/internal/config/schema"
-	"go.opentelemetry.io/obi/pkg/appolly/services"
 	obiconfig "go.opentelemetry.io/obi/pkg/config"
 	featureexport "go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/obi"
@@ -108,16 +107,16 @@ func validateConfig(data []byte, mode validationMode) error {
 	data = obiconfig.ReplaceEnv(data)
 
 	var cfg *obi.Config
-	var ext *schema.Extension
 	var err error
 	switch mode {
 	case validationModeStandalone:
 		var doc *schema.Document
-		doc, ext, err = schema.ParseStandaloneYAML(data)
+		doc, _, err = schema.ParseStandaloneYAML(data)
 		if err == nil {
 			cfg, err = convert.DocumentToRuntime(doc)
 		}
 	case validationModeReceiver:
+		var ext *schema.Extension
 		ext, err = schema.ParseReceiverYAML(data)
 		if err == nil {
 			cfg, err = convert.V2ToRuntime(ext)
@@ -128,7 +127,6 @@ func validateConfig(data []byte, mode validationMode) error {
 	if err != nil {
 		return err
 	}
-	enableDefaultCaptureForValidation(cfg, ext)
 	if mode == validationModeReceiver {
 		err = cfg.ValidateStaticForReceiver()
 	} else {
@@ -138,16 +136,6 @@ func validateConfig(data []byte, mode validationMode) error {
 		return fmt.Errorf("runtime configuration: %w", err)
 	}
 	return nil
-}
-
-func enableDefaultCaptureForValidation(cfg *obi.Config, ext *schema.Extension) {
-	if ext.Capture.Policy.DefaultAction != schema.CaptureActionInclude || cfg.Enabled(obi.FeatureAppO11y) {
-		return
-	}
-
-	cfg.Discovery.Instrument = services.GlobDefinitionCriteria{
-		{Path: services.NewGlob("*")},
-	}
 }
 
 func runMigrate(args []string, stdout, stderr io.Writer) int {
@@ -206,7 +194,10 @@ func migrateConfig(data []byte) ([]byte, string, error) {
 		return nil, "", fmt.Errorf("v1 runtime configuration: %w", err)
 	}
 
-	doc, _ := convert.RuntimeToV2(cfg)
+	doc, ext := convert.RuntimeToV2(cfg)
+	if !cfg.Enabled(obi.FeatureAppO11y) {
+		ext.Capture.Policy.DefaultAction = schema.CaptureActionExclude
+	}
 	output, err := yaml.Marshal(doc)
 	if err != nil {
 		return nil, "", fmt.Errorf("encode config v2 YAML: %w", err)

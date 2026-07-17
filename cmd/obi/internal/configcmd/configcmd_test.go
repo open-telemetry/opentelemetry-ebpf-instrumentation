@@ -15,6 +15,7 @@ import (
 	"go.opentelemetry.io/obi/internal/config/convert"
 	"go.opentelemetry.io/obi/internal/config/schema"
 	obiconfig "go.opentelemetry.io/obi/pkg/config"
+	"go.opentelemetry.io/obi/pkg/obi"
 )
 
 const validStandaloneV2 = `
@@ -260,6 +261,26 @@ func TestMigrateConfigPreservesEscapedEnvironmentVariable(t *testing.T) {
 	runtimeConfig, err := convert.DocumentToRuntime(doc)
 	require.NoError(t, err)
 	require.Equal(t, "${MIGRATION_LITERAL}", runtimeConfig.Attributes.Kubernetes.ClusterName)
+}
+
+func TestMigrateConfigPreservesDisabledApplicationCapture(t *testing.T) {
+	output, _, err := migrateConfig([]byte(`
+network:
+  enable: true
+  print_flows: true
+metrics:
+  features: [network]
+`))
+	require.NoError(t, err)
+
+	doc, ext, err := schema.ParseStandaloneYAML(output)
+	require.NoError(t, err)
+	require.Equal(t, schema.CaptureActionExclude, ext.Capture.Policy.DefaultAction)
+
+	runtimeConfig, err := convert.DocumentToRuntime(doc)
+	require.NoError(t, err)
+	require.False(t, runtimeConfig.Enabled(obi.FeatureAppO11y))
+	require.True(t, runtimeConfig.Enabled(obi.FeatureNetO11y))
 }
 
 func TestRunMigrateRejectsUnsupportedInput(t *testing.T) {
