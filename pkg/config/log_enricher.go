@@ -71,7 +71,7 @@ func (p LogEnricherConfig) Validate() error {
 
 func validateLogEnricherFieldName(field, value string) error {
 	if value == "" {
-		return fmt.Errorf("log_enricher field name %s must not be empty", field)
+		return fmt.Errorf("log_enricher field name %q must not be empty", field)
 	}
 
 	for _, r := range value {
