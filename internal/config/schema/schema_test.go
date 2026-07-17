@@ -324,6 +324,24 @@ extensions:
 	require.NotNil(t, cfg)
 }
 
+func TestParseStandaloneYAMLResolvesExternalAlias(t *testing.T) {
+	t.Parallel()
+
+	_, cfg, err := ParseStandaloneYAML([]byte(`
+file_format: "1.0"
+channel_defaults: &channel_defaults
+  buffer_len: 123
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      channels: *channel_defaults
+`))
+
+	require.NoError(t, err)
+	require.Equal(t, 123, cfg.Capture.Channels.BufferLen)
+}
+
 func TestParseStandaloneYAMLAllowsExtensibleFields(t *testing.T) {
 	t.Parallel()
 

@@ -549,8 +549,13 @@ func decode(node *yaml.Node, dst any) error {
 }
 
 func decodeKnownFields(node *yaml.Node, dst any) error {
+	resolved, err := cloneYAMLNodeWithoutAliases(node, map[*yaml.Node]bool{})
+	if err != nil {
+		return fmt.Errorf("resolving config v2 YAML aliases: %w", err)
+	}
+
 	var data bytes.Buffer
-	if err := yaml.NewEncoder(&data).Encode(node); err != nil {
+	if err := yaml.NewEncoder(&data).Encode(resolved); err != nil {
 		return fmt.Errorf("encoding config v2 YAML: %w", err)
 	}
 
@@ -560,6 +565,38 @@ func decodeKnownFields(node *yaml.Node, dst any) error {
 		return fmt.Errorf("decoding config v2 YAML: %w", err)
 	}
 	return nil
+}
+
+func cloneYAMLNodeWithoutAliases(node *yaml.Node, visiting map[*yaml.Node]bool) (*yaml.Node, error) {
+	if node == nil {
+		return nil, nil
+	}
+	if visiting[node] {
+		return nil, fmt.Errorf("cyclic alias %q", node.Value)
+	}
+
+	visiting[node] = true
+	defer delete(visiting, node)
+
+	if node.Kind == yaml.AliasNode {
+		if node.Alias == nil {
+			return nil, fmt.Errorf("unresolved alias %q", node.Value)
+		}
+		return cloneYAMLNodeWithoutAliases(node.Alias, visiting)
+	}
+
+	cloned := *node
+	cloned.Anchor = ""
+	cloned.Alias = nil
+	cloned.Content = make([]*yaml.Node, len(node.Content))
+	for i, child := range node.Content {
+		var err error
+		cloned.Content[i], err = cloneYAMLNodeWithoutAliases(child, visiting)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &cloned, nil
 }
 
 func decodeExtension(node *yaml.Node) (*Extension, error) {
