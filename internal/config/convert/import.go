@@ -122,7 +122,7 @@ func runtimeConfigDefaults() obi.Config {
 
 func applyV2Capture(cfg *obi.Config, src *schema.Extension, policy schema.CapturePolicy, complete bool) {
 	applyV2Policy(cfg, policy, complete || completePolicy(policy))
-	applyV2Rules(cfg, src.Capture.Rules, policy.DefaultAction)
+	applyV2Rules(cfg, src.Capture.Rules, policy)
 	applyV2Limits(cfg, src.Capture.Limits, complete || completeLimits(src.Capture.Limits))
 	applyV2Safety(cfg, src.Capture.Safety, complete || !zeroValue(src.Capture.Safety))
 	applyV2Channels(cfg, src.Capture.Channels, complete || completeChannels(src.Capture.Channels))
@@ -162,13 +162,13 @@ type runtimeDiscoveryRules struct {
 	defaultOTLPGRPCPort             int
 }
 
-func applyV2Rules(cfg *obi.Config, rules []schema.Rule, defaultAction schema.CaptureAction) {
+func applyV2Rules(cfg *obi.Config, rules []schema.Rule, policy schema.CapturePolicy) {
 	if rules == nil {
 		return
 	}
 
-	converted := runtimeDiscoveryRulesFromV2(rules)
-	if defaultAction == schema.CaptureActionInclude {
+	converted := runtimeDiscoveryRulesFromV2(rules, policy.MatchOrder)
+	if policy.DefaultAction == schema.CaptureActionInclude {
 		addDefaultIncludeSelector(&converted)
 	}
 	applyRuntimeDiscoveryRules(cfg, converted)
@@ -187,13 +187,14 @@ func addDefaultIncludeSelector(rules *runtimeDiscoveryRules) {
 	})
 }
 
-func runtimeDiscoveryRulesFromV2(rules []schema.Rule) runtimeDiscoveryRules {
+func runtimeDiscoveryRulesFromV2(rules []schema.Rule, matchOrder schema.MatchOrder) runtimeDiscoveryRules {
 	var converted runtimeDiscoveryRules
+	completeExports, completeRoutes := completeV2RuleRefinements(rules)
 	for _, rule := range rules {
 		if collectV2ExportsOTLPExclusionRule(&converted, rule) {
 			continue
 		}
-		globSelector, regexSelector, ok := selectorFromRule(rule)
+		globSelector, regexSelector, ok := selectorFromRule(rule, completeExports, completeRoutes)
 		if !ok {
 			continue
 		}
@@ -213,7 +214,27 @@ func runtimeDiscoveryRulesFromV2(rules []schema.Rule) runtimeDiscoveryRules {
 			}
 		}
 	}
+	if matchOrder == schema.MatchOrderFirstMatchWins {
+		slices.Reverse(converted.includeGlobs)
+		slices.Reverse(converted.includeRegex)
+	}
 	return converted
+}
+
+func completeV2RuleRefinements(rules []schema.Rule) (exports, routes bool) {
+	includeRules := 0
+	for _, rule := range rules {
+		if rule.Action != schema.CaptureActionInclude {
+			continue
+		}
+		includeRules++
+		exports = exports || rule.Refine.Exports != nil
+		routes = routes || rule.Refine.HTTP != nil && !zeroValue(rule.Refine.HTTP.Routes)
+	}
+	if includeRules < 2 {
+		return false, false
+	}
+	return exports, routes
 }
 
 func applyRuntimeDiscoveryRules(cfg *obi.Config, rules runtimeDiscoveryRules) {
@@ -312,6 +333,9 @@ func validateV2CaptureRules(policy schema.CapturePolicy, rules []schema.Rule) er
 			}
 			if exportsOTLP.Protocol != "protobuf" {
 				return fmt.Errorf("%s.match.process.exports_otlp.protocol: unsupported value %q", path, exportsOTLP.Protocol)
+			}
+			if exportsOTLP.Port < 1 || exportsOTLP.Port > 65535 {
+				return fmt.Errorf("%s.match.process.exports_otlp.port: must be between 1 and 65535", path)
 			}
 		} else {
 			glob := ruleUsesGlob(rule.Match)
@@ -562,7 +586,11 @@ func validateRegexpAttrMap(path string, values map[string]string) error {
 	return nil
 }
 
-func selectorFromRule(rule schema.Rule) (*services.GlobAttributes, *services.RegexSelector, bool) {
+func selectorFromRule(
+	rule schema.Rule,
+	completeExports bool,
+	completeRoutes bool,
+) (*services.GlobAttributes, *services.RegexSelector, bool) {
 	if rule.Match.Process.ExportsOTLP != nil || ruleMatchEmpty(rule.Match) {
 		return nil, nil, false
 	}
@@ -572,12 +600,12 @@ func selectorFromRule(rule schema.Rule) (*services.GlobAttributes, *services.Reg
 			return nil, nil, false
 		}
 		selector := regexSelectorFromRule(rule)
-		applyV2RegexRuleRefinement(&selector, rule.Refine)
+		applyV2RegexRuleRefinement(&selector, rule.Refine, completeExports, completeRoutes)
 		return nil, &selector, true
 	}
 
 	selector := globSelectorFromRule(rule)
-	applyV2GlobRuleRefinement(&selector, rule.Refine)
+	applyV2GlobRuleRefinement(&selector, rule.Refine, completeExports, completeRoutes)
 	return &selector, nil, true
 }
 
@@ -639,28 +667,54 @@ func regexSelectorFromRule(rule schema.Rule) services.RegexSelector {
 	}
 }
 
-func applyV2GlobRuleRefinement(selector *services.GlobAttributes, refine schema.RuleRefinement) {
+func applyV2GlobRuleRefinement(
+	selector *services.GlobAttributes,
+	refine schema.RuleRefinement,
+	completeExports bool,
+	completeRoutes bool,
+) {
 	if refine.Exports != nil {
 		selector.ExportModes = exportModesFromRefinement(*refine.Exports)
+	} else if completeExports {
+		selector.ExportModes = explicitAllowAllExportModes()
 	}
 	if refine.HTTP != nil && !zeroValue(refine.HTTP.Routes) {
 		selector.Routes = &services.CustomRoutesConfig{
 			Incoming: cloneStrings(refine.HTTP.Routes.Incoming.Patterns),
 			Outgoing: cloneStrings(refine.HTTP.Routes.Outgoing.Patterns),
 		}
+	} else if completeRoutes {
+		selector.Routes = &services.CustomRoutesConfig{}
 	}
 }
 
-func applyV2RegexRuleRefinement(selector *services.RegexSelector, refine schema.RuleRefinement) {
+func applyV2RegexRuleRefinement(
+	selector *services.RegexSelector,
+	refine schema.RuleRefinement,
+	completeExports bool,
+	completeRoutes bool,
+) {
 	if refine.Exports != nil {
 		selector.ExportModes = exportModesFromRefinement(*refine.Exports)
+	} else if completeExports {
+		selector.ExportModes = explicitAllowAllExportModes()
 	}
 	if refine.HTTP != nil && !zeroValue(refine.HTTP.Routes) {
 		selector.Routes = &services.CustomRoutesConfig{
 			Incoming: cloneStrings(refine.HTTP.Routes.Incoming.Patterns),
 			Outgoing: cloneStrings(refine.HTTP.Routes.Outgoing.Patterns),
 		}
+	} else if completeRoutes {
+		selector.Routes = &services.CustomRoutesConfig{}
 	}
+}
+
+func explicitAllowAllExportModes() services.ExportModes {
+	modes := services.NewExportModes()
+	modes.AllowTraces()
+	modes.AllowMetrics()
+	modes.AllowLogs()
+	return modes
 }
 
 func exportModesFromRefinement(refine schema.ExportModeRefinement) services.ExportModes {

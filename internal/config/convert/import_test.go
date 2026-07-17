@@ -523,6 +523,118 @@ func TestV2ToRuntimeSupportsLastMatchExclusionPrecedence(t *testing.T) {
 	require.Len(t, got.Discovery.ExcludeInstrument, 1)
 }
 
+func TestV2ToRuntimePreservesFirstMatchRefinement(t *testing.T) {
+	t.Parallel()
+
+	got, err := V2ToRuntime(&schema.Extension{
+		Version: schema.SupportedVersion,
+		Capture: schema.Capture{
+			Policy: schema.CapturePolicy{
+				DefaultAction: schema.CaptureActionExclude,
+				MatchOrder:    schema.MatchOrderFirstMatchWins,
+			},
+			Rules: []schema.Rule{
+				{
+					Action: schema.CaptureActionInclude,
+					Match: schema.RuleMatch{Process: schema.RuleProcessMatch{
+						ExePathGlob: []string{"/srv/*"},
+					}},
+					Refine: schema.RuleRefinement{
+						Exports: &schema.ExportModeRefinement{Traces: true},
+						HTTP: &schema.HTTPRefinement{Routes: schema.HTTPRefinementRoutes{
+							Incoming: schema.HTTPRefinementRoute{Patterns: []string{"/first"}},
+						}},
+					},
+				},
+				{
+					Action: schema.CaptureActionInclude,
+					Match: schema.RuleMatch{Process: schema.RuleProcessMatch{
+						ExePathGlob: []string{"*"},
+					}},
+					Refine: schema.RuleRefinement{
+						Exports: &schema.ExportModeRefinement{Metrics: true},
+						HTTP: &schema.HTTPRefinement{Routes: schema.HTTPRefinementRoutes{
+							Incoming: schema.HTTPRefinementRoute{Patterns: []string{"/second"}},
+						}},
+					},
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, got.Discovery.Instrument, 2)
+
+	require.Equal(t, "*", globString(got.Discovery.Instrument[0].Path))
+	require.True(t, got.Discovery.Instrument[0].ExportModes.CanExportMetrics())
+	require.Equal(t, []string{"/second"}, got.Discovery.Instrument[0].Routes.Incoming)
+	require.Equal(t, "/srv/*", globString(got.Discovery.Instrument[1].Path))
+	require.True(t, got.Discovery.Instrument[1].ExportModes.CanExportTraces())
+	require.Equal(t, []string{"/first"}, got.Discovery.Instrument[1].Routes.Incoming)
+}
+
+func TestV2ToRuntimeResetsLastMatchRefinement(t *testing.T) {
+	t.Parallel()
+
+	got, err := V2ToRuntime(&schema.Extension{
+		Version: schema.SupportedVersion,
+		Capture: schema.Capture{
+			Policy: schema.CapturePolicy{
+				DefaultAction: schema.CaptureActionExclude,
+				MatchOrder:    schema.MatchOrderLastMatchWins,
+			},
+			Rules: []schema.Rule{
+				{
+					Action: schema.CaptureActionInclude,
+					Match: schema.RuleMatch{Process: schema.RuleProcessMatch{
+						ExePathGlob: []string{"*"},
+					}},
+					Refine: schema.RuleRefinement{
+						Exports: &schema.ExportModeRefinement{Traces: true},
+						HTTP: &schema.HTTPRefinement{Routes: schema.HTTPRefinementRoutes{
+							Incoming: schema.HTTPRefinementRoute{Patterns: []string{"/first"}},
+						}},
+					},
+				},
+				{
+					Action: schema.CaptureActionInclude,
+					Match: schema.RuleMatch{Process: schema.RuleProcessMatch{
+						ExePathGlob: []string{"/srv/*"},
+					}},
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, got.Discovery.Instrument, 2)
+
+	reset := got.Discovery.Instrument[1]
+	require.Equal(t, "/srv/*", globString(reset.Path))
+	require.NotEqual(t, services.ExportModeUnset, reset.ExportModes)
+	require.True(t, reset.ExportModes.CanExportTraces())
+	require.True(t, reset.ExportModes.CanExportMetrics())
+	require.True(t, reset.ExportModes.CanExportLogs())
+	require.NotNil(t, reset.Routes)
+	require.Empty(t, reset.Routes.Incoming)
+	require.Empty(t, reset.Routes.Outgoing)
+}
+
+func TestV2ToRuntimeRejectsInvalidExportsOTLPPort(t *testing.T) {
+	t.Parallel()
+
+	for _, port := range []int{0, 65536} {
+		_, err := V2ToRuntime(&schema.Extension{
+			Version: schema.SupportedVersion,
+			Capture: schema.Capture{Rules: []schema.Rule{{
+				Action: schema.CaptureActionExclude,
+				Match: schema.RuleMatch{Process: schema.RuleProcessMatch{
+					ExportsOTLP: &schema.RuleExportsOTLP{Port: port, Protocol: "protobuf"},
+				}},
+			}}},
+		})
+		require.ErrorContains(t, err, "capture.rules[0].match.process.exports_otlp.port")
+	}
+}
+
 func TestV2ToRuntimeRejectsLossyRuleSemantics(t *testing.T) {
 	t.Parallel()
 
