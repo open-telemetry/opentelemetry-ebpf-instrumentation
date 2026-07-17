@@ -27,6 +27,8 @@ extensions:
   obi:
     version: "2.0"
     capture:
+      policy:
+        default_action: exclude
       rules:
         - action: include
           match:

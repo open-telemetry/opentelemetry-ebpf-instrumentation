@@ -37,9 +37,6 @@ func V2ToRuntime(src *schema.Extension) (*obi.Config, error) {
 	if err := schema.ValidateStandalone(src); err != nil {
 		return nil, err
 	}
-	if err := validateUnsupportedV2Filters(src); err != nil {
-		return nil, err
-	}
 	_, defaults := RuntimeToV2(nil)
 	var complete bool
 	var err error
@@ -47,13 +44,11 @@ func V2ToRuntime(src *schema.Extension) (*obi.Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("applying config v2 defaults: %w", err)
 	}
-	if err := validateV2MatchOrder(src.Capture.Policy.MatchOrder, src.Capture.Rules); err != nil {
+	policy := effectiveV2CapturePolicy(src.Capture.Policy, src.Capture.Rules, complete)
+	if err := validateV2CaptureRules(policy, src.Capture.Rules); err != nil {
 		return nil, err
 	}
 	if err := validateV2RulePatterns(src.Capture.Rules); err != nil {
-		return nil, err
-	}
-	if err := validateV2RuleSelectorFamilies(src.Capture.Rules); err != nil {
 		return nil, err
 	}
 	if err := validateV2HTTPFilters(src.Capture.Instrumentation.HTTP.Filters); err != nil {
@@ -67,7 +62,7 @@ func V2ToRuntime(src *schema.Extension) (*obi.Config, error) {
 	}
 
 	cfg := runtimeConfigDefaults()
-	applyV2Capture(&cfg, src, complete)
+	applyV2Capture(&cfg, src, policy, complete)
 	applyV2Standalone(&cfg, src, complete)
 	applyV2MetricsEnablement(&cfg, src, complete)
 	cfg.Attributes.Select.Normalize()
@@ -125,6 +120,20 @@ func rejectUnsupportedProperties(path string, properties map[string]any) error {
 	slices.Sort(keys)
 	return fmt.Errorf("%s.%s is not supported", path, keys[0])
 }
+
+func rejectAdditionalProperties(path string, values map[string]any) error {
+	if len(values) == 0 {
+		return nil
+	}
+
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	slices.Sort(keys)
+	return fmt.Errorf("%s.%s is not supported by the runtime converter", path, keys[0])
+}
+
 func runtimeConfigDefaults() obi.Config {
 	cfg := obi.DefaultConfig
 	if cfg.Routes != nil {
@@ -138,9 +147,9 @@ func runtimeConfigDefaults() obi.Config {
 	return cfg
 }
 
-func applyV2Capture(cfg *obi.Config, src *schema.Extension, complete bool) {
-	applyV2Policy(cfg, src.Capture.Policy, complete || completePolicy(src.Capture.Policy))
-	applyV2Rules(cfg, src.Capture.Rules, src.Capture.Policy.DefaultAction)
+func applyV2Capture(cfg *obi.Config, src *schema.Extension, policy schema.CapturePolicy, complete bool) {
+	applyV2Policy(cfg, policy, complete || completePolicy(policy))
+	applyV2Rules(cfg, src.Capture.Rules, policy.DefaultAction)
 	applyV2Limits(cfg, src.Capture.Limits, complete || completeLimits(src.Capture.Limits))
 	applyV2Safety(cfg, src.Capture.Safety, complete || !zeroValue(src.Capture.Safety))
 	applyV2Channels(cfg, src.Capture.Channels, complete || completeChannels(src.Capture.Channels))
@@ -181,29 +190,28 @@ type runtimeDiscoveryRules struct {
 }
 
 func applyV2Rules(cfg *obi.Config, rules []schema.Rule, defaultAction schema.CaptureAction) {
-	includeByDefault := defaultAction != schema.CaptureActionExclude
 	if rules == nil {
-		if includeByDefault {
-			cfg.Discovery.Instrument = services.GlobDefinitionCriteria{
-				{Path: services.NewGlob("*")},
-			}
-		}
 		return
 	}
 
 	converted := runtimeDiscoveryRulesFromV2(rules)
-	if includeByDefault {
-		if len(converted.includeRegex) > 0 || len(converted.excludeRegex) > 0 {
-			converted.includeRegex = append(converted.includeRegex, services.RegexSelector{
-				Path: services.NewRegexp(".*"),
-			})
-		} else {
-			converted.includeGlobs = append(converted.includeGlobs, services.GlobAttributes{
-				Path: services.NewGlob("*"),
-			})
-		}
+	if defaultAction == schema.CaptureActionInclude {
+		addDefaultIncludeSelector(&converted)
 	}
 	applyRuntimeDiscoveryRules(cfg, converted)
+}
+
+func addDefaultIncludeSelector(rules *runtimeDiscoveryRules) {
+	if len(rules.includeRegex) > 0 || len(rules.excludeRegex) > 0 {
+		rules.includeRegex = append(rules.includeRegex, services.RegexSelector{
+			Path: services.NewRegexp(".*"),
+		})
+		return
+	}
+
+	rules.includeGlobs = append(rules.includeGlobs, services.GlobAttributes{
+		Path: services.NewGlob("*"),
+	})
 }
 
 func runtimeDiscoveryRulesFromV2(rules []schema.Rule) runtimeDiscoveryRules {
@@ -260,6 +268,109 @@ func collectV2ExportsOTLPExclusionRule(rules *runtimeDiscoveryRules, rule schema
 	rules.excludeOTelInstrumentedServices = true
 	rules.defaultOTLPGRPCPort = rule.Match.Process.ExportsOTLP.Port
 	return true
+}
+
+func effectiveV2CapturePolicy(
+	policy schema.CapturePolicy,
+	rules []schema.Rule,
+	complete bool,
+) schema.CapturePolicy {
+	if policy.DefaultAction == "" && !complete {
+		policy.DefaultAction = schema.CaptureActionInclude
+		for _, rule := range rules {
+			if rule.Action == schema.CaptureActionInclude {
+				policy.DefaultAction = schema.CaptureActionExclude
+				break
+			}
+		}
+	}
+	if policy.MatchOrder == "" && !complete {
+		policy.MatchOrder = schema.MatchOrderFirstMatchWins
+	}
+	return policy
+}
+
+func validateV2CaptureRules(policy schema.CapturePolicy, rules []schema.Rule) error {
+	if policy.DefaultAction != schema.CaptureActionInclude &&
+		policy.DefaultAction != schema.CaptureActionExclude {
+		return fmt.Errorf("capture.policy.default_action: unsupported value %q", policy.DefaultAction)
+	}
+	if policy.MatchOrder != schema.MatchOrderFirstMatchWins &&
+		policy.MatchOrder != schema.MatchOrderLastMatchWins {
+		return fmt.Errorf("capture.policy.match_order: unsupported value %q", policy.MatchOrder)
+	}
+
+	var usesGlob, usesRegex bool
+	seenInclude := false
+	seenExclude := false
+	for i, rule := range rules {
+		path := fmt.Sprintf("capture.rules[%d]", i)
+		if rule.Action != schema.CaptureActionInclude && rule.Action != schema.CaptureActionExclude {
+			return fmt.Errorf("%s.action: unsupported value %q", path, rule.Action)
+		}
+		if err := rejectAdditionalProperties(path, rule.AdditionalProperties); err != nil {
+			return err
+		}
+		if err := rejectAdditionalProperties(path+".match", rule.Match.AdditionalProperties); err != nil {
+			return err
+		}
+		if err := rejectAdditionalProperties(path+".match.process", rule.Match.Process.AdditionalProperties); err != nil {
+			return err
+		}
+		if err := rejectAdditionalProperties(path+".match.kubernetes", rule.Match.Kubernetes.AdditionalProperties); err != nil {
+			return err
+		}
+		if ruleMatchEmpty(rule.Match) {
+			return fmt.Errorf("%s.match must define at least one selector", path)
+		}
+		if rule.Action == schema.CaptureActionExclude && !zeroValue(rule.Refine) {
+			return fmt.Errorf("%s.refine is not supported for exclude rules", path)
+		}
+		if rule.Refine.HTTP != nil && len(rule.Refine.HTTP.Filters.Traces)+len(rule.Refine.HTTP.Filters.Metrics) > 0 {
+			return fmt.Errorf("%s.refine.http.filters is not supported by the runtime converter", path)
+		}
+
+		if exportsOTLP := rule.Match.Process.ExportsOTLP; exportsOTLP != nil {
+			if rule.Action != schema.CaptureActionExclude {
+				return fmt.Errorf("%s.match.process.exports_otlp is only supported for exclude rules", path)
+			}
+			if !ruleMatchOnlyExportsOTLP(rule.Match) {
+				return fmt.Errorf("%s.match.process.exports_otlp cannot be combined with other selectors", path)
+			}
+			if exportsOTLP.Protocol != "protobuf" {
+				return fmt.Errorf("%s.match.process.exports_otlp.protocol: unsupported value %q", path, exportsOTLP.Protocol)
+			}
+		} else {
+			glob := ruleUsesGlob(rule.Match)
+			regex := ruleUsesRegex(rule.Match)
+			if glob && regex {
+				return fmt.Errorf("%s.match cannot combine glob and regular-expression selectors", path)
+			}
+			if regex {
+				usesRegex = true
+			} else {
+				usesGlob = true
+			}
+			if usesGlob && usesRegex {
+				return fmt.Errorf("%s.match cannot mix selector families across capture.rules", path)
+			}
+		}
+
+		switch rule.Action {
+		case schema.CaptureActionInclude:
+			if policy.MatchOrder == schema.MatchOrderLastMatchWins && seenExclude {
+				return fmt.Errorf("%s.action: last_match_wins cannot preserve runtime exclusion precedence when an include rule follows an exclude rule", path)
+			}
+			seenInclude = true
+		case schema.CaptureActionExclude:
+			if policy.MatchOrder == schema.MatchOrderFirstMatchWins && seenInclude {
+				return fmt.Errorf("%s.action: first_match_wins cannot preserve runtime exclusion precedence when an exclude rule follows an include rule", path)
+			}
+			seenExclude = true
+		}
+	}
+
+	return nil
 }
 
 func validateV2RulePatterns(rules []schema.Rule) error {

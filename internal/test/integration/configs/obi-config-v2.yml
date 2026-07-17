@@ -28,6 +28,7 @@ extensions:
     version: "2.0"
     capture:
       policy:
+        default_action: exclude
         poll_interval: 500ms
       rules:
         - action: include
