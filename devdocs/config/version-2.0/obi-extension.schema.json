@@ -1285,6 +1285,50 @@
           "$ref": "#/$defs/FilterMap",
           "description": "Attribute-based refinement filter for log trace annotation.\nApplied after selection admits a workload.\nIf omitted, no additional filtering is applied.\n"
         },
+        "field_names": {
+          "type": "object",
+          "additionalProperties": false,
+          "default": {
+            "trace_id": "trace_id",
+            "span_id": "span_id"
+          },
+          "description": "Literal trace and span field names shared by JSON and plain-text logs.",
+          "properties": {
+            "trace_id": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^=\\u0000-\\u0020\\u007F-\\u00A0\\u1680\\u2000-\\u200A\\u2028-\\u2029\\u202F\\u205F\\u3000]+$",
+              "default": "trace_id"
+            },
+            "span_id": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^=\\u0000-\\u0020\\u007F-\\u00A0\\u1680\\u2000-\\u200A\\u2028-\\u2029\\u202F\\u205F\\u3000]+$",
+              "default": "span_id"
+            }
+          }
+        },
+        "plain_text": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Trace-context annotation controls for non-JSON logs.",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true
+            },
+            "placement": {
+              "type": "string",
+              "enum": ["prefix", "suffix"],
+              "default": "suffix"
+            },
+            "multiline": {
+              "type": "string",
+              "enum": ["first_line", "last_line", "each_line"],
+              "default": "first_line"
+            }
+          }
+        },
         "cache": {
           "type": "object",
           "additionalProperties": false,
@@ -1336,6 +1380,15 @@
         "log_trace_annotation": {
           "enabled": false,
           "filter": {},
+          "field_names": {
+            "trace_id": "trace_id",
+            "span_id": "span_id"
+          },
+          "plain_text": {
+            "enabled": true,
+            "placement": "suffix",
+            "multiline": "first_line"
+          },
           "cache": {
             "ttl": "30m0s",
             "size": 128

@@ -625,6 +625,13 @@ extensions:
         # By default (empty filter), applies to all selected services
         # that have log streams where trace context can be injected.
         filter: {}
+        field_names:
+          trace_id: trace_id
+          span_id: span_id
+        plain_text:
+          enabled: true
+          placement: suffix
+          multiline: first_line
         cache:
           ttl: 30m0s
           size: 128

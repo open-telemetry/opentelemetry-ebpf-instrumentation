@@ -6,6 +6,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -16,8 +17,10 @@ import (
 )
 
 const (
-	defaultSchemaPath  = "devdocs/config/version-2.0/obi-extension.schema.json"
-	defaultExamplePath = "devdocs/config/version-2.0/examples/default-configuration.yaml"
+	defaultSchemaPath     = "devdocs/config/version-2.0/obi-extension.schema.json"
+	defaultExamplePath    = "devdocs/config/version-2.0/examples/default-configuration.yaml"
+	logFieldNamePattern   = `^[^=\u0000-\u0020\u007F-\u00A0\u1680\u2000-\u200A\u2028-\u2029\u202F\u205F\u3000]+$`
+	logFieldNameMinLength = int64(1)
 )
 
 func run(args []string) error {
@@ -74,6 +77,47 @@ func checkSchemaArtifact(path string) error {
 	}
 	if got := stringValue(version, "const"); got != configschema.SupportedVersion {
 		return fmt.Errorf("%s: unexpected properties.version.const %q", path, got)
+	}
+	if err := checkLogFieldNameSchema(root); err != nil {
+		return fmt.Errorf("%s: %w", path, err)
+	}
+
+	return nil
+}
+
+func checkLogFieldNameSchema(root map[string]any) error {
+	definitions, ok := mapValue(root, "$defs")
+	if !ok {
+		return errors.New("missing $defs")
+	}
+	traceAnnotation, ok := mapValue(definitions, "TraceAnnotation")
+	if !ok {
+		return errors.New("missing $defs.TraceAnnotation")
+	}
+	properties, ok := mapValue(traceAnnotation, "properties")
+	if !ok {
+		return errors.New("missing $defs.TraceAnnotation.properties")
+	}
+	fieldNames, ok := mapValue(properties, "field_names")
+	if !ok {
+		return errors.New("missing log field_names schema")
+	}
+	fields, ok := mapValue(fieldNames, "properties")
+	if !ok {
+		return errors.New("missing log field_names properties")
+	}
+
+	for _, name := range []string{"trace_id", "span_id"} {
+		field, ok := mapValue(fields, name)
+		if !ok {
+			return fmt.Errorf("missing log field_names.%s schema", name)
+		}
+		if got := stringValue(field, "pattern"); got != logFieldNamePattern {
+			return fmt.Errorf("unexpected log field_names.%s pattern %q", name, got)
+		}
+		if got, ok := integerValue(field, "minLength"); !ok || got != logFieldNameMinLength {
+			return fmt.Errorf("unexpected log field_names.%s minLength", name)
+		}
 	}
 
 	return nil
@@ -135,6 +179,15 @@ func stringValue(root map[string]any, key string) string {
 		return ""
 	}
 	return value
+}
+
+func integerValue(root map[string]any, key string) (int64, bool) {
+	value, ok := root[key].(json.Number)
+	if !ok {
+		return 0, false
+	}
+	integer, err := value.Int64()
+	return integer, err == nil
 }
 
 func main() {

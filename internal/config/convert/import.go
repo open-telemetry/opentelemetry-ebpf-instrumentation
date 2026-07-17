@@ -62,6 +62,9 @@ func V2ToRuntime(src *schema.Extension) (*obi.Config, error) {
 	applyV2Standalone(&cfg, src)
 	applyV2MetricsEnablement(&cfg, src)
 	cfg.Attributes.Select.Normalize()
+	if err := cfg.EBPF.LogEnricher.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid log trace annotation: %w", err)
+	}
 
 	return &cfg, nil
 }
@@ -1643,6 +1646,11 @@ func applyFullV2Correlation(cfg *obi.Config, logTrace schema.LogTraceAnnotation)
 	} else {
 		cfg.EBPF.LogEnricher.Services = nil
 	}
+	cfg.EBPF.LogEnricher.FieldNames.TraceID = *logTrace.FieldNames.TraceID
+	cfg.EBPF.LogEnricher.FieldNames.SpanID = *logTrace.FieldNames.SpanID
+	cfg.EBPF.LogEnricher.PlainText.Enabled = *logTrace.PlainText.Enabled
+	cfg.EBPF.LogEnricher.PlainText.Placement = *logTrace.PlainText.Placement
+	cfg.EBPF.LogEnricher.PlainText.Multiline = *logTrace.PlainText.Multiline
 	cfg.EBPF.LogEnricher.CacheTTL = logTrace.Cache.TTL.TimeDuration()
 	cfg.EBPF.LogEnricher.CacheSize = logTrace.Cache.Size
 	cfg.EBPF.LogEnricher.AsyncWriterWorkers = logTrace.AsyncWriter.Workers
@@ -1654,6 +1662,21 @@ func applyPartialV2Correlation(cfg *obi.Config, logTrace schema.LogTraceAnnotati
 		cfg.EBPF.LogEnricher.Services = []obiconfig.LogEnricherServiceConfig{
 			{Service: services.GlobDefinitionCriteria{{Path: services.NewGlob("*")}}},
 		}
+	}
+	if logTrace.FieldNames.TraceID != nil {
+		cfg.EBPF.LogEnricher.FieldNames.TraceID = *logTrace.FieldNames.TraceID
+	}
+	if logTrace.FieldNames.SpanID != nil {
+		cfg.EBPF.LogEnricher.FieldNames.SpanID = *logTrace.FieldNames.SpanID
+	}
+	if logTrace.PlainText.Enabled != nil {
+		cfg.EBPF.LogEnricher.PlainText.Enabled = *logTrace.PlainText.Enabled
+	}
+	if logTrace.PlainText.Placement != nil {
+		cfg.EBPF.LogEnricher.PlainText.Placement = *logTrace.PlainText.Placement
+	}
+	if logTrace.PlainText.Multiline != nil {
+		cfg.EBPF.LogEnricher.PlainText.Multiline = *logTrace.PlainText.Multiline
 	}
 	if !zeroValue(logTrace.Cache.TTL) {
 		cfg.EBPF.LogEnricher.CacheTTL = logTrace.Cache.TTL.TimeDuration()
@@ -1670,7 +1693,15 @@ func applyPartialV2Correlation(cfg *obi.Config, logTrace schema.LogTraceAnnotati
 }
 
 func completeLogTraceAnnotation(logTrace schema.LogTraceAnnotation) bool {
-	return !zeroValue(logTrace.Cache) && !zeroValue(logTrace.AsyncWriter)
+	return logTrace.FieldNames.TraceID != nil &&
+		logTrace.FieldNames.SpanID != nil &&
+		logTrace.PlainText.Enabled != nil &&
+		logTrace.PlainText.Placement != nil &&
+		logTrace.PlainText.Multiline != nil &&
+		!zeroValue(logTrace.Cache.TTL) &&
+		logTrace.Cache.Size != 0 &&
+		logTrace.AsyncWriter.Workers != 0 &&
+		logTrace.AsyncWriter.ChannelLen != 0
 }
 
 func applyV2Daemon(cfg *obi.Config, daemon *schema.Daemon) {

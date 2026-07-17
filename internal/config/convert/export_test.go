@@ -119,6 +119,11 @@ func TestRuntimeToV2DefaultConfig(t *testing.T) {
 	require.Equal(t, schema.Duration(30*time.Minute), value(t, ext.Correlation, "log_trace_annotation", "cache", "ttl"))
 	require.Equal(t, 128, value(t, ext.Correlation, "log_trace_annotation", "cache", "size"))
 	require.Equal(t, 8, value(t, ext.Correlation, "log_trace_annotation", "async_writer", "workers"))
+	require.Equal(t, "trace_id", value(t, ext.Correlation, "log_trace_annotation", "field_names", "trace_id"))
+	require.Equal(t, "span_id", value(t, ext.Correlation, "log_trace_annotation", "field_names", "span_id"))
+	require.Equal(t, true, value(t, ext.Correlation, "log_trace_annotation", "plain_text", "enabled"))
+	require.Equal(t, config.LogEnricherPlacementSuffix, value(t, ext.Correlation, "log_trace_annotation", "plain_text", "placement"))
+	require.Equal(t, config.LogEnricherMultilineFirstLine, value(t, ext.Correlation, "log_trace_annotation", "plain_text", "multiline"))
 
 	require.Equal(t, schema.LogFormatText, value(t, ext.Daemon, "logging", "format"))
 	require.Equal(t, schema.ConfigFormatUnset, value(t, ext.Daemon, "logging", "config_format"))
@@ -269,6 +274,15 @@ func TestRuntimeToV2CustomConfig(t *testing.T) {
 	cfg.EBPF.LogEnricher.CacheSize = 904
 	cfg.EBPF.LogEnricher.AsyncWriterWorkers = 905
 	cfg.EBPF.LogEnricher.AsyncWriterChannelLen = 906
+	cfg.EBPF.LogEnricher.FieldNames = config.LogEnricherFieldNames{
+		TraceID: "trace.id",
+		SpanID:  "span.id",
+	}
+	cfg.EBPF.LogEnricher.PlainText = config.LogEnricherPlainTextConfig{
+		Enabled:   false,
+		Placement: config.LogEnricherPlacementPrefix,
+		Multiline: config.LogEnricherMultilineLastLine,
+	}
 
 	cfg.Traces.TracesEndpoint = "http://traces.example:4317"
 	cfg.Traces.BatchMaxSize = 907
@@ -426,6 +440,11 @@ func TestRuntimeToV2CustomConfig(t *testing.T) {
 	require.Equal(t, 904, value(t, ext.Correlation, "log_trace_annotation", "cache", "size"))
 	require.Equal(t, 905, value(t, ext.Correlation, "log_trace_annotation", "async_writer", "workers"))
 	require.Equal(t, 906, value(t, ext.Correlation, "log_trace_annotation", "async_writer", "channel_len"))
+	require.Equal(t, "trace.id", value(t, ext.Correlation, "log_trace_annotation", "field_names", "trace_id"))
+	require.Equal(t, "span.id", value(t, ext.Correlation, "log_trace_annotation", "field_names", "span_id"))
+	require.Equal(t, false, value(t, ext.Correlation, "log_trace_annotation", "plain_text", "enabled"))
+	require.Equal(t, config.LogEnricherPlacementPrefix, value(t, ext.Correlation, "log_trace_annotation", "plain_text", "placement"))
+	require.Equal(t, config.LogEnricherMultilineLastLine, value(t, ext.Correlation, "log_trace_annotation", "plain_text", "multiline"))
 
 	require.NotNil(t, doc.LogLevel)
 	require.Equal(t, otelconfx.SeverityNumberDebug, *doc.LogLevel)

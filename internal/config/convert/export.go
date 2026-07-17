@@ -663,9 +663,24 @@ func serviceNameEnrichment(cfg *obi.Config) schema.ServiceName {
 }
 
 func correlation(cfg *obi.Config) *schema.Correlation {
+	traceIDFieldName := cfg.EBPF.LogEnricher.FieldNames.TraceID
+	spanIDFieldName := cfg.EBPF.LogEnricher.FieldNames.SpanID
+	plainTextEnabled := cfg.EBPF.LogEnricher.PlainText.Enabled
+	plainTextPlacement := cfg.EBPF.LogEnricher.PlainText.Placement
+	plainTextMultiline := cfg.EBPF.LogEnricher.PlainText.Multiline
+
 	return &schema.Correlation{
 		LogTraceAnnotation: schema.LogTraceAnnotation{
 			Enabled: cfg.EBPF.LogEnricher.Enabled(),
+			FieldNames: schema.FieldNames{
+				TraceID: &traceIDFieldName,
+				SpanID:  &spanIDFieldName,
+			},
+			PlainText: schema.PlainText{
+				Enabled:   &plainTextEnabled,
+				Placement: &plainTextPlacement,
+				Multiline: &plainTextMultiline,
+			},
 			Cache: schema.Cache{
 				TTL:  schema.Duration(cfg.EBPF.LogEnricher.CacheTTL),
 				Size: cfg.EBPF.LogEnricher.CacheSize,

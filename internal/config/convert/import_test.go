@@ -41,6 +41,8 @@ func TestV2ToRuntimeDefaultExportFoundation(t *testing.T) {
 	require.Equal(t, obi.DefaultConfig.EBPF.ForceBPFMapReader, got.EBPF.ForceBPFMapReader)
 	require.Equal(t, obi.DefaultConfig.EBPF.MapsConfig, got.EBPF.MapsConfig)
 	require.Equal(t, obi.DefaultConfig.EBPF.InstrumentCuda, got.EBPF.InstrumentCuda)
+	require.Equal(t, obi.DefaultConfig.EBPF.LogEnricher.FieldNames, got.EBPF.LogEnricher.FieldNames)
+	require.Equal(t, obi.DefaultConfig.EBPF.LogEnricher.PlainText, got.EBPF.LogEnricher.PlainText)
 	require.Equal(t, obi.DefaultConfig.NetworkFlows.Source, got.NetworkFlows.Source)
 	require.Equal(t, obi.DefaultConfig.NetworkFlows.ExcludeInterfaces, got.NetworkFlows.ExcludeInterfaces)
 	require.Equal(t, obi.DefaultConfig.NodeJS.Enabled, got.NodeJS.Enabled)
@@ -183,6 +185,15 @@ func TestV2ToRuntimeCustomFoundation(t *testing.T) {
 	cfg.EBPF.LogEnricher.CacheSize = 602
 	cfg.EBPF.LogEnricher.AsyncWriterWorkers = 603
 	cfg.EBPF.LogEnricher.AsyncWriterChannelLen = 604
+	cfg.EBPF.LogEnricher.FieldNames = config.LogEnricherFieldNames{
+		TraceID: "trace.id",
+		SpanID:  "span.id",
+	}
+	cfg.EBPF.LogEnricher.PlainText = config.LogEnricherPlainTextConfig{
+		Enabled:   false,
+		Placement: config.LogEnricherPlacementPrefix,
+		Multiline: config.LogEnricherMultilineEachLine,
+	}
 
 	cfg.LogLevel = obi.LogLevelDebug
 	cfg.LogFormat = obi.LogFormatJSON
@@ -284,6 +295,8 @@ func TestV2ToRuntimeCustomFoundation(t *testing.T) {
 	require.Equal(t, 602, got.EBPF.LogEnricher.CacheSize)
 	require.Equal(t, 603, got.EBPF.LogEnricher.AsyncWriterWorkers)
 	require.Equal(t, 604, got.EBPF.LogEnricher.AsyncWriterChannelLen)
+	require.Equal(t, cfg.EBPF.LogEnricher.FieldNames, got.EBPF.LogEnricher.FieldNames)
+	require.Equal(t, cfg.EBPF.LogEnricher.PlainText, got.EBPF.LogEnricher.PlainText)
 
 	require.Equal(t, obi.DefaultConfig.LogLevel, got.LogLevel)
 	require.Equal(t, obi.LogFormatJSON, got.LogFormat)
@@ -990,4 +1003,79 @@ func TestV2ToRuntimePartialStandaloneSectionsPreserveDefaults(t *testing.T) {
 	require.True(t, got.EBPF.LogEnricher.Enabled())
 	require.Equal(t, obi.DefaultConfig.EBPF.LogEnricher.CacheTTL, got.EBPF.LogEnricher.CacheTTL)
 	require.Equal(t, obi.DefaultConfig.EBPF.LogEnricher.AsyncWriterWorkers, got.EBPF.LogEnricher.AsyncWriterWorkers)
+}
+
+func TestV2ToRuntimePartialPlainTextDisablePreservesOtherDefaults(t *testing.T) {
+	t.Parallel()
+
+	disabled := false
+	got, err := V2ToRuntime(&schema.Extension{
+		Version: schema.SupportedVersion,
+		Correlation: &schema.Correlation{
+			LogTraceAnnotation: schema.LogTraceAnnotation{
+				PlainText: schema.PlainText{Enabled: &disabled},
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	require.False(t, got.EBPF.LogEnricher.PlainText.Enabled)
+	require.Equal(t, obi.DefaultConfig.EBPF.LogEnricher.PlainText.Placement, got.EBPF.LogEnricher.PlainText.Placement)
+	require.Equal(t, obi.DefaultConfig.EBPF.LogEnricher.PlainText.Multiline, got.EBPF.LogEnricher.PlainText.Multiline)
+}
+
+func TestV2ToRuntimePartialCorrelationCachePreservesDefaults(t *testing.T) {
+	t.Parallel()
+
+	traceField := "trace.id"
+	spanField := "span.id"
+	plainTextEnabled := true
+	placement := config.LogEnricherPlacementPrefix
+	multiline := config.LogEnricherMultilineEachLine
+	got, err := V2ToRuntime(&schema.Extension{
+		Version: schema.SupportedVersion,
+		Correlation: &schema.Correlation{
+			LogTraceAnnotation: schema.LogTraceAnnotation{
+				FieldNames: schema.FieldNames{
+					TraceID: &traceField,
+					SpanID:  &spanField,
+				},
+				PlainText: schema.PlainText{
+					Enabled:   &plainTextEnabled,
+					Placement: &placement,
+					Multiline: &multiline,
+				},
+				Cache: schema.Cache{TTL: schema.Duration(2 * time.Minute)},
+				AsyncWriter: schema.AsyncWriter{
+					Workers: 1,
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	require.Equal(t, traceField, got.EBPF.LogEnricher.FieldNames.TraceID)
+	require.Equal(t, spanField, got.EBPF.LogEnricher.FieldNames.SpanID)
+	require.True(t, got.EBPF.LogEnricher.PlainText.Enabled)
+	require.Equal(t, placement, got.EBPF.LogEnricher.PlainText.Placement)
+	require.Equal(t, multiline, got.EBPF.LogEnricher.PlainText.Multiline)
+	require.Equal(t, 2*time.Minute, got.EBPF.LogEnricher.CacheTTL)
+	require.Equal(t, obi.DefaultConfig.EBPF.LogEnricher.CacheSize, got.EBPF.LogEnricher.CacheSize)
+	require.Equal(t, 1, got.EBPF.LogEnricher.AsyncWriterWorkers)
+	require.Equal(t, obi.DefaultConfig.EBPF.LogEnricher.AsyncWriterChannelLen, got.EBPF.LogEnricher.AsyncWriterChannelLen)
+}
+
+func TestV2ToRuntimeRejectsInvalidLogFieldName(t *testing.T) {
+	t.Parallel()
+
+	invalid := "trace id"
+	_, err := V2ToRuntime(&schema.Extension{
+		Version: schema.SupportedVersion,
+		Correlation: &schema.Correlation{
+			LogTraceAnnotation: schema.LogTraceAnnotation{
+				FieldNames: schema.FieldNames{TraceID: &invalid},
+			},
+		},
+	})
+	require.ErrorContains(t, err, "invalid log trace annotation")
 }
