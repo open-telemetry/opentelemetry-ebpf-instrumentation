@@ -517,6 +517,60 @@ func TestV2ToRuntimeRejectsMalformedRulePatterns(t *testing.T) {
 	}
 }
 
+func TestV2ToRuntimeRejectsUnsupportedFilters(t *testing.T) {
+	t.Parallel()
+
+	filter := schema.AttributeFilters{
+		"service.name": {Match: "checkout"},
+	}
+	for _, tc := range []struct {
+		name   string
+		path   string
+		mutate func(*schema.Extension)
+	}{
+		{
+			name: "Go runtime",
+			path: "capture.runtimes.go.filter",
+			mutate: func(extension *schema.Extension) {
+				extension.Capture.Runtimes.Go.Filter = filter
+			},
+		},
+		{
+			name: "Node.js runtime",
+			path: "capture.runtimes.nodejs.filter",
+			mutate: func(extension *schema.Extension) {
+				extension.Capture.Runtimes.NodeJS.Filter = filter
+			},
+		},
+		{
+			name: "Java runtime",
+			path: "capture.runtimes.java.filter",
+			mutate: func(extension *schema.Extension) {
+				extension.Capture.Runtimes.Java.Filter = filter
+			},
+		},
+		{
+			name: "log trace annotation",
+			path: "correlation.log_trace_annotation.filter",
+			mutate: func(extension *schema.Extension) {
+				extension.Correlation = &schema.Correlation{
+					LogTraceAnnotation: schema.LogTraceAnnotation{Filter: filter},
+				}
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			extension := &schema.Extension{Version: schema.SupportedVersion}
+			tc.mutate(extension)
+
+			_, err := V2ToRuntime(extension)
+			require.ErrorContains(t, err, tc.path)
+		})
+	}
+}
+
 func TestV2ToRuntimeRejectsLastMatchWins(t *testing.T) {
 	t.Parallel()
 

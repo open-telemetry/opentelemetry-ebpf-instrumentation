@@ -37,6 +37,9 @@ func V2ToRuntime(src *schema.Extension) (*obi.Config, error) {
 	if err := schema.ValidateStandalone(src); err != nil {
 		return nil, err
 	}
+	if err := validateUnsupportedV2Filters(src); err != nil {
+		return nil, err
+	}
 	_, defaults := RuntimeToV2(nil)
 	var complete bool
 	var err error
@@ -122,7 +125,6 @@ func rejectUnsupportedProperties(path string, properties map[string]any) error {
 	slices.Sort(keys)
 	return fmt.Errorf("%s.%s is not supported", path, keys[0])
 }
-
 func runtimeConfigDefaults() obi.Config {
 	cfg := obi.DefaultConfig
 	if cfg.Routes != nil {
