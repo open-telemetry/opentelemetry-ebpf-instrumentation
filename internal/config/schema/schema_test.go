@@ -364,6 +364,47 @@ extensions:
 	require.Contains(t, cfg.Enrich.Attributes.AdditionalProperties, "rules")
 }
 
+func TestExtensionWithDefaultsDoesNotMutateDefaults(t *testing.T) {
+	t.Parallel()
+
+	defaults := &Extension{
+		Version: SupportedVersion,
+		Enrich: &Enrich{
+			Enrichers: Enrichers{
+				Kubernetes: KubernetesEnricher{
+					ResourceLabels: ResourceLabels{
+						"service.name": {"app.kubernetes.io/name"},
+					},
+				},
+			},
+		},
+	}
+
+	_, extension, err := ParseStandaloneYAML([]byte(`
+file_format: "1.0"
+extensions:
+  obi:
+    version: "2.0"
+    enrich:
+      enrichers:
+        kubernetes:
+          resource_labels:
+            service.namespace: [app.kubernetes.io/part-of]
+`))
+	require.NoError(t, err)
+
+	merged, complete, err := extension.WithDefaults(defaults)
+	require.NoError(t, err)
+	require.True(t, complete)
+	require.Equal(t, ResourceLabels{
+		"service.name":      {"app.kubernetes.io/name"},
+		"service.namespace": {"app.kubernetes.io/part-of"},
+	}, merged.Enrich.Enrichers.Kubernetes.ResourceLabels)
+	require.Equal(t, ResourceLabels{
+		"service.name": {"app.kubernetes.io/name"},
+	}, defaults.Enrich.Enrichers.Kubernetes.ResourceLabels)
+}
+
 func TestParseReceiverYAMLEmbedded(t *testing.T) {
 	t.Parallel()
 

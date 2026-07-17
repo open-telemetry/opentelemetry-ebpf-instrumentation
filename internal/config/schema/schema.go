@@ -26,6 +26,7 @@ import (
 	"reflect"
 	"strings"
 
+	"github.com/mitchellh/copystructure"
 	"go.yaml.in/yaml/v3"
 
 	otelconfx "go.opentelemetry.io/contrib/otelconf/x"
@@ -308,7 +309,10 @@ func (e *Extension) WithDefaults(defaults *Extension) (*Extension, bool, error) 
 		return e, false, nil
 	}
 
-	merged := extensionData(*defaults)
+	merged, err := cloneExtensionData(defaults)
+	if err != nil {
+		return nil, false, err
+	}
 	if err := decode(e.source, &merged); err != nil {
 		return nil, false, err
 	}
@@ -316,6 +320,18 @@ func (e *Extension) WithDefaults(defaults *Extension) (*Extension, bool, error) 
 	result := Extension(merged)
 	result.source = e.source
 	return &result, true, nil
+}
+
+func cloneExtensionData(extension *Extension) (extensionData, error) {
+	if extension == nil {
+		return extensionData{}, errors.New("missing config v2 defaults")
+	}
+
+	cloned, err := copystructure.Copy(extension)
+	if err != nil {
+		return extensionData{}, fmt.Errorf("copying config v2 defaults: %w", err)
+	}
+	return extensionData(*cloned.(*Extension)), nil
 }
 
 // receiverConfig mirrors the receiver-embedded layout, where capture sections
