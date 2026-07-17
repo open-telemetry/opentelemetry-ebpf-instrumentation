@@ -60,6 +60,9 @@ func V2ToRuntime(src *schema.Extension) (*obi.Config, error) {
 	if err := validateUnsupportedV2Fields(src); err != nil {
 		return nil, err
 	}
+	if err := validateUnsupportedV2Enrichment(src); err != nil {
+		return nil, err
+	}
 
 	cfg := runtimeConfigDefaults()
 	applyV2Capture(&cfg, src, policy, complete)
@@ -85,40 +88,10 @@ func validateUnsupportedV2Fields(src *schema.Extension) error {
 		}
 	}
 
-	if src.Enrich != nil {
-		for _, enrichmentProperties := range []struct {
-			path       string
-			properties map[string]any
-		}{
-			{path: "enrich", properties: src.Enrich.AdditionalProperties},
-			{path: "enrich.enrichers", properties: src.Enrich.Enrichers.AdditionalProperties},
-			{path: "enrich.enrichers.kubernetes", properties: src.Enrich.Enrichers.Kubernetes.AdditionalProperties},
-			{path: "enrich.service_name", properties: src.Enrich.ServiceName.AdditionalProperties},
-			{path: "enrich.attributes", properties: src.Enrich.Attributes.AdditionalProperties},
-		} {
-			if err := rejectUnsupportedProperties(enrichmentProperties.path, enrichmentProperties.properties); err != nil {
-				return err
-			}
-		}
-	}
-
 	if src.Correlation != nil && len(src.Correlation.LogTraceAnnotation.Filter) != 0 {
 		return errors.New("correlation.log_trace_annotation.filter is not supported")
 	}
 	return nil
-}
-
-func rejectUnsupportedProperties(path string, properties map[string]any) error {
-	if len(properties) == 0 {
-		return nil
-	}
-
-	keys := make([]string, 0, len(properties))
-	for key := range properties {
-		keys = append(keys, key)
-	}
-	slices.Sort(keys)
-	return fmt.Errorf("%s.%s is not supported", path, keys[0])
 }
 
 func rejectAdditionalProperties(path string, values map[string]any) error {
