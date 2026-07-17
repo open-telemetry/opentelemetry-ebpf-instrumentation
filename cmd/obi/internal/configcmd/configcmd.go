@@ -292,12 +292,19 @@ func changedInputFields(data []byte, before, after *obi.Config) ([]string, error
 		}
 		beforeValue, beforeOK := valueAtPath(beforeMap, path)
 		afterValue, afterOK := valueAtPath(afterMap, path)
-		if beforeOK != afterOK || !reflect.DeepEqual(beforeValue, afterValue) {
+		if beforeOK != afterOK || !equalMigrationValues(name, beforeValue, afterValue) {
 			changed = append(changed, name)
 		}
 	}
 	sort.Strings(changed)
 	return changed, nil
+}
+
+func equalMigrationValues(path string, before, after any) bool {
+	if path == "log_level" {
+		return strings.EqualFold(fmt.Sprint(before), fmt.Sprint(after))
+	}
+	return reflect.DeepEqual(before, after)
 }
 
 func configMap(cfg *obi.Config) (any, error) {

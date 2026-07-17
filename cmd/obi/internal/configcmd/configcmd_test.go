@@ -5,12 +5,16 @@ package configcmd
 
 import (
 	"bytes"
+	"errors"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"go.yaml.in/yaml/v3"
 
 	"go.opentelemetry.io/obi/internal/config/convert"
 	"go.opentelemetry.io/obi/internal/config/schema"
@@ -281,6 +285,150 @@ metrics:
 	require.NoError(t, err)
 	require.False(t, runtimeConfig.Enabled(obi.FeatureAppO11y))
 	require.True(t, runtimeConfig.Enabled(obi.FeatureNetO11y))
+}
+
+func TestMigrateIntegrationConfigurations(t *testing.T) {
+	// Docker suites select their target through OTEL_EBPF_OPEN_PORT. Materialize
+	// that setting in the input because config migrate operates on YAML files.
+	tests := []struct {
+		name   string
+		input  func(t *testing.T) []byte
+		verify func(t *testing.T, cfg *obi.Config)
+	}{
+		{
+			name: "Docker Go OTEL gRPC",
+			input: func(t *testing.T) []byte {
+				return withV1OpenPort(
+					integrationConfig(t, "internal/test/integration/configs/obi-config-go-otel-grpc.yml"),
+					8080,
+				)
+			},
+			verify: func(t *testing.T, cfg *obi.Config) {
+				require.True(t, cfg.Enabled(obi.FeatureAppO11y))
+				require.Len(t, cfg.Discovery.Instrument, 1)
+				require.True(t, cfg.Discovery.Instrument[0].OpenPorts.Matches(8080))
+				require.Equal(t, 8999, cfg.Prometheus.Port)
+				require.Equal(t, "http://jaeger:4318", cfg.Traces.TracesEndpoint)
+				require.NotNil(t, cfg.Routes)
+				require.Equal(t, "path", string(cfg.Routes.Unmatch))
+			},
+		},
+		{
+			name: "Docker Java",
+			input: func(t *testing.T) []byte {
+				return withV1OpenPort(
+					integrationConfig(t, "internal/test/integration/configs/obi-config-java.yml"),
+					8085,
+				)
+			},
+			verify: func(t *testing.T, cfg *obi.Config) {
+				require.True(t, cfg.Enabled(obi.FeatureAppO11y))
+				require.Len(t, cfg.Discovery.Instrument, 1)
+				require.True(t, cfg.Discovery.Instrument[0].OpenPorts.Matches(8085))
+				require.Equal(t, "http://otelcol:4318", cfg.OTELMetrics.MetricsEndpoint)
+				require.NotNil(t, cfg.Routes)
+				require.Equal(t, []string{"/greeting"}, cfg.Routes.Patterns)
+			},
+		},
+		{
+			name: "Kubernetes daemonset",
+			input: func(t *testing.T) []byte {
+				return kubernetesConfig(t, "internal/test/integration/k8s/manifests/06-obi-daemonset.yml")
+			},
+			verify: func(t *testing.T, cfg *obi.Config) {
+				require.True(t, cfg.Enabled(obi.FeatureAppO11y))
+				require.Equal(t, obi.LogLevelDebug, cfg.LogLevel)
+				require.Equal(t, "true", string(cfg.Attributes.Kubernetes.Enable))
+				require.Len(t, cfg.Discovery.Instrument, 5)
+				require.GreaterOrEqual(t, len(cfg.Discovery.ExcludeInstrument), 1)
+				require.True(t, cfg.Discovery.Instrument[0].Metadata["k8s_deployment_name"].MatchString("testserver"))
+				require.True(t, cfg.Discovery.ExcludeInstrument[0].Metadata["k8s_deployment_name"].MatchString("testserver"))
+				require.NotNil(t, cfg.Routes)
+				require.Equal(t, []string{"/metrics"}, cfg.Routes.IgnorePatterns)
+			},
+		},
+		{
+			name: "Kubernetes shared PID namespace daemonset",
+			input: func(t *testing.T) []byte {
+				return kubernetesConfig(t, "internal/test/integration/k8s/manifests/06-obi-daemonset-sharedpidns.yml")
+			},
+			verify: func(t *testing.T, cfg *obi.Config) {
+				require.True(t, cfg.Enabled(obi.FeatureAppO11y))
+				require.Equal(t, obi.LogLevelDebug, cfg.LogLevel)
+				require.Equal(t, "true", string(cfg.Attributes.Kubernetes.Enable))
+				require.Len(t, cfg.Discovery.Instrument, 2)
+				require.True(t, cfg.Discovery.Instrument[0].Metadata["k8s_deployment_name"].MatchString("testserver"))
+				require.True(t, cfg.Discovery.Instrument[1].Metadata["k8s_daemonset_name"].MatchString("hostpid-httpserver"))
+				require.NotNil(t, cfg.Routes)
+				require.Equal(t, []string{"/pingpong"}, cfg.Routes.Patterns)
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			output, _, err := migrateConfig(test.input(t))
+			require.NoError(t, err)
+
+			doc, _, err := schema.ParseStandaloneYAML(output)
+			require.NoError(t, err)
+			cfg, err := convert.DocumentToRuntime(doc)
+			require.NoError(t, err)
+
+			test.verify(t, cfg)
+		})
+	}
+}
+
+func integrationConfig(t *testing.T, relativePath string) []byte {
+	t.Helper()
+
+	contents, err := os.ReadFile(filepath.Join(repositoryRoot(t), relativePath))
+	require.NoError(t, err)
+	return contents
+}
+
+func withV1OpenPort(config []byte, port int) []byte {
+	return append(config, fmt.Sprintf("\nopen_port: %d\n", port)...)
+}
+
+func kubernetesConfig(t *testing.T, relativePath string) []byte {
+	t.Helper()
+
+	contents := integrationConfig(t, relativePath)
+	decoder := yaml.NewDecoder(bytes.NewReader(contents))
+	for {
+		var resource struct {
+			Kind string            `yaml:"kind"`
+			Data map[string]string `yaml:"data"`
+		}
+		err := decoder.Decode(&resource)
+		if errors.Is(err, io.EOF) {
+			t.Fatal("ConfigMap with obi-config.yml was not found")
+		}
+		require.NoError(t, err)
+		if resource.Kind != "ConfigMap" {
+			continue
+		}
+		if config, ok := resource.Data["obi-config.yml"]; ok {
+			return []byte(config)
+		}
+	}
+}
+
+func repositoryRoot(t *testing.T) string {
+	t.Helper()
+
+	directory, err := os.Getwd()
+	require.NoError(t, err)
+	for {
+		if _, err := os.Stat(filepath.Join(directory, "go.mod")); err == nil {
+			return directory
+		}
+		parent := filepath.Dir(directory)
+		require.NotEqual(t, directory, parent, "repository root was not found")
+		directory = parent
+	}
 }
 
 func TestRunMigrateRejectsUnsupportedInput(t *testing.T) {
