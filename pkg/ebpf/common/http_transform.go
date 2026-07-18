@@ -43,34 +43,6 @@ func sortConnectionInfo(info *BpfConnectionInfoT) {
 	}
 }
 
-func parseGoRequestLargeBuffer(
-	parseCtx *EBPFParseContext,
-	traceID [16]uint8,
-	conn BpfConnectionInfoT,
-	isClient bool,
-) (*http.Request, bool) {
-	sortConnectionInfo(&conn)
-
-	buffer, ok := extractTCPLargeBuffer(parseCtx, traceID, packetTypeRequest,
-		directionByPacketType(packetTypeRequest, isClient), conn, ProtocolTypeHTTP)
-	if !ok {
-		empty_trace_id := [16]uint8{}
-		buffer, ok = extractTCPLargeBuffer(parseCtx, empty_trace_id, packetTypeRequest,
-			directionByPacketType(packetTypeRequest, isClient), conn, ProtocolTypeHTTP)
-		if !ok {
-			return nil, false
-		}
-	}
-
-	reqReader := buffer.NewReader()
-	req, err := http.ReadRequest(bufio.NewReader(&reqReader))
-	if err != nil {
-		slog.Debug("error parsing HTTP request from large buffer for enrichment", "error", err)
-		return nil, false
-	}
-	return req, true
-}
-
 func removeQuery(url string) string {
 	idx := strings.IndexByte(url, '?')
 	if idx >= 0 {

@@ -126,6 +126,7 @@ int obi_continue_netfd_read(struct pt_regs *ctx) {
         // mark the event as skipped, rather than returning 0 here,
         // so the ret probe can capture large buffers if needed.
         net_args.skip = 1;
+        bpf_d_printk("skipping");
     }
 
     bpf_map_update_elem(&ongoing_fd_reads, &g_key, &net_args, BPF_ANY);
@@ -150,7 +151,7 @@ int obi_uprobe_netFdReadRet(struct pt_regs *ctx) {
             return 0;
         } else if (net_ptr && net_ptr->byte_ptr) {
             send_http_large_buffers_if_needed(
-                &net_ptr->p_conn.conn, &g_key, (void *)net_ptr->byte_ptr, len, TCP_RECV);
+                &net_ptr->p_conn.conn, (void *)net_ptr->byte_ptr, len, TCP_RECV);
         }
 
         return 0;
@@ -229,7 +230,7 @@ int obi_uprobe_netFdWrite(struct pt_regs *ctx) {
             if (http_large_buffer_skip(len)) {
                 return 0;
             } else {
-                send_http_large_buffers_if_needed(&p_conn.conn, &g_key, (void *)buf, len, TCP_SEND);
+                send_http_large_buffers_if_needed(&p_conn.conn, (void *)buf, len, TCP_SEND);
             }
             return 0;
         }

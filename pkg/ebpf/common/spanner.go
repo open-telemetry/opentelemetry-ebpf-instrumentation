@@ -4,13 +4,16 @@
 package ebpfcommon // import "go.opentelemetry.io/obi/pkg/ebpf/common"
 
 import (
+	"bufio"
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 	"unsafe"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
+	"go.opentelemetry.io/obi/pkg/config"
 	ebpfhttp "go.opentelemetry.io/obi/pkg/ebpf/common/http"
 	"go.opentelemetry.io/obi/pkg/internal/sqlprune"
 )
@@ -86,24 +89,125 @@ func HTTPRequestTraceToSpan(parseCtx *EBPFParseContext, trace *HTTPRequestTrace)
 		SubType:   subType,
 	}
 
-	if parseCtx != nil && parseCtx.httpEnricher != nil {
-		if req, ok := parseGoRequestLargeBuffer(parseCtx, trace.Tp.TraceId, trace.Conn, false); ok {
-			resp := &http.Response{Header: http.Header{}}
-
-			b, ok := extractTCPLargeBuffer(parseCtx, trace.Tp.TraceId, packetTypeResponse, directionByPacketType(packetTypeResponse, false), trace.Conn, ProtocolTypeHTTP)
-			if ok {
-				var err error
-				resp, err = httpSafeParseResponse(b, req)
-				if err != nil {
-					slog.Debug("error while parsing http request or response, falling back to manual HTTP info parsing", "respErr", err)
-				}
-			}
-
-			return postProcessHTTPSpan(parseCtx, &span, req, resp)
-		}
+	if parseCtx != nil && (!span.IsClientSpan() || !parseCtx.defersGoHTTPClientRequests()) {
+		span = enrichedGoHTTPSpan(parseCtx, trace.Conn, &span)
 	}
 
 	return span
+}
+
+func enrichedGoHTTPSpan(parseCtx *EBPFParseContext, conn BpfConnectionInfoT, span *request.Span) request.Span {
+	if req, ok := parseGoRequestLargeBuffer(parseCtx, conn, span.IsClientSpan()); ok {
+		resp := &http.Response{Header: http.Header{}}
+
+		emptyTraceID := [16]uint8{}
+		b, ok := extractTCPLargeBuffer(parseCtx, emptyTraceID, packetTypeResponse, directionByPacketType(packetTypeResponse, span.IsClientSpan()), conn, ProtocolTypeHTTP)
+		if ok {
+			var err error
+			resp, err = httpSafeParseResponse(b, req)
+			if err != nil {
+				slog.Debug("error while parsing http request or response, falling back to manual HTTP info parsing", "respErr", err)
+			}
+		}
+
+		return postProcessHTTPSpan(parseCtx, span, req, resp)
+	}
+
+	return *span
+}
+
+func deferredGoHTTPClientRequestHandler(parseCtx *EBPFParseContext) func(BpfConnectionInfoT, *pendingGoHTTPClientRequest) {
+	return func(_ BpfConnectionInfoT, pending *pendingGoHTTPClientRequest) {
+		if pending == nil || !pending.emitted.CompareAndSwap(false, true) ||
+			parseCtx.discardPendingGoHTTPClients.Load() {
+			return
+		}
+
+		span := HTTPRequestTraceToSpan(parseCtx, &pending.trace)
+		span = enrichedGoHTTPSpan(parseCtx, pending.trace.Conn, &span)
+		parseCtx.emitExtraSpans(span)
+	}
+}
+
+func parseGoRequestLargeBuffer(
+	parseCtx *EBPFParseContext,
+	conn BpfConnectionInfoT,
+	isClient bool,
+) (*http.Request, bool) {
+	sortConnectionInfo(&conn)
+
+	emptyTraceID := [16]uint8{}
+	buffer, ok := extractTCPLargeBuffer(parseCtx, emptyTraceID, packetTypeRequest,
+		directionByPacketType(packetTypeRequest, isClient), conn, ProtocolTypeHTTP)
+	if !ok {
+		return nil, false
+	}
+
+	reqReader := buffer.NewReader()
+	req, err := http.ReadRequest(bufio.NewReader(&reqReader))
+	if err != nil {
+		slog.Debug("error parsing HTTP request from large buffer for enrichment", "error", err)
+		return nil, false
+	}
+	return req, true
+}
+
+func goHTTPClientConnectionKey(conn BpfConnectionInfoT) BpfConnectionInfoT {
+	sortConnectionInfo(&conn)
+	return conn
+}
+
+func (ctx *EBPFParseContext) goClientPayloadExtractionEnabled(cfg *config.EBPFTracer) bool {
+	return cfg != nil && ctx.emitSpans != nil &&
+		cfg.BufferSizes.HTTP > 0 &&
+		cfg.GoHTTPClientBufferTimeout > 0 &&
+		cfg.MaxTransactionTime > 0 &&
+		cfg.PayloadExtraction.HTTP.ClientEnabled()
+}
+
+func (ctx *EBPFParseContext) defersGoHTTPClientRequests() bool {
+	// this value is set in NewEBPFParseContext if goClientPayloadExtractionEnabled was
+	// successfully called on the config. We use this as a check where the config is not
+	// present.
+	return ctx.goHTTPClientMaxPendingTime > 0
+}
+
+func (ctx *EBPFParseContext) deferGoHTTPClientRequest(trace *HTTPRequestTrace) bool {
+	if trace == nil || ctx.pendingGoHTTPClientRequests == nil ||
+		ctx.discardPendingGoHTTPClients.Load() {
+		return false
+	}
+
+	key := goHTTPClientConnectionKey(trace.Conn)
+	ctx.pendingGoHTTPClientRequests.Remove(key)
+
+	ctx.pendingGoHTTPClientRequests.Add(key, &pendingGoHTTPClientRequest{
+		trace:     *trace,
+		createdAt: time.Now(),
+	})
+	return true
+}
+
+func (ctx *EBPFParseContext) refreshPendingGoHTTPClientRequest(conn BpfConnectionInfoT) {
+	if ctx.pendingGoHTTPClientRequests == nil || ctx.discardPendingGoHTTPClients.Load() {
+		return
+	}
+
+	key := goHTTPClientConnectionKey(conn)
+	pending, ok := ctx.pendingGoHTTPClientRequests.Get(key)
+	if !ok || pending == nil || pending.emitted.Load() {
+		return
+	}
+
+	if time.Since(pending.createdAt) >= ctx.goHTTPClientMaxPendingTime {
+		ctx.pendingGoHTTPClientRequests.Remove(key)
+		return
+	}
+
+	ctx.pendingGoHTTPClientRequests.Add(key, pending)
+	if pending.emitted.Load() {
+		ctx.pendingGoHTTPClientRequests.Remove(key)
+	}
 }
 
 func stripPattern(p string) string {

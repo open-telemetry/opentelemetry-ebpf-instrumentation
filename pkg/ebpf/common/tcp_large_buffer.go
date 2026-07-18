@@ -54,8 +54,8 @@ func appendTCPLargeBuffer(parseCtx *EBPFParseContext, record *ringbuf.Record) (r
 	}
 
 	if parseCtx.protocolDebug {
-		fmt.Printf(">>> LargeBufferAppend: (packet=%d direction=%d action=%d size=%d kind=%d)\n%s\n",
-			event.PacketType, event.Direction, event.Action, event.Len, event.Kind,
+		fmt.Printf(">>> LargeBufferAppend: (packet=%d direction=%d action=%d size=%d kind=%d)\nconnection info %v\n%s\n",
+			event.PacketType, event.Direction, event.Action, event.Len, event.Kind, key.connInfo,
 			string(record.RawSample[hdrSize:hdrSize+event.Len]))
 	}
 
@@ -73,29 +73,21 @@ func appendTCPLargeBuffer(parseCtx *EBPFParseContext, record *ringbuf.Record) (r
 	case largeBufferActionAppend:
 		lb, ok := parseCtx.largeBuffers.Get(key)
 		if !ok {
-			// For server events we do not have trace info
-			// until the server handler runs in Go. So we register
-			// the first event on the connection with 0 traceID.
-			// This code remedies the inconsistency.
-			if event.Source == largeBufferSourceGo {
-				emptyKey := key
-				emptyKey.traceID = [16]uint8{}
-				lb, ok := parseCtx.largeBuffers.Get(emptyKey)
-				if ok {
-					parseCtx.largeBuffers.Remove(emptyKey)
-					parseCtx.largeBuffers.Add(key, lb)
-					lb.AppendChunk(chunk)
-				} else {
-					initFunc(chunk)
-				}
-			} else {
-				initFunc(chunk)
-			}
+			initFunc(chunk)
 		} else {
 			lb.AppendChunk(chunk)
 		}
 	default:
 		return request.Span{}, true, fmt.Errorf("invalid large buffer action: %d", event.Action)
+	}
+
+	// Go HTTP responses are the only ones we cannot catch without making the Go uprobe code
+	// a lot more complex. The main issue is that in Go you can finish the request and never care
+	// about the response, which makes it very hard to reliably complete the Go client http request.
+	// This achieves the same thing as the delayed HTTP requests in kprobes, except it's done in
+	// userspace.
+	if event.Source == largeBufferSourceGo && event.PacketType == packetTypeResponse {
+		parseCtx.refreshPendingGoHTTPClientRequest(event.ConnInfo)
 	}
 
 	return request.Span{}, true, nil
@@ -125,14 +117,14 @@ func extractLargeBuffer(
 	lb, ok := parseCtx.largeBuffers.Get(key)
 	if !ok {
 		if parseCtx.protocolDebug {
-			fmt.Printf("<<< LargeBufferExtract: not found! (packet=%d direction=%d kind=%d)\n", key.packetType, key.direction, int(key.kind))
+			fmt.Printf("<<< LargeBufferExtract: not found! (packet=%d direction=%d kind=%d)\nconnection info %v\n", key.packetType, key.direction, int(key.kind), key.connInfo)
 		}
 		return nil, false
 	}
 
 	if parseCtx.protocolDebug {
-		fmt.Printf("<<< LargeBufferExtract: (packet=%d direction=%d kind=%d len=%d)\n%s\n",
-			key.packetType, key.direction, int(key.kind), lb.Len(), lb.UnsafeView())
+		fmt.Printf("<<< LargeBufferExtract: (packet=%d direction=%d kind=%d len=%d)\nconnection info %v\n%s\n",
+			key.packetType, key.direction, int(key.kind), lb.Len(), key.connInfo, lb.UnsafeView())
 	}
 
 	parseCtx.largeBuffers.Remove(key)

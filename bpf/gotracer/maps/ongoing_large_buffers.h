@@ -17,7 +17,7 @@
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
     __type(key, connection_info_t); // sorted connection info
-    __type(value, go_large_buffer_req_t);
+    __type(value, u8);              // client or server request
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
     __uint(pinning, OBI_PIN_INTERNAL);
 } ongoing_large_buffers SEC(".maps");

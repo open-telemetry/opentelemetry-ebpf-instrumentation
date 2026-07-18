@@ -683,6 +683,12 @@ static __always_inline void roundTripStartHelper(struct pt_regs *ctx) {
     bpf_dbg_printk("host=%s", trace.host);
     bpf_dbg_printk("scheme=%s", trace.scheme);
 
+    connection_info_t *conn = bpf_map_lookup_elem(&ongoing_client_connections, &g_key);
+    if (conn) {
+        // Mark it as handled http client connection
+        store_go_handled_connection_info(conn);
+    }
+
     // Write event
     if (bpf_map_update_elem(&go_ongoing_http_client_requests, &g_key, &invocation, BPF_ANY)) {
         bpf_dbg_printk("can't update http client map element");

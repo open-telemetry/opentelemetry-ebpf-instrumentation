@@ -15,6 +15,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unsafe"
 
@@ -244,24 +245,35 @@ type CouchbaseBucketInfo struct {
 	Collection string
 }
 
+const maxPendingGoHTTPClientRequests = 1024
+
+type pendingGoHTTPClientRequest struct {
+	trace     HTTPRequestTrace
+	createdAt time.Time
+	emitted   atomic.Bool
+}
+
 type EBPFParseContext struct {
-	protocolDebug              bool
-	h2c                        *lru.Cache[uint64, h2Connection]
-	redisDBCache               *simplelru.LRU[BpfConnectionInfoT, int]
-	couchbaseBucketCache       *simplelru.LRU[BpfConnectionInfoT, CouchbaseBucketInfo]
-	largeBuffers               *expirable.LRU[largeBufferKey, *largebuf.LargeBuffer]
-	mongoRequestCache          PendingMongoDBRequests
-	mysqlPreparedStatements    *simplelru.LRU[mysqlPreparedStatementsKey, string]
-	postgresPreparedStatements *simplelru.LRU[postgresPreparedStatementsKey, string]
-	postgresPortals            *simplelru.LRU[postgresPortalsKey, string]
-	postgresDBNames            *simplelru.LRU[BpfConnectionInfoT, string]
-	mssqlPreparedStatements    *simplelru.LRU[mssqlPreparedStatementsKey, string]
-	kafkaTopicUUIDToName       *simplelru.LRU[kafkaparser.UUID, string]
-	payloadExtraction          config.PayloadExtraction
-	httpEnricher               *ebpfhttp.HTTPEnricher
-	dnsEvents                  *expirable.LRU[dnsparser.DNSId, *request.Span]
-	pendingSpanLinks           *pendingSpanLinks
-	emitSpans                  func([]request.Span)
+	protocolDebug               bool
+	h2c                         *lru.Cache[uint64, h2Connection]
+	redisDBCache                *simplelru.LRU[BpfConnectionInfoT, int]
+	couchbaseBucketCache        *simplelru.LRU[BpfConnectionInfoT, CouchbaseBucketInfo]
+	largeBuffers                *expirable.LRU[largeBufferKey, *largebuf.LargeBuffer]
+	mongoRequestCache           PendingMongoDBRequests
+	mysqlPreparedStatements     *simplelru.LRU[mysqlPreparedStatementsKey, string]
+	postgresPreparedStatements  *simplelru.LRU[postgresPreparedStatementsKey, string]
+	postgresPortals             *simplelru.LRU[postgresPortalsKey, string]
+	postgresDBNames             *simplelru.LRU[BpfConnectionInfoT, string]
+	mssqlPreparedStatements     *simplelru.LRU[mssqlPreparedStatementsKey, string]
+	kafkaTopicUUIDToName        *simplelru.LRU[kafkaparser.UUID, string]
+	payloadExtraction           config.PayloadExtraction
+	httpEnricher                *ebpfhttp.HTTPEnricher
+	dnsEvents                   *expirable.LRU[dnsparser.DNSId, *request.Span]
+	pendingSpanLinks            *pendingSpanLinks
+	pendingGoHTTPClientRequests *expirable.LRU[BpfConnectionInfoT, *pendingGoHTTPClientRequest]
+	goHTTPClientMaxPendingTime  time.Duration
+	discardPendingGoHTTPClients atomic.Bool
+	emitSpans                   func([]request.Span)
 }
 
 // sharedForwarder is implemented by ringBufForwarder[T] so that
@@ -418,7 +430,7 @@ func NewEBPFParseContext(cfg *config.EBPFTracer, spansChan *msg.Queue[[]request.
 		httpEnricher = ebpfhttp.NewHTTPEnricher(payloadExtraction.HTTP.Enrichment)
 	}
 
-	return &EBPFParseContext{
+	parseCtx := &EBPFParseContext{
 		protocolDebug:              protocolDebug,
 		h2c:                        h2c,
 		redisDBCache:               redisDBCache,
@@ -435,6 +447,29 @@ func NewEBPFParseContext(cfg *config.EBPFTracer, spansChan *msg.Queue[[]request.
 		httpEnricher:               httpEnricher,
 		dnsEvents:                  dnsEvents,
 		emitSpans:                  emitSpans,
+	}
+
+	if parseCtx.goClientPayloadExtractionEnabled(cfg) {
+		parseCtx.goHTTPClientMaxPendingTime = cfg.MaxTransactionTime
+		parseCtx.pendingGoHTTPClientRequests = expirable.NewLRU(
+			maxPendingGoHTTPClientRequests,
+			deferredGoHTTPClientRequestHandler(parseCtx),
+			cfg.GoHTTPClientBufferTimeout,
+		)
+	}
+
+	return parseCtx
+}
+
+// Close discards pending asynchronous parse state.
+func (ctx *EBPFParseContext) Close() {
+	if ctx == nil {
+		return
+	}
+
+	ctx.discardPendingGoHTTPClients.Store(true)
+	if ctx.pendingGoHTTPClientRequests != nil {
+		ctx.pendingGoHTTPClientRequests.Purge()
 	}
 }
 
@@ -520,7 +555,19 @@ func ReadBPFTraceAsSpan(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, reco
 		return finalizeParsedSpan(parseCtx, span, ignore, err)
 	case EventTypeGoChannelLink:
 		return readGoChannelLinkEvent(parseCtx, record)
-	case EventTypeHTTPRequest, EventTypeGRPCRequest, EventTypeHTTPClient, EventTypeGRPCClient:
+	case EventTypeHTTPClient:
+		event, err := ReinterpretCast[HTTPRequestTrace](record.RawSample)
+		if err != nil {
+			return request.Span{}, true, err
+		}
+
+		if parseCtx.defersGoHTTPClientRequests() && parseCtx.deferGoHTTPClientRequest(event) {
+			return request.Span{}, true, nil
+		}
+
+		span := HTTPRequestTraceToSpan(parseCtx, event)
+		return finalizeParsedSpan(parseCtx, span, false, nil)
+	case EventTypeHTTPRequest, EventTypeGRPCRequest, EventTypeGRPCClient:
 		event, err := ReinterpretCast[HTTPRequestTrace](record.RawSample)
 		if err != nil {
 			return request.Span{}, true, err
