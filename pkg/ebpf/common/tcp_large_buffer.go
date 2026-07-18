@@ -132,6 +132,25 @@ func extractLargeBuffer(
 	return lb, true
 }
 
+// containsTCPLargeBuffer reports whether a large buffer is currently stored for
+// the given key, without consuming it (unlike extractTCPLargeBuffer).
+func containsTCPLargeBuffer(
+	parseCtx *EBPFParseContext,
+	traceID [16]uint8,
+	packetType, direction uint8,
+	connInfo BpfConnectionInfoT,
+	protocolType uint8,
+) bool {
+	key := largeBufferKey{
+		traceID:    traceID,
+		packetType: packetType,
+		direction:  direction,
+		connInfo:   connInfo,
+		kind:       protocolToLargeBufferKind(protocolType),
+	}
+	return parseCtx.largeBuffers.Contains(key)
+}
+
 func protocolToLargeBufferKind(protocolType uint8) largeBufferKind {
 	switch protocolType {
 	case ProtocolTypeKafka, ProtocolTypeMySQL, ProtocolTypePostgres, ProtocolTypeMSSQL, ProtocolTypeHTTP:

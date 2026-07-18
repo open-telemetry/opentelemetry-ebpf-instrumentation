@@ -228,8 +228,6 @@ int obi_uprobe_netFdWrite(struct pt_regs *ctx) {
             cleanup_duplicate_generic_events_sorted(&p_conn);
 
             if (http_large_buffer_skip(len)) {
-                return 0;
-            } else {
                 send_http_large_buffers_if_needed(&p_conn.conn, (void *)buf, len, TCP_SEND);
             }
             return 0;

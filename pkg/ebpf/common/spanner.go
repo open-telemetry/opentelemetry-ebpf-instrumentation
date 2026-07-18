@@ -179,7 +179,23 @@ func (ctx *EBPFParseContext) deferGoHTTPClientRequest(trace *HTTPRequestTrace) b
 	}
 
 	key := goHTTPClientConnectionKey(trace.Conn)
-	ctx.pendingGoHTTPClientRequests.Remove(key)
+
+	// If a request is already pending for this connection, the arrival of a new
+	// request means the connection is being reused, which implies the previous
+	// request/response exchange has completed. Flush the previous one (the LRU
+	// eviction callback emits it) and handle the new request immediately rather
+	// than deferring it again.
+	if ctx.pendingGoHTTPClientRequests.Contains(key) {
+		ctx.pendingGoHTTPClientRequests.Remove(key)
+		return false
+	}
+
+	// Only defer if we captured the request payload. Without it there is nothing
+	// to wait for, so the span can be emitted immediately.
+	if !containsTCPLargeBuffer(ctx, [16]uint8{}, packetTypeRequest,
+		directionByPacketType(packetTypeRequest, true), key, ProtocolTypeHTTP) {
+		return false
+	}
 
 	ctx.pendingGoHTTPClientRequests.Add(key, &pendingGoHTTPClientRequest{
 		trace:     *trace,
