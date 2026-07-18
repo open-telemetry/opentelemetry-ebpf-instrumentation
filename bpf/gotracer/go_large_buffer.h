@@ -98,8 +98,9 @@ ship_large_request(void *buf, s64 len, const connection_info_t *conn, u8 event_t
         (event_type == k_lb_event_type_client && direction == TCP_RECV)) {
         packet_type = PACKET_TYPE_RESPONSE;
     } else if (event_type == k_lb_event_type_unknown) {
-        if (prev_event_type && is_http == k_http_not) {
-            // We don't know what this is
+        if (!prev_event_type) {
+            // We don't know what this is, likely HTTP2 which
+            // we can't handle
             return;
         }
         if (is_http == k_http_response) {

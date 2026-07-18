@@ -227,7 +227,7 @@ int obi_uprobe_netFdWrite(struct pt_regs *ctx) {
         if (already_handled_request_sorted(&p_conn.conn)) {
             cleanup_duplicate_generic_events_sorted(&p_conn);
 
-            if (http_large_buffer_skip(len)) {
+            if (!http_large_buffer_skip(len)) {
                 send_http_large_buffers_if_needed(&p_conn.conn, (void *)buf, len, TCP_SEND);
             }
             return 0;

@@ -39,18 +39,6 @@ static __always_inline void *unwrap_conn(void *conn) {
     return conn_conn;
 }
 
-static __always_inline void *should_process(void *conn_conn, go_addr_key_t *g_key) {
-    void *fd_ptr = fd_ptr_from_conn(conn_conn);
-
-    bpf_dbg_printk("found fd_ptr %llx", fd_ptr);
-
-    if (already_handled_goroutine(g_key, fd_ptr)) {
-        return 0;
-    }
-
-    return fd_ptr;
-}
-
 SEC("uprobe/cryptoTlsRead")
 int obi_uprobe_cryptoTlsRead(struct pt_regs *ctx) {
     void *goroutine_addr = GOROUTINE_PTR(ctx);
@@ -73,12 +61,18 @@ int obi_uprobe_cryptoTlsRead(struct pt_regs *ctx) {
 
     void *conn_conn = unwrap_conn(conn);
     if (conn_conn) {
-        void *fd_ptr = should_process(conn_conn, &g_key);
+        void *fd_ptr = fd_ptr_from_conn(conn_conn);
+
+        bpf_dbg_printk("found fd_ptr %llx", fd_ptr);
+
         if (!fd_ptr) {
+            return 0;
+        }
+
+        if (already_handled_goroutine(&g_key, fd_ptr)) {
             if (!http_large_buffers_enabled()) {
                 return 0;
             }
-
             args.skip = 1;
         }
 
@@ -197,12 +191,19 @@ int obi_uprobe_cryptoTlsWrite(struct pt_regs *ctx) {
 
     void *conn_conn = unwrap_conn(c);
     if (conn_conn) {
-        void *fd_ptr = should_process(conn_conn, &g_key);
+        void *fd_ptr = fd_ptr_from_conn(conn_conn);
+
+        bpf_dbg_printk("found fd_ptr %llx", fd_ptr);
+
         if (!fd_ptr) {
-            if (!http_large_buffer_skip(len)) {
-                send_http_large_buffers_if_needed(conn_conn, buf, len, TCP_SEND);
-            }
             return 0;
+        }
+
+        if (already_handled_goroutine(&g_key, fd_ptr)) {
+            if (!http_large_buffers_enabled()) {
+                return 0;
+            }
+            args.skip = 1;
         }
 
         if (!get_conn_info_from_fd(fd_ptr, &args.p_conn.conn, false)) {
@@ -212,6 +213,11 @@ int obi_uprobe_cryptoTlsWrite(struct pt_regs *ctx) {
         const u64 id = bpf_get_current_pid_tgid();
         args.p_conn.pid = pid_from_pid_tgid(id);
         args.byte_ptr = (u64)buf;
+
+        if (args.skip) {
+            send_http_large_buffers_if_needed(&args.p_conn.conn, buf, len, TCP_SEND);
+            return 0;
+        }
 
         dbg_print_http_connection_info(&args.p_conn.conn);
 
@@ -225,7 +231,7 @@ int obi_uprobe_cryptoTlsWrite(struct pt_regs *ctx) {
         if (already_handled_request_sorted(&args.p_conn.conn)) {
             cleanup_duplicate_generic_events_sorted(&args.p_conn);
             if (!http_large_buffer_skip(len)) {
-                send_http_large_buffers_if_needed(conn_conn, buf, len, TCP_SEND);
+                send_http_large_buffers_if_needed(&args.p_conn.conn, buf, len, TCP_SEND);
             }
             return 0;
         }
