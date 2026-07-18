@@ -130,13 +130,13 @@ int obi_uprobe_cryptoTlsReadRet(struct pt_regs *ctx) {
 
         if (!args->byte_ptr || args->skip) {
             if (http_large_buffer_skip(len)) {
-                return 0;
+                goto done;
             } else if (args->byte_ptr) {
                 send_http_large_buffers_if_needed(
                     &args->p_conn.conn, (void *)args->byte_ptr, len, TCP_RECV);
             }
 
-            return 0;
+            goto done;
         }
 
         const u16 orig_dport = args->p_conn.conn.d_port;
