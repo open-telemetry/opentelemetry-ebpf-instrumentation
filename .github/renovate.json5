@@ -20,7 +20,8 @@
   "pip-compile": {
     "managerFilePatterns": [
       "/^internal\\/test\\/integration\\/components\\/.*\\/requirements(-[^/]+)?\\.txt$/",
-      "/^\\.github\\/.*-requirements\\.txt$/"
+      "/^\\.github\\/.*-requirements\\.txt$/",
+      "/^examples\\/store-demo\\/app\\/src\\/.*\\/requirements\\.txt$/"
     ]
   },
   "customManagers": [
