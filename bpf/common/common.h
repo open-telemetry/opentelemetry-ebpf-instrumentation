@@ -93,7 +93,7 @@ typedef struct http_request_trace {
 
 typedef struct sql_request_trace {
     u8 type; // Must be first
-    u8 _pad[1];
+    u8 sub_type;
     u16 status;
     pid_info pid;
     u64 start_monotime_ns;

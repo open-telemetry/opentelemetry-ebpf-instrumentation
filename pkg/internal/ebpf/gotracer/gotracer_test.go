@@ -4,8 +4,11 @@
 package gotracer
 
 import (
+	"bytes"
+	"debug/elf"
 	"io"
 	"log/slog"
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -67,6 +70,8 @@ func TestGoRuntimeMetricAvailability(t *testing.T) {
 	assert.NotZero(t, mask&goRuntimeMetricProcessorLimitMask)
 	assert.NotZero(t, mask&goRuntimeMetricGOGCMask)
 	assert.Zero(t, mask&goRuntimeMetricCPUTimeMask)
+	assert.Zero(t, mask&goRuntimeMetricMemoryUsedMask)
+	assert.Zero(t, mask&goRuntimeMetricMemoryAllocsMask)
 
 	baseOffsets.Field[goexec.RuntimeGCControllerMemoryLimitPos] = uint64(16)
 	assert.NotZero(t, goRuntimeMetricMask(baseOffsets)&goRuntimeMetricMemoryLimitMask)
@@ -79,6 +84,18 @@ func TestGoRuntimeMetricAvailability(t *testing.T) {
 	delete(baseOffsets.Field, goRuntimeCPUTimeOffsetFields[0])
 	assert.Zero(t, goRuntimeMetricMask(baseOffsets)&goRuntimeMetricCPUTimeMask)
 
+	for _, field := range goRuntimeMemoryOffsetFields {
+		baseOffsets.Field[field] = uint64(field)
+	}
+	memoryMask := goRuntimeMetricMask(baseOffsets)
+	assert.NotZero(t, memoryMask&goRuntimeMetricMemoryUsedMask)
+	assert.NotZero(t, memoryMask&goRuntimeMetricMemoryAllocsMask)
+
+	delete(baseOffsets.Field, goRuntimeMemoryOffsetFields[0])
+	memoryMask = goRuntimeMetricMask(baseOffsets)
+	assert.Zero(t, memoryMask&goRuntimeMetricMemoryUsedMask)
+	assert.Zero(t, memoryMask&goRuntimeMetricMemoryAllocsMask)
+
 	delete(baseOffsets.Field, goexec.RuntimeMemstatsNumGCPos)
 	assert.False(t, hasBaseGoRuntimeMetrics(goRuntimeMetricMask(baseOffsets)))
 }
@@ -89,6 +106,117 @@ func TestGoRuntimeMetricMaskABI(t *testing.T) {
 	assert.Equal(t, goRuntimeMetricProcessorLimitMask, uint64(1<<2))
 	assert.Equal(t, goRuntimeMetricGOGCMask, uint64(1<<3))
 	assert.Equal(t, goRuntimeMetricCPUTimeMask, uint64(1<<4))
+	assert.Equal(t, goRuntimeMetricMemoryUsedMask, uint64(1<<5))
+	assert.Equal(t, goRuntimeMetricMemoryAllocsMask, uint64(1<<6))
+}
+
+func TestGoRuntimeMetricsUseHeapSnapshotProbe(t *testing.T) {
+	disableContextPropagationForTest(t)
+
+	tracer := &Tracer{
+		currentBinaryIno: 1,
+		goRuntimeMetricMaskByIno: map[uint64]uint64{
+			1: goRuntimeMetricBaseMask,
+			2: goRuntimeMetricBaseMask | goRuntimeMetricCPUTimeMask,
+			3: goRuntimeMetricBaseMask | goRuntimeMetricMemoryUsedMask,
+		},
+	}
+
+	probes := tracer.GoProbes()
+	require.Contains(t, probes, "runtime.gcMarkDone")
+	assert.NotContains(t, probes, "runtime.(*scavengeIndex).nextGen")
+
+	tracer.currentBinaryIno = 2
+	probes = tracer.GoProbes()
+	require.Contains(t, probes, "runtime.gcMarkDone")
+	assert.NotContains(t, probes, "runtime.(*scavengeIndex).nextGen")
+
+	tracer.currentBinaryIno = 3
+	probes = tracer.GoProbes()
+	require.Contains(t, probes, "runtime.(*scavengeIndex).nextGen")
+	assert.NotContains(t, probes, "runtime.gcMarkDone")
+}
+
+func TestGoRuntimeMetricsFallBackWhenHeapProbeIsMissing(t *testing.T) {
+	disableContextPropagationForTest(t)
+
+	var logs bytes.Buffer
+	tracer := &Tracer{log: slog.New(slog.NewTextHandler(&logs, nil))}
+	fileInfo := exec.New(exec.Init{
+		ELF:        currentExecutableELF(t),
+		Ino:        1,
+		Pid:        123,
+		CmdExePath: "/test/server",
+	})
+	offsets := goRuntimeMetricOffsets()
+
+	tracer.recordGoRuntimeMetricAvailability(fileInfo, offsets)
+	tracer.ProcessBinary(fileInfo)
+
+	mask := tracer.goRuntimeMetricMaskByIno[fileInfo.Ino()]
+	assert.True(t, hasBaseGoRuntimeMetrics(mask))
+	assert.NotZero(t, mask&goRuntimeMetricMemoryLimitMask)
+	assert.NotZero(t, mask&goRuntimeMetricProcessorLimitMask)
+	assert.NotZero(t, mask&goRuntimeMetricCPUTimeMask)
+	assert.Zero(t, mask&goRuntimeMetricHeapSnapshotMask)
+
+	probes := tracer.GoProbes()
+	require.Contains(t, probes, goRuntimeMetricProbeSymbols[0])
+	assert.NotContains(t, probes, goRuntimeMetricProbeSymbols[1])
+	assert.Contains(t, logs.String(), "Go runtime heap metric symbol unresolved; using scalar fallback")
+}
+
+func TestGoRuntimeMetricsUseResolvedHeapProbe(t *testing.T) {
+	disableContextPropagationForTest(t)
+
+	tracer := &Tracer{log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	fileInfo := exec.New(exec.Init{ELF: currentExecutableELF(t), Ino: 1})
+	offsets := goRuntimeMetricOffsets()
+	offsets.Funcs[goRuntimeMetricProbeSymbols[1]] = goexec.FuncOffsets{}
+
+	tracer.recordGoRuntimeMetricAvailability(fileInfo, offsets)
+	tracer.ProcessBinary(fileInfo)
+
+	mask := tracer.goRuntimeMetricMaskByIno[fileInfo.Ino()]
+	assert.NotZero(t, mask&goRuntimeMetricCPUTimeMask)
+	assert.Equal(t, goRuntimeMetricHeapSnapshotMask, mask&goRuntimeMetricHeapSnapshotMask)
+
+	probes := tracer.GoProbes()
+	require.Contains(t, probes, goRuntimeMetricProbeSymbols[1])
+	assert.NotContains(t, probes, goRuntimeMetricProbeSymbols[0])
+}
+
+func TestGoRuntimeMetricMaskRequiresSizeClassTableForAllocations(t *testing.T) {
+	var logs bytes.Buffer
+	tracer := &Tracer{log: slog.New(slog.NewTextHandler(&logs, nil))}
+	fileInfo := exec.New(exec.Init{Ino: 1, Pid: 123, CmdExePath: "/test/server"})
+	mask := goRuntimeMetricBaseMask |
+		goRuntimeMetricCPUTimeMask |
+		goRuntimeMetricMemoryUsedMask |
+		goRuntimeMetricMemoryAllocsMask
+
+	got := tracer.goRuntimeMetricMaskForSymbols(fileInfo, mask, goexec.RuntimeMetricSymbols{})
+
+	assert.Zero(t, got&goRuntimeMetricMemoryAllocsMask)
+	assert.NotZero(t, got&goRuntimeMetricMemoryUsedMask)
+	assert.NotZero(t, got&goRuntimeMetricCPUTimeMask)
+	assert.True(t, hasBaseGoRuntimeMetrics(got))
+	assert.Contains(t, logs.String(),
+		"Go runtime size-class table symbol unresolved; disabling allocation metrics")
+}
+
+func TestGoRuntimeMetricMaskKeepsAllocationsWithSizeClassTable(t *testing.T) {
+	var logs bytes.Buffer
+	tracer := &Tracer{log: slog.New(slog.NewTextHandler(&logs, nil))}
+	fileInfo := exec.New(exec.Init{Ino: 1})
+	mask := goRuntimeMetricBaseMask | goRuntimeMetricMemoryAllocsMask
+
+	got := tracer.goRuntimeMetricMaskForSymbols(fileInfo, mask, goexec.RuntimeMetricSymbols{
+		SizeClassToSizesAddr: 0x1234,
+	})
+
+	assert.Equal(t, mask, got)
+	assert.Empty(t, logs.String())
 }
 
 func TestProcessBinarySelectsRecordedChannelOffsetState(t *testing.T) {
@@ -116,6 +244,33 @@ func goChannelOffsets() *goexec.Offsets {
 		goexec.HchanSendxPos:    uint64(48),
 		goexec.HchanRecvxPos:    uint64(56),
 	}}
+}
+
+func goRuntimeMetricOffsets() *goexec.Offsets {
+	offsets := &goexec.Offsets{
+		Funcs: map[string]goexec.FuncOffsets{
+			goRuntimeMetricProbeSymbols[0]: {},
+		},
+		Field: goexec.FieldOffsets{},
+	}
+	for _, field := range goRuntimeMetricOffsetFields {
+		offsets.Field[field] = uint64(field)
+	}
+	return offsets
+}
+
+func currentExecutableELF(t *testing.T) *elf.File {
+	t.Helper()
+
+	executable, err := os.Executable()
+	require.NoError(t, err)
+
+	elfFile, err := elf.Open(executable)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, elfFile.Close())
+	})
+	return elfFile
 }
 
 func assertNoGoChannelLinkProbes(t *testing.T, probes map[string][]*ebpfcommon.ProbeDesc) {

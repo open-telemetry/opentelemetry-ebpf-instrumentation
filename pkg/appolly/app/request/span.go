@@ -88,29 +88,30 @@ const (
 type SQLKind uint8
 
 const (
-	DBGeneric SQLKind = iota + 1
+	DBGeneric SQLKind = iota
 	DBPostgres
 	DBMySQL
 	DBMSSQL
 )
 
 const (
-	HTTPSubtypeNone          = 0  // http
-	HTTPSubtypeGraphQL       = 1  // http + graphql
-	HTTPSubtypeElasticsearch = 2  // http + elasticsearch
-	HTTPSubtypeAWSS3         = 3  // http + aws s3
-	HTTPSubtypeAWSSQS        = 4  // http + aws sqs
-	HTTPSubtypeSQLPP         = 5  // http + sql++ (couchbase, etc.)
-	HTTPSubtypeOpenAI        = 6  // http + OpenAI
-	HTTPSubtypeAnthropic     = 7  // http + Anthropic
-	HTTPSubtypeGemini        = 8  // http + Google AI Studio (Gemini)
-	HTTPSubtypeJSONRPC       = 9  // http + JSON-RPC
-	HTTPSubtypeAWSBedrock    = 10 // http + AWS Bedrock
-	HTTPSubtypeQwen          = 11 // http + Qwen (DashScope)
-	HTTPSubtypeMCP           = 12 // http + Model Context Protocol
-	HTTPSubtypeEmbedding     = 13 // http + generic embedding provider (Voyage, Cohere, Jina)
-	HTTPSubtypeRerank        = 14 // http + Rerank (Cohere, Jina, Voyage, etc.)
-	HTTPSubtypeRetrieval     = 15 // http + vector retrieval (Pinecone, Qdrant, Milvus, Chroma, Weaviate, etc.)
+	HTTPSubtypeNone             = 0  // http
+	HTTPSubtypeGraphQL          = 1  // http + graphql
+	HTTPSubtypeElasticsearch    = 2  // http + elasticsearch
+	HTTPSubtypeAWSS3            = 3  // http + aws s3
+	HTTPSubtypeAWSSQS           = 4  // http + aws sqs
+	HTTPSubtypeSQLPP            = 5  // http + sql++ (couchbase, etc.)
+	HTTPSubtypeOpenAI           = 6  // http + OpenAI
+	HTTPSubtypeAnthropic        = 7  // http + Anthropic
+	HTTPSubtypeGemini           = 8  // http + Google AI Studio (Gemini)
+	HTTPSubtypeJSONRPC          = 9  // http + JSON-RPC
+	HTTPSubtypeAWSBedrock       = 10 // http + AWS Bedrock
+	HTTPSubtypeQwen             = 11 // http + Qwen (DashScope)
+	HTTPSubtypeMCP              = 12 // http + Model Context Protocol
+	HTTPSubtypeEmbedding        = 13 // http + generic embedding provider (Voyage, Cohere, Jina)
+	HTTPSubtypeRerank           = 14 // http + Rerank (Cohere, Jina, Voyage, etc.)
+	HTTPSubtypeRetrieval        = 15 // http + vector retrieval (Pinecone, Qdrant, Milvus, Chroma, Weaviate, etc.)
+	HTTPSubtypeOpenAICompatible = 16 // http + OpenAI-compatible API (custom provider)
 )
 
 func IsGenAISubtype(subtype int) bool {
@@ -122,7 +123,8 @@ func IsGenAISubtype(subtype int) bool {
 		subtype == HTTPSubtypeMCP ||
 		subtype == HTTPSubtypeEmbedding ||
 		subtype == HTTPSubtypeRerank ||
-		subtype == HTTPSubtypeRetrieval
+		subtype == HTTPSubtypeRetrieval ||
+		subtype == HTTPSubtypeOpenAICompatible
 }
 
 //nolint:cyclop
@@ -290,12 +292,13 @@ type GenAI struct {
 	// both via GetInputTokens()/GetOutputTokens() and the Output field.
 	// A separate field (rather than sharing OpenAI) keeps provider
 	// routing explicit and allows future divergence without refactoring.
-	Qwen      *VendorOpenAI
-	Bedrock   *VendorBedrock
-	MCP       *MCPCall
-	Embedding *VendorEmbedding
-	Rerank    *VendorRerank
-	Retrieval *VendorRetrieval
+	Qwen             *VendorOpenAI
+	Bedrock          *VendorBedrock
+	MCP              *MCPCall
+	Embedding        *VendorEmbedding
+	Rerank           *VendorRerank
+	Retrieval        *VendorRetrieval
+	OpenAICompatible *VendorOpenAI
 }
 
 type OpenAIPromptTokensDetails struct {
@@ -373,6 +376,7 @@ type VendorOpenAI struct {
 	SystemFingerprint string          `json:"system_fingerprint,omitempty"`
 	APIType           string          `json:"-"`
 	ToolCalls         []ToolCall      `json:"-"`
+	ProviderName      string          `json:"-"`
 }
 
 func (ai *VendorOpenAI) GetFinishReasons() []string {
@@ -415,23 +419,24 @@ func (ai *VendorOpenAI) GetEmbeddingDimensions() int {
 }
 
 type OpenAIInput struct {
-	Input           string          `json:"input"`
-	Prompt          string          `json:"prompt"`
-	Model           string          `json:"model"`
-	Instructions    string          `json:"instructions"`
-	Messages        json.RawMessage `json:"messages"`
-	Items           json.RawMessage `json:"items"`
-	Temperature     float64         `json:"temperature"`
-	Dimensions      int             `json:"dimensions,omitempty"`
-	MaxTokens       int             `json:"max_tokens,omitempty"`
-	N               int             `json:"n,omitempty"`
-	Stop            json.RawMessage `json:"stop,omitempty"`
-	PresencePenalty float64         `json:"presence_penalty,omitempty"`
-	Stream          bool            `json:"stream,omitempty"`
-	EncodingFormat  string          `json:"encoding_format,omitempty"`
-	Seed            *int            `json:"seed,omitempty"`
-	Tools           json.RawMessage `json:"tools,omitempty"`
-	ServiceTier     string          `json:"service_tier,omitempty"`
+	Input            string          `json:"input"`
+	Prompt           string          `json:"prompt"`
+	Model            string          `json:"model"`
+	Instructions     string          `json:"instructions"`
+	Messages         json.RawMessage `json:"messages"`
+	Items            json.RawMessage `json:"items"`
+	Temperature      float64         `json:"temperature"`
+	Dimensions       int             `json:"dimensions,omitempty"`
+	MaxTokens        int             `json:"max_tokens,omitempty"`
+	N                int             `json:"n,omitempty"`
+	Stop             json.RawMessage `json:"stop,omitempty"`
+	FrequencyPenalty float64         `json:"frequency_penalty,omitempty"`
+	PresencePenalty  float64         `json:"presence_penalty,omitempty"`
+	Stream           bool            `json:"stream,omitempty"`
+	EncodingFormat   string          `json:"encoding_format,omitempty"`
+	Seed             *int            `json:"seed,omitempty"`
+	Tools            json.RawMessage `json:"tools,omitempty"`
+	ServiceTier      string          `json:"service_tier,omitempty"`
 }
 
 func (air *OpenAIInput) GetStopSequences() []string {
@@ -783,11 +788,13 @@ type JSONRPC struct {
 
 // GenAI operation name constants aligned with OTel semantic conventions.
 const (
-	ChatOperationName        = "chat"
-	CompletionOperationName  = "text_completion"
-	GenerationOperationName  = "generation"
-	InvokeModelOperationName = "invoke_model"
-	EmbeddingOperationName   = "embeddings"
+	ChatOperationName         = "chat"
+	CompletionOperationName   = "text_completion"
+	GenerationOperationName   = "generation"
+	InvokeModelOperationName  = "invoke_model"
+	EmbeddingOperationName    = "embeddings"
+	ResponseOperationName     = "response"
+	ConversationOperationName = "conversation"
 )
 
 // VendorEmbedding represents a generic embedding API provider such as
@@ -2182,6 +2189,10 @@ func (s *Span) GenAIInputTokens() int {
 		return s.GenAI.Qwen.Usage.GetInputTokens()
 	}
 
+	if s.GenAI.OpenAICompatible != nil {
+		return s.GenAI.OpenAICompatible.Usage.GetInputTokens()
+	}
+
 	if s.GenAI.Bedrock != nil {
 		return s.GenAI.Bedrock.Output.InputTokens
 	}
@@ -2222,6 +2233,10 @@ func (s *Span) GenAIOutputTokens() int {
 		return s.GenAI.Qwen.Usage.GetOutputTokens()
 	}
 
+	if s.GenAI.OpenAICompatible != nil {
+		return s.GenAI.OpenAICompatible.Usage.GetOutputTokens()
+	}
+
 	if s.GenAI.Bedrock != nil {
 		return s.GenAI.Bedrock.Output.OutputTokens
 	}
@@ -2248,6 +2263,9 @@ func (s *Span) GenAIOperationName() string {
 	}
 	if s.GenAI.Qwen != nil {
 		return s.GenAI.Qwen.OperationName
+	}
+	if s.GenAI.OpenAICompatible != nil {
+		return s.GenAI.OpenAICompatible.OperationName
 	}
 	if s.GenAI.Bedrock != nil {
 		return InvokeModelOperationName
@@ -2280,6 +2298,12 @@ func (s *Span) GenAIProviderName() string {
 	if s.GenAI.Qwen != nil {
 		return attr.QwenProviderName
 	}
+	if s.GenAI.OpenAICompatible != nil {
+		if s.GenAI.OpenAICompatible.ProviderName != "" {
+			return s.GenAI.OpenAICompatible.ProviderName
+		}
+		return "custom"
+	}
 	if s.GenAI.Bedrock != nil {
 		return semconv.GenAIProviderNameAWSBedrock.Value.AsString()
 	}
@@ -2310,6 +2334,9 @@ func (s *Span) GenAIRequestModel() string {
 	}
 	if s.GenAI.Qwen != nil {
 		return s.GenAI.Qwen.Request.Model
+	}
+	if s.GenAI.OpenAICompatible != nil {
+		return s.GenAI.OpenAICompatible.Request.Model
 	}
 	if s.GenAI.Bedrock != nil {
 		return s.GenAI.Bedrock.Model
@@ -2350,6 +2377,12 @@ func (s *Span) GenAIResponseModel() string {
 			return s.GenAI.Qwen.ResponseModel
 		}
 		return s.GenAI.Qwen.Request.Model
+	}
+	if s.GenAI.OpenAICompatible != nil {
+		if s.GenAI.OpenAICompatible.ResponseModel != "" {
+			return s.GenAI.OpenAICompatible.ResponseModel
+		}
+		return s.GenAI.OpenAICompatible.Request.Model
 	}
 	if s.GenAI.Bedrock != nil {
 		return s.GenAI.Bedrock.Model

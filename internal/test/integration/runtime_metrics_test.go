@@ -22,6 +22,8 @@ const (
 	prometheusInstantVectorValueLen = 2
 	runtimeMetricsHostPort          = "8392"
 	runtimeMetricsGo117HostPort     = "8393"
+	runtimeMemoryGaugeTolerance     = 16 * 1024 * 1024
+	runtimeMetricsReadIterations    = 12
 )
 
 func testRuntimeMetricsGo(t *testing.T) {
@@ -34,6 +36,8 @@ func testRuntimeMetricsGo(t *testing.T) {
 		{runtimeName: "/sched/gomaxprocs:threads", obiName: "go_processor_limit"},
 		{runtimeName: "/gc/gogc:percent", obiName: "go_config_gogc_percent"},
 		{runtimeName: "/gc/cycles/total:gc-cycles", obiName: "go_memory_gc_cycles_total"},
+		{runtimeName: "/gc/heap/allocs:bytes", obiName: "go_memory_allocated_bytes_total"},
+		{runtimeName: "/gc/heap/allocs:objects", obiName: "go_memory_allocations_total"},
 	}
 	cpuMetrics := []struct {
 		runtimeName     string
@@ -74,6 +78,19 @@ func testRuntimeMetricsGo(t *testing.T) {
 			requirePositive: true,
 		},
 	}
+	gaugeMetrics := []struct {
+		runtimeName string
+		obiQuery    string
+	}{
+		{
+			runtimeName: "go.memory.used/stack",
+			obiQuery:    `go_memory_used_bytes{go_memory_type="stack"}`,
+		},
+		{
+			runtimeName: "go.memory.used/other",
+			obiQuery:    `go_memory_used_bytes{go_memory_type="other"}`,
+		},
+	}
 
 	forceRuntimeGC(t)
 	expected := readRuntimeMetrics(t)
@@ -97,7 +114,20 @@ func testRuntimeMetricsGo(t *testing.T) {
 				metric.requirePositive,
 			)
 		}
+		for _, metric := range gaugeMetrics {
+			obiValue := runtimeMetricValue(ct, pq, metric.obiQuery)
+			assertRuntimeMetricGaugeObserved(
+				ct,
+				current,
+				metric.runtimeName,
+				obiValue,
+				metric.obiQuery,
+				runtimeMemoryGaugeTolerance,
+			)
+		}
 	}, testTimeout, 250*time.Millisecond)
+
+	assertRuntimeMemoryMetricsDuringConcurrentReads(t, pq)
 }
 
 func testRuntimeMetricsGo117(t *testing.T) {
@@ -110,6 +140,9 @@ func testRuntimeMetricsGo117(t *testing.T) {
 	unavailableMetrics := []string{
 		"go_memory_limit_bytes",
 		"go_cpu_time_seconds_total",
+		"go_memory_used_bytes",
+		"go_memory_allocated_bytes_total",
+		"go_memory_allocations_total",
 	}
 
 	forceRuntimeGCAtPort(t, runtimeMetricsGo117HostPort)
@@ -124,6 +157,29 @@ func testRuntimeMetricsGo117(t *testing.T) {
 			assert.Emptyf(ct, results, "OBI %s should not be exported", metric)
 		}
 	}, testTimeout, 250*time.Millisecond)
+}
+
+// Repeated runtime/metrics.Read calls exercise Go's consistentHeapStats slot rotation
+// while GC runs, ensuring OBI does not export counters from a partial rotation.
+func assertRuntimeMemoryMetricsDuringConcurrentReads(t *testing.T, pq promtest.Client) {
+	setRuntimeMetricsReadLoop(t, true)
+	defer setRuntimeMetricsReadLoop(t, false)
+
+	queries := []string{"go_memory_allocated_bytes_total", "go_memory_allocations_total"}
+	previous := make(map[string]float64, len(queries))
+	for _, query := range queries {
+		previous[query] = runtimeMetricValue(t, pq, query)
+	}
+
+	for range runtimeMetricsReadIterations {
+		forceRuntimeGC(t)
+		time.Sleep(300 * time.Millisecond)
+		for _, query := range queries {
+			current := runtimeMetricValue(t, pq, query)
+			assert.GreaterOrEqualf(t, current, previous[query], "%s regressed during concurrent runtime/metrics reads", query)
+			previous[query] = current
+		}
+	}
 }
 
 func assertRuntimeMetricObserved(
@@ -173,6 +229,22 @@ func assertRuntimeMetricCounterObserved(
 		"OBI %s should not be newer than the current service runtime/metrics value for %s", obiName, runtimeName)
 }
 
+func assertRuntimeMetricGaugeObserved(
+	t require.TestingT,
+	current map[string]float64,
+	runtimeName string,
+	obiValue float64,
+	obiName string,
+	tolerance float64,
+) {
+	currentValue := directRuntimeMetricValue(t, current, runtimeName)
+
+	assert.Positivef(t, currentValue, "service runtime/metrics %s should be positive", runtimeName)
+	assert.Positivef(t, obiValue, "OBI %s should be positive", obiName)
+	assert.InDeltaf(t, currentValue, obiValue, tolerance,
+		"OBI %s should match service runtime/metrics value for %s within tolerance", obiName, runtimeName)
+}
+
 func directRuntimeMetricValue(t require.TestingT, runtimeMetrics map[string]float64, name string) float64 {
 	value, ok := runtimeMetrics[name]
 	require.Truef(t, ok, "service runtime/metrics missing %s", name)
@@ -203,6 +275,21 @@ func forceRuntimeGCAtPort(t require.TestingT, port string) {
 	defer conn.Close()
 
 	_, err := conn.Write([]byte("FORCE_GC\n"))
+	require.NoError(t, err)
+
+	_, err = bufio.NewReader(conn).ReadString('\n')
+	require.NoError(t, err)
+}
+
+func setRuntimeMetricsReadLoop(t require.TestingT, enabled bool) {
+	conn := runtimeMetricsConnAtPort(t, runtimeMetricsHostPort)
+	defer conn.Close()
+
+	command := "STOP_RUNTIME_METRICS_READ_LOOP\n"
+	if enabled {
+		command = "START_RUNTIME_METRICS_READ_LOOP\n"
+	}
+	_, err := conn.Write([]byte(command))
 	require.NoError(t, err)
 
 	_, err = bufio.NewReader(conn).ReadString('\n')

@@ -555,29 +555,35 @@ func ReadBPFTraceAsSpan(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, reco
 		return finalizeParsedSpan(parseCtx, span, ignore, err)
 	case EventTypeGoChannelLink:
 		return readGoChannelLinkEvent(parseCtx, record)
-	case EventTypeHTTPClient:
-		event, err := ReinterpretCast[HTTPRequestTrace](record.RawSample)
-		if err != nil {
-			return request.Span{}, true, err
-		}
-
-		if parseCtx.defersGoHTTPClientRequests() && parseCtx.deferGoHTTPClientRequest(event) {
-			return request.Span{}, true, nil
-		}
-
-		span := HTTPRequestTraceToSpan(parseCtx, event)
-		return finalizeParsedSpan(parseCtx, span, false, nil)
-	case EventTypeHTTPRequest, EventTypeGRPCRequest, EventTypeGRPCClient:
-		event, err := ReinterpretCast[HTTPRequestTrace](record.RawSample)
-		if err != nil {
-			return request.Span{}, true, err
-		}
-
-		span := HTTPRequestTraceToSpan(parseCtx, event)
-		return finalizeParsedSpan(parseCtx, span, false, nil)
-	default:
-		return request.Span{}, true, fmt.Errorf("unknown event type %d", eventType)
 	}
+
+	event, err := ReinterpretCast[HTTPRequestTrace](record.RawSample)
+	if err != nil {
+		return request.Span{}, true, err
+	}
+
+	if parseCtx.defersGoHTTPClientRequests() && parseCtx.deferGoHTTPClientRequest(event) {
+		return request.Span{}, true, nil
+	}
+
+	span := HTTPRequestTraceToSpan(parseCtx, event)
+	if isH2CPrefacePseudoRequest(&span) {
+		return span, true, nil
+	}
+
+	return finalizeParsedSpan(parseCtx, span, false, nil)
+}
+
+// isH2CPrefacePseudoRequest reports whether the span is the HTTP/2 client
+// connection preface ("PRI * HTTP/2.0", RFC 9113 section 3.4) surfaced as a
+// literal request. Go's h2c upgrade path lets net/http parse the preface as a
+// request with method "PRI" and target "*" before hijacking the connection,
+// so the Go tracer uprobes observe it as one. It is not an application
+// request — the real HTTP/2 exchanges on the connection are traced separately
+// — and "PRI" is not a registered HTTP method, so such spans are dropped.
+func isH2CPrefacePseudoRequest(span *request.Span) bool {
+	return (span.Type == request.EventTypeHTTP || span.Type == request.EventTypeHTTPClient) &&
+		span.Method == "PRI" && span.Path == "*"
 }
 
 func ReinterpretCast[T any](b []byte) (*T, error) {

@@ -373,11 +373,7 @@ func resolveInstrPath(
 	return mappedPath, exeIno, mappedPath, true
 }
 
-func (i *instrumenter) uprobes(pid app.PID, p Tracer) error {
-	maps, err := processMaps(pid)
-	if err != nil {
-		return err
-	}
+func (i *instrumenter) uprobes(pid app.PID, p Tracer, maps []*procfs.ProcMap) error {
 	log := ilog().With("probes", "uprobes")
 	if len(maps) == 0 {
 		log.Info("didn't find any process maps, not instrumenting shared libraries", "pid", pid)
@@ -437,16 +433,12 @@ func (i *instrumenter) uprobes(pid app.PID, p Tracer) error {
 	return nil
 }
 
-func (i *instrumenter) usdtProbes(pid app.PID, ns uint32, p Tracer) error {
+func (i *instrumenter) usdtProbes(pid app.PID, ns uint32, p Tracer, maps []*procfs.ProcMap) error {
 	probesByLib := p.USDTProbes()
 	if len(probesByLib) == 0 {
 		return nil
 	}
 
-	maps, err := processMaps(pid)
-	if err != nil {
-		return err
-	}
 	if len(maps) == 0 {
 		ilog().Debug("didn't find any process maps, not instrumenting USDT probes", "pid", pid)
 		return nil

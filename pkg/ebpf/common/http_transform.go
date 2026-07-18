@@ -258,6 +258,13 @@ func postProcessHTTPSpan(parseCtx *EBPFParseContext, httpSpan *request.Span, req
 		}
 	}
 
+	if httpSpan.IsClientSpan() && parseCtx != nil && parseCtx.payloadExtraction.HTTP.GenAI.OpenAICompatible.Enabled {
+		span, ok := ebpfhttp.OpenAICompatibleSpan(httpSpan, req, resp, parseCtx.payloadExtraction.HTTP.GenAI.OpenAICompatible.Gateways)
+		if ok {
+			return span
+		}
+	}
+
 	// Parse JSON-RPC once and reuse for both MCP and plain JSON-RPC
 	// detection, since MCP is a protocol layer on top of JSON-RPC.
 	if parseCtx != nil && (parseCtx.payloadExtraction.HTTP.GenAI.MCP.Enabled || parseCtx.payloadExtraction.HTTP.JSONRPC.Enabled) {

@@ -1187,6 +1187,7 @@
                   "qwen",
                   "bedrock",
                   "mcp",
+                  "openai_compatible",
                   "embedding",
                   "rerank",
                   "retrieval",

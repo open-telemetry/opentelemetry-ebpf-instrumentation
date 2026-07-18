@@ -230,6 +230,7 @@ func validV2HTTPPayloadExtractor(extractor string) bool {
 		payloadExtractorQwen,
 		payloadExtractorBedrock,
 		payloadExtractorMCP,
+		payloadExtractorOpenAICompatible,
 		payloadExtractorEmbedding,
 		payloadExtractorRerank,
 		payloadExtractorRetrieval,
@@ -874,6 +875,7 @@ func applyFullV2HTTPPayloadExtraction(cfg *obi.Config, payload schema.PayloadExt
 	http := &cfg.EBPF.PayloadExtraction.HTTP
 	applyV2HTTPPayloadExtractorMembership(http, payload.Enabled)
 	http.SQLPP.EndpointPatterns = cloneStrings(payload.SQLPP.EndpointPatterns)
+	http.GenAI.OpenAICompatible.Gateways = payload.OpenAICompatible.Gateways
 	applyFullV2HTTPEnrichment(http, payload.Enrichment)
 }
 
@@ -888,6 +890,9 @@ func applyPartialV2HTTPPayloadExtraction(cfg *obi.Config, payload schema.Payload
 	}
 	if payload.SQLPP.EndpointPatterns != nil {
 		http.SQLPP.EndpointPatterns = cloneStrings(payload.SQLPP.EndpointPatterns)
+	}
+	if payload.OpenAICompatible.Gateways != nil {
+		http.GenAI.OpenAICompatible.Gateways = payload.OpenAICompatible.Gateways
 	}
 	if !zeroValue(payload.Enrichment) {
 		applyPartialV2HTTPEnrichment(http, payload.Enrichment)
@@ -908,6 +913,7 @@ func applyV2HTTPPayloadExtractorMembership(http *obiconfig.HTTPConfig, enabled [
 	http.GenAI.Embedding.Enabled = false
 	http.GenAI.Rerank.Enabled = false
 	http.GenAI.Retrieval.Enabled = false
+	http.GenAI.OpenAICompatible.Enabled = false
 	http.JSONRPC.Enabled = false
 	http.Enrichment.Enabled = false
 
@@ -939,6 +945,8 @@ func applyV2HTTPPayloadExtractorMembership(http *obiconfig.HTTPConfig, enabled [
 			http.GenAI.Rerank.Enabled = true
 		case payloadExtractorRetrieval:
 			http.GenAI.Retrieval.Enabled = true
+		case payloadExtractorOpenAICompatible:
+			http.GenAI.OpenAICompatible.Enabled = true
 		case payloadExtractorJSONRPC:
 			http.JSONRPC.Enabled = true
 		case payloadExtractorEnrichment:

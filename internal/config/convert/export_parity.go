@@ -44,21 +44,22 @@ func httpRoutes(cfg *obi.Config) schema.HTTPRoutes {
 }
 
 const (
-	payloadExtractorGraphQL       = "graphql"
-	payloadExtractorElasticsearch = "elasticsearch"
-	payloadExtractorAWS           = "aws"
-	payloadExtractorSQLPP         = "sqlpp"
-	payloadExtractorOpenAI        = "openai"
-	payloadExtractorAnthropic     = "anthropic"
-	payloadExtractorGemini        = "gemini"
-	payloadExtractorQwen          = "qwen"
-	payloadExtractorBedrock       = "bedrock"
-	payloadExtractorMCP           = "mcp"
-	payloadExtractorEmbedding     = "embedding"
-	payloadExtractorRerank        = "rerank"
-	payloadExtractorRetrieval     = "retrieval"
-	payloadExtractorJSONRPC       = "jsonrpc"
-	payloadExtractorEnrichment    = "enrichment"
+	payloadExtractorGraphQL          = "graphql"
+	payloadExtractorElasticsearch    = "elasticsearch"
+	payloadExtractorAWS              = "aws"
+	payloadExtractorSQLPP            = "sqlpp"
+	payloadExtractorOpenAI           = "openai"
+	payloadExtractorAnthropic        = "anthropic"
+	payloadExtractorGemini           = "gemini"
+	payloadExtractorQwen             = "qwen"
+	payloadExtractorBedrock          = "bedrock"
+	payloadExtractorMCP              = "mcp"
+	payloadExtractorEmbedding        = "embedding"
+	payloadExtractorRerank           = "rerank"
+	payloadExtractorRetrieval        = "retrieval"
+	payloadExtractorOpenAICompatible = "openai_compatible"
+	payloadExtractorJSONRPC          = "jsonrpc"
+	payloadExtractorEnrichment       = "enrichment"
 )
 
 func payloadExtraction(cfg *obi.Config) schema.PayloadExtraction {
@@ -103,6 +104,9 @@ func payloadExtraction(cfg *obi.Config) schema.PayloadExtraction {
 	if http.GenAI.Retrieval.Enabled {
 		enabled = append(enabled, payloadExtractorRetrieval)
 	}
+	if http.GenAI.OpenAICompatible.Enabled {
+		enabled = append(enabled, payloadExtractorOpenAICompatible)
+	}
 	if http.JSONRPC.Enabled {
 		enabled = append(enabled, payloadExtractorJSONRPC)
 	}
@@ -114,6 +118,9 @@ func payloadExtraction(cfg *obi.Config) schema.PayloadExtraction {
 		Enabled: enabled,
 		SQLPP: schema.SQLPPPayload{
 			EndpointPatterns: http.SQLPP.EndpointPatterns,
+		},
+		OpenAICompatible: schema.OpenAICompatiblePayload{
+			Gateways: http.GenAI.OpenAICompatible.Gateways,
 		},
 		Enrichment: httpEnrichment(cfg),
 	}

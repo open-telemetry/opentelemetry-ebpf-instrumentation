@@ -18,16 +18,20 @@ import (
 )
 
 type goRuntimeMetricsCollector struct {
-	memoryLimit     *prometheus.GaugeVec
-	memoryGCCycles  *prometheus.CounterVec
-	cpuTime         *prometheus.CounterVec
-	processorLimit  *prometheus.GaugeVec
-	configGOGC      *prometheus.GaugeVec
-	counterValuesMu sync.Mutex
-	counterValues   map[string]uint64
+	memoryLimit       *prometheus.GaugeVec
+	memoryGCCycles    *prometheus.CounterVec
+	memoryUsed        *prometheus.GaugeVec
+	memoryAllocated   *prometheus.CounterVec
+	memoryAllocations *prometheus.CounterVec
+	cpuTime           *prometheus.CounterVec
+	processorLimit    *prometheus.GaugeVec
+	configGOGC        *prometheus.GaugeVec
+	counterValuesMu   sync.Mutex
+	counterValues     map[string]uint64
 }
 
 func newGoRuntimeMetricsCollector(runtimeLabelNames []string) goRuntimeMetricsCollector {
+	memoryTypeLabels := append(append([]string{}, runtimeLabelNames...), "go_memory_type")
 	cpuTimeLabels := append(append([]string{}, runtimeLabelNames...), "go_cpu_state", "go_cpu_detailed_state")
 
 	return goRuntimeMetricsCollector{
@@ -38,6 +42,18 @@ func newGoRuntimeMetricsCollector(runtimeLabelNames []string) goRuntimeMetricsCo
 		memoryGCCycles: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: attributes.GoRuntimeMemoryGCCycles.Prom,
 			Help: "Number of completed Go garbage collection cycles.",
+		}, runtimeLabelNames),
+		memoryUsed: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: attributes.GoRuntimeMemoryUsed.Prom,
+			Help: "Memory used by the Go runtime.",
+		}, memoryTypeLabels),
+		memoryAllocated: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: attributes.GoRuntimeMemoryAllocated.Prom,
+			Help: "Memory allocated by the Go runtime heap.",
+		}, runtimeLabelNames),
+		memoryAllocations: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: attributes.GoRuntimeMemoryAllocations.Prom,
+			Help: "Number of Go runtime heap allocations.",
 		}, runtimeLabelNames),
 		cpuTime: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: attributes.GoRuntimeCPUTime.Prom,
@@ -62,6 +78,9 @@ func (c *goRuntimeMetricsCollector) collectors() []prometheus.Collector {
 	return []prometheus.Collector{
 		c.memoryLimit,
 		c.memoryGCCycles,
+		c.memoryUsed,
+		c.memoryAllocated,
+		c.memoryAllocations,
 		c.cpuTime,
 		c.processorLimit,
 		c.configGOGC,
@@ -109,6 +128,48 @@ func (r *metricsReporter) collectGoRuntimeMetrics(snapshot runtimemetrics.Runtim
 		r.goRuntimeMetrics.addGCCycles(labels, *snapshot.Go.GCCycles)
 	} else {
 		r.goRuntimeMetrics.deleteGCCycles(labels)
+	}
+	stackLabels := append(append([]string{}, labels...), "stack")
+	if snapshot.Go.MemoryUsedStack != nil {
+		r.goRuntimeMetrics.memoryUsed.WithLabelValues(stackLabels...).Set(float64(*snapshot.Go.MemoryUsedStack))
+	} else {
+		r.goRuntimeMetrics.memoryUsed.DeleteLabelValues(stackLabels...)
+	}
+	otherLabels := append(append([]string{}, labels...), "other")
+	if snapshot.Go.MemoryUsedOther != nil {
+		r.goRuntimeMetrics.memoryUsed.WithLabelValues(otherLabels...).Set(float64(*snapshot.Go.MemoryUsedOther))
+	} else {
+		r.goRuntimeMetrics.memoryUsed.DeleteLabelValues(otherLabels...)
+	}
+	if snapshot.Go.MemoryAllocated != nil {
+		r.goRuntimeMetrics.addCounter(
+			r.goRuntimeMetrics.memoryAllocated,
+			attributes.GoRuntimeMemoryAllocated.Prom,
+			labels,
+			*snapshot.Go.MemoryAllocated,
+			1,
+		)
+	} else {
+		r.goRuntimeMetrics.deleteCounter(
+			r.goRuntimeMetrics.memoryAllocated,
+			attributes.GoRuntimeMemoryAllocated.Prom,
+			labels,
+		)
+	}
+	if snapshot.Go.MemoryAllocations != nil {
+		r.goRuntimeMetrics.addCounter(
+			r.goRuntimeMetrics.memoryAllocations,
+			attributes.GoRuntimeMemoryAllocations.Prom,
+			labels,
+			*snapshot.Go.MemoryAllocations,
+			1,
+		)
+	} else {
+		r.goRuntimeMetrics.deleteCounter(
+			r.goRuntimeMetrics.memoryAllocations,
+			attributes.GoRuntimeMemoryAllocations.Prom,
+			labels,
+		)
 	}
 	r.goRuntimeMetrics.collectCPUTime(labels, snapshot.Go.CPUTime)
 	if snapshot.Go.ProcessorLimit != nil {
@@ -214,6 +275,18 @@ func (r *metricsReporter) deleteRuntimeMetrics(service *svc.Attrs) {
 	labels := r.labelValuesTargetInfo(service)
 	r.goRuntimeMetrics.memoryLimit.DeleteLabelValues(labels...)
 	r.goRuntimeMetrics.deleteGCCycles(labels)
+	r.goRuntimeMetrics.memoryUsed.DeleteLabelValues(append(append([]string{}, labels...), "stack")...)
+	r.goRuntimeMetrics.memoryUsed.DeleteLabelValues(append(append([]string{}, labels...), "other")...)
+	r.goRuntimeMetrics.deleteCounter(
+		r.goRuntimeMetrics.memoryAllocated,
+		attributes.GoRuntimeMemoryAllocated.Prom,
+		labels,
+	)
+	r.goRuntimeMetrics.deleteCounter(
+		r.goRuntimeMetrics.memoryAllocations,
+		attributes.GoRuntimeMemoryAllocations.Prom,
+		labels,
+	)
 	r.goRuntimeMetrics.deleteCPUTime(labels)
 	r.goRuntimeMetrics.processorLimit.DeleteLabelValues(labels...)
 	r.goRuntimeMetrics.configGOGC.DeleteLabelValues(labels...)

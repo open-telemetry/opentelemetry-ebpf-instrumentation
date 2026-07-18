@@ -91,6 +91,7 @@ typedef struct go_runtime_metric_target {
     u64 gomaxprocs_addr;
     u64 work_addr;
     u64 available_mask;
+    u64 size_class_to_sizes_addr;
 } go_runtime_metric_target_t;
 
 // Metric group bits shared by go_runtime_metric_target.available_mask and
@@ -104,6 +105,8 @@ typedef enum go_runtime_metric_valid {
     go_runtime_metric_valid_processor_limit = 1 << 2,
     go_runtime_metric_valid_gogc = 1 << 3,
     go_runtime_metric_valid_cpu_time = 1 << 4,
+    go_runtime_metric_valid_memory_used = 1 << 5,
+    go_runtime_metric_valid_memory_allocations = 1 << 6,
 } go_runtime_metric_valid_t;
 
 typedef struct go_runtime_metric_snapshot {
@@ -122,6 +125,10 @@ typedef struct go_runtime_metric_snapshot {
     s64 cpu_scavenge_bg_time;
     s64 cpu_idle_time;
     s64 cpu_user_time;
+    s64 memory_used_stack;
+    s64 memory_used_other;
+    u64 memory_allocated;
+    u64 memory_allocations;
 } go_runtime_metric_snapshot_t;
 
 typedef struct go_runtime_metric_event {

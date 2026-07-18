@@ -40,6 +40,9 @@ var tokenIsDBOperation = map[int]bool{
 // SQLTargetCollection reduces the tables referenced by a statement to the
 // semconv db.collection.name: multi-collection SELECTs carry no collection,
 // while writes always target the first table (INSERT INTO t1 SELECT FROM t2)
+// Rule [3] from the db metrics says don't put the collection name if there is more
+// than one table mentioned in the SQL statement.
+// https://opentelemetry.io/docs/specs/semconv/db/database-metrics/#metric-dbclientoperationduration
 func SQLTargetCollection(op string, tables []string) string {
 	if len(tables) == 0 || (op == "SELECT" && len(tables) > 1) {
 		return ""

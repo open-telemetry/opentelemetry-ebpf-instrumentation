@@ -68,6 +68,11 @@ func TestServiceGraphMetrics(t *testing.T) {
 	reported := map[string]struct{}{}
 	for _, m := range res {
 		reported[m.Name+":"+m.Attributes["client"]+":"+m.Attributes["server"]] = struct{}{}
+		// connection_type is an enum attribute: for direct HTTP/gRPC requests
+		// it must be omitted, not emitted as an empty string
+		if ct, ok := m.Attributes["connection_type"]; ok {
+			assert.Fail(t, "direct HTTP requests must omit connection_type", "metric %s got connection_type=%q", m.Name, ct)
+		}
 	}
 
 	require.Equal(t, map[string]struct{}{
