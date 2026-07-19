@@ -760,6 +760,12 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 			Start: p.bpfObjects.ObiUprobeHttp2RoundTrip,
 			End:   p.bpfObjects.ObiUprobeRoundTripReturn, // return is the same as for http 1.1
 		}},
+		"net/http.(*http2responseWriter).handlerDone": {{
+			End: p.bpfObjects.ObiUprobeServeHTTPReturns,
+		}},
+		"golang.org/x/net/http2.(*responseWriter).handlerDone": {{
+			End: p.bpfObjects.ObiUprobeServeHTTPReturns,
+		}},
 		"golang.org/x/net/http2.(*ClientConn).writeHeaders": {{ // http2 client
 			Start: p.bpfObjects.ObiUprobeHttp2WriteHeaders,
 		}},
