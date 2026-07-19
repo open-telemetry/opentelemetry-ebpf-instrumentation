@@ -13,9 +13,9 @@ expected:
     attributes:
       db.operation.name: SELECT
       db.collection.name: accounting.contacts
-      db.system.name: other_sql
+      db.system.name: postgresql
   metrics:
-  - promql: db_client_operation_duration_seconds_sum{db_operation_name="SELECT", db_system_name="other_sql", server_address="sqlserver"}
+  - promql: db_client_operation_duration_seconds_sum{db_operation_name="SELECT", db_system_name="postgresql", server_address="sqlserver"}
     value: '> 0'
-  - promql: db_client_operation_duration_seconds_count{db_operation_name="SELECT", db_system_name="other_sql", server_address="sqlserver"}
+  - promql: db_client_operation_duration_seconds_count{db_operation_name="SELECT", db_system_name="postgresql", server_address="sqlserver"}
     value: '> 0'

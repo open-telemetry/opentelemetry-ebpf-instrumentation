@@ -21,10 +21,11 @@ import (
 // capture the request body with sensitive fields obfuscated.
 func testBodyExtractionObfuscate(t *testing.T) {
 	// Send POST requests with a JSON body containing sensitive fields.
-	// The config obfuscates $.password and $.secret on POST requests.
+	// The config obfuscates $.password and $.secret with "***", credit-card
+	// fields with "PCI", and social/insurance numbers with "PII" on POST requests.
 	for i := 0; i < 4; i++ {
 		doHTTPPost(t, instrumentedServiceStdURL+"/rolldice/50", 200,
-			[]byte(`{"username":"alice","password":"secret123","secret":"my-api-key","email":"alice@test.com"}`))
+			[]byte(`{"username":"alice","password":"secret123","secret":"my-api-key","email":"alice@test.com","credit-card":"4111-1111-1111-1111","creditcard":"5555555555554444","cc":"378282246310005","sin":"046454286","ssn":"123-45-6789"}`))
 	}
 
 	var trace jaeger.Trace
@@ -53,14 +54,21 @@ func testBodyExtractionObfuscate(t *testing.T) {
 	val, valOk := jaeger.TagFirstStringValue(tag)
 	require.True(t, valOk)
 
-	// Verify sensitive fields are obfuscated.
+	// Verify sensitive fields are obfuscated with the default obfuscation string.
 	assert.NotContains(t, val, "secret123", "password should be obfuscated")
 	assert.NotContains(t, val, "my-api-key", "secret should be obfuscated")
-	assert.Contains(t, val, "***", "obfuscation string should be present")
+	assert.Contains(t, val, "***", "default obfuscation string should be present")
 
-	// Verify non-sensitive fields are preserved.
-	assert.Contains(t, val, "alice", "username should be present")
-	assert.Contains(t, val, "alice@test.com", "email should be present")
+	// Verify credit-card fields are obfuscated with the per-rule "PCI" string.
+	assert.NotContains(t, val, "4111-1111-1111-1111", "credit-card should be obfuscated")
+	assert.NotContains(t, val, "5555555555554444", "creditcard should be obfuscated")
+	assert.NotContains(t, val, "378282246310005", "cc should be obfuscated")
+	assert.Contains(t, val, "PCI", "credit-card obfuscation string should be present")
+
+	// Verify social/insurance numbers are obfuscated with the per-rule "PII" string.
+	assert.NotContains(t, val, "046454286", "sin should be obfuscated")
+	assert.NotContains(t, val, "123-45-6789", "ssn should be obfuscated")
+	assert.Contains(t, val, "PII", "sin/ssn obfuscation string should be present")
 }
 
 // testBodyExtractionInclude verifies that body include rules capture the raw body

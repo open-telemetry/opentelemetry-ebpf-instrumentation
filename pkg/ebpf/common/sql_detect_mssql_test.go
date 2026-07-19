@@ -163,16 +163,16 @@ func TestExtractTDSPayloads(t *testing.T) {
 func TestMSSQLBatchParsing(t *testing.T) {
 	selectSQL := []byte{'S', 0, 'E', 0, 'L', 0, 'E', 0, 'C', 0, 'T', 0, ' ', 0, '*', 0, ' ', 0, 'F', 0, 'R', 0, 'O', 0, 'M', 0, ' ', 0, 't', 0}
 	tests := []struct {
-		name      string
-		buf       []byte
-		wantOp    string
-		wantTable string
-		wantStmt  string
+		name       string
+		buf        []byte
+		wantOp     string
+		wantTables []string
+		wantStmt   string
 	}{
 		{
 			name:   "valid single-packet batch",
 			buf:    makeTDSPacket(kMSSQLBatch, 0x01, []byte{'S', 0, 'E', 0, 'L', 0, 'E', 0, 'C', 0, 'T', 0, ' ', 0, '1', 0}),
-			wantOp: "SELECT", wantTable: "", wantStmt: "SELECT 1",
+			wantOp: "SELECT", wantTables: nil, wantStmt: "SELECT 1",
 		},
 		{
 			name: "sql split across two TDS packets",
@@ -180,22 +180,22 @@ func TestMSSQLBatchParsing(t *testing.T) {
 				makeTDSPacket(kMSSQLBatch, 0x00, selectSQL[:len(selectSQL)/2]),
 				makeTDSPacket(kMSSQLBatch, 0x01, selectSQL[len(selectSQL)/2:])...,
 			),
-			wantOp: "SELECT", wantTable: "t", wantStmt: "SELECT * FROM t",
+			wantOp: "SELECT", wantTables: []string{"t"}, wantStmt: "SELECT * FROM t",
 		},
 		{
-			name:      "too short",
-			buf:       makeTDSPacket(kMSSQLBatch, 0x01, nil),
-			wantOp:    "",
-			wantTable: "",
-			wantStmt:  "",
+			name:       "too short",
+			buf:        makeTDSPacket(kMSSQLBatch, 0x01, nil),
+			wantOp:     "",
+			wantTables: nil,
+			wantStmt:   "",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			op, table, stmt := mssqlExtractBatchSQL(largebuf.NewLargeBufferFrom(tt.buf))
+			op, tables, stmt := mssqlExtractBatchSQL(largebuf.NewLargeBufferFrom(tt.buf))
 			assert.Equal(t, tt.wantOp, op)
-			assert.Equal(t, tt.wantTable, table)
+			assert.Equal(t, tt.wantTables, tables)
 			assert.Equal(t, tt.wantStmt, stmt)
 		})
 	}

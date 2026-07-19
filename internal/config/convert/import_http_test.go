@@ -90,7 +90,7 @@ func TestV2ToRuntimeHTTPPayloadExtractionRoundTrip(t *testing.T) {
 	http.Enrichment.Enabled = true
 	http.Enrichment.Policy.DefaultAction.Headers = config.HTTPParsingActionInclude
 	http.Enrichment.Policy.DefaultAction.Body = config.HTTPParsingActionObfuscate
-	http.Enrichment.Policy.ObfuscationString = "[redacted]"
+	http.Enrichment.Policy.DefaultObfuscationString = "[redacted]"
 	jsonPath, err := config.NewJSONPathExpr("$.secret")
 	require.NoError(t, err)
 	http.Enrichment.Rules = []config.HTTPParsingRule{

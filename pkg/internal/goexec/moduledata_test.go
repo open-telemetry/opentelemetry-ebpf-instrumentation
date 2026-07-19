@@ -77,7 +77,7 @@ const (
 //
 // pclntableData is the value written into the runtime.moduledata pclntable.data field.
 // All other moduledata fields are fixed (pcHeader = testGopclntabVMA, text = testTextVMA, …).
-func buildTestELF(t *testing.T, pclntableData uint64) *elf.File {
+func buildTestELF(t *testing.T, pclntableData uint64, goVersions ...string) *elf.File {
 	t.Helper()
 
 	const (
@@ -161,6 +161,17 @@ func buildTestELF(t *testing.T, pclntableData uint64) *elf.File {
 	put64(db+int(testMDText), testTextVMA)               // text
 	put64(db+int(testMDEtext), testTextVMA+testTextSize) // etext
 
+	if len(goVersions) > 0 {
+		buildInfoOffset := db + 0x200
+		copy(buf[buildInfoOffset:], buildInfoMagic)
+		buf[buildInfoOffset+14] = 8
+		buf[buildInfoOffset+15] = 2
+		buildInfo := binary.AppendUvarint(nil, uint64(len(goVersions[0])))
+		buildInfo = append(buildInfo, goVersions[0]...)
+		buildInfo = append(buildInfo, 0)
+		copy(buf[buildInfoOffset+32:], buildInfo)
+	}
+
 	// ── .shstrtab ────────────────────────────────────────────────────────────────
 	shstrtab := "\x00.text\x00.gopclntab\x00.data\x00.shstrtab\x00"
 	copy(buf[shstrtabFileOff:], shstrtab)
@@ -206,6 +217,24 @@ func buildTestELF(t *testing.T, pclntableData uint64) *elf.File {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = f.Close() })
 	return f
+}
+
+func TestLoadModuledataOffsets(t *testing.T) {
+	elfF := buildTestELF(t, testGopclntabVMA, "go1.26.4")
+
+	actual, err := loadModuledataOffsets(elfF)
+	require.NoError(t, err)
+	require.Equal(t, testMDOffsets, actual)
+}
+
+func TestLoadModuledataOffsetsRejectsInvalidGoVersion(t *testing.T) {
+	elfF := buildTestELF(t, testGopclntabVMA, "unknown")
+
+	var err error
+	require.NotPanics(t, func() {
+		_, err = loadModuledataOffsets(elfF)
+	})
+	require.ErrorContains(t, err, "unsupported Go version: unknown")
 }
 
 // emptyRelocs returns a zero-populated relocationInfo (no RELA, no RELR).

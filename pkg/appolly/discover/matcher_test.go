@@ -448,6 +448,49 @@ func TestCriteriaMatcherMissingPort(t *testing.T) {
 	assert.Zero(t, matches[1].Obj.DynamicSelectorPID)
 }
 
+func TestCriteriaMatcherExcludedChildDoesNotInheritParentMatch(t *testing.T) {
+	pipeConfig := obi.Config{}
+	require.NoError(t, yaml.Unmarshal([]byte(`discovery:
+  instrument:
+  - name: port-only
+    open_ports: 80
+  exclude_instrument:
+  - exe_path: /tmp/provjob*
+`), &pipeConfig))
+
+	discoveredProcesses := msg.NewQueue[[]Event[ProcessAttrs]](msg.ChannelBufferLen(10))
+	filteredProcessesQu := msg.NewQueue[[]Event[ProcessMatch]](msg.ChannelBufferLen(10))
+	filteredProcesses := filteredProcessesQu.Subscribe()
+	matcherFunc, err := criteriaMatcherProvider(&pipeConfig, discoveredProcesses, filteredProcessesQu, FindingCriteria(&pipeConfig), nil)(t.Context())
+	require.NoError(t, err)
+	go matcherFunc(t.Context())
+	defer filteredProcessesQu.Close()
+
+	processInfo = func(pp ProcessAttrs) (*services.ProcessInfo, error) {
+		proc := map[app.PID]struct {
+			Exe  string
+			PPid app.PID
+		}{
+			1: {Exe: "/bin/parent"},
+			2: {Exe: "/bin/allowed", PPid: 1},
+			3: {Exe: "/tmp/provjob123 (deleted)", PPid: 1},
+		}[pp.pid]
+		return &services.ProcessInfo{Pid: pp.pid, ExePath: proc.Exe, PPid: proc.PPid, OpenPorts: pp.openPorts}, nil
+	}
+
+	discoveredProcesses.Send([]Event[ProcessAttrs]{
+		{Type: EventCreated, Obj: ProcessAttrs{pid: 1, openPorts: []uint32{80}}},
+		{Type: EventCreated, Obj: ProcessAttrs{pid: 2}},
+		{Type: EventCreated, Obj: ProcessAttrs{pid: 3}},
+	})
+
+	matches := testutil.ReadChannel(t, filteredProcesses, testTimeout)
+	require.Len(t, matches, 2)
+	assert.Equal(t, app.PID(1), matches[0].Obj.Process.Pid)
+	assert.Equal(t, app.PID(2), matches[1].Obj.Process.Pid)
+	assert.NotContains(t, matches[1].Obj.Process.ExePath, "provjob")
+}
+
 func TestDynamicMatcher_ChildInheritsDynamicSelectorPID(t *testing.T) {
 	dynamicSelector := NewDynamicPIDSelector()
 	dynamicSelector.AddPIDs(100)

@@ -162,9 +162,10 @@ type AttributeFilter struct {
 // PayloadExtraction describes HTTP payload extractor enablement and enrichment
 // settings.
 type PayloadExtraction struct {
-	Enabled    []string       `yaml:"enabled"`
-	SQLPP      SQLPPPayload   `yaml:"sqlpp"`
-	Enrichment HTTPEnrichment `yaml:"enrichment"`
+	Enabled          []string                `yaml:"enabled"`
+	SQLPP            SQLPPPayload            `yaml:"sqlpp"`
+	Enrichment       HTTPEnrichment          `yaml:"enrichment"`
+	OpenAICompatible OpenAICompatiblePayload `yaml:"openai_compatible"`
 }
 
 // SQLPPPayload describes SQL++ payload extraction settings.
@@ -180,8 +181,8 @@ type HTTPEnrichment struct {
 
 // HTTPEnrichmentPolicy describes default HTTP payload enrichment actions.
 type HTTPEnrichmentPolicy struct {
-	DefaultAction     HTTPEnrichmentDefaultAction `yaml:"default_action"`
-	ObfuscationString string                      `yaml:"obfuscation_string"`
+	DefaultAction            HTTPEnrichmentDefaultAction `yaml:"default_action"`
+	DefaultObfuscationString string                      `yaml:"obfuscation_string"`
 }
 
 // HTTPEnrichmentDefaultAction describes default enrichment actions for headers
@@ -189,4 +190,10 @@ type HTTPEnrichmentPolicy struct {
 type HTTPEnrichmentDefaultAction struct {
 	Headers config.HTTPParsingAction `yaml:"headers"`
 	Body    config.HTTPParsingAction `yaml:"body"`
+}
+
+// OpenAICompatiblePayload describes OpenAI-compatible gateway payload extraction
+// settings.
+type OpenAICompatiblePayload struct {
+	Gateways []config.OpenAICompatibleGateway `yaml:"gateways"`
 }

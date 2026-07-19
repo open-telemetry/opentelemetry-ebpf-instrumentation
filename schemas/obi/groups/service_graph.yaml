@@ -40,8 +40,8 @@ groups:
         stability: development
         brief: >
           The connection type between the two services (mirroring the
-          servicegraphconnector values). Empty string represents a direct
-          HTTP/gRPC request.
+          servicegraphconnector values). The attribute is omitted for a
+          direct HTTP/gRPC request.
       - id: server_service_namespace
         type: string
         stability: development

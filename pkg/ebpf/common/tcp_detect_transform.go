@@ -225,21 +225,21 @@ func matchSQL(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, event *TCPRequ
 		return span, ignore, matched, err
 	}
 
-	op, table, sql, kind := detectSQLPayload(cfg.HeuristicSQLDetect, requestBuffer)
+	op, tables, sql, kind := detectSQLPayload(cfg.HeuristicSQLDetect, requestBuffer)
 
-	if validSQL(op, table, kind) {
-		span := TCPToSQLToSpan(event, op, table, sql, kind, "", nil)
+	if validSQL(op, len(tables) > 0, kind) {
+		span := TCPToSQLToSpan(event, op, tables, sql, kind, "", nil)
 		if kind == request.DBPostgres {
 			span.DBNamespace = postgresDBForConn(parseCtx, event.ConnInfo)
 		}
 		return span, false, true, nil
 	}
 
-	op, table, sql, kind = detectSQLPayload(cfg.HeuristicSQLDetect, responseBuffer)
+	op, tables, sql, kind = detectSQLPayload(cfg.HeuristicSQLDetect, responseBuffer)
 
-	if validSQL(op, table, kind) {
+	if validSQL(op, len(tables) > 0, kind) {
 		reverseTCPEvent(event)
-		span := TCPToSQLToSpan(event, op, table, sql, kind, "", nil)
+		span := TCPToSQLToSpan(event, op, tables, sql, kind, "", nil)
 		if kind == request.DBPostgres {
 			span.DBNamespace = postgresDBForConn(parseCtx, event.ConnInfo)
 		}
@@ -378,35 +378,57 @@ func matchRedis(parseCtx *EBPFParseContext, event *TCPRequestInfo, requestBuffer
 		return request.Span{}, false, false, nil
 	}
 
-	op, text, ok := parseRedisRequest(requestBuffer.UnsafeView())
+	cmds := parseRedisCommands(requestBuffer.UnsafeView())
+	reversed := false
 
-	if !ok {
-		return request.Span{}, false, false, nil
-	}
-
-	var status int
-	var redisErr request.DBError
-
-	if op == "" {
-		op, text, ok = parseRedisRequest(responseBuffer.UnsafeView())
-		if !ok || op == "" {
-			return request.Span{}, true, true, nil // ignore if we couldn't parse it
+	// mid-flight attach can swap buffer roles (blocking-command replies arrive
+	// receive-first); the side holding a known command word wins
+	if len(cmds) == 0 || !isKnownRedisOp(cmds[0].op) {
+		if respCmds := parseRedisCommands(responseBuffer.UnsafeView()); len(respCmds) > 0 &&
+			(len(cmds) == 0 || isKnownRedisOp(respCmds[0].op)) {
+			cmds = respCmds
+			reversed = true
+			reverseTCPEvent(event)
 		}
-		// We've caught the event reversed in the middle of communication, let's
-		// reverse the event
-		reverseTCPEvent(event)
-		redisErr, status = redisStatus(requestBuffer)
-	} else {
-		redisErr, status = redisStatus(responseBuffer)
 	}
 
-	db, found := getRedisDB(event.ConnInfo, op, text, parseCtx.redisDBCache)
-
-	if !found {
-		db = -1 // if we don't have the db in cache, we assume it's not set
+	if len(cmds) == 0 {
+		return request.Span{}, true, true, nil // redis reply traffic with no command to attribute
 	}
 
-	return TCPToRedisToSpan(event, op, text, status, db, redisErr), false, true, nil
+	// reversed events pair the commands with a stale reply, so statuses are unknowable
+	var replies []redisReply
+	if !reversed {
+		replies = parseRedisReplies(responseBuffer.UnsafeView(), len(cmds))
+	}
+
+	spans := make([]request.Span, 0, len(cmds))
+	for i := range cmds {
+		cmd := &cmds[i]
+
+		status := 0
+		var redisErr request.DBError
+		if i < len(replies) {
+			status, redisErr = replies[i].status, replies[i].dbError
+		}
+
+		db, found := getRedisDB(event.ConnInfo, cmd.op, cmd.text, parseCtx.redisDBCache)
+		if !found {
+			db = -1 // if we don't have the db in cache, we assume it's not set
+		}
+
+		spans = append(spans, TCPToRedisToSpan(event, cmd.op, cmd.text, status, db, redisErr))
+	}
+
+	if len(spans) > 1 {
+		// clear SpanID on extras so tracesgen assigns fresh IDs
+		for i := 1; i < len(spans); i++ {
+			spans[i].SpanID = trace.SpanID{}
+		}
+		parseCtx.emitExtraSpans(spans[1:]...)
+	}
+
+	return spans[0], false, true, nil
 }
 
 func matchMemcached(parseCtx *EBPFParseContext, event *TCPRequestInfo, requestBuffer, responseBuffer *largebuf.LargeBuffer) (request.Span, bool, bool, error) {
