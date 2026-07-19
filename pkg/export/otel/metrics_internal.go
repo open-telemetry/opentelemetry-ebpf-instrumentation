@@ -212,8 +212,7 @@ func NewInternalMetricsReporter(ctx context.Context, ctxInfo *global.ContextInfo
 
 	queueCapacityRatio, err := meter.Float64Gauge(
 		attr.VendorPrefix+".queue.capacity.ratio",
-		instrument.WithDescription("Ratio [0-1] between the unread messages of an internal Go channel and its total capacity"),
-		instrument.WithUnit("1"))
+		instrument.WithUnit("Ratio [0-1] between the unread messages of an internal Go channel and its total capacity"))
 	if err != nil {
 		return nil, err
 	}
@@ -384,5 +383,5 @@ func (p *InternalMetricsReporter) BPFPacketStats(count, ignored uint64) {
 }
 
 func (p *InternalMetricsReporter) QueueBufferUtilization(subscriber string, ratio float64) {
-	p.queueCapacityRatio.Record(p.ctx, ratio, instrument.WithAttributes(attribute.String("obi.queue.subscriber", subscriber)))
+	p.queueCapacityRatio.Record(p.ctx, ratio, instrument.WithAttributes(attribute.String("subscriber", subscriber)))
 }

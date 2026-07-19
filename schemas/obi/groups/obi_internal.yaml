@@ -201,13 +201,6 @@ groups:
         brief: >
           Set by the OpenTelemetry SDK cardinality limiter when the
           avoided-services attribute set overflows its configured limit.
-      - id: obi.queue.subscriber
-        type: string
-        stability: development
-        brief: >
-          Name of the internal pipeline stage (queue subscriber) whose channel
-          utilisation the ratio describes.
-        examples: ["otel_metrics_export", "traces"]
 
   # --- OTLP exporter throughput / errors ---------------------------------
   - id: metric.obi.otel.metric.exports
@@ -380,7 +373,7 @@ groups:
       How many network packets have been internally ignored due to collisions
       in the internal eBPF cache.
 
-  # --- Kubernetes informer / internal queues -----------------------------
+  # --- Kubernetes informer ------------------------------------------------
   - id: metric.obi.kube.cache.forward.lag
     type: metric
     metric_name: obi.kube.cache.forward.lag
@@ -390,16 +383,4 @@ groups:
     brief: >
       How long, in seconds, it takes from a Kubernetes event happening until
       it is forwarded to the subscribers.
-
-  - id: metric.obi.queue.capacity.ratio
-    type: metric
-    metric_name: obi.queue.capacity.ratio
-    instrument: gauge
-    unit: "1"
-    stability: development
-    brief: >
-      Ratio [0-1] between the unread messages of an internal Go channel and its
-      total capacity.
-    attributes:
-      - ref: obi.queue.subscriber
 

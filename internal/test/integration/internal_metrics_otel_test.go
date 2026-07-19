@@ -19,15 +19,20 @@ import (
 
 const internalMetricsHostPort = "8393"
 
-// internalMetricsExpected are OBI's own meta-telemetry (obi.*) series that must
-// be observable once OBI is up and instrumenting the testserver. Names are the
-// Prometheus form the collector exports (dots -> underscores, monotonic sums
-// get a _total suffix). Only the always-on internal metrics are required here;
-// the eBPF probe/map families depend on kernel BPF-stats availability and are
-// left to the weaver live-check, which validates whatever actually arrives.
+// internalMetricsExpected are OBI's own meta-telemetry (obi.*) series this suite
+// deterministically emits and asserts as present (so a regression that stops
+// emitting them fails the test — weaver only catches convention violations, not
+// absence). Names are the Prometheus form the collector exports (dots ->
+// underscores, monotonic sums get a _total suffix). The eBPF probe families
+// require kernel BPF run-stats plus sustained traffic (driven below).
 var internalMetricsExpected = []string{
-	"obi_internal_build_info",    // gauge, emitted once at startup
-	"obi_instrumented_processes", // updowncounter, +1 per instrumented process
+	"obi_internal_build_info",             // gauge, emitted once at startup
+	"obi_instrumented_processes",          // updowncounter, +1 per instrumented process
+	"obi_otel_metric_exports_total",       // counter, every metric export
+	"obi_bpf_map_entries_total",           // gauge, per eBPF map
+	"obi_bpf_map_max_entries_total",       // gauge, per eBPF map
+	"obi_bpf_probe_executions_total",      // counter, needs BPF run-stats + traffic
+	"obi_bpf_probe_latency_seconds_total", // counter, needs BPF run-stats + traffic
 }
 
 // TestInternalOTelMetrics brings up OBI with internal_metrics.exporter=otel so
@@ -49,14 +54,28 @@ func TestInternalOTelMetrics(t *testing.T) {
 	t.Run("obi.* internal metrics exported over OTLP", func(t *testing.T) {
 		pq := promtest.Client{HostPort: prometheusHostPort}
 
-		// Keep the testserver busy so the eBPF probes execute and the process
-		// stays instrumented while Prometheus scrapes the collector.
 		require.Eventually(t, func() bool {
 			return pokeInternalMetricsServer() == nil
 		}, testTimeout, 500*time.Millisecond, "testserver never became reachable")
 
+		// Drive continuous traffic in the background so the eBPF probes keep
+		// executing between BPF-stats scrapes (probe run-counts must advance
+		// between two consecutive scrapes for obi.bpf.probe.* to report) and the
+		// trace/metric exporters keep firing.
+		stop := make(chan struct{})
+		go func() {
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+					_ = pokeInternalMetricsServer()
+				}
+			}
+		}()
+		defer close(stop)
+
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
-			_ = pokeInternalMetricsServer()
 			for _, name := range internalMetricsExpected {
 				results, err := pq.Query(name)
 				if !assert.NoError(ct, err, "querying %s", name) {

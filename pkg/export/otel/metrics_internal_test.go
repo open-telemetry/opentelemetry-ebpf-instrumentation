@@ -98,7 +98,7 @@ func TestInternalMetricsReporterQueueBufferUtilization(t *testing.T) {
 		attr.VendorPrefix+".queue.capacity.ratio",
 	)
 	require.Len(t, records, 1)
-	assert.Equal(t, "traces", records[0].Attributes["obi.queue.subscriber"])
+	assert.Equal(t, "traces", records[0].Attributes["subscriber"])
 	assert.InDelta(t, 0.42, records[0].FloatVal, 0.001)
 }
 
