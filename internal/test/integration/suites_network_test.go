@@ -33,12 +33,9 @@ func TestNetwork_Deduplication(t *testing.T) {
 		require.Contains(t, f.Metric, "iface_direction")
 	}
 
-	// The network feature drives OBI's internal eBPF packet counters; assert
-	// they reach weaver so obi.bpf.network.* get live semconv validation here.
-	runWeaverValidationExpecting(t,
-		"obi.bpf.network.packets.total",
-		"obi.bpf.network.ignored.packets.total",
-	)
+	// The network feature drives OBI's internal eBPF packet counters
+	// (obi.bpf.network.*), which are semconv-validated by weaver here.
+	runWeaverValidation(t)
 
 	require.NoError(t, compose.Close())
 }

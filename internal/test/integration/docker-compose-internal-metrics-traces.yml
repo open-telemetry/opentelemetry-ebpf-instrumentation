@@ -1,0 +1,88 @@
+services:
+  testserver:
+    build:
+      context: ../../..
+      dockerfile: ./internal/test/integration/components/testserver/Dockerfile
+    image: hatest-testserver
+    ports:
+      - "${TEST_SERVICE_PORTS}"
+    environment:
+      - LOG_LEVEL=DEBUG
+    depends_on:
+      otelcol:
+        condition: service_started
+
+  obi:
+    build:
+      context: ../../..
+      dockerfile: ./internal/test/integration/components/obi/Dockerfile
+    volumes:
+      - ./configs/:/configs
+      - ./system/sys/kernel/security:/sys/kernel/security
+      - ../../../testoutput:/coverage
+      - ../../../testoutput/run-internal-metrics-traces:/var/run/obi
+      - /sys/kernel/tracing:/sys/kernel/tracing:rw
+    image: hatest-obi
+    privileged: true
+    pid: "host"
+    environment:
+      OTEL_EBPF_CONFIG_PATH: /configs/obi-config-internal-metrics-traces.yml
+      GOCOVERDIR: "/coverage"
+      OTEL_EBPF_DISCOVERY_POLL_INTERVAL: 500ms
+      OTEL_EBPF_SERVICE_NAMESPACE: "integration-test"
+      OTEL_EBPF_METRICS_INTERVAL: "10ms"
+      OTEL_EBPF_INTERNAL_METRICS_INTERVAL: "10ms"
+      OTEL_EBPF_BPF_METRIC_SCRAPE_INTERVAL: "1s"
+      OTEL_EBPF_LOG_LEVEL: "DEBUG"
+      OTEL_EBPF_BPF_DEBUG: "TRUE"
+      OTEL_EBPF_HOSTNAME: "obi"
+      OTEL_EBPF_PROCESSES_INTERVAL: "100ms"
+      OTEL_EBPF_OPEN_PORT: "8080"
+      OTEL_EBPF_METRICS_FEATURES: "application"
+    depends_on:
+      testserver:
+        condition: service_started
+
+  prometheus:
+    image: quay.io/prometheus/prometheus:v3.13.0@sha256:c6b27ea434f8389bfe233fbc7be381cf50587c286e871bc842008f5a1b1908a7
+    container_name: prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus-config-internal-metrics.yml
+      - --web.enable-lifecycle
+      - --web.route-prefix=/
+    volumes:
+      - ./configs/:/etc/prometheus
+    ports:
+      - "9090:9090"
+
+  # OpenTelemetry Collector: single OTLP receiver fans out metrics to the
+  # Prometheus exporter (scraped by the test) and taps both metrics and traces
+  # to weaver (semconv live-check).
+  otelcol:
+    image: otel/opentelemetry-collector-contrib:0.156.0@sha256:125bdbeb7590cc1952c5b3430ecf14063568980c2c93d5b38676cc0446ed8108
+    container_name: otel-col
+    deploy:
+      resources:
+        limits:
+          memory: 125M
+    restart: unless-stopped
+    command: ["--config=/etc/otelcol-config/otelcol-config-weaver-no-jaeger.yml"]
+    volumes:
+      - ./configs/:/etc/otelcol-config
+    ports:
+      - "4317" # OTLP over gRPC receiver
+      - "4318:4318" # OTLP over HTTP receiver
+      - "9464" # Prometheus exporter
+      - "8888" # metrics endpoint
+    depends_on:
+      prometheus:
+        condition: service_started
+      weaver:
+        condition: service_healthy
+
+  weaver:
+    extends:
+      file: components/weaver/service.yml
+      service: weaver
+    volumes:
+      - ../../../schemas/obi:/obi-registry:ro

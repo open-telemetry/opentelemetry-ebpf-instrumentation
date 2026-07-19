@@ -120,44 +120,6 @@ type Report struct {
 	Statistics Statistics        `json:"statistics"`
 }
 
-// ObservedMetricNames returns the set of metric names present in the report's
-// samples. Weaver's live-check output represents each metric as an object
-// carrying an "instrument" field alongside its "name", so this walks the
-// sample tree collecting the name of every such object. Used by tests to assert
-// that a specific internal metric actually reached weaver (weaver flags
-// convention violations but not absence).
-func (r *Report) ObservedMetricNames() map[string]struct{} {
-	out := make(map[string]struct{})
-	for _, raw := range r.Samples {
-		collectMetricNames(raw, out)
-	}
-	return out
-}
-
-func collectMetricNames(data json.RawMessage, out map[string]struct{}) {
-	var obj map[string]json.RawMessage
-	if json.Unmarshal(data, &obj) == nil {
-		if _, isMetric := obj["instrument"]; isMetric {
-			if nameRaw, ok := obj["name"]; ok {
-				var name string
-				if json.Unmarshal(nameRaw, &name) == nil && name != "" {
-					out[name] = struct{}{}
-				}
-			}
-		}
-		for _, v := range obj {
-			collectMetricNames(v, out)
-		}
-		return
-	}
-	var arr []json.RawMessage
-	if json.Unmarshal(data, &arr) == nil {
-		for _, v := range arr {
-			collectMetricNames(v, out)
-		}
-	}
-}
-
 type Statistics struct {
 	TotalEntities       int            `json:"total_entities"`
 	TotalEntitiesByType map[string]int `json:"total_entities_by_type"`

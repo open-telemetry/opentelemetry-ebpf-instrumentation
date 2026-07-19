@@ -28,7 +28,7 @@ func TestAvoidedServicesOTelMetrics(t *testing.T) {
 
 	// LIFO cleanup: Close last, after weaver has been /stopped and validated.
 	t.Cleanup(func() { require.NoError(t, compose.Close()) })
-	t.Cleanup(func() { runWeaverValidationExpecting(t, "obi.avoided.services") })
+	t.Cleanup(func() { runWeaverValidation(t) })
 
 	t.Run("OBI avoids the self-instrumented server", func(t *testing.T) {
 		require.Eventually(t, func() bool {

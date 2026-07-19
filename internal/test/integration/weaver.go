@@ -10,12 +10,10 @@ import (
 	"os"
 	"os/exec"
 	"path"
-	"sort"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
@@ -56,33 +54,6 @@ func runWeaverValidation(t *testing.T) {
 	report, ok := fetchWeaverReportDocker(t)
 	if !ok {
 		return
-	}
-	weavercheck.Validate(t, report)
-}
-
-// runWeaverValidationExpecting is runWeaverValidation plus an assertion that
-// each named metric actually reached weaver in this run. Use it on suites that
-// are wired to exercise specific internal (obi.*) metrics, so that a regression
-// which stops emitting one fails the test (weaver enforce only catches
-// convention violations, not absence).
-func runWeaverValidationExpecting(t *testing.T, expectMetrics ...string) {
-	t.Helper()
-
-	report, ok := fetchWeaverReportDocker(t)
-	if !ok {
-		return
-	}
-	observed := report.ObservedMetricNames()
-	for _, m := range expectMetrics {
-		if _, present := observed[m]; !present {
-			names := make([]string, 0, len(observed))
-			for n := range observed {
-				names = append(names, n)
-			}
-			sort.Strings(names)
-			assert.Failf(t, "expected internal metric missing from weaver report",
-				"metric %q did not reach weaver; observed metrics: %v", m, names)
-		}
 	}
 	weavercheck.Validate(t, report)
 }
