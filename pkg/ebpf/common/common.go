@@ -562,7 +562,7 @@ func ReadBPFTraceAsSpan(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, reco
 		return request.Span{}, true, err
 	}
 
-	if parseCtx.defersGoHTTPClientRequests() && parseCtx.deferGoHTTPClientRequest(event) {
+	if parseCtx != nil && parseCtx.defersGoHTTPClientRequests() && parseCtx.deferGoHTTPClientRequest(event) {
 		return request.Span{}, true, nil
 	}
 
