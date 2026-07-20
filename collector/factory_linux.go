@@ -14,7 +14,6 @@ import (
 
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/consumer"
-	"go.opentelemetry.io/collector/consumer/consumertest"
 	"go.opentelemetry.io/collector/receiver"
 
 	"go.opentelemetry.io/obi/collector/internal"
@@ -37,7 +36,7 @@ func BuildTracesReceiver() receiver.CreateTracesFunc {
 	) (receiver.Traces, error) {
 		initLogger(rs)
 
-		cfg, ok := baseCfg.(*obi.Config)
+		cfg, ok := runtimeConfig(baseCfg)
 		if !ok {
 			return nil, errInvalidConfig
 		}
@@ -55,7 +54,7 @@ func BuildMetricsReceiver() receiver.CreateMetricsFunc {
 	) (receiver.Metrics, error) {
 		initLogger(rs)
 
-		cfg, ok := baseCfg.(*obi.Config)
+		cfg, ok := runtimeConfig(baseCfg)
 		if !ok {
 			return nil, errInvalidConfig
 		}
@@ -66,10 +65,16 @@ func BuildMetricsReceiver() receiver.CreateMetricsFunc {
 }
 
 func defaultConfig() component.Config {
-	cfg := obi.DefaultConfig
-	// These are placeholders for the consumers; without these obi config will be invalid.
-	// The actual consumers are set when the receiver is created.
-	cfg.Traces.TracesConsumer = consumertest.NewNop()
-	cfg.OTELMetrics.MetricsConsumer = consumertest.NewNop()
-	return &cfg
+	return &receiverConfig{runtime: defaultRuntimeConfig()}
+}
+
+func runtimeConfig(baseCfg component.Config) (*obi.Config, bool) {
+	switch cfg := baseCfg.(type) {
+	case *receiverConfig:
+		return cfg.runtime, cfg.runtime != nil
+	case *obi.Config:
+		return cfg, cfg != nil
+	default:
+		return nil, false
+	}
 }

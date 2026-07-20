@@ -25,6 +25,12 @@ func DocumentToRuntime(src *schema.Document) (*obi.Config, error) {
 	if src == nil {
 		return nil, errors.New("missing OBI document")
 	}
+	if fields := src.OpenTelemetryExtensionFields(); len(fields) != 0 {
+		return nil, fmt.Errorf(
+			"OpenTelemetry extension fields are not supported: %s",
+			strings.Join(fields, ", "),
+		)
+	}
 
 	cfg, err := V2ToRuntime(src.Extensions.OBI)
 	if err != nil {
