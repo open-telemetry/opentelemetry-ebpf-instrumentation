@@ -128,7 +128,7 @@ func newGraphBuilder(
 		swarm.WithID("DynamicSignalSpanGate"))
 
 	swi.Add(otel.TracesReceiver(
-		ctxInfo, config.Traces, config.SpanMetricsEnabledForTraces(), selectorCfg, exportableSpans,
+		ctxInfo, config.Traces, config.SpanMetricsEnabledForTraces(), false, selectorCfg, exportableSpans,
 	), swarm.WithID("OTELTracesReceiver"))
 	swi.Add(debug.PrinterNode(config.TracePrinter, exportableSpans),
 		swarm.WithID("PrinterNode"))

@@ -59,18 +59,20 @@ func otlog() *slog.Logger {
 func makeTracesReceiver(
 	cfg otelcfg.TracesConfig,
 	spanMetricsEnabled bool,
+	suppressQueueProcessingSpans bool,
 	ctxInfo *global.ContextInfo,
 	selectorCfg *attributes.SelectorConfig,
 	input *msg.Queue[[]request.Span],
 ) *tracesOTELReceiver {
 	return &tracesOTELReceiver{
-		cfg:                cfg,
-		ctxInfo:            ctxInfo,
-		selectorCfg:        selectorCfg,
-		is:                 instrumentations.NewInstrumentationSelection(cfg.Instrumentations),
-		spanMetricsEnabled: spanMetricsEnabled,
-		input:              input.Subscribe(msg.SubscriberName("otel.TracesReceiver")),
-		attributeCache:     expirable2.NewLRU[svc.UID, []attribute.KeyValue](1024, nil, 5*time.Minute),
+		cfg:                          cfg,
+		ctxInfo:                      ctxInfo,
+		selectorCfg:                  selectorCfg,
+		is:                           instrumentations.NewInstrumentationSelection(cfg.Instrumentations),
+		spanMetricsEnabled:           spanMetricsEnabled,
+		suppressQueueProcessingSpans: suppressQueueProcessingSpans,
+		input:                        input.Subscribe(msg.SubscriberName("otel.TracesReceiver")),
+		attributeCache:               expirable2.NewLRU[svc.UID, []attribute.KeyValue](1024, nil, 5*time.Minute),
 	}
 }
 
@@ -79,6 +81,7 @@ func TracesReceiver(
 	ctxInfo *global.ContextInfo,
 	cfg otelcfg.TracesConfig,
 	spanMetricsEnabled bool,
+	suppressQueueProcessingSpans bool,
 	selectorCfg *attributes.SelectorConfig,
 	input *msg.Queue[[]request.Span],
 ) swarm.InstanceFunc {
@@ -86,19 +89,20 @@ func TracesReceiver(
 		if !cfg.Enabled() {
 			return swarm.EmptyRunFunc()
 		}
-		tr := makeTracesReceiver(cfg, spanMetricsEnabled, ctxInfo, selectorCfg, input)
+		tr := makeTracesReceiver(cfg, spanMetricsEnabled, suppressQueueProcessingSpans, ctxInfo, selectorCfg, input)
 		return tr.provideLoop, nil
 	}
 }
 
 type tracesOTELReceiver struct {
-	cfg                otelcfg.TracesConfig
-	ctxInfo            *global.ContextInfo
-	selectorCfg        *attributes.SelectorConfig
-	is                 instrumentations.InstrumentationSelection
-	spanMetricsEnabled bool
-	attributeCache     *expirable2.LRU[svc.UID, []attribute.KeyValue]
-	input              <-chan []request.Span
+	cfg                          otelcfg.TracesConfig
+	ctxInfo                      *global.ContextInfo
+	selectorCfg                  *attributes.SelectorConfig
+	is                           instrumentations.InstrumentationSelection
+	spanMetricsEnabled           bool
+	suppressQueueProcessingSpans bool
+	attributeCache               *expirable2.LRU[svc.UID, []attribute.KeyValue]
+	input                        <-chan []request.Span
 }
 
 func (tr *tracesOTELReceiver) getConstantAttributes() (map[attr.Name]struct{}, error) {
@@ -136,6 +140,7 @@ func (tr *tracesOTELReceiver) processSpans(ctx context.Context, exp exporter.Tra
 				spanGroup,
 				reporterName,
 				tr.selectorCfg.SelectionCfg,
+				tr.suppressQueueProcessingSpans,
 				tr.ctxInfo.ExtraResourceAttributes...)
 			err := exp.ConsumeTraces(ctx, traces)
 			if err != nil {

@@ -237,6 +237,40 @@ func TestGenerateTraces(t *testing.T) {
 		assert.NotEqual(t, spans.At(1).SpanID().String(), spans.At(2).SpanID().String())
 	})
 
+	t.Run("test with subtraces - queue processing suppressed", func(t *testing.T) {
+		start := time.Now()
+		parentSpanID, _ := trace.SpanIDFromHex("89cbc1f60aab3b04")
+		spanID, _ := trace.SpanIDFromHex("89cbc1f60aab3b01")
+		traceID, _ := trace.TraceIDFromHex("eae56fbbec9505c102e8aabfc6b5c481")
+		span := &request.Span{
+			Type:         request.EventTypeHTTP,
+			RequestStart: start.UnixNano(),
+			Start:        start.Add(time.Second).UnixNano(),
+			End:          start.Add(3 * time.Second).UnixNano(),
+			Method:       "GET",
+			Route:        "/test",
+			Status:       200,
+			ParentSpanID: parentSpanID,
+			TraceID:      traceID,
+			SpanID:       spanID,
+			Service:      svc.Attrs{UID: svc.UID{Name: "1"}},
+		}
+
+		traces := tracesgen.GenerateTracesWithSelectedResourceAttributes(
+			cache, &span.Service, []attribute.KeyValue{}, hostID,
+			groupFromSpanAndAttributes(span, []attribute.KeyValue{}), reporterName,
+			nil, true, // suppressQueueProcessingSpans = true
+		)
+
+		assert.Equal(t, 1, traces.ResourceSpans().Len())
+		assert.Equal(t, 1, traces.ResourceSpans().At(0).ScopeSpans().Len())
+		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+		require.Equal(t, 1, spans.Len(), "expected only the parent span, no 'in queue'/'processing' sub-spans")
+		assert.Equal(t, "GET /test", spans.At(0).Name())
+		assert.Equal(t, spanID.String(), spans.At(0).SpanID().String(), "parent should take the real eBPF-assigned SpanID directly")
+		assert.Equal(t, parentSpanID.String(), spans.At(0).ParentSpanID().String())
+	})
+
 	t.Run("test with subtraces - ids set bpf layer", func(t *testing.T) {
 		start := time.Now()
 		spanID, _ := trace.SpanIDFromHex("89cbc1f60aab3b04")
@@ -3254,6 +3288,7 @@ func makeTracesTestReceiver(instr []instrumentations.Instrumentation) *tracesOTE
 			Instrumentations:  instr,
 		},
 		false,
+		false,
 		&global.ContextInfo{},
 		&attributes.SelectorConfig{},
 		msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10)),
@@ -3269,6 +3304,7 @@ func makeTracesTestReceiverWithSpanMetrics(enabled bool, instr []instrumentation
 			Instrumentations:  instr,
 		},
 		enabled,
+		false,
 		&global.ContextInfo{},
 		&attributes.SelectorConfig{},
 		msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10)),

@@ -139,7 +139,7 @@ func GenerateTracesWithAttributes(
 	reporterName string,
 	extraResAttrs ...attribute.KeyValue,
 ) ptrace.Traces {
-	return generateTracesWithAttributes(cache, svc, envResourceAttrs, nodeMeta, spans, reporterName, nil, extraResAttrs...)
+	return generateTracesWithAttributes(cache, svc, envResourceAttrs, nodeMeta, spans, reporterName, nil, false, extraResAttrs...)
 }
 
 func GenerateTracesWithSelectedResourceAttributes(
@@ -150,9 +150,10 @@ func GenerateTracesWithSelectedResourceAttributes(
 	spans []TraceSpanAndAttributes,
 	reporterName string,
 	attrSelector attributes.Selection,
+	suppressQueueProcessingSpans bool,
 	extraResAttrs ...attribute.KeyValue,
 ) ptrace.Traces {
-	return generateTracesWithAttributes(cache, svc, envResourceAttrs, nodeMeta, spans, reporterName, attrSelector, extraResAttrs...)
+	return generateTracesWithAttributes(cache, svc, envResourceAttrs, nodeMeta, spans, reporterName, attrSelector, suppressQueueProcessingSpans, extraResAttrs...)
 }
 
 func generateTracesWithAttributes(
@@ -163,6 +164,7 @@ func generateTracesWithAttributes(
 	spans []TraceSpanAndAttributes,
 	reporterName string,
 	attrSelector attributes.Selection,
+	suppressQueueProcessingSpans bool,
 	extraResAttrs ...attribute.KeyValue,
 ) ptrace.Traces {
 	traces := ptrace.NewTraces()
@@ -190,8 +192,9 @@ func generateTracesWithAttributes(
 		ss := rs.ScopeSpans().AppendEmpty()
 
 		t := span.Timings()
-		start := spanStartTime(t)
-		hasSubSpans := t.Start.After(start)
+		start := SpanStartTime(t)
+		hasQueueGap := t.Start.After(start)
+		emitSubSpans := hasQueueGap && !suppressQueueProcessingSpans
 
 		traceID := pcommon.TraceID(span.TraceID)
 		spanID := pcommon.SpanID(idgen.RandomSpanID())
@@ -200,7 +203,7 @@ func generateTracesWithAttributes(
 			traceID = pcommon.TraceID(idgen.RandomTraceID())
 		}
 
-		if hasSubSpans {
+		if emitSubSpans {
 			createSubSpans(span, spanID, traceID, &ss, t)
 		} else if span.SpanID.IsValid() {
 			spanID = pcommon.SpanID(span.SpanID)
@@ -253,7 +256,7 @@ func generateTracesWithAttributes(
 		if statusMessage != "" {
 			s.Status().SetMessage(statusMessage)
 		}
-		if !hasSubSpans {
+		if !emitSubSpans {
 			appendSpanLinks(s, span.Links)
 		}
 		s.SetEndTimestamp(pcommon.NewTimestampFromTime(t.End))
@@ -1764,7 +1767,7 @@ func spanKind(span *request.Span) trace2.SpanKind {
 	return trace2.SpanKindInternal
 }
 
-func spanStartTime(t request.Timings) time.Time {
+func SpanStartTime(t request.Timings) time.Time {
 	realStart := t.RequestStart
 	if t.Start.Before(realStart) {
 		realStart = t.Start
