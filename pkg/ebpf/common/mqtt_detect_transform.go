@@ -104,7 +104,8 @@ func ProcessMQTTEvent(pkt []byte) (*MQTTInfo, bool, error) {
 		}
 		if !ignore {
 			if !isValidMQTTPacket(info) {
-				return nil, true, errNoSpanWorthyMQTTPackets
+				offset += packet.Length()
+				continue
 			}
 			return info, false, nil
 		}
