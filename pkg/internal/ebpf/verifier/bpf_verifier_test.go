@@ -227,7 +227,7 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 	// tpinjector/BpfFionreadFixup uses bpf_probe_write_user, rejected at load time
 	// under kernel lockdown - none of the CI kernels run locked down
 	forEachCombination(t, "tpinjector/BpfFionreadFixup", tpinjectorbpf.LoadBpfFionreadFixup, []constOption{
-		{"g_bpf_debug", []any{true, false}},
+		{"g_bpf_debug_flags", debugFlags},
 	})
 
 	// watcher
@@ -252,9 +252,7 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 	})
 
 	// rdns xdp
-	forEachCombination(t, "rdns/xdp/Bpf", rdnsxdpbpf.LoadBpf, []constOption{
-		{"g_bpf_debug_flags", debugFlags},
-	})
+	loadAndVerify(t, "rdns/xdp/Bpf", rdnsxdpbpf.LoadBpf)
 
 	// statsolly
 	forEachCombination(t, "statsolly/Stats", statsolly.LoadStats, []constOption{

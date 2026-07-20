@@ -94,7 +94,7 @@ func (p *Tracer) LoadSpecs() ([]*ebpfcommon.SpecBundle, error) {
 			bundles = append(bundles, &ebpfcommon.SpecBundle{
 				Spec:      fixupSpec,
 				Objects:   &p.bpfFionreadFixupObjects,
-				Constants: map[string]any{"g_bpf_debug": p.cfg.EBPF.BpfDebug},
+				Constants: map[string]any{"g_bpf_debug_flags": p.cfg.EBPF.DebugMode().Flags()},
 			})
 			p.fionreadFixupEnabled = true
 		}

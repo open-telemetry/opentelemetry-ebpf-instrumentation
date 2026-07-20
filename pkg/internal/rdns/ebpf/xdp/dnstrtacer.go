@@ -18,11 +18,6 @@ import (
 	convenience "go.opentelemetry.io/obi/pkg/internal/ebpf/convenience"
 )
 
-const (
-	// const defined in bpf/common/globals.h as "volatile const"
-	gBpfDebugFlags = "g_bpf_debug_flags"
-)
-
 // tracer represents the main structure for DNS response tracking.
 type tracer struct {
 	bpfObjects *BpfObjects
@@ -63,9 +58,7 @@ func newTracer(ebpfCfg *config.EBPFTracer) (*tracer, error) {
 
 	sharedMaps := map[string]*ebpf.Map{}
 	var mu sync.Mutex
-	if err := convenience.LoadSpec(spec, &objects, map[string]any{
-		gBpfDebugFlags: ebpfCfg.DebugMode().Flags(),
-	}, sharedMaps, &mu, "", nil); err != nil {
+	if err := convenience.LoadSpec(spec, &objects, nil, sharedMaps, &mu, "", nil); err != nil {
 		return nil, err
 	}
 
