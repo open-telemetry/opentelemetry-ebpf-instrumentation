@@ -16,7 +16,7 @@ type LogEnricherConfig struct {
 	// Services specifies the services to enable log enrichment for
 	Services []LogEnricherServiceConfig `yaml:"services"`
 
-	// FieldNames defines the trace context field names used in enriched logs
+	// FieldNames defines the trace context field names OBI preserves when present and injects when missing
 	FieldNames LogEnricherFieldNames `yaml:"field_names"`
 
 	// PlainText configures trace context annotation for non-JSON logs
@@ -84,10 +84,10 @@ func validateLogEnricherFieldName(field, value string) error {
 }
 
 type LogEnricherFieldNames struct {
-	// TraceID is the literal trace ID field name
+	// TraceID is the literal trace ID field name used to preserve and inject trace context
 	TraceID string `yaml:"trace_id" jsonschema:"minLength=1,pattern=^[^=\\u0000-\\u0020\\u007F-\\u00A0\\u1680\\u2000-\\u200A\\u2028-\\u2029\\u202F\\u205F\\u3000]+$"`
 
-	// SpanID is the literal span ID field name
+	// SpanID is the literal span ID field name used to preserve and inject span context
 	SpanID string `yaml:"span_id" jsonschema:"minLength=1,pattern=^[^=\\u0000-\\u0020\\u007F-\\u00A0\\u1680\\u2000-\\u200A\\u2028-\\u2029\\u202F\\u205F\\u3000]+$"`
 }
 

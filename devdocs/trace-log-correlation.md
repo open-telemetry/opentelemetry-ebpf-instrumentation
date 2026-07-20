@@ -58,7 +58,7 @@ plain_text:
   multiline: first_line
 ```
 
-Field names apply to JSON and plain-text output. They must be nonempty and distinct and cannot contain whitespace, `=`, or control characters. `plain_text.enabled: false` leaves non-JSON writes unchanged without disabling JSON enrichment.
+Field names apply to JSON and plain-text output. OBI uses them both to recognize and preserve existing trace context and to inject missing fields. They must be nonempty and distinct and cannot contain whitespace, `=`, or control characters. `plain_text.enabled: false` leaves non-JSON writes unchanged without disabling JSON enrichment.
 
 Newline-delimited JSON is handled as structured JSON: OBI enriches each JSON object record independently and preserves valid non-object JSON records unchanged. It does not apply plain-text `key=value` annotation to a valid NDJSON sequence.
 
