@@ -271,6 +271,70 @@ func testNodeRdkafka(t *testing.T) {
 	}
 }
 
+// testJavaKafkaMultiTopic exercises the Apache Java client (Fetch/Produce v13+,
+// topic-by-UUID) subscribing to several topics, so the broker's Metadata
+// response is multi-topic. OBI must resolve every topic to its real name.
+// A parser that only handles the first topic leaves the others as "*",
+// so asserting all of them resolves guards the multi-topic metadata parsing
+// regardless of the broker's topic ordering.
+//
+// Note the asymmetry: the Apache Java producer sends a separate single-topic
+// Produce per topic, so the `publish <topic>` assertions pass even without the
+// multi-topic changes. The real coverage is the `process <topic>` assertions:
+// the Java consumer issues one multi-topic Fetch (all subscribed topics by UUID),
+// so all three `process` spans appearing is what proves the metadata
+// multi-topic parse + fetch alignment + per-topic span emission are working together.
+func testJavaKafkaMultiTopic(t *testing.T) {
+	commonAttrs := []attribute.KeyValue{
+		attribute.String("messaging.system", "kafka"),
+		attribute.Int("server.port", 9092),
+	}
+
+	topics := []string{
+		"obi-java-multitopic-1",
+		"obi-java-multitopic-2",
+		"obi-java-multitopic-3",
+	}
+
+	var spans []TestCaseSpan
+	for _, topic := range topics {
+		spans = append(spans,
+			TestCaseSpan{
+				Name: "publish " + topic,
+				Attributes: []attribute.KeyValue{
+					attribute.String("span.kind", "producer"),
+					attribute.String("messaging.operation.type", "publish"),
+					attribute.String("messaging.destination.name", topic),
+				},
+			},
+			TestCaseSpan{
+				Name: "process " + topic,
+				Attributes: []attribute.KeyValue{
+					attribute.String("span.kind", "consumer"),
+					attribute.String("messaging.operation.type", "process"),
+					attribute.String("messaging.destination.name", topic),
+				},
+			},
+		)
+	}
+
+	testCase := TestCase{
+		Route:   "http://localhost:8381",
+		Subpath: "message",
+		Comm:    "javakafka-mt",
+		Spans:   spans,
+	}
+
+	for i := range testCase.Spans {
+		testCase.Spans[i].Attributes = append(testCase.Spans[i].Attributes, commonAttrs...)
+	}
+
+	t.Run(testCase.Route, func(t *testing.T) {
+		waitForKafkaTestComponents(t, testCase.Route, "/"+testCase.Subpath)
+		runKafkaTestCase(t, testCase)
+	})
+}
+
 func waitForKafkaTestComponents(t *testing.T, url string, subpath string) {
 	t.Helper()
 

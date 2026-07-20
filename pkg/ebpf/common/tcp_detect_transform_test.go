@@ -332,9 +332,10 @@ func TestTCPReqKafkaParsing(t *testing.T) {
 	// kafka message
 	b := []byte{0, 0, 0, 94, 0, 1, 0, 11, 0, 0, 0, 224, 0, 6, 115, 97, 114, 97, 109, 97, 255, 255, 255, 255, 0, 0, 1, 244, 0, 0, 0, 1, 6, 64, 0, 0, 0, 0, 0, 0, 0, 255, 255, 255, 255, 0, 0, 0, 1, 0, 9, 105, 109, 112, 111, 114, 116, 97, 110, 116, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 19, 0, 0, 0, 0, 0, 0, 0, 0, 0, 16, 0, 0, 0, 0, 0, 0, 0, 0}
 	r := makeTCPReq(string(b), 343534)
-	k, _, err := ProcessKafkaRequest(largebuf.NewLargeBufferFrom(b), nil)
+	ks, _, err := ProcessKafkaRequest(largebuf.NewLargeBufferFrom(b), nil)
 	require.NoError(t, err)
-	s := TCPToKafkaToSpan(&r, k)
+	require.Len(t, ks, 1)
+	s := TCPToKafkaToSpan(&r, ks[0])
 	assert.NotNil(t, s)
 	assert.NotEmpty(t, s.Host)
 	assert.NotEmpty(t, s.Peer)

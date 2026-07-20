@@ -245,6 +245,9 @@ func TestParseMetadataResponse(t *testing.T) {
 				copy(pkt[offset:], uuid1[:])
 				offset += UUIDLen
 
+				pkt[offset] = 0x00 // is_internal
+				offset++
+
 				pkt[offset] = 0x00 // varint for 0 partitions (0)
 				offset++
 
@@ -347,6 +350,80 @@ func TestParseMetadataResponse(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestParseMetadataResponse_MultiTopicRealistic feeds a realistic v13 (flexible)
+// metadata response with two topics where the first topic carries a real
+// is_internal byte and a non-empty compact partition array. A correct parser
+// must skip past topic[0]'s is_internal + partitions (variable-length compact
+// arrays + tagged fields) to reach topic[1]. This is the shape of a real
+// broker response — unlike the other fixtures, which omit is_internal and use
+// zero partitions and therefore never exercise the skip logic.
+func TestParseMetadataResponse_MultiTopicRealistic(t *testing.T) {
+	uuid1 := UUID{
+		0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+		0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10,
+	}
+	uuid2 := UUID{
+		0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28,
+		0x29, 0x2A, 0x2B, 0x2C, 0x2D, 0x2E, 0x2F, 0x30,
+	}
+
+	var buf []byte
+	put16 := func(v uint16) { b := make([]byte, 2); binary.BigEndian.PutUint16(b, v); buf = append(buf, b...) }
+	put32 := func(v uint32) { b := make([]byte, 4); binary.BigEndian.PutUint32(b, v); buf = append(buf, b...) }
+	putByte := func(v byte) { buf = append(buf, v) }
+	putStr := func(s string) { putByte(byte(len(s) + 1)); buf = append(buf, s...) } // compact string
+
+	put32(0)         // throttle_time_ms
+	putByte(0x02)    // brokers array: 1 broker (compact 1+1)
+	put32(1)         // node_id
+	putStr("broker") // host
+	put32(9092)      // port
+	putByte(0x00)    // rack (null)
+	putByte(0x00)    // broker tagged_fields
+	putByte(0x00)    // cluster_id (null)
+	put32(1)         // controller_id
+	putByte(0x03)    // topics array: 2 topics (compact 2+1)
+
+	// --- topic[0]: internal + one partition (must be skipped to reach topic[1]) ---
+	put16(0)                       // error_code
+	putStr("topic1")               // name
+	buf = append(buf, uuid1[:]...) // topic_id
+	putByte(0x00)                  // is_internal (BOOLEAN) -- present in real responses
+	putByte(0x02)                  // partitions array: 1 partition (compact 1+1)
+	put16(0)                       // partition error_code
+	put32(0)                       // partition_index
+	put32(1)                       // leader_id
+	put32(5)                       // leader_epoch
+	putByte(0x03)
+	put32(1)
+	put32(2) // replica_nodes: [1,2] (compact 2+1)
+	putByte(0x03)
+	put32(1)
+	put32(2)      // isr_nodes: [1,2]
+	putByte(0x01) // offline_replicas: [] (compact 0+1)
+	putByte(0x00) // partition tagged_fields
+	put32(0)      // topic_authorized_operations
+	putByte(0x00) // topic tagged_fields
+
+	// --- topic[1]: the target (last topic; parser returns after topic_id) ---
+	put16(0)                       // error_code
+	putStr("topic2")               // name
+	buf = append(buf, uuid2[:]...) // topic_id
+	putByte(0x00)                  // is_internal
+
+	header := newTestHeader(APIKeyMetadata, 13)
+	r := largebuf.NewLargeBufferFrom(buf).NewReader()
+	resp, err := ParseMetadataResponse(&r, header)
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+
+	require.Len(t, resp.Topics, 2, "both topics must be parsed (topic[1] is lost if topic[0]'s is_internal+partitions aren't skipped correctly)")
+	assert.Equal(t, "topic1", resp.Topics[0].Name)
+	assert.Equal(t, uuid1, resp.Topics[0].UUID)
+	assert.Equal(t, "topic2", resp.Topics[1].Name)
+	assert.Equal(t, uuid2, resp.Topics[1].UUID)
 }
 
 // Comprehensive truncation tests for metadata responses

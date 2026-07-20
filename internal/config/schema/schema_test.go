@@ -251,6 +251,13 @@ extensions:
 func TestReceiverRejectsStandaloneSections(t *testing.T) {
 	t.Parallel()
 
+	layouts := []struct {
+		name   string
+		prefix string
+	}{
+		{name: "v2", prefix: "version: \"2.0\"\n"},
+		{name: "legacy selector", prefix: "open_port: \"8080\"\n"},
+	}
 	tests := []struct {
 		name  string
 		value string
@@ -264,17 +271,23 @@ func TestReceiverRejectsStandaloneSections(t *testing.T) {
 		t.Run(section, func(t *testing.T) {
 			t.Parallel()
 
-			for _, test := range tests {
-				t.Run(test.name, func(t *testing.T) {
+			for _, layout := range layouts {
+				t.Run(layout.name, func(t *testing.T) {
 					t.Parallel()
 
-					_, err := ParseReceiverYAML([]byte("version: \"2.0\"\n" + section + ": " + test.value + "\n"))
+					for _, test := range tests {
+						t.Run(test.name, func(t *testing.T) {
+							t.Parallel()
 
-					var notAllowed *SectionNotAllowedError
-					require.ErrorAs(t, err, &notAllowed)
-					require.Equal(t, section, notAllowed.Section)
-					require.Contains(t, err.Error(), "receiver config")
-					require.Contains(t, err.Error(), "standalone mode")
+							_, err := ParseReceiverYAML([]byte(layout.prefix + section + ": " + test.value + "\n"))
+
+							var notAllowed *SectionNotAllowedError
+							require.ErrorAs(t, err, &notAllowed)
+							require.Equal(t, section, notAllowed.Section)
+							require.Contains(t, err.Error(), "receiver config")
+							require.Contains(t, err.Error(), "standalone mode")
+						})
+					}
 				})
 			}
 		})
@@ -513,14 +526,27 @@ network: {}
 	require.ErrorAs(t, err, &standaloneNotV2)
 	require.Contains(t, err.Error(), "missing extensions.obi.version field")
 
-	_, err = ParseReceiverYAML([]byte(`
+	for _, yaml := range []string{
+		`
 file_format: "1.0"
 extensions:
   obi:
     version: "2.0"
     capture: {}
-`))
-	var receiverNotV2 *NotV2Error
-	require.ErrorAs(t, err, &receiverNotV2)
-	require.Contains(t, err.Error(), "missing top-level OBI v2 version field")
+`,
+		`
+file_format: "1.0"
+extensions:
+  obi:
+    capture: {}
+`,
+	} {
+		_, err = ParseReceiverYAML([]byte(yaml))
+		var wrongLayout *ReceiverLayoutError
+		require.ErrorAs(t, err, &wrongLayout)
+		var receiverNotV2 *NotV2Error
+		require.NotErrorAs(t, err, &receiverNotV2)
+		require.Contains(t, err.Error(), "extensions.obi.capture")
+		require.Contains(t, err.Error(), "receiver top level")
+	}
 }
