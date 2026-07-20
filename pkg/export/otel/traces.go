@@ -282,8 +282,10 @@ func getTracesExporter(ctx context.Context, cfg otelcfg.TracesConfig, im imetric
 		config := factory.CreateDefaultConfig().(*otlphttpexporter.Config)
 		queueCfg := getQueueConfig(cfg)
 		retryCfg := getRetrySettings(cfg)
+		disabledRetry := configretry.NewDefaultBackOffConfig()
+		disabledRetry.Enabled = false
 		config.QueueConfig = configoptional.None[exporterhelper.QueueBatchConfig]()
-		config.RetryConfig = configretry.BackOffConfig{Enabled: false}
+		config.RetryConfig = disabledRetry
 		config.ClientConfig = confighttp.ClientConfig{
 			Endpoint: opts.Scheme + "://" + opts.Endpoint + opts.BaseURLPath,
 			TLS: configtls.ClientConfig{
@@ -335,8 +337,10 @@ func getTracesExporter(ctx context.Context, cfg otelcfg.TracesConfig, im imetric
 		config := factory.CreateDefaultConfig().(*otlpexporter.Config)
 		queueCfg := getQueueConfig(cfg)
 		retryCfg := getRetrySettings(cfg)
+		disabledRetry := configretry.NewDefaultBackOffConfig()
+		disabledRetry.Enabled = false
 		config.QueueConfig = configoptional.None[exporterhelper.QueueBatchConfig]()
-		config.RetryConfig = configretry.BackOffConfig{Enabled: false}
+		config.RetryConfig = disabledRetry
 		config.ClientConfig = configgrpc.ClientConfig{
 			Endpoint: grpcEndpoint,
 			TLS: configtls.ClientConfig{
