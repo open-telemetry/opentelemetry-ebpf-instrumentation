@@ -70,6 +70,7 @@ func TestInternalOTelMetrics(t *testing.T) {
 					return
 				default:
 					_ = pokeInternalMetricsServer()
+					time.Sleep(10 * time.Millisecond)
 				}
 			}
 		}()
