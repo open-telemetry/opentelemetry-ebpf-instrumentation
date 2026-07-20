@@ -379,3 +379,74 @@ func TestProcessKafkaRequestFetchMultiTopic(t *testing.T) {
 		PartitionInfo: &PartitionInfo{Partition: 3, Offset: 200},
 	}, infos[1])
 }
+
+func TestProcessKafkaRequestProduceMultiTopic(t *testing.T) {
+	writeTopic := func(pkt []byte, offset, partition int, name string) int {
+		pkt[offset] = byte(len(name) + 1) // COMPACT_STRING length
+		offset++
+		copy(pkt[offset:], name)
+		offset += len(name)
+		pkt[offset] = 0x02 // one partition in the COMPACT_ARRAY
+		offset++
+		binary.BigEndian.PutUint32(pkt[offset:], uint32(partition))
+		offset += 4
+		pkt[offset] = 0x02 // one-byte COMPACT_RECORDS payload
+		offset++
+		pkt[offset] = 0x00
+		offset++
+		pkt[offset] = 0x00 // partition tagged fields
+		offset++
+		pkt[offset] = 0x00 // topic tagged fields
+		return offset + 1
+	}
+
+	pkt := make([]byte, 128)
+	offset := 0
+	offset += 4 // message_size (filled below)
+	binary.BigEndian.PutUint16(pkt[offset:], uint16(kafkaparser.APIKeyProduce))
+	offset += 2
+	binary.BigEndian.PutUint16(pkt[offset:], 9) // flexible Produce request
+	offset += 2
+	binary.BigEndian.PutUint32(pkt[offset:], 1) // correlation_id
+	offset += 4
+	binary.BigEndian.PutUint16(pkt[offset:], 1) // client_id length
+	offset += 2
+	pkt[offset] = 'c'
+	offset++
+	pkt[offset] = 0x00 // request header tagged fields
+	offset++
+
+	pkt[offset] = 0x00 // null transactional_id
+	offset++
+	binary.BigEndian.PutUint16(pkt[offset:], 1) // acks
+	offset += 2
+	binary.BigEndian.PutUint32(pkt[offset:], 30000) // timeout_ms
+	offset += 4
+	pkt[offset] = 0x03 // two topics in the COMPACT_ARRAY
+	offset++
+	offset = writeTopic(pkt, offset, 0, "topic-one")
+	offset = writeTopic(pkt, offset, 3, "topic-two")
+	pkt[offset] = 0x00 // request tagged fields
+	offset++
+
+	pkt = pkt[:offset]
+	binary.BigEndian.PutUint32(pkt[0:], uint32(offset-4))
+
+	infos, ignore, err := ProcessKafkaRequest(largebuf.NewLargeBufferFrom(pkt), nil)
+	require.NoError(t, err)
+	require.False(t, ignore)
+	require.Len(t, infos, 2)
+
+	require.Equal(t, &KafkaInfo{
+		ClientID:      "c",
+		Operation:     Produce,
+		Topic:         "topic-one",
+		PartitionInfo: &PartitionInfo{Partition: 0},
+	}, infos[0])
+	require.Equal(t, &KafkaInfo{
+		ClientID:      "c",
+		Operation:     Produce,
+		Topic:         "topic-two",
+		PartitionInfo: &PartitionInfo{Partition: 3},
+	}, infos[1])
+}
