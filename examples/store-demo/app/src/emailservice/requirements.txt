@@ -326,9 +326,9 @@ grpcio==1.76.0 \
     # via
     #   -r requirements.in
     #   grpcio-health-checking
-grpcio-health-checking==1.76.0 \
-    --hash=sha256:9743f345a855ba030cc7c381361606870b79d33bb71d7756efa47b6faa970f81 \
-    --hash=sha256:b7a99d74096b3ab3a59987fc02374068e1c180a352e8d1f79f10e5a23727098d
+grpcio-health-checking==1.82.1 \
+    --hash=sha256:622ed6663daf0b8c9dedb4e95a48f6db080a8129922742b5141c63cfab373219 \
+    --hash=sha256:86255e04e1d39f1c97a6632d41b63249351408de5c58e85eede87afd7d9828dd
     # via -r requirements.in
 idna==3.18 \
     --hash=sha256:7f952cbe720b688055e3f87de14f5c3e5fdaa8bc3928985c4077ca689de849a2 \
