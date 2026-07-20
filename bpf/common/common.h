@@ -67,6 +67,7 @@ enum {
 enum : u64 {
     k_max_span_name_len = 64,
     k_max_status_description_len = 64,
+    k_go_auto_span_json_max_len = 16 * 1024,
 };
 
 // Trace of an HTTP call invocation. It is instantiated by the return uprobe and forwarded to the
@@ -261,6 +262,14 @@ typedef struct channel_link_trace {
     tp_info_t sender_tp;
     tp_info_t receiver_tp;
 } channel_link_trace_t;
+
+typedef struct go_auto_span {
+    u8 type; // Must be first
+    u8 _pad[3];
+    u32 size;
+    pid_info pid;
+    unsigned char buf[];
+} go_auto_span_t;
 
 typedef struct mongo_go_client_req {
     u8 type; // Must be first

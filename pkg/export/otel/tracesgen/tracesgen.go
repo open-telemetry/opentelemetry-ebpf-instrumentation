@@ -7,7 +7,9 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log/slog"
 	"math"
 	"strconv"
 	"strings"
@@ -171,6 +173,13 @@ func generateTracesWithAttributes(
 		span := spanWithAttributes.Span
 		attrs := spanWithAttributes.Attributes
 
+		if len(span.ManualOTelJSON) > 0 {
+			if err := appendManualOTelJSON(rs, span.ManualOTelJSON); err != nil {
+				slog.Error("dropping invalid Go Auto SDK span payload", "error", err)
+			}
+			continue
+		}
+
 		ss := rs.ScopeSpans().AppendEmpty()
 
 		t := span.Timings()
@@ -238,6 +247,48 @@ func generateTracesWithAttributes(
 		}
 	}
 	return traces
+}
+
+func appendManualOTelJSON(rs ptrace.ResourceSpans, payload []byte) error {
+	var unmarshaler ptrace.JSONUnmarshaler
+	traces, err := unmarshaler.UnmarshalTraces(payload)
+	if err != nil {
+		return fmt.Errorf("decode Go Auto SDK span payload: %w", err)
+	}
+
+	resourceSpans := traces.ResourceSpans()
+	if resourceSpans.Len() != 1 {
+		return fmt.Errorf("invalid Go Auto SDK span payload: contains %d resource spans", resourceSpans.Len())
+	}
+
+	scopeSpans := resourceSpans.At(0).ScopeSpans()
+	if scopeSpans.Len() != 1 {
+		return fmt.Errorf("invalid Go Auto SDK span payload: contains %d scope spans", scopeSpans.Len())
+	}
+	spans := scopeSpans.At(0).Spans()
+	if spans.Len() != 1 {
+		return fmt.Errorf("invalid Go Auto SDK span payload: contains %d spans", spans.Len())
+	}
+	span := spans.At(0)
+	if span.TraceID().IsEmpty() || span.SpanID().IsEmpty() {
+		return errors.New("invalid Go Auto SDK span payload: invalid span metadata")
+	}
+	start := span.StartTimestamp()
+	end := span.EndTimestamp()
+	if start == 0 || end == 0 || end < start || uint64(end-start) > math.MaxInt64 ||
+		start > math.MaxInt64 || end > math.MaxInt64 {
+		return errors.New("invalid Go Auto SDK span payload: invalid timestamps")
+	}
+	switch span.Status().Code() {
+	case ptrace.StatusCodeUnset, ptrace.StatusCodeOk, ptrace.StatusCodeError:
+	default:
+		return errors.New("invalid Go Auto SDK span payload: invalid status")
+	}
+	span.SetKind(ptrace.SpanKind(trace2.ValidateSpanKind(trace2.SpanKind(span.Kind()))))
+
+	dst := rs.ScopeSpans().AppendEmpty()
+	scopeSpans.At(0).CopyTo(dst)
+	return nil
 }
 
 func SpanDiscarded(span *request.Span, is instrumentations.InstrumentationSelection) bool {
@@ -1563,6 +1614,10 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 }
 
 func spanKind(span *request.Span) trace2.SpanKind {
+	if span.Type == request.EventTypeManualSpan {
+		return trace2.ValidateSpanKind(span.SpanKind)
+	}
+
 	switch span.Type {
 	case request.EventTypeHTTP, request.EventTypeGRPC, request.EventTypeRedisServer, request.EventTypeKafkaServer, request.EventTypeMQTTServer, request.EventTypeNATSServer, request.EventTypeSunRPCServer, request.EventTypeMemcachedServer, request.EventTypeSQLServer:
 		return trace2.SpanKindServer
