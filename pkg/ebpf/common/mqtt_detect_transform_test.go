@@ -226,6 +226,19 @@ func TestProcessMQTTEvent(t *testing.T) {
 			},
 			err: true,
 		},
+		{
+			// Encrypted/random bytes that parse as a PUBLISH but whose topic
+			// is not a valid MQTT UTF-8 string must not produce a ghost span.
+			name: "PUBLISH with invalid UTF-8 topic - not span-worthy",
+			request: []byte{
+				0x30,       // PUBLISH, QoS 0
+				0x03,       // Remaining length: 3
+				0x00, 0x01, // Topic length: 1
+				0xff, // Topic: "\xff" (invalid UTF-8)
+			},
+			ignore: true,
+			err:    true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -495,6 +508,38 @@ func TestIsValidMQTTPacket(t *testing.T) {
 			name:     "invalid packet - nil info",
 			info:     nil,
 			expected: false,
+		},
+		{
+			name: "invalid packet - non-UTF-8 topic",
+			info: &MQTTInfo{
+				Topic:      "\xff",
+				PacketType: mqttparser.PacketTypePUBLISH,
+			},
+			expected: false,
+		},
+		{
+			name: "invalid packet - topic with null byte",
+			info: &MQTTInfo{
+				Topic:      "a\x00b",
+				PacketType: mqttparser.PacketTypePUBLISH,
+			},
+			expected: false,
+		},
+		{
+			name: "invalid packet - wildcard in PUBLISH topic",
+			info: &MQTTInfo{
+				Topic:      "sensors/#",
+				PacketType: mqttparser.PacketTypePUBLISH,
+			},
+			expected: false,
+		},
+		{
+			name: "valid packet - wildcard in SUBSCRIBE filter",
+			info: &MQTTInfo{
+				Topic:      "sensors/#",
+				PacketType: mqttparser.PacketTypeSUBSCRIBE,
+			},
+			expected: true,
 		},
 	}
 

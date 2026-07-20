@@ -119,7 +119,17 @@ func isValidMQTTPacket(info *MQTTInfo) bool {
 	if info == nil {
 		return false
 	}
-	return info.ClientID != "" || info.Topic != ""
+	if info.ClientID != "" && mqttparser.ValidUTF8String(info.ClientID) {
+		return true
+	}
+	switch info.PacketType {
+	case mqttparser.PacketTypePUBLISH:
+		return mqttparser.ValidTopicName(info.Topic)
+	case mqttparser.PacketTypeSUBSCRIBE:
+		return mqttparser.ValidTopicFilter(info.Topic)
+	default:
+		return false
+	}
 }
 
 // processMQTTPacket processes a single MQTT packet based on its type.
