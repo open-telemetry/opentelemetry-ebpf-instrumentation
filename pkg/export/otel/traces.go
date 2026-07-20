@@ -228,11 +228,8 @@ func instrumentTracesExporter(internalMetrics imetrics.Reporter, in exporter.Tra
 }
 
 // queueInstrumentedTraces stacks the sending queue and retry on top of the
-// instrumentation wrapper. The base exporter must be synchronous (its own queue
-// and retry disabled) so instrumentedTracesExporter observes the real export
-// outcome — a successful send or a send failure — instead of the underlying
-// exporter's sending-queue enqueue result, which always reports success and
-// hides asynchronous send failures from obi.otel.trace.export(.errors).
+// instrumentation wrapper, whose base exporter must be synchronous so it
+// observes the real send outcome instead of the sending-queue enqueue result.
 func queueInstrumentedTraces(
 	ctx context.Context,
 	set exporter.Settings,
@@ -285,9 +282,6 @@ func getTracesExporter(ctx context.Context, cfg otelcfg.TracesConfig, im imetric
 		config := factory.CreateDefaultConfig().(*otlphttpexporter.Config)
 		queueCfg := getQueueConfig(cfg)
 		retryCfg := getRetrySettings(cfg)
-		// Keep the otlphttp exporter synchronous (queue and retry disabled) so the
-		// instrumentation wrapper observes real send outcomes. The outer
-		// exporterhelper below owns the queue and retry.
 		config.QueueConfig = configoptional.None[exporterhelper.QueueBatchConfig]()
 		config.RetryConfig = configretry.BackOffConfig{Enabled: false}
 		config.ClientConfig = confighttp.ClientConfig{
@@ -315,7 +309,11 @@ func getTracesExporter(ctx context.Context, cfg otelcfg.TracesConfig, im imetric
 		}
 		// TODO: remove this once the batcher helper is added to otlphttpexporter
 		wrapped, err := queueInstrumentedTraces(ctx, set, cfg, im, exp, queueCfg, retryCfg)
-		return wrapped, host, err
+		if err != nil {
+			_ = exp.Shutdown(ctx)
+			return nil, nil, err
+		}
+		return wrapped, host, nil
 	case otelcfg.ProtocolGRPC:
 		slog.Debug("instantiating GRPC TracesReporter", "protocol", proto)
 		var err error
@@ -337,9 +335,6 @@ func getTracesExporter(ctx context.Context, cfg otelcfg.TracesConfig, im imetric
 		config := factory.CreateDefaultConfig().(*otlpexporter.Config)
 		queueCfg := getQueueConfig(cfg)
 		retryCfg := getRetrySettings(cfg)
-		// Keep the otlp gRPC exporter synchronous (queue and retry disabled) so the
-		// instrumentation wrapper observes real send outcomes. The outer
-		// exporterhelper below owns the queue and retry.
 		config.QueueConfig = configoptional.None[exporterhelper.QueueBatchConfig]()
 		config.RetryConfig = configretry.BackOffConfig{Enabled: false}
 		config.ClientConfig = configgrpc.ClientConfig{
@@ -356,7 +351,11 @@ func getTracesExporter(ctx context.Context, cfg otelcfg.TracesConfig, im imetric
 			return nil, nil, err
 		}
 		wrapped, err := queueInstrumentedTraces(ctx, set, cfg, im, exp, queueCfg, retryCfg)
-		return wrapped, emptyHost{}, err
+		if err != nil {
+			_ = exp.Shutdown(ctx)
+			return nil, nil, err
+		}
+		return wrapped, emptyHost{}, nil
 	case otelcfg.ProtocolDebug:
 		slog.Debug("instantiating Debug TracesReporter", "protocol", proto)
 		factory := debugexporter.NewFactory()

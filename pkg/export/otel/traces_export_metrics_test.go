@@ -21,17 +21,13 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 )
 
-// countingTracesReporter records how many trace exports the instrumentation
-// wrapper observed as successful vs failed. Embedding NoopReporter satisfies the
-// rest of the imetrics.Reporter interface while keeping the type distinct from
-// the builtin noop (so instrumentTracesExporter actually wraps it).
 type countingTracesReporter struct {
 	imetrics.NoopReporter
 	exports    atomic.Int64
 	exportErrs atomic.Int64
 }
 
-func (c *countingTracesReporter) OTELTraceExport(int)        { c.exports.Add(1) }
+func (c *countingTracesReporter) OTELTraceExport(spans int)  { c.exports.Add(int64(spans)) }
 func (c *countingTracesReporter) OTELTraceExportError(error) { c.exportErrs.Add(1) }
 
 func oneSpan() ptrace.Traces {
@@ -40,11 +36,6 @@ func oneSpan() ptrace.Traces {
 	return traces
 }
 
-// TestTracesExportInternalMetrics verifies that obi.otel.trace.export(.errors)
-// reflect the real OTLP send outcome rather than the exporter sending-queue's
-// enqueue result. The instrumentation wraps a synchronous exporter beneath the
-// queue/retry, so a reachable collector records a success and an unreachable one
-// records an error.
 func TestTracesExportInternalMetrics(t *testing.T) {
 	t.Run("successful export is counted", func(t *testing.T) {
 		coll := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -53,9 +44,13 @@ func TestTracesExportInternalMetrics(t *testing.T) {
 		defer coll.Close()
 
 		rep := &countingTracesReporter{}
+		// queue/batcher enabled so the export exercises the async send path
 		cfg := otelcfg.TracesConfig{
 			CommonEndpoint:   coll.URL,
 			Instrumentations: []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP},
+			BatchMaxSize:     1,
+			QueueSize:        2,
+			BatchTimeout:     10 * time.Millisecond,
 		}
 		exp, host, err := getTracesExporter(context.Background(), cfg, rep)
 		require.NoError(t, err)
@@ -70,7 +65,6 @@ func TestTracesExportInternalMetrics(t *testing.T) {
 	})
 
 	t.Run("failed export is counted", func(t *testing.T) {
-		// Start then immediately stop a server so its address refuses connections.
 		coll := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusOK)
 		}))
@@ -78,11 +72,13 @@ func TestTracesExportInternalMetrics(t *testing.T) {
 		coll.Close()
 
 		rep := &countingTracesReporter{}
+		// queue/batcher enabled so the export exercises the async send path
 		cfg := otelcfg.TracesConfig{
-			CommonEndpoint:   deadEndpoint,
-			Instrumentations: []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP},
-			// Bound the retry so ConsumeTraces gives up quickly instead of
-			// blocking on the default 5-minute backoff budget.
+			CommonEndpoint:         deadEndpoint,
+			Instrumentations:       []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP},
+			BatchMaxSize:           1,
+			QueueSize:              2,
+			BatchTimeout:           10 * time.Millisecond,
 			BackOffInitialInterval: 10 * time.Millisecond,
 			BackOffMaxInterval:     10 * time.Millisecond,
 			BackOffMaxElapsedTime:  100 * time.Millisecond,
@@ -92,7 +88,6 @@ func TestTracesExportInternalMetrics(t *testing.T) {
 		require.NoError(t, exp.Start(context.Background(), host))
 		t.Cleanup(func() { _ = exp.Shutdown(context.Background()) })
 
-		// The send fails; ConsumeTraces surfaces the error after the bounded retry.
 		_ = exp.ConsumeTraces(context.Background(), oneSpan())
 
 		require.Eventually(t, func() bool { return rep.exportErrs.Load() > 0 }, 5*time.Second, 20*time.Millisecond,

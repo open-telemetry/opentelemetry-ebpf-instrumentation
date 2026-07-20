@@ -20,16 +20,14 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
 )
 
-// countingMetricsReporter records how many metric exports the instrumentation
-// wrapper observed as successful vs failed.
 type countingMetricsReporter struct {
 	imetrics.NoopReporter
 	exports    atomic.Int64
 	exportErrs atomic.Int64
 }
 
-func (c *countingMetricsReporter) OTELMetricExport(int)        { c.exports.Add(1) }
-func (c *countingMetricsReporter) OTELMetricExportError(error) { c.exportErrs.Add(1) }
+func (c *countingMetricsReporter) OTELMetricExport(metrics int) { c.exports.Add(int64(metrics)) }
+func (c *countingMetricsReporter) OTELMetricExportError(error)  { c.exportErrs.Add(1) }
 
 func oneResourceMetric() *metricdata.ResourceMetrics {
 	return &metricdata.ResourceMetrics{
@@ -46,11 +44,6 @@ func oneResourceMetric() *metricdata.ResourceMetrics {
 	}
 }
 
-// TestMetricsExportInternalMetrics verifies that obi.otel.metric.export(.errors)
-// reflect the real OTLP send outcome. Unlike the collector traces exporter, the
-// SDK metric exporter is synchronous (the PeriodicReader drives Export and
-// consumes its return), so the instrumentation wrapper already observes success
-// and failure directly.
 func TestMetricsExportInternalMetrics(t *testing.T) {
 	t.Run("successful export is counted", func(t *testing.T) {
 		coll := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
