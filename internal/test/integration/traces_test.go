@@ -1964,5 +1964,5 @@ func testHTTPTracesNoNestedCalls(t *testing.T) {
 	// We don't find client trace, since we are forcing the maximum transaction time
 	// to be very low, to test that long running transactions break
 	res = trace.FindByOperationName("GET /echoBack", "client")
-	require.Len(t, res, 0)
+	require.Empty(t, res)
 }
