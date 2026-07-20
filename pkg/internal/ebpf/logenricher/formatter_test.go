@@ -270,6 +270,52 @@ func TestLogFormatterMixedJSONAndPlainText(t *testing.T) {
 	require.Equal(t, "second "+testContextFields+"\n", string(plainText))
 }
 
+func TestLogFormatterEnrichesNDJSON(t *testing.T) {
+	t.Parallel()
+
+	formatter := newLogFormatter(obi.DefaultConfig.EBPF.LogEnricher)
+	got, err := formatter.format(
+		[]byte("{\"message\":\"first\"}\r\n{\"message\":\"second\"}\r\n"),
+		testTraceID,
+		testSpanID,
+		true,
+	)
+	require.NoError(t, err)
+
+	lines := bytes.Split(got, []byte("\r\n"))
+	require.Len(t, lines, 3)
+	require.Empty(t, lines[2])
+
+	for _, line := range lines[:2] {
+		var fields map[string]any
+		require.NoError(t, json.Unmarshal(line, &fields))
+		require.Equal(t, testTraceID, fields["trace_id"])
+		require.Equal(t, testSpanID, fields["span_id"])
+	}
+}
+
+func TestLogFormatterPreservesNDJSONNonObjectRecords(t *testing.T) {
+	t.Parallel()
+
+	formatter := newLogFormatter(obi.DefaultConfig.EBPF.LogEnricher)
+	got, err := formatter.format(
+		[]byte("{\"message\":\"first\"}\n42\n"),
+		testTraceID,
+		testSpanID,
+		true,
+	)
+	require.NoError(t, err)
+
+	lines := bytes.Split(got, []byte("\n"))
+	require.Len(t, lines, 3)
+	require.Equal(t, []byte("42"), lines[1])
+
+	var fields map[string]any
+	require.NoError(t, json.Unmarshal(lines[0], &fields))
+	require.Equal(t, testTraceID, fields["trace_id"])
+	require.Equal(t, testSpanID, fields["span_id"])
+}
+
 func TestLogFormatterPreservesNonObjectJSON(t *testing.T) {
 	t.Parallel()
 

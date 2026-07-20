@@ -48,7 +48,64 @@ func (f logFormatter) format(logLine []byte, traceID, spanID string, includeSpan
 		}
 	}
 
+	if out, ok, err := f.formatNDJSON(logLine, traceID, spanID, includeSpan); ok || err != nil {
+		return out, err
+	}
+
 	return f.formatPlainText(logLine, traceID, spanID, includeSpan), nil
+}
+
+func (f logFormatter) formatNDJSON(logLine []byte, traceID, spanID string, includeSpan bool) ([]byte, bool, error) {
+	out := make([]byte, 0, len(logLine))
+	records := 0
+
+	for start := 0; start < len(logLine); {
+		newline := bytes.IndexByte(logLine[start:], '\n')
+		lineEnd := len(logLine)
+		if newline >= 0 {
+			lineEnd = start + newline
+		}
+		nextLine := lineEnd
+		if newline >= 0 {
+			nextLine++
+		}
+
+		contentEnd := lineEnd
+		if contentEnd > start && logLine[contentEnd-1] == '\r' {
+			contentEnd--
+		}
+		line := logLine[start:contentEnd]
+		if len(bytes.TrimSpace(line)) != 0 {
+			records++
+			if !json.Valid(line) {
+				return nil, false, nil
+			}
+
+			var fields map[string]any
+			if err := json.Unmarshal(line, &fields); err == nil && fields != nil {
+				applyTraceContext(fields, f.fieldNames, traceID, spanID, includeSpan)
+
+				encoded, err := json.Marshal(fields)
+				if err != nil {
+					return nil, false, err
+				}
+				out = append(out, encoded...)
+			} else {
+				out = append(out, line...)
+			}
+		} else {
+			out = append(out, line...)
+		}
+
+		out = append(out, logLine[contentEnd:nextLine]...)
+		start = nextLine
+	}
+
+	if records < 2 {
+		return nil, false, nil
+	}
+
+	return out, true, nil
 }
 
 func applyTraceContext(

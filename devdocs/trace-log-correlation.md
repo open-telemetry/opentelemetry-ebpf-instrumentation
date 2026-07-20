@@ -60,6 +60,8 @@ plain_text:
 
 Field names apply to JSON and plain-text output. They must be nonempty and distinct and cannot contain whitespace, `=`, or control characters. `plain_text.enabled: false` leaves non-JSON writes unchanged without disabling JSON enrichment.
 
+Newline-delimited JSON is handled as structured JSON: OBI enriches each JSON object record independently and preserves valid non-object JSON records unchanged. It does not apply plain-text `key=value` annotation to a valid NDJSON sequence.
+
 `placement` accepts `suffix` or `prefix`. `multiline` accepts `first_line`, `last_line`, or `each_line` and selects nonempty physical lines within the current intercepted write. Empty lines and LF or CRLF endings are preserved, and an unterminated write remains unterminated. OBI does not buffer writes or infer logical multiline events across separate writes.
 
 ## The `traces_ctx_v1` map
