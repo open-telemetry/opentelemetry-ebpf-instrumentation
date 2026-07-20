@@ -17,5 +17,24 @@ func ValidTopicName(s string) bool {
 }
 
 func ValidTopicFilter(s string) bool {
-	return s != "" && ValidUTF8String(s)
+	if s == "" || !ValidUTF8String(s) {
+		return false
+	}
+
+	levels := strings.Split(s, "/")
+	for i, level := range levels {
+		switch level {
+		case "#":
+			if i != len(levels)-1 {
+				return false
+			}
+		case "+":
+		default:
+			if strings.ContainsAny(level, "+#") {
+				return false
+			}
+		}
+	}
+
+	return true
 }
