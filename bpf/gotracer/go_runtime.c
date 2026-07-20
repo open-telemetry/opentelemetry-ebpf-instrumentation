@@ -45,6 +45,12 @@ typedef struct new_func_invocation {
     u64 parent;
 } new_func_invocation_t;
 
+enum : u32 {
+    k_go_runtime_heap_stats_slots = 3,
+    k_go_runtime_heap_stats_fields_between_size_class_arrays = 2,
+    k_go_runtime_max_size_classes = 68,
+};
+
 static __always_inline bool go_runtime_read(void *dst, u32 size, u64 addr) {
     if (!addr) {
         return false;
@@ -188,6 +194,257 @@ static __always_inline void go_runtime_collect_cpu_time(const go_runtime_metric_
     snapshot->valid_mask |= go_runtime_metric_valid_cpu_time;
 }
 
+typedef struct go_runtime_heap_stats_totals {
+    s64 committed;
+    s64 in_stacks;
+    u64 allocated;
+    u64 allocations;
+    u64 valid_mask;
+} go_runtime_heap_stats_totals_t;
+
+static __always_inline void
+go_runtime_collect_heap_stats_totals(const go_runtime_metric_target_t *target,
+                                     off_table_t *ot,
+                                     const pid_info *pid,
+                                     bool collect_memory_used,
+                                     bool collect_memory_allocations,
+                                     go_runtime_heap_stats_totals_t *totals) {
+    const u64 heap_stats_pos = go_offset_of(ot, (go_offset){.v = _runtime_memstats_heap_stats_pos});
+    const u64 stats_pos =
+        go_offset_of(ot, (go_offset){.v = _runtime_consistent_heap_stats_stats_pos});
+    const u64 committed_pos =
+        go_offset_of(ot, (go_offset){.v = _runtime_heap_stats_delta_committed_pos});
+    const u64 in_stacks_pos =
+        go_offset_of(ot, (go_offset){.v = _runtime_heap_stats_delta_in_stacks_pos});
+    const u64 large_alloc_pos =
+        go_offset_of(ot, (go_offset){.v = _runtime_heap_stats_delta_large_alloc_pos});
+    const u64 large_alloc_count_pos =
+        go_offset_of(ot, (go_offset){.v = _runtime_heap_stats_delta_large_alloc_count_pos});
+    const u64 small_alloc_count_pos =
+        go_offset_of(ot, (go_offset){.v = _runtime_heap_stats_delta_small_alloc_count_pos});
+    const u64 small_free_count_pos =
+        go_offset_of(ot, (go_offset){.v = _runtime_heap_stats_delta_small_free_count_pos});
+    const u64 stats_addr = target->memstats_addr + heap_stats_pos + stats_pos;
+
+    if (small_alloc_count_pos % sizeof(u64) || small_free_count_pos % sizeof(u64) ||
+        small_free_count_pos <= small_alloc_count_pos) {
+        bpf_dbg_printk("invalid Go runtime size-class layout pid=%d ns=%d", pid->user_pid, pid->ns);
+        return;
+    }
+
+    const u64 size_class_arrays_gap = small_free_count_pos - small_alloc_count_pos;
+    // largeFree and largeFreeCount are the two u64 fields between the size-class arrays.
+    const u64 intervening_fields_size =
+        k_go_runtime_heap_stats_fields_between_size_class_arrays * sizeof(u64);
+    if (size_class_arrays_gap <= intervening_fields_size ||
+        (size_class_arrays_gap - intervening_fields_size) % sizeof(u64)) {
+        bpf_dbg_printk(
+            "invalid Go runtime size-class array gap pid=%d ns=%d", pid->user_pid, pid->ns);
+        return;
+    }
+
+    const u64 size_class_counts_size = size_class_arrays_gap - intervening_fields_size;
+    const u64 derived_size_class_count = size_class_counts_size / sizeof(u64);
+    if (!derived_size_class_count || derived_size_class_count > k_go_runtime_max_size_classes ||
+        small_free_count_pos + size_class_counts_size < small_free_count_pos) {
+        bpf_dbg_printk(
+            "unsupported Go runtime size-class layout pid=%d ns=%d", pid->user_pid, pid->ns);
+        return;
+    }
+    const u32 size_class_count = (u32)derived_size_class_count;
+
+    // heapStatsDelta ends with a second size-class array of the derived length.
+    const u64 heap_stats_delta_size = small_free_count_pos + size_class_counts_size;
+
+    s64 committed = 0;
+    s64 in_stacks = 0;
+    u64 allocated = 0;
+    u64 allocations = 0;
+
+    if (collect_memory_used) {
+        totals->valid_mask |= go_runtime_metric_valid_memory_used;
+    }
+    if (collect_memory_allocations) {
+        totals->valid_mask |= go_runtime_metric_valid_memory_allocations;
+    }
+
+    // nextGen runs stop-the-world, so the three rotating slots form one consistent snapshot.
+    for (u32 slot = 0; slot < k_go_runtime_heap_stats_slots; slot++) {
+        const u64 slot_addr = stats_addr + (slot * heap_stats_delta_size);
+
+        if (totals->valid_mask & go_runtime_metric_valid_memory_used) {
+            s64 slot_committed = 0;
+            s64 slot_in_stacks = 0;
+            if (!go_runtime_read_offset(
+                    &slot_committed, sizeof(slot_committed), slot_addr, committed_pos)) {
+                totals->valid_mask &= ~go_runtime_metric_valid_memory_used;
+            } else if (!go_runtime_read_offset(
+                           &slot_in_stacks, sizeof(slot_in_stacks), slot_addr, in_stacks_pos)) {
+                totals->valid_mask &= ~go_runtime_metric_valid_memory_used;
+            } else {
+                committed += slot_committed;
+                in_stacks += slot_in_stacks;
+            }
+        }
+
+        if (totals->valid_mask & go_runtime_metric_valid_memory_allocations) {
+            u64 slot_large_alloc = 0;
+            u64 slot_large_alloc_count = 0;
+            if (!go_runtime_read_offset(
+                    &slot_large_alloc, sizeof(slot_large_alloc), slot_addr, large_alloc_pos)) {
+                totals->valid_mask &= ~go_runtime_metric_valid_memory_allocations;
+            } else if (!go_runtime_read_offset(&slot_large_alloc_count,
+                                               sizeof(slot_large_alloc_count),
+                                               slot_addr,
+                                               large_alloc_count_pos)) {
+                totals->valid_mask &= ~go_runtime_metric_valid_memory_allocations;
+            } else {
+                allocated += slot_large_alloc;
+                allocations += slot_large_alloc_count;
+            }
+        }
+    }
+
+    if (totals->valid_mask & go_runtime_metric_valid_memory_allocations) {
+        // Go's heap allocation metrics deliberately exclude tiny allocations.
+        for (u32 size_class = 0; size_class < k_go_runtime_max_size_classes; size_class++) {
+            if (size_class >= size_class_count) {
+                break;
+            }
+
+            u16 class_size = 0;
+            if (!go_runtime_read(&class_size,
+                                 sizeof(class_size),
+                                 target->size_class_to_sizes_addr +
+                                     (size_class * sizeof(class_size)))) {
+                totals->valid_mask &= ~go_runtime_metric_valid_memory_allocations;
+                break;
+            }
+
+            for (u32 slot = 0; slot < k_go_runtime_heap_stats_slots; slot++) {
+                const u64 slot_addr = stats_addr + (slot * heap_stats_delta_size);
+                u64 small_alloc_count = 0;
+                if (!go_runtime_read_offset(&small_alloc_count,
+                                            sizeof(small_alloc_count),
+                                            slot_addr,
+                                            small_alloc_count_pos +
+                                                (size_class * sizeof(small_alloc_count)))) {
+                    totals->valid_mask &= ~go_runtime_metric_valid_memory_allocations;
+                    break;
+                }
+                allocated += small_alloc_count * class_size;
+                allocations += small_alloc_count;
+            }
+            if (!(totals->valid_mask & go_runtime_metric_valid_memory_allocations)) {
+                break;
+            }
+        }
+    }
+
+    if (collect_memory_used && !(totals->valid_mask & go_runtime_metric_valid_memory_used)) {
+        bpf_dbg_printk(
+            "can't read Go runtime memory-used heap stats pid=%d ns=%d", pid->user_pid, pid->ns);
+    }
+    if (collect_memory_allocations &&
+        !(totals->valid_mask & go_runtime_metric_valid_memory_allocations)) {
+        bpf_dbg_printk(
+            "can't read Go runtime allocation heap stats pid=%d ns=%d", pid->user_pid, pid->ns);
+    }
+
+    totals->committed = committed;
+    totals->in_stacks = in_stacks;
+    totals->allocated = allocated;
+    totals->allocations = allocations;
+}
+
+static __always_inline void go_runtime_collect_heap_stats(const go_runtime_metric_target_t *target,
+                                                          off_table_t *ot,
+                                                          const pid_info *pid,
+                                                          go_runtime_metric_snapshot_t *snapshot) {
+    const bool collect_memory_used = target->available_mask & go_runtime_metric_valid_memory_used;
+    const bool collect_memory_allocations =
+        (target->available_mask & go_runtime_metric_valid_memory_allocations) &&
+        target->size_class_to_sizes_addr;
+    if (!collect_memory_used && !collect_memory_allocations) {
+        return;
+    }
+
+    go_runtime_heap_stats_totals_t totals = {};
+    go_runtime_collect_heap_stats_totals(
+        target, ot, pid, collect_memory_used, collect_memory_allocations, &totals);
+
+    if (totals.valid_mask & go_runtime_metric_valid_memory_allocations) {
+        snapshot->memory_allocated = totals.allocated;
+        snapshot->memory_allocations = totals.allocations;
+        snapshot->valid_mask |= go_runtime_metric_valid_memory_allocations;
+    }
+    if (!(totals.valid_mask & go_runtime_metric_valid_memory_used)) {
+        return;
+    }
+
+    u64 stacks_sys = 0;
+    u64 mspan_sys = 0;
+    u64 mcache_sys = 0;
+    u64 buckhash_sys = 0;
+    u64 gc_misc_sys = 0;
+    u64 other_sys = 0;
+    if (!go_runtime_read_offset(
+            &stacks_sys,
+            sizeof(stacks_sys),
+            target->memstats_addr,
+            go_offset_of(ot, (go_offset){.v = _runtime_memstats_stacks_sys_pos}))) {
+        bpf_dbg_printk("can't read Go runtime stacks_sys pid=%d ns=%d", pid->user_pid, pid->ns);
+        return;
+    }
+    if (!go_runtime_read_offset(
+            &mspan_sys,
+            sizeof(mspan_sys),
+            target->memstats_addr,
+            go_offset_of(ot, (go_offset){.v = _runtime_memstats_mspan_sys_pos}))) {
+        bpf_dbg_printk("can't read Go runtime mspan_sys pid=%d ns=%d", pid->user_pid, pid->ns);
+        return;
+    }
+    if (!go_runtime_read_offset(
+            &mcache_sys,
+            sizeof(mcache_sys),
+            target->memstats_addr,
+            go_offset_of(ot, (go_offset){.v = _runtime_memstats_mcache_sys_pos}))) {
+        bpf_dbg_printk("can't read Go runtime mcache_sys pid=%d ns=%d", pid->user_pid, pid->ns);
+        return;
+    }
+    if (!go_runtime_read_offset(
+            &buckhash_sys,
+            sizeof(buckhash_sys),
+            target->memstats_addr,
+            go_offset_of(ot, (go_offset){.v = _runtime_memstats_buckhash_sys_pos}))) {
+        bpf_dbg_printk("can't read Go runtime buckhash_sys pid=%d ns=%d", pid->user_pid, pid->ns);
+        return;
+    }
+    if (!go_runtime_read_offset(
+            &gc_misc_sys,
+            sizeof(gc_misc_sys),
+            target->memstats_addr,
+            go_offset_of(ot, (go_offset){.v = _runtime_memstats_gc_misc_sys_pos}))) {
+        bpf_dbg_printk("can't read Go runtime gc_misc_sys pid=%d ns=%d", pid->user_pid, pid->ns);
+        return;
+    }
+    if (!go_runtime_read_offset(
+            &other_sys,
+            sizeof(other_sys),
+            target->memstats_addr,
+            go_offset_of(ot, (go_offset){.v = _runtime_memstats_other_sys_pos}))) {
+        bpf_dbg_printk("can't read Go runtime other_sys pid=%d ns=%d", pid->user_pid, pid->ns);
+        return;
+    }
+
+    const s64 sys_other =
+        (s64)(stacks_sys + mspan_sys + mcache_sys + buckhash_sys + gc_misc_sys + other_sys);
+    snapshot->memory_used_stack = totals.in_stacks;
+    // This is the runtime/metrics identity: committed - inStacks + non-heap Sys fields.
+    snapshot->memory_used_other = totals.committed - totals.in_stacks + sys_other;
+    snapshot->valid_mask |= go_runtime_metric_valid_memory_used;
+}
+
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __type(key, go_addr_key_t); // key: pointer to the request goroutine
@@ -195,15 +452,14 @@ struct {
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
 } newproc1 SEC(".maps");
 
-SEC("uprobe/runtime.gcMarkDone_return")
-int obi_uprobe_runtime_gc_mark_done(struct pt_regs *ctx) {
+SEC("uprobe/go_runtime_metrics")
+int obi_uprobe_go_runtime_metrics(struct pt_regs *ctx) {
     (void)ctx;
 
     pid_info key = {};
     task_pid(&key);
 
-    bpf_dbg_printk(
-        "Go GC completed, collecting runtime metrics pid=%d ns=%d", key.user_pid, key.ns);
+    bpf_dbg_printk("collecting Go runtime metrics pid=%d ns=%d", key.user_pid, key.ns);
 
     const go_runtime_metric_target_t *target =
         bpf_map_lookup_elem(&go_runtime_metric_targets, &key);
@@ -227,6 +483,7 @@ int obi_uprobe_runtime_gc_mark_done(struct pt_regs *ctx) {
     go_runtime_collect_memory_config(target, ot, &event->snapshot);
     go_runtime_collect_scheduler_config(target, &event->snapshot);
     go_runtime_collect_cpu_time(target, ot, &event->snapshot);
+    go_runtime_collect_heap_stats(target, ot, &key, &event->snapshot);
 
     bpf_ringbuf_submit(event, get_flags());
     return 0;

@@ -282,6 +282,13 @@ HTTPParsingPolicy defines the default action for http enrichment rules.
 |---|---|---|---|---|---|---|
 | `ebpf.payload_extraction.http.genai.openai.enabled` | `boolean` | `OTEL_EBPF_HTTP_OPENAI_ENABLED` | `false` |  |  | Enable OpenAI payload extraction and parsing |
 
+#### `ebpf.payload_extraction.http.genai.openai_compatible`
+
+| YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
+|---|---|---|---|---|---|---|
+| `ebpf.payload_extraction.http.genai.openai_compatible.enabled` | `boolean` | `OTEL_EBPF_HTTP_OPENAI_COMPATIBLE_ENABLED` | `false` |  |  | Enable OpenAI-compatible gateway payload extraction and parsing |
+| `ebpf.payload_extraction.http.genai.openai_compatible.gateways` | [`OpenAICompatibleGateway`](#openaicompatiblegateway)[] |  |  |  |  | Opt-in allowlist of gateway destinations to match by host (case-insensitive) with optional port and provider name |
+
 #### `ebpf.payload_extraction.http.genai.qwen`
 
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
@@ -733,6 +740,14 @@ IntEnum defines an enumeration of integers (e.g. ports or PIDs). It allows a set
 | Field | Type | Values | Description |
 |---|---|---|---|
 | `service` | [`GlobAttributes`](#globattributes)[] |  | Should also be contained in 'services' in the Discovery section |
+
+### OpenAICompatibleGateway
+
+| Field | Type | Values | Description |
+|---|---|---|---|
+| `host` | `string` |  | Gateway hostname to match (case-insensitive) |
+| `port` | `integer` |  | Destination port; when 0 or omitted, matches any port |
+| `provider` | `string` |  | Name reported in the gen_ai.system span attribute |
 
 ### RegexSelector
 

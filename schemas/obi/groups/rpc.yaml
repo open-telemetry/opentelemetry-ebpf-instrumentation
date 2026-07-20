@@ -1,0 +1,56 @@
+groups:
+  # Overrides `rpc.system.name`: extends the upstream enum with `aws-api`,
+  # which OBI reports for AWS SDK calls (S3, SQS, ...) detected on the wire —
+  # the value the AWS SDK instrumentation conventions historically used for
+  # `rpc.system`, which upstream v1.41 has no `rpc.system.name` member for.
+  # Emitters: pkg/appolly/app/request/span_getters.go (attr.RPCSystem) and
+  # pkg/export/otel/tracesgen/tracesgen.go.
+  #
+  # See ../README.md for the override mechanics (x.obi.* group id, full
+  # upstream member list, lint allowlist).
+  - id: x.obi.rpc
+    type: attribute_group
+    display_name: OBI RPC Attribute Overrides
+    brief: >
+      OBI override of `rpc.system.name` extending the upstream enum with the
+      RPC systems OBI detects that upstream semconv has no member for.
+    attributes:
+      - id: rpc.system.name
+        brief: 'The Remote Procedure Call (RPC) system.'
+        note: >
+          The client and server RPC systems may differ for the same RPC interaction.
+          For example, a client may use Apache Dubbo or Connect RPC to communicate
+          with a server that uses gRPC since both protocols provide compatibility
+          with gRPC.
+        type:
+          members:
+            - id: grpc
+              value: 'grpc'
+              brief: '[gRPC](https://grpc.io/)'
+              stability: release_candidate
+            - id: dubbo
+              value: 'dubbo'
+              brief: '[Apache Dubbo](https://dubbo.apache.org/)'
+              stability: release_candidate
+            - id: connectrpc
+              value: 'connectrpc'
+              brief: '[Connect RPC](https://connectrpc.com/)'
+              stability: development
+            - id: jsonrpc
+              value: 'jsonrpc'
+              brief: '[JSON-RPC](https://www.jsonrpc.org/)'
+              stability: development
+            # --- OBI extensions (not in upstream semconv v1.41) ---
+            - id: aws-api
+              value: 'aws-api'
+              brief: >
+                An AWS service API call detected on the wire (S3, SQS, ...).
+                Mirrors the `aws-api` value the AWS SDK instrumentation
+                conventions used for the former `rpc.system` attribute.
+              stability: development
+            - id: onc_rpc
+              value: 'onc_rpc'
+              brief: >
+                ONC/Sun RPC, detected by OBI's SunRPC instrumentation.
+              stability: development
+        stability: release_candidate

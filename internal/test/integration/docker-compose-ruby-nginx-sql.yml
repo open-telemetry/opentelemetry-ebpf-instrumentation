@@ -16,7 +16,7 @@ services:
       - "3041:3040"
     environment:
       OTEL_SERVICE_NAME: "my-ruby-app"
-      OTEL_RESOURCE_ATTRIBUTES: "cloud.region=ca,deployment.environment.name=to"
+      OTEL_RESOURCE_ATTRIBUTES: "cloud.region=ca,deployment.environment.name=staging"
     depends_on:
       certgen:
         condition: service_completed_successfully
