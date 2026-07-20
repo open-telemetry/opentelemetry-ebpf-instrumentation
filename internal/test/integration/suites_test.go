@@ -101,6 +101,27 @@ func TestSuiteNestedTraces(t *testing.T) {
 	require.NoError(t, compose.Close())
 }
 
+func TestSuiteNestedTracesMaxTransactionTime(t *testing.T) {
+	// We run the test depending on what the host environment is. If the host is in lockdown mode integrity
+	// the nesting of spans will be limited. If we are in none (which should be in any non secure boot environment, e.g. Virtual Machines or CI)
+	// then we expect full nesting of trace spans in this test.
+
+	// Echo (server) -> delay (client) -> EchoBack (server)
+	lockdown := KernelLockdownMode()
+	compose, err := docker.ComposeSuite("docker-compose.yml", path.Join(pathOutput, "test-suite-nested-max-transaction-time.log"))
+	require.NoError(t, err)
+
+	compose.Env = append(compose.Env, `OTEL_EBPF_BPF_MAX_TRANSACTION_TIME=1ms`)
+
+	if !lockdown {
+		compose.Env = append(compose.Env, `SECURITY_CONFIG_SUFFIX=_none`)
+	}
+	require.NoError(t, compose.Up())
+	t.Run("HTTP traces not nested", testHTTPTracesNoNestedCalls)
+	runWeaverValidation(t)
+	require.NoError(t, compose.Close())
+}
+
 func TestSuiteGoGeneric(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-go-generic.yml", path.Join(pathOutput, "test-suite-go-generic.log"))
 	require.NoError(t, err)
