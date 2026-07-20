@@ -194,6 +194,12 @@ func TestOpenAISpan_ErrorResponse(t *testing.T) {
 	ai := span.GenAI.OpenAI
 	assert.Equal(t, "insufficient_quota", ai.Error.Type)
 	assert.NotEmpty(t, ai.Error.Message)
+
+	// The error body carries no `object` field, so the operation name must be
+	// derived from the request path: gen_ai.operation.name is required on the
+	// gen_ai client metrics, so failed calls must carry it too.
+	assert.Equal(t, request.ResponseOperationName, ai.OperationName)
+	assert.Equal(t, "responses", ai.APIType)
 }
 
 func TestOpenAISpan_NotOpenAI(t *testing.T) {

@@ -149,6 +149,20 @@ const (
 	RuntimeCPUStatsScavengeBgTimePos
 	RuntimeCPUStatsIdleTimePos
 	RuntimeCPUStatsUserTimePos
+	RuntimeMemstatsHeapStatsPos
+	RuntimeMemstatsStacksSysPos
+	RuntimeMemstatsMspanSysPos
+	RuntimeMemstatsMcacheSysPos
+	RuntimeMemstatsBuckhashSysPos
+	RuntimeMemstatsGCMiscSysPos
+	RuntimeMemstatsOtherSysPos
+	RuntimeConsistentHeapStatsStatsPos
+	RuntimeHeapStatsDeltaCommittedPos
+	RuntimeHeapStatsDeltaInStacksPos
+	RuntimeHeapStatsDeltaLargeAllocPos
+	RuntimeHeapStatsDeltaLargeAllocCountPos
+	RuntimeHeapStatsDeltaSmallAllocCountPos
+	RuntimeHeapStatsDeltaSmallFreeCountPos
 )
 
 //go:embed offsets.json
@@ -531,7 +545,14 @@ var structMembers = map[string]structInfo{
 	"runtime.mstats": {
 		lib: "go",
 		fields: map[string]GoOffset{
-			"numgc": RuntimeMemstatsNumGCPos,
+			"numgc":        RuntimeMemstatsNumGCPos,
+			"heapStats":    RuntimeMemstatsHeapStatsPos,
+			"stacks_sys":   RuntimeMemstatsStacksSysPos,
+			"mspan_sys":    RuntimeMemstatsMspanSysPos,
+			"mcache_sys":   RuntimeMemstatsMcacheSysPos,
+			"buckhash_sys": RuntimeMemstatsBuckhashSysPos,
+			"gcMiscSys":    RuntimeMemstatsGCMiscSysPos,
+			"other_sys":    RuntimeMemstatsOtherSysPos,
 		},
 	},
 	"runtime.gcControllerState": {
@@ -558,6 +579,23 @@ var structMembers = map[string]structInfo{
 			"ScavengeBgTime":     RuntimeCPUStatsScavengeBgTimePos,
 			"IdleTime":           RuntimeCPUStatsIdleTimePos,
 			"UserTime":           RuntimeCPUStatsUserTimePos,
+		},
+	},
+	"runtime.consistentHeapStats": {
+		lib: "go",
+		fields: map[string]GoOffset{
+			"stats": RuntimeConsistentHeapStatsStatsPos,
+		},
+	},
+	"runtime.heapStatsDelta": {
+		lib: "go",
+		fields: map[string]GoOffset{
+			"committed":       RuntimeHeapStatsDeltaCommittedPos,
+			"inStacks":        RuntimeHeapStatsDeltaInStacksPos,
+			"largeAlloc":      RuntimeHeapStatsDeltaLargeAllocPos,
+			"largeAllocCount": RuntimeHeapStatsDeltaLargeAllocCountPos,
+			"smallAllocCount": RuntimeHeapStatsDeltaSmallAllocCountPos,
+			"smallFreeCount":  RuntimeHeapStatsDeltaSmallFreeCountPos,
 		},
 	},
 }

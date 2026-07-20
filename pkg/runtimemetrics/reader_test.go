@@ -28,9 +28,9 @@ func TestGoRuntimeMetricRawABI(t *testing.T) {
 	var event goRuntimeMetricRawEvent
 	var snapshot goRuntimeMetricRawSnapshot
 
-	require.Equal(t, uintptr(112), unsafe.Sizeof(event))
+	require.Equal(t, uintptr(144), unsafe.Sizeof(event))
 	require.Equal(t, uintptr(16), unsafe.Offsetof(event.Snapshot))
-	require.Equal(t, uintptr(96), unsafe.Sizeof(snapshot))
+	require.Equal(t, uintptr(128), unsafe.Sizeof(snapshot))
 	require.Equal(t, uintptr(0), unsafe.Offsetof(snapshot.ValidMask))
 	require.Equal(t, uintptr(8), unsafe.Offsetof(snapshot.NumGC))
 	require.Equal(t, uintptr(12), unsafe.Offsetof(snapshot.Pad))
@@ -45,6 +45,10 @@ func TestGoRuntimeMetricRawABI(t *testing.T) {
 	require.Equal(t, uintptr(72), unsafe.Offsetof(snapshot.CPUScavengeBgTime))
 	require.Equal(t, uintptr(80), unsafe.Offsetof(snapshot.CPUIdleTime))
 	require.Equal(t, uintptr(88), unsafe.Offsetof(snapshot.CPUUserTime))
+	require.Equal(t, uintptr(96), unsafe.Offsetof(snapshot.MemoryUsedStack))
+	require.Equal(t, uintptr(104), unsafe.Offsetof(snapshot.MemoryUsedOther))
+	require.Equal(t, uintptr(112), unsafe.Offsetof(snapshot.MemoryAllocated))
+	require.Equal(t, uintptr(120), unsafe.Offsetof(snapshot.MemoryAllocations))
 }
 
 func TestGoRuntimeMetricValidMaskABI(t *testing.T) {
@@ -53,6 +57,8 @@ func TestGoRuntimeMetricValidMaskABI(t *testing.T) {
 	require.Equal(t, goRuntimeMetricValidProcessorLimit, uint64(1<<2))
 	require.Equal(t, goRuntimeMetricValidGOGC, uint64(1<<3))
 	require.Equal(t, goRuntimeMetricValidCPUTime, uint64(1<<4))
+	require.Equal(t, goRuntimeMetricValidMemoryUsed, uint64(1<<5))
+	require.Equal(t, goRuntimeMetricValidMemoryAllocs, uint64(1<<6))
 }
 
 func TestConvertGoRuntimeMetricSnapshot(t *testing.T) {
@@ -127,6 +133,34 @@ func TestConvertGoRuntimeMetricSnapshotIncludesValidCPUZeroValues(t *testing.T) 
 	require.Equal(t, int64(7), snapshot.Go.CPUTime.UserTime)
 }
 
+func TestConvertGoRuntimeMetricSnapshotIncludesValidMemoryZeroValues(t *testing.T) {
+	snapshot := convertGoRuntimeMetricSnapshot(svc.Attrs{}, app.PID(123), goRuntimeMetricRawSnapshot{
+		ValidMask:         goRuntimeMetricValidMemoryUsed | goRuntimeMetricValidMemoryAllocs,
+		MemoryUsedStack:   0,
+		MemoryUsedOther:   2048,
+		MemoryAllocated:   0,
+		MemoryAllocations: 0,
+	})
+
+	require.NotNil(t, snapshot.Go)
+	require.Equal(t, int64(0), *snapshot.Go.MemoryUsedStack)
+	require.Equal(t, int64(2048), *snapshot.Go.MemoryUsedOther)
+	require.Equal(t, uint64(0), *snapshot.Go.MemoryAllocated)
+	require.Equal(t, uint64(0), *snapshot.Go.MemoryAllocations)
+}
+
+func TestConvertGoRuntimeMetricSnapshotSuppressesInvalidMemoryUsed(t *testing.T) {
+	snapshot := convertGoRuntimeMetricSnapshot(svc.Attrs{}, app.PID(123), goRuntimeMetricRawSnapshot{
+		ValidMask:       goRuntimeMetricValidMemoryUsed,
+		MemoryUsedStack: -1,
+		MemoryUsedOther: 2048,
+	})
+
+	require.NotNil(t, snapshot.Go)
+	require.Nil(t, snapshot.Go.MemoryUsedStack)
+	require.Nil(t, snapshot.Go.MemoryUsedOther)
+}
+
 func TestConvertGoRuntimeMetricSnapshotSuppressesNegativeCPUTime(t *testing.T) {
 	snapshot := convertGoRuntimeMetricSnapshot(svc.Attrs{}, app.PID(123), goRuntimeMetricRawSnapshot{
 		ValidMask:   goRuntimeMetricValidCPUTime,
@@ -173,11 +207,17 @@ func TestSnapshotFromRingbuf(t *testing.T) {
 			Ns:      33,
 		},
 		Snapshot: goRuntimeMetricRawSnapshot{
-			ValidMask:   goRuntimeMetricValidGCCycles | goRuntimeMetricValidMemoryLimit | goRuntimeMetricValidProcessorLimit | goRuntimeMetricValidGOGC,
-			NumGC:       10,
-			GOMAXPROCS:  4,
-			GCPercent:   100,
-			MemoryLimit: 1024,
+			ValidMask: goRuntimeMetricValidGCCycles | goRuntimeMetricValidMemoryLimit |
+				goRuntimeMetricValidProcessorLimit | goRuntimeMetricValidGOGC |
+				goRuntimeMetricValidMemoryUsed | goRuntimeMetricValidMemoryAllocs,
+			NumGC:             10,
+			GOMAXPROCS:        4,
+			GCPercent:         100,
+			MemoryLimit:       1024,
+			MemoryUsedStack:   2048,
+			MemoryUsedOther:   4096,
+			MemoryAllocated:   8192,
+			MemoryAllocations: 64,
 		},
 	}))
 
@@ -195,6 +235,10 @@ func TestSnapshotFromRingbuf(t *testing.T) {
 	require.Equal(t, service, snapshot.Service)
 	require.NotNil(t, snapshot.Go)
 	require.Equal(t, int64(1024), *snapshot.Go.MemoryLimit)
+	require.Equal(t, int64(2048), *snapshot.Go.MemoryUsedStack)
+	require.Equal(t, int64(4096), *snapshot.Go.MemoryUsedOther)
+	require.Equal(t, uint64(8192), *snapshot.Go.MemoryAllocated)
+	require.Equal(t, uint64(64), *snapshot.Go.MemoryAllocations)
 	require.Nil(t, snapshot.JVM)
 }
 

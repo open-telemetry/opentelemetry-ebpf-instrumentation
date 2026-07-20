@@ -280,6 +280,10 @@ func setupKubernetes(ctx context.Context, ctxInfo *global.ContextInfo) {
 		slog.Error("can't init Kubernetes informer. You can't setup Kubernetes discovery and your"+
 			" traces won't be decorated with Kubernetes metadata", "error", err)
 		ctxInfo.K8sInformer.ForceDisable()
+		// Kubernetes turned out to be unavailable, so Docker becomes the fallback for
+		// container metadata. Start its event watcher now: BuildCommonContextInfo skipped
+		// it earlier because Kubernetes was still considered enabled at that point.
+		ctxInfo.DockerMetadata.Start(ctx)
 		return
 	}
 }

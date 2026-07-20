@@ -5,7 +5,7 @@ go 1.25.8
 toolchain go1.26.5
 
 require (
-	cloud.google.com/go/alloydbconn v1.18.4
+	cloud.google.com/go/alloydbconn v1.18.5
 	cloud.google.com/go/secretmanager v1.20.0
 	github.com/golang/protobuf v1.5.4
 	github.com/jackc/pgx/v5 v5.9.2
@@ -46,7 +46,7 @@ require (
 	go.opentelemetry.io/otel/sdk v1.44.0 // indirect
 	go.opentelemetry.io/otel/sdk/metric v1.44.0 // indirect
 	go.opentelemetry.io/otel/trace v1.44.0 // indirect
-	golang.org/x/crypto v0.51.0 // indirect
+	golang.org/x/crypto v0.52.0 // indirect
 	golang.org/x/net v0.55.0 // indirect
 	golang.org/x/oauth2 v0.36.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect

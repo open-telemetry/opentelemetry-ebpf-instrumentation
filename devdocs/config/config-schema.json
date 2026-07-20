@@ -959,6 +959,10 @@
           "$ref": "#/$defs/OpenAIConfig",
           "description": "Payload extraction and parsing"
         },
+        "openai_compatible": {
+          "$ref": "#/$defs/OpenAICompatibleConfig",
+          "description": "OpenAI-compatible gateway payload extraction and parsing"
+        },
         "qwen": {
           "$ref": "#/$defs/QwenConfig",
           "description": "(DashScope) payload extraction and parsing"
@@ -2154,6 +2158,41 @@
       },
       "type": "object",
       "description": "NumericRange defines numeric comparison criteria for a rule match condition. All fields are optional; only the provided fields are evaluated."
+    },
+    "OpenAICompatibleConfig": {
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable OpenAI-compatible gateway payload extraction and parsing",
+          "default": false,
+          "x-env-var": "OTEL_EBPF_HTTP_OPENAI_COMPATIBLE_ENABLED"
+        },
+        "gateways": {
+          "items": {
+            "$ref": "#/$defs/OpenAICompatibleGateway"
+          },
+          "type": "array",
+          "description": "Opt-in allowlist of gateway destinations to match by host (case-insensitive) with optional port and provider name"
+        }
+      },
+      "type": "object"
+    },
+    "OpenAICompatibleGateway": {
+      "properties": {
+        "host": {
+          "type": "string",
+          "description": "Gateway hostname to match (case-insensitive)"
+        },
+        "port": {
+          "type": "integer",
+          "description": "Destination port; when 0 or omitted, matches any port"
+        },
+        "provider": {
+          "type": "string",
+          "description": "Name reported in the gen_ai.system span attribute"
+        }
+      },
+      "type": "object"
     },
     "OpenAIConfig": {
       "properties": {

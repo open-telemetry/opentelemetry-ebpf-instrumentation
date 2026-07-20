@@ -28,9 +28,27 @@
       "net/textproto.Reader": ["R"],
       "bufio.Reader": ["buf", "w"],
       "runtime.moduledata": ["pcHeader", "pclntable", "minpc", "maxpc", "text", "etext"],
-      "runtime.mstats": ["numgc"],
+      "runtime.mstats": [
+        "numgc",
+        "[1.23.0]heapStats",
+        "[1.23.0]stacks_sys",
+        "[1.23.0]mspan_sys",
+        "[1.23.0]mcache_sys",
+        "[1.23.0]buckhash_sys",
+        "[1.23.0]gcMiscSys",
+        "[1.23.0]other_sys"
+      ],
       "runtime.gcControllerState": ["[1.19.0]memoryLimit", "gcPercent"],
       "runtime.hchan": ["qcount", "dataqsiz", "sendx", "recvx"],
+      "runtime.consistentHeapStats": ["[1.23.0]stats"],
+      "runtime.heapStatsDelta": [
+        "[1.23.0]committed",
+        "[1.23.0]inStacks",
+        "[1.23.0]largeAlloc",
+        "[1.23.0]largeAllocCount",
+        "[1.23.0]smallAllocCount",
+        "[1.23.0]smallFreeCount"
+      ],
       "runtime.workType": ["[1.23.0]cpuStats"],
       "runtime.cpuStats": [
         "[1.23.0]GCAssistTime",

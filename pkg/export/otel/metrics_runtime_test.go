@@ -129,6 +129,78 @@ func TestGoRuntimeCPUTimeCounterDeltaResetAndRemoval(t *testing.T) {
 	assert.Empty(t, metrics.cpuTimeValues)
 }
 
+func TestGoRuntimeMemoryMetricsDeltaResetAndRemoval(t *testing.T) {
+	reader := metric.NewManualReader()
+	provider := metric.NewMeterProvider(metric.WithReader(reader))
+	t.Cleanup(func() {
+		require.NoError(t, provider.Shutdown(t.Context()))
+	})
+
+	var metrics goRuntimeMetrics
+	require.NoError(t, setupGoRuntimeMeters(&metrics, provider.Meter(reporterName)))
+	assertMemoryUsed := func(wantStack, wantOther int64) {
+		used := collectGoRuntimeInt64Points(t, reader, attributes.GoRuntimeMemoryUsed.OTEL)
+		require.Len(t, used, 2)
+		usedByType := map[string]int64{}
+		for _, point := range used {
+			memoryType, ok := point.Attributes.Value(semconv.GoMemoryTypeKey)
+			require.True(t, ok)
+			usedByType[memoryType.AsString()] = point.Value
+		}
+		assert.Equal(t, wantStack, usedByType["stack"])
+		assert.Equal(t, wantOther, usedByType["other"])
+	}
+
+	stack := int64(100)
+	other := int64(200)
+	allocated := uint64(1000)
+	allocations := uint64(10)
+	recordGoRuntimeMetrics(t.Context(), &metrics, runtimemetrics.RuntimeMetricSnapshot{
+		Go: &runtimemetrics.GoRuntimeMetricSnapshot{
+			MemoryUsedStack:   &stack,
+			MemoryUsedOther:   &other,
+			MemoryAllocated:   &allocated,
+			MemoryAllocations: &allocations,
+		},
+	})
+
+	assertMemoryUsed(100, 200)
+	assert.Equal(t, int64(1000), collectSingleGoRuntimeInt64Value(t, reader, attributes.GoRuntimeMemoryAllocated.OTEL))
+	assert.Equal(t, int64(10), collectSingleGoRuntimeInt64Value(t, reader, attributes.GoRuntimeMemoryAllocations.OTEL))
+
+	stack = 50
+	other = 250
+	changedMemoryUsed := runtimemetrics.RuntimeMetricSnapshot{
+		Go: &runtimemetrics.GoRuntimeMetricSnapshot{
+			MemoryUsedStack: &stack,
+			MemoryUsedOther: &other,
+		},
+	}
+	recordGoRuntimeMetrics(t.Context(), &metrics, changedMemoryUsed)
+	assertMemoryUsed(50, 250)
+
+	recordGoRuntimeMetrics(t.Context(), &metrics, changedMemoryUsed)
+	assertMemoryUsed(50, 250)
+
+	allocated = 50
+	allocations = 2
+	recordGoRuntimeMetrics(t.Context(), &metrics, runtimemetrics.RuntimeMetricSnapshot{
+		Go: &runtimemetrics.GoRuntimeMetricSnapshot{
+			MemoryAllocated:   &allocated,
+			MemoryAllocations: &allocations,
+		},
+	})
+	assert.Equal(t, int64(50), collectSingleGoRuntimeInt64Value(t, reader, attributes.GoRuntimeMemoryAllocated.OTEL))
+	assert.Equal(t, int64(2), collectSingleGoRuntimeInt64Value(t, reader, attributes.GoRuntimeMemoryAllocations.OTEL))
+	assert.Empty(t, collectGoRuntimeInt64Points(t, reader, attributes.GoRuntimeMemoryUsed.OTEL))
+
+	recordGoRuntimeMetrics(t.Context(), &metrics, runtimemetrics.RuntimeMetricSnapshot{
+		Go: &runtimemetrics.GoRuntimeMetricSnapshot{},
+	})
+	assert.Empty(t, collectGoRuntimeInt64Points(t, reader, attributes.GoRuntimeMemoryAllocated.OTEL))
+	assert.Empty(t, collectGoRuntimeInt64Points(t, reader, attributes.GoRuntimeMemoryAllocations.OTEL))
+}
+
 type goCPUTimePointKey struct {
 	state         string
 	detailedState string
@@ -165,4 +237,37 @@ func collectGoRuntimeCPUTimePoints(
 	}
 
 	return points
+}
+
+func collectSingleGoRuntimeInt64Value(t *testing.T, reader *metric.ManualReader, name string) int64 {
+	t.Helper()
+
+	points := collectGoRuntimeInt64Points(t, reader, name)
+	require.Len(t, points, 1)
+	return points[0].Value
+}
+
+func collectGoRuntimeInt64Points(
+	t *testing.T,
+	reader *metric.ManualReader,
+	name string,
+) []metricdata.DataPoint[int64] {
+	t.Helper()
+
+	var resourceMetrics metricdata.ResourceMetrics
+	require.NoError(t, reader.Collect(t.Context(), &resourceMetrics))
+
+	for _, scopeMetrics := range resourceMetrics.ScopeMetrics {
+		for _, collected := range scopeMetrics.Metrics {
+			if collected.Name != name {
+				continue
+			}
+
+			sum, ok := collected.Data.(metricdata.Sum[int64])
+			require.True(t, ok)
+			return sum.DataPoints
+		}
+	}
+
+	return nil
 }

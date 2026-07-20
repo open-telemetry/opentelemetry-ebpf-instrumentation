@@ -1,0 +1,13 @@
+{
+    "name": "nodebullmq",
+    "version": "1.0.0",
+    "description": "BullMQ-style blocking Redis worker test server",
+    "main": "worker.js",
+    "scripts": {
+        "start": "node worker.js"
+    },
+    "license": "Apache-2.0",
+    "dependencies": {
+        "ioredis": "^5.4.1"
+    }
+}

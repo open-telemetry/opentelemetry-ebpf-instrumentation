@@ -1,0 +1,89 @@
+groups:
+  # Overrides `messaging.system`: extends the upstream enum with `amqp`,
+  # `mqtt` and `nats` — messaging protocols OBI detects that upstream semconv
+  # has no member for. OBI identifies the protocol on the wire, not the broker
+  # product behind it, so `amqp` is reported as-is rather than assuming
+  # `rabbitmq`. Emitters: pkg/appolly/app/request/span_getters.go
+  # (attr.MessagingSystem) and pkg/export/otel/tracesgen/tracesgen.go.
+  #
+  # See ../README.md for the override mechanics (x.obi.* group id, full
+  # upstream member list, lint allowlist).
+  - id: x.obi.messaging
+    type: attribute_group
+    display_name: OBI Messaging Attribute Overrides
+    brief: >
+      OBI override of `messaging.system` extending the upstream enum with the
+      messaging protocols OBI detects that upstream semconv has no member for.
+    attributes:
+      - id: messaging.system
+        brief: The messaging system as identified by the client instrumentation.
+        note: >
+          The actual messaging system may differ from the one known by the client.
+          For example, when using Kafka client libraries to communicate with Azure Event Hubs, the `messaging.system`
+          is set to `kafka` based on the instrumentation's best knowledge.
+        type:
+          members:
+            - id: activemq
+              value: 'activemq'
+              brief: 'Apache ActiveMQ'
+              stability: development
+            - id: aws.sns
+              value: 'aws.sns'
+              brief: 'Amazon Simple Notification Service (SNS)'
+              stability: development
+            - id: aws_sqs
+              value: 'aws_sqs'
+              brief: 'Amazon Simple Queue Service (SQS)'
+              stability: development
+            - id: eventgrid
+              value: 'eventgrid'
+              brief: 'Azure Event Grid'
+              stability: development
+            - id: eventhubs
+              value: 'eventhubs'
+              brief: 'Azure Event Hubs'
+              stability: development
+            - id: servicebus
+              value: 'servicebus'
+              brief: 'Azure Service Bus'
+              stability: development
+            - id: gcp_pubsub
+              value: 'gcp_pubsub'
+              brief: 'Google Cloud Pub/Sub'
+              stability: development
+            - id: jms
+              value: 'jms'
+              brief: 'Java Message Service'
+              stability: development
+            - id: kafka
+              value: 'kafka'
+              brief: 'Apache Kafka'
+              stability: development
+            - id: rabbitmq
+              value: 'rabbitmq'
+              brief: 'RabbitMQ'
+              stability: development
+            - id: rocketmq
+              value: 'rocketmq'
+              brief: 'Apache RocketMQ'
+              stability: development
+            - id: pulsar
+              value: 'pulsar'
+              brief: 'Apache Pulsar'
+              stability: development
+            # --- OBI extensions (not in upstream semconv v1.41) ---
+            - id: amqp
+              value: 'amqp'
+              brief: >
+                An AMQP 0-9-1 broker (e.g. RabbitMQ). OBI detects the wire
+                protocol, not the broker product behind it.
+              stability: development
+            - id: mqtt
+              value: 'mqtt'
+              brief: 'An MQTT broker'
+              stability: development
+            - id: nats
+              value: 'nats'
+              brief: 'NATS'
+              stability: development
+        stability: development

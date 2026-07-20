@@ -54,11 +54,14 @@ func (d dummyCriterion) MetricsConfig() perapp.SvcMetricsConfig {
 	return perapp.SvcMetricsConfig{Features: d.features}
 }
 
-func TestLoadAllGoFunctionNamesIncludesChannelLinkSymbols(t *testing.T) {
+func TestLoadAllGoFunctionNamesIncludesConditionalGoTracerSymbols(t *testing.T) {
 	ty := typer{cfg: &obi.Config{Routes: &transform.RoutesConfig{}}}
 	ty.loadAllGoFunctionNames()
 
 	for _, symbol := range gotracer.GoChannelLinkProbeSymbols() {
+		assert.Contains(t, ty.allGoFunctions, symbol)
+	}
+	for _, symbol := range gotracer.GoRuntimeMetricProbeSymbols() {
 		assert.Contains(t, ty.allGoFunctions, symbol)
 	}
 }

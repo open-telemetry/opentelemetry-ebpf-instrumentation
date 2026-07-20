@@ -322,10 +322,29 @@ func TestGenAIConfig_Enabled(t *testing.T) {
 		{name: "bedrock", cfg: GenAIConfig{Bedrock: BedrockConfig{Enabled: true}}, enabled: true},
 		{name: "mcp", cfg: GenAIConfig{MCP: MCPConfig{Enabled: true}}, enabled: true},
 		{name: "retrieval", cfg: GenAIConfig{Retrieval: RetrievalConfig{Enabled: true}}, enabled: true},
+		{name: "openai_compatible", cfg: GenAIConfig{OpenAICompatible: OpenAICompatibleConfig{Enabled: true}}, enabled: true},
+		{name: "openai_compatible with gateways", cfg: GenAIConfig{OpenAICompatible: OpenAICompatibleConfig{Enabled: true, Gateways: []OpenAICompatibleGateway{{Host: "litellm.local", Port: 8080, Provider: "litellm"}}}}, enabled: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			assert.Equal(t, tt.enabled, tt.cfg.Enabled())
+		})
+	}
+}
+
+func TestPayloadExtraction_Enabled_OpenAICompatible(t *testing.T) {
+	tests := []struct {
+		name    string
+		pe      PayloadExtraction
+		enabled bool
+	}{
+		{name: "all disabled", pe: PayloadExtraction{}, enabled: false},
+		{name: "openai_compatible enabled", pe: PayloadExtraction{HTTP: HTTPConfig{GenAI: GenAIConfig{OpenAICompatible: OpenAICompatibleConfig{Enabled: true}}}}, enabled: true},
+		{name: "openai_compatible disabled with gateways", pe: PayloadExtraction{HTTP: HTTPConfig{GenAI: GenAIConfig{OpenAICompatible: OpenAICompatibleConfig{Enabled: false, Gateways: []OpenAICompatibleGateway{{Host: "litellm.local"}}}}}}, enabled: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.enabled, tt.pe.Enabled())
 		})
 	}
 }

@@ -12,7 +12,10 @@ import (
 	"runtime"
 	runtimemetrics "runtime/metrics"
 	"strings"
+	"sync/atomic"
 )
+
+var runtimeMetricsReadLoopActive uint32
 
 func main() {
 	go serve(":8081")
@@ -53,9 +56,26 @@ func handleConnection(conn net.Conn) {
 			fmt.Printf("Failed to encode runtime metrics: %v\n", err)
 		}
 		return
+	case "START_RUNTIME_METRICS_READ_LOOP":
+		startRuntimeMetricsReadLoop()
+	case "STOP_RUNTIME_METRICS_READ_LOOP":
+		atomic.StoreUint32(&runtimeMetricsReadLoopActive, 0)
 	}
 
 	conn.Write([]byte("ACK\n"))
+}
+
+func startRuntimeMetricsReadLoop() {
+	if !atomic.CompareAndSwapUint32(&runtimeMetricsReadLoopActive, 0, 1) {
+		return
+	}
+
+	go func() {
+		for atomic.LoadUint32(&runtimeMetricsReadLoopActive) != 0 {
+			runtimeMetricValues()
+			runtime.Gosched()
+		}
+	}()
 }
 
 func runtimeMetricValues() map[string]float64 {
@@ -65,6 +85,8 @@ func runtimeMetricValues() map[string]float64 {
 		"/gc/cycles/automatic:gc-cycles",
 		"/gc/cycles/forced:gc-cycles",
 		"/gc/cycles/total:gc-cycles",
+		"/gc/heap/allocs:bytes",
+		"/gc/heap/allocs:objects",
 		"/cpu/classes/gc/mark/assist:cpu-seconds",
 		"/cpu/classes/gc/mark/dedicated:cpu-seconds",
 		"/cpu/classes/gc/mark/idle:cpu-seconds",
@@ -73,6 +95,9 @@ func runtimeMetricValues() map[string]float64 {
 		"/cpu/classes/scavenge/assist:cpu-seconds",
 		"/cpu/classes/scavenge/background:cpu-seconds",
 		"/cpu/classes/user:cpu-seconds",
+		"/memory/classes/heap/released:bytes",
+		"/memory/classes/heap/stacks:bytes",
+		"/memory/classes/total:bytes",
 		"/sched/gomaxprocs:threads",
 	}
 	samples := make([]runtimemetrics.Sample, len(names))
@@ -90,5 +115,9 @@ func runtimeMetricValues() map[string]float64 {
 			values[sample.Name] = sample.Value.Float64()
 		}
 	}
+	values["go.memory.used/stack"] = values["/memory/classes/heap/stacks:bytes"]
+	values["go.memory.used/other"] = values["/memory/classes/total:bytes"] -
+		values["/memory/classes/heap/released:bytes"] -
+		values["/memory/classes/heap/stacks:bytes"]
 	return values
 }

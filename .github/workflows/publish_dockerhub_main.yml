@@ -15,6 +15,11 @@ on:
         required: false
         type: boolean
         default: false
+      nightly_version:
+        description: "When set, publish nightly tags '<nightly_version>' and 'nightly' instead of release tags (e.g. nightly-20260708)"
+        required: false
+        type: string
+        default: ""
     secrets:
       DOCKER_TOKEN_EBPF_INSTRUMENTATION:
         description: "Docker Hub access token for otel"
@@ -78,10 +83,13 @@ jobs:
           flavor: |
             latest=false
           tags: |
-            type=semver,pattern=v{{version}},value=${{ inputs.ref }}
+            type=semver,pattern=v{{version}},value=${{ inputs.ref }},enable=${{ inputs.ref != '' }}
             type=raw,value=latest,enable=${{ inputs.latest == true }}
-            type=ref,event=branch
-            type=ref,event=tag
+            type=raw,value=${{ inputs.nightly_version }},enable=${{ inputs.nightly_version != '' }}
+            type=raw,value=nightly,enable=${{ inputs.nightly_version != '' }}
+            type=ref,event=branch,enable=${{ inputs.nightly_version == '' }}
+            type=ref,event=tag,enable=${{ inputs.nightly_version == '' }}
+            type=sha,prefix=,format=short,enable=${{ inputs.nightly_version == '' && inputs.ref == '' }}
 
       - name: Build and push by digest
         id: build
@@ -157,10 +165,13 @@ jobs:
           flavor: |
             latest=false
           tags: |
-            type=semver,pattern=v{{version}},value=${{ inputs.ref }}
+            type=semver,pattern=v{{version}},value=${{ inputs.ref }},enable=${{ inputs.ref != '' }}
             type=raw,value=latest,enable=${{ inputs.latest == true }}
-            type=ref,event=branch
-            type=ref,event=tag
+            type=raw,value=${{ inputs.nightly_version }},enable=${{ inputs.nightly_version != '' }}
+            type=raw,value=nightly,enable=${{ inputs.nightly_version != '' }}
+            type=ref,event=branch,enable=${{ inputs.nightly_version == '' }}
+            type=ref,event=tag,enable=${{ inputs.nightly_version == '' }}
+            type=sha,prefix=,format=short,enable=${{ inputs.nightly_version == '' && inputs.ref == '' }}
 
       - name: Create manifest list and push
         env:

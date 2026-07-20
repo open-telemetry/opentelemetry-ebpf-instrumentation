@@ -33,11 +33,15 @@ type RuntimeMetricSnapshot struct {
 }
 
 type GoRuntimeMetricSnapshot struct {
-	MemoryLimit    *int64
-	GCCycles       *uint64
-	ProcessorLimit *int64
-	GOGC           *int64
-	CPUTime        *GoRuntimeCPUTimeSnapshot
+	MemoryLimit       *int64
+	GCCycles          *uint64
+	ProcessorLimit    *int64
+	GOGC              *int64
+	CPUTime           *GoRuntimeCPUTimeSnapshot
+	MemoryUsedStack   *int64
+	MemoryUsedOther   *int64
+	MemoryAllocated   *uint64
+	MemoryAllocations *uint64
 }
 
 type GoRuntimeCPUTimeSnapshot struct {
@@ -152,6 +156,10 @@ type goRuntimeMetricRawSnapshot struct {
 	CPUScavengeBgTime     int64
 	CPUIdleTime           int64
 	CPUUserTime           int64
+	MemoryUsedStack       int64
+	MemoryUsedOther       int64
+	MemoryAllocated       uint64
+	MemoryAllocations     uint64
 }
 
 // Mirrors go_runtime_metric_valid_t in bpf/gotracer/maps/runtime.h.
@@ -162,6 +170,8 @@ const (
 	goRuntimeMetricValidProcessorLimit uint64 = 1 << 2
 	goRuntimeMetricValidGOGC           uint64 = 1 << 3
 	goRuntimeMetricValidCPUTime        uint64 = 1 << 4
+	goRuntimeMetricValidMemoryUsed     uint64 = 1 << 5
+	goRuntimeMetricValidMemoryAllocs   uint64 = 1 << 6
 )
 
 func SnapshotFromRingbuf(
@@ -253,17 +263,35 @@ func convertGoRuntimeMetricSnapshot(
 			UserTime:           raw.CPUUserTime,
 		}
 	}
+	var memoryUsedStack *int64
+	var memoryUsedOther *int64
+	if raw.ValidMask&goRuntimeMetricValidMemoryUsed != 0 &&
+		raw.MemoryUsedStack >= 0 &&
+		raw.MemoryUsedOther >= 0 {
+		memoryUsedStack = &raw.MemoryUsedStack
+		memoryUsedOther = &raw.MemoryUsedOther
+	}
+	var memoryAllocated *uint64
+	var memoryAllocations *uint64
+	if raw.ValidMask&goRuntimeMetricValidMemoryAllocs != 0 {
+		memoryAllocated = &raw.MemoryAllocated
+		memoryAllocations = &raw.MemoryAllocations
+	}
 
 	return RuntimeMetricSnapshot{
 		Service: service,
 		PID:     pid,
 		Time:    time.Now(),
 		Go: &GoRuntimeMetricSnapshot{
-			MemoryLimit:    limit,
-			GCCycles:       totalPtr,
-			ProcessorLimit: processorLimit,
-			GOGC:           gogc,
-			CPUTime:        cpuTime,
+			MemoryLimit:       limit,
+			GCCycles:          totalPtr,
+			ProcessorLimit:    processorLimit,
+			GOGC:              gogc,
+			CPUTime:           cpuTime,
+			MemoryUsedStack:   memoryUsedStack,
+			MemoryUsedOther:   memoryUsedOther,
+			MemoryAllocated:   memoryAllocated,
+			MemoryAllocations: memoryAllocations,
 		},
 	}
 }

@@ -75,22 +75,43 @@ var IgnoredAdviceMessages = map[string]struct{}{
 	"Namespace 'iface' collides with existing attribute 'iface.direction'": {},
 }
 
+// Weaver finding-type identifiers (from weaver's rego policy output) that
+// OBI's enforcement logic matches on.
+//
+// NOTE: these strings come from weaver's rego policy output. If a weaver
+// version bump renames them, enforcement silently weakens — re-verify when
+// bumping the pinned weaver image.
+const (
+	adviceTypeExtendsNamespace     = "extends_namespace"
+	adviceTypeUndefinedEnumVariant = "undefined_enum_variant"
+)
+
 // actionableAdviceTypes lists the weaver finding-type values OBI treats as
 // failures in addition to `violation`-level advice. Hoisted here (rather than
 // matched as an inline string literal) so the coupling to weaver's advice-type
 // vocabulary lives in one documented place and is easy to extend.
 //
-//   - "extends_namespace": an attribute emitted under an existing semconv
+//   - extends_namespace: an attribute emitted under an existing semconv
 //     namespace but declared in no registry (upstream semconv or
 //     `schemas/obi/`). Weaver classifies these as `information`-level, so
 //     without this they would silently pass; OBI requires every emitted
 //     attribute to be declared.
 //
-// NOTE: these strings come from weaver's rego policy output. If a weaver
-// version bump renames them, enforcement silently weakens — re-verify when
-// bumping the pinned weaver image.
+//   - undefined_enum_variant: an enumerated attribute emitted with a value
+//     outside the members declared for it in the registry (e.g. an empty
+//     string for `messaging.operation.type`, or an HTTP status code leaking
+//     into a gRPC status attribute). Weaver classifies these as
+//     `information`-level because enums are open; OBI treats them as emitter
+//     bugs — when OBI has no valid value for an enumerated attribute it must
+//     omit the attribute instead. Values OBI intentionally emits beyond the
+//     pinned upstream members are declared in the registry override groups
+//     under `schemas/obi/groups/` (closed enums gain the extra members;
+//     attributes whose value space is open-ended are re-typed as strings —
+//     see schemas/obi/README.md), so weaver itself accepts them and this
+//     check stays a pure bug detector.
 var actionableAdviceTypes = map[string]struct{}{
-	"extends_namespace": {},
+	adviceTypeExtendsNamespace:     {},
+	adviceTypeUndefinedEnumVariant: {},
 }
 
 // Report is the top-level JSON structure emitted by weaver with --format json.
@@ -248,9 +269,8 @@ func Validate(t TestingT, report *Report) {
 				continue
 			}
 			signals := sortedSignals(info.Signals)
-			ignored := msgIgnored || allSignalsIgnored(info.Signals)
 			suffix := ""
-			if ignored {
+			if msgIgnored || allSignalsIgnored(info.Signals) {
 				suffix = " [ignored]"
 			}
 			t.Logf("    [%s] [%dx] %s (signals: %s)%s", level, count, msg, strings.Join(signals, ", "), suffix)
@@ -266,16 +286,16 @@ func Validate(t TestingT, report *Report) {
 			"(violations or undeclared attributes under existing semconv namespaces)", actionableAdvisories)
 }
 
-// isActionableAdvice reports whether an advisory at the given level and
-// advice type must fail validation: `violation`-level advice always is, and
-// so is any advice type listed in actionableAdviceTypes (e.g.
-// `extends_namespace`, which weaver classifies as information-level).
-func isActionableAdvice(level, adviceType string) bool {
-	if level == "violation" {
+// isActionableAdvice reports whether an advisory must fail validation:
+// `violation`-level advice always is, and so is any advice type listed in
+// actionableAdviceTypes (e.g. `extends_namespace`, which weaver classifies as
+// information-level).
+func isActionableAdvice(info *adviceInfo) bool {
+	if info.Level == "violation" {
 		return true
 	}
 
-	_, actionable := actionableAdviceTypes[adviceType]
+	_, actionable := actionableAdviceTypes[info.AdviceType]
 	return actionable
 }
 
@@ -296,7 +316,7 @@ func countActionableAdvisories(stats *Statistics, adviceByMsg map[string]*advice
 			continue
 		}
 		ignored := messageIgnored || allSignalsIgnored(info.Signals)
-		if isActionableAdvice(info.Level, info.AdviceType) && !ignored {
+		if isActionableAdvice(info) && !ignored {
 			count += occurrences
 		}
 	}

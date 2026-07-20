@@ -277,6 +277,9 @@ static __always_inline void handle_unknown_tcp_connection(pid_connection_info_t 
         }
     }
     if (!existing) {
+        // Determining the server information for unix sockets is only valid on request creation
+        const bool is_server = is_listening(pid_conn->conn.d_port, netns) ||
+                               is_unix_sock_server(direction, orig_dport);
         if (direction == TCP_RECV) {
             cp_support_data_t *tk = bpf_map_lookup_elem(&cp_support_connect_info, pid_conn);
             if (tk && tk->real_client) {
@@ -292,6 +295,18 @@ static __always_inline void handle_unknown_tcp_connection(pid_connection_info_t 
                     "Got receive as first operation for part client connection, ignoring...");
                 return;
             }
+            // pre-agent client connection: receive-first here is a spontaneous reply,
+            // registering it would invert the request/response roles
+            if (!is_server) {
+                connection_info_part_t server_part = {};
+                populate_ephemeral_info(
+                    &server_part, &pid_conn->conn, orig_dport, pid_conn->pid, FD_SERVER);
+                if (!fd_info_for_conn(&server_part)) {
+                    bpf_dbg_printk("Got receive as first operation for stale client "
+                                   "connection, ignoring...");
+                    return;
+                }
+            }
         } else {
             connection_info_part_t server_part = {};
             populate_ephemeral_info(
@@ -306,10 +321,6 @@ static __always_inline void handle_unknown_tcp_connection(pid_connection_info_t 
 
         tcp_req_t *req = empty_tcp_req();
         if (req) {
-            // Determining the server information for unix sockets is only valid on request creation
-            const bool is_server = is_listening(pid_conn->conn.d_port, netns) ||
-                                   is_unix_sock_server(direction, orig_dport);
-
             req->is_server = is_server;
             int original_bytes_len = bytes_len;
             bpf_clamp_umax(bytes_len, k_tcp_max_len);

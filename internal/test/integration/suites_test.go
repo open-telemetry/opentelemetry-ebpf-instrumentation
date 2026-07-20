@@ -671,6 +671,20 @@ func TestSuite_PythonRedis(t *testing.T) {
 	require.NoError(t, compose.Close())
 }
 
+func TestSuite_NodeBullMQ(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-nodejs-bullmq.yml", path.Join(pathOutput, "test-suite-nodejs-bullmq.log"))
+	require.NoError(t, err)
+
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=3040`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8382:3040`)
+	require.NoError(t, compose.Up())
+	t.Run("Node BullMQ blocking Redis worker", func(t *testing.T) {
+		waitForBullMQTestComponents(t, "http://localhost:8382")
+		testREDMetricsNodeBullMQ(t)
+	})
+	runWeaverValidation(t)
+	require.NoError(t, compose.Close())
+}
+
 func TestSuite_Aerospike(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-aerospike.yml", path.Join(pathOutput, "test-suite-aerospike.log"))
 	require.NoError(t, err)

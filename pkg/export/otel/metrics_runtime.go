@@ -53,17 +53,23 @@ type RuntimeMetrics struct {
 }
 
 type goRuntimeMetrics struct {
-	memoryLimit    instrument.Int64UpDownCounter
-	memoryGCCycles instrument.Int64Counter
-	cpuTime        instrument.Float64Counter
-	processorLimit instrument.Int64UpDownCounter
-	configGOGC     instrument.Int64UpDownCounter
+	memoryLimit       instrument.Int64UpDownCounter
+	memoryGCCycles    instrument.Int64Counter
+	memoryUsed        instrument.Int64UpDownCounter
+	memoryAllocated   instrument.Int64Counter
+	memoryAllocations instrument.Int64Counter
+	cpuTime           instrument.Float64Counter
+	processorLimit    instrument.Int64UpDownCounter
+	configGOGC        instrument.Int64UpDownCounter
 
-	memoryLimitValue    *int64
-	memoryGCCyclesValue *uint64
-	cpuTimeValues       map[string]int64
-	processorLimitValue *int64
-	configGOGCValue     *int64
+	memoryLimitValue       *int64
+	memoryGCCyclesValue    *uint64
+	memoryUsedValues       map[string]int64
+	memoryAllocatedValue   *uint64
+	memoryAllocationsValue *uint64
+	cpuTimeValues          map[string]int64
+	processorLimitValue    *int64
+	configGOGCValue        *int64
 }
 
 func ReportRuntimeMetrics(
@@ -196,6 +202,18 @@ func setupGoRuntimeMeters(metrics *goRuntimeMetrics, meter instrument.Meter) err
 	if err != nil {
 		return fmt.Errorf("creating go memory gc cycles: %w", err)
 	}
+	metrics.memoryUsed, err = meter.Int64UpDownCounter(attributes.GoRuntimeMemoryUsed.OTEL, instrument.WithUnit("By"))
+	if err != nil {
+		return fmt.Errorf("creating go memory used: %w", err)
+	}
+	metrics.memoryAllocated, err = meter.Int64Counter(attributes.GoRuntimeMemoryAllocated.OTEL, instrument.WithUnit("By"))
+	if err != nil {
+		return fmt.Errorf("creating go memory allocated: %w", err)
+	}
+	metrics.memoryAllocations, err = meter.Int64Counter(attributes.GoRuntimeMemoryAllocations.OTEL, instrument.WithUnit("{allocation}"))
+	if err != nil {
+		return fmt.Errorf("creating go memory allocations: %w", err)
+	}
 	metrics.cpuTime, err = meter.Float64Counter(attributes.GoRuntimeCPUTime.OTEL, instrument.WithUnit("s"))
 	if err != nil {
 		return fmt.Errorf("creating go cpu time: %w", err)
@@ -274,6 +292,24 @@ func recordGoRuntimeMetrics(ctx context.Context, metrics *goRuntimeMetrics, snap
 
 	recordCurrentRuntimeMetric(ctx, metrics.memoryLimit, &metrics.memoryLimitValue, snapshot.Go.MemoryLimit)
 	recordRuntimeCounter(ctx, metrics.memoryGCCycles, &metrics.memoryGCCyclesValue, snapshot.Go.GCCycles)
+	recordCurrentRuntimeMetricWithAttributes(
+		ctx,
+		metrics.memoryUsed,
+		&metrics.memoryUsedValues,
+		"stack",
+		snapshot.Go.MemoryUsedStack,
+		semconv.GoMemoryTypeStack,
+	)
+	recordCurrentRuntimeMetricWithAttributes(
+		ctx,
+		metrics.memoryUsed,
+		&metrics.memoryUsedValues,
+		"other",
+		snapshot.Go.MemoryUsedOther,
+		semconv.GoMemoryTypeOther,
+	)
+	recordRuntimeCounter(ctx, metrics.memoryAllocated, &metrics.memoryAllocatedValue, snapshot.Go.MemoryAllocated)
+	recordRuntimeCounter(ctx, metrics.memoryAllocations, &metrics.memoryAllocationsValue, snapshot.Go.MemoryAllocations)
 	recordGoRuntimeCPUTime(ctx, metrics, snapshot.Go.CPUTime)
 	recordCurrentRuntimeMetric(ctx, metrics.processorLimit, &metrics.processorLimitValue, snapshot.Go.ProcessorLimit)
 	recordCurrentRuntimeMetric(ctx, metrics.configGOGC, &metrics.configGOGCValue, snapshot.Go.GOGC)
@@ -323,6 +359,38 @@ func recordRuntimeCounter(
 	}
 	value := *current
 	*previous = &value
+}
+
+func recordCurrentRuntimeMetricWithAttributes(
+	ctx context.Context,
+	metric instrument.Int64UpDownCounter,
+	previous *map[string]int64,
+	key string,
+	current *int64,
+	attrs ...attribute.KeyValue,
+) {
+	if *previous == nil {
+		*previous = map[string]int64{}
+	}
+	options := []instrument.AddOption{instrument.WithAttributes(attrs...)}
+	removeOptions := []instrument.RemoveOption{instrument.WithAttributes(attrs...)}
+
+	prev, ok := (*previous)[key]
+	if current == nil {
+		if ok {
+			metric.Add(ctx, -prev, options...)
+			delete(*previous, key)
+		}
+		metric.Remove(ctx, removeOptions...)
+		return
+	}
+
+	if !ok {
+		metric.Add(ctx, *current, options...)
+	} else if delta := *current - prev; delta != 0 {
+		metric.Add(ctx, delta, options...)
+	}
+	(*previous)[key] = *current
 }
 
 func recordGoRuntimeCPUTime(
