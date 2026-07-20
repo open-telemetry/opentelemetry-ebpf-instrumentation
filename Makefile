@@ -11,8 +11,8 @@ GOOS ?= linux
 GOARCH ?= $(shell go env GOARCH || echo amd64)
 
 # RELEASE_VERSION will contain the tag name, or the branch name if current commit is not a tag
-RELEASE_VERSION := $(shell git describe --all | cut -d/ -f2)
-RELEASE_REVISION := $(shell git rev-parse --short HEAD )
+RELEASE_VERSION ?= $(shell git describe --all | cut -d/ -f2-)
+RELEASE_REVISION ?= $(shell git rev-parse --short HEAD )
 BUILDINFO_PKG ?= go.opentelemetry.io/obi/pkg/buildinfo
 TEST_OUTPUT ?= ./testoutput
 RELEASE_DIR ?= ./dist
@@ -28,7 +28,7 @@ IMG ?= $(IMG_REGISTRY)/$(IMG_ORG)/$(IMG_NAME):$(VERSION)
 
 # The generator is a container image that provides a reproducible environment for
 # building eBPF binaries
-GEN_IMG ?= ghcr.io/open-telemetry/obi-generator:0.2.13
+GEN_IMG ?= ghcr.io/open-telemetry/obi-generator:0.2.15
 
 OCI_BIN ?= docker
 
@@ -46,7 +46,7 @@ CFLAGS := -std=gnu17 -O2 -g -Wunaligned-access -Wpacked -Wpadded -Wall -Werror $
 
 CLANG_TIDY ?= clang-tidy
 
-CILIUM_EBPF_VER ?= v0.20.0
+CILIUM_EBPF_VER ?= v0.22.0
 CILIUM_EBPF_PKG := github.com/cilium/ebpf
 
 # regular expressions for excluded file patterns
@@ -140,11 +140,14 @@ lint: LINT_EXTRA_ARGS =
 lint: lint-run
 
 .PHONY: lint-fix
-lint-fix: LINT_EXTRA_ARGS = --fix
-lint-fix: lint-run
+lint-fix: lint-fix-run
 
-.PHONY: lint-run
+.PHONY: lint-run lint-fix-run
 lint-run: vanity-import-check lint-dependency-policy lint-collectt
+lint-fix-run: LINT_EXTRA_ARGS = --fix
+lint-fix-run: vanity-import-fix-check lint-dependency-policy lint-collectt-fix
+.NOTPARALLEL: lint-fix-run
+lint-run lint-fix-run:
 	@echo "### Linting code"
 	go tool $(TOOLS_MODFILE) golangci-lint run ./... --timeout=6m $(LINT_EXTRA_ARGS)
 
@@ -166,6 +169,13 @@ lint-dependency-policy:
 
 .PHONY: lint-collectt
 lint-collectt:
+	@echo "### Checking EventuallyWithT callbacks use CollectT"
+	go run ./internal/test/analyzer/collectt/cmd/collecttlint ./...
+
+.PHONY: lint-collectt-fix
+lint-collectt-fix:
+	@echo "### Fixing EventuallyWithT callbacks to use CollectT"
+	go run ./internal/test/analyzer/collectt/cmd/collecttlint -fix ./...
 	@echo "### Checking EventuallyWithT callbacks use CollectT"
 	go run ./internal/test/analyzer/collectt/cmd/collecttlint ./...
 
@@ -227,7 +237,7 @@ update-offsets:
 BPF_ROOT = pkg/
 
 # Find all generated Go and object files (used as Make targets)
-BPF_GEN_GO := $(shell find $(BPF_ROOT) -type f \( -name 'bpf_*_bpfe[lb].go' -o -name 'net_*_bpfe[lb].go' -o -name 'netsk_*_bpfe[lb].go' -o -name 'stats_*_bpfe[lb].go' \))
+BPF_GEN_GO := $(shell find $(BPF_ROOT) -type f \( -name 'bpf*_bpfe[lb].go' -o -name 'net_*_bpfe[lb].go' -o -name 'netsk_*_bpfe[lb].go' -o -name 'stats_*_bpfe[lb].go' \))
 BPF_GEN_OBJ := $(BPF_GEN_GO:.go=.o)
 BPF_GEN_ALL := $(if $(BPF_GEN_GO),$(BPF_GEN_GO) $(BPF_GEN_OBJ))
 
@@ -319,7 +329,7 @@ test-privileged: $(ENVTEST)
 .PHONY: run-bpf-verifier-vm
 run-bpf-verifier-vm:
 	@echo "### Running BPF verifier tests"
-	go test -v -count=1 -tags=bpf_verifier_tests ./pkg/internal/ebpf/verifier/...
+	go test -count=1 -timeout 20m -parallel 8 -tags=bpf_verifier_tests ./pkg/internal/ebpf/verifier/...
 
 .PHONY: cov-exclude-generated
 cov-exclude-generated:
@@ -402,7 +412,10 @@ java-verify: java-spotless-check java-test java-build
 image-build:
 	@echo "### Building the auto-instrumenter image"
 	$(call check_defined, IMG_ORG, Your Docker repository user name)
-	$(OCI_BIN) buildx build --load -t ${IMG} .
+	$(OCI_BIN) buildx build --load -t ${IMG} \
+		--build-arg RELEASE_VERSION=${RELEASE_VERSION} \
+		--build-arg RELEASE_REVISION=${RELEASE_REVISION} \
+		.
 
 # generator-image-build is only used for local development. GH actions that build and publish the image don't make use of it
 .PHONY: generator-image-build
@@ -547,7 +560,7 @@ itest-coverage-data:
 	grep -vE $(EXCLUDE_COVERAGE_FILES) $(TEST_OUTPUT)/itest-covdata.all.txt > $(TEST_OUTPUT)/itest-covdata.txt || true
 
 .PHONY: oats-prereq
-oats-prereq: docker-generate
+oats-prereq: docker-generate fetch-upstream-semconv
 	mkdir -p $(TEST_OUTPUT)/run
 
 .PHONY: oats-test-sql
@@ -605,7 +618,12 @@ oats-test-debug: oats-prereq
 
 .PHONY: license-header-check
 license-header-check:
-	@licRes=$$(for f in $$(find . -type f \( -iname '*.go' -o -iname '*.sh' -o -iname '*.c' -o -iname '*.h' \) ! -path './.git/*' ! -path './NOTICES/*' ) ; do \
+	@# Store demo app files are vendored with upstream Apache 2.0 headers; see examples/store-demo/PROVENANCE.md.
+	@licRes=$$(for f in $$(find . -type f \( -iname '*.go' -o -iname '*.sh' -o -iname '*.c' -o -iname '*.h' \) \
+	           ! -path './.git/*' \
+	           ! -path './.tmp/*' \
+	           ! -path './NOTICES/*' \
+	           ! -path './examples/store-demo/app/*' ) ; do \
 	           awk '/Copyright The OpenTelemetry Authors|generated|GENERATED/ && NR<=4 { found=1; next } END { if (!found) print FILENAME }' $$f; \
 	   done); \
 	   if [ -n "$${licRes}" ]; then \
@@ -870,8 +888,9 @@ check-ebpf-ver-synced:
 		exit 1; \
 	fi
 
-.PHONY: vanity-import-check
-vanity-import-check:
+.PHONY: vanity-import-check vanity-import-fix-check
+vanity-import-fix-check: vanity-import-fix
+vanity-import-check vanity-import-fix-check:
 	go tool $(TOOLS_MODFILE) porto --include-internal --skip-dirs "^NOTICES$$" -l . || ( echo "(run: make vanity-import-fix)"; exit 1 )
 
 .PHONY: vanity-import-fix
@@ -885,6 +904,12 @@ regenerate-port-lookup:
 
 CONFIG_SCHEMA_FILE ?= devdocs/config/config-schema.json
 CONFIG_DOCS_FILE ?= devdocs/config/CONFIG.md
+
+# Hidden pre-release config v2 artifacts. Keep generated/artifact-only updates
+# separate from conversion logic so reviewers can inspect drift intentionally.
+CONFIG_V2_DIR ?= devdocs/config/version-2.0
+CONFIG_V2_SCHEMA_FILE ?= $(CONFIG_V2_DIR)/obi-extension.schema.json
+CONFIG_V2_EXAMPLE_FILE ?= $(CONFIG_V2_DIR)/examples/default-configuration.yaml
 
 .PHONY: generate-config-schema
 generate-config-schema:
@@ -919,3 +944,25 @@ check-config-schema:
 	fi
 	@rm -f $(CONFIG_DOCS_FILE).tmp
 	@echo "Configuration docs are up-to-date"
+
+.PHONY: check-config-v2-parity
+check-config-v2-parity:
+	@echo "### Checking config v2 default parity"
+	go run ./cmd/check-config-v2-parity -v2-default $(CONFIG_V2_EXAMPLE_FILE)
+
+.PHONY: check-config-v2-artifacts
+check-config-v2-artifacts: check-config-v2-parity
+	@echo "### Checking hidden config v2 artifacts"
+	go run ./cmd/check-config-v2-artifacts -schema $(CONFIG_V2_SCHEMA_FILE) -example $(CONFIG_V2_EXAMPLE_FILE)
+
+.PHONY: fix-store-demo-architecture
+fix-store-demo-architecture:
+	python3 examples/store-demo/fix_architecture.py
+
+.PHONY: check-store-demo-architecture
+check-store-demo-architecture:
+	python3 examples/store-demo/fix_architecture.py --check
+
+.PHONY: test-store-demo-architecture
+test-store-demo-architecture:
+	python3 examples/store-demo/test_fix_architecture.py

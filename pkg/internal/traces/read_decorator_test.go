@@ -21,10 +21,10 @@ import (
 const testTimeout = 5 * time.Second
 
 func TestReadDecorator(t *testing.T) {
-	localHostname, _, err := hostname.CreateResolver("", "", false).Query()
+	localHostname, err := hostname.CreateResolver("", false).Query()
 	require.NoError(t, err)
 	require.NotEmpty(t, localHostname)
-	dnsHostname, _, err := hostname.CreateResolver("", "", true).Query()
+	dnsHostname, err := hostname.CreateResolver("", true).Query()
 	require.NoError(t, err)
 	require.NotEmpty(t, dnsHostname)
 

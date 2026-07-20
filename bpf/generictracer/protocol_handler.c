@@ -14,6 +14,7 @@
 #include <generictracer/protocol_kafka.h>
 #include <generictracer/protocol_mysql.h>
 #include <generictracer/protocol_postgres.h>
+#include <generictracer/protocol_sunrpc.h>
 #include <generictracer/protocol_tcp.h>
 
 #include <logger/bpf_dbg.h>
@@ -49,10 +50,7 @@ int obi_handle_buf_with_args(void *ctx) {
             data.flags |= http2_conn_flag_ssl;
         }
         bpf_map_update_elem(&ongoing_http2_connections, &args->pid_conn, &data, BPF_ANY);
-        // if we detected the preface, parse any grpc past the preface
-        if (has_preface(args->small_buf, args->bytes_len) && args->bytes_len > MIN_HTTP2_SIZE) {
-            args->u_buf = args->u_buf + MIN_HTTP2_SIZE;
-        }
+        skip_http2_preface(args);
     }
 
     http2_conn_info_data_t *h2g = bpf_map_lookup_elem(&ongoing_http2_connections, &args->pid_conn);
@@ -87,6 +85,12 @@ int obi_handle_buf_with_args(void *ctx) {
                                                args->direction)) {
         bpf_dbg_printk("Found kafka connection");
         bpf_tail_call(ctx, &jump_table, k_tail_protocol_tcp);
+    } else if (args->protocols.tcp && is_sunrpc(&args->pid_conn.conn,
+                                                (const unsigned char *)args->u_buf,
+                                                args->bytes_len,
+                                                &args->protocol_type)) {
+        bpf_dbg_printk("Found SunRPC connection");
+        bpf_tail_call(ctx, &jump_table, k_tail_protocol_tcp);
     } else { // large request tracking and generic TCP
         http_info_t *info = bpf_map_lookup_elem(&ongoing_http, &args->pid_conn);
 
@@ -96,6 +100,10 @@ int obi_handle_buf_with_args(void *ctx) {
                      (info) ? still_reading(info) : 0);
 
         if (args->protocols.http && info && !info->submitted) {
+            if (info->ssl && !args->ssl) {
+                return 0;
+            }
+
             const u8 reading = still_reading(info);
             const u8 responding = still_responding(info);
             // Still reading checks if we are processing buffers of a HTTP request
@@ -142,13 +150,6 @@ int obi_handle_buf_with_args(void *ctx) {
                     packet_type = PACKET_TYPE_RESPONSE;
                 }
 
-                http_send_large_buffer(info,
-                                       (void *)args->u_buf,
-                                       args->bytes_len,
-                                       packet_type,
-                                       args->direction,
-                                       k_large_buf_action_append);
-
                 if (reading) {
                     info->len += args->bytes_len;
                 } else if (responding) {
@@ -156,6 +157,15 @@ int obi_handle_buf_with_args(void *ctx) {
                     bpf_d_printk("bytes len %d, new bytes %d", info->resp_len, args->bytes_len);
                     info->resp_len += args->bytes_len;
                 }
+
+                http_send_large_buffer(ctx,
+                                       info,
+                                       &args->pid_conn,
+                                       (void *)args->u_buf,
+                                       args->bytes_len,
+                                       packet_type,
+                                       args->direction,
+                                       k_large_buf_action_append);
             }
         } else if (args->protocols.tcp && !info) {
             // SSL requests will see both TCP traffic and text traffic, ignore the TCP if

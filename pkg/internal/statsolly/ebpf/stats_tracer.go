@@ -125,7 +125,7 @@ func NewStatsFetcher(cfg *config.EBPFTracer, features *export.Features, selector
 	if err := ebpfconvenience.LoadSpec(spec, &objects, map[string]any{
 		"g_bpf_debug_flags":       cfg.DebugMode().Flags(),
 		"stats_wakeup_data_bytes": uint32(cfg.StatsWakeupDataBytes),
-	}, sharedMaps, &mu, ""); err != nil {
+	}, sharedMaps, &mu, "", nil); err != nil {
 		return nil, fmt.Errorf("loading stats eBPF spec: %w", err)
 	}
 
@@ -218,14 +218,23 @@ func NewStatsFetcher(cfg *config.EBPFTracer, features *export.Features, selector
 	}
 
 	// raw tracepoints
-	if features.StatsTCPRetransmits() {
+	for _, t := range []probe{
+		{
+			name:    RawTracepointTCPRetransmitSkb,
+			program: objects.ObiStatsRawTpTcpRetransmitSkb,
+			enabled: features.StatsTCPRetransmits(),
+		},
+	} {
+		if !t.enabled {
+			continue
+		}
 		l, err := link.AttachRawTracepoint(link.RawTracepointOptions{
-			Name:    RawTracepointTCPRetransmitSkb,
-			Program: objects.ObiStatsRawTpTcpRetransmitSkb,
+			Name:    t.name,
+			Program: t.program,
 		})
 		if err != nil {
 			closeAll(closables)
-			return nil, fmt.Errorf("failed raw tracepoint attachment %s: %w", RawTracepointTCPRetransmitSkb, err)
+			return nil, fmt.Errorf("failed raw tracepoint attachment %s: %w", t.name, err)
 		}
 		closables = append(closables, l)
 	}

@@ -154,6 +154,9 @@ func TestMCPSpan_ToolCall(t *testing.T) {
 	assert.Equal(t, request.HTTPSubtypeMCP, span.SubType)
 	assert.Equal(t, "tools/call", mcp.Method)
 	assert.Equal(t, "get-weather", mcp.ToolName)
+	assert.Equal(t, "function", mcp.ToolType)
+	assert.JSONEq(t, `{"location": "San Francisco"}`, mcp.ToolCallArguments)
+	assert.JSONEq(t, `[{"type": "text", "text": "Sunny, 72°F"}]`, mcp.ToolCallResult)
 	assert.Equal(t, "sess-abc-123", mcp.SessionID)
 	assert.Equal(t, "1", mcp.RequestID)
 	assert.Equal(t, 0, mcp.ErrorCode)
@@ -175,6 +178,9 @@ func TestMCPSpan_ToolCallError(t *testing.T) {
 	mcp := span.GenAI.MCP
 	assert.Equal(t, "tools/call", mcp.Method)
 	assert.Equal(t, "get-weather", mcp.ToolName)
+	assert.Equal(t, "function", mcp.ToolType)
+	assert.JSONEq(t, `{"location": "San Francisco"}`, mcp.ToolCallArguments)
+	assert.Empty(t, mcp.ToolCallResult)
 	assert.Equal(t, -32602, mcp.ErrorCode)
 	assert.Equal(t, "Unknown tool: nonexistent", mcp.ErrorMessage)
 }

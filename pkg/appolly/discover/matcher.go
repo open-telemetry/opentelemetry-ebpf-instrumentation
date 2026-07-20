@@ -81,6 +81,10 @@ type ProcessMatch struct {
 	Criteria            []services.Selector
 	LogEnricherCriteria []services.Selector
 	Process             *services.ProcessInfo
+	// DynamicSelectorPID is the runtime dynamic-selection owner PID. It is set by DynamicMatcher
+	// on direct matches and inherited unchanged by child processes matched via PPid. CriteriaMatcher
+	// leaves it zero so static discovery continues to use ProcPID downstream.
+	DynamicSelectorPID app.PID
 }
 
 func (pm ProcessMatch) LogEnricherEnabled() bool {
@@ -179,7 +183,7 @@ func (m *Matcher) filterCreated(obj ProcessAttrs) (Event[ProcessMatch], bool) {
 	}
 
 	// We didn't match the process, but let's see if the parent PID is tracked, it might be the child hasn't opened the port yet
-	if procMatch, ok := m.ProcessHistory[proc.PPid]; ok {
+	if procMatch, ok := m.ProcessHistory[proc.PPid]; ok && !m.isExcluded(&obj, proc) {
 		m.Log.Debug("found process by matching the process parent id", "pid", proc.Pid, "ppid", proc.PPid, "comm", proc.ExePath, "metadata", obj.metadata)
 
 		procMatch.Process = proc

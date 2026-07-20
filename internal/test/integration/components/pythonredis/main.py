@@ -70,6 +70,33 @@ def redis_error_test():
     try_redis_command(redis_cli, 'EVALSHA', 'INVALID_SHA', '0')
     return 'done', 200
 
+resp3_conn = None
+resp3_cli = None
+
+@app.get("/redis-resp3")
+def redis_resp3_test():
+    global resp3_conn
+    global resp3_cli
+    if resp3_conn is None:
+        resp3_cli = redis.Redis(
+            host='redis',
+            port=6379,
+            decode_responses=True,
+            protocol=3  # RESP3: map/set/boolean/double/null reply frames
+        )
+        resp3_conn = resp3_cli.ping()
+
+    # each op's reply is a RESP3-only frame type
+    resp3_cli.sadd('obi-resp3-set', 'a', 'b')
+    resp3_cli.sismember('obi-resp3-set', 'a')   # boolean #
+    resp3_cli.smembers('obi-resp3-set')         # set ~
+    resp3_cli.hset('obi-resp3-hash', mapping={'name': 'John', 'age': 29})
+    resp3_cli.hgetall('obi-resp3-hash')         # map %
+    resp3_cli.zadd('obi-resp3-zset', {'m1': 1.5})
+    resp3_cli.zscore('obi-resp3-zset', 'm1')    # double ,
+    resp3_cli.get('obi-resp3-missing')          # null _
+    return 'done', 200
+
 @app.get("/redis-db")
 def redis_error_test():
     db1_redis_cli = redis.Redis(

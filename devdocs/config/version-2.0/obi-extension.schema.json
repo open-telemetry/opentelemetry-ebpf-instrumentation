@@ -105,6 +105,168 @@
         }
       }
     },
+    "StringList": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string"
+      }
+    },
+    "StringListMap": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/StringList"
+      }
+    },
+    "RegexMap": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "IntEnum": {
+      "description": "Comma-separated integer/range list, or an explicit integer array.",
+      "oneOf": [
+        {
+          "type": "string",
+          "pattern": "^\\s*\\d+\\s*(-\\s*\\d+\\s*)?(,\\s*\\d+\\s*(-\\s*\\d+\\s*)?)*$",
+          "description": "Comma-separated integers or integer ranges, for example `80,443,8000-8999`."
+        },
+        {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      ]
+    },
+    "CIDRDefinitions": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "type": "string",
+            "description": "CIDR range. The CIDR string is used as the attribute value."
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "cidr": {
+                "type": "string",
+                "description": "CIDR range."
+              },
+              "name": {
+                "type": "string",
+                "description": "Human-readable attribute value for this CIDR."
+              }
+            },
+            "required": [
+              "cidr"
+            ]
+          }
+        ]
+      },
+      "default": [],
+      "description": "CIDR definitions used for source/destination grouping attributes."
+    },
+    "GeoIPEnrichment": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "ipinfo": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "path": {
+              "type": "string",
+              "default": "",
+              "description": "IPinfo database path."
+            }
+          }
+        },
+        "maxmind": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "country_path": {
+              "type": "string",
+              "default": "",
+              "description": "MaxMind country database path."
+            },
+            "asn_path": {
+              "type": "string",
+              "default": "",
+              "description": "MaxMind ASN database path."
+            }
+          }
+        },
+        "cache": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "size": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 512,
+              "description": "GeoIP cache size."
+            },
+            "ttl": {
+              "type": "string",
+              "default": "1h0m0s",
+              "description": "GeoIP cache TTL."
+            }
+          }
+        }
+      }
+    },
+    "ReverseDNSEnrichment": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": [
+            "none",
+            "local",
+            "ebpf"
+          ],
+          "default": "none",
+          "description": "Reverse DNS lookup mode."
+        },
+        "cache": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "size": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 256,
+              "description": "Reverse DNS cache size."
+            },
+            "ttl": {
+              "type": "string",
+              "default": "1h0m0s",
+              "description": "Reverse DNS cache TTL."
+            }
+          }
+        }
+      }
+    },
+    "NetworkEnrichment": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "geo_ip": {
+          "$ref": "#/$defs/GeoIPEnrichment"
+        },
+        "reverse_dns": {
+          "$ref": "#/$defs/ReverseDNSEnrichment"
+        }
+      }
+    },
     "SelectionExportsOTLP": {
       "type": "object",
       "description": "Match predicate for detecting workloads that already export OTLP.",
@@ -131,13 +293,46 @@
       "description": "Process-level selection predicates.",
       "additionalProperties": true,
       "properties": {
-        "exe_path_glob": {
+        "open_ports": {
+          "$ref": "#/$defs/IntEnum",
+          "description": "Open port selector. Accepts comma-separated ports/ranges or an integer array.\n"
+        },
+        "target_pids": {
           "type": "array",
           "minItems": 1,
           "items": {
-            "type": "string"
+            "type": "integer",
+            "minimum": 0
           },
+          "description": "Process IDs selected explicitly.\n"
+        },
+        "language_glob": {
+          "$ref": "#/$defs/StringList",
+          "description": "Glob patterns matched against detected runtime language.\n"
+        },
+        "language_regex": {
+          "type": "string",
+          "description": "Regular expression matched against detected runtime language.\n"
+        },
+        "cmd_args_glob": {
+          "$ref": "#/$defs/StringList",
+          "description": "Glob patterns matched against process command-line arguments.\n"
+        },
+        "cmd_args_regex": {
+          "type": "string",
+          "description": "Regular expression matched against process command-line arguments.\n"
+        },
+        "exe_path_glob": {
+          "$ref": "#/$defs/StringList",
           "description": "Glob patterns matched against process executable paths.\n"
+        },
+        "exe_path_regex": {
+          "type": "string",
+          "description": "Regular expression matched against process executable paths.\n"
+        },
+        "containers_only": {
+          "type": "boolean",
+          "description": "Restrict selection to processes running in containers.\n"
         },
         "exports_otlp": {
           "$ref": "#/$defs/SelectionExportsOTLP",
@@ -151,12 +346,36 @@
       "additionalProperties": true,
       "properties": {
         "namespace_glob": {
-          "type": "array",
-          "minItems": 1,
-          "items": {
-            "type": "string"
-          },
+          "$ref": "#/$defs/StringList",
           "description": "Glob patterns matched against Kubernetes namespace names.\n"
+        },
+        "namespace_regex": {
+          "type": "string",
+          "description": "Regular expression matched against Kubernetes namespace names.\n"
+        },
+        "metadata_glob": {
+          "$ref": "#/$defs/StringListMap",
+          "description": "Glob patterns for non-namespace Kubernetes metadata keys.\n"
+        },
+        "metadata_regex": {
+          "$ref": "#/$defs/RegexMap",
+          "description": "Regular expressions for non-namespace Kubernetes metadata keys.\n"
+        },
+        "pod_labels": {
+          "$ref": "#/$defs/StringListMap",
+          "description": "Glob patterns for Kubernetes pod labels.\n"
+        },
+        "pod_labels_regex": {
+          "$ref": "#/$defs/RegexMap",
+          "description": "Regular expressions for Kubernetes pod labels.\n"
+        },
+        "pod_annotations": {
+          "$ref": "#/$defs/StringListMap",
+          "description": "Glob patterns for Kubernetes pod annotations.\n"
+        },
+        "pod_annotations_regex": {
+          "$ref": "#/$defs/RegexMap",
+          "description": "Regular expressions for Kubernetes pod annotations.\n"
         }
       }
     },
@@ -198,37 +417,41 @@
         },
         "http": {
           "type": "object",
-          "description": "HTTP-specific per-workload overrides.\nFields here take precedence over the global `instrumentation.http` values for matched workloads.\n",
+          "description": "HTTP-specific per-workload configuration for matched workloads.\n",
           "additionalProperties": false,
           "properties": {
             "routes": {
               "type": "object",
-              "description": "Per-workload HTTP route override.\nIf omitted, global route configuration applies.\n",
+              "description": "Per-workload direction-scoped HTTP route patterns.\nIf omitted, global route configuration applies.\n",
               "additionalProperties": false,
               "properties": {
-                "unmatched": {
-                  "type": "string",
-                  "enum": [
-                    "heuristic",
-                    "wildcard",
-                    "random_hash",
-                    "disabled"
-                  ],
-                  "description": "Fallback policy when no explicit route pattern matches.\nIf omitted, global `instrumentation.http.routes.unmatched` applies.\n"
+                "incoming": {
+                  "type": "object",
+                  "description": "HTTP route patterns for requests handled by the matched workload.\nEquivalent to v1 `routes.incoming`.\n",
+                  "additionalProperties": false,
+                  "properties": {
+                    "patterns": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "description": "Explicit incoming route patterns for this workload.\n"
+                    }
+                  }
                 },
-                "patterns": {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  },
-                  "description": "Explicit route patterns for this workload.\nThese are merged with (and take precedence over) global patterns.\nIf omitted, global patterns apply.\n"
-                },
-                "ignored_patterns": {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  },
-                  "description": "Route patterns to ignore for this workload.\nIf omitted, global ignored patterns apply.\n"
+                "outgoing": {
+                  "type": "object",
+                  "description": "HTTP route patterns for requests made by the matched workload.\nEquivalent to v1 `routes.outgoing`.\n",
+                  "additionalProperties": false,
+                  "properties": {
+                    "patterns": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "description": "Explicit outgoing route patterns for this workload.\n"
+                    }
+                  }
                 }
               }
             },
@@ -490,16 +713,27 @@
               "additionalProperties": false,
               "properties": {
                 "context_propagation": {
-                  "type": "string",
-                  "enum": [
-                    "disabled",
-                    "headers",
-                    "tcp",
-                    "ip",
-                    "all"
+                  "oneOf": [
+                    {
+                      "type": "string",
+                      "enum": [
+                        "disabled",
+                        "headers",
+                        "tcp",
+                        "all"
+                      ]
+                    },
+                    {
+                      "type": "string",
+                      "enum": [
+                        "ip"
+                      ],
+                      "deprecated": true,
+                      "description": "IP options injection has been removed and has no effect"
+                    }
                   ],
                   "default": "disabled",
-                  "description": "Context propagation mode.\nValues include: `disabled`, `headers`, `tcp`, `ip`, `all`.\nIf omitted, `disabled` is used.\n"
+                  "description": "Context propagation mode.\nValues include: `disabled`, `headers`, `tcp`, `all`.\nIf omitted, `disabled` is used.\n"
                 },
                 "override_bpfloop_enabled": {
                   "type": "boolean",
@@ -531,6 +765,16 @@
                   "type": "boolean",
                   "default": false,
                   "description": "Optimize capture behavior for high request volume workloads.\nIf omitted, false is used.\n"
+                },
+                "force_map_reader": {
+                  "type": "string",
+                  "enum": [
+                    "auto",
+                    "batch",
+                    "legacy"
+                  ],
+                  "default": "auto",
+                  "description": "Force the network-flow per-CPU map reader implementation.\nIf omitted, `auto` is used.\n"
                 }
               }
             },
@@ -542,6 +786,19 @@
                   "type": "string",
                   "default": "5m0s",
                   "description": "Maximum duration allowed for correlating request/response transactions.\nIf omitted, `5m0s` is used.\n"
+                }
+              }
+            },
+            "maps": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "global_scale_factor": {
+                  "type": "integer",
+                  "minimum": -3,
+                  "maximum": 3,
+                  "default": 0,
+                  "description": "Global eBPF map size scale factor.\nIf omitted, `0` is used.\n"
                 }
               }
             },
@@ -637,21 +894,20 @@
       "properties": {
         "logging": {
           "type": "object",
-          "description": "Logging behavior and debug-output controls.",
+          "description": "Log output formatting, startup configuration output, and debug-output controls.",
           "additionalProperties": false,
           "properties": {
-            "level": {
+            "format": {
               "type": "string",
               "enum": [
-                "DEBUG",
-                "INFO",
-                "WARN",
-                "ERROR"
+                "",
+                "text",
+                "json"
               ],
-              "default": "INFO",
-              "description": "OBI log level.\nValues include: `DEBUG`, `INFO`, `WARN`, `ERROR`.\nIf omitted, `INFO` is used.\n"
+              "default": "text",
+              "description": "OBI log output format.\nValues include: `text`, `json`.\nIf omitted, `text` is used.\n"
             },
-            "format": {
+            "config_format": {
               "type": "string",
               "enum": [
                 "",
@@ -659,7 +915,7 @@
                 "json"
               ],
               "default": "",
-              "description": "Startup configuration log format. Empty string disables startup config logging.\nValues include: `yaml`, `json`.\nIf omitted, empty string is used.\n"
+              "description": "Format used when writing startup configuration to logs. Empty string disables startup configuration logging.\nValues include: `yaml`, `json`.\nIf omitted, empty string is used.\n"
             },
             "debug_trace_output": {
               "type": "string",
@@ -902,8 +1158,8 @@
                   "properties": {
                     "delay": {
                       "type": "string",
-                      "default": "1m0s",
-                      "description": "Delay before Java route discovery starts.\nIf omitted, `1m0s` is used.\n"
+                      "default": "5s",
+                      "description": "Delay before Java route discovery starts.\nIf omitted, `5s` is used.\n"
                     }
                   }
                 }
@@ -924,7 +1180,19 @@
                   "graphql",
                   "elasticsearch",
                   "aws",
-                  "sqlpp"
+                  "sqlpp",
+                  "openai",
+                  "anthropic",
+                  "gemini",
+                  "qwen",
+                  "bedrock",
+                  "mcp",
+                  "openai_compatible",
+                  "embedding",
+                  "rerank",
+                  "retrieval",
+                  "jsonrpc",
+                  "enrichment"
                 ]
               },
               "default": [],
@@ -943,6 +1211,59 @@
                     "/query/service"
                   ],
                   "description": "Endpoint patterns eligible for SQL++ payload extraction.\nIf omitted, `/query/service` is used.\n"
+                }
+              }
+            },
+            "enrichment": {
+              "type": "object",
+              "description": "HTTP header and body enrichment policy and rules.",
+              "additionalProperties": false,
+              "properties": {
+                "policy": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "default_action": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "headers": {
+                          "type": "string",
+                          "enum": [
+                            "include",
+                            "exclude",
+                            "obfuscate"
+                          ],
+                          "default": "exclude",
+                          "description": "Default action for HTTP headers."
+                        },
+                        "body": {
+                          "type": "string",
+                          "enum": [
+                            "include",
+                            "exclude",
+                            "obfuscate"
+                          ],
+                          "default": "exclude",
+                          "description": "Default action for HTTP body payloads."
+                        }
+                      }
+                    },
+                    "obfuscation_string": {
+                      "type": "string",
+                      "default": "***",
+                      "description": "Replacement string used by obfuscation rules."
+                    }
+                  }
+                },
+                "rules": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": true
+                  },
+                  "default": [],
+                  "description": "Ordered HTTP parsing/enrichment rules."
                 }
               }
             }
@@ -1077,6 +1398,24 @@
               "minimum": 0,
               "default": 1024,
               "description": "PostgreSQL prepared statements cache size.\nIf omitted, `1024` is used.\n"
+            }
+          }
+        },
+        "mssql": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "buffer_size": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "description": "MSSQL parser buffer size.\nIf omitted, `0` is used.\n"
+            },
+            "prepared_statements_cache_size": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 1024,
+              "description": "MSSQL prepared statements cache size.\nIf omitted, `1024` is used.\n"
             }
           }
         }
@@ -1450,9 +1789,253 @@
               "default": "socket_filter",
               "description": "Network capture source implementation.\nValues include: `socket_filter`, `tc`.\nIf omitted, `socket_filter` is used.\n"
             },
+            "buffer_size": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "description": "TCP parser/capture buffer size.\nIf omitted, `0` is used.\n"
+            },
+            "endpoint_identity": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "agent_ip": {
+                  "type": "string",
+                  "default": "",
+                  "description": "Agent IP override for network flow telemetry."
+                },
+                "agent_ip_interface": {
+                  "type": "string",
+                  "default": "external",
+                  "description": "Interface selection for deriving the agent IP."
+                },
+                "agent_ip_family": {
+                  "type": "string",
+                  "enum": [
+                    "any",
+                    "ipv4",
+                    "ipv6"
+                  ],
+                  "default": "any",
+                  "description": "IP family used for derived agent IP selection."
+                }
+              }
+            },
+            "selection": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "interfaces": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "include": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "default": []
+                    },
+                    "exclude": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "default": [
+                        "lo"
+                      ]
+                    }
+                  }
+                },
+                "protocols": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "include": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "default": []
+                    },
+                    "exclude": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "default": []
+                    }
+                  }
+                },
+                "cidrs": {
+                  "$ref": "#/$defs/CIDRDefinitions"
+                },
+                "direction": {
+                  "type": "string",
+                  "enum": [
+                    "ingress",
+                    "egress",
+                    "both"
+                  ],
+                  "default": "both"
+                }
+              }
+            },
             "filters": {
               "$ref": "#/$defs/SignalFilters",
               "description": "Signal-specific filters applied to network capture output.\nIf omitted, no filtering is applied.\n"
+            },
+            "flow_lifecycle": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "max_tracked_flows": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "default": 5000
+                },
+                "active_timeout": {
+                  "type": "string",
+                  "default": "5s"
+                },
+                "deduplication": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "strategy": {
+                      "type": "string",
+                      "default": "first_come"
+                    },
+                    "first_come_ttl": {
+                      "type": "string",
+                      "default": "0s"
+                    }
+                  }
+                },
+                "sampling": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "default": 0
+                },
+                "guess_ports": {
+                  "type": "string",
+                  "enum": [
+                    "disable",
+                    "ordinal"
+                  ],
+                  "default": "disable",
+                  "description": "Port guessing policy for unknown-initiator flows."
+                }
+              }
+            },
+            "interface_discovery": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "mode": {
+                  "type": "string",
+                  "enum": [
+                    "watch",
+                    "poll"
+                  ],
+                  "default": "watch"
+                },
+                "poll_interval": {
+                  "type": "string",
+                  "default": "10s"
+                }
+              }
+            },
+            "enrichment": {
+              "$ref": "#/$defs/NetworkEnrichment"
+            },
+            "diagnostics": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "print_flows": {
+                  "type": "boolean",
+                  "default": false
+                }
+              }
+            }
+          }
+        },
+        "stats": {
+          "type": "object",
+          "description": "TCP stats capture controls.",
+          "additionalProperties": true,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false,
+              "description": "Enable TCP stats telemetry.\nIf omitted, false is used.\n"
+            },
+            "features": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "tcp_rtt",
+                  "tcp_failed_connections",
+                  "tcp_retransmits",
+                  "tcp_io"
+                ]
+              },
+              "default": [],
+              "description": "Enabled TCP stats families.\nIf omitted, no stats families are enabled.\n"
+            },
+            "endpoint_identity": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "agent_ip": {
+                  "type": "string",
+                  "default": "",
+                  "description": "Agent IP override for stats telemetry."
+                },
+                "agent_ip_interface": {
+                  "type": "string",
+                  "default": "external",
+                  "description": "Interface selection for deriving the agent IP."
+                },
+                "agent_ip_family": {
+                  "type": "string",
+                  "enum": [
+                    "any",
+                    "ipv4",
+                    "ipv6"
+                  ],
+                  "default": "any",
+                  "description": "IP family used for derived agent IP selection."
+                }
+              }
+            },
+            "selection": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "cidrs": {
+                  "$ref": "#/$defs/CIDRDefinitions"
+                }
+              }
+            },
+            "filters": {
+              "$ref": "#/$defs/SignalFilters",
+              "description": "Signal-specific filters applied to stats telemetry.\nIf omitted, no filtering is applied.\n"
+            },
+            "enrichment": {
+              "$ref": "#/$defs/NetworkEnrichment"
+            },
+            "diagnostics": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "print_stats": {
+                  "type": "boolean",
+                  "default": false
+                }
+              }
             }
           }
         }

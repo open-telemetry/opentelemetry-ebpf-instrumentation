@@ -6,6 +6,7 @@
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_helpers.h>
 
+#include <common/algorithm.h>
 #include <common/globals.h>
 #include <common/http_buf_size.h>
 
@@ -18,7 +19,10 @@ struct callback_ctx {
     u8 _pad[4];
 };
 
-enum : u32 { k_tp_pos_not_found = 0xFFFFFFFFU };
+enum : u32 {
+    k_tp_pos_not_found = 0xFFFFFFFFU,
+    k_tp_max_scan_loops = TRACE_BUF_SIZE - TRACE_PARENT_HEADER_LEN,
+};
 
 static unsigned char *hex = (unsigned char *)"0123456789abcdef";
 static unsigned char *reverse_hex =
@@ -98,14 +102,26 @@ static int tp_match(u32 index, void *data) {
     return 0;
 }
 
+static __always_inline u32 traceparent_scan_loop_count(const u16 buf_len) {
+    if (buf_len < TRACE_PARENT_HEADER_LEN) {
+        return 0;
+    }
+
+    return min((u32)buf_len - TRACE_PARENT_HEADER_LEN + 1, k_tp_max_scan_loops);
+}
+
 static __always_inline unsigned char *bpf_strstr_tp_loop(unsigned char *buf, const u16 buf_len) {
     if (!g_bpf_traceparent_enabled) {
         return NULL;
     }
 
-    struct callback_ctx data = {.buf = buf, .pos = k_tp_pos_not_found};
+    const u32 nr_loops = traceparent_scan_loop_count(buf_len);
 
-    const u32 nr_loops = (u32)buf_len;
+    if (nr_loops == 0) {
+        return NULL;
+    }
+
+    struct callback_ctx data = {.buf = buf, .pos = k_tp_pos_not_found};
 
     bpf_loop(nr_loops, tp_match, &data, 0);
 
@@ -118,9 +134,11 @@ static __always_inline unsigned char *bpf_strstr_tp_loop(unsigned char *buf, con
 
 static __always_inline unsigned char *bpf_strstr_tp_loop__legacy(unsigned char *buf,
                                                                  const u16 buf_len) {
-    (void)buf_len;
-
     if (!g_bpf_traceparent_enabled) {
+        return NULL;
+    }
+
+    if (buf_len < TRACE_PARENT_HEADER_LEN) {
         return NULL;
     }
 
@@ -128,9 +146,27 @@ static __always_inline unsigned char *bpf_strstr_tp_loop__legacy(unsigned char *
     const u16 k_besteffort_max_loops = 350;
 
     for (u16 i = 0; i < k_besteffort_max_loops; i++) {
-        if (is_traceparent(&buf[i])) {
-            return &buf[i];
+        // buf is null terminated
+        if (*buf == '\0') {
+            return NULL;
         }
+
+        if (is_traceparent(buf)) {
+            // here we validate if the actual traceparent value is complete,
+            // i.e. we haven't hit any incomplete traceparent - notice that
+            // everything here is constant (13 is the offset from
+            // 'Traceparent: ' and TRACE_PARENT_HEADER_LEN is also a constant
+            // - this allows the 5.10 kernel to prune this instead of tripping
+            for (u8 j = 13; j < TRACE_PARENT_HEADER_LEN; j++) {
+                if (buf[j] == '\0') {
+                    return NULL;
+                }
+            }
+
+            return buf;
+        }
+
+        ++buf;
     }
 
     return NULL;

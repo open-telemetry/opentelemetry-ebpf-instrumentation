@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap/zapcore"
+	grpc_codes "google.golang.org/grpc/codes"
 
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/consumer"
@@ -22,7 +23,7 @@ import (
 	"go.opentelemetry.io/collector/pdata/ptrace"
 	"go.opentelemetry.io/otel/attribute"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-	semconv "go.opentelemetry.io/otel/semconv/v1.38.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 	"go.opentelemetry.io/otel/trace"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
@@ -81,6 +82,109 @@ func groupFromSpanAndAttributes(span *request.Span, attrs []attribute.KeyValue) 
 	groups := []tracesgen.TraceSpanAndAttributes{}
 	groups = append(groups, tracesgen.TraceSpanAndAttributes{Span: span, Attributes: attrs})
 	return groups
+}
+
+func TestGenerateTracesSpanLinks(t *testing.T) {
+	start := time.Now()
+	traceID, err := trace.TraceIDFromHex("eae56fbbec9505c102e8aabfc6b5c481")
+	require.NoError(t, err)
+	spanID, err := trace.SpanIDFromHex("89cbc1f60aab3b04")
+	require.NoError(t, err)
+	linkTraceID, err := trace.TraceIDFromHex("1ae56fbbec9505c102e8aabfc6b5c482")
+	require.NoError(t, err)
+	linkSpanID, err := trace.SpanIDFromHex("19cbc1f60aab3b04")
+	require.NoError(t, err)
+
+	validLink := request.SpanLink{
+		TraceID:    linkTraceID,
+		SpanID:     linkSpanID,
+		TraceFlags: 3,
+	}
+
+	t.Run("without subspans", func(t *testing.T) {
+		span := &request.Span{
+			Type:         request.EventTypeHTTP,
+			RequestStart: start.UnixNano(),
+			Start:        start.UnixNano(),
+			End:          start.Add(3 * time.Second).UnixNano(),
+			Method:       "GET",
+			Route:        "/test",
+			Status:       200,
+			TraceID:      traceID,
+			SpanID:       spanID,
+			Links:        []request.SpanLink{validLink},
+		}
+
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(span, []attribute.KeyValue{}), reporterName)
+		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+
+		require.Equal(t, 1, spans.Len())
+		require.Equal(t, 1, spans.At(0).Links().Len())
+		assert.Equal(t, spanID.String(), spans.At(0).SpanID().String())
+
+		link := spans.At(0).Links().At(0)
+		assert.Equal(t, linkTraceID.String(), link.TraceID().String())
+		assert.Equal(t, linkSpanID.String(), link.SpanID().String())
+		assert.Equal(t, uint32(validLink.TraceFlags), link.Flags())
+	})
+
+	t.Run("with subspans", func(t *testing.T) {
+		span := &request.Span{
+			Type:         request.EventTypeHTTP,
+			RequestStart: start.UnixNano(),
+			Start:        start.Add(time.Second).UnixNano(),
+			End:          start.Add(3 * time.Second).UnixNano(),
+			Method:       "GET",
+			Route:        "/test",
+			Status:       200,
+			TraceID:      traceID,
+			SpanID:       spanID,
+			Links:        []request.SpanLink{validLink},
+		}
+
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(span, []attribute.KeyValue{}), reporterName)
+		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+
+		require.Equal(t, 3, spans.Len())
+		assert.Equal(t, "in queue", spans.At(0).Name())
+		assert.Equal(t, "processing", spans.At(1).Name())
+		assert.Equal(t, "GET /test", spans.At(2).Name())
+		assert.Equal(t, 0, spans.At(0).Links().Len())
+		assert.Equal(t, 0, spans.At(2).Links().Len())
+		require.Equal(t, 1, spans.At(1).Links().Len())
+		assert.Equal(t, spanID.String(), spans.At(1).SpanID().String())
+
+		link := spans.At(1).Links().At(0)
+		assert.Equal(t, linkTraceID.String(), link.TraceID().String())
+		assert.Equal(t, linkSpanID.String(), link.SpanID().String())
+	})
+
+	t.Run("ignores invalid link ids", func(t *testing.T) {
+		span := &request.Span{
+			Type:         request.EventTypeHTTP,
+			RequestStart: start.UnixNano(),
+			Start:        start.UnixNano(),
+			End:          start.Add(3 * time.Second).UnixNano(),
+			Method:       "GET",
+			Route:        "/test",
+			Status:       200,
+			TraceID:      traceID,
+			SpanID:       spanID,
+			Links: []request.SpanLink{
+				{TraceID: linkTraceID},
+				{SpanID: linkSpanID},
+				validLink,
+			},
+		}
+
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(span, []attribute.KeyValue{}), reporterName)
+		links := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Links()
+
+		require.Equal(t, 1, links.Len())
+		assert.Equal(t, linkTraceID.String(), links.At(0).TraceID().String())
+		assert.Equal(t, linkSpanID.String(), links.At(0).SpanID().String())
+		assert.Equal(t, uint32(validLink.TraceFlags), links.At(0).Flags())
+	})
 }
 
 func TestGenerateTraces(t *testing.T) {
@@ -300,7 +404,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBOperation), "SELECT")
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBCollectionName), "credentials")
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBSystemName), "other_sql")
-		ensureTraceStrAttr(t, attrs, semconv.PeerServiceKey, "postgresql")
+		ensureTraceStrAttr(t, attrs, semconv.ServicePeerNameKey, "postgresql")
 		ensureTraceAttrNotExists(t, attrs, attribute.Key(attr.DBQueryText))
 	})
 
@@ -323,7 +427,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBOperation), "SELECT")
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBCollectionName), "credentials")
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBSystemName), "other_sql")
-		ensureTraceAttrNotExists(t, attrs, semconv.PeerServiceKey)
+		ensureTraceAttrNotExists(t, attrs, semconv.ServicePeerNameKey)
 	})
 
 	t.Run("test SQL trace generation, unknown attribute", func(t *testing.T) {
@@ -484,6 +588,98 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.MessagingSystem), "nats")
 		ensureTraceStrAttr(t, attrs, semconv.MessagingClientIDKey, "nats-client-1")
 		ensureTraceIntAttr(t, attrs, semconv.MessagingMessageEnvelopeSizeKey, 42)
+	})
+
+	t.Run("test Kafka trace generation omits unknown operation type", func(t *testing.T) {
+		// messaging.operation.type is a semconv enum: when the operation was
+		// not captured, the attribute must be omitted, not emitted empty
+		span := request.Span{Type: request.EventTypeKafkaClient, Method: "", Path: "important-topic", Statement: "test"}
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+		attrs := spans.At(0).Attributes()
+		ensureTraceAttrNotExists(t, attrs, attribute.Key(attr.MessagingOpType))
+		ensureTraceStrAttr(t, attrs, semconv.MessagingDestinationNameKey, "important-topic")
+	})
+
+	t.Run("test gRPC trace generation", func(t *testing.T) {
+		span := request.Span{Type: request.EventTypeGRPC, Path: "/routeguide.RouteGuide/GetFeature", Status: 0}
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+		attrs := spans.At(0).Attributes()
+		ensureTraceStrAttr(t, attrs, semconv.RPCMethodKey, "/routeguide.RouteGuide/GetFeature")
+		ensureTraceStrAttr(t, attrs, semconv.RPCResponseStatusCodeKey, "OK")
+	})
+
+	t.Run("test gRPC trace generation omits leaked HTTP status", func(t *testing.T) {
+		// a span.Status outside the gRPC enum (e.g. an HTTP 200 that leaked
+		// through protocol detection) must not become a made-up status value
+		span := request.Span{Type: request.EventTypeGRPC, Path: "/routeguide.RouteGuide/GetFeature", Status: 200}
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+		attrs := spans.At(0).Attributes()
+		ensureTraceStrAttr(t, attrs, semconv.RPCMethodKey, "/routeguide.RouteGuide/GetFeature")
+		ensureTraceAttrNotExists(t, attrs, semconv.RPCResponseStatusCodeKey)
+	})
+
+	t.Run("test gRPC client trace generation omits invalid status", func(t *testing.T) {
+		span := request.Span{Type: request.EventTypeGRPCClient, Path: "/routeguide.RouteGuide/GetFeature", Status: 0xFFFF}
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+		attrs := spans.At(0).Attributes()
+		ensureTraceAttrNotExists(t, attrs, semconv.RPCResponseStatusCodeKey)
+	})
+
+	t.Run("test Elasticsearch trace generation omits empty error.type", func(t *testing.T) {
+		// successful Elasticsearch spans have no error code: error.type must
+		// be omitted, not emitted as an empty string
+		span := request.Span{
+			Type:    request.EventTypeHTTPClient,
+			SubType: request.HTTPSubtypeElasticsearch,
+			Method:  "GET",
+			Path:    "/products/_search",
+			Status:  200,
+			Elasticsearch: &request.Elasticsearch{
+				DBSystemName:     "elasticsearch",
+				DBOperationName:  "search",
+				DBCollectionName: "products",
+			},
+		}
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+		attrs := spans.At(0).Attributes()
+		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBSystemName), "elasticsearch")
+		ensureTraceAttrNotExists(t, attrs, attribute.Key(attr.ErrorType))
+	})
+
+	t.Run("test OpenAI trace generation omits empty operation name", func(t *testing.T) {
+		// gen_ai.operation.name must not be emitted as an empty string:
+		// when the operation could not be classified (e.g. an error response
+		// parsed before the request body), the attribute must be omitted
+		span := request.Span{
+			Type:    request.EventTypeHTTPClient,
+			SubType: request.HTTPSubtypeOpenAI,
+			Method:  "POST",
+			Path:    "/v1/responses",
+			Status:  429,
+			GenAI:   &request.GenAI{OpenAI: &request.VendorOpenAI{ID: "chatcmpl-err"}},
+		}
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+		attrs := spans.At(0).Attributes()
+		ensureTraceStrAttr(t, attrs, semconv.GenAIProviderNameKey, "openai")
+		ensureTraceAttrNotExists(t, attrs, semconv.GenAIOperationNameKey)
 	})
 
 	t.Run("test Mongo trace generation", func(t *testing.T) {
@@ -676,7 +872,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBOperation), "GET")
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBSystemName), "memcached")
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBResponseStatusCode), "SERVER_ERROR")
-		ensureTraceAttrNotExists(t, attrs, semconv.PeerServiceKey)
+		ensureTraceAttrNotExists(t, attrs, semconv.ServicePeerNameKey)
 		ensureTraceAttrNotExists(t, attrs, attribute.Key(attr.DBResponseError))
 		assert.Equal(t, ptrace.StatusCodeError, spans.At(0).Status().Code())
 		assert.Empty(t, spans.At(0).Status().Message())
@@ -854,7 +1050,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 
 		attrs := spans.At(0).Attributes()
 
-		// Only required attributes: server.addr, server.port, peer.service, db.system.name, db.operation.name
+		// Only required attributes: server.addr, server.port, service.peer.name, db.system.name, db.operation.name
 		assert.Equal(t, 5, attrs.Len())
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBOperation), "INSERT")
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBSystemName), "couchbase")
@@ -1116,9 +1312,11 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
 		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
 
-		spanAttrs := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
+		topSpan := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0)
+		spanAttrs := topSpan.Attributes()
 		ensureTraceStrAttr(t, spanAttrs, semconv.ErrorTypeKey, "insufficient_quota")
-		ensureTraceStrAttr(t, spanAttrs, attribute.Key("error.message"), "You exceeded your current quota, please check your plan and billing details.")
+		assert.Empty(t, topSpan.Status().Message())
+		ensureTraceAttrNotExists(t, spanAttrs, attribute.Key("error.message"))
 	})
 
 	t.Run("OpenAI span - chat completions (prompt/completion token fields)", func(t *testing.T) {
@@ -1332,7 +1530,8 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		})
 		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
 
-		spanAttrs := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
+		topSpan := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0)
+		spanAttrs := topSpan.Attributes()
 		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIProviderNameKey, "anthropic")
 		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIResponseIDKey, "req_011CZLkWqu2dABS8vFB9G6Lz")
 		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIInputMessagesKey, `[{"role":"user","parts":[{"type":"text","content":"Explain quantum computing in simple terms"}]}]`)
@@ -1340,7 +1539,8 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		ensureTraceStrAttr(t, spanAttrs, semconv.GenAISystemInstructionsKey, `[{"type":"text","content":"Be concise."}]`)
 		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIToolDefinitionsKey, `[{"type":"function","name":"calculator","description":"Performs arithmetic"}]`)
 		ensureTraceStrAttr(t, spanAttrs, semconv.ErrorTypeKey, "authentication_error")
-		ensureTraceStrAttr(t, spanAttrs, attribute.Key("error.message"), "invalid x-api-key")
+		assert.Empty(t, topSpan.Status().Message())
+		ensureTraceAttrNotExists(t, spanAttrs, attribute.Key("error.message"))
 	})
 
 	t.Run("Anthropic span - nil Anthropic means no GenAI attrs", func(t *testing.T) {
@@ -1472,7 +1672,8 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		})
 		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
 
-		spanAttrs := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
+		topSpan := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0)
+		spanAttrs := topSpan.Attributes()
 		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIProviderNameKey, "gcp.gemini")
 		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIOperationNameKey, "generate_content")
 		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIResponseIDKey, "resp_sys789")
@@ -1481,7 +1682,8 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		ensureTraceStrAttr(t, spanAttrs, semconv.GenAISystemInstructionsKey, `[{"type":"text","content":"Be concise."}]`)
 		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIToolDefinitionsKey, `[{"type":"function","name":"get_weather"}]`)
 		ensureTraceStrAttr(t, spanAttrs, semconv.ErrorTypeKey, "NOT_FOUND")
-		ensureTraceStrAttr(t, spanAttrs, attribute.Key("error.message"), "model not found")
+		assert.Empty(t, topSpan.Status().Message())
+		ensureTraceAttrNotExists(t, spanAttrs, attribute.Key("error.message"))
 	})
 
 	t.Run("Gemini span - nil Gemini means no GenAI attrs", func(t *testing.T) {
@@ -1662,7 +1864,8 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		})
 		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
 
-		spanAttrs := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
+		topSpan := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0)
+		spanAttrs := topSpan.Attributes()
 		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIProviderNameKey, "aws.bedrock")
 		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIOperationNameKey, "invoke_model")
 		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIInputMessagesKey, `[{"role":"user","parts":[{"type":"text","content":"Explain eBPF"}]}]`)
@@ -1670,7 +1873,8 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		ensureTraceStrAttr(t, spanAttrs, semconv.GenAISystemInstructionsKey, `[{"type":"text","content":"Be concise."}]`)
 		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIToolDefinitionsKey, `[{"type":"function","name":"get_weather","description":"Get weather"}]`)
 		ensureTraceStrAttr(t, spanAttrs, semconv.ErrorTypeKey, "ValidationException")
-		ensureTraceStrAttr(t, spanAttrs, attribute.Key("error.message"), "The provided model identifier is invalid.")
+		assert.Empty(t, topSpan.Status().Message())
+		ensureTraceAttrNotExists(t, spanAttrs, attribute.Key("error.message"))
 	})
 
 	t.Run("Bedrock span - nil Bedrock means no GenAI attrs", func(t *testing.T) {
@@ -1765,7 +1969,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
 
 		attrs := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
-		ensureTraceStrAttr(t, attrs, semconv.URLFullKey, "https://api.example.com/external/api")
+		ensureTraceStrAttr(t, attrs, semconv.URLFullKey, "https://api.example.com/external/api?foo=bar")
 	})
 	t.Run("test HTTP client url.full includes query with opt-in", func(t *testing.T) {
 		span := request.Span{
@@ -1844,7 +2048,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
 
 		attrs := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
-		ensureTraceStrAttr(t, attrs, semconv.URLFullKey, "https://upstream.example.com/external/api")
+		ensureTraceStrAttr(t, attrs, semconv.URLFullKey, "https://upstream.example.com/external/api?foo=bar")
 	})
 	t.Run("test JSON-RPC server span with error", func(t *testing.T) {
 		span := request.Span{
@@ -1874,7 +2078,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		assert.Equal(t, ptrace.StatusCodeError, status.Code())
 		assert.Equal(t, "Method not found", status.Message())
 
-		ensureTraceStrAttr(t, attrs, "rpc.system", "jsonrpc")
+		ensureTraceStrAttr(t, attrs, "rpc.system.name", "jsonrpc")
 		ensureTraceStrAttr(t, attrs, "rpc.method", "subtract")
 		ensureTraceStrAttr(t, attrs, "jsonrpc.protocol.version", "2.0")
 		ensureTraceStrAttr(t, attrs, "jsonrpc.request.id", "1")
@@ -1906,7 +2110,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		assert.Equal(t, ptrace.StatusCodeUnset, status.Code())
 		assert.Empty(t, status.Message())
 
-		ensureTraceStrAttr(t, attrs, "rpc.system", "jsonrpc")
+		ensureTraceStrAttr(t, attrs, "rpc.system.name", "jsonrpc")
 		ensureTraceStrAttr(t, attrs, "rpc.method", "subtract")
 		ensureTraceStrAttr(t, attrs, "jsonrpc.protocol.version", "2.0")
 		ensureTraceStrAttr(t, attrs, "jsonrpc.request.id", "1")
@@ -1940,7 +2144,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		assert.Equal(t, ptrace.StatusCodeError, status.Code())
 		assert.Equal(t, "Invalid Request", status.Message())
 
-		ensureTraceStrAttr(t, attrs, "rpc.system", "jsonrpc")
+		ensureTraceStrAttr(t, attrs, "rpc.system.name", "jsonrpc")
 		ensureTraceStrAttr(t, attrs, "rpc.method", "getUser")
 		ensureTraceStrAttr(t, attrs, "jsonrpc.protocol.version", "2.0")
 		ensureTraceStrAttr(t, attrs, "jsonrpc.request.id", "42")
@@ -2020,7 +2224,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		ensureTraceStrAttr(t, attrs, "mcp.session.id", "sess-abc")
 		ensureTraceStrAttr(t, attrs, "jsonrpc.request.id", "2")
 		ensureTraceStrAttr(t, attrs, "rpc.response.status_code", "-32602")
-		ensureTraceStrAttr(t, attrs, "error.message", "Unknown tool: nonexistent")
+		ensureTraceAttrNotExists(t, attrs, attribute.Key("error.message"))
 	})
 	t.Run("test MCP client span with error", func(t *testing.T) {
 		span := request.Span{
@@ -2056,7 +2260,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		ensureTraceStrAttr(t, attrs, "gen_ai.tool.name", "get-weather")
 		ensureTraceStrAttr(t, attrs, "jsonrpc.request.id", "3")
 		ensureTraceStrAttr(t, attrs, "rpc.response.status_code", "-32600")
-		ensureTraceStrAttr(t, attrs, "error.message", "Invalid Request")
+		ensureTraceAttrNotExists(t, attrs, attribute.Key("error.message"))
 	})
 	t.Run("test HTTP span without headers has no header attributes", func(t *testing.T) {
 		span := request.Span{
@@ -2350,7 +2554,7 @@ func TestTracesInstrumentations(t *testing.T) {
 		{
 			name:     "all instrumentations",
 			instr:    []instrumentations.Instrumentation{instrumentations.InstrumentationALL},
-			expected: []string{"GET /foo", "PUT /bar", "/grpcFoo", "/grpcGoo", "SELECT credentials", "SET", "GET", "publish important-topic", "process important-topic", "publish sensors/temperature", "process sensors/#", "publish updates.orders", "process updates.orders", "insert mycollection", "GET couchbase-collection", "GET", "DELETE"},
+			expected: []string{"GET /foo", "PUT /bar", "/grpcFoo", "/grpcGoo", "SELECT credentials", "SET", "GET", "publish important-topic", "process important-topic", "publish sensors/temperature", "process sensors/#", "publish updates.orders", "process updates.orders", "portmapper/0", "insert mycollection", "GET couchbase-collection", "GET", "DELETE"},
 		},
 		{
 			name:     "http only",
@@ -2386,6 +2590,11 @@ func TestTracesInstrumentations(t *testing.T) {
 			name:     "nats only",
 			instr:    []instrumentations.Instrumentation{instrumentations.InstrumentationNATS},
 			expected: []string{"publish updates.orders", "process updates.orders"},
+		},
+		{
+			name:     "sunrpc only",
+			instr:    []instrumentations.Instrumentation{instrumentations.InstrumentationSunRPC},
+			expected: []string{"portmapper/0"},
 		},
 		{
 			name:     "none",
@@ -2433,6 +2642,7 @@ func TestTracesInstrumentations(t *testing.T) {
 		{Type: request.EventTypeMQTTServer, Method: "process", Path: "sensors/#", Statement: "mqtt-server"},
 		{Type: request.EventTypeNATSClient, Method: "publish", Path: "updates.orders"},
 		{Type: request.EventTypeNATSServer, Method: "process", Path: "updates.orders"},
+		{Type: request.EventTypeSunRPCClient, Path: "portmapper", Route: "0", Method: "0", SubType: 2, HostPort: 111},
 		{Type: request.EventTypeMongoClient, Method: "insert", Path: "mycollection", DBNamespace: "mydatabase"},
 		{Type: request.EventTypeCouchbaseClient, Method: "GET", Path: "couchbase-collection", DBNamespace: "mybucket.myscope"},
 		{Type: request.EventTypeMemcachedClient, Method: "GET", Path: "session-key"},
@@ -2590,60 +2800,60 @@ func TestTraces_HTTPStatus(t *testing.T) {
 
 func TestTraces_GRPCStatus(t *testing.T) {
 	type testPair struct {
-		grpcCode   attribute.KeyValue
+		grpcCode   grpc_codes.Code
 		statusCode string
 	}
 
 	t.Run("gRPC server testing", func(t *testing.T) {
 		for _, p := range []testPair{
-			{semconv.RPCGRPCStatusCodeOk, request.StatusCodeUnset},
-			{semconv.RPCGRPCStatusCodeCancelled, request.StatusCodeUnset},
-			{semconv.RPCGRPCStatusCodeUnknown, request.StatusCodeError},
-			{semconv.RPCGRPCStatusCodeInvalidArgument, request.StatusCodeUnset},
-			{semconv.RPCGRPCStatusCodeDeadlineExceeded, request.StatusCodeError},
-			{semconv.RPCGRPCStatusCodeNotFound, request.StatusCodeUnset},
-			{semconv.RPCGRPCStatusCodeAlreadyExists, request.StatusCodeUnset},
-			{semconv.RPCGRPCStatusCodePermissionDenied, request.StatusCodeUnset},
-			{semconv.RPCGRPCStatusCodeResourceExhausted, request.StatusCodeUnset},
-			{semconv.RPCGRPCStatusCodeFailedPrecondition, request.StatusCodeUnset},
-			{semconv.RPCGRPCStatusCodeAborted, request.StatusCodeUnset},
-			{semconv.RPCGRPCStatusCodeOutOfRange, request.StatusCodeUnset},
-			{semconv.RPCGRPCStatusCodeUnimplemented, request.StatusCodeError},
-			{semconv.RPCGRPCStatusCodeInternal, request.StatusCodeError},
-			{semconv.RPCGRPCStatusCodeUnavailable, request.StatusCodeError},
-			{semconv.RPCGRPCStatusCodeDataLoss, request.StatusCodeError},
-			{semconv.RPCGRPCStatusCodeUnauthenticated, request.StatusCodeUnset},
+			{grpc_codes.OK, request.StatusCodeUnset},
+			{grpc_codes.Canceled, request.StatusCodeUnset},
+			{grpc_codes.Unknown, request.StatusCodeError},
+			{grpc_codes.InvalidArgument, request.StatusCodeUnset},
+			{grpc_codes.DeadlineExceeded, request.StatusCodeError},
+			{grpc_codes.NotFound, request.StatusCodeUnset},
+			{grpc_codes.AlreadyExists, request.StatusCodeUnset},
+			{grpc_codes.PermissionDenied, request.StatusCodeUnset},
+			{grpc_codes.ResourceExhausted, request.StatusCodeUnset},
+			{grpc_codes.FailedPrecondition, request.StatusCodeUnset},
+			{grpc_codes.Aborted, request.StatusCodeUnset},
+			{grpc_codes.OutOfRange, request.StatusCodeUnset},
+			{grpc_codes.Unimplemented, request.StatusCodeError},
+			{grpc_codes.Internal, request.StatusCodeError},
+			{grpc_codes.Unavailable, request.StatusCodeError},
+			{grpc_codes.DataLoss, request.StatusCodeError},
+			{grpc_codes.Unauthenticated, request.StatusCodeUnset},
 		} {
 			t.Run(fmt.Sprintf("%v_%s", p.grpcCode, p.statusCode), func(t *testing.T) {
-				assert.Equal(t, p.statusCode, request.GrpcSpanStatusCode(&request.Span{Status: int(p.grpcCode.Value.AsInt64()), Type: request.EventTypeGRPC}))
-				assert.Equal(t, p.statusCode, request.SpanStatusCode(&request.Span{Status: int(p.grpcCode.Value.AsInt64()), Type: request.EventTypeGRPC}))
+				assert.Equal(t, p.statusCode, request.GrpcSpanStatusCode(&request.Span{Status: int(p.grpcCode), Type: request.EventTypeGRPC}))
+				assert.Equal(t, p.statusCode, request.SpanStatusCode(&request.Span{Status: int(p.grpcCode), Type: request.EventTypeGRPC}))
 			})
 		}
 	})
 
 	t.Run("gRPC client testing", func(t *testing.T) {
 		for _, p := range []testPair{
-			{semconv.RPCGRPCStatusCodeOk, request.StatusCodeUnset},
-			{semconv.RPCGRPCStatusCodeCancelled, request.StatusCodeError},
-			{semconv.RPCGRPCStatusCodeUnknown, request.StatusCodeError},
-			{semconv.RPCGRPCStatusCodeInvalidArgument, request.StatusCodeError},
-			{semconv.RPCGRPCStatusCodeDeadlineExceeded, request.StatusCodeError},
-			{semconv.RPCGRPCStatusCodeNotFound, request.StatusCodeError},
-			{semconv.RPCGRPCStatusCodeAlreadyExists, request.StatusCodeError},
-			{semconv.RPCGRPCStatusCodePermissionDenied, request.StatusCodeError},
-			{semconv.RPCGRPCStatusCodeResourceExhausted, request.StatusCodeError},
-			{semconv.RPCGRPCStatusCodeFailedPrecondition, request.StatusCodeError},
-			{semconv.RPCGRPCStatusCodeAborted, request.StatusCodeError},
-			{semconv.RPCGRPCStatusCodeOutOfRange, request.StatusCodeError},
-			{semconv.RPCGRPCStatusCodeUnimplemented, request.StatusCodeError},
-			{semconv.RPCGRPCStatusCodeInternal, request.StatusCodeError},
-			{semconv.RPCGRPCStatusCodeUnavailable, request.StatusCodeError},
-			{semconv.RPCGRPCStatusCodeDataLoss, request.StatusCodeError},
-			{semconv.RPCGRPCStatusCodeUnauthenticated, request.StatusCodeError},
+			{grpc_codes.OK, request.StatusCodeUnset},
+			{grpc_codes.Canceled, request.StatusCodeError},
+			{grpc_codes.Unknown, request.StatusCodeError},
+			{grpc_codes.InvalidArgument, request.StatusCodeError},
+			{grpc_codes.DeadlineExceeded, request.StatusCodeError},
+			{grpc_codes.NotFound, request.StatusCodeError},
+			{grpc_codes.AlreadyExists, request.StatusCodeError},
+			{grpc_codes.PermissionDenied, request.StatusCodeError},
+			{grpc_codes.ResourceExhausted, request.StatusCodeError},
+			{grpc_codes.FailedPrecondition, request.StatusCodeError},
+			{grpc_codes.Aborted, request.StatusCodeError},
+			{grpc_codes.OutOfRange, request.StatusCodeError},
+			{grpc_codes.Unimplemented, request.StatusCodeError},
+			{grpc_codes.Internal, request.StatusCodeError},
+			{grpc_codes.Unavailable, request.StatusCodeError},
+			{grpc_codes.DataLoss, request.StatusCodeError},
+			{grpc_codes.Unauthenticated, request.StatusCodeError},
 		} {
 			t.Run(fmt.Sprintf("%v_%s", p.grpcCode, p.statusCode), func(t *testing.T) {
-				assert.Equal(t, p.statusCode, request.GrpcSpanStatusCode(&request.Span{Status: int(p.grpcCode.Value.AsInt64()), Type: request.EventTypeGRPCClient}))
-				assert.Equal(t, p.statusCode, request.SpanStatusCode(&request.Span{Status: int(p.grpcCode.Value.AsInt64()), Type: request.EventTypeGRPCClient}))
+				assert.Equal(t, p.statusCode, request.GrpcSpanStatusCode(&request.Span{Status: int(p.grpcCode), Type: request.EventTypeGRPCClient}))
+				assert.Equal(t, p.statusCode, request.SpanStatusCode(&request.Span{Status: int(p.grpcCode), Type: request.EventTypeGRPCClient}))
 			})
 		}
 	})

@@ -1,6 +1,6 @@
 module go.opentelemetry.io/obi/configs/offsets/redis
 
-go 1.25.10
+go 1.25.11
 
 require github.com/redis/go-redis/v9 v9.19.0
 

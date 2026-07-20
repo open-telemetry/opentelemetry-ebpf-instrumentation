@@ -62,6 +62,7 @@ func TestNativeHistogramSchemaAppliedToExportedMetrics(t *testing.T) {
 				request.UnresolvedNames{},
 				promInput,
 				processEvents,
+				nil,
 			)(ctx)
 			require.NoError(t, err)
 			go exporter(ctx)

@@ -11,9 +11,11 @@ import (
 	"log/slog"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/cilium/ebpf"
+	"github.com/cilium/ebpf/btf"
 	"github.com/cilium/ebpf/rlimit"
 	"github.com/stretchr/testify/require"
 
@@ -31,6 +33,31 @@ import (
 	statsolly "go.opentelemetry.io/obi/pkg/internal/statsolly/ebpf"
 )
 
+// specCache memoises the parsed CollectionSpec per loadFn so each combo only
+// pays for spec.Copy() instead of re-unmarshalling the embedded ELF.
+var (
+	specCache   sync.Map // map[uintptr]*ebpf.CollectionSpec keyed by loadFn pointer
+	specCacheMu sync.Mutex
+	btfCache    = btf.NewCache()
+)
+
+func cachedSpec(t *testing.T, loadFn func() (*ebpf.CollectionSpec, error)) *ebpf.CollectionSpec {
+	t.Helper()
+	key := fmt.Sprintf("%p", loadFn)
+	if cached, ok := specCache.Load(key); ok {
+		return cached.(*ebpf.CollectionSpec).Copy()
+	}
+	specCacheMu.Lock()
+	defer specCacheMu.Unlock()
+	if cached, ok := specCache.Load(key); ok {
+		return cached.(*ebpf.CollectionSpec).Copy()
+	}
+	spec, err := loadFn()
+	require.NoError(t, err, "failed to load collection spec")
+	specCache.Store(key, spec)
+	return spec.Copy()
+}
+
 // loadAndVerify loads a BPF collection spec into the kernel, triggering the BPF
 // verifier, then immediately closes it. Any verifier rejection surfaces as a test failure.
 // Pin types are stripped so the test works without a mounted BPF filesystem.
@@ -38,8 +65,8 @@ import (
 func loadAndVerify(t *testing.T, name string, loadFn func() (*ebpf.CollectionSpec, error), consts ...map[string]any) {
 	t.Helper()
 	t.Run(name, func(t *testing.T) {
-		spec, err := loadFn()
-		require.NoError(t, err, "failed to load collection spec")
+		t.Parallel()
+		spec := cachedSpec(t, loadFn)
 
 		// On kernels < 5.17, replace obi_protocol_http (which uses bpf_loop)
 		// with obi_protocol_http_legacy, matching what the production loader does.
@@ -48,7 +75,7 @@ func loadAndVerify(t *testing.T, name string, loadFn func() (*ebpf.CollectionSpe
 		}
 
 		if len(consts) > 0 && consts[0] != nil {
-			err = ebpfconvenience.RewriteConstants(spec, consts[0])
+			err := ebpfconvenience.RewriteConstants(spec, consts[0])
 			require.NoError(t, err, "failed to rewrite constants")
 		}
 
@@ -74,6 +101,7 @@ func loadAndVerify(t *testing.T, name string, loadFn func() (*ebpf.CollectionSpe
 				// Increase log buffer so verifier rejections are not truncated.
 				LogSizeStart: 10 * 1024 * 1024,
 			},
+			Cache: btfCache,
 		})
 		if err != nil {
 			var ve *ebpf.VerifierError
@@ -157,9 +185,11 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 		{"g_bpf_debug_flags", debugFlags},
 		{"g_bpf_traceparent_enabled", []any{true, false}},
 		{"filter_pids", []any{int32(0), int32(1)}},
-		{"capture_header_buffer", []any{int32(0), int32(1)}},
 		{"high_request_volume", []any{uint32(0), uint32(1)}},
-		{"disable_black_box_cp", []any{uint32(0), uint32(1)}},
+		{"jvm_sampling_interval_ns", []any{uint64(0), uint64(1_000_000_000)}},
+		{"max_transaction_time", []any{uint64(0), uint64(60_000_000_000)}},
+		{"http_max_captured_bytes", []any{uint32(0), uint32(262144)}},
+		{"tcp_max_captured_bytes", []any{uint32(0), uint32(65536)}},
 	})
 
 	// gotracer
@@ -168,7 +198,11 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 		{"g_bpf_traceparent_enabled", []any{true, false}},
 		{"g_bpf_header_propagation", []any{true, false}},
 		{"g_bpf_loop_enabled", []any{ebpfcommon.SupportsEBPFLoops(slog.Default(), false)}},
-		{"disable_black_box_cp", []any{uint32(0), uint32(1)}},
+		{"capture_header_buffer", []any{int32(0), int32(1)}},
+		{"high_request_volume", []any{uint32(0), uint32(1)}},
+		{"max_transaction_time", []any{uint64(0), uint64(60_000_000_000)}},
+		{"http_max_captured_bytes", []any{uint32(0), uint32(262144)}},
+		{"tcp_max_captured_bytes", []any{uint32(0), uint32(65536)}},
 	})
 
 	// tpinjector
@@ -177,6 +211,7 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 		{"g_bpf_debug_flags", debugFlags},
 		{"filter_pids", []any{int32(0), int32(1)}},
 		{"inject_flags", []any{uint32(0), uint32(1), uint32(2), uint32(3)}},
+		{"max_transaction_time", []any{uint64(0), uint64(60_000_000_000)}},
 	})
 	// tpinjector/BpfIter needs bpf_iter_tcp_get_func_proto (kernel >= 5.11)
 	// for the verifier to recognize the sock_iter ctx type. Runtime loader
@@ -188,6 +223,12 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 	} else {
 		t.Logf("skipping tpinjector/BpfIter: kernel %d.%d < 5.11", major, minor)
 	}
+
+	// tpinjector/BpfFionreadFixup uses bpf_probe_write_user, rejected at load time
+	// under kernel lockdown - none of the CI kernels run locked down
+	forEachCombination(t, "tpinjector/BpfFionreadFixup", tpinjectorbpf.LoadBpfFionreadFixup, []constOption{
+		{"g_bpf_debug", []any{true, false}},
+	})
 
 	// watcher
 	forEachCombination(t, "watcher/Bpf", watcherbpf.LoadBpf, []constOption{
@@ -218,5 +259,6 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 	// statsolly
 	forEachCombination(t, "statsolly/Stats", statsolly.LoadStats, []constOption{
 		{"g_bpf_debug_flags", debugFlags},
+		{"stats_wakeup_data_bytes", []any{uint32(0), uint32(1 << 20)}},
 	})
 }

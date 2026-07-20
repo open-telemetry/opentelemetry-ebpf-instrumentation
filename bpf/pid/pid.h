@@ -78,6 +78,10 @@ static __always_inline u32 valid_pid(u64 id) {
                 return a_pid;
             }
         }
+
+        // Cache negative result: PID not in tracked set
+        u32 neg = 0;
+        bpf_map_update_elem(&pid_cache, &a_pid, &neg, BPF_NOEXIST);
     }
 
     return 0;

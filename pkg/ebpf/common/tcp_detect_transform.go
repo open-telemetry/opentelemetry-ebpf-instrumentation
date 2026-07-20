@@ -15,10 +15,10 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/config"
+	"go.opentelemetry.io/obi/pkg/ebpf/ringbuf"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/amqpparser"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/kafkaparser"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/mqttparser"
-	"go.opentelemetry.io/obi/pkg/internal/ebpf/ringbuf"
 	"go.opentelemetry.io/obi/pkg/internal/largebuf"
 )
 
@@ -93,6 +93,8 @@ func dispatchKernelAssignedProtocol(parseCtx *EBPFParseContext, event *TCPReques
 		return dispatchPostgres(parseCtx, event, requestBuffer, responseBuffer)
 	case ProtocolTypeMSSQL:
 		return dispatchMSSQL(parseCtx, event, requestBuffer, responseBuffer)
+	case ProtocolTypeSunRPC:
+		return dispatchSunRPC(event, requestBuffer, responseBuffer)
 	}
 
 	return request.Span{}, false, false, nil
@@ -124,6 +126,20 @@ func dispatchMQTT(event *TCPRequestInfo, requestBuffer, responseBuffer *largebuf
 	}
 
 	return request.Span{}, true, true, fmt.Errorf("failed to handle MQTT event: %w", err)
+}
+
+func dispatchSunRPC(event *TCPRequestInfo, requestBuffer, responseBuffer *largebuf.LargeBuffer) (request.Span, bool, bool, error) {
+	info, ignore, err := ProcessPossibleSunRPCEvent(event, requestBuffer, responseBuffer)
+
+	if ignore && err == nil {
+		return request.Span{}, true, true, nil
+	}
+
+	if err == nil {
+		return TCPToSunRPCToSpan(event, info), false, true, nil
+	}
+
+	return request.Span{}, true, true, fmt.Errorf("failed to handle SunRPC event: %w", err)
 }
 
 func handleError(span request.Span, err error, name string) (request.Span, bool, bool, error) {
@@ -161,7 +177,7 @@ func dispatchMSSQL(parseCtx *EBPFParseContext, event *TCPRequestInfo, requestBuf
 // detectGenericProtocol runs deterministic protocol detection for unclassified events:
 // SQL, FastCGI, MongoDB, Couchbase, and Memcached noreply.
 func detectGenericProtocol(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, event *TCPRequestInfo, requestBuffer, responseBuffer *largebuf.LargeBuffer) (request.Span, bool, bool, error) {
-	if span, ignore, matched, err := matchSQL(cfg, event, requestBuffer, responseBuffer); matched {
+	if span, ignore, matched, err := matchSQL(parseCtx, cfg, event, requestBuffer, responseBuffer); matched {
 		return span, ignore, matched, err
 	}
 
@@ -184,18 +200,50 @@ func detectGenericProtocol(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, e
 	return request.Span{}, false, false, nil
 }
 
-func matchSQL(cfg *config.EBPFTracer, event *TCPRequestInfo, requestBuffer, responseBuffer *largebuf.LargeBuffer) (request.Span, bool, bool, error) { //nolint:unparam
-	op, table, sql, kind := detectSQLPayload(cfg.HeuristicSQLDetect, requestBuffer)
-
-	if validSQL(op, table, kind) {
-		return TCPToSQLToSpan(event, op, table, sql, kind, "", nil), false, true, nil
+// caches the connection's database name for the SQL spans that follow
+func matchPostgresStartup(parseCtx *EBPFParseContext, event *TCPRequestInfo, requestBuffer, responseBuffer *largebuf.LargeBuffer) (request.Span, bool, bool, error) { //nolint:unparam
+	if parseCtx.postgresDBNames == nil {
+		return request.Span{}, false, false, nil
 	}
 
-	op, table, sql, kind = detectSQLPayload(cfg.HeuristicSQLDetect, responseBuffer)
+	if db, ok := parsePostgresStartup(requestBuffer); ok {
+		parseCtx.postgresDBNames.Add(event.ConnInfo, db)
+		return request.Span{}, true, true, nil
+	}
 
-	if validSQL(op, table, kind) {
+	// caught reversed in the middle of communication
+	if db, ok := parsePostgresStartup(responseBuffer); ok {
+		parseCtx.postgresDBNames.Add(reverseTCPConnInfo(event.ConnInfo), db)
+		return request.Span{}, true, true, nil
+	}
+
+	return request.Span{}, false, false, nil
+}
+
+func matchSQL(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, event *TCPRequestInfo, requestBuffer, responseBuffer *largebuf.LargeBuffer) (request.Span, bool, bool, error) {
+	if span, ignore, matched, err := matchPostgresStartup(parseCtx, event, requestBuffer, responseBuffer); matched {
+		return span, ignore, matched, err
+	}
+
+	op, tables, sql, kind := detectSQLPayload(cfg.HeuristicSQLDetect, requestBuffer)
+
+	if validSQL(op, len(tables) > 0, kind) {
+		span := TCPToSQLToSpan(event, op, tables, sql, kind, "", nil)
+		if kind == request.DBPostgres {
+			span.DBNamespace = postgresDBForConn(parseCtx, event.ConnInfo)
+		}
+		return span, false, true, nil
+	}
+
+	op, tables, sql, kind = detectSQLPayload(cfg.HeuristicSQLDetect, responseBuffer)
+
+	if validSQL(op, len(tables) > 0, kind) {
 		reverseTCPEvent(event)
-		return TCPToSQLToSpan(event, op, table, sql, kind, "", nil), false, true, nil
+		span := TCPToSQLToSpan(event, op, tables, sql, kind, "", nil)
+		if kind == request.DBPostgres {
+			span.DBNamespace = postgresDBForConn(parseCtx, event.ConnInfo)
+		}
+		return span, false, true, nil
 	}
 
 	return request.Span{}, false, false, nil
@@ -249,7 +297,8 @@ func matchMemcachedNoreply(parseCtx *EBPFParseContext, event *TCPRequestInfo, re
 }
 
 // detectHeuristicProtocol runs heuristic-based protocol detection as a last resort:
-// Redis, Memcached, HTTP/2, NATS, AMQP, MQTT, and Kafka (for packets the kernel couldn't classify).
+// Redis, Memcached, HTTP/2, NATS, AMQP, MQTT, Kafka (for packets the kernel couldn't classify),
+// and SunRPC (fallback when the kernel missed the connection start).
 func detectHeuristicProtocol(parseCtx *EBPFParseContext, event *TCPRequestInfo, requestBuffer, responseBuffer *largebuf.LargeBuffer) (request.Span, bool, bool, error) {
 	if span, ignore, matched, err := matchRedis(parseCtx, event, requestBuffer, responseBuffer); matched {
 		return span, ignore, matched, err
@@ -283,6 +332,44 @@ func detectHeuristicProtocol(parseCtx *EBPFParseContext, event *TCPRequestInfo, 
 		return span, ignore, matched, err
 	}
 
+	// SunRPC can arrive here when the kernel missed the connection start (e.g. OBI attached mid-connection).
+	if span, ignore, matched, err := matchSunRPC(parseCtx, event, requestBuffer, responseBuffer); matched {
+		return span, ignore, matched, err
+	}
+
+	if span, ignore, matched, err := matchAerospike(event, requestBuffer, responseBuffer); matched {
+		return span, ignore, matched, err
+	}
+
+	return request.Span{}, false, false, nil
+}
+
+// matchAerospike detects the Aerospike native client protocol (proto v2) from the
+// captured request/response buffers and builds a client span. Only type-3 AS_MSG
+// data requests produce a span; info/auth/compressed frames are left for the
+// generic ignore path. Correlation is the generic per-connection direction flip.
+func matchAerospike(event *TCPRequestInfo, requestBuffer, responseBuffer *largebuf.LargeBuffer) (request.Span, bool, bool, error) { //nolint:unparam
+	// Aerospike instrumentation is client-side only. When OBI also instruments the
+	// Aerospike server process it sees the same exchange from the server side; skip
+	// it so a single operation isn't reported twice (once per peer).
+	if event.IsServer {
+		return request.Span{}, false, false, nil
+	}
+
+	// parseAerospikeRequest validates the proto/as_msg header itself and returns
+	// nil for non-Aerospike or response frames, so it doubles as the detector.
+	if info := parseAerospikeRequest(requestBuffer); info != nil {
+		status, dbError := aerospikeStatus(responseBuffer)
+		return TCPToAerospikeToSpan(event, info, status, dbError), false, true, nil
+	}
+
+	// We may have caught the connection mid-flight with the buffers reversed.
+	if info := parseAerospikeRequest(responseBuffer); info != nil {
+		reverseTCPEvent(event)
+		status, dbError := aerospikeStatus(requestBuffer)
+		return TCPToAerospikeToSpan(event, info, status, dbError), false, true, nil
+	}
+
 	return request.Span{}, false, false, nil
 }
 
@@ -291,35 +378,57 @@ func matchRedis(parseCtx *EBPFParseContext, event *TCPRequestInfo, requestBuffer
 		return request.Span{}, false, false, nil
 	}
 
-	op, text, ok := parseRedisRequest(requestBuffer.UnsafeView())
+	cmds := parseRedisCommands(requestBuffer.UnsafeView())
+	reversed := false
 
-	if !ok {
-		return request.Span{}, false, false, nil
-	}
-
-	var status int
-	var redisErr request.DBError
-
-	if op == "" {
-		op, text, ok = parseRedisRequest(responseBuffer.UnsafeView())
-		if !ok || op == "" {
-			return request.Span{}, true, true, nil // ignore if we couldn't parse it
+	// mid-flight attach can swap buffer roles (blocking-command replies arrive
+	// receive-first); the side holding a known command word wins
+	if len(cmds) == 0 || !isKnownRedisOp(cmds[0].op) {
+		if respCmds := parseRedisCommands(responseBuffer.UnsafeView()); len(respCmds) > 0 &&
+			(len(cmds) == 0 || isKnownRedisOp(respCmds[0].op)) {
+			cmds = respCmds
+			reversed = true
+			reverseTCPEvent(event)
 		}
-		// We've caught the event reversed in the middle of communication, let's
-		// reverse the event
-		reverseTCPEvent(event)
-		redisErr, status = redisStatus(requestBuffer)
-	} else {
-		redisErr, status = redisStatus(responseBuffer)
 	}
 
-	db, found := getRedisDB(event.ConnInfo, op, text, parseCtx.redisDBCache)
-
-	if !found {
-		db = -1 // if we don't have the db in cache, we assume it's not set
+	if len(cmds) == 0 {
+		return request.Span{}, true, true, nil // redis reply traffic with no command to attribute
 	}
 
-	return TCPToRedisToSpan(event, op, text, status, db, redisErr), false, true, nil
+	// reversed events pair the commands with a stale reply, so statuses are unknowable
+	var replies []redisReply
+	if !reversed {
+		replies = parseRedisReplies(responseBuffer.UnsafeView(), len(cmds))
+	}
+
+	spans := make([]request.Span, 0, len(cmds))
+	for i := range cmds {
+		cmd := &cmds[i]
+
+		status := 0
+		var redisErr request.DBError
+		if i < len(replies) {
+			status, redisErr = replies[i].status, replies[i].dbError
+		}
+
+		db, found := getRedisDB(event.ConnInfo, cmd.op, cmd.text, parseCtx.redisDBCache)
+		if !found {
+			db = -1 // if we don't have the db in cache, we assume it's not set
+		}
+
+		spans = append(spans, TCPToRedisToSpan(event, cmd.op, cmd.text, status, db, redisErr))
+	}
+
+	if len(spans) > 1 {
+		// clear SpanID on extras so tracesgen assigns fresh IDs
+		for i := 1; i < len(spans); i++ {
+			spans[i].SpanID = trace.SpanID{}
+		}
+		parseCtx.emitExtraSpans(spans[1:]...)
+	}
+
+	return spans[0], false, true, nil
 }
 
 func matchMemcached(parseCtx *EBPFParseContext, event *TCPRequestInfo, requestBuffer, responseBuffer *largebuf.LargeBuffer) (request.Span, bool, bool, error) {

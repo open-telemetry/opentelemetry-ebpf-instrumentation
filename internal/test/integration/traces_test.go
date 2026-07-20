@@ -201,9 +201,9 @@ func testGRPCTracesForServiceName(t *testing.T, svcName string) {
 	// check span attributes
 	sd := parent.Diff(
 		jaeger.Tag{Key: "server.port", Type: "int64", Value: float64(5051)},
-		jaeger.Tag{Key: "rpc.grpc.status_code", Type: "int64", Value: float64(2)},
+		jaeger.Tag{Key: "rpc.response.status_code", Type: "string", Value: "UNKNOWN"},
 		jaeger.Tag{Key: "rpc.method", Type: "string", Value: "/routeguide.RouteGuide/Debug"},
-		jaeger.Tag{Key: "rpc.system", Type: "string", Value: "grpc"},
+		jaeger.Tag{Key: "rpc.system.name", Type: "string", Value: "grpc"},
 		jaeger.Tag{Key: "span.kind", Type: "string", Value: "server"},
 	)
 	assert.Empty(t, sd, sd.String())
@@ -295,9 +295,9 @@ func testGRPCKProbeTraces(t *testing.T) {
 	// check span attributes
 	sd := parent.Diff(
 		jaeger.Tag{Key: "server.port", Type: "int64", Value: float64(5051)},
-		jaeger.Tag{Key: "rpc.grpc.status_code", Type: "int64", Value: float64(2)},
+		jaeger.Tag{Key: "rpc.response.status_code", Type: "string", Value: "UNKNOWN"},
 		jaeger.Tag{Key: "rpc.method", Type: "string", Value: "/routeguide.RouteGuide/Debug"},
-		jaeger.Tag{Key: "rpc.system", Type: "string", Value: "grpc"},
+		jaeger.Tag{Key: "rpc.system.name", Type: "string", Value: "grpc"},
 		jaeger.Tag{Key: "span.kind", Type: "string", Value: "server"},
 	)
 	assert.Empty(t, sd, sd.String())
@@ -637,7 +637,7 @@ func testHTTP2GRPCTracesNestedCalls(t *testing.T, contextPropagation bool) {
 
 		sd = grpc.Diff(
 			jaeger.Tag{Key: "rpc.method", Type: "string", Value: "/routeguide.RouteGuide/GetFeature"},
-			jaeger.Tag{Key: "rpc.grpc.status_code", Type: "int64", Value: float64(0)},
+			jaeger.Tag{Key: "rpc.response.status_code", Type: "string", Value: "OK"},
 		)
 		assert.Empty(t, sd, sd.String())
 	}

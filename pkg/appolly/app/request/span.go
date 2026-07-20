@@ -12,13 +12,16 @@ import (
 	"time"
 	"unicode/utf8"
 
+	grpc_codes "google.golang.org/grpc/codes"
+
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
-	semconv "go.opentelemetry.io/otel/semconv/v1.38.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 	"go.opentelemetry.io/otel/trace"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
+	"go.opentelemetry.io/obi/pkg/ebpf/common/dnsparser"
 	"go.opentelemetry.io/obi/pkg/ebpf/timing"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 )
@@ -56,6 +59,9 @@ const (
 	EventTypeNATSClient
 	EventTypeNATSServer
 	EventTypeAMQPClient
+	EventTypeSunRPCClient
+	EventTypeSunRPCServer
+	EventTypeAerospikeClient
 )
 
 const (
@@ -82,29 +88,30 @@ const (
 type SQLKind uint8
 
 const (
-	DBGeneric SQLKind = iota + 1
+	DBGeneric SQLKind = iota
 	DBPostgres
 	DBMySQL
 	DBMSSQL
 )
 
 const (
-	HTTPSubtypeNone          = 0  // http
-	HTTPSubtypeGraphQL       = 1  // http + graphql
-	HTTPSubtypeElasticsearch = 2  // http + elasticsearch
-	HTTPSubtypeAWSS3         = 3  // http + aws s3
-	HTTPSubtypeAWSSQS        = 4  // http + aws sqs
-	HTTPSubtypeSQLPP         = 5  // http + sql++ (couchbase, etc.)
-	HTTPSubtypeOpenAI        = 6  // http + OpenAI
-	HTTPSubtypeAnthropic     = 7  // http + Anthropic
-	HTTPSubtypeGemini        = 8  // http + Google AI Studio (Gemini)
-	HTTPSubtypeJSONRPC       = 9  // http + JSON-RPC
-	HTTPSubtypeAWSBedrock    = 10 // http + AWS Bedrock
-	HTTPSubtypeQwen          = 11 // http + Qwen (DashScope)
-	HTTPSubtypeMCP           = 12 // http + Model Context Protocol
-	HTTPSubtypeEmbedding     = 13 // http + generic embedding provider (Voyage, Cohere, Jina)
-	HTTPSubtypeRerank        = 14 // http + Rerank (Cohere, Jina, Voyage, etc.)
-	HTTPSubtypeRetrieval     = 15 // http + vector retrieval (Pinecone, Qdrant, Milvus, Chroma, Weaviate, etc.)
+	HTTPSubtypeNone             = 0  // http
+	HTTPSubtypeGraphQL          = 1  // http + graphql
+	HTTPSubtypeElasticsearch    = 2  // http + elasticsearch
+	HTTPSubtypeAWSS3            = 3  // http + aws s3
+	HTTPSubtypeAWSSQS           = 4  // http + aws sqs
+	HTTPSubtypeSQLPP            = 5  // http + sql++ (couchbase, etc.)
+	HTTPSubtypeOpenAI           = 6  // http + OpenAI
+	HTTPSubtypeAnthropic        = 7  // http + Anthropic
+	HTTPSubtypeGemini           = 8  // http + Google AI Studio (Gemini)
+	HTTPSubtypeJSONRPC          = 9  // http + JSON-RPC
+	HTTPSubtypeAWSBedrock       = 10 // http + AWS Bedrock
+	HTTPSubtypeQwen             = 11 // http + Qwen (DashScope)
+	HTTPSubtypeMCP              = 12 // http + Model Context Protocol
+	HTTPSubtypeEmbedding        = 13 // http + generic embedding provider (Voyage, Cohere, Jina)
+	HTTPSubtypeRerank           = 14 // http + Rerank (Cohere, Jina, Voyage, etc.)
+	HTTPSubtypeRetrieval        = 15 // http + vector retrieval (Pinecone, Qdrant, Milvus, Chroma, Weaviate, etc.)
+	HTTPSubtypeOpenAICompatible = 16 // http + OpenAI-compatible API (custom provider)
 )
 
 func IsGenAISubtype(subtype int) bool {
@@ -116,7 +123,8 @@ func IsGenAISubtype(subtype int) bool {
 		subtype == HTTPSubtypeMCP ||
 		subtype == HTTPSubtypeEmbedding ||
 		subtype == HTTPSubtypeRerank ||
-		subtype == HTTPSubtypeRetrieval
+		subtype == HTTPSubtypeRetrieval ||
+		subtype == HTTPSubtypeOpenAICompatible
 }
 
 //nolint:cyclop
@@ -146,6 +154,10 @@ func (t EventType) String() string {
 		return "NATSClient"
 	case EventTypeAMQPClient:
 		return "AMQPClient"
+	case EventTypeSunRPCClient:
+		return "SunRPCClient"
+	case EventTypeSunRPCServer:
+		return "SunRPCServer"
 	case EventTypeRedisServer:
 		return "RedisServer"
 	case EventTypeKafkaServer:
@@ -176,6 +188,8 @@ func (t EventType) String() string {
 		return "MemcachedClient"
 	case EventTypeMemcachedServer:
 		return "MemcachedServer"
+	case EventTypeAerospikeClient:
+		return "AerospikeClient"
 	default:
 		return fmt.Sprintf("UNKNOWN (%d)", t)
 	}
@@ -278,12 +292,13 @@ type GenAI struct {
 	// both via GetInputTokens()/GetOutputTokens() and the Output field.
 	// A separate field (rather than sharing OpenAI) keeps provider
 	// routing explicit and allows future divergence without refactoring.
-	Qwen      *VendorOpenAI
-	Bedrock   *VendorBedrock
-	MCP       *MCPCall
-	Embedding *VendorEmbedding
-	Rerank    *VendorRerank
-	Retrieval *VendorRetrieval
+	Qwen             *VendorOpenAI
+	Bedrock          *VendorBedrock
+	MCP              *MCPCall
+	Embedding        *VendorEmbedding
+	Rerank           *VendorRerank
+	Retrieval        *VendorRetrieval
+	OpenAICompatible *VendorOpenAI
 }
 
 type OpenAIPromptTokensDetails struct {
@@ -361,6 +376,7 @@ type VendorOpenAI struct {
 	SystemFingerprint string          `json:"system_fingerprint,omitempty"`
 	APIType           string          `json:"-"`
 	ToolCalls         []ToolCall      `json:"-"`
+	ProviderName      string          `json:"-"`
 }
 
 func (ai *VendorOpenAI) GetFinishReasons() []string {
@@ -386,24 +402,41 @@ func (ai *VendorOpenAI) GetOutput() string {
 	return normalizeOpenAIOutput(ai)
 }
 
+func (ai *VendorOpenAI) GetEmbeddingDimensions() int {
+	if ai.Request.Dimensions > 0 {
+		return ai.Request.Dimensions
+	}
+	if len(ai.Data) == 0 {
+		return 0
+	}
+	var data []struct {
+		Embedding []json.Number `json:"embedding"`
+	}
+	if err := json.Unmarshal(ai.Data, &data); err != nil || len(data) == 0 {
+		return 0
+	}
+	return len(data[0].Embedding)
+}
+
 type OpenAIInput struct {
-	Input           string          `json:"input"`
-	Prompt          string          `json:"prompt"`
-	Model           string          `json:"model"`
-	Instructions    string          `json:"instructions"`
-	Messages        json.RawMessage `json:"messages"`
-	Items           json.RawMessage `json:"items"`
-	Temperature     float64         `json:"temperature"`
-	Dimensions      int             `json:"dimensions,omitempty"`
-	MaxTokens       int             `json:"max_tokens,omitempty"`
-	N               int             `json:"n,omitempty"`
-	Stop            json.RawMessage `json:"stop,omitempty"`
-	PresencePenalty float64         `json:"presence_penalty,omitempty"`
-	Stream          bool            `json:"stream,omitempty"`
-	EncodingFormat  string          `json:"encoding_format,omitempty"`
-	Seed            *int            `json:"seed,omitempty"`
-	Tools           json.RawMessage `json:"tools,omitempty"`
-	ServiceTier     string          `json:"service_tier,omitempty"`
+	Input            string          `json:"input"`
+	Prompt           string          `json:"prompt"`
+	Model            string          `json:"model"`
+	Instructions     string          `json:"instructions"`
+	Messages         json.RawMessage `json:"messages"`
+	Items            json.RawMessage `json:"items"`
+	Temperature      float64         `json:"temperature"`
+	Dimensions       int             `json:"dimensions,omitempty"`
+	MaxTokens        int             `json:"max_tokens,omitempty"`
+	N                int             `json:"n,omitempty"`
+	Stop             json.RawMessage `json:"stop,omitempty"`
+	FrequencyPenalty float64         `json:"frequency_penalty,omitempty"`
+	PresencePenalty  float64         `json:"presence_penalty,omitempty"`
+	Stream           bool            `json:"stream,omitempty"`
+	EncodingFormat   string          `json:"encoding_format,omitempty"`
+	Seed             *int            `json:"seed,omitempty"`
+	Tools            json.RawMessage `json:"tools,omitempty"`
+	ServiceTier      string          `json:"service_tier,omitempty"`
 }
 
 func (air *OpenAIInput) GetStopSequences() []string {
@@ -720,15 +753,18 @@ func (b *VendorBedrock) GetStopReason() string {
 
 // MCPCall holds parsed data from a Model Context Protocol request/response.
 type MCPCall struct {
-	Method       string `json:"method"`
-	ToolName     string `json:"toolName,omitempty"`
-	ResourceURI  string `json:"resourceUri,omitempty"`
-	PromptName   string `json:"promptName,omitempty"`
-	SessionID    string `json:"sessionId,omitempty"`
-	ProtocolVer  string `json:"protocolVer,omitempty"`
-	RequestID    string `json:"requestId,omitempty"`
-	ErrorCode    int    `json:"errorCode,omitempty"`
-	ErrorMessage string `json:"errorMessage,omitempty"`
+	Method            string `json:"method"`
+	ToolName          string `json:"toolName,omitempty"`
+	ToolType          string `json:"toolType,omitempty"`
+	ToolCallArguments string `json:"toolCallArguments,omitempty"`
+	ToolCallResult    string `json:"toolCallResult,omitempty"`
+	ResourceURI       string `json:"resourceUri,omitempty"`
+	PromptName        string `json:"promptName,omitempty"`
+	SessionID         string `json:"sessionId,omitempty"`
+	ProtocolVer       string `json:"protocolVer,omitempty"`
+	RequestID         string `json:"requestId,omitempty"`
+	ErrorCode         int    `json:"errorCode,omitempty"`
+	ErrorMessage      string `json:"errorMessage,omitempty"`
 }
 
 // OperationName returns the GenAI operation name for the MCP method.
@@ -752,11 +788,13 @@ type JSONRPC struct {
 
 // GenAI operation name constants aligned with OTel semantic conventions.
 const (
-	ChatOperationName        = "chat"
-	CompletionOperationName  = "text_completion"
-	GenerationOperationName  = "generation"
-	InvokeModelOperationName = "invoke_model"
-	EmbeddingOperationName   = "embeddings"
+	ChatOperationName         = "chat"
+	CompletionOperationName   = "text_completion"
+	GenerationOperationName   = "generation"
+	InvokeModelOperationName  = "invoke_model"
+	EmbeddingOperationName    = "embeddings"
+	ResponseOperationName     = "response"
+	ConversationOperationName = "conversation"
 )
 
 // VendorEmbedding represents a generic embedding API provider such as
@@ -864,6 +902,44 @@ type RerankRequest struct {
 	Query     string          `json:"query"`
 	TopN      int             `json:"top_n"`
 	Documents json.RawMessage `json:"documents"`
+	// Some providers nest query/documents under "input" and top_n under "parameters".
+	NestedInput *struct {
+		Query     string          `json:"query"`
+		Documents json.RawMessage `json:"documents"`
+	} `json:"input,omitempty"`
+	NestedParams *struct {
+		TopN int `json:"top_n"`
+	} `json:"parameters,omitempty"`
+}
+
+func (r *RerankRequest) GetQuery() string {
+	if r.Query != "" {
+		return r.Query
+	}
+	if r.NestedInput != nil {
+		return r.NestedInput.Query
+	}
+	return ""
+}
+
+func (r *RerankRequest) GetDocuments() json.RawMessage {
+	if len(r.Documents) > 0 {
+		return r.Documents
+	}
+	if r.NestedInput != nil {
+		return r.NestedInput.Documents
+	}
+	return nil
+}
+
+func (r *RerankRequest) GetTopN() int {
+	if r.TopN > 0 {
+		return r.TopN
+	}
+	if r.NestedParams != nil && r.NestedParams.TopN > 0 {
+		return r.NestedParams.TopN
+	}
+	return 0
 }
 
 type RerankResponse struct {
@@ -873,6 +949,28 @@ type RerankResponse struct {
 	Usage   RerankUsage     `json:"usage"`
 	Meta    *RerankMeta     `json:"meta,omitempty"`
 	Error   *RerankError    `json:"error,omitempty"`
+	// Some providers nest results under "output".
+	NestedOutput *struct {
+		Results json.RawMessage `json:"results"`
+	} `json:"output,omitempty"`
+	RequestID string `json:"request_id,omitempty"`
+}
+
+func (r *RerankResponse) GetResults() json.RawMessage {
+	if len(r.Results) > 0 {
+		return r.Results
+	}
+	if r.NestedOutput != nil {
+		return r.NestedOutput.Results
+	}
+	return nil
+}
+
+func (r *RerankResponse) GetID() string {
+	if r.ID != "" {
+		return r.ID
+	}
+	return r.RequestID
 }
 
 // RerankMeta represents Cohere-style metadata in the rerank response.
@@ -922,6 +1020,36 @@ func (r *RerankResponse) GetTotalTokens() int {
 type RerankError struct {
 	Type    string `json:"type"`
 	Message string `json:"message"`
+}
+
+// GetInput returns a JSON representation of the rerank input (query + documents).
+func (v *VendorRerank) GetInput() string {
+	query := v.Input.GetQuery()
+	docs := v.Input.GetDocuments()
+	if query == "" && len(docs) == 0 {
+		return ""
+	}
+	obj := struct {
+		Query     string          `json:"query,omitempty"`
+		Documents json.RawMessage `json:"documents,omitempty"`
+	}{
+		Query:     query,
+		Documents: docs,
+	}
+	b, err := json.Marshal(obj)
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
+// GetOutput returns a JSON representation of the rerank output (results).
+func (v *VendorRerank) GetOutput() string {
+	results := v.Output.GetResults()
+	if len(results) == 0 {
+		return ""
+	}
+	return string(results)
 }
 
 // Vector retrieval provider types (Pinecone, Qdrant, Milvus, Chroma, Weaviate, etc.)
@@ -974,6 +1102,22 @@ type RetrievalRequest struct {
 	CollectionName  string `json:"collectionName,omitempty"`
 	CollectionSnake string `json:"collection_name,omitempty"`
 	Namespace       string `json:"namespace,omitempty"`
+	// TopK / limit for similarity search results.
+	// Pinecone/Qdrant use "topK"/"top_k", Milvus/Chroma use "limit".
+	TopK      int `json:"topK,omitempty"`
+	TopKSnake int `json:"top_k,omitempty"`
+	Limit     int `json:"limit,omitempty"`
+}
+
+// GetTopK returns the top-k value from whichever field was populated.
+func (r *RetrievalRequest) GetTopK() int {
+	if r.TopK > 0 {
+		return r.TopK
+	}
+	if r.TopKSnake > 0 {
+		return r.TopKSnake
+	}
+	return r.Limit
 }
 
 // RetrievalResponse captures the common fields from vector search response
@@ -989,6 +1133,12 @@ type RetrievalResponse struct {
 type RetrievalUsage struct {
 	TotalTokens  int `json:"total_tokens,omitempty"`
 	PromptTokens int `json:"prompt_tokens,omitempty"`
+}
+
+type SpanLink struct {
+	TraceID    trace.TraceID `json:"traceID"`
+	SpanID     trace.SpanID  `json:"spanID"`
+	TraceFlags uint8         `json:"traceFlags,string"`
 }
 
 // GetInputTokens returns the input token count, preferring prompt_tokens
@@ -1019,6 +1169,7 @@ type Span struct {
 	Status            int            `json:"-"`
 	ResponseLength    int64          `json:"-"`
 	ContentLength     int64          `json:"-"`
+	DBBatchSize       int            `json:"-"`
 	RequestStart      int64          `json:"-"`
 	Start             int64          `json:"-"`
 	End               int64          `json:"-"`
@@ -1027,6 +1178,7 @@ type Span struct {
 	SpanID            trace.SpanID   `json:"spanID"`
 	ParentSpanID      trace.SpanID   `json:"parentSpanID"`
 	TraceFlags        uint8          `json:"traceFlags,string"`
+	Links             []SpanLink     `json:"links,omitempty"`
 	Pid               PidInfo        `json:"-"`
 	PeerName          string         `json:"peerName"`
 	HostName          string         `json:"hostName"`
@@ -1036,6 +1188,7 @@ type Span struct {
 	SubType           int            `json:"-"`
 	DBError           DBError        `json:"-"`
 	DBNamespace       string         `json:"-"`
+	DBQuerySummary    string         `json:"-"`
 	DBSystem          string         `json:"-"`
 	SQLCommand        string         `json:"-"`
 	SQLError          *SQLError      `json:"-"`
@@ -1090,10 +1243,19 @@ func spanAttributes(s *Span) SpanAttributes {
 			"serverPort":  strconv.Itoa(s.HostPort),
 		}
 		if s.SubType == HTTPSubtypeGraphQL && s.GraphQL != nil {
-			attrs["graphqlDocument"] = s.GraphQL.Document
 			attrs["graphqlOperationName"] = s.GraphQL.OperationName
 			attrs["graphqlOperationType"] = s.GraphQL.OperationType
 		}
+		if s.SubType == HTTPSubtypeJSONRPC && s.JSONRPC != nil {
+			attrs["jsonrpcMethod"] = s.JSONRPC.Method
+			attrs["jsonrpcVersion"] = s.JSONRPC.Version
+			attrs["jsonrpcRequestId"] = s.JSONRPC.RequestID
+			attrs["jsonrpcErrorCode"] = strconv.Itoa(s.JSONRPC.ErrorCode)
+			if s.JSONRPC.ErrorMessage != "" {
+				attrs["jsonrpcErrorMessage"] = s.JSONRPC.ErrorMessage
+			}
+		}
+
 		addHeaderAttributes(attrs, s)
 		return attrs
 	case EventTypeHTTPClient:
@@ -1184,7 +1346,7 @@ func spanAttributes(s *Span) SpanAttributes {
 			"errorMessage":     message,
 			"errorDescription": s.SQLErrorDescription(),
 		}
-	case EventTypeRedisServer:
+	case EventTypeRedisServer, EventTypeRedisClient:
 		return SpanAttributes{
 			"serverAddr": SpanHost(s),
 			"serverPort": strconv.Itoa(s.HostPort),
@@ -1215,6 +1377,22 @@ func spanAttributes(s *Span) SpanAttributes {
 			"clientId":   s.Statement,
 			"subject":    s.Path,
 		}
+	case EventTypeSunRPCServer, EventTypeSunRPCClient:
+		attrs := SpanAttributes{
+			"serverAddr":                  SpanHost(s),
+			"serverPort":                  strconv.Itoa(s.HostPort),
+			attr.OncRPCProgramName.Prom(): s.Path,
+			attr.OncRPCVersion.Prom():     strconv.Itoa(s.SubType),
+			attr.OncRPCAuthFlavor.Prom():  s.Statement,
+			"status":                      strconv.Itoa(s.Status),
+		}
+		if procRoute := s.SunRPCProcedureRouteForExport(); procRoute != "" {
+			attrs[attr.OncRPCProcedureNumber.Prom()] = procRoute
+		}
+		if procName := s.SunRPCProcedureNameForExport(); procName != "" {
+			attrs[attr.OncRPCProcedureName.Prom()] = procName
+		}
+		return attrs
 	case EventTypeGPUCudaKernelLaunch:
 		return SpanAttributes{
 			"gridSize":  strconv.FormatInt(s.ContentLength, 10),
@@ -1236,6 +1414,21 @@ func spanAttributes(s *Span) SpanAttributes {
 			"operation":  s.Method,
 			"table":      s.Path,
 		}
+	case EventTypeAerospikeClient:
+		attrs := SpanAttributes{
+			"serverAddr":      SpanHost(s),
+			"serverPort":      strconv.Itoa(s.HostPort),
+			"dbOperationName": s.Method,
+			"dbNamespace":     s.DBNamespace,
+		}
+		if s.Path != "" {
+			attrs["dbCollectionName"] = s.Path
+		}
+		if s.DBError.ErrorCode != "" {
+			attrs["errorType"] = s.DBError.ErrorCode
+			attrs["errorDescription"] = s.DBError.Description
+		}
+		return attrs
 	}
 
 	return SpanAttributes{}
@@ -1347,7 +1540,7 @@ func (s *Span) IsValid() bool {
 
 func (s *Span) IsClientSpan() bool {
 	switch s.Type {
-	case EventTypeGRPCClient, EventTypeDNS, EventTypeHTTPClient, EventTypeRedisClient, EventTypeKafkaClient, EventTypeMQTTClient, EventTypeNATSClient, EventTypeAMQPClient, EventTypeSQLClient, EventTypeMongoClient, EventTypeFailedConnect, EventTypeCouchbaseClient, EventTypeMemcachedClient:
+	case EventTypeGRPCClient, EventTypeDNS, EventTypeHTTPClient, EventTypeRedisClient, EventTypeKafkaClient, EventTypeMQTTClient, EventTypeNATSClient, EventTypeAMQPClient, EventTypeSunRPCClient, EventTypeSQLClient, EventTypeMongoClient, EventTypeFailedConnect, EventTypeCouchbaseClient, EventTypeMemcachedClient, EventTypeAerospikeClient:
 		return true
 	}
 
@@ -1370,7 +1563,7 @@ func SpanStatusCode(span *Span) string {
 		return HTTPSpanStatusCode(span)
 	case EventTypeGRPC, EventTypeGRPCClient:
 		return GrpcSpanStatusCode(span)
-	case EventTypeSQLClient, EventTypeSQLServer, EventTypeRedisClient, EventTypeRedisServer, EventTypeMongoClient, EventTypeDNS, EventTypeCouchbaseClient, EventTypeMemcachedClient, EventTypeMemcachedServer:
+	case EventTypeSQLClient, EventTypeSQLServer, EventTypeRedisClient, EventTypeRedisServer, EventTypeMongoClient, EventTypeDNS, EventTypeCouchbaseClient, EventTypeMemcachedClient, EventTypeMemcachedServer, EventTypeSunRPCClient, EventTypeSunRPCServer, EventTypeAerospikeClient:
 		if span.Status != 0 {
 			return StatusCodeError
 		}
@@ -1398,7 +1591,7 @@ func SpanDBStatusMessage(span *Span, dbError string) string {
 
 func (s *Span) IsDBSpan() bool {
 	switch s.Type {
-	case EventTypeRedisClient, EventTypeRedisServer, EventTypeMongoClient, EventTypeCouchbaseClient, EventTypeMemcachedClient, EventTypeMemcachedServer, EventTypeSQLClient, EventTypeSQLServer:
+	case EventTypeRedisClient, EventTypeRedisServer, EventTypeMongoClient, EventTypeCouchbaseClient, EventTypeMemcachedClient, EventTypeMemcachedServer, EventTypeSQLClient, EventTypeSQLServer, EventTypeAerospikeClient:
 		return true
 	case EventTypeHTTPClient:
 		if s.SubType == HTTPSubtypeSQLPP {
@@ -1413,19 +1606,16 @@ func SpanStatusMessage(span *Span) string {
 	switch span.Type {
 	case EventTypeManualSpan:
 		return span.Path
-	case EventTypeHTTPClient:
+	case EventTypeHTTPClient, EventTypeHTTP:
 		if span.SubType == HTTPSubtypeJSONRPC && span.JSONRPC != nil && span.JSONRPC.ErrorMessage != "" {
 			return span.JSONRPC.ErrorMessage
 		}
 		if span.SubType == HTTPSubtypeMCP && span.GenAI != nil && span.GenAI.MCP != nil && span.GenAI.MCP.ErrorMessage != "" {
 			return span.GenAI.MCP.ErrorMessage
 		}
-	case EventTypeHTTP:
-		if span.SubType == HTTPSubtypeJSONRPC && span.JSONRPC != nil && span.JSONRPC.ErrorMessage != "" {
-			return span.JSONRPC.ErrorMessage
-		}
-		if span.SubType == HTTPSubtypeMCP && span.GenAI != nil && span.GenAI.MCP != nil && span.GenAI.MCP.ErrorMessage != "" {
-			return span.GenAI.MCP.ErrorMessage
+	case EventTypeDNS:
+		if span.Status != 0 {
+			return dnsparser.RCode(span.Status).String()
 		}
 	}
 	return ""
@@ -1483,13 +1673,13 @@ func HTTPSpanStatusCode(span *Span) string {
 }
 
 var (
-	grpcStatusCodeOK               = int(semconv.RPCGRPCStatusCodeOk.Value.AsInt64())
-	grpcStatusCodeUnknown          = int(semconv.RPCGRPCStatusCodeUnknown.Value.AsInt64())
-	grpcStatusCodeDeadlineExceeded = int(semconv.RPCGRPCStatusCodeDeadlineExceeded.Value.AsInt64())
-	grpcStatusCodeUnimplemented    = int(semconv.RPCGRPCStatusCodeUnimplemented.Value.AsInt64())
-	grpcStatusCodeInternal         = int(semconv.RPCGRPCStatusCodeInternal.Value.AsInt64())
-	grpcStatusCodeUnavailable      = int(semconv.RPCGRPCStatusCodeUnavailable.Value.AsInt64())
-	grpcStatusCodeDataLoss         = int(semconv.RPCGRPCStatusCodeDataLoss.Value.AsInt64())
+	grpcStatusCodeOK               = int(grpc_codes.OK)
+	grpcStatusCodeUnknown          = int(grpc_codes.Unknown)
+	grpcStatusCodeDeadlineExceeded = int(grpc_codes.DeadlineExceeded)
+	grpcStatusCodeUnimplemented    = int(grpc_codes.Unimplemented)
+	grpcStatusCodeInternal         = int(grpc_codes.Internal)
+	grpcStatusCodeUnavailable      = int(grpc_codes.Unavailable)
+	grpcStatusCodeDataLoss         = int(grpc_codes.DataLoss)
 )
 
 // GrpcSpanStatusCode https://opentelemetry.io/docs/specs/otel/trace/semantic_conventions/rpc/#grpc-status
@@ -1529,9 +1719,9 @@ func (s *Span) ResponseBodyLength() int64 {
 // ServiceGraphKind returns the Kind string representation that is compliant with service graph metrics specification
 func (s *Span) ServiceGraphKind() string {
 	switch s.Type {
-	case EventTypeHTTP, EventTypeGRPC, EventTypeKafkaServer, EventTypeMQTTServer, EventTypeNATSServer, EventTypeRedisServer, EventTypeMemcachedServer, EventTypeSQLServer:
+	case EventTypeHTTP, EventTypeGRPC, EventTypeKafkaServer, EventTypeMQTTServer, EventTypeNATSServer, EventTypeSunRPCServer, EventTypeRedisServer, EventTypeMemcachedServer, EventTypeSQLServer:
 		return "SPAN_KIND_SERVER"
-	case EventTypeHTTPClient, EventTypeGRPCClient, EventTypeSQLClient, EventTypeRedisClient, EventTypeMongoClient, EventTypeFailedConnect, EventTypeCouchbaseClient, EventTypeMemcachedClient:
+	case EventTypeHTTPClient, EventTypeGRPCClient, EventTypeSQLClient, EventTypeRedisClient, EventTypeMongoClient, EventTypeFailedConnect, EventTypeCouchbaseClient, EventTypeMemcachedClient, EventTypeSunRPCClient:
 		return "SPAN_KIND_CLIENT"
 	case EventTypeKafkaClient, EventTypeMQTTClient, EventTypeNATSClient, EventTypeAMQPClient:
 		switch s.Method {
@@ -1745,9 +1935,15 @@ func (s *Span) TraceName() string {
 		if operation == "" {
 			return "SQL"
 		}
-		table := s.Path
-		if table != "" {
-			operation += " " + table
+		// semconv: db.query.summary when available, else
+		// {db.operation.name} {target} with target = collection then namespace
+		switch {
+		case s.DBQuerySummary != "":
+			return s.DBQuerySummary
+		case s.Path != "":
+			return operation + " " + s.Path
+		case s.DBNamespace != "":
+			return operation + " " + s.DBNamespace
 		}
 		return operation
 	case EventTypeRedisClient, EventTypeRedisServer:
@@ -1765,6 +1961,11 @@ func (s *Span) TraceName() string {
 			return s.Method
 		}
 		return s.Method + " " + s.Path
+	case EventTypeSunRPCClient, EventTypeSunRPCServer:
+		if s.Path == "" {
+			return "sunrpc/" + s.Method
+		}
+		return s.Path + "/" + s.Method
 	case EventTypeMongoClient:
 		if s.Path != "" && s.Method != "" {
 			// TODO for database operations like listCollections, we need to use s.DbNamespace instead of s.Path
@@ -1795,6 +1996,23 @@ func (s *Span) TraceName() string {
 		}
 		if s.Path != "" {
 			return s.Method + " " + s.Path
+		}
+		return s.Method
+	case EventTypeAerospikeClient:
+		if s.Method == "" {
+			return "AEROSPIKE"
+		}
+		// {operation} {namespace}.{set}, dropping any missing component.
+		target := s.DBNamespace
+		if s.Path != "" {
+			if target != "" {
+				target += "." + s.Path
+			} else {
+				target = s.Path
+			}
+		}
+		if target != "" {
+			return s.Method + " " + target
 		}
 		return s.Method
 	}
@@ -1971,6 +2189,10 @@ func (s *Span) GenAIInputTokens() int {
 		return s.GenAI.Qwen.Usage.GetInputTokens()
 	}
 
+	if s.GenAI.OpenAICompatible != nil {
+		return s.GenAI.OpenAICompatible.Usage.GetInputTokens()
+	}
+
 	if s.GenAI.Bedrock != nil {
 		return s.GenAI.Bedrock.Output.InputTokens
 	}
@@ -2011,6 +2233,10 @@ func (s *Span) GenAIOutputTokens() int {
 		return s.GenAI.Qwen.Usage.GetOutputTokens()
 	}
 
+	if s.GenAI.OpenAICompatible != nil {
+		return s.GenAI.OpenAICompatible.Usage.GetOutputTokens()
+	}
+
 	if s.GenAI.Bedrock != nil {
 		return s.GenAI.Bedrock.Output.OutputTokens
 	}
@@ -2037,6 +2263,9 @@ func (s *Span) GenAIOperationName() string {
 	}
 	if s.GenAI.Qwen != nil {
 		return s.GenAI.Qwen.OperationName
+	}
+	if s.GenAI.OpenAICompatible != nil {
+		return s.GenAI.OpenAICompatible.OperationName
 	}
 	if s.GenAI.Bedrock != nil {
 		return InvokeModelOperationName
@@ -2069,6 +2298,12 @@ func (s *Span) GenAIProviderName() string {
 	if s.GenAI.Qwen != nil {
 		return attr.QwenProviderName
 	}
+	if s.GenAI.OpenAICompatible != nil {
+		if s.GenAI.OpenAICompatible.ProviderName != "" {
+			return s.GenAI.OpenAICompatible.ProviderName
+		}
+		return "custom"
+	}
 	if s.GenAI.Bedrock != nil {
 		return semconv.GenAIProviderNameAWSBedrock.Value.AsString()
 	}
@@ -2099,6 +2334,9 @@ func (s *Span) GenAIRequestModel() string {
 	}
 	if s.GenAI.Qwen != nil {
 		return s.GenAI.Qwen.Request.Model
+	}
+	if s.GenAI.OpenAICompatible != nil {
+		return s.GenAI.OpenAICompatible.Request.Model
 	}
 	if s.GenAI.Bedrock != nil {
 		return s.GenAI.Bedrock.Model
@@ -2139,6 +2377,12 @@ func (s *Span) GenAIResponseModel() string {
 			return s.GenAI.Qwen.ResponseModel
 		}
 		return s.GenAI.Qwen.Request.Model
+	}
+	if s.GenAI.OpenAICompatible != nil {
+		if s.GenAI.OpenAICompatible.ResponseModel != "" {
+			return s.GenAI.OpenAICompatible.ResponseModel
+		}
+		return s.GenAI.OpenAICompatible.Request.Model
 	}
 	if s.GenAI.Bedrock != nil {
 		return s.GenAI.Bedrock.Model

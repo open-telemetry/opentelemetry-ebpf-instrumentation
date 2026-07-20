@@ -1,0 +1,39 @@
+# Host-networking variant of the weaver-tapping collector (the amqp group runs
+# its whole stack on network_mode: host so the client<->broker connection works
+# without NAT). lgtm already owns host ports 4317/4318, so this collector
+# receives OBI's OTLP on 4319 and fans out to lgtm (127.0.0.1:4317) and the
+# weaver container (127.0.0.1:4327, set via weaver's --otlp-grpc-port).
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 127.0.0.1:4319
+
+exporters:
+  otlp/lgtm:
+    endpoint: 127.0.0.1:4317
+    tls:
+      insecure: true
+  otlp/weaver:
+    endpoint: 127.0.0.1:4327
+    # weaver's OTLP receiver rejects gzip-compressed payloads (Unimplemented).
+    compression: none
+    tls:
+      insecure: true
+
+service:
+  # On network_mode:host the collector's default self-metrics endpoint
+  # (localhost:8888) can collide with other services; we don't need it.
+  telemetry:
+    metrics:
+      level: none
+  pipelines:
+    traces:
+      receivers: [otlp]
+      exporters: [otlp/lgtm, otlp/weaver]
+    metrics:
+      receivers: [otlp]
+      exporters: [otlp/lgtm, otlp/weaver]
+    logs:
+      receivers: [otlp]
+      exporters: [otlp/lgtm]

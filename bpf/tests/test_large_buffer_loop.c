@@ -154,13 +154,13 @@ static void test_three_chunks() {
     test_assert(result.final_action == k_large_buf_action_append, "final action should be append");
 }
 
-static void test_exact_max_captured() {
-    const uint32_t size = k_large_buf_max_http_captured_bytes;
+static void test_exact_per_emit_max() {
+    const uint32_t size = k_large_buf_per_emit_max;
 
     const loop_result_t result = run_emit_chunks(size, k_large_buf_action_init);
 
-    test_assert(result.num_chunks == 4, "should produce 4 chunks");
-    test_assert(result.total_bytes_sent == size, "should send all bytes");
+    test_assert(result.num_chunks == 4, "should produce 4 chunks at per_emit_max");
+    test_assert(result.total_bytes_sent == size, "should send all bytes (64KB)");
     test_assert(result.final_action == k_large_buf_action_append, "final action should be append");
 }
 
@@ -170,9 +170,9 @@ static void test_over_max_captured() {
     const loop_result_t result = simulate_with_protocol_max(
         size, k_large_buf_max_http_captured_bytes, k_large_buf_action_init);
 
-    test_assert(result.num_chunks == 4, "should produce 4 chunks (clamped by caller)");
-    test_assert(result.total_bytes_sent == k_large_buf_max_http_captured_bytes,
-                "should send only max_captured bytes");
+    test_assert(result.num_chunks == 4, "should produce 4 chunks (clamped by per_emit_max)");
+    test_assert(result.total_bytes_sent == k_large_buf_per_emit_max,
+                "should send only per_emit_max bytes (64KB)");
     test_assert(result.final_action == k_large_buf_action_append, "final action should be append");
 }
 
@@ -182,9 +182,9 @@ static void test_very_large_buffer() {
     const loop_result_t result = simulate_with_protocol_max(
         size, k_large_buf_max_http_captured_bytes, k_large_buf_action_init);
 
-    test_assert(result.num_chunks == 4, "should produce 4 chunks (clamped by caller)");
-    test_assert(result.total_bytes_sent == k_large_buf_max_http_captured_bytes,
-                "should send only max_captured bytes");
+    test_assert(result.num_chunks == 4, "should produce 4 chunks (clamped by per_emit_max)");
+    test_assert(result.total_bytes_sent == k_large_buf_per_emit_max,
+                "should send only per_emit_max bytes (64KB)");
 }
 
 static void test_boundary_minus_one() {
@@ -247,9 +247,9 @@ static void test_caller_clamping() {
     loop_result_t result = simulate_with_protocol_max(
         size, k_large_buf_max_http_captured_bytes, k_large_buf_action_init);
 
-    test_assert(result.num_chunks == 4, "should produce 4 chunks after caller clamping");
-    test_assert(result.total_bytes_sent == k_large_buf_max_http_captured_bytes,
-                "should send max_captured bytes");
+    test_assert(result.num_chunks == 4, "should produce 4 chunks after per_emit clamp");
+    test_assert(result.total_bytes_sent == k_large_buf_per_emit_max,
+                "should send per_emit_max bytes (64KB)");
 }
 
 static void test_loop_termination_conditions() {
@@ -261,8 +261,9 @@ static void test_loop_termination_conditions() {
     loop_result_t r2 = simulate_with_protocol_max(
         100000, k_large_buf_max_http_captured_bytes, k_large_buf_action_init);
 
-    test_assert(r2.total_bytes_sent <= k_large_buf_max_http_captured_bytes,
-                "oversized buffer is clamped to max_captured by caller");
+    test_assert(r2.total_bytes_sent == k_large_buf_per_emit_max,
+                "oversized buffer is clamped to per_emit_max by function");
+    test_assert(r2.num_chunks == 4, "should produce 4 chunks");
 }
 
 static void test_action_progression() {
@@ -301,9 +302,33 @@ static void test_max_uint32() {
     loop_result_t result = simulate_with_protocol_max(
         size, k_large_buf_max_http_captured_bytes, k_large_buf_action_init);
 
-    test_assert(result.total_bytes_sent == k_large_buf_max_http_captured_bytes,
-                "should clamp to max_captured");
+    test_assert(result.total_bytes_sent == k_large_buf_per_emit_max,
+                "should clamp to per_emit_max (64KB)");
     test_assert(result.num_chunks == 4, "should produce 4 chunks");
+}
+
+static void test_per_emit_clamp_256kb() {
+    const uint32_t size = k_large_buf_max_http_captured_bytes;
+
+    const loop_result_t result = run_emit_chunks(size, k_large_buf_action_init);
+
+    test_assert(result.num_chunks == 4,
+                "256KB input should still produce only 4 chunks (per_emit clamp)");
+    test_assert(result.total_bytes_sent == k_large_buf_per_emit_max,
+                "256KB input should be clamped to 64KB per emission");
+    test_assert(result.final_action == k_large_buf_action_append, "final action should be append");
+}
+
+static void test_per_emit_clamp_over_64kb() {
+    const uint32_t size = 100000;
+
+    const loop_result_t result = run_emit_chunks(size, k_large_buf_action_init);
+
+    test_assert(result.num_chunks == 4,
+                "100KB input should still produce only 4 chunks (per_emit clamp)");
+    test_assert(result.total_bytes_sent == k_large_buf_per_emit_max,
+                "100KB input should be clamped to 64KB per emission");
+    test_assert(result.final_action == k_large_buf_action_append, "final action should be append");
 }
 
 static void print_summary() {
@@ -333,18 +358,19 @@ typedef struct {
 
 static test_spec_t tests[] = {
     TEST(empty_buffer) TEST(small_buffer) TEST(exact_chunk_size) TEST(one_byte_over_chunk)
-        TEST(slightly_over_chunk) TEST(exact_two_chunks) TEST(three_chunks) TEST(exact_max_captured)
+        TEST(slightly_over_chunk) TEST(exact_two_chunks) TEST(three_chunks) TEST(exact_per_emit_max)
             TEST(over_max_captured) TEST(very_large_buffer) TEST(boundary_minus_one)
                 TEST(boundary_plus_one) TEST(with_append_action) TEST(chunk_distribution)
                     TEST(caller_clamping) TEST(loop_termination_conditions) TEST(action_progression)
-                        TEST(max_uint32)};
+                        TEST(max_uint32) TEST(per_emit_clamp_256kb) TEST(per_emit_clamp_over_64kb)};
 
 int main() {
     printf("Large Buffer Loop Test Suite\n");
     printf("========================================\n");
     printf("Testing buffer chunking logic from protocol_common.h\n");
     printf("  k_large_buf_payload_max_size     = %d (16K)\n", k_large_buf_payload_max_size);
-    printf("  k_large_buf_max_*_captured_bytes = %d (64K)\n", k_large_buf_max_http_captured_bytes);
+    printf("  k_large_buf_per_emit_max         = %d (64K)\n", k_large_buf_per_emit_max);
+    printf("  k_large_buf_max_http_captured    = %d (256K)\n", k_large_buf_max_http_captured_bytes);
     printf("  k_large_buf_max_size             = %d (32K)\n", k_large_buf_max_size);
     printf("========================================\n\n");
 

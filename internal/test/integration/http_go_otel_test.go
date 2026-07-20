@@ -30,13 +30,25 @@ var (
 	buildGoOTelTestServerErr  error
 )
 
-func findHTTPGetTraces(tq jaeger.TracesQuery) []jaeger.Trace {
-	// Newer OTel semconv versions use http.request.method while older data may use http.method.
-	traces := tq.FindBySpan(jaeger.Tag{Key: "http.request.method", Type: "string", Value: "GET"})
-	if len(traces) == 0 {
-		traces = tq.FindBySpan(jaeger.Tag{Key: "http.method", Type: "string", Value: "GET"})
+func findHTTPGetTraces(tq jaeger.TracesQuery, route string) []jaeger.Trace {
+	methodTags := []jaeger.Tag{
+		{Key: "http.request.method", Type: "string", Value: "GET"},
+		{Key: "http.method", Type: "string", Value: "GET"},
 	}
-	return traces
+	pathTags := []jaeger.Tag{
+		{Key: "url.path", Type: "string", Value: route},
+		{Key: "http.target", Type: "string", Value: route},
+	}
+
+	for _, methodTag := range methodTags {
+		for _, pathTag := range pathTags {
+			traces := tq.FindBySpan(methodTag, pathTag)
+			if len(traces) > 0 {
+				return traces
+			}
+		}
+	}
+	return nil
 }
 
 func setupGoOTelTestServer(t *testing.T, net dockertest.Network, env []string) {
@@ -135,7 +147,7 @@ func testInstrumentationMissing(t *testing.T, route, svcNs string) {
 	}
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=dicer&operation=Roll")
+		resp, err := http.Get(jaegerQueryURL + "?service=dicer")
 		require.NoError(ct, err)
 		if resp == nil {
 			return
@@ -143,7 +155,7 @@ func testInstrumentationMissing(t *testing.T, route, svcNs string) {
 		require.Equal(ct, http.StatusOK, resp.StatusCode)
 		var tq jaeger.TracesQuery
 		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
-		traces := findHTTPGetTraces(tq)
+		traces := findHTTPGetTraces(tq, route)
 		assert.LessOrEqual(ct, 1, len(traces))
 	}, testTimeout, 100*time.Millisecond)
 
@@ -336,7 +348,7 @@ func otelWaitForTestComponentsTraces(t *testing.T, url, subpath string) {
 		require.NoError(ct, err)
 		require.Equal(ct, http.StatusOK, r.StatusCode)
 
-		resp, err := http.Get(jaegerQueryURL + "?service=dicer&operation=Smoke")
+		resp, err := http.Get(jaegerQueryURL + "?service=dicer")
 		require.NoError(ct, err)
 		if resp == nil {
 			return
@@ -344,7 +356,7 @@ func otelWaitForTestComponentsTraces(t *testing.T, url, subpath string) {
 		require.Equal(ct, http.StatusOK, resp.StatusCode)
 		var tq jaeger.TracesQuery
 		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
-		traces := findHTTPGetTraces(tq)
+		traces := findHTTPGetTraces(tq, subpath)
 		assert.LessOrEqual(ct, 1, len(traces))
 	}, 1*time.Minute, time.Second)
 }

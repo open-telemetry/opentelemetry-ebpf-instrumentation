@@ -89,6 +89,10 @@
         },
         "select": {
           "$ref": "#/$defs/Selection"
+        },
+        "sensitive_query_params": {
+          "$ref": "#/$defs/SensitiveQueryParamsConfig",
+          "description": "Controls which query-parameter keys are redacted in url.full and url.query."
         }
       },
       "type": "object",
@@ -108,6 +112,24 @@
       },
       "type": "object",
       "description": "AttributesConfig stores the user-provided section for filtering either Application or Network records by attribute values"
+    },
+    "AvoidedServicesConfig": {
+      "properties": {
+        "disabled": {
+          "type": "boolean",
+          "description": "Disables the avoided-services internal metric.",
+          "default": false,
+          "x-env-var": "OTEL_EBPF_INTERNAL_METRICS_AVOIDED_SERVICES_DISABLED"
+        },
+        "limit": {
+          "type": "integer",
+          "description": "Bounds the number of avoided-services metric series, including the overflow series. 0 uses the OpenTelemetry default metric cardinality limit.",
+          "default": 2000,
+          "x-env-var": "OTEL_EBPF_INTERNAL_METRICS_AVOIDED_SERVICES_LIMIT"
+        }
+      },
+      "type": "object",
+      "description": "AvoidedServicesConfig controls the avoided-services internal metric."
     },
     "BPFDebugMode": {
       "oneOf": [
@@ -286,17 +308,25 @@
         },
         {
           "type": "string",
-          "pattern": "^(headers|http|tcp)(,(headers|http|tcp))*$",
-          "description": "List of propagation methods to enable (headers/http for HTTP headers, tcp for TCP options), separated by commas",
+          "pattern": "^(headers|tcp)(,(headers|tcp))*$",
+          "description": "Comma-separated list of propagation methods (headers for HTTP headers, tcp for TCP options)",
           "examples": [
             "headers",
             "tcp",
             "headers,tcp"
           ]
+        },
+        {
+          "type": "string",
+          "enum": [
+            "ip"
+          ],
+          "description": "IP options injection has been removed and has no effect",
+          "deprecated": true
         }
       ],
       "title": "Context Propagation Mode",
-      "description": "Configures distributed context propagation. Can be 'all' to enable all methods, 'disabled'/'' to disable, or a list of specific methods: 'headers' (or 'http') for HTTP headers, 'tcp' for TCP options."
+      "description": "Configures distributed context propagation. Can be 'all' to enable all methods, 'disabled'/'' to disable, or a comma-separated list of methods: 'headers' for HTTP headers, 'tcp' for TCP options (e.g. \"headers,tcp\")."
     },
     "CustomRoutesConfig": {
       "properties": {
@@ -590,7 +620,7 @@
         }
       },
       "type": "object",
-      "description": "Per-protocol maximum bytes to capture per request per direction, sent to userspace via large buffer events. Values must stay aligned with MaxCapturedPayloadBytes and the k_large_buf_max_*_captured_bytes constants in bpf/common/large_buffers.h.  Default: 0 (disabled)."
+      "description": "Per-protocol maximum bytes to capture per request per direction, sent to userspace via large buffer events.  Default: 0 (disabled)."
     },
     "EBPFTracer": {
       "properties": {
@@ -905,12 +935,14 @@
           "all",
           "application",
           "application_host",
+          "application_runtime",
           "application_service_graph",
           "application_span",
           "application_span_otel",
           "application_span_sizes",
           "ebpf",
           "network",
+          "network_flow_packets",
           "network_inter_zone",
           "stats",
           "stats_tcp_failed_connections",
@@ -958,6 +990,10 @@
         "openai": {
           "$ref": "#/$defs/OpenAIConfig",
           "description": "Payload extraction and parsing"
+        },
+        "openai_compatible": {
+          "$ref": "#/$defs/OpenAICompatibleConfig",
+          "description": "OpenAI-compatible gateway payload extraction and parsing"
         },
         "qwen": {
           "$ref": "#/$defs/QwenConfig",
@@ -1231,6 +1267,10 @@
           "type": "array",
           "description": "Is a list of glob patterns to match header names against (headers only)"
         },
+        "response_status_code": {
+          "$ref": "#/$defs/NumericRange",
+          "description": "Filters this rule to only apply when the response status code matches the given range. If unset, the rule applies regardless of status code."
+        },
         "url_path_patterns": {
           "items": {
             "$ref": "#/$defs/GlobAttr"
@@ -1250,7 +1290,7 @@
         },
         "obfuscation_string": {
           "type": "string",
-          "description": "Is the replacement string used when a rule's action is \"obfuscate\"",
+          "description": "Is the replacement string used when a rule's action is \"obfuscate\" and the rule doesn't define it's own obfuscation_string.",
           "default": "***",
           "x-env-var": "OTEL_EBPF_HTTP_ENRICHMENT_OBFUSCATION_STRING"
         }
@@ -1267,6 +1307,10 @@
         "match": {
           "$ref": "#/$defs/HTTPParsingMatch",
           "description": "Defines the matching criteria for this rule"
+        },
+        "obfuscation_string": {
+          "type": "string",
+          "description": "Is the replacement string used when a rule's action is \"obfuscate\""
         },
         "scope": {
           "$ref": "#/$defs/HTTPParsingScope",
@@ -1392,6 +1436,9 @@
     },
     "InternalMetricsConfig": {
       "properties": {
+        "avoided_services": {
+          "$ref": "#/$defs/AvoidedServicesConfig"
+        },
         "bpf_metric_scrape_interval": {
           "type": "string",
           "pattern": "^[0-9]+(ms|s|m)$",
@@ -1440,6 +1487,22 @@
       },
       "type": "object"
     },
+    "JVMRuntimeMetricsConfig": {
+      "properties": {
+        "sampling_interval": {
+          "type": "string",
+          "pattern": "^[0-9]+(ms|s|m)$",
+          "default": "1s",
+          "examples": [
+            "30s",
+            "5m",
+            "1ms"
+          ],
+          "x-env-var": "OBI_JVM_RUNTIME_METRICS_SAMPLING_INTERVAL"
+        }
+      },
+      "type": "object"
+    },
     "JavaConfig": {
       "properties": {
         "attach_timeout": {
@@ -1475,7 +1538,7 @@
       "properties": {
         "cluster_name": {
           "type": "string",
-          "description": "Overrides cluster name. If empty, the NetO11y module will try to retrieve it from the Cloud Provider Metadata (EC2, GCP and Azure), and leave it empty if it fails to.",
+          "description": "Overrides cluster name. If empty, OBI will try to retrieve it from node labels, the OpenShift Infrastructure CR, or cloud provider metadata (EC2, GCP, Azure), and leave it empty if all fail.",
           "x-env-var": "OTEL_EBPF_KUBE_CLUSTER_NAME"
         },
         "disable_informers": {
@@ -1741,8 +1804,8 @@
         },
         "features": {
           "$ref": "#/$defs/Features",
-          "description": "Specifies which metric features to export. Accepted values: application, network, application_span, application_service_graph, ... envDefault is provided to avoid breaking changes  use top-level MetricsConfig.Features instead.",
-          "default": 128,
+          "description": "Specifies which metric features to export. Accepted values: application, network, application_span, application_service_graph, ...  use top-level MetricsConfig.Features instead.",
+          "default": 256,
           "deprecated": true,
           "x-env-var": "OTEL_EBPF_METRICS_FEATURES"
         },
@@ -1766,6 +1829,7 @@
             "type": "string",
             "enum": [
               "*",
+              "aerospike",
               "amqp",
               "couchbase",
               "dns",
@@ -1779,7 +1843,8 @@
               "mqtt",
               "nats",
               "redis",
-              "sql"
+              "sql",
+              "sunrpc"
             ]
           },
           "type": "array",
@@ -1988,7 +2053,7 @@
         },
         "enable": {
           "type": "boolean",
-          "description": "Network metrics. Default value is false (disabled)  add \"network\" or \"network_inter_zone\" to OTEL_EBPF_METRICS_FEATURES  TODO OBI 3.0: remove",
+          "description": "Network metrics. Default value is false (disabled)  add \"network\" or \"network_flow_packets\" or \"network_inter_zone\" to OTEL_EBPF_METRICS_FEATURES  TODO OBI 3.0: remove",
           "default": false,
           "deprecated": true,
           "x-env-var": "OTEL_EBPF_NETWORK_METRICS"
@@ -2102,6 +2167,65 @@
       },
       "type": "object"
     },
+    "NumericRange": {
+      "properties": {
+        "equals": {
+          "type": "integer"
+        },
+        "greater_equals": {
+          "type": "integer"
+        },
+        "greater_than": {
+          "type": "integer"
+        },
+        "less_equals": {
+          "type": "integer"
+        },
+        "less_than": {
+          "type": "integer"
+        },
+        "not_equals": {
+          "type": "integer"
+        }
+      },
+      "type": "object",
+      "description": "NumericRange defines numeric comparison criteria for a rule match condition. All fields are optional; only the provided fields are evaluated."
+    },
+    "OpenAICompatibleConfig": {
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable OpenAI-compatible gateway payload extraction and parsing",
+          "default": false,
+          "x-env-var": "OTEL_EBPF_HTTP_OPENAI_COMPATIBLE_ENABLED"
+        },
+        "gateways": {
+          "items": {
+            "$ref": "#/$defs/OpenAICompatibleGateway"
+          },
+          "type": "array",
+          "description": "Opt-in allowlist of gateway destinations to match by host (case-insensitive) with optional port and provider name"
+        }
+      },
+      "type": "object"
+    },
+    "OpenAICompatibleGateway": {
+      "properties": {
+        "host": {
+          "type": "string",
+          "description": "Gateway hostname to match (case-insensitive)"
+        },
+        "port": {
+          "type": "integer",
+          "description": "Destination port; when 0 or omitted, matches any port"
+        },
+        "provider": {
+          "type": "string",
+          "description": "Name reported in the gen_ai.system span attribute"
+        }
+      },
+      "type": "object"
+    },
     "OpenAIConfig": {
       "properties": {
         "enabled": {
@@ -2169,6 +2293,7 @@
             "type": "string",
             "enum": [
               "*",
+              "aerospike",
               "amqp",
               "couchbase",
               "dns",
@@ -2182,7 +2307,8 @@
               "mqtt",
               "nats",
               "redis",
-              "sql"
+              "sql",
+              "sunrpc"
             ]
           },
           "type": "array",
@@ -2493,7 +2619,7 @@
         "java_harvest_delay": {
           "type": "string",
           "pattern": "^[0-9]+(ms|s|m)$",
-          "default": "1m",
+          "default": "5s",
           "examples": [
             "30s",
             "5m",
@@ -2607,7 +2733,25 @@
         "$ref": "#/$defs/InclusionLists"
       },
       "type": "object",
-      "description": "Selection specifies which attributes are allowed for each signal. The key is usually the metric name (either in Prometheus or OpenTelemetry format); the key \"traces\" selects optional attributes for exported OTLP traces. The value is the enumeration of included/excluded attribute globs"
+      "description": "Selection specifies which attributes are allowed for each signal. The key is usually the metric name (either in Prometheus or OpenTelemetry format); the key \"traces\" selects optional attributes for exported OTLP traces. The key \"resource\" selects exported resource attributes. The value is the enumeration of included/excluded attribute globs"
+    },
+    "SensitiveQueryParamsConfig": {
+      "properties": {
+        "add": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "remove": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object",
+      "description": "SensitiveQueryParamsConfig controls which query-parameter keys are redacted. The effective list is DefaultSensitiveQueryParams + Add - Remove. When both Add and Remove are empty, DefaultSensitiveQueryParams is used unchanged."
     },
     "StatsConfig": {
       "properties": {
@@ -2660,7 +2804,7 @@
       "properties": {
         "features": {
           "$ref": "#/$defs/Features",
-          "description": "Specifies which metric features to export. Accepted values: application, network, application_span, application_service_graph, ... envDefault is provided to avoid breaking changes"
+          "description": "Specifies which metric features to export. Accepted values: application, network, application_span, application_service_graph, ..."
         }
       },
       "type": "object",
@@ -2738,6 +2882,7 @@
             "type": "string",
             "enum": [
               "*",
+              "aerospike",
               "amqp",
               "couchbase",
               "dns",
@@ -2751,7 +2896,8 @@
               "mqtt",
               "nats",
               "redis",
-              "sql"
+              "sql",
+              "sunrpc"
             ]
           },
           "type": "array",
@@ -2768,7 +2914,9 @@
             "amqp",
             "mongo",
             "couchbase",
-            "memcached"
+            "memcached",
+            "sunrpc",
+            "aerospike"
           ],
           "x-env-var": "OTEL_EBPF_TRACES_INSTRUMENTATIONS"
         },
@@ -2873,6 +3021,9 @@
     },
     "javaagent": {
       "$ref": "#/$defs/JavaConfig"
+    },
+    "jvm_runtime_metrics": {
+      "$ref": "#/$defs/JVMRuntimeMetricsConfig"
     },
     "log_config": {
       "type": "string",

@@ -18,6 +18,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	"go.opentelemetry.io/obi/pkg/export"
+	"go.opentelemetry.io/obi/pkg/export/attributes"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
@@ -67,6 +68,11 @@ func TestServiceGraphMetrics(t *testing.T) {
 	reported := map[string]struct{}{}
 	for _, m := range res {
 		reported[m.Name+":"+m.Attributes["client"]+":"+m.Attributes["server"]] = struct{}{}
+		// connection_type is an enum attribute: for direct HTTP/gRPC requests
+		// it must be omitted, not emitted as an empty string
+		if ct, ok := m.Attributes["connection_type"]; ok {
+			assert.Fail(t, "direct HTTP requests must omit connection_type", "metric %s got connection_type=%q", m.Name, ct)
+		}
 	}
 
 	require.Equal(t, map[string]struct{}{
@@ -146,7 +152,7 @@ func makeSvcGraphExporter(
 	}
 	otelExporter, err := ReportSvcGraphMetrics(
 		&global.ContextInfo{OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: mcfg}},
-		mcfg, &mpConfig, request.UnresolvedNames{}, input, processEvents)(ctx)
+		mcfg, &mpConfig, &attributes.SelectorConfig{}, request.UnresolvedNames{}, input, processEvents)(ctx)
 	require.NoError(t, err)
 
 	return otelExporter

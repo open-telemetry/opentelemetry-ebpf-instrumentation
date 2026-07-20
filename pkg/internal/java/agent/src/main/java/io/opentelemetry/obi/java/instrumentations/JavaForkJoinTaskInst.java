@@ -50,6 +50,10 @@ public class JavaForkJoinTaskInst {
   public static final class ForkAdvice {
     @Advice.OnMethodEnter(suppress = Throwable.class)
     public static void enterJobSubmit(@Advice.This ForkJoinTask<?> task) {
+      // see RunnableInst, same reasoning
+      if (ThreadInfo.loomTaskOrVirtualThread(task)) {
+        return;
+      }
       long threadId = Agent.NativeLib.gettid();
       SSLStorage.trackTask(threadId, task);
       if (SSLStorage.bootDebugOn().equals(true)) {
@@ -71,6 +75,10 @@ public class JavaForkJoinTaskInst {
     @Advice.OnMethodEnter(suppress = Throwable.class)
     public static void enterJobSubmit(
         @Advice.This ForkJoinTask<?> task, @Advice.Origin String method) {
+      // see RunnableInst, same reasoning
+      if (ThreadInfo.loomTaskOrVirtualThread(task)) {
+        return;
+      }
       Long parentId = SSLStorage.parentThreadId(task);
       long threadId = Agent.NativeLib.gettid();
       if (SSLStorage.bootDebugOn().equals(true)) {
@@ -85,7 +93,7 @@ public class JavaForkJoinTaskInst {
                 + threadId);
       }
       if (parentId != null && parentId != threadId) {
-        ThreadInfo.sendParentThreadContext(parentId);
+        ThreadInfo.sendTaskParentThreadContext(parentId);
       }
       SSLStorage.untrackTask(task);
     }

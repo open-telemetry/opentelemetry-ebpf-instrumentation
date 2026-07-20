@@ -19,7 +19,7 @@ import (
 )
 
 func TestSpanClientServer(t *testing.T) {
-	for _, st := range []EventType{EventTypeHTTP, EventTypeGRPC, EventTypeKafkaServer, EventTypeMQTTServer, EventTypeNATSServer, EventTypeRedisServer, EventTypeMemcachedServer, EventTypeSQLServer} {
+	for _, st := range []EventType{EventTypeHTTP, EventTypeGRPC, EventTypeKafkaServer, EventTypeMQTTServer, EventTypeNATSServer, EventTypeSunRPCServer, EventTypeRedisServer, EventTypeMemcachedServer, EventTypeSQLServer} {
 		span := &Span{
 			Type: st,
 		}
@@ -28,7 +28,7 @@ func TestSpanClientServer(t *testing.T) {
 
 	for _, st := range []EventType{
 		EventTypeHTTPClient, EventTypeGRPCClient, EventTypeSQLClient,
-		EventTypeRedisClient, EventTypeKafkaClient, EventTypeMQTTClient, EventTypeNATSClient, EventTypeAMQPClient,
+		EventTypeRedisClient, EventTypeKafkaClient, EventTypeMQTTClient, EventTypeNATSClient, EventTypeAMQPClient, EventTypeSunRPCClient,
 		EventTypeMongoClient, EventTypeMemcachedClient, EventTypeFailedConnect,
 	} {
 		span := &Span{
@@ -52,6 +52,8 @@ func TestEventTypeString(t *testing.T) {
 		EventTypeMQTTClient:      "MQTTClient",
 		EventTypeNATSClient:      "NATSClient",
 		EventTypeAMQPClient:      "AMQPClient",
+		EventTypeSunRPCClient:    "SunRPCClient",
+		EventTypeSunRPCServer:    "SunRPCServer",
 		EventTypeRedisServer:     "RedisServer",
 		EventTypeMemcachedServer: "MemcachedServer",
 		EventTypeKafkaServer:     "KafkaServer",
@@ -73,6 +75,8 @@ func TestKindString(t *testing.T) {
 		{Type: EventTypeKafkaServer}:                           "SPAN_KIND_SERVER",
 		{Type: EventTypeMQTTServer}:                            "SPAN_KIND_SERVER",
 		{Type: EventTypeNATSServer}:                            "SPAN_KIND_SERVER",
+		{Type: EventTypeSunRPCServer}:                          "SPAN_KIND_SERVER",
+		{Type: EventTypeSunRPCClient}:                          "SPAN_KIND_CLIENT",
 		{Type: EventTypeRedisServer}:                           "SPAN_KIND_SERVER",
 		{Type: EventTypeMemcachedServer}:                       "SPAN_KIND_SERVER",
 		{Type: EventTypeSQLServer}:                             "SPAN_KIND_SERVER",
@@ -163,6 +167,9 @@ func TestTraceName(t *testing.T) {
 		{name: "SQL client", span: &Span{Type: EventTypeSQLClient, Method: "SELECT", Path: "users"}, expected: "SELECT users"},
 		{name: "SQL server", span: &Span{Type: EventTypeSQLServer, Method: "SELECT", Path: "users"}, expected: "SELECT users"},
 		{name: "SQL no table", span: &Span{Type: EventTypeSQLClient, Method: "BEGIN"}, expected: "BEGIN"},
+		{name: "SQL no table with namespace", span: &Span{Type: EventTypeSQLClient, Method: "SELECT", DBNamespace: "mydb"}, expected: "SELECT mydb"},
+		{name: "SQL table wins over namespace", span: &Span{Type: EventTypeSQLClient, Method: "SELECT", Path: "users", DBNamespace: "mydb"}, expected: "SELECT users"},
+		{name: "SQL query summary wins", span: &Span{Type: EventTypeSQLClient, Method: "SELECT", DBQuerySummary: "SELECT users orders", DBNamespace: "mydb"}, expected: "SELECT users orders"},
 		{name: "SQL empty", span: &Span{Type: EventTypeSQLClient}, expected: "SQL"},
 
 		// Redis spans
@@ -189,6 +196,10 @@ func TestTraceName(t *testing.T) {
 		{name: "AMQP client publish", span: &Span{Type: EventTypeAMQPClient, Method: MessagingPublish, Path: "orders"}, expected: "publish orders"},
 		{name: "AMQP client process", span: &Span{Type: EventTypeAMQPClient, Method: MessagingProcess, Path: "orders"}, expected: "process orders"},
 		{name: "AMQP no destination", span: &Span{Type: EventTypeAMQPClient, Method: MessagingPublish}, expected: "publish"},
+
+		// SunRPC spans
+		{name: "SunRPC client", span: &Span{Type: EventTypeSunRPCClient, Path: "portmapper", Method: "0"}, expected: "portmapper/0"},
+		{name: "SunRPC no program", span: &Span{Type: EventTypeSunRPCServer, Method: "6"}, expected: "sunrpc/6"},
 
 		// JSON-RPC spans
 		{name: "JSON-RPC with method", span: &Span{Type: EventTypeHTTP, SubType: HTTPSubtypeJSONRPC, JSONRPC: &JSONRPC{Method: "subtract", Version: "2.0"}}, expected: "subtract"},
@@ -564,7 +575,13 @@ func TestSerializeJSONSpans(t *testing.T) {
 		},
 		{
 			eventType: EventTypeRedisClient,
-			attribs:   map[string]any{},
+			attribs: map[string]any{
+				"serverAddr": "hostname",
+				"serverPort": "5678",
+				"operation":  "method",
+				"statement":  "statement",
+				"query":      "path",
+			},
 		},
 		{
 			eventType: EventTypeKafkaClient,
@@ -689,6 +706,22 @@ func TestSerializeJSONSpans(t *testing.T) {
 	for i := range tData {
 		test(t, &tData[i])
 	}
+}
+
+func TestSpanAttributesGraphQLOmitsDocument(t *testing.T) {
+	attrs := spanAttributes(&Span{
+		Type:    EventTypeHTTP,
+		SubType: HTTPSubtypeGraphQL,
+		GraphQL: &GraphQL{
+			Document:      `mutation ChangeEmail { updateUser(email: "secret@example.com") { id } }`,
+			OperationName: "ChangeEmail",
+			OperationType: "mutation",
+		},
+	})
+
+	assert.NotContains(t, attrs, "graphqlDocument")
+	assert.Equal(t, "ChangeEmail", attrs["graphqlOperationName"])
+	assert.Equal(t, "mutation", attrs["graphqlOperationType"])
 }
 
 func TestDetectsOTelExport(t *testing.T) {
@@ -1884,4 +1917,155 @@ func TestSpan_GenAIResponseModel(t *testing.T) {
 		result := span.GenAIResponseModel()
 		assert.Equal(t, "anthropic.claude-3-5-sonnet-20241022-v1:0", result)
 	})
+}
+
+func TestSpan_GenAIProviderName_OpenAICompatible(t *testing.T) {
+	t.Run("configured provider name", func(t *testing.T) {
+		span := &Span{
+			GenAI: &GenAI{
+				OpenAICompatible: &VendorOpenAI{
+					ProviderName: "litellm",
+				},
+			},
+		}
+		result := span.GenAIProviderName()
+		assert.Equal(t, "litellm", result)
+	})
+
+	t.Run("empty provider fallback to custom", func(t *testing.T) {
+		span := &Span{
+			GenAI: &GenAI{
+				OpenAICompatible: &VendorOpenAI{},
+			},
+		}
+		result := span.GenAIProviderName()
+		assert.Equal(t, "custom", result)
+	})
+}
+
+func TestSpan_GenAIOperationName_OpenAICompatible(t *testing.T) {
+	tests := []struct {
+		name   string
+		opName string
+		want   string
+	}{
+		{name: "chat", opName: ChatOperationName, want: ChatOperationName},
+		{name: "text_completion", opName: CompletionOperationName, want: CompletionOperationName},
+		{name: "embeddings", opName: EmbeddingOperationName, want: EmbeddingOperationName},
+		{name: "empty", opName: "", want: ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			span := &Span{
+				GenAI: &GenAI{
+					OpenAICompatible: &VendorOpenAI{
+						OperationName: tt.opName,
+					},
+				},
+			}
+			assert.Equal(t, tt.want, span.GenAIOperationName())
+		})
+	}
+}
+
+func TestSpan_GenAIInputTokens_OpenAICompatible(t *testing.T) {
+	t.Run("input_tokens present", func(t *testing.T) {
+		span := &Span{
+			GenAI: &GenAI{
+				OpenAICompatible: &VendorOpenAI{
+					Usage: OpenAIUsage{InputTokens: 42},
+				},
+			},
+		}
+		assert.Equal(t, 42, span.GenAIInputTokens())
+	})
+
+	t.Run("prompt_tokens fallback", func(t *testing.T) {
+		span := &Span{
+			GenAI: &GenAI{
+				OpenAICompatible: &VendorOpenAI{
+					Usage: OpenAIUsage{PromptTokens: 99},
+				},
+			},
+		}
+		assert.Equal(t, 99, span.GenAIInputTokens())
+	})
+
+	t.Run("no usage", func(t *testing.T) {
+		span := &Span{
+			GenAI: &GenAI{
+				OpenAICompatible: &VendorOpenAI{},
+			},
+		}
+		assert.Equal(t, 0, span.GenAIInputTokens())
+	})
+}
+
+func TestSpan_GenAIOutputTokens_OpenAICompatible(t *testing.T) {
+	t.Run("output_tokens present", func(t *testing.T) {
+		span := &Span{
+			GenAI: &GenAI{
+				OpenAICompatible: &VendorOpenAI{
+					Usage: OpenAIUsage{OutputTokens: 55},
+				},
+			},
+		}
+		assert.Equal(t, 55, span.GenAIOutputTokens())
+	})
+
+	t.Run("completion_tokens fallback", func(t *testing.T) {
+		span := &Span{
+			GenAI: &GenAI{
+				OpenAICompatible: &VendorOpenAI{
+					Usage: OpenAIUsage{CompletionTokens: 77},
+				},
+			},
+		}
+		assert.Equal(t, 77, span.GenAIOutputTokens())
+	})
+
+	t.Run("no usage", func(t *testing.T) {
+		span := &Span{
+			GenAI: &GenAI{
+				OpenAICompatible: &VendorOpenAI{},
+			},
+		}
+		assert.Equal(t, 0, span.GenAIOutputTokens())
+	})
+}
+
+func TestSpan_GenAIRequestModel_OpenAICompatible(t *testing.T) {
+	span := &Span{
+		GenAI: &GenAI{
+			OpenAICompatible: &VendorOpenAI{
+				Request: OpenAIInput{Model: "gpt-4o-mini"},
+			},
+		},
+	}
+	assert.Equal(t, "gpt-4o-mini", span.GenAIRequestModel())
+}
+
+func TestSpan_GenAIResponseModel_OpenAICompatible(t *testing.T) {
+	tests := []struct {
+		name          string
+		responseModel string
+		requestModel  string
+		want          string
+	}{
+		{name: "response model present", responseModel: "gpt-4o-mini-2024-07-18", requestModel: "gpt-4o-mini", want: "gpt-4o-mini-2024-07-18"},
+		{name: "fallback to request model", responseModel: "", requestModel: "gpt-4o-mini", want: "gpt-4o-mini"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			span := &Span{
+				GenAI: &GenAI{
+					OpenAICompatible: &VendorOpenAI{
+						ResponseModel: tt.responseModel,
+						Request:       OpenAIInput{Model: tt.requestModel},
+					},
+				},
+			}
+			assert.Equal(t, tt.want, span.GenAIResponseModel())
+		})
+	}
 }

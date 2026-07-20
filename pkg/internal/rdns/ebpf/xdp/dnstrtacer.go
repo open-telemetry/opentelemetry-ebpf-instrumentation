@@ -14,8 +14,8 @@ import (
 	"github.com/cilium/ebpf/link"
 
 	"go.opentelemetry.io/obi/pkg/config"
+	"go.opentelemetry.io/obi/pkg/ebpf/ringbuf"
 	convenience "go.opentelemetry.io/obi/pkg/internal/ebpf/convenience"
-	"go.opentelemetry.io/obi/pkg/internal/ebpf/ringbuf"
 )
 
 const (
@@ -65,7 +65,7 @@ func newTracer(ebpfCfg *config.EBPFTracer) (*tracer, error) {
 	var mu sync.Mutex
 	if err := convenience.LoadSpec(spec, &objects, map[string]any{
 		gBpfDebugFlags: ebpfCfg.DebugMode().Flags(),
-	}, sharedMaps, &mu, ""); err != nil {
+	}, sharedMaps, &mu, "", nil); err != nil {
 		return nil, err
 	}
 

@@ -5,6 +5,18 @@ on:
     branches: [main, release-*]
   pull_request:
     branches: [main, release-*]
+    paths:
+      - ".github/workflows/bpf_verifier.yml"
+      - ".github/actions/generate-bpf/**"
+      - ".github/actions/free-disk/**"
+      - ".github/actions/setup-lvh-kernel/**"
+      - "bpf/**"
+      - "**.go"
+      - "go.mod"
+      - "go.sum"
+      - "internal/test/vm/**"
+      - "scripts/kernel-matrix-json.sh"
+      - "Makefile"
   workflow_call:
     inputs:
       ref:
@@ -25,7 +37,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
@@ -39,7 +51,7 @@ jobs:
     outputs:
       kernels: ${{ steps.k.outputs.kernels }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
@@ -58,7 +70,7 @@ jobs:
       matrix:
         kernel: ${{ fromJson(needs.matrix.outputs.kernels).include }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
@@ -100,7 +112,7 @@ jobs:
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
@@ -108,6 +120,48 @@ jobs:
       - uses: ./.github/actions/generate-bpf
         with:
           artifact-name: bpf-generated-arm-${{ github.run_id }}
+
+  al2023:
+    name: Kernel al2023-${{ matrix.nvr }}
+    needs: generate-bpf
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - nvr: "6.1.172-216.329.amzn2023"
+            pkg: "kernel"
+          - nvr: "6.12.88-119.157.amzn2023"
+            pkg: "kernel6.12"
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
+
+      - uses: ./.github/actions/free-disk
+        with:
+          docker-prune: 'false'
+
+      - name: Download generated BPF files
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bpf-generated-${{ github.run_id }}
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0 # zizmor: ignore[cache-poisoning] go.sum verifies module integrity
+        with:
+          go-version-file: "go.mod"
+          cache: true
+
+      - name: Install QEMU
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends qemu-utils qemu-system-x86 cpio
+
+      - name: Run BPF verifier on AL2023 kernel
+        env:
+          GOTOOLCHAIN: auto
+        run: sudo -E bash internal/test/vm/lvh/al2023/run.sh "${{ matrix.nvr }}" "${{ matrix.pkg }}"
 
   host-arm64:
     name: Host kernel (arm64)
@@ -117,19 +171,19 @@ jobs:
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
 
       - name: Set up Go
-        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0 # zizmor: ignore[cache-poisoning] go.sum verifies module integrity
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0 # zizmor: ignore[cache-poisoning] go.sum verifies module integrity
         with:
           go-version-file: "go.mod"
           cache: true
 
       - name: Go build cache
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5 # zizmor: ignore[cache-poisoning] go build cache is content-addressable and self-verifying
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] go build cache is content-addressable and self-verifying
         with:
           path: ~/.cache/go-build
           key: go-build-pr-race-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.go', 'go.sum') }}
@@ -142,4 +196,4 @@ jobs:
           name: bpf-generated-arm-${{ github.run_id }}
 
       - name: Run BPF verifier tests (host kernel)
-        run: go test -exec=sudo -v -count=1 -tags=bpf_verifier_tests ./pkg/internal/ebpf/verifier/...
+        run: go test -exec=sudo -count=1 -timeout=20m -parallel=8 -tags=bpf_verifier_tests ./pkg/internal/ebpf/verifier/...

@@ -30,6 +30,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	"go.opentelemetry.io/obi/pkg/appolly/meta"
+	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
@@ -213,8 +214,8 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 			expected: []string{
 				"http.server.request.duration",
 				"http.client.request.duration",
-				"rpc.server.duration",
-				"rpc.client.duration",
+				"rpc.server.call.duration",
+				"rpc.client.call.duration",
 				"db.client.operation.duration",        // SQL client SELECT
 				"db.client.operation.duration",        // REDIS client SET
 				"db.client.operation.duration",        // Redis server GET (TODO is this a bug?)
@@ -257,8 +258,8 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 			instr:     []instrumentations.Instrumentation{instrumentations.InstrumentationGRPC},
 			extraColl: 0,
 			expected: []string{
-				"rpc.server.duration",
-				"rpc.client.duration",
+				"rpc.server.call.duration",
+				"rpc.client.call.duration",
 			},
 		},
 		{
@@ -315,6 +316,15 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 			},
 		},
 		{
+			name:      "sunrpc only",
+			instr:     []instrumentations.Instrumentation{instrumentations.InstrumentationSunRPC},
+			extraColl: 0,
+			expected: []string{
+				"rpc.client.call.duration",
+				"rpc.server.call.duration",
+			},
+		},
+		{
 			name:      "none",
 			instr:     nil,
 			extraColl: 0,
@@ -335,8 +345,8 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 			instr:     []instrumentations.Instrumentation{instrumentations.InstrumentationGRPC, instrumentations.InstrumentationKafka},
 			extraColl: 0,
 			expected: []string{
-				"rpc.server.duration",
-				"rpc.client.duration",
+				"rpc.server.call.duration",
+				"rpc.client.call.duration",
 				"messaging.client.operation.duration",
 				"messaging.process.duration",
 			},
@@ -388,6 +398,8 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeNATSServer, Method: "process", RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeAMQPClient, Method: "publish", RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeAMQPClient, Method: "process", RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeSunRPCClient, Path: "portmapper", Route: "0", Method: "0", SubType: 2, HostPort: 111, RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeSunRPCServer, Path: "portmapper", Route: "0", Method: "0", SubType: 2, HostPort: 111, RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeGPUCudaKernelLaunch, ContentLength: 100, SubType: 200},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeGPUCudaMemcpy, ContentLength: 100, SubType: 1},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeGPUCudaMalloc, ContentLength: 100},
@@ -444,6 +456,52 @@ func TestAppMetrics_ResourceAttributes(t *testing.T) {
 	attributes := res[0].ResourceAttributes
 	assert.Equal(t, "production", attributes["deployment.environment"])
 	assert.Equal(t, "upstream.obi", attributes["source"])
+}
+
+func TestAppMetrics_DBCollectionName(t *testing.T) {
+	ctx := t.Context()
+	metricRecords := make(chan collector.MetricRecord, 10)
+	metrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
+	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(10))
+	mcfg := &otelcfg.MetricsConfig{
+		Interval:          50 * time.Millisecond,
+		TTL:               30 * time.Minute,
+		ReportersCacheLen: 10,
+		Instrumentations:  []instrumentations.Instrumentation{instrumentations.InstrumentationSQL},
+		MetricsConsumer:   testMetricsConsumer(metricRecords),
+	}
+
+	reporter, err := newMetricsReporter(
+		ctx,
+		&global.ContextInfo{OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: mcfg}},
+		mcfg,
+		&perapp.MetricsConfig{Features: export.FeatureApplicationRED},
+		&attributes.SelectorConfig{
+			SelectionCfg: attributes.Selection{
+				attributes.DBClientDuration.Section: attributes.InclusionLists{
+					Include: []string{string(attr.DBCollectionName)},
+				},
+			},
+		},
+		request.UnresolvedNames{},
+		metrics,
+		processEvents,
+	)
+	require.NoError(t, err)
+	go reporter.reportMetrics(ctx)
+
+	metrics.Send([]request.Span{{
+		Service:      svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}},
+		Type:         request.EventTypeSQLClient,
+		Path:         "customers",
+		Method:       "SELECT",
+		RequestStart: 100,
+		End:          200,
+	}})
+
+	records := readMetricsByName(t, metricRecords, timeout, attributes.DBClientDuration.OTEL)
+	require.Len(t, records, 1)
+	assert.Equal(t, "customers", records[0].Attributes[string(attr.DBCollectionName)])
 }
 
 func TestSpanMetrics_ExtraResourceAttributes(t *testing.T) {
@@ -896,7 +954,7 @@ func TestAppMetrics_TracesHostInfo(t *testing.T) {
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		assert.NotEmpty(ct, mr.hostInfo.entries.All(),
-			"traces_host_info metric has not been created yet")
+			"traces.host.info metric has not been created yet")
 	}, timeout, 100*time.Millisecond)
 
 	// Check expiration logic
@@ -914,7 +972,7 @@ func TestAppMetrics_TracesHostInfo(t *testing.T) {
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		assert.Empty(ct, mr.hostInfo.entries.All(),
-			"traces_host_info metric has not expired yet") // The entry should be expired
+			"traces.host.info metric has not expired yet") // The entry should be expired
 	}, timeout, 100*time.Millisecond)
 }
 
@@ -1519,6 +1577,68 @@ func TestHandleProcessEventCreated(t *testing.T) {
 			// Verify service map state
 			assert.Equal(t, tm, reporter.targetMetrics,
 				"Service map should match expected state")
+		})
+	}
+}
+
+func TestHandleProcessEventCreatedMetricsExportDisabled(t *testing.T) {
+	exportsEmpty := services.NewExportModes()
+	tracesOnly := services.NewExportModes()
+	tracesOnly.AllowTraces()
+
+	for _, tt := range []struct {
+		name        string
+		exportModes services.ExportModes
+	}{
+		{
+			name:        "exports empty",
+			exportModes: exportsEmpty,
+		},
+		{
+			name:        "traces only",
+			exportModes: tracesOnly,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			mockEventsStore := newMockEventMetrics()
+			reporter := &MetricsReporter{
+				cfg:                &otelcfg.MetricsConfig{},
+				log:                slog.Default(),
+				jointMetricsCfg:    &perapp.MetricsConfig{Features: export.FeatureApplicationRED},
+				targetMetrics:      make(map[svc.UID]*TargetMetrics),
+				pidTracker:         NewPidServiceTracker(),
+				createEventMetrics: mockEventsStore.createEventMetrics,
+				deleteEventMetrics: mockEventsStore.deleteEventMetrics,
+			}
+
+			uid := svc.UID{Name: "metrics-disabled-service-" + tt.name, Namespace: "default", Instance: "instance-1"}
+			event := exec.ProcessEvent{
+				Type: exec.ProcessEventCreated,
+				File: exec.New(exec.Init{
+					Pid: 1234,
+					Service: svc.Attrs{
+						Features:    export.FeatureApplicationRED,
+						ExportModes: tt.exportModes,
+						UID:         uid,
+						HostName:    "test-host",
+					},
+				}),
+			}
+
+			reporter.onProcessEvent(&event)
+
+			assert.Empty(t, mockEventsStore.createCalls)
+			assert.Empty(t, mockEventsStore.deleteCalls)
+			assert.Empty(t, reporter.targetMetrics)
+			assert.True(t, reporter.pidTracker.ServiceLive(uid))
+
+			terminated := exec.ProcessEvent{Type: exec.ProcessEventTerminated, File: event.File}
+			reporter.onProcessEvent(&terminated)
+
+			assert.Empty(t, mockEventsStore.createCalls)
+			assert.Empty(t, mockEventsStore.deleteCalls)
+			assert.Empty(t, reporter.targetMetrics)
+			assert.False(t, reporter.pidTracker.ServiceLive(uid))
 		})
 	}
 }

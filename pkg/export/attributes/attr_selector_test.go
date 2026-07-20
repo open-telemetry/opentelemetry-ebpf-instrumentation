@@ -192,6 +192,14 @@ func TestDefault(t *testing.T) {
 		"k8s.src.owner.name",
 		"k8s.src.owner.type",
 	}, p.For(NetworkFlow))
+	// the packets metric shares the same attribute groups as the bytes metric
+	assert.Equal(t, p.For(NetworkFlow), p.For(NetworkFlowPackets))
+}
+
+func TestDefaultSensitiveQueryParamsIncludesLegacyAWSSignedURLKeys(t *testing.T) {
+	assert.Contains(t, DefaultSensitiveQueryParams, "AWSAccessKeyId")
+	assert.Contains(t, DefaultSensitiveQueryParams, "Signature")
+	assert.Contains(t, DefaultSensitiveQueryParams, "SecurityToken")
 }
 
 func TestExtraGroupAttributes(t *testing.T) {
@@ -245,4 +253,44 @@ func TestTraces(t *testing.T) {
 		"db.query.text",
 		"db.response.error",
 	}, p.For(Traces))
+}
+
+func TestTracesGenAIToolCallAttributes(t *testing.T) {
+	p, err := NewAttrSelector(GroupTraces, &SelectorConfig{
+		SelectionCfg: Selection{
+			"traces": InclusionLists{
+				Include: []string{"gen_ai.tool.call.*"},
+			},
+		},
+	})
+	require.NoError(t, err)
+	assert.Empty(t, p.For(Traces))
+
+	p, err = NewAttrSelector(GroupTraces, &SelectorConfig{
+		SelectionCfg: Selection{
+			"traces": InclusionLists{
+				Include: []string{
+					"gen_ai.tool.call.arguments",
+					"gen_ai.tool.call.result",
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, []attr.Name{
+		"gen_ai.tool.call.arguments",
+		"gen_ai.tool.call.result",
+	}, p.For(Traces))
+
+	p, err = NewAttrSelector(GroupTraces, &SelectorConfig{
+		SelectionCfg: Selection{
+			"traces": InclusionLists{
+				Include: []string{"gen_ai.*"},
+				Exclude: []string{"gen_ai.input.messages", "gen_ai.output.messages"},
+			},
+		},
+	})
+	require.NoError(t, err)
+	assert.NotContains(t, p.For(Traces), attr.GenAIToolCallArguments)
+	assert.NotContains(t, p.For(Traces), attr.GenAIToolCallResult)
 }

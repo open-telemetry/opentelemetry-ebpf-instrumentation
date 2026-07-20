@@ -37,7 +37,6 @@ const (
 	StrContextPropagationDisabled = "disabled"
 	StrContextPropagationAll      = "all"
 	StrContextPropagationHeaders  = "headers"
-	StrContextPropagationHTTP     = "http"
 	StrContextPropagationTCP      = "tcp"
 	StrBPFDebugDisabled           = "disabled"
 	StrBPFDebugTracePipe          = "trace_pipe"
@@ -256,11 +255,11 @@ type EBPFTracer struct {
 	MapsConfig MapsConfig `yaml:"maps_config"`
 }
 
-func (c EBPFTracer) DebugMode() BPFDebugMode {
-	if c.BpfDebug {
+func (e EBPFTracer) DebugMode() BPFDebugMode {
+	if e.BpfDebug {
 		return BPFDebugDefault
 	}
-	return c.BpfDebugMode
+	return e.BpfDebugMode
 }
 
 var nvidiaSMIExistsFunc = nvidiaSMIExists
@@ -283,20 +282,11 @@ func (e *EBPFTracer) CudaInstrumentationEnabled() bool {
 	return false
 }
 
-// MaxCapturedPayloadBytes is the maximum number of bytes that can be captured
-// per protocol request direction via large buffer events.
-//
-// It must stay aligned with the k_large_buf_max_*_captured_bytes constants in
-// bpf/common/large_buffers.h and with the validate tags in EBPFBufferSizes.
-const MaxCapturedPayloadBytes = 1 << 16
-
 // Per-protocol maximum bytes to capture per request per direction, sent to userspace via large buffer events.
-// Values must stay aligned with MaxCapturedPayloadBytes and the
-// k_large_buf_max_*_captured_bytes constants in bpf/common/large_buffers.h.
 //
 // Default: 0 (disabled).
 type EBPFBufferSizes struct {
-	HTTP     uint32 `yaml:"http" env:"OTEL_EBPF_BPF_BUFFER_SIZE_HTTP" validate:"lte=65536"`
+	HTTP     uint32 `yaml:"http" env:"OTEL_EBPF_BPF_BUFFER_SIZE_HTTP" validate:"lte=262144"`
 	MySQL    uint32 `yaml:"mysql" env:"OTEL_EBPF_BPF_BUFFER_SIZE_MYSQL" validate:"lte=65536"`
 	Kafka    uint32 `yaml:"kafka" env:"OTEL_EBPF_BPF_BUFFER_SIZE_KAFKA" validate:"lte=65536"`
 	Postgres uint32 `yaml:"postgres" env:"OTEL_EBPF_BPF_BUFFER_SIZE_POSTGRES" validate:"lte=65536"`
@@ -339,7 +329,7 @@ func (m *ContextPropagationMode) UnmarshalText(text []byte) error {
 	for _, part := range parts {
 		part = strings.TrimSpace(part)
 		switch part {
-		case StrContextPropagationHeaders, StrContextPropagationHTTP:
+		case StrContextPropagationHeaders:
 			result |= ContextPropagationHeaders
 		case StrContextPropagationTCP:
 			result |= ContextPropagationTCP
@@ -378,9 +368,9 @@ func (m ContextPropagationMode) MarshalText() ([]byte, error) {
 }
 
 func (ContextPropagationMode) JSONSchema() *jsonschema.Schema {
-	options := []string{StrContextPropagationHeaders, StrContextPropagationHTTP, StrContextPropagationTCP}
+	options := []string{StrContextPropagationHeaders, StrContextPropagationTCP}
 	optionsStr := strings.Join(options, "|")
-	OptionsRegexp := fmt.Sprintf("^(%s)(,(%s))*$", optionsStr, optionsStr)
+	optionsRegexp := fmt.Sprintf("^(%s)(,(%s))*$", optionsStr, optionsStr)
 	return &jsonschema.Schema{
 		OneOf: []*jsonschema.Schema{
 			{
@@ -390,12 +380,18 @@ func (ContextPropagationMode) JSONSchema() *jsonschema.Schema {
 			},
 			{
 				Type:        "string",
-				Description: "List of propagation methods to enable (headers/http for HTTP headers, tcp for TCP options), separated by commas",
+				Description: "Comma-separated list of propagation methods (headers for HTTP headers, tcp for TCP options)",
 				Examples:    []any{"headers", "tcp", "headers,tcp"},
-				Pattern:     OptionsRegexp,
+				Pattern:     optionsRegexp,
+			},
+			{
+				Type:        "string",
+				Enum:        []any{"ip"},
+				Deprecated:  true,
+				Description: "IP options injection has been removed and has no effect",
 			},
 		},
 		Title:       "Context Propagation Mode",
-		Description: "Configures distributed context propagation. Can be 'all' to enable all methods, 'disabled'/'' to disable, or a list of specific methods: 'headers' (or 'http') for HTTP headers, 'tcp' for TCP options.",
+		Description: "Configures distributed context propagation. Can be 'all' to enable all methods, 'disabled'/'' to disable, or a comma-separated list of methods: 'headers' for HTTP headers, 'tcp' for TCP options (e.g. \"headers,tcp\").",
 	}
 }

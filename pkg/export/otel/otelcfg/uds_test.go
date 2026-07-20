@@ -7,6 +7,7 @@ import (
 	"context"
 	"net"
 	"net/http"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -91,9 +92,19 @@ func TestUnixTracesEndpointOptions(t *testing.T) {
 func TestUnixSocketMetricsExporter(t *testing.T) {
 	defer RestoreEnvAfterExecution()()
 
-	lis, err := net.Listen("unix", "@obi-test-metrics")
+	// On Linux "@"-prefixed names are abstract sockets (no filesystem entry,
+	// cleaned up by the kernel). macOS doesn't support abstract sockets, so this
+	// becomes a regular socket file in the working directory; remove any leftover
+	// from an interrupted previous run before listening.
+	const sockAddr = "@obi-test-metrics"
+	_ = os.Remove(sockAddr)
+
+	lis, err := net.Listen("unix", sockAddr)
 	require.NoError(t, err)
-	defer lis.Close()
+	t.Cleanup(func() {
+		_ = lis.Close()
+		_ = os.Remove(sockAddr)
+	})
 
 	gotPath := make(chan string, 1)
 	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

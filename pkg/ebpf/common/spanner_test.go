@@ -143,6 +143,110 @@ func Test_EmptyHostInfo(t *testing.T) {
 	assert.Empty(t, dest)
 }
 
+func makeSQLRequestTrace(sql string, subType uint8, dPort uint16, hostname string) SQLRequestTrace {
+	s := [500]uint8{}
+	copy(s[:], tocstr(sql))
+	h := [96]uint8{}
+	copy(h[:], tocstr(hostname))
+
+	return SQLRequestTrace{
+		Type:     5, // EventTypeSQLClient
+		SubType:  subType,
+		Sql:      s,
+		Hostname: h,
+		Conn: BpfConnectionInfoT{
+			D_port: dPort,
+		},
+	}
+}
+
+func TestSQLRequestTraceToSpan(t *testing.T) {
+	t.Run("returns empty span for wrong event type", func(t *testing.T) {
+		tr := makeSQLRequestTrace("SELECT 1", uint8(request.DBPostgres), 5432, "")
+		tr.Type = 1
+		span := SQLRequestTraceToSpan(&tr)
+		assert.Equal(t, request.Span{}, span)
+	})
+
+	t.Run("uses trace SubType when already detected", func(t *testing.T) {
+		tr := makeSQLRequestTrace("SELECT id FROM users", uint8(request.DBPostgres), 5432, "db:5432")
+		span := SQLRequestTraceToSpan(&tr)
+		assert.Equal(t, int(request.DBPostgres), span.SubType)
+	})
+
+	t.Run("trace SubType wins over port heuristic", func(t *testing.T) {
+		tr := makeSQLRequestTrace("SELECT id FROM users", uint8(request.DBMySQL), 5432, "")
+		span := SQLRequestTraceToSpan(&tr)
+		assert.Equal(t, int(request.DBMySQL), span.SubType)
+	})
+
+	t.Run("falls back to postgres when SubType is generic and port is 5432", func(t *testing.T) {
+		tr := makeSQLRequestTrace("SELECT id FROM users", uint8(request.DBGeneric), 5432, "")
+		span := SQLRequestTraceToSpan(&tr)
+		assert.Equal(t, int(request.DBPostgres), span.SubType)
+	})
+
+	t.Run("falls back to mysql when SubType is generic and port is 3306", func(t *testing.T) {
+		tr := makeSQLRequestTrace("SELECT id FROM users", uint8(request.DBGeneric), 3306, "")
+		span := SQLRequestTraceToSpan(&tr)
+		assert.Equal(t, int(request.DBMySQL), span.SubType)
+	})
+
+	t.Run("falls back to mssql when SubType is generic and port is 1434", func(t *testing.T) {
+		tr := makeSQLRequestTrace("SELECT id FROM users", uint8(request.DBGeneric), 1434, "")
+		span := SQLRequestTraceToSpan(&tr)
+		assert.Equal(t, int(request.DBMSSQL), span.SubType)
+	})
+
+	t.Run("stays generic when SubType is generic and port is unknown", func(t *testing.T) {
+		tr := makeSQLRequestTrace("SELECT id FROM users", uint8(request.DBGeneric), 9999, "")
+		span := SQLRequestTraceToSpan(&tr)
+		assert.Equal(t, int(request.DBGeneric), span.SubType)
+	})
+
+	t.Run("stays generic when SubType is generic and port is zero", func(t *testing.T) {
+		tr := makeSQLRequestTrace("SELECT id FROM users", uint8(request.DBGeneric), 0, "")
+		span := SQLRequestTraceToSpan(&tr)
+		assert.Equal(t, int(request.DBGeneric), span.SubType)
+	})
+
+	t.Run("strips port from hostname", func(t *testing.T) {
+		tr := makeSQLRequestTrace("SELECT 1", uint8(request.DBGeneric), 0, "db-host:5432")
+		span := SQLRequestTraceToSpan(&tr)
+		assert.Equal(t, "db-host", span.HostName)
+	})
+
+	t.Run("hostname without colon is kept", func(t *testing.T) {
+		tr := makeSQLRequestTrace("SELECT 1", uint8(request.DBGeneric), 0, "db-host")
+		span := SQLRequestTraceToSpan(&tr)
+		assert.Equal(t, "db-host", span.HostName)
+	})
+
+	t.Run("sets timing fields", func(t *testing.T) {
+		tr := makeSQLRequestTrace("SELECT 1", uint8(request.DBGeneric), 0, "")
+		tr.StartMonotimeNs = 100
+		tr.EndMonotimeNs = 200
+		span := SQLRequestTraceToSpan(&tr)
+		assert.Equal(t, int64(100), span.RequestStart)
+		assert.Equal(t, int64(100), span.Start)
+		assert.Equal(t, int64(200), span.End)
+	})
+
+	t.Run("sets connection peer and host ports", func(t *testing.T) {
+		tr := makeSQLRequestTrace("SELECT 1", uint8(request.DBPostgres), 5432, "")
+		tr.Conn.S_port = 45678
+		span := SQLRequestTraceToSpan(&tr)
+		assert.Equal(t, 45678, span.PeerPort)
+		assert.Equal(t, 5432, span.HostPort)
+	})
+
+	t.Run("sets statement from sql", func(t *testing.T) {
+		tr := makeSQLRequestTrace("INSERT INTO t VALUES (1)", uint8(request.DBGeneric), 0, "")
+		span := SQLRequestTraceToSpan(&tr)
+		assert.Equal(t, "INSERT INTO t VALUES (1)", span.Statement)
+	})
+}
+
 func TestStripPattern(t *testing.T) {
 	tests := []struct {
 		name     string

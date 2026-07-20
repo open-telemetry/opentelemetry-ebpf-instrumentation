@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"slices"
 	"time"
 
 	"github.com/cilium/ebpf/link"
@@ -26,6 +27,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm/swarms"
+	"go.opentelemetry.io/obi/pkg/runtimemetrics"
 )
 
 // Swappable in tests so attacher tests don't depend on memlock permissions.
@@ -59,6 +61,7 @@ type traceAttacher struct {
 	// if no spans are detected. This would allow, for example, to start instrumenting this process
 	// from the Process metrics pipeline even before it starts to do/receive requests.
 	SpanSignalsShortcut *msg.Queue[[]request.Span]
+	RuntimeMetrics      *msg.Queue[[]runtimemetrics.RuntimeMetricSnapshot]
 
 	// InputInstrumentables is the input channel for the traceAttacher, where it receives information
 	// about the instrumentables that traversed the whole process discovery pipeline, so they need to
@@ -77,6 +80,8 @@ type traceAttacher struct {
 
 	// Is able to find process lifetime duration
 	processAgeFunc func(app.PID) time.Duration
+
+	DynamicPIDSelector *DynamicPIDSelector
 }
 
 func traceAttacherProvider(ta *traceAttacher) swarm.InstanceFunc {
@@ -95,6 +100,9 @@ func (ta *traceAttacher) attacherLoop(_ context.Context) (swarm.RunFunc, error) 
 	}
 	ta.processInstances = maps.MultiCounter[uint64]{}
 	ta.EbpfEventContext.CommonPIDsFilter = ebpfcommon.NewPIDsFilter(&ta.Cfg.Discovery, slog.With("component", "ebpfCommon.CommonPIDsFilter"), ta.Metrics)
+	if ta.RuntimeMetrics != nil {
+		ta.EbpfEventContext.RuntimeMetrics = runtimemetrics.NewQueueSender(ta.RuntimeMetrics)
+	}
 	ta.routeHarvester = harvest.NewRouteHarvester(&ta.Cfg.Discovery.RouteHarvestConfig, ta.Cfg.Discovery.DisabledRouteHarvesters, ta.Cfg.Discovery.RouteHarvesterTimeout)
 	ta.processAgeFunc = ProcessAgeFunc()
 
@@ -199,7 +207,11 @@ func (ta *traceAttacher) getTracer(ie *ebpf.Instrumentable) bool {
 				return ta.reuseTracer(ta.reusableGoTracer, ie)
 			}
 			tracerType = ebpf.Go
-			programs = ta.withCommonTracersGroup(newGoTracersGroup(ta.EbpfEventContext.CommonPIDsFilter, ta.Cfg, ta.Metrics))
+			programs = ta.withCommonTracersGroup(newGoTracersGroup(
+				ta.EbpfEventContext.CommonPIDsFilter,
+				ta.Cfg,
+				ta.Metrics,
+			))
 		}
 	case svc.InstrumentableNodejs, svc.InstrumentableJava, svc.InstrumentableJavaNative, svc.InstrumentableRuby, svc.InstrumentablePython, svc.InstrumentableDotnet, svc.InstrumentableGeneric, svc.InstrumentableRust, svc.InstrumentablePHP, svc.InstrumentableCPP:
 		if ta.reusableTracer != nil {
@@ -235,6 +247,8 @@ func (ta *traceAttacher) getTracer(ie *ebpf.Instrumentable) bool {
 		return false
 	}
 
+	ta.dropUnloadedTracers(tracer.Programs)
+
 	ie.Tracer = tracer
 
 	if err := tracer.NewExecutable(exe, ie); err != nil {
@@ -264,12 +278,23 @@ func (ta *traceAttacher) getTracer(ie *ebpf.Instrumentable) bool {
 	return true
 }
 
+// dropUnloadedTracers keeps only the common tracers that survived ProcessTracer.Init in
+// loadedPrograms, so PID notifications never reach a tracer without loaded BPF objects
+func (ta *traceAttacher) dropUnloadedTracers(loadedPrograms []ebpf.Tracer) {
+	if ta.commonTracersLoaded {
+		return
+	}
+	ta.commonTracers = slices.DeleteFunc(ta.commonTracers, func(ct ebpf.Tracer) bool {
+		return !slices.Contains(loadedPrograms, ct)
+	})
+	ta.commonTracersLoaded = true
+}
+
 func (ta *traceAttacher) withCommonTracersGroup(tracers []ebpf.Tracer) []ebpf.Tracer {
 	if ta.commonTracersLoaded {
 		return tracers
 	}
 
-	ta.commonTracersLoaded = true
 	ta.commonTracers = newCommonTracersGroup(ta.Cfg, ta.Metrics, ta.EbpfEventContext.CommonPIDsFilter)
 
 	return append(tracers, ta.commonTracers...)
@@ -359,6 +384,10 @@ func (ta *traceAttacher) updateTracerProbes(tracer *ebpf.ProcessTracer, ie *ebpf
 func (ta *traceAttacher) monitorPIDs(tracer *ebpf.ProcessTracer, ie *ebpf.Instrumentable) {
 	ie.CopyToServiceAttributes()
 
+	if ta.DynamicPIDSelector != nil {
+		ta.registerDynamicFileInfo(ie)
+	}
+
 	// allowing the tracer to forward traces from the discovered PID and its children processes
 	tracer.AllowPID(ie.FileInfo.Pid(), ie.FileInfo.Ns(), ie.FileInfo)
 	for _, pid := range ie.ChildPids {
@@ -397,7 +426,35 @@ func (ta *traceAttacher) monitorPIDs(tracer *ebpf.ProcessTracer, ie *ebpf.Instru
 	}
 }
 
+func (ta *traceAttacher) registerDynamicFileInfo(ie *ebpf.Instrumentable) {
+	owner := ie.FileInfo.ServiceAttrs().DynamicSelectorPID
+	if owner == 0 {
+		owner = ie.FileInfo.Pid()
+	}
+	ta.DynamicPIDSelector.RegisterFileInfo(owner, ie.FileInfo)
+	ta.DynamicPIDSelector.RegisterFileInfo(ie.FileInfo.Pid(), ie.FileInfo)
+	for _, pid := range ie.ChildPids {
+		ta.DynamicPIDSelector.RegisterFileInfo(pid, ie.FileInfo)
+	}
+}
+
+func (ta *traceAttacher) unregisterDynamicFileInfo(ie *ebpf.Instrumentable) {
+	if ta.DynamicPIDSelector == nil {
+		return
+	}
+	owner := ie.FileInfo.ServiceAttrs().DynamicSelectorPID
+	if owner == 0 {
+		owner = ie.FileInfo.Pid()
+	}
+	ta.DynamicPIDSelector.UnregisterFileInfo(owner, ie.FileInfo)
+	ta.DynamicPIDSelector.UnregisterFileInfo(ie.FileInfo.Pid(), ie.FileInfo)
+	for _, pid := range ie.ChildPids {
+		ta.DynamicPIDSelector.UnregisterFileInfo(pid, ie.FileInfo)
+	}
+}
+
 func (ta *traceAttacher) notifyProcessDeletion(ie *ebpf.Instrumentable) {
+	ta.unregisterDynamicFileInfo(ie)
 	if tracer, ok := ta.existingTracers[ie.FileInfo.Ino()]; ok {
 		ta.log.Info("process ended for already instrumented executable",
 			"cmd", ie.FileInfo.CmdExePath(),

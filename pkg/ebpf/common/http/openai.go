@@ -4,6 +4,7 @@
 package ebpfcommon // import "go.opentelemetry.io/obi/pkg/ebpf/common/http"
 
 import (
+	"bytes"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -50,6 +51,18 @@ func extractToolCalls(choices json.RawMessage) []request.ToolCall {
 	return result
 }
 
+// parseOpenAICompatibleResponse parses an OpenAI-compatible response body,
+// handling both JSON and SSE streaming formats. It returns the parsed response
+// and any tool calls extracted from the response.
+func parseOpenAICompatibleResponse(respB []byte) (*request.VendorOpenAI, []request.ToolCall) {
+	if looksLikeJSON(respB) {
+		resp := parseVendorOpenAI(respB)
+		return &resp, extractToolCalls(resp.Choices)
+	}
+	reader := bytes.NewReader(respB)
+	return parseOpenAIStream(reader)
+}
+
 func OpenAISpan(baseSpan *request.Span, req *http.Request, resp *http.Response) (request.Span, bool) {
 	// Check any of the well known response headers that OpenAI would use
 	isOpenAI := false
@@ -77,7 +90,7 @@ func OpenAISpan(baseSpan *request.Span, req *http.Request, resp *http.Response) 
 	slog.Debug("OpenAI", "request", string(reqB), "response", string(respB))
 
 	parsedRequest := parseOpenAIInput(reqB)
-	parsedResponse := parseVendorOpenAI(respB)
+	parsedResponse, toolCalls := parseOpenAICompatibleResponse(respB)
 
 	if parsedResponse.ResponseModel == "" {
 		parsedResponse.ResponseModel = parsedRequest.Model
@@ -87,9 +100,13 @@ func OpenAISpan(baseSpan *request.Span, req *http.Request, resp *http.Response) 
 	}
 
 	parsedResponse.Request = parsedRequest
-	parsedResponse.ToolCalls = extractToolCalls(parsedResponse.Choices)
+	parsedResponse.ToolCalls = toolCalls
 
-	// Override operation name and derive API type from URL path.
+	// Override operation name and derive API type from URL path. The path is
+	// authoritative even when the response carries no `object` field (error
+	// responses don't): the operation name feeds required metric attributes
+	// (gen_ai.client.operation.duration / token.usage), so failed calls must
+	// carry it too.
 	if req.URL != nil {
 		path := strings.TrimSuffix(req.URL.Path, "/")
 		switch path {
@@ -100,13 +117,16 @@ func OpenAISpan(baseSpan *request.Span, req *http.Request, resp *http.Response) 
 			parsedResponse.OperationName = request.EmbeddingOperationName
 			parsedResponse.APIType = "embeddings"
 		case "/v1/responses":
+			parsedResponse.OperationName = request.ResponseOperationName
 			parsedResponse.APIType = "responses"
+		case "/v1/conversations":
+			parsedResponse.OperationName = request.ConversationOperationName
 		}
 	}
 
 	baseSpan.SubType = request.HTTPSubtypeOpenAI
 	baseSpan.GenAI = &request.GenAI{
-		OpenAI: &parsedResponse,
+		OpenAI: parsedResponse,
 	}
 
 	return *baseSpan, true

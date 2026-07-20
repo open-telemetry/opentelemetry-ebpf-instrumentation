@@ -17,8 +17,11 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/export"
+	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
+	"go.opentelemetry.io/obi/pkg/internal/ebpf/gotracer"
 	"go.opentelemetry.io/obi/pkg/obi"
+	"go.opentelemetry.io/obi/pkg/selection"
 	"go.opentelemetry.io/obi/pkg/transform"
 )
 
@@ -49,6 +52,18 @@ func (d dummyCriterion) GetRoutesConfig() *services.CustomRoutesConfig          
 
 func (d dummyCriterion) MetricsConfig() perapp.SvcMetricsConfig {
 	return perapp.SvcMetricsConfig{Features: d.features}
+}
+
+func TestLoadAllGoFunctionNamesIncludesConditionalGoTracerSymbols(t *testing.T) {
+	ty := typer{cfg: &obi.Config{Routes: &transform.RoutesConfig{}}}
+	ty.loadAllGoFunctionNames()
+
+	for _, symbol := range gotracer.GoChannelLinkProbeSymbols() {
+		assert.Contains(t, ty.allGoFunctions, symbol)
+	}
+	for _, symbol := range gotracer.GoRuntimeMetricProbeSymbols() {
+		assert.Contains(t, ty.allGoFunctions, symbol)
+	}
 }
 
 func TestMakeServiceAttrs(t *testing.T) {
@@ -83,6 +98,29 @@ func TestMakeServiceAttrs(t *testing.T) {
 	assert.NotNil(t, attrs2.Sampler)
 	assert.NotNil(t, attrs2.CustomInRouteMatcher)
 	assert.NotNil(t, attrs2.CustomOutRouteMatcher)
+}
+
+func TestMakeServiceAttrs_DynamicPIDOptions(t *testing.T) {
+	d := NewDynamicPIDSelector()
+	d.Traces().AddPID(42, selection.DynamicPIDOptions{
+		ServiceName:      "dynamic-svc",
+		ServiceNamespace: "dynamic-ns",
+		ResourceAttributes: map[string]string{
+			"deployment.environment": "prod",
+		},
+	})
+	selector := d.appSignals().SelectorForPID(42)
+	require.NotNil(t, selector)
+
+	ty := typer{cfg: &obi.Config{Routes: &transform.RoutesConfig{}}}
+	attrs := ty.makeServiceAttrs(&ProcessMatch{
+		Process:            &services.ProcessInfo{Pid: 42},
+		Criteria:           []services.Selector{selector},
+		DynamicSelectorPID: 42,
+	})
+	assert.Equal(t, "dynamic-svc", attrs.UID.Name)
+	assert.Equal(t, "dynamic-ns", attrs.UID.Namespace)
+	assert.Equal(t, "prod", attrs.Metadata[attr.Name("deployment.environment")])
 }
 
 func TestMakeServiceAttrs_FeaturesMatchingMultipleCriteria(t *testing.T) {

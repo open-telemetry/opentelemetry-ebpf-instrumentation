@@ -21,6 +21,8 @@ const (
 	InstrumentationCouchbase Instrumentation = "couchbase"
 	InstrumentationGenAI     Instrumentation = "genai"
 	InstrumentationMemcached Instrumentation = "memcached"
+	InstrumentationSunRPC    Instrumentation = "sunrpc"
+	InstrumentationAerospike Instrumentation = "aerospike"
 	// Traces export selectively enables only some instrumentations by
 	// default. If you add a new instrumentation type, make sure you
 	// update the TracesConfig accordingly. Metrics do ALL == "*".
@@ -44,6 +46,8 @@ const (
 	flagCouchbase
 	flagGenAI
 	flagMemcached
+	flagSunRPC
+	flagAerospike
 )
 
 func instrumentationToFlag(str Instrumentation) InstrumentationSelection {
@@ -78,6 +82,10 @@ func instrumentationToFlag(str Instrumentation) InstrumentationSelection {
 		return flagGenAI
 	case InstrumentationMemcached:
 		return flagMemcached
+	case InstrumentationSunRPC:
+		return flagSunRPC
+	case InstrumentationAerospike:
+		return flagAerospike
 	}
 	return 0
 }
@@ -108,7 +116,7 @@ func (s InstrumentationSelection) RedisEnabled() bool {
 }
 
 func (s InstrumentationSelection) DBEnabled() bool {
-	return s.SQLEnabled() || s.RedisEnabled() || s.MongoEnabled() || s.CouchbaseEnabled() || s.MemcachedEnabled()
+	return s.SQLEnabled() || s.RedisEnabled() || s.MongoEnabled() || s.CouchbaseEnabled() || s.MemcachedEnabled() || s.AerospikeEnabled()
 }
 
 func (s InstrumentationSelection) KafkaEnabled() bool {
@@ -153,4 +161,12 @@ func (s InstrumentationSelection) DNSEnabled() bool {
 
 func (s InstrumentationSelection) GenAIEnabled() bool {
 	return s&flagGenAI != 0
+}
+
+func (s InstrumentationSelection) SunRPCEnabled() bool {
+	return s&flagSunRPC != 0
+}
+
+func (s InstrumentationSelection) AerospikeEnabled() bool {
+	return s&flagAerospike != 0
 }

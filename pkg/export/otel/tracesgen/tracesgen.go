@@ -20,13 +20,12 @@ import (
 	"go.opentelemetry.io/collector/pdata/ptrace"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/sdk/trace"
-	semconv "go.opentelemetry.io/otel/semconv/v1.38.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 	trace2 "go.opentelemetry.io/otel/trace"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/meta"
-	"go.opentelemetry.io/obi/pkg/ebpf/common/dnsparser"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
@@ -34,7 +33,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 )
 
-// Attribute keys not yet available in semconv v1.38.0.
+// Attribute keys not yet available in semconv v1.41.0.
 // Replace with semconv helpers when the package is updated.
 var (
 	genAIRequestStreamKey              = attribute.Key("gen_ai.request.stream")
@@ -74,9 +73,10 @@ func UserSelectedAttributes(selectorCfg *attributes.SelectorConfig) (map[attr.Na
 	return traceAttrs, err
 }
 
-// GroupSpans must remain public for collectors embedding OBI
-func GroupSpans(ctx context.Context, spans []request.Span, traceAttrs map[attr.Name]struct{}, sampler trace.Sampler, is instrumentations.InstrumentationSelection) map[svc.UID][]TraceSpanAndAttributes {
+// GroupSpans must remain public for collectors embedding OBI.
+func GroupSpans(ctx context.Context, spans []request.Span, traceAttrs map[attr.Name]struct{}, sampler trace.Sampler, is instrumentations.InstrumentationSelection, redactKeys ...string) map[svc.UID][]TraceSpanAndAttributes {
 	spanGroups := map[svc.UID][]TraceSpanAndAttributes{}
+	redactSet := buildRedactSet(redactKeys)
 
 	for i := range spans {
 		span := &spans[i]
@@ -87,7 +87,7 @@ func GroupSpans(ctx context.Context, spans []request.Span, traceAttrs map[attr.N
 			continue
 		}
 
-		finalAttrs := TraceAttributesSelector(span, traceAttrs)
+		finalAttrs := traceAttributesSelectorInternal(span, traceAttrs, redactSet)
 
 		spanSampler := func() trace.Sampler {
 			if span.Service.Sampler != nil {
@@ -130,12 +130,40 @@ func GenerateTracesWithAttributes(
 	reporterName string,
 	extraResAttrs ...attribute.KeyValue,
 ) ptrace.Traces {
+	return generateTracesWithAttributes(cache, svc, envResourceAttrs, nodeMeta, spans, reporterName, nil, extraResAttrs...)
+}
+
+func GenerateTracesWithSelectedResourceAttributes(
+	cache *expirable2.LRU[svc.UID, []attribute.KeyValue],
+	svc *svc.Attrs,
+	envResourceAttrs []attribute.KeyValue,
+	nodeMeta *meta.NodeMeta,
+	spans []TraceSpanAndAttributes,
+	reporterName string,
+	attrSelector attributes.Selection,
+	extraResAttrs ...attribute.KeyValue,
+) ptrace.Traces {
+	return generateTracesWithAttributes(cache, svc, envResourceAttrs, nodeMeta, spans, reporterName, attrSelector, extraResAttrs...)
+}
+
+func generateTracesWithAttributes(
+	cache *expirable2.LRU[svc.UID, []attribute.KeyValue],
+	svc *svc.Attrs,
+	envResourceAttrs []attribute.KeyValue,
+	nodeMeta *meta.NodeMeta,
+	spans []TraceSpanAndAttributes,
+	reporterName string,
+	attrSelector attributes.Selection,
+	extraResAttrs ...attribute.KeyValue,
+) ptrace.Traces {
 	traces := ptrace.NewTraces()
 	rs := traces.ResourceSpans().AppendEmpty()
 	resourceAttrs := TraceAppResourceAttrs(cache, nodeMeta, svc)
 	resourceAttrs = append(resourceAttrs, envResourceAttrs...)
+	resourceAttrs = otelcfg.FilterResourceAttrs(resourceAttrs, attrSelector)
 	resourceAttrsMap := AttrsToMap(resourceAttrs)
 	resourceAttrsMap.PutStr(string(semconv.OTelScopeNameKey), reporterName)
+	extraResAttrs = otelcfg.FilterResourceAttrs(extraResAttrs, attrSelector)
 	addAttrsToMap(extraResAttrs, resourceAttrsMap)
 	resourceAttrsMap.MoveTo(rs.Resource().Attributes())
 
@@ -199,7 +227,15 @@ func GenerateTracesWithAttributes(
 		if statusMessage != "" {
 			s.Status().SetMessage(statusMessage)
 		}
+		if !hasSubSpans {
+			appendSpanLinks(s, span.Links)
+		}
 		s.SetEndTimestamp(pcommon.NewTimestampFromTime(t.End))
+
+		// Create individual execute_tool child spans per tool call (OTel GenAI semconv compliance)
+		if toolCalls := getSpanToolCalls(span); len(toolCalls) > 0 {
+			createToolCallSpans(toolCalls, spanID, traceID, &ss, start, t.End)
+		}
 	}
 	return traces
 }
@@ -233,6 +269,20 @@ func createSubSpans(span *request.Span, parentSpanID pcommon.SpanID, traceID pco
 		spP.SetSpanID(pcommon.SpanID(idgen.RandomSpanID()))
 	}
 	spP.SetParentSpanID(parentSpanID)
+	appendSpanLinks(spP, span.Links)
+}
+
+func appendSpanLinks(dst ptrace.Span, links []request.SpanLink) {
+	for _, spanLink := range links {
+		if !spanLink.TraceID.IsValid() || !spanLink.SpanID.IsValid() {
+			continue
+		}
+
+		link := dst.Links().AppendEmpty()
+		link.SetTraceID(pcommon.TraceID(spanLink.TraceID))
+		link.SetSpanID(pcommon.SpanID(spanLink.SpanID))
+		link.SetFlags(uint32(spanLink.TraceFlags))
+	}
 }
 
 var emptyUID = svc.UID{}
@@ -312,6 +362,8 @@ func acceptSpan(is instrumentations.InstrumentationSelection, span *request.Span
 		return is.NATSEnabled()
 	case request.EventTypeAMQPClient:
 		return is.AMQPEnabled()
+	case request.EventTypeSunRPCClient, request.EventTypeSunRPCServer:
+		return is.SunRPCEnabled()
 	case request.EventTypeMongoClient:
 		return is.MongoEnabled()
 	case request.EventTypeManualSpan:
@@ -324,6 +376,8 @@ func acceptSpan(is instrumentations.InstrumentationSelection, span *request.Span
 		return is.CouchbaseEnabled()
 	case request.EventTypeMemcachedClient, request.EventTypeMemcachedServer:
 		return is.MemcachedEnabled()
+	case request.EventTypeAerospikeClient:
+		return is.AerospikeEnabled()
 	}
 
 	return false
@@ -336,40 +390,57 @@ var (
 	spanMetricsSkip     = attribute.Bool(string(attr.SkipSpanMetrics), true)
 )
 
-// genAIToolCallAttributes returns trace attributes for LLM tool calls.
-// Only tool calls with non-empty names are included. Names and IDs are kept
-// aligned so that the same index refers to the same tool call.
-func genAIToolCallAttributes(toolCalls []request.ToolCall) []attribute.KeyValue {
-	if len(toolCalls) == 0 {
+// getSpanToolCalls extracts tool calls from a GenAI span regardless of vendor.
+func getSpanToolCalls(span *request.Span) []request.ToolCall {
+	if span.GenAI == nil {
 		return nil
 	}
+	switch {
+	case span.GenAI.OpenAI != nil:
+		return span.GenAI.OpenAI.ToolCalls
+	case span.GenAI.Anthropic != nil:
+		return span.GenAI.Anthropic.ToolCalls
+	case span.GenAI.Gemini != nil:
+		return span.GenAI.Gemini.ToolCalls
+	case span.GenAI.Qwen != nil:
+		return span.GenAI.Qwen.ToolCalls
+	case span.GenAI.OpenAICompatible != nil:
+		return span.GenAI.OpenAICompatible.ToolCalls
+	default:
+		return nil
+	}
+}
 
-	var names []string
-	var ids []string
-	hasIDs := false
+// createToolCallSpans creates individual execute_tool child spans for each tool call,
+// following the OTel GenAI semantic conventions where gen_ai.tool.name is a single string
+// per span rather than an aggregated string array.
+func createToolCallSpans(toolCalls []request.ToolCall, parentSpanID pcommon.SpanID, traceID pcommon.TraceID, ss *ptrace.ScopeSpans, start, end time.Time) {
 	for _, tc := range toolCalls {
 		if tc.Name == "" {
 			continue
 		}
-		names = append(names, tc.Name)
-		ids = append(ids, tc.ID)
+		sp := ss.Spans().AppendEmpty()
+		sp.SetName("execute_tool " + tc.Name)
+		sp.SetKind(ptrace.SpanKindInternal)
+		sp.SetTraceID(traceID)
+		sp.SetSpanID(pcommon.SpanID(idgen.RandomSpanID()))
+		sp.SetParentSpanID(parentSpanID)
+		sp.SetStartTimestamp(pcommon.NewTimestampFromTime(start))
+		sp.SetEndTimestamp(pcommon.NewTimestampFromTime(end))
+
+		attrs := sp.Attributes()
+		attrs.PutStr(string(semconv.GenAIOperationNameKey), "execute_tool")
+		attrs.PutStr(string(attr.GenAIToolName), tc.Name)
 		if tc.ID != "" {
-			hasIDs = true
+			attrs.PutStr(string(attr.GenAIToolCallID), tc.ID)
 		}
 	}
-
-	var attrs []attribute.KeyValue
-	if len(names) > 0 {
-		attrs = append(attrs, attribute.StringSlice(string(attr.GenAIToolName), names))
-	}
-	if hasIDs {
-		attrs = append(attrs, attribute.StringSlice(string(attr.GenAIToolCallID), ids))
-	}
-	return attrs
 }
 
 // mcpAttributes returns MCP span attributes following the OTEL MCP semantic conventions.
-func mcpAttributes(span *request.Span) []attribute.KeyValue {
+// Tool call arguments and results are gated behind their own optionalAttrs
+// because they may be large or contain sensitive data.
+func mcpAttributes(span *request.Span, optionalAttrs map[attr.Name]struct{}) []attribute.KeyValue {
 	if span.SubType != request.HTTPSubtypeMCP || span.GenAI == nil || span.GenAI.MCP == nil {
 		return nil
 	}
@@ -380,6 +451,15 @@ func mcpAttributes(span *request.Span) []attribute.KeyValue {
 	}
 	if mcp.ToolName != "" {
 		attrs = append(attrs, attribute.String(string(attr.GenAIToolName), mcp.ToolName))
+	}
+	if mcp.ToolType != "" {
+		attrs = append(attrs, attribute.String(string(attr.GenAIToolType), mcp.ToolType))
+	}
+	if _, ok := optionalAttrs[attr.GenAIToolCallArguments]; ok && mcp.ToolCallArguments != "" {
+		attrs = append(attrs, attribute.String(string(attr.GenAIToolCallArguments), mcp.ToolCallArguments))
+	}
+	if _, ok := optionalAttrs[attr.GenAIToolCallResult]; ok && mcp.ToolCallResult != "" {
+		attrs = append(attrs, attribute.String(string(attr.GenAIToolCallResult), mcp.ToolCallResult))
 	}
 	if mcp.ResourceURI != "" {
 		attrs = append(attrs, attribute.String(string(attr.MCPResourceURI), mcp.ResourceURI))
@@ -398,9 +478,6 @@ func mcpAttributes(span *request.Span) []attribute.KeyValue {
 	}
 	if mcp.ErrorCode != 0 {
 		attrs = append(attrs, attribute.String(string(attr.RPCResponseStatusCode), strconv.Itoa(mcp.ErrorCode)))
-		if mcp.ErrorMessage != "" {
-			attrs = append(attrs, semconv.ErrorMessage(mcp.ErrorMessage))
-		}
 	}
 	return attrs
 }
@@ -412,7 +489,7 @@ func jsonRPCAttributes(span *request.Span) []attribute.KeyValue {
 	}
 	rpc := span.JSONRPC
 	attrs := []attribute.KeyValue{
-		semconv.RPCSystemJSONRPC,
+		semconv.RPCSystemNameJSONRPC,
 		semconv.RPCMethod(rpc.Method),
 		attribute.String(string(attr.JSONRPCProtocolVersion), rpc.Version),
 	}
@@ -444,7 +521,7 @@ func httpEnrichmentAttributes(span *request.Span) []attribute.KeyValue {
 }
 
 //nolint:cyclop
-func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]struct{}) []attribute.KeyValue {
+func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.Name]struct{}, redactSet map[string]struct{}) []attribute.KeyValue {
 	var attrs []attribute.KeyValue
 
 	switch span.Type {
@@ -452,12 +529,14 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 		attrs = []attribute.KeyValue{
 			request.HTTPRequestMethod(span.Method),
 			request.HTTPResponseStatusCode(span.Status),
-			request.HTTPUrlPath(span.Path),
 			request.ClientAddr(request.PeerAsClient(span)),
 			request.ServerAddr(request.SpanHost(span)),
 			request.ServerPort(span.HostPort),
 			request.HTTPRequestBodySize(int(span.RequestBodyLength())),
 			request.HTTPResponseBodySize(span.ResponseBodyLength()),
+		}
+		if span.Path != "" {
+			attrs = append(attrs, request.HTTPUrlPath(span.Path))
 		}
 		scheme := request.HTTPScheme(span)
 		if scheme != "" {
@@ -467,21 +546,35 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 			attrs = append(attrs, semconv.HTTPRoute(span.Route))
 		}
 		if span.SubType == request.HTTPSubtypeGraphQL && span.GraphQL != nil {
-			attrs = append(attrs, semconv.GraphQLDocument(span.GraphQL.Document))
+			if _, ok := optionalAttrs[attr.GraphQLDocument]; ok {
+				attrs = append(attrs, semconv.GraphQLDocument(span.GraphQL.Document))
+			}
 			attrs = append(attrs, semconv.GraphQLOperationName(span.GraphQL.OperationName))
 			attrs = append(attrs, request.GraphqlOperationType(span.GraphQL.OperationType))
 		}
-		attrs = append(attrs, mcpAttributes(span)...)
+		if _, ok := optionalAttrs[attr.HTTPUrlQuery]; ok {
+			if idx := strings.IndexByte(span.FullPath, '?'); idx >= 0 {
+				if qs := scrubQuery(span.FullPath[idx+1:], redactSet); qs != "" {
+					attrs = append(attrs, request.HTTPUrlQuery(qs))
+				}
+			}
+		}
+		attrs = append(attrs, mcpAttributes(span, optionalAttrs)...)
 		attrs = append(attrs, jsonRPCAttributes(span)...)
 		attrs = append(attrs, httpEnrichmentAttributes(span)...)
 	case request.EventTypeGRPC:
 		attrs = []attribute.KeyValue{
 			semconv.RPCMethod(span.Path),
-			semconv.RPCSystemGRPC,
-			semconv.RPCGRPCStatusCodeKey.Int(span.Status),
+			semconv.RPCSystemNameGRPC,
 			request.ClientAddr(request.PeerAsClient(span)),
 			request.ServerAddr(request.SpanHost(span)),
 			request.ServerPort(span.HostPort),
+		}
+		// GRPCStatusCodeString returns "" for statuses outside the gRPC enum
+		// (e.g. an HTTP code that leaked through protocol detection): omit
+		// the attribute instead of inventing a value.
+		if code := request.GRPCStatusCodeString(span.Status); code != "" {
+			attrs = append(attrs, semconv.RPCResponseStatusCode(code))
 		}
 	case request.EventTypeHTTPClient:
 		// SQL++ spans should only have DB attributes, not HTTP attributes
@@ -520,12 +613,14 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 		if span.FullPath != "" {
 			urlPath = span.FullPath
 		}
-		// Strip query parameters from url.full by default to avoid leaking
-		// sensitive data (tokens, PII). Include them only when explicitly opted in.
-		var queryString string
-		if idx := strings.IndexByte(urlPath, '?'); idx > 0 {
-			queryString = urlPath[idx+1:]
-			if _, ok := optionalAttrs[attr.HTTPUrlQuery]; !ok {
+		// Scrub sensitive query parameters from url.full. The scrubbed query is always
+		// included in url.full when present; the selector only gates the separate url.query attribute.
+		var scrubbedQS string
+		if idx := strings.IndexByte(urlPath, '?'); idx >= 0 {
+			if qs := scrubQuery(urlPath[idx+1:], redactSet); qs != "" {
+				urlPath = urlPath[:idx+1] + qs
+				scrubbedQS = qs
+			} else {
 				urlPath = urlPath[:idx]
 			}
 		}
@@ -546,8 +641,10 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 			request.HTTPResponseBodySize(span.ResponseBodyLength()),
 		}
 
-		if _, ok := optionalAttrs[attr.HTTPUrlQuery]; ok && queryString != "" {
-			attrs = append(attrs, request.HTTPUrlQuery(queryString))
+		if scrubbedQS != "" {
+			if _, ok := optionalAttrs[attr.HTTPUrlQuery]; ok {
+				attrs = append(attrs, request.HTTPUrlQuery(scrubbedQS))
+			}
 		}
 
 		if span.SubType == request.HTTPSubtypeElasticsearch && span.Elasticsearch != nil {
@@ -559,14 +656,17 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 			}
 			attrs = append(attrs, request.DBOperationName(span.Elasticsearch.DBOperationName))
 			attrs = append(attrs, request.DBSystemName(span.Elasticsearch.DBSystemName))
-			attrs = append(attrs, request.ErrorType(span.DBError.ErrorCode))
+			// error.type only applies to failed requests: omit it instead of
+			// emitting an empty string on successful spans.
+			if span.DBError.ErrorCode != "" {
+				attrs = append(attrs, request.ErrorType(span.DBError.ErrorCode))
+			}
 		}
 
 		if span.SubType == request.HTTPSubtypeAWSS3 && span.AWS != nil {
 			s3 := span.AWS.S3
-			attrs = append(attrs, semconv.RPCService("S3"))
 			attrs = append(attrs, request.RPCSystem("aws-api"))
-			attrs = append(attrs, semconv.RPCMethod(s3.Method))
+			attrs = append(attrs, semconv.RPCMethod(request.S3RPCMethod(s3.Method)))
 			attrs = append(attrs, semconv.CloudRegion(s3.Meta.Region))
 			attrs = append(attrs, semconv.AWSRequestID(s3.Meta.RequestID))
 			attrs = append(attrs, request.AWSExtendedRequestID(s3.Meta.ExtendedRequestID))
@@ -577,7 +677,11 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 		if span.SubType == request.HTTPSubtypeAWSSQS && span.AWS != nil {
 			sqs := span.AWS.SQS
 			attrs = append(attrs, request.MessagingOperationName(sqs.OperationName))
-			attrs = append(attrs, request.MessagingOperationType(sqs.OperationType))
+			// messaging.operation.type is a semconv enum: omit it instead of
+			// emitting an empty (invalid) variant when the type is unknown.
+			if sqs.OperationType != "" {
+				attrs = append(attrs, request.MessagingOperationType(sqs.OperationType))
+			}
 			attrs = append(attrs, request.MessagingDestinationName(sqs.Destination))
 			attrs = append(attrs, request.MessagingMessageID(sqs.MessageID))
 			attrs = append(attrs, semconv.CloudRegion(sqs.Meta.Region))
@@ -589,15 +693,21 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 		if span.SubType == request.HTTPSubtypeOpenAI && span.GenAI != nil && span.GenAI.OpenAI != nil {
 			ai := span.GenAI.OpenAI
 			attrs = append(attrs, semconv.GenAIProviderNameOpenAI)
-			attrs = append(attrs, semconv.GenAIOperationNameKey.String(ai.OperationName))
+			if ai.OperationName != "" {
+				// Omit gen_ai.operation.name when the operation could not be
+				// derived rather than emitting an empty value.
+				attrs = append(attrs, semconv.GenAIOperationNameKey.String(ai.OperationName))
+			}
 			attrs = append(attrs, semconv.GenAIResponseID(ai.ID))
 			if ai.OperationName == "conversation" || ai.OperationName == "chatkit.session" || ai.OperationName == "chatkit.thread" {
 				attrs = append(attrs, semconv.GenAIConversationID(ai.ID))
 			}
 			attrs = append(attrs, semconv.GenAIRequestModel(ai.Request.Model))
 			attrs = append(attrs, semconv.GenAIResponseModel(ai.ResponseModel))
-			if ai.FrequencyPenalty > 0.0 {
+			if ai.FrequencyPenalty != 0.0 {
 				attrs = append(attrs, semconv.GenAIRequestFrequencyPenalty(ai.FrequencyPenalty))
+			} else if ai.Request.FrequencyPenalty != 0 {
+				attrs = append(attrs, semconv.GenAIRequestFrequencyPenalty(ai.Request.FrequencyPenalty))
 			}
 			if ai.Temperature > 0.0 {
 				attrs = append(attrs, semconv.GenAIRequestTemperature(ai.Temperature))
@@ -678,23 +788,25 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 			}
 			if ai.Error.Type != "" {
 				attrs = append(attrs, semconv.ErrorTypeKey.String(ai.Error.Type))
-				attrs = append(attrs, semconv.ErrorMessage(ai.Error.Message))
 			}
 			if ai.OperationName == request.EmbeddingOperationName {
-				if ai.Request.Dimensions > 0 {
-					attrs = append(attrs, semconv.GenAIEmbeddingsDimensionCount(ai.Request.Dimensions))
+				if dims := ai.GetEmbeddingDimensions(); dims > 0 {
+					attrs = append(attrs, semconv.GenAIEmbeddingsDimensionCount(dims))
 				}
 				if ai.Request.EncodingFormat != "" {
 					attrs = append(attrs, semconv.GenAIRequestEncodingFormats(ai.Request.EncodingFormat))
 				}
 			}
-			attrs = append(attrs, genAIToolCallAttributes(ai.ToolCalls)...)
 		}
 
 		if span.SubType == request.HTTPSubtypeAnthropic && span.GenAI != nil && span.GenAI.Anthropic != nil {
 			ai := span.GenAI.Anthropic
 			attrs = append(attrs, semconv.GenAIProviderNameAnthropic)
-			attrs = append(attrs, semconv.GenAIOperationNameKey.String(ai.Output.Type))
+			if ai.Output.Type != "" {
+				// Omit gen_ai.operation.name when the response type was not
+				// captured rather than emitting an empty value.
+				attrs = append(attrs, semconv.GenAIOperationNameKey.String(ai.Output.Type))
+			}
 			if ai.Output.Error != nil && ai.Output.Error.Type != "" {
 				attrs = append(attrs, semconv.GenAIResponseID(ai.Output.RequestID))
 			} else {
@@ -758,9 +870,7 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 			// add error info
 			if ai.Output.Error != nil && ai.Output.Error.Type != "" {
 				attrs = append(attrs, semconv.ErrorTypeKey.String(ai.Output.Error.Type))
-				attrs = append(attrs, semconv.ErrorMessage(ai.Output.Error.Message))
 			}
-			attrs = append(attrs, genAIToolCallAttributes(ai.ToolCalls)...)
 		}
 
 		if span.SubType == request.HTTPSubtypeGemini && span.GenAI != nil && span.GenAI.Gemini != nil {
@@ -837,15 +947,18 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 			}
 			if ai.Output.Error != nil && ai.Output.Error.Status != "" {
 				attrs = append(attrs, semconv.ErrorTypeKey.String(ai.Output.Error.Status))
-				attrs = append(attrs, semconv.ErrorMessage(ai.Output.Error.Message))
 			}
-			attrs = append(attrs, genAIToolCallAttributes(ai.ToolCalls)...)
 		}
 
 		if span.SubType == request.HTTPSubtypeQwen && span.GenAI != nil && span.GenAI.Qwen != nil {
 			ai := span.GenAI.Qwen
 			attrs = append(attrs, semconv.GenAIProviderNameKey.String(attr.QwenProviderName))
-			attrs = append(attrs, semconv.GenAIOperationNameKey.String(ai.OperationName))
+			if ai.OperationName != "" {
+				// gen_ai.operation.name must not be emitted as an empty
+				// string: omit it when the operation could not be derived
+				// (re-typed to string in schemas/obi/groups/gen_ai.yaml).
+				attrs = append(attrs, semconv.GenAIOperationNameKey.String(ai.OperationName))
+			}
 			attrs = append(attrs, semconv.GenAIResponseID(ai.ID))
 			attrs = append(attrs, semconv.GenAIRequestModel(ai.Request.Model))
 			if ai.ResponseModel != "" {
@@ -853,8 +966,10 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 			} else {
 				attrs = append(attrs, semconv.GenAIResponseModel(ai.Request.Model))
 			}
-			if ai.FrequencyPenalty > 0.0 {
+			if ai.FrequencyPenalty != 0.0 {
 				attrs = append(attrs, semconv.GenAIRequestFrequencyPenalty(ai.FrequencyPenalty))
+			} else if ai.Request.FrequencyPenalty != 0 {
+				attrs = append(attrs, semconv.GenAIRequestFrequencyPenalty(ai.Request.FrequencyPenalty))
 			}
 			if ai.Temperature > 0.0 {
 				attrs = append(attrs, semconv.GenAIRequestTemperature(ai.Temperature))
@@ -913,11 +1028,103 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 					attrs = append(attrs, request.Metadata(string(ai.Metadata)))
 				}
 			}
+			if ai.OperationName == request.EmbeddingOperationName {
+				if dims := ai.GetEmbeddingDimensions(); dims > 0 {
+					attrs = append(attrs, semconv.GenAIEmbeddingsDimensionCount(dims))
+				}
+				if ai.Request.EncodingFormat != "" {
+					attrs = append(attrs, semconv.GenAIRequestEncodingFormats(ai.Request.EncodingFormat))
+				}
+			}
 			if ai.Error.Type != "" {
 				attrs = append(attrs, semconv.ErrorTypeKey.String(ai.Error.Type))
-				attrs = append(attrs, semconv.ErrorMessage(ai.Error.Message))
 			}
-			attrs = append(attrs, genAIToolCallAttributes(ai.ToolCalls)...)
+		}
+
+		if span.SubType == request.HTTPSubtypeOpenAICompatible && span.GenAI != nil && span.GenAI.OpenAICompatible != nil {
+			ai := span.GenAI.OpenAICompatible
+			attrs = append(attrs, semconv.GenAIProviderNameKey.String(span.GenAIProviderName()))
+			attrs = append(attrs, semconv.GenAIOperationNameKey.String(ai.OperationName))
+			attrs = append(attrs, semconv.GenAIResponseID(ai.ID))
+			attrs = append(attrs, semconv.GenAIRequestModel(ai.Request.Model))
+			if ai.ResponseModel != "" {
+				attrs = append(attrs, semconv.GenAIResponseModel(ai.ResponseModel))
+			} else {
+				attrs = append(attrs, semconv.GenAIResponseModel(ai.Request.Model))
+			}
+			if ai.FrequencyPenalty != 0.0 {
+				attrs = append(attrs, semconv.GenAIRequestFrequencyPenalty(ai.FrequencyPenalty))
+			} else if ai.Request.FrequencyPenalty != 0 {
+				attrs = append(attrs, semconv.GenAIRequestFrequencyPenalty(ai.Request.FrequencyPenalty))
+			}
+			if ai.Temperature > 0.0 {
+				attrs = append(attrs, semconv.GenAIRequestTemperature(ai.Temperature))
+			} else if ai.Request.Temperature != 0 {
+				attrs = append(attrs, semconv.GenAIRequestTemperature(ai.Request.Temperature))
+			}
+			if ai.TopP > 0.0 {
+				attrs = append(attrs, semconv.GenAIRequestTopP(ai.TopP))
+			}
+			attrs = append(attrs, semconv.GenAIUsageInputTokens(ai.Usage.GetInputTokens()))
+			attrs = append(attrs, semconv.GenAIUsageOutputTokens(ai.Usage.GetOutputTokens()))
+			if reasons := ai.GetFinishReasons(); len(reasons) > 0 {
+				attrs = append(attrs, semconv.GenAIResponseFinishReasons(reasons...))
+			}
+			if ai.Request.MaxTokens > 0 {
+				attrs = append(attrs, semconv.GenAIRequestMaxTokens(ai.Request.MaxTokens))
+			}
+			if ai.Request.PresencePenalty != 0 {
+				attrs = append(attrs, semconv.GenAIRequestPresencePenalty(ai.Request.PresencePenalty))
+			}
+			if ai.Request.N > 1 {
+				attrs = append(attrs, semconv.GenAIRequestChoiceCount(ai.Request.N))
+			}
+			if ai.Request.Stream {
+				attrs = append(attrs, genAIRequestStreamKey.Bool(true))
+			}
+			if ai.Request.Seed != nil {
+				attrs = append(attrs, semconv.GenAIRequestSeed(*ai.Request.Seed))
+			}
+			if stopSeqs := ai.Request.GetStopSequences(); len(stopSeqs) > 0 {
+				attrs = append(attrs, semconv.GenAIRequestStopSequences(stopSeqs...))
+			}
+			if ai.Usage.CompletionDetails != nil && ai.Usage.CompletionDetails.ReasoningTokens > 0 {
+				attrs = append(attrs, genAIUsageReasoningOutputTokens.Int(ai.Usage.CompletionDetails.ReasoningTokens))
+			}
+			if _, ok := optionalAttrs[attr.GenAIInput]; ok {
+				attrs = append(attrs, semconv.GenAIInputMessagesKey.String(ai.Request.GetInput()))
+			}
+			if _, ok := optionalAttrs[attr.GenAIOutput]; ok {
+				if ai.OperationName != request.EmbeddingOperationName {
+					attrs = append(attrs, semconv.GenAIOutputMessagesKey.String(ai.GetOutput()))
+				}
+			}
+			if _, ok := optionalAttrs[attr.GenAIInstructions]; ok {
+				if ai.Request.Instructions != "" {
+					attrs = append(attrs, semconv.GenAISystemInstructionsKey.String(request.NormalizeSystemInstructions(ai.Request.Instructions)))
+				}
+			}
+			if _, ok := optionalAttrs[attr.GenAITools]; ok {
+				if len(ai.Request.Tools) > 0 {
+					attrs = append(attrs, semconv.GenAIToolDefinitionsKey.String(request.NormalizeToolDefinitions(ai.Request.Tools)))
+				}
+			}
+			if _, ok := optionalAttrs[attr.GenAIMetadata]; ok {
+				if len(ai.Metadata) > 0 {
+					attrs = append(attrs, request.Metadata(string(ai.Metadata)))
+				}
+			}
+			if ai.OperationName == request.EmbeddingOperationName {
+				if dims := ai.GetEmbeddingDimensions(); dims > 0 {
+					attrs = append(attrs, semconv.GenAIEmbeddingsDimensionCount(dims))
+				}
+				if ai.Request.EncodingFormat != "" {
+					attrs = append(attrs, semconv.GenAIRequestEncodingFormats(ai.Request.EncodingFormat))
+				}
+			}
+			if ai.Error.Type != "" {
+				attrs = append(attrs, semconv.ErrorTypeKey.String(ai.Error.Type))
+			}
 		}
 
 		if span.SubType == request.HTTPSubtypeAWSBedrock && span.GenAI != nil && span.GenAI.Bedrock != nil {
@@ -972,7 +1179,6 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 			}
 			if ai.Output.ErrorType != "" {
 				attrs = append(attrs, semconv.ErrorTypeKey.String(ai.Output.ErrorType))
-				attrs = append(attrs, semconv.ErrorMessage(ai.Output.ErrorMessage))
 			}
 		}
 
@@ -986,17 +1192,29 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 			} else {
 				attrs = append(attrs, semconv.GenAIResponseModel(ai.Input.Model))
 			}
-			if ai.Output.ID != "" {
-				attrs = append(attrs, semconv.GenAIResponseID(ai.Output.ID))
+			if id := ai.Output.GetID(); id != "" {
+				attrs = append(attrs, semconv.GenAIResponseID(id))
 			}
 			attrs = append(attrs, semconv.GenAIUsageInputTokens(ai.Output.GetTotalTokens()))
+			if _, ok := optionalAttrs[attr.GenAIInput]; ok {
+				if input := ai.GetInput(); input != "" {
+					attrs = append(attrs, semconv.GenAIInputMessagesKey.String(input))
+				}
+			}
+			if _, ok := optionalAttrs[attr.GenAIOutput]; ok {
+				if output := ai.GetOutput(); output != "" {
+					attrs = append(attrs, semconv.GenAIOutputMessagesKey.String(output))
+				}
+			}
+			if ai.Input.GetTopN() > 0 {
+				attrs = append(attrs, attribute.Int("gen_ai.rerank.top_n", ai.Input.GetTopN()))
+			}
 			if ai.Output.Error != nil && ai.Output.Error.Type != "" {
 				attrs = append(attrs, semconv.ErrorTypeKey.String(ai.Output.Error.Type))
-				attrs = append(attrs, semconv.ErrorMessage(ai.Output.Error.Message))
 			}
 		}
 
-		attrs = append(attrs, mcpAttributes(span)...)
+		attrs = append(attrs, mcpAttributes(span, optionalAttrs)...)
 
 		if span.SubType == request.HTTPSubtypeEmbedding && span.GenAI != nil && span.GenAI.Embedding != nil {
 			ai := span.GenAI.Embedding
@@ -1043,6 +1261,9 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 			if collection := ai.GetCollection(); collection != "" {
 				attrs = append(attrs, semconv.GenAIDataSourceID(collection))
 			}
+			if topK := ai.Input.GetTopK(); topK > 0 {
+				attrs = append(attrs, attribute.Int("gen_ai.retrieval.top_k", topK))
+			}
 		}
 
 		attrs = append(attrs, jsonRPCAttributes(span)...)
@@ -1050,11 +1271,15 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 	case request.EventTypeGRPCClient:
 		attrs = []attribute.KeyValue{
 			semconv.RPCMethod(span.Path),
-			semconv.RPCSystemGRPC,
-			semconv.RPCGRPCStatusCodeKey.Int(span.Status),
+			semconv.RPCSystemNameGRPC,
 			request.ServerAddr(request.HostAsServer(span)),
 			request.PeerService(request.PeerServiceFromSpan(span)),
 			request.ServerPort(span.HostPort),
+		}
+		// See the EventTypeGRPC case: omit the status code attribute when the
+		// span status is not a valid gRPC code.
+		if code := request.GRPCStatusCodeString(span.Status); code != "" {
+			attrs = append(attrs, semconv.RPCResponseStatusCode(code))
 		}
 	case request.EventTypeSQLClient, request.EventTypeSQLServer:
 		attrs = []attribute.KeyValue{
@@ -1078,8 +1303,15 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 		}
 		if span.Status == 1 && span.SQLError != nil {
 			attrs = append(attrs, request.DBResponseStatusCode(strconv.Itoa(int(span.SQLError.Code))))
-			attrs = append(attrs, request.ErrorType(span.SQLError.SQLState))
+			// omit error.type when the SQLSTATE was not captured, instead of
+			// emitting an empty string.
+			if span.SQLError.SQLState != "" {
+				attrs = append(attrs, request.ErrorType(span.SQLError.SQLState))
+			}
 			attrs = append(attrs, attributes.DBResponseErrorAttr(optionalAttrs, span.SQLErrorDescription())...)
+		}
+		if span.DBNamespace != "" {
+			attrs = append(attrs, request.DBNamespace(span.DBNamespace))
 		}
 	case request.EventTypeRedisServer, request.EventTypeRedisClient:
 		attrs = []attribute.KeyValue{
@@ -1108,14 +1340,17 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 			attrs = append(attrs, request.DBNamespace(span.DBNamespace))
 		}
 	case request.EventTypeKafkaServer, request.EventTypeKafkaClient:
-		operation := request.MessagingOperationType(span.Method)
 		attrs = []attribute.KeyValue{
 			request.ServerAddr(request.HostAsServer(span)),
 			request.ServerPort(span.HostPort),
 			semconv.MessagingSystemKafka,
 			semconv.MessagingDestinationName(span.Path),
 			semconv.MessagingClientID(span.Statement),
-			operation,
+		}
+		// messaging.operation.type is a semconv enum: omit it instead of
+		// emitting an empty (invalid) variant when the operation is unknown.
+		if span.Method != "" {
+			attrs = append(attrs, request.MessagingOperationType(span.Method))
 		}
 
 		if span.Type == request.EventTypeKafkaClient {
@@ -1129,44 +1364,74 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 			}
 		}
 	case request.EventTypeMQTTServer, request.EventTypeMQTTClient:
-		operation := request.MessagingOperationType(span.Method)
 		attrs = []attribute.KeyValue{
 			request.ServerAddr(request.HostAsServer(span)),
 			request.ServerPort(span.HostPort),
 			messagingSystemMQTT,
 			semconv.MessagingDestinationName(span.Path),
 			semconv.MessagingClientID(span.Statement),
-			operation,
+		}
+		if span.Method != "" {
+			attrs = append(attrs, request.MessagingOperationType(span.Method))
 		}
 
 		if span.Type == request.EventTypeMQTTClient {
 			attrs = append(attrs, request.PeerService(request.PeerServiceFromSpan(span)))
 		}
 	case request.EventTypeNATSServer, request.EventTypeNATSClient:
-		operation := request.MessagingOperationType(span.Method)
 		attrs = []attribute.KeyValue{
 			request.ServerAddr(request.HostAsServer(span)),
 			request.ServerPort(span.HostPort),
 			messagingSystemNATS,
 			semconv.MessagingDestinationName(span.Path),
 			semconv.MessagingClientID(span.Statement),
-			operation,
 			semconv.MessagingMessageEnvelopeSize(int(span.ContentLength)),
+		}
+		if span.Method != "" {
+			attrs = append(attrs, request.MessagingOperationType(span.Method))
 		}
 
 		if span.Type == request.EventTypeNATSClient {
 			attrs = append(attrs, request.PeerService(request.PeerServiceFromSpan(span)))
 		}
 	case request.EventTypeAMQPClient:
-		operation := request.MessagingOperationType(span.Method)
 		attrs = []attribute.KeyValue{
 			request.ServerAddr(request.HostAsServer(span)),
 			request.ServerPort(span.HostPort),
 			messagingSystemAMQP,
-			operation,
+		}
+		if span.Method != "" {
+			attrs = append(attrs, request.MessagingOperationType(span.Method))
 		}
 
 		attrs = append(attrs, request.PeerService(request.PeerServiceFromSpan(span)))
+	case request.EventTypeSunRPCServer, request.EventTypeSunRPCClient:
+		// https://opentelemetry.io/docs/specs/semconv/registry/attributes/onc-rpc/
+		attrs = []attribute.KeyValue{
+			request.ServerAddr(request.HostAsServer(span)),
+			request.ServerPort(span.HostPort),
+			request.RPCSystem("onc_rpc"),
+		}
+		if span.Path != "" {
+			attrs = append(attrs, semconv.OncRPCProgramName(span.Path))
+		}
+		if span.Route != "" {
+			if proc, err := strconv.Atoi(span.Route); err == nil {
+				attrs = append(attrs, semconv.OncRPCProcedureNumber(proc))
+			}
+		}
+		if procName := span.SunRPCProcedureNameForExport(); procName != "" {
+			attrs = append(attrs, semconv.OncRPCProcedureName(procName))
+		}
+		if span.SubType != 0 {
+			attrs = append(attrs, semconv.OncRPCVersion(span.SubType))
+		}
+		if span.Statement != "" {
+			attrs = append(attrs, attribute.String(string(attr.OncRPCAuthFlavor), span.Statement))
+		}
+		if span.Type == request.EventTypeSunRPCClient {
+			attrs = append(attrs, request.PeerService(request.PeerServiceFromSpan(span)))
+		}
 	case request.EventTypeMongoClient:
 		attrs = []attribute.KeyValue{
 			request.ServerAddr(request.HostAsServer(span)),
@@ -1214,6 +1479,34 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 		if span.DBNamespace != "" {
 			attrs = append(attrs, request.DBNamespace(span.DBNamespace))
 		}
+	case request.EventTypeAerospikeClient:
+		attrs = []attribute.KeyValue{
+			request.ServerAddr(request.HostAsServer(span)),
+			request.ServerPort(span.HostPort),
+			request.PeerService(request.PeerServiceFromSpan(span)),
+			request.DBSystemName("aerospike"),
+		}
+		if span.Method != "" {
+			attrs = append(attrs, request.DBOperationName(span.Method))
+		}
+		if span.Path != "" {
+			attrs = append(attrs, request.DBCollectionName(span.Path))
+		}
+		if span.DBNamespace != "" {
+			attrs = append(attrs, request.DBNamespace(span.DBNamespace))
+		}
+		if span.DBBatchSize > 0 {
+			attrs = append(attrs, request.DBOperationBatchSize(span.DBBatchSize))
+		}
+		if _, ok := optionalAttrs[attr.DBQueryText]; ok {
+			if span.Statement != "" {
+				attrs = append(attrs, request.DBQueryText(span.Statement))
+			}
+		}
+		if span.Status != 0 {
+			attrs = append(attrs, request.DBResponseStatusCode(span.DBError.ErrorCode))
+			attrs = append(attrs, attributes.DBResponseErrorAttr(optionalAttrs, span.DBError.Description)...)
+		}
 	case request.EventTypeMemcachedClient, request.EventTypeMemcachedServer:
 		attrs = []attribute.KeyValue{
 			request.ServerAddr(request.HostAsServer(span)),
@@ -1255,9 +1548,6 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 			attrs = append(attrs, semconv.DNSQuestionName(span.Path))
 		}
 
-		if span.Status != 0 {
-			attrs = append(attrs, request.ErrorMessage(dnsparser.RCode(span.Status).String()))
-		}
 	}
 
 	if _, ok := optionalAttrs[attr.SkipSpanMetrics]; ok {
@@ -1267,11 +1557,16 @@ func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]str
 	return attrs
 }
 
+// TraceAttributesSelector returns the []attribute.KeyValue for a single span.
+func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]struct{}, redactKeys ...string) []attribute.KeyValue {
+	return traceAttributesSelectorInternal(span, optionalAttrs, buildRedactSet(redactKeys))
+}
+
 func spanKind(span *request.Span) trace2.SpanKind {
 	switch span.Type {
-	case request.EventTypeHTTP, request.EventTypeGRPC, request.EventTypeRedisServer, request.EventTypeKafkaServer, request.EventTypeMQTTServer, request.EventTypeNATSServer, request.EventTypeMemcachedServer, request.EventTypeSQLServer:
+	case request.EventTypeHTTP, request.EventTypeGRPC, request.EventTypeRedisServer, request.EventTypeKafkaServer, request.EventTypeMQTTServer, request.EventTypeNATSServer, request.EventTypeSunRPCServer, request.EventTypeMemcachedServer, request.EventTypeSQLServer:
 		return trace2.SpanKindServer
-	case request.EventTypeHTTPClient, request.EventTypeGRPCClient, request.EventTypeSQLClient, request.EventTypeRedisClient, request.EventTypeMongoClient, request.EventTypeCouchbaseClient, request.EventTypeMemcachedClient, request.EventTypeFailedConnect:
+	case request.EventTypeHTTPClient, request.EventTypeGRPCClient, request.EventTypeSQLClient, request.EventTypeRedisClient, request.EventTypeMongoClient, request.EventTypeCouchbaseClient, request.EventTypeMemcachedClient, request.EventTypeSunRPCClient, request.EventTypeAerospikeClient, request.EventTypeFailedConnect:
 		return trace2.SpanKindClient
 	case request.EventTypeKafkaClient, request.EventTypeMQTTClient, request.EventTypeNATSClient, request.EventTypeAMQPClient:
 		switch span.Method {

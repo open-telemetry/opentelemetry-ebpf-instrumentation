@@ -98,12 +98,17 @@ Once a service has its `ExportsOTelMetrics` / `ExportsOTelTraces` /
 - Prometheus — RED-metrics and span-metrics filters in [`pkg/export/prom/prom.go`](../pkg/export/prom/prom.go).
 
 Each detection event increments the `obi.avoided.services` internal metric
-(Prometheus name: `obi_avoided_services`), labeled with the service identity
-and the telemetry type that was avoided (`metrics` or `traces`). Span-metrics
-suppression is reported under the `metrics` label, not a separate one — the
-`metrics_span` detection path in `reportAvoidedService` routes through
-`AvoidInstrumentationMetrics`, which emits `metrics`. It's emitted from
-`reportAvoidedService` in
+(Prometheus name: `obi_avoided_services`). Normal series are labeled with the
+logical service name, service namespace, and the telemetry type that was
+avoided (`metrics` or `traces`). The service instance ID is intentionally not
+reported because it is unique per service instance and would churn backend
+time series. When the configured cardinality limit is reached, additional
+detections are collapsed before export and reported through the OpenTelemetry
+overflow attribute `otel.metric.overflow=true` (Prometheus label:
+`otel_metric_overflow="true"`). Span-metrics suppression is reported under the
+`metrics` label, not a separate one — the `metrics_span` detection path in
+`reportAvoidedService` routes through `AvoidInstrumentationMetrics`, which
+emits `metrics`. It's emitted from `reportAvoidedService` in
 [`pkg/ebpf/common/pids.go`](../pkg/ebpf/common/pids.go) and is the
 authoritative signal for whether detection has fired for a given service.
 

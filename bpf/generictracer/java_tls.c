@@ -20,6 +20,7 @@
 
 #include <maps/active_ssl_connections.h>
 #include <maps/java_tasks.h>
+#include <maps/java_vt_threads.h>
 
 #include <pid/pid.h>
 
@@ -30,6 +31,8 @@ enum {
     k_ioctl_java_send = 1,
     k_ioctl_java_recv = 2,
     k_ioctl_java_threads = 3,
+    k_ioctl_java_vt_mount = 4,   // virtual thread mounted on this carrier
+    k_ioctl_java_vt_unmount = 5, // virtual thread unmounted from this carrier
 };
 
 enum { k_ioctl_invalid_op = 0xff };
@@ -93,7 +96,40 @@ int BPF_KPROBE(obi_kprobe_sys_ioctl) {
         return 0;
     }
 
-    if (op_cmd == k_ioctl_java_threads) {
+    // Control opcodes each handle themselves and return; the data opcodes
+    // (send/recv) fall through to the connection/payload path below.
+    switch (op_cmd) {
+    case k_ioctl_java_vt_mount: {
+        // The agent reports, on every VirtualThread.mount(), the logical
+        // thread id now mounted on this carrier; the current kernel thread
+        // IS the carrier.
+        u64 vt_id = 0;
+        if (bpf_probe_read_user(&vt_id, sizeof(vt_id), uarg + 1) != 0) {
+            return 0;
+        }
+
+        pid_key_t carrier = {0};
+        task_tid(&carrier);
+
+        bpf_dbg_printk("Java VT mount carrier=%d vt=%lld", carrier.tid, vt_id);
+        bpf_map_update_elem(&java_vt_threads, &carrier, &vt_id, BPF_ANY);
+
+        return 0;
+    }
+    case k_ioctl_java_vt_unmount: {
+        // The mounted VT left this carrier: delete the entry so a carrier
+        // with no mounted VT is never translated. mount/unmount for a
+        // carrier always execute ON that carrier thread, so write and
+        // delete are in program order.
+        pid_key_t carrier = {0};
+        task_tid(&carrier);
+
+        bpf_dbg_printk("Java VT unmount carrier=%d", carrier.tid);
+        bpf_map_delete_elem(&java_vt_threads, &carrier);
+
+        return 0;
+    }
+    case k_ioctl_java_threads: {
         u64 parent_id = 0;
         if (bpf_probe_read_user(&parent_id, sizeof(parent_id), uarg + 1) != 0) {
             return 0;
@@ -125,6 +161,9 @@ int BPF_KPROBE(obi_kprobe_sys_ioctl) {
         }
 
         return 0;
+    }
+    default:
+        break;
     }
 
     const u8 op = cmd_to_op(op_cmd);

@@ -122,6 +122,47 @@ func TestWatcherKubeEnricher(t *testing.T) {
 	}
 }
 
+func TestWatcherKubeEnricherForwardsProcessesWithoutContainer(t *testing.T) {
+	fInformer := &fakeInformer{}
+	store := kube.NewStore(fInformer, kube.ResourceLabels{}, nil, imetrics.NoopReporter{})
+	input := msg.NewQueue[[]Event[ProcessAttrs]](msg.ChannelBufferLen(10))
+	defer input.Close()
+	output := msg.NewQueue[[]Event[ProcessAttrs]](msg.ChannelBufferLen(10))
+	outputCh := output.Subscribe()
+	defer output.Close()
+
+	wk := watcherKubeEnricher{
+		log:                slog.With("component", "discover.watcherKubeEnricher"),
+		store:              store,
+		containerByPID:     map[app.PID]container.Info{},
+		processByContainer: map[string][]ProcessAttrs{},
+		podsInfoCh:         make(chan Event[*informer.ObjectMeta], 10),
+		input:              input.Subscribe(),
+		output:             output,
+	}
+
+	prevContainerInfoForPID := containerInfoForPID
+	containerInfoForPID = func(_ app.PID) (container.Info, error) {
+		return container.Info{}, fmt.Errorf("looking up container: %w", container.ErrContainerNotFound)
+	}
+	t.Cleanup(func() {
+		containerInfoForPID = prevContainerInfoForPID
+	})
+
+	wk.enrichProcessEvent([]Event[ProcessAttrs]{
+		{Type: EventCreated, Obj: ProcessAttrs{pid: 1, openPorts: []uint32{10248}}},
+	})
+
+	events := testutil.ReadChannel(t, outputCh, timeout)
+	require.Len(t, events, 1)
+	assert.Equal(t, Event[ProcessAttrs]{
+		Type: EventCreated,
+		Obj:  ProcessAttrs{pid: 1, openPorts: []uint32{10248}},
+	}, events[0])
+	assert.Empty(t, wk.containerByPID)
+	assert.Empty(t, wk.processByContainer)
+}
+
 func TestWatcherKubeEnricherWithMatcher(t *testing.T) {
 	containerInfoForPID = fakeContainerInfo
 	processInfo = fakeProcessInfo

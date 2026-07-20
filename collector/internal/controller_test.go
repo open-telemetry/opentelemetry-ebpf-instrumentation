@@ -7,6 +7,7 @@ package internal
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -60,6 +61,50 @@ func TestShutdownAfterStartFailureCleansSharedController(t *testing.T) {
 
 	if err := retried.Shutdown(context.Background()); err != nil {
 		t.Fatalf("retry Shutdown returned error without Start: %v", err)
+	}
+}
+
+func TestShutdownRespectsContextDeadline(t *testing.T) {
+	id := component.MustNewIDWithName("obi", "ctx-deadline")
+	c := newTestController(t, id, &obi.Config{})
+
+	// Simulate a running OBI that never finishes: wire up shared state as if
+	// Start() succeeded but the OBI goroutine is permanently blocked.
+	neverDone := make(chan struct{})
+	_, simulatedCancel := context.WithCancel(context.Background())
+	defer simulatedCancel()
+	c.shared.mu.Lock()
+	c.shared.refCnt = 1
+	c.shared.cancel = simulatedCancel
+	c.shared.runDone = neverDone
+	c.shared.mu.Unlock()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // already cancelled so the select fires immediately
+
+	shutdownDone := make(chan error, 1)
+	go func() {
+		shutdownDone <- c.Shutdown(ctx)
+	}()
+
+	timer := newShutdownTimer(t)
+	defer stopTestTimer(timer)
+
+	select {
+	case err := <-shutdownDone:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("expected context.Canceled, got %v", err)
+		}
+	case <-timer.C:
+		t.Fatal("Shutdown blocked on runDone when context was already cancelled")
+	}
+
+	// Shared controller must be removed even when Shutdown exits via ctx.Done().
+	sharedControllersMu.Lock()
+	_, stillRegistered := sharedControllers[id]
+	sharedControllersMu.Unlock()
+	if stillRegistered {
+		t.Fatal("shared controller was not removed after context-deadline Shutdown")
 	}
 }
 

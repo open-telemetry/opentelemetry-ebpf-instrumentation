@@ -1,0 +1,60 @@
+namespaceOverride: obi-store-demo
+
+image:
+  registry: docker.io
+  repository: otel/ebpf-instrument
+  tag: v0.9.0
+  digest: sha256:26f82b148dfe8cb0530561ab72a3cb5490b3ae5df556a33c27984af2e28542cf
+
+preset: application
+privileged: true
+
+config:
+  create: true
+  data:
+    attributes:
+      kubernetes:
+        enable: true
+    routes:
+      patterns:
+        - /
+        - /product/:product_id
+        - /cart
+        - /cart/empty
+        - /setCurrency
+        - /logout
+        - /cart/checkout
+        - /_healthz
+      unmatched: low-cardinality
+    otel_metrics_export:
+      endpoint: http://${LGTM_SERVICE_HOST}:4318
+    otel_traces_export:
+      endpoint: http://${LGTM_SERVICE_HOST}:4318
+    discovery:
+      exclude_otel_instrumented_services: true
+      instrument:
+        - namespace: obi-store-demo
+          k8s_deployment_name: adservice
+        - namespace: obi-store-demo
+          k8s_deployment_name: cartservice
+        - namespace: obi-store-demo
+          k8s_deployment_name: checkoutservice
+        - namespace: obi-store-demo
+          k8s_deployment_name: currencyservice
+        - namespace: obi-store-demo
+          k8s_deployment_name: emailservice
+        - namespace: obi-store-demo
+          k8s_deployment_name: frontend
+        - namespace: obi-store-demo
+          k8s_deployment_name: paymentservice
+        - namespace: obi-store-demo
+          k8s_deployment_name: productcatalogservice
+        - namespace: obi-store-demo
+          k8s_deployment_name: recommendationservice
+        - namespace: obi-store-demo
+          k8s_deployment_name: shippingservice
+
+env:
+  OTEL_EBPF_DISCOVERY_POLL_INTERVAL: 5s
+  OTEL_EBPF_METRICS_INTERVAL: 30s
+  OTEL_EBPF_NAME_RESOLVER_SOURCES: k8s,dns

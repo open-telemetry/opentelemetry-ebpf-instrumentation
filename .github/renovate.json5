@@ -20,7 +20,8 @@
   "pip-compile": {
     "managerFilePatterns": [
       "/^internal\\/test\\/integration\\/components\\/.*\\/requirements(-[^/]+)?\\.txt$/",
-      "/^\\.github\\/.*-requirements\\.txt$/"
+      "/^\\.github\\/.*-requirements\\.txt$/",
+      "/^examples\\/store-demo\\/app\\/src\\/.*\\/requirements\\.txt$/"
     ]
   },
   "customManagers": [
@@ -80,14 +81,6 @@
       "postUpdateOptions": ["gomodTidy", "gomodUpdateImportPaths"]
     },
     {
-      "description": "Block the known-bad github.com/cilium/ebpf v0.21.0 update while allowing later releases through",
-      "matchManagers": ["gomod"],
-      "matchPackageNames": [
-        "github.com/cilium/ebpf"
-      ],
-      "allowedVersions": "!/^v?0\\.21\\.0$/"
-    },
-    {
       "description": "Block Go dependency updates that outpace the generator toolchain (currently Go 1.25.x) until the generator image is upgraded",
       "matchManagers": ["gomod"],
       "matchPackageNames": [
@@ -105,10 +98,105 @@
       "enabled": false
     },
     {
-      "groupName": "Go",
       "matchManagers": ["gomod"],
       "matchUpdateTypes": ["patch", "digest", "minor"],
       "schedule": ["before 6am on Monday"]
+    },
+    {
+      "groupName": "OpenTelemetry Collector Go packages",
+      "matchManagers": ["gomod"],
+      "matchPackageNames": ["go.opentelemetry.io/collector{/,}**"],
+      "matchUpdateTypes": ["patch", "digest", "minor"]
+    },
+    {
+      "groupName": "OpenTelemetry Go packages",
+      "matchManagers": ["gomod"],
+      "matchPackageNames": ["go.opentelemetry.io/otel{/,}**"],
+      "matchUpdateTypes": ["patch", "digest", "minor"]
+    },
+    {
+      "groupName": "OpenTelemetry Go contrib packages",
+      "matchManagers": ["gomod"],
+      "matchPackageNames": ["go.opentelemetry.io/contrib{/,}**"],
+      "matchUpdateTypes": ["patch", "digest", "minor"]
+    },
+    {
+      "groupName": "golang.org/x packages",
+      "matchManagers": ["gomod"],
+      "matchPackageNames": ["golang.org/x{/,}**"],
+      "matchUpdateTypes": ["patch", "digest", "minor"]
+    },
+    {
+      "groupName": "google.golang.org packages",
+      "matchManagers": ["gomod"],
+      "matchPackageNames": ["google.golang.org{/,}**"],
+      "matchUpdateTypes": ["patch", "digest", "minor"]
+    },
+    {
+      "groupName": "Google Cloud Go packages",
+      "matchManagers": ["gomod"],
+      "matchPackageNames": [
+        "cloud.google.com/go{/,}**",
+        "github.com/GoogleCloudPlatform{/,}**"
+      ],
+      "matchUpdateTypes": ["patch", "digest", "minor"]
+    },
+    {
+      "groupName": "Prometheus Go packages",
+      "matchManagers": ["gomod"],
+      "matchPackageNames": ["github.com/prometheus{/,}**"],
+      "matchUpdateTypes": ["patch", "digest", "minor"]
+    },
+    {
+      "groupName": "AWS Go packages",
+      "matchManagers": ["gomod"],
+      "matchPackageNames": ["github.com/aws{/,}**"],
+      "matchUpdateTypes": ["patch", "digest", "minor"]
+    },
+    {
+      "groupName": "Docker Go packages",
+      "matchManagers": ["gomod"],
+      "matchPackageNames": [
+        "github.com/containers{/,}**",
+        "github.com/containerd{/,}**",
+        "github.com/distribution{/,}**",
+        "github.com/docker{/,}**",
+        "github.com/moby{/,}**",
+        "github.com/opencontainers{/,}**"
+      ],
+      "matchUpdateTypes": ["patch", "digest", "minor"]
+    },
+    {
+      "groupName": "Kubernetes Go packages",
+      "matchManagers": ["gomod"],
+      "matchPackageNames": [
+        "k8s.io{/,}**",
+        "sigs.k8s.io{/,}**"
+      ],
+      "matchUpdateTypes": ["patch", "digest", "minor"]
+    },
+    {
+      "groupName": "go-openapi packages",
+      "matchManagers": ["gomod"],
+      "matchPackageNames": ["github.com/go-openapi{/,}**"],
+      "matchUpdateTypes": ["patch", "digest", "minor"]
+    },
+    {
+      "description": "Group validator and translation packages from go-playground",
+      "groupName": "go-playground validator packages",
+      "matchManagers": ["gomod"],
+      "matchPackageNames": [
+        "github.com/go-playground/locales{/,}**",
+        "github.com/go-playground/universal-translator{/,}**",
+        "github.com/go-playground/validator{/,}**"
+      ],
+      "matchUpdateTypes": ["patch", "digest", "minor"]
+    },
+    {
+      "groupName": "Uber Go packages",
+      "matchManagers": ["gomod"],
+      "matchPackageNames": ["go.uber.org{/,}**"],
+      "matchUpdateTypes": ["patch", "digest", "minor"]
     },
     {
       "description": "Block Go language major upgrades in go.mod files (these require coordinated manual changes)",
@@ -127,8 +215,52 @@
     {
       "groupName": "Docker",
       "matchManagers": ["dockerfile"],
-      "matchUpdateTypes": ["patch", "digest", "minor", "major"],
+      "matchUpdateTypes": ["patch", "digest", "minor"],
       "schedule": ["before 6am on Tuesday"]
+    },
+    {
+      "description": "Require manual approval for remaining Docker image major upgrades because Dockerfile versions define runtime compatibility test coverage",
+      "groupName": "Docker major updates",
+      "matchManagers": ["dockerfile"],
+      "matchDatasources": ["docker"],
+      "matchUpdateTypes": ["major"],
+      "dependencyDashboardApproval": true,
+      "schedule": ["before 6am on Tuesday"]
+    },
+    {
+      "description": "Block high-risk Docker image major upgrades for runtime and service compatibility fixtures",
+      "matchManagers": ["dockerfile"],
+      "matchDatasources": ["docker"],
+      "matchPackageNames": [
+        "debian",
+        "docker.io/library/debian",
+        "docker.io/library/eclipse-temurin",
+        "docker.io/library/gcc",
+        "docker.io/library/gradle",
+        "docker.io/library/mysql",
+        "docker.io/library/node",
+        "docker.io/library/redis",
+        "docker.io/library/ruby",
+        "eclipse-temurin",
+        "gcc",
+        "gradle",
+        "library/debian",
+        "library/eclipse-temurin",
+        "library/gcc",
+        "library/gradle",
+        "library/mysql",
+        "library/node",
+        "library/redis",
+        "library/ruby",
+        "mcr.microsoft.com/dotnet/aspnet",
+        "mcr.microsoft.com/dotnet/sdk",
+        "mysql",
+        "node",
+        "redis",
+        "ruby"
+      ],
+      "matchUpdateTypes": ["major"],
+      "enabled": false
     },
     {
       "groupName": "Github Actions",
@@ -213,6 +345,13 @@
       "matchManagers": ["dockerfile"],
       "matchDatasources": ["docker"],
       "matchPackageNames": ["alpine", "library/alpine", "docker.io/library/alpine"],
+      "enabled": false
+    },
+    {
+      "description": "Disable Docker updates for obi-generator",
+      "matchFileNames": ["generator.Dockerfile"],
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["golang"],
       "enabled": false
     },
     {

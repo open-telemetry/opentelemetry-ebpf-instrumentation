@@ -6,6 +6,7 @@ package obi // import "go.opentelemetry.io/obi/pkg/obi"
 import (
 	"encoding"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -35,6 +36,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
 	"go.opentelemetry.io/obi/pkg/export/prom"
 	"go.opentelemetry.io/obi/pkg/filter"
+	"go.opentelemetry.io/obi/pkg/internal/avoidedsvc"
 	"go.opentelemetry.io/obi/pkg/kube"
 	"go.opentelemetry.io/obi/pkg/kube/kubeflags"
 	"go.opentelemetry.io/obi/pkg/transform"
@@ -193,7 +195,7 @@ var DefaultConfig = Config{
 							Headers: config.HTTPParsingActionExclude,
 							Body:    config.HTTPParsingActionExclude,
 						},
-						ObfuscationString: "***",
+						DefaultObfuscationString: "***",
 					},
 					Rules: []config.HTTPParsingRule{},
 				},
@@ -253,6 +255,8 @@ var DefaultConfig = Config{
 			instrumentations.InstrumentationMongo,
 			instrumentations.InstrumentationCouchbase,
 			instrumentations.InstrumentationMemcached,
+			instrumentations.InstrumentationSunRPC,
+			instrumentations.InstrumentationAerospike,
 			// no traces for DNS and GPU by default
 		},
 	},
@@ -269,6 +273,9 @@ var DefaultConfig = Config{
 	TracePrinter: debug.TracePrinterDisabled,
 	InternalMetrics: imetrics.InternalMetricsConfig{
 		Exporter: imetrics.InternalMetricsExporterDisabled,
+		AvoidedServices: imetrics.AvoidedServicesConfig{
+			Limit: avoidedsvc.DefaultLimit,
+		},
 		Prometheus: imetrics.PrometheusConfig{
 			Port: 0, // disabled by default
 			Path: "/internal/metrics",
@@ -322,7 +329,7 @@ var DefaultConfig = Config{
 		DefaultOtlpGRPCPort:   4317,
 		RouteHarvesterTimeout: 10 * time.Second,
 		RouteHarvestConfig: services.RouteHarvestingConfig{
-			JavaHarvestDelay: 60 * time.Second,
+			JavaHarvestDelay: 5 * time.Second,
 		},
 		ExcludedLinuxSystemPaths: []string{"/lib/systemd/", "/usr/lib/systemd/", "/usr/libexec/", "/sbin/", "/usr/sbin/"},
 	},
@@ -332,6 +339,9 @@ var DefaultConfig = Config{
 	Java: JavaConfig{
 		Enabled: true,
 		Timeout: 10 * time.Second,
+	},
+	JVMRuntimeMetrics: JVMRuntimeMetricsConfig{
+		SamplingInterval: time.Second,
 	},
 	HealthCheck: HealthCheckConfig{
 		Port: 0,
@@ -426,7 +436,28 @@ type Config struct {
 	NodeJS NodeJSConfig `yaml:"nodejs"`
 	Java   JavaConfig   `yaml:"javaagent"`
 
+	JVMRuntimeMetrics JVMRuntimeMetricsConfig `yaml:"jvm_runtime_metrics"`
+
 	HealthCheck HealthCheckConfig `yaml:"health_check"`
+}
+
+// JoinMetricsConfig returns a combination of the base and per-application metrics config.
+// It is used to initialize resources that should be available if they are enabled
+// for any possible service match. Per-service features still decide whether each
+// service emits the corresponding metrics.
+func (c *Config) JoinMetricsConfig() *perapp.MetricsConfig {
+	if c == nil {
+		return &perapp.MetricsConfig{}
+	}
+
+	mc := c.Metrics
+	for _, d := range c.Discovery.Instrument {
+		mc.Features |= d.Metrics.Features
+	}
+	for _, d := range c.Discovery.Services {
+		mc.Features |= d.Metrics.Features
+	}
+	return &mc
 }
 
 type HealthCheckConfig struct {
@@ -514,7 +545,7 @@ func stringSliceToTextUnmarshalerHookFunc() mapstructure.DecodeHookFunc {
 
 		if slice, ok := data.([]any); ok {
 			if to == reflect.TypeOf(config.BPFDebugMode(0)) {
-				return data, fmt.Errorf("bpf_debug_mode expects a string, not a list")
+				return data, errors.New("bpf_debug_mode expects a string, not a list")
 			}
 			strs := make([]string, 0, len(slice))
 			for _, v := range slice {
@@ -531,7 +562,7 @@ func stringSliceToTextUnmarshalerHookFunc() mapstructure.DecodeHookFunc {
 		// Handle []string directly
 		if slice, ok := data.([]string); ok {
 			if to == reflect.TypeOf(config.BPFDebugMode(0)) {
-				return data, fmt.Errorf("bpf_debug_mode expects a string, not a list")
+				return data, errors.New("bpf_debug_mode expects a string, not a list")
 			}
 			return strings.Join(slice, ","), nil
 		}
@@ -611,6 +642,9 @@ type Attributes struct {
 	// When the span_name cardinality surpasses this limit, the span_name will be reported as AGGREGATED.
 	// If the value <= 0, it is disabled.
 	MetricSpanNameAggregationLimit int `yaml:"metric_span_names_limit" env:"OTEL_EBPF_METRIC_SPAN_NAMES_LIMIT"`
+
+	// SensitiveQueryParams controls which query-parameter keys are redacted in url.full and url.query.
+	SensitiveQueryParams attributes.SensitiveQueryParamsConfig `yaml:"sensitive_query_params"`
 }
 
 type HostIDConfig struct {
@@ -627,6 +661,10 @@ type JavaConfig struct {
 	Debug                bool          `yaml:"debug" env:"OTEL_EBPF_JAVAAGENT_DEBUG"`
 	DebugInstrumentation bool          `yaml:"debug_instrumentation" env:"OTEL_EBPF_JAVAAGENT_DEBUG_INSTRUMENTATION"`
 	Timeout              time.Duration `yaml:"attach_timeout" env:"OTEL_EBPF_JAVAAGENT_ATTACH_TIMEOUT" validate:"gte=0"`
+}
+
+type JVMRuntimeMetricsConfig struct {
+	SamplingInterval time.Duration `yaml:"sampling_interval" env:"OBI_JVM_RUNTIME_METRICS_SAMPLING_INTERVAL"`
 }
 
 type ConfigError string
@@ -656,6 +694,10 @@ func (c *Config) Validate() error {
 
 	if c.EBPF.BpfDebug && c.EBPF.BpfDebugMode.IsEnabled() {
 		return ConfigError("bpf_debug and bpf_debug_mode cannot be set at the same time")
+	}
+
+	if c.JVMRuntimeMetrics.SamplingInterval <= 0 {
+		return ConfigError("jvm_runtime_metrics.sampling_interval must be greater than 0")
 	}
 
 	if err := c.Discovery.Validate(); err != nil {

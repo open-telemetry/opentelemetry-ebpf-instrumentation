@@ -20,6 +20,7 @@
 #include <maps/ongoing_tcp_req.h>
 #include <maps/tp_info_mem.h>
 
+#include <generictracer/failed_connect.h>
 #include <generictracer/protocol_common.h>
 #include <generictracer/protocol_kafka.h>
 #include <generictracer/protocol_mysql.h>
@@ -112,6 +113,9 @@ static __always_inline void cleanup_trace_info(tcp_req_t *tcp, pid_connection_in
     if (tcp->direction == TCP_RECV) {
         trace_key_t t_key = {0};
         task_tid(&t_key.p_key);
+        if (tcp->task_tid) {
+            t_key.p_key.tid = tcp->task_tid;
+        }
         t_key.extra_id = tcp->extra_id;
 
         delete_server_trace(pid_conn, &t_key);
@@ -216,6 +220,9 @@ static __always_inline int tcp_send_large_buffer(tcp_req_t *req,
     case k_protocol_type_http:
     case k_protocol_type_mqtt:
         break;
+    case k_protocol_type_sunrpc:
+        unknown_send_large_buffer(req, pid_conn, u_buf, bytes_len, packet_type, direction, action);
+        break;
     case k_protocol_type_unknown:
         unknown_send_large_buffer(req, pid_conn, u_buf, bytes_len, packet_type, direction, action);
         break;
@@ -230,22 +237,12 @@ static __always_inline void failed_to_connect_event(pid_connection_info_t *pid_c
                                                     u64 connect_ts) {
     tcp_req_t *req = bpf_ringbuf_reserve(&events, sizeof(tcp_req_t), 0);
     if (req) {
-        req->flags = EVENT_FAILED_CONNECT;
-        req->conn_info = pid_conn->conn;
-        fixup_connection_info(&req->conn_info, TCP_SEND, orig_dport);
-        req->ssl = 0;
-        req->direction = TCP_SEND;
-        req->start_monotime_ns = connect_ts;
-        req->end_monotime_ns = bpf_ktime_get_ns();
-        req->resp_len = 0;
-        req->len = 0;
-        req->req_len = req->len;
-        req->extra_id = extra_runtime_id();
-        req->protocol_type = 0;
-        task_pid(&req->pid);
-        req->buf[0] = '\0';
-
-        req->tp.ts = bpf_ktime_get_ns();
+        pid_info pid = {};
+        task_pid(&pid);
+        const u64 event_ts = bpf_ktime_get_ns();
+        const u64 extra_id = extra_runtime_id();
+        init_failed_connect_tcp_req(
+            req, pid_conn, orig_dport, connect_ts, event_ts, event_ts, extra_id, &pid);
 
         bpf_dbg_printk("TCP connect failed event");
 
@@ -280,6 +277,9 @@ static __always_inline void handle_unknown_tcp_connection(pid_connection_info_t 
         }
     }
     if (!existing) {
+        // Determining the server information for unix sockets is only valid on request creation
+        const bool is_server = is_listening(pid_conn->conn.d_port, netns) ||
+                               is_unix_sock_server(direction, orig_dport);
         if (direction == TCP_RECV) {
             cp_support_data_t *tk = bpf_map_lookup_elem(&cp_support_connect_info, pid_conn);
             if (tk && tk->real_client) {
@@ -295,6 +295,18 @@ static __always_inline void handle_unknown_tcp_connection(pid_connection_info_t 
                     "Got receive as first operation for part client connection, ignoring...");
                 return;
             }
+            // pre-agent client connection: receive-first here is a spontaneous reply,
+            // registering it would invert the request/response roles
+            if (!is_server) {
+                connection_info_part_t server_part = {};
+                populate_ephemeral_info(
+                    &server_part, &pid_conn->conn, orig_dport, pid_conn->pid, FD_SERVER);
+                if (!fd_info_for_conn(&server_part)) {
+                    bpf_dbg_printk("Got receive as first operation for stale client "
+                                   "connection, ignoring...");
+                    return;
+                }
+            }
         } else {
             connection_info_part_t server_part = {};
             populate_ephemeral_info(
@@ -309,10 +321,6 @@ static __always_inline void handle_unknown_tcp_connection(pid_connection_info_t 
 
         tcp_req_t *req = empty_tcp_req();
         if (req) {
-            // Determining the server information for unix sockets is only valid on request creation
-            const bool is_server = is_listening(pid_conn->conn.d_port, netns) ||
-                                   is_unix_sock_server(direction, orig_dport);
-
             req->is_server = is_server;
             int original_bytes_len = bytes_len;
             bpf_clamp_umax(bytes_len, k_tcp_max_len);
@@ -328,6 +336,10 @@ static __always_inline void handle_unknown_tcp_connection(pid_connection_info_t 
             req->event_source = event_source(lw_thread); // generic events generated from Go
             req->req_len = original_bytes_len;
             req->extra_id = extra_runtime_id();
+            pid_key_t req_task = {0};
+            task_tid(&req_task);
+            java_vt_translate_tid(&req_task);
+            req->task_tid = req_task.tid;
             req->protocol_type = protocol_type;
             task_pid(&req->pid);
             bpf_probe_read(req->buf, bytes_len, u_buf);

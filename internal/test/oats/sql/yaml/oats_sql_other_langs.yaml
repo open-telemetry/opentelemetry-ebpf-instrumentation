@@ -2,6 +2,7 @@ oats-schema-version: 2
 docker-compose:
   files:
   - ../docker-compose-obi-sql.yml
+  - ../../weaver/docker-compose-weaver.yml
 input:
 - path: /query
 interval: 500ms
@@ -14,7 +15,7 @@ expected:
       db.collection.name: accounting.contacts
       db.system.name: postgresql
       db.query.text: SELECT * FROM accounting.contacts WHERE id = 1
-      peer.service: sqlserver
+      service.peer.name: sqlserver
   metrics:
   - promql: db_client_operation_duration_seconds_sum{db_system_name="postgresql"}
     value: '> 0'

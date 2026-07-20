@@ -414,3 +414,43 @@ func TestGeminiFunctionCalls(t *testing.T) {
 		assert.Empty(t, result2)
 	})
 }
+
+func TestGeminiSpan_StreamResponse(t *testing.T) {
+	streamBody := "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"Hello \"}],\"role\":\"model\"}}],\"modelVersion\":\"gemini-2.0-flash\",\"responseId\":\"resp_stream\"}\n\n" +
+		"data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"from stream.\"}],\"role\":\"model\"},\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"promptTokenCount\":12,\"candidatesTokenCount\":6,\"totalTokenCount\":18},\"modelVersion\":\"gemini-2.0-flash\",\"responseId\":\"resp_stream\"}\n\n"
+
+	req := makeRequest(t, http.MethodPost, "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:streamGenerateContent", geminiRequestBody)
+	resp := makePlainResponse(http.StatusOK, http.Header{
+		"Content-Type":          []string{"text/event-stream"},
+		"X-Gemini-Service-Tier": []string{"standard"},
+	}, streamBody)
+
+	base := &request.Span{}
+	span, ok := GeminiSpan(base, req, resp)
+
+	require.True(t, ok)
+	require.NotNil(t, span.GenAI)
+	require.NotNil(t, span.GenAI.Gemini)
+
+	ai := span.GenAI.Gemini
+	assert.Equal(t, request.HTTPSubtypeGemini, span.SubType)
+	assert.True(t, ai.IsStream)
+	assert.Equal(t, "gemini-2.0-flash", ai.Model)
+	assert.Equal(t, "stream_generate_content", ai.Operation)
+	assert.Equal(t, "gemini-2.0-flash", ai.Output.ModelVersion)
+	assert.Equal(t, "resp_stream", ai.Output.ResponseID)
+	assert.Equal(t, 12, ai.Output.UsageMetadata.PromptTokenCount)
+	assert.Equal(t, 6, ai.Output.UsageMetadata.CandidatesTokenCount)
+	assert.Equal(t, 18, ai.Output.UsageMetadata.TotalTokenCount)
+
+	require.Len(t, ai.Output.Candidates, 1)
+	assert.Equal(t, "STOP", ai.Output.Candidates[0].FinishReason)
+
+	var parts []struct {
+		Text string `json:"text"`
+	}
+	require.NoError(t, json.Unmarshal(ai.Output.Candidates[0].Content.Parts, &parts))
+	require.Len(t, parts, 1)
+	assert.Equal(t, "Hello from stream.", parts[0].Text)
+	assert.NotEmpty(t, ai.GetOutput())
+}

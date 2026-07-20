@@ -5,6 +5,9 @@
 # This tracks the declarative schema major.minor, not an upstream release tag.
 file_format: '1.0'
 
+# Standard OTel declarative log level for OBI daemon logging.
+log_level: info
+
 # Standard OTel resource attributes (service.name, service.namespace, etc.).
 resource: {}
 # Global propagation format configuration (tracecontext, baggage, b3, etc.).
@@ -47,7 +50,9 @@ tracer_provider:
   processors:
     - batch:
         # Max in-memory queue before flush.
-        max_queue_size: 4096
+        max_queue_size: 16384
+        # Max spans exported per batch.
+        max_export_batch_size: 4096
         # Delay interval between batch exports in milliseconds.
         schedule_delay: 15000
         # Trace exporter.
@@ -148,6 +153,49 @@ extensions:
                 - /sbin/*
                 - /usr/sbin/*
 
+        # Example (commented): effective glob selector exported from discovery.instrument
+        # and top-level auto-target fields.
+        #
+        # - action: include
+        #   name: checkout-glob
+        #   match:
+        #     process:
+        #       open_ports: "8080,9090-9091"
+        #       target_pids: [1234, 5678]
+        #       language_glob: [go, java]
+        #       cmd_args_glob: ["*--serve*"]
+        #       exe_path_glob: ["/usr/bin/checkout"]
+        #       containers_only: true
+        #     kubernetes:
+        #       namespace_glob: ["shop-*"]
+        #       metadata_glob:
+        #         k8s_deployment_name: ["checkout-*"]
+        #         k8s_container_name: ["checkout"]
+        #       pod_labels:
+        #         app: ["checkout"]
+        #       pod_annotations:
+        #         team: ["payments"]
+        #
+        # Example (commented): legacy regex selector exported from discovery.services
+        # or top-level executable_path/open_port fallback.
+        #
+        # - action: include
+        #   name: checkout-regex
+        #   match:
+        #     process:
+        #       open_ports: "8080"
+        #       language_regex: "go|java"
+        #       cmd_args_regex: "--serve"
+        #       exe_path_regex: "^/srv/checkout$"
+        #     kubernetes:
+        #       namespace_regex: "^shop$"
+        #       metadata_regex:
+        #         k8s_deployment_name: "^checkout-.+$"
+        #       pod_labels_regex:
+        #         app: "^checkout$"
+        #       pod_annotations_regex:
+        #         team: "^payments$"
+
         # Example (commented): per-workload refinement on include rules.
         # The `refine` block overrides global defaults for workloads matched by this rule.
         # Use this to disable signals, add per-service HTTP routes, or tighten filters
@@ -166,12 +214,15 @@ extensions:
         #       traces: true
         #       metrics: false
         #     http:
-        #       # Per-workload HTTP route patterns (override global patterns for this service).
+        #       # Per-workload HTTP route patterns for requests handled by or made by this workload.
         #       routes:
-        #         unmatched: wildcard
-        #         patterns:
-        #           - /cart/{id}
-        #           - /cart/{id}/items
+        #         incoming:
+        #           patterns:
+        #             - /cart/{id}
+        #             - /cart/{id}/items
+        #         outgoing:
+        #           patterns:
+        #             - /checkout/{id}
         #       # Per-workload HTTP filters (replace global filters for this service).
         #       filters:
         #         traces:
@@ -228,15 +279,24 @@ extensions:
               disabled_languages: []
               java:
                 # Delay before Java route template discovery to allow runtime readiness.
-                delay: 1m0s
+                delay: 5s
           # HTTP payload-level extraction features.
           payload_extraction:
             # List-based enablement, consistent with other instrumentation selectors.
-            # Supported values today: graphql, elasticsearch, aws, sqlpp.
+            # Supported values today: graphql, elasticsearch, aws, sqlpp,
+            # openai, anthropic, gemini, qwen, bedrock, mcp, embedding,
+            # rerank, retrieval, jsonrpc, enrichment.
             enabled: []
             sqlpp:
               endpoint_patterns:
                 - /query/service
+            enrichment:
+              policy:
+                default_action:
+                  headers: exclude
+                  body: exclude
+                obfuscation_string: "***"
+              rules: []
         # gRPC protocol instrumentation toggle.
         grpc:
           enabled:
@@ -258,6 +318,9 @@ extensions:
             buffer_size: 0
             prepared_statements_cache_size: 1024
           postgres:
+            buffer_size: 0
+            prepared_statements_cache_size: 1024
+          mssql:
             buffer_size: 0
             prepared_statements_cache_size: 1024
         # Redis instrumentation and DB cache behavior.
@@ -401,6 +464,8 @@ extensions:
               first_come_ttl: 0s
             # Packet sampling rate (0 means disabled/default behavior).
             sampling: 0
+            # How to assign client/server ports when connection initiator is unknown.
+            guess_ports: disable
           # How interface changes are detected.
           interface_discovery:
             # watch (event-based) or poll.
@@ -425,6 +490,38 @@ extensions:
           # Debug/diagnostics output controls.
           diagnostics:
             print_flows: false
+        stats:
+          # Master switch for TCP stats observability.
+          enabled: false
+          # Supported values: tcp_rtt, tcp_failed_connections, tcp_retransmits, tcp_io.
+          features: []
+          endpoint_identity:
+            agent_ip: ""
+            agent_ip_interface: external
+            agent_ip_family: any
+          selection:
+            # Optional CIDR definitions for src/dst stats grouping attributes.
+            cidrs: []
+          filters:
+            traces: {}
+            metrics: {}
+          enrichment:
+            geo_ip:
+              ipinfo:
+                path: ""
+              maxmind:
+                country_path: ""
+                asn_path: ""
+              cache:
+                size: 512
+                ttl: 1h0m0s
+            reverse_dns:
+              mode: none
+              cache:
+                size: 256
+                ttl: 1h0m0s
+          diagnostics:
+            print_stats: false
 
       # limits constrains cardinality and memory growth during capture.
       limits:
@@ -449,8 +546,11 @@ extensions:
         traffic:
           control_backend: auto
           high_request_volume: false
+          force_map_reader: auto
         transactions:
           max_duration: 5m0s
+        maps:
+          global_scale_factor: 0
         bpf_filesystem:
           path: /sys/fs/bpf/
 
@@ -577,14 +677,14 @@ extensions:
           workers: 8
           channel_len: 500
 
-    # daemon controls the OBI process itself: logging, profiling, shutdown, and internal metrics.
+    # daemon controls the OBI process itself: log formatting, profiling, shutdown, and internal metrics.
     # Standalone-mode only: not valid in Collector receiver deployments.
     # In receiver mode the Collector manages these concerns.
     daemon:
-      # Logging behavior and startup config dump.
+      # Logging output behavior. Use top-level log_level for verbosity.
       logging:
-        level: INFO
-        format: ""
+        format: text
+        config_format: ""
         debug_trace_output: disabled
       # Optional profiling endpoint.
       profiling:

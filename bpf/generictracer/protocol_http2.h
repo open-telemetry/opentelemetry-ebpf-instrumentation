@@ -87,6 +87,9 @@ static __always_inline u8 parse_hpack_traceparent(const unsigned char *data,
         const u8 name_len_byte = data[i + 1];
 
         if (name_len_byte == k_hpack_tp_name_len) { // plaintext
+            if (i + k_h2_tp_hpack_size > data_len) {
+                continue;
+            }
             if (bpf_memcmp(
                     &data[i + k_hpack_tp_name_offset], k_hpack_tp_name, k_hpack_tp_name_len) != 0) {
                 continue;
@@ -158,6 +161,7 @@ static __always_inline void http2_grpc_start_finalize_server(http2_conn_stream_t
 
     trace_key_t t_key = {0};
     task_tid(&t_key.p_key);
+    java_vt_translate_tid(&t_key.p_key);
     t_key.extra_id = extra_runtime_id();
     bpf_map_update_elem(&server_traces, &t_key, tp_p, BPF_ANY);
 
@@ -242,6 +246,7 @@ static __always_inline void http2_grpc_start(void *ctx,
         // Refresh per stream — persistent H2 clients (Node grpc-js) carry a
         // stale extra_id from the first connect
         task_tid(&cp->t_key.p_key);
+        java_vt_translate_tid(&cp->t_key.p_key);
         cp->t_key.extra_id = extra_runtime_id();
         cp->ts = bpf_ktime_get_ns();
     }
@@ -430,7 +435,7 @@ int obi_protocol_http2_grpc_handle_start_frame_server(void *ctx) {
     const u32 frame_len =
         ((u32)h2g_info->data[0] << 16) | ((u32)h2g_info->data[1] << 8) | (u32)h2g_info->data[2];
     const u32 raw_len = frame_len < k_h2_max_payload ? frame_len : k_h2_max_payload;
-    const u32 skip = prefix + padded * h2g_info->data[k_h2_frame_header_len];
+    const u32 skip = prefix + (padded * h2g_info->data[k_h2_frame_header_len]);
     const u32 hpack_len = raw_len > skip ? raw_len - skip : 0;
     if (!parse_hpack_traceparent(
             h2g_info->data + k_h2_frame_header_len + prefix, hpack_len, &tp_p->tp)) {

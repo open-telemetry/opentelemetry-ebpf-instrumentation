@@ -9,6 +9,9 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ThreadLocalRandom;
@@ -38,6 +41,17 @@ public class GreetingController {
 		return ResponseEntity.ok("OK");
 	}
 
+	@GetMapping("/gc")
+	public ResponseEntity<String> gc() throws InterruptedException {
+		byte[][] allocations = new byte[64][];
+		for (int i = 0; i < allocations.length; i++) {
+			allocations[i] = new byte[1024 * 1024];
+		}
+		System.gc();
+		Thread.sleep(100);
+		return ResponseEntity.ok("OK");
+	}
+
 	@GetMapping("/json_logger")
 	public ResponseEntity<String> jsonLogger() {
 		String message = "this is a json log from java";
@@ -62,6 +76,25 @@ public class GreetingController {
 			throws Exception {
 		randomSleep(Duration.ofMillis(delay));
 		return ResponseEntity.status(response).body("Hello, World! " + whatever);
+	}
+
+	@GetMapping("/sync-client")
+	public ResponseEntity<String> syncClient(@RequestParam(name = "url") String url) throws Exception {
+		HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
+		conn.setRequestMethod("GET");
+		conn.setConnectTimeout(10000);
+		conn.setReadTimeout(10000);
+		try {
+			int code = conn.getResponseCode();
+			try (InputStream is = code >= 400 ? conn.getErrorStream() : conn.getInputStream()) {
+				if (is != null) {
+					is.readAllBytes();
+				}
+			}
+			return ResponseEntity.status(code).body("done");
+		} finally {
+			conn.disconnect();
+		}
 	}
 
 	@GetMapping("/jtrace")

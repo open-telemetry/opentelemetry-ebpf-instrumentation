@@ -8,22 +8,22 @@ replaces:
 
 exporters:
   - gomod:
-      go.opentelemetry.io/collector/exporter/debugexporter v0.145.0
+      go.opentelemetry.io/collector/exporter/debugexporter v0.151.0
   - gomod:
-      go.opentelemetry.io/collector/exporter/otlpexporter v0.145.0
+      go.opentelemetry.io/collector/exporter/otlpexporter v0.151.0
 
 processors:
   - gomod:
-      go.opentelemetry.io/collector/processor/batchprocessor v0.145.0
+      go.opentelemetry.io/collector/processor/batchprocessor v0.151.0
 
 receivers:
-  - gomod: go.opentelemetry.io/collector/receiver/otlpreceiver v0.145.0
+  - gomod: go.opentelemetry.io/collector/receiver/otlpreceiver v0.151.0
   - gomod: go.opentelemetry.io/obi v0.5.0
     import: go.opentelemetry.io/obi/collector
 
 providers:
-  - gomod: go.opentelemetry.io/collector/confmap/provider/envprovider v1.51.0
-  - gomod: go.opentelemetry.io/collector/confmap/provider/fileprovider v1.51.0
-  - gomod: go.opentelemetry.io/collector/confmap/provider/httpprovider v1.51.0
-  - gomod: go.opentelemetry.io/collector/confmap/provider/httpsprovider v1.51.0
-  - gomod: go.opentelemetry.io/collector/confmap/provider/yamlprovider v1.51.0
+  - gomod: go.opentelemetry.io/collector/confmap/provider/envprovider v1.57.0
+  - gomod: go.opentelemetry.io/collector/confmap/provider/fileprovider v1.57.0
+  - gomod: go.opentelemetry.io/collector/confmap/provider/httpprovider v1.57.0
+  - gomod: go.opentelemetry.io/collector/confmap/provider/httpsprovider v1.57.0
+  - gomod: go.opentelemetry.io/collector/confmap/provider/yamlprovider v1.57.0

@@ -65,9 +65,9 @@ func RunWithContextInfo(
 
 	// Enable App O11y when config enables it or when the caller passed a dynamic PID selector
 	// (allows an "empty" instrumenter that only instruments PIDs added via the selector).
-	app := cfg.Enabled(obi.FeatureAppO11y) || ctxInfo.AppO11y.DynamicPIDSelector != nil
-	net := cfg.Enabled(obi.FeatureNetO11y)
-	stats := cfg.Enabled(obi.FeatureStatsO11y)
+	app := cfg.Enabled(obi.FeatureAppO11y) || ctxInfo.DynamicPIDSelector != nil
+	net := cfg.Enabled(obi.FeatureNetO11y) || ctxInfo.DynamicPIDSelector != nil
+	stats := cfg.Enabled(obi.FeatureStatsO11y) || ctxInfo.DynamicPIDSelector != nil
 
 	// if one of nodes fail, the other should stop
 	g, ctx := errgroup.WithContext(ctx)
@@ -246,6 +246,9 @@ func BuildCommonContextInfo(
 	)
 
 	ctxInfo.DockerMetadata = docker.NewStore()
+	if !ctxInfo.K8sInformer.IsKubeEnabled() {
+		ctxInfo.DockerMetadata.Start(ctx)
+	}
 
 	attributeGroups(config, ctxInfo)
 
