@@ -175,6 +175,28 @@ extensions:
 	require.Contains(t, err.Error(), "verbose")
 }
 
+func TestDocumentToRuntimeRejectsOpenTelemetryExtensionFields(t *testing.T) {
+	t.Parallel()
+
+	doc, _, err := schema.ParseStandaloneYAML([]byte(`
+file_format: "1.0"
+tracer_provider:
+  sampler:
+    vendor_sampler: {}
+extensions:
+  obi:
+    version: "2.0"
+`))
+	require.NoError(t, err)
+
+	_, err = DocumentToRuntime(doc)
+	require.ErrorContains(
+		t,
+		err,
+		"OpenTelemetry extension fields are not supported: tracer_provider.sampler.vendor_sampler",
+	)
+}
+
 func TestDocumentToRuntimeSkipsUnsupportedMetricReaderShapes(t *testing.T) {
 	t.Parallel()
 

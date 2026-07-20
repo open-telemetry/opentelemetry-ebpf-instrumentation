@@ -715,12 +715,12 @@ func daemon(cfg *obi.Config) *schema.Daemon {
 }
 
 func logLevel(level obi.LogLevel) otelconfx.SeverityNumber {
-	switch level {
-	case obi.LogLevelDebug:
+	switch strings.ToUpper(string(level)) {
+	case string(obi.LogLevelDebug):
 		return otelconfx.SeverityNumberDebug
-	case obi.LogLevelWarn:
+	case string(obi.LogLevelWarn):
 		return otelconfx.SeverityNumberWarn
-	case obi.LogLevelError:
+	case string(obi.LogLevelError):
 		return otelconfx.SeverityNumberError
 	default:
 		return otelconfx.SeverityNumberInfo
