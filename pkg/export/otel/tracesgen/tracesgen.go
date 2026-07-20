@@ -566,10 +566,15 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 		attrs = []attribute.KeyValue{
 			semconv.RPCMethod(span.Path),
 			semconv.RPCSystemNameGRPC,
-			semconv.RPCResponseStatusCode(request.GRPCStatusCodeString(span.Status)),
 			request.ClientAddr(request.PeerAsClient(span)),
 			request.ServerAddr(request.SpanHost(span)),
 			request.ServerPort(span.HostPort),
+		}
+		// GRPCStatusCodeString returns "" for statuses outside the gRPC enum
+		// (e.g. an HTTP code that leaked through protocol detection): omit
+		// the attribute instead of inventing a value.
+		if code := request.GRPCStatusCodeString(span.Status); code != "" {
+			attrs = append(attrs, semconv.RPCResponseStatusCode(code))
 		}
 	case request.EventTypeHTTPClient:
 		// SQL++ spans should only have DB attributes, not HTTP attributes
@@ -651,7 +656,11 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 			}
 			attrs = append(attrs, request.DBOperationName(span.Elasticsearch.DBOperationName))
 			attrs = append(attrs, request.DBSystemName(span.Elasticsearch.DBSystemName))
-			attrs = append(attrs, request.ErrorType(span.DBError.ErrorCode))
+			// error.type only applies to failed requests: omit it instead of
+			// emitting an empty string on successful spans.
+			if span.DBError.ErrorCode != "" {
+				attrs = append(attrs, request.ErrorType(span.DBError.ErrorCode))
+			}
 		}
 
 		if span.SubType == request.HTTPSubtypeAWSS3 && span.AWS != nil {
@@ -668,7 +677,11 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 		if span.SubType == request.HTTPSubtypeAWSSQS && span.AWS != nil {
 			sqs := span.AWS.SQS
 			attrs = append(attrs, request.MessagingOperationName(sqs.OperationName))
-			attrs = append(attrs, request.MessagingOperationType(sqs.OperationType))
+			// messaging.operation.type is a semconv enum: omit it instead of
+			// emitting an empty (invalid) variant when the type is unknown.
+			if sqs.OperationType != "" {
+				attrs = append(attrs, request.MessagingOperationType(sqs.OperationType))
+			}
 			attrs = append(attrs, request.MessagingDestinationName(sqs.Destination))
 			attrs = append(attrs, request.MessagingMessageID(sqs.MessageID))
 			attrs = append(attrs, semconv.CloudRegion(sqs.Meta.Region))
@@ -680,7 +693,11 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 		if span.SubType == request.HTTPSubtypeOpenAI && span.GenAI != nil && span.GenAI.OpenAI != nil {
 			ai := span.GenAI.OpenAI
 			attrs = append(attrs, semconv.GenAIProviderNameOpenAI)
-			attrs = append(attrs, semconv.GenAIOperationNameKey.String(ai.OperationName))
+			if ai.OperationName != "" {
+				// Omit gen_ai.operation.name when the operation could not be
+				// derived rather than emitting an empty value.
+				attrs = append(attrs, semconv.GenAIOperationNameKey.String(ai.OperationName))
+			}
 			attrs = append(attrs, semconv.GenAIResponseID(ai.ID))
 			if ai.OperationName == "conversation" || ai.OperationName == "chatkit.session" || ai.OperationName == "chatkit.thread" {
 				attrs = append(attrs, semconv.GenAIConversationID(ai.ID))
@@ -785,7 +802,11 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 		if span.SubType == request.HTTPSubtypeAnthropic && span.GenAI != nil && span.GenAI.Anthropic != nil {
 			ai := span.GenAI.Anthropic
 			attrs = append(attrs, semconv.GenAIProviderNameAnthropic)
-			attrs = append(attrs, semconv.GenAIOperationNameKey.String(ai.Output.Type))
+			if ai.Output.Type != "" {
+				// Omit gen_ai.operation.name when the response type was not
+				// captured rather than emitting an empty value.
+				attrs = append(attrs, semconv.GenAIOperationNameKey.String(ai.Output.Type))
+			}
 			if ai.Output.Error != nil && ai.Output.Error.Type != "" {
 				attrs = append(attrs, semconv.GenAIResponseID(ai.Output.RequestID))
 			} else {
@@ -932,7 +953,12 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 		if span.SubType == request.HTTPSubtypeQwen && span.GenAI != nil && span.GenAI.Qwen != nil {
 			ai := span.GenAI.Qwen
 			attrs = append(attrs, semconv.GenAIProviderNameKey.String(attr.QwenProviderName))
-			attrs = append(attrs, semconv.GenAIOperationNameKey.String(ai.OperationName))
+			if ai.OperationName != "" {
+				// gen_ai.operation.name must not be emitted as an empty
+				// string: omit it when the operation could not be derived
+				// (re-typed to string in schemas/obi/groups/gen_ai.yaml).
+				attrs = append(attrs, semconv.GenAIOperationNameKey.String(ai.OperationName))
+			}
 			attrs = append(attrs, semconv.GenAIResponseID(ai.ID))
 			attrs = append(attrs, semconv.GenAIRequestModel(ai.Request.Model))
 			if ai.ResponseModel != "" {
@@ -1246,10 +1272,14 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 		attrs = []attribute.KeyValue{
 			semconv.RPCMethod(span.Path),
 			semconv.RPCSystemNameGRPC,
-			semconv.RPCResponseStatusCode(request.GRPCStatusCodeString(span.Status)),
 			request.ServerAddr(request.HostAsServer(span)),
 			request.PeerService(request.PeerServiceFromSpan(span)),
 			request.ServerPort(span.HostPort),
+		}
+		// See the EventTypeGRPC case: omit the status code attribute when the
+		// span status is not a valid gRPC code.
+		if code := request.GRPCStatusCodeString(span.Status); code != "" {
+			attrs = append(attrs, semconv.RPCResponseStatusCode(code))
 		}
 	case request.EventTypeSQLClient, request.EventTypeSQLServer:
 		attrs = []attribute.KeyValue{
@@ -1273,7 +1303,11 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 		}
 		if span.Status == 1 && span.SQLError != nil {
 			attrs = append(attrs, request.DBResponseStatusCode(strconv.Itoa(int(span.SQLError.Code))))
-			attrs = append(attrs, request.ErrorType(span.SQLError.SQLState))
+			// omit error.type when the SQLSTATE was not captured, instead of
+			// emitting an empty string.
+			if span.SQLError.SQLState != "" {
+				attrs = append(attrs, request.ErrorType(span.SQLError.SQLState))
+			}
 			attrs = append(attrs, attributes.DBResponseErrorAttr(optionalAttrs, span.SQLErrorDescription())...)
 		}
 		if span.DBNamespace != "" {
@@ -1306,14 +1340,17 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 			attrs = append(attrs, request.DBNamespace(span.DBNamespace))
 		}
 	case request.EventTypeKafkaServer, request.EventTypeKafkaClient:
-		operation := request.MessagingOperationType(span.Method)
 		attrs = []attribute.KeyValue{
 			request.ServerAddr(request.HostAsServer(span)),
 			request.ServerPort(span.HostPort),
 			semconv.MessagingSystemKafka,
 			semconv.MessagingDestinationName(span.Path),
 			semconv.MessagingClientID(span.Statement),
-			operation,
+		}
+		// messaging.operation.type is a semconv enum: omit it instead of
+		// emitting an empty (invalid) variant when the operation is unknown.
+		if span.Method != "" {
+			attrs = append(attrs, request.MessagingOperationType(span.Method))
 		}
 
 		if span.Type == request.EventTypeKafkaClient {
@@ -1327,41 +1364,44 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 			}
 		}
 	case request.EventTypeMQTTServer, request.EventTypeMQTTClient:
-		operation := request.MessagingOperationType(span.Method)
 		attrs = []attribute.KeyValue{
 			request.ServerAddr(request.HostAsServer(span)),
 			request.ServerPort(span.HostPort),
 			messagingSystemMQTT,
 			semconv.MessagingDestinationName(span.Path),
 			semconv.MessagingClientID(span.Statement),
-			operation,
+		}
+		if span.Method != "" {
+			attrs = append(attrs, request.MessagingOperationType(span.Method))
 		}
 
 		if span.Type == request.EventTypeMQTTClient {
 			attrs = append(attrs, request.PeerService(request.PeerServiceFromSpan(span)))
 		}
 	case request.EventTypeNATSServer, request.EventTypeNATSClient:
-		operation := request.MessagingOperationType(span.Method)
 		attrs = []attribute.KeyValue{
 			request.ServerAddr(request.HostAsServer(span)),
 			request.ServerPort(span.HostPort),
 			messagingSystemNATS,
 			semconv.MessagingDestinationName(span.Path),
 			semconv.MessagingClientID(span.Statement),
-			operation,
 			semconv.MessagingMessageEnvelopeSize(int(span.ContentLength)),
+		}
+		if span.Method != "" {
+			attrs = append(attrs, request.MessagingOperationType(span.Method))
 		}
 
 		if span.Type == request.EventTypeNATSClient {
 			attrs = append(attrs, request.PeerService(request.PeerServiceFromSpan(span)))
 		}
 	case request.EventTypeAMQPClient:
-		operation := request.MessagingOperationType(span.Method)
 		attrs = []attribute.KeyValue{
 			request.ServerAddr(request.HostAsServer(span)),
 			request.ServerPort(span.HostPort),
 			messagingSystemAMQP,
-			operation,
+		}
+		if span.Method != "" {
+			attrs = append(attrs, request.MessagingOperationType(span.Method))
 		}
 
 		attrs = append(attrs, request.PeerService(request.PeerServiceFromSpan(span)))

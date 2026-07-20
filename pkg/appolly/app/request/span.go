@@ -788,11 +788,13 @@ type JSONRPC struct {
 
 // GenAI operation name constants aligned with OTel semantic conventions.
 const (
-	ChatOperationName        = "chat"
-	CompletionOperationName  = "text_completion"
-	GenerationOperationName  = "generation"
-	InvokeModelOperationName = "invoke_model"
-	EmbeddingOperationName   = "embeddings"
+	ChatOperationName         = "chat"
+	CompletionOperationName   = "text_completion"
+	GenerationOperationName   = "generation"
+	InvokeModelOperationName  = "invoke_model"
+	EmbeddingOperationName    = "embeddings"
+	ResponseOperationName     = "response"
+	ConversationOperationName = "conversation"
 )
 
 // VendorEmbedding represents a generic embedding API provider such as

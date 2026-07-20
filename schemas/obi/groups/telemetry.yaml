@@ -1,0 +1,67 @@
+groups:
+  # Overrides `telemetry.sdk.language`: extends the upstream enum with
+  # `generic`, which pkg/appolly/app/svc/svc.go (InstrumentableType.String)
+  # reports for executables with no recognized language runtime — OBI
+  # instruments processes that carry no SDK at all, a case the upstream enum
+  # has no member for. The `unknown` fallback in the same switch is a bug
+  # marker and is deliberately NOT declared here, so weaver keeps flagging it.
+  #
+  # See ../README.md for the override mechanics (x.obi.* group id, full
+  # upstream member list, lint allowlist).
+  - id: x.obi.telemetry
+    type: attribute_group
+    display_name: OBI Telemetry Attribute Overrides
+    brief: >
+      OBI override of `telemetry.sdk.language` extending the upstream enum
+      with the `generic` language OBI reports for processes with no
+      recognized language runtime.
+    attributes:
+      - id: telemetry.sdk.language
+        type:
+          members:
+            - id: cpp
+              value: "cpp"
+              stability: stable
+            - id: dotnet
+              value: "dotnet"
+              stability: stable
+            - id: erlang
+              value: "erlang"
+              stability: stable
+            - id: go
+              value: "go"
+              stability: stable
+            - id: java
+              value: "java"
+              stability: stable
+            - id: nodejs
+              value: "nodejs"
+              stability: stable
+            - id: php
+              value: "php"
+              stability: stable
+            - id: python
+              value: "python"
+              stability: stable
+            - id: ruby
+              value: "ruby"
+              stability: stable
+            - id: rust
+              value: "rust"
+              stability: stable
+            - id: swift
+              value: "swift"
+              stability: stable
+            - id: webjs
+              value: "webjs"
+              stability: stable
+            # --- OBI extensions (not in upstream semconv v1.41) ---
+            - id: generic
+              value: "generic"
+              brief: >
+                A process with no recognized language runtime, instrumented
+                at the eBPF level without any telemetry SDK.
+              stability: development
+        stability: stable
+        brief: >
+          The language of the telemetry SDK.

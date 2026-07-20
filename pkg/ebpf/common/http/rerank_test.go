@@ -152,7 +152,9 @@ func TestRerankSpan_VoyageAI(t *testing.T) {
 
 func TestRerankSpan_UnknownProvider(t *testing.T) {
 	// Unknown hostname but request body contains "model" field,
-	// so it should still be detected as a rerank request.
+	// so it should still be detected as a rerank request. The vendor
+	// cannot be identified, so it falls back to the declared "generic"
+	// provider rather than the invalid "unknown" enum value.
 	req := makeRequest(t, http.MethodPost, "http://custom-rerank.example.com/v1/rerank", cohereRerankRequestBody)
 	resp := makePlainResponse(http.StatusOK, http.Header{
 		"Content-Type": []string{"application/json"},
@@ -162,7 +164,7 @@ func TestRerankSpan_UnknownProvider(t *testing.T) {
 	span, ok := RerankSpan(base, req, resp)
 
 	require.True(t, ok)
-	assert.Equal(t, "unknown", span.GenAI.Rerank.Provider)
+	assert.Equal(t, genericRerankProvider, span.GenAI.Rerank.Provider)
 }
 
 func TestRerankSpan_ErrorResponse(t *testing.T) {

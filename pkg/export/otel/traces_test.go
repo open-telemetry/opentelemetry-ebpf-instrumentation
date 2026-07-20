@@ -590,6 +590,98 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		ensureTraceIntAttr(t, attrs, semconv.MessagingMessageEnvelopeSizeKey, 42)
 	})
 
+	t.Run("test Kafka trace generation omits unknown operation type", func(t *testing.T) {
+		// messaging.operation.type is a semconv enum: when the operation was
+		// not captured, the attribute must be omitted, not emitted empty
+		span := request.Span{Type: request.EventTypeKafkaClient, Method: "", Path: "important-topic", Statement: "test"}
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+		attrs := spans.At(0).Attributes()
+		ensureTraceAttrNotExists(t, attrs, attribute.Key(attr.MessagingOpType))
+		ensureTraceStrAttr(t, attrs, semconv.MessagingDestinationNameKey, "important-topic")
+	})
+
+	t.Run("test gRPC trace generation", func(t *testing.T) {
+		span := request.Span{Type: request.EventTypeGRPC, Path: "/routeguide.RouteGuide/GetFeature", Status: 0}
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+		attrs := spans.At(0).Attributes()
+		ensureTraceStrAttr(t, attrs, semconv.RPCMethodKey, "/routeguide.RouteGuide/GetFeature")
+		ensureTraceStrAttr(t, attrs, semconv.RPCResponseStatusCodeKey, "OK")
+	})
+
+	t.Run("test gRPC trace generation omits leaked HTTP status", func(t *testing.T) {
+		// a span.Status outside the gRPC enum (e.g. an HTTP 200 that leaked
+		// through protocol detection) must not become a made-up status value
+		span := request.Span{Type: request.EventTypeGRPC, Path: "/routeguide.RouteGuide/GetFeature", Status: 200}
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+		attrs := spans.At(0).Attributes()
+		ensureTraceStrAttr(t, attrs, semconv.RPCMethodKey, "/routeguide.RouteGuide/GetFeature")
+		ensureTraceAttrNotExists(t, attrs, semconv.RPCResponseStatusCodeKey)
+	})
+
+	t.Run("test gRPC client trace generation omits invalid status", func(t *testing.T) {
+		span := request.Span{Type: request.EventTypeGRPCClient, Path: "/routeguide.RouteGuide/GetFeature", Status: 0xFFFF}
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+		attrs := spans.At(0).Attributes()
+		ensureTraceAttrNotExists(t, attrs, semconv.RPCResponseStatusCodeKey)
+	})
+
+	t.Run("test Elasticsearch trace generation omits empty error.type", func(t *testing.T) {
+		// successful Elasticsearch spans have no error code: error.type must
+		// be omitted, not emitted as an empty string
+		span := request.Span{
+			Type:    request.EventTypeHTTPClient,
+			SubType: request.HTTPSubtypeElasticsearch,
+			Method:  "GET",
+			Path:    "/products/_search",
+			Status:  200,
+			Elasticsearch: &request.Elasticsearch{
+				DBSystemName:     "elasticsearch",
+				DBOperationName:  "search",
+				DBCollectionName: "products",
+			},
+		}
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+		attrs := spans.At(0).Attributes()
+		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBSystemName), "elasticsearch")
+		ensureTraceAttrNotExists(t, attrs, attribute.Key(attr.ErrorType))
+	})
+
+	t.Run("test OpenAI trace generation omits empty operation name", func(t *testing.T) {
+		// gen_ai.operation.name must not be emitted as an empty string:
+		// when the operation could not be classified (e.g. an error response
+		// parsed before the request body), the attribute must be omitted
+		span := request.Span{
+			Type:    request.EventTypeHTTPClient,
+			SubType: request.HTTPSubtypeOpenAI,
+			Method:  "POST",
+			Path:    "/v1/responses",
+			Status:  429,
+			GenAI:   &request.GenAI{OpenAI: &request.VendorOpenAI{ID: "chatcmpl-err"}},
+		}
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+		attrs := spans.At(0).Attributes()
+		ensureTraceStrAttr(t, attrs, semconv.GenAIProviderNameKey, "openai")
+		ensureTraceAttrNotExists(t, attrs, semconv.GenAIOperationNameKey)
+	})
+
 	t.Run("test Mongo trace generation", func(t *testing.T) {
 		span := request.Span{Type: request.EventTypeMongoClient, Method: "insert", Path: "mycollection", DBNamespace: "mydatabase", Status: 0}
 		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{"db.operation.name": {}})
