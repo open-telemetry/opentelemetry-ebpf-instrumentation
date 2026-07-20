@@ -1636,7 +1636,7 @@
         },
         "field_names": {
           "$ref": "#/$defs/LogEnricherFieldNames",
-          "description": "Defines the trace context field names used in enriched logs"
+          "description": "Defines the trace context field names OBI preserves when present and injects when missing"
         },
         "plain_text": {
           "$ref": "#/$defs/LogEnricherPlainTextConfig",
@@ -1658,14 +1658,14 @@
           "type": "string",
           "minLength": 1,
           "pattern": "^[^=\\u0000-\\u0020\\u007F-\\u00A0\\u1680\\u2000-\\u200A\\u2028-\\u2029\\u202F\\u205F\\u3000]+$",
-          "description": "Is the literal span ID field name",
+          "description": "Is the literal span ID field name used to preserve and inject span context",
           "default": "span_id"
         },
         "trace_id": {
           "type": "string",
           "minLength": 1,
           "pattern": "^[^=\\u0000-\\u0020\\u007F-\\u00A0\\u1680\\u2000-\\u200A\\u2028-\\u2029\\u202F\\u205F\\u3000]+$",
-          "description": "Is the literal trace ID field name",
+          "description": "Is the literal trace ID field name used to preserve and inject trace context",
           "default": "trace_id"
         }
       },
