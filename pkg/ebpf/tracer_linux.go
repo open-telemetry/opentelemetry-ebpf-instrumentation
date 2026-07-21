@@ -138,7 +138,7 @@ func (pt *ProcessTracer) Run(
 					runningTracerNames = append(runningTracerNames, ti.implType)
 				}
 			}
-			pt.log.Warn("some process tracers did not finish", "tracers", runningTracers)
+			pt.log.Warn("some process tracers did not finish", "tracers", runningTracerNames)
 			hasWarned = true
 		case <-tracersEnded:
 			if hasWarned {
