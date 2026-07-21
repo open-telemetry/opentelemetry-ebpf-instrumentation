@@ -159,6 +159,36 @@ func TestFilter_ExportsOTelDetection(t *testing.T) {
 	assert.True(t, fi.ExportsOTelTraces())
 }
 
+type recordingOTelMarker struct{ marked []uint32 }
+
+func (m *recordingOTelMarker) MarkPIDWritesOwnTP(hostPID uint32) {
+	m.marked = append(m.marked, hostPID)
+}
+
+// TestFilter_MarksOTelExportingPID verifies the userspace path of the #2732
+// fix: when a process is detected exporting its own OTel traces, its host PID
+// is handed to the registered marker (so the gotracer can suppress duplicate
+// traceparent injection). Metrics-only export must not mark it.
+func TestFilter_MarksOTelExportingPID(t *testing.T) {
+	const defaultOtlpPort = 4317
+	pf := NewPIDsFilter(&services.DiscoveryConfig{ExcludeOTelInstrumentedServices: true}, slog.With("env", "testing"), &imetrics.NoopReporter{})
+	marker := &recordingOTelMarker{}
+	pf.SetOTelPIDMarker(marker)
+
+	// metrics-only export: detected, but no traceparent, so not marked.
+	fi := exec.New(exec.Init{})
+	metricsSpan := request.Span{Type: request.EventTypeHTTPClient, Method: "GET", Path: "/v1/metrics", Status: 200, Pid: request.PidInfo{HostPID: 4321}}
+	pf.checkIfExportsOTel(fi, &metricsSpan, defaultOtlpPort)
+	assert.Empty(t, marker.marked)
+
+	// traces export: process writes its own traceparent -> must be marked once.
+	fi = exec.New(exec.Init{})
+	tracesSpan := request.Span{Type: request.EventTypeHTTPClient, Method: "GET", Path: "/v1/traces", Status: 200, Pid: request.PidInfo{HostPID: 1234}}
+	pf.checkIfExportsOTel(fi, &tracesSpan, defaultOtlpPort)
+	pf.checkIfExportsOTel(fi, &tracesSpan, defaultOtlpPort) // idempotent: flag already set
+	assert.Equal(t, []uint32{1234}, marker.marked)
+}
+
 func TestFilter_ExportsOTelSpanDetection(t *testing.T) {
 	const defaultOtlpPort = 4317
 	pf := NewPIDsFilter(&services.DiscoveryConfig{}, slog.With("env", "testing"), &imetrics.NoopReporter{})

@@ -817,6 +817,13 @@ int obi_uprobe_writeSubset(struct pt_regs *ctx) {
         return 0;
     }
 
+    // The application drives its own OTel SDK traceparent; injecting ours would
+    // append a duplicate traceparent and break downstream traces.
+    if (pid_writes_own_tp()) {
+        bpf_dbg_printk("skipping http tp injection, pid writes its own traceparent");
+        return 0;
+    }
+
     bpf_dbg_printk("=== uprobe/header_writeSubset ===");
 
     void *header_addr = GO_PARAM1(ctx);
@@ -1122,6 +1129,13 @@ on_http2FramerWriteHeaders(struct pt_regs *ctx, off_table_t *ot, u64 stream_id) 
         return;
     }
 
+    // The application drives its own OTel SDK traceparent; the return uprobe
+    // would skip injection anyway, so don't stash the invocation state for it.
+    // Unlike the gRPC path, this uprobe has no other side effects to preserve.
+    if (pid_writes_own_tp()) {
+        return;
+    }
+
     void *framer = GO_PARAM1(ctx);
 
     if (!framer) {
@@ -1231,6 +1245,13 @@ int obi_uprobe_net_http2FramerWriteHeaders(struct pt_regs *ctx) {
 SEC("uprobe/http2FramerWriteHeaders_returns")
 int obi_uprobe_http2FramerWriteHeaders_returns(struct pt_regs *ctx) {
     if (!g_bpf_header_propagation) {
+        return 0;
+    }
+
+    // The application drives its own OTel SDK traceparent; injecting ours would
+    // append a duplicate traceparent and break downstream traces.
+    if (pid_writes_own_tp()) {
+        bpf_dbg_printk("skipping http2 tp injection, pid writes its own traceparent");
         return 0;
     }
 

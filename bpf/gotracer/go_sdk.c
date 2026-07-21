@@ -111,6 +111,10 @@ static __always_inline int tracer_start(struct pt_regs *ctx, u8 check_delegate) 
             sizeof(delegate_ptr),
             (void *)(tracer_ptr + go_offset_of(ot, (go_offset){.v = _tracer_delegate_pos})));
         if (delegate_ptr != NULL) {
+            // Delegate is set, so the application drives its own OTel SDK
+            // tracing. Mark the PID so the Go uprobe traceparent injection
+            // skips it and we don't append a duplicate traceparent.
+            mark_pid_writes_own_tp();
             // Delegate is set, so we should not instrument this call
             return 0;
         }

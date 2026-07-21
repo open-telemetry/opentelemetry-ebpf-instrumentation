@@ -107,6 +107,37 @@ struct {
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
 } ongoing_grpc_transports SEC(".maps");
 
+// go_sdk_tp_pids tracks the PIDs (host tgid) whose OpenTelemetry Go SDK writes
+// its own traceparent into outgoing HTTP/gRPC headers. For these processes OBI
+// must not inject a second traceparent via its uprobes,
+// otherwise the frame ends up carrying two traceparent headers and downstream
+// traces break. The flag is set from the SDK delegate check in go_sdk.c.
+struct {
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __type(key, u32);  // host tgid
+    __type(value, u8); // presence flag
+    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
+    __uint(pinning, OBI_PIN_INTERNAL);
+} go_sdk_tp_pids SEC(".maps");
+
+// Records that the current process drives its own OTel SDK traceparent, so OBI
+// must skip its uprobe-based traceparent injection for it.
+static __always_inline void mark_pid_writes_own_tp() {
+    const u32 tgid = (u32)(bpf_get_current_pid_tgid() >> 32);
+    const u8 one = 1;
+    bpf_map_update_elem(&go_sdk_tp_pids, &tgid, &one, BPF_ANY);
+}
+
+// Returns true when the current process drives its own OTel SDK traceparent
+// injection and OBI should therefore skip its own injection.
+static __always_inline bool pid_writes_own_tp() {
+    if (!g_bpf_traceparent_enabled) {
+        return false;
+    }
+    const u32 tgid = (u32)(bpf_get_current_pid_tgid() >> 32);
+    return bpf_map_lookup_elem(&go_sdk_tp_pids, &tgid) != NULL;
+}
+
 #define SQL_CONN_TYPE_DATABASE_SQL 0 // database/sql (mysql, pq)
 #define SQL_CONN_TYPE_PGX 1          // github.com/jackc/pgx/v5
 

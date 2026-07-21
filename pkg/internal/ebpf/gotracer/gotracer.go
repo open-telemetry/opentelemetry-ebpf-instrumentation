@@ -188,11 +188,41 @@ func New(
 func (p *Tracer) AllowPID(pid app.PID, ns uint32, fi *exec.FileInfo) {
 	p.pidsFilter.AllowPID(pid, ns, fi, ebpfcommon.PIDTypeGo)
 	p.registerRuntimeMetricTarget(pid, ns, fi)
+	p.registerOTelPIDMarker()
+}
+
+// registerOTelPIDMarker wires this tracer into the shared PIDs filter so that a
+// process detected (in userspace) to export its own OTel traces gets recorded
+// in go_sdk_tp_pids, suppressing OBI's duplicate traceparent injection.
+// This covers the case the in-kernel SDK-delegate detection misses: an app that
+// obtains its tracer after installing the SDK TracerProvider. Idempotent.
+func (p *Tracer) registerOTelPIDMarker() {
+	if pf, ok := p.pidsFilter.(*ebpfcommon.PIDsFilter); ok {
+		pf.SetOTelPIDMarker(p)
+	}
+}
+
+// MarkPIDWritesOwnTP implements ebpfcommon.OTelPIDMarker. The map key is the
+// host TGID, matching mark_pid_writes_own_tp() in bpf/gotracer/go_common.h.
+func (p *Tracer) MarkPIDWritesOwnTP(hostPID uint32) {
+	if p.bpfObjects.GoSdkTpPids != nil {
+		_ = p.bpfObjects.GoSdkTpPids.Put(hostPID, uint8(1))
+	}
 }
 
 func (p *Tracer) BlockPID(pid app.PID, ns uint32) {
 	p.deleteRuntimeMetricTarget(pid, ns)
+	p.deleteSDKTraceparentPID(pid)
 	p.pidsFilter.BlockPID(pid, ns)
+}
+
+// deleteSDKTraceparentPID removes the process from the go_sdk_tp_pids map when
+// it exits, so a reused PID cannot inherit a stale "skip traceparent injection"
+// flag. The map key is the host TGID, matching mark_pid_writes_own_tp().
+func (p *Tracer) deleteSDKTraceparentPID(pid app.PID) {
+	if p.bpfObjects.GoSdkTpPids != nil {
+		_ = p.bpfObjects.GoSdkTpPids.Delete(uint32(pid))
+	}
 }
 
 func (p *Tracer) supportsContextPropagation() bool {

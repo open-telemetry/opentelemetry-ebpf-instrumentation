@@ -43,6 +43,15 @@ type ServiceFilter interface {
 	CurrentPIDs(PIDType) map[uint32]map[app.PID]svc.Attrs
 }
 
+// OTelPIDMarker receives the host PID (TGID) of a process detected to export
+// its own OpenTelemetry traces, so a tracer can suppress its duplicate
+// traceparent injection for that process. It complements the
+// gotracer's in-kernel SDK-delegate detection, which only fires when the app
+// obtains its tracer before installing the SDK TracerProvider.
+type OTelPIDMarker interface {
+	MarkPIDWritesOwnTP(hostPID uint32)
+}
+
 // PIDsFilter keeps a thread-safe copy of the PIDs whose traces are allowed to
 // be forwarded. Its Filter method filters the request.Span instances whose
 // PIDs are not in the allowed list.
@@ -54,6 +63,7 @@ type PIDsFilter struct {
 	ignoreOtelSpan      bool
 	defaultOtlpGRPCPort int
 	metrics             imetrics.Reporter
+	otelMarker          OTelPIDMarker
 }
 
 func NewPIDsFilter(c *services.DiscoveryConfig, log *slog.Logger, metrics imetrics.Reporter) *PIDsFilter {
@@ -66,6 +76,15 @@ func NewPIDsFilter(c *services.DiscoveryConfig, log *slog.Logger, metrics imetri
 		defaultOtlpGRPCPort: c.DefaultOtlpGRPCPort,
 		metrics:             metrics,
 	}
+}
+
+// SetOTelPIDMarker registers a marker notified whenever a tracked process is
+// detected to export its own OTel traces. It is expected to be set once, at
+// startup, before Filter runs.
+func (pf *PIDsFilter) SetOTelPIDMarker(m OTelPIDMarker) {
+	pf.mux.Lock()
+	defer pf.mux.Unlock()
+	pf.otelMarker = m
 }
 
 func (pf *PIDsFilter) AllowPID(pid app.PID, ns uint32, fi *exec.FileInfo, pidType PIDType) {
@@ -227,6 +246,11 @@ func (pf *PIDsFilter) checkIfExportsOTel(fi *exec.FileInfo, span *request.Span, 
 		pf.reportAvoidedService(fi, "metrics")
 	} else if span.IsExportTracesSpan(defaultOtlpGRPCPort) && fi.EnsureExportsOTelTraces() {
 		pf.reportAvoidedService(fi, "traces")
+		// The process exports its own OTel traces, so it writes its own
+		// traceparent: tell the tracer to stop injecting a duplicate.
+		if pf.otelMarker != nil {
+			pf.otelMarker.MarkPIDWritesOwnTP(uint32(span.Pid.HostPID))
+		}
 	}
 }
 

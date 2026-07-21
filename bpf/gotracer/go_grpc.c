@@ -828,7 +828,13 @@ int obi_uprobe_grpcFramerWriteHeaders(struct pt_regs *ctx) {
         // The offset will be 0 on first connection through the stream and 9 on subsequent.
         // If we read some very large offset, we don't do anything since it might be a situation
         // we can't handle
-        if (offset < MAX_W_PTR_OFFSET) {
+        if (pid_writes_own_tp()) {
+            // The application drives its own OTel SDK traceparent, so the return
+            // uprobe will skip injection: don't stash the invocation for it. The
+            // connection is already marked above so the sk_msg path also leaves
+            // the app's traceparent intact.
+            bpf_dbg_printk("skipping grpc framer stash, pid writes its own traceparent");
+        } else if (offset < MAX_W_PTR_OFFSET) {
             grpc_framer_func_invocation_t f_info = {
                 .tp = invocation->tp,
                 .framer_ptr = (u64)framer,
@@ -858,6 +864,13 @@ int obi_uprobe_grpcFramerWriteHeaders_returns(struct pt_regs *ctx) {
     }
 
     bpf_dbg_printk("=== uprobe/grpcFramerWriteHeaders_returns ===");
+
+    // The application drives its own OTel SDK traceparent; injecting ours would
+    // append a duplicate traceparent and break downstream traces
+    if (pid_writes_own_tp()) {
+        bpf_dbg_printk("skipping grpc tp injection, pid writes its own traceparent");
+        return 0;
+    }
 
     void *goroutine_addr = GOROUTINE_PTR(ctx);
     off_table_t *ot = get_offsets_table();
