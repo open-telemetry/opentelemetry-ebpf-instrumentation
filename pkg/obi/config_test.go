@@ -5,6 +5,7 @@ package obi
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -740,6 +741,39 @@ func TestConfigValidate_TracePrinterFallback(t *testing.T) {
 	err := cfg.Validate()
 	require.NoError(t, err)
 	assert.Equal(t, debug.TracePrinterText, cfg.TracePrinter)
+}
+
+func TestConfigValidateForReceiverUsesHostSignalSinks(t *testing.T) {
+	cfg := loadConfig(t, envMap{"OTEL_EBPF_EXECUTABLE_PATH": "foo"})
+
+	require.ErrorContains(t, cfg.Validate(), "you need to define at least one exporter")
+	require.NoError(t, cfg.ValidateForReceiver())
+
+	cfg.TracePrinter = "invalid"
+	require.ErrorContains(t, cfg.ValidateForReceiver(), "invalid value for trace_printer")
+}
+
+func TestConfigValidateForReceiverUsesHostMetricsForStats(t *testing.T) {
+	cfg := loadConfig(t, envMap{})
+	cfg.Metrics.Features = export.FeatureStats
+
+	require.ErrorContains(t, cfg.Validate(), "at least one of 'network', 'application' or 'stats'")
+	require.NoError(t, cfg.ValidateForReceiver())
+}
+
+func TestConfigValidateStaticSkipsHostCompatibility(t *testing.T) {
+	cfg := loadConfig(t, envMap{})
+	cfg.NetworkFlows.Enable = true
+	cfg.NetworkFlows.Source = EbpfSourceTC
+	cfg.NetworkFlows.Print = true
+
+	err := cfg.validate(validationContext{
+		checkCiliumCompatibility: func(config.TCBackend) error {
+			return errors.New("host is incompatible")
+		},
+	})
+	require.ErrorContains(t, err, "host is incompatible")
+	require.NoError(t, cfg.ValidateStatic())
 }
 
 func TestConfigValidateRoutes(t *testing.T) {

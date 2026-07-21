@@ -13,14 +13,16 @@ import (
 
 // Enrich describes standalone metadata enrichment settings.
 type Enrich struct {
-	Enrichers   Enrichers            `yaml:"enrichers"`
-	ServiceName ServiceName          `yaml:"service_name"`
-	Attributes  EnrichmentAttributes `yaml:"attributes"`
+	Enrichers            Enrichers            `yaml:"enrichers"`
+	ServiceName          ServiceName          `yaml:"service_name"`
+	Attributes           EnrichmentAttributes `yaml:"attributes"`
+	AdditionalProperties map[string]any       `yaml:",inline"`
 }
 
 // Enrichers groups metadata enricher settings.
 type Enrichers struct {
-	Kubernetes KubernetesEnricher `yaml:"kubernetes"`
+	Kubernetes           KubernetesEnricher `yaml:"kubernetes"`
+	AdditionalProperties map[string]any     `yaml:",inline"`
 }
 
 // KubernetesMode describes Kubernetes metadata enricher activation.
@@ -42,14 +44,15 @@ func (m *KubernetesMode) UnmarshalYAML(value *yaml.Node) error {
 
 // KubernetesEnricher describes Kubernetes metadata enrichment settings.
 type KubernetesEnricher struct {
-	Mode                KubernetesMode          `yaml:"mode"`
-	ClusterName         string                  `yaml:"cluster_name"`
-	ServiceNameTemplate string                  `yaml:"service_name_template"`
-	Auth                KubernetesAuth          `yaml:"auth"`
-	Informers           KubernetesInformers     `yaml:"informers"`
-	DropExternal        bool                    `yaml:"drop_external"`
-	ResourceLabels      ResourceLabels          `yaml:"resource_labels"`
-	MetadataCache       KubernetesMetadataCache `yaml:"metadata_cache"`
+	Mode                 KubernetesMode          `yaml:"mode"`
+	ClusterName          string                  `yaml:"cluster_name"`
+	ServiceNameTemplate  string                  `yaml:"service_name_template"`
+	Auth                 KubernetesAuth          `yaml:"auth"`
+	Informers            KubernetesInformers     `yaml:"informers"`
+	DropExternal         bool                    `yaml:"drop_external"`
+	ResourceLabels       ResourceLabels          `yaml:"resource_labels"`
+	MetadataCache        KubernetesMetadataCache `yaml:"metadata_cache"`
+	AdditionalProperties map[string]any          `yaml:",inline"`
 }
 
 // KubernetesAuth describes Kubernetes authentication settings.
@@ -86,9 +89,10 @@ type KubernetesSourceLabels struct {
 
 // ServiceName describes service name resolution settings.
 type ServiceName struct {
-	UnresolvedHosts UnresolvedHosts    `yaml:"unresolved_hosts"`
-	Sources         []transform.Source `yaml:"sources"`
-	Cache           Cache              `yaml:"cache"`
+	UnresolvedHosts      UnresolvedHosts    `yaml:"unresolved_hosts"`
+	Sources              []transform.Source `yaml:"sources"`
+	Cache                Cache              `yaml:"cache"`
+	AdditionalProperties map[string]any     `yaml:",inline"`
 }
 
 // UnresolvedHosts describes names assigned to unresolved hosts.
@@ -109,6 +113,7 @@ type EnrichmentAttributes struct {
 	Select               attributes.Selection `yaml:"select"`
 	ExtraGroupAttributes ExtraGroupAttributes `yaml:"extra_group_attributes"`
 	MetadataRetry        MetadataRetry        `yaml:"metadata_retry"`
+	AdditionalProperties map[string]any       `yaml:",inline"`
 }
 
 // ExtraGroupAttributes maps OBI attribute group names to extra attribute names.

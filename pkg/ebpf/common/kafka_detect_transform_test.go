@@ -4,6 +4,7 @@
 package ebpfcommon
 
 import (
+	"encoding/binary"
 	"testing"
 
 	"github.com/hashicorp/golang-lru/v2/simplelru"
@@ -207,7 +208,9 @@ func TestProcessKafkaRequest(t *testing.T) {
 				assert.Error(t, err)
 				return
 			}
-			assert.Equal(t, tt.expected, res)
+			require.NoError(t, err)
+			require.Len(t, res, 1)
+			assert.Equal(t, tt.expected, res[0])
 		})
 	}
 }
@@ -222,9 +225,10 @@ func TestProcessKafkaRequestProduceV13WithoutTopicCache(t *testing.T) {
 		0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 	}
 
-	info, ignore, err := ProcessKafkaRequest(largebuf.NewLargeBufferFrom(request), nil)
+	infos, ignore, err := ProcessKafkaRequest(largebuf.NewLargeBufferFrom(request), nil)
 	require.NoError(t, err)
 	require.False(t, ignore)
+	require.Len(t, infos, 1)
 	require.Equal(t, &KafkaInfo{
 		ClientID:  "kafka-producer-fights",
 		Operation: Produce,
@@ -232,7 +236,7 @@ func TestProcessKafkaRequestProduceV13WithoutTopicCache(t *testing.T) {
 		PartitionInfo: &PartitionInfo{
 			Partition: 0,
 		},
-	}, info)
+	}, infos[0])
 }
 
 func TestProcessKafkaRequestProduceV13WithTopicCache(t *testing.T) {
@@ -250,9 +254,10 @@ func TestProcessKafkaRequestProduceV13WithTopicCache(t *testing.T) {
 	uuid := kafkaparser.UUID{172, 231, 101, 123, 36, 212, 77, 228, 142, 87, 26, 240, 250, 236, 204, 15}
 	cache.Add(uuid, "my-topic")
 
-	info, ignore, err := ProcessKafkaRequest(largebuf.NewLargeBufferFrom(request), cache)
+	infos, ignore, err := ProcessKafkaRequest(largebuf.NewLargeBufferFrom(request), cache)
 	require.NoError(t, err)
 	require.False(t, ignore)
+	require.Len(t, infos, 1)
 	require.Equal(t, &KafkaInfo{
 		ClientID:  "kafka-producer-fights",
 		Operation: Produce,
@@ -260,5 +265,117 @@ func TestProcessKafkaRequestProduceV13WithTopicCache(t *testing.T) {
 		PartitionInfo: &PartitionInfo{
 			Partition: 0,
 		},
-	}, info)
+	}, infos[0])
+}
+
+// TestProcessKafkaRequestFetchMultiTopic verifies that a single multi-topic Fetch
+// request yields one KafkaInfo per topic (not just the first), each with its own
+// resolved name and partition. This is the transform-side counterpart to the
+// parser-level TestParseFetchRequestMultiTopicWithPartitions.
+func TestProcessKafkaRequestFetchMultiTopic(t *testing.T) {
+	uuid1 := kafkaparser.UUID{
+		0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+		0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10,
+	}
+	uuid2 := kafkaparser.UUID{
+		0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28,
+		0x29, 0x2A, 0x2B, 0x2C, 0x2D, 0x2E, 0x2F, 0x30,
+	}
+
+	// Writes one full v12+ fetch partition entry.
+	writePartition := func(pkt []byte, offset int, idx uint32, fetchOffset uint64) int {
+		binary.BigEndian.PutUint32(pkt[offset:], idx) // partition_index
+		offset += 4
+		binary.BigEndian.PutUint32(pkt[offset:], 5) // current_leader_epoch
+		offset += 4
+		binary.BigEndian.PutUint64(pkt[offset:], fetchOffset) // fetch_offset
+		offset += 8
+		binary.BigEndian.PutUint32(pkt[offset:], 0xFFFFFFFF) // last_fetched_epoch
+		offset += 4
+		binary.BigEndian.PutUint64(pkt[offset:], 0) // log_start_offset
+		offset += 8
+		binary.BigEndian.PutUint32(pkt[offset:], 1048576) // partition_max_bytes
+		offset += 4
+		pkt[offset] = 0x00 // partition _tagged_fields
+		offset++
+		return offset
+	}
+
+	pkt := make([]byte, 300)
+	offset := 0
+
+	// Request header v2 (flexible): message_size is written last.
+	offset += 4                                                               // message_size (filled below)
+	binary.BigEndian.PutUint16(pkt[offset:], uint16(kafkaparser.APIKeyFetch)) // api_key
+	offset += 2
+	binary.BigEndian.PutUint16(pkt[offset:], 13) // api_version
+	offset += 2
+	binary.BigEndian.PutUint32(pkt[offset:], 1) // correlation_id
+	offset += 4
+	binary.BigEndian.PutUint16(pkt[offset:], 1) // client_id length
+	offset += 2
+	pkt[offset] = 'c' // client_id
+	offset++
+	pkt[offset] = 0x00 // header _tagged_fields (flexible)
+	offset++
+
+	// Fetch v13 body: replica_id, max_wait_ms, min_bytes, max_bytes, isolation_level, session_id, session_epoch.
+	binary.BigEndian.PutUint32(pkt[offset:], 1)
+	offset += 4
+	binary.BigEndian.PutUint32(pkt[offset:], 1000)
+	offset += 4
+	binary.BigEndian.PutUint32(pkt[offset:], 1)
+	offset += 4
+	binary.BigEndian.PutUint32(pkt[offset:], 1024)
+	offset += 4
+	pkt[offset] = 0 // isolation_level
+	offset++
+	binary.BigEndian.PutUint32(pkt[offset:], 1) // session_id
+	offset += 4
+	binary.BigEndian.PutUint32(pkt[offset:], 1) // session_epoch
+	offset += 4
+
+	pkt[offset] = 0x03 // topics COMPACT_ARRAY: 2 topics (N+1)
+	offset++
+	// topic 1
+	copy(pkt[offset:], uuid1[:])
+	offset += kafkaparser.UUIDLen
+	pkt[offset] = 0x02 // 1 partition
+	offset++
+	offset = writePartition(pkt, offset, 0, 100)
+	pkt[offset] = 0x00 // topic _tagged_fields
+	offset++
+	// topic 2
+	copy(pkt[offset:], uuid2[:])
+	offset += kafkaparser.UUIDLen
+	pkt[offset] = 0x02 // 1 partition
+	offset++
+	offset = writePartition(pkt, offset, 3, 200)
+	pkt[offset] = 0x00 // topic _tagged_fields
+	offset++
+
+	pkt = pkt[:offset]
+	binary.BigEndian.PutUint32(pkt[0:], uint32(offset-4)) // message_size
+
+	cache, _ := simplelru.NewLRU[kafkaparser.UUID, string](1000, nil)
+	cache.Add(uuid1, "topic-one")
+	cache.Add(uuid2, "topic-two")
+
+	infos, ignore, err := ProcessKafkaRequest(largebuf.NewLargeBufferFrom(pkt), cache)
+	require.NoError(t, err)
+	require.False(t, ignore)
+	require.Len(t, infos, 2)
+
+	require.Equal(t, &KafkaInfo{
+		ClientID:      "c",
+		Operation:     Fetch,
+		Topic:         "topic-one",
+		PartitionInfo: &PartitionInfo{Partition: 0, Offset: 100},
+	}, infos[0])
+	require.Equal(t, &KafkaInfo{
+		ClientID:      "c",
+		Operation:     Fetch,
+		Topic:         "topic-two",
+		PartitionInfo: &PartitionInfo{Partition: 3, Offset: 200},
+	}, infos[1])
 }
