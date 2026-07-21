@@ -84,10 +84,6 @@ class Counters:
                     "failures": self.failures,
                     "corruption": self.corruption}
 
-    def reset(self):
-        with self._lock:
-            self.successes = self.failures = self.corruption = 0
-
 
 C = Counters()
 
@@ -225,13 +221,6 @@ def make_handler(healthy, on_call):
                     self._send(200, b"ok")
                 except Exception as exc:  # noqa: BLE001
                     self._send(500, str(exc).encode())
-            else:
-                self._send(404)
-
-        def do_POST(self):
-            if self.path == "/reset":
-                C.reset()
-                self._send(200)
             else:
                 self._send(404)
 

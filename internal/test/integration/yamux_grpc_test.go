@@ -18,11 +18,11 @@ import (
 	"go.opentelemetry.io/obi/internal/test/integration/components/jaeger"
 )
 
-// yamuxStats mirrors the /stats payload exposed by the yamux_h2_corrupt component.
+// yamuxStats mirrors the /stats payload exposed by the yamux component.
 type yamuxStats struct {
-	Successes  int64 `json:"successes"`
-	Failures   int64 `json:"failures"`
-	Corruption int64 `json:"corruption"`
+	Successes  int `json:"successes"`
+	Failures   int `json:"failures"`
+	Corruption int `json:"corruption"`
 }
 
 func getYamuxStats(t require.TestingT, url string) yamuxStats {
@@ -86,9 +86,7 @@ func TestSuite_YamuxGRPC(t *testing.T) {
 
 	const (
 		clientStats = "http://localhost:8081/stats"
-		clientReset = "http://localhost:8081/reset"
 		serverStats = "http://localhost:8080/stats"
-		serverReset = "http://localhost:8080/reset"
 	)
 
 	// Both roles must be up: /health returns 200 once each HTTP status server
@@ -115,33 +113,26 @@ func TestSuite_YamuxGRPC(t *testing.T) {
 	}, 3*time.Minute, time.Second)
 	t.Log("yamux-client instrumented; sk_msg propagation path is now active")
 
-	// Give OBI a moment to also attach to the server and settle, then zero both
-	// components' counters so the assertion window only measures traffic that
-	// flows while instrumentation is fully live.
-	// TODO: replace by eventually
-	time.Sleep(5 * time.Second)
-	for _, u := range []string{clientReset, serverReset} {
-		resp, err := http.Post(u, "", nil)
-		require.NoError(t, err)
-		resp.Body.Close()
-	}
-
-	// Actively drive /call (each carrying a fresh Traceparent) for a sustained
-	// window. Every call opens a fresh connection (fresh HTTP/2 preface, so OBI
+	// Actively drive /call (each carrying a fresh Traceparent) repeated times.
+	// Every call opens a fresh connection (fresh HTTP/2 preface, so OBI
 	// re-flags the socket) and tunnels several HEADERS frames — each one a
 	// traceparent-injection target while OBI has an active trace to propagate.
-	const window = 20 * time.Second
-	t.Logf("driving %s of Traceparent-carrying calls under active instrumentation", window)
-	deadline := time.Now().Add(window)
-	for time.Now().Before(deadline) {
+	const calls = 200
+	t.Logf("driving %d Traceparent-carrying calls under active instrumentation", calls)
+	for range calls {
 		callYamux()
-		time.Sleep(20 * time.Millisecond)
 	}
 
-	cs := getYamuxStats(t, clientStats)
-	ss := getYamuxStats(t, serverStats)
+	// wait until at least 90% calls are processed
+	var cs, ss yamuxStats
+	require.EventuallyWithT(t, func(t *assert.CollectT) {
+		cs = getYamuxStats(t, clientStats)
+		ss = getYamuxStats(t, serverStats)
+		require.GreaterOrEqual(t, cs.Successes+cs.Failures+cs.Corruption, 9*calls/10)
+	}, 5*time.Second, 10*time.Millisecond)
+
 	t.Logf("client stats: successes=%d failures=%d corruption=%d", cs.Successes, cs.Failures, cs.Corruption)
-	t.Logf("server stats: successes=%d failures=%d corruption=%d", ss.Successes, ss.Failures, ss.Corruption)
+	t.Logf("server stats: corruption=%d", ss.Corruption)
 
 	// Sanity: traffic actually flowed during the window.
 	require.Positive(t, cs.Successes, "no successful calls during the window — traffic generator stalled")

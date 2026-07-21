@@ -4,7 +4,7 @@ services:
   yamux-server:
     build:
       context: ../../..
-      dockerfile: internal/test/integration/components/yamux_h2_corrupt/Dockerfile
+      dockerfile: internal/test/integration/components/yamux/Dockerfile
     image: hatest-yamux-h2-corrupt
     environment:
       MODE: "server"
@@ -18,7 +18,7 @@ services:
   yamux-client:
     build:
       context: ../../..
-      dockerfile: internal/test/integration/components/yamux_h2_corrupt/Dockerfile
+      dockerfile: internal/test/integration/components/yamux/Dockerfile
     image: hatest-yamux-h2-corrupt
     environment:
       MODE: "client"
