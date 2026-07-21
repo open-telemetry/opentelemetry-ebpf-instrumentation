@@ -98,6 +98,7 @@ int obi_uprobe_cryptoTlsRead(struct pt_regs *ctx) {
             }
 
             args.skip = 1;
+            bpf_d_printk("skipping");
         }
 
         bpf_map_update_elem(&ongoing_ssl_ops, &g_key, &args, BPF_ANY);
