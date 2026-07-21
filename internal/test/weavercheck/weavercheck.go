@@ -255,7 +255,7 @@ func Validate(t TestingT, report *Report) {
 		actionableAdvisories += e.Occurrences
 	}
 	if len(actionable) > 0 {
-		t.Logf("  actionable advisories (these fail the check, most frequent first):")
+		t.Logf("  actionable advisories:")
 		for _, e := range actionable {
 			signals := "unknown"
 			if len(e.Signals) > 0 {
