@@ -68,7 +68,6 @@ func TestOllamaSpan_ChatStreaming(t *testing.T) {
 	assert.True(t, ai.Request.Stream)
 }
 
-
 // --- Default streaming (stream field omitted, defaults to true per Ollama API) ---
 
 func TestOllamaSpan_ChatDefaultStream(t *testing.T) {
