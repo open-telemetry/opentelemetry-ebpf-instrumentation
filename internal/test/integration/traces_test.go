@@ -1956,7 +1956,7 @@ func testHTTPTracesNoNestedCalls(t *testing.T) {
 	}
 
 	require.NotNil(t, processing)
-	sd = queue.Diff(
+	sd = processing.Diff(
 		jaeger.Tag{Key: "span.kind", Type: "string", Value: "internal"},
 	)
 	assert.Empty(t, sd, sd.String())
