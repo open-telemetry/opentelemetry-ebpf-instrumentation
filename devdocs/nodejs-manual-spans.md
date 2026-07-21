@@ -26,10 +26,10 @@ customer app (@opentelemetry/api, no SDK)
    ▼
 spanbridge.js ──────────── injected over the inspector protocol together with
    │                       fdextractor.js (SIGUSR1 → CDP Runtime.evaluate).
-   │                       Registers a minimal, dependency-free TracerProvider
-   │                       and AsyncLocalStorage context manager into the API's
-   │                       cross-copy global registry
-   │                       (globalThis[Symbol.for('opentelemetry.js.api.1')]).
+   │                       Installs a minimal, dependency-free TracerProvider
+   │                       as the delegate of each reachable @opentelemetry/api
+   │                       copy's ProxyTracerProvider. It does NOT write to the
+   │                       API global registry (that would block the app's SDK).
    ▼
 fs.accessSync('/dev/null/obi-span/<json>')      ── sentinel uv_fs_access path
    ▼
@@ -129,22 +129,27 @@ upon and imported, but never registered (say it's disabled via
 `OTEL_SDK_DISABLED`/feature flags, and those apps' manual spans
 should still be captured)
 
+The bridge **never writes to the API global registry**
+(`globalThis[Symbol.for('opentelemetry.js.api.1')]`). Occupying its
+`trace`/`context` slots — or even creating the object, which stamps an exact
+API version — would make a later app `setGlobalTracerProvider` fail the api's
+duplicate/version guard and block the app's own SDK. Instead it captures by
+setting itself as the delegate of each reachable api copy's
+`ProxyTracerProvider`. Two guards follow from this:
+
 1. **Inert if an SDK already owns the API.** If a provider or context manager
-   is already registered in the global registry when the bridge loads, it
-   stays completely inert — it does not even create the API registry object.
-   (Not creating it matters: the registry carries an exact API version, and
-   `registerGlobal` requires an exact version match, so a leftover registry
-   would break the app SDK's later registration.)
+   is already registered in the global registry when the bridge loads, it stays
+   completely inert (and, as always, does not touch the registry object).
 
 2. **Step aside if an SDK registers later.** If the app registers its own
-   provider *after* the bridge is active (a lazily-initialized SDK), the
-   bridge yields: it wraps `trace.setGlobalTracerProvider` /
-   `context.setGlobalContextManager` on the loaded `@opentelemetry/api`
-   copies, and on the app's registration it deletes the whole registry object
-   (so the app's `registerGlobal` recreates it with the app's version and
-   succeeds), stops emitting, and forwards any tracer it had already handed
-   out to the app's now-registered provider. The application's SDK ends up
-   owning the API surface exactly as if the bridge had never been there.
+   provider *after* the bridge is active (a lazily-initialized SDK), the bridge
+   yields: it wraps `trace.setGlobalTracerProvider` /
+   `context.setGlobalContextManager` on the api copies it wired, and on the
+   app's registration it stops emitting and forwards any tracer it had already
+   handed out to the app's now-registered provider. Because the bridge never
+   occupied the registry, the app's `registerGlobal` succeeds on its own —
+   there is nothing to un-register. The application's SDK ends up owning the API
+   surface exactly as if the bridge had never been there.
 
 The behavioral SDK detection (`exclude_otel_instrumented_services`, which
 observes OTLP exports) applies on top of this as usual.
@@ -159,14 +164,14 @@ SDK-registered-after-injection (step-aside handover).
 The bridge is typically injected into an already-running process, after the
 app has called `trace.getTracer()`. Those tracers are `ProxyTracer`s that
 resolve **only** through their own api copy's `ProxyTracerProvider`
-delegate — never through the global registry. The bridge therefore walks
-`require.cache` for every loaded `@opentelemetry/api` copy and calls
-`setDelegate(bridgeProvider)` on each copy's proxy (safe: `getTracerProvider()`
-returns the copy's own proxy as long as nothing is registered globally,
-which the guards ensured). Copies of the api loaded *after* injection
-resolve through the registry. Because the registry is a `Symbol.for` global,
-this works across duplicated api copies in `node_modules` and inside
-bundled applications.
+delegate. The bridge therefore walks `require.cache` for every loaded
+`@opentelemetry/api` copy and calls `setDelegate(bridgeProvider)` on each
+copy's proxy (`getTracerProvider()` returns the copy's own proxy because the
+bridge never registers globally). A `Module._load` hook wires copies loaded
+*after* injection the same way — including `import '@opentelemetry/api'`, which
+resolves to the package's CommonJS entry (it ships no `import`/`node` export
+condition) and so still flows through the loader. See "Unreachable api copies"
+for the copies this cannot reach.
 
 A `ProxyTracer` caches the first real delegate it resolves, so a tracer that
 was acquired **and used** before injection caches the bridge's tracer and
@@ -186,12 +191,24 @@ those pre-acquired tracers route to the app's SDK after handover.
   happens once per process; apps started after OBI are picked up by
   discovery as usual.
 - **Late-registering SDKs** are handled by the step-aside (see Guards): the
-  bridge yields and the app's SDK takes over. The residual gap is an
-  `@opentelemetry/api` copy that is itself first loaded *after* injection —
-  its `setGlobalTracerProvider` is not wrapped, so a provider registered
-  through that fresh copy would not trigger the yield. In practice the api is
-  loaded early (it is a tiny package imported at startup), so this is rare;
-  require-in-the-middle on the SDK packages would close it fully.
+  bridge yields and the app's SDK takes over. This covers `@opentelemetry/api`
+  copies already loaded when we inject (wired by the `require.cache` scan) and
+  copies loaded after injection through the CommonJS loader — including native
+  `import '@opentelemetry/api'`, which resolves to the package's CommonJS entry
+  and so still hits the `Module._load` wrapper. Normal ESM apps are therefore
+  fully supported (capture + handoff), verified on Node 18/20/22.
+- **Unreachable api copies (bundled / native-ESM build).** The one copy the
+  bridge cannot wire is one the CommonJS loader never sees: an api **inlined
+  into a bundle** (webpack/esbuild), or a hypothetical future native-ESM build
+  of the api (one that adds an `import`/`node` export condition). Because the
+  bridge does not occupy the global registry, such a copy is **neither captured
+  nor blocked**: the app's manual spans created through it are not collected,
+  but the app's own SDK registers and works normally. This is the deliberate
+  trade-off of not touching the global registry — a coverage gap for that
+  segment in exchange for never breaking a customer's own telemetry. (OBI
+  injects via the inspector *after* process start, so it cannot retroactively
+  install a launch-time ESM/bundle hook such as `--import` /
+  `import-in-the-middle`.)
 - **Dormant auto-instrumentation wakes up.** If the app has
   `@opentelemetry/instrumentation-*` packages *registered* but no SDK
   (today they emit nothing), the bridge's provider makes them record: their
@@ -243,8 +260,12 @@ those pre-acquired tracers route to the app's SDK after handover.
   no-op.
 - **Never breaks the app.** All bridge failure paths are swallowed; the
   sentinel syscall cost is ~1–2 µs per finished span, zero when the feature
-  is off, and nothing is patched via require hooks (no
-  require-in-the-middle, no module wrapping).
+  is off. The one thing the bridge wraps is the CommonJS module loader
+  (`Module._load`), used only to wire `@opentelemetry/api` copies loaded after
+  injection; the wrapper always calls the original loader first and guards its
+  own work, so it composes with other loader patches and can never break a
+  `require`. It does *not* use require-in-the-middle/import-in-the-middle, and
+  native ESM imports are not intercepted (see the ESM limitation above).
 - **Diagnostics are opt-in.** The bridge runs inside the customer's process,
   so it is silent by default — it never writes to the app's stdout/stderr.
   The per-span sentinel emit is *expected* to fail (the path does not exist;

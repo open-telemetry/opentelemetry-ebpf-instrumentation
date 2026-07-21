@@ -8,10 +8,15 @@
 // bpf/gotracer/go_sdk.c, which hooks the no-op global-API tracer and bails
 // out when a real SDK delegate is installed.
 //
-// It registers a minimal, dependency-free TracerProvider + context manager
-// directly into the API's cross-copy global registry
-// (globalThis[Symbol.for('opentelemetry.js.api.1')]), which every copy of
-// @opentelemetry/api in the process shares. Finished spans are serialized to
+// It installs a minimal, dependency-free TracerProvider as the delegate of
+// each reachable @opentelemetry/api copy's ProxyTracerProvider (the copies
+// present in require.cache at injection, plus any loaded later through a
+// Module._load hook). It deliberately does NOT write to the API's global
+// registry (globalThis[Symbol.for('opentelemetry.js.api.1')]) — occupying that
+// shared slot would make a later app setGlobalTracerProvider fail the api's
+// duplicate/version guard and block the app's own SDK. The trade-off: an api
+// copy the module loader never sees (a bundled/inlined copy, or a native-ESM
+// build) is neither captured nor blocked. Finished spans are serialized to
 // JSON and signalled to the eBPF layer through the same channel fdextractor.js
 // uses: a sentinel uv_fs_access() path read by the obi_uv_fs_access uprobe
 // (bpf/generictracer/nodejs.c). The BPF side attaches the current request's
@@ -25,10 +30,6 @@
   'use strict';
 
   const API_KEY = Symbol.for('opentelemetry.js.api.1');
-  // Must track the newest published @opentelemetry/api 1.x minor: an api copy
-  // newer than this rejects the global registration (isCompatible allows
-  // callers with minor <= registered minor only).
-  const API_VERSION = '1.9.0';
   // Same Symbol.for key the api uses internally (createContextKey).
   const SPAN_KEY = Symbol.for('OpenTelemetry Context Key SPAN');
   const SENTINEL_PREFIX = '/dev/null/obi-span/';
@@ -94,26 +95,23 @@
     debug('staying inert: a tracer provider/context manager is already registered');
     return;
   }
-  // NOTE: Our reliable signals to skip the bridge are:
-  //   1. the registry guard above (SDK already registered by injection time);
-  //   2. the step-aside below (SDK registers AFTER we did) — we yield.
-  // If some api copy already initialized the registry (e.g. via diag), keep
-  // its version and only add our entries; otherwise create it with ours.
-  const registry = (g[API_KEY] = existing ?? { version: API_VERSION });
+  // We deliberately DO NOT write to the global registry (globalThis[API_KEY]).
+  // Occupying its `trace`/`context` slots — or even creating the object with
+  // our `version` — would make a later app `setGlobalTracerProvider` fail the
+  // api's duplicate/exact-version guard, so the app's own SDK could never take
+  // over. Instead we capture purely by pointing each reachable api copy's
+  // ProxyTracerProvider at our provider (see wireApiCopy). The cost is that api
+  // copies we cannot reach through the module loader — a bundled/inlined api
+  // (webpack/esbuild) or a genuine native-ESM copy — are neither captured nor
+  // blocked. See devdocs/nodejs-manual-spans.md ("Unreachable api copies").
 
-  // Step-aside state: once the application registers its own provider, we
-  // unregister ourselves and stop emitting so its SDK owns the API surface.
+  // Step-aside state: once the application registers its own provider, we stop
+  // emitting and forward pre-acquired tracers so its SDK owns the API surface.
+  // Nothing to un-register — we never occupied the global registry.
   let yielded = false;
   const yieldToApp = (why) => {
     if (yielded) return;
     yielded = true;
-    // Remove our registration entirely so the app's registerGlobal succeeds.
-    // We must drop the WHOLE registry object, not just .trace/.context: the
-    // registry also carries a `version`, and registerGlobal requires an exact
-    // version match — leaving our version behind would block an app whose api
-    // is even a patch different. Deleting the key lets the app recreate the
-    // registry with its own version.
-    delete g[API_KEY];
     debug('yielded to application-registered SDK: ' + why);
   };
 
@@ -405,16 +403,14 @@
     apiObj[method] = wrapped;
   };
 
-  // Wire a single @opentelemetry/api copy to the bridge:
-  //   - point its ProxyTracerProvider at our provider, so tracers already
-  //     acquired through this copy (a ProxyTracer caches the first delegate and
-  //     never re-consults the registry) resolve to us; and
+  // Wire a single @opentelemetry/api copy to the bridge. Because we never
+  // occupy the global registry, getTracerProvider() returns this copy's own
+  // ProxyTracerProvider, so we:
+  //   - point that ProxyTracerProvider at our provider, so tracers acquired
+  //     through this copy (a ProxyTracer caches the first delegate and never
+  //     re-consults the registry) resolve to us; and
   //   - wrap its global setters so the app's own SDK registration makes us
-  //     yield instead of being refused as a duplicate.
-  // A copy whose version is compatible with our registration resolves its
-  // provider straight from the global registry (registry.trace, set below), so
-  // getTracerProvider() returns our provider and setDelegate is skipped — for
-  // those copies the setter-wrapping is the part that matters.
+  //     yield and stop emitting, rather than the bridge lingering.
   const wiredApis = new WeakSet();
   const wireApiCopy = (exp) => {
     if (yielded || !exp || wiredApis.has(exp)) return;
@@ -442,20 +438,22 @@
     }
   }
 
-  // Copies of the api loaded after this point resolve through the registry.
-  registry.trace = tracerProvider;
-  registry.context = contextManager;
+  // We do NOT set registry.trace / registry.context (see the note above): the
+  // bridge captures only through the per-copy ProxyTracerProvider delegate wired
+  // in wireApiCopy, never by occupying the global registry.
 
-  // Cover @opentelemetry/api copies loaded AFTER injection. Without this, an
-  // app that lazily requires the api (and its SDK) only after we injected would
-  // call an unwrapped setGlobalTracerProvider: it would see our registry.trace,
-  // be refused as a duplicate registration, and the app's exporter would never
-  // take over — spans would keep flowing through OBI. Hook the CommonJS module
-  // loader and wire each api copy as it loads. We call the original loader
-  // first and guard everything, so this composes with other loader patches
-  // (e.g. import-in-the-middle) and can never break a require. NOTE: this
-  // covers CommonJS require() only; an api pulled in purely through the native
-  // ESM loader is not intercepted here.
+  // Cover @opentelemetry/api copies loaded AFTER injection: an app that requires
+  // the api (and its SDK) only after we injected needs that copy wired too, so
+  // its ProxyTracerProvider routes to us and its setGlobalTracerProvider is
+  // wrapped for the step-aside. Hook the CommonJS module loader and wire each
+  // api copy as it loads. We call the original loader first and guard
+  // everything, so this composes with other loader patches (e.g.
+  // import-in-the-middle) and can never break a require. Note: `import
+  // '@opentelemetry/api'` also flows through here, because the package ships a
+  // CommonJS entry (no `import`/`node` export condition), so native-ESM apps are
+  // covered too. Only an api copy that never reaches the CommonJS loader — a
+  // bundled/inlined copy, or a hypothetical native-ESM build of the api — is
+  // left unwired (and, per the design, unblocked).
   try {
     const Module = require('module');
     const origLoad = Module._load;

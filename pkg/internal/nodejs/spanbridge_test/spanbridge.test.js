@@ -62,6 +62,27 @@ test('api loaded AFTER injection: late copy is still wired, app SDK wins handoff
   assert.ok(!r.bridge.includes('after'), 'bridge must stop capturing after the late SDK registers');
 });
 
+test('native ESM app: bridge captures and the late SDK still wins the handoff', () => {
+  // `import '@opentelemetry/api'` resolves to the package's CommonJS entry, so
+  // it flows through the Module._load hook: the bridge wires the copy, captures
+  // the pre-registration span, and yields cleanly when the app's SDK registers.
+  const r = runScript('scenario_esm.mjs');
+  assert.deepStrictEqual(r.bridge, ['before'], 'bridge captures the pre-registration span in an ESM app');
+  assert.ok(r.app.includes('after'), 'the app SDK captures spans once it registers');
+  assert.ok(!r.bridge.includes('after'), 'bridge stops capturing after the ESM app registers its SDK');
+});
+
+test('bundled/unreachable api copy: bridge never blocks the app SDK registration', () => {
+  // A bundled (inlined) api copy is invisible to the module loader, so the
+  // bridge cannot wire it. Under Solution 1 the bridge never occupies the
+  // global registry, so the app's own SDK still registers and takes over — the
+  // property that matters. The trade-off (documented limitation) is that the
+  // bundled app's manual spans are not captured.
+  const r = runScript('scenario_bundled.js');
+  assert.ok(r.app.includes('bundled-after'), 'the app SDK registers and captures its spans (not blocked)');
+  assert.deepStrictEqual(r.bridge, [], 'bundled spans are not captured — the accepted limitation');
+});
+
 test('SDK registers after injection: bridge yields and the app SDK takes over', () => {
   const r = runScenario('late-sdk');
   assert.deepStrictEqual(r.bridge, ['before'], 'bridge captures only the pre-handover span');
