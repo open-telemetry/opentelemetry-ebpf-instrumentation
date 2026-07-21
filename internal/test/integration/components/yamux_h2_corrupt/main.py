@@ -1,7 +1,7 @@
 # Copyright The OpenTelemetry Authors
 # SPDX-License-Identifier: Apache-2.0
 
-"""Reproducer for OBI issue #2706.
+"""Reproducer for OBI issue https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/issues/2706.
 
 Models GitLab Gitaly's backchannel wire layout: an HTTP/2-looking stream tunneled
 inside a length-prefixed, separately-framed transport (yamux). We do NOT use a

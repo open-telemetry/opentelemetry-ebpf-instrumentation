@@ -1250,7 +1250,7 @@ int obi_packet_extender_detect_h2(struct sk_msg_md *msg) {
     // Awaiting the mandatory post-preface SETTINGS frame. If the next frame on
     // the raw socket is not SETTINGS, the "preface" was just payload of some
     // other protocol multiplexed over this connection (e.g. Gitaly's yamux
-    // backchannel, issue #2706). Reject the socket so we never splice HPACK
+    // backchannel, GitHub issue #2706). Reject the socket so we never splice HPACK
     // into it — doing so would shift the outer framing and corrupt the stream.
     if (state == k_h2_sock_preface) {
         h2_frame_info_t sf;
