@@ -38,7 +38,7 @@ const (
 // shared weaver compose fragment), unless the run explicitly opts out via
 // TESTCASE_SKIP_WEAVER=true.
 func validateWeaver() {
-	if os.Getenv(skipWeaverEnv) == "true" || true {
+	if os.Getenv(skipWeaverEnv) == "true" {
 		ginkgo.GinkgoWriter.Printf("%s=true — skipping weaver validation\n", skipWeaverEnv)
 		return
 	}
