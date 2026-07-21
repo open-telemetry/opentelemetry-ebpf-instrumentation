@@ -22,10 +22,12 @@ import (
 )
 
 var (
-	debugData    *dwarf.Data
-	grpcElf      *dwarf.Data
-	smallELF     *elf.File
-	smallGRPCElf *elf.File
+	debugData           *dwarf.Data
+	grpcElf             *dwarf.Data
+	spanContextData     *dwarf.Data
+	smallELF            *elf.File
+	smallGRPCElf        *elf.File
+	smallSpanContextELF *elf.File
 )
 
 func compileELF(source string, extraArgs ...string) *elf.File {
@@ -35,7 +37,7 @@ func compileELF(source string, extraArgs ...string) *elf.File {
 	cmdParts = append(cmdParts, extraArgs...)
 	cmdParts = append(cmdParts, "-o", tmpFilePath, source)
 	cmd := exec.Command("go", cmdParts...)
-	cmd.Env = []string{"GOOS=linux", "HOME=" + tempDir}
+	cmd.Env = []string{"GOOS=linux", "HOME=" + tempDir, "TMPDIR=" + tempDir}
 	out := &bytes.Buffer{}
 	cmd.Stdout, cmd.Stderr = out, out
 	if err := cmd.Run(); err != nil {
@@ -63,6 +65,11 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	smallGRPCElf = compileELF(baseDir+"/internal/test/cmd/grpc/server/server.go", "-ldflags", "-s -w")
+	spanContextData, err = compileELF(baseDir + "/configs/offsets/oteltrace/inspect.go").DWARF()
+	if err != nil {
+		panic(err)
+	}
+	smallSpanContextELF = compileELF(baseDir+"/configs/offsets/oteltrace/inspect.go", "-ldflags", "-s -w")
 	m.Run()
 }
 
@@ -132,6 +139,25 @@ func TestGrpcOffsetsWithoutDwarf(t *testing.T) {
 		GrpcStatusCodePtrPos:   uint64(40),
 		ConnFdPos:              uint64(0),
 		FdLaddrPos:             uint64(96),
+	}, offsets)
+}
+
+func TestSpanContextOffsetsFromDwarf(t *testing.T) {
+	offsets, _ := structMemberOffsetsFromDwarf(spanContextData)
+	mustMatch(t, FieldOffsets{
+		SpanContextTraceIDPos:    uint64(0),
+		SpanContextSpanIDPos:     uint64(16),
+		SpanContextTraceFlagsPos: uint64(24),
+	}, offsets)
+}
+
+func TestSpanContextOffsetsWithoutDwarf(t *testing.T) {
+	offsets, err := structMemberOffsets(smallSpanContextELF)
+	require.NoError(t, err)
+	mustMatch(t, FieldOffsets{
+		SpanContextTraceIDPos:    uint64(0),
+		SpanContextSpanIDPos:     uint64(16),
+		SpanContextTraceFlagsPos: uint64(24),
 	}, offsets)
 }
 

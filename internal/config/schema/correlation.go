@@ -10,9 +10,10 @@ type Correlation struct {
 
 // LogTraceAnnotation describes log trace annotation settings.
 type LogTraceAnnotation struct {
-	Enabled     bool        `yaml:"enabled"`
-	Cache       Cache       `yaml:"cache"`
-	AsyncWriter AsyncWriter `yaml:"async_writer"`
+	Enabled     bool             `yaml:"enabled"`
+	Filter      AttributeFilters `yaml:"filter,omitempty"`
+	Cache       Cache            `yaml:"cache"`
+	AsyncWriter AsyncWriter      `yaml:"async_writer"`
 }
 
 // AsyncWriter describes asynchronous writer worker and channel settings.

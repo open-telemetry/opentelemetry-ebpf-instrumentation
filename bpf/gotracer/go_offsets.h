@@ -85,6 +85,9 @@ typedef enum {
     _tracer_delegate_pos,
     _tracer_attribute_opt_off,
     _error_string_off,
+    _span_context_trace_id_pos,
+    _span_context_span_id_pos,
+    _span_context_trace_flags_pos,
     // go runtime channels
     _hchan_qcount_pos,
     _hchan_dataqsiz_pos,

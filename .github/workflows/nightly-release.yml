@@ -1,0 +1,60 @@
+name: Nightly Release
+
+# Publishes nightly multi-arch images for both the OBI and k8s-cache components,
+# modelled on the OpenTelemetry Collector nightly release
+# (https://github.com/open-telemetry/opentelemetry-collector-releases/blob/main/.github/workflows/nightly-release.yaml).
+#
+# Tag scheme agreed in the SIG (issue #2553):
+#   - Versioned (immutable):  nightly-<YYYYMMDD>  e.g. nightly-20260708
+#   - Ephemeral (mutable):    nightly             (always points at the latest nightly)
+
+on:
+  schedule:
+    # Every day at 02:00 UTC.
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  # Derive the dated nightly version string (nightly-<YYYYMMDD>).
+  compute-version:
+    name: Compute nightly version
+    if: github.repository == 'open-telemetry/opentelemetry-ebpf-instrumentation'
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Compute nightly version
+        id: version
+        run: |
+          set -euo pipefail
+          VERSION="nightly-$(date -u +'%Y%m%d')"
+          echo "Nightly version: ${VERSION}"
+          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
+
+  nightly-obi:
+    name: Publish nightly OBI image
+    needs: compute-version
+    uses: ./.github/workflows/publish_dockerhub_main.yml
+    permissions:
+      contents: read
+      id-token: write
+      packages: write
+    with:
+      nightly_version: ${{ needs.compute-version.outputs.version }}
+    secrets:
+      DOCKER_TOKEN_EBPF_INSTRUMENTATION: ${{ secrets.DOCKER_TOKEN_EBPF_INSTRUMENTATION }}
+
+  nightly-k8s-cache:
+    name: Publish nightly k8s-cache image
+    needs: compute-version
+    uses: ./.github/workflows/publish_dockerhub_k8s_cache_main.yml
+    permissions:
+      contents: read
+      id-token: write
+      packages: write
+    with:
+      nightly_version: ${{ needs.compute-version.outputs.version }}
+    secrets:
+      DOCKER_TOKEN_EBPF_INSTRUMENTATION: ${{ secrets.DOCKER_TOKEN_EBPF_INSTRUMENTATION }}

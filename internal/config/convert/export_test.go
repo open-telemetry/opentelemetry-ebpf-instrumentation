@@ -865,6 +865,7 @@ func TestRuntimeToV2DocumentParsesAsStandaloneV2(t *testing.T) {
 	require.NotContains(t, string(data), "rules: null")
 	require.NotContains(t, string(data), "telemetry: null")
 	require.NotContains(t, string(data), "refine: {}")
+	require.NotContains(t, string(data), "additionalproperties")
 
 	parsedDoc, parsedExt, err := schema.ParseStandaloneYAML(data)
 	require.NoError(t, err)

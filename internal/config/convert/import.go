@@ -38,13 +38,22 @@ func V2ToRuntime(src *schema.Extension) (*obi.Config, error) {
 	if err := schema.ValidateStandalone(src); err != nil {
 		return nil, err
 	}
+	if err := validateV2MatchOrder(src.Capture.Policy.MatchOrder, src.Capture.Rules); err != nil {
+		return nil, err
+	}
 	if err := validateV2RulePatterns(src.Capture.Rules); err != nil {
+		return nil, err
+	}
+	if err := validateV2RuleSelectorFamilies(src.Capture.Rules); err != nil {
 		return nil, err
 	}
 	if err := validateV2HTTPFilters(src.Capture.Instrumentation.HTTP.Filters); err != nil {
 		return nil, err
 	}
 	if err := validateV2HTTPPayloadExtraction(src.Capture.Instrumentation.HTTP.PayloadExtraction); err != nil {
+		return nil, err
+	}
+	if err := validateUnsupportedV2Fields(src); err != nil {
 		return nil, err
 	}
 
@@ -55,6 +64,57 @@ func V2ToRuntime(src *schema.Extension) (*obi.Config, error) {
 	cfg.Attributes.Select.Normalize()
 
 	return &cfg, nil
+}
+
+func validateUnsupportedV2Fields(src *schema.Extension) error {
+	runtimeFilters := []struct {
+		path    string
+		filters schema.AttributeFilters
+	}{
+		{path: "capture.runtimes.go.filter", filters: src.Capture.Runtimes.Go.Filter},
+		{path: "capture.runtimes.nodejs.filter", filters: src.Capture.Runtimes.NodeJS.Filter},
+		{path: "capture.runtimes.java.filter", filters: src.Capture.Runtimes.Java.Filter},
+	}
+	for _, runtimeFilter := range runtimeFilters {
+		if len(runtimeFilter.filters) != 0 {
+			return fmt.Errorf("%s is not supported", runtimeFilter.path)
+		}
+	}
+
+	if src.Enrich != nil {
+		for _, enrichmentProperties := range []struct {
+			path       string
+			properties map[string]any
+		}{
+			{path: "enrich", properties: src.Enrich.AdditionalProperties},
+			{path: "enrich.enrichers", properties: src.Enrich.Enrichers.AdditionalProperties},
+			{path: "enrich.enrichers.kubernetes", properties: src.Enrich.Enrichers.Kubernetes.AdditionalProperties},
+			{path: "enrich.service_name", properties: src.Enrich.ServiceName.AdditionalProperties},
+			{path: "enrich.attributes", properties: src.Enrich.Attributes.AdditionalProperties},
+		} {
+			if err := rejectUnsupportedProperties(enrichmentProperties.path, enrichmentProperties.properties); err != nil {
+				return err
+			}
+		}
+	}
+
+	if src.Correlation != nil && len(src.Correlation.LogTraceAnnotation.Filter) != 0 {
+		return errors.New("correlation.log_trace_annotation.filter is not supported")
+	}
+	return nil
+}
+
+func rejectUnsupportedProperties(path string, properties map[string]any) error {
+	if len(properties) == 0 {
+		return nil
+	}
+
+	keys := make([]string, 0, len(properties))
+	for key := range properties {
+		keys = append(keys, key)
+	}
+	slices.Sort(keys)
+	return fmt.Errorf("%s.%s is not supported", path, keys[0])
 }
 
 func runtimeConfigDefaults() obi.Config {
@@ -72,7 +132,7 @@ func runtimeConfigDefaults() obi.Config {
 
 func applyV2Capture(cfg *obi.Config, src *schema.Extension) {
 	applyV2Policy(cfg, src.Capture.Policy, completePolicy(src.Capture.Policy))
-	applyV2Rules(cfg, src.Capture.Rules)
+	applyV2Rules(cfg, src.Capture.Rules, src.Capture.Policy.DefaultAction)
 	applyV2Limits(cfg, src.Capture.Limits, completeLimits(src.Capture.Limits))
 	applyV2Safety(cfg, src.Capture.Safety, !zeroValue(src.Capture.Safety))
 	applyV2Channels(cfg, src.Capture.Channels, completeChannels(src.Capture.Channels))
@@ -112,12 +172,30 @@ type runtimeDiscoveryRules struct {
 	defaultOTLPGRPCPort             int
 }
 
-func applyV2Rules(cfg *obi.Config, rules []schema.Rule) {
+func applyV2Rules(cfg *obi.Config, rules []schema.Rule, defaultAction schema.CaptureAction) {
+	includeByDefault := defaultAction != schema.CaptureActionExclude
 	if rules == nil {
+		if includeByDefault {
+			cfg.Discovery.Instrument = services.GlobDefinitionCriteria{
+				{Path: services.NewGlob("*")},
+			}
+		}
 		return
 	}
 
-	applyRuntimeDiscoveryRules(cfg, runtimeDiscoveryRulesFromV2(rules))
+	converted := runtimeDiscoveryRulesFromV2(rules)
+	if includeByDefault {
+		if len(converted.includeRegex) > 0 || len(converted.excludeRegex) > 0 {
+			converted.includeRegex = append(converted.includeRegex, services.RegexSelector{
+				Path: services.NewRegexp(".*"),
+			})
+		} else {
+			converted.includeGlobs = append(converted.includeGlobs, services.GlobAttributes{
+				Path: services.NewGlob("*"),
+			})
+		}
+	}
+	applyRuntimeDiscoveryRules(cfg, converted)
 }
 
 func runtimeDiscoveryRulesFromV2(rules []schema.Rule) runtimeDiscoveryRules {
@@ -193,6 +271,69 @@ func validateV2RulePatterns(rules []schema.Rule) error {
 		}
 	}
 	return nil
+}
+
+func validateV2RuleSelectorFamilies(rules []schema.Rule) error {
+	selectorFamily := ""
+	for i, rule := range rules {
+		if rule.Match.Process.ExportsOTLP != nil || ruleMatchEmpty(rule.Match) {
+			continue
+		}
+
+		ruleSelectorFamily := "glob"
+		if ruleUsesRegex(rule.Match) {
+			if ruleUsesGlob(rule.Match) {
+				return fmt.Errorf(
+					"capture.rules[%d].match: mixing glob and regex selectors is not supported",
+					i,
+				)
+			}
+			ruleSelectorFamily = "regex"
+		}
+
+		if selectorFamily != "" && selectorFamily != ruleSelectorFamily {
+			return fmt.Errorf(
+				"capture.rules[%d].match: mixing glob and regex selectors is not supported",
+				i,
+			)
+		}
+		selectorFamily = ruleSelectorFamily
+	}
+	return nil
+}
+
+func validateV2MatchOrder(matchOrder schema.MatchOrder, rules []schema.Rule) error {
+	if matchOrder == schema.MatchOrderLastMatchWins {
+		return errors.New("capture.policy.match_order: last_match_wins is not supported")
+	}
+
+	includeSeen := false
+	for i, rule := range rules {
+		if !ruleAffectsV2Selection(rule) {
+			continue
+		}
+
+		switch rule.Action {
+		case schema.CaptureActionInclude:
+			includeSeen = true
+		case schema.CaptureActionExclude:
+			if includeSeen {
+				return fmt.Errorf(
+					"capture.rules[%d]: exclude rules must precede include rules for first_match_wins",
+					i,
+				)
+			}
+		}
+	}
+
+	return nil
+}
+
+func ruleAffectsV2Selection(rule schema.Rule) bool {
+	if rule.Match.Process.ExportsOTLP != nil || ruleMatchEmpty(rule.Match) {
+		return false
+	}
+	return !ruleUsesRegex(rule.Match) || !ruleUsesGlob(rule.Match)
 }
 
 func validateV2HTTPFilters(filters schema.SignalFilters) error {
