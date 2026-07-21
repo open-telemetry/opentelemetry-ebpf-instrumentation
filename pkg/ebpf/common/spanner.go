@@ -15,6 +15,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/config"
 	ebpfhttp "go.opentelemetry.io/obi/pkg/ebpf/common/http"
+	"go.opentelemetry.io/obi/pkg/internal/largebuf"
 	"go.opentelemetry.io/obi/pkg/internal/sqlprune"
 )
 
@@ -89,7 +90,7 @@ func HTTPRequestTraceToSpan(parseCtx *EBPFParseContext, trace *HTTPRequestTrace)
 		SubType:   subType,
 	}
 
-	if parseCtx != nil && (!span.IsClientSpan() || !parseCtx.defersGoHTTPClientRequests()) {
+	if parseCtx != nil && parseCtx.payloadExtraction.Enabled() && (!span.IsClientSpan() || !parseCtx.defersGoHTTPClientRequests()) {
 		span = enrichedGoHTTPSpan(parseCtx, trace.Conn, &span)
 	}
 
@@ -97,9 +98,10 @@ func HTTPRequestTraceToSpan(parseCtx *EBPFParseContext, trace *HTTPRequestTrace)
 }
 
 func enrichedGoHTTPSpan(parseCtx *EBPFParseContext, conn BpfConnectionInfoT, span *request.Span) request.Span {
-	if req, ok := parseGoRequestLargeBuffer(parseCtx, conn, span.IsClientSpan()); ok {
+	if req, requestBuffer, ok := parseGoRequestLargeBuffer(parseCtx, conn, span.IsClientSpan()); ok {
 		resp := &http.Response{Header: http.Header{}}
 
+		hasResponse := false
 		emptyTraceID := [16]uint8{}
 		b, ok := extractTCPLargeBuffer(parseCtx, emptyTraceID, packetTypeResponse, directionByPacketType(packetTypeResponse, span.IsClientSpan()), conn, ProtocolTypeHTTP)
 		if ok {
@@ -107,7 +109,21 @@ func enrichedGoHTTPSpan(parseCtx *EBPFParseContext, conn BpfConnectionInfoT, spa
 			resp, err = httpSafeParseResponse(b, req)
 			if err != nil {
 				slog.Debug("error while parsing http request or response, falling back to manual HTTP info parsing", "respErr", err)
+			} else {
+				hasResponse = true
 			}
+
+		}
+
+		if !hasResponse || req == nil || resp == nil {
+			return *span
+		}
+
+		defer req.Body.Close()
+		defer resp.Body.Close()
+
+		if req.ContentLength > 0 {
+			recoverRequestBody(req, requestBuffer)
 		}
 
 		return postProcessHTTPSpan(parseCtx, span, req, resp)
@@ -133,23 +149,23 @@ func parseGoRequestLargeBuffer(
 	parseCtx *EBPFParseContext,
 	conn BpfConnectionInfoT,
 	isClient bool,
-) (*http.Request, bool) {
+) (*http.Request, *largebuf.LargeBuffer, bool) {
 	sortConnectionInfo(&conn)
 
 	emptyTraceID := [16]uint8{}
 	buffer, ok := extractTCPLargeBuffer(parseCtx, emptyTraceID, packetTypeRequest,
 		directionByPacketType(packetTypeRequest, isClient), conn, ProtocolTypeHTTP)
 	if !ok {
-		return nil, false
+		return nil, nil, false
 	}
 
 	reqReader := buffer.NewReader()
 	req, err := http.ReadRequest(bufio.NewReader(&reqReader))
 	if err != nil {
 		slog.Debug("error parsing HTTP request from large buffer for enrichment", "error", err)
-		return nil, false
+		return nil, buffer, false
 	}
-	return req, true
+	return req, buffer, true
 }
 
 func goHTTPClientConnectionKey(conn BpfConnectionInfoT) BpfConnectionInfoT {

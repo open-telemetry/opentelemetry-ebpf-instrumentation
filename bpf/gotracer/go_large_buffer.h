@@ -132,7 +132,7 @@ static __always_inline bool http_large_buffers_enabled() {
 }
 
 static __always_inline bool http_large_buffer_skip(s64 len) {
-    return !http_large_buffers_enabled() || len >= http_max_captured_bytes || len == 0;
+    return !http_large_buffers_enabled() || len >= http_max_captured_bytes || len <= 0;
 }
 
 static __always_inline void

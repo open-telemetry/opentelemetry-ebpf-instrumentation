@@ -36,8 +36,6 @@
 
 #include <pid/pid_helpers.h>
 
-//SCRATCH_MEM_TYPED(http_client_conn, connection_info_t);
-
 static __always_inline bool already_handled_request_sorted(const connection_info_t *conn) {
     if (conn) {
         const bool *found = bpf_map_lookup_elem(&handled_by_go_conn, conn);
