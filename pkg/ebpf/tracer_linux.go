@@ -105,18 +105,16 @@ func (pt *ProcessTracer) Run(
 	// Searches for traceable functions
 	trcrs := pt.Programs
 	wg := sync.WaitGroup{}
-	runningTracers := make([]tracerInstance, 0, len(trcrs))
-	for i := range trcrs {
-		idx := i
+	runningTracers := make([]*tracerInstance, 0, len(trcrs))
+	for idx := range trcrs {
 		t := trcrs[idx]
 		wg.Add(1)
-		runningTracers = append(runningTracers, tracerInstance{
-			implType: reflect.TypeOf(t).String(),
-		})
+		ti := &tracerInstance{implType: reflect.TypeOf(t).String()}
+		runningTracers = append(runningTracers, ti)
 		go func() {
 			defer wg.Done()
 			t.Run(ctx, ebpfEventContext, out)
-			runningTracers[idx].done.Store(true)
+			ti.done.Store(true)
 		}()
 	}
 
@@ -134,6 +132,12 @@ func (pt *ProcessTracer) Run(
 		select {
 		// notifying before OBI times out on finish
 		case <-time.After(3 * pt.shutdownTimeout / 4):
+			var runningTracerNames []string
+			for _, ti := range runningTracers {
+				if !ti.done.Load() {
+					runningTracerNames = append(runningTracerNames, ti.implType)
+				}
+			}
 			pt.log.Warn("some process tracers did not finish", "tracers", runningTracers)
 			hasWarned = true
 		case <-tracersEnded:
