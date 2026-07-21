@@ -253,9 +253,9 @@ google-api-core==2.32.0 \
     --hash=sha256:2b33aad226b19272458c46abfe5c5a38d9531ece0c44502129a1463ce83674ac \
     --hash=sha256:ae1f0d58a6c8869350bf469f8eb3092e7f8c494a942d9525494afb6c162b0904
     # via -r requirements.in
-google-auth==2.56.0 \
-    --hash=sha256:6e88c10217e07a92bfd01cac8ee99e32ccfb08414c3102e6c5b8d58f37a0d1e0 \
-    --hash=sha256:f90fa030b569a92654b9d690665a073841df33d57487be53db583a9a0867a553
+google-auth==2.56.1 \
+    --hash=sha256:9fd80dc51a58f44407d11f8e8e3ed3e26b407606e0ca181be728ad4dd77d1cdf \
+    --hash=sha256:dd8a555988ca88c7158927fe22883ec065ca0f0f27d0077b419365a004df77d3
     # via google-api-core
 googleapis-common-protos==1.75.0 \
     --hash=sha256:53a062ff3c32552fbd62c11fe23768b78e4ddf0494d5e5fd97d3f4689c75fbbd \
