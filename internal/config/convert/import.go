@@ -905,6 +905,7 @@ func applyPartialV2Instrumentation(cfg *obi.Config, instrumentation schema.Instr
 func applyFullV2HTTPInstrumentation(cfg *obi.Config, http schema.HTTPInstrumentation) {
 	cfg.EBPF.TrackRequestHeaders = http.TrackRequestHeaders
 	cfg.EBPF.HTTPRequestTimeout = http.RequestTimeout.TimeDuration()
+	cfg.EBPF.GoHTTPClientBufferTimeout = http.GoHTTPClientBufferTimeout.TimeDuration()
 	cfg.EBPF.BufferSizes.HTTP = http.BufferSize
 
 	applyV2HTTPFilters(cfg, http.Filters, true)
@@ -918,6 +919,9 @@ func applyPartialV2HTTPInstrumentation(cfg *obi.Config, http schema.HTTPInstrume
 	}
 	if !zeroValue(http.RequestTimeout) {
 		cfg.EBPF.HTTPRequestTimeout = http.RequestTimeout.TimeDuration()
+	}
+	if !zeroValue(http.GoHTTPClientBufferTimeout) {
+		cfg.EBPF.GoHTTPClientBufferTimeout = http.GoHTTPClientBufferTimeout.TimeDuration()
 	}
 	if http.BufferSize != 0 {
 		cfg.EBPF.BufferSizes.HTTP = http.BufferSize

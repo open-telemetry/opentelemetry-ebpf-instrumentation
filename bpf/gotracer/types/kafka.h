@@ -24,3 +24,10 @@ typedef struct topic {
     char name[k_max_topic_name_len];
     tp_info_t tp;
 } topic_t;
+
+typedef struct send_event {
+    u64 start_monotime_ns;
+    u64 promise;
+    u32 correlation_id;
+    u32 _pad;
+} send_event_t;

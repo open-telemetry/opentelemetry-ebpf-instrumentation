@@ -95,13 +95,14 @@ func captureInstrumentation(cfg *obi.Config) schema.Instrumentation {
 
 	http := protocols[protocolHTTP]
 	httpInstrumentation := schema.HTTPInstrumentation{
-		Enabled:             http.Enabled,
-		Filters:             http.Filters,
-		TrackRequestHeaders: cfg.EBPF.TrackRequestHeaders,
-		RequestTimeout:      schema.Duration(cfg.EBPF.HTTPRequestTimeout),
-		BufferSize:          cfg.EBPF.BufferSizes.HTTP,
-		Routes:              httpRoutes(cfg),
-		PayloadExtraction:   payloadExtraction(cfg),
+		Enabled:                   http.Enabled,
+		Filters:                   http.Filters,
+		TrackRequestHeaders:       cfg.EBPF.TrackRequestHeaders,
+		RequestTimeout:            schema.Duration(cfg.EBPF.HTTPRequestTimeout),
+		GoHTTPClientBufferTimeout: schema.Duration(cfg.EBPF.GoHTTPClientBufferTimeout),
+		BufferSize:                cfg.EBPF.BufferSizes.HTTP,
+		Routes:                    httpRoutes(cfg),
+		PayloadExtraction:         payloadExtraction(cfg),
 	}
 
 	sql := protocols[protocolSQL]

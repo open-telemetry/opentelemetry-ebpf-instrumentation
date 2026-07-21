@@ -43,10 +43,20 @@ func TestReceiverConfigUnmarshalV2(t *testing.T) {
 	require.NoError(t, component.Unmarshal(cfg))
 	require.NoError(t, cfg.Validate())
 	require.Equal(t, 123, cfg.runtime.ChannelBufferLen)
-	// Config v2 conversion retains the default instrument rule in addition to
-	// the configured rule.
 	require.Len(t, cfg.runtime.Discovery.Instrument, 2)
-	require.Equal(t, []int{8080}, cfg.runtime.Discovery.Instrument[0].OpenPorts.AllValues())
+
+	var hasOpenPortSelector, hasDefaultSelector bool
+	for _, selector := range cfg.runtime.Discovery.Instrument {
+		if len(selector.OpenPorts.AllValues()) == 1 && selector.OpenPorts.AllValues()[0] == 8080 {
+			hasOpenPortSelector = true
+		}
+		if selector.Path.IsSet() && selector.Path.MatchString("any-executable-path") && len(selector.OpenPorts.AllValues()) == 0 {
+			hasDefaultSelector = true
+		}
+	}
+
+	require.True(t, hasOpenPortSelector)
+	require.True(t, hasDefaultSelector)
 	require.NotNil(t, cfg.runtime.Traces.TracesConsumer)
 	require.NotNil(t, cfg.runtime.OTELMetrics.MetricsConsumer)
 }

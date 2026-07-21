@@ -673,6 +673,18 @@
           "default": "auto",
           "x-env-var": "OTEL_EBPF_FORCE_BPF_MAP_READER"
         },
+        "go_http_client_buffer_timeout": {
+          "type": "string",
+          "pattern": "^[0-9]+(ms|s|m)$",
+          "description": "Is the inactivity period after which a pending Go HTTP client event is enriched with its captured buffers and emitted. A zero value disables deferral.",
+          "default": "1s",
+          "examples": [
+            "30s",
+            "5m",
+            "1ms"
+          ],
+          "x-env-var": "OTEL_EBPF_BPF_GO_HTTP_CLIENT_BUFFER_TIMEOUT"
+        },
         "heuristic_sql_detect": {
           "type": "boolean",
           "description": "Enables the heuristic based detection of SQL requests. This can be used to detect talking to databases other than the ones we recognize in OBI, like Postgres and MySQL",
