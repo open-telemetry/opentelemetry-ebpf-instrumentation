@@ -372,6 +372,9 @@ static __always_inline int kafka_send_large_buffer(tcp_req_t *req,
 
     if (!capture_in_progress) {
         // First chunk of the response: validate it against the pending request.
+        if (!correlation_data) {
+            return 0;
+        }
         const s32 correlation_id = kafka_read_response_correlation_id(state_data, u_buf, bytes_len);
         if (correlation_id != correlation_data->correlation_id) {
             bpf_dbg_printk("request correlation_id != response "
