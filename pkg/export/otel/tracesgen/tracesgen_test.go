@@ -266,6 +266,34 @@ func TestHTTPServerSpanURLQuery(t *testing.T) {
 	})
 }
 
+func TestHTTPRequestMethodOmittedWhenEmpty(t *testing.T) {
+	defaultAttrs, err := UserSelectedAttributes(&attributes.SelectorConfig{})
+	require.NoError(t, err)
+
+	for _, tt := range []struct {
+		name      string
+		spanType  request.EventType
+		method    string
+		wantValue string
+		wantOK    bool
+	}{
+		{name: "server span with known method", spanType: request.EventTypeHTTP, method: "GET", wantValue: "GET", wantOK: true},
+		{name: "server span with empty method", spanType: request.EventTypeHTTP, method: "", wantOK: false},
+		{name: "client span with known method", spanType: request.EventTypeHTTPClient, method: "GET", wantValue: "GET", wantOK: true},
+		{name: "client span with empty method", spanType: request.EventTypeHTTPClient, method: "", wantOK: false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			span := &request.Span{Type: tt.spanType, Method: tt.method, Path: "/", Host: "example.com", HostPort: 80, Status: 200}
+			selected := AttrsToMap(TraceAttributesSelector(span, defaultAttrs))
+			val, ok := selected.Get("http.request.method")
+			assert.Equal(t, tt.wantOK, ok, "http.request.method presence should match method availability")
+			if tt.wantOK {
+				assert.Equal(t, tt.wantValue, val.Str())
+			}
+		})
+	}
+}
+
 func TestCreateToolCallSpans(t *testing.T) {
 	t.Run("nil tool calls creates no spans", func(t *testing.T) {
 		ss := ptrace.NewScopeSpans()

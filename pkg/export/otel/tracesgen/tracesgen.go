@@ -527,13 +527,15 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 	switch span.Type {
 	case request.EventTypeHTTP:
 		attrs = []attribute.KeyValue{
-			request.HTTPRequestMethod(span.Method),
 			request.HTTPResponseStatusCode(span.Status),
 			request.ClientAddr(request.PeerAsClient(span)),
 			request.ServerAddr(request.SpanHost(span)),
 			request.ServerPort(span.HostPort),
 			request.HTTPRequestBodySize(int(span.RequestBodyLength())),
 			request.HTTPResponseBodySize(span.ResponseBodyLength()),
+		}
+		if span.Method != "" {
+			attrs = append(attrs, request.HTTPRequestMethod(span.Method))
 		}
 		if span.Path != "" {
 			attrs = append(attrs, request.HTTPUrlPath(span.Path))
@@ -630,7 +632,6 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 		}
 
 		attrs = []attribute.KeyValue{
-			request.HTTPRequestMethod(span.Method),
 			request.HTTPResponseStatusCode(span.Status),
 			request.HTTPUrlFull(url),
 			semconv.URLScheme(scheme),
@@ -639,6 +640,9 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 			request.ServerPort(span.HostPort),
 			request.HTTPRequestBodySize(int(span.RequestBodyLength())),
 			request.HTTPResponseBodySize(span.ResponseBodyLength()),
+		}
+		if span.Method != "" {
+			attrs = append(attrs, request.HTTPRequestMethod(span.Method))
 		}
 
 		if scrubbedQS != "" {
