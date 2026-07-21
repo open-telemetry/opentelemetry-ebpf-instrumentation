@@ -600,28 +600,12 @@ extensions:
             source_labels:
               service_name: ""
               service_namespace: ""
-        # DNS enricher runtime configuration.
-        dns:
-          enabled: true
       # Service identity enrichment policy from configured enrichers.
       service_name:
         # Shared cache for peer/host service-name lookups.
         cache:
           size: 1024
           ttl: 5m0s
-        # Rule-based service identity mapping.
-        # Rule order is the precedence model: earlier rules win when they set the same target field.
-        rules:
-          - id: k8s-default
-            from: kubernetes
-            description: Default Kubernetes label mapping into canonical service identity.
-            map:
-              service.name:
-                - app.kubernetes.io/name
-              service.namespace:
-                - app.kubernetes.io/part-of
-              service.version:
-                - app.kubernetes.io/version
         # Fallback names when peer/host resolution fails.
         unresolved_hosts:
           names:
@@ -630,35 +614,6 @@ extensions:
             incoming: incoming
       # Attribute enrichment/selection controls.
       attributes:
-        # Rule order is the precedence model: earlier rules win when they set the same target attribute.
-        rules:
-          - id: k8s-default-attributes
-            from: kubernetes
-            description: Default Kubernetes-derived attribute enrichment and selection.
-            add:
-              # Explicit attribute mapping policy for Kubernetes metadata.
-              map:
-                k8s.namespace.name:
-                  - kubernetes.namespace
-                k8s.pod.name:
-                  - kubernetes.pod.name
-                k8s.deployment.name:
-                  - kubernetes.workload.deployment
-                k8s.node.name:
-                  - kubernetes.node.name
-          - id: dns-default-attributes
-            from: dns
-            description: Default DNS-based host and instance identity enrichment.
-            add:
-              # Explicit attribute mapping policy for DNS metadata.
-              map:
-                host.name:
-                  - dns.host_name
-                  - dns.ptr_name
-                service.instance.id:
-                  - dns.host_name
-                server.address:
-                  - dns.resolved_ip
 
     # correlation propagates OBI trace context into external streams.
     # Standalone-mode only: not valid in Collector receiver deployments.

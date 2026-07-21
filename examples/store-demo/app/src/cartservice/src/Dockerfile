@@ -19,6 +19,12 @@ WORKDIR /app
 COPY cartservice.csproj .
 RUN dotnet restore cartservice.csproj \
     -a $TARGETARCH
+# Grpc.Tools' bundled linux_arm64/protoc segfaults under dotnet publish (grpc/grpc#38538).
+# Use the distro protoc instead; Grpc.Tools' grpc_csharp_plugin is kept for codegen.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends protobuf-compiler \
+    && rm -rf /var/lib/apt/lists/*
+ENV Protobuf_ProtocFullPath=/usr/bin/protoc
 COPY . .
 RUN dotnet publish cartservice.csproj \
     -p:PublishSingleFile=true \

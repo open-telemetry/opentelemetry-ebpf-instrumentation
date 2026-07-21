@@ -95,13 +95,14 @@ func captureInstrumentation(cfg *obi.Config) schema.Instrumentation {
 
 	http := protocols[protocolHTTP]
 	httpInstrumentation := schema.HTTPInstrumentation{
-		Enabled:             http.Enabled,
-		Filters:             http.Filters,
-		TrackRequestHeaders: cfg.EBPF.TrackRequestHeaders,
-		RequestTimeout:      schema.Duration(cfg.EBPF.HTTPRequestTimeout),
-		BufferSize:          cfg.EBPF.BufferSizes.HTTP,
-		Routes:              httpRoutes(cfg),
-		PayloadExtraction:   payloadExtraction(cfg),
+		Enabled:                   http.Enabled,
+		Filters:                   http.Filters,
+		TrackRequestHeaders:       cfg.EBPF.TrackRequestHeaders,
+		RequestTimeout:            schema.Duration(cfg.EBPF.HTTPRequestTimeout),
+		GoHTTPClientBufferTimeout: schema.Duration(cfg.EBPF.GoHTTPClientBufferTimeout),
+		BufferSize:                cfg.EBPF.BufferSizes.HTTP,
+		Routes:                    httpRoutes(cfg),
+		PayloadExtraction:         payloadExtraction(cfg),
 	}
 
 	sql := protocols[protocolSQL]
@@ -715,12 +716,12 @@ func daemon(cfg *obi.Config) *schema.Daemon {
 }
 
 func logLevel(level obi.LogLevel) otelconfx.SeverityNumber {
-	switch level {
-	case obi.LogLevelDebug:
+	switch strings.ToUpper(string(level)) {
+	case string(obi.LogLevelDebug):
 		return otelconfx.SeverityNumberDebug
-	case obi.LogLevelWarn:
+	case string(obi.LogLevelWarn):
 		return otelconfx.SeverityNumberWarn
-	case obi.LogLevelError:
+	case string(obi.LogLevelError):
 		return otelconfx.SeverityNumberError
 	default:
 		return otelconfx.SeverityNumberInfo

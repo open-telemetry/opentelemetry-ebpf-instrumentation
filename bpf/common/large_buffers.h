@@ -35,4 +35,6 @@ enum {
     k_large_buf_max_tcp_captured_bytes = 1 << 16,
 };
 
+enum { k_large_buffer_source_kprobes = 0, k_large_buffer_source_go = 1 };
+
 SCRATCH_MEM_SIZED(tcp_large_buffers, k_large_buf_max_size);

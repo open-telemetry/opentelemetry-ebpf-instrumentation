@@ -19,13 +19,7 @@ type PayloadExtraction struct {
 }
 
 func (p PayloadExtraction) Enabled() bool {
-	return p.HTTP.GraphQL.Enabled ||
-		p.HTTP.Elasticsearch.Enabled ||
-		p.HTTP.AWS.Enabled ||
-		p.HTTP.SQLPP.Enabled ||
-		p.HTTP.GenAI.Enabled() ||
-		p.HTTP.JSONRPC.Enabled ||
-		p.HTTP.Enrichment.Enabled
+	return p.HTTP.GraphQL.Enabled || p.HTTP.ClientEnabled()
 }
 
 type HTTPConfig struct {
@@ -43,6 +37,16 @@ type HTTPConfig struct {
 	JSONRPC JSONRPCConfig `yaml:"jsonrpc"`
 	// Enrichment configures HTTP header and payload extraction with policy-based rules
 	Enrichment EnrichmentConfig `yaml:"enrichment"`
+}
+
+// ClientEnabled reports whether any HTTP client payload extraction is enabled.
+func (h HTTPConfig) ClientEnabled() bool {
+	return h.Elasticsearch.Enabled ||
+		h.AWS.Enabled ||
+		h.SQLPP.Enabled ||
+		h.GenAI.Enabled() ||
+		h.JSONRPC.Enabled ||
+		h.Enrichment.Enabled
 }
 
 // NumericRange defines numeric comparison criteria for a rule match condition.
