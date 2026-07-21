@@ -53,10 +53,19 @@
         "[1.23.0]smallAllocCount",
         "[1.23.0]smallFreeCount"
       ],
-      "runtime.schedt": ["ngsys", "gFree"],
+      "runtime.schedt": [
+        "ngsys",
+        "gFree",
+        "[1.20.0]timeToRun",
+        "[1.22.0]stwTotalTimeGC"
+      ],
       "runtime.p": ["gFree"],
       "runtime.gList": ["[1.25.0]size"],
       "runtime.mutex": ["key"],
+      "runtime.timeHistogram": [
+        "[1.20.0]underflow",
+        "[1.20.0]overflow"
+      ],
       "runtime.workType": ["[1.23.0]cpuStats"],
       "runtime.cpuStats": [
         "[1.23.0]GCAssistTime",

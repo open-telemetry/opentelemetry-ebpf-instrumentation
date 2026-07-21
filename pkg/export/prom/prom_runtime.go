@@ -108,6 +108,9 @@ func (r *metricsReporter) collectRuntimeMetrics(snapshots []runtimemetrics.Runti
 		if snapshot.Go != nil {
 			r.collectGoRuntimeMetrics(snapshot)
 		}
+		if snapshot.Histogram != nil {
+			r.collectGoRuntimeHistogram(snapshot)
+		}
 		if snapshot.JVM != nil {
 			r.collectJVMRuntimeMetrics(snapshot)
 		}
@@ -206,6 +209,14 @@ func (r *metricsReporter) collectGoRuntimeMetrics(snapshot runtimemetrics.Runtim
 	}
 }
 
+func (r *metricsReporter) collectGoRuntimeHistogram(snapshot runtimemetrics.RuntimeMetricSnapshot) {
+	if r.goRuntimeHistograms == nil || snapshot.Histogram == nil {
+		return
+	}
+
+	r.goRuntimeHistograms.Update(r.labelValuesTargetInfo(&snapshot.Service), snapshot.Histogram)
+}
+
 func (c *goRuntimeMetricsCollector) addGCCycles(labels []string, value uint64) {
 	c.addCounter(c.memoryGCCycles, attributes.GoRuntimeMemoryGCCycles.Prom, labels, value, 1)
 }
@@ -290,11 +301,18 @@ func runtimeMetricLabelsKey(labels []string) string {
 }
 
 func (r *metricsReporter) deleteRuntimeMetrics(service *svc.Attrs) {
-	if service == nil || r.goRuntimeMetrics.memoryLimit == nil {
+	if service == nil {
 		return
 	}
 
 	labels := r.labelValuesTargetInfo(service)
+	if r.goRuntimeHistograms != nil {
+		r.goRuntimeHistograms.Delete(labels)
+	}
+	if r.goRuntimeMetrics.memoryLimit == nil {
+		return
+	}
+
 	r.goRuntimeMetrics.memoryLimit.DeleteLabelValues(labels...)
 	r.goRuntimeMetrics.memoryGCGoal.DeleteLabelValues(labels...)
 	r.goRuntimeMetrics.deleteGCCycles(labels)

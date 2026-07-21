@@ -44,9 +44,10 @@ type RuntimeMetricsReporter struct {
 }
 
 type RuntimeMetrics struct {
-	ctx      context.Context
-	service  *svc.Attrs
-	provider *metric.MeterProvider
+	ctx                 context.Context
+	service             *svc.Attrs
+	provider            *metric.MeterProvider
+	goHistogramProducer *goRuntimeHistogramProducer
 
 	goMetrics  goRuntimeMetrics
 	jvmMetrics jvmRuntimeMetrics
@@ -156,16 +157,19 @@ func (r *RuntimeMetricsReporter) newMetricsInstance(service *svc.Attrs) RuntimeM
 	log.Debug("creating new runtime metrics reporter")
 
 	resources := resource.NewWithAttributes(semconv.SchemaURL, resourceAttributes...)
+	goHistogramProducer := newGoRuntimeHistogramProducer()
 	provider := metric.NewMeterProvider(
 		metric.WithResource(resources),
 		metric.WithReader(metric.NewPeriodicReader(sharedExporter{r.exporter},
-			metric.WithInterval(r.cfg.Interval))),
+			metric.WithInterval(r.cfg.Interval),
+			metric.WithProducer(goHistogramProducer))),
 	)
 
 	return RuntimeMetrics{
-		ctx:      r.ctx,
-		service:  service,
-		provider: provider,
+		ctx:                 r.ctx,
+		service:             service,
+		provider:            provider,
+		goHistogramProducer: goHistogramProducer,
 	}
 }
 
@@ -286,11 +290,13 @@ func recordRuntimeMetrics(ctx context.Context, metrics *RuntimeMetrics, snapshot
 		return
 	}
 
-	if snapshot.Go != nil {
-		if snapshot.Service.SDKLanguage != svc.InstrumentableGolang {
-			return
+	if snapshot.Service.SDKLanguage == svc.InstrumentableGolang {
+		if snapshot.Histogram != nil && metrics.goHistogramProducer != nil {
+			metrics.goHistogramProducer.Update(snapshot)
 		}
-		recordGoRuntimeMetrics(ctx, &metrics.goMetrics, snapshot)
+		if snapshot.Go != nil {
+			recordGoRuntimeMetrics(ctx, &metrics.goMetrics, snapshot)
+		}
 	}
 	if snapshot.JVM != nil {
 		if !snapshot.Service.ExportModes.CanExportMetrics() || !snapshot.Service.Features.AppRuntime() {

@@ -235,8 +235,9 @@ type metricsReporter struct {
 	genAIClientDuration *Expirer[prometheus.Histogram]
 	genAITokenUsage     *Expirer[prometheus.Histogram]
 
-	goRuntimeMetrics  goRuntimeMetricsCollector
-	jvmRuntimeMetrics jvmRuntimeMetricsCollector
+	goRuntimeMetrics    goRuntimeMetricsCollector
+	goRuntimeHistograms *goRuntimeHistogramCollector
+	jvmRuntimeMetrics   jvmRuntimeMetricsCollector
 
 	promConnect *connector.PrometheusManager
 
@@ -761,9 +762,15 @@ func newReporter(
 	}
 
 	if runtimeMetricsEnabled.Runtime {
-		mr.goRuntimeMetrics = newGoRuntimeMetricsCollector(
-			labelNamesTargetInfo(kubeEnabled, dockerEnabled, &ctxInfo.NodeMeta, extraMetadataLabels, selectorCfg.SelectionCfg),
+		runtimeLabelNames := labelNamesTargetInfo(
+			kubeEnabled,
+			dockerEnabled,
+			&ctxInfo.NodeMeta,
+			extraMetadataLabels,
+			selectorCfg.SelectionCfg,
 		)
+		mr.goRuntimeMetrics = newGoRuntimeMetricsCollector(runtimeLabelNames)
+		mr.goRuntimeHistograms = newGoRuntimeHistogramCollector(runtimeLabelNames)
 		mr.jvmRuntimeMetrics = newJVMRuntimeMetricsCollector(cfg)
 	}
 
@@ -852,6 +859,7 @@ func newReporter(
 
 	if runtimeMetricsEnabled.Runtime {
 		registeredMetrics = append(registeredMetrics, mr.goRuntimeMetrics.collectors()...)
+		registeredMetrics = append(registeredMetrics, mr.goRuntimeHistograms)
 		registeredMetrics = append(registeredMetrics, mr.jvmRuntimeMetrics.collectors()...)
 	}
 
