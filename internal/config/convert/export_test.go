@@ -552,6 +552,7 @@ func TestRuntimeToV2AdvancedCaptureParity(t *testing.T) {
 	cfg.EBPF.PayloadExtraction.HTTP.GenAI.Embedding.Enabled = true
 	cfg.EBPF.PayloadExtraction.HTTP.GenAI.Rerank.Enabled = true
 	cfg.EBPF.PayloadExtraction.HTTP.GenAI.Retrieval.Enabled = true
+	cfg.EBPF.PayloadExtraction.HTTP.GenAI.Ollama.Enabled = true
 	cfg.EBPF.PayloadExtraction.HTTP.JSONRPC.Enabled = true
 	cfg.EBPF.PayloadExtraction.HTTP.Enrichment.Enabled = true
 	cfg.EBPF.PayloadExtraction.HTTP.Enrichment.Policy.DefaultAction.Headers = config.HTTPParsingActionInclude
@@ -616,7 +617,7 @@ func TestRuntimeToV2AdvancedCaptureParity(t *testing.T) {
 
 	require.ElementsMatch(t, []string{
 		"graphql", "elasticsearch", "aws", "sqlpp", "openai", "anthropic", "gemini",
-		"qwen", "bedrock", "mcp", "embedding", "rerank", "retrieval", "jsonrpc", "enrichment",
+		"qwen", "bedrock", "mcp", "embedding", "rerank", "retrieval", "ollama", "jsonrpc", "enrichment",
 	}, value(t, ext.Capture.Instrumentation, "http", "payload_extraction", "enabled"))
 	require.Equal(t, []string{"/query", "/analytics"}, value(t, ext.Capture.Instrumentation, "http", "payload_extraction", "sqlpp", "endpoint_patterns"))
 	require.Equal(t, config.HTTPParsingActionInclude, value(t, ext.Capture.Instrumentation, "http", "payload_extraction", "enrichment", "policy", "default_action", "headers"))

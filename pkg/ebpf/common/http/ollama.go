@@ -125,7 +125,7 @@ func OllamaSpan(baseSpan *request.Span, req *http.Request, resp *http.Response) 
 		Model:    ollamaReq.Model,
 		Messages: ollamaReq.Messages,
 		Prompt:   ollamaReq.Prompt,
-		Stream:   ollamaReq.Stream != nil && *ollamaReq.Stream,
+		Stream:   ollamaReq.Stream == nil || *ollamaReq.Stream,
 		Tools:    ollamaReq.Tools,
 	}
 

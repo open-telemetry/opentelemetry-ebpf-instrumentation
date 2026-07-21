@@ -285,7 +285,7 @@ extensions:
             # List-based enablement, consistent with other instrumentation selectors.
             # Supported values today: graphql, elasticsearch, aws, sqlpp,
             # openai, anthropic, gemini, qwen, bedrock, mcp, embedding,
-            # rerank, retrieval, jsonrpc, enrichment.
+            # rerank, retrieval, ollama, jsonrpc, enrichment.
             enabled: []
             sqlpp:
               endpoint_patterns:

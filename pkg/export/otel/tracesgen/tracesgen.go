@@ -404,6 +404,8 @@ func getSpanToolCalls(span *request.Span) []request.ToolCall {
 		return span.GenAI.Gemini.ToolCalls
 	case span.GenAI.Qwen != nil:
 		return span.GenAI.Qwen.ToolCalls
+	case span.GenAI.Ollama != nil:
+		return span.GenAI.Ollama.ToolCalls
 	case span.GenAI.OpenAICompatible != nil:
 		return span.GenAI.OpenAICompatible.ToolCalls
 	default:

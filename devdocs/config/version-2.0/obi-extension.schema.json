@@ -1187,6 +1187,7 @@
                   "qwen",
                   "bedrock",
                   "mcp",
+                  "ollama",
                   "openai_compatible",
                   "embedding",
                   "rerank",

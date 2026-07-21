@@ -68,6 +68,18 @@ func TestOllamaSpan_ChatStreaming(t *testing.T) {
 	assert.True(t, ai.Request.Stream)
 }
 
+
+// --- Default streaming (stream field omitted, defaults to true per Ollama API) ---
+
+func TestOllamaSpan_ChatDefaultStream(t *testing.T) {
+	reqBody := `{"model":"llama3.2","messages":[{"role":"user","content":"Hi"}]}`
+	span, ok := runOllamaSpanRaw(t, "/api/chat", reqBody, ollamaChatStreamResponse)
+	require.True(t, ok)
+
+	ai := span.GenAI.Ollama
+	assert.True(t, ai.Request.Stream, "stream defaults to true when omitted")
+}
+
 // --- Non-streaming /api/generate ---
 
 const ollamaGenerateRequest = `{"model":"llama3.2","prompt":"Why is the sky blue?","system":"Be concise.","stream":false}`

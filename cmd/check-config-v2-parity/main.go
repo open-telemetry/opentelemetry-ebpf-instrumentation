@@ -662,6 +662,7 @@ func verifyDefaults(cur map[string]any, ex map[string]any) ([]error, int) {
 		"embedding",
 		"rerank",
 		"retrieval",
+		"ollama",
 	} {
 		if err := mustMapPayloadExtractionMembershipAt(cur, ex,
 			[]string{"ebpf", "payload_extraction", "http", "genai", extractor, "enabled"}, extractor); err != nil {
