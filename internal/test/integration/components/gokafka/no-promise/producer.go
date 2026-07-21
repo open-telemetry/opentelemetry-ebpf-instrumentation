@@ -21,9 +21,11 @@ type saramaLogger struct {
 func (l *saramaLogger) Printf(format string, v ...interface{}) {
 	l.logger.Info(fmt.Sprintf(format, v...))
 }
+
 func (l *saramaLogger) Println(v ...interface{}) {
 	l.logger.Info(fmt.Sprint(v...))
 }
+
 func (l *saramaLogger) Print(v ...interface{}) {
 	l.logger.Info(fmt.Sprint(v...))
 }
@@ -54,7 +56,6 @@ func CreateKafkaProducer(brokers []string, logger *slog.Logger) (sarama.AsyncPro
 	go func() {
 		for err := range producer.Errors() {
 			logger.Error(fmt.Sprintf("Failed to write message: %+v", err))
-
 		}
 	}()
 	return producer, nil
