@@ -151,7 +151,7 @@ int obi_uprobe_netFdReadRet(struct pt_regs *ctx) {
             return 0;
         } else if (net_ptr && net_ptr->byte_ptr) {
             send_http_large_buffers_if_needed(
-                &net_ptr->p_conn.conn, (void *)net_ptr->byte_ptr, len, TCP_RECV);
+                &g_key, &net_ptr->p_conn.conn, (void *)net_ptr->byte_ptr, len, TCP_RECV);
         }
 
         return 0;
@@ -228,7 +228,7 @@ int obi_uprobe_netFdWrite(struct pt_regs *ctx) {
             cleanup_duplicate_generic_events_sorted(&p_conn);
 
             if (!http_large_buffer_skip(len)) {
-                send_http_large_buffers_if_needed(&p_conn.conn, (void *)buf, len, TCP_SEND);
+                send_http_large_buffers_if_needed(&g_key, &p_conn.conn, (void *)buf, len, TCP_SEND);
             }
             return 0;
         }

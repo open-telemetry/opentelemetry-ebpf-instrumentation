@@ -15,6 +15,9 @@
 
 #pragma once
 
+#include "bpfcore/vmlinux_amd64.h"
+#include "common/connection_info.h"
+#include "common/go_addr_key.h"
 #include "common/tp_info.h"
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_helpers.h>
@@ -65,22 +68,54 @@ static __always_inline u8 go_is_http(const unsigned char *buf, u32 len) {
     return k_http_not;
 }
 
-static __always_inline void
-ship_large_request(void *buf, s64 len, const connection_info_t *conn, u8 event_type, u8 direction) {
+static __always_inline void cleanup_ongoing_large_buffer(const connection_info_t *conn) {
+    connection_info_t sorted_conn = *conn;
+    sort_connection_info(&sorted_conn);
+
+    bpf_map_delete_elem(&ongoing_large_buffers, &sorted_conn);
+}
+
+static __always_inline void ship_large_request(void *buf,
+                                               s64 len,
+                                               go_addr_key_t *g_key,
+                                               const connection_info_t *conn,
+                                               u8 event_type,
+                                               u8 direction) {
     tcp_large_buffer_t *large_buf = (tcp_large_buffer_t *)tcp_large_buffers_mem();
     if (!large_buf) {
         return;
     }
 
+    http_func_invocation_t *invocation = NULL;
+
     large_buf->conn_info = *conn;
     sort_connection_info(&large_buf->conn_info);
 
-    u8 *prev_event_type = bpf_map_lookup_elem(&ongoing_large_buffers, &large_buf->conn_info);
+    go_large_buffer_req_t *prev_event =
+        bpf_map_lookup_elem(&ongoing_large_buffers, &large_buf->conn_info);
 
     u8 is_http = go_is_http(buf, MIN_HTTP_SIZE);
 
-    if (prev_event_type) {
-        event_type = *prev_event_type;
+    if (prev_event) {
+        event_type = prev_event->event_type;
+    } else {
+        if (is_http == k_http_not) {
+            void *parent_go = (void *)find_parent_goroutine_in_chain(g_key);
+
+            bpf_d_printk("parent_go %llx", parent_go);
+
+            if (parent_go) {
+                go_addr_key_t parent_g = {};
+                go_addr_key_from_id(&parent_g, parent_go);
+
+                invocation = bpf_map_lookup_elem(&go_ongoing_http_client_requests, &parent_g);
+                if (invocation) {
+                    bpf_d_printk("found client go on parent %llx", parent_go);
+                    event_type = k_lb_event_type_client;
+                    is_http = k_http_request;
+                }
+            }
+        }
     }
 
     u8 packet_type = PACKET_TYPE_REQUEST;
@@ -98,7 +133,7 @@ ship_large_request(void *buf, s64 len, const connection_info_t *conn, u8 event_t
         (event_type == k_lb_event_type_client && direction == TCP_RECV)) {
         packet_type = PACKET_TYPE_RESPONSE;
     } else if (event_type == k_lb_event_type_unknown) {
-        if (!prev_event_type) {
+        if (!prev_event) {
             // We don't know what this is, likely HTTP2 which
             // we can't handle
             return;
@@ -113,15 +148,24 @@ ship_large_request(void *buf, s64 len, const connection_info_t *conn, u8 event_t
     large_buf->type = EVENT_TCP_LARGE_BUFFER;
     large_buf->packet_type = packet_type;
     large_buf->direction = direction;
-    large_buf->action = (!prev_event_type || is_http != k_http_not) ? k_large_buf_action_init
-                                                                    : k_large_buf_action_append;
+    large_buf->action = (!prev_event || is_http != k_http_not) ? k_large_buf_action_init
+                                                               : k_large_buf_action_append;
     large_buf->kind = k_large_buf_layer_app;
     large_buf->source = k_large_buffer_source_go;
     tp_info_t empty = {0};
-    large_buf->tp = empty;
+    if (prev_event) {
+        large_buf->tp = prev_event->tp;
+    } else {
+        large_buf->tp = empty;
+    }
 
     if (is_http == k_http_request) {
-        bpf_map_update_elem(&ongoing_large_buffers, &large_buf->conn_info, &event_type, BPF_ANY);
+        go_large_buffer_req_t event = {.event_type = event_type};
+        if (invocation) {
+            event.tp = invocation->tp;
+        }
+
+        bpf_map_update_elem(&ongoing_large_buffers, &large_buf->conn_info, &event, BPF_ANY);
     }
 
     large_buf_emit_chunks(large_buf, buf, len, k_large_buf_read_user);
@@ -135,12 +179,12 @@ static __always_inline bool http_large_buffer_skip(s64 len) {
     return !http_large_buffers_enabled() || len >= http_max_captured_bytes || len <= 0;
 }
 
-static __always_inline void
-send_http_large_buffers_if_needed(connection_info_t *conn, void *buf, s64 len, u8 direction) {
+static __always_inline void send_http_large_buffers_if_needed(
+    go_addr_key_t *g_key, connection_info_t *conn, void *buf, s64 len, u8 direction) {
 
     if (conn) {
         u8 event_type = k_lb_event_type_unknown;
 
-        ship_large_request(buf, len, conn, event_type, direction);
+        ship_large_request(buf, len, g_key, conn, event_type, direction);
     }
 }

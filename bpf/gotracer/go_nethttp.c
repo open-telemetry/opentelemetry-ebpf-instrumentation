@@ -30,6 +30,7 @@
 #include <common/trace_helpers.h>
 
 #include <gotracer/go_common.h>
+#include <gotracer/go_large_buffer.h>
 #include <gotracer/go_offsets.h>
 #include <gotracer/go_str.h>
 
@@ -1058,6 +1059,7 @@ static __always_inline void setup_http2_client_conn(void *goroutine_addr,
 
                 bpf_map_update_elem(&ongoing_client_connections, &g_key, &conn, BPF_ANY);
                 store_go_handled_connection_info(&conn);
+                cleanup_ongoing_large_buffer(&conn);
             }
         }
 
@@ -1506,6 +1508,7 @@ int obi_uprobe_persistConnRoundTrip(struct pt_regs *ctx) {
                 bpf_dbg_printk("storing trace_map info for black-box tracing");
                 bpf_map_update_elem(&ongoing_client_connections, &g_key, &conn, BPF_ANY);
                 store_go_handled_connection_info(&conn);
+                cleanup_ongoing_large_buffer(&conn);
 
                 // Must sort the connection info, this map is shared with kprobes which use sorted connection
                 // info always.
