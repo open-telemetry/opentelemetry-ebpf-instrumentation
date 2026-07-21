@@ -84,16 +84,19 @@ type ProcessWatcherRescan struct {
 	// TargetsChanged forgets all tracked PIDs so already-running processes are
 	// re-evaluated (e.g. after AddK8sWorkload).
 	TargetsChanged <-chan struct{}
+	// CriteriaChanged is signaled when discovery criteria are hot-reloaded
+	// (e.g. from a ConfigMap watcher) and forgets all tracked PIDs.
+	CriteriaChanged <-chan struct{}
 }
 
 func (r ProcessWatcherRescan) enabled() bool {
-	return r.AddedPIDs != nil || r.TargetsChanged != nil
+	return r.AddedPIDs != nil || r.TargetsChanged != nil || r.CriteriaChanged != nil
 }
 
 // ProcessWatcherFunc polls every PollInterval for new processes and forwards either new or deleted process PIDs
 // as well as PIDs from processes that setup a new connection.
 // When rescan is enabled, the watcher forgets tracked processes so they can be re-emitted and rematched
-// after dynamic selector changes.
+// after dynamic selector changes or criteria hot-reloads.
 func ProcessWatcherFunc(
 	cfg *obi.Config,
 	ebpfContext *ebpfcommon.EBPFEventContext,
@@ -204,9 +207,9 @@ func (pa *pollAccounter) run(ctx context.Context) {
 	}
 }
 
-// runRescanNotify forgets tracked processes when the dynamic selector changes so they are
-// re-emitted on the next poll. AddedPIDs is targeted; TargetsChanged clears everything.
-// Nil channels are inert in the select.
+// runRescanNotify forgets tracked processes when the dynamic selector changes or discovery
+// criteria are hot-reloaded so they are re-emitted on the next poll. AddedPIDs is targeted;
+// TargetsChanged and CriteriaChanged clear everything. Nil channels are inert in the select.
 func (pa *pollAccounter) runRescanNotify(ctx context.Context, log *slog.Logger) {
 	for {
 		select {
@@ -224,6 +227,12 @@ func (pa *pollAccounter) runRescanNotify(ctx context.Context, log *slog.Logger) 
 			}
 			pa.forgetAll()
 			log.Debug("forgot all PIDs after dynamic selection targets changed")
+		case _, ok := <-pa.rescan.CriteriaChanged:
+			if !ok {
+				return
+			}
+			pa.forgetAll()
+			log.Info("criteria changed: cleared tracked processes for full re-discovery")
 		}
 	}
 }

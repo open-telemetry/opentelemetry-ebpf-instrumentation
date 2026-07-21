@@ -104,6 +104,12 @@ func (tr *tracesOTELReceiver) processSpans(ctx context.Context, exp tracesExport
 			if tr.spanMetricsEnabled {
 				envResourceAttrs = append(envResourceAttrs, attribute.Bool(string(attr.SkipSpanMetrics.OTEL()), true))
 			}
+			for i := range spanGroup {
+				if request.IsGenAISubtype(spanGroup[i].Span.SubType) {
+					envResourceAttrs = append(envResourceAttrs, attribute.String("acs.arms.service.feature", "genai_app"))
+					break
+				}
+			}
 			traces := tracesgen.GenerateTracesWithSelectedResourceAttributes(
 				tr.attributeCache,
 				&sample.Span.Service,

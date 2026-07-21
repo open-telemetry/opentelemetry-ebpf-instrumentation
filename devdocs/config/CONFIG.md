@@ -170,6 +170,17 @@ DiscoveryConfig for the discover.ProcessFinder pipeline
 | `discovery.services` | [`RegexSelector`](#regexselector)[] |  |  |  | Yes | Selection. If the user defined the OTEL_EBPF_EXECUTABLE_PATH or OTEL_EBPF_OPEN_PORT variables, they will be automatically added to the services definition criteria, with the lowest preference.  Use Instrument instead |
 | `discovery.skip_go_specific_tracers` | `boolean` | `OTEL_EBPF_SKIP_GO_SPECIFIC_TRACERS` | `false` |  |  | This can be enabled to use generic HTTP tracers only, no Go-specifics will be used: |
 
+### `discovery.hot_reload`
+
+HotReloadConfig configures dynamic reloading of discovery instrument criteria from ConfigMaps
+
+| YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
+|---|---|---|---|---|---|---|
+| `discovery.hot_reload.configmaps` | `string`[] | `OTEL_EBPF_DISCOVERY_HOT_RELOAD_CONFIGMAPS` | `arms-obi-discovery`, `arms-obi-discovery-default` |  |  |  |
+| `discovery.hot_reload.enabled` | `boolean` | `OTEL_EBPF_DISCOVERY_HOT_RELOAD` | `true` |  |  |  |
+| `discovery.hot_reload.namespace` | `string` | `OTEL_EBPF_DISCOVERY_HOT_RELOAD_NAMESPACE` | `obi-system` |  |  |  |
+| `discovery.hot_reload.poll_interval` | `duration` | `OTEL_EBPF_DISCOVERY_HOT_RELOAD_POLL_INTERVAL` | `15s` | `30s`, `5m`, `1ms`, etc |  |  |
+
 ### `discovery.route_harvester_advanced`
 
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |

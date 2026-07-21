@@ -46,6 +46,17 @@ attributes:
       absent otherwise. `http.response.status_code` is emitted instead
       once a response is observed.
     examples: [false]
+  - key: gen_ai.span.kind
+    type: string
+    stability: development
+    brief: >
+      Coarse classification of the GenAI span, derived from
+      `gen_ai.operation.name` (LLM / EMBEDDING / TOOL / RETRIEVER /
+      RERANKER).
+    note: >
+      OBI fork extension emitted on GenAI spans; not part of the upstream
+      semconv `gen_ai.*` attribute set.
+    examples: ["LLM", "EMBEDDING"]
 
 attribute_groups:
   - id: registry.obi.http
@@ -58,3 +69,4 @@ attribute_groups:
       - ref: http.request.body.content
       - ref: http.response.body.content
       - ref: obi.http.response.observed
+      - ref: gen_ai.span.kind
