@@ -9,9 +9,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/internal/test/integration/components/docker"
+	"go.opentelemetry.io/obi/internal/test/integration/components/promtest"
 )
 
 const avoidedServicesHostPort = "8394"
@@ -31,6 +33,8 @@ func TestAvoidedServicesOTelMetrics(t *testing.T) {
 	t.Cleanup(func() { runWeaverValidation(t) })
 
 	t.Run("OBI avoids the self-instrumented server", func(t *testing.T) {
+		pq := promtest.Client{HostPort: prometheusHostPort}
+
 		require.Eventually(t, func() bool {
 			return pokeAvoidedServer() == nil
 		}, testTimeout, 500*time.Millisecond, "testserver never became reachable")
@@ -51,9 +55,16 @@ func TestAvoidedServicesOTelMetrics(t *testing.T) {
 		}()
 		defer close(stop)
 
-		// Give OBI time to discover the process, observe an OTLP export, and
-		// record the avoided-services metric before weaver is stopped.
-		time.Sleep(20 * time.Second)
+		// Require obi.avoided.services to actually be emitted — weaver only
+		// live-checks samples it receives, so without this a regression that
+		// stopped recording the metric would leave the report empty yet pass.
+		require.EventuallyWithT(t, func(ct *assert.CollectT) {
+			results, err := pq.Query("obi_avoided_services")
+			if !assert.NoError(ct, err, "querying obi_avoided_services") {
+				return
+			}
+			assert.NotEmpty(ct, results, "obi_avoided_services should be present")
+		}, testTimeout, 500*time.Millisecond)
 	})
 }
 
