@@ -19,6 +19,8 @@ func TestGenAIHTTP2BodyHeuristics(t *testing.T) {
 	openAIChatReq := []byte(`{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hi"}]}`)
 	openAIChatResp := []byte(`{"id":"chatcmpl-1","object":"chat.completion","model":"gpt-4o-mini","choices":[{"index":0}],"usage":{"prompt_tokens":1}}`)
 	openAIRespReq := []byte(`{"model":"gpt-5-mini","input":"hi","instructions":"be terse"}`)
+	openAIEmbedReq := []byte(`{"model":"text-embedding-3-small","input":"Your text string goes here","encoding_format":"float"}`)
+	openAIEmbedResp := []byte(`{"object":"list","model":"text-embedding-3-small","data":[{"object":"embedding","index":0,"embedding":[0.1,0.2]}],"usage":{"prompt_tokens":5,"total_tokens":5}}`)
 	// OpenAI-compatible shape but a non-"gpt" model: OpenAI is no longer a
 	// catch-all, so these must not be claimed.
 	unknownModelReq := []byte(`{"model":"mistral-large","messages":[]}`)
@@ -38,14 +40,17 @@ func TestGenAIHTTP2BodyHeuristics(t *testing.T) {
 	geminiRespNoModel := []byte(`{"candidates":[{"content":{"parts":[]}}],"usageMetadata":{"promptTokenCount":1}}`)
 
 	t.Run("openai", func(t *testing.T) {
-		assert.True(t, looksLikeOpenAIBody(openAIChatReq, openAIChatResp), "gpt model in request")
-		assert.True(t, looksLikeOpenAIBody(openAIRespReq, nil), "gpt model, responses API request only")
-		assert.True(t, looksLikeOpenAIBody(nil, openAIChatResp), "gpt model taken from response")
+		assert.True(t, looksLikeOpenAIBody(openAIChatReq, openAIChatResp, "/v1/responses"), "gpt model in request")
+		assert.True(t, looksLikeOpenAIBody(openAIRespReq, nil, "/v1/responses"), "gpt model, responses API request only")
+		assert.True(t, looksLikeOpenAIBody(nil, openAIChatResp, "/v1/responses"), "gpt model taken from response")
+		assert.True(t, looksLikeOpenAIBody(openAIEmbedReq, nil, "/v1/embeddings"), "text-embedding model in request")
+		assert.True(t, looksLikeOpenAIBody(nil, openAIEmbedResp, "/v1/embeddings"), "text-embedding model taken from response")
 		// Non-gpt models are left for their own providers / not claimed.
-		assert.False(t, looksLikeOpenAIBody(qwenReq, nil), "qwen model must not be claimed by openai")
-		assert.False(t, looksLikeOpenAIBody(anthropicReq, anthropicResp), "claude model must not be claimed by openai")
-		assert.False(t, looksLikeOpenAIBody(unknownModelReq, unknownModelResp), "unknown model is not a catch-all match")
-		assert.False(t, looksLikeOpenAIBody(nil, nil))
+		assert.False(t, looksLikeOpenAIBody(qwenReq, nil, "/v1/responses"), "qwen model must not be claimed by openai")
+		assert.False(t, looksLikeOpenAIBody(anthropicReq, anthropicResp, "/v1/responses"), "claude model must not be claimed by openai")
+		assert.False(t, looksLikeOpenAIBody(unknownModelReq, unknownModelResp, "/v1/responses"), "unknown model is not a catch-all match")
+		assert.False(t, looksLikeOpenAIBody(nil, nil, "/v1/responses"))
+		assert.False(t, looksLikeOpenAIBody(openAIEmbedReq, nil, "/v1/responses"), "text-embedding model in request but not embeddings call")
 	})
 
 	t.Run("qwen", func(t *testing.T) {

@@ -63,10 +63,12 @@ func parseOpenAICompatibleResponse(respB []byte) (*request.VendorOpenAI, []reque
 	return parseOpenAIStream(reader)
 }
 
-func looksLikeOpenAIBody(reqB, respB []byte) bool {
+func looksLikeOpenAIBody(reqB, respB []byte, path string) bool {
 	model := strings.ToLower(genaiModel(reqB, respB))
 
-	return strings.HasPrefix(model, "gpt")
+	// "gpt" covers chat/completions and responses; "text-embedding" covers the
+	// embeddings.
+	return strings.HasPrefix(model, "gpt") || (strings.HasPrefix(model, "text-embedding") && strings.Contains(path, "/v1/embeddings"))
 }
 
 func OpenAISpan(baseSpan *request.Span, req *http.Request, resp *http.Response) (request.Span, bool) {
@@ -102,7 +104,7 @@ func OpenAISpan(baseSpan *request.Span, req *http.Request, resp *http.Response) 
 	}
 
 	if maybeOpenAI {
-		if !looksLikeOpenAIBody(reqB, respB) {
+		if !looksLikeOpenAIBody(reqB, respB, baseSpan.Path) {
 			return *baseSpan, false
 		}
 	}
