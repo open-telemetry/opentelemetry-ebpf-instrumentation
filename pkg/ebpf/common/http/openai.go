@@ -63,16 +63,6 @@ func parseOpenAICompatibleResponse(respB []byte) (*request.VendorOpenAI, []reque
 	return parseOpenAIStream(reader)
 }
 
-// openAIResponseObjects are the values of the top-level "object" field that an
-// OpenAI-compatible response carries (chat, responses, completions, embeddings).
-var openAIResponseObjects = map[string]struct{}{
-	"chat.completion":       {},
-	"chat.completion.chunk": {},
-	"response":              {},
-	"text_completion":       {},
-	"list":                  {},
-}
-
 func looksLikeOpenAIBody(reqB, respB []byte) bool {
 	model := strings.ToLower(genaiModel(reqB, respB))
 

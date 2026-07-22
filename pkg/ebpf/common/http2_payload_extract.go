@@ -10,10 +10,11 @@ import (
 	"net/url"
 	"strings"
 
+	"golang.org/x/net/http2"
+
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/bhpack"
 	"go.opentelemetry.io/obi/pkg/internal/largebuf"
-	"golang.org/x/net/http2"
 )
 
 const (
