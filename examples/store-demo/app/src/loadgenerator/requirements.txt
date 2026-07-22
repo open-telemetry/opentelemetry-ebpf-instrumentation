@@ -219,9 +219,9 @@ configargparse==1.7.5 \
     --hash=sha256:1e63fdffedf94da9cd435fc13a1cd24777e76879dd2343912c1f871d4ac8c592 \
     --hash=sha256:e3f9a7bb6be34d66b2e3c4a2f58e3045f8dfae47b0dc039f87bcfaa0f193fb0f
     # via locust
-Faker==40.33.2 \
-    --hash=sha256:2a8efc05301ebd090bd4b7efdd103495560137aecdc69f450a6caef34a75caea \
-    --hash=sha256:b70fe17477d881d00f3105e39f130de9c02403d24cfd347855cf38da6039f47b
+Faker==40.35.0 \
+    --hash=sha256:13495348ec6f80d22c8c1654906ffeae336d485fea476544642ea24b120d9e13 \
+    --hash=sha256:804224bc4ea6644256dd2ef5c951563bea318cb19be3505461c9c424c90181ec
     # via -r requirements.in
 flask==3.1.3 \
     --hash=sha256:0ef0e52b8a9cd932855379197dd8f94047b359ca0a78695144304cb45f87c9eb \
