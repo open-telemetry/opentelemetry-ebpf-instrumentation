@@ -223,23 +223,38 @@ func (ctx *EBPFParseContext) deferGoHTTPClientRequest(trace *HTTPRequestTrace) b
 	}
 
 	key := goHTTPClientConnectionKey(trace.Conn, trace.Tp.TraceId)
+	direction := directionByPacketType(packetTypeRequest, true)
 
-	// If a request is already pending for this connection, the arrival of a new
-	// request means the connection is being reused, which implies the previous
-	// request/response exchange has completed. Flush the previous one (the LRU
-	// eviction callback emits it) and handle the new request immediately rather
-	// than deferring it again.
-	if ctx.pendingGoHTTPClientRequests.Contains(key) {
-		ctx.pendingGoHTTPClientRequests.Remove(key)
+	switch {
+	case containsTCPLargeBuffer(
+		ctx,
+		trace.Tp.TraceId,
+		packetTypeRequest,
+		direction,
+		key.conn,
+		ProtocolTypeHTTP,
+	):
+		// HTTP/2: retain the trace ID for multiplexing.
+
+	case containsTCPLargeBuffer(
+		ctx,
+		[16]uint8{},
+		packetTypeRequest,
+		direction,
+		key.conn,
+		ProtocolTypeHTTP,
+	):
+		// HTTP/1: large-buffer events are keyed with an empty trace ID.
+		key.traceID = [16]uint8{}
+
+	default:
 		return false
 	}
 
-	// Only defer if we captured the request payload. Without it there is nothing
-	// to wait for, so the span can be emitted immediately.
-	if !containsTCPLargeBuffer(ctx, trace.Tp.TraceId, packetTypeRequest,
-		directionByPacketType(packetTypeRequest, true), key.conn, ProtocolTypeHTTP) &&
-		!containsTCPLargeBuffer(ctx, [16]uint8{}, packetTypeRequest,
-			directionByPacketType(packetTypeRequest, true), key.conn, ProtocolTypeHTTP) {
+	// This flushes a previous HTTP/1 request on connection reuse.
+	// HTTP/2 requests have distinct trace IDs, so they remain independent.
+	if ctx.pendingGoHTTPClientRequests.Contains(key) {
+		ctx.pendingGoHTTPClientRequests.Remove(key)
 		return false
 	}
 

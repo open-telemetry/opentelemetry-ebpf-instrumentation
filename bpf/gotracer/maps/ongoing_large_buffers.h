@@ -15,7 +15,7 @@
 #include <gotracer/types/net_args.h>
 
 struct {
-    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __type(key, go_large_buffer_key_t);   // sorted connection info
     __type(value, go_large_buffer_req_t); // client or server request with traceparent
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);

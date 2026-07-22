@@ -15,19 +15,18 @@
 
 #pragma once
 
-#include "bpfcore/vmlinux_amd64.h"
-#include "common/connection_info.h"
-#include "common/go_addr_key.h"
-#include "common/tp_info.h"
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_helpers.h>
 #include <bpfcore/utils.h>
 
+#include <common/connection_info.h>
+#include <common/go_addr_key.h>
 #include <common/large_buf_emit.h>
 #include <common/large_buffers.h>
 #include <common/h2_defs.h>
 #include <common/protocol_defs.h>
 #include <common/trace_helpers.h>
+#include <common/tp_info.h>
 
 #include <gotracer/go_common.h>
 #include <maps/go_ongoing_http_client_requests.h>
@@ -104,6 +103,9 @@ cleanup_ongoing_large_buffer_sorted_conn(const connection_info_t *sorted_conn, u
 // HTTP2 client connections before any packet is sent. That probe tells us it's
 // HTTP2 connection we are dealing with and has setup metadata on the parent
 // goroutine for the first initial write for the traceparent.
+// Given how the HTTP2 client send/receive work in Go, we should always read a frame
+// that has stream id. If we read mid-stream, it's possible that this will not work
+// and it's a limitation to the current code.
 static __always_inline void ship_large_request(void *buf,
                                                s64 len,
                                                go_addr_key_t *g_key,
