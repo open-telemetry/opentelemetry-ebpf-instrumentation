@@ -43,6 +43,11 @@ func HTTPHandler(log *slog.Logger, echoPort int) http.HandlerFunc {
 			return
 		}
 
+		if req.RequestURI == "/delay" {
+			echoDelay(rw, echoPort)
+			return
+		}
+
 		if req.RequestURI == "/gotracemetoo" {
 			echoDist(rw)
 			return
@@ -115,6 +120,11 @@ func echoAsync(rw http.ResponseWriter, port int) {
 			return
 		}
 	}
+}
+
+func echoDelay(rw http.ResponseWriter, port int) {
+	time.Sleep(200 * time.Millisecond)
+	echo(rw, port)
 }
 
 func echo(rw http.ResponseWriter, port int) {

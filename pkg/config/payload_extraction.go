@@ -102,6 +102,8 @@ type GenAIConfig struct {
 	Rerank RerankConfig `yaml:"rerank"`
 	// Vector retrieval payload extraction and parsing (Pinecone, Qdrant, Milvus, Chroma, Weaviate, etc.)
 	Retrieval RetrievalConfig `yaml:"retrieval"`
+	// Ollama native API payload extraction and parsing
+	Ollama OllamaConfig `yaml:"ollama"`
 	// OpenAI-compatible gateway payload extraction and parsing
 	OpenAICompatible OpenAICompatibleConfig `yaml:"openai_compatible"`
 }
@@ -109,7 +111,7 @@ type GenAIConfig struct {
 func (g *GenAIConfig) Enabled() bool {
 	return g.Anthropic.Enabled || g.OpenAI.Enabled ||
 		g.Gemini.Enabled || g.Qwen.Enabled || g.Bedrock.Enabled ||
-		g.MCP.Enabled ||
+		g.MCP.Enabled || g.Ollama.Enabled ||
 		g.Embedding.Enabled || g.Rerank.Enabled || g.Retrieval.Enabled ||
 		g.OpenAICompatible.Enabled
 }
@@ -157,6 +159,11 @@ type RerankConfig struct {
 type RetrievalConfig struct {
 	// Enable vector retrieval (Pinecone, Qdrant, Milvus, Chroma, Weaviate, etc.) payload extraction and parsing
 	Enabled bool `yaml:"enabled" env:"OTEL_EBPF_HTTP_RETRIEVAL_ENABLED" validate:"boolean"`
+}
+
+type OllamaConfig struct {
+	// Enable Ollama native API payload extraction and parsing
+	Enabled bool `yaml:"enabled" env:"OTEL_EBPF_HTTP_OLLAMA_ENABLED" validate:"boolean"`
 }
 
 type OpenAICompatibleConfig struct {

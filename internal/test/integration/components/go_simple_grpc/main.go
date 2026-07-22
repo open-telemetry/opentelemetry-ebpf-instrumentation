@@ -70,6 +70,13 @@ type logService struct{}
 
 const writevRegressionLeakMarker = "writev-leak-marker-should-never-appear"
 
+const (
+	plainTextMultilineFirstMessage  = "plain-text first line"
+	plainTextMultilineSecondMessage = "plain-text second line"
+	ndjsonFirstMessage              = "ndjson first record"
+	ndjsonSecondMessage             = "ndjson second record"
+)
+
 func writeWritevRegressionLog(message string) error {
 	entry := fmt.Sprintf(`{"message":"%s","level":"INFO"}`, message)
 
@@ -86,8 +93,22 @@ func writeWritevRegressionLog(message string) error {
 }
 
 func (s *logService) Log(_ context.Context, req *LogRequest) (*LogResponse, error) {
-	if req.Mode == "writev-regression" {
+	switch req.Mode {
+	case "writev-regression":
 		if err := writeWritevRegressionLog(req.Message); err != nil {
+			return &LogResponse{Ok: false}, err
+		}
+		return &LogResponse{Ok: true}, nil
+	case "plain-text-multiline":
+		_, err := unix.Write(int(os.Stdout.Fd()), []byte(plainTextMultilineFirstMessage+"\n"+plainTextMultilineSecondMessage+"\n"))
+		if err != nil {
+			return &LogResponse{Ok: false}, err
+		}
+		return &LogResponse{Ok: true}, nil
+	case "ndjson":
+		entries := fmt.Sprintf("{\"message\":%q}\n{\"message\":%q}\n", ndjsonFirstMessage, ndjsonSecondMessage)
+		_, err := unix.Write(int(os.Stdout.Fd()), []byte(entries))
+		if err != nil {
 			return &LogResponse{Ok: false}, err
 		}
 		return &LogResponse{Ok: true}, nil
@@ -159,7 +180,7 @@ func main() {
 	}()
 
 	// HTTP -> gRPC
-	http.HandleFunc("/log", func(w http.ResponseWriter, _ *http.Request) {
+	http.HandleFunc("/log", func(w http.ResponseWriter, r *http.Request) {
 		conn, err := grpc.Dial(
 			"localhost:50051",
 			grpc.WithTransportCredentials(insecure.NewCredentials()),
@@ -180,7 +201,7 @@ func main() {
 		err = conn.Invoke(
 			ctx,
 			"/LogService/Log",
-			&LogRequest{Message: "hello!"},
+			&LogRequest{Message: "hello!", Mode: r.URL.Query().Get("mode")},
 			&resp,
 		)
 		if err != nil {

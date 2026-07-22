@@ -667,6 +667,15 @@ func correlation(cfg *obi.Config) *schema.Correlation {
 	return &schema.Correlation{
 		LogTraceAnnotation: schema.LogTraceAnnotation{
 			Enabled: cfg.EBPF.LogEnricher.Enabled(),
+			FieldNames: schema.FieldNames{
+				TraceID: &cfg.EBPF.LogEnricher.FieldNames.TraceID,
+				SpanID:  &cfg.EBPF.LogEnricher.FieldNames.SpanID,
+			},
+			PlainText: schema.PlainText{
+				Enabled:   &cfg.EBPF.LogEnricher.PlainText.Enabled,
+				Placement: &cfg.EBPF.LogEnricher.PlainText.Placement,
+				Multiline: &cfg.EBPF.LogEnricher.PlainText.Multiline,
+			},
 			Cache: schema.Cache{
 				TTL:  schema.Duration(cfg.EBPF.LogEnricher.CacheTTL),
 				Size: cfg.EBPF.LogEnricher.CacheSize,

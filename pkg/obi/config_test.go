@@ -222,6 +222,15 @@ discovery:
 				},
 			},
 			LogEnricher: config.LogEnricherConfig{
+				FieldNames: config.LogEnricherFieldNames{
+					TraceID: "trace_id",
+					SpanID:  "span_id",
+				},
+				PlainText: config.LogEnricherPlainTextConfig{
+					Enabled:   true,
+					Placement: config.LogEnricherPlacementSuffix,
+					Multiline: config.LogEnricherMultilineFirstLine,
+				},
 				CacheTTL:              30 * time.Minute,
 				CacheSize:             128,
 				AsyncWriterWorkers:    8,

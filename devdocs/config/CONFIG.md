@@ -205,6 +205,21 @@ Per-protocol maximum bytes to capture per request per direction, sent to userspa
 | `ebpf.log_enricher.cache_ttl` | `duration` | `OTEL_EBPF_BPF_LOG_ENRICHER_CACHE_TTL` | `30m` | `30s`, `5m`, `1ms`, etc |  | Defines the TTL for cached file descriptors Default: 30m |
 | `ebpf.log_enricher.services` | [`LogEnricherServiceConfig`](#logenricherserviceconfig)[] |  |  |  |  | Specifies the services to enable log enrichment for |
 
+#### `ebpf.log_enricher.field_names`
+
+| YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
+|---|---|---|---|---|---|---|
+| `ebpf.log_enricher.field_names.span_id` | `string` |  | `span_id` |  |  | Is the literal span ID field name used to preserve and inject span context |
+| `ebpf.log_enricher.field_names.trace_id` | `string` |  | `trace_id` |  |  | Is the literal trace ID field name used to preserve and inject trace context |
+
+#### `ebpf.log_enricher.plain_text`
+
+| YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
+|---|---|---|---|---|---|---|
+| `ebpf.log_enricher.plain_text.enabled` | `boolean` |  | `true` |  |  | Controls trace context annotation for non-JSON logs |
+| `ebpf.log_enricher.plain_text.multiline` | `string` |  | `first_line` | `each_line`, `first_line`, `last_line` |  | Controls which nonempty lines in each write are annotated |
+| `ebpf.log_enricher.plain_text.placement` | `string` |  | `suffix` | `prefix`, `suffix` |  | Controls whether fields are added before or after each selected line |
+
 ### `ebpf.maps_config`
 
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
@@ -276,6 +291,12 @@ HTTPParsingPolicy defines the default action for http enrichment rules.
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
 | `ebpf.payload_extraction.http.genai.mcp.enabled` | `boolean` | `OTEL_EBPF_HTTP_MCP_ENABLED` | `false` |  |  | Enable Model Context Protocol (MCP) payload extraction and parsing |
+
+#### `ebpf.payload_extraction.http.genai.ollama`
+
+| YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
+|---|---|---|---|---|---|---|
+| `ebpf.payload_extraction.http.genai.ollama.enabled` | `boolean` | `OTEL_EBPF_HTTP_OLLAMA_ENABLED` | `false` |  |  | Enable Ollama native API payload extraction and parsing |
 
 #### `ebpf.payload_extraction.http.genai.openai`
 
