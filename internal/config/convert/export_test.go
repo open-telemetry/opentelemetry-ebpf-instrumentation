@@ -5,11 +5,13 @@ package convert
 
 import (
 	"reflect"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/gobwas/glob"
 	"github.com/stretchr/testify/require"
 	"go.yaml.in/yaml/v3"
 
@@ -802,13 +804,60 @@ func TestRuntimeToV2EffectiveDiscoveryCriteria(t *testing.T) {
 
 		cfg := defaultRuntimeConfig()
 		cfg.Exec = services.NewRegexp("^/srv/api$")
+		cfg.Discovery.DefaultExcludeInstrument = services.GlobDefinitionCriteria{
+			{Path: services.NewGlob("/custom/{one,two}/service-??")},
+			{
+				Metadata: services.MetadataGlobMap{
+					services.AttrNamespace: globPtr("prod-*"),
+				},
+				PodLabels: map[string]*services.GlobAttr{
+					"app": globPtr("{api,worker}"),
+				},
+			},
+		}
+		cfg.Discovery.ExcludeOTelInstrumentedServices = false
+		cfg.Discovery.ExcludedLinuxSystemPaths = nil
 
 		_, ext := RuntimeToV2(&cfg)
 
 		require.Equal(t, "^/srv/api$", ext.Capture.Rules[len(ext.Capture.Rules)-1].Match.Process.ExePathRegex)
-		_, err := V2ToRuntime(ext)
+		runtimeConfig, err := V2ToRuntime(ext)
 		require.NoError(t, err)
+		require.Len(t, runtimeConfig.Discovery.ExcludeServices, 2)
+		require.True(t, runtimeConfig.Discovery.ExcludeServices[0].Path.MatchString("/custom/one/service-ab"))
+		require.False(t, runtimeConfig.Discovery.ExcludeServices[0].Path.MatchString("/custom/three/service-ab"))
+		require.True(t, runtimeConfig.Discovery.ExcludeServices[1].Metadata[services.AttrNamespace].MatchString("prod-east"))
+		require.True(t, runtimeConfig.Discovery.ExcludeServices[1].PodLabels["app"].MatchString("worker"))
 	})
+}
+
+func TestGlobPatternsRegexMatchesGlobSemantics(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		patterns   []string
+		candidates []string
+	}{
+		{patterns: []string{"*"}, candidates: []string{"", "any/path", "line\nbreak"}},
+		{patterns: []string{"service-??"}, candidates: []string{"service-ab", "service-a", "xservice-ab"}},
+		{patterns: []string{"prod-{api,worker}-[!0-9]"}, candidates: []string{"prod-api-x", "prod-worker-1", "prod-db-x"}},
+		{patterns: []string{`literal\*`}, candidates: []string{"literal*", "literal-value"}},
+		{patterns: []string{"api-*", "worker-??"}, candidates: []string{"api-one", "worker-ab", "worker-a", "other"}},
+	}
+
+	for _, test := range tests {
+		converted := regexp.MustCompile(globPatternsRegex(test.patterns))
+		for _, candidate := range test.candidates {
+			want := false
+			for _, pattern := range test.patterns {
+				if glob.MustCompile(pattern).Match(candidate) {
+					want = true
+					break
+				}
+			}
+			require.Equal(t, want, converted.MatchString(candidate), "candidate %q for %v", candidate, test.patterns)
+		}
+	}
 }
 
 func TestRuntimeToV2MetricInstrumentationsUseEnabledExporters(t *testing.T) {

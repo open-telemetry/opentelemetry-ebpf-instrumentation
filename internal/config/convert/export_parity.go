@@ -5,7 +5,11 @@ package convert // import "go.opentelemetry.io/obi/internal/config/convert"
 
 import (
 	"regexp"
+	"strconv"
 	"strings"
+
+	"github.com/gobwas/glob/syntax"
+	"github.com/gobwas/glob/syntax/ast"
 
 	"go.opentelemetry.io/obi/internal/config/schema"
 	"go.opentelemetry.io/obi/pkg/appolly/discover"
@@ -234,13 +238,14 @@ func statsEnrichment(cfg *obi.Config) schema.NetworkEnrichment {
 func rulesFromRuntime(cfg *obi.Config) []schema.Rule {
 	rules := []schema.Rule{}
 	findingCriteria := discover.FindingCriteria(cfg)
-	regexSelection := discover.OnlyDefinesDeprecatedServiceSelection(cfg) || selectorsUseRegex(findingCriteria)
-	if regexSelection {
+	deprecatedServiceSelection := discover.OnlyDefinesDeprecatedServiceSelection(cfg)
+	regexSelection := deprecatedServiceSelection || selectorsUseRegex(findingCriteria)
+	if deprecatedServiceSelection {
 		rules = appendSelectorRules(rules, schema.CaptureActionExclude, discover.RegexAsSelector(cfg.Discovery.ExcludeServices), nil, true)
 		rules = appendSelectorRules(rules, schema.CaptureActionExclude, discover.RegexAsSelector(cfg.Discovery.DefaultExcludeServices), defaultExcludeRule, true)
 	} else {
-		rules = appendSelectorRules(rules, schema.CaptureActionExclude, discover.GlobsAsSelector(cfg.Discovery.ExcludeInstrument), nil, false)
-		rules = appendSelectorRules(rules, schema.CaptureActionExclude, discover.GlobsAsSelector(cfg.Discovery.DefaultExcludeInstrument), defaultExcludeRule, false)
+		rules = appendSelectorRules(rules, schema.CaptureActionExclude, discover.GlobsAsSelector(cfg.Discovery.ExcludeInstrument), nil, regexSelection)
+		rules = appendSelectorRules(rules, schema.CaptureActionExclude, discover.GlobsAsSelector(cfg.Discovery.DefaultExcludeInstrument), defaultExcludeRule, regexSelection)
 	}
 
 	if cfg.Discovery.ExcludeOTelInstrumentedServices {
@@ -309,6 +314,9 @@ func appendSelectorRules(
 ) []schema.Rule {
 	for i, selector := range selectors {
 		match := selectorMatch(selector)
+		if regexFamily && ruleUsesGlob(match) {
+			match = globRuleMatchAsRegex(match)
+		}
 		if regexFamily && !ruleMatchEmpty(match) && !ruleUsesRegex(match) {
 			match.Process.ExePathRegex = ".*"
 		}
@@ -525,6 +533,109 @@ func globList(value services.GlobAttr) []string {
 		}
 	}
 	return []string{raw}
+}
+
+func globRuleMatchAsRegex(match schema.RuleMatch) schema.RuleMatch {
+	match.Process.LanguageRegex = globPatternsRegex(match.Process.LanguageGlob)
+	match.Process.LanguageGlob = nil
+	match.Process.CmdArgsRegex = globPatternsRegex(match.Process.CmdArgsGlob)
+	match.Process.CmdArgsGlob = nil
+	match.Process.ExePathRegex = globPatternsRegex(match.Process.ExePathGlob)
+	match.Process.ExePathGlob = nil
+
+	match.Kubernetes.NamespaceRegex = globPatternsRegex(match.Kubernetes.NamespaceGlob)
+	match.Kubernetes.NamespaceGlob = nil
+	match.Kubernetes.MetadataRegex = globPatternMapRegex(match.Kubernetes.MetadataGlob)
+	match.Kubernetes.MetadataGlob = nil
+	match.Kubernetes.PodLabelsRegex = globPatternMapRegex(match.Kubernetes.PodLabels)
+	match.Kubernetes.PodLabels = nil
+	match.Kubernetes.PodAnnotationsRegex = globPatternMapRegex(match.Kubernetes.PodAnnotations)
+	match.Kubernetes.PodAnnotations = nil
+
+	return match
+}
+
+func globPatternMapRegex(patterns map[string][]string) map[string]string {
+	if len(patterns) == 0 {
+		return nil
+	}
+
+	out := make(map[string]string, len(patterns))
+	for key, values := range patterns {
+		out[key] = globPatternsRegex(values)
+	}
+	return out
+}
+
+func globPatternsRegex(patterns []string) string {
+	if len(patterns) == 0 {
+		return ""
+	}
+
+	converted := make([]string, 0, len(patterns))
+	for _, pattern := range patterns {
+		tree, err := syntax.Parse(pattern)
+		if err != nil {
+			panic("validated glob could not be parsed: " + err.Error())
+		}
+		var expression strings.Builder
+		writeGlobNodeRegex(&expression, tree)
+		converted = append(converted, expression.String())
+	}
+	return `(?s)^(?:` + strings.Join(converted, "|") + `)$`
+}
+
+func writeGlobNodeRegex(expression *strings.Builder, node *ast.Node) {
+	switch node.Kind {
+	case ast.KindNothing:
+	case ast.KindPattern:
+		for _, child := range node.Children {
+			writeGlobNodeRegex(expression, child)
+		}
+	case ast.KindList:
+		list := node.Value.(ast.List)
+		expression.WriteByte('[')
+		if list.Not {
+			expression.WriteByte('^')
+		}
+		writeRegexClass(expression, []rune(list.Chars))
+		expression.WriteByte(']')
+	case ast.KindRange:
+		rangeValue := node.Value.(ast.Range)
+		expression.WriteByte('[')
+		if rangeValue.Not {
+			expression.WriteByte('^')
+		}
+		writeRegexClass(expression, []rune{rangeValue.Lo})
+		expression.WriteByte('-')
+		writeRegexClass(expression, []rune{rangeValue.Hi})
+		expression.WriteByte(']')
+	case ast.KindText:
+		expression.WriteString(regexp.QuoteMeta(node.Value.(ast.Text).Text))
+	case ast.KindAny, ast.KindSuper:
+		expression.WriteString(".*")
+	case ast.KindSingle:
+		expression.WriteByte('.')
+	case ast.KindAnyOf:
+		expression.WriteString("(?:")
+		for i, child := range node.Children {
+			if i > 0 {
+				expression.WriteByte('|')
+			}
+			writeGlobNodeRegex(expression, child)
+		}
+		expression.WriteByte(')')
+	default:
+		panic("unsupported glob syntax node")
+	}
+}
+
+func writeRegexClass(expression *strings.Builder, values []rune) {
+	for _, value := range values {
+		expression.WriteString(`\x{`)
+		expression.WriteString(strconv.FormatInt(int64(value), 16))
+		expression.WriteByte('}')
+	}
 }
 
 func globString(g services.GlobAttr) string {

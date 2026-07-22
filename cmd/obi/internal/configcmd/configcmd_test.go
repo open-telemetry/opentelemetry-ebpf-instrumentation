@@ -345,6 +345,9 @@ otel_traces_export:
 func TestMigrateConfigSupportsDeprecatedExecutablePath(t *testing.T) {
 	output, report, err := migrateConfig([]byte(`
 executable_path: "^/srv/api$"
+discovery:
+  default_exclude_instrument: []
+  excluded_linux_system_paths: []
 otel_traces_export:
   endpoint: http://collector:4318
 `))
@@ -357,6 +360,8 @@ otel_traces_export:
 	require.NoError(t, err)
 	require.Len(t, runtimeConfig.Discovery.Services, 1)
 	require.True(t, runtimeConfig.Discovery.Services[0].Path.MatchString("/srv/api"))
+	require.Empty(t, runtimeConfig.Discovery.ExcludeServices)
+	require.Empty(t, runtimeConfig.Discovery.ExcludedLinuxSystemPaths)
 }
 
 func TestMigrateIntegrationConfigurations(t *testing.T) {

@@ -236,6 +236,7 @@ func applyRuntimeDiscoveryRules(cfg *obi.Config, rules runtimeDiscoveryRules) {
 	cfg.Discovery.Services = rules.includeRegex
 	cfg.Discovery.ExcludeServices = rules.excludeRegex
 	cfg.Discovery.DefaultExcludeServices = nil
+	cfg.Discovery.ExcludedLinuxSystemPaths = nil
 	cfg.Discovery.ExcludeOTelInstrumentedServices = rules.excludeOTelInstrumentedServices
 	if rules.excludeOTelInstrumentedServices {
 		cfg.Discovery.DefaultOtlpGRPCPort = rules.defaultOTLPGRPCPort
