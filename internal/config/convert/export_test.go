@@ -841,6 +841,8 @@ func TestGlobPatternsRegexMatchesGlobSemantics(t *testing.T) {
 		{patterns: []string{"*"}, candidates: []string{"", "any/path", "line\nbreak"}},
 		{patterns: []string{"service-??"}, candidates: []string{"service-ab", "service-a", "xservice-ab"}},
 		{patterns: []string{"prod-{api,worker}-[!0-9]"}, candidates: []string{"prod-api-x", "prod-worker-1", "prod-db-x"}},
+		{patterns: []string{"{[a,b],c}"}, candidates: []string{"a", "b", "c", "[a"}},
+		{patterns: []string{`{a\,b,c}`}, candidates: []string{"a,b", "a", "c"}},
 		{patterns: []string{`literal\*`}, candidates: []string{"literal*", "literal-value"}},
 		{patterns: []string{"api-*", "worker-??"}, candidates: []string{"api-one", "worker-ab", "worker-a", "other"}},
 	}

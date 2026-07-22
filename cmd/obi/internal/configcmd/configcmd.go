@@ -19,6 +19,7 @@ import (
 
 	"go.opentelemetry.io/obi/internal/config/convert"
 	"go.opentelemetry.io/obi/internal/config/schema"
+	"go.opentelemetry.io/obi/pkg/appolly/services"
 	obiconfig "go.opentelemetry.io/obi/pkg/config"
 	featureexport "go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/obi"
@@ -393,6 +394,9 @@ func formatPath(path yamlPath) string {
 }
 
 func migrationAlias(path string) bool {
+	if migrationDiscoveryExclusionAlias(path) {
+		return true
+	}
 	for _, prefix := range []string{
 		"discovery.excluded_linux_system_paths",
 		"executable_path",
@@ -404,6 +408,36 @@ func migrationAlias(path string) bool {
 	} {
 		if path == prefix || strings.HasPrefix(path, prefix+".") || strings.HasPrefix(path, prefix+"[") {
 			return true
+		}
+	}
+	return false
+}
+
+func migrationDiscoveryExclusionAlias(path string) bool {
+	for _, prefix := range []string{
+		"discovery.exclude_instrument",
+		"discovery.default_exclude_instrument",
+		"discovery.default_exclude_services",
+	} {
+		if path == prefix {
+			return true
+		}
+		remainder, ok := strings.CutPrefix(path, prefix+"[")
+		if !ok {
+			continue
+		}
+		_, remainder, ok = strings.Cut(remainder, "].")
+		if !ok {
+			return false
+		}
+		field, _, _ := strings.Cut(remainder, ".")
+		field, _, _ = strings.Cut(field, "[")
+		switch field {
+		case "open_ports", "target_pids", "languages", "exe_path", "cmd_args", "containers_only", "k8s_pod_labels", "k8s_pod_annotations":
+			return true
+		default:
+			_, ok := services.AllowedAttributeNames[field]
+			return ok
 		}
 	}
 	return false

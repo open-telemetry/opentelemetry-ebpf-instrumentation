@@ -346,6 +346,9 @@ func TestMigrateConfigSupportsDeprecatedExecutablePath(t *testing.T) {
 	output, report, err := migrateConfig([]byte(`
 executable_path: "^/srv/api$"
 discovery:
+  exclude_instrument:
+    - exe_path: "/custom/{one,two}/service-??"
+    - exe_path: "{[a,b],c}"
   default_exclude_instrument: []
   excluded_linux_system_paths: []
 otel_traces_export:
@@ -360,7 +363,12 @@ otel_traces_export:
 	require.NoError(t, err)
 	require.Len(t, runtimeConfig.Discovery.Services, 1)
 	require.True(t, runtimeConfig.Discovery.Services[0].Path.MatchString("/srv/api"))
-	require.Empty(t, runtimeConfig.Discovery.ExcludeServices)
+	require.Len(t, runtimeConfig.Discovery.ExcludeServices, 2)
+	require.True(t, runtimeConfig.Discovery.ExcludeServices[0].Path.MatchString("/custom/one/service-ab"))
+	require.False(t, runtimeConfig.Discovery.ExcludeServices[0].Path.MatchString("/custom/three/service-ab"))
+	require.True(t, runtimeConfig.Discovery.ExcludeServices[1].Path.MatchString("a"))
+	require.True(t, runtimeConfig.Discovery.ExcludeServices[1].Path.MatchString("b"))
+	require.True(t, runtimeConfig.Discovery.ExcludeServices[1].Path.MatchString("c"))
 	require.Empty(t, runtimeConfig.Discovery.ExcludedLinuxSystemPaths)
 }
 
@@ -523,6 +531,22 @@ func TestRunMigrateRejectsUnsupportedInput(t *testing.T) {
 			name: "known but unmapped v1 field",
 			yaml: strings.Replace(representativeV1, "  port: 9090\n", "  port: 9090\n  path: /custom\n", 1),
 			want: "prometheus_export.path",
+		},
+		{
+			name: "unsupported exclusion selector field",
+			yaml: `
+discovery:
+  instrument:
+    - exe_path: "/srv/*"
+  exclude_instrument:
+    - name: ignored
+      exe_path: "/tmp/*"
+metrics:
+  features: [application]
+prometheus_export:
+  port: 9090
+`,
+			want: "discovery.exclude_instrument[0].name",
 		},
 		{
 			name: "already v2",

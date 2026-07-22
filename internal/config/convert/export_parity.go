@@ -526,13 +526,25 @@ func globList(value services.GlobAttr) []string {
 	if raw == "" {
 		return nil
 	}
-	if strings.HasPrefix(raw, "{") && strings.HasSuffix(raw, "}") {
-		body := strings.TrimSuffix(strings.TrimPrefix(raw, "{"), "}")
-		if !strings.ContainsAny(body, "{}") {
-			return strings.Split(body, ",")
-		}
+	tree, err := syntax.Parse(raw)
+	if err != nil || len(tree.Children) != 1 || tree.Children[0].Kind != ast.KindAnyOf {
+		return []string{raw}
 	}
-	return []string{raw}
+
+	alternatives := make([]string, 0, len(tree.Children[0].Children))
+	for _, alternative := range tree.Children[0].Children {
+		if alternative.Kind != ast.KindPattern || len(alternative.Children) != 1 || alternative.Children[0].Kind != ast.KindText {
+			return []string{raw}
+		}
+		text := alternative.Children[0].Value.(ast.Text).Text
+		for i := 0; i < len(text); i++ {
+			if syntax.Special(text[i]) {
+				return []string{raw}
+			}
+		}
+		alternatives = append(alternatives, text)
+	}
+	return alternatives
 }
 
 func globRuleMatchAsRegex(match schema.RuleMatch) schema.RuleMatch {
