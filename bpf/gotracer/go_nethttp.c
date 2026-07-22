@@ -816,7 +816,29 @@ done:
     return 0;
 }
 
-// Context propagation through HTTP headers
+// Context propagation through HTTP headers.
+//
+// The uprobe pair below implements the HTTP/1 client traceparent injection. The
+// application's own traceparent (e.g. written by the OTel SDK via
+// req.Header.Set) is serialized by writeSubset itself, so it is only present in
+// the io.Writer buffer once writeSubset returns. We therefore stash the writer
+// on entry and, on return, scan the header block writeSubset just wrote for an
+// existing traceparent: if one is present we must not add a second one
+// otherwise we inject ours at the current write position.
+typedef struct write_subset_invocation {
+    u64 io_writer_addr;
+    u64 req_goaddr; // request (parent) goroutine, key into ongoing_client_connections
+    tp_info_t tp;
+    s64 entry_n; // io.Writer write offset at entry (start of this header block)
+} write_subset_invocation_t;
+
+struct {
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __type(key, go_addr_key_t); // the writeSubset goroutine
+    __type(value, write_subset_invocation_t);
+    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
+} ongoing_write_subsets SEC(".maps");
+
 SEC("uprobe/header_writeSubset")
 int obi_uprobe_writeSubset(struct pt_regs *ctx) {
     void *goroutine_addr = GOROUTINE_PTR(ctx);
@@ -835,7 +857,7 @@ int obi_uprobe_writeSubset(struct pt_regs *ctx) {
 
     bpf_dbg_printk("goroutine_addr=%lx, header_addr=%llx", goroutine_addr, header_addr);
 
-    // we don't want to run this code when we header or the buffer is nil
+    // we don't want to run this code when the header or the buffer is nil
     if (!header_addr || !io_writer_addr) {
         goto done;
     }
@@ -860,11 +882,82 @@ int obi_uprobe_writeSubset(struct pt_regs *ctx) {
         goto done;
     }
 
-    unsigned char buf[k_traceparent_len];
+    const u64 io_writer_n_pos = go_offset_of(ot, (go_offset){.v = _io_writer_n_pos});
+    if (!io_writer_n_pos) {
+        goto done;
+    }
 
-    make_tp_string(buf, &func_inv->tp);
+    // Record the write offset at entry: the header block writeSubset is about
+    // to serialize (where the app's own traceparent would land) starts here.
+    // The io.Writer is a *bufio.Writer, whose backing array is allocated once
+    // and never grown (it flushes and resets n when full, never append/realloc),
+    // so this offset stays valid into a stable buffer at return. The only thing
+    // that invalidates it is a Flush() mid-writeSubset (huge header sets), which
+    // resets n to 0; the return probe handles that (return_n <= entry_n) and all
+    // its reads stay bounded within the buffer regardless.
+    s64 entry_n = 0;
+    bpf_probe_read(&entry_n, sizeof(entry_n), (void *)(io_writer_addr + io_writer_n_pos));
 
-    void *buf_ptr = 0;
+    write_subset_invocation_t inv = {
+        .io_writer_addr = (u64)io_writer_addr,
+        .req_goaddr = parent_goaddr,
+        .tp = func_inv->tp,
+        .entry_n = entry_n,
+    };
+    bpf_map_update_elem(&ongoing_write_subsets, &gw_key, &inv, BPF_ANY);
+
+done:
+    bpf_map_delete_elem(&header_req_map, &header_addr);
+    return 0;
+}
+
+// client_request_has_traceparent scans the header block that writeSubset just
+// serialized ([entry_n, return_n)) for an existing traceparent header, reusing
+// the same primitive as the server-side extraction.
+static __always_inline bool
+client_request_has_traceparent(void *buf_ptr, s64 entry_n, s64 return_n) {
+    if (return_n <= entry_n) {
+        return false;
+    }
+
+    u32 region = (u32)(return_n - entry_n);
+    bpf_clamp_umax(region, TRACE_BUF_SIZE - 1);
+
+    unsigned char *scan = (unsigned char *)tp_char_buf_mem();
+    if (!scan) {
+        return false;
+    }
+
+    if (bpf_probe_read_user(scan, region, (void *)(buf_ptr + (entry_n & 0xffff))) != 0) {
+        return false;
+    }
+    scan[region & (TRACE_BUF_SIZE - 1)] = '\0';
+
+    unsigned char *found = g_bpf_loop_enabled ? bpf_strstr_tp_loop(scan, (u16)region)
+                                              : bpf_strstr_tp_loop__legacy(scan, (u16)region);
+    return found != NULL;
+}
+
+SEC("uprobe/header_writeSubset_returns")
+int obi_uprobe_writeSubset_returns(struct pt_regs *ctx) {
+    if (!g_bpf_header_propagation) {
+        return 0;
+    }
+
+    void *goroutine_addr = GOROUTINE_PTR(ctx);
+    go_addr_key_t gw_key = {};
+    go_addr_key_from_id(&gw_key, goroutine_addr);
+
+    write_subset_invocation_t *inv = bpf_map_lookup_elem(&ongoing_write_subsets, &gw_key);
+    if (!inv) {
+        return 0;
+    }
+
+    bpf_dbg_printk("=== uprobe/header_writeSubset_returns ===");
+
+    off_table_t *ot = get_offsets_table();
+    void *io_writer_addr = (void *)inv->io_writer_addr;
+
     const u64 io_writer_buf_ptr_pos = go_offset_of(ot, (go_offset){.v = _io_writer_buf_ptr_pos});
     const u64 io_writer_n_pos = go_offset_of(ot, (go_offset){.v = _io_writer_n_pos});
 
@@ -873,6 +966,7 @@ int obi_uprobe_writeSubset(struct pt_regs *ctx) {
         goto done;
     }
 
+    void *buf_ptr = 0;
     bpf_probe_read(&buf_ptr, sizeof(buf_ptr), (void *)(io_writer_addr + io_writer_buf_ptr_pos));
     if (!buf_ptr) {
         goto done;
@@ -885,13 +979,23 @@ int obi_uprobe_writeSubset(struct pt_regs *ctx) {
         (void *)(io_writer_addr + io_writer_buf_ptr_pos + k_go_slice_len_offset)); // grab size
 
     s64 len = 0;
-    bpf_probe_read(&len, sizeof(s64),
-                   (void *)(io_writer_addr + io_writer_n_pos)); // grab len
+    bpf_probe_read(&len,
+                   sizeof(s64),
+                   (void *)(io_writer_addr + io_writer_n_pos)); // grab len (return offset)
 
-    bpf_dbg_printk("buf_ptr=%llx, len=%d, size=%d", (void *)buf_ptr, len, size);
+    bpf_dbg_printk("buf_ptr=%llx, entry_n=%d, len=%d", (void *)buf_ptr, inv->entry_n, len);
 
-    if (len <
-        (size - TP_MAX_VAL_LENGTH - TP_MAX_KEY_LENGTH - 4)) { // 4 = strlen(":_") + strlen("\r\n")
+    // If the application already wrote its own traceparent, don't add a second.
+    if (client_request_has_traceparent(buf_ptr, inv->entry_n, len)) {
+        bpf_dbg_printk("client request already carries a traceparent, skipping injection");
+        goto done;
+    }
+
+    unsigned char buf[k_traceparent_len];
+    make_tp_string(buf, &inv->tp);
+
+    if (len >= 0 && len < (size - TP_MAX_VAL_LENGTH - TP_MAX_KEY_LENGTH -
+                           4)) { // 4 = strlen(":_") + strlen("\r\n")
         char key[TP_MAX_KEY_LENGTH + 2] = "Traceparent: ";
         char end[2] = "\r\n";
         bpf_probe_write_user(buf_ptr + (len & 0x0ffff), key, sizeof(key));
@@ -908,6 +1012,8 @@ int obi_uprobe_writeSubset(struct pt_regs *ctx) {
         // If this code ran, we should ensure that the second part doesn't run, therefore
         // we remove the metadata setup in uprobe_persistConnRoundTrip(struct pt_regs *ctx), so
         // that approach 2. skips this packet.
+        go_addr_key_t g_key = {};
+        go_addr_key_from_id(&g_key, (void *)inv->req_goaddr);
         connection_info_t *info = bpf_map_lookup_elem(&ongoing_client_connections, &g_key);
         if (info) {
             egress_key_t e_key = {
@@ -926,7 +1032,7 @@ int obi_uprobe_writeSubset(struct pt_regs *ctx) {
     }
 
 done:
-    bpf_map_delete_elem(&header_req_map, &header_addr);
+    bpf_map_delete_elem(&ongoing_write_subsets, &gw_key);
     return 0;
 }
 

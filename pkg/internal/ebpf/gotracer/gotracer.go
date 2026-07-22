@@ -1133,7 +1133,8 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 
 	if p.supportsContextPropagation() {
 		m["net/http.Header.writeSubset"] = []*ebpfcommon.ProbeDesc{{
-			Start: p.bpfObjects.ObiUprobeWriteSubset, // http 1.x context propagation
+			Start: p.bpfObjects.ObiUprobeWriteSubset,        // http 1.x context propagation
+			End:   p.bpfObjects.ObiUprobeWriteSubsetReturns, // inject only if no traceparent present
 		}}
 		m["golang.org/x/net/http2.(*Framer).WriteHeaders"] = []*ebpfcommon.ProbeDesc{
 			{ // http2 context propagation
