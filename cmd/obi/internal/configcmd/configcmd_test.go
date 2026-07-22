@@ -314,6 +314,7 @@ func TestMigrateConfigSupportsDeprecatedServiceSelectors(t *testing.T) {
 discovery:
   services:
     - exe_path: "^/srv/api$"
+    - open_ports: 5000
   excluded_linux_system_paths: ["/opt/system+services/"]
 otel_traces_export:
   endpoint: http://collector:4318
@@ -326,8 +327,10 @@ otel_traces_export:
 	require.NoError(t, err)
 	runtimeConfig, err := convert.DocumentToRuntime(doc)
 	require.NoError(t, err)
-	require.Len(t, runtimeConfig.Discovery.Services, 1)
+	require.Len(t, runtimeConfig.Discovery.Services, 2)
 	require.True(t, runtimeConfig.Discovery.Services[0].Path.MatchString("/srv/api"))
+	require.True(t, runtimeConfig.Discovery.Services[1].Path.MatchString("/any/executable"))
+	require.True(t, runtimeConfig.Discovery.Services[1].OpenPorts.Matches(5000))
 
 	var excludesSystemPath bool
 	for _, selector := range runtimeConfig.Discovery.ExcludeServices {

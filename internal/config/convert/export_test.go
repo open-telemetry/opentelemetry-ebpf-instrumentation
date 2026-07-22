@@ -763,8 +763,11 @@ func TestRuntimeToV2EffectiveDiscoveryCriteria(t *testing.T) {
 		t.Parallel()
 
 		cfg := defaultRuntimeConfig()
+		ports := services.IntEnum{}
+		require.NoError(t, ports.UnmarshalText([]byte("5000")))
 		cfg.Discovery.Services = services.RegexDefinitionCriteria{
 			{Path: services.NewRegexp("^/srv/api$")},
+			{OpenPorts: ports},
 		}
 		cfg.Discovery.ExcludedLinuxSystemPaths = []string{"/opt/system+services/"}
 
@@ -780,6 +783,16 @@ func TestRuntimeToV2EffectiveDiscoveryCriteria(t *testing.T) {
 		require.NotNil(t, systemPathRule)
 		require.Empty(t, systemPathRule.Match.Process.ExePathGlob)
 		require.Equal(t, `^/opt/system\+services/`, systemPathRule.Match.Process.ExePathRegex)
+
+		var portRule *schema.Rule
+		for i := range ext.Capture.Rules {
+			if ext.Capture.Rules[i].Match.Process.OpenPorts != nil {
+				portRule = &ext.Capture.Rules[i]
+				break
+			}
+		}
+		require.NotNil(t, portRule)
+		require.Equal(t, ".*", portRule.Match.Process.ExePathRegex)
 		_, err := V2ToRuntime(ext)
 		require.NoError(t, err)
 	})

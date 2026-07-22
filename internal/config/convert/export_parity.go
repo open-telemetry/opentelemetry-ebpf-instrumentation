@@ -235,11 +235,11 @@ func rulesFromRuntime(cfg *obi.Config) []schema.Rule {
 	rules := []schema.Rule{}
 	deprecatedServiceSelection := discover.OnlyDefinesDeprecatedServiceSelection(cfg)
 	if deprecatedServiceSelection {
-		rules = appendSelectorRules(rules, schema.CaptureActionExclude, discover.RegexAsSelector(cfg.Discovery.ExcludeServices), nil)
-		rules = appendSelectorRules(rules, schema.CaptureActionExclude, discover.RegexAsSelector(cfg.Discovery.DefaultExcludeServices), defaultExcludeRule)
+		rules = appendSelectorRules(rules, schema.CaptureActionExclude, discover.RegexAsSelector(cfg.Discovery.ExcludeServices), nil, true)
+		rules = appendSelectorRules(rules, schema.CaptureActionExclude, discover.RegexAsSelector(cfg.Discovery.DefaultExcludeServices), defaultExcludeRule, true)
 	} else {
-		rules = appendSelectorRules(rules, schema.CaptureActionExclude, discover.GlobsAsSelector(cfg.Discovery.ExcludeInstrument), nil)
-		rules = appendSelectorRules(rules, schema.CaptureActionExclude, discover.GlobsAsSelector(cfg.Discovery.DefaultExcludeInstrument), defaultExcludeRule)
+		rules = appendSelectorRules(rules, schema.CaptureActionExclude, discover.GlobsAsSelector(cfg.Discovery.ExcludeInstrument), nil, false)
+		rules = appendSelectorRules(rules, schema.CaptureActionExclude, discover.GlobsAsSelector(cfg.Discovery.DefaultExcludeInstrument), defaultExcludeRule, false)
 	}
 
 	if cfg.Discovery.ExcludeOTelInstrumentedServices {
@@ -283,7 +283,7 @@ func rulesFromRuntime(cfg *obi.Config) []schema.Rule {
 		})
 	}
 
-	rules = appendSelectorRules(rules, schema.CaptureActionInclude, discover.FindingCriteria(cfg), nil)
+	rules = appendSelectorRules(rules, schema.CaptureActionInclude, discover.FindingCriteria(cfg), nil, deprecatedServiceSelection)
 
 	return rules
 }
@@ -295,9 +295,13 @@ func appendSelectorRules(
 	action schema.CaptureAction,
 	selectors []services.Selector,
 	defaultRule defaultRuleFunc,
+	regexFamily bool,
 ) []schema.Rule {
 	for i, selector := range selectors {
 		match := selectorMatch(selector)
+		if regexFamily && !ruleMatchEmpty(match) && !ruleUsesRegex(match) {
+			match.Process.ExePathRegex = ".*"
+		}
 		if ruleMatchEmpty(match) {
 			continue
 		}
