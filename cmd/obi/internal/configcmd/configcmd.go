@@ -394,7 +394,7 @@ func formatPath(path yamlPath) string {
 }
 
 func migrationAlias(path string) bool {
-	if migrationDiscoveryExclusionAlias(path) {
+	if migrationDiscoveryLegacyPathRegexpAlias(path) || migrationDiscoveryExclusionAlias(path) {
 		return true
 	}
 	for _, prefix := range []string{
@@ -413,6 +413,20 @@ func migrationAlias(path string) bool {
 	return false
 }
 
+func migrationDiscoveryLegacyPathRegexpAlias(path string) bool {
+	for _, prefix := range []string{
+		"discovery.services",
+		"discovery.exclude_services",
+		"discovery.default_exclude_services",
+	} {
+		field, ok := migrationDiscoverySelectorField(path, prefix)
+		if ok && field == "exe_path_regexp" {
+			return true
+		}
+	}
+	return false
+}
+
 func migrationDiscoveryExclusionAlias(path string) bool {
 	for _, prefix := range []string{
 		"discovery.exclude_instrument",
@@ -422,16 +436,10 @@ func migrationDiscoveryExclusionAlias(path string) bool {
 		if path == prefix {
 			return true
 		}
-		remainder, ok := strings.CutPrefix(path, prefix+"[")
+		field, ok := migrationDiscoverySelectorField(path, prefix)
 		if !ok {
 			continue
 		}
-		_, remainder, ok = strings.Cut(remainder, "].")
-		if !ok {
-			return false
-		}
-		field, _, _ := strings.Cut(remainder, ".")
-		field, _, _ = strings.Cut(field, "[")
 		switch field {
 		case "open_ports", "target_pids", "languages", "exe_path", "cmd_args", "containers_only", "k8s_pod_labels", "k8s_pod_annotations":
 			return true
@@ -441,6 +449,20 @@ func migrationDiscoveryExclusionAlias(path string) bool {
 		}
 	}
 	return false
+}
+
+func migrationDiscoverySelectorField(path, prefix string) (string, bool) {
+	remainder, ok := strings.CutPrefix(path, prefix+"[")
+	if !ok {
+		return "", false
+	}
+	_, remainder, ok = strings.Cut(remainder, "].")
+	if !ok {
+		return "", false
+	}
+	field, _, _ := strings.Cut(remainder, ".")
+	field, _, _ = strings.Cut(field, "[")
+	return field, true
 }
 
 func migrationReport(data []byte) string {

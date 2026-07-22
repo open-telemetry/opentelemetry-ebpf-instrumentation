@@ -372,6 +372,37 @@ otel_traces_export:
 	require.Empty(t, runtimeConfig.Discovery.ExcludedLinuxSystemPaths)
 }
 
+func TestMigrateConfigSupportsDeprecatedPathRegexp(t *testing.T) {
+	output, _, err := migrateConfig([]byte(`
+discovery:
+  services:
+    - exe_path_regexp: "^/srv/.*$"
+  exclude_services:
+    - exe_path_regexp: "^/srv/private/.*$"
+  default_exclude_services:
+    - exe_path_regexp: "^/usr/bin/obi$"
+  excluded_linux_system_paths: []
+otel_traces_export:
+  endpoint: http://collector:4318
+`))
+	require.NoError(t, err)
+
+	doc, _, err := schema.ParseStandaloneYAML(output)
+	require.NoError(t, err)
+	runtimeConfig, err := convert.DocumentToRuntime(doc)
+	require.NoError(t, err)
+	require.Len(t, runtimeConfig.Discovery.Services, 1)
+	require.True(t, runtimeConfig.Discovery.Services[0].Path.MatchString("/srv/api"))
+	require.Len(t, runtimeConfig.Discovery.ExcludeServices, 2)
+	var matchesDefault, matchesPrivate bool
+	for _, selector := range runtimeConfig.Discovery.ExcludeServices {
+		matchesDefault = matchesDefault || selector.Path.MatchString("/usr/bin/obi")
+		matchesPrivate = matchesPrivate || selector.Path.MatchString("/srv/private/api")
+	}
+	require.True(t, matchesDefault)
+	require.True(t, matchesPrivate)
+}
+
 func TestMigrateIntegrationConfigurations(t *testing.T) {
 	// Docker suites select their target through OTEL_EBPF_OPEN_PORT. Materialize
 	// that setting in the input because config migrate operates on YAML files.
@@ -547,6 +578,18 @@ prometheus_export:
   port: 9090
 `,
 			want: "discovery.exclude_instrument[0].name",
+		},
+		{
+			name: "unsupported legacy selector field",
+			yaml: `
+discovery:
+  services:
+    - name: ignored
+      exe_path_regexp: "^/srv/.*$"
+otel_traces_export:
+  endpoint: http://collector:4318
+`,
+			want: "discovery.services[0].name",
 		},
 		{
 			name: "already v2",
