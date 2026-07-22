@@ -49,6 +49,7 @@ services:
       OTEL_EBPF_DISCOVERY_POLL_INTERVAL: 500ms
       OTEL_EBPF_EXECUTABLE_PATH: "${OTEL_EBPF_EXECUTABLE_PATH}"
       OTEL_EBPF_SKIP_GO_SPECIFIC_TRACERS: "${OTEL_EBPF_SKIP_GO_SPECIFIC_TRACERS}"
+      OTEL_EBPF_BPF_MAX_TRANSACTION_TIME: "${OTEL_EBPF_BPF_MAX_TRANSACTION_TIME}"
       OTEL_EBPF_SERVICE_NAMESPACE: "integration-test"
       OTEL_EBPF_METRICS_INTERVAL: "1s"
       OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT: "1ms"
@@ -67,7 +68,7 @@ services:
 
   # OpenTelemetry Collector for Metrics. For Traces, we use directly Jaeger
   otelcol:
-    image: otel/opentelemetry-collector-contrib:0.156.0@sha256:125bdbeb7590cc1952c5b3430ecf14063568980c2c93d5b38676cc0446ed8108
+    image: otel/opentelemetry-collector-contrib:0.157.0@sha256:f2f01157055a9b2aab9df7118e1f1c9abf345e99b23bc7a2bc791db374a7d0f6
     container_name: otel-col
     deploy:
       resources:

@@ -6,6 +6,7 @@ package integration
 import (
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"path"
 	"testing"
 	"time"
@@ -17,9 +18,9 @@ import (
 	"go.opentelemetry.io/obi/internal/test/integration/components/jaeger"
 )
 
-// testBodyExtractionObfuscate verifies that the body extraction rules correctly
+// bodyExtractionObfuscate verifies that the body extraction rules correctly
 // capture the request body with sensitive fields obfuscated.
-func testBodyExtractionObfuscate(t *testing.T) {
+func bodyExtractionObfuscate(t *testing.T) {
 	// Send POST requests with a JSON body containing sensitive fields.
 	// The config obfuscates $.password and $.secret with "***", credit-card
 	// fields with "PCI", and social/insurance numbers with "PII" on POST requests.
@@ -71,9 +72,9 @@ func testBodyExtractionObfuscate(t *testing.T) {
 	assert.Contains(t, val, "PII", "sin/ssn obfuscation string should be present")
 }
 
-// testBodyExtractionInclude verifies that body include rules capture the raw body
+// bodyExtractionInclude verifies that body include rules capture the raw body
 // without obfuscation when only an include rule matches.
-func testBodyExtractionInclude(t *testing.T) {
+func bodyExtractionInclude(t *testing.T) {
 	// The config has an include rule for POST /rolldice/* which also matches,
 	// but the obfuscate rule also matches POST requests.
 	// Since body rules merge, both rules apply: obfuscate paths are applied
@@ -114,16 +115,16 @@ func testBodyExtractionInclude(t *testing.T) {
 	assert.Contains(t, val, "6", "sides field should be present")
 }
 
-// testBodyExtractionExcludedByDefault verifies that GET requests (which don't match
+// bodyExtractionExcludedByDefault verifies that GET requests (which don't match
 // any body rules) have no body content on the span.
-func testBodyExtractionExcludedByDefault(t *testing.T) {
+func bodyExtractionExcludedByDefault(t *testing.T, getOperation string) {
 	for i := 0; i < 4; i++ {
 		doHTTPGetWithHeaders(t, instrumentedServiceStdURL+"/rolldice/52", 200, nil)
 	}
 
 	var trace jaeger.Trace
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=testserver&operation=GET%20%2Frolldice%2F%3Aid")
+		resp, err := http.Get(jaegerQueryURL + "?service=testserver&operation=" + url.QueryEscape(getOperation))
 		require.NoError(ct, err)
 		if resp == nil {
 			return
@@ -137,7 +138,7 @@ func testBodyExtractionExcludedByDefault(t *testing.T) {
 		trace = traces[0]
 	}, testTimeout, 100*time.Millisecond)
 
-	res := trace.FindByOperationName("GET /rolldice/:id", "server")
+	res := trace.FindByOperationName(getOperation, "server")
 	require.NotEmpty(t, res)
 	span := res[0]
 
@@ -148,9 +149,9 @@ func testBodyExtractionExcludedByDefault(t *testing.T) {
 	assert.False(t, ok, "response body should not be present")
 }
 
-// testBodyExtractionContentTypeHeader verifies that the Content-Type header
+// bodyExtractionContentTypeHeader verifies that the Content-Type header
 // is also included on the span (configured via a header include rule).
-func testBodyExtractionContentTypeHeader(t *testing.T) {
+func bodyExtractionContentTypeHeader(t *testing.T) {
 	for i := 0; i < 4; i++ {
 		doHTTPPost(t, instrumentedServiceStdURL+"/rolldice/53", 200,
 			[]byte(`{"test":"header-check"}`))
@@ -188,6 +189,8 @@ func testBodyExtractionContentTypeHeader(t *testing.T) {
 	assert.True(t, ok, "expected body content alongside headers")
 }
 
+// TestSuiteBodyExtraction exercises the shared bodyExtraction* assertions
+// against the kprobe/socket tracer.
 func TestSuiteBodyExtraction(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose.yml", path.Join(pathOutput, "test-suite-body-extraction.log"))
 	require.NoError(t, err)
@@ -198,16 +201,18 @@ func TestSuiteBodyExtraction(t *testing.T) {
 
 	t.Run("Body extraction obfuscate", func(t *testing.T) {
 		waitForTestComponents(t, instrumentedServiceStdURL)
-		testBodyExtractionObfuscate(t)
+		bodyExtractionObfuscate(t)
 	})
 	t.Run("Body extraction include", func(t *testing.T) {
-		testBodyExtractionInclude(t)
+		bodyExtractionInclude(t)
 	})
 	t.Run("Body excluded by default", func(t *testing.T) {
-		testBodyExtractionExcludedByDefault(t)
+		// The socket tracer doesn't capture the Go mux pattern, so OBI resolves
+		// the route from its config patterns.
+		bodyExtractionExcludedByDefault(t, "GET /rolldice/:id")
 	})
 	t.Run("Body with Content-Type header", func(t *testing.T) {
-		testBodyExtractionContentTypeHeader(t)
+		bodyExtractionContentTypeHeader(t)
 	})
 
 	runWeaverValidation(t)

@@ -70,6 +70,7 @@ static __always_inline int postgres_send_large_buffer(tcp_req_t *req,
     large_buf->direction = direction;
     large_buf->conn_info = req->conn_info;
     large_buf->tp = req->tp;
+    large_buf->source = k_large_buffer_source_kprobes;
 
     u32 max_available_bytes = postgres_max_captured_bytes - bytes_sent;
 
@@ -77,7 +78,8 @@ static __always_inline int postgres_send_large_buffer(tcp_req_t *req,
 
     const u32 available_bytes = min(bytes_len, max_available_bytes);
 
-    const u32 consumed_bytes = large_buf_emit_chunks(large_buf, u_buf, available_bytes);
+    const u32 consumed_bytes =
+        large_buf_emit_chunks(large_buf, u_buf, available_bytes, k_large_buf_read_kernel);
 
     if (packet_type == PACKET_TYPE_REQUEST) {
         req->lb_req_bytes += consumed_bytes;

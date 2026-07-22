@@ -16,6 +16,14 @@ func intPtr(v int) *int { return &v }
 
 func stringPtr(v string) *string { return &v }
 
+func TestHTTPConfigClientEnabled(t *testing.T) {
+	assert.False(t, (HTTPConfig{}).ClientEnabled())
+	assert.False(t, (HTTPConfig{GraphQL: GraphQLConfig{Enabled: true}}).ClientEnabled())
+	assert.True(t, (HTTPConfig{AWS: AWSConfig{Enabled: true}}).ClientEnabled())
+	assert.True(t, (HTTPConfig{GenAI: GenAIConfig{OpenAI: OpenAIConfig{Enabled: true}}}).ClientEnabled())
+	assert.True(t, (HTTPConfig{Enrichment: EnrichmentConfig{Enabled: true}}).ClientEnabled())
+}
+
 func TestEnrichmentConfig_Validate_HeaderRules(t *testing.T) {
 	tests := []struct {
 		name    string

@@ -68,7 +68,8 @@ cleanup_duplicate_generic_event_by_connection(const connection_info_t *conn) {
     cleanup_duplicate_generic_events_sorted(&p_conn);
 }
 
-static __always_inline bool already_handled_goroutine(go_addr_key_t *g_key, void *fd_ptr) {
+static __always_inline connection_info_t *already_handled_goroutine(go_addr_key_t *g_key,
+                                                                    void *fd_ptr) {
     // lookup a grpc connection
     // Sets up the connection info to be grabbed and mapped over the transport to operateHeaders
     void *tr = bpf_map_lookup_elem(&ongoing_grpc_operate_headers, g_key);
@@ -84,7 +85,7 @@ static __always_inline bool already_handled_goroutine(go_addr_key_t *g_key, void
                 cleanup_duplicate_generic_event_by_connection(&t->conn);
             }
         }
-        return true;
+        return &t->conn;
     }
 
     // lookup active sql connection
@@ -95,7 +96,7 @@ static __always_inline bool already_handled_goroutine(go_addr_key_t *g_key, void
                               &sql_conn->conn,
                               true); // ok to not check the result, we leave it as 0
         cleanup_duplicate_generic_event_by_connection(&sql_conn->conn);
-        return true;
+        return &sql_conn->conn;
     }
 
     mongo_go_client_req_t *mongo_conn = bpf_map_lookup_elem(&ongoing_mongo_requests, g_key);
@@ -106,7 +107,7 @@ static __always_inline bool already_handled_goroutine(go_addr_key_t *g_key, void
                               true); // ok to not check the result, we leave it as 0
 
         cleanup_duplicate_generic_event_by_connection(&mongo_conn->conn);
-        return true;
+        return &mongo_conn->conn;
     }
 
     // lookup active HTTP connection
@@ -122,12 +123,12 @@ static __always_inline bool already_handled_goroutine(go_addr_key_t *g_key, void
                 fd_ptr, conn, true); // ok to not check the result, we leave it as 0
             cleanup_duplicate_generic_event_by_connection(conn);
 
-            return true;
+            return conn;
         }
         //dbg_print_http_connection_info(conn);
         // We cannot return true here, HTTP servers are typically wrapping unknown protocols
         // on the same goroutine.
     }
 
-    return false;
+    return NULL;
 }
