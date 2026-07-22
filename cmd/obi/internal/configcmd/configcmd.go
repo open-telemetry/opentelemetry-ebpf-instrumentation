@@ -53,6 +53,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 
 	switch args[0] {
+	case "-h", "--help":
+		fmt.Fprintln(stderr, "usage: obi config <validate|migrate> ...")
+		return ExitSuccess
 	case "validate":
 		return runValidate(args[1:], stdout, stderr)
 	case "migrate":

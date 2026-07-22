@@ -75,6 +75,20 @@ func TestMaybeRunIgnoresRuntimeArguments(t *testing.T) {
 	require.Equal(t, ExitSuccess, exitCode)
 }
 
+func TestRunConfigHelp(t *testing.T) {
+	for _, helpFlag := range []string{"-h", "--help"} {
+		t.Run(helpFlag, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+
+			exitCode := run([]string{helpFlag}, &stdout, &stderr)
+
+			require.Equal(t, ExitSuccess, exitCode)
+			require.Empty(t, stdout.String())
+			require.Equal(t, "usage: obi config <validate|migrate> ...\n", stderr.String())
+		})
+	}
+}
+
 func TestRunValidateStandalone(t *testing.T) {
 	t.Setenv("OBI_CONFIG_VERSION", "2.0")
 	contents := strings.Replace(validStandaloneV2, `version: "2.0"`, `version: "${OBI_CONFIG_VERSION}"`, 1)
