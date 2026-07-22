@@ -417,7 +417,15 @@ func migrationReport(data []byte) string {
 	if hasAnyPath(root, "filter.application", "filter.network", "filter.stats") {
 		lines = append(lines, "- fanned out v1 attribute filters to signal-scoped v2 filters")
 	}
-	if hasAnyPath(root, "discovery.instrument", "discovery.services", "discovery.exclude_instrument", "discovery.exclude_services") {
+	if hasAnyPath(root,
+		"discovery.instrument",
+		"discovery.services",
+		"discovery.exclude_instrument",
+		"discovery.exclude_services",
+		"executable_path",
+		"open_port",
+		"target_pids",
+	) {
 		lines = append(lines, "- reshaped effective discovery selectors into capture.rules")
 	}
 	if hasAnyPath(root, "discovery.skip_go_specific_tracers") {

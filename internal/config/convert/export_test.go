@@ -796,6 +796,19 @@ func TestRuntimeToV2EffectiveDiscoveryCriteria(t *testing.T) {
 		_, err := V2ToRuntime(ext)
 		require.NoError(t, err)
 	})
+
+	t.Run("deprecated executable path preserves regex family", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := defaultRuntimeConfig()
+		cfg.Exec = services.NewRegexp("^/srv/api$")
+
+		_, ext := RuntimeToV2(&cfg)
+
+		require.Equal(t, "^/srv/api$", ext.Capture.Rules[len(ext.Capture.Rules)-1].Match.Process.ExePathRegex)
+		_, err := V2ToRuntime(ext)
+		require.NoError(t, err)
+	})
 }
 
 func TestRuntimeToV2MetricInstrumentationsUseEnabledExporters(t *testing.T) {

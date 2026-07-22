@@ -233,8 +233,9 @@ func statsEnrichment(cfg *obi.Config) schema.NetworkEnrichment {
 
 func rulesFromRuntime(cfg *obi.Config) []schema.Rule {
 	rules := []schema.Rule{}
-	deprecatedServiceSelection := discover.OnlyDefinesDeprecatedServiceSelection(cfg)
-	if deprecatedServiceSelection {
+	findingCriteria := discover.FindingCriteria(cfg)
+	regexSelection := discover.OnlyDefinesDeprecatedServiceSelection(cfg) || selectorsUseRegex(findingCriteria)
+	if regexSelection {
 		rules = appendSelectorRules(rules, schema.CaptureActionExclude, discover.RegexAsSelector(cfg.Discovery.ExcludeServices), nil, true)
 		rules = appendSelectorRules(rules, schema.CaptureActionExclude, discover.RegexAsSelector(cfg.Discovery.DefaultExcludeServices), defaultExcludeRule, true)
 	} else {
@@ -260,7 +261,7 @@ func rulesFromRuntime(cfg *obi.Config) []schema.Rule {
 
 	if len(cfg.Discovery.ExcludedLinuxSystemPaths) > 0 {
 		processMatch := schema.RuleProcessMatch{}
-		if deprecatedServiceSelection {
+		if regexSelection {
 			patterns := make([]string, 0, len(cfg.Discovery.ExcludedLinuxSystemPaths))
 			for _, path := range cfg.Discovery.ExcludedLinuxSystemPaths {
 				patterns = append(patterns, "^"+regexp.QuoteMeta(strings.TrimRight(path, "/")+"/"))
@@ -283,9 +284,18 @@ func rulesFromRuntime(cfg *obi.Config) []schema.Rule {
 		})
 	}
 
-	rules = appendSelectorRules(rules, schema.CaptureActionInclude, discover.FindingCriteria(cfg), nil, deprecatedServiceSelection)
+	rules = appendSelectorRules(rules, schema.CaptureActionInclude, findingCriteria, nil, regexSelection)
 
 	return rules
+}
+
+func selectorsUseRegex(selectors []services.Selector) bool {
+	for _, selector := range selectors {
+		if ruleUsesRegex(selectorMatch(selector)) {
+			return true
+		}
+	}
+	return false
 }
 
 type defaultRuleFunc func(int, schema.RuleMatch) (string, string)

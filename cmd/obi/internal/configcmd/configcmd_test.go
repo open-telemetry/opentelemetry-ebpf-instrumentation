@@ -342,6 +342,23 @@ otel_traces_export:
 	require.True(t, excludesSystemPath)
 }
 
+func TestMigrateConfigSupportsDeprecatedExecutablePath(t *testing.T) {
+	output, report, err := migrateConfig([]byte(`
+executable_path: "^/srv/api$"
+otel_traces_export:
+  endpoint: http://collector:4318
+`))
+	require.NoError(t, err)
+	require.Contains(t, report, "capture.rules")
+
+	doc, _, err := schema.ParseStandaloneYAML(output)
+	require.NoError(t, err)
+	runtimeConfig, err := convert.DocumentToRuntime(doc)
+	require.NoError(t, err)
+	require.Len(t, runtimeConfig.Discovery.Services, 1)
+	require.True(t, runtimeConfig.Discovery.Services[0].Path.MatchString("/srv/api"))
+}
+
 func TestMigrateIntegrationConfigurations(t *testing.T) {
 	// Docker suites select their target through OTEL_EBPF_OPEN_PORT. Materialize
 	// that setting in the input because config migrate operates on YAML files.
