@@ -2233,7 +2233,6 @@ func (s *Span) GenAIInputTokens() int {
 	return 0
 }
 
-
 // HasGenAIInputTokens returns true if the input token count is available
 // (i.e., was actually reported by the provider, not simply absent/unknown).
 func (s *Span) HasGenAIInputTokens() bool {
