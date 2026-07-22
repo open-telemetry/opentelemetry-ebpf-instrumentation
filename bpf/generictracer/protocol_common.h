@@ -11,8 +11,10 @@
 #include <common/event_defs.h>
 #include <common/event_source.h>
 #include <common/iov_iter.h>
+#include <common/large_buf_emit.h>
 #include <common/large_buffers.h>
 #include <common/lw_thread.h>
+#include <common/protocol_defs.h>
 #include <common/ringbuf.h>
 #include <common/sock_port_ns.h>
 #include <common/http_types.h>
@@ -21,50 +23,6 @@
 #include <generictracer/maps/iovec_mem.h>
 #include <generictracer/maps/listening_ports.h>
 #include <generictracer/maps/protocol_args_mem.h>
-
-#define PACKET_TYPE_REQUEST 1
-#define PACKET_TYPE_RESPONSE 2
-
-static __always_inline u32 large_buf_emit_chunks(tcp_large_buffer_t *large_buf,
-                                                 const void *u_buf,
-                                                 u32 available_bytes) {
-    const unsigned char *p = (const unsigned char *)u_buf;
-
-    bpf_clamp_umax(available_bytes, k_large_buf_per_emit_max);
-
-    const u32 niter = (available_bytes / k_large_buf_payload_max_size) +
-                      ((available_bytes % k_large_buf_payload_max_size) > 0);
-
-    u32 consumed_bytes = 0;
-
-    for (u32 b = 0; b < niter; b++) {
-        const u32 offset = b * k_large_buf_payload_max_size;
-
-        u32 read_size = min(available_bytes, k_large_buf_payload_max_size);
-        bpf_clamp_umax(read_size, k_large_buf_payload_max_size);
-
-        if (bpf_probe_read(large_buf->buf, read_size, p + offset) != 0) {
-            break;
-        }
-
-        large_buf->len = read_size;
-
-        u32 payload_size = max(read_size, sizeof(void *));
-        bpf_clamp_umax(payload_size, k_large_buf_payload_max_size);
-        u32 total_size = sizeof(tcp_large_buffer_t) + payload_size;
-        bpf_clamp_umax(total_size, k_large_buf_max_size);
-
-        if (bpf_ringbuf_output(&events, large_buf, total_size, get_flags()) != 0) {
-            break;
-        }
-
-        available_bytes -= read_size;
-        consumed_bytes += read_size;
-        large_buf->action = k_large_buf_action_append;
-    }
-
-    return consumed_bytes;
-}
 
 volatile const s32 capture_header_buffer = 0;
 

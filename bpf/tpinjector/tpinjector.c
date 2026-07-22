@@ -63,8 +63,8 @@ char __license[] SEC("license") = "Dual MIT/GPL";
 //   │                                  │
 //   ├── pull_data + fill_msg_buffers   │  Committed to processing
 //   │                                  │
-//   ├── is_h2_socket?                  │  Known plaintext H2: skip preface
-//   │     └─ tail-call detect_h2       │  check, go straight to HPACK chain
+//   ├── is_h2_socket?                  │  Preface seen / confirmed H2: skip
+//   │     └─ tail-call detect_h2       │  preface check, drive the H2 chain
 //   │                                 │
 //   ├── HTTP/1 detected?              │  ── find_existing_tp ── create_tp ──
 //   │                                 │     write_msg_traceparent
@@ -74,10 +74,14 @@ char __license[] SEC("license") = "Dual MIT/GPL";
 //                                           ▼
 //                                        detect_h2 ◀──────────────┐
 //                                           │                     │
-//                                           │ HEADERS+END_HEADERS │ resume on
-//                                           ▼                     │ batched
-//                                        find_existing_h2_tp ─────┤ frame via
-//                                           │ adopt or            │ h2_scan_pos
+//                                           │ preface→SETTINGS     │ resume on
+//                                           │ confirms genuine H2  │ batched
+//                                           │ (else reject);       │ frame via
+//                                           │ then HEADERS+        │ h2_scan_pos
+//                                           │ END_HEADERS          │
+//                                           ▼                     │
+//                                        find_existing_h2_tp ─────┤
+//                                           │ adopt or            │
 //                                           ▼                     │
 //                                        create_h2_tp ────────────┤
 //                                           │                     │
@@ -171,21 +175,49 @@ h2_resume_after(struct sk_msg_md *msg, tailcall_ctx *t_ctx, u32 next_pos) {
     bpf_tail_call_static(msg, &extender_jump_table, k_tail_detect_h2);
 }
 
-static __always_inline bool is_h2_socket(struct sk_msg_md *msg) {
+// Per-socket HTTP/2 detection state (sk_h2_conn_flag values).
+//
+// We only splice an HPACK traceparent once we've confirmed a *genuine* HTTP/2
+// stream. RFC 7540 §3.4/§3.5 require the client connection preface
+// ("PRI * HTTP/2.0...") to be immediately followed by a SETTINGS frame. A stream
+// that merely embeds the preface inside some other framing — e.g. GitLab
+// Gitaly's yamux-multiplexed backchannel (issue #2706) — never emits that
+// SETTINGS frame as the next bytes on the raw socket; instead the peer's framing
+// header follows. Injecting into such a stream shifts the outer framing and
+// corrupts the connection, so those sockets must be rejected.
+enum {
+    k_h2_sock_none = 0,      // nothing seen yet
+    k_h2_sock_preface = 1,   // preface seen, awaiting the mandatory SETTINGS frame
+    k_h2_sock_confirmed = 2, // SETTINGS seen after preface — genuine HTTP/2, inject
+    k_h2_sock_rejected = 3,  // post-preface bytes were not SETTINGS — never inject
+};
+
+static __always_inline u8 h2_sock_state(struct sk_msg_md *msg) {
     struct bpf_sock *sk = msg->sk;
     if (!sk) {
-        return false;
+        return k_h2_sock_none;
     }
     const u8 *flag = bpf_sk_storage_get(&sk_h2_conn_flag, sk, NULL, 0);
-    return flag && *flag;
+    return flag ? *flag : k_h2_sock_none;
 }
 
-static __always_inline void mark_h2_socket(struct sk_msg_md *msg) {
+static __always_inline void set_h2_sock_state(struct sk_msg_md *msg, u8 state) {
     struct bpf_sock *sk = msg->sk;
     if (!sk) {
         return;
     }
-    bpf_sk_storage_get(&sk_h2_conn_flag, sk, &(u8){1}, BPF_SK_STORAGE_GET_F_CREATE);
+    u8 *flag = bpf_sk_storage_get(&sk_h2_conn_flag, sk, &state, BPF_SK_STORAGE_GET_F_CREATE);
+    if (flag) {
+        *flag = state;
+    }
+}
+
+// True while the socket is in an HTTP/2 scanning state (preface seen or
+// confirmed) — i.e. detect_h2 should keep driving its state machine. Rejected
+// and never-seen sockets are excluded.
+static __always_inline bool is_h2_socket(struct sk_msg_md *msg) {
+    const u8 state = h2_sock_state(msg);
+    return state == k_h2_sock_preface || state == k_h2_sock_confirmed;
 }
 
 #ifndef ENOMSG
@@ -840,6 +872,12 @@ static __always_inline void wrap_http2_traceparent(struct sk_msg_md *msg,
     if (msg->size < k_h2_frame_header_len) {
         return;
     }
+    // A socket previously classified as non-HTTP/2 (e.g. a yamux-tunneled
+    // stream) must never be injected into, regardless of what the generic
+    // tracer thinks.
+    if (h2_sock_state(msg) == k_h2_sock_rejected) {
+        return;
+    }
     if (is_h2_socket(msg) || already_tracked_plain_http2(p_conn)) {
         bpf_tail_call_static(msg, &extender_jump_table, k_tail_detect_h2);
         return;
@@ -1180,22 +1218,62 @@ int obi_packet_extender_detect_h2(struct sk_msg_md *msg) {
 
     u32 pos = t_ctx->h2_scan_pos;
 
-    // Only check preface on the first call (scan_pos == 0). Go gRPC sends
-    // the 24-byte preface in its own packet, before any HEADERS frame
-    if (pos == 0 && msg_size >= k_h2_preface_check_len) {
+    u8 state = h2_sock_state(msg);
+    if (state == k_h2_sock_rejected) {
+        return SK_PASS;
+    }
+
+    // Only check the preface on the first scan of a packet (scan_pos == 0) and
+    // only before we've classified the socket. Go gRPC sends the 24-byte
+    // preface in its own packet, before any HEADERS frame.
+    if (pos == 0 && state == k_h2_sock_none && msg_size >= k_h2_preface_check_len) {
         if (bpf_msg_pull_data(msg, 0, k_h2_preface_check_len, 0) == 0) {
             if (is_http2_preface(msg->data, msg->data_end)) {
-                mark_h2_socket(msg);
+                // Preface seen, but NOT yet genuine HTTP/2: RFC 7540 §3.5
+                // requires a SETTINGS frame to follow. We confirm that below
+                // (possibly on the next packet) before ever injecting.
+                state = k_h2_sock_preface;
+                set_h2_sock_state(msg, k_h2_sock_preface);
                 if (msg_size >= k_h2_preface_len + k_h2_frame_header_len) {
-                    pos = k_h2_preface_len;
+                    pos = k_h2_preface_len; // SETTINGS may be coalesced here
                 } else {
-                    return SK_PASS;
+                    return SK_PASS; // preface-only packet; SETTINGS comes next
                 }
             }
         }
     }
 
     if (msg_size < k_h2_frame_header_len || pos >= msg_size) {
+        return SK_PASS;
+    }
+
+    // Awaiting the mandatory post-preface SETTINGS frame. If the next frame on
+    // the raw socket is not SETTINGS, the "preface" was just payload of some
+    // other protocol multiplexed over this connection (e.g. Gitaly's yamux
+    // backchannel, GitHub issue #2706). Reject the socket so we never splice HPACK
+    // into it — doing so would shift the outer framing and corrupt the stream.
+    if (state == k_h2_sock_preface) {
+        h2_frame_info_t sf;
+        if (!parse_h2_frame_at(msg, pos, msg_size, &sf)) {
+            // Not enough bytes to decide yet; wait for the next packet without
+            // committing to confirmed or rejected.
+            return SK_PASS;
+        }
+        if (sf.ftype != k_h2_frame_settings) {
+            set_h2_sock_state(msg, k_h2_sock_rejected);
+            return SK_PASS;
+        }
+        set_h2_sock_state(msg, k_h2_sock_confirmed);
+        state = k_h2_sock_confirmed;
+        // Continue after the SETTINGS frame in case HEADERS were coalesced.
+        pos += k_h2_frame_header_len + sf.payload_len;
+        if (msg_size < k_h2_frame_header_len || pos >= msg_size) {
+            return SK_PASS;
+        }
+    }
+
+    // Only a confirmed genuine-HTTP/2 socket may be injected into.
+    if (state != k_h2_sock_confirmed) {
         return SK_PASS;
     }
 
