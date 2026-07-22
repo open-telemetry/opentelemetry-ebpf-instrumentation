@@ -25,8 +25,13 @@
 #include <common/go_addr_key.h>
 #include <common/http_types.h>
 #include <common/lw_thread.h>
+#include <common/protocol_defs.h>
+#include <common/tp_info.h>
+#include <common/trace_helpers.h>
 
 #include <gotracer/go_common.h>
+#include <gotracer/go_net_common.h>
+#include <gotracer/go_large_buffer.h>
 
 #include <generictracer/k_tracer_defs.h>
 
@@ -35,11 +40,12 @@
 #include <maps/outgoing_trace_map.h>
 
 #include <gotracer/types/net_args.h>
+#include <gotracer/types/nethttp.h>
 
+#include <gotracer/maps/nethttp.h>
 #include <gotracer/maps/ongoing_fd_reads.h>
+#include <gotracer/maps/ongoing_large_buffers.h>
 #include <gotracer/maps/ongoing_ssl_ops.h>
-
-#include <gotracer/go_net_common.h>
 
 #include <pid/pid_helpers.h>
 
@@ -56,7 +62,19 @@ int obi_uprobe_netFdRead(struct pt_regs *ctx) {
 
     void *fd_ptr = GO_PARAM1(ctx);
 
-    if (already_handled_goroutine(&g_key, fd_ptr)) {
+    connection_info_t *conn = already_handled_goroutine(&g_key, fd_ptr);
+    if (conn) {
+        if (!http_large_buffers_enabled()) {
+            return 0;
+        }
+
+        void *byte_addr = GO_PARAM2(ctx);
+
+        // We register the read, but mark it as skipped for sending events,
+        // so that we can pick up the Go large buffers.
+        net_args_t net_args = {.byte_ptr = (u64)byte_addr, .skip = 1, .p_conn.conn = *conn};
+
+        bpf_map_update_elem(&ongoing_fd_reads, &g_key, &net_args, BPF_ANY);
         return 0;
     }
 
@@ -85,6 +103,7 @@ int obi_continue_netfd_read(struct pt_regs *ctx) {
     void *byte_addr = GO_PARAM2(ctx);
     net_args_t net_args = {
         .byte_ptr = (u64)byte_addr,
+        .skip = 0,
     };
 
     if (!get_conn_info_from_fd(fd_ptr, &net_args.p_conn.conn, false)) {
@@ -101,7 +120,13 @@ int obi_continue_netfd_read(struct pt_regs *ctx) {
 
     if (already_handled_request_sorted(&p_conn.conn)) {
         cleanup_duplicate_generic_events_sorted(&p_conn);
-        return 0;
+        if (!http_large_buffers_enabled()) {
+            return 0;
+        }
+        // mark the event as skipped, rather than returning 0 here,
+        // so the ret probe can capture large buffers if needed.
+        net_args.skip = 1;
+        bpf_d_printk("skipping");
     }
 
     bpf_map_update_elem(&ongoing_fd_reads, &g_key, &net_args, BPF_ANY);
@@ -117,14 +142,23 @@ int obi_uprobe_netFdReadRet(struct pt_regs *ctx) {
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
 
+    s64 len = (s64)GO_PARAM1(ctx);
+
     net_args_t *net_ptr = bpf_map_lookup_elem(&ongoing_fd_reads, &g_key);
-    if (!net_ptr || !net_ptr->byte_ptr) {
+
+    if (!net_ptr || !net_ptr->byte_ptr || net_ptr->skip) {
+        if (http_large_buffer_skip(len)) {
+            return 0;
+        } else if (net_ptr && net_ptr->byte_ptr) {
+            send_http_large_buffers_if_needed(
+                &net_ptr->p_conn.conn, (void *)net_ptr->byte_ptr, len, TCP_RECV);
+        }
+
         return 0;
     }
 
     void *buf = (void *)net_ptr->byte_ptr;
 
-    s64 len = (s64)GO_PARAM1(ctx);
     bpf_dbg_printk("buf=%llx, len=%lld === ", (unsigned long long)buf, (long long)len);
     if (buf && len > 0) {
         const int bytes_len = (int)min((s64)__INT_MAX__, len);
@@ -192,6 +226,10 @@ int obi_uprobe_netFdWrite(struct pt_regs *ctx) {
 
         if (already_handled_request_sorted(&p_conn.conn)) {
             cleanup_duplicate_generic_events_sorted(&p_conn);
+
+            if (!http_large_buffer_skip(len)) {
+                send_http_large_buffers_if_needed(&p_conn.conn, (void *)buf, len, TCP_SEND);
+            }
             return 0;
         }
 
@@ -227,6 +265,8 @@ int obi_uprobe_netFdClose(struct pt_regs *ctx) {
     }
 
     sort_connection_info(&conn);
+
+    bpf_map_delete_elem(&ongoing_large_buffers, &conn);
 
     dbg_print_http_connection_info(&conn);
 

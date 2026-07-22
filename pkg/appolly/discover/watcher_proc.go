@@ -151,7 +151,7 @@ func (pa *pollAccounter) run(ctx context.Context) {
 		return
 	}
 
-	if pa.cfg.EBPF.DebugMode().IsEnabled() {
+	if pa.cfg.EBPF.DebugMode().IsUserspaceEnabled() {
 		if err := pa.loadBPFLogger(ctx, pa.ebpfContext, pa.cfg); err != nil {
 			log.Error("Unable to load eBPF logger for process events", "error", err)
 			// keep running without logs

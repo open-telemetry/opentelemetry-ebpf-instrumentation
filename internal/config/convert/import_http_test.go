@@ -86,6 +86,7 @@ func TestV2ToRuntimeHTTPPayloadExtractionRoundTrip(t *testing.T) {
 	http.GenAI.Embedding.Enabled = true
 	http.GenAI.Rerank.Enabled = true
 	http.GenAI.Retrieval.Enabled = true
+	http.GenAI.Ollama.Enabled = true
 	http.JSONRPC.Enabled = true
 	http.Enrichment.Enabled = true
 	http.Enrichment.Policy.DefaultAction.Headers = config.HTTPParsingActionInclude
@@ -125,6 +126,7 @@ func TestV2ToRuntimeHTTPPayloadExtractionRoundTrip(t *testing.T) {
 	require.True(t, gotHTTP.GenAI.Embedding.Enabled)
 	require.True(t, gotHTTP.GenAI.Rerank.Enabled)
 	require.True(t, gotHTTP.GenAI.Retrieval.Enabled)
+	require.True(t, gotHTTP.GenAI.Ollama.Enabled)
 	require.True(t, gotHTTP.JSONRPC.Enabled)
 	require.True(t, gotHTTP.Enrichment.Enabled)
 	require.Equal(t, http.Enrichment.Policy, gotHTTP.Enrichment.Policy)

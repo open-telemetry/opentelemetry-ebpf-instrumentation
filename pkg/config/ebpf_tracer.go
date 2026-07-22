@@ -26,7 +26,7 @@ const (
 	BPFDebugDisabled  BPFDebugMode = 0
 	BPFDebugTracePipe BPFDebugMode = 1 << 0
 	BPFDebugUserspace BPFDebugMode = 1 << 1
-	BPFDebugDefault   BPFDebugMode = BPFDebugTracePipe | BPFDebugUserspace
+	BPFDebugAll       BPFDebugMode = BPFDebugTracePipe | BPFDebugUserspace
 
 	ContextPropagationDisabled ContextPropagationMode = 0
 	ContextPropagationHeaders  ContextPropagationMode = 1 << 0 // HTTP headers
@@ -64,7 +64,7 @@ func (m *BPFDebugMode) UnmarshalText(text []byte) error {
 		*m = BPFDebugDisabled
 		return nil
 	case StrBPFDebugAll:
-		*m = BPFDebugDefault
+		*m = BPFDebugAll
 		return nil
 	}
 
@@ -89,7 +89,7 @@ func (m BPFDebugMode) MarshalText() ([]byte, error) {
 	switch m {
 	case BPFDebugDisabled:
 		return []byte(StrBPFDebugDisabled), nil
-	case BPFDebugDefault:
+	case BPFDebugAll:
 		return []byte(StrBPFDebugAll), nil
 	case BPFDebugTracePipe:
 		return []byte(StrBPFDebugTracePipe), nil
@@ -180,6 +180,10 @@ type EBPFTracer struct {
 	// Must be at least 0
 	HTTPRequestTimeout time.Duration `yaml:"http_request_timeout" env:"OTEL_EBPF_BPF_HTTP_REQUEST_TIMEOUT" validate:"gte=0"`
 
+	// GoHTTPClientBufferTimeout is the inactivity period after which a pending Go HTTP client
+	// event is enriched with its captured buffers and emitted. A zero value disables deferral.
+	GoHTTPClientBufferTimeout time.Duration `yaml:"go_http_client_buffer_timeout" env:"OTEL_EBPF_BPF_GO_HTTP_CLIENT_BUFFER_TIMEOUT" validate:"gte=0"`
+
 	// Enables distributed context propagation.
 	// Can be a combination of: headers, tcp (e.g., "headers,tcp" or "all")
 	ContextPropagation ContextPropagationMode `yaml:"context_propagation" env:"OTEL_EBPF_BPF_CONTEXT_PROPAGATION"`
@@ -257,7 +261,7 @@ type EBPFTracer struct {
 
 func (e EBPFTracer) DebugMode() BPFDebugMode {
 	if e.BpfDebug {
-		return BPFDebugDefault
+		return BPFDebugAll
 	}
 	return e.BpfDebugMode
 }

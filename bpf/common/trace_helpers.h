@@ -57,7 +57,7 @@ static __always_inline void init_new_trace(tp_info_t *tp) {
     tp->ts = bpf_ktime_get_ns();
     tp->flags = 1;
 
-    if (bpf_debug_enabled()) {
+    if (g_bpf_debug) {
         unsigned char tp_buf[TP_MAX_VAL_LENGTH];
         make_tp_string(tp_buf, tp);
         bpf_dbg_printk("tp_buf=[%s]", tp_buf);

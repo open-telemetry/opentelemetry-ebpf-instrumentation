@@ -372,6 +372,9 @@ static __always_inline int kafka_send_large_buffer(tcp_req_t *req,
 
     if (!capture_in_progress) {
         // First chunk of the response: validate it against the pending request.
+        if (!correlation_data) {
+            return 0;
+        }
         const s32 correlation_id = kafka_read_response_correlation_id(state_data, u_buf, bytes_len);
         if (correlation_id != correlation_data->correlation_id) {
             bpf_dbg_printk("request correlation_id != response "
@@ -415,6 +418,7 @@ static __always_inline int kafka_send_large_buffer(tcp_req_t *req,
     lb->direction = direction;
     lb->conn_info = pid_conn->conn;
     lb->tp = req->tp;
+    lb->source = k_large_buffer_source_kprobes;
 
     u32 max_available_bytes = kafka_max_captured_bytes - req->lb_res_bytes;
     u32 consumed_bytes = 0;
@@ -446,7 +450,7 @@ static __always_inline int kafka_send_large_buffer(tcp_req_t *req,
     bpf_clamp_umax(max_available_bytes, k_large_buf_max_kafka_captured_bytes);
 
     const u32 available_bytes = min(bytes_len, max_available_bytes);
-    consumed_bytes += large_buf_emit_chunks(lb, u_buf, available_bytes);
+    consumed_bytes += large_buf_emit_chunks(lb, u_buf, available_bytes, k_large_buf_read_kernel);
 
     req->lb_res_bytes += consumed_bytes;
 

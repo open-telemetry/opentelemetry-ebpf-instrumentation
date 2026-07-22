@@ -59,7 +59,7 @@ func (p *BPFLogger) LoadSpecs() ([]*ebpfcommon.SpecBundle, error) {
 
 func (p *BPFLogger) constants() map[string]any {
 	return map[string]any{
-		"g_bpf_debug_flags": p.cfg.EBPF.DebugMode().Flags(),
+		"g_bpf_debug": p.cfg.EBPF.DebugMode().Flags(),
 	}
 }
 

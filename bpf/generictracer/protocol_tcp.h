@@ -171,6 +171,7 @@ static __always_inline void unknown_send_large_buffer(tcp_req_t *req,
     lb->direction = direction;
     lb->conn_info = pid_conn->conn;
     lb->tp = req->tp;
+    lb->source = k_large_buffer_source_kprobes;
 
     const u32 bytes_sent =
         packet_type == PACKET_TYPE_REQUEST ? req->lb_req_bytes : req->lb_res_bytes;
@@ -181,7 +182,7 @@ static __always_inline void unknown_send_large_buffer(tcp_req_t *req,
     bpf_clamp_umax(max_available_bytes, k_large_buf_max_tcp_captured_bytes);
 
     const u32 available_bytes = min(bytes_len, max_available_bytes);
-    consumed_bytes += large_buf_emit_chunks(lb, u_buf, available_bytes);
+    consumed_bytes += large_buf_emit_chunks(lb, u_buf, available_bytes, k_large_buf_read_kernel);
 
     if (packet_type == PACKET_TYPE_REQUEST) {
         req->lb_req_bytes += consumed_bytes;

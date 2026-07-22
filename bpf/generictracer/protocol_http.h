@@ -511,7 +511,7 @@ __obi_continue_protocol_http_tp(struct pt_regs *ctx,
                     __builtin_memset(tp_p->tp.parent_id, 0, sizeof(tp_p->tp.parent_id));
                 }
 
-                if (bpf_debug_enabled()) {
+                if (g_bpf_debug) {
                     unsigned char tp_buf[TP_MAX_VAL_LENGTH];
                     make_tp_string(tp_buf, &tp_p->tp);
                     bpf_dbg_printk("new tp: %s", tp_buf);
@@ -640,7 +640,7 @@ __obi_continue_protocol_http(struct pt_regs *ctx,
         bpf_dbg_printk("Using old traceparent id");
     }
 
-    if (bpf_debug_enabled()) {
+    if (g_bpf_debug) {
         unsigned char tp_buf[TP_MAX_VAL_LENGTH];
         make_tp_string(tp_buf, &tp_p->tp);
         bpf_dbg_printk("tp: %s", tp_buf);
@@ -838,9 +838,10 @@ int obi_large_buf_emit_continue(struct pt_regs *ctx) {
     large_buf->action = state->batch_iter == 0 ? state->action : k_large_buf_action_append;
     large_buf->kind = k_large_buf_layer_app;
     large_buf->tp = info->tp;
+    large_buf->source = k_large_buffer_source_kprobes;
 
-    const u32 consumed_bytes =
-        large_buf_emit_chunks(large_buf, (const void *)state->u_buf, state->remaining_bytes);
+    const u32 consumed_bytes = large_buf_emit_chunks(
+        large_buf, (const void *)state->u_buf, state->remaining_bytes, k_large_buf_read_kernel);
 
     if (consumed_bytes > 0) {
         info->has_large_buffers = true;

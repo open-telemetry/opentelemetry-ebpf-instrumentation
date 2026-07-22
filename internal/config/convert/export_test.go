@@ -119,6 +119,11 @@ func TestRuntimeToV2DefaultConfig(t *testing.T) {
 	require.Equal(t, schema.Duration(30*time.Minute), value(t, ext.Correlation, "log_trace_annotation", "cache", "ttl"))
 	require.Equal(t, 128, value(t, ext.Correlation, "log_trace_annotation", "cache", "size"))
 	require.Equal(t, 8, value(t, ext.Correlation, "log_trace_annotation", "async_writer", "workers"))
+	require.Equal(t, "trace_id", value(t, ext.Correlation, "log_trace_annotation", "field_names", "trace_id"))
+	require.Equal(t, "span_id", value(t, ext.Correlation, "log_trace_annotation", "field_names", "span_id"))
+	require.Equal(t, true, value(t, ext.Correlation, "log_trace_annotation", "plain_text", "enabled"))
+	require.Equal(t, config.LogEnricherPlacementSuffix, value(t, ext.Correlation, "log_trace_annotation", "plain_text", "placement"))
+	require.Equal(t, config.LogEnricherMultilineFirstLine, value(t, ext.Correlation, "log_trace_annotation", "plain_text", "multiline"))
 
 	require.Equal(t, schema.LogFormatText, value(t, ext.Daemon, "logging", "format"))
 	require.Equal(t, schema.ConfigFormatUnset, value(t, ext.Daemon, "logging", "config_format"))
@@ -269,6 +274,15 @@ func TestRuntimeToV2CustomConfig(t *testing.T) {
 	cfg.EBPF.LogEnricher.CacheSize = 904
 	cfg.EBPF.LogEnricher.AsyncWriterWorkers = 905
 	cfg.EBPF.LogEnricher.AsyncWriterChannelLen = 906
+	cfg.EBPF.LogEnricher.FieldNames = config.LogEnricherFieldNames{
+		TraceID: "trace.id",
+		SpanID:  "span.id",
+	}
+	cfg.EBPF.LogEnricher.PlainText = config.LogEnricherPlainTextConfig{
+		Enabled:   false,
+		Placement: config.LogEnricherPlacementPrefix,
+		Multiline: config.LogEnricherMultilineLastLine,
+	}
 
 	cfg.Traces.TracesEndpoint = "http://traces.example:4317"
 	cfg.Traces.BatchMaxSize = 907
@@ -426,6 +440,11 @@ func TestRuntimeToV2CustomConfig(t *testing.T) {
 	require.Equal(t, 904, value(t, ext.Correlation, "log_trace_annotation", "cache", "size"))
 	require.Equal(t, 905, value(t, ext.Correlation, "log_trace_annotation", "async_writer", "workers"))
 	require.Equal(t, 906, value(t, ext.Correlation, "log_trace_annotation", "async_writer", "channel_len"))
+	require.Equal(t, "trace.id", value(t, ext.Correlation, "log_trace_annotation", "field_names", "trace_id"))
+	require.Equal(t, "span.id", value(t, ext.Correlation, "log_trace_annotation", "field_names", "span_id"))
+	require.Equal(t, false, value(t, ext.Correlation, "log_trace_annotation", "plain_text", "enabled"))
+	require.Equal(t, config.LogEnricherPlacementPrefix, value(t, ext.Correlation, "log_trace_annotation", "plain_text", "placement"))
+	require.Equal(t, config.LogEnricherMultilineLastLine, value(t, ext.Correlation, "log_trace_annotation", "plain_text", "multiline"))
 
 	require.NotNil(t, doc.LogLevel)
 	require.Equal(t, otelconfx.SeverityNumberDebug, *doc.LogLevel)
@@ -552,6 +571,7 @@ func TestRuntimeToV2AdvancedCaptureParity(t *testing.T) {
 	cfg.EBPF.PayloadExtraction.HTTP.GenAI.Embedding.Enabled = true
 	cfg.EBPF.PayloadExtraction.HTTP.GenAI.Rerank.Enabled = true
 	cfg.EBPF.PayloadExtraction.HTTP.GenAI.Retrieval.Enabled = true
+	cfg.EBPF.PayloadExtraction.HTTP.GenAI.Ollama.Enabled = true
 	cfg.EBPF.PayloadExtraction.HTTP.JSONRPC.Enabled = true
 	cfg.EBPF.PayloadExtraction.HTTP.Enrichment.Enabled = true
 	cfg.EBPF.PayloadExtraction.HTTP.Enrichment.Policy.DefaultAction.Headers = config.HTTPParsingActionInclude
@@ -616,7 +636,7 @@ func TestRuntimeToV2AdvancedCaptureParity(t *testing.T) {
 
 	require.ElementsMatch(t, []string{
 		"graphql", "elasticsearch", "aws", "sqlpp", "openai", "anthropic", "gemini",
-		"qwen", "bedrock", "mcp", "embedding", "rerank", "retrieval", "jsonrpc", "enrichment",
+		"qwen", "bedrock", "mcp", "embedding", "rerank", "retrieval", "ollama", "jsonrpc", "enrichment",
 	}, value(t, ext.Capture.Instrumentation, "http", "payload_extraction", "enabled"))
 	require.Equal(t, []string{"/query", "/analytics"}, value(t, ext.Capture.Instrumentation, "http", "payload_extraction", "sqlpp", "endpoint_patterns"))
 	require.Equal(t, config.HTTPParsingActionInclude, value(t, ext.Capture.Instrumentation, "http", "payload_extraction", "enrichment", "policy", "default_action", "headers"))
@@ -865,6 +885,7 @@ func TestRuntimeToV2DocumentParsesAsStandaloneV2(t *testing.T) {
 	require.NotContains(t, string(data), "rules: null")
 	require.NotContains(t, string(data), "telemetry: null")
 	require.NotContains(t, string(data), "refine: {}")
+	require.NotContains(t, string(data), "additionalproperties")
 
 	parsedDoc, parsedExt, err := schema.ParseStandaloneYAML(data)
 	require.NoError(t, err)

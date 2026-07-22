@@ -431,7 +431,7 @@ int obi_protocol_http2_grpc_handle_start_frame_server(void *ctx) {
 
     const u8 flags = h2g_info->data[4];
     const u8 padded = (flags >> 3) & 1;
-    const u32 prefix = padded + ((flags >> 5) & 1) * k_h2_priority_prefix_len;
+    const u32 prefix = padded + (((flags >> 5) & 1) * k_h2_priority_prefix_len);
     const u32 frame_len =
         ((u32)h2g_info->data[0] << 16) | ((u32)h2g_info->data[1] << 8) | (u32)h2g_info->data[2];
     const u32 raw_len = frame_len < k_h2_max_payload ? frame_len : k_h2_max_payload;

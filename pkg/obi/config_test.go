@@ -5,6 +5,7 @@ package obi
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -173,15 +174,16 @@ discovery:
 		EnforceSysCaps:  false,
 		TracePrinter:    "json",
 		EBPF: config.EBPFTracer{
-			BatchLength:          100,
-			BatchTimeout:         time.Second,
-			WakeupLen:            500,
-			StatsWakeupDataBytes: 4096,
-			HTTPRequestTimeout:   0,
-			MaxTransactionTime:   5 * time.Minute,
-			TCBackend:            config.TCBackendAuto,
-			DNSRequestTimeout:    5 * time.Second,
-			ContextPropagation:   config.ContextPropagationDisabled,
+			BatchLength:               100,
+			BatchTimeout:              time.Second,
+			WakeupLen:                 500,
+			StatsWakeupDataBytes:      4096,
+			HTTPRequestTimeout:        0,
+			GoHTTPClientBufferTimeout: time.Second,
+			MaxTransactionTime:        5 * time.Minute,
+			TCBackend:                 config.TCBackendAuto,
+			DNSRequestTimeout:         5 * time.Second,
+			ContextPropagation:        config.ContextPropagationDisabled,
 			RedisDBCache: config.RedisDBCacheConfig{
 				Enabled: false,
 				MaxSize: 1000,
@@ -220,6 +222,15 @@ discovery:
 				},
 			},
 			LogEnricher: config.LogEnricherConfig{
+				FieldNames: config.LogEnricherFieldNames{
+					TraceID: "trace_id",
+					SpanID:  "span_id",
+				},
+				PlainText: config.LogEnricherPlainTextConfig{
+					Enabled:   true,
+					Placement: config.LogEnricherPlacementSuffix,
+					Multiline: config.LogEnricherMultilineFirstLine,
+				},
 				CacheTTL:              30 * time.Minute,
 				CacheSize:             128,
 				AsyncWriterWorkers:    8,
@@ -742,6 +753,39 @@ func TestConfigValidate_TracePrinterFallback(t *testing.T) {
 	assert.Equal(t, debug.TracePrinterText, cfg.TracePrinter)
 }
 
+func TestConfigValidateForReceiverUsesHostSignalSinks(t *testing.T) {
+	cfg := loadConfig(t, envMap{"OTEL_EBPF_EXECUTABLE_PATH": "foo"})
+
+	require.ErrorContains(t, cfg.Validate(), "you need to define at least one exporter")
+	require.NoError(t, cfg.ValidateForReceiver())
+
+	cfg.TracePrinter = "invalid"
+	require.ErrorContains(t, cfg.ValidateForReceiver(), "invalid value for trace_printer")
+}
+
+func TestConfigValidateForReceiverUsesHostMetricsForStats(t *testing.T) {
+	cfg := loadConfig(t, envMap{})
+	cfg.Metrics.Features = export.FeatureStats
+
+	require.ErrorContains(t, cfg.Validate(), "at least one of 'network', 'application' or 'stats'")
+	require.NoError(t, cfg.ValidateForReceiver())
+}
+
+func TestConfigValidateStaticSkipsHostCompatibility(t *testing.T) {
+	cfg := loadConfig(t, envMap{})
+	cfg.NetworkFlows.Enable = true
+	cfg.NetworkFlows.Source = EbpfSourceTC
+	cfg.NetworkFlows.Print = true
+
+	err := cfg.validate(validationContext{
+		checkCiliumCompatibility: func(config.TCBackend) error {
+			return errors.New("host is incompatible")
+		},
+	})
+	require.ErrorContains(t, err, "host is incompatible")
+	require.NoError(t, cfg.ValidateStatic())
+}
+
 func TestConfigValidateRoutes(t *testing.T) {
 	userConfig := bytes.NewBufferString(`executable_path: foo
 trace_printer: text
@@ -953,14 +997,14 @@ func TestConfig_BPFDebugMode(t *testing.T) {
 		require.NoError(t, err)
 		assert.True(t, cfg.EBPF.BpfDebug)
 		assert.Equal(t, config.BPFDebugDisabled, cfg.EBPF.BpfDebugMode)
-		assert.Equal(t, config.BPFDebugDefault, cfg.EBPF.DebugMode())
+		assert.Equal(t, config.BPFDebugAll, cfg.EBPF.DebugMode())
 	})
 
 	t.Run("mode yaml enables debug outputs", func(t *testing.T) {
 		cfg, err := LoadConfig(bytes.NewReader([]byte("ebpf:\n  bpf_debug_mode: trace_pipe,userspace\n")))
 		require.NoError(t, err)
 		assert.False(t, cfg.EBPF.BpfDebug)
-		assert.Equal(t, config.BPFDebugDefault, cfg.EBPF.BpfDebugMode)
+		assert.Equal(t, config.BPFDebugAll, cfg.EBPF.BpfDebugMode)
 	})
 
 	t.Run("mode yaml rejects list syntax", func(t *testing.T) {

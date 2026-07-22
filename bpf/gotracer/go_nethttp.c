@@ -23,6 +23,7 @@
 #include <common/connection_info.h>
 #include <common/globals.h>
 #include <common/http_types.h>
+#include <common/protocol_defs.h>
 #include <common/ringbuf.h>
 #include <common/strings.h>
 #include <common/tracing.h>
@@ -416,6 +417,10 @@ int obi_uprobe_readMimeHeader(struct pt_regs *ctx) {
     if (!r) {
         return 0;
     }
+
+    // Cache the bufio.Reader so serve_http_returns can ship the request bytes.
+    bpf_map_update_elem(&ongoing_server_bufr, &g_key, &r, BPF_ANY);
+
     bpf_dbg_printk("R=%llx, off=%d", r, go_offset_of(ot, (go_offset){.v = _buf_reader_buf_pos}));
 
     u64 len = 0;
@@ -536,6 +541,18 @@ static __always_inline int serve_http_returns(struct pt_regs *ctx) {
     make_tp_string(tp_buf, &invocation->tp);
     bpf_dbg_printk("tp=%s", tp_buf);
 
+    connection_info_t conn = {0};
+    const connection_info_t *info = bpf_map_lookup_elem(&ongoing_server_connections, &g_key);
+    if (info) {
+        __builtin_memcpy(&conn, info, sizeof(connection_info_t));
+    } else {
+        // We can't find the connection info, this typically means there are too many requests
+        // per second and the connection map is too small for the workload.
+        bpf_dbg_printk("Can't find connection info for goroutine_addr: %llx", goroutine_addr);
+    }
+    // Server connections have opposite order, source port is the server port
+    swap_connection_info_order(&conn);
+
     http_request_trace_t *trace = bpf_ringbuf_reserve(&events, sizeof(http_request_trace_t), 0);
     if (!trace) {
         bpf_dbg_printk("can't reserve space in the ringbuffer");
@@ -562,20 +579,7 @@ static __always_inline int serve_http_returns(struct pt_regs *ctx) {
         trace->go_start_monotime_ns = invocation->start_monotime_ns;
     }
 
-    connection_info_t *info = bpf_map_lookup_elem(&ongoing_server_connections, &g_key);
-
-    if (info) {
-        //dbg_print_http_connection_info(info);
-        __builtin_memcpy(&trace->conn, info, sizeof(connection_info_t));
-    } else {
-        // We can't find the connection info, this typically means there are too many requests per second
-        // and the connection map is too small for the workload.
-        bpf_dbg_printk("Can't find connection info for goroutine_addr: %llx", goroutine_addr);
-        __builtin_memset(&trace->conn, 0, sizeof(connection_info_t));
-    }
-
-    // Server connections have opposite order, source port is the server port
-    swap_connection_info_order(&trace->conn);
+    __builtin_memcpy(&trace->conn, &conn, sizeof(connection_info_t));
     trace->tp = invocation->tp;
     trace->content_length = invocation->content_length;
     __builtin_memcpy(trace->method, invocation->method, sizeof(trace->method));
@@ -596,6 +600,7 @@ static __always_inline int serve_http_returns(struct pt_regs *ctx) {
     bpf_ringbuf_submit(trace, get_flags());
 
 done:
+    bpf_map_delete_elem(&ongoing_server_bufr, &g_key);
     bpf_map_delete_elem(&ongoing_http_server_requests, &g_key);
     bpf_map_delete_elem(&go_trace_map, &g_key);
     obi_ctx__del(bpf_get_current_pid_tgid());
@@ -677,6 +682,12 @@ static __always_inline void roundTripStartHelper(struct pt_regs *ctx) {
     bpf_dbg_printk("path=%s", trace.path);
     bpf_dbg_printk("host=%s", trace.host);
     bpf_dbg_printk("scheme=%s", trace.scheme);
+
+    connection_info_t *conn = bpf_map_lookup_elem(&ongoing_client_connections, &g_key);
+    if (conn) {
+        // Mark it as handled http client connection
+        store_go_handled_connection_info(conn);
+    }
 
     // Write event
     if (bpf_map_update_elem(&go_ongoing_http_client_requests, &g_key, &invocation, BPF_ANY)) {

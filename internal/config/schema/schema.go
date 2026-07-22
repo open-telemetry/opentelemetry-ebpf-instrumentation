@@ -19,8 +19,12 @@
 package schema // import "go.opentelemetry.io/obi/internal/config/schema"
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"io"
+	"reflect"
+	"strings"
 
 	"go.yaml.in/yaml/v3"
 
@@ -53,25 +57,149 @@ type Document struct {
 	otelconfx.OpenTelemetryConfiguration `yaml:",inline"`
 	Extensions                           Extensions `yaml:"extensions"`
 	logLevelSet                          bool
+	openTelemetryExtensionFields         []string
 }
 
 // UnmarshalYAML decodes OpenTelemetry-owned fields with otelconf/x and the OBI
 // extension with the local schema model.
 func (d *Document) UnmarshalYAML(node *yaml.Node) error {
-	type extensionDocument struct {
-		Extensions Extensions `yaml:"extensions"`
+	extensionFields, err := validateOpenTelemetryFields(node)
+	if err != nil {
+		return err
 	}
-	var ext extensionDocument
 	_, logLevelSet := mappingValue(node, "log_level")
 	if err := node.Decode(&d.OpenTelemetryConfiguration); err != nil {
 		return err
 	}
-	if err := node.Decode(&ext); err != nil {
+	extensions, ok := mappingValue(node, "extensions")
+	if !ok {
+		return errors.New("missing extensions")
+	}
+	if err := decodeKnownFields(extensions, &d.Extensions); err != nil {
 		return err
 	}
-	d.Extensions = ext.Extensions
 	d.logLevelSet = logLevelSet
+	d.openTelemetryExtensionFields = extensionFields
 	return nil
+}
+
+func validateOpenTelemetryFields(node *yaml.Node) ([]string, error) {
+	configType := reflect.TypeFor[otelconfx.OpenTelemetryConfiguration]()
+	var extensionFields []string
+	for i := 0; i < len(node.Content)-1; i += 2 {
+		field := node.Content[i].Value
+		if field == "extensions" {
+			continue
+		}
+
+		fieldType, ok := yamlFieldType(configType, field)
+		if !ok {
+			if allowsAdditionalYAMLFields(configType) {
+				extensionFields = append(extensionFields, field)
+				continue
+			}
+			return nil, fmt.Errorf("field %s not found in config v2 document", field)
+		}
+		if err := validateYAMLFields(node.Content[i+1], fieldType, field, &extensionFields); err != nil {
+			return nil, err
+		}
+	}
+	return extensionFields, nil
+}
+
+func validateYAMLFields(node *yaml.Node, valueType reflect.Type, path string, extensionFields *[]string) error {
+	for valueType.Kind() == reflect.Pointer {
+		valueType = valueType.Elem()
+	}
+
+	switch valueType.Kind() {
+	case reflect.Struct:
+		if node.Kind != yaml.MappingNode {
+			return nil
+		}
+		for i := 0; i < len(node.Content)-1; i += 2 {
+			field := node.Content[i].Value
+			fieldPath := path + "." + field
+			fieldType, ok := yamlFieldType(valueType, field)
+			if !ok {
+				if allowsAdditionalYAMLFields(valueType) {
+					*extensionFields = append(*extensionFields, fieldPath)
+					continue
+				}
+				return fmt.Errorf("field %s not found in config v2 document", fieldPath)
+			}
+			if err := validateYAMLFields(node.Content[i+1], fieldType, fieldPath, extensionFields); err != nil {
+				return err
+			}
+		}
+	case reflect.Slice, reflect.Array:
+		if node.Kind != yaml.SequenceNode {
+			return nil
+		}
+		for i, item := range node.Content {
+			if err := validateYAMLFields(item, valueType.Elem(), fmt.Sprintf("%s[%d]", path, i), extensionFields); err != nil {
+				return err
+			}
+		}
+	case reflect.Map:
+		if node.Kind != yaml.MappingNode {
+			return nil
+		}
+		for i := 1; i < len(node.Content); i += 2 {
+			if err := validateYAMLFields(node.Content[i], valueType.Elem(), path, extensionFields); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func yamlFieldType(valueType reflect.Type, name string) (reflect.Type, bool) {
+	for valueType.Kind() == reflect.Pointer {
+		valueType = valueType.Elem()
+	}
+	if valueType.Kind() != reflect.Struct {
+		return nil, false
+	}
+
+	for i := 0; i < valueType.NumField(); i++ {
+		field := valueType.Field(i)
+		if !field.IsExported() || field.Name == "AdditionalProperties" {
+			continue
+		}
+		tag, _, _ := strings.Cut(field.Tag.Get("yaml"), ",")
+		if tag == "-" {
+			continue
+		}
+		if tag == "" {
+			tag = strings.ToLower(field.Name)
+		}
+		if tag == name {
+			return field.Type, true
+		}
+	}
+	return nil, false
+}
+
+func allowsAdditionalYAMLFields(valueType reflect.Type) bool {
+	for valueType.Kind() == reflect.Pointer {
+		valueType = valueType.Elem()
+	}
+	if valueType.Kind() != reflect.Struct {
+		return false
+	}
+
+	field, ok := valueType.FieldByName("AdditionalProperties")
+	return ok && field.IsExported()
+}
+
+// OpenTelemetryExtensionFields returns paths handled by upstream declarative
+// configuration extension points rather than the core schema.
+func (d *Document) OpenTelemetryExtensionFields() []string {
+	if d == nil {
+		return nil
+	}
+	return append([]string(nil), d.openTelemetryExtensionFields...)
 }
 
 // HasLogLevel reports whether the document explicitly declared top-level
@@ -91,7 +219,7 @@ func (d *Document) SetLogLevel(level otelconfx.SeverityNumber) {
 // explicit wrapper avoids relying on yaml inline behavior for a type with custom
 // unmarshaling in the upstream otelconf/x package.
 func (d Document) MarshalYAML() (any, error) {
-	return struct {
+	value := struct {
 		AttributeLimits            *otelconfx.AttributeLimits                   `yaml:"attribute_limits,omitempty"`
 		Disabled                   otelconfx.OpenTelemetryConfigurationDisabled `yaml:"disabled,omitempty"`
 		Distribution               otelconfx.Distribution                       `yaml:"distribution,omitempty"`
@@ -117,7 +245,36 @@ func (d Document) MarshalYAML() (any, error) {
 		Resource:                   d.Resource,
 		TracerProvider:             d.TracerProvider,
 		Extensions:                 d.Extensions,
-	}, nil
+	}
+
+	var node yaml.Node
+	if err := node.Encode(value); err != nil {
+		return nil, err
+	}
+	removeNullAdditionalProperties(&node)
+	return &node, nil
+}
+
+// otelconf/x models extensible objects with an untagged AdditionalProperties
+// field. Remove its nil value so the generated Go name is not emitted as a YAML
+// configuration key.
+func removeNullAdditionalProperties(node *yaml.Node) {
+	for _, child := range node.Content {
+		removeNullAdditionalProperties(child)
+	}
+	if node.Kind != yaml.MappingNode {
+		return
+	}
+
+	content := make([]*yaml.Node, 0, len(node.Content))
+	for i := 0; i < len(node.Content); i += 2 {
+		key, value := node.Content[i], node.Content[i+1]
+		if key.Value == "additionalproperties" && value.Tag == "!!null" {
+			continue
+		}
+		content = append(content, key, value)
+	}
+	node.Content = content
 }
 
 // Extensions holds declarative configuration extensions recognized by this
@@ -219,7 +376,7 @@ func ParseReceiverYAML(data []byte) (*Extension, error) {
 			return nil, &SectionNotAllowedError{Section: disallowedSection}
 		}
 		var receiver receiverConfig
-		if err := decode(root, &receiver); err != nil {
+		if err := decodeKnownFields(root, &receiver); err != nil {
 			return nil, err
 		}
 		cfg := Extension{
@@ -320,9 +477,19 @@ func looksLikeV1(root *yaml.Node) bool {
 }
 
 func parseYAML(data []byte) (*yaml.Node, error) {
+	decoder := yaml.NewDecoder(bytes.NewReader(data))
 	var doc yaml.Node
-	if err := yaml.Unmarshal(data, &doc); err != nil {
+	if err := decoder.Decode(&doc); err != nil {
+		if errors.Is(err, io.EOF) {
+			return &doc, nil
+		}
 		return nil, fmt.Errorf("parsing config v2 YAML: %w", err)
+	}
+	var trailing yaml.Node
+	if err := decoder.Decode(&trailing); err == nil {
+		return nil, errors.New("config v2 YAML must contain exactly one document")
+	} else if !errors.Is(err, io.EOF) {
+		return nil, fmt.Errorf("parsing trailing config v2 YAML: %w", err)
 	}
 	if doc.Kind == yaml.DocumentNode && len(doc.Content) > 0 {
 		return doc.Content[0], nil
@@ -332,6 +499,20 @@ func parseYAML(data []byte) (*yaml.Node, error) {
 
 func decode(node *yaml.Node, dst any) error {
 	if err := node.Decode(dst); err != nil {
+		return fmt.Errorf("decoding config v2 YAML: %w", err)
+	}
+	return nil
+}
+
+func decodeKnownFields(node *yaml.Node, dst any) error {
+	var data bytes.Buffer
+	if err := yaml.NewEncoder(&data).Encode(node); err != nil {
+		return fmt.Errorf("encoding config v2 YAML: %w", err)
+	}
+
+	decoder := yaml.NewDecoder(&data)
+	decoder.KnownFields(true)
+	if err := decoder.Decode(dst); err != nil {
 		return fmt.Errorf("decoding config v2 YAML: %w", err)
 	}
 	return nil

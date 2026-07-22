@@ -17,10 +17,10 @@ func TestBPFDebugMode_UnmarshalText(t *testing.T) {
 	}{
 		{name: "empty", input: "", want: BPFDebugDisabled},
 		{name: "disabled", input: "disabled", want: BPFDebugDisabled},
-		{name: "all", input: "all", want: BPFDebugDefault},
+		{name: "all", input: "all", want: BPFDebugAll},
 		{name: "trace pipe", input: "trace_pipe", want: BPFDebugTracePipe},
 		{name: "userspace", input: "userspace", want: BPFDebugUserspace},
-		{name: "trace pipe and userspace", input: "trace_pipe,userspace", want: BPFDebugDefault},
+		{name: "trace pipe and userspace", input: "trace_pipe,userspace", want: BPFDebugAll},
 		{name: "uppercase invalid", input: "TRACE_PIPE", wantErr: true},
 		{name: "invalid", input: "invalid", wantErr: true},
 	}
@@ -73,10 +73,10 @@ func TestBPFDebugMode_Accessors(t *testing.T) {
 		},
 		{
 			name:          "default",
-			mode:          BPFDebugDefault,
+			mode:          BPFDebugAll,
 			wantEnabled:   true,
 			wantUserspace: true,
-			wantFlags:     uint32(BPFDebugDefault),
+			wantFlags:     uint32(BPFDebugAll),
 		},
 	}
 
@@ -102,7 +102,7 @@ func TestEBPFTracer_DebugMode(t *testing.T) {
 		want   BPFDebugMode
 	}{
 		{name: "disabled", tracer: EBPFTracer{}, want: BPFDebugDisabled},
-		{name: "deprecated boolean", tracer: EBPFTracer{BpfDebug: true}, want: BPFDebugDefault},
+		{name: "deprecated boolean", tracer: EBPFTracer{BpfDebug: true}, want: BPFDebugAll},
 		{name: "mode", tracer: EBPFTracer{BpfDebugMode: BPFDebugTracePipe}, want: BPFDebugTracePipe},
 	}
 

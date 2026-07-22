@@ -54,7 +54,7 @@ const (
 	flowDirectionsMap  = "flow_directions"
 
 	// const defined in bpf/common/globals.h as "volatile const"
-	gBpfDebugFlags = "g_bpf_debug_flags"
+	gBpfDebug = "g_bpf_debug"
 )
 
 func tlog() *slog.Logger {
@@ -119,7 +119,7 @@ func NewFlowFetcher(
 		constSampling:      uint32(sampling),
 		constTraceMessages: uint8(traceMsgs),
 		constPortGuessing:  portGuessing,
-		gBpfDebugFlags:     cfg.DebugMode().Flags(),
+		gBpfDebug:          cfg.DebugMode().Flags(),
 	}, sharedMaps, &mu, "", nil); err != nil {
 		return nil, fmt.Errorf("loading netolly eBPF spec: %w", err)
 	}

@@ -6,7 +6,7 @@ require (
 	github.com/grafana/oats v0.7.0
 	github.com/onsi/ginkgo/v2 v2.28.1
 	github.com/onsi/gomega v1.41.0
-	go.opentelemetry.io/obi v0.0.0
+	go.opentelemetry.io/obi v0.0.0-00010101000000-000000000000
 )
 
 // The oats harness reuses the shared weaver-validation logic

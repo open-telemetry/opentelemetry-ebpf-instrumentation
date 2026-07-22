@@ -229,6 +229,7 @@ int obi_uprobe_tracer_Start_Returns(struct pt_regs *ctx) {
 
     span->span_name = span_info->name;
     span->start_time = bpf_ktime_get_ns();
+    span->tp.ts = bpf_ktime_get_ns();
 
     if (span_info->opts_ptr && span_info->opts_len) {
         read_attrs_from_opts(span, (void *)span_info->opts_ptr, span_info->opts_len);

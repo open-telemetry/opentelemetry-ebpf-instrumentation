@@ -94,7 +94,7 @@ func (p *Tracer) LoadSpecs() ([]*ebpfcommon.SpecBundle, error) {
 			bundles = append(bundles, &ebpfcommon.SpecBundle{
 				Spec:      fixupSpec,
 				Objects:   &p.bpfFionreadFixupObjects,
-				Constants: map[string]any{"g_bpf_debug_flags": p.cfg.EBPF.DebugMode().Flags()},
+				Constants: map[string]any{"g_bpf_debug": p.cfg.EBPF.DebugMode().Flags()},
 			})
 			p.fionreadFixupEnabled = true
 		}
@@ -121,13 +121,13 @@ func (p *Tracer) constants() map[string]any {
 		"filter_pids":          filterPids,
 		"max_transaction_time": uint64(p.cfg.EBPF.MaxTransactionTime.Nanoseconds()),
 		"inject_flags":         flags,
-		"g_bpf_debug_flags":    p.cfg.EBPF.DebugMode().Flags(),
+		"g_bpf_debug":          p.cfg.EBPF.DebugMode().Flags(),
 	}
 }
 
 func (p *Tracer) iterConstants() map[string]any {
 	return map[string]any{
-		"g_bpf_debug_flags": p.cfg.EBPF.DebugMode().Flags(),
+		"g_bpf_debug": p.cfg.EBPF.DebugMode().Flags(),
 	}
 }
 
