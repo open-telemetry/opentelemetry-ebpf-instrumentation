@@ -106,7 +106,7 @@ func (c *Compose) Stop() error {
 }
 
 func (c *Compose) Remove() error {
-	cmdArgs := []string{"compose", "--ansi", "never", "-f", c.Path, "rm", "-f", "-v"}
+	cmdArgs := []string{"compose", "--ansi", "never", "-f", c.Path, "rm", "-f", "-s", "-v"}
 	cmd := exec.Command("docker", cmdArgs...)
 	cmd.Env = c.Env
 
