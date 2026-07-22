@@ -734,7 +734,9 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 		// Go net/http
 		"net/http.serverHandler.ServeHTTP": {{
 			Start: p.bpfObjects.ObiUprobeServeHTTP,
-			End:   p.bpfObjects.ObiUprobeServeHTTPReturns,
+		}},
+		"net/http.(*response).finishRequest": {{
+			End: p.bpfObjects.ObiUprobeServeHTTPReturns,
 		}},
 		"net/http.(*conn).readRequest": {{
 			Start: p.bpfObjects.ObiUprobeReadRequestStart,
@@ -760,6 +762,12 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 		"net/http.(*http2ClientConn).RoundTrip": {{ // http2 client vendored in Go
 			Start: p.bpfObjects.ObiUprobeHttp2RoundTrip,
 			End:   p.bpfObjects.ObiUprobeRoundTripReturn, // return is the same as for http 1.1
+		}},
+		"net/http.(*http2responseWriter).handlerDone": {{
+			End: p.bpfObjects.ObiUprobeServeHTTPReturns,
+		}},
+		"golang.org/x/net/http2.(*responseWriter).handlerDone": {{
+			End: p.bpfObjects.ObiUprobeServeHTTPReturns,
 		}},
 		"golang.org/x/net/http2.(*ClientConn).writeHeaders": {{ // http2 client
 			Start: p.bpfObjects.ObiUprobeHttp2WriteHeaders,
@@ -1202,6 +1210,7 @@ func (p *Tracer) AlreadyInstrumentedLib(_ uint64) bool {
 
 func (p *Tracer) Run(ctx context.Context, ebpfEventContext *ebpfcommon.EBPFEventContext, eventsChan *msg.Queue[[]request.Span]) {
 	parseContext := ebpfcommon.NewEBPFParseContext(p.cfg, eventsChan, p.pidsFilter)
+	defer parseContext.Close()
 	ebpfcommon.SharedRingbuf(
 		ebpfEventContext,
 		p.cfg,
