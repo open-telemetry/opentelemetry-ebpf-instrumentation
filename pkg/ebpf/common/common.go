@@ -34,6 +34,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/kafkaparser"
 	"go.opentelemetry.io/obi/pkg/internal/largebuf"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
+	"go.opentelemetry.io/otel/trace"
 )
 
 //go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -target amd64,arm64 -type http_request_trace_t -type sql_request_trace_t -type http_info_t -type connection_info_t -type http2_grpc_request_t -type tcp_req_t -type kafka_client_req_t -type kafka_go_req_t -type redis_client_req_t -type tcp_large_buffer_t -type otel_span_t -type channel_link_trace_t -type mongo_go_client_req_t -type dns_req_t Bpf ../../../bpf/common/common.c -- -I../../../bpf
@@ -253,6 +254,11 @@ type pendingGoHTTPClientRequest struct {
 	emitted   atomic.Bool
 }
 
+type pendingGoHTTPClientKey struct {
+	conn    BpfConnectionInfoT
+	traceID trace.TraceID
+}
+
 type EBPFParseContext struct {
 	protocolDebug               bool
 	h2c                         *lru.Cache[uint64, h2Connection]
@@ -270,7 +276,7 @@ type EBPFParseContext struct {
 	httpEnricher                *ebpfhttp.HTTPEnricher
 	dnsEvents                   *expirable.LRU[dnsparser.DNSId, *request.Span]
 	pendingSpanLinks            *pendingSpanLinks
-	pendingGoHTTPClientRequests *expirable.LRU[BpfConnectionInfoT, *pendingGoHTTPClientRequest]
+	pendingGoHTTPClientRequests *expirable.LRU[pendingGoHTTPClientKey, *pendingGoHTTPClientRequest]
 	goHTTPClientMaxPendingTime  time.Duration
 	discardPendingGoHTTPClients atomic.Bool
 	emitSpans                   func([]request.Span)

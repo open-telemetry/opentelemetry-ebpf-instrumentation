@@ -25,8 +25,9 @@
 
 #include <common/large_buf_emit.h>
 #include <common/large_buffers.h>
-#include <common/trace_helpers.h>
+#include <common/h2_defs.h>
 #include <common/protocol_defs.h>
+#include <common/trace_helpers.h>
 
 #include <gotracer/go_common.h>
 #include <maps/go_ongoing_http_client_requests.h>
@@ -48,6 +49,22 @@ enum {
 
 enum { k_lb_event_type_unknown = 0, k_lb_event_type_server = 1, k_lb_event_type_client = 2 };
 
+static __always_inline u8 read_http2_stream_id(const void *buf, s64 len, u32 *stream_id) {
+    if (!buf || !stream_id || len < k_h2_frame_header_len) {
+        return 0;
+    }
+
+    unsigned char encoded[sizeof(*stream_id)];
+    const unsigned char *stream_id_pos = (const unsigned char *)buf + k_h2_frame_stream_id_offset;
+    if (bpf_probe_read_user(encoded, sizeof(encoded), stream_id_pos) != 0) {
+        return 0;
+    }
+
+    *stream_id = ((u32)(encoded[0] & 0x7f) << 24) | ((u32)encoded[1] << 16) |
+                 ((u32)encoded[2] << 8) | (u32)encoded[3];
+    return 1;
+}
+
 static __always_inline u8 go_is_http(const unsigned char *buf, u32 len) {
     if (len < MIN_HTTP_SIZE) {
         return 0;
@@ -68,13 +85,25 @@ static __always_inline u8 go_is_http(const unsigned char *buf, u32 len) {
     return k_http_not;
 }
 
-static __always_inline void cleanup_ongoing_large_buffer(const connection_info_t *conn) {
-    connection_info_t sorted_conn = *conn;
-    sort_connection_info(&sorted_conn);
+static __always_inline void
+cleanup_ongoing_large_buffer_sorted_conn(const connection_info_t *sorted_conn, u32 stream_id) {
+    go_large_buffer_key_t key = {.conn = *sorted_conn, .stream_id = stream_id};
 
-    bpf_map_delete_elem(&ongoing_large_buffers, &sorted_conn);
+    bpf_map_delete_elem(&ongoing_large_buffers, &key);
 }
 
+// General idea on how this works.
+// For HTTP1.1 we simply track the connection info and the reguest kind by
+// using the same approach we use in kprobes, i.e. we look at the first few
+// bytes in the buffer and determine if it's a request or a response.
+// For HTTP2 we need help. At the moment only Go HTTP2 client is implemented.
+// The main issue is that the Go HTTP2 client responses are done by a common
+// single goroutine reader, so we cannot easily correlate the request and the
+// response. There are multiple requests per connection and not the same
+// goroutine. We setup what we need in setup_http2_client_conn, which runs for
+// HTTP2 client connections before any packet is sent. That probe tells us it's
+// HTTP2 connection we are dealing with and has setup metadata on the parent
+// goroutine for the first initial write for the traceparent.
 static __always_inline void ship_large_request(void *buf,
                                                s64 len,
                                                go_addr_key_t *g_key,
@@ -91,14 +120,34 @@ static __always_inline void ship_large_request(void *buf,
     large_buf->conn_info = *conn;
     sort_connection_info(&large_buf->conn_info);
 
-    go_large_buffer_req_t *prev_event =
-        bpf_map_lookup_elem(&ongoing_large_buffers, &large_buf->conn_info);
+    // We assume no streamID, e.g. HTTP1.1
+    go_large_buffer_key_t prev_key = {.conn = large_buf->conn_info, // sorted
+                                      .stream_id = 0};
+
+    bool *is_http2_conn = bpf_map_lookup_elem(&go_http2_client_connections, &large_buf->conn_info);
+
+    // If we were told it's HTTP2 connection by the setup_http2_client_conn uprobe, we try to
+    // read the streamid. Each HTTP2 frame must have it, otherwise the HTTP2 reader cannot
+    // tie the buffer to the individual request.
+    if (is_http2_conn) {
+        if (read_http2_stream_id(buf, len, &prev_key.stream_id)) {
+            bpf_d_printk("http2 stream_id=%d", prev_key.stream_id);
+        } else {
+            return;
+        }
+    }
 
     u8 is_http = go_is_http(buf, MIN_HTTP_SIZE);
+
+    go_large_buffer_req_t *prev_event = bpf_map_lookup_elem(&ongoing_large_buffers, &prev_key);
 
     if (prev_event) {
         event_type = prev_event->event_type;
     } else {
+        // Not HTTP and no previous event means it's HTTP2. The metadata is not
+        // attached to our goroutine, since the writer is spawned by the actual
+        // request. So we lookup the goroutine parent. Again this only handles
+        // client HTTP2 for now, server would need more work.
         if (is_http == k_http_not) {
             void *parent_go = (void *)find_parent_goroutine_in_chain(g_key);
 
@@ -109,6 +158,8 @@ static __always_inline void ship_large_request(void *buf,
                 go_addr_key_from_id(&parent_g, parent_go);
 
                 invocation = bpf_map_lookup_elem(&go_ongoing_http_client_requests, &parent_g);
+                // invocation contains our traceparent info. For HTTP2 clients this is a must
+                // since there are more than one request multiplexed on the same connection.
                 if (invocation) {
                     bpf_d_printk("found client go on parent %llx", parent_go);
                     event_type = k_lb_event_type_client;
@@ -153,19 +204,21 @@ static __always_inline void ship_large_request(void *buf,
     large_buf->kind = k_large_buf_layer_app;
     large_buf->source = k_large_buffer_source_go;
     tp_info_t empty = {0};
+    // If we have a previous event, keep propagating it's traceparent. For HTTP2 client
+    // we can only find the trace parent information on the write (outgoing) requests.
     if (prev_event) {
         large_buf->tp = prev_event->tp;
+    } else if (invocation) { // HTTP2 client first time with invocation.
+        large_buf->tp = invocation->tp;
     } else {
         large_buf->tp = empty;
     }
 
     if (is_http == k_http_request) {
         go_large_buffer_req_t event = {.event_type = event_type};
-        if (invocation) {
-            event.tp = invocation->tp;
-        }
+        event.tp = large_buf->tp;
 
-        bpf_map_update_elem(&ongoing_large_buffers, &large_buf->conn_info, &event, BPF_ANY);
+        bpf_map_update_elem(&ongoing_large_buffers, &prev_key, &event, BPF_ANY);
     }
 
     large_buf_emit_chunks(large_buf, buf, len, k_large_buf_read_user);

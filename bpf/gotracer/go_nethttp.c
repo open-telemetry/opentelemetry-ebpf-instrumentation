@@ -17,8 +17,9 @@
 
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/utils.h>
-
+#include <bpfcore/bpf_helpers.h>
 #include <bpfcore/bpf_builtins.h>
+
 #include <common/algorithm.h>
 #include <common/connection_info.h>
 #include <common/globals.h>
@@ -1058,8 +1059,12 @@ static __always_inline void setup_http2_client_conn(void *goroutine_addr,
                 bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
 
                 bpf_map_update_elem(&ongoing_client_connections, &g_key, &conn, BPF_ANY);
-                store_go_handled_connection_info(&conn);
-                cleanup_ongoing_large_buffer(&conn);
+                connection_info_t sorted_conn = conn;
+                sort_connection_info(&sorted_conn);
+                bpf_map_update_elem(
+                    &go_http2_client_connections, &sorted_conn, &(bool){true}, BPF_ANY);
+                store_go_handled_connection_info_sorted(&sorted_conn);
+                cleanup_ongoing_large_buffer_sorted_conn(&sorted_conn, stream_id);
             }
         }
 
@@ -1507,8 +1512,11 @@ int obi_uprobe_persistConnRoundTrip(struct pt_regs *ctx) {
                 tp_p.tp.ts = bpf_ktime_get_ns();
                 bpf_dbg_printk("storing trace_map info for black-box tracing");
                 bpf_map_update_elem(&ongoing_client_connections, &g_key, &conn, BPF_ANY);
-                store_go_handled_connection_info(&conn);
-                cleanup_ongoing_large_buffer(&conn);
+
+                connection_info_t sorted_conn = conn;
+                sort_connection_info(&sorted_conn);
+                store_go_handled_connection_info_sorted(&sorted_conn);
+                cleanup_ongoing_large_buffer_sorted_conn(&sorted_conn, 0);
 
                 // Must sort the connection info, this map is shared with kprobes which use sorted connection
                 // info always.

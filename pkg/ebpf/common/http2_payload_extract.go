@@ -163,11 +163,12 @@ func extractHTTP2(buffer *largebuf.LargeBuffer) ([]byte, http.Header, bool) {
 
 func decodeHTTP2HeaderBlock(dec *bhpack.Decoder, framer *http2.Framer, hf *http2.HeadersFrame) {
 	frag := hf.HeaderBlockFragment()
+	headersEnded := hf.HeadersEnded()
 	for {
 		if _, err := dec.Write(frag); err != nil {
 			return
 		}
-		if hf.HeadersEnded() {
+		if headersEnded {
 			return
 		}
 		nf, err := framer.ReadFrame()
@@ -179,5 +180,6 @@ func decodeHTTP2HeaderBlock(dec *bhpack.Decoder, framer *http2.Framer, hf *http2
 			return
 		}
 		frag = cf.HeaderBlockFragment()
+		headersEnded = cf.HeadersEnded()
 	}
 }
