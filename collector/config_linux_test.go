@@ -29,6 +29,9 @@ func TestReceiverConfigUnmarshalV2(t *testing.T) {
 	cfg := newTestReceiverConfig(t)
 	component := confmap.NewFromStringMap(map[string]any{
 		"version": "2.0",
+		"policy": map[string]any{
+			"default_action": "exclude",
+		},
 		"rules": []any{
 			map[string]any{
 				"action": "include",

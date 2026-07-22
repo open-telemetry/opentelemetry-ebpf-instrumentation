@@ -130,6 +130,7 @@ func validateUnsupportedV2Network(src *schema.Extension) error {
 	}
 	return nil
 }
+
 func runtimeConfigDefaults() obi.Config {
 	cfg := obi.DefaultConfig
 	if cfg.Routes != nil {

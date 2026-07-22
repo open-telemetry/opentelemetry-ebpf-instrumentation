@@ -335,7 +335,7 @@ func TestDocumentToRuntimeImportsOTLPHTTPExporters(t *testing.T) {
 	doc := documentWithRuntimeTelemetry()
 	traceEndpoint := "https://traces.example/v1/traces"
 	traceEncoding := otelconfx.OTLPHttpEncodingJson
-	traceHeadersList := "from-list=trace-list,override=old"
+	traceHeadersList := "from-list=trace%20list,override=old"
 	traceOverride := "trace-direct"
 	doc.TracerProvider.Processors[0].Batch.Exporter = otelconfx.SpanExporter{
 		OTLPHttp: &otelconfx.OTLPHttpExporter{
@@ -372,7 +372,7 @@ func TestDocumentToRuntimeImportsOTLPHTTPExporters(t *testing.T) {
 	require.NotNil(t, got.Traces.InjectHeaders)
 	got.Traces.InjectHeaders(traceHeaders)
 	require.Equal(t, map[string]string{
-		"from-list": "trace-list",
+		"from-list": "trace list",
 		"override":  "trace-direct",
 	}, traceHeaders)
 
@@ -385,6 +385,17 @@ func TestDocumentToRuntimeImportsOTLPHTTPExporters(t *testing.T) {
 		"from-list": "metric-list",
 		"override":  "metric-direct",
 	}, metricHeaders)
+}
+
+func TestDocumentToRuntimeRejectsInvalidOTLPHeadersList(t *testing.T) {
+	t.Parallel()
+
+	doc := documentWithRuntimeTelemetry()
+	headersList := "invalid header=value"
+	doc.TracerProvider.Processors[0].Batch.Exporter.OTLPGrpc.HeadersList = &headersList
+
+	_, err := DocumentToRuntime(doc)
+	require.ErrorContains(t, err, "tracer_provider.processors[0].batch.exporter.otlp_grpc.headers_list")
 }
 
 func TestDocumentToRuntimeImportsDeclarativeExporterDefaults(t *testing.T) {

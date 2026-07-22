@@ -12,6 +12,7 @@ import (
 	"time"
 
 	otelconfx "go.opentelemetry.io/contrib/otelconf/x"
+	"go.opentelemetry.io/otel/baggage"
 
 	"go.opentelemetry.io/obi/internal/config/schema"
 	"go.opentelemetry.io/obi/pkg/appolly/services"
@@ -653,8 +654,12 @@ func headerInjector[T ~*string](
 ) (func(map[string]string), error) {
 	values := map[string]string{}
 	if headersList != nil {
-		if err := parseKeyValueList(*headersList, values); err != nil {
+		parsed, err := baggage.Parse(*headersList)
+		if err != nil {
 			return nil, fmt.Errorf("%s.headers_list: %w", path, err)
+		}
+		for _, header := range parsed.Members() {
+			values[header.Key()] = header.Value()
 		}
 	}
 
