@@ -26,6 +26,8 @@ import (
 	"github.com/hashicorp/golang-lru/v2/expirable"
 	"github.com/hashicorp/golang-lru/v2/simplelru"
 
+	"go.opentelemetry.io/otel/trace"
+
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/config"
 	"go.opentelemetry.io/obi/pkg/ebpf/common/dnsparser"
@@ -34,7 +36,6 @@ import (
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/kafkaparser"
 	"go.opentelemetry.io/obi/pkg/internal/largebuf"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
-	"go.opentelemetry.io/otel/trace"
 )
 
 //go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -target amd64,arm64 -type http_request_trace_t -type sql_request_trace_t -type http_info_t -type connection_info_t -type http2_grpc_request_t -type tcp_req_t -type kafka_client_req_t -type kafka_go_req_t -type redis_client_req_t -type tcp_large_buffer_t -type otel_span_t -type channel_link_trace_t -type mongo_go_client_req_t -type dns_req_t Bpf ../../../bpf/common/common.c -- -I../../../bpf
