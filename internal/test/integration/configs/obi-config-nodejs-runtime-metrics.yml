@@ -1,0 +1,15 @@
+prometheus_export:
+  port: 8999
+otel_metrics_export:
+  endpoint: http://otelcol:4318
+metrics:
+  features:
+    - application_runtime
+# nodejs.enabled is deliberately NOT set: the flag's default (true) must be
+# enough; the nodejs injector (fdextractor.js, source of the runtime metrics)
+# only runs when traces are enabled; the printer is the lightest way to do that
+trace_printer: text
+attributes:
+  select:
+    "*":
+      include: ["*"]
