@@ -31,14 +31,28 @@ func isBedrock(respHeader http.Header, req *http.Request) bool {
 	return false
 }
 
+func looksLikeBedrockBody(reqB []byte) bool {
+	return strings.HasPrefix(extractJSONStringField(reqB, "anthropic_version", 0), "bedrock")
+}
+
 func BedrockSpan(baseSpan *request.Span, req *http.Request, resp *http.Response) (request.Span, bool) {
+	maybeBedrock := false
 	if !isBedrock(resp.Header, req) {
-		return *baseSpan, false
+		if !isHTTP2Request(req) || !strings.Contains(baseSpan.Path, "/model/") {
+			return *baseSpan, false
+		}
+		maybeBedrock = true
 	}
 
 	reqB, ok := readHTTPRequestBody("BedrockSpan", req, baseSpan)
 	if !ok {
 		return *baseSpan, false
+	}
+
+	if maybeBedrock {
+		if !looksLikeBedrockBody(reqB) {
+			return *baseSpan, false
+		}
 	}
 
 	respB, ok := readHTTPResponseBody("BedrockSpan", resp, baseSpan)

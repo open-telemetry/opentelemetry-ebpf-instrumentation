@@ -76,11 +76,33 @@ func isAnthropic(hdr http.Header) bool {
 	return isAnthropic
 }
 
+func looksLikeAnthropicBody(reqB, respB []byte) bool {
+	if extractJSONRawField(reqB, "anthropic_version") != nil {
+		return false
+	}
+
+	// Response: a message object, or an SSE stream beginning with message_start.
+	if extractJSONStringField(respB, "type", responseHeaderSearchWindow) == "message" {
+		return true
+	}
+	if bytes.Contains(respB, []byte("message_start")) {
+		return true
+	}
+
+	// Request: a Claude model with a messages array.
+	return strings.HasPrefix(strings.ToLower(extractModelField(reqB)), "claude") &&
+		extractJSONRawField(reqB, "messages") != nil
+}
+
 func AnthropicSpan(baseSpan *request.Span, req *http.Request, resp *http.Response) (request.Span, bool) {
 	isAnthropic := isAnthropic(resp.Header)
+	maybeAnthropic := false
 
 	if !isAnthropic {
-		return *baseSpan, false
+		if !isHTTP2Request(req) || !strings.HasPrefix(baseSpan.Path, "/v1/messages") {
+			return *baseSpan, false
+		}
+		maybeAnthropic = true
 	}
 
 	reqB, ok := readHTTPRequestBody("AnthropicSpan", req, baseSpan)
@@ -91,6 +113,12 @@ func AnthropicSpan(baseSpan *request.Span, req *http.Request, resp *http.Respons
 	respB, ok := readHTTPResponseBody("AnthropicSpan", resp, baseSpan)
 	if !ok {
 		return *baseSpan, false
+	}
+
+	if maybeAnthropic {
+		if !looksLikeAnthropicBody(reqB, respB) {
+			return *baseSpan, false
+		}
 	}
 
 	slog.Debug("Anthropic", "request", string(reqB), "response", string(respB))

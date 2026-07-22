@@ -106,9 +106,21 @@ func extractGeminiFunctionCalls(resp *request.GeminiResponse) []request.ToolCall
 	return result
 }
 
+func looksLikeGeminiBody(reqB, respB []byte, path string) bool {
+	if strings.HasPrefix(strings.ToLower(extractGeminiModelFromPath(path)), "gemini") {
+		return true
+	}
+	return strings.HasPrefix(strings.ToLower(genaiModelVersion(reqB, respB)), "gemini")
+}
+
 func GeminiSpan(baseSpan *request.Span, req *http.Request, resp *http.Response) (request.Span, bool) {
+	maybeGemini := false
 	if !isGemini(req, resp.Header) {
-		return *baseSpan, false
+		// HTTP/2 fallback: URL host may be unavailable, so match on body shape.
+		if !isHTTP2Request(req) || !strings.Contains(baseSpan.Path, "/v1beta/models/") {
+			return *baseSpan, false
+		}
+		maybeGemini = true
 	}
 
 	reqB, ok := readHTTPRequestBody("GeminiSpan", req, baseSpan)
@@ -119,6 +131,12 @@ func GeminiSpan(baseSpan *request.Span, req *http.Request, resp *http.Response) 
 	respB, ok := readHTTPResponseBody("GeminiSpan", resp, baseSpan)
 	if !ok {
 		return *baseSpan, false
+	}
+
+	if maybeGemini {
+		if !looksLikeGeminiBody(reqB, respB, baseSpan.Path) {
+			return *baseSpan, false
+		}
 	}
 
 	slog.Debug("Gemini", "request", string(reqB), "response", string(respB))
@@ -181,7 +199,12 @@ func extractGeminiModel(req *http.Request) string {
 	if req == nil || req.URL == nil {
 		return ""
 	}
-	path := req.URL.Path
+	return extractGeminiModelFromPath(req.URL.Path)
+}
+
+// extractGeminiModelFromPath returns the model name embedded in a Gemini URL
+// path, or "" when the path has no /models/ segment.
+func extractGeminiModelFromPath(path string) string {
 	idx := strings.Index(path, geminiModelPrefix)
 	if idx < 0 {
 		return ""

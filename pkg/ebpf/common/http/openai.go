@@ -63,6 +63,22 @@ func parseOpenAICompatibleResponse(respB []byte) (*request.VendorOpenAI, []reque
 	return parseOpenAIStream(reader)
 }
 
+// openAIResponseObjects are the values of the top-level "object" field that an
+// OpenAI-compatible response carries (chat, responses, completions, embeddings).
+var openAIResponseObjects = map[string]struct{}{
+	"chat.completion":       {},
+	"chat.completion.chunk": {},
+	"response":              {},
+	"text_completion":       {},
+	"list":                  {},
+}
+
+func looksLikeOpenAIBody(reqB, respB []byte) bool {
+	model := strings.ToLower(genaiModel(reqB, respB))
+
+	return strings.HasPrefix(model, "gpt")
+}
+
 func OpenAISpan(baseSpan *request.Span, req *http.Request, resp *http.Response) (request.Span, bool) {
 	// Check any of the well known response headers that OpenAI would use
 	isOpenAI := false
@@ -73,8 +89,16 @@ func OpenAISpan(baseSpan *request.Span, req *http.Request, resp *http.Response) 
 		}
 	}
 
+	maybeOpenAI := false
+
 	if !isOpenAI {
-		return *baseSpan, false
+		// HTTP/2 requests carry no usable headers, so fall back to a body-shape
+		// heuristic. OpenAI is the catch-all for OpenAI-compatible payloads that
+		// no sibling provider (Qwen, Anthropic) claims.
+		if !isHTTP2Request(req) || !strings.Contains(baseSpan.Path, "/v1/") {
+			return *baseSpan, false
+		}
+		maybeOpenAI = true
 	}
 
 	reqB, ok := readHTTPRequestBody("OpenAISpan", req, baseSpan, "headers", resp.Header)
@@ -85,6 +109,12 @@ func OpenAISpan(baseSpan *request.Span, req *http.Request, resp *http.Response) 
 	respB, ok := readHTTPResponseBody("OpenAISpan", resp, baseSpan, "headers", resp.Header)
 	if !ok {
 		return *baseSpan, false
+	}
+
+	if maybeOpenAI {
+		if !looksLikeOpenAIBody(reqB, respB) {
+			return *baseSpan, false
+		}
 	}
 
 	slog.Debug("OpenAI", "request", string(reqB), "response", string(respB))

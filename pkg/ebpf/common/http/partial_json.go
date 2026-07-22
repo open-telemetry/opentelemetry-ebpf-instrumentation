@@ -326,3 +326,21 @@ func unmarshalJSON(body []byte, v any) bool {
 	}
 	return jsonBestEffort.Unmarshal(body, v) == nil
 }
+
+func isHTTP2Request(req *http.Request) bool {
+	return req != nil && req.ProtoMajor == 2
+}
+
+func genaiModel(reqB, respB []byte) string {
+	if m := extractModelField(reqB); m != "" {
+		return m
+	}
+	return extractJSONStringField(respB, "model", responseHeaderSearchWindow)
+}
+
+func genaiModelVersion(reqB, respB []byte) string {
+	if m := extractJSONStringField(reqB, "modelVersion", 0); m != "" {
+		return m
+	}
+	return extractJSONStringField(respB, "modelVersion", responseHeaderSearchWindow)
+}
