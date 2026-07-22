@@ -11,11 +11,6 @@ import (
 	"go.opentelemetry.io/obi/pkg/ebpf/ringbuf"
 )
 
-const (
-	EventTypeGoRuntimeMetric = 17 // EVENT_GO_RUNTIME_METRIC
-	EventTypeJVMMemoryPoolGC = 19 // EVENT_JVM_MEM_POOL_GC
-)
-
 type RuntimeMetricSender interface {
 	SendGoRuntimeMetricRecord(context.Context, *ringbuf.Record, ServiceFilter) error
 	SendJVMRuntimeMetrics(context.Context, []jvmruntime.JVMRuntimeEvent)
