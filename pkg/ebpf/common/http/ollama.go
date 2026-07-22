@@ -91,6 +91,8 @@ func OllamaSpan(baseSpan *request.Span, req *http.Request, resp *http.Response) 
 	switch {
 	case json.Valid(respB):
 		unmarshalJSONBestEffort(respB, &ollamaResp)
+		ollamaResp.PromptEvalCount.Merge(tokenCountJSONField(respB, "prompt_eval_count"))
+		ollamaResp.EvalCount.Merge(tokenCountJSONField(respB, "eval_count"))
 		if isChat {
 			toolCalls = extractOllamaToolCalls(ollamaResp.Message)
 		}
@@ -229,9 +231,9 @@ func parseOllamaStream(reader *bytes.Reader, isChat bool) (ollamaResponse, []req
 		}
 
 		var chunk ollamaResponse
-		if err := json.Unmarshal(line, &chunk); err != nil {
-			continue
-		}
+		unmarshalJSONBestEffort(line, &chunk)
+		chunk.PromptEvalCount.Merge(tokenCountJSONField(line, "prompt_eval_count"))
+		chunk.EvalCount.Merge(tokenCountJSONField(line, "eval_count"))
 
 		if chunk.Model != "" && final.Model == "" {
 			final.Model = chunk.Model
@@ -254,11 +256,12 @@ func parseOllamaStream(reader *bytes.Reader, isChat bool) (ollamaResponse, []req
 			contentBuilder.WriteString(chunk.Response)
 		}
 
+		final.PromptEvalCount.Merge(chunk.PromptEvalCount)
+		final.EvalCount.Merge(chunk.EvalCount)
+
 		if chunk.Done {
 			final.Done = true
 			final.DoneReason = chunk.DoneReason
-			final.PromptEvalCount = chunk.PromptEvalCount
-			final.EvalCount = chunk.EvalCount
 			if chunk.Model != "" {
 				final.Model = chunk.Model
 			}

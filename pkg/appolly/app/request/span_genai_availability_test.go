@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestHasGenAIInputTokens(t *testing.T) {
+func TestGenAIInputTokenCountAvailability(t *testing.T) {
 	tests := []struct {
 		name string
 		span *Span
@@ -174,12 +174,12 @@ func TestHasGenAIInputTokens(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, tt.span.HasGenAIInputTokens())
+			assert.Equal(t, tt.want, isReported(tt.span.GenAIInputTokenCount()))
 		})
 	}
 }
 
-func TestHasGenAIOutputTokens(t *testing.T) {
+func TestGenAIOutputTokenCountAvailability(t *testing.T) {
 	tests := []struct {
 		name string
 		span *Span
@@ -298,7 +298,7 @@ func TestHasGenAIOutputTokens(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, tt.span.HasGenAIOutputTokens())
+			assert.Equal(t, tt.want, isReported(tt.span.GenAIOutputTokenCount()))
 		})
 	}
 }
@@ -308,8 +308,8 @@ func TestHasGenAITokens_InputOnlyNoOutput(t *testing.T) {
 	span := &Span{GenAI: &GenAI{
 		OpenAI: &VendorOpenAI{Usage: OpenAIUsage{PromptTokens: NewTokenCount(100)}},
 	}}
-	assert.True(t, span.HasGenAIInputTokens())
-	assert.False(t, span.HasGenAIOutputTokens())
+	assert.True(t, isReported(span.GenAIInputTokenCount()))
+	assert.False(t, isReported(span.GenAIOutputTokenCount()))
 }
 
 func TestHasGenAITokens_OutputOnlyNoInput(t *testing.T) {
@@ -317,8 +317,8 @@ func TestHasGenAITokens_OutputOnlyNoInput(t *testing.T) {
 	span := &Span{GenAI: &GenAI{
 		OpenAI: &VendorOpenAI{Usage: OpenAIUsage{CompletionTokens: NewTokenCount(200)}},
 	}}
-	assert.False(t, span.HasGenAIInputTokens())
-	assert.True(t, span.HasGenAIOutputTokens())
+	assert.False(t, isReported(span.GenAIInputTokenCount()))
+	assert.True(t, isReported(span.GenAIOutputTokenCount()))
 }
 
 func TestHasGenAITokens_BothAvailable(t *testing.T) {
@@ -326,8 +326,8 @@ func TestHasGenAITokens_BothAvailable(t *testing.T) {
 	span := &Span{GenAI: &GenAI{
 		OpenAI: &VendorOpenAI{Usage: OpenAIUsage{PromptTokens: NewTokenCount(100), CompletionTokens: NewTokenCount(200)}},
 	}}
-	assert.True(t, span.HasGenAIInputTokens())
-	assert.True(t, span.HasGenAIOutputTokens())
+	assert.True(t, isReported(span.GenAIInputTokenCount()))
+	assert.True(t, isReported(span.GenAIOutputTokenCount()))
 }
 
 func TestParsedGenAITokenAvailability(t *testing.T) {
@@ -347,8 +347,8 @@ func TestParsedGenAITokenAvailability(t *testing.T) {
 		require.NoError(t, json.Unmarshal([]byte(`{"prompt_tokens":-1,"completion_tokens":-2}`), &usage))
 		span := Span{GenAI: &GenAI{OpenAI: &VendorOpenAI{Usage: usage}}}
 		assertNotReported(t, &span)
-		assert.Zero(t, span.GenAIInputTokens())
-		assert.Zero(t, span.GenAIOutputTokens())
+		assert.Zero(t, reportedValue(span.GenAIInputTokenCount()))
+		assert.Zero(t, reportedValue(span.GenAIOutputTokenCount()))
 	})
 
 	t.Run("non-integer counts", func(t *testing.T) {
@@ -356,8 +356,8 @@ func TestParsedGenAITokenAvailability(t *testing.T) {
 		require.NoError(t, json.Unmarshal([]byte(`{"prompt_tokens":7.5,"completion_tokens":7e2}`), &usage))
 		span := Span{GenAI: &GenAI{OpenAI: &VendorOpenAI{Usage: usage}}}
 		assertNotReported(t, &span)
-		assert.Zero(t, span.GenAIInputTokens())
-		assert.Zero(t, span.GenAIOutputTokens())
+		assert.Zero(t, reportedValue(span.GenAIInputTokenCount()))
+		assert.Zero(t, reportedValue(span.GenAIOutputTokenCount()))
 	})
 
 	t.Run("negative cache count does not reduce Anthropic input", func(t *testing.T) {
@@ -366,10 +366,10 @@ func TestParsedGenAITokenAvailability(t *testing.T) {
 		span := Span{GenAI: &GenAI{Anthropic: &VendorAnthropic{
 			Output: AnthropicResponse{Usage: usage},
 		}}}
-		assert.True(t, span.HasGenAIInputTokens())
-		assert.Equal(t, 10, span.GenAIInputTokens())
-		assert.False(t, span.HasGenAIOutputTokens())
-		assert.Zero(t, span.GenAIOutputTokens())
+		assert.True(t, isReported(span.GenAIInputTokenCount()))
+		assert.Equal(t, 10, reportedValue(span.GenAIInputTokenCount()))
+		assert.False(t, isReported(span.GenAIOutputTokenCount()))
+		assert.Zero(t, reportedValue(span.GenAIOutputTokenCount()))
 	})
 
 	t.Run("Anthropic", func(t *testing.T) {
@@ -433,8 +433,8 @@ func TestParsedGenAITokenAvailability(t *testing.T) {
 
 	t.Run("Bedrock", func(t *testing.T) {
 		response := BedrockResponse{}
-		response.SetInputTokens(0)
-		response.SetOutputTokens(0)
+		response.InputTokens = NewTokenCount(0)
+		response.OutputTokens = NewTokenCount(0)
 		span := Span{GenAI: &GenAI{Bedrock: &VendorBedrock{Output: response}}}
 		assertReportedZero(t, &span, true)
 		assertNotReported(t, &Span{GenAI: &GenAI{Bedrock: &VendorBedrock{}}})
@@ -443,14 +443,14 @@ func TestParsedGenAITokenAvailability(t *testing.T) {
 
 func assertReportedZero(t *testing.T, span *Span, hasOutput bool) {
 	t.Helper()
-	assert.True(t, span.HasGenAIInputTokens())
-	assert.Zero(t, span.GenAIInputTokens())
-	assert.Equal(t, hasOutput, span.HasGenAIOutputTokens())
-	assert.Zero(t, span.GenAIOutputTokens())
+	assert.True(t, isReported(span.GenAIInputTokenCount()))
+	assert.Zero(t, reportedValue(span.GenAIInputTokenCount()))
+	assert.Equal(t, hasOutput, isReported(span.GenAIOutputTokenCount()))
+	assert.Zero(t, reportedValue(span.GenAIOutputTokenCount()))
 }
 
 func assertNotReported(t *testing.T, span *Span) {
 	t.Helper()
-	assert.False(t, span.HasGenAIInputTokens())
-	assert.False(t, span.HasGenAIOutputTokens())
+	assert.False(t, isReported(span.GenAIInputTokenCount()))
+	assert.False(t, isReported(span.GenAIOutputTokenCount()))
 }

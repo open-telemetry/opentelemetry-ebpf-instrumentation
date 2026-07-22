@@ -40,11 +40,11 @@ chunk.
 
 | Provider or operation | Input token source | Output token source | Availability notes |
 |:----------------------|:-------------------|:--------------------|:-------------------|
-| OpenAI and OpenAI-compatible APIs | `input_tokens` or `prompt_tokens` | `output_tokens` or `completion_tokens` | Streaming APIs must return a usage chunk; for OpenAI this commonly requires usage-inclusive stream options. |
-| Qwen (DashScope) | `input_tokens` or `prompt_tokens` | `output_tokens` or `completion_tokens` | Supports native and OpenAI-compatible response field names. |
+| OpenAI and OpenAI-compatible APIs | `input_tokens` or `prompt_tokens` | `output_tokens`, `completion_tokens`, or `total_tokens` minus the reported input count | Streaming APIs must return a usage chunk; for OpenAI this commonly requires usage-inclusive stream options. |
+| Qwen (DashScope) | `input_tokens` or `prompt_tokens` | `output_tokens`, `completion_tokens`, or `total_tokens` minus the reported input count | Supports native and OpenAI-compatible response field names. |
 | Anthropic | `input_tokens` plus reported cache read and cache creation tokens | `output_tokens` | Supports buffered responses and usage fields in SSE message events. |
-| Google AI Studio (Gemini) | `promptTokenCount` | `candidatesTokenCount` | Read from `usageMetadata` in buffered responses or stream chunks. |
-| AWS Bedrock | `X-Amzn-Bedrock-Input-Token-Count` response header | `X-Amzn-Bedrock-Output-Token-Count` response header | Token counts are unavailable when these headers are absent, including many error responses. |
+| Google AI Studio (Gemini) | `promptTokenCount` plus `toolUsePromptTokenCount` | `candidatesTokenCount` plus `thoughtsTokenCount` | Read from `usageMetadata` in buffered responses or stream chunks. |
+| AWS Bedrock | Response header, body usage, or model-specific input count, plus cache read and write counts | Response header, body usage, or model-specific output count | Response headers take precedence when present; buffered Converse and model-family response bodies provide fallbacks. |
 | Ollama native API | `prompt_eval_count` | `eval_count` | For NDJSON streams, counts are normally present only on the final `done` object. |
 | Embeddings | `prompt_tokens`, `total_tokens`, or Cohere `meta.billed_units.input_tokens` | Not reported | Only input token usage is exported. |
 | Rerank | `usage.total_tokens`, `usage.prompt_tokens`, or `meta.tokens.input_tokens` | Not reported | Only input token usage is exported. |

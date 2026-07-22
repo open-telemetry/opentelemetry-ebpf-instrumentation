@@ -30,7 +30,6 @@ type openAIStreamChunk struct {
 		} `json:"delta"`
 		FinishReason *string `json:"finish_reason"`
 	} `json:"choices"`
-	Usage *request.OpenAIUsage `json:"usage"`
 }
 
 type openAIStreamToolCall struct {
@@ -63,19 +62,35 @@ func parseOpenAIStream(reader io.Reader) (*request.VendorOpenAI, []request.ToolC
 	for scanner.Scan() {
 		line := scanner.Text()
 
-		if !strings.HasPrefix(line, "data: ") {
+		data, ok := extractSSEData(line)
+		if !ok {
 			continue
 		}
-
-		data := strings.TrimPrefix(line, "data: ")
 
 		if data == "[DONE]" {
 			break
 		}
 
 		var chunk openAIStreamChunk
-		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
-			continue
+		unmarshalJSONBestEffort([]byte(data), &chunk)
+		var responseFields struct {
+			ID    string `json:"id"`
+			Model string `json:"model"`
+		}
+		if unmarshalJSONContainerBestEffort([]byte(data), &responseFields, "response") {
+			if chunk.ID == "" {
+				chunk.ID = responseFields.ID
+			}
+			if chunk.Model == "" {
+				chunk.Model = responseFields.Model
+			}
+		}
+		var usage request.OpenAIUsage
+		if unmarshalJSONContainerBestEffort([]byte(data), &usage, "response", "usage") {
+			response.Usage.Merge(usage)
+		}
+		if unmarshalJSONContainerBestEffort([]byte(data), &usage, "usage") {
+			response.Usage.Merge(usage)
 		}
 
 		// Extract model and id from the first chunk that has them.
@@ -84,11 +99,6 @@ func parseOpenAIStream(reader io.Reader) (*request.VendorOpenAI, []request.ToolC
 		}
 		if response.ResponseModel == "" && chunk.Model != "" {
 			response.ResponseModel = chunk.Model
-		}
-
-		// Extract usage from the chunk that contains it (typically the last one).
-		if chunk.Usage != nil {
-			response.Usage = *chunk.Usage
 		}
 
 		// Process choices.

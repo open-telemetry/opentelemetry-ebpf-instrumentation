@@ -563,3 +563,126 @@ func TestTraceAttributesSelector_GenAIUsageAvailability(t *testing.T) {
 	_, ok = selected.Get("gen_ai.usage.output_tokens")
 	assert.False(t, ok)
 }
+
+func TestTraceAttributesSelector_GenAITokenDetailAvailability(t *testing.T) {
+	defaultAttrs, err := UserSelectedAttributes(&attributes.SelectorConfig{})
+	require.NoError(t, err)
+
+	const (
+		reasoningKey     = "gen_ai.usage.reasoning.output_tokens"
+		cacheReadKey     = "gen_ai.usage.cache_read.input_tokens"
+		cacheCreationKey = "gen_ai.usage.cache_creation.input_tokens"
+	)
+
+	for _, tt := range []struct {
+		name    string
+		subType int
+		genAI   func(request.TokenCount) *request.GenAI
+		keys    []string
+	}{
+		{
+			name:    "OpenAI",
+			subType: request.HTTPSubtypeOpenAI,
+			genAI: func(count request.TokenCount) *request.GenAI {
+				return &request.GenAI{OpenAI: &request.VendorOpenAI{Usage: request.OpenAIUsage{
+					OutputDetails: &request.OpenAIOutputTokensDetails{ReasoningTokens: count},
+					InputDetails: &request.OpenAIInputTokensDetails{
+						CachedTokens:        count,
+						CacheCreationTokens: count,
+					},
+				}}}
+			},
+			keys: []string{reasoningKey, cacheReadKey, cacheCreationKey},
+		},
+		{
+			name:    "Anthropic",
+			subType: request.HTTPSubtypeAnthropic,
+			genAI: func(count request.TokenCount) *request.GenAI {
+				return &request.GenAI{Anthropic: &request.VendorAnthropic{Output: request.AnthropicResponse{
+					Usage: request.AnthropicUsage{
+						CacheCreationInputTokens: count,
+						CacheReadInputTokens:     count,
+						ReasoningOutputTokens:    count,
+					},
+				}}}
+			},
+			keys: []string{reasoningKey, cacheReadKey, cacheCreationKey},
+		},
+		{
+			name:    "Qwen",
+			subType: request.HTTPSubtypeQwen,
+			genAI: func(count request.TokenCount) *request.GenAI {
+				return &request.GenAI{Qwen: &request.VendorOpenAI{Usage: request.OpenAIUsage{
+					OutputDetails: &request.OpenAIOutputTokensDetails{ReasoningTokens: count},
+					InputDetails: &request.OpenAIInputTokensDetails{
+						CachedTokens:        count,
+						CacheCreationTokens: count,
+					},
+				}}}
+			},
+			keys: []string{reasoningKey, cacheReadKey, cacheCreationKey},
+		},
+		{
+			name:    "OpenAI compatible",
+			subType: request.HTTPSubtypeOpenAICompatible,
+			genAI: func(count request.TokenCount) *request.GenAI {
+				return &request.GenAI{OpenAICompatible: &request.VendorOpenAI{Usage: request.OpenAIUsage{
+					OutputDetails: &request.OpenAIOutputTokensDetails{ReasoningTokens: count},
+					InputDetails: &request.OpenAIInputTokensDetails{
+						CachedTokens:        count,
+						CacheCreationTokens: count,
+					},
+				}}}
+			},
+			keys: []string{reasoningKey, cacheReadKey, cacheCreationKey},
+		},
+		{
+			name:    "Gemini",
+			subType: request.HTTPSubtypeGemini,
+			genAI: func(count request.TokenCount) *request.GenAI {
+				return &request.GenAI{Gemini: &request.VendorGemini{Output: request.GeminiResponse{
+					UsageMetadata: request.GeminiUsage{
+						CachedContentTokenCount: count,
+						ThoughtsTokenCount:      count,
+					},
+				}}}
+			},
+			keys: []string{reasoningKey, cacheReadKey},
+		},
+		{
+			name:    "Bedrock",
+			subType: request.HTTPSubtypeAWSBedrock,
+			genAI: func(count request.TokenCount) *request.GenAI {
+				return &request.GenAI{Bedrock: &request.VendorBedrock{Output: request.BedrockResponse{
+					Usage: request.BedrockUsage{
+						CacheReadInputTokens:  count,
+						CacheWriteInputTokens: count,
+					},
+				}}}
+			},
+			keys: []string{cacheReadKey, cacheCreationKey},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			span := &request.Span{
+				Type:    request.EventTypeHTTPClient,
+				SubType: tt.subType,
+				GenAI:   tt.genAI(request.NewTokenCount(0)),
+			}
+
+			selected := AttrsToMap(TraceAttributesSelector(span, defaultAttrs))
+			for _, key := range tt.keys {
+				value, ok := selected.Get(key)
+				require.True(t, ok, key)
+				assert.Zero(t, value.Int(), key)
+			}
+
+			span.GenAI = tt.genAI(request.TokenCount{})
+			selected = AttrsToMap(TraceAttributesSelector(span, defaultAttrs))
+			for _, key := range tt.keys {
+				_, ok := selected.Get(key)
+				assert.False(t, ok, key)
+			}
+		})
+	}
+}

@@ -163,9 +163,20 @@ func TestAnthropicSpan_JSONResponse(t *testing.T) {
 	assert.Equal(t, "message", span.GenAI.Anthropic.Output.Type)
 	assert.Equal(t, "assistant", span.GenAI.Anthropic.Output.Role)
 	assert.Equal(t, "end_turn", span.GenAI.Anthropic.Output.StopReason)
-	assert.Equal(t, 15, span.GenAI.Anthropic.Output.Usage.InputTokens.Value())
-	assert.Equal(t, 35, span.GenAI.Anthropic.Output.Usage.OutputTokens.Value())
+	assert.Equal(t, 15, tokenValue(span.GenAI.Anthropic.Output.Usage.InputTokens))
+	assert.Equal(t, 35, tokenValue(span.GenAI.Anthropic.Output.Usage.OutputTokens))
 	assert.JSONEq(t, `[{"type":"text","text":"Quantum computing uses quantum mechanical phenomena like superposition and entanglement to process information."}]`, string(span.GenAI.Anthropic.Output.Content))
+}
+
+func TestAnthropicSpan_UsageAfterMalformedEnvelopeField(t *testing.T) {
+	req := makeRequest(t, http.MethodPost, "http://api.anthropic.com/v1/messages", anthropicRequestBody)
+	resp := makeGzipResponse(t, http.StatusOK, anthropicHeaders(),
+		`{"stop_reason":{},"usage":{"input_tokens":0,"output_tokens":7}}`)
+
+	span, ok := AnthropicSpan(&request.Span{}, req, resp)
+	require.True(t, ok)
+	assertTokenCount(t, span.GenAI.Anthropic.Output.Usage.InputTokens, 0, true)
+	assertTokenCount(t, span.GenAI.Anthropic.Output.Usage.OutputTokens, 7, true)
 }
 
 func TestAnthropicSpan_StreamingResponse(t *testing.T) {
@@ -194,8 +205,8 @@ func TestAnthropicSpan_StreamingResponse(t *testing.T) {
 	assert.Equal(t, "assistant", span.GenAI.Anthropic.Output.Role)
 	assert.Equal(t, "message", span.GenAI.Anthropic.Output.Type)
 	assert.Equal(t, "end_turn", span.GenAI.Anthropic.Output.StopReason)
-	assert.Equal(t, 17, span.GenAI.Anthropic.Output.Usage.InputTokens.Value())
-	assert.Equal(t, 37, span.GenAI.Anthropic.Output.Usage.OutputTokens.Value())
+	assert.Equal(t, 17, tokenValue(span.GenAI.Anthropic.Output.Usage.InputTokens))
+	assert.Equal(t, 37, tokenValue(span.GenAI.Anthropic.Output.Usage.OutputTokens))
 	assert.Equal(t, "With elegant syntax and indentation true,\nPython turns complex problems into something you can do.", string(span.GenAI.Anthropic.Output.Content))
 }
 
@@ -226,9 +237,9 @@ data: {"type":"message_stop"}
 	assert.Equal(t, "message", resp.Type)
 	assert.Equal(t, "assistant", resp.Role)
 	assert.Equal(t, "end_turn", resp.StopReason)
-	assert.Equal(t, 11, resp.Usage.InputTokens.Value())
-	assert.Equal(t, 3, resp.Usage.CacheReadInputTokens.Value())
-	assert.Equal(t, 13, resp.Usage.OutputTokens.Value())
+	assert.Equal(t, 11, tokenValue(resp.Usage.InputTokens))
+	assert.Equal(t, 3, tokenValue(resp.Usage.CacheReadInputTokens))
+	assert.Equal(t, 13, tokenValue(resp.Usage.OutputTokens))
 	assert.Equal(t, "hello", string(resp.Content))
 }
 
@@ -253,6 +264,93 @@ data: {"type":"message_stop"}
 	assert.True(t, outputReported)
 	assert.Zero(t, input)
 	assert.Zero(t, output)
+}
+
+func TestParseAnthropicStream_MergesSupplementaryUsage(t *testing.T) {
+	stream := `event: message_start
+data: {"type":"message_start","message":{"id":"msg_usage","usage":{"cache_read_input_tokens":4,"reasoning_output_tokens":3}}}
+
+event: message_delta
+data: {"type":"message_delta","usage":{"cache_creation_input_tokens":0,"reasoning_output_tokens":0}}
+
+event: message_stop
+data: {"type":"message_stop"}
+
+`
+
+	resp, _, err := parseAnthropicStream(strings.NewReader(stream))
+	require.NoError(t, err)
+
+	assertTokenCount(t, resp.Usage.CacheReadInputTokens, 4, true)
+	assertTokenCount(t, resp.Usage.CacheCreationInputTokens, 0, true)
+	assertTokenCount(t, resp.Usage.ReasoningOutputTokens, 0, true)
+}
+
+func TestParseAnthropicStream_FlushesFinalUndelimitedUsageEvent(t *testing.T) {
+	stream := `event: message_delta
+data: {"type":"message_delta","usage":{"output_tokens":0,"reasoning_output_tokens":0}}`
+
+	resp, _, err := parseAnthropicStream(strings.NewReader(stream))
+	require.NoError(t, err)
+
+	assertTokenCount(t, resp.Usage.OutputTokens, 0, true)
+	assertTokenCount(t, resp.Usage.ReasoningOutputTokens, 0, true)
+}
+
+func TestParseAnthropicStream_FinalNoSpaceUsageAfterMalformedSibling(t *testing.T) {
+	stream := `event:message_delta
+data:{"type":"message_delta","delta":[],"usage":{"output_tokens":0,"reasoning_output_tokens":0}}`
+
+	resp, _, err := parseAnthropicStream(strings.NewReader(stream))
+	require.NoError(t, err)
+	assertTokenCount(t, resp.Usage.OutputTokens, 0, true)
+	assertTokenCount(t, resp.Usage.ReasoningOutputTokens, 0, true)
+}
+
+func TestParseAnthropicStream_UsageSurvivesMalformedEvents(t *testing.T) {
+	stream := `event: message_start
+data: {"type":"message_start","message":{"id":"msg_partial","usage":{"input_tokens":7},"model":{}}}
+
+event: message_delta
+data: {"type":"message_delta","usage":{"output_tokens":0,"reasoning_output_tokens":0},"malformed":[
+
+event: content_block_delta
+data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"ignored"}}
+`
+
+	resp, _, err := parseAnthropicStream(strings.NewReader(stream))
+	require.NoError(t, err)
+
+	assert.Equal(t, "msg_partial", resp.ID)
+	assertTokenCount(t, resp.Usage.InputTokens, 7, true)
+	assertTokenCount(t, resp.Usage.OutputTokens, 0, true)
+	assertTokenCount(t, resp.Usage.ReasoningOutputTokens, 0, true)
+}
+
+func TestAnthropicStream_PreservesUsageBeforeOversizedEvent(t *testing.T) {
+	stream := `event: message_delta
+data: {"type":"message_delta","usage":{"output_tokens":0,"reasoning_output_tokens":0}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"` +
+		strings.Repeat("x", 256*1024) + `"}}`
+
+	parsed, _, err := parseAnthropicStream(strings.NewReader(stream))
+	require.Error(t, err)
+	assertTokenCount(t, parsed.Usage.OutputTokens, 0, true)
+	assertTokenCount(t, parsed.Usage.ReasoningOutputTokens, 0, true)
+
+	req := makeRequest(t, http.MethodPost, "http://api.anthropic.com/v1/messages", `{
+		"model":"claude-sonnet-4-6","messages":[],"stream":true
+	}`)
+	resp := makePlainResponse(http.StatusOK, http.Header{
+		"Content-Type":                           []string{"text/event-stream"},
+		"Anthropic-Ratelimit-Input-Tokens-Limit": []string{"30000"},
+	}, stream)
+	span, ok := AnthropicSpan(&request.Span{}, req, resp)
+	require.True(t, ok)
+	assertTokenCount(t, span.GenAI.Anthropic.Output.Usage.OutputTokens, 0, true)
+	assertTokenCount(t, span.GenAI.Anthropic.Output.Usage.ReasoningOutputTokens, 0, true)
 }
 
 func TestParseAnthropicStream_MissingUsage(t *testing.T) {

@@ -1411,8 +1411,8 @@ func TestGenerateTracesAttributes(t *testing.T) {
 			Usage: request.OpenAIUsage{
 				PromptTokens:     request.NewTokenCount(100),
 				CompletionTokens: request.NewTokenCount(50),
-				CompletionDetails: &request.OpenAICompletionDetails{
-					ReasoningTokens: 20,
+				OutputDetails: &request.OpenAIOutputTokensDetails{
+					ReasoningTokens: request.NewTokenCount(20),
 				},
 			},
 			Choices: []byte(`[{"finish_reason":"stop","message":{"role":"assistant","content":"Hi"}}]`),

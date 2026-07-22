@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestExtractModelField(t *testing.T) {
@@ -97,6 +98,26 @@ func TestParseVendorOpenAI_TokenAvailabilityInTruncatedBody(t *testing.T) {
 		assert.Equal(t, 7, input)
 		assert.False(t, outputReported)
 		assert.Equal(t, "gpt-5-mini", parsed.ResponseModel)
+	})
+
+	t.Run("usage after malformed envelope field", func(t *testing.T) {
+		body := []byte(`{"choices":{},"usage":{"prompt_tokens":7,"completion_tokens":0}}`)
+		parsed := parseVendorOpenAI(body)
+
+		assert.Equal(t, 7, reportedValue(parsed.Usage.InputTokenCount()))
+		assert.Zero(t, reportedValue(parsed.Usage.OutputTokenCount()))
+		assert.True(t, isReported(parsed.Usage.OutputTokenCount()))
+	})
+
+	t.Run("supplementary tokens before truncated sibling", func(t *testing.T) {
+		body := []byte(`{"usage":{"completion_tokens_details":{"reasoning_tokens":7},"prompt_tokens_details":{"cached_tokens":5,"cache_creation_tokens":`)
+		parsed := parseVendorOpenAI(body)
+
+		require.NotNil(t, parsed.Usage.OutputDetails)
+		assertTokenCount(t, parsed.Usage.OutputDetails.ReasoningTokens, 7, true)
+		require.NotNil(t, parsed.Usage.InputDetails)
+		assertTokenCount(t, parsed.Usage.InputDetails.CachedTokens, 5, true)
+		assertTokenCount(t, parsed.Usage.InputDetails.CacheCreationTokens, 0, false)
 	})
 }
 

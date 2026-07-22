@@ -135,6 +135,10 @@ func GeminiSpan(baseSpan *request.Span, req *http.Request, resp *http.Response) 
 		if !unmarshalJSON(respB, &parsedResponse) {
 			slog.Debug("failed to parse Gemini response, continuing with partial fields")
 		}
+		var usage request.GeminiUsage
+		if unmarshalJSONContainerBestEffort(respB, &usage, "usageMetadata") {
+			parsedResponse.UsageMetadata.Merge(usage)
+		}
 		toolCalls = extractGeminiFunctionCalls(&parsedResponse)
 	} else {
 		reader := bytes.NewReader(respB)

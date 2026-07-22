@@ -4,9 +4,9 @@
 package ebpfcommon // import "go.opentelemetry.io/obi/pkg/ebpf/common/http"
 
 import (
+	"encoding/json"
 	"log/slog"
 	"net/http"
-	"strconv"
 	"strings"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
@@ -57,14 +57,16 @@ func BedrockSpan(baseSpan *request.Span, req *http.Request, resp *http.Response)
 	if len(respB) > 0 && !unmarshalJSON(respB, &parsedResponse) {
 		slog.Debug("failed to parse Bedrock response, continuing with partial fields")
 	}
+	var usage request.BedrockUsage
+	if unmarshalJSONContainerBestEffort(respB, &usage, "usage") {
+		mergeBedrockUsage(&parsedResponse.Usage, usage)
+	}
+	parsedResponse.PromptTokenCount.Merge(tokenCountJSONField(respB, "prompt_token_count"))
+	parsedResponse.GenerationTokenCount.Merge(tokenCountJSONField(respB, "generation_token_count"))
 
 	// Token counts are reliably present in response headers for successful calls.
-	if tokens, err := strconv.Atoi(resp.Header.Get("X-Amzn-Bedrock-Input-Token-Count")); err == nil {
-		parsedResponse.SetInputTokens(tokens)
-	}
-	if tokens, err := strconv.Atoi(resp.Header.Get("X-Amzn-Bedrock-Output-Token-Count")); err == nil {
-		parsedResponse.SetOutputTokens(tokens)
-	}
+	_ = json.Unmarshal([]byte(resp.Header.Get("X-Amzn-Bedrock-Input-Token-Count")), &parsedResponse.InputTokens)
+	_ = json.Unmarshal([]byte(resp.Header.Get("X-Amzn-Bedrock-Output-Token-Count")), &parsedResponse.OutputTokens)
 
 	model := extractBedrockModel(req)
 	isStream := isBedrockStream(req)
@@ -82,6 +84,24 @@ func BedrockSpan(baseSpan *request.Span, req *http.Request, resp *http.Response)
 	}
 
 	return *baseSpan, true
+}
+
+func mergeBedrockUsage(dst *request.BedrockUsage, src request.BedrockUsage) {
+	dst.InputTokens.Merge(src.InputTokens)
+	dst.OutputTokens.Merge(src.OutputTokens)
+	dst.TotalTokens.Merge(src.TotalTokens)
+	dst.CacheReadInputTokens.Merge(src.CacheReadInputTokens)
+	dst.CacheWriteInputTokens.Merge(src.CacheWriteInputTokens)
+	if src.CacheDetails != nil {
+		dst.CacheDetails = src.CacheDetails
+	}
+	if src.CacheCreation != nil {
+		if dst.CacheCreation == nil {
+			dst.CacheCreation = &request.AnthropicCacheCreation{}
+		}
+		dst.CacheCreation.Ephemeral5mInputTokens.Merge(src.CacheCreation.Ephemeral5mInputTokens)
+		dst.CacheCreation.Ephemeral1hInputTokens.Merge(src.CacheCreation.Ephemeral1hInputTokens)
+	}
 }
 
 // extractBedrockModel extracts the model ID from the Bedrock API URL path.

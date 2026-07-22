@@ -60,10 +60,9 @@ func OpenAICompatibleSpan(baseSpan *request.Span, req *http.Request, resp *http.
 
 	parsedRequest := parseOpenAIInput(reqB)
 	parsedResponse, toolCalls := parseOpenAICompatibleResponse(respB)
-	_, totalTokensReported := parsedResponse.Usage.TotalTokens.Get()
 
 	if parsedResponse.ResponseModel == "" && len(parsedResponse.Choices) == 0 &&
-		!totalTokensReported && len(parsedResponse.Data) == 0 &&
+		!hasOpenAIUsage(parsedResponse.Usage) && len(parsedResponse.Data) == 0 &&
 		len(parsedResponse.Output) == 0 && parsedRequest.Model == "" {
 		return *baseSpan, false
 	}
@@ -103,4 +102,35 @@ func OpenAICompatibleSpan(baseSpan *request.Span, req *http.Request, resp *http.
 	}
 
 	return *baseSpan, true
+}
+
+func hasOpenAIUsage(usage request.OpenAIUsage) bool {
+	counts := []request.TokenCount{
+		usage.InputTokens,
+		usage.OutputTokens,
+		usage.TotalTokens,
+		usage.PromptTokens,
+		usage.CompletionTokens,
+	}
+	if usage.InputDetails != nil {
+		counts = append(counts,
+			usage.InputDetails.CachedTokens,
+			usage.InputDetails.CacheCreationTokens,
+			usage.InputDetails.AudioTokens,
+		)
+	}
+	if usage.OutputDetails != nil {
+		counts = append(counts,
+			usage.OutputDetails.ReasoningTokens,
+			usage.OutputDetails.AudioTokens,
+			usage.OutputDetails.AcceptedPredictionTokens,
+			usage.OutputDetails.RejectedPredictionTokens,
+		)
+	}
+	for _, count := range counts {
+		if _, reported := count.Get(); reported {
+			return true
+		}
+	}
+	return false
 }

@@ -23,9 +23,9 @@ func TestParseOpenAIStream_CompleteResponse(t *testing.T) {
 	require.NotNil(t, resp)
 	assert.Equal(t, "chatcmpl-abc123", resp.ID)
 	assert.Equal(t, "gpt-4", resp.ResponseModel)
-	assert.Equal(t, 10, resp.Usage.PromptTokens.Value())
-	assert.Equal(t, 5, resp.Usage.CompletionTokens.Value())
-	assert.Equal(t, 15, resp.Usage.TotalTokens.Value())
+	assert.Equal(t, 10, tokenValue(resp.Usage.PromptTokens))
+	assert.Equal(t, 5, tokenValue(resp.Usage.CompletionTokens))
+	assert.Equal(t, 15, tokenValue(resp.Usage.TotalTokens))
 	assert.Empty(t, toolCalls)
 
 	reasons := resp.GetFinishReasons()
@@ -49,8 +49,8 @@ func TestParseOpenAIStream_TruncatedNoDone(t *testing.T) {
 	assert.Equal(t, "chatcmpl-trunc", resp.ID)
 	assert.Equal(t, "gpt-4o", resp.ResponseModel)
 	// No usage in truncated stream.
-	assert.Equal(t, 0, resp.Usage.PromptTokens.Value())
-	assert.Equal(t, 0, resp.Usage.CompletionTokens.Value())
+	assert.Equal(t, 0, tokenValue(resp.Usage.PromptTokens))
+	assert.Equal(t, 0, tokenValue(resp.Usage.CompletionTokens))
 	_, inputReported := resp.Usage.InputTokenCount()
 	_, outputReported := resp.Usage.OutputTokenCount()
 	assert.False(t, inputReported)
@@ -94,8 +94,8 @@ func TestParseOpenAIStream_EmptyStream(t *testing.T) {
 	require.NotNil(t, resp)
 	assert.Empty(t, resp.ID)
 	assert.Empty(t, resp.ResponseModel)
-	assert.Equal(t, 0, resp.Usage.PromptTokens.Value())
-	assert.Equal(t, 0, resp.Usage.CompletionTokens.Value())
+	assert.Equal(t, 0, tokenValue(resp.Usage.PromptTokens))
+	assert.Equal(t, 0, tokenValue(resp.Usage.CompletionTokens))
 	assert.Nil(t, resp.GetFinishReasons())
 	assert.Empty(t, toolCalls)
 }
@@ -113,9 +113,9 @@ func TestParseOpenAIStream_WithUsageInLastChunk(t *testing.T) {
 	require.NotNil(t, resp)
 	assert.Equal(t, "chatcmpl-usage", resp.ID)
 	assert.Equal(t, "gpt-4-turbo", resp.ResponseModel)
-	assert.Equal(t, 25, resp.Usage.PromptTokens.Value())
-	assert.Equal(t, 12, resp.Usage.CompletionTokens.Value())
-	assert.Equal(t, 37, resp.Usage.TotalTokens.Value())
+	assert.Equal(t, 25, tokenValue(resp.Usage.PromptTokens))
+	assert.Equal(t, 12, tokenValue(resp.Usage.CompletionTokens))
+	assert.Equal(t, 37, tokenValue(resp.Usage.TotalTokens))
 	assert.Empty(t, toolCalls)
 
 	reasons := resp.GetFinishReasons()
@@ -140,6 +140,53 @@ func TestParseOpenAIStream_ExplicitZeroUsage(t *testing.T) {
 	assert.Zero(t, output)
 }
 
+func TestParseOpenAIStream_MergesCumulativeUsageFields(t *testing.T) {
+	stream := "data: {\"usage\":{\"prompt_tokens\":9,\"completion_tokens_details\":{\"reasoning_tokens\":4},\"prompt_tokens_details\":{\"cached_tokens\":3}}}\n\n" +
+		"data: {\"usage\":{\"completion_tokens\":0,\"completion_tokens_details\":{\"reasoning_tokens\":0},\"prompt_tokens_details\":{\"cache_creation_tokens\":0}}}\n\n" +
+		"data: [DONE]\n"
+
+	resp, _ := parseOpenAIStream(strings.NewReader(stream))
+
+	assertTokenCount(t, resp.Usage.PromptTokens, 9, true)
+	assertTokenCount(t, resp.Usage.CompletionTokens, 0, true)
+	require.NotNil(t, resp.Usage.OutputDetails)
+	assertTokenCount(t, resp.Usage.OutputDetails.ReasoningTokens, 0, true)
+	require.NotNil(t, resp.Usage.InputDetails)
+	assertTokenCount(t, resp.Usage.InputDetails.CachedTokens, 3, true)
+	assertTokenCount(t, resp.Usage.InputDetails.CacheCreationTokens, 0, true)
+}
+
+func TestParseOpenAIStream_ResponsesUsageSurvivesPartialEvent(t *testing.T) {
+	stream := `data: {"type":"response.completed","choices":{},"response":{"id":"resp_1","model":"gpt-5","usage":{"input_tokens":0,"output_tokens":2,"input_tokens_details":{"cached_tokens":0},"output_tokens_details":{"reasoning_tokens":0}}}}` + "\n" +
+		`data: {"response":{"usage":{"output_tokens":0}},"truncated":[` + "\n"
+
+	resp, _ := parseOpenAIStream(strings.NewReader(stream))
+
+	assert.Equal(t, "resp_1", resp.ID)
+	assert.Equal(t, "gpt-5", resp.ResponseModel)
+	assertTokenCount(t, resp.Usage.InputTokens, 0, true)
+	assertTokenCount(t, resp.Usage.OutputTokens, 0, true)
+	require.NotNil(t, resp.Usage.InputDetails)
+	assertTokenCount(t, resp.Usage.InputDetails.CachedTokens, 0, true)
+	require.NotNil(t, resp.Usage.OutputDetails)
+	assertTokenCount(t, resp.Usage.OutputDetails.ReasoningTokens, 0, true)
+}
+
+func TestParseOpenAIStream_TopLevelUsageSurvivesMalformedSibling(t *testing.T) {
+	stream := "data: {\"usage\":{\"prompt_tokens\":7},\"choices\":{}}\n"
+
+	resp, _ := parseOpenAIStream(strings.NewReader(stream))
+	assertTokenCount(t, resp.Usage.PromptTokens, 7, true)
+}
+
+func TestParseOpenAIStream_FinalNoSpaceUsageAfterMalformedSibling(t *testing.T) {
+	stream := `data:{"choices":{},"usage":{"prompt_tokens":0,"completion_tokens":0}}`
+
+	resp, _ := parseOpenAIStream(strings.NewReader(stream))
+	assertTokenCount(t, resp.Usage.PromptTokens, 0, true)
+	assertTokenCount(t, resp.Usage.CompletionTokens, 0, true)
+}
+
 func TestParseOpenAIStream_InputOutputTokens(t *testing.T) {
 	stream := "data: {\"id\":\"chatcmpl-dash\",\"object\":\"chat.completion.chunk\",\"model\":\"qwen-plus\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"hi\"},\"finish_reason\":\"stop\"}],\"usage\":{\"input_tokens\":15,\"output_tokens\":3,\"total_tokens\":18}}\n\n" +
 		"data: [DONE]\n"
@@ -149,11 +196,11 @@ func TestParseOpenAIStream_InputOutputTokens(t *testing.T) {
 	require.NotNil(t, resp)
 	assert.Equal(t, "chatcmpl-dash", resp.ID)
 	assert.Equal(t, "qwen-plus", resp.ResponseModel)
-	assert.Equal(t, 15, resp.Usage.InputTokens.Value())
-	assert.Equal(t, 3, resp.Usage.OutputTokens.Value())
-	assert.Equal(t, 18, resp.Usage.TotalTokens.Value())
-	assert.Equal(t, 15, resp.Usage.GetInputTokens())
-	assert.Equal(t, 3, resp.Usage.GetOutputTokens())
+	assert.Equal(t, 15, tokenValue(resp.Usage.InputTokens))
+	assert.Equal(t, 3, tokenValue(resp.Usage.OutputTokens))
+	assert.Equal(t, 18, tokenValue(resp.Usage.TotalTokens))
+	assert.Equal(t, 15, reportedValue(resp.Usage.InputTokenCount()))
+	assert.Equal(t, 3, reportedValue(resp.Usage.OutputTokenCount()))
 	assert.Empty(t, toolCalls)
 
 	assertChoiceMessage(t, resp.Choices, "hi", "stop")
@@ -165,12 +212,12 @@ func TestParseOpenAIStream_MixedTokenFields(t *testing.T) {
 
 	resp, _ := parseOpenAIStream(strings.NewReader(stream))
 
-	assert.Equal(t, 10, resp.Usage.PromptTokens.Value())
-	assert.Equal(t, 2, resp.Usage.CompletionTokens.Value())
-	assert.Equal(t, 10, resp.Usage.InputTokens.Value())
-	assert.Equal(t, 2, resp.Usage.OutputTokens.Value())
-	assert.Equal(t, 10, resp.Usage.GetInputTokens())
-	assert.Equal(t, 2, resp.Usage.GetOutputTokens())
+	assert.Equal(t, 10, tokenValue(resp.Usage.PromptTokens))
+	assert.Equal(t, 2, tokenValue(resp.Usage.CompletionTokens))
+	assert.Equal(t, 10, tokenValue(resp.Usage.InputTokens))
+	assert.Equal(t, 2, tokenValue(resp.Usage.OutputTokens))
+	assert.Equal(t, 10, reportedValue(resp.Usage.InputTokenCount()))
+	assert.Equal(t, 2, reportedValue(resp.Usage.OutputTokenCount()))
 }
 
 // assertChoiceMessage decodes the streaming Choices JSON and verifies the

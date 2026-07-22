@@ -291,7 +291,7 @@ type GenAI struct {
 	// returns the same JSON structure as OpenAI.  The native generation
 	// API uses slightly different field names (request_id, output,
 	// input_tokens/output_tokens) but VendorOpenAI already accommodates
-	// both via GetInputTokens()/GetOutputTokens() and the Output field.
+	// both via the shared token-count accessors and the Output field.
 	// A separate field (rather than sharing OpenAI) keeps provider
 	// routing explicit and allows future divergence without refactoring.
 	Qwen             *VendorOpenAI
@@ -304,42 +304,27 @@ type GenAI struct {
 	OpenAICompatible *VendorOpenAI
 }
 
-type OpenAIPromptTokensDetails struct {
-	CachedTokens        int `json:"cached_tokens,omitempty"`
-	CacheCreationTokens int `json:"cache_creation_tokens,omitempty"`
+type OpenAIInputTokensDetails struct {
+	CachedTokens        TokenCount `json:"cached_tokens,omitempty"`
+	CacheCreationTokens TokenCount `json:"cache_creation_tokens,omitempty"`
+	AudioTokens         TokenCount `json:"audio_tokens,omitempty"`
 }
 
 type OpenAIUsage struct {
-	InputTokens         TokenCount                 `json:"input_tokens"`
-	OutputTokens        TokenCount                 `json:"output_tokens"`
-	TotalTokens         TokenCount                 `json:"total_tokens"`
-	PromptTokens        TokenCount                 `json:"prompt_tokens"`
-	CompletionTokens    TokenCount                 `json:"completion_tokens"`
-	CompletionDetails   *OpenAICompletionDetails   `json:"completion_tokens_details,omitempty"`
-	PromptTokensDetails *OpenAIPromptTokensDetails `json:"prompt_tokens_details,omitempty"`
+	InputTokens      TokenCount                 `json:"input_tokens"`
+	OutputTokens     TokenCount                 `json:"output_tokens"`
+	TotalTokens      TokenCount                 `json:"total_tokens"`
+	PromptTokens     TokenCount                 `json:"prompt_tokens"`
+	CompletionTokens TokenCount                 `json:"completion_tokens"`
+	InputDetails     *OpenAIInputTokensDetails  `json:"input_tokens_details,omitempty"`
+	OutputDetails    *OpenAIOutputTokensDetails `json:"output_tokens_details,omitempty"`
 }
 
-type OpenAICompletionDetails struct {
-	ReasoningTokens int `json:"reasoning_tokens,omitempty"`
-}
-
-func (u *OpenAIUsage) GetInputTokens() int {
-	tokens, _ := u.InputTokenCount()
-	return tokens
-}
-
-func (u *OpenAIUsage) GetOutputTokens() int {
-	if tokens, reported := u.OutputTokenCount(); reported {
-		return tokens
-	}
-	if total, totalReported := u.TotalTokens.Get(); totalReported {
-		if prompt, promptReported := u.PromptTokens.Get(); promptReported {
-			if total >= prompt {
-				return total - prompt
-			}
-		}
-	}
-	return 0
+type OpenAIOutputTokensDetails struct {
+	ReasoningTokens          TokenCount `json:"reasoning_tokens,omitempty"`
+	AudioTokens              TokenCount `json:"audio_tokens,omitempty"`
+	AcceptedPredictionTokens TokenCount `json:"accepted_prediction_tokens,omitempty"`
+	RejectedPredictionTokens TokenCount `json:"rejected_prediction_tokens,omitempty"`
 }
 
 type OpenAIError struct {
@@ -499,13 +484,19 @@ type AnthropicResponse struct {
 }
 
 type AnthropicUsage struct {
-	InputTokens              TokenCount `json:"input_tokens"`
-	OutputTokens             TokenCount `json:"output_tokens"`
-	CacheCreationInputTokens TokenCount `json:"cache_creation_input_tokens,omitempty"`
-	CacheReadInputTokens     TokenCount `json:"cache_read_input_tokens,omitempty"`
-	ReasoningOutputTokens    int        `json:"reasoning_output_tokens,omitempty"`
-	ServiceTier              string     `json:"service_tier"`
-	InferenceGeo             string     `json:"inference_geo"`
+	InputTokens              TokenCount              `json:"input_tokens"`
+	OutputTokens             TokenCount              `json:"output_tokens"`
+	CacheCreationInputTokens TokenCount              `json:"cache_creation_input_tokens,omitempty"`
+	CacheReadInputTokens     TokenCount              `json:"cache_read_input_tokens,omitempty"`
+	ReasoningOutputTokens    TokenCount              `json:"reasoning_output_tokens,omitempty"`
+	CacheCreation            *AnthropicCacheCreation `json:"cache_creation,omitempty"`
+	ServiceTier              string                  `json:"service_tier"`
+	InferenceGeo             string                  `json:"inference_geo"`
+}
+
+type AnthropicCacheCreation struct {
+	Ephemeral5mInputTokens TokenCount `json:"ephemeral_5m_input_tokens,omitempty"`
+	Ephemeral1hInputTokens TokenCount `json:"ephemeral_1h_input_tokens,omitempty"`
 }
 
 type AnthropicError struct {
@@ -568,9 +559,21 @@ type GeminiCandidate struct {
 }
 
 type GeminiUsage struct {
-	PromptTokenCount     TokenCount `json:"promptTokenCount"`
-	CandidatesTokenCount TokenCount `json:"candidatesTokenCount"`
-	TotalTokenCount      TokenCount `json:"totalTokenCount"`
+	PromptTokenCount           TokenCount                 `json:"promptTokenCount"`
+	CandidatesTokenCount       TokenCount                 `json:"candidatesTokenCount"`
+	TotalTokenCount            TokenCount                 `json:"totalTokenCount"`
+	ToolUsePromptTokenCount    TokenCount                 `json:"toolUsePromptTokenCount,omitempty"`
+	ThoughtsTokenCount         TokenCount                 `json:"thoughtsTokenCount,omitempty"`
+	CachedContentTokenCount    TokenCount                 `json:"cachedContentTokenCount,omitempty"`
+	PromptTokensDetails        []GeminiModalityTokenCount `json:"promptTokensDetails,omitempty"`
+	CacheTokensDetails         []GeminiModalityTokenCount `json:"cacheTokensDetails,omitempty"`
+	CandidatesTokensDetails    []GeminiModalityTokenCount `json:"candidatesTokensDetails,omitempty"`
+	ToolUsePromptTokensDetails []GeminiModalityTokenCount `json:"toolUsePromptTokensDetails,omitempty"`
+}
+
+type GeminiModalityTokenCount struct {
+	Modality   string     `json:"modality"`
+	TokenCount TokenCount `json:"tokenCount"`
 }
 
 type GeminiError struct {
@@ -654,19 +657,18 @@ type TitanGenConfig struct {
 }
 
 // BedrockResponse covers the common response fields across all model families.
-// Token counts are read from response headers (more reliable than body) and stored here.
 type BedrockResponse struct {
 	// Anthropic Claude format
 	Content    json.RawMessage `json:"content,omitempty"`
 	StopReason string          `json:"stop_reason,omitempty"`
-	Usage      *BedrockUsage   `json:"usage,omitempty"`
+	Usage      BedrockUsage    `json:"usage,omitempty"`
 	// Amazon Nova format
 	Output         *NovaOutput `json:"output,omitempty"`
 	StopReasonNova string      `json:"stopReason,omitempty"`
 	// Meta Llama format
-	Generation           string `json:"generation,omitempty"`
-	PromptTokenCount     int    `json:"prompt_token_count,omitempty"`
-	GenerationTokenCount int    `json:"generation_token_count,omitempty"`
+	Generation           string     `json:"generation,omitempty"`
+	PromptTokenCount     TokenCount `json:"prompt_token_count,omitempty"`
+	GenerationTokenCount TokenCount `json:"generation_token_count,omitempty"`
 	// Amazon Titan format
 	Results []TitanResult `json:"results,omitempty"`
 	// Error fields appear at the top level of the Bedrock error response body
@@ -678,8 +680,18 @@ type BedrockResponse struct {
 }
 
 type BedrockUsage struct {
-	InputTokens  int `json:"input_tokens"`
-	OutputTokens int `json:"output_tokens"`
+	InputTokens           TokenCount              `json:"inputTokens,omitempty"`
+	OutputTokens          TokenCount              `json:"outputTokens,omitempty"`
+	TotalTokens           TokenCount              `json:"totalTokens,omitempty"`
+	CacheReadInputTokens  TokenCount              `json:"cacheReadInputTokens,omitempty"`
+	CacheWriteInputTokens TokenCount              `json:"cacheWriteInputTokens,omitempty"`
+	CacheDetails          []BedrockCacheDetail    `json:"cacheDetails,omitempty"`
+	CacheCreation         *AnthropicCacheCreation `json:"cache_creation,omitempty"`
+}
+
+type BedrockCacheDetail struct {
+	InputTokens TokenCount `json:"inputTokens"`
+	TTL         string     `json:"ttl"`
 }
 
 type NovaOutput struct {
@@ -859,19 +871,6 @@ type CohereBilledUnits struct {
 	InputTokens TokenCount `json:"input_tokens"`
 }
 
-// GetInputTokens returns the input token count, handling provider-specific formats.
-func (e *VendorEmbedding) GetInputTokens() int {
-	tokens, _ := e.InputTokenCount()
-	return tokens
-}
-
-// GetOutputTokens returns the output token count for embedding requests,
-// derived as total_tokens - prompt_tokens.
-func (e *VendorEmbedding) GetOutputTokens() int {
-	tokens, _ := e.OutputTokenCount()
-	return tokens
-}
-
 // VendorRerank holds parsed data from a rerank API request/response.
 // Reranking services (Cohere, Jina AI, Voyage AI, etc.) share a similar
 // REST API shape: POST /v1/rerank with a JSON body containing model,
@@ -977,20 +976,6 @@ type RerankUsage struct {
 	TotalTokens  TokenCount `json:"total_tokens"`
 	PromptTokens TokenCount `json:"prompt_tokens"`
 	SearchUnits  int        `json:"search_units"`
-}
-
-func (u *RerankUsage) GetInputTokens() int {
-	tokens, _ := u.InputTokenCount()
-	return tokens
-}
-
-// GetTotalTokens returns the total token count from any supported response
-// format.  It checks usage.total_tokens (Jina/Voyage), then
-// usage.prompt_tokens, and finally falls back to meta.tokens.input_tokens
-// (Cohere).
-func (r *RerankResponse) GetTotalTokens() int {
-	tokens, _ := r.InputTokenCount()
-	return tokens
 }
 
 type RerankError struct {
@@ -1115,13 +1100,6 @@ type SpanLink struct {
 	TraceID    trace.TraceID `json:"traceID"`
 	SpanID     trace.SpanID  `json:"spanID"`
 	TraceFlags uint8         `json:"traceFlags,string"`
-}
-
-// GetInputTokens returns the input token count, preferring prompt_tokens
-// and falling back to total_tokens. Returns zero when not reported.
-func (r *VendorRetrieval) GetInputTokens() int {
-	tokens, _ := r.InputTokenCount()
-	return tokens
 }
 
 // Span contains the information being submitted by the following nodes in the graph.
@@ -2153,12 +2131,8 @@ func (s *Span) HasOriginalHost() bool {
 	return len(schemeHost) > 1 && schemeHost[1] != ""
 }
 
-func (s *Span) GenAIInputTokens() int {
-	tokens, _ := s.genAIInputTokenCount()
-	return tokens
-}
-
-func (s *Span) genAIInputTokenCount() (int, bool) {
+// GenAIInputTokenCount returns the input token count and whether the provider reported it.
+func (s *Span) GenAIInputTokenCount() (int, bool) {
 	if s.GenAI == nil {
 		return 0, false
 	}
@@ -2206,26 +2180,8 @@ func (s *Span) genAIInputTokenCount() (int, bool) {
 	return 0, false
 }
 
-// HasGenAIInputTokens returns true if the input token count is available
-// (i.e., was actually reported by the provider, not simply absent/unknown).
-func (s *Span) HasGenAIInputTokens() bool {
-	_, reported := s.genAIInputTokenCount()
-	return reported
-}
-
-// HasGenAIOutputTokens returns true if the output token count is available
-// (i.e., was actually reported by the provider, not simply absent/unknown).
-func (s *Span) HasGenAIOutputTokens() bool {
-	_, reported := s.genAIOutputTokenCount()
-	return reported
-}
-
-func (s *Span) GenAIOutputTokens() int {
-	tokens, _ := s.genAIOutputTokenCount()
-	return tokens
-}
-
-func (s *Span) genAIOutputTokenCount() (int, bool) {
+// GenAIOutputTokenCount returns the output token count and whether the provider reported it.
+func (s *Span) GenAIOutputTokenCount() (int, bool) {
 	if s.GenAI == nil {
 		return 0, false
 	}
@@ -2256,10 +2212,6 @@ func (s *Span) genAIOutputTokenCount() (int, bool) {
 
 	if s.GenAI.Bedrock != nil {
 		return s.GenAI.Bedrock.Output.OutputTokenCount()
-	}
-
-	if s.GenAI.Embedding != nil {
-		return 0, false
 	}
 
 	return 0, false

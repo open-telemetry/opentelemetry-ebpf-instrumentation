@@ -1361,10 +1361,10 @@ func TestHTTPSpanStatusCode_OpenAI(t *testing.T) {
 }
 
 // Test GenAIInputTokens
-func TestSpan_GenAIInputTokens(t *testing.T) {
+func TestSpan_GenAIInputTokenCount(t *testing.T) {
 	t.Run("GenAI is nil", func(t *testing.T) {
 		span := &Span{GenAI: nil}
-		result := span.GenAIInputTokens()
+		result := reportedValue(span.GenAIInputTokenCount())
 		assert.Equal(t, 0, result)
 	})
 
@@ -1378,7 +1378,7 @@ func TestSpan_GenAIInputTokens(t *testing.T) {
 				},
 			},
 		}
-		result := span.GenAIInputTokens()
+		result := reportedValue(span.GenAIInputTokenCount())
 		assert.Equal(t, 100, result)
 	})
 
@@ -1394,7 +1394,7 @@ func TestSpan_GenAIInputTokens(t *testing.T) {
 				},
 			},
 		}
-		result := span.GenAIInputTokens()
+		result := reportedValue(span.GenAIInputTokenCount())
 		assert.Equal(t, 200, result)
 	})
 
@@ -1414,7 +1414,7 @@ func TestSpan_GenAIInputTokens(t *testing.T) {
 				},
 			},
 		}
-		result := span.GenAIInputTokens()
+		result := reportedValue(span.GenAIInputTokenCount())
 		assert.Equal(t, 280, result)
 	})
 
@@ -1430,7 +1430,7 @@ func TestSpan_GenAIInputTokens(t *testing.T) {
 				},
 			},
 		}
-		result := span.GenAIInputTokens()
+		result := reportedValue(span.GenAIInputTokenCount())
 		assert.Equal(t, 300, result)
 	})
 
@@ -1444,7 +1444,7 @@ func TestSpan_GenAIInputTokens(t *testing.T) {
 				},
 			},
 		}
-		result := span.GenAIInputTokens()
+		result := reportedValue(span.GenAIInputTokenCount())
 		assert.Equal(t, 333, result)
 	})
 
@@ -1458,7 +1458,7 @@ func TestSpan_GenAIInputTokens(t *testing.T) {
 				},
 			},
 		}
-		result := span.GenAIInputTokens()
+		result := reportedValue(span.GenAIInputTokenCount())
 		assert.Equal(t, 25, result)
 	})
 
@@ -1472,16 +1472,16 @@ func TestSpan_GenAIInputTokens(t *testing.T) {
 				},
 			},
 		}
-		result := span.GenAIInputTokens()
+		result := reportedValue(span.GenAIInputTokenCount())
 		assert.Equal(t, 411, result)
 	})
 }
 
 // Test GenAIOutputTokens
-func TestSpan_GenAIOutputTokens(t *testing.T) {
+func TestSpan_GenAIOutputTokenCount(t *testing.T) {
 	t.Run("GenAI is nil", func(t *testing.T) {
 		span := &Span{GenAI: nil}
-		result := span.GenAIOutputTokens()
+		result := reportedValue(span.GenAIOutputTokenCount())
 		assert.Equal(t, 0, result)
 	})
 
@@ -1495,7 +1495,7 @@ func TestSpan_GenAIOutputTokens(t *testing.T) {
 				},
 			},
 		}
-		result := span.GenAIOutputTokens()
+		result := reportedValue(span.GenAIOutputTokenCount())
 		assert.Equal(t, 150, result)
 	})
 
@@ -1505,7 +1505,7 @@ func TestSpan_GenAIOutputTokens(t *testing.T) {
 				OpenAI: &VendorOpenAI{},
 			},
 		}
-		result := span.GenAIOutputTokens()
+		result := reportedValue(span.GenAIOutputTokenCount())
 		assert.Equal(t, 0, result)
 	})
 
@@ -1521,7 +1521,7 @@ func TestSpan_GenAIOutputTokens(t *testing.T) {
 				},
 			},
 		}
-		result := span.GenAIOutputTokens()
+		result := reportedValue(span.GenAIOutputTokenCount())
 		assert.Equal(t, 250, result)
 	})
 
@@ -1531,7 +1531,7 @@ func TestSpan_GenAIOutputTokens(t *testing.T) {
 				Anthropic: &VendorAnthropic{},
 			},
 		}
-		result := span.GenAIOutputTokens()
+		result := reportedValue(span.GenAIOutputTokenCount())
 		assert.Equal(t, 0, result)
 	})
 
@@ -1547,7 +1547,7 @@ func TestSpan_GenAIOutputTokens(t *testing.T) {
 				},
 			},
 		}
-		result := span.GenAIOutputTokens()
+		result := reportedValue(span.GenAIOutputTokenCount())
 		assert.Equal(t, 400, result)
 	})
 
@@ -1557,7 +1557,7 @@ func TestSpan_GenAIOutputTokens(t *testing.T) {
 				Gemini: &VendorGemini{},
 			},
 		}
-		result := span.GenAIOutputTokens()
+		result := reportedValue(span.GenAIOutputTokenCount())
 		assert.Equal(t, 0, result)
 	})
 
@@ -1571,7 +1571,7 @@ func TestSpan_GenAIOutputTokens(t *testing.T) {
 				},
 			},
 		}
-		result := span.GenAIOutputTokens()
+		result := reportedValue(span.GenAIOutputTokenCount())
 		assert.Equal(t, 444, result)
 	})
 
@@ -1585,7 +1585,7 @@ func TestSpan_GenAIOutputTokens(t *testing.T) {
 				},
 			},
 		}
-		result := span.GenAIOutputTokens()
+		result := reportedValue(span.GenAIOutputTokenCount())
 		assert.Equal(t, 18, result)
 	})
 
@@ -1595,7 +1595,7 @@ func TestSpan_GenAIOutputTokens(t *testing.T) {
 				Bedrock: &VendorBedrock{},
 			},
 		}
-		result := span.GenAIOutputTokens()
+		result := reportedValue(span.GenAIOutputTokenCount())
 		assert.Equal(t, 0, result)
 	})
 
@@ -1610,7 +1610,7 @@ func TestSpan_GenAIOutputTokens(t *testing.T) {
 				},
 			},
 		}
-		result := span.GenAIOutputTokens()
+		result := reportedValue(span.GenAIOutputTokenCount())
 		assert.Equal(t, 0, result)
 	})
 }
@@ -1968,7 +1968,7 @@ func TestSpan_GenAIOperationName_OpenAICompatible(t *testing.T) {
 	}
 }
 
-func TestSpan_GenAIInputTokens_OpenAICompatible(t *testing.T) {
+func TestSpan_GenAIInputTokenCount_OpenAICompatible(t *testing.T) {
 	t.Run("input_tokens present", func(t *testing.T) {
 		span := &Span{
 			GenAI: &GenAI{
@@ -1977,7 +1977,7 @@ func TestSpan_GenAIInputTokens_OpenAICompatible(t *testing.T) {
 				},
 			},
 		}
-		assert.Equal(t, 42, span.GenAIInputTokens())
+		assert.Equal(t, 42, reportedValue(span.GenAIInputTokenCount()))
 	})
 
 	t.Run("prompt_tokens fallback", func(t *testing.T) {
@@ -1988,7 +1988,7 @@ func TestSpan_GenAIInputTokens_OpenAICompatible(t *testing.T) {
 				},
 			},
 		}
-		assert.Equal(t, 99, span.GenAIInputTokens())
+		assert.Equal(t, 99, reportedValue(span.GenAIInputTokenCount()))
 	})
 
 	t.Run("no usage", func(t *testing.T) {
@@ -1997,11 +1997,11 @@ func TestSpan_GenAIInputTokens_OpenAICompatible(t *testing.T) {
 				OpenAICompatible: &VendorOpenAI{},
 			},
 		}
-		assert.Equal(t, 0, span.GenAIInputTokens())
+		assert.Equal(t, 0, reportedValue(span.GenAIInputTokenCount()))
 	})
 }
 
-func TestSpan_GenAIOutputTokens_OpenAICompatible(t *testing.T) {
+func TestSpan_GenAIOutputTokenCount_OpenAICompatible(t *testing.T) {
 	t.Run("output_tokens present", func(t *testing.T) {
 		span := &Span{
 			GenAI: &GenAI{
@@ -2010,7 +2010,7 @@ func TestSpan_GenAIOutputTokens_OpenAICompatible(t *testing.T) {
 				},
 			},
 		}
-		assert.Equal(t, 55, span.GenAIOutputTokens())
+		assert.Equal(t, 55, reportedValue(span.GenAIOutputTokenCount()))
 	})
 
 	t.Run("completion_tokens fallback", func(t *testing.T) {
@@ -2021,7 +2021,7 @@ func TestSpan_GenAIOutputTokens_OpenAICompatible(t *testing.T) {
 				},
 			},
 		}
-		assert.Equal(t, 77, span.GenAIOutputTokens())
+		assert.Equal(t, 77, reportedValue(span.GenAIOutputTokenCount()))
 	})
 
 	t.Run("no usage", func(t *testing.T) {
@@ -2030,7 +2030,7 @@ func TestSpan_GenAIOutputTokens_OpenAICompatible(t *testing.T) {
 				OpenAICompatible: &VendorOpenAI{},
 			},
 		}
-		assert.Equal(t, 0, span.GenAIOutputTokens())
+		assert.Equal(t, 0, reportedValue(span.GenAIOutputTokenCount()))
 	})
 }
 

@@ -41,12 +41,8 @@ func (c TokenCount) Get() (int, bool) {
 	return c.value, c.reported
 }
 
-// Value returns the token count, or zero when it was not reported.
-func (c TokenCount) Value() int {
-	return c.value
-}
-
-func (c *TokenCount) merge(other TokenCount) {
+// Merge replaces the count when the provider reported a newer value.
+func (c *TokenCount) Merge(other TokenCount) {
 	if other.reported {
 		*c = other
 	}
@@ -73,8 +69,8 @@ func decodeTokenFields(data []byte, value any) {
 	_ = tokenJSON.Unmarshal(data, value)
 }
 
-func decodeTokenField(data []byte, name string) TokenCount {
-	field := tokenJSON.Get(data, name)
+func decodeTokenField(data []byte, path ...any) TokenCount {
+	field := tokenJSON.Get(data, path...)
 	if field.ValueType() != jsoniter.NumberValue {
 		return TokenCount{}
 	}
@@ -83,17 +79,63 @@ func decodeTokenField(data []byte, name string) TokenCount {
 	return count
 }
 
-func (u *OpenAIUsage) UnmarshalJSON(data []byte) error {
-	type plain OpenAIUsage
-	var decoded plain
-	decodeTokenFields(data, &decoded)
+func (d *OpenAIInputTokensDetails) UnmarshalJSON(data []byte) error {
+	d.CachedTokens = decodeTokenField(data, "cached_tokens")
+	d.CacheCreationTokens = decodeTokenField(data, "cache_creation_tokens")
+	d.AudioTokens = decodeTokenField(data, "audio_tokens")
+	return nil
+}
 
-	*u = OpenAIUsage(decoded)
+func (d *OpenAIInputTokensDetails) merge(other OpenAIInputTokensDetails) {
+	d.CachedTokens.Merge(other.CachedTokens)
+	d.CacheCreationTokens.Merge(other.CacheCreationTokens)
+	d.AudioTokens.Merge(other.AudioTokens)
+}
+
+func (d *OpenAIOutputTokensDetails) UnmarshalJSON(data []byte) error {
+	d.ReasoningTokens = decodeTokenField(data, "reasoning_tokens")
+	d.AudioTokens = decodeTokenField(data, "audio_tokens")
+	d.AcceptedPredictionTokens = decodeTokenField(data, "accepted_prediction_tokens")
+	d.RejectedPredictionTokens = decodeTokenField(data, "rejected_prediction_tokens")
+	return nil
+}
+
+func (d *OpenAIOutputTokensDetails) merge(other OpenAIOutputTokensDetails) {
+	d.ReasoningTokens.Merge(other.ReasoningTokens)
+	d.AudioTokens.Merge(other.AudioTokens)
+	d.AcceptedPredictionTokens.Merge(other.AcceptedPredictionTokens)
+	d.RejectedPredictionTokens.Merge(other.RejectedPredictionTokens)
+}
+
+func (u *OpenAIUsage) UnmarshalJSON(data []byte) error {
+	*u = OpenAIUsage{}
 	u.InputTokens = decodeTokenField(data, "input_tokens")
 	u.OutputTokens = decodeTokenField(data, "output_tokens")
 	u.TotalTokens = decodeTokenField(data, "total_tokens")
 	u.PromptTokens = decodeTokenField(data, "prompt_tokens")
 	u.CompletionTokens = decodeTokenField(data, "completion_tokens")
+
+	var details struct {
+		InputDetails  *OpenAIInputTokensDetails  `json:"input_tokens_details"`
+		InputAliases  *OpenAIInputTokensDetails  `json:"prompt_tokens_details"`
+		OutputDetails *OpenAIOutputTokensDetails `json:"output_tokens_details"`
+		OutputAliases *OpenAIOutputTokensDetails `json:"completion_tokens_details"`
+	}
+	decodeTokenFields(data, &details)
+	u.InputDetails = details.InputAliases
+	if details.InputDetails != nil {
+		if u.InputDetails == nil {
+			u.InputDetails = &OpenAIInputTokensDetails{}
+		}
+		u.InputDetails.merge(*details.InputDetails)
+	}
+	u.OutputDetails = details.OutputAliases
+	if details.OutputDetails != nil {
+		if u.OutputDetails == nil {
+			u.OutputDetails = &OpenAIOutputTokensDetails{}
+		}
+		u.OutputDetails.merge(*details.OutputDetails)
+	}
 	return nil
 }
 
@@ -114,38 +156,82 @@ func (u *OpenAIUsage) OutputTokenCount() (int, bool) {
 	if tokens, reported := u.CompletionTokens.Get(); reported {
 		return tokens, true
 	}
+	if total, totalReported := u.TotalTokens.Get(); totalReported {
+		if input, inputReported := u.InputTokenCount(); inputReported && total >= input {
+			return total - input, true
+		}
+	}
 	return 0, false
 }
 
-func (u *OpenAIUsage) SetInputTokens(tokens int) {
-	u.InputTokens.set(tokens)
+func (u *OpenAIUsage) Merge(other OpenAIUsage) {
+	u.InputTokens.Merge(other.InputTokens)
+	u.OutputTokens.Merge(other.OutputTokens)
+	u.TotalTokens.Merge(other.TotalTokens)
+	u.PromptTokens.Merge(other.PromptTokens)
+	u.CompletionTokens.Merge(other.CompletionTokens)
+
+	if other.OutputDetails != nil {
+		if u.OutputDetails == nil {
+			u.OutputDetails = &OpenAIOutputTokensDetails{}
+		}
+		u.OutputDetails.merge(*other.OutputDetails)
+	}
+	if other.InputDetails != nil {
+		if u.InputDetails == nil {
+			u.InputDetails = &OpenAIInputTokensDetails{}
+		}
+		u.InputDetails.merge(*other.InputDetails)
+	}
 }
 
-func (u *OpenAIUsage) SetOutputTokens(tokens int) {
-	u.OutputTokens.set(tokens)
+func (d *AnthropicCacheCreation) UnmarshalJSON(data []byte) error {
+	d.Ephemeral5mInputTokens = decodeTokenField(data, "ephemeral_5m_input_tokens")
+	d.Ephemeral1hInputTokens = decodeTokenField(data, "ephemeral_1h_input_tokens")
+	return nil
+}
+
+func (d *AnthropicCacheCreation) merge(other AnthropicCacheCreation) {
+	d.Ephemeral5mInputTokens.Merge(other.Ephemeral5mInputTokens)
+	d.Ephemeral1hInputTokens.Merge(other.Ephemeral1hInputTokens)
 }
 
 func (u *AnthropicUsage) UnmarshalJSON(data []byte) error {
-	type plain AnthropicUsage
-	var decoded plain
+	var decoded struct {
+		ServiceTier  string `json:"service_tier"`
+		InferenceGeo string `json:"inference_geo"`
+	}
 	decodeTokenFields(data, &decoded)
 
-	*u = AnthropicUsage(decoded)
+	*u = AnthropicUsage{
+		ServiceTier:  decoded.ServiceTier,
+		InferenceGeo: decoded.InferenceGeo,
+	}
 	u.InputTokens = decodeTokenField(data, "input_tokens")
 	u.OutputTokens = decodeTokenField(data, "output_tokens")
 	u.CacheCreationInputTokens = decodeTokenField(data, "cache_creation_input_tokens")
 	u.CacheReadInputTokens = decodeTokenField(data, "cache_read_input_tokens")
+	u.ReasoningOutputTokens = decodeTokenField(data, "reasoning_output_tokens")
+	var cache struct {
+		CacheCreation *AnthropicCacheCreation `json:"cache_creation"`
+	}
+	decodeTokenFields(data, &cache)
+	u.CacheCreation = cache.CacheCreation
 	return nil
 }
 
 func (u *AnthropicUsage) InputTokenCount() (int, bool) {
-	total := 0
-	reported := false
-	for _, count := range []TokenCount{
+	return sumTokenCounts(
 		u.InputTokens,
 		u.CacheCreationInputTokens,
 		u.CacheReadInputTokens,
-	} {
+	)
+}
+
+func sumTokenCounts(counts ...TokenCount) (int, bool) {
+	total := 0
+	reported := false
+	for _, count := range counts {
 		if value, ok := count.Get(); ok {
 			if value > math.MaxInt-total {
 				return 0, false
@@ -162,72 +248,182 @@ func (u *AnthropicUsage) OutputTokenCount() (int, bool) {
 }
 
 func (u *AnthropicUsage) Merge(other AnthropicUsage) {
-	u.InputTokens.merge(other.InputTokens)
-	u.OutputTokens.merge(other.OutputTokens)
-	u.CacheCreationInputTokens.merge(other.CacheCreationInputTokens)
-	u.CacheReadInputTokens.merge(other.CacheReadInputTokens)
+	u.InputTokens.Merge(other.InputTokens)
+	u.OutputTokens.Merge(other.OutputTokens)
+	u.CacheCreationInputTokens.Merge(other.CacheCreationInputTokens)
+	u.CacheReadInputTokens.Merge(other.CacheReadInputTokens)
+	u.ReasoningOutputTokens.Merge(other.ReasoningOutputTokens)
+	if other.CacheCreation != nil {
+		if u.CacheCreation == nil {
+			u.CacheCreation = &AnthropicCacheCreation{}
+		}
+		u.CacheCreation.merge(*other.CacheCreation)
+	}
 }
 
 func (u *GeminiUsage) UnmarshalJSON(data []byte) error {
-	type plain GeminiUsage
-	var decoded plain
-	decodeTokenFields(data, &decoded)
-
-	*u = GeminiUsage(decoded)
+	*u = GeminiUsage{}
 	u.PromptTokenCount = decodeTokenField(data, "promptTokenCount")
 	u.CandidatesTokenCount = decodeTokenField(data, "candidatesTokenCount")
 	u.TotalTokenCount = decodeTokenField(data, "totalTokenCount")
+	u.ToolUsePromptTokenCount = decodeTokenField(data, "toolUsePromptTokenCount")
+	u.ThoughtsTokenCount = decodeTokenField(data, "thoughtsTokenCount")
+	u.CachedContentTokenCount = decodeTokenField(data, "cachedContentTokenCount")
+	var promptDetails struct {
+		Value []GeminiModalityTokenCount `json:"promptTokensDetails"`
+	}
+	decodeTokenFields(data, &promptDetails)
+	u.PromptTokensDetails = promptDetails.Value
+	var cacheDetails struct {
+		Value []GeminiModalityTokenCount `json:"cacheTokensDetails"`
+	}
+	decodeTokenFields(data, &cacheDetails)
+	u.CacheTokensDetails = cacheDetails.Value
+	var candidateDetails struct {
+		Value []GeminiModalityTokenCount `json:"candidatesTokensDetails"`
+	}
+	decodeTokenFields(data, &candidateDetails)
+	u.CandidatesTokensDetails = candidateDetails.Value
+	var toolDetails struct {
+		Value []GeminiModalityTokenCount `json:"toolUsePromptTokensDetails"`
+	}
+	decodeTokenFields(data, &toolDetails)
+	u.ToolUsePromptTokensDetails = toolDetails.Value
+	return nil
+}
+
+func (d *GeminiModalityTokenCount) UnmarshalJSON(data []byte) error {
+	type plain GeminiModalityTokenCount
+	var decoded plain
+	decodeTokenFields(data, &decoded)
+
+	*d = GeminiModalityTokenCount(decoded)
+	d.TokenCount = decodeTokenField(data, "tokenCount")
 	return nil
 }
 
 func (u *GeminiUsage) InputTokenCount() (int, bool) {
-	return u.PromptTokenCount.Get()
+	return sumTokenCounts(u.PromptTokenCount, u.ToolUsePromptTokenCount)
 }
 
 func (u *GeminiUsage) OutputTokenCount() (int, bool) {
-	return u.CandidatesTokenCount.Get()
+	return sumTokenCounts(u.CandidatesTokenCount, u.ThoughtsTokenCount)
 }
 
-func (u *GeminiUsage) HasTokenCounts() bool {
-	_, input := u.InputTokenCount()
-	_, output := u.OutputTokenCount()
-	_, total := u.TotalTokenCount.Get()
-	return input || output || total
+func (u *GeminiUsage) Merge(other GeminiUsage) {
+	u.PromptTokenCount.Merge(other.PromptTokenCount)
+	u.CandidatesTokenCount.Merge(other.CandidatesTokenCount)
+	u.TotalTokenCount.Merge(other.TotalTokenCount)
+	u.ToolUsePromptTokenCount.Merge(other.ToolUsePromptTokenCount)
+	u.ThoughtsTokenCount.Merge(other.ThoughtsTokenCount)
+	u.CachedContentTokenCount.Merge(other.CachedContentTokenCount)
+	mergeGeminiTokenDetails(&u.PromptTokensDetails, other.PromptTokensDetails)
+	mergeGeminiTokenDetails(&u.CacheTokensDetails, other.CacheTokensDetails)
+	mergeGeminiTokenDetails(&u.CandidatesTokensDetails, other.CandidatesTokensDetails)
+	mergeGeminiTokenDetails(&u.ToolUsePromptTokensDetails, other.ToolUsePromptTokensDetails)
 }
 
-func (b *BedrockResponse) SetInputTokens(tokens int) {
-	b.InputTokens.set(tokens)
-}
-
-func (b *BedrockResponse) SetOutputTokens(tokens int) {
-	b.OutputTokens.set(tokens)
+func mergeGeminiTokenDetails(current *[]GeminiModalityTokenCount, other []GeminiModalityTokenCount) {
+	for _, incoming := range other {
+		found := false
+		for i := range *current {
+			if (*current)[i].Modality == incoming.Modality {
+				(*current)[i].TokenCount.Merge(incoming.TokenCount)
+				found = true
+				break
+			}
+		}
+		if !found {
+			*current = append(*current, incoming)
+		}
+	}
 }
 
 func (b *BedrockResponse) InputTokenCount() (int, bool) {
-	return b.InputTokens.Get()
+	base := b.InputTokens
+	if _, reported := base.Get(); !reported {
+		base = b.Usage.InputTokens
+		if _, reported := base.Get(); !reported {
+			base = b.PromptTokenCount
+		}
+	}
+	return sumTokenCounts(base, b.Usage.CacheReadInputTokens, b.Usage.CacheWriteInputTokens)
 }
 
 func (b *BedrockResponse) OutputTokenCount() (int, bool) {
-	return b.OutputTokens.Get()
+	if tokens, reported := b.OutputTokens.Get(); reported {
+		return tokens, true
+	}
+	if tokens, reported := b.Usage.OutputTokens.Get(); reported {
+		return tokens, true
+	}
+	return b.GenerationTokenCount.Get()
+}
+
+func (u *BedrockUsage) UnmarshalJSON(data []byte) error {
+	*u = BedrockUsage{}
+	u.InputTokens = firstTokenCount(
+		decodeTokenField(data, "inputTokens"),
+		decodeTokenField(data, "input_tokens"),
+	)
+	u.OutputTokens = firstTokenCount(
+		decodeTokenField(data, "outputTokens"),
+		decodeTokenField(data, "output_tokens"),
+	)
+	u.TotalTokens = firstTokenCount(
+		decodeTokenField(data, "totalTokens"),
+		decodeTokenField(data, "total_tokens"),
+	)
+	u.CacheReadInputTokens = firstTokenCount(
+		decodeTokenField(data, "cacheReadInputTokens"),
+		decodeTokenField(data, "cache_read_input_tokens"),
+	)
+	u.CacheWriteInputTokens = firstTokenCount(
+		decodeTokenField(data, "cacheWriteInputTokens"),
+		decodeTokenField(data, "cache_creation_input_tokens"),
+	)
+	var cacheDetails struct {
+		Value []BedrockCacheDetail `json:"cacheDetails"`
+	}
+	decodeTokenFields(data, &cacheDetails)
+	u.CacheDetails = cacheDetails.Value
+	var cacheCreation struct {
+		Value *AnthropicCacheCreation `json:"cache_creation"`
+	}
+	decodeTokenFields(data, &cacheCreation)
+	u.CacheCreation = cacheCreation.Value
+	return nil
+}
+
+func (d *BedrockCacheDetail) UnmarshalJSON(data []byte) error {
+	var decoded struct {
+		TTL string `json:"ttl"`
+	}
+	decodeTokenFields(data, &decoded)
+
+	*d = BedrockCacheDetail{TTL: decoded.TTL}
+	d.InputTokens = decodeTokenField(data, "inputTokens")
+	return nil
+}
+
+func firstTokenCount(counts ...TokenCount) TokenCount {
+	for _, count := range counts {
+		if _, reported := count.Get(); reported {
+			return count
+		}
+	}
+	return TokenCount{}
 }
 
 func (u *EmbeddingUsage) UnmarshalJSON(data []byte) error {
-	type plain EmbeddingUsage
-	var decoded plain
-	decodeTokenFields(data, &decoded)
-
-	*u = EmbeddingUsage(decoded)
+	*u = EmbeddingUsage{}
 	u.PromptTokens = decodeTokenField(data, "prompt_tokens")
 	u.TotalTokens = decodeTokenField(data, "total_tokens")
 	return nil
 }
 
 func (u *CohereBilledUnits) UnmarshalJSON(data []byte) error {
-	type plain CohereBilledUnits
-	var decoded plain
-	decodeTokenFields(data, &decoded)
-
-	*u = CohereBilledUnits(decoded)
+	*u = CohereBilledUnits{}
 	u.InputTokens = decodeTokenField(data, "input_tokens")
 	return nil
 }
@@ -247,18 +443,6 @@ func (e *VendorEmbedding) InputTokenCount() (int, bool) {
 	return 0, false
 }
 
-func (e *VendorEmbedding) OutputTokenCount() (int, bool) {
-	usage := &e.Output.Usage
-	if total, totalReported := usage.TotalTokens.Get(); totalReported {
-		if prompt, promptReported := usage.PromptTokens.Get(); promptReported {
-			if total >= prompt {
-				return total - prompt, true
-			}
-		}
-	}
-	return 0, false
-}
-
 func (u *RerankUsage) UnmarshalJSON(data []byte) error {
 	type plain RerankUsage
 	var decoded plain
@@ -270,19 +454,8 @@ func (u *RerankUsage) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-func (u *RerankUsage) InputTokenCount() (int, bool) {
-	if tokens, reported := u.PromptTokens.Get(); reported {
-		return tokens, true
-	}
-	return u.TotalTokens.Get()
-}
-
 func (u *RerankMetaTokens) UnmarshalJSON(data []byte) error {
-	type plain RerankMetaTokens
-	var decoded plain
-	decodeTokenFields(data, &decoded)
-
-	*u = RerankMetaTokens(decoded)
+	*u = RerankMetaTokens{}
 	u.InputTokens = decodeTokenField(data, "input_tokens")
 	return nil
 }
@@ -302,11 +475,7 @@ func (r *RerankResponse) InputTokenCount() (int, bool) {
 }
 
 func (u *RetrievalUsage) UnmarshalJSON(data []byte) error {
-	type plain RetrievalUsage
-	var decoded plain
-	decodeTokenFields(data, &decoded)
-
-	*u = RetrievalUsage(decoded)
+	*u = RetrievalUsage{}
 	u.TotalTokens = decodeTokenField(data, "total_tokens")
 	u.PromptTokens = decodeTokenField(data, "prompt_tokens")
 	return nil

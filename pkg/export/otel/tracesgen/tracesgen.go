@@ -524,11 +524,18 @@ func httpEnrichmentAttributes(span *request.Span) []attribute.KeyValue {
 
 func genAIUsageAttributes(span *request.Span) []attribute.KeyValue {
 	attrs := make([]attribute.KeyValue, 0, 2)
-	if span.HasGenAIInputTokens() {
-		attrs = append(attrs, semconv.GenAIUsageInputTokens(span.GenAIInputTokens()))
+	if tokens, reported := span.GenAIInputTokenCount(); reported {
+		attrs = append(attrs, semconv.GenAIUsageInputTokens(tokens))
 	}
-	if span.HasGenAIOutputTokens() {
-		attrs = append(attrs, semconv.GenAIUsageOutputTokens(span.GenAIOutputTokens()))
+	if tokens, reported := span.GenAIOutputTokenCount(); reported {
+		attrs = append(attrs, semconv.GenAIUsageOutputTokens(tokens))
+	}
+	return attrs
+}
+
+func appendGenAITokenCount(attrs []attribute.KeyValue, key attribute.Key, count request.TokenCount) []attribute.KeyValue {
+	if tokens, reported := count.Get(); reported {
+		return append(attrs, key.Int(tokens))
 	}
 	return attrs
 }
@@ -756,16 +763,12 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 			if stopSeqs := ai.Request.GetStopSequences(); len(stopSeqs) > 0 {
 				attrs = append(attrs, semconv.GenAIRequestStopSequences(stopSeqs...))
 			}
-			if ai.Usage.CompletionDetails != nil && ai.Usage.CompletionDetails.ReasoningTokens > 0 {
-				attrs = append(attrs, genAIUsageReasoningOutputTokens.Int(ai.Usage.CompletionDetails.ReasoningTokens))
+			if ai.Usage.OutputDetails != nil {
+				attrs = appendGenAITokenCount(attrs, genAIUsageReasoningOutputTokens, ai.Usage.OutputDetails.ReasoningTokens)
 			}
-			if ai.Usage.PromptTokensDetails != nil {
-				if ai.Usage.PromptTokensDetails.CachedTokens > 0 {
-					attrs = append(attrs, genAIUsageCacheReadInputTokens.Int(ai.Usage.PromptTokensDetails.CachedTokens))
-				}
-				if ai.Usage.PromptTokensDetails.CacheCreationTokens > 0 {
-					attrs = append(attrs, genAIUsageCacheCreationInputTokens.Int(ai.Usage.PromptTokensDetails.CacheCreationTokens))
-				}
+			if ai.Usage.InputDetails != nil {
+				attrs = appendGenAITokenCount(attrs, genAIUsageCacheReadInputTokens, ai.Usage.InputDetails.CachedTokens)
+				attrs = appendGenAITokenCount(attrs, genAIUsageCacheCreationInputTokens, ai.Usage.InputDetails.CacheCreationTokens)
 			}
 			if ai.Request.ServiceTier != "" && ai.Request.ServiceTier != "auto" {
 				attrs = append(attrs, semconv.OpenAIRequestServiceTierKey.String(ai.Request.ServiceTier))
@@ -850,15 +853,9 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 				attrs = append(attrs, semconv.GenAIResponseFinishReasons(ai.Output.StopReason))
 			}
 			attrs = append(attrs, genAIRequestStreamKey.Bool(ai.Input.Stream))
-			if tokens := ai.Output.Usage.CacheCreationInputTokens.Value(); tokens > 0 {
-				attrs = append(attrs, genAIUsageCacheCreationInputTokens.Int(tokens))
-			}
-			if tokens := ai.Output.Usage.CacheReadInputTokens.Value(); tokens > 0 {
-				attrs = append(attrs, genAIUsageCacheReadInputTokens.Int(tokens))
-			}
-			if ai.Output.Usage.ReasoningOutputTokens > 0 {
-				attrs = append(attrs, genAIUsageReasoningOutputTokens.Int(ai.Output.Usage.ReasoningOutputTokens))
-			}
+			attrs = appendGenAITokenCount(attrs, genAIUsageCacheCreationInputTokens, ai.Output.Usage.CacheCreationInputTokens)
+			attrs = appendGenAITokenCount(attrs, genAIUsageCacheReadInputTokens, ai.Output.Usage.CacheReadInputTokens)
+			attrs = appendGenAITokenCount(attrs, genAIUsageReasoningOutputTokens, ai.Output.Usage.ReasoningOutputTokens)
 			if _, ok := optionalAttrs[attr.GenAIInput]; ok {
 				if len(ai.Input.Messages) > 0 {
 					attrs = append(attrs, semconv.GenAIInputMessagesKey.String(request.NormalizeAnthropicInput(ai.Input.Messages)))
@@ -937,6 +934,8 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 			}
 			attrs = append(attrs, genAIRequestStreamKey.Bool(ai.IsStream))
 			attrs = append(attrs, genAIUsageAttributes(span)...)
+			attrs = appendGenAITokenCount(attrs, genAIUsageCacheReadInputTokens, ai.Output.UsageMetadata.CachedContentTokenCount)
+			attrs = appendGenAITokenCount(attrs, genAIUsageReasoningOutputTokens, ai.Output.UsageMetadata.ThoughtsTokenCount)
 			if reasons := ai.GetFinishReasons(); len(reasons) > 0 {
 				attrs = append(attrs, semconv.GenAIResponseFinishReasons(reasons...))
 			}
@@ -1012,8 +1011,12 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 			if stopSeqs := ai.Request.GetStopSequences(); len(stopSeqs) > 0 {
 				attrs = append(attrs, semconv.GenAIRequestStopSequences(stopSeqs...))
 			}
-			if ai.Usage.CompletionDetails != nil && ai.Usage.CompletionDetails.ReasoningTokens > 0 {
-				attrs = append(attrs, genAIUsageReasoningOutputTokens.Int(ai.Usage.CompletionDetails.ReasoningTokens))
+			if ai.Usage.OutputDetails != nil {
+				attrs = appendGenAITokenCount(attrs, genAIUsageReasoningOutputTokens, ai.Usage.OutputDetails.ReasoningTokens)
+			}
+			if ai.Usage.InputDetails != nil {
+				attrs = appendGenAITokenCount(attrs, genAIUsageCacheReadInputTokens, ai.Usage.InputDetails.CachedTokens)
+				attrs = appendGenAITokenCount(attrs, genAIUsageCacheCreationInputTokens, ai.Usage.InputDetails.CacheCreationTokens)
 			}
 			if _, ok := optionalAttrs[attr.GenAIInput]; ok {
 				attrs = append(attrs, semconv.GenAIInputMessagesKey.String(ai.Request.GetInput()))
@@ -1132,8 +1135,12 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 			if stopSeqs := ai.Request.GetStopSequences(); len(stopSeqs) > 0 {
 				attrs = append(attrs, semconv.GenAIRequestStopSequences(stopSeqs...))
 			}
-			if ai.Usage.CompletionDetails != nil && ai.Usage.CompletionDetails.ReasoningTokens > 0 {
-				attrs = append(attrs, genAIUsageReasoningOutputTokens.Int(ai.Usage.CompletionDetails.ReasoningTokens))
+			if ai.Usage.OutputDetails != nil {
+				attrs = appendGenAITokenCount(attrs, genAIUsageReasoningOutputTokens, ai.Usage.OutputDetails.ReasoningTokens)
+			}
+			if ai.Usage.InputDetails != nil {
+				attrs = appendGenAITokenCount(attrs, genAIUsageCacheReadInputTokens, ai.Usage.InputDetails.CachedTokens)
+				attrs = appendGenAITokenCount(attrs, genAIUsageCacheCreationInputTokens, ai.Usage.InputDetails.CacheCreationTokens)
 			}
 			if _, ok := optionalAttrs[attr.GenAIInput]; ok {
 				attrs = append(attrs, semconv.GenAIInputMessagesKey.String(ai.Request.GetInput()))
@@ -1194,6 +1201,8 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 			}
 			attrs = append(attrs, genAIRequestStreamKey.Bool(ai.IsStream))
 			attrs = append(attrs, genAIUsageAttributes(span)...)
+			attrs = appendGenAITokenCount(attrs, genAIUsageCacheReadInputTokens, ai.Output.Usage.CacheReadInputTokens)
+			attrs = appendGenAITokenCount(attrs, genAIUsageCacheCreationInputTokens, ai.Output.Usage.CacheWriteInputTokens)
 			if stopReason := ai.GetStopReason(); stopReason != "" {
 				attrs = append(attrs, semconv.GenAIResponseFinishReasons(stopReason))
 			}
