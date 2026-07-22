@@ -48,6 +48,26 @@ func TestOllamaSpan_ChatNonStreaming(t *testing.T) {
 	assert.False(t, ai.Request.Stream)
 }
 
+func TestOllamaSpan_ExplicitZeroUsage(t *testing.T) {
+	response := `{"model":"llama3.2","message":{"role":"assistant","content":""},"done":true,"prompt_eval_count":0,"eval_count":0}`
+	span, ok := runOllamaSpan(t, "/api/chat", ollamaChatRequest, response)
+	require.True(t, ok)
+
+	assert.True(t, span.HasGenAIInputTokens())
+	assert.True(t, span.HasGenAIOutputTokens())
+	assert.Zero(t, span.GenAIInputTokens())
+	assert.Zero(t, span.GenAIOutputTokens())
+}
+
+func TestOllamaSpan_MissingUsage(t *testing.T) {
+	response := `{"model":"llama3.2","message":{"role":"assistant","content":""},"done":true}`
+	span, ok := runOllamaSpan(t, "/api/chat", ollamaChatRequest, response)
+	require.True(t, ok)
+
+	assert.False(t, span.HasGenAIInputTokens())
+	assert.False(t, span.HasGenAIOutputTokens())
+}
+
 // --- Streaming /api/chat ---
 
 const ollamaChatStreamResponse = `{"model":"llama3.2","message":{"role":"assistant","content":"Hello"},"done":false}

@@ -372,7 +372,7 @@ func parseGeminiStream(reader io.Reader) (*request.GeminiResponse, []request.Too
 		if chunk.ResponseID != "" {
 			responseID = chunk.ResponseID
 		}
-		if chunk.UsageMetadata != nil && geminiUsageHasTokens(chunk.UsageMetadata) {
+		if chunk.UsageMetadata != nil && chunk.UsageMetadata.HasTokenCounts() {
 			usage = chunk.UsageMetadata
 		}
 
@@ -560,12 +560,6 @@ func extractSSEData(line string) (string, bool) {
 		return line[5:], true
 	}
 	return "", false
-}
-
-// geminiUsageHasTokens returns true when any of the exported token
-// fields are populated, not just totalTokenCount.
-func geminiUsageHasTokens(u *request.GeminiUsage) bool {
-	return u.PromptTokenCount > 0 || u.CandidatesTokenCount > 0 || u.TotalTokenCount > 0
 }
 
 // buildGeminiCandidates constructs the final candidate list from the

@@ -5,6 +5,7 @@ package otel
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -456,6 +457,98 @@ func TestAppMetrics_ResourceAttributes(t *testing.T) {
 	attributes := res[0].ResourceAttributes
 	assert.Equal(t, "production", attributes["deployment.environment"])
 	assert.Equal(t, "upstream.obi", attributes["source"])
+}
+
+func TestAppMetrics_GenAITokenAvailability(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		usageJSON string
+		reported  bool
+	}{
+		{name: "explicit zero", usageJSON: `{"prompt_tokens":0,"completion_tokens":0}`, reported: true},
+		{name: "missing", usageJSON: `{}`, reported: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+
+			metricRecords := make(chan collector.MetricRecord, 100)
+			metrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
+			processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(10))
+			mcfg := &otelcfg.MetricsConfig{
+				Interval:          20 * time.Millisecond,
+				TTL:               30 * time.Minute,
+				ReportersCacheLen: 10,
+				Instrumentations:  []instrumentations.Instrumentation{instrumentations.InstrumentationGenAI},
+				MetricsConsumer:   testMetricsConsumer(metricRecords),
+			}
+			reporter, err := newMetricsReporter(
+				ctx,
+				&global.ContextInfo{OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: mcfg}},
+				mcfg,
+				&perapp.MetricsConfig{Features: export.FeatureApplicationRED},
+				&attributes.SelectorConfig{},
+				request.UnresolvedNames{},
+				metrics,
+				processEvents,
+			)
+			require.NoError(t, err)
+			go reporter.reportMetrics(ctx)
+
+			var usage request.OpenAIUsage
+			require.NoError(t, json.Unmarshal([]byte(tc.usageJSON), &usage))
+			metrics.Send([]request.Span{{
+				Service:      svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "genai"}},
+				Type:         request.EventTypeHTTPClient,
+				SubType:      request.HTTPSubtypeOpenAI,
+				RequestStart: 100,
+				End:          200,
+				GenAI:        &request.GenAI{OpenAI: &request.VendorOpenAI{Usage: usage}},
+			}})
+
+			seenDuration := false
+			seenTokens := map[string]collector.MetricRecord{}
+			deadline := time.NewTimer(time.Second)
+			defer deadline.Stop()
+			for !seenDuration || (tc.reported && len(seenTokens) < 2) {
+				select {
+				case record := <-metricRecords:
+					switch record.Name {
+					case attributes.GenAIClientOperationDuration.OTEL:
+						seenDuration = true
+					case attributes.GenAIClientInputTokenUsage.OTEL:
+						seenTokens[record.Attributes["gen_ai.token.type"]] = record
+					}
+				case <-deadline.C:
+					require.FailNow(t, "timed out waiting for GenAI metrics")
+				}
+			}
+
+			if !tc.reported {
+				quiet := time.NewTimer(100 * time.Millisecond)
+				defer quiet.Stop()
+			quietLoop:
+				for {
+					select {
+					case record := <-metricRecords:
+						if record.Name == attributes.GenAIClientInputTokenUsage.OTEL {
+							seenTokens[record.Attributes["gen_ai.token.type"]] = record
+						}
+					case <-quiet.C:
+						break quietLoop
+					}
+				}
+				assert.Empty(t, seenTokens)
+				return
+			}
+			for _, tokenType := range []string{"input", "output"} {
+				record, ok := seenTokens[tokenType]
+				require.True(t, ok)
+				assert.Equal(t, 1, record.Count)
+				assert.Zero(t, record.FloatVal)
+			}
+		})
+	}
 }
 
 func TestAppMetrics_DBCollectionName(t *testing.T) {

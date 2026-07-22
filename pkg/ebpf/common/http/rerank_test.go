@@ -150,6 +150,18 @@ func TestRerankSpan_VoyageAI(t *testing.T) {
 	assert.Equal(t, "voyage", span.GenAI.Rerank.Provider)
 }
 
+func TestRerankSpan_ExplicitZeroUsage(t *testing.T) {
+	req := makeRequest(t, http.MethodPost, "http://api.jina.ai/v1/rerank", jinaRerankRequestBody)
+	resp := makePlainResponse(http.StatusOK, http.Header{"Content-Type": []string{"application/json"}},
+		`{"model":"jina-reranker-v2-base-multilingual","results":[],"usage":{"total_tokens":0}}`)
+
+	span, ok := RerankSpan(&request.Span{}, req, resp)
+	require.True(t, ok)
+	assert.True(t, span.HasGenAIInputTokens())
+	assert.Zero(t, span.GenAIInputTokens())
+	assert.False(t, span.HasGenAIOutputTokens())
+}
+
 func TestRerankSpan_UnknownProvider(t *testing.T) {
 	// Unknown hostname but request body contains "model" field,
 	// so it should still be detected as a rerank request. The vendor

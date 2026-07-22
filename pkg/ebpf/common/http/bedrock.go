@@ -59,8 +59,12 @@ func BedrockSpan(baseSpan *request.Span, req *http.Request, resp *http.Response)
 	}
 
 	// Token counts are reliably present in response headers for successful calls.
-	parsedResponse.InputTokens, _ = strconv.Atoi(resp.Header.Get("X-Amzn-Bedrock-Input-Token-Count"))
-	parsedResponse.OutputTokens, _ = strconv.Atoi(resp.Header.Get("X-Amzn-Bedrock-Output-Token-Count"))
+	if tokens, err := strconv.Atoi(resp.Header.Get("X-Amzn-Bedrock-Input-Token-Count")); err == nil {
+		parsedResponse.SetInputTokens(tokens)
+	}
+	if tokens, err := strconv.Atoi(resp.Header.Get("X-Amzn-Bedrock-Output-Token-Count")); err == nil {
+		parsedResponse.SetOutputTokens(tokens)
+	}
 
 	model := extractBedrockModel(req)
 	isStream := isBedrockStream(req)

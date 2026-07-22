@@ -172,6 +172,42 @@ func TestBedrockSpan_ErrorResponse(t *testing.T) {
 	assert.Equal(t, 0, ai.Output.OutputTokens)
 	assert.Equal(t, "ValidationException", ai.Output.ErrorType)
 	assert.NotEmpty(t, ai.Output.ErrorMessage)
+	assert.False(t, span.HasGenAIInputTokens())
+	assert.False(t, span.HasGenAIOutputTokens())
+}
+
+func TestBedrockSpan_ExplicitZeroHeaders(t *testing.T) {
+	headers := bedrockSuccessHeaders()
+	headers.Set("X-Amzn-Bedrock-Input-Token-Count", "0")
+	headers.Set("X-Amzn-Bedrock-Output-Token-Count", "0")
+	req := makeRequest(t, http.MethodPost,
+		"https://bedrock-runtime.us-east-1.amazonaws.com/model/anthropic.claude-v2/invoke",
+		bedrockClaudeRequestBody)
+	resp := makePlainResponse(http.StatusOK, headers, bedrockClaudeResponseBody)
+
+	span, ok := BedrockSpan(&request.Span{}, req, resp)
+	require.True(t, ok)
+	assert.True(t, span.HasGenAIInputTokens())
+	assert.True(t, span.HasGenAIOutputTokens())
+	assert.Zero(t, span.GenAIInputTokens())
+	assert.Zero(t, span.GenAIOutputTokens())
+}
+
+func TestBedrockSpan_NegativeTokenHeaders(t *testing.T) {
+	headers := bedrockSuccessHeaders()
+	headers.Set("X-Amzn-Bedrock-Input-Token-Count", "-1")
+	headers.Set("X-Amzn-Bedrock-Output-Token-Count", "-2")
+	req := makeRequest(t, http.MethodPost,
+		"https://bedrock-runtime.us-east-1.amazonaws.com/model/anthropic.claude-v2/invoke",
+		bedrockClaudeRequestBody)
+	resp := makePlainResponse(http.StatusOK, headers, bedrockClaudeResponseBody)
+
+	span, ok := BedrockSpan(&request.Span{}, req, resp)
+	require.True(t, ok)
+	assert.False(t, span.HasGenAIInputTokens())
+	assert.False(t, span.HasGenAIOutputTokens())
+	assert.Zero(t, span.GenAIInputTokens())
+	assert.Zero(t, span.GenAIOutputTokens())
 }
 
 func TestBedrockSpan_NotBedrock(t *testing.T) {

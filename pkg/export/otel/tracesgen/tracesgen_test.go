@@ -4,6 +4,7 @@
 package tracesgen
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -532,4 +533,33 @@ func TestTraceAttributesSelector_OpenAICompatible(t *testing.T) {
 		require.True(t, ok)
 		assert.Equal(t, request.CompletionOperationName, opName.Str())
 	})
+}
+
+func TestTraceAttributesSelector_GenAIUsageAvailability(t *testing.T) {
+	defaultAttrs, err := UserSelectedAttributes(&attributes.SelectorConfig{})
+	require.NoError(t, err)
+
+	var usage request.OpenAIUsage
+	require.NoError(t, json.Unmarshal([]byte(`{"prompt_tokens":0,"completion_tokens":0}`), &usage))
+	span := &request.Span{
+		Type:    request.EventTypeHTTPClient,
+		SubType: request.HTTPSubtypeOpenAI,
+		GenAI:   &request.GenAI{OpenAI: &request.VendorOpenAI{Usage: usage}},
+	}
+
+	selected := AttrsToMap(TraceAttributesSelector(span, defaultAttrs))
+	input, ok := selected.Get("gen_ai.usage.input_tokens")
+	require.True(t, ok)
+	assert.Zero(t, input.Int())
+	output, ok := selected.Get("gen_ai.usage.output_tokens")
+	require.True(t, ok)
+	assert.Zero(t, output.Int())
+
+	require.NoError(t, json.Unmarshal([]byte(`{}`), &usage))
+	span.GenAI.OpenAI.Usage = usage
+	selected = AttrsToMap(TraceAttributesSelector(span, defaultAttrs))
+	_, ok = selected.Get("gen_ai.usage.input_tokens")
+	assert.False(t, ok)
+	_, ok = selected.Get("gen_ai.usage.output_tokens")
+	assert.False(t, ok)
 }

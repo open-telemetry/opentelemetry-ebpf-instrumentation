@@ -33,8 +33,8 @@ type ollamaResponse struct {
 	Response        string          `json:"response"`
 	Done            bool            `json:"done"`
 	DoneReason      string          `json:"done_reason"`
-	PromptEvalCount int             `json:"prompt_eval_count"`
-	EvalCount       int             `json:"eval_count"`
+	PromptEvalCount *int            `json:"prompt_eval_count"`
+	EvalCount       *int            `json:"eval_count"`
 }
 
 // ollamaChatMessage represents a single message in an Ollama chat response.
@@ -113,11 +113,11 @@ func OllamaSpan(baseSpan *request.Span, req *http.Request, resp *http.Response) 
 	}
 
 	// Map token counts: Ollama uses prompt_eval_count / eval_count.
-	if ollamaResp.PromptEvalCount > 0 {
-		parsed.Usage.InputTokens = ollamaResp.PromptEvalCount
+	if ollamaResp.PromptEvalCount != nil {
+		parsed.Usage.SetInputTokens(*ollamaResp.PromptEvalCount)
 	}
-	if ollamaResp.EvalCount > 0 {
-		parsed.Usage.OutputTokens = ollamaResp.EvalCount
+	if ollamaResp.EvalCount != nil {
+		parsed.Usage.SetOutputTokens(*ollamaResp.EvalCount)
 	}
 
 	// Build request info.

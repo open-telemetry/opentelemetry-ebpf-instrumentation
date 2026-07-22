@@ -51,6 +51,10 @@ func TestParseOpenAIStream_TruncatedNoDone(t *testing.T) {
 	// No usage in truncated stream.
 	assert.Equal(t, 0, resp.Usage.PromptTokens)
 	assert.Equal(t, 0, resp.Usage.CompletionTokens)
+	_, inputReported := resp.Usage.InputTokenCount()
+	_, outputReported := resp.Usage.OutputTokenCount()
+	assert.False(t, inputReported)
+	assert.False(t, outputReported)
 	// No finish_reason in the truncated stream, but partial content must
 	// still be accumulated into Choices so the partial assistant message is
 	// preserved for normalization.
@@ -120,6 +124,20 @@ func TestParseOpenAIStream_WithUsageInLastChunk(t *testing.T) {
 
 	assertChoiceMessage(t, resp.Choices, "Hi there", "stop")
 	assertOutputContains(t, resp.GetOutput(), "Hi there", "stop")
+}
+
+func TestParseOpenAIStream_ExplicitZeroUsage(t *testing.T) {
+	stream := "data: {\"id\":\"chatcmpl-zero\",\"model\":\"gpt-4o\",\"choices\":[],\"usage\":{\"prompt_tokens\":0,\"completion_tokens\":0,\"total_tokens\":0}}\n\n" +
+		"data: [DONE]\n"
+
+	resp, _ := parseOpenAIStream(strings.NewReader(stream))
+
+	input, inputReported := resp.Usage.InputTokenCount()
+	output, outputReported := resp.Usage.OutputTokenCount()
+	assert.True(t, inputReported)
+	assert.True(t, outputReported)
+	assert.Zero(t, input)
+	assert.Zero(t, output)
 }
 
 func TestParseOpenAIStream_InputOutputTokens(t *testing.T) {

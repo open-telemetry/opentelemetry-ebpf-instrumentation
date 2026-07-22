@@ -30,6 +30,27 @@ through language-specific library instrumentation documented later in this file.
 | SQL++         |    All    |         All | All                                                                                      |  Yes   |                 No |                                                                                                                             N/A
 | GenAI         |    All    |         All | All                                                                                      |  Yes   |                 No |                                                   Supported vendors: OpenAI, Anthropic, Google AI Studio (Gemini), AWS Bedrock, Qwen (DashScope), generic embedding providers (Voyage AI, Cohere, Jina AI), Cohere (Rerank), Jina AI (Rerank), Voyage AI (Rerank), Qwen (DashScope) (Rerank), Ollama (native /api/chat and /api/generate), OpenAI-compatible gateways (LiteLLM, vLLM, LocalAI, OpenRouter, Ollama /v1/), vector retrieval (Pinecone, Qdrant, Milvus, Zilliz, Chroma, Weaviate)
 
+## GenAI token usage availability
+
+OBI exports GenAI token usage only when the provider response reports the
+corresponding count. A reported value of zero is preserved; a missing count is
+omitted from traces and metrics. Streaming responses expose token usage only
+when the captured stream includes the provider's usage event or final usage
+chunk.
+
+| Provider or operation | Input token source | Output token source | Availability notes |
+|:----------------------|:-------------------|:--------------------|:-------------------|
+| OpenAI and OpenAI-compatible APIs | `input_tokens` or `prompt_tokens` | `output_tokens` or `completion_tokens` | Streaming APIs must return a usage chunk; for OpenAI this commonly requires usage-inclusive stream options. |
+| Qwen (DashScope) | `input_tokens` or `prompt_tokens` | `output_tokens` or `completion_tokens` | Supports native and OpenAI-compatible response field names. |
+| Anthropic | `input_tokens` plus reported cache read and cache creation tokens | `output_tokens` | Supports buffered responses and usage fields in SSE message events. |
+| Google AI Studio (Gemini) | `promptTokenCount` | `candidatesTokenCount` | Read from `usageMetadata` in buffered responses or stream chunks. |
+| AWS Bedrock | `X-Amzn-Bedrock-Input-Token-Count` response header | `X-Amzn-Bedrock-Output-Token-Count` response header | Token counts are unavailable when these headers are absent, including many error responses. |
+| Ollama native API | `prompt_eval_count` | `eval_count` | For NDJSON streams, counts are normally present only on the final `done` object. |
+| Embeddings | `prompt_tokens`, `total_tokens`, or Cohere `meta.billed_units.input_tokens` | Not reported | Only input token usage is exported. |
+| Rerank | `usage.total_tokens`, `usage.prompt_tokens`, or `meta.tokens.input_tokens` | Not reported | Only input token usage is exported. |
+| Vector retrieval | `usage.prompt_tokens` or `usage.total_tokens` | Not reported | Most vector stores do not return token usage; it is exported when present. |
+| MCP | Not reported | Not reported | MCP spans do not currently expose token usage. |
+
 ## Go Instrumentation
 
 Specifically for Go applications, OBI chooses to instrument libraries directly using Uprobes, instead of instrumenting

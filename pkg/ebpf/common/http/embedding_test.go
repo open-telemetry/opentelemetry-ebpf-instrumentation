@@ -111,6 +111,18 @@ func TestEmbeddingSpan_JinaAI(t *testing.T) {
 	assert.Equal(t, 1, ai.Input.InputCount())
 }
 
+func TestEmbeddingSpan_ExplicitZeroUsage(t *testing.T) {
+	req := makeRequest(t, http.MethodPost, "https://api.voyageai.com/v1/embeddings", voyageRequestBody)
+	resp := makePlainResponse(http.StatusOK, http.Header{"Content-Type": []string{"application/json"}},
+		`{"model":"voyage-3","usage":{"total_tokens":0}}`)
+
+	span, ok := EmbeddingSpan(&request.Span{}, req, resp)
+	require.True(t, ok)
+	assert.True(t, span.HasGenAIInputTokens())
+	assert.Zero(t, span.GenAIInputTokens())
+	assert.False(t, span.HasGenAIOutputTokens())
+}
+
 func TestEmbeddingSpan_NotEmbeddingProvider(t *testing.T) {
 	req := makeRequest(t, http.MethodPost, "http://example.com/api", `{"query":"hello"}`)
 	resp := makePlainResponse(http.StatusOK, http.Header{

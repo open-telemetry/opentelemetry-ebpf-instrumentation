@@ -310,13 +310,18 @@ type OpenAIPromptTokensDetails struct {
 }
 
 type OpenAIUsage struct {
-	InputTokens         int                        `json:"input_tokens"`
-	OutputTokens        int                        `json:"output_tokens"`
-	TotalTokens         int                        `json:"total_tokens"`
-	PromptTokens        int                        `json:"prompt_tokens"`
-	CompletionTokens    int                        `json:"completion_tokens"`
-	CompletionDetails   *OpenAICompletionDetails   `json:"completion_tokens_details,omitempty"`
-	PromptTokensDetails *OpenAIPromptTokensDetails `json:"prompt_tokens_details,omitempty"`
+	InputTokens              int                        `json:"input_tokens"`
+	OutputTokens             int                        `json:"output_tokens"`
+	TotalTokens              int                        `json:"total_tokens"`
+	PromptTokens             int                        `json:"prompt_tokens"`
+	CompletionTokens         int                        `json:"completion_tokens"`
+	CompletionDetails        *OpenAICompletionDetails   `json:"completion_tokens_details,omitempty"`
+	PromptTokensDetails      *OpenAIPromptTokensDetails `json:"prompt_tokens_details,omitempty"`
+	inputTokensReported      bool
+	outputTokensReported     bool
+	totalTokensReported      bool
+	promptTokensReported     bool
+	completionTokensReported bool
 }
 
 type OpenAICompletionDetails struct {
@@ -324,28 +329,17 @@ type OpenAICompletionDetails struct {
 }
 
 func (u *OpenAIUsage) GetInputTokens() int {
-	if u.InputTokens > 0 {
-		return u.InputTokens
-	}
-
-	return u.PromptTokens
+	tokens, _ := u.InputTokenCount()
+	return tokens
 }
 
 func (u *OpenAIUsage) GetOutputTokens() int {
-	if u.OutputTokens > 0 {
-		return u.OutputTokens
+	if tokens, reported := u.OutputTokenCount(); reported {
+		return tokens
 	}
-
-	if u.CompletionTokens > 0 {
-		return u.CompletionTokens
-	}
-
-	// Embedding responses only report prompt_tokens and total_tokens.
-	// Derive output tokens from the difference.
 	if u.TotalTokens > 0 && u.PromptTokens > 0 {
 		return u.TotalTokens - u.PromptTokens
 	}
-
 	return 0
 }
 
@@ -513,6 +507,10 @@ type AnthropicUsage struct {
 	ReasoningOutputTokens    int    `json:"reasoning_output_tokens,omitempty"`
 	ServiceTier              string `json:"service_tier"`
 	InferenceGeo             string `json:"inference_geo"`
+	inputTokensReported      bool
+	outputTokensReported     bool
+	cacheCreationReported    bool
+	cacheReadReported        bool
 }
 
 type AnthropicError struct {
@@ -575,9 +573,12 @@ type GeminiCandidate struct {
 }
 
 type GeminiUsage struct {
-	PromptTokenCount     int `json:"promptTokenCount"`
-	CandidatesTokenCount int `json:"candidatesTokenCount"`
-	TotalTokenCount      int `json:"totalTokenCount"`
+	PromptTokenCount        int `json:"promptTokenCount"`
+	CandidatesTokenCount    int `json:"candidatesTokenCount"`
+	TotalTokenCount         int `json:"totalTokenCount"`
+	promptTokensReported    bool
+	candidateTokensReported bool
+	totalTokensReported     bool
 }
 
 type GeminiError struct {
@@ -680,8 +681,10 @@ type BedrockResponse struct {
 	ErrorType    string `json:"__type,omitempty"`
 	ErrorMessage string `json:"message,omitempty"`
 	// Token counts extracted from response headers (not JSON-unmarshalled, set programmatically)
-	InputTokens  int `json:"-"`
-	OutputTokens int `json:"-"`
+	InputTokens          int `json:"-"`
+	OutputTokens         int `json:"-"`
+	inputTokensReported  bool
+	outputTokensReported bool
 }
 
 type BedrockUsage struct {
@@ -852,8 +855,10 @@ type EmbeddingResponse struct {
 
 // EmbeddingUsage captures token usage in embedding responses.
 type EmbeddingUsage struct {
-	PromptTokens int `json:"prompt_tokens"`
-	TotalTokens  int `json:"total_tokens"`
+	PromptTokens         int `json:"prompt_tokens"`
+	TotalTokens          int `json:"total_tokens"`
+	promptTokensReported bool
+	totalTokensReported  bool
 }
 
 // CohereResponseMeta captures Cohere-specific response metadata.
@@ -863,30 +868,21 @@ type CohereResponseMeta struct {
 
 // CohereBilledUnits captures Cohere token billing information.
 type CohereBilledUnits struct {
-	InputTokens int `json:"input_tokens"`
+	InputTokens         int `json:"input_tokens"`
+	inputTokensReported bool
 }
 
 // GetInputTokens returns the input token count, handling provider-specific formats.
 func (e *VendorEmbedding) GetInputTokens() int {
-	if e.Output.Usage.PromptTokens > 0 {
-		return e.Output.Usage.PromptTokens
-	}
-	if e.Output.Usage.TotalTokens > 0 {
-		return e.Output.Usage.TotalTokens
-	}
-	if e.Output.Meta != nil && e.Output.Meta.BilledUnits != nil {
-		return e.Output.Meta.BilledUnits.InputTokens
-	}
-	return 0
+	tokens, _ := e.InputTokenCount()
+	return tokens
 }
 
 // GetOutputTokens returns the output token count for embedding requests,
 // derived as total_tokens - prompt_tokens.
 func (e *VendorEmbedding) GetOutputTokens() int {
-	if e.Output.Usage.TotalTokens > 0 && e.Output.Usage.PromptTokens > 0 {
-		return e.Output.Usage.TotalTokens - e.Output.Usage.PromptTokens
-	}
-	return 0
+	tokens, _ := e.OutputTokenCount()
+	return tokens
 }
 
 // VendorRerank holds parsed data from a rerank API request/response.
@@ -987,20 +983,21 @@ type RerankBilledUnits struct {
 }
 
 type RerankMetaTokens struct {
-	InputTokens int `json:"input_tokens"`
+	InputTokens         int `json:"input_tokens"`
+	inputTokensReported bool
 }
 
 type RerankUsage struct {
-	TotalTokens  int `json:"total_tokens"`
-	PromptTokens int `json:"prompt_tokens"`
-	SearchUnits  int `json:"search_units"`
+	TotalTokens          int `json:"total_tokens"`
+	PromptTokens         int `json:"prompt_tokens"`
+	SearchUnits          int `json:"search_units"`
+	totalTokensReported  bool
+	promptTokensReported bool
 }
 
 func (u *RerankUsage) GetInputTokens() int {
-	if u.PromptTokens > 0 {
-		return u.PromptTokens
-	}
-	return u.TotalTokens
+	tokens, _ := u.InputTokenCount()
+	return tokens
 }
 
 // GetTotalTokens returns the total token count from any supported response
@@ -1008,16 +1005,8 @@ func (u *RerankUsage) GetInputTokens() int {
 // usage.prompt_tokens, and finally falls back to meta.tokens.input_tokens
 // (Cohere).
 func (r *RerankResponse) GetTotalTokens() int {
-	if r.Usage.TotalTokens > 0 {
-		return r.Usage.TotalTokens
-	}
-	if r.Usage.PromptTokens > 0 {
-		return r.Usage.PromptTokens
-	}
-	if r.Meta != nil && r.Meta.Tokens != nil && r.Meta.Tokens.InputTokens > 0 {
-		return r.Meta.Tokens.InputTokens
-	}
-	return 0
+	tokens, _ := r.InputTokenCount()
+	return tokens
 }
 
 type RerankError struct {
@@ -1134,8 +1123,10 @@ type RetrievalResponse struct {
 // RetrievalUsage captures optional token usage information returned by
 // embedding-aware vector stores.
 type RetrievalUsage struct {
-	TotalTokens  int `json:"total_tokens,omitempty"`
-	PromptTokens int `json:"prompt_tokens,omitempty"`
+	TotalTokens          int `json:"total_tokens,omitempty"`
+	PromptTokens         int `json:"prompt_tokens,omitempty"`
+	totalTokensReported  bool
+	promptTokensReported bool
 }
 
 type SpanLink struct {
@@ -1147,10 +1138,8 @@ type SpanLink struct {
 // GetInputTokens returns the input token count, preferring prompt_tokens
 // and falling back to total_tokens. Returns zero when not reported.
 func (r *VendorRetrieval) GetInputTokens() int {
-	if r.Output.Usage.PromptTokens > 0 {
-		return r.Output.Usage.PromptTokens
-	}
-	return r.Output.Usage.TotalTokens
+	tokens, _ := r.InputTokenCount()
+	return tokens
 }
 
 // Span contains the information being submitted by the following nodes in the graph.
@@ -2183,187 +2172,115 @@ func (s *Span) HasOriginalHost() bool {
 }
 
 func (s *Span) GenAIInputTokens() int {
+	tokens, _ := s.genAIInputTokenCount()
+	return tokens
+}
+
+func (s *Span) genAIInputTokenCount() (int, bool) {
 	if s.GenAI == nil {
-		return 0
+		return 0, false
 	}
 
 	if s.GenAI.OpenAI != nil {
-		return s.GenAI.OpenAI.Usage.GetInputTokens()
+		return s.GenAI.OpenAI.Usage.InputTokenCount()
 	}
 
 	if s.GenAI.Anthropic != nil {
-		// Per Anthropic semconv: input_tokens excludes cached tokens.
-		// Total = input_tokens + cache_read + cache_creation.
-		u := s.GenAI.Anthropic.Output.Usage
-		return u.InputTokens + u.CacheReadInputTokens + u.CacheCreationInputTokens
+		return s.GenAI.Anthropic.Output.Usage.InputTokenCount()
 	}
 
 	if s.GenAI.Gemini != nil {
-		return s.GenAI.Gemini.Output.UsageMetadata.PromptTokenCount
+		return s.GenAI.Gemini.Output.UsageMetadata.InputTokenCount()
 	}
 
 	if s.GenAI.Qwen != nil {
-		return s.GenAI.Qwen.Usage.GetInputTokens()
+		return s.GenAI.Qwen.Usage.InputTokenCount()
 	}
 
 	if s.GenAI.Ollama != nil {
-		return s.GenAI.Ollama.Usage.GetInputTokens()
+		return s.GenAI.Ollama.Usage.InputTokenCount()
 	}
 
 	if s.GenAI.OpenAICompatible != nil {
-		return s.GenAI.OpenAICompatible.Usage.GetInputTokens()
+		return s.GenAI.OpenAICompatible.Usage.InputTokenCount()
 	}
 
 	if s.GenAI.Bedrock != nil {
-		return s.GenAI.Bedrock.Output.InputTokens
+		return s.GenAI.Bedrock.Output.InputTokenCount()
 	}
 
 	if s.GenAI.Embedding != nil {
-		return s.GenAI.Embedding.GetInputTokens()
+		return s.GenAI.Embedding.InputTokenCount()
 	}
 
 	if s.GenAI.Rerank != nil {
-		return s.GenAI.Rerank.Output.GetTotalTokens()
+		return s.GenAI.Rerank.Output.InputTokenCount()
 	}
 
 	if s.GenAI.Retrieval != nil {
-		return s.GenAI.Retrieval.GetInputTokens()
+		return s.GenAI.Retrieval.InputTokenCount()
 	}
 
-	return 0
+	return 0, false
 }
 
 // HasGenAIInputTokens returns true if the input token count is available
 // (i.e., was actually reported by the provider, not simply absent/unknown).
 func (s *Span) HasGenAIInputTokens() bool {
-	if s.GenAI == nil {
-		return false
-	}
-
-	if s.GenAI.OpenAI != nil {
-		return s.GenAI.OpenAI.Usage.GetInputTokens() > 0
-	}
-
-	if s.GenAI.Anthropic != nil {
-		u := s.GenAI.Anthropic.Output.Usage
-		return u.InputTokens > 0 || u.CacheReadInputTokens > 0 || u.CacheCreationInputTokens > 0
-	}
-
-	if s.GenAI.Gemini != nil {
-		return s.GenAI.Gemini.Output.UsageMetadata.PromptTokenCount > 0
-	}
-
-	if s.GenAI.Qwen != nil {
-		return s.GenAI.Qwen.Usage.GetInputTokens() > 0
-	}
-
-	if s.GenAI.Ollama != nil {
-		return s.GenAI.Ollama.Usage.GetInputTokens() > 0
-	}
-
-	if s.GenAI.OpenAICompatible != nil {
-		return s.GenAI.OpenAICompatible.Usage.GetInputTokens() > 0
-	}
-
-	if s.GenAI.Bedrock != nil {
-		return s.GenAI.Bedrock.Output.InputTokens > 0
-	}
-
-	if s.GenAI.Embedding != nil {
-		return s.GenAI.Embedding.GetInputTokens() > 0
-	}
-
-	if s.GenAI.Rerank != nil {
-		return s.GenAI.Rerank.Output.GetTotalTokens() > 0
-	}
-
-	if s.GenAI.Retrieval != nil {
-		return s.GenAI.Retrieval.GetInputTokens() > 0
-	}
-
-	return false
+	_, reported := s.genAIInputTokenCount()
+	return reported
 }
 
 // HasGenAIOutputTokens returns true if the output token count is available
 // (i.e., was actually reported by the provider, not simply absent/unknown).
 func (s *Span) HasGenAIOutputTokens() bool {
-	if s.GenAI == nil {
-		return false
-	}
-
-	if s.GenAI.OpenAI != nil {
-		return s.GenAI.OpenAI.Usage.GetOutputTokens() > 0
-	}
-
-	if s.GenAI.Anthropic != nil {
-		return s.GenAI.Anthropic.Output.Usage.OutputTokens > 0
-	}
-
-	if s.GenAI.Gemini != nil {
-		return s.GenAI.Gemini.Output.UsageMetadata.CandidatesTokenCount > 0
-	}
-
-	if s.GenAI.Qwen != nil {
-		return s.GenAI.Qwen.Usage.GetOutputTokens() > 0
-	}
-
-	if s.GenAI.Ollama != nil {
-		return s.GenAI.Ollama.Usage.GetOutputTokens() > 0
-	}
-
-	if s.GenAI.OpenAICompatible != nil {
-		return s.GenAI.OpenAICompatible.Usage.GetOutputTokens() > 0
-	}
-
-	if s.GenAI.Bedrock != nil {
-		return s.GenAI.Bedrock.Output.OutputTokens > 0
-	}
-
-	if s.GenAI.Embedding != nil {
-		return s.GenAI.Embedding.GetOutputTokens() > 0
-	}
-
-	return false
+	_, reported := s.genAIOutputTokenCount()
+	return reported
 }
 
 func (s *Span) GenAIOutputTokens() int {
+	tokens, _ := s.genAIOutputTokenCount()
+	return tokens
+}
+
+func (s *Span) genAIOutputTokenCount() (int, bool) {
 	if s.GenAI == nil {
-		return 0
+		return 0, false
 	}
 
 	if s.GenAI.OpenAI != nil {
-		return s.GenAI.OpenAI.Usage.GetOutputTokens()
+		return s.GenAI.OpenAI.Usage.OutputTokenCount()
 	}
 
 	if s.GenAI.Anthropic != nil {
-		return s.GenAI.Anthropic.Output.Usage.OutputTokens
+		return s.GenAI.Anthropic.Output.Usage.OutputTokenCount()
 	}
 
 	if s.GenAI.Gemini != nil {
-		return s.GenAI.Gemini.Output.UsageMetadata.CandidatesTokenCount
+		return s.GenAI.Gemini.Output.UsageMetadata.OutputTokenCount()
 	}
 
 	if s.GenAI.Qwen != nil {
-		return s.GenAI.Qwen.Usage.GetOutputTokens()
+		return s.GenAI.Qwen.Usage.OutputTokenCount()
 	}
 
 	if s.GenAI.Ollama != nil {
-		return s.GenAI.Ollama.Usage.GetOutputTokens()
+		return s.GenAI.Ollama.Usage.OutputTokenCount()
 	}
 
 	if s.GenAI.OpenAICompatible != nil {
-		return s.GenAI.OpenAICompatible.Usage.GetOutputTokens()
+		return s.GenAI.OpenAICompatible.Usage.OutputTokenCount()
 	}
 
 	if s.GenAI.Bedrock != nil {
-		return s.GenAI.Bedrock.Output.OutputTokens
+		return s.GenAI.Bedrock.Output.OutputTokenCount()
 	}
 
 	if s.GenAI.Embedding != nil {
-		return s.GenAI.Embedding.GetOutputTokens()
+		return 0, false
 	}
 
-	return 0
+	return 0, false
 }
 
 func (s *Span) GenAIOperationName() string {

@@ -55,6 +55,51 @@ func TestParseVendorOpenAI_truncated(t *testing.T) {
 	assert.Equal(t, "gpt-5-mini", parsed.ResponseModel)
 }
 
+func TestParseVendorOpenAI_TokenAvailabilityInTruncatedBody(t *testing.T) {
+	t.Run("complete usage before truncation", func(t *testing.T) {
+		body := []byte(`{"id":"resp_123","usage":{"prompt_tokens":0,"completion_tokens":0},"output":[`)
+		parsed := parseVendorOpenAI(body)
+
+		_, inputReported := parsed.Usage.InputTokenCount()
+		_, outputReported := parsed.Usage.OutputTokenCount()
+		assert.True(t, inputReported)
+		assert.True(t, outputReported)
+	})
+
+	t.Run("truncated usage", func(t *testing.T) {
+		body := []byte(`{"id":"resp_123","usage":{"prompt_tokens":`)
+		parsed := parseVendorOpenAI(body)
+
+		_, inputReported := parsed.Usage.InputTokenCount()
+		_, outputReported := parsed.Usage.OutputTokenCount()
+		assert.False(t, inputReported)
+		assert.False(t, outputReported)
+	})
+
+	t.Run("valid token before truncated token", func(t *testing.T) {
+		body := []byte(`{"id":"resp_123","usage":{"prompt_tokens":7,"completion_tokens":`)
+		parsed := parseVendorOpenAI(body)
+
+		input, inputReported := parsed.Usage.InputTokenCount()
+		_, outputReported := parsed.Usage.OutputTokenCount()
+		assert.True(t, inputReported)
+		assert.Equal(t, 7, input)
+		assert.False(t, outputReported)
+	})
+
+	t.Run("valid token alongside malformed token", func(t *testing.T) {
+		body := []byte(`{"id":"resp_123","usage":{"prompt_tokens":7,"completion_tokens":"unknown"},"model":"gpt-5-mini"}`)
+		parsed := parseVendorOpenAI(body)
+
+		input, inputReported := parsed.Usage.InputTokenCount()
+		_, outputReported := parsed.Usage.OutputTokenCount()
+		assert.True(t, inputReported)
+		assert.Equal(t, 7, input)
+		assert.False(t, outputReported)
+		assert.Equal(t, "gpt-5-mini", parsed.ResponseModel)
+	})
+}
+
 func TestParseAnthropicRequest_truncated(t *testing.T) {
 	body := []byte(`{"model":"claude-3-opus","messages":[{"role":"user","content":"hi"}`)
 	parsed := parseAnthropicRequest(body)
