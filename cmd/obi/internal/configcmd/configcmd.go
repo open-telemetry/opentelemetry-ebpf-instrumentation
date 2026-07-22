@@ -391,6 +391,7 @@ func formatPath(path yamlPath) string {
 
 func migrationAlias(path string) bool {
 	for _, prefix := range []string{
+		"discovery.excluded_linux_system_paths",
 		"executable_path",
 		"open_port",
 		"target_pids",

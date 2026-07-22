@@ -758,6 +758,31 @@ func TestRuntimeToV2EffectiveDiscoveryCriteria(t *testing.T) {
 		require.Equal(t, cfg.Port, value(t, ext.Capture.Rules[2].Match, "process", "open_ports"))
 		require.Equal(t, "^/srv/fallback$", value(t, ext.Capture.Rules[2].Match, "process", "exe_path_regex"))
 	})
+
+	t.Run("deprecated selectors preserve system path exclusions", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := defaultRuntimeConfig()
+		cfg.Discovery.Services = services.RegexDefinitionCriteria{
+			{Path: services.NewRegexp("^/srv/api$")},
+		}
+		cfg.Discovery.ExcludedLinuxSystemPaths = []string{"/opt/system+services/"}
+
+		_, ext := RuntimeToV2(&cfg)
+
+		var systemPathRule *schema.Rule
+		for i := range ext.Capture.Rules {
+			if ext.Capture.Rules[i].Name == "exclude-linux-system-paths" {
+				systemPathRule = &ext.Capture.Rules[i]
+				break
+			}
+		}
+		require.NotNil(t, systemPathRule)
+		require.Empty(t, systemPathRule.Match.Process.ExePathGlob)
+		require.Equal(t, `^/opt/system\+services/`, systemPathRule.Match.Process.ExePathRegex)
+		_, err := V2ToRuntime(ext)
+		require.NoError(t, err)
+	})
 }
 
 func TestRuntimeToV2MetricInstrumentationsUseEnabledExporters(t *testing.T) {

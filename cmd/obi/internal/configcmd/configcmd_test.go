@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -285,6 +286,43 @@ metrics:
 	require.NoError(t, err)
 	require.False(t, runtimeConfig.Enabled(obi.FeatureAppO11y))
 	require.True(t, runtimeConfig.Enabled(obi.FeatureNetO11y))
+}
+
+func TestMigrateConfigSupportsDeprecatedServiceSelectors(t *testing.T) {
+	originalLogger := slog.Default()
+	var logs bytes.Buffer
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	t.Cleanup(func() {
+		slog.SetDefault(originalLogger)
+	})
+
+	output, report, err := migrateConfig([]byte(`
+discovery:
+  services:
+    - exe_path: "^/srv/api$"
+  excluded_linux_system_paths: ["/opt/system+services/"]
+otel_traces_export:
+  endpoint: http://collector:4318
+`))
+	require.NoError(t, err)
+	require.Empty(t, logs.String())
+	require.Contains(t, report, "capture.rules")
+
+	doc, _, err := schema.ParseStandaloneYAML(output)
+	require.NoError(t, err)
+	runtimeConfig, err := convert.DocumentToRuntime(doc)
+	require.NoError(t, err)
+	require.Len(t, runtimeConfig.Discovery.Services, 1)
+	require.True(t, runtimeConfig.Discovery.Services[0].Path.MatchString("/srv/api"))
+
+	var excludesSystemPath bool
+	for _, selector := range runtimeConfig.Discovery.ExcludeServices {
+		if selector.Path.MatchString("/opt/system+services/daemon") {
+			excludesSystemPath = true
+			break
+		}
+	}
+	require.True(t, excludesSystemPath)
 }
 
 func TestMigrateIntegrationConfigurations(t *testing.T) {

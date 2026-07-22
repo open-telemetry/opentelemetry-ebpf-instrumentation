@@ -4,6 +4,7 @@
 package convert // import "go.opentelemetry.io/obi/internal/config/convert"
 
 import (
+	"regexp"
 	"strings"
 
 	"go.opentelemetry.io/obi/internal/config/schema"
@@ -232,7 +233,8 @@ func statsEnrichment(cfg *obi.Config) schema.NetworkEnrichment {
 
 func rulesFromRuntime(cfg *obi.Config) []schema.Rule {
 	rules := []schema.Rule{}
-	if discover.OnlyDefinesDeprecatedServiceSelection(cfg) {
+	deprecatedServiceSelection := discover.OnlyDefinesDeprecatedServiceSelection(cfg)
+	if deprecatedServiceSelection {
 		rules = appendSelectorRules(rules, schema.CaptureActionExclude, discover.RegexAsSelector(cfg.Discovery.ExcludeServices), nil)
 		rules = appendSelectorRules(rules, schema.CaptureActionExclude, discover.RegexAsSelector(cfg.Discovery.DefaultExcludeServices), defaultExcludeRule)
 	} else {
@@ -257,18 +259,26 @@ func rulesFromRuntime(cfg *obi.Config) []schema.Rule {
 	}
 
 	if len(cfg.Discovery.ExcludedLinuxSystemPaths) > 0 {
-		globs := make([]string, 0, len(cfg.Discovery.ExcludedLinuxSystemPaths))
-		for _, path := range cfg.Discovery.ExcludedLinuxSystemPaths {
-			globs = append(globs, strings.TrimRight(path, "/")+"/*")
+		processMatch := schema.RuleProcessMatch{}
+		if deprecatedServiceSelection {
+			patterns := make([]string, 0, len(cfg.Discovery.ExcludedLinuxSystemPaths))
+			for _, path := range cfg.Discovery.ExcludedLinuxSystemPaths {
+				patterns = append(patterns, "^"+regexp.QuoteMeta(strings.TrimRight(path, "/")+"/"))
+			}
+			processMatch.ExePathRegex = strings.Join(patterns, "|")
+		} else {
+			globs := make([]string, 0, len(cfg.Discovery.ExcludedLinuxSystemPaths))
+			for _, path := range cfg.Discovery.ExcludedLinuxSystemPaths {
+				globs = append(globs, strings.TrimRight(path, "/")+"/*")
+			}
+			processMatch.ExePathGlob = globs
 		}
 		rules = append(rules, schema.Rule{
 			Action:      schema.CaptureActionExclude,
 			Name:        "exclude-linux-system-paths",
 			Description: "Exclude Linux system/service executable paths that are not typical application workloads.",
 			Match: schema.RuleMatch{
-				Process: schema.RuleProcessMatch{
-					ExePathGlob: globs,
-				},
+				Process: processMatch,
 			},
 		})
 	}
