@@ -163,8 +163,8 @@ func TestAnthropicSpan_JSONResponse(t *testing.T) {
 	assert.Equal(t, "message", span.GenAI.Anthropic.Output.Type)
 	assert.Equal(t, "assistant", span.GenAI.Anthropic.Output.Role)
 	assert.Equal(t, "end_turn", span.GenAI.Anthropic.Output.StopReason)
-	assert.Equal(t, 15, span.GenAI.Anthropic.Output.Usage.InputTokens)
-	assert.Equal(t, 35, span.GenAI.Anthropic.Output.Usage.OutputTokens)
+	assert.Equal(t, 15, span.GenAI.Anthropic.Output.Usage.InputTokens.Value())
+	assert.Equal(t, 35, span.GenAI.Anthropic.Output.Usage.OutputTokens.Value())
 	assert.JSONEq(t, `[{"type":"text","text":"Quantum computing uses quantum mechanical phenomena like superposition and entanglement to process information."}]`, string(span.GenAI.Anthropic.Output.Content))
 }
 
@@ -194,8 +194,8 @@ func TestAnthropicSpan_StreamingResponse(t *testing.T) {
 	assert.Equal(t, "assistant", span.GenAI.Anthropic.Output.Role)
 	assert.Equal(t, "message", span.GenAI.Anthropic.Output.Type)
 	assert.Equal(t, "end_turn", span.GenAI.Anthropic.Output.StopReason)
-	assert.Equal(t, 17, span.GenAI.Anthropic.Output.Usage.InputTokens)
-	assert.Equal(t, 37, span.GenAI.Anthropic.Output.Usage.OutputTokens)
+	assert.Equal(t, 17, span.GenAI.Anthropic.Output.Usage.InputTokens.Value())
+	assert.Equal(t, 37, span.GenAI.Anthropic.Output.Usage.OutputTokens.Value())
 	assert.Equal(t, "With elegant syntax and indentation true,\nPython turns complex problems into something you can do.", string(span.GenAI.Anthropic.Output.Content))
 }
 
@@ -226,9 +226,9 @@ data: {"type":"message_stop"}
 	assert.Equal(t, "message", resp.Type)
 	assert.Equal(t, "assistant", resp.Role)
 	assert.Equal(t, "end_turn", resp.StopReason)
-	assert.Equal(t, 11, resp.Usage.InputTokens)
-	assert.Equal(t, 3, resp.Usage.CacheReadInputTokens)
-	assert.Equal(t, 13, resp.Usage.OutputTokens)
+	assert.Equal(t, 11, resp.Usage.InputTokens.Value())
+	assert.Equal(t, 3, resp.Usage.CacheReadInputTokens.Value())
+	assert.Equal(t, 13, resp.Usage.OutputTokens.Value())
 	assert.Equal(t, "hello", string(resp.Content))
 }
 

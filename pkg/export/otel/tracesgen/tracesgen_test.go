@@ -411,9 +411,9 @@ func TestTraceAttributesSelector_OpenAICompatible(t *testing.T) {
 						Model: "gpt-4o-mini",
 					},
 					Usage: request.OpenAIUsage{
-						PromptTokens:     10,
-						CompletionTokens: 8,
-						TotalTokens:      18,
+						PromptTokens:     request.NewTokenCount(10),
+						CompletionTokens: request.NewTokenCount(8),
+						TotalTokens:      request.NewTokenCount(18),
 					},
 					Choices: []byte(`[{"index":0,"message":{"role":"assistant","content":"Hello!"},"finish_reason":"stop"}]`),
 				},
@@ -493,8 +493,8 @@ func TestTraceAttributesSelector_OpenAICompatible(t *testing.T) {
 						Dimensions: 256,
 					},
 					Usage: request.OpenAIUsage{
-						PromptTokens: 5,
-						TotalTokens:  5,
+						PromptTokens: request.NewTokenCount(5),
+						TotalTokens:  request.NewTokenCount(5),
 					},
 					Data: []byte(`[{"object":"embedding","embedding":[0.1,0.2],"index":0}]`),
 				},

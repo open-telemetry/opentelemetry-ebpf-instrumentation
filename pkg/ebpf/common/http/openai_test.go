@@ -248,12 +248,19 @@ func TestOpenAISpan_MalformedResponseBody(t *testing.T) {
 
 func TestOpenAISpan_UsageTokenHelpers(t *testing.T) {
 	// /v1/responses uses input_tokens / output_tokens
-	u := request.OpenAIUsage{InputTokens: 10, OutputTokens: 20, TotalTokens: 30}
+	u := request.OpenAIUsage{
+		InputTokens:  request.NewTokenCount(10),
+		OutputTokens: request.NewTokenCount(20),
+		TotalTokens:  request.NewTokenCount(30),
+	}
 	assert.Equal(t, 10, u.GetInputTokens())
 	assert.Equal(t, 20, u.GetOutputTokens())
 
 	// /v1/chat/completions uses prompt_tokens / completion_tokens
-	u2 := request.OpenAIUsage{PromptTokens: 5, CompletionTokens: 15}
+	u2 := request.OpenAIUsage{
+		PromptTokens:     request.NewTokenCount(5),
+		CompletionTokens: request.NewTokenCount(15),
+	}
 	assert.Equal(t, 5, u2.GetInputTokens())
 	assert.Equal(t, 15, u2.GetOutputTokens())
 }

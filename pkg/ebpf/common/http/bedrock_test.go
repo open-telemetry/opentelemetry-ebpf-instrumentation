@@ -95,8 +95,8 @@ func TestBedrockSpan_Claude(t *testing.T) {
 	ai := span.GenAI.Bedrock
 	assert.Equal(t, request.HTTPSubtypeAWSBedrock, span.SubType)
 	assert.Equal(t, "anthropic.claude-3-5-sonnet-20241022-v1:0", ai.Model)
-	assert.Equal(t, 25, ai.Output.InputTokens)
-	assert.Equal(t, 18, ai.Output.OutputTokens)
+	assert.Equal(t, 25, ai.Output.InputTokens.Value())
+	assert.Equal(t, 18, ai.Output.OutputTokens.Value())
 	assert.Equal(t, "end_turn", ai.Output.StopReason)
 	assert.NotEmpty(t, ai.GetInput())
 	assert.NotEmpty(t, ai.GetOutput())
@@ -122,8 +122,8 @@ func TestBedrockSpan_Titan(t *testing.T) {
 
 	ai := span.GenAI.Bedrock
 	assert.Equal(t, "amazon.titan-text-premier-v1:0", ai.Model)
-	assert.Equal(t, 8, ai.Output.InputTokens)
-	assert.Equal(t, 6, ai.Output.OutputTokens)
+	assert.Equal(t, 8, ai.Output.InputTokens.Value())
+	assert.Equal(t, 6, ai.Output.OutputTokens.Value())
 	assert.JSONEq(t, `[{"role":"user","parts":[{"type":"text","content":"Explain eBPF briefly."}]}]`, ai.GetInput())
 	assert.JSONEq(t, `[{"role":"assistant","parts":[{"type":"text","content":"eBPF is a kernel technology."}],"finish_reason":"FINISH"}]`, ai.GetOutput())
 }
@@ -146,8 +146,8 @@ func TestBedrockSpan_Llama(t *testing.T) {
 
 	ai := span.GenAI.Bedrock
 	assert.Equal(t, "meta.llama3-1-70b-instruct-v1:0", ai.Model)
-	assert.Equal(t, 10, ai.Output.InputTokens)
-	assert.Equal(t, 8, ai.Output.OutputTokens)
+	assert.Equal(t, 10, ai.Output.InputTokens.Value())
+	assert.Equal(t, 8, ai.Output.OutputTokens.Value())
 	assert.JSONEq(t, `[{"role":"user","parts":[{"type":"text","content":"Explain eBPF briefly."}]}]`, ai.GetInput())
 	assert.JSONEq(t, `[{"role":"assistant","parts":[{"type":"text","content":"eBPF enables safe kernel-level programs."}],"finish_reason":"stop"}]`, ai.GetOutput())
 }
@@ -168,8 +168,8 @@ func TestBedrockSpan_ErrorResponse(t *testing.T) {
 
 	ai := span.GenAI.Bedrock
 	assert.Equal(t, "anthropic.claude-nonexistent", ai.Model)
-	assert.Equal(t, 0, ai.Output.InputTokens)
-	assert.Equal(t, 0, ai.Output.OutputTokens)
+	assert.Equal(t, 0, ai.Output.InputTokens.Value())
+	assert.Equal(t, 0, ai.Output.OutputTokens.Value())
 	assert.Equal(t, "ValidationException", ai.Output.ErrorType)
 	assert.NotEmpty(t, ai.Output.ErrorMessage)
 	assert.False(t, span.HasGenAIInputTokens())

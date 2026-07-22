@@ -22,9 +22,9 @@ func TestParseGeminiStream_CompleteResponse(t *testing.T) {
 	require.NotNil(t, resp)
 	assert.Equal(t, "gemini-2.0-flash", resp.ModelVersion)
 	assert.Equal(t, "resp_abc", resp.ResponseID)
-	assert.Equal(t, 10, resp.UsageMetadata.PromptTokenCount)
-	assert.Equal(t, 5, resp.UsageMetadata.CandidatesTokenCount)
-	assert.Equal(t, 15, resp.UsageMetadata.TotalTokenCount)
+	assert.Equal(t, 10, resp.UsageMetadata.PromptTokenCount.Value())
+	assert.Equal(t, 5, resp.UsageMetadata.CandidatesTokenCount.Value())
+	assert.Equal(t, 15, resp.UsageMetadata.TotalTokenCount.Value())
 	assert.Empty(t, toolCalls)
 
 	require.Len(t, resp.Candidates, 1)
@@ -47,7 +47,7 @@ func TestParseGeminiStream_TruncatedNoUsage(t *testing.T) {
 
 	require.NotNil(t, resp)
 	assert.Equal(t, "gemini-2.0-flash", resp.ModelVersion)
-	assert.Equal(t, 0, resp.UsageMetadata.TotalTokenCount)
+	assert.Equal(t, 0, resp.UsageMetadata.TotalTokenCount.Value())
 	_, inputReported := resp.UsageMetadata.InputTokenCount()
 	_, outputReported := resp.UsageMetadata.OutputTokenCount()
 	assert.False(t, inputReported)
@@ -83,7 +83,7 @@ func TestParseGeminiStream_EmptyStream(t *testing.T) {
 	require.NotNil(t, resp)
 	assert.Empty(t, resp.ModelVersion)
 	assert.Empty(t, resp.ResponseID)
-	assert.Equal(t, 0, resp.UsageMetadata.TotalTokenCount)
+	assert.Equal(t, 0, resp.UsageMetadata.TotalTokenCount.Value())
 	assert.Empty(t, resp.Candidates)
 	assert.Empty(t, toolCalls)
 }
@@ -113,7 +113,7 @@ func TestParseGeminiStream_MultipleCandidates(t *testing.T) {
 
 	require.NotNil(t, resp)
 	assert.Equal(t, "resp_mc", resp.ResponseID)
-	assert.Equal(t, 12, resp.UsageMetadata.PromptTokenCount)
+	assert.Equal(t, 12, resp.UsageMetadata.PromptTokenCount.Value())
 	assert.Empty(t, toolCalls)
 
 	require.Len(t, resp.Candidates, 2)
@@ -169,8 +169,8 @@ func TestParseGeminiStream_PartialUsageMetadata(t *testing.T) {
 	resp, _ := parseGeminiStream(strings.NewReader(stream))
 
 	require.NotNil(t, resp)
-	assert.Equal(t, 7, resp.UsageMetadata.PromptTokenCount)
-	assert.Equal(t, 0, resp.UsageMetadata.CandidatesTokenCount)
+	assert.Equal(t, 7, resp.UsageMetadata.PromptTokenCount.Value())
+	assert.Equal(t, 0, resp.UsageMetadata.CandidatesTokenCount.Value())
 	_, outputReported := resp.UsageMetadata.OutputTokenCount()
 	assert.True(t, outputReported)
 }
@@ -197,7 +197,7 @@ func TestParseGeminiStream_DataPrefixWithoutSpace(t *testing.T) {
 	require.NotNil(t, resp)
 	assert.Equal(t, "gemini-2.0-flash", resp.ModelVersion)
 	assert.Equal(t, "resp_ns", resp.ResponseID)
-	assert.Equal(t, 5, resp.UsageMetadata.TotalTokenCount)
+	assert.Equal(t, 5, resp.UsageMetadata.TotalTokenCount.Value())
 	assert.Empty(t, toolCalls)
 
 	require.Len(t, resp.Candidates, 1)

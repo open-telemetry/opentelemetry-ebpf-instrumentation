@@ -25,14 +25,14 @@ func TestHasGenAIInputTokens(t *testing.T) {
 		{
 			name: "OpenAI with PromptTokens > 0",
 			span: &Span{GenAI: &GenAI{
-				OpenAI: &VendorOpenAI{Usage: OpenAIUsage{PromptTokens: 100}},
+				OpenAI: &VendorOpenAI{Usage: OpenAIUsage{PromptTokens: NewTokenCount(100)}},
 			}},
 			want: true,
 		},
 		{
 			name: "OpenAI with InputTokens > 0",
 			span: &Span{GenAI: &GenAI{
-				OpenAI: &VendorOpenAI{Usage: OpenAIUsage{InputTokens: 50}},
+				OpenAI: &VendorOpenAI{Usage: OpenAIUsage{InputTokens: NewTokenCount(50)}},
 			}},
 			want: true,
 		},
@@ -48,7 +48,7 @@ func TestHasGenAIInputTokens(t *testing.T) {
 			span: &Span{GenAI: &GenAI{
 				Anthropic: &VendorAnthropic{
 					Output: AnthropicResponse{
-						Usage: AnthropicUsage{InputTokens: 200},
+						Usage: AnthropicUsage{InputTokens: NewTokenCount(200)},
 					},
 				},
 			}},
@@ -59,7 +59,7 @@ func TestHasGenAIInputTokens(t *testing.T) {
 			span: &Span{GenAI: &GenAI{
 				Anthropic: &VendorAnthropic{
 					Output: AnthropicResponse{
-						Usage: AnthropicUsage{CacheReadInputTokens: 50},
+						Usage: AnthropicUsage{CacheReadInputTokens: NewTokenCount(50)},
 					},
 				},
 			}},
@@ -70,7 +70,7 @@ func TestHasGenAIInputTokens(t *testing.T) {
 			span: &Span{GenAI: &GenAI{
 				Gemini: &VendorGemini{
 					Output: GeminiResponse{
-						UsageMetadata: GeminiUsage{PromptTokenCount: 150},
+						UsageMetadata: GeminiUsage{PromptTokenCount: NewTokenCount(150)},
 					},
 				},
 			}},
@@ -91,7 +91,7 @@ func TestHasGenAIInputTokens(t *testing.T) {
 			name: "Bedrock with InputTokens > 0",
 			span: &Span{GenAI: &GenAI{
 				Bedrock: &VendorBedrock{
-					Output: BedrockResponse{InputTokens: 300},
+					Output: BedrockResponse{InputTokens: NewTokenCount(300)},
 				},
 			}},
 			want: true,
@@ -110,7 +110,7 @@ func TestHasGenAIInputTokens(t *testing.T) {
 			span: &Span{GenAI: &GenAI{
 				Embedding: &VendorEmbedding{
 					Output: EmbeddingResponse{
-						Usage: EmbeddingUsage{TotalTokens: 500},
+						Usage: EmbeddingUsage{TotalTokens: NewTokenCount(500)},
 					},
 				},
 			}},
@@ -132,7 +132,7 @@ func TestHasGenAIInputTokens(t *testing.T) {
 			span: &Span{GenAI: &GenAI{
 				Rerank: &VendorRerank{
 					Output: RerankResponse{
-						Usage: RerankUsage{TotalTokens: 120},
+						Usage: RerankUsage{TotalTokens: NewTokenCount(120)},
 					},
 				},
 			}},
@@ -141,21 +141,21 @@ func TestHasGenAIInputTokens(t *testing.T) {
 		{
 			name: "Qwen with PromptTokens > 0",
 			span: &Span{GenAI: &GenAI{
-				Qwen: &VendorOpenAI{Usage: OpenAIUsage{PromptTokens: 80}},
+				Qwen: &VendorOpenAI{Usage: OpenAIUsage{PromptTokens: NewTokenCount(80)}},
 			}},
 			want: true,
 		},
 		{
 			name: "Ollama with InputTokens > 0",
 			span: &Span{GenAI: &GenAI{
-				Ollama: &VendorOpenAI{Usage: OpenAIUsage{InputTokens: 60}},
+				Ollama: &VendorOpenAI{Usage: OpenAIUsage{InputTokens: NewTokenCount(60)}},
 			}},
 			want: true,
 		},
 		{
 			name: "OpenAICompatible with PromptTokens > 0",
 			span: &Span{GenAI: &GenAI{
-				OpenAICompatible: &VendorOpenAI{Usage: OpenAIUsage{PromptTokens: 90}},
+				OpenAICompatible: &VendorOpenAI{Usage: OpenAIUsage{PromptTokens: NewTokenCount(90)}},
 			}},
 			want: true,
 		},
@@ -164,7 +164,7 @@ func TestHasGenAIInputTokens(t *testing.T) {
 			span: &Span{GenAI: &GenAI{
 				Retrieval: &VendorRetrieval{
 					Output: RetrievalResponse{
-						Usage: RetrievalUsage{TotalTokens: 45},
+						Usage: RetrievalUsage{TotalTokens: NewTokenCount(45)},
 					},
 				},
 			}},
@@ -193,14 +193,14 @@ func TestHasGenAIOutputTokens(t *testing.T) {
 		{
 			name: "OpenAI with CompletionTokens > 0",
 			span: &Span{GenAI: &GenAI{
-				OpenAI: &VendorOpenAI{Usage: OpenAIUsage{CompletionTokens: 200}},
+				OpenAI: &VendorOpenAI{Usage: OpenAIUsage{CompletionTokens: NewTokenCount(200)}},
 			}},
 			want: true,
 		},
 		{
 			name: "OpenAI with OutputTokens > 0",
 			span: &Span{GenAI: &GenAI{
-				OpenAI: &VendorOpenAI{Usage: OpenAIUsage{OutputTokens: 150}},
+				OpenAI: &VendorOpenAI{Usage: OpenAIUsage{OutputTokens: NewTokenCount(150)}},
 			}},
 			want: true,
 		},
@@ -216,7 +216,7 @@ func TestHasGenAIOutputTokens(t *testing.T) {
 			span: &Span{GenAI: &GenAI{
 				Anthropic: &VendorAnthropic{
 					Output: AnthropicResponse{
-						Usage: AnthropicUsage{OutputTokens: 100},
+						Usage: AnthropicUsage{OutputTokens: NewTokenCount(100)},
 					},
 				},
 			}},
@@ -227,7 +227,7 @@ func TestHasGenAIOutputTokens(t *testing.T) {
 			span: &Span{GenAI: &GenAI{
 				Anthropic: &VendorAnthropic{
 					Output: AnthropicResponse{
-						Usage: AnthropicUsage{InputTokens: 200, OutputTokens: 0},
+						Usage: AnthropicUsage{InputTokens: NewTokenCount(200)},
 					},
 				},
 			}},
@@ -238,7 +238,7 @@ func TestHasGenAIOutputTokens(t *testing.T) {
 			span: &Span{GenAI: &GenAI{
 				Gemini: &VendorGemini{
 					Output: GeminiResponse{
-						UsageMetadata: GeminiUsage{CandidatesTokenCount: 80},
+						UsageMetadata: GeminiUsage{CandidatesTokenCount: NewTokenCount(80)},
 					},
 				},
 			}},
@@ -248,7 +248,7 @@ func TestHasGenAIOutputTokens(t *testing.T) {
 			name: "Bedrock with OutputTokens > 0",
 			span: &Span{GenAI: &GenAI{
 				Bedrock: &VendorBedrock{
-					Output: BedrockResponse{OutputTokens: 250},
+					Output: BedrockResponse{OutputTokens: NewTokenCount(250)},
 				},
 			}},
 			want: true,
@@ -257,7 +257,7 @@ func TestHasGenAIOutputTokens(t *testing.T) {
 			name: "Bedrock only input, no output",
 			span: &Span{GenAI: &GenAI{
 				Bedrock: &VendorBedrock{
-					Output: BedrockResponse{InputTokens: 100, OutputTokens: 0},
+					Output: BedrockResponse{InputTokens: NewTokenCount(100)},
 				},
 			}},
 			want: false,
@@ -267,7 +267,7 @@ func TestHasGenAIOutputTokens(t *testing.T) {
 			span: &Span{GenAI: &GenAI{
 				Embedding: &VendorEmbedding{
 					Output: EmbeddingResponse{
-						Usage: EmbeddingUsage{TotalTokens: 500, PromptTokens: 500},
+						Usage: EmbeddingUsage{TotalTokens: NewTokenCount(500), PromptTokens: NewTokenCount(500)},
 					},
 				},
 			}},
@@ -276,21 +276,21 @@ func TestHasGenAIOutputTokens(t *testing.T) {
 		{
 			name: "Qwen with CompletionTokens > 0",
 			span: &Span{GenAI: &GenAI{
-				Qwen: &VendorOpenAI{Usage: OpenAIUsage{CompletionTokens: 70}},
+				Qwen: &VendorOpenAI{Usage: OpenAIUsage{CompletionTokens: NewTokenCount(70)}},
 			}},
 			want: true,
 		},
 		{
 			name: "Ollama with OutputTokens > 0",
 			span: &Span{GenAI: &GenAI{
-				Ollama: &VendorOpenAI{Usage: OpenAIUsage{OutputTokens: 40}},
+				Ollama: &VendorOpenAI{Usage: OpenAIUsage{OutputTokens: NewTokenCount(40)}},
 			}},
 			want: true,
 		},
 		{
 			name: "OpenAICompatible with CompletionTokens > 0",
 			span: &Span{GenAI: &GenAI{
-				OpenAICompatible: &VendorOpenAI{Usage: OpenAIUsage{CompletionTokens: 55}},
+				OpenAICompatible: &VendorOpenAI{Usage: OpenAIUsage{CompletionTokens: NewTokenCount(55)}},
 			}},
 			want: true,
 		},
@@ -306,7 +306,7 @@ func TestHasGenAIOutputTokens(t *testing.T) {
 func TestHasGenAITokens_InputOnlyNoOutput(t *testing.T) {
 	// Scenario: provider reports input tokens but no output tokens
 	span := &Span{GenAI: &GenAI{
-		OpenAI: &VendorOpenAI{Usage: OpenAIUsage{PromptTokens: 100, CompletionTokens: 0}},
+		OpenAI: &VendorOpenAI{Usage: OpenAIUsage{PromptTokens: NewTokenCount(100)}},
 	}}
 	assert.True(t, span.HasGenAIInputTokens())
 	assert.False(t, span.HasGenAIOutputTokens())
@@ -315,7 +315,7 @@ func TestHasGenAITokens_InputOnlyNoOutput(t *testing.T) {
 func TestHasGenAITokens_OutputOnlyNoInput(t *testing.T) {
 	// Scenario: provider reports output tokens but no input tokens
 	span := &Span{GenAI: &GenAI{
-		OpenAI: &VendorOpenAI{Usage: OpenAIUsage{PromptTokens: 0, CompletionTokens: 200}},
+		OpenAI: &VendorOpenAI{Usage: OpenAIUsage{CompletionTokens: NewTokenCount(200)}},
 	}}
 	assert.False(t, span.HasGenAIInputTokens())
 	assert.True(t, span.HasGenAIOutputTokens())
@@ -324,7 +324,7 @@ func TestHasGenAITokens_OutputOnlyNoInput(t *testing.T) {
 func TestHasGenAITokens_BothAvailable(t *testing.T) {
 	// Scenario: provider reports both input and output tokens
 	span := &Span{GenAI: &GenAI{
-		OpenAI: &VendorOpenAI{Usage: OpenAIUsage{PromptTokens: 100, CompletionTokens: 200}},
+		OpenAI: &VendorOpenAI{Usage: OpenAIUsage{PromptTokens: NewTokenCount(100), CompletionTokens: NewTokenCount(200)}},
 	}}
 	assert.True(t, span.HasGenAIInputTokens())
 	assert.True(t, span.HasGenAIOutputTokens())

@@ -310,18 +310,13 @@ type OpenAIPromptTokensDetails struct {
 }
 
 type OpenAIUsage struct {
-	InputTokens              int                        `json:"input_tokens"`
-	OutputTokens             int                        `json:"output_tokens"`
-	TotalTokens              int                        `json:"total_tokens"`
-	PromptTokens             int                        `json:"prompt_tokens"`
-	CompletionTokens         int                        `json:"completion_tokens"`
-	CompletionDetails        *OpenAICompletionDetails   `json:"completion_tokens_details,omitempty"`
-	PromptTokensDetails      *OpenAIPromptTokensDetails `json:"prompt_tokens_details,omitempty"`
-	inputTokensReported      bool
-	outputTokensReported     bool
-	totalTokensReported      bool
-	promptTokensReported     bool
-	completionTokensReported bool
+	InputTokens         TokenCount                 `json:"input_tokens"`
+	OutputTokens        TokenCount                 `json:"output_tokens"`
+	TotalTokens         TokenCount                 `json:"total_tokens"`
+	PromptTokens        TokenCount                 `json:"prompt_tokens"`
+	CompletionTokens    TokenCount                 `json:"completion_tokens"`
+	CompletionDetails   *OpenAICompletionDetails   `json:"completion_tokens_details,omitempty"`
+	PromptTokensDetails *OpenAIPromptTokensDetails `json:"prompt_tokens_details,omitempty"`
 }
 
 type OpenAICompletionDetails struct {
@@ -337,8 +332,12 @@ func (u *OpenAIUsage) GetOutputTokens() int {
 	if tokens, reported := u.OutputTokenCount(); reported {
 		return tokens
 	}
-	if u.TotalTokens > 0 && u.PromptTokens > 0 {
-		return u.TotalTokens - u.PromptTokens
+	if total, totalReported := u.TotalTokens.Get(); totalReported {
+		if prompt, promptReported := u.PromptTokens.Get(); promptReported {
+			if total >= prompt {
+				return total - prompt
+			}
+		}
 	}
 	return 0
 }
@@ -500,17 +499,13 @@ type AnthropicResponse struct {
 }
 
 type AnthropicUsage struct {
-	InputTokens              int    `json:"input_tokens"`
-	OutputTokens             int    `json:"output_tokens"`
-	CacheCreationInputTokens int    `json:"cache_creation_input_tokens,omitempty"`
-	CacheReadInputTokens     int    `json:"cache_read_input_tokens,omitempty"`
-	ReasoningOutputTokens    int    `json:"reasoning_output_tokens,omitempty"`
-	ServiceTier              string `json:"service_tier"`
-	InferenceGeo             string `json:"inference_geo"`
-	inputTokensReported      bool
-	outputTokensReported     bool
-	cacheCreationReported    bool
-	cacheReadReported        bool
+	InputTokens              TokenCount `json:"input_tokens"`
+	OutputTokens             TokenCount `json:"output_tokens"`
+	CacheCreationInputTokens TokenCount `json:"cache_creation_input_tokens,omitempty"`
+	CacheReadInputTokens     TokenCount `json:"cache_read_input_tokens,omitempty"`
+	ReasoningOutputTokens    int        `json:"reasoning_output_tokens,omitempty"`
+	ServiceTier              string     `json:"service_tier"`
+	InferenceGeo             string     `json:"inference_geo"`
 }
 
 type AnthropicError struct {
@@ -573,12 +568,9 @@ type GeminiCandidate struct {
 }
 
 type GeminiUsage struct {
-	PromptTokenCount        int `json:"promptTokenCount"`
-	CandidatesTokenCount    int `json:"candidatesTokenCount"`
-	TotalTokenCount         int `json:"totalTokenCount"`
-	promptTokensReported    bool
-	candidateTokensReported bool
-	totalTokensReported     bool
+	PromptTokenCount     TokenCount `json:"promptTokenCount"`
+	CandidatesTokenCount TokenCount `json:"candidatesTokenCount"`
+	TotalTokenCount      TokenCount `json:"totalTokenCount"`
 }
 
 type GeminiError struct {
@@ -681,10 +673,8 @@ type BedrockResponse struct {
 	ErrorType    string `json:"__type,omitempty"`
 	ErrorMessage string `json:"message,omitempty"`
 	// Token counts extracted from response headers (not JSON-unmarshalled, set programmatically)
-	InputTokens          int `json:"-"`
-	OutputTokens         int `json:"-"`
-	inputTokensReported  bool
-	outputTokensReported bool
+	InputTokens  TokenCount `json:"-"`
+	OutputTokens TokenCount `json:"-"`
 }
 
 type BedrockUsage struct {
@@ -855,10 +845,8 @@ type EmbeddingResponse struct {
 
 // EmbeddingUsage captures token usage in embedding responses.
 type EmbeddingUsage struct {
-	PromptTokens         int `json:"prompt_tokens"`
-	TotalTokens          int `json:"total_tokens"`
-	promptTokensReported bool
-	totalTokensReported  bool
+	PromptTokens TokenCount `json:"prompt_tokens"`
+	TotalTokens  TokenCount `json:"total_tokens"`
 }
 
 // CohereResponseMeta captures Cohere-specific response metadata.
@@ -868,8 +856,7 @@ type CohereResponseMeta struct {
 
 // CohereBilledUnits captures Cohere token billing information.
 type CohereBilledUnits struct {
-	InputTokens         int `json:"input_tokens"`
-	inputTokensReported bool
+	InputTokens TokenCount `json:"input_tokens"`
 }
 
 // GetInputTokens returns the input token count, handling provider-specific formats.
@@ -983,16 +970,13 @@ type RerankBilledUnits struct {
 }
 
 type RerankMetaTokens struct {
-	InputTokens         int `json:"input_tokens"`
-	inputTokensReported bool
+	InputTokens TokenCount `json:"input_tokens"`
 }
 
 type RerankUsage struct {
-	TotalTokens          int `json:"total_tokens"`
-	PromptTokens         int `json:"prompt_tokens"`
-	SearchUnits          int `json:"search_units"`
-	totalTokensReported  bool
-	promptTokensReported bool
+	TotalTokens  TokenCount `json:"total_tokens"`
+	PromptTokens TokenCount `json:"prompt_tokens"`
+	SearchUnits  int        `json:"search_units"`
 }
 
 func (u *RerankUsage) GetInputTokens() int {
@@ -1123,10 +1107,8 @@ type RetrievalResponse struct {
 // RetrievalUsage captures optional token usage information returned by
 // embedding-aware vector stores.
 type RetrievalUsage struct {
-	TotalTokens          int `json:"total_tokens,omitempty"`
-	PromptTokens         int `json:"prompt_tokens,omitempty"`
-	totalTokensReported  bool
-	promptTokensReported bool
+	TotalTokens  TokenCount `json:"total_tokens,omitempty"`
+	PromptTokens TokenCount `json:"prompt_tokens,omitempty"`
 }
 
 type SpanLink struct {

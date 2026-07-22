@@ -4,6 +4,7 @@
 package request // import "go.opentelemetry.io/obi/pkg/appolly/app/request"
 
 import (
+	"math"
 	"strconv"
 
 	jsoniter "github.com/json-iterator/go"
@@ -11,31 +12,75 @@ import (
 
 var tokenJSON = jsoniter.ConfigCompatibleWithStandardLibrary
 
+// TokenCount retains a valid non-negative token count and whether the provider
+// reported it. Its zero value represents an unavailable count.
+type TokenCount struct {
+	value    int
+	reported bool
+}
+
+// NewTokenCount creates a reported token count. Negative values produce an
+// unavailable count.
+func NewTokenCount(value int) TokenCount {
+	var count TokenCount
+	count.set(value)
+	return count
+}
+
+func (c *TokenCount) set(value int) {
+	if value < 0 {
+		*c = TokenCount{}
+		return
+	}
+	c.value = value
+	c.reported = true
+}
+
+// Get returns the token count and whether it was reported.
+func (c TokenCount) Get() (int, bool) {
+	return c.value, c.reported
+}
+
+// Value returns the token count, or zero when it was not reported.
+func (c TokenCount) Value() int {
+	return c.value
+}
+
+func (c *TokenCount) merge(other TokenCount) {
+	if other.reported {
+		*c = other
+	}
+}
+
+func (c *TokenCount) UnmarshalJSON(data []byte) error {
+	*c = TokenCount{}
+	value, err := strconv.Atoi(string(data))
+	if err != nil {
+		return nil
+	}
+	c.set(value)
+	return nil
+}
+
+func (c TokenCount) MarshalJSON() ([]byte, error) {
+	if !c.reported {
+		return []byte("null"), nil
+	}
+	return []byte(strconv.Itoa(c.value)), nil
+}
+
 func decodeTokenFields(data []byte, value any) {
 	_ = tokenJSON.Unmarshal(data, value)
 }
 
-func decodeTokenField(data []byte, name string) (int, bool) {
+func decodeTokenField(data []byte, name string) TokenCount {
 	field := tokenJSON.Get(data, name)
 	if field.ValueType() != jsoniter.NumberValue {
-		return 0, false
+		return TokenCount{}
 	}
-	tokens, err := strconv.Atoi(field.ToString())
-	if err != nil {
-		return 0, false
-	}
-	return tokens, true
-}
-
-func tokenReported(reported bool, value int) bool {
-	return value > 0 || (reported && value == 0)
-}
-
-func reportedTokenCount(value int, reported bool) (int, bool) {
-	if tokenReported(reported, value) {
-		return value, true
-	}
-	return 0, false
+	var count TokenCount
+	_ = count.UnmarshalJSON([]byte(field.ToString()))
+	return count
 }
 
 func (u *OpenAIUsage) UnmarshalJSON(data []byte) error {
@@ -44,42 +89,40 @@ func (u *OpenAIUsage) UnmarshalJSON(data []byte) error {
 	decodeTokenFields(data, &decoded)
 
 	*u = OpenAIUsage(decoded)
-	u.InputTokens, u.inputTokensReported = decodeTokenField(data, "input_tokens")
-	u.OutputTokens, u.outputTokensReported = decodeTokenField(data, "output_tokens")
-	u.TotalTokens, u.totalTokensReported = decodeTokenField(data, "total_tokens")
-	u.PromptTokens, u.promptTokensReported = decodeTokenField(data, "prompt_tokens")
-	u.CompletionTokens, u.completionTokensReported = decodeTokenField(data, "completion_tokens")
+	u.InputTokens = decodeTokenField(data, "input_tokens")
+	u.OutputTokens = decodeTokenField(data, "output_tokens")
+	u.TotalTokens = decodeTokenField(data, "total_tokens")
+	u.PromptTokens = decodeTokenField(data, "prompt_tokens")
+	u.CompletionTokens = decodeTokenField(data, "completion_tokens")
 	return nil
 }
 
 func (u *OpenAIUsage) InputTokenCount() (int, bool) {
-	if tokenReported(u.inputTokensReported, u.InputTokens) {
-		return u.InputTokens, true
+	if tokens, reported := u.InputTokens.Get(); reported {
+		return tokens, true
 	}
-	if tokenReported(u.promptTokensReported, u.PromptTokens) {
-		return u.PromptTokens, true
+	if tokens, reported := u.PromptTokens.Get(); reported {
+		return tokens, true
 	}
 	return 0, false
 }
 
 func (u *OpenAIUsage) OutputTokenCount() (int, bool) {
-	if tokenReported(u.outputTokensReported, u.OutputTokens) {
-		return u.OutputTokens, true
+	if tokens, reported := u.OutputTokens.Get(); reported {
+		return tokens, true
 	}
-	if tokenReported(u.completionTokensReported, u.CompletionTokens) {
-		return u.CompletionTokens, true
+	if tokens, reported := u.CompletionTokens.Get(); reported {
+		return tokens, true
 	}
 	return 0, false
 }
 
 func (u *OpenAIUsage) SetInputTokens(tokens int) {
-	u.InputTokens = tokens
-	u.inputTokensReported = true
+	u.InputTokens.set(tokens)
 }
 
 func (u *OpenAIUsage) SetOutputTokens(tokens int) {
-	u.OutputTokens = tokens
-	u.outputTokensReported = true
+	u.OutputTokens.set(tokens)
 }
 
 func (u *AnthropicUsage) UnmarshalJSON(data []byte) error {
@@ -88,25 +131,25 @@ func (u *AnthropicUsage) UnmarshalJSON(data []byte) error {
 	decodeTokenFields(data, &decoded)
 
 	*u = AnthropicUsage(decoded)
-	u.InputTokens, u.inputTokensReported = decodeTokenField(data, "input_tokens")
-	u.OutputTokens, u.outputTokensReported = decodeTokenField(data, "output_tokens")
-	u.CacheCreationInputTokens, u.cacheCreationReported = decodeTokenField(data, "cache_creation_input_tokens")
-	u.CacheReadInputTokens, u.cacheReadReported = decodeTokenField(data, "cache_read_input_tokens")
+	u.InputTokens = decodeTokenField(data, "input_tokens")
+	u.OutputTokens = decodeTokenField(data, "output_tokens")
+	u.CacheCreationInputTokens = decodeTokenField(data, "cache_creation_input_tokens")
+	u.CacheReadInputTokens = decodeTokenField(data, "cache_read_input_tokens")
 	return nil
 }
 
 func (u *AnthropicUsage) InputTokenCount() (int, bool) {
 	total := 0
 	reported := false
-	for _, count := range []struct {
-		value    int
-		reported bool
-	}{
-		{u.InputTokens, u.inputTokensReported},
-		{u.CacheCreationInputTokens, u.cacheCreationReported},
-		{u.CacheReadInputTokens, u.cacheReadReported},
+	for _, count := range []TokenCount{
+		u.InputTokens,
+		u.CacheCreationInputTokens,
+		u.CacheReadInputTokens,
 	} {
-		if value, ok := reportedTokenCount(count.value, count.reported); ok {
+		if value, ok := count.Get(); ok {
+			if value > math.MaxInt-total {
+				return 0, false
+			}
 			total += value
 			reported = true
 		}
@@ -115,26 +158,14 @@ func (u *AnthropicUsage) InputTokenCount() (int, bool) {
 }
 
 func (u *AnthropicUsage) OutputTokenCount() (int, bool) {
-	return reportedTokenCount(u.OutputTokens, u.outputTokensReported)
+	return u.OutputTokens.Get()
 }
 
 func (u *AnthropicUsage) Merge(other AnthropicUsage) {
-	if tokenReported(other.inputTokensReported, other.InputTokens) {
-		u.InputTokens = other.InputTokens
-		u.inputTokensReported = true
-	}
-	if tokenReported(other.outputTokensReported, other.OutputTokens) {
-		u.OutputTokens = other.OutputTokens
-		u.outputTokensReported = true
-	}
-	if tokenReported(other.cacheCreationReported, other.CacheCreationInputTokens) {
-		u.CacheCreationInputTokens = other.CacheCreationInputTokens
-		u.cacheCreationReported = true
-	}
-	if tokenReported(other.cacheReadReported, other.CacheReadInputTokens) {
-		u.CacheReadInputTokens = other.CacheReadInputTokens
-		u.cacheReadReported = true
-	}
+	u.InputTokens.merge(other.InputTokens)
+	u.OutputTokens.merge(other.OutputTokens)
+	u.CacheCreationInputTokens.merge(other.CacheCreationInputTokens)
+	u.CacheReadInputTokens.merge(other.CacheReadInputTokens)
 }
 
 func (u *GeminiUsage) UnmarshalJSON(data []byte) error {
@@ -143,42 +174,41 @@ func (u *GeminiUsage) UnmarshalJSON(data []byte) error {
 	decodeTokenFields(data, &decoded)
 
 	*u = GeminiUsage(decoded)
-	u.PromptTokenCount, u.promptTokensReported = decodeTokenField(data, "promptTokenCount")
-	u.CandidatesTokenCount, u.candidateTokensReported = decodeTokenField(data, "candidatesTokenCount")
-	u.TotalTokenCount, u.totalTokensReported = decodeTokenField(data, "totalTokenCount")
+	u.PromptTokenCount = decodeTokenField(data, "promptTokenCount")
+	u.CandidatesTokenCount = decodeTokenField(data, "candidatesTokenCount")
+	u.TotalTokenCount = decodeTokenField(data, "totalTokenCount")
 	return nil
 }
 
 func (u *GeminiUsage) InputTokenCount() (int, bool) {
-	return reportedTokenCount(u.PromptTokenCount, u.promptTokensReported)
+	return u.PromptTokenCount.Get()
 }
 
 func (u *GeminiUsage) OutputTokenCount() (int, bool) {
-	return reportedTokenCount(u.CandidatesTokenCount, u.candidateTokensReported)
+	return u.CandidatesTokenCount.Get()
 }
 
 func (u *GeminiUsage) HasTokenCounts() bool {
 	_, input := u.InputTokenCount()
 	_, output := u.OutputTokenCount()
-	return input || output || tokenReported(u.totalTokensReported, u.TotalTokenCount)
+	_, total := u.TotalTokenCount.Get()
+	return input || output || total
 }
 
 func (b *BedrockResponse) SetInputTokens(tokens int) {
-	b.InputTokens = tokens
-	b.inputTokensReported = true
+	b.InputTokens.set(tokens)
 }
 
 func (b *BedrockResponse) SetOutputTokens(tokens int) {
-	b.OutputTokens = tokens
-	b.outputTokensReported = true
+	b.OutputTokens.set(tokens)
 }
 
 func (b *BedrockResponse) InputTokenCount() (int, bool) {
-	return reportedTokenCount(b.InputTokens, b.inputTokensReported)
+	return b.InputTokens.Get()
 }
 
 func (b *BedrockResponse) OutputTokenCount() (int, bool) {
-	return reportedTokenCount(b.OutputTokens, b.outputTokensReported)
+	return b.OutputTokens.Get()
 }
 
 func (u *EmbeddingUsage) UnmarshalJSON(data []byte) error {
@@ -187,8 +217,8 @@ func (u *EmbeddingUsage) UnmarshalJSON(data []byte) error {
 	decodeTokenFields(data, &decoded)
 
 	*u = EmbeddingUsage(decoded)
-	u.PromptTokens, u.promptTokensReported = decodeTokenField(data, "prompt_tokens")
-	u.TotalTokens, u.totalTokensReported = decodeTokenField(data, "total_tokens")
+	u.PromptTokens = decodeTokenField(data, "prompt_tokens")
+	u.TotalTokens = decodeTokenField(data, "total_tokens")
 	return nil
 }
 
@@ -198,30 +228,33 @@ func (u *CohereBilledUnits) UnmarshalJSON(data []byte) error {
 	decodeTokenFields(data, &decoded)
 
 	*u = CohereBilledUnits(decoded)
-	u.InputTokens, u.inputTokensReported = decodeTokenField(data, "input_tokens")
+	u.InputTokens = decodeTokenField(data, "input_tokens")
 	return nil
 }
 
 func (e *VendorEmbedding) InputTokenCount() (int, bool) {
 	usage := &e.Output.Usage
-	if tokenReported(usage.promptTokensReported, usage.PromptTokens) {
-		return usage.PromptTokens, true
+	if tokens, reported := usage.PromptTokens.Get(); reported {
+		return tokens, true
 	}
-	if tokenReported(usage.totalTokensReported, usage.TotalTokens) {
-		return usage.TotalTokens, true
+	if tokens, reported := usage.TotalTokens.Get(); reported {
+		return tokens, true
 	}
 	if e.Output.Meta != nil && e.Output.Meta.BilledUnits != nil {
 		billed := e.Output.Meta.BilledUnits
-		return reportedTokenCount(billed.InputTokens, billed.inputTokensReported)
+		return billed.InputTokens.Get()
 	}
 	return 0, false
 }
 
 func (e *VendorEmbedding) OutputTokenCount() (int, bool) {
 	usage := &e.Output.Usage
-	if tokenReported(usage.totalTokensReported, usage.TotalTokens) &&
-		tokenReported(usage.promptTokensReported, usage.PromptTokens) {
-		return usage.TotalTokens - usage.PromptTokens, true
+	if total, totalReported := usage.TotalTokens.Get(); totalReported {
+		if prompt, promptReported := usage.PromptTokens.Get(); promptReported {
+			if total >= prompt {
+				return total - prompt, true
+			}
+		}
 	}
 	return 0, false
 }
@@ -232,16 +265,16 @@ func (u *RerankUsage) UnmarshalJSON(data []byte) error {
 	decodeTokenFields(data, &decoded)
 
 	*u = RerankUsage(decoded)
-	u.TotalTokens, u.totalTokensReported = decodeTokenField(data, "total_tokens")
-	u.PromptTokens, u.promptTokensReported = decodeTokenField(data, "prompt_tokens")
+	u.TotalTokens = decodeTokenField(data, "total_tokens")
+	u.PromptTokens = decodeTokenField(data, "prompt_tokens")
 	return nil
 }
 
 func (u *RerankUsage) InputTokenCount() (int, bool) {
-	if tokenReported(u.promptTokensReported, u.PromptTokens) {
-		return u.PromptTokens, true
+	if tokens, reported := u.PromptTokens.Get(); reported {
+		return tokens, true
 	}
-	return reportedTokenCount(u.TotalTokens, u.totalTokensReported)
+	return u.TotalTokens.Get()
 }
 
 func (u *RerankMetaTokens) UnmarshalJSON(data []byte) error {
@@ -250,20 +283,20 @@ func (u *RerankMetaTokens) UnmarshalJSON(data []byte) error {
 	decodeTokenFields(data, &decoded)
 
 	*u = RerankMetaTokens(decoded)
-	u.InputTokens, u.inputTokensReported = decodeTokenField(data, "input_tokens")
+	u.InputTokens = decodeTokenField(data, "input_tokens")
 	return nil
 }
 
 func (r *RerankResponse) InputTokenCount() (int, bool) {
-	if tokenReported(r.Usage.totalTokensReported, r.Usage.TotalTokens) {
-		return r.Usage.TotalTokens, true
+	if tokens, reported := r.Usage.TotalTokens.Get(); reported {
+		return tokens, true
 	}
-	if tokenReported(r.Usage.promptTokensReported, r.Usage.PromptTokens) {
-		return r.Usage.PromptTokens, true
+	if tokens, reported := r.Usage.PromptTokens.Get(); reported {
+		return tokens, true
 	}
 	if r.Meta != nil && r.Meta.Tokens != nil {
 		tokens := r.Meta.Tokens
-		return reportedTokenCount(tokens.InputTokens, tokens.inputTokensReported)
+		return tokens.InputTokens.Get()
 	}
 	return 0, false
 }
@@ -274,15 +307,15 @@ func (u *RetrievalUsage) UnmarshalJSON(data []byte) error {
 	decodeTokenFields(data, &decoded)
 
 	*u = RetrievalUsage(decoded)
-	u.TotalTokens, u.totalTokensReported = decodeTokenField(data, "total_tokens")
-	u.PromptTokens, u.promptTokensReported = decodeTokenField(data, "prompt_tokens")
+	u.TotalTokens = decodeTokenField(data, "total_tokens")
+	u.PromptTokens = decodeTokenField(data, "prompt_tokens")
 	return nil
 }
 
 func (r *VendorRetrieval) InputTokenCount() (int, bool) {
 	usage := &r.Output.Usage
-	if tokenReported(usage.promptTokensReported, usage.PromptTokens) {
-		return usage.PromptTokens, true
+	if tokens, reported := usage.PromptTokens.Get(); reported {
+		return tokens, true
 	}
-	return reportedTokenCount(usage.TotalTokens, usage.totalTokensReported)
+	return usage.TotalTokens.Get()
 }

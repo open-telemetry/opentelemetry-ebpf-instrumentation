@@ -96,7 +96,7 @@ func TestRerankSpan_Cohere(t *testing.T) {
 	// Cohere uses meta.tokens for token counts
 	require.NotNil(t, ai.Output.Meta)
 	require.NotNil(t, ai.Output.Meta.Tokens)
-	assert.Equal(t, 411, ai.Output.Meta.Tokens.InputTokens)
+	assert.Equal(t, 411, ai.Output.Meta.Tokens.InputTokens.Value())
 	assert.Equal(t, 411, ai.Output.GetTotalTokens())
 }
 
@@ -132,8 +132,8 @@ func TestRerankSpan_JinaAI(t *testing.T) {
 	assert.Equal(t, "Organic skincare products for sensitive skin", ai.Input.Query)
 	assert.Equal(t, 3, ai.Input.TopN)
 	assert.Equal(t, "jina-reranker-v2-base-multilingual", ai.Output.Model)
-	assert.Equal(t, 128, ai.Output.Usage.TotalTokens)
-	assert.Equal(t, 42, ai.Output.Usage.PromptTokens)
+	assert.Equal(t, 128, ai.Output.Usage.TotalTokens.Value())
+	assert.Equal(t, 42, ai.Output.Usage.PromptTokens.Value())
 	assert.Equal(t, 128, ai.Output.GetTotalTokens())
 }
 
@@ -303,17 +303,20 @@ func TestRerankSpan_EmptyResponseBody(t *testing.T) {
 
 func TestRerankResponse_GetTotalTokens(t *testing.T) {
 	// usage.total_tokens takes precedence (Jina/Voyage)
-	r := request.RerankResponse{Usage: request.RerankUsage{TotalTokens: 100, PromptTokens: 42}}
+	r := request.RerankResponse{Usage: request.RerankUsage{
+		TotalTokens:  request.NewTokenCount(100),
+		PromptTokens: request.NewTokenCount(42),
+	}}
 	assert.Equal(t, 100, r.GetTotalTokens())
 
 	// falls back to usage.prompt_tokens
-	r2 := request.RerankResponse{Usage: request.RerankUsage{PromptTokens: 42}}
+	r2 := request.RerankResponse{Usage: request.RerankUsage{PromptTokens: request.NewTokenCount(42)}}
 	assert.Equal(t, 42, r2.GetTotalTokens())
 
 	// falls back to meta.tokens.input_tokens (Cohere)
 	r3 := request.RerankResponse{
 		Meta: &request.RerankMeta{
-			Tokens: &request.RerankMetaTokens{InputTokens: 411},
+			Tokens: &request.RerankMetaTokens{InputTokens: request.NewTokenCount(411)},
 		},
 	}
 	assert.Equal(t, 411, r3.GetTotalTokens())

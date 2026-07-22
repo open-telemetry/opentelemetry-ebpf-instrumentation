@@ -28,13 +28,13 @@ type ollamaRequest struct {
 // ollamaResponse represents the Ollama native response body shared
 // between /api/chat and /api/generate endpoints.
 type ollamaResponse struct {
-	Model           string          `json:"model"`
-	Message         json.RawMessage `json:"message"`
-	Response        string          `json:"response"`
-	Done            bool            `json:"done"`
-	DoneReason      string          `json:"done_reason"`
-	PromptEvalCount *int            `json:"prompt_eval_count"`
-	EvalCount       *int            `json:"eval_count"`
+	Model           string             `json:"model"`
+	Message         json.RawMessage    `json:"message"`
+	Response        string             `json:"response"`
+	Done            bool               `json:"done"`
+	DoneReason      string             `json:"done_reason"`
+	PromptEvalCount request.TokenCount `json:"prompt_eval_count"`
+	EvalCount       request.TokenCount `json:"eval_count"`
 }
 
 // ollamaChatMessage represents a single message in an Ollama chat response.
@@ -113,12 +113,8 @@ func OllamaSpan(baseSpan *request.Span, req *http.Request, resp *http.Response) 
 	}
 
 	// Map token counts: Ollama uses prompt_eval_count / eval_count.
-	if ollamaResp.PromptEvalCount != nil {
-		parsed.Usage.SetInputTokens(*ollamaResp.PromptEvalCount)
-	}
-	if ollamaResp.EvalCount != nil {
-		parsed.Usage.SetOutputTokens(*ollamaResp.EvalCount)
-	}
+	parsed.Usage.InputTokens = ollamaResp.PromptEvalCount
+	parsed.Usage.OutputTokens = ollamaResp.EvalCount
 
 	// Build request info.
 	parsed.Request = request.OpenAIInput{

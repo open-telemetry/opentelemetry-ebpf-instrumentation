@@ -850,11 +850,11 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 				attrs = append(attrs, semconv.GenAIResponseFinishReasons(ai.Output.StopReason))
 			}
 			attrs = append(attrs, genAIRequestStreamKey.Bool(ai.Input.Stream))
-			if ai.Output.Usage.CacheCreationInputTokens > 0 {
-				attrs = append(attrs, genAIUsageCacheCreationInputTokens.Int(ai.Output.Usage.CacheCreationInputTokens))
+			if tokens := ai.Output.Usage.CacheCreationInputTokens.Value(); tokens > 0 {
+				attrs = append(attrs, genAIUsageCacheCreationInputTokens.Int(tokens))
 			}
-			if ai.Output.Usage.CacheReadInputTokens > 0 {
-				attrs = append(attrs, genAIUsageCacheReadInputTokens.Int(ai.Output.Usage.CacheReadInputTokens))
+			if tokens := ai.Output.Usage.CacheReadInputTokens.Value(); tokens > 0 {
+				attrs = append(attrs, genAIUsageCacheReadInputTokens.Int(tokens))
 			}
 			if ai.Output.Usage.ReasoningOutputTokens > 0 {
 				attrs = append(attrs, genAIUsageReasoningOutputTokens.Int(ai.Output.Usage.ReasoningOutputTokens))

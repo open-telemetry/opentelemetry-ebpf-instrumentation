@@ -42,8 +42,8 @@ func TestOllamaSpan_ChatNonStreaming(t *testing.T) {
 	assert.Equal(t, "llama3.2", ai.Request.Model)
 	assert.Equal(t, "llama3.2", ai.ResponseModel)
 	assert.Equal(t, "ollama", ai.ProviderName)
-	assert.Equal(t, 26, ai.Usage.InputTokens)
-	assert.Equal(t, 9, ai.Usage.OutputTokens)
+	assert.Equal(t, 26, ai.Usage.InputTokens.Value())
+	assert.Equal(t, 9, ai.Usage.OutputTokens.Value())
 	assert.Equal(t, []string{"stop"}, ai.GetFinishReasons())
 	assert.False(t, ai.Request.Stream)
 }
@@ -68,6 +68,35 @@ func TestOllamaSpan_MissingUsage(t *testing.T) {
 	assert.False(t, span.HasGenAIOutputTokens())
 }
 
+func TestOllamaSpan_InvalidUsage(t *testing.T) {
+	for _, tt := range []struct {
+		name  string
+		usage string
+	}{
+		{name: "strings", usage: `"prompt_eval_count":"7","eval_count":"3"`},
+		{name: "fractions", usage: `"prompt_eval_count":7.5,"eval_count":3.5`},
+		{name: "exponents", usage: `"prompt_eval_count":7e2,"eval_count":3e2`},
+		{name: "overflow", usage: `"prompt_eval_count":999999999999999999999999,"eval_count":999999999999999999999999`},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			response := `{"model":"llama3.2","message":{"role":"assistant","content":""},"done":true,` + tt.usage + `}`
+			span, ok := runOllamaSpan(t, "/api/chat", ollamaChatRequest, response)
+			require.True(t, ok)
+			assert.False(t, span.HasGenAIInputTokens())
+			assert.False(t, span.HasGenAIOutputTokens())
+		})
+	}
+}
+
+func TestOllamaSpan_InvalidUsagePreservesValidSibling(t *testing.T) {
+	response := `{"model":"llama3.2","message":{"role":"assistant","content":""},"done":true,"prompt_eval_count":7,"eval_count":3.5}`
+	span, ok := runOllamaSpan(t, "/api/chat", ollamaChatRequest, response)
+	require.True(t, ok)
+	assert.True(t, span.HasGenAIInputTokens())
+	assert.Equal(t, 7, span.GenAIInputTokens())
+	assert.False(t, span.HasGenAIOutputTokens())
+}
+
 // --- Streaming /api/chat ---
 
 const ollamaChatStreamResponse = `{"model":"llama3.2","message":{"role":"assistant","content":"Hello"},"done":false}
@@ -82,8 +111,8 @@ func TestOllamaSpan_ChatStreaming(t *testing.T) {
 	ai := span.GenAI.Ollama
 	assert.Equal(t, "chat", ai.OperationName)
 	assert.Equal(t, "llama3.2", ai.ResponseModel)
-	assert.Equal(t, 26, ai.Usage.InputTokens)
-	assert.Equal(t, 2, ai.Usage.OutputTokens)
+	assert.Equal(t, 26, ai.Usage.InputTokens.Value())
+	assert.Equal(t, 2, ai.Usage.OutputTokens.Value())
 	assert.Equal(t, []string{"stop"}, ai.GetFinishReasons())
 	assert.True(t, ai.Request.Stream)
 }
@@ -120,8 +149,8 @@ func TestOllamaSpan_GenerateNonStreaming(t *testing.T) {
 	assert.Equal(t, "text_completion", ai.OperationName)
 	assert.Equal(t, "llama3.2", ai.Request.Model)
 	assert.Equal(t, "llama3.2", ai.ResponseModel)
-	assert.Equal(t, 12, ai.Usage.InputTokens)
-	assert.Equal(t, 15, ai.Usage.OutputTokens)
+	assert.Equal(t, 12, ai.Usage.InputTokens.Value())
+	assert.Equal(t, 15, ai.Usage.OutputTokens.Value())
 	assert.Equal(t, []string{"stop"}, ai.GetFinishReasons())
 	// System instruction should be in Request.Instructions for generate
 	assert.Equal(t, "Be concise.", ai.Request.Instructions)
@@ -141,8 +170,8 @@ func TestOllamaSpan_GenerateStreaming(t *testing.T) {
 
 	ai := span.GenAI.Ollama
 	assert.Equal(t, "text_completion", ai.OperationName)
-	assert.Equal(t, 10, ai.Usage.InputTokens)
-	assert.Equal(t, 8, ai.Usage.OutputTokens)
+	assert.Equal(t, 10, ai.Usage.InputTokens.Value())
+	assert.Equal(t, 8, ai.Usage.OutputTokens.Value())
 	assert.Equal(t, []string{"stop"}, ai.GetFinishReasons())
 	assert.True(t, ai.Request.Stream)
 }

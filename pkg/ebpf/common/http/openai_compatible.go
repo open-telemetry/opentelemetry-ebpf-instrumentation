@@ -60,9 +60,10 @@ func OpenAICompatibleSpan(baseSpan *request.Span, req *http.Request, resp *http.
 
 	parsedRequest := parseOpenAIInput(reqB)
 	parsedResponse, toolCalls := parseOpenAICompatibleResponse(respB)
+	_, totalTokensReported := parsedResponse.Usage.TotalTokens.Get()
 
 	if parsedResponse.ResponseModel == "" && len(parsedResponse.Choices) == 0 &&
-		parsedResponse.Usage.TotalTokens == 0 && len(parsedResponse.Data) == 0 &&
+		!totalTokensReported && len(parsedResponse.Data) == 0 &&
 		len(parsedResponse.Output) == 0 && parsedRequest.Model == "" {
 		return *baseSpan, false
 	}

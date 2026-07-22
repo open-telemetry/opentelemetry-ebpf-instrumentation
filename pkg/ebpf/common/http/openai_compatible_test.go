@@ -135,6 +135,30 @@ func TestOpenAICompatibleSpan_MatchedButInvalidBody(t *testing.T) {
 	assert.False(t, ok)
 }
 
+func TestOpenAICompatibleSpan_ReportedZeroIdentifiesResponse(t *testing.T) {
+	gateways := []config.OpenAICompatibleGateway{
+		{Host: "litellm.local", Provider: "litellm"},
+	}
+
+	t.Run("reported zero", func(t *testing.T) {
+		req := makeRequest(t, http.MethodPost, "http://litellm.local/v1/chat/completions", `{}`)
+		resp := makeCompatibleResponse(`{"usage":{"total_tokens":0}}`)
+
+		span, ok := OpenAICompatibleSpan(&request.Span{}, req, resp, gateways)
+		require.True(t, ok)
+		require.NotNil(t, span.GenAI)
+		require.NotNil(t, span.GenAI.OpenAICompatible)
+	})
+
+	t.Run("missing", func(t *testing.T) {
+		req := makeRequest(t, http.MethodPost, "http://litellm.local/v1/chat/completions", `{}`)
+		resp := makeCompatibleResponse(`{"usage":{}}`)
+
+		_, ok := OpenAICompatibleSpan(&request.Span{}, req, resp, gateways)
+		assert.False(t, ok)
+	})
+}
+
 func TestOpenAICompatibleSpan_ChatCompletions(t *testing.T) {
 	gateways := []config.OpenAICompatibleGateway{
 		{Host: "litellm.local", Provider: "litellm"},
