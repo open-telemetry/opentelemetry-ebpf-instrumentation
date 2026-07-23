@@ -4,6 +4,7 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -41,6 +42,37 @@ func TestCheckSchemaArtifactRejectsWrongVersion(t *testing.T) {
 		t.Fatal("expected schema version failure")
 	}
 	if !strings.Contains(err.Error(), "properties.version.const") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestCheckLogFieldNameSchemaRejectsControlGap(t *testing.T) {
+	field := func(pattern string) map[string]any {
+		return map[string]any{
+			"minLength": json.Number("1"),
+			"pattern":   pattern,
+		}
+	}
+	root := map[string]any{
+		"$defs": map[string]any{
+			"TraceAnnotation": map[string]any{
+				"properties": map[string]any{
+					"field_names": map[string]any{
+						"properties": map[string]any{
+							"trace_id": field(`^[^\s=\u0000-\u001F\u007F]+$`),
+							"span_id":  field(logFieldNamePattern),
+						},
+					},
+				},
+			},
+		},
+	}
+
+	err := checkLogFieldNameSchema(root)
+	if err == nil {
+		t.Fatal("expected log field name pattern failure")
+	}
+	if !strings.Contains(err.Error(), "trace_id pattern") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }

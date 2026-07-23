@@ -164,6 +164,7 @@ EBPFTracer configuration for eBPF programs
 | `ebpf.disable_black_box_cp` | `boolean` | `OTEL_EBPF_BPF_DISABLE_BLACK_BOX_CP` | `false` |  |  | Disables OBI black-box context propagation. Used for testing purposes only. |
 | `ebpf.dns_request_timeout` | `duration` | `OTEL_EBPF_BPF_DNS_REQUEST_TIMEOUT` | `5s` | `30s`, `5m`, `1ms`, etc |  | DNS timeout after which we report failed event |
 | `ebpf.force_bpf_map_reader` | `string` | `OTEL_EBPF_FORCE_BPF_MAP_READER` | `auto` | `auto`, `batch`, `legacy` |  | Forces the PerCPU HashMap operation of the Network Flows reader. The system will always try "batch", which is more efficient, but legacy systems like RHEL8-based will fallback to "legacy" (the slowest, more resource-consuming iterate&delete approach). |
+| `ebpf.go_http_client_buffer_timeout` | `duration` | `OTEL_EBPF_BPF_GO_HTTP_CLIENT_BUFFER_TIMEOUT` | `1s` | `30s`, `5m`, `1ms`, etc |  | Is the inactivity period after which a pending Go HTTP client event is enriched with its captured buffers and emitted. A zero value disables deferral. |
 | `ebpf.heuristic_sql_detect` | `boolean` | `OTEL_EBPF_HEURISTIC_SQL_DETECT` | `false` |  |  | Enables the heuristic based detection of SQL requests. This can be used to detect talking to databases other than the ones we recognize in OBI, like Postgres and MySQL |
 | `ebpf.high_request_volume` | `boolean` | `OTEL_EBPF_BPF_HIGH_REQUEST_VOLUME` | `false` |  |  | Optimizes for getting requests information immediately when request response is seen |
 | `ebpf.http_request_timeout` | `duration` | `OTEL_EBPF_BPF_HTTP_REQUEST_TIMEOUT` | `0s` | `30s`, `5m`, `1ms`, etc |  | Must be at least 0 |
@@ -203,6 +204,21 @@ Per-protocol maximum bytes to capture per request per direction, sent to userspa
 | `ebpf.log_enricher.cache_size` | `integer` | `OTEL_EBPF_BPF_LOG_ENRICHER_CACHE_SIZE` | `128` |  |  | Defines the maximum number of cached file descriptors Default: 128 |
 | `ebpf.log_enricher.cache_ttl` | `duration` | `OTEL_EBPF_BPF_LOG_ENRICHER_CACHE_TTL` | `30m` | `30s`, `5m`, `1ms`, etc |  | Defines the TTL for cached file descriptors Default: 30m |
 | `ebpf.log_enricher.services` | [`LogEnricherServiceConfig`](#logenricherserviceconfig)[] |  |  |  |  | Specifies the services to enable log enrichment for |
+
+#### `ebpf.log_enricher.field_names`
+
+| YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
+|---|---|---|---|---|---|---|
+| `ebpf.log_enricher.field_names.span_id` | `string` |  | `span_id` |  |  | Is the literal span ID field name used to preserve and inject span context |
+| `ebpf.log_enricher.field_names.trace_id` | `string` |  | `trace_id` |  |  | Is the literal trace ID field name used to preserve and inject trace context |
+
+#### `ebpf.log_enricher.plain_text`
+
+| YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
+|---|---|---|---|---|---|---|
+| `ebpf.log_enricher.plain_text.enabled` | `boolean` |  | `true` |  |  | Controls trace context annotation for non-JSON logs |
+| `ebpf.log_enricher.plain_text.multiline` | `string` |  | `first_line` | `each_line`, `first_line`, `last_line` |  | Controls which nonempty lines in each write are annotated |
+| `ebpf.log_enricher.plain_text.placement` | `string` |  | `suffix` | `prefix`, `suffix` |  | Controls whether fields are added before or after each selected line |
 
 ### `ebpf.maps_config`
 
@@ -275,6 +291,12 @@ HTTPParsingPolicy defines the default action for http enrichment rules.
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
 | `ebpf.payload_extraction.http.genai.mcp.enabled` | `boolean` | `OTEL_EBPF_HTTP_MCP_ENABLED` | `false` |  |  | Enable Model Context Protocol (MCP) payload extraction and parsing |
+
+#### `ebpf.payload_extraction.http.genai.ollama`
+
+| YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
+|---|---|---|---|---|---|---|
+| `ebpf.payload_extraction.http.genai.ollama.enabled` | `boolean` | `OTEL_EBPF_HTTP_OLLAMA_ENABLED` | `false` |  |  | Enable Ollama native API payload extraction and parsing |
 
 #### `ebpf.payload_extraction.http.genai.openai`
 

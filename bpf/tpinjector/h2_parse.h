@@ -17,7 +17,8 @@ typedef struct {
     u32 hpack_offset_in_msg; // start of HPACK bytes inside the sk_msg
     u32 hpack_len;           // HPACK block length
     bool is_headers_end;     // true for HEADERS with END_HEADERS, payload_len > 0
-    u8 _pad[3];
+    u8 ftype;                // raw HTTP/2 frame type byte
+    u8 _pad[2];
 } h2_frame_info_t;
 
 // Parses the HTTP/2 frame header at `pos` inside `msg` and fills `out`.
@@ -49,6 +50,7 @@ parse_h2_frame_at(struct sk_msg_md *msg, u32 pos, u32 msg_size, h2_frame_info_t 
     }
 
     out->payload_len = len;
+    out->ftype = ftype;
     out->is_headers_end =
         (ftype == k_h2_frame_headers) && (flags & k_h2_flag_end_headers) && (len > 0);
 

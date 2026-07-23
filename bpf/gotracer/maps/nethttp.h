@@ -65,3 +65,10 @@ struct {
         framer_func_invocation_t); // the goroutine of the round trip request, which is the key for our traceparent info
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
 } framer_invocation_map SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __type(key, go_addr_key_t); // key: the net/http (*conn).serve goroutine handling the request
+    __type(value, u64);         // the *bufio.Reader buffering the request
+    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
+} ongoing_server_bufr SEC(".maps");
