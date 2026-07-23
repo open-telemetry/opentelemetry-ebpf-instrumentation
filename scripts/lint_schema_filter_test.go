@@ -33,21 +33,18 @@ func runLintSchemaFilter(t *testing.T, diagnostics string) []json.RawMessage {
 	return remaining
 }
 
-const expectedDNSDuplicate = `[{
+const expectedUnstable = `[{
 	"diagnostic": {"severity": "Error"},
-	"error": {"DuplicateMetricName": {
-		"metric_name": "dns.lookup.duration",
-		"provenances": [
-			{"path": ".deps/upstream-v1.41.0/model/dns/metrics.yaml"},
-			{"path": "/obi-registry/groups/dns.yaml"}
-		]
-	}}
+	"error": {"FailToResolveDefinition": {"UnstableFileFormat" :{
+		"file_format": "definition/2",
+		"provenances": "/obi-registry/groups/dns.yaml"
+	}}}
 }]`
 
-func TestLintSchemaFilterAllowsExpectedDNSDuplicate(t *testing.T) {
-	remaining := runLintSchemaFilter(t, expectedDNSDuplicate)
+func TestLintSchemaFilterAllowsExpectedUnstable(t *testing.T) {
+	remaining := runLintSchemaFilter(t, expectedUnstable)
 	if len(remaining) != 0 {
-		t.Fatalf("expected the documented dns.lookup.duration duplicate to be filtered, got %d diagnostics", len(remaining))
+		t.Fatalf("expected the documented unstable error to be filtered, got %d diagnostics", len(remaining))
 	}
 }
 
