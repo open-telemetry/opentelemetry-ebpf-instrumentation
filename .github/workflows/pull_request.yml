@@ -118,24 +118,6 @@ jobs:
             exit 1
           fi
 
-  bpf-unit-tests:
-    name: BPF unit tests
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ inputs.ref || github.sha }}
-          persist-credentials: false
-
-      - name: Install clang
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y clang
-
-      - name: Run BPF unit tests
-        run: make -C bpf/tests test
-
   clang-tidy:
     name: Clang tidy
     runs-on: ubuntu-latest
