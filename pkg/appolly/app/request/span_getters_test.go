@@ -494,6 +494,23 @@ func TestSpanOTELGetters_HTTPURLScheme(t *testing.T) {
 	}
 }
 
+func TestSpanOTELGetters_HTTPRequestMethod(t *testing.T) {
+	getter, ok := spanOTELGetters(attr.HTTPRequestMethod)
+	require.True(t, ok, "getter should be found for HTTPRequestMethod")
+
+	t.Run("present when method is known", func(t *testing.T) {
+		kv := getter(&Span{Method: "GET"})
+		require.True(t, kv.Valid())
+		assert.Equal(t, string(attr.HTTPRequestMethod), string(kv.Key))
+		assert.Equal(t, "GET", kv.Value.AsString())
+	})
+
+	t.Run("omitted when method is empty", func(t *testing.T) {
+		kv := getter(&Span{Method: ""})
+		assert.False(t, kv.Valid(), "empty method must yield an invalid KeyValue so it is dropped")
+	})
+}
+
 func TestSpanOTELGetters_SunRPC(t *testing.T) {
 	span := &Span{
 		Type:    EventTypeSunRPCClient,

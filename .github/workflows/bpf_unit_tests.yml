@@ -1,0 +1,42 @@
+name: BPF unit tests
+
+on:
+  push:
+    branches: [main, release-*]
+  pull_request:
+    branches: [main, release-*]
+    paths:
+      - ".github/workflows/bpf_unit_tests.yml"
+      - "bpf/**"
+  workflow_call:
+    inputs:
+      ref:
+        description: "Git ref (commit, branch, or tag) to check out"
+        required: false
+        type: string
+
+concurrency:
+  group: pr-bpf-unit-tests-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  bpf-unit-tests:
+    name: BPF unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
+
+      - name: Install clang
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang
+
+      - name: Run BPF unit tests
+        run: make -C bpf/tests test

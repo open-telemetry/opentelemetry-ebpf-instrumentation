@@ -38,13 +38,14 @@ type ProtocolEnablement struct {
 // HTTPInstrumentation describes HTTP capture, filtering, route, and payload
 // extraction settings.
 type HTTPInstrumentation struct {
-	Enabled             ProtocolEnablement `yaml:"enabled"`
-	Filters             SignalFilters      `yaml:"filters"`
-	TrackRequestHeaders bool               `yaml:"track_request_headers"`
-	RequestTimeout      Duration           `yaml:"request_timeout"`
-	BufferSize          uint32             `yaml:"buffer_size"`
-	Routes              HTTPRoutes         `yaml:"routes"`
-	PayloadExtraction   PayloadExtraction  `yaml:"payload_extraction"`
+	Enabled                   ProtocolEnablement `yaml:"enabled"`
+	Filters                   SignalFilters      `yaml:"filters"`
+	TrackRequestHeaders       bool               `yaml:"track_request_headers"`
+	RequestTimeout            Duration           `yaml:"request_timeout"`
+	GoHTTPClientBufferTimeout Duration           `yaml:"go_http_client_buffer_timeout"`
+	BufferSize                uint32             `yaml:"buffer_size"`
+	Routes                    HTTPRoutes         `yaml:"routes"`
+	PayloadExtraction         PayloadExtraction  `yaml:"payload_extraction"`
 }
 
 // HTTPRoutes describes global HTTP route normalization and discovery settings.

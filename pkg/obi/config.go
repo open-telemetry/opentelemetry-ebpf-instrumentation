@@ -123,14 +123,15 @@ var DefaultConfig = Config{
 	ShutdownTimeout:         10 * time.Second,
 	EnforceSysCaps:          false,
 	EBPF: config.EBPFTracer{
-		BatchLength:          100,
-		BatchTimeout:         time.Second,
-		HTTPRequestTimeout:   0,
-		WakeupLen:            500,
-		StatsWakeupDataBytes: 4096,
-		TCBackend:            config.TCBackendAuto,
-		DNSRequestTimeout:    5 * time.Second,
-		ContextPropagation:   config.ContextPropagationDisabled,
+		BatchLength:               100,
+		BatchTimeout:              time.Second,
+		HTTPRequestTimeout:        0,
+		GoHTTPClientBufferTimeout: time.Second,
+		WakeupLen:                 500,
+		StatsWakeupDataBytes:      4096,
+		TCBackend:                 config.TCBackendAuto,
+		DNSRequestTimeout:         5 * time.Second,
+		ContextPropagation:        config.ContextPropagationDisabled,
 		RedisDBCache: config.RedisDBCacheConfig{
 			Enabled: false,
 			MaxSize: 1000,
@@ -202,6 +203,15 @@ var DefaultConfig = Config{
 		},
 		MaxTransactionTime: 5 * time.Minute,
 		LogEnricher: config.LogEnricherConfig{
+			FieldNames: config.LogEnricherFieldNames{
+				TraceID: "trace_id",
+				SpanID:  "span_id",
+			},
+			PlainText: config.LogEnricherPlainTextConfig{
+				Enabled:   true,
+				Placement: config.LogEnricherPlacementSuffix,
+				Multiline: config.LogEnricherMultilineFirstLine,
+			},
 			CacheTTL:              30 * time.Minute,
 			CacheSize:             128,
 			AsyncWriterWorkers:    8,
@@ -713,6 +723,10 @@ func (c *Config) validate(context validationContext) error {
 	}
 
 	if err := validate.Struct(c); err != nil {
+		return ConfigError(err.Error())
+	}
+
+	if err := c.EBPF.LogEnricher.Validate(); err != nil {
 		return ConfigError(err.Error())
 	}
 

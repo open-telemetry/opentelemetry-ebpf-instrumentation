@@ -22,7 +22,7 @@ import (
 func TestHandleRuntimeMetricsRecordForwardsGoRuntimeMetricRecord(t *testing.T) {
 	runtimeMetrics := &fakeRuntimeMetricsSender{}
 	ctx := &EBPFEventContext{RuntimeMetrics: runtimeMetrics}
-	filter := fakeJVMServiceFilter{}
+	filter := fakeRuntimeServiceFilter{}
 
 	handled, err := HandleRuntimeMetricsRecord(context.Background(), ctx, &ringbuf.Record{
 		RawSample: []byte{EventTypeGoRuntimeMetric},
@@ -90,15 +90,15 @@ func TestHandleRuntimeMetricsRecordIgnoresUnknownEventTypes(t *testing.T) {
 	assert.False(t, handled)
 }
 
-type fakeJVMServiceFilter struct {
+type fakeRuntimeServiceFilter struct {
 	current map[uint32]map[app.PID]svc.Attrs
 }
 
-func (f fakeJVMServiceFilter) AllowPID(app.PID, uint32, *exec.FileInfo, PIDType) {}
-func (f fakeJVMServiceFilter) BlockPID(app.PID, uint32)                          {}
-func (f fakeJVMServiceFilter) ValidPID(app.PID, uint32, PIDType) bool            { return false }
-func (f fakeJVMServiceFilter) Filter(inputSpans []request.Span) []request.Span   { return inputSpans }
-func (f fakeJVMServiceFilter) CurrentPIDs(PIDType) map[uint32]map[app.PID]svc.Attrs {
+func (f fakeRuntimeServiceFilter) AllowPID(app.PID, uint32, *exec.FileInfo, PIDType) {}
+func (f fakeRuntimeServiceFilter) BlockPID(app.PID, uint32)                          {}
+func (f fakeRuntimeServiceFilter) ValidPID(app.PID, uint32, PIDType) bool            { return false }
+func (f fakeRuntimeServiceFilter) Filter(inputSpans []request.Span) []request.Span   { return inputSpans }
+func (f fakeRuntimeServiceFilter) CurrentPIDs(PIDType) map[uint32]map[app.PID]svc.Attrs {
 	return f.current
 }
 

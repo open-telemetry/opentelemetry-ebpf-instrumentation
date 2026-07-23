@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -138,6 +139,9 @@ func TestGoRuntimeMetricsUseHeapSnapshotProbe(t *testing.T) {
 }
 
 func TestGoRuntimeMetricsFallBackWhenHeapProbeIsMissing(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("Linux-only test")
+	}
 	disableContextPropagationForTest(t)
 
 	var logs bytes.Buffer
@@ -167,6 +171,9 @@ func TestGoRuntimeMetricsFallBackWhenHeapProbeIsMissing(t *testing.T) {
 }
 
 func TestGoRuntimeMetricsUseResolvedHeapProbe(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("Linux-only test")
+	}
 	disableContextPropagationForTest(t)
 
 	tracer := &Tracer{log: slog.New(slog.NewTextHandler(io.Discard, nil))}

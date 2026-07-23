@@ -234,6 +234,13 @@ extensions:
       log_trace_annotation:
         enabled: false
         filter: {}
+        field_names:
+          trace_id: trace_id
+          span_id: span_id
+        plain_text:
+          enabled: true
+          placement: suffix
+          multiline: first_line
 
     daemon:
       logging: {}
@@ -549,6 +556,8 @@ Unlike telemetry instrumentation (protocol signals), correlation features operat
 
 For example, `log_trace_annotation` allows trace context to be injected into application logs from selected services, linking logs to traces through context correlation.
 
+JSON object logs receive structured fields. Plain-text logs receive space-separated `key=value` fields by default. `field_names` configures the literal keys for both representations. `plain_text.enabled` disables only plain-text annotation, while `placement` selects `prefix` or `suffix` and `multiline` selects `first_line`, `last_line`, or `each_line` within each intercepted write.
+
 This section is **standalone-mode only**.
 
 #### Why `correlation` is standalone-only, and the future of log trace annotation
@@ -643,6 +652,11 @@ Important mapping notes:
 | `ebpf.log_enricher.cache_ttl` | `extensions.obi.correlation.log_trace_annotation.cache.ttl` | Move + rename |
 | `ebpf.log_enricher.async_writer_workers` | `extensions.obi.correlation.log_trace_annotation.async_writer.workers` | Move + rename |
 | `ebpf.log_enricher.async_writer_channel_len` | `extensions.obi.correlation.log_trace_annotation.async_writer.channel_len` | Move + rename |
+| `ebpf.log_enricher.field_names.trace_id` | `extensions.obi.correlation.log_trace_annotation.field_names.trace_id` | Move |
+| `ebpf.log_enricher.field_names.span_id` | `extensions.obi.correlation.log_trace_annotation.field_names.span_id` | Move |
+| `ebpf.log_enricher.plain_text.enabled` | `extensions.obi.correlation.log_trace_annotation.plain_text.enabled` | Move |
+| `ebpf.log_enricher.plain_text.placement` | `extensions.obi.correlation.log_trace_annotation.plain_text.placement` | Move |
+| `ebpf.log_enricher.plain_text.multiline` | `extensions.obi.correlation.log_trace_annotation.plain_text.multiline` | Move |
 | `ebpf.maps_config.global_scale_factor` | `extensions.obi.capture.engine.maps.global_scale_factor` | Move + rename |
 | `ebpf.max_transaction_time` | `extensions.obi.capture.engine.transactions.max_duration` | Move + rename |
 | `ebpf.mssql_prepared_statements_cache_size` | `extensions.obi.capture.instrumentation.sql.mssql.prepared_statements_cache_size` | Move |

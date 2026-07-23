@@ -10,4 +10,6 @@
 typedef struct net_args {
     u64 byte_ptr;
     pid_connection_info_t p_conn;
+    u8 skip;
+    u8 _pad[7];
 } net_args_t;

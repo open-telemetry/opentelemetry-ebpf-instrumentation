@@ -631,6 +631,22 @@ func TestStripNamePrefix(t *testing.T) {
 	}
 }
 
+func TestLogEnricherFieldNameSchema(t *testing.T) {
+	reflector := &jsonschema.Reflector{FieldNameTag: "yaml"}
+	schema := reflector.Reflect(&config.LogEnricherFieldNames{})
+	fieldNames, ok := schema.Definitions["LogEnricherFieldNames"]
+	require.True(t, ok)
+
+	const fieldNamePattern = `^[^=\u0000-\u0020\u007F-\u00A0\u1680\u2000-\u200A\u2028-\u2029\u202F\u205F\u3000]+$`
+	for _, name := range []string{"trace_id", "span_id"} {
+		field, ok := fieldNames.Properties.Get(name)
+		require.True(t, ok)
+		require.NotNil(t, field.MinLength)
+		require.EqualValues(t, 1, *field.MinLength)
+		require.Equal(t, fieldNamePattern, field.Pattern)
+	}
+}
+
 func TestProcessFieldAnnotations(t *testing.T) {
 	g := NewSchemaGenerator()
 	g.noYaml["Config"] = map[string]bool{"AutoTargetExe": true}

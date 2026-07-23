@@ -67,7 +67,7 @@ static loop_result_t run_emit_chunks(uint32_t available_bytes,
     g_result = (loop_result_t){.final_action = initial_action};
 
     bpf_ringbuf_output_hook = ringbuf_count_hook;
-    large_buf_emit_chunks(large_buf, dummy_src, available_bytes);
+    large_buf_emit_chunks(large_buf, dummy_src, available_bytes, k_large_buf_read_kernel);
     bpf_ringbuf_output_hook = NULL;
 
     return g_result;
