@@ -25,7 +25,7 @@ map(select(
       | $fail != null
         and ($fail.UnstableFileFormat? // null) as $unstable
         | $unstable != null
-          and $unstable.file_format  == "definition/2"
+          and $unstable.file_format == "definition/2"
     )
     or
     (
