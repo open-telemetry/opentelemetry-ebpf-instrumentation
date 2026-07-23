@@ -941,7 +941,9 @@ client_request_has_traceparent(void *buf_ptr,
     if (region > (s64)(TRACE_BUF_SIZE - 1)) {
         region = TRACE_BUF_SIZE - 1;
     }
-    const u32 uregion = (u32)region;
+    // The masking operation is not necessary,
+    // but prevents BPF verifier errors in Kernels <= 6.6
+    const u32 uregion = (u32)region & (TRACE_BUF_SIZE - 1);
 
     unsigned char *scan = (unsigned char *)tp_char_buf_mem();
     if (!scan) {
@@ -951,7 +953,7 @@ client_request_has_traceparent(void *buf_ptr,
     if (bpf_probe_read_user(scan, uregion, (void *)(buf_ptr + (u32)entry_n)) != 0) {
         return false;
     }
-    scan[uregion & (TRACE_BUF_SIZE - 1)] = '\0';
+    scan[uregion] = '\0';
 
     // Direct (not indirect) calls so the untaken branch is const-folded away per
     // program instantiation, keeping the bpf_loop subprog out of the legacy one.
