@@ -33,15 +33,6 @@
 #define barrier_data(ptr) asm volatile("" : : "r"(ptr) : "memory")
 #endif
 
-// barrier_var makes the compiler treat var as an opaque value it can no longer
-// reason about at compile time. Useful before masking a value into a verifier
-// bound: without it the compiler may prove the mask is a no-op (because a prior
-// clamp already bounded the value) and delete the AND, leaving the verifier with
-// only a range fact that is lost across a stack spill/reload.
-#ifndef barrier_var
-#define barrier_var(var) asm volatile("" : "+r"(var))
-#endif
-
 /* The LOAD_CONSTANT macro is used to define a named constant that will be replaced
  * at runtime by the Go code. This replaces usage of a bpf_map for storing values, which
  * eliminates a bpf_map_lookup_elem per kprobe hit. The constants are best accessed with a

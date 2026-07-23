@@ -930,6 +930,11 @@ client_request_has_traceparent(void *buf_ptr,
         return false;
     }
 
+    unsigned char *scan = (unsigned char *)tp_char_buf_mem();
+    if (!scan) {
+        return false;
+    }
+
     // region = bytes writeSubset wrote; return_n <= size guarantees it stays
     // within the buffer. Clamp to the scratch buffer capacity as well.
     s64 region = return_n - entry_n;
@@ -941,22 +946,7 @@ client_request_has_traceparent(void *buf_ptr,
     if (region > (s64)(TRACE_BUF_SIZE - 1)) {
         region = TRACE_BUF_SIZE - 1;
     }
-    // The masking operation is not necessary,
-    // but prevents BPF verifier errors in Kernels <= 6.6.
-    // barrier_var is essential: without it the compiler sees the clamp above
-    // already proved region <= TRACE_BUF_SIZE-1, folds the mask to a no-op and
-    // deletes it, so the un-masked s64 reaches bpf_probe_read_user and the <= 6.6
-    // verifier rejects it ("R2 unbounded memory access") because the range fact is
-    // lost across the stack spill/reload. The barrier hides the compile-time
-    // bound so the AND survives and gives the verifier a var_off it keeps.
-    barrier_var(region);
     const u32 uregion = (u32)region & (TRACE_BUF_SIZE - 1);
-
-    unsigned char *scan = (unsigned char *)tp_char_buf_mem();
-    if (!scan) {
-        return false;
-    }
-
     if (bpf_probe_read_user(scan, uregion, (void *)(buf_ptr + (u32)entry_n)) != 0) {
         return false;
     }
