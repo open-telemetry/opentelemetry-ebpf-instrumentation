@@ -29,7 +29,7 @@ metric_refinements:
   # as a DuplicateMetricName error even though live-check resolves it; this
   # specific expected duplicate is allowlisted in
   # scripts/lint-schema-filter.jq with the same rationale.
-  - id: dns.lookup.duration
+  - id: metric.dns.lookup.duration.obi
     ref: dns.lookup.duration
     stability: development
     brief: >
