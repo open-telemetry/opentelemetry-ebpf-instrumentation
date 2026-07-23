@@ -10,6 +10,11 @@ all: $(targets)
 %: %.c
 	$(CC) $(CFLAGS) -o $@ $< $(LFLAGS)
 
+.PHONY: test
+test: $(targets)
+	@set -e; for t in $(targets); do echo "### running $$t"; ./$$t; done
+	@echo "All BPF unit tests passed"
+
 .PHONY: clean
 clean:
 	rm -f $(targets)

@@ -1,4 +1,6 @@
-groups:
+file_format: definition/2
+
+metric_refinements:
   # OBI override of the upstream metric.dns.lookup.duration definition.
   #
   # Upstream (semconv v1.41.0) marks dns.question.name as `required`, but OBI
@@ -28,15 +30,11 @@ groups:
   # specific expected duplicate is allowlisted in
   # scripts/lint-schema-filter.jq with the same rationale.
   - id: metric.dns.lookup.duration.obi
-    type: metric
-    extends: metric.dns.lookup.duration
-    metric_name: dns.lookup.duration
+    ref: dns.lookup.duration
     stability: development
     brief: >
       Measures the time taken to perform a DNS lookup. OBI variant of the
       upstream metric with dns.question.name opt-in instead of required.
-    instrument: histogram
-    unit: "s"
     attributes:
       - ref: dns.question.name
         requirement_level: opt_in
