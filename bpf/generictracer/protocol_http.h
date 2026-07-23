@@ -25,6 +25,7 @@
 
 #include <generictracer/maps/http_info_mem.h>
 
+#include <generictracer/http_request_buffer.h>
 #include <generictracer/k_tracer_tailcall.h>
 #include <generictracer/large_buf_tailcall.h>
 #include <generictracer/protocol_common.h>
@@ -402,9 +403,11 @@ static __always_inline int __obi_continue2_protocol_http(struct pt_regs *ctx,
         bpf_dbg_printk("No META!");
     }
 
-    // we copy some small part of the buffer to the info trace event, so that we can process an event even with
+    // We copy part of the buffer to the info trace event so that we can process an event even with
     // incomplete trace info in user space.
-    bpf_probe_read(info->buf, FULL_BUF_SIZE, (void *)args->u_buf);
+    if (capture_http_request_buffer(info, args)) {
+        bpf_dbg_printk("Failed to capture HTTP request buffer, using protocol prefix");
+    }
     process_http_request(
         info, args->bytes_len, meta, args->direction, args->orig_dport, args->lw_thread);
 

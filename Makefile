@@ -282,7 +282,7 @@ docker-generate:
 		make generate
 
 .PHONY: verify
-verify: prereqs go-mod-tidy lint test license-header-check
+verify: prereqs go-mod-tidy lint test test-bpf license-header-check
 
 .PHONY: build
 build: docker-generate verify compile
@@ -318,6 +318,11 @@ compile-cache-for-coverage:
 test:
 	@echo "### Testing code"
 	KUBEBUILDER_ASSETS="$(shell go tool $(TOOLS_MODFILE) setup-envtest use $(ENVTEST_K8S_VERSION) -p path)" go test -short -race -a ./... -coverpkg=./... -coverprofile $(TEST_OUTPUT)/cover.all.txt
+
+.PHONY: test-bpf
+test-bpf:
+	@echo "### Testing BPF helpers"
+	$(MAKE) -C bpf/tests test
 
 .PHONY: test-privileged
 test-privileged: $(ENVTEST)
