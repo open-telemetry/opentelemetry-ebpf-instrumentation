@@ -56,18 +56,21 @@ func TestHTTP1ClientTraceparentNotDuplicated(t *testing.T) {
 	}
 
 	targetBin := buildHTTPClientTarget(t)
+	send := startHTTPClientTarget(t, targetBin)
 
-	t.Run("client already has traceparent: no duplicate", func(t *testing.T) {
-		got := runHTTPClientTarget(t, targetBin, "WITH_TP")
-		assert.Equal(t, "1", got,
-			"OBI must not append a second traceparent when the client already wrote one")
-	})
+	// Readiness: instead of a fixed sleep, poll until OBI's injection is
+	// effective. NO_TP returns "1" only once the uprobe is attached and
+	// injecting, so this doubles as the "OBI still injects" assertion and
+	// guarantees the probe is live before the no-duplicate check below.
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		assert.Equal(c, "1", send(t, "NO_TP"),
+			"OBI must inject a traceparent when the client didn't write one")
+	}, 20*time.Second, 200*time.Millisecond)
 
-	t.Run("no traceparent present: OBI injects", func(t *testing.T) {
-		got := runHTTPClientTarget(t, targetBin, "NO_TP")
-		assert.Equal(t, "1", got,
-			"OBI must still inject a traceparent when the client didn't write one")
-	})
+	// With injection confirmed live, a client that already wrote its own
+	// traceparent must not get a second one appended.
+	assert.Equal(t, "1", send(t, "WITH_TP"),
+		"OBI must not append a second traceparent when the client already wrote one")
 }
 
 // buildHTTPClientTarget compiles the self-contained helper binary. Its single
@@ -83,9 +86,11 @@ func buildHTTPClientTarget(t *testing.T) string {
 	return bin
 }
 
-// runHTTPClientTarget starts the target, attaches the gotracer, sends the given
-// mode command and returns the number of Traceparent headers the receiver saw.
-func runHTTPClientTarget(t *testing.T, bin, mode string) string {
+// startHTTPClientTarget starts the target, attaches the gotracer, and returns a
+// send function that issues one request in the given mode ("WITH_TP"/"NO_TP")
+// and returns the number of Traceparent headers the receiver reported. The
+// target loops over stdin, so send can be called repeatedly (e.g. for polling).
+func startHTTPClientTarget(t *testing.T, bin string) func(t *testing.T, mode string) string {
 	t.Helper()
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -110,14 +115,13 @@ func runHTTPClientTarget(t *testing.T, bin, mode string) string {
 
 	attachGoTracer(t, app.PID(cmd.Process.Pid))
 
-	// Give the uprobes a moment to be effective before the first request.
-	time.Sleep(500 * time.Millisecond)
-
-	_, err = io.WriteString(stdin, mode+"\n")
-	require.NoError(t, err)
-
-	line := waitForClientLine(t, stdoutLines, "TP_COUNT=", 30*time.Second)
-	return strings.TrimPrefix(strings.TrimSpace(line), "TP_COUNT=")
+	return func(t *testing.T, mode string) string {
+		t.Helper()
+		_, err := io.WriteString(stdin, mode+"\n")
+		require.NoError(t, err)
+		line := waitForClientLine(t, stdoutLines, "TP_COUNT=", 30*time.Second)
+		return strings.TrimPrefix(strings.TrimSpace(line), "TP_COUNT=")
+	}
 }
 
 // attachGoTracer wires up the real ProcessTracer with the gotracer against the
@@ -242,6 +246,11 @@ func collectClientLines(t *testing.T, name string, r io.Reader) <-chan string {
 			line := scanner.Text()
 			t.Logf("%s: %s", name, line)
 			lines <- line
+		}
+		// Surface read errors (broken pipe/truncation) so failures show up as a
+		// diagnosable log line rather than an opaque waitForClientLine timeout.
+		if err := scanner.Err(); err != nil {
+			t.Logf("%s scanner error: %v", name, err)
 		}
 	}()
 	return lines

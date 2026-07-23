@@ -896,7 +896,10 @@ int obi_uprobe_writeSubset(struct pt_regs *ctx) {
     // resets n to 0; the return probe handles that (return_n <= entry_n) and all
     // its reads stay bounded within the buffer regardless.
     s64 entry_n = 0;
-    bpf_probe_read(&entry_n, sizeof(entry_n), (void *)(io_writer_addr + io_writer_n_pos));
+    if (bpf_probe_read_user(
+            &entry_n, sizeof(entry_n), (void *)(io_writer_addr + io_writer_n_pos)) != 0) {
+        goto done;
+    }
 
     write_subset_invocation_t inv = {
         .io_writer_addr = (u64)io_writer_addr,
@@ -913,33 +916,57 @@ done:
 
 // client_request_has_traceparent scans the header block that writeSubset just
 // serialized ([entry_n, return_n)) for an existing traceparent header, reusing
-// the same primitive as the server-side extraction.
+// the same primitive as the server-side extraction. All offsets are validated
+// and the scan is clamped to both the scratch buffer and the bytes actually
+// present in the writer buffer, so the read can never run past the buffer.
+// tp_loop_fn selects the scan implementation (bpf_loop vs legacy) at load time.
 static __always_inline bool
-client_request_has_traceparent(void *buf_ptr, s64 entry_n, s64 return_n) {
-    if (return_n <= entry_n) {
+client_request_has_traceparent(void *buf_ptr,
+                               s64 entry_n,
+                               s64 return_n,
+                               s64 size,
+                               unsigned char *(*tp_loop_fn)(unsigned char *, const u16)) {
+    if (entry_n < 0 || return_n <= entry_n || return_n > size) {
         return false;
     }
 
-    u32 region = (u32)(return_n - entry_n);
-    bpf_clamp_umax(region, TRACE_BUF_SIZE - 1);
+    // region = bytes writeSubset wrote; return_n <= size guarantees it stays
+    // within the buffer. Clamp to the scratch buffer capacity as well.
+    s64 region = return_n - entry_n;
+
+    // this check is redundant but otherwise the verifier complains
+    if (region <= 0) {
+        return false;
+    }
+    if (region > (s64)(TRACE_BUF_SIZE - 1)) {
+        region = TRACE_BUF_SIZE - 1;
+    }
+    const u32 uregion = (u32)region;
 
     unsigned char *scan = (unsigned char *)tp_char_buf_mem();
     if (!scan) {
         return false;
     }
 
-    if (bpf_probe_read_user(scan, region, (void *)(buf_ptr + (entry_n & 0xffff))) != 0) {
+    if (bpf_probe_read_user(scan, uregion, (void *)(buf_ptr + (u32)entry_n)) != 0) {
         return false;
     }
-    scan[region & (TRACE_BUF_SIZE - 1)] = '\0';
+    scan[uregion & (TRACE_BUF_SIZE - 1)] = '\0';
 
-    unsigned char *found = g_bpf_loop_enabled ? bpf_strstr_tp_loop(scan, (u16)region)
-                                              : bpf_strstr_tp_loop__legacy(scan, (u16)region);
+    // Direct (not indirect) calls so the untaken branch is const-folded away per
+    // program instantiation, keeping the bpf_loop subprog out of the legacy one.
+    unsigned char *found = NULL;
+    if (tp_loop_fn == bpf_strstr_tp_loop) {
+        found = bpf_strstr_tp_loop(scan, (u16)uregion);
+    } else {
+        found = bpf_strstr_tp_loop__legacy(scan, (u16)uregion);
+    }
     return found != NULL;
 }
 
-SEC("uprobe/header_writeSubset_returns")
-int obi_uprobe_writeSubset_returns(struct pt_regs *ctx) {
+static __always_inline int on_writeSubset_returns(struct pt_regs *ctx,
+                                                  unsigned char *(*tp_loop_fn)(unsigned char *,
+                                                                               const u16)) {
     if (!g_bpf_header_propagation) {
         return 0;
     }
@@ -967,26 +994,36 @@ int obi_uprobe_writeSubset_returns(struct pt_regs *ctx) {
     }
 
     void *buf_ptr = 0;
-    bpf_probe_read(&buf_ptr, sizeof(buf_ptr), (void *)(io_writer_addr + io_writer_buf_ptr_pos));
-    if (!buf_ptr) {
+    if (bpf_probe_read_user(
+            &buf_ptr, sizeof(buf_ptr), (void *)(io_writer_addr + io_writer_buf_ptr_pos)) != 0 ||
+        !buf_ptr) {
         goto done;
     }
 
-    s64 size = 0;
-    bpf_probe_read(
-        &size,
-        sizeof(s64),
-        (void *)(io_writer_addr + io_writer_buf_ptr_pos + k_go_slice_len_offset)); // grab size
+    s64 size = 0; // len(buf) of the bufio.Writer; for bufio len == cap == capacity
+    if (bpf_probe_read_user(
+            &size,
+            sizeof(size),
+            (void *)(io_writer_addr + io_writer_buf_ptr_pos + k_go_slice_len_offset)) != 0) {
+        goto done;
+    }
 
-    s64 len = 0;
-    bpf_probe_read(&len,
-                   sizeof(s64),
-                   (void *)(io_writer_addr + io_writer_n_pos)); // grab len (return offset)
+    s64 len = 0; // current write offset (return position)
+    if (bpf_probe_read_user(&len, sizeof(len), (void *)(io_writer_addr + io_writer_n_pos)) != 0) {
+        goto done;
+    }
+
+    // Sanity-check the writer bounds before touching the buffer: a negative or
+    // out-of-range write offset (e.g. after a bufio flush reset) means we can't
+    // reason about the buffer, so skip rather than risk a bad access.
+    if (size <= 0 || len < 0 || len > size) {
+        goto done;
+    }
 
     bpf_dbg_printk("buf_ptr=%llx, entry_n=%d, len=%d", (void *)buf_ptr, inv->entry_n, len);
 
     // If the application already wrote its own traceparent, don't add a second.
-    if (client_request_has_traceparent(buf_ptr, inv->entry_n, len)) {
+    if (client_request_has_traceparent(buf_ptr, inv->entry_n, len, size, tp_loop_fn)) {
         bpf_dbg_printk("client request already carries a traceparent, skipping injection");
         goto done;
     }
@@ -994,8 +1031,8 @@ int obi_uprobe_writeSubset_returns(struct pt_regs *ctx) {
     unsigned char buf[k_traceparent_len];
     make_tp_string(buf, &inv->tp);
 
-    if (len >= 0 && len < (size - TP_MAX_VAL_LENGTH - TP_MAX_KEY_LENGTH -
-                           4)) { // 4 = strlen(":_") + strlen("\r\n")
+    if (len <
+        (size - TP_MAX_VAL_LENGTH - TP_MAX_KEY_LENGTH - 4)) { // 4 = strlen(":_")+strlen("\r\n")
         char key[TP_MAX_KEY_LENGTH + 2] = "Traceparent: ";
         char end[2] = "\r\n";
         bpf_probe_write_user(buf_ptr + (len & 0x0ffff), key, sizeof(key));
@@ -1034,6 +1071,22 @@ int obi_uprobe_writeSubset_returns(struct pt_regs *ctx) {
 done:
     bpf_map_delete_elem(&ongoing_write_subsets, &gw_key);
     return 0;
+}
+
+// Two variants of the return probe: the default uses bpf_loop; the _legacy one
+// uses a bounded scan for kernels without bpf_loop. FixupSpec swaps the default
+// for the legacy on those kernels (and dummies the legacy elsewhere), mirroring
+// obi_uprobe_readMimeHeader / obi_protocol_http. This keeps the bpf_loop subprog
+// out of the program loaded on pre-5.17 kernels, which would otherwise reject it
+// with "number of funcs in func_info doesn't match number of subprogs".
+SEC("uprobe/header_writeSubset_returns")
+int obi_uprobe_writeSubset_returns(struct pt_regs *ctx) {
+    return on_writeSubset_returns(ctx, bpf_strstr_tp_loop);
+}
+
+SEC("uprobe/header_writeSubset_returns_legacy")
+int obi_uprobe_writeSubset_returns_legacy(struct pt_regs *ctx) {
+    return on_writeSubset_returns(ctx, bpf_strstr_tp_loop__legacy);
 }
 
 // HTTP 2.0 server support
