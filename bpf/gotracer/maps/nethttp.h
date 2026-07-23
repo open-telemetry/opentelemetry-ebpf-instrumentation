@@ -3,11 +3,11 @@
 
 #pragma once
 
-#include "common/connection_info.h"
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_helpers.h>
 
 #include <common/common.h>
+#include <common/connection_info.h>
 #include <common/go_addr_key.h>
 #include <common/map_sizing.h>
 

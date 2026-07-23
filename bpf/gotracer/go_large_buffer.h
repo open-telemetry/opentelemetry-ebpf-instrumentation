@@ -92,7 +92,7 @@ cleanup_ongoing_large_buffer_sorted_conn(const connection_info_t *sorted_conn, u
 }
 
 // General idea on how this works.
-// For HTTP1.1 we simply track the connection info and the reguest kind by
+// For HTTP1.1 we simply track the connection info and the request kind by
 // using the same approach we use in kprobes, i.e. we look at the first few
 // bytes in the buffer and determine if it's a request or a response.
 // For HTTP2 we need help. At the moment only Go HTTP2 client is implemented.
