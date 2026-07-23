@@ -38,6 +38,7 @@ out=$($OCI_BIN run --rm \
     --registry /obi-registry \
     --include-unreferenced \
     --future \
+    --v2=true \
     --diagnostic-format json \
     --diagnostic-stdout 2>"$stderr") || rc=$?
 

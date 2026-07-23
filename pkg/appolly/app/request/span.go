@@ -2233,6 +2233,99 @@ func (s *Span) GenAIInputTokens() int {
 	return 0
 }
 
+// HasGenAIInputTokens returns true if the input token count is available
+// (i.e., was actually reported by the provider, not simply absent/unknown).
+func (s *Span) HasGenAIInputTokens() bool {
+	if s.GenAI == nil {
+		return false
+	}
+
+	if s.GenAI.OpenAI != nil {
+		return s.GenAI.OpenAI.Usage.GetInputTokens() > 0
+	}
+
+	if s.GenAI.Anthropic != nil {
+		u := s.GenAI.Anthropic.Output.Usage
+		return u.InputTokens > 0 || u.CacheReadInputTokens > 0 || u.CacheCreationInputTokens > 0
+	}
+
+	if s.GenAI.Gemini != nil {
+		return s.GenAI.Gemini.Output.UsageMetadata.PromptTokenCount > 0
+	}
+
+	if s.GenAI.Qwen != nil {
+		return s.GenAI.Qwen.Usage.GetInputTokens() > 0
+	}
+
+	if s.GenAI.Ollama != nil {
+		return s.GenAI.Ollama.Usage.GetInputTokens() > 0
+	}
+
+	if s.GenAI.OpenAICompatible != nil {
+		return s.GenAI.OpenAICompatible.Usage.GetInputTokens() > 0
+	}
+
+	if s.GenAI.Bedrock != nil {
+		return s.GenAI.Bedrock.Output.InputTokens > 0
+	}
+
+	if s.GenAI.Embedding != nil {
+		return s.GenAI.Embedding.GetInputTokens() > 0
+	}
+
+	if s.GenAI.Rerank != nil {
+		return s.GenAI.Rerank.Output.GetTotalTokens() > 0
+	}
+
+	if s.GenAI.Retrieval != nil {
+		return s.GenAI.Retrieval.GetInputTokens() > 0
+	}
+
+	return false
+}
+
+// HasGenAIOutputTokens returns true if the output token count is available
+// (i.e., was actually reported by the provider, not simply absent/unknown).
+func (s *Span) HasGenAIOutputTokens() bool {
+	if s.GenAI == nil {
+		return false
+	}
+
+	if s.GenAI.OpenAI != nil {
+		return s.GenAI.OpenAI.Usage.GetOutputTokens() > 0
+	}
+
+	if s.GenAI.Anthropic != nil {
+		return s.GenAI.Anthropic.Output.Usage.OutputTokens > 0
+	}
+
+	if s.GenAI.Gemini != nil {
+		return s.GenAI.Gemini.Output.UsageMetadata.CandidatesTokenCount > 0
+	}
+
+	if s.GenAI.Qwen != nil {
+		return s.GenAI.Qwen.Usage.GetOutputTokens() > 0
+	}
+
+	if s.GenAI.Ollama != nil {
+		return s.GenAI.Ollama.Usage.GetOutputTokens() > 0
+	}
+
+	if s.GenAI.OpenAICompatible != nil {
+		return s.GenAI.OpenAICompatible.Usage.GetOutputTokens() > 0
+	}
+
+	if s.GenAI.Bedrock != nil {
+		return s.GenAI.Bedrock.Output.OutputTokens > 0
+	}
+
+	if s.GenAI.Embedding != nil {
+		return s.GenAI.Embedding.GetOutputTokens() > 0
+	}
+
+	return false
+}
+
 func (s *Span) GenAIOutputTokens() int {
 	if s.GenAI == nil {
 		return 0

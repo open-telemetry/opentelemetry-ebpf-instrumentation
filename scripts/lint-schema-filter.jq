@@ -7,11 +7,7 @@
 # weaver defines override semantics this filter (and the override groups
 # documented in schemas/obi/README.md) can be dropped.
 #
-# 1. DuplicateMetricName for `dns.lookup.duration` between the upstream
-#    semconv dependency (under `.deps/`) and `schemas/obi/groups/dns.yaml`.
-#    That file deliberately re-declares the upstream metric (via `extends`
-#    under a distinct group id) to relax `dns.question.name` from required to
-#    opt_in.
+# 1. UnstableFileFormat we accept UnstableFileFormat for "definition/2" due to the migration process.
 #
 # 2. DuplicateAttributeId for the attribute overrides in
 #    `schemas/obi/groups/` (see schemas/obi/README.md): each re-declares an
@@ -25,13 +21,11 @@
 map(select(
   (
     (
-      (.error.DuplicateMetricName? // null) as $dup
-      | $dup != null
-        and $dup.metric_name == "dns.lookup.duration"
-        and (($dup.provenances // []) | length) == 2
-        and ([$dup.provenances[].path] | sort
-             | (.[0] | startswith(".deps/"))
-               and (.[1] | endswith("groups/dns.yaml")))
+      (.error.FailToResolveDefinition? // null) as $fail
+      | $fail != null
+        and ($fail.UnstableFileFormat? // null) as $unstable
+        | $unstable != null
+          and $unstable.file_format == "definition/2"
     )
     or
     (

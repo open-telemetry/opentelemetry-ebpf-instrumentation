@@ -9,8 +9,8 @@ upstream dependency it forms the complete contract of what OBI emits
 
 Weaver (v0.24.x) has **no precedence or merge semantics** between a local
 group and the groups a dependency contributes to the resolved registry
-(`--include-unreferenced`, which OBI needs). When the same attribute id or
-signal name is declared by more than one group, live-check silently resolves
+(`--include-unreferenced`, which OBI needs). When the same attribute id
+is declared by more than one group, live-check silently resolves
 the duplicate in favor of the group whose id sorts **last lexicographically** —
 including the upstream `span.*` / `metric.*` groups that `ref` an attribute
 and therefore carry an embedded copy of its upstream definition. Tracked
@@ -33,14 +33,11 @@ Until weaver defines local-wins override semantics, every override in
    resurfaces as an `undefined_enum_variant` failure in the weaver-validated
    suites, so drift is caught, not silent.
 3. **Expected lint duplicates**: `weaver registry check` flags each override
-   as a `DuplicateAttributeId` (or `DuplicateMetricName`) error even though
+   as a `DuplicateAttributeId` error even though
    live-check resolves it. Each expected duplicate is allowlisted — tightly,
    by attribute id and group pair — in `scripts/lint-schema-filter.jq`
    (covered by `scripts/lint_schema_filter_test.go`). Anything else still
    fails `make lint-schema`.
-
-`groups/dns.yaml` is the metric-level variant of the same problem (duplicate
-`metric_name` instead of attribute id) and follows the same group-id rule.
 
 ## Two override styles
 

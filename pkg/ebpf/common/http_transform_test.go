@@ -373,6 +373,36 @@ func TestMethodURLParsing(t *testing.T) {
 	assert.Empty(t, httpURLFromBuf(i.Buf[:]))
 }
 
+func TestHTTPRequestToSpanMethodFromSSLBuffer(t *testing.T) {
+	newSSLEvent := func(buf []uint8) *BPFHTTPInfo {
+		event := makeBPFInfoWithBuf(buf)
+		event.Ssl = 1
+		event.Type = uint8(request.EventTypeHTTPClient)
+		event.ConnInfo.S_port = 34567
+		event.ConnInfo.D_port = 443
+		return &event
+	}
+
+	t.Run("short request line is enough to recover the method", func(t *testing.T) {
+		event := newSSLEvent([]uint8("GET /greeting HTTP/1.1\r\n"))
+		span := httpRequestToSpan(event, largebuf.NewLargeBufferFrom(event.Buf[:]))
+		assert.Equal(t, "GET", span.Method)
+		assert.Equal(t, "/greeting", span.Path)
+	})
+
+	t.Run("minimal method token still recovers the method", func(t *testing.T) {
+		event := newSSLEvent([]uint8("GET /"))
+		span := httpRequestToSpan(event, largebuf.NewLargeBufferFrom(event.Buf[:]))
+		assert.Equal(t, "GET", span.Method)
+	})
+
+	t.Run("zeroed buffer yields empty method", func(t *testing.T) {
+		event := newSSLEvent(nil)
+		span := httpRequestToSpan(event, largebuf.NewLargeBufferFrom(event.Buf[:]))
+		assert.Empty(t, span.Method)
+	})
+}
+
 func makeHTTPInfo(method, path, peer, host string, peerPort, hostPort uint32, status uint16, durationMs uint64) HTTPInfo {
 	bpfInfo := BPFHTTPInfo{
 		Type:            1,

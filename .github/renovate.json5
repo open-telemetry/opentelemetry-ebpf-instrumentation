@@ -208,9 +208,19 @@
     {
       "description": "Block golang Docker image major upgrades (these require coordinated manual changes)",
       "matchDatasources": ["docker"],
-      "matchPackageNames": ["golang"],
+      "matchPackageNames": [
+        "golang",
+        "docker.io/library/golang",
+        "library/golang"
+      ],
       "matchUpdateTypes": ["major"],
       "enabled": false
+    },
+    {
+      "description": "Keep the Go 1.17 runtime-metrics fixture on its tested Go release line",
+      "matchManagers": ["dockerfile"],
+      "matchFileNames": ["internal/test/integration/components/go-runtime-metrics-server/Dockerfile_1.17"],
+      "allowedVersions": "/^1\\.17\\./"
     },
     {
       "groupName": "Docker",
