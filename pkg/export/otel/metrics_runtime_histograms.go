@@ -34,8 +34,8 @@ type goRuntimeHistogramState struct {
 func newGoRuntimeHistogramProducer(temporality metricdata.Temporality) *goRuntimeHistogramProducer {
 	return &goRuntimeHistogramProducer{
 		temporality:  temporality,
-		histograms:   make(map[runtimemetrics.GoHistogramKind]goRuntimeHistogramState, 2),
-		lastProduced: make(map[runtimemetrics.GoHistogramKind]goRuntimeHistogramState, 2),
+		histograms:   make(map[runtimemetrics.GoHistogramKind]goRuntimeHistogramState),
+		lastProduced: make(map[runtimemetrics.GoHistogramKind]goRuntimeHistogramState),
 	}
 }
 

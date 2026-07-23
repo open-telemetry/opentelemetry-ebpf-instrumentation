@@ -68,14 +68,17 @@ static __always_inline bool go_runtime_read_offset(void *dst, u32 size, u64 base
     return go_runtime_read(dst, size, base + offset);
 }
 
-static __always_inline void go_runtime_collect_histogram(
-    u64 histogram_addr, u64 underflow_offset, u64 overflow_offset, u8 kind, const pid_info *pid) {
+static __always_inline void go_runtime_collect_histogram(u64 histogram_addr,
+                                                         u64 underflow_offset,
+                                                         u64 overflow_offset,
+                                                         go_runtime_histogram_kind_t kind,
+                                                         const pid_info *pid) {
     if (!histogram_addr || underflow_offset % sizeof(u64)) {
         return;
     }
 
     const u64 derived_bucket_count = underflow_offset / sizeof(u64);
-    if (derived_bucket_count != HIST_MAX_BUCKETS ||
+    if (derived_bucket_count != k_hist_max_buckets ||
         overflow_offset != underflow_offset + sizeof(u64)) {
         return;
     }
@@ -89,11 +92,8 @@ static __always_inline void go_runtime_collect_histogram(
 
     event->type = EVENT_GO_RUNTIME_HISTOGRAM;
     event->kind = kind;
-    event->_pad[0] = 0;
-    event->_pad[1] = 0;
     event->pid = *pid;
     event->bucket_count = bucket_count;
-    event->_pad2 = 0;
 
     const u32 counts_size = bucket_count * sizeof(u64);
     if (bpf_probe_read_user(event->counts, counts_size, (void *)histogram_addr) ||

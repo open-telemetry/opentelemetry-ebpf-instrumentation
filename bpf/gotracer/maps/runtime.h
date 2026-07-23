@@ -128,24 +128,24 @@ typedef enum go_runtime_metric_valid {
 } go_runtime_metric_valid_t;
 
 enum : u32 {
-    HIST_MAX_BUCKETS = 160,
+    k_hist_max_buckets = 160,
 };
 
-typedef enum go_runtime_histogram_kind {
+typedef enum go_runtime_histogram_kind : u8 {
     go_runtime_histogram_kind_gc_pause = 0,
     go_runtime_histogram_kind_scheduler_latency = 1,
 } go_runtime_histogram_kind_t;
 
 typedef struct go_runtime_histogram_event {
     u8 type;
-    u8 kind;
+    go_runtime_histogram_kind_t kind;
     u8 _pad[2];
     pid_info pid;
     u32 bucket_count;
     u32 _pad2;
     u64 underflow;
     u64 overflow;
-    u64 counts[HIST_MAX_BUCKETS];
+    u64 counts[k_hist_max_buckets];
 } go_runtime_histogram_event_t;
 
 typedef struct go_runtime_metric_snapshot {
