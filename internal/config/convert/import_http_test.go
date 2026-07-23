@@ -231,6 +231,10 @@ func TestV2ToRuntimePreservesAbsentGlobalHTTPDirectionWithRule(t *testing.T) {
 	require.True(t, got.Routes.HasIncomingPolicy())
 	require.False(t, got.Routes.HasOutgoingPolicy())
 
+	policies := got.Routes.DirectionalPolicies()
+	require.Empty(t, policies.Incoming.Unmatch)
+	require.Equal(t, services.UnmatchUnset, policies.Outgoing.Unmatch)
+
 	_, roundTrip := RuntimeToV2(got)
 	require.NotNil(t, roundTrip.Capture.Instrumentation.HTTP.Routes.Incoming)
 	require.Nil(t, roundTrip.Capture.Instrumentation.HTTP.Routes.Outgoing)
