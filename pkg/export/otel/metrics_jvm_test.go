@@ -17,6 +17,7 @@ import (
 
 	jvmruntime "go.opentelemetry.io/obi/pkg/appolly/app/runtime"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
+	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
@@ -44,6 +45,7 @@ func TestRuntimeMetricsReporterRecordsJVMMemoryPoolUsed(t *testing.T) {
 		&perapp.MetricsConfig{Features: export.FeatureApplicationRuntime},
 		&attributes.SelectorConfig{},
 		msg.NewQueue[[]runtimemetrics.RuntimeMetricSnapshot](msg.ChannelBufferLen(1)),
+		msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(1)),
 	)
 	require.NoError(t, err)
 	defer reporter.close()
@@ -91,6 +93,7 @@ func TestRuntimeMetricsReporterRecordsJVMMemoryAsUpDownCounter(t *testing.T) {
 		&perapp.MetricsConfig{Features: export.FeatureApplicationRuntime},
 		&attributes.SelectorConfig{},
 		msg.NewQueue[[]runtimemetrics.RuntimeMetricSnapshot](msg.ChannelBufferLen(1)),
+		msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(1)),
 	)
 	require.NoError(t, err)
 	defer reporter.close()

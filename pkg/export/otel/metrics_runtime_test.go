@@ -13,14 +13,67 @@ import (
 	metricdata "go.opentelemetry.io/otel/sdk/metric/metricdata"
 	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 
+	"go.opentelemetry.io/obi/pkg/appolly/app"
 	jvmruntime "go.opentelemetry.io/obi/pkg/appolly/app/runtime"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
+	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	"go.opentelemetry.io/obi/pkg/export/otel/metric"
+	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/runtimemetrics"
 )
+
+func TestRuntimeMetricsReporterEvictsServiceAfterLastPIDTerminates(t *testing.T) {
+	service := svc.Attrs{UID: svc.UID{Name: "orders"}}
+	constructed := 0
+	evicted := []*RuntimeMetrics{}
+
+	reporters, err := otelcfg.NewReporterPool[*svc.Attrs, *RuntimeMetrics](
+		10,
+		time.Minute,
+		time.Now,
+		func(_ svc.UID, metrics *RuntimeMetrics) {
+			evicted = append(evicted, metrics)
+		},
+		func(_ *svc.Attrs) (*RuntimeMetrics, error) {
+			constructed++
+			return &RuntimeMetrics{}, nil
+		},
+	)
+	require.NoError(t, err)
+
+	reporter := RuntimeMetricsReporter{
+		reporters:  reporters,
+		pidTracker: NewPidServiceTracker(),
+	}
+	processEvent := func(pid app.PID, eventType exec.ProcessEventType) *exec.ProcessEvent {
+		return &exec.ProcessEvent{
+			Type: eventType,
+			File: exec.New(exec.Init{Pid: pid, Service: service}),
+		}
+	}
+
+	reporter.onProcessEvent(processEvent(101, exec.ProcessEventCreated))
+	reporter.onProcessEvent(processEvent(202, exec.ProcessEventCreated))
+	first, err := reporter.reporters.For(&service)
+	require.NoError(t, err)
+
+	reporter.onProcessEvent(processEvent(101, exec.ProcessEventTerminated))
+	current, err := reporter.reporters.For(&service)
+	require.NoError(t, err)
+	assert.Same(t, first, current)
+	assert.Empty(t, evicted)
+
+	reporter.onProcessEvent(processEvent(202, exec.ProcessEventTerminated))
+	second, err := reporter.reporters.For(&service)
+	require.NoError(t, err)
+
+	assert.NotSame(t, first, second)
+	assert.Equal(t, []*RuntimeMetrics{first}, evicted)
+	assert.Equal(t, 2, constructed)
+}
 
 func TestRuntimeMetricsReporterShouldReportSnapshot(t *testing.T) {
 	exportMetrics := services.NewExportModes()

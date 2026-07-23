@@ -330,6 +330,16 @@ func (rp *ReporterPool[K, T]) For(service K) (T, error) {
 	return rp.lastReporter.value, nil
 }
 
+func (rp *ReporterPool[K, T]) Remove(uid svc.UID) bool {
+	removed := rp.pool.Remove(uid)
+	if uid == rp.lastServiceUID {
+		rp.lastReporter = nil
+		rp.lastService = nil
+		rp.lastServiceUID = emptyUID
+	}
+	return removed
+}
+
 // expireOldReporters will remove the metrics reporters that haven't been accessed
 // during the last TTL period
 func (rp *ReporterPool[K, T]) expireOldReporters() {

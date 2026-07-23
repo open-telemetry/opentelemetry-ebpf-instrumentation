@@ -15,6 +15,7 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
+	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	"go.opentelemetry.io/obi/pkg/appolly/meta"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	"go.opentelemetry.io/obi/pkg/export/otel/metric"
@@ -38,6 +39,8 @@ type RuntimeMetricsReporter struct {
 	exporter       sdkmetric.Exporter
 	reporters      otelcfg.ReporterPool[*svc.Attrs, *RuntimeMetrics]
 	input          <-chan []runtimemetrics.RuntimeMetricSnapshot
+	processEvents  <-chan exec.ProcessEvent
+	pidTracker     PidServiceTracker
 	log            *slog.Logger
 	selector       attributes.Selection
 	runtimeEnabled runtimemetrics.Enabled
@@ -83,17 +86,21 @@ func ReportRuntimeMetrics(
 	jointMetricsConfig *perapp.MetricsConfig,
 	selectorCfg *attributes.SelectorConfig,
 	input *msg.Queue[[]runtimemetrics.RuntimeMetricSnapshot],
+	processEvents *msg.Queue[exec.ProcessEvent],
 ) swarm.InstanceFunc {
 	return func(ctx context.Context) (swarm.RunFunc, error) {
 		runtimeEnabled := runtimemetrics.EnabledFeatures(jointMetricsConfig.Features)
 		if !cfg.EndpointEnabled() ||
 			!runtimeEnabled.Any() ||
-			input == nil {
+			input == nil ||
+			processEvents == nil {
 			return swarm.EmptyRunFunc()
 		}
 		otelcfg.SetupInternalOTELSDKLogger(cfg.SDKLogLevel)
 
-		reporter, err := newRuntimeMetricsReporter(ctx, ctxInfo, cfg, jointMetricsConfig, selectorCfg, input)
+		reporter, err := newRuntimeMetricsReporter(
+			ctx, ctxInfo, cfg, jointMetricsConfig, selectorCfg, input, processEvents,
+		)
 		if err != nil {
 			return nil, fmt.Errorf("instantiating OTEL runtime metrics reporter: %w", err)
 		}
@@ -109,6 +116,7 @@ func newRuntimeMetricsReporter(
 	jointMetricsConfig *perapp.MetricsConfig,
 	selectorCfg *attributes.SelectorConfig,
 	input *msg.Queue[[]runtimemetrics.RuntimeMetricSnapshot],
+	processEvents *msg.Queue[exec.ProcessEvent],
 ) (*RuntimeMetricsReporter, error) {
 	log := rmlog()
 
@@ -123,6 +131,8 @@ func newRuntimeMetricsReporter(
 		nodeMeta:       ctxInfo.NodeMeta,
 		exporter:       instrumentMetricsExporter(ctxInfo.Metrics, exporter),
 		input:          input.Subscribe(msg.SubscriberName("otel.RuntimeMetricsReporter")),
+		processEvents:  processEvents.Subscribe(msg.SubscriberName("otel.RuntimeMetricsReporter.ProcessEvents")),
+		pidTracker:     NewPidServiceTracker(),
 		log:            log,
 		selector:       selectorCfg.SelectionCfg,
 		runtimeEnabled: runtimemetrics.EnabledFeatures(jointMetricsConfig.Features),
@@ -257,6 +267,12 @@ func (r *RuntimeMetricsReporter) reportMetrics(ctx context.Context) {
 		case <-ctx.Done():
 			r.log.Debug("context done, stopping runtime metrics reporting")
 			return
+		case pe, ok := <-r.processEvents:
+			if !ok {
+				r.log.Debug("process events channel closed, stopping runtime metrics reporting")
+				return
+			}
+			r.onProcessEvent(&pe)
 		case snapshots, ok := <-r.input:
 			if !ok {
 				r.log.Debug("runtime metrics input channel closed, stopping metrics reporting")
@@ -264,6 +280,25 @@ func (r *RuntimeMetricsReporter) reportMetrics(ctx context.Context) {
 			}
 			r.reportRuntimeMetrics(snapshots)
 		}
+	}
+}
+
+func (r *RuntimeMetricsReporter) onProcessEvent(pe *exec.ProcessEvent) {
+	service := pe.File.ServiceAttrs()
+	pid := pe.File.Pid()
+
+	if pe.Type == exec.ProcessEventCreated {
+		if staleUID, exists := r.pidTracker.TracksPID(pid); exists && !staleUID.Equals(&service.UID) {
+			r.pidTracker.ReplaceUID(staleUID, service.UID)
+			r.reporters.Remove(staleUID)
+			return
+		}
+		r.pidTracker.AddPID(pid, service.UID)
+		return
+	}
+
+	if removed, uid := r.pidTracker.RemovePID(pid); removed {
+		r.reporters.Remove(uid)
 	}
 }
 
