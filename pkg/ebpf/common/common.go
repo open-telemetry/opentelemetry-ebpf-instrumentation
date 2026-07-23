@@ -696,12 +696,25 @@ func FixupSpec(spec *ebpf.CollectionSpec, overrideKernelVersion bool) {
 		if _, ok := spec.Programs["obi_uprobe_readMimeHeader"]; ok {
 			spec.Programs["obi_uprobe_readMimeHeader"] = dummy
 		}
+
+		// gotracer's HTTP/1 client traceparent injection scans the request
+		// headers with a bpf_loop in obi_uprobe_writeSubset_returns. Swap it for
+		// the bounded-scan legacy variant so the bpf_loop subprog isn't part of
+		// the program loaded on kernels without bpf_loop (same func_info issue as
+		// obi_uprobe_readMimeHeader above).
+		if _, ok := spec.Programs["obi_uprobe_writeSubset_returns_legacy"]; ok {
+			spec.Programs["obi_uprobe_writeSubset_returns"] = spec.Programs["obi_uprobe_writeSubset_returns_legacy"]
+			spec.Programs["obi_uprobe_writeSubset_returns"].Name = "obi_uprobe_writeSubset_returns"
+		}
 	}
 
 	// Slot dummies in place of the legacy programs we already moved, so the
 	// bpf2go struct binding still resolves them.
 	spec.Programs["obi_protocol_http_legacy"] = dummy
 	spec.Programs["obi_continue_protocol_http_legacy"] = dummy
+	if _, ok := spec.Programs["obi_uprobe_writeSubset_returns_legacy"]; ok {
+		spec.Programs["obi_uprobe_writeSubset_returns_legacy"] = dummy
+	}
 }
 
 // Injectable for tests

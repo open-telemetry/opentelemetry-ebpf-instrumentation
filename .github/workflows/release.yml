@@ -146,6 +146,16 @@ jobs:
     with:
       ref: ${{ inputs.tag || github.ref_name }}
 
+  bpf-unit-tests:
+    name: BPF unit tests
+    uses: ./.github/workflows/bpf_unit_tests.yml
+    needs: validate-tag
+    permissions:
+      contents: read
+    secrets: inherit # zizmor: ignore[secrets-inherit]
+    with:
+      ref: ${{ inputs.tag || github.ref_name }}
+
   integration-tests:
     name: Integration tests
     uses: ./.github/workflows/pull_request_integration_tests.yml
@@ -274,6 +284,7 @@ jobs:
       - unit-tests
       - unit-tests-privileged
       - bpf-verifier
+      - bpf-unit-tests
       - integration-tests
       - integration-tests-arm
       - k8s-integration-tests
