@@ -4,6 +4,8 @@
 package otel
 
 import (
+	"io"
+	"log/slog"
 	"testing"
 	"time"
 
@@ -73,6 +75,53 @@ func TestRuntimeMetricsReporterEvictsServiceAfterLastPIDTerminates(t *testing.T)
 	assert.NotSame(t, first, second)
 	assert.Equal(t, []*RuntimeMetrics{first}, evicted)
 	assert.Equal(t, 2, constructed)
+}
+
+func TestRuntimeMetricsReporterSkipsSnapshotsForUntrackedServices(t *testing.T) {
+	service := svc.Attrs{UID: svc.UID{Name: "orders"}, SDKLanguage: svc.InstrumentableGolang}
+	constructed := 0
+
+	reporters, err := otelcfg.NewReporterPool[*svc.Attrs, *RuntimeMetrics](
+		10,
+		time.Minute,
+		time.Now,
+		func(_ svc.UID, _ *RuntimeMetrics) {},
+		func(_ *svc.Attrs) (*RuntimeMetrics, error) {
+			constructed++
+			return &RuntimeMetrics{}, nil
+		},
+	)
+	require.NoError(t, err)
+
+	reporter := RuntimeMetricsReporter{
+		reporters:      reporters,
+		pidTracker:     NewPidServiceTracker(),
+		log:            slog.New(slog.NewTextHandler(io.Discard, nil)),
+		runtimeEnabled: runtimemetrics.Enabled{Runtime: true},
+	}
+	processEvent := func(eventType exec.ProcessEventType) *exec.ProcessEvent {
+		return &exec.ProcessEvent{
+			Type: eventType,
+			File: exec.New(exec.Init{Pid: 101, Service: service}),
+		}
+	}
+	snapshots := []runtimemetrics.RuntimeMetricSnapshot{{
+		PID:     101,
+		Service: service,
+		Go:      &runtimemetrics.GoRuntimeMetricSnapshot{},
+	}}
+
+	reporter.reportRuntimeMetrics(snapshots)
+	assert.Equal(t, 0, constructed)
+
+	reporter.onProcessEvent(processEvent(exec.ProcessEventCreated))
+	reporter.reportRuntimeMetrics(snapshots)
+	assert.Equal(t, 1, constructed)
+
+	reporter.onProcessEvent(processEvent(exec.ProcessEventTerminated))
+	reporter.reportRuntimeMetrics(snapshots)
+	assert.Equal(t, 1, constructed,
+		"in-flight snapshot must not resurrect the removed reporter")
 }
 
 func TestRuntimeMetricsReporterShouldReportSnapshot(t *testing.T) {

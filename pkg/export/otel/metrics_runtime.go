@@ -167,7 +167,9 @@ func (r *RuntimeMetricsReporter) newMetricsInstance(service *svc.Attrs) RuntimeM
 	log.Debug("creating new runtime metrics reporter")
 
 	resources := resource.NewWithAttributes(semconv.SchemaURL, resourceAttributes...)
-	goHistogramProducer := newGoRuntimeHistogramProducer()
+	goHistogramProducer := newGoRuntimeHistogramProducer(
+		r.exporter.Temporality(sdkmetric.InstrumentKindHistogram),
+	)
 	provider := metric.NewMeterProvider(
 		metric.WithResource(resources),
 		metric.WithReader(metric.NewPeriodicReader(sharedExporter{r.exporter},
@@ -305,6 +307,13 @@ func (r *RuntimeMetricsReporter) onProcessEvent(pe *exec.ProcessEvent) {
 func (r *RuntimeMetricsReporter) reportRuntimeMetrics(snapshots []runtimemetrics.RuntimeMetricSnapshot) {
 	for _, snapshot := range snapshots {
 		if !r.shouldReportSnapshot(snapshot) {
+			continue
+		}
+		// A snapshot may still be in flight after its last process terminated;
+		// reporting it would resurrect the reporter that was just removed.
+		if !r.pidTracker.ServiceLive(snapshot.Service.UID) {
+			r.log.Debug("skipping snapshot for service without live processes",
+				"pid", snapshot.PID, "service", snapshot.Service.UID)
 			continue
 		}
 		metrics, err := r.reporters.For(&snapshot.Service)

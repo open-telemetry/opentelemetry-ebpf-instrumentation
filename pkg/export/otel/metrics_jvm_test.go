@@ -50,11 +50,17 @@ func TestRuntimeMetricsReporterRecordsJVMMemoryPoolUsed(t *testing.T) {
 	require.NoError(t, err)
 	defer reporter.close()
 
+	service := svc.Attrs{
+		UID:      svc.UID{Name: "orders", Namespace: "prod", Instance: "orders-1"},
+		Features: export.FeatureApplicationRuntime,
+	}
+	reporter.onProcessEvent(&exec.ProcessEvent{
+		Type: exec.ProcessEventCreated,
+		File: exec.New(exec.Init{Pid: 101, Service: service}),
+	})
+
 	reporter.reportRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{{
-		Service: svc.Attrs{
-			UID:      svc.UID{Name: "orders", Namespace: "prod", Instance: "orders-1"},
-			Features: export.FeatureApplicationRuntime,
-		},
+		Service: service,
 		JVM: &runtimemetrics.JVMRuntimeMetricSnapshot{
 			Kind:       jvmruntime.JVMMetricMemoryUsed,
 			MemoryType: jvmruntime.JVMMemoryTypeHeap,
@@ -98,11 +104,17 @@ func TestRuntimeMetricsReporterRecordsJVMMemoryAsUpDownCounter(t *testing.T) {
 	require.NoError(t, err)
 	defer reporter.close()
 
+	service := svc.Attrs{
+		UID:      svc.UID{Name: "orders", Namespace: "prod", Instance: "orders-1"},
+		Features: export.FeatureApplicationRuntime,
+	}
+	reporter.onProcessEvent(&exec.ProcessEvent{
+		Type: exec.ProcessEventCreated,
+		File: exec.New(exec.Init{Pid: 101, Service: service}),
+	})
+
 	reporter.reportRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{{
-		Service: svc.Attrs{
-			UID:      svc.UID{Name: "orders", Namespace: "prod", Instance: "orders-1"},
-			Features: export.FeatureApplicationRuntime,
-		},
+		Service: service,
 		JVM: &runtimemetrics.JVMRuntimeMetricSnapshot{
 			Kind:       jvmruntime.JVMMetricMemoryUsed,
 			MemoryType: jvmruntime.JVMMemoryTypeHeap,

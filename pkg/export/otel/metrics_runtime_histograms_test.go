@@ -26,7 +26,7 @@ import (
 const testGoRuntimeHistogramBucketCount = 160
 
 func TestGoRuntimeHistogramProducerProducesCumulativeMetrics(t *testing.T) {
-	producer := newGoRuntimeHistogramProducer()
+	producer := newGoRuntimeHistogramProducer(metricdata.CumulativeTemporality)
 	gcTime := time.Date(2026, 7, 17, 10, 0, 0, 0, time.UTC)
 	scheduleTime := gcTime.Add(time.Second)
 	gcCounts := testGoRuntimeHistogramCounts()
@@ -53,8 +53,65 @@ func TestGoRuntimeHistogramProducerProducesCumulativeMetrics(t *testing.T) {
 	assertProducedHistogram(t, metrics[attributes.GoRuntimeScheduleDuration.OTEL], scheduleSnapshot)
 }
 
+func TestGoRuntimeHistogramProducerProducesDeltaMetrics(t *testing.T) {
+	producer := newGoRuntimeHistogramProducer(metricdata.DeltaTemporality)
+	start := time.Date(2026, 7, 17, 10, 0, 0, 0, time.UTC)
+	counts := testGoRuntimeHistogramCounts()
+	counts[3] = 4
+	producer.Update(testGoRuntimeHistogramSnapshot(
+		runtimemetrics.GoHistogramKindGCPause, 101, start, counts, 2, 1,
+	))
+
+	first := testProducedHistogram(
+		t, producer, attributes.GoRuntimeMemoryGCPauseDuration.OTEL,
+	)
+	assert.Equal(t, metricdata.DeltaTemporality, first.Temporality)
+	require.Len(t, first.DataPoints, 1)
+	assert.Equal(t, uint64(7), first.DataPoints[0].Count)
+
+	updatedAt := start.Add(time.Minute)
+	counts[3] = 7
+	counts[4] = 2
+	producer.Update(testGoRuntimeHistogramSnapshot(
+		runtimemetrics.GoHistogramKindGCPause, 101, updatedAt, counts, 3, 1,
+	))
+
+	second := testProducedHistogram(
+		t, producer, attributes.GoRuntimeMemoryGCPauseDuration.OTEL,
+	)
+	assert.Equal(t, metricdata.DeltaTemporality, second.Temporality)
+	require.Len(t, second.DataPoints, 1)
+	point := second.DataPoints[0]
+	assert.Equal(t, start, point.StartTime)
+	assert.Equal(t, updatedAt, point.Time)
+	assert.Equal(t, uint64(6), point.Count)
+	assert.Equal(t, uint64(1), point.BucketCounts[0])
+	assert.Equal(t, uint64(3), point.BucketCounts[4])
+	assert.Equal(t, uint64(2), point.BucketCounts[5])
+
+	third, err := producer.Produce(t.Context())
+	require.NoError(t, err)
+	assert.Empty(t, third)
+
+	finalAt := updatedAt.Add(time.Minute)
+	counts[4] = 3
+	producer.Update(testGoRuntimeHistogramSnapshot(
+		runtimemetrics.GoHistogramKindGCPause, 101, finalAt, counts, 3, 1,
+	))
+
+	fourth := testProducedHistogram(
+		t, producer, attributes.GoRuntimeMemoryGCPauseDuration.OTEL,
+	)
+	require.Len(t, fourth.DataPoints, 1)
+	point = fourth.DataPoints[0]
+	assert.Equal(t, updatedAt, point.StartTime)
+	assert.Equal(t, finalAt, point.Time)
+	assert.Equal(t, uint64(1), point.Count)
+	assert.Equal(t, uint64(1), point.BucketCounts[5])
+}
+
 func TestGoRuntimeHistogramProducerOnlyProducesStoredKinds(t *testing.T) {
-	producer := newGoRuntimeHistogramProducer()
+	producer := newGoRuntimeHistogramProducer(metricdata.CumulativeTemporality)
 
 	produced, err := producer.Produce(t.Context())
 	require.NoError(t, err)
@@ -76,7 +133,7 @@ func TestGoRuntimeHistogramProducerOnlyProducesStoredKinds(t *testing.T) {
 }
 
 func TestGoRuntimeHistogramProducerPreservesStartTimeForMonotonicUpdate(t *testing.T) {
-	producer := newGoRuntimeHistogramProducer()
+	producer := newGoRuntimeHistogramProducer(metricdata.CumulativeTemporality)
 	start := time.Date(2026, 7, 17, 10, 0, 0, 0, time.UTC)
 	counts := testGoRuntimeHistogramCounts()
 	counts[3] = 1
@@ -96,7 +153,7 @@ func TestGoRuntimeHistogramProducerPreservesStartTimeForMonotonicUpdate(t *testi
 }
 
 func TestGoRuntimeHistogramProducerResetsStartTimeOnPIDChangePerKind(t *testing.T) {
-	producer := newGoRuntimeHistogramProducer()
+	producer := newGoRuntimeHistogramProducer(metricdata.CumulativeTemporality)
 	start := time.Date(2026, 7, 17, 10, 0, 0, 0, time.UTC)
 	counts := testGoRuntimeHistogramCounts()
 	producer.Update(testGoRuntimeHistogramSnapshot(
@@ -144,7 +201,7 @@ func TestGoRuntimeHistogramProducerResetsStartTimeOnPopulationRegression(t *test
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			producer := newGoRuntimeHistogramProducer()
+			producer := newGoRuntimeHistogramProducer(metricdata.CumulativeTemporality)
 			start := time.Date(2026, 7, 17, 10, 0, 0, 0, time.UTC)
 			counts := testGoRuntimeHistogramCounts()
 			counts[73] = 2
@@ -195,7 +252,7 @@ func TestGoRuntimeHistogramProducerRejectsMalformedUpdate(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			producer := newGoRuntimeHistogramProducer()
+			producer := newGoRuntimeHistogramProducer(metricdata.CumulativeTemporality)
 			validAt := time.Date(2026, 7, 17, 10, 0, 0, 0, time.UTC)
 			valid := testGoRuntimeHistogramSnapshot(
 				test.validKind,
@@ -223,7 +280,7 @@ func TestGoRuntimeHistogramProducerRejectsMalformedUpdate(t *testing.T) {
 }
 
 func TestGoRuntimeHistogramProducerCopiesInputAndOutput(t *testing.T) {
-	producer := newGoRuntimeHistogramProducer()
+	producer := newGoRuntimeHistogramProducer(metricdata.CumulativeTemporality)
 	at := time.Date(2026, 7, 17, 10, 0, 0, 0, time.UTC)
 	counts := testGoRuntimeHistogramCounts()
 	counts[8] = 9
@@ -243,7 +300,7 @@ func TestGoRuntimeHistogramProducerCopiesInputAndOutput(t *testing.T) {
 }
 
 func TestGoRuntimeHistogramProducerHonorsCanceledContext(t *testing.T) {
-	producer := newGoRuntimeHistogramProducer()
+	producer := newGoRuntimeHistogramProducer(metricdata.CumulativeTemporality)
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 
@@ -253,7 +310,7 @@ func TestGoRuntimeHistogramProducerHonorsCanceledContext(t *testing.T) {
 }
 
 func TestGoRuntimeHistogramProducerSupportsConcurrentUpdateAndProduce(t *testing.T) {
-	producer := newGoRuntimeHistogramProducer()
+	producer := newGoRuntimeHistogramProducer(metricdata.CumulativeTemporality)
 	const iterations = 500
 	errCh := make(chan error, iterations)
 	var waitGroup sync.WaitGroup
@@ -291,7 +348,7 @@ func TestGoRuntimeHistogramProducerSupportsConcurrentUpdateAndProduce(t *testing
 }
 
 func TestRecordRuntimeMetricsUpdatesGoHistogramWithoutScalarSnapshot(t *testing.T) {
-	producer := newGoRuntimeHistogramProducer()
+	producer := newGoRuntimeHistogramProducer(metricdata.CumulativeTemporality)
 	metrics := &RuntimeMetrics{goHistogramProducer: producer}
 	snapshot := testGoRuntimeHistogramSnapshot(
 		runtimemetrics.GoHistogramKindGCPause,
@@ -338,11 +395,48 @@ func TestRuntimeMetricsInstanceRegistersGoHistogramProducer(t *testing.T) {
 	assert.Contains(t, <-exporter.exported, attributes.GoRuntimeMemoryGCPauseDuration.OTEL)
 }
 
-type runtimeHistogramNamesExporter struct {
-	exported chan []string
+func TestRuntimeMetricsInstanceUsesExporterHistogramTemporality(t *testing.T) {
+	exporter := &runtimeHistogramNamesExporter{
+		exported:            make(chan []string, 2),
+		temporality:         metricdata.DeltaTemporality,
+		exportedTemporality: make(chan metricdata.Temporality, 2),
+	}
+	reporter := RuntimeMetricsReporter{
+		ctx:      t.Context(),
+		cfg:      &otelcfg.MetricsConfig{Interval: time.Hour},
+		exporter: exporter,
+		log:      slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+	metrics := reporter.newMetricsInstance(nil)
+	t.Cleanup(func() {
+		require.NoError(t, metrics.provider.Shutdown(context.Background()))
+	})
+
+	snapshot := testGoRuntimeHistogramSnapshot(
+		runtimemetrics.GoHistogramKindGCPause,
+		101,
+		time.Date(2026, 7, 17, 10, 0, 0, 0, time.UTC),
+		testGoRuntimeHistogramCounts(),
+		1,
+		0,
+	)
+	snapshot.Service.SDKLanguage = svc.InstrumentableGolang
+	recordRuntimeMetrics(t.Context(), &metrics, snapshot)
+
+	require.NoError(t, metrics.provider.ForceFlush(t.Context()))
+	assert.Equal(t, metricdata.DeltaTemporality, <-exporter.exportedTemporality)
 }
 
-func (*runtimeHistogramNamesExporter) Temporality(sdkmetric.InstrumentKind) metricdata.Temporality {
+type runtimeHistogramNamesExporter struct {
+	exported            chan []string
+	temporality         metricdata.Temporality
+	exportedTemporality chan metricdata.Temporality
+}
+
+func (e *runtimeHistogramNamesExporter) Temporality(sdkmetric.InstrumentKind) metricdata.Temporality {
+	if e.temporality != metricdata.Temporality(0) {
+		return e.temporality
+	}
 	return metricdata.CumulativeTemporality
 }
 
@@ -355,6 +449,10 @@ func (e *runtimeHistogramNamesExporter) Export(_ context.Context, metrics *metri
 	for _, scope := range metrics.ScopeMetrics {
 		for _, metric := range scope.Metrics {
 			names = append(names, metric.Name)
+			if histogram, ok := metric.Data.(metricdata.Histogram[float64]); ok &&
+				e.exportedTemporality != nil {
+				e.exportedTemporality <- histogram.Temporality
+			}
 		}
 	}
 	e.exported <- names
@@ -433,12 +531,22 @@ func testProducedHistogramPoint(
 	name string,
 ) metricdata.HistogramDataPoint[float64] {
 	t.Helper()
+	histogram := testProducedHistogram(t, producer, name)
+	require.Len(t, histogram.DataPoints, 1)
+	return histogram.DataPoints[0]
+}
+
+func testProducedHistogram(
+	t *testing.T,
+	producer *goRuntimeHistogramProducer,
+	name string,
+) metricdata.Histogram[float64] {
+	t.Helper()
 	produced, err := producer.Produce(t.Context())
 	require.NoError(t, err)
 	metric, ok := testGoRuntimeHistogramMetricsByName(t, produced)[name]
 	require.True(t, ok, "metric %s not found", name)
 	histogram, ok := metric.Data.(metricdata.Histogram[float64])
 	require.True(t, ok)
-	require.Len(t, histogram.DataPoints, 1)
-	return histogram.DataPoints[0]
+	return histogram
 }

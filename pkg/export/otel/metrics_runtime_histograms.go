@@ -18,8 +18,10 @@ import (
 )
 
 type goRuntimeHistogramProducer struct {
-	mu         sync.RWMutex
-	histograms map[runtimemetrics.GoHistogramKind]goRuntimeHistogramState
+	mu           sync.Mutex
+	temporality  metricdata.Temporality
+	histograms   map[runtimemetrics.GoHistogramKind]goRuntimeHistogramState
+	lastProduced map[runtimemetrics.GoHistogramKind]goRuntimeHistogramState
 }
 
 type goRuntimeHistogramState struct {
@@ -29,9 +31,11 @@ type goRuntimeHistogramState struct {
 	histogram runtimemetrics.GoRuntimeHistogramSnapshot
 }
 
-func newGoRuntimeHistogramProducer() *goRuntimeHistogramProducer {
+func newGoRuntimeHistogramProducer(temporality metricdata.Temporality) *goRuntimeHistogramProducer {
 	return &goRuntimeHistogramProducer{
-		histograms: make(map[runtimemetrics.GoHistogramKind]goRuntimeHistogramState, 2),
+		temporality:  temporality,
+		histograms:   make(map[runtimemetrics.GoHistogramKind]goRuntimeHistogramState, 2),
+		lastProduced: make(map[runtimemetrics.GoHistogramKind]goRuntimeHistogramState, 2),
 	}
 }
 
@@ -95,16 +99,17 @@ func (p *goRuntimeHistogramProducer) Produce(ctx context.Context) ([]metricdata.
 		return nil, err
 	}
 
-	p.mu.RLock()
-	states := make(map[runtimemetrics.GoHistogramKind]goRuntimeHistogramState, len(p.histograms))
-	for kind, state := range p.histograms {
-		state.histogram.Counts = append([]uint64(nil), state.histogram.Counts...)
-		states[kind] = state
-	}
-	p.mu.RUnlock()
+	p.mu.Lock()
+	defer p.mu.Unlock()
 
 	if err := ctx.Err(); err != nil {
 		return nil, err
+	}
+
+	current := cloneGoRuntimeHistogramStates(p.histograms)
+	states := current
+	if p.temporality == metricdata.DeltaTemporality {
+		states = deltaGoRuntimeHistogramStates(current, p.lastProduced)
 	}
 	if len(states) == 0 {
 		return nil, nil
@@ -119,7 +124,7 @@ func (p *goRuntimeHistogramProducer) Produce(ctx context.Context) ([]metricdata.
 		if !ok {
 			continue
 		}
-		metric, err := produceGoRuntimeHistogram(kind, state)
+		metric, err := produceGoRuntimeHistogram(kind, state, p.temporality)
 		if err != nil {
 			return nil, err
 		}
@@ -130,15 +135,67 @@ func (p *goRuntimeHistogramProducer) Produce(ctx context.Context) ([]metricdata.
 		return nil, fmt.Errorf("producing Go runtime histogram kind %d: unsupported kind", kind)
 	}
 
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if p.temporality == metricdata.DeltaTemporality {
+		p.lastProduced = current
+	}
+
 	return []metricdata.ScopeMetrics{{
 		Scope:   instrumentation.Scope{Name: reporterName},
 		Metrics: metrics,
 	}}, nil
 }
 
+func cloneGoRuntimeHistogramStates(
+	states map[runtimemetrics.GoHistogramKind]goRuntimeHistogramState,
+) map[runtimemetrics.GoHistogramKind]goRuntimeHistogramState {
+	cloned := make(map[runtimemetrics.GoHistogramKind]goRuntimeHistogramState, len(states))
+	for kind, state := range states {
+		state.histogram.Counts = append([]uint64(nil), state.histogram.Counts...)
+		cloned[kind] = state
+	}
+	return cloned
+}
+
+func deltaGoRuntimeHistogramStates(
+	current map[runtimemetrics.GoHistogramKind]goRuntimeHistogramState,
+	previous map[runtimemetrics.GoHistogramKind]goRuntimeHistogramState,
+) map[runtimemetrics.GoHistogramKind]goRuntimeHistogramState {
+	deltas := make(map[runtimemetrics.GoHistogramKind]goRuntimeHistogramState, len(current))
+	for kind, state := range current {
+		baseline, exists := previous[kind]
+		if !exists ||
+			baseline.pid != state.pid ||
+			baseline.startTime != state.startTime ||
+			histogramPopulationRegressed(baseline.histogram, state.histogram) {
+			deltas[kind] = state
+			continue
+		}
+
+		state.startTime = baseline.time
+		state.histogram.Underflow -= baseline.histogram.Underflow
+		state.histogram.Overflow -= baseline.histogram.Overflow
+		// current's Counts must stay cumulative: it becomes the next baseline.
+		counts := make([]uint64, len(state.histogram.Counts))
+		var changed bool
+		for i := range counts {
+			counts[i] = state.histogram.Counts[i] - baseline.histogram.Counts[i]
+			changed = changed || counts[i] != 0
+		}
+		state.histogram.Counts = counts
+		if changed || state.histogram.Underflow != 0 || state.histogram.Overflow != 0 {
+			deltas[kind] = state
+		}
+	}
+	return deltas
+}
+
 func produceGoRuntimeHistogram(
 	kind runtimemetrics.GoHistogramKind,
 	state goRuntimeHistogramState,
+	temporality metricdata.Temporality,
 ) (metricdata.Metrics, error) {
 	name, err := goRuntimeHistogramMetricName(kind)
 	if err != nil {
@@ -153,7 +210,7 @@ func produceGoRuntimeHistogram(
 		Name: name,
 		Unit: "s",
 		Data: metricdata.Histogram[float64]{
-			Temporality: metricdata.CumulativeTemporality,
+			Temporality: temporality,
 			DataPoints: []metricdata.HistogramDataPoint[float64]{
 				{
 					StartTime:    state.startTime,
