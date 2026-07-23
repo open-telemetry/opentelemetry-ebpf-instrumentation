@@ -2,7 +2,7 @@ import org.cyclonedx.model.Component
 
 plugins {
     java
-    id("com.gradleup.shadow") version "9.6.0"
+    id("com.gradleup.shadow") version "9.6.1"
     id("com.github.jk1.dependency-license-report") version "3.1.4"
     id("me.champeau.jmh") version "0.7.3"
     id("org.cyclonedx.bom") version "3.3.0"
