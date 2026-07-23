@@ -943,10 +943,8 @@ client_request_has_traceparent(void *buf_ptr,
     if (region <= 0) {
         return false;
     }
-    if (region > (s64)(TRACE_BUF_SIZE - 1)) {
-        region = TRACE_BUF_SIZE - 1;
-    }
-    const u32 uregion = (u32)region & (TRACE_BUF_SIZE - 1);
+    bpf_clamp_umax(region, TRACE_BUF_SIZE - 1);
+    const u32 uregion = (u32)region;
     if (bpf_probe_read_user(scan, uregion, (void *)(buf_ptr + (u32)entry_n)) != 0) {
         return false;
     }
