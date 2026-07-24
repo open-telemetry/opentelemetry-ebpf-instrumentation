@@ -62,7 +62,7 @@ func TestEmbeddingSpan_VoyageAI(t *testing.T) {
 	assert.Equal(t, "voyage", ai.Provider)
 	assert.Equal(t, "voyage-3", ai.Model)
 	assert.Equal(t, "embeddings", ai.OperationName())
-	assert.Equal(t, 8, ai.GetInputTokens())
+	assert.Equal(t, 8, reportedValue(ai.InputTokenCount()))
 	assert.Equal(t, 2, ai.Input.InputCount())
 }
 
@@ -84,7 +84,7 @@ func TestEmbeddingSpan_Cohere(t *testing.T) {
 	assert.Equal(t, "cohere", ai.Provider)
 	assert.Equal(t, "embed-english-v3.0", ai.Model)
 	assert.Equal(t, "embeddings", ai.OperationName())
-	assert.Equal(t, 4, ai.GetInputTokens())
+	assert.Equal(t, 4, reportedValue(ai.InputTokenCount()))
 	assert.Equal(t, 1, ai.Input.InputCount())
 }
 
@@ -106,9 +106,43 @@ func TestEmbeddingSpan_JinaAI(t *testing.T) {
 	assert.Equal(t, "jina", ai.Provider)
 	assert.Equal(t, "jina-embeddings-v3", ai.Model)
 	assert.Equal(t, "embeddings", ai.OperationName())
-	assert.Equal(t, 6, ai.GetInputTokens())
+	assert.Equal(t, 6, reportedValue(ai.InputTokenCount()))
 	assert.Equal(t, 512, ai.Input.Dimensions)
 	assert.Equal(t, 1, ai.Input.InputCount())
+}
+
+func TestEmbeddingSpan_ExplicitZeroUsage(t *testing.T) {
+	req := makeRequest(t, http.MethodPost, "https://api.voyageai.com/v1/embeddings", voyageRequestBody)
+	resp := makePlainResponse(http.StatusOK, http.Header{"Content-Type": []string{"application/json"}},
+		`{"model":"voyage-3","usage":{"total_tokens":0}}`)
+
+	span, ok := EmbeddingSpan(&request.Span{}, req, resp)
+	require.True(t, ok)
+	assert.True(t, isReported(span.GenAIInputTokenCount()))
+	assert.Zero(t, reportedValue(span.GenAIInputTokenCount()))
+	assert.False(t, isReported(span.GenAIOutputTokenCount()))
+}
+
+func TestEmbeddingSpan_UsageAfterMalformedEnvelopeField(t *testing.T) {
+	req := makeRequest(t, http.MethodPost, "https://api.voyageai.com/v1/embeddings", voyageRequestBody)
+	resp := makePlainResponse(http.StatusOK, http.Header{"Content-Type": []string{"application/json"}},
+		`{"model":{},"usage":{"total_tokens":0}}`)
+
+	span, ok := EmbeddingSpan(&request.Span{}, req, resp)
+	require.True(t, ok)
+	assert.True(t, isReported(span.GenAIInputTokenCount()))
+	assert.Zero(t, reportedValue(span.GenAIInputTokenCount()))
+}
+
+func TestEmbeddingSpan_BilledUnitsAfterMalformedEnvelopeField(t *testing.T) {
+	req := makeRequest(t, http.MethodPost, "https://api.cohere.com/v2/embed", cohereRequestBody)
+	resp := makePlainResponse(http.StatusOK, http.Header{"Content-Type": []string{"application/json"}},
+		`{"model":{},"meta":{"billed_units":{"input_tokens":0}}}`)
+
+	span, ok := EmbeddingSpan(&request.Span{}, req, resp)
+	require.True(t, ok)
+	assert.True(t, isReported(span.GenAIInputTokenCount()))
+	assert.Zero(t, reportedValue(span.GenAIInputTokenCount()))
 }
 
 func TestEmbeddingSpan_NotEmbeddingProvider(t *testing.T) {

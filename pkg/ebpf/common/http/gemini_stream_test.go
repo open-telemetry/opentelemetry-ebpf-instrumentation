@@ -22,9 +22,9 @@ func TestParseGeminiStream_CompleteResponse(t *testing.T) {
 	require.NotNil(t, resp)
 	assert.Equal(t, "gemini-2.0-flash", resp.ModelVersion)
 	assert.Equal(t, "resp_abc", resp.ResponseID)
-	assert.Equal(t, 10, resp.UsageMetadata.PromptTokenCount)
-	assert.Equal(t, 5, resp.UsageMetadata.CandidatesTokenCount)
-	assert.Equal(t, 15, resp.UsageMetadata.TotalTokenCount)
+	assert.Equal(t, 10, tokenValue(resp.UsageMetadata.PromptTokenCount))
+	assert.Equal(t, 5, tokenValue(resp.UsageMetadata.CandidatesTokenCount))
+	assert.Equal(t, 15, tokenValue(resp.UsageMetadata.TotalTokenCount))
 	assert.Empty(t, toolCalls)
 
 	require.Len(t, resp.Candidates, 1)
@@ -47,7 +47,11 @@ func TestParseGeminiStream_TruncatedNoUsage(t *testing.T) {
 
 	require.NotNil(t, resp)
 	assert.Equal(t, "gemini-2.0-flash", resp.ModelVersion)
-	assert.Equal(t, 0, resp.UsageMetadata.TotalTokenCount)
+	assert.Equal(t, 0, tokenValue(resp.UsageMetadata.TotalTokenCount))
+	_, inputReported := resp.UsageMetadata.InputTokenCount()
+	_, outputReported := resp.UsageMetadata.OutputTokenCount()
+	assert.False(t, inputReported)
+	assert.False(t, outputReported)
 	assert.Empty(t, toolCalls)
 
 	require.Len(t, resp.Candidates, 1)
@@ -79,7 +83,7 @@ func TestParseGeminiStream_EmptyStream(t *testing.T) {
 	require.NotNil(t, resp)
 	assert.Empty(t, resp.ModelVersion)
 	assert.Empty(t, resp.ResponseID)
-	assert.Equal(t, 0, resp.UsageMetadata.TotalTokenCount)
+	assert.Equal(t, 0, tokenValue(resp.UsageMetadata.TotalTokenCount))
 	assert.Empty(t, resp.Candidates)
 	assert.Empty(t, toolCalls)
 }
@@ -109,7 +113,7 @@ func TestParseGeminiStream_MultipleCandidates(t *testing.T) {
 
 	require.NotNil(t, resp)
 	assert.Equal(t, "resp_mc", resp.ResponseID)
-	assert.Equal(t, 12, resp.UsageMetadata.PromptTokenCount)
+	assert.Equal(t, 12, tokenValue(resp.UsageMetadata.PromptTokenCount))
 	assert.Empty(t, toolCalls)
 
 	require.Len(t, resp.Candidates, 2)
@@ -165,8 +169,50 @@ func TestParseGeminiStream_PartialUsageMetadata(t *testing.T) {
 	resp, _ := parseGeminiStream(strings.NewReader(stream))
 
 	require.NotNil(t, resp)
-	assert.Equal(t, 7, resp.UsageMetadata.PromptTokenCount)
-	assert.Equal(t, 0, resp.UsageMetadata.CandidatesTokenCount)
+	assert.Equal(t, 7, tokenValue(resp.UsageMetadata.PromptTokenCount))
+	assert.Equal(t, 0, tokenValue(resp.UsageMetadata.CandidatesTokenCount))
+	_, outputReported := resp.UsageMetadata.OutputTokenCount()
+	assert.True(t, outputReported)
+}
+
+func TestParseGeminiStream_ExplicitZeroUsage(t *testing.T) {
+	stream := "data: {\"candidates\":[],\"usageMetadata\":{\"promptTokenCount\":0,\"candidatesTokenCount\":0,\"totalTokenCount\":0},\"responseId\":\"resp_zero\"}\n\n"
+
+	resp, _ := parseGeminiStream(strings.NewReader(stream))
+
+	input, inputReported := resp.UsageMetadata.InputTokenCount()
+	output, outputReported := resp.UsageMetadata.OutputTokenCount()
+	assert.True(t, inputReported)
+	assert.True(t, outputReported)
+	assert.Zero(t, input)
+	assert.Zero(t, output)
+}
+
+func TestParseGeminiStream_MergesCumulativeUsageFields(t *testing.T) {
+	stream := "data: {\"usageMetadata\":{\"promptTokenCount\":7,\"candidatesTokenCount\":4,\"thoughtsTokenCount\":3,\"cachedContentTokenCount\":2}}\n\n" +
+		"data: {\"usageMetadata\":{\"candidatesTokenCount\":0,\"thoughtsTokenCount\":0,\"cachedContentTokenCount\":0,\"toolUsePromptTokenCount\":0,\"totalTokenCount\":7}}\n\n"
+
+	resp, _ := parseGeminiStream(strings.NewReader(stream))
+
+	assertTokenCount(t, resp.UsageMetadata.PromptTokenCount, 7, true)
+	assertTokenCount(t, resp.UsageMetadata.CandidatesTokenCount, 0, true)
+	assertTokenCount(t, resp.UsageMetadata.TotalTokenCount, 7, true)
+	assertTokenCount(t, resp.UsageMetadata.ThoughtsTokenCount, 0, true)
+	assertTokenCount(t, resp.UsageMetadata.CachedContentTokenCount, 0, true)
+	assertTokenCount(t, resp.UsageMetadata.ToolUsePromptTokenCount, 0, true)
+}
+
+func TestParseGeminiStream_UsageSurvivesMalformedAndTruncatedSiblings(t *testing.T) {
+	stream := "data: {\"usageMetadata\":{\"promptTokenCount\":7,\"thoughtsTokenCount\":2},\"candidates\":{}}\n" +
+		"data: {\"usageMetadata\":{\"cachedContentTokenCount\":0},\"candidates\":[\n" +
+		"data: {\"candidates\":{},\"usageMetadata\":{\"candidatesTokenCount\":0}}\n"
+
+	resp, _ := parseGeminiStream(strings.NewReader(stream))
+
+	assertTokenCount(t, resp.UsageMetadata.PromptTokenCount, 7, true)
+	assertTokenCount(t, resp.UsageMetadata.ThoughtsTokenCount, 2, true)
+	assertTokenCount(t, resp.UsageMetadata.CachedContentTokenCount, 0, true)
+	assertTokenCount(t, resp.UsageMetadata.CandidatesTokenCount, 0, true)
 }
 
 func TestParseGeminiStream_DataPrefixWithoutSpace(t *testing.T) {
@@ -178,7 +224,7 @@ func TestParseGeminiStream_DataPrefixWithoutSpace(t *testing.T) {
 	require.NotNil(t, resp)
 	assert.Equal(t, "gemini-2.0-flash", resp.ModelVersion)
 	assert.Equal(t, "resp_ns", resp.ResponseID)
-	assert.Equal(t, 5, resp.UsageMetadata.TotalTokenCount)
+	assert.Equal(t, 5, tokenValue(resp.UsageMetadata.TotalTokenCount))
 	assert.Empty(t, toolCalls)
 
 	require.Len(t, resp.Candidates, 1)
@@ -291,7 +337,7 @@ func TestParseGeminiStream_ErrorEnvelopeBare(t *testing.T) {
 func TestParseGeminiStream_ErrorEnvelopeInDataLine(t *testing.T) {
 	// Error envelope arriving inside a "data:" SSE line (no candidates).
 	stream := "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"hello\"}],\"role\":\"model\"}}],\"modelVersion\":\"gemini-2.0-flash\"}\n\n" +
-		"data: {\"error\":{\"code\":500,\"message\":\"Internal error\",\"status\":\"INTERNAL\"}}\n\n"
+		"data: {\"usageMetadata\":[],\"error\":{\"code\":500,\"message\":\"Internal error\",\"status\":\"INTERNAL\"}}\n\n"
 
 	resp, _ := parseGeminiStream(strings.NewReader(stream))
 

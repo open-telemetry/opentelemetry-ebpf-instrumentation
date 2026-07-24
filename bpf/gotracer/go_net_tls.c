@@ -98,6 +98,7 @@ int obi_uprobe_cryptoTlsRead(struct pt_regs *ctx) {
             }
 
             args.skip = 1;
+            bpf_d_printk("skipping");
         }
 
         bpf_map_update_elem(&ongoing_ssl_ops, &g_key, &args, BPF_ANY);
@@ -133,7 +134,7 @@ int obi_uprobe_cryptoTlsReadRet(struct pt_regs *ctx) {
                 goto done;
             } else if (args->byte_ptr) {
                 send_http_large_buffers_if_needed(
-                    &args->p_conn.conn, (void *)args->byte_ptr, len, TCP_RECV);
+                    &g_key, &args->p_conn.conn, (void *)args->byte_ptr, len, TCP_RECV);
             }
 
             goto done;
@@ -215,7 +216,7 @@ int obi_uprobe_cryptoTlsWrite(struct pt_regs *ctx) {
         args.byte_ptr = (u64)buf;
 
         if (args.skip) {
-            send_http_large_buffers_if_needed(&args.p_conn.conn, buf, len, TCP_SEND);
+            send_http_large_buffers_if_needed(&g_key, &args.p_conn.conn, buf, len, TCP_SEND);
             return 0;
         }
 
@@ -231,7 +232,7 @@ int obi_uprobe_cryptoTlsWrite(struct pt_regs *ctx) {
         if (already_handled_request_sorted(&args.p_conn.conn)) {
             cleanup_duplicate_generic_events_sorted(&args.p_conn);
             if (!http_large_buffer_skip(len)) {
-                send_http_large_buffers_if_needed(&args.p_conn.conn, buf, len, TCP_SEND);
+                send_http_large_buffers_if_needed(&g_key, &args.p_conn.conn, buf, len, TCP_SEND);
             }
             return 0;
         }

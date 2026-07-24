@@ -25,7 +25,7 @@ func TestPendingGoHTTPClientRequestExpiresAfterIdleTimeout(t *testing.T) {
 
 	trace := pendingGoHTTPClientTrace(goHTTPClientTestConnection(), 1, "/idle")
 	parseCtx.pendingGoHTTPClientRequests.Add(
-		goHTTPClientConnectionKey(trace.Conn),
+		goHTTPClientConnectionKey(trace.Conn, trace.Tp.TraceId),
 		&pendingGoHTTPClientRequest{trace: trace, createdAt: time.Now()},
 	)
 
@@ -44,12 +44,12 @@ func TestPendingGoHTTPClientRequestHonorsMaxTransactionTime(t *testing.T) {
 	parseCtx, emitted := newGoHTTPClientTestParseContext(t, cfg, 1)
 
 	trace := pendingGoHTTPClientTrace(goHTTPClientTestConnection(), 1, "/maximum")
-	key := goHTTPClientConnectionKey(trace.Conn)
+	key := goHTTPClientConnectionKey(trace.Conn, trace.Tp.TraceId)
 	parseCtx.pendingGoHTTPClientRequests.Add(key, &pendingGoHTTPClientRequest{
 		trace:     trace,
 		createdAt: time.Now().Add(-2 * cfg.MaxTransactionTime),
 	})
-	parseCtx.refreshPendingGoHTTPClientRequest(trace.Conn)
+	parseCtx.refreshPendingGoHTTPClientRequest(trace.Conn, trace.Tp.TraceId)
 
 	select {
 	case batch := <-emitted:
@@ -70,7 +70,7 @@ func TestPendingGoHTTPClientRequestsEvictAtCapacity(t *testing.T) {
 		trace := pendingGoHTTPClientTrace(conn, byte(i), "/capacity")
 		trace.Status = uint16(i)
 		parseCtx.pendingGoHTTPClientRequests.Add(
-			goHTTPClientConnectionKey(conn),
+			goHTTPClientConnectionKey(conn, trace.Tp.TraceId),
 			&pendingGoHTTPClientRequest{trace: trace, createdAt: time.Now()},
 		)
 	}
@@ -93,7 +93,7 @@ func TestPendingGoHTTPClientRequestsClosePurgesWithoutFlushing(t *testing.T) {
 
 	trace := pendingGoHTTPClientTrace(goHTTPClientTestConnection(), 1, "/close")
 	parseCtx.pendingGoHTTPClientRequests.Add(
-		goHTTPClientConnectionKey(trace.Conn),
+		goHTTPClientConnectionKey(trace.Conn, trace.Tp.TraceId),
 		&pendingGoHTTPClientRequest{trace: trace, createdAt: time.Now()},
 	)
 	parseCtx.Close()
@@ -198,6 +198,34 @@ func TestGoHTTPClientEventWaitsForBuffersAndConnectionReuseFlushesIt(t *testing.
 	}
 }
 
+func TestGoHTTP2ClientRequestsOnSameConnectionAreDeferredIndependently(t *testing.T) {
+	cfg := goHTTPClientTestConfig()
+	parseCtx, emitted := newGoHTTPClientTestParseContext(t, cfg, 1)
+
+	conn := goHTTPClientTestConnection()
+	first := pendingGoHTTPClientTrace(conn, 1, "/first")
+	second := pendingGoHTTPClientTrace(conn, 2, "/second")
+
+	for _, trace := range []*HTTPRequestTrace{&first, &second} {
+		appendGoHTTPClientBuffer(
+			t, parseCtx, conn, trace.Tp.TraceId,
+			packetTypeRequest, directionSend, "HTTP/2 request payload",
+		)
+
+		span, ignore, err := ReadBPFTraceAsSpan(parseCtx, &cfg, goHTTPClientTraceRecord(t, *trace), nil)
+		require.NoError(t, err)
+		assert.True(t, ignore)
+		assert.Equal(t, request.Span{}, span)
+	}
+
+	assert.Equal(t, 2, parseCtx.pendingGoHTTPClientRequests.Len())
+	select {
+	case <-emitted:
+		t.Fatal("a concurrent HTTP/2 request flushed another stream")
+	default:
+	}
+}
+
 func TestGoHTTPClientEventWithoutRequestBufferIsImmediate(t *testing.T) {
 	cfg := goHTTPClientTestConfig()
 	parseCtx, _ := newGoHTTPClientTestParseContext(t, cfg, 1)
@@ -231,7 +259,7 @@ func TestOnlyGoResponseBuffersRefreshPendingHTTPClientRequests(t *testing.T) {
 			conn := goHTTPClientTestConnection()
 			conn.S_port += uint16(i)
 			trace := pendingGoHTTPClientTrace(conn, byte(i+1), "/refresh")
-			key := goHTTPClientConnectionKey(conn)
+			key := goHTTPClientConnectionKey(conn, trace.Tp.TraceId)
 			parseCtx.pendingGoHTTPClientRequests.Add(key, &pendingGoHTTPClientRequest{
 				trace:     trace,
 				createdAt: time.Now(),

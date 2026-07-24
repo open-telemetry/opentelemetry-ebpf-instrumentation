@@ -26,6 +26,8 @@ import (
 	"github.com/hashicorp/golang-lru/v2/expirable"
 	"github.com/hashicorp/golang-lru/v2/simplelru"
 
+	"go.opentelemetry.io/otel/trace"
+
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/config"
 	"go.opentelemetry.io/obi/pkg/ebpf/common/dnsparser"
@@ -257,6 +259,11 @@ type pendingGoHTTPClientRequest struct {
 	emitted   atomic.Bool
 }
 
+type pendingGoHTTPClientKey struct {
+	conn    BpfConnectionInfoT
+	traceID trace.TraceID
+}
+
 type EBPFParseContext struct {
 	protocolDebug               bool
 	h2c                         *lru.Cache[uint64, h2Connection]
@@ -274,7 +281,7 @@ type EBPFParseContext struct {
 	httpEnricher                *ebpfhttp.HTTPEnricher
 	dnsEvents                   *expirable.LRU[dnsparser.DNSId, *request.Span]
 	pendingSpanLinks            *pendingSpanLinks
-	pendingGoHTTPClientRequests *expirable.LRU[BpfConnectionInfoT, *pendingGoHTTPClientRequest]
+	pendingGoHTTPClientRequests *expirable.LRU[pendingGoHTTPClientKey, *pendingGoHTTPClientRequest]
 	goHTTPClientMaxPendingTime  time.Duration
 	discardPendingGoHTTPClients atomic.Bool
 	emitSpans                   func([]request.Span)

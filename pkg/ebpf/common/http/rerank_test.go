@@ -96,8 +96,8 @@ func TestRerankSpan_Cohere(t *testing.T) {
 	// Cohere uses meta.tokens for token counts
 	require.NotNil(t, ai.Output.Meta)
 	require.NotNil(t, ai.Output.Meta.Tokens)
-	assert.Equal(t, 411, ai.Output.Meta.Tokens.InputTokens)
-	assert.Equal(t, 411, ai.Output.GetTotalTokens())
+	assert.Equal(t, 411, tokenValue(ai.Output.Meta.Tokens.InputTokens))
+	assert.Equal(t, 411, reportedValue(ai.Output.InputTokenCount()))
 }
 
 func TestRerankSpan_CohereAI(t *testing.T) {
@@ -132,9 +132,9 @@ func TestRerankSpan_JinaAI(t *testing.T) {
 	assert.Equal(t, "Organic skincare products for sensitive skin", ai.Input.Query)
 	assert.Equal(t, 3, ai.Input.TopN)
 	assert.Equal(t, "jina-reranker-v2-base-multilingual", ai.Output.Model)
-	assert.Equal(t, 128, ai.Output.Usage.TotalTokens)
-	assert.Equal(t, 42, ai.Output.Usage.PromptTokens)
-	assert.Equal(t, 128, ai.Output.GetTotalTokens())
+	assert.Equal(t, 128, tokenValue(ai.Output.Usage.TotalTokens))
+	assert.Equal(t, 42, tokenValue(ai.Output.Usage.PromptTokens))
+	assert.Equal(t, 128, reportedValue(ai.Output.InputTokenCount()))
 }
 
 func TestRerankSpan_VoyageAI(t *testing.T) {
@@ -148,6 +148,51 @@ func TestRerankSpan_VoyageAI(t *testing.T) {
 
 	require.True(t, ok)
 	assert.Equal(t, "voyage", span.GenAI.Rerank.Provider)
+}
+
+func TestRerankSpan_ExplicitZeroUsage(t *testing.T) {
+	req := makeRequest(t, http.MethodPost, "http://api.jina.ai/v1/rerank", jinaRerankRequestBody)
+	resp := makePlainResponse(http.StatusOK, http.Header{"Content-Type": []string{"application/json"}},
+		`{"model":"jina-reranker-v2-base-multilingual","results":[],"usage":{"total_tokens":0}}`)
+
+	span, ok := RerankSpan(&request.Span{}, req, resp)
+	require.True(t, ok)
+	assert.True(t, isReported(span.GenAIInputTokenCount()))
+	assert.Zero(t, reportedValue(span.GenAIInputTokenCount()))
+	assert.False(t, isReported(span.GenAIOutputTokenCount()))
+}
+
+func TestRerankSpan_UsageAfterMalformedEnvelopeField(t *testing.T) {
+	req := makeRequest(t, http.MethodPost, "http://api.jina.ai/v1/rerank", jinaRerankRequestBody)
+	resp := makePlainResponse(http.StatusOK, http.Header{"Content-Type": []string{"application/json"}},
+		`{"model":{},"usage":{"total_tokens":0}}`)
+
+	span, ok := RerankSpan(&request.Span{}, req, resp)
+	require.True(t, ok)
+	assert.True(t, isReported(span.GenAIInputTokenCount()))
+	assert.Zero(t, reportedValue(span.GenAIInputTokenCount()))
+}
+
+func TestRerankSpan_MetaTokensAfterMalformedEnvelopeField(t *testing.T) {
+	req := makeRequest(t, http.MethodPost, "http://api.cohere.com/v2/rerank", cohereRerankRequestBody)
+	resp := makePlainResponse(http.StatusOK, http.Header{"Content-Type": []string{"application/json"}},
+		`{"model":{},"meta":{"tokens":{"input_tokens":0}}}`)
+
+	span, ok := RerankSpan(&request.Span{}, req, resp)
+	require.True(t, ok)
+	assert.True(t, isReported(span.GenAIInputTokenCount()))
+	assert.Zero(t, reportedValue(span.GenAIInputTokenCount()))
+}
+
+func TestRerankSpan_UsageBeforeOuterTruncation(t *testing.T) {
+	req := makeRequest(t, http.MethodPost, "http://api.jina.ai/v1/rerank", jinaRerankRequestBody)
+	resp := makePlainResponse(http.StatusOK, http.Header{"Content-Type": []string{"application/json"}},
+		`{"model":"jina-reranker-v2-base-multilingual","usage":{"total_tokens":0},"results":[`)
+
+	span, ok := RerankSpan(&request.Span{}, req, resp)
+	require.True(t, ok)
+	assert.True(t, isReported(span.GenAIInputTokenCount()))
+	assert.Zero(t, reportedValue(span.GenAIInputTokenCount()))
 }
 
 func TestRerankSpan_UnknownProvider(t *testing.T) {
@@ -289,26 +334,29 @@ func TestRerankSpan_EmptyResponseBody(t *testing.T) {
 	assert.True(t, ok)
 }
 
-func TestRerankResponse_GetTotalTokens(t *testing.T) {
+func TestRerankResponse_InputTokenCount(t *testing.T) {
 	// usage.total_tokens takes precedence (Jina/Voyage)
-	r := request.RerankResponse{Usage: request.RerankUsage{TotalTokens: 100, PromptTokens: 42}}
-	assert.Equal(t, 100, r.GetTotalTokens())
+	r := request.RerankResponse{Usage: request.RerankUsage{
+		TotalTokens:  request.NewTokenCount(100),
+		PromptTokens: request.NewTokenCount(42),
+	}}
+	assert.Equal(t, 100, reportedValue(r.InputTokenCount()))
 
 	// falls back to usage.prompt_tokens
-	r2 := request.RerankResponse{Usage: request.RerankUsage{PromptTokens: 42}}
-	assert.Equal(t, 42, r2.GetTotalTokens())
+	r2 := request.RerankResponse{Usage: request.RerankUsage{PromptTokens: request.NewTokenCount(42)}}
+	assert.Equal(t, 42, reportedValue(r2.InputTokenCount()))
 
 	// falls back to meta.tokens.input_tokens (Cohere)
 	r3 := request.RerankResponse{
 		Meta: &request.RerankMeta{
-			Tokens: &request.RerankMetaTokens{InputTokens: 411},
+			Tokens: &request.RerankMetaTokens{InputTokens: request.NewTokenCount(411)},
 		},
 	}
-	assert.Equal(t, 411, r3.GetTotalTokens())
+	assert.Equal(t, 411, reportedValue(r3.InputTokenCount()))
 
 	// all zero
 	r4 := request.RerankResponse{}
-	assert.Equal(t, 0, r4.GetTotalTokens())
+	assert.Equal(t, 0, reportedValue(r4.InputTokenCount()))
 }
 
 func TestRerankSpan_TruncatedRequestBody(t *testing.T) {

@@ -15,9 +15,13 @@ import (
 )
 
 var httpClient = &http.Client{
+	// Transport: &http.Transport{
+	// 	ForceAttemptHTTP2: false,
+	// 	TLSNextProto:      map[string]func(string, *tls.Conn) http.RoundTripper{},
+	// },
 	Transport: &http.Transport{
-		ForceAttemptHTTP2: false,
-		TLSNextProto:      map[string]func(string, *tls.Conn) http.RoundTripper{},
+		ForceAttemptHTTP2: true,
+		TLSClientConfig:   &tls.Config{InsecureSkipVerify: true},
 	},
 }
 
