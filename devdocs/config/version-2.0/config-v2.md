@@ -362,7 +362,7 @@ This was rejected because:
 Current overridable fields in `refine`:
 
 - `exports`: override which signals (`traces`, `metrics`) are emitted for this workload.
-- `http.routes`: define direction-scoped custom HTTP route patterns for this workload.
+- `http.routes`: refine the direction-scoped HTTP route policy for this workload.
 - `http.filters`: replace HTTP trace/metric filters for this workload.
 
 New fields can be added to the `refine` vocabulary deliberately as use cases emerge.
@@ -396,13 +396,20 @@ capture:
               patterns:
                 - /orders/{id}
                 - /orders/{id}/items
+              ignored_patterns:
+                - /health
+              unmatched: path
             outgoing:
               patterns:
                 - /inventory/{id}
+              unmatched: wildcard
 ```
 
 `incoming` applies to HTTP requests handled by the matched workload, equivalent to v1 `routes.incoming`.
 `outgoing` applies to HTTP requests made by the matched workload, equivalent to v1 `routes.outgoing`.
+Both directions accept the same fields: `patterns`, `ignored_patterns`, `ignore_mode`, `unmatched`, `wildcard_char`, and `max_path_segment_cardinality`.
+For a matched workload, an omitted direction or field inherits the corresponding global value.
+An explicitly configured scalar replaces the global scalar, and an explicitly configured array replaces the global array; use an empty array to clear inherited patterns.
 
 Sampling overrides are **not** part of the `refine` block.
 Per-workload sampling is handled via `tracer_provider.sampler` using the `obi_rule_based` custom sampler, which matches on resource attributes.
@@ -480,6 +487,11 @@ The `capture.instrumentation` section defines protocol-specific instrumentation 
 All protocols (HTTP, gRPC, SQL, Redis, Kafka, MongoDB, Couchbase, DNS, GPU) have a consistent base structure for defining whether traces and metrics are enabled and what filters apply to each signal.
 Each protocol can also have its own specific configuration subsections.
 For example, SQL has `mysql` and `postgres` for driver-specific controls, HTTP has `routes.discovery` for route harvesting controls, etc.
+
+HTTP route normalization is directional. `http.routes.incoming` applies to requests handled by an instrumented workload and `http.routes.outgoing` applies to requests made by it.
+Each direction has the same route-policy fields: `patterns`, `ignored_patterns`, `ignore_mode`, `unmatched`, `wildcard_char`, and `max_path_segment_cardinality`.
+`wildcard_char` may be empty or contain one nonzero ASCII character so the value remains compatible with the byte-based route classifier.
+Global route discovery remains under `http.routes.discovery` because harvesting is configured for the capture engine rather than for an individual traffic direction.
 
 HTTP `payload_extraction` uses the same list-based enablement model as other instrumentation selectors:
 
@@ -747,9 +759,12 @@ Important mapping notes:
 | `prometheus_export.port` | `meter_provider.readers[1].pull.exporter.prometheus/development.port` | OTel ownership move + declarative reader/exporter shape |
 | `prometheus_export.path` | *No canonical OTel core path in current declarative schema* | Distribution-specific/unsupported in current target shape |
 | `prometheus_export.service_cache_size` | `extensions.obi.daemon.telemetry.metrics.prometheus.span_metrics_service_cache_size` | Move to daemon telemetry tuning + rename |
-| `routes.max_path_segment_cardinality` | `extensions.obi.capture.instrumentation.http.routes.max_path_segment_cardinality` | Move |
-| `routes.unmatched` | `extensions.obi.capture.instrumentation.http.routes.unmatched` | Move |
-| `routes.wildcard_char` | `extensions.obi.capture.instrumentation.http.routes.wildcard_char` | Move |
+| `routes.ignore_mode` | `extensions.obi.capture.instrumentation.http.routes.{incoming,outgoing}.ignore_mode` | Move + duplicate v1 global value into both directions |
+| `routes.ignored_patterns` | `extensions.obi.capture.instrumentation.http.routes.{incoming,outgoing}.ignored_patterns` | Move + duplicate v1 global value into both directions |
+| `routes.max_path_segment_cardinality` | `extensions.obi.capture.instrumentation.http.routes.{incoming,outgoing}.max_path_segment_cardinality` | Move + duplicate v1 global value into both directions |
+| `routes.patterns` | `extensions.obi.capture.instrumentation.http.routes.{incoming,outgoing}.patterns` | Move + duplicate v1 global value into both directions |
+| `routes.unmatched` | `extensions.obi.capture.instrumentation.http.routes.{incoming,outgoing}.unmatched` | Move + duplicate v1 global value into both directions |
+| `routes.wildcard_char` | `extensions.obi.capture.instrumentation.http.routes.{incoming,outgoing}.wildcard_char` | Move + duplicate v1 global value into both directions |
 | `shutdown_timeout` | `extensions.obi.daemon.shutdown.timeout` | Move |
 | `stats.agent_ip` | `extensions.obi.capture.network.stats.endpoint_identity.agent_ip` | Move |
 | `stats.agent_ip_iface` | `extensions.obi.capture.network.stats.endpoint_identity.agent_ip_interface` | Move + rename |

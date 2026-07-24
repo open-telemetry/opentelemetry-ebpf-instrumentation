@@ -154,16 +154,8 @@ func TestRuntimeToV2NilRoutesOnlyExportsDiscovery(t *testing.T) {
 	routes, ok := value(t, ext.Capture.Instrumentation, "http", "routes").(schema.HTTPRoutes)
 	require.True(t, ok)
 	require.Equal(t, schema.Duration(10*time.Second), routes.Discovery.Timeout)
-	for _, key := range []string{
-		"unmatched",
-		"patterns",
-		"ignored_patterns",
-		"ignore_mode",
-		"wildcard_char",
-		"max_path_segment_cardinality",
-	} {
-		require.Nil(t, value(t, routes, key))
-	}
+	require.Nil(t, routes.Incoming)
+	require.Nil(t, routes.Outgoing)
 }
 
 func TestRuntimeToV2CustomConfig(t *testing.T) {
@@ -617,12 +609,14 @@ func TestRuntimeToV2AdvancedCaptureParity(t *testing.T) {
 	_, ext := RuntimeToV2(&cfg)
 
 	require.Equal(t, schema.CaptureActionExclude, value(t, ext.Capture.Policy, "default_action"))
-	require.Equal(t, cfg.Routes.Unmatch, value(t, ext.Capture.Instrumentation, "http", "routes", "unmatched"))
-	require.Equal(t, []string{"/products/{id}"}, value(t, ext.Capture.Instrumentation, "http", "routes", "patterns"))
-	require.Equal(t, []string{"/health"}, value(t, ext.Capture.Instrumentation, "http", "routes", "ignored_patterns"))
-	require.Equal(t, cfg.Routes.IgnoredEvents, value(t, ext.Capture.Instrumentation, "http", "routes", "ignore_mode"))
-	require.Equal(t, "#", value(t, ext.Capture.Instrumentation, "http", "routes", "wildcard_char"))
-	require.Equal(t, 22, value(t, ext.Capture.Instrumentation, "http", "routes", "max_path_segment_cardinality"))
+	for _, direction := range []string{"incoming", "outgoing"} {
+		require.Equal(t, services.RouteUnmatch(cfg.Routes.Unmatch), value(t, ext.Capture.Instrumentation, "http", "routes", direction, "unmatched"))
+		require.Equal(t, []string{"/products/{id}"}, value(t, ext.Capture.Instrumentation, "http", "routes", direction, "patterns"))
+		require.Equal(t, []string{"/health"}, value(t, ext.Capture.Instrumentation, "http", "routes", direction, "ignored_patterns"))
+		require.Equal(t, services.RouteIgnoreMode(cfg.Routes.IgnoredEvents), value(t, ext.Capture.Instrumentation, "http", "routes", direction, "ignore_mode"))
+		require.Equal(t, "#", value(t, ext.Capture.Instrumentation, "http", "routes", direction, "wildcard_char"))
+		require.Equal(t, 22, value(t, ext.Capture.Instrumentation, "http", "routes", direction, "max_path_segment_cardinality"))
+	}
 	require.Equal(t, schema.Duration(23*time.Second), value(t, ext.Capture.Instrumentation, "http", "routes", "discovery", "timeout"))
 	require.Equal(t, []services.RouteHarvesterLanguage{services.RouteHarvesterLanguageJava}, value(t, ext.Capture.Instrumentation, "http", "routes", "discovery", "disabled_languages"))
 	require.Equal(t, schema.Duration(24*time.Second), value(t, ext.Capture.Instrumentation, "http", "routes", "discovery", "java", "delay"))
@@ -677,8 +671,8 @@ func TestRuntimeToV2AdvancedCaptureParity(t *testing.T) {
 	require.NotNil(t, ext.Capture.Rules[3].Refine.Exports)
 	require.Equal(t, schema.ExportModeRefinement{Traces: false, Metrics: true}, *ext.Capture.Rules[3].Refine.Exports)
 	require.NotNil(t, ext.Capture.Rules[3].Refine.HTTP)
-	require.Equal(t, []string{"/orders/{id}"}, ext.Capture.Rules[3].Refine.HTTP.Routes.Incoming.Patterns)
-	require.Equal(t, []string{"/inventory/{id}"}, ext.Capture.Rules[3].Refine.HTTP.Routes.Outgoing.Patterns)
+	require.Equal(t, []string{"/orders/{id}"}, *ext.Capture.Rules[3].Refine.HTTP.Routes.Incoming.Patterns)
+	require.Equal(t, []string{"/inventory/{id}"}, *ext.Capture.Rules[3].Refine.HTTP.Routes.Outgoing.Patterns)
 }
 
 func TestRuntimeToV2EffectiveDiscoveryCriteria(t *testing.T) {
