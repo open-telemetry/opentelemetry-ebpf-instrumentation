@@ -404,7 +404,7 @@ static __always_inline int __obi_continue2_protocol_http(struct pt_regs *ctx,
 
     // we copy some small part of the buffer to the info trace event, so that we can process an event even with
     // incomplete trace info in user space.
-    bpf_probe_read(info->buf, FULL_BUF_SIZE, (void *)args->u_buf);
+    read_request_buf(info, args);
     process_http_request(
         info, args->bytes_len, meta, args->direction, args->orig_dport, args->lw_thread);
 
