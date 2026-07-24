@@ -1,14 +1,15 @@
-version: "3.8"
-
 services:
   testserver:
     build:
       context: ../../..
-      dockerfile: internal/test/integration/components/nodejsserver/Dockerfile
-    image: hatest-testserver-node
+      dockerfile: internal/test/integration/components/nodejsserver/Dockerfile_deno
+    image: hatest-testserver-deno
     command:
-      - node
-      - ${NODE_APP}.js
+      - deno
+      - run
+      - --unstable-detect-cjs
+      - -A
+      - ${MAIN_FILE:-app.js}
     ports:
       - 3031:3030
       - 3034:3033

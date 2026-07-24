@@ -315,7 +315,7 @@ func testHTTPTracesKProbes(t *testing.T) {
 
 	var trace jaeger.Trace
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=node&operation=GET%20%2Fbye")
+		resp, err := http.Get(jaegerQueryURL + "?service=testserver&operation=GET%20%2Fbye")
 		require.NoError(ct, err)
 		if resp == nil {
 			return
@@ -354,11 +354,11 @@ func testHTTPTracesKProbes(t *testing.T) {
 	assert.Empty(t, sd, sd.String())
 
 	process := trace.Processes[parent.ProcessID]
-	assert.Equal(t, "node", process.ServiceName)
+	assert.Equal(t, "testserver", process.ServiceName)
 
 	serviceInstance, ok := jaeger.FindIn(process.Tags, "service.instance.id")
 	require.Truef(t, ok, "service.instance.id not found in tags: %v", process.Tags)
-	assert.Regexp(t, `^obi:\d+$$`, serviceInstance.Value)
+	assert.Regexp(t, `^integration-test\.testserver\.`, serviceInstance.Value)
 
 	jaeger.Diff([]jaeger.Tag{
 		{Key: "otel.scope.name", Type: "string", Value: "go.opentelemetry.io/obi"},
@@ -1465,6 +1465,14 @@ func testHTTPTracesNestedManualSpans(t *testing.T) {
 }
 
 func testHTTPTracesNestedNodeJSLargeHTTPS(t *testing.T) {
+	testHTTPTracesNestedJSLargeHTTPS(t, "node")
+}
+
+func testHTTPTracesNestedDenoLargeHTTPS(t *testing.T) {
+	testHTTPTracesNestedJSLargeHTTPS(t, "deno")
+}
+
+func testHTTPTracesNestedJSLargeHTTPS(t *testing.T, command string) {
 	var parentID string
 
 	// Run a request, since we have a single app, we should see always all requests
@@ -1472,7 +1480,7 @@ func testHTTPTracesNestedNodeJSLargeHTTPS(t *testing.T) {
 
 	var trace jaeger.Trace
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=node&operation=GET%20%2Fapi%2Ftest-apm")
+		resp, err := http.Get(jaegerQueryURL + "?service=" + command + "&operation=GET%20%2Fapi%2Ftest-apm")
 		require.NoError(ct, err)
 		if resp == nil {
 			return
