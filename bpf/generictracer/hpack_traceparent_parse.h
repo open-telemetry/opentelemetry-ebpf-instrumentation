@@ -21,7 +21,7 @@ static __always_inline u8 try_parse_tp_value(const unsigned char *val, tp_info_t
     return 1;
 }
 
-static const u8 k_hex_char_lut[256] = {
+static const u8 k_hex_chars[256] = {
     ['0' ... '9'] = 1,
     ['a' ... 'f'] = 1,
     ['A' ... 'F'] = 1,
@@ -48,13 +48,12 @@ static __always_inline u8 find_hpack_traceparent_value(const unsigned char *data
             continue;
         }
         // weak evidence without a name match — spot-check id edges for hex
-        const u8 ok =
-            k_hex_char_lut[val[k_tp_val_trace_id_start]] &
-            k_hex_char_lut[val[k_tp_val_trace_id_start + 1]] &
-            k_hex_char_lut[val[k_tp_val_dash2 - 2]] & k_hex_char_lut[val[k_tp_val_dash2 - 1]] &
-            k_hex_char_lut[val[k_tp_val_span_id_start]] &
-            k_hex_char_lut[val[k_tp_val_span_id_start + 1]] &
-            k_hex_char_lut[val[k_tp_val_dash3 - 2]] & k_hex_char_lut[val[k_tp_val_dash3 - 1]];
+        const u8 ok = k_hex_chars[val[k_tp_val_trace_id_start]] &
+                      k_hex_chars[val[k_tp_val_trace_id_start + 1]] &
+                      k_hex_chars[val[k_tp_val_dash2 - 2]] & k_hex_chars[val[k_tp_val_dash2 - 1]] &
+                      k_hex_chars[val[k_tp_val_span_id_start]] &
+                      k_hex_chars[val[k_tp_val_span_id_start + 1]] &
+                      k_hex_chars[val[k_tp_val_dash3 - 2]] & k_hex_chars[val[k_tp_val_dash3 - 1]];
         if (!ok) {
             continue;
         }

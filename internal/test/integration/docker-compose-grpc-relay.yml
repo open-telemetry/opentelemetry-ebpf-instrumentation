@@ -21,6 +21,7 @@ services:
       context: ../../..
       dockerfile: internal/test/integration/components/grpc_relay/python/Dockerfile
     image: hatest-grpc-relay-python
+    init: true
     environment:
       GRPC_PORT: "50051"
       NEXT_HOP: "go-grpc-to-http:50060"
@@ -70,6 +71,7 @@ services:
       context: ../../..
       dockerfile: internal/test/integration/components/grpc_relay/nodejs/Dockerfile
     image: hatest-grpc-relay-nodejs
+    init: true
     environment:
       GRPC_PORT: "50053"
       NEXT_HOP: "java-relay:50055"
@@ -103,6 +105,7 @@ services:
       context: ../../..
       dockerfile: internal/test/integration/components/grpc_relay/rust/Dockerfile
     image: hatest-grpc-relay-rust
+    init: true
     environment:
       GRPC_PORT: "50057"
       NEXT_HOP: "dotnet-relay:50056"
@@ -158,6 +161,7 @@ services:
       - ../../../testoutput/run-grpc-relay:/var/run/obi
     image: hatest-obi
     privileged: true
+    init: true
     pid: "host"
     cgroup: "host"
     environment:

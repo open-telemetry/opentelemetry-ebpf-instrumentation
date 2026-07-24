@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"golang.org/x/net/http2"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
@@ -192,7 +193,7 @@ func TestHTTP2Parsing(t *testing.T) {
 				}
 
 				if ff, ok := f.(*http2.HeadersFrame); ok {
-					method, path, contentType, _ := readMetaFrame(parseContext, 0, framer, ff)
+					method, path, contentType, _, _ := readMetaFrame(parseContext, 0, framer, ff)
 					assert.Equal(t, tt.method, method)
 					assert.Equal(t, tt.path, path)
 					assert.Equal(t, tt.contentType, contentType)
@@ -200,6 +201,26 @@ func TestHTTP2Parsing(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestHTTP2ResponseDetection(t *testing.T) {
+	// :status 200 (indexed, 0x88) + content-type: application/grpc
+	payload := append([]byte{0x88, 0x10, 0xc}, []byte("content-type")...)
+	payload = append(payload, 0x10)
+	payload = append(payload, []byte("application/grpc")...)
+	frame := append([]byte{0, 0, byte(len(payload)), 1, 4, 0, 0, 0, 5}, payload...)
+
+	parseContext := NewEBPFParseContext(nil, nil, nil)
+	framer := byteFramer(frame)
+	f, err := framer.ReadFrame()
+	require.NoError(t, err)
+	ff, ok := f.(*http2.HeadersFrame)
+	require.True(t, ok)
+
+	_, _, contentType, mok, isResponse := readMetaFrame(parseContext, 0, framer, ff)
+	assert.True(t, isResponse, "HEADERS with :status must be flagged as a response")
+	assert.True(t, mok)
+	assert.Equal(t, "application/grpc", contentType)
 }
 
 func TestHTTP2EventsParsing(t *testing.T) {

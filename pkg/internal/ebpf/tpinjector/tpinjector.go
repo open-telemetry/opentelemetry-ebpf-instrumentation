@@ -7,6 +7,7 @@ package tpinjector // import "go.opentelemetry.io/obi/pkg/internal/ebpf/tpinject
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -15,6 +16,7 @@ import (
 	"syscall"
 
 	"github.com/cilium/ebpf"
+	"golang.org/x/sys/unix"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
@@ -44,6 +46,7 @@ type Tracer struct {
 	iterMu                  sync.Mutex
 	itersOnce               sync.Once
 	seenNetns               map[uint64]struct{}
+	backfillDisabled        bool
 }
 
 func New(cfg *obi.Config) *Tracer {
@@ -61,6 +64,10 @@ func (p *Tracer) AllowPID(pid app.PID, _ uint32, _ *exec.FileInfo) {
 	p.iterMu.Lock()
 	defer p.iterMu.Unlock()
 
+	if p.backfillDisabled {
+		return
+	}
+
 	info, err := os.Stat(fmt.Sprintf("/proc/%d/ns/net", pid))
 	if err != nil {
 		p.log.Debug("netns stat failed", "pid", pid, "error", err)
@@ -77,6 +84,14 @@ func (p *Tracer) AllowPID(pid app.PID, _ uint32, _ *exec.FileInfo) {
 		if err := netns.WithNetNS(int(pid), func() error {
 			return it.Run(p.log)
 		}); err != nil {
+			// EPERM is permanent: report once instead of on every discovered process
+			if errors.Is(err, unix.EPERM) {
+				p.log.Warn("cannot enter network namespaces, likely missing CAP_SYS_ADMIN; "+
+					"context propagation for connections opened before instrumentation "+
+					"will not work across namespaces", "error", err)
+				p.backfillDisabled = true
+				return
+			}
 			p.log.Error("error running iterator in netns", "pid", pid, "error", err)
 			ok = false
 		}

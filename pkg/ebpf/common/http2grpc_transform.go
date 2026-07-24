@@ -164,16 +164,17 @@ func knownFrameKeys(fr *http2.Framer, hf *http2.HeadersFrame) bool {
 	return knownCount > 1
 }
 
-func readMetaFrame(parseContext *EBPFParseContext, connID uint64, fr *http2.Framer, hf *http2.HeadersFrame) (string, string, string, bool) {
+func readMetaFrame(parseContext *EBPFParseContext, connID uint64, fr *http2.Framer, hf *http2.HeadersFrame) (string, string, string, bool, bool) {
 	h2c := getOrInitH2Conn(parseContext.h2c, connID)
 
 	ok := false
+	isResponse := false
 	method := ""
 	path := ""
 	contentType := ""
 
 	if h2c == nil {
-		return method, path, contentType, ok
+		return method, path, contentType, ok, isResponse
 	}
 
 	h2c.hdec.SetEmitFunc(func(hf bhpack.HeaderField) {
@@ -184,6 +185,9 @@ func readMetaFrame(parseContext *EBPFParseContext, connID uint64, fr *http2.Fram
 		case ":path":
 			path = hf.Value
 			ok = true
+		case ":status":
+			// only responses carry :status — this HEADERS was misread as a request start
+			isResponse = true
 		case "content-type":
 			contentType = hf.Value
 			if contentType == "application/grpc" {
@@ -199,7 +203,7 @@ func readMetaFrame(parseContext *EBPFParseContext, connID uint64, fr *http2.Fram
 	frag := hf.HeaderBlockFragment()
 	for {
 		if _, err := h2c.hdec.Write(frag); err != nil {
-			return method, path, contentType, ok
+			return method, path, contentType, ok, isResponse
 		}
 		if hf.HeadersEnded() {
 			break
@@ -215,7 +219,7 @@ func readMetaFrame(parseContext *EBPFParseContext, connID uint64, fr *http2.Fram
 		frag = cf.HeaderBlockFragment()
 	}
 
-	return method, path, contentType, ok
+	return method, path, contentType, ok, isResponse
 }
 
 func http2grpcStatus(status int) int {
@@ -401,7 +405,10 @@ func http2FromBuffers(parseContext *EBPFParseContext, event *BPFHTTP2Info) (requ
 
 		if ff, ok := f.(*http2.HeadersFrame); ok {
 			rok := false
-			method, path, contentType, ok := readMetaFrame(parseContext, connID, framer, ff)
+			method, path, contentType, ok, isResponse := readMetaFrame(parseContext, connID, framer, ff)
+			if isResponse {
+				return request.Span{}, true, nil // response HEADERS misread as a request start
+			}
 			fullPath := path
 			if pos := strings.Index(path, "?"); pos >= 0 {
 				path = path[:pos]

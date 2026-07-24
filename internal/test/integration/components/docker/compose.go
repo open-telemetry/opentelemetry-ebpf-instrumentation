@@ -22,7 +22,7 @@ import (
 // stopTimeout bounds how long `docker compose stop` waits between SIGTERM and
 // SIGKILL for each container. Keeps shutdown predictable when a container is
 // hung.
-const stopTimeout = "5"
+const stopTimeout = "15"
 
 // waitTimeout bounds how long Close() will wait for the obi container to
 // exit. A stuck container would otherwise burn the shard's job timeout.
@@ -106,7 +106,7 @@ func (c *Compose) Stop() error {
 }
 
 func (c *Compose) Remove() error {
-	cmdArgs := []string{"compose", "--ansi", "never", "-f", c.Path, "rm", "-f", "-v"}
+	cmdArgs := []string{"compose", "--ansi", "never", "-f", c.Path, "rm", "-f", "-s", "-v"}
 	cmd := exec.Command("docker", cmdArgs...)
 	cmd.Env = c.Env
 

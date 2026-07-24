@@ -106,7 +106,7 @@ h2_sniff_check_frame(h2_sniff_state_t *st, u32 length, u8 type, u8 flags, u8 r_b
         }
         break;
     case k_h2_frame_headers:
-        // client-initiated streams are odd
+        // client-initiated stream IDs are odd-numbered (RFC 7540 5.1.1)
         if ((flags & ~(u8)(k_h2_flag_end_stream | k_h2_flag_end_headers | k_h2_flag_priority)) ||
             !(stream_id & 1)) {
             return 0;

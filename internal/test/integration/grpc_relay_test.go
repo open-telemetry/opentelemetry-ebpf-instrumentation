@@ -139,6 +139,22 @@ func waitForRelayInstrumentation(t *testing.T) {
 	}, relayInstrumentationTimeout, time.Second)
 }
 
+// sendRelayRequest hits /relay with a fresh trace ID and returns it
+func sendRelayRequest(t require.TestingT) string {
+	now := uint64(time.Now().UnixNano())
+	traceID := fmt.Sprintf("%016x%016x", now, now+1)
+
+	req, err := http.NewRequest(http.MethodGet, "http://localhost:8080/relay", nil)
+	require.NoError(t, err)
+	req.Header.Set("Traceparent", fmt.Sprintf("00-%s-%016x-01", traceID, now+2))
+
+	if resp, err := http.DefaultClient.Do(req); err == nil && resp != nil {
+		resp.Body.Close()
+	}
+
+	return traceID
+}
+
 func testGRPCRelayChainContextPropagation(t *testing.T) {
 	// Fresh trace ID per request so each iteration's assertions run against
 	// a single-request trace, not accumulated retries. Loop retries with a
@@ -146,15 +162,7 @@ func testGRPCRelayChainContextPropagation(t *testing.T) {
 	// gradually: JVM attach, connection warm-up).
 	var trace jaeger.Trace
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		now := uint64(time.Now().UnixNano())
-		relayAttemptTraceID := fmt.Sprintf("%016x%016x", now, now+1)
-		traceparent := fmt.Sprintf("00-%s-%016x-01", relayAttemptTraceID, now+2)
-		req, err := http.NewRequest(http.MethodGet, "http://localhost:8080/relay", nil)
-		require.NoError(ct, err)
-		req.Header.Set("Traceparent", traceparent)
-		if wr, err := http.DefaultClient.Do(req); err == nil && wr != nil {
-			wr.Body.Close()
-		}
+		relayAttemptTraceID := sendRelayRequest(ct)
 
 		// Poll Jaeger for our exact trace ID — gives a slow CI chain
 		// (JVM attach + nodejs/python startup) time to land all spans
