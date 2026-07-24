@@ -83,7 +83,7 @@ func testREDMetricsForNodeHTTPLibraryRoutes(t *testing.T, url, comm, namespace s
 	}, testTimeout, 100*time.Millisecond)
 }
 
-func testREDMetricsNodeJSHTTP(t *testing.T) {
+func testREDMetricsJSHTTP(t *testing.T) {
 	for _, testCaseURL := range []string{
 		"http://localhost:3031",
 	} {
