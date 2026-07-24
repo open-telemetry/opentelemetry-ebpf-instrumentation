@@ -414,6 +414,24 @@ func TestParseProduceRequestMultiTopicNonFlexible(t *testing.T) {
 	assert.Equal(t, 3, *req.Topics[1].Partition)
 }
 
+func TestParseProduceRequestTruncatedLargeTopicCount(t *testing.T) {
+	const declaredTopicCount = 1<<31 - 1
+
+	pkt := make([]byte, Int16Len+Int16Len+Int32Len+Int32Len)
+	offset := 0
+	binary.BigEndian.PutUint16(pkt[offset:], uint16(negativeLength))
+	offset += Int16Len
+	binary.BigEndian.PutUint16(pkt[offset:], 1)
+	offset += Int16Len
+	binary.BigEndian.PutUint32(pkt[offset:], 30000)
+	offset += Int32Len
+	binary.BigEndian.PutUint32(pkt[offset:], declaredTopicCount)
+
+	r := largebuf.NewLargeBufferFrom(pkt).NewReader()
+	_, err := ParseProduceRequest(&r, newTestHeader(APIKeyProduce, 3))
+	require.ErrorIs(t, err, errNoTopicsInProduce)
+}
+
 func TestProduceRequestSkipUntilTopics(t *testing.T) {
 	tests := []struct {
 		name           string

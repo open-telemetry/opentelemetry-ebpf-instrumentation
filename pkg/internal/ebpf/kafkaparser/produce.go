@@ -68,7 +68,7 @@ func parseProduceTopics(r *largebuf.LargeBufferReader, header KafkaRequestHeader
 		return nil, nil
 	}
 
-	topics := make([]*ProduceTopic, 0, topicsLen)
+	var topics []*ProduceTopic
 	for range topicsLen {
 		topic, err := parseProduceTopic(r, header)
 		if err != nil {
