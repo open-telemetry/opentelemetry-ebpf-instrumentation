@@ -3,6 +3,8 @@ services:
     build:
       context: ../../..
       dockerfile: ${RUNTIME_METRICS_TESTSERVER_DOCKERFILE:-./internal/test/integration/components/go-runtime-metrics-server/Dockerfile}
+      args:
+        - RUNTIME_METRICS_TESTSERVER_GO_IMAGE
     image: ${RUNTIME_METRICS_TESTSERVER_IMAGE:-hatest-testserver-go-runtime-metrics}
     ports:
       - "${TEST_SERVICE_PORTS}"
