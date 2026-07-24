@@ -319,6 +319,119 @@ func TestParseProduceRequest(t *testing.T) {
 	}
 }
 
+func TestParseProduceRequestMultiTopic(t *testing.T) {
+	writePartition := func(pkt []byte, offset, partition int, records []byte) int {
+		binary.BigEndian.PutUint32(pkt[offset:], uint32(partition))
+		offset += Int32Len
+		pkt[offset] = byte(len(records) + 1) // COMPACT_RECORDS length
+		offset++
+		copy(pkt[offset:], records)
+		offset += len(records)
+		pkt[offset] = 0 // partition tagged fields
+		return offset + 1
+	}
+	writeTopic := func(pkt []byte, offset int, name string, partitions []int) int {
+		pkt[offset] = byte(len(name) + 1) // COMPACT_STRING length
+		offset++
+		copy(pkt[offset:], name)
+		offset += len(name)
+		pkt[offset] = byte(len(partitions) + 1) // COMPACT_ARRAY length
+		offset++
+		for i, partition := range partitions {
+			offset = writePartition(pkt, offset, partition, []byte{byte(i), byte(i + 1)})
+		}
+		pkt[offset] = 0 // topic tagged fields
+		return offset + 1
+	}
+
+	pkt := make([]byte, 128)
+	offset := 0
+	pkt[offset] = 0 // null transactional ID
+	offset++
+	binary.BigEndian.PutUint16(pkt[offset:], 1) // acks
+	offset += Int16Len
+	binary.BigEndian.PutUint32(pkt[offset:], 30000) // timeout_ms
+	offset += Int32Len
+	pkt[offset] = 3 // two topics in the COMPACT_ARRAY
+	offset++
+	offset = writeTopic(pkt, offset, "topic-one", []int{0, 1})
+	offset = writeTopic(pkt, offset, "topic-two", []int{3})
+	pkt[offset] = 0 // request tagged fields
+	offset++
+
+	r := largebuf.NewLargeBufferFrom(pkt[:offset]).NewReader()
+	req, err := ParseProduceRequest(&r, newTestHeader(APIKeyProduce, 9))
+	require.NoError(t, err)
+	require.Len(t, req.Topics, 2)
+
+	assert.Equal(t, "topic-one", req.Topics[0].Name)
+	require.NotNil(t, req.Topics[0].Partition)
+	assert.Equal(t, 0, *req.Topics[0].Partition)
+	assert.Equal(t, "topic-two", req.Topics[1].Name)
+	require.NotNil(t, req.Topics[1].Partition)
+	assert.Equal(t, 3, *req.Topics[1].Partition)
+}
+
+func TestParseProduceRequestMultiTopicNonFlexible(t *testing.T) {
+	writeTopic := func(pkt []byte, offset, partition int, name string) int {
+		binary.BigEndian.PutUint16(pkt[offset:], uint16(len(name)))
+		offset += Int16Len
+		copy(pkt[offset:], name)
+		offset += len(name)
+		binary.BigEndian.PutUint32(pkt[offset:], 1) // one partition in the array
+		offset += Int32Len
+		binary.BigEndian.PutUint32(pkt[offset:], uint32(partition))
+		offset += Int32Len
+		binary.BigEndian.PutUint32(pkt[offset:], 1) // one-byte RECORDS payload
+		offset += Int32Len
+		pkt[offset] = 0
+		return offset + 1
+	}
+
+	pkt := make([]byte, 128)
+	offset := 0
+	binary.BigEndian.PutUint16(pkt[offset:], uint16(negativeLength)) // null transactional ID
+	offset += Int16Len
+	binary.BigEndian.PutUint16(pkt[offset:], 1) // acks
+	offset += Int16Len
+	binary.BigEndian.PutUint32(pkt[offset:], 30000) // timeout_ms
+	offset += Int32Len
+	binary.BigEndian.PutUint32(pkt[offset:], 2) // two topics in the array
+	offset += Int32Len
+	offset = writeTopic(pkt, offset, 0, "topic-one")
+	offset = writeTopic(pkt, offset, 3, "topic-two")
+
+	r := largebuf.NewLargeBufferFrom(pkt[:offset]).NewReader()
+	req, err := ParseProduceRequest(&r, newTestHeader(APIKeyProduce, 3))
+	require.NoError(t, err)
+	require.Len(t, req.Topics, 2)
+
+	assert.Equal(t, "topic-one", req.Topics[0].Name)
+	require.NotNil(t, req.Topics[0].Partition)
+	assert.Equal(t, 0, *req.Topics[0].Partition)
+	assert.Equal(t, "topic-two", req.Topics[1].Name)
+	require.NotNil(t, req.Topics[1].Partition)
+	assert.Equal(t, 3, *req.Topics[1].Partition)
+}
+
+func TestParseProduceRequestTruncatedLargeTopicCount(t *testing.T) {
+	const declaredTopicCount = 1<<31 - 1
+
+	pkt := make([]byte, Int16Len+Int16Len+Int32Len+Int32Len)
+	offset := 0
+	binary.BigEndian.PutUint16(pkt[offset:], uint16(negativeLength))
+	offset += Int16Len
+	binary.BigEndian.PutUint16(pkt[offset:], 1)
+	offset += Int16Len
+	binary.BigEndian.PutUint32(pkt[offset:], 30000)
+	offset += Int32Len
+	binary.BigEndian.PutUint32(pkt[offset:], declaredTopicCount)
+
+	r := largebuf.NewLargeBufferFrom(pkt).NewReader()
+	_, err := ParseProduceRequest(&r, newTestHeader(APIKeyProduce, 3))
+	require.ErrorIs(t, err, errNoTopicsInProduce)
+}
+
 func TestProduceRequestSkipUntilTopics(t *testing.T) {
 	tests := []struct {
 		name           string
