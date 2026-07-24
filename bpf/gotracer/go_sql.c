@@ -25,6 +25,8 @@
 
 #include <gotracer/go_common.h>
 #include <gotracer/go_str.h>
+#include <gotracer/maps/nethttp.h>
+#include <gotracer/types/nethttp.h>
 
 #include <maps/go_sql.h>
 
@@ -331,7 +333,18 @@ static __always_inline int process_sql_return(void *goroutine_addr, u8 error, u8
         return 0;
     }
     bpf_map_delete_elem(&ongoing_sql_queries, &g_key);
-    obi_ctx__del(bpf_get_current_pid_tgid());
+
+    // Restore the enclosing HTTP server span's context instead of clearing
+    // it: obi_ctx__del alone would wipe it whenever this SQL query ran
+    // inside an HTTP handler, dropping trace_id/span_id from any log line
+    // written after the query returns.
+    server_http_func_invocation_t *http_inv =
+        bpf_map_lookup_elem(&ongoing_http_server_requests, &g_key);
+    if (http_inv) {
+        obi_ctx__set(bpf_get_current_pid_tgid(), &http_inv->tp);
+    } else {
+        obi_ctx__del(bpf_get_current_pid_tgid());
+    }
 
     sql_request_trace_t *trace = bpf_ringbuf_reserve(&events, sizeof(sql_request_trace_t), 0);
     if (trace) {
