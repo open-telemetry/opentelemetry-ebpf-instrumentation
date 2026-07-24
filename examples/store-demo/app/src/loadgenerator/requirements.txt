@@ -436,9 +436,9 @@ jinja2==3.1.6 \
     --hash=sha256:0137fb05990d35f1275a587e9aee6d56da821fc83491a0fb838183be43f66d6d \
     --hash=sha256:85ece4451f492d0c13c5dd7c13a64681a86afae63a5f347908daf103ce6d2f67
     # via flask
-locust==2.46.1 \
-    --hash=sha256:5111b14e856ee1e570276fdd621acb3b534557f8f0feb348fcfefc0571c680f4 \
-    --hash=sha256:ed26148522522d13fb453c5e4e281a82650a3b2ec5ad5f00a738ff22a0944808
+locust==2.46.2 \
+    --hash=sha256:289f50dad50c10e51b445f87b3291b3d3ba89bc46d80755d1a61e43f85270ed7 \
+    --hash=sha256:8792329639c5b4491c1d29458280daf80eee68e0acd5847b60f529bf092e8f08
     # via -r examples/store-demo/app/src/loadgenerator/requirements.in
 MarkupSafe==3.0.3 \
     --hash=sha256:0303439a41979d9e74d18ff5e2dd8c43ed6c6001fd40e5bf2e43f7bd9bbc523f \
