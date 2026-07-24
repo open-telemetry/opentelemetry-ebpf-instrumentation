@@ -1,4 +1,4 @@
-FROM denoland/deno:2.9.4
+FROM denoland/deno:2.9.4@sha256:c777b4b225501a61074837e90a826a58f99124837824023cd60334b1e2374498
 
 # Set the working directory to /build
 WORKDIR /
