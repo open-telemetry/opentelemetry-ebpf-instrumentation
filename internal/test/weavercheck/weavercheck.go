@@ -247,7 +247,25 @@ func Validate(t TestingT, report *Report) {
 	// Build message → {level, type, signals} lookup from the sample data.
 	adviceByMsg := collectAdviceInfo(report.Samples)
 
-	// Log all advisory messages grouped by level.
+	// Surface the advisories that actually fail the check first, so the cause
+	// of a failure is obvious without scanning the full advisory dump below.
+	actionable := collectActionableAdvisories(stats, adviceByMsg)
+	actionableAdvisories := 0
+	for _, e := range actionable {
+		actionableAdvisories += e.Occurrences
+	}
+	if len(actionable) > 0 {
+		t.Logf("  actionable advisories:")
+		for _, e := range actionable {
+			signals := "unknown"
+			if len(e.Signals) > 0 {
+				signals = strings.Join(e.Signals, ", ")
+			}
+			t.Logf("    [%s/%s] [%dx] %s (signals: %s)", e.Level, e.AdviceType, e.Occurrences, e.Message, signals)
+		}
+	}
+
+	// Log all advisory messages grouped by level for full context.
 	t.Logf("  advisory details:")
 	for _, level := range []string{"violation", "improvement", "information"} {
 		for msg, count := range stats.AdviceMessageCounts {
@@ -277,7 +295,6 @@ func Validate(t TestingT, report *Report) {
 		}
 	}
 
-	actionableAdvisories := countActionableAdvisories(stats, adviceByMsg)
 	t.Logf("  advisories: %d violation(s), %d actionable (violations + actionableAdviceTypes, after ignoring %v)",
 		violations, actionableAdvisories, sortedSignals(IgnoredSignals))
 
@@ -299,26 +316,63 @@ func isActionableAdvice(info *adviceInfo) bool {
 	return actionable
 }
 
-// countActionableAdvisories counts advisories that must fail validation,
+// actionableEntry is a single advisory that fails validation, carrying the
+// attribution needed to print an at-a-glance "this is what broke" summary.
+type actionableEntry struct {
+	Message     string
+	Level       string
+	AdviceType  string
+	Occurrences int
+	Signals     []string
+}
+
+// collectActionableAdvisories returns the advisories that must fail validation,
 // excluding signals listed in IgnoredSignals and messages listed in
 // IgnoredAdviceMessages. Messages present in the statistics but absent from
 // the sample data carry no level/type/signal attribution, so they are
-// conservatively counted as actionable unless message-ignored.
-func countActionableAdvisories(stats *Statistics, adviceByMsg map[string]*adviceInfo) int {
-	var count int
+// conservatively treated as actionable unless message-ignored. Results are
+// sorted by descending occurrence count, then message, for stable output.
+func collectActionableAdvisories(stats *Statistics, adviceByMsg map[string]*adviceInfo) []actionableEntry {
+	var entries []actionableEntry
 	for msg, occurrences := range stats.AdviceMessageCounts {
 		_, messageIgnored := IgnoredAdviceMessages[msg]
 		info := adviceByMsg[msg]
 		if info == nil {
 			if !messageIgnored {
-				count += occurrences
+				entries = append(entries, actionableEntry{
+					Message:     msg,
+					Level:       "unknown",
+					AdviceType:  "unknown",
+					Occurrences: occurrences,
+				})
 			}
 			continue
 		}
 		ignored := messageIgnored || allSignalsIgnored(info.Signals)
 		if isActionableAdvice(info) && !ignored {
-			count += occurrences
+			entries = append(entries, actionableEntry{
+				Message:     msg,
+				Level:       info.Level,
+				AdviceType:  info.AdviceType,
+				Occurrences: occurrences,
+				Signals:     sortedSignals(info.Signals),
+			})
 		}
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].Occurrences != entries[j].Occurrences {
+			return entries[i].Occurrences > entries[j].Occurrences
+		}
+		return entries[i].Message < entries[j].Message
+	})
+	return entries
+}
+
+// countActionableAdvisories counts advisories that must fail validation.
+func countActionableAdvisories(stats *Statistics, adviceByMsg map[string]*adviceInfo) int {
+	var count int
+	for _, e := range collectActionableAdvisories(stats, adviceByMsg) {
+		count += e.Occurrences
 	}
 	return count
 }

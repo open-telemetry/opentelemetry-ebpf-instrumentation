@@ -108,6 +108,13 @@ var (
 
 const logEnricherGoWritevRegressionLeakMarker = "writev-leak-marker-should-never-appear"
 
+const (
+	logEnricherPlainTextFirstMessage  = "plain-text first line"
+	logEnricherPlainTextSecondMessage = "plain-text second line"
+	logEnricherNDJSONFirstMessage     = "ndjson first record"
+	logEnricherNDJSONSecondMessage    = "ndjson second record"
+)
+
 // logEnricherTestTraceparents are fixed W3C traceparents used by log enricher tests.
 // Fixed IDs allow exact equality assertions on trace_id and ordering assertions
 // on the enriched container logs.
@@ -914,6 +921,64 @@ func testLogEnricher(t *testing.T, constants testServerConstants) {
 		assert.Contains(ct, logFields, "trace_id")
 		assert.Contains(ct, logFields, "span_id")
 	}, 2*testTimeout, time.Second)
+}
+
+func testLogEnricherPlainText(t *testing.T, constants testServerConstants) {
+	waitForTestComponentsNoMetrics(t, constants.url+constants.smokeEndpoint)
+
+	cl, err := client.New(client.FromEnv)
+	require.NoError(t, err)
+	defer cl.Close()
+
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		ti.DoHTTPGet(ct, constants.url+constants.logEndpoint+"?mode=plain-text-multiline", 200)
+		ti.DoHTTPGet(ct, constants.url+constants.logEndpoint+"?mode=ndjson", 200)
+
+		containerID := testContainerID(ct, cl, constants.containerImage)
+		if !assert.NotEmpty(ct, containerID, "could not find test container ID") {
+			return
+		}
+		logs := containerLogs(ct, cl, containerID)
+		if !assert.NotEmpty(ct, logs) {
+			return
+		}
+
+		firstPlainText := findLogLine(logs, logEnricherPlainTextFirstMessage)
+		secondPlainText := findLogLine(logs, logEnricherPlainTextSecondMessage)
+		if !assert.NotEmpty(ct, firstPlainText, "no enriched first plain-text line found yet") ||
+			!assert.NotEmpty(ct, secondPlainText, "no second plain-text line found yet") {
+			return
+		}
+		assert.Regexp(ct, ` trace_id=[0-9a-f]{32} span_id=[0-9a-f]{16}$`, firstPlainText)
+		assert.NotContains(ct, secondPlainText, "trace_id=")
+		assert.NotContains(ct, secondPlainText, "span_id=")
+
+		for _, message := range []string{logEnricherNDJSONFirstMessage, logEnricherNDJSONSecondMessage} {
+			line := findLogLine(logs, message)
+			if !assert.NotEmpty(ct, line, "no enriched NDJSON record found yet") {
+				return
+			}
+
+			var fields map[string]string
+			if !assert.NoError(ct, json.Unmarshal([]byte(line), &fields)) {
+				return
+			}
+			assert.Equal(ct, message, fields["message"])
+			assert.Regexp(ct, `^[0-9a-f]{32}$`, fields["trace_id"])
+			assert.Regexp(ct, `^[0-9a-f]{16}$`, fields["span_id"])
+		}
+	}, 2*testTimeout, time.Second)
+}
+
+func findLogLine(logs []string, message string) string {
+	for i := len(logs) - 1; i >= 0; i-- {
+		line := logs[i]
+		if strings.Contains(line, message) {
+			return line
+		}
+	}
+
+	return ""
 }
 
 func testLogEnricherWritevClamp(t *testing.T, constants testServerConstants) {

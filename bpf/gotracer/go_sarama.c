@@ -16,6 +16,7 @@
 //go:build obi_bpf_ignore
 
 #include <bpfcore/utils.h>
+#include <bpfcore/bpf_builtins.h>
 
 #include <common/ringbuf.h>
 
@@ -32,24 +33,27 @@ int obi_uprobe_sarama_sendInternal(struct pt_regs *ctx) {
     bpf_dbg_printk("=== uprobe/sarama_sendInternal ===");
     void *goroutine_addr = GOROUTINE_PTR(ctx);
     void *b_ptr = GO_PARAM1(ctx);
+    void *promise = GO_PARAM4(ctx);
+
     off_table_t *ot = get_offsets_table();
 
     bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
 
-    u32 correlation_id = 0;
+    send_event_t event = {
+        .correlation_id = 0,
+        .start_monotime_ns = bpf_ktime_get_ns(),
+        .promise = (u64)promise,
+    };
 
     if (b_ptr) {
-        bpf_probe_read(&correlation_id,
+        bpf_probe_read(&event.correlation_id,
                        sizeof(u32),
                        b_ptr + go_offset_of(ot, (go_offset){.v = _sarama_broker_corr_id_pos}));
-    }
+        bpf_dbg_printk("correlation_id=%d", event.correlation_id);
 
-    if (correlation_id) {
-        bpf_dbg_printk("correlation_id=%d", correlation_id);
-
-        if (bpf_map_update_elem(&ongoing_kafka_requests, &g_key, &correlation_id, BPF_ANY)) {
+        if (bpf_map_update_elem(&ongoing_kafka_requests, &g_key, &event, BPF_ANY)) {
             bpf_dbg_printk("can't update kafka requests element");
         }
     }
@@ -66,7 +70,7 @@ int obi_uprobe_sarama_broker_write(struct pt_regs *ctx) {
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
 
-    u32 *invocation = bpf_map_lookup_elem(&ongoing_kafka_requests, &g_key);
+    send_event_t *invocation = bpf_map_lookup_elem(&ongoing_kafka_requests, &g_key);
     void *b_ptr = GO_PARAM1(ctx);
     void *buf_ptr = GO_PARAM2(ctx);
     off_table_t *ot = get_offsets_table();
@@ -83,10 +87,10 @@ int obi_uprobe_sarama_broker_write(struct pt_regs *ctx) {
 
         // We only care about fetch and produce
         if (api_key == k_kafka_api_fetch || api_key == k_kafka_api_produce) {
-            u32 correlation_id = *invocation;
+            u32 correlation_id = invocation->correlation_id;
             kafka_client_req_t req = {
                 .type = EVENT_GO_KAFKA,
-                .start_monotime_ns = bpf_ktime_get_ns(),
+                .start_monotime_ns = invocation->start_monotime_ns,
             };
 
             void *conn_conn_ptr =
@@ -115,12 +119,28 @@ int obi_uprobe_sarama_broker_write(struct pt_regs *ctx) {
                 }
             }
 
-            bpf_dbg_printk("correlation_id=%d", correlation_id);
+            bpf_dbg_printk("correlation_id=%d, promise=%llx", correlation_id, invocation->promise);
 
             bpf_probe_read(req.buf, k_kafka_max_len, buf_ptr);
-            go_addr_key_t k_key = {};
-            go_addr_key_from_id(&k_key, (void *)(uintptr_t)correlation_id);
-            bpf_map_update_elem(&kafka_requests, &k_key, &req, BPF_ANY);
+
+            // if there's no callback we report the event right away, there's no
+            // easy way to correlate with the response
+            if (!invocation->promise) {
+                req.end_monotime_ns = bpf_ktime_get_ns();
+                kafka_client_req_t *trace =
+                    bpf_ringbuf_reserve(&events, sizeof(kafka_client_req_t), 0);
+                if (trace) {
+                    bpf_dbg_printk("Sending kafka client go trace");
+
+                    bpf_memcpy(trace, &req, sizeof(kafka_client_req_t));
+                    task_pid(&trace->pid);
+                    bpf_ringbuf_submit(trace, get_flags());
+                }
+            } else {
+                go_addr_key_t k_key = {};
+                go_addr_key_from_id(&k_key, (void *)(uintptr_t)invocation->promise);
+                bpf_map_update_elem(&kafka_requests, &k_key, &req, BPF_ANY);
+            }
         }
     }
 
@@ -145,25 +165,22 @@ int obi_uprobe_sarama_response_promise_handle(struct pt_regs *ctx) {
 
         bpf_dbg_printk("correlation_id=%d", correlation_id);
 
-        if (correlation_id) {
-            go_addr_key_t k_key = {};
-            go_addr_key_from_id(&k_key, (void *)(uintptr_t)correlation_id);
-            kafka_client_req_t *req = bpf_map_lookup_elem(&kafka_requests, &k_key);
+        go_addr_key_t k_key = {};
+        go_addr_key_from_id(&k_key, (void *)(uintptr_t)p);
+        kafka_client_req_t *req = bpf_map_lookup_elem(&kafka_requests, &k_key);
 
-            if (req) {
-                req->end_monotime_ns = bpf_ktime_get_ns();
-                kafka_client_req_t *trace =
-                    bpf_ringbuf_reserve(&events, sizeof(kafka_client_req_t), 0);
-                if (trace) {
-                    bpf_dbg_printk("Sending kafka client go trace");
+        if (req) {
+            req->end_monotime_ns = bpf_ktime_get_ns();
+            kafka_client_req_t *trace = bpf_ringbuf_reserve(&events, sizeof(kafka_client_req_t), 0);
+            if (trace) {
+                bpf_dbg_printk("Sending kafka client go trace");
 
-                    __builtin_memcpy(trace, req, sizeof(kafka_client_req_t));
-                    task_pid(&trace->pid);
-                    bpf_ringbuf_submit(trace, get_flags());
-                }
+                __builtin_memcpy(trace, req, sizeof(kafka_client_req_t));
+                task_pid(&trace->pid);
+                bpf_ringbuf_submit(trace, get_flags());
             }
-            bpf_map_delete_elem(&kafka_requests, &k_key);
         }
+        bpf_map_delete_elem(&kafka_requests, &k_key);
     }
 
     return 0;

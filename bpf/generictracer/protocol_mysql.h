@@ -152,6 +152,7 @@ static __always_inline int mysql_send_large_buffer(tcp_req_t *req,
     lb->direction = direction;
     lb->conn_info = pid_conn->conn;
     lb->tp = req->tp;
+    lb->source = k_large_buffer_source_kprobes;
 
     u32 max_available_bytes = mysql_max_captured_bytes - bytes_sent;
 
@@ -190,7 +191,7 @@ static __always_inline int mysql_send_large_buffer(tcp_req_t *req,
 
     const u32 available_bytes = min(bytes_len, max_available_bytes);
 
-    consumed_bytes += large_buf_emit_chunks(lb, u_buf, available_bytes);
+    consumed_bytes += large_buf_emit_chunks(lb, u_buf, available_bytes, k_large_buf_read_kernel);
 
     if (packet_type == PACKET_TYPE_REQUEST) {
         req->lb_req_bytes += consumed_bytes;

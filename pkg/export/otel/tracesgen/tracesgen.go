@@ -455,6 +455,8 @@ func getSpanToolCalls(span *request.Span) []request.ToolCall {
 		return span.GenAI.Gemini.ToolCalls
 	case span.GenAI.Qwen != nil:
 		return span.GenAI.Qwen.ToolCalls
+	case span.GenAI.Ollama != nil:
+		return span.GenAI.Ollama.ToolCalls
 	case span.GenAI.OpenAICompatible != nil:
 		return span.GenAI.OpenAICompatible.ToolCalls
 	default:
@@ -578,13 +580,15 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 	switch span.Type {
 	case request.EventTypeHTTP:
 		attrs = []attribute.KeyValue{
-			request.HTTPRequestMethod(span.Method),
 			request.HTTPResponseStatusCode(span.Status),
 			request.ClientAddr(request.PeerAsClient(span)),
 			request.ServerAddr(request.SpanHost(span)),
 			request.ServerPort(span.HostPort),
 			request.HTTPRequestBodySize(int(span.RequestBodyLength())),
 			request.HTTPResponseBodySize(span.ResponseBodyLength()),
+		}
+		if span.Method != "" {
+			attrs = append(attrs, request.HTTPRequestMethod(span.Method))
 		}
 		if span.Path != "" {
 			attrs = append(attrs, request.HTTPUrlPath(span.Path))
@@ -681,7 +685,6 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 		}
 
 		attrs = []attribute.KeyValue{
-			request.HTTPRequestMethod(span.Method),
 			request.HTTPResponseStatusCode(span.Status),
 			request.HTTPUrlFull(url),
 			semconv.URLScheme(scheme),
@@ -690,6 +693,9 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 			request.ServerPort(span.HostPort),
 			request.HTTPRequestBodySize(int(span.RequestBodyLength())),
 			request.HTTPResponseBodySize(span.ResponseBodyLength()),
+		}
+		if span.Method != "" {
+			attrs = append(attrs, request.HTTPRequestMethod(span.Method))
 		}
 
 		if scrubbedQS != "" {
@@ -1089,6 +1095,46 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 			}
 			if ai.Error.Type != "" {
 				attrs = append(attrs, semconv.ErrorTypeKey.String(ai.Error.Type))
+			}
+		}
+
+		if span.SubType == request.HTTPSubtypeOllama && span.GenAI != nil && span.GenAI.Ollama != nil {
+			ai := span.GenAI.Ollama
+			attrs = append(attrs, semconv.GenAIProviderNameKey.String("ollama"))
+			attrs = append(attrs, semconv.GenAIOperationNameKey.String(ai.OperationName))
+			attrs = append(attrs, semconv.GenAIRequestModel(ai.Request.Model))
+			if ai.ResponseModel != "" {
+				attrs = append(attrs, semconv.GenAIResponseModel(ai.ResponseModel))
+			} else {
+				attrs = append(attrs, semconv.GenAIResponseModel(ai.Request.Model))
+			}
+			if ai.Usage.GetInputTokens() > 0 {
+				attrs = append(attrs, semconv.GenAIUsageInputTokens(ai.Usage.GetInputTokens()))
+			}
+			if ai.Usage.GetOutputTokens() > 0 {
+				attrs = append(attrs, semconv.GenAIUsageOutputTokens(ai.Usage.GetOutputTokens()))
+			}
+			if reasons := ai.GetFinishReasons(); len(reasons) > 0 {
+				attrs = append(attrs, semconv.GenAIResponseFinishReasons(reasons...))
+			}
+			if ai.Request.Stream {
+				attrs = append(attrs, genAIRequestStreamKey.Bool(true))
+			}
+			if _, ok := optionalAttrs[attr.GenAIInput]; ok {
+				attrs = append(attrs, semconv.GenAIInputMessagesKey.String(ai.Request.GetInput()))
+			}
+			if _, ok := optionalAttrs[attr.GenAIOutput]; ok {
+				attrs = append(attrs, semconv.GenAIOutputMessagesKey.String(ai.GetOutput()))
+			}
+			if _, ok := optionalAttrs[attr.GenAIInstructions]; ok {
+				if ai.Request.Instructions != "" {
+					attrs = append(attrs, semconv.GenAISystemInstructionsKey.String(request.NormalizeSystemInstructions(ai.Request.Instructions)))
+				}
+			}
+			if _, ok := optionalAttrs[attr.GenAITools]; ok {
+				if len(ai.Request.Tools) > 0 {
+					attrs = append(attrs, semconv.GenAIToolDefinitionsKey.String(request.NormalizeToolDefinitions(ai.Request.Tools)))
+				}
 			}
 		}
 

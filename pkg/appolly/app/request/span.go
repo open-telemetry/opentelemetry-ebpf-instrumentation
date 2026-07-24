@@ -112,6 +112,7 @@ const (
 	HTTPSubtypeRerank           = 14 // http + Rerank (Cohere, Jina, Voyage, etc.)
 	HTTPSubtypeRetrieval        = 15 // http + vector retrieval (Pinecone, Qdrant, Milvus, Chroma, Weaviate, etc.)
 	HTTPSubtypeOpenAICompatible = 16 // http + OpenAI-compatible API (custom provider)
+	HTTPSubtypeOllama           = 17 // http + Ollama native API
 )
 
 func IsGenAISubtype(subtype int) bool {
@@ -124,7 +125,8 @@ func IsGenAISubtype(subtype int) bool {
 		subtype == HTTPSubtypeEmbedding ||
 		subtype == HTTPSubtypeRerank ||
 		subtype == HTTPSubtypeRetrieval ||
-		subtype == HTTPSubtypeOpenAICompatible
+		subtype == HTTPSubtypeOpenAICompatible ||
+		subtype == HTTPSubtypeOllama
 }
 
 //nolint:cyclop
@@ -298,6 +300,7 @@ type GenAI struct {
 	Embedding        *VendorEmbedding
 	Rerank           *VendorRerank
 	Retrieval        *VendorRetrieval
+	Ollama           *VendorOpenAI
 	OpenAICompatible *VendorOpenAI
 }
 
@@ -1927,6 +1930,20 @@ func (s *Span) TraceName() string {
 			return "rerank"
 		}
 
+		if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeOllama && s.GenAI != nil && s.GenAI.Ollama != nil {
+			name := s.GenAI.Ollama.OperationName
+			if name != "" {
+				switch {
+				case s.GenAI.Ollama.Request.Model != "":
+					return name + " " + s.GenAI.Ollama.Request.Model
+				case s.GenAI.Ollama.ResponseModel != "":
+					return name + " " + s.GenAI.Ollama.ResponseModel
+				default:
+					return name
+				}
+			}
+		}
+
 		if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeRetrieval && s.GenAI != nil && s.GenAI.Retrieval != nil {
 			if name := s.GenAI.Retrieval.GetCollection(); name != "" {
 				return RetrievalOperationName + " " + name
@@ -2073,9 +2090,9 @@ func (s *Span) isTracesExportURL() bool {
 func (s *Span) sendsOnDefaultGrpcOtelPort(defaultOtlpGRPCPort int) bool {
 	otlpPort, ok := s.portFromEndpointEnvVar(envOTLPEndpoint)
 	if ok {
-		return otlpPort == s.PeerPort
+		return otlpPort == s.HostPort
 	}
-	return s.PeerPort == defaultOtlpGRPCPort
+	return s.HostPort == defaultOtlpGRPCPort
 }
 
 func (s *Span) sendsTracesOnGrpcOtelPort(defaultOtlpGRPCPort int) bool {
@@ -2089,7 +2106,7 @@ func (s *Span) sendsTracesOnGrpcOtelPort(defaultOtlpGRPCPort int) bool {
 	}
 	otlpTracesPort, ok := s.portFromEndpointEnvVar(envOTLPTracesEndpoint)
 	if ok {
-		return otlpTracesPort == s.PeerPort
+		return otlpTracesPort == s.HostPort
 	}
 	return s.sendsOnDefaultGrpcOtelPort(defaultOtlpGRPCPort)
 }
@@ -2123,7 +2140,7 @@ func (s *Span) sendsMetricsOnGrpcOtelPort(defaultOtlpGRPCPort int) bool {
 	}
 	otlpMetricsPort, ok := s.portFromEndpointEnvVar(envOTLPMetricsEndpoint)
 	if ok {
-		return otlpMetricsPort == s.PeerPort
+		return otlpMetricsPort == s.HostPort
 	}
 	return s.sendsOnDefaultGrpcOtelPort(defaultOtlpGRPCPort)
 }
@@ -2210,6 +2227,10 @@ func (s *Span) GenAIInputTokens() int {
 		return s.GenAI.Qwen.Usage.GetInputTokens()
 	}
 
+	if s.GenAI.Ollama != nil {
+		return s.GenAI.Ollama.Usage.GetInputTokens()
+	}
+
 	if s.GenAI.OpenAICompatible != nil {
 		return s.GenAI.OpenAICompatible.Usage.GetInputTokens()
 	}
@@ -2254,6 +2275,10 @@ func (s *Span) GenAIOutputTokens() int {
 		return s.GenAI.Qwen.Usage.GetOutputTokens()
 	}
 
+	if s.GenAI.Ollama != nil {
+		return s.GenAI.Ollama.Usage.GetOutputTokens()
+	}
+
 	if s.GenAI.OpenAICompatible != nil {
 		return s.GenAI.OpenAICompatible.Usage.GetOutputTokens()
 	}
@@ -2284,6 +2309,9 @@ func (s *Span) GenAIOperationName() string {
 	}
 	if s.GenAI.Qwen != nil {
 		return s.GenAI.Qwen.OperationName
+	}
+	if s.GenAI.Ollama != nil {
+		return s.GenAI.Ollama.OperationName
 	}
 	if s.GenAI.OpenAICompatible != nil {
 		return s.GenAI.OpenAICompatible.OperationName
@@ -2318,6 +2346,9 @@ func (s *Span) GenAIProviderName() string {
 	}
 	if s.GenAI.Qwen != nil {
 		return attr.QwenProviderName
+	}
+	if s.GenAI.Ollama != nil {
+		return "ollama"
 	}
 	if s.GenAI.OpenAICompatible != nil {
 		if s.GenAI.OpenAICompatible.ProviderName != "" {
@@ -2355,6 +2386,9 @@ func (s *Span) GenAIRequestModel() string {
 	}
 	if s.GenAI.Qwen != nil {
 		return s.GenAI.Qwen.Request.Model
+	}
+	if s.GenAI.Ollama != nil {
+		return s.GenAI.Ollama.Request.Model
 	}
 	if s.GenAI.OpenAICompatible != nil {
 		return s.GenAI.OpenAICompatible.Request.Model
@@ -2398,6 +2432,12 @@ func (s *Span) GenAIResponseModel() string {
 			return s.GenAI.Qwen.ResponseModel
 		}
 		return s.GenAI.Qwen.Request.Model
+	}
+	if s.GenAI.Ollama != nil {
+		if s.GenAI.Ollama.ResponseModel != "" {
+			return s.GenAI.Ollama.ResponseModel
+		}
+		return s.GenAI.Ollama.Request.Model
 	}
 	if s.GenAI.OpenAICompatible != nil {
 		if s.GenAI.OpenAICompatible.ResponseModel != "" {

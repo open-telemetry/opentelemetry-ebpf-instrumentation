@@ -838,9 +838,10 @@ int obi_large_buf_emit_continue(struct pt_regs *ctx) {
     large_buf->action = state->batch_iter == 0 ? state->action : k_large_buf_action_append;
     large_buf->kind = k_large_buf_layer_app;
     large_buf->tp = info->tp;
+    large_buf->source = k_large_buffer_source_kprobes;
 
-    const u32 consumed_bytes =
-        large_buf_emit_chunks(large_buf, (const void *)state->u_buf, state->remaining_bytes);
+    const u32 consumed_bytes = large_buf_emit_chunks(
+        large_buf, (const void *)state->u_buf, state->remaining_bytes, k_large_buf_read_kernel);
 
     if (consumed_bytes > 0) {
         info->has_large_buffers = true;

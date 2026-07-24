@@ -220,11 +220,10 @@ func BuildCommonContextInfo(
 		Prometheus:          promMgr,
 		OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: &config.OTELMetrics},
 	}
-	ctxInfo.Metrics, err = internalMetrics(ctx, config, ctxInfo, promMgr)
-	if err != nil {
-		return nil, fmt.Errorf("can't create internal metrics: %w", err)
-	}
-
+	// Node metadata must be resolved before the internal-metrics reporter is
+	// created, so the reporter's OTLP resource carries host metadata (host.id,
+	// etc.). The kube informer is created first — NewNodeMeta reads it but not
+	// its metrics reporter — and the reporter is wired back in afterwards.
 	ctxInfo.K8sInformer = kube.NewMetadataProvider(kube.MetadataConfig{
 		Enable:                   config.Attributes.Kubernetes.Enable,
 		KubeConfigPath:           config.Attributes.Kubernetes.KubeconfigPath,
@@ -236,7 +235,7 @@ func BuildCommonContextInfo(
 		ResourceLabels:           resourceLabels,
 		RestrictLocalNode:        config.Attributes.Kubernetes.MetaRestrictLocalNode,
 		ServiceNameTemplate:      templ,
-	}, ctxInfo.Metrics)
+	}, imetrics.NoopReporter{})
 
 	ctxInfo.NodeMeta = meta.NewNodeMeta(
 		ctx,
@@ -244,6 +243,12 @@ func BuildCommonContextInfo(
 		ctxInfo.K8sInformer,
 		config.Attributes.MetadataRetry,
 	)
+
+	ctxInfo.Metrics, err = internalMetrics(ctx, config, ctxInfo, promMgr)
+	if err != nil {
+		return nil, fmt.Errorf("can't create internal metrics: %w", err)
+	}
+	ctxInfo.K8sInformer.SetInternalMetrics(ctxInfo.Metrics)
 
 	ctxInfo.DockerMetadata = docker.NewStore()
 	if !ctxInfo.K8sInformer.IsKubeEnabled() {
