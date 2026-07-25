@@ -27,7 +27,7 @@
 
 #include <logger/bpf_dbg.h>
 
-#include <shared/obi_ctx.h>
+#include <gotracer/go_obi_ctx.h>
 
 SCRATCH_MEM_TYPED(req_client, redis_client_req_t);
 
@@ -89,7 +89,7 @@ int GUARDED_PROG(obi_uprobe_redis_process_ret, struct pt_regs *, ctx) {
     }
 
     bpf_map_delete_elem(&ongoing_redis_requests, &g_key);
-    obi_ctx__del(bpf_get_current_pid_tgid());
+    obi_ctx__restore(bpf_get_current_pid_tgid(), &g_key);
 
     return 0;
 }

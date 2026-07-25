@@ -17,8 +17,11 @@ package main
 import (
 	"bytes"
 	"context"
+	"database/sql"
+	"database/sql/driver"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -30,6 +33,40 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/encoding"
 )
+
+// ---- fake database/sql driver ----
+// database/sql uprobes hook the stdlib (database/sql.(*DB).queryDC), so a
+// trivial in-process driver is enough to produce a SQL client span.
+
+type fakeDriver struct{}
+
+func (fakeDriver) Open(string) (driver.Conn, error) { return fakeConn{}, nil }
+
+type fakeConn struct{}
+
+func (fakeConn) Prepare(string) (driver.Stmt, error) { return fakeStmt{}, nil }
+func (fakeConn) Close() error                        { return nil }
+func (fakeConn) Begin() (driver.Tx, error)           { return nil, driver.ErrSkip }
+
+type fakeStmt struct{}
+
+func (fakeStmt) Close() error                               { return nil }
+func (fakeStmt) NumInput() int                              { return 0 }
+func (fakeStmt) Exec([]driver.Value) (driver.Result, error) { return driver.RowsAffected(1), nil }
+func (fakeStmt) Query([]driver.Value) (driver.Rows, error)  { return &fakeRows{}, nil }
+
+type fakeRows struct{ done bool }
+
+func (*fakeRows) Columns() []string { return []string{"n"} }
+func (*fakeRows) Close() error      { return nil }
+func (r *fakeRows) Next(dest []driver.Value) error {
+	if r.done {
+		return io.EOF
+	}
+	r.done = true
+	dest[0] = int64(1)
+	return nil
+}
 
 // ---- JSON codec ----
 
@@ -242,6 +279,107 @@ func main() {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+
+		_, _ = w.Write([]byte("ok\n"))
+	})
+	// nested spans: HTTP server -> gRPC client -> gRPC server, plus SQL under
+	// the HTTP server; logs after each return must keep the server span context
+	sql.Register("fake", fakeDriver{})
+	db, err := sql.Open("fake", "")
+	if err != nil {
+		log.Fatal(err)
+	}
+	jsonLog := func(msg string) {
+		b, _ := json.Marshal(map[string]any{
+			"message": msg,
+			"level":   "INFO",
+			"ts":      time.Now().UTC().Format(time.RFC3339),
+		})
+		fmt.Println(string(b))
+	}
+	http.HandleFunc("/nested_logger", func(w http.ResponseWriter, r *http.Request) {
+		// per-request id keeps the test's log-line pairing race-free
+		id := r.URL.Query().Get("id")
+		jsonLog("nested: before grpc " + id)
+
+		conn, err := grpc.Dial(
+			"localhost:50051",
+			grpc.WithTransportCredentials(insecure.NewCredentials()),
+			grpc.WithDefaultCallOptions(grpc.ForceCodec(jsonCodec{})),
+		)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		defer conn.Close()
+
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+
+		var resp LogResponse
+		if err := conn.Invoke(ctx, "/LogService/Log",
+			&LogRequest{Message: "nested: grpc handler " + id}, &resp); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		jsonLog("nested: after grpc " + id)
+
+		rows, err := db.Query("SELECT n FROM fake")
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		rows.Close()
+
+		jsonLog("nested: after sql " + id)
+
+		_, _ = w.Write([]byte("ok\n"))
+	})
+	// fan-out variant: SQL on its own goroutine, handler blocks on a channel
+	http.HandleFunc("/nested_logger_goroutine", func(w http.ResponseWriter, r *http.Request) {
+		id := r.URL.Query().Get("id")
+		jsonLog("nestedg: before grpc " + id)
+
+		conn, err := grpc.Dial(
+			"localhost:50051",
+			grpc.WithTransportCredentials(insecure.NewCredentials()),
+			grpc.WithDefaultCallOptions(grpc.ForceCodec(jsonCodec{})),
+		)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		defer conn.Close()
+
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+
+		var resp LogResponse
+		if err := conn.Invoke(ctx, "/LogService/Log",
+			&LogRequest{Message: "nestedg: grpc handler " + id}, &resp); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		jsonLog("nestedg: after grpc " + id)
+
+		sqlDone := make(chan error, 1)
+		go func() {
+			rows, err := db.Query("SELECT n FROM fake")
+			if err != nil {
+				sqlDone <- err
+				return
+			}
+			rows.Close()
+			sqlDone <- nil
+		}()
+		if err := <-sqlDone; err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		jsonLog("nestedg: after sql " + id)
 
 		_, _ = w.Write([]byte("ok\n"))
 	})

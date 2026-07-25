@@ -1195,6 +1195,9 @@ func TestSuite_LogEnricherHTTP(t *testing.T) {
 	t.Run("Log Enricher HTTP", func(t *testing.T) {
 		testLogEnricher(t, logEnricherHTTPConstants)
 	})
+	t.Run("Log Enricher nested spans python", func(t *testing.T) {
+		testLogEnricherNestedSpansPython(t, logEnricherHTTPConstants)
+	})
 	require.NoError(t, compose.Close())
 }
 
@@ -1213,6 +1216,12 @@ func TestSuite_LogEnricherGoGRPC(t *testing.T) {
 	})
 	t.Run("Log Enricher plain text", func(t *testing.T) {
 		testLogEnricherPlainText(t, logEnricherGoGRPCConstants)
+	})
+	t.Run("Log Enricher nested spans", func(t *testing.T) {
+		testLogEnricherNestedSpans(t, logEnricherGoGRPCConstants)
+	})
+	t.Run("Log Enricher nested spans goroutine", func(t *testing.T) {
+		testLogEnricherNestedSpansGoroutine(t, logEnricherGoGRPCConstants)
 	})
 	require.NoError(t, compose.Close())
 }

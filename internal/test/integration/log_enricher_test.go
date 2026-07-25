@@ -1049,6 +1049,230 @@ func testLogEnricherPlainText(t *testing.T, constants testServerConstants) {
 	}, 2*testTimeout, time.Second)
 }
 
+// Nested spans: logs after each nested span returns must keep the server span context
+func testLogEnricherNestedSpans(t *testing.T, constants testServerConstants) {
+	waitForTestComponentsNoMetrics(t, constants.url+constants.smokeEndpoint)
+
+	cl, err := client.New(client.FromEnv)
+	require.NoError(t, err)
+	defer cl.Close()
+
+	reqID := 0
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		reqID++
+		id := fmt.Sprintf("req-%d", reqID)
+		ti.DoHTTPGet(ct, constants.url+"/nested_logger?id="+id, 200)
+
+		containerID := testContainerID(ct, cl, constants.containerImage)
+		if !assert.NotEmpty(ct, containerID, "could not find test container ID") {
+			return
+		}
+		logs := containerLogs(ct, cl, containerID)
+		if !assert.NotEmpty(ct, logs) {
+			return
+		}
+
+		// log fetch can lag the current request: pair by the newest settled id
+		afterSQL := newestLogFields(logs, func(m string) bool {
+			return strings.HasPrefix(m, "nested: after sql req-")
+		})
+		if !assert.NotNil(ct, afterSQL, "no 'nested: after sql' line found yet") {
+			return
+		}
+		pairID := afterSQL["message"][strings.LastIndex(afterSQL["message"], " ")+1:]
+
+		get := func(message string) map[string]string {
+			fields := newestLogFields(logs, func(m string) bool { return m == message+" "+pairID })
+			assert.NotNil(ct, fields, "log line %q not found", message)
+			return fields
+		}
+
+		before := get("nested: before grpc")
+		inGRPC := get("nested: grpc handler")
+		afterGRPC := get("nested: after grpc")
+		if before == nil || inGRPC == nil || afterGRPC == nil {
+			return
+		}
+
+		for name, fields := range map[string]map[string]string{
+			"before grpc": before, "grpc handler": inGRPC,
+			"after grpc": afterGRPC, "after sql": afterSQL,
+		} {
+			assertEnrichedCtx(ct, name, fields)
+		}
+
+		// nested span returns must restore the HTTP server span context
+		assert.Equal(ct, before["trace_id"], afterGRPC["trace_id"])
+		assert.Equal(ct, before["trace_id"], afterSQL["trace_id"])
+		assert.Equal(ct, before["span_id"], afterGRPC["span_id"])
+		assert.Equal(ct, before["span_id"], afterSQL["span_id"])
+		// the gRPC handler runs under its own server span (trace linkage
+		// across the loopback hop is context propagation's concern, not ours)
+		assert.NotEqual(ct, before["span_id"], inGRPC["span_id"])
+
+		// a finished request's context must not leak into the next one
+		prev := newestLogFields(logs, func(m string) bool {
+			return strings.HasPrefix(m, "nested: after sql req-") && m != afterSQL["message"]
+		})
+		if prev != nil && prev["trace_id"] != "" {
+			assert.NotEqual(ct, afterSQL["trace_id"], prev["trace_id"],
+				"trace context leaked across requests")
+		}
+	}, 2*testTimeout, time.Second)
+}
+
+// Fan-out variant: SQL on a child goroutine must not strand the handler's context
+func testLogEnricherNestedSpansGoroutine(t *testing.T, constants testServerConstants) {
+	waitForTestComponentsNoMetrics(t, constants.url+constants.smokeEndpoint)
+
+	cl, err := client.New(client.FromEnv)
+	require.NoError(t, err)
+	defer cl.Close()
+
+	reqID := 0
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		reqID++
+		id := fmt.Sprintf("greq-%d", reqID)
+		ti.DoHTTPGet(ct, constants.url+"/nested_logger_goroutine?id="+id, 200)
+
+		containerID := testContainerID(ct, cl, constants.containerImage)
+		if !assert.NotEmpty(ct, containerID, "could not find test container ID") {
+			return
+		}
+		logs := containerLogs(ct, cl, containerID)
+		if !assert.NotEmpty(ct, logs) {
+			return
+		}
+
+		// log fetch can lag the current request: pair by the newest settled id
+		afterSQL := newestLogFields(logs, func(m string) bool {
+			return strings.HasPrefix(m, "nestedg: after sql greq-")
+		})
+		if !assert.NotNil(ct, afterSQL, "no 'nestedg: after sql' line found yet") {
+			return
+		}
+		pairID := afterSQL["message"][strings.LastIndex(afterSQL["message"], " ")+1:]
+
+		get := func(message string) map[string]string {
+			fields := newestLogFields(logs, func(m string) bool { return m == message+" "+pairID })
+			assert.NotNil(ct, fields, "log line %q not found", message)
+			return fields
+		}
+
+		before := get("nestedg: before grpc")
+		inGRPC := get("nestedg: grpc handler")
+		afterGRPC := get("nestedg: after grpc")
+		if before == nil || inGRPC == nil || afterGRPC == nil {
+			return
+		}
+
+		for name, fields := range map[string]map[string]string{
+			"before grpc": before, "grpc handler": inGRPC,
+			"after grpc": afterGRPC, "after sql": afterSQL,
+		} {
+			assertEnrichedCtx(ct, name, fields)
+		}
+
+		// the handler resumes after the fan-out join with its own span context
+		assert.Equal(ct, before["trace_id"], afterGRPC["trace_id"])
+		assert.Equal(ct, before["trace_id"], afterSQL["trace_id"])
+		assert.Equal(ct, before["span_id"], afterGRPC["span_id"])
+		assert.Equal(ct, before["span_id"], afterSQL["span_id"])
+		// the gRPC handler runs under its own server span
+		assert.NotEqual(ct, before["span_id"], inGRPC["span_id"])
+
+		// a finished request's context must not leak into the next one
+		prev := newestLogFields(logs, func(m string) bool {
+			return strings.HasPrefix(m, "nestedg: after sql greq-") && m != afterSQL["message"]
+		})
+		if prev != nil && prev["trace_id"] != "" {
+			assert.NotEqual(ct, afterSQL["trace_id"], prev["trace_id"],
+				"trace context leaked across requests")
+		}
+	}, 2*testTimeout, time.Second)
+}
+
+// Kprobe-world variant: sync python handler with a nested HTTP client call
+func testLogEnricherNestedSpansPython(t *testing.T, constants testServerConstants) {
+	waitForTestComponentsNoMetrics(t, constants.url+constants.smokeEndpoint)
+
+	cl, err := client.New(client.FromEnv)
+	require.NoError(t, err)
+	defer cl.Close()
+
+	reqID := 0
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		reqID++
+		id := fmt.Sprintf("req-%d", reqID)
+		ti.DoHTTPGet(ct, constants.url+"/nested_logger?id="+id, 200)
+
+		containerID := testContainerID(ct, cl, constants.containerImage)
+		if !assert.NotEmpty(ct, containerID, "could not find test container ID") {
+			return
+		}
+		logs := containerLogs(ct, cl, containerID)
+		if !assert.NotEmpty(ct, logs) {
+			return
+		}
+
+		// gunicorn relays worker output, so the current request's lines may
+		// lag this fetch: validate the newest complete pair by embedded id
+		after := newestLogFields(logs, func(m string) bool {
+			return strings.HasPrefix(m, "nested: after client req-")
+		})
+		if !assert.NotNil(ct, after, "no 'nested: after client' line found yet") {
+			return
+		}
+		pairID := after["message"][strings.LastIndex(after["message"], " ")+1:]
+
+		before := newestLogFields(logs, func(m string) bool {
+			return m == "nested: before client "+pairID
+		})
+		if !assert.NotNil(ct, before, "no matching 'nested: before client' line found") {
+			return
+		}
+
+		assertEnrichedCtx(ct, "before client", before)
+
+		// the client span's end must hand the context back to the server span
+		assert.Equal(ct, before["trace_id"], after["trace_id"])
+		assert.Equal(ct, before["span_id"], after["span_id"])
+
+		// a finished request's context must not leak into the next one
+		prev := newestLogFields(logs, func(m string) bool {
+			return strings.HasPrefix(m, "nested: after client req-") && m != after["message"]
+		})
+		if prev != nil && prev["trace_id"] != "" {
+			assert.NotEqual(ct, after["trace_id"], prev["trace_id"],
+				"trace context leaked across requests")
+		}
+	}, 2*testTimeout, time.Second)
+}
+
+// assertEnrichedCtx asserts a well-formed, non-zero trace context on the line
+func assertEnrichedCtx(ct *assert.CollectT, name string, fields map[string]string) {
+	assert.Regexp(ct, `^[0-9a-f]{32}$`, fields["trace_id"], "%s missing trace_id", name)
+	assert.Regexp(ct, `^[0-9a-f]{16}$`, fields["span_id"], "%s missing span_id", name)
+	assert.NotEqual(ct, strings.Repeat("0", 32), fields["trace_id"], "%s zero trace_id", name)
+	assert.NotEqual(ct, strings.Repeat("0", 16), fields["span_id"], "%s zero span_id", name)
+	assert.Equal(ct, "INFO", fields["level"], "%s level clobbered by enrichment", name)
+}
+
+// newestLogFields parses the newest JSON log line whose message matches, or nil
+func newestLogFields(logs []string, match func(string) bool) map[string]string {
+	for i := len(logs) - 1; i >= 0; i-- {
+		var fields map[string]string
+		if json.Unmarshal([]byte(logs[i]), &fields) != nil {
+			continue
+		}
+		if match(fields["message"]) {
+			return fields
+		}
+	}
+
+	return nil
+}
+
 func findLogLine(logs []string, message string) string {
 	for _, line := range slices.Backward(logs) {
 		if strings.Contains(line, message) {

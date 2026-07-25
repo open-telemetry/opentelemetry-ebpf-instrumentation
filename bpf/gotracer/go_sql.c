@@ -29,7 +29,7 @@
 
 #include <maps/go_sql.h>
 
-#include <shared/obi_ctx.h>
+#include <gotracer/go_obi_ctx.h>
 
 // Sets the driver type based on the Go enum:
 // const (
@@ -332,7 +332,7 @@ static __always_inline int process_sql_return(void *goroutine_addr, u8 error, u8
         return 0;
     }
     bpf_map_delete_elem(&ongoing_sql_queries, &g_key);
-    obi_ctx__del(bpf_get_current_pid_tgid());
+    obi_ctx__restore(bpf_get_current_pid_tgid(), &g_key);
 
     sql_request_trace_t *trace = bpf_ringbuf_reserve(&events, sizeof(sql_request_trace_t), 0);
     if (trace) {

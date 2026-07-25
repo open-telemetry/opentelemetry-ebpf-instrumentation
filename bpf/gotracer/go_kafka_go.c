@@ -31,7 +31,7 @@
 
 #include <logger/bpf_dbg.h>
 
-#include <shared/obi_ctx.h>
+#include <gotracer/go_obi_ctx.h>
 
 // Code for the produce messages path
 SEC("uprobe/writer_write_messages")
@@ -70,7 +70,7 @@ int GUARDED_PROG(obi_uprobe_writer_write_messages_ret, struct pt_regs *, ctx) {
     // Drop the goroutine-keyed traceparent so casgstatus can't re-install this
     // produce's context after the request ends (issue #2046).
     bpf_map_delete_elem(&produce_traceparents_by_goroutine, &g_key);
-    obi_ctx__del(bpf_get_current_pid_tgid());
+    obi_ctx__restore(bpf_get_current_pid_tgid(), &g_key);
 
     return 0;
 }

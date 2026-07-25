@@ -54,7 +54,7 @@
 
 #include <pid/pid_helpers.h>
 
-#include <shared/obi_ctx.h>
+#include <gotracer/go_obi_ctx.h>
 
 static __always_inline unsigned char *temp_header_mem() {
     const u32 zero = 0;

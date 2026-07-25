@@ -41,7 +41,7 @@
 
 #include <pid/pid_helpers.h>
 
-#include <shared/obi_ctx.h>
+#include <gotracer/go_obi_ctx.h>
 
 #define TRANSPORT_HTTP2 1
 #define TRANSPORT_HANDLER 2
@@ -504,7 +504,7 @@ static __always_inline int grpc_connect_done(struct pt_regs *ctx, void *err) {
 
 done:
     bpf_map_delete_elem(&ongoing_grpc_client_requests, &g_key);
-    obi_ctx__del(bpf_get_current_pid_tgid());
+    obi_ctx__restore(bpf_get_current_pid_tgid(), &g_key);
     return 0;
 }
 
@@ -532,7 +532,7 @@ int GUARDED_PROG(obi_uprobe_ClientConn_Close, struct pt_regs *, ctx) {
     go_addr_key_from_id(&g_key, goroutine_addr);
 
     bpf_map_delete_elem(&ongoing_grpc_client_requests, &g_key);
-    obi_ctx__del(bpf_get_current_pid_tgid());
+    obi_ctx__restore(bpf_get_current_pid_tgid(), &g_key);
 
     return 0;
 }

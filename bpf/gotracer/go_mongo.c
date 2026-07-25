@@ -28,7 +28,7 @@
 
 #include <logger/bpf_dbg.h>
 
-#include <shared/obi_ctx.h>
+#include <gotracer/go_obi_ctx.h>
 
 #define MONGO_OP_DEF(name, str)                                                                    \
     static const char name[] = str;                                                                \
@@ -224,7 +224,7 @@ int GUARDED_PROG(obi_uprobe_mongo_op_execute_ret, struct pt_regs *, ctx) {
     }
 
     bpf_map_delete_elem(&ongoing_mongo_requests, &g_key);
-    obi_ctx__del(bpf_get_current_pid_tgid());
+    obi_ctx__restore(bpf_get_current_pid_tgid(), &g_key);
 
     return 0;
 }
