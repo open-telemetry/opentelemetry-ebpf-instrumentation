@@ -24,7 +24,7 @@ services:
   # admin port after the per-test checks and fails the test on any actionable
   # advisory.
   weaver:
-    image: otel/weaver:v0.24.1@sha256:263964a7d444e77812f7a2d654e17683c4760a968c91278acdb7a44c20ccd572
+    image: otel/weaver:v0.25.0@sha256:bef6000b4a4be46f81242f9ee785e0ebf0604606c15f92cb54a59893a741ec0c
     user: "0:0"
     working_dir: /obi-registry
     command:
