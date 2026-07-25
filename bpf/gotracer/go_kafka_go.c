@@ -31,7 +31,7 @@
 
 #include <logger/bpf_dbg.h>
 
-#include <shared/obi_ctx.h>
+#include <gotracer/go_obi_ctx.h>
 
 // Code for the produce messages path
 SEC("uprobe/writer_write_messages")
@@ -53,7 +53,7 @@ int GUARDED_PROG(obi_uprobe_writer_write_messages, struct pt_regs *, ctx) {
     bpf_map_update_elem(&produce_traceparents, &p_key, &tp, BPF_ANY);
     bpf_map_update_elem(&produce_traceparents_by_goroutine, &g_key, &tp, BPF_ANY);
 
-    obi_ctx__set(bpf_get_current_pid_tgid(), &tp);
+    go_obi_ctx__begin(&g_key, k_obi_ctx_kafka_produce, &tp, go_obi_ctx__stack_off(ctx));
 
     return 0;
 }
@@ -69,8 +69,9 @@ int GUARDED_PROG(obi_uprobe_writer_write_messages_ret, struct pt_regs *, ctx) {
 
     // Drop the goroutine-keyed traceparent so casgstatus can't re-install this
     // produce's context after the request ends (issue #2046).
+    const tp_info_t *tp = bpf_map_lookup_elem(&produce_traceparents_by_goroutine, &g_key);
+    go_obi_ctx__end(&g_key, k_obi_ctx_kafka_produce, tp);
     bpf_map_delete_elem(&produce_traceparents_by_goroutine, &g_key);
-    obi_ctx__del(bpf_get_current_pid_tgid());
 
     return 0;
 }
