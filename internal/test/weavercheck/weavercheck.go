@@ -75,22 +75,43 @@ var IgnoredAdviceMessages = map[string]struct{}{
 	"Namespace 'iface' collides with existing attribute 'iface.direction'": {},
 }
 
+// Weaver finding-type identifiers (from weaver's rego policy output) that
+// OBI's enforcement logic matches on.
+//
+// NOTE: these strings come from weaver's rego policy output. If a weaver
+// version bump renames them, enforcement silently weakens — re-verify when
+// bumping the pinned weaver image.
+const (
+	adviceTypeExtendsNamespace     = "extends_namespace"
+	adviceTypeUndefinedEnumVariant = "undefined_enum_variant"
+)
+
 // actionableAdviceTypes lists the weaver finding-type values OBI treats as
 // failures in addition to `violation`-level advice. Hoisted here (rather than
 // matched as an inline string literal) so the coupling to weaver's advice-type
 // vocabulary lives in one documented place and is easy to extend.
 //
-//   - "extends_namespace": an attribute emitted under an existing semconv
+//   - extends_namespace: an attribute emitted under an existing semconv
 //     namespace but declared in no registry (upstream semconv or
 //     `schemas/obi/`). Weaver classifies these as `information`-level, so
 //     without this they would silently pass; OBI requires every emitted
 //     attribute to be declared.
 //
-// NOTE: these strings come from weaver's rego policy output. If a weaver
-// version bump renames them, enforcement silently weakens — re-verify when
-// bumping the pinned weaver image.
+//   - undefined_enum_variant: an enumerated attribute emitted with a value
+//     outside the members declared for it in the registry (e.g. an empty
+//     string for `messaging.operation.type`, or an HTTP status code leaking
+//     into a gRPC status attribute). Weaver classifies these as
+//     `information`-level because enums are open; OBI treats them as emitter
+//     bugs — when OBI has no valid value for an enumerated attribute it must
+//     omit the attribute instead. Values OBI intentionally emits beyond the
+//     pinned upstream members are declared in the registry override groups
+//     under `schemas/obi/groups/` (closed enums gain the extra members;
+//     attributes whose value space is open-ended are re-typed as strings —
+//     see schemas/obi/README.md), so weaver itself accepts them and this
+//     check stays a pure bug detector.
 var actionableAdviceTypes = map[string]struct{}{
-	"extends_namespace": {},
+	adviceTypeExtendsNamespace:     {},
+	adviceTypeUndefinedEnumVariant: {},
 }
 
 // Report is the top-level JSON structure emitted by weaver with --format json.
@@ -226,7 +247,25 @@ func Validate(t TestingT, report *Report) {
 	// Build message → {level, type, signals} lookup from the sample data.
 	adviceByMsg := collectAdviceInfo(report.Samples)
 
-	// Log all advisory messages grouped by level.
+	// Surface the advisories that actually fail the check first, so the cause
+	// of a failure is obvious without scanning the full advisory dump below.
+	actionable := collectActionableAdvisories(stats, adviceByMsg)
+	actionableAdvisories := 0
+	for _, e := range actionable {
+		actionableAdvisories += e.Occurrences
+	}
+	if len(actionable) > 0 {
+		t.Logf("  actionable advisories:")
+		for _, e := range actionable {
+			signals := "unknown"
+			if len(e.Signals) > 0 {
+				signals = strings.Join(e.Signals, ", ")
+			}
+			t.Logf("    [%s/%s] [%dx] %s (signals: %s)", e.Level, e.AdviceType, e.Occurrences, e.Message, signals)
+		}
+	}
+
+	// Log all advisory messages grouped by level for full context.
 	t.Logf("  advisory details:")
 	for _, level := range []string{"violation", "improvement", "information"} {
 		for msg, count := range stats.AdviceMessageCounts {
@@ -248,16 +287,14 @@ func Validate(t TestingT, report *Report) {
 				continue
 			}
 			signals := sortedSignals(info.Signals)
-			ignored := msgIgnored || allSignalsIgnored(info.Signals)
 			suffix := ""
-			if ignored {
+			if msgIgnored || allSignalsIgnored(info.Signals) {
 				suffix = " [ignored]"
 			}
 			t.Logf("    [%s] [%dx] %s (signals: %s)%s", level, count, msg, strings.Join(signals, ", "), suffix)
 		}
 	}
 
-	actionableAdvisories := countActionableAdvisories(stats, adviceByMsg)
 	t.Logf("  advisories: %d violation(s), %d actionable (violations + actionableAdviceTypes, after ignoring %v)",
 		violations, actionableAdvisories, sortedSignals(IgnoredSignals))
 
@@ -266,39 +303,76 @@ func Validate(t TestingT, report *Report) {
 			"(violations or undeclared attributes under existing semconv namespaces)", actionableAdvisories)
 }
 
-// isActionableAdvice reports whether an advisory at the given level and
-// advice type must fail validation: `violation`-level advice always is, and
-// so is any advice type listed in actionableAdviceTypes (e.g.
-// `extends_namespace`, which weaver classifies as information-level).
-func isActionableAdvice(level, adviceType string) bool {
-	if level == "violation" {
+// isActionableAdvice reports whether an advisory must fail validation:
+// `violation`-level advice always is, and so is any advice type listed in
+// actionableAdviceTypes (e.g. `extends_namespace`, which weaver classifies as
+// information-level).
+func isActionableAdvice(info *adviceInfo) bool {
+	if info.Level == "violation" {
 		return true
 	}
 
-	_, actionable := actionableAdviceTypes[adviceType]
+	_, actionable := actionableAdviceTypes[info.AdviceType]
 	return actionable
 }
 
-// countActionableAdvisories counts advisories that must fail validation,
+// actionableEntry is a single advisory that fails validation, carrying the
+// attribution needed to print an at-a-glance "this is what broke" summary.
+type actionableEntry struct {
+	Message     string
+	Level       string
+	AdviceType  string
+	Occurrences int
+	Signals     []string
+}
+
+// collectActionableAdvisories returns the advisories that must fail validation,
 // excluding signals listed in IgnoredSignals and messages listed in
 // IgnoredAdviceMessages. Messages present in the statistics but absent from
 // the sample data carry no level/type/signal attribution, so they are
-// conservatively counted as actionable unless message-ignored.
-func countActionableAdvisories(stats *Statistics, adviceByMsg map[string]*adviceInfo) int {
-	var count int
+// conservatively treated as actionable unless message-ignored. Results are
+// sorted by descending occurrence count, then message, for stable output.
+func collectActionableAdvisories(stats *Statistics, adviceByMsg map[string]*adviceInfo) []actionableEntry {
+	var entries []actionableEntry
 	for msg, occurrences := range stats.AdviceMessageCounts {
 		_, messageIgnored := IgnoredAdviceMessages[msg]
 		info := adviceByMsg[msg]
 		if info == nil {
 			if !messageIgnored {
-				count += occurrences
+				entries = append(entries, actionableEntry{
+					Message:     msg,
+					Level:       "unknown",
+					AdviceType:  "unknown",
+					Occurrences: occurrences,
+				})
 			}
 			continue
 		}
 		ignored := messageIgnored || allSignalsIgnored(info.Signals)
-		if isActionableAdvice(info.Level, info.AdviceType) && !ignored {
-			count += occurrences
+		if isActionableAdvice(info) && !ignored {
+			entries = append(entries, actionableEntry{
+				Message:     msg,
+				Level:       info.Level,
+				AdviceType:  info.AdviceType,
+				Occurrences: occurrences,
+				Signals:     sortedSignals(info.Signals),
+			})
 		}
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].Occurrences != entries[j].Occurrences {
+			return entries[i].Occurrences > entries[j].Occurrences
+		}
+		return entries[i].Message < entries[j].Message
+	})
+	return entries
+}
+
+// countActionableAdvisories counts advisories that must fail validation.
+func countActionableAdvisories(stats *Statistics, adviceByMsg map[string]*adviceInfo) int {
+	var count int
+	for _, e := range collectActionableAdvisories(stats, adviceByMsg) {
+		count += e.Occurrences
 	}
 	return count
 }

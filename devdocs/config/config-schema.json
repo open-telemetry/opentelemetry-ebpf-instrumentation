@@ -673,6 +673,18 @@
           "default": "auto",
           "x-env-var": "OTEL_EBPF_FORCE_BPF_MAP_READER"
         },
+        "go_http_client_buffer_timeout": {
+          "type": "string",
+          "pattern": "^[0-9]+(ms|s|m)$",
+          "description": "Is the inactivity period after which a pending Go HTTP client event is enriched with its captured buffers and emitted. A zero value disables deferral.",
+          "default": "1s",
+          "examples": [
+            "30s",
+            "5m",
+            "1ms"
+          ],
+          "x-env-var": "OTEL_EBPF_BPF_GO_HTTP_CLIENT_BUFFER_TIMEOUT"
+        },
         "heuristic_sql_detect": {
           "type": "boolean",
           "description": "Enables the heuristic based detection of SQL requests. This can be used to detect talking to databases other than the ones we recognize in OBI, like Postgres and MySQL",
@@ -955,9 +967,17 @@
           "$ref": "#/$defs/MCPConfig",
           "description": "Model Context Protocol (MCP) payload extraction and parsing"
         },
+        "ollama": {
+          "$ref": "#/$defs/OllamaConfig",
+          "description": "Native API payload extraction and parsing"
+        },
         "openai": {
           "$ref": "#/$defs/OpenAIConfig",
           "description": "Payload extraction and parsing"
+        },
+        "openai_compatible": {
+          "$ref": "#/$defs/OpenAICompatibleConfig",
+          "description": "OpenAI-compatible gateway payload extraction and parsing"
         },
         "qwen": {
           "$ref": "#/$defs/QwenConfig",
@@ -1254,7 +1274,7 @@
         },
         "obfuscation_string": {
           "type": "string",
-          "description": "Is the replacement string used when a rule's action is \"obfuscate\"",
+          "description": "Is the replacement string used when a rule's action is \"obfuscate\" and the rule doesn't define it's own obfuscation_string.",
           "default": "***",
           "x-env-var": "OTEL_EBPF_HTTP_ENRICHMENT_OBFUSCATION_STRING"
         }
@@ -1271,6 +1291,10 @@
         "match": {
           "$ref": "#/$defs/HTTPParsingMatch",
           "description": "Defines the matching criteria for this rule"
+        },
+        "obfuscation_string": {
+          "type": "string",
+          "description": "Is the replacement string used when a rule's action is \"obfuscate\""
         },
         "scope": {
           "$ref": "#/$defs/HTTPParsingScope",
@@ -1626,12 +1650,68 @@
           ],
           "x-env-var": "OTEL_EBPF_BPF_LOG_ENRICHER_CACHE_TTL"
         },
+        "field_names": {
+          "$ref": "#/$defs/LogEnricherFieldNames",
+          "description": "Defines the trace context field names OBI preserves when present and injects when missing"
+        },
+        "plain_text": {
+          "$ref": "#/$defs/LogEnricherPlainTextConfig",
+          "description": "Configures trace context annotation for non-JSON logs"
+        },
         "services": {
           "items": {
             "$ref": "#/$defs/LogEnricherServiceConfig"
           },
           "type": "array",
           "description": "Specifies the services to enable log enrichment for"
+        }
+      },
+      "type": "object"
+    },
+    "LogEnricherFieldNames": {
+      "properties": {
+        "span_id": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^=\\u0000-\\u0020\\u007F-\\u00A0\\u1680\\u2000-\\u200A\\u2028-\\u2029\\u202F\\u205F\\u3000]+$",
+          "description": "Is the literal span ID field name used to preserve and inject span context",
+          "default": "span_id"
+        },
+        "trace_id": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^=\\u0000-\\u0020\\u007F-\\u00A0\\u1680\\u2000-\\u200A\\u2028-\\u2029\\u202F\\u205F\\u3000]+$",
+          "description": "Is the literal trace ID field name used to preserve and inject trace context",
+          "default": "trace_id"
+        }
+      },
+      "type": "object"
+    },
+    "LogEnricherPlainTextConfig": {
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Controls trace context annotation for non-JSON logs",
+          "default": true
+        },
+        "multiline": {
+          "type": "string",
+          "enum": [
+            "each_line",
+            "first_line",
+            "last_line"
+          ],
+          "description": "Controls which nonempty lines in each write are annotated",
+          "default": "first_line"
+        },
+        "placement": {
+          "type": "string",
+          "enum": [
+            "prefix",
+            "suffix"
+          ],
+          "description": "Controls whether fields are added before or after each selected line",
+          "default": "suffix"
         }
       },
       "type": "object"
@@ -1764,7 +1844,7 @@
         },
         "features": {
           "$ref": "#/$defs/Features",
-          "description": "Specifies which metric features to export. Accepted values: application, network, application_span, application_service_graph, ... envDefault is provided to avoid breaking changes  use top-level MetricsConfig.Features instead.",
+          "description": "Specifies which metric features to export. Accepted values: application, network, application_span, application_service_graph, ...  use top-level MetricsConfig.Features instead.",
           "default": 256,
           "deprecated": true,
           "x-env-var": "OTEL_EBPF_METRICS_FEATURES"
@@ -2156,6 +2236,52 @@
       },
       "type": "object",
       "description": "NumericRange defines numeric comparison criteria for a rule match condition. All fields are optional; only the provided fields are evaluated."
+    },
+    "OllamaConfig": {
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable Ollama native API payload extraction and parsing",
+          "default": false,
+          "x-env-var": "OTEL_EBPF_HTTP_OLLAMA_ENABLED"
+        }
+      },
+      "type": "object"
+    },
+    "OpenAICompatibleConfig": {
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable OpenAI-compatible gateway payload extraction and parsing",
+          "default": false,
+          "x-env-var": "OTEL_EBPF_HTTP_OPENAI_COMPATIBLE_ENABLED"
+        },
+        "gateways": {
+          "items": {
+            "$ref": "#/$defs/OpenAICompatibleGateway"
+          },
+          "type": "array",
+          "description": "Opt-in allowlist of gateway destinations to match by host (case-insensitive) with optional port and provider name"
+        }
+      },
+      "type": "object"
+    },
+    "OpenAICompatibleGateway": {
+      "properties": {
+        "host": {
+          "type": "string",
+          "description": "Gateway hostname to match (case-insensitive)"
+        },
+        "port": {
+          "type": "integer",
+          "description": "Destination port; when 0 or omitted, matches any port"
+        },
+        "provider": {
+          "type": "string",
+          "description": "Name reported in the gen_ai.system span attribute"
+        }
+      },
+      "type": "object"
     },
     "OpenAIConfig": {
       "properties": {
@@ -2735,7 +2861,7 @@
       "properties": {
         "features": {
           "$ref": "#/$defs/Features",
-          "description": "Specifies which metric features to export. Accepted values: application, network, application_span, application_service_graph, ... envDefault is provided to avoid breaking changes"
+          "description": "Specifies which metric features to export. Accepted values: application, network, application_span, application_service_graph, ..."
         }
       },
       "type": "object",

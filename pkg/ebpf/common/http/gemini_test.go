@@ -72,9 +72,9 @@ func TestGeminiSpan_GenerateContent(t *testing.T) {
 	assert.Equal(t, "gemini-2.0-flash", ai.Model)
 	assert.Equal(t, "gemini-2.0-flash", ai.Output.ModelVersion)
 	assert.Equal(t, "resp_abc123", ai.Output.ResponseID)
-	assert.Equal(t, 12, ai.Output.UsageMetadata.PromptTokenCount)
-	assert.Equal(t, 18, ai.Output.UsageMetadata.CandidatesTokenCount)
-	assert.Equal(t, 30, ai.Output.UsageMetadata.TotalTokenCount)
+	assert.Equal(t, 12, tokenValue(ai.Output.UsageMetadata.PromptTokenCount))
+	assert.Equal(t, 18, tokenValue(ai.Output.UsageMetadata.CandidatesTokenCount))
+	assert.Equal(t, 30, tokenValue(ai.Output.UsageMetadata.TotalTokenCount))
 	assert.NotEmpty(t, ai.GetOutput())
 	assert.NotEmpty(t, ai.GetInput())
 	assert.NotEmpty(t, ai.GetSystemInstruction())
@@ -92,6 +92,17 @@ func TestGeminiSpan_GenerateContent(t *testing.T) {
 	require.NotNil(t, cfg.Seed)
 	assert.Equal(t, 42, *cfg.Seed)
 	assert.Equal(t, 1, cfg.CandidateCount)
+}
+
+func TestGeminiSpan_UsageAfterMalformedEnvelopeField(t *testing.T) {
+	req := makeRequest(t, http.MethodPost, "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent", geminiRequestBody)
+	resp := makePlainResponse(http.StatusOK, geminiResponseHeaders(),
+		`{"candidates":{},"usageMetadata":{"promptTokenCount":0,"candidatesTokenCount":7}}`)
+
+	span, ok := GeminiSpan(&request.Span{}, req, resp)
+	require.True(t, ok)
+	assertTokenCount(t, span.GenAI.Gemini.Output.UsageMetadata.PromptTokenCount, 0, true)
+	assertTokenCount(t, span.GenAI.Gemini.Output.UsageMetadata.CandidatesTokenCount, 7, true)
 }
 
 func TestGeminiSpan_ErrorResponse(t *testing.T) {
@@ -439,9 +450,9 @@ func TestGeminiSpan_StreamResponse(t *testing.T) {
 	assert.Equal(t, "stream_generate_content", ai.Operation)
 	assert.Equal(t, "gemini-2.0-flash", ai.Output.ModelVersion)
 	assert.Equal(t, "resp_stream", ai.Output.ResponseID)
-	assert.Equal(t, 12, ai.Output.UsageMetadata.PromptTokenCount)
-	assert.Equal(t, 6, ai.Output.UsageMetadata.CandidatesTokenCount)
-	assert.Equal(t, 18, ai.Output.UsageMetadata.TotalTokenCount)
+	assert.Equal(t, 12, tokenValue(ai.Output.UsageMetadata.PromptTokenCount))
+	assert.Equal(t, 6, tokenValue(ai.Output.UsageMetadata.CandidatesTokenCount))
+	assert.Equal(t, 18, tokenValue(ai.Output.UsageMetadata.TotalTokenCount))
 
 	require.Len(t, ai.Output.Candidates, 1)
 	assert.Equal(t, "STOP", ai.Output.Candidates[0].FinishReason)

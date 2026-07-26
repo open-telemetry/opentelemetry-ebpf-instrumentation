@@ -1,6 +1,15 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
+// Context for future maintainers: this code was added to mitigate a bug in the Linux kernel that
+// was fixed a few weeks after being reported (July 2026), but had already reached some users'
+// production environments from version 6.x onwards (via backports). This mitigation code will be
+// kept here for an undetermined, long period of time, until it is safe to assume that no trace of
+// the buggy kernel versions remains.
+// Original report impacting OBI users: https://github.com/grafana/beyla/issues/2941
+// Kernel bug fix and merge notification thread:
+// https://lore.kernel.org/bpf/20260708-fionread-no-verdict-v3-0-b4ee31b3af53@coralogix.com/
+
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_core_read.h>
 #include <bpfcore/bpf_helpers.h>

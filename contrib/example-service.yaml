@@ -4,6 +4,19 @@ trace_printer: text
 
 ebpf:
   wakeup_len: 100
+  payload_extraction:
+    http:
+      genai:
+        openai_compatible:
+          enabled: true
+          gateways:
+            - host: litellm.example.com
+              provider: litellm
+            - host: localhost
+              port: 8080
+              provider: vllm
+            - host: ollama.local
+              # provider omitted, defaults to "custom"
 
 routes:
   unmatched: heuristic

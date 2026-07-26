@@ -4,6 +4,7 @@
 package appolly
 
 import (
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -12,9 +13,13 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/discover"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
+	"go.opentelemetry.io/obi/pkg/docker"
 	"go.opentelemetry.io/obi/pkg/ebpf"
 	"go.opentelemetry.io/obi/pkg/export/connector"
+	"go.opentelemetry.io/obi/pkg/export/imetrics"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
+	"go.opentelemetry.io/obi/pkg/kube"
+	"go.opentelemetry.io/obi/pkg/kube/kubeflags"
 	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 )
@@ -69,4 +74,26 @@ func TestInstrumenter_WithDynamicPIDSelector(t *testing.T) {
 	pids, ok := sel.GetPIDs()
 	require.True(t, ok)
 	assert.Equal(t, []app.PID{1, 3, 4}, pids)
+}
+
+// TestSetupKubernetes_DockerFallback verifies that when Kubernetes looks enabled but its
+// informer cache can't be initialized, setupKubernetes force-disables Kubernetes AND starts
+// the Docker event watcher, so container metadata isn't cached without die/destroy invalidation.
+func TestSetupKubernetes_DockerFallback(t *testing.T) {
+	ctxInfo := &global.ContextInfo{
+		K8sInformer: kube.NewMetadataProvider(kube.MetadataConfig{
+			Enable:         kubeflags.EnabledTrue,
+			KubeConfigPath: filepath.Join(t.TempDir(), "does-not-exist"),
+		}, imetrics.NoopReporter{}),
+		DockerMetadata: docker.NewStore(),
+	}
+	require.True(t, ctxInfo.K8sInformer.IsKubeEnabled())
+	require.False(t, ctxInfo.DockerMetadata.WatcherRunning())
+
+	setupKubernetes(t.Context(), ctxInfo)
+
+	assert.False(t, ctxInfo.K8sInformer.IsKubeEnabled(),
+		"Kubernetes should be force-disabled once its informer cache fails to initialize")
+	assert.True(t, ctxInfo.DockerMetadata.WatcherRunning(),
+		"Docker event watcher should start as a fallback once Kubernetes setup fails")
 }

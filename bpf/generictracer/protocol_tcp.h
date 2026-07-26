@@ -171,6 +171,7 @@ static __always_inline void unknown_send_large_buffer(tcp_req_t *req,
     lb->direction = direction;
     lb->conn_info = pid_conn->conn;
     lb->tp = req->tp;
+    lb->source = k_large_buffer_source_kprobes;
 
     const u32 bytes_sent =
         packet_type == PACKET_TYPE_REQUEST ? req->lb_req_bytes : req->lb_res_bytes;
@@ -181,7 +182,7 @@ static __always_inline void unknown_send_large_buffer(tcp_req_t *req,
     bpf_clamp_umax(max_available_bytes, k_large_buf_max_tcp_captured_bytes);
 
     const u32 available_bytes = min(bytes_len, max_available_bytes);
-    consumed_bytes += large_buf_emit_chunks(lb, u_buf, available_bytes);
+    consumed_bytes += large_buf_emit_chunks(lb, u_buf, available_bytes, k_large_buf_read_kernel);
 
     if (packet_type == PACKET_TYPE_REQUEST) {
         req->lb_req_bytes += consumed_bytes;
@@ -277,6 +278,9 @@ static __always_inline void handle_unknown_tcp_connection(pid_connection_info_t 
         }
     }
     if (!existing) {
+        // Determining the server information for unix sockets is only valid on request creation
+        const bool is_server = is_listening(pid_conn->conn.d_port, netns) ||
+                               is_unix_sock_server(direction, orig_dport);
         if (direction == TCP_RECV) {
             cp_support_data_t *tk = bpf_map_lookup_elem(&cp_support_connect_info, pid_conn);
             if (tk && tk->real_client) {
@@ -292,6 +296,18 @@ static __always_inline void handle_unknown_tcp_connection(pid_connection_info_t 
                     "Got receive as first operation for part client connection, ignoring...");
                 return;
             }
+            // pre-agent client connection: receive-first here is a spontaneous reply,
+            // registering it would invert the request/response roles
+            if (!is_server) {
+                connection_info_part_t server_part = {};
+                populate_ephemeral_info(
+                    &server_part, &pid_conn->conn, orig_dport, pid_conn->pid, FD_SERVER);
+                if (!fd_info_for_conn(&server_part)) {
+                    bpf_dbg_printk("Got receive as first operation for stale client "
+                                   "connection, ignoring...");
+                    return;
+                }
+            }
         } else {
             connection_info_part_t server_part = {};
             populate_ephemeral_info(
@@ -306,10 +322,6 @@ static __always_inline void handle_unknown_tcp_connection(pid_connection_info_t 
 
         tcp_req_t *req = empty_tcp_req();
         if (req) {
-            // Determining the server information for unix sockets is only valid on request creation
-            const bool is_server = is_listening(pid_conn->conn.d_port, netns) ||
-                                   is_unix_sock_server(direction, orig_dport);
-
             req->is_server = is_server;
             int original_bytes_len = bytes_len;
             bpf_clamp_umax(bytes_len, k_tcp_max_len);

@@ -14,6 +14,7 @@ import (
 	"path"
 	"testing"
 
+	"github.com/grafana/go-offsets-tracker/pkg/offsets"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -21,10 +22,12 @@ import (
 )
 
 var (
-	debugData    *dwarf.Data
-	grpcElf      *dwarf.Data
-	smallELF     *elf.File
-	smallGRPCElf *elf.File
+	debugData           *dwarf.Data
+	grpcElf             *dwarf.Data
+	spanContextData     *dwarf.Data
+	smallELF            *elf.File
+	smallGRPCElf        *elf.File
+	smallSpanContextELF *elf.File
 )
 
 func compileELF(source string, extraArgs ...string) *elf.File {
@@ -34,7 +37,7 @@ func compileELF(source string, extraArgs ...string) *elf.File {
 	cmdParts = append(cmdParts, extraArgs...)
 	cmdParts = append(cmdParts, "-o", tmpFilePath, source)
 	cmd := exec.Command("go", cmdParts...)
-	cmd.Env = []string{"GOOS=linux", "HOME=" + tempDir}
+	cmd.Env = []string{"GOOS=linux", "HOME=" + tempDir, "TMPDIR=" + tempDir}
 	out := &bytes.Buffer{}
 	cmd.Stdout, cmd.Stderr = out, out
 	if err := cmd.Run(); err != nil {
@@ -62,6 +65,11 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	smallGRPCElf = compileELF(baseDir+"/internal/test/cmd/grpc/server/server.go", "-ldflags", "-s -w")
+	spanContextData, err = compileELF(baseDir + "/configs/offsets/oteltrace/inspect.go").DWARF()
+	if err != nil {
+		panic(err)
+	}
+	smallSpanContextELF = compileELF(baseDir+"/configs/offsets/oteltrace/inspect.go", "-ldflags", "-s -w")
 	m.Run()
 }
 
@@ -131,6 +139,25 @@ func TestGrpcOffsetsWithoutDwarf(t *testing.T) {
 		GrpcStatusCodePtrPos:   uint64(40),
 		ConnFdPos:              uint64(0),
 		FdLaddrPos:             uint64(96),
+	}, offsets)
+}
+
+func TestSpanContextOffsetsFromDwarf(t *testing.T) {
+	offsets, _ := structMemberOffsetsFromDwarf(spanContextData)
+	mustMatch(t, FieldOffsets{
+		SpanContextTraceIDPos:    uint64(0),
+		SpanContextSpanIDPos:     uint64(16),
+		SpanContextTraceFlagsPos: uint64(24),
+	}, offsets)
+}
+
+func TestSpanContextOffsetsWithoutDwarf(t *testing.T) {
+	offsets, err := structMemberOffsets(smallSpanContextELF)
+	require.NoError(t, err)
+	mustMatch(t, FieldOffsets{
+		SpanContextTraceIDPos:    uint64(0),
+		SpanContextSpanIDPos:     uint64(16),
+		SpanContextTraceFlagsPos: uint64(24),
 	}, offsets)
 }
 
@@ -210,6 +237,46 @@ func TestOffsetsForLibVersions_PreVersionFlags(t *testing.T) {
 		HTTP2ZeroFortyFive: uint64(0),
 		PqOneElevenZero:    uint64(0),
 	}, offsets)
+}
+
+func TestPrefetchedGoRuntimeMemoryOffsets(t *testing.T) {
+	track, err := offsets.Read(bytes.NewBufferString(prefetchedOffsets))
+	require.NoError(t, err)
+
+	tests := []struct {
+		structName string
+		fieldName  string
+		go123      uint64
+		go125      uint64
+	}{
+		{structName: "runtime.consistentHeapStats", fieldName: "stats", go123: 0, go125: 0},
+		{structName: "runtime.heapStatsDelta", fieldName: "committed", go123: 0, go125: 0},
+		{structName: "runtime.heapStatsDelta", fieldName: "inStacks", go123: 24, go125: 24},
+		{structName: "runtime.heapStatsDelta", fieldName: "largeAlloc", go123: 56, go125: 48},
+		{structName: "runtime.heapStatsDelta", fieldName: "largeAllocCount", go123: 64, go125: 56},
+		{structName: "runtime.heapStatsDelta", fieldName: "smallAllocCount", go123: 72, go125: 64},
+		{structName: "runtime.heapStatsDelta", fieldName: "smallFreeCount", go123: 632, go125: 624},
+		{structName: "runtime.mstats", fieldName: "heapStats", go123: 0, go125: 0},
+		{structName: "runtime.mstats", fieldName: "stacks_sys", go123: 3544, go125: 3520},
+		{structName: "runtime.mstats", fieldName: "mspan_sys", go123: 3552, go125: 3528},
+		{structName: "runtime.mstats", fieldName: "mcache_sys", go123: 3560, go125: 3536},
+		{structName: "runtime.mstats", fieldName: "buckhash_sys", go123: 3568, go125: 3544},
+		{structName: "runtime.mstats", fieldName: "gcMiscSys", go123: 3576, go125: 3552},
+		{structName: "runtime.mstats", fieldName: "other_sys", go123: 3584, go125: 3560},
+	}
+
+	for _, tt := range tests {
+		_, found := track.Find(tt.structName, tt.fieldName, "1.22.12")
+		assert.False(t, found, "%s.%s should be unavailable before Go 1.23", tt.structName, tt.fieldName)
+
+		offset, found := track.Find(tt.structName, tt.fieldName, "1.23.0")
+		require.True(t, found, "%s.%s missing for Go 1.23", tt.structName, tt.fieldName)
+		assert.Equal(t, tt.go123, offset, "%s.%s Go 1.23 offset", tt.structName, tt.fieldName)
+
+		offset, found = track.Find(tt.structName, tt.fieldName, "1.25.0")
+		require.True(t, found, "%s.%s missing for Go 1.25", tt.structName, tt.fieldName)
+		assert.Equal(t, tt.go125, offset, "%s.%s Go 1.25 offset", tt.structName, tt.fieldName)
+	}
 }
 
 type fakeDwarfReader struct {

@@ -23,42 +23,64 @@ func httpRoutes(cfg *obi.Config) schema.HTTPRoutes {
 			},
 		},
 	}
-	if cfg.Routes == nil {
+	if cfg.Routes == nil || cfg.Routes.DirectionalRuleOnly {
 		return out
 	}
 
-	unmatched := cfg.Routes.Unmatch
-	patterns := cfg.Routes.Patterns
-	ignoredPatterns := cfg.Routes.IgnorePatterns
-	ignoreMode := cfg.Routes.IgnoredEvents
-	wildcardChar := cfg.Routes.WildcardChar
-	maxPathSegmentCardinality := cfg.Routes.MaxPathSegmentCardinality
-
-	out.Unmatched = &unmatched
-	out.Patterns = &patterns
-	out.IgnoredPatterns = &ignoredPatterns
-	out.IgnoreMode = &ignoreMode
-	out.WildcardChar = &wildcardChar
-	out.MaxPathSegmentCardinality = &maxPathSegmentCardinality
+	policies := cfg.Routes.DirectionalPolicies()
+	if cfg.Routes.HasIncomingPolicy() {
+		out.Incoming = httpRoutePolicy(policies.Incoming)
+	}
+	if cfg.Routes.HasOutgoingPolicy() {
+		out.Outgoing = httpRoutePolicy(policies.Outgoing)
+	}
 	return out
 }
 
+func httpRoutePolicy(policy services.RoutePolicy) *schema.HTTPRoutePolicy {
+	unmatched := policy.Unmatch
+	if unmatched == "" {
+		unmatched = services.UnmatchWildcard
+	}
+	patterns := cloneStrings(policy.Patterns)
+	ignoredPatterns := cloneStrings(policy.IgnorePatterns)
+	ignoreMode := policy.IgnoredEvents
+	if ignoreMode == "" {
+		ignoreMode = services.IgnoreDefault
+	}
+	wildcardChar := policy.WildcardChar
+	if wildcardChar == "" {
+		wildcardChar = "*"
+	}
+	maxPathSegmentCardinality := policy.MaxPathSegmentCardinality
+	return &schema.HTTPRoutePolicy{
+		Unmatched:                 &unmatched,
+		Patterns:                  &patterns,
+		IgnoredPatterns:           &ignoredPatterns,
+		IgnoreMode:                &ignoreMode,
+		WildcardChar:              &wildcardChar,
+		MaxPathSegmentCardinality: &maxPathSegmentCardinality,
+	}
+}
+
 const (
-	payloadExtractorGraphQL       = "graphql"
-	payloadExtractorElasticsearch = "elasticsearch"
-	payloadExtractorAWS           = "aws"
-	payloadExtractorSQLPP         = "sqlpp"
-	payloadExtractorOpenAI        = "openai"
-	payloadExtractorAnthropic     = "anthropic"
-	payloadExtractorGemini        = "gemini"
-	payloadExtractorQwen          = "qwen"
-	payloadExtractorBedrock       = "bedrock"
-	payloadExtractorMCP           = "mcp"
-	payloadExtractorEmbedding     = "embedding"
-	payloadExtractorRerank        = "rerank"
-	payloadExtractorRetrieval     = "retrieval"
-	payloadExtractorJSONRPC       = "jsonrpc"
-	payloadExtractorEnrichment    = "enrichment"
+	payloadExtractorGraphQL          = "graphql"
+	payloadExtractorElasticsearch    = "elasticsearch"
+	payloadExtractorAWS              = "aws"
+	payloadExtractorSQLPP            = "sqlpp"
+	payloadExtractorOpenAI           = "openai"
+	payloadExtractorAnthropic        = "anthropic"
+	payloadExtractorGemini           = "gemini"
+	payloadExtractorQwen             = "qwen"
+	payloadExtractorBedrock          = "bedrock"
+	payloadExtractorMCP              = "mcp"
+	payloadExtractorEmbedding        = "embedding"
+	payloadExtractorRerank           = "rerank"
+	payloadExtractorRetrieval        = "retrieval"
+	payloadExtractorOllama           = "ollama"
+	payloadExtractorOpenAICompatible = "openai_compatible"
+	payloadExtractorJSONRPC          = "jsonrpc"
+	payloadExtractorEnrichment       = "enrichment"
 )
 
 func payloadExtraction(cfg *obi.Config) schema.PayloadExtraction {
@@ -103,6 +125,12 @@ func payloadExtraction(cfg *obi.Config) schema.PayloadExtraction {
 	if http.GenAI.Retrieval.Enabled {
 		enabled = append(enabled, payloadExtractorRetrieval)
 	}
+	if http.GenAI.Ollama.Enabled {
+		enabled = append(enabled, payloadExtractorOllama)
+	}
+	if http.GenAI.OpenAICompatible.Enabled {
+		enabled = append(enabled, payloadExtractorOpenAICompatible)
+	}
 	if http.JSONRPC.Enabled {
 		enabled = append(enabled, payloadExtractorJSONRPC)
 	}
@@ -114,6 +142,9 @@ func payloadExtraction(cfg *obi.Config) schema.PayloadExtraction {
 		Enabled: enabled,
 		SQLPP: schema.SQLPPPayload{
 			EndpointPatterns: http.SQLPP.EndpointPatterns,
+		},
+		OpenAICompatible: schema.OpenAICompatiblePayload{
+			Gateways: http.GenAI.OpenAICompatible.Gateways,
 		},
 		Enrichment: httpEnrichment(cfg),
 	}
@@ -127,7 +158,7 @@ func httpEnrichment(cfg *obi.Config) schema.HTTPEnrichment {
 				Headers: enrichment.Policy.DefaultAction.Headers,
 				Body:    enrichment.Policy.DefaultAction.Body,
 			},
-			ObfuscationString: enrichment.Policy.ObfuscationString,
+			DefaultObfuscationString: enrichment.Policy.DefaultObfuscationString,
 		},
 		Rules: enrichment.Rules,
 	}
@@ -394,15 +425,41 @@ func selectorRefinement(action schema.CaptureAction, selector services.Selector)
 	if exports := exportModeRefinement(selector.GetExportModes()); exports != nil {
 		refine.Exports = exports
 	}
-	if routes := selector.GetRoutesConfig(); routes != nil && (len(routes.Incoming) > 0 || len(routes.Outgoing) > 0) {
+	if routes := selector.GetRoutesConfig(); routes != nil &&
+		(routes.PolicyOverrides != nil || len(routes.Incoming) > 0 || len(routes.Outgoing) > 0) {
+		refinementRoutes := schema.HTTPRefinementRoutes{}
+		if routes.PolicyOverrides != nil {
+			refinementRoutes.Incoming = httpRoutePolicyOverride(routes.PolicyOverrides.Incoming)
+			refinementRoutes.Outgoing = httpRoutePolicyOverride(routes.PolicyOverrides.Outgoing)
+		} else {
+			if len(routes.Incoming) > 0 {
+				patterns := cloneStrings(routes.Incoming)
+				refinementRoutes.Incoming = &schema.HTTPRoutePolicy{Patterns: &patterns}
+			}
+			if len(routes.Outgoing) > 0 {
+				patterns := cloneStrings(routes.Outgoing)
+				refinementRoutes.Outgoing = &schema.HTTPRoutePolicy{Patterns: &patterns}
+			}
+		}
 		refine.HTTP = &schema.HTTPRefinement{
-			Routes: schema.HTTPRefinementRoutes{
-				Incoming: schema.HTTPRefinementRoute{Patterns: cloneStrings(routes.Incoming)},
-				Outgoing: schema.HTTPRefinementRoute{Patterns: cloneStrings(routes.Outgoing)},
-			},
+			Routes: refinementRoutes,
 		}
 	}
 	return refine
+}
+
+func httpRoutePolicyOverride(policy *services.RoutePolicyOverride) *schema.HTTPRoutePolicy {
+	if policy == nil {
+		return nil
+	}
+	return &schema.HTTPRoutePolicy{
+		Unmatched:                 cloneValue(policy.Unmatch),
+		Patterns:                  cloneStringsPointer(policy.Patterns),
+		IgnoredPatterns:           cloneStringsPointer(policy.IgnorePatterns),
+		IgnoreMode:                cloneValue(policy.IgnoredEvents),
+		WildcardChar:              cloneValue(policy.WildcardChar),
+		MaxPathSegmentCardinality: cloneValue(policy.MaxPathSegmentCardinality),
+	}
 }
 
 func exportModeRefinement(modes services.ExportModes) *schema.ExportModeRefinement {

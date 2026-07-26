@@ -7,6 +7,7 @@
 #include <bpfcore/bpf_helpers.h>
 
 #include <common/common.h>
+#include <common/connection_info.h>
 #include <common/go_addr_key.h>
 #include <common/map_sizing.h>
 
@@ -65,3 +66,17 @@ struct {
         framer_func_invocation_t); // the goroutine of the round trip request, which is the key for our traceparent info
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
 } framer_invocation_map SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __type(key, go_addr_key_t); // key: the net/http (*conn).serve goroutine handling the request
+    __type(value, u64);         // the *bufio.Reader buffering the request
+    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
+} ongoing_server_bufr SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __type(key, connection_info_t);
+    __type(value, bool);
+    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
+} go_http2_client_connections SEC(".maps");

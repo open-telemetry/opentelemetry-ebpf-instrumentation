@@ -88,8 +88,8 @@ func TestQwenSpan_CompatibleMode(t *testing.T) {
 	assert.Equal(t, "chat", ai.OperationName)
 	assert.Equal(t, "qwen-plus", ai.Request.Model)
 	assert.Equal(t, "qwen-plus", ai.ResponseModel)
-	assert.Equal(t, 11, ai.Usage.GetInputTokens())
-	assert.Equal(t, 9, ai.Usage.GetOutputTokens())
+	assert.Equal(t, 11, reportedValue(ai.Usage.InputTokenCount()))
+	assert.Equal(t, 9, reportedValue(ai.Usage.OutputTokenCount()))
 	assert.NotEmpty(t, ai.GetOutput())
 }
 
@@ -109,8 +109,8 @@ func TestQwenSpan_DashScopeGeneration(t *testing.T) {
 	assert.Equal(t, "generation", ai.OperationName)
 	assert.Equal(t, "qwen-turbo", ai.Request.Model)
 	assert.Equal(t, "qwen-turbo", ai.ResponseModel)
-	assert.Equal(t, 12, ai.Usage.GetInputTokens())
-	assert.Equal(t, 10, ai.Usage.GetOutputTokens())
+	assert.Equal(t, 12, reportedValue(ai.Usage.InputTokenCount()))
+	assert.Equal(t, 10, reportedValue(ai.Usage.OutputTokenCount()))
 	assert.JSONEq(t, `{"text":"eBPF is a kernel programmability technology.","finish_reason":"stop"}`, ai.GetOutput())
 }
 

@@ -41,6 +41,17 @@ The collector requires `sudo` to attach eBPF probes to processes.
 
 ## Testing the Collector
 
+After building the collector, run the same end-to-end smoke test used by the
+pull request workflow:
+
+```bash
+sudo ./smoke-test.sh
+```
+
+The smoke test starts an HTTP server and the Collector with `smoke-config.yaml`,
+then verifies that the Config v2 OBI receiver exports the server's trace through
+the debug exporter.
+
 Once the collector is running, you can generate some test traces:
 
 1. In a new terminal, start a simple HTTP server:
@@ -130,11 +141,12 @@ Once the collector is running, you can generate some test traces:
 
 The `config.yaml` file defines:
 
-- **OBI receiver**: Listens on port 8000 for HTTP traffic and automatically instruments services
+- **OBI receiver**: Uses Config v2 to capture services listening on port 8000
 - **OTLP receiver**: Accepts spans from manually instrumented applications
 - **Batch processor**: Groups spans for efficient export
 - **Debug exporter**: Prints spans to logs (useful for debugging)
 - **OTLP exporter**: Sends spans to a Jaeger backend (requires Jaeger to be running)
+- **Trace and metric pipelines**: Share one OBI receiver instance
 
 You can modify `config.yaml` to:
 

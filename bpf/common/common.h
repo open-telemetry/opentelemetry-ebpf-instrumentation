@@ -93,7 +93,7 @@ typedef struct http_request_trace {
 
 typedef struct sql_request_trace {
     u8 type; // Must be first
-    u8 _pad[1];
+    u8 sub_type;
     u16 status;
     pid_info pid;
     u64 start_monotime_ns;
@@ -130,7 +130,8 @@ typedef struct kafka_go_req {
 typedef struct redis_client_req {
     u8 type; // Must be first
     u8 err;
-    u8 _pad[6];
+    u16 buf_len;
+    u8 _pad[4];
     u64 start_monotime_ns;
     u64 end_monotime_ns;
     pid_info pid;
@@ -177,7 +178,8 @@ typedef struct tcp_large_buffer {
     u32 len;
     connection_info_t conn_info;
     enum large_buf_kind kind;
-    u8 _pad[3];
+    u8 source;
+    u8 _pad[2];
     tp_info_t tp;
     u8 buf[];
 } tcp_large_buffer_t;

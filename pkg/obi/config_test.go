@@ -5,11 +5,13 @@ package obi
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"maps"
 	"os"
+	"reflect"
 	"regexp"
 	"strings"
 	"testing"
@@ -172,15 +174,16 @@ discovery:
 		EnforceSysCaps:  false,
 		TracePrinter:    "json",
 		EBPF: config.EBPFTracer{
-			BatchLength:          100,
-			BatchTimeout:         time.Second,
-			WakeupLen:            500,
-			StatsWakeupDataBytes: 4096,
-			HTTPRequestTimeout:   0,
-			MaxTransactionTime:   5 * time.Minute,
-			TCBackend:            config.TCBackendAuto,
-			DNSRequestTimeout:    5 * time.Second,
-			ContextPropagation:   config.ContextPropagationDisabled,
+			BatchLength:               100,
+			BatchTimeout:              time.Second,
+			WakeupLen:                 500,
+			StatsWakeupDataBytes:      4096,
+			HTTPRequestTimeout:        0,
+			GoHTTPClientBufferTimeout: time.Second,
+			MaxTransactionTime:        5 * time.Minute,
+			TCBackend:                 config.TCBackendAuto,
+			DNSRequestTimeout:         5 * time.Second,
+			ContextPropagation:        config.ContextPropagationDisabled,
 			RedisDBCache: config.RedisDBCacheConfig{
 				Enabled: false,
 				MaxSize: 1000,
@@ -212,13 +215,22 @@ discovery:
 								Headers: config.HTTPParsingActionExclude,
 								Body:    config.HTTPParsingActionExclude,
 							},
-							ObfuscationString: "***",
+							DefaultObfuscationString: "***",
 						},
 						Rules: []config.HTTPParsingRule{},
 					},
 				},
 			},
 			LogEnricher: config.LogEnricherConfig{
+				FieldNames: config.LogEnricherFieldNames{
+					TraceID: "trace_id",
+					SpanID:  "span_id",
+				},
+				PlainText: config.LogEnricherPlainTextConfig{
+					Enabled:   true,
+					Placement: config.LogEnricherPlacementSuffix,
+					Multiline: config.LogEnricherMultilineFirstLine,
+				},
 				CacheTTL:              30 * time.Minute,
 				CacheSize:             128,
 				AsyncWriterWorkers:    8,
@@ -413,6 +425,54 @@ func TestConfig_ServiceName(t *testing.T) {
 	cfg, err := LoadConfig(bytes.NewReader(nil))
 	require.NoError(t, err)
 	assert.Equal(t, "some-svc-name", cfg.ServiceName)
+}
+
+// a literal envDefault on a yaml-configurable field is applied by env.Parse
+// after the YAML layer, silently overwriting yaml values whenever the env var
+// is unset; defaults for such fields belong in DefaultConfig. The ${VAR}
+// indirection form is exempt: it expands to nothing when the var is unset.
+func TestConfig_NoLiteralEnvDefaultOnYamlFields(t *testing.T) {
+	var violations []string
+	seen := map[reflect.Type]bool{}
+	var walk func(typ reflect.Type, path string)
+	walk = func(typ reflect.Type, path string) {
+		for typ.Kind() == reflect.Pointer {
+			typ = typ.Elem()
+		}
+		if typ.Kind() != reflect.Struct || seen[typ] {
+			return
+		}
+		seen[typ] = true
+		for i := 0; i < typ.NumField(); i++ {
+			f := typ.Field(i)
+			yamlTag := strings.Split(f.Tag.Get("yaml"), ",")[0]
+			envDefault := f.Tag.Get("envDefault")
+			if yamlTag != "" && yamlTag != "-" && envDefault != "" && !strings.HasPrefix(envDefault, "${") {
+				violations = append(violations, path+"."+f.Name)
+			}
+			walk(f.Type, path+"."+f.Name)
+		}
+	}
+	walk(reflect.TypeOf(Config{}), "Config")
+	assert.Empty(t, violations, "literal envDefault on yaml-configurable fields; move the default to DefaultConfig")
+}
+
+func TestConfig_NameResolverSources(t *testing.T) {
+	// no yaml, no env: DefaultConfig value
+	cfg, err := LoadConfig(bytes.NewReader(nil))
+	require.NoError(t, err)
+	assert.Equal(t, []transform.Source{transform.SourceK8s}, cfg.NameResolver.Sources)
+
+	// yaml must survive env.Parse when the env var is unset
+	cfg, err = LoadConfig(bytes.NewBufferString("name_resolver:\n  sources: [k8s, dns, rdns]\n"))
+	require.NoError(t, err)
+	assert.Equal(t, []transform.Source{transform.SourceK8s, transform.SourceDNS, transform.SourceRDNS}, cfg.NameResolver.Sources)
+
+	// env var wins over yaml
+	t.Setenv("OTEL_EBPF_NAME_RESOLVER_SOURCES", "rdns")
+	cfg, err = LoadConfig(bytes.NewBufferString("name_resolver:\n  sources: [k8s, dns]\n"))
+	require.NoError(t, err)
+	assert.Equal(t, []transform.Source{transform.SourceRDNS}, cfg.NameResolver.Sources)
 }
 
 func TestConfig_ShutdownTimeout(t *testing.T) {
@@ -691,6 +751,39 @@ func TestConfigValidate_TracePrinterFallback(t *testing.T) {
 	err := cfg.Validate()
 	require.NoError(t, err)
 	assert.Equal(t, debug.TracePrinterText, cfg.TracePrinter)
+}
+
+func TestConfigValidateForReceiverUsesHostSignalSinks(t *testing.T) {
+	cfg := loadConfig(t, envMap{"OTEL_EBPF_EXECUTABLE_PATH": "foo"})
+
+	require.ErrorContains(t, cfg.Validate(), "you need to define at least one exporter")
+	require.NoError(t, cfg.ValidateForReceiver())
+
+	cfg.TracePrinter = "invalid"
+	require.ErrorContains(t, cfg.ValidateForReceiver(), "invalid value for trace_printer")
+}
+
+func TestConfigValidateForReceiverUsesHostMetricsForStats(t *testing.T) {
+	cfg := loadConfig(t, envMap{})
+	cfg.Metrics.Features = export.FeatureStats
+
+	require.ErrorContains(t, cfg.Validate(), "at least one of 'network', 'application' or 'stats'")
+	require.NoError(t, cfg.ValidateForReceiver())
+}
+
+func TestConfigValidateStaticSkipsHostCompatibility(t *testing.T) {
+	cfg := loadConfig(t, envMap{})
+	cfg.NetworkFlows.Enable = true
+	cfg.NetworkFlows.Source = EbpfSourceTC
+	cfg.NetworkFlows.Print = true
+
+	err := cfg.validate(validationContext{
+		checkCiliumCompatibility: func(config.TCBackend) error {
+			return errors.New("host is incompatible")
+		},
+	})
+	require.ErrorContains(t, err, "host is incompatible")
+	require.NoError(t, cfg.ValidateStatic())
 }
 
 func TestConfigValidateRoutes(t *testing.T) {

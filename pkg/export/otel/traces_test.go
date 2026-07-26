@@ -590,6 +590,98 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		ensureTraceIntAttr(t, attrs, semconv.MessagingMessageEnvelopeSizeKey, 42)
 	})
 
+	t.Run("test Kafka trace generation omits unknown operation type", func(t *testing.T) {
+		// messaging.operation.type is a semconv enum: when the operation was
+		// not captured, the attribute must be omitted, not emitted empty
+		span := request.Span{Type: request.EventTypeKafkaClient, Method: "", Path: "important-topic", Statement: "test"}
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+		attrs := spans.At(0).Attributes()
+		ensureTraceAttrNotExists(t, attrs, attribute.Key(attr.MessagingOpType))
+		ensureTraceStrAttr(t, attrs, semconv.MessagingDestinationNameKey, "important-topic")
+	})
+
+	t.Run("test gRPC trace generation", func(t *testing.T) {
+		span := request.Span{Type: request.EventTypeGRPC, Path: "/routeguide.RouteGuide/GetFeature", Status: 0}
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+		attrs := spans.At(0).Attributes()
+		ensureTraceStrAttr(t, attrs, semconv.RPCMethodKey, "/routeguide.RouteGuide/GetFeature")
+		ensureTraceStrAttr(t, attrs, semconv.RPCResponseStatusCodeKey, "OK")
+	})
+
+	t.Run("test gRPC trace generation omits leaked HTTP status", func(t *testing.T) {
+		// a span.Status outside the gRPC enum (e.g. an HTTP 200 that leaked
+		// through protocol detection) must not become a made-up status value
+		span := request.Span{Type: request.EventTypeGRPC, Path: "/routeguide.RouteGuide/GetFeature", Status: 200}
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+		attrs := spans.At(0).Attributes()
+		ensureTraceStrAttr(t, attrs, semconv.RPCMethodKey, "/routeguide.RouteGuide/GetFeature")
+		ensureTraceAttrNotExists(t, attrs, semconv.RPCResponseStatusCodeKey)
+	})
+
+	t.Run("test gRPC client trace generation omits invalid status", func(t *testing.T) {
+		span := request.Span{Type: request.EventTypeGRPCClient, Path: "/routeguide.RouteGuide/GetFeature", Status: 0xFFFF}
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+		attrs := spans.At(0).Attributes()
+		ensureTraceAttrNotExists(t, attrs, semconv.RPCResponseStatusCodeKey)
+	})
+
+	t.Run("test Elasticsearch trace generation omits empty error.type", func(t *testing.T) {
+		// successful Elasticsearch spans have no error code: error.type must
+		// be omitted, not emitted as an empty string
+		span := request.Span{
+			Type:    request.EventTypeHTTPClient,
+			SubType: request.HTTPSubtypeElasticsearch,
+			Method:  "GET",
+			Path:    "/products/_search",
+			Status:  200,
+			Elasticsearch: &request.Elasticsearch{
+				DBSystemName:     "elasticsearch",
+				DBOperationName:  "search",
+				DBCollectionName: "products",
+			},
+		}
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+		attrs := spans.At(0).Attributes()
+		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBSystemName), "elasticsearch")
+		ensureTraceAttrNotExists(t, attrs, attribute.Key(attr.ErrorType))
+	})
+
+	t.Run("test OpenAI trace generation omits empty operation name", func(t *testing.T) {
+		// gen_ai.operation.name must not be emitted as an empty string:
+		// when the operation could not be classified (e.g. an error response
+		// parsed before the request body), the attribute must be omitted
+		span := request.Span{
+			Type:    request.EventTypeHTTPClient,
+			SubType: request.HTTPSubtypeOpenAI,
+			Method:  "POST",
+			Path:    "/v1/responses",
+			Status:  429,
+			GenAI:   &request.GenAI{OpenAI: &request.VendorOpenAI{ID: "chatcmpl-err"}},
+		}
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+		attrs := spans.At(0).Attributes()
+		ensureTraceStrAttr(t, attrs, semconv.GenAIProviderNameKey, "openai")
+		ensureTraceAttrNotExists(t, attrs, semconv.GenAIOperationNameKey)
+	})
+
 	t.Run("test Mongo trace generation", func(t *testing.T) {
 		span := request.Span{Type: request.EventTypeMongoClient, Method: "insert", Path: "mycollection", DBNamespace: "mydatabase", Status: 0}
 		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{"db.operation.name": {}})
@@ -1031,7 +1123,11 @@ func TestGenerateTracesAttributes(t *testing.T) {
 			ResponseModel: "gpt-5-mini-2025-08-07",
 			Temperature:   1.0,
 			TopP:          1.0,
-			Usage:         request.OpenAIUsage{InputTokens: 36, OutputTokens: 691, TotalTokens: 727},
+			Usage: request.OpenAIUsage{
+				InputTokens:  request.NewTokenCount(36),
+				OutputTokens: request.NewTokenCount(691),
+				TotalTokens:  request.NewTokenCount(727),
+			},
 			Request: request.OpenAIInput{
 				Input:        "How do I check if a Python object is an instance of a class?",
 				Instructions: "You are a coding assistant that talks like a pirate.",
@@ -1137,8 +1233,11 @@ func TestGenerateTracesAttributes(t *testing.T) {
 			ResponseModel: "gpt-5-mini-2025-08-07",
 			Temperature:   1.0,
 			TopP:          1.0,
-			Usage:         request.OpenAIUsage{InputTokens: 36, OutputTokens: 691},
-			Output:        []byte(`[{"type":"message","status":"completed","content":[{"type":"output_text","text":"Arrr!"}],"role":"assistant"}]`),
+			Usage: request.OpenAIUsage{
+				InputTokens:  request.NewTokenCount(36),
+				OutputTokens: request.NewTokenCount(691),
+			},
+			Output: []byte(`[{"type":"message","status":"completed","content":[{"type":"output_text","text":"Arrr!"}],"role":"assistant"}]`),
 			Request: request.OpenAIInput{
 				Input:        "How do I check if a Python object is an instance of a class?",
 				Instructions: "You are a coding assistant that talks like a pirate.",
@@ -1233,8 +1332,11 @@ func TestGenerateTracesAttributes(t *testing.T) {
 			OperationName: "chat",
 			ResponseModel: "gpt-4o-mini-2024-07-18",
 			Temperature:   1.0,
-			Usage:         request.OpenAIUsage{PromptTokens: 396, CompletionTokens: 816},
-			Choices:       []byte(`[{"index":0,"message":{"role":"assistant","content":"I now can give a great answer"},"finish_reason":"stop"}]`),
+			Usage: request.OpenAIUsage{
+				PromptTokens:     request.NewTokenCount(396),
+				CompletionTokens: request.NewTokenCount(816),
+			},
+			Choices: []byte(`[{"index":0,"message":{"role":"assistant","content":"I now can give a great answer"},"finish_reason":"stop"}]`),
 			Request: request.OpenAIInput{
 				Model:       "gpt-4o-mini",
 				Temperature: 1.0,
@@ -1307,10 +1409,10 @@ func TestGenerateTracesAttributes(t *testing.T) {
 			ResponseModel: "gpt-5-2025-06-01",
 			Temperature:   0.8,
 			Usage: request.OpenAIUsage{
-				PromptTokens:     100,
-				CompletionTokens: 50,
-				CompletionDetails: &request.OpenAICompletionDetails{
-					ReasoningTokens: 20,
+				PromptTokens:     request.NewTokenCount(100),
+				CompletionTokens: request.NewTokenCount(50),
+				OutputDetails: &request.OpenAIOutputTokensDetails{
+					ReasoningTokens: request.NewTokenCount(20),
 				},
 			},
 			Choices: []byte(`[{"finish_reason":"stop","message":{"role":"assistant","content":"Hi"}}]`),
@@ -1340,7 +1442,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 			ID:            "emb-abc",
 			OperationName: request.EmbeddingOperationName,
 			ResponseModel: "text-embedding-3-small",
-			Usage:         request.OpenAIUsage{PromptTokens: 10},
+			Usage:         request.OpenAIUsage{PromptTokens: request.NewTokenCount(10)},
 			Request: request.OpenAIInput{
 				Model:          "text-embedding-3-small",
 				Dimensions:     256,
@@ -1375,10 +1477,10 @@ func TestGenerateTracesAttributes(t *testing.T) {
 				Model:      "claude-sonnet-4-6",
 				StopReason: "end_turn",
 				Usage: request.AnthropicUsage{
-					InputTokens:              15,
-					OutputTokens:             35,
-					CacheCreationInputTokens: 100,
-					CacheReadInputTokens:     50,
+					InputTokens:              request.NewTokenCount(15),
+					OutputTokens:             request.NewTokenCount(35),
+					CacheCreationInputTokens: request.NewTokenCount(100),
+					CacheReadInputTokens:     request.NewTokenCount(50),
 				},
 			},
 		})
@@ -1420,8 +1522,8 @@ func TestGenerateTracesAttributes(t *testing.T) {
 				Content:   []byte(`[{"type":"text","text":"Quantum computing uses superposition."}]`),
 				RequestID: "req_011CZLkWqu2dABS8vFB9G6Lz",
 				Usage: request.AnthropicUsage{
-					InputTokens:  17,
-					OutputTokens: 37,
+					InputTokens:  request.NewTokenCount(17),
+					OutputTokens: request.NewTokenCount(37),
 				},
 				Error: &request.AnthropicError{
 					Type:    "authentication_error",
@@ -1493,8 +1595,8 @@ func TestGenerateTracesAttributes(t *testing.T) {
 				ResponseID:   "resp_abc123def456",
 				ModelVersion: "gemini-2.0-flash",
 				UsageMetadata: request.GeminiUsage{
-					PromptTokenCount:     12,
-					CandidatesTokenCount: 45,
+					PromptTokenCount:     request.NewTokenCount(12),
+					CandidatesTokenCount: request.NewTokenCount(45),
 				},
 				Candidates: []request.GeminiCandidate{
 					{FinishReason: "STOP"},
@@ -1523,8 +1625,8 @@ func TestGenerateTracesAttributes(t *testing.T) {
 			Output: request.GeminiResponse{
 				ModelVersion: "text-embedding-004",
 				UsageMetadata: request.GeminiUsage{
-					PromptTokenCount:     5,
-					CandidatesTokenCount: 0,
+					PromptTokenCount:     request.NewTokenCount(5),
+					CandidatesTokenCount: request.NewTokenCount(0),
 				},
 			},
 		})
@@ -1561,8 +1663,8 @@ func TestGenerateTracesAttributes(t *testing.T) {
 					},
 				},
 				UsageMetadata: request.GeminiUsage{
-					PromptTokenCount:     28,
-					CandidatesTokenCount: 8,
+					PromptTokenCount:     request.NewTokenCount(28),
+					CandidatesTokenCount: request.NewTokenCount(8),
 				},
 				Error: &request.GeminiError{
 					Code:    404,
@@ -1638,8 +1740,8 @@ func TestGenerateTracesAttributes(t *testing.T) {
 			},
 			ResponseModel: "qwen-plus",
 			Usage: request.OpenAIUsage{
-				PromptTokens:     12,
-				CompletionTokens: 8,
+				PromptTokens:     request.NewTokenCount(12),
+				CompletionTokens: request.NewTokenCount(8),
 			},
 		})
 
@@ -1666,8 +1768,8 @@ func TestGenerateTracesAttributes(t *testing.T) {
 			ResponseModel: "qwen-turbo",
 			Output:        []byte(`{"text":"eBPF runs in the kernel."}`),
 			Usage: request.OpenAIUsage{
-				InputTokens:  7,
-				OutputTokens: 6,
+				InputTokens:  request.NewTokenCount(7),
+				OutputTokens: request.NewTokenCount(6),
 			},
 		})
 
@@ -1724,8 +1826,8 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		span := makeBedrockSpan(&request.VendorBedrock{
 			Model: "anthropic.claude-3-5-sonnet-20241022-v1:0",
 			Output: request.BedrockResponse{
-				InputTokens:  25,
-				OutputTokens: 18,
+				InputTokens:  request.NewTokenCount(25),
+				OutputTokens: request.NewTokenCount(18),
 				StopReason:   "end_turn",
 			},
 		})
@@ -1757,8 +1859,8 @@ func TestGenerateTracesAttributes(t *testing.T) {
 			Output: request.BedrockResponse{
 				Content:      []byte(`[{"type":"text","text":"eBPF runs sandboxed programs in the kernel."}]`),
 				StopReason:   "end_turn",
-				InputTokens:  25,
-				OutputTokens: 18,
+				InputTokens:  request.NewTokenCount(25),
+				OutputTokens: request.NewTokenCount(18),
 				ErrorType:    "ValidationException",
 				ErrorMessage: "The provided model identifier is invalid.",
 			},

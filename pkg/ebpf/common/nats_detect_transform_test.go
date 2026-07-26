@@ -42,13 +42,13 @@ func TestParseNATSFrame(t *testing.T) {
 		},
 		{
 			name:         "HPUB",
-			frame:        []byte(fmt.Sprintf("HPUB updates.orders %d %d\r\n%s%s\r\n", hdrLen, totalLen, header, payload)),
+			frame:        fmt.Appendf(nil, "HPUB updates.orders %d %d\r\n%s%s\r\n", hdrLen, totalLen, header, payload),
 			expectedInfo: &NATSInfo{Operation: request.MessagingPublish, Subject: "updates.orders", PayloadSize: totalLen},
 			isNATSFrame:  true,
 		},
 		{
 			name:         "HPUB with reply subject",
-			frame:        []byte(fmt.Sprintf("HPUB updates.orders _INBOX.reply %d %d\r\n%s%s\r\n", hdrLen, totalLen, header, payload)),
+			frame:        fmt.Appendf(nil, "HPUB updates.orders _INBOX.reply %d %d\r\n%s%s\r\n", hdrLen, totalLen, header, payload),
 			expectedInfo: &NATSInfo{Operation: request.MessagingPublish, Subject: "updates.orders", PayloadSize: totalLen},
 			isNATSFrame:  true,
 		},
@@ -66,13 +66,13 @@ func TestParseNATSFrame(t *testing.T) {
 		},
 		{
 			name:         "HMSG with alphanumeric sid",
-			frame:        []byte(fmt.Sprintf("HMSG updates.orders subA %d %d\r\n%s%s\r\n", hdrLen, totalLen, header, payload)),
+			frame:        fmt.Appendf(nil, "HMSG updates.orders subA %d %d\r\n%s%s\r\n", hdrLen, totalLen, header, payload),
 			expectedInfo: &NATSInfo{Operation: request.MessagingProcess, Subject: "updates.orders", PayloadSize: totalLen},
 			isNATSFrame:  true,
 		},
 		{
 			name:         "HMSG with reply subject",
-			frame:        []byte(fmt.Sprintf("HMSG updates.orders subA _INBOX.reply %d %d\r\n%s%s\r\n", hdrLen, totalLen, header, payload)),
+			frame:        fmt.Appendf(nil, "HMSG updates.orders subA _INBOX.reply %d %d\r\n%s%s\r\n", hdrLen, totalLen, header, payload),
 			expectedInfo: &NATSInfo{Operation: request.MessagingProcess, Subject: "updates.orders", PayloadSize: totalLen},
 			isNATSFrame:  true,
 		},
@@ -108,12 +108,12 @@ func TestParseNATSFrame(t *testing.T) {
 		},
 		{
 			name:      "HMSG with too few fields",
-			frame:     []byte(fmt.Sprintf("HMSG updates.orders subA %d\r\n%s%s\r\n", hdrLen, header, payload)),
+			frame:     fmt.Appendf(nil, "HMSG updates.orders subA %d\r\n%s%s\r\n", hdrLen, header, payload),
 			expectErr: true,
 		},
 		{
 			name:      "HMSG with too many fields",
-			frame:     []byte(fmt.Sprintf("HMSG updates.orders subA _INBOX.reply %d %d extra\r\n%s%s\r\n", hdrLen, totalLen, header, payload)),
+			frame:     fmt.Appendf(nil, "HMSG updates.orders subA _INBOX.reply %d %d extra\r\n%s%s\r\n", hdrLen, totalLen, header, payload),
 			expectErr: true,
 		},
 		{
@@ -321,10 +321,10 @@ func TestProcessPossibleNATSEvent(t *testing.T) {
 		totalLen := hdrLen + len(payload)
 
 		requestBuf := largebuf.NewLargeBufferFrom(
-			[]byte(fmt.Sprintf("HPUB updates.orders %d %d\r\n%s%s\r\n", hdrLen, totalLen, header, payload)),
+			fmt.Appendf(nil, "HPUB updates.orders %d %d\r\n%s%s\r\n", hdrLen, totalLen, header, payload),
 		)
 		responseBuf := largebuf.NewLargeBufferFrom(
-			[]byte(fmt.Sprintf("HMSG updates.orders subA %d %d\r\n%s%s\r\n", hdrLen, totalLen, header, payload)),
+			fmt.Appendf(nil, "HMSG updates.orders subA %d %d\r\n%s%s\r\n", hdrLen, totalLen, header, payload),
 		)
 
 		info, extraInfo, ignore, err := ProcessPossibleNATSEvent(&event, requestBuf, responseBuf)
@@ -350,10 +350,10 @@ func TestProcessPossibleNATSEvent(t *testing.T) {
 		totalLen := hdrLen + len(payload)
 
 		requestBuf := largebuf.NewLargeBufferFrom(
-			[]byte(fmt.Sprintf("HMSG updates.orders subA %d %d\r\n%s%s\r\n", hdrLen, totalLen, header, payload)),
+			fmt.Appendf(nil, "HMSG updates.orders subA %d %d\r\n%s%s\r\n", hdrLen, totalLen, header, payload),
 		)
 		responseBuf := largebuf.NewLargeBufferFrom(
-			[]byte(fmt.Sprintf("HPUB updates.orders %d %d\r\n%s%s\r\n", hdrLen, totalLen, header, payload)),
+			fmt.Appendf(nil, "HPUB updates.orders %d %d\r\n%s%s\r\n", hdrLen, totalLen, header, payload),
 		)
 
 		info, extraInfo, ignore, err := ProcessPossibleNATSEvent(&event, requestBuf, responseBuf)

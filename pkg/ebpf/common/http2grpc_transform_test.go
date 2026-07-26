@@ -555,7 +555,7 @@ func TestHandleHeaderField(t *testing.T) {
 }
 
 func BenchmarkIsHTTP2(b *testing.B) {
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		for _, tt := range isHTTP2TestCases {
 			_ = isHTTP2(largebuf.NewLargeBufferFrom(tt.input), tt.inputLen)
 		}

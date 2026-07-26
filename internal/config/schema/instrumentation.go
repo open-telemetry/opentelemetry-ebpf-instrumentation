@@ -6,7 +6,6 @@ package schema // import "go.opentelemetry.io/obi/internal/config/schema"
 import (
 	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/config"
-	"go.opentelemetry.io/obi/pkg/transform"
 )
 
 // Instrumentation groups protocol-specific capture settings.
@@ -38,24 +37,31 @@ type ProtocolEnablement struct {
 // HTTPInstrumentation describes HTTP capture, filtering, route, and payload
 // extraction settings.
 type HTTPInstrumentation struct {
-	Enabled             ProtocolEnablement `yaml:"enabled"`
-	Filters             SignalFilters      `yaml:"filters"`
-	TrackRequestHeaders bool               `yaml:"track_request_headers"`
-	RequestTimeout      Duration           `yaml:"request_timeout"`
-	BufferSize          uint32             `yaml:"buffer_size"`
-	Routes              HTTPRoutes         `yaml:"routes"`
-	PayloadExtraction   PayloadExtraction  `yaml:"payload_extraction"`
+	Enabled                   ProtocolEnablement `yaml:"enabled"`
+	Filters                   SignalFilters      `yaml:"filters"`
+	TrackRequestHeaders       bool               `yaml:"track_request_headers"`
+	RequestTimeout            Duration           `yaml:"request_timeout"`
+	GoHTTPClientBufferTimeout Duration           `yaml:"go_http_client_buffer_timeout"`
+	BufferSize                uint32             `yaml:"buffer_size"`
+	Routes                    HTTPRoutes         `yaml:"routes"`
+	PayloadExtraction         PayloadExtraction  `yaml:"payload_extraction"`
 }
 
-// HTTPRoutes describes global HTTP route normalization and discovery settings.
+// HTTPRoutes describes directional global HTTP route normalization and discovery settings.
 type HTTPRoutes struct {
-	Discovery                 HTTPRouteDiscovery     `yaml:"discovery"`
-	Unmatched                 *transform.UnmatchType `yaml:"unmatched,omitempty"`
-	Patterns                  *[]string              `yaml:"patterns,omitempty"`
-	IgnoredPatterns           *[]string              `yaml:"ignored_patterns,omitempty"`
-	IgnoreMode                *transform.IgnoreMode  `yaml:"ignore_mode,omitempty"`
-	WildcardChar              *string                `yaml:"wildcard_char,omitempty"`
-	MaxPathSegmentCardinality *int                   `yaml:"max_path_segment_cardinality,omitempty"`
+	Incoming  *HTTPRoutePolicy   `yaml:"incoming,omitempty"`
+	Outgoing  *HTTPRoutePolicy   `yaml:"outgoing,omitempty"`
+	Discovery HTTPRouteDiscovery `yaml:"discovery"`
+}
+
+// HTTPRoutePolicy configures route handling for one traffic direction.
+type HTTPRoutePolicy struct {
+	Unmatched                 *services.RouteUnmatch    `yaml:"unmatched,omitempty"`
+	Patterns                  *[]string                 `yaml:"patterns,omitempty"`
+	IgnoredPatterns           *[]string                 `yaml:"ignored_patterns,omitempty"`
+	IgnoreMode                *services.RouteIgnoreMode `yaml:"ignore_mode,omitempty"`
+	WildcardChar              *string                   `yaml:"wildcard_char,omitempty"`
+	MaxPathSegmentCardinality *int                      `yaml:"max_path_segment_cardinality,omitempty"`
 }
 
 // HTTPRouteDiscovery describes automatic HTTP route discovery settings.
@@ -162,9 +168,10 @@ type AttributeFilter struct {
 // PayloadExtraction describes HTTP payload extractor enablement and enrichment
 // settings.
 type PayloadExtraction struct {
-	Enabled    []string       `yaml:"enabled"`
-	SQLPP      SQLPPPayload   `yaml:"sqlpp"`
-	Enrichment HTTPEnrichment `yaml:"enrichment"`
+	Enabled          []string                `yaml:"enabled"`
+	SQLPP            SQLPPPayload            `yaml:"sqlpp"`
+	Enrichment       HTTPEnrichment          `yaml:"enrichment"`
+	OpenAICompatible OpenAICompatiblePayload `yaml:"openai_compatible"`
 }
 
 // SQLPPPayload describes SQL++ payload extraction settings.
@@ -180,8 +187,8 @@ type HTTPEnrichment struct {
 
 // HTTPEnrichmentPolicy describes default HTTP payload enrichment actions.
 type HTTPEnrichmentPolicy struct {
-	DefaultAction     HTTPEnrichmentDefaultAction `yaml:"default_action"`
-	ObfuscationString string                      `yaml:"obfuscation_string"`
+	DefaultAction            HTTPEnrichmentDefaultAction `yaml:"default_action"`
+	DefaultObfuscationString string                      `yaml:"obfuscation_string"`
 }
 
 // HTTPEnrichmentDefaultAction describes default enrichment actions for headers
@@ -189,4 +196,10 @@ type HTTPEnrichmentPolicy struct {
 type HTTPEnrichmentDefaultAction struct {
 	Headers config.HTTPParsingAction `yaml:"headers"`
 	Body    config.HTTPParsingAction `yaml:"body"`
+}
+
+// OpenAICompatiblePayload describes OpenAI-compatible gateway payload extraction
+// settings.
+type OpenAICompatiblePayload struct {
+	Gateways []config.OpenAICompatibleGateway `yaml:"gateways"`
 }

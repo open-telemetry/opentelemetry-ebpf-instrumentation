@@ -22,6 +22,8 @@ COPY --from=builder /src/openai-mock .
 USER 0:0
 
 ENV OPENAI_PORT=8081
+ENV OPENAI_TLS_PORT=8443
 EXPOSE 8081
+EXPOSE 8443
 
 CMD [ "/openai-mock" ]

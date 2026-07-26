@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"unicode/utf8"
 
 	"go.opentelemetry.io/obi/internal/config/schema"
 	"go.opentelemetry.io/obi/pkg/appolly/services"
@@ -38,13 +39,25 @@ func V2ToRuntime(src *schema.Extension) (*obi.Config, error) {
 	if err := schema.ValidateStandalone(src); err != nil {
 		return nil, err
 	}
+	if err := validateV2MatchOrder(src.Capture.Policy.MatchOrder, src.Capture.Rules); err != nil {
+		return nil, err
+	}
 	if err := validateV2RulePatterns(src.Capture.Rules); err != nil {
+		return nil, err
+	}
+	if err := validateV2RuleSelectorFamilies(src.Capture.Rules); err != nil {
 		return nil, err
 	}
 	if err := validateV2HTTPFilters(src.Capture.Instrumentation.HTTP.Filters); err != nil {
 		return nil, err
 	}
+	if err := validateV2HTTPRoutes(src.Capture.Instrumentation.HTTP.Routes, src.Capture.Rules); err != nil {
+		return nil, err
+	}
 	if err := validateV2HTTPPayloadExtraction(src.Capture.Instrumentation.HTTP.PayloadExtraction); err != nil {
+		return nil, err
+	}
+	if err := validateUnsupportedV2Fields(src); err != nil {
 		return nil, err
 	}
 
@@ -53,15 +66,133 @@ func V2ToRuntime(src *schema.Extension) (*obi.Config, error) {
 	applyV2Standalone(&cfg, src)
 	applyV2MetricsEnablement(&cfg, src)
 	cfg.Attributes.Select.Normalize()
+	if err := cfg.EBPF.LogEnricher.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid log trace annotation: %w", err)
+	}
 
 	return &cfg, nil
+}
+
+func validateV2HTTPRoutes(routes schema.HTTPRoutes, rules []schema.Rule) error {
+	globalPolicies := []struct {
+		path   string
+		policy *schema.HTTPRoutePolicy
+	}{
+		{path: "capture.instrumentation.http.routes.incoming", policy: routes.Incoming},
+		{path: "capture.instrumentation.http.routes.outgoing", policy: routes.Outgoing},
+	}
+	for _, routePolicy := range globalPolicies {
+		if err := validateV2HTTPRoutePolicy(routePolicy.path, routePolicy.policy); err != nil {
+			return err
+		}
+	}
+	for i := range rules {
+		if rules[i].Refine.HTTP == nil {
+			continue
+		}
+		refinementPolicies := []struct {
+			direction string
+			policy    *schema.HTTPRoutePolicy
+		}{
+			{direction: "incoming", policy: rules[i].Refine.HTTP.Routes.Incoming},
+			{direction: "outgoing", policy: rules[i].Refine.HTTP.Routes.Outgoing},
+		}
+		for _, routePolicy := range refinementPolicies {
+			path := fmt.Sprintf("capture.rules[%d].refine.http.routes.%s", i, routePolicy.direction)
+			if err := validateV2HTTPRoutePolicy(path, routePolicy.policy); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func validateV2HTTPRoutePolicy(path string, policy *schema.HTTPRoutePolicy) error {
+	if policy == nil {
+		return nil
+	}
+	if policy.Unmatched != nil {
+		switch *policy.Unmatched {
+		case services.UnmatchUnset, services.UnmatchPath, services.UnmatchWildcard,
+			services.UnmatchHeuristic, services.UnmatchLowCardinality:
+		default:
+			return fmt.Errorf("%s.unmatched has invalid value %q", path, *policy.Unmatched)
+		}
+	}
+	if policy.IgnoreMode != nil {
+		switch *policy.IgnoreMode {
+		case services.IgnoreMetrics, services.IgnoreTraces, services.IgnoreAll:
+		default:
+			return fmt.Errorf("%s.ignore_mode has invalid value %q", path, *policy.IgnoreMode)
+		}
+	}
+	if policy.WildcardChar != nil {
+		wildcard := *policy.WildcardChar
+		if wildcard != "" && (len(wildcard) != 1 || wildcard[0] == 0 || wildcard[0] >= utf8.RuneSelf) {
+			return fmt.Errorf("%s.wildcard_char must be empty or contain one nonzero ASCII byte", path)
+		}
+	}
+	if policy.MaxPathSegmentCardinality != nil && *policy.MaxPathSegmentCardinality < 0 {
+		return fmt.Errorf("%s.max_path_segment_cardinality must be greater than or equal to zero", path)
+	}
+	return nil
+}
+
+func validateUnsupportedV2Fields(src *schema.Extension) error {
+	runtimeFilters := []struct {
+		path    string
+		filters schema.AttributeFilters
+	}{
+		{path: "capture.runtimes.go.filter", filters: src.Capture.Runtimes.Go.Filter},
+		{path: "capture.runtimes.nodejs.filter", filters: src.Capture.Runtimes.NodeJS.Filter},
+		{path: "capture.runtimes.java.filter", filters: src.Capture.Runtimes.Java.Filter},
+	}
+	for _, runtimeFilter := range runtimeFilters {
+		if len(runtimeFilter.filters) != 0 {
+			return fmt.Errorf("%s is not supported", runtimeFilter.path)
+		}
+	}
+
+	if src.Enrich != nil {
+		for _, enrichmentProperties := range []struct {
+			path       string
+			properties map[string]any
+		}{
+			{path: "enrich", properties: src.Enrich.AdditionalProperties},
+			{path: "enrich.enrichers", properties: src.Enrich.Enrichers.AdditionalProperties},
+			{path: "enrich.enrichers.kubernetes", properties: src.Enrich.Enrichers.Kubernetes.AdditionalProperties},
+			{path: "enrich.service_name", properties: src.Enrich.ServiceName.AdditionalProperties},
+			{path: "enrich.attributes", properties: src.Enrich.Attributes.AdditionalProperties},
+		} {
+			if err := rejectUnsupportedProperties(enrichmentProperties.path, enrichmentProperties.properties); err != nil {
+				return err
+			}
+		}
+	}
+
+	if src.Correlation != nil && len(src.Correlation.LogTraceAnnotation.Filter) != 0 {
+		return errors.New("correlation.log_trace_annotation.filter is not supported")
+	}
+	return nil
+}
+
+func rejectUnsupportedProperties(path string, properties map[string]any) error {
+	if len(properties) == 0 {
+		return nil
+	}
+
+	keys := make([]string, 0, len(properties))
+	for key := range properties {
+		keys = append(keys, key)
+	}
+	slices.Sort(keys)
+	return fmt.Errorf("%s.%s is not supported", path, keys[0])
 }
 
 func runtimeConfigDefaults() obi.Config {
 	cfg := obi.DefaultConfig
 	if cfg.Routes != nil {
-		routes := *cfg.Routes
-		cfg.Routes = &routes
+		cfg.Routes = cfg.Routes.Clone()
 	}
 	if cfg.NameResolver != nil {
 		nameResolver := *cfg.NameResolver
@@ -72,12 +203,15 @@ func runtimeConfigDefaults() obi.Config {
 
 func applyV2Capture(cfg *obi.Config, src *schema.Extension) {
 	applyV2Policy(cfg, src.Capture.Policy, completePolicy(src.Capture.Policy))
-	applyV2Rules(cfg, src.Capture.Rules)
+	hasRuleRoutePolicies := applyV2Rules(cfg, src.Capture.Rules, src.Capture.Policy.DefaultAction)
 	applyV2Limits(cfg, src.Capture.Limits, completeLimits(src.Capture.Limits))
 	applyV2Safety(cfg, src.Capture.Safety, !zeroValue(src.Capture.Safety))
 	applyV2Channels(cfg, src.Capture.Channels, completeChannels(src.Capture.Channels))
 	applyV2Engine(cfg, src.Capture.Engine, completeEngine(src.Capture.Engine))
 	applyV2Instrumentation(cfg, src.Capture.Instrumentation)
+	if hasRuleRoutePolicies {
+		activateV2RuleRoutePolicies(cfg)
+	}
 	applyV2NetworkCapture(cfg, src.Capture.Network.Capture, completeNetworkCapture(src.Capture.Network.Capture))
 	applyV2NetworkStats(cfg, src.Capture.Network.Stats, completeNetworkStats(src.Capture.Network.Stats))
 	applyV2Runtimes(cfg, src.Capture.Runtimes, completeRuntimes(src.Capture.Runtimes))
@@ -108,16 +242,36 @@ type runtimeDiscoveryRules struct {
 	excludeGlobs                    services.GlobDefinitionCriteria
 	includeRegex                    services.RegexDefinitionCriteria
 	excludeRegex                    services.RegexDefinitionCriteria
+	hasRoutePolicies                bool
 	excludeOTelInstrumentedServices bool
 	defaultOTLPGRPCPort             int
 }
 
-func applyV2Rules(cfg *obi.Config, rules []schema.Rule) {
+func applyV2Rules(cfg *obi.Config, rules []schema.Rule, defaultAction schema.CaptureAction) bool {
+	includeByDefault := defaultAction != schema.CaptureActionExclude
 	if rules == nil {
-		return
+		if includeByDefault {
+			cfg.Discovery.Instrument = services.GlobDefinitionCriteria{
+				{Path: services.NewGlob("*")},
+			}
+		}
+		return false
 	}
 
-	applyRuntimeDiscoveryRules(cfg, runtimeDiscoveryRulesFromV2(rules))
+	converted := runtimeDiscoveryRulesFromV2(rules)
+	if includeByDefault {
+		if len(converted.includeRegex) > 0 || len(converted.excludeRegex) > 0 {
+			converted.includeRegex = append(converted.includeRegex, services.RegexSelector{
+				Path: services.NewRegexp(".*"),
+			})
+		} else {
+			converted.includeGlobs = append(converted.includeGlobs, services.GlobAttributes{
+				Path: services.NewGlob("*"),
+			})
+		}
+	}
+	applyRuntimeDiscoveryRules(cfg, converted)
+	return converted.hasRoutePolicies
 }
 
 func runtimeDiscoveryRulesFromV2(rules []schema.Rule) runtimeDiscoveryRules {
@@ -135,8 +289,12 @@ func runtimeDiscoveryRulesFromV2(rules []schema.Rule) runtimeDiscoveryRules {
 		case schema.CaptureActionInclude:
 			if regexSelector != nil {
 				converted.includeRegex = append(converted.includeRegex, *regexSelector)
+				converted.hasRoutePolicies = converted.hasRoutePolicies ||
+					regexSelector.Routes != nil && regexSelector.Routes.PolicyOverrides != nil
 			} else {
 				converted.includeGlobs = append(converted.includeGlobs, *globSelector)
+				converted.hasRoutePolicies = converted.hasRoutePolicies ||
+					globSelector.Routes != nil && globSelector.Routes.PolicyOverrides != nil
 			}
 		case schema.CaptureActionExclude:
 			if regexSelector != nil {
@@ -195,6 +353,69 @@ func validateV2RulePatterns(rules []schema.Rule) error {
 	return nil
 }
 
+func validateV2RuleSelectorFamilies(rules []schema.Rule) error {
+	selectorFamily := ""
+	for i, rule := range rules {
+		if rule.Match.Process.ExportsOTLP != nil || ruleMatchEmpty(rule.Match) {
+			continue
+		}
+
+		ruleSelectorFamily := "glob"
+		if ruleUsesRegex(rule.Match) {
+			if ruleUsesGlob(rule.Match) {
+				return fmt.Errorf(
+					"capture.rules[%d].match: mixing glob and regex selectors is not supported",
+					i,
+				)
+			}
+			ruleSelectorFamily = "regex"
+		}
+
+		if selectorFamily != "" && selectorFamily != ruleSelectorFamily {
+			return fmt.Errorf(
+				"capture.rules[%d].match: mixing glob and regex selectors is not supported",
+				i,
+			)
+		}
+		selectorFamily = ruleSelectorFamily
+	}
+	return nil
+}
+
+func validateV2MatchOrder(matchOrder schema.MatchOrder, rules []schema.Rule) error {
+	if matchOrder == schema.MatchOrderLastMatchWins {
+		return errors.New("capture.policy.match_order: last_match_wins is not supported")
+	}
+
+	includeSeen := false
+	for i, rule := range rules {
+		if !ruleAffectsV2Selection(rule) {
+			continue
+		}
+
+		switch rule.Action {
+		case schema.CaptureActionInclude:
+			includeSeen = true
+		case schema.CaptureActionExclude:
+			if includeSeen {
+				return fmt.Errorf(
+					"capture.rules[%d]: exclude rules must precede include rules for first_match_wins",
+					i,
+				)
+			}
+		}
+	}
+
+	return nil
+}
+
+func ruleAffectsV2Selection(rule schema.Rule) bool {
+	if rule.Match.Process.ExportsOTLP != nil || ruleMatchEmpty(rule.Match) {
+		return false
+	}
+	return !ruleUsesRegex(rule.Match) || !ruleUsesGlob(rule.Match)
+}
+
 func validateV2HTTPFilters(filters schema.SignalFilters) error {
 	if len(filters.Traces) == 0 || len(filters.Metrics) == 0 {
 		return nil
@@ -230,6 +451,8 @@ func validV2HTTPPayloadExtractor(extractor string) bool {
 		payloadExtractorQwen,
 		payloadExtractorBedrock,
 		payloadExtractorMCP,
+		payloadExtractorOllama,
+		payloadExtractorOpenAICompatible,
 		payloadExtractorEmbedding,
 		payloadExtractorRerank,
 		payloadExtractorRetrieval,
@@ -411,8 +634,7 @@ func applyV2GlobRuleRefinement(selector *services.GlobAttributes, refine schema.
 	}
 	if refine.HTTP != nil && !zeroValue(refine.HTTP.Routes) {
 		selector.Routes = &services.CustomRoutesConfig{
-			Incoming: cloneStrings(refine.HTTP.Routes.Incoming.Patterns),
-			Outgoing: cloneStrings(refine.HTTP.Routes.Outgoing.Patterns),
+			PolicyOverrides: v2DirectionalRoutePolicyOverrides(refine.HTTP.Routes),
 		}
 	}
 }
@@ -423,9 +645,29 @@ func applyV2RegexRuleRefinement(selector *services.RegexSelector, refine schema.
 	}
 	if refine.HTTP != nil && !zeroValue(refine.HTTP.Routes) {
 		selector.Routes = &services.CustomRoutesConfig{
-			Incoming: cloneStrings(refine.HTTP.Routes.Incoming.Patterns),
-			Outgoing: cloneStrings(refine.HTTP.Routes.Outgoing.Patterns),
+			PolicyOverrides: v2DirectionalRoutePolicyOverrides(refine.HTTP.Routes),
 		}
+	}
+}
+
+func v2DirectionalRoutePolicyOverrides(routes schema.HTTPRefinementRoutes) *services.DirectionalRoutePolicyOverrides {
+	return &services.DirectionalRoutePolicyOverrides{
+		Incoming: v2RoutePolicyOverride(routes.Incoming),
+		Outgoing: v2RoutePolicyOverride(routes.Outgoing),
+	}
+}
+
+func v2RoutePolicyOverride(policy *schema.HTTPRoutePolicy) *services.RoutePolicyOverride {
+	if policy == nil {
+		return nil
+	}
+	return &services.RoutePolicyOverride{
+		Unmatch:                   cloneValue(policy.Unmatched),
+		Patterns:                  cloneStringsPointer(policy.Patterns),
+		IgnorePatterns:            cloneStringsPointer(policy.IgnoredPatterns),
+		IgnoredEvents:             cloneValue(policy.IgnoreMode),
+		WildcardChar:              cloneValue(policy.WildcardChar),
+		MaxPathSegmentCardinality: cloneValue(policy.MaxPathSegmentCardinality),
 	}
 }
 
@@ -760,6 +1002,7 @@ func applyPartialV2Instrumentation(cfg *obi.Config, instrumentation schema.Instr
 func applyFullV2HTTPInstrumentation(cfg *obi.Config, http schema.HTTPInstrumentation) {
 	cfg.EBPF.TrackRequestHeaders = http.TrackRequestHeaders
 	cfg.EBPF.HTTPRequestTimeout = http.RequestTimeout.TimeDuration()
+	cfg.EBPF.GoHTTPClientBufferTimeout = http.GoHTTPClientBufferTimeout.TimeDuration()
 	cfg.EBPF.BufferSizes.HTTP = http.BufferSize
 
 	applyV2HTTPFilters(cfg, http.Filters, true)
@@ -773,6 +1016,9 @@ func applyPartialV2HTTPInstrumentation(cfg *obi.Config, http schema.HTTPInstrume
 	}
 	if !zeroValue(http.RequestTimeout) {
 		cfg.EBPF.HTTPRequestTimeout = http.RequestTimeout.TimeDuration()
+	}
+	if !zeroValue(http.GoHTTPClientBufferTimeout) {
+		cfg.EBPF.GoHTTPClientBufferTimeout = http.GoHTTPClientBufferTimeout.TimeDuration()
 	}
 	if http.BufferSize != 0 {
 		cfg.EBPF.BufferSizes.HTTP = http.BufferSize
@@ -798,13 +1044,20 @@ func v2HTTPFilterMap(filters schema.SignalFilters) schema.AttributeFilters {
 
 func applyFullV2HTTPRoutes(cfg *obi.Config, routes schema.HTTPRoutes) {
 	applyV2HTTPRouteDiscovery(cfg, routes.Discovery, true)
-	if !hasV2HTTPRouteConfig(routes) {
+	if !hasV2HTTPGlobalRouteConfig(routes) {
 		cfg.Routes = nil
 		return
 	}
 
-	cfg.Routes = &transform.RoutesConfig{}
-	applyV2HTTPRouteConfig(cfg.Routes, routes)
+	policies := services.DirectionalRoutePolicies{}
+	applyV2HTTPRouteConfig(&policies, routes)
+	cfg.Routes = &transform.RoutesConfig{
+		Directional: &policies,
+		DirectionalPolicyPresence: &transform.DirectionalRoutePolicyPresence{
+			Incoming: routes.Incoming != nil,
+			Outgoing: routes.Outgoing != nil,
+		},
+	}
 }
 
 func applyPartialV2HTTPRoutes(cfg *obi.Config, routes schema.HTTPRoutes) {
@@ -812,13 +1065,12 @@ func applyPartialV2HTTPRoutes(cfg *obi.Config, routes schema.HTTPRoutes) {
 		return
 	}
 	applyV2HTTPRouteDiscovery(cfg, routes.Discovery, false)
-	if !hasV2HTTPRouteConfig(routes) {
+	if !hasV2HTTPGlobalRouteConfig(routes) {
 		return
 	}
-	if cfg.Routes == nil {
-		cfg.Routes = &transform.RoutesConfig{}
-	}
-	applyV2HTTPRouteConfig(cfg.Routes, routes)
+	policies := cfg.Routes.DirectionalPolicies()
+	applyV2HTTPRouteConfig(&policies, routes)
+	cfg.Routes = &transform.RoutesConfig{Directional: &policies}
 }
 
 func applyV2HTTPRouteDiscovery(cfg *obi.Config, discovery schema.HTTPRouteDiscovery, complete bool) {
@@ -836,40 +1088,38 @@ func applyV2HTTPRouteDiscovery(cfg *obi.Config, discovery schema.HTTPRouteDiscov
 	}
 }
 
-func hasV2HTTPRouteConfig(routes schema.HTTPRoutes) bool {
-	return routes.Unmatched != nil ||
-		routes.Patterns != nil ||
-		routes.IgnoredPatterns != nil ||
-		routes.IgnoreMode != nil ||
-		routes.WildcardChar != nil ||
-		routes.MaxPathSegmentCardinality != nil
+func hasV2HTTPGlobalRouteConfig(routes schema.HTTPRoutes) bool {
+	return routes.Incoming != nil || routes.Outgoing != nil
 }
 
-func applyV2HTTPRouteConfig(dst *transform.RoutesConfig, routes schema.HTTPRoutes) {
-	if routes.Unmatched != nil {
-		dst.Unmatch = *routes.Unmatched
+func activateV2RuleRoutePolicies(cfg *obi.Config) {
+	ruleOnly := cfg.Routes == nil
+	policies := cfg.Routes.DirectionalPolicies()
+	// Directions without a global policy use an inactive baseline so a
+	// refinement containing only patterns does not inherit wildcard behavior.
+	if !cfg.Routes.HasIncomingPolicy() {
+		policies.Incoming.Unmatch = services.UnmatchUnset
 	}
-	if routes.Patterns != nil {
-		dst.Patterns = cloneStrings(*routes.Patterns)
+	if !cfg.Routes.HasOutgoingPolicy() {
+		policies.Outgoing.Unmatch = services.UnmatchUnset
 	}
-	if routes.IgnoredPatterns != nil {
-		dst.IgnorePatterns = cloneStrings(*routes.IgnoredPatterns)
+	if ruleOnly {
+		cfg.Routes = &transform.RoutesConfig{}
 	}
-	if routes.IgnoreMode != nil {
-		dst.IgnoredEvents = *routes.IgnoreMode
-	}
-	if routes.WildcardChar != nil {
-		dst.WildcardChar = *routes.WildcardChar
-	}
-	if routes.MaxPathSegmentCardinality != nil {
-		dst.MaxPathSegmentCardinality = *routes.MaxPathSegmentCardinality
-	}
+	cfg.Routes.Directional = &policies
+	cfg.Routes.DirectionalRuleOnly = ruleOnly
+}
+
+func applyV2HTTPRouteConfig(dst *services.DirectionalRoutePolicies, routes schema.HTTPRoutes) {
+	dst.Incoming = v2RoutePolicyOverride(routes.Incoming).Apply(dst.Incoming)
+	dst.Outgoing = v2RoutePolicyOverride(routes.Outgoing).Apply(dst.Outgoing)
 }
 
 func applyFullV2HTTPPayloadExtraction(cfg *obi.Config, payload schema.PayloadExtraction) {
 	http := &cfg.EBPF.PayloadExtraction.HTTP
 	applyV2HTTPPayloadExtractorMembership(http, payload.Enabled)
 	http.SQLPP.EndpointPatterns = cloneStrings(payload.SQLPP.EndpointPatterns)
+	http.GenAI.OpenAICompatible.Gateways = payload.OpenAICompatible.Gateways
 	applyFullV2HTTPEnrichment(http, payload.Enrichment)
 }
 
@@ -884,6 +1134,9 @@ func applyPartialV2HTTPPayloadExtraction(cfg *obi.Config, payload schema.Payload
 	}
 	if payload.SQLPP.EndpointPatterns != nil {
 		http.SQLPP.EndpointPatterns = cloneStrings(payload.SQLPP.EndpointPatterns)
+	}
+	if payload.OpenAICompatible.Gateways != nil {
+		http.GenAI.OpenAICompatible.Gateways = payload.OpenAICompatible.Gateways
 	}
 	if !zeroValue(payload.Enrichment) {
 		applyPartialV2HTTPEnrichment(http, payload.Enrichment)
@@ -904,6 +1157,8 @@ func applyV2HTTPPayloadExtractorMembership(http *obiconfig.HTTPConfig, enabled [
 	http.GenAI.Embedding.Enabled = false
 	http.GenAI.Rerank.Enabled = false
 	http.GenAI.Retrieval.Enabled = false
+	http.GenAI.Ollama.Enabled = false
+	http.GenAI.OpenAICompatible.Enabled = false
 	http.JSONRPC.Enabled = false
 	http.Enrichment.Enabled = false
 
@@ -935,6 +1190,10 @@ func applyV2HTTPPayloadExtractorMembership(http *obiconfig.HTTPConfig, enabled [
 			http.GenAI.Rerank.Enabled = true
 		case payloadExtractorRetrieval:
 			http.GenAI.Retrieval.Enabled = true
+		case payloadExtractorOllama:
+			http.GenAI.Ollama.Enabled = true
+		case payloadExtractorOpenAICompatible:
+			http.GenAI.OpenAICompatible.Enabled = true
 		case payloadExtractorJSONRPC:
 			http.JSONRPC.Enabled = true
 		case payloadExtractorEnrichment:
@@ -946,7 +1205,7 @@ func applyV2HTTPPayloadExtractorMembership(http *obiconfig.HTTPConfig, enabled [
 func applyFullV2HTTPEnrichment(http *obiconfig.HTTPConfig, enrichment schema.HTTPEnrichment) {
 	http.Enrichment.Policy.DefaultAction.Headers = enrichment.Policy.DefaultAction.Headers
 	http.Enrichment.Policy.DefaultAction.Body = enrichment.Policy.DefaultAction.Body
-	http.Enrichment.Policy.ObfuscationString = enrichment.Policy.ObfuscationString
+	http.Enrichment.Policy.DefaultObfuscationString = enrichment.Policy.DefaultObfuscationString
 	http.Enrichment.Rules = cloneHTTPParsingRules(enrichment.Rules)
 }
 
@@ -957,8 +1216,8 @@ func applyPartialV2HTTPEnrichment(http *obiconfig.HTTPConfig, enrichment schema.
 	if !zeroValue(enrichment.Policy.DefaultAction.Body) {
 		http.Enrichment.Policy.DefaultAction.Body = enrichment.Policy.DefaultAction.Body
 	}
-	if enrichment.Policy.ObfuscationString != "" {
-		http.Enrichment.Policy.ObfuscationString = enrichment.Policy.ObfuscationString
+	if enrichment.Policy.DefaultObfuscationString != "" {
+		http.Enrichment.Policy.DefaultObfuscationString = enrichment.Policy.DefaultObfuscationString
 	}
 	if enrichment.Rules != nil {
 		http.Enrichment.Rules = cloneHTTPParsingRules(enrichment.Rules)
@@ -1494,6 +1753,11 @@ func applyFullV2Correlation(cfg *obi.Config, logTrace schema.LogTraceAnnotation)
 	} else {
 		cfg.EBPF.LogEnricher.Services = nil
 	}
+	cfg.EBPF.LogEnricher.FieldNames.TraceID = *logTrace.FieldNames.TraceID
+	cfg.EBPF.LogEnricher.FieldNames.SpanID = *logTrace.FieldNames.SpanID
+	cfg.EBPF.LogEnricher.PlainText.Enabled = *logTrace.PlainText.Enabled
+	cfg.EBPF.LogEnricher.PlainText.Placement = *logTrace.PlainText.Placement
+	cfg.EBPF.LogEnricher.PlainText.Multiline = *logTrace.PlainText.Multiline
 	cfg.EBPF.LogEnricher.CacheTTL = logTrace.Cache.TTL.TimeDuration()
 	cfg.EBPF.LogEnricher.CacheSize = logTrace.Cache.Size
 	cfg.EBPF.LogEnricher.AsyncWriterWorkers = logTrace.AsyncWriter.Workers
@@ -1505,6 +1769,21 @@ func applyPartialV2Correlation(cfg *obi.Config, logTrace schema.LogTraceAnnotati
 		cfg.EBPF.LogEnricher.Services = []obiconfig.LogEnricherServiceConfig{
 			{Service: services.GlobDefinitionCriteria{{Path: services.NewGlob("*")}}},
 		}
+	}
+	if logTrace.FieldNames.TraceID != nil {
+		cfg.EBPF.LogEnricher.FieldNames.TraceID = *logTrace.FieldNames.TraceID
+	}
+	if logTrace.FieldNames.SpanID != nil {
+		cfg.EBPF.LogEnricher.FieldNames.SpanID = *logTrace.FieldNames.SpanID
+	}
+	if logTrace.PlainText.Enabled != nil {
+		cfg.EBPF.LogEnricher.PlainText.Enabled = *logTrace.PlainText.Enabled
+	}
+	if logTrace.PlainText.Placement != nil {
+		cfg.EBPF.LogEnricher.PlainText.Placement = *logTrace.PlainText.Placement
+	}
+	if logTrace.PlainText.Multiline != nil {
+		cfg.EBPF.LogEnricher.PlainText.Multiline = *logTrace.PlainText.Multiline
 	}
 	if !zeroValue(logTrace.Cache.TTL) {
 		cfg.EBPF.LogEnricher.CacheTTL = logTrace.Cache.TTL.TimeDuration()
@@ -1521,7 +1800,15 @@ func applyPartialV2Correlation(cfg *obi.Config, logTrace schema.LogTraceAnnotati
 }
 
 func completeLogTraceAnnotation(logTrace schema.LogTraceAnnotation) bool {
-	return !zeroValue(logTrace.Cache) && !zeroValue(logTrace.AsyncWriter)
+	return logTrace.FieldNames.TraceID != nil &&
+		logTrace.FieldNames.SpanID != nil &&
+		logTrace.PlainText.Enabled != nil &&
+		logTrace.PlainText.Placement != nil &&
+		logTrace.PlainText.Multiline != nil &&
+		!zeroValue(logTrace.Cache.TTL) &&
+		logTrace.Cache.Size != 0 &&
+		logTrace.AsyncWriter.Workers != 0 &&
+		logTrace.AsyncWriter.ChannelLen != 0
 }
 
 func applyV2Daemon(cfg *obi.Config, daemon *schema.Daemon) {
@@ -1874,6 +2161,22 @@ func cloneStrings(values []string) []string {
 		return nil
 	}
 	return append([]string(nil), values...)
+}
+
+func cloneStringsPointer(values *[]string) *[]string {
+	if values == nil {
+		return nil
+	}
+	cloned := cloneStrings(*values)
+	return &cloned
+}
+
+func cloneValue[T any](value *T) *T {
+	if value == nil {
+		return nil
+	}
+	cloned := *value
+	return &cloned
 }
 
 func cloneRouteHarvesterLanguages(values []services.RouteHarvesterLanguage) []services.RouteHarvesterLanguage {

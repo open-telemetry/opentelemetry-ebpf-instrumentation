@@ -84,7 +84,7 @@ func ReadTCPRequestIntoSpan(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, 
 func dispatchKernelAssignedProtocol(parseCtx *EBPFParseContext, event *TCPRequestInfo, requestBuffer, responseBuffer *largebuf.LargeBuffer) (request.Span, bool, bool, error) {
 	switch event.ProtocolType {
 	case ProtocolTypeKafka:
-		return dispatchKafka(event, requestBuffer, responseBuffer, parseCtx.kafkaTopicUUIDToName)
+		return dispatchKafka(parseCtx, event, requestBuffer, responseBuffer, parseCtx.kafkaTopicUUIDToName)
 	case ProtocolTypeMQTT:
 		return dispatchMQTT(event, requestBuffer, responseBuffer)
 	case ProtocolTypeMySQL:
@@ -100,18 +100,54 @@ func dispatchKernelAssignedProtocol(parseCtx *EBPFParseContext, event *TCPReques
 	return request.Span{}, false, false, nil
 }
 
-func dispatchKafka(event *TCPRequestInfo, requestBuffer, responseBuffer *largebuf.LargeBuffer, kafkaTopicUUIDToName *simplelru.LRU[kafkaparser.UUID, string]) (request.Span, bool, bool, error) {
-	k, ignore, err := ProcessPossibleKafkaEvent(event, requestBuffer, responseBuffer, kafkaTopicUUIDToName)
+// handleKafkaEvent runs the common Kafka parse-and-emit path shared by dispatchKafka and
+// matchKafkaFallback. On a parse failure it returns the raw error; the caller decides whether
+// to surface it (classified packet) or swallow it as "not Kafka" (fallback path).
+func handleKafkaEvent(parseCtx *EBPFParseContext, event *TCPRequestInfo, requestBuffer, responseBuffer *largebuf.LargeBuffer, kafkaTopicUUIDToName *simplelru.LRU[kafkaparser.UUID, string]) (request.Span, bool, bool, error) {
+	infos, ignore, err := ProcessPossibleKafkaEvent(event, requestBuffer, responseBuffer, kafkaTopicUUIDToName)
 
 	if ignore && err == nil {
 		return request.Span{}, true, true, nil // parsed kafka event, but we don't want to create a span for it
 	}
 
 	if err == nil {
-		return TCPToKafkaToSpan(event, k), false, true, nil
+		if span, ok := kafkaSpanEmittingExtras(parseCtx, event, infos); ok {
+			return span, false, true, nil
+		}
+		return request.Span{}, true, true, nil // no topics to report
 	}
 
-	return request.Span{}, true, true, fmt.Errorf("failed to handle Kafka event: %w", err)
+	return request.Span{}, false, false, err
+}
+
+func dispatchKafka(parseCtx *EBPFParseContext, event *TCPRequestInfo, requestBuffer, responseBuffer *largebuf.LargeBuffer, kafkaTopicUUIDToName *simplelru.LRU[kafkaparser.UUID, string]) (request.Span, bool, bool, error) {
+	span, ignore, matched, err := handleKafkaEvent(parseCtx, event, requestBuffer, responseBuffer, kafkaTopicUUIDToName)
+	if err != nil {
+		return request.Span{}, true, true, fmt.Errorf("failed to handle Kafka event: %w", err)
+	}
+	return span, ignore, matched, nil
+}
+
+// kafkaSpanEmittingExtras turns the per-topic KafkaInfos of one Produce/Fetch request into spans.
+// A request can reference multiple topics; we return the span for the first topic and emit the rest
+// as extra spans (each gets a fresh SpanID downstream, since they share the event's trace context).
+func kafkaSpanEmittingExtras(parseCtx *EBPFParseContext, event *TCPRequestInfo, infos []*KafkaInfo) (request.Span, bool) {
+	if len(infos) == 0 {
+		return request.Span{}, false
+	}
+	primary := TCPToKafkaToSpan(event, infos[0])
+	if len(infos) > 1 {
+		extra := make([]request.Span, 0, len(infos)-1)
+		for _, info := range infos[1:] {
+			s := TCPToKafkaToSpan(event, info)
+			// Zero the SpanID so the pipeline assigns a unique one; otherwise every
+			// topic span from this request would share the event's SpanID.
+			s.SpanID = trace.SpanID{}
+			extra = append(extra, s)
+		}
+		parseCtx.emitExtraSpans(extra...)
+	}
+	return primary, true
 }
 
 func dispatchMQTT(event *TCPRequestInfo, requestBuffer, responseBuffer *largebuf.LargeBuffer) (request.Span, bool, bool, error) {
@@ -225,21 +261,21 @@ func matchSQL(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, event *TCPRequ
 		return span, ignore, matched, err
 	}
 
-	op, table, sql, kind := detectSQLPayload(cfg.HeuristicSQLDetect, requestBuffer)
+	op, tables, sql, kind := detectSQLPayload(cfg.HeuristicSQLDetect, requestBuffer)
 
-	if validSQL(op, table, kind) {
-		span := TCPToSQLToSpan(event, op, table, sql, kind, "", nil)
+	if validSQL(op, len(tables) > 0, kind) {
+		span := TCPToSQLToSpan(event, op, tables, sql, kind, "", nil)
 		if kind == request.DBPostgres {
 			span.DBNamespace = postgresDBForConn(parseCtx, event.ConnInfo)
 		}
 		return span, false, true, nil
 	}
 
-	op, table, sql, kind = detectSQLPayload(cfg.HeuristicSQLDetect, responseBuffer)
+	op, tables, sql, kind = detectSQLPayload(cfg.HeuristicSQLDetect, responseBuffer)
 
-	if validSQL(op, table, kind) {
+	if validSQL(op, len(tables) > 0, kind) {
 		reverseTCPEvent(event)
-		span := TCPToSQLToSpan(event, op, table, sql, kind, "", nil)
+		span := TCPToSQLToSpan(event, op, tables, sql, kind, "", nil)
 		if kind == request.DBPostgres {
 			span.DBNamespace = postgresDBForConn(parseCtx, event.ConnInfo)
 		}
@@ -328,7 +364,7 @@ func detectHeuristicProtocol(parseCtx *EBPFParseContext, event *TCPRequestInfo, 
 	}
 
 	// Kafka can arrive here for packets the kernel couldn't classify (e.g. OBI attached mid-connection).
-	if span, ignore, matched, err := matchKafkaFallback(event, requestBuffer, responseBuffer, parseCtx.kafkaTopicUUIDToName); matched {
+	if span, ignore, matched, err := matchKafkaFallback(parseCtx, event, requestBuffer, responseBuffer, parseCtx.kafkaTopicUUIDToName); matched {
 		return span, ignore, matched, err
 	}
 
@@ -378,35 +414,57 @@ func matchRedis(parseCtx *EBPFParseContext, event *TCPRequestInfo, requestBuffer
 		return request.Span{}, false, false, nil
 	}
 
-	op, text, ok := parseRedisRequest(requestBuffer.UnsafeView())
+	cmds := parseRedisCommands(requestBuffer.UnsafeView())
+	reversed := false
 
-	if !ok {
-		return request.Span{}, false, false, nil
-	}
-
-	var status int
-	var redisErr request.DBError
-
-	if op == "" {
-		op, text, ok = parseRedisRequest(responseBuffer.UnsafeView())
-		if !ok || op == "" {
-			return request.Span{}, true, true, nil // ignore if we couldn't parse it
+	// mid-flight attach can swap buffer roles (blocking-command replies arrive
+	// receive-first); the side holding a known command word wins
+	if len(cmds) == 0 || !isKnownRedisOp(cmds[0].op) {
+		if respCmds := parseRedisCommands(responseBuffer.UnsafeView()); len(respCmds) > 0 &&
+			(len(cmds) == 0 || isKnownRedisOp(respCmds[0].op)) {
+			cmds = respCmds
+			reversed = true
+			reverseTCPEvent(event)
 		}
-		// We've caught the event reversed in the middle of communication, let's
-		// reverse the event
-		reverseTCPEvent(event)
-		redisErr, status = redisStatus(requestBuffer)
-	} else {
-		redisErr, status = redisStatus(responseBuffer)
 	}
 
-	db, found := getRedisDB(event.ConnInfo, op, text, parseCtx.redisDBCache)
-
-	if !found {
-		db = -1 // if we don't have the db in cache, we assume it's not set
+	if len(cmds) == 0 {
+		return request.Span{}, true, true, nil // redis reply traffic with no command to attribute
 	}
 
-	return TCPToRedisToSpan(event, op, text, status, db, redisErr), false, true, nil
+	// reversed events pair the commands with a stale reply, so statuses are unknowable
+	var replies []redisReply
+	if !reversed {
+		replies = parseRedisReplies(responseBuffer.UnsafeView(), len(cmds))
+	}
+
+	spans := make([]request.Span, 0, len(cmds))
+	for i := range cmds {
+		cmd := &cmds[i]
+
+		status := 0
+		var redisErr request.DBError
+		if i < len(replies) {
+			status, redisErr = replies[i].status, replies[i].dbError
+		}
+
+		db, found := getRedisDB(event.ConnInfo, cmd.op, cmd.text, parseCtx.redisDBCache)
+		if !found {
+			db = -1 // if we don't have the db in cache, we assume it's not set
+		}
+
+		spans = append(spans, TCPToRedisToSpan(event, cmd.op, cmd.text, status, db, redisErr))
+	}
+
+	if len(spans) > 1 {
+		// clear SpanID on extras so tracesgen assigns fresh IDs
+		for i := 1; i < len(spans); i++ {
+			spans[i].SpanID = trace.SpanID{}
+		}
+		parseCtx.emitExtraSpans(spans[1:]...)
+	}
+
+	return spans[0], false, true, nil
 }
 
 func matchMemcached(parseCtx *EBPFParseContext, event *TCPRequestInfo, requestBuffer, responseBuffer *largebuf.LargeBuffer) (request.Span, bool, bool, error) {
@@ -526,18 +584,12 @@ func matchMQTT(event *TCPRequestInfo, requestBuffer, responseBuffer *largebuf.La
 
 // matchKafkaFallback handles Kafka for unclassified packets (e.g. when the kernel missed the
 // connection start). Unlike dispatchKafka, errors here mean "not Kafka" — no error is surfaced.
-func matchKafkaFallback(event *TCPRequestInfo, requestBuffer, responseBuffer *largebuf.LargeBuffer, kafkaTopicUUIDToName *simplelru.LRU[kafkaparser.UUID, string]) (request.Span, bool, bool, error) { //nolint:unparam
-	k, ignore, err := ProcessPossibleKafkaEvent(event, requestBuffer, responseBuffer, kafkaTopicUUIDToName)
-
-	if ignore && err == nil {
-		return request.Span{}, true, true, nil // parsed kafka event, but we don't want to create a span for it
+func matchKafkaFallback(parseCtx *EBPFParseContext, event *TCPRequestInfo, requestBuffer, responseBuffer *largebuf.LargeBuffer, kafkaTopicUUIDToName *simplelru.LRU[kafkaparser.UUID, string]) (request.Span, bool, bool, error) { //nolint:unparam
+	span, ignore, matched, err := handleKafkaEvent(parseCtx, event, requestBuffer, responseBuffer, kafkaTopicUUIDToName)
+	if err != nil {
+		return request.Span{}, false, false, nil // parse failed on an unclassified packet — treat as "not Kafka"
 	}
-
-	if err == nil {
-		return TCPToKafkaToSpan(event, k), false, true, nil
-	}
-
-	return request.Span{}, false, false, nil
+	return span, ignore, matched, nil
 }
 
 func getBuffers(parseCtx *EBPFParseContext, event *TCPRequestInfo) (req *largebuf.LargeBuffer, resp *largebuf.LargeBuffer) {

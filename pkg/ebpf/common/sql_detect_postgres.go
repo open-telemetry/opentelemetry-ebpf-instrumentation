@@ -364,9 +364,10 @@ func (it *postgresMessageIterator) next() (msg postgresMessage) {
 
 func handlePostgres(parseCtx *EBPFParseContext, event *TCPRequestInfo, requestBuffer, responseBuffer *largebuf.LargeBuffer) (request.Span, error) {
 	var (
-		hasSpan         bool
-		op, table, stmt string
-		span            request.Span
+		hasSpan  bool
+		op, stmt string
+		tables   []string
+		span     request.Span
 	)
 
 	reqR := requestBuffer.NewReader()
@@ -402,7 +403,7 @@ Loop:
 
 		switch msg.typ {
 		case "QUERY":
-			op, table, stmt = detectSQL(msg.data)
+			op, tables, stmt = detectSQL(msg.data)
 			hasSpan = true
 			break Loop
 		case "PARSE":
@@ -455,7 +456,7 @@ Loop:
 				continue
 			}
 
-			op, table = sqlprune.SQLParseOperationAndTable(stmt)
+			op, tables = sqlprune.SQLParseOperationAndTables(stmt)
 			hasSpan = true
 			break Loop
 		default:
@@ -467,13 +468,13 @@ Loop:
 		return span, errIgnore
 	}
 
-	if !validSQL(op, table, request.DBPostgres) {
+	if !validSQL(op, len(tables) > 0, request.DBPostgres) {
 		// This can happen for stuff like 'BEGIN', etc.
 		slog.Debug("Postgres operation and/or table are invalid", "stmt", stmt)
 		return span, errFallback
 	}
 
-	span = TCPToSQLToSpan(event, op, table, stmt, request.DBPostgres, msg.typ, sqlError)
+	span = TCPToSQLToSpan(event, op, tables, stmt, request.DBPostgres, msg.typ, sqlError)
 	span.DBNamespace = postgresDBForConn(parseCtx, event.ConnInfo)
 	return span, nil
 }

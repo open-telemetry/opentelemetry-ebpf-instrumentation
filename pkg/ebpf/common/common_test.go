@@ -13,6 +13,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 )
 
 // GetBuildTags returns a slice of the build tags used to compile the binary.
@@ -87,4 +89,25 @@ func TestLockdownParsing(t *testing.T) {
 	setIntegrity(t, path, "[none] integrity confidentiality\n")
 	setNotReadable(t, path)
 	assert.Equal(t, KernelLockdownIntegrity, KernelLockdownMode())
+}
+
+// TestIsH2CPrefacePseudoRequest pins that the HTTP/2 connection preface
+// ("PRI * HTTP/2.0"), which Go's h2c path surfaces as a literal request, is
+// recognized (and thus dropped by ReadBPFTraceAsSpan) while real requests
+// are not.
+func TestIsH2CPrefacePseudoRequest(t *testing.T) {
+	preface := request.Span{Type: request.EventTypeHTTP, Method: "PRI", Path: "*"}
+	assert.True(t, isH2CPrefacePseudoRequest(&preface))
+
+	clientPreface := request.Span{Type: request.EventTypeHTTPClient, Method: "PRI", Path: "*"}
+	assert.True(t, isH2CPrefacePseudoRequest(&clientPreface))
+
+	for _, span := range []request.Span{
+		{Type: request.EventTypeHTTP, Method: "GET", Path: "*"},
+		{Type: request.EventTypeHTTP, Method: "PRI", Path: "/pri"},
+		{Type: request.EventTypeHTTP, Method: "GET", Path: "/users"},
+		{Type: request.EventTypeKafkaClient, Method: "PRI", Path: "*"},
+	} {
+		assert.False(t, isH2CPrefacePseudoRequest(&span), "span %+v must not be dropped", span)
+	}
 }

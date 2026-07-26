@@ -103,6 +103,7 @@ Most v1→v2 mappings are 1:1 moves and renames (see the [v1→v2 mapping table]
 A small set of mappings are structurally non-trivial:
 
 - **Fan-out**: `filter.application` fans out to per-protocol `capture.instrumentation.<protocol>.filters.{traces,metrics}`. The migration tool applies the v1 value as the default for all protocols and emits a mapping report explaining the fan-out.
+- **Directional fan-out**: each flat v1 global `routes` field is copied into both `capture.instrumentation.http.routes.incoming` and `.outgoing`. Existing per-service `routes.incoming` and `routes.outgoing` patterns retain their direction under `capture.rules[].refine.http.routes`. Omitted per-service fields inherit their matching global direction; explicit arrays replace inherited arrays.
 - **Shape change**: `discovery.excluded_linux_system_paths` and `discovery.exclude_otel_instrumented_services` are rewritten into structured rule entries under `capture.rules`. The migration tool generates these entries and flags them for operator review.
 - **Inverted boolean**: `discovery.skip_go_specific_tracers: true` maps to `capture.runtimes.go.enabled: false`. The migration tool applies the inversion and emits a note.
 - **Sampler**: `otel_traces_export.sampler.name` and `.arg` migrate to `tracer_provider.sampler`. Simple cases (e.g., `always_on`, `trace_id_ratio_based`) map directly to built-in OTel declarative sampler types. Custom or workload-specific sampler configs may require operator intervention and use of the `obi_rule_based` sampler plugin.

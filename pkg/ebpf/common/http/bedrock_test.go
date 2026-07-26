@@ -95,8 +95,8 @@ func TestBedrockSpan_Claude(t *testing.T) {
 	ai := span.GenAI.Bedrock
 	assert.Equal(t, request.HTTPSubtypeAWSBedrock, span.SubType)
 	assert.Equal(t, "anthropic.claude-3-5-sonnet-20241022-v1:0", ai.Model)
-	assert.Equal(t, 25, ai.Output.InputTokens)
-	assert.Equal(t, 18, ai.Output.OutputTokens)
+	assert.Equal(t, 25, tokenValue(ai.Output.InputTokens))
+	assert.Equal(t, 18, tokenValue(ai.Output.OutputTokens))
 	assert.Equal(t, "end_turn", ai.Output.StopReason)
 	assert.NotEmpty(t, ai.GetInput())
 	assert.NotEmpty(t, ai.GetOutput())
@@ -122,8 +122,8 @@ func TestBedrockSpan_Titan(t *testing.T) {
 
 	ai := span.GenAI.Bedrock
 	assert.Equal(t, "amazon.titan-text-premier-v1:0", ai.Model)
-	assert.Equal(t, 8, ai.Output.InputTokens)
-	assert.Equal(t, 6, ai.Output.OutputTokens)
+	assert.Equal(t, 8, tokenValue(ai.Output.InputTokens))
+	assert.Equal(t, 6, tokenValue(ai.Output.OutputTokens))
 	assert.JSONEq(t, `[{"role":"user","parts":[{"type":"text","content":"Explain eBPF briefly."}]}]`, ai.GetInput())
 	assert.JSONEq(t, `[{"role":"assistant","parts":[{"type":"text","content":"eBPF is a kernel technology."}],"finish_reason":"FINISH"}]`, ai.GetOutput())
 }
@@ -146,8 +146,8 @@ func TestBedrockSpan_Llama(t *testing.T) {
 
 	ai := span.GenAI.Bedrock
 	assert.Equal(t, "meta.llama3-1-70b-instruct-v1:0", ai.Model)
-	assert.Equal(t, 10, ai.Output.InputTokens)
-	assert.Equal(t, 8, ai.Output.OutputTokens)
+	assert.Equal(t, 10, tokenValue(ai.Output.InputTokens))
+	assert.Equal(t, 8, tokenValue(ai.Output.OutputTokens))
 	assert.JSONEq(t, `[{"role":"user","parts":[{"type":"text","content":"Explain eBPF briefly."}]}]`, ai.GetInput())
 	assert.JSONEq(t, `[{"role":"assistant","parts":[{"type":"text","content":"eBPF enables safe kernel-level programs."}],"finish_reason":"stop"}]`, ai.GetOutput())
 }
@@ -168,10 +168,134 @@ func TestBedrockSpan_ErrorResponse(t *testing.T) {
 
 	ai := span.GenAI.Bedrock
 	assert.Equal(t, "anthropic.claude-nonexistent", ai.Model)
-	assert.Equal(t, 0, ai.Output.InputTokens)
-	assert.Equal(t, 0, ai.Output.OutputTokens)
+	assert.Equal(t, 0, tokenValue(ai.Output.InputTokens))
+	assert.Equal(t, 0, tokenValue(ai.Output.OutputTokens))
 	assert.Equal(t, "ValidationException", ai.Output.ErrorType)
 	assert.NotEmpty(t, ai.Output.ErrorMessage)
+	assert.False(t, isReported(span.GenAIInputTokenCount()))
+	assert.False(t, isReported(span.GenAIOutputTokenCount()))
+}
+
+func TestBedrockSpan_ExplicitZeroHeaders(t *testing.T) {
+	headers := bedrockSuccessHeaders()
+	headers.Set("X-Amzn-Bedrock-Input-Token-Count", "0")
+	headers.Set("X-Amzn-Bedrock-Output-Token-Count", "0")
+	req := makeRequest(t, http.MethodPost,
+		"https://bedrock-runtime.us-east-1.amazonaws.com/model/anthropic.claude-v2/invoke",
+		bedrockClaudeRequestBody)
+	resp := makePlainResponse(http.StatusOK, headers, bedrockClaudeResponseBody)
+
+	span, ok := BedrockSpan(&request.Span{}, req, resp)
+	require.True(t, ok)
+	assert.True(t, isReported(span.GenAIInputTokenCount()))
+	assert.True(t, isReported(span.GenAIOutputTokenCount()))
+	assert.Zero(t, reportedValue(span.GenAIInputTokenCount()))
+	assert.Zero(t, reportedValue(span.GenAIOutputTokenCount()))
+}
+
+func TestBedrockSpan_ConverseUsage(t *testing.T) {
+	req := makeRequest(t, http.MethodPost,
+		"https://bedrock-runtime.us-east-1.amazonaws.com/model/anthropic.claude-v2/converse",
+		bedrockClaudeRequestBody)
+	resp := makePlainResponse(http.StatusOK, http.Header{"Content-Type": []string{"application/json"}}, `{
+		"output":{"message":{"role":"assistant","content":[{"text":"ok"}]}},
+		"stopReason":"end_turn",
+		"usage":{
+			"inputTokens":5,
+			"outputTokens":4,
+			"totalTokens":14,
+			"cacheReadInputTokens":2,
+			"cacheWriteInputTokens":3,
+			"cacheDetails":[{"inputTokens":0,"ttl":"5m"}]
+		}
+	}`)
+
+	span, ok := BedrockSpan(&request.Span{}, req, resp)
+	require.True(t, ok)
+	assert.Equal(t, 10, reportedValue(span.GenAIInputTokenCount()))
+	assert.Equal(t, 4, reportedValue(span.GenAIOutputTokenCount()))
+	assertTokenCount(t, span.GenAI.Bedrock.Output.Usage.CacheReadInputTokens, 2, true)
+	assertTokenCount(t, span.GenAI.Bedrock.Output.Usage.CacheWriteInputTokens, 3, true)
+	require.Len(t, span.GenAI.Bedrock.Output.Usage.CacheDetails, 1)
+	assertTokenCount(t, span.GenAI.Bedrock.Output.Usage.CacheDetails[0].InputTokens, 0, true)
+}
+
+func TestBedrockSpan_UsageAfterMalformedEnvelopeField(t *testing.T) {
+	req := makeRequest(t, http.MethodPost,
+		"https://bedrock-runtime.us-east-1.amazonaws.com/model/anthropic.claude-v2/converse",
+		bedrockClaudeRequestBody)
+	resp := makePlainResponse(http.StatusOK, http.Header{"Content-Type": []string{"application/json"}},
+		`{"output":[],"usage":{"inputTokens":0,"outputTokens":7}}`)
+
+	span, ok := BedrockSpan(&request.Span{}, req, resp)
+	require.True(t, ok)
+	assertTokenCount(t, span.GenAI.Bedrock.Output.Usage.InputTokens, 0, true)
+	assertTokenCount(t, span.GenAI.Bedrock.Output.Usage.OutputTokens, 7, true)
+}
+
+func TestBedrockSpan_ModelCountsAfterMalformedEnvelopeField(t *testing.T) {
+	req := makeRequest(t, http.MethodPost,
+		"https://bedrock-runtime.us-east-1.amazonaws.com/model/meta.llama3-70b-instruct-v1:0/invoke",
+		bedrockLlamaRequestBody)
+	resp := makePlainResponse(http.StatusOK, http.Header{"Content-Type": []string{"application/json"}},
+		`{"stop_reason":{},"prompt_token_count":0,"generation_token_count":7}`)
+
+	span, ok := BedrockSpan(&request.Span{}, req, resp)
+	require.True(t, ok)
+	assertTokenCount(t, span.GenAI.Bedrock.Output.PromptTokenCount, 0, true)
+	assertTokenCount(t, span.GenAI.Bedrock.Output.GenerationTokenCount, 7, true)
+}
+
+func TestBedrockSpan_UsageBeforeOuterTruncation(t *testing.T) {
+	req := makeRequest(t, http.MethodPost,
+		"https://bedrock-runtime.us-east-1.amazonaws.com/model/anthropic.claude-v2/converse",
+		bedrockClaudeRequestBody)
+	resp := makePlainResponse(http.StatusOK, http.Header{"Content-Type": []string{"application/json"}},
+		`{"usage":{"inputTokens":7,"outputTokens":"invalid","cacheReadInputTokens":0},"output":[`)
+
+	span, ok := BedrockSpan(&request.Span{}, req, resp)
+	require.True(t, ok)
+	assert.Equal(t, 7, reportedValue(span.GenAIInputTokenCount()))
+	assert.False(t, isReported(span.GenAIOutputTokenCount()))
+	assertTokenCount(t, span.GenAI.Bedrock.Output.Usage.CacheReadInputTokens, 0, true)
+}
+
+func TestBedrockSpan_NegativeTokenHeaders(t *testing.T) {
+	headers := bedrockSuccessHeaders()
+	headers.Set("X-Amzn-Bedrock-Input-Token-Count", "-1")
+	headers.Set("X-Amzn-Bedrock-Output-Token-Count", "-2")
+	req := makeRequest(t, http.MethodPost,
+		"https://bedrock-runtime.us-east-1.amazonaws.com/model/anthropic.claude-v2/invoke",
+		bedrockClaudeRequestBody)
+	resp := makePlainResponse(http.StatusOK, headers, bedrockClaudeResponseBody)
+
+	span, ok := BedrockSpan(&request.Span{}, req, resp)
+	require.True(t, ok)
+	assert.True(t, isReported(span.GenAIInputTokenCount()))
+	assert.True(t, isReported(span.GenAIOutputTokenCount()))
+	assert.Equal(t, 25, reportedValue(span.GenAIInputTokenCount()))
+	assert.Equal(t, 18, reportedValue(span.GenAIOutputTokenCount()))
+}
+
+func TestBedrockSpan_InvalidTokenHeaderPreservesValidSibling(t *testing.T) {
+	for _, invalid := range []string{`+1`, `1.5`, `1e2`, `"1"`, `null`, `18446744073709551616`} {
+		t.Run(invalid, func(t *testing.T) {
+			headers := bedrockSuccessHeaders()
+			headers.Set("X-Amzn-Bedrock-Input-Token-Count", invalid)
+			headers.Set("X-Amzn-Bedrock-Output-Token-Count", "7")
+			req := makeRequest(t, http.MethodPost,
+				"https://bedrock-runtime.us-east-1.amazonaws.com/model/anthropic.claude-v2/invoke",
+				bedrockClaudeRequestBody)
+			resp := makePlainResponse(http.StatusOK, headers, bedrockClaudeResponseBody)
+
+			span, ok := BedrockSpan(&request.Span{}, req, resp)
+			require.True(t, ok)
+			assert.True(t, isReported(span.GenAIInputTokenCount()))
+			assert.Equal(t, 25, reportedValue(span.GenAIInputTokenCount()))
+			assert.True(t, isReported(span.GenAIOutputTokenCount()))
+			assert.Equal(t, 7, reportedValue(span.GenAIOutputTokenCount()))
+		})
+	}
 }
 
 func TestBedrockSpan_NotBedrock(t *testing.T) {

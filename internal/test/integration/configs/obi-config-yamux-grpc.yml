@@ -1,0 +1,10 @@
+routes:
+  unmatched: heuristic
+otel_traces_export:
+  endpoint: http://jaeger:4318
+discovery:
+  services:
+    - name: yamux-server
+      open_ports: 50051
+    - name: yamux-client
+      open_ports: 8081
