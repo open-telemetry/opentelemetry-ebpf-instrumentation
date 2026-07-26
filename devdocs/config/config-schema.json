@@ -1732,6 +1732,107 @@
       },
       "type": "object"
     },
+    "LogsConfig": {
+      "properties": {
+        "backoff_initial_interval": {
+          "type": "string",
+          "pattern": "^[0-9]+(ms|s|m)$",
+          "description": "Configuration options for BackOffConfig of the logs exporter. See https://github.com/open-telemetry/opentelemetry-collector/blob/main/config/configretry/backoff.go Namespaced per-signal (unlike TracesConfig's generically-named equivalents) since this is a new signal and there's no existing precedent of these being intentionally shared across signals.",
+          "default": "0s",
+          "examples": [
+            "30s",
+            "5m",
+            "1ms"
+          ],
+          "x-env-var": "OTEL_EBPF_LOGS_BACKOFF_INITIAL_INTERVAL"
+        },
+        "backoff_max_elapsed_time": {
+          "type": "string",
+          "pattern": "^[0-9]+(ms|s|m)$",
+          "default": "0s",
+          "examples": [
+            "30s",
+            "5m",
+            "1ms"
+          ],
+          "x-env-var": "OTEL_EBPF_LOGS_BACKOFF_MAX_ELAPSED_TIME"
+        },
+        "backoff_max_interval": {
+          "type": "string",
+          "pattern": "^[0-9]+(ms|s|m)$",
+          "default": "0s",
+          "examples": [
+            "30s",
+            "5m",
+            "1ms"
+          ],
+          "x-env-var": "OTEL_EBPF_LOGS_BACKOFF_MAX_INTERVAL"
+        },
+        "batch_max_size": {
+          "type": "integer",
+          "description": "Is the maximum number of log records that the batcher will accumulate before flushing a batch to the sending queue.",
+          "default": 0,
+          "x-env-var": "OTEL_EBPF_OTLP_LOGS_BATCH_MAX_SIZE"
+        },
+        "batch_timeout": {
+          "type": "string",
+          "pattern": "^[0-9]+(ms|s|m)$",
+          "description": "Is the time after which a batch will be sent regardless of its size.",
+          "default": "0s",
+          "examples": [
+            "30s",
+            "5m",
+            "1ms"
+          ],
+          "x-env-var": "OTEL_EBPF_OTLP_LOGS_BATCH_TIMEOUT"
+        },
+        "endpoint": {
+          "type": "string",
+          "format": "uri",
+          "x-env-var": "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT"
+        },
+        "insecure_skip_verify": {
+          "type": "boolean",
+          "description": "Enables skipping TLS certificate verification (not standard, so we don't follow the same naming convention)",
+          "default": false,
+          "x-env-var": "OTEL_EBPF_INSECURE_SKIP_VERIFY"
+        },
+        "otel_sdk_log_level": {
+          "type": "string",
+          "description": "Is intentionally the SAME env var as TracesConfig/MetricsConfig's field of the same name — this is an existing shared, not per-signal, knob.",
+          "x-env-var": "OTEL_EBPF_SDK_LOG_LEVEL"
+        },
+        "protocol": {
+          "type": "string",
+          "enum": [
+            "",
+            "debug",
+            "grpc",
+            "http/json",
+            "http/protobuf"
+          ],
+          "x-env-var": "OTEL_EXPORTER_OTLP_PROTOCOL"
+        },
+        "queue_processing_logs": {
+          "type": "boolean",
+          "description": "Replaces the \"in queue\"/\"processing\" sub-spans in the traces pipeline with a single combined log record per request (only emitted when there was an observable queue gap), correlated to the parent span via the log record's trace_id/span_id. Takes effect only when the logs exporter is also enabled — see Config.QueueProcessingAsLogsEnabled.",
+          "default": false,
+          "x-env-var": "OTEL_EBPF_QUEUE_PROCESSING_LOGS"
+        },
+        "queue_size": {
+          "type": "integer",
+          "description": "Is the maximum number of log records that the sending queue will hold before applying back-pressure. It must be >= `2 * BatchMaxSize`, otherwise the memory queue rejects every batch with \"element size too large\" and drops log records permanently. If left at 0 it defaults to `4 * BatchMaxSize`.",
+          "default": 0,
+          "x-env-var": "OTEL_EBPF_OTLP_LOGS_QUEUE_SIZE"
+        },
+        "reporters_cache_len": {
+          "type": "integer",
+          "default": 0,
+          "x-env-var": "OTEL_EBPF_LOGS_REPORT_CACHE_LEN"
+        }
+      },
+      "type": "object"
+    },
     "MCPConfig": {
       "properties": {
         "enabled": {
@@ -3130,6 +3231,9 @@
       "$ref": "#/$defs/IntEnum",
       "description": "Allows selecting the instrumented executable that owns the Port value. If this value is set (and different to zero), the value of the Exec property won't take effect. It's important to emphasize that if your process opens multiple HTTP/GRPC ports, the auto-instrumenter will instrument all the service calls in all the ports, not only the port specified here.",
       "x-env-var": "OTEL_EBPF_OPEN_PORT"
+    },
+    "otel_logs_export": {
+      "$ref": "#/$defs/LogsConfig"
     },
     "otel_metrics_export": {
       "$ref": "#/$defs/MetricsConfig"
