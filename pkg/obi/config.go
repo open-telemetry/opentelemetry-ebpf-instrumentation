@@ -374,6 +374,7 @@ type Config struct {
 	NameResolver *transform.NameResolverConfig `yaml:"name_resolver"`
 	OTELMetrics  otelcfg.MetricsConfig         `yaml:"otel_metrics_export"`
 	Traces       otelcfg.TracesConfig          `yaml:"otel_traces_export"`
+	Logs         otelcfg.LogsConfig            `yaml:"otel_logs_export"`
 	Prometheus   prom.PrometheusConfig         `yaml:"prometheus_export"`
 	TracePrinter debug.TracePrinter            `yaml:"trace_printer" env:"OTEL_EBPF_TRACE_PRINTER"`
 
@@ -759,9 +760,14 @@ func (c *Config) validate(context validationContext) error {
 		return ConfigError(err.Error())
 	}
 
+	if err := c.Logs.NormalizeQueueConfig(); err != nil {
+		return ConfigError(err.Error())
+	}
+
 	networkEnabled := c.enabledForValidation(FeatureNetO11y, context)
 	applicationEnabled := c.enabledForValidation(FeatureAppO11y, context)
 	statsEnabled := c.enabledForValidation(FeatureStatsO11y, context)
+
 	if !networkEnabled && !applicationEnabled && !statsEnabled {
 		return ConfigError("at least one of 'network', 'application' or 'stats' features must be enabled. " +
 			"Enable an OpenTelemetry or Prometheus metrics export, then enable any of the network*, application* or stats*" +
@@ -880,6 +886,16 @@ func (c *Config) Enabled(feature Feature) bool {
 func (c *Config) SpanMetricsEnabledForTraces() bool {
 	return c.Metrics.Features.AnySpanMetrics() &&
 		(c.OTELMetrics.EndpointEnabled() || c.Prometheus.EndpointEnabled())
+}
+
+// QueueProcessingAsLogsEnabled reports whether the "in queue"/"processing"
+// sub-spans should be suppressed in favor of a single combined log record.
+// Gating on c.Logs.Enabled() first means a user who sets the toggle without
+// configuring a logs endpoint never silently loses the queue/processing
+// timing data — the spans keep flowing until there's somewhere for the
+// replacement log record to go.
+func (c *Config) QueueProcessingAsLogsEnabled() bool {
+	return c.Logs.Enabled() && c.Logs.QueueProcessingLogs
 }
 
 // ExternalLogger sets the logging capabilities of OBI.

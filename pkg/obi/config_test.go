@@ -295,6 +295,9 @@ discovery:
 				// no traces for DNS and GPU by default
 			},
 		},
+		Logs: otelcfg.LogsConfig{
+			CommonEndpoint: "localhost:3131",
+		},
 		Prometheus: prom.PrometheusConfig{
 			Path: "/metrics",
 			Instrumentations: []instrumentations.Instrumentation{
@@ -489,6 +492,28 @@ func TestConfig_JVMRuntimeMetricsDefaults(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, time.Second, cfg.JVMRuntimeMetrics.SamplingInterval)
+}
+
+func TestConfig_QueueProcessingAsLogsEnabled(t *testing.T) {
+	t.Run("disabled by default", func(t *testing.T) {
+		cfg := &Config{}
+		assert.False(t, cfg.QueueProcessingAsLogsEnabled())
+	})
+
+	t.Run("toggle set but no logs endpoint configured", func(t *testing.T) {
+		cfg := &Config{Logs: otelcfg.LogsConfig{QueueProcessingLogs: true}}
+		assert.False(t, cfg.QueueProcessingAsLogsEnabled(), "must not suppress spans without a place to send the replacement log")
+	})
+
+	t.Run("toggle set and logs endpoint configured", func(t *testing.T) {
+		cfg := &Config{Logs: otelcfg.LogsConfig{QueueProcessingLogs: true, LogsEndpoint: "http://localhost:4318"}}
+		assert.True(t, cfg.QueueProcessingAsLogsEnabled())
+	})
+
+	t.Run("logs endpoint configured but toggle off", func(t *testing.T) {
+		cfg := &Config{Logs: otelcfg.LogsConfig{LogsEndpoint: "http://localhost:4318"}}
+		assert.False(t, cfg.QueueProcessingAsLogsEnabled())
+	})
 }
 
 func TestConfig_JVMRuntimeMetricsFromEnv(t *testing.T) {
