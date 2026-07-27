@@ -5,17 +5,23 @@ package tracesgen
 
 import (
 	"encoding/json"
+	"math"
 	"testing"
 	"time"
 
+	expirable2 "github.com/hashicorp/golang-lru/v2/expirable"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/ptrace"
+	"go.opentelemetry.io/otel/attribute"
 	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
+	trace2 "go.opentelemetry.io/otel/trace"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
+	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
+	"go.opentelemetry.io/obi/pkg/appolly/meta"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 )
@@ -533,6 +539,318 @@ func TestTraceAttributesSelector_OpenAICompatible(t *testing.T) {
 		require.True(t, ok)
 		assert.Equal(t, request.CompletionOperationName, opName.Str())
 	})
+}
+
+func TestGenerateTracesWithAttributesManualOTelJSON(t *testing.T) {
+	payload := manualOTelPayload(t)
+	service := &svc.Attrs{
+		UID:         svc.UID{Name: "checkout"},
+		SDKLanguage: svc.InstrumentableGolang,
+	}
+	cache := expirable2.NewLRU[svc.UID, []attribute.KeyValue](10, nil, 0)
+
+	traces := GenerateTracesWithAttributes(
+		cache,
+		service,
+		nil,
+		&meta.NodeMeta{},
+		[]TraceSpanAndAttributes{{
+			Span: &request.Span{
+				Type:           request.EventTypeManualSpan,
+				SpanKind:       trace2.SpanKindServer,
+				Method:         "manual-json",
+				ManualOTelJSON: payload,
+			},
+		}},
+		"obi",
+	)
+
+	require.Equal(t, 1, traces.ResourceSpans().Len())
+	rs := traces.ResourceSpans().At(0)
+	serviceName, ok := rs.Resource().Attributes().Get(string(semconv.ServiceNameKey))
+	require.True(t, ok)
+	assert.Equal(t, "checkout", serviceName.Str())
+	_, ok = rs.Resource().Attributes().Get("payload.resource")
+	assert.False(t, ok)
+
+	require.Equal(t, 1, rs.ScopeSpans().Len())
+	ss := rs.ScopeSpans().At(0)
+	assert.Equal(t, "manual-scope", ss.Scope().Name())
+	assert.Equal(t, "v1.0.0", ss.Scope().Version())
+	assert.Equal(t, "https://opentelemetry.io/schemas/1.30.0", ss.SchemaUrl())
+	scopeAttr, ok := ss.Scope().Attributes().Get("scope.foo")
+	require.True(t, ok)
+	assert.Equal(t, "scope-bar", scopeAttr.Str())
+	assert.Equal(t, uint32(6), ss.Scope().DroppedAttributesCount())
+
+	require.Equal(t, 1, ss.Spans().Len())
+	span := ss.Spans().At(0)
+	assert.Equal(t, "manual-json", span.Name())
+	assert.Equal(t, ptrace.SpanKindServer, span.Kind())
+	assert.Equal(t, "00000000000000000000000000000001", span.TraceID().String())
+	assert.Equal(t, "0000000000000002", span.SpanID().String())
+	assert.Equal(t, "0000000000000003", span.ParentSpanID().String())
+	assert.Equal(t, "tenant=a", span.TraceState().AsRaw())
+	assert.Equal(t, uint32(1), span.Flags())
+	assert.Equal(t, pcommon.Timestamp(946684800000000000), span.StartTimestamp())
+	assert.Equal(t, pcommon.Timestamp(946684801000000000), span.EndTimestamp())
+	assert.Equal(t, ptrace.StatusCodeError, span.Status().Code())
+	assert.Equal(t, "boom", span.Status().Message())
+	assert.Equal(t, uint32(7), span.DroppedAttributesCount())
+	assert.Equal(t, uint32(8), span.DroppedEventsCount())
+	assert.Equal(t, uint32(9), span.DroppedLinksCount())
+
+	foo, ok := span.Attributes().Get("foo")
+	require.True(t, ok)
+	assert.Equal(t, "bar", foo.Str())
+
+	require.Equal(t, 1, span.Events().Len())
+	event := span.Events().At(0)
+	assert.Equal(t, "event-a", event.Name())
+	assert.Equal(t, pcommon.Timestamp(946684800100000000), event.Timestamp())
+	eventFoo, ok := event.Attributes().Get("event.foo")
+	require.True(t, ok)
+	assert.Equal(t, "event-bar", eventFoo.Str())
+	assert.Equal(t, uint32(10), event.DroppedAttributesCount())
+
+	require.Equal(t, 1, span.Links().Len())
+	link := span.Links().At(0)
+	assert.Equal(t, "00000000000000000000000000000004", link.TraceID().String())
+	assert.Equal(t, "0000000000000005", link.SpanID().String())
+	assert.Equal(t, "link=b", link.TraceState().AsRaw())
+	assert.Equal(t, uint32(1), link.Flags())
+	linkFoo, ok := link.Attributes().Get("link.foo")
+	require.True(t, ok)
+	assert.Equal(t, "link-bar", linkFoo.Str())
+	assert.Equal(t, uint32(11), link.DroppedAttributesCount())
+}
+
+func TestGenerateTracesWithAttributesDropsInvalidManualOTelJSON(t *testing.T) {
+	service := &svc.Attrs{UID: svc.UID{Name: "checkout"}}
+	cache := expirable2.NewLRU[svc.UID, []attribute.KeyValue](10, nil, 0)
+
+	traces := GenerateTracesWithAttributes(
+		cache,
+		service,
+		nil,
+		&meta.NodeMeta{},
+		[]TraceSpanAndAttributes{{
+			Span: &request.Span{
+				Type:           request.EventTypeManualSpan,
+				Method:         "fallback",
+				RequestStart:   1,
+				Start:          1,
+				End:            2,
+				TraceID:        trace2.TraceID{1},
+				SpanID:         trace2.SpanID{2},
+				ManualOTelJSON: []byte("{"),
+			},
+		}},
+		"obi",
+	)
+
+	require.Equal(t, 1, traces.ResourceSpans().Len())
+	ss := traces.ResourceSpans().At(0).ScopeSpans()
+	assert.Equal(t, 0, ss.Len())
+}
+
+func TestAppendManualOTelJSONRejectsInvalidShape(t *testing.T) {
+	tests := []struct {
+		name    string
+		payload func() []byte
+	}{
+		{name: "empty", payload: func() []byte { return nil }},
+		{name: "invalid JSON", payload: func() []byte { return []byte("{") }},
+		{
+			name: "no resource spans",
+			payload: func() []byte {
+				return marshalTracesJSON(t, ptrace.NewTraces())
+			},
+		},
+		{
+			name: "multiple resource spans",
+			payload: func() []byte {
+				traces := ptrace.NewTraces()
+				traces.ResourceSpans().AppendEmpty()
+				traces.ResourceSpans().AppendEmpty()
+				return marshalTracesJSON(t, traces)
+			},
+		},
+		{
+			name: "no scope spans",
+			payload: func() []byte {
+				traces := ptrace.NewTraces()
+				traces.ResourceSpans().AppendEmpty()
+				return marshalTracesJSON(t, traces)
+			},
+		},
+		{
+			name: "multiple scope spans",
+			payload: func() []byte {
+				traces := ptrace.NewTraces()
+				scopes := traces.ResourceSpans().AppendEmpty().ScopeSpans()
+				scopes.AppendEmpty().Spans().AppendEmpty()
+				scopes.AppendEmpty().Spans().AppendEmpty()
+				return marshalTracesJSON(t, traces)
+			},
+		},
+		{
+			name: "no spans",
+			payload: func() []byte {
+				traces := ptrace.NewTraces()
+				traces.ResourceSpans().AppendEmpty().ScopeSpans().AppendEmpty()
+				return marshalTracesJSON(t, traces)
+			},
+		},
+		{
+			name: "multiple spans",
+			payload: func() []byte {
+				traces := ptrace.NewTraces()
+				spans := traces.ResourceSpans().AppendEmpty().ScopeSpans().AppendEmpty().Spans()
+				spans.AppendEmpty()
+				spans.AppendEmpty()
+				return marshalTracesJSON(t, traces)
+			},
+		},
+		{
+			name: "invalid span metadata",
+			payload: func() []byte {
+				traces := ptrace.NewTraces()
+				traces.ResourceSpans().AppendEmpty().ScopeSpans().AppendEmpty().Spans().AppendEmpty()
+				return marshalTracesJSON(t, traces)
+			},
+		},
+		{
+			name: "invalid timestamps",
+			payload: func() []byte {
+				traces := ptrace.NewTraces()
+				span := traces.ResourceSpans().AppendEmpty().ScopeSpans().AppendEmpty().Spans().AppendEmpty()
+				span.SetTraceID(pcommon.TraceID{1})
+				span.SetSpanID(pcommon.SpanID{1})
+				span.SetStartTimestamp(1)
+				span.SetEndTimestamp(pcommon.Timestamp(math.MaxUint64))
+				return marshalTracesJSON(t, traces)
+			},
+		},
+		{
+			name: "invalid status",
+			payload: func() []byte {
+				traces := ptrace.NewTraces()
+				span := traces.ResourceSpans().AppendEmpty().ScopeSpans().AppendEmpty().Spans().AppendEmpty()
+				span.SetTraceID(pcommon.TraceID{1})
+				span.SetSpanID(pcommon.SpanID{1})
+				span.SetStartTimestamp(1)
+				span.SetEndTimestamp(2)
+				span.Status().SetCode(99)
+				return marshalTracesJSON(t, traces)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rs := ptrace.NewResourceSpans()
+			require.Error(t, appendManualOTelJSON(rs, tt.payload()))
+			assert.Equal(t, 0, rs.ScopeSpans().Len())
+		})
+	}
+}
+
+func TestAppendManualOTelJSONNormalizesSpanKind(t *testing.T) {
+	tests := []struct {
+		name string
+		kind ptrace.SpanKind
+		want ptrace.SpanKind
+	}{
+		{name: "unspecified", kind: ptrace.SpanKindUnspecified, want: ptrace.SpanKindInternal},
+		{name: "unknown", kind: ptrace.SpanKind(99), want: ptrace.SpanKindInternal},
+		{name: "client", kind: ptrace.SpanKindClient, want: ptrace.SpanKindClient},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			traces := ptrace.NewTraces()
+			span := traces.ResourceSpans().AppendEmpty().ScopeSpans().AppendEmpty().Spans().AppendEmpty()
+			span.SetTraceID(pcommon.TraceID{1})
+			span.SetSpanID(pcommon.SpanID{1})
+			span.SetStartTimestamp(1)
+			span.SetEndTimestamp(2)
+			span.SetKind(tt.kind)
+
+			rs := ptrace.NewResourceSpans()
+			require.NoError(t, appendManualOTelJSON(rs, marshalTracesJSON(t, traces)))
+			require.Equal(t, 1, rs.ScopeSpans().Len())
+			assert.Equal(t, tt.want, rs.ScopeSpans().At(0).Spans().At(0).Kind())
+		})
+	}
+}
+
+func TestManualSpanKind(t *testing.T) {
+	assert.Equal(t, trace2.SpanKindServer, spanKind(&request.Span{
+		Type:     request.EventTypeManualSpan,
+		SpanKind: trace2.SpanKindServer,
+	}))
+	assert.Equal(t, trace2.SpanKindInternal, spanKind(&request.Span{
+		Type: request.EventTypeManualSpan,
+	}))
+}
+
+func manualOTelPayload(t *testing.T) []byte {
+	t.Helper()
+
+	traces := ptrace.NewTraces()
+	rs := traces.ResourceSpans().AppendEmpty()
+	rs.Resource().Attributes().PutStr(string(semconv.ServiceNameKey), "payload-service")
+	rs.Resource().Attributes().PutStr("payload.resource", "discarded")
+
+	ss := rs.ScopeSpans().AppendEmpty()
+	ss.Scope().SetName("manual-scope")
+	ss.Scope().SetVersion("v1.0.0")
+	ss.Scope().Attributes().PutStr("scope.foo", "scope-bar")
+	ss.Scope().SetDroppedAttributesCount(6)
+	ss.SetSchemaUrl("https://opentelemetry.io/schemas/1.30.0")
+
+	span := ss.Spans().AppendEmpty()
+	span.SetTraceID(pcommon.TraceID{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1})
+	span.SetSpanID(pcommon.SpanID{0, 0, 0, 0, 0, 0, 0, 2})
+	span.SetParentSpanID(pcommon.SpanID{0, 0, 0, 0, 0, 0, 0, 3})
+	span.TraceState().FromRaw("tenant=a")
+	span.SetFlags(1)
+	span.SetName("manual-json")
+	span.SetKind(ptrace.SpanKindServer)
+	span.SetStartTimestamp(946684800000000000)
+	span.SetEndTimestamp(946684801000000000)
+	span.Attributes().PutStr("foo", "bar")
+	span.SetDroppedAttributesCount(7)
+	span.SetDroppedEventsCount(8)
+	span.SetDroppedLinksCount(9)
+	span.Status().SetCode(ptrace.StatusCodeError)
+	span.Status().SetMessage("boom")
+
+	event := span.Events().AppendEmpty()
+	event.SetTimestamp(946684800100000000)
+	event.SetName("event-a")
+	event.Attributes().PutStr("event.foo", "event-bar")
+	event.SetDroppedAttributesCount(10)
+
+	link := span.Links().AppendEmpty()
+	link.SetTraceID(pcommon.TraceID{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4})
+	link.SetSpanID(pcommon.SpanID{0, 0, 0, 0, 0, 0, 0, 5})
+	link.TraceState().FromRaw("link=b")
+	link.SetFlags(1)
+	link.Attributes().PutStr("link.foo", "link-bar")
+	link.SetDroppedAttributesCount(11)
+
+	return marshalTracesJSON(t, traces)
+}
+
+func marshalTracesJSON(t *testing.T, traces ptrace.Traces) []byte {
+	t.Helper()
+
+	var marshaler ptrace.JSONMarshaler
+	payload, err := marshaler.MarshalTraces(traces)
+	require.NoError(t, err)
+	return payload
 }
 
 func TestTraceAttributesSelector_GenAIUsageAvailability(t *testing.T) {
