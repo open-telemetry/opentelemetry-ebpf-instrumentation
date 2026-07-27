@@ -10,8 +10,6 @@ import (
 	"go.opentelemetry.io/ebpf-profiler/libpf"
 	"go.opentelemetry.io/ebpf-profiler/processcontext"
 	"go.opentelemetry.io/ebpf-profiler/remotememory"
-	commonv1 "go.opentelemetry.io/proto/otlp/common/v1"
-
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/ebpf"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
@@ -81,14 +79,46 @@ func (pcd *processContextDecorator) enrichEvent(ev *Event[ebpf.Instrumentable]) 
 		return
 	}
 
-	// Merge resource attributes into service metadata
-	if info.Context != nil && info.Context.GetResource() != nil {
-		pcd.mergeKeyValues(info.Context.GetResource().GetAttributes(), ev)
+	if info.Context == nil {
+		return
 	}
 
-	// Also process extra attributes if present
-	if info.Context != nil && len(info.Context.GetExtraAttributes()) > 0 {
-		pcd.mergeKeyValues(info.Context.GetExtraAttributes(), ev)
+	if res := info.Context.GetResource(); res != nil {
+		for _, kv := range res.GetAttributes() {
+			if kv == nil || kv.Key == "" {
+				continue
+			}
+			av := kv.GetValue()
+			if av == nil {
+				continue
+			}
+			strVal := av.GetStringValue()
+			if strVal == "" {
+				if av.Value != nil {
+					pcd.log.Debug("attribute value is not a string type", "type", av.Value)
+				}
+				continue
+			}
+			pcd.addAttribute(ev, attr.Name(kv.Key), strVal)
+		}
+	}
+
+	for _, kv := range info.Context.GetExtraAttributes() {
+		if kv == nil || kv.Key == "" {
+			continue
+		}
+		av := kv.GetValue()
+		if av == nil {
+			continue
+		}
+		strVal := av.GetStringValue()
+		if strVal == "" {
+			if av.Value != nil {
+				pcd.log.Debug("attribute value is not a string type", "type", av.Value)
+			}
+			continue
+		}
+		pcd.addAttribute(ev, attr.Name(kv.Key), strVal)
 	}
 }
 
@@ -105,36 +135,6 @@ func (pcd *processContextDecorator) findOTELContextMapping(pid app.PID) (libpf.A
 		}
 	}
 	return 0, false
-}
-
-func (pcd *processContextDecorator) mergeKeyValues(
-	kvs []*commonv1.KeyValue, ev *Event[ebpf.Instrumentable],
-) {
-	for _, kv := range kvs {
-		if kv == nil || kv.Key == "" {
-			continue
-		}
-
-		// Extract string value from AnyValue
-		strVal := pcd.extractStringValue(kv.GetValue())
-		if strVal == "" {
-			continue
-		}
-
-		pcd.addAttribute(ev, attr.Name(kv.Key), strVal)
-	}
-}
-
-func (pcd *processContextDecorator) extractStringValue(av *commonv1.AnyValue) string {
-	if av == nil {
-		return ""
-	}
-	strVal := av.GetStringValue()
-	if strVal == "" && av.Value != nil {
-		// av.Value is set but not to a string type; log for visibility
-		pcd.log.Debug("attribute value is not a string type", "type", av.Value)
-	}
-	return strVal
 }
 
 func (pcd *processContextDecorator) addAttribute(
