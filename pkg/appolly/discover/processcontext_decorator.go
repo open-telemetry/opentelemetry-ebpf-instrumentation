@@ -61,7 +61,7 @@ func (pcd *processContextDecorator) decorate(ctx context.Context) {
 }
 
 func (pcd *processContextDecorator) enrichEvent(ev *Event[ebpf.Instrumentable]) {
-	pid := ev.Obj.FileInfo.Pid
+	pid := ev.Obj.FileInfo.Pid()
 
 	// Find the OTEL_CTX mapping in /proc/<pid>/maps
 	mappingAddr, found := pcd.findOTELContextMapping(pid)
@@ -140,19 +140,26 @@ func (pcd *processContextDecorator) extractStringValue(av *commonv1.AnyValue) st
 func (pcd *processContextDecorator) addAttribute(
 	ev *Event[ebpf.Instrumentable], key attr.Name, value string,
 ) {
-	if ev.Obj.FileInfo.Service.Metadata == nil {
-		ev.Obj.FileInfo.Service.Metadata = make(map[attr.Name]string)
-	}
+	fi := ev.Obj.FileInfo
+	svcAttrs := fi.ServiceAttrs()
 
-	ev.Obj.FileInfo.Service.Metadata[key] = value
+	m := svcAttrs.Metadata
+	if m == nil {
+		m = make(map[attr.Name]string)
+	}
+	m[key] = value
+	fi.SetMetadata(m)
 
 	// Populate service UID from process context attributes, but only if not
 	// already explicitly set. This allows process-level metadata to establish
 	// the service identity while preserving any explicit configuration.
-	if key == attr.ServiceName && ev.Obj.FileInfo.Service.UID.Name == "" {
-		ev.Obj.FileInfo.Service.UID.Name = value
-		ev.Obj.FileInfo.Service.SetAutoName()
-	} else if key == attr.ServiceNamespace && ev.Obj.FileInfo.Service.UID.Namespace == "" {
-		ev.Obj.FileInfo.Service.UID.Namespace = value
+	if key == attr.ServiceName && svcAttrs.UID.Name == "" {
+		uid := svcAttrs.UID
+		uid.Name = value
+		fi.SetUID(uid)
+	} else if key == attr.ServiceNamespace && svcAttrs.UID.Namespace == "" {
+		uid := svcAttrs.UID
+		uid.Namespace = value
+		fi.SetUID(uid)
 	}
 }
