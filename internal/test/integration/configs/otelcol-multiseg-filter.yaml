@@ -1,0 +1,30 @@
+# Validates the otel collector filter config documented in
+# devdocs/trace-log-correlation.md drops the NUL-stuffed lines that the BPF
+# logenricher leaves on stdout while keeping the OBI-enriched JSON lines.
+receivers:
+  filelog:
+    include:
+      - /var/lib/docker/containers/*/*-json.log
+    start_at: beginning
+    operators:
+      - type: json_parser
+        parse_from: body
+        parse_to: attributes
+      - type: filter
+        expr: 'attributes["log"] matches "^[\\x00\\s]*$"'
+
+exporters:
+  file:
+    path: /output/otelcol-filtered.json
+    # Flush every 100ms so late-arriving OBI-enriched lines surface in
+    # the test's polling window (default flush is ~1s)
+    flush_interval: 100ms
+
+service:
+  telemetry:
+    logs:
+      level: warn
+  pipelines:
+    logs:
+      receivers: [filelog]
+      exporters: [file]

@@ -107,6 +107,14 @@ const (
 	GoTracerDelegatePos
 	GoTracerAttributeOptOffset
 	GoErrorStringOffset
+	SpanContextTraceIDPos
+	SpanContextSpanIDPos
+	SpanContextTraceFlagsPos
+	// go runtime channels
+	HchanQcountPos
+	HchanDataqsizPos
+	HchanSendxPos
+	HchanRecvxPos
 	// go jsonrpc
 	GoJsonrpcRequestHeaderServiceMethodPos
 	// go mongodb
@@ -131,6 +139,33 @@ const (
 	// route harvesting offsets
 	MuxTemplatePos
 	GinFullpathPos
+	// Go runtime metrics
+	RuntimeMemstatsNumGCPos
+	RuntimeGCControllerMemoryLimitPos
+	RuntimeGCControllerGCPercentPos
+	RuntimeWorkCPUStatsPos
+	RuntimeCPUStatsGCAssistTimePos
+	RuntimeCPUStatsGCDedicatedTimePos
+	RuntimeCPUStatsGCIdleTimePos
+	RuntimeCPUStatsGCPauseTimePos
+	RuntimeCPUStatsScavengeAssistTimePos
+	RuntimeCPUStatsScavengeBgTimePos
+	RuntimeCPUStatsIdleTimePos
+	RuntimeCPUStatsUserTimePos
+	RuntimeMemstatsHeapStatsPos
+	RuntimeMemstatsStacksSysPos
+	RuntimeMemstatsMspanSysPos
+	RuntimeMemstatsMcacheSysPos
+	RuntimeMemstatsBuckhashSysPos
+	RuntimeMemstatsGCMiscSysPos
+	RuntimeMemstatsOtherSysPos
+	RuntimeConsistentHeapStatsStatsPos
+	RuntimeHeapStatsDeltaCommittedPos
+	RuntimeHeapStatsDeltaInStacksPos
+	RuntimeHeapStatsDeltaLargeAllocPos
+	RuntimeHeapStatsDeltaLargeAllocCountPos
+	RuntimeHeapStatsDeltaSmallAllocCountPos
+	RuntimeHeapStatsDeltaSmallFreeCountPos
 )
 
 //go:embed offsets.json
@@ -421,6 +456,23 @@ var structMembers = map[string]structInfo{
 			"delegate": GoTracerDelegatePos,
 		},
 	},
+	"go.opentelemetry.io/otel/trace.SpanContext": {
+		lib: "go.opentelemetry.io/otel/trace",
+		fields: map[string]GoOffset{
+			"traceID":    SpanContextTraceIDPos,
+			"spanID":     SpanContextSpanIDPos,
+			"traceFlags": SpanContextTraceFlagsPos,
+		},
+	},
+	"runtime.hchan": {
+		lib: "go",
+		fields: map[string]GoOffset{
+			"qcount":   HchanQcountPos,
+			"dataqsiz": HchanDataqsizPos,
+			"sendx":    HchanSendxPos,
+			"recvx":    HchanRecvxPos,
+		},
+	},
 	"go.mongodb.org/mongo-driver/mongo.Collection": {
 		lib: "go.mongodb.org/mongo-driver",
 		fields: map[string]GoOffset{
@@ -499,6 +551,62 @@ var structMembers = map[string]structInfo{
 		lib: "github.com/gin-gonic/gin",
 		fields: map[string]GoOffset{
 			"fullPath": GinFullpathPos,
+		},
+	},
+	"runtime.mstats": {
+		lib: "go",
+		fields: map[string]GoOffset{
+			"numgc":        RuntimeMemstatsNumGCPos,
+			"heapStats":    RuntimeMemstatsHeapStatsPos,
+			"stacks_sys":   RuntimeMemstatsStacksSysPos,
+			"mspan_sys":    RuntimeMemstatsMspanSysPos,
+			"mcache_sys":   RuntimeMemstatsMcacheSysPos,
+			"buckhash_sys": RuntimeMemstatsBuckhashSysPos,
+			"gcMiscSys":    RuntimeMemstatsGCMiscSysPos,
+			"other_sys":    RuntimeMemstatsOtherSysPos,
+		},
+	},
+	"runtime.gcControllerState": {
+		lib: "go",
+		fields: map[string]GoOffset{
+			"memoryLimit": RuntimeGCControllerMemoryLimitPos,
+			"gcPercent":   RuntimeGCControllerGCPercentPos,
+		},
+	},
+	"runtime.workType": {
+		lib: "go",
+		fields: map[string]GoOffset{
+			"cpuStats": RuntimeWorkCPUStatsPos,
+		},
+	},
+	"runtime.cpuStats": {
+		lib: "go",
+		fields: map[string]GoOffset{
+			"GCAssistTime":       RuntimeCPUStatsGCAssistTimePos,
+			"GCDedicatedTime":    RuntimeCPUStatsGCDedicatedTimePos,
+			"GCIdleTime":         RuntimeCPUStatsGCIdleTimePos,
+			"GCPauseTime":        RuntimeCPUStatsGCPauseTimePos,
+			"ScavengeAssistTime": RuntimeCPUStatsScavengeAssistTimePos,
+			"ScavengeBgTime":     RuntimeCPUStatsScavengeBgTimePos,
+			"IdleTime":           RuntimeCPUStatsIdleTimePos,
+			"UserTime":           RuntimeCPUStatsUserTimePos,
+		},
+	},
+	"runtime.consistentHeapStats": {
+		lib: "go",
+		fields: map[string]GoOffset{
+			"stats": RuntimeConsistentHeapStatsStatsPos,
+		},
+	},
+	"runtime.heapStatsDelta": {
+		lib: "go",
+		fields: map[string]GoOffset{
+			"committed":       RuntimeHeapStatsDeltaCommittedPos,
+			"inStacks":        RuntimeHeapStatsDeltaInStacksPos,
+			"largeAlloc":      RuntimeHeapStatsDeltaLargeAllocPos,
+			"largeAllocCount": RuntimeHeapStatsDeltaLargeAllocCountPos,
+			"smallAllocCount": RuntimeHeapStatsDeltaSmallAllocCountPos,
+			"smallFreeCount":  RuntimeHeapStatsDeltaSmallFreeCountPos,
 		},
 	},
 }

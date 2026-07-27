@@ -7,9 +7,9 @@
 #include <bpfcore/bpf_helpers.h>
 #include <bpfcore/bpf_core_read.h>
 
-#define MAX_GO_PROGRAMS 10000 // Max 10,000 go programs tracked
+#include <gotracer/go_constants.h>
 
-// To be Injected from the user space during the eBPF program load & initialization
+// To be injected from the user space during the eBPF program load & initialization
 typedef enum {
     // go common
     _conn_fd_pos = 1, // start at 1, must match what's in structmembers.go
@@ -85,6 +85,14 @@ typedef enum {
     _tracer_delegate_pos,
     _tracer_attribute_opt_off,
     _error_string_off,
+    _span_context_trace_id_pos,
+    _span_context_span_id_pos,
+    _span_context_trace_flags_pos,
+    // go runtime channels
+    _hchan_qcount_pos,
+    _hchan_dataqsiz_pos,
+    _hchan_sendx_pos,
+    _hchan_recvx_pos,
     // go jsonrpc
     _jsonrpc_request_header_service_method_pos,
     // go mongodb
@@ -109,12 +117,46 @@ typedef enum {
     // route resolution
     _mux_template_pos,
     _gin_fullpath_pos,
+    // Go runtime metrics
+    _runtime_memstats_numgc_pos,
+    _runtime_gc_controller_memory_limit_pos,
+    _runtime_gc_controller_gc_percent_pos,
+    _runtime_work_cpu_stats_pos,
+    _runtime_cpu_stats_gc_assist_time_pos,
+    _runtime_cpu_stats_gc_dedicated_time_pos,
+    _runtime_cpu_stats_gc_idle_time_pos,
+    _runtime_cpu_stats_gc_pause_time_pos,
+    _runtime_cpu_stats_scavenge_assist_time_pos,
+    _runtime_cpu_stats_scavenge_bg_time_pos,
+    _runtime_cpu_stats_idle_time_pos,
+    _runtime_cpu_stats_user_time_pos,
+    _runtime_memstats_heap_stats_pos,
+    _runtime_memstats_stacks_sys_pos,
+    _runtime_memstats_mspan_sys_pos,
+    _runtime_memstats_mcache_sys_pos,
+    _runtime_memstats_buckhash_sys_pos,
+    _runtime_memstats_gc_misc_sys_pos,
+    _runtime_memstats_other_sys_pos,
+    _runtime_consistent_heap_stats_stats_pos,
+    _runtime_heap_stats_delta_committed_pos,
+    _runtime_heap_stats_delta_in_stacks_pos,
+    _runtime_heap_stats_delta_large_alloc_pos,
+    _runtime_heap_stats_delta_large_alloc_count_pos,
+    _runtime_heap_stats_delta_small_alloc_count_pos,
+    _runtime_heap_stats_delta_small_free_count_pos,
     _last_go_offset,
 } go_offset_const;
 
 enum {
     _gin_fullpath_off_pre_17 = 56,
     _gin_fullpath_off_post_17 = 40,
+};
+
+// Fixed offsets defined by the Go runtime type layout.
+enum : u32 {
+    k_go_string_len_offset = 8,
+    k_go_slice_len_offset = 8,
+    k_go_iface_data_offset = 8,
 };
 
 typedef struct go_offset_t {
@@ -127,7 +169,7 @@ typedef struct off_table {
 
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __type(key, u64);           // key: upper 32 bit is PID, lower 32 bit is the offset
+    __type(key, u64);           // key: inode
     __type(value, off_table_t); // the offset table
     __uint(max_entries, MAX_GO_PROGRAMS);
 } go_offsets_map SEC(".maps");

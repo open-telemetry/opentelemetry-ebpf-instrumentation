@@ -16,7 +16,7 @@ services:
     command: ["/app/backend"]
 
   loadgen:
-    image: curlimages/curl:8.19.0@sha256:c03110c736db81bbe1be0296f1f1608c81b954b01626bdfb0a8f84e5bd00ff3c
+    image: curlimages/curl:8.21.0@sha256:7c12af72ceb38b7432ab85e1a265cff6ae58e06f95539d539b654f2cfa64bb13
     depends_on:
       - frontend
     command:
@@ -46,7 +46,7 @@ services:
       - "4317:4317"
 
   obi:
-    image: ${OBI_IMAGE:-otel/ebpf-instrument:v0.8.0@sha256:9b5b40104338d178fe35916ca03c86a62af22bec535cd27841846bcac885bd44}
+    image: ${OBI_IMAGE:-otel/ebpf-instrument:v0.10.0@sha256:9c66cdb920202b9502e6f1b8e9b238757848eded40a0aad262976d6ebea23b02}
     privileged: true
     pid: "host"
     environment:

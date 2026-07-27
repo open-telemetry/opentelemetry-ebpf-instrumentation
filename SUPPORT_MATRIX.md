@@ -65,19 +65,23 @@ through language-specific library instrumentation documented later in this file.
 | gRPC | `1.0+` | All | Yes | No | Long-lived connections started before OBI may use `*` for method names |
 | MySQL | All | All | Yes | No | Prepared statements created before OBI started may miss query text |
 | PostgreSQL | All | All | Yes | No | Prepared statements created before OBI started may miss query text |
+| MSSQL | All | All | Yes | No | Prepared statements created before OBI started may miss query text |
 | Redis | All | All | Yes | No | Existing connections may miss database number and `db.namespace` |
 | MongoDB | `5.0+` | `insert`, `update`, `find`, `delete`, `findAndModify`, `aggregate`, `count`, `distinct`, `mapReduce` | Yes | No | No support for compressed payloads |
 | Couchbase | All | All | Yes | No | Bucket or collection may be unknown if negotiation happened before OBI started |
 | Memcached | All | ASCII text subset excluding `quit` and meta commands | Yes | No | Only the first key is recorded for multi-key retrieval; payload bytes are not captured |
+| Aerospike | All | `GET`, `EXISTS`, `PUT`, `TOUCH`, `OPERATE`, `DELETE`, `SCAN`, `QUERY`, `BATCH`, `UDF` | No | No | compressed (type-4) payloads are not parsed; only operation metadata (namespace, set, key) is captured, not record/bin values; scan/query duration measured to the first response frame |
 | Kafka | All | `produce`, `fetch` | Yes | No | Topic name lookup may fail for newer fetch API versions (`>= 13`) |
 | MQTT | `3.1.1/5.0` | `publish`, `subscribe` | No | No | Only the first topic filter is used for subscribe; payload not captured |
+| AMQP | `1.0` | `publish`, `process` | No | No | Userspace heuristic only; only transfer performatives create spans |
+| SunRPC (ONC RPC) | All | TCP CALL on common programs (portmapper, mount, nfs, …) | Yes | No | TCP only; kernel + userspace fallback; RPCSEC_GSS hides arguments; procedure names not mapped yet |
 | GraphQL | All | All | Yes | No | None documented |
 | Elasticsearch | `7.14+` | `/_search`, `/_msearch`, `/_bulk`, `/_doc` | Yes | No | None documented |
 | Opensearch | `3.0.0+` | `/_search`, `/_msearch`, `/_bulk`, `/_doc` | Yes | No | None documented |
 | AWS S3 | All | `CreateBucket`, `DeleteBucket`, `PutObject`, `DeleteObject`, `ListBuckets`, `ListObjects`, `GetObject` | Yes | No | None documented |
 | AWS SQS | All | All | Yes | No | None documented |
 | SQL++ | All | All | Yes | No | None documented |
-| GenAI | All | All | Yes | No | Supported vendors are OpenAI, Anthropic, Google AI Studio (Gemini), AWS Bedrock, and Qwen (DashScope) |
+| GenAI | All | All | Yes | No | Supported vendors are OpenAI, Anthropic, Google AI Studio (Gemini), AWS Bedrock, Qwen (DashScope), generic embedding providers (Voyage AI, Cohere, Jina AI), Cohere (Rerank), Jina AI (Rerank), Voyage AI (Rerank), Qwen (DashScope) (Rerank), Ollama (native /api/chat and /api/generate), OpenAI-compatible gateways (LiteLLM, vLLM, LocalAI, OpenRouter, Ollama /v1/), and vector retrieval providers (Pinecone, Qdrant, Milvus, Zilliz, Chroma, Weaviate) |
 
 ## Runtime, Server, And Library Instrumentation
 
@@ -126,10 +130,12 @@ OBI currently documents the following Go library compatibility baselines:
 
 OBI currently documents the following statistical instrumentation support:
 
-| Metric | Scope | Notes |
-|:-------|:------|:------|
-| TCP RTT | Node-wide statistical metric collection | Calculated from the kernel TCP `srtt_us` field |
-| TCP Failed Connections | Node-wide statistical metric collection | Counts the TCP failed connections between 2 endpoints |
+| Metric | Scope | Description | Limitations |
+|:-------|:------|:------------|:------------|
+| TCP RTT | Node-wide statistical metric collection | Calculated from the kernel TCP `srtt_us` field | `src.port` may be `0` on the RST-receiver side; see [devdocs/metrics.md](devdocs/metrics.md) |
+| TCP Failed Connections | Node-wide statistical metric collection | Counts TCP failed connections between two endpoints | `src.port` may be `0` on the RST-receiver side; see [devdocs/metrics.md](devdocs/metrics.md) |
+| TCP Retransmits | Node-wide statistical metric collection | Counts data-segment and client-SYN retransmits | Server-side SYN-ACK retransmits are a separate event and not counted |
+| TCP IO | Node-wide statistical metric collection | Count bytes transferred at the socket layer. When enabled, the eBPF probes fire on every `tcp_sendmsg` and `tcp_cleanup_rbuf` call, so consider enabling it standalone with `stats_tcp_io` if overhead is a concern. | On kernels older than ~6.5, traffic sent via `sendfile()` is not captured because it went through `tcp_sendpage` rather than `tcp_sendmsg`; on kernels 6.5+ the splice path was unified and `sendfile()` traffic is captured. The internal accumulation map size can be increased via the `ebpf.*` configuration knobs on nodes with many concurrent connections. |
 
 ## Context Propagation Frameworks
 
@@ -138,9 +144,11 @@ OBI currently documents the following asynchronous or runtime-specific context p
 | Framework | Runtime | Baseline | Limitations | Status |
 |:----------|:--------|:---------|:------------|:-------|
 | Go goroutines | Go | Go `1.18+` | Up to 3 nested levels of goroutines | Stable |
+| Go channel span links | Go | Go `1.17+` | Receiver-side links only; supports `runtime.chansend1`, `runtime.chanrecv1`, and `runtime.chanrecv2`; `select` paths are not supported; requires `runtime.hchan` offsets | Experimental |
 | Node.js async hooks | Node.js | Node.js `8.0+` | Custom handling of `SIGUSR1` might interfere | Stable |
 | Ruby Puma server | Ruby | Ruby applications served by Puma | Only works with Puma server | Stable |
 | Java thread pool | Java | JDK `8+` | None documented | Stable |
+| Java virtual threads | Java | JDK `21+` | Log enrichment is skipped for requests handled on virtual threads | Stable |
 | Python asyncio | Python | Python `3.9+` with `uvloop` | Only works with the `uvloop` event loop | Stable |
 
 ## GPU Instrumentation

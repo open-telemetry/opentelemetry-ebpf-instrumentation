@@ -57,7 +57,7 @@ func testREDMetricsOldHTTP(t *testing.T) {
 		t.Run(testCaseURL, func(t *testing.T) {
 			waitForTestComponents(t, testCaseURL)
 			testREDMetricsForHTTPLibrary(t, testCaseURL, "testserver", "integration-test")
-			testSpanMetricsForHTTPLibrary(t, "testserver", "integration-test")
+			testSpanMetricsForHTTPLibraryOTelFormat(t, "testserver", "integration-test")
 		})
 	}
 }
@@ -167,65 +167,12 @@ func testSpanMetricsForHTTPLibraryOTelFormat(t *testing.T, svcName, svcNs string
 }
 
 // **IMPORTANT** Tests must first call -> func testREDMetricsForHTTPLibrary(t *testing.T, url, svcName, svcNs string) {
-func testSpanMetricsForHTTPLibrary(t *testing.T, svcName, svcNs string) {
-	pq := promtest.Client{HostPort: prometheusHostPort}
-	var results []promtest.Result
-
-	// Test span metrics
-	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		var err error
-		results, err = pq.Query(`traces_spanmetrics_latency_count{` +
-			`span_kind="SPAN_KIND_SERVER",` +
-			`status_code="STATUS_CODE_UNSET",` + // 404 is OK for server spans
-			`service_namespace="` + svcNs + `",` +
-			`service_name="` + svcName + `",` +
-			`span_name="GET /basic/:rnd",` +
-			`service_version="1.0.0",` +
-			`telemetry_sdk_language="go"` +
-			`}`)
-		require.NoError(ct, err)
-		// check span metric latency exists
-		enoughPromResults(ct, results)
-		val := totalPromCount(ct, results)
-		assert.LessOrEqual(ct, 3, val)
-	}, testTimeout, 100*time.Millisecond)
-
-	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		var err error
-		results, err = pq.Query(`traces_spanmetrics_calls_total{` +
-			`span_kind="SPAN_KIND_SERVER",` +
-			`status_code="STATUS_CODE_UNSET",` + // 404 is OK for server spans
-			`service_namespace="` + svcNs + `",` +
-			`service_name="` + svcName + `",` +
-			`span_name="GET /basic/:rnd"` +
-			`}`)
-		require.NoError(ct, err)
-		// check calls total exists
-		enoughPromResults(ct, results)
-		val := totalPromCount(ct, results)
-		assert.LessOrEqual(ct, 3, val)
-	}, testTimeout, 100*time.Millisecond)
-
-	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		var err error
-		results, err = pq.Query(`traces_target_info{` +
-			`service_namespace="` + svcNs + `",` +
-			`service_name="` + svcName + `",` +
-			`telemetry_sdk_language="go"` +
-			`}`)
-		require.NoError(ct, err)
-		enoughPromResults(ct, results)
-		val := totalPromCount(ct, results)
-		assert.LessOrEqual(ct, 1, val) // we report this count for each service, doesn'ct matter how many calls
-	}, testTimeout, 100*time.Millisecond)
-}
-
 // **IMPORTANT** Tests must first call -> func testREDMetricsForJSONRPCHTTP(t *testing.T, url, svcName, svcNs string) {
 func testSpanMetricsForJSONRPCHTTP(t *testing.T, svcName, svcNs string) {
 	pq := promtest.Client{HostPort: prometheusHostPort}
 	var results []promtest.Result
 
-	expectedSpanName := "Arith.M /jsonrpc"
+	expectedSpanName := "Arith.Multiply"
 
 	// Test span metrics
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
@@ -317,7 +264,7 @@ func testREDMetricsForJSONRPCHTTP(t *testing.T, url, svcName, svcNs string) {
 	jsonBody, err := os.ReadFile(path.Join(pathRoot, "internal", "test", "integration", "components", "testserver", "jsonrpc", "body", "formated.json"))
 	require.NoError(t, err)
 	urlPath := "/jsonrpc"
-	expectedMethod := "Arith.M"
+	expectedMethod := "Arith.Multiply"
 
 	for i := 0; i < 4; i++ {
 		doHTTPPost(t, url+urlPath, 200, jsonBody)
@@ -328,12 +275,11 @@ func testREDMetricsForJSONRPCHTTP(t *testing.T, url, svcName, svcNs string) {
 	var results []promtest.Result
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		var err error
-		results, err = pq.Query(`http_server_request_duration_seconds_count{` +
-			`http_request_method="` + expectedMethod + `",` +
-			`http_response_status_code="200",` +
+		results, err = pq.Query(`rpc_server_call_duration_seconds_count{` +
+			`rpc_method="` + expectedMethod + `",` +
+			`rpc_system_name="jsonrpc",` +
 			`service_namespace="` + svcNs + `",` +
-			`service_name="` + svcName + `",` +
-			`url_path="` + urlPath + `"}`)
+			`service_name="` + svcName + `"}`)
 		require.NoError(ct, err)
 		enoughPromResults(ct, results)
 		val := totalPromCount(ct, results)
@@ -527,8 +473,8 @@ func testREDMetricsForHTTPLibrary(t *testing.T, url, svcName, svcNs string) {
 
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
 			var err error
-			results, err = pq.Query(`rpc_client_duration_seconds_count{` +
-				`rpc_grpc_status_code="0",` +
+			results, err = pq.Query(`rpc_client_call_duration_seconds_count{` +
+				`rpc_response_status_code="OK",` +
 				`service_name="` + svcName + `",` +
 				`service_namespace="` + svcNs + `",` +
 				`rpc_method="/routeguide.RouteGuide/GetFeature"}`)
@@ -624,8 +570,8 @@ func testREDMetricsGRPCInternal(t *testing.T, opts []grpcclient.PingOption, serv
 	var results []promtest.Result
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		var err error
-		results, err = pq.Query(`rpc_server_duration_seconds_count{` +
-			`rpc_grpc_status_code="0",` +
+		results, err = pq.Query(`rpc_server_call_duration_seconds_count{` +
+			`rpc_response_status_code="OK",` +
 			`service_namespace="integration-test",` +
 			`client_address!="127.0.0.1",` + // discard the metrics from testREDMetricsForHTTPLibrary/GorillaURL
 			`service_name="testserver",` +
@@ -813,8 +759,8 @@ func testREDMetricsForHTTPLibraryNoRoute(t *testing.T, url, svcName string) {
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		var err error
-		results, err = pq.Query(`rpc_client_duration_seconds_count{` +
-			`rpc_grpc_status_code="0",` +
+		results, err = pq.Query(`rpc_client_call_duration_seconds_count{` +
+			`rpc_response_status_code="OK",` +
 			`service_name="` + svcName + `",` +
 			`service_namespace="integration-test",` +
 			`rpc_method="/routeguide.RouteGuide/GetFeature"}`)

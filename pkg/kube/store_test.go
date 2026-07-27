@@ -499,6 +499,74 @@ func TestServiceInfo(t *testing.T) {
 	assert.Equal(t, "namespaceA", k8sNamespace)
 }
 
+func TestServiceNameLabelPriority(t *testing.T) {
+	newPod := func(labels map[string]string) informer.ObjectMeta {
+		return informer.ObjectMeta{
+			Name:      "podA",
+			Namespace: "ns",
+			Ips:       []string{"1.2.3.4"},
+			Kind:      "Pod",
+			Labels:    labels,
+			Pod: &informer.PodInfo{
+				Owners:     []*informer.Owner{{Name: "my-deployment", Kind: "Deployment"}},
+				Containers: []*informer.ContainerInfo{{Id: "c1", Env: map[string]string{}}},
+			},
+		}
+	}
+
+	t.Run("instance label takes precedence over name label", func(t *testing.T) {
+		store := createTestStore()
+		pod := newPod(map[string]string{
+			"app.kubernetes.io/name":     "from-name",
+			"app.kubernetes.io/instance": "from-instance",
+		})
+		_ = store.On(&informer.Event{Type: informer.EventType_CREATED, Resource: &pod})
+		name, _, _ := store.ServiceNameNamespaceForIP("1.2.3.4")
+		assert.Equal(t, "from-instance", name)
+	})
+
+	t.Run("name label used when instance label absent", func(t *testing.T) {
+		store := createTestStore()
+		pod := newPod(map[string]string{
+			"app.kubernetes.io/name": "from-name",
+		})
+		_ = store.On(&informer.Event{Type: informer.EventType_CREATED, Resource: &pod})
+		name, _, _ := store.ServiceNameNamespaceForIP("1.2.3.4")
+		assert.Equal(t, "from-name", name)
+	})
+
+	t.Run("instance label alone sets service name", func(t *testing.T) {
+		store := createTestStore()
+		pod := newPod(map[string]string{
+			"app.kubernetes.io/instance": "from-instance",
+		})
+		_ = store.On(&informer.Event{Type: informer.EventType_CREATED, Resource: &pod})
+		name, _, _ := store.ServiceNameNamespaceForIP("1.2.3.4")
+		assert.Equal(t, "from-instance", name)
+	})
+
+	t.Run("annotation overrides instance label", func(t *testing.T) {
+		store := createTestStore()
+		pod := newPod(map[string]string{
+			"app.kubernetes.io/instance": "from-instance",
+		})
+		pod.Annotations = map[string]string{
+			ServiceNameAnnotation: "from-annotation",
+		}
+		_ = store.On(&informer.Event{Type: informer.EventType_CREATED, Resource: &pod})
+		name, _, _ := store.ServiceNameNamespaceForIP("1.2.3.4")
+		assert.Equal(t, "from-annotation", name)
+	})
+
+	t.Run("falls back to owner name when no labels set", func(t *testing.T) {
+		store := createTestStore()
+		pod := newPod(nil)
+		_ = store.On(&informer.Event{Type: informer.EventType_CREATED, Resource: &pod})
+		name, _, _ := store.ServiceNameNamespaceForIP("1.2.3.4")
+		assert.Equal(t, "my-deployment", name)
+	})
+}
+
 func TestMemoryCleanedUp(t *testing.T) {
 	deployment := informer.Owner{
 		Name: "service",
@@ -1159,33 +1227,109 @@ func TestStore_PodContainerByPIDNs_MultiPID(t *testing.T) {
 
 	store.addObjectMeta(podMeta)
 
-	t.Run("PodContainerByPIDNs returns correct pod for any PID", func(t *testing.T) {
-		// Should return the same pod regardless of which PID is actually found first
-		// (since they're all in the same namespace and container)
-		pod, containerName := store.PodContainerByPIDNs(pidNS)
+	t.Run("exact PID match returns correct pod", func(t *testing.T) {
+		pod, containerName := store.PodContainerByPIDNs(pidNS, 1001)
+		require.NotNil(t, pod, "Should find pod for exact PID")
+		assert.Equal(t, "test-pod", pod.Meta.Name)
+		assert.Equal(t, "test-container-name", containerName)
+	})
 
-		require.NotNil(t, pod, "Should find pod for namespace")
+	t.Run("fallback works when all PIDs share same container", func(t *testing.T) {
+		// hostPID=0 means no exact match, but all PIDs share the same container
+		pod, containerName := store.PodContainerByPIDNs(pidNS, 0)
+		require.NotNil(t, pod, "Should find pod via unambiguous fallback")
 		assert.Equal(t, "test-pod", pod.Meta.Name)
 		assert.Equal(t, "test-container-name", containerName)
 	})
 
 	t.Run("after deleting some PIDs, still finds pod", func(t *testing.T) {
-		// Delete one PID
 		store.DeleteProcess(1001)
 
-		pod, containerName := store.PodContainerByPIDNs(pidNS)
+		pod, containerName := store.PodContainerByPIDNs(pidNS, 1002)
 		require.NotNil(t, pod, "Should still find pod after deleting one PID")
 		assert.Equal(t, "test-pod", pod.Meta.Name)
 		assert.Equal(t, "test-container-name", containerName)
 	})
 
 	t.Run("after deleting all PIDs, doesn't find pod", func(t *testing.T) {
-		// Delete remaining PIDs
 		store.DeleteProcess(1002)
 		store.DeleteProcess(1003)
 
-		pod, containerName := store.PodContainerByPIDNs(pidNS)
+		pod, containerName := store.PodContainerByPIDNs(pidNS, 1001)
 		assert.Nil(t, pod, "Should not find pod after deleting all PIDs")
+		assert.Empty(t, containerName)
+	})
+}
+
+func TestStore_PodContainerByPIDNs_SharedNamespace(t *testing.T) {
+	originalInfoForPID := InfoForPID
+	defer func() { InfoForPID = originalInfoForPID }()
+
+	store := createTestStore()
+
+	// Simulate shared PID namespace (e.g. hostPID=true) with two different containers
+	// from two different pods, both mapping to the same PID namespace inode
+	hostPIDNs := uint32(4026531836) // typical host init_pid_ns inode
+
+	InfoForPID = func(pid app.PID) (container.Info, error) {
+		switch pid {
+		case 100:
+			return container.Info{ContainerID: "container-app", PIDNamespace: hostPIDNs}, nil
+		case 200:
+			return container.Info{ContainerID: "container-daemonset", PIDNamespace: hostPIDNs}, nil
+		default:
+			return container.Info{}, assert.AnError
+		}
+	}
+
+	store.AddProcess(100)
+	store.AddProcess(200)
+
+	appPod := &informer.ObjectMeta{
+		Name: "my-app-pod", Namespace: "app-ns", Kind: "Pod",
+		Pod: &informer.PodInfo{
+			Owners:     []*informer.Owner{{Name: "my-app", Kind: "Deployment"}},
+			Containers: []*informer.ContainerInfo{{Id: "container-app", Name: "app"}},
+		},
+	}
+	daemonsetPod := &informer.ObjectMeta{
+		Name: "node-proxy-xyz", Namespace: "kube-system", Kind: "Pod",
+		Pod: &informer.PodInfo{
+			Owners:     []*informer.Owner{{Name: "node-proxy", Kind: "DaemonSet"}},
+			Containers: []*informer.ContainerInfo{{Id: "container-daemonset", Name: "proxy"}},
+		},
+	}
+	store.addObjectMeta(appPod)
+	store.addObjectMeta(daemonsetPod)
+
+	t.Run("exact PID match disambiguates to app pod", func(t *testing.T) {
+		pod, containerName := store.PodContainerByPIDNs(hostPIDNs, 100)
+		require.NotNil(t, pod)
+		assert.Equal(t, "my-app-pod", pod.Meta.Name)
+		assert.Equal(t, "app-ns", pod.Meta.Namespace)
+		assert.Equal(t, "app", containerName)
+	})
+
+	t.Run("exact PID match disambiguates to daemonset pod", func(t *testing.T) {
+		pod, containerName := store.PodContainerByPIDNs(hostPIDNs, 200)
+		require.NotNil(t, pod)
+		assert.Equal(t, "node-proxy-xyz", pod.Meta.Name)
+		assert.Equal(t, "kube-system", pod.Meta.Namespace)
+		assert.Equal(t, "proxy", containerName)
+	})
+
+	t.Run("unknown PID in shared namespace returns nil", func(t *testing.T) {
+		// PID 999 is not registered; since the namespace has multiple different
+		// container IDs, we cannot safely pick one
+		pod, containerName := store.PodContainerByPIDNs(hostPIDNs, 999)
+		assert.Nil(t, pod, "Should return nil when PID not found and namespace is ambiguous")
+		assert.Empty(t, containerName)
+	})
+
+	t.Run("zero PID in shared namespace returns nil", func(t *testing.T) {
+		// hostPID=0 means no disambiguation available; should not pick randomly
+		pod, containerName := store.PodContainerByPIDNs(hostPIDNs, 0)
+		assert.Nil(t, pod, "Should return nil when no PID given and namespace is ambiguous")
 		assert.Empty(t, containerName)
 	})
 }

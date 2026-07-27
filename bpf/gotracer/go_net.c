@@ -25,56 +25,31 @@
 #include <common/go_addr_key.h>
 #include <common/http_types.h>
 #include <common/lw_thread.h>
+#include <common/protocol_defs.h>
+#include <common/tp_info.h>
+#include <common/trace_helpers.h>
 
 #include <gotracer/go_common.h>
-#include <gotracer/maps/mongo.h>
-#include <gotracer/maps/ongoing_fd_reads.h>
+#include <gotracer/go_net_common.h>
+#include <gotracer/go_large_buffer.h>
 
 #include <generictracer/k_tracer_defs.h>
 
 #include <logger/bpf_dbg.h>
 
 #include <maps/outgoing_trace_map.h>
-#include <maps/ongoing_tcp_req.h>
-#include <maps/ongoing_http2_connections.h>
 
 #include <gotracer/types/net_args.h>
+#include <gotracer/types/nethttp.h>
+
+#include <gotracer/maps/nethttp.h>
+#include <gotracer/maps/ongoing_fd_reads.h>
+#include <gotracer/maps/ongoing_large_buffers.h>
+#include <gotracer/maps/ongoing_ssl_ops.h>
 
 #include <pid/pid_helpers.h>
 
 #include <shared/obi_ctx.h>
-
-static __always_inline bool already_handled_request_sorted(const connection_info_t *conn) {
-    if (conn) {
-        const bool *found = bpf_map_lookup_elem(&handled_by_go_conn, conn);
-        if (found) {
-            return true;
-        }
-    }
-    return false;
-}
-
-static __always_inline void
-cleanup_duplicate_generic_events_sorted(const pid_connection_info_t *pid_conn) {
-    if (!pid_conn) {
-        return;
-    }
-    bpf_map_delete_elem(&ongoing_http, pid_conn);
-    bpf_map_delete_elem(&ongoing_tcp_req, pid_conn);
-    bpf_map_delete_elem(&ongoing_http2_connections, pid_conn);
-}
-
-static __always_inline void
-cleanup_duplicate_generic_event_by_connection(const connection_info_t *conn) {
-    if (!conn) {
-        return;
-    }
-    const u64 id = bpf_get_current_pid_tgid();
-    pid_connection_info_t p_conn = {.conn = *conn, .pid = pid_from_pid_tgid(id)};
-    sort_connection_info(&p_conn.conn);
-
-    cleanup_duplicate_generic_events_sorted(&p_conn);
-}
 
 SEC("uprobe/netFdRead")
 int obi_uprobe_netFdRead(struct pt_regs *ctx) {
@@ -85,69 +60,42 @@ int obi_uprobe_netFdRead(struct pt_regs *ctx) {
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
 
-    // lookup a grpc connection
-    // Sets up the connection info to be grabbed and mapped over the transport to operateHeaders
-    void *tr = bpf_map_lookup_elem(&ongoing_grpc_operate_headers, &g_key);
-    bpf_dbg_printk("tr=%llx", tr);
-    if (tr) {
-        grpc_transports_t *t = bpf_map_lookup_elem(&ongoing_grpc_transports, tr);
-        bpf_dbg_printk("t=%llx", t);
-        if (t) {
-            if (t->conn.d_port == 0 && t->conn.s_port == 0) {
-                void *fd_ptr = GO_PARAM1(ctx);
-                get_conn_info_from_fd(fd_ptr,
-                                      &t->conn,
-                                      true); // ok to not check the result, we leave it as 0
-                cleanup_duplicate_generic_event_by_connection(&t->conn);
-            }
-        }
-        return 0;
-    }
+    void *fd_ptr = GO_PARAM1(ctx);
 
-    // lookup active sql connection
-    sql_func_invocation_t *sql_conn = bpf_map_lookup_elem(&ongoing_sql_queries, &g_key);
-    bpf_dbg_printk("sql_conn=%llx", sql_conn);
-    if (sql_conn) {
-        void *fd_ptr = GO_PARAM1(ctx);
-        get_conn_info_from_fd(fd_ptr,
-                              &sql_conn->conn,
-                              true); // ok to not check the result, we leave it as 0
-        cleanup_duplicate_generic_event_by_connection(&sql_conn->conn);
-        return 0;
-    }
-
-    mongo_go_client_req_t *mongo_conn = bpf_map_lookup_elem(&ongoing_mongo_requests, &g_key);
-    bpf_dbg_printk("mongo_conn=%llx", mongo_conn);
-    if (mongo_conn) {
-        void *fd_ptr = GO_PARAM1(ctx);
-        get_conn_info_from_fd(fd_ptr,
-                              &mongo_conn->conn,
-                              true); // ok to not check the result, we leave it as 0
-
-        cleanup_duplicate_generic_event_by_connection(&mongo_conn->conn);
-        return 0;
-    }
-
-    // lookup active HTTP connection
-    connection_info_t *conn = bpf_map_lookup_elem(&ongoing_server_connections, &g_key);
-    bpf_dbg_printk("conn=%llx", conn);
+    connection_info_t *conn = already_handled_goroutine(&g_key, fd_ptr);
     if (conn) {
-        if (conn->d_port == 0 && conn->s_port == 0) {
-            bpf_dbg_printk("Found existing server connection, parsing FD information for socket "
-                           "tuples, goroutine_addr=%llx",
-                           goroutine_addr);
-
-            void *fd_ptr = GO_PARAM1(ctx);
-            get_conn_info_from_fd(
-                fd_ptr, conn, true); // ok to not check the result, we leave it as 0
-            cleanup_duplicate_generic_event_by_connection(conn);
-
+        if (!http_large_buffers_enabled()) {
             return 0;
         }
-        //dbg_print_http_connection_info(conn);
-        // We cannot return here, HTTP servers are typically wrapping unknown protocols
-        // on the same goroutine.
+
+        void *byte_addr = GO_PARAM2(ctx);
+
+        // We register the read, but mark it as skipped for sending events,
+        // so that we can pick up the Go large buffers.
+        net_args_t net_args = {.byte_ptr = (u64)byte_addr, .skip = 1, .p_conn.conn = *conn};
+
+        bpf_map_update_elem(&ongoing_fd_reads, &g_key, &net_args, BPF_ANY);
+        return 0;
     }
+
+    net_args_t *ssl = bpf_map_lookup_elem(&ongoing_ssl_ops, &g_key);
+    if (ssl) {
+        bpf_dbg_printk("ssl read, not processing buffer");
+        return 0;
+    }
+
+    bpf_tail_call(ctx, &jump_table, k_tail_continue_netfd_read);
+    return 0;
+}
+
+// k_tail_continue_netfd_read
+SEC("uprobe/netFdRead_cont")
+int obi_continue_netfd_read(struct pt_regs *ctx) {
+    void *goroutine_addr = GOROUTINE_PTR(ctx);
+    bpf_dbg_printk("=== uprobe/netFdRead_cont goroutine_addr=%lx ===", goroutine_addr);
+
+    go_addr_key_t g_key = {};
+    go_addr_key_from_id(&g_key, goroutine_addr);
 
     const u64 id = bpf_get_current_pid_tgid();
 
@@ -155,6 +103,7 @@ int obi_uprobe_netFdRead(struct pt_regs *ctx) {
     void *byte_addr = GO_PARAM2(ctx);
     net_args_t net_args = {
         .byte_ptr = (u64)byte_addr,
+        .skip = 0,
     };
 
     if (!get_conn_info_from_fd(fd_ptr, &net_args.p_conn.conn, false)) {
@@ -171,7 +120,13 @@ int obi_uprobe_netFdRead(struct pt_regs *ctx) {
 
     if (already_handled_request_sorted(&p_conn.conn)) {
         cleanup_duplicate_generic_events_sorted(&p_conn);
-        return 0;
+        if (!http_large_buffers_enabled()) {
+            return 0;
+        }
+        // mark the event as skipped, rather than returning 0 here,
+        // so the ret probe can capture large buffers if needed.
+        net_args.skip = 1;
+        bpf_d_printk("skipping");
     }
 
     bpf_map_update_elem(&ongoing_fd_reads, &g_key, &net_args, BPF_ANY);
@@ -187,14 +142,23 @@ int obi_uprobe_netFdReadRet(struct pt_regs *ctx) {
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
 
+    s64 len = (s64)GO_PARAM1(ctx);
+
     net_args_t *net_ptr = bpf_map_lookup_elem(&ongoing_fd_reads, &g_key);
-    if (!net_ptr || !net_ptr->byte_ptr) {
+
+    if (!net_ptr || !net_ptr->byte_ptr || net_ptr->skip) {
+        if (http_large_buffer_skip(len)) {
+            return 0;
+        } else if (net_ptr && net_ptr->byte_ptr) {
+            send_http_large_buffers_if_needed(
+                &g_key, &net_ptr->p_conn.conn, (void *)net_ptr->byte_ptr, len, TCP_RECV);
+        }
+
         return 0;
     }
 
     void *buf = (void *)net_ptr->byte_ptr;
 
-    s64 len = (s64)GO_PARAM1(ctx);
     bpf_dbg_printk("buf=%llx, len=%lld === ", (unsigned long long)buf, (long long)len);
     if (buf && len > 0) {
         const int bytes_len = (int)min((s64)__INT_MAX__, len);
@@ -236,6 +200,12 @@ int obi_uprobe_netFdWrite(struct pt_regs *ctx) {
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
 
+    net_args_t *ssl = bpf_map_lookup_elem(&ongoing_ssl_ops, &g_key);
+    if (ssl) {
+        bpf_dbg_printk("ssl write, not processing buffer");
+        return 0;
+    }
+
     void *fd_ptr = GO_PARAM1(ctx);
     u8 *buf = GO_PARAM2(ctx);
     s64 len = (s64)GO_PARAM3(ctx);
@@ -256,6 +226,10 @@ int obi_uprobe_netFdWrite(struct pt_regs *ctx) {
 
         if (already_handled_request_sorted(&p_conn.conn)) {
             cleanup_duplicate_generic_events_sorted(&p_conn);
+
+            if (!http_large_buffer_skip(len)) {
+                send_http_large_buffers_if_needed(&g_key, &p_conn.conn, (void *)buf, len, TCP_SEND);
+            }
             return 0;
         }
 
@@ -284,17 +258,24 @@ int obi_uprobe_netFdClose(struct pt_regs *ctx) {
         return 0;
     }
 
-    connection_info_t conn = {0};
+    go_large_buffer_key_t key = {
+        .stream_id = 0, // HTTP/1 state
+    };
 
-    if (!get_conn_info_from_fd(fd_ptr, &conn, false)) {
+    // HTTP2 will remain in the LRU map and get kicked out, the connection + streamId will
+    // not repeat and if it does we clean-up on new connection + stream setup_http2_client_conn.
+
+    if (!get_conn_info_from_fd(fd_ptr, &key.conn, false)) {
         return 0;
     }
 
-    sort_connection_info(&conn);
+    sort_connection_info(&key.conn);
 
-    dbg_print_http_connection_info(&conn);
+    bpf_map_delete_elem(&ongoing_large_buffers, &key);
 
-    remove_go_handled_connection(&conn);
+    dbg_print_http_connection_info(&key.conn);
+
+    remove_go_handled_connection(&key.conn);
 
     return 0;
 }

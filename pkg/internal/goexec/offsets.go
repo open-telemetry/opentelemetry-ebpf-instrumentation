@@ -26,6 +26,47 @@ type FuncOffsets struct {
 
 type FieldOffsets map[GoOffset]any
 
+// HasGoChannelOffsets reports whether all runtime.hchan offsets needed for Go channel
+// span linking are available for an inspected executable.
+func (o *Offsets) HasGoChannelOffsets() bool {
+	if o == nil {
+		return false
+	}
+
+	for _, field := range []GoOffset{
+		HchanQcountPos,
+		HchanDataqsizPos,
+		HchanSendxPos,
+		HchanRecvxPos,
+	} {
+		if _, ok := o.Field[field].(uint64); !ok {
+			return false
+		}
+	}
+
+	return true
+}
+
+// HasGoAutoSDKSpanContextOffsets reports whether all trace.SpanContext offsets
+// needed for Go Auto SDK span integration are available for an inspected executable.
+func (o *Offsets) HasGoAutoSDKSpanContextOffsets() bool {
+	if o == nil {
+		return false
+	}
+
+	for _, field := range []GoOffset{
+		SpanContextTraceIDPos,
+		SpanContextSpanIDPos,
+		SpanContextTraceFlagsPos,
+	} {
+		if _, ok := o.Field[field].(uint64); !ok {
+			return false
+		}
+	}
+
+	return true
+}
+
 // InspectOffsets gets the memory addresses/offsets of the instrumenting function, as well as the required
 // parameters fields to be read from the eBPF code
 func InspectOffsets(execElf *exec.FileInfo, funcs []string) (*Offsets, error) {
@@ -34,21 +75,21 @@ func InspectOffsets(execElf *exec.FileInfo, funcs []string) (*Offsets, error) {
 	}
 
 	// Analyze executable ELF file and find instrumentation points
-	found, err := instrumentationPoints(execElf.ELF, funcs)
+	found, err := instrumentationPoints(execElf.ELF(), funcs)
 	if err != nil {
 		return nil, fmt.Errorf("finding instrumentation points: %w", err)
 	}
 	if len(found) == 0 {
-		return nil, fmt.Errorf("couldn't find any instrumentation point in %s", execElf.CmdExePath)
+		return nil, fmt.Errorf("couldn't find any instrumentation point in %s", execElf.CmdExePath())
 	}
 
 	// check the offsets of the required fields from the method arguments
-	structFieldOffsets, err := structMemberOffsets(execElf.ELF)
+	structFieldOffsets, err := structMemberOffsets(execElf.ELF())
 	if err != nil {
-		return nil, fmt.Errorf("checking struct members in file %s: %w", execElf.ProExeLinkPath, err)
+		return nil, fmt.Errorf("checking struct members in file %s: %w", execElf.ProExeLinkPath(), err)
 	}
 
-	itypes, err := findInterfaceImpls(execElf.ELF)
+	itypes, err := findInterfaceImpls(execElf.ELF())
 	if err != nil {
 		slog.Warn("error reading itab section in Go program, manual spans will not work", "error", err)
 	}

@@ -60,14 +60,14 @@ struct {
 
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __type(key, go_addr_key_t); // key: correlation id
+    __type(key, go_addr_key_t); // key: response promise
     __type(value, kafka_client_req_t);
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
 } kafka_requests SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __type(key, go_addr_key_t); // key: goroutine id
-    __type(value, u32);         // correlation id
+    __type(key, go_addr_key_t);  // key: goroutine id
+    __type(value, send_event_t); // correlation id and timestamp
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
 } ongoing_kafka_requests SEC(".maps");

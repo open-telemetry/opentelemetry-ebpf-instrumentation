@@ -25,6 +25,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm/swarms"
+	"go.opentelemetry.io/obi/pkg/runtimemetrics"
 	"go.opentelemetry.io/obi/pkg/transform"
 )
 
@@ -50,6 +51,8 @@ type Instrumenter struct {
 
 	// global data structures for all eBPF tracers
 	ebpfEventContext *ebpfcommon.EBPFEventContext
+
+	runtimeMetrics *msg.Queue[[]runtimemetrics.RuntimeMetricSnapshot]
 
 	// dynamicPIDSelector is the runtime PID set; from WithDynamicPIDSelector or created in New. Finder preloads from config.
 	dynamicPIDSelector *discover.DynamicPIDSelector
@@ -93,19 +96,21 @@ func New(ctx context.Context, ctxInfo *global.ContextInfo, config *obi.Config) (
 		processEventsDockerDecorated,
 	), swarm.WithID("DockerProcessEventDecorator"))
 
-	bp, err := appolly.Build(ctx, config, ctxInfo, tracesInput, processEventsDockerDecorated)
+	runtimeMetrics := newRuntimeMetricsQueue(config)
+	ebpfEventContext := ebpfcommon.NewEBPFEventContext()
+
+	bp, err := appolly.Build(ctx, config, ctxInfo, tracesInput, processEventsDockerDecorated, runtimeMetrics)
 	if err != nil {
 		return nil, fmt.Errorf("can't instantiate instrumentation pipeline: %w", err)
 	}
 
-	var sel *discover.DynamicPIDSelector
-	if v := ctxInfo.AppO11y.DynamicPIDSelector; v != nil {
-		if s, ok := v.(*discover.DynamicPIDSelector); ok {
-			sel = s
-		}
-		// If v is not a *DynamicPIDSelector, sel stays nil and we use static config target_pids.
-	}
+	sel, _ := ctxInfo.DynamicPIDSelector.(*discover.DynamicPIDSelector)
 	// When sel is nil, finder gets nil: config target_pids are used as static criteria (FindingCriteria(cfg, false)).
+	if sel != nil {
+		sel.SetOnFileInfoUpdated(func(fi *exec.FileInfo) {
+			processEventsInput.SendCtx(ctx, exec.ProcessEvent{Type: exec.ProcessEventCreated, File: fi})
+		})
+	}
 	instr := &Instrumenter{
 		config:             config,
 		ctxInfo:            ctxInfo,
@@ -114,10 +119,24 @@ func New(ctx context.Context, ctxInfo *global.ContextInfo, config *obi.Config) (
 		processEventInput:  processEventsInput,
 		bp:                 bp,
 		peGraphBuilder:     swi,
-		ebpfEventContext:   ebpfcommon.NewEBPFEventContext(),
+		ebpfEventContext:   ebpfEventContext,
+		runtimeMetrics:     runtimeMetrics,
 		dynamicPIDSelector: sel,
 	}
 	return instr, nil
+}
+
+func newRuntimeMetricsQueue(config *obi.Config) *msg.Queue[[]runtimemetrics.RuntimeMetricSnapshot] {
+	jointMetricsConfig := appolly.JoinMetricsConfig(config)
+	runtimeMetricsEnabled := runtimemetrics.EnabledFeatures(jointMetricsConfig.Features)
+
+	if !runtimeMetricsEnabled.Any() ||
+		!jointMetricsConfig.Features.AnyAppO11yMetric() ||
+		(!config.OTELMetrics.EndpointEnabled() && !config.Prometheus.EndpointEnabled()) {
+		return nil
+	}
+
+	return msg2.QueueFromConfig[[]runtimemetrics.RuntimeMetricSnapshot](config, "runtimeMetrics")
 }
 
 // FindAndInstrument searches in background for any new executable matching the
@@ -125,7 +144,7 @@ func New(ctx context.Context, ctxInfo *global.ContextInfo, config *obi.Config) (
 // Returns a channel that is closed when the Instrumenter completed all its tasks.
 // This is: when the context is cancelled, it has unloaded all the eBPF probes.
 func (i *Instrumenter) FindAndInstrument(ctx context.Context) error {
-	finder := discover.NewProcessFinder(i.config, i.ctxInfo, i.tracesInput, i.ebpfEventContext)
+	finder := discover.NewProcessFinder(i.config, i.ctxInfo, i.tracesInput, i.runtimeMetrics, i.ebpfEventContext)
 	opts := []discover.ProcessFinderStartOpt{
 		discover.WithDynamicPIDSelector(i.dynamicPIDSelector),
 	}
@@ -176,7 +195,7 @@ func (i *Instrumenter) instrumentedEventLoop(ctx context.Context, processEvents 
 		case discover.EventCreated:
 			pt := ev.Obj
 			log.Debug("running tracer for new process",
-				"inode", pt.FileInfo.Ino, "pid", pt.FileInfo.Pid, "exec", pt.FileInfo.CmdExePath)
+				"inode", pt.FileInfo.Ino(), "pid", pt.FileInfo.Pid(), "exec", pt.FileInfo.CmdExePath())
 			if pt.Tracer != nil {
 				i.tracersWg.Go(func() {
 					pt.Tracer.Run(ctx, i.ebpfEventContext, i.tracesInput)
@@ -186,7 +205,7 @@ func (i *Instrumenter) instrumentedEventLoop(ctx context.Context, processEvents 
 		case discover.EventDeleted:
 			dp := ev.Obj
 			log.Debug("stopping ProcessTracer because there are no more instances of such process",
-				"inode", dp.FileInfo.Ino, "pid", dp.FileInfo.Pid, "exec", dp.FileInfo.CmdExePath)
+				"inode", dp.FileInfo.Ino(), "pid", dp.FileInfo.Pid(), "exec", dp.FileInfo.CmdExePath())
 			if dp.Tracer != nil {
 				dp.Tracer.UnlinkExecutable(dp.FileInfo)
 			}
@@ -261,6 +280,10 @@ func setupKubernetes(ctx context.Context, ctxInfo *global.ContextInfo) {
 		slog.Error("can't init Kubernetes informer. You can't setup Kubernetes discovery and your"+
 			" traces won't be decorated with Kubernetes metadata", "error", err)
 		ctxInfo.K8sInformer.ForceDisable()
+		// Kubernetes turned out to be unavailable, so Docker becomes the fallback for
+		// container metadata. Start its event watcher now: BuildCommonContextInfo skipped
+		// it earlier because Kubernetes was still considered enabled at that point.
+		ctxInfo.DockerMetadata.Start(ctx)
 		return
 	}
 }

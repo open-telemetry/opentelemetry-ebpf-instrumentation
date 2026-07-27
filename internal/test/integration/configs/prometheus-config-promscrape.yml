@@ -1,6 +1,6 @@
 global:
-  evaluation_interval: 30s
-  scrape_interval: 5s
+  evaluation_interval: 250ms
+  scrape_interval: 250ms
 scrape_configs:
   - job_name: obi-collector
     honor_labels: true

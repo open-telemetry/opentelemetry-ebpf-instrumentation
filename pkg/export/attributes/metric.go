@@ -29,6 +29,11 @@ var (
 		Prom:    "obi_network_flow_bytes_total",
 		OTEL:    "obi.network.flow.bytes",
 	}
+	NetworkFlowPackets = Name{
+		Section: "obi.network.flow.packets",
+		Prom:    "obi_network_flow_packets_total",
+		OTEL:    "obi.network.flow.packets",
+	}
 	NetworkInterZone = Name{
 		Section: "obi.network.inter.zone",
 		Prom:    "obi_network_inter_zone_bytes_total",
@@ -65,14 +70,14 @@ var (
 		OTEL:    "http.client.request.duration",
 	}
 	RPCServerDuration = Name{
-		Section: "rpc.server.duration",
-		Prom:    "rpc_server_duration_seconds",
-		OTEL:    "rpc.server.duration",
+		Section: "rpc.server.call.duration",
+		Prom:    "rpc_server_call_duration_seconds",
+		OTEL:    "rpc.server.call.duration",
 	}
 	RPCClientDuration = Name{
-		Section: "rpc.client.duration",
-		Prom:    "rpc_client_duration_seconds",
-		OTEL:    "rpc.client.duration",
+		Section: "rpc.client.call.duration",
+		Prom:    "rpc_client_call_duration_seconds",
+		OTEL:    "rpc.client.call.duration",
 	}
 	DBClientDuration = Name{
 		Section: "db.client.operation.duration",
@@ -124,11 +129,6 @@ var (
 		Prom:    "dns_lookup_duration_seconds",
 		OTEL:    "dns.lookup.duration",
 	}
-	StatTCPRtt = Name{
-		Section: "obi.stat.tcp.rtt",
-		Prom:    "obi_stat_tcp_rtt_seconds",
-		OTEL:    "obi.stat.tcp.rtt",
-	}
 	GenAIClientInputTokenUsage = Name{
 		Section: "gen_ai.client.token.usage.input",
 		Prom:    "gen_ai_client_token_usage",
@@ -144,10 +144,90 @@ var (
 		Prom:    "gen_ai_client_operation_duration_seconds",
 		OTEL:    "gen_ai.client.operation.duration",
 	}
+	GoRuntimeMemoryLimit = Name{
+		Section: "go.memory.limit",
+		Prom:    "go_memory_limit_bytes",
+		OTEL:    "go.memory.limit",
+	}
+	GoRuntimeMemoryGCCycles = Name{
+		Section: "go.memory.gc.cycles",
+		Prom:    "go_memory_gc_cycles_total",
+		OTEL:    "go.memory.gc.cycles",
+	}
+	GoRuntimeMemoryUsed = Name{
+		Section: "go.memory.used",
+		Prom:    "go_memory_used_bytes",
+		OTEL:    "go.memory.used",
+	}
+	GoRuntimeMemoryAllocated = Name{
+		Section: "go.memory.allocated",
+		Prom:    "go_memory_allocated_bytes_total",
+		OTEL:    "go.memory.allocated",
+	}
+	GoRuntimeMemoryAllocations = Name{
+		Section: "go.memory.allocations",
+		Prom:    "go_memory_allocations_total",
+		OTEL:    "go.memory.allocations",
+	}
+	GoRuntimeCPUTime = Name{
+		Section: "go.cpu.time",
+		Prom:    "go_cpu_time_seconds_total",
+		OTEL:    "go.cpu.time",
+	}
+	GoRuntimeProcessorLimit = Name{
+		Section: "go.processor.limit",
+		Prom:    "go_processor_limit",
+		OTEL:    "go.processor.limit",
+	}
+	GoRuntimeConfigGOGC = Name{
+		Section: "go.config.gogc",
+		Prom:    "go_config_gogc_percent",
+		OTEL:    "go.config.gogc",
+	}
+	JVMMemoryUsed = Name{
+		Section: "jvm.memory.used",
+		Prom:    "jvm_memory_used_bytes",
+		OTEL:    "jvm.memory.used",
+	}
+	JVMMemoryCommitted = Name{
+		Section: "jvm.memory.committed",
+		Prom:    "jvm_memory_committed_bytes",
+		OTEL:    "jvm.memory.committed",
+	}
+	JVMMemoryLimit = Name{
+		Section: "jvm.memory.limit",
+		Prom:    "jvm_memory_limit_bytes",
+		OTEL:    "jvm.memory.limit",
+	}
+	JVMMemoryUsedAfterLastGC = Name{
+		Section: "jvm.memory.used_after_last_gc",
+		Prom:    "jvm_memory_used_after_last_gc_bytes",
+		OTEL:    "jvm.memory.used_after_last_gc",
+	}
+	Resource = Name{
+		Section: "resource",
+		Prom:    "resource",
+		OTEL:    "resource",
+	}
+	StatTCPRtt = Name{
+		Section: "obi.stat.tcp.rtt",
+		Prom:    "obi_stat_tcp_rtt_seconds",
+		OTEL:    "obi.stat.tcp.rtt",
+	}
 	StatTCPFailedConnections = Name{
 		Section: "obi.stat.tcp.failed.connections",
 		Prom:    "obi_stat_tcp_failed_connections",
 		OTEL:    "obi.stat.tcp.failed.connections",
+	}
+	StatTCPRetransmits = Name{
+		Section: "obi.stat.tcp.retransmits",
+		Prom:    "obi_stat_tcp_retransmits",
+		OTEL:    "obi.stat.tcp.retransmits",
+	}
+	StatTCPIo = Name{
+		Section: "obi.stat.tcp.io",
+		Prom:    "obi_stat_tcp_io_bytes_total",
+		OTEL:    "obi.stat.tcp.io",
 	}
 )
 

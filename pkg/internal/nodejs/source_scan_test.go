@@ -8,7 +8,12 @@ package nodejs
 import (
 	"os"
 	"path/filepath"
+	"strings"
+	"syscall"
 	"testing"
+	"time"
+
+	"go.opentelemetry.io/obi/pkg/internal/transform/route/harvest"
 )
 
 func writeFile(t *testing.T, dir, name, content string) {
@@ -167,6 +172,40 @@ func TestSourceScan_NonJSFileIgnored(t *testing.T) {
 
 	if dirHasSIGUSR1Reference(dir) {
 		t.Error("expected non-JS files to be ignored")
+	}
+}
+
+func TestSourceScan_NonRegularJSFileIgnored(t *testing.T) {
+	dir := t.TempDir()
+	fifoPath := filepath.Join(dir, "pipe.js")
+	if err := syscall.Mkfifo(fifoPath, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	result := make(chan bool, 1)
+	go func() {
+		result <- dirHasSIGUSR1Reference(dir)
+	}()
+
+	select {
+	case found := <-result:
+		if found {
+			t.Error("expected non-regular JS file to be ignored")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("expected source scan to ignore FIFO without blocking")
+	}
+}
+
+func TestSourceScan_OversizedJSFileIgnored(t *testing.T) {
+	dir := t.TempDir()
+	line := "const filler = 1;\n"
+	content := strings.Repeat(line, int(harvest.MaxJSFileScanBytes/int64(len(line)))+1) +
+		`process.on("SIGUSR1", handler);`
+	writeFile(t, dir, "large.js", content)
+
+	if dirHasSIGUSR1Reference(dir) {
+		t.Error("expected oversized JS file to be ignored")
 	}
 }
 

@@ -95,6 +95,18 @@ func (t *Trace) FindByOperationNameAndService(operationName, service string) []S
 	return matches
 }
 
+func (t *Trace) FindByOperationNameServiceAndKind(operationName, service, kind string) []Span {
+	candidates := t.FindByOperationNameAndService(operationName, service)
+
+	var matches []Span
+	for _, s := range candidates {
+		if tag, ok := FindIn(s.Tags, "span.kind"); ok && tag.Value == kind {
+			matches = append(matches, s)
+		}
+	}
+	return matches
+}
+
 func (t *Trace) ParentOf(s *Span) (Span, bool) {
 	parentID := ""
 	for _, ref := range s.References {

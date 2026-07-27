@@ -32,11 +32,11 @@ import (
 
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/rlimit"
-	"github.com/gavv/monotime"
 
 	"go.opentelemetry.io/obi/pkg/config"
+	"go.opentelemetry.io/obi/pkg/ebpf/ringbuf"
+	"go.opentelemetry.io/obi/pkg/ebpf/timing"
 	convenience "go.opentelemetry.io/obi/pkg/internal/ebpf/convenience"
-	"go.opentelemetry.io/obi/pkg/internal/ebpf/ringbuf"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/tcmanager"
 	"go.opentelemetry.io/obi/pkg/netolly/flowdef"
 )
@@ -83,7 +83,7 @@ func NewFlowFetcher(
 	portGuessPolicy flowdef.PortGuessPolicy,
 	cfg *config.EBPFTracer,
 ) (*FlowFetcher, error) {
-	startTime := uint64(monotime.Now())
+	startTime := uint64(timing.MonoTimeNow())
 	tlog := tlog()
 	if err := rlimit.RemoveMemlock(); err != nil {
 		tlog.Warn("can't remove mem lock. The agent could not be able to start eBPF programs",
@@ -120,7 +120,7 @@ func NewFlowFetcher(
 		constTraceMessages: uint8(traceMsgs),
 		constPortGuessing:  portGuessing,
 		gBpfDebug:          cfg.BpfDebug,
-	}, sharedMaps, &mu, ""); err != nil {
+	}, sharedMaps, &mu, "", nil); err != nil {
 		return nil, fmt.Errorf("loading netolly eBPF spec: %w", err)
 	}
 

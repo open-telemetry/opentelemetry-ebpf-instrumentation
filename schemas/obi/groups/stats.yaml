@@ -1,0 +1,144 @@
+groups:
+  # `obi.ip` / `src.*` / `dst.*` are reused from `registry.obi.network` so we
+  # don't duplicate the declarations here. Only the stats-specific `reason`
+  # is introduced.
+  - id: registry.obi.stats
+    type: attribute_group
+    display_name: OBI Connection Stats
+    brief: >
+      Attributes carried on OBI's per-connection TCP statistics. Emitted
+      when the `stats_tcp_rtt` or `stats_tcp_failed_connections` features
+      are enabled (both rolled into the umbrella `stats` feature). Like
+      network-flow metrics, the per-data-point attribute set is configurable
+      via `attributes.select`.
+    attributes:
+      - id: reason
+        type:
+          allow_custom_values: true
+          members:
+            - id: refused
+              value: refused
+              stability: development
+            - id: reset
+              value: reset
+              stability: development
+            - id: timed_out
+              value: timed-out
+              stability: development
+            - id: host_unreachable
+              value: host-unreachable
+              stability: development
+            - id: net_unreachable
+              value: net-unreachable
+              stability: development
+            - id: other
+              value: other
+              stability: development
+            - id: unknown
+              value: unknown
+              stability: development
+        stability: development
+        brief: Classification of why a TCP connection failed.
+      # Mirrors `NetworkTCPHandshakeRoleType` in
+      # `pkg/internal/statsolly/ebpf/stat.go`. Identifies which side of the
+      # TCP handshake OBI observed the failure on.
+      - id: network.tcp.handshake.role
+        type:
+          allow_custom_values: true
+          members:
+            - id: client
+              value: client
+              stability: development
+            - id: server
+              value: server
+              stability: development
+            - id: unknown
+              value: unknown
+              stability: development
+        stability: development
+        brief: >
+          Role of the local endpoint in the failed TCP three-way handshake
+          (`client` initiated the SYN, `server` was awaiting it).
+
+  - id: metric.obi_stat_tcp_rtt
+    type: metric
+    metric_name: obi.stat.tcp.rtt
+    instrument: histogram
+    unit: "s"
+    stability: development
+    brief: >
+      Smoothed round-trip time observed per TCP connection.
+    attributes:
+      - ref: obi.ip
+      - ref: src.address
+      - ref: dst.address
+      - ref: src.port
+      - ref: dst.port
+      - ref: src.name
+      - ref: dst.name
+      - ref: src.zone
+      - ref: dst.zone
+
+  - id: metric.obi_stat_tcp_retransmits
+    type: metric
+    metric_name: obi.stat.tcp.retransmits
+    instrument: counter
+    unit: ""
+    stability: development
+    brief: >
+      Count of TCP retransmissions observed per connection.
+    attributes:
+      - ref: obi.ip
+      - ref: src.address
+      - ref: dst.address
+      - ref: src.port
+      - ref: dst.port
+      - ref: src.name
+      - ref: dst.name
+      - ref: src.zone
+      - ref: dst.zone
+
+  - id: metric.obi_stat_tcp_io
+    type: metric
+    metric_name: obi.stat.tcp.io
+    instrument: counter
+    unit: "By"
+    stability: development
+    brief: >
+      Count of bytes transferred at the socket layer per TCP connection,
+      broken down by direction.
+    attributes:
+      - ref: obi.ip
+      - ref: src.address
+      - ref: dst.address
+      - ref: src.port
+      - ref: dst.port
+      - ref: src.name
+      - ref: dst.name
+      - ref: src.zone
+      - ref: dst.zone
+      - ref: network.io.direction
+
+  # Counter has no explicit OTLP unit set; mirror that here so live-check
+  # doesn't complain "Unit should be '1', but found ''".
+  - id: metric.obi_stat_tcp_failed_connections
+    type: metric
+    metric_name: obi.stat.tcp.failed.connections
+    instrument: counter
+    unit: ""
+    stability: development
+    brief: >
+      Count of TCP connections that failed to establish, broken down by
+      `reason`.
+    attributes:
+      - ref: obi.ip
+      - ref: src.address
+      - ref: dst.address
+      - ref: src.port
+      - ref: dst.port
+      - ref: src.name
+      - ref: dst.name
+      - ref: src.zone
+      - ref: dst.zone
+      - ref: reason
+      - ref: network.tcp.handshake.role

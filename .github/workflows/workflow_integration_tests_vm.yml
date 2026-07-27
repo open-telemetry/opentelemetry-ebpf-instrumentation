@@ -1,29 +1,56 @@
-name: Pull request integration tests on VM
+name: Integration tests VM
+run-name: >-
+  Integration tests VM${{ inputs.pr_number && format(' · PR #{0}', inputs.pr_number) || '' }}${{ inputs.ref && format(' @ {0}', inputs.ref) || '' }}
 
 on:
   push:
-    branches: ["main", "release-*"]
+    branches: [main, release-*]
   pull_request:
-    branches: ["main", "release-*"]
+    branches: [main, release-*]
     paths:
       - ".github/workflows/workflow_integration_tests_vm.yml"
       - "bpf/**"
       - "internal/test/integration/**"
       - "internal/test/vm/**"
       - "scripts/generate-integration-matrix.sh"
+      - "scripts/kernel-matrix-json.sh"
   workflow_call:
     inputs:
       ref:
         description: "Git ref (commit, branch, or tag) to check out"
         required: false
         type: string
+      all_kernels:
+        description: "Run the matrix on every kernel in kernels.yaml (ignores pr_integration flag)"
+        required: false
+        type: boolean
+        default: false
+      pr_number:
+        description: "PR number this dispatch is associated with (informational; surfaced in run-name)"
+        required: false
+        type: string
     secrets:
       DOCKER_TOKEN_EBPF_INSTRUMENTATION:
         description: "Docker Hub token for pulling images (optional)"
         required: false
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Git ref (commit, branch, or tag) to check out"
+        required: false
+        type: string
+      all_kernels:
+        description: "Run the matrix on every kernel in kernels.yaml"
+        required: false
+        type: boolean
+        default: false
+      pr_number:
+        description: "PR number this dispatch is associated with (informational; surfaced in run-name)"
+        required: false
+        type: string
 
 concurrency:
-  group: vm-integration-tests-${{ github.head_ref || github.run_id }}
+  group: pr-integration-vm-${{ github.head_ref || github.run_id }}
   cancel-in-progress: true
 
 permissions:
@@ -31,196 +58,261 @@ permissions:
 
 jobs:
   vm-test-matrix:
-    name: "Build VM integration matrix"
+    name: "Build matrix"
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 10
     outputs:
       matrix: ${{ steps.build-matrix.outputs.matrix }}
+      kernels: ${{ steps.build-kernel-matrix.outputs.kernels }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
 
-      - name: build matrix
+      - name: Build test matrix
         id: build-matrix
         env:
-          # 5 partitions, one for each of:
-          #  1. TestMultiProcess
-          #  2. TestMultiProcessAppCP
-          #  3. TestMultiProcessAppCPHeadersOnly
-          #  4. TestMultiProcessAppCPTCPOnly
-          #  5. TestMultiProcessAppCPIPOnly
-
-          PARTITIONS: 5
+          PARTITIONS: 2
         run: |
           echo -n "matrix=" >> $GITHUB_OUTPUT
           make multiprocess-integration-test-matrix-json >> $GITHUB_OUTPUT
 
-  test:
-    name: kernel ${{ matrix.kernel.kernel-version }} ${{ matrix.kernel.arch }} ${{ matrix.test.description }}
-    needs: vm-test-matrix
-    permissions:
-      # Required for codecov
-      checks: write
-      pull-requests: write
-      # Required for uploading artifacts
-      actions: write
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    strategy:
-      fail-fast: false
-      matrix:
-        kernel:
-          - kernel-version: "5.15.152"
-            arch: "x86_64"
-          - kernel-version: "6.10.6"
-            arch: "x86_64"
-        test: ${{ fromJson(needs.vm-test-matrix.outputs.matrix).include }}
-    steps:
-      - name: Check initial disk usage
-        run: df -h
-
-      - name: Free up disk space
+      - name: Build kernel matrix
+        id: build-kernel-matrix
+        env:
+          ALL_KERNELS: ${{ inputs.all_kernels }}
         run: |
-          # Remove Java (JDKs)
-          sudo rm -rf /usr/lib/jvm
+          echo -n "kernels=" >> "$GITHUB_OUTPUT"
+          if [ "$ALL_KERNELS" = "true" ]; then
+            bash scripts/kernel-matrix-json.sh --kind=integration --all >> "$GITHUB_OUTPUT"
+          else
+            bash scripts/kernel-matrix-json.sh --kind=integration >> "$GITHUB_OUTPUT"
+          fi
 
-          # Remove .NET SDKs
-          sudo rm -rf /usr/share/dotnet
-
-          # Remove Swift toolchain
-          sudo rm -rf /usr/share/swift
-
-          # Remove Haskell (GHC)
-          sudo rm -rf /usr/local/.ghcup
-
-          # Remove Julia
-          sudo rm -rf /usr/local/julia*
-
-          # Remove Android SDKs
-          sudo rm -rf /usr/local/lib/android
-
-          # Remove Chromium (optional if not using for browser tests)
-          sudo rm -rf /usr/local/share/chromium
-
-          # Remove Microsoft/Edge and Google Chrome builds
-          sudo rm -rf /opt/microsoft /opt/google
-
-          # Remove Azure CLI
-          sudo rm -rf /opt/az
-
-          # Remove PowerShell
-          sudo rm -rf /usr/local/share/powershell
-
-          # Remove CodeQL (but keep hostedtoolcache for Go)
-          sudo rm -rf /opt/hostedtoolcache/CodeQL
-
-          docker system prune -af || true
-          docker builder prune -af || true
-          df -h
-
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+  prep:
+    name: Prep test artifacts
+    needs: vm-test-matrix
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
 
+      - uses: ./.github/actions/free-disk
+
       - name: Check for Docker Hub token
         id: check-docker-token
         run: |
-          if [ -n "${DOCKER_TOKEN}" ]; then
+          if [ "${ALLOW_DOCKER_TOKEN}" = "true" ] && [ -n "${DOCKER_TOKEN}" ]; then
             echo "has_token=true" >> "$GITHUB_OUTPUT"
           else
             echo "has_token=false" >> "$GITHUB_OUTPUT"
           fi
         env:
-          DOCKER_TOKEN: ${{ secrets.DOCKER_TOKEN_EBPF_INSTRUMENTATION }}
+          DOCKER_TOKEN: ${{ (github.event_name != 'workflow_dispatch' || !inputs.ref) && secrets.DOCKER_TOKEN_EBPF_INSTRUMENTATION || '' }}
+          ALLOW_DOCKER_TOKEN: ${{ github.event_name != 'workflow_dispatch' || !inputs.ref }}
 
       - name: Log in to Docker Hub
         if: steps.check-docker-token.outputs.has_token == 'true'
-        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
         with:
           username: ${{ vars.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_TOKEN_EBPF_INSTRUMENTATION }}
+          password: ${{ (github.event_name != 'workflow_dispatch' || !inputs.ref) && secrets.DOCKER_TOKEN_EBPF_INSTRUMENTATION || '' }}
 
       - name: Set up Go
-        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0 # zizmor: ignore[cache-poisoning] go.sum verifies module integrity
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0 # zizmor: ignore[cache-poisoning] go.sum verifies module integrity
         with:
           go-version-file: "go.mod"
           cache: true
 
       - name: Go build cache
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5 # zizmor: ignore[cache-poisoning] go build cache is content-addressable and self-verifying
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] go build cache is content-addressable and self-verifying
         with:
           path: ~/.cache/go-build
           key: go-build-vm-integration-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.go', 'go.sum') }}
           restore-keys: |
             go-build-vm-integration-${{ runner.os }}-${{ runner.arch }}-
 
-      - name: Generate files
+      - name: Generate BPF + build test tools
         run: make prereqs docker-generate
+
+      - name: Pre-compile Go integration tests and gotestsum
+        run: |
+          mkdir compiled-tests
+          ( CGO_ENABLED=0 go test -c -ldflags="-s -w" -o compiled-tests/ ./internal/test/integration ) &
+          ( CGO_ENABLED=0 go build -C internal/tools -o ../../compiled-tests/gotestsum -ldflags="-s -w" gotest.tools/gotestsum ) &
+          wait
+
+      - name: Cache Docker images
+        id: docker-images-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] keyed on hash of compose+Dockerfile+source inputs
+        with:
+          path: compiled-tests/docker-images.tar
+          # OBI binary bakes bpf/cmd/pkg sources; hash them too or source changes reuse stale images.
+          key: vm-docker-images-${{ hashFiles('internal/test/integration/docker-compose-multiexec*.yml', 'internal/test/integration/**/Dockerfile*', 'bpf/**', 'cmd/**', 'pkg/**', 'go.mod', 'go.sum') }}
+
+      - name: Pre-build Docker images
+        if: steps.docker-images-cache.outputs.cache-hit != 'true'
+        run: |
+          mapfile -t ENTRIES < <(bash scripts/discover-integration-images.sh --build-targets)
+          echo "Discovered ${#ENTRIES[@]} Docker images to pre-build"
+          # -P 4 keeps disk + buildkit pressure manageable on a 4-core runner.
+          printf '%s\n' "${ENTRIES[@]}" | xargs -P 4 -I {} bash -c '
+            entry="$1"; tag="${entry%%=*}"; dockerfile="${entry#*=}"
+            echo "Building ${tag} from ${dockerfile}..."
+            docker build --quiet -t "${tag}" -f "${dockerfile}" .
+          ' _ {}
+
+          IMAGE_TAGS=()
+          for entry in "${ENTRIES[@]}"; do
+            IMAGE_TAGS+=("${entry%%=*}")
+          done
+
+          if [ ${#IMAGE_TAGS[@]} -gt 0 ]; then
+            docker save "${IMAGE_TAGS[@]}" -o compiled-tests/docker-images.tar
+            echo "Docker images saved ($(du -h compiled-tests/docker-images.tar | cut -f1))"
+            docker builder prune -af
+          fi
+
+      - name: Compute base-image cache key
+        id: cache-key
+        env:
+          ARCH: ${{ runner.arch }}
+          INPUT_REF: ${{ inputs.ref || '' }}
+        run: |
+          if [ -n "${INPUT_REF}" ]; then
+            REF_SCOPE="input-ref-$(printf '%s' "${INPUT_REF}" | sha256sum | cut -d' ' -f1)"
+          else
+            REF_SCOPE="event-ref"
+          fi
+
+          IMAGE_SCOPE="$(bash scripts/discover-integration-images.sh --base-images | sha256sum | cut -d' ' -f1)"
+          echo "key=base-images-${ARCH}-${REF_SCOPE}-${IMAGE_SCOPE}" >> "$GITHUB_OUTPUT"
+
+      - name: Cache base images
+        id: base-images-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] key derives from the digest-pinned base-image list; images are content-addressable
+        with:
+          path: compiled-tests/base-images.tar
+          key: ${{ steps.cache-key.outputs.key }}
+
+      - name: Pull and save base images
+        if: steps.base-images-cache.outputs.cache-hit != 'true'
+        run: bash scripts/pull-base-images.sh compiled-tests/base-images.tar
+
+      - name: Cache rootfs images
+        id: rootfs-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] keyed on hash of VM Dockerfile
+        with:
+          path: |
+            compiled-tests/rootfs.qcow2
+            compiled-tests/rootfs-legacy.qcow2
+          key: vm-rootfs-${{ hashFiles('internal/test/vm/Dockerfile') }}
+
+      - name: Install qemu-utils
+        if: steps.rootfs-cache.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends qemu-utils
+
+      - name: Build rootfs images
+        if: steps.rootfs-cache.outputs.cache-hit != 'true'
+        run: |
+          sudo make -C internal/test/vm WORKDIR="$(pwd)" build-rootfs
+          sudo chown "$(id -u):$(id -g)" rootfs.qcow2
+          mv rootfs.qcow2 compiled-tests/rootfs.qcow2
+          sudo make -C internal/test/vm WORKDIR="$(pwd)" CGROUP_MODE=legacy build-rootfs
+          sudo chown "$(id -u):$(id -g)" rootfs-legacy.qcow2
+          mv rootfs-legacy.qcow2 compiled-tests/rootfs-legacy.qcow2
+          ls -lh compiled-tests/rootfs*.qcow2
+
+      - name: Stage schemas/obi/.deps for weaver
+        run: |
+          if [ -d schemas/obi/.deps ]; then
+            mkdir -p compiled-tests/schemas-deps
+            cp -a schemas/obi/.deps/. compiled-tests/schemas-deps/
+          fi
+
+      - name: Upload prep artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: vm-prep-${{ github.run_id }}
+          path: compiled-tests
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+  test:
+    name: "Kernel ${{ matrix.kernel.id }} / ${{ matrix.test.description }}"
+    needs: [vm-test-matrix, prep]
+    permissions:
+      checks: write
+      pull-requests: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        kernel: ${{ fromJson(needs.vm-test-matrix.outputs.kernels).include }}
+        test: ${{ fromJson(needs.vm-test-matrix.outputs.matrix).include }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
+
+      - uses: ./.github/actions/free-disk
+        with:
+          docker-prune: 'false'
+
+      - name: Download prep artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: vm-prep-${{ github.run_id }}
+          path: compiled-tests
 
       - name: Install QEMU
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends qemu-utils qemu-system-x86
 
-      - name: Pre-compile Go integration tests and gotestsum
+      - name: Stage schemas/obi/.deps from prep artifact
         run: |
-          mkdir compiled-tests
-          CGO_ENABLED=0 go test -c -ldflags="-s -w" -o compiled-tests/ ./internal/test/integration
-          CGO_ENABLED=0 go build -C internal/tools -o ../../compiled-tests/gotestsum -ldflags="-s -w" gotest.tools/gotestsum
+          mkdir -p schemas/obi/.deps
+          cp -a compiled-tests/schemas-deps/. schemas/obi/.deps/
 
-      - name: Pre-build Docker images for VM tests
+      - name: Stage rootfs.qcow2
+        env:
+          CGROUP_MODE: ${{ matrix.kernel.cgroup_mode }}
         run: |
-          # Auto-discover Docker images from compose files and build them on
-          # the host at native speed, avoiding slow in-VM builds under QEMU
-          # TCG (software CPU emulation). Scans for services that have both a
-          # 'build: dockerfile:' and 'image: hatest-*', skipping entries with
-          # env var substitutions in the dockerfile path.
-          mapfile -t ENTRIES < <(
-            awk '
-              /^  [a-zA-Z]/ {
-                if (df && img && !(img in seen)) { seen[img]=1; print img "=" df }
-                df=""; img=""
-              }
-              /dockerfile:/ {
-                sub(/.*dockerfile: */, ""); gsub(/["'"'"']/, ""); sub(/^\.\/*/, "")
-                if ($0 !~ /\$\{/) df=$0
-              }
-              /image: *hatest-/ { sub(/.*image: */, ""); img=$0 }
-              END { if (df && img && !(img in seen)) print img "=" df }
-            ' internal/test/integration/docker-compose-multiexec*.yml | sort
-          )
-
-          echo "Discovered ${#ENTRIES[@]} Docker images to pre-build"
-          IMAGE_TAGS=()
-          for entry in "${ENTRIES[@]}"; do
-            tag="${entry%%=*}"
-            dockerfile="${entry#*=}"
-            echo "Building ${tag} from ${dockerfile}..."
-            docker build --quiet -t "${tag}" -f "${dockerfile}" .
-            IMAGE_TAGS+=("${tag}")
-          done
-
-          if [ ${#IMAGE_TAGS[@]} -gt 0 ]; then
-            echo "Saving ${#IMAGE_TAGS[@]} Docker images to tar..."
-            docker save "${IMAGE_TAGS[@]}" -o compiled-tests/docker-images.tar
-            echo "Docker images saved ($(du -h compiled-tests/docker-images.tar | cut -f1))"
-            docker builder prune -af
+          if [ "$CGROUP_MODE" = "legacy" ]; then
+            mv compiled-tests/rootfs-legacy.qcow2 ./rootfs.qcow2
+          else
+            mv compiled-tests/rootfs.qcow2 ./rootfs.qcow2
           fi
+          ls -lh ./rootfs.qcow2
+
+      - id: kernel
+        uses: ./.github/actions/setup-lvh-kernel
+        with:
+          kernel-id: ${{ matrix.kernel.id }}
+          lvh-tag: ${{ matrix.kernel.lvh_tag }}
 
       - name: Run VM integration tests (${{ matrix.test.description }})
         env:
-          # zizmor template-injection fixes: pass data as env vars
           MATRIX_ID: ${{ matrix.test.id }}
           MATRIX_JSON: ${{ toJson(matrix.test) }}
           MATRIX_TEST_PATTERN: ${{ matrix.test.test_pattern }}
           RUN_NUMBER: ${{ github.run_number }}
-          ARCH: ${{ matrix.kernel.arch }}
-          KERNEL_VERSION: ${{ matrix.kernel.kernel-version }}
+          KERNEL_ID: ${{ matrix.kernel.id }}
+          KERNEL: ${{ steps.kernel.outputs.kernel }}
+          MODULES_DIR: ${{ steps.kernel.outputs.modules-dir }}
+          CGROUP_MODE: ${{ matrix.kernel.cgroup_mode }}
         run: |
-          echo "VM Partition for kernel $KERNEL_VERSION"
+          echo "VM Partition for kernel ${KERNEL_ID} cgroup_mode=${CGROUP_MODE:-hybrid}"
           echo "${MATRIX_JSON}"
 
           if [ -z "${MATRIX_TEST_PATTERN}" ]; then
@@ -228,10 +320,11 @@ jobs:
             exit 1
           fi
 
-          # Run VM tests with pre-compiled tests
           sudo make -C internal/test/vm \
-            KERNEL_VER=${KERNEL_VERSION} \
-            ARCH=${ARCH} \
+            WORKDIR="$(pwd)" \
+            KERNEL="$KERNEL" \
+            MODULES_DIR="$MODULES_DIR" \
+            ARCH=amd64 \
             TEST_PATTERN="${MATRIX_TEST_PATTERN}" \
             RUN_NUMBER="${RUN_NUMBER}" \
             PRECOMPILED_TESTS_DIR="$(pwd)/compiled-tests" \
@@ -241,19 +334,20 @@ jobs:
         run: make itest-coverage-data
 
       - name: Report coverage
-        uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2 # v6.0.0
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
         with:
           files: ./testoutput/itest-covdata.txt
-          flags: integration-test-vm-${{ matrix.kernel.arch }}-${{ matrix.kernel.kernel-version }}
-          name: vm-integration-test-coverage-${{ matrix.kernel.kernel-version }}-${{ matrix.kernel.arch }}-${{ matrix.test.id }}-${{ github.run_number }}
+          flags: integration-test-vm-${{ matrix.kernel.id }}
+          name: vm-coverage-${{ matrix.kernel.id }}-${{ matrix.test.id }}-${{ github.run_number }}
 
       - name: Upload integration test logs
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
-          name: vm-integration-test-logs-${{ matrix.kernel.kernel-version }}-${{ matrix.kernel.arch }}-${{ matrix.test.id }}-${{ github.run_number }}
+          name: vm-logs-${{ matrix.kernel.id }}-${{ matrix.test.id }}-${{ github.run_number }}
           path: |
             testoutput/*.log
             testoutput/kind
+

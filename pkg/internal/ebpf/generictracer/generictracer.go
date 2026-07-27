@@ -10,22 +10,26 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
 	"sync"
+	"syscall"
 	"time"
 	"unsafe"
 
 	"github.com/cilium/ebpf"
-	"github.com/gavv/monotime"
 	"github.com/vishvananda/netlink"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
-	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
+	jvmruntime "go.opentelemetry.io/obi/pkg/appolly/app/runtime"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
+	"go.opentelemetry.io/obi/pkg/config"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
+	"go.opentelemetry.io/obi/pkg/ebpf/ringbuf"
+	"go.opentelemetry.io/obi/pkg/ebpf/timing"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
-	"go.opentelemetry.io/obi/pkg/internal/ebpf/ringbuf"
 	"go.opentelemetry.io/obi/pkg/internal/goexec"
+	"go.opentelemetry.io/obi/pkg/internal/netns"
 	"go.opentelemetry.io/obi/pkg/internal/netolly/ifaces"
 	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
@@ -47,6 +51,7 @@ type Tracer struct {
 	libsMux          sync.Mutex
 	iters            []*ebpfcommon.Iter
 	eventCtx         *ebpfcommon.EBPFEventContext
+	jvmUSDTManager   ebpfcommon.USDTSpecManager
 }
 
 func tlog() *slog.Logger {
@@ -119,14 +124,24 @@ func (p *Tracer) rebuildValidPids() {
 	}
 }
 
-func (p *Tracer) AllowPID(pid app.PID, ns uint32, svc *svc.Attrs) {
-	p.pidsFilter.AllowPID(pid, ns, svc, ebpfcommon.PIDTypeKProbes)
+func (p *Tracer) AllowPID(pid app.PID, ns uint32, fi *exec.FileInfo) {
+	p.pidsFilter.AllowPID(pid, ns, fi, ebpfcommon.PIDTypeKProbes)
 	p.rebuildValidPids()
+	// Override potential negative cache entry for this PID
+	if p.bpfObjects.PidCache != nil {
+		pidU32 := uint32(pid)
+		_ = p.bpfObjects.PidCache.Put(pidU32, pidU32)
+	}
 }
 
 func (p *Tracer) BlockPID(pid app.PID, ns uint32) {
 	p.pidsFilter.BlockPID(pid, ns)
 	p.rebuildValidPids()
+	// Remove from cache so next access re-evaluates
+	if p.bpfObjects.PidCache != nil {
+		pidU32 := uint32(pid)
+		_ = p.bpfObjects.PidCache.Delete(pidU32)
+	}
 }
 
 func (p *Tracer) LoadSpecs() ([]*ebpfcommon.SpecBundle, error) {
@@ -146,18 +161,31 @@ func (p *Tracer) LoadSpecs() ([]*ebpfcommon.SpecBundle, error) {
 }
 
 func (p *Tracer) SetupTailCalls() {
+	// Order must match the k_tail_* enum in bpf/generictracer/k_tracer_tailcall.h
 	for i, prog := range []*ebpf.Program{
-		p.bpfObjects.ObiProtocolHttp,                      // 0
-		p.bpfObjects.ObiContinueProtocolHttp,              // 1
-		p.bpfObjects.ObiContinue2ProtocolHttp,             // 2
-		p.bpfObjects.ObiProtocolHttp2,                     // 3
-		p.bpfObjects.ObiProtocolTcp,                       // 4
-		p.bpfObjects.ObiProtocolHttp2GrpcFrames,           // 5
-		p.bpfObjects.ObiProtocolHttp2GrpcHandleStartFrame, // 6
-		p.bpfObjects.ObiProtocolHttp2GrpcHandleEndFrame,   // 7
-		p.bpfObjects.ObiHandleBufWithArgs,                 // 8
-		p.bpfObjects.ObiContinueProtocolHttpTp,            // 9
+		// HTTP/1
+		p.bpfObjects.ObiProtocolHttp,           // 0  k_tail_protocol_http
+		p.bpfObjects.ObiContinueProtocolHttp,   // 1  k_tail_continue_protocol_http
+		p.bpfObjects.ObiContinue2ProtocolHttp,  // 2  k_tail_continue2_protocol_http
+		p.bpfObjects.ObiContinueProtocolHttpTp, // 3  k_tail_continue_protocol_http_tp
+		// TCP
+		p.bpfObjects.ObiProtocolTcp, // 4  k_tail_protocol_tcp
+		// generic
+		p.bpfObjects.ObiHandleBufWithArgs, // 5  k_tail_handle_buf_with_args
+		nil,                               // 6  k_tail_continue_netfd_read (gotracer-only)
+		// HTTP/2 + gRPC
+		p.bpfObjects.ObiProtocolHttp2,                                   // 7
+		p.bpfObjects.ObiProtocolHttp2GrpcFrames,                         // 8
+		p.bpfObjects.ObiProtocolHttp2GrpcHandleStartFrame,               // 9
+		p.bpfObjects.ObiProtocolHttp2GrpcHandleEndFrame,                 // 10
+		p.bpfObjects.ObiProtocolHttp2GrpcHandleStartFrameServer,         // 11
+		p.bpfObjects.ObiProtocolHttp2GrpcHandleStartFrameServerFinalize, // 12
+		// Large buffer multi-batch emission
+		p.bpfObjects.ObiLargeBufEmitContinue, // 13  k_tail_large_buf_emit_continue
 	} {
+		if prog == nil {
+			continue
+		}
 		p.log.Debug("loading program into tail call jump table", "index", i, "program", prog.String())
 		if err := p.bpfObjects.JumpTable.Update(uint32(i), uint32(prog.FD()), ebpf.UpdateAny); err != nil {
 			p.log.Error("error loading info tail call jump table", "error", err)
@@ -200,13 +228,20 @@ func (p *Tracer) constants() map[string]any {
 	}
 
 	m["http_max_captured_bytes"] = p.cfg.EBPF.BufferSizes.HTTP
+	m["tcp_max_captured_bytes"] = p.cfg.EBPF.BufferSizes.TCP
 	m["mysql_max_captured_bytes"] = p.cfg.EBPF.BufferSizes.MySQL
 	m["kafka_max_captured_bytes"] = p.cfg.EBPF.BufferSizes.Kafka
 	m["postgres_max_captured_bytes"] = p.cfg.EBPF.BufferSizes.Postgres
+	m["mssql_max_captured_bytes"] = p.cfg.EBPF.BufferSizes.MSSQL
+
 	m["max_transaction_time"] = uint64(p.cfg.EBPF.MaxTransactionTime.Nanoseconds())
 
 	m["g_bpf_debug"] = p.cfg.EBPF.BpfDebug
 	m["g_bpf_traceparent_enabled"] = p.cfg.EBPF.TrackRequestHeaders || p.cfg.EBPF.ContextPropagation.IsEnabled()
+	m["jvm_sampling_interval_ns"] = uint64(0)
+	if p.jvmRuntimeMetricsEnabled() {
+		m["jvm_sampling_interval_ns"] = uint64(p.cfg.JVMRuntimeMetrics.SamplingInterval.Nanoseconds())
+	}
 
 	return m
 }
@@ -354,8 +389,8 @@ func (p *Tracer) UProbes() map[string]map[string][]*ebpfcommon.ProbeDesc {
 			}},
 			"SSL_write_ex2": {{
 				Required: false,
-				Start:    p.bpfObjects.ObiUprobeSslWriteEx,
-				End:      p.bpfObjects.ObiUretprobeSslWriteEx,
+				Start:    p.bpfObjects.ObiUprobeSslWriteEx2,
+				End:      p.bpfObjects.ObiUretprobeSslWriteEx2,
 			}},
 			"SSL_write_ex": {{
 				Required: false,
@@ -419,10 +454,12 @@ func (p *Tracer) UProbes() map[string]map[string][]*ebpfcommon.ProbeDesc {
 			"context_run": {{
 				Required: false,
 				Start:    p.bpfObjects.ObiUprobeContextRun,
+				End:      p.bpfObjects.ObiUretprobeContextRun,
 			}},
 			"context_run.lto_priv.0": {{ // In Python 3.14, context_run has different symbols due to Link Time Optimization
 				Required: false,
 				Start:    p.bpfObjects.ObiUprobeContextRun,
+				End:      p.bpfObjects.ObiUretprobeContextRun,
 			}},
 			"PyContext_CopyCurrent": {{
 				Required: false,
@@ -458,6 +495,32 @@ func (p *Tracer) UProbes() map[string]map[string][]*ebpfcommon.ProbeDesc {
 	return m
 }
 
+func (p *Tracer) USDTProbes() map[string][]*ebpfcommon.USDTProbeDesc {
+	if !p.jvmRuntimeMetricsEnabled() {
+		return nil
+	}
+	return map[string][]*ebpfcommon.USDTProbeDesc{
+		"libjvm.so": {
+			{
+				Provider:    "hotspot",
+				Name:        "mem__pool__gc__begin",
+				Program:     p.bpfObjects.ObiUsdtHotspotMemPoolGcBegin,
+				SpecsMap:    p.bpfObjects.ObiUsdtSpecs,
+				IPMap:       p.bpfObjects.ObiUsdtIpToSpecId,
+				SpecManager: &p.jvmUSDTManager,
+			},
+			{
+				Provider:    "hotspot",
+				Name:        "mem__pool__gc__end",
+				Program:     p.bpfObjects.ObiUsdtHotspotMemPoolGcEnd,
+				SpecsMap:    p.bpfObjects.ObiUsdtSpecs,
+				IPMap:       p.bpfObjects.ObiUsdtIpToSpecId,
+				SpecManager: &p.jvmUSDTManager,
+			},
+		},
+	}
+}
+
 func (p *Tracer) SocketFilters() []*ebpf.Program {
 	return []*ebpf.Program{p.bpfObjects.ObiSocketHttpFilter}
 }
@@ -476,6 +539,39 @@ func (p *Tracer) Iters() []*ebpfcommon.Iter {
 	}
 
 	return p.iters
+}
+
+func (p *Tracer) runItersForPids() {
+	iters := p.Iters()
+	if len(iters) == 0 {
+		return
+	}
+
+	seen := make(map[uint64]struct{})
+
+	for _, pids := range p.pidsFilter.CurrentPIDs(ebpfcommon.PIDTypeKProbes) {
+		for pid := range pids {
+			info, err := os.Stat(fmt.Sprintf("/proc/%d/ns/net", pid))
+			if err != nil {
+				p.log.Debug("netns stat failed", "pid", pid, "error", err)
+				continue
+			}
+
+			inode := info.Sys().(*syscall.Stat_t).Ino
+			if _, ok := seen[inode]; ok {
+				continue
+			}
+			seen[inode] = struct{}{}
+
+			for _, it := range iters {
+				if err := netns.WithNetNS(int(pid), func() error {
+					return it.Run(p.log)
+				}); err != nil {
+					p.log.Error("error running iterator in netns", "pid", pid, "error", err)
+				}
+			}
+		}
+	}
 }
 
 func (p *Tracer) Tracing() []*ebpfcommon.Tracing { return nil }
@@ -520,7 +616,13 @@ func (p *Tracer) AlreadyInstrumentedLib(id uint64) bool {
 	return module != nil
 }
 
-func (p *Tracer) Run(ctx context.Context, ebpfEventContext *ebpfcommon.EBPFEventContext, eventsChan *msg.Queue[[]request.Span]) {
+func (p *Tracer) Run(
+	ctx context.Context,
+	ebpfEventContext *ebpfcommon.EBPFEventContext,
+	eventsChan *msg.Queue[[]request.Span],
+) {
+	p.eventCtx = ebpfEventContext
+
 	// At this point we now have loaded the bpf objects, which means we should insert any
 	// pids that are allowed into the bpf map
 	if p.bpfObjects.ValidPids != nil {
@@ -531,32 +633,31 @@ func (p *Tracer) Run(ctx context.Context, ebpfEventContext *ebpfcommon.EBPFEvent
 
 	timeoutTicker := time.NewTicker(2 * time.Second)
 	parseContext := ebpfcommon.NewEBPFParseContext(&p.cfg.EBPF, eventsChan, p.pidsFilter)
+	defer parseContext.Close()
 
 	go p.watchForMisclassifedEvents(ctx)
 	go p.lookForTimeouts(ctx, parseContext, timeoutTicker, eventsChan)
 	defer timeoutTicker.Stop()
 
-	for _, it := range p.Iters() {
-		if it.Program == p.bpfObjects.ObiIterTcp {
-			if err := it.Run(p.log); err != nil {
-				p.log.Error("error running TCP iterator", "error", err)
-			}
-		}
-	}
+	p.runItersForPids()
 
 	p.log.Info("Launching p.Tracer")
 
 	cfg := &p.cfg.EBPF
+	if p.jvmRuntimeMetricsEnabled() {
+		if p.runtimeMetricsSender() == nil {
+			p.log.Warn("JVM runtime metrics enabled without runtime metrics queue")
+		} else {
+			p.log.Debug("reading JVM runtime metrics from shared ring buffer")
+		}
+	}
+
 	ebpfcommon.SharedRingbuf(
 		ebpfEventContext,
 		cfg,
 		p.bpfObjects.Events,
 		func(record *ringbuf.Record) (request.Span, bool, error) {
-			s, ignore, err := ebpfcommon.ReadBPFTraceAsSpan(parseContext, cfg, record, p.pidsFilter)
-			if !ignore && err == nil && !s.IsValid() {
-				return s, true, nil
-			}
-			return s, ignore, err
+			return p.processSharedRingbufRecord(ctx, parseContext, cfg, record)
 		},
 		p.pidsFilter.Filter,
 		p.log,
@@ -564,9 +665,114 @@ func (p *Tracer) Run(ctx context.Context, ebpfEventContext *ebpfcommon.EBPFEvent
 	)(ctx, append(p.closers, &p.bpfObjects), eventsChan)
 }
 
+func (p *Tracer) jvmRuntimeMetricsEnabled() bool {
+	return p.cfg != nil && p.cfg.JoinMetricsConfig().Features.AppRuntime()
+}
+
+func (p *Tracer) processSharedRingbufRecord(
+	ctx context.Context,
+	parseContext *ebpfcommon.EBPFParseContext,
+	cfg *config.EBPFTracer,
+	record *ringbuf.Record,
+) (request.Span, bool, error) {
+	if handled, err := ebpfcommon.HandleRuntimeMetricsRecord(
+		ctx,
+		p.eventCtx,
+		record,
+		p.pidsFilter,
+		p.log,
+		p.handleJVMRuntimeMetricsRecord,
+	); handled {
+		return request.Span{}, true, err
+	}
+
+	s, ignore, err := ebpfcommon.ReadBPFTraceAsSpan(parseContext, cfg, record, p.pidsFilter)
+	if !ignore && err == nil && !s.IsValid() {
+		return s, true, nil
+	}
+	return s, ignore, err
+}
+
+func (p *Tracer) handleJVMRuntimeMetricsRecord(
+	ctx context.Context,
+	record *ringbuf.Record,
+) (bool, error) {
+	if record == nil || len(record.RawSample) == 0 {
+		return false, nil
+	}
+
+	eventType := record.RawSample[0]
+	switch eventType {
+	case ebpfcommon.EventTypeJVMMemoryPoolGC:
+		if p.eventCtx == nil || p.eventCtx.RuntimeMetrics == nil {
+			return true, nil
+		}
+		events, ignore, err := p.parseJVMMemoryPoolRecord(record)
+		if err != nil || ignore || len(events) == 0 {
+			return true, err
+		}
+		p.eventCtx.RuntimeMetrics.SendJVMRuntimeMetrics(ctx, events)
+		return true, nil
+	default:
+		return false, nil
+	}
+}
+
+func (p *Tracer) runtimeMetricsSender() ebpfcommon.RuntimeMetricSender {
+	if p.eventCtx == nil {
+		return nil
+	}
+	return p.eventCtx.RuntimeMetrics
+}
+
+func (p *Tracer) parseJVMMemoryPoolRecord(record *ringbuf.Record) ([]jvmruntime.JVMRuntimeEvent, bool, error) {
+	raw, err := ebpfcommon.ReinterpretCast[BpfJvmMemPoolGcEvent](record.RawSample)
+	if err != nil {
+		return nil, false, err
+	}
+
+	events, err := jvmruntime.ParseJVMMemoryPoolEvent(
+		raw.Timestamp,
+		raw.NsPid,
+		raw.PidNsId,
+		jvmruntime.RawJVMGCWhenType(raw.GcWhenType),
+		raw.Used,
+		raw.Committed,
+		raw.MaxSize,
+		raw.Pool,
+	)
+	if err != nil {
+		return nil, false, err
+	}
+
+	if len(events) == 0 {
+		return nil, true, nil
+	}
+
+	// All events are fanned out from one raw sample and share PID identity.
+	if !ebpfcommon.DecorateJVMRuntimeEvent(p.pidsFilter, &events[0]) {
+		return nil, true, nil
+	}
+	for i := 1; i < len(events); i++ {
+		events[i].Service = events[0].Service
+	}
+
+	if p.log != nil {
+		p.log.Debug("received JVM memory pool event",
+			"pid", events[0].PID,
+			"service", events[0].Service.UID.Name,
+			"namespace", events[0].Service.UID.Namespace,
+			"pool", events[0].PoolName,
+			"phase", events[0].GCPhase,
+			"events", len(events),
+		)
+	}
+	return events, false, nil
+}
+
 func kernelTime(ktime uint64) time.Time {
 	now := time.Now()
-	delta := monotime.Now() - time.Duration(int64(ktime))
+	delta := timing.MonoTimeNow() - time.Duration(int64(ktime))
 
 	return now.Add(-delta)
 }

@@ -109,3 +109,18 @@ internal/test/integration/components/java_tls/jdk8/target
 # Ignore the generated OpenTelemetry Collector configuration files for development.
 examples/otel-collector/otelcol-dev/*
 internal/test/benchmarks/goshorturl/shorturl
+
+# Pre-fetched upstream OpenTelemetry semantic-conventions registry consumed
+# by weaver. Populated by `make fetch-upstream-semconv` (a prereqs dep).
+schemas/obi/.deps/
+internal/test/vm/lvh/out/
+
+# Route-harvester test fixture emulating a NestJS app that ships only compiled
+# output; the directory must literally be named "dist" (the scan behavior under
+# test keys on that name), so carve it out of the global dist/ ignore.
+!pkg/internal/transform/route/harvest/nodejs/test_files_dist/dist/
+!pkg/internal/transform/route/harvest/nodejs/test_files_dist/dist/**
+!pkg/internal/transform/route/harvest/nodejs/test_files_dist_versioned/dist/
+!pkg/internal/transform/route/harvest/nodejs/test_files_dist_versioned/dist/**
+internal/test/integration/components/ai/openai/mock-server/mock-server
+internal/test/integration/components/ai/openai/go/testserver

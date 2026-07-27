@@ -111,6 +111,8 @@ func TestMultiProcess(t *testing.T) {
 		checkInstrumentedProcessesMetric(t)
 	})
 
+	runWeaverValidation(t)
+
 	require.NoError(t, compose.Close())
 }
 
@@ -125,6 +127,7 @@ func TestMultiProcessAppCP(t *testing.T) {
 	t.Run("Nested traces with kprobes: rust -> java -> node -> go -> go jsonrpc -> python -> rails", func(t *testing.T) {
 		testNestedHTTPTracesKProbes(t)
 	})
+	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
 
@@ -140,6 +143,8 @@ func TestMultiProcessAppCPHeadersOnly(t *testing.T) {
 	t.Run("Nested traces with kprobes: rust -> java -> node -> go -> go jsonrpc -> python -> rails", func(t *testing.T) {
 		testNestedHTTPTracesKProbes(t)
 	})
+
+	runWeaverValidation(t)
 
 	require.NoError(t, compose.Close())
 }
@@ -157,6 +162,8 @@ func TestMultiProcessAppCPTCPOnly(t *testing.T) {
 	t.Run("Nested traces with TCP-only propagation", func(t *testing.T) {
 		testNestedHTTPTracesKProbes(t)
 	})
+
+	runWeaverValidation(t)
 
 	require.NoError(t, compose.Close())
 }
@@ -319,6 +326,8 @@ func TestLanguageSelectors(t *testing.T) {
 	t.Run("Partial traces: rust (OK) -> java (NO) -> node (NO) -> go (NO) -> python (NO) -> rails (OK)", func(t *testing.T) {
 		testPartialLanguageHTTPProbes(t)
 	})
+
+	runWeaverValidation(t)
 
 	require.NoError(t, compose.Close())
 }

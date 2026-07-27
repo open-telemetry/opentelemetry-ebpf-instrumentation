@@ -22,12 +22,14 @@ import (
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
+	"go.opentelemetry.io/obi/pkg/runtimemetrics"
 )
 
 type ProcessFinder struct {
 	cfg              *obi.Config
 	ctxInfo          *global.ContextInfo
 	tracesInput      *msg.Queue[[]request.Span]
+	runtimeMetrics   *msg.Queue[[]runtimemetrics.RuntimeMetricSnapshot]
 	ebpfEventContext *ebpfcommon.EBPFEventContext
 	doneChan         <-chan error
 }
@@ -36,9 +38,16 @@ func NewProcessFinder(
 	cfg *obi.Config,
 	ctxInfo *global.ContextInfo,
 	tracesInput *msg.Queue[[]request.Span],
+	runtimeMetrics *msg.Queue[[]runtimemetrics.RuntimeMetricSnapshot],
 	ebpfEventContext *ebpfcommon.EBPFEventContext,
 ) *ProcessFinder {
-	return &ProcessFinder{cfg: cfg, ctxInfo: ctxInfo, tracesInput: tracesInput, ebpfEventContext: ebpfEventContext}
+	return &ProcessFinder{
+		cfg:              cfg,
+		ctxInfo:          ctxInfo,
+		tracesInput:      tracesInput,
+		runtimeMetrics:   runtimeMetrics,
+		ebpfEventContext: ebpfEventContext,
+	}
 }
 
 type processFinderStartConfig struct {
@@ -79,13 +88,17 @@ func (pf *ProcessFinder) Start(ctx context.Context, opts ...ProcessFinderStartOp
 	tracerEvents := msgh.QueueFromConfig[Event[*ebpf.Instrumentable]](pf.cfg, "tracerEvents")
 
 	configCriteria := FindingCriteria(pf.cfg)
+	var appDynamicSelector *dynamicPIDSignalView
+	if startConfig.dynamicPIDSelector != nil {
+		appDynamicSelector = startConfig.dynamicPIDSelector.appSignals()
+	}
 
 	swi := swarm.Instancer{}
 	processEvents := msgh.QueueFromConfig[[]Event[ProcessAttrs]](pf.cfg, "processEvents")
 
 	var addedPIDsCh <-chan []app.PID
-	if startConfig.dynamicPIDSelector != nil {
-		addedPIDsCh = startConfig.dynamicPIDSelector.AddedPIDsNotify()
+	if appDynamicSelector != nil {
+		addedPIDsCh = appDynamicSelector.AddedPIDsNotifyContext(ctx)
 	}
 	swi.Add(swarm.DirectInstance(ProcessWatcherFunc(pf.cfg, pf.ebpfEventContext, processEvents, configCriteria, addedPIDsCh)),
 		swarm.WithID("ProcessWatcher"))
@@ -115,7 +128,7 @@ func (pf *ProcessFinder) Start(ctx context.Context, opts ...ProcessFinderStartOp
 	criteriaFilteredEvents := msgh.QueueFromConfig[[]Event[ProcessMatch]](pf.cfg, "criteriaFilteredEvents")
 	swi.Add(criteriaMatcherProvider(pf.cfg, langEnrichedEvents, criteriaFilteredEvents, configCriteria, startConfig.dynamicPIDSelector),
 		swarm.WithID("CriteriaMatcher"))
-	swi.Add(dynamicMatcherProvider(langEnrichedEvents, criteriaFilteredEvents, startConfig.dynamicPIDSelector),
+	swi.Add(dynamicMatcherProvider(langEnrichedEvents, criteriaFilteredEvents, appDynamicSelector),
 		swarm.WithID("DynamicMatcher"))
 
 	executableTypes := msgh.QueueFromConfig[[]Event[ebpf.Instrumentable]](pf.cfg, "executableTypes")
@@ -138,6 +151,8 @@ func (pf *ProcessFinder) Start(ctx context.Context, opts ...ProcessFinderStartOp
 		OutputTracerEvents:  tracerEvents,
 		Metrics:             pf.ctxInfo.Metrics,
 		SpanSignalsShortcut: pf.tracesInput,
+		RuntimeMetrics:      pf.runtimeMetrics,
+		DynamicPIDSelector:  startConfig.dynamicPIDSelector,
 
 		InputInstrumentables: storedExecutableTypes,
 		EbpfEventContext:     pf.ebpfEventContext,
@@ -187,7 +202,11 @@ func newCommonTracersGroup(cfg *obi.Config, metrics imetrics.Reporter, pidFilter
 	return tracers
 }
 
-func newGoTracersGroup(pidFilter ebpfcommon.ServiceFilter, cfg *obi.Config, metrics imetrics.Reporter) []ebpf.Tracer {
+func newGoTracersGroup(
+	pidFilter ebpfcommon.ServiceFilter,
+	cfg *obi.Config,
+	metrics imetrics.Reporter,
+) []ebpf.Tracer {
 	return []ebpf.Tracer{gotracer.New(pidFilter, cfg, metrics)}
 }
 

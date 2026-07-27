@@ -227,6 +227,19 @@ func TestProcessMQTTEvent(t *testing.T) {
 			},
 			err: true,
 		},
+		{
+			// Encrypted/random bytes that parse as a PUBLISH but whose topic
+			// is not a valid MQTT UTF-8 string must not produce a ghost span.
+			name: "PUBLISH with invalid UTF-8 topic - not span-worthy",
+			request: []byte{
+				0x30,       // PUBLISH, QoS 0
+				0x03,       // Remaining length: 3
+				0x00, 0x01, // Topic length: 1
+				0xff, // Topic: "\xff" (invalid UTF-8)
+			},
+			ignore: true,
+			err:    true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -270,6 +283,21 @@ func TestProcessPossibleMQTTEvent(t *testing.T) {
 			},
 		},
 		{
+			name: "PUBLISH in request buffer without response buffer",
+			request: []byte{
+				0x30,       // PUBLISH, QoS 0
+				0x0c,       // Remaining length: 12
+				0x00, 0x0a, // Topic length: 10
+				't', 'e', 's', 't', '/', 't', 'o', 'p', 'i', 'c',
+			},
+			expected: &MQTTInfo{
+				PacketType: mqttparser.PacketTypePUBLISH,
+				Topic:      "test/topic",
+				QoS:        mqttparser.QoSAtMostOnce,
+				PacketID:   0,
+			},
+		},
+		{
 			name:    "PUBLISH in response buffer (reversed)",
 			request: []byte{},
 			response: []byte{
@@ -291,12 +319,21 @@ func TestProcessPossibleMQTTEvent(t *testing.T) {
 			response: []byte{0x00, 0x00, 0x00},
 			err:      true,
 		},
+		{
+			name:    "Invalid request without response buffer",
+			request: []byte{0x00, 0x00, 0x00},
+			err:     true,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			event := &TCPRequestInfo{}
-			res, _, err := ProcessPossibleMQTTEvent(event, largebuf.NewLargeBufferFrom(tt.request), largebuf.NewLargeBufferFrom(tt.response))
+			var response *largebuf.LargeBuffer
+			if tt.response != nil {
+				response = largebuf.NewLargeBufferFrom(tt.response)
+			}
+			res, _, err := ProcessPossibleMQTTEvent(event, largebuf.NewLargeBufferFrom(tt.request), response)
 			if tt.err {
 				assert.Error(t, err)
 				return
@@ -433,4 +470,86 @@ func TestIsMQTT(t *testing.T) {
 	assert.True(t, isMQTT(largebuf.NewLargeBufferFrom(validPacket)), "valid MQTT packet should return true")
 	assert.False(t, isMQTT(largebuf.NewLargeBufferFrom(invalidPacket)), "invalid packet should return false")
 	assert.False(t, isMQTT(nil), "nil packet should return false")
+}
+
+func TestIsValidMQTTPacket(t *testing.T) {
+	tests := []struct {
+		name     string
+		info     *MQTTInfo
+		expected bool
+	}{
+		{
+			name: "valid packet with client ID",
+			info: &MQTTInfo{
+				ClientID:   "test-client",
+				Topic:      "",
+				PacketType: mqttparser.PacketTypePUBLISH,
+			},
+			expected: true,
+		},
+		{
+			name: "valid packet with topic",
+			info: &MQTTInfo{
+				ClientID:   "",
+				Topic:      "test/topic",
+				PacketType: mqttparser.PacketTypePUBLISH,
+			},
+			expected: true,
+		},
+		{
+			name: "invalid packet - both empty",
+			info: &MQTTInfo{
+				ClientID:   "",
+				Topic:      "",
+				PacketType: mqttparser.PacketTypePUBLISH,
+			},
+			expected: false,
+		},
+		{
+			name:     "invalid packet - nil info",
+			info:     nil,
+			expected: false,
+		},
+		{
+			name: "invalid packet - non-UTF-8 topic",
+			info: &MQTTInfo{
+				Topic:      "\xff",
+				PacketType: mqttparser.PacketTypePUBLISH,
+			},
+			expected: false,
+		},
+		{
+			name: "invalid packet - topic with null byte",
+			info: &MQTTInfo{
+				Topic:      "a\x00b",
+				PacketType: mqttparser.PacketTypePUBLISH,
+			},
+			expected: false,
+		},
+		{
+			name: "invalid packet - wildcard in PUBLISH topic",
+			info: &MQTTInfo{
+				Topic:      "sensors/#",
+				PacketType: mqttparser.PacketTypePUBLISH,
+			},
+			expected: false,
+		},
+		{
+			name: "valid packet - wildcard in SUBSCRIBE filter",
+			info: &MQTTInfo{
+				Topic:      "sensors/#",
+				PacketType: mqttparser.PacketTypeSUBSCRIBE,
+			},
+			expected: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := isValidMQTTPacket(tt.info)
+			if result != tt.expected {
+				t.Errorf("isValidMQTTPacket() = %v, want %v", result, tt.expected)
+			}
+		})
+	}
 }

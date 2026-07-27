@@ -408,6 +408,148 @@ func TestFilterByTimestamp(t *testing.T) {
 	assert.Equal(t, "more-filter-by-ts", evnt.Resource.Name)
 }
 
+func TestReconnectReceivesUpdatedObjectAfterFromTimestampEpoch(t *testing.T) {
+	svcClient := serviceClient{
+		Address:  fmt.Sprintf("127.0.0.1:%d", freePort),
+		Messages: make(chan *informer.Event, 10),
+	}
+	name := "pod-reconnect-update-ts"
+
+	require.NoError(t, k8sClient.Create(ctx, &corev1.Pod{
+		ObjectMeta: v1.ObjectMeta{
+			Name:      name,
+			Namespace: "default",
+			Labels:    map[string]string{"version": "v1"},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{Name: "test-container", Image: "nginx"},
+			},
+		},
+		Status: corev1.PodStatus{PodIP: "10.0.0.128"},
+	}))
+
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		svcClient.Start(ctx, ct, 0)
+	}, timeout, 100*time.Millisecond)
+
+	var initialEvent *informer.Event
+	for {
+		event := testutil.ReadChannel(t, svcClient.Messages, timeout)
+		if event.Type == informer.EventType_SYNC_FINISHED {
+			break
+		}
+		if event.Resource != nil && event.Resource.Name == name {
+			initialEvent = event
+		}
+	}
+
+	require.NotNil(t, initialEvent)
+
+	time.Sleep(time.Second)
+	reconnectFrom := time.Now().Unix()
+
+	reconnectedClient := serviceClient{
+		Address:  fmt.Sprintf("127.0.0.1:%d", freePort),
+		Messages: make(chan *informer.Event, 10),
+	}
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		reconnectedClient.Start(ctx, ct, reconnectFrom)
+	}, timeout, 100*time.Millisecond)
+
+	for {
+		event := testutil.ReadChannel(t, reconnectedClient.Messages, timeout)
+		if event.Type == informer.EventType_SYNC_FINISHED {
+			break
+		}
+		require.NotNil(t, event.Resource)
+		require.NotEqual(t, name, event.Resource.Name)
+	}
+
+	var pod corev1.Pod
+	require.NoError(t, k8sClient.Get(ctx, client.ObjectKey{Name: name, Namespace: "default"}, &pod))
+	pod.Labels["version"] = "v2"
+	require.NoError(t, k8sClient.Update(ctx, &pod))
+
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		event := testutil.ReadChannel(t, reconnectedClient.Messages, timeout)
+		require.Equal(ct, informer.EventType_UPDATED, event.Type)
+		require.NotNil(ct, event.Resource)
+		require.Equal(ct, name, event.Resource.Name)
+		assert.GreaterOrEqual(ct, event.Resource.StatusTimeEpoch, reconnectFrom)
+		assert.Equal(ct, "v2", event.Resource.Labels["version"])
+	}, timeout, 100*time.Millisecond)
+}
+
+func TestReconnectReceivesDeletedObjectAfterFromTimestampEpoch(t *testing.T) {
+	svcClient := serviceClient{
+		Address:  fmt.Sprintf("127.0.0.1:%d", freePort),
+		Messages: make(chan *informer.Event, 10),
+	}
+	name := "pod-reconnect-delete-ts"
+
+	require.NoError(t, k8sClient.Create(ctx, &corev1.Pod{
+		ObjectMeta: v1.ObjectMeta{
+			Name:      name,
+			Namespace: "default",
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{Name: "test-container", Image: "nginx"},
+			},
+		},
+		Status: corev1.PodStatus{PodIP: "10.0.0.129"},
+	}))
+
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		svcClient.Start(ctx, ct, 0)
+	}, timeout, 100*time.Millisecond)
+
+	var initialEvent *informer.Event
+	for {
+		event := testutil.ReadChannel(t, svcClient.Messages, timeout)
+		if event.Type == informer.EventType_SYNC_FINISHED {
+			break
+		}
+		if event.Resource != nil && event.Resource.Name == name {
+			initialEvent = event
+		}
+	}
+
+	require.NotNil(t, initialEvent)
+
+	time.Sleep(time.Second)
+	reconnectFrom := time.Now().Unix()
+
+	reconnectedClient := serviceClient{
+		Address:  fmt.Sprintf("127.0.0.1:%d", freePort),
+		Messages: make(chan *informer.Event, 10),
+	}
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		reconnectedClient.Start(ctx, ct, reconnectFrom)
+	}, timeout, 100*time.Millisecond)
+
+	for {
+		event := testutil.ReadChannel(t, reconnectedClient.Messages, timeout)
+		if event.Type == informer.EventType_SYNC_FINISHED {
+			break
+		}
+		require.NotNil(t, event.Resource)
+		require.NotEqual(t, name, event.Resource.Name)
+	}
+
+	pod := &corev1.Pod{ObjectMeta: v1.ObjectMeta{Name: name, Namespace: "default"}}
+	require.NoError(t, k8sClient.Delete(ctx, pod))
+
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		event := testutil.ReadChannel(t, reconnectedClient.Messages, timeout)
+		require.Equal(ct, informer.EventType_DELETED, event.Type)
+		require.NotNil(ct, event.Resource)
+		require.Equal(ct, name, event.Resource.Name)
+		assert.GreaterOrEqual(ct, event.Resource.StatusTimeEpoch, reconnectFrom)
+	}, timeout, 100*time.Millisecond)
+}
+
 func ReadChannel[T any](t require.TestingT, inCh <-chan T, timeout time.Duration) T {
 	var item T
 	select {

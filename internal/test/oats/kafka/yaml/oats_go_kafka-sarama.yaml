@@ -2,6 +2,7 @@ oats-schema-version: 2
 docker-compose:
   files:
   - ../docker-compose-obi-go-kafka-sarama.yml
+  - ../../weaver/docker-compose-weaver.yml
 input:
 - path: /?data
 interval: 500ms

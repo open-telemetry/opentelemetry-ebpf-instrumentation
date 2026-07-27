@@ -2,10 +2,10 @@ import org.cyclonedx.model.Component
 
 plugins {
     java
-    id("com.gradleup.shadow") version "9.4.1"
-    id("com.github.jk1.dependency-license-report") version "3.1.2"
+    id("com.gradleup.shadow") version "9.6.1"
+    id("com.github.jk1.dependency-license-report") version "3.1.4"
     id("me.champeau.jmh") version "0.7.3"
-    id("org.cyclonedx.bom") version "3.2.4"
+    id("org.cyclonedx.bom") version "3.3.0"
     id("com.diffplug.spotless")
 }
 
@@ -43,14 +43,14 @@ repositories {
 }
 
 dependencies {
-    implementation("net.bytebuddy:byte-buddy:1.18.8-jdk5")
-    implementation("net.bytebuddy:byte-buddy-agent:1.18.8-jdk5")
+    implementation("net.bytebuddy:byte-buddy:1.18.11")
+    implementation("net.bytebuddy:byte-buddy-agent:1.18.11")
 
-    testImplementation("org.junit.jupiter:junit-jupiter-api:5.14.3")
-    testImplementation("org.junit.platform:junit-platform-launcher:1.14.3")
+    testImplementation("org.junit.jupiter:junit-jupiter-api:5.14.4")
+    testImplementation("org.junit.platform:junit-platform-launcher:1.14.4")
     testImplementation("org.awaitility:awaitility:4.3.0")
 
-    testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine:5.14.3")
+    testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine:5.14.4")
 }
 
 tasks.register("prepareKotlinBuildScriptModel"){}
@@ -70,16 +70,34 @@ tasks.named("spotlessJava") {
     mustRunAfter(tasks.compileJava)
 }
 
+val currentArch = if (System.getProperty("os.arch").contains("aarch64")) "aarch64" else "amd64"
+
 // Build the native JNI library
-tasks.register<Exec>("buildNativeLib") {
+tasks.register<Exec>("buildNativeLib-amd64") {
     group = "build"
     description = "Build the JNI native library (libobijni.so)"
-    
+
     dependsOn("compileJava")
-    
+
     workingDir = projectDir
-    commandLine("make", "-f", "Makefile.jni")
-    
+    val cc = if (currentArch == "amd64") "gcc" else "gcc-x86-64-linux-gnu"
+    commandLine("make", "-f", "Makefile.jni", "CC=$cc", "BUILD_DIR=build/jni/linux-amd64", "TARGET_DIR=target/classes/native/linux-amd64")
+
+    doLast {
+        println("OBI JNI library built successfully")
+    }
+}
+
+tasks.register<Exec>("buildNativeLib-aarch64") {
+    group = "build"
+    description = "Build the JNI native library (libobijni.so)"
+
+    dependsOn("compileJava")
+
+    workingDir = projectDir
+    val cc = if (currentArch == "aarch64") "gcc" else "aarch64-linux-gnu-gcc"
+    commandLine("make", "-f", "Makefile.jni", "CC=$cc", "BUILD_DIR=build/jni/linux-aarch64", "TARGET_DIR=target/classes/native/linux-aarch64")
+
     doLast {
         println("OBI JNI library built successfully")
     }
@@ -91,11 +109,15 @@ tasks.register<Delete>("cleanNativeLib") {
     description = "Clean the JNI native library build artifacts"
     
     delete(file("build"))
-    delete(file("target/classes/libobijni.so"))
+    delete(file("target/classes/native/linux-amd64/libobijni.so"))
+    delete(file("target/classes/native/linux-aarch64/libobijni.so"))
 }
 
 val jmhIncludes: String? by project
 val jmhProfilers: String? by project
+val jmhWarmupIterations: String? by project
+val jmhIterations: String? by project
+val jmhForks: String? by project
 
 jmh {
     includes.set(listOf(".*Benchmark.*"))
@@ -107,24 +129,32 @@ jmh {
     }
     benchmarkMode.set(listOf("avgt"))
     timeUnit.set("ns")
-    warmupIterations.set(3)
-    iterations.set(5)
-    fork.set(1)
+    warmupIterations.set(jmhWarmupIterations?.toInt() ?: 3)
+    iterations.set(jmhIterations?.toInt() ?: 5)
+    fork.set(jmhForks?.toInt() ?: 1)
     jvmArgs.set(listOf("-Xmx2G"))
 }
 
+val nativeOnly: String? by project
+val nativeArches: List<String> = if (nativeOnly != null) {
+    val osArch = System.getProperty("os.arch")
+    listOf(if (osArch.contains("aarch64")) "aarch64" else "amd64")
+} else {
+    listOf("amd64", "aarch64")
+}
+
 tasks.shadowJar {
-    dependsOn("buildNativeLib")
-    
+    nativeArches.forEach { arch -> dependsOn("buildNativeLib-$arch") }
+
     archiveBaseName.set("agent")
     archiveVersion.set("0.1.0")
     archiveClassifier.set("shaded")
-    
-    // Include the native library in the JAR
+
+    // Include the native libraries in the JAR
     from(file("target/classes")) {
-        include("libobijni.so")
+        nativeArches.forEach { arch -> include("native/linux-$arch/libobijni.so") }
     }
-    
+
     manifest {
         attributes(
             "Premain-Class" to "io.opentelemetry.obi.java.Agent",

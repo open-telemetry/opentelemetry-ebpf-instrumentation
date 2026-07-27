@@ -1,0 +1,76 @@
+name: Bug Report
+description: Report a bug
+labels: ["bug", "needs triage"]
+body:
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      description: Which part of the project does this affect?
+      options:
+        - OBI (eBPF instrumentation)
+        - k8s-cache
+        - Both / unsure
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear description of the bug.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect to happen?
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+    validations:
+      required: true
+  - type: textarea
+    id: config
+    attributes:
+      label: OBI configuration
+      description: Paste your OBI / k8s-cache config YAML.
+      render: yaml
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Paste relevant log output.
+      render: shell
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: OBI / k8s-cache version (binary `--version` output or container image tag).
+      placeholder: e.g. v1.2.3
+  - type: input
+    id: kernel
+    attributes:
+      label: Kernel version
+      description: Output of `uname -r`.
+      placeholder: e.g. 6.5.0-15-generic
+  - type: input
+    id: os
+    attributes:
+      label: OS / Distribution
+      placeholder: e.g. Ubuntu 24.04, Amazon Linux 2023, RHEL 9
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: Deployment
+      options:
+        - Kubernetes
+        - Docker / container
+        - Bare metal / VM
+        - Other

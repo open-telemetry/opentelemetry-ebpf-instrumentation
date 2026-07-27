@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"time"
 
 	expirable2 "github.com/hashicorp/golang-lru/v2/expirable"
@@ -16,6 +17,7 @@ import (
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/config/configgrpc"
 	"go.opentelemetry.io/collector/config/confighttp"
+	"go.opentelemetry.io/collector/config/configmiddleware"
 	"go.opentelemetry.io/collector/config/configopaque"
 	"go.opentelemetry.io/collector/config/configoptional"
 	"go.opentelemetry.io/collector/config/configretry"
@@ -27,6 +29,7 @@ import (
 	"go.opentelemetry.io/collector/exporter/exporterhelper"
 	"go.opentelemetry.io/collector/exporter/otlpexporter"
 	"go.opentelemetry.io/collector/exporter/otlphttpexporter"
+	"go.opentelemetry.io/collector/extension/extensionmiddleware"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/sdk/metric"
@@ -111,7 +114,7 @@ func (tr *tracesOTELReceiver) getConstantAttributes() (map[attr.Name]struct{}, e
 }
 
 func (tr *tracesOTELReceiver) processSpans(ctx context.Context, exp exporter.Traces, spans []request.Span, traceAttrs map[attr.Name]struct{}, sampler trace.Sampler) {
-	spanGroups := tracesgen.GroupSpans(ctx, spans, traceAttrs, sampler, tr.is)
+	spanGroups := tracesgen.GroupSpans(ctx, spans, traceAttrs, sampler, tr.is, tr.selectorCfg.SensitiveQueryParamsCfg.Effective()...)
 
 	for _, spanGroup := range spanGroups {
 		if len(spanGroup) > 0 {
@@ -125,7 +128,15 @@ func (tr *tracesOTELReceiver) processSpans(ctx context.Context, exp exporter.Tra
 			if tr.spanMetricsEnabled {
 				envResourceAttrs = append(envResourceAttrs, attribute.Bool(string(attr.SkipSpanMetrics.OTEL()), true))
 			}
-			traces := tracesgen.GenerateTracesWithAttributes(tr.attributeCache, &sample.Span.Service, envResourceAttrs, &tr.ctxInfo.NodeMeta, spanGroup, reporterName, tr.ctxInfo.ExtraResourceAttributes...)
+			traces := tracesgen.GenerateTracesWithSelectedResourceAttributes(
+				tr.attributeCache,
+				&sample.Span.Service,
+				envResourceAttrs,
+				&tr.ctxInfo.NodeMeta,
+				spanGroup,
+				reporterName,
+				tr.selectorCfg.SelectionCfg,
+				tr.ctxInfo.ExtraResourceAttributes...)
 			err := exp.ConsumeTraces(ctx, traces)
 			if err != nil {
 				// We can't do if errors.Is(err, queue.ErrQueueIsFull), since the queue package is internal
@@ -148,8 +159,32 @@ func (emptyHost) GetExtensions() map[component.ID]component.Component {
 	return nil
 }
 
+// udsHost exposes the udsMiddleware extension so confighttp can resolve it at exp.Start
+type udsHost struct {
+	extensions map[component.ID]component.Component
+}
+
+func (h udsHost) GetExtensions() map[component.ID]component.Component {
+	return h.extensions
+}
+
+// udsMiddleware replaces the HTTP client transport with one that dials a unix socket
+type udsMiddleware struct {
+	addr string
+}
+
+func (udsMiddleware) Start(context.Context, component.Host) error { return nil }
+
+func (udsMiddleware) Shutdown(context.Context) error { return nil }
+
+func (m udsMiddleware) GetHTTPRoundTripper(context.Context) (extensionmiddleware.WrapHTTPRoundTripperFunc, error) {
+	return func(_ context.Context, _ http.RoundTripper) (http.RoundTripper, error) {
+		return otelcfg.UnixTransport(m.addr), nil
+	}, nil
+}
+
 func (tr *tracesOTELReceiver) provideLoop(ctx context.Context) {
-	exp, err := getTracesExporter(ctx, tr.cfg, tr.ctxInfo.Metrics)
+	exp, host, err := getTracesExporter(ctx, tr.cfg, tr.ctxInfo.Metrics)
 	if err != nil {
 		slog.Error("error creating traces exporter", "error", err)
 		return
@@ -160,7 +195,7 @@ func (tr *tracesOTELReceiver) provideLoop(ctx context.Context) {
 			slog.Error("error shutting down traces exporter", "error", err)
 		}
 	}()
-	err = exp.Start(ctx, emptyHost{})
+	err = exp.Start(ctx, host)
 	if err != nil {
 		slog.Error("error starting traces exporter", "error", err)
 		return
@@ -183,7 +218,7 @@ func (tr *tracesOTELReceiver) provideLoop(ctx context.Context) {
 func instrumentTracesExporter(internalMetrics imetrics.Reporter, in exporter.Traces) exporter.Traces {
 	// avoid wrapping the instrumented exporter if we don't have
 	// internal instrumentation (NoopReporter)
-	if _, ok := internalMetrics.(imetrics.NoopReporter); ok || internalMetrics == nil {
+	if internalMetrics == nil || imetrics.IsBuiltinNoopReporter(internalMetrics) {
 		return in
 	}
 	return &instrumentedTracesExporter{
@@ -192,12 +227,35 @@ func instrumentTracesExporter(internalMetrics imetrics.Reporter, in exporter.Tra
 	}
 }
 
+// queueInstrumentedTraces stacks the sending queue and retry on top of the
+// instrumentation wrapper, whose base exporter must be synchronous so it
+// observes the real send outcome instead of the sending-queue enqueue result.
+func queueInstrumentedTraces(
+	ctx context.Context,
+	set exporter.Settings,
+	cfg otelcfg.TracesConfig,
+	im imetrics.Reporter,
+	base exporter.Traces,
+	queueCfg configoptional.Optional[exporterhelper.QueueBatchConfig],
+	retryCfg configretry.BackOffConfig,
+) (exporter.Traces, error) {
+	instrumented := instrumentTracesExporter(im, base)
+	return exporterhelper.NewTraces(ctx, set, cfg,
+		instrumented.ConsumeTraces,
+		exporterhelper.WithStart(instrumented.Start),
+		exporterhelper.WithShutdown(instrumented.Shutdown),
+		exporterhelper.WithCapabilities(consumer.Capabilities{MutatesData: false}),
+		exporterhelper.WithQueue(queueCfg),
+		exporterhelper.WithRetry(retryCfg),
+	)
+}
+
 //nolint:cyclop
-func getTracesExporter(ctx context.Context, cfg otelcfg.TracesConfig, im imetrics.Reporter) (exporter.Traces, error) {
+func getTracesExporter(ctx context.Context, cfg otelcfg.TracesConfig, im imetrics.Reporter) (exporter.Traces, component.Host, error) {
 	if cfg.TracesConsumer != nil {
 		newType, err := component.NewType("traces")
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		set := getTraceSettings(newType, cfg.SDKLogLevel)
 		exp, err := exporterhelper.NewTraces(ctx, set, cfg,
@@ -205,10 +263,10 @@ func getTracesExporter(ctx context.Context, cfg otelcfg.TracesConfig, im imetric
 			exporterhelper.WithCapabilities(consumer.Capabilities{MutatesData: false}),
 		)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		exp = instrumentTracesExporter(im, exp)
-		return exp, nil
+		return exp, emptyHost{}, nil
 	}
 	switch proto := cfg.GetProtocol(); proto {
 	case otelcfg.ProtocolHTTPJSON, otelcfg.ProtocolHTTPProtobuf, "": // zero value defaults to HTTP for backwards-compatibility
@@ -218,12 +276,16 @@ func getTracesExporter(ctx context.Context, cfg otelcfg.TracesConfig, im imetric
 		opts, err := otelcfg.HTTPTracesEndpointOptions(&cfg)
 		if err != nil {
 			slog.Error("can't get HTTP traces endpoint options", "error", err)
-			return nil, err
+			return nil, nil, err
 		}
 		factory := otlphttpexporter.NewFactory()
 		config := factory.CreateDefaultConfig().(*otlphttpexporter.Config)
-		config.QueueConfig = getQueueConfig(cfg)
-		config.RetryConfig = getRetrySettings(cfg)
+		queueCfg := getQueueConfig(cfg)
+		retryCfg := getRetrySettings(cfg)
+		disabledRetry := configretry.NewDefaultBackOffConfig()
+		disabledRetry.Enabled = false
+		config.QueueConfig = configoptional.None[exporterhelper.QueueBatchConfig]()
+		config.RetryConfig = disabledRetry
 		config.ClientConfig = confighttp.ClientConfig{
 			Endpoint: opts.Scheme + "://" + opts.Endpoint + opts.BaseURLPath,
 			TLS: configtls.ClientConfig{
@@ -232,41 +294,55 @@ func getTracesExporter(ctx context.Context, cfg otelcfg.TracesConfig, im imetric
 			},
 			Headers: convertHeaders(opts.Headers),
 		}
+		host := component.Host(emptyHost{})
+		if opts.UnixSocketAddr != "" {
+			mwID := component.MustNewID("obi_uds")
+			config.ClientConfig.Middlewares = []configmiddleware.Config{{ID: mwID}}
+			host = udsHost{extensions: map[component.ID]component.Component{
+				mwID: udsMiddleware{addr: opts.UnixSocketAddr},
+			}}
+		}
 		slog.Debug("getTracesExporter: confighttp.ClientConfig created", "endpoint", config.ClientConfig.Endpoint)
 		set := getTraceSettings(factory.Type(), cfg.SDKLogLevel)
 		exp, err := factory.CreateTraces(ctx, set, config)
 		if err != nil {
 			slog.Error("can't create OTLP HTTP traces exporter", "error", err)
-			return nil, err
+			return nil, nil, err
 		}
-		exp = instrumentTracesExporter(im, exp)
 		// TODO: remove this once the batcher helper is added to otlphttpexporter
-		return exporterhelper.NewTraces(ctx, set, cfg,
-			exp.ConsumeTraces,
-			exporterhelper.WithStart(exp.Start),
-			exporterhelper.WithShutdown(exp.Shutdown),
-			exporterhelper.WithCapabilities(consumer.Capabilities{MutatesData: false}),
-			exporterhelper.WithQueue(config.QueueConfig),
-			exporterhelper.WithRetry(config.RetryConfig))
+		wrapped, err := queueInstrumentedTraces(ctx, set, cfg, im, exp, queueCfg, retryCfg)
+		if err != nil {
+			_ = exp.Shutdown(ctx)
+			return nil, nil, err
+		}
+		return wrapped, host, nil
 	case otelcfg.ProtocolGRPC:
 		slog.Debug("instantiating GRPC TracesReporter", "protocol", proto)
 		var err error
 		opts, err := otelcfg.GRPCTracesEndpointOptions(&cfg)
 		if err != nil {
 			slog.Error("can't get GRPC traces endpoint options", "error", err)
-			return nil, err
+			return nil, nil, err
 		}
-		endpoint, _, err := otelcfg.ParseTracesEndpoint(&cfg)
-		if err != nil {
-			slog.Error("can't parse GRPC traces endpoint", "error", err)
-			return nil, err
+		grpcEndpoint := opts.Endpoint
+		if opts.UnixSocketAddr == "" {
+			endpoint, _, perr := otelcfg.ParseTracesEndpoint(&cfg)
+			if perr != nil {
+				slog.Error("can't parse GRPC traces endpoint", "error", perr)
+				return nil, nil, perr
+			}
+			grpcEndpoint = endpoint.String()
 		}
 		factory := otlpexporter.NewFactory()
 		config := factory.CreateDefaultConfig().(*otlpexporter.Config)
-		config.QueueConfig = getQueueConfig(cfg)
-		config.RetryConfig = getRetrySettings(cfg)
+		queueCfg := getQueueConfig(cfg)
+		retryCfg := getRetrySettings(cfg)
+		disabledRetry := configretry.NewDefaultBackOffConfig()
+		disabledRetry.Enabled = false
+		config.QueueConfig = configoptional.None[exporterhelper.QueueBatchConfig]()
+		config.RetryConfig = disabledRetry
 		config.ClientConfig = configgrpc.ClientConfig{
-			Endpoint: endpoint.String(),
+			Endpoint: grpcEndpoint,
 			TLS: configtls.ClientConfig{
 				Insecure:           opts.Insecure,
 				InsecureSkipVerify: cfg.InsecureSkipVerify,
@@ -276,10 +352,14 @@ func getTracesExporter(ctx context.Context, cfg otelcfg.TracesConfig, im imetric
 		set := getTraceSettings(factory.Type(), cfg.SDKLogLevel)
 		exp, err := factory.CreateTraces(ctx, set, config)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-		exp = instrumentTracesExporter(im, exp)
-		return exp, nil
+		wrapped, err := queueInstrumentedTraces(ctx, set, cfg, im, exp, queueCfg, retryCfg)
+		if err != nil {
+			_ = exp.Shutdown(ctx)
+			return nil, nil, err
+		}
+		return wrapped, emptyHost{}, nil
 	case otelcfg.ProtocolDebug:
 		slog.Debug("instantiating Debug TracesReporter", "protocol", proto)
 		factory := debugexporter.NewFactory()
@@ -289,13 +369,13 @@ func getTracesExporter(ctx context.Context, cfg otelcfg.TracesConfig, im imetric
 		set := getTraceSettings(factory.Type(), cfg.SDKLogLevel)
 		exp, err := factory.CreateTraces(ctx, set, config)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-		return exp, nil
+		return exp, emptyHost{}, nil
 	default:
 		slog.Error(fmt.Sprintf("invalid protocol value: %q. Accepted values are: %s, %s, %s",
 			proto, otelcfg.ProtocolGRPC, otelcfg.ProtocolHTTPJSON, otelcfg.ProtocolHTTPProtobuf))
-		return nil, fmt.Errorf("invalid protocol value: %q", proto)
+		return nil, nil, fmt.Errorf("invalid protocol value: %q", proto)
 	}
 }
 

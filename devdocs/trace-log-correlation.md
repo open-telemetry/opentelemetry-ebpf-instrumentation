@@ -1,10 +1,11 @@
 # Trace-Log Correlation
 
-OBI can enrich JSON log lines with `trace_id` and `span_id` fields, linking logs to the distributed trace that produced them.
+OBI can enrich JSON and plain-text log lines with trace and span fields, linking logs to the distributed trace that produced them.
 
 ## Table Of Contents
 
 - [Overview](#overview)
+- [Plain-text formatting](#plain-text-formatting)
 - [The `traces_ctx_v1` map](#the-traces_ctx_v1-map)
 - [The context staleness problem](#the-context-staleness-problem)
 - [Per-runtime context refresh](#per-runtime-context-refresh)
@@ -12,9 +13,12 @@ OBI can enrich JSON log lines with `trace_id` and `span_id` fields, linking logs
   - [Node.js — `async_hooks` before callback + `uv_fs_access` uprobe](#nodejs--async_hooks-before-callback--uv_fs_access-uprobe)
   - [Java — `k_ioctl_java_threads` in the ioctl kprobe](#java--k_ioctl_java_threads-in-the-ioctl-kprobe)
   - [Ruby (Puma) — `rb_ary_shift` uprobe](#ruby-puma--rb_ary_shift-uprobe)
+  - [Python (asyncio) — `task_step` / `context_run` uprobes](#python-asyncio--task_step--context_run-uprobes)
 - [Per-runtime stdout buffering](#per-runtime-stdout-buffering)
   - [.NET specifics](#net-specifics)
+- [Filtering the suppressed placeholder lines](#filtering-the-suppressed-placeholder-lines)
 - [Requirements](#requirements)
+- [Limits](#limits)
 
 ## Overview
 
@@ -23,11 +27,42 @@ The logenricher hooks into write paths (`tty_write`, `pipe_write`, `ksys_write`,
 1. Looks up `traces_ctx_v1[pid_tgid]` to get the active trace/span context for the calling thread.
 2. Reads the user buffer via `bpf_probe_read_user`, packages the log line together with the trace context into a `log_event_t`, and submits it to the `log_events` ring buffer.
 3. Overwrites the original user buffer with zeros via `bpf_probe_write_user` to suppress the un-enriched line.
-4. User-space reads from the ring buffer and re-emits the log with `trace_id`/`span_id` injected into the JSON.
+4. User-space reads from the ring buffer and re-emits the log with trace context injected into a JSON object or plain-text line.
 
-Because the original user buffer is zeroed out (step 3), the container log file will contain NULL characters in place of the original log line. This is expected — the enriched line is written separately by user-space, and the NULLs prevent the container runtime from capturing the un-enriched duplicate.
+Because the original user buffer is zeroed out (step 3), the container log file will contain NULL characters in place of the original log line, terminated with `\n`. For writes up to 8 KiB this produces one fully-zeroed placeholder line that downstream tooling can drop with a single regex (see [Filtering the suppressed placeholder lines](#filtering-the-suppressed-placeholder-lines)). For writes larger than 8 KiB only the first 8 KiB is zeroed and terminated with `\n`; the remainder of the write reaches the container log un-enriched and will not match the placeholder regex — see [Limits](#limits). The enriched line is written separately by user-space, and the NULL suppression prevents the container runtime from capturing the un-enriched duplicate.
+
+OBI only fills configured fields that are not already present. JSON keys are matched literally. In plain text, a field token starts at the beginning of a line or after ASCII whitespace and contains the configured name followed by `=`. If the application's logger or SDK already injected a field, its value is preserved. For services OBI detects as exporting OTel traces directly (see [exclude-otel-instrumented-services](exclude-otel-instrumented-services.md)), only the trace field is injected: OBI's BPF-generated span ID would not match the SDK's actual span.
 
 Both `ITER_UBUF` (kernel ≥ 6.0, used by `write()`) and `ITER_IOVEC` (all kernel versions, used by `writev()`) iterator types are supported. The `do_writev` kprobe captures the fd for `writev()` calls so `pipe_write` can resolve the file descriptor (registered as non-required — if the symbol isn't available, `write()`-based enrichment still works).
+
+## Plain-text formatting
+
+Plain-text annotation is enabled by default for services selected by the log enricher. It emits lowercase, fixed-width IDs as space-separated `key=value` fields:
+
+> [!IMPORTANT]
+> This changes upgrade behavior for every selected service: non-JSON writes that were previously re-emitted unchanged now receive trace context by default. Set `plain_text.enabled: false` before upgrading to retain the earlier non-JSON behavior. The initial fixed `key=value` representation targets unstructured or free-form text; it is not a native encoding for every structured non-JSON protocol, whose parsers may require a format-specific representation.
+
+```text
+request failed trace_id=4bf92f3577b34da6a3ce929d0e0e4736 span_id=00f067aa0ba902b7
+```
+
+Configure the behavior under `ebpf.log_enricher` in the current configuration, or under `extensions.obi.correlation.log_trace_annotation` in configuration version 2:
+
+```yaml
+field_names:
+  trace_id: trace_id
+  span_id: span_id
+plain_text:
+  enabled: true
+  placement: suffix
+  multiline: first_line
+```
+
+Field names apply to JSON and plain-text output. OBI uses them both to recognize and preserve existing trace context and to inject missing fields. They must be nonempty and distinct and cannot contain whitespace, `=`, or control characters. `plain_text.enabled: false` leaves non-JSON writes unchanged without disabling JSON enrichment.
+
+Newline-delimited JSON is handled as structured JSON: OBI enriches each JSON object record independently and preserves valid non-object JSON records unchanged. It does not apply plain-text `key=value` annotation to a valid NDJSON sequence.
+
+`placement` accepts `suffix` or `prefix`. `multiline` accepts `first_line`, `last_line`, or `each_line` and selects nonempty physical lines within the current intercepted write. Empty lines and LF or CRLF endings are preserved, and an unterminated write remains unterminated. OBI does not buffer writes or infer logical multiline events across separate writes.
 
 ## The `traces_ctx_v1` map
 
@@ -47,6 +82,7 @@ The map is **written** by the generic tracer (in `server_or_client_trace()`) whe
 - **Node.js**: The single-threaded event loop can read data for multiple in-flight requests (via libuv) before invoking any JS callback, overwriting `traces_ctx_v1` each time.
 - **Java**: HTTP servers (Tomcat, Netty) use thread pools. The acceptor thread receives the data, but a worker thread from the pool processes the request and writes logs.
 - **Ruby (Puma)**: When all workers are busy, the reactor thread reads HTTP data (setting context for itself), then hands off to a worker that has no context.
+- **Python (asyncio)**: A single OS thread runs many tasks via the event loop. `pid_tgid` identifies the thread, not the request, so any `await` boundary that switches tasks would otherwise leave `traces_ctx_v1[pid_tgid]` pointing at whichever task ran most recently.
 
 Without correction, `traces_ctx_v1[pid_tgid]` may carry the wrong trace context when a log is written. Each runtime has a dedicated mechanism to refresh the map at the right moment.
 
@@ -99,6 +135,20 @@ OBI hooks `rb_ary_shift` (Ruby's `Array#shift`), which fires when a Puma worker 
 
 In the direct path, `server_traces_aux` won't have an entry yet (HTTP hasn't been parsed), so step 2 is a harmless no-op.
 
+### Python (asyncio) — `task_step` / `context_run` uprobes
+
+OBI hooks the CPython internals that mark every async transition:
+
+- `_asyncio.Task.__init__` → records the new task and its parent so each task carries the request connection it was created under.
+- `PyContext_CopyCurrent` (and `context_new_from_vars` under tail-call optimization) → binds the copied `PyContext*` to the task that owns it, including child tasks created via `asyncio.create_task` and worker contexts copied for `asyncio.to_thread`.
+- `_asyncio.Task.task_step` (3.12+) / `task_step_legacy` (< 3.12) → fires when the event loop resumes a task. The handler walks the task's parent chain (up to 4 levels) to find the owning server connection in `server_traces_aux` and calls `obi_ctx__set(pid_tgid, &tp)`.
+- `task_step_ret` → fires when a task yields back to the loop. The handler calls `obi_ctx__del(pid_tgid)` so logs emitted from idle event-loop code aren't attributed to the previous task.
+- `libpython3.context_run` → covers the `asyncio.to_thread` worker thread, where the user function runs inside a copied context but no `task_step` ever fires. The handler resolves the originating task via `python_context_task[context]` and refreshes `traces_ctx_v1` for the worker `pid_tgid`.
+
+Together these probes keep `traces_ctx_v1[pid_tgid]` aligned with whichever async task is currently executing, so logs written between any two `await` points get the correct trace/span IDs.
+
+This works for plain `asyncio` and uvloop (the probe targets are CPython's `_asyncio` module and `libpython3.so` — both loops drive the same task machinery). Greenlet/gevent are out of scope: their context switches happen entirely inside the greenlet C extension and don't touch any of the probed symbols.
+
 ## Per-runtime stdout buffering
 
 The logenricher reads `traces_ctx_v1[pid_tgid]` at the moment the `write()` syscall fires. If the runtime buffers stdout and flushes asynchronously — on a different thread or after the request handler returns — the trace context for that TID will already be gone, and the log line will not be enriched.
@@ -109,10 +159,19 @@ Each runtime behaves differently:
 |---------|--------------------------|----------------------|
 | Go | `fmt.Println` calls `write()` synchronously on the goroutine | Yes — Go refreshes `traces_ctx_v1` on every goroutine context switch via `runtime.casgstatus` |
 | Node.js | `process.stdout.write()` is synchronous | Yes |
-| Java | `System.out.println()` flushes immediately (PrintStream `autoFlush=true` by default) | Yes |
+| Java | `System.out.println()` flushes immediately (PrintStream `autoFlush=true` by default) | Yes — on platform threads (see below for virtual threads) |
 | Ruby | `puts` / `STDOUT.syswrite` — both issue `write()`/`writev()` synchronously on the request thread | Yes |
 | Python | stdout is block-buffered when not a TTY (Docker) | **No** — set `PYTHONUNBUFFERED=1` |
 | .NET | `Console.Out` (StreamWriter) is block-buffered when stdout is a pipe | **No** — see below |
+
+### Java virtual threads
+
+Requests handled on virtual threads do not write `traces_ctx_v1`: the map is
+keyed by kernel thread id per the OTEP contract, and under virtual threads the
+carrier tid does not identify the request, so an entry would attribute another
+request's trace id to whichever code logs from that carrier next. Log lines
+emitted from virtual threads are therefore not enriched; platform-thread
+enrichment is unchanged.
 
 ### .NET specifics
 
@@ -135,9 +194,74 @@ Console.SetOut(stdout);
 
 There is no environment variable equivalent to Python's `PYTHONUNBUFFERED=1` for .NET.
 
+## Filtering the suppressed placeholder lines
+
+Each traced `write()`/`writev()` of up to 8 KiB leaves one placeholder
+line in the container log: the original bytes are overwritten with NULs
+and a trailing `\n`. Drop them downstream with the regex
+`^[\x00\s]*$`. Writes larger than 8 KiB only produce a placeholder for
+the first 8 KiB; the leaked tail bypasses this filter — see
+[Limits](#limits).
+
+JSON log envelopes (CRI body, Docker `log` field) serialise NUL as
+`\u0000`; both shippers below decode the JSON string before the filter
+runs, so the regex matches real `\x00` bytes.
+
+### OpenTelemetry Collector — `filelog` receiver
+
+The `container` operator handles CRI and Docker JSON formats and
+exposes the line in `body`.
+
+```yaml
+receivers:
+  filelog:
+    include:
+      - /var/log/pods/*/*/*.log
+    start_at: end
+    operators:
+      - type: container
+      - type: filter
+        expr: 'body matches "^[\\x00\\s]*$"'
+```
+
+### Fluent Bit
+
+```ini
+[INPUT]
+    Name              tail
+    Path              /var/log/pods/*/*/*.log
+    multiline.parser  cri
+    Tag               kube.*
+
+[FILTER]
+    Name    grep
+    Match   *
+    Exclude log ^[\x00\s]*$
+```
+
+### Legacy: Docker JSON log driver
+
+```yaml
+receivers:
+  filelog:
+    include: [/var/lib/docker/containers/*/*-json.log]
+    operators:
+      - type: json_parser
+        parse_from: body
+        parse_to: attributes
+      - type: filter
+        # bracket access: `log` collides with expr-lang math.log
+        expr: 'attributes["log"] matches "^[\\x00\\s]*$"'
+```
+
 ## Requirements
 
 - `CAP_SYS_ADMIN` capability and permission to use `bpf_probe_write_user` (kernel security lockdown mode should be `[none]`)
-- The target application writes logs in **JSON format**
+- The target application writes JSON object or plain-text logs
 - Log writes must occur synchronously on the request-handling thread (see [Per-runtime stdout buffering](#per-runtime-stdout-buffering) above)
 - BPFFS mounted at `/sys/fs/bpf` (or another mountpath configurable via `config.ebpf.bpf_fs_path` / `OTEL_EBPF_BPF_FS_PATH`)
+
+## Limits
+
+- **Per-write cap of 8 KiB.** Bytes past 8 KiB in a single `write()`/`writev()` are not zeroed or enriched; they leak through the tty/pipe as-is.
+- **Per-write multiline selection.** OBI does not reconstruct logical log events across separate writes.

@@ -20,6 +20,8 @@
 
 #include <common/algorithm.h>
 
+#include <gotracer/go_offsets.h>
+
 #include <logger/bpf_dbg.h>
 
 static __inline int
@@ -30,7 +32,8 @@ read_go_byte_arr(char *name, void *base_ptr, u8 offset, void *field, u64 *size_p
         return 0;
     }
 
-    if (bpf_probe_read(size_ptr, sizeof(u64), (void *)(base_ptr + (offset + 8))) != 0) {
+    if (bpf_probe_read(
+            size_ptr, sizeof(u64), (void *)(base_ptr + (offset + k_go_slice_len_offset))) != 0) {
         bpf_dbg_printk("can't read len for %s", name);
         return 0;
     }

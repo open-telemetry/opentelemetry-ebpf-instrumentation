@@ -15,14 +15,17 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net"
 	"net/http"
+	"os"
 	"time"
 
+	"golang.org/x/sys/unix"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/encoding"
@@ -48,6 +51,7 @@ func (jsonCodec) Unmarshal(data []byte, v any) error {
 
 type LogRequest struct {
 	Message string `json:"message"`
+	Mode    string `json:"mode,omitempty"`
 }
 
 type LogResponse struct {
@@ -64,7 +68,52 @@ type LogService interface {
 
 type logService struct{}
 
+const writevRegressionLeakMarker = "writev-leak-marker-should-never-appear"
+
+const (
+	plainTextMultilineFirstMessage  = "plain-text first line"
+	plainTextMultilineSecondMessage = "plain-text second line"
+	ndjsonFirstMessage              = "ndjson first record"
+	ndjsonSecondMessage             = "ndjson second record"
+)
+
+func writeWritevRegressionLog(message string) error {
+	entry := fmt.Sprintf(`{"message":"%s","level":"INFO"}`, message)
+
+	// The first iovec only exposes the JSON log line, but it is backed by a
+	// larger buffer containing secret bytes immediately after that slice.
+	// A vulnerable logenricher reads past the first iovec length and leaks the
+	// marker; the fixed code clamps reads and writes to the first segment.
+	backing := append([]byte(entry), []byte(writevRegressionLeakMarker+" ")...)
+	first := backing[:len(entry)]
+	padding := bytes.Repeat([]byte(" "), len(writevRegressionLeakMarker))
+
+	_, err := unix.Writev(int(os.Stdout.Fd()), [][]byte{first, padding, []byte("\n")})
+	return err
+}
+
 func (s *logService) Log(_ context.Context, req *LogRequest) (*LogResponse, error) {
+	switch req.Mode {
+	case "writev-regression":
+		if err := writeWritevRegressionLog(req.Message); err != nil {
+			return &LogResponse{Ok: false}, err
+		}
+		return &LogResponse{Ok: true}, nil
+	case "plain-text-multiline":
+		_, err := unix.Write(int(os.Stdout.Fd()), []byte(plainTextMultilineFirstMessage+"\n"+plainTextMultilineSecondMessage+"\n"))
+		if err != nil {
+			return &LogResponse{Ok: false}, err
+		}
+		return &LogResponse{Ok: true}, nil
+	case "ndjson":
+		entries := fmt.Sprintf("{\"message\":%q}\n{\"message\":%q}\n", ndjsonFirstMessage, ndjsonSecondMessage)
+		_, err := unix.Write(int(os.Stdout.Fd()), []byte(entries))
+		if err != nil {
+			return &LogResponse{Ok: false}, err
+		}
+		return &LogResponse{Ok: true}, nil
+	}
+
 	entry := map[string]any{
 		"message": req.Message,
 		"level":   "INFO",
@@ -131,7 +180,7 @@ func main() {
 	}()
 
 	// HTTP -> gRPC
-	http.HandleFunc("/log", func(w http.ResponseWriter, _ *http.Request) {
+	http.HandleFunc("/log", func(w http.ResponseWriter, r *http.Request) {
 		conn, err := grpc.Dial(
 			"localhost:50051",
 			grpc.WithTransportCredentials(insecure.NewCredentials()),
@@ -152,7 +201,41 @@ func main() {
 		err = conn.Invoke(
 			ctx,
 			"/LogService/Log",
-			&LogRequest{Message: "hello!"},
+			&LogRequest{Message: "hello!", Mode: r.URL.Query().Get("mode")},
+			&resp,
+		)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		_, _ = w.Write([]byte("ok\n"))
+	})
+	http.HandleFunc("/log_writev_regression", func(w http.ResponseWriter, _ *http.Request) {
+		conn, err := grpc.Dial(
+			"localhost:50051",
+			grpc.WithTransportCredentials(insecure.NewCredentials()),
+			grpc.WithDefaultCallOptions(
+				grpc.ForceCodec(jsonCodec{}),
+			),
+		)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		defer conn.Close()
+
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+
+		var resp LogResponse
+		err = conn.Invoke(
+			ctx,
+			"/LogService/Log",
+			&LogRequest{
+				Message: "go writev regression log",
+				Mode:    "writev-regression",
+			},
 			&resp,
 		)
 		if err != nil {

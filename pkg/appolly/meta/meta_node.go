@@ -14,7 +14,7 @@ import (
 	"go.opentelemetry.io/contrib/detectors/aws/ec2/v2"
 	"go.opentelemetry.io/contrib/detectors/azure/azurevm"
 	"go.opentelemetry.io/contrib/detectors/gcp"
-	semconv "go.opentelemetry.io/otel/semconv/v1.38.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/kube"
@@ -97,7 +97,11 @@ func fetchEntries(
 	results := make([]NodeMeta, len(fetchers))
 	for i, fetch := range fetchers {
 		wg.Go(func() {
-			results[i] = backoffFetch(ctx, retryCfg, fetch, log.With("fetcher", i))
+			nodeMeta := backoffFetch(ctx, retryCfg, fetch, log.With("fetcher", i))
+			if nodeMeta.HostID != "" {
+				log.Debug("fetched node metadata", "fetcher", i, "hostID", nodeMeta.HostID)
+			}
+			results[i] = nodeMeta
 		})
 	}
 	wg.Wait()
@@ -144,8 +148,9 @@ func backoffFetch(ctx context.Context, retryCfg RetryConfig, fetch fetcher, log 
 // merges the attributes. On collision, the src NodeMeta will overwrite
 // the target NodeMeta
 func (ns *NodeMeta) merge(src NodeMeta) {
-	if src.HostID != "" {
-		ns.HostID = src.HostID
+	hostID := strings.TrimSpace(src.HostID)
+	if hostID != "" {
+		ns.HostID = hostID
 	}
 	keyPos := map[attr.Name]int{}
 	for i, att := range ns.Metadata {

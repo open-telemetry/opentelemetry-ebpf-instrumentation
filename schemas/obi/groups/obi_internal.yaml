@@ -1,0 +1,112 @@
+groups:
+  - id: registry.obi
+    type: attribute_group
+    display_name: OBI Internal Telemetry
+    brief: >
+      OBI's own meta-telemetry: the `target.info` / `host.info` family of
+      per-target meta-metrics (emitted in OTel dot notation over OTLP, and
+      as the Prometheus-style `target_info` / `host_info` underscore
+      variants by the Prometheus exporter) that
+      identify the instrumenter and the resource it is running against,
+      together with the labels they carry and any deviations from upstream
+      semconv that are tracked for removal. Distinct from OBI's emissions
+      that describe the *instrumented application's* behaviour
+      (HTTP / DB / messaging / spanmetrics / service-graph), which live in
+      sibling files or in upstream semconv.
+    attributes:
+      - id: source
+        type: string
+        stability: development
+        brief: >
+          Identifier of the vendor / SDK that produced the metric. OBI sets
+          this to `obi`. Used by the spanmetrics and service-graph
+          emissions to disambiguate from collector-contrib connector
+          output.
+        examples: [ "obi" ]
+      - id: instance
+        type: string
+        stability: development
+        brief: >
+          Scrape target instance label, originating from the Prometheus /
+          OpenMetrics convention. Carried on `target_info` and on every
+          series exported via OBI's Prometheus exporter.
+        examples: ["host.local:9090"]
+      - id: job
+        type: string
+        stability: development
+        brief: >
+          Scrape target job label, originating from the Prometheus /
+          OpenMetrics convention. Carried on `target_info` and on every
+          series exported via OBI's Prometheus exporter.
+        examples: ["my-service"]
+      - id: obi.version
+        type: string
+        stability: development
+        brief: >
+          OBI build version, e.g. the release tag the instrumenter was
+          built from. Carried as a resource attribute on every signal.
+        examples: ["v0.42.0"]
+      - id: obi.revision
+        type: string
+        stability: development
+        brief: >
+          Git SHA of the OBI build. Carried as a resource attribute on
+          every signal.
+        examples: ["a2a9a6e2"]
+
+  # The instrument and (empty) unit declared here mirror what OBI currently
+  # emits over OTLP rather than the OTel-canonical `gauge` / `unit: "1"`
+  # Prometheus mapping, so weaver validates against the actual contract.
+  # The OTLP name uses OTel dot notation; OBI's Prometheus exporter emits
+  # the OpenMetrics-convention `target_info` counterpart, which weaver does
+  # not see (only the OTLP tap is validated).
+  - id: metric.target.info
+    type: metric
+    metric_name: target.info
+    instrument: updowncounter
+    unit: ""
+    stability: development
+    brief: >
+      `target.info` meta-metric, modeled after the Prometheus / OpenMetrics
+      `target_info` convention. Emitted with value 1 to carry the resource
+      attributes of the originating service.
+    attributes:
+      - ref: instance
+      - ref: job
+
+  # The trace-pipeline counterpart of `target.info`. Only emitted when any
+  # span-metrics feature is enabled — i.e. one of `application_span`,
+  # `application_span_otel`, or `application_span_sizes` (the
+  # `application_service_graph` feature does NOT trigger it). OBI's
+  # Prometheus exporter emits the underscore `traces_target_info`
+  # counterpart.
+  - id: metric.traces.target.info
+    type: metric
+    metric_name: traces.target.info
+    instrument: updowncounter
+    unit: ""
+    stability: development
+    brief: >
+      OBI counterpart of `target.info` for the traces pipeline. Carries the
+      resource attribute set of every traced service so dashboards can
+      join trace metrics back to service identity.
+    attributes:
+      - ref: source
+
+  # OBI-invented per-host meta-metric — there is no upstream /
+  # collector-contrib analogue. Carries the upstream `host.id` attribute.
+  # OBI's Prometheus exporter emits the underscore `traces_host_info`
+  # counterpart.
+  - id: metric.traces.host.info
+    type: metric
+    metric_name: traces.host.info
+    instrument: gauge
+    unit: ""
+    stability: development
+    brief: >
+      OBI per-host meta-metric carrying the host identifier so dashboards
+      can join trace metrics back to host / instance identity.
+    attributes:
+      - ref: host.id
+        requirement_level: opt_in
+

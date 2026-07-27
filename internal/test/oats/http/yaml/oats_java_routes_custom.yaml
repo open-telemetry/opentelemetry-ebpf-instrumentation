@@ -2,6 +2,7 @@ oats-schema-version: 2
 docker-compose:
   files:
   - ../docker-compose-java-routes-custom.yml
+  - ../../weaver/docker-compose-weaver.yml
 input:
 - path: /greeting123/obitest
 interval: 500ms

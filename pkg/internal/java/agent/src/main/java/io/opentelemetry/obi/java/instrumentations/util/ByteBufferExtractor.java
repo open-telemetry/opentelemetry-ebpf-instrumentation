@@ -9,7 +9,7 @@ import java.nio.ByteBuffer;
 import java.util.Arrays;
 
 public class ByteBufferExtractor {
-  public static final int MAX_SIZE = 1024;
+  public static final int MAX_SIZE = 16 * 1024;
   public static final int MAX_KEY_SIZE = 64;
 
   // Made for JDK8 support

@@ -64,6 +64,59 @@ services:
     ports:
       - "8386:5266"
 
+  testserverpythonasync:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/pythonasync-uvloop/Dockerfile-3.14
+    image: hatest-testserver-logenricher-pythonasync
+    networks:
+      - shared
+    ports:
+      - "8387:8391"
+    environment:
+      PYTHONUNBUFFERED: "1"
+      UVICORN_LOOP: "uvloop"
+      BACKEND_URL: "http://testserverhttp:8380"
+
+  testservermultisegwritev:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/logenricher_writev/Dockerfile
+    image: hatest-testserver-logenricher-multiseg-writev
+    networks:
+      - shared
+    ports:
+      - "8388:8388"
+    environment:
+      PORT: "8388"
+
+  multisegwritev_otelcol:
+    image: otel/opentelemetry-collector-contrib:0.157.0@sha256:f2f01157055a9b2aab9df7118e1f1c9abf345e99b23bc7a2bc791db374a7d0f6
+    user: "0:0"
+    volumes:
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - ./configs/otelcol-multiseg-filter.yaml:/etc/otelcol-contrib/config.yaml:ro
+      - ../../../testoutput/multiseg-shipper-output:/output
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    networks:
+      - shared
+    depends_on:
+      testservermultisegwritev:
+        condition: service_started
+
+  multisegwritev_fluentbit:
+    image: fluent/fluent-bit:5.0.5@sha256:18dcc82ddc16f3ff567effd3dc6f7c7f8d542cebefbb1b7ecd8bc28c04daf871
+    user: "0:0"
+    volumes:
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - ./configs/fluentbit-multiseg-filter.conf:/fluent-bit/etc/fluent-bit.conf:ro
+      - ../../../testoutput/multiseg-shipper-output:/output
+    networks:
+      - shared
+    depends_on:
+      testservermultisegwritev:
+        condition: service_started
+
   obi:
     build:
       context: ../../..
@@ -96,8 +149,8 @@ services:
       OTEL_EBPF_BPF_HTTP_REQUEST_TIMEOUT: "5s"
       OTEL_EBPF_BPF_TRACK_REQUEST_HEADERS: "true"
       OTEL_EBPF_PROCESSES_INTERVAL: "100ms"
-      OTEL_EBPF_METRICS_FEATURES: "application,application_process,application_span,application_service_graph"
-      OTEL_EBPF_PROMETHEUS_FEATURES: "application,application_span,application_process,application_service_graph"
+      OTEL_EBPF_METRICS_FEATURES: "application,application_process,application_span_otel,application_service_graph"
+      OTEL_EBPF_PROMETHEUS_FEATURES: "application,application_span_otel,application_process,application_service_graph"
     depends_on:
       testserverhttp:
         condition: service_started
@@ -110,6 +163,10 @@ services:
       testserverruby:
         condition: service_started
       testserverdotnet:
+        condition: service_started
+      testserverpythonasync:
+        condition: service_started
+      testservermultisegwritev:
         condition: service_started
 
 networks:

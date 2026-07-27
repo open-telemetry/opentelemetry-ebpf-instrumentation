@@ -7,6 +7,7 @@
 package sqlprune
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -21,8 +22,9 @@ func TestSQLExtraction(t *testing.T) {
 	}
 
 	t.Run("test SELECT", func(t *testing.T) {
+		// a SELECT over several distinct tables has no single db.collection.name
 		tests := map[string]result{
-			"SELECT t.id, t.name FROM ACCESS_TOKENS t, SECURITY_POLICIES sp WHERE sp.id=t.security_policy_id AND sp.org_id=?": {op: "SELECT", table: "ACCESS_TOKENS,SECURITY_POLICIES"},
+			"SELECT t.id, t.name FROM ACCESS_TOKENS t, SECURITY_POLICIES sp WHERE sp.id=t.security_policy_id AND sp.org_id=?": {op: "SELECT", table: ""},
 			"SELECT * FROM TABLE WHERE FIELD=1234": {op: "SELECT", table: ""},
 			"SELECT * FROM ZOOM WHERE FIELD=1234":  {op: "SELECT", table: "ZOOM"},
 			`SELECT
@@ -37,7 +39,7 @@ func TestSQLExtraction(t *testing.T) {
 			ORDER BY
 				t.date ASC,
 				t.id ASC
-			LIMIT 1`: {op: "SELECT", table: "ACCESS_TOKENS,security_policies"},
+			LIMIT 1`: {op: "SELECT", table: ""},
 			`SELECT
 			t.id,
 			t.name,
@@ -50,7 +52,7 @@ func TestSQLExtraction(t *testing.T) {
 		ORDER BY
 			t.date ASC,
 			t.id ASC
-		LIMIT 1`: {op: "SELECT", table: "front.ACCESS_TOKENS,back.security_policies"},
+		LIMIT 1`: {op: "SELECT", table: ""},
 			`SELECT
 				p.id,
 				p.name,
@@ -71,9 +73,14 @@ func TestSQLExtraction(t *testing.T) {
 			"SELECT A + B":                            {op: "SELECT", table: ""},
 			"SELECT * FROM TABLE123":                  {op: "SELECT", table: "TABLE123"},
 			"SELECT FIELD2 FROM TABLE_123 WHERE X<>7": {op: "SELECT", table: "TABLE_123"},
-			"SELECT * FROM TABLE t WHERE FIELD = ' an escaped '' quote mark inside' JOIN ABC ON t.id=ABC.id": {op: "SELECT", table: "t,ABC"},
-			"select col from table_a where col in (select * from anotherTable)":                              {op: "SELECT", table: "table_a,anotherTable"},
-			"SELECT * FROM TABLE123; SELECT * FROM USERS":                                                    {op: "SELECT", table: "TABLE123,USERS"},
+			"SELECT * FROM TABLE t WHERE FIELD = ' an escaped '' quote mark inside' JOIN ABC ON t.id=ABC.id": {op: "SELECT", table: ""},
+			"select col from table_a where col in (select * from anotherTable)":                              {op: "SELECT", table: ""},
+			"SELECT * FROM TABLE123; SELECT * FROM USERS":                                                    {op: "SELECT", table: ""},
+			// self-references collapse to the one table
+			"select a.col from users a join users b on a.id=b.parent": {op: "SELECT", table: "users"},
+			// ANSI/Postgres quoted identifiers keep the part after the dot
+			`SELECT "id" FROM "public"."Users" WHERE "id" = 1`:                                   {op: "SELECT", table: "public.Users"},
+			`SELECT u."id" FROM "public"."Users" u JOIN "public"."Orders" o ON o."uid" = u."id"`: {op: "SELECT", table: ""},
 		}
 
 		for q, r := range tests {
@@ -141,6 +148,34 @@ func TestSQLExtraction(t *testing.T) {
 			assert.Equal(t, result{op: op, table: tab}, r)
 		}
 	})
+}
+
+func TestSQLQuerySummary(t *testing.T) {
+	for q, expected := range map[string]string{
+		"SELECT * FROM users": "SELECT users",
+		`SELECT u."id" FROM "public"."Users" u JOIN "public"."Orders" o ON o."uid" = u."id"`: "SELECT public.Users public.Orders",
+		"SELECT t.id FROM ACCESS_TOKENS t, SECURITY_POLICIES sp":                             "SELECT ACCESS_TOKENS SECURITY_POLICIES",
+		"select a.col from users a join users b on a.id=b.parent":                            "SELECT users",
+		"INSERT INTO table1 (column1) SELECT col1 FROM table2":                               "INSERT table1 table2",
+		"BEGIN":      "",
+		"SELECT 1":   "",
+		"not sql at": "",
+	} {
+		op, tables := SQLParseOperationAndTables(q)
+		assert.Equal(t, expected, SQLQuerySummary(op, tables), "query %q", q)
+	}
+
+	// truncation stops at a target boundary, never mid-name
+	longTables := make([]string, 50)
+	for i := range longTables {
+		longTables[i] = strings.Repeat("t", 10)
+	}
+	summary := SQLQuerySummary("SELECT", longTables)
+	assert.LessOrEqual(t, len(summary), 255)
+	assert.NotContains(t, summary+" ", "ttttttttttt") // no truncated 11-char run
+
+	// a single oversized target fits nothing: empty, not a bare operation
+	assert.Empty(t, SQLQuerySummary("SELECT", []string{strings.Repeat("t", 300)}))
 }
 
 func TestSQLParseError(t *testing.T) {
@@ -231,6 +266,73 @@ func TestSQLParseError(t *testing.T) {
 			name:     "Empty Postgres buffer",
 			dbKind:   request.DBPostgres,
 			buf:      []uint8{0x00, 0x00, 0x00, 0x00},
+			expected: nil,
+		},
+		{
+			name:   "Valid MSSQL error",
+			dbKind: request.DBMSSQL,
+			buf: []uint8{
+				0x04,       // Packet Type: Response
+				0x01,       // Status: EOM
+				0x00, 0x24, // Length: 36 bytes (8 header + 28 payload)
+				0x00, 0x00, // SPID
+				0x00,       // PacketID
+				0x00,       // Window
+				0xAA,       // Token: ERROR
+				0x12, 0x00, // Token length: 18 bytes (excluding token byte and length itself)
+				0x39, 0x30, 0x00, 0x00, // Number: 12345 (0x3039)
+				0x01,       // State
+				0x02,       // Class
+				0x05, 0x00, // MsgLen: 5 characters
+				'H', 0x00, 'e', 0x00, 'l', 0x00, 'l', 0x00, 'o', 0x00, // Message: "Hello" (UTF-16LE)
+			},
+			expected: &request.SQLError{
+				Code:     12345,
+				Message:  "Hello",
+				SQLState: "1",
+			},
+		},
+		{
+			name:   "MSSQL error with large code (exceeds uint16)",
+			dbKind: request.DBMSSQL,
+			buf: []uint8{
+				0x04,       // Packet Type: Response
+				0x01,       // Status: EOM
+				0x00, 0x24, // Length
+				0x00, 0x00, // SPID
+				0x00,       // PacketID
+				0x00,       // Window
+				0xAA,       // Token: ERROR
+				0x12, 0x00, // Token length
+				0x00, 0x00, 0x01, 0x00, // Number: 65536 (0x10000)
+				0x01,       // State
+				0x02,       // Class
+				0x05, 0x00, // MsgLen: 5 characters
+				'H', 0x00, 'e', 0x00, 'l', 0x00, 'l', 0x00, 'o', 0x00, // Message: "Hello" (UTF-16LE)
+			},
+			expected: &request.SQLError{
+				Code:     0, // Should be 0 because 65536 > 0xFFFF
+				Message:  "Hello",
+				SQLState: "1",
+			},
+		},
+		{
+			name:   "MSSQL non-response packet",
+			dbKind: request.DBMSSQL,
+			buf: []uint8{
+				0x01, // Packet Type: SQL Batch (not Response)
+				0x01, 0x00, 0x08, 0x00, 0x00, 0x00, 0x00,
+				0xAA,
+			},
+			expected: nil,
+		},
+		{
+			name:   "MSSQL truncated error token",
+			dbKind: request.DBMSSQL,
+			buf: []uint8{
+				0x04, 0x01, 0x00, 0x0A, 0x00, 0x00, 0x00, 0x00,
+				0xAA, 0x01, // Missing length, etc.
+			},
 			expected: nil,
 		},
 	}

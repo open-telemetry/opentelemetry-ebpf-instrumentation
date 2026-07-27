@@ -30,7 +30,6 @@ const (
 	StrContextPropagationDisabled = "disabled"
 	StrContextPropagationAll      = "all"
 	StrContextPropagationHeaders  = "headers"
-	StrContextPropagationHTTP     = "http"
 	StrContextPropagationTCP      = "tcp"
 )
 
@@ -55,6 +54,13 @@ type EBPFTracer struct {
 	// TODO: see if there is a way to force eBPF to wakeup userspace on timeout
 	WakeupLen int `yaml:"wakeup_len" env:"OTEL_EBPF_BPF_WAKEUP_LEN" validate:"gte=0"`
 
+	// StatsWakeupDataBytes specifies the minimum number of bytes that must be available in the
+	// stats eBPF ring buffer before waking up the userspace consumer.
+	// When 0, every submission wakes up userspace immediately.
+	// Higher values reduce wakeup overhead under high traffic at the cost of delivery latency.
+	// The value should be well below ring buffer size / flushInterval to avoid event loss.
+	StatsWakeupDataBytes int `yaml:"stats_wakeup_data_bytes" env:"OTEL_EBPF_STATS_WAKEUP_DATA_BYTES" validate:"gte=0"`
+
 	// BatchLength allows specifying how many items (traces/metrics) will be batched at the initial
 	// stage before being forwarded to the next stage
 	// Must be at least 1
@@ -70,6 +76,10 @@ type EBPFTracer struct {
 
 	// Must be at least 0
 	HTTPRequestTimeout time.Duration `yaml:"http_request_timeout" env:"OTEL_EBPF_BPF_HTTP_REQUEST_TIMEOUT" validate:"gte=0"`
+
+	// GoHTTPClientBufferTimeout is the inactivity period after which a pending Go HTTP client
+	// event is enriched with its captured buffers and emitted. A zero value disables deferral.
+	GoHTTPClientBufferTimeout time.Duration `yaml:"go_http_client_buffer_timeout" env:"OTEL_EBPF_BPF_GO_HTTP_CLIENT_BUFFER_TIMEOUT" validate:"gte=0"`
 
 	// Enables distributed context propagation.
 	// Can be a combination of: headers, tcp (e.g., "headers,tcp" or "all")
@@ -109,6 +119,9 @@ type EBPFTracer struct {
 	// Postgres prepared statements cache size.
 	PostgresPreparedStatementsCacheSize int `yaml:"postgres_prepared_statements_cache_size" env:"OTEL_EBPF_BPF_POSTGRES_PREPARED_STATEMENTS_CACHE_SIZE" validate:"gt=0"`
 
+	// MSSQL prepared statements cache size.
+	MSSQLPreparedStatementsCacheSize int `yaml:"mssql_prepared_statements_cache_size" env:"OTEL_EBPF_BPF_MSSQL_PREPARED_STATEMENTS_CACHE_SIZE" validate:"gt=0"`
+
 	// Kafka Topic UUID to Name cache size.
 	KafkaTopicUUIDCacheSize int `yaml:"kafka_topic_uuid_cache_size" env:"OTEL_KAFKA_TOPIC_UUID_CACHE_SIZE" validate:"gt=0"`
 
@@ -121,10 +134,10 @@ type EBPFTracer struct {
 	// Maximum time allowed for two requests to be correlated as parent -> child
 	// Some programs (e.g. load generators) keep on generating requests from the same thread in perpetuity,
 	// which can generate very large traces. We want to mark the parent trace as invalid if this happens.
-	MaxTransactionTime time.Duration `yaml:"max_transaction_time" env:"OTEL_EBPF_BPF_MAX_TRANSACTION_TIME"`
+	MaxTransactionTime time.Duration `yaml:"max_transaction_time" env:"OTEL_EBPF_BPF_MAX_TRANSACTION_TIME" validate:"gt=0"`
 
 	// DNS timeout after which we report failed event
-	DNSRequestTimeout time.Duration `yaml:"dns_request_timeout" env:"OTEL_EBPF_BPF_DNS_REQUEST_TIMEOUT"`
+	DNSRequestTimeout time.Duration `yaml:"dns_request_timeout" env:"OTEL_EBPF_BPF_DNS_REQUEST_TIMEOUT" validate:"gt=0"`
 
 	// Log trace-context enricher config
 	LogEnricher LogEnricherConfig `yaml:"log_enricher"`
@@ -163,23 +176,16 @@ func (e *EBPFTracer) CudaInstrumentationEnabled() bool {
 	return false
 }
 
-// MaxCapturedPayloadBytes is the maximum number of bytes that can be captured
-// per protocol request direction via large buffer events.
-//
-// It must stay aligned with the k_large_buf_max_*_captured_bytes constants in
-// bpf/common/large_buffers.h and with the validate tags in EBPFBufferSizes.
-const MaxCapturedPayloadBytes = 1 << 16
-
 // Per-protocol maximum bytes to capture per request per direction, sent to userspace via large buffer events.
-// Values must stay aligned with MaxCapturedPayloadBytes and the
-// k_large_buf_max_*_captured_bytes constants in bpf/common/large_buffers.h.
 //
 // Default: 0 (disabled).
 type EBPFBufferSizes struct {
-	HTTP     uint32 `yaml:"http" env:"OTEL_EBPF_BPF_BUFFER_SIZE_HTTP" validate:"lte=65536"`
+	HTTP     uint32 `yaml:"http" env:"OTEL_EBPF_BPF_BUFFER_SIZE_HTTP" validate:"lte=262144"`
 	MySQL    uint32 `yaml:"mysql" env:"OTEL_EBPF_BPF_BUFFER_SIZE_MYSQL" validate:"lte=65536"`
 	Kafka    uint32 `yaml:"kafka" env:"OTEL_EBPF_BPF_BUFFER_SIZE_KAFKA" validate:"lte=65536"`
 	Postgres uint32 `yaml:"postgres" env:"OTEL_EBPF_BPF_BUFFER_SIZE_POSTGRES" validate:"lte=65536"`
+	MSSQL    uint32 `yaml:"mssql" env:"OTEL_EBPF_BPF_BUFFER_SIZE_MSSQL" validate:"lte=65536"`
+	TCP      uint32 `yaml:"tcp" env:"OTEL_EBPF_BPF_BUFFER_SIZE_TCP" validate:"lte=65536"`
 }
 
 // HasHeaders returns true if HTTP headers context propagation is enabled
@@ -217,7 +223,7 @@ func (m *ContextPropagationMode) UnmarshalText(text []byte) error {
 	for _, part := range parts {
 		part = strings.TrimSpace(part)
 		switch part {
-		case StrContextPropagationHeaders, StrContextPropagationHTTP:
+		case StrContextPropagationHeaders:
 			result |= ContextPropagationHeaders
 		case StrContextPropagationTCP:
 			result |= ContextPropagationTCP
@@ -256,9 +262,9 @@ func (m ContextPropagationMode) MarshalText() ([]byte, error) {
 }
 
 func (ContextPropagationMode) JSONSchema() *jsonschema.Schema {
-	options := []string{StrContextPropagationHeaders, StrContextPropagationHTTP, StrContextPropagationTCP}
+	options := []string{StrContextPropagationHeaders, StrContextPropagationTCP}
 	optionsStr := strings.Join(options, "|")
-	OptionsRegexp := fmt.Sprintf("^(%s)(,(%s))*$", optionsStr, optionsStr)
+	optionsRegexp := fmt.Sprintf("^(%s)(,(%s))*$", optionsStr, optionsStr)
 	return &jsonschema.Schema{
 		OneOf: []*jsonschema.Schema{
 			{
@@ -268,12 +274,18 @@ func (ContextPropagationMode) JSONSchema() *jsonschema.Schema {
 			},
 			{
 				Type:        "string",
-				Description: "List of propagation methods to enable (headers/http for HTTP headers, tcp for TCP options), separated by commas",
+				Description: "Comma-separated list of propagation methods (headers for HTTP headers, tcp for TCP options)",
 				Examples:    []any{"headers", "tcp", "headers,tcp"},
-				Pattern:     OptionsRegexp,
+				Pattern:     optionsRegexp,
+			},
+			{
+				Type:        "string",
+				Enum:        []any{"ip"},
+				Deprecated:  true,
+				Description: "IP options injection has been removed and has no effect",
 			},
 		},
 		Title:       "Context Propagation Mode",
-		Description: "Configures distributed context propagation. Can be 'all' to enable all methods, 'disabled'/'' to disable, or a list of specific methods: 'headers' (or 'http') for HTTP headers, 'tcp' for TCP options.",
+		Description: "Configures distributed context propagation. Can be 'all' to enable all methods, 'disabled'/'' to disable, or a comma-separated list of methods: 'headers' for HTTP headers, 'tcp' for TCP options (e.g. \"headers,tcp\").",
 	}
 }

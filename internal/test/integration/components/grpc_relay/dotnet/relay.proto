@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+option csharp_namespace = "DotnetRelay.RelayProto";
+
+package relay;
+
+service Relay {
+  rpc Relay(RelayRequest) returns (RelayResponse);
+}
+
+message RelayRequest {}
+
+message RelayResponse {}

@@ -13,6 +13,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/buildinfo"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/connector"
+	"go.opentelemetry.io/obi/pkg/internal/avoidedsvc"
 )
 
 // pipelineBufferLengths buckets for histogram metrics about the number of traces submitted from one stage to another
@@ -21,7 +22,7 @@ import (
 var pipelineBufferLengths = []float64{0, 10, 20, 40, 80, 160, 320}
 
 type PrometheusConfig struct {
-	Port int    `yaml:"port,omitempty" env:"OTEL_EBPF_INTERNAL_METRICS_PROMETHEUS_PORT"`
+	Port int    `yaml:"port,omitempty" env:"OTEL_EBPF_INTERNAL_METRICS_PROMETHEUS_PORT" validate:"gte=0,lte=65535"`
 	Path string `yaml:"path,omitempty" env:"OTEL_EBPF_INTERNAL_METRICS_PROMETHEUS_PATH"`
 }
 
@@ -37,8 +38,10 @@ type PrometheusReporter struct {
 	instrumentedProcesses            *prometheus.GaugeVec
 	instrumentationErrors            *prometheus.CounterVec
 	avoidedServices                  *prometheus.GaugeVec
+	avoidedServicesLimiter           *avoidedsvc.Limiter
 	buildInfo                        prometheus.Gauge
-	bpfProbeLatencies                *prometheus.HistogramVec
+	bpfProbeExecutions               *prometheus.CounterVec
+	bpfProbeLatencySum               *prometheus.CounterVec
 	bpfMapEntries                    *prometheus.GaugeVec
 	bpfMapMaxEntries                 *prometheus.GaugeVec
 	bpfInternalMetricsScrapeInterval time.Duration
@@ -49,6 +52,8 @@ type PrometheusReporter struct {
 	totalIgnoredPackets   uint64
 	bpfPacketCount        prometheus.Counter
 	bpfIgnoredPacketCount prometheus.Counter
+
+	queueCapacityRatio *prometheus.GaugeVec
 }
 
 func NewPrometheusReporter(cfg *InternalMetricsConfig, manager *connector.PrometheusManager, registry *prometheus.Registry) *PrometheusReporter {
@@ -90,10 +95,6 @@ func NewPrometheusReporter(cfg *InternalMetricsConfig, manager *connector.Promet
 			Name: attr.VendorPrefix + "_instrumentation_errors_total",
 			Help: "Total number of instrumentation errors by process name and error type",
 		}, []string{"process_name", "error_type"}),
-		avoidedServices: prometheus.NewGaugeVec(prometheus.GaugeOpts{
-			Name: attr.VendorPrefix + "_avoided_services",
-			Help: "Services avoided due to existing OpenTelemetry instrumentation",
-		}, []string{"service_name", "service_namespace", "service_instance_id", "telemetry_type"}),
 		buildInfo: prometheus.NewGauge(prometheus.GaugeOpts{
 			Name: attr.VendorPrefix + "_internal_build_info",
 			Help: "A metric with a constant '1' value labeled by version, revision, branch, " +
@@ -106,10 +107,13 @@ func NewPrometheusReporter(cfg *InternalMetricsConfig, manager *connector.Promet
 				"revision":  buildinfo.Revision,
 			},
 		}),
-		bpfProbeLatencies: prometheus.NewHistogramVec(prometheus.HistogramOpts{
-			Name:    attr.VendorPrefix + "_bpf_probe_latency_seconds",
-			Help:    "Latency of the BPF probes in seconds",
-			Buckets: BpfLatenciesBuckets,
+		bpfProbeExecutions: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: attr.VendorPrefix + "_bpf_probe_executions_total",
+			Help: "Total number of BPF probe executions",
+		}, []string{"probe_id", "probe_type", "probe_name"}),
+		bpfProbeLatencySum: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: attr.VendorPrefix + "_bpf_probe_latency_seconds_total",
+			Help: "Total latency of the BPF probes in seconds",
 		}, []string{"probe_id", "probe_type", "probe_name"}),
 		bpfMapEntries: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: attr.VendorPrefix + "_bpf_map_entries_total",
@@ -137,6 +141,22 @@ func NewPrometheusReporter(cfg *InternalMetricsConfig, manager *connector.Promet
 			Name: attr.VendorPrefix + "_bpf_network_packets_total",
 			Help: "How many network packets have been internally accounted",
 		}),
+		queueCapacityRatio: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: attr.VendorPrefix + "_queue_capacity_ratio",
+			Help: "Ratio [0-1] between the unread messages of an internal Go channel and its total capacity",
+		}, []string{"subscriber"}),
+	}
+	if !cfg.AvoidedServices.Disabled {
+		pr.avoidedServicesLimiter = avoidedsvc.NewLimiter(cfg.AvoidedServices.Limit)
+		pr.avoidedServices = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: attr.VendorPrefix + "_avoided_services",
+			Help: "Services avoided due to existing OpenTelemetry instrumentation",
+		}, []string{
+			"service_name",
+			"service_namespace",
+			"telemetry_type",
+			avoidedsvc.PrometheusOverflowLabel,
+		})
 	}
 	metrics := []prometheus.Collector{
 		pr.tracerFlushes,
@@ -147,14 +167,18 @@ func NewPrometheusReporter(cfg *InternalMetricsConfig, manager *connector.Promet
 		pr.prometheusRequests,
 		pr.instrumentedProcesses,
 		pr.instrumentationErrors,
-		pr.avoidedServices,
 		pr.buildInfo,
-		pr.bpfProbeLatencies,
+		pr.bpfProbeExecutions,
+		pr.bpfProbeLatencySum,
 		pr.bpfMapEntries,
 		pr.bpfMapMaxEntries,
 		pr.informerLag,
 		pr.bpfPacketCount,
 		pr.bpfIgnoredPacketCount,
+		pr.queueCapacityRatio,
+	}
+	if pr.avoidedServices != nil {
+		metrics = append(metrics, pr.avoidedServices)
 	}
 	if registry != nil {
 		registry.MustRegister(metrics...)
@@ -209,7 +233,12 @@ func (p *PrometheusReporter) InstrumentationError(processName string, errorType 
 }
 
 func (p *PrometheusReporter) recordAvoidedService(serviceName, serviceNamespace, serviceInstanceID, telemetryType string) {
-	p.avoidedServices.WithLabelValues(serviceName, serviceNamespace, serviceInstanceID, telemetryType).Set(1)
+	if p.avoidedServices == nil {
+		return
+	}
+
+	labels := p.avoidedServicesLimiter.Labels(serviceName, serviceNamespace, serviceInstanceID, telemetryType)
+	p.avoidedServices.WithLabelValues(labels.PrometheusValues()...).Set(1)
 }
 
 func (p *PrometheusReporter) AvoidInstrumentationMetrics(serviceName, serviceNamespace, serviceInstanceID string) {
@@ -220,8 +249,9 @@ func (p *PrometheusReporter) AvoidInstrumentationTraces(serviceName, serviceName
 	p.recordAvoidedService(serviceName, serviceNamespace, serviceInstanceID, "traces")
 }
 
-func (p *PrometheusReporter) BpfProbeLatency(probeID, probeType, probeName string, latencySeconds float64) {
-	p.bpfProbeLatencies.WithLabelValues(probeID, probeType, probeName).Observe(latencySeconds)
+func (p *PrometheusReporter) BpfProbeStats(probeID, probeType, probeName string, count uint64, latencySumSeconds float64) {
+	p.bpfProbeExecutions.WithLabelValues(probeID, probeType, probeName).Add(float64(count))
+	p.bpfProbeLatencySum.WithLabelValues(probeID, probeType, probeName).Add(latencySumSeconds)
 }
 
 func (p *PrometheusReporter) BpfMapEntries(mapID, mapName, mapType string, entriesTotal int) {
@@ -244,4 +274,8 @@ func (p *PrometheusReporter) BPFPacketStats(count, ignored uint64) {
 	p.bpfPacketCount.Add(float64(count - p.totalPackets))
 	p.bpfIgnoredPacketCount.Add(float64(ignored - p.totalIgnoredPackets))
 	p.totalPackets, p.totalIgnoredPackets = count, ignored
+}
+
+func (p *PrometheusReporter) QueueBufferUtilization(subscriber string, ratio float64) {
+	p.queueCapacityRatio.WithLabelValues(subscriber).Set(ratio)
 }

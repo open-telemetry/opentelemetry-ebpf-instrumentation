@@ -13,7 +13,7 @@
 struct {
     __uint(type, BPF_MAP_TYPE_ARRAY);
     __type(key, u32);
-    __type(value, char[k_log_event_max_size]);
+    __type(value, char[k_log_event_max_log_len]);
     __uint(max_entries, 1);
     __uint(pinning, OBI_PIN_INTERNAL);
 } zeros SEC(".maps");

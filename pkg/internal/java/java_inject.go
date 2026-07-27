@@ -9,7 +9,6 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"crypto/sha256"
 	_ "embed"
 	"errors"
 	"fmt"
@@ -20,12 +19,11 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/grafana/jvmtools/jvm"
-
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/ebpf"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
+	"go.opentelemetry.io/obi/pkg/internal/jvmtools/jvm"
 	"go.opentelemetry.io/obi/pkg/obi"
 )
 
@@ -35,14 +33,7 @@ const (
 )
 
 //go:embed embedded/obi-java-agent.jar
-var embeddedJavaAgentRaw []byte
-
-// Aliases used for testing.
-var (
-	embeddedJavaAgentBytes = embeddedJavaAgentRaw
-	userCacheDir           = os.UserCacheDir
-	renameFile             = os.Rename
-)
+var embeddedJavaAgentBytes []byte
 
 type JavaInjectError struct {
 	Message string
@@ -53,25 +44,21 @@ func (e *JavaInjectError) Error() string {
 }
 
 type JavaInjector struct {
-	log       *slog.Logger
-	cfg       *obi.Config
-	agentPath string
+	log *slog.Logger
+	cfg *obi.Config
 }
 
 func NewJavaInjector(cfg *obi.Config) (*JavaInjector, error) {
 	if !cfg.Java.Enabled {
 		return nil, nil
 	}
-
-	agentPath, err := ensureEmbeddedAgentInCache()
-	if err != nil {
-		return nil, fmt.Errorf("unable to extract embedded OBI java agent jar: %w", err)
+	if err := ensureEmbeddedAgent(); err != nil {
+		return nil, err
 	}
 
 	return &JavaInjector{
-		cfg:       cfg,
-		log:       slog.With("component", "javaagent.Injector"),
-		agentPath: agentPath,
+		cfg: cfg,
+		log: slog.With("component", "javaagent.Injector"),
 	}, nil
 }
 
@@ -105,7 +92,7 @@ func dirOK(root, dir string) bool {
 }
 
 func (i *JavaInjector) findTempDir(root string, ie *ebpf.Instrumentable) (string, error) {
-	if tmpDir, ok := ie.FileInfo.Service.EnvVars["TMPDIR"]; ok {
+	if tmpDir, ok := ie.FileInfo.ServiceAttrs().EnvVars["TMPDIR"]; ok {
 		if dirOK(root, tmpDir) {
 			return tmpDir, nil
 		}
@@ -155,7 +142,7 @@ func (i *JavaInjector) NewExecutable(ie *ebpf.Instrumentable) error {
 				}
 			}()
 
-			ok, jdk8 := i.verifyJVMVersion(attacher, ie.FileInfo.Pid)
+			ok, jdk8 := i.verifyJVMVersion(attacher, ie.FileInfo.Pid())
 			if !ok {
 				resultChan <- result{err: &JavaInjectError{Message: "unsupported Java version for OpenTelemetry eBPF instrumentation"}}
 				return
@@ -164,9 +151,9 @@ func (i *JavaInjector) NewExecutable(ie *ebpf.Instrumentable) error {
 			var loaded bool
 			var err error
 			if jdk8 {
-				loaded, err = i.jdkAgentAlreadyLoadedHotspot8(attacher, ie.FileInfo.Pid)
+				loaded, err = i.jdkAgentAlreadyLoadedHotspot8(attacher, ie.FileInfo.Pid())
 			} else {
-				loaded, err = i.jdkAgentAlreadyLoaded(attacher, ie.FileInfo.Pid)
+				loaded, err = i.jdkAgentAlreadyLoaded(attacher, ie.FileInfo.Pid())
 			}
 
 			if err != nil {
@@ -180,17 +167,17 @@ func (i *JavaInjector) NewExecutable(ie *ebpf.Instrumentable) error {
 				return
 			}
 
-			i.log.Info("injecting OpenTelemetry eBPF instrumentation for Java process", "pid", ie.FileInfo.Pid)
+			i.log.Info("injecting OpenTelemetry eBPF instrumentation for Java process", "pid", ie.FileInfo.Pid())
 
 			agentPath, err := i.copyAgent(ie)
 			if err != nil {
-				i.log.Error("failed to extract java agent", "pid", ie.FileInfo.Pid, "error", err)
+				i.log.Error("failed to extract java agent", "pid", ie.FileInfo.Pid(), "error", err)
 				resultChan <- result{err: err}
 				return
 			}
 
-			if err = i.attachJDKAgent(attacher, ie.FileInfo.Pid, agentPath); err != nil {
-				i.log.Error("couldn't attach OpenTelemetry eBPF Java Agent", "pid", ie.FileInfo.Pid, "path", agentPath, "error", err)
+			if err = i.attachJDKAgent(attacher, ie.FileInfo.Pid(), agentPath); err != nil {
+				i.log.Error("couldn't attach OpenTelemetry eBPF Java Agent", "pid", ie.FileInfo.Pid(), "path", agentPath, "error", err)
 				resultChan <- result{err: err}
 				return
 			}
@@ -203,7 +190,7 @@ func (i *JavaInjector) NewExecutable(ie *ebpf.Instrumentable) error {
 		case result := <-resultChan:
 			return result.err
 		case <-ctx.Done():
-			i.log.Warn("java attach timed out", "timeout", i.cfg.Java.Timeout, "pid", ie.FileInfo.Pid)
+			i.log.Warn("java attach timed out", "timeout", i.cfg.Java.Timeout, "pid", ie.FileInfo.Pid())
 			return &JavaInjectError{Message: "java attach timed out"}
 		}
 	}
@@ -211,99 +198,19 @@ func (i *JavaInjector) NewExecutable(ie *ebpf.Instrumentable) error {
 	return nil
 }
 
-func ensureEmbeddedAgentInCache() (string, error) {
+func ensureEmbeddedAgent() error {
 	if len(embeddedJavaAgentBytes) == 0 || strings.TrimSpace(string(embeddedJavaAgentBytes)) == javaAgentEmbedPlaceholder {
-		return "", errors.New("embedded OBI java agent artifact is missing; run `make java-docker-build`")
+		return errors.New("embedded OBI java agent artifact is missing from this build; Java TLS telemetry generation will be disabled")
 	}
 
-	cacheRoot, err := userCacheDir()
-	if err != nil {
-		return "", fmt.Errorf("unable to resolve user cache directory: %w", err)
-	}
-
-	cacheDir := filepath.Join(cacheRoot, "obi", "java")
-	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
-		return "", fmt.Errorf("unable to create java agent cache directory: %w", err)
-	}
-
-	checksum := sha256.Sum256(embeddedJavaAgentBytes)
-	// The final cache filename is content-addressed so identical embedded bytes
-	// always resolve to the same reusable artifact path.
-	targetPath := filepath.Join(cacheDir, fmt.Sprintf("obi-java-agent-%x.jar", checksum))
-
-	// Fast path: if the checksum-addressed artifact already exists and matches
-	// expected size, reuse it without rewriting.
-	if info, err := os.Stat(targetPath); err == nil {
-		if !info.IsDir() && info.Size() == int64(len(embeddedJavaAgentBytes)) {
-			return targetPath, nil
-		}
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return "", fmt.Errorf("unable to stat cached java agent: %w", err)
-	}
-
-	// Stage writes in a temporary file first so readers never observe a partially
-	// written jar if this process fails mid-write.
-	tmpFile, err := os.CreateTemp(cacheDir, "obi-java-agent-*.jar")
-	if err != nil {
-		return "", fmt.Errorf("unable to create temporary java agent file: %w", err)
-	}
-
-	tmpPath := tmpFile.Name()
-	cleanup := true
-	defer func() {
-		if cleanup {
-			_ = os.Remove(tmpPath)
-		}
-	}()
-
-	written, err := tmpFile.Write(embeddedJavaAgentBytes)
-	func() {
-		defer func() {
-			e := tmpFile.Close()
-			if e != nil {
-				err = errors.Join(err, e)
-			}
-		}()
-		if err != nil {
-			return
-		}
-		if written != len(embeddedJavaAgentBytes) {
-			err = errors.New("short write")
-			return
-		}
-		if err = tmpFile.Chmod(0o644); err != nil {
-			err = fmt.Errorf("unable to set permissions on temporary java agent file: %w", err)
-			return
-		}
-	}()
-	if err != nil {
-		return "", fmt.Errorf("unable to write embedded java agent: %w", err)
-	}
-
-	// Publish by atomic rename (same directory/filesystem), which also behaves
-	// safely under concurrent writers of identical content.
-	if err := renameFile(tmpPath, targetPath); err != nil {
-		// A concurrent OBI process may have already published the same
-		// checksum-addressed file between our initial stat and rename.
-		// If the target is now present and valid, treat this as success.
-		if info, statErr := os.Stat(targetPath); statErr == nil {
-			if !info.IsDir() && info.Size() == int64(len(embeddedJavaAgentBytes)) {
-				return targetPath, nil
-			}
-		}
-
-		return "", fmt.Errorf("unable to move java agent into cache: %w", err)
-	}
-
-	cleanup = false // Renamed, tmpPath no longer exists.
-	return targetPath, nil
+	return nil
 }
 
 // to be changed in tests
 var rootDirForPID func(app.PID) string = ebpfcommon.RootDirectoryForPID
 
 func (i *JavaInjector) copyAgent(ie *ebpf.Instrumentable) (string, error) {
-	root := rootDirForPID(ie.FileInfo.Pid)
+	root := rootDirForPID(ie.FileInfo.Pid())
 	tempDir, err := i.findTempDir(root, ie)
 	if err != nil {
 		return "", fmt.Errorf("error accessing temp directory: %w", err)
@@ -314,16 +221,11 @@ func (i *JavaInjector) copyAgent(ie *ebpf.Instrumentable) (string, error) {
 		return "", fmt.Errorf("invalid temp directory for injection: %q", tempDir)
 	}
 
-	i.log.Info("found injection directory for process", "pid", ie.FileInfo.Pid, "path", fullTempDir)
+	i.log.Info("found injection directory for process", "pid", ie.FileInfo.Pid(), "path", fullTempDir)
 
 	agentPathHost := filepath.Join(fullTempDir, ObiJavaAgentFileName)
 
-	source, err := os.Open(i.agentPath)
-	if err != nil {
-		return "", fmt.Errorf("unable to access OBI java agent: %w", err)
-	}
-
-	defer source.Close()
+	source := bytes.NewReader(embeddedJavaAgentBytes)
 	target, err := os.CreateTemp(fullTempDir, ObiJavaAgentFileName+".tmp-*")
 	if err != nil {
 		return "", fmt.Errorf("unable to create target OBI java agent: %w", err)
@@ -522,7 +424,7 @@ func (i *JavaInjector) verifyJVMVersion(attacher *jvm.JAttacher, pid app.PID) (b
 		if strings.HasPrefix(line, "JDK ") {
 			// JDK 8 is special, failing to properly detect it can cause errors in applications if they are
 			// loaded more than once
-			return !strings.HasPrefix(line, "JDK 26"), strings.HasPrefix(line, "JDK 8")
+			return !strings.HasPrefix(line, "JDK 28"), strings.HasPrefix(line, "JDK 8")
 		}
 	}
 	if err := scanner.Err(); err != nil {

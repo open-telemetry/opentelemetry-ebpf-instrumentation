@@ -42,29 +42,21 @@ const (
 	InstrumentationErrorNoInstrumentableFunctionsFound = "no_instrumentable_functions_found"
 	InstrumentationErrorAttachingSockFilter            = "attaching_sock_filter"
 	InstrumentationErrorAttachingSockMsg               = "attaching_sock_msg"
-	InstrumentationErrorCgroupNotFound                 = "cgroup_not_found"
 	InstrumentationErrorAttachingCgroup                = "attaching_cgroup"
 	InstrumentationErrorAttachingKprobe                = "attaching_kprobe"
 	InstrumentationErrorAttachingUprobe                = "attaching_uprobe"
+	InstrumentationErrorSymbolNotFound                 = "symbol_not_found"
 	InstrumentationErrorAttachingIter                  = "attaching_iter"
 	InstrumentationErrorAttachingTracing               = "attaching_tracing"
 	InstrumentationErrorInvalidTracepoint              = "invalid_tracepoint"
 )
 
-func (t InternalMetricsExporter) Valid() bool {
-	switch t {
-	case InternalMetricsExporterDisabled, InternalMetricsExporterPrometheus, InternalMetricsExporterOTEL:
-		return true
-	}
-
-	return false
-}
-
 // InternalMetricsConfig options for the different metrics exporters
 type InternalMetricsConfig struct {
 	Prometheus              PrometheusConfig        `yaml:"prometheus,omitempty"`
-	Exporter                InternalMetricsExporter `yaml:"exporter,omitempty" env:"OTEL_EBPF_INTERNAL_METRICS_EXPORTER"`
-	BpfMetricScrapeInterval time.Duration           `yaml:"bpf_metric_scrape_interval" env:"OTEL_EBPF_BPF_METRIC_SCRAPE_INTERVAL"`
+	AvoidedServices         AvoidedServicesConfig   `yaml:"avoided_services,omitempty"`
+	Exporter                InternalMetricsExporter `yaml:"exporter,omitempty" env:"OTEL_EBPF_INTERNAL_METRICS_EXPORTER" validate:"omitempty,oneof=disabled prometheus otel"`
+	BpfMetricScrapeInterval time.Duration           `yaml:"bpf_metric_scrape_interval" env:"OTEL_EBPF_BPF_METRIC_SCRAPE_INTERVAL" validate:"omitempty,gt=0"`
 }
 
 // Reporter of internal metrics
@@ -95,8 +87,8 @@ type Reporter interface {
 	AvoidInstrumentationMetrics(serviceName, serviceNamespace, serviceInstanceID string)
 	// AvoidInstrumentationTraces is invoked every time a service is avoided due to OTLP traces detection
 	AvoidInstrumentationTraces(serviceName, serviceNamespace, serviceInstanceID string)
-	// BpfProbeLatency is invoked every time a BPF probe latency is recorded
-	BpfProbeLatency(probeID, probeType, probeName string, latencySeconds float64)
+	// BpfProbeStats is invoked every time aggregate BPF probe stats are recorded for a scrape interval
+	BpfProbeStats(probeID, probeType, probeName string, count uint64, latencySumSeconds float64)
 	// BpfMapEntries is invoked every time a BPF map size is recorded
 	BpfMapEntries(mapID, mapName, mapType string, entriesTotal int)
 	// BpfMapMaxEntries is invoked every time a BPF map max size is recorded
@@ -108,26 +100,43 @@ type Reporter interface {
 	// BPFPacketStats sets the counters of how many packets have been internally accounted vs how many packets
 	// have been ignored due to internal BPF map collisions
 	BPFPacketStats(count, ignored uint64)
+	// QueueBufferUtilization shows the ratio [0-1] between the unread messages of an internal Go channel
+	// and its total capacity
+	QueueBufferUtilization(subscriber string, ratio float64)
+}
+
+func IsBuiltinNoopReporter(reporter Reporter) bool {
+	if reporter == nil {
+		return false
+	}
+
+	switch reporter.(type) {
+	case NoopReporter, *NoopReporter:
+		return true
+	default:
+		return false
+	}
 }
 
 // NoopReporter is a metrics Reporter that just does nothing
 type NoopReporter struct{}
 
-func (n NoopReporter) Start(_ context.Context)                         {}
-func (n NoopReporter) TracerFlush(_ int)                               {}
-func (n NoopReporter) OTELMetricExport(_ int)                          {}
-func (n NoopReporter) OTELMetricExportError(_ error)                   {}
-func (n NoopReporter) OTELTraceExport(_ int)                           {}
-func (n NoopReporter) OTELTraceExportError(_ error)                    {}
-func (n NoopReporter) PrometheusRequest(_, _ string)                   {}
-func (n NoopReporter) InstrumentProcess(_ string)                      {}
-func (n NoopReporter) UninstrumentProcess(_ string)                    {}
-func (n NoopReporter) InstrumentationError(_, _ string)                {}
-func (n NoopReporter) AvoidInstrumentationMetrics(_, _, _ string)      {}
-func (n NoopReporter) AvoidInstrumentationTraces(_, _, _ string)       {}
-func (n NoopReporter) BpfProbeLatency(_, _, _ string, _ float64)       {}
-func (n NoopReporter) BpfMapEntries(_, _, _ string, _ int)             {}
-func (n NoopReporter) BpfMapMaxEntries(_, _, _ string, _ int)          {}
-func (n NoopReporter) BpfInternalMetricsScrapeInterval() time.Duration { return 0 }
-func (n NoopReporter) InformerLag(_ float64)                           {}
-func (n NoopReporter) BPFPacketStats(_, _ uint64)                      {}
+func (n NoopReporter) Start(_ context.Context)                           {}
+func (n NoopReporter) TracerFlush(_ int)                                 {}
+func (n NoopReporter) OTELMetricExport(_ int)                            {}
+func (n NoopReporter) OTELMetricExportError(_ error)                     {}
+func (n NoopReporter) OTELTraceExport(_ int)                             {}
+func (n NoopReporter) OTELTraceExportError(_ error)                      {}
+func (n NoopReporter) PrometheusRequest(_, _ string)                     {}
+func (n NoopReporter) InstrumentProcess(_ string)                        {}
+func (n NoopReporter) UninstrumentProcess(_ string)                      {}
+func (n NoopReporter) InstrumentationError(_, _ string)                  {}
+func (n NoopReporter) AvoidInstrumentationMetrics(_, _, _ string)        {}
+func (n NoopReporter) AvoidInstrumentationTraces(_, _, _ string)         {}
+func (n NoopReporter) BpfProbeStats(_, _, _ string, _ uint64, _ float64) {}
+func (n NoopReporter) BpfMapEntries(_, _, _ string, _ int)               {}
+func (n NoopReporter) BpfMapMaxEntries(_, _, _ string, _ int)            {}
+func (n NoopReporter) BpfInternalMetricsScrapeInterval() time.Duration   { return 0 }
+func (n NoopReporter) InformerLag(_ float64)                             {}
+func (n NoopReporter) BPFPacketStats(_, _ uint64)                        {}
+func (n NoopReporter) QueueBufferUtilization(_ string, _ float64)        {}

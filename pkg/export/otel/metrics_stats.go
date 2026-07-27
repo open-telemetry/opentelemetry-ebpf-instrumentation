@@ -12,12 +12,11 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
-	semconv "go.opentelemetry.io/otel/semconv/v1.38.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 
 	"go.opentelemetry.io/obi/pkg/buildinfo"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
-	"go.opentelemetry.io/obi/pkg/export/expire"
 	"go.opentelemetry.io/obi/pkg/export/otel/metric"
 	metric2 "go.opentelemetry.io/obi/pkg/export/otel/metric/api/metric"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
@@ -27,6 +26,8 @@ import (
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
 )
+
+const statScopeName = "stats_ebpf_events"
 
 // StatMetricsConfig extends MetricsConfig for Statistical Metrics
 type StatMetricsConfig struct {
@@ -64,17 +65,29 @@ func createFilteredStatsResource(hostID string, attrSelector attributes.Selectio
 	return resource.NewWithAttributes(semconv.SchemaURL, attrs...)
 }
 
-func newStatMeterProvider(res *resource.Resource, exporter *sdkmetric.Exporter, interval time.Duration) *metric.MeterProvider {
+func newStatMeterProvider(res *resource.Resource, exporter *sdkmetric.Exporter, interval time.Duration, cfg *otelcfg.MetricsConfig) *metric.MeterProvider {
+	isExponential := cfg.HistogramAggregation == otelcfg.HistogramAggregationExponential
+	if !isExponential && cfg.HistogramAggregation != otelcfg.HistogramAggregationExplicit {
+		smlog().Warn("invalid value for histogram aggregation. Accepted values are: "+
+			string(otelcfg.HistogramAggregationExponential)+", "+string(otelcfg.HistogramAggregationExplicit)+" (default). Using default",
+			"value", cfg.HistogramAggregation)
+	}
 	return metric.NewMeterProvider(
 		metric.WithResource(res),
 		metric.WithReader(metric.NewPeriodicReader(*exporter, metric.WithInterval(interval))),
+		metric.WithView(statHistogramView(attributes.StatTCPRtt.OTEL, cfg.Buckets.StatTCPRttHistogram, isExponential, cfg.ExponentialHistogram)),
 	)
+}
+
+func statHistogramView(metricName string, buckets []float64, isExponential bool, expCfg otelcfg.ExponentialHistogramConfig) metric.View {
+	return newHistogramView(metricName, statScopeName, buckets, isExponential, expCfg)
 }
 
 type statMetricsExporter struct {
 	tcpRtt               *Expirer[*ebpf.Stat, metric2.Float64Histogram, float64]
 	tcpFailedConnections *Expirer[*ebpf.Stat, metric2.Int64Counter, int64]
-	clock                *expire.CachedClock
+	tcpRetransmits       *Expirer[*ebpf.Stat, metric2.Int64Counter, int64]
+	tcpIo                *Expirer[*ebpf.Stat, metric2.Int64Counter, int64]
 	expireTTL            time.Duration
 	in                   <-chan []*ebpf.Stat
 }
@@ -116,26 +129,26 @@ func newStatMetricsExporter(
 	exporter = instrumentMetricsExporter(ctxInfo.Metrics, exporter)
 
 	resource := createFilteredStatsResource(ctxInfo.NodeMeta.HostID, cfg.SelectorCfg.SelectionCfg)
-	provider := newMeterProvider(resource, &exporter, cfg.Metrics.Interval)
+	provider := newStatMeterProvider(resource, &exporter, cfg.Metrics.Interval, cfg.Metrics)
 
 	attrProv, err := attributes.NewAttrSelector(ctxInfo.MetricAttributeGroups, cfg.SelectorCfg)
 	if err != nil {
 		return nil, fmt.Errorf("stats OTEL exporter attributes enable: %w", err)
 	}
 
-	clock := expire.NewCachedClock(timeNow)
-
-	ebpfEvents := provider.Meter("stats_ebpf_events")
+	ebpfEvents := provider.Meter(statScopeName)
 
 	nme := &statMetricsExporter{
-		clock:     clock,
 		expireTTL: cfg.Metrics.TTL,
 	}
 
 	if cfg.CommonCfg.Features.StatsTCPRtt() {
 		log := log.With("metricFamily", "StatsTCPRtt")
 
-		tcpRtt, err := ebpfEvents.Float64Histogram(attributes.StatTCPRtt.OTEL, metric2.WithUnit("s"))
+		tcpRtt, err := ebpfEvents.Float64Histogram(
+			attributes.StatTCPRtt.OTEL,
+			metric2.WithUnit("s"),
+		)
 		if err != nil {
 			log.Error("creating stats tcp rtt histogram", "error", err)
 			return nil, err
@@ -146,7 +159,39 @@ func newStatMetricsExporter(
 			ebpf.StatGetters,
 			attrProv.For(attributes.StatTCPRtt))
 
-		nme.tcpRtt = NewExpirer[*ebpf.Stat, metric2.Float64Histogram, float64](ctx, tcpRtt, attrs, clock.Time, cfg.Metrics.TTL)
+		nme.tcpRtt = NewExpirer[*ebpf.Stat, metric2.Float64Histogram, float64](ctx, tcpRtt, attrs, timeNow, cfg.Metrics.TTL)
+	}
+
+	if cfg.CommonCfg.Features.StatsTCPRetransmits() {
+		log := log.With("metricFamily", "StatsTCPRetransmits")
+
+		tcpRetransmits, err := ebpfEvents.Int64Counter(attributes.StatTCPRetransmits.OTEL)
+		if err != nil {
+			log.Error("creating stats tcp retransmits counter", "error", err)
+			return nil, err
+		}
+
+		attrs := attributes.OpenTelemetryGetters(
+			ebpf.StatGetters,
+			attrProv.For(attributes.StatTCPRetransmits))
+
+		nme.tcpRetransmits = NewExpirer[*ebpf.Stat, metric2.Int64Counter, int64](ctx, tcpRetransmits, attrs, timeNow, cfg.Metrics.TTL)
+	}
+
+	if cfg.CommonCfg.Features.StatsTCPIo() {
+		log := log.With("metricFamily", "StatsTCPIo")
+
+		tcpIo, err := ebpfEvents.Int64Counter(attributes.StatTCPIo.OTEL, metric2.WithUnit("By"))
+		if err != nil {
+			log.Error("creating stats tcp io counter", "error", err)
+			return nil, err
+		}
+
+		attrs := attributes.OpenTelemetryGetters(
+			ebpf.StatGetters,
+			attrProv.For(attributes.StatTCPIo))
+
+		nme.tcpIo = NewExpirer[*ebpf.Stat, metric2.Int64Counter, int64](ctx, tcpIo, attrs, timeNow, cfg.Metrics.TTL)
 	}
 
 	if cfg.CommonCfg.Features.StatsTCPFailedConnections() {
@@ -162,7 +207,7 @@ func newStatMetricsExporter(
 			ebpf.StatGetters,
 			attrProv.For(attributes.StatTCPFailedConnections))
 
-		nme.tcpFailedConnections = NewExpirer[*ebpf.Stat, metric2.Int64Counter, int64](ctx, tcpFailedConnections, attrs, clock.Time, cfg.Metrics.TTL)
+		nme.tcpFailedConnections = NewExpirer[*ebpf.Stat, metric2.Int64Counter, int64](ctx, tcpFailedConnections, attrs, timeNow, cfg.Metrics.TTL)
 	}
 
 	nme.in = input.Subscribe(msg.SubscriberName("otel.StatMetricsExporter"))
@@ -171,7 +216,6 @@ func newStatMetricsExporter(
 
 func (me *statMetricsExporter) Do(ctx context.Context) {
 	for i := range me.in {
-		me.clock.Update()
 		for _, v := range i {
 			if me.tcpRtt != nil && v.TCPRtt != nil {
 				tcpRtt, attrs := me.tcpRtt.ForRecord(v)
@@ -180,6 +224,14 @@ func (me *statMetricsExporter) Do(ctx context.Context) {
 			if me.tcpFailedConnections != nil && v.TCPFailedConnection != nil {
 				tcpFailedConnections, attrs := me.tcpFailedConnections.ForRecord(v)
 				tcpFailedConnections.Add(ctx, 1, metric2.WithAttributeSet(attrs))
+			}
+			if me.tcpRetransmits != nil && v.TCPRetransmit {
+				tcpRetransmits, attrs := me.tcpRetransmits.ForRecord(v)
+				tcpRetransmits.Add(ctx, 1, metric2.WithAttributeSet(attrs))
+			}
+			if me.tcpIo != nil && v.TCPIo != nil {
+				tcpIo, attrs := me.tcpIo.ForRecord(v)
+				tcpIo.Add(ctx, int64(v.TCPIo.Bytes), metric2.WithAttributeSet(attrs))
 			}
 		}
 	}

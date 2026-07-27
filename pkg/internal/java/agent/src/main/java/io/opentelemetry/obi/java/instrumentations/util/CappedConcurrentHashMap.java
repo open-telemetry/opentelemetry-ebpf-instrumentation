@@ -6,67 +6,80 @@
 package io.opentelemetry.obi.java.instrumentations.util;
 
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReferenceArray;
 
+// This is an LRU map approximation with a ring buffer. It doesn't have
+// strong LRU guarantees and it can evict newer entries when duplicates
+// are stored in the map. For the purpose of the agent this is sufficient
+// since we clean up the data from the maps and we only need a approximate
+// LRU capped size concurrent map. Proper LRU requires locking and can
+// degrade the Java application concurrency.
 public class CappedConcurrentHashMap<K, V> {
-  private final int capacity;
-  private final ConcurrentHashMap<K, V> map;
-  private final ConcurrentLinkedQueue<K> queue;
+  private final ConcurrentHashMap<K, V> map = new ConcurrentHashMap<>();
+  private final AtomicReferenceArray<K> ring;
+  private final AtomicLong index = new AtomicLong();
 
   public CappedConcurrentHashMap(int capacity) {
-    if (capacity <= 0) throw new IllegalArgumentException("capacity must be > 0");
-    this.capacity = capacity;
-    this.map = new ConcurrentHashMap<>();
-    this.queue = new ConcurrentLinkedQueue<>();
+    if (capacity <= 0) {
+      throw new IllegalArgumentException("capacity must be > 0");
+    }
+    this.ring = new AtomicReferenceArray<>(capacity);
   }
 
-  /**
-   * Put a value. If key is new, it becomes the newest element; if capacity exceeded, oldest
-   * elements will be evicted (best-effort).
-   *
-   * <p>Returns the previous value or null if none.
-   */
+  // Not using the JDK Math implementation because it's
+  // not available in JDK 8.
+  static long floorMod(long x, long y) {
+    final long r = x % y;
+    // if the signs are different and modulo not zero, adjust result
+    if ((x ^ y) < 0 && r != 0) {
+      return r + y;
+    }
+    return r;
+  }
+
   public V put(K key, V value) {
     if (key == null || value == null) {
       return null;
     }
 
-    V previous = map.put(key, value);
+    V prev = map.put(key, value);
 
-    // If it was absent before (previous == null) record insertion order.
-    if (previous == null) {
-      queue.add(key);
-      evictIfNeeded();
+    // We are adding a new key, check for overflow and remove an
+    // element
+    if (prev == null) {
+      // This can overflow, but that's OK, the modulo still works with
+      // negative numbers because our floorMod implementation uses the
+      // sign of the divisor (ring.length())
+      long i = index.getAndIncrement();
+      int slot = (int) floorMod(i, ring.length());
+
+      K oldKey = ring.getAndSet(slot, key);
+      if (oldKey != null && !oldKey.equals(key)) {
+        map.remove(oldKey);
+      }
     }
-    // If key existed, we replaced value and keep original insertion order.
-    return previous;
+
+    return prev;
+  }
+
+  // This is simple enough, and it's the source of the poor LRU properties of
+  // this implementation. The ring buffer is not walked and cleared so duplicates
+  // may accidentally evict newer entries. For our purpose it works, but it can be
+  // improved in the future if needed with adding a version number in the key.
+  public V remove(K key) {
+    return map.remove(key);
   }
 
   public V get(K key) {
     return map.get(key);
   }
 
-  public V remove(K key) {
-    // we don't eagerly evict on remove
-    return map.remove(key);
-  }
-
-  public boolean containsKey(K key) {
-    return map.containsKey(key);
-  }
-
-  public int size() {
+  int size() {
     return map.size();
   }
 
-  private void evictIfNeeded() {
-    // Best-effort eviction loop: removes oldest entries until size <= capacity.
-    // Because operations are concurrent, map.size() is not a lock; we might overshoot briefly.
-    while (map.size() > capacity) {
-      K oldest = queue.poll();
-      if (oldest == null) break; // nothing to evict
-      map.remove(oldest);
-      // continue while loop until size <= capacity or queue exhausted
-    }
+  boolean containsKey(K key) {
+    return map.containsKey(key);
   }
 }

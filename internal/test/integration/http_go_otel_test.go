@@ -4,6 +4,7 @@
 package integration
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -12,12 +13,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ory/dockertest/v3"
-	"github.com/ory/dockertest/v3/docker"
+	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/client"
+	"github.com/ory/dockertest/v4"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	dockercompose "go.opentelemetry.io/obi/internal/test/integration/components/docker"
+	"go.opentelemetry.io/obi/internal/test/integration/components/docker"
 	"go.opentelemetry.io/obi/internal/test/integration/components/jaeger"
 	"go.opentelemetry.io/obi/internal/test/integration/components/promtest"
 	ti "go.opentelemetry.io/obi/pkg/test/integration"
@@ -28,28 +30,33 @@ var (
 	buildGoOTelTestServerErr  error
 )
 
-func findHTTPGetTraces(tq jaeger.TracesQuery) []jaeger.Trace {
-	// Newer OTel semconv versions use http.request.method while older data may use http.method.
-	traces := tq.FindBySpan(jaeger.Tag{Key: "http.request.method", Type: "string", Value: "GET"})
-	if len(traces) == 0 {
-		traces = tq.FindBySpan(jaeger.Tag{Key: "http.method", Type: "string", Value: "GET"})
+func findHTTPGetTraces(tq jaeger.TracesQuery, route string) []jaeger.Trace {
+	methodTags := []jaeger.Tag{
+		{Key: "http.request.method", Type: "string", Value: "GET"},
+		{Key: "http.method", Type: "string", Value: "GET"},
 	}
-	return traces
+	pathTags := []jaeger.Tag{
+		{Key: "url.path", Type: "string", Value: route},
+		{Key: "http.target", Type: "string", Value: route},
+	}
+
+	for _, methodTag := range methodTags {
+		for _, pathTag := range pathTags {
+			traces := tq.FindBySpan(methodTag, pathTag)
+			if len(traces) > 0 {
+				return traces
+			}
+		}
+	}
+	return nil
 }
 
-func setupGoOTelTestServer(t *testing.T, network *dockertest.Network, env []string) {
+func setupGoOTelTestServer(t *testing.T, net dockertest.Network, env []string) {
 	t.Helper()
 
 	buildGoOTelTestServerOnce.Do(func() {
 		t.Log("Building Go OpenTelemetry test server image...")
-		buildGoOTelTestServerErr = dockerPool.Client.BuildImage(docker.BuildImageOptions{
-			Name:         "hatest-testserver",
-			ContextDir:   pathRoot,
-			Dockerfile:   "internal/test/integration/components/go_otel/Dockerfile",
-			OutputStream: t.Output(),
-			ErrorStream:  t.Output(),
-			AuthConfigs:  dockerAuthConfigs(),
-		})
+		buildGoOTelTestServerErr = buildDockerImage(t.Context(), t.Output(), "hatest-testserver", "internal/test/integration/components/go_otel/Dockerfile")
 		if buildGoOTelTestServerErr != nil {
 			return
 		}
@@ -58,20 +65,23 @@ func setupGoOTelTestServer(t *testing.T, network *dockertest.Network, env []stri
 	require.NoError(t, buildGoOTelTestServerErr, "could not build test server Docker image")
 
 	t.Log("Starting Go OpenTelemetry test server container...")
-	testserver, err := dockerPool.RunWithOptions(&dockertest.RunOptions{
-		Repository:   "hatest-testserver",
-		Name:         fmt.Sprintf("testserver-otel-test-%d", time.Now().UnixNano()),
-		Networks:     []*dockertest.Network{network},
-		Env:          env,
-		ExposedPorts: []string{"8080/tcp"},
-		PortBindings: map[docker.Port][]docker.PortBinding{
-			"8080/tcp": {{HostIP: "127.0.0.1", HostPort: "8080"}},
-		},
-	})
+	testserver, err := dockerPool.Run(t.Context(), "hatest-testserver",
+		dockertest.WithName(fmt.Sprintf("testserver-otel-test-%d", time.Now().UnixNano())),
+		dockertest.WithEnv(env),
+		dockertest.WithPortBindings(portBindings("8080/tcp", "8080")),
+		dockertest.WithContainerConfig(func(config *container.Config) {
+			config.ExposedPorts = exposedPorts("8080/tcp")
+		}),
+		dockertest.WithoutReuse(),
+	)
 	require.NoError(t, err, "could not start test server container")
 	t.Cleanup(func() {
-		require.NoError(t, dockerPool.Purge(testserver), "could not remove test server container")
+		require.NoError(t, testserver.Close(context.Background()), "could not remove test server container")
 	})
+	_, err = dockerPool.Client().NetworkConnect(t.Context(), net.ID(), client.NetworkConnectOptions{
+		Container: testserver.ID(),
+	})
+	require.NoError(t, err, "could not connect test server container to network")
 	t.Log("Go OpenTelemetry test server container started")
 }
 
@@ -137,7 +147,7 @@ func testInstrumentationMissing(t *testing.T, route, svcNs string) {
 	}
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=dicer&operation=Roll")
+		resp, err := http.Get(jaegerQueryURL + "?service=dicer")
 		require.NoError(ct, err)
 		if resp == nil {
 			return
@@ -145,7 +155,7 @@ func testInstrumentationMissing(t *testing.T, route, svcNs string) {
 		require.Equal(ct, http.StatusOK, resp.StatusCode)
 		var tq jaeger.TracesQuery
 		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
-		traces := findHTTPGetTraces(tq)
+		traces := findHTTPGetTraces(tq, route)
 		assert.LessOrEqual(ct, 1, len(traces))
 	}, testTimeout, 100*time.Millisecond)
 
@@ -186,7 +196,8 @@ func TestHTTPGoOTelInstrumentedApp(t *testing.T) {
 	network := setupDockerNetwork(t)
 	setupContainerPrometheus(t, network, "prometheus-config.yml")
 	setupContainerJaeger(t, network)
-	setupContainerCollector(t, network, "otelcol-config.yml")
+	setupContainerWeaver(t, network)
+	setupContainerCollector(t, network, "otelcol-config-weaver.yml")
 	setupGoOTelTestServer(t, network, nil)
 
 	if t.Failed() {
@@ -208,6 +219,8 @@ func TestHTTPGoOTelInstrumentedApp(t *testing.T) {
 		waitForTestComponents(t, "http://localhost:8080")
 		testForHTTPGoOTelLibrary(t, "/rolldice", "integration-test")
 	})
+
+	runWeaverValidation(t)
 }
 
 func otelWaitForTestComponents(t *testing.T, url, subpath string) {
@@ -237,7 +250,8 @@ func TestHTTPGoOTelAvoidsInstrumentedApp(t *testing.T) {
 	network := setupDockerNetwork(t)
 	setupContainerPrometheus(t, network, "prometheus-config.yml")
 	setupContainerJaeger(t, network)
-	setupContainerCollector(t, network, "otelcol-config.yml")
+	setupContainerWeaver(t, network)
+	setupContainerCollector(t, network, "otelcol-config-weaver.yml")
 	setupGoOTelTestServer(t, network, []string{
 		"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=http://otelcol:4318",
 		"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://jaeger:4318",
@@ -263,13 +277,16 @@ func TestHTTPGoOTelAvoidsInstrumentedApp(t *testing.T) {
 		time.Sleep(15 * time.Second) // ensure we see some calls to /v1/metrics /v1/traces
 		testInstrumentationMissing(t, "/rolldice", "integration-test")
 	})
+
+	runWeaverValidation(t)
 }
 
 func TestHTTPGoOTelDisabledOptInstrumentedApp(t *testing.T) {
 	network := setupDockerNetwork(t)
 	setupContainerPrometheus(t, network, "prometheus-config.yml")
 	setupContainerJaeger(t, network)
-	setupContainerCollector(t, network, "otelcol-config.yml")
+	setupContainerWeaver(t, network)
+	setupContainerCollector(t, network, "otelcol-config-weaver.yml")
 	setupGoOTelTestServer(t, network, []string{
 		"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=http://otelcol:4318",
 		"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://jaeger:4318",
@@ -296,10 +313,12 @@ func TestHTTPGoOTelDisabledOptInstrumentedApp(t *testing.T) {
 		time.Sleep(15 * time.Second) // ensure we see some calls to /v1/metrics /v1/traces
 		testForHTTPGoOTelLibrary(t, "/rolldice", "integration-test")
 	})
+
+	runWeaverValidation(t)
 }
 
 func TestHTTPGoOTelInstrumentedAppGRPC(t *testing.T) {
-	compose, err := dockercompose.ComposeSuite("docker-compose-go-otel-grpc.yml", path.Join(pathOutput, "test-suite-go-otel-grpc.log"))
+	compose, err := docker.ComposeSuite("docker-compose-go-otel-grpc.yml", path.Join(pathOutput, "test-suite-go-otel-grpc.log"))
 	require.NoError(t, err)
 
 	// we are going to setup discovery directly in the configuration file
@@ -329,7 +348,7 @@ func otelWaitForTestComponentsTraces(t *testing.T, url, subpath string) {
 		require.NoError(ct, err)
 		require.Equal(ct, http.StatusOK, r.StatusCode)
 
-		resp, err := http.Get(jaegerQueryURL + "?service=dicer&operation=Smoke")
+		resp, err := http.Get(jaegerQueryURL + "?service=dicer")
 		require.NoError(ct, err)
 		if resp == nil {
 			return
@@ -337,13 +356,13 @@ func otelWaitForTestComponentsTraces(t *testing.T, url, subpath string) {
 		require.Equal(ct, http.StatusOK, resp.StatusCode)
 		var tq jaeger.TracesQuery
 		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
-		traces := findHTTPGetTraces(tq)
+		traces := findHTTPGetTraces(tq, subpath)
 		assert.LessOrEqual(ct, 1, len(traces))
 	}, 1*time.Minute, time.Second)
 }
 
 func TestHTTPGoOTelAvoidsInstrumentedAppGRPC(t *testing.T) {
-	compose, err := dockercompose.ComposeSuite("docker-compose-go-otel-grpc.yml", path.Join(pathOutput, "test-suite-go-otel-avoids-grpc.log"))
+	compose, err := docker.ComposeSuite("docker-compose-go-otel-grpc.yml", path.Join(pathOutput, "test-suite-go-otel-avoids-grpc.log"))
 	require.NoError(t, err)
 
 	// we are going to setup discovery directly in the configuration file

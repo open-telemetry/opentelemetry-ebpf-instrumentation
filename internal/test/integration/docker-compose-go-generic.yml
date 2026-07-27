@@ -17,16 +17,24 @@ services:
     ports:
       - "9093:9093"
       - "9092:9092"
+      - "9094:9094"   # SSL listener port      
     volumes:
       - "kafka-volume:/bitnami"
+      - "./components/javakafka-tls/certs:/bitnami/kafka/config/certs"   # mount certs
     environment:
       - KAFKA_BROKER_ID=1
       - KAFKA_CFG_ZOOKEEPER_CONNECT=zookeeper:2181
       - ALLOW_PLAINTEXT_LISTENER=yes
-      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CLIENT:PLAINTEXT,EXTERNAL:PLAINTEXT
-      - KAFKA_CFG_LISTENERS=CLIENT://:9092,EXTERNAL://:9093
-      - KAFKA_CFG_ADVERTISED_LISTENERS=CLIENT://kafka:9092,EXTERNAL://kafka:9093
+      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CLIENT:PLAINTEXT,EXTERNAL:PLAINTEXT,SSL:SSL
+      - KAFKA_CFG_LISTENERS=CLIENT://:9092,EXTERNAL://:9093,SSL://:9094
+      - KAFKA_CFG_ADVERTISED_LISTENERS=CLIENT://kafka:9092,EXTERNAL://kafka:9093,SSL://kafka:9094
       - KAFKA_CFG_INTER_BROKER_LISTENER_NAME=CLIENT
+      - KAFKA_CFG_SSL_KEYSTORE_LOCATION=/bitnami/kafka/config/certs/kafka.keystore.jks
+      - KAFKA_CFG_SSL_KEYSTORE_PASSWORD=changeit
+      - KAFKA_CFG_SSL_KEY_PASSWORD=changeit
+      - KAFKA_CFG_SSL_TRUSTSTORE_LOCATION=/bitnami/kafka/config/certs/kafka.truststore.jks
+      - KAFKA_CFG_SSL_TRUSTSTORE_PASSWORD=changeit
+      - KAFKA_CFG_SSL_CLIENT_AUTH=none  # set to "required" for mTLS
     depends_on:
       - zookeeper
 
@@ -50,9 +58,12 @@ services:
     ports:
       - "8080:8080"
       - "8081:8081"
+      - "8443:8443"
     environment:
       LOG_LEVEL: DEBUG
       OTEL_RESOURCE_ATTRIBUTES: "service.version=1.0.0"
+      KAFKA_PEERS: "kafka:9092"
+      KAFKA_TLS_PEERS: "kafka:9094"
     depends_on:
       kafka:
         condition: service_started
@@ -82,7 +93,7 @@ services:
       OTEL_EBPF_PROMETHEUS_FEATURES: "application,application_span_otel,application_service_graph,ebpf,application_host"
       OTEL_EBPF_DISCOVERY_POLL_INTERVAL: 500ms
       OTEL_EBPF_SERVICE_NAMESPACE: "integration-test"
-      OTEL_EBPF_METRICS_INTERVAL: "10ms"
+      OTEL_EBPF_METRICS_INTERVAL: "1s"
       OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT: "1ms"
       OTEL_EBPF_BPF_BATCH_TIMEOUT: "10ms"
       OTEL_EBPF_LOG_LEVEL: "INFO"
@@ -100,14 +111,14 @@ services:
 
   # OpenTelemetry Collector for Metrics. For Traces, we use directly Jaeger
   otelcol:
-    image: otel/opentelemetry-collector-contrib:0.150.1@sha256:a516c26968aa1feb5e5fc0562e3338ea13755cb4f373603226bcc4e276374ad0
+    image: otel/opentelemetry-collector-contrib:0.157.0@sha256:f2f01157055a9b2aab9df7118e1f1c9abf345e99b23bc7a2bc791db374a7d0f6
     container_name: otel-col
     deploy:
       resources:
         limits:
           memory: 125M
     restart: unless-stopped
-    command: ["--config=/etc/otelcol-config/otelcol-config.yml"]
+    command: ["--config=/etc/otelcol-config/otelcol-config-weaver.yml"]
     volumes:
       - ./configs/:/etc/otelcol-config
     ports:
@@ -120,10 +131,20 @@ services:
         condition: service_started
       prometheus:
         condition: service_started
+      jaeger:
+        condition: service_started
+      weaver:
+        condition: service_healthy
 
-  # Prometheus
+
+  weaver:
+    extends:
+      file: components/weaver/service.yml
+      service: weaver
+    volumes:
+      - ../../../schemas/obi:/obi-registry:ro
   prometheus:
-    image: quay.io/prometheus/prometheus:v3.11.0@sha256:131bf4c9d8a0337782ea8b753249f4903afac01379f3cced87ceaf8ca82ab9f3
+    image: quay.io/prometheus/prometheus:v3.13.0@sha256:c6b27ea434f8389bfe233fbc7be381cf50587c286e871bc842008f5a1b1908a7
     container_name: prometheus
     command:
       - --config.file=/etc/prometheus/prometheus-config.yml

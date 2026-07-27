@@ -1,0 +1,13 @@
+{
+  "name": "noderdkafka",
+  "version": "1.0.0",
+  "description": "librdkafka (confluent-kafka-javascript) consumer/producer used to reproduce OBI Kafka topic-name (v13+/UUID) resolution",
+  "main": "app.js",
+  "scripts": {
+    "start": "node app.js"
+  },
+  "license": "Apache-2.0",
+  "dependencies": {
+    "@confluentinc/kafka-javascript": "^1.3.0"
+  }
+}

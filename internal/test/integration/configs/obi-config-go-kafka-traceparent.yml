@@ -1,0 +1,14 @@
+attributes:
+  kubernetes:
+    cluster_name: obi-k8s-test-cluster
+  select:
+    "*":
+      include: ["*"]
+ebpf:
+  log_enricher:
+    services:
+      - service:
+        - exe_path: testserver
+discovery:
+  min_process_age: "0s"
+log_config: "yaml"

@@ -8,13 +8,21 @@ package main
 
 import (
 	"compress/gzip"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
+	"math/big"
+	"net"
 	"net/http"
 	"os"
 	"strings"
+	"time"
 )
 
 const responseBody = `{
@@ -144,6 +152,22 @@ const conversationBody = `
   }
 }
 `
+
+const embeddingsBody = `{
+  "object": "list",
+  "data": [
+    {
+      "object": "embedding",
+      "embedding": [0.0023064255, -0.009327292],
+      "index": 0
+    }
+  ],
+  "model": "text-embedding-3-small",
+  "usage": {
+    "prompt_tokens": 5,
+    "total_tokens": 5
+  }
+}`
 
 type responsesRequest struct {
 	Input        string `json:"input"`
@@ -297,6 +321,65 @@ type conversationRequest struct {
 	Metadata json.RawMessage `json:"metadata"`
 }
 
+type embeddingsRequest struct {
+	Model      string          `json:"model"`
+	Input      json.RawMessage `json:"input"`
+	Dimensions int             `json:"dimensions"`
+}
+
+func handleEmbeddings(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("failed to read request body: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	var req embeddingsRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		http.Error(w, fmt.Sprintf("invalid JSON: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	var validationErrors []string
+	if len(req.Input) == 0 {
+		validationErrors = append(validationErrors, "input cannot be empty")
+	}
+	if req.Model == "" {
+		validationErrors = append(validationErrors, "model cannot be empty")
+	}
+	if len(validationErrors) > 0 {
+		http.Error(w, "request validation failed:\n"+strings.Join(validationErrors, "\n"), http.StatusBadRequest)
+		return
+	}
+
+	if r.URL.Query().Has("error") {
+		h := w.Header()
+		h.Set("Content-Type", "application/json")
+		h.Set("Openai-Version", "2020-10-01")
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte(errorBody))
+		return
+	}
+
+	h := w.Header()
+	setResponseHeaders(h)
+	w.WriteHeader(http.StatusOK)
+
+	gz := gzip.NewWriter(w)
+	if _, err := gz.Write([]byte(embeddingsBody)); err != nil {
+		log.Printf("error writing gzip body: %v", err)
+		return
+	}
+	if err := gz.Close(); err != nil {
+		log.Printf("error closing gzip writer: %v", err)
+	}
+}
+
 func handleConversations(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -350,20 +433,84 @@ func handleConversations(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// selfSignedCert generates an in-memory self-signed certificate valid for
+// localhost so the mock server can serve HTTPS without shipping cert files.
+func selfSignedCert() (tls.Certificate, error) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		return tls.Certificate{}, fmt.Errorf("generate key: %w", err)
+	}
+
+	serialLimit := new(big.Int).Lsh(big.NewInt(1), 128)
+	serial, err := rand.Int(rand.Reader, serialLimit)
+	if err != nil {
+		return tls.Certificate{}, fmt.Errorf("generate serial number: %w", err)
+	}
+
+	now := time.Now()
+	template := &x509.Certificate{
+		SerialNumber: serial,
+		Subject:      pkix.Name{CommonName: "openai-mock"},
+		NotBefore:    now.Add(-time.Hour),
+		NotAfter:     now.Add(10 * 365 * 24 * time.Hour),
+		DNSNames:     []string{"localhost", "openai-mock"},
+		IPAddresses:  []net.IP{net.ParseIP("127.0.0.1"), net.IPv6loopback},
+		KeyUsage:     x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+	}
+
+	der, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	if err != nil {
+		return tls.Certificate{}, fmt.Errorf("create certificate: %w", err)
+	}
+
+	return tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key}, nil
+}
+
+func newMux() *http.ServeMux {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/responses", handleResponses)
+	mux.HandleFunc("/v1/chat/completions", handleCompletions)
+	mux.HandleFunc("/v1/embeddings", handleEmbeddings)
+	mux.HandleFunc("/v1/conversations", handleConversations)
+	return mux
+}
+
 func main() {
 	port := os.Getenv("OPENAI_PORT")
 	if port == "" {
 		port = "8081"
 	}
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/v1/responses", handleResponses)
-	mux.HandleFunc("/v1/chat/completions", handleCompletions)
-	mux.HandleFunc("/v1/conversations", handleConversations)
+	tlsPort := os.Getenv("OPENAI_TLS_PORT")
+	if tlsPort == "" {
+		tlsPort = "8443"
+	}
+
+	tlsAddr := ":" + tlsPort
+	go func() {
+		cert, err := selfSignedCert()
+		if err != nil {
+			log.Fatalf("failed to generate self-signed certificate: %v", err)
+		}
+		srv := &http.Server{
+			Addr:    tlsAddr,
+			Handler: newMux(),
+			TLSConfig: &tls.Config{
+				Certificates: []tls.Certificate{cert},
+				NextProtos:   []string{"h2", "http/1.1"},
+			},
+		}
+		log.Printf("mock OpenAI server listening on %s (HTTPS)", tlsAddr)
+		if err := srv.ListenAndServeTLS("", ""); err != nil {
+			log.Fatalf("HTTPS server error: %v", err)
+		}
+	}()
 
 	addr := ":" + port
+	log.Printf("mock OpenAI server listening on %s (HTTP)", addr)
 	log.Printf("mock OpenAI server listening on %s", addr)
-	if err := http.ListenAndServe(addr, mux); err != nil {
+	if err := http.ListenAndServe(addr, newMux()); err != nil {
 		log.Fatalf("server error: %v", err)
 	}
 }

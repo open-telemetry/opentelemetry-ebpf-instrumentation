@@ -7,15 +7,20 @@ through language-specific library instrumentation documented later in this file.
 |:--------------|:---------:|------------:|------------------------------------------------------------------------------------------|:------:|-------------------:|--------------------------------------------------------------------------------------------------------------------------------:
 | HTTP          |    All    |     1.0/1.1 | All                                                                                      |  Yes   |                Yes |                                                                                                                             N/A
 | HTTP          |    All    |         2.0 | All                                                                                      |  Yes   |                 No |                                                                    Context propagation for HTTP/2 is only through Go library instrumentation
-| gRPC          |    All    |        1.0+ | All                                                                                      |  Yes   |                 No |                                      Can't get method for long living connections before OBI started, will mark method with `*`
+| gRPC          |    All    |        1.0+ | All                                                                                      |  Yes   |                 Yes |                                      Can't get method for long living connections before OBI started, will mark method with `*`
 | MySQL         |    All    |         All | All                                                                                      |  Yes   |                 No |             In the case of prepared statements, if the statement was prepared before OBI started then the query might be missed
 | PostgreSQL    |    All    |         All | All                                                                                      |  Yes   |                 No |             In the case of prepared statements, if the statement was prepared before OBI started then the query might be missed
+| MSSQL         |    All    |         All | All                                                                                      |  Yes   |                 No |             In the case of prepared statements, if the statement was prepared before OBI started then the query might be missed
 | Redis         |    All    |         All | All                                                                                      |  Yes   |                 No |             For already started connections, can't infer the number of the database, and won't add the `db.namespace` attribute
 | MongoDB       |    All    |        5.0+ | insert, update, find, delete, findAndModify, aggregate, count, distinct, mapReduce       |  Yes   |                 No |                                                                                              no support for compressed payloads
 | Couchbase     |    All    |         All | All                                                                                      |  Yes   |                 No | Bucket unknown if SELECT_BUCKET occurred before OBI started; Collection unknown if GET_COLLECTION_ID occurred before OBI started
 | Memcached     |    All    |         All | ASCII text subset (excludes quit and meta commands)                                      |  Yes   |                 No |                     Only the first key is recorded for multi-key retrieval commands; payload bytes are not captured
+| Aerospike     |    All    |         All | GET, EXISTS, PUT, TOUCH, OPERATE, DELETE, SCAN, QUERY, BATCH, UDF                         |   No   |                 No |     Native client protocol (port 3000); compressed (type-4) payloads not parsed; only operation metadata captured, not record/bin values; `db.query.text` requires the client's `sendKey` write policy (otherwise only the key digest is on the wire)
 | Kafka         |    All    |         All | produce, fetch                                                                           |  Yes   |                 No |                     Might fail getting topic name for fetch requests in newer versions of kafka (where Fetch api version >= 13)
 | MQTT          |    All    |   3.1.1/5.0 | publish, subscribe                                                                       |   No   |                 No |                                                            For subscribe, only first topic filter is used; payload not captured
+| NATS          |    All    |         All | publish, process                                                                         |   No   |                 No |                                  Only `PUB`/`HPUB` and delivered `MSG`/`HMSG` frames are traced; control traffic is ignored
+| AMQP          |    All    |       1.0   | publish, process                                                                         |   No   |                 No |                  Userspace heuristic only; transfer frames are traced while handshake and flow-control performatives are ignored
+| SunRPC (ONC RPC) | All    |         All | CALL procedures on known TCP programs (for example portmapper, mount, nfs)               |  Yes   |                 No | TCP only; kernel + userspace fallback; RPCSEC_GSS hides arguments; procedure names not mapped yet
 | GraphQL       |    All    |         All | All                                                                                      |  Yes   |                 No |                                                                                                                             N/A
 | JSON-RPC      |    All    |         2.0 | All                                                                                      |  Yes   |                 No |                          Requires HTTP payload capture enabled (`OTEL_EBPF_BPF_BUFFER_SIZE_HTTP`) and `OTEL_EBPF_HTTP_JSONRPC_ENABLED=true`
 | Elasticsearch |    All    |       7.14+ | /_search, /_msearch, /_bulk, /_doc                                                       |  Yes   |                 No |                                                                                                                             N/A
@@ -23,7 +28,28 @@ through language-specific library instrumentation documented later in this file.
 | AWS S3        |    All    |         All | CreateBucket, DeleteBucket, PutObject, DeleteObject, ListBuckets, ListObjects, GetObject |  Yes   |                 No |                                                                                                                             N/A
 | AWS SQS       |    All    |         All | All                                                                                      |  Yes   |                 No |                                                                                                                             N/A
 | SQL++         |    All    |         All | All                                                                                      |  Yes   |                 No |                                                                                                                             N/A
-| GenAI         |    All    |         All | All                                                                                      |  Yes   |                 No |                                                                          Supported vendors: OpenAI, Anthropic, Google AI Studio (Gemini), AWS Bedrock, Qwen (DashScope)
+| GenAI         |    All    |         All | All                                                                                      |  Yes   |                 No |                                                   Supported vendors: OpenAI, Anthropic, Google AI Studio (Gemini), AWS Bedrock, Qwen (DashScope), generic embedding providers (Voyage AI, Cohere, Jina AI), Cohere (Rerank), Jina AI (Rerank), Voyage AI (Rerank), Qwen (DashScope) (Rerank), Ollama (native /api/chat and /api/generate), OpenAI-compatible gateways (LiteLLM, vLLM, LocalAI, OpenRouter, Ollama /v1/), vector retrieval (Pinecone, Qdrant, Milvus, Zilliz, Chroma, Weaviate)
+
+## GenAI token usage availability
+
+OBI exports GenAI token usage only when the provider response reports the
+corresponding count. A reported value of zero is preserved; a missing count is
+omitted from traces and metrics. Streaming responses expose token usage only
+when the captured stream includes the provider's usage event or final usage
+chunk.
+
+| Provider or operation | Input token source | Output token source | Availability notes |
+|:----------------------|:-------------------|:--------------------|:-------------------|
+| OpenAI and OpenAI-compatible APIs | `input_tokens` or `prompt_tokens` | `output_tokens`, `completion_tokens`, or `total_tokens` minus the reported input count | Streaming APIs must return a usage chunk; for OpenAI this commonly requires usage-inclusive stream options. |
+| Qwen (DashScope) | `input_tokens` or `prompt_tokens` | `output_tokens`, `completion_tokens`, or `total_tokens` minus the reported input count | Supports native and OpenAI-compatible response field names. |
+| Anthropic | `input_tokens` plus reported cache read and cache creation tokens | `output_tokens` | Supports buffered responses and usage fields in SSE message events. |
+| Google AI Studio (Gemini) | `promptTokenCount` plus `toolUsePromptTokenCount` | `candidatesTokenCount` plus `thoughtsTokenCount` | Read from `usageMetadata` in buffered responses or stream chunks. |
+| AWS Bedrock | Response header, body usage, or model-specific input count, plus cache read and write counts | Response header, body usage, or model-specific output count | Response headers take precedence when present; buffered Converse and model-family response bodies provide fallbacks. |
+| Ollama native API | `prompt_eval_count` | `eval_count` | For NDJSON streams, counts are normally present only on the final `done` object. |
+| Embeddings | `prompt_tokens`, `total_tokens`, or Cohere `meta.billed_units.input_tokens` | Not reported | Only input token usage is exported. |
+| Rerank | `usage.total_tokens`, `usage.prompt_tokens`, or `meta.tokens.input_tokens` | Not reported | Only input token usage is exported. |
+| Vector retrieval | `usage.prompt_tokens` or `usage.total_tokens` | Not reported | Most vector stores do not return token usage; it is exported when present. |
+| MCP | Not reported | Not reported | MCP spans do not currently expose token usage. |
 
 ## Go Instrumentation
 
@@ -50,6 +76,23 @@ To turn this off and fallback to the normal network based instrumentation for Go
 | github.com/IBM/sarama          |   Kafka    |               >= 1.37 | All     |  Yes   |                 No |         N/A
 | go.mongodb.org/mongo-driver    |  MongoDB   | >= v1.10.1, >= v2.0.1 | All     |  Yes   |                 No |         N/A
 
+### Go Channel Span Links
+
+OBI can emit experimental receiver-side span links for work handed off between
+goroutines through Go channels. When both sides of a supported channel handoff
+have active OBI-generated spans, the receiver span gets an OpenTelemetry span
+link to the sender span. OBI does not add a reciprocal link to the sender span,
+does not rewrite trace IDs, and does not change parent-child relationships.
+
+The channel-link probes are registered only when Go-specific tracers are active
+and OBI can resolve the `runtime.hchan` offsets required for the target binary.
+If those offsets are unavailable, OBI skips the channel-link probes for that
+binary instead of failing instrumentation. There is no separate user-facing
+configuration flag for this feature; it is enabled by default.
+
+For implementation details, supported runtime functions, and current
+limitations, see [Go channel span links](go-channel-span-links.md).
+
 ## Payload Capture
 
 OBI can capture full request and response payloads for some protocols and forward them to userspace for richer analysis
@@ -62,12 +105,13 @@ Large payloads are streamed to userspace across multiple ring-buffer events and 
 
 | Environment variable               | Protocol   | Maximum | Default      |
 |:-----------------------------------|:----------:|--------:|:------------:|
-| `OTEL_EBPF_BPF_BUFFER_SIZE_HTTP`   | HTTP       | 65535   | 0 (disabled) |
+| `OTEL_EBPF_BPF_BUFFER_SIZE_HTTP`   | HTTP       | 262144  | 0 (disabled) |
 | `OTEL_EBPF_BPF_BUFFER_SIZE_MYSQL`  | MySQL      | 65535   | 0 (disabled) |
 | `OTEL_EBPF_BPF_BUFFER_SIZE_KAFKA`  | Kafka      | 65535   | 0 (disabled) |
 | `OTEL_EBPF_BPF_BUFFER_SIZE_POSTGRES` | PostgreSQL | 65535 | 0 (disabled) |
+| `OTEL_EBPF_BPF_BUFFER_SIZE_MSSQL`  | MSSQL      | 65535   | 0 (disabled) |
 
-Equivalent YAML keys live under `ebpf.buffer_sizes.{http,mysql,kafka,postgres}`.
+Equivalent YAML keys live under `ebpf.buffer_sizes.{http,mysql,kafka,postgres,mssql}`.
 
 ## GPU Instrumentation
 
@@ -89,7 +133,9 @@ OBI has support for several asynchronous frameworks that allow it to propagate c
 | Framework           | Languages |         Versions | Limitations                                       | Status
 |:--------------------|:---------:|-----------------:|:--------------------------------------------------|:-------------
 | Go Routines         |    Go     |       Go >= 1.18 | up to 3 nested levels of goroutines               | Stable
+| Go channel span links |  Go     |       Go >= 1.17 | `select` paths are not supported                  | Experimental
 | Node.js Async Hooks |  Node.js  |   Node.js >= 8.0 | Custom handling of SIGUSR1 signal might interfere | Stable
 | Ruby Puma Server    |   Ruby    |              N/A | Only works with Puma server                       | Stable
 | Java Thread pool    |   Java    |           JDK 8+ | N/A                                               | Stable
+| Java Virtual Threads |  Java    |          JDK 21+ | Log enrichment is skipped on virtual threads      | Stable
 | Python asyncio      |  Python   |    Python >= 3.9 | Only works with uvloop event loop                 | Stable

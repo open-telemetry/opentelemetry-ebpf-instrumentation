@@ -16,6 +16,35 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 )
 
+type anthropicContentBlock struct {
+	Type string `json:"type"`
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+func extractAnthropicToolCalls(content json.RawMessage) []request.ToolCall {
+	if len(content) == 0 {
+		return nil
+	}
+
+	var blocks []anthropicContentBlock
+	if err := json.Unmarshal(content, &blocks); err != nil {
+		return nil
+	}
+
+	var result []request.ToolCall
+	for i := range blocks {
+		if blocks[i].Type != "tool_use" || blocks[i].Name == "" {
+			continue
+		}
+		result = append(result, request.ToolCall{
+			ID:   blocks[i].ID,
+			Name: blocks[i].Name,
+		})
+	}
+	return result
+}
+
 func isAnthropic(hdr http.Header) bool {
 	isAnthropic := false
 	for _, header := range []string{
@@ -47,48 +76,78 @@ func isAnthropic(hdr http.Header) bool {
 	return isAnthropic
 }
 
+func looksLikeAnthropicBody(reqB, respB []byte) bool {
+	if extractJSONRawField(reqB, "anthropic_version") != nil {
+		return false
+	}
+
+	// Response: a message object, or an SSE stream beginning with message_start.
+	if extractJSONStringField(respB, "type", responseHeaderSearchWindow) == "message" {
+		return true
+	}
+	if bytes.Contains(respB, []byte("message_start")) {
+		return true
+	}
+
+	// Request: a Claude model with a messages array.
+	return strings.HasPrefix(strings.ToLower(extractModelField(reqB)), "claude") &&
+		extractJSONRawField(reqB, "messages") != nil
+}
+
 func AnthropicSpan(baseSpan *request.Span, req *http.Request, resp *http.Response) (request.Span, bool) {
 	isAnthropic := isAnthropic(resp.Header)
+	maybeAnthropic := false
 
 	if !isAnthropic {
+		if !isHTTP2Request(req) || !strings.HasPrefix(baseSpan.Path, "/v1/messages") {
+			return *baseSpan, false
+		}
+		maybeAnthropic = true
+	}
+
+	reqB, ok := readHTTPRequestBody("AnthropicSpan", req, baseSpan)
+	if !ok {
 		return *baseSpan, false
 	}
 
-	reqB, err := io.ReadAll(req.Body)
-	if err != nil {
+	respB, ok := readHTTPResponseBody("AnthropicSpan", resp, baseSpan)
+	if !ok {
 		return *baseSpan, false
 	}
-	req.Body = io.NopCloser(bytes.NewBuffer(reqB))
 
-	respB, err := getResponseBody(resp)
-	if err != nil && len(respB) == 0 {
-		return *baseSpan, false
+	if maybeAnthropic {
+		if !looksLikeAnthropicBody(reqB, respB) {
+			return *baseSpan, false
+		}
 	}
 
 	slog.Debug("Anthropic", "request", string(reqB), "response", string(respB))
 
-	var parsedRequest request.AnthropicRequest
-	if err := json.Unmarshal(reqB, &parsedRequest); err != nil {
-		slog.Debug("failed to parse OpenAI request", "error", err)
-	}
+	parsedRequest := parseAnthropicRequest(reqB)
 
 	var parsedResponse request.AnthropicResponse
-	if len(respB) > 0 && respB[0] == '{' {
-		if err := json.Unmarshal(respB, &parsedResponse); err != nil {
-			slog.Debug("failed to parse OpenAI response", "error", err)
-		}
+	var toolCalls []request.ToolCall
+	if looksLikeJSON(respB) {
+		parsedResponse = parseAnthropicResponse(respB)
+		toolCalls = extractAnthropicToolCalls(parsedResponse.Content)
 	} else {
 		reader := bytes.NewReader(respB)
-		if streamResponse, err := parseAnthropicStream(reader); err == nil {
+		streamResponse, tc, err := parseAnthropicStream(reader)
+		if err != nil {
+			slog.Debug("failed to parse complete Anthropic stream, continuing with partial fields", "error", err)
+		}
+		if streamResponse != nil {
 			parsedResponse = *streamResponse
+			toolCalls = tc
 		}
 	}
 
 	baseSpan.SubType = request.HTTPSubtypeAnthropic
 	baseSpan.GenAI = &request.GenAI{
 		Anthropic: &request.VendorAnthropic{
-			Input:  parsedRequest,
-			Output: parsedResponse,
+			Input:     parsedRequest,
+			Output:    parsedResponse,
+			ToolCalls: toolCalls,
 		},
 	}
 
@@ -107,10 +166,6 @@ type MessageStartEvent struct {
 		ID    string `json:"id"`
 		Type  string `json:"type"`
 		Role  string `json:"role"`
-		Usage struct {
-			InputTokens  int `json:"input_tokens"`
-			OutputTokens int `json:"output_tokens"`
-		} `json:"usage"`
 	} `json:"message"`
 }
 
@@ -129,98 +184,106 @@ type MessageDeltaEvent struct {
 		StopReason   string  `json:"stop_reason"`
 		StopSequence *string `json:"stop_sequence"`
 	} `json:"delta"`
-	Usage struct {
-		InputTokens  int `json:"input_tokens"`
-		OutputTokens int `json:"output_tokens"`
-	} `json:"usage"`
 }
 
 // parseAnthropicStream parses the SSE stream from Anthropic API and returns the complete response
-func parseAnthropicStream(reader io.Reader) (*request.AnthropicResponse, error) {
+func parseAnthropicStream(reader io.Reader) (*request.AnthropicResponse, []request.ToolCall, error) {
 	scanner := bufio.NewScanner(reader)
+	scanner.Buffer(make([]byte, 0, 256*1024), 256*1024)
 	response := &request.AnthropicResponse{}
 
 	var contentBuilder strings.Builder
+	var toolCalls []request.ToolCall
 	var currentEvent string
 	var currentData string
+	flushEvent := func() {
+		eventType, data := currentEvent, currentData
+		currentEvent = ""
+		currentData = ""
+		if eventType == "" || data == "" {
+			return
+		}
+		processEvent(eventType, data, response, &contentBuilder, &toolCalls)
+	}
 
 	for scanner.Scan() {
 		line := scanner.Text()
 
 		// Skip empty lines (they separate events)
 		if line == "" {
-			if currentEvent != "" && currentData != "" {
-				if err := processEvent(currentEvent, currentData, response, &contentBuilder); err != nil {
-					return nil, fmt.Errorf("error processing event %s: %w", currentEvent, err)
-				}
-			}
-			currentEvent = ""
-			currentData = ""
+			flushEvent()
 			continue
 		}
 
 		// Parse event line
-		if strings.HasPrefix(line, "event: ") {
+		if strings.HasPrefix(line, "event:") {
 			currentEvent = strings.TrimSpace(strings.TrimPrefix(line, "event:"))
 			continue
 		}
 
 		// Parse data line
-		if strings.HasPrefix(line, "data: ") {
-			currentData = strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		if data, ok := extractSSEData(line); ok {
+			currentData = strings.TrimSpace(data)
 			continue
 		}
 	}
 
-	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("error reading stream: %w", err)
-	}
+	flushEvent()
 
 	response.Content = json.RawMessage(contentBuilder.String())
-	return response, nil
+	if err := scanner.Err(); err != nil {
+		return response, toolCalls, fmt.Errorf("error reading stream: %w", err)
+	}
+	return response, toolCalls, nil
 }
 
-func processEvent(eventType, data string, response *request.AnthropicResponse, contentBuilder *strings.Builder) error {
+func processEvent(eventType, data string, response *request.AnthropicResponse, contentBuilder *strings.Builder, toolCalls *[]request.ToolCall) {
 	switch eventType {
 	case "message_start":
 		var event MessageStartEvent
-		if err := json.Unmarshal([]byte(data), &event); err != nil {
-			return err
-		}
+		unmarshalJSONBestEffort([]byte(data), &event)
 		response.Model = event.Message.Model
 		response.ID = event.Message.ID
 		response.Role = event.Message.Role
 		response.Type = event.Message.Type
-		response.Usage.InputTokens += event.Message.Usage.InputTokens
-		response.Usage.OutputTokens += event.Message.Usage.OutputTokens
+		var usage request.AnthropicUsage
+		if unmarshalJSONContainerBestEffort([]byte(data), &usage, "message", "usage") {
+			response.Usage.Merge(usage)
+		}
 
 	case "content_block_delta":
 		var event ContentBlockDelta
-		if err := json.Unmarshal([]byte(data), &event); err != nil {
-			return err
-		}
+		unmarshalJSONBestEffort([]byte(data), &event)
 		if event.Delta.Type == "text_delta" {
 			contentBuilder.WriteString(event.Delta.Text)
 		}
 
 	case "message_delta":
 		var event MessageDeltaEvent
-		if err := json.Unmarshal([]byte(data), &event); err != nil {
-			return err
-		}
+		unmarshalJSONBestEffort([]byte(data), &event)
 		response.StopReason = event.Delta.StopReason
 		response.StopSequence = event.Delta.StopSequence
-		response.Usage.InputTokens += event.Usage.InputTokens
-		response.Usage.OutputTokens += event.Usage.OutputTokens
+		var usage request.AnthropicUsage
+		if unmarshalJSONContainerBestEffort([]byte(data), &usage, "usage") {
+			response.Usage.Merge(usage)
+		}
 
-	case "ping", "content_block_start", "content_block_stop", "message_stop":
-		// These events don't need processing
-		return nil
+	case "content_block_start":
+		var event struct {
+			ContentBlock anthropicContentBlock `json:"content_block"`
+		}
+		unmarshalJSONBestEffort([]byte(data), &event)
+		if event.ContentBlock.Type == "tool_use" && event.ContentBlock.Name != "" {
+			*toolCalls = append(*toolCalls, request.ToolCall{
+				ID:   event.ContentBlock.ID,
+				Name: event.ContentBlock.Name,
+			})
+		}
+
+	case "ping", "content_block_stop", "message_stop":
+		return
 
 	default:
-		// Unknown event type - log but don't fail
-		return nil
+		return
 	}
-
-	return nil
 }

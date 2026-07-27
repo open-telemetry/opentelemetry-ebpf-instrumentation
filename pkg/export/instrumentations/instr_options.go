@@ -13,12 +13,16 @@ const (
 	InstrumentationRedis     Instrumentation = "redis"
 	InstrumentationKafka     Instrumentation = "kafka"
 	InstrumentationMQTT      Instrumentation = "mqtt"
+	InstrumentationNATS      Instrumentation = "nats"
+	InstrumentationAMQP      Instrumentation = "amqp"
 	InstrumentationGPU       Instrumentation = "gpu"
 	InstrumentationMongo     Instrumentation = "mongo"
 	InstrumentationDNS       Instrumentation = "dns"
 	InstrumentationCouchbase Instrumentation = "couchbase"
 	InstrumentationGenAI     Instrumentation = "genai"
 	InstrumentationMemcached Instrumentation = "memcached"
+	InstrumentationSunRPC    Instrumentation = "sunrpc"
+	InstrumentationAerospike Instrumentation = "aerospike"
 	// Traces export selectively enables only some instrumentations by
 	// default. If you add a new instrumentation type, make sure you
 	// update the TracesConfig accordingly. Metrics do ALL == "*".
@@ -34,12 +38,16 @@ const (
 	flagRedis
 	flagKafka
 	flagMQTT
+	flagNATS
+	flagAMQP
 	flagGPU
 	flagMongo
 	flagDNS
 	flagCouchbase
 	flagGenAI
 	flagMemcached
+	flagSunRPC
+	flagAerospike
 )
 
 func instrumentationToFlag(str Instrumentation) InstrumentationSelection {
@@ -58,6 +66,10 @@ func instrumentationToFlag(str Instrumentation) InstrumentationSelection {
 		return flagKafka
 	case InstrumentationMQTT:
 		return flagMQTT
+	case InstrumentationNATS:
+		return flagNATS
+	case InstrumentationAMQP:
+		return flagAMQP
 	case InstrumentationGPU:
 		return flagGPU
 	case InstrumentationMongo:
@@ -70,6 +82,10 @@ func instrumentationToFlag(str Instrumentation) InstrumentationSelection {
 		return flagGenAI
 	case InstrumentationMemcached:
 		return flagMemcached
+	case InstrumentationSunRPC:
+		return flagSunRPC
+	case InstrumentationAerospike:
+		return flagAerospike
 	}
 	return 0
 }
@@ -100,7 +116,7 @@ func (s InstrumentationSelection) RedisEnabled() bool {
 }
 
 func (s InstrumentationSelection) DBEnabled() bool {
-	return s.SQLEnabled() || s.RedisEnabled() || s.MongoEnabled() || s.CouchbaseEnabled() || s.MemcachedEnabled()
+	return s.SQLEnabled() || s.RedisEnabled() || s.MongoEnabled() || s.CouchbaseEnabled() || s.MemcachedEnabled() || s.AerospikeEnabled()
 }
 
 func (s InstrumentationSelection) KafkaEnabled() bool {
@@ -111,8 +127,16 @@ func (s InstrumentationSelection) MQTTEnabled() bool {
 	return s&flagMQTT != 0
 }
 
+func (s InstrumentationSelection) NATSEnabled() bool {
+	return s&flagNATS != 0
+}
+
+func (s InstrumentationSelection) AMQPEnabled() bool {
+	return s&flagAMQP != 0
+}
+
 func (s InstrumentationSelection) MQEnabled() bool {
-	return s.KafkaEnabled() || s.MQTTEnabled()
+	return s.KafkaEnabled() || s.MQTTEnabled() || s.NATSEnabled() || s.AMQPEnabled()
 }
 
 func (s InstrumentationSelection) GPUEnabled() bool {
@@ -137,4 +161,12 @@ func (s InstrumentationSelection) DNSEnabled() bool {
 
 func (s InstrumentationSelection) GenAIEnabled() bool {
 	return s&flagGenAI != 0
+}
+
+func (s InstrumentationSelection) SunRPCEnabled() bool {
+	return s&flagSunRPC != 0
+}
+
+func (s InstrumentationSelection) AerospikeEnabled() bool {
+	return s&flagAerospike != 0
 }

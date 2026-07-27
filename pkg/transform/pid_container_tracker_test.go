@@ -28,7 +28,7 @@ func TestPidContainerTracker_Track(t *testing.T) {
 			containerID: "container-1",
 			events: []*exec.ProcessEvent{
 				{
-					File: &exec.FileInfo{Pid: 1000},
+					File: exec.New(exec.Init{Pid: 1000}),
 					Type: exec.ProcessEventCreated,
 				},
 			},
@@ -39,15 +39,15 @@ func TestPidContainerTracker_Track(t *testing.T) {
 			containerID: "container-1",
 			events: []*exec.ProcessEvent{
 				{
-					File: &exec.FileInfo{Pid: 1000},
+					File: exec.New(exec.Init{Pid: 1000}),
 					Type: exec.ProcessEventCreated,
 				},
 				{
-					File: &exec.FileInfo{Pid: 1001},
+					File: exec.New(exec.Init{Pid: 1001}),
 					Type: exec.ProcessEventCreated,
 				},
 				{
-					File: &exec.FileInfo{Pid: 1002},
+					File: exec.New(exec.Init{Pid: 1002}),
 					Type: exec.ProcessEventCreated,
 				},
 			},
@@ -58,7 +58,7 @@ func TestPidContainerTracker_Track(t *testing.T) {
 			containerID: "",
 			events: []*exec.ProcessEvent{
 				{
-					File: &exec.FileInfo{Pid: 1000},
+					File: exec.New(exec.Init{Pid: 1000}),
 					Type: exec.ProcessEventCreated,
 				},
 			},
@@ -91,13 +91,13 @@ func TestPidContainerTracker_Track(t *testing.T) {
 				// Verify each event is stored correctly
 				for _, event := range tt.events {
 					if event != nil {
-						storedEvent, exists := stored[event.File.Pid]
-						assert.True(t, exists, "Expected PID %d to be stored", event.File.Pid)
+						storedEvent, exists := stored[event.File.Pid()]
+						assert.True(t, exists, "Expected PID %d to be stored", event.File.Pid())
 						assert.Equal(t, event, storedEvent, "Stored event should match original")
 
 						// Check reverse mapping
-						containerID, exists := tracker.missedPodPids[event.File.Pid]
-						assert.True(t, exists, "Expected reverse mapping for PID %d", event.File.Pid)
+						containerID, exists := tracker.missedPodPids[event.File.Pid()]
+						assert.True(t, exists, "Expected reverse mapping for PID %d", event.File.Pid())
 						assert.Equal(t, tt.containerID, containerID, "Reverse mapping should match container ID")
 					}
 				}
@@ -118,8 +118,8 @@ func TestPidContainerTracker_Remove(t *testing.T) {
 			name: "remove existing PID",
 			setupEvents: map[string][]*exec.ProcessEvent{
 				"container-1": {
-					{File: &exec.FileInfo{Pid: 1000}, Type: exec.ProcessEventCreated},
-					{File: &exec.FileInfo{Pid: 1001}, Type: exec.ProcessEventCreated},
+					{File: exec.New(exec.Init{Pid: 1000}), Type: exec.ProcessEventCreated},
+					{File: exec.New(exec.Init{Pid: 1001}), Type: exec.ProcessEventCreated},
 				},
 			},
 			removePid:     1000,
@@ -132,7 +132,7 @@ func TestPidContainerTracker_Remove(t *testing.T) {
 			name: "remove non-existing PID",
 			setupEvents: map[string][]*exec.ProcessEvent{
 				"container-1": {
-					{File: &exec.FileInfo{Pid: 1000}, Type: exec.ProcessEventCreated},
+					{File: exec.New(exec.Init{Pid: 1000}), Type: exec.ProcessEventCreated},
 				},
 			},
 			removePid:     2000,
@@ -145,7 +145,7 @@ func TestPidContainerTracker_Remove(t *testing.T) {
 			name: "remove last PID from container",
 			setupEvents: map[string][]*exec.ProcessEvent{
 				"container-1": {
-					{File: &exec.FileInfo{Pid: 1000}, Type: exec.ProcessEventCreated},
+					{File: exec.New(exec.Init{Pid: 1000}), Type: exec.ProcessEventCreated},
 				},
 			},
 			removePid:     1000,
@@ -156,11 +156,11 @@ func TestPidContainerTracker_Remove(t *testing.T) {
 			name: "remove PID from multiple containers",
 			setupEvents: map[string][]*exec.ProcessEvent{
 				"container-1": {
-					{File: &exec.FileInfo{Pid: 1000}, Type: exec.ProcessEventCreated},
-					{File: &exec.FileInfo{Pid: 1001}, Type: exec.ProcessEventCreated},
+					{File: exec.New(exec.Init{Pid: 1000}), Type: exec.ProcessEventCreated},
+					{File: exec.New(exec.Init{Pid: 1001}), Type: exec.ProcessEventCreated},
 				},
 				"container-2": {
-					{File: &exec.FileInfo{Pid: 2000}, Type: exec.ProcessEventCreated},
+					{File: exec.New(exec.Init{Pid: 2000}), Type: exec.ProcessEventCreated},
 				},
 			},
 			removePid:     1000,
@@ -226,9 +226,9 @@ func TestPidContainerTracker_RemoveAll(t *testing.T) {
 			name: "remove all processes from single container",
 			setupEvents: map[string][]*exec.ProcessEvent{
 				"container-1": {
-					{File: &exec.FileInfo{Pid: 1000}, Type: exec.ProcessEventCreated},
-					{File: &exec.FileInfo{Pid: 1001}, Type: exec.ProcessEventCreated},
-					{File: &exec.FileInfo{Pid: 1002}, Type: exec.ProcessEventCreated},
+					{File: exec.New(exec.Init{Pid: 1000}), Type: exec.ProcessEventCreated},
+					{File: exec.New(exec.Init{Pid: 1001}), Type: exec.ProcessEventCreated},
+					{File: exec.New(exec.Init{Pid: 1002}), Type: exec.ProcessEventCreated},
 				},
 			},
 			removeContainer: "container-1",
@@ -238,15 +238,15 @@ func TestPidContainerTracker_RemoveAll(t *testing.T) {
 			name: "remove all from one of multiple containers",
 			setupEvents: map[string][]*exec.ProcessEvent{
 				"container-1": {
-					{File: &exec.FileInfo{Pid: 1000}, Type: exec.ProcessEventCreated},
-					{File: &exec.FileInfo{Pid: 1001}, Type: exec.ProcessEventCreated},
+					{File: exec.New(exec.Init{Pid: 1000}), Type: exec.ProcessEventCreated},
+					{File: exec.New(exec.Init{Pid: 1001}), Type: exec.ProcessEventCreated},
 				},
 				"container-2": {
-					{File: &exec.FileInfo{Pid: 2000}, Type: exec.ProcessEventCreated},
+					{File: exec.New(exec.Init{Pid: 2000}), Type: exec.ProcessEventCreated},
 				},
 				"container-3": {
-					{File: &exec.FileInfo{Pid: 3000}, Type: exec.ProcessEventCreated},
-					{File: &exec.FileInfo{Pid: 3001}, Type: exec.ProcessEventCreated},
+					{File: exec.New(exec.Init{Pid: 3000}), Type: exec.ProcessEventCreated},
+					{File: exec.New(exec.Init{Pid: 3001}), Type: exec.ProcessEventCreated},
 				},
 			},
 			removeContainer: "container-1",
@@ -259,7 +259,7 @@ func TestPidContainerTracker_RemoveAll(t *testing.T) {
 			name: "remove non-existing container",
 			setupEvents: map[string][]*exec.ProcessEvent{
 				"container-1": {
-					{File: &exec.FileInfo{Pid: 1000}, Type: exec.ProcessEventCreated},
+					{File: exec.New(exec.Init{Pid: 1000}), Type: exec.ProcessEventCreated},
 				},
 			},
 			removeContainer: "non-existing",
@@ -288,7 +288,7 @@ func TestPidContainerTracker_RemoveAll(t *testing.T) {
 				for _, event := range events {
 					tracker.track(containerID, event)
 					if containerID == tt.removeContainer {
-						removedPids = append(removedPids, event.File.Pid)
+						removedPids = append(removedPids, event.File.Pid())
 					}
 				}
 			}
@@ -340,8 +340,8 @@ func TestPidContainerTracker_Info(t *testing.T) {
 			name: "get info for existing container",
 			setupEvents: map[string][]*exec.ProcessEvent{
 				"container-1": {
-					{File: &exec.FileInfo{Pid: 1000}, Type: exec.ProcessEventCreated},
-					{File: &exec.FileInfo{Pid: 1001}, Type: exec.ProcessEventCreated},
+					{File: exec.New(exec.Init{Pid: 1000}), Type: exec.ProcessEventCreated},
+					{File: exec.New(exec.Init{Pid: 1001}), Type: exec.ProcessEventCreated},
 				},
 			},
 			queryContainer: "container-1",
@@ -352,7 +352,7 @@ func TestPidContainerTracker_Info(t *testing.T) {
 			name: "get info for non-existing container",
 			setupEvents: map[string][]*exec.ProcessEvent{
 				"container-1": {
-					{File: &exec.FileInfo{Pid: 1000}, Type: exec.ProcessEventCreated},
+					{File: exec.New(exec.Init{Pid: 1000}), Type: exec.ProcessEventCreated},
 				},
 			},
 			queryContainer: "container-2",
@@ -370,7 +370,7 @@ func TestPidContainerTracker_Info(t *testing.T) {
 			name: "get info for empty container ID",
 			setupEvents: map[string][]*exec.ProcessEvent{
 				"": {
-					{File: &exec.FileInfo{Pid: 1000}, Type: exec.ProcessEventCreated},
+					{File: exec.New(exec.Init{Pid: 1000}), Type: exec.ProcessEventCreated},
 				},
 			},
 			queryContainer: "",
@@ -403,8 +403,8 @@ func TestPidContainerTracker_Info(t *testing.T) {
 				// Verify all returned processes belong to the correct container
 				expectedEvents := tt.setupEvents[tt.queryContainer]
 				for _, expectedEvent := range expectedEvents {
-					storedEvent, exists := stored[expectedEvent.File.Pid]
-					assert.True(t, exists, "Expected PID %d should be present", expectedEvent.File.Pid)
+					storedEvent, exists := stored[expectedEvent.File.Pid()]
+					assert.True(t, exists, "Expected PID %d should be present", expectedEvent.File.Pid())
 					assert.Equal(t, expectedEvent, storedEvent, "Stored event should match original")
 				}
 			} else {
@@ -432,7 +432,7 @@ func TestPidContainerTracker_ConcurrentAccess(*testing.T) {
 			defer wg.Done()
 			for j := range numOperationsPerGoroutine {
 				event := &exec.ProcessEvent{
-					File: &exec.FileInfo{Pid: app.PID(id*1000 + j)},
+					File: exec.New(exec.Init{Pid: app.PID(id*1000 + j)}),
 					Type: exec.ProcessEventCreated,
 				}
 				tracker.track("container-"+string(rune(id)), event)
@@ -487,11 +487,11 @@ func TestPidContainerTracker_ComplexScenarios(t *testing.T) {
 		// This scenario should not happen in practice (PIDs should be unique),
 		// but we test the tracker's behavior anyway
 		event1 := &exec.ProcessEvent{
-			File: &exec.FileInfo{Pid: 1000},
+			File: exec.New(exec.Init{Pid: 1000}),
 			Type: exec.ProcessEventCreated,
 		}
 		event2 := &exec.ProcessEvent{
-			File: &exec.FileInfo{Pid: 1000},
+			File: exec.New(exec.Init{Pid: 1000}),
 			Type: exec.ProcessEventTerminated,
 		}
 
@@ -526,10 +526,10 @@ func TestPidContainerTracker_ComplexScenarios(t *testing.T) {
 		for containerID := range numContainers {
 			for pid := range numProcessesPerContainer {
 				event := &exec.ProcessEvent{
-					File: &exec.FileInfo{
+					File: exec.New(exec.Init{
 						Pid:     app.PID(containerID*numProcessesPerContainer + pid),
 						Service: svc.Attrs{},
-					},
+					}),
 					Type: exec.ProcessEventCreated,
 				}
 				tracker.track("container-"+string(rune(containerID)), event)
@@ -571,7 +571,7 @@ func TestPidContainerTracker_ComplexScenarios(t *testing.T) {
 		}
 
 		event := &exec.ProcessEvent{
-			File: &exec.FileInfo{Pid: 1000},
+			File: exec.New(exec.Init{Pid: 1000}),
 			Type: exec.ProcessEventCreated,
 		}
 

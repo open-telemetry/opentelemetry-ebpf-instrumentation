@@ -15,7 +15,6 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
-	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
@@ -27,13 +26,14 @@ import (
 type Tracer struct{}
 
 func New(_ ebpfcommon.ServiceFilter, _ *obi.Config, _ imetrics.Reporter) *Tracer { return nil }
-func (p *Tracer) AllowPID(_ app.PID, _ uint32, _ *svc.Attrs)                     {}
+func (p *Tracer) AllowPID(_ app.PID, _ uint32, _ *exec.FileInfo)                 {}
 func (p *Tracer) BlockPID(_ app.PID, _ uint32)                                   {}
 func (p *Tracer) LoadSpecs() ([]*ebpfcommon.SpecBundle, error)                   { return nil, nil }
 func (p *Tracer) AddCloser(_ ...io.Closer)                                       {}
 func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc                   { return nil }
 func (p *Tracer) KProbes() map[string]ebpfcommon.ProbeDesc                       { return nil }
 func (p *Tracer) UProbes() map[string]map[string][]*ebpfcommon.ProbeDesc         { return nil }
+func (p *Tracer) USDTProbes() map[string][]*ebpfcommon.USDTProbeDesc             { return nil }
 func (p *Tracer) Tracepoints() map[string]ebpfcommon.ProbeDesc                   { return nil }
 func (p *Tracer) SocketFilters() []*ebpf.Program                                 { return nil }
 func (p *Tracer) SockMsgs() []ebpfcommon.SockMsg                                 { return nil }
@@ -44,7 +44,11 @@ func (p *Tracer) RecordInstrumentedLib(_ uint64, _ []io.Closer)                 
 func (p *Tracer) AddInstrumentedLibRef(_ uint64)                                 {}
 func (p *Tracer) UnlinkInstrumentedLib(_ uint64)                                 {}
 func (p *Tracer) AlreadyInstrumentedLib(_ uint64) bool                           { return false }
-func (p *Tracer) Run(_ context.Context, _ *ebpfcommon.EBPFEventContext, _ *msg.Queue[[]request.Span]) {
+func (p *Tracer) Run(
+	_ context.Context,
+	_ *ebpfcommon.EBPFEventContext,
+	_ *msg.Queue[[]request.Span],
+) {
 }
 func (p *Tracer) SetupTailCalls()                                     {}
 func (p *Tracer) RegisterOffsets(_ *exec.FileInfo, _ *goexec.Offsets) {}

@@ -37,6 +37,7 @@
 #include <generictracer/protocol_http2.h>
 #include <generictracer/protocol_mysql.h>
 #include <generictracer/protocol_postgres.h>
+#include <generictracer/protocol_mssql.h>
 #include <generictracer/protocol_tcp.h>
 #include <generictracer/ssl_defs.h>
 
@@ -193,6 +194,7 @@ static __always_inline void store_sock_pid(struct sock *sk) {
         conn_pid_t conn_pid = {0};
         task_pid(&conn_pid.p_info);
         task_tid(&conn_pid.p_key);
+        java_vt_translate_tid(&conn_pid.p_key);
         conn_pid.id = bpf_get_current_pid_tgid();
         conn_pid.ts = bpf_ktime_get_ns();
 
@@ -284,6 +286,15 @@ static __always_inline void cp_support_established(pid_connection_info_t *p_conn
 // thread to handle the client request.
 static __always_inline void setup_cp_support_conn_info(pid_connection_info_t *p_conn,
                                                        u8 real_client) {
+    // recv must not overwrite the connect-time entry: it holds the thread
+    // identity find_parent_trace needs for thread-pool handoffs.
+    if (!real_client) {
+        const cp_support_data_t *existing = bpf_map_lookup_elem(&cp_support_connect_info, p_conn);
+        if (existing && existing->real_client) {
+            return;
+        }
+    }
+
     cp_support_data_t ct = {
         .real_client = real_client,
         .established = 0,
@@ -295,6 +306,7 @@ static __always_inline void setup_cp_support_conn_info(pid_connection_info_t *p_
     }
 
     task_tid(&ct.t_key.p_key);
+    java_vt_translate_tid(&ct.t_key.p_key);
     ct.t_key.extra_id = extra_runtime_id();
     ct.ts = bpf_ktime_get_ns();
 
@@ -452,7 +464,8 @@ int BPF_KPROBE(obi_kprobe_tcp_sendmsg, struct sock *sk, struct msghdr *msg, size
                         bpf_dbg_printk("No size, m_buf=%llx", m_buf);
                         if (m_buf) {
                             const u32 cpu_id = bpf_get_smp_processor_id();
-                            if (m_buf->cpu_id != cpu_id) {
+                            const bool use_fallback = m_buf->cpu_id != cpu_id;
+                            if (use_fallback) {
                                 bpf_dbg_printk(
                                     "cpu id mismatch, using stack-allocated fallback buffer");
                                 buf = m_buf->fallback_buf;
@@ -473,7 +486,9 @@ int BPF_KPROBE(obi_kprobe_tcp_sendmsg, struct sock *sk, struct msghdr *msg, size
                             // handle_buf_with_connection logic and then mark it as seen by making
                             // m_buf->pos be the size of the buffer.
                             if (!m_buf->pos) {
-                                size = m_buf->real_size;
+                                size = use_fallback ? min((size_t)m_buf->real_size,
+                                                          (size_t)k_kprobes_http2_buf_size)
+                                                    : m_buf->real_size;
                                 m_buf->pos = size;
                                 bpf_dbg_printk("msg_buffer: size=%d, buf=[%s]", size, buf);
                             } else {
@@ -562,7 +577,8 @@ int BPF_KPROBE(obi_kprobe_tcp_rate_check_app_limited, struct sock *sk) {
             if (m_buf) {
                 unsigned char *buf = NULL;
                 const u32 cpu_id = bpf_get_smp_processor_id();
-                if (m_buf->cpu_id != cpu_id) {
+                const bool use_fallback = m_buf->cpu_id != cpu_id;
+                if (use_fallback) {
                     bpf_dbg_printk("cpu id mismatch, using stack-allocated fallback buffer");
                     buf = m_buf->fallback_buf;
                 } else {
@@ -583,7 +599,9 @@ int BPF_KPROBE(obi_kprobe_tcp_rate_check_app_limited, struct sock *sk) {
                 // m_buf->pos be the size of the buffer.
                 if (!m_buf->pos) {
                     s_args.buffer_read = 1;
-                    const u16 size = m_buf->real_size;
+                    const u16 size = use_fallback
+                                         ? min(m_buf->real_size, (u16)k_kprobes_http2_buf_size)
+                                         : m_buf->real_size;
                     m_buf->pos = size;
                     s_args.size = size;
                     bpf_dbg_printk("msg_buffer: size %d, buf=[%s]", size, buf);
@@ -1363,7 +1381,14 @@ int BPF_KPROBE(obi_kprobe_sys_exit, int status) {
     // This won't delete trace ids for traces with extra_id, like NodeJS. But,
     // we expect that it doesn't matter, since NodeJS main thread won't exit.
     bpf_map_delete_elem(&server_traces, &task);
+    trace_key_t vt_task = task;
+    if (java_vt_translate_tid(&vt_task.p_key)) {
+        bpf_map_delete_elem(&server_traces, &vt_task);
+    }
     obi_ctx__del(id);
+    // A carrier dying without VirtualThread.unmount() must not leave a
+    // stale entry that would re-key a future thread reusing this tid.
+    bpf_map_delete_elem(&java_vt_threads, &task.p_key);
 
     return 0;
 }

@@ -14,20 +14,23 @@ import (
 )
 
 func testStatMetricsTCPRtt(t *testing.T, port string) {
-	// Eventually, Prometheus would make this query visible
 	pq := promtest.Client{HostPort: prometheusHostPort}
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		// Observations should appear above the 100ms bucket (pumba injects 100ms delay)
-		bucketAt100ms, err := pq.Query(`obi_stat_tcp_rtt_seconds_bucket{dst_port="` + port + `",le="0.1"}`)
-		require.NoError(ct, err)
-		enoughPromResults(ct, bucketAt100ms)
-
 		countResults, err := pq.Query(`obi_stat_tcp_rtt_seconds_count{dst_port="` + port + `"}`)
 		require.NoError(ct, err)
 		enoughPromResults(ct, countResults)
 
-		// if pumba is working, not all observations fit in the <=100ms bucket
-		assert.Less(ct, totalPromCount(ct, bucketAt100ms), totalPromCount(ct, countResults))
+		// pumba injects a 100ms delay on the testclient, so at least ONE
+		// per-connection RTT (sum/count per series) should be >= 100ms.
+		// Per-series division avoids dilution from other fast connections
+		// (e.g. health checks) that share the same dst_port label. A non-empty
+		// response means at least one connection was captured with RTT >= 100ms.
+		// Threshold is 90ms rather than 100ms to absorb the +/- 1ms timestamp jitter.
+		avgQuery := `(obi_stat_tcp_rtt_seconds_sum{dst_port="` + port + `"} /` +
+			` obi_stat_tcp_rtt_seconds_count{dst_port="` + port + `"}) >= 0.09`
+		avgResults, err := pq.Query(avgQuery)
+		require.NoError(ct, err)
+		enoughPromResults(ct, avgResults)
 	}, testTimeout, 100*time.Millisecond)
 }
 
@@ -42,12 +45,36 @@ func testStatMetricsTCPRttGo(t *testing.T) {
 	}
 }
 
-func testStatMetricsTCPFailedConnectionGo(t *testing.T) {
+func testStatMetricsTCPFailedConnectionsGo(t *testing.T) {
 	pq := promtest.Client{HostPort: prometheusHostPort}
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		results, err := pq.Query(`obi_stat_tcp_failed_connections{dst_port="19999"}`)
+		results, err := pq.Query(`obi_stat_tcp_failed_connections_total{dst_port="19999",network_tcp_handshake_role="client"}`)
 		require.NoError(ct, err)
 		enoughPromResults(ct, results)
 		assert.Positive(ct, totalPromCount(ct, results))
 	}, testTimeout, 100*time.Millisecond)
+}
+
+func testStatMetricsTCPRetransmitsGo(t *testing.T) {
+	pq := promtest.Client{HostPort: prometheusHostPort}
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		results, err := pq.Query(`obi_stat_tcp_retransmits_total{dst_port="8081"}`)
+		require.NoError(ct, err)
+		enoughPromResults(ct, results)
+		assert.Positive(ct, totalPromCount(ct, results))
+	}, testTimeout, 100*time.Millisecond)
+}
+
+func testStatMetricsTCPIoGo(t *testing.T) {
+	pq := promtest.Client{HostPort: prometheusHostPort}
+	for _, direction := range []string{"transmit", "receive"} {
+		t.Run(direction, func(t *testing.T) {
+			require.EventuallyWithT(t, func(ct *assert.CollectT) {
+				results, err := pq.Query(`obi_stat_tcp_io_bytes_total{dst_port="8080",network_io_direction="` + direction + `"}`)
+				require.NoError(ct, err)
+				enoughPromResults(ct, results)
+				assert.Positive(ct, totalPromCount(ct, results))
+			}, testTimeout, 100*time.Millisecond)
+		})
+	}
 }

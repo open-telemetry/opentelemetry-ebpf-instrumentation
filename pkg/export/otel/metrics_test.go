@@ -5,6 +5,7 @@ package otel
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -18,7 +19,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"go.opentelemetry.io/collector/consumer"
+	"go.opentelemetry.io/collector/pdata/pmetric"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/sdk/instrumentation"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 
 	"go.opentelemetry.io/obi/internal/test/collector"
 	"go.opentelemetry.io/obi/pkg/appolly/app"
@@ -26,11 +31,13 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	"go.opentelemetry.io/obi/pkg/appolly/meta"
+	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
+	otelmetric "go.opentelemetry.io/obi/pkg/export/otel/metric"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
@@ -38,6 +45,62 @@ import (
 )
 
 var fakeMux = sync.Mutex{}
+
+func TestOtelHistogramConfig_ExponentialHistogramUsesConfiguredMaxSizeAndScale(t *testing.T) {
+	const metricName = "test.histogram"
+
+	reporter := MetricsReporter{
+		cfg: &otelcfg.MetricsConfig{
+			HistogramAggregation: otelcfg.HistogramAggregationExponential,
+			ExponentialHistogram: otelcfg.ExponentialHistogramConfig{
+				MaxSize:  64,
+				MaxScale: 12,
+			},
+		},
+		log: mlog(),
+	}
+
+	view := reporter.otelHistogramConfig(metricName, nil)
+
+	stream, ok := view(otelmetric.Instrument{
+		Name:  metricName,
+		Scope: instrumentation.Scope{Name: reporterName},
+	})
+	require.True(t, ok)
+
+	aggregation, ok := stream.Aggregation.(sdkmetric.AggregationBase2ExponentialHistogram)
+	require.True(t, ok)
+	assert.Equal(t, int32(64), aggregation.MaxSize)
+	assert.Equal(t, int32(12), aggregation.MaxScale)
+}
+
+func TestOtelHistogramConfig_ExplicitHistogramUsesBuckets(t *testing.T) {
+	const metricName = "test.histogram"
+	buckets := []float64{1, 2, 4}
+
+	reporter := MetricsReporter{
+		cfg: &otelcfg.MetricsConfig{
+			HistogramAggregation: otelcfg.HistogramAggregationExplicit,
+			ExponentialHistogram: otelcfg.ExponentialHistogramConfig{
+				MaxSize:  160,
+				MaxScale: 20,
+			},
+		},
+		log: mlog(),
+	}
+
+	view := reporter.otelHistogramConfig(metricName, buckets)
+
+	stream, ok := view(otelmetric.Instrument{
+		Name:  metricName,
+		Scope: instrumentation.Scope{Name: reporterName},
+	})
+	require.True(t, ok)
+
+	aggregation, ok := stream.Aggregation.(sdkmetric.AggregationExplicitBucketHistogram)
+	require.True(t, ok)
+	assert.Equal(t, buckets, aggregation.Boundaries)
+}
 
 func TestMetrics_InternalInstrumentation(t *testing.T) {
 	defer otelcfg.RestoreEnvAfterExecution()()
@@ -152,14 +215,18 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 			expected: []string{
 				"http.server.request.duration",
 				"http.client.request.duration",
-				"rpc.server.duration",
-				"rpc.client.duration",
+				"rpc.server.call.duration",
+				"rpc.client.call.duration",
 				"db.client.operation.duration",        // SQL client SELECT
 				"db.client.operation.duration",        // REDIS client SET
 				"db.client.operation.duration",        // Redis server GET (TODO is this a bug?)
 				"db.client.operation.duration",        // MongoDB client find
 				"messaging.client.operation.duration", // Kafka client
 				"messaging.client.operation.duration", // MQTT client
+				"messaging.client.operation.duration", // NATS client
+				"messaging.client.operation.duration", // AMQP client publish
+				"messaging.client.operation.duration", // AMQP client process
+				"messaging.process.duration",          // NATS server (ordering within aggregated metrics)
 				"messaging.process.duration",          // MQTT server (ordering within aggregated metrics)
 				"messaging.process.duration",          // Kafka server
 				"gpu.cuda.kernel.launch.calls",        // Cuda events
@@ -192,8 +259,8 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 			instr:     []instrumentations.Instrumentation{instrumentations.InstrumentationGRPC},
 			extraColl: 0,
 			expected: []string{
-				"rpc.server.duration",
-				"rpc.client.duration",
+				"rpc.server.call.duration",
+				"rpc.client.call.duration",
 			},
 		},
 		{
@@ -232,6 +299,33 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 			},
 		},
 		{
+			name:      "nats only",
+			instr:     []instrumentations.Instrumentation{instrumentations.InstrumentationNATS},
+			extraColl: 0,
+			expected: []string{
+				"messaging.client.operation.duration",
+				"messaging.process.duration",
+			},
+		},
+		{
+			name:      "amqp only",
+			instr:     []instrumentations.Instrumentation{instrumentations.InstrumentationAMQP},
+			extraColl: 0,
+			expected: []string{
+				"messaging.client.operation.duration",
+				"messaging.process.duration",
+			},
+		},
+		{
+			name:      "sunrpc only",
+			instr:     []instrumentations.Instrumentation{instrumentations.InstrumentationSunRPC},
+			extraColl: 0,
+			expected: []string{
+				"rpc.client.call.duration",
+				"rpc.server.call.duration",
+			},
+		},
+		{
 			name:      "none",
 			instr:     nil,
 			extraColl: 0,
@@ -252,8 +346,8 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 			instr:     []instrumentations.Instrumentation{instrumentations.InstrumentationGRPC, instrumentations.InstrumentationKafka},
 			extraColl: 0,
 			expected: []string{
-				"rpc.server.duration",
-				"rpc.client.duration",
+				"rpc.server.call.duration",
+				"rpc.client.call.duration",
 				"messaging.client.operation.duration",
 				"messaging.process.duration",
 			},
@@ -301,6 +395,12 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeKafkaServer, Method: "process", RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeMQTTClient, Method: "publish", RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeMQTTServer, Method: "process", RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeNATSClient, Method: "publish", RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeNATSServer, Method: "process", RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeAMQPClient, Method: "publish", RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeAMQPClient, Method: "process", RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeSunRPCClient, Path: "portmapper", Route: "0", Method: "0", SubType: 2, HostPort: 111, RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeSunRPCServer, Path: "portmapper", Route: "0", Method: "0", SubType: 2, HostPort: 111, RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeGPUCudaKernelLaunch, ContentLength: 100, SubType: 200},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeGPUCudaMemcpy, ContentLength: 100, SubType: 1},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeGPUCudaMalloc, ContentLength: 100},
@@ -357,6 +457,293 @@ func TestAppMetrics_ResourceAttributes(t *testing.T) {
 	attributes := res[0].ResourceAttributes
 	assert.Equal(t, "production", attributes["deployment.environment"])
 	assert.Equal(t, "upstream.obi", attributes["source"])
+}
+
+func TestAppMetrics_GenAITokenAvailability(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		usageJSON string
+		reported  bool
+	}{
+		{name: "explicit zero", usageJSON: `{"prompt_tokens":0,"completion_tokens":0}`, reported: true},
+		{name: "missing", usageJSON: `{}`, reported: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+
+			metricRecords := make(chan collector.MetricRecord, 100)
+			metrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
+			processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(10))
+			mcfg := &otelcfg.MetricsConfig{
+				Interval:          20 * time.Millisecond,
+				TTL:               30 * time.Minute,
+				ReportersCacheLen: 10,
+				Instrumentations:  []instrumentations.Instrumentation{instrumentations.InstrumentationGenAI},
+				MetricsConsumer:   testMetricsConsumer(metricRecords),
+			}
+			reporter, err := newMetricsReporter(
+				ctx,
+				&global.ContextInfo{OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: mcfg}},
+				mcfg,
+				&perapp.MetricsConfig{Features: export.FeatureApplicationRED},
+				&attributes.SelectorConfig{},
+				request.UnresolvedNames{},
+				metrics,
+				processEvents,
+			)
+			require.NoError(t, err)
+			go reporter.reportMetrics(ctx)
+
+			var usage request.OpenAIUsage
+			require.NoError(t, json.Unmarshal([]byte(tc.usageJSON), &usage))
+			metrics.Send([]request.Span{{
+				Service:      svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "genai"}},
+				Type:         request.EventTypeHTTPClient,
+				SubType:      request.HTTPSubtypeOpenAI,
+				RequestStart: 100,
+				End:          200,
+				GenAI:        &request.GenAI{OpenAI: &request.VendorOpenAI{Usage: usage}},
+			}})
+
+			seenDuration := false
+			seenTokens := map[string]collector.MetricRecord{}
+			deadline := time.NewTimer(time.Second)
+			defer deadline.Stop()
+			for !seenDuration || (tc.reported && len(seenTokens) < 2) {
+				select {
+				case record := <-metricRecords:
+					switch record.Name {
+					case attributes.GenAIClientOperationDuration.OTEL:
+						seenDuration = true
+					case attributes.GenAIClientInputTokenUsage.OTEL:
+						seenTokens[record.Attributes["gen_ai.token.type"]] = record
+					}
+				case <-deadline.C:
+					require.FailNow(t, "timed out waiting for GenAI metrics")
+				}
+			}
+
+			if !tc.reported {
+				quiet := time.NewTimer(100 * time.Millisecond)
+				defer quiet.Stop()
+			quietLoop:
+				for {
+					select {
+					case record := <-metricRecords:
+						if record.Name == attributes.GenAIClientInputTokenUsage.OTEL {
+							seenTokens[record.Attributes["gen_ai.token.type"]] = record
+						}
+					case <-quiet.C:
+						break quietLoop
+					}
+				}
+				assert.Empty(t, seenTokens)
+				return
+			}
+			for _, tokenType := range []string{"input", "output"} {
+				record, ok := seenTokens[tokenType]
+				require.True(t, ok)
+				assert.Equal(t, 1, record.Count)
+				assert.Zero(t, record.FloatVal)
+			}
+		})
+	}
+}
+
+func TestAppMetrics_DBCollectionName(t *testing.T) {
+	ctx := t.Context()
+	metricRecords := make(chan collector.MetricRecord, 10)
+	metrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
+	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(10))
+	mcfg := &otelcfg.MetricsConfig{
+		Interval:          50 * time.Millisecond,
+		TTL:               30 * time.Minute,
+		ReportersCacheLen: 10,
+		Instrumentations:  []instrumentations.Instrumentation{instrumentations.InstrumentationSQL},
+		MetricsConsumer:   testMetricsConsumer(metricRecords),
+	}
+
+	reporter, err := newMetricsReporter(
+		ctx,
+		&global.ContextInfo{OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: mcfg}},
+		mcfg,
+		&perapp.MetricsConfig{Features: export.FeatureApplicationRED},
+		&attributes.SelectorConfig{
+			SelectionCfg: attributes.Selection{
+				attributes.DBClientDuration.Section: attributes.InclusionLists{
+					Include: []string{string(attr.DBCollectionName)},
+				},
+			},
+		},
+		request.UnresolvedNames{},
+		metrics,
+		processEvents,
+	)
+	require.NoError(t, err)
+	go reporter.reportMetrics(ctx)
+
+	metrics.Send([]request.Span{{
+		Service:      svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}},
+		Type:         request.EventTypeSQLClient,
+		Path:         "customers",
+		Method:       "SELECT",
+		RequestStart: 100,
+		End:          200,
+	}})
+
+	records := readMetricsByName(t, metricRecords, timeout, attributes.DBClientDuration.OTEL)
+	require.Len(t, records, 1)
+	assert.Equal(t, "customers", records[0].Attributes[string(attr.DBCollectionName)])
+}
+
+func TestSpanMetrics_ExtraResourceAttributes(t *testing.T) {
+	defer otelcfg.RestoreEnvAfterExecution()()
+
+	ctx := t.Context()
+	metricRecords := make(chan collector.MetricRecord, 100)
+
+	now := syncedClock{now: time.Now()}
+	timeNow = now.Now
+
+	metrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(20))
+	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
+	mcfg := &otelcfg.MetricsConfig{
+		Interval:                50 * time.Millisecond,
+		MetricsProtocol:         otelcfg.ProtocolHTTPProtobuf,
+		TTL:                     30 * time.Minute,
+		ReportersCacheLen:       100,
+		Instrumentations:        []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP},
+		ExtraSpanResourceLabels: []string{"deployment.environment"},
+		MetricsConsumer:         testMetricsConsumer(metricRecords),
+	}
+
+	reporter, err := newMetricsReporter(
+		ctx,
+		&global.ContextInfo{OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: mcfg}},
+		mcfg,
+		&perapp.MetricsConfig{Features: export.FeatureSpanOTel},
+		&attributes.SelectorConfig{},
+		request.UnresolvedNames{},
+		metrics,
+		processEvents,
+	)
+	require.NoError(t, err)
+
+	go reporter.reportMetrics(ctx)
+
+	span := request.Span{
+		Service: svc.Attrs{
+			Features: export.FeatureSpanOTel,
+			UID:      svc.UID{Instance: "foo"},
+			Metadata: map[attr.Name]string{
+				attr.Name("deployment.environment"): "production",
+			},
+		},
+		Type:         request.EventTypeHTTPClient,
+		Method:       "GET",
+		Route:        "/v1/traces",
+		RequestStart: 100,
+		End:          200,
+	}
+
+	metrics.Send([]request.Span{span})
+
+	res := readMetricsByName(t, metricRecords, timeout,
+		reporter.spanMetricsLatencyName(),
+		reporter.spanMetricsCallsName(),
+	)
+	assert.Len(t, res, 2)
+
+	expected := map[string]struct{}{
+		reporter.spanMetricsLatencyName(): {},
+		reporter.spanMetricsCallsName():   {},
+	}
+
+	for _, record := range res {
+		_, ok := expected[record.Name]
+		require.Truef(t, ok, "unexpected metric %q", record.Name)
+		assert.Equal(t, "production", record.Attributes["deployment.environment"])
+		delete(expected, record.Name)
+	}
+
+	assert.Empty(t, expected)
+}
+
+func TestSpanSizeMetrics_ExtraResourceAttributes(t *testing.T) {
+	defer otelcfg.RestoreEnvAfterExecution()()
+
+	ctx := t.Context()
+	metricRecords := make(chan collector.MetricRecord, 100)
+
+	now := syncedClock{now: time.Now()}
+	timeNow = now.Now
+
+	metrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(20))
+	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
+	mcfg := &otelcfg.MetricsConfig{
+		Interval:                50 * time.Millisecond,
+		MetricsProtocol:         otelcfg.ProtocolHTTPProtobuf,
+		TTL:                     30 * time.Minute,
+		ReportersCacheLen:       100,
+		Instrumentations:        []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP},
+		ExtraSpanResourceLabels: []string{"deployment.environment"},
+		MetricsConsumer:         testMetricsConsumer(metricRecords),
+	}
+
+	reporter, err := newMetricsReporter(
+		ctx,
+		&global.ContextInfo{OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: mcfg}},
+		mcfg,
+		&perapp.MetricsConfig{Features: export.FeatureSpanSizes},
+		&attributes.SelectorConfig{},
+		request.UnresolvedNames{},
+		metrics,
+		processEvents,
+	)
+	require.NoError(t, err)
+
+	go reporter.reportMetrics(ctx)
+
+	span := request.Span{
+		Service: svc.Attrs{
+			Features: export.FeatureSpanSizes,
+			UID:      svc.UID{Instance: "foo"},
+			Metadata: map[attr.Name]string{
+				attr.Name("deployment.environment"): "production",
+			},
+		},
+		Type:           request.EventTypeHTTPClient,
+		Method:         "GET",
+		Route:          "/v1/traces",
+		RequestStart:   100,
+		End:            200,
+		ContentLength:  123,
+		ResponseLength: 456,
+		Status:         200,
+	}
+
+	metrics.Send([]request.Span{span})
+
+	res := readMetricsByName(t, metricRecords, timeout,
+		SpanMetricsRequestSizes,
+		SpanMetricsResponseSizes,
+	)
+	assert.Len(t, res, 2)
+
+	expected := map[string]struct{}{
+		SpanMetricsRequestSizes:  {},
+		SpanMetricsResponseSizes: {},
+	}
+
+	for _, record := range res {
+		_, ok := expected[record.Name]
+		require.Truef(t, ok, "unexpected metric %q", record.Name)
+		assert.Equal(t, "production", record.Attributes["deployment.environment"])
+		delete(expected, record.Name)
+	}
+
+	assert.Empty(t, expected)
 }
 
 func TestMetricsDiscarded(t *testing.T) {
@@ -554,6 +941,47 @@ func readNChan(t require.TestingT, inCh <-chan collector.MetricRecord, numRecord
 	return records
 }
 
+func testMetricsConsumer(out chan<- collector.MetricRecord) consumer.Metrics {
+	c, err := consumer.NewMetrics(func(_ context.Context, md pmetric.Metrics) error {
+		collector.VisitMetricRecords(md, func(record collector.MetricRecord) {
+			out <- record
+		})
+		return nil
+	})
+	if err != nil {
+		panic(err)
+	}
+
+	return c
+}
+
+func readMetricsByName(t require.TestingT, inCh <-chan collector.MetricRecord, timeout time.Duration, names ...string) []collector.MetricRecord {
+	expected := map[string]struct{}{}
+	for _, name := range names {
+		expected[name] = struct{}{}
+	}
+
+	records := make([]collector.MetricRecord, 0, len(expected))
+	deadline := time.NewTimer(timeout)
+	defer deadline.Stop()
+
+	for len(expected) > 0 {
+		select {
+		case item := <-inCh:
+			if _, ok := expected[item.Name]; !ok {
+				continue
+			}
+			records = append(records, item)
+			delete(expected, item.Name)
+		case <-deadline.C:
+			require.Failf(t, "timeout while waiting for metric records", "missing metrics: %v", names)
+			return records
+		}
+	}
+
+	return records
+}
+
 func makeMetricsReporter(
 	ctx context.Context, t *testing.T, instrumentations []instrumentations.Instrumentation, features export.Features, otlp *collector.TestCollector,
 	input *msg.Queue[[]request.Span], processEvents *msg.Queue[exec.ProcessEvent],
@@ -605,12 +1033,12 @@ func TestAppMetrics_TracesHostInfo(t *testing.T) {
 
 	processEvents.Send(exec.ProcessEvent{
 		Type: exec.ProcessEventCreated,
-		File: &exec.FileInfo{
+		File: exec.New(exec.Init{
 			Service: svc.Attrs{
 				Features: feats,
 				UID:      svc.UID{Instance: "foo"},
 			},
-		},
+		}),
 	})
 
 	metrics.Send([]request.Span{
@@ -619,25 +1047,25 @@ func TestAppMetrics_TracesHostInfo(t *testing.T) {
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		assert.NotEmpty(ct, mr.hostInfo.entries.All(),
-			"traces_host_info metric has not been created yet")
+			"traces.host.info metric has not been created yet")
 	}, timeout, 100*time.Millisecond)
 
 	// Check expiration logic
 	processEvents.Send(exec.ProcessEvent{
 		Type: exec.ProcessEventTerminated,
-		File: &exec.FileInfo{
+		File: exec.New(exec.Init{
 			Service: svc.Attrs{
 				Features: feats,
 				UID:      svc.UID{Instance: "foo"},
 			},
-		},
+		}),
 	})
 
 	now.Advance(50 * time.Minute)
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		assert.Empty(ct, mr.hostInfo.entries.All(),
-			"traces_host_info metric has not expired yet") // The entry should be expired
+			"traces.host.info metric has not expired yet") // The entry should be expired
 	}, timeout, 100*time.Millisecond)
 }
 
@@ -901,6 +1329,16 @@ func TestConnectionTypeForSpan(t *testing.T) {
 			expected: "messaging_system",
 		},
 		{
+			name:     "NATS producer",
+			span:     &request.Span{Type: request.EventTypeNATSClient, Method: request.MessagingPublish, HostName: "nats-server"},
+			expected: "messaging_system",
+		},
+		{
+			name:     "AMQP producer",
+			span:     &request.Span{Type: request.EventTypeAMQPClient, Method: request.MessagingPublish, HostName: "amqp-broker"},
+			expected: "messaging_system",
+		},
+		{
 			name:     "HTTP client to uninstrumented service (virtual_node)",
 			span:     &request.Span{Type: request.EventTypeHTTPClient, HostName: "external-api", OtherNamespace: "external"},
 			expected: "virtual_node",
@@ -963,7 +1401,7 @@ func TestHandleProcessEventCreated(t *testing.T) {
 			},
 			event: exec.ProcessEvent{
 				Type: exec.ProcessEventCreated,
-				File: &exec.FileInfo{
+				File: exec.New(exec.Init{
 					Pid: 1234,
 					Service: svc.Attrs{
 						Features: export.FeatureApplicationRED,
@@ -974,7 +1412,7 @@ func TestHandleProcessEventCreated(t *testing.T) {
 						},
 						HostName: "test-host",
 					},
-				},
+				}),
 			},
 			expectedCreate: []svc.Attrs{
 				{
@@ -1021,7 +1459,7 @@ func TestHandleProcessEventCreated(t *testing.T) {
 			},
 			event: exec.ProcessEvent{
 				Type: exec.ProcessEventCreated,
-				File: &exec.FileInfo{
+				File: exec.New(exec.Init{
 					Pid: 1234,
 					Service: svc.Attrs{
 						Features: export.FeatureApplicationRED,
@@ -1032,7 +1470,7 @@ func TestHandleProcessEventCreated(t *testing.T) {
 						},
 						HostName: "new-host",
 					},
-				},
+				}),
 			},
 			expectedCreate: []svc.Attrs{
 				{
@@ -1092,7 +1530,7 @@ func TestHandleProcessEventCreated(t *testing.T) {
 			},
 			event: exec.ProcessEvent{
 				Type: exec.ProcessEventCreated,
-				File: &exec.FileInfo{
+				File: exec.New(exec.Init{
 					Pid: 1234,
 					Service: svc.Attrs{
 						Features: export.FeatureApplicationRED,
@@ -1103,7 +1541,7 @@ func TestHandleProcessEventCreated(t *testing.T) {
 						},
 						HostName: "test-host",
 					},
-				},
+				}),
 			},
 			expectedCreate: []svc.Attrs{
 				{
@@ -1157,7 +1595,7 @@ func TestHandleProcessEventCreated(t *testing.T) {
 			},
 			event: exec.ProcessEvent{
 				Type: exec.ProcessEventCreated,
-				File: &exec.FileInfo{
+				File: exec.New(exec.Init{
 					Pid: 1234,
 					Service: svc.Attrs{
 						Features: export.FeatureApplicationRED,
@@ -1168,7 +1606,7 @@ func TestHandleProcessEventCreated(t *testing.T) {
 						},
 						HostName: "test-host",
 					},
-				},
+				}),
 			},
 			expectedCreate: nil,
 			expectedDelete: nil,
@@ -1236,6 +1674,68 @@ func TestHandleProcessEventCreated(t *testing.T) {
 	}
 }
 
+func TestHandleProcessEventCreatedMetricsExportDisabled(t *testing.T) {
+	exportsEmpty := services.NewExportModes()
+	tracesOnly := services.NewExportModes()
+	tracesOnly.AllowTraces()
+
+	for _, tt := range []struct {
+		name        string
+		exportModes services.ExportModes
+	}{
+		{
+			name:        "exports empty",
+			exportModes: exportsEmpty,
+		},
+		{
+			name:        "traces only",
+			exportModes: tracesOnly,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			mockEventsStore := newMockEventMetrics()
+			reporter := &MetricsReporter{
+				cfg:                &otelcfg.MetricsConfig{},
+				log:                slog.Default(),
+				jointMetricsCfg:    &perapp.MetricsConfig{Features: export.FeatureApplicationRED},
+				targetMetrics:      make(map[svc.UID]*TargetMetrics),
+				pidTracker:         NewPidServiceTracker(),
+				createEventMetrics: mockEventsStore.createEventMetrics,
+				deleteEventMetrics: mockEventsStore.deleteEventMetrics,
+			}
+
+			uid := svc.UID{Name: "metrics-disabled-service-" + tt.name, Namespace: "default", Instance: "instance-1"}
+			event := exec.ProcessEvent{
+				Type: exec.ProcessEventCreated,
+				File: exec.New(exec.Init{
+					Pid: 1234,
+					Service: svc.Attrs{
+						Features:    export.FeatureApplicationRED,
+						ExportModes: tt.exportModes,
+						UID:         uid,
+						HostName:    "test-host",
+					},
+				}),
+			}
+
+			reporter.onProcessEvent(&event)
+
+			assert.Empty(t, mockEventsStore.createCalls)
+			assert.Empty(t, mockEventsStore.deleteCalls)
+			assert.Empty(t, reporter.targetMetrics)
+			assert.True(t, reporter.pidTracker.ServiceLive(uid))
+
+			terminated := exec.ProcessEvent{Type: exec.ProcessEventTerminated, File: event.File}
+			reporter.onProcessEvent(&terminated)
+
+			assert.Empty(t, mockEventsStore.createCalls)
+			assert.Empty(t, mockEventsStore.deleteCalls)
+			assert.Empty(t, reporter.targetMetrics)
+			assert.False(t, reporter.pidTracker.ServiceLive(uid))
+		})
+	}
+}
+
 func TestHandleProcessEventCreated_EdgeCases(t *testing.T) {
 	t.Run("multiple PIDs for same service", func(t *testing.T) {
 		mockEventsStore := newMockEventMetrics()
@@ -1256,14 +1756,14 @@ func TestHandleProcessEventCreated_EdgeCases(t *testing.T) {
 		// Add first PID
 		event1 := exec.ProcessEvent{
 			Type: exec.ProcessEventCreated,
-			File: &exec.FileInfo{Pid: 1111, Service: service},
+			File: exec.New(exec.Init{Pid: 1111, Service: service}),
 		}
 		reporter.onProcessEvent(&event1)
 
 		// Add second PID for same service
 		event2 := exec.ProcessEvent{
 			Type: exec.ProcessEventCreated,
-			File: &exec.FileInfo{Pid: 2222, Service: service},
+			File: exec.New(exec.Init{Pid: 2222, Service: service}),
 		}
 		reporter.onProcessEvent(&event2)
 
@@ -1297,7 +1797,7 @@ func TestHandleProcessEventCreated_EdgeCases(t *testing.T) {
 
 			event := exec.ProcessEvent{
 				Type: exec.ProcessEventCreated,
-				File: &exec.FileInfo{Pid: app.PID(1000 + i), Service: service},
+				File: exec.New(exec.Init{Pid: app.PID(1000 + i), Service: service}),
 			}
 			reporter.onProcessEvent(&event)
 		}

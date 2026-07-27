@@ -1,0 +1,40 @@
+name: Free disk space
+description: |
+  Remove preinstalled toolchains, languages and SDKs that no OBI CI job
+  uses, plus prune Docker. Recovers ~25-30 GiB on ubuntu-latest runners,
+  which keeps the VM/integration workflows from hitting "no space left"
+  during qcow2 builds or compose-stack image loads.
+
+inputs:
+  docker-prune:
+    description: 'Run docker system/builder prune. Skip on fresh runners.'
+    required: false
+    default: 'true'
+
+runs:
+  using: composite
+  steps:
+    - name: Free disk space
+      shell: bash
+      env:
+        DOCKER_PRUNE: ${{ inputs.docker-prune }}
+      run: |
+        set -e
+        sudo rm -rf \
+          /usr/lib/jvm \
+          /usr/share/dotnet \
+          /usr/share/swift \
+          /usr/local/.ghcup \
+          /usr/local/julia* \
+          /usr/local/lib/android \
+          /usr/local/share/chromium \
+          /opt/microsoft \
+          /opt/google \
+          /opt/az \
+          /usr/local/share/powershell \
+          /opt/hostedtoolcache/CodeQL
+        if [ "$DOCKER_PRUNE" = "true" ]; then
+          docker system prune -af || true
+          docker builder prune -af || true
+        fi
+        df -h

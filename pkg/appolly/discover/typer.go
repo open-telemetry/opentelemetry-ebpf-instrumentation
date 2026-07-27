@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"strings"
 
 	lru "github.com/hashicorp/golang-lru/v2"
@@ -19,7 +20,9 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/ebpf"
+	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
+	"go.opentelemetry.io/obi/pkg/internal/ebpf/gotracer"
 	"go.opentelemetry.io/obi/pkg/internal/goexec"
 	"go.opentelemetry.io/obi/pkg/internal/procs"
 	"go.opentelemetry.io/obi/pkg/internal/transform/route/clusterurl"
@@ -101,6 +104,7 @@ func (t *typer) makeServiceAttrs(processMatch *ProcessMatch) svc.Attrs {
 	var samplerConfig *services.SamplerConfig
 	var routesConfig *services.CustomRoutesConfig
 	svcFeatures := t.cfg.Metrics.Features
+	var metadata map[attr.Name]string
 
 	for _, s := range processMatch.Criteria {
 		if n := s.GetName(); n != "" {
@@ -109,6 +113,13 @@ func (t *typer) makeServiceAttrs(processMatch *ProcessMatch) svc.Attrs {
 
 		if n := s.GetNamespace(); n != "" {
 			namespace = n
+		}
+
+		if m := ResourceAttributesFromSelector(s); len(m) > 0 {
+			if metadata == nil {
+				metadata = make(map[attr.Name]string, len(m))
+			}
+			maps.Copy(metadata, m)
 		}
 
 		if m := s.GetExportModes(); m != services.ExportModeUnset {
@@ -132,25 +143,63 @@ func (t *typer) makeServiceAttrs(processMatch *ProcessMatch) svc.Attrs {
 		}
 	}
 
-	routesCfg := t.cfg.Routes
-	wildcard := byte('*')
-	if routesCfg.WildcardChar != "" {
-		wildcard = routesCfg.WildcardChar[0]
-	}
-
 	s := svc.Attrs{
 		UID: svc.UID{
 			Name:      name,
 			Namespace: namespace,
 		},
+		Metadata:           metadata,
 		ProcPID:            processMatch.Process.Pid,
+		DynamicSelectorPID: processMatch.DynamicSelectorPID,
 		ExportModes:        exportModes,
 		Sampler:            samplerFromConfig(samplerConfig),
-		PathTrie:           clusterurl.NewPathTrie(routesCfg.MaxPathSegmentCardinality, wildcard),
 		Features:           svcFeatures,
 		LogEnricherEnabled: processMatch.LogEnricherEnabled(),
 	}
 
+	routesCfg := t.cfg.Routes
+	if routesCfg != nil && routesCfg.Directional != nil {
+		policies := routesCfg.DirectionalPolicies()
+		var overrides *services.DirectionalRoutePolicyOverrides
+		if routesConfig != nil {
+			overrides = routesConfig.PolicyOverrides
+		}
+		if routesCfg.DirectionalRuleOnly {
+			if overrides == nil {
+				return s
+			}
+			if overrides.Incoming != nil {
+				s.IncomingRoutePolicy = svc.NewRoutePolicy(
+					overrides.Incoming.Apply(policies.Incoming))
+			}
+			if overrides.Outgoing != nil {
+				s.OutgoingRoutePolicy = svc.NewRoutePolicy(
+					overrides.Outgoing.Apply(policies.Outgoing))
+			}
+			return s
+		}
+		if overrides != nil && overrides.Incoming != nil {
+			s.IncomingRoutePolicy = svc.NewRoutePolicy(overrides.Incoming.Apply(policies.Incoming))
+		} else if routesCfg.HasIncomingPolicy() {
+			s.IncomingPathTrie = svc.NewRoutePathTrie(policies.Incoming)
+		}
+		if overrides != nil && overrides.Outgoing != nil {
+			s.OutgoingRoutePolicy = svc.NewRoutePolicy(overrides.Outgoing.Apply(policies.Outgoing))
+		} else if routesCfg.HasOutgoingPolicy() {
+			s.OutgoingPathTrie = svc.NewRoutePathTrie(policies.Outgoing)
+		}
+		return s
+	}
+
+	wildcard := byte('*')
+	maxPathSegmentCardinality := 0
+	if routesCfg != nil {
+		maxPathSegmentCardinality = routesCfg.MaxPathSegmentCardinality
+		if routesCfg.WildcardChar != "" {
+			wildcard = routesCfg.WildcardChar[0]
+		}
+	}
+	s.PathTrie = clusterurl.NewPathTrie(maxPathSegmentCardinality, wildcard)
 	if routesConfig != nil {
 		s.SetCustomRoutes(routesConfig)
 	}
@@ -173,7 +222,7 @@ func (t *typer) FilterClassify(evs []Event[ProcessMatch]) []Event[ebpf.Instrumen
 		case EventCreated:
 			svcID := t.makeServiceAttrs(&ev.Obj)
 
-			if elfFile, err := findExecElf(ev.Obj.Process, svcID); err != nil {
+			if elfFile, err := findExecElf(ev.Obj.Process, &svcID); err != nil {
 				t.log.Debug("error finding process ELF. Ignoring", "error", err)
 			} else {
 				t.currentPids[ev.Obj.Process.Pid] = elfFile
@@ -183,7 +232,7 @@ func (t *typer) FilterClassify(evs []Event[ProcessMatch]) []Event[ebpf.Instrumen
 			if fInfo, ok := t.currentPids[ev.Obj.Process.Pid]; ok {
 				delete(t.currentPids, ev.Obj.Process.Pid)
 				if t.instrumentableCache != nil {
-					t.instrumentableCache.Remove(cacheKey{Dev: fInfo.Dev, Ino: fInfo.Ino})
+					t.instrumentableCache.Remove(cacheKey{Dev: fInfo.Dev(), Ino: fInfo.Ino()})
 				}
 				out = append(out, Event[ebpf.Instrumentable]{
 					Type: EventDeleted,
@@ -197,9 +246,9 @@ func (t *typer) FilterClassify(evs []Event[ProcessMatch]) []Event[ebpf.Instrumen
 		inst := t.asInstrumentable(elfs[i])
 		t.log.Debug(
 			"found an instrumentable process",
-			"UID", inst.FileInfo.Service.UID,
+			"UID", inst.FileInfo.ServiceAttrs().UID,
 			"type", inst.Type.String(),
-			"exec", inst.FileInfo.CmdExePath, "pid", inst.FileInfo.Pid)
+			"exec", inst.FileInfo.CmdExePath(), "pid", inst.FileInfo.Pid())
 		out = append(out, Event[ebpf.Instrumentable]{Type: EventCreated, Obj: inst})
 	}
 	return out
@@ -208,8 +257,8 @@ func (t *typer) FilterClassify(evs []Event[ProcessMatch]) []Event[ebpf.Instrumen
 // asInstrumentable classifies the type of executable (Go, generic...) and,
 // in case of belonging to a forked process, returns its parent.
 func (t *typer) asInstrumentable(execElf *exec.FileInfo) ebpf.Instrumentable {
-	log := t.log.With("pid", execElf.Pid, "comm", execElf.CmdExePath)
-	if ic, ok := t.instrumentableCache.Get(cacheKey{Dev: execElf.Dev, Ino: execElf.Ino}); ok {
+	log := t.log.With("pid", execElf.Pid(), "comm", execElf.CmdExePath())
+	if ic, ok := t.instrumentableCache.Get(cacheKey{Dev: execElf.Dev(), Ino: execElf.Ino()}); ok {
 		log.Debug("new instance of existing executable", "type", ic.Type)
 		return ebpf.Instrumentable{Type: ic.Type, FileInfo: execElf, Offsets: ic.Offsets, InstrumentationError: ic.InstrumentationError}
 	}
@@ -221,7 +270,7 @@ func (t *typer) asInstrumentable(execElf *exec.FileInfo) ebpf.Instrumentable {
 		// we found go offsets, let's see if this application is not a proxy
 		if !isGoProxy(offsets) {
 			log.Debug("identified as a Go service or client")
-			t.instrumentableCache.Add(cacheKey{Dev: execElf.Dev, Ino: execElf.Ino}, instrumentedExecutable{Type: svc.InstrumentableGolang, Offsets: offsets})
+			t.instrumentableCache.Add(cacheKey{Dev: execElf.Dev(), Ino: execElf.Ino()}, instrumentedExecutable{Type: svc.InstrumentableGolang, Offsets: offsets})
 			return ebpf.Instrumentable{Type: svc.InstrumentableGolang, FileInfo: execElf, Offsets: offsets}
 		}
 
@@ -236,35 +285,35 @@ func (t *typer) asInstrumentable(execElf *exec.FileInfo) ebpf.Instrumentable {
 
 	// select the parent (or grandparent) of the executable, if any
 	var child []app.PID
-	parent, ok := t.currentPids[execElf.Ppid]
-	for ok && execElf.Ppid != execElf.Pid &&
+	parent, ok := t.currentPids[execElf.Ppid()]
+	for ok && execElf.Ppid() != execElf.Pid() &&
 		// we will ignore parent processes that are not the same executable. For example,
 		// to avoid wrongly instrumenting process launcher such as systemd or containerd-shimd
 		// when they launch an instrumentable service
-		execElf.CmdExePath == parent.CmdExePath {
-		log.Debug("replacing executable by its parent", "ppid", execElf.Ppid)
-		child = append(child, execElf.Pid)
+		execElf.CmdExePath() == parent.CmdExePath() {
+		log.Debug("replacing executable by its parent", "ppid", execElf.Ppid())
+		child = append(child, execElf.Pid())
 		execElf = parent
-		parent, ok = t.currentPids[parent.Ppid]
+		parent, ok = t.currentPids[parent.Ppid()]
 	}
 
 	// Typer finds the executable type again. The language decorator can skip certain type detection,
 	// for example, it will skip Linux system services. If the selection criteria brought us here on
 	// executable path, open port, we respect that choice and find the language for the pipeline.
-	detectedType := procs.FindProcLanguage(execElf.Pid)
+	detectedType := procs.FindProcLanguage(execElf.Pid())
 
 	if !t.cfg.Discovery.SkipGoSpecificTracers && detectedType == svc.InstrumentableGolang && err == nil {
 		log.Warn("ELF binary appears to be a Go program, but no offsets were found",
-			"comm", execElf.CmdExePath, "pid", execElf.Pid)
+			"comm", execElf.CmdExePath(), "pid", execElf.Pid())
 
-		err = fmt.Errorf("could not find any Go offsets in Go binary %s", execElf.CmdExePath)
+		err = fmt.Errorf("could not find any Go offsets in Go binary %s", execElf.CmdExePath())
 	}
 
-	log.Debug("instrumented", "comm", execElf.CmdExePath, "pid", execElf.Pid,
+	log.Debug("instrumented", "comm", execElf.CmdExePath(), "pid", execElf.Pid(),
 		"child", child, "language", detectedType.String())
 	// Return the instrumentable without offsets, as it is identified as a generic
 	// (or non-instrumentable Go proxy) executable
-	t.instrumentableCache.Add(cacheKey{Dev: execElf.Dev, Ino: execElf.Ino}, instrumentedExecutable{Type: detectedType, Offsets: nil, InstrumentationError: err})
+	t.instrumentableCache.Add(cacheKey{Dev: execElf.Dev(), Ino: execElf.Ino()}, instrumentedExecutable{Type: detectedType, Offsets: nil, InstrumentationError: err})
 
 	return ebpf.Instrumentable{
 		Type:                 detectedType,
@@ -272,16 +321,16 @@ func (t *typer) asInstrumentable(execElf *exec.FileInfo) ebpf.Instrumentable {
 		FileInfo:             execElf,
 		ChildPids:            child,
 		InstrumentationError: err,
-		LogEnricherEnabled:   execElf.Service.LogEnricherEnabled,
+		LogEnricherEnabled:   execElf.LogEnricherEnabled(),
 	}
 }
 
 func (t *typer) inspectOffsets(execElf *exec.FileInfo) (*goexec.Offsets, bool, error) {
 	if t.cfg.Discovery.SkipGoSpecificTracers {
-		t.log.Debug("skipping inspection for Go functions", "pid", execElf.Pid, "comm", execElf.CmdExePath)
+		t.log.Debug("skipping inspection for Go functions", "pid", execElf.Pid(), "comm", execElf.CmdExePath())
 		return nil, false, nil
 	}
-	t.log.Debug("inspecting", "pid", execElf.Pid, "comm", execElf.CmdExePath)
+	t.log.Debug("inspecting", "pid", execElf.Pid(), "comm", execElf.CmdExePath())
 	offsets, err := goexec.InspectOffsets(execElf, t.allGoFunctions)
 	if err != nil {
 		t.log.Debug("couldn't find go specific tracers", "error", err)
@@ -306,11 +355,23 @@ func (t *typer) loadAllGoFunctionNames() {
 	t.allGoFunctions = nil
 	for _, p := range newGoTracersGroup(nil, t.cfg, t.metrics) {
 		for symbolName := range p.GoProbes() {
-			// avoid duplicating function names
-			if _, ok := uniqueFunctions[symbolName]; !ok {
-				uniqueFunctions[symbolName] = struct{}{}
-				t.allGoFunctions = append(t.allGoFunctions, symbolName)
-			}
+			t.addGoFunctionName(uniqueFunctions, symbolName)
 		}
 	}
+
+	for _, symbolName := range gotracer.GoChannelLinkProbeSymbols() {
+		t.addGoFunctionName(uniqueFunctions, symbolName)
+	}
+	for _, symbolName := range gotracer.GoRuntimeMetricProbeSymbols() {
+		t.addGoFunctionName(uniqueFunctions, symbolName)
+	}
+}
+
+func (t *typer) addGoFunctionName(uniqueFunctions map[string]struct{}, symbolName string) {
+	if _, ok := uniqueFunctions[symbolName]; ok {
+		return
+	}
+
+	uniqueFunctions[symbolName] = struct{}{}
+	t.allGoFunctions = append(t.allGoFunctions, symbolName)
 }

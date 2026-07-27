@@ -5,6 +5,7 @@ package ebpfcommon
 
 import (
 	"bufio"
+	"encoding/json"
 	"net/http"
 	"strings"
 	"testing"
@@ -71,9 +72,9 @@ func TestGeminiSpan_GenerateContent(t *testing.T) {
 	assert.Equal(t, "gemini-2.0-flash", ai.Model)
 	assert.Equal(t, "gemini-2.0-flash", ai.Output.ModelVersion)
 	assert.Equal(t, "resp_abc123", ai.Output.ResponseID)
-	assert.Equal(t, 12, ai.Output.UsageMetadata.PromptTokenCount)
-	assert.Equal(t, 18, ai.Output.UsageMetadata.CandidatesTokenCount)
-	assert.Equal(t, 30, ai.Output.UsageMetadata.TotalTokenCount)
+	assert.Equal(t, 12, tokenValue(ai.Output.UsageMetadata.PromptTokenCount))
+	assert.Equal(t, 18, tokenValue(ai.Output.UsageMetadata.CandidatesTokenCount))
+	assert.Equal(t, 30, tokenValue(ai.Output.UsageMetadata.TotalTokenCount))
 	assert.NotEmpty(t, ai.GetOutput())
 	assert.NotEmpty(t, ai.GetInput())
 	assert.NotEmpty(t, ai.GetSystemInstruction())
@@ -91,6 +92,17 @@ func TestGeminiSpan_GenerateContent(t *testing.T) {
 	require.NotNil(t, cfg.Seed)
 	assert.Equal(t, 42, *cfg.Seed)
 	assert.Equal(t, 1, cfg.CandidateCount)
+}
+
+func TestGeminiSpan_UsageAfterMalformedEnvelopeField(t *testing.T) {
+	req := makeRequest(t, http.MethodPost, "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent", geminiRequestBody)
+	resp := makePlainResponse(http.StatusOK, geminiResponseHeaders(),
+		`{"candidates":{},"usageMetadata":{"promptTokenCount":0,"candidatesTokenCount":7}}`)
+
+	span, ok := GeminiSpan(&request.Span{}, req, resp)
+	require.True(t, ok)
+	assertTokenCount(t, span.GenAI.Gemini.Output.UsageMetadata.PromptTokenCount, 0, true)
+	assertTokenCount(t, span.GenAI.Gemini.Output.UsageMetadata.CandidatesTokenCount, 7, true)
 }
 
 func TestGeminiSpan_ErrorResponse(t *testing.T) {
@@ -344,4 +356,112 @@ func TestIsGeminiURL(t *testing.T) {
 			assert.Equal(t, tt.want, isGeminiURL(req))
 		})
 	}
+}
+
+func TestGeminiFunctionCalls(t *testing.T) {
+	t.Run("single function call", func(t *testing.T) {
+		resp := &request.GeminiResponse{
+			Candidates: []request.GeminiCandidate{
+				{
+					Content: &request.GeminiContent{
+						Parts: json.RawMessage(`[{"functionCall":{"name":"get_weather"}}]`),
+						Role:  "model",
+					},
+					FinishReason: "STOP",
+				},
+			},
+		}
+		result := extractGeminiFunctionCalls(resp)
+		require.Len(t, result, 1)
+		assert.Equal(t, "get_weather", result[0].Name)
+		assert.Empty(t, result[0].ID)
+	})
+
+	t.Run("multiple function calls", func(t *testing.T) {
+		resp := &request.GeminiResponse{
+			Candidates: []request.GeminiCandidate{
+				{
+					Content: &request.GeminiContent{
+						Parts: json.RawMessage(`[{"functionCall":{"name":"get_weather"}},{"functionCall":{"name":"get_time"}}]`),
+						Role:  "model",
+					},
+					FinishReason: "STOP",
+				},
+			},
+		}
+		result := extractGeminiFunctionCalls(resp)
+		require.Len(t, result, 2)
+		assert.Equal(t, "get_weather", result[0].Name)
+		assert.Equal(t, "get_time", result[1].Name)
+	})
+
+	t.Run("no function calls", func(t *testing.T) {
+		resp := &request.GeminiResponse{
+			Candidates: []request.GeminiCandidate{
+				{
+					Content: &request.GeminiContent{
+						Parts: json.RawMessage(`[{"text":"Hello, how can I help?"}]`),
+						Role:  "model",
+					},
+					FinishReason: "STOP",
+				},
+			},
+		}
+		result := extractGeminiFunctionCalls(resp)
+		assert.Empty(t, result)
+	})
+
+	t.Run("empty candidates", func(t *testing.T) {
+		resp := &request.GeminiResponse{}
+		result := extractGeminiFunctionCalls(resp)
+		assert.Empty(t, result)
+
+		resp2 := &request.GeminiResponse{
+			Candidates: []request.GeminiCandidate{
+				{Content: nil},
+			},
+		}
+		result2 := extractGeminiFunctionCalls(resp2)
+		assert.Empty(t, result2)
+	})
+}
+
+func TestGeminiSpan_StreamResponse(t *testing.T) {
+	streamBody := "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"Hello \"}],\"role\":\"model\"}}],\"modelVersion\":\"gemini-2.0-flash\",\"responseId\":\"resp_stream\"}\n\n" +
+		"data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"from stream.\"}],\"role\":\"model\"},\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"promptTokenCount\":12,\"candidatesTokenCount\":6,\"totalTokenCount\":18},\"modelVersion\":\"gemini-2.0-flash\",\"responseId\":\"resp_stream\"}\n\n"
+
+	req := makeRequest(t, http.MethodPost, "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:streamGenerateContent", geminiRequestBody)
+	resp := makePlainResponse(http.StatusOK, http.Header{
+		"Content-Type":          []string{"text/event-stream"},
+		"X-Gemini-Service-Tier": []string{"standard"},
+	}, streamBody)
+
+	base := &request.Span{}
+	span, ok := GeminiSpan(base, req, resp)
+
+	require.True(t, ok)
+	require.NotNil(t, span.GenAI)
+	require.NotNil(t, span.GenAI.Gemini)
+
+	ai := span.GenAI.Gemini
+	assert.Equal(t, request.HTTPSubtypeGemini, span.SubType)
+	assert.True(t, ai.IsStream)
+	assert.Equal(t, "gemini-2.0-flash", ai.Model)
+	assert.Equal(t, "stream_generate_content", ai.Operation)
+	assert.Equal(t, "gemini-2.0-flash", ai.Output.ModelVersion)
+	assert.Equal(t, "resp_stream", ai.Output.ResponseID)
+	assert.Equal(t, 12, tokenValue(ai.Output.UsageMetadata.PromptTokenCount))
+	assert.Equal(t, 6, tokenValue(ai.Output.UsageMetadata.CandidatesTokenCount))
+	assert.Equal(t, 18, tokenValue(ai.Output.UsageMetadata.TotalTokenCount))
+
+	require.Len(t, ai.Output.Candidates, 1)
+	assert.Equal(t, "STOP", ai.Output.Candidates[0].FinishReason)
+
+	var parts []struct {
+		Text string `json:"text"`
+	}
+	require.NoError(t, json.Unmarshal(ai.Output.Candidates[0].Content.Parts, &parts))
+	require.Len(t, parts, 1)
+	assert.Equal(t, "Hello from stream.", parts[0].Text)
+	assert.NotEmpty(t, ai.GetOutput())
 }

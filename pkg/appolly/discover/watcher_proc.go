@@ -18,7 +18,6 @@ import (
 
 	"github.com/shirou/gopsutil/v4/net"
 	"github.com/shirou/gopsutil/v4/process"
-	"github.com/tklauser/go-sysconf"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
@@ -36,7 +35,16 @@ import (
 const (
 	defaultPollInterval = 5 * time.Second
 	emptyDuration       = time.Duration(0)
+	// procStatBufSize safely fits /proc/<pid>/stat for our parsing path.
+	procStatBufSize = 4096
 )
+
+// procStatBufPool amortizes stat buffer allocations across all procStatReader callers.
+var procStatBufPool = sync.Pool{
+	New: func() any {
+		return new([procStatBufSize]byte)
+	},
+}
 
 type WatchEventType int
 
@@ -162,7 +170,7 @@ func (pa *pollAccounter) run(ctx context.Context) {
 			log.Warn("can't get system processes", "error", err)
 		} else {
 			if events := pa.snapshot(procs); len(events) > 0 {
-				log.Debug("new process watching events", "events", events)
+				log.Debug("new process watching events", "len", len(events))
 				pa.output.Send(events)
 			}
 		}
@@ -444,11 +452,15 @@ func parseProcStatField(buf string, field int) string {
 	return ""
 }
 
-type procStatReader struct {
-	buf [4096]byte // 4KB buffer: safely fits /proc/self/stat (~52 fields * 20 chars + comm + spaces)
-}
+type procStatReader struct{}
 
 func (r *procStatReader) getProcStatField(pid app.PID, field int) string {
+	bufPtr, ok := procStatBufPool.Get().(*[procStatBufSize]byte)
+	if !ok {
+		bufPtr = new([procStatBufSize]byte)
+	}
+	defer procStatBufPool.Put(bufPtr)
+
 	path := fmt.Sprintf("/proc/%d/stat", pid)
 
 	f, err := os.Open(path)
@@ -458,19 +470,16 @@ func (r *procStatReader) getProcStatField(pid app.PID, field int) string {
 
 	defer f.Close()
 
-	nbytes, err := f.Read(r.buf[:])
+	nbytes, err := f.Read(bufPtr[:])
 	if err != nil {
 		return ""
 	}
 
-	return parseProcStatField(string(r.buf[:nbytes]), field)
+	return parseProcStatField(string(bufPtr[:nbytes]), field)
 }
 
 func ticksToNanosecond(ticks uint64) uint64 {
-	clkTck, err := sysconf.Sysconf(sysconf.SC_CLK_TCK)
-	if err != nil {
-		clkTck = 100 // default for Linux
-	}
+	clkTck := 100 // default for Linux
 
 	return ticks * 1e9 / uint64(clkTck)
 }

@@ -14,8 +14,10 @@ Generated from [`config-schema.json`](config-schema.json).
 - [`discovery`](#discovery)
 - [`ebpf`](#ebpf)
 - [`filter`](#filter)
+- [`health_check`](#health-check)
 - [`internal_metrics`](#internal-metrics)
 - [`javaagent`](#javaagent)
+- [`jvm_runtime_metrics`](#jvm-runtime-metrics)
 - [`metrics`](#metrics)
 - [`name_resolver`](#name-resolver)
 - [`network`](#network)
@@ -62,7 +64,8 @@ Attributes configures the decoration of some extra attributes that will be added
 | `attributes.rename_unresolved_hosts` | `string` | `OTEL_EBPF_RENAME_UNRESOLVED_HOSTS` | `unresolved` |  |  | Will replace HostName and PeerName attributes when they are empty or contain unresolved IP addresses to reduce cardinality. Set this value to the empty string to disable this feature. |
 | `attributes.rename_unresolved_hosts_incoming` | `string` | `OTEL_EBPF_RENAME_UNRESOLVED_HOSTS_INCOMING` | `incoming` |  |  |  |
 | `attributes.rename_unresolved_hosts_outgoing` | `string` | `OTEL_EBPF_RENAME_UNRESOLVED_HOSTS_OUTGOING` | `outgoing` |  |  |  |
-| `attributes.select` | `map[string]object` |  |  |  |  | Selection specifies which attributes are allowed for each metric. The key is the metric name (either in Prometheus or OpenTelemetry format) The value is the enumeration of included/excluded attribute globs |
+| `attributes.select` | `map[string]object` |  |  |  |  | Selection specifies which attributes are allowed for each signal. The key is usually the metric name (either in Prometheus or OpenTelemetry format); the key "traces" selects optional attributes for exported OTLP traces. The key "resource" selects exported resource attributes. The value is the enumeration of included/excluded attribute globs |
+| `attributes.sensitive_query_params` | [`SensitiveQueryParamsConfig`](#sensitivequeryparamsconfig) |  |  |  |  | Controls which query-parameter keys are redacted in url.full and url.query. |
 
 ### `attributes.host_id`
 
@@ -83,7 +86,7 @@ InstanceIDConfig configures how OBI will get the Instance ID of the traces/metri
 
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
-| `attributes.kubernetes.cluster_name` | `string` | `OTEL_EBPF_KUBE_CLUSTER_NAME` |  |  |  | Overrides cluster name. If empty, the NetO11y module will try to retrieve it from the Cloud Provider Metadata (EC2, GCP and Azure), and leave it empty if it fails to. |
+| `attributes.kubernetes.cluster_name` | `string` | `OTEL_EBPF_KUBE_CLUSTER_NAME` |  |  |  | Overrides cluster name. If empty, OBI will try to retrieve it from node labels, the OpenShift Infrastructure CR, or cloud provider metadata (EC2, GCP, Azure), and leave it empty if all fail. |
 | `attributes.kubernetes.disable_informers` | `string`[] | `OTEL_EBPF_KUBE_DISABLE_INFORMERS` |  |  |  | Allows selectively disabling some informers. Accepted value is a list that might contain node or service. Disabling any of them will cause metadata to be incomplete but will reduce the load of the Kube API. Pods informer can't be disabled. For that purpose, you should disable the whole kubernetes metadata decoration. |
 | `attributes.kubernetes.drop_external` | `boolean` | `OTEL_EBPF_NETWORK_DROP_EXTERNAL` | `false` |  |  | Will drop, in NetO11y component, any flow where the source or destination IPs are not matched to any kubernetes entity, assuming they are cluster-external |
 | `attributes.kubernetes.enable` | `string` | `OTEL_EBPF_KUBE_METADATA_ENABLE` | `autodetect` | `autodetect`, `false`, `true` |  |  |
@@ -135,7 +138,7 @@ DiscoveryConfig for the discover.ProcessFinder pipeline
 | `discovery.excluded_linux_system_paths` | `string`[] |  | `/lib/systemd/`, `/usr/lib/systemd/`, `/usr/libexec/`, `/sbin/`, `/usr/sbin/` |  |  | Executable paths for which we don't run language detection and cannot be selected using the path or language selection criteria |
 | `discovery.instrument` | [`GlobAttributes`](#globattributes)[] |  |  |  |  | Selects the services to instrument via Globs. If this section is set, both the Services and ExcludeServices section is ignored. If the user defined the OTEL_EBPF_INSTRUMENT_COMMAND or OTEL_EBPF_INSTRUMENT_PORTS variables, they will be automatically added to the instrument criteria, with the lowest preference. |
 | `discovery.min_process_age` | `duration` | `OTEL_EBPF_MIN_PROCESS_AGE` | `5s` | `30s`, `5m`, `1ms`, etc |  | Min process age to be considered for discovery. |
-| `discovery.poll_interval` | `duration` | `OTEL_EBPF_DISCOVERY_POLL_INTERVAL` | `0s` | `30s`, `5m`, `1ms`, etc |  | Specifies, for the poll service watcher, the interval time between process inspections |
+| `discovery.poll_interval` | `duration` | `OTEL_EBPF_DISCOVERY_POLL_INTERVAL` | `0s` | `30s`, `5m`, `1ms`, etc |  | Specifies, for the poll service watcher, the interval time between process inspections. 0 is treated as a default (5s) by the process watcher. |
 | `discovery.route_harvester_timeout` | `duration` | `OTEL_EBPF_ROUTE_HARVESTER_TIMEOUT` | `10s` | `30s`, `5m`, `1ms`, etc |  |  |
 | `discovery.services` | [`RegexSelector`](#regexselector)[] |  |  |  | Yes | Selection. If the user defined the OTEL_EBPF_EXECUTABLE_PATH or OTEL_EBPF_OPEN_PORT variables, they will be automatically added to the services definition criteria, with the lowest preference.  Use Instrument instead |
 | `discovery.skip_go_specific_tracers` | `boolean` | `OTEL_EBPF_SKIP_GO_SPECIFIC_TRACERS` | `false` |  |  | This can be enabled to use generic HTTP tracers only, no Go-specifics will be used: |
@@ -144,7 +147,7 @@ DiscoveryConfig for the discover.ProcessFinder pipeline
 
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
-| `discovery.route_harvester_advanced.java_harvest_delay` | `duration` | `OTEL_EBPF_JAVA_ROUTE_HARVEST_DELAY` | `1m` | `30s`, `5m`, `1ms`, etc |  |  |
+| `discovery.route_harvester_advanced.java_harvest_delay` | `duration` | `OTEL_EBPF_JAVA_ROUTE_HARVEST_DELAY` | `5s` | `30s`, `5m`, `1ms`, etc |  |  |
 
 ## `ebpf`
 
@@ -156,11 +159,12 @@ EBPFTracer configuration for eBPF programs
 | `ebpf.batch_timeout` | `duration` | `OTEL_EBPF_BPF_BATCH_TIMEOUT` | `1s` | `30s`, `5m`, `1ms`, etc |  | Specifies the timeout to forward the data batch if it didn't reach the BatchLength size |
 | `ebpf.bpf_debug` | `boolean` | `OTEL_EBPF_BPF_DEBUG` | `false` |  |  | Enables logging of eBPF program events |
 | `ebpf.bpf_fs_path` | `string` | `OTEL_EBPF_BPF_FS_PATH` | `/sys/fs/bpf/` |  |  | BPF path used to pin eBPF maps |
-| `ebpf.context_propagation` | `string` | `OTEL_EBPF_BPF_CONTEXT_PROPAGATION` | `disabled` | ``, `all`, `disabled` |  | Enables distributed context propagation. Can be a combination of: headers, tcp (e.g., "headers,tcp" or "all") |
+| `ebpf.context_propagation` | `string` | `OTEL_EBPF_BPF_CONTEXT_PROPAGATION` | `disabled` | ``, `all`, `disabled` | deprecated values: `ip` | Enables distributed context propagation. Can be a combination of: headers, tcp (e.g., "headers,tcp" or "all") |
 | `ebpf.couchbase_db_cache_size` | `integer` | `OTEL_EBPF_COUCHBASE_DB_CACHE_SIZE` | `1024` |  |  |  |
 | `ebpf.disable_black_box_cp` | `boolean` | `OTEL_EBPF_BPF_DISABLE_BLACK_BOX_CP` | `false` |  |  | Disables OBI black-box context propagation. Used for testing purposes only. |
 | `ebpf.dns_request_timeout` | `duration` | `OTEL_EBPF_BPF_DNS_REQUEST_TIMEOUT` | `5s` | `30s`, `5m`, `1ms`, etc |  | DNS timeout after which we report failed event |
 | `ebpf.force_bpf_map_reader` | `string` | `OTEL_EBPF_FORCE_BPF_MAP_READER` | `auto` | `auto`, `batch`, `legacy` |  | Forces the PerCPU HashMap operation of the Network Flows reader. The system will always try "batch", which is more efficient, but legacy systems like RHEL8-based will fallback to "legacy" (the slowest, more resource-consuming iterate&delete approach). |
+| `ebpf.go_http_client_buffer_timeout` | `duration` | `OTEL_EBPF_BPF_GO_HTTP_CLIENT_BUFFER_TIMEOUT` | `1s` | `30s`, `5m`, `1ms`, etc |  | Is the inactivity period after which a pending Go HTTP client event is enriched with its captured buffers and emitted. A zero value disables deferral. |
 | `ebpf.heuristic_sql_detect` | `boolean` | `OTEL_EBPF_HEURISTIC_SQL_DETECT` | `false` |  |  | Enables the heuristic based detection of SQL requests. This can be used to detect talking to databases other than the ones we recognize in OBI, like Postgres and MySQL |
 | `ebpf.high_request_volume` | `boolean` | `OTEL_EBPF_BPF_HIGH_REQUEST_VOLUME` | `false` |  |  | Optimizes for getting requests information immediately when request response is seen |
 | `ebpf.http_request_timeout` | `duration` | `OTEL_EBPF_BPF_HTTP_REQUEST_TIMEOUT` | `0s` | `30s`, `5m`, `1ms`, etc |  | Must be at least 0 |
@@ -168,24 +172,28 @@ EBPFTracer configuration for eBPF programs
 | `ebpf.kafka_topic_uuid_cache_size` | `integer` | `OTEL_KAFKA_TOPIC_UUID_CACHE_SIZE` | `1024` |  |  | Kafka Topic UUID to Name cache size. |
 | `ebpf.max_transaction_time` | `duration` | `OTEL_EBPF_BPF_MAX_TRANSACTION_TIME` | `5m` | `30s`, `5m`, `1ms`, etc |  | Maximum time allowed for two requests to be correlated as parent -> child Some programs (e.g. load generators) keep on generating requests from the same thread in perpetuity, which can generate very large traces. We want to mark the parent trace as invalid if this happens. |
 | `ebpf.mongo_requests_cache_size` | `integer` | `OTEL_EBPF_BPF_MONGO_REQUESTS_CACHE_SIZE` | `1024` |  |  | MongoDB requests cache size. |
+| `ebpf.mssql_prepared_statements_cache_size` | `integer` | `OTEL_EBPF_BPF_MSSQL_PREPARED_STATEMENTS_CACHE_SIZE` | `1024` |  |  | MSSQL prepared statements cache size. |
 | `ebpf.mysql_prepared_statements_cache_size` | `integer` | `OTEL_EBPF_BPF_MYSQL_PREPARED_STATEMENTS_CACHE_SIZE` | `1024` |  |  | MySQL prepared statements cache size. |
 | `ebpf.override_bpfloop_enabled` | `boolean` | `OTEL_EBPF_OVERRIDE_BPF_LOOP_ENABLED` | `false` |  |  | Skips checking the kernel version for bpf_loop functionality. Some modified kernels have this backported prior to version 5.17. |
 | `ebpf.postgres_prepared_statements_cache_size` | `integer` | `OTEL_EBPF_BPF_POSTGRES_PREPARED_STATEMENTS_CACHE_SIZE` | `1024` |  |  | Postgres prepared statements cache size. |
 | `ebpf.protocol_debug_print` | `boolean` | `OTEL_EBPF_PROTOCOL_DEBUG_PRINT` | `false` |  |  | Enables debug printing of the protocol data |
+| `ebpf.stats_wakeup_data_bytes` | `integer` | `OTEL_EBPF_STATS_WAKEUP_DATA_BYTES` | `4096` |  |  | Specifies the minimum number of bytes that must be available in the stats eBPF ring buffer before waking up the userspace consumer. When 0, every submission wakes up userspace immediately. Higher values reduce wakeup overhead under high traffic at the cost of delivery latency. The value should be well below ring buffer size / flushInterval to avoid event loss. |
 | `ebpf.track_request_headers` | `boolean` | `OTEL_EBPF_BPF_TRACK_REQUEST_HEADERS` | `false` |  |  | Enables the kprobes based HTTP request tracking to start tracking the request headers to process any 'Traceparent' fields. |
 | `ebpf.traffic_control_backend` | `string` | `OTEL_EBPF_BPF_TC_BACKEND` | `auto` | `auto`, `tc`, `tcx` |  | Select the TC attachment backend: accepted values are 'tc' (netlink), and 'tcx' |
 | `ebpf.wakeup_len` | `integer` | `OTEL_EBPF_BPF_WAKEUP_LEN` | `500` |  |  | Specifies how many messages need to be accumulated in the eBPF ringbuffer before sending a wakeup request. High values of WakeupLen could add a noticeable metric delay in services with low requests/second. Must be at least 0 TODO: see if there is a way to force eBPF to wakeup userspace on timeout |
 
 ### `ebpf.buffer_sizes`
 
-Per-protocol maximum bytes to capture per request per direction, sent to userspace via large buffer events. Values must stay aligned with MaxCapturedPayloadBytes and the k_large_buf_max_*_captured_bytes constants in bpf/common/large_buffers.h.  Default: 0 (disabled).
+Per-protocol maximum bytes to capture per request per direction, sent to userspace via large buffer events.  Default: 0 (disabled).
 
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
 | `ebpf.buffer_sizes.http` | `integer` | `OTEL_EBPF_BPF_BUFFER_SIZE_HTTP` | `0` |  |  |  |
 | `ebpf.buffer_sizes.kafka` | `integer` | `OTEL_EBPF_BPF_BUFFER_SIZE_KAFKA` | `0` |  |  |  |
+| `ebpf.buffer_sizes.mssql` | `integer` | `OTEL_EBPF_BPF_BUFFER_SIZE_MSSQL` | `0` |  |  |  |
 | `ebpf.buffer_sizes.mysql` | `integer` | `OTEL_EBPF_BPF_BUFFER_SIZE_MYSQL` | `0` |  |  |  |
 | `ebpf.buffer_sizes.postgres` | `integer` | `OTEL_EBPF_BPF_BUFFER_SIZE_POSTGRES` | `0` |  |  |  |
+| `ebpf.buffer_sizes.tcp` | `integer` | `OTEL_EBPF_BPF_BUFFER_SIZE_TCP` | `0` |  |  |  |
 
 ### `ebpf.log_enricher`
 
@@ -196,6 +204,21 @@ Per-protocol maximum bytes to capture per request per direction, sent to userspa
 | `ebpf.log_enricher.cache_size` | `integer` | `OTEL_EBPF_BPF_LOG_ENRICHER_CACHE_SIZE` | `128` |  |  | Defines the maximum number of cached file descriptors Default: 128 |
 | `ebpf.log_enricher.cache_ttl` | `duration` | `OTEL_EBPF_BPF_LOG_ENRICHER_CACHE_TTL` | `30m` | `30s`, `5m`, `1ms`, etc |  | Defines the TTL for cached file descriptors Default: 30m |
 | `ebpf.log_enricher.services` | [`LogEnricherServiceConfig`](#logenricherserviceconfig)[] |  |  |  |  | Specifies the services to enable log enrichment for |
+
+#### `ebpf.log_enricher.field_names`
+
+| YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
+|---|---|---|---|---|---|---|
+| `ebpf.log_enricher.field_names.span_id` | `string` |  | `span_id` |  |  | Is the literal span ID field name used to preserve and inject span context |
+| `ebpf.log_enricher.field_names.trace_id` | `string` |  | `trace_id` |  |  | Is the literal trace ID field name used to preserve and inject trace context |
+
+#### `ebpf.log_enricher.plain_text`
+
+| YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
+|---|---|---|---|---|---|---|
+| `ebpf.log_enricher.plain_text.enabled` | `boolean` |  | `true` |  |  | Controls trace context annotation for non-JSON logs |
+| `ebpf.log_enricher.plain_text.multiline` | `string` |  | `first_line` | `each_line`, `first_line`, `last_line` |  | Controls which nonempty lines in each write are annotated |
+| `ebpf.log_enricher.plain_text.placement` | `string` |  | `suffix` | `prefix`, `suffix` |  | Controls whether fields are added before or after each selected line |
 
 ### `ebpf.maps_config`
 
@@ -235,7 +258,7 @@ HTTPParsingPolicy defines the default action for http enrichment rules.
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
 | `ebpf.payload_extraction.http.enrichment.policy.default_action` | [`HTTPParsingDefaultAction`](#httpparsingdefaultaction) |  |  |  |  | Specifies what to do when no rule matches, per type. |
-| `ebpf.payload_extraction.http.enrichment.policy.obfuscation_string` | `string` | `OTEL_EBPF_HTTP_ENRICHMENT_OBFUSCATION_STRING` | `***` |  |  | Is the replacement string used when a rule's action is "obfuscate" |
+| `ebpf.payload_extraction.http.enrichment.policy.obfuscation_string` | `string` | `OTEL_EBPF_HTTP_ENRICHMENT_OBFUSCATION_STRING` | `***` |  |  | Is the replacement string used when a rule's action is "obfuscate" and the rule doesn't define it's own obfuscation_string. |
 
 #### `ebpf.payload_extraction.http.genai`
 
@@ -251,11 +274,29 @@ HTTPParsingPolicy defines the default action for http enrichment rules.
 |---|---|---|---|---|---|---|
 | `ebpf.payload_extraction.http.genai.bedrock.enabled` | `boolean` | `OTEL_EBPF_HTTP_BEDROCK_ENABLED` | `false` |  |  | Enable AWS Bedrock payload extraction and parsing |
 
+#### `ebpf.payload_extraction.http.genai.embedding`
+
+| YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
+|---|---|---|---|---|---|---|
+| `ebpf.payload_extraction.http.genai.embedding.enabled` | `boolean` | `OTEL_EBPF_HTTP_GENAI_EMBEDDING_ENABLED` | `false` |  |  | Enable generic embedding provider (Voyage AI, Cohere, Jina AI) payload extraction and parsing |
+
 #### `ebpf.payload_extraction.http.genai.gemini`
 
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
 | `ebpf.payload_extraction.http.genai.gemini.enabled` | `boolean` | `OTEL_EBPF_HTTP_GEMINI_ENABLED` | `false` |  |  | Enable Google AI Studio (Gemini) payload extraction and parsing |
+
+#### `ebpf.payload_extraction.http.genai.mcp`
+
+| YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
+|---|---|---|---|---|---|---|
+| `ebpf.payload_extraction.http.genai.mcp.enabled` | `boolean` | `OTEL_EBPF_HTTP_MCP_ENABLED` | `false` |  |  | Enable Model Context Protocol (MCP) payload extraction and parsing |
+
+#### `ebpf.payload_extraction.http.genai.ollama`
+
+| YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
+|---|---|---|---|---|---|---|
+| `ebpf.payload_extraction.http.genai.ollama.enabled` | `boolean` | `OTEL_EBPF_HTTP_OLLAMA_ENABLED` | `false` |  |  | Enable Ollama native API payload extraction and parsing |
 
 #### `ebpf.payload_extraction.http.genai.openai`
 
@@ -263,11 +304,30 @@ HTTPParsingPolicy defines the default action for http enrichment rules.
 |---|---|---|---|---|---|---|
 | `ebpf.payload_extraction.http.genai.openai.enabled` | `boolean` | `OTEL_EBPF_HTTP_OPENAI_ENABLED` | `false` |  |  | Enable OpenAI payload extraction and parsing |
 
+#### `ebpf.payload_extraction.http.genai.openai_compatible`
+
+| YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
+|---|---|---|---|---|---|---|
+| `ebpf.payload_extraction.http.genai.openai_compatible.enabled` | `boolean` | `OTEL_EBPF_HTTP_OPENAI_COMPATIBLE_ENABLED` | `false` |  |  | Enable OpenAI-compatible gateway payload extraction and parsing |
+| `ebpf.payload_extraction.http.genai.openai_compatible.gateways` | [`OpenAICompatibleGateway`](#openaicompatiblegateway)[] |  |  |  |  | Opt-in allowlist of gateway destinations to match by host (case-insensitive) with optional port and provider name |
+
 #### `ebpf.payload_extraction.http.genai.qwen`
 
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
 | `ebpf.payload_extraction.http.genai.qwen.enabled` | `boolean` | `OTEL_EBPF_HTTP_QWEN_ENABLED` | `false` |  |  | Enable Qwen (DashScope) payload extraction and parsing |
+
+#### `ebpf.payload_extraction.http.genai.rerank`
+
+| YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
+|---|---|---|---|---|---|---|
+| `ebpf.payload_extraction.http.genai.rerank.enabled` | `boolean` | `OTEL_EBPF_HTTP_RERANK_ENABLED` | `false` |  |  | Enable Rerank (Cohere, Jina AI, Voyage AI, etc.) payload extraction and parsing |
+
+#### `ebpf.payload_extraction.http.genai.retrieval`
+
+| YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
+|---|---|---|---|---|---|---|
+| `ebpf.payload_extraction.http.genai.retrieval.enabled` | `boolean` | `OTEL_EBPF_HTTP_RETRIEVAL_ENABLED` | `false` |  |  | Enable vector retrieval (Pinecone, Qdrant, Milvus, Chroma, Weaviate, etc.) payload extraction and parsing |
 
 #### `ebpf.payload_extraction.http.graphql`
 
@@ -305,6 +365,13 @@ AttributesConfig stores the user-provided section for filtering either Applicati
 | `filter.network` | `map[string]object` |  |  |  |  | AttributeFamilyConfig maps, for a given record, each attribute with its MatchDefinition |
 | `filter.stats` | `map[string]object` |  |  |  |  | AttributeFamilyConfig maps, for a given record, each attribute with its MatchDefinition |
 
+## `health_check`
+
+| YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
+|---|---|---|---|---|---|---|
+| `health_check.port` | `integer` | `OTEL_EBPF_HEALTH_CHECK_PORT` | `0` |  |  | 0 (default) means disabled |
+| `health_check.unix_socket_path` | `string` | `OTEL_EBPF_HEALTH_CHECK_UNIX_SOCKET_PATH` |  |  |  | when set, the health endpoint binds this unix socket (a filesystem path or a leading-'@' abstract name) instead of the TCP port |
+
 ## `internal_metrics`
 
 InternalMetricsConfig options for the different metrics exporters
@@ -313,6 +380,15 @@ InternalMetricsConfig options for the different metrics exporters
 |---|---|---|---|---|---|---|
 | `internal_metrics.bpf_metric_scrape_interval` | `duration` | `OTEL_EBPF_BPF_METRIC_SCRAPE_INTERVAL` | `15s` | `30s`, `5m`, `1ms`, etc |  |  |
 | `internal_metrics.exporter` | `string` | `OTEL_EBPF_INTERNAL_METRICS_EXPORTER` | `disabled` | `disabled`, `otel`, `prometheus` |  |  |
+
+### `internal_metrics.avoided_services`
+
+AvoidedServicesConfig controls the avoided-services internal metric.
+
+| YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
+|---|---|---|---|---|---|---|
+| `internal_metrics.avoided_services.disabled` | `boolean` | `OTEL_EBPF_INTERNAL_METRICS_AVOIDED_SERVICES_DISABLED` | `false` |  |  | Disables the avoided-services internal metric. |
+| `internal_metrics.avoided_services.limit` | `integer` | `OTEL_EBPF_INTERNAL_METRICS_AVOIDED_SERVICES_LIMIT` | `2000` |  |  | Bounds the number of avoided-services metric series, including the overflow series. 0 uses the OpenTelemetry default metric cardinality limit. |
 
 ### `internal_metrics.prometheus`
 
@@ -326,12 +402,22 @@ TODO: TLS
 | `internal_metrics.prometheus.exemplar_filter` | `string` | `OTEL_EBPF_PROMETHEUS_EXEMPLAR_FILTER` |  |  |  | Controls when exemplars are attached to metrics. Accepted values: "always_on", "always_off", "trace_based". Defaults to "always_off": do not attach exemplars. This mimics the OTEL_METRICS_EXEMPLAR_FILTER specification. |
 | `internal_metrics.prometheus.extra_resource_attributes` | `string`[] | `OTEL_EBPF_PROMETHEUS_EXTRA_RESOURCE_ATTRIBUTES` |  |  |  | Adds extra metadata labels to Prometheus metrics from sources whose availability can't be known beforehand. For example, to add the OTEL deployment.environment resource attribute as a Prometheus resource attribute, you should add `deployment.environment`. |
 | `internal_metrics.prometheus.extra_span_resource_attributes` | `string`[] | `OTEL_EBPF_PROMETHEUS_EXTRA_SPAN_RESOURCE_ATTRIBUTES` |  |  |  | Adds extra metadata labels to Prometheus span metrics from sources whose availability can't be known beforehand. For example, to add the OTEL deployment.environment resource attribute as a Prometheus resource attribute, you should add `deployment.environment`. |
-| `internal_metrics.prometheus.features` | `string`[] | `OTEL_EBPF_PROMETHEUS_FEATURES` | `0` | `*`, `all`, `application`, `application_host`, `application_service_graph`, `application_span`, `application_span_otel`, `application_span_sizes`, `ebpf`, `network`, `network_inter_zone`, `stats`, `stats_tcp_failed_connections`, `stats_tcp_rtt` | Yes | Features specifies which metric features to export. Accepted values: application, network, application_span, application_service_graph, ...  use top-level MetricsConfig.Features instead. |
-| `internal_metrics.prometheus.instrumentations` | `string`[] | `OTEL_EBPF_PROMETHEUS_INSTRUMENTATIONS` | `*` | `*`, `couchbase`, `dns`, `genai`, `gpu`, `grpc`, `http`, `kafka`, `memcached`, `mongo`, `mqtt`, `redis`, `sql` |  | Allows configuration of which instrumentations should be enabled, e.g. http, grpc, sql... |
+| `internal_metrics.prometheus.features` | `string`[] | `OTEL_EBPF_PROMETHEUS_FEATURES` | `0` | `*`, `all`, `application`, `application_host`, `application_runtime`, `application_service_graph`, `application_span`, `application_span_otel`, `application_span_sizes`, `ebpf`, `network`, `network_flow_packets`, `network_inter_zone`, `stats`, `stats_tcp_failed_connections`, `stats_tcp_io`, `stats_tcp_retransmits`, `stats_tcp_rtt` | Yes | Features specifies which metric features to export. Accepted values: application, network, application_span, application_service_graph, ...  use top-level MetricsConfig.Features instead. |
+| `internal_metrics.prometheus.instrumentations` | `string`[] | `OTEL_EBPF_PROMETHEUS_INSTRUMENTATIONS` | `*` | `*`, `aerospike`, `amqp`, `couchbase`, `dns`, `genai`, `gpu`, `grpc`, `http`, `kafka`, `memcached`, `mongo`, `mqtt`, `nats`, `redis`, `sql`, `sunrpc` |  | Allows configuration of which instrumentations should be enabled, e.g. http, grpc, sql... |
 | `internal_metrics.prometheus.path` | `string` | `OTEL_EBPF_PROMETHEUS_PATH` | `/internal/metrics` |  |  |  |
-| `internal_metrics.prometheus.port` | `integer` | `OTEL_EBPF_PROMETHEUS_PORT` | `0` |  |  |  |
+| `internal_metrics.prometheus.port` | `integer` | `OTEL_EBPF_PROMETHEUS_PORT` | `0` |  |  | 0 means disabled |
 | `internal_metrics.prometheus.service_cache_size` | `integer` |  | `10000` |  |  |  |
 | `internal_metrics.prometheus.ttl` | `duration` | `OTEL_EBPF_PROMETHEUS_TTL` | `5m` | `30s`, `5m`, `1ms`, etc |  | Specifies the time since a metric was updated for the last time until it is removed from the metrics set. |
+
+#### `internal_metrics.prometheus.native_histogram`
+
+NativeHistogramConfig holds configuration for native histograms
+
+| YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
+|---|---|---|---|---|---|---|
+| `internal_metrics.prometheus.native_histogram.bucket_factor` | `number` | `OTEL_EBPF_PROMETHEUS_NATIVE_HISTOGRAM_BUCKET_FACTOR` | `1.1` |  |  |  |
+| `internal_metrics.prometheus.native_histogram.max_bucket_number` | `integer` | `OTEL_EBPF_PROMETHEUS_NATIVE_HISTOGRAM_MAX_BUCKET_NUMBER` | `100` |  |  |  |
+| `internal_metrics.prometheus.native_histogram.min_reset_duration` | `duration` | `OTEL_EBPF_PROMETHEUS_NATIVE_HISTOGRAM_MIN_RESET_DURATION` | `60m` | `30s`, `5m`, `1ms`, etc |  |  |
 
 ## `javaagent`
 
@@ -342,6 +428,12 @@ TODO: TLS
 | `javaagent.debug_instrumentation` | `boolean` | `OTEL_EBPF_JAVAAGENT_DEBUG_INSTRUMENTATION` | `false` |  |  |  |
 | `javaagent.enabled` | `boolean` | `OTEL_EBPF_JAVAAGENT_ENABLED` | `true` |  |  |  |
 
+## `jvm_runtime_metrics`
+
+| YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
+|---|---|---|---|---|---|---|
+| `jvm_runtime_metrics.sampling_interval` | `duration` | `OBI_JVM_RUNTIME_METRICS_SAMPLING_INTERVAL` | `1s` | `30s`, `5m`, `1ms`, etc |  |  |
+
 ## `metrics`
 
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
@@ -351,15 +443,24 @@ TODO: TLS
 | `metrics.buckets` | [`Buckets`](#buckets) |  |  |  |  | Buckets defines the histograms bucket boundaries, and allows users to redefine them |
 | `metrics.endpoint` | `uri` | `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` |  |  |  |  |
 | `metrics.extra_span_resource_attributes` | `string`[] | `OTEL_EBPF_EXTRA_SPAN_RESOURCE_ATTRIBUTES` |  |  |  | Adds extra metadata labels to OTEL span metrics from sources whose availability can't be known beforehand. For example, to add the OTEL deployment.environment resource attribute as a OTEL resource attribute, you should add `deployment.environment`. |
-| `metrics.features` | `string`[] | `OTEL_EBPF_METRICS_FEATURES` | `32` | `*`, `all`, `application`, `application_host`, `application_service_graph`, `application_span`, `application_span_otel`, `application_span_sizes`, `ebpf`, `network`, `network_inter_zone`, `stats`, `stats_tcp_failed_connections`, `stats_tcp_rtt` | Yes | Specifies which metric features to export. Accepted values: application, network, application_span, application_service_graph, ... envDefault is provided to avoid breaking changes  use top-level MetricsConfig.Features instead. |
+| `metrics.features` | `string`[] | `OTEL_EBPF_METRICS_FEATURES` | `256` | `*`, `all`, `application`, `application_host`, `application_runtime`, `application_service_graph`, `application_span`, `application_span_otel`, `application_span_sizes`, `ebpf`, `network`, `network_flow_packets`, `network_inter_zone`, `stats`, `stats_tcp_failed_connections`, `stats_tcp_io`, `stats_tcp_retransmits`, `stats_tcp_rtt` | Yes | Specifies which metric features to export. Accepted values: application, network, application_span, application_service_graph, ...  use top-level MetricsConfig.Features instead. |
 | `metrics.histogram_aggregation` | `string` | `OTEL_EXPORTER_OTLP_METRICS_DEFAULT_HISTOGRAM_AGGREGATION` | `explicit_bucket_histogram` | `base2_exponential_bucket_histogram`, `explicit_bucket_histogram` |  |  |
 | `metrics.insecure_skip_verify` | `boolean` | `OTEL_EBPF_INSECURE_SKIP_VERIFY` | `false` |  |  | Enables skipping TLS certificate verification (not standard, so we don't follow the same naming convention) |
-| `metrics.instrumentations` | `string`[] | `OTEL_EBPF_METRICS_INSTRUMENTATIONS` | `*` | `*`, `couchbase`, `dns`, `genai`, `gpu`, `grpc`, `http`, `kafka`, `memcached`, `mongo`, `mqtt`, `redis`, `sql` |  | Allows configuration of which instrumentations should be enabled, e.g. http, grpc, sql... |
+| `metrics.instrumentations` | `string`[] | `OTEL_EBPF_METRICS_INSTRUMENTATIONS` | `*` | `*`, `aerospike`, `amqp`, `couchbase`, `dns`, `genai`, `gpu`, `grpc`, `http`, `kafka`, `memcached`, `mongo`, `mqtt`, `nats`, `redis`, `sql`, `sunrpc` |  | Allows configuration of which instrumentations should be enabled, e.g. http, grpc, sql... |
 | `metrics.interval` | `duration` | `OTEL_EBPF_METRICS_INTERVAL` | `0s` | `30s`, `5m`, `1ms`, etc |  |  |
 | `metrics.otel_sdk_log_level` | `string` | `OTEL_EBPF_SDK_LOG_LEVEL` |  |  |  | Works independently from the global LogLevel because it prints GBs of logs in Debug mode and the Info messages leak internal details that are not usually valuable for the final user. Accepted values: debug, info, warn, error (case-insensitive). |
 | `metrics.protocol` | `string` | `OTEL_EXPORTER_OTLP_PROTOCOL` |  | ``, `debug`, `grpc`, `http/json`, `http/protobuf` |  |  |
 | `metrics.reporters_cache_len` | `integer` | `OTEL_EBPF_METRICS_REPORT_CACHE_LEN` | `256` |  |  |  |
 | `metrics.ttl` | `duration` | `OTEL_EBPF_METRICS_TTL` | `5m` | `30s`, `5m`, `1ms`, etc |  | Specifies the time since a metric was updated for the last time until it is removed from the metrics set. |
+
+### `metrics.exponential_histogram`
+
+ExponentialHistogramConfig configures the precision and size of exponential histograms according to <https://opentelemetry.io/docs/specs/otel/metrics/sdk/#base2-exponential-bucket-histogram-aggregation>
+
+| YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
+|---|---|---|---|---|---|---|
+| `metrics.exponential_histogram.max_scale` | `integer` | `OTEL_EBPF_METRICS_EXPONENTIAL_HISTOGRAM_MAX_SCALE` | `20` |  |  | Sets the maximum resolution scale used by base-2 exponential histograms. Higher values create narrower buckets and more precision, but may require more buckets. Valid values are from -10 to 20. |
+| `metrics.exponential_histogram.max_size` | `integer` | `OTEL_EBPF_METRICS_EXPONENTIAL_HISTOGRAM_MAX_SIZE` | `160` |  |  | Sets the maximum number of buckets used for a base-2 exponential histogram. Higher values reduce bucket compaction and preserve more detail at the cost of larger metric payloads. |
 
 ## `name_resolver`
 
@@ -382,7 +483,7 @@ TODO: TLS
 | `network.deduper` | `string` | `OTEL_EBPF_NETWORK_DEDUPER` | `first_come` | `first_come`, `none` |  | Specifies the deduper type. Accepted values are "none" (disabled) and "first_come". When enabled, it will detect duplicate flows (flows that have been detected e.g. through both the physical and a virtual interface). "first_come" will forward only flows from the first interface the flows are received from. Default value: first_come |
 | `network.deduper_fc_ttl` | `duration` | `OTEL_EBPF_NETWORK_DEDUPER_FC_TTL` | `0s` | `30s`, `5m`, `1ms`, etc |  | Specifies the expiry duration of the flows "first_come" deduplicator. After a flow hasn't been received for that expiry time, the deduplicator forgets it. That means that a flow from a connection that has been inactive during that period could be forwarded again from a different interface. If the value is not set, it will default to 2 * CacheActiveTimeout |
 | `network.direction` | `string` | `OTEL_EBPF_NETWORK_DIRECTION` | `both` | `both`, `egress`, `ingress` |  | Allows selecting which flows to trace according to its direction. Accepted values are "ingress", "egress" or "both" (default). |
-| `network.enable` | `boolean` | `OTEL_EBPF_NETWORK_METRICS` | `false` |  | Yes | Network metrics. Default value is false (disabled)  add "network" or "network_inter_zone" to OTEL_EBPF_METRICS_FEATURES  TODO OBI 3.0: remove |
+| `network.enable` | `boolean` | `OTEL_EBPF_NETWORK_METRICS` | `false` |  | Yes | Network metrics. Default value is false (disabled)  add "network" or "network_flow_packets" or "network_inter_zone" to OTEL_EBPF_METRICS_FEATURES  TODO OBI 3.0: remove |
 | `network.exclude_interfaces` | `string`[] | `OTEL_EBPF_NETWORK_EXCLUDE_INTERFACES` | `lo` |  |  | Contains the interface names that will be excluded from flow tracing. Default: "lo" (loopback). If an entry is enclosed by slashes (e.g. `/br-/`), it will match as regular expression, otherwise it will be matched as a case-sensitive string. |
 | `network.exclude_protocols` | `string`[] | `OTEL_EBPF_NETWORK_EXCLUDE_PROTOCOLS` |  |  |  | Causes OBI to drop flows whose transport protocol is in this list. If the Protocols list is already defined, ExcludeProtocols has no effect. |
 | `network.guess_ports` | `string` | `OTEL_EBPF_NETWORK_GUESS_PORTS` | `disable` | `disable`, `ordinal` |  | Controls how OBI assigns server.port/client.port when the connection initiator is unknown. Accepted values are "ordinal" (assume highest port is client) and "disable" (default, do not guess and emit empty client/server port attributes for unknown-initiator flows). |
@@ -441,15 +542,24 @@ ReverseDNS is currently experimental. It is kept disabled by default and will be
 | `otel_metrics_export.buckets` | [`Buckets`](#buckets) |  |  |  |  | Buckets defines the histograms bucket boundaries, and allows users to redefine them |
 | `otel_metrics_export.endpoint` | `uri` | `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` |  |  |  |  |
 | `otel_metrics_export.extra_span_resource_attributes` | `string`[] | `OTEL_EBPF_EXTRA_SPAN_RESOURCE_ATTRIBUTES` |  |  |  | Adds extra metadata labels to OTEL span metrics from sources whose availability can't be known beforehand. For example, to add the OTEL deployment.environment resource attribute as a OTEL resource attribute, you should add `deployment.environment`. |
-| `otel_metrics_export.features` | `string`[] | `OTEL_EBPF_METRICS_FEATURES` | `32` | `*`, `all`, `application`, `application_host`, `application_service_graph`, `application_span`, `application_span_otel`, `application_span_sizes`, `ebpf`, `network`, `network_inter_zone`, `stats`, `stats_tcp_failed_connections`, `stats_tcp_rtt` | Yes | Specifies which metric features to export. Accepted values: application, network, application_span, application_service_graph, ... envDefault is provided to avoid breaking changes  use top-level MetricsConfig.Features instead. |
+| `otel_metrics_export.features` | `string`[] | `OTEL_EBPF_METRICS_FEATURES` | `256` | `*`, `all`, `application`, `application_host`, `application_runtime`, `application_service_graph`, `application_span`, `application_span_otel`, `application_span_sizes`, `ebpf`, `network`, `network_flow_packets`, `network_inter_zone`, `stats`, `stats_tcp_failed_connections`, `stats_tcp_io`, `stats_tcp_retransmits`, `stats_tcp_rtt` | Yes | Specifies which metric features to export. Accepted values: application, network, application_span, application_service_graph, ...  use top-level MetricsConfig.Features instead. |
 | `otel_metrics_export.histogram_aggregation` | `string` | `OTEL_EXPORTER_OTLP_METRICS_DEFAULT_HISTOGRAM_AGGREGATION` | `explicit_bucket_histogram` | `base2_exponential_bucket_histogram`, `explicit_bucket_histogram` |  |  |
 | `otel_metrics_export.insecure_skip_verify` | `boolean` | `OTEL_EBPF_INSECURE_SKIP_VERIFY` | `false` |  |  | Enables skipping TLS certificate verification (not standard, so we don't follow the same naming convention) |
-| `otel_metrics_export.instrumentations` | `string`[] | `OTEL_EBPF_METRICS_INSTRUMENTATIONS` | `*` | `*`, `couchbase`, `dns`, `genai`, `gpu`, `grpc`, `http`, `kafka`, `memcached`, `mongo`, `mqtt`, `redis`, `sql` |  | Allows configuration of which instrumentations should be enabled, e.g. http, grpc, sql... |
+| `otel_metrics_export.instrumentations` | `string`[] | `OTEL_EBPF_METRICS_INSTRUMENTATIONS` | `*` | `*`, `aerospike`, `amqp`, `couchbase`, `dns`, `genai`, `gpu`, `grpc`, `http`, `kafka`, `memcached`, `mongo`, `mqtt`, `nats`, `redis`, `sql`, `sunrpc` |  | Allows configuration of which instrumentations should be enabled, e.g. http, grpc, sql... |
 | `otel_metrics_export.interval` | `duration` | `OTEL_EBPF_METRICS_INTERVAL` | `0s` | `30s`, `5m`, `1ms`, etc |  |  |
 | `otel_metrics_export.otel_sdk_log_level` | `string` | `OTEL_EBPF_SDK_LOG_LEVEL` |  |  |  | Works independently from the global LogLevel because it prints GBs of logs in Debug mode and the Info messages leak internal details that are not usually valuable for the final user. Accepted values: debug, info, warn, error (case-insensitive). |
 | `otel_metrics_export.protocol` | `string` | `OTEL_EXPORTER_OTLP_PROTOCOL` |  | ``, `debug`, `grpc`, `http/json`, `http/protobuf` |  |  |
 | `otel_metrics_export.reporters_cache_len` | `integer` | `OTEL_EBPF_METRICS_REPORT_CACHE_LEN` | `256` |  |  |  |
 | `otel_metrics_export.ttl` | `duration` | `OTEL_EBPF_METRICS_TTL` | `5m` | `30s`, `5m`, `1ms`, etc |  | Specifies the time since a metric was updated for the last time until it is removed from the metrics set. |
+
+### `otel_metrics_export.exponential_histogram`
+
+ExponentialHistogramConfig configures the precision and size of exponential histograms according to <https://opentelemetry.io/docs/specs/otel/metrics/sdk/#base2-exponential-bucket-histogram-aggregation>
+
+| YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
+|---|---|---|---|---|---|---|
+| `otel_metrics_export.exponential_histogram.max_scale` | `integer` | `OTEL_EBPF_METRICS_EXPONENTIAL_HISTOGRAM_MAX_SCALE` | `20` |  |  | Sets the maximum resolution scale used by base-2 exponential histograms. Higher values create narrower buckets and more precision, but may require more buckets. Valid values are from -10 to 20. |
+| `otel_metrics_export.exponential_histogram.max_size` | `integer` | `OTEL_EBPF_METRICS_EXPONENTIAL_HISTOGRAM_MAX_SIZE` | `160` |  |  | Sets the maximum number of buckets used for a base-2 exponential histogram. Higher values reduce bucket compaction and preserve more detail at the cost of larger metric payloads. |
 
 ## `otel_traces_export`
 
@@ -462,7 +572,7 @@ ReverseDNS is currently experimental. It is kept disabled by default and will be
 | `otel_traces_export.batch_timeout` | `duration` | `OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT` | `15s` | `30s`, `5m`, `1ms`, etc |  | Is the time after which a batch will be sent regardless of its size. |
 | `otel_traces_export.endpoint` | `uri` | `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` |  |  |  |  |
 | `otel_traces_export.insecure_skip_verify` | `boolean` | `OTEL_EBPF_INSECURE_SKIP_VERIFY` | `false` |  |  | Enables skipping TLS certificate verification (not standard, so we don't follow the same naming convention) |
-| `otel_traces_export.instrumentations` | `string`[] | `OTEL_EBPF_TRACES_INSTRUMENTATIONS` | `http`, `grpc`, `sql`, `redis`, `kafka`, `mqtt`, `mongo`, `couchbase`, `memcached` | `*`, `couchbase`, `dns`, `genai`, `gpu`, `grpc`, `http`, `kafka`, `memcached`, `mongo`, `mqtt`, `redis`, `sql` |  | Allows configuration of which instrumentations should be enabled, e.g. http, grpc, sql... |
+| `otel_traces_export.instrumentations` | `string`[] | `OTEL_EBPF_TRACES_INSTRUMENTATIONS` | `http`, `grpc`, `sql`, `redis`, `kafka`, `mqtt`, `nats`, `amqp`, `mongo`, `couchbase`, `memcached`, `sunrpc`, `aerospike` | `*`, `aerospike`, `amqp`, `couchbase`, `dns`, `genai`, `gpu`, `grpc`, `http`, `kafka`, `memcached`, `mongo`, `mqtt`, `nats`, `redis`, `sql`, `sunrpc` |  | Allows configuration of which instrumentations should be enabled, e.g. http, grpc, sql... |
 | `otel_traces_export.otel_sdk_log_level` | `string` | `OTEL_EBPF_SDK_LOG_LEVEL` |  |  |  | Works independently from the global LogLevel because it prints GBs of logs in Debug mode and the Info messages leak internal details that are not usually valuable for the final user. Accepted values: debug, info, warn, error (case-insensitive). dpanic/panic/fatal are mapped to error. |
 | `otel_traces_export.protocol` | `string` | `OTEL_EXPORTER_OTLP_PROTOCOL` |  | ``, `debug`, `grpc`, `http/json`, `http/protobuf` |  |  |
 | `otel_traces_export.queue_size` | `integer` | `OTEL_EBPF_OTLP_TRACES_QUEUE_SIZE` | `16384` |  |  | Is the maximum number of spans that the sending queue will hold before applying back-pressure. It must be >= `2 * BatchMaxSize`, otherwise the memory queue rejects every batch with "element size too large" and drops spans permanently. If left at 0 it defaults to `4 * BatchMaxSize`. |
@@ -489,12 +599,22 @@ TODO: TLS
 | `prometheus_export.exemplar_filter` | `string` | `OTEL_EBPF_PROMETHEUS_EXEMPLAR_FILTER` |  |  |  | Controls when exemplars are attached to metrics. Accepted values: "always_on", "always_off", "trace_based". Defaults to "always_off": do not attach exemplars. This mimics the OTEL_METRICS_EXEMPLAR_FILTER specification. |
 | `prometheus_export.extra_resource_attributes` | `string`[] | `OTEL_EBPF_PROMETHEUS_EXTRA_RESOURCE_ATTRIBUTES` |  |  |  | Adds extra metadata labels to Prometheus metrics from sources whose availability can't be known beforehand. For example, to add the OTEL deployment.environment resource attribute as a Prometheus resource attribute, you should add `deployment.environment`. |
 | `prometheus_export.extra_span_resource_attributes` | `string`[] | `OTEL_EBPF_PROMETHEUS_EXTRA_SPAN_RESOURCE_ATTRIBUTES` |  |  |  | Adds extra metadata labels to Prometheus span metrics from sources whose availability can't be known beforehand. For example, to add the OTEL deployment.environment resource attribute as a Prometheus resource attribute, you should add `deployment.environment`. |
-| `prometheus_export.features` | `string`[] | `OTEL_EBPF_PROMETHEUS_FEATURES` | `0` | `*`, `all`, `application`, `application_host`, `application_service_graph`, `application_span`, `application_span_otel`, `application_span_sizes`, `ebpf`, `network`, `network_inter_zone`, `stats`, `stats_tcp_failed_connections`, `stats_tcp_rtt` | Yes | Features specifies which metric features to export. Accepted values: application, network, application_span, application_service_graph, ...  use top-level MetricsConfig.Features instead. |
-| `prometheus_export.instrumentations` | `string`[] | `OTEL_EBPF_PROMETHEUS_INSTRUMENTATIONS` | `*` | `*`, `couchbase`, `dns`, `genai`, `gpu`, `grpc`, `http`, `kafka`, `memcached`, `mongo`, `mqtt`, `redis`, `sql` |  | Allows configuration of which instrumentations should be enabled, e.g. http, grpc, sql... |
+| `prometheus_export.features` | `string`[] | `OTEL_EBPF_PROMETHEUS_FEATURES` | `0` | `*`, `all`, `application`, `application_host`, `application_runtime`, `application_service_graph`, `application_span`, `application_span_otel`, `application_span_sizes`, `ebpf`, `network`, `network_flow_packets`, `network_inter_zone`, `stats`, `stats_tcp_failed_connections`, `stats_tcp_io`, `stats_tcp_retransmits`, `stats_tcp_rtt` | Yes | Features specifies which metric features to export. Accepted values: application, network, application_span, application_service_graph, ...  use top-level MetricsConfig.Features instead. |
+| `prometheus_export.instrumentations` | `string`[] | `OTEL_EBPF_PROMETHEUS_INSTRUMENTATIONS` | `*` | `*`, `aerospike`, `amqp`, `couchbase`, `dns`, `genai`, `gpu`, `grpc`, `http`, `kafka`, `memcached`, `mongo`, `mqtt`, `nats`, `redis`, `sql`, `sunrpc` |  | Allows configuration of which instrumentations should be enabled, e.g. http, grpc, sql... |
 | `prometheus_export.path` | `string` | `OTEL_EBPF_PROMETHEUS_PATH` | `/internal/metrics` |  |  |  |
-| `prometheus_export.port` | `integer` | `OTEL_EBPF_PROMETHEUS_PORT` | `0` |  |  |  |
+| `prometheus_export.port` | `integer` | `OTEL_EBPF_PROMETHEUS_PORT` | `0` |  |  | 0 means disabled |
 | `prometheus_export.service_cache_size` | `integer` |  | `10000` |  |  |  |
 | `prometheus_export.ttl` | `duration` | `OTEL_EBPF_PROMETHEUS_TTL` | `5m` | `30s`, `5m`, `1ms`, etc |  | Specifies the time since a metric was updated for the last time until it is removed from the metrics set. |
+
+### `prometheus_export.native_histogram`
+
+NativeHistogramConfig holds configuration for native histograms
+
+| YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
+|---|---|---|---|---|---|---|
+| `prometheus_export.native_histogram.bucket_factor` | `number` | `OTEL_EBPF_PROMETHEUS_NATIVE_HISTOGRAM_BUCKET_FACTOR` | `1.1` |  |  |  |
+| `prometheus_export.native_histogram.max_bucket_number` | `integer` | `OTEL_EBPF_PROMETHEUS_NATIVE_HISTOGRAM_MAX_BUCKET_NUMBER` | `100` |  |  |  |
+| `prometheus_export.native_histogram.min_reset_duration` | `duration` | `OTEL_EBPF_PROMETHEUS_NATIVE_HISTOGRAM_MIN_RESET_DURATION` | `60m` | `30s`, `5m`, `1ms`, etc |  |  |
 
 ## `routes`
 
@@ -504,9 +624,9 @@ RoutesConfig allows grouping URLs sharing a given pattern.
 |---|---|---|---|---|---|---|
 | `routes.ignore_mode` | `string` |  |  | `all`, `metrics`, `traces` | Yes | To be removed and replaced by a collector-like filtering mechanism |
 | `routes.ignored_patterns` | `string`[] |  |  |  | Yes | To be removed and replaced by a collector-like filtering mechanism |
-| `routes.max_path_segment_cardinality` | `integer` |  | `10` |  |  | Max allowed path segment cardinality (per service) for the heuristic matcher |
+| `routes.max_path_segment_cardinality` | `integer` |  | `10` |  |  | Max allowed path segment cardinality (per service) for the heuristic matcher 0 = disabled |
 | `routes.patterns` | `string`[] |  |  |  |  | Defines the URL path patterns that will match to a route |
-| `routes.unmatched` | `string` |  | `heuristic` | `heuristic`, `low-cardinality`, `path`, `unset`, `wildcard` |  | Specifies what to do when a route pattern is not matched |
+| `routes.unmatched` | `string` |  | `heuristic` | `heuristic`, `low-cardinality`, `path`, `unset`, `wildcard` |  | Specifies what to do when a route pattern is not matched. Empty string is treated the same as "wildcard". |
 | `routes.wildcard_char` | `string` |  | `*` |  |  | Character that will be used to replace route segments |
 
 ## `stats`
@@ -568,6 +688,7 @@ Buckets defines the histograms bucket boundaries, and allows users to redefine t
 | `gen_ai_client_token_usage_histogram` | `number`[] |  |  |
 | `request_size_histogram` | `number`[] |  |  |
 | `response_size_histogram` | `number`[] |  |  |
+| `stat_tcp_rtt_histogram` | `number`[] |  |  |
 
 ### ExtraGroupAttributesMap
 
@@ -624,6 +745,7 @@ HTTPParsingRule defines a single include/exclude/obfuscate rule for HTTP header 
 |---|---|---|---|
 | `action` | `string` | `exclude`, `include`, `obfuscate` | Of the rule: "include", "exclude", or "obfuscate" |
 | `match` | [`HTTPParsingMatch`](#httpparsingmatch) |  | Defines the matching criteria for this rule |
+| `obfuscation_string` | `string` |  | Is the replacement string used when a rule's action is "obfuscate" |
 | `scope` | `string` | `all`, `request`, `response` | Of the rule: "request", "response", or "all" |
 | `type` | `string` | `body`, `headers` | Specifies what this rule matches against: "headers" or "body" |
 
@@ -640,6 +762,14 @@ IntEnum defines an enumeration of integers (e.g. ports or PIDs). It allows a set
 | Field | Type | Values | Description |
 |---|---|---|---|
 | `service` | [`GlobAttributes`](#globattributes)[] |  | Should also be contained in 'services' in the Discovery section |
+
+### OpenAICompatibleGateway
+
+| Field | Type | Values | Description |
+|---|---|---|---|
+| `host` | `string` |  | Gateway hostname to match (case-insensitive) |
+| `port` | `integer` |  | Destination port; when 0 or omitted, matches any port |
+| `provider` | `string` |  | Name reported in the gen_ai.system span attribute |
 
 ### RegexSelector
 
@@ -674,6 +804,15 @@ RegexSelector that specify a given instrumented service. Each instance has to de
 | `sampler` | [`SamplerConfig`](#samplerconfig) |  | Sampler standard configuration <https://opentelemetry.io/docs/concepts/sdk-configuration/general-sdk-configuration/#otel_traces_sampler> We don't support, yet, the jaeger and xray samplers. |
 | `target_pids` | `integer`[] |  | Allows selecting processes by PID. When non-empty, the process PID must be in this list (in addition to any path/port criteria). |
 
+### SensitiveQueryParamsConfig
+
+SensitiveQueryParamsConfig controls which query-parameter keys are redacted. The effective list is DefaultSensitiveQueryParams + Add - Remove. When both Add and Remove are empty, DefaultSensitiveQueryParams is used unchanged.
+
+| Field | Type | Values | Description |
+|---|---|---|---|
+| `add` | `string`[] |  |  |
+| `remove` | `string`[] |  |  |
+
 ### CustomRoutesConfig
 
 | Field | Type | Values | Description |
@@ -691,6 +830,7 @@ HTTPParsingMatch defines matching criteria for an HTTP parsing rule. Header rule
 | `methods` | `string`[] | `DELETE`, `GET`, `HEAD`, `OPTIONS`, `PATCH`, `POST`, `PUT` | Is a list of HTTP methods this rule applies to (shared). Empty means all methods. |
 | `obfuscation_json_paths` | `string`[] | `$.password`, `$.user.name`, `$.items[0].id`, etc | Is a list of JSONPath expressions for fields to obfuscate (body only) |
 | `patterns` | `glob`[] | `app-*`, `service-??`, `prod-*-db`, etc | Is a list of glob patterns to match header names against (headers only) |
+| `response_status_code` | [`NumericRange`](#numericrange) |  | Filters this rule to only apply when the response status code matches the given range. If unset, the rule applies regardless of status code. |
 | `url_path_patterns` | `glob`[] | `app-*`, `service-??`, `prod-*-db`, etc | Is a list of glob patterns to match the request path against (shared) |
 
 ### SamplerConfig
@@ -708,4 +848,17 @@ SvcMetricsConfig is equivalent to MetricsConfig, but avoids defining environment
 
 | Field | Type | Values | Description |
 |---|---|---|---|
-| `features` | `string`[] | `*`, `all`, `application`, `application_host`, `application_service_graph`, `application_span`, `application_span_otel`, `application_span_sizes`, `ebpf`, `network`, `network_inter_zone`, `stats`, `stats_tcp_failed_connections`, `stats_tcp_rtt` | Specifies which metric features to export. Accepted values: application, network, application_span, application_service_graph, ... envDefault is provided to avoid breaking changes |
+| `features` | `string`[] | `*`, `all`, `application`, `application_host`, `application_runtime`, `application_service_graph`, `application_span`, `application_span_otel`, `application_span_sizes`, `ebpf`, `network`, `network_flow_packets`, `network_inter_zone`, `stats`, `stats_tcp_failed_connections`, `stats_tcp_io`, `stats_tcp_retransmits`, `stats_tcp_rtt` | Specifies which metric features to export. Accepted values: application, network, application_span, application_service_graph, ... |
+
+### NumericRange
+
+NumericRange defines numeric comparison criteria for a rule match condition. All fields are optional; only the provided fields are evaluated.
+
+| Field | Type | Values | Description |
+|---|---|---|---|
+| `equals` | `integer` |  |  |
+| `greater_equals` | `integer` |  |  |
+| `greater_than` | `integer` |  |  |
+| `less_equals` | `integer` |  |  |
+| `less_than` | `integer` |  |  |
+| `not_equals` | `integer` |  |  |

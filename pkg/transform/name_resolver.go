@@ -59,14 +59,14 @@ func resolverSources(src []Source) maps.Bits {
 
 type NameResolverConfig struct {
 	// Sources specifies the backends used for name resolving. Accepted values: dns, k8s, rdns
-	Sources []Source `yaml:"sources" env:"OTEL_EBPF_NAME_RESOLVER_SOURCES" envSeparator:"," envDefault:"k8s"`
+	Sources []Source `yaml:"sources" env:"OTEL_EBPF_NAME_RESOLVER_SOURCES" envSeparator:","`
 	// CacheLen specifies the max size of the LRU cache that is checked before
 	// performing the name lookup. Default: 256
-	CacheLen int `yaml:"cache_len" env:"OTEL_EBPF_NAME_RESOLVER_CACHE_LEN"`
+	CacheLen int `yaml:"cache_len" env:"OTEL_EBPF_NAME_RESOLVER_CACHE_LEN" validate:"gt=0"`
 	// CacheTTL specifies the time-to-live of a cached IP->hostname entry. After the
 	// cached entry becomes older than this time, the IP->hostname entry will be looked
 	// up again.
-	CacheTTL time.Duration `yaml:"cache_expiry" env:"OTEL_EBPF_NAME_RESOLVER_CACHE_TTL"`
+	CacheTTL time.Duration `yaml:"cache_expiry" env:"OTEL_EBPF_NAME_RESOLVER_CACHE_TTL" validate:"gt=0"`
 }
 
 type NameResolver struct {
@@ -281,9 +281,9 @@ func (nr *NameResolver) dnsResolve(svc *svc.Attrs, ip string) (string, string, s
 	}
 
 	if nr.sources.Has(ResolverRDNS) && nr.dnsCache != nil {
-		n := nr.resolveRDNS(ip)
-		n = nr.cleanName(svc, ip, n)
-		return n, svc.UID.Namespace, ""
+		if n := nr.resolveRDNS(ip); n != "" {
+			return nr.cleanName(svc, ip, n), svc.UID.Namespace, ""
+		}
 	}
 
 	if nr.sources.Has(ResolverDNS) {

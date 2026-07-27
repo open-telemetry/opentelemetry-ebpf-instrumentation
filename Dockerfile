@@ -1,32 +1,61 @@
-ARG TAG=0.2.11@sha256:c9a11deeda1de354aa334817f693efbf5ccee15dcd18caee6a9b221eed0e5773
+ARG TAG=0.2.15@sha256:9cbb1b567377d5779b04e6bcdb87431c77a19e797b4630eba30f5417de96ea33
 
 # Build JNI native library using Go image (has gcc, no apt install needed)
-FROM golang:1.25.8@sha256:f55a6ec7f24aedc1ed66e2641fdc52de01f2d24d6e49d1fa38582c07dd5f601d AS jni-builder
-COPY --from=gradle:9.3.1-jdk21-noble@sha256:f3784cc59d7fbab1e0ddb09c4cd082f13e16d3fb8c50b7922b7aeae8e9507da5 /opt/java/openjdk/include /opt/java/include
+FROM golang:1.26.5@sha256:3aff6657219a4d9c14e27fb1d8976c49c29fddb70ba835014f477e1c70636647 AS jni-builder
+ARG BUILDARCH=amd64
+COPY --from=gradle:9.6.1-jdk21-noble@sha256:d3e4ec60a75f6ada80f52e3c648ccfcbeaff4bc0d8e0f5ce55f81994763daf3c /opt/java/openjdk/include /opt/java/include
 WORKDIR /build
 COPY pkg/internal/java/agent/src/main/c/ src/main/c/
 COPY pkg/internal/java/agent/Makefile.jni Makefile.jni
-RUN make -f Makefile.jni CC=gcc JAVA_HOME=/opt/java JNI_HEADERS_DIR=src/main/c
+
+# Install the cross compile toolchain
+RUN apt update
+RUN case "$BUILDARCH" in \
+      amd64) CROSS_CC_PKG=gcc-aarch64-linux-gnu ;; \
+      arm64) CROSS_CC_PKG=gcc-x86-64-linux-gnu ;; \
+      *)     CC=gcc ;; \
+    esac && \
+    apt-get install $CROSS_CC_PKG -y
+
+# Own architecture
+RUN case "$BUILDARCH" in \
+      amd64) SLUG=linux-amd64 ;; \
+      arm64) SLUG=linux-aarch64 ;; \
+      *)     CC=gcc ;; \
+    esac && \
+    make -f Makefile.jni CC=gcc JAVA_HOME=/opt/java JNI_HEADERS_DIR=src/main/c BUILD_DIR=build/jni/$SLUG TARGET_DIR=target/classes/native/$SLUG
+
+# Cross-compile the other
+RUN case "$BUILDARCH" in \
+      amd64) CC=aarch64-linux-gnu-gcc \
+             SLUG=linux-aarch64 ;; \
+      arm64) CC=x86_64-linux-gnu-gcc \
+             SLUG=linux-amd64 ;; \
+      *)     CC=gcc ;; \
+    esac && \
+    make -f Makefile.jni CC=$CC JAVA_HOME=/opt/java JNI_HEADERS_DIR=src/main/c BUILD_DIR=build/jni/$SLUG TARGET_DIR=target/classes/native/$SLUG
 
 # Build the Java OBI agent
-FROM gradle:9.3.1-jdk21-noble@sha256:f3784cc59d7fbab1e0ddb09c4cd082f13e16d3fb8c50b7922b7aeae8e9507da5 AS javaagent-builder
+FROM gradle:9.6.1-jdk21-noble@sha256:d3e4ec60a75f6ada80f52e3c648ccfcbeaff4bc0d8e0f5ce55f81994763daf3c AS javaagent-builder
 
 WORKDIR /build
 
 # Copy build files
 COPY pkg/internal/java .
+
 # Pre-built native library from jni-builder stage
-COPY --from=jni-builder /build/target/classes/libobijni.so agent/target/classes/libobijni.so
+COPY --from=jni-builder /build/target/classes/native/linux-amd64/libobijni.so agent/target/classes/native/linux-amd64/libobijni.so
+COPY --from=jni-builder /build/target/classes/native/linux-aarch64/libobijni.so agent/target/classes/native/linux-aarch64/libobijni.so
 
 # Build the project (skip native lib compilation, already done above)
-RUN gradle build -x buildNativeLib --no-daemon
+RUN gradle build -x buildNativeLib-amd64 -x buildNativeLib-aarch64 --no-daemon
 
 # Build the autoinstrumenter binary
 FROM ghcr.io/open-telemetry/obi-generator:${TAG} AS builder
 
-# TODO: embed software version in executable
-
 ARG TARGETARCH
+ARG RELEASE_VERSION=unset
+ARG RELEASE_REVISION=unset
 
 ENV GOARCH=$TARGETARCH
 
@@ -38,7 +67,6 @@ COPY go.mod go.sum ./
 # Cache module cache.
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
 
-COPY .git/ .git/
 COPY bpf/ bpf/
 COPY cmd/ cmd/
 COPY pkg/ pkg/
@@ -49,7 +77,7 @@ COPY --from=javaagent-builder /build/build/obi-java-agent.jar /src/pkg/internal/
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg \
 	/generate.sh \
-	&& make compile
+	&& make compile RELEASE_VERSION=${RELEASE_VERSION} RELEASE_REVISION=${RELEASE_REVISION}
 
 # Create final image from minimal + built binary
 FROM scratch

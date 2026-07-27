@@ -31,6 +31,8 @@ func TestPerAppFeatures(t *testing.T) {
 		testPerAppFeatures(t, "prometheus")
 	})
 
+	runWeaverValidation(t)
+
 	require.NoError(t, compose.Close())
 }
 
@@ -65,7 +67,7 @@ func checkSpanMetric(t *testing.T, timeout time.Duration, exportedSource, servic
 		_, err = testHTTPClient.Do(req)
 		require.NoError(ct, err)
 
-		results, err := pq.Query(`traces_spanmetrics_latency_sum{exported="` + exportedSource +
+		results, err := pq.Query(`traces_span_metrics_duration_seconds_sum{exported="` + exportedSource +
 			`",service_name="` + serviceName + `",span_name="GET ` + path + `"}`)
 		require.NoError(ct, err)
 		require.NotEmpty(ct, results)

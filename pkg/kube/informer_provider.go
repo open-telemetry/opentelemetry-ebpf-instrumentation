@@ -74,6 +74,10 @@ func NewMetadataProvider(config MetadataConfig, internalMetrics imetrics.Reporte
 	return &MetadataProvider{cfg: &config, internalMetrics: internalMetrics}
 }
 
+func (mp *MetadataProvider) SetInternalMetrics(internalMetrics imetrics.Reporter) {
+	mp.internalMetrics = internalMetrics
+}
+
 func (mp *MetadataProvider) IsKubeEnabled() bool {
 	if mp == nil || mp.cfg == nil {
 		return false
@@ -105,6 +109,10 @@ func (mp *MetadataProvider) ForceDisable() {
 	mp.mt.Lock()
 	defer mp.mt.Unlock()
 	mp.cfg.Enable = kubeflags.EnabledFalse
+}
+
+func (mp *MetadataProvider) RestConfig() (*rest.Config, error) {
+	return loadKubeConfig(mp.cfg.KubeConfigPath)
 }
 
 func (mp *MetadataProvider) KubeClient() (kubernetes.Interface, error) {

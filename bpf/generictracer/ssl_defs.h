@@ -117,6 +117,10 @@ handle_ssl_buf(void *ctx, u64 id, ssl_args_t *args, int bytes_len, u8 direction)
 
         bpf_map_delete_elem(&ssl_to_pid_tid, &ssl_ptr);
 
+        if (bytes_len <= 0) {
+            return;
+        }
+
         if (!conn) {
             // At this point the threading in the language doesn't allow us to properly match the SSL* with
             // the connection info. We send partial event, at least we can find the path, timing and response.

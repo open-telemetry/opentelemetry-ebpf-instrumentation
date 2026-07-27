@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions & Discussions
+    url: https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/discussions
+    about: Ask questions, share ideas, and discuss OBI with the community.
+  - name: Slack Channel
+    url: https://cloud-native.slack.com/archives/C08P9L4FPKJ
+    about: Real-time chat with maintainers and users.

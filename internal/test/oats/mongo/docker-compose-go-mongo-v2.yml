@@ -1,6 +1,6 @@
 services:
   mongo:
-    image: mongo:8.2.6@sha256:d343c378b5c6e2fe373174abcf4a877be0dfc721b5d0b9d582204dccb1c00b86
+    image: mongo:8.3.1@sha256:ce32a4b67580c982e2020b07d4ffafdbd9ce474088434294d89c6bd9257f7788
     ports:
       - "27017:27017"
 
@@ -30,12 +30,12 @@ services:
       OTEL_EBPF_TRACE_PRINTER: "text"
       OTEL_EBPF_OPEN_PORT: "8080"
       OTEL_EBPF_SERVICE_NAMESPACE: "integration-test"
-      OTEL_EBPF_METRICS_INTERVAL: "10ms"
+      OTEL_EBPF_METRICS_INTERVAL: "1s"
       OTEL_EBPF_BPF_BATCH_TIMEOUT: "10ms"
       OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT: "1ms"
       OTEL_EBPF_LOG_LEVEL: "DEBUG"
       OTEL_EBPF_BPF_DEBUG: "true"
-      OTEL_EXPORTER_OTLP_ENDPOINT: "http://lgtm:4318"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://collector:4318"
     depends_on:
       testserver:
         condition: service_started

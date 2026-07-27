@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+
 	"go.opentelemetry.io/obi/pkg/internal/testutil"
 )
 
@@ -21,4 +23,50 @@ func TestProcessNotFound(t *testing.T) {
 		}
 	}()
 	testutil.ReadChannel(t, finish, 5*time.Second)
+}
+
+func TestOffsets_HasGoChannelOffsets(t *testing.T) {
+	assert.False(t, (*Offsets)(nil).HasGoChannelOffsets())
+	assert.False(t, (&Offsets{}).HasGoChannelOffsets())
+	assert.False(t, (&Offsets{Field: FieldOffsets{
+		HchanDataqsizPos: uint64(8),
+		HchanSendxPos:    uint64(48),
+		HchanRecvxPos:    uint64(56),
+	}}).HasGoChannelOffsets())
+	assert.False(t, (&Offsets{Field: FieldOffsets{
+		HchanQcountPos:   uint64(0),
+		HchanDataqsizPos: uint64(8),
+		HchanSendxPos:    uint64(48),
+	}}).HasGoChannelOffsets())
+	assert.False(t, (&Offsets{Field: FieldOffsets{
+		HchanQcountPos:   uint64(0),
+		HchanDataqsizPos: uint64(8),
+		HchanSendxPos:    uint64(48),
+		HchanRecvxPos:    int64(56),
+	}}).HasGoChannelOffsets())
+	assert.True(t, (&Offsets{Field: FieldOffsets{
+		HchanQcountPos:   uint64(0),
+		HchanDataqsizPos: uint64(8),
+		HchanSendxPos:    uint64(48),
+		HchanRecvxPos:    uint64(56),
+	}}).HasGoChannelOffsets())
+}
+
+func TestOffsets_HasGoAutoSDKSpanContextOffsets(t *testing.T) {
+	assert.False(t, (*Offsets)(nil).HasGoAutoSDKSpanContextOffsets())
+	assert.False(t, (&Offsets{}).HasGoAutoSDKSpanContextOffsets())
+	assert.False(t, (&Offsets{Field: FieldOffsets{
+		SpanContextTraceIDPos: uint64(0),
+		SpanContextSpanIDPos:  uint64(16),
+	}}).HasGoAutoSDKSpanContextOffsets())
+	assert.False(t, (&Offsets{Field: FieldOffsets{
+		SpanContextTraceIDPos:    uint64(0),
+		SpanContextSpanIDPos:     uint64(16),
+		SpanContextTraceFlagsPos: int64(24),
+	}}).HasGoAutoSDKSpanContextOffsets())
+	assert.True(t, (&Offsets{Field: FieldOffsets{
+		SpanContextTraceIDPos:    uint64(0),
+		SpanContextSpanIDPos:     uint64(16),
+		SpanContextTraceFlagsPos: uint64(24),
+	}}).HasGoAutoSDKSpanContextOffsets())
 }

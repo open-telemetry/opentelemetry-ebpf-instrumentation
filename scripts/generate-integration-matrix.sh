@@ -20,7 +20,7 @@ if [ -z "$FILES" ]; then
 fi
 
 # Extract test function names from the files and sort
-TEST_NAMES=$(grep -h "^func $TEST_PATTERN" $FILES | sed 's/^func \([^(]*\).*/\1/' | sort -u)
+TEST_NAMES=$(grep -hE "^func $TEST_PATTERN" $FILES | sed 's/^func \([^(]*\).*/\1/' | sort -u)
 
 if [ -z "$TEST_NAMES" ]; then
     echo "ERROR: No tests found in '$SEARCH_DIR'" >&2

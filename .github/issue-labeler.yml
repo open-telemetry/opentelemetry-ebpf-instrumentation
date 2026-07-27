@@ -1,0 +1,10 @@
+# Regex patterns matching the rendered form output of .github/ISSUE_TEMPLATE/*.yaml
+# The Component dropdown renders as "### Component" followed by the selected value.
+# Selecting "Both / unsure" matches both label patterns so both are applied.
+#
+# NOTE: github/issue-labeler treats multiple entries under a label as AND, not OR.
+# We use a single regex per label with alternation (`a|b`) to express OR logic.
+"component:obi":
+  - '### Component[^\S\n]*\n+[^\S\n]*(OBI \(eBPF instrumentation\)|Both / unsure)'
+"component:k8s-cache":
+  - '### Component[^\S\n]*\n+[^\S\n]*(k8s-cache|Both / unsure)'

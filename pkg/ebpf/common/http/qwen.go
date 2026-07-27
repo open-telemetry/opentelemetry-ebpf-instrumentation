@@ -4,52 +4,12 @@
 package ebpfcommon // import "go.opentelemetry.io/obi/pkg/ebpf/common/http"
 
 import (
-	"bytes"
 	"encoding/json"
-	"io"
-	"log/slog"
 	"net/http"
-	"net/url"
-	"regexp"
 	"strings"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 )
-
-// modelFieldRegexp extracts the top-level "model" value from a (possibly
-// truncated) JSON request body.  It is a best-effort fallback used only when
-// json.Unmarshal cannot parse the body.  We limit the search window to
-// modelSearchWindow bytes so that we don't accidentally match a "model"
-// key buried inside a user prompt or message content.
-var modelFieldRegexp = regexp.MustCompile(`"model"\s*:\s*"([^"]+)"`)
-
-const modelSearchWindow = 200
-
-func qwenRequestPath(req *http.Request) string {
-	if req == nil {
-		return ""
-	}
-	if req.URL != nil {
-		if req.URL.Path != "" {
-			return req.URL.Path
-		}
-		if req.URL.Opaque != "" {
-			if parsed, err := url.Parse(req.URL.Opaque); err == nil && parsed.Path != "" {
-				return parsed.Path
-			}
-			if strings.HasPrefix(req.URL.Opaque, "/") {
-				return req.URL.Opaque
-			}
-		}
-	}
-	if req.RequestURI == "" {
-		return ""
-	}
-	if parsed, err := url.ParseRequestURI(req.RequestURI); err == nil && parsed.Path != "" {
-		return parsed.Path
-	}
-	return req.RequestURI
-}
 
 func isQwen(respHeader http.Header) bool {
 	for _, header := range []string{"X-DashScope-Request-Id", "X-Dashscope-Call-Gateway"} {
@@ -60,47 +20,57 @@ func isQwen(respHeader http.Header) bool {
 	return false
 }
 
+func looksLikeQwenBody(reqB, respB []byte) bool {
+	if strings.HasPrefix(strings.ToLower(genaiModel(reqB, respB)), "qwen") {
+		return true
+	}
+	return extractJSONRawField(respB, "request_id") != nil
+}
+
 func QwenSpan(baseSpan *request.Span, req *http.Request, resp *http.Response) (request.Span, bool) {
-	if !isQwen(resp.Header) {
-		return *baseSpan, false
-	}
+	headerDetected := isQwen(resp.Header)
+	urlDetected := isQwenCompatibleURL(req)
+	maybeQwen := false
 
-	reqB, err := io.ReadAll(req.Body)
-	if err != nil && len(reqB) == 0 {
-		return *baseSpan, false
-	}
-	if err != nil {
-		slog.Debug("failed to fully read Qwen request body", "error", err)
-	}
-	req.Body = io.NopCloser(bytes.NewBuffer(reqB))
-
-	respB, err := getResponseBody(resp)
-	if err != nil && len(respB) == 0 {
-		return *baseSpan, false
-	}
-
-	slog.Debug("Qwen", "request", string(reqB), "response", string(respB))
-
-	var parsedRequest request.OpenAIInput
-	if err := json.Unmarshal(reqB, &parsedRequest); err != nil {
-		slog.Debug("failed to parse Qwen request", "error", err)
-	}
-	if parsedRequest.Model == "" {
-		window := reqB
-		if len(window) > modelSearchWindow {
-			window = window[:modelSearchWindow]
+	// Not detected by headers or URL: under HTTP/2 (no usable headers) fall back
+	// to matching a Qwen model or DashScope request_id in the bodies.
+	if !headerDetected && !urlDetected {
+		if !isHTTP2Request(req) || !strings.Contains(baseSpan.Path, "/v1/") {
+			return *baseSpan, false
 		}
-		if matches := modelFieldRegexp.FindSubmatch(window); len(matches) == 2 {
-			parsedRequest.Model = strings.TrimSpace(string(matches[1]))
+		maybeQwen = true
+	}
+
+	reqB, ok := readHTTPRequestBody("QwenSpan", req, baseSpan)
+	if !ok {
+		return *baseSpan, false
+	}
+
+	// If detected only by URL, verify model name starts with "qwen". The header
+	// and HTTP/2-body paths have already confirmed the provider.
+	if !headerDetected && !maybeQwen {
+		model := extractModelField(reqB)
+		if !strings.HasPrefix(strings.ToLower(model), "qwen") {
+			return *baseSpan, false
 		}
 	}
 
-	var parsedResponse request.VendorOpenAI
-	if err := json.Unmarshal(respB, &parsedResponse); err != nil {
-		slog.Debug("failed to parse Qwen response", "error", err)
+	respB, ok := readHTTPResponseBody("QwenSpan", resp, baseSpan)
+	if !ok {
+		return *baseSpan, false
 	}
 
-	if parsedResponse.ID == "" {
+	if maybeQwen {
+		if !looksLikeQwenBody(reqB, respB) {
+			return *baseSpan, false
+		}
+	}
+
+	parsedRequest := parseOpenAIInput(reqB)
+	parsedResponse, toolCalls := parseOpenAICompatibleResponse(respB)
+
+	// Qwen-specific: try to extract request_id from response body
+	if parsedResponse.ID == "" && looksLikeJSON(respB) {
 		var responseID struct {
 			RequestID string `json:"request_id"`
 		}
@@ -109,8 +79,8 @@ func QwenSpan(baseSpan *request.Span, req *http.Request, resp *http.Response) (r
 		}
 	}
 
+	// Fallback: try to get request ID from response headers
 	if parsedResponse.ID == "" {
-		// Fall back to response headers when body capture is partial/truncated.
 		for _, headerName := range []string{"X-DashScope-Request-Id", "X-Request-Id"} {
 			if headerValue := strings.TrimSpace(resp.Header.Get(headerName)); headerValue != "" {
 				parsedResponse.ID = headerValue
@@ -119,9 +89,7 @@ func QwenSpan(baseSpan *request.Span, req *http.Request, resp *http.Response) (r
 		}
 	}
 
-	if parsedResponse.OperationName == "" {
-		parsedResponse.OperationName = extractQwenOperation(req)
-	}
+	parsedResponse.OperationName = extractQwenOperation(req)
 	if parsedResponse.ResponseModel == "" {
 		parsedResponse.ResponseModel = parsedRequest.Model
 	}
@@ -130,31 +98,61 @@ func QwenSpan(baseSpan *request.Span, req *http.Request, resp *http.Response) (r
 	}
 
 	parsedResponse.Request = parsedRequest
+	parsedResponse.ToolCalls = toolCalls
 
 	baseSpan.SubType = request.HTTPSubtypeQwen
 	baseSpan.GenAI = &request.GenAI{
-		Qwen: &parsedResponse,
+		Qwen: parsedResponse,
 	}
 
 	return *baseSpan, true
 }
 
+// isQwenCompatibleURL checks if the request targets a Qwen/DashScope
+// endpoint that serves Qwen models.
+func isQwenCompatibleURL(req *http.Request) bool {
+	if req == nil {
+		return false
+	}
+	if !isQwenHost(req) {
+		return false
+	}
+	path := requestPath(req)
+	return strings.Contains(path, "/chat/completions") ||
+		strings.Contains(path, "/completions") ||
+		strings.Contains(path, "/embeddings") ||
+		strings.Contains(path, "/generation")
+}
+
+func isQwenHost(req *http.Request) bool {
+	var host string
+	if req.URL != nil {
+		host = req.URL.Host
+	}
+	if host == "" {
+		host = req.Host
+	}
+	host = strings.ToLower(host)
+	return strings.Contains(host, "dashscope.aliyuncs.com") ||
+		strings.Contains(host, "dashscope.aliyun.com")
+}
+
 func extractQwenOperation(req *http.Request) string {
 	if req == nil {
-		return "generation"
+		return request.GenerationOperationName
 	}
 
-	path := qwenRequestPath(req)
+	path := requestPath(req)
 	switch {
 	case strings.Contains(path, "/chat/completions"):
-		return "chat.completion"
+		return request.ChatOperationName
 	case strings.Contains(path, "/completions"):
-		return "completion"
+		return request.CompletionOperationName
 	case strings.Contains(path, "/embeddings"):
-		return "embedding"
+		return request.EmbeddingOperationName
 	case strings.Contains(path, "/generation"):
-		return "generation"
+		return request.GenerationOperationName
 	default:
-		return "generation"
+		return request.GenerationOperationName
 	}
 }

@@ -8,16 +8,14 @@ import reactor.core.publisher.Mono;
 import reactor.netty.http.client.HttpClient;
 import reactor.netty.http.HttpProtocol;
 
+import javax.net.ssl.SSLException;
 import java.time.Duration;
 
 @Service
 public class HttpClientService {
 
     private HttpClient httpClient = HttpClient.create()
-            .secure(spec -> spec.sslContext(
-                    io.netty.handler.ssl.SslContextBuilder.forClient()
-                            .trustManager(InsecureTrustManagerFactory.INSTANCE)
-            ))
+            .secure(spec -> spec.sslContext(buildClientSslContext()))
             .protocol(HttpProtocol.HTTP11);
     private final WebClient webClient;
 
@@ -26,6 +24,16 @@ public class HttpClientService {
                 .clientConnector(new ReactorClientHttpConnector(httpClient))
                 .codecs(configurer -> configurer.defaultCodecs().maxInMemorySize(1024 * 1024))
                 .build();
+    }
+
+    private static io.netty.handler.ssl.SslContext buildClientSslContext() {
+        try {
+            return io.netty.handler.ssl.SslContextBuilder.forClient()
+                    .trustManager(InsecureTrustManagerFactory.INSTANCE)
+                    .build();
+        } catch (SSLException e) {
+            throw new IllegalStateException("failed to build client SSL context", e);
+        }
     }
 
     /**

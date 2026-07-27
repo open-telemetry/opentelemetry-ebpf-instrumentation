@@ -21,8 +21,8 @@ func testREDMetricsForGRPCMuxLibrary(t *testing.T, route, svcNs, serverPort stri
 	var results []promtest.Result
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		var err error
-		results, err = pq.Query(`rpc_server_duration_seconds_count{` +
-			`rpc_grpc_status_code="0",` +
+		results, err = pq.Query(`rpc_server_call_duration_seconds_count{` +
+			`rpc_response_status_code="OK",` +
 			`service_namespace="` + svcNs + `",` +
 			`service_name="server",` +
 			`rpc_method="` + route + `",` +
@@ -51,6 +51,7 @@ func TestGRPCMux(t *testing.T) {
 		testREDMetricsForGRPCMuxLibrary(t, "/grpc.health.v1.Health/Check", "grpc-http2-go", "8080")
 	})
 
+	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
 
@@ -66,5 +67,6 @@ func TestGRPCMuxTLS(t *testing.T) {
 		testREDMetricsForGRPCMuxLibrary(t, "/grpc.health.v1.Health/Check", "grpc-http2-go", "8383")
 	})
 
+	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }

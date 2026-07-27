@@ -14,13 +14,29 @@
 #include <maps/python_thread_state.h>
 
 #include <common/connection_info.h>
+#include <common/python_task.h>
 
 #include <generictracer/maps/pid_tid_to_conn.h>
 
 #include <pid/pid.h>
 
+#include <shared/obi_ctx.h>
+
 // Python task/context pointers use 0 to mean "no active state" in thread-local tracking.
 enum { k_python_state_none = 0 };
+
+static __always_inline void refresh_obi_ctx_for_task(u64 pid_tgid, u64 task_id) {
+    if (!task_id) {
+        obi_ctx__del(pid_tgid);
+        return;
+    }
+    tp_info_pid_t *tp = find_python_owning_server_trace(task_id);
+    if (tp && tp->valid) {
+        obi_ctx__set(pid_tgid, &tp->tp);
+        return;
+    }
+    obi_ctx__del(pid_tgid);
+}
 
 static __always_inline void map_context_to_task(u64 context, u64 task) {
     python_context_task_t mapping = {
@@ -60,6 +76,7 @@ static __always_inline int update_current_task(u64 id, u64 task) {
     }
 
     thread_state->current_task = task;
+    refresh_obi_ctx_for_task(id, task);
     return 0;
 }
 
@@ -103,6 +120,7 @@ int obi_uprobe_task_step_ret(struct pt_regs *ctx) {
     }
 
     thread_state->current_task = k_python_state_none;
+    obi_ctx__del(id);
     if (thread_state->current_context == k_python_state_none &&
         thread_state->inflight_task == k_python_state_none) {
         bpf_map_delete_elem(&python_thread_state, &id);
@@ -130,6 +148,49 @@ int obi_uprobe_context_run(struct pt_regs *ctx) {
     }
 
     thread_state->current_context = context;
+
+    // asyncio.to_thread worker has no current_task; look up which task copied this context
+    const python_context_task_t *context_task =
+        (const python_context_task_t *)bpf_map_lookup_elem(&python_context_task, &context);
+    const u64 task_id = resolve_python_context_task(context_task);
+    if (task_id) {
+        refresh_obi_ctx_for_task(id, task_id);
+    } else if (thread_state->current_task == k_python_state_none) {
+        // Worker thread (no current_task) reusing entry from a previous job:
+        // drop stale obi_ctx so profiler samples taken before refresh are not
+        // attributed to the previous job's trace
+        obi_ctx__del(id);
+    }
+
+    return 0;
+}
+
+SEC("uretprobe/libpython3.:context_run")
+int obi_uretprobe_context_run(struct pt_regs *ctx) {
+    (void)ctx;
+    const u64 id = bpf_get_current_pid_tgid();
+    if (!valid_pid(id)) {
+        return 0;
+    }
+
+    python_thread_state_t *thread_state =
+        (python_thread_state_t *)bpf_map_lookup_elem(&python_thread_state, &id);
+    if (!thread_state) {
+        return 0;
+    }
+
+    thread_state->current_context = k_python_state_none;
+    // Only worker threads have no current_task here; on the event-loop thread
+    // task_step_ret owns obi_ctx cleanup so we leave it alone
+    if (thread_state->current_task == k_python_state_none) {
+        obi_ctx__del(id);
+    }
+
+    if (thread_state->current_context == k_python_state_none &&
+        thread_state->current_task == k_python_state_none &&
+        thread_state->inflight_task == k_python_state_none) {
+        bpf_map_delete_elem(&python_thread_state, &id);
+    }
 
     return 0;
 }

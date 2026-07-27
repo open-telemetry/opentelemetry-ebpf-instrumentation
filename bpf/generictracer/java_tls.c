@@ -20,6 +20,7 @@
 
 #include <maps/active_ssl_connections.h>
 #include <maps/java_tasks.h>
+#include <maps/java_vt_threads.h>
 
 #include <pid/pid.h>
 
@@ -30,9 +31,14 @@ enum {
     k_ioctl_java_send = 1,
     k_ioctl_java_recv = 2,
     k_ioctl_java_threads = 3,
+    k_ioctl_java_vt_mount = 4,   // virtual thread mounted on this carrier
+    k_ioctl_java_vt_unmount = 5, // virtual thread unmounted from this carrier
 };
 
 enum { k_ioctl_invalid_op = 0xff };
+// Keep this ceiling aligned with the largest large-buffer capture limit in
+// bpf/common/large_buffers.h.
+enum { k_ioctl_max_payload_len = 1 << 16 };
 
 static __always_inline u8 cmd_to_op(u8 cmd) {
     switch (cmd) {
@@ -83,12 +89,51 @@ int BPF_KPROBE(obi_kprobe_sys_ioctl) {
         return 0;
     }
 
-    u8 op_cmd = 0;
-    bpf_probe_read(&op_cmd, sizeof(u8), arg);
+    unsigned char *uarg = arg;
 
-    if (op_cmd == k_ioctl_java_threads) {
+    u8 op_cmd = 0;
+    if (bpf_probe_read_user(&op_cmd, sizeof(op_cmd), uarg) != 0) {
+        return 0;
+    }
+
+    // Control opcodes each handle themselves and return; the data opcodes
+    // (send/recv) fall through to the connection/payload path below.
+    switch (op_cmd) {
+    case k_ioctl_java_vt_mount: {
+        // The agent reports, on every VirtualThread.mount(), the logical
+        // thread id now mounted on this carrier; the current kernel thread
+        // IS the carrier.
+        u64 vt_id = 0;
+        if (bpf_probe_read_user(&vt_id, sizeof(vt_id), uarg + 1) != 0) {
+            return 0;
+        }
+
+        pid_key_t carrier = {0};
+        task_tid(&carrier);
+
+        bpf_dbg_printk("Java VT mount carrier=%d vt=%lld", carrier.tid, vt_id);
+        bpf_map_update_elem(&java_vt_threads, &carrier, &vt_id, BPF_ANY);
+
+        return 0;
+    }
+    case k_ioctl_java_vt_unmount: {
+        // The mounted VT left this carrier: delete the entry so a carrier
+        // with no mounted VT is never translated. mount/unmount for a
+        // carrier always execute ON that carrier thread, so write and
+        // delete are in program order.
+        pid_key_t carrier = {0};
+        task_tid(&carrier);
+
+        bpf_dbg_printk("Java VT unmount carrier=%d", carrier.tid);
+        bpf_map_delete_elem(&java_vt_threads, &carrier);
+
+        return 0;
+    }
+    case k_ioctl_java_threads: {
         u64 parent_id = 0;
-        bpf_probe_read(&parent_id, sizeof(u64), arg + 1);
+        if (bpf_probe_read_user(&parent_id, sizeof(parent_id), uarg + 1) != 0) {
+            return 0;
+        }
 
         pid_key_t child = {0};
         task_tid(&child);
@@ -117,6 +162,9 @@ int BPF_KPROBE(obi_kprobe_sys_ioctl) {
 
         return 0;
     }
+    default:
+        break;
+    }
 
     const u8 op = cmd_to_op(op_cmd);
 
@@ -128,7 +176,9 @@ int BPF_KPROBE(obi_kprobe_sys_ioctl) {
     bpf_dbg_printk("op=%d, cmd=%d", op, op_cmd);
 
     pid_connection_info_t p_conn = {0};
-    bpf_probe_read(&p_conn.conn, sizeof(connection_info_t), arg + 1);
+    if (bpf_probe_read_user(&p_conn.conn, sizeof(p_conn.conn), uarg + 1) != 0) {
+        return 0;
+    }
     d_print_http_connection_info(&p_conn.conn);
     u16 orig_dport = 0;
     // What we get from Java is correct, unlike the reversed information we
@@ -152,15 +202,37 @@ int BPF_KPROBE(obi_kprobe_sys_ioctl) {
     }
 
     u32 len = 0;
-    bpf_probe_read(&len, sizeof(u32), arg + 1 + sizeof(connection_info_t));
+    if (bpf_probe_read_user(&len, sizeof(len), uarg + 1 + sizeof(connection_info_t)) != 0) {
+        return 0;
+    }
 
-    bpf_dbg_printk("payload len=%d", len);
+    // Bound the parser-visible payload length before we touch the payload
+    // pointer or hand it to the shared protocol path.
+    u32 max_len = len;
+    bpf_clamp_umax(max_len, k_ioctl_max_payload_len);
 
-    if (len > 0) {
-        void *buf = arg + 1 + sizeof(connection_info_t) + sizeof(u32);
+    bpf_dbg_printk("payload len=%d", max_len);
+
+    if (max_len > 0) {
+        unsigned char *buf = uarg + 1 + sizeof(connection_info_t) + sizeof(u32);
+        // This path consumes one flat user pointer supplied from Java. The
+        // security boundary here is "user memory vs. non-user memory", not
+        // full range validation. We therefore verify that the claimed payload
+        // starts and ends in user-readable memory before the generic tracer
+        // consumes it, while keeping the rest of the generic buffer path
+        // unchanged.
+        unsigned char first = 0;
+        if (bpf_probe_read_user(&first, sizeof(first), buf) != 0) {
+            return 0;
+        }
+        unsigned char last = 0;
+        if (bpf_probe_read_user(&last, sizeof(last), buf + max_len - 1) != 0) {
+            return 0;
+        }
+
         const u64 zero = 0;
         bpf_map_update_elem(&active_ssl_connections, &p_conn, &zero, BPF_ANY);
-        handle_buf_with_connection(ctx, &p_conn, buf, len, WITH_SSL, op, orig_dport);
+        handle_buf_with_connection(ctx, &p_conn, buf, max_len, WITH_SSL, op, orig_dport);
     }
 
     return 0;

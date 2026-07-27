@@ -56,6 +56,14 @@ func runMQTTTestCase(t *testing.T, testCase TestCase) {
 }
 
 func testREDMetricsPythonMQTT(t *testing.T) {
+	testREDMetricsMQTTPublish(t, "python3.14", true)
+}
+
+func testREDMetricsGoMQTT(t *testing.T) {
+	testREDMetricsMQTTPublish(t, "testserver", false)
+}
+
+func testREDMetricsMQTTPublish(t *testing.T, comm string, warmupConnect bool) {
 	commonAttrs := []attribute.KeyValue{
 		attribute.String("messaging.system", "mqtt"),
 		attribute.Int("server.port", 1883),
@@ -65,7 +73,7 @@ func testREDMetricsPythonMQTT(t *testing.T) {
 		{
 			Route:   "http://localhost:8381",
 			Subpath: "mqtt",
-			Comm:    "python3.14",
+			Comm:    comm,
 			Spans: []TestCaseSpan{
 				{
 					Name: "publish test/topic",
@@ -85,9 +93,11 @@ func testREDMetricsPythonMQTT(t *testing.T) {
 		}
 
 		t.Run(testCase.Route, func(t *testing.T) {
-			// Use /mqtt/connect for warmup to establish connection without triggering publish.
-			// This ensures OBI is fully ready before the actual test triggers the publish operation.
-			waitForMQTTTestComponents(t, testCase.Route, "/mqtt/connect")
+			if warmupConnect {
+				// Use /mqtt/connect for warmup to establish connection without triggering publish.
+				// This ensures OBI is fully ready before the actual test triggers the publish operation.
+				waitForMQTTTestComponents(t, testCase.Route, "/mqtt/connect")
+			}
 			runMQTTTestCase(t, testCase)
 		})
 	}

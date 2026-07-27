@@ -4,10 +4,12 @@
 package discover
 
 import (
+	"fmt"
 	"math"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -102,4 +104,36 @@ func TestProcessAge(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Less(t, age, expected)
+}
+
+func TestProcessAgeFuncConcurrent(t *testing.T) {
+	processAge := ProcessAgeFunc()
+	pid := app.PID(os.Getpid())
+
+	const goroutines = 8
+	const iterations = 100
+
+	errCh := make(chan error, goroutines)
+	var wg sync.WaitGroup
+
+	for range goroutines {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			for range iterations {
+				if age := processAge(pid); age <= 0 {
+					errCh <- fmt.Errorf("expected positive process age for pid %d", pid)
+					return
+				}
+			}
+		}()
+	}
+
+	wg.Wait()
+	close(errCh)
+
+	for err := range errCh {
+		require.NoError(t, err)
+	}
 }

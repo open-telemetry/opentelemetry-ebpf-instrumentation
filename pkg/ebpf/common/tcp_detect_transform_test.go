@@ -23,7 +23,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/config"
-	"go.opentelemetry.io/obi/pkg/internal/ebpf/ringbuf"
+	"go.opentelemetry.io/obi/pkg/ebpf/ringbuf"
 	"go.opentelemetry.io/obi/pkg/internal/largebuf"
 	"go.opentelemetry.io/obi/pkg/internal/testutil"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
@@ -32,10 +32,10 @@ import (
 func TestTCPReqSQLParsing(t *testing.T) {
 	sql := randomStringWithSub("SELECT * FROM accounts ")
 	r := makeTCPReq(sql, 343534)
-	op, table, sql := detectSQL([]byte(sql))
+	op, tables, sql := detectSQL([]byte(sql))
 	assert.Equal(t, "SELECT", op)
-	assert.Equal(t, "accounts", table)
-	s := TCPToSQLToSpan(&r, op, table, sql, request.DBGeneric, "", nil)
+	assert.Equal(t, []string{"accounts"}, tables)
+	s := TCPToSQLToSpan(&r, op, tables, sql, request.DBGeneric, "", nil)
 	assert.NotNil(t, s)
 	assert.NotEmpty(t, s.Host)
 	assert.NotEmpty(t, s.Peer)
@@ -68,12 +68,65 @@ func TestReadTCPRequestIntoSpan_SQLServerTrafficIsServerSpan(t *testing.T) {
 	assert.Equal(t, "accounts", span.Path)
 }
 
+func pgWireMsg(typ byte, body string) []byte {
+	msg := binary.BigEndian.AppendUint32([]byte{typ}, uint32(4+len(body)+1))
+	msg = append(msg, body...)
+	return append(msg, 0)
+}
+
+func TestReadTCPRequestIntoSpan_PostgresStartupSetsDBNamespace(t *testing.T) {
+	cfg := config.EBPFTracer{HeuristicSQLDetect: true, PostgresPreparedStatementsCacheSize: 16}
+	ctx := NewEBPFParseContext(&cfg, nil, nil)
+	fltr := TestPidsFilter{services: map[app.PID]svc.Attrs{}}
+
+	readSpan := func(t *testing.T, r TCPRequestInfo) (request.Span, bool) {
+		binaryRecord := bytes.Buffer{}
+		require.NoError(t, binary.Write(&binaryRecord, binary.LittleEndian, r))
+		span, ignore, err := ReadTCPRequestIntoSpan(ctx, &cfg, &ringbuf.Record{RawSample: binaryRecord.Bytes()}, &fltr)
+		require.NoError(t, err)
+		return span, ignore
+	}
+
+	startup := makeTCPReq(string(pgStartupMessage("user", "postgres", "database", "mydb")), 5432)
+	_, ignore := readSpan(t, startup)
+	assert.True(t, ignore, "startup message should not produce a span")
+
+	t.Run("heuristic SQL path", func(t *testing.T) {
+		query := makeTCPReq(string(pgWireMsg(kPostgresQuery, "SELECT * FROM accounts")), 5432)
+		span, ignore := readSpan(t, query)
+		assert.False(t, ignore)
+		assert.Equal(t, request.EventTypeSQLClient, span.Type)
+		assert.Equal(t, "SELECT", span.Method)
+		assert.Equal(t, "mydb", span.DBNamespace)
+	})
+
+	t.Run("kernel-assigned Postgres path", func(t *testing.T) {
+		query := makeTCPReq(string(pgWireMsg(kPostgresQuery, "SELECT * FROM accounts")), 5432)
+		query.ProtocolType = ProtocolTypePostgres
+		resp := pgWireMsg(kPostgresCommand, "SELECT 1")
+		query.RespLen = uint32(len(resp))
+		copy(query.Rbuf[:], resp)
+		span, ignore := readSpan(t, query)
+		assert.False(t, ignore)
+		assert.Equal(t, request.EventTypeSQLClient, span.Type)
+		assert.Equal(t, "SELECT", span.Method)
+		assert.Equal(t, "mydb", span.DBNamespace)
+	})
+
+	t.Run("unknown connection has no namespace", func(t *testing.T) {
+		query := makeTCPReq(string(pgWireMsg(kPostgresQuery, "SELECT * FROM accounts")), 5433)
+		span, ignore := readSpan(t, query)
+		assert.False(t, ignore)
+		assert.Empty(t, span.DBNamespace)
+	})
+}
+
 func TestTCPReqParsing(t *testing.T) {
 	sql := "Not a sql or any known protocol"
 	r := makeTCPReq(sql, 343534)
-	op, table, _ := detectSQL([]byte(sql))
+	op, tables, _ := detectSQL([]byte(sql))
 	assert.Empty(t, op)
-	assert.Empty(t, table)
+	assert.Empty(t, tables)
 	assert.NotNil(t, r)
 
 	// Verify fallback debug logs appear when no protocol matches
@@ -110,6 +163,62 @@ func TestTCPReqParsing(t *testing.T) {
 	assert.Contains(t, output.String(), "![<]")
 }
 
+func BenchmarkReadTCPRequestIntoSpan_RandomGarbage(b *testing.B) {
+	benchReadTCPRequestIntoSpanRandomGarbage(b, false)
+}
+
+func BenchmarkReadTCPRequestIntoSpan_SQLRandomGarbage(b *testing.B) {
+	benchReadTCPRequestIntoSpanRandomGarbage(b, true)
+}
+
+func benchReadTCPRequestIntoSpanRandomGarbage(b *testing.B, heuristic bool) {
+	const (
+		corpusSize     = 1024
+		parserCacheLen = 1024
+	)
+
+	cfg := config.EBPFTracer{
+		HeuristicSQLDetect:                  heuristic,
+		CouchbaseDBCacheSize:                parserCacheLen,
+		MySQLPreparedStatementsCacheSize:    parserCacheLen,
+		PostgresPreparedStatementsCacheSize: parserCacheLen,
+		MSSQLPreparedStatementsCacheSize:    parserCacheLen,
+		MongoRequestsCacheSize:              parserCacheLen,
+		KafkaTopicUUIDCacheSize:             parserCacheLen,
+	}
+	ctx := NewEBPFParseContext(&cfg, nil, nil)
+	fltr := TestPidsFilter{services: map[app.PID]svc.Attrs{}}
+	rng := rand.New(rand.NewPCG(1, 2))
+
+	records := make([]ringbuf.Record, corpusSize)
+	for i := range records {
+		tri := makeTCPReq("", 8080)
+		fillRandomGarbage(rng, tri.Buf[:])
+		fillRandomGarbage(rng, tri.Rbuf[:])
+		tri.Len = uint32(len(tri.Buf))
+		tri.RespLen = uint32(len(tri.Rbuf))
+		tri.ProtocolType = ProtocolTypeUnknown
+		tri.EventSource = GenericEventSourceTypeKProbes
+		tri.ConnInfo.S_port = uint16(20000 + i)
+
+		binaryRecord := bytes.Buffer{}
+		require.NoError(b, binary.Write(&binaryRecord, binary.LittleEndian, tri))
+		records[i] = ringbuf.Record{RawSample: binaryRecord.Bytes()}
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		span, ignore, err := ReadTCPRequestIntoSpan(ctx, &cfg, &records[i%len(records)], &fltr)
+		if err != nil {
+			b.Fatal(err)
+		}
+		_ = span
+		_ = ignore
+	}
+}
+
 func TestSQLDetection(t *testing.T) {
 	for _, s := range [][]byte{
 		[]byte("SELECT * from accounts"), []byte("SELECT/*My comment*/ * from accounts"),
@@ -118,12 +227,12 @@ func TestSQLDetection(t *testing.T) {
 		[]byte("DROP table accounts "), []byte("ALTER table accounts"),
 	} {
 		surrounded := []byte(randomStringWithSub(string(s)))
-		op, table, _ := detectSQL(s)
+		op, tables, _ := detectSQL(s)
 		assert.NotEmpty(t, op)
-		assert.NotEmpty(t, table)
-		op, table, _ = detectSQL(surrounded)
+		assert.NotEmpty(t, tables)
+		op, tables, _ = detectSQL(surrounded)
 		assert.NotEmpty(t, op)
-		assert.NotEmpty(t, table)
+		assert.NotEmpty(t, tables)
 	}
 }
 
@@ -131,18 +240,18 @@ func TestSQLDetectionFails(t *testing.T) {
 	for _, s := range [][]byte{
 		[]byte("SELECT"), []byte("UPDATES{}"), []byte("DELETE {} "), []byte("INSERT// into accounts "),
 	} {
-		op, table, _ := detectSQL(s)
-		assert.False(t, validSQL(op, table, request.DBGeneric))
+		op, tables, _ := detectSQL(s)
+		assert.False(t, validSQL(op, len(tables) > 0, request.DBGeneric))
 		surrounded := []byte(randomStringWithSub(string(s)))
-		op, table, _ = detectSQL(surrounded)
-		assert.False(t, validSQL(op, table, request.DBGeneric))
+		op, tables, _ = detectSQL(surrounded)
+		assert.False(t, validSQL(op, len(tables) > 0, request.DBGeneric))
 	}
 }
 
 func TestSQLDetectionDoesntFailForDetectedKind(t *testing.T) {
-	for _, s := range [][]byte{[]byte("SELECT"), []byte("DELETE {} ")} {
-		op, table, _ := detectSQL(s)
-		assert.True(t, validSQL(op, table, request.DBPostgres))
+	for _, s := range [][]byte{[]byte("SELECT 1"), []byte("DELETE {}")} {
+		op, tables, _ := detectSQL(s)
+		assert.True(t, validSQL(op, len(tables) > 0, request.DBPostgres))
 	}
 }
 
@@ -223,9 +332,10 @@ func TestTCPReqKafkaParsing(t *testing.T) {
 	// kafka message
 	b := []byte{0, 0, 0, 94, 0, 1, 0, 11, 0, 0, 0, 224, 0, 6, 115, 97, 114, 97, 109, 97, 255, 255, 255, 255, 0, 0, 1, 244, 0, 0, 0, 1, 6, 64, 0, 0, 0, 0, 0, 0, 0, 255, 255, 255, 255, 0, 0, 0, 1, 0, 9, 105, 109, 112, 111, 114, 116, 97, 110, 116, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 19, 0, 0, 0, 0, 0, 0, 0, 0, 0, 16, 0, 0, 0, 0, 0, 0, 0, 0}
 	r := makeTCPReq(string(b), 343534)
-	k, _, err := ProcessKafkaRequest(largebuf.NewLargeBufferFrom(b), nil)
+	ks, _, err := ProcessKafkaRequest(largebuf.NewLargeBufferFrom(b), nil)
 	require.NoError(t, err)
-	s := TCPToKafkaToSpan(&r, k)
+	require.Len(t, ks, 1)
+	s := TCPToKafkaToSpan(&r, ks[0])
 	assert.NotNil(t, s)
 	assert.NotEmpty(t, s.Host)
 	assert.NotEmpty(t, s.Peer)
@@ -258,6 +368,158 @@ func TestTCPReqMQTTParsing(t *testing.T) {
 	assert.Equal(t, request.MessagingPublish, s.Method)
 	assert.Equal(t, "test/topic", s.Path)
 	assert.Equal(t, request.EventTypeMQTTClient, s.Type)
+}
+
+func TestTCPReqNATSParsing(t *testing.T) {
+	b := []byte("PUB updates.orders 5\r\nhello\r\n")
+	r := makeTCPReq(string(b), 4222)
+	n, ignore, err := ProcessNATSEvent(largebuf.NewLargeBufferFrom(b))
+	require.NoError(t, err)
+	assert.False(t, ignore)
+	s := TCPToNATSToSpan(&r, n)
+	assert.NotNil(t, s)
+	assert.NotEmpty(t, s.Host)
+	assert.NotEmpty(t, s.Peer)
+	assert.Equal(t, 8080, s.HostPort)
+	assert.Greater(t, s.End, s.Start)
+	assert.Equal(t, request.MessagingPublish, s.Method)
+	assert.Equal(t, "updates.orders", s.Path)
+	assert.Equal(t, request.EventTypeNATSClient, s.Type)
+}
+
+func TestReadTCPRequestIntoSpan_NATSResponseTrafficIsServerSpan(t *testing.T) {
+	r := makeTCPReq("PING\r\n", 4222)
+	r.RespLen = uint32(len("MSG updates.orders sidA 5\r\nhello\r\n"))
+	copy(r.Rbuf[:], "MSG updates.orders sidA 5\r\nhello\r\n")
+
+	cfg := config.EBPFTracer{HeuristicSQLDetect: true}
+	ctx := NewEBPFParseContext(&cfg, nil, nil)
+
+	binaryRecord := bytes.Buffer{}
+	require.NoError(t, binary.Write(&binaryRecord, binary.LittleEndian, r))
+	fltr := TestPidsFilter{services: map[app.PID]svc.Attrs{}}
+
+	span, ignore, err := ReadTCPRequestIntoSpan(ctx, &cfg, &ringbuf.Record{RawSample: binaryRecord.Bytes()}, &fltr)
+	require.NoError(t, err)
+	assert.False(t, ignore)
+	assert.Equal(t, request.EventTypeNATSServer, span.Type)
+	assert.Equal(t, request.MessagingProcess, span.Method)
+	assert.Equal(t, "updates.orders", span.Path)
+}
+
+func TestReadTCPRequestIntoSpan_NATSReceiveFirstMessageIsServerSpan(t *testing.T) {
+	header := "NATS/1.0\r\nX-Test: python\r\n\r\n"
+	payload := "python-nats-1"
+	frame := fmt.Sprintf("HMSG updates.orders 1 %d %d\r\n%s%s\r\n", len(header), len(header)+len(payload), header, payload)
+
+	r := makeTCPReq(frame, 4222)
+	r.Direction = directionRecv
+
+	cfg := config.EBPFTracer{HeuristicSQLDetect: true}
+	ctx := NewEBPFParseContext(&cfg, nil, nil)
+
+	binaryRecord := bytes.Buffer{}
+	require.NoError(t, binary.Write(&binaryRecord, binary.LittleEndian, r))
+	fltr := TestPidsFilter{services: map[app.PID]svc.Attrs{}}
+
+	span, ignore, err := ReadTCPRequestIntoSpan(ctx, &cfg, &ringbuf.Record{RawSample: binaryRecord.Bytes()}, &fltr)
+	require.NoError(t, err)
+	assert.False(t, ignore)
+	assert.Equal(t, request.EventTypeNATSServer, span.Type)
+	assert.Equal(t, request.MessagingProcess, span.Method)
+	assert.Equal(t, "updates.orders", span.Path)
+}
+
+func TestReadTCPRequestIntoSpan_NATSCoalescedPublishAndProcessEmitsDistinctServerExtraSpan(t *testing.T) {
+	header := "NATS/1.0\r\nX-Test: python\r\n\r\n"
+	payload := "python-nats-1"
+	hdrLen := len(header)
+	totalLen := hdrLen + len(payload)
+
+	requestFrame := fmt.Sprintf("HPUB updates.orders %d %d\r\n%s%s\r\n", hdrLen, totalLen, header, payload)
+	responseFrame := fmt.Sprintf("HMSG updates.orders subA %d %d\r\n%s%s\r\n", hdrLen, totalLen, header, payload)
+
+	r := makeTCPReq(requestFrame, 4222)
+	r.RespLen = uint32(len(responseFrame))
+	copy(r.Rbuf[:], responseFrame)
+	r.ConnInfo.S_port = 38436
+	r.ConnInfo.D_port = 4222
+	r.Tp.TraceId = [16]uint8{1, 2, 3, 4}
+	r.Tp.SpanId = [8]uint8{5, 6, 7, 8}
+	r.Tp.ParentId = [8]uint8{9, 10, 11, 12}
+
+	cfg := config.EBPFTracer{HeuristicSQLDetect: true}
+	queue := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(4))
+	out := queue.Subscribe(msg.SubscriberName("nats"))
+	fltr := TestPidsFilter{services: map[app.PID]svc.Attrs{}}
+	ctx := NewEBPFParseContext(&cfg, queue, &fltr)
+
+	binaryRecord := bytes.Buffer{}
+	require.NoError(t, binary.Write(&binaryRecord, binary.LittleEndian, r))
+
+	span, ignore, err := ReadTCPRequestIntoSpan(ctx, &cfg, &ringbuf.Record{RawSample: binaryRecord.Bytes()}, &fltr)
+	require.NoError(t, err)
+	require.False(t, ignore)
+
+	assert.Equal(t, request.EventTypeNATSClient, span.Type)
+	assert.Equal(t, request.MessagingPublish, span.Method)
+	assert.Equal(t, "updates.orders", span.Path)
+	assert.Equal(t, 4222, span.HostPort)
+
+	extra := testutil.ReadChannel(t, out, time.Second)
+	require.Len(t, extra, 1)
+	assert.Equal(t, request.EventTypeNATSServer, extra[0].Type)
+	assert.Equal(t, request.MessagingProcess, extra[0].Method)
+	assert.Equal(t, "updates.orders", extra[0].Path)
+	assert.Equal(t, 4222, extra[0].HostPort)
+	assert.Equal(t, span.TraceID, extra[0].TraceID)
+	assert.Equal(t, span.ParentSpanID, extra[0].ParentSpanID)
+	assert.NotEqual(t, span.SpanID, extra[0].SpanID)
+	assert.False(t, extra[0].SpanID.IsValid())
+}
+
+func TestReadTCPRequestIntoSpan_NATSReversedCoalescedPublishAndProcessPreservesRoles(t *testing.T) {
+	header := "NATS/1.0\r\nX-Test: python\r\n\r\n"
+	payload := "python-nats-1"
+	hdrLen := len(header)
+	totalLen := hdrLen + len(payload)
+
+	requestFrame := fmt.Sprintf("HMSG updates.orders subA %d %d\r\n%s%s\r\n", hdrLen, totalLen, header, payload)
+	responseFrame := fmt.Sprintf("HPUB updates.orders %d %d\r\n%s%s\r\n", hdrLen, totalLen, header, payload)
+
+	r := makeTCPReq(requestFrame, 4222)
+	r.RespLen = uint32(len(responseFrame))
+	copy(r.Rbuf[:], responseFrame)
+	r.ConnInfo.S_port = 38436
+	r.ConnInfo.D_port = 4222
+	r.Tp.TraceId = [16]uint8{1, 2, 3, 4}
+	r.Tp.SpanId = [8]uint8{5, 6, 7, 8}
+	r.Tp.ParentId = [8]uint8{9, 10, 11, 12}
+
+	cfg := config.EBPFTracer{HeuristicSQLDetect: true}
+	queue := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(4))
+	out := queue.Subscribe(msg.SubscriberName("nats-reversed"))
+	fltr := TestPidsFilter{services: map[app.PID]svc.Attrs{}}
+	ctx := NewEBPFParseContext(&cfg, queue, &fltr)
+
+	binaryRecord := bytes.Buffer{}
+	require.NoError(t, binary.Write(&binaryRecord, binary.LittleEndian, r))
+
+	span, ignore, err := ReadTCPRequestIntoSpan(ctx, &cfg, &ringbuf.Record{RawSample: binaryRecord.Bytes()}, &fltr)
+	require.NoError(t, err)
+	require.False(t, ignore)
+
+	assert.Equal(t, request.EventTypeNATSClient, span.Type)
+	assert.Equal(t, request.MessagingPublish, span.Method)
+	assert.Equal(t, "updates.orders", span.Path)
+	assert.Equal(t, 4222, span.HostPort)
+
+	extra := testutil.ReadChannel(t, out, time.Second)
+	require.Len(t, extra, 1)
+	assert.Equal(t, request.EventTypeNATSServer, extra[0].Type)
+	assert.Equal(t, request.MessagingProcess, extra[0].Method)
+	assert.Equal(t, "updates.orders", extra[0].Path)
+	assert.Equal(t, 4222, extra[0].HostPort)
 }
 
 func TestTCPReqMQTTHeuristicFailure(t *testing.T) {
@@ -303,6 +565,12 @@ func randomString(length int) string {
 
 func randomStringWithSub(sub string) string {
 	return fmt.Sprintf("%s%s%s", randomString(rand.IntN(10)), sub, randomString(rand.IntN(20)))
+}
+
+func fillRandomGarbage(rng *rand.Rand, buf []byte) {
+	for i := range buf {
+		buf[i] = byte(rng.Uint64())
+	}
 }
 
 func TestReadTCPRequestIntoSpan_CouchbaseKeyNotFound(t *testing.T) {

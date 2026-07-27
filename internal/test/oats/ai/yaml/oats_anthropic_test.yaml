@@ -2,6 +2,7 @@ oats-schema-version: 2
 docker-compose:
   files:
   - ../docker-compose-anthropic.yml
+  - ../../weaver/docker-compose-weaver.yml
 input:
 - path: /system
 - path: /error
@@ -14,7 +15,7 @@ expected:
     equals: message claude-sonnet-4-6
     attributes:
       gen_ai.operation.name: message
-      gen_ai.system_instructions: You are a helpful assistant that always responds in haiku format.
+      gen_ai.system_instructions: '[{"type":"text","content":"You are a helpful assistant that always responds in haiku format."}]'
       gen_ai.response.model: claude-sonnet-4-6
   # Error returned by Anthropic
   - traceql: '{ .error.type = "authentication_error" && .gen_ai.request.model = "claude-sonnet-4-6"}'
@@ -27,7 +28,7 @@ expected:
     attributes:
       gen_ai.operation.name: message
       gen_ai.response.model: claude-sonnet-4-6
-      gen_ai.usage.output_tokens: 39
+      gen_ai.usage.output_tokens: 37
   metrics:
   - promql: gen_ai_client_token_usage_count{gen_ai_operation_name="message", gen_ai_provider_name="anthropic", gen_ai_token_type="input", gen_ai_request_model="claude-sonnet-4-6",gen_ai_response_model="claude-sonnet-4-6"}
     value: '> 0'

@@ -36,6 +36,25 @@ const (
 	// pgHeaderLen is the size of the Postgres message header:
 	// 1 byte type + 4 bytes length field.
 	pgHeaderLen = 5
+
+	// StartupMessage major protocol version (3.x: 3.0 since PG 7.4, 3.2 since PG 18)
+	pgStartupProtocolMajor = 3
+	// pgStartupMinLen: 4 bytes length + 4 bytes protocol + 1 byte terminator
+	pgStartupMinLen     = 9
+	pgStartupMaxLen     = 10000
+	pgSSLRequestCode    = 80877103
+	pgGSSENCRequestCode = 80877104
+)
+
+var (
+	errPGTooShort                     = errors.New("too short")
+	errPGTooShortStatement            = errors.New("too short, while parsing statement")
+	errPGTooShortPortal               = errors.New("too short, while parsing portal")
+	errPGTooShortFormatCodes          = errors.New("too short, while parsing format codes")
+	errPGTooShortParams               = errors.New("too short, while parsing params")
+	errPGRemainingTooShortHeader      = errors.New("remaining buffer too short for message header")
+	errPGMalformedMessage             = errors.New("malformed Postgres message")
+	errPGRemainingTooShortMessageData = errors.New("remaining buffer too short for message data")
 )
 
 func isPostgres(b *largebuf.LargeBuffer) bool {
@@ -80,13 +99,13 @@ func isValidPostgresPayload(b *largebuf.LargeBuffer) (byte, bool) {
 func msgBody(b *largebuf.LargeBuffer) ([]byte, error) {
 	size, err := b.I32BEAt(1)
 	if err != nil {
-		return nil, errors.New("too short")
+		return nil, errPGTooShort
 	}
 
 	msgSize := min(1+int(size), b.Len())
 
 	if msgSize < pgHeaderLen {
-		return nil, errors.New("too short")
+		return nil, errPGTooShort
 	}
 
 	return b.UnsafeViewAt(pgHeaderLen, msgSize-pgHeaderLen)
@@ -97,11 +116,11 @@ func msgBody(b *largebuf.LargeBuffer) ([]byte, error) {
 func msgBodyReader(b *largebuf.LargeBuffer) (largebuf.LargeBufferReader, error) {
 	size, err := b.I32BEAt(1)
 	if err != nil {
-		return largebuf.LargeBufferReader{}, errors.New("too short")
+		return largebuf.LargeBufferReader{}, errPGTooShort
 	}
 	end := min(1+int(size), b.Len())
 	if end < pgHeaderLen {
-		return largebuf.LargeBufferReader{}, errors.New("too short")
+		return largebuf.LargeBufferReader{}, errPGTooShort
 	}
 	return b.NewLimitedReader(pgHeaderLen, end)
 }
@@ -115,29 +134,29 @@ func parsePostgresBindCommand(b *largebuf.LargeBuffer) (string, string, []string
 
 	stmtBytes, err := r.ReadCStr()
 	if err != nil {
-		return "", "", nil, errors.New("too short, while parsing statement")
+		return "", "", nil, errPGTooShortStatement
 	}
 
 	portalBytes, err := r.ReadCStr()
 	if err != nil {
-		return "", "", nil, errors.New("too short, while parsing portal")
+		return "", "", nil, errPGTooShortPortal
 	}
 
 	// skip format codes: Int16 count + count*Int16 entries
 	formats, err := r.ReadI16BE()
 	if err != nil {
-		return "", "", nil, errors.New("too short, while parsing format codes")
+		return "", "", nil, errPGTooShortFormatCodes
 	}
 	if formats > 0 {
 		if err := r.Skip(2 * int(formats)); err != nil {
-			return "", "", nil, errors.New("too short, while parsing format codes")
+			return "", "", nil, errPGTooShortFormatCodes
 		}
 	}
 
 	// parse parameter values: Int16 count + repeated (Int32 length + bytes)
 	params, err := r.ReadI16BE()
 	if err != nil {
-		return "", "", nil, errors.New("too short, while parsing params")
+		return "", "", nil, errPGTooShortParams
 	}
 	if params <= 0 {
 		return string(stmtBytes), string(portalBytes), nil, nil
@@ -146,7 +165,7 @@ func parsePostgresBindCommand(b *largebuf.LargeBuffer) (string, string, []string
 	for range int(params) {
 		argLen, err := r.ReadI32BE()
 		if err != nil {
-			return "", "", nil, errors.New("too short, while parsing params")
+			return "", "", nil, errPGTooShortParams
 		}
 		if argLen < 0 {
 			// NULL parameter value (-1 in the protocol)
@@ -155,7 +174,7 @@ func parsePostgresBindCommand(b *largebuf.LargeBuffer) (string, string, []string
 		n := min(int(argLen), r.Remaining())
 		arg, err := r.ReadN(n)
 		if err != nil {
-			return "", "", nil, errors.New("too short, while parsing params")
+			return "", "", nil, errPGTooShortParams
 		}
 		args = append(args, string(arg))
 	}
@@ -204,9 +223,86 @@ func postgresPreparedStatements(b *largebuf.LargeBuffer) (string, string, string
 	return op, table, sql
 }
 
+// StartupMessage: Int32 length, Int32 protocol, then null-terminated key/value pairs
+func parsePostgresStartup(b *largebuf.LargeBuffer) (string, bool) {
+	r := b.NewReader()
+	// BPF drops 1-byte reads, so a refused SSL/GSSENC negotiation ('N') glues its request to the startup
+	for range 3 {
+		msgLen, err := r.ReadI32BE()
+		if err != nil || msgLen < 8 || msgLen > pgStartupMaxLen {
+			return "", false
+		}
+		code, err := r.ReadI32BE()
+		if err != nil {
+			return "", false
+		}
+		if (code == pgSSLRequestCode || code == pgGSSENCRequestCode) && msgLen == 8 {
+			continue
+		}
+		// trailing bytes past the startup's own length = some other length-prefixed protocol
+		if code>>16 != pgStartupProtocolMajor || msgLen < pgStartupMinLen ||
+			int(msgLen)-8 < r.Remaining() {
+			return "", false
+		}
+		return parsePostgresStartupParams(&r, r.Remaining() == int(msgLen)-8)
+	}
+	return "", false
+}
+
+func parsePostgresStartupParams(r *largebuf.LargeBufferReader, complete bool) (string, bool) {
+	var db, user string
+	for {
+		key, err := r.ReadCStr()
+		if err != nil || len(key) == 0 {
+			break
+		}
+		// ReadCStr may return the reader's scratch buffer, which the next read reuses
+		k := string(key)
+		val, err := r.ReadCStr()
+		if err != nil {
+			break
+		}
+		switch k {
+		case "database":
+			db = string(val)
+		case "user":
+			user = string(val)
+		}
+	}
+	if db == "" && complete {
+		// the database name defaults to the user name, but a truncated capture may hide an explicit database param
+		db = user
+	}
+	return db, db != ""
+}
+
+func postgresDBForConn(parseCtx *EBPFParseContext, connInfo BpfConnectionInfoT) string {
+	if parseCtx.postgresDBNames == nil {
+		return ""
+	}
+	if db, ok := parseCtx.postgresDBNames.Get(connInfo); ok {
+		return db
+	}
+	return ""
+}
+
 type postgresMessage struct {
 	typ  string
 	data []byte
+}
+
+func parsePostgresBindNames(data []byte) (portalName, statementName string, ok bool) {
+	portalEnd := bytes.IndexByte(data, 0)
+	if portalEnd < 0 {
+		return "", "", false
+	}
+
+	stmtStart := portalEnd + 1
+	if stmtStart >= len(data) {
+		return "", "", false
+	}
+
+	return string(data[:portalEnd]), unix.ByteSliceToString(data[stmtStart:]), true
 }
 
 type postgresMessageIterator struct {
@@ -225,7 +321,7 @@ func (it *postgresMessageIterator) next() (msg postgresMessage) {
 		return
 	}
 	if it.r.Remaining() < sqlprune.PostgresHdrSize {
-		it.err = errors.New("remaining buffer too short for message header")
+		it.err = errPGRemainingTooShortHeader
 		return
 	}
 
@@ -240,13 +336,13 @@ func (it *postgresMessageIterator) next() (msg postgresMessage) {
 	size := int32(binary.BigEndian.Uint32(hdrBuf[1:5]))
 
 	if size < sqlprune.PostgresHdrSize-1 {
-		it.err = errors.New("malformed Postgres message")
+		it.err = errPGMalformedMessage
 		return
 	}
 
 	payloadSize := size - sqlprune.PostgresHdrSize + 1
 	if it.r.Remaining() < int(payloadSize) {
-		it.err = fmt.Errorf("remaining buffer too short for message data: expected %d bytes, got %d", payloadSize, it.r.Remaining())
+		it.err = errPGRemainingTooShortMessageData
 		return
 	}
 
@@ -268,9 +364,10 @@ func (it *postgresMessageIterator) next() (msg postgresMessage) {
 
 func handlePostgres(parseCtx *EBPFParseContext, event *TCPRequestInfo, requestBuffer, responseBuffer *largebuf.LargeBuffer) (request.Span, error) {
 	var (
-		hasSpan         bool
-		op, table, stmt string
-		span            request.Span
+		hasSpan  bool
+		op, stmt string
+		tables   []string
+		span     request.Span
 	)
 
 	reqR := requestBuffer.NewReader()
@@ -306,7 +403,7 @@ Loop:
 
 		switch msg.typ {
 		case "QUERY":
-			op, table, stmt = detectSQL(msg.data)
+			op, tables, stmt = detectSQL(msg.data)
 			hasSpan = true
 			break Loop
 		case "PARSE":
@@ -325,9 +422,10 @@ Loop:
 
 			continue
 		case "BIND":
-			portal := strings.Clone(unix.ByteSliceToString(msg.data))
-			portalLen := len(portal) + 1 // +1 for the null terminator
-			stmtName := strings.Clone(unix.ByteSliceToString(msg.data[portalLen:]))
+			portal, stmtName, ok := parsePostgresBindNames(msg.data)
+			if !ok {
+				continue
+			}
 
 			parseCtx.postgresPortals.Add(postgresPortalsKey{
 				connInfo:   event.ConnInfo,
@@ -358,7 +456,7 @@ Loop:
 				continue
 			}
 
-			op, table = sqlprune.SQLParseOperationAndTable(stmt)
+			op, tables = sqlprune.SQLParseOperationAndTables(stmt)
 			hasSpan = true
 			break Loop
 		default:
@@ -370,11 +468,13 @@ Loop:
 		return span, errIgnore
 	}
 
-	if !validSQL(op, table, request.DBPostgres) {
+	if !validSQL(op, len(tables) > 0, request.DBPostgres) {
 		// This can happen for stuff like 'BEGIN', etc.
 		slog.Debug("Postgres operation and/or table are invalid", "stmt", stmt)
 		return span, errFallback
 	}
 
-	return TCPToSQLToSpan(event, op, table, stmt, request.DBPostgres, msg.typ, sqlError), nil
+	span = TCPToSQLToSpan(event, op, tables, stmt, request.DBPostgres, msg.typ, sqlError)
+	span.DBNamespace = postgresDBForConn(parseCtx, event.ConnInfo)
+	return span, nil
 }

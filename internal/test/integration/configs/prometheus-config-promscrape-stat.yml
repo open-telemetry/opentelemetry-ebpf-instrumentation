@@ -1,0 +1,15 @@
+global:
+  evaluation_interval: 250ms
+  scrape_interval: 250ms
+scrape_configs:
+  # Stats-only variant: scrape the otelcol's Prometheus exporter rather than
+  # OBI's own :8999 endpoint. The TestStat_GoStatMetrics flow asserts on
+  # `obi_stat_tcp_*` metrics, and routing those assertions through the OTLP
+  # path doubles as a gate that the OBI → otelcol pipeline is alive — which
+  # is the same path that fans out to `otlp/weaver`, so weaver is guaranteed
+  # to have the same data by the time the prom assertion succeeds.
+  - job_name: otel
+    honor_labels: true
+    static_configs:
+      - targets:
+          - 'otelcol:9464'

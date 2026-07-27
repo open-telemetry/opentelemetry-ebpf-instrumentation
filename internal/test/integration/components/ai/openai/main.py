@@ -32,6 +32,17 @@ async def error_messages():
     resp = requests.post(f"{OPENAI_BASE_URL}/v1/responses?error", json=payload)
     return resp.json()
 
+@app.get("/embeddings")
+async def embeddings():
+    payload = {
+        "input": "The food was delicious",
+        "model": "text-embedding-3-small",
+        "dimensions": 256,
+    }
+    resp = requests.post(f"{OPENAI_BASE_URL}/v1/embeddings", json=payload)
+    resp.raise_for_status()
+    return resp.json()
+
 @app.get("/chat")
 async def createobject():
     payload = {

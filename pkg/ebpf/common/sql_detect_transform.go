@@ -13,10 +13,13 @@ import (
 func sqlKind(b *largebuf.LargeBuffer) request.SQLKind {
 	if isPostgres(b) {
 		return request.DBPostgres
-	} else if isMySQL(b) {
+	}
+	if isMySQL(b) {
 		return request.DBMySQL
 	}
-
+	if isMSSQL(b) {
+		return request.DBMSSQL
+	}
 	return request.DBGeneric
 }
 
@@ -24,21 +27,8 @@ func sqlKind(b *largebuf.LargeBuffer) request.SQLKind {
 // command to be valid with just operation, e.g. we didn't find the
 // table. Otherwise, be more picky so that we don't misclassify easily
 // traffic that may have SQL like keywords as SQL.
-func validSQL(op, table string, sqlKind request.SQLKind) bool {
-	return op != "" && (sqlKind != request.DBGeneric || table != "")
-}
-
-func isASCII(s string) bool {
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
-			c == '.' || c == '_' || c == ' ' || c == '-' {
-			continue
-		}
-		return false
-	}
-
-	return true
+func validSQL(op string, hasTables bool, sqlKind request.SQLKind) bool {
+	return op != "" && (sqlKind != request.DBGeneric || hasTables)
 }
 
 func toLowerASCII(c byte) byte {
@@ -85,48 +75,93 @@ var sqlKeywords = [][]byte{
 
 var sqlExecuteKeyword = []byte("EXECUTE ")
 
-func detectSQLPayload(useHeuristics bool, b *largebuf.LargeBuffer) (string, string, string, request.SQLKind) {
+const minSQLPrintableRun = len("SELECT 1")
+
+// isSQLByte reports whether b is a byte that can appear inside a SQL statement
+// (printable ASCII plus the common whitespace characters).
+func isSQLByte(b byte) bool {
+	return (b >= 0x20 && b < 0x7f) || b == '\t' || b == '\n' || b == '\r'
+}
+
+// firstSQLRun returns the start index of the first contiguous run of at least
+// minLen SQL-plausible bytes in buf, or -1 if no such run exists.
+func firstSQLRun(buf []byte, minLen int) int {
+	if len(buf) < minLen {
+		return -1
+	}
+	run := 0
+	for i, b := range buf {
+		if isSQLByte(b) {
+			run++
+			if run >= minLen {
+				return i - minLen + 1
+			}
+		} else {
+			run = 0
+		}
+	}
+	return -1
+}
+
+func detectSQLPayload(useHeuristics bool, b *largebuf.LargeBuffer) (string, []string, string, request.SQLKind) {
 	sqlKind := sqlKind(b)
 
 	if !useHeuristics && sqlKind == request.DBGeneric {
-		return "", "", "", sqlKind
+		return "", nil, "", sqlKind
 	}
 
 	view := b.UnsafeView()
 
-	op, table, sql := detectSQL(view)
+	op, tables, sql := detectSQL(view)
 
-	if !validSQL(op, table, sqlKind) {
+	if !validSQL(op, len(tables) > 0, sqlKind) {
+		var table string
 		switch sqlKind {
 		case request.DBPostgres:
 			op, table, sql = postgresPreparedStatements(b)
 		case request.DBMySQL:
 			op, table, sql = mysqlPreparedStatements(view)
+		case request.DBMSSQL:
+			op, tables, sql = mssqlExtractBatchSQL(b)
+			return op, tables, sql, sqlKind
+		}
+		tables = nil
+		if table != "" {
+			tables = []string{table}
 		}
 	}
 
-	return op, table, sql, sqlKind
+	return op, tables, sql, sqlKind
 }
 
-func detectSQL(buf []byte) (string, string, string) {
+func detectSQL(buf []byte) (string, []string, string) {
+	// Cheap prefilter: most SQL wire protocols carry a small binary header
+	// followed by the statement as plain text. If no printable-ASCII run long
+	// enough to fit the shortest valid SQL exists, skip the case-fold scan.
+	start := firstSQLRun(buf, minSQLPrintableRun)
+	if start < 0 {
+		return "", nil, ""
+	}
+	scan := buf[start:]
+
 	minIdx := -1
 	for _, q := range sqlKeywords {
-		i := asciiIndexFold(buf, q)
+		i := asciiIndexFold(scan, q)
 		if i >= 0 && (minIdx < 0 || i < minIdx) {
 			minIdx = i
 		}
 	}
 
 	if minIdx >= 0 {
-		sql := cstr(buf[minIdx:])
-		op, table := sqlprune.SQLParseOperationAndTable(sql)
-		return op, table, sql
+		sql := cstr(scan[minIdx:])
+		op, tables := sqlprune.SQLParseOperationAndTables(sql)
+		return op, tables, sql
 	}
 
-	return "", "", ""
+	return "", nil, ""
 }
 
-func TCPToSQLToSpan(trace *TCPRequestInfo, op, table, sql string, kind request.SQLKind, sqlCommand string, sqlError *request.SQLError) request.Span {
+func TCPToSQLToSpan(trace *TCPRequestInfo, op string, tables []string, sql string, kind request.SQLKind, sqlCommand string, sqlError *request.SQLError) request.Span {
 	var (
 		peer, hostname             string
 		peerPort, hostPort, status int
@@ -149,7 +184,7 @@ func TCPToSQLToSpan(trace *TCPRequestInfo, op, table, sql string, kind request.S
 	return request.Span{
 		Type:          spanType,
 		Method:        op,
-		Path:          table,
+		Path:          sqlprune.SQLTargetCollection(op, tables),
 		Peer:          peer,
 		PeerPort:      peerPort,
 		Host:          hostname,
@@ -168,9 +203,10 @@ func TCPToSQLToSpan(trace *TCPRequestInfo, op, table, sql string, kind request.S
 			UserPID:   app.PID(trace.Pid.UserPid),
 			Namespace: trace.Pid.Ns,
 		},
-		Statement:  sql,
-		SubType:    int(kind),
-		SQLCommand: sqlCommand,
-		SQLError:   sqlError,
+		Statement:      sql,
+		SubType:        int(kind),
+		SQLCommand:     sqlCommand,
+		SQLError:       sqlError,
+		DBQuerySummary: sqlprune.SQLQuerySummary(op, tables),
 	}
 }

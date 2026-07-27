@@ -19,8 +19,11 @@
 
 #include <common/common.h>
 #include <common/globals.h>
+#include <common/go_grpc_client_conn.h>
 #include <common/ringbuf.h>
 #include <common/trace_helpers.h>
+
+#include <maps/outgoing_trace_map.h>
 
 #include <gotracer/go_common.h>
 #include <gotracer/go_offsets.h>
@@ -42,6 +45,22 @@
 
 #define OPTIMISTIC_GRPC_ENCODED_HEADER_LEN                                                         \
     49 // 1 + 1 + 8 + 1 +~ 38 = type byte + hpack_len_as_byte("traceparent") + strlen(hpack("traceparent")) + len_as_byte(38) + hpack(generated tracepanent id)
+
+static __always_inline void grpc_server_conn_info(void *tr, connection_info_t *conn) {
+    if (!tr || !conn) {
+        return;
+    }
+
+    off_table_t *ot = get_offsets_table();
+    void *conn_ptr = NULL;
+    bpf_probe_read_user(&conn_ptr,
+                        sizeof(conn_ptr),
+                        (void *)(tr + go_offset_of(ot, (go_offset){.v = _grpc_st_conn_pos}) +
+                                 k_go_iface_data_offset));
+    if (conn_ptr) {
+        get_conn_info(conn_ptr, conn);
+    }
+}
 
 SEC("uprobe/server_handleStream")
 int obi_uprobe_server_handleStream(struct pt_regs *ctx) {
@@ -95,14 +114,19 @@ int obi_uprobe_server_handleStream(struct pt_regs *ctx) {
         bpf_dbg_printk("st_ptr=%llx", st_ptr);
         invocation.st = (u64)st_ptr;
         if (st_ptr) {
-            grpc_transports_t *t = bpf_map_lookup_elem(&ongoing_grpc_transports, &st_ptr);
-
-            bpf_dbg_printk("found t: %llx", t);
-            if (t) {
-                bpf_dbg_printk("reading the traceparent from frame headers");
-                if (valid_trace(t->tp.trace_id)) {
-                    tp_ptr = &t->tp;
+            u32 stream_id = 0;
+            bpf_probe_read(
+                &stream_id,
+                sizeof(stream_id),
+                (void *)(stream_stream_ptr +
+                         go_offset_of(ot, (go_offset){.v = _grpc_transport_stream_id_pos})));
+            if (stream_id) {
+                stream_key_t sk = {.conn_ptr = (u64)st_ptr, .stream_id = stream_id};
+                tp_info_t *stream_tp = bpf_map_lookup_elem(&ongoing_grpc_server_stream_tps, &sk);
+                if (stream_tp && valid_trace(stream_tp->trace_id)) {
+                    tp_ptr = stream_tp;
                 }
+                bpf_map_delete_elem(&ongoing_grpc_server_stream_tps, &sk);
             }
         }
 
@@ -145,10 +169,27 @@ int obi_uprobe_http2Server_operateHeaders(struct pt_regs *ctx) {
         .tp = {0},
     };
 
+    grpc_server_conn_info(tr, &t.conn);
     process_meta_frame_headers(frame, &t.tp);
 
     bpf_map_update_elem(&ongoing_grpc_operate_headers, &g_key, &tr, BPF_ANY);
     bpf_map_update_elem(&ongoing_grpc_transports, &tr, &t, BPF_ANY);
+
+    // Per-stream tp avoids last-writer-wins on the per-transport entry.
+    // MetaHeadersFrame.HeadersFrame is *HeadersFrame at offset 0;
+    // FrameHeader.StreamID is at offset 8 inside HeadersFrame.
+    if (frame && valid_trace(t.tp.trace_id)) {
+        void *headers_frame = NULL;
+        bpf_probe_read(&headers_frame, sizeof(headers_frame), frame);
+        if (headers_frame) {
+            u32 stream_id = 0;
+            bpf_probe_read(&stream_id, sizeof(stream_id), (unsigned char *)headers_frame + 8);
+            if (stream_id) {
+                stream_key_t k = {.conn_ptr = (u64)tr, .stream_id = stream_id};
+                bpf_map_update_elem(&ongoing_grpc_server_stream_tps, &k, &t.tp, BPF_ANY);
+            }
+        }
+    }
 
     return 0;
 }
@@ -234,6 +275,7 @@ int obi_uprobe_server_handleStream_return(struct pt_regs *ctx) {
     trace->scheme[0] = '\0';
     trace->path[0] = '\0';
     trace->pattern[0] = '\0';
+    trace->is_jsonrpc = false;
     trace->go_start_monotime_ns = invocation->start_monotime_ns;
     bpf_map_delete_elem(&ongoing_goroutines, &g_key);
 
@@ -422,6 +464,7 @@ static __always_inline int grpc_connect_done(struct pt_regs *ctx, void *err) {
     trace->scheme[0] = '\0';
     trace->pattern[0] = '\0';
     trace->path[0] = '\0';
+    trace->is_jsonrpc = false;
 
     // Read arguments from the original set of registers
 
@@ -538,8 +581,14 @@ int obi_uprobe_transport_http2Client_NewStream(struct pt_regs *ctx) {
             bpf_probe_read(&conn_ptr_key, sizeof(conn_ptr_key), conn_ptr);
         }
 
+        // PID-scoped cache key: uses the transport pointer as the address
+        // component to avoid stale entries when pointer values are recycled
+        // across different processes.
+        go_addr_key_t cache_key = {};
+        go_addr_key_from_id(&cache_key, t_ptr);
+
         connection_info_t *cached_conn =
-            bpf_map_lookup_elem(&cached_grpc_client_connections, &t_ptr);
+            bpf_map_lookup_elem(&cached_grpc_client_connections, &cache_key);
         // reading the connection can be expensive for high volume of
         // new grpc client connections. We cache it, since most grpc client
         // connections are long lived.
@@ -571,12 +620,22 @@ int obi_uprobe_transport_http2Client_NewStream(struct pt_regs *ctx) {
                     if (ok) {
                         bpf_map_update_elem(&ongoing_client_connections, &g_key, &conn, BPF_ANY);
                         bpf_map_update_elem(
-                            &cached_grpc_client_connections, &t_ptr, &conn, BPF_ANY);
+                            &cached_grpc_client_connections, &cache_key, &conn, BPF_ANY);
+
+                        if (conn_ptr_key) {
+                            bpf_map_update_elem(
+                                &grpc_conn_ptr_to_conn, &(u64){(u64)conn_ptr_key}, &conn, BPF_ANY);
+                        }
                     }
                 }
             }
         } else {
             bpf_map_update_elem(&ongoing_client_connections, &g_key, cached_conn, BPF_ANY);
+
+            if (conn_ptr_key) {
+                bpf_map_update_elem(
+                    &grpc_conn_ptr_to_conn, &(u64){(u64)conn_ptr_key}, cached_conn, BPF_ANY);
+            }
         }
 
         if (g_bpf_header_propagation) {
@@ -723,9 +782,36 @@ int obi_uprobe_grpcFramerWriteHeaders(struct pt_regs *ctx) {
     key.conn_ptr = (u64)conn_ptr;
 
     grpc_client_func_invocation_t *invocation = bpf_map_lookup_elem(&ongoing_streams, &key);
+    connection_info_t *conn_info =
+        bpf_map_lookup_elem(&grpc_conn_ptr_to_conn, &(u64){(u64)conn_ptr});
 
     if (invocation) {
         bpf_dbg_printk("Found invocation info: %llx", invocation);
+
+        // Save the per-stream trace so sk_msg can pick it up.
+        if (conn_info && valid_trace(invocation->tp.trace_id)) {
+            tp_info_pid_t tp_p = {0};
+            tp_p.tp = invocation->tp;
+            tp_p.valid = 1;
+            tp_p.written = 1;
+            tp_p.pid = pid_from_pid_tgid(bpf_get_current_pid_tgid());
+            tp_p.req_type = EVENT_HTTP_CLIENT;
+
+            egress_key_t e_key = {
+                .d_port = conn_info->d_port,
+                .s_port = conn_info->s_port,
+                .stream_id = (u32)stream_id,
+            };
+            sort_egress_key(&e_key);
+            bpf_map_update_elem(&outgoing_trace_map, &e_key, &tp_p, BPF_ANY);
+
+            // Mark conn so sk_msg skips: Go uprobe writes the HPACK
+            // traceparent in the user buffer, sk_msg must not overwrite
+            pid_connection_info_t p_conn = {.conn = *conn_info, .pid = tp_p.pid};
+            sort_connection_info(&p_conn.conn);
+            mark_go_grpc_client_conn(&p_conn);
+        }
+
         void *goroutine_addr = GOROUTINE_PTR(ctx);
         go_addr_key_t g_key = {};
         go_addr_key_from_id(&g_key, goroutine_addr);
@@ -747,6 +833,9 @@ int obi_uprobe_grpcFramerWriteHeaders(struct pt_regs *ctx) {
                 .tp = invocation->tp,
                 .framer_ptr = (u64)framer,
                 .offset = offset,
+                .s_port = conn_info ? conn_info->s_port : 0,
+                .d_port = conn_info ? conn_info->d_port : 0,
+                .stream_id = (u32)stream_id,
             };
 
             bpf_map_update_elem(&grpc_framer_invocation_map, &g_key, &f_info, BPF_ANY);
@@ -811,7 +900,7 @@ int obi_uprobe_grpcFramerWriteHeaders_returns(struct pt_regs *ctx) {
                 &cap,
                 sizeof(cap),
                 (void *)(w_ptr +
-                         go_offset_of(ot, (go_offset){.v = _grpc_transport_buf_writer_offset_pos}) +
+                         go_offset_of(ot, (go_offset){.v = _grpc_transport_buf_writer_buf_pos}) +
                          16)); // the offset of the capacity is 2 * 8 bytes from the buf
 
             bpf_clamp_umax(off, MAX_W_PTR_OFFSET);
@@ -882,5 +971,76 @@ int obi_uprobe_grpcFramerWriteHeaders_returns(struct pt_regs *ctx) {
     }
 
     bpf_map_delete_elem(&grpc_framer_invocation_map, &g_key);
+    return 0;
+}
+
+// NewStream and WriteHeaders run on different goroutines. NewStream knows the
+// trace context but not the stream_id yet; WriteHeaders sees the stream_id but
+// has no goroutine-local link back to the invocation. The headerFrame pointer
+// is the only thing both sides see — so we stash on the way in, publish on
+// the way out.
+
+SEC("uprobe/controlBuffer_executeAndPut")
+int obi_uprobe_grpc_controlBuffer_executeAndPut(struct pt_regs *ctx) {
+    if (!g_bpf_header_propagation) {
+        return 0;
+    }
+    void *goroutine_addr = GOROUTINE_PTR(ctx);
+    go_addr_key_t g_key = {};
+    go_addr_key_from_id(&g_key, goroutine_addr);
+
+    transport_new_client_invocation_t *wrapper =
+        bpf_map_lookup_elem(&transport_new_client_invocations, &g_key);
+    if (!wrapper) {
+        return 0; // not from a NewStream goroutine — ignore
+    }
+
+    void *hdr = (void *)GO_PARAM4(ctx); // it.data
+    if (!hdr) {
+        return 0;
+    }
+    u64 hdr_key = (u64)hdr;
+    pending_h2_invocation_t pending = {
+        .inv = wrapper->inv,
+        .conn_ptr = wrapper->s_key.conn_ptr,
+    };
+    bpf_map_update_elem(&pending_h2_invocations, &hdr_key, &pending, BPF_ANY);
+    bpf_dbg_printk("executeAndPut: stashed hdr=%llx conn=%llx", hdr, pending.conn_ptr);
+    return 0;
+}
+
+// loopyWriter side: streamID is now known; publish ongoing_streams.
+// Signature: (l *loopyWriter) originateStream(str *outStream, hdr *headerFrame)
+// PARAM1=l, PARAM2=str, PARAM3=hdr. outStream.id is uint32 at offset 0.
+SEC("uprobe/loopyWriter_originateStream")
+int obi_uprobe_grpc_loopyWriter_originateStream(struct pt_regs *ctx) {
+    if (!g_bpf_header_propagation) {
+        return 0;
+    }
+    void *str = (void *)GO_PARAM2(ctx);
+    void *hdr = (void *)GO_PARAM3(ctx);
+    if (!str || !hdr) {
+        return 0;
+    }
+    u64 hdr_key = (u64)hdr;
+    pending_h2_invocation_t *pending = bpf_map_lookup_elem(&pending_h2_invocations, &hdr_key);
+    if (!pending) {
+        return 0;
+    }
+
+    u32 stream_id = 0;
+    bpf_probe_read_user(&stream_id, sizeof(stream_id), str); // outStream.id at offset 0
+    if (stream_id == 0) {
+        return 0;
+    }
+
+    stream_key_t key = {.conn_ptr = pending->conn_ptr, .stream_id = stream_id};
+    bpf_map_update_elem(&ongoing_streams, &key, &pending->inv, BPF_ANY);
+
+    bpf_map_delete_elem(&pending_h2_invocations, &hdr_key);
+
+    bpf_dbg_printk("originateStream: published ongoing_streams[conn=%llx, stream=%u]",
+                   pending->conn_ptr,
+                   stream_id);
     return 0;
 }

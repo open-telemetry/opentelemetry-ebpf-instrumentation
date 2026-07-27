@@ -17,13 +17,35 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	ebpfhttp "go.opentelemetry.io/obi/pkg/ebpf/common/http"
-	"go.opentelemetry.io/obi/pkg/internal/ebpf/ringbuf"
+	"go.opentelemetry.io/obi/pkg/ebpf/ringbuf"
 	"go.opentelemetry.io/obi/pkg/internal/largebuf"
 )
 
+const ephemeralPortMin = 32768
+
+func likelyEphemeralPort(port uint16) bool {
+	return port >= ephemeralPortMin
+}
+
+func swapConnectionInfoOrder(info *BpfConnectionInfoT) {
+	info.S_port, info.D_port = info.D_port, info.S_port
+	info.S_addr, info.D_addr = info.D_addr, info.S_addr
+}
+
+func sortConnectionInfo(info *BpfConnectionInfoT) {
+	if likelyEphemeralPort(info.S_port) && !likelyEphemeralPort(info.D_port) {
+		return
+	}
+
+	if (likelyEphemeralPort(info.D_port) && !likelyEphemeralPort(info.S_port)) ||
+		info.D_port > info.S_port {
+		swapConnectionInfoOrder(info)
+	}
+}
+
 func removeQuery(url string) string {
 	idx := strings.IndexByte(url, '?')
-	if idx > 0 {
+	if idx >= 0 {
 		return url[:idx]
 	}
 	return url
@@ -136,86 +158,141 @@ func httpRequestResponseToSpan(parseCtx *EBPFParseContext, event *BPFHTTPInfo, r
 		Statement: scheme + request.SchemeHostSeparator + headerHost,
 	}
 
-	if isClientEvent(event.Type) && parseCtx != nil && parseCtx.payloadExtraction.HTTP.AWS.Enabled {
-		span, ok := ebpfhttp.AWSS3Span(&httpSpan, req, resp)
+	return postProcessHTTPSpan(parseCtx, &httpSpan, req, resp)
+}
+
+func postProcessHTTPSpan(parseCtx *EBPFParseContext, httpSpan *request.Span, req *http.Request, resp *http.Response) request.Span {
+	if httpSpan.IsClientSpan() && parseCtx != nil && parseCtx.payloadExtraction.HTTP.AWS.Enabled {
+		span, ok := ebpfhttp.AWSS3Span(httpSpan, req, resp)
 		if ok {
 			return span
 		}
 
-		span, ok = ebpfhttp.AWSSQSSpan(&httpSpan, req, resp)
-		if ok {
-			return span
-		}
-	}
-
-	if !isClientEvent(event.Type) && parseCtx != nil && parseCtx.payloadExtraction.HTTP.GraphQL.Enabled {
-		span, ok := ebpfhttp.GraphQLSpan(&httpSpan, req, resp)
+		span, ok = ebpfhttp.AWSSQSSpan(httpSpan, req, resp)
 		if ok {
 			return span
 		}
 	}
 
-	if isClientEvent(event.Type) && parseCtx != nil && parseCtx.payloadExtraction.HTTP.Elasticsearch.Enabled {
-		span, ok := ebpfhttp.ElasticsearchSpan(&httpSpan, req, resp)
+	if !httpSpan.IsClientSpan() && parseCtx != nil && parseCtx.payloadExtraction.HTTP.GraphQL.Enabled {
+		span, ok := ebpfhttp.GraphQLSpan(httpSpan, req, resp)
 		if ok {
 			return span
 		}
 	}
 
-	if isClientEvent(event.Type) && parseCtx != nil && parseCtx.payloadExtraction.HTTP.SQLPP.Enabled {
-		span, ok := ebpfhttp.SQLPPSpan(&httpSpan, req, resp, parseCtx.payloadExtraction.HTTP.SQLPP.EndpointPatterns)
+	if httpSpan.IsClientSpan() && parseCtx != nil && parseCtx.payloadExtraction.HTTP.Elasticsearch.Enabled {
+		span, ok := ebpfhttp.ElasticsearchSpan(httpSpan, req, resp)
 		if ok {
 			return span
 		}
 	}
 
-	if isClientEvent(event.Type) && parseCtx != nil && parseCtx.payloadExtraction.HTTP.GenAI.OpenAI.Enabled {
-		span, ok := ebpfhttp.OpenAISpan(&httpSpan, req, resp)
+	if httpSpan.IsClientSpan() && parseCtx != nil && parseCtx.payloadExtraction.HTTP.SQLPP.Enabled {
+		span, ok := ebpfhttp.SQLPPSpan(httpSpan, req, resp, parseCtx.payloadExtraction.HTTP.SQLPP.EndpointPatterns)
 		if ok {
 			return span
 		}
 	}
 
-	if isClientEvent(event.Type) && parseCtx != nil && parseCtx.payloadExtraction.HTTP.GenAI.Anthropic.Enabled {
-		span, ok := ebpfhttp.AnthropicSpan(&httpSpan, req, resp)
+	// Embedding detection uses hostname+path matching and must run before
+	// header-based detectors (OpenAI, Anthropic, etc.) so that known
+	// embedding-only providers are not misclassified when they return
+	// OpenAI-compatible response headers.
+	if httpSpan.IsClientSpan() && parseCtx != nil && parseCtx.payloadExtraction.HTTP.GenAI.Embedding.Enabled {
+		span, ok := ebpfhttp.EmbeddingSpan(httpSpan, req, resp)
 		if ok {
 			return span
 		}
 	}
 
-	if isClientEvent(event.Type) && parseCtx != nil && parseCtx.payloadExtraction.HTTP.GenAI.Gemini.Enabled {
-		span, ok := ebpfhttp.GeminiSpan(&httpSpan, req, resp)
+	// Retrieval detection runs alongside embedding: both are host-anchored
+	// and target dedicated vector database endpoints that do not overlap
+	// with LLM providers, so ordering between them does not matter.
+	if httpSpan.IsClientSpan() && parseCtx != nil && parseCtx.payloadExtraction.HTTP.GenAI.Retrieval.Enabled {
+		span, ok := ebpfhttp.RetrievalSpan(httpSpan, req, resp)
 		if ok {
 			return span
 		}
 	}
 
-	if isClientEvent(event.Type) && parseCtx != nil && parseCtx.payloadExtraction.HTTP.GenAI.Qwen.Enabled {
-		span, ok := ebpfhttp.QwenSpan(&httpSpan, req, resp)
+	if httpSpan.IsClientSpan() && parseCtx != nil && parseCtx.payloadExtraction.HTTP.GenAI.Ollama.Enabled {
+		span, ok := ebpfhttp.OllamaSpan(httpSpan, req, resp)
 		if ok {
 			return span
 		}
 	}
 
-	if isClientEvent(event.Type) && parseCtx != nil && parseCtx.payloadExtraction.HTTP.GenAI.Bedrock.Enabled {
-		span, ok := ebpfhttp.BedrockSpan(&httpSpan, req, resp)
+	if httpSpan.IsClientSpan() && parseCtx != nil && parseCtx.payloadExtraction.HTTP.GenAI.OpenAI.Enabled {
+		span, ok := ebpfhttp.OpenAISpan(httpSpan, req, resp)
 		if ok {
 			return span
 		}
 	}
 
-	if parseCtx != nil && parseCtx.payloadExtraction.HTTP.JSONRPC.Enabled {
-		span, ok := ebpfhttp.JSONRPCSpan(&httpSpan, req, resp)
+	if httpSpan.IsClientSpan() && parseCtx != nil && parseCtx.payloadExtraction.HTTP.GenAI.Anthropic.Enabled {
+		span, ok := ebpfhttp.AnthropicSpan(httpSpan, req, resp)
 		if ok {
 			return span
+		}
+	}
+
+	if httpSpan.IsClientSpan() && parseCtx != nil && parseCtx.payloadExtraction.HTTP.GenAI.Gemini.Enabled {
+		span, ok := ebpfhttp.GeminiSpan(httpSpan, req, resp)
+		if ok {
+			return span
+		}
+	}
+
+	if httpSpan.IsClientSpan() && parseCtx != nil && parseCtx.payloadExtraction.HTTP.GenAI.Rerank.Enabled {
+		span, ok := ebpfhttp.RerankSpan(httpSpan, req, resp)
+		if ok {
+			return span
+		}
+	}
+
+	if httpSpan.IsClientSpan() && parseCtx != nil && parseCtx.payloadExtraction.HTTP.GenAI.Qwen.Enabled {
+		span, ok := ebpfhttp.QwenSpan(httpSpan, req, resp)
+		if ok {
+			return span
+		}
+	}
+
+	if httpSpan.IsClientSpan() && parseCtx != nil && parseCtx.payloadExtraction.HTTP.GenAI.Bedrock.Enabled {
+		span, ok := ebpfhttp.BedrockSpan(httpSpan, req, resp)
+		if ok {
+			return span
+		}
+	}
+
+	if httpSpan.IsClientSpan() && parseCtx != nil && parseCtx.payloadExtraction.HTTP.GenAI.OpenAICompatible.Enabled {
+		span, ok := ebpfhttp.OpenAICompatibleSpan(httpSpan, req, resp, parseCtx.payloadExtraction.HTTP.GenAI.OpenAICompatible.Gateways)
+		if ok {
+			return span
+		}
+	}
+
+	// Parse JSON-RPC once and reuse for both MCP and plain JSON-RPC
+	// detection, since MCP is a protocol layer on top of JSON-RPC.
+	if parseCtx != nil && (parseCtx.payloadExtraction.HTTP.GenAI.MCP.Enabled || parseCtx.payloadExtraction.HTTP.JSONRPC.Enabled) {
+		if parsed := ebpfhttp.TryParseJSONRPC(req); parsed != nil {
+			if parseCtx.payloadExtraction.HTTP.GenAI.MCP.Enabled {
+				span, ok := ebpfhttp.MCPSpanFromParsed(httpSpan, req, resp, parsed)
+				if ok {
+					return span
+				}
+			}
+			if parseCtx.payloadExtraction.HTTP.JSONRPC.Enabled {
+				return ebpfhttp.JSONRPCSpanFromParsed(httpSpan, resp, parsed)
+			}
 		}
 	}
 
 	if parseCtx != nil && parseCtx.httpEnricher != nil {
-		parseCtx.httpEnricher.Enrich(&httpSpan, req, resp)
+		parseCtx.httpEnricher.Enrich(httpSpan, req, resp)
 	}
 
-	return httpSpan
+	return *httpSpan
 }
 
 func ReadHTTPInfoIntoSpan(parseCtx *EBPFParseContext, record *ringbuf.Record, filter ServiceFilter) (request.Span, bool, error) {
@@ -242,7 +319,7 @@ func HTTPInfoEventToSpan(parseCtx *EBPFParseContext, event *BPFHTTPInfo) (reques
 	slog.Debug("Event", "traceID", event.Tp.TraceId, "conn", event.ConnInfo, "buf", event.Buf[:])
 
 	if event.HasLargeBuffers == 1 {
-		b, ok := extractTCPLargeBuffer(parseCtx, event.Tp.TraceId, packetTypeRequest, directionByPacketType(packetTypeRequest, isClient), event.ConnInfo)
+		b, ok := extractTCPLargeBuffer(parseCtx, event.Tp.TraceId, packetTypeRequest, directionByPacketType(packetTypeRequest, isClient), event.ConnInfo, ProtocolTypeHTTP)
 		if ok {
 			requestBuffer = b
 		} else {
@@ -250,7 +327,7 @@ func HTTPInfoEventToSpan(parseCtx *EBPFParseContext, event *BPFHTTPInfo) (reques
 			requestBuffer = largebuf.NewLargeBufferFrom(event.Buf[:])
 		}
 
-		b, ok = extractTCPLargeBuffer(parseCtx, event.Tp.TraceId, packetTypeResponse, directionByPacketType(packetTypeResponse, isClient), event.ConnInfo)
+		b, ok = extractTCPLargeBuffer(parseCtx, event.Tp.TraceId, packetTypeResponse, directionByPacketType(packetTypeResponse, isClient), event.ConnInfo, ProtocolTypeHTTP)
 		if ok {
 			responseBuffer = b
 			hasResponse = true
@@ -281,7 +358,80 @@ func HTTPInfoEventToSpan(parseCtx *EBPFParseContext, event *BPFHTTPInfo) (reques
 		return httpRequestToSpan(event, requestBuffer), false, nil
 	}
 
+	// When the body is empty but Content-Length indicates data should be
+	// present, the body bytes may be at a different offset in the raw
+	// buffer (e.g. SSL connections where headers and body arrive in
+	// separate writes that get interleaved). Scan the raw buffer for a
+	// JSON body and replace req.Body so downstream detectors can parse it.
+	//
+	// We probe a single byte instead of ReadAll to avoid allocating and
+	// copying the entire body on the happy path.
+	if req.ContentLength > 0 {
+		recoverRequestBody(req, requestBuffer)
+	}
+
 	return httpRequestResponseToSpan(parseCtx, event, req, resp), false, nil
+}
+
+func recoverRequestBody(req *http.Request, requestBuffer *largebuf.LargeBuffer) {
+	var probe [1]byte
+	n, err := req.Body.Read(probe[:])
+	if n > 0 {
+		// Body is present (happy path); prepend the consumed byte.
+		req.Body = io.NopCloser(io.MultiReader(bytes.NewReader(probe[:1]), req.Body))
+		return
+	}
+
+	// Body is empty despite Content-Length > 0; attempt recovery
+	// from the raw buffer.
+	if recovered := recoverJSONBodyFromBuffer(requestBuffer); len(recovered) > 0 {
+		if int64(len(recovered)) > req.ContentLength {
+			recovered = recovered[:req.ContentLength]
+		}
+		req.Body = io.NopCloser(bytes.NewBuffer(recovered))
+		return
+	}
+
+	if err != nil {
+		req.Body = readErrorCloser{err: err}
+	}
+}
+
+type readErrorCloser struct {
+	err error
+}
+
+func (r readErrorCloser) Read([]byte) (int, error) {
+	return 0, r.err
+}
+
+func (r readErrorCloser) Close() error {
+	return nil
+}
+
+// recoverJSONBodyFromBuffer scans the raw request buffer for a JSON object
+// that appears after the HTTP headers. This handles SSL connections where
+// the body may be at an unexpected offset due to interleaved writes.
+func recoverJSONBodyFromBuffer(buf *largebuf.LargeBuffer) []byte {
+	raw := buf.UnsafeView()
+	if len(raw) == 0 {
+		return nil
+	}
+
+	// Find end of HTTP headers.
+	headerEnd := bytes.Index(raw, []byte("\r\n\r\n"))
+	if headerEnd < 0 {
+		return nil
+	}
+	bodyStart := headerEnd + 4
+
+	// Scan forward from header end to find a JSON object or array.
+	for i := bodyStart; i < len(raw); i++ {
+		if raw[i] == '{' || raw[i] == '[' {
+			return append([]byte(nil), raw[i:]...)
+		}
+	}
+	return nil
 }
 
 // HTTP response buffers might have been sent incomplete, before the full body.
@@ -296,9 +446,90 @@ func httpSafeParseResponse(responseBuffer *largebuf.LargeBuffer, req *http.Reque
 		responseBuffer.AppendChunk([]byte("\r\n\r\n"))
 		r.Reset()
 		rd.Reset(&r)
-		return http.ReadResponse(rd, req)
+		resp, err = http.ReadResponse(rd, req)
 	}
-	return resp, err
+	if err != nil {
+		return resp, err
+	}
+
+	if isChunkedResponse(resp) {
+		raw := responseBuffer.UnsafeView()
+		if bodyStart := findBodyStart(raw); bodyStart >= 0 {
+			decoded := dechunkBody(raw[bodyStart:])
+			resp.Body = io.NopCloser(bytes.NewReader(decoded))
+			resp.TransferEncoding = nil
+			resp.ContentLength = int64(len(decoded))
+			resp.Header.Del("Transfer-Encoding")
+		}
+	}
+
+	return resp, nil
+}
+
+func isChunkedResponse(resp *http.Response) bool {
+	for _, te := range resp.TransferEncoding {
+		if strings.EqualFold(te, "chunked") {
+			return true
+		}
+	}
+	return false
+}
+
+func findBodyStart(raw []byte) int {
+	idx := bytes.Index(raw, []byte("\r\n\r\n"))
+	if idx < 0 {
+		return -1
+	}
+	return idx + 4
+}
+
+// dechunkBody decodes HTTP chunked transfer encoding from raw bytes,
+// tolerating truncation at any point. Returns all successfully decoded
+// chunk payloads concatenated.
+func dechunkBody(data []byte) []byte {
+	var result []byte
+	pos := 0
+	for pos < len(data) {
+		// Find the end of the chunk-size line.
+		lineEnd := bytes.Index(data[pos:], []byte("\r\n"))
+		if lineEnd < 0 {
+			break
+		}
+		sizeLine := string(data[pos : pos+lineEnd])
+
+		// Strip chunk extensions (e.g. ";ext=val").
+		if semi := strings.IndexByte(sizeLine, ';'); semi >= 0 {
+			sizeLine = sizeLine[:semi]
+		}
+		sizeLine = strings.TrimSpace(sizeLine)
+		if sizeLine == "" {
+			break
+		}
+
+		chunkSize, err := strconv.ParseUint(sizeLine, 16, 64)
+		if err != nil {
+			break
+		}
+		if chunkSize == 0 {
+			break
+		}
+
+		chunkStart := pos + lineEnd + 2 // skip past \r\n
+		available := len(data) - chunkStart
+		if chunkSize > uint64(available) {
+			// Truncated chunk: take whatever is available.
+			result = append(result, data[chunkStart:]...)
+			break
+		}
+
+		chunkEnd := chunkStart + int(chunkSize)
+
+		result = append(result, data[chunkStart:chunkEnd]...)
+
+		// Skip past chunk data + trailing \r\n.
+		pos = chunkEnd + 2
+	}
+	return result
 }
 
 func httpRequestToSpan(event *BPFHTTPInfo, requestBuffer *largebuf.LargeBuffer) request.Span {

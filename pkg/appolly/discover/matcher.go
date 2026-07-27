@@ -81,6 +81,10 @@ type ProcessMatch struct {
 	Criteria            []services.Selector
 	LogEnricherCriteria []services.Selector
 	Process             *services.ProcessInfo
+	// DynamicSelectorPID is the runtime dynamic-selection owner PID. It is set by DynamicMatcher
+	// on direct matches and inherited unchanged by child processes matched via PPid. CriteriaMatcher
+	// leaves it zero so static discovery continues to use ProcPID downstream.
+	DynamicSelectorPID app.PID
 }
 
 func (pm ProcessMatch) LogEnricherEnabled() bool {
@@ -179,7 +183,7 @@ func (m *Matcher) filterCreated(obj ProcessAttrs) (Event[ProcessMatch], bool) {
 	}
 
 	// We didn't match the process, but let's see if the parent PID is tracked, it might be the child hasn't opened the port yet
-	if procMatch, ok := m.ProcessHistory[proc.PPid]; ok {
+	if procMatch, ok := m.ProcessHistory[proc.PPid]; ok && !m.isExcluded(&obj, proc) {
 		m.Log.Debug("found process by matching the process parent id", "pid", proc.Pid, "ppid", proc.PPid, "comm", proc.ExePath, "metadata", obj.metadata)
 
 		procMatch.Process = proc
@@ -221,12 +225,12 @@ func (m *Matcher) isExcluded(obj *ProcessAttrs, proc *services.ProcessInfo) bool
 
 func (m *Matcher) matchProcess(obj *ProcessAttrs, p *services.ProcessInfo, a services.Selector) bool {
 	log := m.Log.With("pid", p.Pid, "exe", p.ExePath)
-	if pids, ok := a.GetPIDs(); ok && len(pids) > 0 {
-		return pidInList(p.Pid, pids)
+	pids, hasPIDs := a.GetPIDs()
+	if hasPIDs && len(pids) > 0 && !pidInList(p.Pid, pids) {
+		return false
 	}
 
 	if !a.GetPath().IsSet() && !a.GetLanguages().IsSet() && !a.GetCmdArgs().IsSet() && a.GetOpenPorts().Len() == 0 && len(obj.metadata) == 0 {
-		pids, hasPIDs := a.GetPIDs()
 		if !hasPIDs || len(pids) == 0 {
 			log.Debug("no Kube metadata, no local selection criteria. Ignoring")
 			return false
@@ -357,7 +361,7 @@ func normalizeRegexCriteria(finderCriteria services.RegexDefinitionCriteria) []s
 	criteria := make([]services.Selector, 0, len(finderCriteria))
 	for i := range finderCriteria {
 		fc := &finderCriteria[i]
-		if !fc.Path.IsSet() && fc.OpenPorts.Len() == 0 && (len(fc.Metadata) > 0 || len(fc.PodLabels) > 0 || len(fc.PodAnnotations) > 0) {
+		if !fc.Path.IsSet() && !fc.PathRegexp.IsSet() && fc.OpenPorts.Len() == 0 && (len(fc.Metadata) > 0 || len(fc.PodLabels) > 0 || len(fc.PodAnnotations) > 0) {
 			// match any executable path
 			if err := fc.Path.UnmarshalText([]byte(".")); err != nil {
 				panic("bug! " + err.Error())

@@ -5,16 +5,44 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
+	"strings"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/twmb/franz-go/pkg/kadm"
 	"github.com/twmb/franz-go/pkg/kerr"
 	"github.com/twmb/franz-go/pkg/kgo"
 )
+
+func newKafkaTLSClient(brokers string) *kgo.Client {
+	for {
+		b := strings.Split(brokers, ",")
+		client, err := kgo.NewClient(
+			kgo.SeedBrokers(b...),
+			kgo.ConsumeTopics("my-topic"),
+			kgo.DefaultProduceTopic("my-topic"),
+			kgo.DialTLSConfig(&tls.Config{InsecureSkipVerify: true}), //nolint:gosec
+		)
+		if err == nil {
+			ctx, cancel := context.WithTimeout(context.Background(), kafkaRetryDelay)
+			err = ensureTopics(ctx, client, "my-topic")
+			cancel()
+			if err == nil {
+				return client
+			}
+			client.Close()
+		}
+
+		log.Printf("Kafka TLS is not ready yet, retrying in %s: %v", kafkaRetryDelay, err)
+		time.Sleep(kafkaRetryDelay)
+	}
+}
 
 func ensureTopics(ctx context.Context, client *kgo.Client, topics ...string) error {
 	adm := kadm.NewClient(client)

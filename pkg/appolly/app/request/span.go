@@ -12,15 +12,17 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/gavv/monotime"
+	grpc_codes "google.golang.org/grpc/codes"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
-	semconv "go.opentelemetry.io/otel/semconv/v1.38.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 	"go.opentelemetry.io/otel/trace"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
+	"go.opentelemetry.io/obi/pkg/ebpf/common/dnsparser"
+	"go.opentelemetry.io/obi/pkg/ebpf/timing"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 )
 
@@ -54,6 +56,12 @@ const (
 	EventTypeMemcachedClient
 	EventTypeMemcachedServer
 	EventTypeSQLServer
+	EventTypeNATSClient
+	EventTypeNATSServer
+	EventTypeAMQPClient
+	EventTypeSunRPCClient
+	EventTypeSunRPCServer
+	EventTypeAerospikeClient
 )
 
 const (
@@ -80,24 +88,31 @@ const (
 type SQLKind uint8
 
 const (
-	DBGeneric SQLKind = iota + 1
+	DBGeneric SQLKind = iota
 	DBPostgres
 	DBMySQL
+	DBMSSQL
 )
 
 const (
-	HTTPSubtypeNone          = 0  // http
-	HTTPSubtypeGraphQL       = 1  // http + graphql
-	HTTPSubtypeElasticsearch = 2  // http + elasticsearch
-	HTTPSubtypeAWSS3         = 3  // http + aws s3
-	HTTPSubtypeAWSSQS        = 4  // http + aws sqs
-	HTTPSubtypeSQLPP         = 5  // http + sql++ (couchbase, etc.)
-	HTTPSubtypeOpenAI        = 6  // http + OpenAI
-	HTTPSubtypeAnthropic     = 7  // http + Anthropic
-	HTTPSubtypeGemini        = 8  // http + Google AI Studio (Gemini)
-	HTTPSubtypeJSONRPC       = 9  // http + JSON-RPC
-	HTTPSubtypeAWSBedrock    = 10 // http + AWS Bedrock
-	HTTPSubtypeQwen          = 11 // http + Qwen (DashScope)
+	HTTPSubtypeNone             = 0  // http
+	HTTPSubtypeGraphQL          = 1  // http + graphql
+	HTTPSubtypeElasticsearch    = 2  // http + elasticsearch
+	HTTPSubtypeAWSS3            = 3  // http + aws s3
+	HTTPSubtypeAWSSQS           = 4  // http + aws sqs
+	HTTPSubtypeSQLPP            = 5  // http + sql++ (couchbase, etc.)
+	HTTPSubtypeOpenAI           = 6  // http + OpenAI
+	HTTPSubtypeAnthropic        = 7  // http + Anthropic
+	HTTPSubtypeGemini           = 8  // http + Google AI Studio (Gemini)
+	HTTPSubtypeJSONRPC          = 9  // http + JSON-RPC
+	HTTPSubtypeAWSBedrock       = 10 // http + AWS Bedrock
+	HTTPSubtypeQwen             = 11 // http + Qwen (DashScope)
+	HTTPSubtypeMCP              = 12 // http + Model Context Protocol
+	HTTPSubtypeEmbedding        = 13 // http + generic embedding provider (Voyage, Cohere, Jina)
+	HTTPSubtypeRerank           = 14 // http + Rerank (Cohere, Jina, Voyage, etc.)
+	HTTPSubtypeRetrieval        = 15 // http + vector retrieval (Pinecone, Qdrant, Milvus, Chroma, Weaviate, etc.)
+	HTTPSubtypeOpenAICompatible = 16 // http + OpenAI-compatible API (custom provider)
+	HTTPSubtypeOllama           = 17 // http + Ollama native API
 )
 
 func IsGenAISubtype(subtype int) bool {
@@ -105,7 +120,13 @@ func IsGenAISubtype(subtype int) bool {
 		subtype == HTTPSubtypeAnthropic ||
 		subtype == HTTPSubtypeGemini ||
 		subtype == HTTPSubtypeQwen ||
-		subtype == HTTPSubtypeAWSBedrock
+		subtype == HTTPSubtypeAWSBedrock ||
+		subtype == HTTPSubtypeMCP ||
+		subtype == HTTPSubtypeEmbedding ||
+		subtype == HTTPSubtypeRerank ||
+		subtype == HTTPSubtypeRetrieval ||
+		subtype == HTTPSubtypeOpenAICompatible ||
+		subtype == HTTPSubtypeOllama
 }
 
 //nolint:cyclop
@@ -131,12 +152,22 @@ func (t EventType) String() string {
 		return "KafkaClient"
 	case EventTypeMQTTClient:
 		return "MQTTClient"
+	case EventTypeNATSClient:
+		return "NATSClient"
+	case EventTypeAMQPClient:
+		return "AMQPClient"
+	case EventTypeSunRPCClient:
+		return "SunRPCClient"
+	case EventTypeSunRPCServer:
+		return "SunRPCServer"
 	case EventTypeRedisServer:
 		return "RedisServer"
 	case EventTypeKafkaServer:
 		return "KafkaServer"
 	case EventTypeMQTTServer:
 		return "MQTTServer"
+	case EventTypeNATSServer:
+		return "NATSServer"
 	case EventTypeGPUCudaKernelLaunch:
 		return "CUDALaunchKernel"
 	case EventTypeGPUCudaGraphLaunch:
@@ -159,6 +190,8 @@ func (t EventType) String() string {
 		return "MemcachedClient"
 	case EventTypeMemcachedServer:
 		return "MemcachedServer"
+	case EventTypeAerospikeClient:
+		return "AerospikeClient"
 	default:
 		return fmt.Sprintf("UNKNOWN (%d)", t)
 	}
@@ -178,7 +211,7 @@ type converter struct {
 	monoClock func() time.Duration
 }
 
-var clocks = converter{monoClock: monotime.Now, clock: time.Now}
+var clocks = converter{monoClock: timing.MonoTimeNow, clock: time.Now}
 
 // PidInfo stores different views of the PID of the process that generated the span
 type PidInfo struct {
@@ -258,35 +291,40 @@ type GenAI struct {
 	// returns the same JSON structure as OpenAI.  The native generation
 	// API uses slightly different field names (request_id, output,
 	// input_tokens/output_tokens) but VendorOpenAI already accommodates
-	// both via GetInputTokens()/GetOutputTokens() and the Output field.
+	// both via the shared token-count accessors and the Output field.
 	// A separate field (rather than sharing OpenAI) keeps provider
 	// routing explicit and allows future divergence without refactoring.
-	Qwen    *VendorOpenAI
-	Bedrock *VendorBedrock
+	Qwen             *VendorOpenAI
+	Bedrock          *VendorBedrock
+	MCP              *MCPCall
+	Embedding        *VendorEmbedding
+	Rerank           *VendorRerank
+	Retrieval        *VendorRetrieval
+	Ollama           *VendorOpenAI
+	OpenAICompatible *VendorOpenAI
+}
+
+type OpenAIInputTokensDetails struct {
+	CachedTokens        TokenCount `json:"cached_tokens,omitempty"`
+	CacheCreationTokens TokenCount `json:"cache_creation_tokens,omitempty"`
+	AudioTokens         TokenCount `json:"audio_tokens,omitempty"`
 }
 
 type OpenAIUsage struct {
-	InputTokens      int `json:"input_tokens"`
-	OutputTokens     int `json:"output_tokens"`
-	TotalTokens      int `json:"total_tokens"`
-	PromptTokens     int `json:"prompt_tokens"`
-	CompletionTokens int `json:"completion_tokens"`
+	InputTokens      TokenCount                 `json:"input_tokens"`
+	OutputTokens     TokenCount                 `json:"output_tokens"`
+	TotalTokens      TokenCount                 `json:"total_tokens"`
+	PromptTokens     TokenCount                 `json:"prompt_tokens"`
+	CompletionTokens TokenCount                 `json:"completion_tokens"`
+	InputDetails     *OpenAIInputTokensDetails  `json:"input_tokens_details,omitempty"`
+	OutputDetails    *OpenAIOutputTokensDetails `json:"output_tokens_details,omitempty"`
 }
 
-func (u *OpenAIUsage) GetInputTokens() int {
-	if u.InputTokens > 0 {
-		return u.InputTokens
-	}
-
-	return u.PromptTokens
-}
-
-func (u *OpenAIUsage) GetOutputTokens() int {
-	if u.OutputTokens > 0 {
-		return u.OutputTokens
-	}
-
-	return u.CompletionTokens
+type OpenAIOutputTokensDetails struct {
+	ReasoningTokens          TokenCount `json:"reasoning_tokens,omitempty"`
+	AudioTokens              TokenCount `json:"audio_tokens,omitempty"`
+	AcceptedPredictionTokens TokenCount `json:"accepted_prediction_tokens,omitempty"`
+	RejectedPredictionTokens TokenCount `json:"rejected_prediction_tokens,omitempty"`
 }
 
 type OpenAIError struct {
@@ -294,77 +332,142 @@ type OpenAIError struct {
 	Type    string `json:"type"`
 }
 
+// ToolCall represents a tool invocation requested by an LLM.
+type ToolCall struct {
+	ID   string `json:"id,omitempty"`
+	Name string `json:"name"`
+}
+
 type VendorOpenAI struct {
-	OperationName    string          `json:"object"`
-	ResponseModel    string          `json:"model"`
-	Error            OpenAIError     `json:"error"`
-	ID               string          `json:"id"`
-	FrequencyPenalty float64         `json:"frequency_penalty"`
-	Temperature      float64         `json:"temperature"`
-	TopP             float64         `json:"top_p"`
-	Usage            OpenAIUsage     `json:"usage"`
-	Output           json.RawMessage `json:"output"`
-	Request          OpenAIInput
-	Choices          json.RawMessage `json:"choices"`
-	Items            json.RawMessage `json:"items"`
-	Metadata         json.RawMessage `json:"metadata"`
-	Data             json.RawMessage `json:"data"`
+	OperationName     string          `json:"object"`
+	ResponseModel     string          `json:"model"`
+	Error             OpenAIError     `json:"error"`
+	ID                string          `json:"id"`
+	FrequencyPenalty  float64         `json:"frequency_penalty"`
+	Temperature       float64         `json:"temperature"`
+	TopP              float64         `json:"top_p"`
+	Usage             OpenAIUsage     `json:"usage"`
+	Output            json.RawMessage `json:"output"`
+	Request           OpenAIInput
+	Choices           json.RawMessage `json:"choices"`
+	Items             json.RawMessage `json:"items"`
+	Metadata          json.RawMessage `json:"metadata"`
+	Data              json.RawMessage `json:"data"`
+	ServiceTier       string          `json:"service_tier,omitempty"`
+	SystemFingerprint string          `json:"system_fingerprint,omitempty"`
+	APIType           string          `json:"-"`
+	ToolCalls         []ToolCall      `json:"-"`
+	ProviderName      string          `json:"-"`
+}
+
+func (ai *VendorOpenAI) GetFinishReasons() []string {
+	if len(ai.Choices) == 0 {
+		return nil
+	}
+	var choices []struct {
+		FinishReason string `json:"finish_reason"`
+	}
+	if err := json.Unmarshal(ai.Choices, &choices); err != nil {
+		return nil
+	}
+	var reasons []string
+	for _, c := range choices {
+		if c.FinishReason != "" {
+			reasons = append(reasons, c.FinishReason)
+		}
+	}
+	return reasons
 }
 
 func (ai *VendorOpenAI) GetOutput() string {
-	if len(ai.Output) > 0 {
-		return string(ai.Output)
-	}
+	return normalizeOpenAIOutput(ai)
+}
 
-	if len(ai.Items) > 0 {
-		return string(ai.Items)
+func (ai *VendorOpenAI) GetEmbeddingDimensions() int {
+	if ai.Request.Dimensions > 0 {
+		return ai.Request.Dimensions
 	}
-
-	if len(ai.Data) > 0 {
-		return string(ai.Data)
+	if len(ai.Data) == 0 {
+		return 0
 	}
-
-	return string(ai.Choices)
+	var data []struct {
+		Embedding []json.Number `json:"embedding"`
+	}
+	if err := json.Unmarshal(ai.Data, &data); err != nil || len(data) == 0 {
+		return 0
+	}
+	return len(data[0].Embedding)
 }
 
 type OpenAIInput struct {
-	Input        string          `json:"input"`
-	Prompt       string          `json:"prompt"`
-	Model        string          `json:"model"`
-	Instructions string          `json:"instructions"`
-	Messages     json.RawMessage `json:"messages"`
-	Items        json.RawMessage `json:"items"`
-	Temperature  float64         `json:"temperature"`
+	Input            string          `json:"input"`
+	Prompt           string          `json:"prompt"`
+	Model            string          `json:"model"`
+	Instructions     string          `json:"instructions"`
+	Messages         json.RawMessage `json:"messages"`
+	Items            json.RawMessage `json:"items"`
+	Temperature      float64         `json:"temperature"`
+	Dimensions       int             `json:"dimensions,omitempty"`
+	MaxTokens        int             `json:"max_tokens,omitempty"`
+	N                int             `json:"n,omitempty"`
+	Stop             json.RawMessage `json:"stop,omitempty"`
+	FrequencyPenalty float64         `json:"frequency_penalty,omitempty"`
+	PresencePenalty  float64         `json:"presence_penalty,omitempty"`
+	Stream           bool            `json:"stream,omitempty"`
+	EncodingFormat   string          `json:"encoding_format,omitempty"`
+	Seed             *int            `json:"seed,omitempty"`
+	Tools            json.RawMessage `json:"tools,omitempty"`
+	ServiceTier      string          `json:"service_tier,omitempty"`
+}
+
+func (air *OpenAIInput) GetStopSequences() []string {
+	if len(air.Stop) == 0 {
+		return nil
+	}
+	var arr []string
+	if err := json.Unmarshal(air.Stop, &arr); err == nil {
+		return arr
+	}
+	var s string
+	if err := json.Unmarshal(air.Stop, &s); err == nil {
+		return []string{s}
+	}
+	return nil
 }
 
 func (air *OpenAIInput) GetInput() string {
 	if len(air.Input) > 0 {
-		return air.Input
+		return wrapTextAsInputMessage(air.Input)
 	}
 
 	if len(air.Prompt) > 0 {
-		return air.Prompt
+		return wrapTextAsInputMessage(air.Prompt)
 	}
 
 	if len(air.Items) > 0 {
 		return string(air.Items)
 	}
 
-	return string(air.Messages)
+	return normalizeOpenAIMessages(air.Messages)
 }
 
 type VendorAnthropic struct {
-	Input  AnthropicRequest
-	Output AnthropicResponse
+	Input     AnthropicRequest
+	Output    AnthropicResponse
+	ToolCalls []ToolCall `json:"-"`
 }
 
 type AnthropicRequest struct {
-	MaxTokens int             `json:"max_tokens"`
-	Messages  json.RawMessage `json:"messages"`
-	Model     string          `json:"model"`
-	Stream    bool            `json:"stream"`
-	System    string          `json:"system"`
-	Tools     json.RawMessage `json:"tools"`
+	MaxTokens     int             `json:"max_tokens"`
+	Messages      json.RawMessage `json:"messages"`
+	Model         string          `json:"model"`
+	Stream        bool            `json:"stream"`
+	System        string          `json:"system"`
+	Tools         json.RawMessage `json:"tools"`
+	Temperature   *float64        `json:"temperature,omitempty"`
+	TopP          *float64        `json:"top_p,omitempty"`
+	TopK          int             `json:"top_k,omitempty"`
+	StopSequences []string        `json:"stop_sequences,omitempty"`
 }
 
 type AnthropicResponse struct {
@@ -381,10 +484,19 @@ type AnthropicResponse struct {
 }
 
 type AnthropicUsage struct {
-	InputTokens  int    `json:"input_tokens"`
-	OutputTokens int    `json:"output_tokens"`
-	ServiceTier  string `json:"service_tier"`
-	InferenceGeo string `json:"inference_geo"`
+	InputTokens              TokenCount              `json:"input_tokens"`
+	OutputTokens             TokenCount              `json:"output_tokens"`
+	CacheCreationInputTokens TokenCount              `json:"cache_creation_input_tokens,omitempty"`
+	CacheReadInputTokens     TokenCount              `json:"cache_read_input_tokens,omitempty"`
+	ReasoningOutputTokens    TokenCount              `json:"reasoning_output_tokens,omitempty"`
+	CacheCreation            *AnthropicCacheCreation `json:"cache_creation,omitempty"`
+	ServiceTier              string                  `json:"service_tier"`
+	InferenceGeo             string                  `json:"inference_geo"`
+}
+
+type AnthropicCacheCreation struct {
+	Ephemeral5mInputTokens TokenCount `json:"ephemeral_5m_input_tokens,omitempty"`
+	Ephemeral1hInputTokens TokenCount `json:"ephemeral_1h_input_tokens,omitempty"`
 }
 
 type AnthropicError struct {
@@ -403,6 +515,8 @@ type VendorGemini struct {
 	Output    GeminiResponse
 	Model     string
 	Operation string
+	IsStream  bool
+	ToolCalls []ToolCall `json:"-"`
 }
 
 type GeminiRequest struct {
@@ -427,6 +541,7 @@ type GeminiGenCfg struct {
 	StopSequences    []string `json:"stopSequences,omitempty"`
 	Seed             *int     `json:"seed,omitempty"`
 	CandidateCount   int      `json:"candidateCount"`
+	ResponseMimeType string   `json:"responseMimeType,omitempty"`
 }
 
 type GeminiResponse struct {
@@ -444,9 +559,21 @@ type GeminiCandidate struct {
 }
 
 type GeminiUsage struct {
-	PromptTokenCount     int `json:"promptTokenCount"`
-	CandidatesTokenCount int `json:"candidatesTokenCount"`
-	TotalTokenCount      int `json:"totalTokenCount"`
+	PromptTokenCount           TokenCount                 `json:"promptTokenCount"`
+	CandidatesTokenCount       TokenCount                 `json:"candidatesTokenCount"`
+	TotalTokenCount            TokenCount                 `json:"totalTokenCount"`
+	ToolUsePromptTokenCount    TokenCount                 `json:"toolUsePromptTokenCount,omitempty"`
+	ThoughtsTokenCount         TokenCount                 `json:"thoughtsTokenCount,omitempty"`
+	CachedContentTokenCount    TokenCount                 `json:"cachedContentTokenCount,omitempty"`
+	PromptTokensDetails        []GeminiModalityTokenCount `json:"promptTokensDetails,omitempty"`
+	CacheTokensDetails         []GeminiModalityTokenCount `json:"cacheTokensDetails,omitempty"`
+	CandidatesTokensDetails    []GeminiModalityTokenCount `json:"candidatesTokensDetails,omitempty"`
+	ToolUsePromptTokensDetails []GeminiModalityTokenCount `json:"toolUsePromptTokensDetails,omitempty"`
+}
+
+type GeminiModalityTokenCount struct {
+	Modality   string     `json:"modality"`
+	TokenCount TokenCount `json:"tokenCount"`
 }
 
 type GeminiError struct {
@@ -475,19 +602,16 @@ func (g *VendorGemini) OperationName() string {
 }
 
 func (g *VendorGemini) GetOutput() string {
-	if len(g.Output.Candidates) > 0 && g.Output.Candidates[0].Content != nil {
-		return string(g.Output.Candidates[0].Content.Parts)
-	}
-	return ""
+	return normalizeGeminiOutput(&g.Output)
 }
 
 func (g *VendorGemini) GetInput() string {
-	return string(g.Input.Contents)
+	return normalizeGeminiInput(g.Input.Contents)
 }
 
 func (g *VendorGemini) GetSystemInstruction() string {
 	if g.Input.SystemInstruction != nil {
-		return string(g.Input.SystemInstruction.Parts)
+		return normalizeGeminiParts(g.Input.SystemInstruction.Parts)
 	}
 	return ""
 }
@@ -497,9 +621,11 @@ func (g *VendorGemini) GetSystemInstruction() string {
 // We capture the unified superset using omitempty and RawMessage for variable fields.
 
 type VendorBedrock struct {
-	Input  BedrockRequest
-	Output BedrockResponse
-	Model  string // extracted from URL path: /model/{modelId}/invoke
+	Input       BedrockRequest
+	Output      BedrockResponse
+	Model       string // extracted from URL path: /model/{modelId}/invoke
+	IsStream    bool
+	GuardrailID string
 }
 
 // BedrockRequest covers the common fields across all model families.
@@ -520,7 +646,8 @@ type BedrockRequest struct {
 	Prompt    string `json:"prompt,omitempty"`
 	MaxGenLen int    `json:"max_gen_len,omitempty"`
 	// Tool use (Claude / Nova)
-	Tools json.RawMessage `json:"tools,omitempty"`
+	Tools         json.RawMessage `json:"tools,omitempty"`
+	StopSequences []string        `json:"stop_sequences,omitempty"`
 }
 
 type TitanGenConfig struct {
@@ -530,32 +657,41 @@ type TitanGenConfig struct {
 }
 
 // BedrockResponse covers the common response fields across all model families.
-// Token counts are read from response headers (more reliable than body) and stored here.
 type BedrockResponse struct {
 	// Anthropic Claude format
 	Content    json.RawMessage `json:"content,omitempty"`
 	StopReason string          `json:"stop_reason,omitempty"`
-	Usage      *BedrockUsage   `json:"usage,omitempty"`
+	Usage      BedrockUsage    `json:"usage,omitempty"`
 	// Amazon Nova format
 	Output         *NovaOutput `json:"output,omitempty"`
 	StopReasonNova string      `json:"stopReason,omitempty"`
 	// Meta Llama format
-	Generation           string `json:"generation,omitempty"`
-	PromptTokenCount     int    `json:"prompt_token_count,omitempty"`
-	GenerationTokenCount int    `json:"generation_token_count,omitempty"`
+	Generation           string     `json:"generation,omitempty"`
+	PromptTokenCount     TokenCount `json:"prompt_token_count,omitempty"`
+	GenerationTokenCount TokenCount `json:"generation_token_count,omitempty"`
 	// Amazon Titan format
 	Results []TitanResult `json:"results,omitempty"`
 	// Error fields appear at the top level of the Bedrock error response body
 	ErrorType    string `json:"__type,omitempty"`
 	ErrorMessage string `json:"message,omitempty"`
 	// Token counts extracted from response headers (not JSON-unmarshalled, set programmatically)
-	InputTokens  int `json:"-"`
-	OutputTokens int `json:"-"`
+	InputTokens  TokenCount `json:"-"`
+	OutputTokens TokenCount `json:"-"`
 }
 
 type BedrockUsage struct {
-	InputTokens  int `json:"input_tokens"`
-	OutputTokens int `json:"output_tokens"`
+	InputTokens           TokenCount              `json:"inputTokens,omitempty"`
+	OutputTokens          TokenCount              `json:"outputTokens,omitempty"`
+	TotalTokens           TokenCount              `json:"totalTokens,omitempty"`
+	CacheReadInputTokens  TokenCount              `json:"cacheReadInputTokens,omitempty"`
+	CacheWriteInputTokens TokenCount              `json:"cacheWriteInputTokens,omitempty"`
+	CacheDetails          []BedrockCacheDetail    `json:"cacheDetails,omitempty"`
+	CacheCreation         *AnthropicCacheCreation `json:"cache_creation,omitempty"`
+}
+
+type BedrockCacheDetail struct {
+	InputTokens TokenCount `json:"inputTokens"`
+	TTL         string     `json:"ttl"`
 }
 
 type NovaOutput struct {
@@ -574,39 +710,43 @@ type TitanResult struct {
 
 func (b *VendorBedrock) GetInput() string {
 	if len(b.Input.Messages) > 0 {
-		return string(b.Input.Messages)
+		return NormalizeAnthropicInput(b.Input.Messages)
 	}
 	if b.Input.Prompt != "" {
-		return b.Input.Prompt
+		return wrapTextAsInputMessage(b.Input.Prompt)
 	}
 	if b.Input.InputText != "" {
-		return b.Input.InputText
+		return wrapTextAsInputMessage(b.Input.InputText)
 	}
 	return ""
 }
 
 func (b *VendorBedrock) GetOutput() string {
-	// Anthropic Claude: content array
+	// Anthropic Claude: content array (normalized via NormalizeBedrockOutput in tracesgen)
 	if len(b.Output.Content) > 0 {
 		return string(b.Output.Content)
 	}
 	// Amazon Nova: output.message.content
 	if b.Output.Output != nil && b.Output.Output.Message != nil && len(b.Output.Output.Message.Content) > 0 {
-		return string(b.Output.Output.Message.Content)
+		return wrapTextAsOutputMessage(
+			b.Output.Output.Message.Role,
+			string(b.Output.Output.Message.Content),
+			b.Output.StopReasonNova,
+		)
 	}
 	// Meta Llama: generation
 	if b.Output.Generation != "" {
-		return b.Output.Generation
+		return wrapTextAsOutputMessage("assistant", b.Output.Generation, b.GetStopReason())
 	}
 	// Amazon Titan: results[0].outputText
 	if len(b.Output.Results) > 0 {
-		return b.Output.Results[0].OutputText
+		return wrapTextAsOutputMessage("assistant", b.Output.Results[0].OutputText, b.Output.Results[0].CompletionReason)
 	}
 	return ""
 }
 
 func (b *VendorBedrock) GetSystemInstruction() string {
-	return b.Input.System
+	return NormalizeSystemInstructions(b.Input.System)
 }
 
 func (b *VendorBedrock) GetStopReason() string {
@@ -619,12 +759,347 @@ func (b *VendorBedrock) GetStopReason() string {
 	return ""
 }
 
+// MCPCall holds parsed data from a Model Context Protocol request/response.
+type MCPCall struct {
+	Method            string `json:"method"`
+	ToolName          string `json:"toolName,omitempty"`
+	ToolType          string `json:"toolType,omitempty"`
+	ToolCallArguments string `json:"toolCallArguments,omitempty"`
+	ToolCallResult    string `json:"toolCallResult,omitempty"`
+	ResourceURI       string `json:"resourceUri,omitempty"`
+	PromptName        string `json:"promptName,omitempty"`
+	SessionID         string `json:"sessionId,omitempty"`
+	ProtocolVer       string `json:"protocolVer,omitempty"`
+	RequestID         string `json:"requestId,omitempty"`
+	ErrorCode         int    `json:"errorCode,omitempty"`
+	ErrorMessage      string `json:"errorMessage,omitempty"`
+}
+
+// OperationName returns the GenAI operation name for the MCP method.
+// tools/call maps to execute_tool; other methods return the method name as-is.
+func (m *MCPCall) OperationName() string {
+	if m.Method == "tools/call" {
+		return "execute_tool"
+	}
+	return m.Method
+}
+
 type JSONRPC struct {
 	Method       string `json:"method"`
 	Version      string `json:"version"`
 	RequestID    string `json:"requestId"`
 	ErrorCode    int    `json:"errorCode,omitempty"`
 	ErrorMessage string `json:"errorMessage,omitempty"`
+}
+
+// Generic embedding provider types (Voyage AI, Cohere, Jina AI)
+
+// GenAI operation name constants aligned with OTel semantic conventions.
+const (
+	ChatOperationName         = "chat"
+	CompletionOperationName   = "text_completion"
+	GenerationOperationName   = "generation"
+	InvokeModelOperationName  = "invoke_model"
+	EmbeddingOperationName    = "embeddings"
+	ResponseOperationName     = "response"
+	ConversationOperationName = "conversation"
+)
+
+// VendorEmbedding represents a generic embedding API provider such as
+// Voyage AI, Cohere, or Jina AI.
+type VendorEmbedding struct {
+	Provider string
+	Model    string
+	Input    EmbeddingRequest
+	Output   EmbeddingResponse
+}
+
+// OperationName returns the canonical embedding operation name.
+func (e *VendorEmbedding) OperationName() string {
+	return EmbeddingOperationName
+}
+
+// EmbeddingRequest captures the common fields from embedding API requests.
+type EmbeddingRequest struct {
+	Model      string          `json:"model"`
+	Input      json.RawMessage `json:"input"`
+	Dimensions int             `json:"dimensions,omitempty"`
+	// Cohere uses "texts" instead of "input"
+	Texts json.RawMessage `json:"texts,omitempty"`
+}
+
+// InputCount returns the number of input texts in the request.
+// It handles both single-string and array-of-strings formats.
+func (r *EmbeddingRequest) InputCount() int {
+	raw := r.Input
+	if len(raw) == 0 {
+		raw = r.Texts
+	}
+	if len(raw) == 0 {
+		return 0
+	}
+	// Array of strings: count elements
+	var arr []json.RawMessage
+	if json.Unmarshal(raw, &arr) == nil {
+		return len(arr)
+	}
+	// Single string
+	return 1
+}
+
+// EmbeddingResponse captures the common fields from embedding API responses.
+type EmbeddingResponse struct {
+	Model string         `json:"model"`
+	Usage EmbeddingUsage `json:"usage"`
+	// Cohere uses meta.billed_units for token counts
+	Meta *CohereResponseMeta `json:"meta,omitempty"`
+}
+
+// EmbeddingUsage captures token usage in embedding responses.
+type EmbeddingUsage struct {
+	PromptTokens TokenCount `json:"prompt_tokens"`
+	TotalTokens  TokenCount `json:"total_tokens"`
+}
+
+// CohereResponseMeta captures Cohere-specific response metadata.
+type CohereResponseMeta struct {
+	BilledUnits *CohereBilledUnits `json:"billed_units,omitempty"`
+}
+
+// CohereBilledUnits captures Cohere token billing information.
+type CohereBilledUnits struct {
+	InputTokens TokenCount `json:"input_tokens"`
+}
+
+// VendorRerank holds parsed data from a rerank API request/response.
+// Reranking services (Cohere, Jina AI, Voyage AI, etc.) share a similar
+// REST API shape: POST /v1/rerank with a JSON body containing model,
+// query, and documents.  The provider is identified from the request
+// hostname.
+type VendorRerank struct {
+	Input    RerankRequest
+	Output   RerankResponse
+	Provider string
+}
+
+type RerankRequest struct {
+	Model     string          `json:"model"`
+	Query     string          `json:"query"`
+	TopN      int             `json:"top_n"`
+	Documents json.RawMessage `json:"documents"`
+	// Some providers nest query/documents under "input" and top_n under "parameters".
+	NestedInput *struct {
+		Query     string          `json:"query"`
+		Documents json.RawMessage `json:"documents"`
+	} `json:"input,omitempty"`
+	NestedParams *struct {
+		TopN int `json:"top_n"`
+	} `json:"parameters,omitempty"`
+}
+
+func (r *RerankRequest) GetQuery() string {
+	if r.Query != "" {
+		return r.Query
+	}
+	if r.NestedInput != nil {
+		return r.NestedInput.Query
+	}
+	return ""
+}
+
+func (r *RerankRequest) GetDocuments() json.RawMessage {
+	if len(r.Documents) > 0 {
+		return r.Documents
+	}
+	if r.NestedInput != nil {
+		return r.NestedInput.Documents
+	}
+	return nil
+}
+
+func (r *RerankRequest) GetTopN() int {
+	if r.TopN > 0 {
+		return r.TopN
+	}
+	if r.NestedParams != nil && r.NestedParams.TopN > 0 {
+		return r.NestedParams.TopN
+	}
+	return 0
+}
+
+type RerankResponse struct {
+	ID      string          `json:"id"`
+	Model   string          `json:"model"`
+	Results json.RawMessage `json:"results"`
+	Usage   RerankUsage     `json:"usage"`
+	Meta    *RerankMeta     `json:"meta,omitempty"`
+	Error   *RerankError    `json:"error,omitempty"`
+	// Some providers nest results under "output".
+	NestedOutput *struct {
+		Results json.RawMessage `json:"results"`
+	} `json:"output,omitempty"`
+	RequestID string `json:"request_id,omitempty"`
+}
+
+func (r *RerankResponse) GetResults() json.RawMessage {
+	if len(r.Results) > 0 {
+		return r.Results
+	}
+	if r.NestedOutput != nil {
+		return r.NestedOutput.Results
+	}
+	return nil
+}
+
+func (r *RerankResponse) GetID() string {
+	if r.ID != "" {
+		return r.ID
+	}
+	return r.RequestID
+}
+
+// RerankMeta represents Cohere-style metadata in the rerank response.
+type RerankMeta struct {
+	BilledUnits *RerankBilledUnits `json:"billed_units,omitempty"`
+	Tokens      *RerankMetaTokens  `json:"tokens,omitempty"`
+}
+
+type RerankBilledUnits struct {
+	SearchUnits float64 `json:"search_units"`
+}
+
+type RerankMetaTokens struct {
+	InputTokens TokenCount `json:"input_tokens"`
+}
+
+type RerankUsage struct {
+	TotalTokens  TokenCount `json:"total_tokens"`
+	PromptTokens TokenCount `json:"prompt_tokens"`
+	SearchUnits  int        `json:"search_units"`
+}
+
+type RerankError struct {
+	Type    string `json:"type"`
+	Message string `json:"message"`
+}
+
+// GetInput returns a JSON representation of the rerank input (query + documents).
+func (v *VendorRerank) GetInput() string {
+	query := v.Input.GetQuery()
+	docs := v.Input.GetDocuments()
+	if query == "" && len(docs) == 0 {
+		return ""
+	}
+	obj := struct {
+		Query     string          `json:"query,omitempty"`
+		Documents json.RawMessage `json:"documents,omitempty"`
+	}{
+		Query:     query,
+		Documents: docs,
+	}
+	b, err := json.Marshal(obj)
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
+// GetOutput returns a JSON representation of the rerank output (results).
+func (v *VendorRerank) GetOutput() string {
+	results := v.Output.GetResults()
+	if len(results) == 0 {
+		return ""
+	}
+	return string(results)
+}
+
+// Vector retrieval provider types (Pinecone, Qdrant, Milvus, Chroma, Weaviate, etc.)
+
+// RetrievalOperationName is the canonical operation name for vector
+// retrieval spans, aligned with the OpenTelemetry GenAI semantic
+// conventions (gen_ai.operation.name = "retrieval").
+const RetrievalOperationName = "retrieval"
+
+// VendorRetrieval holds parsed data from a vector database retrieval
+// (similarity search) request/response. Vector stores differ significantly
+// in their request/response shape, so both Input and Output keep only the
+// fields that are common or easy to recover across providers.
+type VendorRetrieval struct {
+	Provider string
+	Input    RetrievalRequest
+	Output   RetrievalResponse
+}
+
+// OperationName returns the canonical retrieval operation name.
+func (r *VendorRetrieval) OperationName() string {
+	return RetrievalOperationName
+}
+
+// GetCollection returns the collection / index / namespace name, checking
+// the provider-specific aliases in order.
+func (r *VendorRetrieval) GetCollection() string {
+	if r.Input.Collection != "" {
+		return r.Input.Collection
+	}
+	if r.Input.CollectionName != "" {
+		return r.Input.CollectionName
+	}
+	if r.Input.CollectionSnake != "" {
+		return r.Input.CollectionSnake
+	}
+	return r.Input.Namespace
+}
+
+// RetrievalRequest captures the common fields from vector search request
+// bodies across Pinecone, Qdrant, Milvus, Chroma and Weaviate. Unknown
+// fields are ignored; missing fields are harmless.
+type RetrievalRequest struct {
+	// Model is the embedding model used, when reported by the request body
+	// (rarely present; most vector stores do not require a model).
+	Model string `json:"model,omitempty"`
+	// Collection / index name when the provider places it in the body
+	// (Pinecone uses namespace, Milvus uses collectionName, Chroma uses collection).
+	Collection      string `json:"collection,omitempty"`
+	CollectionName  string `json:"collectionName,omitempty"`
+	CollectionSnake string `json:"collection_name,omitempty"`
+	Namespace       string `json:"namespace,omitempty"`
+	// TopK / limit for similarity search results.
+	// Pinecone/Qdrant use "topK"/"top_k", Milvus/Chroma use "limit".
+	TopK      int `json:"topK,omitempty"`
+	TopKSnake int `json:"top_k,omitempty"`
+	Limit     int `json:"limit,omitempty"`
+}
+
+// GetTopK returns the top-k value from whichever field was populated.
+func (r *RetrievalRequest) GetTopK() int {
+	if r.TopK > 0 {
+		return r.TopK
+	}
+	if r.TopKSnake > 0 {
+		return r.TopKSnake
+	}
+	return r.Limit
+}
+
+// RetrievalResponse captures the common fields from vector search response
+// bodies.
+type RetrievalResponse struct {
+	ID    string         `json:"id,omitempty"`
+	Model string         `json:"model,omitempty"`
+	Usage RetrievalUsage `json:"usage,omitempty"`
+}
+
+// RetrievalUsage captures optional token usage information returned by
+// embedding-aware vector stores.
+type RetrievalUsage struct {
+	TotalTokens  TokenCount `json:"total_tokens,omitempty"`
+	PromptTokens TokenCount `json:"prompt_tokens,omitempty"`
+}
+
+type SpanLink struct {
+	TraceID    trace.TraceID `json:"traceID"`
+	SpanID     trace.SpanID  `json:"spanID"`
+	TraceFlags uint8         `json:"traceFlags,string"`
 }
 
 // Span contains the information being submitted by the following nodes in the graph.
@@ -646,6 +1121,7 @@ type Span struct {
 	Status            int            `json:"-"`
 	ResponseLength    int64          `json:"-"`
 	ContentLength     int64          `json:"-"`
+	DBBatchSize       int            `json:"-"`
 	RequestStart      int64          `json:"-"`
 	Start             int64          `json:"-"`
 	End               int64          `json:"-"`
@@ -654,6 +1130,7 @@ type Span struct {
 	SpanID            trace.SpanID   `json:"spanID"`
 	ParentSpanID      trace.SpanID   `json:"parentSpanID"`
 	TraceFlags        uint8          `json:"traceFlags,string"`
+	Links             []SpanLink     `json:"links,omitempty"`
 	Pid               PidInfo        `json:"-"`
 	PeerName          string         `json:"peerName"`
 	HostName          string         `json:"hostName"`
@@ -663,6 +1140,7 @@ type Span struct {
 	SubType           int            `json:"-"`
 	DBError           DBError        `json:"-"`
 	DBNamespace       string         `json:"-"`
+	DBQuerySummary    string         `json:"-"`
 	DBSystem          string         `json:"-"`
 	SQLCommand        string         `json:"-"`
 	SQLError          *SQLError      `json:"-"`
@@ -717,10 +1195,19 @@ func spanAttributes(s *Span) SpanAttributes {
 			"serverPort":  strconv.Itoa(s.HostPort),
 		}
 		if s.SubType == HTTPSubtypeGraphQL && s.GraphQL != nil {
-			attrs["graphqlDocument"] = s.GraphQL.Document
 			attrs["graphqlOperationName"] = s.GraphQL.OperationName
 			attrs["graphqlOperationType"] = s.GraphQL.OperationType
 		}
+		if s.SubType == HTTPSubtypeJSONRPC && s.JSONRPC != nil {
+			attrs["jsonrpcMethod"] = s.JSONRPC.Method
+			attrs["jsonrpcVersion"] = s.JSONRPC.Version
+			attrs["jsonrpcRequestId"] = s.JSONRPC.RequestID
+			attrs["jsonrpcErrorCode"] = strconv.Itoa(s.JSONRPC.ErrorCode)
+			if s.JSONRPC.ErrorMessage != "" {
+				attrs["jsonrpcErrorMessage"] = s.JSONRPC.ErrorMessage
+			}
+		}
+
 		addHeaderAttributes(attrs, s)
 		return attrs
 	case EventTypeHTTPClient:
@@ -811,7 +1298,7 @@ func spanAttributes(s *Span) SpanAttributes {
 			"errorMessage":     message,
 			"errorDescription": s.SQLErrorDescription(),
 		}
-	case EventTypeRedisServer:
+	case EventTypeRedisServer, EventTypeRedisClient:
 		return SpanAttributes{
 			"serverAddr": SpanHost(s),
 			"serverPort": strconv.Itoa(s.HostPort),
@@ -819,7 +1306,7 @@ func spanAttributes(s *Span) SpanAttributes {
 			"statement":  s.Statement,
 			"query":      s.Path,
 		}
-	case EventTypeKafkaServer, EventTypeKafkaClient, EventTypeMQTTServer, EventTypeMQTTClient:
+	case EventTypeKafkaServer, EventTypeKafkaClient, EventTypeMQTTServer, EventTypeMQTTClient, EventTypeAMQPClient:
 		attrs := SpanAttributes{
 			"serverAddr": SpanHost(s),
 			"serverPort": strconv.Itoa(s.HostPort),
@@ -832,6 +1319,30 @@ func spanAttributes(s *Span) SpanAttributes {
 			if s.Method == MessagingProcess {
 				attrs["offset"] = strconv.FormatUint(uint64(s.MessagingInfo.Offset), 10)
 			}
+		}
+		return attrs
+	case EventTypeNATSServer, EventTypeNATSClient:
+		return SpanAttributes{
+			"serverAddr": SpanHost(s),
+			"serverPort": strconv.Itoa(s.HostPort),
+			"operation":  s.Method,
+			"clientId":   s.Statement,
+			"subject":    s.Path,
+		}
+	case EventTypeSunRPCServer, EventTypeSunRPCClient:
+		attrs := SpanAttributes{
+			"serverAddr":                  SpanHost(s),
+			"serverPort":                  strconv.Itoa(s.HostPort),
+			attr.OncRPCProgramName.Prom(): s.Path,
+			attr.OncRPCVersion.Prom():     strconv.Itoa(s.SubType),
+			attr.OncRPCAuthFlavor.Prom():  s.Statement,
+			"status":                      strconv.Itoa(s.Status),
+		}
+		if procRoute := s.SunRPCProcedureRouteForExport(); procRoute != "" {
+			attrs[attr.OncRPCProcedureNumber.Prom()] = procRoute
+		}
+		if procName := s.SunRPCProcedureNameForExport(); procName != "" {
+			attrs[attr.OncRPCProcedureName.Prom()] = procName
 		}
 		return attrs
 	case EventTypeGPUCudaKernelLaunch:
@@ -855,6 +1366,21 @@ func spanAttributes(s *Span) SpanAttributes {
 			"operation":  s.Method,
 			"table":      s.Path,
 		}
+	case EventTypeAerospikeClient:
+		attrs := SpanAttributes{
+			"serverAddr":      SpanHost(s),
+			"serverPort":      strconv.Itoa(s.HostPort),
+			"dbOperationName": s.Method,
+			"dbNamespace":     s.DBNamespace,
+		}
+		if s.Path != "" {
+			attrs["dbCollectionName"] = s.Path
+		}
+		if s.DBError.ErrorCode != "" {
+			attrs["errorType"] = s.DBError.ErrorCode
+			attrs["errorDescription"] = s.DBError.Description
+		}
+		return attrs
 	}
 
 	return SpanAttributes{}
@@ -966,7 +1492,7 @@ func (s *Span) IsValid() bool {
 
 func (s *Span) IsClientSpan() bool {
 	switch s.Type {
-	case EventTypeGRPCClient, EventTypeDNS, EventTypeHTTPClient, EventTypeRedisClient, EventTypeKafkaClient, EventTypeMQTTClient, EventTypeSQLClient, EventTypeMongoClient, EventTypeFailedConnect, EventTypeCouchbaseClient, EventTypeMemcachedClient:
+	case EventTypeGRPCClient, EventTypeDNS, EventTypeHTTPClient, EventTypeRedisClient, EventTypeKafkaClient, EventTypeMQTTClient, EventTypeNATSClient, EventTypeAMQPClient, EventTypeSunRPCClient, EventTypeSQLClient, EventTypeMongoClient, EventTypeFailedConnect, EventTypeCouchbaseClient, EventTypeMemcachedClient, EventTypeAerospikeClient:
 		return true
 	}
 
@@ -989,7 +1515,7 @@ func SpanStatusCode(span *Span) string {
 		return HTTPSpanStatusCode(span)
 	case EventTypeGRPC, EventTypeGRPCClient:
 		return GrpcSpanStatusCode(span)
-	case EventTypeSQLClient, EventTypeSQLServer, EventTypeRedisClient, EventTypeRedisServer, EventTypeMongoClient, EventTypeDNS, EventTypeCouchbaseClient, EventTypeMemcachedClient, EventTypeMemcachedServer:
+	case EventTypeSQLClient, EventTypeSQLServer, EventTypeRedisClient, EventTypeRedisServer, EventTypeMongoClient, EventTypeDNS, EventTypeCouchbaseClient, EventTypeMemcachedClient, EventTypeMemcachedServer, EventTypeSunRPCClient, EventTypeSunRPCServer, EventTypeAerospikeClient:
 		if span.Status != 0 {
 			return StatusCodeError
 		}
@@ -1008,28 +1534,40 @@ func SpanStatusCode(span *Span) string {
 	return StatusCodeUnset
 }
 
+func SpanDBStatusMessage(span *Span, dbError string) string {
+	if span.Status != 0 && dbError != "" {
+		return dbError
+	}
+	return ""
+}
+
+func (s *Span) IsDBSpan() bool {
+	switch s.Type {
+	case EventTypeRedisClient, EventTypeRedisServer, EventTypeMongoClient, EventTypeCouchbaseClient, EventTypeMemcachedClient, EventTypeMemcachedServer, EventTypeSQLClient, EventTypeSQLServer, EventTypeAerospikeClient:
+		return true
+	case EventTypeHTTPClient:
+		if s.SubType == HTTPSubtypeSQLPP {
+			return true
+		}
+	}
+
+	return false
+}
+
 func SpanStatusMessage(span *Span) string {
 	switch span.Type {
-	case EventTypeRedisClient, EventTypeRedisServer, EventTypeMongoClient, EventTypeCouchbaseClient, EventTypeMemcachedClient, EventTypeMemcachedServer:
-		if span.Status != 0 && span.DBError.Description != "" {
-			return span.DBError.Description
-		}
-	case EventTypeSQLClient, EventTypeSQLServer:
-		if span.Status != 0 && span.SQLError != nil {
-			return span.SQLErrorDescription()
-		}
 	case EventTypeManualSpan:
 		return span.Path
-	case EventTypeHTTPClient:
-		if span.SubType == HTTPSubtypeSQLPP && span.Status != 0 && span.DBError.Description != "" {
-			return span.DBError.Description
-		}
+	case EventTypeHTTPClient, EventTypeHTTP:
 		if span.SubType == HTTPSubtypeJSONRPC && span.JSONRPC != nil && span.JSONRPC.ErrorMessage != "" {
 			return span.JSONRPC.ErrorMessage
 		}
-	case EventTypeHTTP:
-		if span.SubType == HTTPSubtypeJSONRPC && span.JSONRPC != nil && span.JSONRPC.ErrorMessage != "" {
-			return span.JSONRPC.ErrorMessage
+		if span.SubType == HTTPSubtypeMCP && span.GenAI != nil && span.GenAI.MCP != nil && span.GenAI.MCP.ErrorMessage != "" {
+			return span.GenAI.MCP.ErrorMessage
+		}
+	case EventTypeDNS:
+		if span.Status != 0 {
+			return dnsparser.RCode(span.Status).String()
 		}
 	}
 	return ""
@@ -1043,6 +1581,11 @@ func HTTPSpanStatusCode(span *Span) string {
 
 	// JSON-RPC errors are signaled in the response body, not via HTTP status code.
 	if span.SubType == HTTPSubtypeJSONRPC && span.JSONRPC != nil && span.JSONRPC.ErrorCode != 0 {
+		return StatusCodeError
+	}
+
+	// MCP errors are signaled in the JSON-RPC response body.
+	if span.SubType == HTTPSubtypeMCP && span.GenAI != nil && span.GenAI.MCP != nil && span.GenAI.MCP.ErrorCode != 0 {
 		return StatusCodeError
 	}
 
@@ -1067,6 +1610,9 @@ func HTTPSpanStatusCode(span *Span) string {
 				if span.GenAI.Bedrock != nil && span.GenAI.Bedrock.Output.ErrorType != "" {
 					return StatusCodeError
 				}
+				if span.GenAI.Rerank != nil && span.GenAI.Rerank.Output.Error != nil && span.GenAI.Rerank.Output.Error.Type != "" {
+					return StatusCodeError
+				}
 			}
 
 			return StatusCodeUnset
@@ -1079,13 +1625,13 @@ func HTTPSpanStatusCode(span *Span) string {
 }
 
 var (
-	grpcStatusCodeOK               = int(semconv.RPCGRPCStatusCodeOk.Value.AsInt64())
-	grpcStatusCodeUnknown          = int(semconv.RPCGRPCStatusCodeUnknown.Value.AsInt64())
-	grpcStatusCodeDeadlineExceeded = int(semconv.RPCGRPCStatusCodeDeadlineExceeded.Value.AsInt64())
-	grpcStatusCodeUnimplemented    = int(semconv.RPCGRPCStatusCodeUnimplemented.Value.AsInt64())
-	grpcStatusCodeInternal         = int(semconv.RPCGRPCStatusCodeInternal.Value.AsInt64())
-	grpcStatusCodeUnavailable      = int(semconv.RPCGRPCStatusCodeUnavailable.Value.AsInt64())
-	grpcStatusCodeDataLoss         = int(semconv.RPCGRPCStatusCodeDataLoss.Value.AsInt64())
+	grpcStatusCodeOK               = int(grpc_codes.OK)
+	grpcStatusCodeUnknown          = int(grpc_codes.Unknown)
+	grpcStatusCodeDeadlineExceeded = int(grpc_codes.DeadlineExceeded)
+	grpcStatusCodeUnimplemented    = int(grpc_codes.Unimplemented)
+	grpcStatusCodeInternal         = int(grpc_codes.Internal)
+	grpcStatusCodeUnavailable      = int(grpc_codes.Unavailable)
+	grpcStatusCodeDataLoss         = int(grpc_codes.DataLoss)
 )
 
 // GrpcSpanStatusCode https://opentelemetry.io/docs/specs/otel/trace/semantic_conventions/rpc/#grpc-status
@@ -1125,11 +1671,11 @@ func (s *Span) ResponseBodyLength() int64 {
 // ServiceGraphKind returns the Kind string representation that is compliant with service graph metrics specification
 func (s *Span) ServiceGraphKind() string {
 	switch s.Type {
-	case EventTypeHTTP, EventTypeGRPC, EventTypeKafkaServer, EventTypeMQTTServer, EventTypeRedisServer, EventTypeMemcachedServer, EventTypeSQLServer:
+	case EventTypeHTTP, EventTypeGRPC, EventTypeKafkaServer, EventTypeMQTTServer, EventTypeNATSServer, EventTypeSunRPCServer, EventTypeRedisServer, EventTypeMemcachedServer, EventTypeSQLServer:
 		return "SPAN_KIND_SERVER"
-	case EventTypeHTTPClient, EventTypeGRPCClient, EventTypeSQLClient, EventTypeRedisClient, EventTypeMongoClient, EventTypeFailedConnect, EventTypeCouchbaseClient, EventTypeMemcachedClient:
+	case EventTypeHTTPClient, EventTypeGRPCClient, EventTypeSQLClient, EventTypeRedisClient, EventTypeMongoClient, EventTypeFailedConnect, EventTypeCouchbaseClient, EventTypeMemcachedClient, EventTypeSunRPCClient:
 		return "SPAN_KIND_CLIENT"
-	case EventTypeKafkaClient, EventTypeMQTTClient:
+	case EventTypeKafkaClient, EventTypeMQTTClient, EventTypeNATSClient, EventTypeAMQPClient:
 		switch s.Method {
 		case MessagingPublish:
 			return "SPAN_KIND_PRODUCER"
@@ -1146,7 +1692,7 @@ func (s *Span) ServiceGraphConnectionType() string {
 	switch s.Type {
 	case EventTypeSQLClient, EventTypeRedisClient, EventTypeMongoClient, EventTypeCouchbaseClient, EventTypeMemcachedClient:
 		return "database"
-	case EventTypeKafkaClient, EventTypeMQTTClient:
+	case EventTypeKafkaClient, EventTypeMQTTClient, EventTypeNATSClient, EventTypeAMQPClient:
 		return "messaging_system"
 	case EventTypeHTTPClient:
 		if s.SubType == HTTPSubtypeAWSSQS {
@@ -1276,9 +1822,64 @@ func (s *Span) TraceName() string {
 
 		if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeAWSBedrock && s.GenAI != nil && s.GenAI.Bedrock != nil {
 			if s.GenAI.Bedrock.Model != "" {
-				return "invoke_model " + s.GenAI.Bedrock.Model
+				return InvokeModelOperationName + " " + s.GenAI.Bedrock.Model
 			}
-			return "invoke_model"
+			return InvokeModelOperationName
+		}
+
+		if s.SubType == HTTPSubtypeMCP && s.GenAI != nil && s.GenAI.MCP != nil {
+			op := s.GenAI.MCP.OperationName()
+			if s.GenAI.MCP.ToolName != "" {
+				return op + " " + s.GenAI.MCP.ToolName
+			}
+			return op
+		}
+
+		if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeEmbedding && s.GenAI != nil && s.GenAI.Embedding != nil {
+			op := s.GenAI.Embedding.OperationName()
+			model := s.GenAI.Embedding.Model
+			if s.GenAI.Embedding.Input.Model != "" {
+				model = s.GenAI.Embedding.Input.Model
+			}
+			if model != "" {
+				return op + " " + model
+			}
+			return op
+		}
+
+		if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeRerank && s.GenAI != nil && s.GenAI.Rerank != nil {
+			model := s.GenAI.Rerank.Input.Model
+			if model == "" {
+				model = s.GenAI.Rerank.Output.Model
+			}
+			if model != "" {
+				return "rerank " + model
+			}
+			return "rerank"
+		}
+
+		if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeOllama && s.GenAI != nil && s.GenAI.Ollama != nil {
+			name := s.GenAI.Ollama.OperationName
+			if name != "" {
+				switch {
+				case s.GenAI.Ollama.Request.Model != "":
+					return name + " " + s.GenAI.Ollama.Request.Model
+				case s.GenAI.Ollama.ResponseModel != "":
+					return name + " " + s.GenAI.Ollama.ResponseModel
+				default:
+					return name
+				}
+			}
+		}
+
+		if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeRetrieval && s.GenAI != nil && s.GenAI.Retrieval != nil {
+			if name := s.GenAI.Retrieval.GetCollection(); name != "" {
+				return RetrievalOperationName + " " + name
+			}
+			if s.GenAI.Retrieval.Provider != "" {
+				return RetrievalOperationName + " " + s.GenAI.Retrieval.Provider
+			}
+			return RetrievalOperationName
 		}
 
 		if s.SubType == HTTPSubtypeJSONRPC && s.JSONRPC != nil {
@@ -1300,9 +1901,15 @@ func (s *Span) TraceName() string {
 		if operation == "" {
 			return "SQL"
 		}
-		table := s.Path
-		if table != "" {
-			operation += " " + table
+		// semconv: db.query.summary when available, else
+		// {db.operation.name} {target} with target = collection then namespace
+		switch {
+		case s.DBQuerySummary != "":
+			return s.DBQuerySummary
+		case s.Path != "":
+			return operation + " " + s.Path
+		case s.DBNamespace != "":
+			return operation + " " + s.DBNamespace
 		}
 		return operation
 	case EventTypeRedisClient, EventTypeRedisServer:
@@ -1315,11 +1922,16 @@ func (s *Span) TraceName() string {
 			return "MEMCACHED"
 		}
 		return s.Method
-	case EventTypeKafkaClient, EventTypeKafkaServer, EventTypeMQTTClient, EventTypeMQTTServer:
+	case EventTypeKafkaClient, EventTypeKafkaServer, EventTypeMQTTClient, EventTypeMQTTServer, EventTypeNATSClient, EventTypeNATSServer, EventTypeAMQPClient:
 		if s.Path == "" {
 			return s.Method
 		}
 		return s.Method + " " + s.Path
+	case EventTypeSunRPCClient, EventTypeSunRPCServer:
+		if s.Path == "" {
+			return "sunrpc/" + s.Method
+		}
+		return s.Path + "/" + s.Method
 	case EventTypeMongoClient:
 		if s.Path != "" && s.Method != "" {
 			// TODO for database operations like listCollections, we need to use s.DbNamespace instead of s.Path
@@ -1350,6 +1962,23 @@ func (s *Span) TraceName() string {
 		}
 		if s.Path != "" {
 			return s.Method + " " + s.Path
+		}
+		return s.Method
+	case EventTypeAerospikeClient:
+		if s.Method == "" {
+			return "AEROSPIKE"
+		}
+		// {operation} {namespace}.{set}, dropping any missing component.
+		target := s.DBNamespace
+		if s.Path != "" {
+			if target != "" {
+				target += "." + s.Path
+			} else {
+				target = s.Path
+			}
+		}
+		if target != "" {
+			return s.Method + " " + target
 		}
 		return s.Method
 	}
@@ -1389,9 +2018,9 @@ func (s *Span) isTracesExportURL() bool {
 func (s *Span) sendsOnDefaultGrpcOtelPort(defaultOtlpGRPCPort int) bool {
 	otlpPort, ok := s.portFromEndpointEnvVar(envOTLPEndpoint)
 	if ok {
-		return otlpPort == s.PeerPort
+		return otlpPort == s.HostPort
 	}
-	return s.PeerPort == defaultOtlpGRPCPort
+	return s.HostPort == defaultOtlpGRPCPort
 }
 
 func (s *Span) sendsTracesOnGrpcOtelPort(defaultOtlpGRPCPort int) bool {
@@ -1405,7 +2034,7 @@ func (s *Span) sendsTracesOnGrpcOtelPort(defaultOtlpGRPCPort int) bool {
 	}
 	otlpTracesPort, ok := s.portFromEndpointEnvVar(envOTLPTracesEndpoint)
 	if ok {
-		return otlpTracesPort == s.PeerPort
+		return otlpTracesPort == s.HostPort
 	}
 	return s.sendsOnDefaultGrpcOtelPort(defaultOtlpGRPCPort)
 }
@@ -1439,7 +2068,7 @@ func (s *Span) sendsMetricsOnGrpcOtelPort(defaultOtlpGRPCPort int) bool {
 	}
 	otlpMetricsPort, ok := s.portFromEndpointEnvVar(envOTLPMetricsEndpoint)
 	if ok {
-		return otlpMetricsPort == s.PeerPort
+		return otlpMetricsPort == s.HostPort
 	}
 	return s.sendsOnDefaultGrpcOtelPort(defaultOtlpGRPCPort)
 }
@@ -1489,6 +2118,8 @@ func (s *Span) DBSystemName() attribute.KeyValue {
 			return semconv.DBSystemNamePostgreSQL
 		case int(DBMySQL):
 			return semconv.DBSystemNameMySQL
+		case int(DBMSSQL):
+			return semconv.DBSystemNameMicrosoftSQLServer
 		}
 	}
 
@@ -1500,60 +2131,90 @@ func (s *Span) HasOriginalHost() bool {
 	return len(schemeHost) > 1 && schemeHost[1] != ""
 }
 
-func (s *Span) GenAIInputTokens() int {
+// GenAIInputTokenCount returns the input token count and whether the provider reported it.
+func (s *Span) GenAIInputTokenCount() (int, bool) {
 	if s.GenAI == nil {
-		return 0
+		return 0, false
 	}
 
 	if s.GenAI.OpenAI != nil {
-		return s.GenAI.OpenAI.Usage.GetInputTokens()
+		return s.GenAI.OpenAI.Usage.InputTokenCount()
 	}
 
 	if s.GenAI.Anthropic != nil {
-		return s.GenAI.Anthropic.Output.Usage.InputTokens
+		return s.GenAI.Anthropic.Output.Usage.InputTokenCount()
 	}
 
 	if s.GenAI.Gemini != nil {
-		return s.GenAI.Gemini.Output.UsageMetadata.PromptTokenCount
+		return s.GenAI.Gemini.Output.UsageMetadata.InputTokenCount()
 	}
 
 	if s.GenAI.Qwen != nil {
-		return s.GenAI.Qwen.Usage.GetInputTokens()
+		return s.GenAI.Qwen.Usage.InputTokenCount()
+	}
+
+	if s.GenAI.Ollama != nil {
+		return s.GenAI.Ollama.Usage.InputTokenCount()
+	}
+
+	if s.GenAI.OpenAICompatible != nil {
+		return s.GenAI.OpenAICompatible.Usage.InputTokenCount()
 	}
 
 	if s.GenAI.Bedrock != nil {
-		return s.GenAI.Bedrock.Output.InputTokens
+		return s.GenAI.Bedrock.Output.InputTokenCount()
 	}
 
-	return 0
+	if s.GenAI.Embedding != nil {
+		return s.GenAI.Embedding.InputTokenCount()
+	}
+
+	if s.GenAI.Rerank != nil {
+		return s.GenAI.Rerank.Output.InputTokenCount()
+	}
+
+	if s.GenAI.Retrieval != nil {
+		return s.GenAI.Retrieval.InputTokenCount()
+	}
+
+	return 0, false
 }
 
-func (s *Span) GenAIOutputTokens() int {
+// GenAIOutputTokenCount returns the output token count and whether the provider reported it.
+func (s *Span) GenAIOutputTokenCount() (int, bool) {
 	if s.GenAI == nil {
-		return 0
+		return 0, false
 	}
 
 	if s.GenAI.OpenAI != nil {
-		return s.GenAI.OpenAI.Usage.GetOutputTokens()
+		return s.GenAI.OpenAI.Usage.OutputTokenCount()
 	}
 
 	if s.GenAI.Anthropic != nil {
-		return s.GenAI.Anthropic.Output.Usage.OutputTokens
+		return s.GenAI.Anthropic.Output.Usage.OutputTokenCount()
 	}
 
 	if s.GenAI.Gemini != nil {
-		return s.GenAI.Gemini.Output.UsageMetadata.CandidatesTokenCount
+		return s.GenAI.Gemini.Output.UsageMetadata.OutputTokenCount()
 	}
 
 	if s.GenAI.Qwen != nil {
-		return s.GenAI.Qwen.Usage.GetOutputTokens()
+		return s.GenAI.Qwen.Usage.OutputTokenCount()
+	}
+
+	if s.GenAI.Ollama != nil {
+		return s.GenAI.Ollama.Usage.OutputTokenCount()
+	}
+
+	if s.GenAI.OpenAICompatible != nil {
+		return s.GenAI.OpenAICompatible.Usage.OutputTokenCount()
 	}
 
 	if s.GenAI.Bedrock != nil {
-		return s.GenAI.Bedrock.Output.OutputTokens
+		return s.GenAI.Bedrock.Output.OutputTokenCount()
 	}
 
-	return 0
+	return 0, false
 }
 
 func (s *Span) GenAIOperationName() string {
@@ -1572,8 +2233,23 @@ func (s *Span) GenAIOperationName() string {
 	if s.GenAI.Qwen != nil {
 		return s.GenAI.Qwen.OperationName
 	}
+	if s.GenAI.Ollama != nil {
+		return s.GenAI.Ollama.OperationName
+	}
+	if s.GenAI.OpenAICompatible != nil {
+		return s.GenAI.OpenAICompatible.OperationName
+	}
 	if s.GenAI.Bedrock != nil {
-		return "invoke_model"
+		return InvokeModelOperationName
+	}
+	if s.GenAI.Embedding != nil {
+		return s.GenAI.Embedding.OperationName()
+	}
+	if s.GenAI.Rerank != nil {
+		return "rerank"
+	}
+	if s.GenAI.Retrieval != nil {
+		return s.GenAI.Retrieval.OperationName()
 	}
 	return ""
 }
@@ -1594,8 +2270,26 @@ func (s *Span) GenAIProviderName() string {
 	if s.GenAI.Qwen != nil {
 		return attr.QwenProviderName
 	}
+	if s.GenAI.Ollama != nil {
+		return "ollama"
+	}
+	if s.GenAI.OpenAICompatible != nil {
+		if s.GenAI.OpenAICompatible.ProviderName != "" {
+			return s.GenAI.OpenAICompatible.ProviderName
+		}
+		return "custom"
+	}
 	if s.GenAI.Bedrock != nil {
 		return semconv.GenAIProviderNameAWSBedrock.Value.AsString()
+	}
+	if s.GenAI.Embedding != nil {
+		return s.GenAI.Embedding.Provider
+	}
+	if s.GenAI.Rerank != nil {
+		return s.GenAI.Rerank.Provider
+	}
+	if s.GenAI.Retrieval != nil {
+		return s.GenAI.Retrieval.Provider
 	}
 	return ""
 }
@@ -1616,8 +2310,26 @@ func (s *Span) GenAIRequestModel() string {
 	if s.GenAI.Qwen != nil {
 		return s.GenAI.Qwen.Request.Model
 	}
+	if s.GenAI.Ollama != nil {
+		return s.GenAI.Ollama.Request.Model
+	}
+	if s.GenAI.OpenAICompatible != nil {
+		return s.GenAI.OpenAICompatible.Request.Model
+	}
 	if s.GenAI.Bedrock != nil {
 		return s.GenAI.Bedrock.Model
+	}
+	if s.GenAI.Embedding != nil {
+		if s.GenAI.Embedding.Input.Model != "" {
+			return s.GenAI.Embedding.Input.Model
+		}
+		return s.GenAI.Embedding.Model
+	}
+	if s.GenAI.Rerank != nil {
+		return s.GenAI.Rerank.Input.Model
+	}
+	if s.GenAI.Retrieval != nil {
+		return s.GenAI.Retrieval.Input.Model
 	}
 	return ""
 }
@@ -1644,8 +2356,38 @@ func (s *Span) GenAIResponseModel() string {
 		}
 		return s.GenAI.Qwen.Request.Model
 	}
+	if s.GenAI.Ollama != nil {
+		if s.GenAI.Ollama.ResponseModel != "" {
+			return s.GenAI.Ollama.ResponseModel
+		}
+		return s.GenAI.Ollama.Request.Model
+	}
+	if s.GenAI.OpenAICompatible != nil {
+		if s.GenAI.OpenAICompatible.ResponseModel != "" {
+			return s.GenAI.OpenAICompatible.ResponseModel
+		}
+		return s.GenAI.OpenAICompatible.Request.Model
+	}
 	if s.GenAI.Bedrock != nil {
 		return s.GenAI.Bedrock.Model
+	}
+	if s.GenAI.Embedding != nil {
+		if s.GenAI.Embedding.Output.Model != "" {
+			return s.GenAI.Embedding.Output.Model
+		}
+		return s.GenAI.Embedding.Model
+	}
+	if s.GenAI.Rerank != nil {
+		if s.GenAI.Rerank.Output.Model != "" {
+			return s.GenAI.Rerank.Output.Model
+		}
+		return s.GenAI.Rerank.Input.Model
+	}
+	if s.GenAI.Retrieval != nil {
+		if s.GenAI.Retrieval.Output.Model != "" {
+			return s.GenAI.Retrieval.Output.Model
+		}
+		return s.GenAI.Retrieval.Input.Model
 	}
 	return ""
 }

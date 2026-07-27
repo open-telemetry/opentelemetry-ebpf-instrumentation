@@ -18,14 +18,19 @@ enum {
     k_echo = 0x00008,
 
     // log handling
-    k_log_event_max_size = 1 << 14,                       // 16K
-    k_log_event_max_size_mask = k_log_event_max_size - 1, // 16K - 1
-    k_log_event_max_log_mask = (1 << 13) - 1,             // 8K - 1
+    k_log_event_max_size = 1 << 15,    // 32K
+    k_log_event_max_log_len = 1 << 13, // 8K
+
+    // iovec
+    k_iov_max_segs = 8,
+    k_iov_seg_max_len = 1 << 13, // 8K
 
     // terminal file
     k_pts_file_path_len_max = 64,
     k_pts_file_path_len_max_mask = k_pts_file_path_len_max - 1,
 };
+
+static const char k_newline = '\n';
 
 typedef struct log_event {
     u32 tgid;

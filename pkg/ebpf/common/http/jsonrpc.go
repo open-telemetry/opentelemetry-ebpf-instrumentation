@@ -19,12 +19,14 @@ type jsonRPCRequest struct {
 	JSONRPC string          `json:"jsonrpc"`
 	Method  string          `json:"method"`
 	ID      json.RawMessage `json:"id"`
+	Params  json.RawMessage `json:"params,omitempty"`
 }
 
 type jsonRPCResponse struct {
 	JSONRPC string          `json:"jsonrpc"`
 	ID      json.RawMessage `json:"id"`
 	Error   *jsonRPCError   `json:"error"`
+	Result  json.RawMessage `json:"result,omitempty"`
 }
 
 type jsonRPCError struct {
@@ -33,38 +35,61 @@ type jsonRPCError struct {
 }
 
 const (
-	jsonRPCVersion     = "2.0"
+	// JSONRPCVersionV1 Golang net.rpc.jsonrpc only supports V1
+	JSONRPCVersionV1   = "1.0"
+	jsonRPCVersionV2   = "2.0"
 	jsonRPCContentType = "application/json-rpc"
 )
 
-func JSONRPCSpan(baseSpan *request.Span, req *http.Request, resp *http.Response) (request.Span, bool) {
+// ParsedJSONRPC holds a pre-parsed JSON-RPC request extracted from an HTTP
+// body. It is produced by TryParseJSONRPC and consumed by JSONRPCSpanFromParsed
+// and MCPSpanFromParsed to avoid re-parsing the same request body.
+type ParsedJSONRPC struct {
+	request        jsonRPCRequest
+	headerDetected bool
+}
+
+// TryParseJSONRPC reads the request body, attempts to parse it as a JSON-RPC
+// request, and restores the body for subsequent readers. Returns nil when the
+// request is not POST or the body is not valid JSON-RPC.
+func TryParseJSONRPC(req *http.Request) *ParsedJSONRPC {
 	if req.Method != http.MethodPost {
-		return *baseSpan, false
+		return nil
 	}
 
 	// Fast path: check Content-Type header. Media types are case-insensitive
 	// and may include parameters (e.g. "; charset=utf-8"), so parse with mime.
-	detected := false
+	headerDetected := false
 	if ct := req.Header.Get("Content-Type"); ct != "" {
 		if mediaType, _, err := mime.ParseMediaType(ct); err == nil {
-			detected = mediaType == jsonRPCContentType
+			headerDetected = mediaType == jsonRPCContentType
 		}
 	}
 
 	reqB, err := io.ReadAll(req.Body)
 	if err != nil {
-		return *baseSpan, false
+		return nil
 	}
 	req.Body = io.NopCloser(bytes.NewBuffer(reqB))
 
-	rpcReq, err := parseJSONRPCRequest(reqB, detected)
+	rpcReq, err := parseJSONRPCRequest(reqB, headerDetected)
 	if err != nil {
-		return *baseSpan, false
+		return nil
 	}
 
+	return &ParsedJSONRPC{
+		request:        rpcReq,
+		headerDetected: headerDetected,
+	}
+}
+
+// JSONRPCSpanFromParsed builds a JSON-RPC span from a pre-parsed request.
+func JSONRPCSpanFromParsed(baseSpan *request.Span, resp *http.Response, parsed *ParsedJSONRPC) request.Span {
+	rpcReq := parsed.request
+
 	version := rpcReq.JSONRPC
-	if version == "" && detected {
-		version = jsonRPCVersion
+	if version == "" && parsed.headerDetected {
+		version = jsonRPCVersionV2
 	}
 
 	result := &request.JSONRPC{
@@ -87,7 +112,18 @@ func JSONRPCSpan(baseSpan *request.Span, req *http.Request, resp *http.Response)
 	baseSpan.SubType = request.HTTPSubtypeJSONRPC
 	baseSpan.JSONRPC = result
 
-	return *baseSpan, true
+	return *baseSpan
+}
+
+// JSONRPCSpan detects and parses a JSON-RPC request/response pair.
+// It returns the enriched span and true when the request is valid JSON-RPC,
+// or the original span and false otherwise.
+func JSONRPCSpan(baseSpan *request.Span, req *http.Request, resp *http.Response) (request.Span, bool) {
+	parsed := TryParseJSONRPC(req)
+	if parsed == nil {
+		return *baseSpan, false
+	}
+	return JSONRPCSpanFromParsed(baseSpan, resp, parsed), true
 }
 
 // rawIDString returns a json.RawMessage ID as a plain string, stripping JSON quotes from string IDs.
@@ -146,7 +182,7 @@ func parseJSONRPCRequest(data []byte, headerDetected bool) (jsonRPCRequest, erro
 }
 
 func isValidJSONRPCVersion(version string, headerDetected bool) bool {
-	if version == jsonRPCVersion {
+	if version == jsonRPCVersionV2 {
 		return true
 	}
 	// Allow empty only when the header was the detection signal.

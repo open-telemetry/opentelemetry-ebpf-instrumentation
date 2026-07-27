@@ -10,8 +10,14 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
-	"go.opentelemetry.io/obi/pkg/internal/ebpf/ringbuf"
+	"go.opentelemetry.io/obi/pkg/ebpf/ringbuf"
 	"go.opentelemetry.io/obi/pkg/internal/largebuf"
+)
+
+const (
+	// Keep these values aligned with k_kafka_api_* in bpf/gotracer/types/kafka.h.
+	kafkaGoAPIFetch uint8 = iota
+	kafkaGoAPIProduce
 )
 
 func ReadGoSaramaRequestIntoSpan(record *ringbuf.Record) (request.Span, bool, error) {
@@ -20,10 +26,12 @@ func ReadGoSaramaRequestIntoSpan(record *ringbuf.Record) (request.Span, bool, er
 		return request.Span{}, true, err
 	}
 
-	info, ignore, err := ProcessKafkaRequest(largebuf.NewLargeBufferFrom(event.Buf[:]), nil)
+	infos, ignore, err := ProcessKafkaRequest(largebuf.NewLargeBufferFrom(event.Buf[:]), nil)
 
-	if err == nil && !ignore {
-		return GoKafkaSaramaToSpan(event, info), false, nil
+	// The Go Sarama uprobe captures one operation at a time, so a single topic is
+	// expected; use the first parsed topic.
+	if err == nil && !ignore && len(infos) > 0 {
+		return GoKafkaSaramaToSpan(event, infos[0]), false, nil
 	}
 
 	return request.Span{}, true, nil // ignore if we couldn't parse it
@@ -75,10 +83,7 @@ func ReadGoKafkaGoRequestIntoSpan(record *ringbuf.Record) (request.Span, bool, e
 		hostPort = int(event.Conn.D_port)
 	}
 
-	op := Produce
-	if event.Op == 1 {
-		op = Fetch
-	}
+	op := kafkaGoOperation(event.Op)
 
 	return request.Span{
 		Type:          request.EventTypeKafkaClient,
@@ -103,4 +108,12 @@ func ReadGoKafkaGoRequestIntoSpan(record *ringbuf.Record) (request.Span, bool, e
 			Namespace: event.Pid.Ns,
 		},
 	}, false, nil
+}
+
+func kafkaGoOperation(apiKey uint8) Operation {
+	if apiKey == kafkaGoAPIProduce {
+		return Produce
+	}
+
+	return Fetch
 }

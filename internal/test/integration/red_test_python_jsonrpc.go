@@ -62,14 +62,15 @@ func testPythonJSONRPCServer(t *testing.T) {
 		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
 
 		// Find traces with JSON-RPC system attribute
-		traces := tq.FindBySpan(jaeger.Tag{Key: "rpc.system", Type: "string", Value: "jsonrpc"})
+		traces := tq.FindBySpan(jaeger.Tag{Key: "rpc.system.name", Type: "string", Value: "jsonrpc"})
 		require.GreaterOrEqual(ct, len(traces), 1)
 
 		lastTrace := traces[len(traces)-1]
-		require.GreaterOrEqual(ct, len(lastTrace.Spans), 1)
-		span := lastTrace.Spans[0]
-
-		assert.Equal(ct, "tools/list", span.OperationName)
+		// The trace may contain child spans ("in queue", "processing");
+		// locate the JSON-RPC server span by its expected operation name.
+		res := lastTrace.FindByOperationName("tools/list", "server")
+		require.GreaterOrEqual(ct, len(res), 1)
+		span := res[0]
 
 		tag, found := jaeger.FindIn(span.Tags, "rpc.method")
 		assert.True(ct, found, "rpc.method tag not found")
@@ -102,17 +103,15 @@ func testPythonJSONRPCServer(t *testing.T) {
 
 		// Find traces with the error method
 		traces := tqErr.FindBySpan(
-			jaeger.Tag{Key: "rpc.system", Type: "string", Value: "jsonrpc"},
+			jaeger.Tag{Key: "rpc.system.name", Type: "string", Value: "jsonrpc"},
 			jaeger.Tag{Key: "rpc.method", Type: "string", Value: "nonexistent/method"},
 		)
 		require.GreaterOrEqual(ct, len(traces), 1)
 
 		lastTrace := traces[len(traces)-1]
-		require.GreaterOrEqual(ct, len(lastTrace.Spans), 1)
-		span := lastTrace.Spans[0]
-
-		// Span name should be the JSON-RPC method
-		assert.Equal(ct, "nonexistent/method", span.OperationName)
+		res := lastTrace.FindByOperationName("nonexistent/method", "server")
+		require.GreaterOrEqual(ct, len(res), 1)
+		span := res[0]
 
 		// Span status should be error
 		tag, found := jaeger.FindIn(span.Tags, "otel.status_code")
@@ -143,9 +142,9 @@ func testPythonJSONRPCMetrics(t *testing.T) {
 	var results []promtest.Result
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		var err error
-		results, err = pq.Query(`rpc_server_duration_seconds_count{` +
+		results, err = pq.Query(`rpc_server_call_duration_seconds_count{` +
 			`rpc_method="tools/list",` +
-			`rpc_system="jsonrpc",` +
+			`rpc_system_name="jsonrpc",` +
 			`service_namespace="integration-test"}`)
 		require.NoError(ct, err)
 		enoughPromResults(ct, results)

@@ -1,0 +1,33 @@
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+        cors:
+          allowed_origins:
+            - "http://*"
+            - "https://*"
+
+exporters:
+  #debug:
+  #  verbosity: detailed
+  #  sampling_initial: 5
+  #  sampling_thereafter: 200
+  prometheusremotewrite:
+    endpoint: http://prometheus:9090/api/v1/write
+    add_metric_suffixes: true
+  otlp:
+    endpoint: tempo:4317
+    tls:
+      insecure: true
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      exporters: [otlp]
+      #exporters: [otlp,debug]
+    metrics:
+      receivers: [otlp]
+      exporters: [prometheusremotewrite]
+      #exporters: [prometheusremotewrite,debug]

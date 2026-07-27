@@ -1,0 +1,11 @@
+global:
+  evaluation_interval: 250ms
+  scrape_interval: 250ms
+scrape_configs:
+  # Scrape the otelcol's Prometheus exporter, which re-exposes metrics that
+  # OBI pushes via OTLP.
+  - job_name: otel
+    honor_labels: true
+    static_configs:
+      - targets:
+          - 'otelcol:9464'

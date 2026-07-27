@@ -46,13 +46,19 @@ func TestFilter(t *testing.T) {
 				Port: promPort,
 				TTL:  time.Hour,
 			},
-			Metrics: perapp.MetricsConfig{Features: export.FeatureStatsTCPRtt | export.FeatureStatsTCPFailedConnections},
+			Metrics: perapp.MetricsConfig{Features: export.FeatureStatsTCPRtt | export.FeatureStatsTCPFailedConnections | export.FeatureStatsTCPRetransmits | export.FeatureStatsTCPIo},
 			Attributes: obi.Attributes{Select: attributes.Selection{
 				attributes.StatTCPRtt.Section: attributes.InclusionLists{
 					Include: []string{"obi_ip", "dst_port", "src_port"},
 				},
 				attributes.StatTCPFailedConnections.Section: attributes.InclusionLists{
 					Include: []string{"obi_ip", "dst_port", "src_port", "reason"},
+				},
+				attributes.StatTCPRetransmits.Section: attributes.InclusionLists{
+					Include: []string{"obi_ip", "dst_port", "src_port"},
+				},
+				attributes.StatTCPIo.Section: attributes.InclusionLists{
+					Include: []string{"obi_ip", "dst_port", "src_port", "network_io_direction"},
 				},
 			}},
 		},
@@ -88,6 +94,15 @@ func TestFilter(t *testing.T) {
 		fakeFailedConnRecord(777, 888, uint8(ebpf.CodeTimedOut)),
 	}
 
+	ringBuf <- []*ebpf.Stat{
+		fakeRetransmitRecord(777, 888),
+	}
+
+	ringBuf <- []*ebpf.Stat{
+		fakeIoRecord(100, 200, uint8(ebpf.CodeDirectionTransmit), 1500),
+		fakeIoRecord(100, 200, uint8(ebpf.CodeDirectionReceive), 2000),
+	}
+
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		allMetrics, err := promtest.Scrape(fmt.Sprintf("http://localhost:%d/metrics", promPort))
 		require.NoError(ct, err)
@@ -98,6 +113,8 @@ func TestFilter(t *testing.T) {
 			switch m.Name {
 			case "obi_stat_tcp_rtt_seconds_count",
 				"obi_stat_tcp_failed_connections",
+				"obi_stat_tcp_retransmits",
+				"obi_stat_tcp_io_bytes_total",
 				"promhttp_metric_handler_errors_total":
 				// Reset values to 0 if you don't care about the specific count,
 				// or keep them if you want to verify the Value: 1 seen in your logs.
@@ -113,6 +130,9 @@ func TestFilter(t *testing.T) {
 			{Name: "obi_stat_tcp_rtt_seconds_count", Value: 1, Labels: map[string]string{"obi_ip": "1.2.3.4", "dst_port": "8080", "src_port": "3333"}},
 			{Name: "obi_stat_tcp_failed_connections", Value: 1, Labels: map[string]string{"obi_ip": "1.2.3.4", "dst_port": "666", "src_port": "555", "reason": "refused"}},
 			{Name: "obi_stat_tcp_failed_connections", Value: 1, Labels: map[string]string{"obi_ip": "1.2.3.4", "dst_port": "888", "src_port": "777", "reason": "timed-out"}},
+			{Name: "obi_stat_tcp_retransmits", Value: 1, Labels: map[string]string{"obi_ip": "1.2.3.4", "dst_port": "888", "src_port": "777"}},
+			{Name: "obi_stat_tcp_io_bytes_total", Value: 1500, Labels: map[string]string{"obi_ip": "1.2.3.4", "dst_port": "200", "src_port": "100", "network_io_direction": "transmit"}},
+			{Name: "obi_stat_tcp_io_bytes_total", Value: 2000, Labels: map[string]string{"obi_ip": "1.2.3.4", "dst_port": "200", "src_port": "100", "network_io_direction": "receive"}},
 			{Name: "promhttp_metric_handler_errors_total", Value: 0, Labels: map[string]string{"cause": "encoding"}},
 			{Name: "promhttp_metric_handler_errors_total", Value: 0, Labels: map[string]string{"cause": "gathering"}},
 		}, filtered)
@@ -135,6 +155,29 @@ func fakeFailedConnRecord(srcPort, dstPort uint16, reason uint8) *ebpf.Stat {
 	return &ebpf.Stat{
 		TCPFailedConnection: &ebpf.TCPFailedConnection{
 			Reason: reason,
+		},
+		CommonAttrs: pipe.CommonAttrs{
+			SrcPort: srcPort,
+			DstPort: dstPort,
+		},
+	}
+}
+
+func fakeRetransmitRecord(srcPort, dstPort uint16) *ebpf.Stat {
+	return &ebpf.Stat{
+		TCPRetransmit: true,
+		CommonAttrs: pipe.CommonAttrs{
+			SrcPort: srcPort,
+			DstPort: dstPort,
+		},
+	}
+}
+
+func fakeIoRecord(srcPort, dstPort uint16, direction uint8, bytes uint32) *ebpf.Stat {
+	return &ebpf.Stat{
+		TCPIo: &ebpf.TCPIo{
+			Direction: direction,
+			Bytes:     bytes,
 		},
 		CommonAttrs: pipe.CommonAttrs{
 			SrcPort: srcPort,

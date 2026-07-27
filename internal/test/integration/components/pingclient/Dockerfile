@@ -3,7 +3,7 @@
 # Make sure that the Go version here is a minor number less than in the Dockerfile_latest file
 # in this same folder.
 # This way we make sure that we support any internal compiler changes in newer Go versions
-FROM golang:1.25.8@sha256:f55a6ec7f24aedc1ed66e2641fdc52de01f2d24d6e49d1fa38582c07dd5f601d AS builder
+FROM golang:1.26.3@sha256:efaccb5b497e90df3ebe5216cc25cd9f98e73874e2d638b56e38d4a3f098c41c AS builder
 
 ARG TARGETARCH
 

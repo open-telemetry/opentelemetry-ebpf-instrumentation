@@ -11,8 +11,8 @@ GOOS ?= linux
 GOARCH ?= $(shell go env GOARCH || echo amd64)
 
 # RELEASE_VERSION will contain the tag name, or the branch name if current commit is not a tag
-RELEASE_VERSION := $(shell git describe --all | cut -d/ -f2)
-RELEASE_REVISION := $(shell git rev-parse --short HEAD )
+RELEASE_VERSION ?= $(shell git describe --all | cut -d/ -f2-)
+RELEASE_REVISION ?= $(shell git rev-parse --short HEAD )
 BUILDINFO_PKG ?= go.opentelemetry.io/obi/pkg/buildinfo
 TEST_OUTPUT ?= ./testoutput
 RELEASE_DIR ?= ./dist
@@ -28,7 +28,7 @@ IMG ?= $(IMG_REGISTRY)/$(IMG_ORG)/$(IMG_NAME):$(VERSION)
 
 # The generator is a container image that provides a reproducible environment for
 # building eBPF binaries
-GEN_IMG ?= ghcr.io/open-telemetry/obi-generator:0.2.11
+GEN_IMG ?= ghcr.io/open-telemetry/obi-generator:0.2.15
 
 OCI_BIN ?= docker
 
@@ -36,6 +36,7 @@ OCI_BIN ?= docker
 DOCKER_USER=$(shell id -u):$(shell id -g)
 DEPENDENCIES_DOCKERFILE=./dependencies.Dockerfile
 GRADLE_IMAGE := $(shell awk '$$4=="gradle-java" {print $$2}' $(DEPENDENCIES_DOCKERFILE))
+GOLANG_IMAGE := $(shell awk '$$4=="golang" {print $$2}' $(DEPENDENCIES_DOCKERFILE))
 PYTHON39_IMAGE := $(shell awk '$$4=="python39" {print $$2}' $(DEPENDENCIES_DOCKERFILE))
 PYTHON314_IMAGE := $(shell awk '$$4=="python314" {print $$2}' $(DEPENDENCIES_DOCKERFILE))
 
@@ -45,7 +46,7 @@ CFLAGS := -std=gnu17 -O2 -g -Wunaligned-access -Wpacked -Wpadded -Wall -Werror $
 
 CLANG_TIDY ?= clang-tidy
 
-CILIUM_EBPF_VER ?= v0.20.0
+CILIUM_EBPF_VER ?= v0.22.0
 CILIUM_EBPF_PKG := github.com/cilium/ebpf
 
 # regular expressions for excluded file patterns
@@ -117,9 +118,13 @@ install-hooks:
 	fi
 
 .PHONY: prereqs
-prereqs: install-hooks
+prereqs: install-hooks fetch-upstream-semconv
 	@echo "### Check if prerequisites are met, and installing missing dependencies"
 	mkdir -p $(TEST_OUTPUT)/run
+
+.PHONY: fetch-upstream-semconv
+fetch-upstream-semconv:
+	@./scripts/fetch-upstream-semconv.sh
 
 .PHONY: fmt
 fmt:
@@ -135,13 +140,22 @@ lint: LINT_EXTRA_ARGS =
 lint: lint-run
 
 .PHONY: lint-fix
-lint-fix: LINT_EXTRA_ARGS = --fix
-lint-fix: lint-run
+lint-fix: lint-fix-run
 
-.PHONY: lint-run
+.PHONY: lint-run lint-fix-run
 lint-run: vanity-import-check lint-dependency-policy lint-collectt
+lint-fix-run: LINT_EXTRA_ARGS = --fix
+lint-fix-run: vanity-import-fix-check lint-dependency-policy lint-collectt-fix
+.NOTPARALLEL: lint-fix-run
+lint-run lint-fix-run:
 	@echo "### Linting code"
 	go tool $(TOOLS_MODFILE) golangci-lint run ./... --timeout=6m $(LINT_EXTRA_ARGS)
+
+WEAVERIMAGE := $(shell awk '$$4=="weaver" {print $$2}' $(DEPENDENCIES_DOCKERFILE))
+.PHONY: lint-schema
+lint-schema: fetch-upstream-semconv
+	@echo "### Linting OBI semantic-convention registry"
+	@./scripts/lint-schema.sh $(OCI_BIN) $(WEAVERIMAGE) "$(CURDIR)/schemas/obi"
 
 .PHONY: lint-dependency-policy
 lint-dependency-policy:
@@ -158,16 +172,23 @@ lint-collectt:
 	@echo "### Checking EventuallyWithT callbacks use CollectT"
 	go run ./internal/test/analyzer/collectt/cmd/collecttlint ./...
 
+.PHONY: lint-collectt-fix
+lint-collectt-fix:
+	@echo "### Fixing EventuallyWithT callbacks to use CollectT"
+	go run ./internal/test/analyzer/collectt/cmd/collecttlint -fix ./...
+	@echo "### Checking EventuallyWithT callbacks use CollectT"
+	go run ./internal/test/analyzer/collectt/cmd/collecttlint ./...
+
 MARKDOWNIMAGE := $(shell awk '$$4=="markdown" {print $$2}' $(DEPENDENCIES_DOCKERFILE))
 .PHONY: lint-markdown
 lint-markdown:
 	@echo "### Linting markdown"
-	@docker run --rm -v "$(CURDIR):/workdir" $(MARKDOWNIMAGE) "{*.md,!(NOTICES)/**/*.md}"
+	@docker run --rm -v "$(CURDIR):/workdir" $(MARKDOWNIMAGE) --config .markdownlint-cli2.yaml **/*.md
 
 .PHONY: lint-markdown-fix
 lint-markdown-fix:
 	@echo "### Formatting markdown"
-	@docker run --rm -v "$(CURDIR):/workdir" $(MARKDOWNIMAGE) --fix "{*.md,!(NOTICES)/**/*.md}"
+	@docker run --rm -v "$(CURDIR):/workdir" $(MARKDOWNIMAGE) --config .markdownlint-cli2.yaml --fix **/*.md
 
 .PHONY: update-offsets
 update-offsets:
@@ -216,7 +237,7 @@ update-offsets:
 BPF_ROOT = pkg/
 
 # Find all generated Go and object files (used as Make targets)
-BPF_GEN_GO := $(shell find $(BPF_ROOT) -type f \( -name 'bpf_*_bpfe[lb].go' -o -name 'net_*_bpfe[lb].go' -o -name 'netsk_*_bpfe[lb].go' \))
+BPF_GEN_GO := $(shell find $(BPF_ROOT) -type f \( -name 'bpf*_bpfe[lb].go' -o -name 'net_*_bpfe[lb].go' -o -name 'netsk_*_bpfe[lb].go' -o -name 'stats_*_bpfe[lb].go' \))
 BPF_GEN_OBJ := $(BPF_GEN_GO:.go=.o)
 BPF_GEN_ALL := $(if $(BPF_GEN_GO),$(BPF_GEN_GO) $(BPF_GEN_OBJ))
 
@@ -308,7 +329,7 @@ test-privileged: $(ENVTEST)
 .PHONY: run-bpf-verifier-vm
 run-bpf-verifier-vm:
 	@echo "### Running BPF verifier tests"
-	go test -v -count=1 -tags=bpf_verifier_tests ./pkg/internal/ebpf/verifier/...
+	go test -count=1 -timeout 20m -parallel 8 -tags=bpf_verifier_tests ./pkg/internal/ebpf/verifier/...
 
 .PHONY: cov-exclude-generated
 cov-exclude-generated:
@@ -337,7 +358,7 @@ JAVA_AGENT_GRADLE_ENV := $(if $(JAVA_AGENT_JAVA_HOME),JAVA_HOME=$(JAVA_AGENT_JAV
 .PHONY: java-build
 java-build:
 	@echo "### Building Java agent"
-	cd $(JAVA_AGENT_DIR) && $(JAVA_AGENT_GRADLE_ENV) gradle build
+	cd $(JAVA_AGENT_DIR) && $(JAVA_AGENT_GRADLE_ENV) gradle build -PnativeOnly=true
 	mkdir -p $(JAVA_AGENT_EMBED_DIR)
 	cp $(JAVA_AGENT_DIR)/build/$(JAVA_AGENT) $(JAVA_AGENT_EMBED_PATH)
 
@@ -366,17 +387,17 @@ java-docker-sbom:
 .PHONY: java-test
 java-test:
 	@echo "### Testing Java agent"
-	cd $(JAVA_AGENT_DIR) && $(JAVA_AGENT_GRADLE_ENV) gradle test
+	cd $(JAVA_AGENT_DIR) && $(JAVA_AGENT_GRADLE_ENV) gradle test -PnativeOnly=true
 
 .PHONY: java-spotless-check
 java-spotless-check:
 	@echo "### Checking Java code formatting"
-	cd $(JAVA_AGENT_DIR) && $(JAVA_AGENT_GRADLE_ENV) gradle spotlessCheck
+	cd $(JAVA_AGENT_DIR) && $(JAVA_AGENT_GRADLE_ENV) gradle spotlessCheck -PnativeOnly=true
 
 .PHONY: java-spotless-apply
 java-spotless-apply:
 	@echo "### Formatting Java code"
-	cd $(JAVA_AGENT_DIR) && $(JAVA_AGENT_GRADLE_ENV) gradle spotlessApply
+	cd $(JAVA_AGENT_DIR) && $(JAVA_AGENT_GRADLE_ENV) gradle spotlessApply -PnativeOnly=true
 
 .PHONY: java-clean
 java-clean:
@@ -391,7 +412,10 @@ java-verify: java-spotless-check java-test java-build
 image-build:
 	@echo "### Building the auto-instrumenter image"
 	$(call check_defined, IMG_ORG, Your Docker repository user name)
-	$(OCI_BIN) buildx build --load -t ${IMG} .
+	$(OCI_BIN) buildx build --load -t ${IMG} \
+		--build-arg RELEASE_VERSION=${RELEASE_VERSION} \
+		--build-arg RELEASE_REVISION=${RELEASE_REVISION} \
+		.
 
 # generator-image-build is only used for local development. GH actions that build and publish the image don't make use of it
 .PHONY: generator-image-build
@@ -428,28 +452,30 @@ run-integration-test-k8s:
 	go clean -testcache
 	go test -p 1 -failfast -v -timeout 60m -a ./internal/test/integration/k8s/...
 
+PRECOMPILED_TESTS_DIR ?= /precompiled-tests
+
 .PHONY: run-integration-test-vm
 run-integration-test-vm:
 	@echo "### Running integration tests (pattern: $(TEST_PATTERN))"
 	@TEST_TIMEOUT="60m"; \
 	TEST_PARALLEL="1"; \
-	if [ -f "/precompiled-tests/integration.test" ] && [ -f "/precompiled-tests/gotestsum" ]; then \
+	if [ -f "$(PRECOMPILED_TESTS_DIR)/integration.test" ] && [ -f "$(PRECOMPILED_TESTS_DIR)/gotestsum" ]; then \
 		echo "Using pre-compiled integration tests with gotestsum"; \
-		chmod +x /precompiled-tests/integration.test /precompiled-tests/gotestsum; \
-		/precompiled-tests/gotestsum \
+		chmod +x $(PRECOMPILED_TESTS_DIR)/integration.test $(PRECOMPILED_TESTS_DIR)/gotestsum; \
+		$(PRECOMPILED_TESTS_DIR)/gotestsum \
 			--rerun-fails=2 --rerun-fails-max-failures=2 \
 			--raw-command -ftestname \
 			--jsonfile=testoutput/vm-test-run-$(RUN_NUMBER).log \
 			-- go tool test2json -t -p integration \
-			/precompiled-tests/integration.test \
+			$(PRECOMPILED_TESTS_DIR)/integration.test \
 			-test.parallel=$$TEST_PARALLEL \
 			-test.timeout=$$TEST_TIMEOUT \
 			-test.v \
 			-test.run="^($(TEST_PATTERN))\$$"; \
-	elif [ -f "/precompiled-tests/integration.test" ]; then \
+	elif [ -f "$(PRECOMPILED_TESTS_DIR)/integration.test" ]; then \
 		echo "Using pre-compiled integration tests (gotestsum not available)"; \
-		chmod +x /precompiled-tests/integration.test; \
-		/precompiled-tests/integration.test \
+		chmod +x $(PRECOMPILED_TESTS_DIR)/integration.test; \
+		$(PRECOMPILED_TESTS_DIR)/integration.test \
 			-test.parallel=$$TEST_PARALLEL \
 			-test.timeout=$$TEST_TIMEOUT \
 			-test.v \
@@ -489,11 +515,12 @@ run-unit-test-shard:
 integration-test-matrix-json:
 	@./scripts/generate-integration-matrix.sh internal/test/integration "$${PARTITIONS:-5}"
 
-# Shared matrix for workflows that run the TestMultiProcess* suite
-# (VM integration tests and ARM integration tests use the same set of tests).
+# Shared matrix for workflows that run the VM-side test suite. Pattern
+# covers multiprocess context propagation, gRPC relay, the HTTP
+# logenricher pipeline, and the large HTTP request body path.
 .PHONY: multiprocess-integration-test-matrix-json
 multiprocess-integration-test-matrix-json:
-	@./scripts/generate-integration-matrix.sh internal/test/integration "$${PARTITIONS:-5}" "TestMultiProcess"
+	@./scripts/generate-integration-matrix.sh internal/test/integration "$${PARTITIONS:-5}" "(TestMultiProcess|TestSuite_LogEnricherHTTP|TestSuite_LargeHTTPRequest)"
 
 .PHONY: k8s-integration-test-matrix-json
 k8s-integration-test-matrix-json:
@@ -533,7 +560,7 @@ itest-coverage-data:
 	grep -vE $(EXCLUDE_COVERAGE_FILES) $(TEST_OUTPUT)/itest-covdata.all.txt > $(TEST_OUTPUT)/itest-covdata.txt || true
 
 .PHONY: oats-prereq
-oats-prereq: docker-generate
+oats-prereq: docker-generate fetch-upstream-semconv
 	mkdir -p $(TEST_OUTPUT)/run
 
 .PHONY: oats-test-sql
@@ -571,8 +598,18 @@ oats-test-ai: oats-prereq
 	mkdir -p internal/test/oats/ai/$(TEST_OUTPUT)/run
 	cd internal/test/oats/ai && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml go tool $(TOOLS_MODFILE) ginkgo -v -r
 
+.PHONY: oats-test-nats
+oats-test-nats: oats-prereq
+	mkdir -p internal/test/oats/nats/$(TEST_OUTPUT)/run
+	cd internal/test/oats/nats && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml go tool $(TOOLS_MODFILE) ginkgo -v -r
+
+.PHONY: oats-test-amqp
+oats-test-amqp: oats-prereq
+	mkdir -p internal/test/oats/amqp/$(TEST_OUTPUT)/run
+	cd internal/test/oats/amqp && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml go tool $(TOOLS_MODFILE) ginkgo -v -r
+
 .PHONY: oats-test
-oats-test: oats-test-sql oats-test-mongo oats-test-redis oats-test-kafka oats-test-http oats-test-memcached oats-test-ai
+oats-test: oats-test-sql oats-test-mongo oats-test-redis oats-test-kafka oats-test-http oats-test-memcached oats-test-ai oats-test-nats oats-test-amqp
 	$(MAKE) itest-coverage-data
 
 .PHONY: oats-test-debug
@@ -581,7 +618,12 @@ oats-test-debug: oats-prereq
 
 .PHONY: license-header-check
 license-header-check:
-	@licRes=$$(for f in $$(find . -type f \( -iname '*.go' -o -iname '*.sh' -o -iname '*.c' -o -iname '*.h' \) ! -path './.git/*' ! -path './NOTICES/*' ) ; do \
+	@# Store demo app files are vendored with upstream Apache 2.0 headers; see examples/store-demo/PROVENANCE.md.
+	@licRes=$$(for f in $$(find . -type f \( -iname '*.go' -o -iname '*.sh' -o -iname '*.c' -o -iname '*.h' \) \
+	           ! -path './.git/*' \
+	           ! -path './.tmp/*' \
+	           ! -path './NOTICES/*' \
+	           ! -path './examples/store-demo/app/*' ) ; do \
 	           awk '/Copyright The OpenTelemetry Authors|generated|GENERATED/ && NR<=4 { found=1; next } END { if (!found) print FILENAME }' $$f; \
 	   done); \
 	   if [ -n "$${licRes}" ]; then \
@@ -597,7 +639,11 @@ artifact: docker-generate java-docker-build compile
 	cp ./bin/$(CMD) $$STAGING_DIR/; \
 	cp LICENSE $$STAGING_DIR/; \
 	cp NOTICE $$STAGING_DIR/; \
-	cp -r NOTICES $$STAGING_DIR/; \
+	mkdir -p $$STAGING_DIR/NOTICES; \
+	if [ -d NOTICES/bpf ]; then cp -R NOTICES/bpf $$STAGING_DIR/NOTICES/; fi; \
+	if [ -d NOTICES/java ]; then cp -R NOTICES/java $$STAGING_DIR/NOTICES/; fi; \
+	if [ ! -d NOTICES/$(GOARCH) ]; then echo "ERROR: NOTICES/$(GOARCH) missing; run 'make go-notices-update'"; exit 1; fi; \
+	cp -R NOTICES/$(GOARCH)/. $$STAGING_DIR/NOTICES/; \
 	tar -C $$STAGING_DIR -czf bin/obi-$(RELEASE_VERSION)-$(GOOS)-$(GOARCH).tar.gz $(CMD) LICENSE NOTICE NOTICES
 
 .PHONY: release
@@ -612,6 +658,11 @@ release: artifact
 	@if [ ! -f $(RELEASE_DIR)/verify-$(GOARCH)/LICENSE ]; then echo "ERROR: LICENSE missing in $(GOARCH) archive"; exit 1; fi
 	@if [ ! -f $(RELEASE_DIR)/verify-$(GOARCH)/NOTICE ]; then echo "ERROR: NOTICE missing in $(GOARCH) archive"; exit 1; fi
 	@if [ ! -d $(RELEASE_DIR)/verify-$(GOARCH)/NOTICES ]; then echo "ERROR: NOTICES directory missing in $(GOARCH) archive"; exit 1; fi
+	@for other in $(filter-out $(GOARCH),$(GO_NOTICES_ARCHES)); do \
+		if [ -d $(RELEASE_DIR)/verify-$(GOARCH)/NOTICES/$$other ]; then \
+			echo "ERROR: NOTICES/$$other leaked into $(GOARCH) archive"; exit 1; \
+		fi; \
+	done
 	@if [ ! -x $(RELEASE_DIR)/verify-$(GOARCH)/$(CMD) ]; then echo "ERROR: $(CMD) binary not executable in $(GOARCH) archive"; exit 1; fi
 	@echo "✓ Archive $(GOARCH) verified successfully"
 	@rm -rf $(RELEASE_DIR)/verify-$(GOARCH)
@@ -705,9 +756,29 @@ java-notices-update:
 		$(NOTICES_DIR)/java/agent/THIRD_PARTY_LICENSES.txt
 	@cp pkg/internal/java/agent/build/reports/dependency-license/THIRD_PARTY_LICENSES.csv $(NOTICES_DIR)/java/agent/
 
+GO_NOTICES_ARCHES := amd64 arm64
+
 .PHONY: go-notices-update
 go-notices-update:
-	@GOOS=$(GOOS) GOARCH=amd64 go tool $(TOOLS_MODFILE) go-licenses save ./... --save_path=$(NOTICES_DIR) --force
+	@echo "### Generating Go notices for linux/{$(GO_NOTICES_ARCHES)} in docker"
+	@# Migrate legacy flat layout: drop any Go-ecosystem dirs at NOTICES root (keep bpf/ + java/ + arch subtrees).
+	@find $(NOTICES_DIR) -mindepth 1 -maxdepth 1 \
+		-not -name bpf -not -name java $(foreach a,$(GO_NOTICES_ARCHES),-not -name $(a)) \
+		-exec rm -rf {} +
+	@# Build go-licenses once at container host arch, then invoke per target GOARCH so the tool binary
+	@# stays executable while it cross-inspects the build graph for each arch.
+	@$(OCI_BIN) run --rm \
+		$(if $(findstring podman,$(OCI_BIN)),,-u "$(DOCKER_USER)") \
+		-v "$(CURDIR):/src:z" \
+		-e HOME=/tmp -e GOTOOLCHAIN=local -e GOMODCACHE=/tmp/gomod \
+		-w /src \
+		$(GOLANG_IMAGE) \
+		sh -c 'set -e; \
+			go build -modfile=internal/tools/go.mod -o /tmp/go-licenses github.com/google/go-licenses/v2; \
+			for arch in $(GO_NOTICES_ARCHES); do \
+				echo "### linux/$$arch"; \
+				GOOS=linux GOARCH=$$arch /tmp/go-licenses save ./... --save_path=$(NOTICES_DIR)/$$arch --force; \
+			done'
 
 PYTHON_REQUIREMENTS_INS ?= $(shell find ./internal/test/integration/components -type f -name 'requirements.in' | sort)
 PYTHON_REQUIREMENTS_DIRS := $(sort $(dir $(PYTHON_REQUIREMENTS_INS)))
@@ -817,8 +888,9 @@ check-ebpf-ver-synced:
 		exit 1; \
 	fi
 
-.PHONY: vanity-import-check
-vanity-import-check:
+.PHONY: vanity-import-check vanity-import-fix-check
+vanity-import-fix-check: vanity-import-fix
+vanity-import-check vanity-import-fix-check:
 	go tool $(TOOLS_MODFILE) porto --include-internal --skip-dirs "^NOTICES$$" -l . || ( echo "(run: make vanity-import-fix)"; exit 1 )
 
 .PHONY: vanity-import-fix
@@ -832,6 +904,12 @@ regenerate-port-lookup:
 
 CONFIG_SCHEMA_FILE ?= devdocs/config/config-schema.json
 CONFIG_DOCS_FILE ?= devdocs/config/CONFIG.md
+
+# Hidden pre-release config v2 artifacts. Keep generated/artifact-only updates
+# separate from conversion logic so reviewers can inspect drift intentionally.
+CONFIG_V2_DIR ?= devdocs/config/version-2.0
+CONFIG_V2_SCHEMA_FILE ?= $(CONFIG_V2_DIR)/obi-extension.schema.json
+CONFIG_V2_EXAMPLE_FILE ?= $(CONFIG_V2_DIR)/examples/default-configuration.yaml
 
 .PHONY: generate-config-schema
 generate-config-schema:
@@ -866,3 +944,25 @@ check-config-schema:
 	fi
 	@rm -f $(CONFIG_DOCS_FILE).tmp
 	@echo "Configuration docs are up-to-date"
+
+.PHONY: check-config-v2-parity
+check-config-v2-parity:
+	@echo "### Checking config v2 default parity"
+	go run ./cmd/check-config-v2-parity -v2-default $(CONFIG_V2_EXAMPLE_FILE)
+
+.PHONY: check-config-v2-artifacts
+check-config-v2-artifacts: check-config-v2-parity
+	@echo "### Checking hidden config v2 artifacts"
+	go run ./cmd/check-config-v2-artifacts -schema $(CONFIG_V2_SCHEMA_FILE) -example $(CONFIG_V2_EXAMPLE_FILE)
+
+.PHONY: fix-store-demo-architecture
+fix-store-demo-architecture:
+	python3 examples/store-demo/fix_architecture.py
+
+.PHONY: check-store-demo-architecture
+check-store-demo-architecture:
+	python3 examples/store-demo/fix_architecture.py --check
+
+.PHONY: test-store-demo-architecture
+test-store-demo-architecture:
+	python3 examples/store-demo/test_fix_architecture.py

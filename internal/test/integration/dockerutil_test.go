@@ -1,168 +1,467 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
+// Copyright © 2026 Ory Corp
+// SPDX-License-Identifier: Apache-2.0
+
 package integration
 
 import (
+	"archive/tar"
+	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net/netip"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
-	"github.com/ory/dockertest/v3"
-	"github.com/ory/dockertest/v3/docker"
-	"github.com/ory/dockertest/v3/docker/opts"
+	"github.com/moby/moby/api/pkg/stdcopy"
+	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/api/types/jsonstream"
+	"github.com/moby/moby/api/types/mount"
+	"github.com/moby/moby/api/types/network"
+	"github.com/moby/moby/client"
+	"github.com/ory/dockertest/v4"
 	"github.com/stretchr/testify/require"
+
+	"go.opentelemetry.io/obi/internal/test/tools/img"
 )
 
 const (
-	versionPrometheus  = "v2.55.1"
-	versionJaeger      = "1.60"
-	versionCollector   = "0.144.0"
-	versionAWSMetaMock = "v1.9.2"
-	versionNginx       = "1.29.5"
+	imgPrometheus  = img.Docker("quay.io/prometheus/prometheus:v3.13.1@sha256:3c42b892cf723fa54d2f262c37a0e1f80aa8c8ddb1da7b9b0df9455a35a7f893")
+	imgJaeger      = img.Docker("jaegertracing/all-in-one:1.60@sha256:4fd2d70fa347d6a47e79fcb06b1c177e6079f92cba88b083153d56263082135e")
+	imgCollector   = img.Docker("otel/opentelemetry-collector-contrib:0.156.0@sha256:125bdbeb7590cc1952c5b3430ecf14063568980c2c93d5b38676cc0446ed8108")
+	imgAWSMetaMock = img.Docker("amazon/amazon-ec2-metadata-mock:v1.9.2@sha256:55cc3b9fb46d7e30aec202fc8ccab5391f7f9fc7169ae7dc726aae82562d61c4")
+	imgNginx       = img.Docker("library/nginx:1.31.3@sha256:5a88c9c45479443d7be2eadc894b4ed0a9801bae03d97a5760ae13b5c2005942")
+	// imgWeaver MUST match the digest pinned in
+	// `internal/test/integration/components/weaver/service.yml` so the
+	// programmatic-setup tests run weaver with the same image as the
+	// compose-driven ones.
+	imgWeaver = img.Docker("otel/weaver:v0.24.2@sha256:d1fb16d279f39810c340fbbf1cf9e5e995a3a9cefa531938e9012437e3bc00c1")
 )
 
 // setupDockerNetwork initializes a custom network for the test.
-func setupDockerNetwork(t *testing.T) *dockertest.Network {
+func setupDockerNetwork(t *testing.T) dockertest.Network {
 	t.Helper()
 
 	networkName := fmt.Sprintf("test-network-%d", time.Now().UnixNano())
-	network, err := dockerPool.CreateNetwork(networkName)
+	net, err := dockerPool.CreateNetwork(t.Context(), networkName, nil)
 	require.NoError(t, err, "could not create Docker network")
 	t.Cleanup(func() {
-		require.NoError(t, dockerPool.RemoveNetwork(network), "could not remove Docker network")
+		require.NoError(t, net.Close(context.Background()), "could not remove Docker network")
 	})
 
-	return network
+	return net
+}
+
+func endpointAliases(aliases ...string) *network.EndpointSettings {
+	return &network.EndpointSettings{Aliases: aliases}
+}
+
+func endpointIPv4(address string) *network.EndpointSettings {
+	return &network.EndpointSettings{
+		IPAMConfig: &network.EndpointIPAMConfig{
+			IPv4Address: netip.MustParseAddr(address),
+		},
+	}
+}
+
+func exposedPorts(ports ...string) network.PortSet {
+	portSet := network.PortSet{}
+	for _, port := range ports {
+		portSet[network.MustParsePort(port)] = struct{}{}
+	}
+	return portSet
+}
+
+func portBindings(containerPort, hostPort string) network.PortMap {
+	return network.PortMap{
+		network.MustParsePort(containerPort): {
+			{HostIP: netip.MustParseAddr("127.0.0.1"), HostPort: hostPort},
+		},
+	}
+}
+
+func bindMount(source, target string) mount.Mount {
+	return mount.Mount{
+		Type:   mount.TypeBind,
+		Source: source,
+		Target: target,
+	}
 }
 
 // setupContainerPrometheus starts a Prometheus container for metrics scraping.
-func setupContainerPrometheus(t *testing.T, network *dockertest.Network, configFile string) {
+func setupContainerPrometheus(t *testing.T, net dockertest.Network, configFile string) {
 	t.Helper()
 
 	t.Log("Starting Prometheus container...")
-	prometheus, err := dockerPool.RunWithOptions(&dockertest.RunOptions{
-		Repository: "quay.io/prometheus/prometheus",
-		Tag:        versionPrometheus,
-		Name:       fmt.Sprintf("prometheus-otel-test-%d", time.Now().UnixNano()),
-		Networks:   []*dockertest.Network{network},
-		Mounts: []string{
+	prometheus, err := dockerPool.Run(t.Context(), imgPrometheus.Repository(),
+		dockertest.WithTag(imgPrometheus.Tag()),
+		dockertest.WithName(fmt.Sprintf("prometheus-otel-test-%d", time.Now().UnixNano())),
+		dockertest.WithMounts([]string{
 			filepath.Join(pathRoot, "internal/test/integration/configs") + ":/etc/prometheus",
-		},
-		Cmd: []string{
+		}),
+		dockertest.WithCmd([]string{
 			"--config.file=/etc/prometheus/" + configFile,
 			"--web.enable-lifecycle",
 			"--web.route-prefix=/",
-		},
-		ExposedPorts: []string{"9090/tcp"},
-		PortBindings: map[docker.Port][]docker.PortBinding{
-			"9090/tcp": {{HostIP: "127.0.0.1", HostPort: "9090"}},
-		},
-	})
+		}),
+		dockertest.WithPortBindings(portBindings("9090/tcp", "9090")),
+		dockertest.WithContainerConfig(func(config *container.Config) {
+			config.ExposedPorts = exposedPorts("9090/tcp")
+		}),
+		dockertest.WithoutReuse(),
+	)
 	require.NoError(t, err, "could not start Prometheus container")
 	t.Cleanup(func() {
-		require.NoError(t, dockerPool.Purge(prometheus), "could not remove Prometheus container")
+		require.NoError(t, prometheus.Close(context.Background()), "could not remove Prometheus container")
 	})
+	_, err = dockerPool.Client().NetworkConnect(t.Context(), net.ID(), client.NetworkConnectOptions{
+		Container: prometheus.ID(),
+	})
+	require.NoError(t, err, "could not connect Prometheus container to network")
 	t.Log("Prometheus container started")
 }
 
 // setupContainerJaeger starts a Jaeger container for trace collection.
-func setupContainerJaeger(t *testing.T, network *dockertest.Network) {
+func setupContainerJaeger(t *testing.T, net dockertest.Network) {
 	t.Helper()
 
 	t.Log("Starting Jaeger container...")
-	jaeger, err := dockerPool.RunWithOptions(&dockertest.RunOptions{
-		Repository: "jaegertracing/all-in-one",
-		Tag:        versionJaeger,
-		Name:       fmt.Sprintf("jaeger-otel-test-%d", time.Now().UnixNano()),
-		Env: []string{
+	jaeger, err := dockerPool.Run(t.Context(), imgJaeger.Repository(),
+		dockertest.WithTag(imgJaeger.Tag()),
+		dockertest.WithName(fmt.Sprintf("jaeger-otel-test-%d", time.Now().UnixNano())),
+		dockertest.WithEnv([]string{
 			"COLLECTOR_OTLP_ENABLED=true",
 			"LOG_LEVEL=debug",
-		},
-		ExposedPorts: []string{"16686/tcp", "4317/tcp", "4318/tcp"},
-		PortBindings: map[docker.Port][]docker.PortBinding{
-			"16686/tcp": {{HostIP: "127.0.0.1", HostPort: "16686"}},
-		},
-	})
+		}),
+		dockertest.WithPortBindings(portBindings("16686/tcp", "16686")),
+		dockertest.WithContainerConfig(func(config *container.Config) {
+			config.ExposedPorts = exposedPorts("16686/tcp", "4317/tcp", "4318/tcp")
+		}),
+		dockertest.WithoutReuse(),
+	)
 	require.NoError(t, err, "could not start Jaeger container")
 	t.Cleanup(func() {
-		require.NoError(t, dockerPool.Purge(jaeger), "could not remove Jaeger container")
+		require.NoError(t, jaeger.Close(context.Background()), "could not remove Jaeger container")
 	})
 
-	// Connect to custom network with alias
-	err = dockerPool.Client.ConnectNetwork(network.Network.ID, docker.NetworkConnectionOptions{
-		Container: jaeger.Container.ID,
-		EndpointConfig: &docker.EndpointConfig{
-			Aliases: []string{"jaeger"},
-		},
+	_, err = dockerPool.Client().NetworkConnect(t.Context(), net.ID(), client.NetworkConnectOptions{
+		Container:      jaeger.ID(),
+		EndpointConfig: endpointAliases("jaeger"),
 	})
 	require.NoError(t, err, "could not connect Jaeger container to network")
 	t.Log("Jaeger container started")
 }
 
 // setupContainerCollector starts an OpenTelemetry Collector container.
-func setupContainerCollector(t *testing.T, network *dockertest.Network, configFile string) { //nolint:unparam // configFile is always passed in current usages but may vary in future
+func setupContainerCollector(t *testing.T, net dockertest.Network, configFile string) {
 	t.Helper()
 
 	t.Log("Starting OpenTelemetry Collector container...")
-	otelcol, err := dockerPool.RunWithOptions(&dockertest.RunOptions{
-		Repository: "otel/opentelemetry-collector-contrib",
-		Tag:        versionCollector,
-		Name:       fmt.Sprintf("otelcol-otel-test-%d", time.Now().UnixNano()),
-		Cmd:        []string{"--config=/etc/otelcol-config/" + configFile},
-		Mounts: []string{
+	otelcol, err := dockerPool.Run(t.Context(), imgCollector.Repository(),
+		dockertest.WithTag(imgCollector.Tag()),
+		dockertest.WithName(fmt.Sprintf("otelcol-otel-test-%d", time.Now().UnixNano())),
+		dockertest.WithCmd([]string{"--config=/etc/otelcol-config/" + configFile}),
+		dockertest.WithMounts([]string{
 			filepath.Join(pathRoot, "internal/test/integration/configs") + ":/etc/otelcol-config",
-		},
-		ExposedPorts: []string{"4317/tcp", "4318/tcp", "9464/tcp", "8888/tcp"},
-	})
+		}),
+		dockertest.WithContainerConfig(func(config *container.Config) {
+			config.ExposedPorts = exposedPorts("4317/tcp", "4318/tcp", "9464/tcp", "8888/tcp")
+		}),
+		dockertest.WithoutReuse(),
+	)
 	require.NoError(t, err, "could not start OpenTelemetry Collector container")
 	t.Cleanup(func() {
-		require.NoError(t, dockerPool.Purge(otelcol), "could not remove OpenTelemetry Collector container")
+		require.NoError(t, otelcol.Close(context.Background()), "could not remove OpenTelemetry Collector container")
 	})
 
-	// Connect to custom network with alias
-	err = dockerPool.Client.ConnectNetwork(network.Network.ID, docker.NetworkConnectionOptions{
-		Container: otelcol.Container.ID,
-		EndpointConfig: &docker.EndpointConfig{
-			Aliases: []string{"otelcol"},
-		},
+	_, err = dockerPool.Client().NetworkConnect(t.Context(), net.ID(), client.NetworkConnectOptions{
+		Container:      otelcol.ID(),
+		EndpointConfig: endpointAliases("otelcol"),
 	})
 	require.NoError(t, err, "could not connect OpenTelemetry Collector container to network")
 	t.Log("OpenTelemetry Collector container started")
 }
 
-// dockerAuthConfigs loads Docker registry credentials from ~/.docker/config.json
-// if available. In CI, docker/login-action populates this file. Returns an empty
-// AuthConfigurations (no-op) when the config file is absent or unreadable.
-func dockerAuthConfigs() docker.AuthConfigurations {
-	if cfgs, err := docker.NewAuthConfigurationsFromDockerCfg(); err == nil {
-		return *cfgs
-	}
-	return docker.AuthConfigurations{}
+// setupContainerWeaver starts the weaver semantic-convention validator
+// alongside the otelcol container. Mirrors the shared compose snippet at
+// `components/weaver/service.yml`: same image digest.
+// The container is named exactly "weaver" — matching `weaverContainer` in
+// `weaver.go` — because `runWeaverValidation` `docker wait` / `docker cp`
+// by name.
+func setupContainerWeaver(t *testing.T, net dockertest.Network) {
+	t.Helper()
+
+	t.Log("Starting weaver container...")
+	w, err := dockerPool.Run(t.Context(), imgWeaver.Repository(),
+		dockertest.WithTag(imgWeaver.Tag()),
+		dockertest.WithName(weaverContainer),
+		dockertest.WithCmd([]string{
+			"registry", "live-check",
+			"--registry", "/obi-registry",
+			"--include-unreferenced",
+			"--inactivity-timeout", "300",
+			"--admin-port", "4320",
+			"--format", "json",
+			"--diagnostic-format", "json",
+			"--output", "/tmp/weaver-out",
+		}),
+		dockertest.WithMounts([]string{
+			filepath.Join(pathRoot, "schemas/obi") + ":/obi-registry:ro",
+			"/tmp/obi-weaver-out:/tmp/weaver-out",
+		}),
+		dockertest.WithPortBindings(portBindings("4320/tcp", "4320")),
+		dockertest.WithContainerConfig(func(config *container.Config) {
+			config.WorkingDir = "/obi-registry"
+			config.ExposedPorts = exposedPorts("4317/tcp", "4320/tcp")
+			config.User = "0:0"
+		}),
+		dockertest.WithoutReuse(),
+	)
+	require.NoError(t, err, "could not start weaver container")
+	t.Cleanup(func() {
+		// Best-effort: `runWeaverValidation` may have already removed it via
+		// `docker wait` + `docker rm -f`; ignore the error in that case.
+		_ = w.Close(context.Background())
+	})
+
+	_, err = dockerPool.Client().NetworkConnect(t.Context(), net.ID(), client.NetworkConnectOptions{
+		Container:      w.ID(),
+		EndpointConfig: endpointAliases("weaver"),
+	})
+	require.NoError(t, err, "could not connect weaver container to network")
+	t.Log("Weaver container started")
 }
 
 // buildOBIImage builds the OBI image. When SKIP_DOCKER_BUILD is set, the image
 // has been pre-built for the VM workflow prior to QEMU startup.
-func buildOBIImage() error {
+func buildOBIImage(ctx context.Context) error {
 	if os.Getenv("SKIP_DOCKER_BUILD") != "" {
-		_, err := dockerPool.Client.InspectImage("hatest-obi")
+		_, err := dockerPool.Client().ImageInspect(ctx, "hatest-obi")
 		if err == nil {
 			fmt.Println("Skipping OBI image build (pre-built image found)")
 			return nil
 		}
 		fmt.Println("SKIP_DOCKER_BUILD set but hatest-obi image not found, building...")
 	}
-	return dockerPool.Client.BuildImage(docker.BuildImageOptions{
-		Name:         "hatest-obi",
-		ContextDir:   pathRoot,
-		Dockerfile:   "internal/test/integration/components/obi/Dockerfile",
-		OutputStream: os.Stdout,
-		ErrorStream:  os.Stderr,
-		AuthConfigs:  dockerAuthConfigs(),
+	return buildDockerImage(ctx, os.Stdout, "hatest-obi", "internal/test/integration/components/obi/Dockerfile")
+}
+
+func buildDockerImage(ctx context.Context, output io.Writer, tag, dockerfile string) error {
+	buildContext, err := createBuildContext(pathRoot)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = buildContext.Close()
+	}()
+
+	result, err := dockerPool.Client().ImageBuild(ctx, buildContext, client.ImageBuildOptions{
+		Tags:       []string{tag},
+		Dockerfile: dockerfile,
+		Remove:     true,
 	})
+	if err != nil {
+		return fmt.Errorf("building Docker image %q: %w", tag, err)
+	}
+
+	buildErr := drainDockerBuildStream(result.Body, output)
+	closeErr := result.Body.Close()
+	if buildErr != nil {
+		return fmt.Errorf("building Docker image %q: %w", tag, buildErr)
+	}
+	if closeErr != nil {
+		return fmt.Errorf("closing Docker build response for %q: %w", tag, closeErr)
+	}
+	return nil
+}
+
+// createBuildContext creates a tar archive of the given directory for Docker build context.
+//
+// createBuildContext code is mostly copied from
+// https://github.com/ory/dockertest/blob/927ba364b58256b83edaaf7545fce83e59fc46a4/build.go#L194.
+func createBuildContext(contextDir string) (io.ReadCloser, error) {
+	info, err := os.Stat(contextDir)
+	if err != nil {
+		return nil, fmt.Errorf("build context directory: %w", err)
+	}
+	if !info.IsDir() {
+		return nil, fmt.Errorf("build context path %q is not a directory", contextDir)
+	}
+
+	// Create a pipe for streaming the tar archive
+	pr, pw := io.Pipe()
+
+	go func() {
+		tw := tar.NewWriter(pw)
+
+		// Paths excluded from the build context to keep the streamed tar small
+		// and avoid files being concurrently written during the test run.
+		// .dockerignore is not consulted by this Go helper, so the list lives here.
+		excludePrefixes := []string{
+			"testoutput",
+			"compiled-tests",
+			"rootfs.qcow2",
+			"rootfs.raw",
+			"docker-disk.img",
+			"internal/test/vm/lvh/out",
+		}
+
+		// Walk the context directory and add files to tar
+		err := filepath.WalkDir(contextDir, func(path string, d os.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+
+			// Get relative path from context directory
+			relPath, err := filepath.Rel(contextDir, path)
+			if err != nil {
+				return err
+			}
+
+			// Skip the context directory itself
+			if relPath == "." {
+				return nil
+			}
+
+			for _, p := range excludePrefixes {
+				if relPath == p || strings.HasPrefix(relPath, p+string(filepath.Separator)) {
+					if d.IsDir() {
+						return filepath.SkipDir
+					}
+					return nil
+				}
+			}
+
+			info, err := d.Info()
+			if err != nil {
+				return err
+			}
+
+			// Resolve symlink target for tar header
+			var link string
+			if info.Mode()&os.ModeSymlink != 0 {
+				link, err = os.Readlink(path)
+				if err != nil {
+					return err
+				}
+			}
+
+			// Skip non-regular files (devices, sockets, named pipes)
+			if !info.Mode().IsRegular() && !info.IsDir() && info.Mode()&os.ModeSymlink == 0 {
+				return nil
+			}
+
+			// Create tar header
+			header, err := tar.FileInfoHeader(info, link)
+			if err != nil {
+				return err
+			}
+
+			// Use forward slashes in tar (Docker expects this)
+			header.Name = filepath.ToSlash(relPath)
+
+			// Write header
+			if err := tw.WriteHeader(header); err != nil {
+				return err
+			}
+
+			// Write file content for regular files only.
+			// Use CopyN with the header's declared size so a file growing under
+			// us (overlayfs+9p concurrency in the test VM, log files, etc.) does
+			// not produce "archive/tar: write too long". If the file shrunk,
+			// CopyN's short read is padded with zeros to header.Size by tar.
+			if info.Mode().IsRegular() {
+				// #nosec G304 -- path is from filepath.WalkDir of a known build context directory
+				file, err := os.Open(path)
+				if err != nil {
+					return err
+				}
+
+				written, err := io.CopyN(tw, file, header.Size)
+				if err != nil && !errors.Is(err, io.EOF) {
+					_ = file.Close()
+					return err
+				}
+				if written < header.Size {
+					if _, err := tw.Write(make([]byte, header.Size-written)); err != nil {
+						_ = file.Close()
+						return err
+					}
+				}
+				if err := file.Close(); err != nil {
+					return err
+				}
+			}
+
+			return nil
+		})
+
+		// Close tar writer to flush end-of-archive marker
+		if closeErr := tw.Close(); closeErr != nil && err == nil {
+			err = closeErr
+		}
+
+		// Always signal the pipe reader: nil for EOF, non-nil for error
+		pw.CloseWithError(err)
+	}()
+
+	return pr, nil
+}
+
+// drainBuildStream consumes the Docker build JSON stream and returns the first
+// error found. Docker embeds build errors (failed RUN commands, syntax errors)
+// as {"errorDetail":...} messages in the stream rather than returning them from
+// ImageBuild directly.
+//
+// drainBuildStream code is mostly copied from
+// https://github.com/ory/dockertest/blob/927ba364b58256b83edaaf7545fce83e59fc46a4/build.go#L295.
+func drainDockerBuildStream(r io.Reader, output io.Writer) error {
+	decoder := json.NewDecoder(r)
+	for {
+		var msg jsonstream.Message
+		if err := decoder.Decode(&msg); err != nil {
+			if errors.Is(err, io.EOF) {
+				return nil
+			}
+			return fmt.Errorf("decoding Docker build stream: %w", err)
+		}
+		if err := writeDockerBuildMessage(output, msg); err != nil {
+			return err
+		}
+		if msg.Error != nil {
+			return msg.Error
+		}
+	}
+}
+
+func writeDockerBuildMessage(output io.Writer, msg jsonstream.Message) error {
+	if output == nil {
+		return nil
+	}
+	if msg.Stream != "" {
+		_, err := io.WriteString(output, msg.Stream)
+		return err
+	}
+	if msg.Error != nil {
+		_, err := fmt.Fprintln(output, msg.Error.Message)
+		return err
+	}
+	if msg.Status != "" {
+		if msg.ID != "" {
+			_, err := fmt.Fprintf(output, "%s: %s\n", msg.ID, msg.Status)
+			return err
+		}
+		_, err := fmt.Fprintln(output, msg.Status)
+		return err
+	}
+	return nil
 }
 
 // obi holds configuration for OBI instrumentation.
@@ -175,7 +474,7 @@ type obi struct {
 }
 
 // instrument starts the OBI container to instrument the target application.
-func (o obi) instrument(t *testing.T, network *dockertest.Network, configFile string) {
+func (o obi) instrument(t *testing.T, net dockertest.Network, configFile string) {
 	t.Helper()
 
 	t.Log("Starting OBI container with PID namespace sharing...")
@@ -185,42 +484,29 @@ func (o obi) instrument(t *testing.T, network *dockertest.Network, configFile st
 
 	cntName := "obi"
 
-	var mounts []docker.Mount
-	for _, m := range []string{
-		filepath.Join(pathRoot, "internal/test/integration/configs") + ":/configs",
-		filepath.Join(pathRoot, "internal/test/integration/system/sys/kernel/security"+o.SecurityConfigSuffix) + ":/sys/kernel/security",
-		pathOutput + ":/coverage",
-		runOtelDir + ":/var/run/obi",
-	} {
-		s, d, err := opts.MountParser(m)
-		require.NoError(t, err, "could not parse mount %q", m)
-		mounts = append(mounts, docker.Mount{Source: s, Destination: d, RW: true})
-	}
-	var hostMounts []docker.HostMount
-	for _, m := range mounts {
-		hostMounts = append(hostMounts, docker.HostMount{Source: m.Source, Target: m.Destination, Type: "bind"})
-	}
-	hostConfig := &docker.HostConfig{
+	hostConfig := &container.HostConfig{
 		PublishAllPorts: true,
-		PortBindings: map[docker.Port][]docker.PortBinding{
-			"8999/tcp": {{HostIP: "127.0.0.1", HostPort: "8999"}},
+		PortBindings:    portBindings("8999/tcp", "8999"),
+		Privileged:      true,
+		PidMode:         "host",
+		Mounts: []mount.Mount{
+			bindMount(filepath.Join(pathRoot, "internal/test/integration/configs"), "/configs"),
+			bindMount(filepath.Join(pathRoot, "internal/test/integration/system/sys/kernel/security"+o.SecurityConfigSuffix), "/sys/kernel/security"),
+			bindMount(pathOutput, "/coverage"),
+			bindMount(runOtelDir, "/var/run/obi"),
 		},
-		Privileged: true,
-		PidMode:    "host",
-		Mounts:     hostMounts,
 	}
-	container, err := dockerPool.Client.CreateContainer(docker.CreateContainerOptions{
-		Context: t.Context(),
-		Name:    cntName,
-		Config: &docker.Config{
+	created, err := dockerPool.Client().ContainerCreate(t.Context(), client.ContainerCreateOptions{
+		Name: cntName,
+		Config: &container.Config{
 			Cmd:   []string{"--config=/configs/" + configFile},
 			Image: "hatest-obi",
 			Env: append([]string{
 				"GOCOVERDIR=/coverage",
 				`OTEL_EBPF_SHUTDOWN_TIMEOUT=2s`,
 				"OTEL_EBPF_TRACE_PRINTER=text",
-				"OTEL_EBPF_METRICS_FEATURES=application,application_span",
-				"OTEL_EBPF_PROMETHEUS_FEATURES=application,application_span",
+				"OTEL_EBPF_METRICS_FEATURES=application,application_span_otel",
+				"OTEL_EBPF_PROMETHEUS_FEATURES=application,application_span_otel",
 				"OTEL_EBPF_DISCOVERY_POLL_INTERVAL=500ms",
 				"OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT=1ms",
 				"OTEL_EBPF_SERVICE_NAMESPACE=integration-test",
@@ -232,37 +518,43 @@ func (o obi) instrument(t *testing.T, network *dockertest.Network, configFile st
 				"OTEL_EBPF_PROCESSES_INTERVAL=100ms",
 				"OTEL_EBPF_HOSTNAME=obi",
 			}, o.Env...),
-			ExposedPorts: map[docker.Port]struct{}{"8999/tcp": {}},
-			Mounts:       mounts,
+			ExposedPorts: exposedPorts("8999/tcp"),
 		},
 		HostConfig: hostConfig,
-		NetworkingConfig: &docker.NetworkingConfig{
-			EndpointsConfig: map[string]*docker.EndpointConfig{
-				network.Network.ID: {Aliases: []string{"obi"}},
+		NetworkingConfig: &network.NetworkingConfig{
+			EndpointsConfig: map[string]*network.EndpointSettings{
+				net.ID(): endpointAliases("obi"),
 			},
 		},
 	})
-	require.NoError(t, err, "could not create test server container")
+	require.NoError(t, err, "could not create OBI container")
 
-	require.NoError(t, dockerPool.Client.StartContainer(container.ID, nil), "could not start test server container")
+	_, err = dockerPool.Client().ContainerStart(t.Context(), created.ID, client.ContainerStartOptions{})
+	require.NoError(t, err, "could not start OBI container")
 
 	t.Cleanup(func() {
+		ctx := context.Background()
 		if o.Logs != nil {
-			if err := dockerPool.Client.Logs(docker.LogsOptions{
-				Stderr:       true,
-				Stdout:       true,
-				Container:    container.ID,
-				OutputStream: o.Logs,
-			}); err != nil {
+			logs, err := dockerPool.Client().ContainerLogs(ctx, created.ID, client.ContainerLogsOptions{
+				ShowStderr: true,
+				ShowStdout: true,
+			})
+			if err != nil {
 				t.Logf("could not stream logs: %v", err)
+			} else {
+				if _, err := stdcopy.StdCopy(o.Logs, o.Logs, logs); err != nil {
+					t.Logf("could not copy logs: %v", err)
+				}
+				if err := logs.Close(); err != nil {
+					t.Logf("could not close logs stream: %v", err)
+				}
 			}
 		}
-		if err := dockerPool.Client.StopContainer(container.ID, 4); err != nil {
+		timeout := 4
+		if _, err := dockerPool.Client().ContainerStop(ctx, created.ID, client.ContainerStopOptions{Timeout: &timeout}); err != nil {
 			t.Logf("could not stop test server container after timeout: %v. Will force removal (you will loose coverage data)", err)
 		}
-		if err := dockerPool.Client.RemoveContainer(
-			docker.RemoveContainerOptions{ID: container.ID, Force: true, RemoveVolumes: true},
-		); err != nil {
+		if _, err := dockerPool.Client().ContainerRemove(ctx, created.ID, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true}); err != nil {
 			t.Logf("could not remove OBI container: %v", err)
 		}
 	})

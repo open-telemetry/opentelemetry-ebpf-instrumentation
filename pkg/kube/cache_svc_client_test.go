@@ -69,6 +69,60 @@ func TestClientForwardsLastTimestamp(t *testing.T) {
 	assert.Equal(t, itemTime, secondSubscribe.FromTimestampEpoch)
 }
 
+func TestNormalizeReconnectInitialInterval(t *testing.T) {
+	testCases := []struct {
+		name     string
+		interval time.Duration
+		expected time.Duration
+	}{
+		{
+			name:     "zero falls back to default",
+			interval: 0,
+			expected: defaultReconnectInitialInterval,
+		},
+		{
+			name:     "negative falls back to default",
+			interval: -time.Second,
+			expected: defaultReconnectInitialInterval,
+		},
+		{
+			name:     "positive is preserved",
+			interval: 10 * time.Millisecond,
+			expected: 10 * time.Millisecond,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.expected, normalizeReconnectInitialInterval(tc.interval))
+		})
+	}
+}
+
+func TestStartNormalizesReconnectInitialInterval(t *testing.T) {
+	svc := cacheSvcClient{
+		BaseNotifier:             meta.NewBaseNotifier(klog()),
+		syncTimeout:              timeout,
+		reconnectInitialInterval: 0,
+	}
+
+	svc.Start(t.Context())
+
+	assert.Equal(t, defaultReconnectInitialInterval, svc.reconnectInitialInterval)
+}
+
+func TestStartPreservesPositiveReconnectInitialInterval(t *testing.T) {
+	svc := cacheSvcClient{
+		BaseNotifier:             meta.NewBaseNotifier(klog()),
+		syncTimeout:              timeout,
+		reconnectInitialInterval: 10 * time.Millisecond,
+	}
+
+	svc.Start(t.Context())
+
+	assert.Equal(t, 10*time.Millisecond, svc.reconnectInitialInterval)
+}
+
 // cacheSvcClient requires a subscriber to start processing the events, so we provide a dummy here
 type dummySubscriber struct{}
 

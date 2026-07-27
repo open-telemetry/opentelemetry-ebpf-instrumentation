@@ -11,6 +11,19 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/services"
 )
 
+// intPtr returns a pointer to the given int value
+func intPtr(v int) *int { return &v }
+
+func stringPtr(v string) *string { return &v }
+
+func TestHTTPConfigClientEnabled(t *testing.T) {
+	assert.False(t, (HTTPConfig{}).ClientEnabled())
+	assert.False(t, (HTTPConfig{GraphQL: GraphQLConfig{Enabled: true}}).ClientEnabled())
+	assert.True(t, (HTTPConfig{AWS: AWSConfig{Enabled: true}}).ClientEnabled())
+	assert.True(t, (HTTPConfig{GenAI: GenAIConfig{OpenAI: OpenAIConfig{Enabled: true}}}).ClientEnabled())
+	assert.True(t, (HTTPConfig{Enrichment: EnrichmentConfig{Enabled: true}}).ClientEnabled())
+}
+
 func TestEnrichmentConfig_Validate_HeaderRules(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -57,6 +70,21 @@ func TestEnrichmentConfig_Validate_HeaderRules(t *testing.T) {
 			},
 			wantErr: "rule 0: header rules cannot use obfuscation_json_paths",
 		},
+		{
+			name: "header include rule with obfuscation string",
+			rules: []HTTPParsingRule{
+				{
+					Action:            HTTPParsingActionInclude,
+					Type:              HTTPParsingRuleTypeHeaders,
+					Scope:             HTTPParsingScopeAll,
+					ObfuscationString: stringPtr("[REDACTED]"),
+					Match: HTTPParsingMatch{
+						Patterns: []services.GlobAttr{services.NewGlob("Authorization")},
+					},
+				},
+			},
+			wantErr: "rule 0: obfuscation_string can only be used with action \"obfuscate\"",
+		},
 	}
 
 	for _, tt := range tests {
@@ -95,9 +123,10 @@ func TestEnrichmentConfig_Validate_BodyRules(t *testing.T) {
 			name: "valid body obfuscate rule",
 			rules: []HTTPParsingRule{
 				{
-					Action: HTTPParsingActionObfuscate,
-					Type:   HTTPParsingRuleTypeBody,
-					Scope:  HTTPParsingScopeAll,
+					Action:            HTTPParsingActionObfuscate,
+					Type:              HTTPParsingRuleTypeBody,
+					Scope:             HTTPParsingScopeAll,
+					ObfuscationString: stringPtr("[REDACTED]"),
 					Match: HTTPParsingMatch{
 						ObfuscationJSONPaths: []JSONPathExpr{jsonPath},
 					},
@@ -157,6 +186,68 @@ func TestEnrichmentConfig_Validate_BodyRules(t *testing.T) {
 				},
 			},
 			wantErr: "rule 0: obfuscation_json_paths can only be used with action \"obfuscate\"",
+		},
+		{
+			name: "body exclude rule with obfuscation string",
+			rules: []HTTPParsingRule{
+				{
+					Action:            HTTPParsingActionExclude,
+					Type:              HTTPParsingRuleTypeBody,
+					Scope:             HTTPParsingScopeAll,
+					ObfuscationString: stringPtr("[REDACTED]"),
+					Match:             HTTPParsingMatch{},
+				},
+			},
+			wantErr: "rule 0: obfuscation_string can only be used with action \"obfuscate\"",
+		},
+		{
+			name: "happy status code range",
+			rules: []HTTPParsingRule{
+				{
+					Action: HTTPParsingActionInclude,
+					Type:   HTTPParsingRuleTypeBody,
+					Scope:  HTTPParsingScopeAll,
+					Match: HTTPParsingMatch{
+						ResponseStatusCode: &NumericRange{
+							GreaterEquals: intPtr(500),
+							LessEquals:    intPtr(599),
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "valid status code exact match",
+			rules: []HTTPParsingRule{
+				{
+					Action: HTTPParsingActionInclude,
+					Type:   HTTPParsingRuleTypeBody,
+					Scope:  HTTPParsingScopeAll,
+					Match: HTTPParsingMatch{
+						ResponseStatusCode: &NumericRange{
+							GreaterEquals: intPtr(200),
+							LessEquals:    intPtr(200),
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "inverted status code range",
+			rules: []HTTPParsingRule{
+				{
+					Action: HTTPParsingActionInclude,
+					Type:   HTTPParsingRuleTypeBody,
+					Scope:  HTTPParsingScopeAll,
+					Match: HTTPParsingMatch{
+						ResponseStatusCode: &NumericRange{
+							GreaterEquals: intPtr(599),
+							LessEquals:    intPtr(500),
+						},
+					},
+				},
+			},
+			wantErr: "rule 0: response_status_code greater_equals (599) must not exceed less_equals (500)",
 		},
 	}
 
@@ -224,4 +315,44 @@ func TestEnrichmentConfig_Validate_SecondRuleInvalid(t *testing.T) {
 func TestEnrichmentConfig_Validate_EmptyRules(t *testing.T) {
 	cfg := EnrichmentConfig{}
 	assert.NoError(t, cfg.Validate())
+}
+
+func TestGenAIConfig_Enabled(t *testing.T) {
+	tests := []struct {
+		name    string
+		cfg     GenAIConfig
+		enabled bool
+	}{
+		{name: "all disabled", cfg: GenAIConfig{}, enabled: false},
+		{name: "openai", cfg: GenAIConfig{OpenAI: OpenAIConfig{Enabled: true}}, enabled: true},
+		{name: "anthropic", cfg: GenAIConfig{Anthropic: AnthropicConfig{Enabled: true}}, enabled: true},
+		{name: "gemini", cfg: GenAIConfig{Gemini: GeminiConfig{Enabled: true}}, enabled: true},
+		{name: "bedrock", cfg: GenAIConfig{Bedrock: BedrockConfig{Enabled: true}}, enabled: true},
+		{name: "mcp", cfg: GenAIConfig{MCP: MCPConfig{Enabled: true}}, enabled: true},
+		{name: "retrieval", cfg: GenAIConfig{Retrieval: RetrievalConfig{Enabled: true}}, enabled: true},
+		{name: "openai_compatible", cfg: GenAIConfig{OpenAICompatible: OpenAICompatibleConfig{Enabled: true}}, enabled: true},
+		{name: "openai_compatible with gateways", cfg: GenAIConfig{OpenAICompatible: OpenAICompatibleConfig{Enabled: true, Gateways: []OpenAICompatibleGateway{{Host: "litellm.local", Port: 8080, Provider: "litellm"}}}}, enabled: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.enabled, tt.cfg.Enabled())
+		})
+	}
+}
+
+func TestPayloadExtraction_Enabled_OpenAICompatible(t *testing.T) {
+	tests := []struct {
+		name    string
+		pe      PayloadExtraction
+		enabled bool
+	}{
+		{name: "all disabled", pe: PayloadExtraction{}, enabled: false},
+		{name: "openai_compatible enabled", pe: PayloadExtraction{HTTP: HTTPConfig{GenAI: GenAIConfig{OpenAICompatible: OpenAICompatibleConfig{Enabled: true}}}}, enabled: true},
+		{name: "openai_compatible disabled with gateways", pe: PayloadExtraction{HTTP: HTTPConfig{GenAI: GenAIConfig{OpenAICompatible: OpenAICompatibleConfig{Enabled: false, Gateways: []OpenAICompatibleGateway{{Host: "litellm.local"}}}}}}, enabled: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.enabled, tt.pe.Enabled())
+		})
+	}
 }

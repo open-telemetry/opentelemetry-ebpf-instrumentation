@@ -12,7 +12,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/instrumentation"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
-	semconv "go.opentelemetry.io/otel/semconv/v1.38.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 	"go.opentelemetry.io/otel/trace"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
@@ -39,7 +39,7 @@ func mlog() *slog.Logger {
 
 const (
 	// SpanMetricsLatency and rest of metrics below haven't been yet moved to the
-	// pkg/internal/export/metric package as we are disabling user-provided attribute
+	// pkg/export/attributes/metric.go file as we are disabling user-provided attribute
 	// selection for them. They are very specific metrics with an opinionated format
 	// for Span Metrics and Service Graph Metrics functionalities
 	SpanMetricsLatency       = "traces_spanmetrics_latency"
@@ -48,9 +48,12 @@ const (
 	SpanMetricsCallsOTel     = "traces_span_metrics_calls_total"
 	SpanMetricsRequestSizes  = "traces_spanmetrics_size_total"
 	SpanMetricsResponseSizes = "traces_spanmetrics_response_size_total"
-	TracesTargetInfo         = "traces_target_info"
-	TargetInfo               = "target_info"
-	TracesHostInfo           = "traces_host_info"
+	// TracesTargetInfo, TargetInfo and TracesHostInfo use OTel dot notation.
+	// The Prometheus exporter keeps the underscore variants of these names
+	// (see pkg/export/prom), following the OpenMetrics convention.
+	TracesTargetInfo = "traces.target.info"
+	TargetInfo       = "target.info"
+	TracesHostInfo   = "traces.host.info"
 )
 
 // CloudHostIDKey is the host ID attribute for cloud provider integrations,
@@ -253,7 +256,7 @@ func newMetricsReporter(
 			mr.attrGetters, mr.attributes.For(attributes.HTTPClientResponseSize))
 	}
 
-	if is.GRPCEnabled() {
+	if is.GRPCEnabled() || is.SunRPCEnabled() {
 		mr.attrGRPCServer = attributes.OpenTelemetryGetters(
 			mr.attrGetters, mr.attributes.For(attributes.RPCServerDuration))
 		mr.attrGRPCClient = attributes.OpenTelemetryGetters(
@@ -301,7 +304,7 @@ func newMetricsReporter(
 			mr.attrGetters, mr.attributes.For(attributes.GenAIClientOperationDuration))
 	}
 
-	mr.reporters = otelcfg.NewReporterPool[*svc.Attrs, *Metrics](cfg.ReportersCacheLen, cfg.TTL, timeNow,
+	mr.reporters, err = otelcfg.NewReporterPool[*svc.Attrs, *Metrics](cfg.ReportersCacheLen, cfg.TTL, timeNow,
 		func(id svc.UID, v *Metrics) {
 			llog := log.With("service", id)
 			llog.Debug("evicting metrics reporter from cache")
@@ -312,11 +315,14 @@ func newMetricsReporter(
 			}
 
 			go func() {
-				if err := v.provider.ForceFlush(ctx); err != nil {
-					llog.Warn("error flushing evicted metrics provider", "error", err)
+				if err := v.provider.Shutdown(ctx); err != nil {
+					llog.Warn("error shutting down evicted metrics provider", "error", err)
 				}
 			}()
 		}, mr.newMetricSet)
+	if err != nil {
+		return nil, fmt.Errorf("creating metrics reporters pool: %w", err)
+	}
 	// Instantiate the OTLP HTTP or GRPC metrics exporter
 	exporter, err := ctxInfo.OTELMetricsExporter.Instantiate(ctx)
 	if err != nil {
@@ -344,50 +350,47 @@ func newMetricsReporter(
 	return &mr, nil
 }
 
-func (mr *MetricsReporter) otelMetricOptions(mlog *slog.Logger) []metric.Option {
+func (mr *MetricsReporter) otelMetricOptions() []metric.Option {
 	var opts []metric.Option
 	if !mr.jointMetricsCfg.Features.AppRED() {
 		return opts
 	}
-
-	useExponentialHistograms := isExponentialAggregation(mr.cfg, mlog)
-
 	if mr.is.HTTPEnabled() {
 		opts = append(opts,
-			metric.WithView(otelHistogramConfig(attributes.HTTPServerDuration.OTEL, mr.cfg.Buckets.DurationHistogram, useExponentialHistograms)),
-			metric.WithView(otelHistogramConfig(attributes.HTTPClientDuration.OTEL, mr.cfg.Buckets.DurationHistogram, useExponentialHistograms)),
-			metric.WithView(otelHistogramConfig(attributes.HTTPServerRequestSize.OTEL, mr.cfg.Buckets.RequestSizeHistogram, useExponentialHistograms)),
-			metric.WithView(otelHistogramConfig(attributes.HTTPServerResponseSize.OTEL, mr.cfg.Buckets.ResponseSizeHistogram, useExponentialHistograms)),
-			metric.WithView(otelHistogramConfig(attributes.HTTPClientRequestSize.OTEL, mr.cfg.Buckets.RequestSizeHistogram, useExponentialHistograms)),
-			metric.WithView(otelHistogramConfig(attributes.HTTPClientResponseSize.OTEL, mr.cfg.Buckets.ResponseSizeHistogram, useExponentialHistograms)),
+			metric.WithView(mr.otelHistogramConfig(attributes.HTTPServerDuration.OTEL, mr.cfg.Buckets.DurationHistogram)),
+			metric.WithView(mr.otelHistogramConfig(attributes.HTTPClientDuration.OTEL, mr.cfg.Buckets.DurationHistogram)),
+			metric.WithView(mr.otelHistogramConfig(attributes.HTTPServerRequestSize.OTEL, mr.cfg.Buckets.RequestSizeHistogram)),
+			metric.WithView(mr.otelHistogramConfig(attributes.HTTPServerResponseSize.OTEL, mr.cfg.Buckets.ResponseSizeHistogram)),
+			metric.WithView(mr.otelHistogramConfig(attributes.HTTPClientRequestSize.OTEL, mr.cfg.Buckets.RequestSizeHistogram)),
+			metric.WithView(mr.otelHistogramConfig(attributes.HTTPClientResponseSize.OTEL, mr.cfg.Buckets.ResponseSizeHistogram)),
 		)
 	}
 
-	if mr.is.GRPCEnabled() {
+	if mr.is.GRPCEnabled() || mr.is.SunRPCEnabled() {
 		opts = append(opts,
-			metric.WithView(otelHistogramConfig(attributes.RPCServerDuration.OTEL, mr.cfg.Buckets.DurationHistogram, useExponentialHistograms)),
-			metric.WithView(otelHistogramConfig(attributes.RPCClientDuration.OTEL, mr.cfg.Buckets.DurationHistogram, useExponentialHistograms)),
+			metric.WithView(mr.otelHistogramConfig(attributes.RPCServerDuration.OTEL, mr.cfg.Buckets.DurationHistogram)),
+			metric.WithView(mr.otelHistogramConfig(attributes.RPCClientDuration.OTEL, mr.cfg.Buckets.DurationHistogram)),
 		)
 	}
 
 	if mr.is.DBEnabled() {
 		opts = append(opts,
-			metric.WithView(otelHistogramConfig(attributes.DBClientDuration.OTEL, mr.cfg.Buckets.DurationHistogram, useExponentialHistograms)),
+			metric.WithView(mr.otelHistogramConfig(attributes.DBClientDuration.OTEL, mr.cfg.Buckets.DurationHistogram)),
 		)
 	}
 
 	if mr.is.MQEnabled() {
 		opts = append(opts,
-			metric.WithView(otelHistogramConfig(attributes.MessagingPublishDuration.OTEL, mr.cfg.Buckets.DurationHistogram, useExponentialHistograms)),
-			metric.WithView(otelHistogramConfig(attributes.MessagingProcessDuration.OTEL, mr.cfg.Buckets.DurationHistogram, useExponentialHistograms)),
+			metric.WithView(mr.otelHistogramConfig(attributes.MessagingPublishDuration.OTEL, mr.cfg.Buckets.DurationHistogram)),
+			metric.WithView(mr.otelHistogramConfig(attributes.MessagingProcessDuration.OTEL, mr.cfg.Buckets.DurationHistogram)),
 		)
 	}
 
 	if mr.is.GenAIEnabled() {
 		opts = append(opts,
-			metric.WithView(otelHistogramConfig(attributes.GenAIClientOperationDuration.OTEL, mr.cfg.Buckets.GenAIClientDurationHistogram, useExponentialHistograms)),
+			metric.WithView(mr.otelHistogramConfig(attributes.GenAIClientOperationDuration.OTEL, mr.cfg.Buckets.GenAIClientDurationHistogram)),
 			// the input tokens and output tokens are the same metric, we just need to distinguish the attributes, so we can write the token type
-			metric.WithView(otelHistogramConfig(attributes.GenAIClientInputTokenUsage.OTEL, mr.cfg.Buckets.GenAITokenUsageHistogram, useExponentialHistograms)),
+			metric.WithView(mr.otelHistogramConfig(attributes.GenAIClientInputTokenUsage.OTEL, mr.cfg.Buckets.GenAITokenUsageHistogram)),
 		)
 	}
 
@@ -406,15 +409,12 @@ func (mr *MetricsReporter) spanMetricsLatencyName() string {
 	return SpanMetricsLatencyOTel
 }
 
-func (mr *MetricsReporter) spanMetricOptions(mlog *slog.Logger) []metric.Option {
+func (mr *MetricsReporter) spanMetricOptions() []metric.Option {
 	if !mr.jointMetricsCfg.Features.SpanMetrics() {
 		return []metric.Option{}
 	}
-
-	useExponentialHistograms := isExponentialAggregation(mr.cfg, mlog)
-
 	return []metric.Option{
-		metric.WithView(otelHistogramConfig(mr.spanMetricsLatencyName(), mr.cfg.Buckets.DurationHistogram, useExponentialHistograms)),
+		metric.WithView(mr.otelHistogramConfig(mr.spanMetricsLatencyName(), mr.cfg.Buckets.DurationHistogram)),
 	}
 }
 
@@ -478,7 +478,7 @@ func (mr *MetricsReporter) setupOtelMeters(m *Metrics, meter instrument.Meter) e
 			m.ctx, httpClientResponseSize, mr.attrHTTPClientResponseSize, timeNow, mr.cfg.TTL)
 	}
 
-	if mr.is.GRPCEnabled() {
+	if mr.is.GRPCEnabled() || mr.is.SunRPCEnabled() {
 		grpcDuration, err := meter.Float64Histogram(attributes.RPCServerDuration.OTEL, instrument.WithUnit("s"))
 		if err != nil {
 			return fmt.Errorf("creating grpc duration histogram metric: %w", err)
@@ -581,7 +581,7 @@ func (mr *MetricsReporter) setupOtelMeters(m *Metrics, meter instrument.Meter) e
 			m.ctx, genAIClientDuration, mr.attrGenAIClientDuration, timeNow, mr.cfg.TTL)
 
 		// the input tokens and output tokens are the same metric, we just need to distinguish the attributes, so we can write the token type
-		genAITokenUsage, err := meter.Float64Histogram(attributes.GenAIClientInputTokenUsage.OTEL, instrument.WithUnit("1"))
+		genAITokenUsage, err := meter.Float64Histogram(attributes.GenAIClientInputTokenUsage.OTEL, instrument.WithUnit("{token}"))
 		if err != nil {
 			return fmt.Errorf("creating genai client token usage histogram: %w", err)
 		}
@@ -696,18 +696,19 @@ func (mr *MetricsReporter) newMetricsInstance(service *svc.Attrs) Metrics {
 	if service != nil {
 		mlog = mlog.With("service", service)
 		resourceAttributes = append(otelcfg.GetAppResourceAttrs(&mr.nodeMeta, service), otelcfg.ResourceAttrsFromEnv(service)...)
+		resourceAttributes = otelcfg.FilterResourceAttrs(resourceAttributes, mr.userAttribSelection)
 	}
 	mlog.Debug("creating new Metrics reporter")
 	resources := resource.NewWithAttributes(semconv.SchemaURL, resourceAttributes...)
 
 	opts := []metric.Option{
 		metric.WithResource(resources),
-		metric.WithReader(metric.NewPeriodicReader(mr.exporter,
+		metric.WithReader(metric.NewPeriodicReader(sharedExporter{mr.exporter},
 			metric.WithInterval(mr.cfg.Interval))),
 	}
 
-	opts = append(opts, mr.otelMetricOptions(mlog)...)
-	opts = append(opts, mr.spanMetricOptions(mlog)...)
+	opts = append(opts, mr.otelMetricOptions()...)
+	opts = append(opts, mr.spanMetricOptions()...)
 
 	return Metrics{
 		ctx:     mr.ctx,
@@ -752,16 +753,17 @@ func (mr *MetricsReporter) setupMetricExpirers(m *Metrics, meter instrument.Mete
 	return nil
 }
 
-func isExponentialAggregation(mc *otelcfg.MetricsConfig, mlog *slog.Logger) bool {
-	switch mc.HistogramAggregation {
+func (mr *MetricsReporter) isExponentialAggregation() bool {
+	switch mr.cfg.HistogramAggregation {
 	case otelcfg.HistogramAggregationExponential:
 		return true
 	case otelcfg.HistogramAggregationExplicit:
 	// do nothing
 	default:
-		mlog.Warn("invalid value for histogram aggregation. Accepted values are: "+
+		mr.log.Warn("invalid value for histogram aggregation. Accepted values are: "+
 			string(otelcfg.HistogramAggregationExponential)+", "+string(otelcfg.HistogramAggregationExplicit)+" (default). Using default",
-			"value", mc.HistogramAggregation)
+			"value", mr.cfg.HistogramAggregation)
+		mr.cfg.HistogramAggregation = otelcfg.HistogramAggregationExplicit
 	}
 	return false
 }
@@ -776,12 +778,21 @@ func (mr *MetricsReporter) close() {
 	}()
 }
 
+// sharedExporter wraps an sdkmetric.Exporter so that Shutdown is a no-op.
+// Per-service MeterProviders own a PeriodicReader that cascades Shutdown into
+// the exporter; without this wrapper, evicting one service would shut down the
+// exporter shared by every other service. The owning MetricsReporter calls
+// Shutdown on the underlying exporter directly from its own close().
+type sharedExporter struct{ sdkmetric.Exporter }
+
+func (sharedExporter) Shutdown(_ context.Context) error { return nil }
+
 // instrumentMetricsExporter checks whether the context is configured to report internal metrics and,
 // in this case, wraps the passed metrics exporter inside an instrumented exporter
 func instrumentMetricsExporter(internalMetrics imetrics.Reporter, in sdkmetric.Exporter) sdkmetric.Exporter {
 	// avoid wrapping the instrumented exporter if we don't have
 	// internal instrumentation (NoopReporter)
-	if _, ok := internalMetrics.(imetrics.NoopReporter); ok || internalMetrics == nil {
+	if internalMetrics == nil || imetrics.IsBuiltinNoopReporter(internalMetrics) {
 		return in
 	}
 	return &instrumentedMetricsExporter{
@@ -790,25 +801,32 @@ func instrumentMetricsExporter(internalMetrics imetrics.Reporter, in sdkmetric.E
 	}
 }
 
-func otelHistogramConfig(metricName string, buckets []float64, useExponentialHistogram bool) metric.View {
-	if useExponentialHistogram {
+func (mr *MetricsReporter) otelHistogramConfig(
+	metricName string,
+	buckets []float64,
+) metric.View {
+	return newHistogramView(metricName, reporterName, buckets, mr.isExponentialAggregation(), mr.cfg.ExponentialHistogram)
+}
+
+func newHistogramView(metricName, scopeName string, buckets []float64, isExponential bool, expCfg otelcfg.ExponentialHistogramConfig) metric.View {
+	if isExponential {
 		return metric.NewView(
 			metric.Instrument{
 				Name:  metricName,
-				Scope: instrumentation.Scope{Name: reporterName},
+				Scope: instrumentation.Scope{Name: scopeName},
 			},
 			metric.Stream{
 				Name: metricName,
 				Aggregation: sdkmetric.AggregationBase2ExponentialHistogram{
-					MaxScale: 20,
-					MaxSize:  160,
+					MaxScale: expCfg.MaxScale,
+					MaxSize:  expCfg.MaxSize,
 				},
 			})
 	}
 	return metric.NewView(
 		metric.Instrument{
 			Name:  metricName,
-			Scope: instrumentation.Scope{Name: reporterName},
+			Scope: instrumentation.Scope{Name: scopeName},
 		},
 		metric.Stream{
 			Name: metricName,
@@ -846,6 +864,7 @@ func (mr *MetricsReporter) tracesResourceAttributes(service *svc.Attrs) attribut
 	}
 
 	filteredAttrs := otelcfg.GetFilteredAttributesByPrefix(baseAttrs, mr.userAttribSelection, extraAttrs, MetricTypes)
+	filteredAttrs = otelcfg.FilterResourceAttrs(filteredAttrs, mr.userAttribSelection)
 	return attribute.NewSet(filteredAttrs...)
 }
 
@@ -917,6 +936,16 @@ func (r *Metrics) record(span *request.Span, mr *MetricsReporter) {
 				grpcClientDuration, attrs := r.grpcClientDuration.ForRecord(span)
 				grpcClientDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
 			}
+		case request.EventTypeSunRPCClient:
+			if mr.is.SunRPCEnabled() {
+				grpcClientDuration, attrs := r.grpcClientDuration.ForRecord(span)
+				grpcClientDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
+			}
+		case request.EventTypeSunRPCServer:
+			if mr.is.SunRPCEnabled() {
+				grpcDuration, attrs := r.grpcDuration.ForRecord(span)
+				grpcDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
+			}
 		case request.EventTypeHTTPClient:
 			// HTTP client subtypes that are database calls get recorded as db client metrics
 			if mr.is.DBEnabled() && (span.SubType == request.HTTPSubtypeSQLPP || span.SubType == request.HTTPSubtypeElasticsearch) {
@@ -929,10 +958,14 @@ func (r *Metrics) record(span *request.Span, mr *MetricsReporter) {
 			} else if mr.is.GenAIEnabled() && request.IsGenAISubtype(span.SubType) {
 				genAIClientDuration, attrs := r.genAIClientDuration.ForRecord(span)
 				genAIClientDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
-				genAIInputTokenUsage, attrs := r.genAIInputTokenUsage.ForRecord(span)
-				genAIInputTokenUsage.Record(ctx, float64(span.GenAIInputTokens()), instrument.WithAttributeSet(attrs))
-				genAIOutputTokenUsage, attrs := r.genAIOutputTokenUsage.ForRecord(span)
-				genAIOutputTokenUsage.Record(ctx, float64(span.GenAIOutputTokens()), instrument.WithAttributeSet(attrs))
+				if tokens, reported := span.GenAIInputTokenCount(); reported {
+					genAIInputTokenUsage, attrs := r.genAIInputTokenUsage.ForRecord(span)
+					genAIInputTokenUsage.Record(ctx, float64(tokens), instrument.WithAttributeSet(attrs))
+				}
+				if tokens, reported := span.GenAIOutputTokenCount(); reported {
+					genAIOutputTokenUsage, attrs := r.genAIOutputTokenUsage.ForRecord(span)
+					genAIOutputTokenUsage.Record(ctx, float64(tokens), instrument.WithAttributeSet(attrs))
+				}
 			} else if mr.is.HTTPEnabled() {
 				httpClientDuration, attrs := r.httpClientDuration.ForRecord(span)
 				httpClientDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
@@ -941,7 +974,7 @@ func (r *Metrics) record(span *request.Span, mr *MetricsReporter) {
 				httpClientResponseSize, attrs := r.httpClientResponseSize.ForRecord(span)
 				httpClientResponseSize.Record(ctx, float64(span.ResponseBodyLength()), instrument.WithAttributeSet(attrs))
 			}
-		case request.EventTypeRedisServer, request.EventTypeRedisClient, request.EventTypeSQLClient, request.EventTypeMongoClient, request.EventTypeCouchbaseClient, request.EventTypeMemcachedClient, request.EventTypeMemcachedServer:
+		case request.EventTypeRedisServer, request.EventTypeRedisClient, request.EventTypeSQLClient, request.EventTypeMongoClient, request.EventTypeCouchbaseClient, request.EventTypeMemcachedClient, request.EventTypeMemcachedServer, request.EventTypeAerospikeClient:
 			if mr.is.DBEnabled() {
 				dbClientDuration, attrs := r.dbClientDuration.ForRecord(span)
 				dbClientDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
@@ -959,6 +992,28 @@ func (r *Metrics) record(span *request.Span, mr *MetricsReporter) {
 			}
 		case request.EventTypeMQTTClient, request.EventTypeMQTTServer:
 			if mr.is.MQTTEnabled() {
+				switch span.Method {
+				case request.MessagingPublish:
+					msgPublishDuration, attrs := r.msgPublishDuration.ForRecord(span)
+					msgPublishDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
+				case request.MessagingProcess:
+					msgProcessDuration, attrs := r.msgProcessDuration.ForRecord(span)
+					msgProcessDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
+				}
+			}
+		case request.EventTypeNATSClient, request.EventTypeNATSServer:
+			if mr.is.NATSEnabled() {
+				switch span.Method {
+				case request.MessagingPublish:
+					msgPublishDuration, attrs := r.msgPublishDuration.ForRecord(span)
+					msgPublishDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
+				case request.MessagingProcess:
+					msgProcessDuration, attrs := r.msgProcessDuration.ForRecord(span)
+					msgProcessDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
+				}
+			}
+		case request.EventTypeAMQPClient:
+			if mr.is.AMQPEnabled() {
 				switch span.Method {
 				case request.MessagingPublish:
 					msgPublishDuration, attrs := r.msgPublishDuration.ForRecord(span)
@@ -1012,25 +1067,25 @@ func (r *Metrics) record(span *request.Span, mr *MetricsReporter) {
 		}
 
 		if span.Service.Features.SpanMetrics() {
-			sml, attrs := r.spanMetricsLatency.ForRecord(span)
+			sml, attrs := r.spanMetricsLatency.ForRecord(span, extraAttrs...)
 			sml.Record(ctx, duration, instrument.WithAttributeSet(attrs))
 
-			smct, attrs := r.spanMetricsCallsTotal.ForRecord(span)
+			smct, attrs := r.spanMetricsCallsTotal.ForRecord(span, extraAttrs...)
 			smct.Add(ctx, 1, instrument.WithAttributeSet(attrs))
 		}
 
 		if span.Service.Features.SpanSizes() {
-			smst, attrs := r.spanMetricsRequestSizeTotal.ForRecord(span)
+			smst, attrs := r.spanMetricsRequestSizeTotal.ForRecord(span, extraAttrs...)
 			smst.Add(ctx, float64(span.RequestBodyLength()), instrument.WithAttributeSet(attrs))
 
-			smst, attr := r.spanMetricsResponseSizeTotal.ForRecord(span)
+			smst, attr := r.spanMetricsResponseSizeTotal.ForRecord(span, extraAttrs...)
 			smst.Add(ctx, float64(span.ResponseBodyLength()), instrument.WithAttributeSet(attr))
 		}
 	}
 }
 
 func (mr *MetricsReporter) createTargetInfo(attrs *attribute.Set) {
-	mlog().Debug("Creating target_info")
+	mlog().Debug("Creating target.info")
 
 	attrOpt := instrument.WithAttributeSet(*attrs)
 
@@ -1042,7 +1097,7 @@ func (mr *MetricsReporter) deleteTargetInfo(attrs *attribute.Set) {
 		return
 	}
 
-	mlog().Debug("Deleting target_info for", "attrs", attrs)
+	mlog().Debug("Deleting target.info for", "attrs", attrs)
 	attrOpt := instrument.WithAttributeSet(*attrs)
 	mr.targetInfo.Remove(mr.ctx, attrOpt)
 }
@@ -1052,7 +1107,7 @@ func (mr *MetricsReporter) createTracesTargetInfo(svc *svc.Attrs, attrs *attribu
 		return
 	}
 
-	mlog().Debug("Creating traces_target_info")
+	mlog().Debug("Creating traces.target.info")
 
 	attrOpt := instrument.WithAttributeSet(*attrs)
 
@@ -1064,7 +1119,7 @@ func (mr *MetricsReporter) deleteTracesTargetInfo(attrs *attribute.Set) {
 		return
 	}
 
-	mlog().Debug("Deleting traces_target_info for", "attrs", attrs)
+	mlog().Debug("Deleting traces.target.info for", "attrs", attrs)
 
 	attrOpt := instrument.WithAttributeSet(*attrs)
 	mr.tracesTargetInfo.Remove(mr.ctx, attrOpt)
@@ -1108,7 +1163,8 @@ func (mr *MetricsReporter) resourceAttrsForService(service *svc.Attrs) []attribu
 	}
 
 	attrs = append(attrs, otelcfg.GetAppResourceAttrs(&mr.nodeMeta, service)...)
-	return append(attrs, otelcfg.ResourceAttrsFromEnv(service)...)
+	attrs = append(attrs, otelcfg.ResourceAttrsFromEnv(service)...)
+	return otelcfg.FilterResourceAttrs(attrs, mr.userAttribSelection)
 }
 
 func (mr *MetricsReporter) ensureTargetMetrics(service *svc.Attrs) *TargetMetrics {
@@ -1145,6 +1201,10 @@ func (mr *MetricsReporter) createTargetMetrics(service *svc.Attrs) {
 		return
 	}
 
+	if !service.ExportModes.CanExportMetrics() {
+		return
+	}
+
 	targetMetrics := mr.ensureTargetMetrics(service)
 
 	if targetMetrics == nil {
@@ -1176,18 +1236,20 @@ func (mr *MetricsReporter) deleteTargetMetrics(uid *svc.UID) {
 }
 
 func (mr *MetricsReporter) onProcessEvent(pe *exec.ProcessEvent) {
-	mr.log.Debug("Received new process event", "event type", pe.Type, "pid", pe.File.Pid, "attrs", pe.File.Service.UID)
+	snap := pe.File.ServiceAttrs()
+	pid := pe.File.Pid()
+	mr.log.Debug("Received new process event", "event type", pe.Type, "pid", pid, "attrs", snap.UID)
 
 	if pe.Type == exec.ProcessEventCreated {
-		uid := pe.File.Service.UID
+		uid := snap.UID
 
 		// Handle the case when the PID changed its feathers, e.g. got new metadata impacting the service name.
 		// There's no new PID, just an update to the metadata.
-		if staleUID, exists := mr.pidTracker.TracksPID(pe.File.Pid); exists && !staleUID.Equals(&uid) {
+		if staleUID, exists := mr.pidTracker.TracksPID(pid); exists && !staleUID.Equals(&uid) {
 			mr.log.Debug("updating older service definition", "from", staleUID, "new", uid)
 			mr.pidTracker.ReplaceUID(staleUID, uid)
 			mr.deleteTargetMetrics(&staleUID)
-			mr.createTargetMetrics(&pe.File.Service)
+			mr.createTargetMetrics(&snap)
 			// we don't setup the pid again, we just replaced the metrics it's associated with
 			return
 		}
@@ -1200,13 +1262,13 @@ func (mr *MetricsReporter) onProcessEvent(pe *exec.ProcessEvent) {
 			mr.deleteTargetMetrics(&uid)
 		}
 
-		mr.createTargetMetrics(&pe.File.Service)
-		mr.setupPIDToServiceRelationship(pe.File.Pid, pe.File.Service.UID)
+		mr.createTargetMetrics(&snap)
+		mr.setupPIDToServiceRelationship(pid, snap.UID)
 	} else {
-		if deleted, origUID := mr.disassociatePIDFromService(pe.File.Pid); deleted {
+		if deleted, origUID := mr.disassociatePIDFromService(pid); deleted {
 			// We only need the UID to look up in the pool, no need to cache
 			// the whole of the attrs in the pidTracker
-			mlog().Debug("deleting infos for", "pid", pe.File.Pid, "attrs", origUID)
+			mlog().Debug("deleting infos for", "pid", pid, "attrs", origUID)
 
 			mr.deleteTargetMetrics(&origUID)
 
@@ -1234,7 +1296,7 @@ func (mr *MetricsReporter) onSpan(spans []request.Span) {
 		reporter, err := mr.reporters.For(&s.Service)
 		if err != nil {
 			mlog().Error("unexpected error creating OTEL resource. Ignoring metric",
-				"error", err, "service", s.Service)
+				"error", err, "service", s.Service.UID)
 			continue
 		}
 		reporter.record(s, mr)

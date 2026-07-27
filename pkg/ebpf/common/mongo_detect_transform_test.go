@@ -468,6 +468,39 @@ func TestGetMongoInfoErrorCodeFromBsonRoundTrip(t *testing.T) {
 	assert.Equal(t, "DuplicateKey", res.ErrorCodeName)
 }
 
+func TestParseOpMessageShortBufferReturnsError(t *testing.T) {
+	buf := make([]byte, msgHeaderSize) // header only, missing flagBits
+
+	request, moreToCome, err := parseOpMessage(buf, 0, false, nil)
+
+	require.Error(t, err)
+	require.EqualError(t, err, "packet too short for MongoDB flag bits")
+	assert.Nil(t, request)
+	assert.False(t, moreToCome)
+}
+
+func TestParseSectionsDocSequenceShortReturnsError(t *testing.T) {
+	// Include the section type byte, but not enough bytes for the document sequence length.
+	buf := []byte{byte(sectionTypeDocumentSequence), 0x01, 0x02, 0x03}
+
+	sections, err := parseSections(buf)
+
+	require.Error(t, err)
+	require.EqualError(t, err, "not enough data for MongoDB section length")
+	assert.Nil(t, sections)
+}
+
+func TestParseFirstFieldTypeAssertionReturnsError(t *testing.T) {
+	field := bson.E{Key: commInsert, Value: int32(5)}
+
+	comm, collection, err := parseFirstField(field)
+
+	require.Error(t, err)
+	require.EqualError(t, err, "MongoDB command has non-string collection type")
+	assert.Empty(t, comm)
+	assert.Empty(t, collection)
+}
+
 func TestGetMongoInfoNoResponseSectionShouldBeSuccess(t *testing.T) {
 	mongoRequest := MongoRequestValue{
 		RequestSections: []mongoSection{
@@ -527,6 +560,22 @@ func TestGetMongoInfoWithUnknownCommand(t *testing.T) {
 	assert.Empty(t, res.Error, "Expected Error to be empty in successful request")
 	assert.Empty(t, res.ErrorCode, "Expected ErrorCode to be empty in successful request")
 	assert.Empty(t, res.ErrorCodeName, "Expected ErrorCodeName to be empty in successful request")
+}
+
+func TestGetMongoInfoFailForCollectionCommandWithNonStringCollection(t *testing.T) {
+	mongoRequest := MongoRequestValue{
+		RequestSections: []mongoSection{
+			{
+				Type: sectionTypeBody,
+				Body: bson.D{bson.E{Key: commFind, Value: int32(123)}},
+			},
+		},
+		ResponseSections: []mongoSection{},
+	}
+
+	_, err := getMongoInfo(&mongoRequest)
+	require.Error(t, err)
+	assert.EqualError(t, err, "MongoDB command has non-string collection type")
 }
 
 func TestGetMongoInfoOperationUnknownForEmptyRequestSection(t *testing.T) {

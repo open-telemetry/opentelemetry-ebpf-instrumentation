@@ -122,6 +122,8 @@ func TestPHPFM(t *testing.T) {
 
 	t.Run("PHP-FM RED metrics", testREDMetricsPHPFPM)
 
+	runWeaverValidation(t)
+
 	require.NoError(t, compose.Close())
 }
 
@@ -132,7 +134,7 @@ func testHTTPTracesPHP(t *testing.T) {
 
 	var trace jaeger.Trace
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=nginx&operation=GET%20%2F")
+		resp, err := http.Get(jaegerQueryURL + "?service=php-fpm&operation=GET%20%2F")
 		require.NoError(ct, err)
 		if resp == nil {
 			return
@@ -170,6 +172,58 @@ func testHTTPTracesPHP(t *testing.T) {
 		require.Equal(ct, traceID, parent.TraceID)
 		require.NotEmpty(ct, parent.SpanID)
 	}, testTimeout, 100*time.Millisecond)
+
+	// Verify that query parameters from the FastCGI QUERY_STRING field are
+	// propagated to the php-fpm server span as url.query.
+	// Use a unique marker value to avoid matching stale traces from earlier requests.
+	ti.DoHTTPGet(t, "http://localhost:8080/?obi_urlquery_test=1", 200)
+
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		resp, err := http.Get(jaegerQueryURL + "?service=php-fpm&operation=GET%20%2F")
+		require.NoError(ct, err)
+		if resp == nil {
+			return
+		}
+		defer resp.Body.Close()
+		require.Equal(ct, http.StatusOK, resp.StatusCode)
+		var tq jaeger.TracesQuery
+		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
+
+		// Find any trace that has a php-fpm server span carrying url.query.
+		traces := tq.FindBySpan(jaeger.Tag{Key: "url.query", Type: "string", Value: "obi_urlquery_test=1"})
+		require.GreaterOrEqual(ct, len(traces), 1)
+
+		phpSpans := traces[0].FindByOperationNameAndService("GET /", "php-fpm")
+		require.GreaterOrEqual(ct, len(phpSpans), 1)
+		tag, ok := jaeger.FindIn(phpSpans[0].Tags, "url.query")
+		require.True(ct, ok, "url.query tag missing from php-fpm server span")
+		assert.Equal(ct, "obi_urlquery_test=1", tag.Value)
+	}, testTimeout, 100*time.Millisecond)
+
+	// Verify that sensitive query-parameter values are redacted.
+	// "sig" is in the default redact list, so its value must appear as REDACTED.
+	ti.DoHTTPGet(t, "http://localhost:8080/?obi_urlquery_test=2&sig=secret123", 200)
+
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		resp, err := http.Get(jaegerQueryURL + "?service=php-fpm&operation=GET%20%2F")
+		require.NoError(ct, err)
+		if resp == nil {
+			return
+		}
+		defer resp.Body.Close()
+		require.Equal(ct, http.StatusOK, resp.StatusCode)
+		var tq jaeger.TracesQuery
+		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
+
+		traces := tq.FindBySpan(jaeger.Tag{Key: "url.query", Type: "string", Value: "obi_urlquery_test=2&sig=REDACTED"})
+		require.GreaterOrEqual(ct, len(traces), 1)
+
+		phpSpans := traces[0].FindByOperationNameAndService("GET /", "php-fpm")
+		require.GreaterOrEqual(ct, len(phpSpans), 1)
+		tag, ok := jaeger.FindIn(phpSpans[0].Tags, "url.query")
+		require.True(ct, ok, "url.query tag missing from php-fpm server span")
+		assert.Equal(ct, "obi_urlquery_test=2&sig=REDACTED", tag.Value)
+	}, testTimeout, 100*time.Millisecond)
 }
 
 func testTracesPHPFPM(t *testing.T) {
@@ -193,6 +247,8 @@ func TestPHPFMUnixSock(t *testing.T) {
 
 	t.Run("PHP-FM RED metrics", testTracesPHPFPM)
 
+	runWeaverValidation(t)
+
 	require.NoError(t, compose.Close())
 }
 
@@ -209,6 +265,8 @@ func TestPHPFMUnixSockNginxSupportFloor(t *testing.T) {
 	require.NoError(t, compose.Up())
 
 	t.Run("PHP-FM traces", testTracesPHPFPM)
+
+	runWeaverValidation(t)
 
 	require.NoError(t, compose.Close())
 }

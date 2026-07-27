@@ -146,3 +146,58 @@ func TestPragmaticExports(t *testing.T) {
 	assert.True(t, modes.CanExportMetrics(), "should allow exporting metrics after calling AllowMetrics and AllowLogs")
 	assert.True(t, modes.CanExportLogs(), "should allow exporting logs after calling AllowLogs")
 }
+
+func TestPragmaticExportsAreIdempotent(t *testing.T) {
+	t.Run("zero value remains allowed", func(t *testing.T) {
+		var modes ExportModes
+
+		modes.AllowTraces()
+		modes.AllowMetrics()
+		modes.AllowLogs()
+
+		assert.True(t, modes.CanExportTraces(), "should keep traces allowed on zero-value export modes")
+		assert.True(t, modes.CanExportMetrics(), "should keep metrics allowed on zero-value export modes")
+		assert.True(t, modes.CanExportLogs(), "should keep logs allowed on zero-value export modes")
+	})
+
+	t.Run("repeated calls stay allowed", func(t *testing.T) {
+		modes := NewExportModes()
+
+		modes.AllowTraces()
+		modes.AllowTraces()
+		modes.AllowMetrics()
+		modes.AllowMetrics()
+		modes.AllowLogs()
+		modes.AllowLogs()
+
+		assert.True(t, modes.CanExportTraces(), "should keep traces allowed after repeated AllowTraces calls")
+		assert.True(t, modes.CanExportMetrics(), "should keep metrics allowed after repeated AllowMetrics calls")
+		assert.True(t, modes.CanExportLogs(), "should keep logs allowed after repeated AllowLogs calls")
+	})
+}
+
+func TestExportModesUnmarshalDuplicateEntriesRemainAllowed(t *testing.T) {
+	t.Run("yaml duplicates", func(t *testing.T) {
+		var tc struct {
+			Exports ExportModes `yaml:"exports"`
+		}
+
+		err := yaml.Unmarshal([]byte(`exports: ["metrics", "metrics", "traces", "traces", "logs", "logs"]`), &tc)
+		require.NoError(t, err)
+
+		assert.True(t, tc.Exports.CanExportTraces(), "should keep traces allowed with duplicate YAML entries")
+		assert.True(t, tc.Exports.CanExportMetrics(), "should keep metrics allowed with duplicate YAML entries")
+		assert.True(t, tc.Exports.CanExportLogs(), "should keep logs allowed with duplicate YAML entries")
+	})
+
+	t.Run("text duplicates", func(t *testing.T) {
+		var modes ExportModes
+
+		err := modes.UnmarshalText([]byte("metrics, metrics, traces, traces, logs, logs"))
+		require.NoError(t, err)
+
+		assert.True(t, modes.CanExportTraces(), "should keep traces allowed with duplicate text entries")
+		assert.True(t, modes.CanExportMetrics(), "should keep metrics allowed with duplicate text entries")
+		assert.True(t, modes.CanExportLogs(), "should keep logs allowed with duplicate text entries")
+	})
+}

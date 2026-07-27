@@ -6,6 +6,8 @@ package attributes // import "go.opentelemetry.io/obi/pkg/export/attributes"
 import (
 	"maps"
 
+	"go.opentelemetry.io/otel/attribute"
+
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 )
 
@@ -258,6 +260,16 @@ func getDefinitions(
 		extraGroupAttributes[GroupApp],
 	)
 
+	jvmMemoryAttributes := NewAttrReportGroup(
+		false,
+		[]*AttrReportGroup{&appAttributes},
+		map[attr.Name]Default{
+			attr.JVMMemoryType:     true,
+			attr.JVMMemoryPoolName: true,
+		},
+		nil,
+	)
+
 	httpRoutes := NewAttrReportGroup(
 		!groups.Has(GroupHTTPRoutes),
 		nil,
@@ -325,6 +337,9 @@ func getDefinitions(
 		NetworkFlow.Section: {
 			SubGroups: []*AttrReportGroup{&networkAttributes, &networkCIDR, &networkGeoIP, &networkKubeAttributes},
 		},
+		NetworkFlowPackets.Section: {
+			SubGroups: []*AttrReportGroup{&networkAttributes, &networkCIDR, &networkGeoIP, &networkKubeAttributes},
+		},
 		NetworkInterZone.Section: {
 			SubGroups: []*AttrReportGroup{&networkInterZone, &networkInterZoneCIDR, &networkGeoIP, &networkInterZoneKube},
 		},
@@ -349,26 +364,27 @@ func getDefinitions(
 		RPCClientDuration.Section: {
 			SubGroups: []*AttrReportGroup{&appAttributes, &grpcClientInfo},
 			Attributes: map[attr.Name]Default{
-				attr.RPCMethod:         true,
-				attr.RPCSystem:         true,
-				attr.RPCGRPCStatusCode: true,
+				attr.RPCMethod:             true,
+				attr.RPCSystem:             true,
+				attr.RPCResponseStatusCode: true,
 			},
 		},
 		RPCServerDuration.Section: {
 			SubGroups: []*AttrReportGroup{&appAttributes, &serverInfo},
 			Attributes: map[attr.Name]Default{
-				attr.RPCMethod:         true,
-				attr.RPCSystem:         true,
-				attr.RPCGRPCStatusCode: true,
+				attr.RPCMethod:             true,
+				attr.RPCSystem:             true,
+				attr.RPCResponseStatusCode: true,
 			},
 		},
 		DBClientDuration.Section: {
 			SubGroups: []*AttrReportGroup{&appAttributes},
 			Attributes: map[attr.Name]Default{
-				attr.ServerAddr:   true,
-				attr.DBOperation:  true,
-				attr.DBSystemName: true,
-				attr.ErrorType:    true,
+				attr.ServerAddr:       true,
+				attr.DBOperation:      true,
+				attr.DBSystemName:     true,
+				attr.ErrorType:        true,
+				attr.DBCollectionName: false,
 			},
 		},
 		MessagingPublishDuration.Section: {
@@ -379,11 +395,20 @@ func getDefinitions(
 		},
 		Traces.Section: {
 			Attributes: map[attr.Name]Default{
-				attr.DBQueryText:       false,
-				attr.GenAIInput:        false,
-				attr.GenAIOutput:       false,
-				attr.GenAIInstructions: false,
-				attr.GenAIMetadata:     false,
+				attr.DNSQuestionName: true,
+				attr.DBQueryText:     false,
+				attr.GraphQLDocument: false,
+				// url.query is Conditionally Required by OTel semconv (emitted when a query string is present).
+				// You can opt out via attributes.select.traces.exclude: [url.query].
+				attr.HTTPUrlQuery:           true,
+				attr.GenAIInput:             false,
+				attr.GenAIOutput:            false,
+				attr.GenAIInstructions:      false,
+				attr.GenAIMetadata:          false,
+				attr.GenAITools:             false,
+				attr.GenAIToolCallArguments: false,
+				attr.GenAIToolCallResult:    false,
+				attr.DBResponseError:        false,
 			},
 		},
 		GPUCudaKernelLaunchCalls.Section: {
@@ -415,13 +440,9 @@ func getDefinitions(
 		DNSLookupDuration.Section: {
 			SubGroups: []*AttrReportGroup{&appAttributes},
 			Attributes: map[attr.Name]Default{
-				attr.DNSQuestionName: true,
+				attr.DNSQuestionName: false,
 				attr.ErrorType:       true,
 			},
-		},
-		StatTCPRtt.Section: {
-			SubGroups:  []*AttrReportGroup{&statsAttributes, &statsKubeAttributes},
-			Attributes: map[attr.Name]Default{},
 		},
 		GenAIClientInputTokenUsage.Section: {
 			SubGroups: []*AttrReportGroup{&appAttributes},
@@ -459,10 +480,43 @@ func getDefinitions(
 				attr.ServerAddr:         true,
 			},
 		},
+		JVMMemoryUsed.Section: {
+			SubGroups:  []*AttrReportGroup{&jvmMemoryAttributes},
+			Attributes: map[attr.Name]Default{},
+		},
+		JVMMemoryCommitted.Section: {
+			SubGroups:  []*AttrReportGroup{&jvmMemoryAttributes},
+			Attributes: map[attr.Name]Default{},
+		},
+		JVMMemoryLimit.Section: {
+			SubGroups:  []*AttrReportGroup{&jvmMemoryAttributes},
+			Attributes: map[attr.Name]Default{},
+		},
+		JVMMemoryUsedAfterLastGC.Section: {
+			SubGroups:  []*AttrReportGroup{&jvmMemoryAttributes},
+			Attributes: map[attr.Name]Default{},
+		},
+		StatTCPRtt.Section: {
+			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes},
+			Attributes: map[attr.Name]Default{
+				attr.NetworkTCPHandshakeRole: false,
+			},
+		},
 		StatTCPFailedConnections.Section: {
 			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes},
 			Attributes: map[attr.Name]Default{
 				attr.TCPFailedConnectionReason: false,
+				attr.NetworkTCPHandshakeRole:   false,
+			},
+		},
+		StatTCPRetransmits.Section: {
+			SubGroups:  []*AttrReportGroup{&statsAttributes, &statsKubeAttributes},
+			Attributes: map[attr.Name]Default{},
+		},
+		StatTCPIo.Section: {
+			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes},
+			Attributes: map[attr.Name]Default{
+				attr.NetworkIoDirection: true,
 			},
 		},
 
@@ -518,4 +572,30 @@ func AllAttributeNames(
 		}
 	}
 	return names
+}
+
+// DBResponseErrorAttr returns a database response error attribute if the attribute is selected, nil otherwise.
+// When the attribute is not selected, it is simply omitted — consistent with how other optional
+// attributes (e.g. db.query.text) behave.
+func DBResponseErrorAttr(optionalAttrs map[attr.Name]struct{}, description string) []attribute.KeyValue {
+	if description == "" {
+		return nil
+	}
+	if _, ok := optionalAttrs[attr.DBResponseError]; !ok {
+		return nil
+	}
+	return []attribute.KeyValue{attribute.Key(attr.DBResponseError).String(description)}
+}
+
+func AppendUniqueNames(base []attr.Name, extra []attr.Name) []attr.Name {
+	seen := make(map[attr.Name]struct{}, len(base)+len(extra))
+	out := make([]attr.Name, 0, len(base)+len(extra))
+	for _, name := range append(base, extra...) {
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		out = append(out, name)
+	}
+	return out
 }

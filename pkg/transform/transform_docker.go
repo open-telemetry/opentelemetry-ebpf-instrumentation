@@ -34,22 +34,20 @@ func DockerDecoratorProvider(
 		}
 
 		dd := dockerEnricher{
-			in:             input.Subscribe(msg.SubscriberName("DockerEnricher")),
-			out:            output,
-			containerByPID: map[app.PID]docker.ContainerMeta{},
-			log:            delog(),
-			docker:         ctxInfo.DockerMetadata,
+			in:     input.Subscribe(msg.SubscriberName("DockerEnricher")),
+			out:    output,
+			log:    delog(),
+			docker: ctxInfo.DockerMetadata,
 		}
 		return dd.decorate, nil
 	}
 }
 
 type dockerEnricher struct {
-	in             <-chan []request.Span
-	out            *msg.Queue[[]request.Span]
-	containerByPID map[app.PID]docker.ContainerMeta
-	log            *slog.Logger
-	docker         *docker.ContainerStore
+	in     <-chan []request.Span
+	out    *msg.Queue[[]request.Span]
+	log    *slog.Logger
+	docker *docker.ContainerStore
 }
 
 func (dd *dockerEnricher) decorate(ctx context.Context) {
@@ -66,13 +64,8 @@ func (dd *dockerEnricher) decorate(ctx context.Context) {
 }
 
 func (dd *dockerEnricher) containerInfo(ctx context.Context, pid app.PID) (docker.ContainerMeta, bool) {
-	if ci, ok := dd.containerByPID[pid]; ok {
-		return ci, true
-	}
 	ci, ok := dd.docker.ContainerInfo(ctx, pid)
-	if ok {
-		dd.containerByPID[pid] = ci
-	} else {
+	if !ok {
 		dd.log.Debug("can't find container metadata", "pid", pid)
 	}
 	return ci, ok
@@ -106,17 +99,22 @@ func DockerProcessEventDecoratorProvider(
 				}
 				switch ev.Type {
 				case exec.ProcessEventCreated:
-					ci, ok := containerByPID[ev.File.Pid]
+					pid := ev.File.Pid()
+					ci, ok := containerByPID[pid]
 					if !ok {
-						if ci, ok = containers.ContainerInfo(ctx, ev.File.Pid); ok {
-							containerByPID[ev.File.Pid] = ci
+						if ci, ok = containers.ContainerInfo(ctx, pid); ok {
+							containerByPID[pid] = ci
 						}
 					}
 					if ok {
-						ci.DecorateService(&ev.File.Service)
+						snap := ev.File.ServiceAttrs()
+						ci.DecorateService(&snap)
+						ev.File.SetUID(snap.UID)
+						ev.File.SetMetadata(snap.Metadata)
 					}
 				case exec.ProcessEventTerminated:
-					delete(containerByPID, ev.File.Pid)
+					delete(containerByPID, ev.File.Pid())
+					containers.InvalidatePID(ev.File.Pid())
 				}
 				output.SendCtx(ctx, ev)
 			})

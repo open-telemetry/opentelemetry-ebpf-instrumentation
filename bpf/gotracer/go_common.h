@@ -15,15 +15,17 @@
 
 #pragma once
 
-#include "common/tp_info.h"
 #include <bpfcore/utils.h>
+#include <bpfcore/bpf_helpers.h>
 
 #include <common/go_addr_key.h>
 #include <common/map_sizing.h>
 #include <common/pin_internal.h>
 #include <common/strings.h>
+#include <common/trace_helpers.h>
 #include <common/trace_util.h>
 #include <common/tracing.h>
+#include <common/tp_info.h>
 
 #include <gotracer/go_offsets.h>
 
@@ -280,6 +282,8 @@ server_trace_parent(void *goroutine_addr, tp_info_t *tp, tp_info_t *found_tp) {
     }
 
     urand_bytes(tp->span_id, SPAN_ID_SIZE_BYTES);
+    // found_tp memcpy clobbered ts; reset before go_trace_map store
+    tp->ts = bpf_ktime_get_ns();
     bpf_map_update_elem(&go_trace_map, &g_key, tp, BPF_ANY);
 
     unsigned char tp_buf[TP_MAX_VAL_LENGTH];
@@ -317,6 +321,8 @@ static __always_inline u8 client_trace_parent(void *goroutine_addr, tp_info_t *t
 
     // May get overridden when decoding existing traceparent or finding a server span, but otherwise we set sample ON
     tp_i->flags = k_flag_sampled;
+    // We set the time of the current client trace parent
+    tp_i->ts = bpf_ktime_get_ns();
 
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
@@ -335,8 +341,15 @@ static __always_inline u8 client_trace_parent(void *goroutine_addr, tp_info_t *t
         tp_info_t *tp = tp_info_from_parent_go(&g_key, 0);
 
         if (tp) {
-            tp_from_parent(tp_i, tp);
-        } else {
+            if (should_be_in_same_transaction(tp, tp_i)) {
+                tp_from_parent(tp_i, tp);
+                found_trace_id = 1;
+            } else {
+                bpf_dbg_printk("Parent and child are too far apart, ignoring parent trace_id");
+            }
+        }
+
+        if (!found_trace_id) {
             urand_bytes(tp_i->trace_id, TRACE_ID_SIZE_BYTES);
         }
 
@@ -346,27 +359,27 @@ static __always_inline u8 client_trace_parent(void *goroutine_addr, tp_info_t *t
     return found_trace_id;
 }
 
-static __always_inline void read_ip_and_port(u8 *dst_ip, u16 *dst_port, void *src) {
+static __always_inline void read_ip_and_port(void *src, u8 *dst_ip, u16 *dst_port) {
     s64 addr_len = 0;
     void *addr_ip = 0;
     off_table_t *ot = get_offsets_table();
 
-    bpf_probe_read(dst_port,
-                   sizeof(u16),
-                   (void *)(src + go_offset_of(ot, (go_offset){.v = _tcp_addr_port_ptr_pos})));
-    bpf_probe_read(&addr_ip,
-                   sizeof(addr_ip),
-                   (void *)(src + go_offset_of(ot, (go_offset){.v = _tcp_addr_ip_ptr_pos})));
+    bpf_probe_read_user(dst_port,
+                        sizeof(u16),
+                        (void *)(src + go_offset_of(ot, (go_offset){.v = _tcp_addr_port_ptr_pos})));
+    bpf_probe_read_user(&addr_ip,
+                        sizeof(addr_ip),
+                        (void *)(src + go_offset_of(ot, (go_offset){.v = _tcp_addr_ip_ptr_pos})));
     if (addr_ip) {
-        bpf_probe_read(
+        bpf_probe_read_user(
             &addr_len,
             sizeof(addr_len),
             (void *)(src + go_offset_of(ot, (go_offset){.v = _tcp_addr_ip_ptr_pos}) + 8));
         if (addr_len == 4) {
             __builtin_memcpy(dst_ip, ip4ip6_prefix, sizeof(ip4ip6_prefix));
-            bpf_probe_read(dst_ip + sizeof(ip4ip6_prefix), 4, addr_ip);
+            bpf_probe_read_user(dst_ip + sizeof(ip4ip6_prefix), 4, addr_ip);
         } else if (addr_len == 16) {
-            bpf_probe_read(dst_ip, 16, addr_ip);
+            bpf_probe_read_user(dst_ip, 16, addr_ip);
         }
     }
 }
@@ -380,9 +393,9 @@ static __always_inline u8 get_conn_info_from_fd(void *fd_ptr,
         off_table_t *ot = get_offsets_table();
         const u64 fd_laddr_pos = go_offset_of(ot, (go_offset){.v = _fd_laddr_pos});
 
-        bpf_probe_read(
+        bpf_probe_read_user(
             &laddr_ptr, sizeof(laddr_ptr), (void *)(fd_ptr + fd_laddr_pos + 8)); // find laddr
-        bpf_probe_read(
+        bpf_probe_read_user(
             &raddr_ptr,
             sizeof(raddr_ptr),
             (void *)(fd_ptr + go_offset_of(ot, (go_offset){.v = _fd_raddr_pos}) + 8)); // find raddr
@@ -394,10 +407,10 @@ static __always_inline u8 get_conn_info_from_fd(void *fd_ptr,
         if (laddr_ptr && raddr_ptr) {
 
             // read local
-            read_ip_and_port(info->s_addr, &info->s_port, laddr_ptr);
+            read_ip_and_port(laddr_ptr, info->s_addr, &info->s_port);
 
             // read remote
-            read_ip_and_port(info->d_addr, &info->d_port, raddr_ptr);
+            read_ip_and_port(raddr_ptr, info->d_addr, &info->d_port);
 
             //dbg_print_http_connection_info(info);
 
@@ -417,20 +430,31 @@ static __always_inline u8 get_conn_info_from_fd(void *fd_ptr,
     return 0;
 }
 
-// HTTP black-box context propagation
-static __always_inline u8 get_conn_info(void *conn_ptr, connection_info_t *info) {
+static __always_inline void *fd_ptr_from_conn(void *conn_ptr) {
     if (conn_ptr) {
         void *fd_ptr = 0;
         off_table_t *ot = get_offsets_table();
 
-        bpf_probe_read(
+        bpf_probe_read_user(
             &fd_ptr,
             sizeof(fd_ptr),
             (void *)(conn_ptr + go_offset_of(ot, (go_offset){.v = _conn_fd_pos}))); // find fd
 
+        return fd_ptr;
+    }
+
+    return 0;
+}
+
+// HTTP black-box context propagation
+static __always_inline u8 get_conn_info(void *conn_ptr, connection_info_t *info) {
+    if (conn_ptr) {
+        void *fd_ptr = fd_ptr_from_conn(conn_ptr);
         bpf_dbg_printk("Found fd, fd_ptr=%llx", fd_ptr);
 
-        return get_conn_info_from_fd(fd_ptr, info, true);
+        if (fd_ptr) {
+            return get_conn_info_from_fd(fd_ptr, info, true);
+        }
     }
 
     return 0;
@@ -465,16 +489,14 @@ static __always_inline void process_meta_frame_headers(void *frame, tp_info_t *t
     bpf_probe_read(&fields_len, sizeof(fields_len), (void *)(frame + fields_off + 8));
     bpf_dbg_printk("fields=%llx, fields_len=%d", fields, fields_len);
     if (fields && fields_len > 0) {
-        for (u8 i = 0; i < 16; i++) {
+        // 32: gRPC HEADERS + forwarded metadata + tpinjector-appended TP
+        for (u8 i = 0; i < 32; i++) {
             if (i >= fields_len) {
                 break;
             }
             void *field_ptr = fields + (i * sizeof(grpc_header_field_t));
-            //bpf_dbg_printk("field_ptr=%llx", field_ptr);
             grpc_header_field_t field = {};
             bpf_probe_read(&field, sizeof(grpc_header_field_t), field_ptr);
-            //bpf_dbg_printk("grpc header=%s:%s", field.key_ptr, field.val_ptr);
-            //bpf_dbg_printk("grpc sizes=%d:%d", field.key_len, field.val_len);
             if (field.key_len == W3C_KEY_LENGTH && field.val_len == W3C_VAL_LENGTH) {
                 unsigned char temp[W3C_VAL_LENGTH];
 

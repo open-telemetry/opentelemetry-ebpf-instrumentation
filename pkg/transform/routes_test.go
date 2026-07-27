@@ -12,7 +12,9 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
+	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/internal/testutil"
+	"go.opentelemetry.io/obi/pkg/internal/transform/route"
 	"go.opentelemetry.io/obi/pkg/internal/transform/route/clusterurl"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
@@ -216,6 +218,251 @@ func TestIgnoreMode(t *testing.T) {
 	assert.True(t, request.IgnoreTraces(&s))
 	setSpanIgnoreMode(IgnoreMetrics, &s)
 	assert.True(t, request.IgnoreMetrics(&s))
+}
+
+func TestDirectionalRoutes(t *testing.T) {
+	incoming := services.RoutePolicy{
+		Unmatch:        services.UnmatchPath,
+		Patterns:       []string{"/incoming/{id}"},
+		IgnorePatterns: []string{"/incoming/ignore"},
+		IgnoredEvents:  services.IgnoreTraces,
+	}
+	outgoing := services.RoutePolicy{
+		Unmatch:        services.UnmatchWildcard,
+		Patterns:       []string{"/outgoing/{id}"},
+		IgnorePatterns: []string{"/outgoing/ignore"},
+		IgnoredEvents:  services.IgnoreMetrics,
+	}
+	input := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
+	output := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
+	router, err := RoutesProvider(&RoutesConfig{Directional: &services.DirectionalRoutePolicies{
+		Incoming: incoming,
+		Outgoing: outgoing,
+	}}, input, output)(t.Context())
+	require.NoError(t, err)
+	out := output.Subscribe()
+	defer input.Close()
+	go router(t.Context())
+
+	input.Send([]request.Span{
+		{Type: request.EventTypeHTTP, Path: "/incoming/123"},
+		{Type: request.EventTypeHTTPClient, Path: "/outgoing/123"},
+		{Type: request.EventTypeHTTP, Path: "/other"},
+		{Type: request.EventTypeHTTPClient, Path: "/other"},
+		{Type: request.EventTypeHTTP, Path: "/incoming/ignore"},
+		{Type: request.EventTypeHTTPClient, Path: "/outgoing/ignore"},
+		{Type: request.EventTypeGRPC, Path: "/incoming/ignore"},
+		{Type: request.EventTypeSQLClient, Path: "/outgoing/ignore"},
+	})
+	spans := testutil.ReadChannel(t, out, testTimeout)
+	require.Len(t, spans, 8)
+	assert.Equal(t, "/incoming/{id}", spans[0].Route)
+	assert.Equal(t, "/outgoing/{id}", spans[1].Route)
+	assert.Equal(t, "/other", spans[2].Route)
+	assert.Equal(t, wildCard, spans[3].Route)
+	assert.True(t, request.IgnoreTraces(&spans[4]))
+	assert.False(t, request.IgnoreMetrics(&spans[4]))
+	assert.True(t, request.IgnoreMetrics(&spans[5]))
+	assert.False(t, request.IgnoreTraces(&spans[5]))
+	assert.Empty(t, spans[6].Route)
+	assert.False(t, request.IgnoreMetrics(&spans[6]))
+	assert.False(t, request.IgnoreTraces(&spans[6]))
+	assert.Empty(t, spans[7].Route)
+	assert.False(t, request.IgnoreMetrics(&spans[7]))
+	assert.False(t, request.IgnoreTraces(&spans[7]))
+}
+
+func TestDirectionalRoutesPerServiceOverrides(t *testing.T) {
+	global := services.DirectionalRoutePolicies{
+		Incoming: services.RoutePolicy{
+			Unmatch:  services.UnmatchPath,
+			Patterns: []string{"/global/{id}"},
+		},
+		Outgoing: services.RoutePolicy{
+			Unmatch:  services.UnmatchWildcard,
+			Patterns: []string{"/outgoing/{id}"},
+		},
+	}
+	emptyPatterns := []string{}
+	servicePatterns := []string{"/service/{id}"}
+	serviceUnmatched := services.UnmatchUnset
+	outgoingUnmatched := services.UnmatchPath
+	effective := (&services.DirectionalRoutePolicyOverrides{
+		Incoming: &services.RoutePolicyOverride{
+			Patterns: &servicePatterns,
+			Unmatch:  &serviceUnmatched,
+		},
+		Outgoing: &services.RoutePolicyOverride{
+			Patterns: &emptyPatterns,
+			Unmatch:  &outgoingUnmatched,
+		},
+	}).Apply(global)
+	service := svc.Attrs{HarvestedRouteMatcher: route.NewMatcher([]string{"/harvested/{id}"})}
+	service.SetDirectionalRoutes(effective)
+
+	input := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
+	output := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
+	router, err := RoutesProvider(&RoutesConfig{Directional: &global}, input, output)(t.Context())
+	require.NoError(t, err)
+	out := output.Subscribe()
+	defer input.Close()
+	go router(t.Context())
+
+	input.Send([]request.Span{
+		{Type: request.EventTypeHTTP, Path: "/service/123", Service: service},
+		{Type: request.EventTypeHTTP, Path: "/global/123", Service: service},
+		{Type: request.EventTypeHTTPClient, Path: "/outgoing/123", Service: service},
+		{Type: request.EventTypeHTTPClient, Path: "/harvested/123", Service: service},
+	})
+	spans := testutil.ReadChannel(t, out, testTimeout)
+	require.Len(t, spans, 4)
+	assert.Equal(t, "/service/{id}", spans[0].Route)
+	assert.Empty(t, spans[1].Route)
+	assert.Equal(t, "/outgoing/123", spans[2].Route)
+	assert.Equal(t, "/harvested/{id}", spans[3].Route)
+}
+
+func TestDirectionalRoutesRuleOnlyPolicyScope(t *testing.T) {
+	baseline := services.DirectionalRoutePolicies{
+		Incoming: services.RoutePolicy{Unmatch: services.UnmatchUnset},
+		Outgoing: services.RoutePolicy{Unmatch: services.UnmatchUnset},
+	}
+	patterns := []string{"/service/{id}"}
+	matchedService := svc.Attrs{HarvestedRouteMatcher: route.NewMatcher([]string{"/harvested/{id}"})}
+	matchedService.IncomingRoutePolicy = svc.NewRoutePolicy(
+		(&services.RoutePolicyOverride{Patterns: &patterns}).Apply(baseline.Incoming))
+	unmatchedService := svc.Attrs{HarvestedRouteMatcher: route.NewMatcher([]string{"/harvested/{id}"})}
+
+	input := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
+	output := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
+	router, err := RoutesProvider(&RoutesConfig{
+		Directional:         &baseline,
+		DirectionalRuleOnly: true,
+	}, input, output)(t.Context())
+	require.NoError(t, err)
+	out := output.Subscribe()
+	defer input.Close()
+	go router(t.Context())
+
+	input.Send([]request.Span{
+		{Type: request.EventTypeHTTP, Path: "/service/123", Service: matchedService},
+		{Type: request.EventTypeHTTP, Path: "/harvested/123", Service: unmatchedService},
+		{Type: request.EventTypeHTTPClient, Path: "/harvested/123", Service: matchedService},
+	})
+	spans := testutil.ReadChannel(t, out, testTimeout)
+	require.Len(t, spans, 3)
+	assert.Equal(t, "/service/{id}", spans[0].Route)
+	assert.Empty(t, spans[1].Route)
+	assert.Empty(t, spans[2].Route)
+}
+
+func TestDirectionalRoutesSkipAbsentGlobalDirection(t *testing.T) {
+	policies := services.DirectionalRoutePolicies{
+		Incoming: services.RoutePolicy{Unmatch: services.UnmatchPath},
+		Outgoing: services.RoutePolicy{Unmatch: services.UnmatchHeuristic},
+	}
+	input := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
+	output := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
+	router, err := RoutesProvider(&RoutesConfig{
+		Directional: &policies,
+		DirectionalPolicyPresence: &DirectionalRoutePolicyPresence{
+			Incoming: true,
+		},
+	}, input, output)(t.Context())
+	require.NoError(t, err)
+	out := output.Subscribe()
+	defer input.Close()
+	go router(t.Context())
+
+	service := svc.Attrs{HarvestedRouteMatcher: route.NewMatcher([]string{"/harvested/{id}"})}
+	input.Send([]request.Span{
+		{Type: request.EventTypeHTTP, Path: "/incoming/123", Service: service},
+		{Type: request.EventTypeHTTPClient, Path: "/harvested/123", Service: service},
+	})
+	spans := testutil.ReadChannel(t, out, testTimeout)
+	require.Len(t, spans, 2)
+	assert.Equal(t, "/incoming/123", spans[0].Route)
+	assert.Empty(t, spans[1].Route)
+}
+
+func TestDirectionalRoutesUseDirectionalWildcards(t *testing.T) {
+	input := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
+	output := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
+	router, err := RoutesProvider(&RoutesConfig{Directional: &services.DirectionalRoutePolicies{
+		Incoming: services.RoutePolicy{Unmatch: services.UnmatchHeuristic, WildcardChar: "#"},
+		Outgoing: services.RoutePolicy{Unmatch: services.UnmatchHeuristic, WildcardChar: "%"},
+	}}, input, output)(t.Context())
+	require.NoError(t, err)
+	out := output.Subscribe()
+	defer input.Close()
+	go router(t.Context())
+
+	input.Send([]request.Span{
+		{Type: request.EventTypeHTTP, Path: "/customer/1234"},
+		{Type: request.EventTypeHTTPClient, Path: "/customer/1234"},
+	})
+	spans := testutil.ReadChannel(t, out, testTimeout)
+	require.Len(t, spans, 2)
+	assert.Equal(t, "/customer/#", spans[0].Route)
+	assert.Equal(t, "/customer/%", spans[1].Route)
+}
+
+func TestDirectionalRoutesDisableLowCardinality(t *testing.T) {
+	input := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
+	output := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
+	router, err := RoutesProvider(&RoutesConfig{Directional: &services.DirectionalRoutePolicies{
+		Incoming: services.RoutePolicy{Unmatch: services.UnmatchLowCardinality},
+	}}, input, output)(t.Context())
+	require.NoError(t, err)
+	out := output.Subscribe()
+	defer input.Close()
+	go router(t.Context())
+
+	input.Send([]request.Span{
+		{Type: request.EventTypeHTTP, Path: "/orders/checkout"},
+		{Type: request.EventTypeHTTP, Path: "/customers/profile"},
+	})
+	spans := testutil.ReadChannel(t, out, testTimeout)
+	require.Len(t, spans, 2)
+	assert.Equal(t, "/orders/checkout", spans[0].Route)
+	assert.Equal(t, "/customers/profile", spans[1].Route)
+}
+
+func TestDirectionalRoutesKeepCardinalityPerService(t *testing.T) {
+	policy := services.RoutePolicy{
+		Unmatch:                   services.UnmatchLowCardinality,
+		MaxPathSegmentCardinality: 1,
+	}
+	input := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
+	output := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
+	router, err := RoutesProvider(&RoutesConfig{Directional: &services.DirectionalRoutePolicies{
+		Incoming: policy,
+	}}, input, output)(t.Context())
+	require.NoError(t, err)
+	out := output.Subscribe()
+	defer input.Close()
+	go router(t.Context())
+
+	input.Send([]request.Span{
+		{
+			Type: request.EventTypeHTTP,
+			Path: "/orders/checkout",
+			Service: svc.Attrs{
+				IncomingPathTrie: svc.NewRoutePathTrie(policy),
+			},
+		},
+		{
+			Type: request.EventTypeHTTP,
+			Path: "/customers/profile",
+			Service: svc.Attrs{
+				IncomingPathTrie: svc.NewRoutePathTrie(policy),
+			},
+		},
+	})
+	spans := testutil.ReadChannel(t, out, testTimeout)
+	require.Len(t, spans, 2)
+	assert.Equal(t, "/orders/checkout", spans[0].Route)
+	assert.Equal(t, "/customers/profile", spans[1].Route)
 }
 
 func BenchmarkRoutesProvider_Wildcard(b *testing.B) {

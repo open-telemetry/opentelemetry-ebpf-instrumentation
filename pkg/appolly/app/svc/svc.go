@@ -4,8 +4,10 @@
 package svc // import "go.opentelemetry.io/obi/pkg/appolly/app/svc"
 
 import (
+	"log/slog"
+
 	"go.opentelemetry.io/otel/sdk/trace"
-	semconv "go.opentelemetry.io/otel/semconv/v1.38.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/services"
@@ -109,6 +111,11 @@ type Attrs struct {
 	// UserPID and HostPID fields of the request.PidInfo struct.
 	ProcPID app.PID
 
+	// DynamicSelectorPID is the PID whose dynamic signal selection controls this process.
+	// It usually matches ProcPID, but children discovered through a selected parent can inherit
+	// the parent's runtime signal selection.
+	DynamicSelectorPID app.PID
+
 	// HostName running the process. It will default to the OBI host and will be overridden
 	// by other metadata if available (e.g., Pod Name, Node Name, etc...)
 	HostName string
@@ -129,16 +136,36 @@ type Attrs struct {
 
 	CustomInRouteMatcher  route.Matcher
 	CustomOutRouteMatcher route.Matcher
+	IncomingRoutePolicy   *RoutePolicy
+	OutgoingRoutePolicy   *RoutePolicy
+	IncomingPathTrie      *clusterurl.PathTrie
+	OutgoingPathTrie      *clusterurl.PathTrie
 	HarvestedRouteMatcher route.Matcher
 	PathTrie              *clusterurl.PathTrie
+}
+
+// RoutePolicy contains the compiled, direction-specific route state attached
+// to a service discovered from config v2.
+type RoutePolicy struct {
+	Config        services.RoutePolicy
+	Matcher       route.Matcher
+	IgnoreMatcher route.Matcher
+	PathTrie      *clusterurl.PathTrie
 }
 
 func (i *Attrs) GetUID() UID {
 	return i.UID
 }
 
-func (i *Attrs) String() string {
+// String uses a value receiver so nested Attrs values (e.g. Span.Service) never reflection-dump EnvVars
+func (i Attrs) String() string {
 	return i.Job()
+}
+
+// LogValue implements slog.LogValuer: JSON handlers marshal exported fields
+// instead of calling String, so without it they would emit EnvVars
+func (i Attrs) LogValue() slog.Value {
+	return slog.StringValue(i.Job())
 }
 
 func (i *Attrs) Job() string {
@@ -188,11 +215,35 @@ func (i *Attrs) ExportsOTelTraces() bool {
 	return i.getFlag(exportsOTelTraces)
 }
 
-func (i *Attrs) SetHarvestedRoutes(matcher route.Matcher) {
-	i.HarvestedRouteMatcher = matcher
-}
-
 func (i *Attrs) SetCustomRoutes(config *services.CustomRoutesConfig) {
 	i.CustomInRouteMatcher = route.NewMatcher(config.Incoming)
 	i.CustomOutRouteMatcher = route.NewMatcher(config.Outgoing)
+}
+
+func (i *Attrs) SetDirectionalRoutes(config services.DirectionalRoutePolicies) {
+	i.IncomingRoutePolicy = NewRoutePolicy(config.Incoming)
+	i.OutgoingRoutePolicy = NewRoutePolicy(config.Outgoing)
+}
+
+func NewRoutePolicy(config services.RoutePolicy) *RoutePolicy {
+	return &RoutePolicy{
+		Config:        config.Clone(),
+		Matcher:       route.NewMatcher(config.Patterns),
+		IgnoreMatcher: route.NewMatcher(config.IgnorePatterns),
+		PathTrie:      NewRoutePathTrie(config),
+	}
+}
+
+// NewRoutePathTrie creates the mutable per-service state required by a
+// low-cardinality route policy.
+func NewRoutePathTrie(config services.RoutePolicy) *clusterurl.PathTrie {
+	if config.Unmatch != services.UnmatchLowCardinality || config.MaxPathSegmentCardinality <= 0 {
+		return nil
+	}
+
+	wildcard := byte('*')
+	if config.WildcardChar != "" {
+		wildcard = config.WildcardChar[0]
+	}
+	return clusterurl.NewPathTrie(config.MaxPathSegmentCardinality, wildcard)
 }

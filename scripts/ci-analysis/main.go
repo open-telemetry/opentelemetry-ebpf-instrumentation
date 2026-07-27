@@ -2,45 +2,49 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // ci-analysis parses gotestsum JSON reports and Docker log artifacts from
-// GitHub Actions, then generates a Markdown flaky-test analysis report.
+// GitHub Actions and generates Markdown CI reliability reports.
 //
-// Usage:
+// Subcommands:
 //
-//	go run ./scripts/ci-analysis [flags]
-//	  --reports-dir  Directory containing gotestsum JSON report files (recursive)
-//	  --logs-dir     Directory containing Docker log files for failed runs (recursive)
-//	  --meta         JSON file with run metadata
-//	  --repo         GitHub repository for linking (default: open-telemetry/opentelemetry-ebpf-instrumentation)
+//	daily   Analyze the last few days of CI runs (run nightly).
+//	weekly  Roll up daily snapshots into a weekly report (run Mondays).
+//
+// Each subcommand can also persist a JSON snapshot for downstream rollups
+// (daily → weekly → monthly).
 package main
 
 import (
-	"flag"
+	"fmt"
 	"log"
 	"os"
 )
 
 func main() {
-	reportsDir := flag.String("reports-dir", "", "Directory containing gotestsum JSON report files (recursive)")
-	logsDir := flag.String("logs-dir", "", "Directory containing Docker log files for failed runs (recursive)")
-	metaFile := flag.String("meta", "", "JSON file with array of run metadata objects")
-	repo := flag.String("repo", "open-telemetry/opentelemetry-ebpf-instrumentation", "GitHub repository for linking")
-	flag.Parse()
-
-	if *reportsDir == "" {
-		log.Fatal("--reports-dir is required")
+	if len(os.Args) < 2 {
+		usageAndExit()
 	}
-
-	metaMap, err := loadRunMeta(*metaFile)
-	if err != nil {
-		log.Fatalf("loading metadata: %v", err)
+	cmd, args := os.Args[1], os.Args[2:]
+	switch cmd {
+	case "daily":
+		runDaily(args)
+	case "weekly":
+		runWeekly(args)
+	case "-h", "--help", "help":
+		usageAndExit()
+	default:
+		log.Printf("unknown subcommand: %q", cmd)
+		usageAndExit()
 	}
+}
 
-	results, err := parseAllReports(*reportsDir, *logsDir, metaMap)
-	if err != nil {
-		log.Fatalf("parsing reports: %v", err)
-	}
+func usageAndExit() {
+	fmt.Fprint(os.Stderr, `Usage: ci-analysis <subcommand> [flags]
 
-	if err := writeReport(os.Stdout, results, metaMap, *repo); err != nil {
-		log.Fatalf("writing report: %v", err)
-	}
+Subcommands:
+  daily    Analyze recent CI runs from downloaded artifacts
+  weekly   Roll up daily snapshots into a weekly report
+
+Run "ci-analysis <subcommand> -h" for subcommand flags.
+`)
+	os.Exit(2)
 }

@@ -57,6 +57,7 @@ func assertHTTPRequests(t *testing.T, comm, urlPath string) {
 	require.Empty(t, traces, "expected no HTTP traces, got %d", len(traces))
 }
 
+//nolint:unparam // reason: reserve the posibility to use op != "SELECT" in future tests
 func assertSQLOperation(t *testing.T, comm, op, table, db string) {
 	t.Helper()
 
@@ -76,7 +77,7 @@ func assertSQLOperation(t *testing.T, comm, op, table, db string) {
 		var tq jaeger.TracesQuery
 		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
 		traces := tq.FindBySpan(jaeger.Tag{Key: "db.operation.name", Type: "string", Value: op})
-		assert.GreaterOrEqual(ct, len(traces), 1)
+		require.NotEmpty(ct, traces)
 		lastTrace := traces[len(traces)-1]
 		span := lastTrace.Spans[0]
 
@@ -96,6 +97,15 @@ func assertSQLOperation(t *testing.T, comm, op, table, db string) {
 		tag, found = jaeger.FindIn(span.Tags, "db.collection.name")
 		assert.True(ct, found)
 		assert.Equal(ct, table, tag.Value)
+
+		// "sqltest" is the dbname in the test server's StartupMessage
+		tag, found = jaeger.FindIn(span.Tags, "db.namespace")
+		if db == "postgresql" {
+			assert.True(ct, found)
+			assert.Equal(ct, "sqltest", tag.Value)
+		} else {
+			assert.False(ct, found)
+		}
 	}, testTimeout, 100*time.Millisecond)
 }
 
@@ -114,6 +124,11 @@ func assertSQLOperationErrored(t *testing.T, comm, op, table, db string) {
 			"db.response.status_code": "0",
 			"error.type":              "42P01",
 			"otel.status_description": "SQL Server errored for command 'COM_QUERY': error_code=NA sql_state=42P01 message=relation \"obi.nonexisting\" does not exist",
+		},
+		"microsoft.sql_server": {
+			"db.response.status_code": "208",
+			"error.type":              "1",
+			"otel.status_description": "SQL Server errored for command 'COM_SQL_BATCH': error_code=208 sql_state=1 message=Invalid object name 'obi.nonexisting'.",
 		},
 	}
 
@@ -161,6 +176,14 @@ func assertSQLOperationErrored(t *testing.T, comm, op, table, db string) {
 		tag, found = jaeger.FindIn(span.Tags, "otel.status_description")
 		assert.True(ct, found)
 		assert.Equal(ct, expectedData[db]["otel.status_description"], tag.Value)
+
+		tag, found = jaeger.FindIn(span.Tags, "db.namespace")
+		if db == "postgresql" {
+			assert.True(ct, found)
+			assert.Equal(ct, "sqltest", tag.Value)
+		} else {
+			assert.False(ct, found)
+		}
 	}, testTimeout, 100*time.Millisecond)
 }
 
@@ -191,6 +214,21 @@ func testPythonSQLError(t *testing.T, comm, url, db string) {
 	assertSQLOperationErrored(t, comm, "SELECT", "obi.nonexisting", db)
 }
 
+// testPythonSQLPipeline exercises the regression from issue #1464: the
+// /pipeline endpoint batches several extended-protocol statements into one TCP
+// segment (more than k_pg_messages_in_packet_max Postgres messages), which the
+// eBPF classifier used to reject. accounting.invoices is only queried by this
+// endpoint, so finding its span proves the multi-message connection was
+// classified as Postgres.
+func testPythonSQLPipeline(t *testing.T, comm, url, db string) {
+	t.Helper()
+
+	urlPath := "/pipeline"
+	ti.DoHTTPGet(t, url+urlPath, 200)
+
+	assertSQLOperation(t, comm, "SELECT", "accounting.invoices", db)
+}
+
 func testPythonPostgres(t *testing.T) {
 	testCaseURL := "http://localhost:8381"
 	comm := "python3.14"
@@ -202,6 +240,7 @@ func testPythonPostgres(t *testing.T) {
 	assertHTTPRequests(t, comm, "/query")
 	testPythonSQLQuery(t, comm, testCaseURL, table, db)
 	testPythonSQLPreparedStatements(t, comm, testCaseURL, table, db)
+	testPythonSQLPipeline(t, comm, testCaseURL, db)
 	testPythonSQLError(t, comm, testCaseURL, db)
 }
 
@@ -340,4 +379,27 @@ func testREDMetricsPythonSQLSSL(t *testing.T) {
 			testREDMetricsForPythonSQLSSL(t, testCaseURL, "python3.14", "integration-test")
 		})
 	}
+}
+
+func testPythonSQLMultiPacketResponse(t *testing.T, comm, url, table, db string) {
+	t.Helper()
+
+	ti.DoHTTPGet(t, url+"/largeresult", 200)
+
+	assertSQLOperation(t, comm, "SELECT", table, db)
+}
+
+func testPythonMSSQL(t *testing.T) {
+	testCaseURL := "http://localhost:8381"
+	comm := "python3.14"
+	table := "actor"
+	db := "microsoft.sql_server"
+
+	waitForSQLTestComponentsWithDB(t, testCaseURL, "/query", db)
+
+	assertHTTPRequests(t, comm, "/query")
+	testPythonSQLQuery(t, comm, testCaseURL, table, db)
+	testPythonSQLPreparedStatements(t, comm, testCaseURL, table, db)
+	testPythonSQLError(t, comm, testCaseURL, db)
+	testPythonSQLMultiPacketResponse(t, comm, testCaseURL, "bulk_actor", db)
 }

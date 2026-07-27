@@ -16,7 +16,6 @@ set -euo pipefail
 
 PROGNAME="$(basename "$0")"
 readonly PROGNAME
-declare -ar ARGS=("$@")
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 readonly ROOT_DIR
 readonly DEFAULT_BASE_REF="main"
@@ -510,4 +509,4 @@ main() {
   echo "Dependency policy lint passed for ${#files[@]} Dockerfile(s)."
 }
 
-main "${ARGS[@]}"
+main "$@"

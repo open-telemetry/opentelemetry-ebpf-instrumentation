@@ -7,7 +7,7 @@ import (
 	"strconv"
 
 	"go.opentelemetry.io/otel/attribute"
-	semconv "go.opentelemetry.io/otel/semconv/v1.38.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 
 	"go.opentelemetry.io/obi/pkg/ebpf/common/dnsparser"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
@@ -52,7 +52,12 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 			return K8SClientClusterMetric(otherCluster)
 		}
 	case attr.HTTPRequestMethod:
-		getter = func(s *Span) attribute.KeyValue { return HTTPRequestMethod(s.Method) }
+		getter = func(s *Span) attribute.KeyValue {
+			if s.Method == "" {
+				return attribute.KeyValue{}
+			}
+			return HTTPRequestMethod(s.Method)
+		}
 	case attr.HTTPResponseStatusCode:
 		getter = func(s *Span) attribute.KeyValue { return HTTPResponseStatusCode(s.Status) }
 	case attr.HTTPRoute:
@@ -74,33 +79,63 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 		getter = func(s *Span) attribute.KeyValue { return ServerPort(s.HostPort) }
 	case attr.RPCMethod:
 		getter = func(s *Span) attribute.KeyValue {
+			if s.Type == EventTypeSunRPCClient || s.Type == EventTypeSunRPCServer {
+				if s.Route != "" {
+					return semconv.RPCMethod(s.Route)
+				}
+				return semconv.RPCMethod(s.Method)
+			}
 			if s.SubType == HTTPSubtypeJSONRPC && s.JSONRPC != nil {
 				return semconv.RPCMethod(s.JSONRPC.Method)
 			}
 			if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeAWSS3 && s.AWS != nil {
-				return semconv.RPCMethod(s.AWS.S3.Method)
+				return semconv.RPCMethod(S3RPCMethod(s.AWS.S3.Method))
 			}
 			return semconv.RPCMethod(s.Path)
 		}
 	case attr.RPCSystem:
 		getter = func(s *Span) attribute.KeyValue {
+			if s.Type == EventTypeSunRPCClient || s.Type == EventTypeSunRPCServer {
+				return RPCSystem("onc_rpc")
+			}
 			if s.SubType == HTTPSubtypeJSONRPC {
-				return semconv.RPCSystemJSONRPC
+				return semconv.RPCSystemNameJSONRPC
 			}
 			if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeAWSS3 {
 				return RPCSystem("aws-api")
 			}
-			return semconv.RPCSystemGRPC
+			return semconv.RPCSystemNameGRPC
 		}
-	case attr.RPCService:
+	case attr.OncRPCProgramName:
 		getter = func(s *Span) attribute.KeyValue {
-			if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeAWSS3 {
-				return semconv.RPCService("S3")
+			if s.Type != EventTypeSunRPCClient && s.Type != EventTypeSunRPCServer {
+				return semconv.OncRPCProgramName("")
 			}
-			return semconv.RPCService("")
+			return semconv.OncRPCProgramName(s.Path)
 		}
-	case attr.RPCGRPCStatusCode:
-		getter = func(s *Span) attribute.KeyValue { return semconv.RPCGRPCStatusCodeKey.Int(s.Status) }
+	case attr.OncRPCProcedureNumber:
+		getter = func(s *Span) attribute.KeyValue {
+			route := s.SunRPCProcedureRouteForExport()
+			if route == "" {
+				return attribute.KeyValue{}
+			}
+			proc, err := strconv.Atoi(route)
+			if err != nil {
+				return attribute.KeyValue{}
+			}
+			return semconv.OncRPCProcedureNumber(proc)
+		}
+	case attr.OncRPCProcedureName:
+		getter = func(s *Span) attribute.KeyValue {
+			return semconv.OncRPCProcedureName(s.SunRPCProcedureNameForExport())
+		}
+	case attr.OncRPCVersion:
+		getter = func(s *Span) attribute.KeyValue {
+			if s.Type != EventTypeSunRPCClient && s.Type != EventTypeSunRPCServer {
+				return semconv.OncRPCVersion(0)
+			}
+			return semconv.OncRPCVersion(s.SubType)
+		}
 	case attr.Server:
 		getter = func(s *Span) attribute.KeyValue { return ServerMetric(SpanHost(s)) }
 	case attr.ServerNamespace:
@@ -164,6 +199,8 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 				return semconv.DBSystemNameMongoDB
 			case EventTypeCouchbaseClient:
 				return semconv.DBSystemNameCouchbase
+			case EventTypeAerospikeClient:
+				return DBSystemName("aerospike")
 			case EventTypeHTTPClient:
 				if span.SubType == HTTPSubtypeElasticsearch && span.Elasticsearch != nil {
 					return DBSystemName(span.Elasticsearch.DBSystemName)
@@ -189,15 +226,21 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 				}
 				return ErrorType("error")
 			}
-			return ErrorType("")
+			// error.type only applies to failed requests: return an invalid
+			// KeyValue so the attribute is omitted instead of emitted empty.
+			return attribute.KeyValue{}
 		}
 	case attr.MessagingSystem:
 		getter = func(span *Span) attribute.KeyValue {
-			if span.Type == EventTypeKafkaClient || span.Type == EventTypeKafkaServer {
+			switch span.Type {
+			case EventTypeKafkaClient, EventTypeKafkaServer:
 				return semconv.MessagingSystemKafka
-			}
-			if span.Type == EventTypeMQTTClient || span.Type == EventTypeMQTTServer {
+			case EventTypeMQTTClient, EventTypeMQTTServer:
 				return semconv.MessagingSystemKey.String("mqtt")
+			case EventTypeNATSClient, EventTypeNATSServer:
+				return semconv.MessagingSystemKey.String("nats")
+			case EventTypeAMQPClient:
+				return semconv.MessagingSystemKey.String("amqp")
 			}
 			if span.Type == EventTypeHTTPClient && span.SubType == HTTPSubtypeAWSSQS && span.AWS != nil {
 				return semconv.MessagingSystemAWSSQS
@@ -212,6 +255,9 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 			if span.Type == EventTypeMQTTClient || span.Type == EventTypeMQTTServer {
 				return semconv.MessagingDestinationName(span.Path)
 			}
+			if span.Type == EventTypeNATSClient || span.Type == EventTypeNATSServer || span.Type == EventTypeAMQPClient {
+				return semconv.MessagingDestinationName(span.Path)
+			}
 			if span.Type == EventTypeHTTPClient && span.SubType == HTTPSubtypeAWSSQS && span.AWS != nil {
 				return semconv.MessagingDestinationName(span.AWS.SQS.Destination)
 			}
@@ -223,7 +269,9 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 			case span.Type == EventTypeHTTPClient && span.SubType == HTTPSubtypeAWSSQS && span.AWS != nil:
 				return MessagingOperationName(span.AWS.SQS.OperationName)
 			case span.Type == EventTypeKafkaClient || span.Type == EventTypeKafkaServer ||
-				span.Type == EventTypeMQTTClient || span.Type == EventTypeMQTTServer:
+				span.Type == EventTypeMQTTClient || span.Type == EventTypeMQTTServer ||
+				span.Type == EventTypeNATSClient || span.Type == EventTypeNATSServer ||
+				span.Type == EventTypeAMQPClient:
 				return MessagingOperationName(span.Method)
 			default:
 				return MessagingOperationName("")
@@ -231,10 +279,23 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 		}
 	case attr.MessagingOpType:
 		getter = func(span *Span) attribute.KeyValue {
-			if span.Type == EventTypeHTTPClient && span.SubType == HTTPSubtypeAWSSQS && span.AWS != nil {
-				return MessagingOperationType(span.AWS.SQS.OperationType)
+			opType := ""
+			switch span.Type {
+			case EventTypeKafkaClient, EventTypeKafkaServer,
+				EventTypeMQTTClient, EventTypeMQTTServer,
+				EventTypeNATSClient, EventTypeNATSServer,
+				EventTypeAMQPClient:
+				opType = span.Method
 			}
-			return MessagingOperationType("")
+			if span.Type == EventTypeHTTPClient && span.SubType == HTTPSubtypeAWSSQS && span.AWS != nil {
+				opType = span.AWS.SQS.OperationType
+			}
+			if opType == "" {
+				// messaging.operation.type is a semconv enum: omit the
+				// attribute rather than emitting an empty (invalid) variant.
+				return attribute.KeyValue{}
+			}
+			return MessagingOperationType(opType)
 		}
 	case attr.MessagingMessageID:
 		getter = func(span *Span) attribute.KeyValue {
@@ -248,7 +309,7 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 	case attr.Job:
 		getter = func(span *Span) attribute.KeyValue { return Job(span.Service.Job()) }
 	case attr.Instance:
-		getter = func(span *Span) attribute.KeyValue { return Job(span.Service.UID.Instance) }
+		getter = func(span *Span) attribute.KeyValue { return Instance(span.Service.UID.Instance) }
 	case attr.GraphQLDocument:
 		getter = func(s *Span) attribute.KeyValue {
 			if s.Type == EventTypeHTTP && s.SubType == HTTPSubtypeGraphQL && s.GraphQL != nil {
@@ -279,15 +340,30 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 		}
 	case attr.DBCollectionName:
 		getter = func(s *Span) attribute.KeyValue {
-			if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeElasticsearch && s.Elasticsearch != nil {
-				return DBCollectionName(s.Elasticsearch.DBCollectionName)
+			switch s.Type {
+			case EventTypeHTTPClient:
+				if s.SubType == HTTPSubtypeElasticsearch && s.Elasticsearch != nil {
+					return DBCollectionName(s.Elasticsearch.DBCollectionName)
+				} else if s.SubType == HTTPSubtypeSQLPP {
+					return DBCollectionName(s.Route)
+				}
+			case EventTypeSQLClient, EventTypeSQLServer, EventTypeMongoClient, EventTypeCouchbaseClient, EventTypeAerospikeClient:
+				return DBCollectionName(s.Path)
 			}
 			return DBCollectionName("")
 		}
 	case attr.DBQueryText:
 		getter = func(s *Span) attribute.KeyValue {
-			if s.Type == EventTypeHTTPClient && (s.SubType == HTTPSubtypeElasticsearch && s.Elasticsearch != nil) || s.SubType == HTTPSubtypeSQLPP {
-				return DBQueryText(s.Elasticsearch.DBQueryText)
+			if s.Type != EventTypeHTTPClient {
+				return DBQueryText("")
+			}
+			switch s.SubType {
+			case HTTPSubtypeElasticsearch:
+				if s.Elasticsearch != nil {
+					return DBQueryText(s.Elasticsearch.DBQueryText)
+				}
+			case HTTPSubtypeSQLPP:
+				return DBQueryText(s.Statement)
 			}
 			return DBQueryText("")
 		}
@@ -347,7 +423,7 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 				return semconv.GenAIInputMessagesKey.String(s.GenAI.OpenAI.Request.GetInput())
 			}
 			if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeAnthropic && s.GenAI != nil && s.GenAI.Anthropic != nil {
-				return semconv.GenAIInputMessagesKey.String(string(s.GenAI.Anthropic.Input.Messages))
+				return semconv.GenAIInputMessagesKey.String(NormalizeAnthropicInput(s.GenAI.Anthropic.Input.Messages))
 			}
 			if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeGemini && s.GenAI != nil && s.GenAI.Gemini != nil {
 				return semconv.GenAIInputMessagesKey.String(s.GenAI.Gemini.GetInput())
@@ -358,23 +434,41 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 			if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeAWSBedrock && s.GenAI != nil && s.GenAI.Bedrock != nil {
 				return semconv.GenAIInputMessagesKey.String(s.GenAI.Bedrock.GetInput())
 			}
+			if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeOpenAICompatible && s.GenAI != nil && s.GenAI.OpenAICompatible != nil {
+				return semconv.GenAIInputMessagesKey.String(s.GenAI.OpenAICompatible.Request.GetInput())
+			}
 			return semconv.GenAIInputMessagesKey.String("")
 		}
 	case attr.GenAIOutput:
 		getter = func(s *Span) attribute.KeyValue {
 			if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeOpenAI && s.GenAI != nil && s.GenAI.OpenAI != nil {
+				if s.GenAI.OpenAI.OperationName == EmbeddingOperationName {
+					return semconv.GenAIOutputMessagesKey.String("")
+				}
 				return semconv.GenAIOutputMessagesKey.String(s.GenAI.OpenAI.GetOutput())
 			}
 			if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeAnthropic && s.GenAI != nil && s.GenAI.Anthropic != nil {
-				return semconv.GenAIOutputMessagesKey.String(string(s.GenAI.Anthropic.Output.Content))
+				return semconv.GenAIOutputMessagesKey.String(NormalizeAnthropicOutput(&s.GenAI.Anthropic.Output))
 			}
 			if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeGemini && s.GenAI != nil && s.GenAI.Gemini != nil {
 				return semconv.GenAIOutputMessagesKey.String(s.GenAI.Gemini.GetOutput())
 			}
 			if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeQwen && s.GenAI != nil && s.GenAI.Qwen != nil {
+				if s.GenAI.Qwen.OperationName == EmbeddingOperationName {
+					return semconv.GenAIOutputMessagesKey.String("")
+				}
 				return semconv.GenAIOutputMessagesKey.String(s.GenAI.Qwen.GetOutput())
 			}
+			if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeOpenAICompatible && s.GenAI != nil && s.GenAI.OpenAICompatible != nil {
+				if s.GenAI.OpenAICompatible.OperationName == EmbeddingOperationName {
+					return semconv.GenAIOutputMessagesKey.String("")
+				}
+				return semconv.GenAIOutputMessagesKey.String(s.GenAI.OpenAICompatible.GetOutput())
+			}
 			if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeAWSBedrock && s.GenAI != nil && s.GenAI.Bedrock != nil {
+				if len(s.GenAI.Bedrock.Output.Content) > 0 {
+					return semconv.GenAIOutputMessagesKey.String(NormalizeBedrockOutput(&s.GenAI.Bedrock.Output))
+				}
 				return semconv.GenAIOutputMessagesKey.String(s.GenAI.Bedrock.GetOutput())
 			}
 			return semconv.GenAIOutputMessagesKey.String("")
@@ -382,16 +476,19 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 	case attr.GenAIInstructions:
 		getter = func(s *Span) attribute.KeyValue {
 			if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeOpenAI && s.GenAI != nil && s.GenAI.OpenAI != nil {
-				return semconv.GenAISystemInstructionsKey.String(s.GenAI.OpenAI.Request.Instructions)
+				return semconv.GenAISystemInstructionsKey.String(NormalizeSystemInstructions(s.GenAI.OpenAI.Request.Instructions))
 			}
 			if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeAnthropic && s.GenAI != nil && s.GenAI.Anthropic != nil {
-				return semconv.GenAISystemInstructionsKey.String(s.GenAI.Anthropic.Input.System)
+				return semconv.GenAISystemInstructionsKey.String(NormalizeSystemInstructions(s.GenAI.Anthropic.Input.System))
 			}
 			if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeGemini && s.GenAI != nil && s.GenAI.Gemini != nil {
 				return semconv.GenAISystemInstructionsKey.String(s.GenAI.Gemini.GetSystemInstruction())
 			}
 			if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeQwen && s.GenAI != nil && s.GenAI.Qwen != nil {
-				return semconv.GenAISystemInstructionsKey.String(s.GenAI.Qwen.Request.Instructions)
+				return semconv.GenAISystemInstructionsKey.String(NormalizeSystemInstructions(s.GenAI.Qwen.Request.Instructions))
+			}
+			if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeOpenAICompatible && s.GenAI != nil && s.GenAI.OpenAICompatible != nil {
+				return semconv.GenAISystemInstructionsKey.String(NormalizeSystemInstructions(s.GenAI.OpenAICompatible.Request.Instructions))
 			}
 			if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeAWSBedrock && s.GenAI != nil && s.GenAI.Bedrock != nil {
 				return semconv.GenAISystemInstructionsKey.String(s.GenAI.Bedrock.GetSystemInstruction())
@@ -400,24 +497,44 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 		}
 	case attr.GenAITools:
 		getter = func(s *Span) attribute.KeyValue {
+			if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeOpenAI && s.GenAI != nil && s.GenAI.OpenAI != nil {
+				return semconv.GenAIToolDefinitionsKey.String(NormalizeToolDefinitions(s.GenAI.OpenAI.Request.Tools))
+			}
 			if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeAnthropic && s.GenAI != nil && s.GenAI.Anthropic != nil {
-				return semconv.GenAIToolDefinitionsKey.String(string(s.GenAI.Anthropic.Input.Tools))
+				return semconv.GenAIToolDefinitionsKey.String(NormalizeToolDefinitions(s.GenAI.Anthropic.Input.Tools))
 			}
 			if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeGemini && s.GenAI != nil && s.GenAI.Gemini != nil {
-				return semconv.GenAIToolDefinitionsKey.String(string(s.GenAI.Gemini.Input.Tools))
+				return semconv.GenAIToolDefinitionsKey.String(NormalizeToolDefinitions(s.GenAI.Gemini.Input.Tools))
+			}
+			if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeQwen && s.GenAI != nil && s.GenAI.Qwen != nil {
+				return semconv.GenAIToolDefinitionsKey.String(NormalizeToolDefinitions(s.GenAI.Qwen.Request.Tools))
+			}
+			if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeOpenAICompatible && s.GenAI != nil && s.GenAI.OpenAICompatible != nil {
+				return semconv.GenAIToolDefinitionsKey.String(NormalizeToolDefinitions(s.GenAI.OpenAICompatible.Request.Tools))
 			}
 			if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeAWSBedrock && s.GenAI != nil && s.GenAI.Bedrock != nil {
-				return semconv.GenAIToolDefinitionsKey.String(string(s.GenAI.Bedrock.Input.Tools))
+				return semconv.GenAIToolDefinitionsKey.String(NormalizeToolDefinitions(s.GenAI.Bedrock.Input.Tools))
 			}
 			return semconv.GenAIToolDefinitionsKey.String("")
 		}
 	case attr.GenAIOperationName:
 		getter = func(s *Span) attribute.KeyValue {
-			return semconv.GenAIOperationNameKey.String(s.GenAIOperationName())
+			if op := s.GenAIOperationName(); op != "" {
+				return semconv.GenAIOperationNameKey.String(op)
+			}
+			// Omit gen_ai.operation.name rather than emitting an empty value
+			// (required on the gen_ai client metrics when present, and an
+			// empty string carries no information).
+			return attribute.KeyValue{}
 		}
 	case attr.GenAIProviderName:
 		getter = func(s *Span) attribute.KeyValue {
-			return semconv.GenAIProviderNameKey.String(s.GenAIProviderName())
+			if provider := s.GenAIProviderName(); provider != "" {
+				return semconv.GenAIProviderNameKey.String(provider)
+			}
+			// gen_ai.provider.name is a semconv enum: omit the attribute
+			// rather than emitting an empty (invalid) variant.
+			return attribute.KeyValue{}
 		}
 	case attr.GenAITokenTypeInput:
 		getter = func(_ *Span) attribute.KeyValue {
@@ -451,10 +568,23 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 		}
 	case attr.RPCResponseStatusCode:
 		getter = func(s *Span) attribute.KeyValue {
-			if s.SubType == HTTPSubtypeJSONRPC && s.JSONRPC != nil && s.JSONRPC.ErrorCode != 0 {
-				return attribute.String(string(attr.RPCResponseStatusCode), strconv.Itoa(s.JSONRPC.ErrorCode))
+			if s.Type == EventTypeSunRPCClient || s.Type == EventTypeSunRPCServer {
+				return semconv.RPCResponseStatusCode(SunRPCResponseStatusCode(s.Status))
 			}
-			return attribute.String(string(attr.RPCResponseStatusCode), "")
+			if s.Type == EventTypeGRPC || s.Type == EventTypeGRPCClient {
+				// GRPCStatusCodeString returns "" for statuses outside the
+				// gRPC enum (e.g. an HTTP code that leaked through protocol
+				// detection): omit the attribute instead of inventing a value.
+				if code := GRPCStatusCodeString(s.Status); code != "" {
+					return semconv.RPCResponseStatusCode(code)
+				}
+				return attribute.KeyValue{}
+			}
+			if s.SubType == HTTPSubtypeJSONRPC && s.JSONRPC != nil && s.JSONRPC.ErrorCode != 0 {
+				return semconv.RPCResponseStatusCode(strconv.Itoa(s.JSONRPC.ErrorCode))
+			}
+			// No status to report: omit the attribute instead of emitting "".
+			return attribute.KeyValue{}
 		}
 	}
 	// default: unlike the Prometheus getters, we don't check here for service name nor k8s metadata
@@ -467,8 +597,20 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 //
 //nolint:cyclop
 func spanPromGetters(attrName attr.Name) attributes.Getter[*Span, string] {
+	if attrName == attr.OncRPCProcedureNumber {
+		return func(s *Span) string { return s.SunRPCProcedureRouteForExport() }
+	}
 	if otelGetter, ok := spanOTELGetters(attrName); ok {
-		return func(span *Span) string { return otelGetter(span).Value.Emit() }
+		return func(span *Span) string {
+			// OTEL getters return an invalid (zero) KeyValue to signal
+			// "omit this attribute". Prometheus label sets are fixed, so
+			// map omission to the empty string rather than Value.Emit()'s
+			// "unknown" placeholder for invalid values.
+			if kv := otelGetter(span); kv.Valid() {
+				return kv.Value.Emit()
+			}
+			return ""
+		}
 	}
 	// unlike the OTEL getters, when the attribute is not found, we need to look for it
 	// in the metadata section

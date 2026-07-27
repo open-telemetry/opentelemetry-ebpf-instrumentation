@@ -12,7 +12,7 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/config"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
-	"go.opentelemetry.io/obi/pkg/internal/ebpf/ringbuf"
+	"go.opentelemetry.io/obi/pkg/ebpf/ringbuf"
 	"go.opentelemetry.io/obi/pkg/internal/pipe"
 	"go.opentelemetry.io/obi/pkg/internal/statsolly/ebpf"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
@@ -67,8 +67,24 @@ func handleStatEvent(record *ringbuf.Record) (ebpf.Stat, error) {
 		return readTCPRttIntoStat(record)
 	case ebpf.StatTypeTCPFailedConnection:
 		return readTCPFailedConnectionsIntoStat(record)
+	case ebpf.StatTypeTCPRetransmit:
+		return readTCPRetransmitIntoStat(record)
+	case ebpf.StatTypeTCPIo:
+		return readTCPIoIntoStat(record)
 	default:
 		return ebpf.Stat{}, fmt.Errorf("unknown stats event [type %d]", uint8(eventType))
+	}
+}
+
+func connToCommonAttrs(conn ebpf.Conn) pipe.CommonAttrs {
+	if conn.S_port == 0 && conn.D_port == 0 {
+		return pipe.CommonAttrs{}
+	}
+	return pipe.CommonAttrs{
+		SrcAddr: pipe.IPAddr(conn.S_addr),
+		DstAddr: pipe.IPAddr(conn.D_addr),
+		SrcPort: conn.S_port,
+		DstPort: conn.D_port,
 	}
 }
 
@@ -77,27 +93,13 @@ func readTCPRttIntoStat(record *ringbuf.Record) (ebpf.Stat, error) {
 	if err != nil {
 		return ebpf.Stat{}, err
 	}
-
-	var srcAddr, dstAddr pipe.IPAddr
-	var destinationPort uint16
-	if event.Conn.S_port != 0 || event.Conn.D_port != 0 {
-		srcAddr = pipe.IPAddr(event.Conn.S_addr)
-		dstAddr = pipe.IPAddr(event.Conn.D_addr)
-		destinationPort = event.Conn.D_port
-	}
-
-	sourcePort := event.Conn.S_port
 	return ebpf.Stat{
 		Type: ebpf.StatTypeTCPRtt,
 		TCPRtt: &ebpf.TCPRtt{
 			SrttUs: event.SrttUs,
+			Role:   event.Role,
 		},
-		CommonAttrs: pipe.CommonAttrs{
-			SrcAddr: srcAddr,
-			DstAddr: dstAddr,
-			SrcPort: sourcePort,
-			DstPort: destinationPort,
-		},
+		CommonAttrs: connToCommonAttrs(event.Conn),
 	}, nil
 }
 
@@ -106,26 +108,43 @@ func readTCPFailedConnectionsIntoStat(record *ringbuf.Record) (ebpf.Stat, error)
 	if err != nil {
 		return ebpf.Stat{}, err
 	}
-
-	var srcAddr, dstAddr pipe.IPAddr
-	var destinationPort uint16
-	if event.Conn.S_port != 0 || event.Conn.D_port != 0 {
-		srcAddr = pipe.IPAddr(event.Conn.S_addr)
-		dstAddr = pipe.IPAddr(event.Conn.D_addr)
-		destinationPort = event.Conn.D_port
-	}
-
-	sourcePort := event.Conn.S_port
 	return ebpf.Stat{
 		Type: ebpf.StatTypeTCPFailedConnection,
 		TCPFailedConnection: &ebpf.TCPFailedConnection{
 			Reason: event.Reason,
+			Role:   event.Role,
 		},
-		CommonAttrs: pipe.CommonAttrs{
-			SrcAddr: srcAddr,
-			DstAddr: dstAddr,
-			SrcPort: sourcePort,
-			DstPort: destinationPort,
+		CommonAttrs: connToCommonAttrs(event.Conn),
+	}, nil
+}
+
+func readTCPRetransmitIntoStat(record *ringbuf.Record) (ebpf.Stat, error) {
+	event, err := ebpfcommon.ReinterpretCast[ebpf.StatsTCPRetransmit](record.RawSample)
+	if err != nil {
+		return ebpf.Stat{}, err
+	}
+	return ebpf.Stat{
+		Type:          ebpf.StatTypeTCPRetransmit,
+		TCPRetransmit: true,
+		CommonAttrs:   connToCommonAttrs(event.Conn),
+	}, nil
+}
+
+func readTCPIoIntoStat(record *ringbuf.Record) (ebpf.Stat, error) {
+	event, err := ebpfcommon.ReinterpretCast[ebpf.StatsTCPIo](record.RawSample)
+	if err != nil {
+		return ebpf.Stat{}, err
+	}
+	var total uint32
+	for _, b := range event.Bytes[:min(int(event.Count), ebpf.TCPIoBatchSize)] {
+		total += b
+	}
+	return ebpf.Stat{
+		Type: ebpf.StatTypeTCPIo,
+		TCPIo: &ebpf.TCPIo{
+			Direction: event.Direction,
+			Bytes:     total,
 		},
+		CommonAttrs: connToCommonAttrs(event.Conn),
 	}, nil
 }

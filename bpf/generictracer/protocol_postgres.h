@@ -66,9 +66,11 @@ static __always_inline int postgres_send_large_buffer(tcp_req_t *req,
     large_buf->type = EVENT_TCP_LARGE_BUFFER;
     large_buf->packet_type = packet_type;
     large_buf->action = action;
+    large_buf->kind = k_large_buf_layer_app;
     large_buf->direction = direction;
     large_buf->conn_info = req->conn_info;
     large_buf->tp = req->tp;
+    large_buf->source = k_large_buffer_source_kprobes;
 
     u32 max_available_bytes = postgres_max_captured_bytes - bytes_sent;
 
@@ -76,7 +78,8 @@ static __always_inline int postgres_send_large_buffer(tcp_req_t *req,
 
     const u32 available_bytes = min(bytes_len, max_available_bytes);
 
-    const u32 consumed_bytes = large_buf_emit_chunks(large_buf, u_buf, available_bytes);
+    const u32 consumed_bytes =
+        large_buf_emit_chunks(large_buf, u_buf, available_bytes, k_large_buf_read_kernel);
 
     if (packet_type == PACKET_TYPE_REQUEST) {
         req->lb_req_bytes += consumed_bytes;
@@ -123,18 +126,38 @@ static __always_inline u8 is_postgres(connection_info_t *conn_info,
     size_t message_size = 0;
     struct postgres_hdr hdr;
     bool includes_known_command = false;
+    bool malformed = false;
 
     for (u8 i = 0; i < k_pg_messages_in_packet_max; i++) {
+        // Stop when fewer than a full header remains. Any trailing bytes belong
+        // to a message split across TCP segments, which is expected.
         if (message_size + k_pg_hdr_size > data_len) {
             break;
         }
 
         hdr = postgres_parse_hdr(data + message_size);
 
-        message_size += hdr.message_len + 1;
-        if (hdr.message_len == 0) {
+        // The length field is a 4-byte integer that counts itself, so a valid
+        // Postgres message length is always >= 4. A smaller value means this is
+        // not a Postgres stream (or we are misaligned), so reject it.
+        if (hdr.message_len < 4) {
+            malformed = true;
             break;
         }
+
+        const size_t full_message_size = (size_t)hdr.message_len + 1;
+
+        // Only count messages that fit entirely within the captured segment. A
+        // declared length that overruns the buffer is either a message split
+        // across TCP segments (legitimate) or bogus data whose bytes happen to
+        // decode to a large length (e.g. the ASCII "OST " of an HTTP "POST"
+        // request). Either way, stop here and classify on the complete messages
+        // seen so far.
+        if (message_size + full_message_size > data_len) {
+            break;
+        }
+
+        message_size += full_message_size;
 
         switch (hdr.message_type) {
         case k_pg_msg_query:
@@ -148,15 +171,15 @@ static __always_inline u8 is_postgres(connection_info_t *conn_info,
         }
     }
 
-    if (message_size != data_len) {
-        bpf_dbg_printk("is_postgres: message length mismatch: message_size=%d data_len=%u",
-                       message_size,
-                       data_len);
-        return 0;
-    }
-
-    if (!includes_known_command) {
-        bpf_dbg_printk("is_postgres: no known command found");
+    // Classify as Postgres once we have parsed at least one well-formed frontend
+    // command message. We deliberately do NOT require message_size == data_len:
+    // request segments routinely concatenate several messages, exceed
+    // k_pg_messages_in_packet_max, or end with a message split across TCP
+    // segments, all of which leave message_size != data_len on a valid stream.
+    if (malformed || !includes_known_command) {
+        bpf_dbg_printk("is_postgres: not postgres (malformed=%d, known_command=%d)",
+                       malformed,
+                       includes_known_command);
         return 0;
     }
 

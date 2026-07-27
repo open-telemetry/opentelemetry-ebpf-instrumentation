@@ -1,0 +1,36 @@
+groups:
+  # Re-types `error.type` as string (upstream: enum whose only member is
+  # `_OTHER`, with arbitrary domain strings as examples). Every real error
+  # value OBI captures — HTTP status codes, DNS RCODEs ('NXDomain'), database
+  # error codes, GenAI provider error codes ('insufficient_quota') — is
+  # outside the declared enum by construction, and the set is unbounded, so
+  # it cannot be enumerated. Emitters must omit the attribute on success and
+  # never send an empty string; pinned by
+  # pkg/appolly/app/request/span_getters_test.go and
+  # pkg/export/otel/traces_test.go.
+  #
+  # See ../README.md for the override mechanics (x.obi.* group id, string
+  # re-typing of open-ended value spaces, lint allowlist).
+  - id: x.obi.error
+    type: attribute_group
+    display_name: OBI Error Attribute Overrides
+    brief: >
+      OBI override of `error.type` re-typed as an open-ended string: OBI
+      reports domain-specific error identifiers whose value space is
+      unbounded.
+    attributes:
+      - id: error.type
+        type: string
+        stability: stable
+        brief: >
+          Describes a class of error the operation ended with.
+        examples: ['timeout', 'java.net.UnknownHostException', 'server_certificate_invalid', '500']
+        note: |
+          The `error.type` SHOULD be predictable, and SHOULD have low cardinality.
+
+          When `error.type` is set to a type (e.g., an exception type), its
+          canonical class name identifying the type within the artifact SHOULD be used.
+
+          Instrumentations SHOULD document the list of errors they report.
+
+          If the operation has completed successfully, instrumentations SHOULD NOT set `error.type`.

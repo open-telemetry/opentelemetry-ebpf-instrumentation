@@ -1,0 +1,65 @@
+services:
+  testserver:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/testserver/Dockerfile
+    image: hatest-testserver
+    ports:
+      - "8080:8080"
+    environment:
+      LOG_LEVEL: DEBUG
+
+  obi:
+    build:
+      context: ../../..
+      dockerfile: ./internal/test/integration/components/obi/Dockerfile
+    command:
+      - --config=/configs/obi-config-otlp-uds.yml
+    volumes:
+      - ./configs/:/configs
+      - ./system/sys/kernel/security${SECURITY_CONFIG_SUFFIX}:/sys/kernel/security
+      - ../../../testoutput:/coverage
+      - ../../../testoutput/run-otlp-uds:/var/run/obi-otlp
+    image: hatest-obi
+    privileged: true
+    pid: "host"
+    environment:
+      GOCOVERDIR: "/coverage"
+      OTEL_EBPF_EXECUTABLE_PATH: "${OTEL_EBPF_EXECUTABLE_PATH}"
+      OTEL_EBPF_METRICS_FEATURES: "application"
+      OTEL_EBPF_METRICS_INTERVAL: "1s"
+      OTEL_EBPF_DISCOVERY_POLL_INTERVAL: "500ms"
+      OTEL_EBPF_SERVICE_NAMESPACE: "integration-test"
+      OTEL_EBPF_LOG_LEVEL: "DEBUG"
+      OTEL_EBPF_HOSTNAME: "obi"
+    depends_on:
+      otelcol:
+        condition: service_started
+
+  # otelcol receives OTLP/HTTP over the unix socket in the shared volume and re-exposes the
+  # metrics to Prometheus. It runs as root so it can create the socket in the shared dir.
+  otelcol:
+    image: otel/opentelemetry-collector-contrib:0.157.0@sha256:f2f01157055a9b2aab9df7118e1f1c9abf345e99b23bc7a2bc791db374a7d0f6
+    container_name: otel-col
+    user: "0:0"
+    command: ["--config=/etc/otelcol-config/otelcol-config-otlp-uds.yml"]
+    volumes:
+      - ./configs/:/etc/otelcol-config
+      - ../../../testoutput/run-otlp-uds:/var/run/obi-otlp
+    ports:
+      - "9464"
+    depends_on:
+      prometheus:
+        condition: service_started
+
+  prometheus:
+    image: quay.io/prometheus/prometheus:v3.13.0@sha256:c6b27ea434f8389bfe233fbc7be381cf50587c286e871bc842008f5a1b1908a7
+    container_name: prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus-config-promscrape-otel.yml
+      - --web.enable-lifecycle
+      - --web.route-prefix=/
+    volumes:
+      - ./configs/:/etc/prometheus
+    ports:
+      - "9090:9090"

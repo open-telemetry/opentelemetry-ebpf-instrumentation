@@ -23,7 +23,7 @@ jobs:
       md: ${{ steps.changes.outputs.md }}
     steps:
       - name: Checkout Repo
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # Shallow clone, but enough for `git diff HEAD~1 HEAD`.
           fetch-depth: 2
@@ -62,10 +62,13 @@ jobs:
     if: ${{needs.changedfiles.outputs.md}}
     steps:
       - name: Checkout Repo
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Run linter
-        uses: docker://davidanson/markdownlint-cli2:v0.22.0@sha256:ea33f1f6a0f062f88a3dddfc49f6d6b5621648a93a0ff49a58bf8ac5a15330b9
+        uses: DavidAnson/markdownlint-cli2-action@6bf21b07787794f89a243495939cd651942aeabe # v24.1.0
         with:
-          args: ${{needs.changedfiles.outputs.md}}
+          config: .markdownlint-cli2.yaml
+          fix: false
+          globs: |
+            ${{needs.changedfiles.outputs.md}}

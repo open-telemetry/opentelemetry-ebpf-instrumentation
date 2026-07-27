@@ -19,6 +19,8 @@ func TestInstrumentationSelection(t *testing.T) {
 	assert.False(t, is.GRPCEnabled())
 	assert.False(t, is.KafkaEnabled())
 	assert.False(t, is.MQTTEnabled())
+	assert.False(t, is.NATSEnabled())
+	assert.False(t, is.AMQPEnabled())
 	assert.False(t, is.MQEnabled())
 
 	is = NewInstrumentationSelection([]Instrumentation{InstrumentationGRPC, InstrumentationKafka})
@@ -29,14 +31,40 @@ func TestInstrumentationSelection(t *testing.T) {
 	assert.True(t, is.GRPCEnabled())
 	assert.True(t, is.KafkaEnabled())
 	assert.False(t, is.MQTTEnabled())
+	assert.False(t, is.NATSEnabled())
+	assert.False(t, is.AMQPEnabled())
 	assert.True(t, is.MQEnabled())
 
 	// MQTT only - MQEnabled should be true
 	is = NewInstrumentationSelection([]Instrumentation{InstrumentationMQTT})
 	assert.False(t, is.KafkaEnabled())
 	assert.True(t, is.MQTTEnabled())
+	assert.False(t, is.NATSEnabled())
+	assert.False(t, is.AMQPEnabled())
+	assert.True(t, is.MQEnabled())
+
+	is = NewInstrumentationSelection([]Instrumentation{InstrumentationAMQP})
+	assert.False(t, is.KafkaEnabled())
+	assert.False(t, is.MQTTEnabled())
+	assert.False(t, is.NATSEnabled())
+	assert.True(t, is.AMQPEnabled())
+	assert.True(t, is.MQEnabled())
+
+	is = NewInstrumentationSelection([]Instrumentation{InstrumentationNATS})
+	assert.False(t, is.KafkaEnabled())
+	assert.False(t, is.MQTTEnabled())
+	assert.True(t, is.NATSEnabled())
+	assert.False(t, is.AMQPEnabled())
 	assert.True(t, is.MQEnabled())
 	assert.False(t, is.GenAIEnabled())
+
+	is = NewInstrumentationSelection([]Instrumentation{InstrumentationSunRPC})
+	assert.False(t, is.KafkaEnabled())
+	assert.False(t, is.MQTTEnabled())
+	assert.False(t, is.NATSEnabled())
+	assert.False(t, is.AMQPEnabled())
+	assert.False(t, is.MQEnabled())
+	assert.True(t, is.SunRPCEnabled())
 }
 
 func TestInstrumentationSelection_All(t *testing.T) {
@@ -49,7 +77,10 @@ func TestInstrumentationSelection_All(t *testing.T) {
 	assert.True(t, is.GRPCEnabled())
 	assert.True(t, is.KafkaEnabled())
 	assert.True(t, is.MQTTEnabled())
+	assert.True(t, is.NATSEnabled())
+	assert.True(t, is.AMQPEnabled())
 	assert.True(t, is.MQEnabled())
+	assert.True(t, is.SunRPCEnabled())
 	assert.True(t, is.DNSEnabled())
 	assert.True(t, is.GenAIEnabled())
 }
@@ -64,5 +95,8 @@ func TestInstrumentationSelection_None(t *testing.T) {
 	assert.False(t, is.GRPCEnabled())
 	assert.False(t, is.KafkaEnabled())
 	assert.False(t, is.MQTTEnabled())
+	assert.False(t, is.NATSEnabled())
+	assert.False(t, is.AMQPEnabled())
 	assert.False(t, is.MQEnabled())
+	assert.False(t, is.SunRPCEnabled())
 }

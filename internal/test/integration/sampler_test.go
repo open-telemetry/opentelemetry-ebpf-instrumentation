@@ -86,5 +86,7 @@ func TestSampler(t *testing.T) {
 
 	t.Run("Sampler", testSampler)
 
+	runWeaverValidation(t)
+
 	require.NoError(t, compose.Close())
 }

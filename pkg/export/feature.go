@@ -23,8 +23,11 @@ const (
 	// zero value.
 	FeatureEmpty Features = 1 << iota
 	FeatureNetwork
+	FeatureNetworkFlowPackets
 	FeatureStatsTCPRtt
 	FeatureStatsTCPFailedConnections
+	FeatureStatsTCPRetransmits
+	FeatureStatsTCPIo
 	FeatureNetworkInterZone
 	FeatureApplicationRED
 	FeatureSpanLegacy
@@ -32,12 +35,16 @@ const (
 	FeatureSpanSizes
 	FeatureGraph
 	FeatureApplicationHost
+	FeatureApplicationRuntime
 	FeatureEBPF
 	FeatureAll = Features(^uint(0)) // all bits to 1
 )
 
-// FeatureStats enables all stat metrics.
-const FeatureStats = FeatureStatsTCPRtt | FeatureStatsTCPFailedConnections
+// FeatureStats enables all stat metrics, including TCP IO.
+// Note: FeatureStatsTCPIo fires on every tcp_sendmsg and tcp_cleanup_rbuf call — significantly
+// higher event volume than the other stat metrics (which fire on close, failure, or retransmit).
+// If overhead is a concern, enable the lower-frequency metrics individually and opt into stats_tcp_io explicitly.
+const FeatureStats = FeatureStatsTCPRtt | FeatureStatsTCPFailedConnections | FeatureStatsTCPRetransmits | FeatureStatsTCPIo
 
 // FeatureMapper stays public so any extension package can add and remove feature
 // definitions before loading them.
@@ -45,23 +52,33 @@ var FeatureMapper = map[string]Features{
 	"stats":                        FeatureStats,
 	"stats_tcp_rtt":                FeatureStatsTCPRtt,
 	"stats_tcp_failed_connections": FeatureStatsTCPFailedConnections,
+	"stats_tcp_retransmits":        FeatureStatsTCPRetransmits,
+	"stats_tcp_io":                 FeatureStatsTCPIo,
 	"network":                      FeatureNetwork,
 	"network_inter_zone":           FeatureNetworkInterZone,
+	"network_flow_packets":         FeatureNetworkFlowPackets,
 	"application":                  FeatureApplicationRED,
 	"application_span":             FeatureSpanLegacy,
 	"application_span_otel":        FeatureSpanOTel,
 	"application_span_sizes":       FeatureSpanSizes,
 	"application_service_graph":    FeatureGraph,
 	"application_host":             FeatureApplicationHost,
-	"ebpf":                         FeatureEBPF,
-	"all":                          FeatureAll,
-	"*":                            FeatureAll,
+	"application_runtime":          FeatureApplicationRuntime,
+	// Deprecated alias kept for v0.10 config compatibility.
+	"application_jvm": FeatureApplicationRuntime,
+	"ebpf":            FeatureEBPF,
+	"all":             FeatureAll,
+	"*":               FeatureAll,
 }
 
 func (Features) JSONSchema() *jsonschema.Schema {
 	features := make([]any, 0, len(FeatureMapper))
 
 	for k := range FeatureMapper {
+		// Keep application_jvm accepted for v0.10 config compatibility, but do not advertise it in generated docs.
+		if k == "application_jvm" {
+			continue
+		}
 		features = append(features, k)
 	}
 	return &jsonschema.Schema{
@@ -133,7 +150,7 @@ func (f Features) Empty() bool {
 }
 
 func (f Features) AnyAppO11yMetric() bool {
-	return f.any(AppO11yFeatures)
+	return f.any(AppO11yFeatures | FeatureApplicationRuntime)
 }
 
 func (f Features) SpanMetrics() bool {
@@ -145,13 +162,14 @@ func (f Features) AnySpanMetrics() bool {
 }
 
 func (f Features) AnyNetwork() bool {
-	return f.any(FeatureNetwork | FeatureNetworkInterZone)
+	return f.any(FeatureNetwork | FeatureNetworkInterZone | FeatureNetworkFlowPackets)
 }
 
 func (f Features) AppOrSpan() bool {
 	return f.any(FeatureApplicationRED |
 		FeatureSpanSizes |
 		FeatureApplicationHost |
+		FeatureApplicationRuntime |
 		FeatureSpanLegacy |
 		FeatureSpanOTel)
 }
@@ -168,6 +186,10 @@ func (f Features) AppHost() bool {
 	return f.any(FeatureApplicationHost)
 }
 
+func (f Features) AppRuntime() bool {
+	return f.any(FeatureApplicationRuntime)
+}
+
 func (f Features) AppRED() bool {
 	return f.any(FeatureApplicationRED)
 }
@@ -180,6 +202,10 @@ func (f Features) NetworkBytes() bool {
 	return f.any(FeatureNetwork)
 }
 
+func (f Features) NetworkFlowPackets() bool {
+	return f.any(FeatureNetworkFlowPackets)
+}
+
 func (f Features) StatMetrics() bool {
 	return f.any(FeatureStats)
 }
@@ -190,6 +216,14 @@ func (f Features) StatsTCPRtt() bool {
 
 func (f Features) StatsTCPFailedConnections() bool {
 	return f.any(FeatureStatsTCPFailedConnections)
+}
+
+func (f Features) StatsTCPRetransmits() bool {
+	return f.any(FeatureStatsTCPRetransmits)
+}
+
+func (f Features) StatsTCPIo() bool {
+	return f.any(FeatureStatsTCPIo)
 }
 
 func (f Features) NetworkInterZone() bool {

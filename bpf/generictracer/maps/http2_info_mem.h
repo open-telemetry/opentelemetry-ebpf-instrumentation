@@ -7,10 +7,6 @@
 #include <bpfcore/bpf_helpers.h>
 
 #include <common/http_types.h>
+#include <common/scratch_mem.h>
 
-struct {
-    __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
-    __type(key, int);
-    __type(value, http2_grpc_request_t);
-    __uint(max_entries, 1);
-} http2_info_mem SEC(".maps");
+SCRATCH_MEM_TYPED(http2_info, http2_grpc_request_t)

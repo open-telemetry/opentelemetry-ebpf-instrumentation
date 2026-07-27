@@ -6,9 +6,8 @@
 package logenricher // import "go.opentelemetry.io/obi/pkg/internal/ebpf/logenricher"
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -26,10 +25,9 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
-	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
-	"go.opentelemetry.io/obi/pkg/internal/ebpf/ringbuf"
+	"go.opentelemetry.io/obi/pkg/ebpf/ringbuf"
 	"go.opentelemetry.io/obi/pkg/internal/goexec"
 	"go.opentelemetry.io/obi/pkg/internal/procs"
 	"go.opentelemetry.io/obi/pkg/internal/shardedqueue"
@@ -52,7 +50,9 @@ type Tracer struct {
 	log         *slog.Logger
 	fdCache     *expirable.LRU[string, *os.File]
 	asyncWriter *shardedqueue.ShardedQueue[LogEvent]
-	pids        map[uint64][]uint64 // pid:[]nsPids
+	formatter   logFormatter
+	pids        map[uint64][]uint64       // pid:[]nsPids
+	pidServices map[uint32]*exec.FileInfo // host pid -> file info, for run-time OTel-export check in handle()
 	pidsMU      sync.Mutex
 }
 
@@ -70,7 +70,9 @@ func New(cfg *obi.Config) *Tracer {
 		fdCache: expirable.NewLRU[string, *os.File](cfg.EBPF.LogEnricher.CacheSize, func(_ string, f *os.File) {
 			f.Close()
 		}, cfg.EBPF.LogEnricher.CacheTTL),
-		pids: make(map[uint64][]uint64),
+		formatter:   newLogFormatter(cfg.EBPF.LogEnricher),
+		pids:        make(map[uint64][]uint64),
+		pidServices: make(map[uint32]*exec.FileInfo),
 	}
 
 	asyncWriter := shardedqueue.NewShardedQueue[LogEvent](
@@ -182,6 +184,10 @@ func (p *Tracer) UProbes() map[string]map[string][]*ebpfcommon.ProbeDesc {
 	return nil
 }
 
+func (p *Tracer) USDTProbes() map[string][]*ebpfcommon.USDTProbeDesc {
+	return nil
+}
+
 func (p *Tracer) SocketFilters() []*ebpf.Program {
 	return nil
 }
@@ -214,8 +220,23 @@ func (p *Tracer) pidKey(nsid, pid uint32) uint64 {
 	return (uint64(nsid) << 32) | uint64(pid)
 }
 
+func (p *Tracer) shouldOmitSpanID(hostPID uint32) bool {
+	if !p.cfg.Discovery.ExcludeOTelInstrumentedServices {
+		return false
+	}
+
+	p.pidsMU.Lock()
+	s := p.pidServices[hostPID]
+	p.pidsMU.Unlock()
+
+	return s != nil && s.ExportsOTelTraces()
+}
+
 func (p *Tracer) addPID(key uint64) error {
 	p.log.Debug("adding pid", "pid", uint32(key), "ns", key>>32)
+	if p.bpfObjects.LogEnricherPids == nil {
+		return fmt.Errorf("BPF objects not loaded, cannot add pid %d (ns=%d)", uint32(key), key>>32)
+	}
 	if err := p.bpfObjects.LogEnricherPids.Put(key, uint8(1)); err != nil {
 		return fmt.Errorf("error adding pid %d (ns=%d) to bpf map: %w", uint32(key), key>>32, err)
 	}
@@ -224,15 +245,25 @@ func (p *Tracer) addPID(key uint64) error {
 
 func (p *Tracer) removePID(key uint64) error {
 	p.log.Debug("removing pid", "pid", uint32(key), "ns", key>>32)
+	if p.bpfObjects.LogEnricherPids == nil {
+		return fmt.Errorf("BPF objects not loaded, cannot remove pid %d (ns=%d)", uint32(key), key>>32)
+	}
 	if err := p.bpfObjects.LogEnricherPids.Delete(key); err != nil {
+		if errors.Is(err, ebpf.ErrKeyNotExist) {
+			return nil
+		}
 		return fmt.Errorf("error removing pid %d (ns=%d) from bpf map: %w", uint32(key), key>>32, err)
 	}
 	return nil
 }
 
-func (p *Tracer) AllowPID(pid app.PID, ns uint32, _ *svc.Attrs) {
+func (p *Tracer) AllowPID(pid app.PID, ns uint32, fi *exec.FileInfo) {
 	p.pidsMU.Lock()
 	defer p.pidsMU.Unlock()
+
+	if fi != nil {
+		p.pidServices[uint32(pid)] = fi
+	}
 
 	pk := p.pidKey(ns, uint32(pid))
 	if err := p.addPID(pk); err != nil {
@@ -262,6 +293,8 @@ func (p *Tracer) BlockPID(pid app.PID, ns uint32) {
 	p.pidsMU.Lock()
 	defer p.pidsMU.Unlock()
 
+	delete(p.pidServices, uint32(pid))
+
 	pk := p.pidKey(ns, uint32(pid))
 	if err := p.removePID(pk); err != nil {
 		p.log.Error(err.Error())
@@ -273,6 +306,7 @@ func (p *Tracer) BlockPID(pid app.PID, ns uint32) {
 				p.log.Error(err.Error())
 			}
 		}
+		delete(p.pids, pk)
 		return
 	}
 
@@ -370,33 +404,17 @@ func (p *Tracer) handle(e LogEvent) {
 		return
 	}
 
-	var (
-		b       bytes.Buffer
-		spanID  = trace.SpanID(e.orig.Ctx.SpanId)
-		traceID = trace.TraceID(e.orig.Ctx.TraceId)
-	)
+	spanID := trace.SpanID(e.orig.Ctx.SpanId)
+	traceID := trace.TraceID(e.orig.Ctx.TraceId)
+	includeSpan := !p.shouldOmitSpanID(e.orig.Tgid)
 
-	var m map[string]any
-	if err := json.Unmarshal([]byte(e.logLine), &m); err == nil {
-		// JSON -> enrich with context
-		m["trace_id"] = traceID.String()
-		m["span_id"] = spanID.String()
-
-		out, err2 := json.Marshal(m)
-		if err2 != nil {
-			p.log.Warn("failed to marshal enriched log line, writing original", "error", err2)
-			b.Write([]byte(e.logLine))
-			return
-		}
-
-		b.Write(out)
-		b.WriteByte('\n')
-	} else {
-		// Not JSON -> preserve the original logline
-		b.Write([]byte(e.logLine))
+	out, err := p.formatter.format([]byte(e.logLine), traceID.String(), spanID.String(), includeSpan)
+	if err != nil {
+		p.log.Warn("failed to format enriched log line, writing original", "error", err)
+		out = []byte(e.logLine)
 	}
 
-	_, err := f.Write(b.Bytes())
+	_, err = f.Write(out)
 	if err != nil {
 		p.log.Error("failed to write enriched log line", "error", err)
 	}

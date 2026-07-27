@@ -18,6 +18,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	"go.opentelemetry.io/obi/pkg/export"
+	"go.opentelemetry.io/obi/pkg/export/attributes"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
@@ -49,11 +50,11 @@ func TestServiceGraphMetrics(t *testing.T) {
 
 	processEvents.Send(exec.ProcessEvent{
 		Type: exec.ProcessEventCreated,
-		File: &exec.FileInfo{Service: clientID, Pid: clientID.ProcPID},
+		File: exec.New(exec.Init{Service: clientID, Pid: clientID.ProcPID}),
 	})
 	processEvents.Send(exec.ProcessEvent{
 		Type: exec.ProcessEventCreated,
-		File: &exec.FileInfo{Service: serverID, Pid: serverID.ProcPID},
+		File: exec.New(exec.Init{Service: serverID, Pid: serverID.ProcPID}),
 	})
 
 	metrics.Send([]request.Span{
@@ -67,6 +68,11 @@ func TestServiceGraphMetrics(t *testing.T) {
 	reported := map[string]struct{}{}
 	for _, m := range res {
 		reported[m.Name+":"+m.Attributes["client"]+":"+m.Attributes["server"]] = struct{}{}
+		// connection_type is an enum attribute: for direct HTTP/gRPC requests
+		// it must be omitted, not emitted as an empty string
+		if ct, ok := m.Attributes["connection_type"]; ok {
+			assert.Fail(t, "direct HTTP requests must omit connection_type", "metric %s got connection_type=%q", m.Name, ct)
+		}
 	}
 
 	require.Equal(t, map[string]struct{}{
@@ -102,7 +108,7 @@ func TestServiceGraphConnectionType(t *testing.T) {
 
 	processEvents.Send(exec.ProcessEvent{
 		Type: exec.ProcessEventCreated,
-		File: &exec.FileInfo{Service: clientID, Pid: clientID.ProcPID},
+		File: exec.New(exec.Init{Service: clientID, Pid: clientID.ProcPID}),
 	})
 
 	// Send database client spans
@@ -110,10 +116,11 @@ func TestServiceGraphConnectionType(t *testing.T) {
 		{Service: clientID, Type: request.EventTypeSQLClient, HostName: "postgres-db", Host: "client-host", Method: "SELECT", Path: "users", RequestStart: 100, End: 200},
 		{Service: clientID, Type: request.EventTypeRedisClient, HostName: "redis-cache", Host: "client-host", Method: "GET", RequestStart: 150, End: 175},
 		{Service: clientID, Type: request.EventTypeKafkaClient, HostName: "kafka-broker", Host: "client-host", Method: request.MessagingPublish, Path: "topic1", RequestStart: 200, End: 250},
+		{Service: clientID, Type: request.EventTypeNATSClient, HostName: "nats-broker", Host: "client-host", Method: request.MessagingPublish, Path: "updates.orders", RequestStart: 225, End: 275},
 	})
 
 	// Read the exported metrics
-	res := readNChan(t, otlp.Records(), 9, timeout)
+	res := readNChan(t, otlp.Records(), 12, timeout)
 	assert.NotEmpty(t, res)
 
 	// Check connection_type for each metric
@@ -124,8 +131,8 @@ func TestServiceGraphConnectionType(t *testing.T) {
 		switch server {
 		case "postgres-db", "redis-cache":
 			assert.Equal(t, "database", connType, "Database spans should have connection_type=database for server=%s", server)
-		case "kafka-broker":
-			assert.Equal(t, "messaging_system", connType, "Kafka spans should have connection_type=messaging_system for server=%s", server)
+		case "kafka-broker", "nats-broker":
+			assert.Equal(t, "messaging_system", connType, "Messaging spans should have connection_type=messaging_system for server=%s", server)
 		}
 	}
 }
@@ -145,7 +152,7 @@ func makeSvcGraphExporter(
 	}
 	otelExporter, err := ReportSvcGraphMetrics(
 		&global.ContextInfo{OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: mcfg}},
-		mcfg, &mpConfig, request.UnresolvedNames{}, input, processEvents)(ctx)
+		mcfg, &mpConfig, &attributes.SelectorConfig{}, request.UnresolvedNames{}, input, processEvents)(ctx)
 	require.NoError(t, err)
 
 	return otelExporter

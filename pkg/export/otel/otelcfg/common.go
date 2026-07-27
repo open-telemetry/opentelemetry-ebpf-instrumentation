@@ -25,7 +25,7 @@ import (
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
-	semconv "go.opentelemetry.io/otel/semconv/v1.38.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/meta"
@@ -93,17 +93,54 @@ func omitFieldsForYAML(input any, omitFields map[string]struct{}) map[string]any
 	return result
 }
 
-func GetAppResourceAttrs(nodeMeta *meta.NodeMeta, service *svc.Attrs) []attribute.KeyValue {
-	return append(GetResourceAttrs(nodeMeta, service),
-		semconv.ServiceInstanceID(service.UID.Instance),
-	)
+func GetAppResourceAttrs(nodeMeta *meta.NodeMeta, service *svc.Attrs, attrSelector ...attributes.Selection) []attribute.KeyValue {
+	attrs := resourceAttrs(nodeMeta, service)
+	attrs = append(attrs, semconv.ServiceInstanceID(service.UID.Instance))
+	return FilterResourceAttrs(attrs, attrSelector...)
 }
 
-func GetResourceAttrs(nodeMeta *meta.NodeMeta, service *svc.Attrs) []attribute.KeyValue {
+func resourceSelection(attrSelector attributes.Selection) ([]attributes.InclusionLists, bool) {
+	if attrSelector == nil {
+		return nil, false
+	}
+
+	if incl, ok := attrSelector[attributes.Resource.Section]; ok {
+		return []attributes.InclusionLists{incl}, true
+	}
+	return nil, false
+}
+
+func ResourceAttributeSelected(name string, attrSelector attributes.Selection) bool {
+	patterns, ok := resourceSelection(attrSelector)
+	if !ok {
+		return true
+	}
+
+	normalizedAttrName := strings.ReplaceAll(name, ".", "_")
+	return shouldIncludeAttribute(normalizedAttrName, patterns)
+}
+
+func FilterResourceAttrs(attrs []attribute.KeyValue, attrSelector ...attributes.Selection) []attribute.KeyValue {
+	if len(attrs) == 0 || len(attrSelector) == 0 {
+		return attrs
+	}
+
+	patterns, ok := resourceSelection(attrSelector[0])
+	if !ok {
+		return attrs
+	}
+	return filterAttributes(attrs, patterns)
+}
+
+func GetResourceAttrs(nodeMeta *meta.NodeMeta, service *svc.Attrs, attrSelector ...attributes.Selection) []attribute.KeyValue {
+	return FilterResourceAttrs(resourceAttrs(nodeMeta, service), attrSelector...)
+}
+
+func resourceAttrs(nodeMeta *meta.NodeMeta, service *svc.Attrs) []attribute.KeyValue {
 	attrs := []attribute.KeyValue{
 		semconv.ServiceName(service.UID.Name),
 		// SpanMetrics requires an extra attribute besides service name
-		// to generate the traces_target_info metric,
+		// to generate the traces.target.info / traces_target_info metric,
 		// so the service is visible in the ServicesList
 		// This attribute also allows that App O11y plugin shows this app as a Go application.
 		semconv.TelemetrySDKLanguageKey.String(service.SDKLanguage.String()),
@@ -246,13 +283,13 @@ func NewReporterPool[K uidGetter, T any](
 	clock expire.Clock,
 	callback simplelru.EvictCallback[svc.UID, T],
 	itemConstructor func(id K) (T, error),
-) ReporterPool[K, T] {
+) (ReporterPool[K, T], error) {
 	pool, err := simplelru.NewLRU[svc.UID, *expirable[T]](cacheLen, func(key svc.UID, value *expirable[T]) {
 		callback(key, value.value)
 	})
 	if err != nil {
-		// should never happen: bug!
-		panic(err)
+		var zero ReporterPool[K, T]
+		return zero, fmt.Errorf("failed creating reporter pool with cache length %d: %w", cacheLen, err)
 	}
 	return ReporterPool[K, T]{
 		pool:            pool,
@@ -260,7 +297,7 @@ func NewReporterPool[K uidGetter, T any](
 		ttl:             ttl,
 		clock:           clock,
 		lastExpiration:  clock(),
-	}
+	}, nil
 }
 
 var emptyUID = svc.UID{}
@@ -277,7 +314,7 @@ func (rp *ReporterPool[K, T]) For(service K) (T, error) {
 	// In multi-process tracing, this is likely to happen as most
 	// tracers group traces belonging to the same service in the same slice.
 	svcUID := service.GetUID()
-	if rp.lastServiceUID == emptyUID || svcUID != rp.lastService.GetUID() {
+	if rp.lastServiceUID == emptyUID || svcUID != rp.lastServiceUID {
 		lm, err := rp.get(svcUID, service)
 		if err != nil {
 			var t T
@@ -307,6 +344,11 @@ func (rp *ReporterPool[K, T]) expireOldReporters() {
 			return
 		}
 		rp.pool.RemoveOldest()
+		if rp.lastReporter == v {
+			rp.lastReporter = nil
+			rp.lastService = nil
+			rp.lastServiceUID = emptyUID
+		}
 	}
 }
 
@@ -330,10 +372,11 @@ type OTLPOptions struct {
 	Insecure bool
 	// BaseURLPath, only for traces export, excludes the /v1/traces suffix.
 	// E.g. for a URLPath == "/otlp/v1/traces", BaseURLPath will be = "/otlp"
-	BaseURLPath   string
-	URLPath       string
-	SkipTLSVerify bool
-	Headers       map[string]string
+	BaseURLPath    string
+	URLPath        string
+	SkipTLSVerify  bool
+	Headers        map[string]string
+	UnixSocketAddr string
 }
 
 func (o *OTLPOptions) AsMetricHTTP() []otlpmetrichttp.Option {
@@ -351,6 +394,9 @@ func (o *OTLPOptions) AsMetricHTTP() []otlpmetrichttp.Option {
 	}
 	if len(o.Headers) > 0 {
 		opts = append(opts, otlpmetrichttp.WithHeaders(o.Headers))
+	}
+	if o.UnixSocketAddr != "" {
+		opts = append(opts, otlpmetrichttp.WithHTTPClient(unixHTTPClient(o.UnixSocketAddr)))
 	}
 	return opts
 }
@@ -499,14 +545,14 @@ func parseOTELEnvVar(svc *svc.Attrs, varName string, handler attributes.VarHandl
 	attributes.ParseOTELResourceVariable(expandedValue, handler)
 }
 
-func ResourceAttrsFromEnv(svc *svc.Attrs) []attribute.KeyValue {
+func ResourceAttrsFromEnv(svc *svc.Attrs, attrSelector ...attributes.Selection) []attribute.KeyValue {
 	var otelResourceAttrs []attribute.KeyValue
 	apply := func(k string, v string) {
 		otelResourceAttrs = append(otelResourceAttrs, attribute.String(k, v))
 	}
 
 	parseOTELEnvVar(svc, envResourceAttrs, apply)
-	return otelResourceAttrs
+	return FilterResourceAttrs(otelResourceAttrs, attrSelector...)
 }
 
 func ResolveOTLPEndpoint(endpoint, common string) (string, bool) {

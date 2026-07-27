@@ -26,6 +26,17 @@ const (
 	HistogramAggregationExponential HistogramAggregation = "base2_exponential_bucket_histogram"
 )
 
+// ExponentialHistogramConfig configures the precision and size of exponential histograms
+// according to https://opentelemetry.io/docs/specs/otel/metrics/sdk/#base2-exponential-bucket-histogram-aggregation
+type ExponentialHistogramConfig struct {
+	// Sets the maximum number of buckets used for a base-2 exponential histogram.
+	// Higher values reduce bucket compaction and preserve more detail at the cost of larger metric payloads.
+	MaxSize int32 `yaml:"max_size" env:"OTEL_EBPF_METRICS_EXPONENTIAL_HISTOGRAM_MAX_SIZE" validate:"gt=0"`
+	// Sets the maximum resolution scale used by base-2 exponential histograms.
+	// Higher values create narrower buckets and more precision, but may require more buckets. Valid values are from -10 to 20.
+	MaxScale int32 `yaml:"max_scale" env:"OTEL_EBPF_METRICS_EXPONENTIAL_HISTOGRAM_MAX_SCALE" validate:"gte=-10,lte=20"`
+}
+
 func mlog() *slog.Logger {
 	return slog.With("component", "otelcfg.MetricsConfig")
 }
@@ -49,19 +60,19 @@ type MetricsConfig struct {
 	// InsecureSkipVerify enables skipping TLS certificate verification (not standard, so we don't follow the same naming convention)
 	InsecureSkipVerify bool `yaml:"insecure_skip_verify" env:"OTEL_EBPF_INSECURE_SKIP_VERIFY"`
 
-	Buckets              export.Buckets       `yaml:"buckets"`
-	HistogramAggregation HistogramAggregation `yaml:"histogram_aggregation" env:"OTEL_EXPORTER_OTLP_METRICS_DEFAULT_HISTOGRAM_AGGREGATION"`
+	Buckets              export.Buckets             `yaml:"buckets"`
+	HistogramAggregation HistogramAggregation       `yaml:"histogram_aggregation" env:"OTEL_EXPORTER_OTLP_METRICS_DEFAULT_HISTOGRAM_AGGREGATION"`
+	ExponentialHistogram ExponentialHistogramConfig `yaml:"exponential_histogram"`
 
-	ReportersCacheLen int `yaml:"reporters_cache_len" env:"OTEL_EBPF_METRICS_REPORT_CACHE_LEN"`
+	ReportersCacheLen int `yaml:"reporters_cache_len" env:"OTEL_EBPF_METRICS_REPORT_CACHE_LEN" validate:"omitempty,gt=0"`
 
 	// SDKLogLevel works independently from the global LogLevel because it prints GBs of logs in Debug mode
 	// and the Info messages leak internal details that are not usually valuable for the final user.
 	// Accepted values: debug, info, warn, error (case-insensitive).
-	SDKLogLevel string `yaml:"otel_sdk_log_level" env:"OTEL_EBPF_SDK_LOG_LEVEL"`
+	SDKLogLevel string `yaml:"otel_sdk_log_level" env:"OTEL_EBPF_SDK_LOG_LEVEL" validate:"omitempty,oneofci=debug info warn error"`
 
 	// Features specifies which metric features to export. Accepted values: application, network,
 	// application_span, application_service_graph, ...
-	// envDefault is provided to avoid breaking changes
 	//
 	// Deprecated: use top-level MetricsConfig.Features instead.
 	DeprFeatures export.Features `yaml:"features"`
@@ -152,7 +163,52 @@ func (m *MetricsConfig) EndpointEnabled() bool {
 	return ep != ""
 }
 
+func unixMetricsHTTPOptions(cfg *MetricsConfig, addr string) (OTLPOptions, error) {
+	opts := OTLPOptions{Headers: map[string]string{}}
+	if err := validateUnixSocketAddr(addr); err != nil {
+		return opts, err
+	}
+
+	setMetricsProtocol(cfg)
+	opts.UnixSocketAddr = addr
+	opts.Endpoint = "localhost"
+	opts.Insecure = true
+
+	if cfg.InjectHeaders != nil {
+		cfg.InjectHeaders(opts.Headers)
+	}
+	maps.Copy(opts.Headers, HeadersFromEnv(envHeaders))
+	maps.Copy(opts.Headers, HeadersFromEnv(envMetricsHeaders))
+
+	return opts, nil
+}
+
+func unixMetricsGRPCOptions(cfg *MetricsConfig, addr string) (OTLPOptions, error) {
+	opts := OTLPOptions{Headers: map[string]string{}}
+	if err := validateUnixSocketAddr(addr); err != nil {
+		return opts, err
+	}
+
+	setMetricsProtocol(cfg)
+	opts.UnixSocketAddr = addr
+	opts.Endpoint = grpcUnixTarget(addr)
+	opts.Insecure = true
+
+	if cfg.InjectHeaders != nil {
+		cfg.InjectHeaders(opts.Headers)
+	}
+	maps.Copy(opts.Headers, HeadersFromEnv(envHeaders))
+	maps.Copy(opts.Headers, HeadersFromEnv(envMetricsHeaders))
+
+	return opts, nil
+}
+
 func httpMetricEndpointOptions(cfg *MetricsConfig) (OTLPOptions, error) {
+	rawEndpoint, _ := cfg.OTLPMetricsEndpoint()
+	if addr, ok := unixSocketEndpoint(rawEndpoint); ok {
+		return unixMetricsHTTPOptions(cfg, addr)
+	}
+
 	opts := OTLPOptions{Headers: map[string]string{}}
 	log := mlog().With("transport", "http")
 	murl, isCommon, err := parseMetricsEndpoint(cfg)
@@ -164,7 +220,7 @@ func httpMetricEndpointOptions(cfg *MetricsConfig) (OTLPOptions, error) {
 
 	setMetricsProtocol(cfg)
 	opts.Endpoint = murl.Host
-	if murl.Scheme == "http" || murl.Scheme == "unix" {
+	if murl.Scheme == "http" {
 		log.Debug("Specifying insecure connection", "scheme", murl.Scheme)
 		opts.Insecure = true
 	}
@@ -195,6 +251,11 @@ func httpMetricEndpointOptions(cfg *MetricsConfig) (OTLPOptions, error) {
 }
 
 func grpcMetricEndpointOptions(cfg *MetricsConfig) (OTLPOptions, error) {
+	rawEndpoint, _ := cfg.OTLPMetricsEndpoint()
+	if addr, ok := unixSocketEndpoint(rawEndpoint); ok {
+		return unixMetricsGRPCOptions(cfg, addr)
+	}
+
 	opts := OTLPOptions{Headers: map[string]string{}}
 	log := mlog().With("transport", "grpc")
 	murl, _, err := parseMetricsEndpoint(cfg)
@@ -206,7 +267,7 @@ func grpcMetricEndpointOptions(cfg *MetricsConfig) (OTLPOptions, error) {
 
 	setMetricsProtocol(cfg)
 	opts.Endpoint = murl.Host
-	if murl.Scheme == "http" || murl.Scheme == "unix" {
+	if murl.Scheme == "http" {
 		log.Debug("Specifying insecure connection", "scheme", murl.Scheme)
 		opts.Insecure = true
 	}

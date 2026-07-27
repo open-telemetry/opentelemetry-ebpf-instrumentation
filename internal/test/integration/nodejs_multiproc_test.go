@@ -116,5 +116,7 @@ func TestNodeJSMultiProc(t *testing.T) {
 
 	t.Run("Nested traces", testNestedTraces)
 
+	runWeaverValidation(t)
+
 	require.NoError(t, compose.Close())
 }

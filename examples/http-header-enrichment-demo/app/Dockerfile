@@ -1,4 +1,4 @@
-FROM golang:1.26-alpine@sha256:2389ebfa5b7f43eeafbd6be0c3700cc46690ef842ad962f6c5bd6be49ed82039 AS builder
+FROM golang:1.26-alpine@sha256:0178a641fbb4858c5f1b48e34bdaabe0350a330a1b1149aabd498d0699ff5fb2 AS builder
 WORKDIR /src
 COPY go.mod ./
 COPY cmd ./cmd
@@ -7,7 +7,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     go build -o /out/frontend ./cmd/frontend && \
     go build -o /out/backend ./cmd/backend
 
-FROM alpine:3.21@sha256:22e0ec13c0db6b3e1ba3280e831fc50ba7bffe58e81f31670a64b1afede247bc
+FROM alpine:3.24@sha256:79ff19e9084a00eece421b2523fb93e22d730e2c0e525905de047e848e56d95f
 WORKDIR /app
 COPY --from=builder /out/frontend /app/frontend
 COPY --from=builder /out/backend /app/backend

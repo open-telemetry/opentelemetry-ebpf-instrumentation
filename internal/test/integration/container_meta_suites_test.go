@@ -34,6 +34,8 @@ func TestSuite_DockerMetadata(t *testing.T) {
 	})
 	t.Run("traces are decorated with container metadata", testContainerMetaTraces)
 
+	runWeaverValidation(t)
+
 	require.NoError(t, compose.Close())
 }
 

@@ -174,6 +174,51 @@ func testREDMetricsPythonRedisOnly(t *testing.T) {
 			},
 		},
 		{
+			// protocol=3 client: replies arrive as RESP3 map/set/boolean/double/null
+			// frames, which the generic tracer must still detect and pair
+			Route:     "http://localhost:8381",
+			Subpath:   "redis-resp3",
+			Comm:      "python3.14",
+			Namespace: "integration-test",
+			Spans: []TestCaseSpan{
+				{
+					Name: "SISMEMBER",
+					Attributes: []attribute.KeyValue{
+						attribute.String("db.operation.name", "SISMEMBER"),
+						attribute.String("db.query.text", "SISMEMBER obi-resp3-set a"),
+					},
+				},
+				{
+					Name: "SMEMBERS",
+					Attributes: []attribute.KeyValue{
+						attribute.String("db.operation.name", "SMEMBERS"),
+						attribute.String("db.query.text", "SMEMBERS obi-resp3-set"),
+					},
+				},
+				{
+					Name: "HGETALL",
+					Attributes: []attribute.KeyValue{
+						attribute.String("db.operation.name", "HGETALL"),
+						attribute.String("db.query.text", "HGETALL obi-resp3-hash"),
+					},
+				},
+				{
+					Name: "ZSCORE",
+					Attributes: []attribute.KeyValue{
+						attribute.String("db.operation.name", "ZSCORE"),
+						attribute.String("db.query.text", "ZSCORE obi-resp3-zset m1"),
+					},
+				},
+				{
+					Name: "GET",
+					Attributes: []attribute.KeyValue{
+						attribute.String("db.operation.name", "GET"),
+						attribute.String("db.query.text", "GET obi-resp3-missing"),
+					},
+				},
+			},
+		},
+		{
 			Route:     "http://localhost:8381",
 			Subpath:   "redis-db",
 			Comm:      "python3.14",

@@ -8,6 +8,7 @@ package tcmanager
 import (
 	"bytes"
 	"errors"
+	"math"
 	"os"
 	"testing"
 	"time"
@@ -17,7 +18,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/vishvananda/netlink"
+
+	"go.opentelemetry.io/obi/pkg/internal/netolly/ifaces"
 )
+
+const missingIfaceIndex = math.MaxInt32
 
 func TestTCXManagerAddRemove(t *testing.T) {
 	progs := loadProgs(t)
@@ -103,6 +108,62 @@ func TestNetlinkManagerAddRemove(t *testing.T) {
 	test("obi_egress", progs.Egress, AttachmentEgress)
 
 	netManager.Shutdown()
+}
+
+func TestTCXManagerNoErrOnMissingIface(t *testing.T) {
+	progs := loadProgs(t)
+	defer progs.Ingress.Close()
+	defer progs.Egress.Close()
+
+	tcx := NewTCXManager().(*tcxManager)
+	tcx.errorCh = make(chan error, 1)
+
+	tcx.attachProgramToIfaceLocked(&attachedProg{
+		Program:    progs.Ingress,
+		attachType: AttachmentIngress,
+		name:       "obi_ingress",
+	}, missingIfaceIndex)
+
+	assert.Empty(t, tcx.links)
+	assert.Empty(t, tcx.errorCh)
+}
+
+func TestNetlinkManagerNoErrOnMissingIfaceQdisc(t *testing.T) {
+	tc := NewNetlinkManager().(*netlinkManager)
+	tc.errorCh = make(chan error, 1)
+
+	qdisc := tc.installQdisc(&ifaces.Interface{
+		Index: missingIfaceIndex,
+		Name:  "missing-interface",
+	})
+
+	assert.Nil(t, qdisc)
+	assert.Empty(t, tc.errorCh)
+}
+
+func TestNetlinkManagerNoErrOnMissingIface(t *testing.T) {
+	progs := loadProgs(t)
+	defer progs.Ingress.Close()
+	defer progs.Egress.Close()
+
+	tc := NewNetlinkManager().(*netlinkManager)
+	tc.errorCh = make(chan error, 1)
+
+	iface := &netlinkIface{
+		Interface: &ifaces.Interface{
+			Index: missingIfaceIndex,
+			Name:  "missing-interface",
+		},
+	}
+
+	tc.attachProgramToIfaceLocked(&netlinkProg{
+		Program:    progs.Ingress,
+		name:       "obi_ingress",
+		attachType: AttachmentIngress,
+	}, iface)
+
+	assert.Empty(t, iface.filters)
+	assert.Empty(t, tc.errorCh)
 }
 
 func isBpfProgLoaded(name string) (bool, error) {

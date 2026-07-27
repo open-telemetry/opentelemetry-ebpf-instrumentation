@@ -20,6 +20,25 @@ func main() {
 		fmt.Printf("Env var TARGET_ADDRESS not set, defaulting to %s\n", address)
 	}
 
+	// Generate TCP retransmits by sending data over a lossy connection (pumba-loss injects loss on this container)
+	retransmitAddress := os.Getenv("RETRANSMIT_TARGET_ADDRESS")
+	if retransmitAddress != "" {
+		go func() {
+			for {
+				conn, err := net.DialTimeout("tcp", retransmitAddress, 2*time.Second)
+				if err != nil {
+					time.Sleep(1 * time.Second)
+					continue
+				}
+				fmt.Fprintf(conn, "retransmit probe\n")
+				conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+				bufio.NewReader(conn).ReadString('\n')
+				conn.Close()
+				time.Sleep(1 * time.Second)
+			}
+		}()
+	}
+
 	// Generate failed TCP connections by dialing a port where nothing listens
 	failAddress := os.Getenv("FAIL_TARGET_ADDRESS")
 	if failAddress != "" {

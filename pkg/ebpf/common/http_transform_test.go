@@ -6,6 +6,8 @@ package ebpfcommon
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -19,7 +21,9 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
-	"go.opentelemetry.io/obi/pkg/internal/ebpf/ringbuf"
+	"go.opentelemetry.io/obi/pkg/config"
+	"go.opentelemetry.io/obi/pkg/ebpf/ringbuf"
+	"go.opentelemetry.io/obi/pkg/internal/largebuf"
 )
 
 const bufSize = 256
@@ -369,6 +373,36 @@ func TestMethodURLParsing(t *testing.T) {
 	assert.Empty(t, httpURLFromBuf(i.Buf[:]))
 }
 
+func TestHTTPRequestToSpanMethodFromSSLBuffer(t *testing.T) {
+	newSSLEvent := func(buf []uint8) *BPFHTTPInfo {
+		event := makeBPFInfoWithBuf(buf)
+		event.Ssl = 1
+		event.Type = uint8(request.EventTypeHTTPClient)
+		event.ConnInfo.S_port = 34567
+		event.ConnInfo.D_port = 443
+		return &event
+	}
+
+	t.Run("short request line is enough to recover the method", func(t *testing.T) {
+		event := newSSLEvent([]uint8("GET /greeting HTTP/1.1\r\n"))
+		span := httpRequestToSpan(event, largebuf.NewLargeBufferFrom(event.Buf[:]))
+		assert.Equal(t, "GET", span.Method)
+		assert.Equal(t, "/greeting", span.Path)
+	})
+
+	t.Run("minimal method token still recovers the method", func(t *testing.T) {
+		event := newSSLEvent([]uint8("GET /"))
+		span := httpRequestToSpan(event, largebuf.NewLargeBufferFrom(event.Buf[:]))
+		assert.Equal(t, "GET", span.Method)
+	})
+
+	t.Run("zeroed buffer yields empty method", func(t *testing.T) {
+		event := newSSLEvent(nil)
+		span := httpRequestToSpan(event, largebuf.NewLargeBufferFrom(event.Buf[:]))
+		assert.Empty(t, span.Method)
+	})
+}
+
 func makeHTTPInfo(method, path, peer, host string, peerPort, hostPort uint32, status uint16, durationMs uint64) HTTPInfo {
 	bpfInfo := BPFHTTPInfo{
 		Type:            1,
@@ -407,4 +441,344 @@ func makeBPFInfoWithBuf(buf []uint8) BPFHTTPInfo {
 	copy(bpfInfo.Buf[:], buf)
 
 	return bpfInfo
+}
+
+func TestHTTPRequestResponseToSpan_EmbeddingTakesPriorityOverOpenAI(t *testing.T) {
+	// When a known embedding provider request returns OpenAI-compatible response headers,
+	// EmbeddingSpan should take priority over OpenAISpan because it matches the
+	// hostname and path of a known embedding provider.
+	parseCtx := &EBPFParseContext{
+		payloadExtraction: config.PayloadExtraction{
+			HTTP: config.HTTPConfig{
+				GenAI: config.GenAIConfig{
+					Embedding: config.EmbeddingProviderConfig{Enabled: true}, OpenAI: config.OpenAIConfig{Enabled: true},
+				},
+			},
+		},
+	}
+
+	reqBody := `{"model":"text-embedding-v3","input":"hello"}`
+	respBody := `{"object":"list","data":[{"object":"embedding","embedding":[0.1],"index":0}],"model":"text-embedding-v3","usage":{"prompt_tokens":5,"total_tokens":5}}`
+
+	req := &http.Request{
+		Method: http.MethodPost,
+		URL:    &url.URL{Scheme: "https", Host: "api.jina.ai", Path: "/v1/embeddings"},
+		Host:   "api.jina.ai",
+		Body:   io.NopCloser(strings.NewReader(reqBody)),
+	}
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header: http.Header{
+			"Content-Type":        []string{"application/json"},
+			"Openai-Organization": []string{"org-123"},
+			"Openai-Version":      []string{"2020-10-01"},
+		},
+		Body: io.NopCloser(strings.NewReader(respBody)),
+	}
+	event := &BPFHTTPInfo{
+		Type: uint8(request.EventTypeHTTPClient),
+	}
+
+	span := httpRequestResponseToSpan(parseCtx, event, req, resp)
+
+	assert.Equal(t, request.HTTPSubtypeEmbedding, span.SubType,
+		"known embedding provider request should be detected as Embedding span, not OpenAI span")
+	require.NotNil(t, span.GenAI)
+	require.NotNil(t, span.GenAI.Embedding, "span.GenAI.Embedding should be set")
+	assert.Nil(t, span.GenAI.OpenAI, "span.GenAI.OpenAI should not be set")
+	assert.Equal(t, "jina", span.GenAI.Embedding.Provider)
+}
+
+func TestHTTPRequestResponseToSpan_OpenAIEmbeddingDetectedByOpenAISpan(t *testing.T) {
+	// When a request to api.openai.com/v1/embeddings returns OpenAI response headers,
+	// it should still be detected by OpenAISpan (not EmbeddingSpan) because
+	// api.openai.com is not a known embedding-only provider.
+	parseCtx := &EBPFParseContext{
+		payloadExtraction: config.PayloadExtraction{
+			HTTP: config.HTTPConfig{
+				GenAI: config.GenAIConfig{
+					Embedding: config.EmbeddingProviderConfig{Enabled: true}, OpenAI: config.OpenAIConfig{Enabled: true},
+				},
+			},
+		},
+	}
+
+	reqBody := `{"model":"text-embedding-3-small","input":"hello"}`
+	respBody := `{"object":"list","data":[{"object":"embedding","embedding":[0.1],"index":0}],"model":"text-embedding-3-small","usage":{"prompt_tokens":5,"total_tokens":5}}`
+
+	req := &http.Request{
+		Method: http.MethodPost,
+		URL:    &url.URL{Scheme: "https", Host: "api.openai.com", Path: "/v1/embeddings"},
+		Host:   "api.openai.com",
+		Body:   io.NopCloser(strings.NewReader(reqBody)),
+	}
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header: http.Header{
+			"Content-Type":        []string{"application/json"},
+			"Openai-Organization": []string{"org-123"},
+			"Openai-Version":      []string{"2020-10-01"},
+		},
+		Body: io.NopCloser(strings.NewReader(respBody)),
+	}
+	event := &BPFHTTPInfo{
+		Type: uint8(request.EventTypeHTTPClient),
+	}
+
+	span := httpRequestResponseToSpan(parseCtx, event, req, resp)
+
+	assert.Equal(t, request.HTTPSubtypeOpenAI, span.SubType,
+		"OpenAI embedding request should be detected by OpenAISpan")
+	require.NotNil(t, span.GenAI)
+	require.NotNil(t, span.GenAI.OpenAI, "span.GenAI.OpenAI should be set")
+	assert.Equal(t, request.EmbeddingOperationName, span.GenAI.OpenAI.OperationName)
+}
+
+func TestToRequestTraceLargeBuffers(t *testing.T) {
+	connInfo := BpfConnectionInfoT{
+		D_port: 1,
+		S_addr: [16]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 192, 168, 0, 1},
+		D_addr: [16]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 8, 8, 8, 8},
+	}
+	traceID := [16]uint8{'t', 'r', 'a', 'c', 'e', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '1'}
+
+	tests := []struct {
+		name         string
+		withLargeBuf bool
+		primaryBuf   string
+		largeRequest string
+		expectedPath string
+	}{
+		{
+			name:         "fallback to primary buffer when large buffer is absent",
+			withLargeBuf: false,
+			primaryBuf:   "GET /hello HTTP/1.1\r\nHost: example.com\r\n\r\n",
+			expectedPath: "/hello",
+		},
+		{
+			name:         "large buffer takes precedence over primary buffer",
+			withLargeBuf: true,
+			primaryBuf:   "GET /short HTTP/1.1\r\n\r\n",
+			largeRequest: "GET /from-large-buffer HTTP/1.1\r\nHost: example.com\r\n\r\n",
+			expectedPath: "/from-large-buffer",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			fltr := TestPidsFilter{services: map[app.PID]svc.Attrs{}}
+			var record BPFHTTPInfo
+
+			record.Type = 1
+			record.ReqMonotimeNs = 123450
+			record.StartMonotimeNs = 123456
+			record.EndMonotimeNs = 789012
+			record.Status = 200
+			record.HasLargeBuffers = 1
+			record.ConnInfo = connInfo
+			record.Tp.TraceId = traceID
+			copy(record.Buf[:], tc.primaryBuf)
+
+			pctx := NewEBPFParseContext(nil, nil, nil)
+
+			if tc.withLargeBuf {
+				lbHdr := TCPLargeBufferHeader{
+					PacketType: packetTypeRequest,
+					Len:        uint32(len(tc.largeRequest)),
+					Action:     largeBufferActionInit,
+					Kind:       uint8(KindLayerApp),
+				}
+				lbHdr.Tp.TraceId = traceID
+				lbHdr.ConnInfo = connInfo
+
+				_, _, err := appendTCPLargeBuffer(pctx, toRingbufRecord(t, lbHdr, tc.largeRequest))
+				require.NoError(t, err)
+			}
+
+			buf := new(bytes.Buffer)
+			err := binary.Write(buf, binary.LittleEndian, &record)
+			require.NoError(t, err)
+
+			result, _, err := ReadHTTPInfoIntoSpan(pctx, &ringbuf.Record{RawSample: buf.Bytes()}, &fltr)
+			require.NoError(t, err)
+
+			require.Equal(t, tc.expectedPath, result.Path)
+			require.Equal(t, 200, result.Status)
+		})
+	}
+}
+
+func TestRemoveQuery(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"/path?key=val", "/path"},
+		{"/path", "/path"},
+		{"/?key=val", "/"},
+		// Edge case: url starts with '?' (no path prefix) — idx==0, must still strip.
+		{"?key=val", ""},
+		{"", ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.input, func(t *testing.T) {
+			require.Equal(t, tc.want, removeQuery(tc.input))
+		})
+	}
+}
+
+func TestRecoverRequestBodyPreservesProbeErrorWhenRecoveryFails(t *testing.T) {
+	readErr := errors.New("truncated request body")
+	req := &http.Request{
+		ContentLength: 10,
+		Body:          readErrorCloser{err: readErr},
+	}
+	requestBuffer := largebuf.NewLargeBufferFrom([]byte("POST /v1/chat/completions HTTP/1.1\r\nContent-Length: 10\r\n\r\n"))
+
+	recoverRequestBody(req, requestBuffer)
+
+	body, err := io.ReadAll(req.Body)
+	require.ErrorIs(t, err, readErr)
+	require.Empty(t, body)
+}
+
+func TestRecoverRequestBodyPrependsProbeByte(t *testing.T) {
+	req := &http.Request{
+		ContentLength: 4,
+		Body:          io.NopCloser(strings.NewReader("body")),
+	}
+	requestBuffer := largebuf.NewLargeBufferFrom([]byte("POST /v1/chat/completions HTTP/1.1\r\nContent-Length: 4\r\n\r\nbody"))
+
+	recoverRequestBody(req, requestBuffer)
+
+	body, err := io.ReadAll(req.Body)
+	require.NoError(t, err)
+	require.Equal(t, "body", string(body))
+}
+
+func TestDechunkBody(t *testing.T) {
+	t.Run("complete chunked body", func(t *testing.T) {
+		chunked := "5\r\nHello\r\n6\r\n World\r\n0\r\n\r\n"
+		got := dechunkBody([]byte(chunked))
+		assert.Equal(t, "Hello World", string(got))
+	})
+
+	t.Run("truncated mid-chunk data", func(t *testing.T) {
+		chunked := "a\r\nHelloWorld\r\n10\r\nOnly part of"
+		got := dechunkBody([]byte(chunked))
+		assert.Equal(t, "HelloWorldOnly part of", string(got))
+	})
+
+	t.Run("truncated mid-size-line", func(t *testing.T) {
+		chunked := "5\r\nHello\r\nf"
+		got := dechunkBody([]byte(chunked))
+		assert.Equal(t, "Hello", string(got))
+	})
+
+	t.Run("empty input", func(t *testing.T) {
+		got := dechunkBody([]byte{})
+		assert.Empty(t, got)
+	})
+
+	t.Run("single complete chunk", func(t *testing.T) {
+		chunked := "11\r\n{\"hello\":\"world\"}\r\n0\r\n\r\n"
+		got := dechunkBody([]byte(chunked))
+		assert.JSONEq(t, `{"hello":"world"}`, string(got))
+	})
+
+	t.Run("chunk with extension", func(t *testing.T) {
+		chunked := "5;ext=val\r\nHello\r\n0\r\n\r\n"
+		got := dechunkBody([]byte(chunked))
+		assert.Equal(t, "Hello", string(got))
+	})
+
+	t.Run("SSE chunked stream truncated", func(t *testing.T) {
+		event1 := `data: {"choices":[{"delta":{"content":"Hi"}}]}` + "\n\n"
+		event2 := `data: {"choices":[{"delta":{"content":" there"}}]}` + "\n\n"
+		event3 := `data: {"choices":[{"delta":{"content":"!"}}]}` + "\n\n"
+
+		chunked := fmt.Sprintf("%x\r\n%s\r\n%x\r\n%s\r\n%x\r\n%s",
+			len(event1), event1,
+			len(event2), event2,
+			len(event3), event3[:len(event3)/2]) // truncate the third event
+		got := dechunkBody([]byte(chunked))
+		expected := event1 + event2 + event3[:len(event3)/2]
+		assert.Equal(t, expected, string(got))
+	})
+
+	t.Run("oversized chunk size is treated as truncated", func(t *testing.T) {
+		chunked := "7fffffffffffffff\r\nA"
+		got := dechunkBody([]byte(chunked))
+		assert.Equal(t, "A", string(got))
+	})
+}
+
+func TestHttpSafeParseResponseChunked(t *testing.T) {
+	body := `data: {"id":"1","choices":[{"delta":{"content":"Hello"}}]}` + "\n\n"
+	body += `data: {"id":"1","choices":[{"delta":{"content":" World"}}]}` + "\n\n"
+
+	chunkedBody := fmt.Sprintf("%x\r\n%s\r\n%x\r\n%s\r\n0\r\n\r\n",
+		len(body[:len(body)/2]), body[:len(body)/2],
+		len(body[len(body)/2:]), body[len(body)/2:])
+
+	raw := "HTTP/1.1 200 OK\r\n" +
+		"Transfer-Encoding: chunked\r\n" +
+		"Content-Type: text/event-stream\r\n" +
+		"\r\n" +
+		chunkedBody
+
+	buf := largebuf.NewLargeBufferFrom([]byte(raw))
+	req, _ := http.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	resp, err := httpSafeParseResponse(buf, req)
+	require.NoError(t, err)
+
+	got, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	assert.Equal(t, body, string(got))
+	assert.Empty(t, resp.TransferEncoding)
+}
+
+func TestHttpSafeParseResponseChunkedTruncated(t *testing.T) {
+	event1 := `data: {"id":"1","choices":[{"delta":{"content":"Hello"}}]}` + "\n\n"
+	event2 := `data: {"id":"1","choices":[{"delta":{"content":" World"}}]}` + "\n\n"
+
+	// Build chunked body but truncate in the middle of the second chunk
+	truncatedChunkedBody := fmt.Sprintf("%x\r\n%s\r\n%x\r\n%s",
+		len(event1), event1,
+		len(event2), event2[:20])
+
+	raw := "HTTP/1.1 200 OK\r\n" +
+		"Transfer-Encoding: chunked\r\n" +
+		"Content-Type: text/event-stream\r\n" +
+		"\r\n" +
+		truncatedChunkedBody
+
+	buf := largebuf.NewLargeBufferFrom([]byte(raw))
+	req, _ := http.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+
+	resp, err := httpSafeParseResponse(buf, req)
+	require.NoError(t, err)
+
+	got, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	// Should recover both the full first event and the truncated part of the second
+	assert.Equal(t, event1+event2[:20], string(got))
+}
+
+func TestHttpSafeParseResponseNonChunked(t *testing.T) {
+	body := `{"result":"ok"}`
+	raw := "HTTP/1.1 200 OK\r\n" +
+		"Content-Type: application/json\r\n" +
+		fmt.Sprintf("Content-Length: %d\r\n", len(body)) +
+		"\r\n" +
+		body
+
+	buf := largebuf.NewLargeBufferFrom([]byte(raw))
+	req, _ := http.NewRequest(http.MethodGet, "/api/test", nil)
+	resp, err := httpSafeParseResponse(buf, req)
+	require.NoError(t, err)
+
+	got, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	assert.Equal(t, body, string(got))
 }

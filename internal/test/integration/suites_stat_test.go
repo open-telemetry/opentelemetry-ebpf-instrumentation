@@ -14,10 +14,13 @@ import (
 
 func TestStat_GoStatMetrics(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-go-stat-metrics.yml", path.Join(pathOutput, "test-suite-go-stat-metrics.log"))
-	compose.Env = append(compose.Env, `TEST_SERVICE_PORTS=8381:8080`, `OTEL_EBPF_CONFIG_SUFFIX=-go-stat-metrics`, `PROM_CONFIG_SUFFIX=-promscrape`)
+	compose.Env = append(compose.Env, `TEST_SERVICE_PORTS=8381:8080`, `OTEL_EBPF_CONFIG_SUFFIX=-go-stat-metrics`, `PROM_CONFIG_SUFFIX=-promscrape-otel`)
 	require.NoError(t, err)
 	require.NoError(t, compose.Up())
 	t.Run("Go Stat Metrics TCP RTT tests", testStatMetricsTCPRttGo)
-	t.Run("Go Stat Metrics TCP Failed Connection tests", testStatMetricsTCPFailedConnectionGo)
+	t.Run("Go Stat Metrics TCP Failed Connection tests", testStatMetricsTCPFailedConnectionsGo)
+	t.Run("Go Stat Metrics TCP Retransmits tests", testStatMetricsTCPRetransmitsGo)
+	t.Run("Go Stat Metrics TCP IO tests", testStatMetricsTCPIoGo)
+	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }

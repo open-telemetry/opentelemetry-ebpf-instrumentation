@@ -5,6 +5,8 @@ package ebpfcommon
 
 import (
 	"bytes"
+	"fmt"
+	"math"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -12,6 +14,11 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/internal/largebuf"
+)
+
+var (
+	benchmarkMemcachedParseResult memcachedParseResult
+	benchmarkMemcachedProtocol    bool
 )
 
 func TestIsMemcachedCommands(t *testing.T) {
@@ -54,6 +61,37 @@ func TestIsMemcachedCommands(t *testing.T) {
 		"unknown key\r\n",
 	} {
 		assert.False(t, isMemcachedBuf(largebuf.NewLargeBufferFrom([]byte(tc))), tc)
+	}
+}
+
+func TestIsMemcachedFirstByte(t *testing.T) {
+	// Source of truth: the bitmap must accept exactly these 32 characters and
+	// nothing else.
+	const allowed = "acdfgimprstvVESNDTOCHM0123456789"
+
+	inAllowed := func(b byte) bool {
+		return bytes.IndexByte([]byte(allowed), b) >= 0
+	}
+
+	// Spot-check each allowed character explicitly so a failure points at the
+	// specific missing one.
+	for i := 0; i < len(allowed); i++ {
+		b := allowed[i]
+		assert.Truef(t, isMemcachedFirstByte(b), "expected %q (0x%02X) to be accepted", b, b)
+	}
+
+	// Exhaustive sweep across all 256 possible byte values to guarantee the
+	// bitmap doesn't accept anything outside the allowed set.
+	for b := 0; b < 256; b++ {
+		got := isMemcachedFirstByte(byte(b))
+		want := inAllowed(byte(b))
+		assert.Equalf(t, want, got, "byte 0x%02X (%q): want %v", b, byte(b), want)
+	}
+
+	// Sanity-check a handful of bytes that look plausible but must be rejected
+	// (uppercase letters that don't start any keyword, control bytes, high bit).
+	for _, b := range []byte{'A', 'B', 'Z', 'b', 'e', 'h', 'q', 'z', 0x00, 0x1F, 0x7F, 0x80, 0xFF, ' ', '\t', '\n', '\r', '+', '-'} {
+		assert.Falsef(t, isMemcachedFirstByte(b), "byte 0x%02X (%q) must be rejected", b, b)
 	}
 }
 
@@ -265,6 +303,7 @@ func TestMemcachedCommandBytesField(t *testing.T) {
 		{name: "missing bytes field", line: "set session 0 300", op: "SET", wantOK: false},
 		{name: "bytes must be int", line: "set session 0 300 nope", op: "SET", wantOK: false},
 		{name: "bytes cannot be negative", line: "set session 0 300 -1", op: "SET", wantOK: false},
+		{name: "bytes can be max int", line: fmt.Sprintf("set session 0 300 %d", math.MaxInt), op: "SET", want: math.MaxInt, wantOK: true},
 	}
 
 	for _, tt := range tests {
@@ -274,6 +313,15 @@ func TestMemcachedCommandBytesField(t *testing.T) {
 			assert.Equal(t, tt.want, got)
 		})
 	}
+}
+
+func TestMemcachedConsumeStoragePayloadOverflowSafe(t *testing.T) {
+	fields := bytes.Fields(fmt.Appendf(nil, "set session 0 300 %d", math.MaxInt))
+	reader := largebuf.NewLargeBufferFrom([]byte("value\r\n")).NewReader()
+
+	assert.NotPanics(t, func() {
+		assert.False(t, memcachedConsumeStoragePayload(&reader, fields, "SET"))
+	})
 }
 
 func TestParseMemcachedExplicitNoreply(t *testing.T) {
@@ -523,4 +571,148 @@ func TestProcessPossibleMemcachedEventChunkedReversedBuffers(t *testing.T) {
 	assert.Equal(t, request.EventTypeMemcachedServer, span.Type)
 	assert.Equal(t, "GAT", span.Method)
 	assert.Equal(t, "session-key", span.Path)
+}
+
+func BenchmarkParseMemcachedRequests(b *testing.B) {
+	tests := []struct {
+		name string
+		buf  *largebuf.LargeBuffer
+	}{
+		{
+			name: "get",
+			buf:  largebuf.NewLargeBufferFrom([]byte("get session-key\r\n")),
+		},
+		{
+			name: "get_many_keys",
+			buf: largebuf.NewLargeBufferFrom([]byte(
+				"get session:000000 session:000001 session:000002 session:000003 session:000004 session:000005 session:000006 session:000007\r\n",
+			)),
+		},
+		{
+			name: "set_payload",
+			buf:  largebuf.NewLargeBufferFrom(memcachedBenchmarkSetPayload(1024, false)),
+		},
+		{
+			name: "coalesced_noreply",
+			buf:  largebuf.NewLargeBufferFrom(memcachedBenchmarkCoalescedRequest(16)),
+		},
+		{
+			name: "chunked_coalesced_noreply",
+			buf:  memcachedBenchmarkChunkedCoalescedRequest(),
+		},
+		{
+			name: "value_response",
+			buf:  largebuf.NewLargeBufferFrom([]byte("VALUE session-key 0 5\r\nvalue\r\nEND\r\n")),
+		},
+	}
+
+	for _, tt := range tests {
+		b.Run(tt.name, func(b *testing.B) {
+			b.ReportAllocs()
+			b.SetBytes(int64(tt.buf.Len()))
+			b.ResetTimer()
+
+			for i := 0; i < b.N; i++ {
+				reader := tt.buf.NewReader()
+				parsed, ok := parseMemcachedRequests(&reader)
+				if !ok {
+					b.Fatal("expected memcached parse to succeed")
+				}
+				benchmarkMemcachedParseResult = parsed
+			}
+		})
+	}
+}
+
+func BenchmarkIsMemcachedProtocol(b *testing.B) {
+	tests := []struct {
+		name string
+		req  *largebuf.LargeBuffer
+		resp *largebuf.LargeBuffer
+	}{
+		{
+			name: "get_value",
+			req:  largebuf.NewLargeBufferFrom([]byte("get session-key\r\n")),
+			resp: largebuf.NewLargeBufferFrom([]byte("VALUE session-key 0 5\r\nvalue\r\nEND\r\n")),
+		},
+		{
+			name: "coalesced_noreply",
+			req:  largebuf.NewLargeBufferFrom(memcachedBenchmarkCoalescedRequest(16)),
+			resp: largebuf.NewLargeBufferFrom([]byte("VALUE session-key:final 0 5\r\nvalue\r\nEND\r\n")),
+		},
+		{
+			name: "chunked_get_value",
+			req:  memcachedBenchmarkChunkedRequest("get session-key\r\n"),
+			resp: memcachedBenchmarkChunkedResponse(),
+		},
+		{
+			name: "http_rejected",
+			req:  largebuf.NewLargeBufferFrom([]byte("GET / HTTP/1.1\r\nHost: example.com\r\n\r\n")),
+			resp: largebuf.NewLargeBufferFrom([]byte("HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n")),
+		},
+	}
+
+	for _, tt := range tests {
+		b.Run(tt.name, func(b *testing.B) {
+			b.ReportAllocs()
+			b.SetBytes(int64(tt.req.Len() + tt.resp.Len()))
+			b.ResetTimer()
+
+			for i := 0; i < b.N; i++ {
+				benchmarkMemcachedProtocol = isMemcached(tt.req, tt.resp)
+			}
+		})
+	}
+}
+
+func memcachedBenchmarkSetPayload(size int, noreply bool) []byte {
+	payload := bytes.Repeat([]byte("x"), size)
+	line := fmt.Sprintf("set session-key 0 300 %d", len(payload))
+	if noreply {
+		line += " noreply"
+	}
+
+	buf := bytes.NewBufferString(line)
+	buf.WriteString(memcachedDelim)
+	buf.Write(payload)
+	buf.WriteString(memcachedDelim)
+
+	return buf.Bytes()
+}
+
+func memcachedBenchmarkCoalescedRequest(noreplyOps int) []byte {
+	buf := bytes.Buffer{}
+	for i := 0; i < noreplyOps; i++ {
+		payload := fmt.Sprintf("value-%02d", i)
+		fmt.Fprintf(&buf, "set session-key:%02d 0 300 %d noreply\r\n%s\r\n", i, len(payload), payload)
+	}
+	buf.WriteString("get session-key:final\r\n")
+
+	return buf.Bytes()
+}
+
+func memcachedBenchmarkChunkedCoalescedRequest() *largebuf.LargeBuffer {
+	buf := largebuf.NewLargeBuffer()
+	buf.AppendChunk([]byte("set session-key:00 0 300 8 nore"))
+	buf.AppendChunk([]byte("ply\r\nvalue-00\r\nset session-key:01 0 300 "))
+	buf.AppendChunk([]byte("8 noreply\r\nvalue-01\r\nget session-key:final\r\n"))
+
+	return buf
+}
+
+func memcachedBenchmarkChunkedRequest(input string) *largebuf.LargeBuffer {
+	midpoint := len(input) / 2
+	buf := largebuf.NewLargeBuffer()
+	buf.AppendChunk([]byte(input[:midpoint]))
+	buf.AppendChunk([]byte(input[midpoint:]))
+
+	return buf
+}
+
+func memcachedBenchmarkChunkedResponse() *largebuf.LargeBuffer {
+	buf := largebuf.NewLargeBuffer()
+	buf.AppendChunk([]byte("VALUE session-key 0 5\r\nva"))
+	buf.AppendChunk([]byte("lue\r\nEND\r\n"))
+
+	return buf
 }

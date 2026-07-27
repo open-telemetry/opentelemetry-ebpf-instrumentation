@@ -6,7 +6,6 @@ package ebpfcommon // import "go.opentelemetry.io/obi/pkg/ebpf/common/http"
 import (
 	"bytes"
 	"encoding/json"
-	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -78,36 +77,99 @@ func extractHostname(req *http.Request) string {
 	return host
 }
 
+type geminiPart struct {
+	FunctionCall *struct {
+		Name string `json:"name"`
+	} `json:"functionCall,omitempty"`
+}
+
+func extractGeminiFunctionCalls(resp *request.GeminiResponse) []request.ToolCall {
+	var result []request.ToolCall
+	for i := range resp.Candidates {
+		c := &resp.Candidates[i]
+		if c.Content == nil || len(c.Content.Parts) == 0 {
+			continue
+		}
+		var parts []geminiPart
+		if err := json.Unmarshal(c.Content.Parts, &parts); err != nil {
+			continue
+		}
+		for j := range parts {
+			if parts[j].FunctionCall == nil || parts[j].FunctionCall.Name == "" {
+				continue
+			}
+			result = append(result, request.ToolCall{
+				Name: parts[j].FunctionCall.Name,
+			})
+		}
+	}
+	return result
+}
+
+func looksLikeGeminiBody(reqB, respB []byte, path string) bool {
+	if strings.HasPrefix(strings.ToLower(extractGeminiModelFromPath(path)), "gemini") {
+		return true
+	}
+	return strings.HasPrefix(strings.ToLower(genaiModelVersion(reqB, respB)), "gemini")
+}
+
 func GeminiSpan(baseSpan *request.Span, req *http.Request, resp *http.Response) (request.Span, bool) {
+	maybeGemini := false
 	if !isGemini(req, resp.Header) {
+		// HTTP/2 fallback: URL host may be unavailable, so match on body shape.
+		if !isHTTP2Request(req) || !strings.Contains(baseSpan.Path, "/v1beta/models/") {
+			return *baseSpan, false
+		}
+		maybeGemini = true
+	}
+
+	reqB, ok := readHTTPRequestBody("GeminiSpan", req, baseSpan)
+	if !ok {
 		return *baseSpan, false
 	}
 
-	reqB, err := io.ReadAll(req.Body)
-	if err != nil {
+	respB, ok := readHTTPResponseBody("GeminiSpan", resp, baseSpan)
+	if !ok {
 		return *baseSpan, false
 	}
-	req.Body = io.NopCloser(bytes.NewBuffer(reqB))
 
-	respB, err := getResponseBody(resp)
-	if err != nil && len(respB) == 0 {
-		return *baseSpan, false
+	if maybeGemini {
+		if !looksLikeGeminiBody(reqB, respB, baseSpan.Path) {
+			return *baseSpan, false
+		}
 	}
 
 	slog.Debug("Gemini", "request", string(reqB), "response", string(respB))
 
 	var parsedRequest request.GeminiRequest
-	if err := json.Unmarshal(reqB, &parsedRequest); err != nil {
-		slog.Debug("failed to parse Gemini request", "error", err)
+	if !unmarshalJSON(reqB, &parsedRequest) {
+		slog.Debug("failed to parse Gemini request, continuing with partial fields")
 	}
 
 	var parsedResponse request.GeminiResponse
-	if err := json.Unmarshal(respB, &parsedResponse); err != nil {
-		slog.Debug("failed to parse Gemini response", "error", err)
+	var toolCalls []request.ToolCall
+
+	if looksLikeJSON(respB) {
+		if !unmarshalJSON(respB, &parsedResponse) {
+			slog.Debug("failed to parse Gemini response, continuing with partial fields")
+		}
+		var usage request.GeminiUsage
+		if unmarshalJSONContainerBestEffort(respB, &usage, "usageMetadata") {
+			parsedResponse.UsageMetadata.Merge(usage)
+		}
+		toolCalls = extractGeminiFunctionCalls(&parsedResponse)
+	} else {
+		reader := bytes.NewReader(respB)
+		streamResp, streamTools := parseGeminiStream(reader)
+		if streamResp != nil {
+			parsedResponse = *streamResp
+		}
+		toolCalls = streamTools
 	}
 
 	model := extractGeminiModel(req)
 	operation := extractGeminiOperation(req)
+	isStream := isGeminiStream(req)
 
 	baseSpan.SubType = request.HTTPSubtypeGemini
 	baseSpan.GenAI = &request.GenAI{
@@ -116,10 +178,21 @@ func GeminiSpan(baseSpan *request.Span, req *http.Request, resp *http.Response) 
 			Output:    parsedResponse,
 			Model:     model,
 			Operation: operation,
+			IsStream:  isStream,
+			ToolCalls: toolCalls,
 		},
 	}
 
 	return *baseSpan, true
+}
+
+// isGeminiStream detects whether the Gemini call is a streaming request
+// by checking if the URL path contains "streamGenerateContent".
+func isGeminiStream(req *http.Request) bool {
+	if req == nil || req.URL == nil {
+		return false
+	}
+	return strings.Contains(req.URL.Path, "streamGenerateContent")
 }
 
 // extractGeminiModel extracts the model name from the URL path.
@@ -130,7 +203,12 @@ func extractGeminiModel(req *http.Request) string {
 	if req == nil || req.URL == nil {
 		return ""
 	}
-	path := req.URL.Path
+	return extractGeminiModelFromPath(req.URL.Path)
+}
+
+// extractGeminiModelFromPath returns the model name embedded in a Gemini URL
+// path, or "" when the path has no /models/ segment.
+func extractGeminiModelFromPath(path string) string {
 	idx := strings.Index(path, geminiModelPrefix)
 	if idx < 0 {
 		return ""

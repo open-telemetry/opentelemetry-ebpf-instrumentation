@@ -8,7 +8,7 @@ attributes:
       - gen_ai.system_instructions
       - gen_ai.output.messages
       - gen_ai.metadata
-      - gen_ai.tool.definitions      
+      - gen_ai.tool.definitions
 ebpf:
   buffer_sizes:
     http: 65536
