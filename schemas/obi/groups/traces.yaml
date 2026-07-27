@@ -45,6 +45,30 @@ groups:
           semconv adds an official ONC RPC auth flavor attribute, at which
           point this key will be migrated to the semconv name.
         examples: ["AUTH_NONE", "AUTH_SYS"]
+      - id: queue.duration
+        type: double
+        stability: development
+        brief: >
+          Time (in seconds) a request spent queued before its handler began
+          processing, as observed by OBI's eBPF instrumentation.
+        note: >
+          Emitted as a log record attribute (event.name
+          "request.queue_processing") instead of the deprecated "in queue"
+          span, when otel_logs_export.queue_processing_logs is enabled. See
+          https://opentelemetry.io/blog/2026/deprecating-span-events/.
+        examples: [0.012]
+      - id: processing.duration
+        type: double
+        stability: development
+        brief: >
+          Time (in seconds) a request's handler spent actually processing
+          it, as observed by OBI's eBPF instrumentation.
+        note: >
+          Emitted as a log record attribute (event.name
+          "request.queue_processing") instead of the deprecated "processing"
+          span, when otel_logs_export.queue_processing_logs is enabled. See
+          https://opentelemetry.io/blog/2026/deprecating-span-events/.
+        examples: [0.231]
       - id: gen_ai.metadata
         type: string
         stability: development
