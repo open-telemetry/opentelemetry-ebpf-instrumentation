@@ -30,8 +30,22 @@ func NewNodeInjector(cfg *obi.Config) *NodeInjector {
 	}
 }
 
+// Enabled reports whether the agent should be injected: the injected script
+// is both the trace-context propagation vehicle and the only source of the
+// nodejs.eventloop.* runtime metrics, so either consumer turns it on —
+// unless nodejs.enabled, the global opt-out, is set to false.
 func (i *NodeInjector) Enabled() bool {
-	return i.cfg.NodeJS.Enabled && (i.cfg.Traces.Enabled() || i.cfg.TracePrinter.Enabled())
+	return i.cfg.NodeJS.Enabled &&
+		(i.cfg.Traces.Enabled() || i.cfg.TracePrinter.Enabled() || i.cfg.AppRuntimeMetricsEnabled())
+}
+
+// injectionTrigger names what turned the injection on, so the logs explain a
+// metrics-only injection.
+func (i *NodeInjector) injectionTrigger() string {
+	if i.cfg.Traces.Enabled() || i.cfg.TracePrinter.Enabled() {
+		return "traces"
+	}
+	return "runtime metrics"
 }
 
 func (i *NodeInjector) NewExecutable(ie *ebpf.Instrumentable) {
@@ -45,11 +59,11 @@ func (i *NodeInjector) NewExecutable(ie *ebpf.Instrumentable) {
 		return
 	}
 
-	i.log.Info("loading NodeJS instrumentation", "pid", ie.FileInfo.Pid())
+	i.log.Info("loading NodeJS instrumentation", "pid", ie.FileInfo.Pid(), "trigger", i.injectionTrigger())
 
 	if err := i.attachAgent(int(ie.FileInfo.Pid()), ie.FileInfo.ELF()); err != nil {
 		i.log.Error("couldn't attach NodeJS injector", "pid", ie.FileInfo.Pid(), "error", err)
-		i.log.Error("trace-context propagation will not work for NodeJS services!")
+		i.log.Error("trace-context propagation and nodejs runtime metrics will not work for NodeJS services!")
 	}
 }
 

@@ -5,10 +5,9 @@ otel_metrics_export:
 metrics:
   features:
     - application_runtime
-# nodejs.enabled is deliberately NOT set: the flag's default (true) must be
-# enough; the nodejs injector (fdextractor.js, source of the runtime metrics)
-# only runs when traces are enabled; the printer is the lightest way to do that
-trace_printer: text
+# nodejs.enabled is deliberately NOT set: the application_runtime metrics
+# feature plus the flag's default (true) must be enough to enable the
+# injected fdextractor.js, the source of the runtime metrics
 attributes:
   select:
     "*":
