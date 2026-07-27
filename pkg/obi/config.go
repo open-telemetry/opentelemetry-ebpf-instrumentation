@@ -898,13 +898,9 @@ func (c *Config) ExternalLogger(handler slog.Handler, debugMode bool) {
 // 3 - Environment variables
 func LoadConfig(file io.Reader) (*Config, error) {
 	cfg := DefaultConfig
-	// Note: deep-copy each pointer field so YAML/env unmarshal cannot mutate DefaultConfig through shared
-	// pointers. This is a one-level copy: slice fields inside (e.g. Patterns, Sources) still share
-	// their underlying arrays, which is safe because YAML unmarshal replaces slices rather than
-	// appending to them.
+	// Deep-copy pointer fields so YAML/env unmarshal cannot mutate DefaultConfig through shared pointers.
 	if cfg.Routes != nil {
-		routesCopy := *cfg.Routes
-		cfg.Routes = &routesCopy
+		cfg.Routes = cfg.Routes.Clone()
 	}
 	if cfg.NameResolver != nil {
 		nrCopy := *cfg.NameResolver

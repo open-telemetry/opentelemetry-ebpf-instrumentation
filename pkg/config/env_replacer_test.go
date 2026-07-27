@@ -134,3 +134,37 @@ config:
 		})
 	}
 }
+
+func TestEscapeEnv(t *testing.T) {
+	t.Setenv("TEST_VAR", "test_value")
+
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "brace syntax",
+			input:    "key: ${TEST_VAR}\n",
+			expected: "key: $${TEST_VAR}\n",
+		},
+		{
+			name:     "Kubernetes syntax",
+			input:    "key: $(TEST_VAR)\n",
+			expected: "key: $$(TEST_VAR)\n",
+		},
+		{
+			name:     "existing escape",
+			input:    "key: $${TEST_VAR}\n",
+			expected: "key: $$${TEST_VAR}\n",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			escaped := EscapeEnv([]byte(tt.input))
+			assert.Equal(t, tt.expected, string(escaped))
+			assert.Equal(t, tt.input, string(ReplaceEnv(escaped)))
+		})
+	}
+}

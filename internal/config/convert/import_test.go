@@ -318,6 +318,10 @@ func TestV2ToRuntimeImportsRules(t *testing.T) {
 	t.Parallel()
 
 	openPorts := services.IntEnum{Ranges: []services.IntRange{{Start: 8080}}}
+	incomingPatterns := []string{"/orders/{id}"}
+	outgoingPatterns := []string{"/inventory/{id}"}
+	incomingIgnoredPatterns := []string{"/health"}
+	incomingUnmatched := services.UnmatchPath
 	got, err := V2ToRuntime(&schema.Extension{
 		Version: schema.SupportedVersion,
 		Capture: schema.Capture{
@@ -367,8 +371,12 @@ func TestV2ToRuntimeImportsRules(t *testing.T) {
 						Exports: &schema.ExportModeRefinement{Traces: true, Metrics: false},
 						HTTP: &schema.HTTPRefinement{
 							Routes: schema.HTTPRefinementRoutes{
-								Incoming: schema.HTTPRefinementRoute{Patterns: []string{"/orders/{id}"}},
-								Outgoing: schema.HTTPRefinementRoute{Patterns: []string{"/inventory/{id}"}},
+								Incoming: &schema.HTTPRoutePolicy{
+									Patterns:        &incomingPatterns,
+									IgnoredPatterns: &incomingIgnoredPatterns,
+									Unmatched:       &incomingUnmatched,
+								},
+								Outgoing: &schema.HTTPRoutePolicy{Patterns: &outgoingPatterns},
 							},
 						},
 					},
@@ -377,6 +385,10 @@ func TestV2ToRuntimeImportsRules(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
+	require.NotNil(t, got.Routes)
+	require.NotNil(t, got.Routes.Directional)
+	require.Equal(t, services.UnmatchDefault, got.Routes.Directional.Incoming.Unmatch)
+	require.Equal(t, services.UnmatchDefault, got.Routes.Directional.Outgoing.Unmatch)
 
 	require.Len(t, got.Discovery.Instrument, 1)
 	include := got.Discovery.Instrument[0]
@@ -391,11 +403,15 @@ func TestV2ToRuntimeImportsRules(t *testing.T) {
 	require.Equal(t, "checkout", globString(*include.PodLabels["app"]))
 	require.True(t, include.ExportModes.CanExportTraces())
 	require.False(t, include.ExportModes.CanExportMetrics())
-	require.Equal(t, []string{"/orders/{id}"}, include.Routes.Incoming)
-	require.Equal(t, []string{"/inventory/{id}"}, include.Routes.Outgoing)
+	require.NotNil(t, include.Routes.PolicyOverrides)
+	require.Equal(t, []string{"/orders/{id}"}, *include.Routes.PolicyOverrides.Incoming.Patterns)
+	require.Equal(t, []string{"/health"}, *include.Routes.PolicyOverrides.Incoming.IgnorePatterns)
+	require.Equal(t, services.UnmatchPath, *include.Routes.PolicyOverrides.Incoming.Unmatch)
+	require.Equal(t, []string{"/inventory/{id}"}, *include.Routes.PolicyOverrides.Outgoing.Patterns)
 
 	require.True(t, got.Discovery.ExcludeOTelInstrumentedServices)
 	require.Equal(t, 4317, got.Discovery.DefaultOtlpGRPCPort)
+	require.Empty(t, got.Discovery.ExcludedLinuxSystemPaths)
 	require.Len(t, got.Discovery.ExcludeInstrument, 1)
 	exclude := got.Discovery.ExcludeInstrument[0]
 	require.Equal(t, "/usr/bin/*", globString(exclude.Path))
@@ -555,7 +571,7 @@ func TestV2ToRuntimePreservesFirstMatchRefinement(t *testing.T) {
 					Refine: schema.RuleRefinement{
 						Exports: &schema.ExportModeRefinement{Traces: true},
 						HTTP: &schema.HTTPRefinement{Routes: schema.HTTPRefinementRoutes{
-							Incoming: schema.HTTPRefinementRoute{Patterns: []string{"/first"}},
+							Incoming: testHTTPRoutePolicy("/first"),
 						}},
 					},
 				},
@@ -567,7 +583,7 @@ func TestV2ToRuntimePreservesFirstMatchRefinement(t *testing.T) {
 					Refine: schema.RuleRefinement{
 						Exports: &schema.ExportModeRefinement{Metrics: true},
 						HTTP: &schema.HTTPRefinement{Routes: schema.HTTPRefinementRoutes{
-							Incoming: schema.HTTPRefinementRoute{Patterns: []string{"/second"}},
+							Incoming: testHTTPRoutePolicy("/second"),
 						}},
 					},
 				},
@@ -579,10 +595,10 @@ func TestV2ToRuntimePreservesFirstMatchRefinement(t *testing.T) {
 
 	require.Equal(t, "*", globString(got.Discovery.Instrument[0].Path))
 	require.True(t, got.Discovery.Instrument[0].ExportModes.CanExportMetrics())
-	require.Equal(t, []string{"/second"}, got.Discovery.Instrument[0].Routes.Incoming)
+	require.Equal(t, []string{"/second"}, incomingRoutePatterns(got.Discovery.Instrument[0].Routes))
 	require.Equal(t, "/srv/*", globString(got.Discovery.Instrument[1].Path))
 	require.True(t, got.Discovery.Instrument[1].ExportModes.CanExportTraces())
-	require.Equal(t, []string{"/first"}, got.Discovery.Instrument[1].Routes.Incoming)
+	require.Equal(t, []string{"/first"}, incomingRoutePatterns(got.Discovery.Instrument[1].Routes))
 }
 
 func TestV2ToRuntimeResetsLastMatchRefinement(t *testing.T) {
@@ -604,7 +620,7 @@ func TestV2ToRuntimeResetsLastMatchRefinement(t *testing.T) {
 					Refine: schema.RuleRefinement{
 						Exports: &schema.ExportModeRefinement{Traces: true},
 						HTTP: &schema.HTTPRefinement{Routes: schema.HTTPRefinementRoutes{
-							Incoming: schema.HTTPRefinementRoute{Patterns: []string{"/first"}},
+							Incoming: testHTTPRoutePolicy("/first"),
 						}},
 					},
 				},
@@ -1187,4 +1203,17 @@ func TestV2ToRuntimeRejectsInvalidLogFieldName(t *testing.T) {
 		},
 	})
 	require.ErrorContains(t, err, "invalid log trace annotation")
+}
+
+func testHTTPRoutePolicy(patterns ...string) *schema.HTTPRoutePolicy {
+	return &schema.HTTPRoutePolicy{Patterns: &patterns}
+}
+
+func incomingRoutePatterns(routes *services.CustomRoutesConfig) []string {
+	if routes == nil || routes.PolicyOverrides == nil ||
+		routes.PolicyOverrides.Incoming == nil ||
+		routes.PolicyOverrides.Incoming.Patterns == nil {
+		return nil
+	}
+	return *routes.PolicyOverrides.Incoming.Patterns
 }

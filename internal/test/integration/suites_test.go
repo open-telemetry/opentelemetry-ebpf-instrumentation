@@ -376,9 +376,21 @@ func TestSuite_NodeJS(t *testing.T) {
 
 	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=3030`, `OTEL_EBPF_EXECUTABLE_PATH=`, `NODE_APP=app`)
 	require.NoError(t, compose.Up())
-	t.Run("NodeJS RED metrics", testREDMetricsNodeJSHTTP)
+	t.Run("NodeJS RED metrics", testREDMetricsJSHTTP)
 	t.Run("HTTP traces (kprobes)", testHTTPTracesKProbes)
-	t.Run("HTTP nested traces large HTTPS (kprobes)", testHTTPTracesNestedNodeJSLargeHTTPS)
+	t.Run("HTTP nested traces large HTTPS (kprobes)", testHTTPTracesNestedJSLargeHTTPS)
+	runWeaverValidation(t)
+	require.NoError(t, compose.Close())
+}
+
+func TestSuite_Deno(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-deno.yml", path.Join(pathOutput, "test-suite-deno.log"))
+	require.NoError(t, err)
+
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=3030`, `OTEL_EBPF_EXECUTABLE_PATH=`, `MAIN_FILE=app.js`)
+	require.NoError(t, compose.Up())
+	t.Run("Deno RED metrics", testREDMetricsJSHTTP)
+	t.Run("HTTP traces (kprobes)", testHTTPTracesKProbes)
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }

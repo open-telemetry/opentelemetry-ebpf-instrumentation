@@ -17,8 +17,9 @@
 
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/utils.h>
-
+#include <bpfcore/bpf_helpers.h>
 #include <bpfcore/bpf_builtins.h>
+
 #include <common/algorithm.h>
 #include <common/connection_info.h>
 #include <common/globals.h>
@@ -30,6 +31,7 @@
 #include <common/trace_helpers.h>
 
 #include <gotracer/go_common.h>
+#include <gotracer/go_large_buffer.h>
 #include <gotracer/go_offsets.h>
 #include <gotracer/go_str.h>
 
@@ -683,12 +685,6 @@ static __always_inline void roundTripStartHelper(struct pt_regs *ctx) {
     bpf_dbg_printk("host=%s", trace.host);
     bpf_dbg_printk("scheme=%s", trace.scheme);
 
-    connection_info_t *conn = bpf_map_lookup_elem(&ongoing_client_connections, &g_key);
-    if (conn) {
-        // Mark it as handled http client connection
-        store_go_handled_connection_info(conn);
-    }
-
     // Write event
     if (bpf_map_update_elem(&go_ongoing_http_client_requests, &g_key, &invocation, BPF_ANY)) {
         bpf_dbg_printk("can't update http client map element");
@@ -712,6 +708,7 @@ static __always_inline void roundTripStartHelper(struct pt_regs *ctx) {
 
 SEC("uprobe/roundTrip")
 int obi_uprobe_roundTrip(struct pt_regs *ctx) {
+    bpf_dbg_printk("=== uprobe/roundTrip ===");
     roundTripStartHelper(ctx);
     return 0;
 }
@@ -1218,6 +1215,12 @@ static __always_inline void setup_http2_client_conn(void *goroutine_addr,
                 bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
 
                 bpf_map_update_elem(&ongoing_client_connections, &g_key, &conn, BPF_ANY);
+                connection_info_t sorted_conn = conn;
+                sort_connection_info(&sorted_conn);
+                bpf_map_update_elem(
+                    &go_http2_client_connections, &sorted_conn, &(bool){true}, BPF_ANY);
+                store_go_handled_connection_info_sorted(&sorted_conn);
+                cleanup_ongoing_large_buffer_sorted_conn(&sorted_conn, stream_id);
             }
         }
 
@@ -1665,6 +1668,11 @@ int obi_uprobe_persistConnRoundTrip(struct pt_regs *ctx) {
                 tp_p.tp.ts = bpf_ktime_get_ns();
                 bpf_dbg_printk("storing trace_map info for black-box tracing");
                 bpf_map_update_elem(&ongoing_client_connections, &g_key, &conn, BPF_ANY);
+
+                connection_info_t sorted_conn = conn;
+                sort_connection_info(&sorted_conn);
+                store_go_handled_connection_info_sorted(&sorted_conn);
+                cleanup_ongoing_large_buffer_sorted_conn(&sorted_conn, 0);
 
                 // Must sort the connection info, this map is shared with kprobes which use sorted connection
                 // info always.

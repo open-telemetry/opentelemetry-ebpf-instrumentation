@@ -122,3 +122,5 @@ internal/test/vm/lvh/out/
 !pkg/internal/transform/route/harvest/nodejs/test_files_dist/dist/**
 !pkg/internal/transform/route/harvest/nodejs/test_files_dist_versioned/dist/
 !pkg/internal/transform/route/harvest/nodejs/test_files_dist_versioned/dist/**
+internal/test/integration/components/ai/openai/mock-server/mock-server
+internal/test/integration/components/ai/openai/go/testserver

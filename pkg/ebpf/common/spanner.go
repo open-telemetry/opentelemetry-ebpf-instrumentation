@@ -98,21 +98,32 @@ func HTTPRequestTraceToSpan(parseCtx *EBPFParseContext, trace *HTTPRequestTrace)
 }
 
 func enrichedGoHTTPSpan(parseCtx *EBPFParseContext, conn BpfConnectionInfoT, span *request.Span) request.Span {
-	if req, requestBuffer, ok := parseGoRequestLargeBuffer(parseCtx, conn, span.IsClientSpan()); ok {
+	if req, requestBuffer, ok := parseGoRequestLargeBuffer(parseCtx, conn, span); ok {
 		resp := &http.Response{Header: http.Header{}}
 
 		hasResponse := false
-		emptyTraceID := [16]uint8{}
-		b, ok := extractTCPLargeBuffer(parseCtx, emptyTraceID, packetTypeResponse, directionByPacketType(packetTypeResponse, span.IsClientSpan()), conn, ProtocolTypeHTTP)
+		b, ok := extractTCPLargeBuffer(parseCtx, span.TraceID, packetTypeResponse, directionByPacketType(packetTypeResponse, span.IsClientSpan()), conn, ProtocolTypeHTTP)
+		if !ok {
+			// try empty traceID which is normal for HTTP 1.1
+			b, ok = extractTCPLargeBuffer(parseCtx, [16]byte{}, packetTypeResponse, directionByPacketType(packetTypeResponse, span.IsClientSpan()), conn, ProtocolTypeHTTP)
+		}
 		if ok {
-			var err error
-			resp, err = httpSafeParseResponse(b, req)
-			if err != nil {
-				slog.Debug("error while parsing http request or response, falling back to manual HTTP info parsing", "respErr", err)
+			if looksLikeHTTP1Response(b) {
+				var err error
+				resp, err = httpSafeParseResponse(b, req)
+				if err != nil {
+					slog.Debug("error while parsing http request or response, falling back to manual HTTP info parsing", "respErr", err)
+				} else {
+					hasResponse = true
+				}
 			} else {
-				hasResponse = true
-			}
+				r2, ok := parseHTTP2Response(b, req, span)
 
+				if ok {
+					resp = r2
+					hasResponse = true
+				}
+			}
 		}
 
 		if !hasResponse || req == nil || resp == nil {
@@ -132,8 +143,8 @@ func enrichedGoHTTPSpan(parseCtx *EBPFParseContext, conn BpfConnectionInfoT, spa
 	return *span
 }
 
-func deferredGoHTTPClientRequestHandler(parseCtx *EBPFParseContext) func(BpfConnectionInfoT, *pendingGoHTTPClientRequest) {
-	return func(_ BpfConnectionInfoT, pending *pendingGoHTTPClientRequest) {
+func deferredGoHTTPClientRequestHandler(parseCtx *EBPFParseContext) func(pendingGoHTTPClientKey, *pendingGoHTTPClientRequest) {
+	return func(_ pendingGoHTTPClientKey, pending *pendingGoHTTPClientRequest) {
 		if pending == nil || !pending.emitted.CompareAndSwap(false, true) ||
 			parseCtx.discardPendingGoHTTPClients.Load() {
 			return
@@ -148,29 +159,46 @@ func deferredGoHTTPClientRequestHandler(parseCtx *EBPFParseContext) func(BpfConn
 func parseGoRequestLargeBuffer(
 	parseCtx *EBPFParseContext,
 	conn BpfConnectionInfoT,
-	isClient bool,
+	span *request.Span,
 ) (*http.Request, *largebuf.LargeBuffer, bool) {
 	sortConnectionInfo(&conn)
 
-	emptyTraceID := [16]uint8{}
-	buffer, ok := extractTCPLargeBuffer(parseCtx, emptyTraceID, packetTypeRequest,
-		directionByPacketType(packetTypeRequest, isClient), conn, ProtocolTypeHTTP)
+	buffer, ok := extractTCPLargeBuffer(parseCtx, span.TraceID, packetTypeRequest,
+		directionByPacketType(packetTypeRequest, span.IsClientSpan()), conn, ProtocolTypeHTTP)
+	if !ok {
+		// try empty traceID which is normal for HTTP 1.1
+		buffer, ok = extractTCPLargeBuffer(parseCtx, [16]byte{}, packetTypeRequest,
+			directionByPacketType(packetTypeRequest, span.IsClientSpan()), conn, ProtocolTypeHTTP)
+	}
+
 	if !ok {
 		return nil, nil, false
 	}
 
-	reqReader := buffer.NewReader()
-	req, err := http.ReadRequest(bufio.NewReader(&reqReader))
-	if err != nil {
-		slog.Debug("error parsing HTTP request from large buffer for enrichment", "error", err)
-		return nil, buffer, false
+	if looksLikeHTTP1Request(buffer) {
+		reqReader := buffer.NewReader()
+		req, err := http.ReadRequest(bufio.NewReader(&reqReader))
+		if err != nil {
+			slog.Debug("error parsing HTTP request from large buffer for enrichment", "error", err)
+			return nil, buffer, false
+		}
+		return req, buffer, true
 	}
-	return req, buffer, true
+
+	if req, ok := parseHTTP2Request(buffer, span); ok {
+		return req, buffer, true
+	}
+
+	return nil, buffer, false
 }
 
-func goHTTPClientConnectionKey(conn BpfConnectionInfoT) BpfConnectionInfoT {
-	sortConnectionInfo(&conn)
-	return conn
+func goHTTPClientConnectionKey(conn BpfConnectionInfoT, traceID [16]uint8) pendingGoHTTPClientKey {
+	key := pendingGoHTTPClientKey{
+		traceID: traceID,
+		conn:    conn,
+	}
+	sortConnectionInfo(&key.conn)
+	return key
 }
 
 func (ctx *EBPFParseContext) goClientPayloadExtractionEnabled(cfg *config.EBPFTracer) bool {
@@ -194,22 +222,39 @@ func (ctx *EBPFParseContext) deferGoHTTPClientRequest(trace *HTTPRequestTrace) b
 		return false
 	}
 
-	key := goHTTPClientConnectionKey(trace.Conn)
+	key := goHTTPClientConnectionKey(trace.Conn, trace.Tp.TraceId)
+	direction := directionByPacketType(packetTypeRequest, true)
 
-	// If a request is already pending for this connection, the arrival of a new
-	// request means the connection is being reused, which implies the previous
-	// request/response exchange has completed. Flush the previous one (the LRU
-	// eviction callback emits it) and handle the new request immediately rather
-	// than deferring it again.
-	if ctx.pendingGoHTTPClientRequests.Contains(key) {
-		ctx.pendingGoHTTPClientRequests.Remove(key)
+	switch {
+	case containsTCPLargeBuffer(
+		ctx,
+		trace.Tp.TraceId,
+		packetTypeRequest,
+		direction,
+		key.conn,
+		ProtocolTypeHTTP,
+	):
+		// HTTP/2: retain the trace ID for multiplexing.
+
+	case containsTCPLargeBuffer(
+		ctx,
+		[16]uint8{},
+		packetTypeRequest,
+		direction,
+		key.conn,
+		ProtocolTypeHTTP,
+	):
+		// HTTP/1: large-buffer events are keyed with an empty trace ID.
+		key.traceID = [16]uint8{}
+
+	default:
 		return false
 	}
 
-	// Only defer if we captured the request payload. Without it there is nothing
-	// to wait for, so the span can be emitted immediately.
-	if !containsTCPLargeBuffer(ctx, [16]uint8{}, packetTypeRequest,
-		directionByPacketType(packetTypeRequest, true), key, ProtocolTypeHTTP) {
+	// This flushes a previous HTTP/1 request on connection reuse.
+	// HTTP/2 requests have distinct trace IDs, so they remain independent.
+	if ctx.pendingGoHTTPClientRequests.Contains(key) {
+		ctx.pendingGoHTTPClientRequests.Remove(key)
 		return false
 	}
 
@@ -220,12 +265,12 @@ func (ctx *EBPFParseContext) deferGoHTTPClientRequest(trace *HTTPRequestTrace) b
 	return true
 }
 
-func (ctx *EBPFParseContext) refreshPendingGoHTTPClientRequest(conn BpfConnectionInfoT) {
+func (ctx *EBPFParseContext) refreshPendingGoHTTPClientRequest(conn BpfConnectionInfoT, traceID [16]uint8) {
 	if ctx.pendingGoHTTPClientRequests == nil || ctx.discardPendingGoHTTPClients.Load() {
 		return
 	}
 
-	key := goHTTPClientConnectionKey(conn)
+	key := goHTTPClientConnectionKey(conn, traceID)
 	pending, ok := ctx.pendingGoHTTPClientRequests.Get(key)
 	if !ok || pending == nil || pending.emitted.Load() {
 		return

@@ -7,6 +7,7 @@
 #include <bpfcore/bpf_helpers.h>
 
 #include <common/common.h>
+#include <common/connection_info.h>
 #include <common/go_addr_key.h>
 #include <common/map_sizing.h>
 
@@ -72,3 +73,10 @@ struct {
     __type(value, u64);         // the *bufio.Reader buffering the request
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
 } ongoing_server_bufr SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __type(key, connection_info_t);
+    __type(value, bool);
+    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
+} go_http2_client_connections SEC(".maps");

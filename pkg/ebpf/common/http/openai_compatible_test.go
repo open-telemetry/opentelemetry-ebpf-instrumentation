@@ -135,6 +135,30 @@ func TestOpenAICompatibleSpan_MatchedButInvalidBody(t *testing.T) {
 	assert.False(t, ok)
 }
 
+func TestOpenAICompatibleSpan_ReportedZeroIdentifiesResponse(t *testing.T) {
+	gateways := []config.OpenAICompatibleGateway{
+		{Host: "litellm.local", Provider: "litellm"},
+	}
+
+	t.Run("reported zero", func(t *testing.T) {
+		req := makeRequest(t, http.MethodPost, "http://litellm.local/v1/chat/completions", `{}`)
+		resp := makeCompatibleResponse(`{"usage":{"total_tokens":0}}`)
+
+		span, ok := OpenAICompatibleSpan(&request.Span{}, req, resp, gateways)
+		require.True(t, ok)
+		require.NotNil(t, span.GenAI)
+		require.NotNil(t, span.GenAI.OpenAICompatible)
+	})
+
+	t.Run("missing", func(t *testing.T) {
+		req := makeRequest(t, http.MethodPost, "http://litellm.local/v1/chat/completions", `{}`)
+		resp := makeCompatibleResponse(`{"usage":{}}`)
+
+		_, ok := OpenAICompatibleSpan(&request.Span{}, req, resp, gateways)
+		assert.False(t, ok)
+	})
+}
+
 func TestOpenAICompatibleSpan_ChatCompletions(t *testing.T) {
 	gateways := []config.OpenAICompatibleGateway{
 		{Host: "litellm.local", Provider: "litellm"},
@@ -155,8 +179,8 @@ func TestOpenAICompatibleSpan_ChatCompletions(t *testing.T) {
 	assert.Equal(t, request.ChatOperationName, ai.OperationName)
 	assert.Equal(t, "chat_completions", ai.APIType)
 	assert.Equal(t, "gpt-4o-mini-2024-07-18", ai.ResponseModel)
-	assert.Equal(t, 10, ai.Usage.GetInputTokens())
-	assert.Equal(t, 8, ai.Usage.GetOutputTokens())
+	assert.Equal(t, 10, reportedValue(ai.Usage.InputTokenCount()))
+	assert.Equal(t, 8, reportedValue(ai.Usage.OutputTokenCount()))
 	assert.NotEmpty(t, ai.GetOutput())
 }
 
@@ -178,7 +202,7 @@ func TestOpenAICompatibleSpan_Embeddings(t *testing.T) {
 	assert.Equal(t, request.EmbeddingOperationName, ai.OperationName)
 	assert.Equal(t, "embeddings", ai.APIType)
 	assert.Equal(t, "text-embedding-3-small", ai.ResponseModel)
-	assert.Equal(t, 5, ai.Usage.GetInputTokens())
+	assert.Equal(t, 5, reportedValue(ai.Usage.InputTokenCount()))
 	assert.Equal(t, 256, ai.GetEmbeddingDimensions())
 }
 
@@ -200,8 +224,8 @@ func TestOpenAICompatibleSpan_SSEStream(t *testing.T) {
 	assert.Equal(t, "chatcmpl-sse-001", ai.ID)
 	assert.Equal(t, request.ChatOperationName, ai.OperationName)
 	assert.Equal(t, "gpt-4o-mini", ai.ResponseModel)
-	assert.Equal(t, 10, ai.Usage.GetInputTokens())
-	assert.Equal(t, 3, ai.Usage.GetOutputTokens())
+	assert.Equal(t, 10, reportedValue(ai.Usage.InputTokenCount()))
+	assert.Equal(t, 3, reportedValue(ai.Usage.OutputTokenCount()))
 
 	reasons := ai.GetFinishReasons()
 	require.Len(t, reasons, 1)
@@ -348,8 +372,8 @@ func TestOpenAICompatibleSpan_ResponsesAPI(t *testing.T) {
 	assert.Equal(t, "resp-gw-001", ai.ID)
 	assert.Equal(t, "gpt-4o-mini", ai.ResponseModel)
 	assert.NotEmpty(t, ai.Output)
-	assert.Equal(t, 5, ai.Usage.GetInputTokens())
-	assert.Equal(t, 3, ai.Usage.GetOutputTokens())
+	assert.Equal(t, 5, reportedValue(ai.Usage.InputTokenCount()))
+	assert.Equal(t, 3, reportedValue(ai.Usage.OutputTokenCount()))
 }
 
 const compatibleSSEToolCallsResponseBody = `data: {"id":"chatcmpl-tc-001","object":"chat.completion.chunk","model":"gpt-4o-mini","choices":[{"index":0,"delta":{"role":"assistant","content":null,"tool_calls":[{"index":0,"id":"call_001","type":"function","function":{"name":"get_weather","arguments":"{}"}}]},"finish_reason":null}]}
@@ -431,4 +455,31 @@ func TestOpenAICompatibleSpan_ResponsesAPIWithoutTotalTokens(t *testing.T) {
 	assert.Equal(t, "responses", ai.APIType)
 	assert.Equal(t, "resp-gw-002", ai.ID)
 	assert.NotEmpty(t, ai.Output)
+}
+
+func TestOpenAICompatibleSpan_SparseReportedUsage(t *testing.T) {
+	gateways := []config.OpenAICompatibleGateway{{Host: "litellm.local", Provider: "litellm"}}
+	for _, usage := range []string{
+		`"input_tokens":0`,
+		`"output_tokens":0`,
+		`"total_tokens":0`,
+		`"prompt_tokens":0`,
+		`"completion_tokens":0`,
+		`"input_tokens_details":{"cached_tokens":0}`,
+		`"input_tokens_details":{"cache_creation_tokens":0}`,
+		`"input_tokens_details":{"audio_tokens":0}`,
+		`"output_tokens_details":{"reasoning_tokens":0}`,
+		`"output_tokens_details":{"audio_tokens":0}`,
+		`"output_tokens_details":{"accepted_prediction_tokens":0}`,
+		`"output_tokens_details":{"rejected_prediction_tokens":0}`,
+	} {
+		t.Run(usage, func(t *testing.T) {
+			req := makeRequest(t, http.MethodPost, "http://litellm.local/v1/responses", `{}`)
+			resp := makeCompatibleResponse(`{"usage":{` + usage + `}}`)
+
+			span, ok := OpenAICompatibleSpan(&request.Span{}, req, resp, gateways)
+			require.True(t, ok)
+			require.NotNil(t, span.GenAI.OpenAICompatible)
+		})
+	}
 }

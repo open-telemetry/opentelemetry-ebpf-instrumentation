@@ -10,6 +10,7 @@
 enum {
     // --- HTTP/2 framing ---
     k_h2_frame_header_len = 9,
+    k_h2_frame_stream_id_offset = k_h2_frame_header_len - sizeof(u32),
     k_h2_frame_headers = 1,
     k_h2_frame_settings = 4, // RFC 7540 §6.5 SETTINGS frame type
     k_h2_flag_end_headers = 4,

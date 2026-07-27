@@ -214,15 +214,20 @@ extensions:
         #       traces: true
         #       metrics: false
         #     http:
-        #       # Per-workload HTTP route patterns for requests handled by or made by this workload.
+        #       # Per-workload HTTP route policy for requests handled by or made by this workload.
+        #       # Omitted fields inherit the corresponding global direction below.
         #       routes:
         #         incoming:
         #           patterns:
         #             - /cart/{id}
         #             - /cart/{id}/items
+        #           ignored_patterns:
+        #             - /health
+        #           unmatched: path
         #         outgoing:
         #           patterns:
         #             - /checkout/{id}
+        #           unmatched: wildcard
         #       # Per-workload HTTP filters (replace global filters for this service).
         #       filters:
         #         traces:
@@ -259,18 +264,28 @@ extensions:
           buffer_size: 0
           # HTTP route normalization and low-cardinality route naming controls.
           routes:
-            # Fallback policy when no explicit route match is found.
-            unmatched: heuristic
-            # Optional user-supplied route patterns.
-            patterns: []
-            # Optional route patterns to ignore.
-            ignored_patterns: []
-            # Ignore applies to traces, metrics, or all.
-            ignore_mode: all
-            # Route wildcard replacement character.
-            wildcard_char: "*"
-            # Caps per-segment route cardinality in heuristic mode.
-            max_path_segment_cardinality: 10
+            # Policy for requests handled by an instrumented workload.
+            incoming:
+              # Fallback policy when no explicit route match is found.
+              unmatched: heuristic
+              # Optional user-supplied route patterns.
+              patterns: []
+              # Optional route patterns to ignore.
+              ignored_patterns: []
+              # Ignore applies to traces, metrics, or all.
+              ignore_mode: all
+              # Route wildcard replacement character.
+              wildcard_char: "*"
+              # Caps per-segment route cardinality in heuristic mode.
+              max_path_segment_cardinality: 10
+            # Policy for requests made by an instrumented workload.
+            outgoing:
+              unmatched: heuristic
+              patterns: []
+              ignored_patterns: []
+              ignore_mode: all
+              wildcard_char: "*"
+              max_path_segment_cardinality: 10
             # Route template discovery from runtime/language frameworks.
             discovery:
               # Global timeout for route template discovery runs.

@@ -4,17 +4,24 @@
 package tracesgen
 
 import (
+	"encoding/json"
+	"math"
 	"testing"
 	"time"
 
+	expirable2 "github.com/hashicorp/golang-lru/v2/expirable"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/ptrace"
+	"go.opentelemetry.io/otel/attribute"
 	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
+	trace2 "go.opentelemetry.io/otel/trace"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
+	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
+	"go.opentelemetry.io/obi/pkg/appolly/meta"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 )
@@ -410,9 +417,9 @@ func TestTraceAttributesSelector_OpenAICompatible(t *testing.T) {
 						Model: "gpt-4o-mini",
 					},
 					Usage: request.OpenAIUsage{
-						PromptTokens:     10,
-						CompletionTokens: 8,
-						TotalTokens:      18,
+						PromptTokens:     request.NewTokenCount(10),
+						CompletionTokens: request.NewTokenCount(8),
+						TotalTokens:      request.NewTokenCount(18),
 					},
 					Choices: []byte(`[{"index":0,"message":{"role":"assistant","content":"Hello!"},"finish_reason":"stop"}]`),
 				},
@@ -492,8 +499,8 @@ func TestTraceAttributesSelector_OpenAICompatible(t *testing.T) {
 						Dimensions: 256,
 					},
 					Usage: request.OpenAIUsage{
-						PromptTokens: 5,
-						TotalTokens:  5,
+						PromptTokens: request.NewTokenCount(5),
+						TotalTokens:  request.NewTokenCount(5),
 					},
 					Data: []byte(`[{"object":"embedding","embedding":[0.1,0.2],"index":0}]`),
 				},
@@ -532,4 +539,468 @@ func TestTraceAttributesSelector_OpenAICompatible(t *testing.T) {
 		require.True(t, ok)
 		assert.Equal(t, request.CompletionOperationName, opName.Str())
 	})
+}
+
+func TestGenerateTracesWithAttributesManualOTelJSON(t *testing.T) {
+	payload := manualOTelPayload(t)
+	service := &svc.Attrs{
+		UID:         svc.UID{Name: "checkout"},
+		SDKLanguage: svc.InstrumentableGolang,
+	}
+	cache := expirable2.NewLRU[svc.UID, []attribute.KeyValue](10, nil, 0)
+
+	traces := GenerateTracesWithAttributes(
+		cache,
+		service,
+		nil,
+		&meta.NodeMeta{},
+		[]TraceSpanAndAttributes{{
+			Span: &request.Span{
+				Type:           request.EventTypeManualSpan,
+				SpanKind:       trace2.SpanKindServer,
+				Method:         "manual-json",
+				ManualOTelJSON: payload,
+			},
+		}},
+		"obi",
+	)
+
+	require.Equal(t, 1, traces.ResourceSpans().Len())
+	rs := traces.ResourceSpans().At(0)
+	serviceName, ok := rs.Resource().Attributes().Get(string(semconv.ServiceNameKey))
+	require.True(t, ok)
+	assert.Equal(t, "checkout", serviceName.Str())
+	_, ok = rs.Resource().Attributes().Get("payload.resource")
+	assert.False(t, ok)
+
+	require.Equal(t, 1, rs.ScopeSpans().Len())
+	ss := rs.ScopeSpans().At(0)
+	assert.Equal(t, "manual-scope", ss.Scope().Name())
+	assert.Equal(t, "v1.0.0", ss.Scope().Version())
+	assert.Equal(t, "https://opentelemetry.io/schemas/1.30.0", ss.SchemaUrl())
+	scopeAttr, ok := ss.Scope().Attributes().Get("scope.foo")
+	require.True(t, ok)
+	assert.Equal(t, "scope-bar", scopeAttr.Str())
+	assert.Equal(t, uint32(6), ss.Scope().DroppedAttributesCount())
+
+	require.Equal(t, 1, ss.Spans().Len())
+	span := ss.Spans().At(0)
+	assert.Equal(t, "manual-json", span.Name())
+	assert.Equal(t, ptrace.SpanKindServer, span.Kind())
+	assert.Equal(t, "00000000000000000000000000000001", span.TraceID().String())
+	assert.Equal(t, "0000000000000002", span.SpanID().String())
+	assert.Equal(t, "0000000000000003", span.ParentSpanID().String())
+	assert.Equal(t, "tenant=a", span.TraceState().AsRaw())
+	assert.Equal(t, uint32(1), span.Flags())
+	assert.Equal(t, pcommon.Timestamp(946684800000000000), span.StartTimestamp())
+	assert.Equal(t, pcommon.Timestamp(946684801000000000), span.EndTimestamp())
+	assert.Equal(t, ptrace.StatusCodeError, span.Status().Code())
+	assert.Equal(t, "boom", span.Status().Message())
+	assert.Equal(t, uint32(7), span.DroppedAttributesCount())
+	assert.Equal(t, uint32(8), span.DroppedEventsCount())
+	assert.Equal(t, uint32(9), span.DroppedLinksCount())
+
+	foo, ok := span.Attributes().Get("foo")
+	require.True(t, ok)
+	assert.Equal(t, "bar", foo.Str())
+
+	require.Equal(t, 1, span.Events().Len())
+	event := span.Events().At(0)
+	assert.Equal(t, "event-a", event.Name())
+	assert.Equal(t, pcommon.Timestamp(946684800100000000), event.Timestamp())
+	eventFoo, ok := event.Attributes().Get("event.foo")
+	require.True(t, ok)
+	assert.Equal(t, "event-bar", eventFoo.Str())
+	assert.Equal(t, uint32(10), event.DroppedAttributesCount())
+
+	require.Equal(t, 1, span.Links().Len())
+	link := span.Links().At(0)
+	assert.Equal(t, "00000000000000000000000000000004", link.TraceID().String())
+	assert.Equal(t, "0000000000000005", link.SpanID().String())
+	assert.Equal(t, "link=b", link.TraceState().AsRaw())
+	assert.Equal(t, uint32(1), link.Flags())
+	linkFoo, ok := link.Attributes().Get("link.foo")
+	require.True(t, ok)
+	assert.Equal(t, "link-bar", linkFoo.Str())
+	assert.Equal(t, uint32(11), link.DroppedAttributesCount())
+}
+
+func TestGenerateTracesWithAttributesDropsInvalidManualOTelJSON(t *testing.T) {
+	service := &svc.Attrs{UID: svc.UID{Name: "checkout"}}
+	cache := expirable2.NewLRU[svc.UID, []attribute.KeyValue](10, nil, 0)
+
+	traces := GenerateTracesWithAttributes(
+		cache,
+		service,
+		nil,
+		&meta.NodeMeta{},
+		[]TraceSpanAndAttributes{{
+			Span: &request.Span{
+				Type:           request.EventTypeManualSpan,
+				Method:         "fallback",
+				RequestStart:   1,
+				Start:          1,
+				End:            2,
+				TraceID:        trace2.TraceID{1},
+				SpanID:         trace2.SpanID{2},
+				ManualOTelJSON: []byte("{"),
+			},
+		}},
+		"obi",
+	)
+
+	require.Equal(t, 1, traces.ResourceSpans().Len())
+	ss := traces.ResourceSpans().At(0).ScopeSpans()
+	assert.Equal(t, 0, ss.Len())
+}
+
+func TestAppendManualOTelJSONRejectsInvalidShape(t *testing.T) {
+	tests := []struct {
+		name    string
+		payload func() []byte
+	}{
+		{name: "empty", payload: func() []byte { return nil }},
+		{name: "invalid JSON", payload: func() []byte { return []byte("{") }},
+		{
+			name: "no resource spans",
+			payload: func() []byte {
+				return marshalTracesJSON(t, ptrace.NewTraces())
+			},
+		},
+		{
+			name: "multiple resource spans",
+			payload: func() []byte {
+				traces := ptrace.NewTraces()
+				traces.ResourceSpans().AppendEmpty()
+				traces.ResourceSpans().AppendEmpty()
+				return marshalTracesJSON(t, traces)
+			},
+		},
+		{
+			name: "no scope spans",
+			payload: func() []byte {
+				traces := ptrace.NewTraces()
+				traces.ResourceSpans().AppendEmpty()
+				return marshalTracesJSON(t, traces)
+			},
+		},
+		{
+			name: "multiple scope spans",
+			payload: func() []byte {
+				traces := ptrace.NewTraces()
+				scopes := traces.ResourceSpans().AppendEmpty().ScopeSpans()
+				scopes.AppendEmpty().Spans().AppendEmpty()
+				scopes.AppendEmpty().Spans().AppendEmpty()
+				return marshalTracesJSON(t, traces)
+			},
+		},
+		{
+			name: "no spans",
+			payload: func() []byte {
+				traces := ptrace.NewTraces()
+				traces.ResourceSpans().AppendEmpty().ScopeSpans().AppendEmpty()
+				return marshalTracesJSON(t, traces)
+			},
+		},
+		{
+			name: "multiple spans",
+			payload: func() []byte {
+				traces := ptrace.NewTraces()
+				spans := traces.ResourceSpans().AppendEmpty().ScopeSpans().AppendEmpty().Spans()
+				spans.AppendEmpty()
+				spans.AppendEmpty()
+				return marshalTracesJSON(t, traces)
+			},
+		},
+		{
+			name: "invalid span metadata",
+			payload: func() []byte {
+				traces := ptrace.NewTraces()
+				traces.ResourceSpans().AppendEmpty().ScopeSpans().AppendEmpty().Spans().AppendEmpty()
+				return marshalTracesJSON(t, traces)
+			},
+		},
+		{
+			name: "invalid timestamps",
+			payload: func() []byte {
+				traces := ptrace.NewTraces()
+				span := traces.ResourceSpans().AppendEmpty().ScopeSpans().AppendEmpty().Spans().AppendEmpty()
+				span.SetTraceID(pcommon.TraceID{1})
+				span.SetSpanID(pcommon.SpanID{1})
+				span.SetStartTimestamp(1)
+				span.SetEndTimestamp(pcommon.Timestamp(math.MaxUint64))
+				return marshalTracesJSON(t, traces)
+			},
+		},
+		{
+			name: "invalid status",
+			payload: func() []byte {
+				traces := ptrace.NewTraces()
+				span := traces.ResourceSpans().AppendEmpty().ScopeSpans().AppendEmpty().Spans().AppendEmpty()
+				span.SetTraceID(pcommon.TraceID{1})
+				span.SetSpanID(pcommon.SpanID{1})
+				span.SetStartTimestamp(1)
+				span.SetEndTimestamp(2)
+				span.Status().SetCode(99)
+				return marshalTracesJSON(t, traces)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rs := ptrace.NewResourceSpans()
+			require.Error(t, appendManualOTelJSON(rs, tt.payload()))
+			assert.Equal(t, 0, rs.ScopeSpans().Len())
+		})
+	}
+}
+
+func TestAppendManualOTelJSONNormalizesSpanKind(t *testing.T) {
+	tests := []struct {
+		name string
+		kind ptrace.SpanKind
+		want ptrace.SpanKind
+	}{
+		{name: "unspecified", kind: ptrace.SpanKindUnspecified, want: ptrace.SpanKindInternal},
+		{name: "unknown", kind: ptrace.SpanKind(99), want: ptrace.SpanKindInternal},
+		{name: "client", kind: ptrace.SpanKindClient, want: ptrace.SpanKindClient},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			traces := ptrace.NewTraces()
+			span := traces.ResourceSpans().AppendEmpty().ScopeSpans().AppendEmpty().Spans().AppendEmpty()
+			span.SetTraceID(pcommon.TraceID{1})
+			span.SetSpanID(pcommon.SpanID{1})
+			span.SetStartTimestamp(1)
+			span.SetEndTimestamp(2)
+			span.SetKind(tt.kind)
+
+			rs := ptrace.NewResourceSpans()
+			require.NoError(t, appendManualOTelJSON(rs, marshalTracesJSON(t, traces)))
+			require.Equal(t, 1, rs.ScopeSpans().Len())
+			assert.Equal(t, tt.want, rs.ScopeSpans().At(0).Spans().At(0).Kind())
+		})
+	}
+}
+
+func TestManualSpanKind(t *testing.T) {
+	assert.Equal(t, trace2.SpanKindServer, spanKind(&request.Span{
+		Type:     request.EventTypeManualSpan,
+		SpanKind: trace2.SpanKindServer,
+	}))
+	assert.Equal(t, trace2.SpanKindInternal, spanKind(&request.Span{
+		Type: request.EventTypeManualSpan,
+	}))
+}
+
+func manualOTelPayload(t *testing.T) []byte {
+	t.Helper()
+
+	traces := ptrace.NewTraces()
+	rs := traces.ResourceSpans().AppendEmpty()
+	rs.Resource().Attributes().PutStr(string(semconv.ServiceNameKey), "payload-service")
+	rs.Resource().Attributes().PutStr("payload.resource", "discarded")
+
+	ss := rs.ScopeSpans().AppendEmpty()
+	ss.Scope().SetName("manual-scope")
+	ss.Scope().SetVersion("v1.0.0")
+	ss.Scope().Attributes().PutStr("scope.foo", "scope-bar")
+	ss.Scope().SetDroppedAttributesCount(6)
+	ss.SetSchemaUrl("https://opentelemetry.io/schemas/1.30.0")
+
+	span := ss.Spans().AppendEmpty()
+	span.SetTraceID(pcommon.TraceID{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1})
+	span.SetSpanID(pcommon.SpanID{0, 0, 0, 0, 0, 0, 0, 2})
+	span.SetParentSpanID(pcommon.SpanID{0, 0, 0, 0, 0, 0, 0, 3})
+	span.TraceState().FromRaw("tenant=a")
+	span.SetFlags(1)
+	span.SetName("manual-json")
+	span.SetKind(ptrace.SpanKindServer)
+	span.SetStartTimestamp(946684800000000000)
+	span.SetEndTimestamp(946684801000000000)
+	span.Attributes().PutStr("foo", "bar")
+	span.SetDroppedAttributesCount(7)
+	span.SetDroppedEventsCount(8)
+	span.SetDroppedLinksCount(9)
+	span.Status().SetCode(ptrace.StatusCodeError)
+	span.Status().SetMessage("boom")
+
+	event := span.Events().AppendEmpty()
+	event.SetTimestamp(946684800100000000)
+	event.SetName("event-a")
+	event.Attributes().PutStr("event.foo", "event-bar")
+	event.SetDroppedAttributesCount(10)
+
+	link := span.Links().AppendEmpty()
+	link.SetTraceID(pcommon.TraceID{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4})
+	link.SetSpanID(pcommon.SpanID{0, 0, 0, 0, 0, 0, 0, 5})
+	link.TraceState().FromRaw("link=b")
+	link.SetFlags(1)
+	link.Attributes().PutStr("link.foo", "link-bar")
+	link.SetDroppedAttributesCount(11)
+
+	return marshalTracesJSON(t, traces)
+}
+
+func marshalTracesJSON(t *testing.T, traces ptrace.Traces) []byte {
+	t.Helper()
+
+	var marshaler ptrace.JSONMarshaler
+	payload, err := marshaler.MarshalTraces(traces)
+	require.NoError(t, err)
+	return payload
+}
+
+func TestTraceAttributesSelector_GenAIUsageAvailability(t *testing.T) {
+	defaultAttrs, err := UserSelectedAttributes(&attributes.SelectorConfig{})
+	require.NoError(t, err)
+
+	var usage request.OpenAIUsage
+	require.NoError(t, json.Unmarshal([]byte(`{"prompt_tokens":0,"completion_tokens":0}`), &usage))
+	span := &request.Span{
+		Type:    request.EventTypeHTTPClient,
+		SubType: request.HTTPSubtypeOpenAI,
+		GenAI:   &request.GenAI{OpenAI: &request.VendorOpenAI{Usage: usage}},
+	}
+
+	selected := AttrsToMap(TraceAttributesSelector(span, defaultAttrs))
+	input, ok := selected.Get("gen_ai.usage.input_tokens")
+	require.True(t, ok)
+	assert.Zero(t, input.Int())
+	output, ok := selected.Get("gen_ai.usage.output_tokens")
+	require.True(t, ok)
+	assert.Zero(t, output.Int())
+
+	require.NoError(t, json.Unmarshal([]byte(`{}`), &usage))
+	span.GenAI.OpenAI.Usage = usage
+	selected = AttrsToMap(TraceAttributesSelector(span, defaultAttrs))
+	_, ok = selected.Get("gen_ai.usage.input_tokens")
+	assert.False(t, ok)
+	_, ok = selected.Get("gen_ai.usage.output_tokens")
+	assert.False(t, ok)
+}
+
+func TestTraceAttributesSelector_GenAITokenDetailAvailability(t *testing.T) {
+	defaultAttrs, err := UserSelectedAttributes(&attributes.SelectorConfig{})
+	require.NoError(t, err)
+
+	const (
+		reasoningKey     = "gen_ai.usage.reasoning.output_tokens"
+		cacheReadKey     = "gen_ai.usage.cache_read.input_tokens"
+		cacheCreationKey = "gen_ai.usage.cache_creation.input_tokens"
+	)
+
+	for _, tt := range []struct {
+		name    string
+		subType int
+		genAI   func(request.TokenCount) *request.GenAI
+		keys    []string
+	}{
+		{
+			name:    "OpenAI",
+			subType: request.HTTPSubtypeOpenAI,
+			genAI: func(count request.TokenCount) *request.GenAI {
+				return &request.GenAI{OpenAI: &request.VendorOpenAI{Usage: request.OpenAIUsage{
+					OutputDetails: &request.OpenAIOutputTokensDetails{ReasoningTokens: count},
+					InputDetails: &request.OpenAIInputTokensDetails{
+						CachedTokens:        count,
+						CacheCreationTokens: count,
+					},
+				}}}
+			},
+			keys: []string{reasoningKey, cacheReadKey, cacheCreationKey},
+		},
+		{
+			name:    "Anthropic",
+			subType: request.HTTPSubtypeAnthropic,
+			genAI: func(count request.TokenCount) *request.GenAI {
+				return &request.GenAI{Anthropic: &request.VendorAnthropic{Output: request.AnthropicResponse{
+					Usage: request.AnthropicUsage{
+						CacheCreationInputTokens: count,
+						CacheReadInputTokens:     count,
+						ReasoningOutputTokens:    count,
+					},
+				}}}
+			},
+			keys: []string{reasoningKey, cacheReadKey, cacheCreationKey},
+		},
+		{
+			name:    "Qwen",
+			subType: request.HTTPSubtypeQwen,
+			genAI: func(count request.TokenCount) *request.GenAI {
+				return &request.GenAI{Qwen: &request.VendorOpenAI{Usage: request.OpenAIUsage{
+					OutputDetails: &request.OpenAIOutputTokensDetails{ReasoningTokens: count},
+					InputDetails: &request.OpenAIInputTokensDetails{
+						CachedTokens:        count,
+						CacheCreationTokens: count,
+					},
+				}}}
+			},
+			keys: []string{reasoningKey, cacheReadKey, cacheCreationKey},
+		},
+		{
+			name:    "OpenAI compatible",
+			subType: request.HTTPSubtypeOpenAICompatible,
+			genAI: func(count request.TokenCount) *request.GenAI {
+				return &request.GenAI{OpenAICompatible: &request.VendorOpenAI{Usage: request.OpenAIUsage{
+					OutputDetails: &request.OpenAIOutputTokensDetails{ReasoningTokens: count},
+					InputDetails: &request.OpenAIInputTokensDetails{
+						CachedTokens:        count,
+						CacheCreationTokens: count,
+					},
+				}}}
+			},
+			keys: []string{reasoningKey, cacheReadKey, cacheCreationKey},
+		},
+		{
+			name:    "Gemini",
+			subType: request.HTTPSubtypeGemini,
+			genAI: func(count request.TokenCount) *request.GenAI {
+				return &request.GenAI{Gemini: &request.VendorGemini{Output: request.GeminiResponse{
+					UsageMetadata: request.GeminiUsage{
+						CachedContentTokenCount: count,
+						ThoughtsTokenCount:      count,
+					},
+				}}}
+			},
+			keys: []string{reasoningKey, cacheReadKey},
+		},
+		{
+			name:    "Bedrock",
+			subType: request.HTTPSubtypeAWSBedrock,
+			genAI: func(count request.TokenCount) *request.GenAI {
+				return &request.GenAI{Bedrock: &request.VendorBedrock{Output: request.BedrockResponse{
+					Usage: request.BedrockUsage{
+						CacheReadInputTokens:  count,
+						CacheWriteInputTokens: count,
+					},
+				}}}
+			},
+			keys: []string{cacheReadKey, cacheCreationKey},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			span := &request.Span{
+				Type:    request.EventTypeHTTPClient,
+				SubType: tt.subType,
+				GenAI:   tt.genAI(request.NewTokenCount(0)),
+			}
+
+			selected := AttrsToMap(TraceAttributesSelector(span, defaultAttrs))
+			for _, key := range tt.keys {
+				value, ok := selected.Get(key)
+				require.True(t, ok, key)
+				assert.Zero(t, value.Int(), key)
+			}
+
+			span.GenAI = tt.genAI(request.TokenCount{})
+			selected = AttrsToMap(TraceAttributesSelector(span, defaultAttrs))
+			for _, key := range tt.keys {
+				_, ok := selected.Get(key)
+				assert.False(t, ok, key)
+			}
+		})
+	}
 }

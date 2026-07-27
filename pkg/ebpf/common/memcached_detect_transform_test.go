@@ -316,7 +316,7 @@ func TestMemcachedCommandBytesField(t *testing.T) {
 }
 
 func TestMemcachedConsumeStoragePayloadOverflowSafe(t *testing.T) {
-	fields := bytes.Fields([]byte(fmt.Sprintf("set session 0 300 %d", math.MaxInt)))
+	fields := bytes.Fields(fmt.Appendf(nil, "set session 0 300 %d", math.MaxInt))
 	reader := largebuf.NewLargeBufferFrom([]byte("value\r\n")).NewReader()
 
 	assert.NotPanics(t, func() {

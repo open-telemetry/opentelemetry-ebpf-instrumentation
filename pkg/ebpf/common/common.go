@@ -26,6 +26,8 @@ import (
 	"github.com/hashicorp/golang-lru/v2/expirable"
 	"github.com/hashicorp/golang-lru/v2/simplelru"
 
+	"go.opentelemetry.io/otel/trace"
+
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/config"
 	"go.opentelemetry.io/obi/pkg/ebpf/common/dnsparser"
@@ -36,7 +38,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
 
-//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -target amd64,arm64 -type http_request_trace_t -type sql_request_trace_t -type http_info_t -type connection_info_t -type http2_grpc_request_t -type tcp_req_t -type kafka_client_req_t -type kafka_go_req_t -type redis_client_req_t -type tcp_large_buffer_t -type otel_span_t -type channel_link_trace_t -type mongo_go_client_req_t -type dns_req_t Bpf ../../../bpf/common/common.c -- -I../../../bpf
+//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -target amd64,arm64 -type http_request_trace_t -type sql_request_trace_t -type http_info_t -type connection_info_t -type http2_grpc_request_t -type tcp_req_t -type kafka_client_req_t -type kafka_go_req_t -type redis_client_req_t -type tcp_large_buffer_t -type otel_span_t -type channel_link_trace_t -type go_auto_span_t -type mongo_go_client_req_t -type dns_req_t Bpf ../../../bpf/common/common.c -- -I../../../bpf
 
 // HTTPRequestTrace contains information from an HTTP request as directly received from the
 // eBPF layer. This contains low-level C structures for accurate binary read from ring buffer.
@@ -52,6 +54,7 @@ type (
 	GoChannelLinkTrace   BpfChannelLinkTraceT
 	TCPLargeBufferHeader BpfTcpLargeBufferT
 	GoOTelSpanTrace      BpfOtelSpanT
+	GoAutoSpanTrace      BpfGoAutoSpanT
 	GoMongoClientInfo    BpfMongoGoClientReqT
 	DNSInfo              BpfDnsReqT
 )
@@ -82,6 +85,7 @@ const (
 	EventTypeGoRuntimeMetric = 17 // EVENT_GO_RUNTIME_METRICS - Go runtime metrics
 	EventTypeGoChannelLink   = 18 // EVENT_GO_CHANNEL_LINK - Go channel handoff span links
 	EventTypeJVMMemoryPoolGC = 19 // EVENT_JVM_MEM_POOL_GC - JVM memory pool GC metrics
+	EventTypeGoAutoSpan      = 20 // EVENT_GO_AUTO_SPAN - Go Auto SDK OTLP JSON span
 )
 
 // Kernel-side classification
@@ -255,6 +259,11 @@ type pendingGoHTTPClientRequest struct {
 	emitted   atomic.Bool
 }
 
+type pendingGoHTTPClientKey struct {
+	conn    BpfConnectionInfoT
+	traceID trace.TraceID
+}
+
 type EBPFParseContext struct {
 	protocolDebug               bool
 	h2c                         *lru.Cache[uint64, h2Connection]
@@ -272,7 +281,7 @@ type EBPFParseContext struct {
 	httpEnricher                *ebpfhttp.HTTPEnricher
 	dnsEvents                   *expirable.LRU[dnsparser.DNSId, *request.Span]
 	pendingSpanLinks            *pendingSpanLinks
-	pendingGoHTTPClientRequests *expirable.LRU[BpfConnectionInfoT, *pendingGoHTTPClientRequest]
+	pendingGoHTTPClientRequests *expirable.LRU[pendingGoHTTPClientKey, *pendingGoHTTPClientRequest]
 	goHTTPClientMaxPendingTime  time.Duration
 	discardPendingGoHTTPClients atomic.Bool
 	emitSpans                   func([]request.Span)
@@ -548,6 +557,9 @@ func ReadBPFTraceAsSpan(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, reco
 		return appendTCPLargeBuffer(parseCtx, record)
 	case EventOTelSDKGo:
 		span, ignore, err := ReadGoOTelEventIntoSpan(record)
+		return finalizeParsedSpan(parseCtx, span, ignore, err)
+	case EventTypeGoAutoSpan:
+		span, ignore, err := ReadGoAutoSpanEventIntoSpan(record)
 		return finalizeParsedSpan(parseCtx, span, ignore, err)
 	case EventTypeFailedConnect:
 		span, ignore, err := ReadFailedConnectIntoSpan(record, filter)

@@ -138,16 +138,10 @@ type HTTPRefinement struct {
 	Filters SignalFilters        `yaml:"filters,omitempty"`
 }
 
-// HTTPRefinementRoutes groups incoming and outgoing per-rule route patterns.
+// HTTPRefinementRoutes groups incoming and outgoing per-rule route policies.
 type HTTPRefinementRoutes struct {
-	Incoming HTTPRefinementRoute `yaml:"incoming,omitempty"`
-	Outgoing HTTPRefinementRoute `yaml:"outgoing,omitempty"`
-}
-
-// HTTPRefinementRoute lists per-rule HTTP route patterns for one traffic
-// direction.
-type HTTPRefinementRoute struct {
-	Patterns []string `yaml:"patterns,omitempty"`
+	Incoming *HTTPRoutePolicy `yaml:"incoming,omitempty"`
+	Outgoing *HTTPRoutePolicy `yaml:"outgoing,omitempty"`
 }
 
 // CaptureLimits describes capture cardinality and buffering limits.

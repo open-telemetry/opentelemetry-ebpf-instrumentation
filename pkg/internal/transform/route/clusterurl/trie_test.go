@@ -105,6 +105,13 @@ func TestPathTrie_EmptyPath(t *testing.T) {
 	assert.Empty(t, trie.lookup(""))
 }
 
+func TestPathTrie_Disabled(t *testing.T) {
+	trie := NewPathTrie(0, '*')
+
+	assert.Equal(t, "/orders/checkout", trie.Insert("/orders/checkout"))
+	assert.Equal(t, "/customers/profile", trie.Insert("/customers/profile"))
+}
+
 func TestPathTrie_SingleSegment(t *testing.T) {
 	trie := NewPathTrie(2, '*')
 

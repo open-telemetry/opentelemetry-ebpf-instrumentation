@@ -123,10 +123,11 @@ extensions:
 	require.NotNil(t, cfg.Capture.Rules[0].Refine.Exports)
 	require.Equal(t, ExportModeRefinement{Traces: false, Metrics: true}, *cfg.Capture.Rules[0].Refine.Exports)
 	require.NotNil(t, cfg.Capture.Rules[0].Refine.HTTP)
-	require.Equal(t, HTTPRefinementRoutes{
-		Incoming: HTTPRefinementRoute{Patterns: []string{"/orders/{id}"}},
-		Outgoing: HTTPRefinementRoute{Patterns: []string{"/inventory/{id}"}},
-	}, cfg.Capture.Rules[0].Refine.HTTP.Routes)
+	routes := cfg.Capture.Rules[0].Refine.HTTP.Routes
+	require.NotNil(t, routes.Incoming)
+	require.NotNil(t, routes.Outgoing)
+	require.Equal(t, []string{"/orders/{id}"}, *routes.Incoming.Patterns)
+	require.Equal(t, []string{"/inventory/{id}"}, *routes.Outgoing.Patterns)
 	require.Equal(t, AttributeFilter{Match: "5*"}, cfg.Capture.Rules[0].Refine.HTTP.Filters.Traces["status_code"])
 }
 

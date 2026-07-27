@@ -151,7 +151,7 @@ int obi_uprobe_netFdReadRet(struct pt_regs *ctx) {
             return 0;
         } else if (net_ptr && net_ptr->byte_ptr) {
             send_http_large_buffers_if_needed(
-                &net_ptr->p_conn.conn, (void *)net_ptr->byte_ptr, len, TCP_RECV);
+                &g_key, &net_ptr->p_conn.conn, (void *)net_ptr->byte_ptr, len, TCP_RECV);
         }
 
         return 0;
@@ -228,7 +228,7 @@ int obi_uprobe_netFdWrite(struct pt_regs *ctx) {
             cleanup_duplicate_generic_events_sorted(&p_conn);
 
             if (!http_large_buffer_skip(len)) {
-                send_http_large_buffers_if_needed(&p_conn.conn, (void *)buf, len, TCP_SEND);
+                send_http_large_buffers_if_needed(&g_key, &p_conn.conn, (void *)buf, len, TCP_SEND);
             }
             return 0;
         }
@@ -258,19 +258,24 @@ int obi_uprobe_netFdClose(struct pt_regs *ctx) {
         return 0;
     }
 
-    connection_info_t conn = {0};
+    go_large_buffer_key_t key = {
+        .stream_id = 0, // HTTP/1 state
+    };
 
-    if (!get_conn_info_from_fd(fd_ptr, &conn, false)) {
+    // HTTP2 will remain in the LRU map and get kicked out, the connection + streamId will
+    // not repeat and if it does we clean-up on new connection + stream setup_http2_client_conn.
+
+    if (!get_conn_info_from_fd(fd_ptr, &key.conn, false)) {
         return 0;
     }
 
-    sort_connection_info(&conn);
+    sort_connection_info(&key.conn);
 
-    bpf_map_delete_elem(&ongoing_large_buffers, &conn);
+    bpf_map_delete_elem(&ongoing_large_buffers, &key);
 
-    dbg_print_http_connection_info(&conn);
+    dbg_print_http_connection_info(&key.conn);
 
-    remove_go_handled_connection(&conn);
+    remove_go_handled_connection(&key.conn);
 
     return 0;
 }
