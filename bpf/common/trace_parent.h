@@ -24,6 +24,7 @@
 #include <maps/java_tasks.h>
 #include <maps/java_vt_threads.h>
 #include <maps/nginx_upstream.h>
+#include <maps/nodejs_deno_map.h>
 #include <maps/nodejs_fd_map.h>
 #include <maps/puma_tasks.h>
 #include <maps/python_thread_state.h>
@@ -109,6 +110,28 @@ find_nodejs_parent_trace(const pid_connection_info_t *p_conn, u16 orig_dport, u6
     }
 
     return trace_info_for_connection(conn, TRACE_TYPE_SERVER);
+}
+
+// Deno counterpart of find_nodejs_parent_trace. Deno exposes no socket fds, so
+// the injected agent correlates connections by their 4-tuple instead: it
+// records, in nodejs_deno_map, the mapping from an outgoing (client) ephemeral
+// endpoint to the incoming (server) ephemeral endpoint of the request that
+// caused the call. The server endpoint keys server_traces_aux, which yields the
+// parent server trace.
+static __always_inline tp_info_pid_t *find_deno_parent_trace(const pid_connection_info_t *p_conn,
+                                                             u16 orig_dport) {
+    connection_info_part_t client_part = {};
+    populate_ephemeral_info(&client_part, &p_conn->conn, orig_dport, p_conn->pid, FD_CLIENT);
+
+    connection_info_part_t *server_part = bpf_map_lookup_elem(&nodejs_deno_map, &client_part);
+    if (!server_part) {
+        return NULL;
+    }
+
+    bpf_dbg_printk(
+        "deno parent lookup: client_port=%d, server_port=%d", client_part.port, server_part->port);
+
+    return bpf_map_lookup_elem(&server_traces_aux, server_part);
 }
 
 static __always_inline tp_info_pid_t *find_parent_process_trace(trace_key_t *t_key) {
@@ -282,6 +305,12 @@ static __always_inline tp_info_pid_t *find_parent_trace(const pid_connection_inf
 
     if (node_tp) {
         return node_tp;
+    }
+
+    tp_info_pid_t *deno_tp = find_deno_parent_trace(p_conn, orig_dport);
+
+    if (deno_tp) {
+        return deno_tp;
     }
 
     bpf_dbg_printk("Looking up parent trace for pid=%d, ns=%lx, extra_id=%llx",

@@ -40,22 +40,24 @@ func (i *NodeInjector) NewExecutable(ie *ebpf.Instrumentable) {
 		return
 	}
 
-	if ie.Type != svc.InstrumentableNodejs {
+	if ie.Type != svc.InstrumentableNodejs && ie.Type != svc.InstrumentableDeno {
 		i.log.Debug("not a NodeJS executable")
 		return
 	}
 
 	i.log.Info("loading NodeJS instrumentation", "pid", ie.FileInfo.Pid())
 
-	if err := i.attachAgent(int(ie.FileInfo.Pid()), ie.FileInfo.ELF()); err != nil {
-		i.log.Error("couldn't attach NodeJS injector", "pid", ie.FileInfo.Pid(), "error", err)
-		i.log.Error("trace-context propagation will not work for NodeJS services!")
+	deno := ie.Type == svc.InstrumentableDeno
+
+	if err := i.attachAgent(int(ie.FileInfo.Pid()), ie.FileInfo.ELF(), deno); err != nil {
+		i.log.Error("couldn't attach JS injector", "deno", deno, "pid", ie.FileInfo.Pid(), "error", err)
+		i.log.Error("trace-context propagation will not work for JS services!")
 	}
 }
 
-func (i *NodeInjector) attachAgent(pid int, elfFile *elf.File) error {
+func (i *NodeInjector) attachAgent(pid int, elfFile *elf.File, deno bool) error {
 	return netns.WithNetNS(pid, func() error {
-		return i.injectFile(pid, elfFile)
+		return i.injectFile(pid, elfFile, deno)
 	})
 }
 
@@ -64,14 +66,14 @@ func (i *NodeInjector) attachAgent(pid int, elfFile *elf.File) error {
 // open, e.g. via --inspect flag), validating with /json/version. If that fails,
 // it checks for a custom SIGUSR1 handler and either sends SIGUSR1 to open the
 // inspector or bails out.
-func (i *NodeInjector) injectFile(pid int, elfFile *elf.File) error {
+func (i *NodeInjector) injectFile(pid int, elfFile *elf.File, deno bool) error {
 	conn, err := connect("127.0.0.1", 9229)
 	if err == nil {
 		// Validate this is actually a Node.js inspector, not some other
 		// service that happens to listen on port 9229.
 		if i.isNodeInspector(conn) {
 			i.log.Debug("Node.js inspector already open, injecting directly", "pid", pid)
-			return i.injectViaConn(conn)
+			return i.injectViaConn(conn, deno)
 		}
 		conn.Close()
 	}
@@ -104,7 +106,7 @@ func (i *NodeInjector) injectFile(pid int, elfFile *elf.File) error {
 		return fmt.Errorf("failed to connect to inspector after SIGUSR1: %w", err)
 	}
 
-	return i.injectViaConn(conn)
+	return i.injectViaConn(conn, deno)
 }
 
 // isNodeInspector validates that a connection to port 9229 is actually a
@@ -123,3 +125,6 @@ func (i *NodeInjector) isNodeInspector(conn net.Conn) bool {
 
 //go:embed fdextractor.js
 var _extractorBytes []byte
+
+//go:embed fdextractor_deno.js
+var _extractorDenoBytes []byte

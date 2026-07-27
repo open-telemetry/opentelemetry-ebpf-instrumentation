@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //go:build obi_bpf_ignore
+#include "deno.c"
 #include "iter_tcp.c"
 #include "java_tls.c"
 #include "jvm.c"

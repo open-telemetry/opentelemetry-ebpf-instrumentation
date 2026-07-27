@@ -62,6 +62,7 @@ func NewRouteHarvester(cfg *services.RouteHarvestingConfig, disabled []services.
 		}
 		if lang == services.RouteHarvesterLanguageNodejs {
 			dMap[svc.InstrumentableNodejs] = struct{}{}
+			dMap[svc.InstrumentableDeno] = struct{}{}
 		}
 	}
 
@@ -118,8 +119,10 @@ func (h *RouteHarvester) HarvestRoutes(fileInfo *exec.FileInfo) (*RouteHarvester
 			} else {
 				resultChan <- result{r: nil}
 			}
-		case svc.InstrumentableNodejs:
-			if _, ok := h.disabled[svc.InstrumentableNodejs]; !ok {
+		case svc.InstrumentableNodejs, svc.InstrumentableDeno:
+			_, ok1 := h.disabled[svc.InstrumentableNodejs]
+			_, ok2 := h.disabled[svc.InstrumentableDeno]
+			if !ok1 && !ok2 {
 				r, err := h.nodeExtractRoutes(fileInfo.Pid())
 				if err != nil {
 					resultChan <- result{err: err}

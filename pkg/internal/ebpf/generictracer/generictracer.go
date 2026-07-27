@@ -346,6 +346,12 @@ func (p *Tracer) KProbes() map[string]ebpfcommon.ProbeDesc {
 			Required: true,
 			Start:    p.bpfObjects.ObiKprobeSysIoctl,
 		},
+		// Deno trace-context propagation signal (fdextractor_deno.js emits a
+		// statx on a magic path since Deno has no libuv uv_fs_access uprobe).
+		"sys_statx": {
+			Required: false,
+			Start:    p.bpfObjects.ObiKprobeSysStatx,
+		},
 	}
 
 	if p.cfg.EBPF.ContextPropagation.IsEnabled() {

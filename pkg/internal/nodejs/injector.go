@@ -41,6 +41,11 @@ type evalParams struct {
 
 const inspectorRequestTimeout = 5 * time.Second
 
+// wsWriteBufferSize must exceed the largest injected agent script so gorilla
+// sends the Runtime.evaluate message in a single (unfragmented) WebSocket frame
+// (see upgradeConnWithTimeout).
+const wsWriteBufferSize = 1 << 20
+
 // IMPORTANT: the code in this file needs to run in the network namespace of the
 // target process in order to be able to connect to its inspector port - the
 // network namespace switching is done by the withNetNS function, which locks
@@ -184,6 +189,12 @@ func upgradeConnWithTimeout(conn net.Conn, wsURL string, timeout time.Duration) 
 		NetDial: func(_, _ string) (net.Conn, error) {
 			return conn, nil
 		},
+		// gorilla fragments any message larger than the write buffer into
+		// WebSocket continuation frames. Node's V8 inspector reassembles them,
+		// but Deno's inspector does not - it parses only the first frame and
+		// rejects the rest with a JSON parse error. Size the buffer so the
+		// whole injected agent script is sent as a single frame.
+		WriteBufferSize: wsWriteBufferSize,
 	}
 
 	wsConn, resp, err := dialer.Dial(wsURL, nil)
@@ -257,25 +268,28 @@ func sendEvaluateWithTimeout(wsConn *websocket.Conn, exp string, id int, timeout
 	return nil
 }
 
-func (i *NodeInjector) injectFileWS(wsConn *websocket.Conn) error {
+func (i *NodeInjector) injectFileWS(wsConn *websocket.Conn, deno bool) error {
 	defer func() {
 		_ = sendEvaluate(wsConn, "process._debugEnd();", 2)
 	}()
 
-	script := string(_extractorBytes)
+	var script string
+	if deno {
+		script = string(_extractorDenoBytes)
+	} else {
+		script = string(_extractorBytes)
+	}
 
-	wrapped := fmt.Sprintf("(async ()=>{\n%s\n})()", script)
-
-	if err := sendEvaluate(wsConn, wrapped, 1); err != nil {
+	if err := sendEvaluate(wsConn, script, 1); err != nil {
 		return err
 	}
 
-	i.log.Info("Script successfully injected")
+	i.log.Info("Script successfully injected", "deno", deno)
 
 	return nil
 }
 
-func (i *NodeInjector) injectViaConn(conn net.Conn) error {
+func (i *NodeInjector) injectViaConn(conn net.Conn, deno bool) error {
 	wsURL, err := i.requestDebuggerURL(conn)
 	if err != nil {
 		conn.Close()
@@ -290,5 +304,5 @@ func (i *NodeInjector) injectViaConn(conn net.Conn) error {
 		return fmt.Errorf("failed to connect to inspector WebSocket: %w", err)
 	}
 
-	return i.injectFileWS(wsConn)
+	return i.injectFileWS(wsConn, deno)
 }

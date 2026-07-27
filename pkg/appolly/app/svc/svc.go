@@ -28,6 +28,7 @@ const (
 	InstrumentablePython
 	InstrumentableRuby
 	InstrumentableNodejs
+	InstrumentableDeno
 	InstrumentableRust
 	InstrumentableGeneric
 	InstrumentablePHP
@@ -46,7 +47,8 @@ func (it InstrumentableType) String() string {
 		return semconv.TelemetrySDKLanguagePython.Value.AsString()
 	case InstrumentableRuby:
 		return semconv.TelemetrySDKLanguageRuby.Value.AsString()
-	case InstrumentableNodejs:
+	case InstrumentableNodejs, InstrumentableDeno:
+		// For JavaScript, OTEL semantic conventions only defines telemetry.sdk.language={nodejs,webjs}
 		return semconv.TelemetrySDKLanguageNodejs.Value.AsString()
 	case InstrumentableRust:
 		return semconv.TelemetrySDKLanguageRust.Value.AsString()
