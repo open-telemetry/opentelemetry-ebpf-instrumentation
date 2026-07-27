@@ -391,6 +391,7 @@ func TestSuite_Deno(t *testing.T) {
 	require.NoError(t, compose.Up())
 	t.Run("Deno RED metrics", testREDMetricsJSHTTP)
 	t.Run("HTTP traces (kprobes)", testHTTPTracesKProbes)
+	t.Run("HTTP nested traces large HTTPS (kprobes)", testHTTPTracesNestedJSLargeHTTPS)
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }

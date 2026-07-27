@@ -1,7 +1,7 @@
 const STORE = Symbol.for('otel-ebpf-instrumentation.fdextractor');
 
-const net = require('net');
-const fs = require('fs');
+const net = await import('net');
+const fs = await import('fs');
 
 if (!global[STORE]) {
   global[STORE] = {
@@ -16,7 +16,7 @@ net.Server.prototype.emit = orig.serverEmit;
 net.Socket.prototype.connect = orig.socketConnect;
 net.Socket.prototype.write = orig.socketWrite;
 
-const { AsyncLocalStorage, createHook } = require('async_hooks');
+const { AsyncLocalStorage, createHook } = await import('async_hooks');
 
 const debug_enabled = false;
 

@@ -264,7 +264,7 @@ func (i *NodeInjector) injectFileWS(wsConn *websocket.Conn) error {
 
 	script := string(_extractorBytes)
 
-	wrapped := fmt.Sprintf("(()=>{\n%s\n})()", script)
+	wrapped := fmt.Sprintf("(async ()=>{\n%s\n})()", script)
 
 	if err := sendEvaluate(wsConn, wrapped, 1); err != nil {
 		return err
