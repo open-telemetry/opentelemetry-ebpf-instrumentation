@@ -392,6 +392,9 @@ func TestSuite_Deno(t *testing.T) {
 	t.Run("Deno RED metrics", testREDMetricsJSHTTP)
 	t.Run("HTTP traces (kprobes)", testHTTPTracesKProbes)
 	t.Run("HTTP nested traces large HTTPS (kprobes)", testHTTPTracesNestedJSLargeHTTPS)
+	// LargeHTTPS is Node-only: OBI cannot decrypt Deno's rustls TLS, so nested
+	// HTTPS client calls are invisible. Validate propagation over plain HTTP.
+	t.Run("HTTP nested traces plain HTTP (kprobes)", testHTTPTracesNestedJSPlainHTTP)
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }

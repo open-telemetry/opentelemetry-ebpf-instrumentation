@@ -42,6 +42,27 @@ app.get("/dist", (req, res, next) => {
   });
 });
 
+// Plain-HTTP nested call: the server makes an outgoing HTTP (not HTTPS) request
+// to a local endpoint, so eBPF can observe both the server and the nested client
+// span via kprobes (no TLS involved). Used to validate trace-context propagation
+// on runtimes whose TLS OBI cannot decrypt (e.g. Deno / rustls).
+app.get("/nested-plain-target", (req, res) => {
+  res.json("nested target");
+});
+
+app.get("/nested-plain", (req, res) => {
+  http
+    .get(`http://localhost:${port}/nested-plain-target`, (r) => {
+      let data = "";
+      r.on("data", (chunk) => (data += chunk));
+      r.on("end", () => res.json("nested done"));
+    })
+    .on("error", (error) => {
+      console.error("nested-plain error:", error.message);
+      res.sendStatus(500);
+    });
+});
+
 app.get("/traceme", (req, res, next) => {
   http.get("http://testserver:8080/gotracemetoo", {}, (r) => {
     if (r.statusCode !== 200) {

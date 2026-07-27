@@ -1529,6 +1529,70 @@ func testHTTPTracesNestedJSLargeHTTPS(t *testing.T) {
 	assert.Len(t, children, 2)
 }
 
+// testHTTPTracesNestedJSPlainHTTP validates trace-context propagation for a JS
+// runtime using a plain-HTTP (non-TLS) nested call. Unlike the LargeHTTPS test,
+// the outgoing call is plaintext, so eBPF observes it via kprobes without needing
+// to decrypt TLS. This is the propagation check for Deno, whose rustls-based TLS
+// OBI cannot instrument.
+//
+// The /nested-plain handler makes a loopback call to /nested-plain-target within
+// the same process. OBI collapses a same-process loopback call into a single
+// (server) span rather than a client+server pair, so the propagation assertion is
+// that the callee's server span (GET /nested-plain-target) is linked as a child
+// of the caller's "processing" span - i.e. the outgoing call inherited the
+// incoming request's trace context.
+func testHTTPTracesNestedJSPlainHTTP(t *testing.T) {
+	ti.DoHTTPGet(t, "http://localhost:3031/nested-plain", 200)
+
+	var trace jaeger.Trace
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		resp, err := http.Get(jaegerQueryURL + "?service=testserver&operation=GET%20%2Fnested-plain")
+		require.NoError(ct, err)
+		if resp == nil {
+			return
+		}
+		require.Equal(ct, http.StatusOK, resp.StatusCode)
+		var tq jaeger.TracesQuery
+		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
+		traces := tq.FindBySpan(jaeger.Tag{Key: "url.path", Type: "string", Value: "/nested-plain"})
+		require.Len(ct, traces, 1)
+		// The callee span must have propagated into the same trace.
+		require.NotEmpty(ct, traces[0].FindByOperationName("GET /nested-plain-target", "server"))
+		trace = traces[0]
+	}, testTimeout, 100*time.Millisecond)
+
+	// The entry server span.
+	res := trace.FindByOperationName("GET /nested-plain", "server")
+	require.Len(t, res, 1)
+	server := res[0]
+	require.NotEmpty(t, server.TraceID)
+	require.NotEmpty(t, server.SpanID)
+
+	// The "processing" internal span whose parent is the entry server span.
+	res = trace.FindByOperationName("processing", "internal")
+	require.NotEmpty(t, res)
+	var processing *jaeger.Span
+	for i := range res {
+		r := &res[i]
+		if p, ok := trace.ParentOf(r); ok && p.SpanID == server.SpanID {
+			processing = r
+			break
+		}
+	}
+	require.NotNil(t, processing)
+
+	// The nested callee's server span must be a child of the caller's "processing"
+	// span - this is the propagation assertion: the outgoing call was linked to
+	// the incoming request.
+	res = trace.FindByOperationName("GET /nested-plain-target", "server")
+	require.Len(t, res, 1)
+	callee := res[0]
+	p, ok := trace.ParentOf(&callee)
+	require.True(t, ok)
+	assert.Equal(t, processing.TraceID, p.TraceID)
+	assert.Equal(t, processing.SpanID, p.SpanID)
+}
+
 func testPythonAsyncEndpoint(t *testing.T, endpoint string, expectedClientCalls int) {
 	waitForTestComponentsSub(t, "http://localhost:8391", "/health")
 
