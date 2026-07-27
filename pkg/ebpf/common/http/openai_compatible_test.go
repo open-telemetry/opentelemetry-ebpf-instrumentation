@@ -130,9 +130,39 @@ func TestOpenAICompatibleSpan_MatchedButInvalidBody(t *testing.T) {
 	resp := makeCompatibleResponse(htmlResponseBody)
 
 	base := &request.Span{}
-	_, ok := OpenAICompatibleSpan(base, req, resp, gateways)
+	span, ok := OpenAICompatibleSpan(base, req, resp, gateways)
 
 	assert.False(t, ok)
+	// Host matched a configured gateway, so the span is flagged for ARMS resource
+	// tagging even though the response did not parse as GenAI content.
+	assert.True(t, span.OpenAICompatibleGatewayHost)
+	assert.True(t, base.OpenAICompatibleGatewayHost)
+	assert.NotEqual(t, request.HTTPSubtypeOpenAICompatible, span.SubType)
+}
+
+func TestOpenAICompatibleSpan_GatewayHostFlag(t *testing.T) {
+	gateways := []config.OpenAICompatibleGateway{
+		{Host: "litellm.local", Provider: "litellm"},
+	}
+
+	t.Run("matched host with valid GenAI response", func(t *testing.T) {
+		req := makeRequest(t, http.MethodPost, "http://litellm.local/v1/chat/completions", compatibleChatRequestBody)
+		resp := makeCompatibleResponse(compatibleChatResponseBody)
+
+		span, ok := OpenAICompatibleSpan(&request.Span{}, req, resp, gateways)
+		require.True(t, ok)
+		assert.True(t, span.OpenAICompatibleGatewayHost)
+		assert.Equal(t, request.HTTPSubtypeOpenAICompatible, span.SubType)
+	})
+
+	t.Run("host mismatch leaves flag unset", func(t *testing.T) {
+		req := makeRequest(t, http.MethodPost, "http://api.openai.com/v1/chat/completions", compatibleChatRequestBody)
+		resp := makeCompatibleResponse(compatibleChatResponseBody)
+
+		span, ok := OpenAICompatibleSpan(&request.Span{}, req, resp, gateways)
+		assert.False(t, ok)
+		assert.False(t, span.OpenAICompatibleGatewayHost)
+	})
 }
 
 func TestOpenAICompatibleSpan_ReportedZeroIdentifiesResponse(t *testing.T) {

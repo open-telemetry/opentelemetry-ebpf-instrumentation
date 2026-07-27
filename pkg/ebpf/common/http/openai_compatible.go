@@ -48,6 +48,11 @@ func OpenAICompatibleSpan(baseSpan *request.Span, req *http.Request, resp *http.
 		return *baseSpan, false
 	}
 
+	// The target host matched a configured gateway. Mark the span for ARMS resource
+	// tagging regardless of whether the response parses as GenAI content below. This
+	// flag persists on the shared span pointer even when this function returns false.
+	baseSpan.OpenAICompatibleGatewayHost = true
+
 	reqB, ok := readHTTPRequestBody("OpenAICompatibleSpan", req, baseSpan)
 	if !ok {
 		return *baseSpan, false

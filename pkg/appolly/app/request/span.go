@@ -1573,6 +1573,10 @@ type Span struct {
 	// Anything but ResponseParsed means Status holds no observation. Whether the
 	// duration is a measurement is recorded separately, by ignoreDurations.
 	ResponseObservation ResponseObservation `json:"-"`
+	// OpenAICompatibleGatewayHost indicates the client request's target host matched
+	// a configured openai_compatible.gateways entry, regardless of whether the response
+	// parsed as GenAI content. Used for ARMS resource tagging; not serialized.
+	OpenAICompatibleGatewayHost bool `json:"-"`
 
 	// RequestHeaders stores extracted HTTP request headers based on enrichment rules.
 	// Keys are canonical header names, values are all header values (possibly obfuscated).
