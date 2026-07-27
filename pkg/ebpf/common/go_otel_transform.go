@@ -85,13 +85,13 @@ func ReadGoAutoSpanEventIntoSpan(record *ringbuf.Record) (request.Span, bool, er
 		return request.Span{}, true, errors.New("invalid Go Auto SDK span payload: size does not match the record")
 	}
 
-	payload := bytes.Clone(record.RawSample[headerSize:])
+	payload := record.RawSample[headerSize:]
 	span, err := readAutoSpanPayload(payload)
 	if err != nil {
 		return request.Span{}, true, err
 	}
 
-	span.ManualOTelJSON = payload
+	span.ManualOTelJSON = bytes.Clone(payload)
 	span.Pid = request.PidInfo{
 		HostPID:   app.PID(event.Pid.HostPid),
 		UserPID:   app.PID(event.Pid.UserPid),
