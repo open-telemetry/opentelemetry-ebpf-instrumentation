@@ -31,7 +31,7 @@ func testHTTPTracesNodeManualSpans(t *testing.T) {
 
 	var trace jaeger.Trace
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=node&operation=GET%20%2Fmanual")
+		resp, err := http.Get(jaegerQueryURL + "?service=testserver&operation=GET%20%2Fmanual")
 		require.NoError(ct, err)
 		if resp == nil {
 			return
