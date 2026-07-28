@@ -336,6 +336,12 @@ type OpenAIError struct {
 type ToolCall struct {
 	ID   string `json:"id,omitempty"`
 	Name string `json:"name"`
+	// Arguments holds the tool-call input as a JSON string. OpenAI-family
+	// function.arguments is already a JSON string; Anthropic input / Gemini
+	// args / Ollama arguments are JSON objects stored as their raw encoding.
+	Arguments string `json:"arguments,omitempty"`
+	// Type is the tool type, e.g. "function".
+	Type string `json:"type,omitempty"`
 }
 
 type VendorOpenAI struct {
@@ -383,20 +389,70 @@ func (ai *VendorOpenAI) GetOutput() string {
 	return normalizeOpenAIOutput(ai)
 }
 
+// InputTokenCount returns the input token count and whether it was reported.
+// For embeddings, where the output token count is always zero, it falls back to
+// total_tokens when the provider reports only a total (e.g. native DashScope,
+// whose usage carries total_tokens but no input_tokens/prompt_tokens).
+func (ai *VendorOpenAI) InputTokenCount() (int, bool) {
+	if tokens, reported := ai.Usage.InputTokenCount(); reported {
+		return tokens, true
+	}
+	if ai.OperationName == EmbeddingOperationName {
+		if total, reported := ai.Usage.TotalTokens.Get(); reported {
+			return total, true
+		}
+	}
+	return 0, false
+}
+
 func (ai *VendorOpenAI) GetEmbeddingDimensions() int {
+	// Explicit request dimension: OpenAI/compatible top-level "dimensions"...
 	if ai.Request.Dimensions > 0 {
 		return ai.Request.Dimensions
 	}
-	if len(ai.Data) == 0 {
+	// ...or native DashScope "parameters.dimension".
+	if d := ai.Request.ParameterDimension(); d > 0 {
+		return d
+	}
+	// OpenAI-style response: data[].embedding length.
+	if n := embeddingLenFromData(ai.Data); n > 0 {
+		return n
+	}
+	// Native DashScope response: output.embeddings[].embedding length.
+	return embeddingDimsFromOutput(ai.Output)
+}
+
+// embeddingLenFromData returns the vector length from an OpenAI-style embedding
+// response body: {"data":[{"embedding":[...]}]}. Returns 0 when not present.
+func embeddingLenFromData(raw json.RawMessage) int {
+	if len(raw) == 0 {
 		return 0
 	}
 	var data []struct {
 		Embedding []json.Number `json:"embedding"`
 	}
-	if err := json.Unmarshal(ai.Data, &data); err != nil || len(data) == 0 {
+	if err := json.Unmarshal(raw, &data); err != nil || len(data) == 0 {
 		return 0
 	}
 	return len(data[0].Embedding)
+}
+
+// embeddingDimsFromOutput returns the vector length from a native DashScope
+// embedding response `output` object: {"embeddings":[{"embedding":[...]}]}.
+// Returns 0 when not present.
+func embeddingDimsFromOutput(raw json.RawMessage) int {
+	if len(raw) == 0 {
+		return 0
+	}
+	var out struct {
+		Embeddings []struct {
+			Embedding []json.Number `json:"embedding"`
+		} `json:"embeddings"`
+	}
+	if err := json.Unmarshal(raw, &out); err != nil || len(out.Embeddings) == 0 {
+		return 0
+	}
+	return len(out.Embeddings[0].Embedding)
 }
 
 type OpenAIInput struct {
@@ -418,6 +474,25 @@ type OpenAIInput struct {
 	Seed             *int            `json:"seed,omitempty"`
 	Tools            json.RawMessage `json:"tools,omitempty"`
 	ServiceTier      string          `json:"service_tier,omitempty"`
+	// Parameters carries provider-specific request options. Native Alibaba
+	// DashScope embedding requests nest the vector size under
+	// parameters.dimension instead of a top-level "dimensions" field.
+	Parameters json.RawMessage `json:"parameters,omitempty"`
+}
+
+// ParameterDimension extracts the requested embedding dimension from the
+// native DashScope "parameters.dimension" field. Returns 0 when absent.
+func (air *OpenAIInput) ParameterDimension() int {
+	if len(air.Parameters) == 0 {
+		return 0
+	}
+	var p struct {
+		Dimension int `json:"dimension"`
+	}
+	if err := json.Unmarshal(air.Parameters, &p); err != nil {
+		return 0
+	}
+	return p.Dimension
 }
 
 func (air *OpenAIInput) GetStopSequences() []string {
@@ -2195,7 +2270,7 @@ func (s *Span) GenAIInputTokenCount() (int, bool) {
 	}
 
 	if s.GenAI.OpenAI != nil {
-		return s.GenAI.OpenAI.Usage.InputTokenCount()
+		return s.GenAI.OpenAI.InputTokenCount()
 	}
 
 	if s.GenAI.Anthropic != nil {
@@ -2207,7 +2282,7 @@ func (s *Span) GenAIInputTokenCount() (int, bool) {
 	}
 
 	if s.GenAI.Qwen != nil {
-		return s.GenAI.Qwen.Usage.InputTokenCount()
+		return s.GenAI.Qwen.InputTokenCount()
 	}
 
 	if s.GenAI.Ollama != nil {
@@ -2215,7 +2290,7 @@ func (s *Span) GenAIInputTokenCount() (int, bool) {
 	}
 
 	if s.GenAI.OpenAICompatible != nil {
-		return s.GenAI.OpenAICompatible.Usage.InputTokenCount()
+		return s.GenAI.OpenAICompatible.InputTokenCount()
 	}
 
 	if s.GenAI.Bedrock != nil {

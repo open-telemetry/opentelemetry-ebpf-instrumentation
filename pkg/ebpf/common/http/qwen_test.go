@@ -114,6 +114,65 @@ func TestQwenSpan_DashScopeGeneration(t *testing.T) {
 	assert.JSONEq(t, `{"text":"eBPF is a kernel programmability technology.","finish_reason":"stop"}`, ai.GetOutput())
 }
 
+// Native DashScope text-embedding request/response: input is nested under
+// input.texts, the requested dimension under parameters.dimension, and the
+// output vectors under output.embeddings[].embedding. Usage carries only
+// total_tokens (no input_tokens/prompt_tokens).
+const dashScopeEmbeddingRequestBody = `{
+  "model":"text-embedding-v2",
+  "input":{"texts":["Hello world","Goodbye world"]},
+  "parameters":{"dimension":1024,"output_type":"dense","text_type":"query"}
+}`
+
+const dashScopeEmbeddingResponseBody = `{
+  "output":{"embeddings":[
+    {"embedding":[0.1,0.2,0.3],"text_index":0},
+    {"embedding":[0.4,0.5,0.6],"text_index":1}
+  ]},
+  "usage":{"total_tokens":8},
+  "request_id":"req-emb-1"
+}`
+
+func TestQwenSpan_DashScopeNativeEmbedding(t *testing.T) {
+	req := makeRequest(t, http.MethodPost,
+		"https://dashscope.aliyuncs.com/api/v1/services/embeddings/text-embedding/text-embedding",
+		dashScopeEmbeddingRequestBody)
+	resp := makePlainResponse(http.StatusOK, qwenHeaders(), dashScopeEmbeddingResponseBody)
+
+	base := &request.Span{}
+	span, ok := QwenSpan(base, req, resp)
+
+	require.True(t, ok)
+	require.NotNil(t, span.GenAI)
+	require.NotNil(t, span.GenAI.Qwen)
+
+	ai := span.GenAI.Qwen
+	assert.Equal(t, "embeddings", ai.OperationName)
+	assert.Equal(t, "text-embedding-v2", ai.Request.Model)
+	// Requested dimension comes from parameters.dimension (takes precedence).
+	assert.Equal(t, 1024, ai.GetEmbeddingDimensions())
+	// input_tokens falls back to total_tokens for embeddings.
+	assert.Equal(t, 8, reportedValue(span.GenAIInputTokenCount()))
+	assert.True(t, isReported(span.GenAIInputTokenCount()))
+}
+
+func TestQwenSpan_DashScopeNativeEmbedding_DimensionFromResponse(t *testing.T) {
+	// No parameters.dimension in the request: dimension is derived from the
+	// response output.embeddings[0].embedding vector length.
+	reqBody := `{"model":"text-embedding-v2","input":{"texts":["hi"]}}`
+	req := makeRequest(t, http.MethodPost,
+		"https://dashscope.aliyuncs.com/api/v1/services/embeddings/text-embedding/text-embedding",
+		reqBody)
+	resp := makePlainResponse(http.StatusOK, qwenHeaders(), dashScopeEmbeddingResponseBody)
+
+	base := &request.Span{}
+	span, ok := QwenSpan(base, req, resp)
+
+	require.True(t, ok)
+	require.NotNil(t, span.GenAI.Qwen)
+	assert.Equal(t, 3, span.GenAI.Qwen.GetEmbeddingDimensions())
+}
+
 func TestQwenSpan_IDFallbackFromHeadersWhenBodyMissingID(t *testing.T) {
 	req := makeRequest(t, http.MethodPost, "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions", qwenCompatibleRequestBody)
 	h := http.Header{}

@@ -257,6 +257,12 @@ func parseOpenAIInput(body []byte) request.OpenAIInput {
 	if len(parsed.Messages) == 0 && len(body) > 0 {
 		parsed.Messages = extractJSONRawField(body, "messages")
 	}
+	// Native DashScope nests options under "parameters" and uses an object-typed
+	// "input"; the latter aborts jsoniter's struct decode before it reaches
+	// "parameters", so backfill it directly from the raw body.
+	if len(parsed.Parameters) == 0 && len(body) > 0 {
+		parsed.Parameters = extractJSONRawField(body, "parameters")
+	}
 	return parsed
 }
 
