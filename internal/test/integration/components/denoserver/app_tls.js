@@ -1,40 +1,45 @@
-const https = require('https');
-const fs = require('fs');
+// Native Deno HTTPS test server (TLS counterpart of app.js).
+//
+// Uses only native Deno APIs: Deno.serve with cert/key for TLS termination and
+// the global fetch() for outgoing calls. No express / node:http / node:https.
 
-var express = require("express");
-var app = express();
 const port = 3033;
 
-app.use(express.json({limit: "50mb"}));
+const cert = Deno.readTextFileSync(new URL("./cert.pem", import.meta.url));
+const key = Deno.readTextFileSync(new URL("./key.pem", import.meta.url));
 
-app.get("/greeting", (req, res, next) => {
-    res.json("Hello!");
-});
+function json(body, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "content-type": "application/json" },
+  });
+}
 
-app.post("/greeting", (req, res, next) => {
-    res.json(req.body);
-});
+async function handler(req) {
+  const url = new URL(req.url);
+  const path = url.pathname;
+  const method = req.method;
 
-app.get("/smoke", (req, res, next) => {
-    res.sendStatus(200)
-});
+  if (method === "GET" && path === "/greeting") {
+    return json("Hello!");
+  }
+  if (method === "POST" && path === "/greeting") {
+    return json(await req.json());
+  }
+  if (method === "GET" && path === "/smoke") {
+    return new Response("OK", { status: 200 });
+  }
+  if (method === "GET" && path === "/traceme") {
+    const r = await fetch("https://pytestserverssl:8380/tracemetoo");
+    await r.body?.cancel();
+    if (r.status !== 200) {
+      console.error(`Did not get an OK from the server. Code: ${r.status}`);
+      return new Response(null, { status: 500 });
+    }
+    return new Response(null, { status: 200 });
+  }
 
-app.get("/traceme", (req, res, next) => {
-    https.get('https://pytestserverssl:8380/tracemetoo', {rejectUnauthorized: false}, (r) => {
-        if (r.statusCode !== 200) {
-          console.error(`Did not get an OK from the server. Code: ${r.statusCode}`);
-          res.sendStatus(500)
-          return
-        }
-        res.sendStatus(200)
-    });
-})
+  return new Response("Not Found", { status: 404 });
+}
 
-const options = {
-    key: fs.readFileSync(__dirname + '/key.pem', 'utf8'),
-   cert: fs.readFileSync(__dirname + '/cert.pem', 'utf8')
-};
-  
-var server = https.createServer(options, app).listen(port, () => {
-    console.log("Server running on port " + port);
-});
+Deno.serve({ port, hostname: "0.0.0.0", cert, key }, handler);

@@ -205,25 +205,28 @@ func sendEvaluate(wsConn *websocket.Conn, exp string, id int) error {
 	return sendEvaluateWithTimeout(wsConn, exp, id, inspectorRequestTimeout)
 }
 
-func sendEvaluateWithTimeout(wsConn *websocket.Conn, exp string, id int, timeout time.Duration) error {
+func sendCommandWithTimeout(
+	wsConn *websocket.Conn,
+	method string,
+	params any,
+	id int,
+	timeout time.Duration,
+) (cdpResponse, error) {
 	req := cdpRequest{
 		ID:     id,
-		Method: "Runtime.evaluate",
-		Params: evalParams{
-			Expression:            exp,
-			IncludeCommandLineAPI: true,
-		},
+		Method: method,
+		Params: params,
 	}
 
 	data, err := json.Marshal(req)
 	if err != nil {
-		return fmt.Errorf("failed to serialize request: %w", err)
+		return cdpResponse{}, fmt.Errorf("failed to serialize request: %w", err)
 	}
 
 	deadline := time.Now().Add(timeout)
 
 	if err := wsConn.SetWriteDeadline(deadline); err != nil {
-		return fmt.Errorf("websocket write deadline error: %w", err)
+		return cdpResponse{}, fmt.Errorf("websocket write deadline error: %w", err)
 	}
 	defer func() {
 		_ = wsConn.SetWriteDeadline(time.Time{})
@@ -231,26 +234,38 @@ func sendEvaluateWithTimeout(wsConn *websocket.Conn, exp string, id int, timeout
 	}()
 
 	if err := wsConn.SetReadDeadline(deadline); err != nil {
-		return fmt.Errorf("websocket read deadline error: %w", err)
+		return cdpResponse{}, fmt.Errorf("websocket read deadline error: %w", err)
 	}
 
 	if err := wsConn.WriteMessage(websocket.TextMessage, data); err != nil {
-		return fmt.Errorf("websocket write error: %w", err)
+		return cdpResponse{}, fmt.Errorf("websocket write error: %w", err)
 	}
 
 	_, msg, err := wsConn.ReadMessage()
 	if err != nil {
-		return fmt.Errorf("websocket read error: %w", err)
+		return cdpResponse{}, fmt.Errorf("websocket read error: %w", err)
 	}
 
 	var resp cdpResponse
 
 	if err := json.Unmarshal(msg, &resp); err != nil {
-		return fmt.Errorf("response unmarshal error: %w", err)
+		return cdpResponse{}, fmt.Errorf("response unmarshal error: %w", err)
 	}
 
 	if resp.Error != nil {
-		return fmt.Errorf("protocol error: %+v", resp.Error)
+		return resp, fmt.Errorf("protocol error: %+v", resp.Error)
+	}
+
+	return resp, nil
+}
+
+func sendEvaluateWithTimeout(wsConn *websocket.Conn, exp string, id int, timeout time.Duration) error {
+	resp, err := sendCommandWithTimeout(wsConn, "Runtime.evaluate", evalParams{
+		Expression:            exp,
+		IncludeCommandLineAPI: true,
+	}, id, timeout)
+	if err != nil {
+		return err
 	}
 
 	result := resp.Result["result"]
@@ -266,6 +281,14 @@ func sendEvaluateWithTimeout(wsConn *websocket.Conn, exp string, id int, timeout
 	}
 
 	return nil
+}
+
+// runIfWaitingForDebugger releases a runtime that was started paused with
+// --inspect-brk. It is a no-op when the runtime is not waiting for a debugger,
+// so it is safe on the --inspect and SIGUSR1 paths too.
+func runIfWaitingForDebugger(wsConn *websocket.Conn, id int) error {
+	_, err := sendCommandWithTimeout(wsConn, "Runtime.runIfWaitingForDebugger", nil, id, inspectorRequestTimeout)
+	return err
 }
 
 func (i *NodeInjector) injectFileWS(
@@ -288,6 +311,12 @@ func (i *NodeInjector) injectFileWS(
 	}
 
 	if err := sendEvaluate(wsConn, string(script), 1); err != nil {
+		return err
+	}
+
+	// Resume the process if it was started paused with --inspect-brk. Harmless
+	// no-op otherwise.
+	if err := runIfWaitingForDebugger(wsConn, 3); err != nil {
 		return err
 	}
 

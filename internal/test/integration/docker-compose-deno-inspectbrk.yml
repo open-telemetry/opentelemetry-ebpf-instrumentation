@@ -4,9 +4,15 @@ services:
       context: ../../..
       dockerfile: internal/test/integration/components/denoserver/Dockerfile
     image: hatest-testserver-deno
+    # --inspect-brk starts Deno paused before user code runs, so OBI can inject
+    # the trace-context agent (and wrap Deno.serve) before the server handler is
+    # registered. OBI resumes the process via Runtime.runIfWaitingForDebugger.
+    # Note: while paused the app port (3030) is NOT open, so this suite must be
+    # discovered by executable path, not open port.
     command:
       - deno
       - run
+      - --inspect-brk
       - --unsafely-ignore-certificate-errors
       - --allow-net
       - --allow-env

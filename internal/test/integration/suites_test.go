@@ -383,10 +383,47 @@ func TestSuite_NodeJS(t *testing.T) {
 	require.NoError(t, compose.Close())
 }
 
+// TestSuite_Deno tests a native Deno server (Deno.serve + fetch, no node:http)
+// under the default zero-change mode: OBI injects the trace-context agent late,
+// after the process is already running. eBPF spans/metrics are expected to work;
+// native Deno.serve incoming context is NOT wrapped in this mode (the handler is
+// already registered), and native fetch outgoing calls are not correlated.
+func TestSuite_Deno(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-deno.yml", path.Join(pathOutput, "test-suite-deno-native.log"))
+	require.NoError(t, err)
+
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=3030`, `OTEL_EBPF_EXECUTABLE_PATH=`, `MAIN_FILE=app.js`)
+	require.NoError(t, compose.Up())
+	t.Run("Deno RED metrics", testREDMetricsJSHTTP)
+	t.Run("HTTP traces (kprobes)", testHTTPTracesKProbes)
+	// Native fetch has no node:net socket, so the JS agent cannot correlate the
+	// nested call. This asserts the current native-propagation behavior.
+	t.Run("HTTP nested traces plain HTTP (kprobes)", testHTTPTracesNestedJSPlainHTTP)
+	runWeaverValidation(t)
+	require.NoError(t, compose.Close())
+}
+
+// TestSuite_Deno_InspectBrk tests the same native Deno server started with
+// --inspect-brk, so OBI injects the agent before the server handler is
+// registered and resumes the process. Because the app port is not open while
+// paused, discovery is by executable path rather than open port.
+func TestSuite_Deno_InspectBrk(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-deno-inspectbrk.yml", path.Join(pathOutput, "test-suite-deno-inspectbrk.log"))
+	require.NoError(t, err)
+
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=`, `OTEL_EBPF_EXECUTABLE_PATH=deno`, `MAIN_FILE=app.js`)
+	require.NoError(t, compose.Up())
+	t.Run("Deno RED metrics", testREDMetricsJSHTTP)
+	t.Run("HTTP traces (kprobes)", testHTTPTracesKProbes)
+	t.Run("HTTP nested traces plain HTTP (kprobes)", testHTTPTracesNestedJSPlainHTTP)
+	runWeaverValidation(t)
+	require.NoError(t, compose.Close())
+}
+
 // TestSuite_Deno_NodeCompat tests Deno in Node:http compatibility. It's the use case of Node applications
 // being ported to Deno but not natively using Deno server
 func TestSuite_Deno_NodeCompat(t *testing.T) {
-	compose, err := docker.ComposeSuite("docker-compose-deno-nodecompat.yml", path.Join(pathOutput, "test-suite-deno.log"))
+	compose, err := docker.ComposeSuite("docker-compose-deno-nodecompat.yml", path.Join(pathOutput, "test-suite-deno-nodecompat.log"))
 	require.NoError(t, err)
 
 	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=3030`, `OTEL_EBPF_EXECUTABLE_PATH=`, `MAIN_FILE=app.js`)
@@ -405,7 +442,7 @@ func TestSuite_Deno_NodeCompat(t *testing.T) {
 // verifies Deno's own spans reach the backend and that OBI detects the service
 // as already OTel-instrumented and suppresses its own duplicate traces & metrics.
 func TestSuite_Deno_NativeOTel(t *testing.T) {
-	compose, err := docker.ComposeSuite("docker-compose-deno-otel.yml", path.Join(pathOutput, "test-suite-deno-otel.log"))
+	compose, err := docker.ComposeSuite("docker-compose-deno-otel.yml", path.Join(pathOutput, "test-suite-deno-nativeotel.log"))
 	require.NoError(t, err)
 
 	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=3030`, `OTEL_EBPF_EXECUTABLE_PATH=`, `MAIN_FILE=app.js`)
