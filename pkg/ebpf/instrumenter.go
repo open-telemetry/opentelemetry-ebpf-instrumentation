@@ -45,6 +45,28 @@ func closeAll(closers []io.Closer) {
 	}
 }
 
+func closeAllReverse(closers []io.Closer) {
+	for i := len(closers) - 1; i >= 0; i-- {
+		closers[i].Close()
+	}
+}
+
+type reverseCloser struct {
+	closers []io.Closer
+	once    sync.Once
+	err     error
+}
+
+func (c *reverseCloser) Close() error {
+	c.once.Do(func() {
+		for i := len(c.closers) - 1; i >= 0; i-- {
+			c.err = errors.Join(c.err, c.closers[i].Close())
+		}
+	})
+
+	return c.err
+}
+
 type usdtIPMapDeleter interface {
 	Delete(key any) error
 }
@@ -95,30 +117,56 @@ func (i *instrumenter) goprobes(p Tracer) error {
 
 	i.gatherGoOffsets(goProbes)
 
-	closers, err := i.instrumentProbes(i.exe, goProbes)
+	closers, attachedSymbols, err := i.instrumentProbesWithResults(i.exe, goProbes)
 	if err != nil {
 		return err
 	}
-
 	i.closables = append(i.closables, closers...)
-	p.AddCloser(i.closables...)
+	p.AddCloser(closers...)
+
+	if groupedTracer, ok := p.(GoProbeGroupTracer); ok {
+		for _, group := range groupedTracer.GoProbeGroups() {
+			if !goProbeGroupPrerequisitesAttached(group, attachedSymbols) {
+				continue
+			}
+			i.gatherGoProbeGroupOffsets(group)
+			groupClosers := i.instrumentOptionalGoProbeGroup(i.exe, group)
+			if len(groupClosers) == 0 {
+				continue
+			}
+			closer := &reverseCloser{closers: groupClosers}
+			i.closables = append(i.closables, closer)
+			p.AddCloser(closer)
+		}
+	}
 
 	return nil
 }
 
 func (i *instrumenter) instrumentProbes(exe *link.Executable, probes map[string][]*ebpfcommon.ProbeDesc) ([]io.Closer, error) {
+	closers, _, err := i.instrumentProbesWithResults(exe, probes)
+	return closers, err
+}
+
+func (i *instrumenter) instrumentProbesWithResults(
+	exe *link.Executable,
+	probes map[string][]*ebpfcommon.ProbeDesc,
+) ([]io.Closer, map[string]bool, error) {
 	log := ilog().With("probes", "instrumentProbes")
 
 	var closers []io.Closer
+	attachedSymbols := make(map[string]bool, len(probes))
 
 	for symbolName, probeArray := range probes {
+		symbolAttached := len(probeArray) > 0
 		for _, probe := range probeArray {
 			log.Debug("going to instrument function", "function", symbolName, "programs", probe)
 
 			if probe.Skip {
+				symbolAttached = false
 				if probe.Required {
 					closeAll(closers)
-					return nil, fmt.Errorf("required symbol %q was not resolved", symbolName)
+					return nil, nil, fmt.Errorf("required symbol %q was not resolved", symbolName)
 				}
 				log.Debug("skipping unresolved optional uprobe", "function", symbolName)
 				continue
@@ -126,7 +174,9 @@ func (i *instrumenter) instrumentProbes(exe *link.Executable, probes map[string]
 
 			cls, err := i.uprobe(exe, probe)
 
-			if err != nil {
+			switch {
+			case err != nil:
+				symbolAttached = false
 				closeAll(cls)
 
 				if probe.Required {
@@ -134,18 +184,89 @@ func (i *instrumenter) instrumentProbes(exe *link.Executable, probes map[string]
 					if i.metrics != nil {
 						i.metrics.InstrumentationError(i.processName, imetrics.InstrumentationErrorAttachingUprobe)
 					}
-					return nil, fmt.Errorf("instrumenting function %q: %w", symbolName, err)
+					return nil, nil, fmt.Errorf("instrumenting function %q: %w", symbolName, err)
 				}
 
 				// error will be common here since this could be no openssl loaded
 				log.Debug("error instrumenting uprobe", "function", symbolName, "error", err)
-			} else {
+			case len(cls) == 0:
+				symbolAttached = false
+				if probe.Required {
+					closeAll(closers)
+					return nil, nil, fmt.Errorf("required symbol %q did not attach a probe", symbolName)
+				}
+				log.Debug("no uprobe links attached", "function", symbolName)
+			default:
 				closers = append(closers, cls...)
 			}
 		}
+		attachedSymbols[symbolName] = symbolAttached
 	}
 
-	return closers, nil
+	return closers, attachedSymbols, nil
+}
+
+type goProbeAttacher func(string, *ebpfcommon.ProbeDesc) ([]io.Closer, error)
+
+func goProbeGroupPrerequisitesAttached(
+	group ebpfcommon.GoProbeGroup,
+	attachedSymbols map[string]bool,
+) bool {
+	log := ilog().With("probes", "instrumentOptionalGoProbeGroup", "group", group.Name)
+	for _, symbol := range group.Prerequisites {
+		if !attachedSymbols[symbol] {
+			log.Debug("skipping optional uprobe group because a prerequisite was not attached",
+				"function", symbol)
+			return false
+		}
+	}
+	return true
+}
+
+func (i *instrumenter) instrumentOptionalGoProbeGroup(
+	exe *link.Executable,
+	group ebpfcommon.GoProbeGroup,
+) []io.Closer {
+	return instrumentOptionalGoProbeGroup(group, func(_ string, probe *ebpfcommon.ProbeDesc) ([]io.Closer, error) {
+		return i.uprobe(exe, probe)
+	})
+}
+
+func instrumentOptionalGoProbeGroup(
+	group ebpfcommon.GoProbeGroup,
+	attach goProbeAttacher,
+) []io.Closer {
+	log := ilog().With("probes", "instrumentOptionalGoProbeGroup", "group", group.Name)
+
+	for _, candidate := range group.Probes {
+		if candidate.Probe == nil ||
+			candidate.Probe.Skip ||
+			(candidate.Probe.Start == nil && candidate.Probe.End == nil) ||
+			(candidate.Probe.End != nil && len(candidate.Probe.ReturnOffsets) == 0) {
+			log.Debug("skipping optional uprobe group because a symbol was not resolved",
+				"function", candidate.Symbol)
+			return nil
+		}
+	}
+
+	var closers []io.Closer
+	for _, candidate := range group.Probes {
+		log.Debug("going to instrument grouped function",
+			"function", candidate.Symbol, "programs", candidate.Probe)
+
+		attached, err := attach(candidate.Symbol, candidate.Probe)
+		if err != nil || len(attached) == 0 {
+			closeAllReverse(attached)
+			closeAllReverse(closers)
+			log.Debug("error instrumenting optional uprobe group",
+				"function", candidate.Symbol, "error", err)
+			return nil
+		}
+
+		closers = append(closers, attached...)
+	}
+
+	return closers
 }
 
 func (i *instrumenter) kprobes(p KprobesTracer) error {
@@ -1002,6 +1123,27 @@ func (i *instrumenter) gatherGoOffsets(goProbes map[string][]*ebpfcommon.ProbeDe
 			probe.StartOffset = offs.Start
 			probe.ReturnOffsets = offs.Returns
 		}
+	}
+}
+
+func (i *instrumenter) gatherGoProbeGroupOffsets(group ebpfcommon.GoProbeGroup) {
+	for _, candidate := range group.Probes {
+		if candidate.Probe == nil {
+			continue
+		}
+
+		offs, ok := i.offsets.Funcs[candidate.Symbol]
+		if !ok {
+			candidate.Probe.Skip = true
+			if i.metrics != nil {
+				i.metrics.InstrumentationError(i.processName, imetrics.InstrumentationErrorSymbolNotFound)
+			}
+			continue
+		}
+
+		candidate.Probe.Skip = false
+		candidate.Probe.StartOffset = offs.Start
+		candidate.Probe.ReturnOffsets = offs.Returns
 	}
 }
 

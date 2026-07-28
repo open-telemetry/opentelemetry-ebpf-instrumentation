@@ -34,7 +34,13 @@ type Span struct {
 	StartTime     int64       `json:"startTime"`
 	Duration      int64       `json:"duration"`
 	Tags          []Tag       `json:"tags"`
+	Logs          []Log       `json:"logs"`
 	ProcessID     string      `json:"processID"`
+}
+
+type Log struct {
+	Timestamp int64 `json:"timestamp"`
+	Fields    []Tag `json:"fields"`
 }
 
 type Tag struct {

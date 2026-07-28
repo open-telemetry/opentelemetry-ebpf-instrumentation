@@ -147,6 +147,19 @@ type ProbeDesc struct {
 	Skip bool
 }
 
+// GoProbe associates an ordered Go symbol with the eBPF program attached to it.
+type GoProbe struct {
+	Symbol string
+	Probe  *ProbeDesc
+}
+
+// GoProbeGroup is an optional set of Go probes that must be attached atomically.
+type GoProbeGroup struct {
+	Name          string
+	Prerequisites []string
+	Probes        []GoProbe
+}
+
 type USDTSpecManager struct {
 	mu    sync.Mutex
 	next  uint32

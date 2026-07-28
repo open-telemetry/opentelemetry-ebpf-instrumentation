@@ -14,6 +14,7 @@ import (
 
 	"github.com/grafana/go-offsets-tracker/pkg/offsets"
 	"github.com/hashicorp/go-version"
+	"golang.org/x/mod/semver"
 )
 
 func log() *slog.Logger {
@@ -31,6 +32,19 @@ var (
 	mongoOneThirteenOne = version.Must(version.NewVersion("1.13.1"))
 	pqOneElevenZero     = version.Must(version.NewVersion("1.11.0"))
 )
+
+type moduleVersionRange struct {
+	path string
+	min  string
+	max  string
+}
+
+// Activation writes private structs owned by each of these modules.
+var goAutoSDKActivationModuleVersions = [...]moduleVersionRange{
+	{path: "go.opentelemetry.io/auto/sdk", min: "v1.1.0", max: "v1.2.1"},
+	{path: "go.opentelemetry.io/otel", min: "v1.33.0", max: "v1.44.0"},
+	{path: "go.opentelemetry.io/otel/trace", min: "v1.33.0", max: "v1.44.0"},
+}
 
 const (
 	// go common
@@ -110,6 +124,8 @@ const (
 	SpanContextTraceIDPos
 	SpanContextSpanIDPos
 	SpanContextTraceFlagsPos
+	AutoSDKSpanContextPos
+	AutoSDKActivationSupported
 	// go runtime channels
 	HchanQcountPos
 	HchanDataqsizPos
@@ -464,6 +480,12 @@ var structMembers = map[string]structInfo{
 			"traceFlags": SpanContextTraceFlagsPos,
 		},
 	},
+	"go.opentelemetry.io/auto/sdk.span": {
+		lib: "go.opentelemetry.io/auto/sdk",
+		fields: map[string]GoOffset{
+			"spanContext": AutoSDKSpanContextPos,
+		},
+	},
 	"runtime.hchan": {
 		lib: "go",
 		fields: map[string]GoOffset{
@@ -625,7 +647,8 @@ func structMemberOffsets(elfFile *elf.File) (FieldOffsets, error) {
 			if err != nil {
 				return nil, fmt.Errorf("searching for library versions: %w", err)
 			}
-			offs = offsetsForLibVersions(offs, libVersions, log())
+			offs = offsetsForLibVersions(offs, libVersions.versions, log())
+			setGoAutoSDKActivationSupport(offs, libVersions)
 			return offs, nil
 		}
 	} else {
@@ -704,6 +727,33 @@ func offsetsForLibVersions(fieldOffsets FieldOffsets, libVersions map[string]str
 	return fieldOffsets
 }
 
+func setGoAutoSDKActivationSupport(fieldOffsets FieldOffsets, modules moduleVersions) {
+	fieldOffsets[AutoSDKActivationSupported] = uint64(0)
+	if goAutoSDKActivationSupported(modules) {
+		fieldOffsets[AutoSDKActivationSupported] = uint64(1)
+	}
+}
+
+func goAutoSDKActivationSupported(modules moduleVersions) bool {
+	for _, required := range goAutoSDKActivationModuleVersions {
+		if _, replaced := modules.replacements[required.path]; replaced {
+			return false
+		}
+
+		moduleVersion, found := modules.versions[required.path]
+		moduleSum, checksummed := modules.sums[required.path]
+		if !found || !checksummed || !strings.HasPrefix(moduleSum, "h1:") ||
+			!semver.IsValid(moduleVersion) ||
+			semver.Prerelease(moduleVersion) != "" || semver.Build(moduleVersion) != "" ||
+			semver.Compare(moduleVersion, required.min) < 0 ||
+			semver.Compare(moduleVersion, required.max) > 0 {
+			return false
+		}
+	}
+
+	return true
+}
+
 func cleanLibVersion(version string, found bool, lib string, log *slog.Logger) string {
 	if !found {
 		log.Debug("can't find version for library. Assuming 0.0.0", "lib", lib)
@@ -729,11 +779,12 @@ func structMemberPreFetchedOffsets(elfFile *elf.File, fieldOffsets FieldOffsets)
 	if err != nil {
 		return nil, fmt.Errorf("searching for library versions: %w", err)
 	}
-	fieldOffsets = offsetsForLibVersions(fieldOffsets, libVersions, log)
+	fieldOffsets = offsetsForLibVersions(fieldOffsets, libVersions.versions, log)
+	setGoAutoSDKActivationSupport(fieldOffsets, libVersions)
 	// after putting the offsets.json in a Go structure, we search all the
 	// structMembers elements on it, to get the annotated offsets
 	for strName, strInfo := range structMembers {
-		version, ok := libVersions[strInfo.lib]
+		version, ok := libVersions.versions[strInfo.lib]
 		version = cleanLibVersion(version, ok, strInfo.lib, log)
 		for fieldName, constantName := range strInfo.fields {
 			// look the version of the required field in the offsets.json memory copy

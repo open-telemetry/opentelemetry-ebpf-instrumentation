@@ -121,6 +121,12 @@ type Tracer interface {
 	Run(context.Context, *ebpfcommon.EBPFEventContext, *msg.Queue[[]request.Span])
 }
 
+// GoProbeGroupTracer provides ordered optional Go probes that must be attached
+// atomically after the tracer's baseline Go probes.
+type GoProbeGroupTracer interface {
+	GoProbeGroups() []ebpfcommon.GoProbeGroup
+}
+
 // Subset of the above interface, which supports loading eBPF programs which
 // are not tied to service monitoring
 type UtilityTracer interface {

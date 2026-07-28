@@ -9,6 +9,8 @@
     // so we don't want to get them updated
     "internal/test/integration/components/testserver_1.17",
     "internal/test/integration/components/old_grpc",
+    "internal/test/integration/components/goautosdk/v1.33",
+    "internal/test/integration/components/goautosdk/v1.44",
     // github.com/Shopify/sarama has been moved to github.com/IBM/sarama
     // but we keep supporting the go-offsets for the outdated library, which must not
     // be updated.

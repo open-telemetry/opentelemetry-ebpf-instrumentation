@@ -73,6 +73,55 @@ func TestGoRuntimeMemoryMetricVersion(t *testing.T) {
 	}
 }
 
+func TestParseModulesTracksReplacements(t *testing.T) {
+	modules := parseModules(
+		"dep\tgo.opentelemetry.io/auto/sdk\tv1.1.0\n" +
+			"=>\t../auto-sdk\t\t\n" +
+			"dep\tgo.opentelemetry.io/otel\tv1.33.0\n" +
+			"=>\texample.com/otel-fork\tv1.33.0\th1:fork\n" +
+			"dep\tgo.opentelemetry.io/otel/trace\tv1.44.0\n" +
+			"=>\tgo.opentelemetry.io/otel/trace\tv1.43.0\th1:older\n" +
+			"dep\texample.com/unmodified\tv1.0.0\th1:unmodified\n",
+	)
+
+	assert.Equal(t, map[string]string{
+		"go.opentelemetry.io/auto/sdk":   "v1.1.0",
+		"go.opentelemetry.io/otel":       "v1.33.0",
+		"go.opentelemetry.io/otel/trace": "v1.44.0",
+		"example.com/unmodified":         "v1.0.0",
+	}, modules.versions)
+	assert.Equal(t, map[string]string{
+		"go.opentelemetry.io/auto/sdk":   "",
+		"go.opentelemetry.io/otel":       "",
+		"go.opentelemetry.io/otel/trace": "",
+		"example.com/unmodified":         "h1:unmodified",
+	}, modules.sums)
+	assert.Equal(t, map[string]struct{}{
+		"go.opentelemetry.io/auto/sdk":   {},
+		"go.opentelemetry.io/otel":       {},
+		"go.opentelemetry.io/otel/trace": {},
+	}, modules.replacements)
+}
+
+func TestParseModulesRejectsOrphanReplacement(t *testing.T) {
+	modules := parseModules("=>\t../auto-sdk\t\t\n")
+
+	assert.Empty(t, modules.versions)
+	assert.Empty(t, modules.replacements)
+}
+
+func TestParseModulesRejectsMisassociatedReplacement(t *testing.T) {
+	modules := parseModules(
+		"dep\tgo.opentelemetry.io/auto/sdk\tv1.2.1\n" +
+			"dep\texample.com/unrelated\tv1.0.0\th1:unrelated\n" +
+			"=>\t../auto-sdk\t\t\n",
+	)
+
+	assert.Empty(t, modules.versions)
+	assert.Empty(t, modules.sums)
+	assert.Empty(t, modules.replacements)
+}
+
 func TestRuntimeMetricSymbolAddrFallsBackToInternalSizeClassTable(t *testing.T) {
 	symbols := map[string]procs.Sym{
 		runtimeMetricInternalSizeClassToSizesSymbol: {Off: 0x20},
