@@ -129,6 +129,10 @@ func (i *instrumenter) goprobes(p Tracer) error {
 			if !goProbeGroupPrerequisitesAttached(group, attachedSymbols) {
 				continue
 			}
+			processScopedTracer, hasProcessScopedTracer := p.(ProcessScopedGoProbeTracer)
+			if goProbeGroupHasProcessScopedProbe(group) && !hasProcessScopedTracer {
+				continue
+			}
 			i.gatherGoProbeGroupOffsets(group)
 			groupClosers := i.instrumentOptionalGoProbeGroup(i.exe, group)
 			if len(groupClosers) == 0 {
@@ -137,6 +141,17 @@ func (i *instrumenter) goprobes(p Tracer) error {
 			closer := &reverseCloser{closers: groupClosers}
 			i.closables = append(i.closables, closer)
 			p.AddCloser(closer)
+			if hasProcessScopedTracer {
+				for _, candidate := range group.Probes {
+					if candidate.ProcessScoped {
+						processScopedTracer.RegisterProcessScopedGoProbe(
+							i.dev,
+							i.ino,
+							candidate,
+						)
+					}
+				}
+			}
 		}
 	}
 
@@ -208,6 +223,15 @@ func (i *instrumenter) instrumentProbesWithResults(
 
 type goProbeAttacher func(string, *ebpfcommon.ProbeDesc) ([]io.Closer, error)
 
+func goProbeGroupHasProcessScopedProbe(group ebpfcommon.GoProbeGroup) bool {
+	for _, candidate := range group.Probes {
+		if candidate.ProcessScoped {
+			return true
+		}
+	}
+	return false
+}
+
 func goProbeGroupPrerequisitesAttached(
 	group ebpfcommon.GoProbeGroup,
 	attachedSymbols map[string]bool,
@@ -251,6 +275,10 @@ func instrumentOptionalGoProbeGroup(
 
 	var closers []io.Closer
 	for _, candidate := range group.Probes {
+		if candidate.ProcessScoped {
+			continue
+		}
+
 		log.Debug("going to instrument grouped function",
 			"function", candidate.Symbol, "programs", candidate.Probe)
 
@@ -1135,9 +1163,6 @@ func (i *instrumenter) gatherGoProbeGroupOffsets(group ebpfcommon.GoProbeGroup) 
 		offs, ok := i.offsets.Funcs[candidate.Symbol]
 		if !ok {
 			candidate.Probe.Skip = true
-			if i.metrics != nil {
-				i.metrics.InstrumentationError(i.processName, imetrics.InstrumentationErrorSymbolNotFound)
-			}
 			continue
 		}
 

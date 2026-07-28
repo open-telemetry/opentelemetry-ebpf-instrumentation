@@ -54,6 +54,13 @@ typedef struct go_auto_activation_attempt_key {
     u8 _pad[3];
 } go_auto_activation_attempt_key_t;
 
+typedef struct go_auto_activation_event {
+    u8 type;
+    u8 _pad[3];
+    u32 pid;
+    u64 generation;
+} go_auto_activation_event_t;
+
 typedef struct go_auto_span_state {
     tp_info_t prev_tp;
     tp_info_t child_tp;
@@ -174,6 +181,15 @@ static __always_inline u8 go_auto_target_generation(u64 *generation) {
 static __always_inline u8 go_auto_target_matches(u64 generation) {
     u64 current = 0;
     return go_auto_target_generation(&current) && current == generation;
+}
+
+static __always_inline void notify_go_auto_activation(u64 generation) {
+    go_auto_activation_event_t event = {
+        .type = EVENT_GO_AUTO_ACTIVATED,
+        .pid = pid_from_pid_tgid(bpf_get_current_pid_tgid()),
+        .generation = generation,
+    };
+    bpf_ringbuf_output(&events, &event, sizeof(event), get_flags());
 }
 
 static __always_inline u8
@@ -423,6 +439,7 @@ int obi_uprobe_tracer_NewSpan(struct pt_regs *ctx) {
         return 0;
     }
     if (auto_span) {
+        notify_go_auto_activation(generation);
         return 0;
     }
 
@@ -438,6 +455,8 @@ int obi_uprobe_tracer_NewSpan(struct pt_regs *ctx) {
     const bool activate = true;
     if (bpf_probe_write_user(auto_span_ptr, &activate, sizeof(activate)) != 0) {
         bpf_dbg_printk("failed to activate Go Auto SDK");
+    } else {
+        notify_go_auto_activation(generation);
     }
 
     return 0;

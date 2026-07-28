@@ -323,8 +323,12 @@ func TestInstrumentOptionalGoProbeGroupPreflightsEverySymbol(t *testing.T) {
 		Name: "activation",
 		Probes: []ebpfcommon.GoProbe{
 			{Symbol: "start", Probe: &ebpfcommon.ProbeDesc{Start: &ebpf.Program{}}},
-			{Symbol: "ended", Probe: &ebpfcommon.ProbeDesc{Start: &ebpf.Program{}, Skip: true}},
-			{Symbol: "newSpan", Probe: &ebpfcommon.ProbeDesc{Start: &ebpf.Program{}}},
+			{Symbol: "ended", Probe: &ebpfcommon.ProbeDesc{Start: &ebpf.Program{}}},
+			{
+				Symbol:        "newSpan",
+				Probe:         &ebpfcommon.ProbeDesc{Start: &ebpf.Program{}, Skip: true},
+				ProcessScoped: true,
+			},
 		},
 	}
 
@@ -383,13 +387,17 @@ func TestInstrumentOptionalGoProbeGroupRejectsZeroLinkAttachment(t *testing.T) {
 	assert.Equal(t, int32(1), startCloser.closes.Load())
 }
 
-func TestInstrumentOptionalGoProbeGroupAttachesInOrder(t *testing.T) {
+func TestInstrumentOptionalGoProbeGroupLeavesProcessScopedProbeDetached(t *testing.T) {
 	group := ebpfcommon.GoProbeGroup{
 		Name: "activation",
 		Probes: []ebpfcommon.GoProbe{
 			{Symbol: "start", Probe: &ebpfcommon.ProbeDesc{Start: &ebpf.Program{}}},
 			{Symbol: "ended", Probe: &ebpfcommon.ProbeDesc{Start: &ebpf.Program{}}},
-			{Symbol: "newSpan", Probe: &ebpfcommon.ProbeDesc{Start: &ebpf.Program{}}},
+			{
+				Symbol:        "newSpan",
+				Probe:         &ebpfcommon.ProbeDesc{Start: &ebpf.Program{}},
+				ProcessScoped: true,
+			},
 		},
 	}
 
@@ -400,8 +408,8 @@ func TestInstrumentOptionalGoProbeGroupAttachesInOrder(t *testing.T) {
 			return []io.Closer{&countingCloser{}}, nil
 		})
 
-	assert.Equal(t, []string{"start", "ended", "newSpan"}, attached)
-	assert.Len(t, closers, len(group.Probes))
+	assert.Equal(t, []string{"start", "ended"}, attached)
+	assert.Len(t, closers, 2)
 }
 
 func TestInstrumentOptionalGoProbeGroupRollsBackOnFailure(t *testing.T) {
@@ -439,7 +447,6 @@ func TestInstrumentOptionalGoProbeGroupRollsBackOnFailure(t *testing.T) {
 }
 
 func TestGatherGoProbeGroupOffsetsMarksMissingSymbolAsSkip(t *testing.T) {
-	reporter := &countingReporter{}
 	group := ebpfcommon.GoProbeGroup{
 		Name: "activation",
 		Probes: []ebpfcommon.GoProbe{
@@ -453,8 +460,6 @@ func TestGatherGoProbeGroupOffsetsMarksMissingSymbolAsSkip(t *testing.T) {
 			"start":   {Start: 0x10},
 			"newSpan": {Start: 0x30},
 		}},
-		metrics:     reporter,
-		processName: "testproc",
 	}
 
 	i.gatherGoProbeGroupOffsets(group)
@@ -464,7 +469,6 @@ func TestGatherGoProbeGroupOffsetsMarksMissingSymbolAsSkip(t *testing.T) {
 	assert.True(t, group.Probes[1].Probe.Skip)
 	assert.False(t, group.Probes[2].Probe.Skip)
 	assert.Equal(t, uint64(0x30), group.Probes[2].Probe.StartOffset)
-	assert.Equal(t, 1, reporter.errors[imetrics.InstrumentationErrorSymbolNotFound])
 }
 
 func TestMatchVersionedUprobeLibrary(t *testing.T) {

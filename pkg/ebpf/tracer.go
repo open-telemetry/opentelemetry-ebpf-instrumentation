@@ -127,6 +127,13 @@ type GoProbeGroupTracer interface {
 	GoProbeGroups() []ebpfcommon.GoProbeGroup
 }
 
+// ProcessScopedGoProbeTracer registers optional Go probes that are attached
+// for individual processes after their executable-scoped probe group succeeds.
+type ProcessScopedGoProbeTracer interface {
+	RegisterProcessScopedGoProbe(uint64, uint64, ebpfcommon.GoProbe)
+	UnregisterProcessScopedGoProbes(uint64, uint64)
+}
+
 // Subset of the above interface, which supports loading eBPF programs which
 // are not tied to service monitoring
 type UtilityTracer interface {

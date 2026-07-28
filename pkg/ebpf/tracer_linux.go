@@ -34,6 +34,8 @@ import (
 func ptlog() *slog.Logger { return slog.With("component", "ebpf.ProcessTracer") }
 
 type instrumenter struct {
+	dev         uint64
+	ino         uint64
 	offsets     *goexec.Offsets
 	exe         *link.Executable
 	closables   []io.Closer
@@ -339,6 +341,8 @@ func (pt *ProcessTracer) NewExecutableInstance(ie *Instrumentable) error {
 
 func (pt *ProcessTracer) NewExecutable(exe *link.Executable, ie *Instrumentable) error {
 	i := instrumenter{
+		dev:         ie.FileInfo.Dev(),
+		ino:         ie.FileInfo.Ino(),
 		exe:         exe,
 		offsets:     ie.Offsets, // this is needed for the function offsets, not fields
 		modules:     map[uint64]struct{}{},
@@ -379,6 +383,11 @@ func (pt *ProcessTracer) NewExecutable(exe *link.Executable, ie *Instrumentable)
 
 func (pt *ProcessTracer) UnlinkExecutable(info *exec.FileInfo) {
 	if i, ok := pt.Instrumentables[info.Ino()]; ok {
+		for _, p := range pt.Programs {
+			if processScopedTracer, ok := p.(ProcessScopedGoProbeTracer); ok {
+				processScopedTracer.UnregisterProcessScopedGoProbes(i.dev, i.ino)
+			}
+		}
 		for _, c := range i.closables {
 			if err := c.Close(); err != nil {
 				pt.log.Debug("Unable to close on unlink", "closable", c)

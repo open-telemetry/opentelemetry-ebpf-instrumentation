@@ -5,12 +5,16 @@ package gotracer
 
 import (
 	"bytes"
+	"context"
 	"debug/elf"
+	"encoding/binary"
 	"errors"
 	"io"
 	"log/slog"
 	"os"
 	"runtime"
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/cilium/ebpf"
@@ -19,7 +23,9 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
+	"go.opentelemetry.io/obi/pkg/config"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
+	"go.opentelemetry.io/obi/pkg/ebpf/ringbuf"
 	"go.opentelemetry.io/obi/pkg/internal/goexec"
 )
 
@@ -301,6 +307,10 @@ func TestGoAutoSDKActivationProbeGroupRequiresSpanContextOffsets(t *testing.T) {
 	for index, symbol := range expectedSymbols {
 		assert.Equal(t, symbol, groups[0].Probes[index].Symbol)
 	}
+	assert.False(t, groups[0].Probes[0].ProcessScoped)
+	assert.False(t, groups[0].Probes[1].ProcessScoped)
+	assert.False(t, groups[0].Probes[2].ProcessScoped)
+	assert.True(t, groups[0].Probes[3].ProcessScoped)
 }
 
 func TestGoAutoSDKActivationProbeGroupRequiresWriteUserSupport(t *testing.T) {
@@ -313,6 +323,490 @@ func TestGoAutoSDKActivationProbeGroupRequiresWriteUserSupport(t *testing.T) {
 	}
 
 	assert.Empty(t, tracer.GoProbeGroups())
+}
+
+func TestGoAutoSDKActivationUprobeOptionsArePIDScoped(t *testing.T) {
+	options := goAutoSDKActivationUprobeOptions(
+		goAutoSDKActivationProbe{offset: 0x1234},
+		app.PID(456),
+	)
+
+	assert.Equal(t, uint64(0x1234), options.Address)
+	assert.Equal(t, 456, options.PID)
+	assert.Zero(t, options.Cookie)
+}
+
+func TestDuplicateAllowPIDKeepsOneActivationLink(t *testing.T) {
+	activationLink := &activationCountingCloser{}
+	attachCalls := 0
+	tracer := activationLifecycleTestTracer(func(app.PID) (uint64, error) {
+		return 100, nil
+	})
+	tracer.attachGoAutoSDKProbe = func(
+		goAutoSDKActivationProbe,
+		app.PID,
+		uint64,
+		uint64,
+		uint64,
+	) (io.Closer, error) {
+		attachCalls++
+		return activationLink, nil
+	}
+	fileInfo := exec.New(exec.Init{Dev: 5, Ino: 10})
+
+	tracer.AllowPID(123, 1, fileInfo)
+	generation := tracer.goAutoSDKTargets[123].generation
+	tracer.AllowPID(123, 1, fileInfo)
+
+	assert.Equal(t, 1, attachCalls)
+	assert.Len(t, tracer.goAutoSDKActivationLinks, 1)
+	assert.Equal(t, uint64(1), generation)
+
+	handled, err := tracer.handleGoAutoSDKActivationEvent(
+		activationEventRecord(t, 123, generation),
+	)
+	require.NoError(t, err)
+	assert.True(t, handled)
+	assert.Equal(t, int32(1), activationLink.closes.Load())
+
+	tracer.AllowPID(123, 1, fileInfo)
+	assert.Equal(t, 1, attachCalls)
+	assert.Empty(t, tracer.goAutoSDKActivationLinks)
+}
+
+func TestAllowPIDRetriesProcessIdentityBeforeAttaching(t *testing.T) {
+	identityReads := 0
+	tracer := activationLifecycleTestTracer(func(app.PID) (uint64, error) {
+		identityReads++
+		if identityReads == 1 {
+			return 0, errors.New("process stat unavailable")
+		}
+		return 100, nil
+	})
+	attachCalls := 0
+	tracer.attachGoAutoSDKProbe = func(
+		goAutoSDKActivationProbe,
+		app.PID,
+		uint64,
+		uint64,
+		uint64,
+	) (io.Closer, error) {
+		attachCalls++
+		return &activationCountingCloser{}, nil
+	}
+	fileInfo := exec.New(exec.Init{Dev: 5, Ino: 10})
+
+	tracer.AllowPID(123, 1, fileInfo)
+	generation := tracer.goAutoSDKTargets[123].generation
+	assert.Empty(t, tracer.goAutoSDKActivationLinks)
+
+	tracer.AllowPID(123, 1, fileInfo)
+
+	assert.NotEqual(t, generation, tracer.goAutoSDKTargets[123].generation)
+	assert.Equal(t, 1, attachCalls)
+	assert.Len(t, tracer.goAutoSDKActivationLinks, 1)
+}
+
+func TestRegisterProcessScopedGoProbeAttachesPendingTarget(t *testing.T) {
+	activationLink := &activationCountingCloser{}
+	attachedOffset := uint64(0)
+	tracer := activationLinkTestTracer(7)
+	tracer.attachGoAutoSDKProbe = func(
+		probe goAutoSDKActivationProbe,
+		pid app.PID,
+		dev uint64,
+		ino uint64,
+		startTime uint64,
+	) (io.Closer, error) {
+		assert.Equal(t, app.PID(123), pid)
+		assert.Equal(t, uint64(5), dev)
+		assert.Equal(t, uint64(10), ino)
+		assert.Zero(t, startTime)
+		attachedOffset = probe.offset
+		return activationLink, nil
+	}
+
+	tracer.RegisterProcessScopedGoProbe(5, 10, ebpfcommon.GoProbe{
+		ProcessScoped: true,
+		Probe: &ebpfcommon.ProbeDesc{
+			Start:       &ebpf.Program{},
+			StartOffset: 0x1234,
+		},
+	})
+
+	assert.Equal(t, uint64(0x1234), attachedOffset)
+	assert.Contains(t, tracer.goAutoSDKActivationLinks,
+		goAutoSDKActivationLinkKey{pid: 123, generation: 7})
+}
+
+func TestProcessScopedProbesSeparateSameInodeAcrossDevices(t *testing.T) {
+	tracer := activationLinkTestTracer(7)
+	tracer.goAutoSDKTargets[456] = goAutoSDKTargetState{
+		generation: 8,
+		dev:        6,
+		ino:        10,
+	}
+	type attachedProbe struct {
+		dev    uint64
+		offset uint64
+	}
+	attached := map[app.PID]attachedProbe{}
+	tracer.attachGoAutoSDKProbe = func(
+		probe goAutoSDKActivationProbe,
+		pid app.PID,
+		dev uint64,
+		_ uint64,
+		_ uint64,
+	) (io.Closer, error) {
+		attached[pid] = attachedProbe{dev: dev, offset: probe.offset}
+		return &activationCountingCloser{}, nil
+	}
+
+	tracer.RegisterProcessScopedGoProbe(5, 10, ebpfcommon.GoProbe{
+		ProcessScoped: true,
+		Probe: &ebpfcommon.ProbeDesc{
+			Start:       &ebpf.Program{},
+			StartOffset: 0x50,
+		},
+	})
+	tracer.RegisterProcessScopedGoProbe(6, 10, ebpfcommon.GoProbe{
+		ProcessScoped: true,
+		Probe: &ebpfcommon.ProbeDesc{
+			Start:       &ebpf.Program{},
+			StartOffset: 0x60,
+		},
+	})
+
+	assert.Equal(t, attachedProbe{dev: 5, offset: 0x50}, attached[123])
+	assert.Equal(t, attachedProbe{dev: 6, offset: 0x60}, attached[456])
+}
+
+func TestUnregisterProcessScopedGoProbeClosesOnlyMatchingInode(t *testing.T) {
+	firstLink := &activationCountingCloser{}
+	secondLink := &activationCountingCloser{}
+	tracer := activationLinkTestTracer(7)
+	firstExecutable := goAutoSDKExecutableKey{dev: 5, ino: 10}
+	secondExecutable := goAutoSDKExecutableKey{dev: 6, ino: 20}
+	tracer.goAutoSDKActivationProbes[secondExecutable] = goAutoSDKActivationProbe{}
+	tracer.goAutoSDKActivationLinks = map[goAutoSDKActivationLinkKey]goAutoSDKActivationLink{
+		{pid: 123, generation: 7}: {
+			executable: firstExecutable,
+			link:       &onceCloser{closer: firstLink},
+		},
+		{pid: 456, generation: 8}: {
+			executable: secondExecutable,
+			link:       &onceCloser{closer: secondLink},
+		},
+	}
+
+	tracer.UnregisterProcessScopedGoProbes(5, 10)
+
+	assert.Equal(t, int32(1), firstLink.closes.Load())
+	assert.Zero(t, secondLink.closes.Load())
+	assert.NotContains(t, tracer.goAutoSDKActivationProbes, firstExecutable)
+	assert.Contains(t, tracer.goAutoSDKActivationProbes, secondExecutable)
+	assert.Contains(t, tracer.goAutoSDKActivationLinks,
+		goAutoSDKActivationLinkKey{pid: 456, generation: 8})
+}
+
+func TestGoAutoSDKActivationIgnoresStaleGenerationEvent(t *testing.T) {
+	staleLink := &activationCountingCloser{}
+	currentLink := &activationCountingCloser{}
+	tracer := activationLinkTestTracer(8)
+	executable := goAutoSDKExecutableKey{dev: 5, ino: 10}
+	tracer.goAutoSDKActivationLinks = map[goAutoSDKActivationLinkKey]goAutoSDKActivationLink{
+		{pid: 123, generation: 7}: {
+			executable: executable,
+			link:       &onceCloser{closer: staleLink},
+		},
+		{pid: 123, generation: 8}: {
+			executable: executable,
+			link:       &onceCloser{closer: currentLink},
+		},
+	}
+
+	handled, err := tracer.handleGoAutoSDKActivationEvent(
+		activationEventRecord(t, 123, 7),
+	)
+
+	require.NoError(t, err)
+	assert.True(t, handled)
+	assert.Zero(t, staleLink.closes.Load())
+	assert.Zero(t, currentLink.closes.Load())
+	assert.Len(t, tracer.goAutoSDKActivationLinks, 2)
+	assert.False(t, tracer.goAutoSDKTargets[123].activated)
+
+	handled, err = tracer.handleGoAutoSDKActivationEvent(
+		activationEventRecord(t, 123, 8),
+	)
+	require.NoError(t, err)
+	assert.True(t, handled)
+	assert.Zero(t, staleLink.closes.Load())
+	assert.Equal(t, int32(1), currentLink.closes.Load())
+}
+
+func TestGoAutoSDKActivationHandlesPIDReuse(t *testing.T) {
+	oldLink := &activationCountingCloser{}
+	newLink := &activationCountingCloser{}
+	startTime := uint64(100)
+	tracer := activationLifecycleTestTracer(func(app.PID) (uint64, error) {
+		return startTime, nil
+	})
+	links := []*activationCountingCloser{oldLink, newLink}
+	tracer.attachGoAutoSDKProbe = func(
+		goAutoSDKActivationProbe,
+		app.PID,
+		uint64,
+		uint64,
+		uint64,
+	) (io.Closer, error) {
+		link := links[0]
+		links = links[1:]
+		return link, nil
+	}
+	fileInfo := exec.New(exec.Init{Dev: 5, Ino: 10})
+
+	tracer.AllowPID(123, 1, fileInfo)
+	oldGeneration := tracer.goAutoSDKTargets[123].generation
+	startTime = 200
+	tracer.AllowPID(123, 1, fileInfo)
+	newGeneration := tracer.goAutoSDKTargets[123].generation
+
+	handled, err := tracer.handleGoAutoSDKActivationEvent(
+		activationEventRecord(t, 123, oldGeneration),
+	)
+	require.NoError(t, err)
+	assert.True(t, handled)
+	assert.Equal(t, int32(1), oldLink.closes.Load())
+	assert.Zero(t, newLink.closes.Load())
+	assert.NotEqual(t, oldGeneration, newGeneration)
+	assert.Contains(t, tracer.goAutoSDKActivationLinks,
+		goAutoSDKActivationLinkKey{pid: 123, generation: newGeneration})
+}
+
+func TestGoAutoSDKActivationSupportsProcessesSharingInode(t *testing.T) {
+	links := map[app.PID]*activationCountingCloser{
+		123: {},
+		456: {},
+	}
+	tracer := activationLifecycleTestTracer(func(pid app.PID) (uint64, error) {
+		return uint64(pid), nil
+	})
+	tracer.attachGoAutoSDKProbe = func(
+		_ goAutoSDKActivationProbe,
+		pid app.PID,
+		_ uint64,
+		_ uint64,
+		_ uint64,
+	) (io.Closer, error) {
+		return links[pid], nil
+	}
+	fileInfo := exec.New(exec.Init{Dev: 5, Ino: 10})
+	tracer.AllowPID(123, 1, fileInfo)
+	tracer.AllowPID(456, 1, fileInfo)
+	firstGeneration := tracer.goAutoSDKTargets[123].generation
+	secondGeneration := tracer.goAutoSDKTargets[456].generation
+
+	handled, err := tracer.handleGoAutoSDKActivationEvent(
+		activationEventRecord(t, 123, firstGeneration),
+	)
+
+	require.NoError(t, err)
+	assert.True(t, handled)
+	assert.Equal(t, int32(1), links[123].closes.Load())
+	assert.Zero(t, links[456].closes.Load())
+	assert.NotContains(t, tracer.goAutoSDKActivationLinks,
+		goAutoSDKActivationLinkKey{pid: 123, generation: firstGeneration})
+	assert.Contains(t, tracer.goAutoSDKActivationLinks,
+		goAutoSDKActivationLinkKey{pid: 456, generation: secondGeneration})
+
+	handled, err = tracer.handleGoAutoSDKActivationEvent(
+		activationEventRecord(t, 456, secondGeneration),
+	)
+	require.NoError(t, err)
+	assert.True(t, handled)
+	assert.Equal(t, int32(1), links[456].closes.Load())
+}
+
+func TestGoAutoSDKActivationCleanupRaceClosesLinkOnce(t *testing.T) {
+	for range 25 {
+		activationLink := &activationCountingCloser{}
+		tracer := activationLifecycleTestTracer(func(app.PID) (uint64, error) {
+			return 100, nil
+		})
+		tracer.attachGoAutoSDKProbe = func(
+			goAutoSDKActivationProbe,
+			app.PID,
+			uint64,
+			uint64,
+			uint64,
+		) (io.Closer, error) {
+			return activationLink, nil
+		}
+		tracer.AllowPID(123, 1, exec.New(exec.Init{Dev: 5, Ino: 10}))
+		generation := tracer.goAutoSDKTargets[123].generation
+		record := activationEventRecord(t, 123, generation)
+
+		var wg sync.WaitGroup
+		wg.Add(4)
+		go func() {
+			defer wg.Done()
+			_, _ = tracer.handleGoAutoSDKActivationEvent(record)
+		}()
+		go func() {
+			defer wg.Done()
+			tracer.UnregisterProcessScopedGoProbes(5, 10)
+		}()
+		go func() {
+			defer wg.Done()
+			_ = tracer.closeAllGoAutoSDKActivationLinks()
+		}()
+		go func() {
+			defer wg.Done()
+			tracer.BlockPID(123, 1)
+		}()
+		wg.Wait()
+
+		assert.Equal(t, int32(1), activationLink.closes.Load())
+		assert.Empty(t, tracer.goAutoSDKActivationLinks)
+	}
+}
+
+func TestBlockPIDClosesActivationLinkBeforePIDReuse(t *testing.T) {
+	firstLink := &activationCountingCloser{}
+	secondLink := &activationCountingCloser{}
+	tracer := activationLifecycleTestTracer(func(pid app.PID) (uint64, error) {
+		return uint64(pid), nil
+	})
+	links := []*activationCountingCloser{firstLink, secondLink}
+	tracer.attachGoAutoSDKProbe = func(
+		goAutoSDKActivationProbe,
+		app.PID,
+		uint64,
+		uint64,
+		uint64,
+	) (io.Closer, error) {
+		link := links[0]
+		links = links[1:]
+		return link, nil
+	}
+	fileInfo := exec.New(exec.Init{Dev: 5, Ino: 10})
+
+	tracer.AllowPID(123, 1, fileInfo)
+	firstGeneration := tracer.goAutoSDKTargets[123].generation
+	tracer.BlockPID(123, 1)
+	tracer.AllowPID(123, 1, fileInfo)
+	secondGeneration := tracer.goAutoSDKTargets[123].generation
+
+	assert.Equal(t, int32(1), firstLink.closes.Load())
+	assert.Zero(t, secondLink.closes.Load())
+	assert.NotEqual(t, firstGeneration, secondGeneration)
+	assert.Contains(t, tracer.goAutoSDKActivationLinks,
+		goAutoSDKActivationLinkKey{pid: 123, generation: secondGeneration})
+}
+
+func TestRunClosesActivationLinksWhenRingbufIsAlreadyForwarded(t *testing.T) {
+	activationLink := &activationCountingCloser{}
+	tracer := activationLinkTestTracer(7)
+	tracer.cfg = &config.EBPFTracer{}
+	tracer.pidsFilter = &ebpfcommon.IdentityPidsFilter{}
+	tracer.goAutoSDKActivationLinks = map[goAutoSDKActivationLinkKey]goAutoSDKActivationLink{
+		{pid: 123, generation: 7}: {
+			executable: goAutoSDKExecutableKey{dev: 5, ino: 10},
+			link:       &onceCloser{closer: activationLink},
+		},
+	}
+	eventContext := ebpfcommon.NewEBPFEventContext()
+	eventContext.SharedRingBuffer = blockingSharedForwarder{}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	tracer.Run(ctx, eventContext, nil)
+
+	assert.Equal(t, int32(1), activationLink.closes.Load())
+	assert.Empty(t, tracer.goAutoSDKActivationLinks)
+}
+
+func TestSetEventContextRegistersActivationHandlerBeforeRun(t *testing.T) {
+	activationLink := &activationCountingCloser{}
+	tracer := activationLinkTestTracer(7)
+	tracer.goAutoSDKActivationLinks = map[goAutoSDKActivationLinkKey]goAutoSDKActivationLink{
+		{pid: 123, generation: 7}: {
+			executable: goAutoSDKExecutableKey{dev: 5, ino: 10},
+			link:       &onceCloser{closer: activationLink},
+		},
+	}
+	eventContext := ebpfcommon.NewEBPFEventContext()
+	tracer.SetEventContext(eventContext)
+
+	handled, err := eventContext.HandleInternalEvent(
+		activationEventRecord(t, 123, 7),
+	)
+
+	require.NoError(t, err)
+	assert.True(t, handled)
+	assert.Equal(t, int32(1), activationLink.closes.Load())
+}
+
+type blockingSharedForwarder struct{}
+
+func (blockingSharedForwarder) AlreadyForwarded(ctx context.Context) {
+	<-ctx.Done()
+}
+
+func activationLinkTestTracer(generation uint64) *Tracer {
+	return &Tracer{
+		log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		goAutoSDKTargets: map[app.PID]goAutoSDKTargetState{
+			123: {generation: generation, dev: 5, ino: 10},
+		},
+		goAutoSDKActivationProbes: map[goAutoSDKExecutableKey]goAutoSDKActivationProbe{
+			{dev: 5, ino: 10}: {},
+		},
+		goAutoSDKActivationLinks: map[goAutoSDKActivationLinkKey]goAutoSDKActivationLink{},
+	}
+}
+
+func activationLifecycleTestTracer(
+	startTime func(app.PID) (uint64, error),
+) *Tracer {
+	return &Tracer{
+		log:              slog.New(slog.NewTextHandler(io.Discard, nil)),
+		pidsFilter:       &ebpfcommon.IdentityPidsFilter{},
+		goAutoSDKTargets: map[app.PID]goAutoSDKTargetState{},
+		goAutoSDKActivationProbes: map[goAutoSDKExecutableKey]goAutoSDKActivationProbe{
+			{dev: 5, ino: 10}: {},
+		},
+		goAutoSDKActivationLinks:  map[goAutoSDKActivationLinkKey]goAutoSDKActivationLink{},
+		goAutoSDKTargetMap:        newRecordingTargetMap(),
+		goAutoSDKAttemptMap:       &recordingMapKeyDeleter{errors: map[uint8]error{}},
+		goAutoSDKProcessStartTime: startTime,
+	}
+}
+
+func activationEventRecord(
+	t *testing.T,
+	pid app.PID,
+	generation uint64,
+) *ringbuf.Record {
+	t.Helper()
+
+	var raw bytes.Buffer
+	require.NoError(t, binary.Write(&raw, binary.LittleEndian, goAutoSDKActivationEvent{
+		Type:       ebpfcommon.EventTypeGoAutoActivated,
+		Pid:        uint32(pid),
+		Generation: generation,
+	}))
+	return &ringbuf.Record{RawSample: raw.Bytes()}
+}
+
+type activationCountingCloser struct {
+	closes atomic.Int32
+}
+
+func (c *activationCountingCloser) Close() error {
+	c.closes.Add(1)
+	return nil
 }
 
 func TestResetGoAutoSDKActivationAttempts(t *testing.T) {
