@@ -398,7 +398,6 @@ func migrationAlias(path string) bool {
 		return true
 	}
 	for _, prefix := range []string{
-		"discovery.excluded_linux_system_paths",
 		"executable_path",
 		"open_port",
 		"target_pids",

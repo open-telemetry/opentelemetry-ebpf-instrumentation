@@ -408,7 +408,11 @@ func TestV2ToRuntimeImportsRules(t *testing.T) {
 
 	require.True(t, got.Discovery.ExcludeOTelInstrumentedServices)
 	require.Equal(t, 4317, got.Discovery.DefaultOtlpGRPCPort)
-	require.Empty(t, got.Discovery.ExcludedLinuxSystemPaths)
+	require.Equal(
+		t,
+		obi.DefaultConfig.Discovery.ExcludedLinuxSystemPaths,
+		got.Discovery.ExcludedLinuxSystemPaths,
+	)
 	require.Len(t, got.Discovery.ExcludeInstrument, 1)
 	exclude := got.Discovery.ExcludeInstrument[0]
 	require.Equal(t, "/usr/bin/*", globString(exclude.Path))

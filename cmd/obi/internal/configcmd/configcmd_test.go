@@ -315,7 +315,6 @@ discovery:
   services:
     - exe_path: "^/srv/api$"
     - open_ports: 5000
-  excluded_linux_system_paths: ["/opt/system+services/"]
 otel_traces_export:
   endpoint: http://collector:4318
 `))
@@ -331,15 +330,11 @@ otel_traces_export:
 	require.True(t, runtimeConfig.Discovery.Services[0].Path.MatchString("/srv/api"))
 	require.True(t, runtimeConfig.Discovery.Services[1].Path.MatchString("/any/executable"))
 	require.True(t, runtimeConfig.Discovery.Services[1].OpenPorts.Matches(5000))
-
-	var excludesSystemPath bool
-	for _, selector := range runtimeConfig.Discovery.ExcludeServices {
-		if selector.Path.MatchString("/opt/system+services/daemon") {
-			excludesSystemPath = true
-			break
-		}
-	}
-	require.True(t, excludesSystemPath)
+	require.Equal(
+		t,
+		obi.DefaultConfig.Discovery.ExcludedLinuxSystemPaths,
+		runtimeConfig.Discovery.ExcludedLinuxSystemPaths,
+	)
 }
 
 func TestMigrateConfigSupportsDeprecatedExecutablePath(t *testing.T) {
@@ -350,7 +345,6 @@ discovery:
     - exe_path: "/custom/{one,two}/service-??"
     - exe_path: "{[a,b],c}"
   default_exclude_instrument: []
-  excluded_linux_system_paths: []
 otel_traces_export:
   endpoint: http://collector:4318
 `))
@@ -369,7 +363,11 @@ otel_traces_export:
 	require.True(t, runtimeConfig.Discovery.ExcludeServices[1].Path.MatchString("a"))
 	require.True(t, runtimeConfig.Discovery.ExcludeServices[1].Path.MatchString("b"))
 	require.True(t, runtimeConfig.Discovery.ExcludeServices[1].Path.MatchString("c"))
-	require.Empty(t, runtimeConfig.Discovery.ExcludedLinuxSystemPaths)
+	require.Equal(
+		t,
+		obi.DefaultConfig.Discovery.ExcludedLinuxSystemPaths,
+		runtimeConfig.Discovery.ExcludedLinuxSystemPaths,
+	)
 }
 
 func TestMigrateConfigSupportsDeprecatedPathRegexp(t *testing.T) {
@@ -381,7 +379,6 @@ discovery:
     - exe_path_regexp: "^/srv/private/.*$"
   default_exclude_services:
     - exe_path_regexp: "^/usr/bin/obi$"
-  excluded_linux_system_paths: []
 otel_traces_export:
   endpoint: http://collector:4318
 `))
@@ -401,6 +398,20 @@ otel_traces_export:
 	}
 	require.True(t, matchesDefault)
 	require.True(t, matchesPrivate)
+}
+
+func TestMigrateConfigRejectsCustomLanguageDetectionSkips(t *testing.T) {
+	for _, value := range []string{"[]", `["/opt/system-services/"]`} {
+		_, _, err := migrateConfig([]byte(fmt.Sprintf(`
+open_port: "8080"
+discovery:
+  excluded_linux_system_paths: %s
+otel_traces_export:
+  endpoint: http://collector:4318
+`, value)))
+
+		require.ErrorContains(t, err, "discovery.excluded_linux_system_paths")
+	}
 }
 
 func TestMigrateIntegrationConfigurations(t *testing.T) {
