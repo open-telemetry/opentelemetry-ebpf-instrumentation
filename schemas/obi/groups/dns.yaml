@@ -1,5 +1,12 @@
 file_format: definition/2
 
+imports:
+  entities: ["*"]
+  events: ["*"]
+  metrics: ["*"]
+  spans: ["*"]
+  attribute_groups: ["*"]
+
 metric_refinements:
   # OBI override of the upstream metric.dns.lookup.duration definition.
   #
@@ -12,10 +19,10 @@ metric_refinements:
   # its type/value whenever a user opts in. All other parent attributes
   # (error.type, …) are inherited unchanged via `extends`.
   #
-  # NOTE on the group id: weaver v0.24.1 has no precedence semantics between a
-  # local group and a dependency group sharing the same metric_name when the
-  # dependency's copy is in the resolved registry (`--include-unreferenced`,
-  # which OBI needs). The winner is the group whose id sorts LAST
+  # NOTE on the group id: Weaver has no precedence semantics between a local
+  # group and a dependency group sharing the same metric_name when the
+  # dependency's copy is imported into the resolved registry. The winner is
+  # the group whose id sorts LAST
   # lexicographically (resolved registry is sorted by id; live-check's
   # metric_name lookup is last-insert-wins). This id is deliberately chosen to
   # sort after the upstream `metric.dns.lookup.duration` so the override wins.
@@ -25,8 +32,8 @@ metric_refinements:
   # upstream in https://github.com/open-telemetry/weaver/issues/1578; once
   # weaver defines local-wins precedence, this comment block can be dropped.
   #
-  # `weaver registry check` (v0.24.2+) flags this same-metric_name duplicate
-  # as a DuplicateMetricName error even though live-check resolves it; this
+  # `weaver registry check` flags this same-metric_name duplicate as a
+  # DuplicateMetricName error even though live-check resolves it; this
   # specific expected duplicate is allowlisted in
   # scripts/lint-schema-filter.jq with the same rationale.
   - id: metric.dns.lookup.duration.obi

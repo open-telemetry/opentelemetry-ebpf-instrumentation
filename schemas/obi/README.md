@@ -7,10 +7,10 @@ upstream dependency it forms the complete contract of what OBI emits
 
 ## Overriding an upstream definition
 
-Weaver (v0.24.x) has **no precedence or merge semantics** between a local
-group and the groups a dependency contributes to the resolved registry
-(`--include-unreferenced`, which OBI needs). When the same attribute id
-is declared by more than one group, live-check silently resolves
+Weaver has **no precedence or merge semantics** between a local group and the
+groups a dependency contributes to the resolved registry
+(`groups/dns.yaml` imports all upstream groups). When the same attribute id is
+declared by more than one group, live-check silently resolves
 the duplicate in favor of the group whose id sorts **last lexicographically** —
 including the upstream `span.*` / `metric.*` groups that `ref` an attribute
 and therefore carry an embedded copy of its upstream definition. Tracked
