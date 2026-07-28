@@ -332,10 +332,15 @@ type OpenAIError struct {
 	Type    string `json:"type"`
 }
 
-// ToolCall represents a tool invocation requested by an LLM.
+// ToolCall represents a tool invocation requested by an LLM. Arguments and
+// Result are populated only when both can be paired from the request message
+// history (assistant tool call + tool-role result); they carry JSON strings
+// per the OTel GenAI semantic conventions.
 type ToolCall struct {
-	ID   string `json:"id,omitempty"`
-	Name string `json:"name"`
+	ID        string `json:"id,omitempty"`
+	Name      string `json:"name"`
+	Arguments string `json:"arguments,omitempty"`
+	Result    string `json:"result,omitempty"`
 }
 
 type VendorOpenAI struct {

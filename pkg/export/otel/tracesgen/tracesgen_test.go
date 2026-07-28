@@ -400,6 +400,91 @@ func TestCreateToolCallSpans(t *testing.T) {
 		_, ok := sp.Attributes().Get("gen_ai.tool.call.id")
 		assert.False(t, ok, "gen_ai.tool.call.id should not be present when ID is empty")
 	})
+
+	t.Run("emits arguments and result when present", func(t *testing.T) {
+		ss := ptrace.NewScopeSpans()
+		traceID := pcommon.TraceID([16]byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16})
+		parentSpanID := pcommon.SpanID([8]byte{1, 2, 3, 4, 5, 6, 7, 8})
+		now := time.Now()
+		createToolCallSpans([]request.ToolCall{
+			{ID: "call_1", Name: "get_weather", Arguments: `{"location":"Boston"}`, Result: "Sunny, 72F"},
+		}, parentSpanID, traceID, &ss, now, now)
+
+		require.Equal(t, 1, ss.Spans().Len())
+		attrs := ss.Spans().At(0).Attributes()
+
+		args, ok := attrs.Get("gen_ai.tool.call.arguments")
+		require.True(t, ok)
+		assert.Equal(t, `{"location":"Boston"}`, args.Str())
+
+		result, ok := attrs.Get("gen_ai.tool.call.result")
+		require.True(t, ok)
+		assert.Equal(t, "Sunny, 72F", result.Str())
+	})
+
+	t.Run("omits arguments and result when empty", func(t *testing.T) {
+		ss := ptrace.NewScopeSpans()
+		traceID := pcommon.TraceID([16]byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16})
+		parentSpanID := pcommon.SpanID([8]byte{1, 2, 3, 4, 5, 6, 7, 8})
+		now := time.Now()
+		createToolCallSpans([]request.ToolCall{
+			{ID: "call_1", Name: "get_weather"},
+		}, parentSpanID, traceID, &ss, now, now)
+
+		require.Equal(t, 1, ss.Spans().Len())
+		attrs := ss.Spans().At(0).Attributes()
+		_, ok := attrs.Get("gen_ai.tool.call.arguments")
+		assert.False(t, ok)
+		_, ok = attrs.Get("gen_ai.tool.call.result")
+		assert.False(t, ok)
+	})
+}
+
+func TestResolveToolCalls(t *testing.T) {
+	newSpan := func() *request.Span {
+		messages := json.RawMessage(`[
+			{"role":"assistant","content":null,"tool_calls":[
+				{"id":"call_1","function":{"name":"get_weather","arguments":"{\"location\":\"Boston\"}"}}
+			]},
+			{"role":"tool","tool_call_id":"call_1","content":"Sunny, 72F"}
+		]`)
+		return &request.Span{
+			GenAI: &request.GenAI{
+				OpenAI: &request.VendorOpenAI{Request: request.OpenAIInput{Messages: messages}},
+			},
+		}
+	}
+
+	t.Run("no optional attributes strips arguments and result", func(t *testing.T) {
+		got := resolveToolCalls(newSpan(), map[attr.Name]struct{}{})
+		require.Len(t, got, 1)
+		assert.Equal(t, "get_weather", got[0].Name)
+		assert.Empty(t, got[0].Arguments)
+		assert.Empty(t, got[0].Result)
+	})
+
+	t.Run("arguments selected keeps only arguments", func(t *testing.T) {
+		got := resolveToolCalls(newSpan(), map[attr.Name]struct{}{
+			attr.GenAIToolCallArguments: {},
+		})
+		require.Len(t, got, 1)
+		assert.JSONEq(t, `{"location":"Boston"}`, got[0].Arguments)
+		assert.Empty(t, got[0].Result)
+	})
+
+	t.Run("both selected keeps arguments and result", func(t *testing.T) {
+		got := resolveToolCalls(newSpan(), map[attr.Name]struct{}{
+			attr.GenAIToolCallArguments: {},
+			attr.GenAIToolCallResult:    {},
+		})
+		require.Len(t, got, 1)
+		assert.JSONEq(t, `{"location":"Boston"}`, got[0].Arguments)
+		assert.Equal(t, "Sunny, 72F", got[0].Result)
+	})
+
+	t.Run("nil GenAI returns nil", func(t *testing.T) {
+		assert.Nil(t, resolveToolCalls(&request.Span{}, map[attr.Name]struct{}{}))
+	})
 }
 
 func TestTraceAttributesSelector_OpenAICompatible(t *testing.T) {

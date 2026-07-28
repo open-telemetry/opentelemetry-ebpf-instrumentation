@@ -51,6 +51,11 @@ var (
 type TraceSpanAndAttributes struct {
 	Span       *request.Span
 	Attributes []attribute.KeyValue
+	// ToolCalls holds the paired GenAI tool calls used to emit execute_tool
+	// child spans. It is populated during span grouping (where the attribute
+	// selection is known), with arguments/result already gated by the
+	// selected optional attributes.
+	ToolCalls []request.ToolCall
 }
 
 type SpanAttr struct {
@@ -122,7 +127,11 @@ func GroupSpans(ctx context.Context, spans []request.Span, traceAttrs map[attr.N
 		if responseErrorSelected {
 			exportAttrs = append(slices.Clone(samplerAttrs), genAIResponseErrorControlKey.Bool(true))
 		}
-		group = append(group, TraceSpanAndAttributes{Span: span, Attributes: exportAttrs})
+		group = append(group, TraceSpanAndAttributes{
+			Span:       span,
+			Attributes: exportAttrs,
+			ToolCalls:  resolveToolCalls(span, traceAttrs),
+		})
 		spanGroups[span.Service.UID] = group
 	}
 
@@ -259,8 +268,8 @@ func generateTracesWithAttributes(
 		s.SetEndTimestamp(pcommon.NewTimestampFromTime(t.End))
 
 		// Create individual execute_tool child spans per tool call (OTel GenAI semconv compliance)
-		if toolCalls := getSpanToolCalls(span); len(toolCalls) > 0 {
-			createToolCallSpans(toolCalls, spanID, traceID, &ss, start, t.End)
+		if len(spanWithAttributes.ToolCalls) > 0 {
+			createToolCallSpans(spanWithAttributes.ToolCalls, spanID, traceID, &ss, start, t.End)
 		}
 	}
 	return traces
@@ -458,27 +467,30 @@ var (
 	spanMetricsSkip     = attribute.Bool(string(attr.SkipSpanMetrics), true)
 )
 
-// getSpanToolCalls extracts tool calls from a GenAI span regardless of vendor.
-func getSpanToolCalls(span *request.Span) []request.ToolCall {
+// resolveToolCalls pairs GenAI tool calls from the request message history
+// (assistant arguments + tool-role result) and gates the arguments/result
+// payloads behind their own optional attributes, mirroring the MCP path. Only
+// fully paired tool calls (both arguments and result present) are returned, so
+// arguments and result always land on the same execute_tool span.
+func resolveToolCalls(span *request.Span, optionalAttrs map[attr.Name]struct{}) []request.ToolCall {
 	if span.GenAI == nil {
 		return nil
 	}
-	switch {
-	case span.GenAI.OpenAI != nil:
-		return span.GenAI.OpenAI.ToolCalls
-	case span.GenAI.Anthropic != nil:
-		return span.GenAI.Anthropic.ToolCalls
-	case span.GenAI.Gemini != nil:
-		return span.GenAI.Gemini.ToolCalls
-	case span.GenAI.Qwen != nil:
-		return span.GenAI.Qwen.ToolCalls
-	case span.GenAI.Ollama != nil:
-		return span.GenAI.Ollama.ToolCalls
-	case span.GenAI.OpenAICompatible != nil:
-		return span.GenAI.OpenAICompatible.ToolCalls
-	default:
+	toolCalls := span.GenAI.PairedToolCalls()
+	if len(toolCalls) == 0 {
 		return nil
 	}
+	_, wantArgs := optionalAttrs[attr.GenAIToolCallArguments]
+	_, wantResult := optionalAttrs[attr.GenAIToolCallResult]
+	for i := range toolCalls {
+		if !wantArgs {
+			toolCalls[i].Arguments = ""
+		}
+		if !wantResult {
+			toolCalls[i].Result = ""
+		}
+	}
+	return toolCalls
 }
 
 // createToolCallSpans creates individual execute_tool child spans for each tool call,
@@ -503,6 +515,14 @@ func createToolCallSpans(toolCalls []request.ToolCall, parentSpanID pcommon.Span
 		attrs.PutStr(string(attr.GenAIToolName), tc.Name)
 		if tc.ID != "" {
 			attrs.PutStr(string(attr.GenAIToolCallID), tc.ID)
+		}
+		// Arguments and result are already gated by the selected optional
+		// attributes during span grouping; emit them when present.
+		if tc.Arguments != "" {
+			attrs.PutStr(string(attr.GenAIToolCallArguments), tc.Arguments)
+		}
+		if tc.Result != "" {
+			attrs.PutStr(string(attr.GenAIToolCallResult), tc.Result)
 		}
 	}
 }
