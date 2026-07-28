@@ -40,6 +40,9 @@ func TestParseStandaloneYAMLDocument(t *testing.T) {
 	doc, cfg, err := ParseStandaloneYAML([]byte(`
 file_format: "1.0"
 log_level: debug
+distribution:
+  vendor:
+    option: true
 resource:
   attributes:
     - name: service.namespace
@@ -101,6 +104,7 @@ extensions:
 	require.True(t, doc.HasLogLevel())
 	require.NotNil(t, doc.LogLevel)
 	require.Equal(t, "debug", string(*doc.LogLevel))
+	require.Equal(t, true, doc.Distribution["vendor"]["option"])
 	require.Equal(t, SupportedVersion, cfg.Version)
 	require.NotNil(t, doc.InstrumentationDevelopment)
 	require.Len(t, doc.Resource.Attributes, 1)
