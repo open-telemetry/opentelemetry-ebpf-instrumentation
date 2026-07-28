@@ -4,6 +4,7 @@
 package request // import "go.opentelemetry.io/obi/pkg/appolly/app/request"
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/url"
@@ -423,22 +424,22 @@ func (ai *VendorOpenAI) GetEmbeddingDimensions() int {
 }
 
 // embeddingLenFromData returns the vector length from an OpenAI-style embedding
-// response body: {"data":[{"embedding":[...]}]}. Returns 0 when not present.
+// response body: {"data":[{"embedding":<vector>}]}. Returns 0 when not present.
 func embeddingLenFromData(raw json.RawMessage) int {
 	if len(raw) == 0 {
 		return 0
 	}
 	var data []struct {
-		Embedding []json.Number `json:"embedding"`
+		Embedding json.RawMessage `json:"embedding"`
 	}
 	if err := json.Unmarshal(raw, &data); err != nil || len(data) == 0 {
 		return 0
 	}
-	return len(data[0].Embedding)
+	return embeddingVectorLen(data[0].Embedding)
 }
 
 // embeddingDimsFromOutput returns the vector length from a native DashScope
-// embedding response `output` object: {"embeddings":[{"embedding":[...]}]}.
+// embedding response `output` object: {"embeddings":[{"embedding":<vector>}]}.
 // Returns 0 when not present.
 func embeddingDimsFromOutput(raw json.RawMessage) int {
 	if len(raw) == 0 {
@@ -446,13 +447,69 @@ func embeddingDimsFromOutput(raw json.RawMessage) int {
 	}
 	var out struct {
 		Embeddings []struct {
-			Embedding []json.Number `json:"embedding"`
+			Embedding json.RawMessage `json:"embedding"`
 		} `json:"embeddings"`
 	}
 	if err := json.Unmarshal(raw, &out); err != nil || len(out.Embeddings) == 0 {
 		return 0
 	}
-	return len(out.Embeddings[0].Embedding)
+	return embeddingVectorLen(out.Embeddings[0].Embedding)
+}
+
+// embeddingVectorLen returns the dimension count of a single embedding vector.
+// The vector may be encoded either as a JSON array of numbers (encoding_format
+// "float", the default) or as a base64 string of packed float32 values
+// (encoding_format "base64", which the OpenAI SDKs use by default). Returns 0
+// when the encoding is not recognized.
+func embeddingVectorLen(embedding json.RawMessage) int {
+	trimmed := bytesTrimSpace(embedding)
+	if len(trimmed) == 0 {
+		return 0
+	}
+	// Array of numbers: count the elements.
+	if trimmed[0] == '[' {
+		var arr []json.Number
+		if err := json.Unmarshal(trimmed, &arr); err != nil {
+			return 0
+		}
+		return len(arr)
+	}
+	// Base64 string of packed float32 values.
+	if trimmed[0] == '"' {
+		var s string
+		if err := json.Unmarshal(trimmed, &s); err != nil || s == "" {
+			return 0
+		}
+		decoded, err := base64.StdEncoding.DecodeString(s)
+		if err != nil || len(decoded)%4 != 0 {
+			return 0
+		}
+		return len(decoded) / 4 // float32 = 4 bytes
+	}
+	return 0
+}
+
+// bytesTrimSpace trims leading/trailing JSON whitespace from a raw value.
+func bytesTrimSpace(b []byte) []byte {
+	start := 0
+	for start < len(b) {
+		switch b[start] {
+		case ' ', '\t', '\n', '\r':
+			start++
+			continue
+		}
+		break
+	}
+	end := len(b)
+	for end > start {
+		switch b[end-1] {
+		case ' ', '\t', '\n', '\r':
+			end--
+			continue
+		}
+		break
+	}
+	return b[start:end]
 }
 
 type OpenAIInput struct {

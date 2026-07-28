@@ -5,6 +5,8 @@ package ebpfcommon
 
 import (
 	"bufio"
+	"encoding/base64"
+	"fmt"
 	"io"
 	"net/http"
 	"strconv"
@@ -171,6 +173,32 @@ func TestQwenSpan_DashScopeNativeEmbedding_DimensionFromResponse(t *testing.T) {
 	require.True(t, ok)
 	require.NotNil(t, span.GenAI.Qwen)
 	assert.Equal(t, 3, span.GenAI.Qwen.GetEmbeddingDimensions())
+}
+
+func TestQwenSpan_CompatibleModeBase64Embedding(t *testing.T) {
+	// OpenAI SDKs default to encoding_format=base64 for embeddings: the response
+	// data[].embedding is a base64 string of packed float32 values, not a JSON
+	// array. A 1024-dim vector is 1024*4=4096 bytes.
+	vec := base64.StdEncoding.EncodeToString(make([]byte, 1024*4))
+	respBody := fmt.Sprintf(
+		`{"data":[{"embedding":"%s","index":0,"object":"embedding"}],"model":"text-embedding-v3","usage":{"prompt_tokens":6,"total_tokens":6},"id":"eb4ea05e-18c5-9554-9234-78a1528e7be3"}`,
+		vec)
+	reqBody := `{"model":"text-embedding-v3","input":["hello"],"encoding_format":"base64"}`
+
+	req := makeRequest(t, http.MethodPost, "https://dashscope.aliyuncs.com/compatible-mode/v1/embeddings", reqBody)
+	resp := makePlainResponse(http.StatusOK, qwenHeaders(), respBody)
+
+	base := &request.Span{}
+	span, ok := QwenSpan(base, req, resp)
+
+	require.True(t, ok)
+	require.NotNil(t, span.GenAI.Qwen)
+	ai := span.GenAI.Qwen
+	assert.Equal(t, "embeddings", ai.OperationName)
+	// Dimension resolved from the base64-decoded vector: 4096 bytes / 4 = 1024.
+	assert.Equal(t, 1024, ai.GetEmbeddingDimensions())
+	assert.Equal(t, "base64", ai.Request.EncodingFormat)
+	assert.Equal(t, 6, reportedValue(span.GenAIInputTokenCount()))
 }
 
 func TestQwenSpan_IDFallbackFromHeadersWhenBodyMissingID(t *testing.T) {
