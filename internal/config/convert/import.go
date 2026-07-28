@@ -51,6 +51,9 @@ func V2ToRuntime(src *schema.Extension) (*obi.Config, error) {
 	if err := validateV2HTTPFilters(src.Capture.Instrumentation.HTTP.Filters); err != nil {
 		return nil, err
 	}
+	if err := reconcileV2FlowLimitAliases(src); err != nil {
+		return nil, err
+	}
 	if err := validateV2HTTPRoutes(src.Capture.Instrumentation.HTTP.Routes, src.Capture.Rules); err != nil {
 		return nil, err
 	}
@@ -425,6 +428,63 @@ func validateV2HTTPFilters(filters schema.SignalFilters) error {
 		return nil
 	}
 	return errors.New("capture.instrumentation.http.filters: trace and metric filters cannot differ")
+}
+
+func reconcileV2FlowLimitAliases(src *schema.Extension) error {
+	networkPackets := src.Capture.Limits.NetworkPackets
+	maxTrackedFlows := src.Capture.Network.Capture.FlowLifecycle.MaxTrackedFlows
+	networkPacketsSet, maxTrackedFlowsSet, presenceKnown := src.FlowLimitAliasPresence()
+
+	if presenceKnown {
+		if networkPacketsSet && networkPackets < 1 {
+			return errors.New("capture.limits.network_packets must be greater than zero")
+		}
+		if maxTrackedFlowsSet && maxTrackedFlows < 1 {
+			return errors.New(
+				"capture.network.capture.flow_lifecycle.max_tracked_flows must be greater than zero",
+			)
+		}
+
+		switch {
+		case networkPacketsSet && !maxTrackedFlowsSet:
+			if networkPackets != 0 {
+				src.Capture.Network.Capture.FlowLifecycle.MaxTrackedFlows = networkPackets
+			} else if maxTrackedFlows != 0 {
+				src.Capture.Limits.NetworkPackets = maxTrackedFlows
+			}
+			return nil
+		case !networkPacketsSet && maxTrackedFlowsSet:
+			if maxTrackedFlows != 0 {
+				src.Capture.Limits.NetworkPackets = maxTrackedFlows
+			} else if networkPackets != 0 {
+				src.Capture.Network.Capture.FlowLifecycle.MaxTrackedFlows = networkPackets
+			}
+			return nil
+		case !networkPacketsSet && !maxTrackedFlowsSet:
+			return nil
+		}
+	}
+
+	switch {
+	case networkPackets == 0 && maxTrackedFlows == 0:
+		return nil
+	case networkPackets == 0:
+		src.Capture.Limits.NetworkPackets = maxTrackedFlows
+		return nil
+	case maxTrackedFlows == 0:
+		src.Capture.Network.Capture.FlowLifecycle.MaxTrackedFlows = networkPackets
+		return nil
+	case networkPackets == maxTrackedFlows:
+		return nil
+	}
+
+	return fmt.Errorf(
+		"capture.limits.network_packets (%d) must equal "+
+			"capture.network.capture.flow_lifecycle.max_tracked_flows (%d): "+
+			"both configure network.cache_max_flows",
+		networkPackets,
+		maxTrackedFlows,
+	)
 }
 
 func validateV2HTTPPayloadExtraction(payload schema.PayloadExtraction) error {

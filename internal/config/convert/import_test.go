@@ -59,6 +59,108 @@ func TestV2ToRuntimeDefaultExportFoundation(t *testing.T) {
 	require.NotContains(t, got.OTELMetrics.Instrumentations, instrumentations.InstrumentationDNS)
 }
 
+func TestV2ToRuntimeFlowLimitAliases(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name              string
+		networkPackets    int
+		maxTrackedFlows   int
+		wantCacheMaxFlows int
+		wantErr           string
+	}{
+		{
+			name:              "both omitted",
+			wantCacheMaxFlows: obi.DefaultConfig.NetworkFlows.CacheMaxFlows,
+		},
+		{
+			name:              "limits alias only",
+			networkPackets:    71,
+			wantCacheMaxFlows: 71,
+		},
+		{
+			name:              "flow lifecycle alias only",
+			maxTrackedFlows:   72,
+			wantCacheMaxFlows: 72,
+		},
+		{
+			name:              "equal aliases",
+			networkPackets:    73,
+			maxTrackedFlows:   73,
+			wantCacheMaxFlows: 73,
+		},
+		{
+			name:            "divergent aliases",
+			networkPackets:  74,
+			maxTrackedFlows: 75,
+			wantErr: "capture.limits.network_packets (74) must equal " +
+				"capture.network.capture.flow_lifecycle.max_tracked_flows (75): " +
+				"both configure network.cache_max_flows",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := V2ToRuntime(&schema.Extension{
+				Version: schema.SupportedVersion,
+				Capture: schema.Capture{
+					Limits: schema.CaptureLimits{
+						NetworkPackets: test.networkPackets,
+					},
+					Network: schema.CaptureNetwork{
+						Capture: schema.NetworkCapture{
+							FlowLifecycle: schema.FlowLifecycle{
+								MaxTrackedFlows: test.maxTrackedFlows,
+							},
+						},
+					},
+				},
+			})
+			if test.wantErr != "" {
+				require.EqualError(t, err, test.wantErr)
+				return
+			}
+
+			require.NoError(t, err)
+			require.Equal(t, test.wantCacheMaxFlows, got.NetworkFlows.CacheMaxFlows)
+		})
+	}
+}
+
+func TestV2ToRuntimeParsedFlowLimitAliases(t *testing.T) {
+	t.Parallel()
+
+	_, standalone, err := schema.ParseStandaloneYAML([]byte(`
+file_format: "1.0"
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      limits:
+        network_packets: 0
+`))
+	require.NoError(t, err)
+	_, err = V2ToRuntime(standalone)
+	require.EqualError(t, err, "capture.limits.network_packets must be greater than zero")
+
+	receiver, err := schema.ParseReceiverYAML([]byte(`
+version: "2.0"
+network:
+  capture:
+    flow_lifecycle:
+      max_tracked_flows: 0
+`))
+	require.NoError(t, err)
+	_, err = V2ToRuntime(receiver)
+	require.EqualError(
+		t,
+		err,
+		"capture.network.capture.flow_lifecycle.max_tracked_flows must be greater than zero",
+	)
+}
+
 func TestV2ToRuntimeCustomFoundation(t *testing.T) {
 	t.Parallel()
 

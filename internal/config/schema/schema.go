@@ -295,6 +295,39 @@ type Extension struct {
 	Enrich      *Enrich      `yaml:"enrich,omitempty"`
 	Correlation *Correlation `yaml:"correlation,omitempty"`
 	Daemon      *Daemon      `yaml:"daemon,omitempty"`
+
+	source *yaml.Node
+}
+
+// FlowLimitAliasPresence reports which network flow limit aliases were present
+// in parsed YAML. Programmatically constructed extensions report known as false.
+func (e *Extension) FlowLimitAliasPresence() (
+	networkPackets bool,
+	maxTrackedFlows bool,
+	known bool,
+) {
+	if e == nil {
+		return false, false, false
+	}
+	if e.source == nil {
+		return false, false, false
+	}
+
+	_, networkPackets = nestedNode(
+		e.source,
+		"capture",
+		"limits",
+		"network_packets",
+	)
+	_, maxTrackedFlows = nestedNode(
+		e.source,
+		"capture",
+		"network",
+		"capture",
+		"flow_lifecycle",
+		"max_tracked_flows",
+	)
+	return networkPackets, maxTrackedFlows, true
 }
 
 // receiverConfig mirrors the receiver-embedded layout, where capture sections
@@ -330,6 +363,7 @@ func ParseStandaloneYAML(data []byte) (*Document, *Extension, error) {
 		if doc.Extensions.OBI == nil {
 			return nil, nil, &NotV2Error{Reason: "missing extensions.obi"}
 		}
+		doc.Extensions.OBI.recordStandaloneFlowLimitAliasPresence(root)
 		if err := ValidateStandalone(doc.Extensions.OBI); err != nil {
 			return nil, nil, err
 		}
@@ -383,6 +417,7 @@ func ParseReceiverYAML(data []byte) (*Extension, error) {
 			Version: receiver.Version,
 			Capture: receiver.Capture,
 		}
+		cfg.recordReceiverFlowLimitAliasPresence(root)
 		if err := ValidateReceiver(&cfg); err != nil {
 			return nil, err
 		}
@@ -402,6 +437,47 @@ func ParseReceiverYAML(data []byte) (*Extension, error) {
 	}
 
 	return nil, &NotV2Error{Reason: "missing top-level OBI v2 version field"}
+}
+
+func (e *Extension) recordStandaloneFlowLimitAliasPresence(root *yaml.Node) {
+	e.source, _ = nestedNode(root, "extensions", "obi")
+}
+
+func (e *Extension) recordReceiverFlowLimitAliasPresence(root *yaml.Node) {
+	e.source = receiverExtensionNode(root)
+}
+
+func receiverExtensionNode(root *yaml.Node) *yaml.Node {
+	capture := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+	var version *yaml.Node
+	for i := 0; i < len(root.Content)-1; i += 2 {
+		key := root.Content[i]
+		value := root.Content[i+1]
+		if key.Value == "version" {
+			version = value
+			continue
+		}
+		capture.Content = append(capture.Content, key, value)
+	}
+
+	return &yaml.Node{
+		Kind: yaml.MappingNode,
+		Tag:  "!!map",
+		Content: []*yaml.Node{
+			{
+				Kind:  yaml.ScalarNode,
+				Tag:   "!!str",
+				Value: "version",
+			},
+			version,
+			{
+				Kind:  yaml.ScalarNode,
+				Tag:   "!!str",
+				Value: "capture",
+			},
+			capture,
+		},
+	}
 }
 
 // ValidateStandalone checks version support for a standalone OBI extension.
