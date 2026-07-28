@@ -7,6 +7,7 @@ import (
 	"context"
 	"io"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/cilium/ebpf"
@@ -34,7 +35,8 @@ type Instrumentable struct {
 	Offsets  *goexec.Offsets
 	Tracer   *ProcessTracer
 
-	LogEnricherEnabled bool
+	LogEnricherEnabled   bool
+	ExecutableGeneration uint64
 }
 
 func (ie *Instrumentable) CopyToServiceAttributes() {
@@ -121,6 +123,19 @@ type Tracer interface {
 	Run(context.Context, *ebpfcommon.EBPFEventContext, *msg.Queue[[]request.Span])
 }
 
+// GoProbeGroupTracer provides ordered optional Go probes that must be attached
+// atomically after the tracer's baseline Go probes.
+type GoProbeGroupTracer interface {
+	GoProbeGroups() []ebpfcommon.GoProbeGroup
+}
+
+// ProcessScopedGoProbeTracer registers optional Go probes that are attached
+// for individual processes after their executable-scoped probe group succeeds.
+type ProcessScopedGoProbeTracer interface {
+	RegisterProcessScopedGoProbe(ExecutableKey, ebpfcommon.GoProbe)
+	UnregisterProcessScopedGoProbes(ExecutableKey)
+}
+
 // Subset of the above interface, which supports loading eBPF programs which
 // are not tied to service monitoring
 type UtilityTracer interface {
@@ -135,19 +150,27 @@ const (
 	Generic
 )
 
+// ExecutableKey identifies an executable across filesystems.
+type ExecutableKey struct {
+	Dev uint64
+	Ino uint64
+}
+
 // ProcessTracer instruments an executable with eBPF and provides the eBPF readers
 // that will forward the traces to later stages in the pipeline
 // TODO: We need to pass the ELFInfo from this ProcessTracker to inside a Tracer
 // so that the GPU kernel event listener can find symbols names from addresses
 // in the ELF file.
 type ProcessTracer struct {
-	log             *slog.Logger
-	metrics         imetrics.Reporter
-	shutdownTimeout time.Duration
-	bpffsPath       string
+	log                      *slog.Logger
+	metrics                  imetrics.Reporter
+	shutdownTimeout          time.Duration
+	bpffsPath                string
+	instrumentablesMu        sync.Mutex
+	nextExecutableGeneration uint64
 
 	Type            ProcessTracerType
-	Instrumentables map[uint64]*instrumenter
+	Instrumentables map[ExecutableKey]*instrumenter
 	Programs        []Tracer
 }
 

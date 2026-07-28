@@ -140,6 +140,36 @@ func TestProcessSharedRingbufRecordConsumesJVMRuntimeMetricRecordsWithoutForward
 	}
 }
 
+func TestProcessSharedRingbufRecordDispatchesRegisteredInternalEvent(t *testing.T) {
+	const testInternalEventType uint8 = 0xfe
+
+	eventContext := ebpfcommon.NewEBPFEventContext()
+	handled := false
+	eventContext.RegisterInternalEventHandler(
+		testInternalEventType,
+		func(*ringbuf.Record) error {
+			handled = true
+			return nil
+		},
+	)
+	tracer := &Tracer{
+		cfg:      &obi.Config{},
+		eventCtx: eventContext,
+	}
+
+	span, ignore, err := tracer.processSharedRingbufRecord(
+		context.Background(),
+		nil,
+		&tracer.cfg.EBPF,
+		&ringbuf.Record{RawSample: []byte{testInternalEventType}},
+	)
+
+	require.NoError(t, err)
+	assert.True(t, handled)
+	assert.True(t, ignore)
+	assert.Empty(t, span)
+}
+
 func TestProcessSharedRingbufRecordDispatchesJVMMemoryPoolRecord(t *testing.T) {
 	service := svc.Attrs{UID: svc.UID{Name: "orders", Namespace: "prod"}}
 	runtimeMetrics := msg.NewQueue[[]runtimemetrics.RuntimeMetricSnapshot](msg.ChannelBufferLen(1))

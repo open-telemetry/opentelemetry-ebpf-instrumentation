@@ -147,6 +147,20 @@ type ProbeDesc struct {
 	Skip bool
 }
 
+// GoProbe associates an ordered Go symbol with the eBPF program attached to it.
+type GoProbe struct {
+	Symbol        string
+	Probe         *ProbeDesc
+	ProcessScoped bool
+}
+
+// GoProbeGroup is an optional set of Go probes that must be attached atomically.
+type GoProbeGroup struct {
+	Name          string
+	Prerequisites []string
+	Probes        []GoProbe
+}
+
 type USDTSpecManager struct {
 	mu    sync.Mutex
 	next  uint32
@@ -304,6 +318,9 @@ type EBPFEventContext struct {
 	MapsLock         sync.Mutex
 	LoadLock         sync.Mutex
 	Capabilities     TracerCapability
+
+	internalEventHandlersMu sync.RWMutex
+	internalEventHandlers   map[uint8]func(*ringbuf.Record) error
 }
 
 var MisclassifiedEvents = make(chan MisclassifiedEvent)
@@ -519,6 +536,38 @@ func NewEBPFEventContext() *EBPFEventContext {
 		MapsLock:    sync.Mutex{},
 		LoadLock:    sync.Mutex{},
 	}
+}
+
+func (ctx *EBPFEventContext) RegisterInternalEventHandler(
+	eventType uint8,
+	handler func(*ringbuf.Record) error,
+) {
+	if ctx == nil || handler == nil {
+		return
+	}
+
+	ctx.internalEventHandlersMu.Lock()
+	defer ctx.internalEventHandlersMu.Unlock()
+
+	if ctx.internalEventHandlers == nil {
+		ctx.internalEventHandlers = map[uint8]func(*ringbuf.Record) error{}
+	}
+	ctx.internalEventHandlers[eventType] = handler
+}
+
+func (ctx *EBPFEventContext) HandleInternalEvent(record *ringbuf.Record) (bool, error) {
+	if ctx == nil || record == nil || len(record.RawSample) == 0 {
+		return false, nil
+	}
+
+	ctx.internalEventHandlersMu.RLock()
+	handler := ctx.internalEventHandlers[record.RawSample[0]]
+	ctx.internalEventHandlersMu.RUnlock()
+	if handler == nil {
+		return false, nil
+	}
+
+	return true, handler(record)
 }
 
 func ReadBPFTraceAsSpan(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, record *ringbuf.Record, filter ServiceFilter) (request.Span, bool, error) {
