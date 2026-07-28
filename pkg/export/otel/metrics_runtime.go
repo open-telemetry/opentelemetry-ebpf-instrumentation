@@ -299,7 +299,14 @@ func (r *RuntimeMetricsReporter) onProcessEvent(pe *exec.ProcessEvent) {
 		return
 	}
 
-	if removed, uid := r.pidTracker.RemovePID(pid); removed {
+	uid, tracked := r.pidTracker.TracksPID(pid)
+	if !tracked {
+		return
+	}
+	if metrics, exists := r.reporters.Lookup(uid); exists && metrics.goHistogramProducer != nil {
+		metrics.goHistogramProducer.Delete(pid)
+	}
+	if removed, _ := r.pidTracker.RemovePID(pid); removed {
 		r.reporters.Remove(uid)
 	}
 }
@@ -309,10 +316,9 @@ func (r *RuntimeMetricsReporter) reportRuntimeMetrics(snapshots []runtimemetrics
 		if !r.shouldReportSnapshot(snapshot) {
 			continue
 		}
-		// A snapshot may still be in flight after its last process terminated;
-		// reporting it would resurrect the reporter that was just removed.
-		if !r.pidTracker.ServiceLive(snapshot.Service.UID) {
-			r.log.Debug("skipping snapshot for service without live processes",
+		// A snapshot may still be in flight after its process terminated.
+		if !r.snapshotProcessLive(snapshot) {
+			r.log.Debug("skipping snapshot for terminated process",
 				"pid", snapshot.PID, "service", snapshot.Service.UID)
 			continue
 		}
@@ -323,6 +329,14 @@ func (r *RuntimeMetricsReporter) reportRuntimeMetrics(snapshots []runtimemetrics
 		}
 		recordRuntimeMetrics(r.ctx, metrics, snapshot)
 	}
+}
+
+func (r *RuntimeMetricsReporter) snapshotProcessLive(snapshot runtimemetrics.RuntimeMetricSnapshot) bool {
+	if snapshot.Service.ProcPID == 0 {
+		return r.pidTracker.ServiceLive(snapshot.Service.UID)
+	}
+	uid, tracked := r.pidTracker.TracksPID(snapshot.Service.ProcPID)
+	return tracked && uid.Equals(&snapshot.Service.UID)
 }
 
 func (r *RuntimeMetricsReporter) shouldReportSnapshot(snapshot runtimemetrics.RuntimeMetricSnapshot) bool {

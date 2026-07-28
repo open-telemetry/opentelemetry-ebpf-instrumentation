@@ -53,6 +53,28 @@ func TestGoRuntimeHistogramProducerProducesCumulativeMetrics(t *testing.T) {
 	assertProducedHistogram(t, metrics[attributes.GoRuntimeScheduleDuration.OTEL], scheduleSnapshot)
 }
 
+func TestGoRuntimeHistogramProducerAggregatesCumulativeMetricsAcrossPIDs(t *testing.T) {
+	producer := newGoRuntimeHistogramProducer(metricdata.CumulativeTemporality)
+	at := time.Date(2026, 7, 17, 10, 0, 0, 0, time.UTC)
+	firstCounts := testGoRuntimeHistogramCounts()
+	firstCounts[0] = 2
+	secondCounts := testGoRuntimeHistogramCounts()
+	secondCounts[0] = 3
+
+	producer.Update(testGoRuntimeHistogramSnapshot(
+		runtimemetrics.GoHistogramKindGCPause, 101, at, firstCounts, 1, 3,
+	))
+	producer.Update(testGoRuntimeHistogramSnapshot(
+		runtimemetrics.GoHistogramKindGCPause, 202, at.Add(time.Second), secondCounts, 2, 4,
+	))
+
+	point := testProducedHistogramPoint(t, producer, attributes.GoRuntimeMemoryGCPauseDuration.OTEL)
+	assert.Equal(t, uint64(15), point.Count)
+	assert.Equal(t, uint64(3), point.BucketCounts[0])
+	assert.Equal(t, uint64(5), point.BucketCounts[1])
+	assert.Equal(t, uint64(7), point.BucketCounts[len(point.BucketCounts)-1])
+}
+
 func TestGoRuntimeHistogramProducerProducesDeltaMetrics(t *testing.T) {
 	producer := newGoRuntimeHistogramProducer(metricdata.DeltaTemporality)
 	start := time.Date(2026, 7, 17, 10, 0, 0, 0, time.UTC)
@@ -110,6 +132,38 @@ func TestGoRuntimeHistogramProducerProducesDeltaMetrics(t *testing.T) {
 	assert.Equal(t, uint64(1), point.BucketCounts[5])
 }
 
+func TestGoRuntimeHistogramProducerCalculatesDeltaPerPIDBeforeAggregating(t *testing.T) {
+	producer := newGoRuntimeHistogramProducer(metricdata.DeltaTemporality)
+	start := time.Date(2026, 7, 17, 10, 0, 0, 0, time.UTC)
+	firstCounts := testGoRuntimeHistogramCounts()
+	firstCounts[0] = 100
+	secondCounts := testGoRuntimeHistogramCounts()
+	secondCounts[0] = 100
+
+	producer.Update(testGoRuntimeHistogramSnapshot(
+		runtimemetrics.GoHistogramKindGCPause, 101, start, firstCounts, 0, 0,
+	))
+	producer.Update(testGoRuntimeHistogramSnapshot(
+		runtimemetrics.GoHistogramKindGCPause, 202, start, secondCounts, 0, 0,
+	))
+	first := testProducedHistogramPoint(t, producer, attributes.GoRuntimeMemoryGCPauseDuration.OTEL)
+	require.Equal(t, uint64(200), first.Count)
+
+	resetCounts := testGoRuntimeHistogramCounts()
+	resetCounts[0] = 5
+	secondCounts[0] = 210
+	producer.Update(testGoRuntimeHistogramSnapshot(
+		runtimemetrics.GoHistogramKindGCPause, 101, start.Add(time.Minute), resetCounts, 0, 0,
+	))
+	producer.Update(testGoRuntimeHistogramSnapshot(
+		runtimemetrics.GoHistogramKindGCPause, 202, start.Add(time.Minute), secondCounts, 0, 0,
+	))
+
+	second := testProducedHistogramPoint(t, producer, attributes.GoRuntimeMemoryGCPauseDuration.OTEL)
+	assert.Equal(t, uint64(115), second.Count)
+	assert.Equal(t, uint64(115), second.BucketCounts[1])
+}
+
 func TestGoRuntimeHistogramProducerOnlyProducesStoredKinds(t *testing.T) {
 	producer := newGoRuntimeHistogramProducer(metricdata.CumulativeTemporality)
 
@@ -152,7 +206,7 @@ func TestGoRuntimeHistogramProducerPreservesStartTimeForMonotonicUpdate(t *testi
 	assert.Equal(t, updatedAt, point.Time)
 }
 
-func TestGoRuntimeHistogramProducerResetsStartTimeOnPIDChangePerKind(t *testing.T) {
+func TestGoRuntimeHistogramProducerUsesEarliestStartTimeAcrossPIDs(t *testing.T) {
 	producer := newGoRuntimeHistogramProducer(metricdata.CumulativeTemporality)
 	start := time.Date(2026, 7, 17, 10, 0, 0, 0, time.UTC)
 	counts := testGoRuntimeHistogramCounts()
@@ -169,7 +223,7 @@ func TestGoRuntimeHistogramProducerResetsStartTimeOnPIDChangePerKind(t *testing.
 	))
 
 	gcPoint := testProducedHistogramPoint(t, producer, attributes.GoRuntimeMemoryGCPauseDuration.OTEL)
-	assert.Equal(t, resetAt, gcPoint.StartTime)
+	assert.Equal(t, start, gcPoint.StartTime)
 	schedulePoint := testProducedHistogramPoint(t, producer, attributes.GoRuntimeScheduleDuration.OTEL)
 	assert.Equal(t, start, schedulePoint.StartTime)
 }
@@ -476,8 +530,9 @@ func testGoRuntimeHistogramSnapshot(
 	overflow uint64,
 ) runtimemetrics.RuntimeMetricSnapshot {
 	return runtimemetrics.RuntimeMetricSnapshot{
-		PID:  pid,
-		Time: at,
+		PID:     pid,
+		Time:    at,
+		Service: svc.Attrs{ProcPID: pid},
 		Histogram: &runtimemetrics.GoRuntimeHistogramSnapshot{
 			Kind:      kind,
 			Counts:    counts,

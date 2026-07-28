@@ -77,6 +77,85 @@ func TestRuntimeMetricsReporterEvictsServiceAfterLastPIDTerminates(t *testing.T)
 	assert.Equal(t, 2, constructed)
 }
 
+func TestRuntimeMetricsReporterRemovesOnlyTerminatedPIDHistogram(t *testing.T) {
+	service := svc.Attrs{
+		UID:         svc.UID{Name: "orders"},
+		SDKLanguage: svc.InstrumentableGolang,
+	}
+	var metrics *RuntimeMetrics
+	reporters, err := otelcfg.NewReporterPool[*svc.Attrs, *RuntimeMetrics](
+		10,
+		time.Minute,
+		time.Now,
+		func(svc.UID, *RuntimeMetrics) {},
+		func(*svc.Attrs) (*RuntimeMetrics, error) {
+			metrics = &RuntimeMetrics{
+				goHistogramProducer: newGoRuntimeHistogramProducer(metricdata.CumulativeTemporality),
+			}
+			return metrics, nil
+		},
+	)
+	require.NoError(t, err)
+
+	reporter := RuntimeMetricsReporter{
+		ctx:            t.Context(),
+		reporters:      reporters,
+		pidTracker:     NewPidServiceTracker(),
+		log:            slog.New(slog.NewTextHandler(io.Discard, nil)),
+		runtimeEnabled: runtimemetrics.Enabled{Runtime: true},
+	}
+	processEvent := func(pid app.PID, eventType exec.ProcessEventType) *exec.ProcessEvent {
+		attrs := service
+		attrs.ProcPID = pid
+		return &exec.ProcessEvent{
+			Type: eventType,
+			File: exec.New(exec.Init{Pid: pid, Service: attrs}),
+		}
+	}
+	snapshot := func(pid app.PID, population uint64) runtimemetrics.RuntimeMetricSnapshot {
+		counts := testGoRuntimeHistogramCounts()
+		counts[0] = population
+		value := testGoRuntimeHistogramSnapshot(
+			runtimemetrics.GoHistogramKindGCPause,
+			pid,
+			time.Date(2026, 7, 17, 10, 0, 0, 0, time.UTC),
+			counts,
+			0,
+			0,
+		)
+		value.Service = service
+		value.Service.ProcPID = pid
+		return value
+	}
+
+	reporter.onProcessEvent(processEvent(101, exec.ProcessEventCreated))
+	reporter.onProcessEvent(processEvent(202, exec.ProcessEventCreated))
+	reporter.reportRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{
+		snapshot(101, 2),
+		snapshot(202, 3),
+	})
+	require.NotNil(t, metrics)
+	assert.Equal(t, uint64(5), testProducedHistogramPoint(
+		t,
+		metrics.goHistogramProducer,
+		attributes.GoRuntimeMemoryGCPauseDuration.OTEL,
+	).Count)
+
+	reporter.onProcessEvent(processEvent(101, exec.ProcessEventTerminated))
+	assert.Equal(t, uint64(3), testProducedHistogramPoint(
+		t,
+		metrics.goHistogramProducer,
+		attributes.GoRuntimeMemoryGCPauseDuration.OTEL,
+	).Count)
+
+	reporter.reportRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{snapshot(101, 7)})
+	assert.Equal(t, uint64(3), testProducedHistogramPoint(
+		t,
+		metrics.goHistogramProducer,
+		attributes.GoRuntimeMemoryGCPauseDuration.OTEL,
+	).Count)
+}
+
 func TestRuntimeMetricsReporterSkipsSnapshotsForUntrackedServices(t *testing.T) {
 	service := svc.Attrs{UID: svc.UID{Name: "orders"}, SDKLanguage: svc.InstrumentableGolang}
 	constructed := 0

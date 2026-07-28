@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -254,10 +255,12 @@ type metricsReporter struct {
 
 	serviceMap  map[svc.UID]svc.Attrs
 	pidsTracker otel.PidServiceTracker
+	runtimeMu   sync.Mutex
 
 	// for testing purposes
-	createEventMetrics func(service *svc.Attrs)
-	deleteEventMetrics func(service *svc.Attrs)
+	createEventMetrics                     func(service *svc.Attrs)
+	deleteEventMetrics                     func(service *svc.Attrs)
+	deleteEventMetricsPreservingHistograms func(service *svc.Attrs)
 }
 
 func PrometheusEndpoint(
@@ -776,6 +779,7 @@ func newReporter(
 
 	// testing aid
 	mr.deleteEventMetrics = mr.deleteMetricsForService
+	mr.deleteEventMetricsPreservingHistograms = mr.deleteMetricsForServicePreservingRuntimeHistograms
 	mr.createEventMetrics = mr.createTargetInfos
 
 	registeredMetrics := []prometheus.Collector{mr.targetInfo}
@@ -1446,6 +1450,22 @@ func (r *metricsReporter) deleteTargetInfoMetrics(service *svc.Attrs) {
 func (r *metricsReporter) deleteMetricsForService(service *svc.Attrs) {
 	r.deleteTargetInfoMetrics(service)
 	r.deleteRuntimeMetrics(service)
+	r.deleteRuntimeHistograms(service)
+}
+
+func (r *metricsReporter) deleteMetricsForServicePreservingRuntimeHistograms(service *svc.Attrs) {
+	r.deleteTargetInfoMetrics(service)
+	r.deleteRuntimeMetrics(service)
+}
+
+func (r *metricsReporter) deleteMetricsForAttributeUpdate(previous, current *svc.Attrs) {
+	previousLabels := runtimeHistogramLabelTuple(r.labelValuesTargetInfo(previous))
+	currentLabels := runtimeHistogramLabelTuple(r.labelValuesTargetInfo(current))
+	if previousLabels == currentLabels && r.deleteEventMetricsPreservingHistograms != nil {
+		r.deleteEventMetricsPreservingHistograms(previous)
+		return
+	}
+	r.deleteEventMetrics(previous)
 }
 
 func (r *metricsReporter) deleteTargetInfos(uid svc.UID, service *svc.Attrs) {
@@ -1458,6 +1478,9 @@ func (r *metricsReporter) deleteTargetInfos(uid svc.UID, service *svc.Attrs) {
 }
 
 func (r *metricsReporter) handleProcessEvent(pe exec.ProcessEvent, log *slog.Logger) {
+	r.runtimeMu.Lock()
+	defer r.runtimeMu.Unlock()
+
 	snap := pe.File.ServiceAttrs()
 	pid := pe.File.Pid()
 	log.Debug("Received new process event", "event type", pe.Type, "pid", pid, "attrs", snap.UID)
@@ -1471,7 +1494,7 @@ func (r *metricsReporter) handleProcessEvent(pe exec.ProcessEvent, log *slog.Log
 			r.pidsTracker.ReplaceUID(staleUID, uid)
 			if origAttrs, ok := r.serviceMap[staleUID]; ok {
 				log.Debug("updating service attributes for", "service", uid)
-				r.deleteEventMetrics(&origAttrs)
+				r.deleteMetricsForAttributeUpdate(&origAttrs, &snap)
 				delete(r.serviceMap, staleUID)
 				r.serviceMap[uid] = snap
 				r.createEventMetrics(&snap)
@@ -1485,13 +1508,16 @@ func (r *metricsReporter) handleProcessEvent(pe exec.ProcessEvent, log *slog.Log
 		// the old target info
 		if origAttrs, ok := r.serviceMap[uid]; ok {
 			log.Debug("updating stale attributes for", "service", uid)
-			r.deleteEventMetrics(&origAttrs)
+			r.deleteMetricsForAttributeUpdate(&origAttrs, &snap)
 		}
 
 		r.createEventMetrics(&snap)
 		r.serviceMap[uid] = snap
 		r.setupPIDToServiceRelationship(pid, uid)
 	} else {
+		if r.goRuntimeHistograms != nil {
+			r.goRuntimeHistograms.DeletePID(pid)
+		}
 		if deleted, origUID := r.disassociatePIDFromService(pid); deleted {
 			mlog().Debug("deleting infos for", "pid", pid, "attrs", uid)
 			r.deleteTargetInfos(origUID, &snap)

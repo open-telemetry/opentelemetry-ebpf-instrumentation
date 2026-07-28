@@ -4,6 +4,7 @@
 package prom
 
 import (
+	"log/slog"
 	"math"
 	"sync"
 	"testing"
@@ -13,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
@@ -50,8 +52,8 @@ func TestGoRuntimeHistogramCollectorExportsExactMetrics(t *testing.T) {
 		Underflow: 2,
 	}
 	labels := []string{"orders", "production"}
-	collector.Update(labels, &gcSnapshot)
-	collector.Update(labels, &scheduleSnapshot)
+	collector.Update(101, labels, &gcSnapshot)
+	collector.Update(101, labels, &scheduleSnapshot)
 
 	gcMetric := gatheredMetric(t, registry, "go_memory_gc_pause_duration_seconds", map[string]string{
 		"service_name":      "orders",
@@ -100,6 +102,39 @@ func TestGoRuntimeHistogramCollectorExportsExactMetrics(t *testing.T) {
 	assert.InDelta(t, scheduleData.Sum, scheduleHistogram.GetSampleSum(), 0)
 }
 
+func TestGoRuntimeHistogramCollectorAggregatesAndRemovesPIDsWithSameLabels(t *testing.T) {
+	collector := newGoRuntimeHistogramCollector([]string{"service_name"})
+	registry := prometheus.NewRegistry()
+	registry.MustRegister(collector)
+	labels := []string{"orders"}
+
+	firstCounts := testPromRuntimeHistogramCounts()
+	firstCounts[0] = 2
+	collector.Update(101, labels, &runtimemetrics.GoRuntimeHistogramSnapshot{
+		Kind:   runtimemetrics.GoHistogramKindGCPause,
+		Counts: firstCounts,
+	})
+	secondCounts := testPromRuntimeHistogramCounts()
+	secondCounts[0] = 3
+	collector.Update(202, labels, &runtimemetrics.GoRuntimeHistogramSnapshot{
+		Kind:   runtimemetrics.GoHistogramKindGCPause,
+		Counts: secondCounts,
+	})
+
+	metric := gatheredMetric(t, registry, attributes.GoRuntimeMemoryGCPauseDuration.Prom, map[string]string{
+		"service_name": "orders",
+	})
+	require.NotNil(t, metric)
+	assert.Equal(t, uint64(5), metric.GetHistogram().GetSampleCount())
+
+	collector.DeletePID(101)
+	metric = gatheredMetric(t, registry, attributes.GoRuntimeMemoryGCPauseDuration.Prom, map[string]string{
+		"service_name": "orders",
+	})
+	require.NotNil(t, metric)
+	assert.Equal(t, uint64(3), metric.GetHistogram().GetSampleCount())
+}
+
 func TestGoRuntimeHistogramCollectorOnlyExportsStoredKindAndReplacesSnapshot(t *testing.T) {
 	collector := newGoRuntimeHistogramCollector([]string{"service_name"})
 	registry := prometheus.NewRegistry()
@@ -112,7 +147,7 @@ func TestGoRuntimeHistogramCollectorOnlyExportsStoredKindAndReplacesSnapshot(t *
 		Counts: counts,
 	}
 	labels := []string{"orders"}
-	collector.Update(labels, first)
+	collector.Update(101, labels, first)
 
 	labels[0] = "mutated"
 	counts[0] = 99
@@ -128,7 +163,7 @@ func TestGoRuntimeHistogramCollectorOnlyExportsStoredKindAndReplacesSnapshot(t *
 
 	updatedCounts := testPromRuntimeHistogramCounts()
 	updatedCounts[0] = 4
-	collector.Update([]string{"orders"}, &runtimemetrics.GoRuntimeHistogramSnapshot{
+	collector.Update(101, []string{"orders"}, &runtimemetrics.GoRuntimeHistogramSnapshot{
 		Kind:   runtimemetrics.GoHistogramKindSchedLatency,
 		Counts: updatedCounts,
 	})
@@ -154,7 +189,7 @@ func TestGoRuntimeHistogramCollectorSkipsMalformedSnapshots(t *testing.T) {
 			collector := newGoRuntimeHistogramCollector([]string{"service_name", "service_namespace"})
 			registry := prometheus.NewRegistry()
 			registry.MustRegister(collector)
-			collector.Update(test.labels, &runtimemetrics.GoRuntimeHistogramSnapshot{
+			collector.Update(101, test.labels, &runtimemetrics.GoRuntimeHistogramSnapshot{
 				Kind:   runtimemetrics.GoHistogramKindGCPause,
 				Counts: test.counts,
 			})
@@ -168,24 +203,203 @@ func TestGoRuntimeHistogramCollectorSkipsMalformedSnapshots(t *testing.T) {
 	}
 }
 
+func TestGoRuntimeHistogramCollectorRejectsInvalidPIDWithoutPoisoningSibling(t *testing.T) {
+	tests := []struct {
+		name      string
+		pid       app.PID
+		histogram runtimemetrics.GoRuntimeHistogramSnapshot
+	}{
+		{
+			name: "zero PID",
+			histogram: runtimemetrics.GoRuntimeHistogramSnapshot{
+				Kind:   runtimemetrics.GoHistogramKindGCPause,
+				Counts: testPromRuntimeHistogramCounts(),
+			},
+		},
+		{
+			name: "malformed histogram",
+			pid:  202,
+			histogram: runtimemetrics.GoRuntimeHistogramSnapshot{
+				Kind:   runtimemetrics.GoHistogramKindGCPause,
+				Counts: make([]uint64, testPromRuntimeHistogramPopulationCount-1),
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			collector := newGoRuntimeHistogramCollector([]string{"service_name"})
+			registry := prometheus.NewRegistry()
+			registry.MustRegister(collector)
+			healthyCounts := testPromRuntimeHistogramCounts()
+			healthyCounts[0] = 2
+			collector.Update(101, []string{"orders"}, &runtimemetrics.GoRuntimeHistogramSnapshot{
+				Kind:   runtimemetrics.GoHistogramKindGCPause,
+				Counts: healthyCounts,
+			})
+			if test.pid == 0 {
+				test.histogram.Counts[0] = 7
+			}
+
+			collector.Update(test.pid, []string{"orders"}, &test.histogram)
+
+			metric := gatheredMetric(t, registry, attributes.GoRuntimeMemoryGCPauseDuration.Prom,
+				map[string]string{"service_name": "orders"})
+			require.NotNil(t, metric)
+			assert.Equal(t, uint64(2), metric.GetHistogram().GetSampleCount())
+		})
+	}
+}
+
 func TestDeleteRuntimeMetricsRemovesGoRuntimeHistogramsAndAllowsReAdd(t *testing.T) {
 	reporter, registry := newGoRuntimeHistogramTestReporter(t)
 	service := svc.Attrs{
 		UID:         svc.UID{Name: "orders", Namespace: "production"},
+		ProcPID:     101,
 		SDKLanguage: svc.InstrumentableGolang,
 		Features:    export.FeatureApplicationRuntime,
 	}
+	reporter.handleProcessEvent(exec.ProcessEvent{
+		Type: exec.ProcessEventCreated,
+		File: exec.New(exec.Init{Pid: service.ProcPID, Service: service}),
+	}, slog.Default())
 	gcSnapshot := testPromRuntimeHistogramMetricSnapshot(service, runtimemetrics.GoHistogramKindGCPause, 2)
 	scheduleSnapshot := testPromRuntimeHistogramMetricSnapshot(service, runtimemetrics.GoHistogramKindSchedLatency, 3)
 
 	reporter.collectRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{gcSnapshot, scheduleSnapshot})
 	assertGoRuntimeHistogramReporterMetrics(t, registry, true)
 
-	reporter.deleteRuntimeMetrics(&service)
+	reporter.deleteMetricsForService(&service)
 	assertGoRuntimeHistogramReporterMetrics(t, registry, false)
 
 	reporter.collectRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{gcSnapshot, scheduleSnapshot})
 	assertGoRuntimeHistogramReporterMetrics(t, registry, true)
+}
+
+func TestGoRuntimeHistogramReporterKeepsOnlyLivePIDs(t *testing.T) {
+	reporter, registry := newGoRuntimeHistogramTestReporter(t)
+	service := svc.Attrs{
+		UID:         svc.UID{Name: "orders", Namespace: "production"},
+		SDKLanguage: svc.InstrumentableGolang,
+		Features:    export.FeatureApplicationRuntime,
+	}
+	processEvent := func(pid app.PID, eventType exec.ProcessEventType) exec.ProcessEvent {
+		attrs := service
+		attrs.ProcPID = pid
+		return exec.ProcessEvent{
+			Type: eventType,
+			File: exec.New(exec.Init{Pid: pid, Service: attrs}),
+		}
+	}
+	snapshot := func(pid app.PID, population uint64) runtimemetrics.RuntimeMetricSnapshot {
+		attrs := service
+		attrs.ProcPID = pid
+		counts := testPromRuntimeHistogramCounts()
+		counts[0] = population
+		return runtimemetrics.RuntimeMetricSnapshot{
+			PID:     pid,
+			Service: attrs,
+			Histogram: &runtimemetrics.GoRuntimeHistogramSnapshot{
+				Kind:   runtimemetrics.GoHistogramKindGCPause,
+				Counts: counts,
+			},
+		}
+	}
+	count := func() uint64 {
+		metric := gatheredMetric(
+			t,
+			registry,
+			attributes.GoRuntimeMemoryGCPauseDuration.Prom,
+			map[string]string{"service_name": "orders", "service_namespace": "production"},
+		)
+		require.NotNil(t, metric)
+		return metric.GetHistogram().GetSampleCount()
+	}
+
+	reporter.handleProcessEvent(processEvent(101, exec.ProcessEventCreated), slog.Default())
+	reporter.collectRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{snapshot(101, 2)})
+	require.Equal(t, uint64(2), count())
+
+	reporter.handleProcessEvent(processEvent(202, exec.ProcessEventCreated), slog.Default())
+	assert.Equal(t, uint64(2), count(), "discovering a sibling must retain the first PID")
+	reporter.collectRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{snapshot(202, 3)})
+	require.Equal(t, uint64(5), count())
+
+	reporter.handleProcessEvent(processEvent(101, exec.ProcessEventTerminated), slog.Default())
+	assert.Equal(t, uint64(3), count())
+
+	reporter.collectRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{snapshot(101, 7)})
+	assert.Equal(t, uint64(3), count(), "a late snapshot must not resurrect a terminated PID")
+}
+
+func TestRuntimeReporterOnlyGatesHistogramsOnProcessLiveness(t *testing.T) {
+	reporter, registry := newGoRuntimeHistogramTestReporter(t)
+	untrackedService := svc.Attrs{
+		UID:         svc.UID{Name: "untracked", Namespace: "production"},
+		ProcPID:     404,
+		SDKLanguage: svc.InstrumentableGolang,
+		Features:    export.FeatureApplicationRuntime,
+	}
+	memoryLimit := int64(1024)
+	counts := testPromRuntimeHistogramCounts()
+	counts[0] = 2
+	reporter.collectRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{{
+		Service: untrackedService,
+		Go: &runtimemetrics.GoRuntimeMetricSnapshot{
+			MemoryLimit: &memoryLimit,
+		},
+		Histogram: &runtimemetrics.GoRuntimeHistogramSnapshot{
+			Kind:   runtimemetrics.GoHistogramKindGCPause,
+			Counts: counts,
+		},
+	}})
+
+	scalar := gatheredMetric(t, registry, attributes.GoRuntimeMemoryLimit.Prom, map[string]string{
+		"service_name":      "untracked",
+		"service_namespace": "production",
+	})
+	require.NotNil(t, scalar)
+	assert.InDelta(t, float64(memoryLimit), scalar.GetGauge().GetValue(), 0)
+	assert.Nil(t, gatheredMetric(t, registry, attributes.GoRuntimeMemoryGCPauseDuration.Prom,
+		map[string]string{"service_name": "untracked", "service_namespace": "production"}))
+
+	trackedService := untrackedService
+	trackedService.UID.Name = "tracked"
+	trackedService.ProcPID = 101
+	processEvent := func(eventType exec.ProcessEventType) exec.ProcessEvent {
+		return exec.ProcessEvent{
+			Type: eventType,
+			File: exec.New(exec.Init{Pid: trackedService.ProcPID, Service: trackedService}),
+		}
+	}
+	reporter.handleProcessEvent(processEvent(exec.ProcessEventCreated), slog.Default())
+	trackedSnapshot := testPromRuntimeHistogramMetricSnapshot(
+		trackedService,
+		runtimemetrics.GoHistogramKindGCPause,
+		3,
+	)
+	reporter.collectRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{trackedSnapshot})
+	require.NotNil(t, gatheredMetric(t, registry, attributes.GoRuntimeMemoryGCPauseDuration.Prom,
+		map[string]string{"service_name": "tracked", "service_namespace": "production"}))
+
+	start := make(chan struct{})
+	var waitGroup sync.WaitGroup
+	waitGroup.Add(2)
+	go func() {
+		defer waitGroup.Done()
+		<-start
+		reporter.handleProcessEvent(processEvent(exec.ProcessEventTerminated), slog.Default())
+	}()
+	go func() {
+		defer waitGroup.Done()
+		<-start
+		reporter.collectRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{trackedSnapshot})
+	}()
+	close(start)
+	waitGroup.Wait()
+
+	assert.Nil(t, gatheredMetric(t, registry, attributes.GoRuntimeMemoryGCPauseDuration.Prom,
+		map[string]string{"service_name": "tracked", "service_namespace": "production"}))
 }
 
 func TestGoRuntimeHistogramCollectorSupportsConcurrentUpdateCollectAndDelete(_ *testing.T) {
@@ -199,7 +413,7 @@ func TestGoRuntimeHistogramCollectorSupportsConcurrentUpdateCollectAndDelete(_ *
 		for i := 0; i < iterations; i++ {
 			counts := testPromRuntimeHistogramCounts()
 			counts[i%len(counts)] = uint64(i)
-			collector.Update([]string{"orders"}, &runtimemetrics.GoRuntimeHistogramSnapshot{
+			collector.Update(101, []string{"orders"}, &runtimemetrics.GoRuntimeHistogramSnapshot{
 				Kind:      runtimemetrics.GoHistogramKind(i % 2),
 				Counts:    counts,
 				Underflow: uint64(i),

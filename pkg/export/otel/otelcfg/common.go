@@ -330,6 +330,15 @@ func (rp *ReporterPool[K, T]) For(service K) (T, error) {
 	return rp.lastReporter.value, nil
 }
 
+func (rp *ReporterPool[K, T]) Lookup(uid svc.UID) (T, bool) {
+	reporter, ok := rp.pool.Peek(uid)
+	if !ok {
+		var zero T
+		return zero, false
+	}
+	return reporter.value, true
+}
+
 func (rp *ReporterPool[K, T]) Remove(uid svc.UID) bool {
 	removed := rp.pool.Remove(uid)
 	if uid == rp.lastServiceUID {

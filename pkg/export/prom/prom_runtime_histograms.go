@@ -4,11 +4,14 @@
 package prom // import "go.opentelemetry.io/obi/pkg/export/prom"
 
 import (
+	"errors"
+	"math/bits"
 	"strconv"
 	"sync"
 
 	"github.com/prometheus/client_golang/prometheus"
 
+	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	"go.opentelemetry.io/obi/pkg/runtimemetrics"
 )
@@ -22,6 +25,7 @@ type goRuntimeHistogramCollector struct {
 
 type goRuntimeHistogramKey struct {
 	kind       runtimemetrics.GoHistogramKind
+	pid        app.PID
 	labelTuple string
 }
 
@@ -49,10 +53,24 @@ func newGoRuntimeHistogramCollector(runtimeLabelNames []string) *goRuntimeHistog
 }
 
 func (c *goRuntimeHistogramCollector) Update(
+	pid app.PID,
 	labels []string,
 	histogram *runtimemetrics.GoRuntimeHistogramSnapshot,
 ) {
 	if c == nil || histogram == nil {
+		return
+	}
+	if pid == 0 {
+		mlog().Warn("skipping Go runtime histogram with zero PID", "kind", histogram.Kind)
+		return
+	}
+	if _, err := histogram.Data(); err != nil {
+		mlog().Warn(
+			"skipping malformed Go runtime histogram",
+			"kind", histogram.Kind,
+			"pid", pid,
+			"error", err,
+		)
 		return
 	}
 
@@ -67,11 +85,26 @@ func (c *goRuntimeHistogramCollector) Update(
 	}
 	key := goRuntimeHistogramKey{
 		kind:       histogram.Kind,
+		pid:        pid,
 		labelTuple: runtimeHistogramLabelTuple(labels),
 	}
 
 	c.mu.Lock()
 	c.histogramSnapshots[key] = state
+	c.mu.Unlock()
+}
+
+func (c *goRuntimeHistogramCollector) DeletePID(pid app.PID) {
+	if c == nil {
+		return
+	}
+
+	c.mu.Lock()
+	for key := range c.histogramSnapshots {
+		if key.pid == pid {
+			delete(c.histogramSnapshots, key)
+		}
+	}
 	c.mu.Unlock()
 }
 
@@ -142,9 +175,9 @@ func (c *goRuntimeHistogramCollector) Collect(ch chan<- prometheus.Metric) {
 
 func (c *goRuntimeHistogramCollector) snapshot() []goRuntimeHistogramState {
 	c.mu.RLock()
-	states := make([]goRuntimeHistogramState, 0, len(c.histogramSnapshots))
-	for _, state := range c.histogramSnapshots {
-		states = append(states, goRuntimeHistogramState{
+	snapshots := make(map[goRuntimeHistogramKey]goRuntimeHistogramState, len(c.histogramSnapshots))
+	for key, state := range c.histogramSnapshots {
+		snapshots[key] = goRuntimeHistogramState{
 			labels: append([]string(nil), state.labels...),
 			histogram: runtimemetrics.GoRuntimeHistogramSnapshot{
 				Kind:      state.histogram.Kind,
@@ -152,10 +185,73 @@ func (c *goRuntimeHistogramCollector) snapshot() []goRuntimeHistogramState {
 				Underflow: state.histogram.Underflow,
 				Overflow:  state.histogram.Overflow,
 			},
-		})
+		}
 	}
 	c.mu.RUnlock()
+
+	aggregated := make(map[goRuntimeHistogramKey]goRuntimeHistogramState, len(snapshots))
+	invalid := make(map[goRuntimeHistogramKey]error)
+	for key, state := range snapshots {
+		seriesKey := goRuntimeHistogramKey{kind: key.kind, labelTuple: key.labelTuple}
+		if _, skip := invalid[seriesKey]; skip {
+			continue
+		}
+		current, exists := aggregated[seriesKey]
+		if !exists {
+			aggregated[seriesKey] = state
+			continue
+		}
+		combined, err := aggregatePromRuntimeHistogramStates(current, state)
+		if err != nil {
+			delete(aggregated, seriesKey)
+			invalid[seriesKey] = err
+			continue
+		}
+		aggregated[seriesKey] = combined
+	}
+	for key, err := range invalid {
+		mlog().Warn("skipping malformed Go runtime histogram", "kind", key.kind, "error", err)
+	}
+
+	states := make([]goRuntimeHistogramState, 0, len(aggregated))
+	for _, state := range aggregated {
+		states = append(states, state)
+	}
 	return states
+}
+
+func aggregatePromRuntimeHistogramStates(
+	left goRuntimeHistogramState,
+	right goRuntimeHistogramState,
+) (goRuntimeHistogramState, error) {
+	if len(left.histogram.Counts) != len(right.histogram.Counts) {
+		return goRuntimeHistogramState{}, errors.New("population count mismatch")
+	}
+
+	var carry uint64
+	left.histogram.Underflow, carry = bits.Add64(
+		left.histogram.Underflow,
+		right.histogram.Underflow,
+		0,
+	)
+	if carry != 0 {
+		return goRuntimeHistogramState{}, errors.New("population overflow")
+	}
+	left.histogram.Overflow, carry = bits.Add64(
+		left.histogram.Overflow,
+		right.histogram.Overflow,
+		0,
+	)
+	if carry != 0 {
+		return goRuntimeHistogramState{}, errors.New("population overflow")
+	}
+	for i, population := range right.histogram.Counts {
+		left.histogram.Counts[i], carry = bits.Add64(left.histogram.Counts[i], population, 0)
+		if carry != 0 {
+			return goRuntimeHistogramState{}, errors.New("population overflow")
+		}
+	}
+	return left, nil
 }
 
 func (c *goRuntimeHistogramCollector) descriptor(

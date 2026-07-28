@@ -6,6 +6,7 @@ package otel // import "go.opentelemetry.io/obi/pkg/export/otel"
 import (
 	"context"
 	"fmt"
+	"math/bits"
 	"sync"
 	"time"
 
@@ -20,12 +21,16 @@ import (
 type goRuntimeHistogramProducer struct {
 	mu           sync.Mutex
 	temporality  metricdata.Temporality
-	histograms   map[runtimemetrics.GoHistogramKind]goRuntimeHistogramState
-	lastProduced map[runtimemetrics.GoHistogramKind]goRuntimeHistogramState
+	histograms   map[goRuntimeHistogramKey]goRuntimeHistogramState
+	lastProduced map[goRuntimeHistogramKey]goRuntimeHistogramState
+}
+
+type goRuntimeHistogramKey struct {
+	kind runtimemetrics.GoHistogramKind
+	pid  app.PID
 }
 
 type goRuntimeHistogramState struct {
-	pid       app.PID
 	time      time.Time
 	startTime time.Time
 	histogram runtimemetrics.GoRuntimeHistogramSnapshot
@@ -34,8 +39,8 @@ type goRuntimeHistogramState struct {
 func newGoRuntimeHistogramProducer(temporality metricdata.Temporality) *goRuntimeHistogramProducer {
 	return &goRuntimeHistogramProducer{
 		temporality:  temporality,
-		histograms:   make(map[runtimemetrics.GoHistogramKind]goRuntimeHistogramState),
-		lastProduced: make(map[runtimemetrics.GoHistogramKind]goRuntimeHistogramState),
+		histograms:   make(map[goRuntimeHistogramKey]goRuntimeHistogramState),
+		lastProduced: make(map[goRuntimeHistogramKey]goRuntimeHistogramState),
 	}
 }
 
@@ -65,16 +70,28 @@ func (p *goRuntimeHistogramProducer) Update(snapshot runtimemetrics.RuntimeMetri
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	previous, exists := p.histograms[histogram.Kind]
+	key := goRuntimeHistogramKey{kind: histogram.Kind, pid: snapshot.Service.ProcPID}
+	previous, exists := p.histograms[key]
 	startTime := previous.startTime
-	if !exists || previous.pid != snapshot.PID || histogramPopulationRegressed(previous.histogram, histogram) {
+	if !exists || histogramPopulationRegressed(previous.histogram, histogram) {
 		startTime = snapshot.Time
 	}
-	p.histograms[histogram.Kind] = goRuntimeHistogramState{
-		pid:       snapshot.PID,
+	p.histograms[key] = goRuntimeHistogramState{
 		time:      snapshot.Time,
 		startTime: startTime,
 		histogram: histogram,
+	}
+}
+
+func (p *goRuntimeHistogramProducer) Delete(pid app.PID) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	for key := range p.histograms {
+		if key.pid == pid {
+			delete(p.histograms, key)
+			delete(p.lastProduced, key)
+		}
 	}
 }
 
@@ -111,16 +128,20 @@ func (p *goRuntimeHistogramProducer) Produce(ctx context.Context) ([]metricdata.
 	if p.temporality == metricdata.DeltaTemporality {
 		states = deltaGoRuntimeHistogramStates(current, p.lastProduced)
 	}
-	if len(states) == 0 {
+	aggregated, err := aggregateGoRuntimeHistogramStates(states)
+	if err != nil {
+		return nil, err
+	}
+	if len(aggregated) == 0 {
 		return nil, nil
 	}
 
-	metrics := make([]metricdata.Metrics, 0, len(states))
+	metrics := make([]metricdata.Metrics, 0, len(aggregated))
 	for _, kind := range []runtimemetrics.GoHistogramKind{
 		runtimemetrics.GoHistogramKindGCPause,
 		runtimemetrics.GoHistogramKindSchedLatency,
 	} {
-		state, ok := states[kind]
+		state, ok := aggregated[kind]
 		if !ok {
 			continue
 		}
@@ -129,9 +150,9 @@ func (p *goRuntimeHistogramProducer) Produce(ctx context.Context) ([]metricdata.
 			return nil, err
 		}
 		metrics = append(metrics, metric)
-		delete(states, kind)
+		delete(aggregated, kind)
 	}
-	for kind := range states {
+	for kind := range aggregated {
 		return nil, fmt.Errorf("producing Go runtime histogram kind %d: unsupported kind", kind)
 	}
 
@@ -149,28 +170,27 @@ func (p *goRuntimeHistogramProducer) Produce(ctx context.Context) ([]metricdata.
 }
 
 func cloneGoRuntimeHistogramStates(
-	states map[runtimemetrics.GoHistogramKind]goRuntimeHistogramState,
-) map[runtimemetrics.GoHistogramKind]goRuntimeHistogramState {
-	cloned := make(map[runtimemetrics.GoHistogramKind]goRuntimeHistogramState, len(states))
-	for kind, state := range states {
+	states map[goRuntimeHistogramKey]goRuntimeHistogramState,
+) map[goRuntimeHistogramKey]goRuntimeHistogramState {
+	cloned := make(map[goRuntimeHistogramKey]goRuntimeHistogramState, len(states))
+	for key, state := range states {
 		state.histogram.Counts = append([]uint64(nil), state.histogram.Counts...)
-		cloned[kind] = state
+		cloned[key] = state
 	}
 	return cloned
 }
 
 func deltaGoRuntimeHistogramStates(
-	current map[runtimemetrics.GoHistogramKind]goRuntimeHistogramState,
-	previous map[runtimemetrics.GoHistogramKind]goRuntimeHistogramState,
-) map[runtimemetrics.GoHistogramKind]goRuntimeHistogramState {
-	deltas := make(map[runtimemetrics.GoHistogramKind]goRuntimeHistogramState, len(current))
-	for kind, state := range current {
-		baseline, exists := previous[kind]
+	current map[goRuntimeHistogramKey]goRuntimeHistogramState,
+	previous map[goRuntimeHistogramKey]goRuntimeHistogramState,
+) map[goRuntimeHistogramKey]goRuntimeHistogramState {
+	deltas := make(map[goRuntimeHistogramKey]goRuntimeHistogramState, len(current))
+	for key, state := range current {
+		baseline, exists := previous[key]
 		if !exists ||
-			baseline.pid != state.pid ||
 			baseline.startTime != state.startTime ||
 			histogramPopulationRegressed(baseline.histogram, state.histogram) {
-			deltas[kind] = state
+			deltas[key] = state
 			continue
 		}
 
@@ -186,10 +206,59 @@ func deltaGoRuntimeHistogramStates(
 		}
 		state.histogram.Counts = counts
 		if changed || state.histogram.Underflow != 0 || state.histogram.Overflow != 0 {
-			deltas[kind] = state
+			deltas[key] = state
 		}
 	}
 	return deltas
+}
+
+func aggregateGoRuntimeHistogramStates(
+	states map[goRuntimeHistogramKey]goRuntimeHistogramState,
+) (map[runtimemetrics.GoHistogramKind]goRuntimeHistogramState, error) {
+	aggregated := make(map[runtimemetrics.GoHistogramKind]goRuntimeHistogramState)
+	for key, state := range states {
+		current, exists := aggregated[key.kind]
+		if !exists {
+			state.histogram.Counts = append([]uint64(nil), state.histogram.Counts...)
+			aggregated[key.kind] = state
+			continue
+		}
+		if len(current.histogram.Counts) != len(state.histogram.Counts) {
+			return nil, fmt.Errorf("aggregating Go runtime histogram kind %d: population count mismatch", key.kind)
+		}
+		if state.startTime.Before(current.startTime) {
+			current.startTime = state.startTime
+		}
+		if state.time.After(current.time) {
+			current.time = state.time
+		}
+
+		var carry uint64
+		current.histogram.Underflow, carry = bits.Add64(
+			current.histogram.Underflow,
+			state.histogram.Underflow,
+			0,
+		)
+		if carry != 0 {
+			return nil, fmt.Errorf("aggregating Go runtime histogram kind %d: population overflow", key.kind)
+		}
+		current.histogram.Overflow, carry = bits.Add64(
+			current.histogram.Overflow,
+			state.histogram.Overflow,
+			0,
+		)
+		if carry != 0 {
+			return nil, fmt.Errorf("aggregating Go runtime histogram kind %d: population overflow", key.kind)
+		}
+		for i, population := range state.histogram.Counts {
+			current.histogram.Counts[i], carry = bits.Add64(current.histogram.Counts[i], population, 0)
+			if carry != 0 {
+				return nil, fmt.Errorf("aggregating Go runtime histogram kind %d: population overflow", key.kind)
+			}
+		}
+		aggregated[key.kind] = current
+	}
+	return aggregated, nil
 }
 
 func produceGoRuntimeHistogram(
