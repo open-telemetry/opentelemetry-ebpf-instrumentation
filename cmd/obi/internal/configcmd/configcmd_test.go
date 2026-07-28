@@ -401,7 +401,11 @@ otel_traces_export:
 }
 
 func TestMigrateConfigRejectsCustomLanguageDetectionSkips(t *testing.T) {
-	for _, value := range []string{"[]", `["/opt/system-services/"]`} {
+	for _, value := range []string{
+		"[]",
+		`["/opt/system-services/"]`,
+		`["/lib/systemd/"]`,
+	} {
 		_, _, err := migrateConfig([]byte(fmt.Sprintf(`
 open_port: "8080"
 discovery:
@@ -412,6 +416,32 @@ otel_traces_export:
 
 		require.ErrorContains(t, err, "discovery.excluded_linux_system_paths")
 	}
+}
+
+func TestMigrateConfigAcceptsDefaultLanguageDetectionSkips(t *testing.T) {
+	output, _, err := migrateConfig([]byte(`
+open_port: "8080"
+discovery:
+  excluded_linux_system_paths:
+    - /lib/systemd/
+    - /usr/lib/systemd/
+    - /usr/libexec/
+    - /sbin/
+    - /usr/sbin/
+otel_traces_export:
+  endpoint: http://collector:4318
+`))
+	require.NoError(t, err)
+
+	doc, _, err := schema.ParseStandaloneYAML(output)
+	require.NoError(t, err)
+	runtimeConfig, err := convert.DocumentToRuntime(doc)
+	require.NoError(t, err)
+	require.Equal(
+		t,
+		obi.DefaultConfig.Discovery.ExcludedLinuxSystemPaths,
+		runtimeConfig.Discovery.ExcludedLinuxSystemPaths,
+	)
 }
 
 func TestMigrateIntegrationConfigurations(t *testing.T) {

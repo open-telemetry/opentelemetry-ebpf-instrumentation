@@ -144,7 +144,7 @@ func toStringSlice(v any) []string {
 	return out
 }
 
-func mustMapExcludedSystemPaths(cur map[string]any, ex map[string]any) error {
+func mustKeepLanguageDetectionSkipsOutOfCaptureRules(cur map[string]any, ex map[string]any) error {
 	currentPathsValue, ok := get(cur, "discovery", "excluded_linux_system_paths")
 	if !ok {
 		return errors.New("missing current key [discovery excluded_linux_system_paths]")
@@ -163,7 +163,6 @@ func mustMapExcludedSystemPaths(cur map[string]any, ex map[string]any) error {
 		return errors.New("example obi.capture.rules is not a list")
 	}
 
-	foundGlobs := map[string]bool{}
 	for _, ruleAny := range rules {
 		rule, ok := ruleAny.(map[string]any)
 		if !ok {
@@ -171,6 +170,9 @@ func mustMapExcludedSystemPaths(cur map[string]any, ex map[string]any) error {
 		}
 		if fmt.Sprintf("%v", rule["action"]) != "exclude" {
 			continue
+		}
+		if fmt.Sprintf("%v", rule["name"]) == "exclude-linux-system-paths" {
+			return errors.New("language-detection skips must not be represented as a capture exclusion rule")
 		}
 		match, ok := rule["match"].(map[string]any)
 		if !ok {
@@ -181,15 +183,16 @@ func mustMapExcludedSystemPaths(cur map[string]any, ex map[string]any) error {
 			continue
 		}
 		globs := toStringSlice(process["exe_path_glob"])
-		for _, g := range globs {
-			foundGlobs[g] = true
-		}
-	}
-
-	for _, p := range currentPaths {
-		expectedGlob := strings.TrimSuffix(p, "/") + "/*"
-		if !foundGlobs[expectedGlob] {
-			return fmt.Errorf("missing scope rule glob for excluded system path: expected %s", expectedGlob)
+		for _, path := range currentPaths {
+			excludedGlob := strings.TrimSuffix(path, "/") + "/*"
+			for _, glob := range globs {
+				if glob == excludedGlob {
+					return fmt.Errorf(
+						"language-detection skip %s must not be a capture exclusion",
+						path,
+					)
+				}
+			}
 		}
 	}
 
@@ -620,7 +623,7 @@ func verifyDefaults(cur map[string]any, ex map[string]any) ([]error, int) {
 	}
 	derivedChecks++
 
-	if err := mustMapExcludedSystemPaths(cur, ex); err != nil {
+	if err := mustKeepLanguageDetectionSkipsOutOfCaptureRules(cur, ex); err != nil {
 		failures = append(failures, err)
 	}
 	derivedChecks++

@@ -141,17 +141,6 @@ extensions:
               exports_otlp:
                 port: 4317
                 protocol: protobuf
-        - action: exclude
-          name: exclude-linux-system-paths
-          description: Exclude Linux system/service executable paths that are not typical application workloads.
-          match:
-            process:
-              exe_path_glob:
-                - /lib/systemd/*
-                - /usr/lib/systemd/*
-                - /usr/libexec/*
-                - /sbin/*
-                - /usr/sbin/*
 
         # Example (commented): effective glob selector exported from discovery.instrument
         # and top-level auto-target fields.

@@ -289,8 +289,21 @@ func changedInputFields(data []byte, before, after *obi.Config) ([]string, error
 	}
 
 	var changed []string
+	languageDetectionSkipsPath := yamlPath{"discovery", "excluded_linux_system_paths"}
+	languageDetectionSkipsName := formatPath(languageDetectionSkipsPath)
+	if _, configured := valueAtPath(source, languageDetectionSkipsPath); configured {
+		beforeValue, beforeOK := valueAtPath(beforeMap, languageDetectionSkipsPath)
+		afterValue, afterOK := valueAtPath(afterMap, languageDetectionSkipsPath)
+		if beforeOK != afterOK || !reflect.DeepEqual(beforeValue, afterValue) {
+			changed = append(changed, languageDetectionSkipsName)
+		}
+	}
+
 	for _, path := range leafPaths(source, nil) {
 		name := formatPath(path)
+		if name == languageDetectionSkipsName || strings.HasPrefix(name, languageDetectionSkipsName+"[") {
+			continue
+		}
 		if migrationAlias(name) {
 			continue
 		}

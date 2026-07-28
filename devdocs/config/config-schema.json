@@ -495,7 +495,7 @@
             "type": "string"
           },
           "type": "array",
-          "description": "Executable paths for which we don't run language detection and cannot be selected using the path or language selection criteria",
+          "description": "Executable path prefixes for which preliminary language detection is skipped. Processes can still be selected using non-language criteria.",
           "default": [
             "/lib/systemd/",
             "/usr/lib/systemd/",
