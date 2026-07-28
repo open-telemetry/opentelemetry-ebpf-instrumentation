@@ -2,11 +2,14 @@ services:
   testserver:
     build:
       context: ../../..
-      dockerfile: internal/test/integration/components/denoserver/Dockerfile
+      dockerfile: internal/test/integration/components/nodejsserver/Dockerfile_deno
     image: hatest-testserver-deno
     command:
       - deno
       - run
+      - --unstable-detect-cjs
+      - --allow-net
+      - --allow-env
       - ${MAIN_FILE:-app.js}
     ports:
       - 3031:3030

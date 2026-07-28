@@ -383,8 +383,10 @@ func TestSuite_NodeJS(t *testing.T) {
 	require.NoError(t, compose.Close())
 }
 
-func TestSuite_Deno(t *testing.T) {
-	compose, err := docker.ComposeSuite("docker-compose-deno.yml", path.Join(pathOutput, "test-suite-deno.log"))
+// TestSuite_Deno_NodeCompat tests Deno in Node:http compatibility. It's the use case of Node applications
+// being ported to Deno but not natively using Deno server
+func TestSuite_Deno_NodeCompat(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-deno-nodecompat.yml", path.Join(pathOutput, "test-suite-deno.log"))
 	require.NoError(t, err)
 
 	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=3030`, `OTEL_EBPF_EXECUTABLE_PATH=`, `MAIN_FILE=app.js`)
