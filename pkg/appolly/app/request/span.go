@@ -819,13 +819,46 @@ func (e *VendorEmbedding) OperationName() string {
 	return EmbeddingOperationName
 }
 
+// Dimensions returns the output vector dimension count. It prefers an explicit
+// request dimension ("dimensions" or "output_dimension"), falling back to the
+// length derived from the response payload. Returns 0 when not determinable.
+func (e *VendorEmbedding) Dimensions() int {
+	if e.Input.Dimensions > 0 {
+		return e.Input.Dimensions
+	}
+	if e.Input.OutputDimension > 0 {
+		return e.Input.OutputDimension
+	}
+	return e.Output.Dimensions
+}
+
 // EmbeddingRequest captures the common fields from embedding API requests.
 type EmbeddingRequest struct {
 	Model      string          `json:"model"`
 	Input      json.RawMessage `json:"input"`
 	Dimensions int             `json:"dimensions,omitempty"`
+	// Voyage AI and Cohere use "output_dimension" for the requested vector size.
+	OutputDimension int `json:"output_dimension,omitempty"`
 	// Cohere uses "texts" instead of "input"
 	Texts json.RawMessage `json:"texts,omitempty"`
+	// EncodingFormat is the OpenAI/Voyage/Jina style single-value output format.
+	EncodingFormat string `json:"encoding_format,omitempty"`
+	// EmbeddingTypes is the Cohere v2 style list of output formats.
+	EmbeddingTypes []string `json:"embedding_types,omitempty"`
+}
+
+// EncodingFormats returns the requested output encoding formats, normalizing
+// across providers: OpenAI/Voyage/Jina expose a single "encoding_format"
+// string, while Cohere v2 uses an "embedding_types" array. Returns nil when
+// no format was specified.
+func (r *EmbeddingRequest) EncodingFormats() []string {
+	if len(r.EmbeddingTypes) > 0 {
+		return r.EmbeddingTypes
+	}
+	if r.EncodingFormat != "" {
+		return []string{r.EncodingFormat}
+	}
+	return nil
 }
 
 // InputCount returns the number of input texts in the request.
@@ -853,6 +886,9 @@ type EmbeddingResponse struct {
 	Usage EmbeddingUsage `json:"usage"`
 	// Cohere uses meta.billed_units for token counts
 	Meta *CohereResponseMeta `json:"meta,omitempty"`
+	// Dimensions is the length of a single output vector, derived from the
+	// response payload. Populated by the embedding parser; zero when unknown.
+	Dimensions int `json:"-"`
 }
 
 // EmbeddingUsage captures token usage in embedding responses.

@@ -64,6 +64,8 @@ func TestEmbeddingSpan_VoyageAI(t *testing.T) {
 	assert.Equal(t, "embeddings", ai.OperationName())
 	assert.Equal(t, 8, reportedValue(ai.InputTokenCount()))
 	assert.Equal(t, 2, ai.Input.InputCount())
+	// No request dimension: derived from the response vector length.
+	assert.Equal(t, 2, ai.Dimensions())
 }
 
 func TestEmbeddingSpan_Cohere(t *testing.T) {
@@ -108,7 +110,48 @@ func TestEmbeddingSpan_JinaAI(t *testing.T) {
 	assert.Equal(t, "embeddings", ai.OperationName())
 	assert.Equal(t, 6, reportedValue(ai.InputTokenCount()))
 	assert.Equal(t, 512, ai.Input.Dimensions)
+	// Explicit request dimension takes precedence over the response vector length.
+	assert.Equal(t, 512, ai.Dimensions())
 	assert.Equal(t, 1, ai.Input.InputCount())
+}
+
+func TestEmbeddingSpan_EncodingFormats(t *testing.T) {
+	t.Run("openai_style_single", func(t *testing.T) {
+		req := makeRequest(t, http.MethodPost, "https://api.voyageai.com/v1/embeddings",
+			`{"model":"voyage-3","input":["hi"],"encoding_format":"base64"}`)
+		resp := makePlainResponse(http.StatusOK, http.Header{"Content-Type": []string{"application/json"}},
+			voyageResponseBody)
+
+		span, ok := EmbeddingSpan(&request.Span{}, req, resp)
+		require.True(t, ok)
+		assert.Equal(t, []string{"base64"}, span.GenAI.Embedding.Input.EncodingFormats())
+	})
+
+	t.Run("cohere_style_list", func(t *testing.T) {
+		req := makeRequest(t, http.MethodPost, "https://api.cohere.com/v2/embed",
+			`{"model":"embed-english-v3.0","texts":["hi"],"embedding_types":["float","int8"]}`)
+		resp := makePlainResponse(http.StatusOK, http.Header{"Content-Type": []string{"application/json"}},
+			cohereResponseBody)
+
+		span, ok := EmbeddingSpan(&request.Span{}, req, resp)
+		require.True(t, ok)
+		ai := span.GenAI.Embedding
+		assert.Equal(t, []string{"float", "int8"}, ai.Input.EncodingFormats())
+		// Cohere embeddings.float[][] vectors yield the dimension count.
+		assert.Equal(t, 2, ai.Dimensions())
+	})
+
+	t.Run("output_dimension_request", func(t *testing.T) {
+		req := makeRequest(t, http.MethodPost, "https://api.voyageai.com/v1/embeddings",
+			`{"model":"voyage-3","input":["hi"],"output_dimension":1024}`)
+		resp := makePlainResponse(http.StatusOK, http.Header{"Content-Type": []string{"application/json"}},
+			voyageResponseBody)
+
+		span, ok := EmbeddingSpan(&request.Span{}, req, resp)
+		require.True(t, ok)
+		assert.Equal(t, 1024, span.GenAI.Embedding.Dimensions())
+		assert.Nil(t, span.GenAI.Embedding.Input.EncodingFormats())
+	})
 }
 
 func TestEmbeddingSpan_ExplicitZeroUsage(t *testing.T) {

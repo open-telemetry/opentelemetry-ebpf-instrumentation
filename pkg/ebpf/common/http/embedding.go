@@ -4,6 +4,7 @@
 package ebpfcommon // import "go.opentelemetry.io/obi/pkg/ebpf/common/http"
 
 import (
+	"encoding/json"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -84,6 +85,9 @@ func EmbeddingSpan(baseSpan *request.Span, req *http.Request, resp *http.Respons
 		}
 		parsedResponse.Meta.BilledUnits.InputTokens.Merge(billedUnits.InputTokens)
 	}
+	if parsedResponse.Dimensions == 0 {
+		parsedResponse.Dimensions = parseEmbeddingDimensions(respB)
+	}
 
 	baseSpan.SubType = request.HTTPSubtypeEmbedding
 	baseSpan.GenAI = &request.GenAI{
@@ -96,4 +100,42 @@ func EmbeddingSpan(baseSpan *request.Span, req *http.Request, resp *http.Respons
 	}
 
 	return *baseSpan, true
+}
+
+// parseEmbeddingDimensions inspects a raw embedding response body and returns
+// the length of a single output vector. It supports the OpenAI-style
+// data[].embedding layout (Voyage, Jina) and the Cohere v2
+// embeddings.{float,int8,...}[][] layout. Returns 0 when not determinable.
+func parseEmbeddingDimensions(body []byte) int {
+	if len(body) == 0 {
+		return 0
+	}
+
+	// OpenAI-style layout: {"data":[{"embedding":[...]}]}
+	var openAIStyle struct {
+		Data []struct {
+			Embedding []json.Number `json:"embedding"`
+		} `json:"data"`
+	}
+	if unmarshalJSON(body, &openAIStyle) && len(openAIStyle.Data) > 0 {
+		if n := len(openAIStyle.Data[0].Embedding); n > 0 {
+			return n
+		}
+	}
+
+	// Cohere v2 layout: {"embeddings":{"float":[[...]]}}
+	var cohereStyle struct {
+		Embeddings map[string][][]json.Number `json:"embeddings"`
+	}
+	if unmarshalJSON(body, &cohereStyle) {
+		for _, vectors := range cohereStyle.Embeddings {
+			if len(vectors) > 0 {
+				if n := len(vectors[0]); n > 0 {
+					return n
+				}
+			}
+		}
+	}
+
+	return 0
 }

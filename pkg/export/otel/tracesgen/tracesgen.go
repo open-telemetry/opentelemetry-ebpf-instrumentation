@@ -1334,8 +1334,11 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 				attrs = append(attrs, semconv.GenAIResponseModel(model))
 			}
 			attrs = append(attrs, genAIUsageAttributes(span)...)
-			if ai.Input.Dimensions > 0 {
-				attrs = append(attrs, attribute.Int("gen_ai.request.embedding.dimensions", ai.Input.Dimensions))
+			if dims := ai.Dimensions(); dims > 0 {
+				attrs = append(attrs, semconv.GenAIEmbeddingsDimensionCount(dims))
+			}
+			if formats := ai.Input.EncodingFormats(); len(formats) > 0 {
+				attrs = append(attrs, semconv.GenAIRequestEncodingFormats(formats...))
 			}
 			if count := ai.Input.InputCount(); count > 0 {
 				attrs = append(attrs, attribute.Int("gen_ai.request.embedding.input_count", count))
