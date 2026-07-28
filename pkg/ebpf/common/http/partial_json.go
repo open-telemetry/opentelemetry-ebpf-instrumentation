@@ -257,15 +257,9 @@ func parseOpenAIInput(body []byte) request.OpenAIInput {
 	if len(parsed.Messages) == 0 && len(body) > 0 {
 		parsed.Messages = extractJSONRawField(body, "messages")
 	}
-	// Native DashScope nests options under "parameters" and uses an object-typed
-	// "input"; the latter aborts jsoniter's struct decode before it reaches
-	// "parameters", so backfill it directly from the raw body.
 	if len(parsed.Parameters) == 0 && len(body) > 0 {
 		parsed.Parameters = extractJSONRawField(body, "parameters")
 	}
-	// An array-typed "input" (batch embeddings) similarly aborts the decode
-	// before "encoding_format"; backfill it so gen_ai.request.encoding_formats
-	// is captured regardless of input shape.
 	if parsed.EncodingFormat == "" && len(body) > 0 {
 		parsed.EncodingFormat = extractJSONStringField(body, "encoding_format", 0)
 	}
