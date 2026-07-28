@@ -24,6 +24,11 @@ import (
 // unbounded work on large application files.
 const MaxJSFileScanBytes int64 = 10 * 1024 * 1024
 
+const (
+	maxNestDecoratorValues = 64
+	maxNestRouteVariants   = 256
+)
+
 // /root is purposefully missing, since we need it to star the file walk
 // we skip later any root directories we find that don't match our original
 // path
@@ -248,6 +253,7 @@ type RouteExtractor struct {
 	// only when the stack ends: at the first non-decorator line, the next
 	// method or controller decorator, or the end of the file.
 	pendingNestMethod *RoutePattern
+	nestRouteVariants int
 	// inEnableVersioning tracks a multi-line app.enableVersioning({...}) call
 	// until its closing parenthesis
 	inEnableVersioning bool
@@ -366,7 +372,7 @@ func (e *RouteExtractor) handleRestify(filePath, line string, lineNum int) bool 
 // quotedStrings returns the contents of every quoted string in s: the single
 // value of 'x' as well as every element of ['x', 'y'].
 func (e *RouteExtractor) quotedStrings(s string) []string {
-	matches := e.patterns.QuotedString.FindAllStringSubmatch(s, -1)
+	matches := e.patterns.QuotedString.FindAllStringSubmatch(s, maxNestDecoratorValues)
 	result := make([]string, 0, len(matches))
 	for _, m := range matches {
 		result = append(result, m[1])
@@ -413,16 +419,28 @@ func (e *RouteExtractor) flushNestMethod() {
 
 	for _, prefix := range prefixes {
 		for _, version := range versions {
-			e.routes = append(e.routes, RoutePattern{
+			if !e.appendNestRoute(RoutePattern{
 				Method:  m.Method,
 				Path:    joinNestPaths(prefix, m.Path),
 				File:    m.File,
 				Line:    m.Line,
 				Nest:    true,
 				Version: version,
-			})
+			}) {
+				return
+			}
 		}
 	}
+}
+
+func (e *RouteExtractor) appendNestRoute(route RoutePattern) bool {
+	if e.nestRouteVariants >= maxNestRouteVariants {
+		return false
+	}
+
+	e.routes = append(e.routes, route)
+	e.nestRouteVariants++
+	return true
 }
 
 func (e *RouteExtractor) handleNestJSController(line string) bool {
@@ -573,7 +591,7 @@ func (e *RouteExtractor) handleNestJS(filePath, line string, lineNum int) bool {
 // declared versions become fragments too (/v2).
 func (e *RouteExtractor) handleCompiledNestController(filePath, line string, lineNum int) bool {
 	addFragment := func(path string) {
-		e.routes = append(e.routes, RoutePattern{
+		e.appendNestRoute(RoutePattern{
 			Method: "ALL",
 			Path:   ensureLeadingSlash(path),
 			File:   filePath,
@@ -617,12 +635,14 @@ func (e *RouteExtractor) handleCompiledNestVersion(filePath, line string, lineNu
 		return false
 	}
 	for _, version := range e.quotedStrings(matches[1]) {
-		e.routes = append(e.routes, RoutePattern{
+		if !e.appendNestRoute(RoutePattern{
 			Method: "ALL",
 			Path:   "/v" + version,
 			File:   filePath,
 			Line:   lineNum,
-		})
+		}) {
+			break
+		}
 	}
 	return true
 }
@@ -637,7 +657,7 @@ func (e *RouteExtractor) handleCompiledNestMethod(filePath, line string, lineNum
 		return false
 	}
 	if matches[2] != "" {
-		e.routes = append(e.routes, RoutePattern{
+		e.appendNestRoute(RoutePattern{
 			Method: strings.ToUpper(matches[1]),
 			Path:   ensureLeadingSlash(matches[2]),
 			File:   filePath,
@@ -859,6 +879,7 @@ func (e *RouteExtractor) scanFile(filePath string) error {
 	e.nestCtrlVersions = nil
 	e.pendingNestVersions = nil
 	e.pendingNestMethod = nil
+	e.nestRouteVariants = 0
 	e.inEnableVersioning = false
 
 	for scanner.Scan() {
