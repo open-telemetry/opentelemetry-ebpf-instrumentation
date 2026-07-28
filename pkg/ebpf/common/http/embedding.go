@@ -103,7 +103,7 @@ func EmbeddingSpan(baseSpan *request.Span, req *http.Request, resp *http.Respons
 }
 
 // parseEmbeddingDimensions inspects a raw embedding response body and returns
-// the length of a single output vector. It supports the OpenAI-style
+// the model dimension count of a single output vector. It supports the OpenAI-style
 // data[].embedding layout (Voyage, Jina) and the Cohere v2
 // embeddings.{float,int8,...}[][] layout. Returns 0 when not determinable.
 func parseEmbeddingDimensions(body []byte) int {
@@ -123,19 +123,56 @@ func parseEmbeddingDimensions(body []byte) int {
 		}
 	}
 
-	// Cohere v2 layout: {"embeddings":{"float":[[...]]}}
+	// Cohere v2 layout: {"embeddings":{"float":[[...]],"binary":[[...]]}}
 	var cohereStyle struct {
-		Embeddings map[string][][]json.Number `json:"embeddings"`
+		Embeddings map[string]json.RawMessage `json:"embeddings"`
 	}
 	if unmarshalJSON(body, &cohereStyle) {
-		for _, vectors := range cohereStyle.Embeddings {
-			if len(vectors) > 0 {
-				if n := len(vectors[0]); n > 0 {
-					return n
-				}
-			}
+		if n := cohereEmbeddingDimensions(cohereStyle.Embeddings); n > 0 {
+			return n
 		}
 	}
 
 	return 0
+}
+
+// cohereBinaryPackedDims is the number of model dimensions packed into each
+// byte entry of a Cohere v2 binary/ubinary embedding vector.
+const cohereBinaryPackedDims = 8
+
+// cohereEmbeddingDimensions derives the model dimension count from Cohere v2
+// embeddings, keyed by embedding type. Non-packed types are preferred because
+// their entry count equals the dimension count; binary/ubinary vectors pack
+// eight dimensions into each byte entry, so their length is expanded.
+func cohereEmbeddingDimensions(embeddings map[string]json.RawMessage) int {
+	for _, key := range []string{"float", "int8", "uint8"} {
+		if n := cohereVectorLength(embeddings, key); n > 0 {
+			return n
+		}
+	}
+
+	for _, key := range []string{"binary", "ubinary"} {
+		if n := cohereVectorLength(embeddings, key); n > 0 {
+			return n * cohereBinaryPackedDims
+		}
+	}
+
+	return 0
+}
+
+// cohereVectorLength returns the entry count of the first vector under the
+// given embedding type key, or 0 when the key is absent or its value is not
+// a numeric matrix.
+func cohereVectorLength(embeddings map[string]json.RawMessage, key string) int {
+	raw, ok := embeddings[key]
+	if !ok {
+		return 0
+	}
+
+	var vectors [][]json.Number
+	if !unmarshalJSON(raw, &vectors) || len(vectors) == 0 {
+		return 0
+	}
+
+	return len(vectors[0])
 }

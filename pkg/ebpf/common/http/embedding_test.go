@@ -154,6 +154,37 @@ func TestEmbeddingSpan_EncodingFormats(t *testing.T) {
 	})
 }
 
+func TestEmbeddingSpan_CohereBinaryDimensions(t *testing.T) {
+	post := func(t *testing.T, respBody string) request.Span {
+		t.Helper()
+		req := makeRequest(t, http.MethodPost, "https://api.cohere.com/v2/embed",
+			`{"model":"embed-english-v3.0","texts":["hi"],"embedding_types":["binary"]}`)
+		resp := makePlainResponse(http.StatusOK, http.Header{"Content-Type": []string{"application/json"}},
+			respBody)
+
+		span, ok := EmbeddingSpan(&request.Span{}, req, resp)
+		require.True(t, ok)
+		return span
+	}
+
+	t.Run("binary_expands_packed_entries", func(t *testing.T) {
+		span := post(t, `{"embeddings":{"binary":[[1,2,3,4]]}}`)
+		// Each binary entry packs eight model dimensions: 4 entries -> 32 dims.
+		assert.Equal(t, 32, span.GenAI.Embedding.Dimensions())
+	})
+
+	t.Run("ubinary_expands_packed_entries", func(t *testing.T) {
+		span := post(t, `{"embeddings":{"ubinary":[[255,0]]}}`)
+		assert.Equal(t, 16, span.GenAI.Embedding.Dimensions())
+	})
+
+	t.Run("float_preferred_over_binary", func(t *testing.T) {
+		span := post(t, `{"embeddings":{"binary":[[1,2]],"float":[[0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0,1.1,1.2,1.3,1.4,1.5,1.6]]}}`)
+		// Non-packed vectors are preferred regardless of map iteration order.
+		assert.Equal(t, 16, span.GenAI.Embedding.Dimensions())
+	})
+}
+
 func TestEmbeddingSpan_ExplicitZeroUsage(t *testing.T) {
 	req := makeRequest(t, http.MethodPost, "https://api.voyageai.com/v1/embeddings", voyageRequestBody)
 	resp := makePlainResponse(http.StatusOK, http.Header{"Content-Type": []string{"application/json"}},
