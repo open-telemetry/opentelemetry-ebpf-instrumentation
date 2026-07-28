@@ -415,7 +415,7 @@ func TestCreateToolCallSpans(t *testing.T) {
 
 		args, ok := attrs.Get("gen_ai.tool.call.arguments")
 		require.True(t, ok)
-		assert.Equal(t, `{"location":"Boston"}`, args.Str())
+		assert.JSONEq(t, `{"location":"Boston"}`, args.Str())
 
 		result, ok := attrs.Get("gen_ai.tool.call.result")
 		require.True(t, ok)
