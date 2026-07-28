@@ -173,3 +173,42 @@ output apart from its own — so it disables its entire auto-instrumentation
 suite for that service. The user ends up with custom telemetry but no HTTP /
 gRPC / SQL / Redis / … telemetry, even though the SDK never produced any of
 those.
+
+## Runtimes whose TLS OBI cannot decrypt (e.g. Deno)
+
+OBI reads encrypted client/server payloads by attaching uprobes to a TLS
+library's read/write functions (OpenSSL / BoringSSL `SSL_read` / `SSL_write`,
+etc.). This requires those functions to be resolvable as **symbols** in the
+target process. Some runtimes make that impossible:
+
+- **Deno** links **rustls** (with the `aws-lc-rs` crypto backend) **statically**
+  into a **stripped** binary — no `.symtab`, no DWARF, and no exported rustls or
+  crypto symbols. There is nothing for a uprobe to attach to, so OBI cannot see
+  the plaintext of Deno's HTTPS traffic (nor of its native `fetch`, which is
+  implemented in Rust and never surfaces a `node:net` socket). OBI still handles
+  Deno's **plain-HTTP** traffic normally (kprobe-based L7 parsing) and its
+  trace-context propagation (see the Deno agent in `pkg/internal/nodejs`).
+
+For HTTPS visibility on such runtimes, the supported path is the runtime's own
+OpenTelemetry SDK, with OBI stepping aside via the detection above:
+
+- **Deno** has built-in OTel (`deno run --unstable-otel` with `OTEL_DENO=true`).
+  It instruments its own HTTP server and `fetch` client — including HTTPS — and
+  exports OTLP. Verified behaviour (Deno 2.9.4): it exports **OTLP/HTTP protobuf**
+  to `POST /v1/traces` (default endpoint `http://localhost:4318`), with resource
+  attribute `telemetry.sdk.language=deno-rust`.
+
+Because Deno exports to `/v1/traces`, OBI's behavioural detection flags the
+service from that export client span (no OBI code or declarative config needed)
+and suppresses its own duplicate spans — provided:
+
+1. `exclude_otel_instrumented_services` is enabled (the default), and
+2. the OTLP export is on a transport OBI can observe — i.e. **plaintext**
+   OTLP/HTTP (or gRPC) to the collector, as is typical for a local
+   agent/sidecar. If Deno exports over TLS to a remote collector, OBI cannot see
+   the export either, so detection never fires and OBI may double-report the
+   plaintext traffic it *can* see.
+
+Net effect: a Deno service run with native OTel emits full HTTPS telemetry
+itself, and OBI defers to it. This is the Deno counterpart of the OpenSSL-uprobe
+HTTPS support OBI provides natively for Node.js.

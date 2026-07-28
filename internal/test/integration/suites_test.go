@@ -399,6 +399,21 @@ func TestSuite_Deno(t *testing.T) {
 	require.NoError(t, compose.Close())
 }
 
+// TestSuite_Deno_NativeOTel runs Deno with its built-in OpenTelemetry
+// (--unstable-otel + OTEL_DENO=true) so it self-instruments HTTP and HTTPS. It
+// verifies Deno's own spans reach the backend and that OBI detects the service
+// as already OTel-instrumented and suppresses its own duplicate traces & metrics.
+func TestSuite_Deno_NativeOTel(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-deno-otel.yml", path.Join(pathOutput, "test-suite-deno-otel.log"))
+	require.NoError(t, err)
+
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=3030`, `OTEL_EBPF_EXECUTABLE_PATH=`, `MAIN_FILE=app.js`)
+	require.NoError(t, compose.Up())
+	t.Run("Deno native OTel spans are exported", testDenoNativeOTelSpans)
+	t.Run("OBI suppresses duplicate traces and metrics", testDenoNativeOTelNoDuplicate)
+	require.NoError(t, compose.Close())
+}
+
 func TestSuite_NodeJSTLS(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-nodejs.yml", path.Join(pathOutput, "test-suite-nodejs-tls.log"))
 	require.NoError(t, err)
