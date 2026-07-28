@@ -443,7 +443,7 @@ func (pt *ProcessTracer) UnlinkExecutable(info *exec.FileInfo, generation uint64
 
 func (pt *ProcessTracer) unlinkInstrumenter(i *instrumenter) {
 	for _, p := range pt.Programs {
-		if processScopedTracer, ok := p.(ProcessScopedGoProbeTracer); ok {
+		if processScopedTracer, ok := p.(processScopedGoProbeTracer); ok {
 			processScopedTracer.UnregisterProcessScopedGoProbes(i.key)
 		}
 	}

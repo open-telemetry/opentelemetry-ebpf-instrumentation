@@ -57,8 +57,21 @@ type reverseCloser struct {
 	err     error
 }
 
+// goProbeGroupTracer provides ordered optional Go probes that must be attached
+// atomically after the tracer's baseline Go probes.
+type goProbeGroupTracer interface {
+	GoProbeGroups() []ebpfcommon.GoProbeGroup
+}
+
+// processScopedGoProbeTracer registers optional Go probes that are attached
+// for individual processes after their executable-scoped probe group succeeds.
+type processScopedGoProbeTracer interface {
+	RegisterProcessScopedGoProbe(ExecutableKey, ebpfcommon.GoProbe)
+	UnregisterProcessScopedGoProbes(ExecutableKey)
+}
+
 type processScopedGoProbeRegistration struct {
-	tracer ProcessScopedGoProbeTracer
+	tracer processScopedGoProbeTracer
 	key    ExecutableKey
 	probe  ebpfcommon.GoProbe
 }
@@ -130,12 +143,12 @@ func (i *instrumenter) goprobes(p Tracer) error {
 	i.closables = append(i.closables, closers...)
 	p.AddCloser(closers...)
 
-	if groupedTracer, ok := p.(GoProbeGroupTracer); ok {
+	if groupedTracer, ok := p.(goProbeGroupTracer); ok {
 		for _, group := range groupedTracer.GoProbeGroups() {
 			if !goProbeGroupPrerequisitesAttached(group, attachedSymbols) {
 				continue
 			}
-			processScopedTracer, hasProcessScopedTracer := p.(ProcessScopedGoProbeTracer)
+			processScopedTracer, hasProcessScopedTracer := p.(processScopedGoProbeTracer)
 			if goProbeGroupHasProcessScopedProbe(group) && !hasProcessScopedTracer {
 				continue
 			}
