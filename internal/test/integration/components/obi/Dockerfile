@@ -13,6 +13,7 @@ WORKDIR /src
 COPY .git/ .git/
 COPY bpf/ bpf/
 COPY cmd/ cmd/
+COPY internal/config/ internal/config/
 COPY pkg/ pkg/
 COPY go.mod go.mod
 COPY go.sum go.sum

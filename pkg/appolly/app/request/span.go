@@ -1109,6 +1109,7 @@ type SpanLink struct {
 // getDefinitions in pkg/export/attributes/attr_defs.go
 type Span struct {
 	Type              EventType      `json:"type"`
+	SpanKind          trace.SpanKind `json:"-"`
 	Flags             uint8          `json:"-"`
 	Method            string         `json:"-"`
 	Path              string         `json:"-"`
@@ -1165,6 +1166,9 @@ type Span struct {
 	// OverrideTraceName is set under some conditions, like spanmetrics reaching the maximum
 	// cardinality for trace names.
 	OverrideTraceName string `json:"-"`
+
+	// ManualOTelJSON stores OTLP JSON emitted by the Go Auto SDK bridge.
+	ManualOTelJSON []byte `json:"-"`
 }
 
 func (s *Span) Inside(parent *Span) bool {
@@ -1491,6 +1495,10 @@ func (s *Span) IsValid() bool {
 }
 
 func (s *Span) IsClientSpan() bool {
+	if s.Type == EventTypeManualSpan {
+		return s.SpanKind == trace.SpanKindClient || s.SpanKind == trace.SpanKindProducer
+	}
+
 	switch s.Type {
 	case EventTypeGRPCClient, EventTypeDNS, EventTypeHTTPClient, EventTypeRedisClient, EventTypeKafkaClient, EventTypeMQTTClient, EventTypeNATSClient, EventTypeAMQPClient, EventTypeSunRPCClient, EventTypeSQLClient, EventTypeMongoClient, EventTypeFailedConnect, EventTypeCouchbaseClient, EventTypeMemcachedClient, EventTypeAerospikeClient:
 		return true
@@ -1670,6 +1678,19 @@ func (s *Span) ResponseBodyLength() int64 {
 
 // ServiceGraphKind returns the Kind string representation that is compliant with service graph metrics specification
 func (s *Span) ServiceGraphKind() string {
+	if s.Type == EventTypeManualSpan {
+		switch s.SpanKind {
+		case trace.SpanKindServer:
+			return "SPAN_KIND_SERVER"
+		case trace.SpanKindClient:
+			return "SPAN_KIND_CLIENT"
+		case trace.SpanKindProducer:
+			return "SPAN_KIND_PRODUCER"
+		case trace.SpanKindConsumer:
+			return "SPAN_KIND_CONSUMER"
+		}
+	}
+
 	switch s.Type {
 	case EventTypeHTTP, EventTypeGRPC, EventTypeKafkaServer, EventTypeMQTTServer, EventTypeNATSServer, EventTypeSunRPCServer, EventTypeRedisServer, EventTypeMemcachedServer, EventTypeSQLServer:
 		return "SPAN_KIND_SERVER"
