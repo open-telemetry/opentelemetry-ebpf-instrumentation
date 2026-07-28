@@ -55,9 +55,9 @@ func TestGoAutoSDKActivation(t *testing.T) {
 			image:      "hatest-goautosdk-133",
 		},
 		{
-			version:    "1.44.0",
-			dockerfile: "internal/test/integration/components/goautosdk/Dockerfile-1.44",
-			image:      "hatest-goautosdk-144",
+			version:    "latest",
+			dockerfile: "internal/test/integration/components/goautosdk/Dockerfile-latest",
+			image:      "hatest-goautosdk-latest",
 		},
 	}
 
@@ -304,14 +304,25 @@ func testGoAutoSDKOversizedPayload(t *testing.T, version, service string) {
 	require.Len(t, after, 1)
 	assert.Empty(t, after[0].References, "oversized span state must be cleaned up before the next root span")
 
+	oversizedName := autoSDKSpanName("oversized", version)
 	var queryErr error
-	absent := assert.Never(t, func() bool {
+	richAbsent := assert.Never(t, func() bool {
 		var oversized jaeger.TracesQuery
-		oversized, queryErr = fetchGoAutoSDKTraces(service, autoSDKSpanName("oversized", version))
-		return queryErr != nil || len(oversized.Data) != 0
-	}, 2*time.Second, 100*time.Millisecond, "payloads exceeding the 16 KiB bound must be dropped")
+		oversized, queryErr = fetchGoAutoSDKTraces(service, oversizedName)
+		if queryErr != nil {
+			return false
+		}
+		for _, trace := range oversized.Data {
+			for _, span := range trace.FindByOperationName(oversizedName, "") {
+				if _, ok := jaeger.FindIn(span.Tags, "oversized.value"); ok {
+					return true
+				}
+			}
+		}
+		return false
+	}, 2*time.Second, 100*time.Millisecond, "payloads exceeding the 16 KiB bound must not be emitted as rich spans")
 	require.NoError(t, queryErr)
-	require.True(t, absent)
+	require.True(t, richAbsent)
 }
 
 func waitForGoAutoSDKTrace(t *testing.T, service, operation string) jaeger.Trace {

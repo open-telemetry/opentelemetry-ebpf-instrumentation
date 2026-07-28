@@ -8,8 +8,8 @@ ENV GOARCH=$TARGETARCH
 WORKDIR /src
 
 COPY internal/test/integration/components/goautosdk/main.go .
-COPY internal/test/integration/components/goautosdk/v1.44/go.mod .
-COPY internal/test/integration/components/goautosdk/v1.44/go.sum .
+COPY internal/test/integration/components/goautosdk/latest/go.mod .
+COPY internal/test/integration/components/goautosdk/latest/go.sum .
 
 RUN go build -o goautosdk .
 
