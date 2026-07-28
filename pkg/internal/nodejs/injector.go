@@ -44,9 +44,9 @@ type evalParams struct {
 const inspectorRequestTimeout = 5 * time.Second
 
 // Gorilla websocket library fragments any message larger than the write
-// buffer into WebSocket continuation frames. Node's V8 inspector
-// reassembles them, but Deno's inspector does not - it parses only the
-// first frame and rejects the rest with a JSON parse error.
+// buffer into WebSocket continuation frames. Node and Deno inspector
+// does not reassemble them - they parse only the
+// first frame and reject the rest with a JSON parse error.
 // We need to size the buffer accordingly so Gorilla sends the
 // Runtime.evaluate message in a single (unfragmented) WebSocket frame
 const wsWriteBufferSize = 1 << 20

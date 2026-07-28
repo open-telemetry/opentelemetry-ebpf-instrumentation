@@ -24,7 +24,7 @@
 
 (async ()=> {
   const STORE = Symbol.for('otel-ebpf-instrumentation.fdextractor_deno');
-  const SIGNALED = Symbol.for('otel-ebpf-instrumentation.deno_signaled');
+  const LAST_SERVER = Symbol.for('otel-ebpf-instrumentation.deno_last_server');
 
   const net = await import('net');
   const http = await import('http');
@@ -224,8 +224,20 @@
   }
 
 // --- outgoing correlation: node:net ---------------------------------------
+  function serverPartKey(part) {
+    return part.host + '/' + part.port;
+  }
+
   function signalOutgoing(sock, store) {
-    if (!store || !store.serverPart || sock[SIGNALED]) {
+    if (!store || !store.serverPart) {
+      return;
+    }
+    // A keep-alive socket is reused across incoming requests that may belong to
+    // different traces. Re-signal whenever the associated server endpoint
+    // changes so the eBPF map points the outgoing connection at the current
+    // parent instead of staying pinned to the first request's trace.
+    const key = serverPartKey(store.serverPart);
+    if (sock[LAST_SERVER] === key) {
       return;
     }
     const name = {};
@@ -237,7 +249,7 @@
     if (!name.address) {
       return;
     }
-    sock[SIGNALED] = true;
+    sock[LAST_SERVER] = key;
     signal(name.address, name.port, familyOf(name.address, name.family), store.serverPart);
   }
 
