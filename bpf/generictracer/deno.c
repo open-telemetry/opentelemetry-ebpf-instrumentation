@@ -91,13 +91,23 @@ int BPF_KPROBE(obi_kprobe_sys_statx) {
 
     char buf[k_deno_buf_len];
 
-    if (bpf_probe_read_user(buf, sizeof(buf), path) != 0) {
+    // This kprobe fires for every statx of every instrumented process. Read only
+    // the prefix first so a non-Deno path is rejected after copying 17 bytes
+    // instead of the full path payload.
+    if (bpf_probe_read_user(buf, k_deno_prefix_len, path) != 0) {
         return 0;
     }
 
     static const char prefix[] = "/dev/null/obi-dn/";
 
     if (obi_bpf_memcmp(prefix, buf, k_deno_prefix_len) != 0) {
+        return 0;
+    }
+
+    // Prefix matched: copy the endpoint payload that follows.
+    if (bpf_probe_read_user(buf + k_deno_prefix_len,
+                            k_deno_buf_len - k_deno_prefix_len,
+                            path + k_deno_prefix_len) != 0) {
         return 0;
     }
 
