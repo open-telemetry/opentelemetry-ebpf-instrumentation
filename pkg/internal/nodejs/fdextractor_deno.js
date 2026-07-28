@@ -57,8 +57,10 @@
     globalThis.Deno.serve = orig.denoServe;
   }
 
-  console.log('OpenTelemetry eBPF Instrumentation has injected Deno trace-context propagation via the debugger');
-  console.log('The debugger will be deactivated again and closed');
+  if (debug_enabled) {
+    console.log('OpenTelemetry eBPF Instrumentation has injected Deno trace-context propagation via the debugger');
+    console.log('The debugger will be deactivated again and closed');
+  }
 
 // ALS store holds only the incoming server connection's 4-tuple (serverPart).
   const als = new AsyncLocalStorage();

@@ -8,7 +8,8 @@ services:
       - deno
       - run
       - --unstable-detect-cjs
-      - -A
+      - --allow-net
+      - --allow-env
       - ${MAIN_FILE:-app.js}
     ports:
       - 3031:3030

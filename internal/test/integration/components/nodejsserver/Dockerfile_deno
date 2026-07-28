@@ -12,5 +12,5 @@ RUN deno install --allow-scripts
 EXPOSE 3030
 EXPOSE 3033
 
-# Deno needs explicit permissions; -A grants all (fine for a test container)
-CMD [ "deno", "run", "-A", "app.js" ]
+# Deno needs explicit permissions
+CMD [ "deno", "run", "--allow-net", "--allow-env", "app.js" ]

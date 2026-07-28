@@ -56,6 +56,7 @@ func testDenoNativeOTelSpans(t *testing.T) {
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		resp, err := http.Get(jaegerQueryURL + "?service=testserver&limit=100")
 		require.NoError(ct, err)
+		defer resp.Body.Close()
 		require.Equal(ct, http.StatusOK, resp.StatusCode)
 
 		var tq jaeger.TracesQuery
@@ -96,6 +97,7 @@ func assertAvoidedService(t *testing.T, serviceName, telemetryType string) {
 		parser := expfmt.NewTextParser(model.UTF8Validation)
 		resp, err := http.Get(internalMetricsURL)
 		require.NoError(ct, err)
+		defer resp.Body.Close()
 		require.Equal(ct, http.StatusOK, resp.StatusCode)
 
 		metrics, err := parser.TextToMetricFamilies(resp.Body)
