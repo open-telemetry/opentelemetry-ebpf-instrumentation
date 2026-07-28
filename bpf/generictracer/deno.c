@@ -29,13 +29,11 @@
 // Each part is 36 lowercase-hex chars: a 16-byte address (IPv4 stored as a
 // v4-in-v6 mapped address, matching connection_info) followed by a 2-byte port.
 enum {
-    k_deno_prefix_len = 17,  // "/dev/null/obi-dn/"
-    k_deno_addr_hex = 32,    // 16 bytes
-    k_deno_port_hex = 4,     // 2 bytes
-    k_deno_part_hex = 36,    // addr + port
-    k_deno_payload_hex = 72, // client part + server part
-    k_deno_path_len = 89,    // prefix + payload
-    k_deno_buf_len = 90,     // + null terminator
+    k_deno_prefix_len = 17, // "/dev/null/obi-dn/"
+    k_deno_addr_hex = 32,   // 16 bytes
+    k_deno_port_hex = 4,    // 2 bytes
+    k_deno_part_hex = 36,   // addr + port
+    k_deno_buf_len = 90,    // prefix(17) + payload(72) + null terminator
     k_deno_client_off = k_deno_prefix_len,
     k_deno_server_off = k_deno_prefix_len + k_deno_part_hex,
 };

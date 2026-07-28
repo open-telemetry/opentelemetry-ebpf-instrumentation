@@ -18,11 +18,13 @@ import (
 	ti "go.opentelemetry.io/obi/pkg/test/integration"
 )
 
-// Deno instruments its own HTTP/fetch (including HTTPS, which OBI cannot decrypt
-// because Deno uses statically-linked, stripped rustls) via its native OTel
-// (--unstable-otel + OTEL_DENO=true). OBI must observe Deno's plaintext OTLP
-// export and suppress its own duplicate telemetry. These tests verify both: that
-// Deno's own spans reach the backend, and that OBI flags the service as
+// OBI is able to instrument Deno's HTTP signals at the same level as Node.js.
+// However, OBI cannot decrypt Deno's HTTPS because Deno uses statically-linked,
+// stripped rustls.
+// Tests in this file verify that users can still run Deno's native OTEL instrumentation
+// (--unstable-otel + OTEL_DENO=true) and OBI will detect it and suppress any
+// duplicate telemetry.
+// Tests verify both: Deno's own spans reach the backend, and OBI flags the service as
 // OTel-instrumented for traces AND metrics (no duplication).
 
 func denoOTelWarmup(t *testing.T) {
@@ -47,8 +49,7 @@ func processTag(p jaeger.Process, key string) (string, bool) {
 }
 
 // testDenoNativeOTelSpans asserts Deno's own OTel spans reach Jaeger, identified
-// by the Deno SDK resource attribute telemetry.sdk.language=deno-rust (OBI would
-// instead set nodejs). This is the HTTPS-parity win: Deno captures what OBI cannot.
+// by the Deno SDK resource attribute telemetry.sdk.name=deno-opentelemetry.
 func testDenoNativeOTelSpans(t *testing.T) {
 	waitForTestComponents(t, "http://localhost:3031")
 	denoOTelWarmup(t)
@@ -67,13 +68,13 @@ func testDenoNativeOTelSpans(t *testing.T) {
 				if p.ServiceName != "testserver" {
 					continue
 				}
-				if lang, ok := processTag(p, "telemetry.sdk.language"); ok && lang == "deno-rust" {
+				if lang, ok := processTag(p, "telemetry.sdk.name"); ok && lang == "deno-opentelemetry" {
 					sawDenoSDK = true
 				}
 			}
 		}
 		require.True(ct, sawDenoSDK,
-			"expected at least one testserver span emitted by Deno's own OTel SDK (telemetry.sdk.language=deno-rust)")
+			"expected at least one testserver span emitted by Deno's own OTel SDK (telemetry.sdk.name=deno-opentelemetry)")
 	}, testTimeout, 500*time.Millisecond)
 }
 

@@ -30,6 +30,7 @@ func TestV2ToRuntimeHTTPRoutesRoundTrip(t *testing.T) {
 	cfg.Discovery.DisabledRouteHarvesters = []services.RouteHarvesterLanguage{
 		services.RouteHarvesterLanguageJava,
 		services.RouteHarvesterLanguageNodejs,
+		services.RouteHarvesterLanguageDeno,
 	}
 	cfg.Discovery.RouteHarvestConfig.JavaHarvestDelay = 24 * time.Second
 

@@ -1,5 +1,5 @@
 services:
-  # Deno running with its NATIVE OpenTelemetry instrumentation
+  # Deno running with its own native OpenTelemetry instrumentation
   # (--unstable-otel + OTEL_DENO=true). Deno instruments its own HTTP server and
   # fetch/HTTPS client and exports OTLP itself. OBI must detect this (by observing
   # the plaintext /v1/traces and /v1/metrics export calls) and suppress its own

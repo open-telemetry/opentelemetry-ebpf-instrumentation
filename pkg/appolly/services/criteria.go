@@ -66,6 +66,7 @@ type RouteHarvesterLanguage string
 const (
 	RouteHarvesterLanguageJava   RouteHarvesterLanguage = "java"
 	RouteHarvesterLanguageNodejs RouteHarvesterLanguage = "nodejs"
+	RouteHarvesterLanguageDeno   RouteHarvesterLanguage = "deno"
 	RouteHarvesterLanguageGo     RouteHarvesterLanguage = "go"
 )
 
