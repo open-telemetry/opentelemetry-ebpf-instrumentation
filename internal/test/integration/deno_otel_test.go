@@ -29,10 +29,9 @@ func denoOTelWarmup(t *testing.T) {
 	// Generate traffic so Deno produces and exports spans (and metrics on its
 	// periodic interval); OBI observes the /v1/traces and /v1/metrics export
 	// calls and flags the service.
-	for i := 0; i < 10; i++ {
-		ti.DoHTTPGet(t, "http://localhost:3031/smoke", 200)
+	for range 10 {
 		ti.DoHTTPGet(t, "http://localhost:3031/nested-plain", 200)
-		time.Sleep(200 * time.Millisecond)
+		time.Sleep(20 * time.Millisecond)
 	}
 }
 
@@ -51,8 +50,8 @@ func processTag(p jaeger.Process, key string) (string, bool) {
 // by the Deno SDK resource attribute telemetry.sdk.language=deno-rust (OBI would
 // instead set nodejs). This is the HTTPS-parity win: Deno captures what OBI cannot.
 func testDenoNativeOTelSpans(t *testing.T) {
+	waitForTestComponents(t, "http://localhost:3031")
 	denoOTelWarmup(t)
-
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		resp, err := http.Get(jaegerQueryURL + "?service=testserver&limit=100")
 		require.NoError(ct, err)
