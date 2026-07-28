@@ -51,6 +51,14 @@ Do not assume boundaries can be changed without explicit instruction.
 
 If the task is unclear or underspecified, ask for clarification before making changes.
 
+## GitHub Communication
+
+Write issue and pull request descriptions, reviews, and comments for human
+readers. Keep them concise, specific, and easy to scan. Lead with the relevant
+point, use short paragraphs or lists when helpful, and include only the context
+needed to understand or act on the message. Do not post generated wall-of-text
+reports, exhaustive restatements of the code, or a play-by-play of the work.
+
 ## Validation
 
 Before proposing changes, ensure the repository generates required artifacts, passes validation, and compiles successfully.

@@ -144,6 +144,12 @@ All relevant build, lint, and test steps must pass locally before opening a PR.
 
 PRs must be ready for review when submitted, not ready for validation. The contributor is responsible for verifying correctness before asking for a reviewer's time.
 
+GitHub communication must be written for human readers. Keep issue and PR
+descriptions, reviews, and comments concise, specific, and easy to scan. Lead
+with the relevant point, use short paragraphs or lists when helpful, and include
+only the context needed to understand or act on the message. Avoid wall-of-text
+reports, exhaustive restatements of the code, and a play-by-play of the work.
+
 For detailed code and eBPF/C guidelines, see [AGENTS.md](AGENTS.md).
 
 ### Code Ownership
