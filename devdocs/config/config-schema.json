@@ -462,6 +462,7 @@
           "items": {
             "type": "string",
             "enum": [
+              "deno",
               "go",
               "java",
               "nodejs"
