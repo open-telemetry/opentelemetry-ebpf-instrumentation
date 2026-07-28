@@ -127,6 +127,10 @@ type FrameworkPatterns struct {
 	QuotedString *regexp.Regexp
 	// HTTPDispatcher: dispatcher.onGet('/path', ...), dispatcher.onPost(/^\/ratings\/[0-9]*/, ...)
 	HTTPDispatcher *regexp.Regexp
+	// URLPattern: new URLPattern({ pathname: "/users/:id" });
+	URLPattern *regexp.Regexp
+	// 'pathname' member of a URLPattern init object
+	URLPatternPathname *regexp.Regexp
 	// Fallback
 	Fallback *regexp.Regexp
 
@@ -213,6 +217,19 @@ func newFrameworkPatterns() *FrameworkPatterns {
 		// Supports both string literals and regex literals
 		HTTPDispatcher: regexp.MustCompile(`\.on(Get|Post|Put|Patch|Delete|Head|Options|All)\s*\(\s*(?:['"\x60]([^'"\x60]+)['"\x60]|/((?:[^\\,]|\\.)+))`),
 
+		// URLPattern WEB API. The constructor takes the pattern either as a
+		// string or as an init object, optionally through a namespace object:
+		//   new URLPattern("https://example.com/books/:id")
+		//   new URLPattern({ pathname: "/books/:id" })
+		//   new urlpattern.URLPattern("/books/:id", base)
+		// \s covers the line breaks of a call spread over several lines.
+		URLPattern: regexp.MustCompile(`URLPattern\s*\(\s*(?:['"\x60]([^'"\x60]*)['"\x60])?`),
+
+		// Matches the 'pathname' member of a URLPattern init object in every
+		// legal property key form: pathname, 'pathname', ["pathname"]
+		URLPatternPathname: regexp.MustCompile(
+			`(?:pathname|['"]pathname['"]|\[\s*['"\x60]pathname['"\x60]\s*\])\s*:\s*['"\x60]([^'"\x60]*)['"\x60]`),
+
 		// Fallback (e.g. NextJS)
 		Fallback: regexp.MustCompile(`['"\x60](/[^'"\x60]+)['"\x60]`),
 
@@ -254,6 +271,9 @@ type RouteExtractor struct {
 	// enableVersioningTypeSeen tracks whether the current enableVersioning call
 	// named an explicit VersioningType (URI is NestJS's default when it didn't)
 	enableVersioningTypeSeen bool
+	// inURLPattern tracks a new URLPattern({...}) call whose init object spans
+	// several lines, until its closing parenthesis
+	inURLPattern bool
 
 	// application-level NestJS settings, harvested from any scanned file
 	// (typically main.ts) and applied to Nest routes after the scan
@@ -682,6 +702,62 @@ func sortRouteFragments(fragments []string) {
 	})
 }
 
+// urlPatternPathname returns the pathname part of the string form of a
+// URLPattern, which may be a full URL pattern or a path relative to the
+// constructor's baseURL argument.
+func urlPatternPathname(pattern string) string {
+	if pattern == "" {
+		return ""
+	}
+	if _, authority, hasScheme := strings.Cut(pattern, "://"); hasScheme {
+		_, path, hasPath := strings.Cut(authority, "/")
+		if !hasPath {
+			return ""
+		}
+		return "/" + path
+	}
+	return ensureLeadingSlash(pattern)
+}
+
+// handleURLPattern harvests routes declared through the URL Pattern API. The
+// pattern comes either as a string argument or as an init object holding a
+// 'pathname' member. The init object may be spread over several lines, so the
+// call is tracked until its closing parenthesis. No method is declared, so the
+// route applies to all of them.
+func (e *RouteExtractor) handleURLPattern(filePath, line string, lineNum int) bool {
+	constructors := e.patterns.URLPattern.FindAllStringSubmatch(line, -1)
+	if constructors == nil && !e.inURLPattern {
+		return false
+	}
+
+	addRoute := func(path string) {
+		if path == "" {
+			return
+		}
+		e.routes = append(e.routes, RoutePattern{
+			Method: "ALL",
+			Path:   path,
+			File:   filePath,
+			Line:   lineNum,
+		})
+	}
+
+	for _, constructor := range constructors {
+		e.inURLPattern = true
+		addRoute(urlPatternPathname(constructor[1]))
+	}
+
+	for _, pathname := range e.patterns.URLPatternPathname.FindAllStringSubmatch(line, -1) {
+		addRoute(ensureLeadingSlash(pathname[1]))
+	}
+
+	if strings.Contains(line, ")") {
+		e.inURLPattern = false
+	}
+
+	return true
+}
+
 func (e *RouteExtractor) handleHTTPDispatcher(filePath, line string, lineNum int) bool {
 	if matches := e.patterns.HTTPDispatcher.FindStringSubmatch(line); len(matches) > 2 {
 		method := strings.ToUpper(matches[1])
@@ -860,6 +936,7 @@ func (e *RouteExtractor) scanFile(filePath string) error {
 	e.pendingNestVersions = nil
 	e.pendingNestMethod = nil
 	e.inEnableVersioning = false
+	e.inURLPattern = false
 
 	for scanner.Scan() {
 		lineNum++
@@ -952,6 +1029,11 @@ func (e *RouteExtractor) scanFile(filePath string) error {
 			if e.handleNestJS(filePath, line, lineNum) {
 				continue
 			}
+		}
+
+		// URL Pattern web API
+		if e.handleURLPattern(filePath, line, lineNum) {
+			continue
 		}
 
 		// HttpDispatcher
