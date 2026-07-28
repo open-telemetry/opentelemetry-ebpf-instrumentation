@@ -104,6 +104,7 @@ jobs:
             KERNEL="$KERNEL" \
             MODULES_DIR="$MODULES_DIR" \
             ARCH=amd64 \
+            QEMU_SMP="$(nproc)" \
             TARGET_TEST=run-bpf-verifier-vm \
             && [ -f testoutput/success ]
 

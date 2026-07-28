@@ -16,6 +16,7 @@ import (
 	"syscall"
 
 	"github.com/cilium/ebpf"
+	lru "github.com/hashicorp/golang-lru/v2"
 	"golang.org/x/sys/unix"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
@@ -45,17 +46,35 @@ type Tracer struct {
 	fionreadFixupEnabled    bool
 	iterMu                  sync.Mutex
 	itersOnce               sync.Once
-	seenNetns               map[uint64]struct{}
+	seenNetns               *lru.Cache[uint64, struct{}]
+	netnsAttempts           *lru.Cache[uint64, int]
 	backfillDisabled        bool
 }
 
+const (
+	// netns inodes are recycled, so entries have to age out or a new namespace that lands on a
+	// freed inode never gets backfilled
+	seenNetnsCacheLen = 1024
+	// a namespace that keeps failing is dropped, so one broken container cannot stop the
+	// backfill for every other namespace on the host
+	maxNetnsAttempts = 3
+)
+
 func New(cfg *obi.Config) *Tracer {
 	log := slog.With("component", "tpinjector")
+	seen, err := lru.New[uint64, struct{}](seenNetnsCacheLen)
+	attempts, attemptsErr := lru.New[uint64, int](seenNetnsCacheLen)
+	if err != nil || attemptsErr != nil {
+		log.Error("cannot create netns caches, disabling socket backfill",
+			"error", errors.Join(err, attemptsErr))
+	}
 
 	return &Tracer{
-		log:       log,
-		cfg:       cfg,
-		seenNetns: map[uint64]struct{}{},
+		log:              log,
+		cfg:              cfg,
+		seenNetns:        seen,
+		netnsAttempts:    attempts,
+		backfillDisabled: err != nil || attemptsErr != nil,
 	}
 }
 
@@ -75,11 +94,10 @@ func (p *Tracer) AllowPID(pid app.PID, _ uint32, _ *exec.FileInfo) {
 	}
 
 	inode := info.Sys().(*syscall.Stat_t).Ino
-	if _, ok := p.seenNetns[inode]; ok {
+	if p.seenNetns.Contains(inode) {
 		return
 	}
 
-	ok := true
 	for _, it := range p.Iters() {
 		if err := netns.WithNetNS(int(pid), func() error {
 			return it.Run(p.log)
@@ -92,15 +110,27 @@ func (p *Tracer) AllowPID(pid app.PID, _ uint32, _ *exec.FileInfo) {
 				p.backfillDisabled = true
 				return
 			}
+			if errors.Is(err, os.ErrNotExist) {
+				p.log.Debug("process gone before backfill", "pid", pid)
+				return
+			}
 			p.log.Error("error running iterator in netns", "pid", pid, "error", err)
-			ok = false
+
+			attempts, _ := p.netnsAttempts.Get(inode)
+			attempts++
+			p.netnsAttempts.Add(inode, attempts)
+			if attempts >= maxNetnsAttempts {
+				p.log.Warn("giving up on socket backfill for this network namespace",
+					"ino", inode, "attempts", attempts)
+				p.seenNetns.Add(inode, struct{}{})
+			}
+			return
 		}
 	}
 
-	// only remember fully backfilled namespaces so a later pid retries
-	if ok {
-		p.seenNetns[inode] = struct{}{}
-	}
+	// reached only when every iterator ran; a failure above returns so a later pid retries
+	p.netnsAttempts.Remove(inode)
+	p.seenNetns.Add(inode, struct{}{})
 }
 
 func (p *Tracer) BlockPID(app.PID, uint32) {}
@@ -254,6 +284,13 @@ func (p *Tracer) Iters() []*ebpfcommon.Iter {
 			p.log.Warn("TCP socket iterator disabled: kernel versions < 6.4 have a locking bug " +
 				"in iter/tcp + sockhash that can cause an RCU stall and kernel panic. " +
 				"Existing connections at startup will not be tracked for context propagation.")
+			p.iters = []*ebpfcommon.Iter{}
+			return
+		}
+
+		// the result is cached for the tracer's life, so refuse to cache unloaded programs
+		if p.bpfIterObjects.ObiSkIterTcpListen == nil || p.bpfIterObjects.ObiSkIterTcp == nil {
+			p.log.Warn("TCP socket iterators are not loaded, socket backfill disabled")
 			p.iters = []*ebpfcommon.Iter{}
 			return
 		}

@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -97,6 +98,22 @@ func (c *Compose) LogsOutput(services ...string) (string, error) {
 			err = errors.Join(err, writeErr)
 		}
 	}
+
+	return strings.TrimSpace(string(output)), err
+}
+
+// LogsTail returns the last n lines without echoing them into the suite log: callers that
+// poll would otherwise append the whole container log on every attempt.
+func (c *Compose) LogsTail(n int, services ...string) (string, error) {
+	cmdArgs := []string{
+		"compose", "--ansi", "never", "-f", c.Path, "logs", "--no-log-prefix",
+		"--tail", strconv.Itoa(n),
+	}
+	cmdArgs = append(cmdArgs, services...)
+	cmd := exec.Command("docker", cmdArgs...)
+	cmd.Env = c.Env
+
+	output, err := cmd.Output()
 
 	return strings.TrimSpace(string(output)), err
 }

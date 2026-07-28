@@ -950,26 +950,33 @@ int obi_uprobe_grpcFramerWriteHeaders_returns(struct pt_regs *ctx) {
                     n++;
                     werr |= bpf_probe_write_user(buf_arr + (n & 0x0ffff), tp_str, sizeof(tp_str));
                     n += TP_MAX_VAL_LENGTH;
-                    // Update the value of n in w to reflect the new size
-                    werr |= bpf_probe_write_user(
-                        (void *)(w_ptr +
-                                 go_offset_of(
-                                     ot, (go_offset){.v = _grpc_transport_buf_writer_offset_pos})),
-                        &n,
-                        sizeof(n));
 
-                    const u32 new_size = original_size + HTTP2_ENCODED_HEADER_LEN;
+                    // buffer length and frame length last: while they still describe the
+                    // original frame, a failed field write leaves bytes nobody reads
+                    if (!werr) {
+                        // Update the value of n in w to reflect the new size
+                        werr |= bpf_probe_write_user(
+                            (void *)(w_ptr +
+                                     go_offset_of(
+                                         ot,
+                                         (go_offset){.v = _grpc_transport_buf_writer_offset_pos})),
+                            &n,
+                            sizeof(n));
 
-                    bpf_dbg_printk("Changing size from %d to %d", original_size, new_size);
-                    size_1 = (u8)(new_size >> 16);
-                    size_2 = (u8)(new_size >> 8);
-                    size_3 = (u8)(new_size);
+                        const u32 new_size = original_size + HTTP2_ENCODED_HEADER_LEN;
 
-                    werr |= bpf_probe_write_user((void *)(buf_arr + off), &size_1, sizeof(size_1));
-                    werr |=
-                        bpf_probe_write_user((void *)(buf_arr + off + 1), &size_2, sizeof(size_2));
-                    werr |=
-                        bpf_probe_write_user((void *)(buf_arr + off + 2), &size_3, sizeof(size_3));
+                        bpf_dbg_printk("Changing size from %d to %d", original_size, new_size);
+                        size_1 = (u8)(new_size >> 16);
+                        size_2 = (u8)(new_size >> 8);
+                        size_3 = (u8)(new_size);
+
+                        werr |=
+                            bpf_probe_write_user((void *)(buf_arr + off), &size_1, sizeof(size_1));
+                        werr |= bpf_probe_write_user(
+                            (void *)(buf_arr + off + 1), &size_2, sizeof(size_2));
+                        werr |= bpf_probe_write_user(
+                            (void *)(buf_arr + off + 2), &size_3, sizeof(size_3));
+                    }
 
                     // confirm so sk_msg skips this stream, but only if every byte landed
                     if (!werr && (f_info->s_port || f_info->d_port)) {

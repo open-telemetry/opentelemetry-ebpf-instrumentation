@@ -70,7 +70,8 @@ static __always_inline u8 parse_hpack_traceparent(const unsigned char *data,
         const u32 max_pos = data_len - k_h2_tp_hpack_huffman_size;
 
         for (u16 i = 0; i < k_hpack_tp_max_scan && i <= max_pos; i++) {
-            if (data[i] != k_hpack_literal_no_index) {
+            // senders that index the name emit any of the three literal forms
+            if (!h2_hpack_is_literal(data[i])) {
                 continue;
             }
 

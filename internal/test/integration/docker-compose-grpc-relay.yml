@@ -157,6 +157,7 @@ services:
       - ./system/sys/kernel/security${SECURITY_CONFIG_SUFFIX}:/sys/kernel/security
       - /sys/fs/bpf:/sys/fs/bpf
       - /sys/fs/cgroup:/sys/fs/cgroup
+      - /sys/kernel/tracing:/sys/kernel/tracing:ro
       - ../../../testoutput:/coverage
       - ../../../testoutput/run-grpc-relay:/var/run/obi
     image: hatest-obi

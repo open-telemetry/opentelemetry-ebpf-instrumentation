@@ -90,6 +90,28 @@ static void test_huffman_name_baseline(void) {
     assert_tp_match(&tp);
 }
 
+// senders that index the name they just sent, and never-indexed fields, both occur
+static void test_every_literal_prefix(void) {
+    const unsigned char prefixes[] = {
+        k_hpack_literal_no_index, k_hpack_literal_never_index, k_hpack_literal_incr_index};
+
+    for (u32 i = 0; i < sizeof(prefixes); i++) {
+        unsigned char buf[k_kprobes_http2_buf_size] = {0};
+        u32 len = build_plain_entry(buf);
+        buf[0] = prefixes[i];
+        tp_info_t tp = {0};
+        assertf(parse_hpack_traceparent(buf, len, &tp) == 1, "plain name, any literal prefix");
+        assert_tp_match(&tp);
+
+        memset(buf, 0, sizeof(buf));
+        len = build_huffman_entry(buf);
+        buf[0] = prefixes[i];
+        memset(&tp, 0, sizeof(tp));
+        assertf(parse_hpack_traceparent(buf, len, &tp) == 1, "huffman name, any literal prefix");
+        assert_tp_match(&tp);
+    }
+}
+
 // Prefix mimicking an indexed-name-literal (no visible name literal on wire)
 static void test_indexed_name_via_value_pattern(void) {
     unsigned char buf[k_kprobes_http2_buf_size] = {0};
@@ -197,6 +219,7 @@ static void test_short_buffer(void) {
 int main(void) {
     test_plain_name_baseline();
     test_huffman_name_baseline();
+    test_every_literal_prefix();
     test_indexed_name_via_value_pattern();
     test_value_pattern_at_offset();
     test_no_false_positive_random();

@@ -82,6 +82,62 @@ func TestSuite_GRPCRelay(t *testing.T) {
 	t.Run("gRPC relay chain context propagation", testGRPCRelayChainContextPropagation)
 	t.Run("gRPC multiplexed context propagation", testGRPCMultiplexedContextPropagation)
 	t.Run("gRPC persistent dyn-table context propagation", testGRPCPersistentDynTable)
+	t.Run("gRPC app traceparent not duplicated", func(t *testing.T) {
+		testGRPCAppTraceparentNotDuplicated(t, compose)
+	})
+}
+
+// App sends its own traceparent: OBI must not append a second, receivers discard multi-value.
+// Repeated on one channel, nghttp2 puts the whole field in its dynamic table and sends it as a
+// single index byte from the second call on, so nothing is left on the wire to detect.
+func testGRPCAppTraceparentNotDuplicated(t *testing.T, compose *docker.Compose) {
+	now := uint64(time.Now().UnixNano())
+	appTraceID := fmt.Sprintf("%016x%016x", now, now+1)
+	appSpanID := fmt.Sprintf("%016x", now+2)
+	traceparent := fmt.Sprintf("00-%s-%s-01", appTraceID, appSpanID)
+
+	resp, err := http.Get("http://localhost:8092/self-prop?tp=" + traceparent + "&n=4")
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		lines := relayTraceparentLogs(ct, compose, appTraceID)
+		// past the first request the field is a single dyn-table index, which is the case
+		// worth asserting, so keep polling until more than one call has landed
+		require.Greater(ct, len(lines), 1, "need a request past the first")
+		for _, line := range lines {
+			require.Contains(ct, line, "count=1", "duplicate traceparent: %s", line)
+			require.Contains(ct, line, appSpanID, "app span id was rewritten: %s", line)
+		}
+	}, 30*time.Second, 2*time.Second)
+
+	// /self-prop has its own channel, so the ordinary chain runs on a socket where nobody
+	// propagates. Injection there must be unaffected by the burst.
+	plainTraceID := sendRelayRequest(t)
+
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		for _, line := range relayTraceparentLogs(ct, compose, plainTraceID) {
+			require.Contains(ct, line, "count=1", "duplicate traceparent: %s", line)
+		}
+	}, 30*time.Second, 2*time.Second)
+}
+
+// java-relay's per-RPC traceparent log lines that carry traceID. Fails the attempt when none
+// have arrived yet, so an absent injection can never read as a pass.
+func relayTraceparentLogs(ct *assert.CollectT, compose *docker.Compose, traceID string) []string {
+	logs, err := compose.LogsTail(2000, "java-relay")
+	require.NoError(ct, err)
+
+	var seen []string
+	for line := range strings.SplitSeq(logs, "\n") {
+		if strings.Contains(line, "traceparent count=") && strings.Contains(line, traceID) {
+			seen = append(seen, strings.TrimSpace(line))
+		}
+	}
+	require.NotEmpty(ct, seen, "java-relay logged no traceparent for %s", traceID)
+
+	return seen
 }
 
 // hasSpansInJaeger reports whether Jaeger holds any recent trace for the given
