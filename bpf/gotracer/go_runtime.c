@@ -49,6 +49,7 @@ enum : u32 {
     k_go_runtime_heap_stats_slots = 3,
     k_go_runtime_heap_stats_fields_between_size_class_arrays = 2,
     k_go_runtime_max_size_classes = 68,
+    k_go_runtime_max_processors = 256,
 };
 
 static __always_inline bool go_runtime_read(void *dst, u32 size, u64 addr) {
@@ -122,6 +123,39 @@ go_runtime_collect_scheduler_config(const go_runtime_metric_target_t *target,
             &snapshot->gomaxprocs, sizeof(snapshot->gomaxprocs), target->gomaxprocs_addr)) {
         snapshot->valid_mask |= go_runtime_metric_valid_processor_limit;
     }
+}
+
+static __always_inline void go_runtime_collect_gc_goal(go_runtime_metric_target_t *target,
+                                                       off_table_t *ot,
+                                                       go_runtime_metric_snapshot_t *snapshot) {
+    if (!(target->available_mask & go_runtime_metric_valid_memory_gc_goal)) {
+        return;
+    }
+
+    if (target->gc_goal_source == go_runtime_gc_goal_source_heap_goal_field) {
+        const u64 heap_goal_pos =
+            go_offset_of(ot, (go_offset){.v = _runtime_gc_controller_heap_goal_pos});
+        if (go_runtime_read_offset(&snapshot->memory_gc_goal,
+                                   sizeof(snapshot->memory_gc_goal),
+                                   target->gc_controller_addr,
+                                   heap_goal_pos)) {
+            snapshot->valid_mask |= go_runtime_metric_valid_memory_gc_goal;
+        }
+        return;
+    }
+
+    if (target->gc_goal_source != go_runtime_gc_goal_source_pace_scavenger_argument) {
+        return;
+    }
+
+    // Aligned u64 map-value loads JIT to single native accesses, which are tear-free on 64-bit hosts.
+    const u64 goal = *(volatile u64 *)&target->gc_goal;
+    if (!goal) {
+        return;
+    }
+
+    snapshot->memory_gc_goal = goal;
+    snapshot->valid_mask |= go_runtime_metric_valid_memory_gc_goal;
 }
 
 static __always_inline void go_runtime_collect_cpu_time(const go_runtime_metric_target_t *target,
@@ -445,6 +479,82 @@ static __always_inline void go_runtime_collect_heap_stats(const go_runtime_metri
     snapshot->valid_mask |= go_runtime_metric_valid_memory_used;
 }
 
+static __always_inline void
+go_runtime_collect_goroutine_count(const go_runtime_metric_target_t *target,
+                                   off_table_t *ot,
+                                   go_runtime_metric_snapshot_t *snapshot) {
+    if (!(target->available_mask & go_runtime_metric_valid_goroutine_count)) {
+        return;
+    }
+
+    const u64 sched_ngsys_pos = go_offset_of(ot, (go_offset){.v = _runtime_sched_ngsys_pos});
+    const u64 sched_gfree_stack_pos =
+        go_offset_of(ot, (go_offset){.v = _runtime_sched_gfree_stack_pos});
+    const u64 sched_gfree_no_stack_pos =
+        go_offset_of(ot, (go_offset){.v = _runtime_sched_gfree_no_stack_pos});
+    const u64 p_gfree_pos = go_offset_of(ot, (go_offset){.v = _runtime_p_gfree_pos});
+    const u64 glist_size_pos = go_offset_of(ot, (go_offset){.v = _runtime_glist_size_pos});
+
+    u64 allglen = 0;
+    s32 ngsys = 0;
+    s32 sched_gfree_stack = 0;
+    s32 sched_gfree_no_stack = 0;
+    u64 allp_data = 0;
+    u64 allp_len = 0;
+
+    if (!go_runtime_read(&allglen, sizeof(allglen), target->allglen_addr)) {
+        return;
+    }
+    if (!target->goroutine_count_includes_system &&
+        !go_runtime_read_offset(&ngsys, sizeof(ngsys), target->sched_addr, sched_ngsys_pos)) {
+        return;
+    }
+    if (!go_runtime_read_offset(&sched_gfree_stack,
+                                sizeof(sched_gfree_stack),
+                                target->sched_addr,
+                                sched_gfree_stack_pos + glist_size_pos)) {
+        return;
+    }
+    if (!go_runtime_read_offset(&sched_gfree_no_stack,
+                                sizeof(sched_gfree_no_stack),
+                                target->sched_addr,
+                                sched_gfree_no_stack_pos + glist_size_pos)) {
+        return;
+    }
+    if (!go_runtime_read(&allp_data, sizeof(allp_data), target->allp_addr) ||
+        !go_runtime_read(&allp_len, sizeof(allp_len), target->allp_addr + k_go_slice_len_offset) ||
+        !allp_data || !allp_len || allp_len > k_go_runtime_max_processors) {
+        return;
+    }
+
+    s64 goroutines = (s64)allglen - sched_gfree_stack - sched_gfree_no_stack;
+    if (!target->goroutine_count_includes_system) {
+        goroutines -= ngsys;
+    }
+
+    for (u32 i = 0; i < k_go_runtime_max_processors; i++) {
+        if (i >= allp_len) {
+            break;
+        }
+
+        u64 p_addr = 0;
+        s32 p_gfree = 0;
+        if (!go_runtime_read(&p_addr, sizeof(p_addr), allp_data + (i * sizeof(p_addr))) ||
+            !p_addr ||
+            !go_runtime_read_offset(
+                &p_gfree, sizeof(p_gfree), p_addr, p_gfree_pos + glist_size_pos)) {
+            return;
+        }
+        goroutines -= p_gfree;
+    }
+
+    if (goroutines < 1) {
+        return;
+    }
+    snapshot->goroutine_count = goroutines;
+    snapshot->valid_mask |= go_runtime_metric_valid_goroutine_count;
+}
+
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __type(key, go_addr_key_t); // key: pointer to the request goroutine
@@ -461,8 +571,7 @@ int obi_uprobe_go_runtime_metrics(struct pt_regs *ctx) {
 
     bpf_dbg_printk("collecting Go runtime metrics pid=%d ns=%d", key.user_pid, key.ns);
 
-    const go_runtime_metric_target_t *target =
-        bpf_map_lookup_elem(&go_runtime_metric_targets, &key);
+    go_runtime_metric_target_t *target = bpf_map_lookup_elem(&go_runtime_metric_targets, &key);
     if (!target) {
         return 0;
     }
@@ -482,10 +591,27 @@ int obi_uprobe_go_runtime_metrics(struct pt_regs *ctx) {
     go_runtime_collect_gc(target, ot, &event->snapshot);
     go_runtime_collect_memory_config(target, ot, &event->snapshot);
     go_runtime_collect_scheduler_config(target, &event->snapshot);
+    go_runtime_collect_gc_goal(target, ot, &event->snapshot);
     go_runtime_collect_cpu_time(target, ot, &event->snapshot);
     go_runtime_collect_heap_stats(target, ot, &key, &event->snapshot);
+    go_runtime_collect_goroutine_count(target, ot, &event->snapshot);
 
     bpf_ringbuf_submit(event, get_flags());
+    return 0;
+}
+
+SEC("uprobe/go_runtime_gc_goal")
+int obi_uprobe_go_runtime_gc_goal(struct pt_regs *ctx) {
+    pid_info key = {};
+    task_pid(&key);
+
+    go_runtime_metric_target_t *target = bpf_map_lookup_elem(&go_runtime_metric_targets, &key);
+    if (!target || target->gc_goal_source != go_runtime_gc_goal_source_pace_scavenger_argument) {
+        return 0;
+    }
+
+    const u64 goal = (u64)GO_PARAM2(ctx);
+    *(volatile u64 *)&target->gc_goal = goal;
     return 0;
 }
 

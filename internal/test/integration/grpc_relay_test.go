@@ -23,23 +23,33 @@ const (
 	// Parent span ID injected into /relay-multiplex requests.
 	multiplexSpanID = "fedcba0987654321"
 
-	// Tests rely on active polling instead of long static waits — the warmup
-	// step below confirms every service is instrumented before strict checks
+	// Tests rely on active polling instead of long static waits — the suite-level
+	// waitForRelayInstrumentation confirms every service is instrumented before
+	// any strict check runs
 	grpcRelayTimeout = 2 * time.Minute
+
+	// Budget for OBI to discover and instrument all eight relay pids. Generous
+	// because it covers JVM agent attach and the Node.js script injection.
+	relayInstrumentationTimeout = 3 * time.Minute
 )
 
-// expectedRelayServices lists all services in the relay chain:
+// relayServices lists all services in the relay chain, in chain order:
 // Go (HTTP entry) -> Python (gRPC) -> Go (gRPC→HTTP bridge) -> Go (HTTP→gRPC bridge)
 // -> Node.js (gRPC) -> Java (gRPC) -> .NET (gRPC) -> Go (gRPC terminal)
-var expectedRelayServices = []string{
-	"go-entry",
-	"python-relay",
-	"go-grpc-to-http",
-	"go-http-to-grpc",
-	"nodejs-relay",
-	"java-relay",
-	"dotnet-relay",
-	"go-terminal",
+//
+// Each entry carries the service's dedicated HTTP health endpoint. Health
+// requests are plain HTTP/1 and never touch the gRPC chain, so they are the
+// traffic used to prove OBI has instrumented a pid without side effects on the
+// chain itself (see waitForRelayInstrumentation).
+var relayServices = []struct{ name, healthURL string }{
+	{"go-entry", "http://localhost:8080/health"},
+	{"python-relay", "http://localhost:8090/health"},
+	{"go-grpc-to-http", "http://localhost:8091/health"},
+	{"go-http-to-grpc", "http://localhost:8081/health"},
+	{"nodejs-relay", "http://localhost:8092/health"},
+	{"java-relay", "http://localhost:8093/health"},
+	{"dotnet-relay", "http://localhost:8095/health"},
+	{"go-terminal", "http://localhost:8094/health"},
 }
 
 // TestSuite_GRPCRelay validates end-to-end gRPC context propagation
@@ -62,58 +72,72 @@ func TestSuite_GRPCRelay(t *testing.T) {
 
 	// Wait for ALL services in the relay chain to be healthy.
 	// Each service exposes an HTTP health endpoint on a dedicated port.
-	healthURLs := []string{
-		"http://localhost:8080/health", // go-entry
-		"http://localhost:8090/health", // python-relay
-		"http://localhost:8091/health", // go-grpc-to-http
-		"http://localhost:8081/health", // go-http-to-grpc
-		"http://localhost:8092/health", // nodejs-relay
-		"http://localhost:8093/health", // java-relay
-		"http://localhost:8095/health", // dotnet-relay
-		"http://localhost:8094/health", // go-terminal
+	for _, svc := range relayServices {
+		waitForTestComponentsNoMetrics(t, svc.healthURL)
 	}
-	for _, url := range healthURLs {
-		waitForTestComponentsNoMetrics(t, url)
-	}
+
+	waitForRelayInstrumentation(t)
 
 	t.Run("gRPC relay chain context propagation", testGRPCRelayChainContextPropagation)
 	t.Run("gRPC multiplexed context propagation", testGRPCMultiplexedContextPropagation)
 }
 
+// hasSpansInJaeger reports whether Jaeger holds any recent trace for the given
+// service, which is the observable proof that OBI has instrumented its pid.
+func hasSpansInJaeger(service string) bool {
+	r, err := http.Get(jaegerQueryURL + "?service=" + service + "&limit=1&lookback=5m")
+	if err != nil {
+		return false
+	}
+	defer r.Body.Close()
+	if r.StatusCode != http.StatusOK {
+		return false
+	}
+	var tq jaeger.TracesQuery
+	if err := json.NewDecoder(r.Body).Decode(&tq); err != nil {
+		return false
+	}
+	return len(tq.Data) > 0
+}
+
+// waitForRelayInstrumentation blocks until OBI has instrumented every service in
+// the chain, generating traffic with health requests only.
+//
+// This must complete before the first /relay request. Every relay holds a
+// singleton gRPC channel to its next hop, created on that first request, and the
+// HTTP/2 client preface is sent exactly once, at connection setup. OBI only
+// classifies a connection as HTTP/2 when it observes that preface, so a channel
+// opened before OBI instrumented the process is never eligible for traceparent
+// injection for the lifetime of the run — the chain would break at that hop
+// permanently, and no amount of retrying with fresh trace IDs recovers it.
+//
+// Health endpoints are plain HTTP/1 and unrelated to the gRPC chain, so they
+// drive discovery without pinning any hop to an uninstrumented connection.
+func waitForRelayInstrumentation(t *testing.T) {
+	t.Helper()
+
+	instrumented := make(map[string]bool, len(relayServices))
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		var pending []string
+		for _, svc := range relayServices {
+			if instrumented[svc.name] {
+				continue
+			}
+			if r, err := http.Get(svc.healthURL); err == nil && r != nil {
+				r.Body.Close()
+			}
+			if hasSpansInJaeger(svc.name) {
+				instrumented[svc.name] = true
+				t.Logf("%s instrumented", svc.name)
+				continue
+			}
+			pending = append(pending, svc.name)
+		}
+		require.Empty(ct, pending, "waiting for OBI to instrument: %v", pending)
+	}, relayInstrumentationTimeout, time.Second)
+}
+
 func testGRPCRelayChainContextPropagation(t *testing.T) {
-	// Wait for OBI to instrument go-entry (spans visible in Jaeger).
-	t.Log("waiting for instrumentation to be ready")
-	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		if wr, err := http.Get("http://localhost:8080/smoke"); err == nil && wr != nil {
-			wr.Body.Close()
-		}
-		r, err := http.Get(jaegerQueryURL + "?service=go-entry&limit=1&lookback=5m")
-		require.NoError(ct, err)
-		require.NotNil(ct, r)
-		defer r.Body.Close()
-		require.Equal(ct, http.StatusOK, r.StatusCode)
-		var tq jaeger.TracesQuery
-		require.NoError(ct, json.NewDecoder(r.Body).Decode(&tq))
-		require.NotEmpty(ct, tq.Data)
-	}, time.Minute, time.Second)
-	t.Log("instrumentation ready")
-
-	t.Log("waiting for dotnet-relay instrumentation")
-	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		if wr, err := http.Get("http://localhost:8080/relay"); err == nil && wr != nil {
-			wr.Body.Close()
-		}
-		r, err := http.Get(jaegerQueryURL + "?service=dotnet-relay&limit=1&lookback=5m")
-		require.NoError(ct, err)
-		require.NotNil(ct, r)
-		defer r.Body.Close()
-		require.Equal(ct, http.StatusOK, r.StatusCode)
-		var tq jaeger.TracesQuery
-		require.NoError(ct, json.NewDecoder(r.Body).Decode(&tq))
-		require.NotEmpty(ct, tq.Data, "dotnet-relay not yet instrumented")
-	}, 2*time.Minute, time.Second)
-	t.Log("dotnet-relay instrumented")
-
 	// Fresh trace ID per request so each iteration's assertions run against
 	// a single-request trace, not accumulated retries. Loop retries with a
 	// new ID until one request yields the full chain (services warm up
@@ -141,8 +165,8 @@ func testGRPCRelayChainContextPropagation(t *testing.T) {
 			require.NoError(ctt, json.NewDecoder(resp.Body).Decode(&tq))
 			require.NotEmpty(ctt, tq.Data)
 			svcs := traceServices(tq.Data[0])
-			for _, svc := range expectedRelayServices {
-				require.Contains(ctt, svcs, svc, "trace missing service %s", svc)
+			for _, svc := range relayServices {
+				require.Contains(ctt, svcs, svc.name, "trace missing service %s", svc.name)
 			}
 		}, 30*time.Second, time.Second)
 
@@ -390,22 +414,6 @@ func testGRPCMultiplexedContextPropagation(t *testing.T) {
 	// origin. go-http-to-grpc receives HTTP/1 (not gRPC server-side), so it
 	// has no gRPC server span to assert on
 	hops := []string{"go-grpc-to-http", "nodejs-relay", "java-relay", "dotnet-relay"}
-
-	// Wait for OBI to instrument go-entry — suite health checks only prove the
-	// service is up, not that OBI has discovered the pid
-	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		if wr, err := http.Get("http://localhost:8080/smoke"); err == nil && wr != nil {
-			wr.Body.Close()
-		}
-		r, err := http.Get(jaegerQueryURL + "?service=go-entry&limit=1&lookback=5m")
-		require.NoError(ct, err)
-		require.NotNil(ct, r)
-		defer r.Body.Close()
-		require.Equal(ct, http.StatusOK, r.StatusCode)
-		var tq jaeger.TracesQuery
-		require.NoError(ct, json.NewDecoder(r.Body).Decode(&tq))
-		require.NotEmpty(ct, tq.Data, "go-entry not yet instrumented")
-	}, 3*time.Minute, time.Second)
 
 	// Persistent gRPC connections established before OBI discovers the peer
 	// pid stay un-tracked for their lifetime — loop until a request with a

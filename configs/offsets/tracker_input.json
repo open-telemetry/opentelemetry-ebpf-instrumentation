@@ -38,7 +38,11 @@
         "[1.23.0]gcMiscSys",
         "[1.23.0]other_sys"
       ],
-      "runtime.gcControllerState": ["[1.19.0]memoryLimit", "gcPercent"],
+      "runtime.gcControllerState": [
+        "[1.17.0,1.18.10]heapGoal",
+        "[1.19.0]memoryLimit",
+        "gcPercent"
+      ],
       "runtime.hchan": ["qcount", "dataqsiz", "sendx", "recvx"],
       "runtime.consistentHeapStats": ["[1.23.0]stats"],
       "runtime.heapStatsDelta": [
@@ -49,6 +53,10 @@
         "[1.23.0]smallAllocCount",
         "[1.23.0]smallFreeCount"
       ],
+      "runtime.schedt": ["ngsys", "gFree"],
+      "runtime.p": ["gFree"],
+      "runtime.gList": ["[1.25.0]size"],
+      "runtime.mutex": ["key"],
       "runtime.workType": ["[1.23.0]cpuStats"],
       "runtime.cpuStats": [
         "[1.23.0]GCAssistTime",
