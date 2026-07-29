@@ -56,6 +56,73 @@ func TestGoRuntimeGCCyclesCounterDeltaResetAndRemoval(t *testing.T) {
 	assert.Nil(t, gatheredMetric(t, registry, attributes.GoRuntimeMemoryGCCycles.Prom, nil))
 }
 
+func TestGoRuntimeGoroutineCountGaugeAndRemoval(t *testing.T) {
+	selection := attributes.Selection{
+		attributes.Resource.Section: attributes.InclusionLists{Include: []string{"service.name"}},
+	}
+	reporter := &metricsReporter{userAttribSelection: selection}
+	reporter.goRuntimeMetrics = newGoRuntimeMetricsCollector(
+		labelNamesTargetInfo(false, false, &reporter.nodeMeta, nil, selection),
+	)
+	registry := prometheus.NewRegistry()
+	registry.MustRegister(reporter.goRuntimeMetrics.goroutineCount)
+
+	count := int64(12)
+	snapshot := runtimemetrics.RuntimeMetricSnapshot{
+		Service: svc.Attrs{UID: svc.UID{Name: "orders"}},
+		Go:      &runtimemetrics.GoRuntimeMetricSnapshot{GoroutineCount: &count},
+	}
+	reporter.collectGoRuntimeMetrics(snapshot)
+	labels := map[string]string{"service_name": "orders"}
+	metric := gatheredMetric(t, registry, attributes.GoRuntimeGoroutineCount.Prom, labels)
+	require.NotNil(t, metric)
+	assert.InDelta(t, float64(count), metric.GetGauge().GetValue(), 0)
+
+	snapshot.Go.GoroutineCount = nil
+	reporter.collectGoRuntimeMetrics(snapshot)
+	assert.Nil(t, gatheredMetric(t, registry, attributes.GoRuntimeGoroutineCount.Prom, labels))
+
+	snapshot.Go.GoroutineCount = &count
+	reporter.collectGoRuntimeMetrics(snapshot)
+	reporter.deleteRuntimeMetrics(&snapshot.Service)
+	assert.Nil(t, gatheredMetric(t, registry, attributes.GoRuntimeGoroutineCount.Prom, labels))
+
+	reporter.collectGoRuntimeMetrics(snapshot)
+	require.NotNil(t, gatheredMetric(t, registry, attributes.GoRuntimeGoroutineCount.Prom, labels))
+}
+
+func TestGoRuntimeMemoryGCGoalGaugeAndRemoval(t *testing.T) {
+	selection := attributes.Selection{
+		attributes.Resource.Section: attributes.InclusionLists{Include: []string{"service.name"}},
+	}
+	reporter := &metricsReporter{userAttribSelection: selection}
+	reporter.goRuntimeMetrics = newGoRuntimeMetricsCollector(
+		labelNamesTargetInfo(false, false, &reporter.nodeMeta, nil, selection),
+	)
+	registry := prometheus.NewRegistry()
+	registry.MustRegister(reporter.goRuntimeMetrics.memoryGCGoal)
+
+	goal := int64(4096)
+	snapshot := runtimemetrics.RuntimeMetricSnapshot{
+		Service: svc.Attrs{UID: svc.UID{Name: "orders"}},
+		Go:      &runtimemetrics.GoRuntimeMetricSnapshot{MemoryGCGoal: &goal},
+	}
+	reporter.collectGoRuntimeMetrics(snapshot)
+	labels := map[string]string{"service_name": "orders"}
+	metric := gatheredMetric(t, registry, attributes.GoRuntimeMemoryGCGoal.Prom, labels)
+	require.NotNil(t, metric)
+	assert.InDelta(t, float64(goal), metric.GetGauge().GetValue(), 0)
+
+	snapshot.Go.MemoryGCGoal = nil
+	reporter.collectGoRuntimeMetrics(snapshot)
+	assert.Nil(t, gatheredMetric(t, registry, attributes.GoRuntimeMemoryGCGoal.Prom, labels))
+
+	snapshot.Go.MemoryGCGoal = &goal
+	reporter.collectGoRuntimeMetrics(snapshot)
+	reporter.deleteRuntimeMetrics(&snapshot.Service)
+	assert.Nil(t, gatheredMetric(t, registry, attributes.GoRuntimeMemoryGCGoal.Prom, labels))
+}
+
 func TestGoRuntimeMemoryCountersDeltaResetAndRemoval(t *testing.T) {
 	registry := prometheus.NewRegistry()
 	collector := newGoRuntimeMetricsCollector(nil)
