@@ -33,4 +33,5 @@ enum {
     k_tail_protocol_http2_grpc_handle_start_frame_server_finalize = 12,
     // Large buffer multi-batch emission
     k_tail_large_buf_emit_continue = 13,
+    k_tail_protocol_http2_grpc_handle_start_frame_server_commit = 14,
 };

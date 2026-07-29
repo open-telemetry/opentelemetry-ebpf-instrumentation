@@ -7,6 +7,7 @@ package generictracer // import "go.opentelemetry.io/obi/pkg/internal/ebpf/gener
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -181,7 +182,8 @@ func (p *Tracer) SetupTailCalls() {
 		p.bpfObjects.ObiProtocolHttp2GrpcHandleStartFrameServer,         // 11
 		p.bpfObjects.ObiProtocolHttp2GrpcHandleStartFrameServerFinalize, // 12
 		// Large buffer multi-batch emission
-		p.bpfObjects.ObiLargeBufEmitContinue, // 13  k_tail_large_buf_emit_continue
+		p.bpfObjects.ObiLargeBufEmitContinue,                          // 13  k_tail_large_buf_emit_continue
+		p.bpfObjects.ObiProtocolHttp2GrpcHandleStartFrameServerCommit, // 14
 	} {
 		if prog == nil {
 			continue
@@ -567,6 +569,10 @@ func (p *Tracer) runItersForPids() {
 				if err := netns.WithNetNS(int(pid), func() error {
 					return it.Run(p.log)
 				}); err != nil {
+					if errors.Is(err, os.ErrNotExist) {
+						p.log.Debug("process gone before iterating its netns", "pid", pid)
+						break
+					}
 					p.log.Error("error running iterator in netns", "pid", pid, "error", err)
 				}
 			}
