@@ -57,6 +57,14 @@ These uses are acceptable provided you:
 6. Report the use of Generative AI tools for non-trivial preparation of
   submissions (that is, at level 2 or higher on the [AI Influence Level]).
 
+### GitHub Communication
+
+Issue and pull request descriptions, reviews, and comments must be written for
+human readers. Keep them concise, specific, and easy to scan. Do not submit raw
+or lightly edited Generative AI output, generated wall-of-text reports,
+exhaustive restatements of the code, or a play-by-play of the work. Include only
+the context needed for another contributor to understand or act on the message.
+
 ## 3. Unacceptable Use
 
 It is not acceptable to use Generative AI tools to:

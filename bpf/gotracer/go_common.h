@@ -512,25 +512,39 @@ static __always_inline void process_meta_frame_headers(void *frame, tp_info_t *t
     }
 }
 
+// Reads the StreamID of the HeadersFrameParam passed to
+// golang.org/x/net/http2.(*Framer).WriteHeaders.
+//
+// Whether that struct is register- or stack-assigned depends on the Go internal
+// ABI's register budget. Counting the receiver, the call needs 11 integer
+// argument registers. amd64 offers 9, so from x/net/http2 v0.45.0 on — when the
+// struct grew past the budget — Go assigns it entirely to the stack, with
+// StreamID as its first field one word above SP (the CALL instruction pushed the
+// return address). arm64 offers 16 (R0-R15), so the struct still fits in
+// registers there and StreamID stays in R1.
+// https://github.com/golang/go/blob/master/src/cmd/compile/abi-internal.md
 static __always_inline u64 golang_stream_id(struct pt_regs *ctx, off_table_t *ot) {
+#ifdef __TARGET_ARCH_x86
     const u64 on_stack = go_offset_of(ot, (go_offset){.v = _http2_zero_forty_five_zero});
 
-    if (!on_stack) {
-        return (u64)GO_PARAM2(ctx);
+    if (on_stack) {
+        const void *sp = (const void *)PT_REGS_SP(ctx);
+
+        bpf_dbg_printk("sp=%llx", sp);
+
+        // StreamID is a u32; reading it as such avoids depending on the
+        // struct's alignment padding.
+        u32 stream_id = 0;
+        const u8 k_stream_id_offset = 0x8;
+
+        if (bpf_probe_read_user(&stream_id, sizeof(stream_id), sp + k_stream_id_offset) != 0) {
+            bpf_dbg_printk("couldn't read stream_id");
+            return 0;
+        }
+
+        return stream_id;
     }
+#endif
 
-    const void *sp = (const void *)PT_REGS_SP(ctx);
-
-    bpf_dbg_printk("sp=%llx", sp);
-
-    u64 stream_id = 0;
-
-    const u8 k_stream_id_offset = 0x8;
-
-    if (bpf_probe_read_user(&stream_id, sizeof(u64), sp + k_stream_id_offset) != 0) {
-        bpf_dbg_printk("couldn't read stream_id");
-        return 0;
-    }
-
-    return stream_id;
+    return (u64)GO_PARAM2(ctx);
 }

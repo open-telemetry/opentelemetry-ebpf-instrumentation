@@ -39,7 +39,15 @@ func TestV2ToRuntimeHTTPRoutesRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NotNil(t, got.Routes)
-	require.NotNil(t, got.Routes.Directional)
+	// A symmetric global routes config round-trips back to the global
+	// representation the user authored, not a directional one.
+	require.Nil(t, got.Routes.Directional)
+	require.Equal(t, cfg.Routes.Unmatch, got.Routes.Unmatch)
+	require.Equal(t, cfg.Routes.Patterns, got.Routes.Patterns)
+	require.Equal(t, cfg.Routes.IgnorePatterns, got.Routes.IgnorePatterns)
+	require.Equal(t, cfg.Routes.IgnoredEvents, got.Routes.IgnoredEvents)
+	require.Equal(t, cfg.Routes.WildcardChar, got.Routes.WildcardChar)
+	require.Equal(t, cfg.Routes.MaxPathSegmentCardinality, got.Routes.MaxPathSegmentCardinality)
 	require.Equal(t, cfg.Routes.DirectionalPolicies(), got.Routes.DirectionalPolicies())
 	require.Equal(t, cfg.Discovery.RouteHarvesterTimeout, got.Discovery.RouteHarvesterTimeout)
 	require.Equal(t, cfg.Discovery.DisabledRouteHarvesters, got.Discovery.DisabledRouteHarvesters)
