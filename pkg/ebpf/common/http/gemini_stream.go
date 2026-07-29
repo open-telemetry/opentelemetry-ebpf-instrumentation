@@ -214,16 +214,11 @@ func (fc *fcAggregator) applyPartialArg(arg *geminiPartialArg, budget partialArg
 	return budget
 }
 
-// setByJSONPath assigns value at the given JSONPath within the target map,
-// creating intermediate objects and arrays as needed. It reuses the shared
+// setByJSONPathWithBudget assigns value at the given JSONPath within the target
+// map, creating intermediate objects and arrays as needed. It reuses the shared
 // github.com/ohler55/ojg/jp parser so array segments (e.g. "$.items[0].id")
 // are handled per the Vertex AI contract instead of a hand-rolled dotted-key
 // parser. Invalid paths are skipped rather than fatal.
-func setByJSONPath(m map[string]any, path string, value any, arraySlots int) (int, bool) {
-	budget, ok := setByJSONPathWithBudget(m, path, value, partialArgBudget{arraySlots: arraySlots})
-	return budget.arraySlots, ok
-}
-
 func setByJSONPathWithBudget(
 	m map[string]any,
 	path string,

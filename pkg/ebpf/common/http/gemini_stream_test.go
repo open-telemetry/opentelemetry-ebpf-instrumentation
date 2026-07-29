@@ -12,6 +12,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func setOneByJSONPath(m map[string]any, path string, arraySlots int) (int, bool) {
+	budget, ok := setByJSONPathWithBudget(m, path, 1, partialArgBudget{arraySlots: arraySlots})
+	return budget.arraySlots, ok
+}
+
 func TestParseGeminiStream_CompleteResponse(t *testing.T) {
 	stream := "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"AI \"}],\"role\":\"model\"}}],\"modelVersion\":\"gemini-2.0-flash\",\"responseId\":\"resp_abc\"}\n\n" +
 		"data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"uses \"}],\"role\":\"model\"}}],\"modelVersion\":\"gemini-2.0-flash\",\"responseId\":\"resp_abc\"}\n\n" +
@@ -704,7 +709,7 @@ func TestPartialArgRejectedStringFragmentsAreSkipped(t *testing.T) {
 		"$.fill2[1023]",
 		"$.fill3[1023]",
 	} {
-		arraySlots, ok = setByJSONPath(args, path, 1, arraySlots)
+		arraySlots, ok = setOneByJSONPath(args, path, arraySlots)
 		require.True(t, ok)
 	}
 
@@ -717,7 +722,7 @@ func TestPartialArgRejectedStringFragmentsAreSkipped(t *testing.T) {
 		WillContinue: &continuing,
 	}, partialArgBudget{arraySlots: arraySlots})
 
-	budget.arraySlots, ok = setByJSONPath(args, "$.fill0", 1, budget.arraySlots)
+	budget.arraySlots, ok = setOneByJSONPath(args, "$.fill0", budget.arraySlots)
 	require.True(t, ok)
 	suffix := "llo"
 	fc.applyPartialArg(&geminiPartialArg{JSONPath: "$.value[0]", StringValue: &suffix}, budget)
@@ -737,7 +742,7 @@ func TestSetByJSONPathRejectedPathDoesNotConsumeArraySlotBudget(t *testing.T) {
 		"$.bad2[1023][1000000000]",
 		"$.bad3[1023][1000000000]",
 	} {
-		updatedArraySlots, ok := setByJSONPath(args, path, 1, arraySlots)
+		updatedArraySlots, ok := setOneByJSONPath(args, path, arraySlots)
 		assert.False(t, ok)
 		arraySlots = updatedArraySlots
 	}
@@ -745,7 +750,7 @@ func TestSetByJSONPathRejectedPathDoesNotConsumeArraySlotBudget(t *testing.T) {
 	assert.Zero(t, arraySlots)
 	assert.Empty(t, args)
 	var ok bool
-	arraySlots, ok = setByJSONPath(args, "$.items[0]", 1, arraySlots)
+	arraySlots, ok = setOneByJSONPath(args, "$.items[0]", arraySlots)
 	require.True(t, ok)
 	assert.Equal(t, 1, arraySlots)
 	assert.Equal(t, []any{1}, args["items"])
@@ -756,7 +761,7 @@ func TestSetByJSONPathRootArrayDoesNotConsumeArraySlotBudget(t *testing.T) {
 	arraySlots := 0
 
 	for range maxPartialArgArraySlots / maxPartialArgArrayIndex {
-		updatedArraySlots, ok := setByJSONPath(args, "$[1023]", 1, arraySlots)
+		updatedArraySlots, ok := setOneByJSONPath(args, "$[1023]", arraySlots)
 		assert.False(t, ok)
 		arraySlots = updatedArraySlots
 	}
@@ -764,7 +769,7 @@ func TestSetByJSONPathRootArrayDoesNotConsumeArraySlotBudget(t *testing.T) {
 	assert.Zero(t, arraySlots)
 	assert.Empty(t, args)
 	var ok bool
-	arraySlots, ok = setByJSONPath(args, "$.items[0]", 1, arraySlots)
+	arraySlots, ok = setOneByJSONPath(args, "$.items[0]", arraySlots)
 	require.True(t, ok)
 	assert.Equal(t, 1, arraySlots)
 	assert.Equal(t, []any{1}, args["items"])
@@ -776,14 +781,14 @@ func TestSetByJSONPathOverwriteReclaimsArraySlotBudget(t *testing.T) {
 	var ok bool
 
 	for _, path := range []string{"$.tmp0", "$.tmp1", "$.tmp2", "$.tmp3"} {
-		arraySlots, ok = setByJSONPath(args, path+"[1023]", 1, arraySlots)
+		arraySlots, ok = setOneByJSONPath(args, path+"[1023]", arraySlots)
 		require.True(t, ok)
-		arraySlots, ok = setByJSONPath(args, path, 1, arraySlots)
+		arraySlots, ok = setOneByJSONPath(args, path, arraySlots)
 		require.True(t, ok)
 	}
 
 	assert.Zero(t, arraySlots)
-	arraySlots, ok = setByJSONPath(args, "$.items[0]", 1, arraySlots)
+	arraySlots, ok = setOneByJSONPath(args, "$.items[0]", arraySlots)
 	require.True(t, ok)
 	assert.Equal(t, 1, arraySlots)
 	assert.Equal(t, []any{1}, args["items"])
@@ -795,20 +800,20 @@ func TestSetByJSONPathIntermediateTypeChangesReclaimArraySlotBudget(t *testing.T
 	var ok bool
 
 	for _, path := range []string{"$.tmp0", "$.tmp1", "$.tmp2", "$.tmp3"} {
-		arraySlots, ok = setByJSONPath(args, path+"[1023]", 1, arraySlots)
+		arraySlots, ok = setOneByJSONPath(args, path+"[1023]", arraySlots)
 		require.True(t, ok)
-		arraySlots, ok = setByJSONPath(args, path+".child[0]", 1, arraySlots)
+		arraySlots, ok = setOneByJSONPath(args, path+".child[0]", arraySlots)
 		require.True(t, ok)
 	}
 
 	assert.Equal(t, 4, arraySlots)
-	arraySlots, ok = setByJSONPath(args, "$.items[1023]", 1, arraySlots)
+	arraySlots, ok = setOneByJSONPath(args, "$.items[1023]", arraySlots)
 	require.True(t, ok)
 	assert.Equal(t, maxPartialArgArrayIndex+4, arraySlots)
 
-	arraySlots, ok = setByJSONPath(args, "$.nested.child[1023]", 1, arraySlots)
+	arraySlots, ok = setOneByJSONPath(args, "$.nested.child[1023]", arraySlots)
 	require.True(t, ok)
-	arraySlots, ok = setByJSONPath(args, "$.nested[0]", 1, arraySlots)
+	arraySlots, ok = setOneByJSONPath(args, "$.nested[0]", arraySlots)
 	require.True(t, ok)
 	assert.Equal(t, maxPartialArgArrayIndex+5, arraySlots)
 }
