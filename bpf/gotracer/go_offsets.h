@@ -144,6 +144,12 @@ typedef enum {
     _runtime_heap_stats_delta_large_alloc_count_pos,
     _runtime_heap_stats_delta_small_alloc_count_pos,
     _runtime_heap_stats_delta_small_free_count_pos,
+    _runtime_sched_ngsys_pos,
+    _runtime_sched_gfree_stack_pos,
+    _runtime_sched_gfree_no_stack_pos,
+    _runtime_p_gfree_pos,
+    _runtime_glist_size_pos,
+    _runtime_gc_controller_heap_goal_pos,
     _last_go_offset,
 } go_offset_const;
 

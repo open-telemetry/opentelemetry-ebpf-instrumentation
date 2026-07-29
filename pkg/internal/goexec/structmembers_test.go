@@ -79,6 +79,38 @@ func mustMatch(t *testing.T, expected, actual FieldOffsets) {
 	}
 }
 
+func dwarfStruct(t *testing.T, data *dwarf.Data, name string) *dwarf.StructType {
+	t.Helper()
+
+	reader := data.Reader()
+	for {
+		entry, err := reader.Next()
+		require.NoError(t, err)
+		if entry == nil {
+			t.Fatalf("DWARF struct %s not found", name)
+		}
+		if entry.Tag != dwarf.TagStructType || entry.Val(dwarf.AttrName) != name {
+			continue
+		}
+		typeData, err := data.Type(entry.Offset)
+		require.NoError(t, err)
+		if structType, ok := typeData.(*dwarf.StructType); ok && len(structType.Field) > 0 {
+			return structType
+		}
+	}
+}
+
+func dwarfStructField(t *testing.T, structType *dwarf.StructType, name string) *dwarf.StructField {
+	t.Helper()
+	for _, field := range structType.Field {
+		if field.Name == name {
+			return field
+		}
+	}
+	t.Fatalf("DWARF field %s.%s not found", structType.StructName, name)
+	return nil
+}
+
 func TestGoOffsetsFromDwarf(t *testing.T) {
 	offsets, _ := structMemberOffsetsFromDwarf(debugData)
 	// this test might fail if a future Go version updates the internal structure of the used structs.
@@ -95,6 +127,21 @@ func TestGoOffsetsFromDwarf(t *testing.T) {
 		HchanSendxPos:     uint64(48),
 		HchanRecvxPos:     uint64(56),
 	}, offsets)
+}
+
+func TestNestedRuntimeOffsetsFromDwarf(t *testing.T) {
+	offsets, missing := structMemberOffsetsFromDwarf(debugData)
+	schedType := dwarfStruct(t, debugData, "runtime.schedt")
+	gFreeField := dwarfStructField(t, schedType, "gFree")
+	gFreeType, ok := gFreeField.Type.(*dwarf.StructType)
+	require.True(t, ok)
+
+	stack := uint64(gFreeField.ByteOffset + dwarfStructField(t, gFreeType, "stack").ByteOffset)
+	noStack := uint64(gFreeField.ByteOffset + dwarfStructField(t, gFreeType, "noStack").ByteOffset)
+	require.NotContains(t, missing, RuntimeSchedGFreeStackPos)
+	require.NotContains(t, missing, RuntimeSchedGFreeNoStackPos)
+	assert.Equal(t, stack, offsets[RuntimeSchedGFreeStackPos])
+	assert.Equal(t, noStack, offsets[RuntimeSchedGFreeNoStackPos])
 }
 
 func TestGrpcOffsetsFromDwarf(t *testing.T) {
@@ -127,6 +174,47 @@ func TestGoOffsetsWithoutDwarf(t *testing.T) {
 		RuntimeGCControllerMemoryLimitPos: uint64(8),
 		RuntimeGCControllerGCPercentPos:   uint64(0),
 	}, offsets)
+}
+
+func TestGoRuntimeGCGoalFieldUnavailableAfterTrackedRange(t *testing.T) {
+	offsets, err := structMemberOffsets(smallELF)
+	require.NoError(t, err)
+
+	assert.NotContains(t, offsets, RuntimeGCControllerHeapGoalPos)
+}
+
+func TestPrefetchedOffsetsPreserveResolvedOffsets(t *testing.T) {
+	const resolvedOffset = uint64(999)
+	resolved := FieldOffsets{
+		RuntimeGCControllerGCPercentPos: resolvedOffset,
+	}
+
+	got, err := structMemberPreFetchedOffsets(smallELF, resolved)
+	require.NoError(t, err)
+	assert.Equal(t, resolvedOffset, got[RuntimeGCControllerGCPercentPos])
+}
+
+func TestGoroutineRuntimeOffsetsWithoutDwarf(t *testing.T) {
+	offsets, err := structMemberOffsets(smallELF)
+	require.NoError(t, err)
+	schedType := dwarfStruct(t, debugData, "runtime.schedt")
+	gFreeField := dwarfStructField(t, schedType, "gFree")
+	gFreeType, ok := gFreeField.Type.(*dwarf.StructType)
+	require.True(t, ok)
+
+	assert.Equal(t,
+		uint64(gFreeField.ByteOffset+dwarfStructField(t, gFreeType, "stack").ByteOffset),
+		offsets[RuntimeSchedGFreeStackPos])
+	assert.Equal(t,
+		uint64(gFreeField.ByteOffset+dwarfStructField(t, gFreeType, "noStack").ByteOffset),
+		offsets[RuntimeSchedGFreeNoStackPos])
+	for _, field := range []GoOffset{
+		RuntimeSchedNgSysPos,
+		RuntimePFreeGPos,
+		RuntimeGListSizePos,
+	} {
+		assert.IsType(t, uint64(0), offsets[field], "offset %d", field)
+	}
 }
 
 func TestGrpcOffsetsWithoutDwarf(t *testing.T) {
@@ -277,6 +365,108 @@ func TestPrefetchedGoRuntimeMemoryOffsets(t *testing.T) {
 		require.True(t, found, "%s.%s missing for Go 1.25", tt.structName, tt.fieldName)
 		assert.Equal(t, tt.go125, offset, "%s.%s Go 1.25 offset", tt.structName, tt.fieldName)
 	}
+}
+
+func TestPrefetchedGoRuntimeGoroutineOffsets(t *testing.T) {
+	track, err := offsets.Read(bytes.NewBufferString(prefetchedOffsets))
+	require.NoError(t, err)
+
+	tests := []struct {
+		structName string
+		fieldName  string
+		goVersion  string
+		want       uint64
+	}{
+		{structName: "runtime.gList", fieldName: "size", goVersion: "1.25.0", want: 8},
+		{structName: "runtime.mutex", fieldName: "key", goVersion: "1.17.0", want: 0},
+		{structName: "runtime.p", fieldName: "gFree", goVersion: "1.17.0", want: 3584},
+		{structName: "runtime.p", fieldName: "gFree", goVersion: "1.18.0", want: 2464},
+		{structName: "runtime.p", fieldName: "gFree", goVersion: "1.23.0", want: 2456},
+		{structName: "runtime.p", fieldName: "gFree", goVersion: "1.26.0", want: 2464},
+		{structName: "runtime.schedt", fieldName: "gFree", goVersion: "1.17.0", want: 152},
+		{structName: "runtime.schedt", fieldName: "gFree", goVersion: "1.20.0", want: 160},
+		{structName: "runtime.schedt", fieldName: "gFree", goVersion: "1.25.0", want: 168},
+		{structName: "runtime.schedt", fieldName: "gFree", goVersion: "1.26.0", want: 184},
+		{structName: "runtime.schedt", fieldName: "ngsys", goVersion: "1.17.0", want: 72},
+		{structName: "runtime.schedt", fieldName: "ngsys", goVersion: "1.25.0", want: 80},
+		{structName: "runtime.schedt", fieldName: "ngsys", goVersion: "1.26.0", want: 96},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.structName+"."+tt.fieldName+"/"+tt.goVersion, func(t *testing.T) {
+			assertPrefetchedOffset(t, track, tt.structName, tt.fieldName, tt.goVersion, tt.want)
+		})
+	}
+
+	_, found := track.Find("runtime.gList", "size", "1.24.0")
+	assert.False(t, found, "runtime.gList.size should be unavailable before Go 1.25")
+}
+
+func TestPrefetchedGoRuntimeGCGoalFieldOffsets(t *testing.T) {
+	track, err := offsets.Read(bytes.NewBufferString(prefetchedOffsets))
+	require.NoError(t, err)
+
+	for _, tt := range []struct {
+		goVersion string
+		want      uint64
+	}{
+		{goVersion: "1.17.0", want: 32},
+		{goVersion: "1.17.13", want: 32},
+		{goVersion: "1.18.0", want: 104},
+		{goVersion: "1.18.10", want: 104},
+	} {
+		offset, found := prefetchedGoRuntimeGCGoalOffset(track, tt.goVersion)
+		require.True(t, found, "heapGoal missing for Go %s", tt.goVersion)
+		assert.Equal(t, tt.want, offset)
+	}
+	_, found := prefetchedGoRuntimeGCGoalOffset(track, "1.19.0")
+	assert.False(t, found)
+
+	heapGoal := track.Data["runtime.gcControllerState"]["heapGoal"]
+	assert.Equal(t, "1.17.0", heapGoal.Versions.Oldest)
+	assert.Equal(t, "1.18.10", heapGoal.Versions.Newest)
+}
+
+func TestResolveNestedStructPrefetchedOffsetsLogsMissingFields(t *testing.T) {
+	const goVersion = "1.25.0"
+	for _, missing := range []struct {
+		structName string
+		fieldName  string
+	}{
+		{structName: "runtime.schedt", fieldName: "gFree"},
+		{structName: "runtime.mutex", fieldName: "key"},
+		{structName: "runtime.gList", fieldName: "size"},
+	} {
+		t.Run(missing.structName+"."+missing.fieldName, func(t *testing.T) {
+			track, err := offsets.Read(bytes.NewBufferString(prefetchedOffsets))
+			require.NoError(t, err)
+			delete(track.Data[missing.structName], missing.fieldName)
+
+			var logs bytes.Buffer
+			logger := slog.New(slog.NewTextHandler(
+				&logs,
+				&slog.HandlerOptions{Level: slog.LevelDebug},
+			))
+			resolveNestedStructPreFetchedOffsets(track, FieldOffsets{}, goVersion, logger)
+
+			assert.Contains(t, logs.String(), "missing_field="+missing.structName+"."+missing.fieldName)
+			assert.Contains(t, logs.String(), "go_version="+goVersion)
+		})
+	}
+}
+
+func assertPrefetchedOffset(
+	t *testing.T,
+	track *offsets.Track,
+	structName string,
+	fieldName string,
+	goVersion string,
+	want uint64,
+) {
+	t.Helper()
+	offset, found := track.Find(structName, fieldName, goVersion)
+	require.True(t, found, "%s.%s missing for Go %s", structName, fieldName, goVersion)
+	assert.Equal(t, want, offset, "%s.%s Go %s offset", structName, fieldName, goVersion)
 }
 
 type fakeDwarfReader struct {
