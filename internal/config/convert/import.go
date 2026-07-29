@@ -2241,6 +2241,11 @@ func protocolFilters(instrumentation schema.Instrumentation, name protocolName) 
 		return instrumentation.DNS.Filters
 	case protocolGPU:
 		return instrumentation.GPU.Filters
+	case protocolAerospike:
+		if instrumentation.Aerospike != nil {
+			return instrumentation.Aerospike.Filters
+		}
+		return schema.SignalFilters{}
 	default:
 		return schema.SignalFilters{}
 	}
