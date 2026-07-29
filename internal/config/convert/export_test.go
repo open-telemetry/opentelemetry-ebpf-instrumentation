@@ -787,14 +787,18 @@ func TestRuntimeToV2EffectiveDiscoveryCriteria(t *testing.T) {
 
 		_, ext := RuntimeToV2(&cfg)
 
+		const skippedProcess = "/opt/system+services/daemon"
 		for _, rule := range ext.Capture.Rules {
 			if rule.Action != schema.CaptureActionExclude {
 				continue
 			}
 			require.NotEqual(t, "exclude-linux-system-paths", rule.Name)
+			for _, pathGlob := range rule.Match.Process.ExePathGlob {
+				require.False(t, glob.MustCompile(pathGlob).Match(skippedProcess))
+			}
 			require.False(t, rule.Match.Process.ExePathRegex != "" &&
 				regexp.MustCompile(rule.Match.Process.ExePathRegex).
-					MatchString("/opt/system+services/daemon"))
+					MatchString(skippedProcess))
 		}
 
 		var portRule *schema.Rule

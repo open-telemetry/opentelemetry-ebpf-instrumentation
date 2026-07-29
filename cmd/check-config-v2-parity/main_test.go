@@ -67,28 +67,48 @@ func TestPayloadExtractionMembershipMismatch(t *testing.T) {
 }
 
 func TestLanguageDetectionSkipsCannotBecomeCaptureExclusions(t *testing.T) {
-	cur, ex := loadCurrentAndExample(t)
-
-	extensions := ex["extensions"].(map[string]any)
-	obiExtension := extensions["obi"].(map[string]any)
-	capture := obiExtension["capture"].(map[string]any)
-	rules := capture["rules"].([]any)
-	capture["rules"] = append(rules, map[string]any{
-		"action": "exclude",
-		"name":   "system-services",
-		"match": map[string]any{
-			"process": map[string]any{
+	tests := []struct {
+		name    string
+		process map[string]any
+	}{
+		{
+			name: "glob",
+			process: map[string]any{
 				"exe_path_glob": []any{"/usr/sbin/*"},
 			},
 		},
-	})
-
-	err := mustKeepLanguageDetectionSkipsOutOfCaptureRules(cur, ex)
-	if err == nil {
-		t.Fatal("expected language-detection skip exclusion to fail")
+		{
+			name: "regex",
+			process: map[string]any{
+				"exe_path_regex": `^/usr/sbin/`,
+			},
+		},
 	}
-	if !strings.Contains(err.Error(), "must not be a capture exclusion") {
-		t.Fatalf("unexpected error: %v", err)
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			cur, ex := loadCurrentAndExample(t)
+
+			extensions := ex["extensions"].(map[string]any)
+			obiExtension := extensions["obi"].(map[string]any)
+			capture := obiExtension["capture"].(map[string]any)
+			rules := capture["rules"].([]any)
+			capture["rules"] = append(rules, map[string]any{
+				"action": "exclude",
+				"name":   "system-services",
+				"match": map[string]any{
+					"process": test.process,
+				},
+			})
+
+			err := mustKeepLanguageDetectionSkipsOutOfCaptureRules(cur, ex)
+			if err == nil {
+				t.Fatal("expected language-detection skip exclusion to fail")
+			}
+			if !strings.Contains(err.Error(), "must not be a capture exclusion") {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
 	}
 }
 
