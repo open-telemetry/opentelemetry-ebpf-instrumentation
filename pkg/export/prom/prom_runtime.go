@@ -124,10 +124,10 @@ func (r *metricsReporter) collectRuntimeMetrics(snapshots []runtimemetrics.Runti
 func (r *metricsReporter) runtimeSnapshotProcessLive(
 	snapshot runtimemetrics.RuntimeMetricSnapshot,
 ) bool {
-	if snapshot.Service.ProcPID == 0 {
+	if snapshot.PID == 0 {
 		return true
 	}
-	uid, tracked := r.pidsTracker.TracksPID(snapshot.Service.ProcPID)
+	uid, tracked := r.pidsTracker.TracksPID(snapshot.PID)
 	return tracked && uid.Equals(&snapshot.Service.UID)
 }
 
@@ -229,7 +229,7 @@ func (r *metricsReporter) collectGoRuntimeHistogram(snapshot runtimemetrics.Runt
 	}
 
 	r.goRuntimeHistograms.Update(
-		snapshot.Service.ProcPID,
+		snapshot.PID,
 		r.labelValuesTargetInfo(&snapshot.Service),
 		snapshot.Histogram,
 	)

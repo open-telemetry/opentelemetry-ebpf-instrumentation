@@ -77,9 +77,10 @@ func TestRuntimeMetricsReporterEvictsServiceAfterLastPIDTerminates(t *testing.T)
 	assert.Equal(t, 2, constructed)
 }
 
-func TestRuntimeMetricsReporterRemovesOnlyTerminatedPIDHistogram(t *testing.T) {
+func TestRuntimeMetricsReporterTracksInheritedChildPIDHistograms(t *testing.T) {
 	service := svc.Attrs{
 		UID:         svc.UID{Name: "orders"},
+		ProcPID:     42,
 		SDKLanguage: svc.InstrumentableGolang,
 	}
 	var metrics *RuntimeMetrics
@@ -105,11 +106,9 @@ func TestRuntimeMetricsReporterRemovesOnlyTerminatedPIDHistogram(t *testing.T) {
 		runtimeEnabled: runtimemetrics.Enabled{Runtime: true},
 	}
 	processEvent := func(pid app.PID, eventType exec.ProcessEventType) *exec.ProcessEvent {
-		attrs := service
-		attrs.ProcPID = pid
 		return &exec.ProcessEvent{
 			Type: eventType,
-			File: exec.New(exec.Init{Pid: pid, Service: attrs}),
+			File: exec.New(exec.Init{Pid: pid, Service: service}),
 		}
 	}
 	snapshot := func(pid app.PID, population uint64) runtimemetrics.RuntimeMetricSnapshot {
@@ -124,10 +123,10 @@ func TestRuntimeMetricsReporterRemovesOnlyTerminatedPIDHistogram(t *testing.T) {
 			0,
 		)
 		value.Service = service
-		value.Service.ProcPID = pid
 		return value
 	}
 
+	reporter.onProcessEvent(processEvent(service.ProcPID, exec.ProcessEventCreated))
 	reporter.onProcessEvent(processEvent(101, exec.ProcessEventCreated))
 	reporter.onProcessEvent(processEvent(202, exec.ProcessEventCreated))
 	reporter.reportRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{

@@ -297,7 +297,7 @@ func TestSnapshotFromRingbuf(t *testing.T) {
 
 	require.NoError(t, err)
 	require.False(t, ignore)
-	require.Equal(t, app.PID(123), snapshot.PID)
+	require.Equal(t, app.PID(1000), snapshot.PID)
 	require.Equal(t, service, snapshot.Service)
 	require.NotNil(t, snapshot.Go)
 	require.Equal(t, int64(1024), *snapshot.Go.MemoryLimit)
@@ -337,7 +337,7 @@ func TestSnapshotFromRingbufDecodesHistogramAndCopiesCounts(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, ignore)
 	require.Equal(t, service, snapshot.Service)
-	require.Equal(t, app.PID(123), snapshot.PID)
+	require.Equal(t, app.PID(1000), snapshot.PID)
 	require.False(t, snapshot.Time.Before(before))
 	require.False(t, snapshot.Time.After(after))
 	require.Nil(t, snapshot.Go)

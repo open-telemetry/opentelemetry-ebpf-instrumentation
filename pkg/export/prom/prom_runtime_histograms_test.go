@@ -276,29 +276,26 @@ func TestDeleteRuntimeMetricsRemovesGoRuntimeHistogramsAndAllowsReAdd(t *testing
 	assertGoRuntimeHistogramReporterMetrics(t, registry, true)
 }
 
-func TestGoRuntimeHistogramReporterKeepsOnlyLivePIDs(t *testing.T) {
+func TestGoRuntimeHistogramReporterTracksInheritedChildPIDs(t *testing.T) {
 	reporter, registry := newGoRuntimeHistogramTestReporter(t)
 	service := svc.Attrs{
 		UID:         svc.UID{Name: "orders", Namespace: "production"},
+		ProcPID:     42,
 		SDKLanguage: svc.InstrumentableGolang,
 		Features:    export.FeatureApplicationRuntime,
 	}
 	processEvent := func(pid app.PID, eventType exec.ProcessEventType) exec.ProcessEvent {
-		attrs := service
-		attrs.ProcPID = pid
 		return exec.ProcessEvent{
 			Type: eventType,
-			File: exec.New(exec.Init{Pid: pid, Service: attrs}),
+			File: exec.New(exec.Init{Pid: pid, Service: service}),
 		}
 	}
 	snapshot := func(pid app.PID, population uint64) runtimemetrics.RuntimeMetricSnapshot {
-		attrs := service
-		attrs.ProcPID = pid
 		counts := testPromRuntimeHistogramCounts()
 		counts[0] = population
 		return runtimemetrics.RuntimeMetricSnapshot{
 			PID:     pid,
-			Service: attrs,
+			Service: service,
 			Histogram: &runtimemetrics.GoRuntimeHistogramSnapshot{
 				Kind:   runtimemetrics.GoHistogramKindGCPause,
 				Counts: counts,
@@ -316,6 +313,7 @@ func TestGoRuntimeHistogramReporterKeepsOnlyLivePIDs(t *testing.T) {
 		return metric.GetHistogram().GetSampleCount()
 	}
 
+	reporter.handleProcessEvent(processEvent(service.ProcPID, exec.ProcessEventCreated), slog.Default())
 	reporter.handleProcessEvent(processEvent(101, exec.ProcessEventCreated), slog.Default())
 	reporter.collectRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{snapshot(101, 2)})
 	require.Equal(t, uint64(2), count())
@@ -479,6 +477,7 @@ func testPromRuntimeHistogramMetricSnapshot(
 	counts := testPromRuntimeHistogramCounts()
 	counts[0] = population
 	return runtimemetrics.RuntimeMetricSnapshot{
+		PID:     service.ProcPID,
 		Service: service,
 		Histogram: &runtimemetrics.GoRuntimeHistogramSnapshot{
 			Kind:   kind,

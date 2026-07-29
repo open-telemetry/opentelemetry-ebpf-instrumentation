@@ -253,7 +253,7 @@ func scalarSnapshotFromRingbuf(
 		return RuntimeMetricSnapshot{}, true, nil
 	}
 
-	snapshot := convertGoRuntimeMetricSnapshot(service, app.PID(event.PID.UserPID), event.Snapshot)
+	snapshot := convertGoRuntimeMetricSnapshot(service, app.PID(event.PID.HostPID), event.Snapshot)
 	return snapshot, false, nil
 }
 
@@ -288,7 +288,7 @@ func histogramSnapshotFromRingbuf(
 	copy(counts, event.Counts[:event.BucketCount])
 	return RuntimeMetricSnapshot{
 		Service: service,
-		PID:     app.PID(event.PID.UserPID),
+		PID:     app.PID(event.PID.HostPID),
 		Time:    time.Now(),
 		Histogram: &GoRuntimeHistogramSnapshot{
 			Kind:      event.Kind,

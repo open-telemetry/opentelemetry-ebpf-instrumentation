@@ -70,7 +70,7 @@ func (p *goRuntimeHistogramProducer) Update(snapshot runtimemetrics.RuntimeMetri
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	key := goRuntimeHistogramKey{kind: histogram.Kind, pid: snapshot.Service.ProcPID}
+	key := goRuntimeHistogramKey{kind: histogram.Kind, pid: snapshot.PID}
 	previous, exists := p.histograms[key]
 	startTime := previous.startTime
 	if !exists || histogramPopulationRegressed(previous.histogram, histogram) {
