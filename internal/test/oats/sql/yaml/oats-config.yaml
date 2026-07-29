@@ -1,0 +1,18 @@
+meta:
+  version: 3
+cases:
+  - oats_sql.yaml
+  - oats_sql_go_mysql.yaml
+  - oats_sql_go_mysql_otelsql.yaml
+  - oats_sql_go_mysql_server.yaml
+  - oats_sql_go_mysql_tls.yaml
+  - oats_sql_go_pgx.yaml
+  - oats_sql_go_pgx_pool.yaml
+  - oats_sql_go_pgx_stdlib.yaml
+  - oats_sql_go_postgres.yaml
+  - oats_sql_other_langs.yaml
+  - oats_sql_other_langs_args.yaml
+  - oats_sql_other_langs_mysql.yaml
+  - oats_sql_other_langs_prep.yaml
+  - oats_sql_other_langs_prep_mysql.yaml
+  - oats_sql_statement.yaml

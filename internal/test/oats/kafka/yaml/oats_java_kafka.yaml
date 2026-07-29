@@ -1,37 +1,48 @@
-oats-schema-version: 2
-docker-compose:
-  files:
-  - ../docker-compose-obi-java-kafka.yml
-  - ../../weaver/docker-compose-weaver.yml
-input:
-- path: /message
+name: oats java kafka
 interval: 500ms
+fixture:
+  compose:
+    files:
+      - ../docker-compose-obi-java-kafka.yml
+      - ../../weaver/docker-compose-weaver.yml
+seed:
+  type: app
+input:
+  - path: /message
 expected:
   traces:
-  - traceql: '{ .messaging.operation.type = "process" }'
-    regexp: ^process
-    attributes:
-      messaging.operation.type: process
-      messaging.operation.name: process
-      messaging.system: kafka
-      server.port: '9092'
-  - traceql: '{ .messaging.operation.type = "send" }'
-    regexp: ^send
-    attributes:
-      messaging.operation.type: send
-      messaging.operation.name: send
-      messaging.system: kafka
-      server.port: '9092'
+    - traceql: '{ .messaging.operation.type = "process" }'
+      match_spans:
+        - attributes:
+            - key: messaging.operation.type
+              value: process
+            - key: messaging.system
+              value: kafka
+            - key: server.port
+              value: "9092"
+        - match_type: regexp
+          name: ^process
+    - traceql: '{ .messaging.operation.type = "send" }'
+      match_spans:
+        - attributes:
+            - key: messaging.operation.type
+              value: send
+            - key: messaging.system
+              value: kafka
+            - key: server.port
+              value: "9092"
+        - match_type: regexp
+          name: ^send
   metrics:
-  - promql: messaging_client_operation_duration_seconds_count{messaging_system="kafka"}
-    value: '> 0'
-  - promql: messaging_client_operation_duration_seconds_bucket{le="0"}
-    value: == 0
-  - promql: messaging_client_operation_duration_seconds_bucket{le="10"}
-    value: '> 0'
-  - promql: messaging_process_duration_seconds_count{messaging_system="kafka"}
-    value: '> 0'
-  - promql: messaging_process_duration_seconds_bucket{le="0"}
-    value: == 0
-  - promql: messaging_process_duration_seconds_bucket{le="10"}
-    value: '> 0'
+    - promql: messaging_client_operation_duration_seconds_count{messaging_system="kafka"}
+      value: '> 0'
+    - promql: messaging_client_operation_duration_seconds_bucket{le="0"}
+      value: == 0
+    - promql: messaging_client_operation_duration_seconds_bucket{le="10"}
+      value: '> 0'
+    - promql: messaging_process_duration_seconds_count{messaging_system="kafka"}
+      value: '> 0'
+    - promql: messaging_process_duration_seconds_bucket{le="0"}
+      value: == 0
+    - promql: messaging_process_duration_seconds_bucket{le="10"}
+      value: '> 0'

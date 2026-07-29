@@ -1,46 +1,65 @@
-oats-schema-version: 2
-docker-compose:
-  files:
-  - ../docker-compose-obi-gomysqlclient.yml
-  - ../../weaver/docker-compose-weaver.yml
-input:
-- path: /mysqltest
-- path: /mysqlerror
-- path: /update
-- path: /updateerr
+name: oats sql go mysql
 interval: 500ms
+fixture:
+  compose:
+    files:
+      - ../docker-compose-obi-gomysqlclient.yml
+      - ../../weaver/docker-compose-weaver.yml
+seed:
+  type: app
+input:
+  - path: /mysqltest
+  - path: /mysqlerror
+  - path: /update
+  - path: /updateerr
 expected:
   traces:
-  - traceql: '{ name = "SELECT students" }'
-    equals: SELECT students
-    attributes:
-      db.operation.name: SELECT
-      db.collection.name: students
-      db.system.name: mysql
-  - traceql: '{ name = "UPDATE students" && status = unset}'
-    equals: UPDATE students
-    attributes:
-      db.operation.name: UPDATE
-      db.collection.name: students
-      db.system.name: mysql
-  - traceql: '{ name = "UPDATE nonexistent_table" && status = error}'
-    equals: UPDATE nonexistent_table
-    attributes:
-      db.operation.name: UPDATE
-      db.collection.name: nonexistent_table
-      db.system.name: mysql
-  - traceql: '{ .db.operation.name = "SELECT" && status = error }'
-    equals: SELECT nonexistent_table
-    attributes:
-      db.operation.name: SELECT
-      db.collection.name: nonexistent_table
-      db.system.name: mysql
+    - traceql: '{ name = "SELECT students" }'
+      match_spans:
+        - name: SELECT students
+          attributes:
+            - key: db.collection.name
+              value: students
+            - key: db.operation.name
+              value: SELECT
+            - key: db.system.name
+              value: mysql
+    - traceql: '{ name = "UPDATE students" && status = unset}'
+      match_spans:
+        - name: UPDATE students
+          attributes:
+            - key: db.collection.name
+              value: students
+            - key: db.operation.name
+              value: UPDATE
+            - key: db.system.name
+              value: mysql
+    - traceql: '{ name = "UPDATE nonexistent_table" && status = error}'
+      match_spans:
+        - name: UPDATE nonexistent_table
+          attributes:
+            - key: db.collection.name
+              value: nonexistent_table
+            - key: db.operation.name
+              value: UPDATE
+            - key: db.system.name
+              value: mysql
+    - traceql: '{ .db.operation.name = "SELECT" && status = error }'
+      match_spans:
+        - name: SELECT nonexistent_table
+          attributes:
+            - key: db.collection.name
+              value: nonexistent_table
+            - key: db.operation.name
+              value: SELECT
+            - key: db.system.name
+              value: mysql
   metrics:
-  - promql: db_client_operation_duration_seconds_sum{db_operation_name="SELECT", db_system_name="mysql", server_address="mysqlserver"}
-    value: '> 0'
-  - promql: db_client_operation_duration_seconds_bucket{le="0",db_operation_name="SELECT", db_system_name="mysql", server_address="mysqlserver"}
-    value: == 0
-  - promql: db_client_operation_duration_seconds_bucket{le="10",db_operation_name="SELECT", db_system_name="mysql", server_address="mysqlserver"}
-    value: '> 0'
-  - promql: db_client_operation_duration_seconds_count{db_operation_name="SELECT", db_system_name="mysql", server_address="mysqlserver"}
-    value: '> 0'
+    - promql: db_client_operation_duration_seconds_sum{db_operation_name="SELECT", db_system_name="mysql", server_address="mysqlserver"}
+      value: '> 0'
+    - promql: db_client_operation_duration_seconds_bucket{le="0",db_operation_name="SELECT", db_system_name="mysql", server_address="mysqlserver"}
+      value: == 0
+    - promql: db_client_operation_duration_seconds_bucket{le="10",db_operation_name="SELECT", db_system_name="mysql", server_address="mysqlserver"}
+      value: '> 0'
+    - promql: db_client_operation_duration_seconds_count{db_operation_name="SELECT", db_system_name="mysql", server_address="mysqlserver"}
+      value: '> 0'

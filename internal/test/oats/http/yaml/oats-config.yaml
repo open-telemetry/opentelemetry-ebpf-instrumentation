@@ -1,0 +1,15 @@
+meta:
+  version: 3
+cases:
+  - oats_java_routes.yaml
+  - oats_java_routes_custom.yaml
+  - oats_java_routes_disabled.yaml
+  - oats_java_tls_jdk_8.yaml
+  - oats_java_tls_netty.yaml
+  - oats_java_tls_sync_async.yaml
+  - oats_proxy.yaml
+  - oats_python_grpc.yaml
+  - oats_python_grpc_client.yaml
+  - oats_python_outgoing_host.yaml
+  - oats_python_outgoing_unknown.yaml
+  - oats_python_outgoing_unresolved.yaml

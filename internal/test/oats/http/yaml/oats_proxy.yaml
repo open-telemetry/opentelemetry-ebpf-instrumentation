@@ -1,12 +1,16 @@
-oats-schema-version: 2
-docker-compose:
-  files:
-  - ../docker-compose-proxy.yml
-  - ../../weaver/docker-compose-weaver.yml
-input:
-- path: /smoke
+name: oats proxy
 interval: 500ms
+fixture:
+  compose:
+    files:
+      - ../docker-compose-proxy.yml
+      - ../../weaver/docker-compose-weaver.yml
+seed:
+  type: app
+input:
+  - path: /smoke
 expected:
   traces:
-  - traceql: '{ .http.route = "/smoke" && .server.port=8080}'
-    equals: GET /smoke
+    - traceql: '{ .http.route = "/smoke" && .server.port=8080}'
+      match_spans:
+        - name: GET /smoke

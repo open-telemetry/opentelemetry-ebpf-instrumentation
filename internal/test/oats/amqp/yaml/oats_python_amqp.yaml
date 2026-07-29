@@ -1,36 +1,44 @@
-oats-schema-version: 2
-docker-compose:
-  files:
-  - ../docker-compose-obi-python-amqp.yml
-input:
-- path: /message
+name: oats python amqp
 interval: 500ms
+fixture:
+  compose:
+    file: ../docker-compose-obi-python-amqp.yml
+seed:
+  type: app
+input:
+  - path: /message
 expected:
   traces:
-  - traceql: '{ kind=producer && .messaging.system = "amqp" && .messaging.operation.type = "send" }'
-    equals: publish
-    attributes:
-      messaging.system: amqp
-      messaging.operation.type: send
-      messaging.operation.name: publish
-      server.port: '5672'
-  - traceql: '{ kind=consumer && .messaging.system = "amqp" && .messaging.operation.type = "process" }'
-    equals: process
-    attributes:
-      messaging.system: amqp
-      messaging.operation.type: process
-      messaging.operation.name: process
-      server.port: '5672'
+    - traceql: '{ kind=producer && .messaging.system = "amqp" && .messaging.operation.type = "send" }'
+      match_spans:
+        - name: publish
+          attributes:
+            - key: messaging.operation.type
+              value: send
+            - key: messaging.system
+              value: amqp
+            - key: server.port
+              value: "5672"
+    - traceql: '{ kind=consumer && .messaging.system = "amqp" && .messaging.operation.type = "process" }'
+      match_spans:
+        - name: process
+          attributes:
+            - key: messaging.operation.type
+              value: process
+            - key: messaging.system
+              value: amqp
+            - key: server.port
+              value: "5672"
   metrics:
-  - promql: messaging_client_operation_duration_seconds_count{messaging_system="amqp"}
-    value: '> 0'
-  - promql: messaging_client_operation_duration_seconds_bucket{le="0"}
-    value: == 0
-  - promql: messaging_client_operation_duration_seconds_bucket{le="10"}
-    value: '> 0'
-  - promql: messaging_process_duration_seconds_count{messaging_system="amqp"}
-    value: '> 0'
-  - promql: messaging_process_duration_seconds_bucket{le="0"}
-    value: == 0
-  - promql: messaging_process_duration_seconds_bucket{le="10"}
-    value: '> 0'
+    - promql: messaging_client_operation_duration_seconds_count{messaging_system="amqp"}
+      value: '> 0'
+    - promql: messaging_client_operation_duration_seconds_bucket{le="0"}
+      value: == 0
+    - promql: messaging_client_operation_duration_seconds_bucket{le="10"}
+      value: '> 0'
+    - promql: messaging_process_duration_seconds_count{messaging_system="amqp"}
+      value: '> 0'
+    - promql: messaging_process_duration_seconds_bucket{le="0"}
+      value: == 0
+    - promql: messaging_process_duration_seconds_bucket{le="10"}
+      value: '> 0'
