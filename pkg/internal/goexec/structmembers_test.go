@@ -468,6 +468,7 @@ func assertPrefetchedOffset(
 	require.True(t, found, "%s.%s missing for Go %s", structName, fieldName, goVersion)
 	assert.Equal(t, want, offset, "%s.%s Go %s offset", structName, fieldName, goVersion)
 }
+
 func TestPrefetchedGoRuntimeHistogramOffsets(t *testing.T) {
 	track, err := offsets.Read(bytes.NewBufferString(prefetchedOffsets))
 	require.NoError(t, err)
