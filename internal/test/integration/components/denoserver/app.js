@@ -48,7 +48,7 @@ async function handler(req) {
     return new Response("OK", { status: 200 });
   }
 
-  const userURL = new URLPattern({ pathname: "/users/:id" });
+  const userURL = new URLPattern({ pathname: "/users/:userId" });
   const user = userURL.exec(req.url);
   if (method === "GET" && user) {
     return json("Hello! " + user.pathname.groups.id);
