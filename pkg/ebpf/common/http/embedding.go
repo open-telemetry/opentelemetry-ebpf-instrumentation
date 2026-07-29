@@ -4,6 +4,8 @@
 package ebpfcommon // import "go.opentelemetry.io/obi/pkg/ebpf/common/http"
 
 import (
+	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -86,7 +88,7 @@ func EmbeddingSpan(baseSpan *request.Span, req *http.Request, resp *http.Respons
 		parsedResponse.Meta.BilledUnits.InputTokens.Merge(billedUnits.InputTokens)
 	}
 	if parsedResponse.Dimensions == 0 {
-		parsedResponse.Dimensions = parseEmbeddingDimensions(respB)
+		parsedResponse.Dimensions = parseEmbeddingDimensions(&parsedRequest, respB)
 	}
 
 	baseSpan.SubType = request.HTTPSubtypeEmbedding
@@ -103,22 +105,30 @@ func EmbeddingSpan(baseSpan *request.Span, req *http.Request, resp *http.Respons
 }
 
 // parseEmbeddingDimensions inspects a raw embedding response body and returns
-// the model dimension count of a single output vector. It supports the OpenAI-style
-// data[].embedding layout (Voyage, Jina) and the Cohere v2
-// embeddings.{float,int8,...}[][] layout. Returns 0 when not determinable.
-func parseEmbeddingDimensions(body []byte) int {
+// the model dimension count of a single output vector. It supports the
+// OpenAI-style data[].embedding layout (Voyage, Jina) and the Cohere v2
+// embeddings.{float,int8,...}[][] layout. Vectors are decoded according to the
+// representation requested in req: binary/ubinary entries pack eight
+// dimensions per byte, and base64 strings carry packed element bytes. Bodies
+// are decoded best-effort so a batch truncated by the capture limit still
+// yields the dimension of its first complete vector. Returns 0 when not
+// determinable.
+func parseEmbeddingDimensions(req *request.EmbeddingRequest, body []byte) int {
 	if len(body) == 0 {
 		return 0
 	}
 
-	// OpenAI-style layout: {"data":[{"embedding":[...]}]}
+	dtype := req.RequestedDtype()
+
+	// OpenAI-style layout: {"data":[{"embedding":<vector>}]}
 	var openAIStyle struct {
 		Data []struct {
-			Embedding []json.Number `json:"embedding"`
+			Embedding json.RawMessage `json:"embedding"`
 		} `json:"data"`
 	}
-	if unmarshalJSON(body, &openAIStyle) && len(openAIStyle.Data) > 0 {
-		if n := len(openAIStyle.Data[0].Embedding); n > 0 {
+	unmarshalJSONBestEffort(body, &openAIStyle)
+	if len(openAIStyle.Data) > 0 {
+		if n := embeddingVectorDims(openAIStyle.Data[0].Embedding, dtype); n > 0 {
 			return n
 		}
 	}
@@ -127,52 +137,111 @@ func parseEmbeddingDimensions(body []byte) int {
 	var cohereStyle struct {
 		Embeddings map[string]json.RawMessage `json:"embeddings"`
 	}
-	if unmarshalJSON(body, &cohereStyle) {
-		if n := cohereEmbeddingDimensions(cohereStyle.Embeddings); n > 0 {
-			return n
-		}
-	}
+	unmarshalJSONBestEffort(body, &cohereStyle)
 
-	return 0
+	return cohereEmbeddingDimensions(cohereStyle.Embeddings)
 }
 
-// cohereBinaryPackedDims is the number of model dimensions packed into each
-// byte entry of a Cohere v2 binary/ubinary embedding vector.
-const cohereBinaryPackedDims = 8
+// binaryPackedDims is the number of model dimensions packed into each byte
+// entry of a binary/ubinary embedding vector.
+const binaryPackedDims = 8
+
+// float32Bytes is the byte width of one float32 embedding element, the
+// representation providers default to for base64-encoded vectors.
+const float32Bytes = 4
 
 // cohereEmbeddingDimensions derives the model dimension count from Cohere v2
 // embeddings, keyed by embedding type. Non-packed types are preferred because
 // their entry count equals the dimension count; binary/ubinary vectors pack
-// eight dimensions into each byte entry, so their length is expanded.
+// eight dimensions into each byte entry, and base64 vectors are strings of
+// packed float32 bytes.
 func cohereEmbeddingDimensions(embeddings map[string]json.RawMessage) int {
 	for _, key := range []string{"float", "int8", "uint8"} {
-		if n := cohereVectorLength(embeddings, key); n > 0 {
+		if n := cohereVectorDims(embeddings, key); n > 0 {
 			return n
 		}
 	}
 
 	for _, key := range []string{"binary", "ubinary"} {
-		if n := cohereVectorLength(embeddings, key); n > 0 {
-			return n * cohereBinaryPackedDims
+		if n := cohereVectorDims(embeddings, key); n > 0 {
+			return n
 		}
 	}
 
-	return 0
+	return cohereVectorDims(embeddings, "base64")
 }
 
-// cohereVectorLength returns the entry count of the first vector under the
-// given embedding type key, or 0 when the key is absent or its value is not
-// a numeric matrix.
-func cohereVectorLength(embeddings map[string]json.RawMessage, key string) int {
+// cohereVectorDims returns the dimension count derived from the first vector
+// under the given embedding type key, or 0 when the key is absent or its
+// first vector is incomplete.
+func cohereVectorDims(embeddings map[string]json.RawMessage, key string) int {
 	raw, ok := embeddings[key]
 	if !ok {
 		return 0
 	}
 
-	var vectors [][]json.Number
+	var vectors []json.RawMessage
 	if !unmarshalJSON(raw, &vectors) || len(vectors) == 0 {
 		return 0
 	}
 
-	return len(vectors[0])
+	return embeddingVectorDims(vectors[0], key)
+}
+
+// embeddingVectorDims returns the model dimension count of a single embedding
+// vector, honoring the requested element representation: numeric arrays count
+// entries (expanded for bit-packed binary/ubinary), and base64 strings are
+// decoded to bytes sized by the underlying dtype. A partially captured vector
+// fails strict decoding and yields 0.
+func embeddingVectorDims(vec json.RawMessage, dtype string) int {
+	trimmed := bytes.TrimSpace(vec)
+	if len(trimmed) == 0 {
+		return 0
+	}
+
+	switch trimmed[0] {
+	case '[':
+		var arr []json.Number
+		if json.Unmarshal(trimmed, &arr) != nil || len(arr) == 0 {
+			return 0
+		}
+		if isPackedDtype(dtype) {
+			return len(arr) * binaryPackedDims
+		}
+		return len(arr)
+	case '"':
+		var s string
+		if json.Unmarshal(trimmed, &s) != nil || s == "" {
+			return 0
+		}
+		decoded, err := base64.StdEncoding.DecodeString(s)
+		if err != nil || len(decoded) == 0 {
+			return 0
+		}
+		return dimsFromPackedBytes(len(decoded), dtype)
+	}
+
+	return 0
+}
+
+func isPackedDtype(dtype string) bool {
+	return dtype == "binary" || dtype == "ubinary"
+}
+
+// dimsFromPackedBytes converts a decoded base64 byte count into a dimension
+// count based on the element representation: int8/uint8 use one byte per
+// dimension, binary/ubinary pack eight dimensions per byte, and everything
+// else defaults to float32 elements.
+func dimsFromPackedBytes(n int, dtype string) int {
+	switch {
+	case dtype == "int8" || dtype == "uint8":
+		return n
+	case isPackedDtype(dtype):
+		return n * binaryPackedDims
+	default:
+		if n%float32Bytes != 0 {
+			return 0
+		}
+		return n / float32Bytes
+	}
 }

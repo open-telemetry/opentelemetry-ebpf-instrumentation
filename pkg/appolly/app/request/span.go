@@ -973,24 +973,71 @@ type EmbeddingRequest struct {
 	OutputDimension int `json:"output_dimension,omitempty"`
 	// Cohere uses "texts" instead of "input"
 	Texts json.RawMessage `json:"texts,omitempty"`
-	// EncodingFormat is the OpenAI/Voyage/Jina style single-value output format.
+	// EncodingFormat is the OpenAI/Voyage style single-value output format.
 	EncodingFormat string `json:"encoding_format,omitempty"`
 	// EmbeddingTypes is the Cohere v2 style list of output formats.
 	EmbeddingTypes []string `json:"embedding_types,omitempty"`
+	// EmbeddingType is the Jina style output format: a string or an array of
+	// strings.
+	EmbeddingType json.RawMessage `json:"embedding_type,omitempty"`
+	// OutputDtype is the Voyage style element representation of the output
+	// vectors (float, int8, uint8, binary, ubinary).
+	OutputDtype string `json:"output_dtype,omitempty"`
 }
 
 // EncodingFormats returns the requested output encoding formats, normalizing
-// across providers: OpenAI/Voyage/Jina expose a single "encoding_format"
-// string, while Cohere v2 uses an "embedding_types" array. Returns nil when
+// across providers: Cohere v2 uses an "embedding_types" array, Jina an
+// "embedding_type" string or array, Voyage an "output_dtype" string, and
+// OpenAI-compatible APIs a single "encoding_format" string. Returns nil when
 // no format was specified.
 func (r *EmbeddingRequest) EncodingFormats() []string {
 	if len(r.EmbeddingTypes) > 0 {
 		return r.EmbeddingTypes
 	}
+	if types := r.embeddingTypeValues(); len(types) > 0 {
+		return types
+	}
+	if r.OutputDtype != "" {
+		if r.EncodingFormat != "" && r.EncodingFormat != r.OutputDtype {
+			return []string{r.OutputDtype, r.EncodingFormat}
+		}
+		return []string{r.OutputDtype}
+	}
 	if r.EncodingFormat != "" {
 		return []string{r.EncodingFormat}
 	}
 	return nil
+}
+
+// embeddingTypeValues parses the Jina "embedding_type" field, which may be a
+// single string or an array of strings.
+func (r *EmbeddingRequest) embeddingTypeValues() []string {
+	if len(r.EmbeddingType) == 0 {
+		return nil
+	}
+	var arr []string
+	if json.Unmarshal(r.EmbeddingType, &arr) == nil {
+		return arr
+	}
+	var s string
+	if json.Unmarshal(r.EmbeddingType, &s) == nil && s != "" {
+		return []string{s}
+	}
+	return nil
+}
+
+// RequestedDtype returns the element representation requested for the output
+// vectors, normalizing provider-specific fields: Voyage "output_dtype", Jina
+// "embedding_type", and the OpenAI-style "encoding_format". Returns empty
+// string when unspecified (providers default to float).
+func (r *EmbeddingRequest) RequestedDtype() string {
+	if r.OutputDtype != "" {
+		return r.OutputDtype
+	}
+	if types := r.embeddingTypeValues(); len(types) > 0 {
+		return types[0]
+	}
+	return r.EncodingFormat
 }
 
 // InputCount returns the number of input texts in the request.
