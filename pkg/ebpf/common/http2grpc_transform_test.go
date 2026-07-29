@@ -4,10 +4,16 @@
 package ebpfcommon
 
 import (
+	"bytes"
+	"fmt"
+	"math"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"golang.org/x/net/http2"
+	"golang.org/x/net/http2/hpack"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/bhpack"
@@ -192,12 +198,323 @@ func TestHTTP2Parsing(t *testing.T) {
 				}
 
 				if ff, ok := f.(*http2.HeadersFrame); ok {
-					method, path, contentType, _ := readMetaFrame(parseContext, 0, framer, ff)
+					method, path, contentType, _, _ := readMetaFrame(parseContext, 0, framer, ff)
 					assert.Equal(t, tt.method, method)
 					assert.Equal(t, tt.path, path)
 					assert.Equal(t, tt.contentType, contentType)
 				}
 			}
+		})
+	}
+}
+
+// HEADERS frame with END_HEADERS carrying the given HPACK block
+func headersFrame(t *testing.T, payload []byte) *http2.HeadersFrame {
+	t.Helper()
+
+	frame := append([]byte{0, 0, byte(len(payload)), 1, 4, 0, 0, 0, 5}, payload...)
+	f, err := byteFramer(frame).ReadFrame()
+	require.NoError(t, err)
+	hf, ok := f.(*http2.HeadersFrame)
+	require.True(t, ok)
+
+	return hf
+}
+
+// literal with incremental indexing, name referenced from the static table
+func indexedNameField(nameIdx byte, value string) []byte {
+	return append([]byte{0x40 | nameIdx, byte(len(value))}, value...)
+}
+
+func TestHTTP2ResponseDetection(t *testing.T) {
+	// :status 200 (indexed, 0x88) + content-type: application/grpc
+	payload := append([]byte{0x88, 0x10, 0xc}, []byte("content-type")...)
+	payload = append(payload, 0x10)
+	payload = append(payload, []byte("application/grpc")...)
+
+	parseContext := NewEBPFParseContext(nil, nil, nil)
+	framer := byteFramer(nil)
+
+	_, _, _, _, isResponse := readMetaFrame(parseContext, 1, framer, headersFrame(t, payload))
+	assert.True(t, isResponse, "HEADERS opening with :status must be flagged as a response")
+}
+
+// A response block decoded with the request decoder inserts into the wrong dynamic table, and
+// every index the peer sends afterwards resolves one entry off.
+//
+// Only 200, 204, 206, 304, 400, 404 and 500 have a static entry of their own. Every other code
+// is a literal with the name referenced from the static table, and all of entries 8-14 name
+// :status, so the opener check has to accept every one of them.
+func TestHTTP2ResponseDoesNotPolluteRequestTable(t *testing.T) {
+	// literal with incremental indexing, :status name referenced from nameIdx
+	status418 := func(nameIdx byte) []byte {
+		return indexedNameField(nameIdx, "418")
+	}
+
+	for _, tc := range []struct {
+		name   string
+		opener []byte
+	}{
+		{":status 200, fully indexed", []byte{0x88}},
+		{":status 418, name ref 8", status418(8)},
+		{":status 418, name ref 11", status418(11)},
+		{":status 418, name ref 14", status418(14)},
+		{":status 418, without indexing", append([]byte{0x0e, 3}, "418"...)},
+		{":status 418, never indexed", append([]byte{0x1e, 3}, "418"...)},
+		{"size update, then :status 418", append([]byte{0x20}, status418(8)...)},
+		{"two size updates, then :status 418", append([]byte{0x20, 0x20}, status418(8)...)},
+		{"multi-byte size update, then :status 418", append([]byte{0x3f, 0xe1, 0x1f}, status418(8)...)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			const (
+				pathStaticIdx = 4
+				mostRecentIdx = 0xbe // dynamic table entry 62
+				secondIdx     = 0xbf // dynamic table entry 63
+			)
+
+			parseContext := NewEBPFParseContext(nil, nil, nil)
+			framer := byteFramer(nil)
+
+			// peer inserts (:path, /p1)
+			first := append([]byte{0x82}, indexedNameField(pathStaticIdx, "/p1")...)
+			_, path, _, _, isResponse := readMetaFrame(parseContext, 1, framer, headersFrame(t, first))
+			require.False(t, isResponse)
+			require.Equal(t, "/p1", path)
+
+			// a response lands on the same connection, inserting (:path, /bad) if it is decoded here
+			resp := append(append([]byte{}, tc.opener...), indexedNameField(pathStaticIdx, "/bad")...)
+			_, _, _, _, isResponse = readMetaFrame(parseContext, 1, framer, headersFrame(t, resp))
+			require.True(t, isResponse)
+
+			// peer inserts (:path, /p2), so its own table holds /p2 at 62 and /p1 at 63
+			second := append([]byte{0x82}, indexedNameField(pathStaticIdx, "/p2")...)
+			_, path, _, _, _ = readMetaFrame(parseContext, 1, framer, headersFrame(t, second))
+			require.Equal(t, "/p2", path)
+
+			_, path, _, _, _ = readMetaFrame(parseContext, 1, framer,
+				headersFrame(t, []byte{0x82, mostRecentIdx}))
+			assert.Equal(t, "/p2", path, "entry 62 must be the peer's most recent insertion")
+
+			_, path, _, _, _ = readMetaFrame(parseContext, 1, framer,
+				headersFrame(t, []byte{0x82, secondIdx}))
+			assert.Equal(t, "/p1", path, "entry 63 must be the peer's previous insertion, not the response")
+		})
+	}
+}
+
+// encodeHPACK writes fields with a real encoder, so the representation each field gets is not
+// this test's guess. tableSizes are applied first, which makes the encoder emit size updates
+// ahead of the block.
+func encodeHPACK(t *testing.T, tableSizes []uint32, fields ...hpack.HeaderField) []byte {
+	t.Helper()
+
+	var buf bytes.Buffer
+	enc := hpack.NewEncoder(&buf)
+	for _, size := range tableSizes {
+		enc.SetMaxDynamicTableSize(size)
+	}
+	for _, f := range fields {
+		require.NoError(t, enc.WriteField(f))
+	}
+
+	return buf.Bytes()
+}
+
+// Every status code a server can send must be recognized, not only the seven with a static
+// entry. x/net names :status through entry 14, so a first non-static code opens with 0x4e.
+func TestHPACKOpensResponseAgainstEncoder(t *testing.T) {
+	for code := 100; code < 600; code++ {
+		status := hpack.HeaderField{Name: ":status", Value: strconv.Itoa(code)}
+
+		for _, tc := range []struct {
+			name       string
+			tableSizes []uint32
+			field      hpack.HeaderField
+		}{
+			{"plain", nil, status},
+			{"sensitive", nil, hpack.HeaderField{Name: status.Name, Value: status.Value, Sensitive: true}},
+			{"after a size update", []uint32{4096}, status},
+			{"after two size updates", []uint32{0, 4096}, status},
+		} {
+			block := encodeHPACK(t, tc.tableSizes, tc.field)
+
+			// the encoder deciding to emit no update would leave the skip untested
+			require.Equal(t, len(tc.tableSizes) > 0, hpackFieldStart(block) > 0,
+				"%s must carry a size update, got % x", tc.name, block)
+
+			assert.True(t, hpackOpensResponse(block),
+				":status %d %s must open a response, got % x", code, tc.name, block)
+		}
+	}
+}
+
+// The mirror case: a request block must never be taken for a response, or the guard would stop
+// decoding the requests OBI reports.
+func TestHPACKOpensResponseRejectsRequests(t *testing.T) {
+	paths := []string{"/", "/index.html", "/a", "/relay.Relay/Relay"}
+	methods := []string{"GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS", "CONNECT"}
+
+	for _, method := range methods {
+		for _, path := range paths {
+			for _, sizes := range [][]uint32{nil, {4096}, {0, 4096}} {
+				block := encodeHPACK(t, sizes,
+					hpack.HeaderField{Name: ":method", Value: method},
+					hpack.HeaderField{Name: ":path", Value: path},
+					hpack.HeaderField{Name: ":scheme", Value: "https"},
+					hpack.HeaderField{Name: ":authority", Value: "host:8080"},
+					hpack.HeaderField{Name: "content-type", Value: "application/grpc"},
+				)
+				assert.False(t, hpackOpensResponse(block),
+					"%s %s must not open a response, got % x", method, path, block)
+			}
+		}
+	}
+
+	// a gRPC trailer block opens with a new name, neither a request nor a response
+	trailers := encodeHPACK(t, nil, hpack.HeaderField{Name: "grpc-status", Value: "0"})
+	assert.False(t, hpackOpensResponse(trailers), "trailers must not open a response")
+}
+
+// hpackReference decodes the first byte of a representation per RFC 7541 6.1-6.3 and reports
+// the static index the field names, plus whether the byte is a field at all. Written from the
+// RFC rather than from the code under test, so the two can disagree.
+func hpackReference(b byte) (idx int, isField bool) {
+	switch {
+	case b&0x80 == 0x80: // 6.1 indexed header field, 7-bit index
+		return int(b & 0x7f), true
+	case b&0xc0 == 0x40: // 6.2.1 literal with incremental indexing, 6-bit name index
+		return int(b & 0x3f), true
+	case b&0xe0 == 0x20: // 6.3 dynamic table size update, carries no field
+		return 0, false
+	case b&0xf0 == 0x00: // 6.2.2 literal without indexing, 4-bit name index
+		return int(b & 0x0f), true
+	default: // b&0xf0 == 0x10, 6.2.3 literal never indexed, 4-bit name index
+		return int(b & 0x0f), true
+	}
+}
+
+// Static entries 8-14 all name :status (A. Static Table Definition). A 4-bit prefix cannot hold
+// an index of 15 or more, so 0x0f and 0x1f start a varint instead of naming an entry.
+func TestHPACKOpensResponseExhaustive(t *testing.T) {
+	const (
+		statusFirst = 8
+		statusLast  = 14
+		varintMore  = 15
+	)
+
+	for b := 0; b < 256; b++ {
+		idx, isField := hpackReference(byte(b))
+		fourBit := b&0x80 == 0 && b&0xc0 != 0x40 && b&0xe0 != 0x20
+
+		want := isField && idx >= statusFirst && idx <= statusLast
+		if fourBit && idx >= varintMore {
+			want = false
+		}
+
+		assert.Equal(t, want, hpackOpensResponse([]byte{byte(b)}), "byte 0x%02x", b)
+	}
+}
+
+// A block cannot open a request and a response at once, so the BPF sniffer's two predicates
+// must not overlap. Mirrors h2_hpack_opens_request, which has no Go counterpart to call.
+func TestHPACKOpenersAreDisjoint(t *testing.T) {
+	opensRequest := func(b byte) bool {
+		idx, isField := hpackReference(b)
+		if !isField {
+			return false
+		}
+		if b&0x80 != 0 {
+			return (idx >= 1 && idx <= 7) || idx >= 62
+		}
+		return idx >= 1 && idx <= 7
+	}
+
+	for b := 0; b < 256; b++ {
+		if hpackOpensResponse([]byte{byte(b)}) {
+			assert.False(t, opensRequest(byte(b)), "byte 0x%02x opens both", b)
+		}
+	}
+}
+
+// hpackSizeUpdate encodes a dynamic table size update per RFC 7541 5.1 and 6.3.
+func hpackSizeUpdate(size uint32) []byte {
+	const prefix5 = 0x1f
+
+	if size < prefix5 {
+		return []byte{0x20 | byte(size)}
+	}
+
+	out := []byte{0x20 | prefix5}
+	for size -= prefix5; size >= 0x80; size >>= 7 {
+		out = append(out, byte(size&0x7f)|0x80)
+	}
+
+	return append(out, byte(size))
+}
+
+// The opener sits past any size updates, whatever their encoded width. Callers that misjudge
+// the width read a varint octet as the opener and misclassify the block.
+func TestHPACKFieldStartSkipsSizeUpdates(t *testing.T) {
+	// 5.1 boundaries: prefix-only, prefix exhausted, and each added continuation octet
+	sizes := []uint32{0, 30, 31, 32, 158, 159, 4096, 16384, 65536, 1 << 21, 1 << 28, math.MaxUint32}
+
+	for _, size := range sizes {
+		for updates := 1; updates <= 3; updates++ {
+			t.Run(fmt.Sprintf("size %d, %d updates", size, updates), func(t *testing.T) {
+				var frag []byte
+				for range updates {
+					frag = append(frag, hpackSizeUpdate(size)...)
+				}
+				want := len(frag)
+				frag = append(frag, 0x4e) // :status name ref 14
+
+				assert.Equal(t, want, hpackFieldStart(frag))
+				assert.True(t, hpackOpensResponse(frag), "response must survive the updates")
+			})
+		}
+	}
+
+	assert.Len(t, hpackSizeUpdate(math.MaxUint32), 6, "a u32 update is at most six octets")
+}
+
+func TestHPACKFieldStartRejectsTruncated(t *testing.T) {
+	full := append(hpackSizeUpdate(math.MaxUint32), 0x4e)
+
+	for cut := 1; cut < len(full); cut++ {
+		frag := full[:cut]
+		assert.Equal(t, -1, hpackFieldStart(frag), "%d octets hold no field", cut)
+		assert.False(t, hpackOpensResponse(frag))
+	}
+
+	assert.Equal(t, len(full)-1, hpackFieldStart(full))
+}
+
+func TestHPACKOpensResponse(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		frag []byte
+		want bool
+	}{
+		{":status 200 indexed", []byte{0x88}, true},
+		{":status 504 indexed", []byte{0x8e}, true},
+		{"name ref 8, incremental", []byte{0x48}, true},
+		{"name ref 14, incremental", []byte{0x4e}, true},
+		{"name ref 12, without indexing", []byte{0x0c}, true},
+		{"name ref 12, never indexed", []byte{0x1c}, true},
+		{"size update then name ref", []byte{0x20, 0x48}, true},
+		{":method indexed", []byte{0x83}, false},
+		{":path name ref", []byte{0x44}, false},
+		{"dyn-table entry", []byte{0xc3}, false},
+		{"new name, no index ref", []byte{0x40}, false},
+		{"index 15 is a varint continuation", []byte{0x1f}, false},
+		// 0x50 is not a literal prefix, so the low bits are not a name index
+		{"0x5a is not a literal form", []byte{0x5a}, false},
+		{"empty block", nil, false},
+		{"only a size update", []byte{0x20}, false},
+		{"truncated size update varint", []byte{0x3f, 0xe1}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, hpackOpensResponse(tc.frag))
 		})
 	}
 }
