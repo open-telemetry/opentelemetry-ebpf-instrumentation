@@ -318,8 +318,7 @@ func testPythonPostgres(t *testing.T) {
 	testPythonSQLError(t, comm, testCaseURL, db)
 }
 
-func testPythonPostgresAfterHeaders(t *testing.T) {
-	testCaseURL := "http://localhost:8381"
+func testPythonPostgresAfterHeaders(t *testing.T, testCaseURL string) {
 	comm := "python3.14"
 	table := "accounting.contacts"
 	db := "postgresql"

@@ -1,5 +1,6 @@
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import os
+import ssl
 import sys
 
 import psycopg
@@ -61,4 +62,9 @@ class RequestHandler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     print(f"Server running: port={8080} process_id={os.getpid()}", flush=True)
-    HTTPServer(("", 8080), RequestHandler).serve_forever()
+    server = HTTPServer(("", 8080), RequestHandler)
+    if os.getenv("PYTHON_SQL_TLS") == "true":
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        context.load_cert_chain("/server.crt", "/server.key")
+        server.socket = context.wrap_socket(server.socket, server_side=True)
+    server.serve_forever()

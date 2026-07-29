@@ -7,4 +7,6 @@ COPY requirements.txt /requirements.txt
 RUN pip install --require-hashes -r /requirements.txt
 COPY main.py /main.py
 COPY main_sync.py /main_sync.py
+COPY server.crt /server.crt
+COPY server.key /server.key
 CMD ["uvicorn", "--port", "8080", "--host", "0.0.0.0", "main:app"]

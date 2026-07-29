@@ -20,57 +20,12 @@
 
 #include <logger/bpf_dbg.h>
 
-static __always_inline void cleanup_ssl_trace_info(http_info_t *info, void *ssl) {
-    if (info->type == EVENT_HTTP_REQUEST) {
-        ssl_pid_connection_info_t *ssl_info = bpf_map_lookup_elem(&ssl_to_conn, &ssl);
-
-        if (ssl_info) {
-            bpf_dbg_printk(
-                "Looking to delete server trace for ssl = %llx, info->type = %d", ssl, info->type);
-            //dbg_print_http_connection_info(&ssl_info->conn.conn); // commented out since GitHub CI doesn't like this call
-            trace_key_t t_key = {0};
-            t_key.extra_id = info->extra_id;
-            t_key.p_key.ns = info->pid.ns;
-            t_key.p_key.tid = info->task_tid;
-            t_key.p_key.pid = info->pid.user_pid;
-
-            delete_server_trace(&ssl_info->p_conn, &t_key);
-        }
-    }
-}
-
 static __always_inline void
-cleanup_ssl_server_trace(http_info_t *info, void *ssl, void *buf, u32 len) {
-    if (info && http_will_complete(info, (unsigned char *)buf, len)) {
-        cleanup_ssl_trace_info(info, ssl);
-    }
-}
-
-static __always_inline void cleanup_complete_ssl_server_trace(http_info_t *info, void *ssl) {
-    if (info && http_info_complete(info)) {
-        cleanup_ssl_trace_info(info, ssl);
-    }
-}
-
-static __always_inline void
-finish_possible_delayed_tls_http_request(pid_connection_info_t *pid_conn, void *ssl) {
+finish_possible_delayed_tls_http_request(pid_connection_info_t *pid_conn) {
     http_info_t *info = bpf_map_lookup_elem(&ongoing_http, pid_conn);
     if (info && info->submitted) {
-        // we need to check for server request, the same thread
-        // could be handling both client and server requests
-        if (info->type == EVENT_HTTP_REQUEST) {
-            cleanup_complete_ssl_server_trace(info, ssl);
-        }
         finish_http(info, pid_conn);
     }
-}
-
-static __always_inline void cleanup_trace_info_for_delayed_trace(pid_connection_info_t *pid_conn,
-                                                                 void *ssl,
-                                                                 void *buf,
-                                                                 u32 len) {
-    http_info_t *info = bpf_map_lookup_elem(&ongoing_http, pid_conn);
-    cleanup_ssl_server_trace(info, ssl, buf, len);
 }
 
 static __always_inline void
@@ -139,10 +94,6 @@ handle_ssl_buf(void *ctx, u64 id, ssl_args_t *args, int bytes_len, u8 direction)
             bpf_dbg_printk("SSL conn");
             dbg_print_http_connection_info(&conn->p_conn.conn);
 
-            // We should attempt to clean up the server trace immediately. The cleanup information
-            // is keyed of the *ssl, so when it's delayed we might have different *ssl on the same
-            // connection.
-            cleanup_trace_info_for_delayed_trace(&conn->p_conn, ssl, (void *)args->buf, bytes_len);
             // must be last, doesn't return
             handle_buf_with_connection(ctx,
                                        &conn->p_conn,

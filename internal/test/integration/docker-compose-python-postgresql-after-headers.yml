@@ -19,6 +19,8 @@ services:
     command: ["python", "/main_sync.py"]
     ports:
       - "${TEST_SERVICE_PORTS}"
+    environment:
+      PYTHON_SQL_TLS: "${PYTHON_SQL_TLS:-false}"
     depends_on:
       otelcol:
         condition: service_started
