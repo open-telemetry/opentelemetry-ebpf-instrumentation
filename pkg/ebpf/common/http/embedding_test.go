@@ -295,7 +295,7 @@ func TestEmbeddingRequest_NativeFormatFields(t *testing.T) {
 	t.Run("cohere_embedding_types_take_precedence", func(t *testing.T) {
 		r := &request.EmbeddingRequest{EmbeddingTypes: []string{"float", "binary"}}
 		assert.Equal(t, []string{"float", "binary"}, r.EncodingFormats())
-		assert.Equal(t, "", r.RequestedDtype())
+		assert.Empty(t, r.RequestedDtype())
 	})
 }
 
