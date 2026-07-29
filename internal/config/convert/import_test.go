@@ -143,11 +143,11 @@ func TestV2ToRuntimePartialAerospikeDefaultsOmittedSignals(t *testing.T) {
 			require.NoError(t, err)
 
 			require.Equal(t, test.tracesEnabled,
-				containsInstrumentation(got.Traces.Instrumentations, instrumentations.InstrumentationAerospike))
+				instrumentations.NewInstrumentationSelection(got.Traces.Instrumentations).AerospikeEnabled())
 			require.Equal(t, test.metricsEnabled,
-				containsInstrumentation(got.OTELMetrics.Instrumentations, instrumentations.InstrumentationAerospike))
+				instrumentations.NewInstrumentationSelection(got.OTELMetrics.Instrumentations).AerospikeEnabled())
 			require.Equal(t, test.metricsEnabled,
-				containsInstrumentation(got.Prometheus.Instrumentations, instrumentations.InstrumentationAerospike))
+				instrumentations.NewInstrumentationSelection(got.Prometheus.Instrumentations).AerospikeEnabled())
 		})
 	}
 }
