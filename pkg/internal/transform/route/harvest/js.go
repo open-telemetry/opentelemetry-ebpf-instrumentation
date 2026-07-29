@@ -217,13 +217,14 @@ func newFrameworkPatterns() *FrameworkPatterns {
 		// Supports both string literals and regex literals
 		HTTPDispatcher: regexp.MustCompile(`\.on(Get|Post|Put|Patch|Delete|Head|Options|All)\s*\(\s*(?:['"\x60]([^'"\x60]+)['"\x60]|/((?:[^\\,]|\\.)+))`),
 
-		// URLPattern WEB API. The constructor takes the pattern either as a
-		// string or as an init object, optionally through a namespace object:
+		// URLPattern WEB API: matches the opening of the constructor call, whose
+		// arguments are then read until the call closes. The pattern is given
+		// either as a string or as an init object, and either of them may be
+		// spread over several lines:
 		//   new URLPattern("https://example.com/books/:id")
 		//   new URLPattern({ pathname: "/books/:id" })
 		//   new urlpattern.URLPattern("/books/:id", base)
-		// \s covers the line breaks of a call spread over several lines.
-		URLPattern: regexp.MustCompile(`URLPattern\s*\(\s*(?:['"\x60]([^'"\x60]*)['"\x60])?`),
+		URLPattern: regexp.MustCompile(`URLPattern\s*\(`),
 
 		// Matches the 'pathname' member of a URLPattern init object in every
 		// legal property key form: pathname, 'pathname', ["pathname"]
@@ -271,9 +272,9 @@ type RouteExtractor struct {
 	// enableVersioningTypeSeen tracks whether the current enableVersioning call
 	// named an explicit VersioningType (URI is NestJS's default when it didn't)
 	enableVersioningTypeSeen bool
-	// inURLPattern tracks a new URLPattern({...}) call whose init object spans
-	// several lines, until its closing parenthesis
-	inURLPattern bool
+	// urlPatternCall buffers the arguments of the URLPattern call currently
+	// being scanned, nil when no call is open
+	urlPatternCall *urlPatternCall
 
 	// application-level NestJS settings, harvested from any scanned file
 	// (typically main.ts) and applied to Nest routes after the scan
@@ -719,43 +720,140 @@ func urlPatternPathname(pattern string) string {
 	return ensureLeadingSlash(pattern)
 }
 
-// handleURLPattern harvests routes declared through the URL Pattern API. The
-// pattern comes either as a string argument or as an init object holding a
-// 'pathname' member. The init object may be spread over several lines, so the
-// call is tracked until its closing parenthesis. No method is declared, so the
-// route applies to all of them.
+// urlPatternCall buffers the arguments of a URLPattern call while it is being
+// scanned. The scanner reads one physical line at a time and the call may span
+// several of them, so its arguments are parsed only once the call closes.
+type urlPatternCall struct {
+	args  strings.Builder
+	depth int
+	file  string
+	line  int
+}
+
+// consume appends the part of text that belongs to the call and returns the
+// offset just past its closing parenthesis, or -1 when the call is still open.
+// Parentheses inside a string literal belong to a component pattern
+// (protocol: "(https?)"), not to the call, so they are skipped.
+func (c *urlPatternCall) consume(text string) int {
+	for i := 0; i < len(text); i++ {
+		switch text[i] {
+		case '\'', '"', '`':
+			i = endOfJSString(text, i)
+		case '(':
+			c.depth++
+		case ')':
+			c.depth--
+			if c.depth == 0 {
+				c.args.WriteString(text[:i])
+				return i + 1
+			}
+		}
+	}
+
+	c.args.WriteString(text)
+	return -1
+}
+
+// endOfJSString returns the offset of the closing quote of the string literal
+// that starts at open, or len(s) when the literal does not close in s.
+func endOfJSString(s string, open int) int {
+	quote := s[open]
+	for i := open + 1; i < len(s); i++ {
+		switch s[i] {
+		case '\\':
+			i++
+		case quote:
+			return i
+		}
+	}
+	return len(s)
+}
+
+func isJSQuote(c byte) bool {
+	return c == '\'' || c == '"' || c == '`'
+}
+
+// handleURLPattern harvests routes declared through the URL Pattern API. A call
+// may open, span, and close any number of lines, so each line is fed to the
+// buffered call and the route is emitted when the call closes.
 func (e *RouteExtractor) handleURLPattern(filePath, line string, lineNum int) bool {
-	constructors := e.patterns.URLPattern.FindAllStringSubmatch(line, -1)
-	if constructors == nil && !e.inURLPattern {
+	if e.urlPatternCall != nil {
+		e.urlPatternCall.args.WriteString("\n")
+	} else if !e.patterns.URLPattern.MatchString(line) {
 		return false
 	}
 
-	addRoute := func(path string) {
-		if path == "" {
-			return
+	rest := line
+	for {
+		if e.urlPatternCall == nil {
+			opening := e.patterns.URLPattern.FindStringIndex(rest)
+			if opening == nil {
+				return true
+			}
+			e.urlPatternCall = &urlPatternCall{depth: 1, file: filePath, line: lineNum}
+			rest = rest[opening[1]:]
 		}
-		e.routes = append(e.routes, RoutePattern{
-			Method: "ALL",
-			Path:   path,
-			File:   filePath,
-			Line:   lineNum,
-		})
+
+		end := e.urlPatternCall.consume(rest)
+		if end < 0 {
+			return true
+		}
+
+		e.flushURLPattern()
+		rest = rest[end:]
+	}
+}
+
+// flushURLPattern emits the route declared by the buffered URLPattern call. It
+// is also called at the end of a file, which may end (or be truncated at
+// MaxJSFileScanBytes) while a call is still open.
+func (e *RouteExtractor) flushURLPattern() {
+	call := e.urlPatternCall
+	if call == nil {
+		return
+	}
+	e.urlPatternCall = nil
+
+	path := e.urlPatternPath(call.args.String())
+	if path == "" {
+		return
 	}
 
-	for _, constructor := range constructors {
-		e.inURLPattern = true
-		addRoute(urlPatternPathname(constructor[1]))
+	// URLPattern declares no method, so the route applies to all of them
+	e.routes = append(e.routes, RoutePattern{
+		Method: "ALL",
+		Path:   path,
+		File:   call.file,
+		Line:   call.line,
+	})
+}
+
+// urlPatternPath returns the route declared by the arguments of a URLPattern
+// call. Only the first argument holds the pattern, either as an init object
+// with a pathname member or as a pattern string; the second one is a base URL
+// or an options object. Any other argument shape (a variable, a spread) is not
+// statically resolvable.
+func (e *RouteExtractor) urlPatternPath(args string) string {
+	args = strings.TrimSpace(args)
+	if args == "" {
+		return ""
 	}
 
-	for _, pathname := range e.patterns.URLPatternPathname.FindAllStringSubmatch(line, -1) {
-		addRoute(ensureLeadingSlash(pathname[1]))
+	if args[0] == '{' {
+		pathname := e.patterns.URLPatternPathname.FindStringSubmatch(args)
+		if pathname == nil || pathname[1] == "" {
+			return ""
+		}
+		return ensureLeadingSlash(pathname[1])
 	}
 
-	if strings.Contains(line, ")") {
-		e.inURLPattern = false
+	if isJSQuote(args[0]) {
+		if pattern := e.patterns.QuotedString.FindStringSubmatch(args); pattern != nil {
+			return urlPatternPathname(pattern[1])
+		}
 	}
 
-	return true
+	return ""
 }
 
 func (e *RouteExtractor) handleHTTPDispatcher(filePath, line string, lineNum int) bool {
@@ -936,7 +1034,7 @@ func (e *RouteExtractor) scanFile(filePath string) error {
 	e.pendingNestVersions = nil
 	e.pendingNestMethod = nil
 	e.inEnableVersioning = false
-	e.inURLPattern = false
+	e.urlPatternCall = nil
 
 	for scanner.Scan() {
 		lineNum++
@@ -1050,8 +1148,10 @@ func (e *RouteExtractor) scanFile(filePath string) error {
 		save = line
 	}
 
-	// the file may end while a method decorator stack is still buffered
+	// the file may end while a method decorator stack or a URLPattern call is
+	// still buffered
 	e.flushNestMethod()
+	e.flushURLPattern()
 
 	if err := scanner.Err(); err != nil {
 		return err

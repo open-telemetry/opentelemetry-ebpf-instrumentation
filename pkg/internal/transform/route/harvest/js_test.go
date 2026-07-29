@@ -957,6 +957,59 @@ func TestHandleURLPattern(t *testing.T) {
 			paths: []string{"/books/:id"},
 		},
 		{
+			name: "string pattern spread over several lines",
+			lines: []string{
+				`const pattern = new URLPattern(`,
+				`  "/books/:id",`,
+				`  base,`,
+				`)`,
+			},
+			paths: []string{"/books/:id"},
+		},
+		{
+			name: "parentheses of a component pattern do not close the call",
+			lines: []string{
+				`const pattern = new URLPattern({`,
+				`  protocol: "(https?)",`,
+				`  hostname: "(sub.)?example.com",`,
+				`  pathname: "/books/:id",`,
+				`});`,
+			},
+			paths: []string{"/books/:id"},
+		},
+		{
+			name: "unbalanced parenthesis inside a string does not swallow the call",
+			lines: []string{
+				`const pattern = new URLPattern({`,
+				`  search: "?q=\\(",`,
+				`  pathname: "/books/:id",`,
+				`});`,
+				`router.use(middleware);`,
+			},
+			paths: []string{"/books/:id"},
+		},
+		{
+			name:  "regexp group in the pathname",
+			lines: []string{`  new URLPattern({ pathname: "/books/:id(\\d+)" })`},
+			paths: []string{`/books/:id(\\d+)`},
+		},
+		{
+			name:  "base URL is not the pattern",
+			lines: []string{`  new URLPattern(init, "https://example.com/base/")`},
+		},
+		{
+			name:  "options object is not the pattern",
+			lines: []string{`  new URLPattern(init, { ignoreCase: true })`},
+		},
+		{
+			name: "file ends before the call closes",
+			lines: []string{
+				`const pattern = new URLPattern({`,
+				`  pathname: "/books/:id",`,
+			},
+			paths: []string{"/books/:id"},
+		},
+		{
 			name:  "string pattern with origin and no path",
 			lines: []string{`  new URLPattern("https://example.com")`},
 		},
@@ -981,16 +1034,46 @@ func TestHandleURLPattern(t *testing.T) {
 			for i, line := range tt.lines {
 				extractor.handleURLPattern("test.js", line, i+1)
 			}
+			// a file may end while a call is still open, as scanFile does
+			extractor.flushURLPattern()
 
 			var paths []string
 			for _, r := range extractor.routes {
 				assert.Equal(t, "ALL", r.Method)
 				assert.Equal(t, "test.js", r.File)
+				// the route is anchored at the line the call opens on
+				assert.Equal(t, 1, r.Line)
 				paths = append(paths, r.Path)
 			}
 			assert.Equal(t, tt.paths, paths)
 		})
 	}
+}
+
+// URLPattern calls spread over several lines must be harvested as framework
+// routes: as fallback guesses they would be discarded in favor of the partial
+// fragments of any compiled output.
+func TestRouteExtractorURLPatternMultiLineCall(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "urlpattern.js")
+	content := `const books = new URLPattern(
+  "/books/:id",
+  base,
+);
+
+const users = new URLPattern({
+  protocol: "(https?)",
+  pathname: "/users/:id",
+});
+
+export default { books, users };
+`
+	require.NoError(t, os.WriteFile(path, []byte(content), 0o644))
+
+	extractor := NewRouteExtractor()
+	require.NoError(t, extractor.scanFile(path))
+
+	assert.ElementsMatch(t, []string{"/books/:id", "/users/:id"}, extractor.GetHarvestedRoutes())
+	assert.Equal(t, 2, extractor.FrameworkRoutes())
 }
 
 func TestCleanupRegexPath(t *testing.T) {
