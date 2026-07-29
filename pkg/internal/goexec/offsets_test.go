@@ -56,14 +56,16 @@ func TestOffsets_SupportsGoAutoSDKActivation(t *testing.T) {
 	assert.False(t, (*Offsets)(nil).SupportsGoAutoSDKActivation())
 	assert.False(t, (&Offsets{}).SupportsGoAutoSDKActivation())
 	assert.False(t, (&Offsets{Field: FieldOffsets{
-		SpanContextTraceIDPos: uint64(0),
-		SpanContextSpanIDPos:  uint64(16),
+		SpanContextTraceIDPos:      uint64(0),
+		SpanContextSpanIDPos:       uint64(16),
+		AutoSDKActivationSupported: uint64(1),
 	}}).SupportsGoAutoSDKActivation())
 	assert.False(t, (&Offsets{Field: FieldOffsets{
-		SpanContextTraceIDPos:    uint64(0),
-		SpanContextSpanIDPos:     uint64(16),
-		SpanContextTraceFlagsPos: int64(24),
-		AutoSDKSpanContextPos:    uint64(80),
+		SpanContextTraceIDPos:      uint64(0),
+		SpanContextSpanIDPos:       uint64(16),
+		SpanContextTraceFlagsPos:   int64(24),
+		AutoSDKSpanContextPos:      uint64(80),
+		AutoSDKActivationSupported: uint64(1),
 	}}).SupportsGoAutoSDKActivation())
 	assert.False(t, (&Offsets{Field: FieldOffsets{
 		SpanContextTraceIDPos:    uint64(0),

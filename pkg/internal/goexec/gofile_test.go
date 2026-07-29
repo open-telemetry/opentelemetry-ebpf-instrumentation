@@ -101,6 +101,7 @@ func TestParseModulesTracksReplacements(t *testing.T) {
 		"go.opentelemetry.io/otel":       {},
 		"go.opentelemetry.io/otel/trace": {},
 	}, modules.replacements)
+	assert.False(t, modules.invalid)
 }
 
 func TestParseModulesRejectsOrphanReplacement(t *testing.T) {
@@ -133,6 +134,15 @@ func TestParseModulesRejectsDuplicateDependencies(t *testing.T) {
 	assert.True(t, modules.invalid)
 	assert.Equal(t, "v1.2.1", modules.versions["go.opentelemetry.io/auto/sdk"])
 	assert.Equal(t, "h1:first", modules.sums["go.opentelemetry.io/auto/sdk"])
+}
+
+func TestParseModulesRejectsUnparseableBuildInfo(t *testing.T) {
+	modules := parseModules("dep\t\n")
+
+	assert.Empty(t, modules.versions)
+	assert.Empty(t, modules.sums)
+	assert.Empty(t, modules.replacements)
+	assert.True(t, modules.invalid)
 }
 
 func TestRuntimeMetricSymbolAddrFallsBackToInternalSizeClassTable(t *testing.T) {

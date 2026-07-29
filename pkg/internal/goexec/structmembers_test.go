@@ -29,6 +29,7 @@ var (
 	smallELF            *elf.File
 	smallGRPCElf        *elf.File
 	smallSpanContextELF *elf.File
+	autoSDKSpanELF      *elf.File
 	smallAutoSDKSpanELF *elf.File
 )
 
@@ -72,7 +73,8 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	smallSpanContextELF = compileELF(baseDir+"/configs/offsets/oteltrace/inspect.go", "-ldflags", "-s -w")
-	autoSDKSpanData, err = compileELF(baseDir + "/configs/offsets/autosdk/inspect.go").DWARF()
+	autoSDKSpanELF = compileELF(baseDir + "/configs/offsets/autosdk/inspect.go")
+	autoSDKSpanData, err = autoSDKSpanELF.DWARF()
 	if err != nil {
 		panic(err)
 	}
@@ -175,6 +177,28 @@ func TestCurrentAutoSDKDependencyABI(t *testing.T) {
 		offsets, _ := structMemberOffsetsFromDwarf(autoSDKSpanData)
 		mustMatch(t, FieldOffsets{
 			AutoSDKSpanContextPos: uint64(80),
+		}, offsets)
+	})
+
+	t.Run("DWARF activation path", func(t *testing.T) {
+		originalStructMembers := structMembers
+		structMembers = map[string]structInfo{
+			"go.opentelemetry.io/auto/sdk.span": {
+				lib: "go.opentelemetry.io/auto/sdk",
+				fields: map[string]GoOffset{
+					"spanContext": AutoSDKSpanContextPos,
+				},
+			},
+		}
+		t.Cleanup(func() {
+			structMembers = originalStructMembers
+		})
+
+		offsets, err := structMemberOffsets(autoSDKSpanELF)
+		require.NoError(t, err)
+		mustMatch(t, FieldOffsets{
+			AutoSDKSpanContextPos:      uint64(80),
+			AutoSDKActivationSupported: uint64(1),
 		}, offsets)
 	})
 
@@ -375,6 +399,8 @@ func TestGoAutoSDKActivationRejectsUnsupportedVersions(t *testing.T) {
 		t.Run(tt.module+"_"+tt.version, func(t *testing.T) {
 			modules := goAutoSDKActivationTestModules()
 			modules.versions[tt.module] = tt.version
+			// Match the zero checksum returned by a failed allowlist lookup.
+			modules.sums[tt.module] = ""
 			assert.False(t, goAutoSDKActivationSupported(modules))
 		})
 	}
