@@ -1,14 +1,19 @@
-oats-schema-version: 2
-docker-compose:
-  files:
-  - ../docker-compose-java-tls-netty.yml
-  - ../../weaver/docker-compose-weaver.yml
-input:
-- path: /api/request?url=https://httpbin.org/get
+name: oats java tls netty
 interval: 500ms
+fixture:
+  compose:
+    files:
+      - ../docker-compose-java-tls-netty.yml
+      - ../../weaver/docker-compose-weaver.yml
+seed:
+  type: app
+input:
+  - path: /api/request?url=https://httpbin.org/get
 expected:
   traces:
-  - traceql: '{ .url.full = "/get" }'
-    equals: GET /get
-    attributes:
-      server.port: '443'
+    - traceql: '{ .url.full = "/get" }'
+      match_spans:
+        - name: GET /get
+          attributes:
+            - key: server.port
+              value: "443"

@@ -1,38 +1,48 @@
-oats-schema-version: 2
-docker-compose:
-  files:
-  - ../docker-compose-anthropic.yml
-  - ../../weaver/docker-compose-weaver.yml
-input:
-- path: /system
-- path: /error
-- path: /stream
+name: oats anthropic test
 interval: 500ms
+fixture:
+  compose:
+    files:
+      - ../docker-compose-anthropic.yml
+      - ../../weaver/docker-compose-weaver.yml
+seed:
+  type: app
+input:
+  - path: /system
+  - path: /error
+  - path: /stream
 expected:
   traces:
-  # Messages API call with system instructions
-  - traceql: '{ .gen_ai.provider.name = "anthropic" && .gen_ai.request.model = "claude-sonnet-4-6" && .gen_ai.response.id = "msg_01QCj5VkxPS3NQUtrt5Npjcr"}'
-    equals: message claude-sonnet-4-6
-    attributes:
-      gen_ai.operation.name: message
-      gen_ai.system_instructions: '[{"type":"text","content":"You are a helpful assistant that always responds in haiku format."}]'
-      gen_ai.response.model: claude-sonnet-4-6
-  # Error returned by Anthropic
-  - traceql: '{ .error.type = "authentication_error" && .gen_ai.request.model = "claude-sonnet-4-6"}'
-    equals: error claude-sonnet-4-6
-    attributes:
-      gen_ai.provider.name: anthropic
-  # Stream
-  - traceql: '{ .gen_ai.provider.name = "anthropic" && .gen_ai.request.model = "claude-sonnet-4-6" && .gen_ai.response.id = "msg_017VX1VDFNbm2uGebyvLmHwv"}'
-    equals: message claude-sonnet-4-6
-    attributes:
-      gen_ai.operation.name: message
-      gen_ai.response.model: claude-sonnet-4-6
-      gen_ai.usage.output_tokens: 37
+    - traceql: '{ .gen_ai.provider.name = "anthropic" && .gen_ai.request.model = "claude-sonnet-4-6" && .gen_ai.response.id = "msg_01QCj5VkxPS3NQUtrt5Npjcr"}'
+      match_spans:
+        - name: message claude-sonnet-4-6
+          attributes:
+            - key: gen_ai.operation.name
+              value: message
+            - key: gen_ai.response.model
+              value: claude-sonnet-4-6
+            - key: gen_ai.system_instructions
+              value: '[{"type":"text","content":"You are a helpful assistant that always responds in haiku format."}]'
+    - traceql: '{ .error.type = "authentication_error" && .gen_ai.request.model = "claude-sonnet-4-6"}'
+      match_spans:
+        - name: error claude-sonnet-4-6
+          attributes:
+            - key: gen_ai.provider.name
+              value: anthropic
+    - traceql: '{ .gen_ai.provider.name = "anthropic" && .gen_ai.request.model = "claude-sonnet-4-6" && .gen_ai.response.id = "msg_017VX1VDFNbm2uGebyvLmHwv"}'
+      match_spans:
+        - name: message claude-sonnet-4-6
+          attributes:
+            - key: gen_ai.operation.name
+              value: message
+            - key: gen_ai.response.model
+              value: claude-sonnet-4-6
+            - key: gen_ai.usage.output_tokens
+              value: "37"
   metrics:
-  - promql: gen_ai_client_token_usage_count{gen_ai_operation_name="message", gen_ai_provider_name="anthropic", gen_ai_token_type="input", gen_ai_request_model="claude-sonnet-4-6",gen_ai_response_model="claude-sonnet-4-6"}
-    value: '> 0'
-  - promql: gen_ai_client_token_usage_count{gen_ai_operation_name="message", gen_ai_provider_name="anthropic", gen_ai_token_type="output", gen_ai_request_model="claude-sonnet-4-6",gen_ai_response_model="claude-sonnet-4-6"}
-    value: '> 0'
-  - promql: gen_ai_client_operation_duration_seconds_count{gen_ai_operation_name="message", gen_ai_provider_name="anthropic", gen_ai_request_model="claude-sonnet-4-6",gen_ai_response_model="claude-sonnet-4-6"}
-    value: '> 0'
+    - promql: gen_ai_client_token_usage_count{gen_ai_operation_name="message", gen_ai_provider_name="anthropic", gen_ai_token_type="input", gen_ai_request_model="claude-sonnet-4-6",gen_ai_response_model="claude-sonnet-4-6"}
+      value: '> 0'
+    - promql: gen_ai_client_token_usage_count{gen_ai_operation_name="message", gen_ai_provider_name="anthropic", gen_ai_token_type="output", gen_ai_request_model="claude-sonnet-4-6",gen_ai_response_model="claude-sonnet-4-6"}
+      value: '> 0'
+    - promql: gen_ai_client_operation_duration_seconds_count{gen_ai_operation_name="message", gen_ai_provider_name="anthropic", gen_ai_request_model="claude-sonnet-4-6",gen_ai_response_model="claude-sonnet-4-6"}
+      value: '> 0'

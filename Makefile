@@ -16,6 +16,8 @@ RELEASE_REVISION ?= $(shell git rev-parse --short HEAD )
 BUILDINFO_PKG ?= go.opentelemetry.io/obi/pkg/buildinfo
 TEST_OUTPUT ?= ./testoutput
 RELEASE_DIR ?= ./dist
+OATS_VERSION ?= v0.10.0
+OATS_BIN := $(abspath $(TEST_OUTPUT)/bin/oats)
 
 IMG_REGISTRY ?= docker.io
 # Set your registry username. CI will set 'otel' but you mustn't use it for manual pushing.
@@ -562,51 +564,53 @@ itest-coverage-data:
 .PHONY: oats-prereq
 oats-prereq: docker-generate fetch-upstream-semconv
 	mkdir -p $(TEST_OUTPUT)/run
+	mkdir -p $(dir $(OATS_BIN))
+	GOBIN=$(dir $(OATS_BIN)) go install github.com/grafana/oats@$(OATS_VERSION)
 
 .PHONY: oats-test-sql
 oats-test-sql: oats-prereq
 	mkdir -p internal/test/oats/sql/$(TEST_OUTPUT)/run
-	cd internal/test/oats/sql && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml go tool $(TOOLS_MODFILE) ginkgo -v -r
+	cd internal/test/oats/sql && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml TESTCASE_OATS_BIN=$(OATS_BIN) go tool $(TOOLS_MODFILE) ginkgo -v -r
 
 .PHONY: oats-test-redis
 oats-test-redis: oats-prereq
 	mkdir -p internal/test/oats/redis/$(TEST_OUTPUT)/run
-	cd internal/test/oats/redis && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml go tool $(TOOLS_MODFILE) ginkgo -v -r
+	cd internal/test/oats/redis && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml TESTCASE_OATS_BIN=$(OATS_BIN) go tool $(TOOLS_MODFILE) ginkgo -v -r
 
 .PHONY: oats-test-kafka
 oats-test-kafka: oats-prereq
 	mkdir -p internal/test/oats/kafka/$(TEST_OUTPUT)/run
-	cd internal/test/oats/kafka && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml go tool $(TOOLS_MODFILE) ginkgo -v -r
+	cd internal/test/oats/kafka && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml TESTCASE_OATS_BIN=$(OATS_BIN) go tool $(TOOLS_MODFILE) ginkgo -v -r
 
 .PHONY: oats-test-http
 oats-test-http: oats-prereq
 	mkdir -p internal/test/oats/http/$(TEST_OUTPUT)/run
-	cd internal/test/oats/http && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml go tool $(TOOLS_MODFILE) ginkgo -v -r
+	cd internal/test/oats/http && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml TESTCASE_OATS_BIN=$(OATS_BIN) go tool $(TOOLS_MODFILE) ginkgo -v -r
 
 .PHONY: oats-test-mongo
 oats-test-mongo: oats-prereq
 	mkdir -p internal/test/oats/mongo/$(TEST_OUTPUT)/run
-	cd internal/test/oats/mongo && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml go tool $(TOOLS_MODFILE) ginkgo -v -r
+	cd internal/test/oats/mongo && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml TESTCASE_OATS_BIN=$(OATS_BIN) go tool $(TOOLS_MODFILE) ginkgo -v -r
 
 .PHONY: oats-test-memcached
 oats-test-memcached: oats-prereq
 	mkdir -p internal/test/oats/memcached/$(TEST_OUTPUT)/run
-	cd internal/test/oats/memcached && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml go tool $(TOOLS_MODFILE) ginkgo -v -r
+	cd internal/test/oats/memcached && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml TESTCASE_OATS_BIN=$(OATS_BIN) go tool $(TOOLS_MODFILE) ginkgo -v -r
 
 .PHONY: oats-test-ai
 oats-test-ai: oats-prereq
 	mkdir -p internal/test/oats/ai/$(TEST_OUTPUT)/run
-	cd internal/test/oats/ai && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml go tool $(TOOLS_MODFILE) ginkgo -v -r
+	cd internal/test/oats/ai && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml TESTCASE_OATS_BIN=$(OATS_BIN) go tool $(TOOLS_MODFILE) ginkgo -v -r
 
 .PHONY: oats-test-nats
 oats-test-nats: oats-prereq
 	mkdir -p internal/test/oats/nats/$(TEST_OUTPUT)/run
-	cd internal/test/oats/nats && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml go tool $(TOOLS_MODFILE) ginkgo -v -r
+	cd internal/test/oats/nats && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml TESTCASE_OATS_BIN=$(OATS_BIN) go tool $(TOOLS_MODFILE) ginkgo -v -r
 
 .PHONY: oats-test-amqp
 oats-test-amqp: oats-prereq
 	mkdir -p internal/test/oats/amqp/$(TEST_OUTPUT)/run
-	cd internal/test/oats/amqp && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml go tool $(TOOLS_MODFILE) ginkgo -v -r
+	cd internal/test/oats/amqp && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml TESTCASE_OATS_BIN=$(OATS_BIN) go tool $(TOOLS_MODFILE) ginkgo -v -r
 
 .PHONY: oats-test
 oats-test: oats-test-sql oats-test-mongo oats-test-redis oats-test-kafka oats-test-http oats-test-memcached oats-test-ai oats-test-nats oats-test-amqp
@@ -614,7 +618,7 @@ oats-test: oats-test-sql oats-test-mongo oats-test-redis oats-test-kafka oats-te
 
 .PHONY: oats-test-debug
 oats-test-debug: oats-prereq
-	cd internal/test/oats/kafka && TESTCASE_BASE_PATH=./yaml TESTCASE_MANUAL_DEBUG=true TESTCASE_TIMEOUT=1h go tool $(TOOLS_MODFILE) ginkgo -v -r
+	cd internal/test/oats/kafka && TESTCASE_BASE_PATH=./yaml TESTCASE_OATS_BIN=$(OATS_BIN) TESTCASE_TIMEOUT=1h go tool $(TOOLS_MODFILE) ginkgo -v -r
 
 .PHONY: license-header-check
 license-header-check:

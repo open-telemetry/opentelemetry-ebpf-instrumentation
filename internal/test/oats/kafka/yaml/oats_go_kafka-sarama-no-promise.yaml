@@ -1,17 +1,25 @@
-oats-schema-version: 2
-docker-compose:
-  files:
-  - ../docker-compose-obi-go-kafka-sarama-no-promise.yml
-  - ../../weaver/docker-compose-weaver.yml
-input:
-- path: /message
+name: oats go kafka sarama no promise
 interval: 500ms
+fixture:
+  compose:
+    files:
+      - ../docker-compose-obi-go-kafka-sarama-no-promise.yml
+      - ../../weaver/docker-compose-weaver.yml
+seed:
+  type: app
+input:
+  - path: /message
 expected:
   traces:
-  - traceql: '{ .messaging.operation.type = "publish" && .messaging.destination.name="orders"}'
-    equals: publish orders
-    attributes:
-      messaging.destination.name: orders
-      messaging.operation.type: publish
-      messaging.system: kafka
-      server.port: '9092'
+    - traceql: '{ .messaging.operation.type = "publish" && .messaging.destination.name="orders"}'
+      match_spans:
+        - name: publish orders
+          attributes:
+            - key: messaging.destination.name
+              value: orders
+            - key: messaging.operation.type
+              value: publish
+            - key: messaging.system
+              value: kafka
+            - key: server.port
+              value: "9092"
