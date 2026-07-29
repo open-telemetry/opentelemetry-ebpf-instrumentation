@@ -48,9 +48,10 @@ async function handler(req) {
     return new Response("OK", { status: 200 });
   }
 
-  const user = path.match(/^\/users\/(.+)$/);
+  const userURL = new URLPattern({ pathname: "/users/:id" });
+  const user = userURL.exec(req.url);
   if (method === "GET" && user) {
-    return json("Hello! " + user[1]);
+    return json("Hello! " + user.pathname.groups.id);
   }
 
   if (method === "GET" && path === "/dist") {
