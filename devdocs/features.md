@@ -166,4 +166,4 @@ OBI has support for several asynchronous frameworks that allow it to propagate c
 | Ruby Puma Server    |   Ruby    |              N/A | Only works with Puma server                       | Stable
 | Java Thread pool    |   Java    |           JDK 8+ | N/A                                               | Stable
 | Java Virtual Threads |  Java    |          JDK 21+ | Log enrichment is skipped on virtual threads      | Stable
-| Python asyncio      |  Python   |    Python >= 3.9 | Only works with uvloop event loop                 | Stable
+| Python asyncio      |  Python   |    Python >= 3.9 | N/A                                               | Stable
