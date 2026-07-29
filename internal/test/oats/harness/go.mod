@@ -3,7 +3,7 @@ module go.opentelemetry.io/obi/internal/test/oats/harness
 go 1.25.11
 
 require (
-	github.com/grafana/oats v0.7.0
+	github.com/grafana/oats v0.10.0
 	github.com/onsi/ginkgo/v2 v2.28.1
 	github.com/onsi/gomega v1.41.0
 	go.opentelemetry.io/obi v0.0.0-00010101000000-000000000000
