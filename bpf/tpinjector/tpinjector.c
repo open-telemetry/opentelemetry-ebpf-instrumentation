@@ -39,7 +39,11 @@
 #include <maps/tp_info_mem.h>
 #include <maps/tracked_sock_cookies.h>
 
+#include <common/h2_tp_scan.h>
+
 #include <tpinjector/h2_parse.h>
+#include <tpinjector/inject_policy.h>
+#include <tpinjector/maps/sk_h2_flags.h>
 #include <tpinjector/maps/sk_h2_conn_flag.h>
 #include <tpinjector/maps/sk_tp_info_pid_map.h>
 
@@ -55,9 +59,9 @@ char __license[] SEC("license") = "Dual MIT/GPL";
 //   │     └── handle_existing_tp_pid   │  SSL. Pulls+fills internally after
 //   │                                  │  passing valid check, then injects
 //   │                                  │
-//   ├── is_go_grpc_client_conn?        │  Go gRPC: uprobe wrote HPACK in
-//   │     └── pull+fill, SK_PASS       │  user buffer; sk_msg bails (kprobe
-//   │                                  │  needs fill for correlation)
+//   ├── is_go_grpc_client_conn?        │  Go gRPC: pull+fill, then detect_h2
+//   │     └── pull+fill, detect_h2     │  injects only streams whose stored
+//   │                                  │  tp has written=0 (uprobe miss)
 //   │                                  │
 //   ├── !valid_pid → SK_PASS           │  Unmonitored process — no pull
 //   │                                  │
@@ -70,7 +74,11 @@ char __license[] SEC("license") = "Dual MIT/GPL";
 //   │                                 │     write_msg_traceparent
 //   │                                 │
 //   └── fall through ─────────────────┴─▶ wrap_http2_traceparent
-//                                           │
+//                                           │ preface at pos 0, or (for conns
+//                                           │ whose preface predates attach)
+//                                           │ strict mid-stream frame sniff
+//                                           │ confirms; known-SSL conns are
+//                                           │ never sniffed
 //                                           ▼
 //                                        detect_h2 ◀──────────────┐
 //                                           │                     │
@@ -114,6 +122,7 @@ enum {
     k_tail_find_existing_h2_tp,
     k_tail_validate_h2_tp,
     k_tail_detect_h2,
+    k_tail_sniff_h2,
 };
 
 int obi_packet_extender_write_msg_tp(struct sk_msg_md *msg);
@@ -124,10 +133,11 @@ int obi_packet_extender_create_h2_tp(struct sk_msg_md *msg);
 int obi_packet_extender_find_existing_h2_tp(struct sk_msg_md *msg);
 int obi_packet_extender_validate_h2_tp(struct sk_msg_md *msg);
 int obi_packet_extender_detect_h2(struct sk_msg_md *msg);
+int obi_packet_extender_sniff_h2(struct sk_msg_md *msg);
 
 struct {
     __uint(type, BPF_MAP_TYPE_PROG_ARRAY);
-    __uint(max_entries, 8);
+    __uint(max_entries, 9);
     __uint(key_size, sizeof(u32));
     __array(values, int(void *));
 } extender_jump_table SEC(".maps") = {
@@ -141,6 +151,7 @@ struct {
             [k_tail_find_existing_h2_tp] = (void *)&obi_packet_extender_find_existing_h2_tp,
             [k_tail_validate_h2_tp] = (void *)&obi_packet_extender_validate_h2_tp,
             [k_tail_detect_h2] = (void *)&obi_packet_extender_detect_h2,
+            [k_tail_sniff_h2] = (void *)&obi_packet_extender_sniff_h2,
         },
 };
 
@@ -160,7 +171,10 @@ typedef struct tailcall_ctx {
     u8 h2_frames;                 // H2 frames already injected this packet (capped)
     u8 h2_tp_retries;             // malformed HPACK traceparent candidates retried this packet
     bool has_parent_tp;           // true if parent_tp holds a valid context
-    u8 _pad[4];
+    bool go_grpc_conn;            // Go gRPC egress: use uprobe-stored tps, never create
+    bool tp_present;              // frame already carries a traceparent we cannot adopt
+    bool scan_exhausted;          // retry budget ran out before the block was walked
+    u8 opener;                    // first HPACK field byte of the frame being considered
 } tailcall_ctx;
 
 SCRATCH_MEM(tailcall_ctx);
@@ -199,6 +213,66 @@ static __always_inline u8 h2_sock_state(struct sk_msg_md *msg) {
     }
     const u8 *flag = bpf_sk_storage_get(&sk_h2_conn_flag, sk, NULL, 0);
     return flag ? *flag : k_h2_sock_none;
+}
+
+static __always_inline bool h2_sk_flag(struct sk_msg_md *msg, u8 flag) {
+    struct bpf_sock *sk = msg->sk;
+    if (!sk) {
+        return false;
+    }
+    const u8 *flags = bpf_sk_storage_get(&sk_h2_flags, sk, NULL, 0);
+    return flags && (*flags & flag);
+}
+
+static __always_inline void set_h2_sk_flag(struct sk_msg_md *msg, u8 flag) {
+    struct bpf_sock *sk = msg->sk;
+    if (!sk) {
+        return;
+    }
+    u8 init = flag;
+    u8 *flags = bpf_sk_storage_get(&sk_h2_flags, sk, &init, BPF_SK_STORAGE_GET_F_CREATE);
+    if (flags) {
+        *flags |= flag;
+    }
+}
+
+// First HPACK field byte of a header block, past any dynamic table size updates. False when
+// it cannot be read: a short block leaves no room to skip the updates.
+static __always_inline bool
+h2_headers_opener(struct sk_msg_md *msg, u32 hpack_offset, u32 msg_size, u8 *out) {
+    if (hpack_offset + k_h2_hpack_opener_window <= msg_size &&
+        bpf_msg_pull_data(msg, hpack_offset, hpack_offset + k_h2_hpack_opener_window, 0) == 0) {
+        const unsigned char *d = msg->data;
+        if (!d || (void *)(d + k_h2_hpack_opener_window) > msg->data_end) {
+            return false;
+        }
+
+        unsigned char w[k_h2_hpack_opener_window];
+        bpf_memcpy(w, d, sizeof(w));
+
+        const u32 skip = h2_hpack_skip_size_updates(w, sizeof(w));
+        if (skip >= sizeof(w)) {
+            return false;
+        }
+
+        *out = w[skip & k_h2_hpack_opener_mask];
+
+        return true;
+    }
+
+    if (hpack_offset + 1 > msg_size ||
+        bpf_msg_pull_data(msg, hpack_offset, hpack_offset + 1, 0) != 0) {
+        return false;
+    }
+
+    const unsigned char *d = msg->data;
+    if (!d || (void *)(d + 1) > msg->data_end || h2_hpack_is_size_update(d[0])) {
+        return false;
+    }
+
+    *out = d[0];
+
+    return true;
 }
 
 static __always_inline void set_h2_sock_state(struct sk_msg_md *msg, u8 state) {
@@ -866,6 +940,63 @@ static __always_inline bool is_http2_preface(const unsigned char *d, const unsig
            d[2] == 'I' && d[3] == ' ';
 }
 
+// Mid-stream H2 recognition for sockets whose preface predates attachment. On success
+// hpack_at holds the HPACK offset of the first HEADERS frame, 0 if the buffer carried none.
+static __always_inline bool sniff_http2_frames(struct sk_msg_md *msg, u32 *hpack_at) {
+    const u32 msg_size = msg->size;
+    u32 pos = 0;
+    h2_sniff_state_t st = {0};
+
+    *hpack_at = 0;
+
+    for (u8 i = 0; i < k_h2_sniff_max_frames && pos < msg_size; i++) {
+        if (pos + k_h2_frame_header_len > msg_size) {
+            return false;
+        }
+        if (bpf_msg_pull_data(msg, pos, pos + k_h2_frame_header_len, 0) != 0) {
+            return false;
+        }
+        const unsigned char *d = msg->data;
+        if (!d || (void *)d + k_h2_frame_header_len > msg->data_end) {
+            return false;
+        }
+
+        const u8 ftype = d[3];
+        const u8 fflags = d[4];
+        const bool first_headers = !st.seen_headers;
+
+        u32 frame_len;
+        if (!h2_sniff_frame_header(&st, d, &frame_len)) {
+            return false;
+        }
+
+        if (ftype == k_h2_frame_headers && first_headers) {
+            *hpack_at = pos + k_h2_frame_header_len + h2_hpack_prefix_len(fflags);
+        }
+
+        pos += k_h2_frame_header_len + frame_len;
+    }
+
+    return h2_sniff_accept(&st, pos, msg_size);
+}
+
+// Frame shapes alone match random bytes, so a sniffed buffer only counts as H2 once its first
+// HEADERS block opens with a pseudo-header. Responses qualify: the socket is H2 either way,
+// and whether the frame may be injected is decided later.
+static __always_inline bool sniffed_block_is_h2(struct sk_msg_md *msg, u32 hpack_at, u32 msg_size) {
+    u8 opener;
+
+    if (!h2_headers_opener(msg, hpack_at, msg_size, &opener)) {
+        return false;
+    }
+    if (h2_hpack_opens_response(opener)) {
+        set_h2_sk_flag(msg, k_h2_sk_server);
+        return true;
+    }
+
+    return h2_hpack_opens_request(opener);
+}
+
 // Skip SSL sockets — payload is encrypted, can't inject HPACK
 static __always_inline void wrap_http2_traceparent(struct sk_msg_md *msg,
                                                    const pid_connection_info_t *p_conn) {
@@ -878,7 +1009,7 @@ static __always_inline void wrap_http2_traceparent(struct sk_msg_md *msg,
     if (h2_sock_state(msg) == k_h2_sock_rejected) {
         return;
     }
-    if (is_h2_socket(msg) || already_tracked_plain_http2(p_conn)) {
+    if (is_h2_socket(msg)) {
         bpf_tail_call_static(msg, &extender_jump_table, k_tail_detect_h2);
         return;
     }
@@ -890,7 +1021,31 @@ static __always_inline void wrap_http2_traceparent(struct sk_msg_md *msg,
     }
     if (is_http2_preface(msg->data, msg->data_end)) {
         bpf_tail_call_static(msg, &extender_jump_table, k_tail_detect_h2);
+        return;
     }
+    // known-SSL conns carry ciphertext here, a sniff false positive would corrupt TLS
+    if (already_tracked_ssl_http2(p_conn)) {
+        return;
+    }
+    // only route to confirmed for conns whose preface predates attach, tracked or not.
+    // Own program: the frame walk inlined here costs the entry program too many
+    // verifier states
+    bpf_tail_call_static(msg, &extender_jump_table, k_tail_sniff_h2);
+}
+
+// k_tail_sniff_h2 — mid-stream H2 sniff for a socket with no preface
+SEC("sk_msg")
+int obi_packet_extender_sniff_h2(struct sk_msg_md *msg) {
+    const u32 msg_size = msg->size;
+    u32 hpack_at = 0;
+
+    if (sniff_http2_frames(msg, &hpack_at) && hpack_at &&
+        sniffed_block_is_h2(msg, hpack_at, msg_size)) {
+        set_h2_sock_state(msg, k_h2_sock_confirmed);
+        bpf_tail_call_static(msg, &extender_jump_table, k_tail_detect_h2);
+    }
+
+    return SK_PASS;
 }
 
 // HTTP/1 only. Caller must skip this for H2 sockets — connection-scoped tp_pid
@@ -955,6 +1110,7 @@ int obi_packet_extender(struct sk_msg_md *msg) {
     t_ctx->h2_scan_pos = 0;
     t_ctx->h2_frames = 0;
     t_ctx->h2_tp_retries = 0;
+    t_ctx->go_grpc_conn = false;
 
     // skip H2 here — it uses HPACK for per-stream traceparents
     tp_info_pid_t *tp_pid = get_tp_info_pid(&e_key);
@@ -966,6 +1122,9 @@ int obi_packet_extender(struct sk_msg_md *msg) {
     if (is_go_grpc_client_conn(&t_ctx->p_conn)) {
         bpf_msg_pull_data(msg, 0, msg->size, 0);
         fill_msg_buffers(msg, &t_ctx->p_conn, &e_key);
+        // per-stream decision in the h2 chain: inject only streams the uprobe left written=0
+        t_ctx->go_grpc_conn = true;
+        bpf_tail_call_static(msg, &extender_jump_table, k_tail_detect_h2);
         return SK_PASS;
     }
 
@@ -1209,7 +1368,7 @@ int obi_packet_extender_detect_h2(struct sk_msg_md *msg) {
         return SK_PASS;
     }
 
-    if (t_ctx->h2_frames + t_ctx->h2_tp_retries >= k_h2_max_frames_per_packet) {
+    if (t_ctx->h2_frames >= k_h2_max_frames_per_packet) {
         return SK_PASS;
     }
 
@@ -1277,6 +1436,11 @@ int obi_packet_extender_detect_h2(struct sk_msg_md *msg) {
         return SK_PASS;
     }
 
+    // responses were seen here, so nothing on this socket is ever injectable
+    if (h2_sk_flag(msg, k_h2_sk_server)) {
+        return SK_PASS;
+    }
+
     // Scan up to 4 frames for HEADERS+END_HEADERS
     for (u8 i = 0; i < k_h2_max_frame_scan; i++) {
         h2_frame_info_t f;
@@ -1284,11 +1448,29 @@ int obi_packet_extender_detect_h2(struct sk_msg_md *msg) {
             return SK_PASS;
         }
         if (f.is_headers_end) {
+            h2_inject_facts_t facts = {0};
+            facts.opener_readable =
+                h2_headers_opener(msg, f.hpack_offset_in_msg, msg_size, &facts.opener);
+
+            if (facts.opener_readable && h2_hpack_opens_response(facts.opener)) {
+                set_h2_sk_flag(msg, k_h2_sk_server);
+            }
+            facts.sk_server = h2_sk_flag(msg, k_h2_sk_server);
+
+            if (h2_inject_verdict(&facts) != k_h2_inject_allow) {
+                h2_resume_after(msg, t_ctx, pos + k_h2_frame_header_len + f.payload_len);
+                return SK_PASS;
+            }
+
             t_ctx->e_key.stream_id = f.stream_id;
             t_ctx->h2_frame_offset = pos;
             t_ctx->h2_payload_len = f.payload_len;
             t_ctx->h2_hpack_offset = f.hpack_offset_in_msg;
             t_ctx->h2_hpack_len = f.hpack_len;
+            t_ctx->tp_present = false;
+            t_ctx->scan_exhausted = false;
+            t_ctx->h2_tp_retries = 0;
+            t_ctx->opener = facts.opener;
 
             tp_info_pid_t *go_tp = get_tp_info_pid(&t_ctx->e_key);
             if (go_tp && go_tp->valid && go_tp->written) {
@@ -1302,6 +1484,11 @@ int obi_packet_extender_detect_h2(struct sk_msg_md *msg) {
         }
 
         pos += k_h2_frame_header_len + f.payload_len;
+    }
+
+    // more frames than one pass can walk: carry on rather than dropping the packet
+    if (pos < msg_size) {
+        h2_resume_after(msg, t_ctx, pos);
     }
 
     return SK_PASS;
@@ -1359,7 +1546,8 @@ static __always_inline u32 validate_h2_tp_huffman(const unsigned char *p,
 static __always_inline bool
 pull_hpack_window(struct sk_msg_md *msg, const u32 hpack_start, const u32 hpack_len) {
     enum { k_min_entry_plain = k_h2_tp_hpack_size };
-    if (hpack_len < k_h2_tp_hpack_huffman_size) {
+    // minimum is the shortest shape: a huffman value is shorter than k_h2_tp_hpack_size
+    if (hpack_len < k_h2_tp_need_name_huffman) {
         return false;
     }
     const u32 pull_len = hpack_len < (k_h2_max_hpack_scan + k_min_entry_plain)
@@ -1368,42 +1556,11 @@ pull_hpack_window(struct sk_msg_md *msg, const u32 hpack_start, const u32 hpack_
     return bpf_msg_pull_data(msg, hpack_start, hpack_start + pull_len, 0) == 0;
 }
 
-// Fingerprints for full traceparent name + value-length byte (0x37).
-// Values match what *(u32/u64 *)p loads on the build target, so the comparisons
-// work on bpfel and bpfeb.
-enum {
-    k_h2_nlb_plain = k_hpack_tp_name_len,
-    k_h2_nlb_huffman = k_hpack_tp_name_huffman_len | 0x80,
-};
-#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
-static const u64 k_h2_tp_fp_plain_lo = 0x7261706563617274ULL; // "tracepar"
-static const u32 k_h2_tp_fp_plain_hi = 0x37746e65U;           // "ent" + 0x37
-static const u64 k_h2_tp_fp_huffman = 0x3fa9851d6b21834dULL;  // huffman("traceparent")
-#elif __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
-static const u64 k_h2_tp_fp_plain_lo = 0x7472616365706172ULL; // "tracepar"
-static const u32 k_h2_tp_fp_plain_hi = 0x656e7437U;           // "ent" + 0x37
-static const u64 k_h2_tp_fp_huffman = 0x4d83216b1d85a93fULL;  // huffman("traceparent")
-#else
-#error "unsupported __BYTE_ORDER__"
-#endif
-
-static __always_inline bool match_h2_tp_plain(const unsigned char *p) {
-    return *(const u64 *)(p + k_hpack_tp_name_offset) == k_h2_tp_fp_plain_lo &&
-           *(const u32 *)(p + k_hpack_tp_name_offset + 8) == k_h2_tp_fp_plain_hi;
-}
-
-static __always_inline bool match_h2_tp_huffman(const unsigned char *p) {
-    return *(const u64 *)(p + k_hpack_tp_name_offset) == k_h2_tp_fp_huffman &&
-           p[k_hpack_tp_name_offset + k_hpack_tp_name_huffman_len] == k_hpack_value_len_tp;
-}
-
-// Returns offset of the traceparent name in the pulled HPACK window, or k_h2_max_hpack_scan if
-// not found.
+// Returns a candidate offset or k_h2_max_hpack_scan. validate_h2_tp classifies it:
+// adoptable, present-only, or neither.
 static __always_inline u32 find_first_h2_tp_candidate(struct sk_msg_md *msg,
                                                       const u32 hpack_start,
                                                       const u32 hpack_len) {
-    enum { k_min_entry_huffman = k_h2_tp_hpack_huffman_size };
-
     if (!pull_hpack_window(msg, hpack_start, hpack_len)) {
         return k_h2_max_hpack_scan;
     }
@@ -1414,21 +1571,14 @@ static __always_inline u32 find_first_h2_tp_candidate(struct sk_msg_md *msg,
     }
 
     for (u32 i = 0; i < k_h2_max_hpack_scan; i++) {
-        if (i + k_min_entry_huffman > hpack_len) {
+        if (i + k_h2_tp_need_name_huffman > hpack_len) {
             break;
         }
         const unsigned char *p = data + i;
-        if ((void *)(p + k_min_entry_huffman) > (void *)end) {
+        if ((void *)(p + k_h2_tp_need_name_huffman) > (void *)end) {
             break;
         }
-        if (p[0] != k_hpack_literal_no_index) {
-            continue;
-        }
-        const u8 nlb = p[1];
-        if (nlb == k_h2_nlb_plain && match_h2_tp_plain(p)) {
-            return i;
-        }
-        if (nlb == k_h2_nlb_huffman && match_h2_tp_huffman(p)) {
+        if (h2_tp_is_candidate(p[0], p[1], p[2])) {
             return i;
         }
     }
@@ -1502,20 +1652,34 @@ int obi_packet_extender_validate_h2_tp(struct sk_msg_md *msg) {
     }
     const unsigned char *data = msg->data;
     const unsigned char *end = msg->data_end;
-    if (!data || (void *)(data + k_h2_tp_hpack_huffman_size) > (void *)end) {
+    if (!data || (void *)(data + k_h2_tp_need_name_huffman) > (void *)end) {
         bpf_tail_call_static(msg, &extender_jump_table, k_tail_create_h2_tp);
         return SK_PASS;
     }
 
     u32 off = 0;
+    const h2_tp_kind_t kind = h2_tp_classify(data, end);
     u32 next_candidate_pos = target + 1;
-    const u8 nlb = data[1];
-    if (nlb == k_hpack_tp_name_len) {
-        next_candidate_pos = target + k_h2_tp_hpack_size;
-        off = validate_h2_tp_plain(data, end, &tp_p->tp);
-    } else if (nlb == (k_hpack_tp_name_huffman_len | 0x80)) {
-        next_candidate_pos = target + k_h2_tp_hpack_huffman_size;
-        off = validate_h2_tp_huffman(data, end, &tp_p->tp);
+
+    switch (kind) {
+    case k_h2_tp_adoptable:
+        if (data[1] == k_h2_nlb_plain) {
+            next_candidate_pos = target + k_h2_tp_hpack_size;
+            off = validate_h2_tp_plain(data, end, &tp_p->tp);
+        } else {
+            next_candidate_pos = target + k_h2_tp_hpack_huffman_size;
+            off = validate_h2_tp_huffman(data, end, &tp_p->tp);
+        }
+        break;
+    case k_h2_tp_present:
+        // the frame is settled: nothing found later can change the verdict, and scanning on
+        // would spend this frame's retry
+        t_ctx->tp_present = true;
+        set_h2_sk_flag(msg, k_h2_sk_app_tp);
+        bpf_tail_call_static(msg, &extender_jump_table, k_tail_create_h2_tp);
+        return SK_PASS;
+    case k_h2_tp_none:
+        break;
     }
 
     if (off) {
@@ -1542,8 +1706,12 @@ int obi_packet_extender_validate_h2_tp(struct sk_msg_md *msg) {
         return SK_PASS;
     }
 
-    if (next_candidate_pos >= k_h2_max_hpack_scan ||
-        t_ctx->h2_frames + t_ctx->h2_tp_retries + 1 >= k_h2_max_frames_per_packet) {
+    if (next_candidate_pos >= k_h2_max_hpack_scan) {
+        bpf_tail_call_static(msg, &extender_jump_table, k_tail_create_h2_tp);
+        return SK_PASS;
+    }
+    if (t_ctx->h2_tp_retries + 1 >= k_h2_max_tp_retries) {
+        t_ctx->scan_exhausted = true;
         bpf_tail_call_static(msg, &extender_jump_table, k_tail_create_h2_tp);
         return SK_PASS;
     }
@@ -1573,7 +1741,17 @@ int obi_packet_extender_create_h2_tp(struct sk_msg_md *msg) {
     tp_info_pid_t *existing = get_tp_info_pid(&t_ctx->e_key);
     const bool have_existing = existing && existing->valid && valid_trace(existing->tp.trace_id);
 
-    if (have_existing && existing->written) {
+    h2_inject_facts_t facts = {0};
+    facts.opener = t_ctx->opener;
+    facts.opener_readable = true;
+    facts.sk_server = h2_sk_flag(msg, k_h2_sk_server);
+    facts.frame_tp_present = t_ctx->tp_present;
+    facts.sk_app_tp = h2_sk_flag(msg, k_h2_sk_app_tp);
+    facts.uprobe_wrote = have_existing && existing->written;
+    facts.go_conn_without_tp = !have_existing && t_ctx->go_grpc_conn;
+    facts.scan_incomplete = t_ctx->scan_exhausted || t_ctx->h2_hpack_len > k_h2_max_hpack_scan;
+
+    if (h2_inject_verdict(&facts) != k_h2_inject_allow) {
         h2_resume_after(
             msg, t_ctx, t_ctx->h2_frame_offset + k_h2_frame_header_len + t_ctx->h2_payload_len);
         return SK_PASS;
@@ -1603,6 +1781,26 @@ int obi_packet_extender_create_h2_tp(struct sk_msg_md *msg) {
     return SK_PASS;
 }
 
+// Rewrites the 3-byte length field of the frame at frame_offset.
+static __always_inline bool h2_write_frame_len(struct sk_msg_md *msg, u32 frame_offset, u32 len) {
+    enum { k_h2_frame_len_field = 3 };
+
+    if (bpf_msg_pull_data(msg, frame_offset, frame_offset + k_h2_frame_len_field, 0) != 0) {
+        return false;
+    }
+
+    unsigned char *data = msg->data;
+    if (!data || (void *)data + k_h2_frame_len_field > msg->data_end) {
+        return false;
+    }
+
+    data[0] = (len >> 16) & 0xFF;
+    data[1] = (len >> 8) & 0xFF;
+    data[2] = len & 0xFF;
+
+    return true;
+}
+
 // k_tail_write_h2_traceparent — push k_h2_tp_hpack_size bytes of HPACK at
 // the end of the HEADERS payload. Small targeted pulls keep writes at fixed
 // offsets so the verifier is happy
@@ -1629,36 +1827,30 @@ int obi_packet_extender_write_h2_tp(struct sk_msg_md *msg) {
 
     const u32 inject_offset = t_ctx->h2_hpack_offset + t_ctx->h2_hpack_len;
 
+    // linearize before push, as the HTTP/1 path does
     bpf_msg_pull_data(msg, 0, msg->size, 0);
+
+    // length before push: a failed push is revertible, unfilled inserted bytes are not.
+    // Frame length disagreeing with the HPACK block is a connection-level error.
+    if (!h2_write_frame_len(msg, frame_offset, payload_len + k_h2_tp_hpack_size)) {
+        return SK_PASS;
+    }
     if (bpf_msg_push_data(msg, inject_offset, k_h2_tp_hpack_size, 0) != 0) {
+        // push leaves the message untouched when it fails, so this pull cannot fail either
+        h2_write_frame_len(msg, frame_offset, payload_len);
         return SK_PASS;
     }
 
-    const u32 pull_end = inject_offset + k_h2_tp_hpack_size;
-    if (bpf_msg_pull_data(msg, frame_offset, pull_end, 0) != 0) {
+    if (bpf_msg_pull_data(msg, inject_offset, inject_offset + k_h2_tp_hpack_size, 0) != 0) {
         return SK_PASS;
     }
 
     unsigned char *data = msg->data;
     const unsigned char *end = msg->data_end;
-
-    if (!data || (void *)data + 3 > (void *)end) {
-        return SK_PASS;
-    }
-
-    const u32 new_len = payload_len + k_h2_tp_hpack_size;
-    data[0] = (new_len >> 16) & 0xFF;
-    data[1] = (new_len >> 8) & 0xFF;
-    data[2] = new_len & 0xFF;
-
-    if (bpf_msg_pull_data(msg, inject_offset, inject_offset + k_h2_tp_hpack_size, 0) != 0) {
-        return SK_PASS;
-    }
-    data = msg->data;
-    end = msg->data_end;
     if (!data || (void *)data + k_h2_tp_hpack_size > (void *)end) {
         return SK_PASS;
     }
+
     make_h2_tp_hpack(data, &tp_p->tp, end);
 
     bpf_msg_pull_data(msg, 0, msg->size, 0);

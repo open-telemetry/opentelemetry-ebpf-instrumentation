@@ -7,6 +7,7 @@ package generictracer // import "go.opentelemetry.io/obi/pkg/internal/ebpf/gener
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -127,7 +128,7 @@ func (p *Tracer) rebuildValidPids() {
 func (p *Tracer) AllowPID(pid app.PID, ns uint32, fi *exec.FileInfo) {
 	p.pidsFilter.AllowPID(pid, ns, fi, ebpfcommon.PIDTypeKProbes)
 	p.rebuildValidPids()
-	// Override potential negative cache entry for this PID
+	// Keep the cache consistent with the updated filter.
 	if p.bpfObjects.PidCache != nil {
 		pidU32 := uint32(pid)
 		_ = p.bpfObjects.PidCache.Put(pidU32, pidU32)
@@ -137,7 +138,7 @@ func (p *Tracer) AllowPID(pid app.PID, ns uint32, fi *exec.FileInfo) {
 func (p *Tracer) BlockPID(pid app.PID, ns uint32) {
 	p.pidsFilter.BlockPID(pid, ns)
 	p.rebuildValidPids()
-	// Remove from cache so next access re-evaluates
+	// Remove from cache so next access re-evaluates.
 	if p.bpfObjects.PidCache != nil {
 		pidU32 := uint32(pid)
 		_ = p.bpfObjects.PidCache.Delete(pidU32)
@@ -181,7 +182,8 @@ func (p *Tracer) SetupTailCalls() {
 		p.bpfObjects.ObiProtocolHttp2GrpcHandleStartFrameServer,         // 11
 		p.bpfObjects.ObiProtocolHttp2GrpcHandleStartFrameServerFinalize, // 12
 		// Large buffer multi-batch emission
-		p.bpfObjects.ObiLargeBufEmitContinue, // 13  k_tail_large_buf_emit_continue
+		p.bpfObjects.ObiLargeBufEmitContinue,                          // 13  k_tail_large_buf_emit_continue
+		p.bpfObjects.ObiProtocolHttp2GrpcHandleStartFrameServerCommit, // 14
 	} {
 		if prog == nil {
 			continue
@@ -567,6 +569,10 @@ func (p *Tracer) runItersForPids() {
 				if err := netns.WithNetNS(int(pid), func() error {
 					return it.Run(p.log)
 				}); err != nil {
+					if errors.Is(err, os.ErrNotExist) {
+						p.log.Debug("process gone before iterating its netns", "pid", pid)
+						break
+					}
 					p.log.Error("error running iterator in netns", "pid", pid, "error", err)
 				}
 			}
@@ -774,13 +780,6 @@ func (p *Tracer) parseJVMMemoryPoolRecord(record *ringbuf.Record) ([]jvmruntime.
 	return events, false, nil
 }
 
-func kernelTime(ktime uint64) time.Time {
-	now := time.Now()
-	delta := timing.MonoTimeNow() - time.Duration(int64(ktime))
-
-	return now.Add(-delta)
-}
-
 //nolint:cyclop
 func (p *Tracer) lookForTimeouts(ctx context.Context, parseCtx *ebpfcommon.EBPFParseContext, ticker *time.Ticker, eventsChan *msg.Queue[[]request.Span]) {
 	for {
@@ -797,7 +796,7 @@ func (p *Tracer) lookForTimeouts(ctx context.Context, parseCtx *ebpfcommon.EBPFP
 					// but it hasn't been posted yet, likely missed by the logic that looks at finishing requests
 					// where we track the full response. If we haven't updated the EndMonotimeNs in more than some
 					// short interval, we are likely not going to finish this request from eBPF, so let's do it here.
-					if v.EndMonotimeNs != 0 && v.Submitted == 0 && t.After(kernelTime(v.EndMonotimeNs).Add(10*time.Second)) {
+					if v.EndMonotimeNs != 0 && v.Submitted == 0 && t.After(timing.KernelTime(v.EndMonotimeNs).Add(10*time.Second)) {
 						// Must use unsafe here, the two bpfHttpInfoTs are the same but generated from different
 						// ebpf2go outputs
 						s, ignore, err := ebpfcommon.HTTPInfoEventToSpan(parseCtx, (*ebpfcommon.BPFHTTPInfo)(unsafe.Pointer(&v)))
@@ -807,7 +806,7 @@ func (p *Tracer) lookForTimeouts(ctx context.Context, parseCtx *ebpfcommon.EBPFP
 						if err := p.bpfObjects.OngoingHttp.Delete(k); err != nil {
 							p.log.Debug("Error deleting ongoing request", "error", err)
 						}
-					} else if v.EndMonotimeNs == 0 && p.cfg.EBPF.HTTPRequestTimeout.Milliseconds() > 0 && t.After(kernelTime(v.StartMonotimeNs).Add(p.cfg.EBPF.HTTPRequestTimeout)) {
+					} else if v.EndMonotimeNs == 0 && p.cfg.EBPF.HTTPRequestTimeout.Milliseconds() > 0 && t.After(timing.KernelTime(v.StartMonotimeNs).Add(p.cfg.EBPF.HTTPRequestTimeout)) {
 						// If we don't have a request finish with endTime by the configured request timeout, terminate the
 						// waiting request with a timeout 408
 						s, ignore, err := ebpfcommon.HTTPInfoEventToSpan(parseCtx, (*ebpfcommon.BPFHTTPInfo)(unsafe.Pointer(&v)))

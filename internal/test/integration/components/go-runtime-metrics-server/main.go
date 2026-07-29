@@ -17,6 +17,8 @@ import (
 
 var runtimeMetricsReadLoopActive uint32
 
+const runtimeMetricMaxProcessors = 256
+
 func main() {
 	go serve(":8081")
 	serve(":8080")
@@ -50,6 +52,9 @@ func handleConnection(conn net.Conn) {
 
 	switch strings.TrimSpace(message) {
 	case "FORCE_GC":
+		runtime.GC()
+	case "SET_GOMAXPROCS_ABOVE_RUNTIME_METRIC_LIMIT":
+		runtime.GOMAXPROCS(runtimeMetricMaxProcessors + 1)
 		runtime.GC()
 	case "RUNTIME_METRICS":
 		if err := json.NewEncoder(conn).Encode(runtimeMetricValues()); err != nil {
@@ -85,6 +90,7 @@ func runtimeMetricValues() map[string]float64 {
 		"/gc/cycles/automatic:gc-cycles",
 		"/gc/cycles/forced:gc-cycles",
 		"/gc/cycles/total:gc-cycles",
+		"/gc/heap/goal:bytes",
 		"/gc/heap/allocs:bytes",
 		"/gc/heap/allocs:objects",
 		"/cpu/classes/gc/mark/assist:cpu-seconds",
@@ -95,6 +101,7 @@ func runtimeMetricValues() map[string]float64 {
 		"/cpu/classes/scavenge/assist:cpu-seconds",
 		"/cpu/classes/scavenge/background:cpu-seconds",
 		"/cpu/classes/user:cpu-seconds",
+		"/sched/goroutines:goroutines",
 		"/memory/classes/heap/released:bytes",
 		"/memory/classes/heap/stacks:bytes",
 		"/memory/classes/total:bytes",

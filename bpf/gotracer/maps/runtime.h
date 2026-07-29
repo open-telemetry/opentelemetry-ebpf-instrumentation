@@ -92,7 +92,21 @@ typedef struct go_runtime_metric_target {
     u64 work_addr;
     u64 available_mask;
     u64 size_class_to_sizes_addr;
+    u64 sched_addr;
+    u64 allglen_addr;
+    u64 allp_addr;
+    bool goroutine_count_includes_system;
+    u8 _pad[7];
+    u32 gc_goal_source;
+    u32 _pad2;
+    u64 gc_goal;
 } go_runtime_metric_target_t;
+
+typedef enum go_runtime_gc_goal_source {
+    go_runtime_gc_goal_source_none = 0,
+    go_runtime_gc_goal_source_heap_goal_field = 1,
+    go_runtime_gc_goal_source_pace_scavenger_argument = 2,
+} go_runtime_gc_goal_source_t;
 
 // Metric group bits shared by go_runtime_metric_target.available_mask and
 // go_runtime_metric_snapshot.valid_mask. A snapshot bit is set only when the
@@ -107,6 +121,8 @@ typedef enum go_runtime_metric_valid {
     go_runtime_metric_valid_cpu_time = 1 << 4,
     go_runtime_metric_valid_memory_used = 1 << 5,
     go_runtime_metric_valid_memory_allocations = 1 << 6,
+    go_runtime_metric_valid_goroutine_count = 1 << 9,
+    go_runtime_metric_valid_memory_gc_goal = 1 << 10,
 } go_runtime_metric_valid_t;
 
 typedef struct go_runtime_metric_snapshot {
@@ -129,6 +145,8 @@ typedef struct go_runtime_metric_snapshot {
     s64 memory_used_other;
     u64 memory_allocated;
     u64 memory_allocations;
+    s64 goroutine_count;
+    u64 memory_gc_goal;
 } go_runtime_metric_snapshot_t;
 
 typedef struct go_runtime_metric_event {
