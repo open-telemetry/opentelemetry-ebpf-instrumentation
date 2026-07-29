@@ -48,7 +48,7 @@ func V2ToRuntime(src *schema.Extension) (*obi.Config, error) {
 	if err := validateV2RuleSelectorFamilies(src.Capture.Rules); err != nil {
 		return nil, err
 	}
-	if err := validateV2HTTPFilters(src.Capture.Instrumentation.HTTP.Filters); err != nil {
+	if err := validateV2SignalFilters(src); err != nil {
 		return nil, err
 	}
 	if err := validateV2HTTPRoutes(src.Capture.Instrumentation.HTTP.Routes, src.Capture.Rules); err != nil {
@@ -417,14 +417,79 @@ func ruleAffectsV2Selection(rule schema.Rule) bool {
 	return !ruleUsesRegex(rule.Match) || !ruleUsesGlob(rule.Match)
 }
 
-func validateV2HTTPFilters(filters schema.SignalFilters) error {
-	if len(filters.Traces) == 0 || len(filters.Metrics) == 0 {
+func validateV2SignalFilters(src *schema.Extension) error {
+	canonicalPath := "capture.instrumentation.http.filters.traces"
+	canonical := src.Capture.Instrumentation.HTTP.Filters.Traces
+	for _, mapping := range protocolMappings {
+		path := fmt.Sprintf("capture.instrumentation.%s.filters", mapping.name)
+		filters := protocolFilters(src.Capture.Instrumentation, mapping.name)
+		if err := validateSharedAttributeFilters(
+			path+".traces",
+			canonicalPath,
+			"application",
+			filters.Traces,
+			canonical,
+		); err != nil {
+			return err
+		}
+		if err := validateSharedAttributeFilters(
+			path+".metrics",
+			canonicalPath,
+			"application",
+			filters.Metrics,
+			canonical,
+		); err != nil {
+			return err
+		}
+	}
+
+	if err := validateSharedSignalFilters(
+		"capture.network.capture.filters",
+		"network",
+		src.Capture.Network.Capture.Filters,
+	); err != nil {
+		return err
+	}
+	return validateSharedSignalFilters(
+		"capture.network.stats.filters",
+		"network stats",
+		src.Capture.Network.Stats.Filters,
+	)
+}
+
+func validateSharedSignalFilters(path, runtimeFilter string, filters schema.SignalFilters) error {
+	return validateSharedAttributeFilters(
+		path+".metrics",
+		path+".traces",
+		runtimeFilter,
+		filters.Metrics,
+		filters.Traces,
+	)
+}
+
+func validateSharedAttributeFilters(
+	path string,
+	canonicalPath string,
+	runtimeFilter string,
+	filters schema.AttributeFilters,
+	canonical schema.AttributeFilters,
+) error {
+	if attributeFiltersEqual(filters, canonical) {
 		return nil
 	}
-	if reflect.DeepEqual(filters.Traces, filters.Metrics) {
-		return nil
+	return fmt.Errorf(
+		"%s cannot differ from %s because the runtime uses one %s filter",
+		path,
+		canonicalPath,
+		runtimeFilter,
+	)
+}
+
+func attributeFiltersEqual(left, right schema.AttributeFilters) bool {
+	if len(left) == 0 && len(right) == 0 {
+		return true
 	}
-	return errors.New("capture.instrumentation.http.filters: trace and metric filters cannot differ")
+	return reflect.DeepEqual(left, right)
 }
 
 func validateV2HTTPPayloadExtraction(payload schema.PayloadExtraction) error {
@@ -2128,6 +2193,31 @@ func protocolEnablement(instrumentation schema.Instrumentation, name protocolNam
 		return instrumentation.GPU.Enabled
 	default:
 		return schema.ProtocolEnablement{}
+	}
+}
+
+func protocolFilters(instrumentation schema.Instrumentation, name protocolName) schema.SignalFilters {
+	switch name {
+	case protocolHTTP:
+		return instrumentation.HTTP.Filters
+	case protocolGRPC:
+		return instrumentation.GRPC.Filters
+	case protocolSQL:
+		return instrumentation.SQL.Filters
+	case protocolRedis:
+		return instrumentation.Redis.Filters
+	case protocolKafka:
+		return instrumentation.Kafka.Filters
+	case protocolMongo:
+		return instrumentation.Mongo.Filters
+	case protocolCouchbase:
+		return instrumentation.Couchbase.Filters
+	case protocolDNS:
+		return instrumentation.DNS.Filters
+	case protocolGPU:
+		return instrumentation.GPU.Filters
+	default:
+		return schema.SignalFilters{}
 	}
 }
 
