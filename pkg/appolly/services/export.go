@@ -27,6 +27,7 @@ var modeForText = map[string]maps.Bits{
 	"logs":    blockLogs,
 }
 
+// YAML serialization must use a fixed order to keep generated configuration reproducible.
 var orderedExportModes = []string{"metrics", "traces", "logs"}
 
 const (
