@@ -395,6 +395,14 @@ extensions:
             traces: {}
             metrics: {}
           enabled_mode: auto
+        # Aerospike protocol instrumentation toggle.
+        aerospike:
+          enabled:
+            traces: true
+            metrics: true
+          filters:
+            traces: {}
+            metrics: {}
 
       # runtimes controls injection of language-specific runtime instrumentation mechanisms.
       # These are independent from protocol instrumentation (HTTP, gRPC, etc.) and are used
