@@ -621,3 +621,264 @@ func TestParseGeminiStream_OversizedArrayIndex(t *testing.T) {
 	// "items" should not be present (oversized index was skipped).
 	assert.Nil(t, args["items"])
 }
+
+func TestParseGeminiStream_PartialArgsArraySlotBudget(t *testing.T) {
+	// Each accepted path can allocate up to maxPartialArgArrayIndex array slots.
+	// The cumulative budget must stop many distinct bounded high-index paths
+	// from expanding a small stream into excessive heap usage and span output.
+	var partialArgs strings.Builder
+	for i := range maxPartialArgArraySlots/maxPartialArgArrayIndex + 2 {
+		if i > 0 {
+			partialArgs.WriteByte(',')
+		}
+		partialArgs.WriteString(`{"jsonPath":"$.k`)
+		partialArgs.WriteString(string(rune('0' + i)))
+		partialArgs.WriteString(`[1023]","numberValue":1}`)
+	}
+
+	stream := `data: {"candidates":[{"content":{"parts":[{"functionCall":{"name":"bounded","partialArgs":[` + partialArgs.String() + `]}}],"role":"model"},"finishReason":"STOP"}],"modelVersion":"gemini-2.0-flash"}` + "\n\n"
+
+	resp, toolCalls := parseGeminiStream(strings.NewReader(stream))
+
+	require.NotNil(t, resp)
+	require.Len(t, toolCalls, 1)
+	require.Len(t, resp.Candidates, 1)
+
+	var parts []struct {
+		FunctionCall *struct {
+			Args json.RawMessage `json:"args"`
+		} `json:"functionCall"`
+	}
+	require.NoError(t, json.Unmarshal(resp.Candidates[0].Content.Parts, &parts))
+	require.Len(t, parts, 1)
+	require.NotNil(t, parts[0].FunctionCall)
+
+	var args map[string]any
+	require.NoError(t, json.Unmarshal(parts[0].FunctionCall.Args, &args))
+	assert.Len(t, args, maxPartialArgArraySlots/maxPartialArgArrayIndex)
+	assert.NotContains(t, args, "k4")
+	assert.NotContains(t, args, "k5")
+}
+
+func TestParseGeminiStream_PartialArgsArraySlotBudgetAcrossFunctionCalls(t *testing.T) {
+	var functionCalls strings.Builder
+	for i := range maxPartialArgArraySlots/maxPartialArgArrayIndex + 2 {
+		if i > 0 {
+			functionCalls.WriteByte(',')
+		}
+		functionCalls.WriteString("{\"functionCall\":{\"name\":\"call")
+		functionCalls.WriteString(string(rune('0' + i)))
+		functionCalls.WriteString("\",\"partialArgs\":[{\"jsonPath\":\"$.items[1023]\",\"numberValue\":1}]}}")
+	}
+
+	stream := "data: {\"candidates\":[{\"content\":{\"parts\":[" + functionCalls.String() + "],\"role\":\"model\"},\"finishReason\":\"STOP\"}],\"modelVersion\":\"gemini-2.0-flash\"}" + "\n\n"
+
+	resp, toolCalls := parseGeminiStream(strings.NewReader(stream))
+
+	require.NotNil(t, resp)
+	require.Len(t, toolCalls, maxPartialArgArraySlots/maxPartialArgArrayIndex+2)
+	require.Len(t, resp.Candidates, 1)
+
+	var parts []geminiStreamPart
+	require.NoError(t, json.Unmarshal(resp.Candidates[0].Content.Parts, &parts))
+	require.Len(t, parts, maxPartialArgArraySlots/maxPartialArgArrayIndex+2)
+
+	retainedSlots := 0
+	for i := range maxPartialArgArraySlots / maxPartialArgArrayIndex {
+		var args map[string]any
+		require.NoError(t, json.Unmarshal(parts[i].FunctionCall.Args, &args))
+		retainedSlots += countArraySlots(args)
+	}
+	assert.Equal(t, maxPartialArgArraySlots, retainedSlots)
+	assert.Empty(t, parts[len(parts)-2].FunctionCall.Args)
+	assert.Empty(t, parts[len(parts)-1].FunctionCall.Args)
+}
+
+func TestPartialArgRejectedStringFragmentsAreSkipped(t *testing.T) {
+	args := map[string]any{}
+	arraySlots := 0
+	var ok bool
+	for _, path := range []string{
+		"$.fill0[1023]",
+		"$.fill1[1023]",
+		"$.fill2[1023]",
+		"$.fill3[1023]",
+	} {
+		arraySlots, ok = setByJSONPath(args, path, 1, arraySlots)
+		require.True(t, ok)
+	}
+
+	continuing := true
+	prefix := "he"
+	fc := fcAggregator{argsObj: args}
+	budget := fc.applyPartialArg(&geminiPartialArg{
+		JSONPath:     "$.value[0]",
+		StringValue:  &prefix,
+		WillContinue: &continuing,
+	}, partialArgBudget{arraySlots: arraySlots})
+
+	budget.arraySlots, ok = setByJSONPath(args, "$.fill0", 1, budget.arraySlots)
+	require.True(t, ok)
+	suffix := "llo"
+	fc.applyPartialArg(&geminiPartialArg{JSONPath: "$.value[0]", StringValue: &suffix}, budget)
+
+	assert.NotContains(t, args, "value")
+	assert.Empty(t, fc.strFrags)
+	assert.Empty(t, fc.rejectedStrFrags)
+}
+
+func TestSetByJSONPathRejectedPathDoesNotConsumeArraySlotBudget(t *testing.T) {
+	args := map[string]any{}
+	arraySlots := 0
+
+	for _, path := range []string{
+		"$.bad0[1023][1000000000]",
+		"$.bad1[1023][1000000000]",
+		"$.bad2[1023][1000000000]",
+		"$.bad3[1023][1000000000]",
+	} {
+		updatedArraySlots, ok := setByJSONPath(args, path, 1, arraySlots)
+		assert.False(t, ok)
+		arraySlots = updatedArraySlots
+	}
+
+	assert.Zero(t, arraySlots)
+	assert.Empty(t, args)
+	var ok bool
+	arraySlots, ok = setByJSONPath(args, "$.items[0]", 1, arraySlots)
+	require.True(t, ok)
+	assert.Equal(t, 1, arraySlots)
+	assert.Equal(t, []any{1}, args["items"])
+}
+
+func TestSetByJSONPathRootArrayDoesNotConsumeArraySlotBudget(t *testing.T) {
+	args := map[string]any{}
+	arraySlots := 0
+
+	for range maxPartialArgArraySlots / maxPartialArgArrayIndex {
+		updatedArraySlots, ok := setByJSONPath(args, "$[1023]", 1, arraySlots)
+		assert.False(t, ok)
+		arraySlots = updatedArraySlots
+	}
+
+	assert.Zero(t, arraySlots)
+	assert.Empty(t, args)
+	var ok bool
+	arraySlots, ok = setByJSONPath(args, "$.items[0]", 1, arraySlots)
+	require.True(t, ok)
+	assert.Equal(t, 1, arraySlots)
+	assert.Equal(t, []any{1}, args["items"])
+}
+
+func TestSetByJSONPathOverwriteReclaimsArraySlotBudget(t *testing.T) {
+	args := map[string]any{}
+	arraySlots := 0
+	var ok bool
+
+	for _, path := range []string{"$.tmp0", "$.tmp1", "$.tmp2", "$.tmp3"} {
+		arraySlots, ok = setByJSONPath(args, path+"[1023]", 1, arraySlots)
+		require.True(t, ok)
+		arraySlots, ok = setByJSONPath(args, path, 1, arraySlots)
+		require.True(t, ok)
+	}
+
+	assert.Zero(t, arraySlots)
+	arraySlots, ok = setByJSONPath(args, "$.items[0]", 1, arraySlots)
+	require.True(t, ok)
+	assert.Equal(t, 1, arraySlots)
+	assert.Equal(t, []any{1}, args["items"])
+}
+
+func TestSetByJSONPathIntermediateTypeChangesReclaimArraySlotBudget(t *testing.T) {
+	args := map[string]any{}
+	arraySlots := 0
+	var ok bool
+
+	for _, path := range []string{"$.tmp0", "$.tmp1", "$.tmp2", "$.tmp3"} {
+		arraySlots, ok = setByJSONPath(args, path+"[1023]", 1, arraySlots)
+		require.True(t, ok)
+		arraySlots, ok = setByJSONPath(args, path+".child[0]", 1, arraySlots)
+		require.True(t, ok)
+	}
+
+	assert.Equal(t, 4, arraySlots)
+	arraySlots, ok = setByJSONPath(args, "$.items[1023]", 1, arraySlots)
+	require.True(t, ok)
+	assert.Equal(t, maxPartialArgArrayIndex+4, arraySlots)
+
+	arraySlots, ok = setByJSONPath(args, "$.nested.child[1023]", 1, arraySlots)
+	require.True(t, ok)
+	arraySlots, ok = setByJSONPath(args, "$.nested[0]", 1, arraySlots)
+	require.True(t, ok)
+	assert.Equal(t, maxPartialArgArrayIndex+5, arraySlots)
+}
+
+func TestSetByJSONPathAllocationBudgetIsMonotonic(t *testing.T) {
+	args := map[string]any{}
+	budget := partialArgBudget{}
+
+	budget, ok := setByJSONPathWithBudget(args, "$.x[1023][1023][1023][1023]", 1, budget)
+	require.True(t, ok)
+	budget, ok = setByJSONPathWithBudget(args, "$.x", 1, budget)
+	require.True(t, ok)
+	assert.Zero(t, budget.arraySlots)
+	assert.Equal(t, maxPartialArgArraySlots, budget.arrayAllocations)
+	budget, ok = setByJSONPathWithBudget(args, "$.x[1023][1023][1023][1023]", 1, budget)
+	assert.False(t, ok)
+	assert.Equal(t, 1, args["x"])
+}
+
+func TestSetByJSONPathExhaustedAllocationBudgetRejectsObjectToArray(t *testing.T) {
+	args := map[string]any{}
+	budget := partialArgBudget{}
+
+	for _, path := range []string{
+		"$.large.k0[1023]",
+		"$.large.k1[1023]",
+		"$.large.k2[1023]",
+		"$.large.k3[1023]",
+	} {
+		var ok bool
+		budget, ok = setByJSONPathWithBudget(args, path, 1, budget)
+		require.True(t, ok)
+	}
+	require.Equal(t, maxPartialArgArraySlots, budget.arrayAllocations)
+
+	for range 3 {
+		updatedBudget, ok := setByJSONPathWithBudget(args, "$.large[0]", 1, budget)
+		assert.False(t, ok)
+		assert.Equal(t, budget, updatedBudget)
+	}
+	assert.Len(t, args["large"], maxPartialArgArraySlots/maxPartialArgArrayIndex)
+}
+
+func TestSetByJSONPathExhaustedAllocationBudgetRejectsArrayToObject(t *testing.T) {
+	args := map[string]any{}
+	budget := partialArgBudget{}
+
+	budget, ok := setByJSONPathWithBudget(
+		args,
+		"$.large[1023][1023][1023][1023]",
+		1,
+		budget,
+	)
+	require.True(t, ok)
+	require.Equal(t, maxPartialArgArraySlots, budget.arrayAllocations)
+
+	for range 3 {
+		updatedBudget, ok := setByJSONPathWithBudget(args, "$.large.child[0]", 1, budget)
+		assert.False(t, ok)
+		assert.Equal(t, budget, updatedBudget)
+	}
+	assert.IsType(t, []any{}, args["large"])
+}
+
+func TestSetByJSONPathDeepFreshPath(t *testing.T) {
+	const childFragments = 32 * 1024
+
+	args := map[string]any{}
+	path := "$" + strings.Repeat(".a", childFragments) + "[0]"
+	budget, ok := setByJSONPathWithBudget(args, path, 1, partialArgBudget{})
+	require.True(t, ok)
+	assert.Equal(t, partialArgBudget{arraySlots: 1, arrayAllocations: 1}, budget)
+}
