@@ -176,10 +176,9 @@ static __always_inline u64 resolve_python_current_task(const trace_key_t *t_key,
     }
 
     // asyncio.to_thread can switch work onto a thread that inherited a context
-    // but has not run task_step, so current_context is the only usable link.
-    const python_context_task_t *context_task = (const python_context_task_t *)bpf_map_lookup_elem(
-        &python_context_task, &thread_state->current_context);
-    const u64 task_id = resolve_python_context_task(context_task);
+    // but has not run task_step, so the context's owner task (cached when the
+    // context was entered) is the only usable link.
+    const u64 task_id = thread_state->current_context_task;
     if (task_id) {
         bpf_dbg_printk("resolve_python_current_task: context fallback tid=%d ctx=%llx task=%llx",
                        t_key->p_key.tid,

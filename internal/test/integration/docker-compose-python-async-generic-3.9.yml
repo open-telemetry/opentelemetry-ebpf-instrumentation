@@ -12,15 +12,15 @@ services:
   pythonasync:
     build:
       context: ../../..
-      dockerfile: internal/test/integration/components/pythonasync-uvloop/Dockerfile-3.14
-    image: hatest-pythonasync-uvloop
+      dockerfile: internal/test/integration/components/pythonasync-generic/Dockerfile-3.9
+    image: hatest-pythonasync-generic
     ports:
-      - "8391:8391"
+      - "8392:8392"
     environment:
       LOG_LEVEL: DEBUG
       BACKEND_URL: "http://testserver:8080"
-      UVICORN_LOOP: "${UVICORN_LOOP:-uvloop}"
-      OTEL_SERVICE_NAME: "pythonasync-uvloop"
+      LOOP: "${PYTHON_ASYNC_LOOP:-asyncio}"
+      OTEL_SERVICE_NAME: "pythonasync-generic"
     depends_on:
       testserver:
         condition: service_started
@@ -35,16 +35,16 @@ services:
       - ./configs/:/configs
       - ./system/sys/kernel/security${SECURITY_CONFIG_SUFFIX}:/sys/kernel/security
       - ../../../testoutput:/coverage
-      - ../../../testoutput/run-python-async:/var/run/obi
+      - ../../../testoutput/run-python-async-generic:/var/run/obi
     image: hatest-obi
     privileged: true
     pid: "host"
     environment:
       GOCOVERDIR: "/coverage"
       OTEL_EBPF_TRACE_PRINTER: "text"
-      OTEL_EBPF_OPEN_PORT: "8391,8080"
-      OTEL_EBPF_METRICS_FEATURES: "application,application_span_otel,application_service_graph,ebpf,application_host"
-      OTEL_EBPF_PROMETHEUS_FEATURES: "application,application_span_otel,application_service_graph,ebpf,application_host"
+      OTEL_EBPF_OPEN_PORT: "8392,8080"
+      OTEL_EBPF_METRICS_FEATURES: "application,application_span_otel,application_process,application_service_graph,ebpf,application_host"
+      OTEL_EBPF_PROMETHEUS_FEATURES: "application,application_span_otel,application_process,application_service_graph,ebpf,application_host"
       OTEL_EBPF_DISCOVERY_POLL_INTERVAL: 500ms
       OTEL_EBPF_EXECUTABLE_NAME: ""
       OTEL_EBPF_SERVICE_NAMESPACE: "integration-test"
@@ -69,7 +69,7 @@ services:
         condition: service_started
 
   otelcol:
-    image: otel/opentelemetry-collector-contrib:0.159.0@sha256:1f2c54a30e713fac6b3ae77a1ec84010c2007e29ced8ec666214fc2f6739c1cc
+    image: otel/opentelemetry-collector-contrib:0.156.0@sha256:125bdbeb7590cc1952c5b3430ecf14063568980c2c93d5b38676cc0446ed8108
     container_name: otel-col
     deploy:
       resources:
@@ -102,7 +102,7 @@ services:
       - ../../../schemas/obi:/obi-registry:ro
 
   prometheus:
-    image: quay.io/prometheus/prometheus:v3.14.0@sha256:5ce7540c3c00ef4ab0c9d2c995c6a5b9c421f44b4a115d97a2c7af3b1c21cbb0
+    image: quay.io/prometheus/prometheus:v3.13.0@sha256:c6b27ea434f8389bfe233fbc7be381cf50587c286e871bc842008f5a1b1908a7
     container_name: prometheus
     command:
       - --config.file=/etc/prometheus/prometheus-config.yml
@@ -115,10 +115,11 @@ services:
       - "9090:9090"
 
   jaeger:
-    image: jaegertracing/jaeger:2.20.0@sha256:46a886260e04002d8f45e213fc39063fa11a50446048fdaa64786fc0840cb9f8
+    image: jaegertracing/all-in-one:1.60@sha256:4fd2d70fa347d6a47e79fcb06b1c177e6079f92cba88b083153d56263082135e
     ports:
       - "16686:16686"
       - "4317"
       - "4318"
-    command:
-      - "--set=service.telemetry.logs.level=debug"
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+      - LOG_LEVEL=debug

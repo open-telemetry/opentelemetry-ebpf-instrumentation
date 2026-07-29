@@ -5,6 +5,7 @@ package integration
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -1678,6 +1679,150 @@ func testPythonAsyncNested(t *testing.T) {
 
 func testPythonAsyncConcurrent(t *testing.T) {
 	testPythonAsyncEndpoint(t, "/concurrent/", 3)
+}
+
+// The pythonasync-generic app (plain asyncio.start_server) uses a unique
+// downstream path per request id and call index (e.g. /seq/7/2), so these
+// checks can assert the exact set of client spans belonging to each trace
+// and detect cross-request context bleed.
+
+func pythonAsyncSpanHasAncestor(trace *jaeger.Trace, s *jaeger.Span, ancestorID string) bool {
+	const maxHops = 3 // crosses the "in queue"/"processing" pseudo-spans
+	cur := s
+	for hop := 0; hop < maxHops; hop++ {
+		parent, ok := trace.ParentOf(cur)
+		if !ok {
+			return false
+		}
+		if parent.SpanID == ancestorID {
+			return true
+		}
+		cur = &parent
+	}
+	return false
+}
+
+func verifyPythonAsyncGenericTrace(ct *assert.CollectT, endpoint, slug, downstreamPrefix string, expectedCalls int) {
+	urlPath := endpoint + slug
+	resp, err := http.Get(jaegerQueryURL + "?service=pythonasync-generic&operation=GET%20" + urlPath)
+	require.NoError(ct, err)
+	if resp == nil {
+		return
+	}
+	require.Equal(ct, http.StatusOK, resp.StatusCode)
+	var tq jaeger.TracesQuery
+	require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
+	traces := tq.FindBySpan(jaeger.Tag{Key: "url.path", Type: "string", Value: urlPath})
+	require.Lenf(ct, traces, 1, "expected exactly one trace containing %s", urlPath)
+	trace := traces[0]
+
+	servers := trace.FindByOperationName("GET "+urlPath, "server")
+	require.Len(ct, servers, 1)
+	server := servers[0]
+	require.NotEmpty(ct, server.TraceID)
+	require.NotEmpty(ct, server.SpanID)
+
+	sd := server.Diff(
+		jaeger.Tag{Key: "http.request.method", Type: "string", Value: "GET"},
+		jaeger.Tag{Key: "http.response.status_code", Type: "int64", Value: float64(200)},
+		jaeger.Tag{Key: "url.path", Type: "string", Value: urlPath},
+		jaeger.Tag{Key: "server.port", Type: "int64", Value: float64(8392)},
+		jaeger.Tag{Key: "span.kind", Type: "string", Value: "server"},
+	)
+	assert.Empty(ct, sd, sd.String())
+
+	for call := 1; call <= expectedCalls; call++ {
+		op := "GET " + downstreamPrefix + "/" + slug + "/" + strconv.Itoa(call)
+
+		clients := trace.FindByOperationName(op, "client")
+		require.Lenf(ct, clients, 1, "expected exactly one client span %q", op)
+		client := clients[0]
+		require.Equal(ct, server.TraceID, client.TraceID)
+		require.Truef(ct, pythonAsyncSpanHasAncestor(&trace, &client, server.SpanID),
+			"client span %q must descend from the server span", op)
+
+		backends := trace.FindByOperationName(op, "server")
+		require.Lenf(ct, backends, 1, "expected exactly one backend server span %q", op)
+		backend := backends[0]
+		require.Equal(ct, server.TraceID, backend.TraceID)
+		require.Truef(ct, pythonAsyncSpanHasAncestor(&trace, &backend, client.SpanID),
+			"backend span %q must descend from its client span", op)
+	}
+
+	// Exact totals: any cross-request context bleed shows up as extra spans
+	clientCount, serverCount := 0, 0
+	for i := range trace.Spans {
+		if kind, ok := jaeger.FindIn(trace.Spans[i].Tags, "span.kind"); ok {
+			switch kind.Value {
+			case "client":
+				clientCount++
+			case "server":
+				serverCount++
+			}
+		}
+	}
+	require.Equalf(ct, expectedCalls, clientCount, "unexpected extra client spans in trace for %s", urlPath)
+	require.Equalf(ct, expectedCalls+1, serverCount, "unexpected extra server spans in trace for %s", urlPath)
+}
+
+func testPythonAsyncGenericEndpoint(t *testing.T, endpoint, downstreamPrefix string, expectedCalls int) {
+	waitForTestComponentsSub(t, "http://localhost:8392", "/health")
+
+	const requests = 20
+	for i := 1; i <= requests; i++ {
+		go ti.DoHTTPGet(t, "http://localhost:8392"+endpoint+strconv.Itoa(i), 200)
+	}
+
+	for i := 1; i <= requests; i++ {
+		slug := strconv.Itoa(i)
+		require.EventuallyWithT(t, func(ct *assert.CollectT) {
+			verifyPythonAsyncGenericTrace(ct, endpoint, slug, downstreamPrefix, expectedCalls)
+		}, testTimeout, 100*time.Millisecond)
+	}
+}
+
+func testPythonAsyncGenericSequential(t *testing.T) {
+	testPythonAsyncGenericEndpoint(t, "/sequential/", "/seq", 3)
+}
+
+func testPythonAsyncGenericToThread(t *testing.T) {
+	testPythonAsyncGenericEndpoint(t, "/to-thread/", "/thr", 2)
+}
+
+func testPythonAsyncGenericNested(t *testing.T) {
+	testPythonAsyncGenericEndpoint(t, "/nested/", "/nest", 2)
+}
+
+func testPythonAsyncGenericConcurrent(t *testing.T) {
+	testPythonAsyncGenericEndpoint(t, "/concurrent/", "/conc", 3)
+}
+
+// Sequential requests over one reused inbound connection: a single
+// per-connection handler task serves all of them
+func testPythonAsyncGenericKeepAlive(t *testing.T) {
+	waitForTestComponentsSub(t, "http://localhost:8392", "/health")
+
+	transport := &http.Transport{MaxConnsPerHost: 1, MaxIdleConnsPerHost: 1}
+	defer transport.CloseIdleConnections()
+	client := &http.Client{Transport: transport, Timeout: 30 * time.Second}
+
+	const requests = 5
+	const slugBase = 100
+	for i := slugBase + 1; i <= slugBase+requests; i++ {
+		resp, err := client.Get("http://localhost:8392/sequential/" + strconv.Itoa(i))
+		require.NoError(t, err)
+		_, err = io.ReadAll(resp.Body)
+		require.NoError(t, err)
+		require.NoError(t, resp.Body.Close())
+		require.Equal(t, http.StatusOK, resp.StatusCode)
+	}
+
+	for i := slugBase + 1; i <= slugBase+requests; i++ {
+		slug := strconv.Itoa(i)
+		require.EventuallyWithT(t, func(ct *assert.CollectT) {
+			verifyPythonAsyncGenericTrace(ct, "/sequential/", slug, "/seq", 3)
+		}, testTimeout, 100*time.Millisecond)
+	}
 }
 
 func testGoGenericHTTPTraces(t *testing.T) {

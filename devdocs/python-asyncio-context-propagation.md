@@ -21,6 +21,7 @@ context propagation for `asyncio` workloads, including applications running on
 | `await` in the current task | The event-loop thread is executing a single `asyncio.Task` | `task_step` records `current_task`, and parent lookup resolves the request directly from that task |
 | `asyncio.create_task()` / `asyncio.gather()` / nested tasks | Child tasks inherit execution context from the parent task | `_asyncio_Task___init__` records the parent chain and request ownership for the child task |
 | `asyncio.to_thread()` | Python copies the current `Context` and runs it on a worker thread | `PyContext_CopyCurrent()` binds the copied `PyContext*` to the originating task, and `context_run` lets the worker thread resolve that context back to the task |
+| `asyncio.start_server()` and similar callback-driven servers | The per-connection handler task is created from a plain loop callback (`connection_made`), with no current task | The callback runs under a `Context` copied inside the internal accept task; `context_run` resolves that context's owner and task creation adopts it as the logical parent |
 | `uvloop` event loop | The loop implementation changes, but `asyncio` task and `contextvars` semantics stay the same | The same task/context probes and lookup logic work without any `uvloop`-specific probe |
 
 ## Architecture
@@ -55,7 +56,10 @@ The implementation introduces three pieces of Python-specific state:
 3. **Context-to-task state** in `python_context_task`
    - binds a copied `PyContext*` to the task that owned it when the copy was
      created,
-   - stores the task version captured at bind time.
+   - stores the task version captured at bind time,
+   - lives exactly as long as the context object: the binding is deleted when
+     `context_tp_dealloc` runs, so a recycled `PyContext*` address can never
+     resolve through a stale binding.
 
 The end result is a two-stage lookup:
 
@@ -94,7 +98,10 @@ Runs when a new `asyncio.Task` is created.
 Responsibilities:
 
 - capture the child `TaskObj*`,
-- record the parent task from the current thread state,
+- record the parent task from the current thread state; when there is no
+  current task (creation from a plain loop callback such as
+  `connection_made`), adopt the owner of the currently entered context
+  instead,
 - snapshot the request connection that currently belongs to that logical flow,
 - mark the child as `inflight_task` so the copied context can be attributed
   before the child starts running.
@@ -135,10 +142,13 @@ Runs when Python activates a `Context` on a thread.
 Responsibilities:
 
 - track which `PyContext*` is active on the current thread,
+- resolve the context's owner task from `python_context_task` and cache it in
+  `python_thread_state.current_context_task`,
 - preserve the rest of the thread snapshot while updating the current context.
 
 This is the bridge for cases where there is no direct task identity on the
-thread, most importantly `asyncio.to_thread()`.
+thread: `asyncio.to_thread()` workers, and per-connection handler-task
+creation in `asyncio.start_server`-style servers.
 
 ## Parent Lookup
 
@@ -149,10 +159,9 @@ When a Python client request needs a trace parent, lookup happens in two phases.
 `resolve_python_current_task()` checks:
 
 1. `python_thread_state.current_task`
-2. `python_thread_state.current_context`
-3. `python_context_task[current_context]`
-4. `resolve_python_context_task()` to reject stale task pointers whose version
-   no longer matches
+2. `python_thread_state.current_context_task` — the owner of the currently
+   entered context, resolved (with a `resolve_python_context_task()` version
+   check against stale task pointers) and cached when the context was entered
 
 If the current thread is executing a normal task step, the first path wins. If
 the current thread is a `to_thread` worker, the second path resolves the task
@@ -203,11 +212,51 @@ The userspace tracer adapts probe attachment in three places:
 - `context_run.lto_priv.0` is attached as an alternative symbol for Python 3.14
   builds with link-time optimization,
 - `context_new_from_vars` is attached as an alternative return probe when
-  `PyContext_CopyCurrent()` is optimized differently in container builds.
+  `PyContext_CopyCurrent()` is optimized differently in container builds,
+- `context_tp_dealloc` (and its `.lto_priv.0` LTO variant) is attached to
+  delete context bindings when the context object is freed.
 
 The `_asyncio` probe attachment itself is discovered dynamically from the
 process's loaded libraries, so the tracer can attach to the actual
 `.../lib-dynload/_asyncio` module in use.
+
+### Generic asyncio servers (`asyncio.start_server`)
+
+`asyncio.start_server` creates one handler task per *connection*, from a plain
+loop callback (`connection_made`), so at task creation there is no current
+task and the thread-local connection may already belong to another
+just-accepted connection. The callback does run under a `Context` that was
+copied inside the internal accept task, which owns the correct connection —
+that is why task creation adopts the entered context's owner as the parent
+when there is no current task.
+
+### `PyContext*` address reuse
+
+CPython recycles freed `PyContext` objects through a freelist, so a new
+context frequently reuses the address of a recently freed one. Every asyncio
+application constantly produces contexts that are copied but never entered —
+most commonly the contexts captured by timeout and keep-alive timer callbacks
+that get cancelled — and each of those leaves a `python_context_task` binding
+that outlives its object. If such a stale binding were trusted when a new
+context at the same address is entered, task creation would inherit an
+unrelated request's task and connection, stitching spans across requests.
+(uvicorn ≥ 0.41, which enters a fresh `contextvars.Context()` for every
+request task, triggers this on nearly every request and is covered by the
+regression suites.)
+
+Two defenses:
+
+1. **Deallocation tracking**: a probe on `context_tp_dealloc` (attached
+   best-effort, including the `.lto_priv.0` LTO variant) deletes the binding
+   when the context object is freed, making binding lifetime equal to object
+   lifetime.
+2. **Identity fallback**: bindings also record the context's `ctx_vars`
+   (`PyHamtObject*`, read at offset 24 of `struct _pycontextobject`, a layout
+   stable across CPython 3.9-3.14 standard builds). Activation re-reads and
+   compares it, rejecting most stale bindings on builds where the dealloc
+   symbol cannot be attached. Contexts sharing the empty-HAMT singleton are
+   indistinguishable to this check, which is why the dealloc probe is the
+   primary defense.
 
 ### Why this works with `uvloop`
 
@@ -220,4 +269,7 @@ correlation points are defined by CPython task/context behavior:
 - worker-thread execution still activates a `Context` via `context_run`.
 
 `uvloop` changes how readiness and callback scheduling are driven, but not the
-logical contract OBI uses to reconstruct task lineage.
+logical contract OBI uses to reconstruct task lineage. The exception is
+`asyncio.start_server` on uvloop: its accept path runs in C with no
+CPython-visible context, so per-connection handler tasks cannot be correlated
+there.

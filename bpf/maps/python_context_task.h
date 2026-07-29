@@ -12,6 +12,7 @@
 typedef struct python_context_task {
     u64 task;    // task that owned this PyContext* when the mapping was written
     u64 version; // task version captured at bind time to reject TaskObj* reuse
+    u64 vars;    // ctx_vars at bind time, to reject recycled PyContext* addresses
 } python_context_task_t;
 
 struct {

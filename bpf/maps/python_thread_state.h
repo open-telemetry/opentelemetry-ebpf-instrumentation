@@ -12,6 +12,7 @@
 typedef struct python_thread_state {
     u64 current_task;
     u64 current_context;
+    u64 current_context_task;
     u64 inflight_task;
 } python_thread_state_t;
 

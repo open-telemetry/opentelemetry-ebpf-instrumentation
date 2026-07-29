@@ -26,6 +26,18 @@
 // Python task/context pointers use 0 to mean "no active state" in thread-local tracking.
 enum { k_python_state_none = 0 };
 
+// ctx_vars offset in struct _pycontextobject: PyObject_HEAD + ctx_prev.
+// Layout is identical across CPython 3.9-3.14 standard 64-bit builds.
+// See https://github.com/python/cpython/blob/3.14/Include/internal/pycore_context.h#L21-L27
+enum { k_python_context_vars_offset = 16 + 8 };
+
+static __always_inline u64 read_python_context_vars(u64 context) {
+    u64 vars = 0;
+    bpf_probe_read_user(
+        &vars, sizeof(vars), (const void *)(context + k_python_context_vars_offset));
+    return vars;
+}
+
 static __always_inline void refresh_obi_ctx_for_task(u64 pid_tgid, u64 task_id) {
     if (!task_id) {
         obi_ctx__del(pid_tgid);
@@ -43,6 +55,7 @@ static __always_inline void map_context_to_task(u64 context, u64 task) {
     python_context_task_t mapping = {
         .task = task,
         .version = 0,
+        .vars = read_python_context_vars(context),
     };
 
     const python_task_state_t *task_state =
@@ -150,10 +163,16 @@ int GUARDED_PROG(obi_uprobe_context_run, struct pt_regs *, ctx) {
 
     thread_state->current_context = context;
 
-    // asyncio.to_thread worker has no current_task; look up which task copied this context
+    // asyncio.to_thread worker has no current_task; look up which task copied this context.
+    // The ctx_vars check rejects stale bindings left by a freed context whose
+    // address was recycled, for builds where context_tp_dealloc is not attached.
     const python_context_task_t *context_task =
         (const python_context_task_t *)bpf_map_lookup_elem(&python_context_task, &context);
-    const u64 task_id = resolve_python_context_task(context_task);
+    u64 task_id = resolve_python_context_task(context_task);
+    if (task_id && context_task && context_task->vars != read_python_context_vars(context)) {
+        task_id = k_python_state_none;
+    }
+    thread_state->current_context_task = task_id;
     if (task_id) {
         refresh_obi_ctx_for_task(id, task_id);
     } else if (thread_state->current_task == k_python_state_none) {
@@ -181,6 +200,7 @@ int GUARDED_PROG(obi_uretprobe_context_run, struct pt_regs *, ctx) {
     }
 
     thread_state->current_context = k_python_state_none;
+    thread_state->current_context_task = k_python_state_none;
     // Only worker threads have no current_task here; on the event-loop thread
     // task_step_ret owns obi_ctx cleanup so we leave it alone
     if (thread_state->current_task == k_python_state_none) {
@@ -193,6 +213,20 @@ int GUARDED_PROG(obi_uretprobe_context_run, struct pt_regs *, ctx) {
         bpf_map_delete_elem(&python_thread_state, &id);
     }
 
+    return 0;
+}
+
+// A context object is being freed; its address can be recycled immediately,
+// so any binding for it is dead.
+SEC("uprobe/libpython3.:context_tp_dealloc")
+int obi_uprobe_context_dealloc(struct pt_regs *ctx) {
+    const u64 id = bpf_get_current_pid_tgid();
+    if (!valid_pid(id)) {
+        return 0;
+    }
+
+    const u64 context = (u64)PT_REGS_PARM1(ctx);
+    bpf_map_delete_elem(&python_context_task, &context);
     return 0;
 }
 
@@ -231,6 +265,8 @@ int GUARDED_PROG(obi_uprobe_copy_context, struct pt_regs *, ctx) {
         map_context_to_task(context, thread_state->current_task);
         return 0;
     }
+    // No owner for this copy; drop any stale binding at this recycled address
+    bpf_map_delete_elem(&python_context_task, &context);
     return 0;
 }
 
@@ -255,7 +291,12 @@ int GUARDED_PROG(obi_uprobe_task_init, struct pt_regs *, ctx) {
     }
 
     thread_state->inflight_task = child_task;
-    const u64 parent_task = thread_state->current_task;
+    u64 parent_task = thread_state->current_task;
+    // Tasks created from plain loop callbacks have no current task; the
+    // entered context's owner is the logical parent.
+    if (parent_task == k_python_state_none) {
+        parent_task = thread_state->current_context_task;
+    }
     const python_task_state_t *existing_state =
         (const python_task_state_t *)bpf_map_lookup_elem(&python_task_state, &child_task);
     // Task versions start at 1; version 0 means no task version.
