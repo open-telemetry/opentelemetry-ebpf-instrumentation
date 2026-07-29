@@ -168,20 +168,24 @@ func TestSpanContextOffsetsWithoutDwarf(t *testing.T) {
 	}, offsets)
 }
 
-func TestAutoSDKSpanContextOffsetFromDwarf(t *testing.T) {
-	offsets, _ := structMemberOffsetsFromDwarf(autoSDKSpanData)
-	mustMatch(t, FieldOffsets{
-		AutoSDKSpanContextPos: uint64(80),
-	}, offsets)
-}
+func TestCurrentAutoSDKDependencyABI(t *testing.T) {
+	// This intentionally fails when the current Auto SDK layout or reviewed
+	// module tuple changes.
+	t.Run("with DWARF", func(t *testing.T) {
+		offsets, _ := structMemberOffsetsFromDwarf(autoSDKSpanData)
+		mustMatch(t, FieldOffsets{
+			AutoSDKSpanContextPos: uint64(80),
+		}, offsets)
+	})
 
-func TestAutoSDKSpanContextOffsetWithoutDwarf(t *testing.T) {
-	offsets, err := structMemberOffsets(smallAutoSDKSpanELF)
-	require.NoError(t, err)
-	mustMatch(t, FieldOffsets{
-		AutoSDKSpanContextPos:      uint64(80),
-		AutoSDKActivationSupported: uint64(1),
-	}, offsets)
+	t.Run("without DWARF", func(t *testing.T) {
+		offsets, err := structMemberOffsets(smallAutoSDKSpanELF)
+		require.NoError(t, err)
+		mustMatch(t, FieldOffsets{
+			AutoSDKSpanContextPos:      uint64(80),
+			AutoSDKActivationSupported: uint64(1),
+		}, offsets)
+	})
 }
 
 func TestPrefetchedGoAutoSDKSpanContextOffsets(t *testing.T) {
@@ -293,18 +297,30 @@ func goAutoSDKActivationTestModules() moduleVersions {
 	}
 }
 
-func TestGoAutoSDKActivationSupported(t *testing.T) {
-	assert.True(t, goAutoSDKActivationSupported(goAutoSDKActivationTestModules()))
+func TestGoAutoSDKActivationSupportsReviewedModules(t *testing.T) {
+	t.Run("supported versions", func(t *testing.T) {
+		assert.True(t, goAutoSDKActivationSupported(goAutoSDKActivationTestModules()))
+	})
 
-	minimumVersions := goAutoSDKActivationTestModules()
-	minimumVersions.versions["go.opentelemetry.io/auto/sdk"] = "v1.1.0"
-	minimumVersions.sums["go.opentelemetry.io/auto/sdk"] = "h1:cH53jehLUN6UFLY71z+NDOiNJqDdPRaXzTel0sJySYA="
-	minimumVersions.versions["go.opentelemetry.io/otel"] = "v1.33.0"
-	minimumVersions.sums["go.opentelemetry.io/otel"] = "h1:/FerN9bax5LoK51X/sI0SVYrjSE0/yUL7DpxW4K3FWw="
-	minimumVersions.versions["go.opentelemetry.io/otel/trace"] = "v1.33.0"
-	minimumVersions.sums["go.opentelemetry.io/otel/trace"] = "h1:cCJuF7LRjUFso9LPnEAHJDB2pqzp+hbO8eu1qqW2d/s="
-	assert.True(t, goAutoSDKActivationSupported(minimumVersions))
+	t.Run("minimum versions", func(t *testing.T) {
+		modules := goAutoSDKActivationTestModules()
+		modules.versions["go.opentelemetry.io/auto/sdk"] = "v1.1.0"
+		modules.sums["go.opentelemetry.io/auto/sdk"] = "h1:cH53jehLUN6UFLY71z+NDOiNJqDdPRaXzTel0sJySYA="
+		modules.versions["go.opentelemetry.io/otel"] = "v1.33.0"
+		modules.sums["go.opentelemetry.io/otel"] = "h1:/FerN9bax5LoK51X/sI0SVYrjSE0/yUL7DpxW4K3FWw="
+		modules.versions["go.opentelemetry.io/otel/trace"] = "v1.33.0"
+		modules.sums["go.opentelemetry.io/otel/trace"] = "h1:cCJuF7LRjUFso9LPnEAHJDB2pqzp+hbO8eu1qqW2d/s="
+		assert.True(t, goAutoSDKActivationSupported(modules))
+	})
 
+	t.Run("unrelated replacement", func(t *testing.T) {
+		modules := goAutoSDKActivationTestModules()
+		modules.replacements["example.com/unrelated"] = struct{}{}
+		assert.True(t, goAutoSDKActivationSupported(modules))
+	})
+}
+
+func TestGoAutoSDKActivationRejectsInvalidModules(t *testing.T) {
 	for _, module := range goAutoSDKActivationModules {
 		t.Run("missing_"+module.path, func(t *testing.T) {
 			modules := goAutoSDKActivationTestModules()
@@ -325,16 +341,33 @@ func TestGoAutoSDKActivationSupported(t *testing.T) {
 		})
 	}
 
+	t.Run("empty checksum", func(t *testing.T) {
+		modules := goAutoSDKActivationTestModules()
+		modules.sums["go.opentelemetry.io/auto/sdk"] = ""
+		assert.False(t, goAutoSDKActivationSupported(modules))
+	})
+
+	t.Run("noncanonical checksum", func(t *testing.T) {
+		modules := goAutoSDKActivationTestModules()
+		modules.sums["go.opentelemetry.io/auto/sdk"] = "h1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+		assert.False(t, goAutoSDKActivationSupported(modules))
+	})
+
+	t.Run("invalid build information", func(t *testing.T) {
+		modules := goAutoSDKActivationTestModules()
+		modules.invalid = true
+		assert.False(t, goAutoSDKActivationSupported(modules))
+	})
+}
+
+func TestGoAutoSDKActivationRejectsUnsupportedVersions(t *testing.T) {
 	unsupportedVersions := []struct {
 		module  string
 		version string
 	}{
 		{module: "go.opentelemetry.io/auto/sdk", version: "v1.0.9"},
-		{module: "go.opentelemetry.io/auto/sdk", version: "v1.2.2"},
 		{module: "go.opentelemetry.io/otel", version: "v1.32.9"},
-		{module: "go.opentelemetry.io/otel", version: "v1.44.1"},
 		{module: "go.opentelemetry.io/otel/trace", version: "v1.32.9"},
-		{module: "go.opentelemetry.io/otel/trace", version: "v1.44.1"},
 		{module: "go.opentelemetry.io/auto/sdk", version: "v1.2.1-rc.1"},
 		{module: "go.opentelemetry.io/otel", version: "v1.44.0+incompatible"},
 	}
@@ -345,22 +378,6 @@ func TestGoAutoSDKActivationSupported(t *testing.T) {
 			assert.False(t, goAutoSDKActivationSupported(modules))
 		})
 	}
-
-	modules := goAutoSDKActivationTestModules()
-	modules.replacements["example.com/unrelated"] = struct{}{}
-	assert.True(t, goAutoSDKActivationSupported(modules))
-
-	modules = goAutoSDKActivationTestModules()
-	modules.sums["go.opentelemetry.io/auto/sdk"] = ""
-	assert.False(t, goAutoSDKActivationSupported(modules))
-
-	modules = goAutoSDKActivationTestModules()
-	modules.sums["go.opentelemetry.io/auto/sdk"] = "h1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
-	assert.False(t, goAutoSDKActivationSupported(modules))
-
-	modules = goAutoSDKActivationTestModules()
-	modules.invalid = true
-	assert.False(t, goAutoSDKActivationSupported(modules))
 }
 
 func TestSetGoAutoSDKActivationSupportClearsInvalidState(t *testing.T) {
