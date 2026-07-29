@@ -4,7 +4,9 @@
 package harvest
 
 import (
+	"bytes"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -804,6 +806,8 @@ func TestNestJSQuotedStringsAreBounded(t *testing.T) {
 
 func TestFlushNestMethodCapsRouteVariants(t *testing.T) {
 	extractor := NewRouteExtractor()
+	var logs bytes.Buffer
+	extractor.log = slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	extractor.nestPrefixes = make([]string, maxNestRouteVariants)
 	extractor.nestCtrlVersions = []string{"1", "2"}
 	for i := range extractor.nestPrefixes {
@@ -822,6 +826,9 @@ func TestFlushNestMethodCapsRouteVariants(t *testing.T) {
 	extractor.pendingNestMethod = &RoutePattern{Method: "POST", Path: "other", File: "test.ts", Line: 2}
 	extractor.flushNestMethod()
 	require.Len(t, extractor.routes, maxNestRouteVariants)
+	assert.Equal(t, 1, strings.Count(logs.String(), "nestjs route variant limit reached"))
+	assert.Contains(t, logs.String(), "file=test.ts")
+	assert.Contains(t, logs.String(), fmt.Sprintf("limit=%d", maxNestRouteVariants))
 }
 
 func TestCompiledNestJSFragmentsAreCappedPerFile(t *testing.T) {

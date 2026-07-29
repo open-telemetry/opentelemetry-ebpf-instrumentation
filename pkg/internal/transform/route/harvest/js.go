@@ -252,8 +252,9 @@ type RouteExtractor struct {
 	// (@Version() may appear above or below @Get()), so the route is emitted
 	// only when the stack ends: at the first non-decorator line, the next
 	// method or controller decorator, or the end of the file.
-	pendingNestMethod *RoutePattern
-	nestRouteVariants int
+	pendingNestMethod    *RoutePattern
+	nestRouteVariants    int
+	nestRouteLimitLogged bool
 	// inEnableVersioning tracks a multi-line app.enableVersioning({...}) call
 	// until its closing parenthesis
 	inEnableVersioning bool
@@ -435,6 +436,12 @@ func (e *RouteExtractor) flushNestMethod() {
 
 func (e *RouteExtractor) appendNestRoute(route RoutePattern) bool {
 	if e.nestRouteVariants >= maxNestRouteVariants {
+		if !e.nestRouteLimitLogged {
+			e.log.Debug("nestjs route variant limit reached",
+				"file", route.File,
+				"limit", maxNestRouteVariants)
+			e.nestRouteLimitLogged = true
+		}
 		return false
 	}
 
