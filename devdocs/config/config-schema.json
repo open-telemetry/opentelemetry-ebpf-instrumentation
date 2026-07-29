@@ -1325,6 +1325,13 @@
     },
     "HealthCheckConfig": {
       "properties": {
+        "listen_address": {
+          "type": "string",
+          "format": "ip",
+          "description": "IP address the TCP health endpoint binds to. Defaults to 127.0.0.1. Set to 0.0.0.0 or :: only when external probes require access.",
+          "default": "127.0.0.1",
+          "x-env-var": "OTEL_EBPF_HEALTH_CHECK_LISTEN_ADDRESS"
+        },
         "port": {
           "type": "integer",
           "description": "0 (default) means disabled",
