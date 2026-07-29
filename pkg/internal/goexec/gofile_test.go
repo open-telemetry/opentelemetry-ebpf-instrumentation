@@ -73,6 +73,51 @@ func TestGoRuntimeMemoryMetricVersion(t *testing.T) {
 	}
 }
 
+func TestRuntimeMetricGoroutineCountModeVersion(t *testing.T) {
+	tests := []struct {
+		version        string
+		includesSystem bool
+		known          bool
+	}{
+		{version: "go1.25.11", known: true},
+		{version: "go1.26.0", includesSystem: true, known: true},
+		{version: "unknown"},
+	}
+
+	for _, tt := range tests {
+		includesSystem, known := runtimeMetricGoroutineCountModeVersion(tt.version)
+		assert.Equal(t, tt.includesSystem, includesSystem, "version: %s", tt.version)
+		assert.Equal(t, tt.known, known, "version: %s", tt.version)
+	}
+}
+
+func TestRuntimeMetricGoroutineCountModeFailsClosedWithoutELF(t *testing.T) {
+	includesSystem, known := RuntimeMetricGoroutineCountMode(nil)
+	assert.False(t, includesSystem)
+	assert.False(t, known)
+}
+
+func TestRuntimeMetricGCGoalArgumentSupportedVersion(t *testing.T) {
+	tests := []struct {
+		version string
+		want    bool
+	}{
+		{version: "go1.17.13"},
+		{version: "go1.18.10"},
+		{version: "go1.19", want: true},
+		{version: "go1.26.3", want: true},
+		{version: "unknown"},
+	}
+
+	for _, tt := range tests {
+		assert.Equal(t, tt.want, runtimeMetricGCGoalArgumentSupportedVersion(tt.version))
+	}
+}
+
+func TestRuntimeMetricGCGoalArgumentFailsClosedWithoutELF(t *testing.T) {
+	assert.False(t, RuntimeMetricGCGoalArgumentSupported(nil))
+}
+
 func TestRuntimeMetricSymbolAddrFallsBackToInternalSizeClassTable(t *testing.T) {
 	symbols := map[string]procs.Sym{
 		runtimeMetricInternalSizeClassToSizesSymbol: {Off: 0x20},
@@ -81,4 +126,22 @@ func TestRuntimeMetricSymbolAddrFallsBackToInternalSizeClassTable(t *testing.T) 
 	got := runtimeMetricSymbolAddr(symbols, runtimeMetricSizeClassToSizesSymbol, 0x1000)
 
 	assert.Equal(t, uint64(0x1020), got)
+}
+
+func TestRuntimeMetricSymbolAddrResolvesOptionalGoroutineSymbols(t *testing.T) {
+	symbols := map[string]procs.Sym{
+		runtimeMetricSchedSymbol:   {Off: 0x40},
+		runtimeMetricAllgLenSymbol: {Off: 0x50},
+		runtimeMetricAllpSymbol:    {Off: 0x60},
+	}
+
+	assert.Equal(t, uint64(0x1040),
+		runtimeMetricSymbolAddr(symbols, runtimeMetricSchedSymbol, 0x1000))
+	assert.Equal(t, uint64(0x1050),
+		runtimeMetricSymbolAddr(symbols, runtimeMetricAllgLenSymbol, 0x1000))
+	assert.Equal(t, uint64(0x1060),
+		runtimeMetricSymbolAddr(symbols, runtimeMetricAllpSymbol, 0x1000))
+	assert.Zero(t, runtimeMetricSymbolAddr(nil, runtimeMetricSchedSymbol, 0x1000))
+	assert.Zero(t, runtimeMetricSymbolAddr(nil, runtimeMetricAllgLenSymbol, 0x1000))
+	assert.Zero(t, runtimeMetricSymbolAddr(nil, runtimeMetricAllpSymbol, 0x1000))
 }

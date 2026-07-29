@@ -9,7 +9,7 @@ require (
 	github.com/cilium/ebpf v0.22.0
 	github.com/containers/common v0.64.2
 	github.com/gin-gonic/gin v1.12.0
-	github.com/go-logr/logr v1.4.3
+	github.com/go-logr/logr v1.4.4
 	github.com/go-logr/stdr v1.2.2
 	github.com/go-playground/validator/v10 v10.30.3
 	github.com/go-viper/mapstructure/v2 v2.5.0
@@ -82,7 +82,7 @@ require (
 	go.opentelemetry.io/otel/trace v1.44.0
 	go.uber.org/zap v1.28.0
 	go.uber.org/zap/exp v0.3.0
-	go.yaml.in/yaml/v3 v3.0.4
+	go.yaml.in/yaml/v3 v3.0.5
 	golang.org/x/arch v0.29.0
 	golang.org/x/mod v0.38.0
 	golang.org/x/net v0.57.0

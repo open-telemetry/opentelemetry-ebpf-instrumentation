@@ -38,7 +38,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
 
-//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -target amd64,arm64 -type http_request_trace_t -type sql_request_trace_t -type http_info_t -type connection_info_t -type http2_grpc_request_t -type tcp_req_t -type kafka_client_req_t -type kafka_go_req_t -type redis_client_req_t -type tcp_large_buffer_t -type otel_span_t -type channel_link_trace_t -type mongo_go_client_req_t -type dns_req_t -type node_span_event_t Bpf ../../../bpf/common/common.c -- -I../../../bpf
+//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -target amd64,arm64 -type http_request_trace_t -type sql_request_trace_t -type http_info_t -type connection_info_t -type http2_grpc_request_t -type tcp_req_t -type kafka_client_req_t -type kafka_go_req_t -type redis_client_req_t -type tcp_large_buffer_t -type otel_span_t -type channel_link_trace_t -type go_auto_span_t -type mongo_go_client_req_t -type dns_req_t -type node_span_event_t Bpf ../../../bpf/common/common.c -- -I../../../bpf
 
 // HTTPRequestTrace contains information from an HTTP request as directly received from the
 // eBPF layer. This contains low-level C structures for accurate binary read from ring buffer.
@@ -54,6 +54,7 @@ type (
 	GoChannelLinkTrace   BpfChannelLinkTraceT
 	TCPLargeBufferHeader BpfTcpLargeBufferT
 	GoOTelSpanTrace      BpfOtelSpanT
+	GoAutoSpanTrace      BpfGoAutoSpanT
 	GoMongoClientInfo    BpfMongoGoClientReqT
 	DNSInfo              BpfDnsReqT
 	NodeSpanEvent        BpfNodeSpanEventT
@@ -85,7 +86,8 @@ const (
 	EventTypeGoRuntimeMetric = 17 // EVENT_GO_RUNTIME_METRICS - Go runtime metrics
 	EventTypeGoChannelLink   = 18 // EVENT_GO_CHANNEL_LINK - Go channel handoff span links
 	EventTypeJVMMemoryPoolGC = 19 // EVENT_JVM_MEM_POOL_GC - JVM memory pool GC metrics
-	EventNodeSpan            = 20 // EVENT_NODE_SPAN - OTel API manual span from the Node.js span bridge
+	EventTypeGoAutoSpan      = 20 // EVENT_GO_AUTO_SPAN - Go Auto SDK OTLP JSON span
+	EventNodeSpan            = 21 // EVENT_NODE_SPAN - OTel API manual span from the Node.js span bridge
 )
 
 // Kernel-side classification
@@ -557,6 +559,9 @@ func ReadBPFTraceAsSpan(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, reco
 		return appendTCPLargeBuffer(parseCtx, record)
 	case EventOTelSDKGo:
 		span, ignore, err := ReadGoOTelEventIntoSpan(record)
+		return finalizeParsedSpan(parseCtx, span, ignore, err)
+	case EventTypeGoAutoSpan:
+		span, ignore, err := ReadGoAutoSpanEventIntoSpan(record)
 		return finalizeParsedSpan(parseCtx, span, ignore, err)
 	case EventNodeSpan:
 		span, ignore, err := ReadNodeSpanEventIntoSpan(record)

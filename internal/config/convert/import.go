@@ -316,6 +316,7 @@ func applyRuntimeDiscoveryRules(cfg *obi.Config, rules runtimeDiscoveryRules) {
 	cfg.Discovery.Services = rules.includeRegex
 	cfg.Discovery.ExcludeServices = rules.excludeRegex
 	cfg.Discovery.DefaultExcludeServices = nil
+	cfg.Discovery.ExcludedLinuxSystemPaths = nil
 	cfg.Discovery.ExcludeOTelInstrumentedServices = rules.excludeOTelInstrumentedServices
 	if rules.excludeOTelInstrumentedServices {
 		cfg.Discovery.DefaultOtlpGRPCPort = rules.defaultOTLPGRPCPort
@@ -1051,12 +1052,31 @@ func applyFullV2HTTPRoutes(cfg *obi.Config, routes schema.HTTPRoutes) {
 
 	policies := services.DirectionalRoutePolicies{}
 	applyV2HTTPRouteConfig(&policies, routes)
+	// A v1 global routes block exports identical incoming/outgoing policies.
+	// Collapse them back into a single global RoutesConfig so migrations round-trip
+	// to the representation the user authored instead of a directional one.
+	if routes.Incoming != nil && routes.Outgoing != nil &&
+		reflect.DeepEqual(policies.Incoming, policies.Outgoing) {
+		cfg.Routes = globalRoutesConfig(policies.Incoming)
+		return
+	}
 	cfg.Routes = &transform.RoutesConfig{
 		Directional: &policies,
 		DirectionalPolicyPresence: &transform.DirectionalRoutePolicyPresence{
 			Incoming: routes.Incoming != nil,
 			Outgoing: routes.Outgoing != nil,
 		},
+	}
+}
+
+func globalRoutesConfig(policy services.RoutePolicy) *transform.RoutesConfig {
+	return &transform.RoutesConfig{
+		Unmatch:                   transform.UnmatchType(policy.Unmatch),
+		Patterns:                  cloneStrings(policy.Patterns),
+		IgnorePatterns:            cloneStrings(policy.IgnorePatterns),
+		IgnoredEvents:             transform.IgnoreMode(policy.IgnoredEvents),
+		WildcardChar:              policy.WildcardChar,
+		MaxPathSegmentCardinality: policy.MaxPathSegmentCardinality,
 	}
 }
 
