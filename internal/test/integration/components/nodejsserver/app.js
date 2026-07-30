@@ -63,6 +63,28 @@ app.get("/nested-plain", (req, res) => {
     });
 });
 
+// Plain-HTTP nested call to a SEPARATE process (denoupstream) via node:http.
+// Unlike the loopback /nested-plain above, there is no same-connection fallback,
+// so correlation must come from the injected agent hooking net.Socket. Because
+// node:http goes through node:net, the agent DOES correlate it - including under
+// concurrency, via async_hooks - so this is expected to work.
+app.get("/nested-remote-target", (req, res) => {
+  res.json("remote target");
+});
+
+app.get("/nested-remote", (req, res) => {
+  http
+    .get("http://denoupstream:3030/nested-remote-target", (r) => {
+      let data = "";
+      r.on("data", (chunk) => (data += chunk));
+      r.on("end", () => res.json("nested remote done"));
+    })
+    .on("error", (error) => {
+      console.error("nested-remote error:", error.message);
+      res.sendStatus(500);
+    });
+});
+
 app.get("/traceme", (req, res, next) => {
   http.get("http://testserver:8080/gotracemetoo", {}, (r) => {
     if (r.statusCode !== 200) {

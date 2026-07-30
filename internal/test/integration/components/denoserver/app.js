@@ -82,6 +82,26 @@ async function handler(req) {
     }
   }
 
+  // Plain-HTTP nested call to a SEPARATE process (denoupstream), via native
+  // fetch(). Unlike the loopback /nested-plain call above, OBI has no
+  // same-connection fallback to correlate it, and native fetch never surfaces a
+  // node:net socket for the Deno agent to signal - so this exercises (and, until
+  // native-fetch correlation is implemented, fails) genuine cross-process
+  // context propagation.
+  if (method === "GET" && path === "/nested-remote-target") {
+    return json("remote target");
+  }
+  if (method === "GET" && path === "/nested-remote") {
+    try {
+      const r = await fetch("http://denoupstream:3030/nested-remote-target");
+      await r.text();
+      return json("nested remote done");
+    } catch (error) {
+      console.error("nested-remote error:", error.message);
+      return new Response(null, { status: 500 });
+    }
+  }
+
   if (method === "GET" && path === "/traceme") {
     const r = await fetch("http://testserver:8080/gotracemetoo");
     await r.body?.cancel();

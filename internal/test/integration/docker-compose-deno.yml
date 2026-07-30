@@ -18,6 +18,24 @@ services:
     depends_on:
       otelcol:
         condition: service_started
+      denoupstream:
+        condition: service_started
+
+  # Separate, NON-instrumented upstream process. testserver's /nested-remote
+  # endpoint calls it via native fetch(), so cross-process propagation cannot
+  # rely on OBI's same-connection loopback fallback.
+  denoupstream:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/denoserver/Dockerfile
+    image: hatest-testserver-deno
+    command:
+      - deno
+      - run
+      - --allow-net
+      - --allow-env
+      - --allow-read
+      - app.js
 
   obi:
     build:

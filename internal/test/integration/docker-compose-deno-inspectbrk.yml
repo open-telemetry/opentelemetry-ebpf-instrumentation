@@ -24,6 +24,24 @@ services:
     depends_on:
       otelcol:
         condition: service_started
+      denoupstream:
+        condition: service_started
+
+  # Separate, NON-instrumented upstream for the concurrent nested-remote test.
+  # Runs the native app normally (no --inspect-brk); it just needs to serve
+  # /nested-remote-target.
+  denoupstream:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/denoserver/Dockerfile
+    image: hatest-testserver-deno
+    command:
+      - deno
+      - run
+      - --allow-net
+      - --allow-env
+      - --allow-read
+      - app.js
 
   obi:
     build:

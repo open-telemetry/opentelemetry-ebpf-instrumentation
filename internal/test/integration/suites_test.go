@@ -389,7 +389,7 @@ func TestSuite_NodeJS(t *testing.T) {
 // native Deno.serve incoming context is NOT wrapped in this mode (the handler is
 // already registered), and native fetch outgoing calls are not correlated.
 func TestSuite_Deno(t *testing.T) {
-	compose, err := docker.ComposeSuite("docker-compose-deno.yml", path.Join(pathOutput, "test-suite-deno-native.log"))
+	compose, err := docker.ComposeSuite("docker-compose-deno.yml", path.Join(pathOutput, "test-suite-deno.log"))
 	require.NoError(t, err)
 
 	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=3030`, `OTEL_EBPF_EXECUTABLE_PATH=`, `MAIN_FILE=app.js`)
@@ -399,6 +399,10 @@ func TestSuite_Deno(t *testing.T) {
 	// Native fetch has no node:net socket, so the JS agent cannot correlate the
 	// nested call. This asserts the current native-propagation behavior.
 	t.Run("HTTP nested traces plain HTTP (kprobes)", testHTTPTracesNestedJSPlainHTTP)
+	// TDD: correlation of concurrent native-fetch calls to a separate process is
+	// not yet implemented (native fetch bypasses node:net), so this subtest is
+	// expected to FAIL until native-fetch trace-context correlation lands.
+	t.Run("nested traces, concurrent native fetch to separate process", testDenoConcurrentNestedRemote)
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
@@ -416,6 +420,11 @@ func TestSuite_Deno_InspectBrk(t *testing.T) {
 	t.Run("Deno RED metrics", testREDMetricsJSHTTP)
 	t.Run("HTTP traces (kprobes)", testHTTPTracesKProbes)
 	t.Run("HTTP nested traces plain HTTP (kprobes)", testHTTPTracesNestedJSPlainHTTP)
+	// InspectBrk runs the NATIVE app (Deno.serve + fetch). --inspect-brk fixes
+	// WHEN the agent is injected, but native fetch never goes through node:net, so
+	// there is no outbound hook regardless of injection timing. Expected to FAIL,
+	// same as TestSuite_Deno; kept as a TDD marker.
+	t.Run("nested traces, concurrent native fetch to separate process", testDenoConcurrentNestedRemote)
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
@@ -433,6 +442,10 @@ func TestSuite_Deno_NodeCompat(t *testing.T) {
 	// LargeHTTPS is Node-only: OBI cannot decrypt Deno's rustls TLS, so nested
 	// HTTPS client calls are invisible. Validate propagation over plain HTTP.
 	t.Run("HTTP nested traces plain HTTP (kprobes)", testHTTPTracesNestedJSPlainHTTP)
+	// node:http outbound (http.get) goes through node:net, so the agent correlates
+	// concurrent cross-process calls via async_hooks. Expected to PASS - this is
+	// the Node-parity path for apps ported from Node to Deno.
+	t.Run("nested traces, concurrent node:http to separate process", testDenoConcurrentNestedRemote)
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }

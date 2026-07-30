@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -1592,6 +1593,77 @@ func testHTTPTracesNestedJSPlainHTTP(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, processing.TraceID, p.TraceID)
 	assert.Equal(t, processing.SpanID, p.SpanID)
+}
+
+// testDenoConcurrentNestedRemote asserts cross-process trace-context propagation
+// for a nested call to a SEPARATE process (denoupstream), under CONCURRENCY.
+//
+// A single sequential /nested-remote call is already correlated by OBI's generic
+// egress attribution (the outbound call runs synchronously on the request's
+// thread while its server context is still current), so it does NOT exercise the
+// gap. Under CONCURRENCY the event loop interleaves requests between a handler's
+// context activation and its outbound egress, so OBI's thread-current-context
+// attribution no longer suffices — correlation must come from the injected agent.
+//
+// The outcome therefore depends on the runtime's outbound path:
+//   - node:http (http.get) goes through node:net, so the agent hooks it and
+//     correlates each request via async_hooks even under concurrency → PASSES
+//     (verified: 20 concurrent requests → 20 correctly-paired statx signals).
+//   - native Deno fetch() is pure Rust, never touches node:net, so the agent is
+//     silent and each outbound call becomes the root of its own trace → FAILS
+//     (verified live: 0/40 concurrent calls correlated). This is a TDD marker for
+//     native-fetch correlation, which the current agent cannot provide.
+//
+// It asserts the correct end state: most concurrent outbound calls are correlated
+// into their request's trace (server span and its outbound client span in the
+// same trace).
+func testDenoConcurrentNestedRemote(t *testing.T) {
+	const concurrency = 40
+
+	// Traces older than this belong to earlier subtests; ignore them.
+	cutoffMicros := time.Now().Add(-2 * time.Second).UnixMicro()
+
+	var wg sync.WaitGroup
+	for range concurrency {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			resp, err := http.Get("http://localhost:3031/nested-remote")
+			if err == nil {
+				_ = resp.Body.Close()
+			}
+		}()
+	}
+	wg.Wait()
+
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		resp, err := http.Get(jaegerQueryURL + "?service=testserver&operation=GET%20%2Fnested-remote&limit=500&lookback=5m")
+		require.NoError(ct, err)
+		defer resp.Body.Close()
+		require.Equal(ct, http.StatusOK, resp.StatusCode)
+
+		var tq jaeger.TracesQuery
+		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
+
+		servers, correlated := 0, 0
+		for _, tr := range tq.Data {
+			srv := tr.FindByOperationName("GET /nested-remote", "server")
+			if len(srv) == 0 || srv[0].StartTime < cutoffMicros {
+				continue
+			}
+			servers++
+			// Correlated iff the outbound client span landed in the same trace as
+			// its server span. When uncorrelated, that client call is a separate
+			// root trace with no server span.
+			if len(tr.FindByOperationName("GET /nested-remote-target", "client")) > 0 {
+				correlated++
+			}
+		}
+		require.GreaterOrEqual(ct, servers, concurrency*3/4,
+			"expected to observe the concurrent /nested-remote requests in Jaeger (got %d)", servers)
+		require.GreaterOrEqual(ct, correlated, servers*3/4,
+			"expected most concurrent native-fetch outbound calls to be correlated into their request trace (got %d/%d)", correlated, servers)
+	}, testTimeout, 500*time.Millisecond)
 }
 
 func testPythonAsyncEndpoint(t *testing.T, endpoint string, expectedClientCalls int) {
