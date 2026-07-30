@@ -51,6 +51,18 @@ func makeKey(first, second uint32) uint64 {
 	return (uint64(first) << 32) | uint64(second)
 }
 
+// Mirrors the _Static_assert in bpf/pid/pid.h.
+func TestPidFilterIndexSpaceFitsMap(t *testing.T) {
+	highestSegment := (primeHash - 1) / 64
+
+	assert.Less(t, highestSegment, maxConcurrentPids,
+		"primeHash %d needs %d segments but valid_pids holds %d",
+		primeHash, highestSegment+1, maxConcurrentPids)
+
+	// buildPidFilter must allocate a slot for every reachable segment.
+	assert.Len(t, (&Tracer{pidsFilter: fakeServiceFilter{}}).buildPidFilter(), maxConcurrentPids)
+}
+
 func TestParseJVMMemoryPoolRecordDecoratesServiceByPIDNamespace(t *testing.T) {
 	service := svc.Attrs{UID: svc.UID{Name: "orders", Namespace: "prod"}}
 	currentPIDsCalls := 0
