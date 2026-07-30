@@ -776,37 +776,6 @@ func (p *Tracer) parseJVMMemoryPoolRecord(record *ringbuf.Record) ([]jvmruntime.
 	return events, false, nil
 }
 
-// cleanupHTTPServerThreadTrace handles timeouts that bypass BPF-side cleanup.
-func (p *Tracer) cleanupHTTPServerThreadTrace(info *BpfHttpInfoT) {
-	if p.bpfObjects.ServerTraces == nil || info.Type != uint8(request.EventTypeHTTP) {
-		return
-	}
-
-	key := BpfTraceKeyT{ExtraId: info.ExtraId}
-	key.P_key.Ns = info.Pid.Ns
-	key.P_key.Tid = info.TaskTid
-	key.P_key.Pid = info.Pid.UserPid
-
-	var trace BpfTpInfoPidT
-	if err := p.bpfObjects.ServerTraces.Lookup(&key, &trace); err != nil {
-		// the BPF side may have cleaned the entry first; only real failures matter
-		if !errors.Is(err, ebpf.ErrKeyNotExist) {
-			p.log.Debug("Error looking up HTTP server thread trace", "error", err,
-				"pid", key.P_key.Pid, "tid", key.P_key.Tid, "ns", key.P_key.Ns, "extraID", key.ExtraId)
-		}
-		return
-	}
-
-	if trace.Tp.TraceId != info.Tp.TraceId || trace.Tp.SpanId != info.Tp.SpanId {
-		return
-	}
-
-	if err := p.bpfObjects.ServerTraces.Delete(&key); err != nil && !errors.Is(err, ebpf.ErrKeyNotExist) {
-		p.log.Debug("Error deleting HTTP server thread trace", "error", err,
-			"pid", key.P_key.Pid, "tid", key.P_key.Tid, "ns", key.P_key.Ns, "extraID", key.ExtraId)
-	}
-}
-
 //nolint:cyclop
 func (p *Tracer) lookForTimeouts(ctx context.Context, parseCtx *ebpfcommon.EBPFParseContext, ticker *time.Ticker, eventsChan *msg.Queue[[]request.Span]) {
 	for {
@@ -830,7 +799,6 @@ func (p *Tracer) lookForTimeouts(ctx context.Context, parseCtx *ebpfcommon.EBPFP
 						if !ignore && err == nil {
 							eventsChan.SendCtx(ctx, p.pidsFilter.Filter([]request.Span{s}))
 						}
-						p.cleanupHTTPServerThreadTrace(&v)
 						if err := p.bpfObjects.OngoingHttp.Delete(k); err != nil {
 							p.log.Debug("Error deleting ongoing request", "error", err)
 						}
@@ -848,7 +816,6 @@ func (p *Tracer) lookForTimeouts(ctx context.Context, parseCtx *ebpfcommon.EBPFP
 
 							eventsChan.SendCtx(ctx, p.pidsFilter.Filter([]request.Span{s}))
 						}
-						p.cleanupHTTPServerThreadTrace(&v)
 						if err := p.bpfObjects.OngoingHttp.Delete(k); err != nil {
 							p.log.Debug("Error deleting ongoing request", "error", err)
 						}
