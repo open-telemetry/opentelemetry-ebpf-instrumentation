@@ -343,12 +343,12 @@ cov-exclude-generated: testoutput
 	grep -vE $(EXCLUDE_COVERAGE_FILES) $(TEST_OUTPUT)/cover.all.txt > $(TEST_OUTPUT)/cover.txt
 
 .PHONY: coverage-report
-coverage-report: cov-exclude-generated testoutput
+coverage-report: cov-exclude-generated
 	@echo "### Generating coverage report"
 	go tool cover --func=$(TEST_OUTPUT)/cover.txt
 
 .PHONY: coverage-report-html
-coverage-report-html: cov-exclude-generated testoutput
+coverage-report-html: cov-exclude-generated
 	@echo "### Generating HTML coverage report"
 	go tool cover --html=$(TEST_OUTPUT)/cover.txt
 
@@ -455,7 +455,7 @@ run-integration-test-k8s:
 PRECOMPILED_TESTS_DIR ?= /precompiled-tests
 
 .PHONY: run-integration-test-vm
-run-integration-test-vm: testoutput
+run-integration-test-vm:
 	@echo "### Running integration tests (pattern: $(TEST_PATTERN))"
 	@TEST_TIMEOUT="60m"; \
 	TEST_PARALLEL="1"; \
@@ -498,11 +498,11 @@ run-integration-test-arm:
 	go test -p 1 -failfast -v -timeout 90m -a ./internal/test/integration -run "^TestMultiProcess"
 
 .PHONY: unit-test-matrix-json
-unit-test-matrix-json: testoutput
+unit-test-matrix-json:
 	@go list ./... | go tool $(TOOLS_MODFILE) gotestsum tool ci-matrix --partitions $${PARTITIONS:-3} --timing-files=$(TEST_OUTPUT)/unit-test-shard-*.log
 
 .PHONY: run-unit-test-shard
-run-unit-test-shard: testoutput
+run-unit-test-shard:
 	@echo "### Running unit test shard $(SHARD_ID)"
 	KUBEBUILDER_ASSETS="$(shell go tool $(TOOLS_MODFILE) setup-envtest use $(ENVTEST_K8S_VERSION) -p path)" \
 	go tool $(TOOLS_MODFILE) gotestsum \
@@ -549,7 +549,7 @@ integration-test-arm: prereqs cleanup-integration-test
 	$(MAKE) cleanup-integration-test
 
 .PHONY: itest-coverage-data
-itest-coverage-data: testoutput
+itest-coverage-data:
 	# merge coverage data from all the integration tests
 	mkdir -p $(TEST_OUTPUT)/merge
 	go tool covdata merge -i=$(TEST_OUTPUT) -o $(TEST_OUTPUT)/merge
