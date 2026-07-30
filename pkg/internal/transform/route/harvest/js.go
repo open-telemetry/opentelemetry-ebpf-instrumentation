@@ -224,7 +224,10 @@ func newFrameworkPatterns() *FrameworkPatterns {
 		//   new URLPattern("https://example.com/books/:id")
 		//   new URLPattern({ pathname: "/books/:id" })
 		//   new urlpattern.URLPattern("/books/:id", base)
-		URLPattern: regexp.MustCompile(`URLPattern\s*\(`),
+		// The 'new' operator and the optional namespace are required, so that a
+		// helper whose name ends in URLPattern (createURLPattern(...)) is not
+		// taken for the standard constructor.
+		URLPattern: regexp.MustCompile(`\bnew\s+(?:[\w$]+\s*\.\s*)*URLPattern\s*\(`),
 
 		// Matches the 'pathname' member of a URLPattern init object in every
 		// legal property key form: pathname, 'pathname', ["pathname"]
@@ -703,13 +706,16 @@ func sortRouteFragments(fragments []string) {
 	})
 }
 
-// urlPatternPathname returns the pathname part of the string form of a
+// urlPatternPathname returns the pathname component of the string form of a
 // URLPattern, which may be a full URL pattern or a path relative to the
 // constructor's baseURL argument.
-func urlPatternPathname(pattern string) string {
+func urlPatternPathname(pattern, base string) string {
 	if pattern == "" {
 		return ""
 	}
+
+	pattern = pattern[:urlPatternPathnameEnd(pattern)]
+
 	if _, authority, hasScheme := strings.Cut(pattern, "://"); hasScheme {
 		_, path, hasPath := strings.Cut(authority, "/")
 		if !hasPath {
@@ -717,7 +723,110 @@ func urlPatternPathname(pattern string) string {
 		}
 		return "/" + path
 	}
-	return ensureLeadingSlash(pattern)
+
+	return resolveURLPatternPathname(pattern, base)
+}
+
+// urlPatternPathnameEnd returns the offset at which the pathname of a
+// URLPattern string ends: the first '?' or '#' that opens the search or hash
+// component. A bare '?' following a named group, a group or a wildcard is the
+// optional modifier of that token and belongs to the pathname, which is why an
+// escaped '\?' is the way to open a search component after one of them.
+func urlPatternPathnameEnd(pattern string) int {
+	// whether a '?' at the current offset would be the optional modifier of
+	// the token just read instead of the start of the search component
+	modifier := false
+
+	for i := 0; i < len(pattern); i++ {
+		switch pattern[i] {
+		case '\\':
+			if i+1 < len(pattern) && (pattern[i+1] == '?' || pattern[i+1] == '#') {
+				return i
+			}
+			i++
+			modifier = false
+		case '?':
+			if !modifier {
+				return i
+			}
+			modifier = false
+		case '#':
+			return i
+		case ':':
+			end := endOfURLPatternName(pattern, i)
+			modifier = end > i
+			i = end
+		case '(':
+			i = endOfURLPatternGroup(pattern, i)
+			modifier = true
+		case '}', '*':
+			modifier = true
+		default:
+			modifier = false
+		}
+	}
+
+	return len(pattern)
+}
+
+// endOfURLPatternName returns the offset of the last character of the named
+// group that starts at colon, or colon itself when no name follows it.
+func endOfURLPatternName(pattern string, colon int) int {
+	end := colon
+	for end+1 < len(pattern) && isURLPatternNameChar(pattern[end+1]) {
+		end++
+	}
+	return end
+}
+
+func isURLPatternNameChar(c byte) bool {
+	return c == '_' || c == '$' ||
+		(c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
+}
+
+// endOfURLPatternGroup returns the offset of the parenthesis closing the group
+// that starts at open, or the last offset of pattern when it does not close.
+func endOfURLPatternGroup(pattern string, open int) int {
+	depth := 0
+	for i := open; i < len(pattern); i++ {
+		switch pattern[i] {
+		case '\\':
+			i++
+		case '(':
+			depth++
+		case ')':
+			depth--
+			if depth == 0 {
+				return i
+			}
+		}
+	}
+	return len(pattern) - 1
+}
+
+// resolveURLPatternPathname resolves a relative pathname against the pathname
+// of the constructor's baseURL argument, as the URL Pattern API does.
+func resolveURLPatternPathname(pathname, base string) string {
+	if strings.HasPrefix(pathname, "/") {
+		return pathname
+	}
+
+	// a baseURL must be absolute, so a value without a scheme is not one
+	_, authority, hasScheme := strings.Cut(base, "://")
+	if !hasScheme {
+		return ensureLeadingSlash(pathname)
+	}
+
+	basePath := "/"
+	if _, path, hasPath := strings.Cut(authority, "/"); hasPath {
+		basePath = "/" + path
+	}
+	if end := strings.IndexAny(basePath, "?#"); end >= 0 {
+		basePath = basePath[:end]
+	}
+
+	// a relative pathname replaces the last segment of the base pathname
+	return basePath[:strings.LastIndex(basePath, "/")+1] + pathname
 }
 
 // urlPatternCall buffers the arguments of a URLPattern call while it is being
@@ -834,26 +943,69 @@ func (e *RouteExtractor) flushURLPattern() {
 // or an options object. Any other argument shape (a variable, a spread) is not
 // statically resolvable.
 func (e *RouteExtractor) urlPatternPath(args string) string {
-	args = strings.TrimSpace(args)
-	if args == "" {
+	parsed := splitJSArguments(args)
+	if len(parsed) == 0 || parsed[0] == "" {
 		return ""
 	}
 
-	if args[0] == '{' {
-		pathname := e.patterns.URLPatternPathname.FindStringSubmatch(args)
+	pattern := parsed[0]
+
+	var base string
+	if len(parsed) > 1 {
+		base = jsStringLiteral(parsed[1])
+	}
+
+	if pattern[0] == '{' {
+		pathname := e.patterns.URLPatternPathname.FindStringSubmatch(pattern)
 		if pathname == nil || pathname[1] == "" {
 			return ""
 		}
-		return ensureLeadingSlash(pathname[1])
+		return resolveURLPatternPathname(pathname[1], base)
 	}
 
-	if isJSQuote(args[0]) {
-		if pattern := e.patterns.QuotedString.FindStringSubmatch(args); pattern != nil {
-			return urlPatternPathname(pattern[1])
-		}
+	if isJSQuote(pattern[0]) {
+		return urlPatternPathname(jsStringLiteral(pattern), base)
 	}
 
 	return ""
+}
+
+// splitJSArguments splits an argument list into its top-level arguments.
+// Commas inside a string literal or a nested object, array or call do not
+// separate arguments.
+func splitJSArguments(args string) []string {
+	var (
+		arguments []string
+		depth     int
+		start     int
+	)
+
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case '\'', '"', '`':
+			i = endOfJSString(args, i)
+		case '{', '[', '(':
+			depth++
+		case '}', ']', ')':
+			depth--
+		case ',':
+			if depth == 0 {
+				arguments = append(arguments, strings.TrimSpace(args[start:i]))
+				start = i + 1
+			}
+		}
+	}
+
+	return append(arguments, strings.TrimSpace(args[start:]))
+}
+
+// jsStringLiteral returns the contents of the string literal that s starts
+// with, or an empty string when s does not start with one.
+func jsStringLiteral(s string) string {
+	if s == "" || !isJSQuote(s[0]) {
+		return ""
+	}
+	return s[1:endOfJSString(s, 0)]
 }
 
 func (e *RouteExtractor) handleHTTPDispatcher(filePath, line string, lineNum int) bool {

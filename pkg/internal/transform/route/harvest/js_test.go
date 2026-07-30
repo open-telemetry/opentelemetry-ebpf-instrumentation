@@ -957,6 +957,41 @@ func TestHandleURLPattern(t *testing.T) {
 			paths: []string{"/books/:id"},
 		},
 		{
+			name:  "string pattern with search and hash components",
+			lines: []string{`  new URLPattern("https://example.com/books/:id\?view=:view#details")`},
+			paths: []string{"/books/:id"},
+		},
+		{
+			name:  "string pattern with a hash component",
+			lines: []string{`  new URLPattern("https://example.com/books/:id#details")`},
+			paths: []string{"/books/:id"},
+		},
+		{
+			name:  "optional modifier is not a search component",
+			lines: []string{`  new URLPattern("https://(sub.)?example.com/books/:id?")`},
+			paths: []string{"/books/:id?"},
+		},
+		{
+			name:  "relative string pattern resolved against the base URL path",
+			lines: []string{`  new URLPattern("books/:id", "https://example.com/api/")`},
+			paths: []string{"/api/books/:id"},
+		},
+		{
+			name:  "relative string pattern replaces the last base URL segment",
+			lines: []string{`  new URLPattern("books/:id", "https://example.com/api")`},
+			paths: []string{"/books/:id"},
+		},
+		{
+			name:  "relative init pathname resolved against the base URL path",
+			lines: []string{`  new URLPattern({ pathname: "books/:id" }, "https://example.com/api/")`},
+			paths: []string{"/api/books/:id"},
+		},
+		{
+			name:  "relative string pattern with no base URL",
+			lines: []string{`  new URLPattern("books/:id")`},
+			paths: []string{"/books/:id"},
+		},
+		{
 			name: "string pattern spread over several lines",
 			lines: []string{
 				`const pattern = new URLPattern(`,
@@ -1025,6 +1060,14 @@ func TestHandleURLPattern(t *testing.T) {
 		{
 			name:  "not a URLPattern",
 			lines: []string{`  const url = new URL("/users/1", base);`},
+		},
+		{
+			name:  "helper whose name ends in URLPattern",
+			lines: []string{`  const pattern = createURLPattern("/not-a-route");`},
+		},
+		{
+			name:  "constructor of a type whose name ends in URLPattern",
+			lines: []string{`  const pattern = new MyURLPattern("/not-a-route");`},
 		},
 	}
 
