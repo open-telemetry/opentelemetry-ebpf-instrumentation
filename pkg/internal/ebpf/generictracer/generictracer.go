@@ -133,10 +133,6 @@ func (p *Tracer) rebuildValidPids() error {
 		return nil
 	}
 
-	if err := p.validateValidPidsMap(); err != nil {
-		return err
-	}
-
 	v := p.buildPidFilter()
 
 	p.log.Debug("number of segments in pid filter cache", "len", len(v))
@@ -667,8 +663,11 @@ func (p *Tracer) Run(
 	// At this point we now have loaded the bpf objects, which means we should insert any
 	// pids that are allowed into the bpf map
 	if p.bpfObjects.ValidPids != nil {
+		if err := p.validateValidPidsMap(); err != nil {
+			p.log.Error("BPF PID filter map sizing is invalid, discovery filtering may not be enforced", "error", err)
+		}
 		if err := p.rebuildValidPids(); err != nil {
-			p.log.Error("Error setting up the BPF PID filter, discovery filtering may not be enforced", "error", err)
+			p.log.Error("setting up the BPF PID filter, discovery filtering may not be enforced", "error", err)
 		}
 	} else {
 		p.log.Error("BPF Pids map is not created yet, this is a bug.")
