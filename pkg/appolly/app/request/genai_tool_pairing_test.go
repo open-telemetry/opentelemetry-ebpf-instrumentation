@@ -30,8 +30,7 @@ func TestPairedToolCalls_OpenAI(t *testing.T) {
 }
 
 func TestPairedToolCalls_OpenAI_NoResultNoPair(t *testing.T) {
-	// A first request only carries the assistant tool call; the result has not
-	// been sent back yet, so no execute_tool span should be emitted.
+	// The result has not been sent back yet, so nothing is paired.
 	messages := json.RawMessage(`[
 		{"role":"user","content":"What is the weather in Boston?"},
 		{"role":"assistant","content":null,"tool_calls":[
@@ -62,8 +61,7 @@ func TestPairedToolCalls_OpenAI_MultipleCalls(t *testing.T) {
 }
 
 func TestPairedToolCalls_Ollama_PairByName(t *testing.T) {
-	// Ollama omits tool call ids and uses object arguments plus tool_name on
-	// the tool-role message.
+	// Ollama omits tool call ids, so pairing falls back to tool_name.
 	messages := json.RawMessage(`[
 		{"role":"assistant","content":"","tool_calls":[
 			{"function":{"name":"get_weather","arguments":{"location":"Berlin"}}}
@@ -126,8 +124,7 @@ func TestPairedToolCalls_NilAndEmpty(t *testing.T) {
 }
 
 func TestPairedToolCalls_NullArgumentsAndResult(t *testing.T) {
-	// JSON null arguments or results are treated as absent: such calls must
-	// not be paired, so the literal string "null" never reaches attributes.
+	// JSON null arguments or results are treated as absent.
 	nullArgs := json.RawMessage(`[
 		{"role":"assistant","content":null,"tool_calls":[
 			{"id":"call_1","function":{"name":"get_weather","arguments":null}}

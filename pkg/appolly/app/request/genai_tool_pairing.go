@@ -9,14 +9,10 @@ import (
 	"slices"
 )
 
-// PairedToolCalls extracts tool calls from the request message history,
-// pairing each assistant tool call (which carries the arguments) with its
-// corresponding tool-role result message. A single LLM response only
-// "requests" tool calls (arguments, no result); the execution result appears
-// in the next request as a tool-role message linked by tool_call_id. Pairing
-// therefore happens over the request messages so that arguments and result
-// land on the same execute_tool span. Only tool calls with both arguments and
-// a matching result are returned.
+// PairedToolCalls extracts tool calls from the request message history. A
+// tool call result only appears in a follow-up request as a tool-role
+// message, so pairing over the request messages puts arguments and result on
+// the same execute_tool span. Only fully paired tool calls are returned.
 func (g *GenAI) PairedToolCalls() []ToolCall {
 	if g == nil {
 		return nil
@@ -51,10 +47,9 @@ type pendingToolResult struct {
 	result json.RawMessage
 }
 
-// pairToolCalls matches assistant tool calls to tool results, preferring the
-// tool call id and falling back to the tool name when ids are absent (Gemini,
-// Ollama). Only fully paired calls that carry arguments are returned; absent
-// or JSON null arguments and results are treated as missing.
+// pairToolCalls matches assistant tool calls to tool results by tool call
+// id, falling back to the tool name when ids are absent (Gemini, Ollama).
+// Absent or JSON null arguments and results are treated as missing.
 func pairToolCalls(calls []pendingToolCall, results []pendingToolResult) []ToolCall {
 	results = slices.DeleteFunc(results, func(r pendingToolResult) bool {
 		return emptyJSON(r.result)
@@ -94,8 +89,8 @@ func matchToolResult(c *pendingToolCall, results []pendingToolResult, used []boo
 	}
 	if c.name != "" {
 		for i := range results {
-			// Only fall back to name matching when at least one side lacks an
-			// id, to avoid cross-matching calls whose ids simply differ.
+			// Match by name only when one side lacks an id, to avoid
+			// cross-matching calls whose ids simply differ.
 			if used[i] || results[i].name != c.name {
 				continue
 			}
@@ -107,18 +102,15 @@ func matchToolResult(c *pendingToolCall, results []pendingToolResult, used []boo
 	return -1
 }
 
-// emptyJSON reports whether raw carries no usable payload: it is absent or a
-// JSON null literal, which vendors emit for tool calls without arguments or
-// for tool messages without content.
+// emptyJSON reports whether raw is absent or a JSON null literal.
 func emptyJSON(raw json.RawMessage) bool {
 	trimmed := bytes.TrimSpace(raw)
 	return len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null"))
 }
 
-// jsonRawToAttrString renders a raw JSON value as the string used for the
-// gen_ai.tool.call.arguments / gen_ai.tool.call.result attributes. JSON string
-// values (e.g. OpenAI's stringified arguments, or a plain-text tool result)
-// are unwrapped; objects and arrays are compacted.
+// jsonRawToAttrString renders a raw JSON value as an attribute string: JSON
+// string values (e.g. OpenAI's stringified arguments) are unwrapped, other
+// values are compacted.
 func jsonRawToAttrString(raw json.RawMessage) string {
 	if len(raw) == 0 {
 		return ""
@@ -135,9 +127,7 @@ func jsonRawToAttrString(raw json.RawMessage) string {
 }
 
 // pairOpenAIToolCalls handles the OpenAI chat messages schema shared by
-// OpenAI, openai_compatible, Qwen and Ollama. Assistant messages carry
-// tool_calls; tool-role messages carry the result via tool_call_id (OpenAI) or
-// tool_name (Ollama).
+// OpenAI, openai_compatible, Qwen and Ollama.
 func pairOpenAIToolCalls(raw json.RawMessage) []ToolCall {
 	if len(raw) == 0 {
 		return nil
@@ -188,8 +178,7 @@ func pairOpenAIToolCalls(raw json.RawMessage) []ToolCall {
 }
 
 // pairAnthropicToolCalls handles the Anthropic messages schema where content
-// blocks carry tool_use (call) and tool_result (result) entries linked by
-// tool_use_id.
+// blocks carry tool_use and tool_result entries linked by tool_use_id.
 func pairAnthropicToolCalls(raw json.RawMessage) []ToolCall {
 	if len(raw) == 0 {
 		return nil
@@ -229,9 +218,8 @@ func pairAnthropicToolCalls(raw json.RawMessage) []ToolCall {
 	return pairToolCalls(calls, results)
 }
 
-// pairGeminiToolCalls handles the Gemini contents schema where parts carry
-// functionCall (call) and functionResponse (result) entries. Gemini omits
-// ids, so pairing is by function name.
+// pairGeminiToolCalls handles the Gemini contents schema. Gemini omits tool
+// call ids, so pairing falls back to the function name.
 func pairGeminiToolCalls(raw json.RawMessage) []ToolCall {
 	if len(raw) == 0 {
 		return nil
