@@ -104,15 +104,10 @@ func EmbeddingSpan(baseSpan *request.Span, req *http.Request, resp *http.Respons
 	return *baseSpan, true
 }
 
-// parseEmbeddingDimensions inspects a raw embedding response body and returns
-// the model dimension count of a single output vector. It supports the
-// OpenAI-style data[].embedding layout (Voyage, Jina) and the Cohere v2
-// embeddings.{float,int8,...}[][] layout. Vectors are decoded according to the
-// representation requested in req: binary/ubinary entries pack eight
-// dimensions per byte, and base64 strings carry packed element bytes. Bodies
-// are decoded best-effort so a batch truncated by the capture limit still
-// yields the dimension of its first complete vector. Returns 0 when not
-// determinable.
+// parseEmbeddingDimensions returns the dimension count of the first output
+// vector in a raw embedding response body, decoded according to the
+// representation requested in req. Bodies are parsed best-effort so a batch
+// truncated by the capture limit still yields its first complete vector.
 func parseEmbeddingDimensions(req *request.EmbeddingRequest, body []byte) int {
 	if len(body) == 0 {
 		return 0
@@ -146,15 +141,12 @@ func parseEmbeddingDimensions(req *request.EmbeddingRequest, body []byte) int {
 // entry of a binary/ubinary embedding vector.
 const binaryPackedDims = 8
 
-// float32Bytes is the byte width of one float32 embedding element, the
-// representation providers default to for base64-encoded vectors.
+// float32Bytes is the byte width of one float32 embedding element.
 const float32Bytes = 4
 
-// cohereEmbeddingDimensions derives the model dimension count from Cohere v2
-// embeddings, keyed by embedding type. Non-packed types are preferred because
-// their entry count equals the dimension count; binary/ubinary vectors pack
-// eight dimensions into each byte entry, and base64 vectors are strings of
-// packed float32 bytes.
+// cohereEmbeddingDimensions derives the dimension count from Cohere v2
+// embeddings keyed by type, preferring non-packed types whose entry count
+// equals the dimension count.
 func cohereEmbeddingDimensions(embeddings map[string]json.RawMessage) int {
 	for _, key := range []string{"float", "int8", "uint8"} {
 		if n := cohereVectorDims(embeddings, key); n > 0 {
@@ -172,8 +164,7 @@ func cohereEmbeddingDimensions(embeddings map[string]json.RawMessage) int {
 }
 
 // cohereVectorDims returns the dimension count derived from the first vector
-// under the given embedding type key, or 0 when the key is absent or its
-// first vector is incomplete.
+// under the given embedding type key.
 func cohereVectorDims(embeddings map[string]json.RawMessage, key string) int {
 	raw, ok := embeddings[key]
 	if !ok {
@@ -188,11 +179,9 @@ func cohereVectorDims(embeddings map[string]json.RawMessage, key string) int {
 	return embeddingVectorDims(vectors[0], key)
 }
 
-// embeddingVectorDims returns the model dimension count of a single embedding
-// vector, honoring the requested element representation: numeric arrays count
-// entries (expanded for bit-packed binary/ubinary), and base64 strings are
-// decoded to bytes sized by the underlying dtype. A partially captured vector
-// fails strict decoding and yields 0.
+// embeddingVectorDims returns the dimension count of a single vector, honoring
+// the requested element representation. A partially captured vector fails
+// strict decoding and yields 0.
 func embeddingVectorDims(vec json.RawMessage, dtype string) int {
 	trimmed := bytes.TrimSpace(vec)
 	if len(trimmed) == 0 {
@@ -229,9 +218,7 @@ func isPackedDtype(dtype string) bool {
 }
 
 // dimsFromPackedBytes converts a decoded base64 byte count into a dimension
-// count based on the element representation: int8/uint8 use one byte per
-// dimension, binary/ubinary pack eight dimensions per byte, and everything
-// else defaults to float32 elements.
+// count based on the element representation.
 func dimsFromPackedBytes(n int, dtype string) int {
 	switch {
 	case dtype == "int8" || dtype == "uint8":

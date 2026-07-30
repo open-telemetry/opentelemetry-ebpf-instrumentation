@@ -116,10 +116,8 @@ func TestQwenSpan_DashScopeGeneration(t *testing.T) {
 	assert.JSONEq(t, `{"text":"eBPF is a kernel programmability technology.","finish_reason":"stop"}`, ai.GetOutput())
 }
 
-// Native DashScope text-embedding request/response: input is nested under
-// input.texts, the requested dimension under parameters.dimension, and the
-// output vectors under output.embeddings[].embedding. Usage carries only
-// total_tokens (no input_tokens/prompt_tokens).
+// Native DashScope text-embedding bodies: input under input.texts, dimension
+// under parameters.dimension, vectors under output.embeddings[].embedding.
 const dashScopeEmbeddingRequestBody = `{
   "model":"text-embedding-v2",
   "input":{"texts":["Hello world","Goodbye world"]},
@@ -176,9 +174,8 @@ func TestQwenSpan_DashScopeNativeEmbedding_DimensionFromResponse(t *testing.T) {
 }
 
 func TestQwenSpan_CompatibleModeBase64Embedding(t *testing.T) {
-	// OpenAI SDKs default to encoding_format=base64 for embeddings: the response
-	// data[].embedding is a base64 string of packed float32 values, not a JSON
-	// array. A 1024-dim vector is 1024*4=4096 bytes.
+	// OpenAI SDKs default to encoding_format=base64: data[].embedding is a
+	// base64 string of packed float32 values (1024 dims = 4096 bytes).
 	vec := base64.StdEncoding.EncodeToString(make([]byte, 1024*4))
 	respBody := fmt.Sprintf(
 		`{"data":[{"embedding":"%s","index":0,"object":"embedding"}],"model":"text-embedding-v3","usage":{"prompt_tokens":6,"total_tokens":6},"id":"eb4ea05e-18c5-9554-9234-78a1528e7be3"}`,

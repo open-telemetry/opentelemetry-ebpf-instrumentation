@@ -337,12 +337,10 @@ type OpenAIError struct {
 type ToolCall struct {
 	ID   string `json:"id,omitempty"`
 	Name string `json:"name"`
-	// Arguments holds the tool-call input as a JSON string. OpenAI-family
-	// function.arguments is already a JSON string; Anthropic input / Gemini
-	// args / Ollama arguments are JSON objects stored as their raw encoding.
+	// Arguments is the tool-call input as raw JSON: a string for OpenAI-family
+	// providers, an object for Anthropic, Gemini and Ollama.
 	Arguments string `json:"arguments,omitempty"`
-	// Type is the tool type, e.g. "function".
-	Type string `json:"type,omitempty"`
+	Type      string `json:"type,omitempty"`
 }
 
 type VendorOpenAI struct {
@@ -390,10 +388,8 @@ func (ai *VendorOpenAI) GetOutput() string {
 	return normalizeOpenAIOutput(ai)
 }
 
-// InputTokenCount returns the input token count and whether it was reported.
-// For embeddings, where the output token count is always zero, it falls back to
-// total_tokens when the provider reports only a total (e.g. native DashScope,
-// whose usage carries total_tokens but no input_tokens/prompt_tokens).
+// InputTokenCount returns the input token count, falling back to total_tokens
+// for embeddings since some providers (e.g. native DashScope) report only a total.
 func (ai *VendorOpenAI) InputTokenCount() (int, bool) {
 	if tokens, reported := ai.Usage.InputTokenCount(); reported {
 		return tokens, true
@@ -407,19 +403,15 @@ func (ai *VendorOpenAI) InputTokenCount() (int, bool) {
 }
 
 func (ai *VendorOpenAI) GetEmbeddingDimensions() int {
-	// Explicit request dimension: OpenAI/compatible top-level "dimensions"...
 	if ai.Request.Dimensions > 0 {
 		return ai.Request.Dimensions
 	}
-	// ...or native DashScope "parameters.dimension".
 	if d := ai.Request.ParameterDimension(); d > 0 {
 		return d
 	}
-	// OpenAI-style response: data[].embedding length.
 	if n := embeddingLenFromData(ai.Data); n > 0 {
 		return n
 	}
-	// Native DashScope response: output.embeddings[].embedding length.
 	return embeddingDimsFromOutput(ai.Output)
 }
 
@@ -439,8 +431,7 @@ func embeddingLenFromData(raw json.RawMessage) int {
 }
 
 // embeddingDimsFromOutput returns the vector length from a native DashScope
-// embedding response `output` object: {"embeddings":[{"embedding":<vector>}]}.
-// Returns 0 when not present.
+// response `output` object: {"embeddings":[{"embedding":<vector>}]}.
 func embeddingDimsFromOutput(raw json.RawMessage) int {
 	if len(raw) == 0 {
 		return 0
@@ -456,17 +447,13 @@ func embeddingDimsFromOutput(raw json.RawMessage) int {
 	return embeddingVectorLen(out.Embeddings[0].Embedding)
 }
 
-// embeddingVectorLen returns the dimension count of a single embedding vector.
-// The vector may be encoded either as a JSON array of numbers (encoding_format
-// "float", the default) or as a base64 string of packed float32 values
-// (encoding_format "base64", which the OpenAI SDKs use by default). Returns 0
-// when the encoding is not recognized.
+// embeddingVectorLen returns the dimension count of a vector encoded either as
+// a JSON array of numbers or as a base64 string of packed float32 values.
 func embeddingVectorLen(embedding json.RawMessage) int {
 	trimmed := bytesTrimSpace(embedding)
 	if len(trimmed) == 0 {
 		return 0
 	}
-	// Array of numbers: count the elements.
 	if trimmed[0] == '[' {
 		var arr []json.Number
 		if err := json.Unmarshal(trimmed, &arr); err != nil {
@@ -474,7 +461,6 @@ func embeddingVectorLen(embedding json.RawMessage) int {
 		}
 		return len(arr)
 	}
-	// Base64 string of packed float32 values.
 	if trimmed[0] == '"' {
 		var s string
 		if err := json.Unmarshal(trimmed, &s); err != nil || s == "" {
@@ -489,7 +475,6 @@ func embeddingVectorLen(embedding json.RawMessage) int {
 	return 0
 }
 
-// bytesTrimSpace trims leading/trailing JSON whitespace from a raw value.
 func bytesTrimSpace(b []byte) []byte {
 	start := 0
 	for start < len(b) {
@@ -531,10 +516,7 @@ type OpenAIInput struct {
 	Seed             *int            `json:"seed,omitempty"`
 	Tools            json.RawMessage `json:"tools,omitempty"`
 	ServiceTier      string          `json:"service_tier,omitempty"`
-	// Parameters carries provider-specific request options. Native Alibaba
-	// DashScope embedding requests nest the vector size under
-	// parameters.dimension instead of a top-level "dimensions" field.
-	Parameters json.RawMessage `json:"parameters,omitempty"`
+	Parameters       json.RawMessage `json:"parameters,omitempty"`
 }
 
 // ParameterDimension extracts the requested embedding dimension from the
@@ -951,9 +933,8 @@ func (e *VendorEmbedding) OperationName() string {
 	return EmbeddingOperationName
 }
 
-// Dimensions returns the output vector dimension count. It prefers an explicit
-// request dimension ("dimensions" or "output_dimension"), falling back to the
-// length derived from the response payload. Returns 0 when not determinable.
+// Dimensions returns the output vector dimension count, preferring an explicit
+// request dimension over the length derived from the response payload.
 func (e *VendorEmbedding) Dimensions() int {
 	if e.Input.Dimensions > 0 {
 		return e.Input.Dimensions
@@ -973,23 +954,18 @@ type EmbeddingRequest struct {
 	OutputDimension int `json:"output_dimension,omitempty"`
 	// Cohere uses "texts" instead of "input"
 	Texts json.RawMessage `json:"texts,omitempty"`
-	// EncodingFormat is the OpenAI/Voyage style single-value output format.
+	// OpenAI and Voyage use a single-value "encoding_format"
 	EncodingFormat string `json:"encoding_format,omitempty"`
-	// EmbeddingTypes is the Cohere v2 style list of output formats.
+	// Cohere v2 uses an "embedding_types" list
 	EmbeddingTypes []string `json:"embedding_types,omitempty"`
-	// EmbeddingType is the Jina style output format: a string or an array of
-	// strings.
+	// Jina uses "embedding_type": a string or an array of strings
 	EmbeddingType json.RawMessage `json:"embedding_type,omitempty"`
-	// OutputDtype is the Voyage style element representation of the output
-	// vectors (float, int8, uint8, binary, ubinary).
+	// Voyage uses "output_dtype" for the output element representation
 	OutputDtype string `json:"output_dtype,omitempty"`
 }
 
-// EncodingFormats returns the requested output encoding formats, normalizing
-// across providers: Cohere v2 uses an "embedding_types" array, Jina an
-// "embedding_type" string or array, Voyage an "output_dtype" string, and
-// OpenAI-compatible APIs a single "encoding_format" string. Returns nil when
-// no format was specified.
+// EncodingFormats returns the requested output encoding formats, normalized
+// across the provider-specific request fields. Returns nil when unspecified.
 func (r *EmbeddingRequest) EncodingFormats() []string {
 	if len(r.EmbeddingTypes) > 0 {
 		return r.EmbeddingTypes
@@ -1009,8 +985,6 @@ func (r *EmbeddingRequest) EncodingFormats() []string {
 	return nil
 }
 
-// embeddingTypeValues parses the Jina "embedding_type" field, which may be a
-// single string or an array of strings.
 func (r *EmbeddingRequest) embeddingTypeValues() []string {
 	if len(r.EmbeddingType) == 0 {
 		return nil
@@ -1027,9 +1001,7 @@ func (r *EmbeddingRequest) embeddingTypeValues() []string {
 }
 
 // RequestedDtype returns the element representation requested for the output
-// vectors, normalizing provider-specific fields: Voyage "output_dtype", Jina
-// "embedding_type", and the OpenAI-style "encoding_format". Returns empty
-// string when unspecified (providers default to float).
+// vectors, or empty when unspecified (providers default to float).
 func (r *EmbeddingRequest) RequestedDtype() string {
 	if r.OutputDtype != "" {
 		return r.OutputDtype
@@ -1065,8 +1037,7 @@ type EmbeddingResponse struct {
 	Usage EmbeddingUsage `json:"usage"`
 	// Cohere uses meta.billed_units for token counts
 	Meta *CohereResponseMeta `json:"meta,omitempty"`
-	// Dimensions is the length of a single output vector, derived from the
-	// response payload. Populated by the embedding parser; zero when unknown.
+	// Dimensions is derived from the response payload; zero when unknown
 	Dimensions int `json:"-"`
 }
 

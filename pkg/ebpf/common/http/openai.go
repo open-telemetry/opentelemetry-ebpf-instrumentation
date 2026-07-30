@@ -66,8 +66,7 @@ func parseOpenAICompatibleResponse(respB []byte) (*request.VendorOpenAI, []reque
 func looksLikeOpenAIBody(reqB, respB []byte, path string) bool {
 	model := strings.ToLower(genaiModel(reqB, respB))
 
-	// DashScope names its embedding models "text-embedding-v<N>" while OpenAI
-	// uses "text-embedding-3-*" and "text-embedding-ada-*": leave the former
+	// DashScope embedding models are named "text-embedding-v<N>": leave them
 	// for the Qwen detector.
 	if isDashScopeEmbeddingModel(model) {
 		return false

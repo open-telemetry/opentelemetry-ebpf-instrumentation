@@ -21,8 +21,7 @@ func TestGenAIHTTP2BodyHeuristics(t *testing.T) {
 	openAIChatResp := []byte(`{"id":"chatcmpl-1","object":"chat.completion","model":"gpt-4o-mini","choices":[{"index":0}],"usage":{"prompt_tokens":1}}`)
 	openAIRespReq := []byte(`{"model":"gpt-5-mini","input":"hi","instructions":"be terse"}`)
 	openAIEmbedReq := []byte(`{"model":"text-embedding-3-small","input":"Your text string goes here","encoding_format":"float"}`)
-	// DashScope compatible-mode embedding: OpenAI-shaped, but the model naming
-	// scheme belongs to Qwen.
+	// DashScope compatible-mode embedding: OpenAI-shaped, but a Qwen model name.
 	dashScopeEmbedReq := []byte(`{"model":"text-embedding-v3","input":["hello"],"encoding_format":"float"}`)
 	openAIEmbedResp := []byte(`{"object":"list","model":"text-embedding-3-small","data":[{"object":"embedding","index":0,"embedding":[0.1,0.2]}],"usage":{"prompt_tokens":5,"total_tokens":5}}`)
 	// OpenAI-compatible shape but a non-"gpt" model: OpenAI is no longer a
@@ -123,11 +122,8 @@ func TestGenAIHTTP2Gate(t *testing.T) {
 
 // TestGenAIHTTP2DashScopeEmbeddingDetectorOrder replays the postProcessHTTPSpan
 // GenAI detector order for an HTTP/2 request to DashScope's compatible-mode
-// /v1/embeddings endpoint: OpenAI must yield the DashScope
-// "text-embedding-v<N>" model so the later Qwen detector claims it.
-// parseHTTP2Request always populates both Host and URL.Host from the captured
-// span, so the production shape carries the host; the hostless variant covers
-// degraded captures where the :authority header was not recovered.
+// /v1/embeddings endpoint: OpenAI must yield the "text-embedding-v<N>" model so
+// the later Qwen detector claims it.
 func TestGenAIHTTP2DashScopeEmbeddingDetectorOrder(t *testing.T) {
 	reqBody := []byte(`{"model":"text-embedding-v3","input":["hello"],"encoding_format":"float"}`)
 	respBody := []byte(`{"data":[{"embedding":[0.1,0.2],"index":0,"object":"embedding"}],"model":"text-embedding-v3","usage":{"prompt_tokens":6,"total_tokens":6},"id":"eb4ea05e"}`)
