@@ -74,11 +74,16 @@ func New(pidFilter ebpfcommon.ServiceFilter, cfg *obi.Config, metrics imetrics.R
 	}
 }
 
-// Keep in sync with k_max_concurrent_pids (bpf/pid/maps/map_sizing.h) and
-// k_prime_hash (bpf/pid/pid.h), which assert they agree at compile time.
+// Keep in sync with the BPF side, which asserts the relation between both
+// constants at compile time (bpf/pid/pid.h).
 const (
+	// mirrors k_max_concurrent_pids (bpf/pid/maps/map_sizing.h): estimate of
+	// 1000 concurrent processes (including children) * 3 namespaces per pid
 	maxConcurrentPids = 3001
-	primeHash         = 192053
+	// mirrors k_prime_hash (bpf/pid/pid.h): closest prime below
+	// maxConcurrentPids * 64; modulo by a prime distributes the hash evenly
+	// across the segment bit array
+	primeHash = 192053
 )
 
 func pidSegmentBit(k uint64) (uint32, uint32) {
@@ -109,12 +114,14 @@ func (p *Tracer) buildPidFilter() []uint64 {
 	return result
 }
 
-// validateValidPidsMap rejects a map too small to hold every segment index, which
-// would make pid_matches() miss and fail open.
+// validateValidPidsMap ensures the loaded map matches the index space written
+// by rebuildValidPids: a smaller map makes pid_matches() lookups miss and fail
+// open, while a larger one leaves segments unset, silently filtering out
+// matching PIDs.
 func (p *Tracer) validateValidPidsMap() error {
 	if got := p.bpfObjects.ValidPids.MaxEntries(); got != maxConcurrentPids {
 		return fmt.Errorf(
-			"valid_pids BPF map holds %d entries, expected %d: the PID filter would fail open",
+			"valid_pids BPF map holds %d entries, expected %d: BPF and userspace PID filter constants have diverged",
 			got, maxConcurrentPids)
 	}
 
@@ -145,9 +152,12 @@ func (p *Tracer) rebuildValidPids() error {
 
 func (p *Tracer) AllowPID(pid app.PID, ns uint32, fi *exec.FileInfo) {
 	p.pidsFilter.AllowPID(pid, ns, fi, ebpfcommon.PIDTypeKProbes)
+
 	if err := p.rebuildValidPids(); err != nil {
-		p.log.Error("Error rebuilding the BPF PID filter", "error", err)
+		p.log.Error("rebuilding the BPF PID filter", "error", err)
+		return
 	}
+
 	// Keep the cache consistent with the updated filter.
 	if p.bpfObjects.PidCache != nil {
 		pidU32 := uint32(pid)
@@ -157,9 +167,12 @@ func (p *Tracer) AllowPID(pid app.PID, ns uint32, fi *exec.FileInfo) {
 
 func (p *Tracer) BlockPID(pid app.PID, ns uint32) {
 	p.pidsFilter.BlockPID(pid, ns)
+
 	if err := p.rebuildValidPids(); err != nil {
-		p.log.Error("Error rebuilding the BPF PID filter", "error", err)
+		p.log.Error("rebuilding the BPF PID filter", "error", err)
+		return
 	}
+
 	// Remove from cache so next access re-evaluates.
 	if p.bpfObjects.PidCache != nil {
 		pidU32 := uint32(pid)
