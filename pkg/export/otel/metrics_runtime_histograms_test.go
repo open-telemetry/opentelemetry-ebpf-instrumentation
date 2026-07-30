@@ -7,6 +7,7 @@ import (
 	"context"
 	"io"
 	"log/slog"
+	"math"
 	"sync"
 	"testing"
 	"time"
@@ -130,6 +131,76 @@ func TestGoRuntimeHistogramProducerProducesDeltaMetrics(t *testing.T) {
 	assert.Equal(t, finalAt, point.Time)
 	assert.Equal(t, uint64(1), point.Count)
 	assert.Equal(t, uint64(1), point.BucketCounts[5])
+}
+
+func TestGoRuntimeHistogramProducerProducesFinalDeltaAfterDelete(t *testing.T) {
+	producer := newGoRuntimeHistogramProducer(metricdata.DeltaTemporality)
+	start := time.Date(2026, 7, 17, 10, 0, 0, 0, time.UTC)
+	counts := testGoRuntimeHistogramCounts()
+	counts[3] = 4
+	producer.Update(testGoRuntimeHistogramSnapshot(
+		runtimemetrics.GoHistogramKindGCPause, 101, start, counts, 2, 1,
+	))
+	testProducedHistogramPoint(t, producer, attributes.GoRuntimeMemoryGCPauseDuration.OTEL)
+
+	finalAt := start.Add(time.Minute)
+	counts[3] = 7
+	counts[4] = 2
+	producer.Update(testGoRuntimeHistogramSnapshot(
+		runtimemetrics.GoHistogramKindGCPause, 101, finalAt, counts, 3, 1,
+	))
+	producer.Delete(101)
+	producer.Delete(101)
+
+	reusedAt := finalAt.Add(time.Minute)
+	reusedCounts := testGoRuntimeHistogramCounts()
+	reusedCounts[10] = 5
+	producer.Update(testGoRuntimeHistogramSnapshot(
+		runtimemetrics.GoHistogramKindGCPause, 101, reusedAt, reusedCounts, 0, 0,
+	))
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	produced, err := producer.Produce(ctx)
+	require.ErrorIs(t, err, context.Canceled)
+	assert.Empty(t, produced)
+
+	final := testProducedHistogramPoint(t, producer, attributes.GoRuntimeMemoryGCPauseDuration.OTEL)
+	assert.Equal(t, start, final.StartTime)
+	assert.Equal(t, reusedAt, final.Time)
+	assert.Equal(t, uint64(11), final.Count)
+	assert.Equal(t, uint64(1), final.BucketCounts[0])
+	assert.Equal(t, uint64(3), final.BucketCounts[4])
+	assert.Equal(t, uint64(2), final.BucketCounts[5])
+	assert.Equal(t, uint64(5), final.BucketCounts[11])
+
+	produced, err = producer.Produce(t.Context())
+	require.NoError(t, err)
+	assert.Empty(t, produced)
+}
+
+func TestGoRuntimeHistogramProducerDeleteDoesNotDependOnFinalDeltaAggregation(t *testing.T) {
+	producer := newGoRuntimeHistogramProducer(metricdata.DeltaTemporality)
+	at := time.Date(2026, 7, 17, 10, 0, 0, 0, time.UTC)
+
+	maxCounts := testGoRuntimeHistogramCounts()
+	maxCounts[0] = math.MaxUint64
+	producer.Update(testGoRuntimeHistogramSnapshot(
+		runtimemetrics.GoHistogramKindGCPause, 101, at, maxCounts, 0, 0,
+	))
+	producer.Delete(101)
+
+	counts := testGoRuntimeHistogramCounts()
+	counts[0] = 1
+	producer.Update(testGoRuntimeHistogramSnapshot(
+		runtimemetrics.GoHistogramKindGCPause, 202, at, counts, 0, 0,
+	))
+	producer.Delete(202)
+
+	assert.NotContains(t, producer.histograms, goRuntimeHistogramKey{
+		kind: runtimemetrics.GoHistogramKindGCPause,
+		pid:  202,
+	})
 }
 
 func TestGoRuntimeHistogramProducerCalculatesDeltaPerPIDBeforeAggregating(t *testing.T) {

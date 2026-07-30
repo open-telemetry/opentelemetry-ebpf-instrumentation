@@ -102,7 +102,7 @@ func TestGoRuntimeHistogramCollectorExportsExactMetrics(t *testing.T) {
 	assert.InDelta(t, scheduleData.Sum, scheduleHistogram.GetSampleSum(), 0)
 }
 
-func TestGoRuntimeHistogramCollectorAggregatesAndRemovesPIDsWithSameLabels(t *testing.T) {
+func TestGoRuntimeHistogramCollectorPreservesCumulativeStateAfterPIDDeletion(t *testing.T) {
 	collector := newGoRuntimeHistogramCollector([]string{"service_name"})
 	registry := prometheus.NewRegistry()
 	registry.MustRegister(collector)
@@ -125,14 +125,98 @@ func TestGoRuntimeHistogramCollectorAggregatesAndRemovesPIDsWithSameLabels(t *te
 		"service_name": "orders",
 	})
 	require.NotNil(t, metric)
-	assert.Equal(t, uint64(5), metric.GetHistogram().GetSampleCount())
+	histogram := metric.GetHistogram()
+	require.NotNil(t, histogram)
+	assert.Equal(t, uint64(5), histogram.GetSampleCount())
 
 	collector.DeletePID(101)
 	metric = gatheredMetric(t, registry, attributes.GoRuntimeMemoryGCPauseDuration.Prom, map[string]string{
 		"service_name": "orders",
 	})
 	require.NotNil(t, metric)
-	assert.Equal(t, uint64(3), metric.GetHistogram().GetSampleCount())
+	histogram = metric.GetHistogram()
+	require.NotNil(t, histogram)
+	assert.Equal(t, uint64(5), histogram.GetSampleCount())
+	require.NotEmpty(t, histogram.GetBucket())
+	assert.Equal(t, uint64(5), histogram.GetBucket()[len(histogram.GetBucket())-1].GetCumulativeCount())
+
+	secondCounts[0] = 4
+	collector.Update(202, labels, &runtimemetrics.GoRuntimeHistogramSnapshot{
+		Kind:   runtimemetrics.GoHistogramKindGCPause,
+		Counts: secondCounts,
+	})
+	metric = gatheredMetric(t, registry, attributes.GoRuntimeMemoryGCPauseDuration.Prom, map[string]string{
+		"service_name": "orders",
+	})
+	require.NotNil(t, metric)
+	histogram = metric.GetHistogram()
+	require.NotNil(t, histogram)
+	assert.Equal(t, uint64(6), histogram.GetSampleCount())
+	require.NotEmpty(t, histogram.GetBucket())
+	assert.Equal(t, uint64(6), histogram.GetBucket()[len(histogram.GetBucket())-1].GetCumulativeCount())
+
+	collector.Delete(labels)
+	assert.Nil(t, gatheredMetric(t, registry, attributes.GoRuntimeMemoryGCPauseDuration.Prom, map[string]string{
+		"service_name": "orders",
+	}))
+}
+
+func TestGoRuntimeHistogramCollectorKeepsStateWhenRetirementOverflows(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*runtimemetrics.GoRuntimeHistogramSnapshot)
+	}{
+		{
+			name: "bucket",
+			mutate: func(histogram *runtimemetrics.GoRuntimeHistogramSnapshot) {
+				histogram.Underflow = 1
+				histogram.Counts[0] = 1
+			},
+		},
+		{
+			name: "total population",
+			mutate: func(histogram *runtimemetrics.GoRuntimeHistogramSnapshot) {
+				histogram.Counts[1] = 1
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			collector := newGoRuntimeHistogramCollector([]string{"service_name"})
+			labels := []string{"orders"}
+
+			maxCounts := testPromRuntimeHistogramCounts()
+			maxCounts[0] = math.MaxUint64
+			collector.Update(101, labels, &runtimemetrics.GoRuntimeHistogramSnapshot{
+				Kind:   runtimemetrics.GoHistogramKindGCPause,
+				Counts: maxCounts,
+			})
+			collector.DeletePID(101)
+
+			active := runtimemetrics.GoRuntimeHistogramSnapshot{
+				Kind:   runtimemetrics.GoHistogramKindGCPause,
+				Counts: testPromRuntimeHistogramCounts(),
+			}
+			test.mutate(&active)
+			collector.Update(202, labels, &active)
+			collector.DeletePID(202)
+
+			assert.Contains(t, collector.histogramSnapshots, goRuntimeHistogramKey{
+				kind:       runtimemetrics.GoHistogramKindGCPause,
+				pid:        202,
+				labelTuple: runtimeHistogramLabelTuple(labels),
+			})
+			retired, ok := collector.retiredSnapshots[goRuntimeHistogramSeriesKey{
+				kind:       runtimemetrics.GoHistogramKindGCPause,
+				labelTuple: runtimeHistogramLabelTuple(labels),
+			}]
+			require.True(t, ok)
+			assert.Zero(t, retired.histogram.Underflow)
+			assert.Equal(t, uint64(math.MaxUint64), retired.histogram.Counts[0])
+			assert.Zero(t, retired.histogram.Counts[1])
+		})
+	}
 }
 
 func TestGoRuntimeHistogramCollectorOnlyExportsStoredKindAndReplacesSnapshot(t *testing.T) {
@@ -324,10 +408,24 @@ func TestGoRuntimeHistogramReporterTracksInheritedChildPIDs(t *testing.T) {
 	require.Equal(t, uint64(5), count())
 
 	reporter.handleProcessEvent(processEvent(101, exec.ProcessEventTerminated), slog.Default())
-	assert.Equal(t, uint64(3), count())
+	assert.Equal(t, uint64(5), count())
+
+	reporter.collectRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{snapshot(202, 4)})
+	assert.Equal(t, uint64(6), count())
 
 	reporter.collectRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{snapshot(101, 7)})
-	assert.Equal(t, uint64(3), count(), "a late snapshot must not resurrect a terminated PID")
+	assert.Equal(t, uint64(6), count(), "a late snapshot must not resurrect a terminated PID")
+
+	reporter.handleProcessEvent(processEvent(202, exec.ProcessEventTerminated), slog.Default())
+	assert.Equal(t, uint64(6), count())
+
+	reporter.handleProcessEvent(processEvent(service.ProcPID, exec.ProcessEventTerminated), slog.Default())
+	assert.Nil(t, gatheredMetric(
+		t,
+		registry,
+		attributes.GoRuntimeMemoryGCPauseDuration.Prom,
+		map[string]string{"service_name": "orders", "service_namespace": "production"},
+	))
 }
 
 func TestRuntimeReporterOnlyGatesHistogramsOnProcessLiveness(t *testing.T) {

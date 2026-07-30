@@ -21,11 +21,17 @@ type goRuntimeHistogramCollector struct {
 	scheduleDesc       *prometheus.Desc
 	mu                 sync.RWMutex
 	histogramSnapshots map[goRuntimeHistogramKey]goRuntimeHistogramState
+	retiredSnapshots   map[goRuntimeHistogramSeriesKey]goRuntimeHistogramState
 }
 
 type goRuntimeHistogramKey struct {
 	kind       runtimemetrics.GoHistogramKind
 	pid        app.PID
+	labelTuple string
+}
+
+type goRuntimeHistogramSeriesKey struct {
+	kind       runtimemetrics.GoHistogramKind
 	labelTuple string
 }
 
@@ -49,6 +55,7 @@ func newGoRuntimeHistogramCollector(runtimeLabelNames []string) *goRuntimeHistog
 			nil,
 		),
 		histogramSnapshots: make(map[goRuntimeHistogramKey]goRuntimeHistogramState),
+		retiredSnapshots:   make(map[goRuntimeHistogramSeriesKey]goRuntimeHistogramState),
 	}
 }
 
@@ -100,12 +107,35 @@ func (c *goRuntimeHistogramCollector) DeletePID(pid app.PID) {
 	}
 
 	c.mu.Lock()
-	for key := range c.histogramSnapshots {
+	defer c.mu.Unlock()
+
+	for key, state := range c.histogramSnapshots {
 		if key.pid == pid {
+			seriesKey := goRuntimeHistogramSeriesKey{kind: key.kind, labelTuple: key.labelTuple}
+			if retired, exists := c.retiredSnapshots[seriesKey]; exists {
+				combined, err := aggregatePromRuntimeHistogramStates(
+					clonePromRuntimeHistogramState(retired),
+					state,
+				)
+				if err == nil {
+					_, err = combined.histogram.Data()
+				}
+				if err != nil {
+					mlog().Warn(
+						"retaining active Go runtime histogram after failed retirement",
+						"kind", key.kind,
+						"pid", pid,
+						"error", err,
+					)
+					continue
+				}
+				c.retiredSnapshots[seriesKey] = combined
+			} else {
+				c.retiredSnapshots[seriesKey] = clonePromRuntimeHistogramState(state)
+			}
 			delete(c.histogramSnapshots, key)
 		}
 	}
-	c.mu.Unlock()
 }
 
 func (c *goRuntimeHistogramCollector) Delete(labels []string) {
@@ -115,12 +145,18 @@ func (c *goRuntimeHistogramCollector) Delete(labels []string) {
 
 	labelTuple := runtimeHistogramLabelTuple(labels)
 	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	for key := range c.histogramSnapshots {
 		if key.labelTuple == labelTuple {
 			delete(c.histogramSnapshots, key)
 		}
 	}
-	c.mu.Unlock()
+	for key := range c.retiredSnapshots {
+		if key.labelTuple == labelTuple {
+			delete(c.retiredSnapshots, key)
+		}
+	}
 }
 
 func (c *goRuntimeHistogramCollector) Describe(ch chan<- *prometheus.Desc) {
@@ -177,22 +213,18 @@ func (c *goRuntimeHistogramCollector) snapshot() []goRuntimeHistogramState {
 	c.mu.RLock()
 	snapshots := make(map[goRuntimeHistogramKey]goRuntimeHistogramState, len(c.histogramSnapshots))
 	for key, state := range c.histogramSnapshots {
-		snapshots[key] = goRuntimeHistogramState{
-			labels: append([]string(nil), state.labels...),
-			histogram: runtimemetrics.GoRuntimeHistogramSnapshot{
-				Kind:      state.histogram.Kind,
-				Counts:    append([]uint64(nil), state.histogram.Counts...),
-				Underflow: state.histogram.Underflow,
-				Overflow:  state.histogram.Overflow,
-			},
-		}
+		snapshots[key] = clonePromRuntimeHistogramState(state)
+	}
+	retired := make(map[goRuntimeHistogramSeriesKey]goRuntimeHistogramState, len(c.retiredSnapshots))
+	for key, state := range c.retiredSnapshots {
+		retired[key] = clonePromRuntimeHistogramState(state)
 	}
 	c.mu.RUnlock()
 
-	aggregated := make(map[goRuntimeHistogramKey]goRuntimeHistogramState, len(snapshots))
-	invalid := make(map[goRuntimeHistogramKey]error)
+	aggregated := retired
+	invalid := make(map[goRuntimeHistogramSeriesKey]error)
 	for key, state := range snapshots {
-		seriesKey := goRuntimeHistogramKey{kind: key.kind, labelTuple: key.labelTuple}
+		seriesKey := goRuntimeHistogramSeriesKey{kind: key.kind, labelTuple: key.labelTuple}
 		if _, skip := invalid[seriesKey]; skip {
 			continue
 		}
@@ -218,6 +250,12 @@ func (c *goRuntimeHistogramCollector) snapshot() []goRuntimeHistogramState {
 		states = append(states, state)
 	}
 	return states
+}
+
+func clonePromRuntimeHistogramState(state goRuntimeHistogramState) goRuntimeHistogramState {
+	state.labels = append([]string(nil), state.labels...)
+	state.histogram.Counts = append([]uint64(nil), state.histogram.Counts...)
+	return state
 }
 
 func aggregatePromRuntimeHistogramStates(
