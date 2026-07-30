@@ -135,6 +135,13 @@ fmt:
 clang-tidy:
 	cd bpf && find . -type f \( -name '*.c' -o -name '*.h' \) ! -path "./bpfcore/*" ! -path "./NOTICES/*" ! -path "./tests/*" | xargs clang-tidy
 
+# Golangci-lint reuses the same cache across worktrees, this causes that the "excludes" entries in the
+# .golangci.yml configuration do not match the relative paths from the worktree and linting will fail
+# unless you clean the cache.
+.PHONY: lint-clean-cache
+lint-clean-cache:
+	go tool $(TOOLS_MODFILE) golangci-lint cache clean
+
 .PHONY: lint
 lint: LINT_EXTRA_ARGS =
 lint: lint-run
@@ -315,12 +322,12 @@ compile-cache-for-coverage:
 	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -cover -a -o bin/$(CACHE_CMD) $(CACHE_MAIN_GO_FILE)
 
 .PHONY: test
-test:
+test: testoutput
 	@echo "### Testing code"
 	KUBEBUILDER_ASSETS="$(shell go tool $(TOOLS_MODFILE) setup-envtest use $(ENVTEST_K8S_VERSION) -p path)" go test -short -race -a ./... -coverpkg=./... -coverprofile $(TEST_OUTPUT)/cover.all.txt
 
 .PHONY: test-privileged
-test-privileged: $(ENVTEST)
+test-privileged: $(ENVTEST) testoutput
 	@echo "### Testing only privileged-tagged tests"
 	go test -short -race -tags=privileged_tests -a \
 	$$(grep -rl '//go:build.*privileged_tests' . --include='*.go' | xargs -I{} dirname {} | sort -u | tr '\n' ' ') \
@@ -332,16 +339,16 @@ run-bpf-verifier-vm:
 	go test -count=1 -timeout 20m -parallel 8 -tags=bpf_verifier_tests ./pkg/internal/ebpf/verifier/...
 
 .PHONY: cov-exclude-generated
-cov-exclude-generated:
+cov-exclude-generated: testoutput
 	grep -vE $(EXCLUDE_COVERAGE_FILES) $(TEST_OUTPUT)/cover.all.txt > $(TEST_OUTPUT)/cover.txt
 
 .PHONY: coverage-report
-coverage-report: cov-exclude-generated
+coverage-report: cov-exclude-generated testoutput
 	@echo "### Generating coverage report"
 	go tool cover --func=$(TEST_OUTPUT)/cover.txt
 
 .PHONY: coverage-report-html
-coverage-report-html: cov-exclude-generated
+coverage-report-html: cov-exclude-generated testoutput
 	@echo "### Generating HTML coverage report"
 	go tool cover --html=$(TEST_OUTPUT)/cover.txt
 
@@ -423,15 +430,8 @@ generator-image-build:
 	@echo "### Creating the image that generates the eBPF binaries"
 	$(OCI_BIN) buildx build --load -t $(GEN_IMG) -f generator.Dockerfile  .
 
-
-.PHONY: prepare-integration-test
-prepare-integration-test:
-	@echo "### Removing resources from previous integration tests, if any"
-	rm -rf $(TEST_OUTPUT)/* || true
-	$(MAKE) cleanup-integration-test
-
 .PHONY: cleanup-integration-test
-cleanup-integration-test:
+cleanup-integration-test: clean-testoutput
 	@echo "### Removing integration test clusters"
 	go tool $(TOOLS_MODFILE) kind delete cluster -n test-kind-cluster || true
 	@echo "### Removing docker containers and images"
@@ -455,7 +455,7 @@ run-integration-test-k8s:
 PRECOMPILED_TESTS_DIR ?= /precompiled-tests
 
 .PHONY: run-integration-test-vm
-run-integration-test-vm:
+run-integration-test-vm: testoutput
 	@echo "### Running integration tests (pattern: $(TEST_PATTERN))"
 	@TEST_TIMEOUT="60m"; \
 	TEST_PARALLEL="1"; \
@@ -498,11 +498,11 @@ run-integration-test-arm:
 	go test -p 1 -failfast -v -timeout 90m -a ./internal/test/integration -run "^TestMultiProcess"
 
 .PHONY: unit-test-matrix-json
-unit-test-matrix-json:
+unit-test-matrix-json: testoutput
 	@go list ./... | go tool $(TOOLS_MODFILE) gotestsum tool ci-matrix --partitions $${PARTITIONS:-3} --timing-files=$(TEST_OUTPUT)/unit-test-shard-*.log
 
 .PHONY: run-unit-test-shard
-run-unit-test-shard:
+run-unit-test-shard: testoutput
 	@echo "### Running unit test shard $(SHARD_ID)"
 	KUBEBUILDER_ASSETS="$(shell go tool $(TOOLS_MODFILE) setup-envtest use $(ENVTEST_K8S_VERSION) -p path)" \
 	go tool $(TOOLS_MODFILE) gotestsum \
@@ -531,25 +531,25 @@ oats-integration-test-matrix-json:
 	@./scripts/generate-dir-matrix.sh internal/test/oats
 
 .PHONY: integration-test
-integration-test: prereqs prepare-integration-test
+integration-test: prereqs cleanup-integration-test
 	$(MAKE) run-integration-test || (ret=$$?; $(MAKE) cleanup-integration-test && exit $$ret)
 	$(MAKE) itest-coverage-data
 	$(MAKE) cleanup-integration-test
 
 .PHONY: integration-test-k8s
-integration-test-k8s: prereqs prepare-integration-test
+integration-test-k8s: prereqs cleanup-integration-test
 	$(MAKE) run-integration-test-k8s || (ret=$$?; $(MAKE) cleanup-integration-test && exit $$ret)
 	$(MAKE) itest-coverage-data
 	$(MAKE) cleanup-integration-test
 
 .PHONY: integration-test-arm
-integration-test-arm: prereqs prepare-integration-test
+integration-test-arm: prereqs cleanup-integration-test
 	$(MAKE) run-integration-test-arm || (ret=$$?; $(MAKE) cleanup-integration-test && exit $$ret)
 	$(MAKE) itest-coverage-data
 	$(MAKE) cleanup-integration-test
 
 .PHONY: itest-coverage-data
-itest-coverage-data:
+itest-coverage-data: testoutput
 	# merge coverage data from all the integration tests
 	mkdir -p $(TEST_OUTPUT)/merge
 	go tool covdata merge -i=$(TEST_OUTPUT) -o $(TEST_OUTPUT)/merge
@@ -706,8 +706,12 @@ clean-release-dir:
 	rm -f bin/obi-*.tar.gz
 	rm -rf bin/LICENSE bin/NOTICE bin/NOTICES
 
+.PHONY: testoutput
+testoutput:
+	mkdir -p ${TEST_OUTPUT}
+
 .PHONY: clean-testoutput
-clean-testoutput:
+clean-testoutput: testoutput
 	@echo "### Cleaning ${TEST_OUTPUT} folder"
 	rm -rf ${TEST_OUTPUT}/*
 
