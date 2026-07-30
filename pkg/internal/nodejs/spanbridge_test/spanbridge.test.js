@@ -83,6 +83,17 @@ test('bundled/unreachable api copy: bridge never blocks the app SDK registration
   assert.deepStrictEqual(r.bridge, [], 'bundled spans are not captured — the accepted limitation');
 });
 
+test('mixed reachable + unreachable copies: registry-appearance drives the handoff', () => {
+  // A reachable copy caches our tracer (bridge emitting), while a bundled copy
+  // registers the app SDK straight into the global registry, bypassing the
+  // setter we wrap. Without treating the registry provider as a handoff signal,
+  // the cached tracer would keep emitting OBI spans alongside the app's SDK.
+  const r = runScript('scenario_mixed_copy.js');
+  assert.deepStrictEqual(r.bridge, ['before'], 'bridge captures only the pre-registration span');
+  assert.ok(r.app.includes('after'), "the reachable copy's cached tracer routes to the app once its provider is in the registry");
+  assert.ok(!r.bridge.includes('after'), 'bridge must stop emitting once the app provider appears in the registry');
+});
+
 test('SDK registers after injection: bridge yields and the app SDK takes over', () => {
   const r = runScenario('late-sdk');
   assert.deepStrictEqual(r.bridge, ['before'], 'bridge captures only the pre-handover span');

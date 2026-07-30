@@ -180,6 +180,16 @@ therefore checks, on each `startSpan`/`startActiveSpan`, whether it has
 yielded, and if so forwards to the application-registered provider — so even
 those pre-acquired tracers route to the app's SDK after handover.
 
+The handover trigger is not limited to our wrapped setters. An app can also
+register its provider through an api copy the bridge could not wrap (a
+bundled/inlined copy — see "Unreachable api copies"), which writes the shared
+global registry directly, bypassing the setter. The bridge therefore treats
+**any non-bridge provider appearing in the global registry** as a handoff
+signal too: it stops emitting and routes cached tracers to that provider. This
+prevents a reachable copy's cached tracer from exporting through OBI while the
+app's SDK — registered via an unwrapped copy — runs at the same time, which
+would otherwise leave two providers active in one process.
+
 ## Constraints and limitations
 
 - **Opt-in only.** Existing Node.js support (fd extraction, context
@@ -203,8 +213,12 @@ those pre-acquired tracers route to the app's SDK after handover.
   of the api (one that adds an `import`/`node` export condition). Because the
   bridge does not occupy the global registry, such a copy is **neither captured
   nor blocked**: the app's manual spans created through it are not collected,
-  but the app's own SDK registers and works normally. This is the deliberate
-  trade-off of not touching the global registry — a coverage gap for that
+  but the app's own SDK registers and works normally. If such an unreachable
+  copy registers the app's SDK while a *reachable* copy has already cached the
+  bridge's tracer, the registry-appearance handoff (see the tracer section
+  above) still fires: the bridge stops emitting and routes cached tracers to the
+  app provider, so OBI never runs alongside the app's own SDK. This is the
+  deliberate trade-off of not touching the global registry — a coverage gap for that
   segment in exchange for never breaking a customer's own telemetry. (OBI
   injects via the inspector *after* process start, so it cannot retroactively
   install a launch-time ESM/bundle hook such as `--import` /

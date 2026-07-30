@@ -128,7 +128,10 @@
   // unexpected error (e.g. a malformed payload rejected before the syscall)
   // is worth surfacing, and only under the debug flag.
   const emit = (payload) => {
-    if (yielded) return; // the app's own SDK owns telemetry now
+    // Stop emitting once the app's SDK owns telemetry: either we yielded via a
+    // wrapped setter, or an api copy we could not wrap registered the app
+    // provider straight into the global registry (detectRegistryHandoff).
+    if (yielded || detectRegistryHandoff()) return;
     try {
       fs.accessSync(SENTINEL_PREFIX + payload);
     } catch (err) {
@@ -320,12 +323,33 @@
 
   // --- tracer / provider ----------------------------------------------------
 
+  // The application can register its own provider through an @opentelemetry/api
+  // copy we could not wrap — a bundled/inlined copy, or any copy that never
+  // reached our setter wrapping — by writing the shared global registry
+  // directly. That path never calls our wrapped setGlobalTracerProvider, so
+  // `yielded` would stay false and the bridge would keep emitting alongside the
+  // app's SDK, splitting telemetry across two providers in one process. Treat a
+  // non-bridge provider appearing in the registry as an explicit handoff
+  // signal: flip us into the yielded state (idempotent) and return the app
+  // provider so cached tracers re-route to it.
+  const detectRegistryHandoff = () => {
+    const reg = g[API_KEY];
+    const prov = reg && reg.trace;
+    if (prov && prov !== tracerProvider && typeof prov.getTracer === 'function') {
+      yieldToApp('application provider present in global registry');
+      return prov;
+    }
+    return null;
+  };
+
   // After we have yielded, the application's own provider owns the global.
   // Tracers the app acquired-and-used before injection cached OUR tracer
   // (OTel ProxyTracer caches the first real delegate), so route them through
-  // to the app's current tracer instead of producing dead bridge spans.
+  // to the app's current tracer instead of producing dead bridge spans. The
+  // registry-appearance check also hands off for apps that registered through
+  // a copy we could not wrap.
   const activeAppTracer = (scope, version) => {
-    if (!yielded) return null;
+    if (!yielded && !detectRegistryHandoff()) return null;
     const reg = g[API_KEY];
     const prov = reg && reg.trace;
     if (prov && typeof prov.getTracer === 'function') return prov.getTracer(scope, version);
