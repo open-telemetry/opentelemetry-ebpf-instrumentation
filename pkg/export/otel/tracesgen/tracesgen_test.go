@@ -386,6 +386,22 @@ func TestCreateToolCallSpans(t *testing.T) {
 		assert.Equal(t, "execute_tool get_time", ss.Spans().At(0).Name())
 	})
 
+	t.Run("failed tool call sets error status and omits result", func(t *testing.T) {
+		ss := ptrace.NewScopeSpans()
+		traceID := pcommon.TraceID([16]byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16})
+		parentSpanID := pcommon.SpanID([8]byte{1, 2, 3, 4, 5, 6, 7, 8})
+		now := time.Now()
+		createToolCallSpans([]request.ToolCall{
+			{ID: "call_1", Name: "get_weather", Arguments: `{"city":"NYC"}`, IsError: true},
+		}, parentSpanID, traceID, &ss, now, now)
+
+		require.Equal(t, 1, ss.Spans().Len())
+		sp := ss.Spans().At(0)
+		assert.Equal(t, ptrace.StatusCodeError, sp.Status().Code())
+		_, ok := sp.Attributes().Get("gen_ai.tool.call.result")
+		assert.False(t, ok)
+	})
+
 	t.Run("tool call without ID omits gen_ai.tool.call.id", func(t *testing.T) {
 		ss := ptrace.NewScopeSpans()
 		traceID := pcommon.TraceID([16]byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16})

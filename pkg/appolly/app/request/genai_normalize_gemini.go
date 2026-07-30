@@ -15,11 +15,13 @@ type geminiPart struct {
 }
 
 type geminiFuncCall struct {
+	ID   string          `json:"id,omitempty"`
 	Name string          `json:"name"`
 	Args json.RawMessage `json:"args,omitempty"`
 }
 
 type geminiFuncResp struct {
+	ID       string          `json:"id,omitempty"`
 	Name     string          `json:"name"`
 	Response json.RawMessage `json:"response,omitempty"`
 }

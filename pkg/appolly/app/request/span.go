@@ -335,12 +335,15 @@ type OpenAIError struct {
 
 // ToolCall represents a tool invocation requested by an LLM. Arguments and
 // Result are JSON strings, set only when paired from the request message
-// history.
+// history. IsError marks calls whose result the provider flagged as failed;
+// such calls carry no Result since the result attribute only applies to
+// successful executions.
 type ToolCall struct {
 	ID        string `json:"id,omitempty"`
 	Name      string `json:"name"`
 	Arguments string `json:"arguments,omitempty"`
 	Result    string `json:"result,omitempty"`
+	IsError   bool   `json:"is_error,omitempty"`
 }
 
 type VendorOpenAI struct {

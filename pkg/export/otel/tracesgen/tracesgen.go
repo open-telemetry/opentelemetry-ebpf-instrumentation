@@ -516,6 +516,9 @@ func createToolCallSpans(toolCalls []request.ToolCall, parentSpanID pcommon.Span
 		if tc.Result != "" {
 			attrs.PutStr(string(attr.GenAIToolCallResult), tc.Result)
 		}
+		if tc.IsError {
+			sp.Status().SetCode(ptrace.StatusCodeError)
+		}
 	}
 }
 
