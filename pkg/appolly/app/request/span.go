@@ -4,6 +4,7 @@
 package request // import "go.opentelemetry.io/obi/pkg/appolly/app/request"
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/url"
@@ -336,6 +337,10 @@ type OpenAIError struct {
 type ToolCall struct {
 	ID   string `json:"id,omitempty"`
 	Name string `json:"name"`
+	// Arguments is the tool-call input as raw JSON: a string for OpenAI-family
+	// providers, an object for Anthropic, Gemini and Ollama.
+	Arguments string `json:"arguments,omitempty"`
+	Type      string `json:"type,omitempty"`
 }
 
 type VendorOpenAI struct {
@@ -383,20 +388,113 @@ func (ai *VendorOpenAI) GetOutput() string {
 	return normalizeOpenAIOutput(ai)
 }
 
+// InputTokenCount returns the input token count, falling back to total_tokens
+// for embeddings since some providers (e.g. native DashScope) report only a total.
+func (ai *VendorOpenAI) InputTokenCount() (int, bool) {
+	if tokens, reported := ai.Usage.InputTokenCount(); reported {
+		return tokens, true
+	}
+	if ai.OperationName == EmbeddingOperationName {
+		if total, reported := ai.Usage.TotalTokens.Get(); reported {
+			return total, true
+		}
+	}
+	return 0, false
+}
+
 func (ai *VendorOpenAI) GetEmbeddingDimensions() int {
 	if ai.Request.Dimensions > 0 {
 		return ai.Request.Dimensions
 	}
-	if len(ai.Data) == 0 {
+	if d := ai.Request.ParameterDimension(); d > 0 {
+		return d
+	}
+	if n := embeddingLenFromData(ai.Data); n > 0 {
+		return n
+	}
+	return embeddingDimsFromOutput(ai.Output)
+}
+
+// embeddingLenFromData returns the vector length from an OpenAI-style embedding
+// response body: {"data":[{"embedding":<vector>}]}. Returns 0 when not present.
+func embeddingLenFromData(raw json.RawMessage) int {
+	if len(raw) == 0 {
 		return 0
 	}
 	var data []struct {
-		Embedding []json.Number `json:"embedding"`
+		Embedding json.RawMessage `json:"embedding"`
 	}
-	if err := json.Unmarshal(ai.Data, &data); err != nil || len(data) == 0 {
+	if err := json.Unmarshal(raw, &data); err != nil || len(data) == 0 {
 		return 0
 	}
-	return len(data[0].Embedding)
+	return embeddingVectorLen(data[0].Embedding)
+}
+
+// embeddingDimsFromOutput returns the vector length from a native DashScope
+// response `output` object: {"embeddings":[{"embedding":<vector>}]}.
+func embeddingDimsFromOutput(raw json.RawMessage) int {
+	if len(raw) == 0 {
+		return 0
+	}
+	var out struct {
+		Embeddings []struct {
+			Embedding json.RawMessage `json:"embedding"`
+		} `json:"embeddings"`
+	}
+	if err := json.Unmarshal(raw, &out); err != nil || len(out.Embeddings) == 0 {
+		return 0
+	}
+	return embeddingVectorLen(out.Embeddings[0].Embedding)
+}
+
+// embeddingVectorLen returns the dimension count of a vector encoded either as
+// a JSON array of numbers or as a base64 string of packed float32 values.
+func embeddingVectorLen(embedding json.RawMessage) int {
+	trimmed := bytesTrimSpace(embedding)
+	if len(trimmed) == 0 {
+		return 0
+	}
+	if trimmed[0] == '[' {
+		var arr []json.Number
+		if err := json.Unmarshal(trimmed, &arr); err != nil {
+			return 0
+		}
+		return len(arr)
+	}
+	if trimmed[0] == '"' {
+		var s string
+		if err := json.Unmarshal(trimmed, &s); err != nil || s == "" {
+			return 0
+		}
+		decoded, err := base64.StdEncoding.DecodeString(s)
+		if err != nil || len(decoded)%4 != 0 {
+			return 0
+		}
+		return len(decoded) / 4 // float32 = 4 bytes
+	}
+	return 0
+}
+
+func bytesTrimSpace(b []byte) []byte {
+	start := 0
+	for start < len(b) {
+		switch b[start] {
+		case ' ', '\t', '\n', '\r':
+			start++
+			continue
+		}
+		break
+	}
+	end := len(b)
+	for end > start {
+		switch b[end-1] {
+		case ' ', '\t', '\n', '\r':
+			end--
+			continue
+		}
+		break
+	}
+	return b[start:end]
 }
 
 type OpenAIInput struct {
@@ -418,6 +516,22 @@ type OpenAIInput struct {
 	Seed             *int            `json:"seed,omitempty"`
 	Tools            json.RawMessage `json:"tools,omitempty"`
 	ServiceTier      string          `json:"service_tier,omitempty"`
+	Parameters       json.RawMessage `json:"parameters,omitempty"`
+}
+
+// ParameterDimension extracts the requested embedding dimension from the
+// native DashScope "parameters.dimension" field. Returns 0 when absent.
+func (air *OpenAIInput) ParameterDimension() int {
+	if len(air.Parameters) == 0 {
+		return 0
+	}
+	var p struct {
+		Dimension int `json:"dimension"`
+	}
+	if err := json.Unmarshal(air.Parameters, &p); err != nil {
+		return 0
+	}
+	return p.Dimension
 }
 
 func (air *OpenAIInput) GetStopSequences() []string {
@@ -819,13 +933,83 @@ func (e *VendorEmbedding) OperationName() string {
 	return EmbeddingOperationName
 }
 
+// Dimensions returns the output vector dimension count, preferring an explicit
+// request dimension over the length derived from the response payload.
+func (e *VendorEmbedding) Dimensions() int {
+	if e.Input.Dimensions > 0 {
+		return e.Input.Dimensions
+	}
+	if e.Input.OutputDimension > 0 {
+		return e.Input.OutputDimension
+	}
+	return e.Output.Dimensions
+}
+
 // EmbeddingRequest captures the common fields from embedding API requests.
 type EmbeddingRequest struct {
 	Model      string          `json:"model"`
 	Input      json.RawMessage `json:"input"`
 	Dimensions int             `json:"dimensions,omitempty"`
+	// Voyage AI and Cohere use "output_dimension" for the requested vector size.
+	OutputDimension int `json:"output_dimension,omitempty"`
 	// Cohere uses "texts" instead of "input"
 	Texts json.RawMessage `json:"texts,omitempty"`
+	// OpenAI and Voyage use a single-value "encoding_format"
+	EncodingFormat string `json:"encoding_format,omitempty"`
+	// Cohere v2 uses an "embedding_types" list
+	EmbeddingTypes []string `json:"embedding_types,omitempty"`
+	// Jina uses "embedding_type": a string or an array of strings
+	EmbeddingType json.RawMessage `json:"embedding_type,omitempty"`
+	// Voyage uses "output_dtype" for the output element representation
+	OutputDtype string `json:"output_dtype,omitempty"`
+}
+
+// EncodingFormats returns the requested output encoding formats, normalized
+// across the provider-specific request fields. Returns nil when unspecified.
+func (r *EmbeddingRequest) EncodingFormats() []string {
+	if len(r.EmbeddingTypes) > 0 {
+		return r.EmbeddingTypes
+	}
+	if types := r.embeddingTypeValues(); len(types) > 0 {
+		return types
+	}
+	if r.OutputDtype != "" {
+		if r.EncodingFormat != "" && r.EncodingFormat != r.OutputDtype {
+			return []string{r.OutputDtype, r.EncodingFormat}
+		}
+		return []string{r.OutputDtype}
+	}
+	if r.EncodingFormat != "" {
+		return []string{r.EncodingFormat}
+	}
+	return nil
+}
+
+func (r *EmbeddingRequest) embeddingTypeValues() []string {
+	if len(r.EmbeddingType) == 0 {
+		return nil
+	}
+	var arr []string
+	if json.Unmarshal(r.EmbeddingType, &arr) == nil {
+		return arr
+	}
+	var s string
+	if json.Unmarshal(r.EmbeddingType, &s) == nil && s != "" {
+		return []string{s}
+	}
+	return nil
+}
+
+// RequestedDtype returns the element representation requested for the output
+// vectors, or empty when unspecified (providers default to float).
+func (r *EmbeddingRequest) RequestedDtype() string {
+	if r.OutputDtype != "" {
+		return r.OutputDtype
+	}
+	if types := r.embeddingTypeValues(); len(types) > 0 {
+		return types[0]
+	}
+	return r.EncodingFormat
 }
 
 // InputCount returns the number of input texts in the request.
@@ -853,6 +1037,8 @@ type EmbeddingResponse struct {
 	Usage EmbeddingUsage `json:"usage"`
 	// Cohere uses meta.billed_units for token counts
 	Meta *CohereResponseMeta `json:"meta,omitempty"`
+	// Dimensions is derived from the response payload; zero when unknown
+	Dimensions int `json:"-"`
 }
 
 // EmbeddingUsage captures token usage in embedding responses.
@@ -2159,7 +2345,7 @@ func (s *Span) GenAIInputTokenCount() (int, bool) {
 	}
 
 	if s.GenAI.OpenAI != nil {
-		return s.GenAI.OpenAI.Usage.InputTokenCount()
+		return s.GenAI.OpenAI.InputTokenCount()
 	}
 
 	if s.GenAI.Anthropic != nil {
@@ -2171,7 +2357,7 @@ func (s *Span) GenAIInputTokenCount() (int, bool) {
 	}
 
 	if s.GenAI.Qwen != nil {
-		return s.GenAI.Qwen.Usage.InputTokenCount()
+		return s.GenAI.Qwen.InputTokenCount()
 	}
 
 	if s.GenAI.Ollama != nil {
@@ -2179,7 +2365,7 @@ func (s *Span) GenAIInputTokenCount() (int, bool) {
 	}
 
 	if s.GenAI.OpenAICompatible != nil {
-		return s.GenAI.OpenAICompatible.Usage.InputTokenCount()
+		return s.GenAI.OpenAICompatible.InputTokenCount()
 	}
 
 	if s.GenAI.Bedrock != nil {
