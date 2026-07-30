@@ -149,12 +149,14 @@ type ExecutableKey struct {
 // so that the GPU kernel event listener can find symbols names from addresses
 // in the ELF file.
 type ProcessTracer struct {
-	log                      *slog.Logger
-	metrics                  imetrics.Reporter
-	shutdownTimeout          time.Duration
-	bpffsPath                string
-	instrumentablesMu        sync.Mutex
-	nextExecutableGeneration uint64
+	log                       *slog.Logger
+	metrics                   imetrics.Reporter
+	shutdownTimeout           time.Duration
+	bpffsPath                 string
+	instrumentablesMu         sync.Mutex
+	nextExecutableGeneration  uint64
+	instrumentableGenerations map[ExecutableKey]uint64
+	goInstrumentablesByInode  map[uint64]*instrumenter
 
 	Type            ProcessTracerType
 	Instrumentables map[ExecutableKey]*instrumenter

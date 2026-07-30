@@ -770,7 +770,7 @@ func TestProcessScopedGoProbeRegistrationIsDeferred(t *testing.T) {
 
 	assert.Empty(t, recorder.registeredKeys)
 
-	i.registerProcessScopedGoProbes()
+	i.registerProcessScopedGoProbes(key)
 
 	assert.Equal(t, []ExecutableKey{key}, recorder.registeredKeys)
 }
@@ -826,6 +826,45 @@ func TestStaleExecutableUnlinkPreservesReplacement(t *testing.T) {
 
 	assert.NotContains(t, pt.Instrumentables, key)
 	assert.Equal(t, int32(1), newCloser.closes.Load())
+}
+
+func TestGoInstrumenterSharedAcrossDevices(t *testing.T) {
+	firstKey := ExecutableKey{Dev: 5, Ino: 10}
+	secondKey := ExecutableKey{Dev: 6, Ino: 10}
+	firstFileInfo := exec.New(exec.Init{Dev: firstKey.Dev, Ino: firstKey.Ino})
+	secondFileInfo := exec.New(exec.Init{Dev: secondKey.Dev, Ino: secondKey.Ino})
+	closer := &countingCloser{}
+	pt := &ProcessTracer{
+		Type:            Go,
+		Instrumentables: map[ExecutableKey]*instrumenter{},
+	}
+	shared := &instrumenter{
+		key:       firstKey,
+		closables: []io.Closer{closer},
+		modules:   map[uint64]struct{}{},
+	}
+	firstExecutable := &Instrumentable{FileInfo: firstFileInfo}
+	secondExecutable := &Instrumentable{FileInfo: secondFileInfo}
+
+	pt.commitInstrumenter(shared, firstExecutable)
+	require.NoError(t, pt.NewExecutable(nil, secondExecutable))
+
+	assert.Same(t, shared, pt.Instrumentables[firstKey])
+	assert.Same(t, shared, pt.Instrumentables[secondKey])
+	assert.Equal(t, uint64(2), shared.references)
+	assert.NotEqual(t, firstExecutable.ExecutableGeneration, secondExecutable.ExecutableGeneration)
+
+	pt.UnlinkExecutable(firstFileInfo, firstExecutable.ExecutableGeneration)
+
+	assert.NotContains(t, pt.Instrumentables, firstKey)
+	assert.Contains(t, pt.Instrumentables, secondKey)
+	assert.Equal(t, int32(0), closer.closes.Load())
+
+	pt.UnlinkExecutable(secondFileInfo, secondExecutable.ExecutableGeneration)
+
+	assert.Empty(t, pt.Instrumentables)
+	assert.Empty(t, pt.goInstrumentablesByInode)
+	assert.Equal(t, int32(1), closer.closes.Load())
 }
 
 type countingUSDTIPMap struct {

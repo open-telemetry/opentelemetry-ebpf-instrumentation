@@ -181,10 +181,10 @@ func (i *instrumenter) goprobes(p Tracer) error {
 	return nil
 }
 
-func (i *instrumenter) registerProcessScopedGoProbes() {
+func (i *instrumenter) registerProcessScopedGoProbes(key ExecutableKey) {
 	for _, registration := range i.processScopedGoProbes {
 		registration.tracer.RegisterProcessScopedGoProbe(
-			registration.key,
+			key,
 			registration.probe,
 		)
 	}
