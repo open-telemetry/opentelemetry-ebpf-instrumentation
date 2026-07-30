@@ -14,7 +14,7 @@ description = 'Ad Service'
 group = "adservice"
 version = "0.1.0-SNAPSHOT"
 
-def grpcVersion = "1.83.0"
+def grpcVersion = "1.83.1"
 def jacksonCoreVersion = "2.22.1"
 def jacksonDatabindVersion = "2.22.1"
 def protocVersion = "4.35.1"
@@ -67,7 +67,7 @@ protobuf {
 }
 
 googleJavaFormat {
-    toolVersion '1.35.0'
+    toolVersion '1.36.0'
 }
 
 // Inform IDEs like IntelliJ IDEA, Eclipse or NetBeans about the generated code.
