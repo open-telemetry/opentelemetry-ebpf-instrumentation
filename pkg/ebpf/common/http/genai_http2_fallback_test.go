@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 )
@@ -20,6 +21,8 @@ func TestGenAIHTTP2BodyHeuristics(t *testing.T) {
 	openAIChatResp := []byte(`{"id":"chatcmpl-1","object":"chat.completion","model":"gpt-4o-mini","choices":[{"index":0}],"usage":{"prompt_tokens":1}}`)
 	openAIRespReq := []byte(`{"model":"gpt-5-mini","input":"hi","instructions":"be terse"}`)
 	openAIEmbedReq := []byte(`{"model":"text-embedding-3-small","input":"Your text string goes here","encoding_format":"float"}`)
+	// DashScope compatible-mode embedding: OpenAI-shaped, but a Qwen model name.
+	dashScopeEmbedReq := []byte(`{"model":"text-embedding-v3","input":["hello"],"encoding_format":"float"}`)
 	openAIEmbedResp := []byte(`{"object":"list","model":"text-embedding-3-small","data":[{"object":"embedding","index":0,"embedding":[0.1,0.2]}],"usage":{"prompt_tokens":5,"total_tokens":5}}`)
 	// OpenAI-compatible shape but a non-"gpt" model: OpenAI is no longer a
 	// catch-all, so these must not be claimed.
@@ -51,11 +54,13 @@ func TestGenAIHTTP2BodyHeuristics(t *testing.T) {
 		assert.False(t, looksLikeOpenAIBody(unknownModelReq, unknownModelResp, "/v1/responses"), "unknown model is not a catch-all match")
 		assert.False(t, looksLikeOpenAIBody(nil, nil, "/v1/responses"))
 		assert.False(t, looksLikeOpenAIBody(openAIEmbedReq, nil, "/v1/responses"), "text-embedding model in request but not embeddings call")
+		assert.False(t, looksLikeOpenAIBody(dashScopeEmbedReq, nil, "/v1/embeddings"), "DashScope text-embedding-v* model must be left for qwen")
 	})
 
 	t.Run("qwen", func(t *testing.T) {
 		assert.True(t, looksLikeQwenBody(qwenReq, nil), "qwen model in request")
 		assert.True(t, looksLikeQwenBody(nil, qwenReqIDResp), "DashScope request_id in response")
+		assert.True(t, looksLikeQwenBody(dashScopeEmbedReq, nil), "DashScope text-embedding-v* model in request")
 		assert.False(t, looksLikeQwenBody(openAIChatReq, openAIChatResp))
 	})
 
@@ -113,4 +118,56 @@ func TestGenAIHTTP2Gate(t *testing.T) {
 	span, ok := OpenAISpan(baseSpan(), newReq(2), newResp())
 	assert.True(t, ok, "HTTP/2 OpenAI gpt-model body should be detected")
 	assert.Equal(t, request.HTTPSubtypeOpenAI, span.SubType)
+}
+
+// TestGenAIHTTP2DashScopeEmbeddingDetectorOrder replays the postProcessHTTPSpan
+// GenAI detector order for an HTTP/2 request to DashScope's compatible-mode
+// /v1/embeddings endpoint: OpenAI must yield the "text-embedding-v<N>" model so
+// the later Qwen detector claims it.
+func TestGenAIHTTP2DashScopeEmbeddingDetectorOrder(t *testing.T) {
+	reqBody := []byte(`{"model":"text-embedding-v3","input":["hello"],"encoding_format":"float"}`)
+	respBody := []byte(`{"data":[{"embedding":[0.1,0.2],"index":0,"object":"embedding"}],"model":"text-embedding-v3","usage":{"prompt_tokens":6,"total_tokens":6},"id":"eb4ea05e"}`)
+
+	for _, tc := range []struct {
+		name string
+		host string
+	}{
+		{name: "production_shape_with_host", host: "dashscope.aliyuncs.com"},
+		{name: "degraded_capture_without_host", host: ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Mirror parseHTTP2Request, which always sets both Host and
+			// URL.Host from the captured span.
+			newReq := func() *http.Request {
+				return &http.Request{
+					Method:     http.MethodPost,
+					ProtoMajor: 2,
+					Header:     http.Header{},
+					Host:       tc.host,
+					Body:       io.NopCloser(bytes.NewReader(reqBody)),
+					URL:        &url.URL{Path: "/v1/embeddings", Host: tc.host},
+				}
+			}
+			newResp := func() *http.Response {
+				return &http.Response{Header: http.Header{}, Body: io.NopCloser(bytes.NewReader(respBody))}
+			}
+			baseSpan := func() *request.Span {
+				return &request.Span{Type: request.EventTypeHTTPClient, Path: "/v1/embeddings"}
+			}
+
+			// Detectors that run before Qwen in postProcessHTTPSpan must not
+			// claim it.
+			_, ok := EmbeddingSpan(baseSpan(), newReq(), newResp())
+			assert.False(t, ok, "embedding-only providers must not claim DashScope")
+
+			_, ok = OpenAISpan(baseSpan(), newReq(), newResp())
+			assert.False(t, ok, "openai must yield DashScope text-embedding-v* models")
+
+			span, ok := QwenSpan(baseSpan(), newReq(), newResp())
+			require.True(t, ok, "qwen must claim the DashScope embedding model")
+			assert.Equal(t, request.HTTPSubtypeQwen, span.SubType)
+			assert.Equal(t, "embeddings", span.GenAI.Qwen.OperationName)
+			assert.Equal(t, "text-embedding-v3", span.GenAI.Qwen.Request.Model)
+		})
+	}
 }

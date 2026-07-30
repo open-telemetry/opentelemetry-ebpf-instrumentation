@@ -21,10 +21,18 @@ func isQwen(respHeader http.Header) bool {
 }
 
 func looksLikeQwenBody(reqB, respB []byte) bool {
-	if strings.HasPrefix(strings.ToLower(genaiModel(reqB, respB)), "qwen") {
+	model := strings.ToLower(genaiModel(reqB, respB))
+	if strings.HasPrefix(model, "qwen") || isDashScopeEmbeddingModel(model) {
 		return true
 	}
 	return extractJSONRawField(respB, "request_id") != nil
+}
+
+// isDashScopeEmbeddingModel reports whether the model follows the DashScope
+// embedding naming scheme "text-embedding-v<N>", distinct from OpenAI's
+// "text-embedding-3-*" and "text-embedding-ada-*" models.
+func isDashScopeEmbeddingModel(model string) bool {
+	return strings.HasPrefix(model, "text-embedding-v")
 }
 
 func QwenSpan(baseSpan *request.Span, req *http.Request, resp *http.Response) (request.Span, bool) {
@@ -46,11 +54,11 @@ func QwenSpan(baseSpan *request.Span, req *http.Request, resp *http.Response) (r
 		return *baseSpan, false
 	}
 
-	// If detected only by URL, verify model name starts with "qwen". The header
+	// If detected only by URL, verify the model belongs to Qwen. The header
 	// and HTTP/2-body paths have already confirmed the provider.
 	if !headerDetected && !maybeQwen {
-		model := extractModelField(reqB)
-		if !strings.HasPrefix(strings.ToLower(model), "qwen") {
+		model := strings.ToLower(extractModelField(reqB))
+		if !strings.HasPrefix(model, "qwen") && !isDashScopeEmbeddingModel(model) {
 			return *baseSpan, false
 		}
 	}
