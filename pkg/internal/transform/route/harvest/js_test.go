@@ -982,14 +982,52 @@ func TestHandleURLPattern(t *testing.T) {
 			paths: []string{"/books/:id"},
 		},
 		{
-			name:  "relative init pathname resolved against the base URL path",
-			lines: []string{`  new URLPattern({ pathname: "books/:id" }, "https://example.com/api/")`},
+			name:  "relative string pattern with dot segments",
+			lines: []string{`  new URLPattern("../books/:id", "https://example.com/api/v1/")`},
 			paths: []string{"/api/books/:id"},
+		},
+		{
+			// the base is only known at runtime, so neither is the pathname
+			name:  "relative string pattern with a non-literal base URL",
+			lines: []string{`  new URLPattern("books/:id", base)`},
+		},
+		{
+			name:  "absolute string pattern with a non-literal base URL",
+			lines: []string{`  new URLPattern("/books/:id", base)`},
+			paths: []string{"/books/:id"},
+		},
+		{
+			name:  "relative init pathname resolved against the baseURL member",
+			lines: []string{`  new URLPattern({ pathname: "books/:id", baseURL: "https://example.com/api/" })`},
+			paths: []string{"/api/books/:id"},
+		},
+		{
+			name:  "relative init pathname with a non-literal baseURL member",
+			lines: []string{`  new URLPattern({ pathname: "books/:id", baseURL: base })`},
+		},
+		{
+			// the second argument of the object overload holds the options of
+			// the call, not its base URL
+			name:  "second argument of the object form is not a base URL",
+			lines: []string{`  new URLPattern({ pathname: "books/:id" }, { ignoreCase: true })`},
+			paths: []string{"/books/:id"},
 		},
 		{
 			name:  "relative string pattern with no base URL",
 			lines: []string{`  new URLPattern("books/:id")`},
 			paths: []string{"/books/:id"},
+		},
+		{
+			name:  "string pattern concatenated with an expression",
+			lines: []string{`  new URLPattern("/books/" + segment, "https://example.com")`},
+		},
+		{
+			name:  "init pathname concatenated with an expression",
+			lines: []string{`  new URLPattern({ pathname: "/books/" + segment })`},
+		},
+		{
+			name:  "template pattern with an interpolation",
+			lines: []string{"  new URLPattern(`/books/${segment}`)"},
 		},
 		{
 			name: "string pattern spread over several lines",

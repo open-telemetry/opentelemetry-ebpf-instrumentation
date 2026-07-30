@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -129,8 +130,10 @@ type FrameworkPatterns struct {
 	HTTPDispatcher *regexp.Regexp
 	// URLPattern: new URLPattern({ pathname: "/users/:id" });
 	URLPattern *regexp.Regexp
-	// 'pathname' member of a URLPattern init object
+	// key of the 'pathname' member of a URLPattern init object
 	URLPatternPathname *regexp.Regexp
+	// key of the 'baseURL' member of a URLPattern init object
+	URLPatternBaseURL *regexp.Regexp
 	// Fallback
 	Fallback *regexp.Regexp
 
@@ -229,10 +232,10 @@ func newFrameworkPatterns() *FrameworkPatterns {
 		// taken for the standard constructor.
 		URLPattern: regexp.MustCompile(`\bnew\s+(?:[\w$]+\s*\.\s*)*URLPattern\s*\(`),
 
-		// Matches the 'pathname' member of a URLPattern init object in every
-		// legal property key form: pathname, 'pathname', ["pathname"]
-		URLPatternPathname: regexp.MustCompile(
-			`(?:pathname|['"]pathname['"]|\[\s*['"\x60]pathname['"\x60]\s*\])\s*:\s*['"\x60]([^'"\x60]*)['"\x60]`),
+		// Match the key of a URLPattern init object member, so that its value
+		// can be read from the source that follows
+		URLPatternPathname: jsObjectKeyPattern("pathname"),
+		URLPatternBaseURL:  jsObjectKeyPattern("baseURL"),
 
 		// Fallback (e.g. NextJS)
 		Fallback: regexp.MustCompile(`['"\x60](/[^'"\x60]+)['"\x60]`),
@@ -709,7 +712,7 @@ func sortRouteFragments(fragments []string) {
 // urlPatternPathname returns the pathname component of the string form of a
 // URLPattern, which may be a full URL pattern or a path relative to the
 // constructor's baseURL argument.
-func urlPatternPathname(pattern, base string) string {
+func urlPatternPathname(pattern string, base urlPatternBase) string {
 	if pattern == "" {
 		return ""
 	}
@@ -804,29 +807,36 @@ func endOfURLPatternGroup(pattern string, open int) int {
 	return len(pattern) - 1
 }
 
+// urlPatternBase is the base URL a relative pathname is resolved against. A
+// base that is declared by the call but is not a string literal leaves the
+// resulting pathname unknown, which a zero url with declared set represents.
+type urlPatternBase struct {
+	url      string
+	declared bool
+}
+
 // resolveURLPatternPathname resolves a relative pathname against the pathname
-// of the constructor's baseURL argument, as the URL Pattern API does.
-func resolveURLPatternPathname(pathname, base string) string {
+// of the base URL, as the URL Pattern API does. It returns an empty string when
+// the base is declared but is not statically resolvable, as the pathname the
+// call ends up with is then unknown.
+func resolveURLPatternPathname(pathname string, base urlPatternBase) string {
 	if strings.HasPrefix(pathname, "/") {
 		return pathname
 	}
 
-	// a baseURL must be absolute, so a value without a scheme is not one
-	_, authority, hasScheme := strings.Cut(base, "://")
-	if !hasScheme {
+	if !base.declared {
 		return ensureLeadingSlash(pathname)
 	}
 
-	basePath := "/"
-	if _, path, hasPath := strings.Cut(authority, "/"); hasPath {
-		basePath = "/" + path
-	}
-	if end := strings.IndexAny(basePath, "?#"); end >= 0 {
-		basePath = basePath[:end]
+	// a base URL must be absolute, so anything else is not statically resolvable
+	baseURL, err := url.Parse(base.url)
+	if err != nil || !baseURL.IsAbs() {
+		return ""
 	}
 
-	// a relative pathname replaces the last segment of the base pathname
-	return basePath[:strings.LastIndex(basePath, "/")+1] + pathname
+	// the pathname is escaped and unescaped back by the resolution, so the
+	// pattern syntax it holds survives it unchanged
+	return baseURL.ResolveReference(&url.URL{Path: pathname}).Path
 }
 
 // urlPatternCall buffers the arguments of a URLPattern call while it is being
@@ -939,9 +949,8 @@ func (e *RouteExtractor) flushURLPattern() {
 
 // urlPatternPath returns the route declared by the arguments of a URLPattern
 // call. Only the first argument holds the pattern, either as an init object
-// with a pathname member or as a pattern string; the second one is a base URL
-// or an options object. Any other argument shape (a variable, a spread) is not
-// statically resolvable.
+// with a pathname member or as a pattern string. Any other argument shape (a
+// variable, a spread) is not statically resolvable.
 func (e *RouteExtractor) urlPatternPath(args string) string {
 	parsed := splitJSArguments(args)
 	if len(parsed) == 0 || parsed[0] == "" {
@@ -950,24 +959,42 @@ func (e *RouteExtractor) urlPatternPath(args string) string {
 
 	pattern := parsed[0]
 
-	var base string
-	if len(parsed) > 1 {
-		base = jsStringLiteral(parsed[1])
-	}
-
 	if pattern[0] == '{' {
-		pathname := e.patterns.URLPatternPathname.FindStringSubmatch(pattern)
-		if pathname == nil || pathname[1] == "" {
-			return ""
-		}
-		return resolveURLPatternPathname(pathname[1], base)
+		return e.urlPatternInitPath(pattern)
 	}
 
 	if isJSQuote(pattern[0]) {
-		return urlPatternPathname(jsStringLiteral(pattern), base)
+		return urlPatternPathname(jsStringLiteral(pattern), stringURLPatternBase(parsed))
 	}
 
 	return ""
+}
+
+// urlPatternInitPath returns the route declared by the init object form of a
+// URLPattern call. This overload takes its base URL as the baseURL member of
+// the init object, its second argument being the options of the call.
+func (e *RouteExtractor) urlPatternInitPath(init string) string {
+	pathname := jsStringLiteral(jsObjectMemberValue(init, e.patterns.URLPatternPathname))
+	if pathname == "" {
+		return ""
+	}
+
+	var base urlPatternBase
+	if baseURL := jsObjectMemberValue(init, e.patterns.URLPatternBaseURL); baseURL != "" {
+		base = urlPatternBase{url: jsStringLiteral(baseURL), declared: true}
+	}
+
+	return resolveURLPatternPathname(pathname, base)
+}
+
+// stringURLPatternBase returns the base URL of the string form of a URLPattern
+// call, whose second argument is either a base URL or the options of the call.
+func stringURLPatternBase(args []string) urlPatternBase {
+	if len(args) < 2 || args[1] == "" || args[1][0] == '{' {
+		return urlPatternBase{}
+	}
+
+	return urlPatternBase{url: jsStringLiteral(args[1]), declared: true}
 }
 
 // splitJSArguments splits an argument list into its top-level arguments.
@@ -999,13 +1026,87 @@ func splitJSArguments(args string) []string {
 	return append(arguments, strings.TrimSpace(args[start:]))
 }
 
-// jsStringLiteral returns the contents of the string literal that s starts
-// with, or an empty string when s does not start with one.
+// jsStringLiteral returns the contents of s when the whole of it is a single
+// string literal, and an empty string otherwise. A literal that only prefixes a
+// larger expression ("/books/" + segment) or a template with an interpolation
+// is not statically resolvable, as the value it ends up with is unknown.
 func jsStringLiteral(s string) string {
 	if s == "" || !isJSQuote(s[0]) {
 		return ""
 	}
-	return s[1:endOfJSString(s, 0)]
+
+	end := endOfJSString(s, 0)
+	if end != len(s)-1 {
+		return ""
+	}
+
+	contents := s[1:end]
+	if s[0] == '`' && hasJSInterpolation(contents) {
+		return ""
+	}
+
+	return contents
+}
+
+// hasJSInterpolation reports whether the contents of a template literal hold a
+// substitution.
+func hasJSInterpolation(contents string) bool {
+	for i := 0; i+1 < len(contents); i++ {
+		switch contents[i] {
+		case '\\':
+			i++
+		case '$':
+			if contents[i+1] == '{' {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+// jsObjectKeyPattern matches the key of the named member of an object literal
+// in every legal property key form: name, 'name', ["name"]. The value of the
+// member is the source that follows the match.
+func jsObjectKeyPattern(name string) *regexp.Regexp {
+	return regexp.MustCompile(
+		`(?:\b` + name + `|['"]` + name + `['"]|\[\s*['"\x60]` + name + `['"\x60]\s*\])\s*:\s*`)
+}
+
+// jsObjectMemberValue returns the source of the value of the object literal
+// member whose key matches key, or an empty string when there is no such
+// member. The value ends at the comma separating it from the next member or at
+// the closing brace of the object.
+func jsObjectMemberValue(object string, key *regexp.Regexp) string {
+	loc := key.FindStringIndex(object)
+	if loc == nil {
+		return ""
+	}
+
+	value := object[loc[1]:]
+
+	depth := 0
+	for i := 0; i < len(value); i++ {
+		switch value[i] {
+		case '\'', '"', '`':
+			i = endOfJSString(value, i)
+		case '{', '[', '(':
+			depth++
+		case ']', ')':
+			depth--
+		case '}':
+			if depth == 0 {
+				return strings.TrimSpace(value[:i])
+			}
+			depth--
+		case ',':
+			if depth == 0 {
+				return strings.TrimSpace(value[:i])
+			}
+		}
+	}
+
+	return strings.TrimSpace(value)
 }
 
 func (e *RouteExtractor) handleHTTPDispatcher(filePath, line string, lineNum int) bool {
