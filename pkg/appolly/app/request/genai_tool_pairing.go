@@ -6,6 +6,7 @@ package request // import "go.opentelemetry.io/obi/pkg/appolly/app/request"
 import (
 	"bytes"
 	"encoding/json"
+	"slices"
 )
 
 // PairedToolCalls extracts tool calls from the request message history,
@@ -52,8 +53,12 @@ type pendingToolResult struct {
 
 // pairToolCalls matches assistant tool calls to tool results, preferring the
 // tool call id and falling back to the tool name when ids are absent (Gemini,
-// Ollama). Only fully paired calls that carry arguments are returned.
+// Ollama). Only fully paired calls that carry arguments are returned; absent
+// or JSON null arguments and results are treated as missing.
 func pairToolCalls(calls []pendingToolCall, results []pendingToolResult) []ToolCall {
+	results = slices.DeleteFunc(results, func(r pendingToolResult) bool {
+		return emptyJSON(r.result)
+	})
 	if len(calls) == 0 || len(results) == 0 {
 		return nil
 	}
@@ -61,7 +66,7 @@ func pairToolCalls(calls []pendingToolCall, results []pendingToolResult) []ToolC
 	var out []ToolCall
 	for i := range calls {
 		c := &calls[i]
-		if len(c.args) == 0 {
+		if emptyJSON(c.args) {
 			continue
 		}
 		idx := matchToolResult(c, results, used)
@@ -100,6 +105,14 @@ func matchToolResult(c *pendingToolCall, results []pendingToolResult, used []boo
 		}
 	}
 	return -1
+}
+
+// emptyJSON reports whether raw carries no usable payload: it is absent or a
+// JSON null literal, which vendors emit for tool calls without arguments or
+// for tool messages without content.
+func emptyJSON(raw json.RawMessage) bool {
+	trimmed := bytes.TrimSpace(raw)
+	return len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null"))
 }
 
 // jsonRawToAttrString renders a raw JSON value as the string used for the

@@ -124,3 +124,25 @@ func TestPairedToolCalls_NilAndEmpty(t *testing.T) {
 	assert.Nil(t, (&GenAI{}).PairedToolCalls())
 	assert.Nil(t, (&GenAI{OpenAI: &VendorOpenAI{}}).PairedToolCalls())
 }
+
+func TestPairedToolCalls_NullArgumentsAndResult(t *testing.T) {
+	// JSON null arguments or results are treated as absent: such calls must
+	// not be paired, so the literal string "null" never reaches attributes.
+	nullArgs := json.RawMessage(`[
+		{"role":"assistant","content":null,"tool_calls":[
+			{"id":"call_1","function":{"name":"get_weather","arguments":null}}
+		]},
+		{"role":"tool","tool_call_id":"call_1","content":"Sunny"}
+	]`)
+	g := &GenAI{OpenAI: &VendorOpenAI{Request: OpenAIInput{Messages: nullArgs}}}
+	assert.Empty(t, g.PairedToolCalls())
+
+	nullResult := json.RawMessage(`[
+		{"role":"assistant","content":null,"tool_calls":[
+			{"id":"call_1","function":{"name":"get_weather","arguments":"{\"location\":\"Boston\"}"}}
+		]},
+		{"role":"tool","tool_call_id":"call_1","content":null}
+	]`)
+	g = &GenAI{OpenAI: &VendorOpenAI{Request: OpenAIInput{Messages: nullResult}}}
+	assert.Empty(t, g.PairedToolCalls())
+}
