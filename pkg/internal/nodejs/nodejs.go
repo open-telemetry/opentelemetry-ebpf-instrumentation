@@ -40,22 +40,23 @@ func (i *NodeInjector) NewExecutable(ie *ebpf.Instrumentable) {
 		return
 	}
 
-	if ie.Type != svc.InstrumentableNodejs {
-		i.log.Debug("not a NodeJS executable")
+	if ie.Type != svc.InstrumentableNodejs && ie.Type != svc.InstrumentableDeno {
+		i.log.Debug("not a known Javascript runtime executable (deno, node)")
 		return
 	}
 
-	i.log.Info("loading NodeJS instrumentation", "pid", ie.FileInfo.Pid())
+	ilog := i.log.With("runtime", ie.Type.String())
+	ilog.Info("loading NodeJS instrumentation", "pid", ie.FileInfo.Pid())
 
-	if err := i.attachAgent(int(ie.FileInfo.Pid()), ie.FileInfo.ELF()); err != nil {
-		i.log.Error("couldn't attach NodeJS injector", "pid", ie.FileInfo.Pid(), "error", err)
-		i.log.Error("trace-context propagation will not work for NodeJS services!")
+	if err := i.attachAgent(int(ie.FileInfo.Pid()), ie.FileInfo.ELF(), ie.Type); err != nil {
+		ilog.Error("couldn't attach JS injector", "pid", ie.FileInfo.Pid(), "error", err)
+		ilog.Error("trace-context propagation will not work for JS services!")
 	}
 }
 
-func (i *NodeInjector) attachAgent(pid int, elfFile *elf.File) error {
+func (i *NodeInjector) attachAgent(pid int, elfFile *elf.File, runtimeType svc.InstrumentableType) error {
 	return netns.WithNetNS(pid, func() error {
-		return i.injectFile(pid, elfFile)
+		return i.injectFile(pid, elfFile, runtimeType)
 	})
 }
 
@@ -64,13 +65,14 @@ func (i *NodeInjector) attachAgent(pid int, elfFile *elf.File) error {
 // open, e.g. via --inspect flag), validating with /json/version. If that fails,
 // it checks for a custom SIGUSR1 handler and either sends SIGUSR1 to open the
 // inspector or bails out.
-func (i *NodeInjector) injectFile(pid int, elfFile *elf.File) error {
+func (i *NodeInjector) injectFile(pid int, elfFile *elf.File, runtimeType svc.InstrumentableType) error {
 	conn, err := connect("127.0.0.1", 9229)
 	if err == nil {
 		// Validate this is actually a Node.js inspector, not some other
 		// service that happens to listen on port 9229.
 		if i.isNodeInspector(conn) {
-			i.log.Debug("Node.js inspector already open, injecting directly", "pid", pid)
+			i.log.Debug("JS inspector already open, injecting directly",
+				"runtime", runtimeType, "pid", pid)
 			return i.injectViaConn(conn)
 		}
 		conn.Close()
