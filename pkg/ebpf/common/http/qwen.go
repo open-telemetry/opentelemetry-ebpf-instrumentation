@@ -55,11 +55,12 @@ func QwenSpan(baseSpan *request.Span, req *http.Request, resp *http.Response) (r
 		return *baseSpan, false
 	}
 
-	// If detected only by URL, verify model name starts with "qwen". The header
-	// and HTTP/2-body paths have already confirmed the provider.
+	// If detected only by URL, verify the model belongs to Qwen: either a
+	// "qwen*" model or a DashScope "text-embedding-v<N>" embedding model. The
+	// header and HTTP/2-body paths have already confirmed the provider.
 	if !headerDetected && !maybeQwen {
-		model := extractModelField(reqB)
-		if !strings.HasPrefix(strings.ToLower(model), "qwen") {
+		model := strings.ToLower(extractModelField(reqB))
+		if !strings.HasPrefix(model, "qwen") && !isDashScopeEmbeddingModel(model) {
 			return *baseSpan, false
 		}
 	}

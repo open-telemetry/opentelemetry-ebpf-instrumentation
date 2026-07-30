@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 )
@@ -121,39 +122,56 @@ func TestGenAIHTTP2Gate(t *testing.T) {
 }
 
 // TestGenAIHTTP2DashScopeEmbeddingDetectorOrder replays the postProcessHTTPSpan
-// GenAI detector order for a headerless HTTP/2 request to DashScope's
-// compatible-mode /v1/embeddings endpoint: OpenAI must yield the DashScope
+// GenAI detector order for an HTTP/2 request to DashScope's compatible-mode
+// /v1/embeddings endpoint: OpenAI must yield the DashScope
 // "text-embedding-v<N>" model so the later Qwen detector claims it.
+// parseHTTP2Request always populates both Host and URL.Host from the captured
+// span, so the production shape carries the host; the hostless variant covers
+// degraded captures where the :authority header was not recovered.
 func TestGenAIHTTP2DashScopeEmbeddingDetectorOrder(t *testing.T) {
 	reqBody := []byte(`{"model":"text-embedding-v3","input":["hello"],"encoding_format":"float"}`)
 	respBody := []byte(`{"data":[{"embedding":[0.1,0.2],"index":0,"object":"embedding"}],"model":"text-embedding-v3","usage":{"prompt_tokens":6,"total_tokens":6},"id":"eb4ea05e"}`)
 
-	newReq := func() *http.Request {
-		return &http.Request{
-			Method:     http.MethodPost,
-			ProtoMajor: 2,
-			Header:     http.Header{},
-			Body:       io.NopCloser(bytes.NewReader(reqBody)),
-			URL:        &url.URL{Path: "/v1/embeddings"},
-		}
-	}
-	newResp := func() *http.Response {
-		return &http.Response{Header: http.Header{}, Body: io.NopCloser(bytes.NewReader(respBody))}
-	}
-	baseSpan := func() *request.Span {
-		return &request.Span{Type: request.EventTypeHTTPClient, Path: "/v1/embeddings"}
-	}
+	for _, tc := range []struct {
+		name string
+		host string
+	}{
+		{name: "production_shape_with_host", host: "dashscope.aliyuncs.com"},
+		{name: "degraded_capture_without_host", host: ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Mirror parseHTTP2Request, which always sets both Host and
+			// URL.Host from the captured span.
+			newReq := func() *http.Request {
+				return &http.Request{
+					Method:     http.MethodPost,
+					ProtoMajor: 2,
+					Header:     http.Header{},
+					Host:       tc.host,
+					Body:       io.NopCloser(bytes.NewReader(reqBody)),
+					URL:        &url.URL{Path: "/v1/embeddings", Host: tc.host},
+				}
+			}
+			newResp := func() *http.Response {
+				return &http.Response{Header: http.Header{}, Body: io.NopCloser(bytes.NewReader(respBody))}
+			}
+			baseSpan := func() *request.Span {
+				return &request.Span{Type: request.EventTypeHTTPClient, Path: "/v1/embeddings"}
+			}
 
-	// Detectors that run before Qwen in postProcessHTTPSpan must not claim it.
-	_, ok := EmbeddingSpan(baseSpan(), newReq(), newResp())
-	assert.False(t, ok, "embedding-only providers must not claim DashScope")
+			// Detectors that run before Qwen in postProcessHTTPSpan must not
+			// claim it.
+			_, ok := EmbeddingSpan(baseSpan(), newReq(), newResp())
+			assert.False(t, ok, "embedding-only providers must not claim DashScope")
 
-	_, ok = OpenAISpan(baseSpan(), newReq(), newResp())
-	assert.False(t, ok, "openai must yield DashScope text-embedding-v* models")
+			_, ok = OpenAISpan(baseSpan(), newReq(), newResp())
+			assert.False(t, ok, "openai must yield DashScope text-embedding-v* models")
 
-	span, ok := QwenSpan(baseSpan(), newReq(), newResp())
-	assert.True(t, ok, "qwen must claim the DashScope embedding model")
-	assert.Equal(t, request.HTTPSubtypeQwen, span.SubType)
-	assert.Equal(t, "embeddings", span.GenAI.Qwen.OperationName)
-	assert.Equal(t, "text-embedding-v3", span.GenAI.Qwen.Request.Model)
+			span, ok := QwenSpan(baseSpan(), newReq(), newResp())
+			require.True(t, ok, "qwen must claim the DashScope embedding model")
+			assert.Equal(t, request.HTTPSubtypeQwen, span.SubType)
+			assert.Equal(t, "embeddings", span.GenAI.Qwen.OperationName)
+			assert.Equal(t, "text-embedding-v3", span.GenAI.Qwen.Request.Model)
+		})
+	}
 }
