@@ -37,6 +37,36 @@ func (s *stubPIDSelector) IncludesPID(pid app.PID) bool {
 func (s *stubPIDSelector) AddedPIDsNotify() <-chan []app.PID { return s.addedCh }
 func (s *stubPIDSelector) RemovedNotify() <-chan []app.PID   { return s.removed }
 
+func TestResolveContainerIPs_netnsFallbackWithoutStore(t *testing.T) {
+	orig := processIPs
+	t.Cleanup(func() { processIPs = orig })
+	processIPs = func(pid app.PID) []string {
+		assert.Equal(t, app.PID(7), pid)
+		return []string{"172.17.0.3", "fd00::a"}
+	}
+
+	assert.Equal(t, []string{"172.17.0.3", "fd00::a"}, ResolveContainerIPs(nil, 7))
+}
+
+func TestDynamicAppIPs_addBatch_usesResolvedIPs(t *testing.T) {
+	orig := processIPs
+	t.Cleanup(func() { processIPs = orig })
+	processIPs = func(pid app.PID) []string {
+		if pid == 99 {
+			return []string{"10.1.1.5"}
+		}
+		return nil
+	}
+
+	sel := &stubPIDSelector{pids: []app.PID{99}}
+	tracker := NewDynamicAppIPs(sel, nil)
+	tracker.addBatch([]app.PID{99})
+
+	src := pipe.IPAddr(net.ParseIP("10.1.1.5"))
+	dst := pipe.IPAddr(net.ParseIP("10.2.2.2"))
+	assert.True(t, tracker.Allows(&pipe.CommonAttrs{SrcAddr: src, DstAddr: dst}))
+}
+
 func TestDynamicAppIPs_Allows_emptySelectorBlocks(t *testing.T) {
 	sel := &stubPIDSelector{}
 	tracker := NewDynamicAppIPs(sel, nil)

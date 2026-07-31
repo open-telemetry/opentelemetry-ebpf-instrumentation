@@ -123,24 +123,36 @@ func (d *DynamicAppIPs) decrementIPsLocked(ips []string) {
 	}
 }
 
-// ResolveContainerIPs returns pod IPs for a PID when a Kubernetes store is available.
-// It registers the PID in store via AddProcess; callers that invoke it outside
-// DynamicAppIPs must call store.DeleteProcess when the PID is no longer needed.
-func ResolveContainerIPs(store *kube.Store, pid app.PID) []string {
-	if store == nil {
-		return nil
-	}
-	store.AddProcess(pid)
-	info, err := container.InfoForPID(pid)
+// processIPs resolves non-loopback addresses from pid's network namespace (Docker /
+// containerd / host-network / bare processes). Injectable for tests.
+var processIPs = func(pid app.PID) []string {
+	ips, err := container.IPsForPID(pid)
 	if err != nil {
-		selLog().Debug("can't read container info for PID", "pid", pid, "error", err)
+		selLog().Debug("can't list netns IPs for PID", "pid", pid, "error", err)
 		return nil
 	}
-	meta, _ := store.PodContainerByPIDNs(info.PIDNamespace, pid)
-	if meta == nil {
-		return nil
+	return ips
+}
+
+// ResolveContainerIPs returns the IPs associated with a dynamically selected PID.
+// Prefer Kubernetes pod IPs when a kube store is available; otherwise (and when the
+// store has no entry for the PID) fall back to addresses visible in the process's
+// network namespace so NetO11y/StatsO11y work on VMs and plain Docker hosts.
+//
+// When store is non-nil the PID is registered via AddProcess; callers that invoke
+// this outside DynamicAppIPs must call store.DeleteProcess when the PID is no
+// longer needed.
+func ResolveContainerIPs(store *kube.Store, pid app.PID) []string {
+	if store != nil {
+		store.AddProcess(pid)
+		info, err := container.InfoForPID(pid)
+		if err != nil {
+			selLog().Debug("can't read container info for PID", "pid", pid, "error", err)
+		} else if meta, _ := store.PodContainerByPIDNs(info.PIDNamespace, pid); meta != nil && len(meta.Meta.Ips) > 0 {
+			return append([]string(nil), meta.Meta.Ips...)
+		}
 	}
-	return append([]string(nil), meta.Meta.Ips...)
+	return processIPs(pid)
 }
 
 // Allows returns whether a flow/stat record should be exported for the current dynamic selection.

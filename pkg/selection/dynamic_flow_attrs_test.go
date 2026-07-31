@@ -130,3 +130,32 @@ func TestDynamicFlowAttrs_rebuild_doesNotTrackPIDWithoutDecoration(t *testing.T)
 	assert.Empty(t, tracker.registeredPIDs)
 	tracker.mu.RUnlock()
 }
+
+func TestDynamicFlowAttrs_rebuild_netnsFallbackWithoutStore(t *testing.T) {
+	orig := processIPs
+	t.Cleanup(func() { processIPs = orig })
+	processIPs = func(pid app.PID) []string {
+		if pid == 42 {
+			return []string{"10.0.0.5"}
+		}
+		return nil
+	}
+
+	sel := &stubMultiPIDSelector{
+		stubPIDSelector: stubPIDSelector{pids: []app.PID{42}},
+		entries: map[app.PID]DynamicPIDEntry{
+			42: {PID: 42, ServiceName: "coupon", ServiceNamespace: "demo"},
+		},
+	}
+	tracker := NewDynamicFlowAttrs(sel, sel, nil)
+	tracker.rebuild()
+
+	tracker.mu.RLock()
+	dec, ok := tracker.ipDecor["10.0.0.5"]
+	assert.Empty(t, tracker.registeredPIDs) // no kube store → no DeleteProcess tracking
+	tracker.mu.RUnlock()
+
+	require.True(t, ok)
+	assert.Equal(t, "coupon", dec.serviceName)
+	assert.Equal(t, "demo", dec.serviceNamespace)
+}
