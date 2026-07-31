@@ -310,7 +310,7 @@ func TestCreateToolCallSpans(t *testing.T) {
 		traceID := pcommon.TraceID([16]byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16})
 		parentSpanID := pcommon.SpanID([8]byte{1, 2, 3, 4, 5, 6, 7, 8})
 		now := time.Now()
-		createToolCallSpans(nil, parentSpanID, traceID, &ss, now, now)
+		createToolCallSpans(nil, parentSpanID, traceID, &ss, now)
 		assert.Equal(t, 0, ss.Spans().Len())
 	})
 
@@ -319,7 +319,7 @@ func TestCreateToolCallSpans(t *testing.T) {
 		traceID := pcommon.TraceID([16]byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16})
 		parentSpanID := pcommon.SpanID([8]byte{1, 2, 3, 4, 5, 6, 7, 8})
 		now := time.Now()
-		createToolCallSpans([]request.ToolCall{}, parentSpanID, traceID, &ss, now, now)
+		createToolCallSpans([]request.ToolCall{}, parentSpanID, traceID, &ss, now)
 		assert.Equal(t, 0, ss.Spans().Len())
 	})
 
@@ -327,11 +327,10 @@ func TestCreateToolCallSpans(t *testing.T) {
 		ss := ptrace.NewScopeSpans()
 		traceID := pcommon.TraceID([16]byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16})
 		parentSpanID := pcommon.SpanID([8]byte{1, 2, 3, 4, 5, 6, 7, 8})
-		start := time.Now()
-		end := start.Add(100 * time.Millisecond)
+		ts := time.Now()
 		createToolCallSpans([]request.ToolCall{
 			{ID: "call_1", Name: "get_weather"},
-		}, parentSpanID, traceID, &ss, start, end)
+		}, parentSpanID, traceID, &ss, ts)
 
 		require.Equal(t, 1, ss.Spans().Len())
 		sp := ss.Spans().At(0)
@@ -339,8 +338,10 @@ func TestCreateToolCallSpans(t *testing.T) {
 		assert.Equal(t, ptrace.SpanKindInternal, sp.Kind())
 		assert.Equal(t, traceID, sp.TraceID())
 		assert.Equal(t, parentSpanID, sp.ParentSpanID())
-		assert.Equal(t, pcommon.NewTimestampFromTime(start), sp.StartTimestamp())
-		assert.Equal(t, pcommon.NewTimestampFromTime(end), sp.EndTimestamp())
+		// The tool's real execution time is not observable, so the span is
+		// zero-duration at the request start rather than spanning inference.
+		assert.Equal(t, pcommon.NewTimestampFromTime(ts), sp.StartTimestamp())
+		assert.Equal(t, pcommon.NewTimestampFromTime(ts), sp.EndTimestamp())
 
 		attrs := sp.Attributes()
 		opName, ok := attrs.Get("gen_ai.operation.name")
@@ -360,12 +361,11 @@ func TestCreateToolCallSpans(t *testing.T) {
 		ss := ptrace.NewScopeSpans()
 		traceID := pcommon.TraceID([16]byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16})
 		parentSpanID := pcommon.SpanID([8]byte{1, 2, 3, 4, 5, 6, 7, 8})
-		start := time.Now()
-		end := start.Add(100 * time.Millisecond)
+		now := time.Now()
 		createToolCallSpans([]request.ToolCall{
 			{ID: "call_1", Name: "get_weather"},
 			{ID: "call_2", Name: "get_time"},
-		}, parentSpanID, traceID, &ss, start, end)
+		}, parentSpanID, traceID, &ss, now)
 
 		require.Equal(t, 2, ss.Spans().Len())
 		assert.Equal(t, "execute_tool get_weather", ss.Spans().At(0).Name())
@@ -380,7 +380,7 @@ func TestCreateToolCallSpans(t *testing.T) {
 		createToolCallSpans([]request.ToolCall{
 			{ID: "call_1", Name: ""},
 			{ID: "call_2", Name: "get_time"},
-		}, parentSpanID, traceID, &ss, now, now)
+		}, parentSpanID, traceID, &ss, now)
 
 		require.Equal(t, 1, ss.Spans().Len())
 		assert.Equal(t, "execute_tool get_time", ss.Spans().At(0).Name())
@@ -393,12 +393,15 @@ func TestCreateToolCallSpans(t *testing.T) {
 		now := time.Now()
 		createToolCallSpans([]request.ToolCall{
 			{ID: "call_1", Name: "get_weather", Arguments: `{"city":"NYC"}`, IsError: true},
-		}, parentSpanID, traceID, &ss, now, now)
+		}, parentSpanID, traceID, &ss, now)
 
 		require.Equal(t, 1, ss.Spans().Len())
 		sp := ss.Spans().At(0)
 		assert.Equal(t, ptrace.StatusCodeError, sp.Status().Code())
-		_, ok := sp.Attributes().Get("gen_ai.tool.call.result")
+		errType, ok := sp.Attributes().Get(string(semconv.ErrorTypeKey))
+		require.True(t, ok)
+		assert.Equal(t, "_OTHER", errType.Str())
+		_, ok = sp.Attributes().Get("gen_ai.tool.call.result")
 		assert.False(t, ok)
 	})
 
@@ -409,7 +412,7 @@ func TestCreateToolCallSpans(t *testing.T) {
 		now := time.Now()
 		createToolCallSpans([]request.ToolCall{
 			{Name: "get_weather"},
-		}, parentSpanID, traceID, &ss, now, now)
+		}, parentSpanID, traceID, &ss, now)
 
 		require.Equal(t, 1, ss.Spans().Len())
 		sp := ss.Spans().At(0)
@@ -424,7 +427,7 @@ func TestCreateToolCallSpans(t *testing.T) {
 		now := time.Now()
 		createToolCallSpans([]request.ToolCall{
 			{ID: "call_1", Name: "get_weather", Arguments: `{"location":"Boston"}`, Result: "Sunny, 72F"},
-		}, parentSpanID, traceID, &ss, now, now)
+		}, parentSpanID, traceID, &ss, now)
 
 		require.Equal(t, 1, ss.Spans().Len())
 		attrs := ss.Spans().At(0).Attributes()
@@ -445,7 +448,7 @@ func TestCreateToolCallSpans(t *testing.T) {
 		now := time.Now()
 		createToolCallSpans([]request.ToolCall{
 			{ID: "call_1", Name: "get_weather"},
-		}, parentSpanID, traceID, &ss, now, now)
+		}, parentSpanID, traceID, &ss, now)
 
 		require.Equal(t, 1, ss.Spans().Len())
 		attrs := ss.Spans().At(0).Attributes()

@@ -265,7 +265,7 @@ func generateTracesWithAttributes(
 
 		// Create individual execute_tool child spans per tool call (OTel GenAI semconv compliance)
 		if len(spanWithAttributes.ToolCalls) > 0 {
-			createToolCallSpans(spanWithAttributes.ToolCalls, spanID, traceID, &ss, start, t.End)
+			createToolCallSpans(spanWithAttributes.ToolCalls, spanID, traceID, &ss, start)
 		}
 	}
 	return traces
@@ -490,7 +490,12 @@ func resolveToolCalls(span *request.Span, optionalAttrs map[attr.Name]struct{}) 
 // createToolCallSpans creates individual execute_tool child spans for each tool call,
 // following the OTel GenAI semantic conventions where gen_ai.tool.name is a single string
 // per span rather than an aggregated string array.
-func createToolCallSpans(toolCalls []request.ToolCall, parentSpanID pcommon.SpanID, traceID pcommon.TraceID, ss *ptrace.ScopeSpans, start, end time.Time) {
+//
+// The tool runs outside the observed process, so its real execution time is not
+// visible: the request only proves the call completed by the time it was sent.
+// Spans are therefore zero-duration at ts rather than spanning the model
+// inference window, which would report model latency as tool duration.
+func createToolCallSpans(toolCalls []request.ToolCall, parentSpanID pcommon.SpanID, traceID pcommon.TraceID, ss *ptrace.ScopeSpans, ts time.Time) {
 	for _, tc := range toolCalls {
 		if tc.Name == "" {
 			continue
@@ -501,8 +506,8 @@ func createToolCallSpans(toolCalls []request.ToolCall, parentSpanID pcommon.Span
 		sp.SetTraceID(traceID)
 		sp.SetSpanID(pcommon.SpanID(idgen.RandomSpanID()))
 		sp.SetParentSpanID(parentSpanID)
-		sp.SetStartTimestamp(pcommon.NewTimestampFromTime(start))
-		sp.SetEndTimestamp(pcommon.NewTimestampFromTime(end))
+		sp.SetStartTimestamp(pcommon.NewTimestampFromTime(ts))
+		sp.SetEndTimestamp(pcommon.NewTimestampFromTime(ts))
 
 		attrs := sp.Attributes()
 		attrs.PutStr(string(semconv.GenAIOperationNameKey), "execute_tool")
@@ -518,6 +523,9 @@ func createToolCallSpans(toolCalls []request.ToolCall, parentSpanID pcommon.Span
 		}
 		if tc.IsError {
 			sp.Status().SetCode(ptrace.StatusCodeError)
+			// is_error carries no provider error code; the convention
+			// requires a low-cardinality error.type on failed operations.
+			attrs.PutStr(string(semconv.ErrorTypeKey), "_OTHER")
 		}
 	}
 }

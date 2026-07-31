@@ -520,6 +520,10 @@ type OpenAIInput struct {
 	Tools            json.RawMessage `json:"tools,omitempty"`
 	ServiceTier      string          `json:"service_tier,omitempty"`
 	Parameters       json.RawMessage `json:"parameters,omitempty"`
+	// InputItems retains the Responses API `input` array (function_call /
+	// function_call_output items), which cannot be held by the string Input
+	// field. Populated only for /v1/responses traffic.
+	InputItems json.RawMessage `json:"-"`
 }
 
 // ParameterDimension extracts the requested embedding dimension from the

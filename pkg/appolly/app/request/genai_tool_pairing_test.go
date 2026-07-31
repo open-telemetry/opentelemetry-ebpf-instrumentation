@@ -227,3 +227,50 @@ func TestPairedToolCalls_Anthropic_IsError(t *testing.T) {
 	assert.Empty(t, got[0].Result)
 	assert.JSONEq(t, `{"location":"Paris"}`, got[0].Arguments)
 }
+
+func TestPairedToolCalls_OpenAIResponses(t *testing.T) {
+	// The Responses API keeps calls and results as input items keyed by
+	// call_id, not in messages.
+	items := json.RawMessage(`[
+		{"type":"message","role":"user","content":"What is the weather in Boston?"},
+		{"type":"function_call","call_id":"call_1","name":"get_weather","arguments":"{\"location\":\"Boston\"}"},
+		{"type":"function_call_output","call_id":"call_1","output":"Sunny, 72F"}
+	]`)
+	g := &GenAI{OpenAI: &VendorOpenAI{APIType: "responses", Request: OpenAIInput{InputItems: items}}}
+
+	got := g.PairedToolCalls()
+	require.Len(t, got, 1)
+	assert.Equal(t, "call_1", got[0].ID)
+	assert.Equal(t, "get_weather", got[0].Name)
+	assert.JSONEq(t, `{"location":"Boston"}`, got[0].Arguments)
+	assert.Equal(t, "Sunny, 72F", got[0].Result)
+}
+
+func TestPairedToolCalls_OpenAIResponses_CompletedTurnNotReEmitted(t *testing.T) {
+	// A final assistant message after the call means the turn concluded, so
+	// retained history must not re-emit it.
+	items := json.RawMessage(`[
+		{"type":"function_call","call_id":"call_1","name":"get_weather","arguments":"{\"location\":\"Boston\"}"},
+		{"type":"function_call_output","call_id":"call_1","output":"Sunny, 72F"},
+		{"type":"message","role":"assistant","content":"It is sunny in Boston."}
+	]`)
+	g := &GenAI{OpenAI: &VendorOpenAI{APIType: "responses", Request: OpenAIInput{InputItems: items}}}
+	assert.Empty(t, g.PairedToolCalls())
+}
+
+func TestPairedToolCalls_OpenAIResponses_SequentialLatestOnly(t *testing.T) {
+	// An earlier completed call is retained; only the latest call is emitted.
+	items := json.RawMessage(`[
+		{"type":"function_call","call_id":"call_1","name":"get_weather","arguments":"{\"city\":\"NYC\"}"},
+		{"type":"function_call_output","call_id":"call_1","output":"Rainy"},
+		{"type":"function_call","call_id":"call_2","name":"get_time","arguments":"{\"tz\":\"UTC\"}"},
+		{"type":"function_call_output","call_id":"call_2","output":"12:00"}
+	]`)
+	g := &GenAI{OpenAI: &VendorOpenAI{APIType: "responses", Request: OpenAIInput{InputItems: items}}}
+
+	got := g.PairedToolCalls()
+	require.Len(t, got, 1)
+	assert.Equal(t, "call_2", got[0].ID)
+	assert.Equal(t, "get_time", got[0].Name)
+	assert.Equal(t, "12:00", got[0].Result)
+}

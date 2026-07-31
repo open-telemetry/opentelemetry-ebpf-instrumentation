@@ -22,13 +22,13 @@ func (g *GenAI) PairedToolCalls() []ToolCall {
 	}
 	switch {
 	case g.OpenAI != nil:
-		return pairOpenAIToolCalls(g.OpenAI.Request.Messages)
+		return pairOpenAIVendorToolCalls(g.OpenAI)
 	case g.OpenAICompatible != nil:
-		return pairOpenAIToolCalls(g.OpenAICompatible.Request.Messages)
+		return pairOpenAIVendorToolCalls(g.OpenAICompatible)
 	case g.Qwen != nil:
-		return pairOpenAIToolCalls(g.Qwen.Request.Messages)
+		return pairOpenAIVendorToolCalls(g.Qwen)
 	case g.Ollama != nil:
-		return pairOpenAIToolCalls(g.Ollama.Request.Messages)
+		return pairOpenAIVendorToolCalls(g.Ollama)
 	case g.Anthropic != nil:
 		return pairAnthropicToolCalls(g.Anthropic.Input.Messages)
 	case g.Gemini != nil:
@@ -134,6 +134,78 @@ func jsonRawToAttrString(raw json.RawMessage) string {
 		return string(raw)
 	}
 	return buf.String()
+}
+
+// pairOpenAIVendorToolCalls dispatches between the Chat Completions messages
+// schema and the Responses API items schema. The Responses API keeps tool
+// calls and results in the `input` array rather than in `messages`.
+func pairOpenAIVendorToolCalls(v *VendorOpenAI) []ToolCall {
+	if v.APIType == "responses" && len(v.Request.InputItems) > 0 {
+		return pairResponsesToolCalls(v.Request.InputItems)
+	}
+	return pairOpenAIToolCalls(v.Request.Messages)
+}
+
+// pairResponsesToolCalls handles the OpenAI Responses API schema, where the
+// `input` array carries function_call and function_call_output items linked by
+// call_id. Only the latest turn's calls are paired: they form the trailing run
+// of function_call items, and an assistant message after them means the turn
+// already concluded so nothing new is emitted.
+func pairResponsesToolCalls(raw json.RawMessage) []ToolCall {
+	if len(raw) == 0 {
+		return nil
+	}
+	var items []struct {
+		Type      string          `json:"type"`
+		Role      string          `json:"role"`
+		CallID    string          `json:"call_id"`
+		Name      string          `json:"name"`
+		Arguments json.RawMessage `json:"arguments"`
+		Output    json.RawMessage `json:"output"`
+	}
+	if err := json.Unmarshal(raw, &items); err != nil {
+		return nil
+	}
+
+	lastCall := -1
+	for i := range items {
+		if items[i].Type == "function_call" {
+			lastCall = i
+		}
+	}
+	if lastCall < 0 {
+		return nil
+	}
+	for i := lastCall + 1; i < len(items); i++ {
+		if items[i].Type == "message" && items[i].Role == "assistant" {
+			return nil
+		}
+	}
+
+	batchStart := lastCall
+	for batchStart > 0 && items[batchStart-1].Type == "function_call" {
+		batchStart--
+	}
+
+	var calls []pendingToolCall
+	for i := batchStart; i <= lastCall; i++ {
+		calls = append(calls, pendingToolCall{
+			id:   items[i].CallID,
+			name: items[i].Name,
+			args: items[i].Arguments,
+		})
+	}
+
+	var results []pendingToolResult
+	for i := range items {
+		if items[i].Type == "function_call_output" {
+			results = append(results, pendingToolResult{
+				id:     items[i].CallID,
+				result: items[i].Output,
+			})
+		}
+	}
+	return pairToolCalls(calls, results)
 }
 
 // pairOpenAIToolCalls handles the OpenAI chat messages schema shared by
