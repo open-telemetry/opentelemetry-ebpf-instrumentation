@@ -6,7 +6,9 @@ package prom // import "go.opentelemetry.io/obi/pkg/export/prom"
 import (
 	"context"
 	"encoding"
+	"errors"
 	"log/slog"
+	"os"
 	"strconv"
 	"sync"
 	"time"
@@ -33,9 +35,27 @@ type BPFCollector struct {
 	probeLatencyDesc *prometheus.Desc
 	mapSizeDesc      *prometheus.Desc
 	progs            map[ebpf.ProgramID]*BPFProgram
+	programCache     map[ebpf.ProgramID]*cachedProgram
+	mapCache         map[ebpf.MapID]*cachedMap
 	probeMetrics     func() []ProbeMetrics
 	mapMetrics       func() []BpfMapMetrics
 	mu               sync.Mutex
+	closed           bool
+}
+
+type cachedProgram struct {
+	program   *ebpf.Program
+	probeType string
+	probeName string
+	probeID   string
+}
+
+type cachedMap struct {
+	supported  bool
+	mapType    string
+	mapName    string
+	mapID      string
+	maxEntries int
 }
 
 type BPFProgram struct {
@@ -131,6 +151,8 @@ func newCollector(ctxInfo *global.ContextInfo, cfg *PrometheusConfig, mpCfg *per
 		ctxInfo:         ctxInfo,
 		promConnect:     ctxInfo.Prometheus,
 		progs:           make(map[ebpf.ProgramID]*BPFProgram),
+		programCache:    make(map[ebpf.ProgramID]*cachedProgram),
+		mapCache:        make(map[ebpf.MapID]*cachedMap),
 		probeLatencyDesc: prometheus.NewDesc(
 			prometheus.BuildFQName("bpf", "probe", "latency_seconds"),
 			"Latency of the probe in seconds",
@@ -154,6 +176,7 @@ func newCollector(ctxInfo *global.ContextInfo, cfg *PrometheusConfig, mpCfg *per
 }
 
 func (bc *BPFCollector) startPrometheus(ctx context.Context) {
+	bc.cleanupOnContext(ctx)
 	bc.reportMetrics(ctx)
 }
 
@@ -161,7 +184,37 @@ func (bc *BPFCollector) startInternalMetrics(ctx context.Context) {
 	if !internalMetricsEnabled(bc.internalMetrics) {
 		return
 	}
+	bc.cleanupOnContext(ctx)
 	go bc.collectInternalMetrics(ctx)
+}
+
+func (bc *BPFCollector) cleanupOnContext(ctx context.Context) {
+	done := ctx.Done()
+	if done == nil {
+		return
+	}
+
+	go func() {
+		<-done
+		bc.close()
+	}()
+}
+
+func (bc *BPFCollector) close() {
+	bc.mu.Lock()
+	defer bc.mu.Unlock()
+
+	bc.closed = true
+	for id, cached := range bc.programCache {
+		if cached.program != nil {
+			if err := cached.program.Close(); err != nil {
+				bc.log.Debug("failed to close cached program", "ID", id, "error", err)
+			}
+		}
+	}
+	clear(bc.programCache)
+	clear(bc.mapCache)
+	clear(bc.progs)
 }
 
 func (bc *BPFCollector) reportMetrics(ctx context.Context) {
@@ -209,6 +262,10 @@ func (bc *BPFCollector) Collect(ch chan<- prometheus.Metric) {
 	bc.mu.Lock()
 	defer bc.mu.Unlock()
 
+	if bc.closed {
+		return
+	}
+
 	probeMetrics := bc.probeMetrics()
 	for _, metric := range probeMetrics {
 		metric.program.updateBuckets(metric.latency, metric.count)
@@ -242,52 +299,44 @@ func (bc *BPFCollector) collectMetrics() ([]ProbeMetrics, []BpfMapMetrics) {
 	bc.mu.Lock()
 	defer bc.mu.Unlock()
 
+	if bc.closed {
+		return nil, nil
+	}
+
 	return bc.probeMetrics(), bc.mapMetrics()
 }
 
 func (bc *BPFCollector) getProbeMetrics() []ProbeMetrics {
-	bc.enableBPFStatsRuntime()
+	cleanup := bc.enableBPFStatsRuntime()
+	defer cleanup()
 
-	probeMetrics := make([]ProbeMetrics, 0)
+	probeMetrics := make([]ProbeMetrics, 0, len(bc.programCache))
+	seen := make(map[ebpf.ProgramID]struct{}, len(bc.programCache))
+	completeWalk := false
 
 	for id := ebpf.ProgramID(0); ; {
 		nextID, err := ebpf.ProgramGetNextID(id)
 		if err != nil {
+			completeWalk = errors.Is(err, os.ErrNotExist)
 			break
 		}
 		id = nextID
+		seen[id] = struct{}{}
 
-		program, err := ebpf.NewProgramFromID(id)
-		if err != nil {
-			bc.log.Debug("failed to load program", "ID", id, "error", err)
-			continue
+		cached, ok := bc.programCache[id]
+		if !ok {
+			cached = bc.cacheProgram(id)
 		}
-		defer program.Close()
-
-		info, err := program.Info()
-		if err != nil {
-			bc.log.Debug("failed to get program info", "ID", id, "error", err)
+		if cached == nil || cached.program == nil {
 			continue
 		}
 
-		switch info.Type {
-		case ebpf.Kprobe, ebpf.SocketFilter, ebpf.SchedCLS, ebpf.SkMsg, ebpf.SockOps:
-		// Supported program types
-		default:
-			continue // Skip unsupported program types
-		}
-
-		name := getFuncName(info, id, bc.log)
-
-		stats, err := program.Stats()
+		stats, err := cached.program.Stats()
 		if err != nil {
 			bc.log.Debug("failed to get program stats", "ID", id, "error", err)
 			continue
 		}
 
-		idStr := strconv.FormatUint(uint64(id), 10)
-
-		// Get the previous stats
 		probe, ok := bc.progs[id]
 		if !ok {
 			probe = &BPFProgram{
@@ -305,15 +354,79 @@ func (bc *BPFCollector) getProbeMetrics() []ProbeMetrics {
 		}
 		latency, count := probe.calculateStats()
 		probeMetrics = append(probeMetrics, ProbeMetrics{
-			probeID:   idStr,
-			probeType: info.Type.String(),
-			probeName: name,
+			probeID:   cached.probeID,
+			probeType: cached.probeType,
+			probeName: cached.probeName,
 			latency:   latency,
 			count:     count,
 			program:   probe,
 		})
 	}
+
+	if completeWalk {
+		bc.evictMissingPrograms(seen)
+	}
+
 	return probeMetrics
+}
+
+func (bc *BPFCollector) cacheProgram(id ebpf.ProgramID) *cachedProgram {
+	program, err := ebpf.NewProgramFromID(id)
+	if err != nil {
+		bc.log.Debug("failed to load program", "ID", id, "error", err)
+		return nil
+	}
+
+	info, err := program.Info()
+	if err != nil {
+		bc.log.Debug("failed to get program info", "ID", id, "error", err)
+		bc.closeProgram(id, program)
+		return nil
+	}
+
+	if !supportedProgramType(info.Type) {
+		bc.closeProgram(id, program)
+		cached := &cachedProgram{}
+		bc.programCache[id] = cached
+		return cached
+	}
+
+	cached := &cachedProgram{
+		program:   program,
+		probeType: info.Type.String(),
+		probeName: getFuncName(info, id, bc.log),
+		probeID:   strconv.FormatUint(uint64(id), 10),
+	}
+	bc.programCache[id] = cached
+	return cached
+}
+
+func supportedProgramType(programType ebpf.ProgramType) bool {
+	switch programType {
+	case ebpf.Kprobe, ebpf.SocketFilter, ebpf.SchedCLS, ebpf.SkMsg, ebpf.SockOps:
+		return true
+	default:
+		return false
+	}
+}
+
+func (bc *BPFCollector) evictMissingPrograms(seen map[ebpf.ProgramID]struct{}) {
+	for id, cached := range bc.programCache {
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		if cached.program != nil {
+			bc.closeProgram(id, cached.program)
+		}
+		delete(bc.programCache, id)
+		delete(bc.progs, id)
+	}
+}
+
+func (bc *BPFCollector) closeProgram(id ebpf.ProgramID, program *ebpf.Program) {
+	if err := program.Close(); err != nil {
+		bc.log.Debug("failed to close program", "ID", id, "error", err)
+	}
 }
 
 func getFuncName(info *ebpf.ProgramInfo, id ebpf.ProgramID, log *slog.Logger) string {
@@ -332,52 +445,96 @@ func getFuncName(info *ebpf.ProgramInfo, id ebpf.ProgramID, log *slog.Logger) st
 }
 
 func (bc *BPFCollector) getMapMetrics() []BpfMapMetrics {
-	mapMetrics := make([]BpfMapMetrics, 0)
+	mapMetrics := make([]BpfMapMetrics, 0, len(bc.mapCache))
+	seen := make(map[ebpf.MapID]struct{}, len(bc.mapCache))
+	completeWalk := false
+
 	for id := ebpf.MapID(0); ; {
 		nextID, err := ebpf.MapGetNextID(id)
 		if err != nil {
+			completeWalk = errors.Is(err, os.ErrNotExist)
 			break
 		}
 		id = nextID
+		seen[id] = struct{}{}
+
+		cached, ok := bc.mapCache[id]
+		if !ok {
+			cached = bc.cacheMap(id)
+		}
+		if cached == nil || !cached.supported {
+			continue
+		}
 
 		m, err := ebpf.NewMapFromID(id)
 		if err != nil {
-			bc.log.Debug("failed to load map", "ID", id, "error", err)
+			bc.log.Debug("failed to load map for entry iteration", "ID", id, "error", err)
 			continue
 		}
-		defer m.Close()
-
-		info, err := m.Info()
+		count, err := countMapEntries(m)
+		if closeErr := m.Close(); closeErr != nil {
+			bc.log.Debug("failed to close map", "ID", id, "error", closeErr)
+		}
 		if err != nil {
-			bc.log.Debug("failed to get map info", "ID", id, "error", err)
 			continue
 		}
 
-		// Only collect maps that are LRUHash
-		if info.Type != ebpf.LRUHash {
-			continue
-		}
+		mapMetrics = append(mapMetrics, BpfMapMetrics{
+			mapType:    cached.mapType,
+			mapName:    cached.mapName,
+			mapID:      cached.mapID,
+			maxEntries: cached.maxEntries,
+			entries:    count,
+		})
+	}
 
-		var count uint64
-		throwawayKey := discardEncoding{}
-		throwawayValues := make(sliceDiscardEncoding, 0)
-		iter := m.Iterate()
-		for iter.Next(&throwawayKey, &throwawayValues) {
-			count++
-		}
-		if err := iter.Err(); err == nil {
-			mapID := strconv.FormatUint(uint64(id), 10)
-			mapType := info.Type.String()
-			mapMetrics = append(mapMetrics, BpfMapMetrics{
-				mapType:    mapType,
-				mapName:    info.Name,
-				mapID:      mapID,
-				maxEntries: int(info.MaxEntries),
-				entries:    count,
-			})
+	if completeWalk {
+		for id := range bc.mapCache {
+			if _, ok := seen[id]; !ok {
+				delete(bc.mapCache, id)
+			}
 		}
 	}
+
 	return mapMetrics
+}
+
+func (bc *BPFCollector) cacheMap(id ebpf.MapID) *cachedMap {
+	m, err := ebpf.NewMapFromID(id)
+	if err != nil {
+		bc.log.Debug("failed to load map", "ID", id, "error", err)
+		return nil
+	}
+
+	info, infoErr := m.Info()
+	if closeErr := m.Close(); closeErr != nil {
+		bc.log.Debug("failed to close map", "ID", id, "error", closeErr)
+	}
+	if infoErr != nil {
+		bc.log.Debug("failed to get map info", "ID", id, "error", infoErr)
+		return nil
+	}
+
+	cached := &cachedMap{
+		supported:  info.Type == ebpf.LRUHash,
+		mapType:    info.Type.String(),
+		mapName:    info.Name,
+		mapID:      strconv.FormatUint(uint64(id), 10),
+		maxEntries: int(info.MaxEntries),
+	}
+	bc.mapCache[id] = cached
+	return cached
+}
+
+func countMapEntries(m *ebpf.Map) (uint64, error) {
+	var count uint64
+	throwawayKey := discardEncoding{}
+	throwawayValues := make(sliceDiscardEncoding, 0)
+	iter := m.Iterate()
+	for iter.Next(&throwawayKey, &throwawayValues) {
+		count++
+	}
+	return count, iter.Err()
 }
 
 func (bp *BPFProgram) calculateStats() (float64, uint64) {
