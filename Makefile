@@ -430,8 +430,15 @@ generator-image-build:
 	@echo "### Creating the image that generates the eBPF binaries"
 	$(OCI_BIN) buildx build --load -t $(GEN_IMG) -f generator.Dockerfile  .
 
+
+.PHONY: prepare-integration-test
+prepare-integration-test:
+	@echo "### Removing resources from previous integration tests, if any"
+	rm -rf $(TEST_OUTPUT)/* || true
+	$(MAKE) cleanup-integration-test
+
 .PHONY: cleanup-integration-test
-cleanup-integration-test: clean-testoutput
+cleanup-integration-test:
 	@echo "### Removing integration test clusters"
 	go tool $(TOOLS_MODFILE) kind delete cluster -n test-kind-cluster || true
 	@echo "### Removing docker containers and images"
@@ -531,19 +538,19 @@ oats-integration-test-matrix-json:
 	@./scripts/generate-dir-matrix.sh internal/test/oats
 
 .PHONY: integration-test
-integration-test: prereqs cleanup-integration-test
+integration-test: prereqs prepare-integration-test
 	$(MAKE) run-integration-test || (ret=$$?; $(MAKE) cleanup-integration-test && exit $$ret)
 	$(MAKE) itest-coverage-data
 	$(MAKE) cleanup-integration-test
 
 .PHONY: integration-test-k8s
-integration-test-k8s: prereqs cleanup-integration-test
+integration-test-k8s: prereqs prepare-integration-test
 	$(MAKE) run-integration-test-k8s || (ret=$$?; $(MAKE) cleanup-integration-test && exit $$ret)
 	$(MAKE) itest-coverage-data
 	$(MAKE) cleanup-integration-test
 
 .PHONY: integration-test-arm
-integration-test-arm: prereqs cleanup-integration-test
+integration-test-arm: prereqs prepare-integration-test
 	$(MAKE) run-integration-test-arm || (ret=$$?; $(MAKE) cleanup-integration-test && exit $$ret)
 	$(MAKE) itest-coverage-data
 	$(MAKE) cleanup-integration-test
