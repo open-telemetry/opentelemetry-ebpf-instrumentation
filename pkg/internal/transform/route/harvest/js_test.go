@@ -4,6 +4,9 @@
 package harvest
 
 import (
+	"bytes"
+	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -785,6 +788,74 @@ func TestHandleNestJS(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestNestJSQuotedStringsAreBounded(t *testing.T) {
+	extractor := NewRouteExtractor()
+	values := make([]string, maxNestDecoratorValues+1)
+	for i := range values {
+		values[i] = fmt.Sprintf("'route-%d'", i)
+	}
+
+	quoted := extractor.quotedStrings(strings.Join(values, ","))
+
+	require.Len(t, quoted, maxNestDecoratorValues)
+	assert.Equal(t, "route-0", quoted[0])
+	assert.Equal(t, fmt.Sprintf("route-%d", maxNestDecoratorValues-1), quoted[len(quoted)-1])
+}
+
+func TestFlushNestMethodCapsRouteVariants(t *testing.T) {
+	extractor := NewRouteExtractor()
+	var logs bytes.Buffer
+	extractor.log = slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	extractor.nestPrefixes = make([]string, maxNestRouteVariants)
+	extractor.nestCtrlVersions = []string{"1", "2"}
+	for i := range extractor.nestPrefixes {
+		extractor.nestPrefixes[i] = fmt.Sprintf("prefix-%d", i)
+	}
+	extractor.pendingNestMethod = &RoutePattern{Method: "GET", Path: "item", File: "test.ts", Line: 1}
+
+	extractor.flushNestMethod()
+
+	require.Len(t, extractor.routes, maxNestRouteVariants)
+	assert.Equal(t, "/prefix-0/item", extractor.routes[0].Path)
+	assert.Equal(t, "1", extractor.routes[0].Version)
+	assert.Equal(t, "/prefix-127/item", extractor.routes[len(extractor.routes)-1].Path)
+	assert.Equal(t, "2", extractor.routes[len(extractor.routes)-1].Version)
+
+	extractor.pendingNestMethod = &RoutePattern{Method: "POST", Path: "other", File: "test.ts", Line: 2}
+	extractor.flushNestMethod()
+	require.Len(t, extractor.routes, maxNestRouteVariants)
+	assert.Equal(t, 1, strings.Count(logs.String(), "nestjs route variant limit reached"))
+	assert.Contains(t, logs.String(), "file=test.ts")
+	assert.Contains(t, logs.String(), fmt.Sprintf("limit=%d", maxNestRouteVariants))
+}
+
+func TestCompiledNestJSFragmentsAreCappedPerFile(t *testing.T) {
+	values := make([]string, maxNestDecoratorValues)
+	for i := range values {
+		values[i] = fmt.Sprintf("'route-%d'", i)
+	}
+	joinedValues := strings.Join(values, ",")
+
+	controller := NewCompiledRouteExtractor()
+	controllerLine := fmt.Sprintf("(0, common_1.Controller)([%s])", joinedValues)
+	for i := 0; i <= maxNestRouteVariants/maxNestDecoratorValues; i++ {
+		require.True(t, controller.handleCompiledNestController("test.js", controllerLine, i+1))
+	}
+	require.Len(t, controller.routes, maxNestRouteVariants)
+	assert.Equal(t, maxNestRouteVariants, controller.nestRouteVariants)
+
+	version := NewCompiledRouteExtractor()
+	versionLine := fmt.Sprintf("(0, common_1.Version)([%s])", joinedValues)
+	for i := 0; i <= maxNestRouteVariants/maxNestDecoratorValues; i++ {
+		require.True(t, version.handleCompiledNestVersion("test.js", versionLine, i+1))
+	}
+	require.Len(t, version.routes, maxNestRouteVariants)
+	assert.Equal(t, maxNestRouteVariants, version.nestRouteVariants)
+
+	require.True(t, version.handleCompiledNestMethod("test.js", "(0, common_1.Get)('item')", 10))
+	require.Len(t, version.routes, maxNestRouteVariants)
 }
 
 func TestHandleHTTPDispatcher(t *testing.T) {
