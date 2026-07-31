@@ -19,14 +19,8 @@ const healthPort = process.env.HEALTH_PORT || '8092';
 
 // Persistent client — reuses the same HTTP/2 connection across requests.
 let client = null;
-// Separate connection for /self-prop: a sender that propagates its own traceparent makes OBI
-// stand down on that socket, which would otherwise mask whether injection still works here.
-let selfPropClient = null;
 if (nextHop) {
   client = new relayProto.Relay(nextHop, grpc.credentials.createInsecure());
-  selfPropClient = new relayProto.Relay(nextHop, grpc.credentials.createInsecure(), {
-    'grpc.primary_user_agent': 'self-prop',
-  });
 }
 
 function relay(call, callback) {
@@ -63,8 +57,10 @@ server.bindAsync(
 // to exercise sk_msg HPACK injection on multiplexed HTTP/2 streams
 const MULTIPLEX_N = 3;
 
-// /self-prop?tp=<traceparent>&n=<calls>: sets traceparent metadata like an SDK. Repeats on one
-// channel so nghttp2 puts the whole field in its dynamic table and later requests send it as a
+// /self-prop?tp=<traceparent>&n=<calls>: sets traceparent metadata like an SDK, on its own
+// channel so OBI's stand-down on that socket cannot mask the persistent client. A fresh
+// channel per request keeps the first call's field a literal on every test retry; the calls
+// within one request still share it, so nghttp2 indexes the field and later calls send a
 // single index byte, with nothing left on the wire for OBI to find.
 function selfProp(req, res) {
   const params = new URL(req.url, 'http://localhost').searchParams;
@@ -78,9 +74,14 @@ function selfProp(req, res) {
   const meta = new grpc.Metadata();
   meta.set('traceparent', tp);
 
+  const selfPropClient = new relayProto.Relay(nextHop, grpc.credentials.createInsecure(), {
+    'grpc.primary_user_agent': 'self-prop',
+  });
+
   let pending = calls;
   const done = () => {
     if (--pending === 0) {
+      selfPropClient.close();
       res.writeHead(200);
       res.end();
     }
@@ -92,7 +93,7 @@ function selfProp(req, res) {
 
 http.createServer((req, res) => {
   if (req.url.startsWith('/self-prop')) {
-    if (!selfPropClient) {
+    if (!nextHop) {
       res.writeHead(503);
       res.end();
       return;

@@ -33,6 +33,10 @@ static const unsigned char EXPECTED_TRACE_ID[TRACE_ID_SIZE_BYTES] = {
 static const unsigned char EXPECTED_PARENT_ID[SPAN_ID_SIZE_BYTES] = {
     0x89, 0xab, 0xcd, 0xef, 0x01, 0x23, 0x45, 0x67};
 
+// decode scratch; the BPF program passes per-CPU map values here instead
+static unsigned char HUFF_W[k_h2_tp_huff_window];
+static unsigned char HUFF_OUT[k_hpack_value_len_tp];
+
 static void assertf(int cond, const char *msg) {
     if (!cond) {
         fprintf(stderr, "FAIL: %s\n", msg);
@@ -74,11 +78,145 @@ static u32 build_value_only(unsigned char *dst) {
     return 1 + k_hpack_value_len_tp;
 }
 
+// Huffman-encodes TP_VALUE into dst per RFC 7541 5.2, all-ones EOS padding. Encoder written
+// from Appendix B so it cannot agree with a wrong decode table.
+static u32 huff_encode_tp_value(unsigned char *dst) {
+    static const struct {
+        char c;
+        u8 code;
+        u8 bits;
+    } k_codes[] = {
+        {'0', 0x00, 5},
+        {'1', 0x01, 5},
+        {'2', 0x02, 5},
+        {'a', 0x03, 5},
+        {'c', 0x04, 5},
+        {'e', 0x05, 5},
+        {'-', 0x16, 6},
+        {'3', 0x19, 6},
+        {'4', 0x1a, 6},
+        {'5', 0x1b, 6},
+        {'6', 0x1c, 6},
+        {'7', 0x1d, 6},
+        {'8', 0x1e, 6},
+        {'9', 0x1f, 6},
+        {'b', 0x23, 6},
+        {'d', 0x24, 6},
+        {'f', 0x25, 6},
+    };
+
+    u32 bit = 0;
+    for (u32 i = 0; i < k_hpack_value_len_tp; i++) {
+        u8 code = 0, bits = 0;
+        for (u32 k = 0; k < sizeof(k_codes) / sizeof(k_codes[0]); k++) {
+            if (k_codes[k].c == (char)TP_VALUE[i]) {
+                code = k_codes[k].code;
+                bits = k_codes[k].bits;
+                break;
+            }
+        }
+        assertf(bits != 0, "fixture holds a char outside the traceparent alphabet");
+
+        for (u8 b = 0; b < bits; b++) {
+            if ((code >> (bits - 1 - b)) & 1) {
+                dst[(bit + b) / 8] |= (unsigned char)(0x80 >> ((bit + b) % 8));
+            }
+        }
+        bit += bits;
+    }
+
+    const u32 octets = (bit + 7) / 8;
+    for (u32 i = bit; i < octets * 8; i++) {
+        dst[i / 8] |= (unsigned char)(0x80 >> (i % 8));
+    }
+
+    return octets;
+}
+
+// What gRPC SDKs emit: the value compresses below its 55 plain octets
+static u32 build_plain_name_huffman_value(unsigned char *dst) {
+    dst[0] = k_hpack_literal_no_index;
+    dst[1] = k_hpack_tp_name_len;
+    memcpy(&dst[2], "traceparent", 11);
+    const u32 vlen = huff_encode_tp_value(&dst[14]);
+    dst[13] = (unsigned char)(0x80 | vlen);
+    return 14 + vlen;
+}
+
+static u32 build_huffman_name_huffman_value(unsigned char *dst) {
+    dst[0] = k_hpack_literal_no_index;
+    dst[1] = (unsigned char)(k_hpack_tp_name_huffman_len | 0x80);
+    memcpy(&dst[2], k_hpack_tp_huffman, k_hpack_tp_name_huffman_len);
+    const u32 vlen = huff_encode_tp_value(&dst[11]);
+    dst[10] = (unsigned char)(0x80 | vlen);
+    return 11 + vlen;
+}
+
+static void test_plain_name_huffman_value(void) {
+    unsigned char buf[k_kprobes_http2_buf_size] = {0};
+    const u32 len = build_plain_name_huffman_value(buf);
+    tp_info_t tp = {0};
+    h2_tp_huff_candidate_t huff = {0};
+    assertf(parse_hpack_traceparent(buf, len, &tp, &huff) == 0, "scan reports, does not decode");
+    assertf(huff.len != 0, "the scan must locate the compressed value");
+    assertf(try_parse_tp_huffman_value(buf, len, &huff, HUFF_W, HUFF_OUT, &tp) == 1,
+            "plain name, huffman value");
+    assert_tp_match(&tp);
+}
+
+static void test_huffman_name_huffman_value(void) {
+    unsigned char buf[k_kprobes_http2_buf_size] = {0};
+    const u32 len = build_huffman_name_huffman_value(buf);
+    tp_info_t tp = {0};
+    h2_tp_huff_candidate_t huff = {0};
+    assertf(parse_hpack_traceparent(buf, len, &tp, &huff) == 0, "scan reports, does not decode");
+    assertf(huff.len != 0, "the scan must locate the compressed value");
+    assertf(try_parse_tp_huffman_value(buf, len, &huff, HUFF_W, HUFF_OUT, &tp) == 1,
+            "huffman name, huffman value");
+    assert_tp_match(&tp);
+}
+
+// A huffman value the decoder rejects must not be reported as a traceparent. Padding rules have
+// their own coverage in bpf_h2_tp_huffman; what matters here is that the failure propagates.
+static void test_corrupt_huffman_value_rejected(void) {
+    unsigned char buf[k_kprobes_http2_buf_size] = {0};
+    const u32 len = build_huffman_name_huffman_value(buf);
+
+    // six leading one-bits are the EOS prefix, which names no character
+    buf[k_hpack_tp_val_offset_huffman] = 0xfc;
+
+    tp_info_t tp = {0};
+    h2_tp_huff_candidate_t huff = {0};
+    assertf(parse_hpack_traceparent(buf, len, &tp, &huff) == 0, "scan reports the candidate");
+    assertf(try_parse_tp_huffman_value(buf, len, &huff, HUFF_W, HUFF_OUT, &tp) == 0,
+            "corrupt huffman value rejected");
+}
+
+// Every literal prefix, with the compressed value shape
+static void test_huffman_value_every_prefix(void) {
+    const unsigned char prefixes[] = {
+        k_hpack_literal_no_index, k_hpack_literal_never_index, k_hpack_literal_incr_index};
+
+    for (u32 i = 0; i < sizeof(prefixes); i++) {
+        unsigned char buf[k_kprobes_http2_buf_size] = {0};
+        const u32 len = build_huffman_name_huffman_value(buf);
+        buf[0] = prefixes[i];
+
+        tp_info_t tp = {0};
+        h2_tp_huff_candidate_t huff = {0};
+        assertf(parse_hpack_traceparent(buf, len, &tp, &huff) == 0, "scan reports the candidate");
+        assertf(try_parse_tp_huffman_value(buf, len, &huff, HUFF_W, HUFF_OUT, &tp) == 1,
+                "any literal prefix");
+        assert_tp_match(&tp);
+    }
+}
+
 static void test_plain_name_baseline(void) {
     unsigned char buf[k_kprobes_http2_buf_size] = {0};
     const u32 len = build_plain_entry(buf);
     tp_info_t tp = {0};
-    assertf(parse_hpack_traceparent(buf, len, &tp) == 1, "plain name parse");
+    h2_tp_huff_candidate_t huff = {0};
+    assertf(parse_hpack_traceparent(buf, len, &tp, &huff) == 1, "plain name parse");
     assert_tp_match(&tp);
 }
 
@@ -86,7 +224,8 @@ static void test_huffman_name_baseline(void) {
     unsigned char buf[k_kprobes_http2_buf_size] = {0};
     const u32 len = build_huffman_entry(buf);
     tp_info_t tp = {0};
-    assertf(parse_hpack_traceparent(buf, len, &tp) == 1, "huffman name parse");
+    h2_tp_huff_candidate_t huff = {0};
+    assertf(parse_hpack_traceparent(buf, len, &tp, &huff) == 1, "huffman name parse");
     assert_tp_match(&tp);
 }
 
@@ -100,14 +239,17 @@ static void test_every_literal_prefix(void) {
         u32 len = build_plain_entry(buf);
         buf[0] = prefixes[i];
         tp_info_t tp = {0};
-        assertf(parse_hpack_traceparent(buf, len, &tp) == 1, "plain name, any literal prefix");
+        h2_tp_huff_candidate_t huff = {0};
+        assertf(parse_hpack_traceparent(buf, len, &tp, &huff) == 1,
+                "plain name, any literal prefix");
         assert_tp_match(&tp);
 
         memset(buf, 0, sizeof(buf));
         len = build_huffman_entry(buf);
         buf[0] = prefixes[i];
         memset(&tp, 0, sizeof(tp));
-        assertf(parse_hpack_traceparent(buf, len, &tp) == 1, "huffman name, any literal prefix");
+        assertf(parse_hpack_traceparent(buf, len, &tp, &huff) == 1,
+                "huffman name, any literal prefix");
         assert_tp_match(&tp);
     }
 }
@@ -213,12 +355,90 @@ static void test_decoys_before_real_value(void) {
 static void test_short_buffer(void) {
     unsigned char buf[k_h2_tp_hpack_huffman_size - 1] = {0};
     tp_info_t tp = {0};
-    assertf(parse_hpack_traceparent(buf, sizeof(buf), &tp) == 0, "short buffer rejected");
+    h2_tp_huff_candidate_t huff = {0};
+    assertf(parse_hpack_traceparent(buf, sizeof(buf), &tp, &huff) == 0, "short buffer rejected");
+}
+
+// Requests 2+ on a persistent connection index the name, so a compressed value leaves nothing to
+// fingerprint. The value-only scan reports it and the decode decides.
+static void test_indexed_name_huffman_value(void) {
+    unsigned char buf[k_kprobes_http2_buf_size] = {0};
+    buf[0] = 0x5e; // literal, incremental indexing, name index 30
+    const u32 vlen = huff_encode_tp_value(&buf[2]);
+    buf[1] = (unsigned char)(0x80 | vlen);
+
+    tp_info_t tp = {0};
+    h2_tp_huff_scan_t scan = {0};
+    assertf(find_hpack_traceparent_huffman(buf, 0, 2 + vlen, &scan) == 1, "sweep locates it");
+    assertf(scan.count == 1, "one candidate");
+    assertf(scan.len[0] == vlen, "the scan must locate the compressed value");
+
+    h2_tp_huff_candidate_t huff = {.at = scan.at[0], .len = scan.len[0]};
+    assertf(try_parse_tp_huffman_value(buf, 2 + vlen, &huff, HUFF_W, HUFF_OUT, &tp) == 1,
+            "indexed name, huffman value");
+    assert_tp_match(&tp);
+}
+
+// 0xa5 (indexed field, dyn index 37) aliases a plausible length before the real value
+// Indexed fields like 0xa5 (dyn index 37) alias plausible length bytes. Three of
+// them fill the candidate list, so reaching the real value needs a rescan past
+// the rejected candidates, mirroring the tail-call retry loop
+static void test_decoy_candidates_before_real_value(void) {
+    unsigned char buf[k_kprobes_http2_buf_size] = {0};
+    buf[0] = 0xa5;
+    buf[1] = 0xa6;
+    buf[2] = 0xa7;
+    buf[40] = 0x5e;
+    const u32 vlen = huff_encode_tp_value(&buf[42]);
+    buf[41] = (unsigned char)(0x80 | vlen);
+    const u32 total = 42 + vlen;
+
+    tp_info_t tp = {0};
+    h2_tp_huff_scan_t scan = {0};
+    u8 decoded = 0;
+    u8 rescans = 0;
+
+    while (find_hpack_traceparent_huffman(buf, 0, total, &scan)) {
+        for (u8 i = 0; i < scan.count && !decoded; i++) {
+            h2_tp_huff_candidate_t huff = {.at = scan.at[i], .len = scan.len[i]};
+            decoded = try_parse_tp_huffman_value(buf, total, &huff, HUFF_W, HUFF_OUT, &tp);
+        }
+        if (decoded || scan.count < k_h2_tp_huff_max_candidates) {
+            break;
+        }
+        scan.resume = scan.at[k_h2_tp_huff_max_candidates - 1];
+        rescans++;
+    }
+
+    assertf(rescans >= 1, "three decoys must force a rescan");
+    assertf(decoded == 1, "the rescan must reach the real value");
+    assert_tp_match(&tp);
+}
+
+// A plain traceparent must win even when a plausible huffman length byte sits earlier
+static void test_plain_value_wins_over_huffman_lookalike(void) {
+    unsigned char buf[k_kprobes_http2_buf_size] = {0};
+    buf[0] = 0xa5; // plausible huffman length, but random bytes follow
+    for (u32 i = 1; i < 40; i++) {
+        buf[i] = (unsigned char)(i * 7);
+    }
+    const u32 n = 40 + build_value_only(&buf[40]);
+
+    tp_info_t tp = {0};
+    assertf(find_hpack_traceparent_value(buf, n, &tp) == 1, "plain value still found");
+    assert_tp_match(&tp);
 }
 
 int main(void) {
     test_plain_name_baseline();
     test_huffman_name_baseline();
+    test_plain_name_huffman_value();
+    test_indexed_name_huffman_value();
+    test_decoy_candidates_before_real_value();
+    test_plain_value_wins_over_huffman_lookalike();
+    test_huffman_name_huffman_value();
+    test_huffman_value_every_prefix();
+    test_corrupt_huffman_value_rejected();
     test_every_literal_prefix();
     test_indexed_name_via_value_pattern();
     test_value_pattern_at_offset();
