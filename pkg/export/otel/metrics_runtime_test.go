@@ -141,22 +141,33 @@ func TestRuntimeMetricsReporterTracksInheritedChildPIDHistograms(t *testing.T) {
 	).Count)
 
 	reporter.onProcessEvent(processEvent(101, exec.ProcessEventTerminated))
-	assert.Equal(t, uint64(3), testProducedHistogramPoint(
+	assert.Equal(t, uint64(5), testProducedHistogramPoint(
+		t,
+		metrics.goHistogramProducer,
+		attributes.GoRuntimeMemoryGCPauseDuration.OTEL,
+	).Count)
+
+	reporter.reportRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{snapshot(202, 4)})
+	assert.Equal(t, uint64(6), testProducedHistogramPoint(
 		t,
 		metrics.goHistogramProducer,
 		attributes.GoRuntimeMemoryGCPauseDuration.OTEL,
 	).Count)
 
 	reporter.reportRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{snapshot(101, 7)})
-	assert.Equal(t, uint64(3), testProducedHistogramPoint(
+	assert.Equal(t, uint64(6), testProducedHistogramPoint(
 		t,
 		metrics.goHistogramProducer,
 		attributes.GoRuntimeMemoryGCPauseDuration.OTEL,
 	).Count)
 }
 
-func TestRuntimeMetricsReporterSkipsSnapshotsForUntrackedServices(t *testing.T) {
-	service := svc.Attrs{UID: svc.UID{Name: "orders"}, SDKLanguage: svc.InstrumentableGolang}
+func TestRuntimeMetricsReporterAcceptsSnapshotsBeforeCreationAndSkipsAfterTermination(t *testing.T) {
+	service := svc.Attrs{
+		UID:         svc.UID{Name: "orders"},
+		ProcPID:     101,
+		SDKLanguage: svc.InstrumentableGolang,
+	}
 	constructed := 0
 
 	reporters, err := otelcfg.NewReporterPool[*svc.Attrs, *RuntimeMetrics](
@@ -190,7 +201,7 @@ func TestRuntimeMetricsReporterSkipsSnapshotsForUntrackedServices(t *testing.T) 
 	}}
 
 	reporter.reportRuntimeMetrics(snapshots)
-	assert.Equal(t, 0, constructed)
+	assert.Equal(t, 1, constructed)
 
 	reporter.onProcessEvent(processEvent(exec.ProcessEventCreated))
 	reporter.reportRuntimeMetrics(snapshots)

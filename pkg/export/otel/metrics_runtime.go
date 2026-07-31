@@ -337,10 +337,9 @@ func (r *RuntimeMetricsReporter) snapshotProcessLive(snapshot runtimemetrics.Run
 		pid = snapshot.PID
 	}
 	if pid == 0 {
-		return r.pidTracker.ServiceLive(snapshot.Service.UID)
+		return true
 	}
-	uid, tracked := r.pidTracker.TracksPID(pid)
-	return tracked && uid.Equals(&snapshot.Service.UID)
+	return r.pidTracker.PIDLiveOrUnknown(pid, snapshot.Service.UID)
 }
 
 func (r *RuntimeMetricsReporter) shouldReportSnapshot(snapshot runtimemetrics.RuntimeMetricSnapshot) bool {

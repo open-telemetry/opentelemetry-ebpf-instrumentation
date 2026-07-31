@@ -428,7 +428,7 @@ func TestGoRuntimeHistogramReporterTracksInheritedChildPIDs(t *testing.T) {
 	))
 }
 
-func TestRuntimeReporterOnlyGatesHistogramsOnProcessLiveness(t *testing.T) {
+func TestRuntimeReporterAcceptsHistogramsBeforeCreationAndSkipsAfterTermination(t *testing.T) {
 	reporter, registry := newGoRuntimeHistogramTestReporter(t)
 	untrackedService := svc.Attrs{
 		UID:         svc.UID{Name: "untracked", Namespace: "production"},
@@ -440,6 +440,7 @@ func TestRuntimeReporterOnlyGatesHistogramsOnProcessLiveness(t *testing.T) {
 	counts := testPromRuntimeHistogramCounts()
 	counts[0] = 2
 	reporter.collectRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{{
+		PID:     untrackedService.ProcPID,
 		Service: untrackedService,
 		Go: &runtimemetrics.GoRuntimeMetricSnapshot{
 			MemoryLimit: &memoryLimit,
@@ -456,8 +457,10 @@ func TestRuntimeReporterOnlyGatesHistogramsOnProcessLiveness(t *testing.T) {
 	})
 	require.NotNil(t, scalar)
 	assert.InDelta(t, float64(memoryLimit), scalar.GetGauge().GetValue(), 0)
-	assert.Nil(t, gatheredMetric(t, registry, attributes.GoRuntimeMemoryGCPauseDuration.Prom,
-		map[string]string{"service_name": "untracked", "service_namespace": "production"}))
+	histogram := gatheredMetric(t, registry, attributes.GoRuntimeMemoryGCPauseDuration.Prom,
+		map[string]string{"service_name": "untracked", "service_namespace": "production"})
+	require.NotNil(t, histogram)
+	assert.Equal(t, uint64(2), histogram.GetHistogram().GetSampleCount())
 
 	trackedService := untrackedService
 	trackedService.UID.Name = "tracked"

@@ -24,6 +24,7 @@ type goRuntimeHistogramProducer struct {
 	histograms   map[goRuntimeHistogramKey]goRuntimeHistogramState
 	lastProduced map[goRuntimeHistogramKey]goRuntimeHistogramState
 	pendingFinal map[runtimemetrics.GoHistogramKind][]goRuntimeHistogramState
+	retired      map[runtimemetrics.GoHistogramKind]goRuntimeHistogramState
 }
 
 type goRuntimeHistogramKey struct {
@@ -43,6 +44,7 @@ func newGoRuntimeHistogramProducer(temporality metricdata.Temporality) *goRuntim
 		histograms:   make(map[goRuntimeHistogramKey]goRuntimeHistogramState),
 		lastProduced: make(map[goRuntimeHistogramKey]goRuntimeHistogramState),
 		pendingFinal: make(map[runtimemetrics.GoHistogramKind][]goRuntimeHistogramState),
+		retired:      make(map[runtimemetrics.GoHistogramKind]goRuntimeHistogramState),
 	}
 }
 
@@ -103,6 +105,21 @@ func (p *goRuntimeHistogramProducer) Delete(pid app.PID) {
 					delta.histogram.Counts = append([]uint64(nil), delta.histogram.Counts...)
 					p.pendingFinal[key.kind] = append(p.pendingFinal[key.kind], delta)
 				}
+			} else {
+				aggregated := make(map[runtimemetrics.GoHistogramKind]goRuntimeHistogramState, 1)
+				if retired, ok := p.retired[key.kind]; ok {
+					aggregated[key.kind] = retired
+				}
+				if err := addGoRuntimeHistogramState(aggregated, key.kind, p.histograms[key]); err != nil {
+					rmlog().Warn(
+						"retaining active Go runtime histogram after failed retirement",
+						"kind", key.kind,
+						"pid", pid,
+						"error", err,
+					)
+					continue
+				}
+				p.retired[key.kind] = aggregated[key.kind]
 			}
 			delete(p.histograms, key)
 			delete(p.lastProduced, key)
@@ -146,6 +163,11 @@ func (p *goRuntimeHistogramProducer) Produce(ctx context.Context) ([]metricdata.
 	aggregated, err := aggregateGoRuntimeHistogramStates(states)
 	if err != nil {
 		return nil, err
+	}
+	for kind, state := range p.retired {
+		if err := addGoRuntimeHistogramState(aggregated, kind, state); err != nil {
+			return nil, err
+		}
 	}
 	for kind, states := range p.pendingFinal {
 		for _, state := range states {
