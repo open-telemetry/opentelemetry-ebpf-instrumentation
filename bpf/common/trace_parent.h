@@ -199,7 +199,7 @@ static __always_inline tp_info_pid_t *find_python_parent_trace(const trace_key_t
         return NULL;
     }
 
-    tp_info_pid_t *server_tp = find_python_owning_server_trace(task_id);
+    tp_info_pid_t *server_tp = find_python_owning_server_trace(pid_tgid, task_id);
     if (server_tp) {
         bpf_dbg_printk(
             "find_python_parent_trace: FOUND tid=%d task=%llx", t_key->p_key.tid, task_id);

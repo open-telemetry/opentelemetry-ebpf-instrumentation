@@ -246,6 +246,21 @@ func TestJVMBPFMapsAreInternallyPinnedAndUseSharedEventsRingBuffer(t *testing.T)
 	assert.Equal(t, ebpf.LRUHash, spec.Maps["obi_usdt_ip_to_spec_id"].Type)
 }
 
+func TestPythonAsyncMapsScopePointersByProcess(t *testing.T) {
+	spec, err := LoadBpf()
+	require.NoError(t, err)
+
+	const pythonAddrKeySize = uint32(unsafe.Sizeof(struct {
+		PID  uint64
+		Addr uint64
+	}{}))
+
+	for _, name := range []string{"python_context_task", "python_task_state"} {
+		require.Contains(t, spec.Maps, name)
+		assert.Equal(t, pythonAddrKeySize, spec.Maps[name].KeySize)
+	}
+}
+
 func TestJVMRuntimeMetricsExposeHotSpotUSDTProbes(t *testing.T) {
 	tracer := Tracer{cfg: &obi.Config{}}
 	assert.Empty(t, tracer.USDTProbes())
