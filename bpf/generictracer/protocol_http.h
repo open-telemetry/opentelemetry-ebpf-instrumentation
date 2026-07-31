@@ -176,34 +176,42 @@ static __always_inline void mark_http_server_thread_trace_response_sent(http_inf
     }
 }
 
-static __always_inline void finish_http(http_info_t *info, pid_connection_info_t *pid_conn) {
-    if (http_info_complete(info) && !info->submitted) {
-        info->submitted = 1;
-        bpf_map_update_elem(&ongoing_http, pid_conn, info, BPF_ANY);
-        http_info_t *trace = bpf_ringbuf_reserve(&events, sizeof(http_info_t), 0);
-        if (trace) {
-            bpf_dbg_printk("Sending trace %lx, response length %d", info, info->resp_len);
-
-            __builtin_memcpy(trace, info, sizeof(http_info_t));
-            trace->flags = EVENT_K_HTTP_REQUEST;
-            bpf_ringbuf_submit(trace, get_flags());
-        } else {
-            bpf_dbg_printk("failed to reserve space in the ringbuf");
-        }
-
-        // bpf_dbg_printk("Terminating trace for pid=%d", pid_from_pid_tgid(pid_tid));
-        // dbg_print_http_connection_info(&info->conn_info); // commented out since GitHub CI doesn't like this call
-        if (info->type == EVENT_HTTP_REQUEST) {
-            cleanup_http_server_thread_trace(info);
-        }
-        // Don't delete the ongoing_http entry for requests that weren't delayed, we might be
-        // receiving still more packets, for example SSL.
-        if (info->delayed) {
-            bpf_map_delete_elem(&ongoing_http, pid_conn);
-        }
-
-        bpf_map_delete_elem(&active_ssl_connections, pid_conn);
+static __always_inline void submit_http_event(http_info_t *info, pid_connection_info_t *pid_conn) {
+    if (!http_info_complete(info) || info->submitted) {
+        return;
     }
+
+    info->submitted = 1;
+    bpf_map_update_elem(&ongoing_http, pid_conn, info, BPF_ANY);
+    http_info_t *trace = bpf_ringbuf_reserve(&events, sizeof(http_info_t), 0);
+    if (trace) {
+        bpf_dbg_printk("Sending trace %lx, response length %d", info, info->resp_len);
+
+        __builtin_memcpy(trace, info, sizeof(http_info_t));
+        trace->flags = EVENT_K_HTTP_REQUEST;
+        bpf_ringbuf_submit(trace, get_flags());
+    } else {
+        bpf_dbg_printk("failed to reserve space in the ringbuf");
+    }
+}
+
+static __always_inline void finish_http(http_info_t *info, pid_connection_info_t *pid_conn) {
+    if (!http_info_complete(info)) {
+        return;
+    }
+
+    submit_http_event(info, pid_conn);
+
+    if (info->type == EVENT_HTTP_REQUEST) {
+        cleanup_http_server_thread_trace(info);
+    }
+    // Don't delete the ongoing_http entry for requests that weren't delayed, we might be
+    // receiving still more packets, for example SSL.
+    if (info->delayed) {
+        bpf_map_delete_elem(&ongoing_http, pid_conn);
+    }
+
+    bpf_map_delete_elem(&active_ssl_connections, pid_conn);
 }
 
 static __always_inline void force_finish_http(http_info_t *info, pid_connection_info_t *pid_conn) {
@@ -267,9 +275,6 @@ static __always_inline tp_info_t *self_referencing_request(pid_connection_info_t
 }
 
 static __always_inline void finish_possible_delayed_http_request(pid_connection_info_t *pid_conn) {
-    if (high_request_volume) {
-        return;
-    }
     http_info_t *info = bpf_map_lookup_elem(&ongoing_http, pid_conn);
     if (info && info->delayed) {
         finish_http(info, pid_conn);
@@ -397,20 +402,28 @@ static __always_inline void handle_http_response(unsigned char *small_buf,
     // SSL connections must always be delayed: subsequent SSL_read calls deliver
     // the response body (e.g. SSE streaming) and require the request to remain
     // active in ongoing_http.
-    if ((high_request_volume && !info->ssl) || (lw_thread != k_lw_thread_none)) {
+    if (lw_thread != k_lw_thread_none) {
         finish_http(info, pid_conn);
-        // If we are terminating because of a light weight thread, e.g. Go we must clean
-        // the server information we have encoded in the Go structs.
-        if (lw_thread != k_lw_thread_none) {
-            delete_go_trace_info(lw_thread, pid_conn->pid);
-        }
-    } else {
-        bpf_dbg_printk("Delaying finish http for large request, orig_len=%d", orig_len);
-        info->delayed = 1;
-        if (info->type == EVENT_HTTP_REQUEST) {
-            mark_http_server_thread_trace_response_sent(info);
-        }
+        delete_go_trace_info(lw_thread, pid_conn->pid);
+        return;
     }
+
+    if (info->type == EVENT_HTTP_REQUEST) {
+        info->delayed = 1;
+        mark_http_server_thread_trace_response_sent(info);
+        if (high_request_volume && !info->ssl) {
+            submit_http_event(info, pid_conn);
+        }
+        return;
+    }
+
+    if (high_request_volume && !info->ssl) {
+        finish_http(info, pid_conn);
+        return;
+    }
+
+    bpf_dbg_printk("Delaying finish http for large request, orig_len=%d", orig_len);
+    info->delayed = 1;
 }
 
 static __always_inline int http_send_large_buffer(void *ctx,

@@ -27,10 +27,6 @@ static __always_inline u8 same_direction(pid_connection_info_t *p_conn, u8 direc
 }
 
 static __always_inline void ensure_sent_event(u64 id, u64 *sock_p, u8 direction) {
-    if (high_request_volume) {
-        return;
-    }
-
     send_args_t *s_args = (send_args_t *)bpf_map_lookup_elem(&active_send_args, &id);
     if (s_args) {
         bpf_dbg_printk("Checking if we need to finish the request per thread id");
