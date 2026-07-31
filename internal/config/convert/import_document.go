@@ -25,11 +25,8 @@ func DocumentToRuntime(src *schema.Document) (*obi.Config, error) {
 	if src == nil {
 		return nil, errors.New("missing OBI document")
 	}
-	if fields := src.OpenTelemetryExtensionFields(); len(fields) != 0 {
-		return nil, fmt.Errorf(
-			"OpenTelemetry extension fields are not supported: %s",
-			strings.Join(fields, ", "),
-		)
+	if err := validateV2Document(src); err != nil {
+		return nil, err
 	}
 
 	cfg, err := V2ToRuntime(src.Extensions.OBI)
@@ -45,6 +42,41 @@ func DocumentToRuntime(src *schema.Document) (*obi.Config, error) {
 	}
 
 	return cfg, nil
+}
+
+func validateV2Document(src *schema.Document) error {
+	if fields := src.OpenTelemetryExtensionFields(); len(fields) != 0 {
+		return fmt.Errorf(
+			"OpenTelemetry extension fields are not supported: %s",
+			strings.Join(fields, ", "),
+		)
+	}
+
+	switch {
+	case src.AttributeLimits != nil:
+		return unsupportedV2Field("attribute_limits")
+	case src.Disabled != nil && *src.Disabled:
+		return unsupportedV2Field("disabled")
+	case len(src.Distribution) != 0:
+		return unsupportedV2Field("distribution")
+	case src.InstrumentationDevelopment != nil:
+		return unsupportedV2Field("instrumentation/development")
+	case src.LoggerProvider != nil:
+		return unsupportedV2Field("logger_provider")
+	case !zeroValue(src.AdditionalProperties):
+		return unsupportedV2Field("additional declarative properties")
+	}
+
+	if src.Propagator != nil &&
+		(len(src.Propagator.Composite) != 0 || src.Propagator.CompositeList != nil) {
+		return unsupportedV2Field("propagator")
+	}
+
+	return nil
+}
+
+func unsupportedV2Field(path string) error {
+	return fmt.Errorf("%s is not supported by the OBI runtime converter", path)
 }
 
 func applyV2LogLevel(cfg *obi.Config, src *schema.Document) error {
