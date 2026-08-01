@@ -20,11 +20,16 @@ struct {
     __uint(pinning, OBI_PIN_INTERNAL);
 } handled_by_go_conn SEC(".maps");
 
+static __always_inline void
+store_go_handled_connection_info_sorted(const connection_info_t *sorted_conn) {
+    bpf_map_update_elem(&handled_by_go_conn, sorted_conn, &(bool){true}, BPF_ANY);
+}
+
 static __always_inline void store_go_handled_connection_info(const connection_info_t *conn) {
     if (conn) {
         connection_info_t sorted_conn = *conn;
         sort_connection_info(&sorted_conn);
-        bpf_map_update_elem(&handled_by_go_conn, &sorted_conn, &(bool){true}, BPF_ANY);
+        store_go_handled_connection_info_sorted(&sorted_conn);
     }
 }
 

@@ -673,6 +673,18 @@
           "default": "auto",
           "x-env-var": "OTEL_EBPF_FORCE_BPF_MAP_READER"
         },
+        "go_http_client_buffer_timeout": {
+          "type": "string",
+          "pattern": "^[0-9]+(ms|s|m)$",
+          "description": "Is the inactivity period after which a pending Go HTTP client event is enriched with its captured buffers and emitted. A zero value disables deferral.",
+          "default": "1s",
+          "examples": [
+            "30s",
+            "5m",
+            "1ms"
+          ],
+          "x-env-var": "OTEL_EBPF_BPF_GO_HTTP_CLIENT_BUFFER_TIMEOUT"
+        },
         "heuristic_sql_detect": {
           "type": "boolean",
           "description": "Enables the heuristic based detection of SQL requests. This can be used to detect talking to databases other than the ones we recognize in OBI, like Postgres and MySQL",
@@ -954,6 +966,10 @@
         "mcp": {
           "$ref": "#/$defs/MCPConfig",
           "description": "Model Context Protocol (MCP) payload extraction and parsing"
+        },
+        "ollama": {
+          "$ref": "#/$defs/OllamaConfig",
+          "description": "Native API payload extraction and parsing"
         },
         "openai": {
           "$ref": "#/$defs/OpenAIConfig",
@@ -1309,6 +1325,13 @@
     },
     "HealthCheckConfig": {
       "properties": {
+        "listen_address": {
+          "type": "string",
+          "format": "ip",
+          "description": "IP address the TCP health endpoint binds to. Defaults to 127.0.0.1. Set to 0.0.0.0 or :: only when external probes require access.",
+          "default": "127.0.0.1",
+          "x-env-var": "OTEL_EBPF_HEALTH_CHECK_LISTEN_ADDRESS"
+        },
         "port": {
           "type": "integer",
           "description": "0 (default) means disabled",
@@ -1634,12 +1657,68 @@
           ],
           "x-env-var": "OTEL_EBPF_BPF_LOG_ENRICHER_CACHE_TTL"
         },
+        "field_names": {
+          "$ref": "#/$defs/LogEnricherFieldNames",
+          "description": "Defines the trace context field names OBI preserves when present and injects when missing"
+        },
+        "plain_text": {
+          "$ref": "#/$defs/LogEnricherPlainTextConfig",
+          "description": "Configures trace context annotation for non-JSON logs"
+        },
         "services": {
           "items": {
             "$ref": "#/$defs/LogEnricherServiceConfig"
           },
           "type": "array",
           "description": "Specifies the services to enable log enrichment for"
+        }
+      },
+      "type": "object"
+    },
+    "LogEnricherFieldNames": {
+      "properties": {
+        "span_id": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^=\\u0000-\\u0020\\u007F-\\u00A0\\u1680\\u2000-\\u200A\\u2028-\\u2029\\u202F\\u205F\\u3000]+$",
+          "description": "Is the literal span ID field name used to preserve and inject span context",
+          "default": "span_id"
+        },
+        "trace_id": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^=\\u0000-\\u0020\\u007F-\\u00A0\\u1680\\u2000-\\u200A\\u2028-\\u2029\\u202F\\u205F\\u3000]+$",
+          "description": "Is the literal trace ID field name used to preserve and inject trace context",
+          "default": "trace_id"
+        }
+      },
+      "type": "object"
+    },
+    "LogEnricherPlainTextConfig": {
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Controls trace context annotation for non-JSON logs",
+          "default": true
+        },
+        "multiline": {
+          "type": "string",
+          "enum": [
+            "each_line",
+            "first_line",
+            "last_line"
+          ],
+          "description": "Controls which nonempty lines in each write are annotated",
+          "default": "first_line"
+        },
+        "placement": {
+          "type": "string",
+          "enum": [
+            "prefix",
+            "suffix"
+          ],
+          "description": "Controls whether fields are added before or after each selected line",
+          "default": "suffix"
         }
       },
       "type": "object"
@@ -2158,6 +2237,17 @@
       },
       "type": "object",
       "description": "NumericRange defines numeric comparison criteria for a rule match condition. All fields are optional; only the provided fields are evaluated."
+    },
+    "OllamaConfig": {
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable Ollama native API payload extraction and parsing",
+          "default": false,
+          "x-env-var": "OTEL_EBPF_HTTP_OLLAMA_ENABLED"
+        }
+      },
+      "type": "object"
     },
     "OpenAICompatibleConfig": {
       "properties": {

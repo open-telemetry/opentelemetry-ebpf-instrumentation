@@ -32,6 +32,7 @@ QEMU_ARCH := $(if $(filter $(ARCH),amd64 x86_64),x86_64,$(if $(filter $(ARCH),ar
 QEMU_BIN = qemu-system-$(QEMU_ARCH)
 QEMU := $(shell which $(QEMU_BIN))
 QEMU_MEMORY ?= 8192
+QEMU_SMP ?= 2
 PRECOMPILED_TESTS_DIR ?=
 # Path to /lib/modules tree for the active LVH kernel. CI populates via
 # prepare-kernel.sh; local invocations can rely on that auto-resolution.
@@ -111,7 +112,7 @@ launchvm-run:
 		echo "KVM not available, falling back to TCG"; \
 		QEMU_ACCEL="-accel tcg,thread=multi -cpu qemu64"; \
 	fi; \
-	qemu-system-x86_64 $$QEMU_ACCEL -m $(QEMU_MEMORY) -smp 2 -kernel $(KERNEL) \
+	qemu-system-x86_64 $$QEMU_ACCEL -m $(QEMU_MEMORY) -smp $(QEMU_SMP) -kernel $(KERNEL) \
 		-drive file=$(ROOT_IMG),format=qcow2,if=none,id=hd0 \
 		-device virtio-blk-pci,drive=hd0 \
 		-append "earlyprintk=ttyS0 console=ttyS0 root=/dev/vda rw quiet rcupdate.rcu_cpu_stall_timeout=60 panic=5" \

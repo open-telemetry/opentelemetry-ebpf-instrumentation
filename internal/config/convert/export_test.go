@@ -5,11 +5,13 @@ package convert
 
 import (
 	"reflect"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/gobwas/glob"
 	"github.com/stretchr/testify/require"
 	"go.yaml.in/yaml/v3"
 
@@ -97,6 +99,7 @@ func TestRuntimeToV2DefaultConfig(t *testing.T) {
 		string(protocolCouchbase),
 		string(protocolDNS),
 		string(protocolGPU),
+		string(protocolAerospike),
 	}, keys(ext.Capture.Instrumentation))
 
 	require.Equal(t, true, value(t, ext.Capture.Runtimes, "go", "enabled"))
@@ -119,6 +122,11 @@ func TestRuntimeToV2DefaultConfig(t *testing.T) {
 	require.Equal(t, schema.Duration(30*time.Minute), value(t, ext.Correlation, "log_trace_annotation", "cache", "ttl"))
 	require.Equal(t, 128, value(t, ext.Correlation, "log_trace_annotation", "cache", "size"))
 	require.Equal(t, 8, value(t, ext.Correlation, "log_trace_annotation", "async_writer", "workers"))
+	require.Equal(t, "trace_id", value(t, ext.Correlation, "log_trace_annotation", "field_names", "trace_id"))
+	require.Equal(t, "span_id", value(t, ext.Correlation, "log_trace_annotation", "field_names", "span_id"))
+	require.Equal(t, true, value(t, ext.Correlation, "log_trace_annotation", "plain_text", "enabled"))
+	require.Equal(t, config.LogEnricherPlacementSuffix, value(t, ext.Correlation, "log_trace_annotation", "plain_text", "placement"))
+	require.Equal(t, config.LogEnricherMultilineFirstLine, value(t, ext.Correlation, "log_trace_annotation", "plain_text", "multiline"))
 
 	require.Equal(t, schema.LogFormatText, value(t, ext.Daemon, "logging", "format"))
 	require.Equal(t, schema.ConfigFormatUnset, value(t, ext.Daemon, "logging", "config_format"))
@@ -149,16 +157,8 @@ func TestRuntimeToV2NilRoutesOnlyExportsDiscovery(t *testing.T) {
 	routes, ok := value(t, ext.Capture.Instrumentation, "http", "routes").(schema.HTTPRoutes)
 	require.True(t, ok)
 	require.Equal(t, schema.Duration(10*time.Second), routes.Discovery.Timeout)
-	for _, key := range []string{
-		"unmatched",
-		"patterns",
-		"ignored_patterns",
-		"ignore_mode",
-		"wildcard_char",
-		"max_path_segment_cardinality",
-	} {
-		require.Nil(t, value(t, routes, key))
-	}
+	require.Nil(t, routes.Incoming)
+	require.Nil(t, routes.Outgoing)
 }
 
 func TestRuntimeToV2CustomConfig(t *testing.T) {
@@ -269,6 +269,15 @@ func TestRuntimeToV2CustomConfig(t *testing.T) {
 	cfg.EBPF.LogEnricher.CacheSize = 904
 	cfg.EBPF.LogEnricher.AsyncWriterWorkers = 905
 	cfg.EBPF.LogEnricher.AsyncWriterChannelLen = 906
+	cfg.EBPF.LogEnricher.FieldNames = config.LogEnricherFieldNames{
+		TraceID: "trace.id",
+		SpanID:  "span.id",
+	}
+	cfg.EBPF.LogEnricher.PlainText = config.LogEnricherPlainTextConfig{
+		Enabled:   false,
+		Placement: config.LogEnricherPlacementPrefix,
+		Multiline: config.LogEnricherMultilineLastLine,
+	}
 
 	cfg.Traces.TracesEndpoint = "http://traces.example:4317"
 	cfg.Traces.BatchMaxSize = 907
@@ -426,6 +435,11 @@ func TestRuntimeToV2CustomConfig(t *testing.T) {
 	require.Equal(t, 904, value(t, ext.Correlation, "log_trace_annotation", "cache", "size"))
 	require.Equal(t, 905, value(t, ext.Correlation, "log_trace_annotation", "async_writer", "workers"))
 	require.Equal(t, 906, value(t, ext.Correlation, "log_trace_annotation", "async_writer", "channel_len"))
+	require.Equal(t, "trace.id", value(t, ext.Correlation, "log_trace_annotation", "field_names", "trace_id"))
+	require.Equal(t, "span.id", value(t, ext.Correlation, "log_trace_annotation", "field_names", "span_id"))
+	require.Equal(t, false, value(t, ext.Correlation, "log_trace_annotation", "plain_text", "enabled"))
+	require.Equal(t, config.LogEnricherPlacementPrefix, value(t, ext.Correlation, "log_trace_annotation", "plain_text", "placement"))
+	require.Equal(t, config.LogEnricherMultilineLastLine, value(t, ext.Correlation, "log_trace_annotation", "plain_text", "multiline"))
 
 	require.NotNil(t, doc.LogLevel)
 	require.Equal(t, otelconfx.SeverityNumberDebug, *doc.LogLevel)
@@ -552,6 +566,7 @@ func TestRuntimeToV2AdvancedCaptureParity(t *testing.T) {
 	cfg.EBPF.PayloadExtraction.HTTP.GenAI.Embedding.Enabled = true
 	cfg.EBPF.PayloadExtraction.HTTP.GenAI.Rerank.Enabled = true
 	cfg.EBPF.PayloadExtraction.HTTP.GenAI.Retrieval.Enabled = true
+	cfg.EBPF.PayloadExtraction.HTTP.GenAI.Ollama.Enabled = true
 	cfg.EBPF.PayloadExtraction.HTTP.JSONRPC.Enabled = true
 	cfg.EBPF.PayloadExtraction.HTTP.Enrichment.Enabled = true
 	cfg.EBPF.PayloadExtraction.HTTP.Enrichment.Policy.DefaultAction.Headers = config.HTTPParsingActionInclude
@@ -597,12 +612,14 @@ func TestRuntimeToV2AdvancedCaptureParity(t *testing.T) {
 	_, ext := RuntimeToV2(&cfg)
 
 	require.Equal(t, schema.CaptureActionExclude, value(t, ext.Capture.Policy, "default_action"))
-	require.Equal(t, cfg.Routes.Unmatch, value(t, ext.Capture.Instrumentation, "http", "routes", "unmatched"))
-	require.Equal(t, []string{"/products/{id}"}, value(t, ext.Capture.Instrumentation, "http", "routes", "patterns"))
-	require.Equal(t, []string{"/health"}, value(t, ext.Capture.Instrumentation, "http", "routes", "ignored_patterns"))
-	require.Equal(t, cfg.Routes.IgnoredEvents, value(t, ext.Capture.Instrumentation, "http", "routes", "ignore_mode"))
-	require.Equal(t, "#", value(t, ext.Capture.Instrumentation, "http", "routes", "wildcard_char"))
-	require.Equal(t, 22, value(t, ext.Capture.Instrumentation, "http", "routes", "max_path_segment_cardinality"))
+	for _, direction := range []string{"incoming", "outgoing"} {
+		require.Equal(t, services.RouteUnmatch(cfg.Routes.Unmatch), value(t, ext.Capture.Instrumentation, "http", "routes", direction, "unmatched"))
+		require.Equal(t, []string{"/products/{id}"}, value(t, ext.Capture.Instrumentation, "http", "routes", direction, "patterns"))
+		require.Equal(t, []string{"/health"}, value(t, ext.Capture.Instrumentation, "http", "routes", direction, "ignored_patterns"))
+		require.Equal(t, services.RouteIgnoreMode(cfg.Routes.IgnoredEvents), value(t, ext.Capture.Instrumentation, "http", "routes", direction, "ignore_mode"))
+		require.Equal(t, "#", value(t, ext.Capture.Instrumentation, "http", "routes", direction, "wildcard_char"))
+		require.Equal(t, 22, value(t, ext.Capture.Instrumentation, "http", "routes", direction, "max_path_segment_cardinality"))
+	}
 	require.Equal(t, schema.Duration(23*time.Second), value(t, ext.Capture.Instrumentation, "http", "routes", "discovery", "timeout"))
 	require.Equal(t, []services.RouteHarvesterLanguage{services.RouteHarvesterLanguageJava}, value(t, ext.Capture.Instrumentation, "http", "routes", "discovery", "disabled_languages"))
 	require.Equal(t, schema.Duration(24*time.Second), value(t, ext.Capture.Instrumentation, "http", "routes", "discovery", "java", "delay"))
@@ -616,7 +633,7 @@ func TestRuntimeToV2AdvancedCaptureParity(t *testing.T) {
 
 	require.ElementsMatch(t, []string{
 		"graphql", "elasticsearch", "aws", "sqlpp", "openai", "anthropic", "gemini",
-		"qwen", "bedrock", "mcp", "embedding", "rerank", "retrieval", "jsonrpc", "enrichment",
+		"qwen", "bedrock", "mcp", "embedding", "rerank", "retrieval", "ollama", "jsonrpc", "enrichment",
 	}, value(t, ext.Capture.Instrumentation, "http", "payload_extraction", "enabled"))
 	require.Equal(t, []string{"/query", "/analytics"}, value(t, ext.Capture.Instrumentation, "http", "payload_extraction", "sqlpp", "endpoint_patterns"))
 	require.Equal(t, config.HTTPParsingActionInclude, value(t, ext.Capture.Instrumentation, "http", "payload_extraction", "enrichment", "policy", "default_action", "headers"))
@@ -657,8 +674,8 @@ func TestRuntimeToV2AdvancedCaptureParity(t *testing.T) {
 	require.NotNil(t, ext.Capture.Rules[3].Refine.Exports)
 	require.Equal(t, schema.ExportModeRefinement{Traces: false, Metrics: true}, *ext.Capture.Rules[3].Refine.Exports)
 	require.NotNil(t, ext.Capture.Rules[3].Refine.HTTP)
-	require.Equal(t, []string{"/orders/{id}"}, ext.Capture.Rules[3].Refine.HTTP.Routes.Incoming.Patterns)
-	require.Equal(t, []string{"/inventory/{id}"}, ext.Capture.Rules[3].Refine.HTTP.Routes.Outgoing.Patterns)
+	require.Equal(t, []string{"/orders/{id}"}, *ext.Capture.Rules[3].Refine.HTTP.Routes.Incoming.Patterns)
+	require.Equal(t, []string{"/inventory/{id}"}, *ext.Capture.Rules[3].Refine.HTTP.Routes.Outgoing.Patterns)
 }
 
 func TestRuntimeToV2EffectiveDiscoveryCriteria(t *testing.T) {
@@ -758,6 +775,106 @@ func TestRuntimeToV2EffectiveDiscoveryCriteria(t *testing.T) {
 		require.Equal(t, cfg.Port, value(t, ext.Capture.Rules[2].Match, "process", "open_ports"))
 		require.Equal(t, "^/srv/fallback$", value(t, ext.Capture.Rules[2].Match, "process", "exe_path_regex"))
 	})
+
+	t.Run("deprecated selectors preserve system path exclusions", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := defaultRuntimeConfig()
+		ports := services.IntEnum{}
+		require.NoError(t, ports.UnmarshalText([]byte("5000")))
+		cfg.Discovery.Services = services.RegexDefinitionCriteria{
+			{Path: services.NewRegexp("^/srv/api$")},
+			{OpenPorts: ports},
+		}
+		cfg.Discovery.ExcludedLinuxSystemPaths = []string{"/opt/system+services/"}
+
+		_, ext := RuntimeToV2(&cfg)
+
+		var systemPathRule *schema.Rule
+		for i := range ext.Capture.Rules {
+			if ext.Capture.Rules[i].Name == "exclude-linux-system-paths" {
+				systemPathRule = &ext.Capture.Rules[i]
+				break
+			}
+		}
+		require.NotNil(t, systemPathRule)
+		require.Empty(t, systemPathRule.Match.Process.ExePathGlob)
+		require.Equal(t, `^/opt/system\+services/`, systemPathRule.Match.Process.ExePathRegex)
+
+		var portRule *schema.Rule
+		for i := range ext.Capture.Rules {
+			if ext.Capture.Rules[i].Match.Process.OpenPorts != nil {
+				portRule = &ext.Capture.Rules[i]
+				break
+			}
+		}
+		require.NotNil(t, portRule)
+		require.Equal(t, ".*", portRule.Match.Process.ExePathRegex)
+		_, err := V2ToRuntime(ext)
+		require.NoError(t, err)
+	})
+
+	t.Run("deprecated executable path preserves regex family", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := defaultRuntimeConfig()
+		cfg.Exec = services.NewRegexp("^/srv/api$")
+		cfg.Discovery.DefaultExcludeInstrument = services.GlobDefinitionCriteria{
+			{Path: services.NewGlob("/custom/{one,two}/service-??")},
+			{
+				Metadata: services.MetadataGlobMap{
+					services.AttrNamespace: globPtr("prod-*"),
+				},
+				PodLabels: map[string]*services.GlobAttr{
+					"app": globPtr("{api,worker}"),
+				},
+			},
+		}
+		cfg.Discovery.ExcludeOTelInstrumentedServices = false
+		cfg.Discovery.ExcludedLinuxSystemPaths = nil
+
+		_, ext := RuntimeToV2(&cfg)
+
+		require.Equal(t, "^/srv/api$", ext.Capture.Rules[len(ext.Capture.Rules)-1].Match.Process.ExePathRegex)
+		runtimeConfig, err := V2ToRuntime(ext)
+		require.NoError(t, err)
+		require.Len(t, runtimeConfig.Discovery.ExcludeServices, 2)
+		require.True(t, runtimeConfig.Discovery.ExcludeServices[0].Path.MatchString("/custom/one/service-ab"))
+		require.False(t, runtimeConfig.Discovery.ExcludeServices[0].Path.MatchString("/custom/three/service-ab"))
+		require.True(t, runtimeConfig.Discovery.ExcludeServices[1].Metadata[services.AttrNamespace].MatchString("prod-east"))
+		require.True(t, runtimeConfig.Discovery.ExcludeServices[1].PodLabels["app"].MatchString("worker"))
+	})
+}
+
+func TestGlobPatternsRegexMatchesGlobSemantics(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		patterns   []string
+		candidates []string
+	}{
+		{patterns: []string{"*"}, candidates: []string{"", "any/path", "line\nbreak"}},
+		{patterns: []string{"service-??"}, candidates: []string{"service-ab", "service-a", "xservice-ab"}},
+		{patterns: []string{"prod-{api,worker}-[!0-9]"}, candidates: []string{"prod-api-x", "prod-worker-1", "prod-db-x"}},
+		{patterns: []string{"{[a,b],c}"}, candidates: []string{"a", "b", "c", "[a"}},
+		{patterns: []string{`{a\,b,c}`}, candidates: []string{"a,b", "a", "c"}},
+		{patterns: []string{`literal\*`}, candidates: []string{"literal*", "literal-value"}},
+		{patterns: []string{"api-*", "worker-??"}, candidates: []string{"api-one", "worker-ab", "worker-a", "other"}},
+	}
+
+	for _, test := range tests {
+		converted := regexp.MustCompile(globPatternsRegex(test.patterns))
+		for _, candidate := range test.candidates {
+			want := false
+			for _, pattern := range test.patterns {
+				if glob.MustCompile(pattern).Match(candidate) {
+					want = true
+					break
+				}
+			}
+			require.Equal(t, want, converted.MatchString(candidate), "candidate %q for %v", candidate, test.patterns)
+		}
+	}
 }
 
 func TestRuntimeToV2MetricInstrumentationsUseEnabledExporters(t *testing.T) {
@@ -865,6 +982,7 @@ func TestRuntimeToV2DocumentParsesAsStandaloneV2(t *testing.T) {
 	require.NotContains(t, string(data), "rules: null")
 	require.NotContains(t, string(data), "telemetry: null")
 	require.NotContains(t, string(data), "refine: {}")
+	require.NotContains(t, string(data), "additionalproperties")
 
 	parsedDoc, parsedExt, err := schema.ParseStandaloneYAML(data)
 	require.NoError(t, err)

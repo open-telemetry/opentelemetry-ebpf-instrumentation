@@ -79,6 +79,43 @@ func TestRetrievalSpan_Pinecone(t *testing.T) {
 	assert.Equal(t, 3, ai.Input.GetTopK())
 }
 
+func TestRetrievalSpan_ExplicitZeroUsage(t *testing.T) {
+	req := makeRequest(t, http.MethodPost,
+		"https://example-abc.svc.us-east1-aws.pinecone.io/query", pineconeQueryRequest)
+	resp := makePlainResponse(http.StatusOK, http.Header{"Content-Type": []string{"application/json"}},
+		`{"matches":[],"usage":{"prompt_tokens":0}}`)
+
+	span, ok := RetrievalSpan(&request.Span{}, req, resp)
+	require.True(t, ok)
+	assert.True(t, isReported(span.GenAIInputTokenCount()))
+	assert.Zero(t, reportedValue(span.GenAIInputTokenCount()))
+	assert.False(t, isReported(span.GenAIOutputTokenCount()))
+}
+
+func TestRetrievalSpan_UsageAfterMalformedEnvelopeField(t *testing.T) {
+	req := makeRequest(t, http.MethodPost,
+		"https://example-abc.svc.us-east1-aws.pinecone.io/query", pineconeQueryRequest)
+	resp := makePlainResponse(http.StatusOK, http.Header{"Content-Type": []string{"application/json"}},
+		`{"model":{},"usage":{"prompt_tokens":0}}`)
+
+	span, ok := RetrievalSpan(&request.Span{}, req, resp)
+	require.True(t, ok)
+	assert.True(t, isReported(span.GenAIInputTokenCount()))
+	assert.Zero(t, reportedValue(span.GenAIInputTokenCount()))
+}
+
+func TestRetrievalSpan_UsageBeforeOuterTruncation(t *testing.T) {
+	req := makeRequest(t, http.MethodPost,
+		"https://example-abc.svc.us-east1-aws.pinecone.io/query", pineconeQueryRequest)
+	resp := makePlainResponse(http.StatusOK, http.Header{"Content-Type": []string{"application/json"}},
+		`{"usage":{"prompt_tokens":0},"matches":[`)
+
+	span, ok := RetrievalSpan(&request.Span{}, req, resp)
+	require.True(t, ok)
+	assert.True(t, isReported(span.GenAIInputTokenCount()))
+	assert.Zero(t, reportedValue(span.GenAIInputTokenCount()))
+}
+
 func TestRetrievalSpan_Qdrant(t *testing.T) {
 	req := makeRequest(t, http.MethodPost,
 		"https://my-cluster.aws.qdrant.io/collections/my_coll/points/search",

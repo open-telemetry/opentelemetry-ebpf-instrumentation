@@ -28,7 +28,56 @@ through language-specific library instrumentation documented later in this file.
 | AWS S3        |    All    |         All | CreateBucket, DeleteBucket, PutObject, DeleteObject, ListBuckets, ListObjects, GetObject |  Yes   |                 No |                                                                                                                             N/A
 | AWS SQS       |    All    |         All | All                                                                                      |  Yes   |                 No |                                                                                                                             N/A
 | SQL++         |    All    |         All | All                                                                                      |  Yes   |                 No |                                                                                                                             N/A
-| GenAI         |    All    |         All | All                                                                                      |  Yes   |                 No |                                                   Supported vendors: OpenAI, Anthropic, Google AI Studio (Gemini), AWS Bedrock, Qwen (DashScope), generic embedding providers (Voyage AI, Cohere, Jina AI), Cohere (Rerank), Jina AI (Rerank), Voyage AI (Rerank), Qwen (DashScope) (Rerank), OpenAI-compatible gateways (LiteLLM, vLLM, LocalAI, OpenRouter, Ollama /v1/), vector retrieval (Pinecone, Qdrant, Milvus, Zilliz, Chroma, Weaviate)
+| GenAI         |    All    |         All | All                                                                                      |  Yes   |                 No |                                                   Supported vendors: OpenAI, Anthropic, Google AI Studio (Gemini), AWS Bedrock, Qwen (DashScope), generic embedding providers (Voyage AI, Cohere, Jina AI), Cohere (Rerank), Jina AI (Rerank), Voyage AI (Rerank), Qwen (DashScope) (Rerank), Ollama (native /api/chat and /api/generate), OpenAI-compatible gateways (LiteLLM, vLLM, LocalAI, OpenRouter, Ollama /v1/), vector retrieval (Pinecone, Qdrant, Milvus, Zilliz, Chroma, Weaviate)
+
+## GenAI token usage availability
+
+OBI exports GenAI token usage only when the provider response reports the
+corresponding count. A reported value of zero is preserved; a missing count is
+omitted from traces and metrics. Streaming responses expose token usage only
+when the captured stream includes the provider's usage event or final usage
+chunk.
+
+| Provider or operation | Input token source | Output token source | Availability notes |
+|:----------------------|:-------------------|:--------------------|:-------------------|
+| OpenAI and OpenAI-compatible APIs | `input_tokens` or `prompt_tokens` | `output_tokens`, `completion_tokens`, or `total_tokens` minus the reported input count | Streaming APIs must return a usage chunk; for OpenAI this commonly requires usage-inclusive stream options. |
+| Qwen (DashScope) | `input_tokens` or `prompt_tokens` | `output_tokens`, `completion_tokens`, or `total_tokens` minus the reported input count | Supports native and OpenAI-compatible response field names. |
+| Anthropic | `input_tokens` plus reported cache read and cache creation tokens | `output_tokens` | Supports buffered responses and usage fields in SSE message events. |
+| Google AI Studio (Gemini) | `promptTokenCount` plus `toolUsePromptTokenCount` | `candidatesTokenCount` plus `thoughtsTokenCount` | Read from `usageMetadata` in buffered responses or stream chunks. |
+| AWS Bedrock | Response header, body usage, or model-specific input count, plus cache read and write counts | Response header, body usage, or model-specific output count | Response headers take precedence when present; buffered Converse and model-family response bodies provide fallbacks. |
+| Ollama native API | `prompt_eval_count` | `eval_count` | For NDJSON streams, counts are normally present only on the final `done` object. |
+| Embeddings | `prompt_tokens`, `total_tokens`, or Cohere `meta.billed_units.input_tokens` | Not reported | Only input token usage is exported. |
+| Rerank | `usage.total_tokens`, `usage.prompt_tokens`, or `meta.tokens.input_tokens` | Not reported | Only input token usage is exported. |
+| Vector retrieval | `usage.prompt_tokens` or `usage.total_tokens` | Not reported | Most vector stores do not return token usage; it is exported when present. |
+| MCP | Not reported | Not reported | MCP spans do not currently expose token usage. |
+
+## GenAI provider error messages
+
+OBI does not export raw GenAI provider error messages by default. To copy them
+verbatim into the OTLP span `status.message`, explicitly select the
+`gen_ai.response.error` control:
+
+```yaml
+attributes:
+  select:
+    traces:
+      include:
+        - gen_ai.response.error
+```
+
+The control applies to OpenAI, OpenAI-compatible APIs, Anthropic, Google AI
+Studio (Gemini), Qwen, AWS Bedrock, and Rerank responses. It only affects spans
+whose resulting status is `Error`; it does not change status classification or
+the `error.type` attribute. `gen_ai.response.error` is not exported as a span
+attribute, and OBI does not use the deprecated `error.message` attribute.
+
+This sensitive control requires an exact include. Wildcards such as
+`gen_ai.*` and `*` do not enable it. OBI does not additionally redact or
+truncate selected messages. Provider error text can contain credentials,
+account or request identifiers, prompts or completions, tenant metadata,
+request details, customer usage data, account or billing details, and other
+sensitive data. Review backend access, retention, and downstream processing
+before enabling it.
 
 ## Go Instrumentation
 

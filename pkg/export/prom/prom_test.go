@@ -5,6 +5,7 @@ package prom
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -376,6 +377,21 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 			},
 		},
 		{
+			name:  "aerospike only",
+			instr: []instrumentations.Instrumentation{instrumentations.InstrumentationAerospike},
+			expected: []string{
+				"db_client_operation_duration_seconds",
+				"aerospike_get",
+			},
+			unexpected: []string{
+				`db_operation_name="SELECT"`,
+				`db_operation_name="SET"`,
+				`db_operation_name="GET"`,
+				`db_operation_name="find"`,
+			},
+		},
+
+		{
 			name:     "none",
 			instr:    nil,
 			expected: []string{},
@@ -402,6 +418,7 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 				"rpc_client_call_duration_seconds",
 				"messaging_client_operation_duration_seconds",
 				"messaging_process_duration_seconds",
+				"aerospike_get",
 			},
 		},
 		{
@@ -450,6 +467,7 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 			go exporter(ctx)
 
 			promInput.Send([]request.Span{
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeAerospikeClient, Method: "aerospike_get", RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeHTTP, Path: "/foo", RequestStart: 100, End: 200},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeHTTPClient, Path: "/bar", RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeGRPC, Path: "/foo", RequestStart: 100, End: 200},
@@ -887,6 +905,56 @@ func makePromExporter(
 	require.NoError(t, err)
 
 	return exporter
+}
+
+func TestPrometheusGenAITokenAvailability(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		usageJSON string
+		reported  bool
+	}{
+		{name: "explicit zero", usageJSON: `{"prompt_tokens":0,"completion_tokens":0}`, reported: true},
+		{name: "missing", usageJSON: `{}`, reported: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			openPort := testutil.FreeTCPPort(t)
+			promURL := fmt.Sprintf("http://127.0.0.1:%d/metrics", openPort)
+			input := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
+			exporter := makePromExporter(ctx, t,
+				[]instrumentations.Instrumentation{instrumentations.InstrumentationGenAI},
+				openPort,
+				input,
+			)
+			go exporter(ctx)
+
+			var usage request.OpenAIUsage
+			require.NoError(t, json.Unmarshal([]byte(tc.usageJSON), &usage))
+			input.Send([]request.Span{{
+				Service:      svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "genai"}},
+				Type:         request.EventTypeHTTPClient,
+				SubType:      request.HTTPSubtypeOpenAI,
+				RequestStart: 100,
+				End:          200,
+				GenAI:        &request.GenAI{OpenAI: &request.VendorOpenAI{Usage: usage}},
+			}})
+
+			inputCount := regexp.MustCompile(`\ngen_ai_client_token_usage_count\{[^\n]*gen_ai_token_type="input"[^\n]*\} 1`)
+			outputCount := regexp.MustCompile(`\ngen_ai_client_token_usage_count\{[^\n]*gen_ai_token_type="output"[^\n]*\} 1`)
+			require.EventuallyWithT(t, func(ct *assert.CollectT) {
+				exported := getMetrics(ct, promURL)
+				assert.Contains(ct, exported, "gen_ai_client_operation_duration_seconds_count")
+				if tc.reported {
+					assert.Regexp(ct, inputCount, exported)
+					assert.Regexp(ct, outputCount, exported)
+				} else {
+					assert.NotRegexp(ct, inputCount, exported)
+					assert.NotRegexp(ct, outputCount, exported)
+				}
+			}, timeout, 10*time.Millisecond)
+		})
+	}
 }
 
 func TestSanitizeUTF8ForPrometheus(t *testing.T) {

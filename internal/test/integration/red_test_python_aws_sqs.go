@@ -90,8 +90,15 @@ func assertSQSOperation(t require.TestingT, op, expectedQueueURL, expectedMessag
 	require.Equal(t, "obi-queue", tag.Value)
 
 	tag, found = jaeger.FindIn(span.Tags, "messaging.operation.type")
-	require.True(t, found)
-	require.Equal(t, expectedOperationType, tag.Value)
+	if expectedOperationType == "" {
+		// messaging.operation.type is a semconv enum: it is omitted rather
+		// than emitted empty for operations with no mapped type (e.g.
+		// CreateQueue, DeleteQueue).
+		require.False(t, found, "messaging.operation.type should be omitted when the operation type is unknown")
+	} else {
+		require.True(t, found)
+		require.Equal(t, expectedOperationType, tag.Value)
+	}
 
 	tag, found = jaeger.FindIn(span.Tags, "messaging.operation.name")
 	require.True(t, found)

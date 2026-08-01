@@ -22,7 +22,9 @@ const (
 	prometheusInstantVectorValueLen = 2
 	runtimeMetricsHostPort          = "8392"
 	runtimeMetricsGo117HostPort     = "8393"
+	runtimeMetricsGo125HostPort     = "8394"
 	runtimeMemoryGaugeTolerance     = 16 * 1024 * 1024
+	runtimeGoroutineGaugeTolerance  = 4
 	runtimeMetricsReadIterations    = 12
 )
 
@@ -81,14 +83,26 @@ func testRuntimeMetricsGo(t *testing.T) {
 	gaugeMetrics := []struct {
 		runtimeName string
 		obiQuery    string
+		tolerance   float64
 	}{
+		{
+			runtimeName: "/gc/heap/goal:bytes",
+			obiQuery:    "go_memory_gc_goal_bytes",
+		},
 		{
 			runtimeName: "go.memory.used/stack",
 			obiQuery:    `go_memory_used_bytes{go_memory_type="stack"}`,
+			tolerance:   runtimeMemoryGaugeTolerance,
 		},
 		{
 			runtimeName: "go.memory.used/other",
 			obiQuery:    `go_memory_used_bytes{go_memory_type="other"}`,
+			tolerance:   runtimeMemoryGaugeTolerance,
+		},
+		{
+			runtimeName: "/sched/goroutines:goroutines",
+			obiQuery:    "go_goroutine_count",
+			tolerance:   runtimeGoroutineGaugeTolerance,
 		},
 	}
 
@@ -122,12 +136,43 @@ func testRuntimeMetricsGo(t *testing.T) {
 				metric.runtimeName,
 				obiValue,
 				metric.obiQuery,
-				runtimeMemoryGaugeTolerance,
+				metric.tolerance,
 			)
 		}
 	}, testTimeout, 250*time.Millisecond)
 
 	assertRuntimeMemoryMetricsDuringConcurrentReads(t, pq)
+}
+
+func testRuntimeGoroutineCountSuppressedAboveProcessorLimit(t *testing.T) {
+	pq := promtest.Client{HostPort: prometheusHostPort}
+	assert.Positive(t, runtimeMetricValue(t, pq, "go_goroutine_count"))
+
+	setGOMAXPROCSAboveRuntimeMetricLimit(t)
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		forceRuntimeGC(ct)
+		results, err := pq.Query("go_goroutine_count")
+		require.NoError(ct, err)
+		assert.Empty(ct, results, "go_goroutine_count should be removed after collection is suppressed")
+	}, testTimeout, 250*time.Millisecond)
+}
+
+func testRuntimeGoroutineCountGo125(t *testing.T) {
+	pq := promtest.Client{HostPort: prometheusHostPort}
+
+	forceRuntimeGCAtPort(t, runtimeMetricsGo125HostPort)
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		forceRuntimeGCAtPort(ct, runtimeMetricsGo125HostPort)
+		current := readRuntimeMetricsAtPort(ct, runtimeMetricsGo125HostPort)
+		assertRuntimeMetricGaugeObserved(
+			ct,
+			current,
+			"/sched/goroutines:goroutines",
+			runtimeMetricValue(ct, pq, "go_goroutine_count"),
+			"go_goroutine_count",
+			runtimeGoroutineGaugeTolerance,
+		)
+	}, testTimeout, 250*time.Millisecond)
 }
 
 func testRuntimeMetricsGo117(t *testing.T) {
@@ -136,6 +181,7 @@ func testRuntimeMetricsGo117(t *testing.T) {
 		"go_memory_gc_cycles_total",
 		"go_processor_limit",
 		"go_config_gogc_percent",
+		"go_memory_gc_goal_bytes",
 	}
 	unavailableMetrics := []string{
 		"go_memory_limit_bytes",
@@ -143,11 +189,13 @@ func testRuntimeMetricsGo117(t *testing.T) {
 		"go_memory_used_bytes",
 		"go_memory_allocated_bytes_total",
 		"go_memory_allocations_total",
+		"go_goroutine_count",
 	}
 
 	forceRuntimeGCAtPort(t, runtimeMetricsGo117HostPort)
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		forceRuntimeGCAtPort(ct, runtimeMetricsGo117HostPort)
+		current := readRuntimeMetricsAtPort(ct, runtimeMetricsGo117HostPort)
 		for _, metric := range availableMetrics {
 			assert.Positivef(ct, runtimeMetricValue(ct, pq, metric), "OBI %s should be positive", metric)
 		}
@@ -156,6 +204,14 @@ func testRuntimeMetricsGo117(t *testing.T) {
 			require.NoError(ct, err)
 			assert.Emptyf(ct, results, "OBI %s should not be exported", metric)
 		}
+		assertRuntimeMetricGaugeObserved(
+			ct,
+			current,
+			"/gc/heap/goal:bytes",
+			runtimeMetricValue(ct, pq, "go_memory_gc_goal_bytes"),
+			"go_memory_gc_goal_bytes",
+			0,
+		)
 	}, testTimeout, 250*time.Millisecond)
 }
 
@@ -281,6 +337,17 @@ func forceRuntimeGCAtPort(t require.TestingT, port string) {
 	require.NoError(t, err)
 }
 
+func setGOMAXPROCSAboveRuntimeMetricLimit(t require.TestingT) {
+	conn := runtimeMetricsConnAtPort(t, runtimeMetricsHostPort)
+	defer conn.Close()
+
+	_, err := conn.Write([]byte("SET_GOMAXPROCS_ABOVE_RUNTIME_METRIC_LIMIT\n"))
+	require.NoError(t, err)
+
+	_, err = bufio.NewReader(conn).ReadString('\n')
+	require.NoError(t, err)
+}
+
 func setRuntimeMetricsReadLoop(t require.TestingT, enabled bool) {
 	conn := runtimeMetricsConnAtPort(t, runtimeMetricsHostPort)
 	defer conn.Close()
@@ -297,7 +364,11 @@ func setRuntimeMetricsReadLoop(t require.TestingT, enabled bool) {
 }
 
 func readRuntimeMetrics(t require.TestingT) map[string]float64 {
-	conn := runtimeMetricsConnAtPort(t, runtimeMetricsHostPort)
+	return readRuntimeMetricsAtPort(t, runtimeMetricsHostPort)
+}
+
+func readRuntimeMetricsAtPort(t require.TestingT, port string) map[string]float64 {
+	conn := runtimeMetricsConnAtPort(t, port)
 	defer conn.Close()
 
 	_, err := conn.Write([]byte("RUNTIME_METRICS\n"))

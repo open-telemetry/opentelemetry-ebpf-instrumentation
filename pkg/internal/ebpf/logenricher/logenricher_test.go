@@ -7,11 +7,14 @@ package logenricher
 
 import (
 	"log/slog"
+	"os"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/rlimit"
+	"github.com/hashicorp/golang-lru/v2/expirable"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -28,6 +31,10 @@ const (
 	testPIDDisabledGate uint32 = 42
 	testPIDUntracked    uint32 = 99
 )
+
+func applyTestTraceContext(m map[string]any, includeSpan bool) {
+	applyTraceContext(m, obi.DefaultConfig.EBPF.LogEnricher.FieldNames, testTraceID, testSpanID, includeSpan)
+}
 
 func newTestTracer(t *testing.T, exclude bool) *Tracer {
 	t.Helper()
@@ -98,6 +105,33 @@ func TestPIDOpsWithoutLoadedObjectsDoNotPanic(t *testing.T) {
 	require.Error(t, tr.removePID(tr.pidKey(1, 42)))
 }
 
+func TestHandleWithoutTraceContextPreservesPlainText(t *testing.T) {
+	file, err := os.CreateTemp("/tmp", "obi-log-enricher-")
+	require.NoError(t, err)
+	path := file.Name()
+	require.NoError(t, file.Close())
+	t.Cleanup(func() { _ = os.Remove(path) })
+	require.Less(t, len(path), len(BpfLogEventT{}.FilePath))
+
+	cfg := obi.DefaultConfig
+	tr := newTestTracer(t, false)
+	tr.cfg = &cfg
+	tr.formatter = newLogFormatter(cfg.EBPF.LogEnricher)
+	tr.fdCache = expirable.NewLRU[string, *os.File](1, func(_ string, file *os.File) {
+		_ = file.Close()
+	}, time.Minute)
+	t.Cleanup(tr.fdCache.Purge)
+
+	event := LogEvent{logLine: "request failed\n"}
+	copy(event.orig.FilePath[:], path)
+
+	tr.handle(event)
+
+	got, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.Equal(t, event.logLine, string(got))
+}
+
 func TestShouldOmitSpanID_FeatureDisabled(t *testing.T) {
 	tr := newTestTracer(t, false)
 
@@ -152,16 +186,14 @@ func TestShouldOmitSpanID_ReflectsFlagFlip(t *testing.T) {
 }
 
 const (
-	testTraceID = "00112233445566778899aabbccddeeff"
-	testSpanID  = "0011223344556677"
-	sdkTraceID  = "ffeeddccbbaa99887766554433221100"
-	sdkSpanID   = "ffeeddccbbaa9988"
+	sdkTraceID = "ffeeddccbbaa99887766554433221100"
+	sdkSpanID  = "ffeeddccbbaa9988"
 )
 
 func TestApplyTraceContext_IncludeSpan(t *testing.T) {
 	m := map[string]any{"message": "hello"}
 
-	applyTraceContext(m, testTraceID, testSpanID, true)
+	applyTestTraceContext(m, true)
 
 	assert.Equal(t, testTraceID, m["trace_id"])
 	assert.Equal(t, testSpanID, m["span_id"])
@@ -170,7 +202,7 @@ func TestApplyTraceContext_IncludeSpan(t *testing.T) {
 func TestApplyTraceContext_IncludeSpan_PreservesExisting(t *testing.T) {
 	m := map[string]any{"trace_id": sdkTraceID, "span_id": sdkSpanID}
 
-	applyTraceContext(m, testTraceID, testSpanID, true)
+	applyTestTraceContext(m, true)
 
 	assert.Equal(t, sdkTraceID, m["trace_id"], "existing trace_id is preserved")
 	assert.Equal(t, sdkSpanID, m["span_id"], "existing span_id is preserved")
@@ -179,7 +211,7 @@ func TestApplyTraceContext_IncludeSpan_PreservesExisting(t *testing.T) {
 func TestApplyTraceContext_IncludeSpan_FillsMissingSpanID(t *testing.T) {
 	m := map[string]any{"trace_id": sdkTraceID}
 
-	applyTraceContext(m, testTraceID, testSpanID, true)
+	applyTestTraceContext(m, true)
 
 	assert.Equal(t, sdkTraceID, m["trace_id"], "existing trace_id is preserved")
 	assert.Equal(t, testSpanID, m["span_id"], "missing span_id is filled")
@@ -188,7 +220,7 @@ func TestApplyTraceContext_IncludeSpan_FillsMissingSpanID(t *testing.T) {
 func TestApplyTraceContext_OTelInstrumented_FillsMissingTraceID(t *testing.T) {
 	m := map[string]any{"message": "hello"}
 
-	applyTraceContext(m, testTraceID, testSpanID, false)
+	applyTestTraceContext(m, false)
 
 	assert.Equal(t, testTraceID, m["trace_id"])
 	_, hasSpan := m["span_id"]
@@ -198,7 +230,7 @@ func TestApplyTraceContext_OTelInstrumented_FillsMissingTraceID(t *testing.T) {
 func TestApplyTraceContext_OTelInstrumented_PreservesSDKTraceID(t *testing.T) {
 	m := map[string]any{"trace_id": sdkTraceID, "span_id": sdkSpanID}
 
-	applyTraceContext(m, testTraceID, testSpanID, false)
+	applyTestTraceContext(m, false)
 
 	assert.Equal(t, sdkTraceID, m["trace_id"], "SDK's trace_id is preserved")
 	assert.Equal(t, sdkSpanID, m["span_id"], "SDK's span_id is preserved")
@@ -207,7 +239,7 @@ func TestApplyTraceContext_OTelInstrumented_PreservesSDKTraceID(t *testing.T) {
 func TestApplyTraceContext_OTelInstrumented_FillsTraceIDOnlyWhenSpanIDPresent(t *testing.T) {
 	m := map[string]any{"span_id": sdkSpanID}
 
-	applyTraceContext(m, testTraceID, testSpanID, false)
+	applyTestTraceContext(m, false)
 
 	assert.Equal(t, testTraceID, m["trace_id"], "OBI fills missing trace_id")
 	assert.Equal(t, sdkSpanID, m["span_id"], "SDK's span_id stays untouched")

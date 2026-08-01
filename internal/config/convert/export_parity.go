@@ -4,7 +4,12 @@
 package convert // import "go.opentelemetry.io/obi/internal/config/convert"
 
 import (
+	"regexp"
+	"strconv"
 	"strings"
+
+	"github.com/gobwas/glob/syntax"
+	"github.com/gobwas/glob/syntax/ast"
 
 	"go.opentelemetry.io/obi/internal/config/schema"
 	"go.opentelemetry.io/obi/pkg/appolly/discover"
@@ -23,24 +28,44 @@ func httpRoutes(cfg *obi.Config) schema.HTTPRoutes {
 			},
 		},
 	}
-	if cfg.Routes == nil {
+	if cfg.Routes == nil || cfg.Routes.DirectionalRuleOnly {
 		return out
 	}
 
-	unmatched := cfg.Routes.Unmatch
-	patterns := cfg.Routes.Patterns
-	ignoredPatterns := cfg.Routes.IgnorePatterns
-	ignoreMode := cfg.Routes.IgnoredEvents
-	wildcardChar := cfg.Routes.WildcardChar
-	maxPathSegmentCardinality := cfg.Routes.MaxPathSegmentCardinality
-
-	out.Unmatched = &unmatched
-	out.Patterns = &patterns
-	out.IgnoredPatterns = &ignoredPatterns
-	out.IgnoreMode = &ignoreMode
-	out.WildcardChar = &wildcardChar
-	out.MaxPathSegmentCardinality = &maxPathSegmentCardinality
+	policies := cfg.Routes.DirectionalPolicies()
+	if cfg.Routes.HasIncomingPolicy() {
+		out.Incoming = httpRoutePolicy(policies.Incoming)
+	}
+	if cfg.Routes.HasOutgoingPolicy() {
+		out.Outgoing = httpRoutePolicy(policies.Outgoing)
+	}
 	return out
+}
+
+func httpRoutePolicy(policy services.RoutePolicy) *schema.HTTPRoutePolicy {
+	unmatched := policy.Unmatch
+	if unmatched == "" {
+		unmatched = services.UnmatchWildcard
+	}
+	patterns := cloneStrings(policy.Patterns)
+	ignoredPatterns := cloneStrings(policy.IgnorePatterns)
+	ignoreMode := policy.IgnoredEvents
+	if ignoreMode == "" {
+		ignoreMode = services.IgnoreDefault
+	}
+	wildcardChar := policy.WildcardChar
+	if wildcardChar == "" {
+		wildcardChar = "*"
+	}
+	maxPathSegmentCardinality := policy.MaxPathSegmentCardinality
+	return &schema.HTTPRoutePolicy{
+		Unmatched:                 &unmatched,
+		Patterns:                  &patterns,
+		IgnoredPatterns:           &ignoredPatterns,
+		IgnoreMode:                &ignoreMode,
+		WildcardChar:              &wildcardChar,
+		MaxPathSegmentCardinality: &maxPathSegmentCardinality,
+	}
 }
 
 const (
@@ -57,6 +82,7 @@ const (
 	payloadExtractorEmbedding        = "embedding"
 	payloadExtractorRerank           = "rerank"
 	payloadExtractorRetrieval        = "retrieval"
+	payloadExtractorOllama           = "ollama"
 	payloadExtractorOpenAICompatible = "openai_compatible"
 	payloadExtractorJSONRPC          = "jsonrpc"
 	payloadExtractorEnrichment       = "enrichment"
@@ -103,6 +129,9 @@ func payloadExtraction(cfg *obi.Config) schema.PayloadExtraction {
 	}
 	if http.GenAI.Retrieval.Enabled {
 		enabled = append(enabled, payloadExtractorRetrieval)
+	}
+	if http.GenAI.Ollama.Enabled {
+		enabled = append(enabled, payloadExtractorOllama)
 	}
 	if http.GenAI.OpenAICompatible.Enabled {
 		enabled = append(enabled, payloadExtractorOpenAICompatible)
@@ -232,12 +261,15 @@ func statsEnrichment(cfg *obi.Config) schema.NetworkEnrichment {
 
 func rulesFromRuntime(cfg *obi.Config) []schema.Rule {
 	rules := []schema.Rule{}
-	if discover.OnlyDefinesDeprecatedServiceSelection(cfg) {
-		rules = appendSelectorRules(rules, schema.CaptureActionExclude, discover.RegexAsSelector(cfg.Discovery.ExcludeServices), nil)
-		rules = appendSelectorRules(rules, schema.CaptureActionExclude, discover.RegexAsSelector(cfg.Discovery.DefaultExcludeServices), defaultExcludeRule)
+	findingCriteria := discover.FindingCriteria(cfg)
+	deprecatedServiceSelection := discover.OnlyDefinesDeprecatedServiceSelection(cfg)
+	regexSelection := deprecatedServiceSelection || selectorsUseRegex(findingCriteria)
+	if deprecatedServiceSelection {
+		rules = appendSelectorRules(rules, schema.CaptureActionExclude, discover.RegexAsSelector(cfg.Discovery.ExcludeServices), nil, true)
+		rules = appendSelectorRules(rules, schema.CaptureActionExclude, discover.RegexAsSelector(cfg.Discovery.DefaultExcludeServices), defaultExcludeRule, true)
 	} else {
-		rules = appendSelectorRules(rules, schema.CaptureActionExclude, discover.GlobsAsSelector(cfg.Discovery.ExcludeInstrument), nil)
-		rules = appendSelectorRules(rules, schema.CaptureActionExclude, discover.GlobsAsSelector(cfg.Discovery.DefaultExcludeInstrument), defaultExcludeRule)
+		rules = appendSelectorRules(rules, schema.CaptureActionExclude, discover.GlobsAsSelector(cfg.Discovery.ExcludeInstrument), nil, regexSelection)
+		rules = appendSelectorRules(rules, schema.CaptureActionExclude, discover.GlobsAsSelector(cfg.Discovery.DefaultExcludeInstrument), defaultExcludeRule, regexSelection)
 	}
 
 	if cfg.Discovery.ExcludeOTelInstrumentedServices {
@@ -257,25 +289,42 @@ func rulesFromRuntime(cfg *obi.Config) []schema.Rule {
 	}
 
 	if len(cfg.Discovery.ExcludedLinuxSystemPaths) > 0 {
-		globs := make([]string, 0, len(cfg.Discovery.ExcludedLinuxSystemPaths))
-		for _, path := range cfg.Discovery.ExcludedLinuxSystemPaths {
-			globs = append(globs, strings.TrimRight(path, "/")+"/*")
+		processMatch := schema.RuleProcessMatch{}
+		if regexSelection {
+			patterns := make([]string, 0, len(cfg.Discovery.ExcludedLinuxSystemPaths))
+			for _, path := range cfg.Discovery.ExcludedLinuxSystemPaths {
+				patterns = append(patterns, "^"+regexp.QuoteMeta(strings.TrimRight(path, "/")+"/"))
+			}
+			processMatch.ExePathRegex = strings.Join(patterns, "|")
+		} else {
+			globs := make([]string, 0, len(cfg.Discovery.ExcludedLinuxSystemPaths))
+			for _, path := range cfg.Discovery.ExcludedLinuxSystemPaths {
+				globs = append(globs, strings.TrimRight(path, "/")+"/*")
+			}
+			processMatch.ExePathGlob = globs
 		}
 		rules = append(rules, schema.Rule{
 			Action:      schema.CaptureActionExclude,
 			Name:        "exclude-linux-system-paths",
 			Description: "Exclude Linux system/service executable paths that are not typical application workloads.",
 			Match: schema.RuleMatch{
-				Process: schema.RuleProcessMatch{
-					ExePathGlob: globs,
-				},
+				Process: processMatch,
 			},
 		})
 	}
 
-	rules = appendSelectorRules(rules, schema.CaptureActionInclude, discover.FindingCriteria(cfg), nil)
+	rules = appendSelectorRules(rules, schema.CaptureActionInclude, findingCriteria, nil, regexSelection)
 
 	return rules
+}
+
+func selectorsUseRegex(selectors []services.Selector) bool {
+	for _, selector := range selectors {
+		if ruleUsesRegex(selectorMatch(selector)) {
+			return true
+		}
+	}
+	return false
 }
 
 type defaultRuleFunc func(int, schema.RuleMatch) (string, string)
@@ -285,9 +334,16 @@ func appendSelectorRules(
 	action schema.CaptureAction,
 	selectors []services.Selector,
 	defaultRule defaultRuleFunc,
+	regexFamily bool,
 ) []schema.Rule {
 	for i, selector := range selectors {
 		match := selectorMatch(selector)
+		if regexFamily && ruleUsesGlob(match) {
+			match = globRuleMatchAsRegex(match)
+		}
+		if regexFamily && !ruleMatchEmpty(match) && !ruleUsesRegex(match) {
+			match.Process.ExePathRegex = ".*"
+		}
 		if ruleMatchEmpty(match) {
 			continue
 		}
@@ -401,15 +457,41 @@ func selectorRefinement(action schema.CaptureAction, selector services.Selector)
 	if exports := exportModeRefinement(selector.GetExportModes()); exports != nil {
 		refine.Exports = exports
 	}
-	if routes := selector.GetRoutesConfig(); routes != nil && (len(routes.Incoming) > 0 || len(routes.Outgoing) > 0) {
+	if routes := selector.GetRoutesConfig(); routes != nil &&
+		(routes.PolicyOverrides != nil || len(routes.Incoming) > 0 || len(routes.Outgoing) > 0) {
+		refinementRoutes := schema.HTTPRefinementRoutes{}
+		if routes.PolicyOverrides != nil {
+			refinementRoutes.Incoming = httpRoutePolicyOverride(routes.PolicyOverrides.Incoming)
+			refinementRoutes.Outgoing = httpRoutePolicyOverride(routes.PolicyOverrides.Outgoing)
+		} else {
+			if len(routes.Incoming) > 0 {
+				patterns := cloneStrings(routes.Incoming)
+				refinementRoutes.Incoming = &schema.HTTPRoutePolicy{Patterns: &patterns}
+			}
+			if len(routes.Outgoing) > 0 {
+				patterns := cloneStrings(routes.Outgoing)
+				refinementRoutes.Outgoing = &schema.HTTPRoutePolicy{Patterns: &patterns}
+			}
+		}
 		refine.HTTP = &schema.HTTPRefinement{
-			Routes: schema.HTTPRefinementRoutes{
-				Incoming: schema.HTTPRefinementRoute{Patterns: cloneStrings(routes.Incoming)},
-				Outgoing: schema.HTTPRefinementRoute{Patterns: cloneStrings(routes.Outgoing)},
-			},
+			Routes: refinementRoutes,
 		}
 	}
 	return refine
+}
+
+func httpRoutePolicyOverride(policy *services.RoutePolicyOverride) *schema.HTTPRoutePolicy {
+	if policy == nil {
+		return nil
+	}
+	return &schema.HTTPRoutePolicy{
+		Unmatched:                 cloneValue(policy.Unmatch),
+		Patterns:                  cloneStringsPointer(policy.Patterns),
+		IgnoredPatterns:           cloneStringsPointer(policy.IgnorePatterns),
+		IgnoreMode:                cloneValue(policy.IgnoredEvents),
+		WildcardChar:              cloneValue(policy.WildcardChar),
+		MaxPathSegmentCardinality: cloneValue(policy.MaxPathSegmentCardinality),
+	}
 }
 
 func exportModeRefinement(modes services.ExportModes) *schema.ExportModeRefinement {
@@ -494,13 +576,128 @@ func globList(value services.GlobAttr) []string {
 	if raw == "" {
 		return nil
 	}
-	if strings.HasPrefix(raw, "{") && strings.HasSuffix(raw, "}") {
-		body := strings.TrimSuffix(strings.TrimPrefix(raw, "{"), "}")
-		if !strings.ContainsAny(body, "{}") {
-			return strings.Split(body, ",")
-		}
+	tree, err := syntax.Parse(raw)
+	if err != nil || len(tree.Children) != 1 || tree.Children[0].Kind != ast.KindAnyOf {
+		return []string{raw}
 	}
-	return []string{raw}
+
+	alternatives := make([]string, 0, len(tree.Children[0].Children))
+	for _, alternative := range tree.Children[0].Children {
+		if alternative.Kind != ast.KindPattern || len(alternative.Children) != 1 || alternative.Children[0].Kind != ast.KindText {
+			return []string{raw}
+		}
+		text := alternative.Children[0].Value.(ast.Text).Text
+		for i := 0; i < len(text); i++ {
+			if syntax.Special(text[i]) {
+				return []string{raw}
+			}
+		}
+		alternatives = append(alternatives, text)
+	}
+	return alternatives
+}
+
+func globRuleMatchAsRegex(match schema.RuleMatch) schema.RuleMatch {
+	match.Process.LanguageRegex = globPatternsRegex(match.Process.LanguageGlob)
+	match.Process.LanguageGlob = nil
+	match.Process.CmdArgsRegex = globPatternsRegex(match.Process.CmdArgsGlob)
+	match.Process.CmdArgsGlob = nil
+	match.Process.ExePathRegex = globPatternsRegex(match.Process.ExePathGlob)
+	match.Process.ExePathGlob = nil
+
+	match.Kubernetes.NamespaceRegex = globPatternsRegex(match.Kubernetes.NamespaceGlob)
+	match.Kubernetes.NamespaceGlob = nil
+	match.Kubernetes.MetadataRegex = globPatternMapRegex(match.Kubernetes.MetadataGlob)
+	match.Kubernetes.MetadataGlob = nil
+	match.Kubernetes.PodLabelsRegex = globPatternMapRegex(match.Kubernetes.PodLabels)
+	match.Kubernetes.PodLabels = nil
+	match.Kubernetes.PodAnnotationsRegex = globPatternMapRegex(match.Kubernetes.PodAnnotations)
+	match.Kubernetes.PodAnnotations = nil
+
+	return match
+}
+
+func globPatternMapRegex(patterns map[string][]string) map[string]string {
+	if len(patterns) == 0 {
+		return nil
+	}
+
+	out := make(map[string]string, len(patterns))
+	for key, values := range patterns {
+		out[key] = globPatternsRegex(values)
+	}
+	return out
+}
+
+func globPatternsRegex(patterns []string) string {
+	if len(patterns) == 0 {
+		return ""
+	}
+
+	converted := make([]string, 0, len(patterns))
+	for _, pattern := range patterns {
+		tree, err := syntax.Parse(pattern)
+		if err != nil {
+			panic("validated glob could not be parsed: " + err.Error())
+		}
+		var expression strings.Builder
+		writeGlobNodeRegex(&expression, tree)
+		converted = append(converted, expression.String())
+	}
+	return `(?s)^(?:` + strings.Join(converted, "|") + `)$`
+}
+
+func writeGlobNodeRegex(expression *strings.Builder, node *ast.Node) {
+	switch node.Kind {
+	case ast.KindNothing:
+	case ast.KindPattern:
+		for _, child := range node.Children {
+			writeGlobNodeRegex(expression, child)
+		}
+	case ast.KindList:
+		list := node.Value.(ast.List)
+		expression.WriteByte('[')
+		if list.Not {
+			expression.WriteByte('^')
+		}
+		writeRegexClass(expression, []rune(list.Chars))
+		expression.WriteByte(']')
+	case ast.KindRange:
+		rangeValue := node.Value.(ast.Range)
+		expression.WriteByte('[')
+		if rangeValue.Not {
+			expression.WriteByte('^')
+		}
+		writeRegexClass(expression, []rune{rangeValue.Lo})
+		expression.WriteByte('-')
+		writeRegexClass(expression, []rune{rangeValue.Hi})
+		expression.WriteByte(']')
+	case ast.KindText:
+		expression.WriteString(regexp.QuoteMeta(node.Value.(ast.Text).Text))
+	case ast.KindAny, ast.KindSuper:
+		expression.WriteString(".*")
+	case ast.KindSingle:
+		expression.WriteByte('.')
+	case ast.KindAnyOf:
+		expression.WriteString("(?:")
+		for i, child := range node.Children {
+			if i > 0 {
+				expression.WriteByte('|')
+			}
+			writeGlobNodeRegex(expression, child)
+		}
+		expression.WriteByte(')')
+	default:
+		panic("unsupported glob syntax node")
+	}
+}
+
+func writeRegexClass(expression *strings.Builder, values []rune) {
+	for _, value := range values {
+		expression.WriteString(`\x{`)
+		expression.WriteString(strconv.FormatInt(int64(value), 16))
+		expression.WriteByte('}')
+	}
 }
 
 func globString(g services.GlobAttr) string {

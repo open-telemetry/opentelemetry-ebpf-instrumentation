@@ -15,6 +15,11 @@ on:
         required: false
         type: boolean
         default: false
+      nightly_version:
+        description: "When set, publish nightly tags '<nightly_version>' and 'nightly' instead of release tags (e.g. nightly-20260708)"
+        required: false
+        type: string
+        default: ""
     secrets:
       DOCKER_TOKEN_EBPF_INSTRUMENTATION:
         description: "Docker Hub access token for otel"
@@ -43,7 +48,7 @@ jobs:
             runner: ubuntu-24.04-arm
             artifact_suffix: arm64
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
@@ -53,13 +58,13 @@ jobs:
         run: echo "sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Log in to Docker Hub
-        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
+        uses: docker/login-action@371161bbe7024a29a25c5e19bfcbc0804fe9ad2c # v4.5.2
         with:
           username: ${{ vars.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_TOKEN_EBPF_INSTRUMENTATION }}
 
       - name: Log in to the Container registry
-        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
+        uses: docker/login-action@371161bbe7024a29a25c5e19bfcbc0804fe9ad2c # v4.5.2
         with:
           registry: ghcr.io
           username: ${{ github.repository_owner }}
@@ -78,10 +83,13 @@ jobs:
           flavor: |
             latest=false
           tags: |
-            type=semver,pattern=v{{version}},value=${{ inputs.ref }}
+            type=semver,pattern=v{{version}},value=${{ inputs.ref }},enable=${{ inputs.ref != '' }}
             type=raw,value=latest,enable=${{ inputs.latest == true }}
-            type=ref,event=branch
-            type=ref,event=tag
+            type=raw,value=${{ inputs.nightly_version }},enable=${{ inputs.nightly_version != '' }}
+            type=raw,value=nightly,enable=${{ inputs.nightly_version != '' }}
+            type=ref,event=branch,enable=${{ inputs.nightly_version == '' }}
+            type=ref,event=tag,enable=${{ inputs.nightly_version == '' }}
+            type=sha,prefix=,format=short,enable=${{ inputs.nightly_version == '' && inputs.ref == '' }}
 
       - name: Build and push by digest
         id: build
@@ -126,13 +134,13 @@ jobs:
           pattern: k8s-cache-digests-*
 
       - name: Log in to Docker Hub
-        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
+        uses: docker/login-action@371161bbe7024a29a25c5e19bfcbc0804fe9ad2c # v4.5.2
         with:
           username: ${{ vars.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_TOKEN_EBPF_INSTRUMENTATION }}
 
       - name: Log in to the Container registry
-        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
+        uses: docker/login-action@371161bbe7024a29a25c5e19bfcbc0804fe9ad2c # v4.5.2
         with:
           registry: ghcr.io
           username: ${{ github.repository_owner }}
@@ -157,10 +165,13 @@ jobs:
           flavor: |
             latest=false
           tags: |
-            type=semver,pattern=v{{version}},value=${{ inputs.ref }}
+            type=semver,pattern=v{{version}},value=${{ inputs.ref }},enable=${{ inputs.ref != '' }}
             type=raw,value=latest,enable=${{ inputs.latest == true }}
-            type=ref,event=branch
-            type=ref,event=tag
+            type=raw,value=${{ inputs.nightly_version }},enable=${{ inputs.nightly_version != '' }}
+            type=raw,value=nightly,enable=${{ inputs.nightly_version != '' }}
+            type=ref,event=branch,enable=${{ inputs.nightly_version == '' }}
+            type=ref,event=tag,enable=${{ inputs.nightly_version == '' }}
+            type=sha,prefix=,format=short,enable=${{ inputs.nightly_version == '' && inputs.ref == '' }}
 
       - name: Create manifest list and push
         env:

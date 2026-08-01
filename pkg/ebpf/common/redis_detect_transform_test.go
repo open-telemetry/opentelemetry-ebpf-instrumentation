@@ -121,10 +121,10 @@ func BenchmarkParseRedisCommands(b *testing.B) {
 		},
 		{
 			name: "client_setinfo",
-			input: []byte(fmt.Sprintf(
+			input: fmt.Appendf(nil,
 				"*4\r\n$6\r\nclient\r\n$7\r\nsetinfo\r\n$8\r\nLIB-NAME\r\n$19\r\n%s(,go1.22.2)\r\n*4\r\n$6\r\nclient\r\n$7\r\nsetinfo\r\n$7\r\nLIB-VER\r\n$5\r\n9.5.1\r\n",
 				"go-redis",
-			)),
+			),
 			wantCmds: 2,
 		},
 		{
@@ -202,7 +202,7 @@ func TestRedisParsing(t *testing.T) {
 
 	assert.Empty(t, parseRedisCommands([]byte("2")))
 
-	multi := []byte(fmt.Sprintf("*4\r\n$6\r\nclient\r\n$7\r\nsetinfo\r\n$8\r\nLIB-NAME\r\n$19\r\n%s(,go1.22.2)\r\n*4\r\n$6\r\nclient\r\n$7\r\nsetinfo\r\n$7\r\nLIB-VER\r\n$5\r\n9.5.1\r\n", "go-redis"))
+	multi := fmt.Appendf(nil, "*4\r\n$6\r\nclient\r\n$7\r\nsetinfo\r\n$8\r\nLIB-NAME\r\n$19\r\n%s(,go1.22.2)\r\n*4\r\n$6\r\nclient\r\n$7\r\nsetinfo\r\n$7\r\nLIB-VER\r\n$5\r\n9.5.1\r\n", "go-redis")
 	cmds = parseRedisCommands(multi)
 	require.Len(t, cmds, 2)
 	assert.Equal(t, "client", cmds[0].op)

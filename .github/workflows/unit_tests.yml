@@ -38,7 +38,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
@@ -52,7 +52,7 @@ jobs:
     outputs:
       matrix: ${{ steps.build-matrix.outputs.matrix }}
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
@@ -66,24 +66,30 @@ jobs:
           make unit-test-matrix-json >> "$GITHUB_OUTPUT"
 
   test:
-    name: "Unit tests #${{ matrix.id }}"
+    name: "Unit tests #${{ matrix.shard.id }} (${{ matrix.platform.arch }})"
     needs: [matrix, generate-bpf]
     permissions:
       checks: write
       pull-requests: write
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.platform.runner }}
     timeout-minutes: 45
     strategy:
       fail-fast: false
-      matrix: ${{ fromJson(needs.matrix.outputs.matrix) }}
+      matrix:
+        platform:
+          - runner: ubuntu-latest
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+        shard: ${{ fromJson(needs.matrix.outputs.matrix).include }}
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
 
       - name: Set up Go
-        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0 # zizmor: ignore[cache-poisoning] go.sum verifies module integrity
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0 # zizmor: ignore[cache-poisoning] go.sum verifies module integrity
         with:
           go-version-file: "go.mod"
           cache: true
@@ -106,15 +112,15 @@ jobs:
 
       - name: Run unit tests
         env:
-          MATRIX_ID: ${{ matrix.id }}
-          MATRIX_PACKAGES: ${{ matrix.packages }}
+          MATRIX_ID: ${{ matrix.shard.id }}
+          MATRIX_PACKAGES: ${{ matrix.shard.packages }}
         run: make run-unit-test-shard cov-exclude-generated SHARD_ID="${MATRIX_ID}" UNIT_TEST_PACKAGES="${MATRIX_PACKAGES}"
 
       - name: Upload unit test report
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: unit-reports-${{ matrix.id }}-${{ github.run_number }}
+          name: unit-reports-${{ matrix.shard.id }}-${{ matrix.platform.arch }}-${{ github.run_number }}
           path: testoutput/unit-test-shard-*.log
           retention-days: 5
 
@@ -125,4 +131,4 @@ jobs:
         with:
           files: ./testoutput/cover.txt
           flags: unittests
-          name: unit-coverage-${{ matrix.id }}-${{ github.run_number }}
+          name: unit-coverage-${{ matrix.shard.id }}-${{ matrix.platform.arch }}-${{ github.run_number }}

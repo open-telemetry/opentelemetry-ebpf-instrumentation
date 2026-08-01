@@ -419,9 +419,8 @@ func BenchmarkDetectFastCGI(b *testing.B) {
 		b.Fatalf("unexpected benchmark fixture result: method=%q path=%q status=%d", method, path, status)
 	}
 
-	b.ResetTimer()
 	b.ReportAllocs()
-	for range b.N {
+	for b.Loop() {
 		detectFastCGI(reqBuf, respBuf)
 	}
 }

@@ -46,6 +46,15 @@ func (e *UnsupportedFileFormatError) Error() string {
 	return fmt.Sprintf("unsupported OpenTelemetry config file_format %q", e.FileFormat)
 }
 
+// ReceiverLayoutError reports a standalone OBI configuration envelope passed
+// to the Collector receiver parser.
+type ReceiverLayoutError struct{}
+
+func (*ReceiverLayoutError) Error() string {
+	return "standalone OBI config v2 layout is not valid in receiver config; " +
+		"move extensions.obi.capture fields to the receiver top level and set version there"
+}
+
 // SectionNotAllowedError reports a standalone-only configuration section in a
 // receiver-embedded OBI config.
 type SectionNotAllowedError struct {

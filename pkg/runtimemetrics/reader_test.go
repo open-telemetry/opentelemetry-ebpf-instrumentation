@@ -28,9 +28,9 @@ func TestGoRuntimeMetricRawABI(t *testing.T) {
 	var event goRuntimeMetricRawEvent
 	var snapshot goRuntimeMetricRawSnapshot
 
-	require.Equal(t, uintptr(144), unsafe.Sizeof(event))
+	require.Equal(t, uintptr(160), unsafe.Sizeof(event))
 	require.Equal(t, uintptr(16), unsafe.Offsetof(event.Snapshot))
-	require.Equal(t, uintptr(128), unsafe.Sizeof(snapshot))
+	require.Equal(t, uintptr(144), unsafe.Sizeof(snapshot))
 	require.Equal(t, uintptr(0), unsafe.Offsetof(snapshot.ValidMask))
 	require.Equal(t, uintptr(8), unsafe.Offsetof(snapshot.NumGC))
 	require.Equal(t, uintptr(12), unsafe.Offsetof(snapshot.Pad))
@@ -49,6 +49,8 @@ func TestGoRuntimeMetricRawABI(t *testing.T) {
 	require.Equal(t, uintptr(104), unsafe.Offsetof(snapshot.MemoryUsedOther))
 	require.Equal(t, uintptr(112), unsafe.Offsetof(snapshot.MemoryAllocated))
 	require.Equal(t, uintptr(120), unsafe.Offsetof(snapshot.MemoryAllocations))
+	require.Equal(t, uintptr(128), unsafe.Offsetof(snapshot.GoroutineCount))
+	require.Equal(t, uintptr(136), unsafe.Offsetof(snapshot.MemoryGCGoal))
 }
 
 func TestGoRuntimeMetricValidMaskABI(t *testing.T) {
@@ -59,6 +61,8 @@ func TestGoRuntimeMetricValidMaskABI(t *testing.T) {
 	require.Equal(t, goRuntimeMetricValidCPUTime, uint64(1<<4))
 	require.Equal(t, goRuntimeMetricValidMemoryUsed, uint64(1<<5))
 	require.Equal(t, goRuntimeMetricValidMemoryAllocs, uint64(1<<6))
+	require.Equal(t, goRuntimeMetricValidGoroutineCount, uint64(1<<9))
+	require.Equal(t, goRuntimeMetricValidMemoryGCGoal, uint64(1<<10))
 }
 
 func TestConvertGoRuntimeMetricSnapshot(t *testing.T) {
@@ -169,6 +173,50 @@ func TestConvertGoRuntimeMetricSnapshotSuppressesNegativeCPUTime(t *testing.T) {
 
 	require.NotNil(t, snapshot.Go)
 	require.Nil(t, snapshot.Go.CPUTime)
+}
+
+func TestConvertGoRuntimeMetricSnapshotIncludesPositiveGoroutineCount(t *testing.T) {
+	snapshot := convertGoRuntimeMetricSnapshot(svc.Attrs{}, app.PID(123), goRuntimeMetricRawSnapshot{
+		ValidMask:      goRuntimeMetricValidGoroutineCount,
+		GoroutineCount: 17,
+	})
+
+	require.NotNil(t, snapshot.Go)
+	require.NotNil(t, snapshot.Go.GoroutineCount)
+	require.Equal(t, int64(17), *snapshot.Go.GoroutineCount)
+}
+
+func TestConvertGoRuntimeMetricSnapshotSuppressesInvalidGoroutineCount(t *testing.T) {
+	for _, raw := range []goRuntimeMetricRawSnapshot{
+		{GoroutineCount: 17},
+		{ValidMask: goRuntimeMetricValidGoroutineCount},
+		{ValidMask: goRuntimeMetricValidGoroutineCount, GoroutineCount: -1},
+	} {
+		snapshot := convertGoRuntimeMetricSnapshot(svc.Attrs{}, app.PID(123), raw)
+		require.NotNil(t, snapshot.Go)
+		require.Nil(t, snapshot.Go.GoroutineCount)
+	}
+}
+
+func TestConvertGoRuntimeMetricSnapshotIncludesExactGCGoal(t *testing.T) {
+	snapshot := convertGoRuntimeMetricSnapshot(svc.Attrs{}, app.PID(123), goRuntimeMetricRawSnapshot{
+		ValidMask:    goRuntimeMetricValidMemoryGCGoal,
+		MemoryGCGoal: 123456789,
+	})
+
+	require.NotNil(t, snapshot.Go.MemoryGCGoal)
+	require.Equal(t, int64(123456789), *snapshot.Go.MemoryGCGoal)
+}
+
+func TestConvertGoRuntimeMetricSnapshotSuppressesInvalidGCGoal(t *testing.T) {
+	for _, raw := range []goRuntimeMetricRawSnapshot{
+		{MemoryGCGoal: 1024},
+		{ValidMask: goRuntimeMetricValidMemoryGCGoal},
+		{ValidMask: goRuntimeMetricValidMemoryGCGoal, MemoryGCGoal: uint64(math.MaxInt64) + 1},
+	} {
+		snapshot := convertGoRuntimeMetricSnapshot(svc.Attrs{}, app.PID(123), raw)
+		require.Nil(t, snapshot.Go.MemoryGCGoal)
+	}
 }
 
 func TestRuntimeMetricServiceRequiresRuntimeMetricsFeature(t *testing.T) {

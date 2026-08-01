@@ -63,6 +63,20 @@ func parseOpenAICompatibleResponse(respB []byte) (*request.VendorOpenAI, []reque
 	return parseOpenAIStream(reader)
 }
 
+func looksLikeOpenAIBody(reqB, respB []byte, path string) bool {
+	model := strings.ToLower(genaiModel(reqB, respB))
+
+	// DashScope embedding models are named "text-embedding-v<N>": leave them
+	// for the Qwen detector.
+	if isDashScopeEmbeddingModel(model) {
+		return false
+	}
+
+	// "gpt" covers chat/completions and responses; "text-embedding" covers the
+	// embeddings.
+	return strings.HasPrefix(model, "gpt") || (strings.HasPrefix(model, "text-embedding") && strings.Contains(path, "/v1/embeddings"))
+}
+
 func OpenAISpan(baseSpan *request.Span, req *http.Request, resp *http.Response) (request.Span, bool) {
 	// Check any of the well known response headers that OpenAI would use
 	isOpenAI := false
@@ -73,8 +87,16 @@ func OpenAISpan(baseSpan *request.Span, req *http.Request, resp *http.Response) 
 		}
 	}
 
+	maybeOpenAI := false
+
 	if !isOpenAI {
-		return *baseSpan, false
+		// HTTP/2 requests carry no usable headers, so fall back to a body-shape
+		// heuristic. OpenAI is the catch-all for OpenAI-compatible payloads that
+		// no sibling provider (Qwen, Anthropic) claims.
+		if !isHTTP2Request(req) || !strings.Contains(baseSpan.Path, "/v1/") {
+			return *baseSpan, false
+		}
+		maybeOpenAI = true
 	}
 
 	reqB, ok := readHTTPRequestBody("OpenAISpan", req, baseSpan, "headers", resp.Header)
@@ -85,6 +107,12 @@ func OpenAISpan(baseSpan *request.Span, req *http.Request, resp *http.Response) 
 	respB, ok := readHTTPResponseBody("OpenAISpan", resp, baseSpan, "headers", resp.Header)
 	if !ok {
 		return *baseSpan, false
+	}
+
+	if maybeOpenAI {
+		if !looksLikeOpenAIBody(reqB, respB, baseSpan.Path) {
+			return *baseSpan, false
+		}
 	}
 
 	slog.Debug("OpenAI", "request", string(reqB), "response", string(respB))
@@ -102,7 +130,11 @@ func OpenAISpan(baseSpan *request.Span, req *http.Request, resp *http.Response) 
 	parsedResponse.Request = parsedRequest
 	parsedResponse.ToolCalls = toolCalls
 
-	// Override operation name and derive API type from URL path.
+	// Override operation name and derive API type from URL path. The path is
+	// authoritative even when the response carries no `object` field (error
+	// responses don't): the operation name feeds required metric attributes
+	// (gen_ai.client.operation.duration / token.usage), so failed calls must
+	// carry it too.
 	if req.URL != nil {
 		path := strings.TrimSuffix(req.URL.Path, "/")
 		switch path {
@@ -113,7 +145,10 @@ func OpenAISpan(baseSpan *request.Span, req *http.Request, resp *http.Response) 
 			parsedResponse.OperationName = request.EmbeddingOperationName
 			parsedResponse.APIType = "embeddings"
 		case "/v1/responses":
+			parsedResponse.OperationName = request.ResponseOperationName
 			parsedResponse.APIType = "responses"
+		case "/v1/conversations":
+			parsedResponse.OperationName = request.ConversationOperationName
 		}
 	}
 

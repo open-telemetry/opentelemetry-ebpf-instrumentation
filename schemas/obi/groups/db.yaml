@@ -1,0 +1,196 @@
+groups:
+  # Overrides `db.system.name`: extends the upstream enum with `aerospike`.
+  # OBI's Aerospike client instrumentation (pkg/ebpf/common/
+  # aerospike_detect_transform.go, reported via attr.DBSystemName in
+  # pkg/appolly/app/request/span_getters.go) identifies the Aerospike wire
+  # protocol, which upstream semconv v1.41 has no member for. The `unknown`
+  # fallback in the same getter is a bug marker and is deliberately NOT
+  # declared here, so weaver keeps flagging it.
+  #
+  # See ../README.md for the override mechanics (x.obi.* group id, full
+  # upstream member list, lint allowlist).
+  - id: x.obi.db
+    type: attribute_group
+    display_name: OBI Database Attribute Overrides
+    brief: >
+      OBI override of `db.system.name` extending the upstream enum with the
+      database systems OBI detects that upstream semconv has no member for.
+    attributes:
+      - id: db.system.name
+        brief: The database management system (DBMS) product as identified by the client instrumentation.
+        note: >
+          The actual DBMS may differ from the one identified by the client.
+          For example, when using PostgreSQL client libraries to connect to a CockroachDB, the `db.system.name`
+          is set to `postgresql` based on the instrumentation's best knowledge.
+        type:
+          members:
+            - id: other_sql
+              value: "other_sql"
+              brief: "Some other SQL database. Fallback only."
+              stability: development
+            - id: softwareag.adabas
+              value: "softwareag.adabas"
+              brief: "[Adabas (Adaptable Database System)](https://documentation.softwareag.com/?pf=adabas)"
+              stability: development
+            - id: actian.ingres
+              value: "actian.ingres"
+              brief: "[Actian Ingres](https://www.actian.com/databases/ingres/)"
+              stability: development
+            - id: aws.dynamodb
+              value: "aws.dynamodb"
+              brief: "[Amazon DynamoDB](https://aws.amazon.com/pm/dynamodb/)"
+              stability: development
+            - id: aws.redshift
+              value: "aws.redshift"
+              brief: "[Amazon Redshift](https://aws.amazon.com/redshift/)"
+              stability: development
+            - id: azure.cosmosdb
+              value: "azure.cosmosdb"
+              brief: "[Azure Cosmos DB](https://learn.microsoft.com/azure/cosmos-db)"
+              stability: development
+            - id: intersystems.cache
+              value: "intersystems.cache"
+              brief: "[InterSystems Caché](https://www.intersystems.com/products/cache/)"
+              stability: development
+            - id: cassandra
+              value: "cassandra"
+              brief: "[Apache Cassandra](https://cassandra.apache.org/)"
+              stability: development
+            - id: clickhouse
+              value: "clickhouse"
+              brief: "[ClickHouse](https://clickhouse.com/)"
+              stability: development
+            - id: cockroachdb
+              value: "cockroachdb"
+              brief: "[CockroachDB](https://www.cockroachlabs.com/)"
+              stability: development
+            - id: couchbase
+              value: "couchbase"
+              brief: "[Couchbase](https://www.couchbase.com/)"
+              stability: development
+            - id: couchdb
+              value: "couchdb"
+              brief: "[Apache CouchDB](https://couchdb.apache.org/)"
+              stability: development
+            - id: derby
+              value: "derby"
+              brief: "[Apache Derby](https://db.apache.org/derby/)"
+              stability: development
+            - id: elasticsearch
+              value: "elasticsearch"
+              brief: "[Elasticsearch](https://www.elastic.co/elasticsearch)"
+              stability: development
+            - id: firebirdsql
+              value: "firebirdsql"
+              brief: "[Firebird](https://www.firebirdsql.org/)"
+              stability: development
+            - id: gcp.spanner
+              value: "gcp.spanner"
+              brief: "[Google Cloud Spanner](https://cloud.google.com/spanner)"
+              stability: development
+            - id: geode
+              value: "geode"
+              brief: "[Apache Geode](https://geode.apache.org/)"
+              stability: development
+            - id: h2database
+              value: "h2database"
+              brief: "[H2 Database](https://h2database.com/)"
+              stability: development
+            - id: hbase
+              value: "hbase"
+              brief: "[Apache HBase](https://hbase.apache.org/)"
+              stability: development
+            - id: hive
+              value: "hive"
+              brief: "[Apache Hive](https://hive.apache.org/)"
+              stability: development
+            - id: hsqldb
+              value: "hsqldb"
+              brief: "[HyperSQL Database](https://hsqldb.org/)"
+              stability: development
+            - id: ibm.db2
+              value: "ibm.db2"
+              brief: "[IBM Db2](https://www.ibm.com/db2)"
+              stability: development
+            - id: ibm.informix
+              value: "ibm.informix"
+              brief: "[IBM Informix](https://www.ibm.com/products/informix)"
+              stability: development
+            - id: ibm.netezza
+              value: "ibm.netezza"
+              brief: "[IBM Netezza](https://www.ibm.com/products/netezza)"
+              stability: development
+            - id: influxdb
+              value: "influxdb"
+              brief: "[InfluxDB](https://www.influxdata.com/)"
+              stability: development
+            - id: instantdb
+              value: "instantdb"
+              brief: "[Instant](https://www.instantdb.com/)"
+              stability: development
+            - id: mariadb
+              value: "mariadb"
+              brief: "[MariaDB](https://mariadb.org/)"
+              stability: stable
+            - id: memcached
+              value: "memcached"
+              brief: "[Memcached](https://memcached.org/)"
+              stability: development
+            - id: mongodb
+              value: "mongodb"
+              brief: "[MongoDB](https://www.mongodb.com/)"
+              stability: development
+            - id: microsoft.sql_server
+              value: "microsoft.sql_server"
+              brief: "[Microsoft SQL Server](https://www.microsoft.com/sql-server)"
+              stability: stable
+            - id: mysql
+              value: "mysql"
+              brief: "[MySQL](https://www.mysql.com/)"
+              stability: stable
+            - id: neo4j
+              value: "neo4j"
+              brief: "[Neo4j](https://neo4j.com/)"
+              stability: development
+            - id: opensearch
+              value: "opensearch"
+              brief: "[OpenSearch](https://opensearch.org/)"
+              stability: development
+            - id: oracle.db
+              value: "oracle.db"
+              brief: "[Oracle Database](https://www.oracle.com/database/)"
+              stability: development
+            - id: postgresql
+              value: "postgresql"
+              brief: "[PostgreSQL](https://www.postgresql.org/)"
+              stability: stable
+            - id: redis
+              value: "redis"
+              brief: "[Redis](https://redis.io/)"
+              stability: development
+            - id: sap.hana
+              value: "sap.hana"
+              brief: "[SAP HANA](https://www.sap.com/products/technology-platform/hana/what-is-sap-hana.html)"
+              stability: development
+            - id: sap.maxdb
+              value: "sap.maxdb"
+              brief: "[SAP MaxDB](https://maxdb.sap.com/)"
+              stability: development
+            - id: sqlite
+              value: "sqlite"
+              brief: "[SQLite](https://www.sqlite.org/)"
+              stability: development
+            - id: teradata
+              value: "teradata"
+              brief: "[Teradata](https://www.teradata.com/)"
+              stability: development
+            - id: trino
+              value: "trino"
+              brief: "[Trino](https://trino.io/)"
+              stability: development
+            # --- OBI extensions (not in upstream semconv v1.41) ---
+            - id: aerospike
+              value: "aerospike"
+              brief: "[Aerospike](https://aerospike.com/)"
+              stability: development
+        stability: stable

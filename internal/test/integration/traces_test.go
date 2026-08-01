@@ -315,7 +315,7 @@ func testHTTPTracesKProbes(t *testing.T) {
 
 	var trace jaeger.Trace
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=node&operation=GET%20%2Fbye")
+		resp, err := http.Get(jaegerQueryURL + "?service=testserver&operation=GET%20%2Fbye")
 		require.NoError(ct, err)
 		if resp == nil {
 			return
@@ -354,11 +354,11 @@ func testHTTPTracesKProbes(t *testing.T) {
 	assert.Empty(t, sd, sd.String())
 
 	process := trace.Processes[parent.ProcessID]
-	assert.Equal(t, "node", process.ServiceName)
+	assert.Equal(t, "testserver", process.ServiceName)
 
 	serviceInstance, ok := jaeger.FindIn(process.Tags, "service.instance.id")
 	require.Truef(t, ok, "service.instance.id not found in tags: %v", process.Tags)
-	assert.Regexp(t, `^obi:\d+$$`, serviceInstance.Value)
+	assert.Regexp(t, `^integration-test\.testserver\.`, serviceInstance.Value)
 
 	jaeger.Diff([]jaeger.Tag{
 		{Key: "otel.scope.name", Type: "string", Value: "go.opentelemetry.io/obi"},
@@ -1464,7 +1464,7 @@ func testHTTPTracesNestedManualSpans(t *testing.T) {
 	assert.Empty(t, sd, sd.String())
 }
 
-func testHTTPTracesNestedNodeJSLargeHTTPS(t *testing.T) {
+func testHTTPTracesNestedJSLargeHTTPS(t *testing.T) {
 	var parentID string
 
 	// Run a request, since we have a single app, we should see always all requests
@@ -1472,7 +1472,7 @@ func testHTTPTracesNestedNodeJSLargeHTTPS(t *testing.T) {
 
 	var trace jaeger.Trace
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=node&operation=GET%20%2Fapi%2Ftest-apm")
+		resp, err := http.Get(jaegerQueryURL + "?service=testserver&operation=GET%20%2Fapi%2Ftest-apm")
 		require.NoError(ct, err)
 		if resp == nil {
 			return
@@ -1509,29 +1509,24 @@ func testHTTPTracesNestedNodeJSLargeHTTPS(t *testing.T) {
 
 	res = trace.FindByOperationName("processing", "internal")
 
+	require.NotEmpty(t, res)
 	var processing *jaeger.Span
+	for i := range res {
+		r := &res[i]
+		// Check parenthood
+		p, ok := trace.ParentOf(r)
 
-	if len(res) > 0 {
-		for i := range res {
-			r := &res[i]
-			// Check parenthood
-			p, ok := trace.ParentOf(r)
-
-			if ok {
-				if p.TraceID == server.TraceID && p.SpanID == server.SpanID {
-					processing = r
-					break
-				}
+		if ok {
+			if p.TraceID == server.TraceID && p.SpanID == server.SpanID {
+				processing = r
+				break
 			}
 		}
 	}
-
-	if processing != nil {
-		children = trace.ChildrenOf(processing.SpanID)
-	}
-
+	require.NotNil(t, processing)
+	children = trace.ChildrenOf(processing.SpanID)
 	// We must see two children
-	require.Len(t, children, 2)
+	assert.Len(t, children, 2)
 }
 
 func testPythonAsyncEndpoint(t *testing.T, endpoint string, expectedClientCalls int) {
@@ -1855,4 +1850,114 @@ func testGoGenericHTTPSTraces(t *testing.T) {
 			assert.Empty(ct, sd, sd.String())
 		}, testTimeout, 100*time.Millisecond)
 	})
+}
+
+func testHTTPTracesNoNestedCalls(t *testing.T) {
+	var traceID string
+	var parentID string
+
+	waitForTestComponents(t, "http://localhost:8080")
+
+	// Add and check for specific trace ID
+	traceID = createTraceID()
+	parentID = createParentID()
+	traceparent := createTraceparent(traceID, parentID)
+	doHTTPGetWithTraceparent(t, "http://localhost:8080/delay", 203, traceparent)
+	// Do some requests to make sure we see all events
+	for i := 0; i < 10; i++ {
+		ti.DoHTTPGet(t, "http://localhost:8080/metrics", 200)
+	}
+
+	var trace jaeger.Trace
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		resp, err := http.Get(jaegerQueryURL + "?service=testserver&operation=GET%20%2Fdelay")
+		require.NoError(ct, err)
+		if resp == nil {
+			return
+		}
+		require.Equal(ct, http.StatusOK, resp.StatusCode)
+		var tq jaeger.TracesQuery
+		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
+		traces := tq.FindBySpan(jaeger.Tag{Key: "url.path", Type: "string", Value: "/delay"})
+		require.Len(ct, traces, 1)
+		trace = traces[0]
+	}, testTimeout, 100*time.Millisecond)
+
+	// Check the information of the parent span
+	res := trace.FindByOperationName("GET /delay", "server")
+	require.Len(t, res, 1)
+	server := res[0]
+	require.NotEmpty(t, server.TraceID)
+	require.Equal(t, traceID, server.TraceID)
+	// Validate that "server" is a CHILD_OF the traceparent's "parent-id"
+	childOfPID := trace.ChildrenOf(parentID)
+	require.Len(t, childOfPID, 1)
+	require.NotEmpty(t, server.SpanID)
+
+	// check span attributes
+	sd := server.Diff(
+		jaeger.Tag{Key: "http.request.method", Type: "string", Value: "GET"},
+		jaeger.Tag{Key: "http.response.status_code", Type: "int64", Value: float64(203)},
+		jaeger.Tag{Key: "url.path", Type: "string", Value: "/delay"},
+		jaeger.Tag{Key: "server.port", Type: "int64", Value: float64(8080)},
+		jaeger.Tag{Key: "http.route", Type: "string", Value: "/delay"},
+		jaeger.Tag{Key: "span.kind", Type: "string", Value: "server"},
+		jaeger.Tag{Key: "span.metrics.skip", Type: "bool", Value: bool(true)},
+	)
+	assert.Empty(t, sd, sd.String())
+
+	// Check the information of the "in queue" span
+	res = trace.FindByOperationName("in queue", "internal")
+	require.GreaterOrEqual(t, len(res), 1)
+
+	var queue *jaeger.Span
+
+	for i := range res {
+		r := &res[i]
+		// Check parenthood
+		p, ok := trace.ParentOf(r)
+
+		if ok {
+			if p.TraceID == server.TraceID && p.SpanID == server.SpanID {
+				queue = r
+				break
+			}
+		}
+	}
+	require.NotNil(t, queue)
+	// check span attributes
+	sd = queue.Diff(
+		jaeger.Tag{Key: "span.kind", Type: "string", Value: "internal"},
+	)
+	assert.Empty(t, sd, sd.String())
+
+	// Check the information of the "processing" span
+	res = trace.FindByOperationName("processing", "internal")
+	require.GreaterOrEqual(t, len(res), 1)
+
+	var processing *jaeger.Span
+
+	for i := range res {
+		r := &res[i]
+		// Check parenthood
+		p, ok := trace.ParentOf(r)
+
+		if ok {
+			if p.TraceID == server.TraceID && p.SpanID == server.SpanID {
+				processing = r
+				break
+			}
+		}
+	}
+
+	require.NotNil(t, processing)
+	sd = processing.Diff(
+		jaeger.Tag{Key: "span.kind", Type: "string", Value: "internal"},
+	)
+	assert.Empty(t, sd, sd.String())
+
+	// We don't find client trace, since we are forcing the maximum transaction time
+	// to be very low, to test that long running transactions break
+	res = trace.FindByOperationName("GET /echoBack", "client")
+	require.Empty(t, res)
 }

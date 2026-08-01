@@ -23,23 +23,34 @@ const (
 	// Parent span ID injected into /relay-multiplex requests.
 	multiplexSpanID = "fedcba0987654321"
 
-	// Tests rely on active polling instead of long static waits — the warmup
-	// step below confirms every service is instrumented before strict checks
+	// Tests rely on active polling instead of long static waits — the suite-level
+	// waitForRelayInstrumentation confirms every service is instrumented before
+	// any strict check runs
 	grpcRelayTimeout = 2 * time.Minute
+
+	// Budget for OBI to discover and instrument all eight relay pids. Generous
+	// because it covers JVM agent attach and the Node.js script injection.
+	relayInstrumentationTimeout = 3 * time.Minute
 )
 
-// expectedRelayServices lists all services in the relay chain:
+// relayServices lists all services in the relay chain, in chain order:
 // Go (HTTP entry) -> Python (gRPC) -> Go (gRPC→HTTP bridge) -> Go (HTTP→gRPC bridge)
-// -> Node.js (gRPC) -> Java (gRPC) -> .NET (gRPC) -> Go (gRPC terminal)
-var expectedRelayServices = []string{
-	"go-entry",
-	"python-relay",
-	"go-grpc-to-http",
-	"go-http-to-grpc",
-	"nodejs-relay",
-	"java-relay",
-	"dotnet-relay",
-	"go-terminal",
+// -> Node.js (gRPC) -> Java (gRPC) -> Rust (gRPC) -> .NET (gRPC) -> Go (gRPC terminal)
+//
+// Each entry carries the service's dedicated HTTP health endpoint. Health
+// requests are plain HTTP/1 and never touch the gRPC chain, so they are the
+// traffic used to prove OBI has instrumented a pid without side effects on the
+// chain itself (see waitForRelayInstrumentation).
+var relayServices = []struct{ name, healthURL string }{
+	{"go-entry", "http://localhost:8080/health"},
+	{"python-relay", "http://localhost:8090/health"},
+	{"go-grpc-to-http", "http://localhost:8091/health"},
+	{"go-http-to-grpc", "http://localhost:8081/health"},
+	{"nodejs-relay", "http://localhost:8092/health"},
+	{"java-relay", "http://localhost:8093/health"},
+	{"rust-relay", "http://localhost:8096/health"},
+	{"dotnet-relay", "http://localhost:8095/health"},
+	{"go-terminal", "http://localhost:8094/health"},
 }
 
 // TestSuite_GRPCRelay validates end-to-end gRPC context propagation
@@ -62,73 +73,152 @@ func TestSuite_GRPCRelay(t *testing.T) {
 
 	// Wait for ALL services in the relay chain to be healthy.
 	// Each service exposes an HTTP health endpoint on a dedicated port.
-	healthURLs := []string{
-		"http://localhost:8080/health", // go-entry
-		"http://localhost:8090/health", // python-relay
-		"http://localhost:8091/health", // go-grpc-to-http
-		"http://localhost:8081/health", // go-http-to-grpc
-		"http://localhost:8092/health", // nodejs-relay
-		"http://localhost:8093/health", // java-relay
-		"http://localhost:8095/health", // dotnet-relay
-		"http://localhost:8094/health", // go-terminal
+	for _, svc := range relayServices {
+		waitForTestComponentsNoMetrics(t, svc.healthURL)
 	}
-	for _, url := range healthURLs {
-		waitForTestComponentsNoMetrics(t, url)
-	}
+
+	waitForRelayInstrumentation(t)
 
 	t.Run("gRPC relay chain context propagation", testGRPCRelayChainContextPropagation)
 	t.Run("gRPC multiplexed context propagation", testGRPCMultiplexedContextPropagation)
+	t.Run("gRPC persistent dyn-table context propagation", testGRPCPersistentDynTable)
+	t.Run("gRPC app traceparent not duplicated", func(t *testing.T) {
+		testGRPCAppTraceparentNotDuplicated(t, compose)
+	})
+}
+
+// App sends its own traceparent: OBI must not append a second, receivers discard multi-value.
+// Repeated on one channel, nghttp2 puts the whole field in its dynamic table and sends it as a
+// single index byte from the second call on, so nothing is left on the wire to detect.
+func testGRPCAppTraceparentNotDuplicated(t *testing.T, compose *docker.Compose) {
+	now := uint64(time.Now().UnixNano())
+	appTraceID := fmt.Sprintf("%016x%016x", now, now+1)
+	appSpanID := fmt.Sprintf("%016x", now+2)
+	traceparent := fmt.Sprintf("00-%s-%s-01", appTraceID, appSpanID)
+
+	resp, err := http.Get("http://localhost:8092/self-prop?tp=" + traceparent + "&n=4")
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		lines := relayTraceparentLogs(ct, compose, appTraceID)
+		// past the first request the field is a single dyn-table index, which is the case
+		// worth asserting, so keep polling until more than one call has landed
+		require.Greater(ct, len(lines), 1, "need a request past the first")
+		for _, line := range lines {
+			require.Contains(ct, line, "count=1", "duplicate traceparent: %s", line)
+			require.Contains(ct, line, appSpanID, "app span id was rewritten: %s", line)
+		}
+	}, 30*time.Second, 2*time.Second)
+
+	// /self-prop has its own channel, so the ordinary chain runs on a socket where nobody
+	// propagates. Injection there must be unaffected by the burst.
+	plainTraceID := sendRelayRequest(t)
+
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		for _, line := range relayTraceparentLogs(ct, compose, plainTraceID) {
+			require.Contains(ct, line, "count=1", "duplicate traceparent: %s", line)
+		}
+	}, 30*time.Second, 2*time.Second)
+}
+
+// java-relay's per-RPC traceparent log lines that carry traceID. Fails the attempt when none
+// have arrived yet, so an absent injection can never read as a pass.
+func relayTraceparentLogs(ct *assert.CollectT, compose *docker.Compose, traceID string) []string {
+	logs, err := compose.LogsTail(2000, "java-relay")
+	require.NoError(ct, err)
+
+	var seen []string
+	for line := range strings.SplitSeq(logs, "\n") {
+		if strings.Contains(line, "traceparent count=") && strings.Contains(line, traceID) {
+			seen = append(seen, strings.TrimSpace(line))
+		}
+	}
+	require.NotEmpty(ct, seen, "java-relay logged no traceparent for %s", traceID)
+
+	return seen
+}
+
+// hasSpansInJaeger reports whether Jaeger holds any recent trace for the given
+// service, which is the observable proof that OBI has instrumented its pid.
+func hasSpansInJaeger(service string) bool {
+	r, err := http.Get(jaegerQueryURL + "?service=" + service + "&limit=1&lookback=5m")
+	if err != nil {
+		return false
+	}
+	defer r.Body.Close()
+	if r.StatusCode != http.StatusOK {
+		return false
+	}
+	var tq jaeger.TracesQuery
+	if err := json.NewDecoder(r.Body).Decode(&tq); err != nil {
+		return false
+	}
+	return len(tq.Data) > 0
+}
+
+// waitForRelayInstrumentation blocks until OBI has instrumented every service in
+// the chain, generating traffic with health requests only.
+//
+// This must complete before the first /relay request. Every relay holds a
+// singleton gRPC channel to its next hop, created on that first request, and the
+// HTTP/2 client preface is sent exactly once, at connection setup. OBI only
+// classifies a connection as HTTP/2 when it observes that preface, so a channel
+// opened before OBI instrumented the process is never eligible for traceparent
+// injection for the lifetime of the run — the chain would break at that hop
+// permanently, and no amount of retrying with fresh trace IDs recovers it.
+//
+// Health endpoints are plain HTTP/1 and unrelated to the gRPC chain, so they
+// drive discovery without pinning any hop to an uninstrumented connection.
+func waitForRelayInstrumentation(t *testing.T) {
+	t.Helper()
+
+	instrumented := make(map[string]bool, len(relayServices))
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		var pending []string
+		for _, svc := range relayServices {
+			if instrumented[svc.name] {
+				continue
+			}
+			if r, err := http.Get(svc.healthURL); err == nil && r != nil {
+				r.Body.Close()
+			}
+			if hasSpansInJaeger(svc.name) {
+				instrumented[svc.name] = true
+				t.Logf("%s instrumented", svc.name)
+				continue
+			}
+			pending = append(pending, svc.name)
+		}
+		require.Empty(ct, pending, "waiting for OBI to instrument: %v", pending)
+	}, relayInstrumentationTimeout, time.Second)
+}
+
+// sendRelayRequest hits /relay with a fresh trace ID and returns it
+func sendRelayRequest(t require.TestingT) string {
+	now := uint64(time.Now().UnixNano())
+	traceID := fmt.Sprintf("%016x%016x", now, now+1)
+
+	req, err := http.NewRequest(http.MethodGet, "http://localhost:8080/relay", nil)
+	require.NoError(t, err)
+	req.Header.Set("Traceparent", fmt.Sprintf("00-%s-%016x-01", traceID, now+2))
+
+	if resp, err := http.DefaultClient.Do(req); err == nil && resp != nil {
+		resp.Body.Close()
+	}
+
+	return traceID
 }
 
 func testGRPCRelayChainContextPropagation(t *testing.T) {
-	// Wait for OBI to instrument go-entry (spans visible in Jaeger).
-	t.Log("waiting for instrumentation to be ready")
-	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		if wr, err := http.Get("http://localhost:8080/smoke"); err == nil && wr != nil {
-			wr.Body.Close()
-		}
-		r, err := http.Get(jaegerQueryURL + "?service=go-entry&limit=1&lookback=5m")
-		require.NoError(ct, err)
-		require.NotNil(ct, r)
-		defer r.Body.Close()
-		require.Equal(ct, http.StatusOK, r.StatusCode)
-		var tq jaeger.TracesQuery
-		require.NoError(ct, json.NewDecoder(r.Body).Decode(&tq))
-		require.NotEmpty(ct, tq.Data)
-	}, time.Minute, time.Second)
-	t.Log("instrumentation ready")
-
-	t.Log("waiting for dotnet-relay instrumentation")
-	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		if wr, err := http.Get("http://localhost:8080/relay"); err == nil && wr != nil {
-			wr.Body.Close()
-		}
-		r, err := http.Get(jaegerQueryURL + "?service=dotnet-relay&limit=1&lookback=5m")
-		require.NoError(ct, err)
-		require.NotNil(ct, r)
-		defer r.Body.Close()
-		require.Equal(ct, http.StatusOK, r.StatusCode)
-		var tq jaeger.TracesQuery
-		require.NoError(ct, json.NewDecoder(r.Body).Decode(&tq))
-		require.NotEmpty(ct, tq.Data, "dotnet-relay not yet instrumented")
-	}, 2*time.Minute, time.Second)
-	t.Log("dotnet-relay instrumented")
-
 	// Fresh trace ID per request so each iteration's assertions run against
 	// a single-request trace, not accumulated retries. Loop retries with a
 	// new ID until one request yields the full chain (services warm up
 	// gradually: JVM attach, connection warm-up).
 	var trace jaeger.Trace
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		now := uint64(time.Now().UnixNano())
-		relayAttemptTraceID := fmt.Sprintf("%016x%016x", now, now+1)
-		traceparent := fmt.Sprintf("00-%s-%016x-01", relayAttemptTraceID, now+2)
-		req, err := http.NewRequest(http.MethodGet, "http://localhost:8080/relay", nil)
-		require.NoError(ct, err)
-		req.Header.Set("Traceparent", traceparent)
-		if wr, err := http.DefaultClient.Do(req); err == nil && wr != nil {
-			wr.Body.Close()
-		}
+		relayAttemptTraceID := sendRelayRequest(ct)
 
 		// Poll Jaeger for our exact trace ID — gives a slow CI chain
 		// (JVM attach + nodejs/python startup) time to land all spans
@@ -141,16 +231,15 @@ func testGRPCRelayChainContextPropagation(t *testing.T) {
 			require.NoError(ctt, json.NewDecoder(resp.Body).Decode(&tq))
 			require.NotEmpty(ctt, tq.Data)
 			svcs := traceServices(tq.Data[0])
-			for _, svc := range expectedRelayServices {
-				require.Contains(ctt, svcs, svc, "trace missing service %s", svc)
+			for _, svc := range relayServices {
+				require.Contains(ctt, svcs, svc.name, "trace missing service %s", svc.name)
 			}
 		}, 30*time.Second, time.Second)
 
 		// Pick the completed trace for the structural checks below.
 		trace = tq.Data[0]
 
-		// All checks inside the loop so we retry if Jaeger hasn't
-		// indexed all spans yet.
+		// all checks inside the loop so partial Jaeger indexing retries
 		relayServerSpans := trace.FindByOperationName("/relay.Relay/Relay", "server")
 		relayClientSpans := trace.FindByOperationName("/relay.Relay/Relay", "client")
 
@@ -159,14 +248,14 @@ func testGRPCRelayChainContextPropagation(t *testing.T) {
 		require.GreaterOrEqual(ct, len(relayClientSpans), 6,
 			"should have at least 6 gRPC client spans (one per gRPC relay hop)")
 
-		// Verify the parent chain: for each gRPC hop, at least one server
-		// span must have a parent client span from the expected service.
+		// per hop, at least one server span must have a parent client span from the expected service
 		grpcParentChain := []struct{ server, parent string }{
 			{"python-relay", "go-entry"},
 			{"go-grpc-to-http", "python-relay"},
 			{"nodejs-relay", "go-http-to-grpc"},
 			{"java-relay", "nodejs-relay"},
-			{"dotnet-relay", "java-relay"},
+			{"rust-relay", "java-relay"},
+			{"dotnet-relay", "rust-relay"},
 			{"go-terminal", "dotnet-relay"},
 		}
 		for _, hop := range grpcParentChain {
@@ -218,12 +307,7 @@ func testGRPCRelayChainContextPropagation(t *testing.T) {
 		require.True(ct, foundReverse,
 			"go-http-to-grpc should have an intra-process HTTP server → gRPC client link")
 
-		// Double-span detection: walk the single completed chain from
-		// go-terminal's server span back to the root and count how many
-		// go-entry CLIENT spans appear in that path. Must be exactly 1.
-		// Walking the completed chain (rather than comparing total span counts
-		// across all accumulated retries) is immune to early iterations where
-		// go-entry was instrumented before python-relay.
+		// double-span check: go-terminal's chain to root must hold exactly 1 go-entry client span
 		terminalSpansCheck := trace.FindByOperationNameServiceAndKind(
 			"/relay.Relay/Relay", "go-terminal", "server")
 		require.NotEmpty(ct, terminalSpansCheck,
@@ -246,50 +330,10 @@ func testGRPCRelayChainContextPropagation(t *testing.T) {
 			chainCur = chainParent
 		}
 		if goEntryClientInChain != 1 {
-			t.Logf("=== DEBUG chain walk-back from go-terminal (trace %s) ===", trace.TraceID)
-			dc := terminalSpansCheck[0]
-			depth := 0
-			for {
-				svcName := "?"
-				if p, ok := trace.Processes[dc.ProcessID]; ok {
-					svcName = p.ServiceName
-				}
-				kind := ""
-				if tag, ok := jaeger.FindIn(dc.Tags, "span.kind"); ok {
-					kind = fmt.Sprintf(" [%v]", tag.Value)
-				}
-				parentID := ""
-				for _, r := range dc.References {
-					if r.RefType == "CHILD_OF" {
-						parentID = r.SpanID
-					}
-				}
-				t.Logf("  depth=%d svc=%s%s op=%s span_id=%s parent_id=%s", depth, svcName, kind, dc.OperationName, dc.SpanID, parentID)
-				p, ok := trace.ParentOf(&dc)
-				if !ok {
-					break
-				}
-				dc = p
-				depth++
-			}
-			t.Logf("=== DEBUG all spans in trace (grouped by service) ===")
-			for _, sp := range trace.Spans {
-				svc := "?"
-				if pr, ok := trace.Processes[sp.ProcessID]; ok {
-					svc = pr.ServiceName
-				}
-				kind := ""
-				if tag, ok := jaeger.FindIn(sp.Tags, "span.kind"); ok {
-					kind = fmt.Sprintf(" [%v]", tag.Value)
-				}
-				parentID := ""
-				for _, r := range sp.References {
-					if r.RefType == "CHILD_OF" {
-						parentID = r.SpanID
-					}
-				}
-				t.Logf("  svc=%s%s op=%s span_id=%s parent_id=%s", svc, kind, sp.OperationName, sp.SpanID, parentID)
-			}
+			logChain(t, trace, terminalSpansCheck[0],
+				fmt.Sprintf("DEBUG chain from go-terminal (trace %s)", trace.TraceID))
+			t.Logf("=== DEBUG all spans in trace ===")
+			logAllSpans(t, trace)
 		}
 		require.Equal(ct, 1, goEntryClientInChain,
 			"double-span bug: found %d go-entry CLIENT spans in completed chain, expected 1",
@@ -312,53 +356,13 @@ func testGRPCRelayChainContextPropagation(t *testing.T) {
 	t.Logf("trace %s: %d spans across %d services",
 		trace.TraceID, len(trace.Spans), len(traceServices(trace)))
 
-	// Print the complete chain by walking from go-terminal's server span back to
-	// the root, then printing root→leaf with indentation.
 	terminalSpans := trace.FindByOperationNameServiceAndKind("/relay.Relay/Relay", "go-terminal", "server")
 	if len(terminalSpans) > 0 {
-		var chain []jaeger.Span
-		cur := terminalSpans[0]
-		chain = append(chain, cur)
-		for {
-			parent, ok := trace.ParentOf(&cur)
-			if !ok {
-				break
-			}
-			chain = append(chain, parent)
-			cur = parent
-		}
-		// Reverse: chain is currently leaf→root, we want root→leaf.
-		for i, j := 0, len(chain)-1; i < j; i, j = i+1, j-1 {
-			chain[i], chain[j] = chain[j], chain[i]
-		}
-		t.Logf("complete chain (%d spans):", len(chain))
-		for depth, span := range chain {
-			svcName := "unknown"
-			if proc, ok := trace.Processes[span.ProcessID]; ok {
-				svcName = proc.ServiceName
-			}
-			kind := ""
-			if tag, ok := jaeger.FindIn(span.Tags, "span.kind"); ok {
-				kind = fmt.Sprintf(" (%v)", tag.Value)
-			}
-			parentID := ""
-			for _, r := range span.References {
-				if r.RefType == "CHILD_OF" {
-					parentID = r.SpanID
-					break
-				}
-			}
-			t.Logf("%s[%s]%s trace_id=[%s] span_id=[%s] parent_span_id=[%s]",
-				strings.Repeat("  ", depth), svcName, kind, span.TraceID, span.SpanID, parentID)
-		}
+		logChain(t, trace, terminalSpans[0], "complete chain")
 	}
 }
 
-// serverSpansByService returns every server-kind span in the trace owned by
-// the given service, deduped by span_id. Some OBI paths emit a generic op="*"
-// HTTP/2 span alongside the gRPC-named span for the same logical request; both
-// share the same span_id. Counting them twice would flag a false isolation
-// break in the multiplex assertion
+// serverSpansByService dedupes by span_id — OBI can emit a generic op="*" twin with the same id
 func serverSpansByService(trace jaeger.Trace, service string) []jaeger.Span {
 	seen := map[string]bool{}
 	var matches []jaeger.Span
@@ -379,33 +383,10 @@ func serverSpansByService(trace jaeger.Trace, service string) []jaeger.Span {
 	return matches
 }
 
-// testGRPCMultiplexedContextPropagation fans out N concurrent gRPC streams
-// from go-entry and asserts every gRPC server hop in the chain has distinct
-// parent_ids per stream. Each Go relay holds a singleton grpc.NewClient per
-// next-hop addr (see callNextHop in main.go), so concurrent fan-outs share
-// one HTTP/2 connection and multiplex as separate streams down the line.
-// nodejs and java handlers naturally reuse their persistent clients too
+// Fans out N concurrent streams over shared HTTP/2 conns and asserts distinct parent_ids per hop
 func testGRPCMultiplexedContextPropagation(t *testing.T) {
-	// Hops asserted: every gRPC server in the chain after the multiplexing
-	// origin. go-http-to-grpc receives HTTP/1 (not gRPC server-side), so it
-	// has no gRPC server span to assert on
-	hops := []string{"go-grpc-to-http", "nodejs-relay", "java-relay", "dotnet-relay"}
-
-	// Wait for OBI to instrument go-entry — suite health checks only prove the
-	// service is up, not that OBI has discovered the pid
-	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		if wr, err := http.Get("http://localhost:8080/smoke"); err == nil && wr != nil {
-			wr.Body.Close()
-		}
-		r, err := http.Get(jaegerQueryURL + "?service=go-entry&limit=1&lookback=5m")
-		require.NoError(ct, err)
-		require.NotNil(ct, r)
-		defer r.Body.Close()
-		require.Equal(ct, http.StatusOK, r.StatusCode)
-		var tq jaeger.TracesQuery
-		require.NoError(ct, json.NewDecoder(r.Body).Decode(&tq))
-		require.NotEmpty(ct, tq.Data, "go-entry not yet instrumented")
-	}, 3*time.Minute, time.Second)
+	// go-http-to-grpc receives HTTP/1 (no gRPC server span), so it isn't asserted
+	hops := []string{"go-grpc-to-http", "nodejs-relay", "java-relay", "rust-relay", "dotnet-relay"}
 
 	// Persistent gRPC connections established before OBI discovers the peer
 	// pid stay un-tracked for their lifetime — loop until a request with a
@@ -486,44 +467,142 @@ func testGRPCMultiplexedContextPropagation(t *testing.T) {
 		t.Logf("%s: %d server spans, %d distinct parents", hop, len(serverSpans), len(parents))
 	}
 
-	// Walk one chain root→leaf so a failure shows which hop dropped a stream
-	leafHop := hops[len(hops)-1]
-	leafSpans := serverSpansByService(trace, leafHop)
+	// one chain root→leaf so a failure shows which hop dropped a stream
+	leafSpans := serverSpansByService(trace, hops[len(hops)-1])
 	if len(leafSpans) > 0 {
-		var chain []jaeger.Span
-		cur := leafSpans[0]
-		chain = append(chain, cur)
-		for {
-			parent, ok := trace.ParentOf(&cur)
-			if !ok {
-				break
-			}
-			chain = append(chain, parent)
-			cur = parent
+		logChain(t, trace, leafSpans[0], "one chain")
+	}
+}
+
+// Requests 2+ on a persistent conn carry traceparent as a dyn-table indexed name
+func testGRPCPersistentDynTable(t *testing.T) {
+	// Warm the chain end-to-end so a first-request miss on any hop doesn't skew the loop
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		now := uint64(time.Now().UnixNano())
+		warmupTraceID := fmt.Sprintf("%016x%016x", now, now+1)
+		req, err := http.NewRequest(http.MethodGet, "http://localhost:8080/relay", nil)
+		require.NoError(ct, err)
+		req.Header.Set("Traceparent", fmt.Sprintf("00-%s-%016x-01", warmupTraceID, now+2))
+		if wr, err := http.DefaultClient.Do(req); err == nil && wr != nil {
+			wr.Body.Close()
 		}
-		for i, j := 0, len(chain)-1; i < j; i, j = i+1, j-1 {
-			chain[i], chain[j] = chain[j], chain[i]
+		var tq jaeger.TracesQuery
+		require.EventuallyWithT(ct, func(ctt *assert.CollectT) {
+			resp, err := http.Get(jaegerQueryURL + "/" + warmupTraceID)
+			require.NoError(ctt, err)
+			defer resp.Body.Close()
+			require.NoError(ctt, json.NewDecoder(resp.Body).Decode(&tq))
+			require.NotEmpty(ctt, tq.Data)
+			svcs := traceServices(tq.Data[0])
+			for _, svc := range relayServices {
+				require.Contains(ctt, svcs, svc.name, "warmup trace missing %s", svc.name)
+			}
+		}, 30*time.Second, time.Second)
+	}, grpcRelayTimeout, time.Second)
+
+	const numRequests = 8
+	// Retry whole batches: stream_ids advance monotonically, so retries exercise fresh dyn-table indices
+	var lastFailed []struct {
+		iter int
+		id   string
+		tq   jaeger.TracesQuery
+	}
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		lastFailed = lastFailed[:0]
+		traceIDs := make([]string, numRequests)
+		base := uint64(time.Now().UnixNano())
+		for i := 0; i < numRequests; i++ {
+			nowI := base + uint64(i)*1000
+			traceIDs[i] = fmt.Sprintf("%016x%016x", nowI, nowI+1)
+			req, err := http.NewRequest(http.MethodGet, "http://localhost:8080/relay", nil)
+			require.NoError(ct, err)
+			req.Header.Set("Traceparent", fmt.Sprintf("00-%s-%016x-01", traceIDs[i], nowI+2))
+			resp, err := http.DefaultClient.Do(req)
+			require.NoError(ct, err)
+			resp.Body.Close()
 		}
-		t.Logf("one chain (%d spans):", len(chain))
-		for depth, span := range chain {
-			svc := "unknown"
-			if proc, ok := trace.Processes[span.ProcessID]; ok {
-				svc = proc.ServiceName
-			}
-			kind := ""
-			if tag, ok := jaeger.FindIn(span.Tags, "span.kind"); ok {
-				kind = fmt.Sprintf(" (%v)", tag.Value)
-			}
-			parentID := ""
-			for _, r := range span.References {
-				if r.RefType == "CHILD_OF" {
-					parentID = r.SpanID
-					break
+		for i, id := range traceIDs {
+			var tq jaeger.TracesQuery
+			ok := assert.EventuallyWithT(ct, func(ctt *assert.CollectT) {
+				resp, err := http.Get(jaegerQueryURL + "/" + id)
+				require.NoError(ctt, err)
+				defer resp.Body.Close()
+				require.NoError(ctt, json.NewDecoder(resp.Body).Decode(&tq))
+				require.NotEmpty(ctt, tq.Data, "trace %s not in jaeger", id)
+				svcs := traceServices(tq.Data[0])
+				for _, svc := range relayServices {
+					if !svcs[svc.name] {
+						require.Fail(ctt, "missing service", "iter=%d trace=%s missing %s", i, id, svc.name)
+					}
 				}
+			}, 20*time.Second, time.Second)
+			if !ok {
+				lastFailed = append(lastFailed, struct {
+					iter int
+					id   string
+					tq   jaeger.TracesQuery
+				}{i, id, tq})
 			}
-			t.Logf("%s[%s]%s span_id=[%s] parent_span_id=[%s]",
-				strings.Repeat("  ", depth), svc, kind, span.SpanID, parentID)
 		}
+		for _, f := range lastFailed {
+			dumpTrace(t, f.iter, f.id, f.tq)
+		}
+		require.Empty(ct, lastFailed, "iterations missing services after retries")
+	}, 4*time.Minute, 5*time.Second)
+}
+
+func dumpTrace(t *testing.T, iter int, id string, tq jaeger.TracesQuery) {
+	if len(tq.Data) == 0 {
+		t.Logf("iter=%d trace=%s: no data in jaeger", iter, id)
+		return
+	}
+	tr := tq.Data[0]
+	t.Logf("iter=%d trace=%s spans=%d processes=%d", iter, id, len(tr.Spans), len(tr.Processes))
+	logAllSpans(t, tr)
+}
+
+// spanMeta returns the service name, " (kind)" suffix and parent span id of a span, for logging
+func spanMeta(trace jaeger.Trace, s *jaeger.Span) (svc, kind, parentID string) {
+	svc = "?"
+	if p, ok := trace.Processes[s.ProcessID]; ok {
+		svc = p.ServiceName
+	}
+	if tag, ok := jaeger.FindIn(s.Tags, "span.kind"); ok {
+		kind = fmt.Sprintf(" (%v)", tag.Value)
+	}
+	for _, r := range s.References {
+		if r.RefType == "CHILD_OF" {
+			parentID = r.SpanID
+			break
+		}
+	}
+	return svc, kind, parentID
+}
+
+// logChain prints leaf's ancestry root→leaf with indentation
+func logChain(t *testing.T, trace jaeger.Trace, leaf jaeger.Span, label string) {
+	chain := []jaeger.Span{leaf}
+	for cur := leaf; ; {
+		parent, ok := trace.ParentOf(&cur)
+		if !ok {
+			break
+		}
+		chain = append(chain, parent)
+		cur = parent
+	}
+	t.Logf("%s (%d spans):", label, len(chain))
+	for i := len(chain) - 1; i >= 0; i-- {
+		svc, kind, parentID := spanMeta(trace, &chain[i])
+		t.Logf("%s[%s]%s op=%s span_id=[%s] parent_span_id=[%s]",
+			strings.Repeat("  ", len(chain)-1-i), svc, kind, chain[i].OperationName, chain[i].SpanID, parentID)
+	}
+}
+
+func logAllSpans(t *testing.T, trace jaeger.Trace) {
+	for i := range trace.Spans {
+		svc, kind, parentID := spanMeta(trace, &trace.Spans[i])
+		t.Logf("  svc=%s%s op=%s span_id=%s parent_id=%s",
+			svc, kind, trace.Spans[i].OperationName, trace.Spans[i].SpanID, parentID)
 	}
 }
 

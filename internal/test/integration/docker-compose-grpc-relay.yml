@@ -21,6 +21,7 @@ services:
       context: ../../..
       dockerfile: internal/test/integration/components/grpc_relay/python/Dockerfile
     image: hatest-grpc-relay-python
+    init: true
     environment:
       GRPC_PORT: "50051"
       NEXT_HOP: "go-grpc-to-http:50060"
@@ -70,6 +71,7 @@ services:
       context: ../../..
       dockerfile: internal/test/integration/components/grpc_relay/nodejs/Dockerfile
     image: hatest-grpc-relay-nodejs
+    init: true
     environment:
       GRPC_PORT: "50053"
       NEXT_HOP: "java-relay:50055"
@@ -81,7 +83,7 @@ services:
       java-relay:
         condition: service_started
 
-  # Java relay: gRPC on 50055, calls go-terminal via gRPC
+  # Java relay: gRPC on 50055, calls rust-relay via gRPC
   java-relay:
     build:
       context: ../../..
@@ -89,10 +91,27 @@ services:
     image: hatest-grpc-relay-java
     environment:
       GRPC_PORT: "50055"
-      NEXT_HOP: "dotnet-relay:50056"
+      NEXT_HOP: "rust-relay:50057"
       HEALTH_PORT: "8093"
     ports:
       - "8093:8093"
+    depends_on:
+      rust-relay:
+        condition: service_started
+
+  # Rust/tonic relay: persistent tonic Channel to dotnet-relay; h2 HPACK emits 0x40 incremental indexing
+  rust-relay:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/grpc_relay/rust/Dockerfile
+    image: hatest-grpc-relay-rust
+    init: true
+    environment:
+      GRPC_PORT: "50057"
+      NEXT_HOP: "dotnet-relay:50056"
+      HEALTH_PORT: "8096"
+    ports:
+      - "8096:8096"
     depends_on:
       dotnet-relay:
         condition: service_started
@@ -138,10 +157,12 @@ services:
       - ./system/sys/kernel/security${SECURITY_CONFIG_SUFFIX}:/sys/kernel/security
       - /sys/fs/bpf:/sys/fs/bpf
       - /sys/fs/cgroup:/sys/fs/cgroup
+      - /sys/kernel/tracing:/sys/kernel/tracing:ro
       - ../../../testoutput:/coverage
       - ../../../testoutput/run-grpc-relay:/var/run/obi
     image: hatest-obi
     privileged: true
+    init: true
     pid: "host"
     cgroup: "host"
     environment:
