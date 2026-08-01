@@ -34,10 +34,27 @@ func TestNetwork_Deduplication(t *testing.T) {
 	}
 
 	// The network feature drives OBI's internal eBPF packet counters
-	// (obi.bpf.network.*), which are semconv-validated by weaver here.
+	// (obi.bpf.network.*), which are semconv-validated by weaver here. Require
+	// them via Prometheus first so a regression that stops emitting them fails
+	// the suite instead of leaving weaver's report silently empty of them.
+	requireInternalNetworkCounters(t)
 	runWeaverValidation(t)
 
 	require.NoError(t, compose.Close())
+}
+
+func requireInternalNetworkCounters(t *testing.T) {
+	t.Helper()
+	pq := promtest.Client{HostPort: prometheusHostPort}
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		for _, name := range []string{"obi_bpf_network_packets_total", "obi_bpf_network_ignored_packets_total"} {
+			results, err := pq.Query(name)
+			if !assert.NoErrorf(ct, err, "querying %s", name) {
+				continue
+			}
+			assert.NotEmptyf(ct, results, "%s should be present", name)
+		}
+	}, testTimeout, time.Second)
 }
 
 func TestNetwork_Deduplication_Use_Socket_Filter(t *testing.T) {
