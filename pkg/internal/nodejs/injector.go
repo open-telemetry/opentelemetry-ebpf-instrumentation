@@ -295,8 +295,7 @@ func (i *NodeInjector) injectViaConn(conn net.Conn) error {
 
 	i.log.Debug("found debugger url", "url", wsURL)
 
-	wrapped := fmt.Sprintf("(()=>{\n%s\n})()", string(_extractorBytes))
-	payload, err := evaluateRequest(wrapped, 1)
+	payload, err := evaluateRequest(_extractorCode, 1)
 	if err != nil {
 		conn.Close()
 		return err
