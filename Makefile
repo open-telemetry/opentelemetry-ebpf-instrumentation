@@ -135,6 +135,13 @@ fmt:
 clang-tidy:
 	cd bpf && find . -type f \( -name '*.c' -o -name '*.h' \) ! -path "./bpfcore/*" ! -path "./NOTICES/*" ! -path "./tests/*" | xargs clang-tidy
 
+# Golangci-lint reuses the same cache across worktrees, this causes that the "excludes" entries in the
+# .golangci.yml configuration do not match the relative paths from the worktree and linting will fail
+# unless you clean the cache.
+.PHONY: lint-clean-cache
+lint-clean-cache:
+	go tool $(TOOLS_MODFILE) golangci-lint cache clean
+
 .PHONY: lint
 lint: LINT_EXTRA_ARGS =
 lint: lint-run
@@ -315,12 +322,12 @@ compile-cache-for-coverage:
 	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -cover -a -o bin/$(CACHE_CMD) $(CACHE_MAIN_GO_FILE)
 
 .PHONY: test
-test:
+test: testoutput
 	@echo "### Testing code"
 	KUBEBUILDER_ASSETS="$(shell go tool $(TOOLS_MODFILE) setup-envtest use $(ENVTEST_K8S_VERSION) -p path)" go test -short -race -a ./... -coverpkg=./... -coverprofile $(TEST_OUTPUT)/cover.all.txt
 
 .PHONY: test-privileged
-test-privileged: $(ENVTEST)
+test-privileged: $(ENVTEST) testoutput
 	@echo "### Testing only privileged-tagged tests"
 	go test -short -race -tags=privileged_tests -a \
 	$$(grep -rl '//go:build.*privileged_tests' . --include='*.go' | xargs -I{} dirname {} | sort -u | tr '\n' ' ') \
@@ -332,7 +339,7 @@ run-bpf-verifier-vm:
 	go test -count=1 -timeout 20m -parallel 8 -tags=bpf_verifier_tests ./pkg/internal/ebpf/verifier/...
 
 .PHONY: cov-exclude-generated
-cov-exclude-generated:
+cov-exclude-generated: testoutput
 	grep -vE $(EXCLUDE_COVERAGE_FILES) $(TEST_OUTPUT)/cover.all.txt > $(TEST_OUTPUT)/cover.txt
 
 .PHONY: coverage-report
@@ -706,8 +713,12 @@ clean-release-dir:
 	rm -f bin/obi-*.tar.gz
 	rm -rf bin/LICENSE bin/NOTICE bin/NOTICES
 
+.PHONY: testoutput
+testoutput:
+	mkdir -p ${TEST_OUTPUT}
+
 .PHONY: clean-testoutput
-clean-testoutput:
+clean-testoutput: testoutput
 	@echo "### Cleaning ${TEST_OUTPUT} folder"
 	rm -rf ${TEST_OUTPUT}/*
 
