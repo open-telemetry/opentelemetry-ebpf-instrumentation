@@ -588,22 +588,6 @@
               }
             }
           }
-        },
-        {
-          "action": "exclude",
-          "name": "exclude-linux-system-paths",
-          "description": "Exclude Linux system/service executable paths that are not typical application workloads.",
-          "match": {
-            "process": {
-              "exe_path_glob": [
-                "/lib/systemd/*",
-                "/usr/lib/systemd/*",
-                "/usr/libexec/*",
-                "/sbin/*",
-                "/usr/sbin/*"
-              ]
-            }
-          }
         }
       ],
       "items": {

@@ -313,14 +313,15 @@ func runtimeDiscoveryRulesFromV2(rules []schema.Rule) runtimeDiscoveryRules {
 
 func applyRuntimeDiscoveryRules(cfg *obi.Config, rules runtimeDiscoveryRules) {
 	// A present v2 rules section is authoritative for runtime selector state,
-	// including the default exclusions emitted by RuntimeToV2.
+	// including the default capture exclusions emitted by RuntimeToV2.
+	// ExcludedLinuxSystemPaths only controls language detection, so it retains
+	// its runtime default instead of being represented as a capture rule.
 	cfg.Discovery.Instrument = rules.includeGlobs
 	cfg.Discovery.ExcludeInstrument = rules.excludeGlobs
 	cfg.Discovery.DefaultExcludeInstrument = nil
 	cfg.Discovery.Services = rules.includeRegex
 	cfg.Discovery.ExcludeServices = rules.excludeRegex
 	cfg.Discovery.DefaultExcludeServices = nil
-	cfg.Discovery.ExcludedLinuxSystemPaths = nil
 	cfg.Discovery.ExcludeOTelInstrumentedServices = rules.excludeOTelInstrumentedServices
 	if rules.excludeOTelInstrumentedServices {
 		cfg.Discovery.DefaultOtlpGRPCPort = rules.defaultOTLPGRPCPort

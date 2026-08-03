@@ -8,10 +8,12 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/gobwas/glob"
 	"go.yaml.in/yaml/v3"
 
 	"go.opentelemetry.io/obi/pkg/obi"
@@ -144,7 +146,7 @@ func toStringSlice(v any) []string {
 	return out
 }
 
-func mustMapExcludedSystemPaths(cur map[string]any, ex map[string]any) error {
+func mustKeepLanguageDetectionSkipsOutOfCaptureRules(cur map[string]any, ex map[string]any) error {
 	currentPathsValue, ok := get(cur, "discovery", "excluded_linux_system_paths")
 	if !ok {
 		return errors.New("missing current key [discovery excluded_linux_system_paths]")
@@ -163,7 +165,6 @@ func mustMapExcludedSystemPaths(cur map[string]any, ex map[string]any) error {
 		return errors.New("example obi.capture.rules is not a list")
 	}
 
-	foundGlobs := map[string]bool{}
 	for _, ruleAny := range rules {
 		rule, ok := ruleAny.(map[string]any)
 		if !ok {
@@ -171,6 +172,9 @@ func mustMapExcludedSystemPaths(cur map[string]any, ex map[string]any) error {
 		}
 		if fmt.Sprintf("%v", rule["action"]) != "exclude" {
 			continue
+		}
+		if fmt.Sprintf("%v", rule["name"]) == "exclude-linux-system-paths" {
+			return errors.New("language-detection skips must not be represented as a capture exclusion rule")
 		}
 		match, ok := rule["match"].(map[string]any)
 		if !ok {
@@ -181,15 +185,40 @@ func mustMapExcludedSystemPaths(cur map[string]any, ex map[string]any) error {
 			continue
 		}
 		globs := toStringSlice(process["exe_path_glob"])
-		for _, g := range globs {
-			foundGlobs[g] = true
+		compiledGlobs := make([]glob.Glob, 0, len(globs))
+		for _, pattern := range globs {
+			compiled, err := glob.Compile(pattern)
+			if err != nil {
+				return fmt.Errorf("invalid capture exclusion glob %q: %w", pattern, err)
+			}
+			compiledGlobs = append(compiledGlobs, compiled)
 		}
-	}
 
-	for _, p := range currentPaths {
-		expectedGlob := strings.TrimSuffix(p, "/") + "/*"
-		if !foundGlobs[expectedGlob] {
-			return fmt.Errorf("missing scope rule glob for excluded system path: expected %s", expectedGlob)
+		var pathRegex *regexp.Regexp
+		if pattern, ok := process["exe_path_regex"].(string); ok && pattern != "" {
+			compiled, err := regexp.Compile(pattern)
+			if err != nil {
+				return fmt.Errorf("invalid capture exclusion regex %q: %w", pattern, err)
+			}
+			pathRegex = compiled
+		}
+
+		for _, path := range currentPaths {
+			candidate := strings.TrimSuffix(path, "/") + "/obi-language-detection-skip"
+			for _, pattern := range compiledGlobs {
+				if pattern.Match(candidate) {
+					return fmt.Errorf(
+						"language-detection skip %s must not be a capture exclusion",
+						path,
+					)
+				}
+			}
+			if pathRegex != nil && pathRegex.MatchString(candidate) {
+				return fmt.Errorf(
+					"language-detection skip %s must not be a capture exclusion",
+					path,
+				)
+			}
 		}
 	}
 
@@ -620,7 +649,7 @@ func verifyDefaults(cur map[string]any, ex map[string]any) ([]error, int) {
 	}
 	derivedChecks++
 
-	if err := mustMapExcludedSystemPaths(cur, ex); err != nil {
+	if err := mustKeepLanguageDetectionSkipsOutOfCaptureRules(cur, ex); err != nil {
 		failures = append(failures, err)
 	}
 	derivedChecks++

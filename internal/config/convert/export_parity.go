@@ -288,31 +288,6 @@ func rulesFromRuntime(cfg *obi.Config) []schema.Rule {
 		})
 	}
 
-	if len(cfg.Discovery.ExcludedLinuxSystemPaths) > 0 {
-		processMatch := schema.RuleProcessMatch{}
-		if regexSelection {
-			patterns := make([]string, 0, len(cfg.Discovery.ExcludedLinuxSystemPaths))
-			for _, path := range cfg.Discovery.ExcludedLinuxSystemPaths {
-				patterns = append(patterns, "^"+regexp.QuoteMeta(strings.TrimRight(path, "/")+"/"))
-			}
-			processMatch.ExePathRegex = strings.Join(patterns, "|")
-		} else {
-			globs := make([]string, 0, len(cfg.Discovery.ExcludedLinuxSystemPaths))
-			for _, path := range cfg.Discovery.ExcludedLinuxSystemPaths {
-				globs = append(globs, strings.TrimRight(path, "/")+"/*")
-			}
-			processMatch.ExePathGlob = globs
-		}
-		rules = append(rules, schema.Rule{
-			Action:      schema.CaptureActionExclude,
-			Name:        "exclude-linux-system-paths",
-			Description: "Exclude Linux system/service executable paths that are not typical application workloads.",
-			Match: schema.RuleMatch{
-				Process: processMatch,
-			},
-		})
-	}
-
 	rules = appendSelectorRules(rules, schema.CaptureActionInclude, findingCriteria, nil, regexSelection)
 
 	return rules
