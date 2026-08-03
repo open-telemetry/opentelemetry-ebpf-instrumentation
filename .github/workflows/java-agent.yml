@@ -7,6 +7,7 @@ on:
     branches: ["main", "release-*"]
     paths:
       - "pkg/internal/java/**"
+      - "dependencies.Dockerfile"
       - ".github/workflows/java-agent.yml"
   workflow_dispatch:
   workflow_call:
