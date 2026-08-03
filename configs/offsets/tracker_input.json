@@ -157,6 +157,13 @@
       "go.opentelemetry.io/otel/internal/global.tracer": ["delegate"]
     }
   },
+  "go.opentelemetry.io/auto/sdk": {
+    "inspect": "./configs/offsets/autosdk/inspect.go",
+    "versions": ">= v1.1.0",
+    "fields": {
+      "go.opentelemetry.io/auto/sdk.span": ["spanContext"]
+    }
+  },
   "go.opentelemetry.io/otel/trace": {
     "inspect": "./configs/offsets/oteltrace/inspect.go",
     "versions": ">= v1.0.0",

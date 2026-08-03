@@ -510,6 +510,20 @@
         ]
       }
     },
+    "go.opentelemetry.io/auto/sdk.span": {
+      "spanContext": {
+        "versions": {
+          "oldest": "1.1.0",
+          "newest": "1.2.1"
+        },
+        "offsets": [
+          {
+            "offset": 80,
+            "since": "1.1.0"
+          }
+        ]
+      }
+    },
     "go.opentelemetry.io/otel/trace.SpanContext": {
       "spanID": {
         "versions": {
