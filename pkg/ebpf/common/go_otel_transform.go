@@ -33,15 +33,15 @@ func ReadGoOTelEventIntoSpan(record *ringbuf.Record) (request.Span, bool, error)
 	name := cstr(event.SpanName.Buf[:])
 	descr := cstr(event.SpanDescription.Buf[:])
 
-	attrs := ""
-	if a, err := encodedAttrs(event); err == nil {
-		attrs = string(a)
+	attrs, err := encodedAttrs(event)
+	if err != nil {
+		return request.Span{}, true, err
 	}
 
 	return request.Span{
 		Type:          request.EventTypeManualSpan,
 		Method:        name,
-		Statement:     attrs,
+		Statement:     string(attrs),
 		Path:          descr,
 		Peer:          "",
 		PeerPort:      0,
@@ -206,6 +206,9 @@ func autoSpanStatus(status ptrace.StatusCode) (int, error) {
 
 func encodedAttrs(event *GoOTelSpanTrace) ([]byte, error) {
 	size := int(event.SpanAttrs.ValidAttrs)
+	if size > len(event.SpanAttrs.Attrs) {
+		return nil, fmt.Errorf("invalid Go OTel span attribute count: %d exceeds %d", size, len(event.SpanAttrs.Attrs))
+	}
 	if size == 0 {
 		return nil, nil
 	}

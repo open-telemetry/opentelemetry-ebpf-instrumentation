@@ -522,7 +522,7 @@ func NewEBPFEventContext() *EBPFEventContext {
 }
 
 func ReadBPFTraceAsSpan(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, record *ringbuf.Record, filter ServiceFilter) (request.Span, bool, error) {
-	if len(record.RawSample) == 0 {
+	if record == nil || len(record.RawSample) == 0 {
 		return request.Span{}, true, errors.New("invalid ringbuffer record size")
 	}
 
