@@ -301,7 +301,8 @@ type Extension struct {
 	Enrich      *Enrich      `yaml:"enrich,omitempty"`
 	Correlation *Correlation `yaml:"correlation,omitempty"`
 	Daemon      *Daemon      `yaml:"daemon,omitempty"`
-	source      *yaml.Node
+
+	source *yaml.Node
 }
 
 type extensionData Extension
@@ -337,6 +338,37 @@ func cloneExtensionData(extension *Extension) (extensionData, error) {
 		return extensionData{}, fmt.Errorf("copying config v2 defaults: %w", err)
 	}
 	return extensionData(*cloned.(*Extension)), nil
+}
+
+// FlowLimitAliasPresence reports which network flow limit aliases were present
+// in parsed YAML. Programmatically constructed extensions report known as false.
+func (e *Extension) FlowLimitAliasPresence() (
+	networkPackets bool,
+	maxTrackedFlows bool,
+	known bool,
+) {
+	if e == nil {
+		return false, false, false
+	}
+	if e.source == nil {
+		return false, false, false
+	}
+
+	_, networkPackets = nestedNode(
+		e.source,
+		"capture",
+		"limits",
+		"network_packets",
+	)
+	_, maxTrackedFlows = nestedNode(
+		e.source,
+		"capture",
+		"network",
+		"capture",
+		"flow_lifecycle",
+		"max_tracked_flows",
+	)
+	return networkPackets, maxTrackedFlows, true
 }
 
 // receiverConfig mirrors the receiver-embedded layout, where capture sections
