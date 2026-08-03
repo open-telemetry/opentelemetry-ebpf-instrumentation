@@ -28,6 +28,7 @@ func rtlog() *slog.Logger {
 type RingBufTracer struct {
 	statsMap *ciliumebpf.Map
 	cfg      *config.EBPFTracer
+	forward  func(context.Context, *msg.Queue[[]*ebpf.Stat])
 }
 
 func NewRingBufTracer(statsMap *ciliumebpf.Map, cfg *config.EBPFTracer) *RingBufTracer {
@@ -38,14 +39,17 @@ func NewRingBufTracer(statsMap *ciliumebpf.Map, cfg *config.EBPFTracer) *RingBuf
 }
 
 func (m *RingBufTracer) TraceLoop(out *msg.Queue[[]*ebpf.Stat]) swarm.RunFunc {
-	forward := ebpfcommon.ForwardRingbuf(
-		m.cfg,
-		m.statsMap,
-		parseStat,
-		nil, // filter: no batch-level filtering
-		rtlog(),
-		nil, // metrics
-	)
+	forward := m.forward
+	if forward == nil {
+		forward = ebpfcommon.ForwardRingbuf(
+			m.cfg,
+			m.statsMap,
+			parseStat,
+			nil, // filter: no batch-level filtering
+			rtlog(),
+			nil, // metrics
+		)
+	}
 	return func(ctx context.Context) {
 		defer out.MarkCloseable()
 		forward(ctx, out)
@@ -61,6 +65,10 @@ func parseStat(record *ringbuf.Record) (*ebpf.Stat, bool, error) {
 }
 
 func handleStatEvent(record *ringbuf.Record) (ebpf.Stat, error) {
+	if record == nil || len(record.RawSample) == 0 {
+		return ebpf.Stat{}, fmt.Errorf("empty stats event")
+	}
+
 	eventType := ebpf.StatType(record.RawSample[0])
 	switch eventType {
 	case ebpf.StatTypeTCPRtt:
