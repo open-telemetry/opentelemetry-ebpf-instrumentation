@@ -197,11 +197,13 @@ type fakeInternalMetrics struct {
 }
 
 type InstrTest struct {
-	name       string
-	instr      []instrumentations.Instrumentation
-	expected   []string
-	unexpected []string
-	extraColl  int
+	name                 string
+	instr                []instrumentations.Instrumentation
+	expected             []string
+	unexpected           []string
+	expectedOperations   []string
+	unexpectedOperations []string
+	extraColl            int
 }
 
 func TestAppMetrics_ByInstrumentation(t *testing.T) {
@@ -221,6 +223,7 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 				"db.client.operation.duration",        // REDIS client SET
 				"db.client.operation.duration",        // Redis server GET (TODO is this a bug?)
 				"db.client.operation.duration",        // MongoDB client find
+				"db.client.operation.duration",        // Aerospike client get
 				"messaging.client.operation.duration", // Kafka client
 				"messaging.client.operation.duration", // MQTT client
 				"messaging.client.operation.duration", // NATS client
@@ -326,6 +329,16 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 			},
 		},
 		{
+			name:      "aerospike only",
+			instr:     []instrumentations.Instrumentation{instrumentations.InstrumentationAerospike},
+			extraColl: 0,
+			expected: []string{
+				"db.client.operation.duration",
+			},
+			expectedOperations:   []string{"aerospike_get"},
+			unexpectedOperations: []string{"SELECT", "SET", "GET", "find"},
+		},
+		{
 			name:      "none",
 			instr:     nil,
 			extraColl: 0,
@@ -340,6 +353,7 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 				"db.client.operation.duration",
 				"db.client.operation.duration",
 			},
+			unexpectedOperations: []string{"aerospike_get"},
 		},
 		{
 			name:      "kafka and grpc",
@@ -391,6 +405,7 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeRedisClient, Method: "SET", RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeRedisServer, Method: "GET", RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeMongoClient, Method: "find", RequestStart: 150, End: 175},
+				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeAerospikeClient, Method: "aerospike_get", RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeKafkaClient, Method: "publish", RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeKafkaServer, Method: "process", RequestStart: 150, End: 175},
 				{Service: svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeMQTTClient, Method: "publish", RequestStart: 150, End: 175},
@@ -418,6 +433,16 @@ func TestAppMetrics_ByInstrumentation(t *testing.T) {
 			}
 			assert.Len(t, m, len(tt.expected))
 
+			operations := make([]string, 0, len(m))
+			for _, record := range m {
+				operations = append(operations, record.Attributes["db.operation.name"])
+			}
+			for _, operation := range tt.expectedOperations {
+				assert.Contains(t, operations, operation)
+			}
+			for _, operation := range tt.unexpectedOperations {
+				assert.NotContains(t, operations, operation)
+			}
 			for i := 0; i < len(m); i++ {
 				assert.Contains(t, tt.expected, m[i].Name)
 			}

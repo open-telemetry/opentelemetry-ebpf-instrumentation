@@ -71,6 +71,10 @@ func V2ToRuntime(src *schema.Extension) (*obi.Config, error) {
 		return nil, err
 	}
 
+	normalized := *src
+	normalized.Capture.Instrumentation = instrumentationWithDefaults(src.Capture.Instrumentation)
+	src = &normalized
+
 	cfg := runtimeConfigDefaults()
 	applyV2Capture(&cfg, src, policy, complete)
 	applyV2Standalone(&cfg, src, complete)
@@ -348,14 +352,15 @@ func completeV2RuleRefinements(rules []schema.Rule) (exports, routes bool) {
 
 func applyRuntimeDiscoveryRules(cfg *obi.Config, rules runtimeDiscoveryRules) {
 	// A present v2 rules section is authoritative for runtime selector state,
-	// including the default exclusions emitted by RuntimeToV2.
+	// including the default capture exclusions emitted by RuntimeToV2.
+	// ExcludedLinuxSystemPaths only controls language detection, so it retains
+	// its runtime default instead of being represented as a capture rule.
 	cfg.Discovery.Instrument = rules.includeGlobs
 	cfg.Discovery.ExcludeInstrument = rules.excludeGlobs
 	cfg.Discovery.DefaultExcludeInstrument = nil
 	cfg.Discovery.Services = rules.includeRegex
 	cfg.Discovery.ExcludeServices = rules.excludeRegex
 	cfg.Discovery.DefaultExcludeServices = nil
-	cfg.Discovery.ExcludedLinuxSystemPaths = nil
 	cfg.Discovery.ExcludeOTelInstrumentedServices = rules.excludeOTelInstrumentedServices
 	if rules.excludeOTelInstrumentedServices {
 		cfg.Discovery.DefaultOtlpGRPCPort = rules.defaultOTLPGRPCPort
@@ -1068,6 +1073,18 @@ func applyPartialV2Engine(cfg *obi.Config, engine schema.CaptureEngine) {
 	}
 }
 
+func instrumentationWithDefaults(instrumentation schema.Instrumentation) schema.Instrumentation {
+	if !completeInstrumentationWithoutAerospike(instrumentation) || instrumentation.Aerospike != nil {
+		return instrumentation
+	}
+
+	aerospike := schema.AerospikeInstrumentation{
+		Enabled: schema.ProtocolEnablement{Traces: true, Metrics: true},
+	}
+	instrumentation.Aerospike = &aerospike
+	return instrumentation
+}
+
 func applyV2Instrumentation(cfg *obi.Config, instrumentation schema.Instrumentation, complete bool) {
 	if zeroValue(instrumentation) && !complete {
 		return
@@ -1428,9 +1445,9 @@ func applySignalEnablement(
 	}
 
 	for _, mapping := range protocolMappings {
-		enablement := protocolEnablement(instrumentation, mapping.name)
+		enablement, explicit := protocolEnablement(instrumentation, mapping.name)
 		enabled := signalEnabled(enablement, signal)
-		if !complete && !enabled {
+		if !complete && !enabled && !explicit {
 			continue
 		}
 		selected[mapping.instr] = enabled
@@ -2133,7 +2150,7 @@ func appMetricsEnablement(instrumentation schema.Instrumentation, complete bool)
 	configured := complete
 	enabled := false
 	for _, mapping := range protocolMappings {
-		enablement := protocolEnablement(instrumentation, mapping.name)
+		enablement, _ := protocolEnablement(instrumentation, mapping.name)
 		metricsEnabled := signalEnabled(enablement, "metrics")
 		if !complete && !metricsEnabled {
 			continue
@@ -2146,7 +2163,7 @@ func appMetricsEnablement(instrumentation schema.Instrumentation, complete bool)
 	return enabled, configured
 }
 
-func completeInstrumentation(instrumentation schema.Instrumentation) bool {
+func completeInstrumentationWithoutAerospike(instrumentation schema.Instrumentation) bool {
 	return !zeroValue(instrumentation.HTTP) &&
 		!zeroValue(instrumentation.GRPC) &&
 		!zeroValue(instrumentation.SQL) &&
@@ -2156,6 +2173,10 @@ func completeInstrumentation(instrumentation schema.Instrumentation) bool {
 		!zeroValue(instrumentation.Couchbase) &&
 		!zeroValue(instrumentation.DNS) &&
 		!zeroValue(instrumentation.GPU)
+}
+
+func completeInstrumentation(instrumentation schema.Instrumentation) bool {
+	return completeInstrumentationWithoutAerospike(instrumentation) && instrumentation.Aerospike != nil
 }
 
 func completePolicy(policy schema.CapturePolicy) bool {
@@ -2262,28 +2283,33 @@ func cloneExtraGroupAttributes(values schema.ExtraGroupAttributes) obi.ExtraGrou
 	return out
 }
 
-func protocolEnablement(instrumentation schema.Instrumentation, name protocolName) schema.ProtocolEnablement {
+func protocolEnablement(instrumentation schema.Instrumentation, name protocolName) (schema.ProtocolEnablement, bool) {
 	switch name {
 	case protocolHTTP:
-		return instrumentation.HTTP.Enabled
+		return instrumentation.HTTP.Enabled, false
 	case protocolGRPC:
-		return instrumentation.GRPC.Enabled
+		return instrumentation.GRPC.Enabled, false
 	case protocolSQL:
-		return instrumentation.SQL.Enabled
+		return instrumentation.SQL.Enabled, false
 	case protocolRedis:
-		return instrumentation.Redis.Enabled
+		return instrumentation.Redis.Enabled, false
 	case protocolKafka:
-		return instrumentation.Kafka.Enabled
+		return instrumentation.Kafka.Enabled, false
 	case protocolMongo:
-		return instrumentation.Mongo.Enabled
+		return instrumentation.Mongo.Enabled, false
 	case protocolCouchbase:
-		return instrumentation.Couchbase.Enabled
+		return instrumentation.Couchbase.Enabled, false
 	case protocolDNS:
-		return instrumentation.DNS.Enabled
+		return instrumentation.DNS.Enabled, false
 	case protocolGPU:
-		return instrumentation.GPU.Enabled
+		return instrumentation.GPU.Enabled, false
+	case protocolAerospike:
+		if instrumentation.Aerospike != nil {
+			return instrumentation.Aerospike.Enabled, true
+		}
+		return schema.ProtocolEnablement{}, false
 	default:
-		return schema.ProtocolEnablement{}
+		return schema.ProtocolEnablement{}, false
 	}
 }
 
@@ -2307,6 +2333,11 @@ func protocolFilters(instrumentation schema.Instrumentation, name protocolName) 
 		return instrumentation.DNS.Filters
 	case protocolGPU:
 		return instrumentation.GPU.Filters
+	case protocolAerospike:
+		if instrumentation.Aerospike != nil {
+			return instrumentation.Aerospike.Filters
+		}
+		return schema.SignalFilters{}
 	default:
 		return schema.SignalFilters{}
 	}

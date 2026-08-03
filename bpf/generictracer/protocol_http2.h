@@ -15,6 +15,7 @@
 
 #include <maps/tp_info_mem.h>
 
+#include <generictracer/hpack_traceparent_parse.h>
 #include <generictracer/http2_grpc.h>
 #include <generictracer/k_tracer_tailcall.h>
 #include <generictracer/protocol_common.h>
@@ -59,64 +60,6 @@ static __always_inline u64 uniqueHTTP2ConnId(pid_connection_info_t *p_conn) {
     return random_id;
 }
 
-static __always_inline u8 try_parse_tp_value(const unsigned char *val, tp_info_t *tp) {
-    if (val[k_tp_val_dash1] != '-' || val[k_tp_val_dash2] != '-' || val[k_tp_val_dash3] != '-') {
-        return 0;
-    }
-    decode_hex(tp->trace_id, &val[k_tp_val_trace_id_start], TRACE_ID_CHAR_LEN);
-    decode_hex(tp->parent_id, &val[k_tp_val_span_id_start], SPAN_ID_CHAR_LEN);
-    tp->flags = 1;
-    return 1;
-}
-
-// Look for traceparent in HPACK bytes. Handles plaintext (sk_msg) and huffman (Go uprobe) encodings.
-static __always_inline u8 parse_hpack_traceparent(const unsigned char *data,
-                                                  u32 data_len,
-                                                  tp_info_t *tp) {
-    if (data_len < k_h2_tp_hpack_huffman_size) {
-        return 0;
-    }
-
-    const u32 max_pos = data_len - k_h2_tp_hpack_huffman_size;
-
-    for (u16 i = 0; i < k_hpack_tp_max_scan && i <= max_pos; i++) {
-        if (data[i] != k_hpack_literal_no_index) {
-            continue;
-        }
-
-        const u8 name_len_byte = data[i + 1];
-
-        if (name_len_byte == k_hpack_tp_name_len) { // plaintext
-            if (i + k_h2_tp_hpack_size > data_len) {
-                continue;
-            }
-            if (bpf_memcmp(
-                    &data[i + k_hpack_tp_name_offset], k_hpack_tp_name, k_hpack_tp_name_len) != 0) {
-                continue;
-            }
-            if (data[i + k_hpack_tp_name_offset + k_hpack_tp_name_len] != k_hpack_value_len_tp) {
-                continue;
-            }
-            return try_parse_tp_value(&data[i + k_hpack_tp_val_offset], tp);
-        }
-
-        if (name_len_byte == (k_hpack_tp_name_huffman_len | 0x80)) { // huffman
-            if (bpf_memcmp(&data[i + k_hpack_tp_name_offset],
-                           k_hpack_tp_huffman,
-                           k_hpack_tp_name_huffman_len) != 0) {
-                continue;
-            }
-            if (data[i + k_hpack_tp_name_offset + k_hpack_tp_name_huffman_len] !=
-                k_hpack_value_len_tp) {
-                continue;
-            }
-            return try_parse_tp_value(&data[i + k_hpack_tp_val_offset_huffman], tp);
-        }
-    }
-
-    return 0;
-}
-
 // Use the trace the Go uprobe wrote to outgoing_trace_map (replaces what find_trace_for_client_request returned).
 static __always_inline void adopt_injected_trace(http2_conn_stream_t *s_key, tp_info_t *tp) {
     egress_key_t sorted_e = {
@@ -132,6 +75,20 @@ static __always_inline void adopt_injected_trace(http2_conn_stream_t *s_key, tp_
         bpf_memcpy(tp->span_id, injected->tp.span_id, SPAN_ID_SIZE_BYTES);
         bpf_memcpy(tp->parent_id, injected->tp.parent_id, SPAN_ID_SIZE_BYTES);
     }
+}
+
+// HPACK payload length + start offset within h2g_info->data
+static __always_inline u32 h2_hpack_window(const http2_grpc_request_t *h2g_info,
+                                           u32 *hpack_offset) {
+    const u8 flags = h2g_info->data[4];
+    const u8 padded = (flags >> 3) & 1;
+    const u32 prefix = padded + ((flags >> 5) & 1) * k_h2_priority_prefix_len;
+    const u32 frame_len =
+        ((u32)h2g_info->data[0] << 16) | ((u32)h2g_info->data[1] << 8) | (u32)h2g_info->data[2];
+    const u32 raw_len = frame_len < k_h2_max_payload ? frame_len : k_h2_max_payload;
+    const u32 skip = prefix + (padded * h2g_info->data[k_h2_frame_header_len]);
+    *hpack_offset = k_h2_frame_header_len + prefix;
+    return raw_len > skip ? raw_len - skip : 0;
 }
 
 // SERVER finalize: shared post-branch tail of http2_grpc_start. h2g_info /
@@ -429,16 +386,9 @@ int obi_protocol_http2_grpc_handle_start_frame_server(void *ctx) {
         return 0;
     }
 
-    const u8 flags = h2g_info->data[4];
-    const u8 padded = (flags >> 3) & 1;
-    const u32 prefix = padded + (((flags >> 5) & 1) * k_h2_priority_prefix_len);
-    const u32 frame_len =
-        ((u32)h2g_info->data[0] << 16) | ((u32)h2g_info->data[1] << 8) | (u32)h2g_info->data[2];
-    const u32 raw_len = frame_len < k_h2_max_payload ? frame_len : k_h2_max_payload;
-    const u32 skip = prefix + (padded * h2g_info->data[k_h2_frame_header_len]);
-    const u32 hpack_len = raw_len > skip ? raw_len - skip : 0;
-    if (!parse_hpack_traceparent(
-            h2g_info->data + k_h2_frame_header_len + prefix, hpack_len, &tp_p->tp)) {
+    u32 hpack_off;
+    const u32 hpack_len = h2_hpack_window(h2g_info, &hpack_off);
+    if (!parse_hpack_traceparent(h2g_info->data + hpack_off, hpack_len, &tp_p->tp)) {
         find_trace_for_server_request(&g_ctx->stream.pid_conn.conn, &tp_p->tp, EVENT_HTTP_REQUEST);
     }
 
@@ -446,11 +396,33 @@ int obi_protocol_http2_grpc_handle_start_frame_server(void *ctx) {
     return 0;
 }
 
-// SERVER finalize: shared post-branch — new_trace_id if missing, commit tp,
+// SERVER finalize: dyn-table traceparent scan, then tail-calls commit
+SEC("kprobe/http2")
+int obi_protocol_http2_grpc_handle_start_frame_server_finalize(void *ctx) {
+    http2_grpc_request_t *h2g_info = http2_info_mem();
+    if (!h2g_info) {
+        return 0;
+    }
+    tp_info_pid_t *tp_p = tp_info_mem();
+    if (!tp_p) {
+        return 0;
+    }
+
+    if (!valid_trace(tp_p->tp.trace_id)) {
+        u32 hpack_off;
+        const u32 hpack_len = h2_hpack_window(h2g_info, &hpack_off);
+        find_hpack_traceparent_value(h2g_info->data + hpack_off, hpack_len, &tp_p->tp);
+    }
+
+    bpf_tail_call(ctx, &jump_table, k_tail_protocol_http2_grpc_handle_start_frame_server_commit);
+    return 0;
+}
+
+// SERVER commit: shared post-branch — new_trace_id if missing, commit tp,
 // set_trace_info_for_connection, server_or_client_trace, server_traces,
 // ongoing_http2_grpc.
 SEC("kprobe/http2")
-int obi_protocol_http2_grpc_handle_start_frame_server_finalize(void *ctx) {
+int obi_protocol_http2_grpc_handle_start_frame_server_commit(void *ctx) {
     (void)ctx;
     grpc_frames_ctx_t *g_ctx = grpc_ctx();
     if (!g_ctx) {

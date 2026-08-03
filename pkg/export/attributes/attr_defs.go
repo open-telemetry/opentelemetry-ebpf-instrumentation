@@ -408,6 +408,7 @@ func getDefinitions(
 				attr.GenAITools:             false,
 				attr.GenAIToolCallArguments: false,
 				attr.GenAIToolCallResult:    false,
+				attr.GenAIResponseError:     false,
 				attr.DBResponseError:        false,
 			},
 		},

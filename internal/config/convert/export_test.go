@@ -99,6 +99,7 @@ func TestRuntimeToV2DefaultConfig(t *testing.T) {
 		string(protocolCouchbase),
 		string(protocolDNS),
 		string(protocolGPU),
+		string(protocolAerospike),
 	}, keys(ext.Capture.Instrumentation))
 
 	require.Equal(t, true, value(t, ext.Capture.Runtimes, "go", "enabled"))
@@ -136,11 +137,10 @@ func TestRuntimeToV2DefaultConfig(t *testing.T) {
 	require.Equal(t, false, value(t, ext.Daemon, "telemetry", "metrics", "prometheus", "allow_service_graph_self_references"))
 	require.Equal(t, 10000, value(t, ext.Daemon, "telemetry", "metrics", "prometheus", "span_metrics_service_cache_size"))
 
-	require.Len(t, ext.Capture.Rules, 4)
+	require.Len(t, ext.Capture.Rules, 3)
 	require.Equal(t, "exclude-obi-and-collectors", ext.Capture.Rules[0].Name)
 	require.Equal(t, "exclude-system-namespaces", ext.Capture.Rules[1].Name)
 	require.Equal(t, "exclude-otlp-exporters", ext.Capture.Rules[2].Name)
-	require.Equal(t, "exclude-linux-system-paths", ext.Capture.Rules[3].Name)
 	require.Equal(t, 4317, value(t, ext.Capture.Rules[2].Match, "process", "exports_otlp", "port"))
 	require.Equal(t, "protobuf", value(t, ext.Capture.Rules[2].Match, "process", "exports_otlp", "protocol"))
 }
@@ -656,25 +656,24 @@ func TestRuntimeToV2AdvancedCaptureParity(t *testing.T) {
 	require.Equal(t, schema.ReverseDNSModeEBPF, value(t, ext.Capture.Network, "stats", "enrichment", "reverse_dns", "mode"))
 	require.Equal(t, true, value(t, ext.Capture.Network, "stats", "diagnostics", "print_stats"))
 
-	require.Len(t, ext.Capture.Rules, 4)
+	require.Len(t, ext.Capture.Rules, 3)
 	require.Equal(t, schema.CaptureActionExclude, ext.Capture.Rules[0].Action)
 	require.Equal(t, []string{"/tmp/*"}, value(t, ext.Capture.Rules[0].Match, "process", "exe_path_glob"))
 	require.Equal(t, 14317, value(t, ext.Capture.Rules[1].Match, "process", "exports_otlp", "port"))
-	require.Equal(t, []string{"/lib/systemd/*", "/usr/sbin/*"}, value(t, ext.Capture.Rules[2].Match, "process", "exe_path_glob"))
-	require.Equal(t, schema.CaptureActionInclude, ext.Capture.Rules[3].Action)
-	require.Equal(t, ports, value(t, ext.Capture.Rules[3].Match, "process", "open_ports"))
-	require.Equal(t, []uint32{1234, 5678}, value(t, ext.Capture.Rules[3].Match, "process", "target_pids"))
-	require.Equal(t, []string{"go", "java"}, value(t, ext.Capture.Rules[3].Match, "process", "language_glob"))
-	require.Equal(t, true, value(t, ext.Capture.Rules[3].Match, "process", "containers_only"))
-	require.Equal(t, []string{"shop-*"}, value(t, ext.Capture.Rules[3].Match, "kubernetes", "namespace_glob"))
-	require.Equal(t, []string{"checkout-*"}, value(t, ext.Capture.Rules[3].Match, "kubernetes", "metadata_glob", services.AttrDeploymentName))
-	require.Equal(t, []string{"checkout"}, value(t, ext.Capture.Rules[3].Match, "kubernetes", "pod_labels", "app"))
-	require.Equal(t, []string{"payments"}, value(t, ext.Capture.Rules[3].Match, "kubernetes", "pod_annotations", "team"))
-	require.NotNil(t, ext.Capture.Rules[3].Refine.Exports)
-	require.Equal(t, schema.ExportModeRefinement{Traces: false, Metrics: true}, *ext.Capture.Rules[3].Refine.Exports)
-	require.NotNil(t, ext.Capture.Rules[3].Refine.HTTP)
-	require.Equal(t, []string{"/orders/{id}"}, *ext.Capture.Rules[3].Refine.HTTP.Routes.Incoming.Patterns)
-	require.Equal(t, []string{"/inventory/{id}"}, *ext.Capture.Rules[3].Refine.HTTP.Routes.Outgoing.Patterns)
+	require.Equal(t, schema.CaptureActionInclude, ext.Capture.Rules[2].Action)
+	require.Equal(t, ports, value(t, ext.Capture.Rules[2].Match, "process", "open_ports"))
+	require.Equal(t, []uint32{1234, 5678}, value(t, ext.Capture.Rules[2].Match, "process", "target_pids"))
+	require.Equal(t, []string{"go", "java"}, value(t, ext.Capture.Rules[2].Match, "process", "language_glob"))
+	require.Equal(t, true, value(t, ext.Capture.Rules[2].Match, "process", "containers_only"))
+	require.Equal(t, []string{"shop-*"}, value(t, ext.Capture.Rules[2].Match, "kubernetes", "namespace_glob"))
+	require.Equal(t, []string{"checkout-*"}, value(t, ext.Capture.Rules[2].Match, "kubernetes", "metadata_glob", services.AttrDeploymentName))
+	require.Equal(t, []string{"checkout"}, value(t, ext.Capture.Rules[2].Match, "kubernetes", "pod_labels", "app"))
+	require.Equal(t, []string{"payments"}, value(t, ext.Capture.Rules[2].Match, "kubernetes", "pod_annotations", "team"))
+	require.NotNil(t, ext.Capture.Rules[2].Refine.Exports)
+	require.Equal(t, schema.ExportModeRefinement{Traces: false, Metrics: true}, *ext.Capture.Rules[2].Refine.Exports)
+	require.NotNil(t, ext.Capture.Rules[2].Refine.HTTP)
+	require.Equal(t, []string{"/orders/{id}"}, *ext.Capture.Rules[2].Refine.HTTP.Routes.Incoming.Patterns)
+	require.Equal(t, []string{"/inventory/{id}"}, *ext.Capture.Rules[2].Refine.HTTP.Routes.Outgoing.Patterns)
 }
 
 func TestRuntimeToV2EffectiveDiscoveryCriteria(t *testing.T) {
@@ -775,7 +774,7 @@ func TestRuntimeToV2EffectiveDiscoveryCriteria(t *testing.T) {
 		require.Equal(t, "^payments$", value(t, ext.Capture.Rules[2].Match, "kubernetes", "pod_annotations_regex", "team"))
 	})
 
-	t.Run("deprecated selectors preserve system path exclusions", func(t *testing.T) {
+	t.Run("language detection skips are not capture exclusions", func(t *testing.T) {
 		t.Parallel()
 
 		cfg := defaultRuntimeConfig()
@@ -789,16 +788,19 @@ func TestRuntimeToV2EffectiveDiscoveryCriteria(t *testing.T) {
 
 		_, ext := RuntimeToV2(&cfg)
 
-		var systemPathRule *schema.Rule
-		for i := range ext.Capture.Rules {
-			if ext.Capture.Rules[i].Name == "exclude-linux-system-paths" {
-				systemPathRule = &ext.Capture.Rules[i]
-				break
+		const skippedProcess = "/opt/system+services/daemon"
+		for _, rule := range ext.Capture.Rules {
+			if rule.Action != schema.CaptureActionExclude {
+				continue
 			}
+			require.NotEqual(t, "exclude-linux-system-paths", rule.Name)
+			for _, pathGlob := range rule.Match.Process.ExePathGlob {
+				require.False(t, glob.MustCompile(pathGlob).Match(skippedProcess))
+			}
+			require.False(t, rule.Match.Process.ExePathRegex != "" &&
+				regexp.MustCompile(rule.Match.Process.ExePathRegex).
+					MatchString(skippedProcess))
 		}
-		require.NotNil(t, systemPathRule)
-		require.Empty(t, systemPathRule.Match.Process.ExePathGlob)
-		require.Equal(t, `^/opt/system\+services/`, systemPathRule.Match.Process.ExePathRegex)
 
 		var portRule *schema.Rule
 		for i := range ext.Capture.Rules {
@@ -809,8 +811,13 @@ func TestRuntimeToV2EffectiveDiscoveryCriteria(t *testing.T) {
 		}
 		require.NotNil(t, portRule)
 		require.Equal(t, ".*", portRule.Match.Process.ExePathRegex)
-		_, err := V2ToRuntime(ext)
+		runtimeConfig, err := V2ToRuntime(ext)
 		require.NoError(t, err)
+		require.Equal(
+			t,
+			obi.DefaultConfig.Discovery.ExcludedLinuxSystemPaths,
+			runtimeConfig.Discovery.ExcludedLinuxSystemPaths,
+		)
 	})
 
 	t.Run("deprecated executable path preserves regex family", func(t *testing.T) {

@@ -588,22 +588,6 @@
               }
             }
           }
-        },
-        {
-          "action": "exclude",
-          "name": "exclude-linux-system-paths",
-          "description": "Exclude Linux system/service executable paths that are not typical application workloads.",
-          "match": {
-            "process": {
-              "exe_path_glob": [
-                "/lib/systemd/*",
-                "/usr/lib/systemd/*",
-                "/usr/libexec/*",
-                "/sbin/*",
-                "/usr/sbin/*"
-              ]
-            }
-          }
         }
       ],
       "items": {
@@ -1754,6 +1738,17 @@
         "gpu": {
           "$ref": "#/$defs/GpuInstrumentation",
           "description": "GPU event instrumentation controls.\nIf omitted, GPU defaults are used.\n"
+        },
+        "aerospike": {
+          "$ref": "#/$defs/InstrumentationProtocol",
+          "description": "Aerospike instrumentation controls.\nIf omitted, Aerospike defaults are used.\n",
+          "default": {
+            "enabled": {
+              "traces": true,
+              "metrics": true
+            },
+            "filters": {}
+          }
         }
       },
       "default": {
@@ -1814,6 +1809,13 @@
           "filters": {}
         },
         "gpu": {
+          "enabled": {
+            "traces": true,
+            "metrics": true
+          },
+          "filters": {}
+        },
+        "aerospike": {
           "enabled": {
             "traces": true,
             "metrics": true

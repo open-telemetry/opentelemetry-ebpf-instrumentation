@@ -265,9 +265,210 @@ func TestInstrumentProbesSkipsMarkedOptionalProbe(t *testing.T) {
 		}},
 	}
 
-	closers, err := i.instrumentProbes(nil, probes)
+	closers, attached, err := i.instrumentProbesWithResults(nil, probes)
 	require.NoError(t, err)
 	assert.Empty(t, closers)
+	assert.False(t, attached["skipped_optional_symbol"])
+}
+
+func TestGoProbeGroupRequiresAttachedPrerequisites(t *testing.T) {
+	group := ebpfcommon.GoProbeGroup{
+		Name:          "activation",
+		Prerequisites: []string{"synthetic-start", "synthetic-end"},
+	}
+
+	assert.False(t, goProbeGroupPrerequisitesAttached(group, map[string]bool{
+		"synthetic-start": true,
+		"synthetic-end":   false,
+	}))
+	assert.True(t, goProbeGroupPrerequisitesAttached(group, map[string]bool{
+		"synthetic-start": true,
+		"synthetic-end":   true,
+	}))
+}
+
+func TestOptionalProbeAttachmentFailureDoesNotSatisfyGroupPrerequisite(t *testing.T) {
+	i := &instrumenter{}
+	probes := probeDescMap{
+		"synthetic-end": {{
+			End: &ebpf.Program{},
+		}},
+	}
+
+	closers, attached, err := i.instrumentProbesWithResults(nil, probes)
+
+	require.NoError(t, err)
+	assert.Empty(t, closers)
+	assert.False(t, attached["synthetic-end"])
+	assert.False(t, goProbeGroupPrerequisitesAttached(ebpfcommon.GoProbeGroup{
+		Prerequisites: []string{"synthetic-end"},
+	}, attached))
+}
+
+func TestZeroLinkProbeDoesNotSatisfyGroupPrerequisite(t *testing.T) {
+	i := &instrumenter{}
+	probes := probeDescMap{
+		"synthetic-start": {{}},
+	}
+
+	closers, attached, err := i.instrumentProbesWithResults(nil, probes)
+
+	require.NoError(t, err)
+	assert.Empty(t, closers)
+	assert.False(t, attached["synthetic-start"])
+}
+
+func TestInstrumentOptionalGoProbeGroupPreflightsEverySymbol(t *testing.T) {
+	group := ebpfcommon.GoProbeGroup{
+		Name: "activation",
+		Probes: []ebpfcommon.GoProbe{
+			{Symbol: "start", Probe: &ebpfcommon.ProbeDesc{Start: &ebpf.Program{}}},
+			{Symbol: "ended", Probe: &ebpfcommon.ProbeDesc{Start: &ebpf.Program{}}},
+			{
+				Symbol:        "newSpan",
+				Probe:         &ebpfcommon.ProbeDesc{Start: &ebpf.Program{}, Skip: true},
+				ProcessScoped: true,
+			},
+		},
+	}
+
+	var attached []string
+	closers := instrumentOptionalGoProbeGroup(group,
+		func(symbol string, _ *ebpfcommon.ProbeDesc) ([]io.Closer, error) {
+			attached = append(attached, symbol)
+			return nil, nil
+		})
+
+	assert.Empty(t, closers)
+	assert.Empty(t, attached)
+}
+
+func TestInstrumentOptionalGoProbeGroupRejectsEmptyProbe(t *testing.T) {
+	group := ebpfcommon.GoProbeGroup{
+		Name: "activation",
+		Probes: []ebpfcommon.GoProbe{
+			{Symbol: "start", Probe: &ebpfcommon.ProbeDesc{Start: &ebpf.Program{}}},
+			{Symbol: "ended", Probe: &ebpfcommon.ProbeDesc{}},
+			{Symbol: "newSpan", Probe: &ebpfcommon.ProbeDesc{Start: &ebpf.Program{}}},
+		},
+	}
+
+	var attached []string
+	closers := instrumentOptionalGoProbeGroup(group,
+		func(symbol string, _ *ebpfcommon.ProbeDesc) ([]io.Closer, error) {
+			attached = append(attached, symbol)
+			return nil, nil
+		})
+
+	assert.Empty(t, closers)
+	assert.Empty(t, attached)
+}
+
+func TestInstrumentOptionalGoProbeGroupRejectsZeroLinkAttachment(t *testing.T) {
+	startCloser := &countingCloser{}
+	group := ebpfcommon.GoProbeGroup{
+		Name: "activation",
+		Probes: []ebpfcommon.GoProbe{
+			{Symbol: "start", Probe: &ebpfcommon.ProbeDesc{Start: &ebpf.Program{}}},
+			{Symbol: "ended", Probe: &ebpfcommon.ProbeDesc{Start: &ebpf.Program{}}},
+			{Symbol: "newSpan", Probe: &ebpfcommon.ProbeDesc{Start: &ebpf.Program{}}},
+		},
+	}
+
+	closers := instrumentOptionalGoProbeGroup(group,
+		func(symbol string, _ *ebpfcommon.ProbeDesc) ([]io.Closer, error) {
+			if symbol == "start" {
+				return []io.Closer{startCloser}, nil
+			}
+			return nil, nil
+		})
+
+	assert.Empty(t, closers)
+	assert.Equal(t, int32(1), startCloser.closes.Load())
+}
+
+func TestInstrumentOptionalGoProbeGroupLeavesProcessScopedProbeDetached(t *testing.T) {
+	group := ebpfcommon.GoProbeGroup{
+		Name: "activation",
+		Probes: []ebpfcommon.GoProbe{
+			{Symbol: "start", Probe: &ebpfcommon.ProbeDesc{Start: &ebpf.Program{}}},
+			{Symbol: "ended", Probe: &ebpfcommon.ProbeDesc{Start: &ebpf.Program{}}},
+			{
+				Symbol:        "newSpan",
+				Probe:         &ebpfcommon.ProbeDesc{Start: &ebpf.Program{}},
+				ProcessScoped: true,
+			},
+		},
+	}
+
+	var attached []string
+	closers := instrumentOptionalGoProbeGroup(group,
+		func(symbol string, _ *ebpfcommon.ProbeDesc) ([]io.Closer, error) {
+			attached = append(attached, symbol)
+			return []io.Closer{&countingCloser{}}, nil
+		})
+
+	assert.Equal(t, []string{"start", "ended"}, attached)
+	assert.Len(t, closers, 2)
+}
+
+func TestInstrumentOptionalGoProbeGroupRollsBackOnFailure(t *testing.T) {
+	startCloser := &countingCloser{}
+	endedCloser := &countingCloser{}
+	partialCloser := &countingCloser{}
+	group := ebpfcommon.GoProbeGroup{
+		Name: "activation",
+		Probes: []ebpfcommon.GoProbe{
+			{Symbol: "start", Probe: &ebpfcommon.ProbeDesc{Start: &ebpf.Program{}}},
+			{Symbol: "ended", Probe: &ebpfcommon.ProbeDesc{Start: &ebpf.Program{}}},
+			{Symbol: "newSpan", Probe: &ebpfcommon.ProbeDesc{Start: &ebpf.Program{}}},
+		},
+	}
+
+	var attached []string
+	closers := instrumentOptionalGoProbeGroup(group,
+		func(symbol string, _ *ebpfcommon.ProbeDesc) ([]io.Closer, error) {
+			attached = append(attached, symbol)
+			switch symbol {
+			case "start":
+				return []io.Closer{startCloser}, nil
+			case "ended":
+				return []io.Closer{endedCloser}, nil
+			default:
+				return []io.Closer{partialCloser}, errors.New("attach failed")
+			}
+		})
+
+	assert.Empty(t, closers)
+	assert.Equal(t, []string{"start", "ended", "newSpan"}, attached)
+	assert.Equal(t, int32(1), startCloser.closes.Load())
+	assert.Equal(t, int32(1), endedCloser.closes.Load())
+	assert.Equal(t, int32(1), partialCloser.closes.Load())
+}
+
+func TestGatherGoProbeGroupOffsetsMarksMissingSymbolAsSkip(t *testing.T) {
+	group := ebpfcommon.GoProbeGroup{
+		Name: "activation",
+		Probes: []ebpfcommon.GoProbe{
+			{Symbol: "start", Probe: &ebpfcommon.ProbeDesc{}},
+			{Symbol: "ended", Probe: &ebpfcommon.ProbeDesc{}},
+			{Symbol: "newSpan", Probe: &ebpfcommon.ProbeDesc{}},
+		},
+	}
+	i := &instrumenter{
+		offsets: &goexec.Offsets{Funcs: map[string]goexec.FuncOffsets{
+			"start":   {Start: 0x10},
+			"newSpan": {Start: 0x30},
+		}},
+	}
+
+	i.gatherGoProbeGroupOffsets(group)
+
+	assert.False(t, group.Probes[0].Probe.Skip)
+	assert.Equal(t, uint64(0x10), group.Probes[0].Probe.StartOffset)
+	assert.True(t, group.Probes[1].Probe.Skip)
+	assert.False(t, group.Probes[2].Probe.Skip)
+	assert.Equal(t, uint64(0x30), group.Probes[2].Probe.StartOffset)
 }
 
 func TestMatchVersionedUprobeLibrary(t *testing.T) {
@@ -495,6 +696,175 @@ type countingCloser struct {
 func (c *countingCloser) Close() error {
 	c.closes.Add(1)
 	return nil
+}
+
+type orderedCloser struct {
+	name   string
+	closes *[]string
+}
+
+func (c orderedCloser) Close() error {
+	*c.closes = append(*c.closes, c.name)
+	return nil
+}
+
+func TestReverseCloserClosesLinksOnceInReverseOrderConcurrently(t *testing.T) {
+	var closes []string
+	closer := &reverseCloser{closers: []io.Closer{
+		orderedCloser{name: "start", closes: &closes},
+		orderedCloser{name: "ended", closes: &closes},
+		orderedCloser{name: "activation", closes: &closes},
+	}}
+
+	const workers = 16
+	start := make(chan struct{})
+	errs := make(chan error, workers)
+	var wg sync.WaitGroup
+	for range workers {
+		wg.Go(func() {
+			<-start
+			errs <- closer.Close()
+		})
+	}
+	close(start)
+	wg.Wait()
+	close(errs)
+
+	for err := range errs {
+		require.NoError(t, err)
+	}
+
+	assert.Equal(t, []string{"activation", "ended", "start"}, closes)
+}
+
+type processScopedGoProbeRecorder struct {
+	registeredKeys []ExecutableKey
+	unregistered   []ExecutableKey
+}
+
+func (r *processScopedGoProbeRecorder) RegisterProcessScopedGoProbe(
+	key ExecutableKey,
+	_ ebpfcommon.GoProbe,
+) {
+	r.registeredKeys = append(r.registeredKeys, key)
+}
+
+func (r *processScopedGoProbeRecorder) UnregisterProcessScopedGoProbes(key ExecutableKey) {
+	r.unregistered = append(r.unregistered, key)
+}
+
+func TestProcessScopedGoProbeRegistrationIsDeferred(t *testing.T) {
+	key := ExecutableKey{Dev: 5, Ino: 10}
+	recorder := &processScopedGoProbeRecorder{}
+	i := &instrumenter{
+		key: key,
+		processScopedGoProbes: []processScopedGoProbeRegistration{{
+			tracer: recorder,
+			key:    key,
+			probe: ebpfcommon.GoProbe{
+				Symbol:        "newSpan",
+				ProcessScoped: true,
+			},
+		}},
+	}
+
+	assert.Empty(t, recorder.registeredKeys)
+
+	i.registerProcessScopedGoProbes(key)
+
+	assert.Equal(t, []ExecutableKey{key}, recorder.registeredKeys)
+}
+
+func TestOptionalGoProbeGroupsRollBackOnce(t *testing.T) {
+	linkCloser := &countingCloser{}
+	groupCloser := &reverseCloser{closers: []io.Closer{linkCloser}}
+	i := &instrumenter{
+		optionalGoProbeGroupClosers: []io.Closer{groupCloser},
+	}
+
+	i.rollbackOptionalGoProbeGroups()
+	i.rollbackOptionalGoProbeGroups()
+
+	assert.Equal(t, int32(1), linkCloser.closes.Load())
+}
+
+func TestStaleExecutableUnlinkPreservesReplacement(t *testing.T) {
+	key := ExecutableKey{Dev: 5, Ino: 10}
+	fileInfo := exec.New(exec.Init{Dev: key.Dev, Ino: key.Ino})
+	oldCloser := &countingCloser{}
+	newCloser := &countingCloser{}
+	pt := &ProcessTracer{
+		log:             slog.Default(),
+		Instrumentables: map[ExecutableKey]*instrumenter{},
+	}
+	oldInstrumenter := &instrumenter{
+		key:       key,
+		closables: []io.Closer{oldCloser},
+		modules:   map[uint64]struct{}{},
+	}
+	newInstrumenter := &instrumenter{
+		key:       key,
+		closables: []io.Closer{newCloser},
+		modules:   map[uint64]struct{}{},
+	}
+	oldExecutable := &Instrumentable{FileInfo: fileInfo}
+	newExecutable := &Instrumentable{FileInfo: fileInfo}
+
+	pt.commitInstrumenter(oldInstrumenter, oldExecutable)
+	pt.commitInstrumenter(newInstrumenter, newExecutable)
+
+	assert.Equal(t, int32(1), oldCloser.closes.Load())
+	assert.Equal(t, int32(0), newCloser.closes.Load())
+	assert.NotEqual(t, oldExecutable.ExecutableGeneration, newExecutable.ExecutableGeneration)
+
+	pt.UnlinkExecutable(fileInfo, oldExecutable.ExecutableGeneration)
+
+	assert.Same(t, newInstrumenter, pt.Instrumentables[key])
+	assert.Equal(t, int32(0), newCloser.closes.Load())
+
+	pt.UnlinkExecutable(fileInfo, newExecutable.ExecutableGeneration)
+
+	assert.NotContains(t, pt.Instrumentables, key)
+	assert.Equal(t, int32(1), newCloser.closes.Load())
+}
+
+func TestGoInstrumenterSharedAcrossDevices(t *testing.T) {
+	firstKey := ExecutableKey{Dev: 5, Ino: 10}
+	secondKey := ExecutableKey{Dev: 6, Ino: 10}
+	firstFileInfo := exec.New(exec.Init{Dev: firstKey.Dev, Ino: firstKey.Ino})
+	secondFileInfo := exec.New(exec.Init{Dev: secondKey.Dev, Ino: secondKey.Ino})
+	closer := &countingCloser{}
+	pt := &ProcessTracer{
+		Type:            Go,
+		Instrumentables: map[ExecutableKey]*instrumenter{},
+	}
+	shared := &instrumenter{
+		key:       firstKey,
+		closables: []io.Closer{closer},
+		modules:   map[uint64]struct{}{},
+	}
+	firstExecutable := &Instrumentable{FileInfo: firstFileInfo}
+	secondExecutable := &Instrumentable{FileInfo: secondFileInfo}
+
+	pt.commitInstrumenter(shared, firstExecutable)
+	require.NoError(t, pt.NewExecutable(nil, secondExecutable))
+
+	assert.Same(t, shared, pt.Instrumentables[firstKey])
+	assert.Same(t, shared, pt.Instrumentables[secondKey])
+	assert.Equal(t, uint64(2), shared.references)
+	assert.NotEqual(t, firstExecutable.ExecutableGeneration, secondExecutable.ExecutableGeneration)
+
+	pt.UnlinkExecutable(firstFileInfo, firstExecutable.ExecutableGeneration)
+
+	assert.NotContains(t, pt.Instrumentables, firstKey)
+	assert.Contains(t, pt.Instrumentables, secondKey)
+	assert.Equal(t, int32(0), closer.closes.Load())
+
+	pt.UnlinkExecutable(secondFileInfo, secondExecutable.ExecutableGeneration)
+
+	assert.Empty(t, pt.Instrumentables)
+	assert.Empty(t, pt.goInstrumentablesByInode)
+	assert.Equal(t, int32(1), closer.closes.Load())
 }
 
 type countingUSDTIPMap struct {

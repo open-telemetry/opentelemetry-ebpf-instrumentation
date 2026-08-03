@@ -59,6 +59,113 @@ func TestV2ToRuntimeDefaultExportFoundation(t *testing.T) {
 	require.NotContains(t, got.OTELMetrics.Instrumentations, instrumentations.InstrumentationDNS)
 }
 
+func TestV2ToRuntimeCompleteInstrumentationCanDisableAerospike(t *testing.T) {
+	t.Parallel()
+
+	_, ext := RuntimeToV2(nil)
+	instrumentation := &ext.Capture.Instrumentation
+	require.NotNil(t, instrumentation.Aerospike)
+	instrumentation.HTTP.Enabled.Traces = false
+	instrumentation.GRPC.Enabled.Traces = false
+	instrumentation.SQL.Enabled.Traces = false
+	instrumentation.Redis.Enabled.Traces = false
+	instrumentation.Kafka.Enabled.Traces = false
+	instrumentation.Mongo.Enabled.Traces = false
+	instrumentation.Couchbase.Enabled.Traces = false
+	instrumentation.DNS.Enabled.Traces = false
+	instrumentation.GPU.Enabled.Traces = false
+	instrumentation.Aerospike.Enabled.Traces = false
+	instrumentation.Aerospike.Enabled.Metrics = false
+
+	got, err := V2ToRuntime(ext)
+	require.NoError(t, err)
+
+	require.NotContains(t, got.Traces.Instrumentations, instrumentations.InstrumentationAerospike)
+	require.NotContains(t, got.OTELMetrics.Instrumentations, instrumentations.InstrumentationAerospike)
+	require.NotContains(t, got.Prometheus.Instrumentations, instrumentations.InstrumentationAerospike)
+}
+
+func TestV2ToRuntimePartialInstrumentationCanDisableAerospike(t *testing.T) {
+	t.Parallel()
+
+	got, err := V2ToRuntime(&schema.Extension{
+		Version: schema.SupportedVersion,
+		Capture: schema.Capture{
+			Instrumentation: schema.Instrumentation{
+				Aerospike: &schema.AerospikeInstrumentation{
+					Enabled: schema.ProtocolEnablement{Traces: false, Metrics: false},
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	require.NotContains(t, got.Traces.Instrumentations, instrumentations.InstrumentationAerospike)
+	require.NotContains(t, got.OTELMetrics.Instrumentations, instrumentations.InstrumentationAerospike)
+	require.NotContains(t, got.Prometheus.Instrumentations, instrumentations.InstrumentationAerospike)
+}
+
+func TestV2ToRuntimePartialAerospikeDefaultsOmittedSignals(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		aerospike      string
+		tracesEnabled  bool
+		metricsEnabled bool
+	}{
+		{
+			name:           "empty section",
+			aerospike:      "{}",
+			tracesEnabled:  true,
+			metricsEnabled: true,
+		},
+		{
+			name:           "metrics disabled",
+			aerospike:      "{enabled: {metrics: false}}",
+			tracesEnabled:  true,
+			metricsEnabled: false,
+		},
+		{
+			name:           "both disabled",
+			aerospike:      "{enabled: {traces: false, metrics: false}}",
+			tracesEnabled:  false,
+			metricsEnabled: false,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			ext, err := schema.ParseReceiverYAML([]byte("version: \"2.0\"\ninstrumentation:\n  aerospike: " + test.aerospike + "\n"))
+			require.NoError(t, err)
+
+			got, err := V2ToRuntime(ext)
+			require.NoError(t, err)
+
+			require.Equal(t, test.tracesEnabled,
+				instrumentations.NewInstrumentationSelection(got.Traces.Instrumentations).AerospikeEnabled())
+			require.Equal(t, test.metricsEnabled,
+				instrumentations.NewInstrumentationSelection(got.OTELMetrics.Instrumentations).AerospikeEnabled())
+			require.Equal(t, test.metricsEnabled,
+				instrumentations.NewInstrumentationSelection(got.Prometheus.Instrumentations).AerospikeEnabled())
+		})
+	}
+}
+
+func TestV2ToRuntimeCompleteInstrumentationDefaultsMissingAerospike(t *testing.T) {
+	t.Parallel()
+
+	_, ext := RuntimeToV2(nil)
+	ext.Capture.Instrumentation.Aerospike = nil
+	ext.Capture.Instrumentation.HTTP.Enabled.Traces = false
+
+	got, err := V2ToRuntime(ext)
+	require.NoError(t, err)
+
+	require.NotContains(t, got.Traces.Instrumentations, instrumentations.InstrumentationHTTP)
+	require.Contains(t, got.Traces.Instrumentations, instrumentations.InstrumentationAerospike)
+}
+
 func TestV2ToRuntimeCustomFoundation(t *testing.T) {
 	t.Parallel()
 
@@ -411,7 +518,11 @@ func TestV2ToRuntimeImportsRules(t *testing.T) {
 
 	require.True(t, got.Discovery.ExcludeOTelInstrumentedServices)
 	require.Equal(t, 4317, got.Discovery.DefaultOtlpGRPCPort)
-	require.Empty(t, got.Discovery.ExcludedLinuxSystemPaths)
+	require.Equal(
+		t,
+		obi.DefaultConfig.Discovery.ExcludedLinuxSystemPaths,
+		got.Discovery.ExcludedLinuxSystemPaths,
+	)
 	require.Len(t, got.Discovery.ExcludeInstrument, 1)
 	exclude := got.Discovery.ExcludeInstrument[0]
 	require.Equal(t, "/usr/bin/*", globString(exclude.Path))

@@ -176,7 +176,12 @@ func TestV2ToRuntimeNetworkCaptureRejectsDivergentSignalFilters(t *testing.T) {
 			},
 		},
 	})
-	require.ErrorContains(t, err, "capture.network.capture.filters.metrics")
+	require.ErrorContains(
+		t,
+		err,
+		"capture.network.capture.filters.metrics cannot differ from "+
+			"capture.network.capture.filters.traces",
+	)
 }
 
 func TestV2ToRuntimeNetworkStatsRejectsDivergentSignalFilters(t *testing.T) {
@@ -199,7 +204,12 @@ func TestV2ToRuntimeNetworkStatsRejectsDivergentSignalFilters(t *testing.T) {
 			},
 		},
 	})
-	require.ErrorContains(t, err, "capture.network.stats.filters.metrics")
+	require.ErrorContains(
+		t,
+		err,
+		"capture.network.stats.filters.metrics cannot differ from "+
+			"capture.network.stats.filters.traces",
+	)
 }
 
 func TestV2ToRuntimeRejectsUnsupportedNetworkProperties(t *testing.T) {

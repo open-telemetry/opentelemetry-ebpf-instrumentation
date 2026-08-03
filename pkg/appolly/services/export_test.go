@@ -46,7 +46,7 @@ func TestYAMLMarshal_Exports(t *testing.T) {
 			Exports []string `yaml:"exports"`
 		}
 		require.NoError(t, yaml.Unmarshal(yamlOut, &exports))
-		assert.ElementsMatch(t, []string{"metrics", "traces", "logs"}, exports.Exports)
+		assert.Equal(t, []string{"metrics", "traces", "logs"}, exports.Exports)
 	})
 }
 
