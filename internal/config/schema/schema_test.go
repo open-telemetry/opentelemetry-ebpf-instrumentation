@@ -135,6 +135,41 @@ extensions:
 	require.Equal(t, AttributeFilter{Match: "5*"}, cfg.Capture.Rules[0].Refine.HTTP.Filters.Traces["status_code"])
 }
 
+func TestParseFlowLimitAliasPresence(t *testing.T) {
+	t.Parallel()
+
+	_, standalone, err := ParseStandaloneYAML([]byte(`
+file_format: "1.0"
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      limits:
+        network_packets: 71
+`))
+	require.NoError(t, err)
+	networkPackets, maxTrackedFlows, known := standalone.FlowLimitAliasPresence()
+	require.True(t, known)
+	require.True(t, networkPackets)
+	require.False(t, maxTrackedFlows)
+
+	receiver, err := ParseReceiverYAML([]byte(`
+version: "2.0"
+network:
+  capture:
+    flow_lifecycle:
+      max_tracked_flows: 72
+`))
+	require.NoError(t, err)
+	networkPackets, maxTrackedFlows, known = receiver.FlowLimitAliasPresence()
+	require.True(t, known)
+	require.False(t, networkPackets)
+	require.True(t, maxTrackedFlows)
+
+	_, _, known = (&Extension{}).FlowLimitAliasPresence()
+	require.False(t, known)
+}
+
 func TestParseStandaloneYAMLRejectsUnknownOpenTelemetryFields(t *testing.T) {
 	t.Parallel()
 

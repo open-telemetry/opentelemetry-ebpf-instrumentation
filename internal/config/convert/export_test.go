@@ -401,6 +401,7 @@ func TestRuntimeToV2CustomConfig(t *testing.T) {
 	require.Equal(t, []string{"eth0"}, value(t, ext.Capture.Network, "capture", "selection", "interfaces", "include"))
 	require.Equal(t, []string{"udp"}, value(t, ext.Capture.Network, "capture", "selection", "protocols", "exclude"))
 	require.Equal(t, schema.NetworkDirectionEgress, value(t, ext.Capture.Network, "capture", "selection", "direction"))
+	require.Equal(t, 300, value(t, ext.Capture.Limits, "network_packets"))
 	require.Equal(t, 300, value(t, ext.Capture.Network, "capture", "flow_lifecycle", "max_tracked_flows"))
 	require.Equal(t, schema.DeduplicationStrategyNone, value(t, ext.Capture.Network, "capture", "flow_lifecycle", "deduplication", "strategy"))
 	require.Equal(t, schema.Duration(15*time.Second), value(t, ext.Capture.Network, "capture", "flow_lifecycle", "deduplication", "first_come_ttl"))
