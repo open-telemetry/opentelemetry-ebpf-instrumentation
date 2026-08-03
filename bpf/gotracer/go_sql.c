@@ -305,18 +305,28 @@ set_sql_info(void *goroutine_addr, void *driver_conn, void *sql_param, void *que
                                         .query_len = (u64)query_len,
                                         .driver_conn_ptr = (u64)driver_conn,
                                         .conn = {0},
-                                        .tp = {0}};
+                                        .tp = {0},
+                                        .prev_tp = {0},
+                                        .has_prev_tp = 0};
 
     client_trace_parent(goroutine_addr, &invocation.tp);
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
+
+    const u64 pid_tgid = bpf_get_current_pid_tgid();
+    obi_ctx_info_t *prev_ctx = obi_ctx__get(pid_tgid);
+    if (prev_ctx) {
+        __builtin_memcpy(invocation.prev_tp.trace_id, prev_ctx->trace_id, TRACE_ID_SIZE_BYTES);
+        __builtin_memcpy(invocation.prev_tp.span_id, prev_ctx->span_id, SPAN_ID_SIZE_BYTES);
+        invocation.has_prev_tp = 1;
+    }
 
     // Write event
     if (bpf_map_update_elem(&ongoing_sql_queries, &g_key, &invocation, BPF_ANY)) {
         bpf_dbg_printk("can't update map element");
     }
 
-    obi_ctx__set(bpf_get_current_pid_tgid(), &invocation.tp);
+    obi_ctx__set(pid_tgid, &invocation.tp);
 }
 
 // Common SQL query return handler.
@@ -331,7 +341,15 @@ static __always_inline int process_sql_return(void *goroutine_addr, u8 error, u8
         return 0;
     }
     bpf_map_delete_elem(&ongoing_sql_queries, &g_key);
-    obi_ctx__del(bpf_get_current_pid_tgid());
+
+    // Restore the pre-query context instead of clearing it, so the enclosing
+    // span keeps getting trace_id/span_id in logs written after this query.
+    const u64 pid_tgid = bpf_get_current_pid_tgid();
+    if (invocation->has_prev_tp) {
+        obi_ctx__set(pid_tgid, &invocation->prev_tp);
+    } else {
+        obi_ctx__del(pid_tgid);
+    }
 
     sql_request_trace_t *trace = bpf_ringbuf_reserve(&events, sizeof(sql_request_trace_t), 0);
     if (trace) {
