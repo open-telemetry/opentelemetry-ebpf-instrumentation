@@ -5,6 +5,7 @@ package stats // import "go.opentelemetry.io/obi/pkg/internal/statsolly/stats"
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 
@@ -66,7 +67,7 @@ func parseStat(record *ringbuf.Record) (*ebpf.Stat, bool, error) {
 
 func handleStatEvent(record *ringbuf.Record) (ebpf.Stat, error) {
 	if record == nil || len(record.RawSample) == 0 {
-		return ebpf.Stat{}, fmt.Errorf("empty stats event")
+		return ebpf.Stat{}, errors.New("empty stats event")
 	}
 
 	eventType := ebpf.StatType(record.RawSample[0])
