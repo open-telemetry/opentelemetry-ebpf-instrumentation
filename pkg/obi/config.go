@@ -286,7 +286,7 @@ var DefaultConfig = Config{
 		AvoidedServices: imetrics.AvoidedServicesConfig{
 			Limit: avoidedsvc.DefaultLimit,
 		},
-		Prometheus: imetrics.PrometheusConfig{
+		Prometheus: imetrics.PrometheusEndpointConfig{
 			Port: 0, // disabled by default
 			Path: "/internal/metrics",
 		},

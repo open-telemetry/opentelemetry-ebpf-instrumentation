@@ -1464,7 +1464,7 @@
           "x-env-var": "OTEL_EBPF_INTERNAL_METRICS_EXPORTER"
         },
         "prometheus": {
-          "$ref": "#/$defs/PrometheusConfig"
+          "$ref": "#/$defs/PrometheusEndpointConfig"
         }
       },
       "type": "object",
@@ -2393,7 +2393,7 @@
         },
         "path": {
           "type": "string",
-          "default": "/internal/metrics",
+          "default": "/metrics",
           "x-env-var": "OTEL_EBPF_PROMETHEUS_PATH"
         },
         "port": {
@@ -2421,6 +2421,22 @@
       },
       "type": "object",
       "description": "TODO: TLS"
+    },
+    "PrometheusEndpointConfig": {
+      "properties": {
+        "path": {
+          "type": "string",
+          "default": "/internal/metrics",
+          "x-env-var": "OTEL_EBPF_INTERNAL_METRICS_PROMETHEUS_PATH"
+        },
+        "port": {
+          "type": "integer",
+          "description": "0 (default) means disabled",
+          "default": 0,
+          "x-env-var": "OTEL_EBPF_INTERNAL_METRICS_PROMETHEUS_PORT"
+        }
+      },
+      "type": "object"
     },
     "QwenConfig": {
       "properties": {

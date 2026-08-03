@@ -317,7 +317,7 @@ discovery:
 			AvoidedServices: imetrics.AvoidedServicesConfig{
 				Limit: avoidedsvc.DefaultLimit,
 			},
-			Prometheus: imetrics.PrometheusConfig{
+			Prometheus: imetrics.PrometheusEndpointConfig{
 				Port: 3210,
 				Path: "/internal/metrics",
 			},
