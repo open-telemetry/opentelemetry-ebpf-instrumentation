@@ -29,7 +29,7 @@ import (
 
 const timeout = 20 * time.Second
 
-var mpConfig = perapp.MetricsConfig{Features: export.FeatureAll}
+var mpConfig = perapp.GlobalMetricsConfig{Features: export.FeatureAll}
 
 func TestNetMetricsExpiration(t *testing.T) {
 	defer otelcfg.RestoreEnvAfterExecution()()
@@ -62,7 +62,7 @@ func TestNetMetricsExpiration(t *testing.T) {
 					},
 				},
 			},
-			CommonCfg: &perapp.MetricsConfig{Features: export.FeatureNetwork},
+			CommonCfg: &perapp.GlobalMetricsConfig{Features: export.FeatureNetwork},
 		}, metrics)(ctx)
 	require.NoError(t, err)
 

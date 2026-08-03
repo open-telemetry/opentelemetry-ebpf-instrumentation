@@ -41,7 +41,7 @@ func TestRuntimeMetricsReporterRecordsJVMMemoryPoolUsed(t *testing.T) {
 		ctx,
 		&global.ContextInfo{OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: cfg}},
 		cfg,
-		&perapp.MetricsConfig{Features: export.FeatureApplicationRuntime},
+		&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRuntime},
 		&attributes.SelectorConfig{},
 		msg.NewQueue[[]runtimemetrics.RuntimeMetricSnapshot](msg.ChannelBufferLen(1)),
 	)
@@ -88,7 +88,7 @@ func TestRuntimeMetricsReporterRecordsJVMMemoryAsUpDownCounter(t *testing.T) {
 		ctx,
 		&global.ContextInfo{OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: cfg}},
 		cfg,
-		&perapp.MetricsConfig{Features: export.FeatureApplicationRuntime},
+		&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRuntime},
 		&attributes.SelectorConfig{},
 		msg.NewQueue[[]runtimemetrics.RuntimeMetricSnapshot](msg.ChannelBufferLen(1)),
 	)

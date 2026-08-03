@@ -1146,6 +1146,18 @@
       "type": "array",
       "description": "GlobDefinitionCriteria allows defining a group of services to be instrumented according to a set of attributes. If a given executable/service matches multiple of the attributes, the earliest defined service will take precedence."
     },
+    "GlobalMetricsConfig": {
+      "properties": {
+        "features": {
+          "$ref": "#/$defs/Features",
+          "description": "Specifies which metric features to export. Accepted values: application, network, application_span, application_service_graph, stats, ... envDefault is provided to avoid breaking changes",
+          "default": 256,
+          "x-env-var": "OTEL_EBPF_METRICS_FEATURES"
+        }
+      },
+      "type": "object",
+      "description": "GlobalMetricsConfig is a placeholder for the progressive support of global and per-service configuration of metrics."
+    },
     "GraphQLConfig": {
       "properties": {
         "enabled": {
@@ -1851,10 +1863,9 @@
         },
         "features": {
           "$ref": "#/$defs/Features",
-          "description": "Specifies which metric features to export. Accepted values: application, network, application_span, application_service_graph, ...  use top-level MetricsConfig.Features instead.",
-          "default": 256,
-          "deprecated": true,
-          "x-env-var": "OTEL_EBPF_METRICS_FEATURES"
+          "description": "Features specifies which metric features to export. Accepted values: application, network, application_span, application_service_graph, ...  use the top-level metrics.features property (perapp.GlobalMetricsConfig.Features) instead.",
+          "default": 0,
+          "deprecated": true
         },
         "histogram_aggregation": {
           "type": "string",
@@ -2341,7 +2352,7 @@
         },
         "features": {
           "$ref": "#/$defs/Features",
-          "description": "Features specifies which metric features to export. Accepted values: application, network, application_span, application_service_graph, ...  use top-level MetricsConfig.Features instead.",
+          "description": "Features specifies which metric features to export. Accepted values: application, network, application_span, application_service_graph, ...  use the top-level metrics.features property (perapp.GlobalMetricsConfig.Features) instead.",
           "default": 0,
           "deprecated": true,
           "x-env-var": "OTEL_EBPF_PROMETHEUS_FEATURES"
@@ -2866,7 +2877,7 @@
         }
       },
       "type": "object",
-      "description": "SvcMetricsConfig is equivalent to MetricsConfig, but avoids defining environment variable, since this is a per-service configuration that needs to be defined exclusively in the service definition YAML."
+      "description": "SvcMetricsConfig is equivalent to GlobalMetricsConfig, but avoids defining environment variable, since this is a per-service configuration that needs to be defined exclusively in the service definition YAML."
     },
     "TracesConfig": {
       "properties": {
@@ -3113,7 +3124,7 @@
       "x-env-var": "OTEL_EBPF_LOG_LEVEL"
     },
     "metrics": {
-      "$ref": "#/$defs/MetricsConfig",
+      "$ref": "#/$defs/GlobalMetricsConfig",
       "description": "Configures the progressive support of the OTEL declarative configuration."
     },
     "name_resolver": {

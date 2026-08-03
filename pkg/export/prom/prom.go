@@ -111,7 +111,7 @@ type PrometheusConfig struct {
 	// Features specifies which metric features to export. Accepted values: application, network,
 	// application_span, application_service_graph, ...
 	//
-	// Deprecated: use top-level MetricsConfig.Features instead.
+	// Deprecated: use the top-level metrics.features property (perapp.GlobalMetricsConfig.Features) instead.
 	DeprFeatures export.Features `yaml:"features" env:"OTEL_EBPF_PROMETHEUS_FEATURES" envSeparator:","`
 
 	// Allows configuration of which instrumentations should be enabled, e.g. http, grpc, sql...
@@ -262,7 +262,7 @@ type metricsReporter struct {
 func PrometheusEndpoint(
 	ctxInfo *global.ContextInfo,
 	cfg *PrometheusConfig,
-	jointMetricsConfig *perapp.MetricsConfig,
+	jointMetricsConfig *perapp.GlobalMetricsConfig,
 	selectorCfg *attributes.SelectorConfig,
 	unresolved request.UnresolvedNames,
 	input *msg.Queue[[]request.Span],
@@ -294,14 +294,14 @@ func PrometheusEndpoint(
 	}
 }
 
-func spanMetricsLatencyName(mp *perapp.MetricsConfig) string {
+func spanMetricsLatencyName(mp *perapp.GlobalMetricsConfig) string {
 	if mp.Features.LegacySpanMetrics() {
 		return SpanMetricsLatency
 	}
 	return SpanMetricsLatencyOTel
 }
 
-func spanMetricsCallsName(mp *perapp.MetricsConfig) string {
+func spanMetricsCallsName(mp *perapp.GlobalMetricsConfig) string {
 	if mp.Features.LegacySpanMetrics() {
 		return SpanMetricsCalls
 	}
@@ -313,7 +313,7 @@ func newReporter(
 	ctx context.Context,
 	ctxInfo *global.ContextInfo,
 	cfg *PrometheusConfig,
-	jointMetricsConfig *perapp.MetricsConfig,
+	jointMetricsConfig *perapp.GlobalMetricsConfig,
 	selectorCfg *attributes.SelectorConfig,
 	unresolved request.UnresolvedNames,
 	input *msg.Queue[[]request.Span],

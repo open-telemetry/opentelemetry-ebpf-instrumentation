@@ -57,7 +57,7 @@ func TestNativeHistogramSchemaAppliedToExportedMetrics(t *testing.T) {
 					NativeHistogram:  tc.nhCfg,
 					ExemplarFilter:   "always_off",
 				},
-				&perapp.MetricsConfig{Features: export.FeatureApplicationRED},
+				&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRED},
 				&attributes.SelectorConfig{},
 				request.UnresolvedNames{},
 				promInput,

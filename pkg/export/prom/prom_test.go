@@ -80,7 +80,7 @@ func TestAppMetricsExpiration(t *testing.T) {
 			SpanMetricsServiceCacheSize: 10,
 			Instrumentations:            []instrumentations.Instrumentation{instrumentations.InstrumentationALL},
 		},
-		&perapp.MetricsConfig{Features: export.FeatureApplicationRED | export.FeatureApplicationHost},
+		&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRED | export.FeatureApplicationHost},
 		&attributes.SelectorConfig{
 			SelectionCfg: attributes.Selection{
 				attributes.HTTPServerDuration.Section: attributes.InclusionLists{
@@ -889,7 +889,7 @@ func makePromExporter(
 			SpanMetricsServiceCacheSize: 10,
 			Instrumentations:            instrumentations,
 		},
-		&perapp.MetricsConfig{Features: export.FeatureApplicationRED},
+		&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRED},
 		&attributes.SelectorConfig{
 			SelectionCfg: attributes.Selection{
 				attributes.HTTPServerDuration.Section: attributes.InclusionLists{
@@ -1470,7 +1470,7 @@ func TestOverridingCloudHostIDKey(t *testing.T) {
 			SpanMetricsServiceCacheSize: 10,
 			Instrumentations:            []instrumentations.Instrumentation{instrumentations.InstrumentationALL},
 		},
-		&perapp.MetricsConfig{Features: export.FeatureApplicationRED | export.FeatureApplicationHost},
+		&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRED | export.FeatureApplicationHost},
 		&attributes.SelectorConfig{
 			SelectionCfg: attributes.Selection{
 				attributes.HTTPServerDuration.Section: attributes.InclusionLists{
