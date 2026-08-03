@@ -270,7 +270,7 @@ func TestReadBPFTraceAsSpanMalformedRecordDoesNotLeakPriorSpan(t *testing.T) {
 			require.NotEqual(t, request.Span{}, prior)
 
 			span, ignore, err := ReadBPFTraceAsSpan(parseCtx, cfg, tt.record, filter)
-			assert.Error(t, err)
+			require.Error(t, err)
 			assert.True(t, ignore)
 			assert.Equal(t, request.Span{}, span)
 		})
