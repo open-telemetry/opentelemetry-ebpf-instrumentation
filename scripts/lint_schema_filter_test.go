@@ -108,6 +108,21 @@ func TestLintSchemaFilterAllowsExpectedEnumOverrideDuplicates(t *testing.T) {
 	}
 }
 
+// expectedDeprecatedIncludeUnreferenced mirrors the diagnostic weaver 0.25
+// emits (promoted to Error by --future) for OBI's use of the deprecated
+// --include-unreferenced flag, which OBI still needs.
+const expectedDeprecatedIncludeUnreferenced = `[{
+	"diagnostic": {"severity": "Error"},
+	"error": {"DeprecatedIncludeUnreferencedWarning": {}}
+}]`
+
+func TestLintSchemaFilterAllowsDeprecatedIncludeUnreferenced(t *testing.T) {
+	remaining := runLintSchemaFilter(t, expectedDeprecatedIncludeUnreferenced)
+	if len(remaining) != 0 {
+		t.Fatalf("expected the deprecated include-unreferenced warning to be filtered, got %d diagnostics", len(remaining))
+	}
+}
+
 func TestLintSchemaFilterKeepsUnrelatedDiagnostics(t *testing.T) {
 	cases := map[string]string{
 		"duplicate of another metric": `[{
