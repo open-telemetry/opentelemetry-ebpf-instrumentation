@@ -17,9 +17,8 @@ static __always_inline u8 already_tracked_http2(const pid_connection_info_t *p_c
     return http2_info != 0;
 }
 
-// Returns non-zero only for HTTP/2 sockets not carrying TLS — sk_msg HPACK
-// injection must skip SSL since payload on the wire is ciphertext.
-static __always_inline u8 already_tracked_plain_http2(const pid_connection_info_t *p_conn) {
+// Known TLS HTTP/2 conns — on-the-wire payload is ciphertext, never sniff or inject
+static __always_inline u8 already_tracked_ssl_http2(const pid_connection_info_t *p_conn) {
     http2_conn_info_data_t *h2 = bpf_map_lookup_elem(&ongoing_http2_connections, p_conn);
-    return h2 && !(h2->flags & WITH_SSL);
+    return h2 && (h2->flags & WITH_SSL);
 }

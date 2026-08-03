@@ -15,6 +15,12 @@
 #    id `x.obi.<ns>`) — either an enum extended with the values OBI
 #    intentionally emits, or an open-ended enum re-typed as string.
 #
+# 3. DeprecatedIncludeUnreferencedWarning: weaver 0.25 deprecated the
+#    `--include-unreferenced` flag, which OBI still needs — its override and
+#    marker groups are standalone (not referenced by a signal), so without it
+#    they drop out of resolution. `--future` promotes the deprecation to an
+#    error; accept it until OBI migrates to explicit `import:` statements.
+#
 # Any other diagnostic — including duplicates for other metrics/attributes,
 # or the expected ones with unexpected provenances/groups — is kept and fails
 # the lint. Covered by scripts/lint_schema_filter_test.go.
@@ -39,6 +45,10 @@ map(select(
              | ($groups | length) == 2
                and ($groups[0] | startswith("registry."))
                and $groups[1] == ("x.obi." + ($groups[0] | ltrimstr("registry."))))
+    )
+    or
+    (
+      (.error.DeprecatedIncludeUnreferencedWarning? // null) != null
     )
   ) | not
 ))

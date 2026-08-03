@@ -20,6 +20,7 @@
 #include <common/common.h>
 #include <common/globals.h>
 #include <common/go_grpc_client_conn.h>
+#include <common/h2_defs.h>
 #include <common/ringbuf.h>
 #include <common/trace_helpers.h>
 
@@ -788,12 +789,12 @@ int obi_uprobe_grpcFramerWriteHeaders(struct pt_regs *ctx) {
     if (invocation) {
         bpf_dbg_printk("Found invocation info: %llx", invocation);
 
-        // Save the per-stream trace so sk_msg can pick it up.
+        // Per-stream trace for sk_msg, written=0 until the return probe confirms the bytes landed
         if (conn_info && valid_trace(invocation->tp.trace_id)) {
             tp_info_pid_t tp_p = {0};
             tp_p.tp = invocation->tp;
             tp_p.valid = 1;
-            tp_p.written = 1;
+            tp_p.written = 0;
             tp_p.pid = pid_from_pid_tgid(bpf_get_current_pid_tgid());
             tp_p.req_type = EVENT_HTTP_CLIENT;
 
@@ -805,8 +806,6 @@ int obi_uprobe_grpcFramerWriteHeaders(struct pt_regs *ctx) {
             sort_egress_key(&e_key);
             bpf_map_update_elem(&outgoing_trace_map, &e_key, &tp_p, BPF_ANY);
 
-            // Mark conn so sk_msg skips: Go uprobe writes the HPACK
-            // traceparent in the user buffer, sk_msg must not overwrite
             pid_connection_info_t p_conn = {.conn = *conn_info, .pid = tp_p.pid};
             sort_connection_info(&p_conn.conn);
             mark_go_grpc_client_conn(&p_conn);
@@ -922,7 +921,8 @@ int obi_uprobe_grpcFramerWriteHeaders_returns(struct pt_regs *ctx) {
 
                 const u32 original_size = ((u32)(size_1) << 16) | ((u32)(size_2) << 8) | size_3;
 
-                if (original_size > 0) {
+                // flush or CONTINUATION split moved the frame — patching stale offsets corrupts
+                if (original_size > 0 && (u64)n == off + k_h2_frame_header_len + original_size) {
                     u8 type_byte = 0;
                     const u8 key_len =
                         sizeof(tp_encoded) | 0x80; // high tagged to signify hpack encoded value
@@ -933,38 +933,64 @@ int obi_uprobe_grpcFramerWriteHeaders_returns(struct pt_regs *ctx) {
                     make_tp_string(tp_str, &f_info->tp);
                     //bpf_dbg_printk("Will write tp_str=[%s], type_byte=%d, key_len=%d, val_len=%d", tp_str, type_byte, key_len, val_len);
 
-                    bpf_probe_write_user(buf_arr + (n & 0x0ffff), &type_byte, sizeof(type_byte));
+                    long werr = bpf_probe_write_user(
+                        buf_arr + (n & 0x0ffff), &type_byte, sizeof(type_byte));
                     n++;
                     // Write the length of the key = 8
-                    bpf_probe_write_user(buf_arr + (n & 0x0ffff), &key_len, sizeof(key_len));
+                    werr |=
+                        bpf_probe_write_user(buf_arr + (n & 0x0ffff), &key_len, sizeof(key_len));
                     n++;
                     // Write 'traceparent' encoded as hpack
-                    bpf_probe_write_user(buf_arr + (n & 0x0ffff), tp_encoded, sizeof(tp_encoded));
-                    ;
+                    werr |= bpf_probe_write_user(
+                        buf_arr + (n & 0x0ffff), tp_encoded, sizeof(tp_encoded));
                     n += sizeof(tp_encoded);
                     // Write the length of the hpack encoded traceparent field
-                    bpf_probe_write_user(buf_arr + (n & 0x0ffff), &val_len, sizeof(val_len));
+                    werr |=
+                        bpf_probe_write_user(buf_arr + (n & 0x0ffff), &val_len, sizeof(val_len));
                     n++;
-                    bpf_probe_write_user(buf_arr + (n & 0x0ffff), tp_str, sizeof(tp_str));
+                    werr |= bpf_probe_write_user(buf_arr + (n & 0x0ffff), tp_str, sizeof(tp_str));
                     n += TP_MAX_VAL_LENGTH;
-                    // Update the value of n in w to reflect the new size
-                    bpf_probe_write_user(
-                        (void *)(w_ptr +
-                                 go_offset_of(
-                                     ot, (go_offset){.v = _grpc_transport_buf_writer_offset_pos})),
-                        &n,
-                        sizeof(n));
 
-                    const u32 new_size = original_size + HTTP2_ENCODED_HEADER_LEN;
+                    // buffer length and frame length last: while they still describe the
+                    // original frame, a failed field write leaves bytes nobody reads
+                    if (!werr) {
+                        // Update the value of n in w to reflect the new size
+                        werr |= bpf_probe_write_user(
+                            (void *)(w_ptr +
+                                     go_offset_of(
+                                         ot,
+                                         (go_offset){.v = _grpc_transport_buf_writer_offset_pos})),
+                            &n,
+                            sizeof(n));
 
-                    bpf_dbg_printk("Changing size from %d to %d", original_size, new_size);
-                    size_1 = (u8)(new_size >> 16);
-                    size_2 = (u8)(new_size >> 8);
-                    size_3 = (u8)(new_size);
+                        const u32 new_size = original_size + HTTP2_ENCODED_HEADER_LEN;
 
-                    bpf_probe_write_user((void *)(buf_arr + off), &size_1, sizeof(size_1));
-                    bpf_probe_write_user((void *)(buf_arr + off + 1), &size_2, sizeof(size_2));
-                    bpf_probe_write_user((void *)(buf_arr + off + 2), &size_3, sizeof(size_3));
+                        bpf_dbg_printk("Changing size from %d to %d", original_size, new_size);
+                        size_1 = (u8)(new_size >> 16);
+                        size_2 = (u8)(new_size >> 8);
+                        size_3 = (u8)(new_size);
+
+                        werr |=
+                            bpf_probe_write_user((void *)(buf_arr + off), &size_1, sizeof(size_1));
+                        werr |= bpf_probe_write_user(
+                            (void *)(buf_arr + off + 1), &size_2, sizeof(size_2));
+                        werr |= bpf_probe_write_user(
+                            (void *)(buf_arr + off + 2), &size_3, sizeof(size_3));
+                    }
+
+                    // confirm so sk_msg skips this stream, but only if every byte landed
+                    if (!werr && (f_info->s_port || f_info->d_port)) {
+                        egress_key_t e_key = {
+                            .d_port = f_info->d_port,
+                            .s_port = f_info->s_port,
+                            .stream_id = f_info->stream_id,
+                        };
+                        sort_egress_key(&e_key);
+                        tp_info_pid_t *tp_p = bpf_map_lookup_elem(&outgoing_trace_map, &e_key);
+                        if (tp_p) {
+                            tp_p->written = 1;
+                        }
+                    }
                 }
             }
         }
@@ -1042,5 +1068,29 @@ int obi_uprobe_grpc_loopyWriter_originateStream(struct pt_regs *ctx) {
     bpf_dbg_printk("originateStream: published ongoing_streams[conn=%llx, stream=%u]",
                    pending->conn_ptr,
                    stream_id);
+
+    // written=0 fallback: if grpcFramerWriteHeaders misses, sk_msg injects this tp on the wire
+    connection_info_t *conn_info =
+        bpf_map_lookup_elem(&grpc_conn_ptr_to_conn, &(u64){pending->conn_ptr});
+    if (conn_info && valid_trace(pending->inv.tp.trace_id)) {
+        tp_info_pid_t tp_p = {0};
+        tp_p.tp = pending->inv.tp;
+        tp_p.valid = 1;
+        tp_p.written = 0;
+        tp_p.pid = pid_from_pid_tgid(bpf_get_current_pid_tgid());
+        tp_p.req_type = EVENT_HTTP_CLIENT;
+
+        egress_key_t e_key = {
+            .d_port = conn_info->d_port,
+            .s_port = conn_info->s_port,
+            .stream_id = stream_id,
+        };
+        sort_egress_key(&e_key);
+        bpf_map_update_elem(&outgoing_trace_map, &e_key, &tp_p, BPF_ANY);
+
+        pid_connection_info_t p_conn = {.conn = *conn_info, .pid = tp_p.pid};
+        sort_connection_info(&p_conn.conn);
+        mark_go_grpc_client_conn(&p_conn);
+    }
     return 0;
 }

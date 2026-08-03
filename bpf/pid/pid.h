@@ -19,6 +19,10 @@ volatile const s32 filter_pids = 0;
 
 enum { k_prime_hash = 192053 }; // closest prime to k_max_concurrent_pids * 64
 
+// out of range makes the lookup in pid_matches() miss, which fails open
+_Static_assert((k_prime_hash - 1) / 64 < k_max_concurrent_pids,
+               "k_prime_hash exceeds the valid_pids index space");
+
 static __always_inline u8 pid_matches(pid_data_t *p) {
     // combine the namespace id and the pid into one single u64
     const u64 k = (((u64)p->ns) << 32) | p->pid;
@@ -78,10 +82,6 @@ static __always_inline u32 valid_pid(u64 id) {
                 return a_pid;
             }
         }
-
-        // Cache negative result: PID not in tracked set
-        u32 neg = 0;
-        bpf_map_update_elem(&pid_cache, &a_pid, &neg, BPF_NOEXIST);
     }
 
     return 0;

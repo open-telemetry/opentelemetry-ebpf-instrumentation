@@ -436,9 +436,9 @@ jinja2==3.1.6 \
     --hash=sha256:0137fb05990d35f1275a587e9aee6d56da821fc83491a0fb838183be43f66d6d \
     --hash=sha256:85ece4451f492d0c13c5dd7c13a64681a86afae63a5f347908daf103ce6d2f67
     # via flask
-locust==2.46.2 \
-    --hash=sha256:289f50dad50c10e51b445f87b3291b3d3ba89bc46d80755d1a61e43f85270ed7 \
-    --hash=sha256:8792329639c5b4491c1d29458280daf80eee68e0acd5847b60f529bf092e8f08
+locust==2.46.3 \
+    --hash=sha256:a51e03cc27280eb2770f5aefacc3eb4c290eafe0feb19c64fa3c99e31fa21265 \
+    --hash=sha256:b1d313db9df0a4036d4d905b1dc8585d020a7299239a1bb2e2885b71389253c0
     # via -r examples/store-demo/app/src/loadgenerator/requirements.in
 MarkupSafe==3.0.3 \
     --hash=sha256:0303439a41979d9e74d18ff5e2dd8c43ed6c6001fd40e5bf2e43f7bd9bbc523f \
@@ -641,9 +641,9 @@ pytest==9.1.1 \
     --hash=sha256:1088fbde8f2b49d95a549a195707afa7a76a3ce9bcadc26b6d71f0ffda5fe313 \
     --hash=sha256:37a86b45efb9a47a61a36449063e8e18d0cab3161329fc099eb21783169c4f0c
     # via locust
-python-engineio==4.13.3 \
-    --hash=sha256:1f60ecaf1358190f0e26c48c578a60428dc02a8f1295bc3dbf53d1b31116821f \
-    --hash=sha256:572b7783e341fed21edbc7cea297ccd378dad79265fdde96aa4664420a7c06c9
+python-engineio==4.13.4 \
+    --hash=sha256:272de73124e255d3d2bba6f86358c1a1ba618f938f337a0c868b60550fe38719 \
+    --hash=sha256:413cb98d56c62f0f5ef29931592a360d437b82b3fa7ab415da3f6c7d3ebc0cb7
     # via
     #   locust
     #   python-socketio

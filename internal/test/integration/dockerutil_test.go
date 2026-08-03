@@ -42,7 +42,7 @@ const (
 	// `internal/test/integration/components/weaver/service.yml` so the
 	// programmatic-setup tests run weaver with the same image as the
 	// compose-driven ones.
-	imgWeaver = img.Docker("otel/weaver:v0.25.0@sha256:bef6000b4a4be46f81242f9ee785e0ebf0604606c15f92cb54a59893a741ec0c")
+	imgWeaver = img.Docker("otel/weaver:v0.25.1@sha256:9ad46ca9cd4fa5974b121f886aa3e9946a8ef8ea905001a96c018d21f9db87ca")
 )
 
 // setupDockerNetwork initializes a custom network for the test.
@@ -193,8 +193,7 @@ func setupContainerCollector(t *testing.T, net dockertest.Network, configFile st
 // alongside the otelcol container. Mirrors the shared compose snippet at
 // `components/weaver/service.yml`: same image digest.
 // The container is named exactly "weaver" — matching `weaverContainer` in
-// `weaver.go` — because `runWeaverValidation` `docker wait` / `docker cp`
-// by name.
+// `weaver.go` — because the cleanup path force-removes it by name.
 func setupContainerWeaver(t *testing.T, net dockertest.Network) {
 	t.Helper()
 
@@ -208,13 +207,13 @@ func setupContainerWeaver(t *testing.T, net dockertest.Network) {
 			"--include-unreferenced",
 			"--inactivity-timeout", "300",
 			"--admin-port", "4320",
-			"--format", "json",
+			"--format", "compact",
+			"--templates", "/obi-registry/.live_check_templates",
 			"--diagnostic-format", "json",
-			"--output", "/tmp/weaver-out",
+			"--output", "http",
 		}),
 		dockertest.WithMounts([]string{
 			filepath.Join(pathRoot, "schemas/obi") + ":/obi-registry:ro",
-			"/tmp/obi-weaver-out:/tmp/weaver-out",
 		}),
 		dockertest.WithPortBindings(portBindings("4320/tcp", "4320")),
 		dockertest.WithContainerConfig(func(config *container.Config) {
@@ -227,7 +226,7 @@ func setupContainerWeaver(t *testing.T, net dockertest.Network) {
 	require.NoError(t, err, "could not start weaver container")
 	t.Cleanup(func() {
 		// Best-effort: `runWeaverValidation` may have already removed it via
-		// `docker wait` + `docker rm -f`; ignore the error in that case.
+		// `docker rm -f`; ignore the error in that case.
 		_ = w.Close(context.Background())
 	})
 

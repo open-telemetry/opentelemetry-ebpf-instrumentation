@@ -35,6 +35,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
 	"go.opentelemetry.io/obi/pkg/export/prom"
 	"go.opentelemetry.io/obi/pkg/filter"
+	"go.opentelemetry.io/obi/pkg/health"
 	"go.opentelemetry.io/obi/pkg/internal/avoidedsvc"
 	"go.opentelemetry.io/obi/pkg/kube"
 	"go.opentelemetry.io/obi/pkg/kube/kubeflags"
@@ -353,7 +354,8 @@ var DefaultConfig = Config{
 		SamplingInterval: time.Second,
 	},
 	HealthCheck: HealthCheckConfig{
-		Port: 0,
+		Port:          0,
+		ListenAddress: health.DefaultListenAddress,
 	},
 }
 
@@ -472,6 +474,9 @@ func (c *Config) JoinMetricsConfig() *perapp.MetricsConfig {
 type HealthCheckConfig struct {
 	// 0 (default) means disabled
 	Port int `yaml:"port" env:"OTEL_EBPF_HEALTH_CHECK_PORT" validate:"gte=0,lte=65535"`
+	// IP address the TCP health endpoint binds to. Defaults to 127.0.0.1. Set to 0.0.0.0
+	// or :: only when external probes require access.
+	ListenAddress string `yaml:"listen_address" env:"OTEL_EBPF_HEALTH_CHECK_LISTEN_ADDRESS" validate:"omitempty,ip" jsonschema:"type=string,format=ip"`
 	// when set, the health endpoint binds this unix socket (a filesystem path or a leading-'@'
 	// abstract name) instead of the TCP port
 	UnixSocketPath string `yaml:"unix_socket_path" env:"OTEL_EBPF_HEALTH_CHECK_UNIX_SOCKET_PATH"`

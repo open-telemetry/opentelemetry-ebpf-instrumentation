@@ -16,6 +16,8 @@ import (
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/ptrace"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 	trace2 "go.opentelemetry.io/otel/trace"
 
@@ -24,6 +26,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/meta"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
+	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 )
 
 func TestTraceAttributesSelector_DNSQuestionName(t *testing.T) {
@@ -539,6 +542,435 @@ func TestTraceAttributesSelector_OpenAICompatible(t *testing.T) {
 		require.True(t, ok)
 		assert.Equal(t, request.CompletionOperationName, opName.Str())
 	})
+}
+
+func TestGenAIResponseErrorStatusMessage(t *testing.T) {
+	const rawMessage = "  api_key=sk-secret\nprompt=\"private input\" account=acct_123 🧪  "
+
+	tests := []struct {
+		name      string
+		subType   int
+		genAI     *request.GenAI
+		errorType string
+	}{
+		{
+			name:    "OpenAI",
+			subType: request.HTTPSubtypeOpenAI,
+			genAI: &request.GenAI{OpenAI: &request.VendorOpenAI{
+				Error: request.OpenAIError{Type: "rate_limit_error", Message: rawMessage},
+			}},
+			errorType: "rate_limit_error",
+		},
+		{
+			name:    "OpenAI compatible",
+			subType: request.HTTPSubtypeOpenAICompatible,
+			genAI: &request.GenAI{OpenAICompatible: &request.VendorOpenAI{
+				Error: request.OpenAIError{Type: "gateway_error", Message: rawMessage},
+			}},
+			errorType: "gateway_error",
+		},
+		{
+			name:    "Anthropic",
+			subType: request.HTTPSubtypeAnthropic,
+			genAI: &request.GenAI{Anthropic: &request.VendorAnthropic{
+				Output: request.AnthropicResponse{
+					Error: &request.AnthropicError{Type: "authentication_error", Message: rawMessage},
+				},
+			}},
+			errorType: "authentication_error",
+		},
+		{
+			name:    "Gemini",
+			subType: request.HTTPSubtypeGemini,
+			genAI: &request.GenAI{Gemini: &request.VendorGemini{
+				Output: request.GeminiResponse{
+					Error: &request.GeminiError{Status: "PERMISSION_DENIED", Message: rawMessage},
+				},
+			}},
+			errorType: "PERMISSION_DENIED",
+		},
+		{
+			name:    "Qwen",
+			subType: request.HTTPSubtypeQwen,
+			genAI: &request.GenAI{Qwen: &request.VendorOpenAI{
+				Error: request.OpenAIError{Type: "invalid_request_error", Message: rawMessage},
+			}},
+			errorType: "invalid_request_error",
+		},
+		{
+			name:    "AWS Bedrock",
+			subType: request.HTTPSubtypeAWSBedrock,
+			genAI: &request.GenAI{Bedrock: &request.VendorBedrock{
+				Output: request.BedrockResponse{
+					ErrorType:    "ValidationException",
+					ErrorMessage: rawMessage,
+				},
+			}},
+			errorType: "ValidationException",
+		},
+		{
+			name:    "Rerank",
+			subType: request.HTTPSubtypeRerank,
+			genAI: &request.GenAI{Rerank: &request.VendorRerank{
+				Output: request.RerankResponse{
+					Error: &request.RerankError{Type: "invalid_request", Message: rawMessage},
+				},
+			}},
+			errorType: "invalid_request",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			span := &request.Span{
+				Type:    request.EventTypeHTTPClient,
+				SubType: tt.subType,
+				Method:  "POST",
+				Status:  429,
+				GenAI:   tt.genAI,
+			}
+
+			defaultSpan := generateSingleTraceSpan(t, span, nil)
+			assert.Equal(t, ptrace.StatusCodeError, defaultSpan.Status().Code())
+			assert.Empty(t, defaultSpan.Status().Message())
+			assertSpanStringAttribute(t, defaultSpan, semconv.ErrorTypeKey, tt.errorType)
+			assertSpanAttributeAbsent(t, defaultSpan, string(attr.GenAIResponseError))
+			assertSpanAttributeAbsent(t, defaultSpan, "error.message")
+
+			selectedSpan := generateSingleTraceSpan(t, span, map[attr.Name]struct{}{
+				attr.GenAIResponseError: {},
+			})
+			assert.Equal(t, ptrace.StatusCodeError, selectedSpan.Status().Code())
+			assert.Equal(t, rawMessage, selectedSpan.Status().Message())
+			assertSpanStringAttribute(t, selectedSpan, semconv.ErrorTypeKey, tt.errorType)
+			assertSpanAttributeAbsent(t, selectedSpan, string(attr.GenAIResponseError))
+			assertSpanAttributeAbsent(t, selectedSpan, "error.message")
+		})
+	}
+}
+
+func TestGenAIResponseErrorSelectionToStatusMessage(t *testing.T) {
+	const rawMessage = "provider request failed"
+
+	tests := []struct {
+		name     string
+		include  []string
+		expected string
+	}{
+		{
+			name: "default",
+		},
+		{
+			name:    "all attributes wildcard",
+			include: []string{"*"},
+		},
+		{
+			name:    "GenAI wildcard",
+			include: []string{"gen_ai.*"},
+		},
+		{
+			name:     "exact name",
+			include:  []string{"gen_ai.response.error"},
+			expected: rawMessage,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &attributes.SelectorConfig{}
+			if tt.include != nil {
+				cfg.SelectionCfg = attributes.Selection{
+					attributes.Traces.Section: attributes.InclusionLists{
+						Include: tt.include,
+					},
+				}
+			}
+			selectedAttrs, err := UserSelectedAttributes(cfg)
+			require.NoError(t, err)
+
+			span := request.Span{
+				Type:    request.EventTypeHTTPClient,
+				SubType: request.HTTPSubtypeOpenAI,
+				Method:  "POST",
+				Status:  429,
+				GenAI: &request.GenAI{OpenAI: &request.VendorOpenAI{
+					Error: request.OpenAIError{
+						Type:    "rate_limit_error",
+						Message: rawMessage,
+					},
+				}},
+			}
+			sampler := &recordingSampler{}
+			groups := GroupSpans(
+				t.Context(),
+				[]request.Span{span},
+				selectedAttrs,
+				sampler,
+				instrumentations.NewInstrumentationSelection(
+					[]instrumentations.Instrumentation{instrumentations.InstrumentationALL},
+				),
+			)
+			group := groups[span.Service.UID]
+			require.Len(t, group, 1)
+			assertAttributeKeyAbsent(t, sampler.attributes, string(attr.GenAIResponseError))
+			assertAttributeKeyAbsent(t, sampler.attributes, string(genAIResponseErrorControlKey))
+			assertAttributeKeyAbsent(t, group[0].Attributes, string(attr.GenAIResponseError))
+
+			exported := generateTraceSpan(t, group[0])
+			assert.Equal(t, ptrace.StatusCodeError, exported.Status().Code())
+			assert.Equal(t, tt.expected, exported.Status().Message())
+			assertSpanAttributeAbsent(t, exported, string(attr.GenAIResponseError))
+			assertSpanAttributeAbsent(t, exported, string(genAIResponseErrorControlKey))
+		})
+	}
+}
+
+func TestGenAIResponseErrorStatusMessageEdgeCases(t *testing.T) {
+	t.Run("empty provider message", func(t *testing.T) {
+		span := &request.Span{
+			Type:    request.EventTypeHTTPClient,
+			SubType: request.HTTPSubtypeOpenAI,
+			Method:  "POST",
+			Status:  429,
+			GenAI: &request.GenAI{OpenAI: &request.VendorOpenAI{
+				Error: request.OpenAIError{Type: "rate_limit_error"},
+			}},
+		}
+
+		exported := generateSingleTraceSpan(t, span, map[attr.Name]struct{}{
+			attr.GenAIResponseError: {},
+		})
+		assert.Equal(t, ptrace.StatusCodeError, exported.Status().Code())
+		assert.Empty(t, exported.Status().Message())
+		assertSpanAttributeAbsent(t, exported, string(attr.GenAIResponseError))
+	})
+
+	t.Run("non-error status", func(t *testing.T) {
+		span := &request.Span{
+			Type:    request.EventTypeHTTPClient,
+			SubType: request.HTTPSubtypeOpenAI,
+			Method:  "POST",
+			Status:  200,
+			GenAI: &request.GenAI{OpenAI: &request.VendorOpenAI{
+				Error: request.OpenAIError{Message: "message without an error"},
+			}},
+		}
+
+		exported := generateSingleTraceSpan(t, span, map[attr.Name]struct{}{
+			attr.GenAIResponseError: {},
+		})
+		assert.Equal(t, ptrace.StatusCodeUnset, exported.Status().Code())
+		assert.Empty(t, exported.Status().Message())
+		assertSpanAttributeAbsent(t, exported, string(attr.GenAIResponseError))
+	})
+}
+
+func TestGenAIResponseErrorPreservesProtocolStatusMessages(t *testing.T) {
+	tests := []struct {
+		name    string
+		span    *request.Span
+		message string
+	}{
+		{
+			name: "JSON-RPC",
+			span: &request.Span{
+				Type:    request.EventTypeHTTPClient,
+				SubType: request.HTTPSubtypeJSONRPC,
+				Method:  "POST",
+				Status:  200,
+				JSONRPC: &request.JSONRPC{
+					ErrorCode:    -32600,
+					ErrorMessage: "Invalid Request",
+				},
+			},
+			message: "Invalid Request",
+		},
+		{
+			name: "MCP",
+			span: &request.Span{
+				Type:    request.EventTypeHTTPClient,
+				SubType: request.HTTPSubtypeMCP,
+				Method:  "POST",
+				Status:  200,
+				GenAI: &request.GenAI{MCP: &request.MCPCall{
+					ErrorCode:    -32602,
+					ErrorMessage: "Unknown tool",
+				}},
+			},
+			message: "Unknown tool",
+		},
+		{
+			name: "JSON-RPC without native message",
+			span: &request.Span{
+				Type:    request.EventTypeHTTPClient,
+				SubType: request.HTTPSubtypeJSONRPC,
+				Method:  "POST",
+				Status:  200,
+				JSONRPC: &request.JSONRPC{
+					ErrorCode: -32600,
+				},
+			},
+		},
+		{
+			name: "MCP without native message",
+			span: &request.Span{
+				Type:    request.EventTypeHTTPClient,
+				SubType: request.HTTPSubtypeMCP,
+				Method:  "POST",
+				Status:  200,
+				GenAI: &request.GenAI{MCP: &request.MCPCall{
+					ErrorCode: -32602,
+				}},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			exported := generateSingleTraceSpan(t, tt.span, map[attr.Name]struct{}{
+				attr.GenAIResponseError: {},
+			})
+			assert.Equal(t, ptrace.StatusCodeError, exported.Status().Code())
+			assert.Equal(t, tt.message, exported.Status().Message())
+			assertSpanAttributeAbsent(t, exported, string(attr.GenAIResponseError))
+		})
+	}
+}
+
+func TestGenAIResponseErrorAttributeCollision(t *testing.T) {
+	const ordinaryValue = "ordinary application attribute"
+
+	tests := []struct {
+		name string
+		span *request.Span
+	}{
+		{
+			name: "manual span",
+			span: &request.Span{
+				Type:   request.EventTypeManualSpan,
+				Method: "manual",
+				Status: int(codes.Error),
+			},
+		},
+		{
+			name: "MCP without native message",
+			span: &request.Span{
+				Type:    request.EventTypeHTTPClient,
+				SubType: request.HTTPSubtypeMCP,
+				Method:  "POST",
+				Status:  200,
+				GenAI: &request.GenAI{MCP: &request.MCPCall{
+					ErrorCode: -32602,
+				}},
+			},
+		},
+		{
+			name: "supported provider without selection metadata",
+			span: &request.Span{
+				Type:    request.EventTypeHTTPClient,
+				SubType: request.HTTPSubtypeOpenAI,
+				Method:  "POST",
+				Status:  429,
+				GenAI: &request.GenAI{OpenAI: &request.VendorOpenAI{
+					Error: request.OpenAIError{Message: ordinaryValue},
+				}},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			exported := generateTraceSpan(t, TraceSpanAndAttributes{
+				Span: tt.span,
+				Attributes: []attribute.KeyValue{
+					attribute.String(string(attr.GenAIResponseError), ordinaryValue),
+				},
+			})
+			assert.Equal(t, ptrace.StatusCodeError, exported.Status().Code())
+			assert.Empty(t, exported.Status().Message())
+			assertSpanStringAttribute(
+				t,
+				exported,
+				attribute.Key(attr.GenAIResponseError),
+				ordinaryValue,
+			)
+		})
+	}
+}
+
+type recordingSampler struct {
+	attributes []attribute.KeyValue
+}
+
+func (s *recordingSampler) ShouldSample(parameters sdktrace.SamplingParameters) sdktrace.SamplingResult {
+	s.attributes = append([]attribute.KeyValue(nil), parameters.Attributes...)
+	return sdktrace.SamplingResult{Decision: sdktrace.RecordAndSample}
+}
+
+func (*recordingSampler) Description() string {
+	return "recording sampler"
+}
+
+func generateSingleTraceSpan(
+	t *testing.T,
+	span *request.Span,
+	optionalAttrs map[attr.Name]struct{},
+) ptrace.Span {
+	t.Helper()
+
+	return generateTraceSpan(t, TraceSpanAndAttributes{
+		Span:       span,
+		Attributes: TraceAttributesSelector(span, optionalAttrs),
+	})
+}
+
+func generateTraceSpan(t *testing.T, spanWithAttributes TraceSpanAndAttributes) ptrace.Span {
+	t.Helper()
+
+	span := spanWithAttributes.Span
+	cache := expirable2.NewLRU[svc.UID, []attribute.KeyValue](10, nil, 0)
+	traces := GenerateTracesWithAttributes(
+		cache,
+		&span.Service,
+		nil,
+		&meta.NodeMeta{},
+		[]TraceSpanAndAttributes{spanWithAttributes},
+		"obi",
+	)
+
+	require.Equal(t, 1, traces.ResourceSpans().Len())
+	require.Equal(t, 1, traces.ResourceSpans().At(0).ScopeSpans().Len())
+	spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+	require.Equal(t, 1, spans.Len())
+	return spans.At(0)
+}
+
+func assertAttributeKeyAbsent(t *testing.T, attrs []attribute.KeyValue, key string) {
+	t.Helper()
+
+	for i := range attrs {
+		assert.NotEqual(t, key, string(attrs[i].Key))
+	}
+}
+
+func assertSpanStringAttribute(
+	t *testing.T,
+	span ptrace.Span,
+	key attribute.Key,
+	expected string,
+) {
+	t.Helper()
+
+	value, ok := span.Attributes().Get(string(key))
+	require.True(t, ok)
+	assert.Equal(t, expected, value.Str())
+}
+
+func assertSpanAttributeAbsent(t *testing.T, span ptrace.Span, key string) {
+	t.Helper()
+
+	_, ok := span.Attributes().Get(key)
+	assert.False(t, ok)
 }
 
 func TestGenerateTracesWithAttributesManualOTelJSON(t *testing.T) {

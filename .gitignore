@@ -45,6 +45,7 @@ internal/test/cmd/greeting-service/target
 internal/test/integration/components/javatestserver/target/
 internal/test/integration/components/rusttestserver/target/
 internal/test/integration/components/rustssltestserver/target/
+internal/test/integration/components/grpc_relay/rust/target/
 internal/test/integration/components/nodejsserver/node_modules/
 # Ruby on Rails test
 # Ignore bundler config.
@@ -91,6 +92,16 @@ internal/test/integration/components/java_tls/wrapper/wrapper
 *_bpfel.o
 *_bpfel.go.d
 *_bpfeb.go.d
+
+# bpf/tests C unit-test build artifacts
+bpf/tests/bpf_*
+bpf/tests/test_*
+!bpf/tests/bpf_*.c
+!bpf/tests/bpf_*.h
+!bpf/tests/test_*.c
+!bpf/tests/test_*.h
+bpf/tests/**/*.dSYM/
+
 opentelemetry-ebpf-instrumentation.sln
 obi.sln
 internal/test/integration/components/javakafka/target/*

@@ -51,6 +51,34 @@ chunk.
 | Vector retrieval | `usage.prompt_tokens` or `usage.total_tokens` | Not reported | Most vector stores do not return token usage; it is exported when present. |
 | MCP | Not reported | Not reported | MCP spans do not currently expose token usage. |
 
+## GenAI provider error messages
+
+OBI does not export raw GenAI provider error messages by default. To copy them
+verbatim into the OTLP span `status.message`, explicitly select the
+`gen_ai.response.error` control:
+
+```yaml
+attributes:
+  select:
+    traces:
+      include:
+        - gen_ai.response.error
+```
+
+The control applies to OpenAI, OpenAI-compatible APIs, Anthropic, Google AI
+Studio (Gemini), Qwen, AWS Bedrock, and Rerank responses. It only affects spans
+whose resulting status is `Error`; it does not change status classification or
+the `error.type` attribute. `gen_ai.response.error` is not exported as a span
+attribute, and OBI does not use the deprecated `error.message` attribute.
+
+This sensitive control requires an exact include. Wildcards such as
+`gen_ai.*` and `*` do not enable it. OBI does not additionally redact or
+truncate selected messages. Provider error text can contain credentials,
+account or request identifiers, prompts or completions, tenant metadata,
+request details, customer usage data, account or billing details, and other
+sensitive data. Review backend access, retention, and downstream processing
+before enabling it.
+
 ## Go Instrumentation
 
 Specifically for Go applications, OBI chooses to instrument libraries directly using Uprobes, instead of instrumenting

@@ -71,6 +71,11 @@ func (d *Document) UnmarshalYAML(node *yaml.Node) error {
 	if err := node.Decode(&d.OpenTelemetryConfiguration); err != nil {
 		return err
 	}
+	if distribution, ok := mappingValue(node, "distribution"); ok {
+		if err := distribution.Decode(&d.Distribution); err != nil {
+			return err
+		}
+	}
 	extensions, ok := mappingValue(node, "extensions")
 	if !ok {
 		return errors.New("missing extensions")

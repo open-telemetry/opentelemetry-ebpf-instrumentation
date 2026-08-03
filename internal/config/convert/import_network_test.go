@@ -156,10 +156,10 @@ func TestV2ToRuntimePartialNetworkCapturePreservesMissingMetadataDefaults(t *tes
 	require.Equal(t, obi.DefaultConfig.NetworkFlows.ReverseDNS.CacheTTL, got.NetworkFlows.ReverseDNS.CacheTTL)
 }
 
-func TestV2ToRuntimeNetworkCaptureSkipsDivergentSignalFilters(t *testing.T) {
+func TestV2ToRuntimeNetworkCaptureRejectsDivergentSignalFilters(t *testing.T) {
 	t.Parallel()
 
-	got, err := V2ToRuntime(&schema.Extension{
+	_, err := V2ToRuntime(&schema.Extension{
 		Version: schema.SupportedVersion,
 		Capture: schema.Capture{
 			Network: schema.CaptureNetwork{
@@ -176,7 +176,38 @@ func TestV2ToRuntimeNetworkCaptureSkipsDivergentSignalFilters(t *testing.T) {
 			},
 		},
 	})
-	require.NoError(t, err)
+	require.ErrorContains(
+		t,
+		err,
+		"capture.network.capture.filters.metrics cannot differ from "+
+			"capture.network.capture.filters.traces",
+	)
+}
 
-	require.Equal(t, obi.DefaultConfig.Filters.Network, got.Filters.Network)
+func TestV2ToRuntimeNetworkStatsRejectsDivergentSignalFilters(t *testing.T) {
+	t.Parallel()
+
+	_, err := V2ToRuntime(&schema.Extension{
+		Version: schema.SupportedVersion,
+		Capture: schema.Capture{
+			Network: schema.CaptureNetwork{
+				Stats: schema.NetworkStats{
+					Filters: schema.SignalFilters{
+						Traces: schema.AttributeFilters{
+							"src.address": {Match: "10.*"},
+						},
+						Metrics: schema.AttributeFilters{
+							"dst.address": {Match: "10.*"},
+						},
+					},
+				},
+			},
+		},
+	})
+	require.ErrorContains(
+		t,
+		err,
+		"capture.network.stats.filters.metrics cannot differ from "+
+			"capture.network.stats.filters.traces",
+	)
 }
