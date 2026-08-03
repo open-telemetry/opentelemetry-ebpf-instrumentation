@@ -1,0 +1,18 @@
+# OBI configuration for the avoided-services weaver suite. Mirrors
+# obi-config-go-otel.yml (the config the existing avoided-services test uses)
+# plus internal_metrics.exporter=otel so obi.avoided.services reaches weaver.
+# OBI discovers the self-instrumented go_otel rolldice server, observes its OTLP
+# export calls, and avoids instrumenting it (ExcludeOTelInstrumentedServices is
+# on by default), recording obi.avoided.services.
+routes:
+  unmatched: path
+otel_metrics_export:
+  endpoint: http://otelcol:4318
+otel_traces_export:
+  endpoint: http://jaeger:4318
+internal_metrics:
+  exporter: otel
+attributes:
+  select:
+    "*":
+      include: ["*"]

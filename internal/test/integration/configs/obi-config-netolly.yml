@@ -1,6 +1,12 @@
 log_format: json
 network:
   guess_ports: ordinal
+# OTLP internal metrics so the network packet counters
+# (obi.bpf.network.packets.total, obi.bpf.network.ignored.packets.total) are
+# weaver-validated on this netolly suite. Metrics endpoint is enabled via the
+# OTEL_EXPORTER_OTLP_ENDPOINT env in the compose file.
+internal_metrics:
+  exporter: otel
 attributes:
   select:
     obi_network_flow_bytes:

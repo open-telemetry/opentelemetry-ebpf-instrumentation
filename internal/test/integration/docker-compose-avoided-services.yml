@@ -1,0 +1,106 @@
+services:
+  # Self-instrumented OpenTelemetry HTTP server (go_otel rolldice). It exports
+  # its own OTLP metrics + traces, which OBI observes and reacts to by avoiding
+  # instrumentation. Its telemetry is sent to jaeger (off the weaver tap) so only
+  # OBI's own internal metrics are validated by weaver.
+  testserver:
+    build:
+      context: ../../..
+      dockerfile: ./internal/test/integration/components/go_otel/Dockerfile
+    # Unique image name: the shared "hatest-testserver" tag is a different
+    # server on the CI/VM host, and SKIP_DOCKER_BUILD would reuse it instead of
+    # building this self-instrumented go_otel rolldice server.
+    image: hatest-avoided-otel-server
+    ports:
+      - "${TEST_SERVICE_PORTS}"
+    environment:
+      OTEL_SERVICE_NAME: rolldice
+      # Metrics go to the collector (a working OTLP endpoint) so OBI observes a
+      # SUCCESSFUL export and classifies the process as already-instrumented.
+      # Traces go to jaeger to keep the testserver's spans off the weaver tap.
+      OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: http://otelcol:4318
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://jaeger:4318
+    depends_on:
+      otelcol:
+        condition: service_started
+
+  obi:
+    build:
+      context: ../../..
+      dockerfile: ./internal/test/integration/components/obi/Dockerfile
+    volumes:
+      - ./configs/:/configs
+      - ./system/sys/kernel/security:/sys/kernel/security
+      - ../../../testoutput:/coverage
+      - ../../../testoutput/run-avoided-services:/var/run/obi
+      - /sys/kernel/tracing:/sys/kernel/tracing:rw
+    image: hatest-obi
+    privileged: true
+    pid: "host"
+    environment:
+      OTEL_EBPF_CONFIG_PATH: /configs/obi-config-avoided-services.yml
+      GOCOVERDIR: "/coverage"
+      OTEL_EBPF_DISCOVERY_POLL_INTERVAL: 500ms
+      OTEL_EBPF_SERVICE_NAMESPACE: "integration-test"
+      OTEL_EBPF_METRICS_INTERVAL: "10ms"
+      OTEL_EBPF_INTERNAL_METRICS_INTERVAL: "10ms"
+      OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT: "1ms"
+      OTEL_EBPF_BPF_BATCH_TIMEOUT: "10ms"
+      OTEL_EBPF_BPF_DEBUG: "TRUE"
+      OTEL_EBPF_TRACE_PRINTER: "text"
+      OTEL_EBPF_LOG_LEVEL: "DEBUG"
+      OTEL_EBPF_HOSTNAME: "obi"
+      OTEL_EBPF_PROCESSES_INTERVAL: "100ms"
+      OTEL_EBPF_OPEN_PORT: "8080"
+      OTEL_EBPF_METRICS_FEATURES: "application,application_span_otel"
+    depends_on:
+      testserver:
+        condition: service_started
+
+  # Sink for the testserver's own telemetry (kept off the weaver tap).
+  jaeger:
+    image: jaegertracing/all-in-one:1.60@sha256:4fd2d70fa347d6a47e79fcb06b1c177e6079f92cba88b083153d56263082135e
+    ports:
+      - "4318"
+
+  prometheus:
+    image: quay.io/prometheus/prometheus:v3.13.0@sha256:c6b27ea434f8389bfe233fbc7be381cf50587c286e871bc842008f5a1b1908a7
+    container_name: prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus-config-internal-metrics.yml
+      - --web.enable-lifecycle
+      - --web.route-prefix=/
+    volumes:
+      - ./configs/:/etc/prometheus
+    ports:
+      - "9090:9090"
+
+  # OTLP receiver for OBI's internal metrics, fanned out to weaver.
+  otelcol:
+    image: otel/opentelemetry-collector-contrib:0.156.0@sha256:125bdbeb7590cc1952c5b3430ecf14063568980c2c93d5b38676cc0446ed8108
+    container_name: otel-col
+    deploy:
+      resources:
+        limits:
+          memory: 125M
+    restart: unless-stopped
+    command: ["--config=/etc/otelcol-config/otelcol-config-weaver-no-jaeger.yml"]
+    volumes:
+      - ./configs/:/etc/otelcol-config
+    ports:
+      - "4317"
+      - "4318:4318"
+      - "9464"
+      - "8888"
+    depends_on:
+      prometheus:
+        condition: service_started
+      weaver:
+        condition: service_healthy
+
+  weaver:
+    extends:
+      file: components/weaver/service.yml
+      service: weaver
+    volumes:
+      - ../../../schemas/obi:/obi-registry:ro
