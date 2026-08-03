@@ -374,6 +374,7 @@ const (
 	statsFeatureTCPFailedConnections = "tcp_failed_connections"
 	statsFeatureTCPRetransmits       = "tcp_retransmits"
 	statsFeatureTCPIo                = "tcp_io"
+	statsFeatureTCPConnectionSummary = "tcp_connection_summary"
 )
 
 func statsFeatures(features featureexport.Features) []string {
@@ -389,6 +390,9 @@ func statsFeatures(features featureexport.Features) []string {
 	}
 	if features.StatsTCPIo() {
 		out = append(out, statsFeatureTCPIo)
+	}
+	if features.StatsTCPConnectionSummary() {
+		out = append(out, statsFeatureTCPConnectionSummary)
 	}
 	return out
 }

@@ -72,24 +72,43 @@ func newStatMeterProvider(res *resource.Resource, exporter *sdkmetric.Exporter, 
 			string(otelcfg.HistogramAggregationExponential)+", "+string(otelcfg.HistogramAggregationExplicit)+" (default). Using default",
 			"value", cfg.HistogramAggregation)
 	}
+	summaryPrefix := attributes.StatTCPConnectionSummary.OTEL
 	return metric.NewMeterProvider(
 		metric.WithResource(res),
 		metric.WithReader(metric.NewPeriodicReader(*exporter, metric.WithInterval(interval))),
 		metric.WithView(statHistogramView(attributes.StatTCPRtt.OTEL, cfg.Buckets.StatTCPRttHistogram, isExponential, cfg.ExponentialHistogram)),
+		metric.WithView(statHistogramView(summaryPrefix+".srtt", cfg.Buckets.StatTCPRttHistogram, isExponential, cfg.ExponentialHistogram)),
+		metric.WithView(statHistogramView(summaryPrefix+".mdev", connSummaryMdevBuckets, isExponential, cfg.ExponentialHistogram)),
+		metric.WithView(statHistogramView(summaryPrefix+".retransmits", connSummaryCountBuckets, isExponential, cfg.ExponentialHistogram)),
+		metric.WithView(statHistogramView(summaryPrefix+".ooo_packets", connSummaryCountBuckets, isExponential, cfg.ExponentialHistogram)),
+		metric.WithView(statHistogramView(summaryPrefix+".segs_out", connSummaryCountBuckets, isExponential, cfg.ExponentialHistogram)),
+		metric.WithView(statHistogramView(summaryPrefix+".segs_in", connSummaryCountBuckets, isExponential, cfg.ExponentialHistogram)),
 	)
 }
+
+// connSummaryMdevBuckets covers sub-millisecond jitter range (mdev is typically smaller than RTT).
+var connSummaryMdevBuckets = []float64{0.0001, 0.0002, 0.0005, 0.001, 0.002, 0.005, 0.010, 0.025, 0.050, 0.100}
+
+// connSummaryCountBuckets covers count-based metrics (retransmits, ooo_packets, segs_out, segs_in).
+var connSummaryCountBuckets = []float64{0, 1, 2, 5, 10, 25, 50, 100, 250, 500, 1000}
 
 func statHistogramView(metricName string, buckets []float64, isExponential bool, expCfg otelcfg.ExponentialHistogramConfig) metric.View {
 	return newHistogramView(metricName, statScopeName, buckets, isExponential, expCfg)
 }
 
 type statMetricsExporter struct {
-	tcpRtt               *Expirer[*ebpf.Stat, metric2.Float64Histogram, float64]
-	tcpFailedConnections *Expirer[*ebpf.Stat, metric2.Int64Counter, int64]
-	tcpRetransmits       *Expirer[*ebpf.Stat, metric2.Int64Counter, int64]
-	tcpIo                *Expirer[*ebpf.Stat, metric2.Int64Counter, int64]
-	expireTTL            time.Duration
-	in                   <-chan []*ebpf.Stat
+	tcpRtt                *Expirer[*ebpf.Stat, metric2.Float64Histogram, float64]
+	tcpFailedConnections  *Expirer[*ebpf.Stat, metric2.Int64Counter, int64]
+	tcpRetransmits        *Expirer[*ebpf.Stat, metric2.Int64Counter, int64]
+	tcpIo                 *Expirer[*ebpf.Stat, metric2.Int64Counter, int64]
+	tcpConnSummarySrtt    *Expirer[*ebpf.Stat, metric2.Float64Histogram, float64]
+	tcpConnSummaryMdev    *Expirer[*ebpf.Stat, metric2.Float64Histogram, float64]
+	tcpConnSummaryRetrans *Expirer[*ebpf.Stat, metric2.Int64Histogram, int64]
+	tcpConnSummaryOoo     *Expirer[*ebpf.Stat, metric2.Int64Histogram, int64]
+	tcpConnSummarySegsOut *Expirer[*ebpf.Stat, metric2.Int64Histogram, int64]
+	tcpConnSummarySegsIn  *Expirer[*ebpf.Stat, metric2.Int64Histogram, int64]
+	expireTTL             time.Duration
+	in                    <-chan []*ebpf.Stat
 }
 
 func StatMetricsExporterProvider(
@@ -210,6 +229,66 @@ func newStatMetricsExporter(
 		nme.tcpFailedConnections = NewExpirer[*ebpf.Stat, metric2.Int64Counter, int64](ctx, tcpFailedConnections, attrs, timeNow, cfg.Metrics.TTL)
 	}
 
+	if cfg.CommonCfg.Features.StatsTCPConnectionSummary() {
+		connSummaryAttrs := attributes.OpenTelemetryGetters(
+			ebpf.StatGetters,
+			attrProv.For(attributes.StatTCPConnectionSummary))
+
+		srttLog := log.With("metricFamily", "StatsTCPConnectionSummarySrtt")
+		tcpConnSrtt, err := ebpfEvents.Float64Histogram(
+			attributes.StatTCPConnectionSummary.OTEL+".srtt",
+			metric2.WithUnit("s"),
+		)
+		if err != nil {
+			srttLog.Error("creating stats tcp connection summary srtt histogram", "error", err)
+			return nil, err
+		}
+		nme.tcpConnSummarySrtt = NewExpirer[*ebpf.Stat, metric2.Float64Histogram, float64](ctx, tcpConnSrtt, connSummaryAttrs, timeNow, cfg.Metrics.TTL)
+
+		mdevLog := log.With("metricFamily", "StatsTCPConnectionSummaryMdev")
+		tcpConnMdev, err := ebpfEvents.Float64Histogram(
+			attributes.StatTCPConnectionSummary.OTEL+".mdev",
+			metric2.WithUnit("s"),
+		)
+		if err != nil {
+			mdevLog.Error("creating stats tcp connection summary mdev histogram", "error", err)
+			return nil, err
+		}
+		nme.tcpConnSummaryMdev = NewExpirer[*ebpf.Stat, metric2.Float64Histogram, float64](ctx, tcpConnMdev, connSummaryAttrs, timeNow, cfg.Metrics.TTL)
+
+		retransLog := log.With("metricFamily", "StatsTCPConnectionSummaryRetrans")
+		tcpConnRetrans, err := ebpfEvents.Int64Histogram(attributes.StatTCPConnectionSummary.OTEL + ".retransmits")
+		if err != nil {
+			retransLog.Error("creating stats tcp connection summary retrans histogram", "error", err)
+			return nil, err
+		}
+		nme.tcpConnSummaryRetrans = NewExpirer[*ebpf.Stat, metric2.Int64Histogram, int64](ctx, tcpConnRetrans, connSummaryAttrs, timeNow, cfg.Metrics.TTL)
+
+		oooLog := log.With("metricFamily", "StatsTCPConnectionSummaryOoo")
+		tcpConnOoo, err := ebpfEvents.Int64Histogram(attributes.StatTCPConnectionSummary.OTEL + ".ooo_packets")
+		if err != nil {
+			oooLog.Error("creating stats tcp connection summary ooo histogram", "error", err)
+			return nil, err
+		}
+		nme.tcpConnSummaryOoo = NewExpirer[*ebpf.Stat, metric2.Int64Histogram, int64](ctx, tcpConnOoo, connSummaryAttrs, timeNow, cfg.Metrics.TTL)
+
+		segsOutLog := log.With("metricFamily", "StatsTCPConnectionSummarySegsOut")
+		tcpConnSegsOut, err := ebpfEvents.Int64Histogram(attributes.StatTCPConnectionSummary.OTEL + ".segs_out")
+		if err != nil {
+			segsOutLog.Error("creating stats tcp connection summary segs_out histogram", "error", err)
+			return nil, err
+		}
+		nme.tcpConnSummarySegsOut = NewExpirer[*ebpf.Stat, metric2.Int64Histogram, int64](ctx, tcpConnSegsOut, connSummaryAttrs, timeNow, cfg.Metrics.TTL)
+
+		segsInLog := log.With("metricFamily", "StatsTCPConnectionSummarySegsIn")
+		tcpConnSegsIn, err := ebpfEvents.Int64Histogram(attributes.StatTCPConnectionSummary.OTEL + ".segs_in")
+		if err != nil {
+			segsInLog.Error("creating stats tcp connection summary segs_in histogram", "error", err)
+			return nil, err
+		}
+		nme.tcpConnSummarySegsIn = NewExpirer[*ebpf.Stat, metric2.Int64Histogram, int64](ctx, tcpConnSegsIn, connSummaryAttrs, timeNow, cfg.Metrics.TTL)
+	}
+
 	nme.in = input.Subscribe(msg.SubscriberName("otel.StatMetricsExporter"))
 	return nme, nil
 }
@@ -232,6 +311,33 @@ func (me *statMetricsExporter) Do(ctx context.Context) {
 			if me.tcpIo != nil && v.TCPIo != nil {
 				tcpIo, attrs := me.tcpIo.ForRecord(v)
 				tcpIo.Add(ctx, int64(v.TCPIo.Bytes), metric2.WithAttributeSet(attrs))
+			}
+			if v.TCPConnectionSummary != nil {
+				cs := v.TCPConnectionSummary
+				if me.tcpConnSummarySrtt != nil {
+					h, attrs := me.tcpConnSummarySrtt.ForRecord(v)
+					h.Record(ctx, float64(cs.SrttUs)/1_000_000.0, metric2.WithAttributeSet(attrs))
+				}
+				if me.tcpConnSummaryMdev != nil {
+					h, attrs := me.tcpConnSummaryMdev.ForRecord(v)
+					h.Record(ctx, float64(cs.MdevUs)/1_000_000.0, metric2.WithAttributeSet(attrs))
+				}
+				if me.tcpConnSummaryRetrans != nil {
+					h, attrs := me.tcpConnSummaryRetrans.ForRecord(v)
+					h.Record(ctx, int64(cs.TotalRetrans), metric2.WithAttributeSet(attrs))
+				}
+				if me.tcpConnSummaryOoo != nil {
+					h, attrs := me.tcpConnSummaryOoo.ForRecord(v)
+					h.Record(ctx, int64(cs.RcvOoopack), metric2.WithAttributeSet(attrs))
+				}
+				if me.tcpConnSummarySegsOut != nil {
+					h, attrs := me.tcpConnSummarySegsOut.ForRecord(v)
+					h.Record(ctx, int64(cs.SegsOut), metric2.WithAttributeSet(attrs))
+				}
+				if me.tcpConnSummarySegsIn != nil {
+					h, attrs := me.tcpConnSummarySegsIn.ForRecord(v)
+					h.Record(ctx, int64(cs.SegsIn), metric2.WithAttributeSet(attrs))
+				}
 			}
 		}
 	}

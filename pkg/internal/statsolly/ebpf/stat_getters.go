@@ -58,6 +58,8 @@ func StatGetters(name attr.Name) (attributes.Getter[*Stat, attribute.KeyValue], 
 				role = s.TCPFailedConnection.Role
 			case StatTypeTCPRtt:
 				role = s.TCPRtt.Role
+			case StatTypeTCPConnectionSummary:
+				role = s.TCPConnectionSummary.Role
 			}
 			return attribute.String(string(attr.NetworkTCPHandshakeRole), networkTCPHandshakeRoleStr(role))
 		}

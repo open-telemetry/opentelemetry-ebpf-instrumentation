@@ -239,6 +239,11 @@ var (
 		Prom:    "obi_stat_tcp_io_bytes_total",
 		OTEL:    "obi.stat.tcp.io",
 	}
+	StatTCPConnectionSummary = Name{
+		Section: "obi.stat.tcp.connection.summary",
+		Prom:    "obi_stat_tcp_connection_summary",
+		OTEL:    "obi.stat.tcp.connection.summary",
+	}
 )
 
 // normalizeMetric will facilitate the user-input in the attributes.enable section.

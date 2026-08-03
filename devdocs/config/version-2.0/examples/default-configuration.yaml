@@ -505,7 +505,7 @@ extensions:
         stats:
           # Master switch for TCP stats observability.
           enabled: false
-          # Supported values: tcp_rtt, tcp_failed_connections, tcp_retransmits, tcp_io.
+          # Supported values: tcp_rtt, tcp_failed_connections, tcp_retransmits, tcp_io, tcp_connection_summary.
           features: []
           endpoint_identity:
             agent_ip: ""

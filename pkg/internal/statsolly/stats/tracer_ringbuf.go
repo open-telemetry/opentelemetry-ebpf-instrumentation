@@ -71,6 +71,8 @@ func handleStatEvent(record *ringbuf.Record) (ebpf.Stat, error) {
 		return readTCPRetransmitIntoStat(record)
 	case ebpf.StatTypeTCPIo:
 		return readTCPIoIntoStat(record)
+	case ebpf.StatTypeTCPConnectionSummary:
+		return readTCPConnectionSummaryIntoStat(record)
 	default:
 		return ebpf.Stat{}, fmt.Errorf("unknown stats event [type %d]", uint8(eventType))
 	}
@@ -144,6 +146,26 @@ func readTCPIoIntoStat(record *ringbuf.Record) (ebpf.Stat, error) {
 		TCPIo: &ebpf.TCPIo{
 			Direction: event.Direction,
 			Bytes:     total,
+		},
+		CommonAttrs: connToCommonAttrs(event.Conn),
+	}, nil
+}
+
+func readTCPConnectionSummaryIntoStat(record *ringbuf.Record) (ebpf.Stat, error) {
+	event, err := ebpfcommon.ReinterpretCast[ebpf.StatsTCPConnectionSummary](record.RawSample)
+	if err != nil {
+		return ebpf.Stat{}, err
+	}
+	return ebpf.Stat{
+		Type: ebpf.StatTypeTCPConnectionSummary,
+		TCPConnectionSummary: &ebpf.TCPConnectionSummary{
+			Role:         event.Role,
+			SrttUs:       event.SrttUs,
+			MdevUs:       event.MdevUs,
+			TotalRetrans: event.TotalRetrans,
+			SegsOut:      event.SegsOut,
+			SegsIn:       event.SegsIn,
+			RcvOoopack:   event.RcvOoopack,
 		},
 		CommonAttrs: connToCommonAttrs(event.Conn),
 	}, nil

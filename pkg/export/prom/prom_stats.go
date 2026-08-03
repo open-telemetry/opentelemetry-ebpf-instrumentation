@@ -19,6 +19,9 @@ import (
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
 )
 
+// connSummaryMdevBuckets covers sub-millisecond jitter range (mdev is typically smaller than RTT).
+var connSummaryMdevBuckets = []float64{0.0001, 0.0002, 0.0005, 0.001, 0.002, 0.005, 0.010, 0.025, 0.050, 0.100}
+
 // injectable function reference for testing
 
 // StatsPrometheusConfig for stat metrics just wraps the global prom.StatsPrometheusConfig as provided by the user
@@ -36,10 +39,16 @@ func (p StatsPrometheusConfig) Enabled() bool {
 type statMetricsReporter struct {
 	cfg *PrometheusConfig
 
-	tcpRtt               *Expirer[prometheus.Histogram]
-	tcpFailedConnections *Expirer[prometheus.Counter]
-	tcpRetransmits       *Expirer[prometheus.Counter]
-	tcpIo                *Expirer[prometheus.Counter]
+	tcpRtt                *Expirer[prometheus.Histogram]
+	tcpFailedConnections  *Expirer[prometheus.Counter]
+	tcpRetransmits        *Expirer[prometheus.Counter]
+	tcpIo                 *Expirer[prometheus.Counter]
+	tcpConnSummarySrtt    *Expirer[prometheus.Histogram]
+	tcpConnSummaryMdev    *Expirer[prometheus.Histogram]
+	tcpConnSummaryRetrans *Expirer[prometheus.Histogram]
+	tcpConnSummaryOoo     *Expirer[prometheus.Histogram]
+	tcpConnSummarySegsOut *Expirer[prometheus.Histogram]
+	tcpConnSummarySegsIn  *Expirer[prometheus.Histogram]
 
 	promConnect *connector.PrometheusManager
 
@@ -47,6 +56,7 @@ type statMetricsReporter struct {
 	tcpFailedConnectionsAttrs []attributes.Field[*ebpf.Stat, string]
 	tcpRetransmitsAttrs       []attributes.Field[*ebpf.Stat, string]
 	tcpIoAttrs                []attributes.Field[*ebpf.Stat, string]
+	tcpConnSummaryAttrs       []attributes.Field[*ebpf.Stat, string]
 
 	input <-chan []*ebpf.Stat
 }
@@ -159,6 +169,74 @@ func newStatsReporter(
 		register = append(register, mr.tcpFailedConnections)
 	}
 
+	if cfg.CommonCfg.Features.StatsTCPConnectionSummary() {
+		log.Debug("registering stat tcp connection summary metrics")
+
+		mr.tcpConnSummaryAttrs = attributes.PrometheusGetters(
+			ebpf.StatStringGetters,
+			provider.For(attributes.StatTCPConnectionSummary))
+
+		mr.tcpConnSummarySrtt = NewExpirer[prometheus.Histogram](prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:                            attributes.StatTCPConnectionSummary.Prom + "_srtt_seconds",
+			Help:                            "smoothed RTT at connection close, in seconds",
+			Buckets:                         cfg.Config.Buckets.StatTCPRttHistogram,
+			NativeHistogramBucketFactor:     cfg.Config.NativeHistogram.BucketFactor,
+			NativeHistogramMaxBucketNumber:  cfg.Config.NativeHistogram.MaxBucketNumber,
+			NativeHistogramMinResetDuration: cfg.Config.NativeHistogram.MinResetDuration,
+		}, labelNames(mr.tcpConnSummaryAttrs)).MetricVec, timeNow, cfg.Config.TTL)
+		register = append(register, mr.tcpConnSummarySrtt)
+
+		mr.tcpConnSummaryMdev = NewExpirer[prometheus.Histogram](prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:                            attributes.StatTCPConnectionSummary.Prom + "_mdev_seconds",
+			Help:                            "RTT mean deviation at connection close, in seconds",
+			Buckets:                         connSummaryMdevBuckets,
+			NativeHistogramBucketFactor:     cfg.Config.NativeHistogram.BucketFactor,
+			NativeHistogramMaxBucketNumber:  cfg.Config.NativeHistogram.MaxBucketNumber,
+			NativeHistogramMinResetDuration: cfg.Config.NativeHistogram.MinResetDuration,
+		}, labelNames(mr.tcpConnSummaryAttrs)).MetricVec, timeNow, cfg.Config.TTL)
+		register = append(register, mr.tcpConnSummaryMdev)
+
+		mr.tcpConnSummaryRetrans = NewExpirer[prometheus.Histogram](prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:                            attributes.StatTCPConnectionSummary.Prom + "_retransmits",
+			Help:                            "total retransmissions at connection close",
+			Buckets:                         []float64{0, 1, 2, 5, 10, 25, 50, 100, 250, 500, 1000},
+			NativeHistogramBucketFactor:     cfg.Config.NativeHistogram.BucketFactor,
+			NativeHistogramMaxBucketNumber:  cfg.Config.NativeHistogram.MaxBucketNumber,
+			NativeHistogramMinResetDuration: cfg.Config.NativeHistogram.MinResetDuration,
+		}, labelNames(mr.tcpConnSummaryAttrs)).MetricVec, timeNow, cfg.Config.TTL)
+		register = append(register, mr.tcpConnSummaryRetrans)
+
+		mr.tcpConnSummaryOoo = NewExpirer[prometheus.Histogram](prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:                            attributes.StatTCPConnectionSummary.Prom + "_ooo_packets",
+			Help:                            "out-of-order packets received at connection close",
+			Buckets:                         []float64{0, 1, 2, 5, 10, 25, 50, 100, 250, 500, 1000},
+			NativeHistogramBucketFactor:     cfg.Config.NativeHistogram.BucketFactor,
+			NativeHistogramMaxBucketNumber:  cfg.Config.NativeHistogram.MaxBucketNumber,
+			NativeHistogramMinResetDuration: cfg.Config.NativeHistogram.MinResetDuration,
+		}, labelNames(mr.tcpConnSummaryAttrs)).MetricVec, timeNow, cfg.Config.TTL)
+		register = append(register, mr.tcpConnSummaryOoo)
+
+		mr.tcpConnSummarySegsOut = NewExpirer[prometheus.Histogram](prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:                            attributes.StatTCPConnectionSummary.Prom + "_segs_out",
+			Help:                            "total segments sent at connection close",
+			Buckets:                         prometheus.ExponentialBuckets(1, 4, 8),
+			NativeHistogramBucketFactor:     cfg.Config.NativeHistogram.BucketFactor,
+			NativeHistogramMaxBucketNumber:  cfg.Config.NativeHistogram.MaxBucketNumber,
+			NativeHistogramMinResetDuration: cfg.Config.NativeHistogram.MinResetDuration,
+		}, labelNames(mr.tcpConnSummaryAttrs)).MetricVec, timeNow, cfg.Config.TTL)
+		register = append(register, mr.tcpConnSummarySegsOut)
+
+		mr.tcpConnSummarySegsIn = NewExpirer[prometheus.Histogram](prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:                            attributes.StatTCPConnectionSummary.Prom + "_segs_in",
+			Help:                            "total segments received at connection close",
+			Buckets:                         prometheus.ExponentialBuckets(1, 4, 8),
+			NativeHistogramBucketFactor:     cfg.Config.NativeHistogram.BucketFactor,
+			NativeHistogramMaxBucketNumber:  cfg.Config.NativeHistogram.MaxBucketNumber,
+			NativeHistogramMinResetDuration: cfg.Config.NativeHistogram.MinResetDuration,
+		}, labelNames(mr.tcpConnSummaryAttrs)).MetricVec, timeNow, cfg.Config.TTL)
+		register = append(register, mr.tcpConnSummarySegsIn)
+	}
+
 	if cfg.Config.Registry != nil {
 		cfg.Config.Registry.MustRegister(register...)
 	} else {
@@ -181,6 +259,7 @@ func (r *statMetricsReporter) collectMetrics(_ context.Context) {
 			r.observeTCPFailedConnections(stat)
 			r.observeTCPRetransmits(stat)
 			r.observeTCPIo(stat)
+			r.observeTCPConnectionSummary(stat)
 		}
 	}
 }
@@ -215,4 +294,36 @@ func (r *statMetricsReporter) observeTCPIo(stat *ebpf.Stat) {
 	}
 	r.tcpIo.WithLabelValues(labelValues(stat, r.tcpIoAttrs)...).
 		Metric.Add(float64(stat.TCPIo.Bytes))
+}
+
+func (r *statMetricsReporter) observeTCPConnectionSummary(stat *ebpf.Stat) {
+	cs := stat.TCPConnectionSummary
+	if cs == nil {
+		return
+	}
+	labels := labelValues(stat, r.tcpConnSummaryAttrs)
+	if r.tcpConnSummarySrtt != nil {
+		r.tcpConnSummarySrtt.WithLabelValues(labels...).
+			Metric.Observe(float64(cs.SrttUs) / 1_000_000.0)
+	}
+	if r.tcpConnSummaryMdev != nil {
+		r.tcpConnSummaryMdev.WithLabelValues(labels...).
+			Metric.Observe(float64(cs.MdevUs) / 1_000_000.0)
+	}
+	if r.tcpConnSummaryRetrans != nil {
+		r.tcpConnSummaryRetrans.WithLabelValues(labels...).
+			Metric.Observe(float64(cs.TotalRetrans))
+	}
+	if r.tcpConnSummaryOoo != nil {
+		r.tcpConnSummaryOoo.WithLabelValues(labels...).
+			Metric.Observe(float64(cs.RcvOoopack))
+	}
+	if r.tcpConnSummarySegsOut != nil {
+		r.tcpConnSummarySegsOut.WithLabelValues(labels...).
+			Metric.Observe(float64(cs.SegsOut))
+	}
+	if r.tcpConnSummarySegsIn != nil {
+		r.tcpConnSummarySegsIn.WithLabelValues(labels...).
+			Metric.Observe(float64(cs.SegsIn))
+	}
 }

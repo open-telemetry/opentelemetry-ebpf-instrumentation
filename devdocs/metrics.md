@@ -131,7 +131,7 @@ To add a new metric, follow these guidelines:
 
 #### `src.port` may be reported as `0`
 
-The `src.port` attribute (disabled by default) can be `0` in metrics whose probes fire near socket teardown: specifically `obi_stat_tcp_rtt_seconds` and `obi_stat_tcp_failed_connections`. Metrics measured while the socket is still active (retransmits) are not affected. The root cause is a kernel-side race between the application's `close()` path and RST processing.
+The `src.port` attribute (disabled by default) can be `0` in metrics whose probes fire near socket teardown: specifically `obi_stat_tcp_rtt_seconds`, `obi_stat_tcp_failed_connections`, and the `obi_stat_tcp_connection_summary.*` family. Metrics measured while the socket is still active (retransmits) are not affected. The root cause is a kernel-side race between the application's `close()` path and RST processing.
 
 When a socket **receives** a RST and is orphaned (`SOCK_DEAD` set), the kernel calls:
 
@@ -152,6 +152,7 @@ StatsO11y probes fire at different points relative to `inet_put_port()`, so the 
 Some stat metrics attach to kernel functions that are called very frequently (e.g. `tcp_sendmsg`, `tcp_cleanup_rbuf` for TCP IO). These probes add a small overhead on every call, so the aggregate cost is proportional to the rate of TCP sends/receives on the node. Consider:
 
 - If you need RTT, failed connections, or retransmits **without** TCP IO overhead, enable those individually (`stats_tcp_rtt`, `stats_tcp_failed_connections`, `stats_tcp_retransmits`) instead of using the `stats` aggregate feature — `stats` includes `stats_tcp_io`, which fires on every `tcp_sendmsg` and `tcp_cleanup_rbuf` call.
+- `stats_tcp_connection_summary` fires once per connection close (kprobe on `tcp_close`), so its overhead is proportional to the connection churn rate rather than the data transfer rate. Connections with no RTT sample (`srtt_us == 0`) or anomalous values (`> k_max_srtt_allowed`) are filtered out before being sent to userspace.
 - The `stats_events` ring buffer and the per-metric eBPF maps (e.g. `tcp_io_accum`) have default size limits; on nodes with a very large number of concurrent connections these can be resized via the `ebpf.*` configuration knobs if events start being dropped.
 
 ### Final notes

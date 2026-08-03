@@ -57,5 +57,20 @@ func printStat(s *ebpf.Stat) {
 		sb.WriteString(" srtt=")
 		sb.WriteString(strconv.FormatFloat(float64(s.TCPRtt.SrttUs), 'f', -1, 64))
 	}
+	if s.Type == ebpf.StatTypeTCPConnectionSummary && s.TCPConnectionSummary != nil {
+		cs := s.TCPConnectionSummary
+		sb.WriteString(" srtt_us=")
+		sb.WriteString(strconv.FormatUint(uint64(cs.SrttUs), 10))
+		sb.WriteString(" mdev_us=")
+		sb.WriteString(strconv.FormatUint(uint64(cs.MdevUs), 10))
+		sb.WriteString(" total_retrans=")
+		sb.WriteString(strconv.FormatUint(uint64(cs.TotalRetrans), 10))
+		sb.WriteString(" segs_out=")
+		sb.WriteString(strconv.FormatUint(uint64(cs.SegsOut), 10))
+		sb.WriteString(" segs_in=")
+		sb.WriteString(strconv.FormatUint(uint64(cs.SegsIn), 10))
+		sb.WriteString(" rcv_ooopack=")
+		sb.WriteString(strconv.FormatUint(uint64(cs.RcvOoopack), 10))
+	}
 	fmt.Println("stats:", sb.String())
 }
