@@ -104,6 +104,13 @@ var (
 		containerImage: "hatest-testserver-logenricher-multiseg-writev",
 		message:        "this is a json log via multi-seg writev",
 	}
+	logEnricherGoSQLConstants = testServerConstants{
+		url:            "http://localhost:8389",
+		smokeEndpoint:  "/smoke",
+		logEndpoint:    "/json_logger",
+		containerImage: "hatest-testserver-logenricher-sql-go",
+		message:        "this is a json log after sql query",
+	}
 )
 
 const logEnricherGoWritevRegressionLeakMarker = "writev-leak-marker-should-never-appear"
@@ -920,6 +927,86 @@ func testLogEnricher(t *testing.T, constants testServerConstants) {
 		assert.Equal(ct, "INFO", logFields["level"])
 		assert.Contains(ct, logFields, "trace_id")
 		assert.Contains(ct, logFields, "span_id")
+	}, 2*testTimeout, time.Second)
+}
+
+const (
+	logEnricherManualSDKEndpoint = "/json_logger_manual_sdk"
+	logEnricherManualSDKMessage  = "this is a json log after sql query inside a manual sdk span"
+)
+
+// obiSigSpanTraceparent matches OBI's text trace printer output for the
+// "sig" manual span (go.opentelemetry.io/auto/sdk), capturing its own
+// trace_id and span_id from the traceparent field
+// (00-<trace_id>-<span_id>[<parent_span_id>]-<flags>).
+var obiSigSpanTraceparent = regexp.MustCompile(
+	`CUSTOM\(subType=\d+\) \d+ sig\b.*traceparent=\[00-([0-9a-f]{32})-([0-9a-f]{16})\[[0-9a-f]{16}\]-[0-9a-f]{2}\]`)
+
+// testLogEnricherGoSQLManualSDK exercises a "sig" manual span
+// (go.opentelemetry.io/auto/sdk) that runs a SQL query and then logs before
+// ending. go_sdk.c never writes into traces_ctx_v1, so the logenricher has
+// no way to see the manual span is active; this is a spec test for that gap
+// rather than a reproduction of a regression, and stays red until manual
+// spans are wired into traces_ctx_v1.
+func testLogEnricherGoSQLManualSDK(t *testing.T) {
+	waitForTestComponentsNoMetrics(t, logEnricherGoSQLConstants.url+logEnricherGoSQLConstants.smokeEndpoint)
+
+	cl, err := client.New(client.FromEnv)
+	require.NoError(t, err)
+	defer cl.Close()
+
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		ti.DoHTTPGet(ct, logEnricherGoSQLConstants.url+logEnricherManualSDKEndpoint, 200)
+
+		appContainerID := testContainerID(ct, cl, logEnricherGoSQLConstants.containerImage)
+		if !assert.NotEmpty(ct, appContainerID, "could not find test container ID") {
+			return
+		}
+		appLogs := containerLogs(ct, cl, appContainerID)
+		if !assert.NotEmpty(ct, appLogs) {
+			return
+		}
+
+		logIdx := -1
+		for i := len(appLogs) - 1; i >= 0; i-- {
+			if strings.Contains(appLogs[i], logEnricherManualSDKMessage) {
+				logIdx = i
+				break
+			}
+		}
+		if !assert.GreaterOrEqual(ct, logIdx, 0, "app never emitted the manual-sdk log line") {
+			return
+		}
+
+		var logFields map[string]string
+		if !assert.NoError(ct, json.Unmarshal([]byte(appLogs[logIdx]), &logFields)) {
+			return
+		}
+		if !assert.Contains(ct, logFields, "trace_id") || !assert.Contains(ct, logFields, "span_id") {
+			return
+		}
+
+		obiContainerID := testContainerID(ct, cl, "hatest-obi")
+		if !assert.NotEmpty(ct, obiContainerID, "could not find obi container ID") {
+			return
+		}
+		obiLogs := containerLogs(ct, cl, obiContainerID)
+
+		var sigTraceID, sigSpanID string
+		for i := len(obiLogs) - 1; i >= 0; i-- {
+			if m := obiSigSpanTraceparent.FindStringSubmatch(obiLogs[i]); m != nil {
+				sigTraceID, sigSpanID = m[1], m[2]
+				break
+			}
+		}
+		if !assert.NotEmpty(ct, sigSpanID, "could not find obi's own trace/span id for the sig span") {
+			return
+		}
+
+		assert.Equal(ct, sigTraceID, logFields["trace_id"], "log trace_id should match sig's own trace_id")
+		assert.Equal(ct, sigSpanID, logFields["span_id"],
+			"log span_id should match sig's own span_id -- manual spans (go.opentelemetry.io/auto/sdk) "+
+				"aren't wired into traces_ctx_v1, so the logenricher can't see them yet")
 	}, 2*testTimeout, time.Second)
 }
 

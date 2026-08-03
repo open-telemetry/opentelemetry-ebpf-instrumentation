@@ -90,6 +90,16 @@ services:
     environment:
       PORT: "8388"
 
+  testserversql:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/go_sql_logger/Dockerfile
+    image: hatest-testserver-logenricher-sql-go
+    networks:
+      - shared
+    ports:
+      - "8389:8090"
+
   multisegwritev_otelcol:
     image: otel/opentelemetry-collector-contrib:0.157.0@sha256:f2f01157055a9b2aab9df7118e1f1c9abf345e99b23bc7a2bc791db374a7d0f6
     user: "0:0"
@@ -167,6 +177,8 @@ services:
       testserverpythonasync:
         condition: service_started
       testservermultisegwritev:
+        condition: service_started
+      testserversql:
         condition: service_started
 
 networks:
