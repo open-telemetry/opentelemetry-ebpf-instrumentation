@@ -39,7 +39,7 @@ func V2ToRuntime(src *schema.Extension) (*obi.Config, error) {
 	if err := schema.ValidateStandalone(src); err != nil {
 		return nil, err
 	}
-	if err := validateV2MatchOrder(src.Capture.Policy.MatchOrder, src.Capture.Rules); err != nil {
+	if err := validateV2CaptureRules(src.Capture.Policy, src.Capture.Rules); err != nil {
 		return nil, err
 	}
 	if err := validateV2RulePatterns(src.Capture.Rules); err != nil {
@@ -210,7 +210,12 @@ func runtimeConfigDefaults() obi.Config {
 
 func applyV2Capture(cfg *obi.Config, src *schema.Extension) {
 	applyV2Policy(cfg, src.Capture.Policy, completePolicy(src.Capture.Policy))
-	hasRuleRoutePolicies := applyV2Rules(cfg, src.Capture.Rules, src.Capture.Policy.DefaultAction)
+	hasRuleRoutePolicies := applyV2Rules(
+		cfg,
+		src.Capture.Rules,
+		src.Capture.Policy.DefaultAction,
+		src.Capture.Policy.MatchOrder,
+	)
 	applyV2Limits(cfg, src.Capture.Limits, completeLimits(src.Capture.Limits))
 	applyV2Safety(cfg, src.Capture.Safety, !zeroValue(src.Capture.Safety))
 	applyV2Channels(cfg, src.Capture.Channels, completeChannels(src.Capture.Channels))
@@ -254,7 +259,12 @@ type runtimeDiscoveryRules struct {
 	defaultOTLPGRPCPort             int
 }
 
-func applyV2Rules(cfg *obi.Config, rules []schema.Rule, defaultAction schema.CaptureAction) bool {
+func applyV2Rules(
+	cfg *obi.Config,
+	rules []schema.Rule,
+	defaultAction schema.CaptureAction,
+	matchOrder schema.MatchOrder,
+) bool {
 	includeByDefault := defaultAction != schema.CaptureActionExclude
 	if rules == nil {
 		if includeByDefault {
@@ -265,7 +275,7 @@ func applyV2Rules(cfg *obi.Config, rules []schema.Rule, defaultAction schema.Cap
 		return false
 	}
 
-	converted := runtimeDiscoveryRulesFromV2(rules)
+	converted := runtimeDiscoveryRulesFromV2(rules, matchOrder)
 	if includeByDefault {
 		if len(converted.includeRegex) > 0 || len(converted.excludeRegex) > 0 {
 			converted.includeRegex = append(converted.includeRegex, services.RegexSelector{
@@ -281,13 +291,21 @@ func applyV2Rules(cfg *obi.Config, rules []schema.Rule, defaultAction schema.Cap
 	return converted.hasRoutePolicies
 }
 
-func runtimeDiscoveryRulesFromV2(rules []schema.Rule) runtimeDiscoveryRules {
+func runtimeDiscoveryRulesFromV2(
+	rules []schema.Rule,
+	matchOrder schema.MatchOrder,
+) runtimeDiscoveryRules {
 	var converted runtimeDiscoveryRules
+	completeExports, completeRoutes := completeV2RuleRefinements(rules)
 	for _, rule := range rules {
 		if collectV2ExportsOTLPExclusionRule(&converted, rule) {
 			continue
 		}
-		globSelector, regexSelector, ok := selectorFromRule(rule)
+		globSelector, regexSelector, ok := selectorFromRule(
+			rule,
+			completeExports,
+			completeRoutes,
+		)
 		if !ok {
 			continue
 		}
@@ -311,7 +329,28 @@ func runtimeDiscoveryRulesFromV2(rules []schema.Rule) runtimeDiscoveryRules {
 			}
 		}
 	}
+	if matchOrder == "" || matchOrder == schema.MatchOrderFirstMatchWins {
+		slices.Reverse(converted.includeGlobs)
+		slices.Reverse(converted.includeRegex)
+	}
 	return converted
+}
+
+func completeV2RuleRefinements(rules []schema.Rule) (exports, routes bool) {
+	includeRules := 0
+	for _, rule := range rules {
+		if rule.Action != schema.CaptureActionInclude {
+			continue
+		}
+		includeRules++
+		exports = exports || rule.Refine.Exports != nil
+		routes = routes ||
+			rule.Refine.HTTP != nil && !zeroValue(rule.Refine.HTTP.Routes)
+	}
+	if includeRules < 2 {
+		return false, false
+	}
+	return exports, routes
 }
 
 func applyRuntimeDiscoveryRules(cfg *obi.Config, rules runtimeDiscoveryRules) {
@@ -391,38 +430,110 @@ func validateV2RuleSelectorFamilies(rules []schema.Rule) error {
 	return nil
 }
 
-func validateV2MatchOrder(matchOrder schema.MatchOrder, rules []schema.Rule) error {
-	if matchOrder == schema.MatchOrderLastMatchWins {
-		return errors.New("capture.policy.match_order: last_match_wins is not supported")
+func validateV2CaptureRules(
+	policy schema.CapturePolicy,
+	rules []schema.Rule,
+) error {
+	if policy.DefaultAction != "" &&
+		policy.DefaultAction != schema.CaptureActionInclude &&
+		policy.DefaultAction != schema.CaptureActionExclude {
+		return fmt.Errorf(
+			"capture.policy.default_action: unsupported value %q",
+			policy.DefaultAction,
+		)
+	}
+	if policy.MatchOrder != "" &&
+		policy.MatchOrder != schema.MatchOrderFirstMatchWins &&
+		policy.MatchOrder != schema.MatchOrderLastMatchWins {
+		return fmt.Errorf(
+			"capture.policy.match_order: unsupported value %q",
+			policy.MatchOrder,
+		)
 	}
 
+	matchOrder := policy.MatchOrder
+	if matchOrder == "" {
+		matchOrder = schema.MatchOrderFirstMatchWins
+	}
 	includeSeen := false
+	excludeSeen := false
 	for i, rule := range rules {
-		if !ruleAffectsV2Selection(rule) {
-			continue
+		path := fmt.Sprintf("capture.rules[%d]", i)
+		if rule.Action != schema.CaptureActionInclude &&
+			rule.Action != schema.CaptureActionExclude {
+			return fmt.Errorf(
+				"%s.action: unsupported value %q",
+				path,
+				rule.Action,
+			)
+		}
+		if ruleMatchEmpty(rule.Match) {
+			return fmt.Errorf("%s.match must define at least one selector", path)
+		}
+		if rule.Action == schema.CaptureActionExclude && !zeroValue(rule.Refine) {
+			return fmt.Errorf(
+				"%s.refine is not supported for exclude rules",
+				path,
+			)
+		}
+		if rule.Refine.HTTP != nil &&
+			len(rule.Refine.HTTP.Filters.Traces)+
+				len(rule.Refine.HTTP.Filters.Metrics) > 0 {
+			return fmt.Errorf(
+				"%s.refine.http.filters is not supported by the runtime converter",
+				path,
+			)
+		}
+
+		if exportsOTLP := rule.Match.Process.ExportsOTLP; exportsOTLP != nil {
+			if rule.Action != schema.CaptureActionExclude {
+				return fmt.Errorf(
+					"%s.match.process.exports_otlp is only supported for exclude rules",
+					path,
+				)
+			}
+			if !ruleMatchOnlyExportsOTLP(rule.Match) {
+				return fmt.Errorf(
+					"%s.match.process.exports_otlp cannot be combined with other selectors",
+					path,
+				)
+			}
+			if exportsOTLP.Protocol != "protobuf" {
+				return fmt.Errorf(
+					"%s.match.process.exports_otlp.protocol: unsupported value %q",
+					path,
+					exportsOTLP.Protocol,
+				)
+			}
+			if exportsOTLP.Port < 1 || exportsOTLP.Port > 65535 {
+				return fmt.Errorf(
+					"%s.match.process.exports_otlp.port: must be between 1 and 65535",
+					path,
+				)
+			}
 		}
 
 		switch rule.Action {
 		case schema.CaptureActionInclude:
-			includeSeen = true
-		case schema.CaptureActionExclude:
-			if includeSeen {
+			if matchOrder == schema.MatchOrderLastMatchWins && excludeSeen {
 				return fmt.Errorf(
-					"capture.rules[%d]: exclude rules must precede include rules for first_match_wins",
-					i,
+					"%s.action: last_match_wins cannot preserve runtime exclusion precedence when an include rule follows an exclude rule",
+					path,
 				)
 			}
+			includeSeen = true
+		case schema.CaptureActionExclude:
+			if matchOrder == schema.MatchOrderFirstMatchWins && includeSeen {
+				return fmt.Errorf(
+					"%s.action: first_match_wins cannot preserve runtime exclusion precedence when an exclude rule follows an include rule",
+					path,
+				)
+			}
+			excludeSeen = true
 		}
 	}
 
 	return nil
-}
-
-func ruleAffectsV2Selection(rule schema.Rule) bool {
-	if rule.Match.Process.ExportsOTLP != nil || ruleMatchEmpty(rule.Match) {
-		return false
-	}
-	return !ruleUsesRegex(rule.Match) || !ruleUsesGlob(rule.Match)
 }
 
 func validateV2SignalFilters(src *schema.Extension) error {
@@ -682,7 +793,11 @@ func validateRegexpAttrMap(path string, values map[string]string) error {
 	return nil
 }
 
-func selectorFromRule(rule schema.Rule) (*services.GlobAttributes, *services.RegexSelector, bool) {
+func selectorFromRule(
+	rule schema.Rule,
+	completeExports bool,
+	completeRoutes bool,
+) (*services.GlobAttributes, *services.RegexSelector, bool) {
 	if rule.Match.Process.ExportsOTLP != nil || ruleMatchEmpty(rule.Match) {
 		return nil, nil, false
 	}
@@ -692,12 +807,22 @@ func selectorFromRule(rule schema.Rule) (*services.GlobAttributes, *services.Reg
 			return nil, nil, false
 		}
 		selector := regexSelectorFromRule(rule)
-		applyV2RegexRuleRefinement(&selector, rule.Refine)
+		applyV2RegexRuleRefinement(
+			&selector,
+			rule.Refine,
+			completeExports,
+			completeRoutes,
+		)
 		return nil, &selector, true
 	}
 
 	selector := globSelectorFromRule(rule)
-	applyV2GlobRuleRefinement(&selector, rule.Refine)
+	applyV2GlobRuleRefinement(
+		&selector,
+		rule.Refine,
+		completeExports,
+		completeRoutes,
+	)
 	return &selector, nil, true
 }
 
@@ -759,26 +884,52 @@ func regexSelectorFromRule(rule schema.Rule) services.RegexSelector {
 	}
 }
 
-func applyV2GlobRuleRefinement(selector *services.GlobAttributes, refine schema.RuleRefinement) {
+func applyV2GlobRuleRefinement(
+	selector *services.GlobAttributes,
+	refine schema.RuleRefinement,
+	completeExports bool,
+	completeRoutes bool,
+) {
 	if refine.Exports != nil {
 		selector.ExportModes = exportModesFromRefinement(*refine.Exports)
+	} else if completeExports {
+		selector.ExportModes = explicitAllowAllExportModes()
 	}
 	if refine.HTTP != nil && !zeroValue(refine.HTTP.Routes) {
 		selector.Routes = &services.CustomRoutesConfig{
 			PolicyOverrides: v2DirectionalRoutePolicyOverrides(refine.HTTP.Routes),
 		}
+	} else if completeRoutes {
+		selector.Routes = &services.CustomRoutesConfig{}
 	}
 }
 
-func applyV2RegexRuleRefinement(selector *services.RegexSelector, refine schema.RuleRefinement) {
+func applyV2RegexRuleRefinement(
+	selector *services.RegexSelector,
+	refine schema.RuleRefinement,
+	completeExports bool,
+	completeRoutes bool,
+) {
 	if refine.Exports != nil {
 		selector.ExportModes = exportModesFromRefinement(*refine.Exports)
+	} else if completeExports {
+		selector.ExportModes = explicitAllowAllExportModes()
 	}
 	if refine.HTTP != nil && !zeroValue(refine.HTTP.Routes) {
 		selector.Routes = &services.CustomRoutesConfig{
 			PolicyOverrides: v2DirectionalRoutePolicyOverrides(refine.HTTP.Routes),
 		}
+	} else if completeRoutes {
+		selector.Routes = &services.CustomRoutesConfig{}
 	}
+}
+
+func explicitAllowAllExportModes() services.ExportModes {
+	modes := services.NewExportModes()
+	modes.AllowTraces()
+	modes.AllowMetrics()
+	modes.AllowLogs()
+	return modes
 }
 
 func v2DirectionalRoutePolicyOverrides(routes schema.HTTPRefinementRoutes) *services.DirectionalRoutePolicyOverrides {
