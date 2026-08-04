@@ -145,3 +145,28 @@ func TestGenerateLogs_ResourceAttrsFiltering(t *testing.T) {
 	require.True(t, ok, "embedding-supplied extra resource attributes must be present")
 	assert.Equal(t, "value", v.AsString())
 }
+
+// TestGenerateLogs_ExtraResAttrsOverrideScopeName locks in the write order shared with
+// generateTracesWithAttributes: extraResAttrs is written to the resource map last, so on
+// key collision it wins over both the base resource attrs and the otel.scope.name entry.
+func TestGenerateLogs_ExtraResAttrsOverrideScopeName(t *testing.T) {
+	start := time.Now()
+	traceID, _ := trace.TraceIDFromHex("eae56fbbec9505c102e8aabfc6b5c481")
+	spanID, _ := trace.SpanIDFromHex("89cbc1f60aab3b01")
+	span := &request.Span{
+		Type:         request.EventTypeHTTP,
+		RequestStart: start.UnixNano(),
+		Start:        start.Add(time.Second).UnixNano(),
+		End:          start.Add(3 * time.Second).UnixNano(),
+		TraceID:      traceID,
+		SpanID:       spanID,
+	}
+
+	overrideAttr := attribute.String("otel.scope.name", "embedder-override")
+
+	logs := logsgen.GenerateLogs(cache, &span.Service, nil, hostID, group(span), "go.opentelemetry.io/obi", nil, overrideAttr)
+
+	v, ok := logs.ResourceLogs().At(0).Resource().Attributes().Get("otel.scope.name")
+	require.True(t, ok)
+	assert.Equal(t, "embedder-override", v.AsString(), "extraResAttrs must be able to override the reporter-supplied scope name, same as generateTracesWithAttributes")
+}

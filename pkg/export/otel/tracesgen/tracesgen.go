@@ -175,7 +175,7 @@ func generateTracesWithAttributes(
 	resourceAttrsMap := AttrsToMap(resourceAttrs)
 	resourceAttrsMap.PutStr(string(semconv.OTelScopeNameKey), reporterName)
 	extraResAttrs = otelcfg.FilterResourceAttrs(extraResAttrs, attrSelector)
-	addAttrsToMap(extraResAttrs, resourceAttrsMap)
+	AddAttrsToMap(extraResAttrs, resourceAttrsMap)
 	resourceAttrsMap.MoveTo(rs.Resource().Attributes())
 
 	for _, spanWithAttributes := range spans {
@@ -377,11 +377,12 @@ func TraceAppResourceAttrs(cache *expirable2.LRU[svc.UID, []attribute.KeyValue],
 // AttrsToMap converts a slice of attribute.KeyValue to a pcommon.Map
 func AttrsToMap(attrs []attribute.KeyValue) pcommon.Map {
 	m := pcommon.NewMap()
-	addAttrsToMap(attrs, m)
+	AddAttrsToMap(attrs, m)
 	return m
 }
 
-func addAttrsToMap(attrs []attribute.KeyValue, dst pcommon.Map) {
+// AddAttrsToMap writes attrs into dst, overwriting any existing key on collision.
+func AddAttrsToMap(attrs []attribute.KeyValue, dst pcommon.Map) {
 	dst.EnsureCapacity(dst.Len() + len(attrs))
 	for _, attr := range attrs {
 		switch v := attr.Value.AsInterface().(type) {

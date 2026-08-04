@@ -46,10 +46,10 @@ func GenerateLogs(
 	resourceAttrs := tracesgen.TraceAppResourceAttrs(cache, nodeMeta, svcAttrs)
 	resourceAttrs = append(resourceAttrs, envResourceAttrs...)
 	resourceAttrs = otelcfg.FilterResourceAttrs(resourceAttrs, attrSelector)
-	extraResAttrs = otelcfg.FilterResourceAttrs(extraResAttrs, attrSelector)
-	resourceAttrs = append(resourceAttrs, extraResAttrs...)
 	resourceAttrsMap := tracesgen.AttrsToMap(resourceAttrs)
 	resourceAttrsMap.PutStr(string(semconv.OTelScopeNameKey), reporterName)
+	extraResAttrs = otelcfg.FilterResourceAttrs(extraResAttrs, attrSelector)
+	tracesgen.AddAttrsToMap(extraResAttrs, resourceAttrsMap)
 	resourceAttrsMap.MoveTo(rl.Resource().Attributes())
 
 	sl := rl.ScopeLogs().AppendEmpty()
