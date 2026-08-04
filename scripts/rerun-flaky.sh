@@ -14,13 +14,14 @@
 set -euo pipefail
 
 MAX_ATTEMPTS=2
-MAX_SHELL_ATTEMPT=2147483647
+# Bound untrusted API input to the maximum portable signed 32-bit integer.
+MAX_PORTABLE_SIGNED_INT=2147483647
 
 echo "Evaluating run ${RUN_ID} -- workflow: ${WORKFLOW_NAME}"
 
 # --- Get run details ---
 RUN_JSON=$(gh run view "$RUN_ID" --repo "$REPO" --json attempt,jobs,name)
-if ! PARSED_RUN=$(jq -ser --argjson max_attempt "$MAX_SHELL_ATTEMPT" '
+if ! PARSED_RUN=$(jq -ser --argjson max_portable_int "$MAX_PORTABLE_SIGNED_INT" '
   if length != 1 then
     error("expected one run response")
   else
@@ -28,7 +29,7 @@ if ! PARSED_RUN=$(jq -ser --argjson max_attempt "$MAX_SHELL_ATTEMPT" '
     | if ((.attempt | type) == "number"
         and (.attempt | tostring | test("^[1-9][0-9]*([eE][+]?[0-9]+)?$"))
         and .attempt >= 1
-        and .attempt <= $max_attempt
+        and .attempt <= $max_portable_int
         and (.attempt | floor) == .attempt
         and (.name | type) == "string"
         and (.jobs | type) == "array"
