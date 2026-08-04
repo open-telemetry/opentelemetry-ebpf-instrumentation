@@ -236,6 +236,12 @@ func TestParseTCPIoBoundsBatchCount(t *testing.T) {
 	}
 }
 
+func TestNewRingBufTracerInitializesForwarder(t *testing.T) {
+	tracer := NewRingBufTracer(nil, nil)
+
+	assert.NotNil(t, tracer.forward)
+}
+
 func TestTraceLoopForwardsOutputAndClosesOnCancellation(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), traceLoopTestTimeout)
 	defer cancel()

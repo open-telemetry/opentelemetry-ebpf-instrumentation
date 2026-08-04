@@ -36,24 +36,14 @@ func NewRingBufTracer(statsMap *ciliumebpf.Map, cfg *config.EBPFTracer) *RingBuf
 	return &RingBufTracer{
 		statsMap: statsMap,
 		cfg:      cfg,
+		forward:  ebpfcommon.ForwardRingbuf(cfg, statsMap, parseStat, nil, rtlog(), nil),
 	}
 }
 
 func (m *RingBufTracer) TraceLoop(out *msg.Queue[[]*ebpf.Stat]) swarm.RunFunc {
-	forward := m.forward
-	if forward == nil {
-		forward = ebpfcommon.ForwardRingbuf(
-			m.cfg,
-			m.statsMap,
-			parseStat,
-			nil, // filter: no batch-level filtering
-			rtlog(),
-			nil, // metrics
-		)
-	}
 	return func(ctx context.Context) {
 		defer out.MarkCloseable()
-		forward(ctx, out)
+		m.forward(ctx, out)
 	}
 }
 
