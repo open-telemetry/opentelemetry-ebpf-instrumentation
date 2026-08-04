@@ -4,6 +4,8 @@
 package otel
 
 import (
+	"io"
+	"log/slog"
 	"testing"
 	"time"
 
@@ -13,14 +15,203 @@ import (
 	metricdata "go.opentelemetry.io/otel/sdk/metric/metricdata"
 	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 
+	"go.opentelemetry.io/obi/pkg/appolly/app"
 	jvmruntime "go.opentelemetry.io/obi/pkg/appolly/app/runtime"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
+	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	"go.opentelemetry.io/obi/pkg/export/otel/metric"
+	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/runtimemetrics"
 )
+
+func TestRuntimeMetricsReporterEvictsServiceAfterLastPIDTerminates(t *testing.T) {
+	service := svc.Attrs{UID: svc.UID{Name: "orders"}}
+	constructed := 0
+	evicted := []*RuntimeMetrics{}
+
+	reporters, err := otelcfg.NewReporterPool[*svc.Attrs, *RuntimeMetrics](
+		10,
+		time.Minute,
+		time.Now,
+		func(_ svc.UID, metrics *RuntimeMetrics) {
+			evicted = append(evicted, metrics)
+		},
+		func(_ *svc.Attrs) (*RuntimeMetrics, error) {
+			constructed++
+			return &RuntimeMetrics{}, nil
+		},
+	)
+	require.NoError(t, err)
+
+	reporter := RuntimeMetricsReporter{
+		reporters:  reporters,
+		pidTracker: NewPidServiceTracker(),
+	}
+	processEvent := func(pid app.PID, eventType exec.ProcessEventType) *exec.ProcessEvent {
+		return &exec.ProcessEvent{
+			Type: eventType,
+			File: exec.New(exec.Init{Pid: pid, Service: service}),
+		}
+	}
+
+	reporter.onProcessEvent(processEvent(101, exec.ProcessEventCreated))
+	reporter.onProcessEvent(processEvent(202, exec.ProcessEventCreated))
+	first, err := reporter.reporters.For(&service)
+	require.NoError(t, err)
+
+	reporter.onProcessEvent(processEvent(101, exec.ProcessEventTerminated))
+	current, err := reporter.reporters.For(&service)
+	require.NoError(t, err)
+	assert.Same(t, first, current)
+	assert.Empty(t, evicted)
+
+	reporter.onProcessEvent(processEvent(202, exec.ProcessEventTerminated))
+	second, err := reporter.reporters.For(&service)
+	require.NoError(t, err)
+
+	assert.NotSame(t, first, second)
+	assert.Equal(t, []*RuntimeMetrics{first}, evicted)
+	assert.Equal(t, 2, constructed)
+}
+
+func TestRuntimeMetricsReporterTracksInheritedChildPIDHistograms(t *testing.T) {
+	service := svc.Attrs{
+		UID:         svc.UID{Name: "orders"},
+		ProcPID:     42,
+		SDKLanguage: svc.InstrumentableGolang,
+	}
+	var metrics *RuntimeMetrics
+	reporters, err := otelcfg.NewReporterPool[*svc.Attrs, *RuntimeMetrics](
+		10,
+		time.Minute,
+		time.Now,
+		func(svc.UID, *RuntimeMetrics) {},
+		func(*svc.Attrs) (*RuntimeMetrics, error) {
+			metrics = &RuntimeMetrics{
+				goHistogramProducer: newGoRuntimeHistogramProducer(metricdata.CumulativeTemporality),
+			}
+			return metrics, nil
+		},
+	)
+	require.NoError(t, err)
+
+	reporter := RuntimeMetricsReporter{
+		ctx:            t.Context(),
+		reporters:      reporters,
+		pidTracker:     NewPidServiceTracker(),
+		log:            slog.New(slog.NewTextHandler(io.Discard, nil)),
+		runtimeEnabled: runtimemetrics.Enabled{Runtime: true},
+	}
+	processEvent := func(pid app.PID, eventType exec.ProcessEventType) *exec.ProcessEvent {
+		return &exec.ProcessEvent{
+			Type: eventType,
+			File: exec.New(exec.Init{Pid: pid, Service: service}),
+		}
+	}
+	snapshot := func(pid app.PID, population uint64) runtimemetrics.RuntimeMetricSnapshot {
+		counts := testGoRuntimeHistogramCounts()
+		counts[0] = population
+		value := testGoRuntimeHistogramSnapshot(
+			runtimemetrics.GoHistogramKindGCPause,
+			pid,
+			time.Date(2026, 7, 17, 10, 0, 0, 0, time.UTC),
+			counts,
+			0,
+			0,
+		)
+		value.Service = service
+		return value
+	}
+
+	reporter.onProcessEvent(processEvent(service.ProcPID, exec.ProcessEventCreated))
+	reporter.onProcessEvent(processEvent(101, exec.ProcessEventCreated))
+	reporter.onProcessEvent(processEvent(202, exec.ProcessEventCreated))
+	reporter.reportRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{
+		snapshot(101, 2),
+		snapshot(202, 3),
+	})
+	require.NotNil(t, metrics)
+	assert.Equal(t, uint64(5), testProducedHistogramPoint(
+		t,
+		metrics.goHistogramProducer,
+		attributes.GoRuntimeMemoryGCPauseDuration.OTEL,
+	).Count)
+
+	reporter.onProcessEvent(processEvent(101, exec.ProcessEventTerminated))
+	assert.Equal(t, uint64(5), testProducedHistogramPoint(
+		t,
+		metrics.goHistogramProducer,
+		attributes.GoRuntimeMemoryGCPauseDuration.OTEL,
+	).Count)
+
+	reporter.reportRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{snapshot(202, 4)})
+	assert.Equal(t, uint64(6), testProducedHistogramPoint(
+		t,
+		metrics.goHistogramProducer,
+		attributes.GoRuntimeMemoryGCPauseDuration.OTEL,
+	).Count)
+
+	reporter.reportRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{snapshot(101, 7)})
+	assert.Equal(t, uint64(6), testProducedHistogramPoint(
+		t,
+		metrics.goHistogramProducer,
+		attributes.GoRuntimeMemoryGCPauseDuration.OTEL,
+	).Count)
+}
+
+func TestRuntimeMetricsReporterAcceptsSnapshotsBeforeCreationAndSkipsAfterTermination(t *testing.T) {
+	service := svc.Attrs{
+		UID:         svc.UID{Name: "orders"},
+		ProcPID:     101,
+		SDKLanguage: svc.InstrumentableGolang,
+	}
+	constructed := 0
+
+	reporters, err := otelcfg.NewReporterPool[*svc.Attrs, *RuntimeMetrics](
+		10,
+		time.Minute,
+		time.Now,
+		func(_ svc.UID, _ *RuntimeMetrics) {},
+		func(_ *svc.Attrs) (*RuntimeMetrics, error) {
+			constructed++
+			return &RuntimeMetrics{}, nil
+		},
+	)
+	require.NoError(t, err)
+
+	reporter := RuntimeMetricsReporter{
+		reporters:      reporters,
+		pidTracker:     NewPidServiceTracker(),
+		log:            slog.New(slog.NewTextHandler(io.Discard, nil)),
+		runtimeEnabled: runtimemetrics.Enabled{Runtime: true},
+	}
+	processEvent := func(eventType exec.ProcessEventType) *exec.ProcessEvent {
+		return &exec.ProcessEvent{
+			Type: eventType,
+			File: exec.New(exec.Init{Pid: 101, Service: service}),
+		}
+	}
+	snapshots := []runtimemetrics.RuntimeMetricSnapshot{{
+		PID:     101,
+		Service: service,
+		Go:      &runtimemetrics.GoRuntimeMetricSnapshot{},
+	}}
+
+	reporter.reportRuntimeMetrics(snapshots)
+	assert.Equal(t, 1, constructed)
+
+	reporter.onProcessEvent(processEvent(exec.ProcessEventCreated))
+	reporter.reportRuntimeMetrics(snapshots)
+	assert.Equal(t, 1, constructed)
+
+	reporter.onProcessEvent(processEvent(exec.ProcessEventTerminated))
+	reporter.reportRuntimeMetrics(snapshots)
+	assert.Equal(t, 1, constructed,
+		"in-flight snapshot must not resurrect the removed reporter")
+}
 
 func TestRuntimeMetricsReporterShouldReportSnapshot(t *testing.T) {
 	exportMetrics := services.NewExportModes()

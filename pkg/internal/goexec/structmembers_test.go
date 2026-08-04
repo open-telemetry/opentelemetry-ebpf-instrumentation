@@ -687,6 +687,32 @@ func assertPrefetchedOffset(
 	assert.Equal(t, want, offset, "%s.%s Go %s offset", structName, fieldName, goVersion)
 }
 
+func TestPrefetchedGoRuntimeHistogramOffsets(t *testing.T) {
+	track, err := offsets.Read(bytes.NewBufferString(prefetchedOffsets))
+	require.NoError(t, err)
+
+	for _, fieldName := range []string{"timeToRun"} {
+		_, found := track.Find("runtime.schedt", fieldName, "1.19.13")
+		assert.False(t, found, "%s should be unavailable before Go 1.20", fieldName)
+		_, found = track.Find("runtime.schedt", fieldName, "1.20.0")
+		assert.True(t, found, "%s missing for Go 1.20", fieldName)
+	}
+
+	_, found := track.Find("runtime.schedt", "stwTotalTimeGC", "1.21.13")
+	assert.False(t, found, "stwTotalTimeGC should be unavailable before Go 1.22")
+	_, found = track.Find("runtime.schedt", "stwTotalTimeGC", "1.22.0")
+	assert.True(t, found, "stwTotalTimeGC missing for Go 1.22")
+
+	for _, goVersion := range []string{"1.20.0", "1.22.0", "1.26.0"} {
+		underflow, underflowFound := track.Find("runtime.timeHistogram", "underflow", goVersion)
+		overflow, overflowFound := track.Find("runtime.timeHistogram", "overflow", goVersion)
+		require.True(t, underflowFound, "underflow missing for Go %s", goVersion)
+		require.True(t, overflowFound, "overflow missing for Go %s", goVersion)
+		assert.Equal(t, uint64(1280), underflow, "underflow offset for Go %s", goVersion)
+		assert.Equal(t, underflow+uint64(8), overflow, "overflow offset for Go %s", goVersion)
+	}
+}
+
 type fakeDwarfReader struct {
 	entries []*dwarf.Entry
 }
