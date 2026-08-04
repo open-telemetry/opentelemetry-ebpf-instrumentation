@@ -187,30 +187,11 @@ func getLogsExporter(ctx context.Context, cfg otelcfg.LogsConfig) (exporter.Logs
 	switch proto := cfg.GetProtocol(); proto {
 	case otelcfg.ProtocolHTTPJSON, otelcfg.ProtocolHTTPProtobuf, "":
 		slog.Debug("instantiating HTTP LogsReporter", "protocol", proto)
-		opts, err := otelcfg.HTTPLogsEndpointOptions(&cfg)
+		factory := otlphttpexporter.NewFactory()
+		config, host, queueCfg, retryCfg, err := buildHTTPLogsExporterConfig(cfg, factory)
 		if err != nil {
 			slog.Error("can't get HTTP logs endpoint options", "error", err)
 			return nil, nil, err
-		}
-		factory := otlphttpexporter.NewFactory()
-		config := factory.CreateDefaultConfig().(*otlphttpexporter.Config)
-		config.QueueConfig = getLogsQueueConfig(cfg)
-		config.RetryConfig = getLogsRetrySettings(cfg)
-		config.ClientConfig = confighttp.ClientConfig{
-			Endpoint: opts.Scheme + "://" + opts.Endpoint + opts.BaseURLPath,
-			TLS: configtls.ClientConfig{
-				Insecure:           opts.Insecure,
-				InsecureSkipVerify: cfg.InsecureSkipVerify,
-			},
-			Headers: convertHeaders(opts.Headers),
-		}
-		host := component.Host(emptyHost{})
-		if opts.UnixSocketAddr != "" {
-			mwID := component.MustNewID("obi_uds")
-			config.ClientConfig.Middlewares = []configmiddleware.Config{{ID: mwID}}
-			host = udsHost{extensions: map[component.ID]component.Component{
-				mwID: udsMiddleware{addr: opts.UnixSocketAddr},
-			}}
 		}
 		set := getTraceSettings(factory.Type(), cfg.SDKLogLevel)
 		exp, err := factory.CreateLogs(ctx, set, config)
@@ -218,13 +199,16 @@ func getLogsExporter(ctx context.Context, cfg otelcfg.LogsConfig) (exporter.Logs
 			slog.Error("can't create OTLP HTTP logs exporter", "error", err)
 			return nil, nil, err
 		}
+		// The inner exporter's own queue/retry are disabled by
+		// buildHTTPLogsExporterConfig; queueCfg/retryCfg are applied here so
+		// there is exactly one buffering/retry layer, matching getTracesExporter.
 		wrapped, err := exporterhelper.NewLogs(ctx, set, cfg,
 			exp.ConsumeLogs,
 			exporterhelper.WithStart(exp.Start),
 			exporterhelper.WithShutdown(exp.Shutdown),
 			exporterhelper.WithCapabilities(consumer.Capabilities{MutatesData: false}),
-			exporterhelper.WithQueue(config.QueueConfig),
-			exporterhelper.WithRetry(config.RetryConfig))
+			exporterhelper.WithQueue(queueCfg),
+			exporterhelper.WithRetry(retryCfg))
 		return wrapped, host, err
 	case otelcfg.ProtocolGRPC:
 		slog.Debug("instantiating GRPC LogsReporter", "protocol", proto)
@@ -277,6 +261,53 @@ func getLogsExporter(ctx context.Context, cfg otelcfg.LogsConfig) (exporter.Logs
 			proto, otelcfg.ProtocolGRPC, otelcfg.ProtocolHTTPJSON, otelcfg.ProtocolHTTPProtobuf))
 		return nil, nil, fmt.Errorf("invalid protocol value: %q", proto)
 	}
+}
+
+// buildHTTPLogsExporterConfig builds the otlphttpexporter.Config for the HTTP logs
+// exporter, with its own queue and retry disabled, and separately returns the real
+// queue/retry settings for the caller to apply exactly once via the outer
+// exporterhelper.NewLogs wrap — mirroring getTracesExporter's HTTP branch, so a log
+// record is buffered and retried by a single layer instead of the inner exporter and
+// the outer wrap each doing it independently. Split out from getLogsExporter so this
+// disable-then-wrap-once behavior is directly testable.
+func buildHTTPLogsExporterConfig(cfg otelcfg.LogsConfig, factory exporter.Factory) (
+	*otlphttpexporter.Config,
+	component.Host,
+	configoptional.Optional[exporterhelper.QueueBatchConfig],
+	configretry.BackOffConfig,
+	error,
+) {
+	opts, err := otelcfg.HTTPLogsEndpointOptions(&cfg)
+	if err != nil {
+		return nil, nil, configoptional.None[exporterhelper.QueueBatchConfig](), configretry.BackOffConfig{}, err
+	}
+
+	config := factory.CreateDefaultConfig().(*otlphttpexporter.Config)
+	queueCfg := getLogsQueueConfig(cfg)
+	retryCfg := getLogsRetrySettings(cfg)
+	disabledRetry := configretry.NewDefaultBackOffConfig()
+	disabledRetry.Enabled = false
+	config.QueueConfig = configoptional.None[exporterhelper.QueueBatchConfig]()
+	config.RetryConfig = disabledRetry
+	config.ClientConfig = confighttp.ClientConfig{
+		Endpoint: opts.Scheme + "://" + opts.Endpoint + opts.BaseURLPath,
+		TLS: configtls.ClientConfig{
+			Insecure:           opts.Insecure,
+			InsecureSkipVerify: cfg.InsecureSkipVerify,
+		},
+		Headers: convertHeaders(opts.Headers),
+	}
+
+	host := component.Host(emptyHost{})
+	if opts.UnixSocketAddr != "" {
+		mwID := component.MustNewID("obi_uds")
+		config.ClientConfig.Middlewares = []configmiddleware.Config{{ID: mwID}}
+		host = udsHost{extensions: map[component.ID]component.Component{
+			mwID: udsMiddleware{addr: opts.UnixSocketAddr},
+		}}
+	}
+
+	return config, host, queueCfg, retryCfg, nil
 }
 
 func getLogsQueueConfig(cfg otelcfg.LogsConfig) configoptional.Optional[exporterhelper.QueueBatchConfig] {
