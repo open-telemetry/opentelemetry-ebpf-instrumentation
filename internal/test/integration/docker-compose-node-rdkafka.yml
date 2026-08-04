@@ -127,7 +127,5 @@ services:
       - "16686:16686"
       - "4317"
       - "4318"
-    environment:
-      - LOG_LEVEL=debug
-    volumes:
-      - ./configs/jaeger-ui-config.json:/etc/jaeger/ui-config.json
+    command:
+      - "--set=service.telemetry.logs.level=debug"

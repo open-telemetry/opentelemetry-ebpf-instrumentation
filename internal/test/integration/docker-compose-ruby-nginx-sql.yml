@@ -151,8 +151,8 @@ services:
       - "16686:16686" # Query frontend
       - "4417:4317" # OTEL GRPC traces collector
       - "4418:4318" # OTEL HTTP traces collector
-    environment:
-      - LOG_LEVEL=debug
+    command:
+      - "--set=service.telemetry.logs.level=debug"
 
 volumes:
   db_data:

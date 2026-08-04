@@ -105,7 +105,7 @@ services:
       - "16686:16686" # Query frontend
       - "4317" # OTEL GRPC traces collector (internal — otelcol talks to jaeger over the docker network)
       - "4318" # OTEL HTTP traces collector (internal)
-    environment:
-      - LOG_LEVEL=debug
+    command:
+      - "--set=service.telemetry.logs.level=debug"
 # curl http://localhost:16686/api/services
 # curl http://localhost:16686/api/traces?service=testserver
