@@ -209,6 +209,24 @@ func TestPidServiceTracker_TracksPID(t *testing.T) {
 	assert.Equal(t, uid2, gotUID, "TracksPID should return correct UID for remaining PID")
 }
 
+func TestPidServiceTracker_PIDLiveOrUnknownUsesProcessGeneration(t *testing.T) {
+	tracker := NewPidServiceTracker()
+	uid := makeUID("orders", "production")
+	pid := app.PID(101)
+
+	tracker.AddPIDWithGeneration(pid, uid, 1)
+	assert.True(t, tracker.PIDLiveOrUnknown(pid, uid, 1))
+	assert.False(t, tracker.PIDLiveOrUnknown(pid, uid, 2))
+
+	tracker.RemovePID(pid)
+	assert.False(t, tracker.PIDLiveOrUnknown(pid, uid, 1))
+	assert.True(t, tracker.PIDLiveOrUnknown(pid, uid, 2))
+
+	tracker.AddPIDWithGeneration(pid, uid, 2)
+	assert.False(t, tracker.PIDLiveOrUnknown(pid, uid, 1))
+	assert.True(t, tracker.PIDLiveOrUnknown(pid, uid, 2))
+}
+
 func TestPidServiceTracker_UpdateUID(t *testing.T) {
 	t.Run("update existing service UID", func(t *testing.T) {
 		tracker := NewPidServiceTracker()
