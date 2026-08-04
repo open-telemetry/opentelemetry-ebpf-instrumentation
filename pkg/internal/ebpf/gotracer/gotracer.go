@@ -77,6 +77,10 @@ type goAutoSDKExecutableKey struct {
 	ino uint64
 }
 
+func normalizeDeviceID[T ~int32 | ~uint64](dev T) uint64 {
+	return uint64(dev)
+}
+
 type goAutoSDKActivationLink struct {
 	executable goAutoSDKExecutableKey
 	link       *onceCloser
@@ -918,7 +922,7 @@ func attachGoAutoSDKActivationProbe(
 	if !ok {
 		return nil, errors.New("reading target executable identity")
 	}
-	actualDev := uint64(stat.Dev) //nolint:unconvert // syscall.Stat_t.Dev is int32 on Darwin.
+	actualDev := normalizeDeviceID(stat.Dev)
 	if actualDev != dev || stat.Ino != ino {
 		return nil, fmt.Errorf(
 			"target executable identity changed: got %d:%d, want %d:%d",
