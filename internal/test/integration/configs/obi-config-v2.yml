@@ -41,12 +41,13 @@ extensions:
             traces: true
             metrics: true
           routes:
-            patterns:
-              - /basic/:rnd
-            unmatched: path
-            ignored_patterns:
-              - /metrics
-            ignore_mode: traces
+            incoming:
+              patterns:
+                - /basic/:rnd
+              unmatched: path
+              ignored_patterns:
+                - /metrics
+              ignore_mode: traces
     enrich:
       enrichers:
         kubernetes:
