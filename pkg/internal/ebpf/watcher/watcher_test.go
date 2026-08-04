@@ -18,7 +18,7 @@ import (
 func TestProcessWatchEventRejectsTruncatedRecords(t *testing.T) {
 	events := make(chan Event, 1)
 	w := New(&obi.Config{}, events)
-	sample := watchSample(1, 8080)
+	sample := watchSample(1)
 	for length := 0; length < 8; length++ {
 		_, _, err := w.processWatchEvent(t.Context(), &ringbuf.Record{RawSample: sample[:length]})
 		if err == nil {
@@ -36,7 +36,7 @@ func TestProcessWatchEventRejectsTruncatedRecords(t *testing.T) {
 
 func TestProcessWatchEventEmitsDecodedBind(t *testing.T) {
 	events := make(chan Event, 2)
-	_, ignore, err := New(&obi.Config{}, events).processWatchEvent(t.Context(), &ringbuf.Record{RawSample: watchSample(1, 8080)})
+	_, ignore, err := New(&obi.Config{}, events).processWatchEvent(t.Context(), &ringbuf.Record{RawSample: watchSample(1)})
 	if err != nil || !ignore {
 		t.Fatalf("process bind event: ignore=%t, error=%v", ignore, err)
 	}
@@ -48,7 +48,7 @@ func TestProcessWatchEventEmitsDecodedBind(t *testing.T) {
 
 func TestProcessWatchEventIgnoresUnknownFlags(t *testing.T) {
 	events := make(chan Event, 1)
-	_, ignore, err := New(&obi.Config{}, events).processWatchEvent(t.Context(), &ringbuf.Record{RawSample: watchSample(2, 8080)[:8]})
+	_, ignore, err := New(&obi.Config{}, events).processWatchEvent(t.Context(), &ringbuf.Record{RawSample: watchSample(2)[:8]})
 	if err != nil {
 		t.Fatalf("process unknown event: %v", err)
 	}
@@ -93,7 +93,7 @@ func TestRunEmitsOneReadyAndStopsOnCancellation(t *testing.T) {
 	parseErr := make(chan error, 1)
 	w.forward = func(ctx context.Context, parse watchEventParser) {
 		<-ctx.Done()
-		_, _, err := parse(&ringbuf.Record{RawSample: watchSample(1, 8080)})
+		_, _, err := parse(&ringbuf.Record{RawSample: watchSample(1)})
 		parseErr <- err
 	}
 	done := make(chan struct{})
@@ -109,10 +109,10 @@ func TestRunEmitsOneReadyAndStopsOnCancellation(t *testing.T) {
 	assertNoEvent(t, events)
 }
 
-func watchSample(flags, payload uint64) []byte {
+func watchSample(flags uint64) []byte {
 	sample := make([]byte, 16)
 	binary.LittleEndian.PutUint64(sample, flags)
-	binary.LittleEndian.PutUint64(sample[8:], payload)
+	binary.LittleEndian.PutUint64(sample[8:], 8080)
 	return sample
 }
 
