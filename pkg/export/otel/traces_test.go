@@ -29,6 +29,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/meta"
+	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
@@ -2486,6 +2487,74 @@ func TestTraceSkipSpanMetrics(t *testing.T) {
 			}
 		}
 	})
+}
+
+// TestTraceSuppressQueueProcessingSpansPerService verifies that the queue/processing
+// sub-spans are only suppressed for services whose export config actually receives the
+// replacement log record. A service restricted to `exports: [traces]` must keep the
+// sub-spans even when the logs receiver is globally enabled, or its queue/processing
+// timing would disappear entirely (neither sub-spans nor a log record).
+func TestTraceSuppressQueueProcessingSpansPerService(t *testing.T) {
+	start := time.Now()
+
+	tracesOnly := services.NewExportModes()
+	tracesOnly.AllowTraces()
+
+	newSpan := func(uid, route string, modes services.ExportModes) request.Span {
+		return request.Span{
+			Type:         request.EventTypeHTTP,
+			RequestStart: start.UnixNano(),
+			Start:        start.Add(time.Second).UnixNano(),
+			End:          start.Add(3 * time.Second).UnixNano(),
+			Method:       "GET",
+			Route:        route,
+			Status:       200,
+			TraceID:      idgen.RandomTraceID(),
+			Service:      svc.Attrs{UID: svc.UID{Name: uid}, ExportModes: modes},
+		}
+	}
+
+	spans := []request.Span{
+		newSpan("traces-only", "/traces-only", tracesOnly),
+		newSpan("traces-and-logs", "/traces-and-logs", services.ExportModeUnset),
+	}
+
+	receiver := makeTracesReceiver(
+		otelcfg.TracesConfig{
+			CommonEndpoint:    "http://something",
+			BatchTimeout:      10 * time.Millisecond,
+			ReportersCacheLen: 16,
+			Instrumentations:  []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP},
+		},
+		false,
+		true, // suppressQueueProcessingSpans = true, globally
+		&global.ContextInfo{},
+		&attributes.SelectorConfig{},
+		msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10)),
+	)
+
+	sampler := sdktrace.AlwaysSample()
+	attrs, err := receiver.getConstantAttributes()
+	require.NoError(t, err)
+
+	byRoute := map[string]ptrace.Traces{}
+	exporter := TestExporter{
+		collector: func(td ptrace.Traces) {
+			spans := td.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+			byRoute[spans.At(spans.Len()-1).Name()] = td
+		},
+	}
+
+	receiver.processSpans(t.Context(), exporter, spans, attrs, sampler)
+	require.Len(t, byRoute, 2)
+
+	tracesOnlySpans := byRoute["GET /traces-only"].ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+	require.Equal(t, 3, tracesOnlySpans.Len(), "traces-only service must keep 'in queue'/'processing' sub-spans")
+	assert.Equal(t, "in queue", tracesOnlySpans.At(0).Name())
+	assert.Equal(t, "processing", tracesOnlySpans.At(1).Name())
+
+	tracesAndLogsSpans := byRoute["GET /traces-and-logs"].ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+	require.Equal(t, 1, tracesAndLogsSpans.Len(), "service that also exports logs must have sub-spans suppressed")
 }
 
 func TestAttrsToMap(t *testing.T) {

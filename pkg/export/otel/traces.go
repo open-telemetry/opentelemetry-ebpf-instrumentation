@@ -132,6 +132,11 @@ func (tr *tracesOTELReceiver) processSpans(ctx context.Context, exp exporter.Tra
 			if tr.spanMetricsEnabled {
 				envResourceAttrs = append(envResourceAttrs, attribute.Bool(string(attr.SkipSpanMetrics.OTEL()), true))
 			}
+			// Only suppress the queue/processing sub-spans if this service's
+			// export config actually receives the replacement log record
+			// (logsOTELReceiver.processSpans gates on the same CanExportLogs()
+			// check) — otherwise the timing data would be silently dropped.
+			suppressQueueProcessingSpans := tr.suppressQueueProcessingSpans && sample.Span.Service.ExportModes.CanExportLogs()
 			traces := tracesgen.GenerateTracesWithSelectedResourceAttributes(
 				tr.attributeCache,
 				&sample.Span.Service,
@@ -140,7 +145,7 @@ func (tr *tracesOTELReceiver) processSpans(ctx context.Context, exp exporter.Tra
 				spanGroup,
 				reporterName,
 				tr.selectorCfg.SelectionCfg,
-				tr.suppressQueueProcessingSpans,
+				suppressQueueProcessingSpans,
 				tr.ctxInfo.ExtraResourceAttributes...)
 			err := exp.ConsumeTraces(ctx, traces)
 			if err != nil {
