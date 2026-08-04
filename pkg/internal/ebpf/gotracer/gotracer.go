@@ -918,13 +918,12 @@ func attachGoAutoSDKActivationProbe(
 	if !ok {
 		return nil, errors.New("reading target executable identity")
 	}
-	actualDev := uint64(stat.Dev)
-	actualIno := uint64(stat.Ino)
-	if actualDev != dev || actualIno != ino {
+	actualDev := uint64(stat.Dev) //nolint:unconvert // syscall.Stat_t.Dev is int32 on Darwin.
+	if actualDev != dev || stat.Ino != ino {
 		return nil, fmt.Errorf(
 			"target executable identity changed: got %d:%d, want %d:%d",
 			actualDev,
-			actualIno,
+			stat.Ino,
 			dev,
 			ino,
 		)
