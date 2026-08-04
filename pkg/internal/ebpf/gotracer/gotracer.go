@@ -918,11 +918,13 @@ func attachGoAutoSDKActivationProbe(
 	if !ok {
 		return nil, errors.New("reading target executable identity")
 	}
-	if stat.Dev != dev || stat.Ino != ino {
+	actualDev := uint64(stat.Dev)
+	actualIno := uint64(stat.Ino)
+	if actualDev != dev || actualIno != ino {
 		return nil, fmt.Errorf(
 			"target executable identity changed: got %d:%d, want %d:%d",
-			stat.Dev,
-			stat.Ino,
+			actualDev,
+			actualIno,
 			dev,
 			ino,
 		)
