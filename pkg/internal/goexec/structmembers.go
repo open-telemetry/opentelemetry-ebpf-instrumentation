@@ -93,6 +93,7 @@ const (
 	// http
 	URLPtrPos
 	PathPtrPos
+	RawQueryPtrPos
 	HostPtrPos
 	SchemePtrPos
 	MethodPtrPos
@@ -285,9 +286,10 @@ var structMembers = map[string]structInfo{
 	"net/url.URL": {
 		lib: "go",
 		fields: map[string]GoOffset{
-			"Path":   PathPtrPos,
-			"Host":   HostPtrPos,
-			"Scheme": SchemePtrPos,
+			"Path":     PathPtrPos,
+			"RawQuery": RawQueryPtrPos,
+			"Host":     HostPtrPos,
+			"Scheme":   SchemePtrPos,
 		},
 	},
 	"net/http.Response": {
