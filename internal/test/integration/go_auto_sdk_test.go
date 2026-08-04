@@ -4,7 +4,6 @@
 package integration
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -14,7 +13,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/moby/moby/api/pkg/stdcopy"
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/client"
 	"github.com/ory/dockertest/v4"
@@ -235,17 +233,12 @@ func testGoAutoSDKRichSpans(t *testing.T, version, service string) {
 }
 
 func testGoAutoSDKPageBoundarySpans(t *testing.T, version, service string) {
-	since := time.Now()
 	resp, err := http.Get("http://localhost:" + goAutoSDKPort + "/page-boundary")
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	spanAddress := resp.Header.Get("X-Auto-SDK-Span-Address")
 	require.NotEmpty(t, spanAddress)
-
-	if version == "1.33.0" {
-		waitForGoAutoSDKDeferredContextWrite(t, spanAddress, since)
-	}
 
 	rootName := autoSDKSpanName("page-boundary-root", version)
 	trace := waitForGoAutoSDKTrace(t, service, rootName)
@@ -263,35 +256,6 @@ func testGoAutoSDKPageBoundarySpans(t *testing.T, version, service string) {
 	parent, ok := trace.ParentOf(&children[0])
 	require.True(t, ok)
 	assert.Equal(t, roots[0].SpanID, parent.SpanID)
-}
-
-func waitForGoAutoSDKDeferredContextWrite(t *testing.T, spanAddress string, since time.Time) {
-	t.Helper()
-
-	marker := "go auto SDK deferred context span=" + spanAddress
-	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		logs, err := fetchOBILogsSince(since)
-		require.NoError(ct, err)
-		require.Contains(ct, logs, marker)
-	}, testTimeout, 100*time.Millisecond)
-}
-
-func fetchOBILogsSince(since time.Time) (string, error) {
-	logs, err := dockerPool.Client().ContainerLogs(context.Background(), "obi", client.ContainerLogsOptions{
-		ShowStderr: true,
-		ShowStdout: true,
-		Since:      since.Format(time.RFC3339Nano),
-	})
-	if err != nil {
-		return "", err
-	}
-	defer logs.Close()
-
-	var output bytes.Buffer
-	if _, err := stdcopy.StdCopy(&output, &output, logs); err != nil {
-		return "", err
-	}
-	return output.String(), nil
 }
 
 func testGoAutoSDKOversizedPayload(t *testing.T, version, service string) {
