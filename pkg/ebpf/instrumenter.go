@@ -66,13 +66,12 @@ type goProbeGroupTracer interface {
 // processScopedGoProbeTracer registers optional Go probes that are attached
 // for individual processes after their executable-scoped probe group succeeds.
 type processScopedGoProbeTracer interface {
-	RegisterProcessScopedGoProbe(ExecutableKey, ebpfcommon.GoProbe)
-	UnregisterProcessScopedGoProbes(ExecutableKey)
+	RegisterProcessScopedGoProbe(uint64, uint64, ebpfcommon.GoProbe)
+	UnregisterProcessScopedGoProbes(uint64, uint64)
 }
 
 type processScopedGoProbeRegistration struct {
 	tracer processScopedGoProbeTracer
-	key    ExecutableKey
 	probe  ebpfcommon.GoProbe
 }
 
@@ -168,7 +167,6 @@ func (i *instrumenter) goprobes(p Tracer) error {
 							i.processScopedGoProbes,
 							processScopedGoProbeRegistration{
 								tracer: processScopedTracer,
-								key:    i.key,
 								probe:  candidate,
 							},
 						)
@@ -184,7 +182,8 @@ func (i *instrumenter) goprobes(p Tracer) error {
 func (i *instrumenter) registerProcessScopedGoProbes(key ExecutableKey) {
 	for _, registration := range i.processScopedGoProbes {
 		registration.tracer.RegisterProcessScopedGoProbe(
-			key,
+			key.Dev,
+			key.Ino,
 			registration.probe,
 		)
 	}
