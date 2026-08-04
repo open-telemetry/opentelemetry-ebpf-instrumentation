@@ -113,6 +113,13 @@ func bodyExtractionInclude(t *testing.T) {
 	require.True(t, valOk)
 	assert.Contains(t, val, "roll", "action field should be present")
 	assert.Contains(t, val, "6", "sides field should be present")
+
+	// Verify the JSON response body content is captured (response-scope include rule).
+	respTag, respOk := jaeger.FindIn(span.Tags, "http.response.body.content")
+	require.True(t, respOk, "expected http.response.body.content on span")
+	respVal, respValOk := jaeger.TagFirstStringValue(respTag)
+	require.True(t, respValOk)
+	assert.Contains(t, respVal, "result", "response body result field should be present")
 }
 
 // bodyExtractionExcludedByDefault verifies that GET requests (which don't match
