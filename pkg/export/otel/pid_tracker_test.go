@@ -225,6 +225,12 @@ func TestPidServiceTracker_PIDLiveOrUnknownUsesProcessGeneration(t *testing.T) {
 	tracker.AddPIDWithGeneration(pid, uid, 2)
 	assert.False(t, tracker.PIDLiveOrUnknown(pid, uid, 1))
 	assert.True(t, tracker.PIDLiveOrUnknown(pid, uid, 2))
+
+	tracker = NewPidServiceTracker()
+	tracker.AddPID(pid, uid)
+	tracker.RemovePID(pid)
+	assert.False(t, tracker.PIDLiveOrUnknown(pid, uid, 0))
+	assert.True(t, tracker.PIDLiveOrUnknown(pid, uid, 2))
 }
 
 func TestPidServiceTracker_UpdateUID(t *testing.T) {

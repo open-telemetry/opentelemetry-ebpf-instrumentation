@@ -106,8 +106,7 @@ func (p *PidServiceTracker) PIDLiveOrUnknown(pid app.PID, uid svc.UID, generatio
 	if !terminated || !terminatedProcess.uid.Equals(&uid) {
 		return true
 	}
-	return terminatedProcess.generation != 0 && generation != 0 &&
-		terminatedProcess.generation != generation
+	return generation != 0 && terminatedProcess.generation != generation
 }
 
 func (p *PidServiceTracker) ReplaceUID(staleUID, newUID svc.UID) {
