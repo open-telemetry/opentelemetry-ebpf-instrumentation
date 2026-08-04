@@ -4,7 +4,7 @@ go 1.25.6
 
 require (
 	golang.org/x/sys v0.47.0
-	google.golang.org/grpc v1.82.0
+	google.golang.org/grpc v1.82.1
 )
 
 require (
