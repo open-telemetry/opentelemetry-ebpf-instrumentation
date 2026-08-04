@@ -119,6 +119,8 @@ func (lr *logsOTELReceiver) processSpans(ctx context.Context, exp exporter.Logs,
 			&lr.ctxInfo.NodeMeta,
 			spanGroup,
 			reporterName,
+			lr.selectorCfg.SelectionCfg,
+			lr.ctxInfo.ExtraResourceAttributes...,
 		)
 		if logs.ResourceLogs().At(0).ScopeLogs().At(0).LogRecords().Len() == 0 {
 			continue

@@ -13,6 +13,8 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/meta"
+	"go.opentelemetry.io/obi/pkg/export/attributes"
+	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/export/otel/tracesgen"
 )
 
@@ -35,12 +37,17 @@ func GenerateLogs(
 	nodeMeta *meta.NodeMeta,
 	spans []tracesgen.TraceSpanAndAttributes,
 	reporterName string,
+	attrSelector attributes.Selection,
+	extraResAttrs ...attribute.KeyValue,
 ) plog.Logs {
 	logs := plog.NewLogs()
 	rl := logs.ResourceLogs().AppendEmpty()
 
 	resourceAttrs := tracesgen.TraceAppResourceAttrs(cache, nodeMeta, svcAttrs)
 	resourceAttrs = append(resourceAttrs, envResourceAttrs...)
+	resourceAttrs = otelcfg.FilterResourceAttrs(resourceAttrs, attrSelector)
+	extraResAttrs = otelcfg.FilterResourceAttrs(extraResAttrs, attrSelector)
+	resourceAttrs = append(resourceAttrs, extraResAttrs...)
 	resourceAttrsMap := tracesgen.AttrsToMap(resourceAttrs)
 	resourceAttrsMap.PutStr(string(semconv.OTelScopeNameKey), reporterName)
 	resourceAttrsMap.MoveTo(rl.Resource().Attributes())

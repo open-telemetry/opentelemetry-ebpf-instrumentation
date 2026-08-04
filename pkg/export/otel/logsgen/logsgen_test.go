@@ -17,6 +17,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/meta"
+	"go.opentelemetry.io/obi/pkg/export/attributes"
 	"go.opentelemetry.io/obi/pkg/export/otel/logsgen"
 	"go.opentelemetry.io/obi/pkg/export/otel/tracesgen"
 )
@@ -43,7 +44,7 @@ func TestGenerateLogs_ObservableGap(t *testing.T) {
 		SpanID:       spanID,
 	}
 
-	logs := logsgen.GenerateLogs(cache, &span.Service, nil, hostID, group(span), "go.opentelemetry.io/obi")
+	logs := logsgen.GenerateLogs(cache, &span.Service, nil, hostID, group(span), "go.opentelemetry.io/obi", nil)
 
 	require.Equal(t, 1, logs.ResourceLogs().Len())
 	require.Equal(t, 1, logs.ResourceLogs().At(0).ScopeLogs().Len())
@@ -75,7 +76,7 @@ func TestGenerateLogs_NoObservableGap(t *testing.T) {
 		TraceID:      traceID,
 	}
 
-	logs := logsgen.GenerateLogs(cache, &span.Service, nil, hostID, group(span), "go.opentelemetry.io/obi")
+	logs := logsgen.GenerateLogs(cache, &span.Service, nil, hostID, group(span), "go.opentelemetry.io/obi", nil)
 
 	records := logs.ResourceLogs().At(0).ScopeLogs().At(0).LogRecords()
 	assert.Equal(t, 0, records.Len(), "no log record should be emitted when there's no observable queue gap")
@@ -99,8 +100,48 @@ func TestGenerateLogs_ObservableGapButInvalidSpanID(t *testing.T) {
 	}
 	require.False(t, span.SpanID.IsValid())
 
-	logs := logsgen.GenerateLogs(cache, &span.Service, nil, hostID, group(span), "go.opentelemetry.io/obi")
+	logs := logsgen.GenerateLogs(cache, &span.Service, nil, hostID, group(span), "go.opentelemetry.io/obi", nil)
 
 	records := logs.ResourceLogs().At(0).ScopeLogs().At(0).LogRecords()
 	assert.Equal(t, 0, records.Len(), "no log record should be emitted when the span has no valid SpanID to correlate against")
+}
+
+// TestGenerateLogs_ResourceAttrsFiltering verifies GenerateLogs applies the same
+// resource-attribute selection and embedding-supplied extra resource attributes as
+// the trace pipeline's generateTracesWithAttributes, so a log record's resource is
+// not a superset (excluded attrs leaking through) or subset (missing embedder attrs)
+// of what the correlated trace's resource carries.
+func TestGenerateLogs_ResourceAttrsFiltering(t *testing.T) {
+	start := time.Now()
+	traceID, _ := trace.TraceIDFromHex("eae56fbbec9505c102e8aabfc6b5c481")
+	spanID, _ := trace.SpanIDFromHex("89cbc1f60aab3b01")
+	span := &request.Span{
+		Type:         request.EventTypeHTTP,
+		RequestStart: start.UnixNano(),
+		Start:        start.Add(time.Second).UnixNano(),
+		End:          start.Add(3 * time.Second).UnixNano(),
+		TraceID:      traceID,
+		SpanID:       spanID,
+	}
+
+	attrSelector := attributes.Selection{
+		attributes.Resource.Section: attributes.InclusionLists{
+			Exclude: []string{"host.name"},
+		},
+	}
+	extraAttr := attribute.String("embedder.custom", "value")
+
+	logs := logsgen.GenerateLogs(cache, &span.Service, nil, hostID, group(span), "go.opentelemetry.io/obi", attrSelector, extraAttr)
+
+	resAttrs := logs.ResourceLogs().At(0).Resource().Attributes()
+
+	_, ok := resAttrs.Get("host.name")
+	assert.False(t, ok, "resource attribute excluded via attributes.select must not be present on the log record's resource")
+
+	_, ok = resAttrs.Get("host.id")
+	assert.True(t, ok, "non-excluded resource attributes must still be present")
+
+	v, ok := resAttrs.Get("embedder.custom")
+	require.True(t, ok, "embedding-supplied extra resource attributes must be present")
+	assert.Equal(t, "value", v.AsString())
 }
