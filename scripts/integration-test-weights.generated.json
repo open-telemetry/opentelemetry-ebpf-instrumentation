@@ -55,7 +55,7 @@
   "TestSuite_Elixir": 25,
   "TestSuite_GRPCExport": 117,
   "TestSuite_GRPCExportKProbes": 23,
-  "TestSuite_GRPCRelay": 228,
+  "TestSuite_GRPCRelay": 340,
   "TestSuite_Go": 553,
   "TestSuite_GoMQTT": 38,
   "TestSuite_Java": 23,

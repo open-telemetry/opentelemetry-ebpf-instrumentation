@@ -20,8 +20,10 @@ import (
 const (
 	// minGoVersion defines the minimum instrumentable Go version. If the target binary was
 	// compiled using an older Go version, it will be treated as a non-Go program.
-	minGoVersion                    = "1.17"
-	minGoRuntimeMemoryMetricVersion = "1.23"
+	minGoVersion                                    = "1.17"
+	minGoRuntimeMemoryMetricVersion                 = "1.23"
+	minGoRuntimeGCGoalArgumentVersion               = "1.19"
+	minGoRuntimeGoroutineCountIncludesSystemVersion = "1.26"
 )
 
 var goVersionPattern = regexp.MustCompile(`\d+\.\d+(?:\.\d+)?`)
@@ -61,6 +63,18 @@ type moduleVersions struct {
 	versions     map[string]string
 	sums         map[string]string
 	replacements map[string]struct{}
+	invalid      bool
+}
+
+func runtimeMetricGoroutineCountModeVersion(version string) (includesSystem, known bool) {
+	if goVersionPattern.FindString(version) == "" {
+		return false, false
+	}
+	return goVersionAtLeast(version, minGoRuntimeGoroutineCountIncludesSystemVersion), true
+}
+
+func runtimeMetricGCGoalArgumentSupportedVersion(version string) bool {
+	return goVersionAtLeast(version, minGoRuntimeGCGoalArgumentVersion)
 }
 
 // findLibraryVersions looks for all the libraries and versions inside the elf file.
@@ -214,17 +228,24 @@ func parseModules(mod string) moduleVersions {
 
 	if !validModuleReplacementLayout(mod) {
 		log().Debug("invalid module replacement layout")
+		result.invalid = true
 		return result
 	}
 
 	buildInfo, err := debug.ParseBuildInfo(mod)
 	if err != nil {
 		log().Debug("can't parse module build information", "error", err)
+		result.invalid = true
 		return result
 	}
 
 	for _, dependency := range buildInfo.Deps {
 		if dependency == nil {
+			continue
+		}
+		if _, exists := result.versions[dependency.Path]; exists {
+			log().Debug("duplicate module build information", "module", dependency.Path)
+			result.invalid = true
 			continue
 		}
 

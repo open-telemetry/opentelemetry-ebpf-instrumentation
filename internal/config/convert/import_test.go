@@ -59,6 +59,215 @@ func TestV2ToRuntimeDefaultExportFoundation(t *testing.T) {
 	require.NotContains(t, got.OTELMetrics.Instrumentations, instrumentations.InstrumentationDNS)
 }
 
+func TestV2ToRuntimeFlowLimitAliases(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name              string
+		networkPackets    int
+		maxTrackedFlows   int
+		wantCacheMaxFlows int
+		wantErr           string
+	}{
+		{
+			name:              "both omitted",
+			wantCacheMaxFlows: obi.DefaultConfig.NetworkFlows.CacheMaxFlows,
+		},
+		{
+			name:              "limits alias only",
+			networkPackets:    71,
+			wantCacheMaxFlows: 71,
+		},
+		{
+			name:              "flow lifecycle alias only",
+			maxTrackedFlows:   72,
+			wantCacheMaxFlows: 72,
+		},
+		{
+			name:              "equal aliases",
+			networkPackets:    73,
+			maxTrackedFlows:   73,
+			wantCacheMaxFlows: 73,
+		},
+		{
+			name:            "divergent aliases",
+			networkPackets:  74,
+			maxTrackedFlows: 75,
+			wantErr: "capture.limits.network_packets (74) must equal " +
+				"capture.network.capture.flow_lifecycle.max_tracked_flows (75): " +
+				"both configure network.cache_max_flows",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := V2ToRuntime(&schema.Extension{
+				Version: schema.SupportedVersion,
+				Capture: schema.Capture{
+					Limits: schema.CaptureLimits{
+						NetworkPackets: test.networkPackets,
+					},
+					Network: schema.CaptureNetwork{
+						Capture: schema.NetworkCapture{
+							FlowLifecycle: schema.FlowLifecycle{
+								MaxTrackedFlows: test.maxTrackedFlows,
+							},
+						},
+					},
+				},
+			})
+			if test.wantErr != "" {
+				require.EqualError(t, err, test.wantErr)
+				return
+			}
+
+			require.NoError(t, err)
+			require.Equal(t, test.wantCacheMaxFlows, got.NetworkFlows.CacheMaxFlows)
+		})
+	}
+}
+
+func TestV2ToRuntimeParsedFlowLimitAliases(t *testing.T) {
+	t.Parallel()
+
+	_, standalone, err := schema.ParseStandaloneYAML([]byte(`
+file_format: "1.0"
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      limits:
+        network_packets: 0
+`))
+	require.NoError(t, err)
+	_, err = V2ToRuntime(standalone)
+	require.EqualError(t, err, "capture.limits.network_packets must be greater than zero")
+
+	receiver, err := schema.ParseReceiverYAML([]byte(`
+version: "2.0"
+network:
+  capture:
+    flow_lifecycle:
+      max_tracked_flows: 0
+`))
+	require.NoError(t, err)
+	_, err = V2ToRuntime(receiver)
+	require.EqualError(
+		t,
+		err,
+		"capture.network.capture.flow_lifecycle.max_tracked_flows must be greater than zero",
+	)
+}
+
+func TestV2ToRuntimeCompleteInstrumentationCanDisableAerospike(t *testing.T) {
+	t.Parallel()
+
+	_, ext := RuntimeToV2(nil)
+	instrumentation := &ext.Capture.Instrumentation
+	require.NotNil(t, instrumentation.Aerospike)
+	instrumentation.HTTP.Enabled.Traces = false
+	instrumentation.GRPC.Enabled.Traces = false
+	instrumentation.SQL.Enabled.Traces = false
+	instrumentation.Redis.Enabled.Traces = false
+	instrumentation.Kafka.Enabled.Traces = false
+	instrumentation.Mongo.Enabled.Traces = false
+	instrumentation.Couchbase.Enabled.Traces = false
+	instrumentation.DNS.Enabled.Traces = false
+	instrumentation.GPU.Enabled.Traces = false
+	instrumentation.Aerospike.Enabled.Traces = false
+	instrumentation.Aerospike.Enabled.Metrics = false
+
+	got, err := V2ToRuntime(ext)
+	require.NoError(t, err)
+
+	require.NotContains(t, got.Traces.Instrumentations, instrumentations.InstrumentationAerospike)
+	require.NotContains(t, got.OTELMetrics.Instrumentations, instrumentations.InstrumentationAerospike)
+	require.NotContains(t, got.Prometheus.Instrumentations, instrumentations.InstrumentationAerospike)
+}
+
+func TestV2ToRuntimePartialInstrumentationCanDisableAerospike(t *testing.T) {
+	t.Parallel()
+
+	got, err := V2ToRuntime(&schema.Extension{
+		Version: schema.SupportedVersion,
+		Capture: schema.Capture{
+			Instrumentation: schema.Instrumentation{
+				Aerospike: &schema.AerospikeInstrumentation{
+					Enabled: schema.ProtocolEnablement{Traces: false, Metrics: false},
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	require.NotContains(t, got.Traces.Instrumentations, instrumentations.InstrumentationAerospike)
+	require.NotContains(t, got.OTELMetrics.Instrumentations, instrumentations.InstrumentationAerospike)
+	require.NotContains(t, got.Prometheus.Instrumentations, instrumentations.InstrumentationAerospike)
+}
+
+func TestV2ToRuntimePartialAerospikeDefaultsOmittedSignals(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		aerospike      string
+		tracesEnabled  bool
+		metricsEnabled bool
+	}{
+		{
+			name:           "empty section",
+			aerospike:      "{}",
+			tracesEnabled:  true,
+			metricsEnabled: true,
+		},
+		{
+			name:           "metrics disabled",
+			aerospike:      "{enabled: {metrics: false}}",
+			tracesEnabled:  true,
+			metricsEnabled: false,
+		},
+		{
+			name:           "both disabled",
+			aerospike:      "{enabled: {traces: false, metrics: false}}",
+			tracesEnabled:  false,
+			metricsEnabled: false,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			ext, err := schema.ParseReceiverYAML([]byte("version: \"2.0\"\ninstrumentation:\n  aerospike: " + test.aerospike + "\n"))
+			require.NoError(t, err)
+
+			got, err := V2ToRuntime(ext)
+			require.NoError(t, err)
+
+			require.Equal(t, test.tracesEnabled,
+				instrumentations.NewInstrumentationSelection(got.Traces.Instrumentations).AerospikeEnabled())
+			require.Equal(t, test.metricsEnabled,
+				instrumentations.NewInstrumentationSelection(got.OTELMetrics.Instrumentations).AerospikeEnabled())
+			require.Equal(t, test.metricsEnabled,
+				instrumentations.NewInstrumentationSelection(got.Prometheus.Instrumentations).AerospikeEnabled())
+		})
+	}
+}
+
+func TestV2ToRuntimeCompleteInstrumentationDefaultsMissingAerospike(t *testing.T) {
+	t.Parallel()
+
+	_, ext := RuntimeToV2(nil)
+	ext.Capture.Instrumentation.Aerospike = nil
+	ext.Capture.Instrumentation.HTTP.Enabled.Traces = false
+
+	got, err := V2ToRuntime(ext)
+	require.NoError(t, err)
+
+	require.NotContains(t, got.Traces.Instrumentations, instrumentations.InstrumentationHTTP)
+	require.Contains(t, got.Traces.Instrumentations, instrumentations.InstrumentationAerospike)
+}
+
 func TestV2ToRuntimeCustomFoundation(t *testing.T) {
 	t.Parallel()
 
@@ -408,7 +617,11 @@ func TestV2ToRuntimeImportsRules(t *testing.T) {
 
 	require.True(t, got.Discovery.ExcludeOTelInstrumentedServices)
 	require.Equal(t, 4317, got.Discovery.DefaultOtlpGRPCPort)
-	require.Empty(t, got.Discovery.ExcludedLinuxSystemPaths)
+	require.Equal(
+		t,
+		obi.DefaultConfig.Discovery.ExcludedLinuxSystemPaths,
+		got.Discovery.ExcludedLinuxSystemPaths,
+	)
 	require.Len(t, got.Discovery.ExcludeInstrument, 1)
 	exclude := got.Discovery.ExcludeInstrument[0]
 	require.Equal(t, "/usr/bin/*", globString(exclude.Path))

@@ -257,6 +257,12 @@ func parseOpenAIInput(body []byte) request.OpenAIInput {
 	if len(parsed.Messages) == 0 && len(body) > 0 {
 		parsed.Messages = extractJSONRawField(body, "messages")
 	}
+	if len(parsed.Parameters) == 0 && len(body) > 0 {
+		parsed.Parameters = extractJSONRawField(body, "parameters")
+	}
+	if parsed.EncodingFormat == "" && len(body) > 0 {
+		parsed.EncodingFormat = extractJSONStringField(body, "encoding_format", 0)
+	}
 	return parsed
 }
 

@@ -1063,8 +1063,28 @@ func (r *metricsReporter) observe(span *request.Span) {
 			if r.is.SunRPCEnabled() {
 				r.observeHistogram(r.grpcDuration.WithLabelValues(labelValues(span, r.attrGRPCDuration)...).Metric, duration, span)
 			}
-		case request.EventTypeRedisClient, request.EventTypeSQLClient, request.EventTypeRedisServer, request.EventTypeMongoClient, request.EventTypeCouchbaseClient, request.EventTypeMemcachedClient, request.EventTypeMemcachedServer, request.EventTypeAerospikeClient:
-			if r.is.DBEnabled() {
+		case request.EventTypeRedisClient, request.EventTypeRedisServer:
+			if r.is.RedisEnabled() {
+				r.observeHistogram(r.dbClientDuration.WithLabelValues(labelValues(span, r.attrDBClientDuration)...).Metric, duration, span)
+			}
+		case request.EventTypeSQLClient:
+			if r.is.SQLEnabled() {
+				r.observeHistogram(r.dbClientDuration.WithLabelValues(labelValues(span, r.attrDBClientDuration)...).Metric, duration, span)
+			}
+		case request.EventTypeMongoClient:
+			if r.is.MongoEnabled() {
+				r.observeHistogram(r.dbClientDuration.WithLabelValues(labelValues(span, r.attrDBClientDuration)...).Metric, duration, span)
+			}
+		case request.EventTypeCouchbaseClient:
+			if r.is.CouchbaseEnabled() {
+				r.observeHistogram(r.dbClientDuration.WithLabelValues(labelValues(span, r.attrDBClientDuration)...).Metric, duration, span)
+			}
+		case request.EventTypeMemcachedClient, request.EventTypeMemcachedServer:
+			if r.is.MemcachedEnabled() {
+				r.observeHistogram(r.dbClientDuration.WithLabelValues(labelValues(span, r.attrDBClientDuration)...).Metric, duration, span)
+			}
+		case request.EventTypeAerospikeClient:
+			if r.is.AerospikeEnabled() {
 				r.observeHistogram(r.dbClientDuration.WithLabelValues(labelValues(span, r.attrDBClientDuration)...).Metric, duration, span)
 			}
 		case request.EventTypeKafkaClient, request.EventTypeKafkaServer:

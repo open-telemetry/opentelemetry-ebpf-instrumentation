@@ -14,7 +14,6 @@ import (
 
 	"github.com/grafana/go-offsets-tracker/pkg/offsets"
 	"github.com/hashicorp/go-version"
-	"golang.org/x/mod/semver"
 )
 
 func log() *slog.Logger {
@@ -33,17 +32,55 @@ var (
 	pqOneElevenZero     = version.Must(version.NewVersion("1.11.0"))
 )
 
-type moduleVersionRange struct {
+type activationModule struct {
 	path string
-	min  string
-	max  string
+	sums map[string]string
 }
 
 // Activation writes private structs owned by each of these modules.
-var goAutoSDKActivationModuleVersions = [...]moduleVersionRange{
-	{path: "go.opentelemetry.io/auto/sdk", min: "v1.1.0", max: "v1.2.1"},
-	{path: "go.opentelemetry.io/otel", min: "v1.33.0", max: "v1.44.0"},
-	{path: "go.opentelemetry.io/otel/trace", min: "v1.33.0", max: "v1.44.0"},
+var goAutoSDKActivationModules = [...]activationModule{
+	{
+		path: "go.opentelemetry.io/auto/sdk",
+		sums: map[string]string{
+			"v1.1.0": "h1:cH53jehLUN6UFLY71z+NDOiNJqDdPRaXzTel0sJySYA=",
+			"v1.2.0": "h1:YpRtUFjvhSymycLS2T81lT6IGhcUP+LUPtv0iv1N8bM=",
+			"v1.2.1": "h1:jXsnJ4Lmnqd11kwkBV2LgLoFMZKizbCi5fNZ/ipaZ64=",
+		},
+	},
+	{
+		path: "go.opentelemetry.io/otel",
+		sums: map[string]string{
+			"v1.33.0": "h1:/FerN9bax5LoK51X/sI0SVYrjSE0/yUL7DpxW4K3FWw=",
+			"v1.34.0": "h1:zRLXxLCgL1WyKsPVrgbSdMN4c0FMkDAskSTQP+0hdUY=",
+			"v1.35.0": "h1:xKWKPxrxB6OtMCbmMY021CqC45J+3Onta9MqjhnusiQ=",
+			"v1.36.0": "h1:UumtzIklRBY6cI/lllNZlALOF5nNIzJVb16APdvgTXg=",
+			"v1.37.0": "h1:9zhNfelUvx0KBfu/gb+ZgeAfAgtWrfHJZcAqFC228wQ=",
+			"v1.38.0": "h1:RkfdswUDRimDg0m2Az18RKOsnI8UDzppJAtj01/Ymk8=",
+			"v1.39.0": "h1:8yPrr/S0ND9QEfTfdP9V+SiwT4E0G7Y5MO7p85nis48=",
+			"v1.40.0": "h1:oA5YeOcpRTXq6NN7frwmwFR0Cn3RhTVZvXsP4duvCms=",
+			"v1.41.0": "h1:YlEwVsGAlCvczDILpUXpIpPSL/VPugt7zHThEMLce1c=",
+			"v1.42.0": "h1:lSQGzTgVR3+sgJDAU/7/ZMjN9Z+vUip7leaqBKy4sho=",
+			"v1.43.0": "h1:mYIM03dnh5zfN7HautFE4ieIig9amkNANT+xcVxAj9I=",
+			"v1.44.0": "h1:JjwHmHpA4iZ3wBxluu2fbbE7j4kqlE8jXyAyPXH7HqU=",
+		},
+	},
+	{
+		path: "go.opentelemetry.io/otel/trace",
+		sums: map[string]string{
+			"v1.33.0": "h1:cCJuF7LRjUFso9LPnEAHJDB2pqzp+hbO8eu1qqW2d/s=",
+			"v1.34.0": "h1:+ouXS2V8Rd4hp4580a8q23bg0azF2nI8cqLYnC8mh/k=",
+			"v1.35.0": "h1:dPpEfJu1sDIqruz7BHFG3c7528f6ddfSWfFDVt/xgMs=",
+			"v1.36.0": "h1:ahxWNuqZjpdiFAyrIoQ4GIiAIhxAunQR6MUoKrsNd4w=",
+			"v1.37.0": "h1:HLdcFNbRQBE2imdSEgm/kwqmQj1Or1l/7bW6mxVK7z4=",
+			"v1.38.0": "h1:Fxk5bKrDZJUH+AMyyIXGcFAPah0oRcT+LuNtJrmcNLE=",
+			"v1.39.0": "h1:2d2vfpEDmCJ5zVYz7ijaJdOF59xLomrvj7bjt6/qCJI=",
+			"v1.40.0": "h1:WA4etStDttCSYuhwvEa8OP8I5EWu24lkOzp+ZYblVjw=",
+			"v1.41.0": "h1:Vbk2co6bhj8L59ZJ6/xFTskY+tGAbOnCtQGVVa9TIN0=",
+			"v1.42.0": "h1:OUCgIPt+mzOnaUTpOQcBiM/PLQ/Op7oq6g4LenLmOYY=",
+			"v1.43.0": "h1:BkNrHpup+4k4w+ZZ86CZoHHEkohws8AY+WTX09nk+3A=",
+			"v1.44.0": "h1:jxF5CsGYCe74MCRx2X4g7WsY/VBKRqqpNvXlX/6gtIk=",
+		},
+	},
 }
 
 const (
@@ -182,6 +219,12 @@ const (
 	RuntimeHeapStatsDeltaLargeAllocCountPos
 	RuntimeHeapStatsDeltaSmallAllocCountPos
 	RuntimeHeapStatsDeltaSmallFreeCountPos
+	RuntimeSchedNgSysPos
+	RuntimeSchedGFreeStackPos
+	RuntimeSchedGFreeNoStackPos
+	RuntimePFreeGPos
+	RuntimeGListSizePos
+	RuntimeGCControllerHeapGoalPos
 )
 
 //go:embed offsets.json
@@ -193,6 +236,33 @@ type structInfo struct {
 	lib string
 	// fields of the struct as key, and the name of the constant defined in the eBPF code as value
 	fields map[string]GoOffset
+}
+
+type nestedStructField struct {
+	parentType  string
+	parentField string
+	childField  string
+	offset      GoOffset
+}
+
+const (
+	runtimePointerSize = 8
+	runtimeInt32Size   = 4
+)
+
+var nestedRuntimeFields = []nestedStructField{
+	{
+		parentType:  "runtime.schedt",
+		parentField: "gFree",
+		childField:  "stack",
+		offset:      RuntimeSchedGFreeStackPos,
+	},
+	{
+		parentType:  "runtime.schedt",
+		parentField: "gFree",
+		childField:  "noStack",
+		offset:      RuntimeSchedGFreeNoStackPos,
+	},
 }
 
 // level-1 key = Struct type name and its containing library
@@ -593,6 +663,7 @@ var structMembers = map[string]structInfo{
 		fields: map[string]GoOffset{
 			"memoryLimit": RuntimeGCControllerMemoryLimitPos,
 			"gcPercent":   RuntimeGCControllerGCPercentPos,
+			"heapGoal":    RuntimeGCControllerHeapGoalPos,
 		},
 	},
 	"runtime.workType": {
@@ -631,6 +702,24 @@ var structMembers = map[string]structInfo{
 			"smallFreeCount":  RuntimeHeapStatsDeltaSmallFreeCountPos,
 		},
 	},
+	"runtime.schedt": {
+		lib: "go",
+		fields: map[string]GoOffset{
+			"ngsys": RuntimeSchedNgSysPos,
+		},
+	},
+	"runtime.p": {
+		lib: "go",
+		fields: map[string]GoOffset{
+			"gFree": RuntimePFreeGPos,
+		},
+	},
+	"runtime.gList": {
+		lib: "go",
+		fields: map[string]GoOffset{
+			"size": RuntimeGListSizePos,
+		},
+	},
 }
 
 func structMemberOffsets(elfFile *elf.File) (FieldOffsets, error) {
@@ -648,7 +737,7 @@ func structMemberOffsets(elfFile *elf.File) (FieldOffsets, error) {
 				return nil, fmt.Errorf("searching for library versions: %w", err)
 			}
 			offs = offsetsForLibVersions(offs, libVersions.versions, log())
-			setGoAutoSDKActivationSupport(offs, libVersions)
+			setGoAutoSDKActivationSupport(offs, libVersions, elfFile)
 			return offs, nil
 		}
 	} else {
@@ -727,26 +816,40 @@ func offsetsForLibVersions(fieldOffsets FieldOffsets, libVersions map[string]str
 	return fieldOffsets
 }
 
-func setGoAutoSDKActivationSupport(fieldOffsets FieldOffsets, modules moduleVersions) {
+func setGoAutoSDKActivationSupport(
+	fieldOffsets FieldOffsets,
+	modules moduleVersions,
+	elfFile *elf.File,
+) {
 	fieldOffsets[AutoSDKActivationSupported] = uint64(0)
-	if goAutoSDKActivationSupported(modules) {
+	if goAutoSDKActivationArchitectureSupported(elfFile) &&
+		goAutoSDKActivationSupported(modules) {
 		fieldOffsets[AutoSDKActivationSupported] = uint64(1)
 	}
 }
 
+func goAutoSDKActivationArchitectureSupported(elfFile *elf.File) bool {
+	if elfFile == nil || elfFile.Class != elf.ELFCLASS64 {
+		return false
+	}
+
+	return elfFile.Machine == elf.EM_X86_64 || elfFile.Machine == elf.EM_AARCH64
+}
+
 func goAutoSDKActivationSupported(modules moduleVersions) bool {
-	for _, required := range goAutoSDKActivationModuleVersions {
+	if modules.invalid {
+		return false
+	}
+
+	for _, required := range goAutoSDKActivationModules {
 		if _, replaced := modules.replacements[required.path]; replaced {
 			return false
 		}
 
 		moduleVersion, found := modules.versions[required.path]
 		moduleSum, checksummed := modules.sums[required.path]
-		if !found || !checksummed || !strings.HasPrefix(moduleSum, "h1:") ||
-			!semver.IsValid(moduleVersion) ||
-			semver.Prerelease(moduleVersion) != "" || semver.Build(moduleVersion) != "" ||
-			semver.Compare(moduleVersion, required.min) < 0 ||
-			semver.Compare(moduleVersion, required.max) > 0 {
+		canonicalSum, supported := required.sums[moduleVersion]
+		if !found || !checksummed || !supported || moduleSum != canonicalSum {
 			return false
 		}
 	}
@@ -780,15 +883,22 @@ func structMemberPreFetchedOffsets(elfFile *elf.File, fieldOffsets FieldOffsets)
 		return nil, fmt.Errorf("searching for library versions: %w", err)
 	}
 	fieldOffsets = offsetsForLibVersions(fieldOffsets, libVersions.versions, log)
-	setGoAutoSDKActivationSupport(fieldOffsets, libVersions)
+	setGoAutoSDKActivationSupport(fieldOffsets, libVersions, elfFile)
 	// after putting the offsets.json in a Go structure, we search all the
 	// structMembers elements on it, to get the annotated offsets
 	for strName, strInfo := range structMembers {
 		version, ok := libVersions.versions[strInfo.lib]
 		version = cleanLibVersion(version, ok, strInfo.lib, log)
 		for fieldName, constantName := range strInfo.fields {
+			if _, found := fieldOffsets[constantName]; found {
+				continue
+			}
+
 			// look the version of the required field in the offsets.json memory copy
 			offset, ok := offs.Find(strName, fieldName, version)
+			if constantName == RuntimeGCControllerHeapGoalPos {
+				offset, ok = prefetchedGoRuntimeGCGoalOffset(offs, version)
+			}
 			if !ok {
 				log.Debug("can't find offsets for field",
 					"lib", strInfo.lib, "name", strName, "field", fieldName, "version", version)
@@ -798,7 +908,81 @@ func structMemberPreFetchedOffsets(elfFile *elf.File, fieldOffsets FieldOffsets)
 			fieldOffsets[constantName] = offset
 		}
 	}
+	version, ok := libVersions.versions["go"]
+	resolveNestedStructPreFetchedOffsets(
+		offs, fieldOffsets, cleanLibVersion(version, ok, "go", log), log,
+	)
 	return fieldOffsets, nil
+}
+
+func prefetchedGoRuntimeGCGoalOffset(offs *offsets.Track, goVersion string) (uint64, bool) {
+	field, ok := offs.Data["runtime.gcControllerState"]["heapGoal"]
+	if !ok {
+		return 0, false
+	}
+
+	target, err := version.NewVersion(goVersion)
+	if err != nil {
+		return 0, false
+	}
+	newest, err := version.NewVersion(field.Versions.Newest)
+	if err != nil || target.GreaterThan(newest) {
+		return 0, false
+	}
+
+	return field.GetOffset(goVersion)
+}
+
+func resolveNestedStructPreFetchedOffsets(
+	offs *offsets.Track,
+	fieldOffsets FieldOffsets,
+	goVersion string,
+	log *slog.Logger,
+) {
+	if _, stackOK := fieldOffsets[RuntimeSchedGFreeStackPos]; stackOK {
+		if _, noStackOK := fieldOffsets[RuntimeSchedGFreeNoStackPos]; noStackOK {
+			return
+		}
+	}
+
+	gFreeOff, ok := offs.Find("runtime.schedt", "gFree", goVersion)
+	if !ok {
+		log.Debug("can't derive nested runtime offsets",
+			"missing_field", "runtime.schedt.gFree", "go_version", goVersion)
+		return
+	}
+	mutexKeyOff, ok := offs.Find("runtime.mutex", "key", goVersion)
+	if !ok {
+		log.Debug("can't derive nested runtime offsets",
+			"missing_field", "runtime.mutex.key", "go_version", goVersion)
+		return
+	}
+	gListSizeOff, ok := offs.Find("runtime.gList", "size", goVersion)
+	if !ok {
+		log.Debug("can't derive nested runtime offsets",
+			"missing_field", "runtime.gList.size", "go_version", goVersion)
+		return
+	}
+
+	mutexSize := alignRuntimeOffset(mutexKeyOff+runtimePointerSize, runtimePointerSize)
+	gListSize := alignRuntimeOffset(gListSizeOff+runtimeInt32Size, runtimePointerSize)
+	stackOff := gFreeOff + mutexSize
+	noStackOff := stackOff + gListSize
+	if _, ok := fieldOffsets[RuntimeSchedGFreeStackPos]; !ok {
+		log.Debug("found nested offset", "fieldName", "gFree.stack", "offset", stackOff)
+		fieldOffsets[RuntimeSchedGFreeStackPos] = stackOff
+	}
+	if _, ok := fieldOffsets[RuntimeSchedGFreeNoStackPos]; !ok {
+		log.Debug("found nested offset", "fieldName", "gFree.noStack", "offset", noStackOff)
+		fieldOffsets[RuntimeSchedGFreeNoStackPos] = noStackOff
+	}
+}
+
+func alignRuntimeOffset(offset, alignment uint64) uint64 {
+	if alignment == 0 || offset%alignment == 0 {
+		return offset
+	}
+	return offset + alignment - offset%alignment
 }
 
 // structMemberOffsetsFromDwarf reads the executable dwarf information to get
@@ -810,6 +994,9 @@ func structMemberOffsetsFromDwarf(data *dwarf.Data) (FieldOffsets, map[GoOffset]
 		for _, ctName := range str.fields {
 			expectedReturns[ctName] = struct{}{}
 		}
+	}
+	for _, field := range nestedRuntimeFields {
+		expectedReturns[field.offset] = struct{}{}
 	}
 	log.Debug("searching offests for field constants", "constants", expectedReturns)
 
@@ -828,22 +1015,75 @@ func structMemberOffsetsFromDwarf(data *dwarf.Data) (FieldOffsets, map[GoOffset]
 			continue
 		}
 		attrs := getAttrs(entry)
-		typeName, ok := attrs[dwarf.AttrName]
+		typeName, ok := attrs[dwarf.AttrName].(string)
 		if !ok {
 			reader.SkipChildren()
 			continue
 		}
-		structMember, ok := structMembers[typeName.(string)]
+		structMember, ok := structMembers[typeName]
 		if !ok {
 			reader.SkipChildren()
 			continue
 		}
 		log.Debug("inspecting fields for struct type", "type", typeName)
+		resolveNestedStructOffsets(data, entry.Offset, typeName, expectedReturns, fieldOffsets)
 		if err := readMembers(reader, structMember.fields, expectedReturns, fieldOffsets); err != nil {
 			log.Debug("error reading DWARF info", "type", typeName, "error", err)
 			return fieldOffsets, expectedReturns
 		}
 	}
+}
+
+func resolveNestedStructOffsets(
+	data *dwarf.Data,
+	typeOffset dwarf.Offset,
+	typeName string,
+	expectedReturns map[GoOffset]struct{},
+	offsets FieldOffsets,
+) {
+	var fields []nestedStructField
+	for _, field := range nestedRuntimeFields {
+		if field.parentType == typeName {
+			fields = append(fields, field)
+		}
+	}
+	if len(fields) == 0 {
+		return
+	}
+
+	typeInfo, err := data.Type(typeOffset)
+	if err != nil {
+		return
+	}
+	parent, ok := typeInfo.(*dwarf.StructType)
+	if !ok {
+		return
+	}
+	for _, field := range fields {
+		parentField := dwarfStructFieldByName(parent, field.parentField)
+		if parentField == nil {
+			continue
+		}
+		child, ok := parentField.Type.(*dwarf.StructType)
+		if !ok {
+			continue
+		}
+		childField := dwarfStructFieldByName(child, field.childField)
+		if childField == nil {
+			continue
+		}
+		offsets[field.offset] = uint64(parentField.ByteOffset + childField.ByteOffset)
+		delete(expectedReturns, field.offset)
+	}
+}
+
+func dwarfStructFieldByName(structType *dwarf.StructType, name string) *dwarf.StructField {
+	for _, field := range structType.Field {
+		if field.Name == name {
+			return field
+		}
+	}
+	return nil
 }
 
 type dwarfReader interface {

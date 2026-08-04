@@ -56,6 +56,7 @@ To ensure that the redesign is guided by consistent values and priorities, we de
 
 - **Reduce redundancy and surprise**
   - Remove redundant gates that can silently disable already-configured behavior.
+  - Keep implementation-only tuning internal unless it represents a stable user goal.
   - Keep naming concise when section context already conveys meaning.
 
 - **Versioning should be explicit and layered**
@@ -274,7 +275,7 @@ The `capture` grouping was introduced for two reasons:
 
 - `policy`: global rule evaluation behavior (default action, match order, timing).
 - `rules`: ordered workload selection rules (include/exclude by process identity, Kubernetes metadata, etc.).
-- `instrumentation`: protocol-specific capture controls (HTTP, gRPC, SQL, Redis, Kafka, MongoDB, Couchbase, DNS, GPU).
+- `instrumentation`: protocol-specific capture controls (HTTP, gRPC, SQL, Redis, Kafka, MongoDB, Couchbase, DNS, GPU, Aerospike).
 - `runtimes`: language runtime injection controls (Go probes, Node.js SIGUSR1, Java agent attachment).
 - `network`: network flow capture configuration.
 - `limits`: cardinality and memory guardrails.
@@ -319,7 +320,7 @@ Known `match.process` fields exported today:
 | `language_regex` | String regex | legacy v1 regex `languages` |
 | `cmd_args_glob` | String array | v1 glob `cmd_args` |
 | `cmd_args_regex` | String regex | legacy v1 regex `cmd_args` |
-| `exe_path_glob` | String array | v1 glob `exe_path` and excluded system paths |
+| `exe_path_glob` | String array | v1 glob `exe_path` |
 | `exe_path_regex` | String regex | legacy v1 regex `exe_path` / `exe_path_regexp` and `executable_path` |
 | `containers_only` | Boolean | v1 `containers_only` |
 | `exports_otlp` | Object with `port` and `protocol` | v1 `exclude_otel_instrumented_services` |
@@ -339,6 +340,28 @@ Known `match.kubernetes` fields exported today:
 
 `metadata_glob` and `metadata_regex` intentionally exclude `k8s_namespace`; namespace has first-class fields because it is the most common Kubernetes selector.
 Other allowed metadata keys currently include `k8s_pod_name`, `k8s_deployment_name`, `k8s_replicaset_name`, `k8s_daemonset_name`, `k8s_statefulset_name`, `k8s_job_name`, `k8s_cronjob_name`, `k8s_owner_name`, `k8s_container_name`, and `container_name`.
+
+#### Language-detection path skips are not capture rules
+
+The v1 `discovery.excluded_linux_system_paths` field limits the cost of
+preliminary language detection for executables under common Linux system
+paths. It does not express workload-selection intent. A process under one of
+these paths cannot match a language selector because its preliminary language
+detection is skipped, but it can still be selected by executable path, open
+port, PID, or metadata. Once selected, OBI detects its executable type for the
+instrumentation pipeline.
+
+Config v2 does not expose this implementation-tuning field and does not
+translate its paths into `capture.rules`. The built-in path list remains an
+internal runtime default for both standalone and receiver deployments.
+Translating it into exclude rules would widen a language-detection optimization
+into a hard capture exclusion and could suppress explicitly selected services.
+
+Migration accepts the v1 default value, including when it is written
+explicitly, because the effective behavior is preserved. A custom or empty v1
+value cannot be represented in v2 and causes migration to fail with the exact
+source field. Operators who intend to exclude workloads from capture should
+write explicit `capture.rules` instead.
 
 #### Per-workload refinement: `refine` on include rules
 
@@ -484,7 +507,7 @@ tracer_provider:
 
 The `capture.instrumentation` section defines protocol-specific instrumentation controls, including enablement and filtering for traces and metrics.
 
-All protocols (HTTP, gRPC, SQL, Redis, Kafka, MongoDB, Couchbase, DNS, GPU) have a consistent base structure for defining whether traces and metrics are enabled and what filters apply to each signal.
+All protocols (HTTP, gRPC, SQL, Redis, Kafka, MongoDB, Couchbase, DNS, GPU, Aerospike) have a consistent base structure for defining whether traces and metrics are enabled and what filters apply to each signal.
 Each protocol can also have its own specific configuration subsections.
 For example, SQL has `mysql` and `postgres` for driver-specific controls, HTTP has `routes.discovery` for route harvesting controls, etc.
 
@@ -641,7 +664,7 @@ Important mapping notes:
 | `discovery.exclude_instrument` | `extensions.obi.capture.rules[]` (exclude rules with glob selectors) | Move + reshape |
 | `discovery.exclude_otel_instrumented_services` | `extensions.obi.capture.rules[].match.process.exports_otlp` (exclude rule) | Move + reshape |
 | `discovery.exclude_services` | `extensions.obi.capture.rules[]` (exclude rules with legacy regex selectors) | Legacy move + reshape |
-| `discovery.excluded_linux_system_paths` | `extensions.obi.capture.rules[].match.process.exe_path_glob` (exclude rule) | Move + reshape |
+| `discovery.excluded_linux_system_paths` | *No v2 field* | Internal language-detection optimization; built-in defaults remain active and custom v1 values cannot be migrated |
 | `discovery.instrument` | `extensions.obi.capture.rules[]` (include rules with glob selectors) | Move + reshape |
 | `discovery.min_process_age` | `extensions.obi.capture.policy.min_process_age` | Move |
 | `discovery.route_harvester_advanced.java_harvest_delay` | `extensions.obi.capture.instrumentation.http.routes.discovery.java.delay` | Move + rename |

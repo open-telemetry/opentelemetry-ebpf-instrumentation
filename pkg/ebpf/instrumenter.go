@@ -57,6 +57,25 @@ type reverseCloser struct {
 	err     error
 }
 
+// goProbeGroupTracer provides ordered optional Go probes that must be attached
+// atomically after the tracer's baseline Go probes.
+type goProbeGroupTracer interface {
+	GoProbeGroups() []ebpfcommon.GoProbeGroup
+}
+
+// processScopedGoProbeTracer registers optional Go probes that are attached
+// for individual processes after their executable-scoped probe group succeeds.
+type processScopedGoProbeTracer interface {
+	RegisterProcessScopedGoProbe(ExecutableKey, ebpfcommon.GoProbe)
+	UnregisterProcessScopedGoProbes(ExecutableKey)
+}
+
+type processScopedGoProbeRegistration struct {
+	tracer processScopedGoProbeTracer
+	key    ExecutableKey
+	probe  ebpfcommon.GoProbe
+}
+
 func (c *reverseCloser) Close() error {
 	c.once.Do(func() {
 		for i := len(c.closers) - 1; i >= 0; i-- {
@@ -124,12 +143,12 @@ func (i *instrumenter) goprobes(p Tracer) error {
 	i.closables = append(i.closables, closers...)
 	p.AddCloser(closers...)
 
-	if groupedTracer, ok := p.(GoProbeGroupTracer); ok {
+	if groupedTracer, ok := p.(goProbeGroupTracer); ok {
 		for _, group := range groupedTracer.GoProbeGroups() {
 			if !goProbeGroupPrerequisitesAttached(group, attachedSymbols) {
 				continue
 			}
-			processScopedTracer, hasProcessScopedTracer := p.(ProcessScopedGoProbeTracer)
+			processScopedTracer, hasProcessScopedTracer := p.(processScopedGoProbeTracer)
 			if goProbeGroupHasProcessScopedProbe(group) && !hasProcessScopedTracer {
 				continue
 			}
@@ -140,14 +159,18 @@ func (i *instrumenter) goprobes(p Tracer) error {
 			}
 			closer := &reverseCloser{closers: groupClosers}
 			i.closables = append(i.closables, closer)
+			i.optionalGoProbeGroupClosers = append(i.optionalGoProbeGroupClosers, closer)
 			p.AddCloser(closer)
 			if hasProcessScopedTracer {
 				for _, candidate := range group.Probes {
 					if candidate.ProcessScoped {
-						processScopedTracer.RegisterProcessScopedGoProbe(
-							i.dev,
-							i.ino,
-							candidate,
+						i.processScopedGoProbes = append(
+							i.processScopedGoProbes,
+							processScopedGoProbeRegistration{
+								tracer: processScopedTracer,
+								key:    i.key,
+								probe:  candidate,
+							},
 						)
 					}
 				}
@@ -156,6 +179,19 @@ func (i *instrumenter) goprobes(p Tracer) error {
 	}
 
 	return nil
+}
+
+func (i *instrumenter) registerProcessScopedGoProbes(key ExecutableKey) {
+	for _, registration := range i.processScopedGoProbes {
+		registration.tracer.RegisterProcessScopedGoProbe(
+			key,
+			registration.probe,
+		)
+	}
+}
+
+func (i *instrumenter) rollbackOptionalGoProbeGroups() {
+	closeAllReverse(i.optionalGoProbeGroupClosers)
 }
 
 func (i *instrumenter) instrumentProbes(exe *link.Executable, probes map[string][]*ebpfcommon.ProbeDesc) ([]io.Closer, error) {

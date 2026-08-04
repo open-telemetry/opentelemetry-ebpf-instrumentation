@@ -737,6 +737,136 @@ func TestReverseCloserClosesLinksOnceInReverseOrderConcurrently(t *testing.T) {
 	assert.Equal(t, []string{"activation", "ended", "start"}, closes)
 }
 
+type processScopedGoProbeRecorder struct {
+	registeredKeys []ExecutableKey
+	unregistered   []ExecutableKey
+}
+
+func (r *processScopedGoProbeRecorder) RegisterProcessScopedGoProbe(
+	key ExecutableKey,
+	_ ebpfcommon.GoProbe,
+) {
+	r.registeredKeys = append(r.registeredKeys, key)
+}
+
+func (r *processScopedGoProbeRecorder) UnregisterProcessScopedGoProbes(key ExecutableKey) {
+	r.unregistered = append(r.unregistered, key)
+}
+
+func TestProcessScopedGoProbeRegistrationIsDeferred(t *testing.T) {
+	key := ExecutableKey{Dev: 5, Ino: 10}
+	recorder := &processScopedGoProbeRecorder{}
+	i := &instrumenter{
+		key: key,
+		processScopedGoProbes: []processScopedGoProbeRegistration{{
+			tracer: recorder,
+			key:    key,
+			probe: ebpfcommon.GoProbe{
+				Symbol:        "newSpan",
+				ProcessScoped: true,
+			},
+		}},
+	}
+
+	assert.Empty(t, recorder.registeredKeys)
+
+	i.registerProcessScopedGoProbes(key)
+
+	assert.Equal(t, []ExecutableKey{key}, recorder.registeredKeys)
+}
+
+func TestOptionalGoProbeGroupsRollBackOnce(t *testing.T) {
+	linkCloser := &countingCloser{}
+	groupCloser := &reverseCloser{closers: []io.Closer{linkCloser}}
+	i := &instrumenter{
+		optionalGoProbeGroupClosers: []io.Closer{groupCloser},
+	}
+
+	i.rollbackOptionalGoProbeGroups()
+	i.rollbackOptionalGoProbeGroups()
+
+	assert.Equal(t, int32(1), linkCloser.closes.Load())
+}
+
+func TestStaleExecutableUnlinkPreservesReplacement(t *testing.T) {
+	key := ExecutableKey{Dev: 5, Ino: 10}
+	fileInfo := exec.New(exec.Init{Dev: key.Dev, Ino: key.Ino})
+	oldCloser := &countingCloser{}
+	newCloser := &countingCloser{}
+	pt := &ProcessTracer{
+		log:             slog.Default(),
+		Instrumentables: map[ExecutableKey]*instrumenter{},
+	}
+	oldInstrumenter := &instrumenter{
+		key:       key,
+		closables: []io.Closer{oldCloser},
+		modules:   map[uint64]struct{}{},
+	}
+	newInstrumenter := &instrumenter{
+		key:       key,
+		closables: []io.Closer{newCloser},
+		modules:   map[uint64]struct{}{},
+	}
+	oldExecutable := &Instrumentable{FileInfo: fileInfo}
+	newExecutable := &Instrumentable{FileInfo: fileInfo}
+
+	pt.commitInstrumenter(oldInstrumenter, oldExecutable)
+	pt.commitInstrumenter(newInstrumenter, newExecutable)
+
+	assert.Equal(t, int32(1), oldCloser.closes.Load())
+	assert.Equal(t, int32(0), newCloser.closes.Load())
+	assert.NotEqual(t, oldExecutable.ExecutableGeneration, newExecutable.ExecutableGeneration)
+
+	pt.UnlinkExecutable(fileInfo, oldExecutable.ExecutableGeneration)
+
+	assert.Same(t, newInstrumenter, pt.Instrumentables[key])
+	assert.Equal(t, int32(0), newCloser.closes.Load())
+
+	pt.UnlinkExecutable(fileInfo, newExecutable.ExecutableGeneration)
+
+	assert.NotContains(t, pt.Instrumentables, key)
+	assert.Equal(t, int32(1), newCloser.closes.Load())
+}
+
+func TestGoInstrumenterSharedAcrossDevices(t *testing.T) {
+	firstKey := ExecutableKey{Dev: 5, Ino: 10}
+	secondKey := ExecutableKey{Dev: 6, Ino: 10}
+	firstFileInfo := exec.New(exec.Init{Dev: firstKey.Dev, Ino: firstKey.Ino})
+	secondFileInfo := exec.New(exec.Init{Dev: secondKey.Dev, Ino: secondKey.Ino})
+	closer := &countingCloser{}
+	pt := &ProcessTracer{
+		Type:            Go,
+		Instrumentables: map[ExecutableKey]*instrumenter{},
+	}
+	shared := &instrumenter{
+		key:       firstKey,
+		closables: []io.Closer{closer},
+		modules:   map[uint64]struct{}{},
+	}
+	firstExecutable := &Instrumentable{FileInfo: firstFileInfo}
+	secondExecutable := &Instrumentable{FileInfo: secondFileInfo}
+
+	pt.commitInstrumenter(shared, firstExecutable)
+	require.NoError(t, pt.NewExecutable(nil, secondExecutable))
+
+	assert.Same(t, shared, pt.Instrumentables[firstKey])
+	assert.Same(t, shared, pt.Instrumentables[secondKey])
+	assert.Equal(t, uint64(2), shared.references)
+	assert.NotEqual(t, firstExecutable.ExecutableGeneration, secondExecutable.ExecutableGeneration)
+
+	pt.UnlinkExecutable(firstFileInfo, firstExecutable.ExecutableGeneration)
+
+	assert.NotContains(t, pt.Instrumentables, firstKey)
+	assert.Contains(t, pt.Instrumentables, secondKey)
+	assert.Equal(t, int32(0), closer.closes.Load())
+
+	pt.UnlinkExecutable(secondFileInfo, secondExecutable.ExecutableGeneration)
+
+	assert.Empty(t, pt.Instrumentables)
+	assert.Empty(t, pt.goInstrumentablesByInode)
+	assert.Equal(t, int32(1), closer.closes.Load())
+}
+
 type countingUSDTIPMap struct {
 	deletes atomic.Int32
 }

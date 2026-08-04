@@ -48,7 +48,10 @@ func V2ToRuntime(src *schema.Extension) (*obi.Config, error) {
 	if err := validateV2RuleSelectorFamilies(src.Capture.Rules); err != nil {
 		return nil, err
 	}
-	if err := validateV2HTTPFilters(src.Capture.Instrumentation.HTTP.Filters); err != nil {
+	if err := validateV2SignalFilters(src); err != nil {
+		return nil, err
+	}
+	if err := reconcileV2FlowLimitAliases(src); err != nil {
 		return nil, err
 	}
 	if err := validateV2HTTPRoutes(src.Capture.Instrumentation.HTTP.Routes, src.Capture.Rules); err != nil {
@@ -60,6 +63,10 @@ func V2ToRuntime(src *schema.Extension) (*obi.Config, error) {
 	if err := validateUnsupportedV2Fields(src); err != nil {
 		return nil, err
 	}
+
+	normalized := *src
+	normalized.Capture.Instrumentation = instrumentationWithDefaults(src.Capture.Instrumentation)
+	src = &normalized
 
 	cfg := runtimeConfigDefaults()
 	applyV2Capture(&cfg, src)
@@ -309,14 +316,15 @@ func runtimeDiscoveryRulesFromV2(rules []schema.Rule) runtimeDiscoveryRules {
 
 func applyRuntimeDiscoveryRules(cfg *obi.Config, rules runtimeDiscoveryRules) {
 	// A present v2 rules section is authoritative for runtime selector state,
-	// including the default exclusions emitted by RuntimeToV2.
+	// including the default capture exclusions emitted by RuntimeToV2.
+	// ExcludedLinuxSystemPaths only controls language detection, so it retains
+	// its runtime default instead of being represented as a capture rule.
 	cfg.Discovery.Instrument = rules.includeGlobs
 	cfg.Discovery.ExcludeInstrument = rules.excludeGlobs
 	cfg.Discovery.DefaultExcludeInstrument = nil
 	cfg.Discovery.Services = rules.includeRegex
 	cfg.Discovery.ExcludeServices = rules.excludeRegex
 	cfg.Discovery.DefaultExcludeServices = nil
-	cfg.Discovery.ExcludedLinuxSystemPaths = nil
 	cfg.Discovery.ExcludeOTelInstrumentedServices = rules.excludeOTelInstrumentedServices
 	if rules.excludeOTelInstrumentedServices {
 		cfg.Discovery.DefaultOtlpGRPCPort = rules.defaultOTLPGRPCPort
@@ -417,14 +425,136 @@ func ruleAffectsV2Selection(rule schema.Rule) bool {
 	return !ruleUsesRegex(rule.Match) || !ruleUsesGlob(rule.Match)
 }
 
-func validateV2HTTPFilters(filters schema.SignalFilters) error {
-	if len(filters.Traces) == 0 || len(filters.Metrics) == 0 {
+func validateV2SignalFilters(src *schema.Extension) error {
+	canonicalPath := "capture.instrumentation.http.filters.traces"
+	canonical := src.Capture.Instrumentation.HTTP.Filters.Traces
+	for _, mapping := range protocolMappings {
+		path := fmt.Sprintf("capture.instrumentation.%s.filters", mapping.name)
+		filters := protocolFilters(src.Capture.Instrumentation, mapping.name)
+		if err := validateSharedAttributeFilters(
+			path+".traces",
+			canonicalPath,
+			"application",
+			filters.Traces,
+			canonical,
+		); err != nil {
+			return err
+		}
+		if err := validateSharedAttributeFilters(
+			path+".metrics",
+			canonicalPath,
+			"application",
+			filters.Metrics,
+			canonical,
+		); err != nil {
+			return err
+		}
+	}
+
+	if err := validateSharedSignalFilters(
+		"capture.network.capture.filters",
+		"network",
+		src.Capture.Network.Capture.Filters,
+	); err != nil {
+		return err
+	}
+	return validateSharedSignalFilters(
+		"capture.network.stats.filters",
+		"network stats",
+		src.Capture.Network.Stats.Filters,
+	)
+}
+
+func validateSharedSignalFilters(path, runtimeFilter string, filters schema.SignalFilters) error {
+	return validateSharedAttributeFilters(
+		path+".metrics",
+		path+".traces",
+		runtimeFilter,
+		filters.Metrics,
+		filters.Traces,
+	)
+}
+
+func validateSharedAttributeFilters(
+	path string,
+	canonicalPath string,
+	runtimeFilter string,
+	filters schema.AttributeFilters,
+	canonical schema.AttributeFilters,
+) error {
+	if attributeFiltersEqual(filters, canonical) {
 		return nil
 	}
-	if reflect.DeepEqual(filters.Traces, filters.Metrics) {
+	return fmt.Errorf(
+		"%s cannot differ from %s because the runtime uses one %s filter",
+		path,
+		canonicalPath,
+		runtimeFilter,
+	)
+}
+
+func attributeFiltersEqual(left, right schema.AttributeFilters) bool {
+	if len(left) == 0 && len(right) == 0 {
+		return true
+	}
+	return reflect.DeepEqual(left, right)
+}
+
+func reconcileV2FlowLimitAliases(src *schema.Extension) error {
+	networkPackets := src.Capture.Limits.NetworkPackets
+	maxTrackedFlows := src.Capture.Network.Capture.FlowLifecycle.MaxTrackedFlows
+	networkPacketsSet, maxTrackedFlowsSet, presenceKnown := src.FlowLimitAliasPresence()
+
+	if presenceKnown {
+		if networkPacketsSet && networkPackets < 1 {
+			return errors.New("capture.limits.network_packets must be greater than zero")
+		}
+		if maxTrackedFlowsSet && maxTrackedFlows < 1 {
+			return errors.New(
+				"capture.network.capture.flow_lifecycle.max_tracked_flows must be greater than zero",
+			)
+		}
+
+		switch {
+		case networkPacketsSet && !maxTrackedFlowsSet:
+			if networkPackets != 0 {
+				src.Capture.Network.Capture.FlowLifecycle.MaxTrackedFlows = networkPackets
+			} else if maxTrackedFlows != 0 {
+				src.Capture.Limits.NetworkPackets = maxTrackedFlows
+			}
+			return nil
+		case !networkPacketsSet && maxTrackedFlowsSet:
+			if maxTrackedFlows != 0 {
+				src.Capture.Limits.NetworkPackets = maxTrackedFlows
+			} else if networkPackets != 0 {
+				src.Capture.Network.Capture.FlowLifecycle.MaxTrackedFlows = networkPackets
+			}
+			return nil
+		case !networkPacketsSet && !maxTrackedFlowsSet:
+			return nil
+		}
+	}
+
+	switch {
+	case networkPackets == 0 && maxTrackedFlows == 0:
+		return nil
+	case networkPackets == 0:
+		src.Capture.Limits.NetworkPackets = maxTrackedFlows
+		return nil
+	case maxTrackedFlows == 0:
+		src.Capture.Network.Capture.FlowLifecycle.MaxTrackedFlows = networkPackets
+		return nil
+	case networkPackets == maxTrackedFlows:
 		return nil
 	}
-	return errors.New("capture.instrumentation.http.filters: trace and metric filters cannot differ")
+
+	return fmt.Errorf(
+		"capture.limits.network_packets (%d) must equal "+
+			"capture.network.capture.flow_lifecycle.max_tracked_flows (%d): "+
+			"both configure network.cache_max_flows",
+		networkPackets,
+		maxTrackedFlows,
+	)
 }
 
 func validateV2HTTPPayloadExtraction(payload schema.PayloadExtraction) error {
@@ -903,6 +1033,18 @@ func applyPartialV2Engine(cfg *obi.Config, engine schema.CaptureEngine) {
 	}
 }
 
+func instrumentationWithDefaults(instrumentation schema.Instrumentation) schema.Instrumentation {
+	if !completeInstrumentationWithoutAerospike(instrumentation) || instrumentation.Aerospike != nil {
+		return instrumentation
+	}
+
+	aerospike := schema.AerospikeInstrumentation{
+		Enabled: schema.ProtocolEnablement{Traces: true, Metrics: true},
+	}
+	instrumentation.Aerospike = &aerospike
+	return instrumentation
+}
+
 func applyV2Instrumentation(cfg *obi.Config, instrumentation schema.Instrumentation) {
 	if zeroValue(instrumentation) {
 		return
@@ -1052,12 +1194,31 @@ func applyFullV2HTTPRoutes(cfg *obi.Config, routes schema.HTTPRoutes) {
 
 	policies := services.DirectionalRoutePolicies{}
 	applyV2HTTPRouteConfig(&policies, routes)
+	// A v1 global routes block exports identical incoming/outgoing policies.
+	// Collapse them back into a single global RoutesConfig so migrations round-trip
+	// to the representation the user authored instead of a directional one.
+	if routes.Incoming != nil && routes.Outgoing != nil &&
+		reflect.DeepEqual(policies.Incoming, policies.Outgoing) {
+		cfg.Routes = globalRoutesConfig(policies.Incoming)
+		return
+	}
 	cfg.Routes = &transform.RoutesConfig{
 		Directional: &policies,
 		DirectionalPolicyPresence: &transform.DirectionalRoutePolicyPresence{
 			Incoming: routes.Incoming != nil,
 			Outgoing: routes.Outgoing != nil,
 		},
+	}
+}
+
+func globalRoutesConfig(policy services.RoutePolicy) *transform.RoutesConfig {
+	return &transform.RoutesConfig{
+		Unmatch:                   transform.UnmatchType(policy.Unmatch),
+		Patterns:                  cloneStrings(policy.Patterns),
+		IgnorePatterns:            cloneStrings(policy.IgnorePatterns),
+		IgnoredEvents:             transform.IgnoreMode(policy.IgnoredEvents),
+		WildcardChar:              policy.WildcardChar,
+		MaxPathSegmentCardinality: policy.MaxPathSegmentCardinality,
 	}
 }
 
@@ -1251,9 +1412,9 @@ func applySignalEnablement(
 	}
 
 	for _, mapping := range protocolMappings {
-		enablement := protocolEnablement(instrumentation, mapping.name)
+		enablement, explicit := protocolEnablement(instrumentation, mapping.name)
 		enabled := signalEnabled(enablement, signal)
-		if !complete && !enabled {
+		if !complete && !enabled && !explicit {
 			continue
 		}
 		selected[mapping.instr] = enabled
@@ -1959,7 +2120,7 @@ func appMetricsEnablement(instrumentation schema.Instrumentation, complete bool)
 	configured := complete
 	enabled := false
 	for _, mapping := range protocolMappings {
-		enablement := protocolEnablement(instrumentation, mapping.name)
+		enablement, _ := protocolEnablement(instrumentation, mapping.name)
 		metricsEnabled := signalEnabled(enablement, "metrics")
 		if !complete && !metricsEnabled {
 			continue
@@ -1972,7 +2133,7 @@ func appMetricsEnablement(instrumentation schema.Instrumentation, complete bool)
 	return enabled, configured
 }
 
-func completeInstrumentation(instrumentation schema.Instrumentation) bool {
+func completeInstrumentationWithoutAerospike(instrumentation schema.Instrumentation) bool {
 	return !zeroValue(instrumentation.HTTP) &&
 		!zeroValue(instrumentation.GRPC) &&
 		!zeroValue(instrumentation.SQL) &&
@@ -1982,6 +2143,10 @@ func completeInstrumentation(instrumentation schema.Instrumentation) bool {
 		!zeroValue(instrumentation.Couchbase) &&
 		!zeroValue(instrumentation.DNS) &&
 		!zeroValue(instrumentation.GPU)
+}
+
+func completeInstrumentation(instrumentation schema.Instrumentation) bool {
+	return completeInstrumentationWithoutAerospike(instrumentation) && instrumentation.Aerospike != nil
 }
 
 func completePolicy(policy schema.CapturePolicy) bool {
@@ -2087,28 +2252,63 @@ func cloneExtraGroupAttributes(values schema.ExtraGroupAttributes) obi.ExtraGrou
 	return out
 }
 
-func protocolEnablement(instrumentation schema.Instrumentation, name protocolName) schema.ProtocolEnablement {
+func protocolEnablement(instrumentation schema.Instrumentation, name protocolName) (schema.ProtocolEnablement, bool) {
 	switch name {
 	case protocolHTTP:
-		return instrumentation.HTTP.Enabled
+		return instrumentation.HTTP.Enabled, false
 	case protocolGRPC:
-		return instrumentation.GRPC.Enabled
+		return instrumentation.GRPC.Enabled, false
 	case protocolSQL:
-		return instrumentation.SQL.Enabled
+		return instrumentation.SQL.Enabled, false
 	case protocolRedis:
-		return instrumentation.Redis.Enabled
+		return instrumentation.Redis.Enabled, false
 	case protocolKafka:
-		return instrumentation.Kafka.Enabled
+		return instrumentation.Kafka.Enabled, false
 	case protocolMongo:
-		return instrumentation.Mongo.Enabled
+		return instrumentation.Mongo.Enabled, false
 	case protocolCouchbase:
-		return instrumentation.Couchbase.Enabled
+		return instrumentation.Couchbase.Enabled, false
 	case protocolDNS:
-		return instrumentation.DNS.Enabled
+		return instrumentation.DNS.Enabled, false
 	case protocolGPU:
-		return instrumentation.GPU.Enabled
+		return instrumentation.GPU.Enabled, false
+	case protocolAerospike:
+		if instrumentation.Aerospike != nil {
+			return instrumentation.Aerospike.Enabled, true
+		}
+		return schema.ProtocolEnablement{}, false
 	default:
-		return schema.ProtocolEnablement{}
+		return schema.ProtocolEnablement{}, false
+	}
+}
+
+func protocolFilters(instrumentation schema.Instrumentation, name protocolName) schema.SignalFilters {
+	switch name {
+	case protocolHTTP:
+		return instrumentation.HTTP.Filters
+	case protocolGRPC:
+		return instrumentation.GRPC.Filters
+	case protocolSQL:
+		return instrumentation.SQL.Filters
+	case protocolRedis:
+		return instrumentation.Redis.Filters
+	case protocolKafka:
+		return instrumentation.Kafka.Filters
+	case protocolMongo:
+		return instrumentation.Mongo.Filters
+	case protocolCouchbase:
+		return instrumentation.Couchbase.Filters
+	case protocolDNS:
+		return instrumentation.DNS.Filters
+	case protocolGPU:
+		return instrumentation.GPU.Filters
+	case protocolAerospike:
+		if instrumentation.Aerospike != nil {
+			return instrumentation.Aerospike.Filters
+		}
+		return schema.SignalFilters{}
+	default:
+		return schema.SignalFilters{}
 	}
 }
 
