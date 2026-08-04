@@ -24,7 +24,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 )
 
-func TestGetProbeMetricsClosesStatsFD(t *testing.T) {
+func TestBPFStatsRuntimeDoesNotLeakFDsAcrossScrapes(t *testing.T) {
 	collector := newPrivilegedTestCollector(t)
 	loadTestPrograms(t, 1, ebpf.SocketFilter)
 
@@ -33,7 +33,6 @@ func TestGetProbeMetricsClosesStatsFD(t *testing.T) {
 		debug.SetGCPercent(previousGCPercent)
 	})
 
-	collector.getProbeMetrics()
 	before := openFDCount(t)
 
 	for range 10 {
@@ -43,7 +42,7 @@ func TestGetProbeMetricsClosesStatsFD(t *testing.T) {
 	require.Equal(t, before, openFDCount(t))
 }
 
-func TestGetProbeMetricsCachesProgramsAndDiscoversNewIDs(t *testing.T) {
+func TestGetProbeMetricsCachesProgramMetadataAndDiscoversNewIDs(t *testing.T) {
 	collector := newPrivilegedTestCollector(t)
 	firstProgram := loadTestPrograms(t, 1, ebpf.SocketFilter)[0]
 	firstID := programID(t, firstProgram)
@@ -52,12 +51,18 @@ func TestGetProbeMetricsCachesProgramsAndDiscoversNewIDs(t *testing.T) {
 
 	firstCached, ok := collector.programCache[firstID]
 	require.True(t, ok)
-	require.NotNil(t, firstCached.program)
-	require.Equal(t, firstCached.program.FD(), cachedProgramFD(t, collector, firstID))
 	requireProbeMetric(t, metrics, firstID, ebpf.SocketFilter, "metric_0")
 
+	collector.getProbeMetrics()
+	require.Same(t, firstCached, collector.programCache[firstID])
+
 	require.NoError(t, firstProgram.Close())
-	requireProbeMetric(t, collector.getProbeMetrics(), firstID, ebpf.SocketFilter, "metric_0")
+	metrics = collector.getProbeMetrics()
+	requireNoProbeMetric(t, metrics, firstID)
+	_, ok = collector.programCache[firstID]
+	require.False(t, ok)
+	_, ok = collector.progs[firstID]
+	require.False(t, ok)
 
 	secondProgram := loadTestPrograms(t, 1, ebpf.SocketFilter)[0]
 	secondID := programID(t, secondProgram)
@@ -65,8 +70,7 @@ func TestGetProbeMetricsCachesProgramsAndDiscoversNewIDs(t *testing.T) {
 
 	metrics = collector.getProbeMetrics()
 
-	require.Same(t, firstCached, collector.programCache[firstID])
-	require.NotNil(t, collector.programCache[secondID].program)
+	require.True(t, collector.programCache[secondID].supported)
 	requireProbeMetric(t, metrics, secondID, ebpf.SocketFilter, "metric_0")
 }
 
@@ -79,10 +83,10 @@ func TestGetProbeMetricsNegativelyCachesUnsupportedPrograms(t *testing.T) {
 
 	cached, ok := collector.programCache[id]
 	require.True(t, ok)
-	require.Nil(t, cached.program)
+	require.False(t, cached.supported)
 }
 
-func TestCollectorShutdownClosesProgramsAndClearsState(t *testing.T) {
+func TestCollectorShutdownClearsState(t *testing.T) {
 	internalMetrics := imetrics.NewPrometheusReporter(
 		&imetrics.InternalMetricsConfig{BpfMetricScrapeInterval: time.Hour},
 		nil,
@@ -99,8 +103,7 @@ func TestCollectorShutdownClosesProgramsAndClearsState(t *testing.T) {
 
 	collector.getProbeMetrics()
 	collector.getMapMetrics()
-	cachedProgram := collector.programCache[id].program
-	require.NotNil(t, cachedProgram)
+	require.True(t, collector.programCache[id].supported)
 	require.NotEmpty(t, collector.progs)
 	require.NotEmpty(t, collector.mapCache)
 
@@ -115,8 +118,8 @@ func TestCollectorShutdownClosesProgramsAndClearsState(t *testing.T) {
 			len(collector.mapCache) == 0 &&
 			len(collector.progs) == 0
 	}, time.Second, 10*time.Millisecond)
-	_, err := cachedProgram.Info()
-	require.Error(t, err)
+	_, err := program.Info()
+	require.NoError(t, err)
 }
 
 func TestGetMapMetricsCachesMetadataAndEvictsMissingMaps(t *testing.T) {
@@ -279,16 +282,6 @@ func mapID(tb testing.TB, bpfMap *ebpf.Map) ebpf.MapID {
 	return id
 }
 
-func cachedProgramFD(t *testing.T, collector *BPFCollector, id ebpf.ProgramID) int {
-	t.Helper()
-
-	collector.getProbeMetrics()
-	cached, ok := collector.programCache[id]
-	require.True(t, ok)
-	require.NotNil(t, cached.program)
-	return cached.program.FD()
-}
-
 func requireProbeMetric(
 	t *testing.T,
 	metrics []ProbeMetrics,
@@ -307,6 +300,17 @@ func requireProbeMetric(
 		}
 	}
 	require.Failf(t, "probe metric not found", "program ID %d", id)
+}
+
+func requireNoProbeMetric(t *testing.T, metrics []ProbeMetrics, id ebpf.ProgramID) {
+	t.Helper()
+
+	idString := fmt.Sprintf("%d", id)
+	for _, metric := range metrics {
+		if metric.probeID == idString {
+			require.Failf(t, "unexpected probe metric", "program ID %d", id)
+		}
+	}
 }
 
 func requireMapMetric(

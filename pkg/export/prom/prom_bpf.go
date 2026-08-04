@@ -39,12 +39,13 @@ type BPFCollector struct {
 	mapCache         map[ebpf.MapID]*cachedMap
 	probeMetrics     func() []ProbeMetrics
 	mapMetrics       func() []BpfMapMetrics
+	closeBPFStats    func()
 	mu               sync.Mutex
 	closed           bool
 }
 
 type cachedProgram struct {
-	program   *ebpf.Program
+	supported bool
 	probeType string
 	probeName string
 	probeID   string
@@ -88,7 +89,7 @@ func BPFMetrics(
 	cfg *PrometheusConfig,
 	mpCfg *perapp.MetricsConfig,
 ) swarm.InstanceFunc {
-	return func(_ context.Context) (swarm.RunFunc, error) {
+	return func(ctx context.Context) (swarm.RunFunc, error) {
 		promEnabled := promMetricsEnabled(cfg, mpCfg)
 		internalEnabled := internalMetricsEnabled(ctxInfo.Metrics)
 		if !promEnabled && !internalEnabled {
@@ -98,10 +99,12 @@ func BPFMetrics(
 		runFns := make([]swarm.RunFunc, 0, 2)
 		if promEnabled {
 			collector := newBPFCollectorFn(ctxInfo, cfg, mpCfg)
+			collector.cleanupOnContext(ctx)
 			runFns = append(runFns, collector.startPrometheus)
 		}
 		if internalEnabled {
 			collector := newInternalBPFCollectorFn(ctxInfo, cfg, mpCfg)
+			collector.cleanupOnContext(ctx)
 			runFns = append(runFns, collector.startInternalMetrics)
 		}
 
@@ -168,6 +171,7 @@ func newCollector(ctxInfo *global.ContextInfo, cfg *PrometheusConfig, mpCfg *per
 	}
 	c.probeMetrics = c.getProbeMetrics
 	c.mapMetrics = c.getMapMetrics
+	c.closeBPFStats = c.enableBPFStatsRuntime()
 	if registerProm && promMetricsEnabled(cfg, mpCfg) {
 		// Register the collector
 		c.promConnect.Register(cfg.Port, cfg.Path, c)
@@ -204,13 +208,13 @@ func (bc *BPFCollector) close() {
 	bc.mu.Lock()
 	defer bc.mu.Unlock()
 
+	if bc.closed {
+		return
+	}
 	bc.closed = true
-	for id, cached := range bc.programCache {
-		if cached.program != nil {
-			if err := cached.program.Close(); err != nil {
-				bc.log.Debug("failed to close cached program", "ID", id, "error", err)
-			}
-		}
+	if bc.closeBPFStats != nil {
+		bc.closeBPFStats()
+		bc.closeBPFStats = nil
 	}
 	clear(bc.programCache)
 	clear(bc.mapCache)
@@ -307,9 +311,6 @@ func (bc *BPFCollector) collectMetrics() ([]ProbeMetrics, []BpfMapMetrics) {
 }
 
 func (bc *BPFCollector) getProbeMetrics() []ProbeMetrics {
-	cleanup := bc.enableBPFStatsRuntime()
-	defer cleanup()
-
 	probeMetrics := make([]ProbeMetrics, 0, len(bc.programCache))
 	seen := make(map[ebpf.ProgramID]struct{}, len(bc.programCache))
 	completeWalk := false
@@ -324,14 +325,26 @@ func (bc *BPFCollector) getProbeMetrics() []ProbeMetrics {
 		seen[id] = struct{}{}
 
 		cached, ok := bc.programCache[id]
-		if !ok {
-			cached = bc.cacheProgram(id)
-		}
-		if cached == nil || cached.program == nil {
+		if ok && !cached.supported {
 			continue
 		}
 
-		stats, err := cached.program.Stats()
+		program, err := ebpf.NewProgramFromID(id)
+		if err != nil {
+			bc.log.Debug("failed to load program", "ID", id, "error", err)
+			continue
+		}
+
+		if !ok {
+			cached = bc.cacheProgram(id, program)
+		}
+		if cached == nil || !cached.supported {
+			bc.closeProgram(id, program)
+			continue
+		}
+
+		stats, err := program.Stats()
+		bc.closeProgram(id, program)
 		if err != nil {
 			bc.log.Debug("failed to get program stats", "ID", id, "error", err)
 			continue
@@ -370,29 +383,21 @@ func (bc *BPFCollector) getProbeMetrics() []ProbeMetrics {
 	return probeMetrics
 }
 
-func (bc *BPFCollector) cacheProgram(id ebpf.ProgramID) *cachedProgram {
-	program, err := ebpf.NewProgramFromID(id)
-	if err != nil {
-		bc.log.Debug("failed to load program", "ID", id, "error", err)
-		return nil
-	}
-
+func (bc *BPFCollector) cacheProgram(id ebpf.ProgramID, program *ebpf.Program) *cachedProgram {
 	info, err := program.Info()
 	if err != nil {
 		bc.log.Debug("failed to get program info", "ID", id, "error", err)
-		bc.closeProgram(id, program)
 		return nil
 	}
 
 	if !supportedProgramType(info.Type) {
-		bc.closeProgram(id, program)
 		cached := &cachedProgram{}
 		bc.programCache[id] = cached
 		return cached
 	}
 
 	cached := &cachedProgram{
-		program:   program,
+		supported: true,
 		probeType: info.Type.String(),
 		probeName: getFuncName(info, id, bc.log),
 		probeID:   strconv.FormatUint(uint64(id), 10),
@@ -411,12 +416,9 @@ func supportedProgramType(programType ebpf.ProgramType) bool {
 }
 
 func (bc *BPFCollector) evictMissingPrograms(seen map[ebpf.ProgramID]struct{}) {
-	for id, cached := range bc.programCache {
+	for id := range bc.programCache {
 		if _, ok := seen[id]; ok {
 			continue
-		}
-		if cached.program != nil {
-			bc.closeProgram(id, cached.program)
 		}
 		delete(bc.programCache, id)
 		delete(bc.progs, id)

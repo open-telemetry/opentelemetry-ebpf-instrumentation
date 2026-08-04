@@ -56,15 +56,16 @@ labels. Map metrics use the map ID, type, and name.
 
 ## Program discovery and statistics
 
-Each collection enables kernel BPF runtime statistics, walks every program ID,
-and reads `Stats()` from every supported program. Metadata is cached when a
-program is first observed. Supported program handles are retained, while
-unsupported program handles are closed immediately.
+The collector enables kernel BPF runtime statistics for its lifetime so that
+accounting continues between collections. Each collection walks every program
+ID and reads `Stats()` from every supported program. Metadata is cached when a
+program is first observed. Each supported program is opened temporarily to read
+its statistics and closed before collection continues. Unsupported program
+types are cached without retaining their handles.
 
-Runtime statistics are enabled only during the collection window. The
-collector reports execution-count and runtime changes between collections and
-derives probe latency by dividing the runtime change by the execution-count
-change.
+The collector reports execution-count and runtime changes between collections
+and derives probe latency by dividing the runtime change by the execution-count
+change. Runtime statistics are disabled when the collector shuts down.
 
 ## Map discovery and entry counting
 
