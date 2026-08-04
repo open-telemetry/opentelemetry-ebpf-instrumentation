@@ -10,20 +10,17 @@ import "sync"
 const errorBufferLen = 16
 
 type errorReporter struct {
+	// mutex prevents close from racing with a send to ch.
 	mutex  sync.RWMutex
-	errors chan error
+	ch     chan error
 	closed bool
 }
 
 func newErrorReporter() errorReporter {
-	return errorReporter{errors: make(chan error, errorBufferLen)}
+	return errorReporter{ch: make(chan error, errorBufferLen)}
 }
 
-func (r *errorReporter) channel() chan error {
-	return r.errors
-}
-
-func (r *errorReporter) emit(err error) {
+func (r *errorReporter) enqueue(err error) {
 	r.mutex.RLock()
 	defer r.mutex.RUnlock()
 
@@ -32,7 +29,7 @@ func (r *errorReporter) emit(err error) {
 	}
 
 	select {
-	case r.errors <- err:
+	case r.ch <- err:
 	default:
 	}
 }
@@ -46,5 +43,5 @@ func (r *errorReporter) close() {
 	}
 
 	r.closed = true
-	close(r.errors)
+	close(r.ch)
 }

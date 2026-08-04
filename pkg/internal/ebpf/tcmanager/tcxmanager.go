@@ -76,7 +76,7 @@ func NewTCXManager() TCManager {
 }
 
 func (tcx *tcxManager) Errors() chan error {
-	return tcx.errors.channel()
+	return tcx.errors.ch
 }
 
 func (tcx *tcxManager) emitError(msg string, args ...any) {
@@ -85,7 +85,7 @@ func (tcx *tcxManager) emitError(msg string, args ...any) {
 	formattedArgs := fmt.Sprint(args...)
 	compositeError := fmt.Errorf("%s: %s", msg, formattedArgs)
 
-	tcx.errors.emit(compositeError)
+	tcx.errors.enqueue(compositeError)
 }
 
 func (tcx *tcxManager) SetInterfaceManager(im *InterfaceManager) {

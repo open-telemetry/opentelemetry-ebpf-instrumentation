@@ -168,7 +168,7 @@ func (tc *netlinkManager) RemoveProgram(name string) {
 }
 
 func (tc *netlinkManager) Errors() chan error {
-	return tc.errors.channel()
+	return tc.errors.ch
 }
 
 func (tc *netlinkManager) attachProgramLocked(prog *netlinkProg) {
@@ -411,7 +411,7 @@ func (tc *netlinkManager) emitError(msg string, args ...any) {
 	formattedArgs := fmt.Sprint(args...)
 	compositeError := fmt.Errorf("%s: %s", msg, formattedArgs)
 
-	tc.errors.emit(compositeError)
+	tc.errors.enqueue(compositeError)
 }
 
 // doIgnoreNoDev runs the provided syscall over the provided device and ignores the error
