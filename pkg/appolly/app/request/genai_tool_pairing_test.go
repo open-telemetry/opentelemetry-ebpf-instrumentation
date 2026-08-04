@@ -116,6 +116,26 @@ func TestPairedToolCalls_Gemini(t *testing.T) {
 	assert.JSONEq(t, `{"temp":30}`, got[0].Result)
 }
 
+func TestPairedToolCalls_Gemini_MissingArguments(t *testing.T) {
+	// Gemini's FunctionCall.args is optional; an argumentless call must still
+	// pair and emit, only leaving gen_ai.tool.call.arguments unset.
+	contents := json.RawMessage(`[
+		{"role":"model","parts":[
+			{"functionCall":{"id":"fc_1","name":"get_time"}}
+		]},
+		{"role":"user","parts":[
+			{"functionResponse":{"id":"fc_1","name":"get_time","response":{"now":"12:00"}}}
+		]}
+	]`)
+	g := &GenAI{Gemini: &VendorGemini{Input: GeminiRequest{Contents: contents}}}
+
+	got := g.PairedToolCalls()
+	require.Len(t, got, 1)
+	assert.Equal(t, "get_time", got[0].Name)
+	assert.Empty(t, got[0].Arguments)
+	assert.JSONEq(t, `{"now":"12:00"}`, got[0].Result)
+}
+
 func TestPairedToolCalls_NilAndEmpty(t *testing.T) {
 	var g *GenAI
 	assert.Nil(t, g.PairedToolCalls())
@@ -124,7 +144,8 @@ func TestPairedToolCalls_NilAndEmpty(t *testing.T) {
 }
 
 func TestPairedToolCalls_NullArgumentsAndResult(t *testing.T) {
-	// JSON null arguments or results are treated as absent.
+	// JSON null arguments are optional: the call is still paired and emitted,
+	// with the arguments attribute left unset.
 	nullArgs := json.RawMessage(`[
 		{"role":"assistant","content":null,"tool_calls":[
 			{"id":"call_1","function":{"name":"get_weather","arguments":null}}
@@ -132,8 +153,13 @@ func TestPairedToolCalls_NullArgumentsAndResult(t *testing.T) {
 		{"role":"tool","tool_call_id":"call_1","content":"Sunny"}
 	]`)
 	g := &GenAI{OpenAI: &VendorOpenAI{Request: OpenAIInput{Messages: nullArgs}}}
-	assert.Empty(t, g.PairedToolCalls())
+	got := g.PairedToolCalls()
+	require.Len(t, got, 1)
+	assert.Equal(t, "get_weather", got[0].Name)
+	assert.Empty(t, got[0].Arguments)
+	assert.Equal(t, "Sunny", got[0].Result)
 
+	// A JSON null result is treated as absent and drops the call.
 	nullResult := json.RawMessage(`[
 		{"role":"assistant","content":null,"tool_calls":[
 			{"id":"call_1","function":{"name":"get_weather","arguments":"{\"location\":\"Boston\"}"}}

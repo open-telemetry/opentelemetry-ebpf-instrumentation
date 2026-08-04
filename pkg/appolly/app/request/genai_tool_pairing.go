@@ -52,9 +52,10 @@ type pendingToolResult struct {
 }
 
 // pairToolCalls matches assistant tool calls to tool results by tool call
-// id, falling back to the tool name when ids are absent. Absent or JSON null
-// arguments and results are treated as missing. Results the provider flagged
-// as failed keep the pairing but omit the success-only result payload.
+// id, falling back to the tool name when ids are absent. A call is paired
+// only when it has a matching result; missing arguments only leave the
+// optional arguments attribute unset. Failed results keep the pairing but
+// omit the success-only result payload.
 func pairToolCalls(calls []pendingToolCall, results []pendingToolResult) []ToolCall {
 	results = slices.DeleteFunc(results, func(r pendingToolResult) bool {
 		return emptyJSON(r.result) && !r.isError
@@ -66,9 +67,6 @@ func pairToolCalls(calls []pendingToolCall, results []pendingToolResult) []ToolC
 	var out []ToolCall
 	for i := range calls {
 		c := &calls[i]
-		if emptyJSON(c.args) {
-			continue
-		}
 		idx := matchToolResult(c, results, used)
 		if idx < 0 {
 			continue
@@ -76,10 +74,12 @@ func pairToolCalls(calls []pendingToolCall, results []pendingToolResult) []ToolC
 		used[idx] = true
 
 		tc := ToolCall{
-			ID:        c.id,
-			Name:      c.name,
-			Arguments: jsonRawToAttrString(c.args),
-			IsError:   results[idx].isError,
+			ID:      c.id,
+			Name:    c.name,
+			IsError: results[idx].isError,
+		}
+		if !emptyJSON(c.args) {
+			tc.Arguments = jsonRawToAttrString(c.args)
 		}
 		if !tc.IsError {
 			tc.Result = jsonRawToAttrString(results[idx].result)
@@ -150,7 +150,10 @@ func pairOpenAIVendorToolCalls(v *VendorOpenAI) []ToolCall {
 // `input` array carries function_call and function_call_output items linked by
 // call_id. Only the latest turn's calls are paired: they form the trailing run
 // of function_call items, and an assistant message after them means the turn
-// already concluded so nothing new is emitted.
+// already concluded so nothing new is emitted. Pairing requires the
+// function_call and its function_call_output in the same request; stateful
+// continuations (previous_response_id or Conversation) that replay only the
+// output are not emitted.
 func pairResponsesToolCalls(raw json.RawMessage) []ToolCall {
 	if len(raw) == 0 {
 		return nil
