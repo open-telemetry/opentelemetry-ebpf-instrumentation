@@ -1,0 +1,14 @@
+# OBI configuration for the GPU/CUDA weaver suite. CUDA instrumentation is
+# forced on (compose sets OTEL_EBPF_INSTRUMENT_CUDA=on) so the gpuevent tracer
+# loads without needing nvidia-smi / a real GPU. The target has no listening
+# ports, so it is discovered by executable path rather than open_ports.
+otel_metrics_export:
+  endpoint: http://otelcol:4318
+discovery:
+  instrument:
+    - exe_path: gpu-cuda-tester
+      namespace: integration-test
+attributes:
+  select:
+    "*":
+      include: ["*"]
