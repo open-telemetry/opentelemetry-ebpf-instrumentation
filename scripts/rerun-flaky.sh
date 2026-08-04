@@ -14,12 +14,44 @@
 set -euo pipefail
 
 MAX_ATTEMPTS=2
+MAX_SHELL_ATTEMPT=2147483647
 
 echo "Evaluating run ${RUN_ID} -- workflow: ${WORKFLOW_NAME}"
 
 # --- Get run details ---
 RUN_JSON=$(gh run view "$RUN_ID" --repo "$REPO" --json attempt,jobs,name)
-ATTEMPT=$(echo "$RUN_JSON" | jq -r '.attempt')
+if ! PARSED_RUN=$(jq -ser --argjson max_attempt "$MAX_SHELL_ATTEMPT" '
+  if length != 1 then
+    error("expected one run response")
+  else
+    .[0]
+    | if ((.attempt | type) == "number"
+        and (.attempt | tostring | test("^[1-9][0-9]*([eE][+]?[0-9]+)?$"))
+        and .attempt >= 1
+        and .attempt <= $max_attempt
+        and (.attempt | floor) == .attempt
+        and (.name | type) == "string"
+        and (.jobs | type) == "array"
+        and all(.jobs[];
+          (.name | type) == "string"
+          and (.conclusion | type) == "string"))
+      then
+        (.attempt | floor | tostring),
+        (.jobs[]
+          | select(.conclusion == "failure" or .conclusion == "timed_out")
+          | [.name, .conclusion]
+          | @tsv)
+      else
+        error("invalid run response")
+      end
+  end
+' <<<"$RUN_JSON"); then
+  echo "Invalid GitHub run response." >&2
+  exit 1
+fi
+
+mapfile -t RUN_DETAILS <<<"$PARSED_RUN"
+ATTEMPT=${RUN_DETAILS[0]}
 echo "Current attempt: ${ATTEMPT}"
 
 # --- Check attempt limit first ---
@@ -33,7 +65,8 @@ fi
 # --- Scan this workflow's failed jobs ---
 FOUND_FAILURE=0
 
-while IFS=$'\t' read -r job_name job_conclusion; do
+for ((index = 1; index < ${#RUN_DETAILS[@]}; index++)); do
+  IFS=$'\t' read -r job_name _ <<<"${RUN_DETAILS[$index]}"
   FOUND_FAILURE=1
   # Unrecoverable: lint/clang-format/clang-tidy failures are deterministic
   # and won't be fixed by re-running. The Lint workflow is dedicated to
@@ -47,7 +80,7 @@ while IFS=$'\t' read -r job_name job_conclusion; do
       REASON="Lint/format job failed in '${WORKFLOW_NAME}' -- static analysis/style failure, re-run will not help"
     fi
   fi
-done < <(echo "$RUN_JSON" | jq -r '.jobs[] | select(.conclusion == "failure" or .conclusion == "timed_out") | [.name, .conclusion] | @tsv')
+done
 
 if [ "$FOUND_FAILURE" -eq 0 ]; then
   echo "No failed or timed-out jobs found. Exiting."
