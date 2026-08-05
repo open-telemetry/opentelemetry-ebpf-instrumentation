@@ -200,7 +200,7 @@ func TestRuntimeMetricSymbolAddrFallsBackToInternalSizeClassTable(t *testing.T) 
 	assert.Equal(t, uint64(0x1020), got)
 }
 
-func TestRuntimeMetricSymbolAddrResolvesOptionalGoroutineSymbols(t *testing.T) {
+func TestRuntimeMetricSymbolAddrResolvesOptionalRuntimeSymbols(t *testing.T) {
 	symbols := map[string]procs.Sym{
 		runtimeMetricSchedSymbol:   {Off: 0x40},
 		runtimeMetricAllgLenSymbol: {Off: 0x50},

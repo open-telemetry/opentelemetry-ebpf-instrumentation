@@ -112,18 +112,20 @@ const missingGoOffset = ^uint64(0)
 
 const goAutoSDKActivationMaxAttempts = 3
 
-// Mirrors go_runtime_metric_valid_t in bpf/gotracer/maps/runtime.h and the
-// raw snapshot masks in pkg/runtimemetrics/reader.go.
+// Mirrors go_runtime_metric_valid_t in bpf/gotracer/maps/runtime.h. Scalar
+// bits also mirror the raw snapshot masks in pkg/runtimemetrics/reader.go.
 const (
-	goRuntimeMetricGCCyclesMask       uint64 = 1 << 0
-	goRuntimeMetricMemoryLimitMask    uint64 = 1 << 1
-	goRuntimeMetricProcessorLimitMask uint64 = 1 << 2
-	goRuntimeMetricGOGCMask           uint64 = 1 << 3
-	goRuntimeMetricCPUTimeMask        uint64 = 1 << 4
-	goRuntimeMetricMemoryUsedMask     uint64 = 1 << 5
-	goRuntimeMetricMemoryAllocsMask   uint64 = 1 << 6
-	goRuntimeMetricGoroutineCountMask uint64 = 1 << 9
-	goRuntimeMetricMemoryGCGoalMask   uint64 = 1 << 10
+	goRuntimeMetricGCCyclesMask                  uint64 = 1 << 0
+	goRuntimeMetricMemoryLimitMask               uint64 = 1 << 1
+	goRuntimeMetricProcessorLimitMask            uint64 = 1 << 2
+	goRuntimeMetricGOGCMask                      uint64 = 1 << 3
+	goRuntimeMetricCPUTimeMask                   uint64 = 1 << 4
+	goRuntimeMetricMemoryUsedMask                uint64 = 1 << 5
+	goRuntimeMetricMemoryAllocsMask              uint64 = 1 << 6
+	goRuntimeMetricGCPauseHistogramMask          uint64 = 1 << 7
+	goRuntimeMetricScheduleDurationHistogramMask uint64 = 1 << 8
+	goRuntimeMetricGoroutineCountMask            uint64 = 1 << 9
+	goRuntimeMetricMemoryGCGoalMask              uint64 = 1 << 10
 )
 
 type goRuntimeGCGoalSource uint32
@@ -138,6 +140,14 @@ const goRuntimeMetricBaseMask = goRuntimeMetricGCCyclesMask | goRuntimeMetricGOG
 
 const goRuntimeMetricHeapSnapshotMask = goRuntimeMetricMemoryUsedMask |
 	goRuntimeMetricMemoryAllocsMask
+
+const goRuntimeMetricHistogramMask = goRuntimeMetricGCPauseHistogramMask |
+	goRuntimeMetricScheduleDurationHistogramMask
+
+const (
+	goRuntimeHistogramMaxBuckets uint64 = 160
+	goRuntimeHistogramBucketSize uint64 = 8
+)
 
 var goChannelOffsetFields = [...]goexec.GoOffset{
 	goexec.HchanQcountPos,
@@ -187,6 +197,10 @@ var goRuntimeMetricOffsetFields = [...]goexec.GoOffset{
 	goexec.RuntimePFreeGPos,
 	goexec.RuntimeGListSizePos,
 	goexec.RuntimeGCControllerHeapGoalPos,
+	goexec.RuntimeSchedTimeToRunPos,
+	goexec.RuntimeSchedSTWTotalTimeGCPos,
+	goexec.RuntimeTimeHistogramUnderflowPos,
+	goexec.RuntimeTimeHistogramOverflowPos,
 }
 
 var goRuntimeCPUTimeOffsetFields = [...]goexec.GoOffset{
@@ -234,6 +248,16 @@ var goRuntimeMetricOffsetGroups = [...]struct {
 	{goRuntimeMetricGOGCMask, []goexec.GoOffset{goexec.RuntimeGCControllerGCPercentPos}},
 	{goRuntimeMetricCPUTimeMask, goRuntimeCPUTimeOffsetFields[:]},
 	{goRuntimeMetricMemoryUsedMask | goRuntimeMetricMemoryAllocsMask, goRuntimeMemoryOffsetFields[:]},
+	{goRuntimeMetricGCPauseHistogramMask, []goexec.GoOffset{
+		goexec.RuntimeSchedSTWTotalTimeGCPos,
+		goexec.RuntimeTimeHistogramUnderflowPos,
+		goexec.RuntimeTimeHistogramOverflowPos,
+	}},
+	{goRuntimeMetricScheduleDurationHistogramMask, []goexec.GoOffset{
+		goexec.RuntimeSchedTimeToRunPos,
+		goexec.RuntimeTimeHistogramUnderflowPos,
+		goexec.RuntimeTimeHistogramOverflowPos,
+	}},
 }
 
 var supportsContextPropagationWithProbe = ebpfcommon.SupportsContextPropagationWithProbe
@@ -1231,7 +1255,9 @@ func (p *Tracer) recordGoRuntimeMetricAvailability(fileInfo *exec.FileInfo, offs
 			"memory_available", mask&goRuntimeMetricMemoryUsedMask != 0,
 			"goroutine_count_available", mask&goRuntimeMetricGoroutineCountMask != 0,
 			"memory_gc_goal_available", mask&goRuntimeMetricMemoryGCGoalMask != 0,
-			"memory_gc_goal_source", gcGoalSource)
+			"memory_gc_goal_source", gcGoalSource,
+			"gc_pause_histogram_available", mask&goRuntimeMetricGCPauseHistogramMask != 0,
+			"schedule_duration_histogram_available", mask&goRuntimeMetricScheduleDurationHistogramMask != 0)
 	}
 }
 
@@ -1274,8 +1300,23 @@ func goRuntimeMetricMask(offsets *goexec.Offsets) uint64 {
 			mask |= group.mask
 		}
 	}
+	if !hasSupportedGoRuntimeHistogramLayout(offsets) {
+		mask &^= goRuntimeMetricHistogramMask
+	}
 
 	return mask
+}
+
+func hasSupportedGoRuntimeHistogramLayout(offsets *goexec.Offsets) bool {
+	underflowOffset, underflowOK := offsets.Field[goexec.RuntimeTimeHistogramUnderflowPos].(uint64)
+	overflowOffset, overflowOK := offsets.Field[goexec.RuntimeTimeHistogramOverflowPos].(uint64)
+	if !underflowOK || !overflowOK {
+		return false
+	}
+
+	expectedUnderflowOffset := goRuntimeHistogramMaxBuckets * goRuntimeHistogramBucketSize
+	return underflowOffset == expectedUnderflowOffset &&
+		overflowOffset == expectedUnderflowOffset+goRuntimeHistogramBucketSize
 }
 
 func hasGoRuntimeMetricOffsets(offsets *goexec.Offsets, fields ...goexec.GoOffset) bool {
@@ -1377,6 +1418,16 @@ func (p *Tracer) goRuntimeMetricMaskForSymbols(
 		mask &^= goRuntimeMetricGoroutineCountMask
 		if p.log != nil {
 			p.log.Warn("Go runtime goroutine count metadata unresolved; disabling goroutine metric",
+				"pid", fileInfo.Pid(),
+				"ino", fileInfo.Ino(),
+				"cmd", fileInfo.CmdExePath())
+		}
+	}
+
+	if mask&goRuntimeMetricHistogramMask != 0 && symbols.SchedAddr == 0 {
+		mask &^= goRuntimeMetricHistogramMask
+		if p.log != nil {
+			p.log.Warn("Go runtime scheduler symbol unresolved; disabling histogram metrics",
 				"pid", fileInfo.Pid(),
 				"ino", fileInfo.Ino(),
 				"cmd", fileInfo.CmdExePath())

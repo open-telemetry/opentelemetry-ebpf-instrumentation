@@ -225,6 +225,10 @@ const (
 	RuntimePFreeGPos
 	RuntimeGListSizePos
 	RuntimeGCControllerHeapGoalPos
+	RuntimeSchedTimeToRunPos
+	RuntimeSchedSTWTotalTimeGCPos
+	RuntimeTimeHistogramUnderflowPos
+	RuntimeTimeHistogramOverflowPos
 )
 
 //go:embed offsets.json
@@ -705,7 +709,9 @@ var structMembers = map[string]structInfo{
 	"runtime.schedt": {
 		lib: "go",
 		fields: map[string]GoOffset{
-			"ngsys": RuntimeSchedNgSysPos,
+			"ngsys":          RuntimeSchedNgSysPos,
+			"timeToRun":      RuntimeSchedTimeToRunPos,
+			"stwTotalTimeGC": RuntimeSchedSTWTotalTimeGCPos,
 		},
 	},
 	"runtime.p": {
@@ -718,6 +724,13 @@ var structMembers = map[string]structInfo{
 		lib: "go",
 		fields: map[string]GoOffset{
 			"size": RuntimeGListSizePos,
+		},
+	},
+	"runtime.timeHistogram": {
+		lib: "go",
+		fields: map[string]GoOffset{
+			"underflow": RuntimeTimeHistogramUnderflowPos,
+			"overflow":  RuntimeTimeHistogramOverflowPos,
 		},
 	},
 }

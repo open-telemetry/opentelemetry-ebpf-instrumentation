@@ -53,6 +53,22 @@ func TestGoRuntimeDefinitions(t *testing.T) {
 				OTEL:    "go.goroutine.count",
 			},
 		},
+		{
+			name: GoRuntimeMemoryGCPauseDuration,
+			want: Name{
+				Section: "go.memory.gc.pause.duration",
+				Prom:    "go_memory_gc_pause_duration_seconds",
+				OTEL:    "go.memory.gc.pause.duration",
+			},
+		},
+		{
+			name: GoRuntimeScheduleDuration,
+			want: Name{
+				Section: "go.schedule.duration",
+				Prom:    "go_schedule_duration_seconds",
+				OTEL:    "go.schedule.duration",
+			},
+		},
 	}
 
 	definitions := getDefinitions(0, NewGroupAttributes(nil))

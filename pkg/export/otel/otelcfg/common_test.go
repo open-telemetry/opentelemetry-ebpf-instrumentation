@@ -53,6 +53,38 @@ func TestReporterPoolDoesNotReuseExpiredLastReporter(t *testing.T) {
 	assert.Equal(t, 2, constructed)
 }
 
+func TestReporterPoolRemoveDoesNotReuseLastReporter(t *testing.T) {
+	service := &svc.Attrs{UID: svc.UID{Name: "svc"}}
+	constructed := 0
+	evicted := []int{}
+
+	reporters, err := NewReporterPool[*svc.Attrs, int](
+		10,
+		time.Minute,
+		time.Now,
+		func(_ svc.UID, value int) {
+			evicted = append(evicted, value)
+		},
+		func(_ *svc.Attrs) (int, error) {
+			constructed++
+			return constructed, nil
+		},
+	)
+	require.NoError(t, err)
+
+	first, err := reporters.For(service)
+	require.NoError(t, err)
+	require.True(t, reporters.Remove(service.UID))
+
+	second, err := reporters.For(service)
+	require.NoError(t, err)
+
+	assert.Equal(t, 1, first)
+	assert.Equal(t, 2, second)
+	assert.Equal(t, []int{1}, evicted)
+	assert.Equal(t, 2, constructed)
+}
+
 func TestOtlpOptions_AsMetricHTTP(t *testing.T) {
 	type testCase struct {
 		in  OTLPOptions
